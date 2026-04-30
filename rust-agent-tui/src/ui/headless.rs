@@ -2705,4 +2705,24 @@ mod tests {
             "激活后面板应关闭"
         );
     }
+
+    // ─── Design Review 第24轮：Welcome Card 模型信息 + Thread Browser 消息数 ────
+
+    /// Welcome Card 应显示当前 Provider/Model 信息
+    #[tokio::test]
+    async fn test_welcome_shows_model_info() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        // App 默认有 provider_name="test" 和 model_name="test-model"
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot().join("\n");
+        // 验证 Welcome Card 包含 provider/model 信息
+        assert!(
+            snap.contains("test / test-model"),
+            "Welcome Card 应显示 Provider/Model 信息，实际:\n{}",
+            snap
+        );
+    }
 }

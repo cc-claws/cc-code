@@ -101,13 +101,14 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
     ]));
 
     // 历史 thread
-    let max_label = inner.width.saturating_sub(5) as usize;
+    let max_label = inner.width.saturating_sub(14) as usize; // 留空给消息数标签
     for (i, meta) in browser.threads.iter().enumerate() {
         let is_cursor = browser.cursor == i + 1;
         let is_current = app.current_thread_id.as_ref() == Some(&meta.id);
         let title = meta.title.as_deref().unwrap_or("(无标题)");
         let label = truncate_display(title, max_label);
 
+        let count_label = format!("({})", meta.message_count);
         let current_tag = if is_current { "✓ " } else { "  " };
         let row_style = if is_cursor {
             Style::default().fg(Color::White).bg(theme::ACCENT)
@@ -115,6 +116,11 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(theme::ACCENT)
         } else {
             Style::default().fg(theme::TEXT)
+        };
+        let count_style = if is_cursor {
+            Style::default().fg(Color::White).bg(theme::ACCENT)
+        } else {
+            Style::default().fg(theme::MUTED)
         };
 
         lines.push(Line::from(vec![
@@ -131,6 +137,7 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
                 }),
             ),
             Span::styled(label, row_style),
+            Span::styled(format!(" {}", count_label), count_style),
         ]));
     }
 

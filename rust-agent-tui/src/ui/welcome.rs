@@ -134,6 +134,20 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     ]));
 
     // ── 动态信息 ────────────────────────────────────────────────────────
+    // 当前模型/Provider 信息
+    let provider = &app.provider_name;
+    let model = &app.model_name;
+    if !provider.is_empty() || !model.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(" ⚡ ", Style::default().fg(theme::ACCENT)),
+            Span::styled(
+                format!("{} / {}", provider, model),
+                Style::default().fg(theme::TEXT),
+            ),
+        ]));
+    }
+
     let skills_count = app.core.skills.len();
     if skills_count > 0 {
         lines.push(Line::from(vec![
