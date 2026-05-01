@@ -110,43 +110,40 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
-    // Thinking row
+    // Thinking row — 开关 + budget
     {
         let is_cursor = panel.cursor == ROW_THINKING;
-        let enabled_tag = if panel.buf_thinking_enabled {
-            "[ON] "
-        } else {
-            "[OFF]"
-        };
+        let dot = if panel.buf_thinking_enabled { "●" } else { "○" };
         let budget_display = if is_cursor {
-            format!("{}█", panel.buf_thinking_budget)
+            let (before, after) = crate::app::edit_display_parts(&panel.buf_thinking_budget, panel.cur_thinking_budget);
+            format!("{}█{}", before, after)
         } else {
             panel.buf_thinking_budget.clone()
-        };
-        let enabled_color = if panel.buf_thinking_enabled {
-            theme::THINKING
-        } else {
-            theme::MUTED
         };
         let row_style = if is_cursor {
             Style::default().fg(Color::White).bg(theme::ACCENT)
         } else {
             Style::default().fg(theme::TEXT)
         };
+        let dot_color = if panel.buf_thinking_enabled {
+            theme::THINKING
+        } else {
+            theme::MUTED
+        };
 
         lines.push(Line::from(vec![
             Span::styled(if is_cursor { " ▶   " } else { "     " }, row_style),
-            Span::styled("Thinking ", row_style.add_modifier(Modifier::BOLD)),
             Span::styled(
-                format!("{} ", enabled_tag),
+                format!("{} ", dot),
                 if is_cursor {
-                    Style::default().fg(enabled_color).bg(theme::ACCENT)
+                    Style::default().fg(dot_color).bg(theme::ACCENT)
                 } else {
-                    Style::default().fg(enabled_color)
+                    Style::default().fg(dot_color)
                 },
             ),
+            Span::styled("Thinking", row_style.add_modifier(Modifier::BOLD)),
             Span::styled(
-                format!("budget: {}", budget_display),
+                format!("   budget: {}", budget_display),
                 if is_cursor {
                     Style::default().fg(Color::White).bg(theme::ACCENT)
                 } else {
@@ -154,6 +151,49 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
                 },
             ),
         ]));
+    }
+
+    // Thinking effort row
+    {
+        let is_cursor = panel.cursor == ROW_THINKING;
+        let effort_color = if panel.buf_thinking_enabled {
+            theme::THINKING
+        } else {
+            theme::MUTED
+        };
+        let effort_style = if is_cursor {
+            Style::default().fg(effort_color).bg(theme::ACCENT)
+        } else {
+            Style::default().fg(effort_color)
+        };
+
+        let mut spans = vec![
+            Span::styled(if is_cursor { "     " } else { "     " }, effort_style),
+            Span::styled(
+                "   effort: ",
+                if is_cursor {
+                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                } else {
+                    Style::default().fg(theme::TEXT)
+                },
+            ),
+        ];
+
+        if is_cursor {
+            spans.push(Span::styled("◀ ", effort_style));
+            spans.push(Span::styled(
+                panel.buf_thinking_effort.to_uppercase(),
+                effort_style.add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(" ▶", effort_style));
+        } else {
+            spans.push(Span::styled(
+                panel.buf_thinking_effort.to_uppercase(),
+                effort_style,
+            ));
+        }
+
+        lines.push(Line::from(spans));
     }
 
     // /login row
@@ -214,6 +254,13 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled(":Thinking开关  ", Style::default().fg(theme::MUTED)),
         Span::styled(
+            "←→",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":effort  ", Style::default().fg(theme::MUTED)),
+        Span::styled(
             "Esc",
             Style::default()
                 .fg(theme::WARNING)
@@ -240,6 +287,8 @@ mod tests {
             active_tab: AliasTab::Opus,
             buf_thinking_enabled: false,
             buf_thinking_budget: String::new(),
+            cur_thinking_budget: 0,
+            buf_thinking_effort: "medium".to_string(),
         });
         handle
             .terminal

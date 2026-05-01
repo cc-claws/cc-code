@@ -213,7 +213,7 @@ impl LlmProvider {
                     m = m.with_base_url(url);
                 }
                 if let Some(t) = thinking {
-                    m = m.with_extended_thinking(t.budget_tokens);
+                    m = m.with_extended_thinking(t.budget_tokens, &t.effort);
                 }
                 Box::new(m)
             }

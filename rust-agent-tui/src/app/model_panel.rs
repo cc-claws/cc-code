@@ -49,6 +49,10 @@ pub struct ModelPanel {
     pub buf_thinking_enabled: bool,
     /// Thinking budget 缓冲（字符串，便于逐字编辑）
     pub buf_thinking_budget: String,
+    /// Thinking budget 编辑光标（char-based index）
+    pub cur_thinking_budget: usize,
+    /// Thinking effort 缓冲 "low" / "medium" / "high"
+    pub buf_thinking_effort: String,
 }
 
 impl ModelPanel {
@@ -74,14 +78,21 @@ impl ModelPanel {
             AliasTab::Haiku => ROW_HAIKU,
         };
 
+        let budget = thinking
+            .map(|t| t.budget_tokens.to_string())
+            .unwrap_or_else(|| "8000".to_string());
+        let cur_budget = budget.chars().count();
+
         Self {
             provider_name,
             cursor,
             active_tab,
             buf_thinking_enabled: thinking.map(|t| t.enabled).unwrap_or(false),
-            buf_thinking_budget: thinking
-                .map(|t| t.budget_tokens.to_string())
-                .unwrap_or_else(|| "8000".to_string()),
+            buf_thinking_budget: budget,
+            cur_thinking_budget: cur_budget,
+            buf_thinking_effort: thinking
+                .map(|t| t.effort.clone())
+                .unwrap_or_else(|| "medium".to_string()),
         }
     }
 
@@ -97,14 +108,23 @@ impl ModelPanel {
     /// 输入字符（仅 Thinking 行接受数字）
     pub fn push_char(&mut self, c: char) {
         if self.cursor == ROW_THINKING && c.is_ascii_digit() && self.buf_thinking_budget.len() < 8 {
-            self.buf_thinking_budget.push(c);
+            if self.cur_thinking_budget > self.buf_thinking_budget.len() {
+                self.cur_thinking_budget = self.buf_thinking_budget.len();
+            }
+            self.buf_thinking_budget.insert(self.cur_thinking_budget, c);
+            self.cur_thinking_budget += 1;
         }
     }
 
     /// 退格（仅 Thinking 行）
     pub fn pop_char(&mut self) {
-        if self.cursor == ROW_THINKING {
-            self.buf_thinking_budget.pop();
+        if self.cursor == ROW_THINKING && self.cur_thinking_budget > 0 && self.cur_thinking_budget <= self.buf_thinking_budget.len() {
+            let bp = self.buf_thinking_budget.char_indices().nth(self.cur_thinking_budget - 1).map(|(i,_)| i);
+            let nb = self.buf_thinking_budget.char_indices().nth(self.cur_thinking_budget).map(|(i,_)| i).unwrap_or(self.buf_thinking_budget.len());
+            if let Some(b) = bp {
+                self.buf_thinking_budget.drain(b..nb);
+                self.cur_thinking_budget -= 1;
+            }
         }
     }
 
@@ -126,15 +146,40 @@ impl ModelPanel {
         }
     }
 
+    /// 循环切换 effort（仅 Thinking 行）：medium → high → low → medium
+    pub fn cycle_effort(&mut self, reverse: bool) {
+        if self.cursor == ROW_THINKING {
+            if reverse {
+                self.buf_thinking_effort = match self.buf_thinking_effort.as_str() {
+                    "low" => "high".to_string(),
+                    "high" => "medium".to_string(),
+                    _ => "low".to_string(),
+                };
+            } else {
+                self.buf_thinking_effort = match self.buf_thinking_effort.as_str() {
+                    "low" => "medium".to_string(),
+                    "medium" => "high".to_string(),
+                    _ => "low".to_string(),
+                };
+            }
+        }
+    }
+
     /// 将面板状态写入 ZenConfig（alias + thinking）
     pub fn apply_to_config(&self, cfg: &mut ZenConfig) {
         cfg.config.active_alias = self.active_tab.to_key().to_string();
-        if cfg.config.thinking.is_none() {
-            cfg.config.thinking = Some(ThinkingConfig::default());
-        }
-        if let Some(ref mut t) = cfg.config.thinking {
-            t.enabled = self.buf_thinking_enabled;
+        // 只在用户主动开启时才写入 thinking 配置，否则保持 None（不传递任何 thinking 参数）
+        if self.buf_thinking_enabled {
+            let t = cfg.config.thinking.get_or_insert_with(|| ThinkingConfig {
+                enabled: true,
+                budget_tokens: self.buf_thinking_budget.parse().unwrap_or(8000),
+                effort: self.buf_thinking_effort.clone(),
+            });
+            t.enabled = true;
             t.budget_tokens = self.buf_thinking_budget.parse().unwrap_or(8000);
+            t.effort = self.buf_thinking_effort.clone();
+        } else if cfg.config.thinking.is_some() {
+            cfg.config.thinking.as_mut().unwrap().enabled = false;
         }
     }
 }
@@ -158,6 +203,7 @@ mod tests {
                 thinking: Some(ThinkingConfig {
                     enabled: false,
                     budget_tokens: 8000,
+                    effort: "medium".to_string(),
                 }),
                 ..Default::default()
             },
@@ -173,6 +219,7 @@ mod tests {
         assert_eq!(panel.provider_name, "TestProvider");
         assert!(!panel.buf_thinking_enabled);
         assert_eq!(panel.buf_thinking_budget, "8000");
+        assert_eq!(panel.buf_thinking_effort, "medium");
     }
 
     #[test]
@@ -260,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_to_config_creates_thinking() {
+    fn test_apply_to_config_no_thinking_when_disabled() {
         let mut cfg = ZenConfig {
             config: AppConfig {
                 active_alias: "opus".to_string(),
@@ -275,6 +322,61 @@ mod tests {
         };
         let panel = ModelPanel::from_config(&cfg);
         panel.apply_to_config(&mut cfg);
-        assert!(cfg.config.thinking.is_some());
+        // 未开启 thinking，不应创建配置
+        assert!(cfg.config.thinking.is_none());
+    }
+
+    #[test]
+    fn test_cycle_effort() {
+        let cfg = make_config();
+        let mut panel = ModelPanel::from_config(&cfg);
+        panel.cursor = ROW_THINKING;
+
+        assert_eq!(panel.buf_thinking_effort, "medium");
+        panel.cycle_effort(false);
+        assert_eq!(panel.buf_thinking_effort, "high");
+        panel.cycle_effort(false);
+        assert_eq!(panel.buf_thinking_effort, "low");
+        panel.cycle_effort(false);
+        assert_eq!(panel.buf_thinking_effort, "medium");
+
+        panel.cycle_effort(true);
+        assert_eq!(panel.buf_thinking_effort, "low");
+        panel.cycle_effort(true);
+        assert_eq!(panel.buf_thinking_effort, "high");
+    }
+
+    #[test]
+    fn test_cycle_effort_ignored_on_other_rows() {
+        let cfg = make_config();
+        let mut panel = ModelPanel::from_config(&cfg);
+        assert_eq!(panel.cursor, ROW_OPUS);
+        panel.cycle_effort(false);
+        assert_eq!(panel.buf_thinking_effort, "medium");
+    }
+
+    #[test]
+    fn test_apply_to_config_with_effort() {
+        let cfg = make_config();
+        let mut panel = ModelPanel::from_config(&cfg);
+        panel.buf_thinking_enabled = true;
+        panel.buf_thinking_effort = "high".to_string();
+
+        let mut cfg2 = ZenConfig {
+            config: AppConfig {
+                active_alias: "opus".to_string(),
+                active_provider_id: "test".to_string(),
+                providers: vec![ProviderConfig {
+                    id: "test".to_string(),
+                    ..Default::default()
+                }],
+                thinking: None,
+                ..Default::default()
+            },
+        };
+        panel.apply_to_config(&mut cfg2);
+        let t = cfg2.config.thinking.as_ref().unwrap();
+        assert!(t.enabled);
+        assert_eq!(t.effort, "high");
     }
 }

@@ -14,6 +14,8 @@ pub struct ChatAnthropic {
     pub model: String,
     pub extended_thinking: bool,
     pub thinking_budget: u32,
+    /// 思考强度 "low" / "medium" / "high"（output_config.effort）
+    pub thinking_effort: String,
     /// 是否开启 Prompt Caching（anthropic-beta: prompt-caching-2024-07-31），默认开启
     pub enable_cache: bool,
     /// 自定义 base URL（代理场景），不含末尾 /
@@ -28,6 +30,7 @@ impl ChatAnthropic {
             model: model.into(),
             extended_thinking: false,
             thinking_budget: 10000,
+            thinking_effort: "medium".to_string(),
             enable_cache: true,
             base_url: None,
             client: reqwest::Client::new(),
@@ -44,10 +47,11 @@ impl ChatAnthropic {
     /// 开启 Extended Thinking（claude-3-7-sonnet 及以上）
     ///
     /// `budget_tokens` 最小值为 1024（Anthropic API 要求）；传入更小的值会被静默提升到 1024。
-    pub fn with_extended_thinking(mut self, budget_tokens: u32) -> Self {
+    pub fn with_extended_thinking(mut self, budget_tokens: u32, effort: impl Into<String>) -> Self {
         self.extended_thinking = true;
         // Anthropic extended thinking API 要求 budget_tokens >= 1024
         self.thinking_budget = budget_tokens.max(1024);
+        self.thinking_effort = effort.into();
         self
     }
 
@@ -418,6 +422,7 @@ impl BaseModel for ChatAnthropic {
                 "type": "enabled",
                 "budget_tokens": self.thinking_budget
             });
+            body["output_config"] = json!({ "effort": self.thinking_effort });
         }
 
         let mut req = self

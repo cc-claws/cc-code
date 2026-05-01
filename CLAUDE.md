@@ -143,9 +143,33 @@ submit_message()
 | 工具格式 | `type:"function"` + `function.arguments` | `type:"tool_use"` + `input_schema` |
 | 推理内容 | `message.reasoning_content`（deepseek-r1/o系列） | `Reasoning` ContentBlock |
 | Prompt Cache | — | 默认开启，`cache_control:ephemeral` |
-| 扩展思考 | — | `.with_extended_thinking(budget_tokens)`（3.7+） |
+| 扩展思考 | `reasoning_effort`（"low"/"medium"/"high"） | `thinking` + `output_config.effort` |
 
 `RetryableLLM<L>` 装饰器：指数退避+25%随机抖动，`LlmRetrying` 事件通知。测试用 `MockLLM::tool_then_answer()` 按脚本回放。
+
+### Thinking / 推理模式
+
+`ThinkingConfig`（`rust-agent-tui/src/config/types.rs`）控制是否向 LLM 发送推理参数。
+
+**默认行为**：`AppConfig.thinking = None`，不传递任何 thinking/reasoning 参数。用户在 `/model` 面板手动开启后才生效。
+
+**配置字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `enabled` | `bool` | 是否启用（默认 `false`） |
+| `budget_tokens` | `u32` | 推理预算，默认 `8000` |
+
+**Provider 映射**：
+
+| Provider | API 参数 | effort 映射 |
+|----------|---------|------------|
+| Anthropic | `thinking: {type:"enabled", budget_tokens}` + `output_config: {effort}` | `≤4096` → `"low"`, `4097-16000` → `"medium"`, `>16000` → `"high"` |
+| OpenAI | `reasoning_effort` | `0` → `"low"`, `1-7999` → `"medium"`, `≥8000` → `"high"` |
+
+**Anthropic 要求**：`budget_tokens` 最小 1024（`with_extended_thinking` 强制）；`max_tokens` 必须 > `budget_tokens`（自动调整为 `budget + 4096`）。
+
+**配置流**：用户 `/model` 面板 → `apply_to_config()` 写入 `ZenConfig` → `LlmProvider::from_config()` 提取（`filter(|t| t.enabled)`）→ `into_model()` 调用 `with_extended_thinking()` / `with_reasoning_effort()`。
 
 ### HITL & 权限模式
 

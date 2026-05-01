@@ -858,82 +858,88 @@ fn handle_login_panel(app: &mut App, input: Input) {
             }
             _ => {}
         },
-        LoginPanelMode::Edit | LoginPanelMode::New => match input {
-            Input { key: Key::Esc, .. } => {
-                app.core.login_panel.as_mut().unwrap().mode = LoginPanelMode::Browse;
-            }
-            Input {
-                key: Key::Char('v'),
-                ctrl: true,
-                ..
-            } => {
-                if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                    if let Ok(text) = clipboard.get_text() {
-                        app.core.login_panel.as_mut().unwrap().paste_text(&text);
+        LoginPanelMode::Edit | LoginPanelMode::New => {
+            let is_type_field = app.core.login_panel.as_ref().unwrap().edit_field
+                == crate::app::login_panel::LoginEditField::Type;
+
+            match input {
+                Input { key: Key::Esc, .. } => {
+                    app.core.login_panel.as_mut().unwrap().mode = LoginPanelMode::Browse;
+                }
+                Input {
+                    key: Key::Char('v'),
+                    ctrl: true,
+                    ..
+                } => {
+                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                        if let Ok(text) = clipboard.get_text() {
+                            app.core.login_panel.as_mut().unwrap().paste_text(&text);
+                        }
+                    }
+                }
+                Input { key: Key::Up, .. } => {
+                    app.core.login_panel.as_mut().unwrap().field_prev();
+                }
+                Input { key: Key::Down, .. } => {
+                    app.core.login_panel.as_mut().unwrap().field_next();
+                }
+                Input {
+                    key: Key::Tab,
+                    shift: false,
+                    ..
+                } => {
+                    app.core.login_panel.as_mut().unwrap().field_next();
+                }
+                Input {
+                    key: Key::Tab,
+                    shift: true,
+                    ..
+                } => {
+                    app.core.login_panel.as_mut().unwrap().field_prev();
+                }
+                Input { key: Key::Left, .. }
+                | Input {
+                    key: Key::Right, ..
+                } if is_type_field => {
+                    app.core.login_panel.as_mut().unwrap().cycle_type();
+                }
+                Input {
+                    key: Key::Char(' '),
+                    ..
+                } => {
+                    if is_type_field {
+                        app.core.login_panel.as_mut().unwrap().cycle_type();
+                    } else if let Some((buf, cursor)) =
+                        app.core.login_panel.as_mut().unwrap().active_field()
+                    {
+                        crate::app::handle_edit_key(
+                            buf,
+                            cursor,
+                            Input {
+                                key: Key::Char(' '),
+                                ctrl: false,
+                                alt: false,
+                                shift: false,
+                            },
+                        );
+                    }
+                }
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    app.login_panel_apply_edit();
+                }
+                _ => {
+                    if !is_type_field {
+                        if let Some((buf, cursor)) =
+                            app.core.login_panel.as_mut().unwrap().active_field()
+                        {
+                            crate::app::handle_edit_key(buf, cursor, input);
+                        }
                     }
                 }
             }
-            Input { key: Key::Up, .. } => {
-                app.core.login_panel.as_mut().unwrap().field_prev();
-            }
-            Input { key: Key::Down, .. } => {
-                app.core.login_panel.as_mut().unwrap().field_next();
-            }
-            Input {
-                key: Key::Tab,
-                shift: false,
-                ..
-            } => {
-                app.core.login_panel.as_mut().unwrap().field_next();
-            }
-            Input {
-                key: Key::Tab,
-                shift: true,
-                ..
-            } => {
-                app.core.login_panel.as_mut().unwrap().field_prev();
-            }
-            Input { key: Key::Left, .. }
-            | Input {
-                key: Key::Right, ..
-            } => {
-                let field = app.core.login_panel.as_ref().unwrap().edit_field.clone();
-                if field == crate::app::login_panel::LoginEditField::Type {
-                    app.core.login_panel.as_mut().unwrap().cycle_type();
-                }
-            }
-            Input {
-                key: Key::Char(' '),
-                ..
-            } => {
-                let field = app.core.login_panel.as_ref().unwrap().edit_field.clone();
-                if field == crate::app::login_panel::LoginEditField::Type {
-                    app.core.login_panel.as_mut().unwrap().cycle_type();
-                } else {
-                    app.core.login_panel.as_mut().unwrap().push_char(' ');
-                }
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                app.login_panel_apply_edit();
-            }
-            Input {
-                key: Key::Backspace,
-                ..
-            } => {
-                app.core.login_panel.as_mut().unwrap().pop_char();
-            }
-            Input {
-                key: Key::Char(c),
-                ctrl: false,
-                alt: false,
-                ..
-            } => {
-                app.core.login_panel.as_mut().unwrap().push_char(c);
-            }
-            _ => {}
-        },
+        }
         LoginPanelMode::ConfirmDelete => match input {
             Input {
                 key: Key::Enter, ..
@@ -1035,6 +1041,16 @@ fn handle_model_panel(app: &mut App, input: Input) {
             app.core.model_panel.as_mut().unwrap().pop_char();
         }
         Input {
+            key: Key::Left, ..
+        } => {
+            app.core.model_panel.as_mut().unwrap().cycle_effort(true);
+        }
+        Input {
+            key: Key::Right, ..
+        } => {
+            app.core.model_panel.as_mut().unwrap().cycle_effort(false);
+        }
+        Input {
             key: Key::Char(c),
             ctrl: false,
             alt: false,
@@ -1042,7 +1058,17 @@ fn handle_model_panel(app: &mut App, input: Input) {
         } => {
             app.core.model_panel.as_mut().unwrap().push_char(c);
         }
-        _ => {}
+        _ => {
+            // Thinking 行：用公共函数处理 Delete/Home/End/Ctrl+K/U
+            if app.core.model_panel.as_ref().map_or(false, |p| p.cursor == ROW_THINKING) {
+                let panel = app.core.model_panel.as_mut().unwrap();
+                crate::app::handle_edit_key(
+                    &mut panel.buf_thinking_budget,
+                    &mut panel.cur_thinking_budget,
+                    input,
+                );
+            }
+        }
     }
 }
 

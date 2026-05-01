@@ -2490,6 +2490,7 @@ mod tests {
                 thinking: Some(ThinkingConfig {
                     enabled: false,
                     budget_tokens: 8000,
+                    effort: "medium".to_string(),
                 }),
                 ..Default::default()
             },
@@ -2622,6 +2623,7 @@ mod tests {
                 thinking: Some(ThinkingConfig {
                     enabled: false,
                     budget_tokens: 8000,
+                    effort: "medium".to_string(),
                 }),
                 ..Default::default()
             },

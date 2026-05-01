@@ -39,9 +39,9 @@ fn default_alias() -> String {
 /// Thinking / 推理模式配置
 ///
 /// 对两个 provider 的映射：
-/// - Anthropic → `extended_thinking` + `budget_tokens`
-/// - OpenAI    → `reasoning_effort`（"low"/"medium"/"high"，由 budget_tokens 区段决定）
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// - Anthropic → `extended_thinking` + `budget_tokens` + `output_config.effort`
+/// - OpenAI    → `reasoning_effort`（直接使用 effort 字段）
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThinkingConfig {
     /// 是否启用 thinking
     #[serde(default)]
@@ -51,19 +51,42 @@ pub struct ThinkingConfig {
     /// - Anthropic：直接传给 extended_thinking.budget_tokens，最小值 1024（由 with_extended_thinking 保证）
     #[serde(default = "default_budget_tokens")]
     pub budget_tokens: u32,
+    /// 思考强度 "low" / "medium" / "high"
+    /// - Anthropic → `output_config.effort`
+    /// - OpenAI → `reasoning_effort`
+    #[serde(default = "default_effort")]
+    pub effort: String,
 }
 
 fn default_budget_tokens() -> u32 {
     8000
 }
 
+fn default_effort() -> String {
+    "medium".to_string()
+}
+
 impl ThinkingConfig {
-    /// 将 budget_tokens 映射到 OpenAI reasoning_effort 字符串
-    pub fn openai_effort(&self) -> &'static str {
-        match self.budget_tokens {
-            0 => "low",
-            1..=7999 => "medium",
-            _ => "high",
+    /// 将 budget_tokens 映射到 OpenAI reasoning_effort 字符串（已废弃，直接使用 effort 字段）
+    pub fn openai_effort(&self) -> &str {
+        &self.effort
+    }
+
+    /// effort 循环切换：low → medium → high → low
+    pub fn next_effort(&self) -> &'static str {
+        match self.effort.as_str() {
+            "low" => "medium",
+            "medium" => "high",
+            _ => "low",
+        }
+    }
+
+    /// effort 反向循环切换：low → high → medium → low
+    pub fn prev_effort(&self) -> &'static str {
+        match self.effort.as_str() {
+            "low" => "high",
+            "high" => "medium",
+            _ => "low",
         }
     }
 }
@@ -129,40 +152,24 @@ mod tests {
     // ── ThinkingConfig::openai_effort ─────────────────────────────────────────
 
     #[test]
-    fn test_thinking_effort_low() {
+    fn test_thinking_effort_direct() {
         let c = ThinkingConfig {
             enabled: true,
             budget_tokens: 0,
+            effort: "low".to_string(),
         };
         assert_eq!(c.openai_effort(), "low");
     }
 
     #[test]
-    fn test_thinking_effort_medium_boundary() {
-        let c1 = ThinkingConfig {
-            enabled: true,
-            budget_tokens: 1,
-        };
-        let c2 = ThinkingConfig {
-            enabled: true,
-            budget_tokens: 7999,
-        };
-        assert_eq!(c1.openai_effort(), "medium");
-        assert_eq!(c2.openai_effort(), "medium");
-    }
-
-    #[test]
-    fn test_thinking_effort_high() {
+    fn test_thinking_effort_next_prev() {
         let c = ThinkingConfig {
             enabled: true,
             budget_tokens: 8000,
+            effort: "medium".to_string(),
         };
-        assert_eq!(c.openai_effort(), "high");
-        let c2 = ThinkingConfig {
-            enabled: true,
-            budget_tokens: 100_000,
-        };
-        assert_eq!(c2.openai_effort(), "high");
+        assert_eq!(c.next_effort(), "high");
+        assert_eq!(c.prev_effort(), "low");
     }
 
     // ── ThinkingConfig 序列化 / 反序列化 ─────────────────────────────────────
@@ -172,16 +179,18 @@ mod tests {
         let cfg = ThinkingConfig {
             enabled: true,
             budget_tokens: 5000,
+            effort: "medium".to_string(),
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ThinkingConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back.enabled, true);
         assert_eq!(back.budget_tokens, 5000);
+        assert_eq!(back.effort, "medium");
     }
 
     #[test]
     fn test_thinking_config_default_budget() {
-        // 不传 budget_tokens 时应默认 8000
+        // 不传 budget_tokens 时应默认 8000，effort 默认 medium
         let json = r#"{"enabled": false}"#;
         let cfg: ThinkingConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.budget_tokens, 8000);
