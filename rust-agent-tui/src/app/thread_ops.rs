@@ -141,6 +141,13 @@ impl App {
         self.reset_agent_session();
 
         let _ = self.core.render_tx.send(RenderEvent::Clear);
+
+        // 清空后添加新建反馈（Clear 之后，消息会在下一帧渲染）
+        self.core
+            .view_messages
+            .push(crate::ui::message_view::MessageViewModel::system(
+                "已创建新对话".to_string(),
+            ));
     }
 
     /// 压缩当前对话上下文：调用 LLM 生成摘要，替换 agent_state_messages
