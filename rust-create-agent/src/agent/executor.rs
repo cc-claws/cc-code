@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-use crate::agent::events::{AgentEvent, AgentEventHandler};
+use crate::agent::events::{AgentEvent, AgentEventHandler, BackgroundTaskResult};
 use crate::agent::react::{AgentInput, AgentOutput, ReactLLM, ToolCall, ToolResult};
 use crate::agent::state::State;
 use crate::agent::token::ContextBudget;
@@ -33,6 +33,8 @@ where
     system_prompt: Option<String>,
     /// 上下文窗口预算配置（用于监控 token 用量和触发 compact 建议）
     context_budget: Option<ContextBudget>,
+    /// 后台任务通知接收端：后台 agent 完成时推送结果
+    notification_rx: Option<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<BackgroundTaskResult>>>,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -46,6 +48,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             event_handler: None,
             system_prompt: None,
             context_budget: None,
+            notification_rx: None,
         }
     }
 
@@ -92,6 +95,18 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 提示用户使用 `/compact` 压缩上下文。设置为 None 则禁用监控。
     pub fn with_context_budget(mut self, budget: ContextBudget) -> Self {
         self.context_budget = Some(budget);
+        self
+    }
+
+    /// 设置后台任务通知接收端
+    ///
+    /// 后台 agent 完成时通过此通道推送 `BackgroundTaskResult`，
+    /// 主 agent 在 ReAct 循环中消费通知并注入到消息流。
+    pub fn with_notification_rx(
+        mut self,
+        rx: tokio::sync::mpsc::UnboundedReceiver<BackgroundTaskResult>,
+    ) -> Self {
+        self.notification_rx = Some(tokio::sync::Mutex::new(rx));
         self
     }
 
@@ -491,6 +506,35 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 if !msgs_since_human.is_empty() {
                     self.emit(AgentEvent::StateSnapshot(msgs_since_human));
                 }
+
+                // 消费后台任务完成通知
+                // 仅注入 state 供 LLM 下一轮迭代可见，不发射 MessageAdded 或 BackgroundTaskCompleted
+                // （后台任务自身已通过 event handler 发射 BackgroundTaskCompleted）
+                if let Some(ref rx) = self.notification_rx {
+                    let mut rx_lock = rx.lock().await;
+                    while let Ok(result) = rx_lock.try_recv() {
+                        let notification = if result.success {
+                            format!(
+                                "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n结果:\n{}",
+                                result.task_id,
+                                result.agent_name,
+                                result.tool_calls_count,
+                                result.duration_ms,
+                                result.output,
+                            )
+                        } else {
+                            format!(
+                                "[后台任务 {} 执行失败] Agent: {}\n错误:\n{}",
+                                result.task_id,
+                                result.agent_name,
+                                result.output,
+                            )
+                        };
+                        let msg = BaseMessage::human(notification);
+                        state.add_message(msg);
+                    }
+                }
+
                 last_message_count = state.messages().len();
             } else {
                 let answer = reasoning
@@ -523,6 +567,33 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 let msgs_since_last = state.messages()[last_message_count..].to_vec();
                 if !msgs_since_last.is_empty() {
                     self.emit(AgentEvent::StateSnapshot(msgs_since_last));
+                }
+
+                // 消费后台任务完成通知（最终回答前）
+                // 仅注入 state 供 LLM 可见，不发射事件（后台任务自身已通过 event handler 发射）
+                if let Some(ref rx) = self.notification_rx {
+                    let mut rx_lock = rx.lock().await;
+                    while let Ok(result) = rx_lock.try_recv() {
+                        let notification = if result.success {
+                            format!(
+                                "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n结果:\n{}",
+                                result.task_id,
+                                result.agent_name,
+                                result.tool_calls_count,
+                                result.duration_ms,
+                                result.output,
+                            )
+                        } else {
+                            format!(
+                                "[后台任务 {} 执行失败] Agent: {}\n错误:\n{}",
+                                result.task_id,
+                                result.agent_name,
+                                result.output,
+                            )
+                        };
+                        let msg = BaseMessage::human(notification);
+                        state.add_message(msg);
+                    }
                 }
 
                 let output = AgentOutput {

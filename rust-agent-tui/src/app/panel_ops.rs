@@ -468,6 +468,7 @@ impl App {
             oauth_prompt: None,
             bg_event_tx,
             bg_event_rx: Some(bg_event_rx),
+            background_task_count: 0,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

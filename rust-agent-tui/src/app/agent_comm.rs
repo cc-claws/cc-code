@@ -56,6 +56,12 @@ pub struct AgentComm {
     pub session_start_time: Option<std::time::Instant>,
     /// 会话级工具调用次数（统计 ToolStart 事件数）
     pub tool_call_count: u32,
+    /// 后台任务全部完成后的待提交 continuation 消息
+    ///（延迟到下一帧提交，避免在 handle_agent_event 内部修改 agent_rx）
+    pub pending_bg_continuation: Option<String>,
+    /// Agent 已完成（Done/Error）但仍有后台任务在运行，
+    /// 此时 agent_rx 保持存活以接收 BackgroundTaskCompleted 事件
+    pub agent_done_pending_bg: bool,
 }
 
 impl Default for AgentComm {
@@ -80,6 +86,8 @@ impl Default for AgentComm {
             subagent_depth: 0,
             session_start_time: None,
             tool_call_count: 0,
+            pending_bg_continuation: None,
+            agent_done_pending_bg: false,
         }
     }
 }

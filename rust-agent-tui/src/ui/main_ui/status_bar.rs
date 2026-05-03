@@ -186,6 +186,18 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    // 后台任务指示器
+    if app.background_task_count > 0 {
+        if has_content {
+            left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        }
+        left_spans.push(Span::styled(
+            format!("[BG: {}]", app.background_task_count),
+            Style::default().fg(theme::WARNING),
+        ));
+        has_content = true;
+    }
+
     // Agent 面板信息（仅面板激活时）
     if let Some(panel) = &app.core.agent_panel {
         if has_content {

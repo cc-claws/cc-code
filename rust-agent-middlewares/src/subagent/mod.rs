@@ -1,5 +1,7 @@
+mod background;
 mod skill_preload;
 mod tool;
+pub use background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus};
 pub use skill_preload::SkillPreloadMiddleware;
 pub use tool::SubAgentTool;
 
@@ -58,6 +60,8 @@ pub struct SubAgentMiddleware {
     cancel: Option<AgentCancellationToken>,
     /// Shared reference to parent agent message snapshot, written in before_agent, read by Fork child agent
     parent_messages: Option<Arc<RwLock<Vec<BaseMessage>>>>,
+    /// 后台任务注册中心（通过 build_tool 传递给 SubAgentTool）
+    background_registry: Option<Arc<BackgroundTaskRegistry>>,
 }
 
 impl SubAgentMiddleware {
@@ -77,6 +81,7 @@ impl SubAgentMiddleware {
             system_builder: None,
             cancel: None,
             parent_messages: None,
+            background_registry: None,
         }
     }
 
@@ -104,6 +109,15 @@ impl SubAgentMiddleware {
         self
     }
 
+    /// Set background task registry for run_in_background mode
+    pub fn with_background_registry(
+        mut self,
+        registry: Arc<BackgroundTaskRegistry>,
+    ) -> Self {
+        self.background_registry = Some(registry);
+        self
+    }
+
     /// Build SubAgentTool instance (clone Arc fields, do not transfer ownership)
     pub fn build_tool(&self, cwd: &str) -> SubAgentTool {
         let mut tool = SubAgentTool::new(
@@ -120,6 +134,9 @@ impl SubAgentMiddleware {
         }
         if let Some(ref pm) = self.parent_messages {
             tool = tool.with_parent_messages(Arc::clone(pm));
+        }
+        if let Some(ref registry) = self.background_registry {
+            tool = tool.with_background_registry(Arc::clone(registry));
         }
         tool
     }

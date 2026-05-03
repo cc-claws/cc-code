@@ -1,3 +1,15 @@
+/// 后台任务完成通知（注入到主 agent 消息流中）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BackgroundTaskResult {
+    pub task_id: String,
+    pub agent_name: String,
+    pub prompt_summary: String,
+    pub success: bool,
+    pub output: String,
+    pub tool_calls_count: usize,
+    pub duration_ms: u64,
+}
+
 /// Agent 执行过程中的增量事件
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -56,6 +68,8 @@ pub enum AgentEvent {
         delay_ms: u64,
         error: String,
     },
+    /// 后台 agent 任务完成（TUI 使用，用于空闲时通知）
+    BackgroundTaskCompleted(BackgroundTaskResult),
 }
 
 /// 事件回调 trait（应用层实现）

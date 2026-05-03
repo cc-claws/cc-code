@@ -69,6 +69,9 @@ impl App {
         // 防御性重置：上次 agent 任务若 SubAgentEnd 因通道溢出被丢弃，
         // subagent_depth 会永久 > 0，导致所有后续 TokenUsageUpdate 被过滤（ctx 显示为 0）
         self.agent.subagent_depth = 0;
+        // 清理后台任务 continuation 状态（用户主动发消息时覆盖自动 continuation）
+        self.agent.agent_done_pending_bg = false;
+        self.agent.pending_bg_continuation = None;
 
         let (tx, rx) = mpsc::channel(64);
         self.agent.agent_rx = Some(rx);
@@ -537,7 +540,16 @@ impl App {
                 }
                 self.langfuse.langfuse_tracer = None;
                 self.set_loading(false);
-                self.agent.agent_rx = None;
+                // 如果仍有后台任务在运行，保持 agent_rx 存活以接收 BackgroundTaskCompleted 事件
+                if self.background_task_count > 0 {
+                    self.agent.agent_done_pending_bg = true;
+                    tracing::info!(
+                        count = self.background_task_count,
+                        "agent done but background tasks still running, keeping channel alive"
+                    );
+                } else {
+                    self.agent.agent_rx = None;
+                }
                 // Auto-compact 两级策略
                 if self.agent.needs_auto_compact {
                     self.agent.needs_auto_compact = false;
@@ -620,7 +632,12 @@ impl App {
                 }
                 self.langfuse.langfuse_tracer = None;
                 self.set_loading(false);
-                self.agent.agent_rx = None;
+                // Error 路径同样需要保持通道给后台任务
+                if self.background_task_count > 0 {
+                    self.agent.agent_done_pending_bg = true;
+                } else {
+                    self.agent.agent_rx = None;
+                }
                 // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗
                 self.agent.interaction_prompt = None;
                 self.agent.pending_hitl_items = None;
@@ -919,22 +936,77 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::BackgroundTaskCompleted {
+                task_id,
                 agent_name,
                 success,
                 output,
-                ..
+                tool_calls_count,
+                duration_ms,
             } => {
                 // 递减后台任务计数
                 self.background_task_count = self.background_task_count.saturating_sub(1);
-                // 追加通知到消息区
-                let notification = if success {
-                    format!("[i] Background task '{}' completed\n{}", agent_name, output)
+
+                // 用于 LLM 上下文的纯文本通知
+                let state_notification = if success {
+                    format!(
+                        "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n结果:\n{}",
+                        &task_id[..8.min(task_id.len())],
+                        agent_name,
+                        tool_calls_count,
+                        duration_ms,
+                        output,
+                    )
                 } else {
-                    format!("[i] Background task '{}' failed\n{}", agent_name, output)
+                    format!(
+                        "[后台任务 {} 执行失败] Agent: {}\n错误:\n{}",
+                        &task_id[..8.min(task_id.len())],
+                        agent_name,
+                        output,
+                    )
                 };
-                let vm = MessageViewModel::system(notification);
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+
+                // 将通知加入 agent_state_messages，使下一轮 agent 执行可见
+                self.agent.agent_state_messages.push(
+                    rust_create_agent::messages::BaseMessage::human(state_notification.as_str()),
+                );
+
+                // 以 ToolBlock 样式显示（紧凑单行格式，折叠长输出）
+                let short_id = &task_id[..8.min(task_id.len())];
+                let display_name = format!("bg:{}", agent_name);
+                // 输出截断为单行（取第一行，再截取前 120 字符）
+                let first_line = output.lines().next().unwrap_or("");
+                let one_line = if first_line.len() > 120 {
+                    format!("{}...", &first_line[..120])
+                } else if first_line.is_empty() && !output.is_empty() {
+                    String::from("(empty)")
+                } else {
+                    first_line.to_string()
+                };
+                let header_info = if success {
+                    format!("{} completed ({} calls, {}ms): {}", short_id, tool_calls_count, duration_ms, one_line)
+                } else {
+                    format!("{} failed: {}", short_id, one_line)
+                };
+                let mut vm = MessageViewModel::tool_block(
+                    display_name.clone(),
+                    header_info,
+                    None,
+                    !success,
+                );
+                if let MessageViewModel::ToolBlock { collapsed, .. } = &mut vm {
+                    *collapsed = true; // 始终折叠，摘要已在 header 中
+                }
+                self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+
+                // 如果 agent 已完成（Done）且所有后台任务都已完成，关闭通道并自动提交 continuation
+                if self.agent.agent_done_pending_bg && self.background_task_count == 0 {
+                    tracing::info!("all background tasks completed, auto-submitting continuation");
+                    self.agent.agent_done_pending_bg = false;
+                    self.agent.agent_rx = None;
+                    self.agent.pending_bg_continuation = Some(state_notification);
+                    return (true, false, true);
+                }
+
                 (true, false, false)
             }
         }
@@ -942,6 +1014,15 @@ impl App {
 
     /// 每帧调用：消费 channel 事件，返回是否有 UI 更新
     pub fn poll_agent(&mut self) -> bool {
+        // 优先处理延迟的后台任务 continuation（由 BackgroundTaskCompleted 处理器设置）
+        if let Some(continuation) = self.agent.pending_bg_continuation.take() {
+            if !self.core.loading {
+                tracing::info!("auto-submitting background task continuation");
+                self.submit_message(continuation);
+                return true;
+            }
+        }
+
         if self.agent.agent_rx.is_none() {
             return false;
         }

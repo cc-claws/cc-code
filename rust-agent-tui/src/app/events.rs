@@ -96,6 +96,8 @@ pub enum AgentEvent {
         agent_name: String,
         success: bool,
         output: String,
+        tool_calls_count: usize,
+        duration_ms: u64,
     },
     /// MCP 面板异步操作完成
     McpActionCompleted {

@@ -6,7 +6,7 @@ pub mod state;
 pub mod token;
 
 pub use compact::CompactConfig;
-pub use events::{AgentEvent, AgentEventHandler, FnEventHandler};
+pub use events::{AgentEvent, AgentEventHandler, BackgroundTaskResult, FnEventHandler};
 pub use executor::{AgentCancellationToken, ReActAgent};
 pub use react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult};
 pub use state::{AgentState, State};

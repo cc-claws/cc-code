@@ -491,6 +491,7 @@ mod tests {
         app.push_agent_event(AgentEvent::SubAgentStart {
             agent_id: "code-reviewer".into(),
             task_preview: "review the code".into(),
+            is_background: false,
         });
         app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "t1".into(),
@@ -550,6 +551,7 @@ mod tests {
         app.push_agent_event(AgentEvent::SubAgentStart {
             agent_id: "analyzer".into(),
             task_preview: "analyze codebase".into(),
+            is_background: false,
         });
         for i in 1..=6 {
             app.push_agent_event(AgentEvent::ToolStart {
@@ -594,6 +596,7 @@ mod tests {
         app.push_agent_event(AgentEvent::SubAgentStart {
             agent_id: "writer".into(),
             task_preview: "write summary".into(),
+            is_background: false,
         });
         app.push_agent_event(AgentEvent::AssistantChunk("summary text here".into()));
         app.push_agent_event(AgentEvent::SubAgentEnd {
@@ -2715,6 +2718,80 @@ mod tests {
         assert!(
             snap.contains("test / test-model"),
             "Welcome Card 应显示 Provider/Model 信息，实际:\n{}",
+            snap
+        );
+    }
+
+    /// 验证后台任务完成通知事件处理
+    #[tokio::test]
+    async fn test_background_task_notification() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 先设置后台任务计数
+        app.background_task_count = 1;
+
+        let notified = handle.render_notify.notified();
+
+        // Done 事件先处理（模拟 agent 完成）
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+
+        // BackgroundTaskCompleted 在 Done 之后到达
+        let notified2 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
+            task_id: "bg-test-1".into(),
+            agent_name: "code-reviewer".into(),
+            success: true,
+            output: "LGTM".into(),
+            tool_calls_count: 3,
+            duration_ms: 1500,
+        });
+        app.process_pending_events();
+
+        notified.await;
+        notified2.await;
+
+        // 断言：后台任务计数递减
+        assert_eq!(
+            app.background_task_count, 0,
+            "BackgroundTaskCompleted should decrement background_task_count"
+        );
+
+        // 断言：view_messages 包含后台任务 ToolBlock 通知
+        use crate::ui::message_view::MessageViewModel;
+        let has_notification = app
+            .core
+            .view_messages
+            .iter()
+            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { tool_name, content, .. } if tool_name.contains("bg:") && content.contains("LGTM")));
+        assert!(
+            has_notification,
+            "view_messages should contain background task notification"
+        );
+    }
+
+    /// 验证状态栏显示后台任务计数 [BG: N]
+    #[tokio::test]
+    async fn test_background_task_status_bar() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        app.background_task_count = 2;
+
+        let notified = handle.render_notify.notified();
+        // Trigger a render
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+        notified.await;
+
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot().join("\n");
+
+        assert!(
+            snap.contains("[BG: 2]"),
+            "Status bar should display [BG: 2], actual:\n{}",
             snap
         );
     }

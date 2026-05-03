@@ -220,6 +220,13 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let parent_messages: Arc<parking_lot::RwLock<Vec<BaseMessage>>> =
         Arc::new(parking_lot::RwLock::new(Vec::new()));
 
+    // 后台任务通知通道
+    let (bg_notification_tx, bg_notification_rx) =
+        tokio::sync::mpsc::unbounded_channel();
+    let background_registry = Arc::new(
+        rust_agent_middlewares::BackgroundTaskRegistry::new(bg_notification_tx),
+    );
+
     // SubAgent middleware
     let subagent = SubAgentMiddleware::new(
         parent_tools,
@@ -231,12 +238,14 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     )
     .with_system_builder(system_builder)
     .with_cancel(cancel.clone())
-    .with_parent_messages(parent_messages);
+    .with_parent_messages(parent_messages)
+    .with_background_registry(Arc::clone(&background_registry));
 
     // 构建 ReActAgent
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具
     let executor = ReActAgent::new(model)
         .max_iterations(500)
+        .with_notification_rx(bg_notification_rx)
         .with_system_prompt(system_prompt) // executor 内部固定 prepend，无顺序约束
         .add_middleware(Box::new(AgentsMdMiddleware::new()))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
@@ -326,9 +335,11 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
                 .chars()
                 .take(40)
                 .collect();
+            let is_background = input["run_in_background"].as_bool().unwrap_or(false);
             AgentEvent::SubAgentStart {
                 agent_id,
                 task_preview,
+                is_background,
             }
         }
         ExecutorEvent::ToolStart {
@@ -423,6 +434,16 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             delay_ms,
             error,
         },
+        ExecutorEvent::BackgroundTaskCompleted(result) => {
+            AgentEvent::BackgroundTaskCompleted {
+                task_id: result.task_id,
+                agent_name: result.agent_name,
+                success: result.success,
+                output: result.output,
+                tool_calls_count: result.tool_calls_count,
+                duration_ms: result.duration_ms,
+            }
+        }
     })
 }
 

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use rust_create_agent::agent::events::AgentEventHandler;
+use rust_create_agent::agent::events::{AgentEvent, AgentEventHandler};
+use rust_create_agent::agent::BackgroundTaskResult;
 use rust_create_agent::agent::react::{AgentInput, ReactLLM};
 use rust_create_agent::agent::state::AgentState;
 use rust_create_agent::agent::{AgentCancellationToken, ReActAgent};
@@ -14,6 +15,7 @@ use crate::agents_md::AgentsMdMiddleware;
 use crate::claude_agent_parser::{parse_agent_file, ToolsValue};
 use crate::middleware::todo::TodoMiddleware;
 use crate::skills::SkillsMiddleware;
+use crate::subagent::background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus};
 use crate::subagent::skill_preload::SkillPreloadMiddleware;
 use crate::tools::ArcToolWrapper;
 use tokio::sync::mpsc;
@@ -48,7 +50,14 @@ When to use:
 
 Return format:
 - If the sub-agent made tool calls, the result includes a summary of tools used followed by the final response
-- If no tool calls were made, only the final response text is returned"#;
+- If no tool calls were made, only the final response text is returned
+
+Background execution (run_in_background: true):
+- The sub-agent runs asynchronously in the background while the main agent continues
+- Maximum 3 concurrent background tasks
+- The main agent will be notified when the background task completes via a system message
+- Use for long-running tasks that don't block the main workflow (e.g., code review, batch operations)
+- Background tasks share the same working directory as the main agent"#;
 pub struct SubAgentTool {
     /// Parent agent tool set (Arc shared, read-only)
     parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
@@ -69,6 +78,8 @@ pub struct SubAgentTool {
     /// Shared reference to parent agent message snapshot (used by Fork path)
     /// RwLock.read() obtains a deep copy, RwLock.write() is updated by SubAgentMiddleware::before_agent
     parent_messages: Option<Arc<RwLock<Vec<BaseMessage>>>>,
+    /// 后台任务注册中心（run_in_background 模式使用）
+    background_registry: Option<Arc<BackgroundTaskRegistry>>,
 }
 
 impl SubAgentTool {
@@ -86,6 +97,7 @@ impl SubAgentTool {
             system_builder: None,
             cancel: None,
             parent_messages: None,
+            background_registry: None,
         }
     }
 
@@ -110,6 +122,15 @@ impl SubAgentTool {
         messages: Arc<RwLock<Vec<BaseMessage>>>,
     ) -> Self {
         self.parent_messages = Some(messages);
+        self
+    }
+
+    /// Set background task registry for run_in_background mode
+    pub fn with_background_registry(
+        mut self,
+        registry: Arc<BackgroundTaskRegistry>,
+    ) -> Self {
+        self.background_registry = Some(registry);
         self
     }
 
@@ -266,6 +287,173 @@ impl SubAgentTool {
             }
         }
     }
+
+    /// Background path: spawn sub-agent as a background task, return immediately
+    async fn invoke_background(
+        &self,
+        prompt: String,
+        subagent_type: Option<String>,
+        cwd: String,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let registry = self.background_registry.as_ref()
+            .ok_or("Background tasks not available: no registry configured")?;
+
+        // 检查并发上限
+        if registry.active_count() >= 3 {
+            return Ok(
+                "Error: maximum 3 concurrent background tasks reached. \
+                 Wait for a running task to complete before starting a new one."
+                    .to_string()
+            );
+        }
+
+        let task_id = format!("bg-{}", uuid::Uuid::new_v4());
+
+        // background mode requires subagent_type
+        let agent_id = match &subagent_type {
+            Some(id) => id.clone(),
+            None => return Ok("Error: background mode requires subagent_type parameter".to_string()),
+        };
+
+        let agent_path = AgentDefineMiddleware::candidate_paths(&cwd, &agent_id)
+            .into_iter()
+            .find(|p| p.is_file());
+
+        let agent_path = match agent_path {
+            Some(p) => p,
+            None => return Ok(format!(
+                "Error: cannot find agent definition file '{}'",
+                agent_id
+            )),
+        };
+
+        let content = std::fs::read_to_string(&agent_path)
+            .map_err(|e| format!("Error: failed to read agent definition file: {}", e))?;
+        let agent_def = parse_agent_file(&content)
+            .ok_or_else(|| format!("Error: failed to parse agent definition file '{}'",
+                agent_path.display()))?;
+
+        let filtered_tools = self.filter_tools(
+            &agent_def.frontmatter.tools,
+            &agent_def.frontmatter.disallowed_tools,
+        );
+
+        let agent_name = agent_id.clone();
+        let prompt_summary: String = prompt.chars().take(100).collect();
+
+        // Build child agent before spawn (avoid capturing self references across await)
+        let model_alias: Option<&str> = agent_def.frontmatter.model.as_deref()
+            .filter(|m| !m.is_empty() && *m != "inherit");
+        let llm = (self.llm_factory)(model_alias);
+        let raw_turns = agent_def.frontmatter.max_turns.unwrap_or(200);
+        let max_iterations = if raw_turns == 0 { 200 } else { raw_turns as usize };
+
+        let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
+        agent_builder = agent_builder
+            .add_middleware(Box::new(AgentsMdMiddleware::new()))
+            .add_middleware(Box::new(SkillsMiddleware::new().with_global_config()));
+
+        if !agent_def.frontmatter.skills.is_empty() {
+            agent_builder = agent_builder.add_middleware(Box::new(SkillPreloadMiddleware::new(
+                agent_def.frontmatter.skills.clone(),
+                &cwd,
+            )));
+        }
+
+        agent_builder = agent_builder.add_middleware(Box::new(TodoMiddleware::new({
+            let (tx, _rx) = mpsc::channel(8);
+            tx
+        })));
+
+        if let Some(ref builder) = self.system_builder {
+            let overrides = Self::overrides_from_agent_def(
+                &agent_def.system_prompt,
+                &agent_def.frontmatter.tone,
+                &agent_def.frontmatter.proactiveness,
+            );
+            let system_content = builder(overrides.as_ref(), &cwd);
+            agent_builder = agent_builder.with_system_prompt(system_content);
+        }
+
+        for tool in filtered_tools {
+            agent_builder = agent_builder.register_tool(tool);
+        }
+
+        if let Some(handler) = &self.event_handler {
+            agent_builder = agent_builder.with_event_handler(Arc::clone(handler));
+        }
+
+        // Pass cancel token to child agent
+        let cancel_token = self.cancel.clone();
+
+        // Clone values needed inside the spawn closure
+        let spawn_task_id = task_id.clone();
+        let spawn_agent_name = agent_name.clone();
+        let spawn_prompt_summary = prompt_summary.clone();
+
+        // Spawn background task
+        let event_handler = self.event_handler.clone();
+        let spawn_registry = Arc::clone(registry);
+
+        let handle = tokio::spawn(async move {
+            let mut state = AgentState::new(&cwd);
+            let start = std::time::Instant::now();
+
+            let result = match agent_builder
+                .execute(AgentInput::text(&prompt), &mut state, cancel_token)
+                .await
+            {
+                Ok(output) => {
+                    let tool_calls_count = state.messages
+                        .iter()
+                        .filter(|m| matches!(m, BaseMessage::Tool { .. }))
+                        .count();
+                    BackgroundTaskResult {
+                        task_id: spawn_task_id.clone(),
+                        agent_name: spawn_agent_name.clone(),
+                        prompt_summary: spawn_prompt_summary.clone(),
+                        success: true,
+                        output: output.text,
+                        tool_calls_count,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                    }
+                }
+                Err(e) => BackgroundTaskResult {
+                    task_id: spawn_task_id.clone(),
+                    agent_name: spawn_agent_name.clone(),
+                    prompt_summary: spawn_prompt_summary.clone(),
+                    success: false,
+                    output: e.to_string(),
+                    tool_calls_count: 0,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+            };
+
+            // Push notification to channel + update registry status
+            spawn_registry.complete(&spawn_task_id, result.clone());
+
+            // Emit event for TUI
+            if let Some(ref handler) = event_handler {
+                handler.on_event(AgentEvent::BackgroundTaskCompleted(result));
+            }
+        });
+
+        // Register task (values still available since we cloned for spawn)
+        registry.register(BackgroundTask {
+            id: task_id.clone(),
+            agent_name: agent_name.clone(),
+            prompt_summary: prompt_summary.clone(),
+            status: BackgroundTaskStatus::Running,
+            started_at: std::time::Instant::now(),
+            abort_handle: handle,
+        })?;
+
+        Ok(format!(
+            "Background task {} started. You will be notified when it completes. \
+             You can continue with other tasks in the meantime.",
+            task_id
+        ))
+    }
 }
 
 #[async_trait]
@@ -305,7 +493,7 @@ impl BaseTool for SubAgentTool {
                 },
                 "run_in_background": {
                     "type": "boolean",
-                    "description": "Set to true to run the sub-agent in the background. Currently reserved for future use"
+                    "description": "Set to true to run the sub-agent in the background. The main agent continues immediately and receives a notification when the background task completes. Maximum 3 concurrent background tasks"
                 },
                 "cwd": {
                     "type": "string",
@@ -331,13 +519,21 @@ impl BaseTool for SubAgentTool {
         let _description = input.get("description").and_then(|v| v.as_str());
         let _name = input.get("name").and_then(|v| v.as_str());
         let _isolation = input.get("isolation").and_then(|v| v.as_str());
-        let _run_in_background = input.get("run_in_background").and_then(|v| v.as_bool()).unwrap_or(false);
+        let run_in_background = input.get("run_in_background").and_then(|v| v.as_bool()).unwrap_or(false);
+
         // cwd defaults to inheriting parent agent's working directory
         let cwd = input
             .get("cwd")
             .and_then(|v| v.as_str())
             .unwrap_or(&self.parent_cwd)
             .to_string();
+
+        if run_in_background {
+            if self.background_registry.is_some() {
+                return self.invoke_background(prompt, subagent_type, cwd).await;
+            }
+            // No registry configured: fall through to normal execution
+        }
 
         // Fork detection branch
         let is_fork = input.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
