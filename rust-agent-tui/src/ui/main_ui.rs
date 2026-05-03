@@ -172,14 +172,14 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
     } else if let Some(panel) = &app.mcp_panel {
         let line_count = match &panel.view {
             crate::app::McpPanelView::ServerList => {
-                // separator(1) + title(1) + count(1) + blank(1) + sections + blank(1) + help(1)
+                // BorderedPanel(2) + count(1) + blank(1) + sections + blank(1)
                 let section_headers = 2; // Project + User headers (最多)
-                panel.servers.len() + section_headers + 6
+                panel.servers.len() + section_headers + 5
             }
             crate::app::McpPanelView::ServerDetail { actions, tools, show_tools, .. } => {
-                // separator(1) + title(1) + blank(1) + info_lines(6) + tools_list + blank(1) + actions
+                // BorderedPanel(2) + info_lines(6) + tools_list + blank(1) + actions
                 let tools_lines = if *show_tools { tools.len() } else { 0 };
-                actions.len() + 10 + tools_lines
+                actions.len() + 9 + tools_lines
             }
         };
         (line_count as u16).max(8)

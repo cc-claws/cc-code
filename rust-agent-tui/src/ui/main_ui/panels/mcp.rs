@@ -5,7 +5,7 @@ use ratatui::{
     Frame,
 };
 
-use perihelion_widgets::{ScrollState, ScrollableArea};
+use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
 use crate::app::{DetailAction, McpPanelView, App};
 use crate::ui::main_ui::highlight_line_spans;
@@ -37,22 +37,6 @@ fn render_server_list(f: &mut Frame, app: &mut App, area: Rect) {
         let cursor = panel.cursor;
         let servers = &panel.servers;
         let mut lines: Vec<Line> = Vec::new();
-        let width = area.width as usize;
-
-        // 分隔线
-        let separator: String = "─".repeat(width);
-        lines.push(Line::from(Span::styled(
-            separator,
-            Style::default().fg(theme::BORDER),
-        )));
-
-        // 标题
-        lines.push(Line::from(Span::styled(
-            "  Manage MCP servers",
-            Style::default()
-                .fg(theme::TEXT)
-                .add_modifier(Modifier::BOLD),
-        )));
 
         // 服务器计数
         let count = servers.len();
@@ -99,29 +83,33 @@ fn render_server_list(f: &mut Frame, app: &mut App, area: Rect) {
             )));
         }
 
-        // 底部帮助链接
-        lines.push(Line::from(Span::styled(
-            "  https://docs.anthropic.com/en/docs/agents-and-tools/mcp for help",
-            Style::default().fg(theme::MUTED),
-        )));
-
         (lines, scroll_offset)
     }; // panel 借用在此结束
 
-    // Phase 2: 写入元数据和渲染（可变借用 app）
-    app.core.panel_area = Some(area);
+    // Phase 2: 渲染 BorderedPanel 边框（标题在边框线上）
+    let inner = BorderedPanel::new(Span::styled(
+        " Manage MCP servers ",
+        Style::default()
+            .fg(theme::THINKING)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::BORDER))
+    .render(f, area);
+
+    // Phase 3: 写入元数据和渲染内容（可变借用 app）
+    app.core.panel_area = Some(inner);
     app.core.panel_scroll_offset = 0;
     app.core.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
 
-    apply_panel_selection(app, &mut lines, area);
+    apply_panel_selection(app, &mut lines, inner);
 
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
-        .render(f, area, &mut scroll_state);
+        .render(f, inner, &mut scroll_state);
 }
 
 fn render_server_group(
@@ -195,24 +183,17 @@ fn render_server_detail(f: &mut Frame, app: &mut App, area: Rect) {
         )
     };
 
-    let width = area.width as usize;
-    let mut lines: Vec<Line> = Vec::new();
-
-    // 分隔线
-    let separator: String = "─".repeat(width);
-    lines.push(Line::from(Span::styled(
-        separator,
-        Style::default().fg(theme::BORDER),
-    )));
-
-    // 标题
-    lines.push(Line::from(Span::styled(
-        format!("  {} MCP Server", server_name),
+    // 渲染 BorderedPanel 边框（标题在边框线上）
+    let inner = BorderedPanel::new(Span::styled(
+        format!(" {} ", server_name),
         Style::default()
-            .fg(theme::TEXT)
+            .fg(theme::THINKING)
             .add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(""));
+    ))
+    .border_style(Style::default().fg(theme::BORDER))
+    .render(f, area);
+
+    let mut lines: Vec<Line> = Vec::new();
 
     // 获取当前 server info
     let server_info = app.mcp_panel.as_ref().and_then(|p| {
@@ -308,19 +289,19 @@ fn render_server_detail(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 存储面板元数据
-    app.core.panel_area = Some(area);
+    app.core.panel_area = Some(inner);
     app.core.panel_scroll_offset = 0;
     app.core.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
 
-    apply_panel_selection(app, &mut lines, area);
+    apply_panel_selection(app, &mut lines, inner);
 
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
-        .render(f, area, &mut scroll_state);
+        .render(f, inner, &mut scroll_state);
 }
 
 /// 生成对齐的 key-value 行
