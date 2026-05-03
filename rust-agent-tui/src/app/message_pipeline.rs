@@ -508,7 +508,7 @@ impl MessagePipeline {
 
     /// 是否在 SubAgent 执行中
     pub fn in_subagent(&self) -> bool {
-        self.subagent_stack.last().map_or(false, |s| s.is_running)
+        self.subagent_stack.last().is_some_and(|s| s.is_running)
     }
 
     /// 构建当前流式 AssistantBubble（用于 AppendChunk 优化）

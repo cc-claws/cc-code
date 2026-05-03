@@ -67,7 +67,7 @@ mod tests {
             for word in tip.split_whitespace() {
                 if word.starts_with('/')
                     && word.len() > 1
-                    && word.chars().nth(1).map_or(false, |c| c.is_alphabetic())
+                    && word.chars().nth(1).is_some_and(|c| c.is_alphabetic())
                 {
                     let cmd_name: String = word[1..]
                         .chars()

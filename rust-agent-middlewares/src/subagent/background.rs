@@ -1,6 +1,5 @@
 use rust_create_agent::agent::BackgroundTaskResult;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// 后台任务状态
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

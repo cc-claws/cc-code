@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn parse_inline_code() {
         let text = parse_markdown("`hello`", &default_theme(), 80);
-        assert!(text.lines.len() >= 1);
+        assert!(!text.lines.is_empty());
         let has_code = text.lines.iter().any(|l| {
             l.spans
                 .iter()
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn parse_bold_italic() {
         let text = parse_markdown("**bold** *italic*", &default_theme(), 80);
-        assert!(text.lines.len() >= 1);
+        assert!(!text.lines.is_empty());
         let line = &text.lines[0];
         let has_bold = line
             .spans
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn parse_link() {
         let text = parse_markdown("[text](url)", &default_theme(), 80);
-        assert!(text.lines.len() >= 1);
+        assert!(!text.lines.is_empty());
         let has_link = text.lines.iter().any(|l| {
             l.spans
                 .iter()
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn parse_blockquote() {
         let text = parse_markdown("> quoted", &default_theme(), 80);
-        assert!(text.lines.len() >= 1);
+        assert!(!text.lines.is_empty());
         let has_prefix = text
             .lines
             .iter()
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn parse_horizontal_rule() {
         let text = parse_markdown("---", &default_theme(), 80);
-        assert!(text.lines.len() >= 1);
+        assert!(!text.lines.is_empty());
         let has_rule = text
             .lines
             .iter()
@@ -279,7 +279,7 @@ mod tests {
     #[test]
     fn parse_code_block_with_language() {
         let text = parse_markdown("```rust\nfn main() {}\n```", &default_theme(), 80);
-        assert!(text.lines.len() >= 1);
+        assert!(!text.lines.is_empty());
         let all: String = text
             .lines
             .iter()

@@ -368,9 +368,9 @@ mod tests {
         let features = PromptFeatures::detect();
         // 默认环境（无 YOLO_MODE 或 YOLO_MODE=true）下 hitl_enabled 为 false
         // 注意：测试环境中 YOLO_MODE 可能未设置
-        assert_eq!(features.subagent_enabled, true);
-        assert_eq!(features.cron_enabled, true);
-        assert_eq!(features.skills_enabled, true);
+        assert!(features.subagent_enabled);
+        assert!(features.cron_enabled);
+        assert!(features.skills_enabled);
     }
 
     // ─── available_agents tests ──────────────────────────────────────────────

@@ -84,11 +84,7 @@ impl CommandRegistry {
         }
 
         // 2. 别名精确匹配
-        if let Some(cmd) = self
-            .commands
-            .iter()
-            .find(|c| c.aliases().iter().any(|a| *a == name))
-        {
+        if let Some(cmd) = self.commands.iter().find(|c| c.aliases().contains(&name)) {
             cmd.execute(app, args);
             return true;
         }

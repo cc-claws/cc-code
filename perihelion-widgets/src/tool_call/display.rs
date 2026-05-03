@@ -4,7 +4,7 @@ pub fn format_indicator(status: ToolCallStatus, tick: u64) -> &'static str {
     match status {
         ToolCallStatus::Pending => "●",
         ToolCallStatus::Running => {
-            if (tick / 4) % 2 == 0 {
+            if (tick / 4).is_multiple_of(2) {
                 "●"
             } else {
                 " "

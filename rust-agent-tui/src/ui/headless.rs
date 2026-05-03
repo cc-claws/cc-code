@@ -1792,7 +1792,7 @@ mod tests {
         notified.await;
 
         let msgs = &app.core.view_messages;
-        assert!(msgs.len() >= 1, "应有至少 1 条消息");
+        assert!(!msgs.is_empty(), "应有至少 1 条消息");
         let has_summary = msgs.iter().any(|m| {
             if let MessageViewModel::AssistantBubble { blocks, .. } = m {
                 blocks.iter().any(|b| {
@@ -2717,7 +2717,7 @@ mod tests {
     /// 验证后台任务完成通知事件处理
     #[tokio::test]
     async fn test_background_task_notification() {
-        let (mut app, mut handle) = App::new_headless(120, 30);
+        let (mut app, handle) = App::new_headless(120, 30);
 
         // 先设置后台任务计数
         app.background_task_count = 1;

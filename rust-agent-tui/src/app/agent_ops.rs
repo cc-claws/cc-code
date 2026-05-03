@@ -342,9 +342,7 @@ impl App {
                 if !compact_config.auto_compact_enabled {
                     return (true, false, false);
                 }
-                if (self.agent.auto_compact_failures as u32)
-                    < compact_config.max_consecutive_failures
-                {
+                if self.agent.auto_compact_failures < compact_config.max_consecutive_failures {
                     self.agent.needs_auto_compact = true;
                 }
                 (true, false, false)
@@ -449,9 +447,7 @@ impl App {
                     return (true, false, false);
                 }
                 // circuit breaker: 连续失败达到上限后不再自动触发
-                if (self.agent.auto_compact_failures as u32)
-                    < compact_config.max_consecutive_failures
-                {
+                if self.agent.auto_compact_failures < compact_config.max_consecutive_failures {
                     let budget = rust_create_agent::agent::token::ContextBudget::new(
                         self.agent.context_window,
                     )
@@ -731,7 +727,7 @@ impl App {
                             if let Ok(answers) = bridge_rx.await {
                                 let question_answers: Vec<QuestionAnswer> = ids
                                     .into_iter()
-                                    .zip(answers.into_iter())
+                                    .zip(answers)
                                     .map(|(id, answer)| QuestionAnswer {
                                         id,
                                         selected: vec![answer.clone()],

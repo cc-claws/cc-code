@@ -79,7 +79,7 @@ impl SpinnerState {
         self.displayed_tokens =
             animation::smooth_increment(self.displayed_tokens, self.token_count);
         // 每 2 个 raw tick 才推进一帧（星号旋转更快）
-        if self.raw_tick % 2 == 0 {
+        if self.raw_tick.is_multiple_of(2) {
             self.tick += 1;
         }
     }

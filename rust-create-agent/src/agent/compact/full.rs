@@ -73,11 +73,11 @@ fn preprocess_messages(messages: &[BaseMessage], truncate_chars: usize) -> Vec<S
         match msg {
             BaseMessage::System { .. } => {}
             BaseMessage::Human { .. } => {
-                let content = replace_images_and_truncate(&msg.message_content(), truncate_chars);
+                let content = replace_images_and_truncate(msg.message_content(), truncate_chars);
                 lines.push(format!("[用户] {}", content));
             }
             BaseMessage::Ai { tool_calls, .. } => {
-                let text = replace_images_and_truncate(&msg.message_content(), truncate_chars);
+                let text = replace_images_and_truncate(msg.message_content(), truncate_chars);
                 let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
                 let line = if tool_names.is_empty() {
                     format!("[助手] {}", text)
@@ -87,7 +87,7 @@ fn preprocess_messages(messages: &[BaseMessage], truncate_chars: usize) -> Vec<S
                 lines.push(line);
             }
             BaseMessage::Tool { tool_call_id, .. } => {
-                let content = replace_images_and_truncate(&msg.message_content(), truncate_chars);
+                let content = replace_images_and_truncate(msg.message_content(), truncate_chars);
                 lines.push(format!("[工具结果:{}] {}", tool_call_id, content));
             }
         }
@@ -608,8 +608,10 @@ mod tests {
             })
             .collect();
         let model = MockBaseModel::new_with_ptl_fail("摘要", 2);
-        let mut config = CompactConfig::default();
-        config.ptl_max_retries = 3;
+        let config = CompactConfig {
+            ptl_max_retries: 3,
+            ..Default::default()
+        };
         let result = full_compact(&msgs, &model, &config, "").await.unwrap();
         assert!(result.summary.contains("摘要"));
         assert!(result.messages_used < msgs.len());
@@ -619,8 +621,10 @@ mod tests {
     async fn test_full_compact_ptl_retry_exhausted() {
         let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
         let model = MockBaseModel::new_with_ptl_fail("摘要", 5);
-        let mut config = CompactConfig::default();
-        config.ptl_max_retries = 3;
+        let config = CompactConfig {
+            ptl_max_retries: 3,
+            ..Default::default()
+        };
         let result = full_compact(&msgs, &model, &config, "").await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();

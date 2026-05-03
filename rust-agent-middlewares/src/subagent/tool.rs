@@ -544,12 +544,10 @@ impl BaseTool for SubAgentTool {
             .unwrap_or(&self.parent_cwd)
             .to_string();
 
-        if run_in_background {
-            if self.background_registry.is_some() {
-                return self.invoke_background(prompt, subagent_type, cwd).await;
-            }
-            // No registry configured: fall through to normal execution
+        if run_in_background && self.background_registry.is_some() {
+            return self.invoke_background(prompt, subagent_type, cwd).await;
         }
+        // No registry configured: fall through to normal execution
 
         // Fork detection branch
         let is_fork = input.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);

@@ -235,7 +235,7 @@ fn render_step_model_alias(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect)
         };
         lines.push(Line::from(vec![
             Span::styled(format!(" {}  Model: ", label), lbl_style),
-            Span::styled(format!("{}", model_display), val_style),
+            Span::styled(model_display.to_string(), val_style),
         ]));
     }
 

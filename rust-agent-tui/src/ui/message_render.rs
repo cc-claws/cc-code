@@ -70,7 +70,7 @@ pub fn render_view_model(
                             if !first_text_merged {
                                 // 第一行文本合并到标题行，保留 markdown 样式 spans
                                 let mut spans = vec![
-                                    Span::styled(format!("●"), Style::default().fg(theme::TEXT)),
+                                    Span::styled("●".to_string(), Style::default().fg(theme::TEXT)),
                                     Span::raw(" "),
                                 ];
                                 spans.extend(line.spans.clone());

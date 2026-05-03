@@ -373,11 +373,11 @@ fn detail_line<'a>(label_width: usize, label: &str, value: &str, value_style: St
 }
 
 /// 将服务器按来源分组：(project_servers, user_servers)
-fn partition_by_source<'a>(
-    servers: &'a [rust_agent_middlewares::mcp::ServerInfo],
+fn partition_by_source(
+    servers: &[rust_agent_middlewares::mcp::ServerInfo],
 ) -> (
-    Vec<&'a rust_agent_middlewares::mcp::ServerInfo>,
-    Vec<&'a rust_agent_middlewares::mcp::ServerInfo>,
+    Vec<&rust_agent_middlewares::mcp::ServerInfo>,
+    Vec<&rust_agent_middlewares::mcp::ServerInfo>,
 ) {
     let mut project = Vec::new();
     let mut user = Vec::new();

@@ -310,10 +310,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     .await;
                 let mut modified_calls: Vec<ToolCall> = Vec::with_capacity(original_calls.len());
 
-                for (_idx, (tool_call, before_result)) in original_calls
-                    .iter()
-                    .zip(before_results.into_iter())
-                    .enumerate()
+                for (tool_call, before_result) in
+                    original_calls.iter().zip(before_results.into_iter())
                 {
                     // before_tool 阶段也检查取消
                     if cancel.is_cancelled() {

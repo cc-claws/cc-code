@@ -37,6 +37,12 @@ pub struct RenderCache {
     pub wrap_map: Vec<WrappedLineInfo>,
 }
 
+impl Default for RenderCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RenderCache {
     pub fn new() -> Self {
         Self {
@@ -115,7 +121,7 @@ impl RenderTask {
             let visual_count = if line_display_width == 0 {
                 1 // 空行占 1 个视觉行
             } else {
-                (line_display_width + usable_width - 1) / usable_width // 向上取整
+                line_display_width.div_ceil(usable_width) // 向上取整
             };
             let visual_count = visual_count.max(1) as u16;
 

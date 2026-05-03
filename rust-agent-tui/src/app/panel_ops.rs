@@ -457,6 +457,7 @@ impl App {
                 rust_agent_middlewares::prelude::PermissionMode::Bypass,
             ),
             mode_highlight_until: None,
+            model_highlight_until: None,
             spinner_state: perihelion_widgets::SpinnerState::new(
                 perihelion_widgets::SpinnerMode::Idle,
             ),

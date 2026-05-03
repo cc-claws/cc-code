@@ -272,7 +272,7 @@ impl HumanInTheLoopMiddleware {
         start_idx: usize,
         initial_results: &mut Vec<AgentResult<ToolCall>>,
     ) -> Vec<AgentResult<ToolCall>> {
-        let mut results: Vec<AgentResult<ToolCall>> = initial_results.drain(..).collect();
+        let mut results: Vec<AgentResult<ToolCall>> = std::mem::take(initial_results);
 
         let needs_approval: Vec<(usize, &ToolCall)> = calls
             .iter()

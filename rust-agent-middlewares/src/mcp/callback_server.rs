@@ -61,7 +61,7 @@ impl OAuthCallbackServer {
             .listener
             .accept()
             .await
-            .map_err(|e| CallbackError::IoError(e))?;
+            .map_err(CallbackError::IoError)?;
         info!("OAuth 回调服务器收到连接: {}", addr);
 
         let mut reader = BufReader::new(&mut stream);
@@ -69,14 +69,14 @@ impl OAuthCallbackServer {
         reader
             .read_line(&mut request_line)
             .await
-            .map_err(|e| CallbackError::IoError(e))?;
+            .map_err(CallbackError::IoError)?;
 
         loop {
             let mut line = String::new();
             reader
                 .read_line(&mut line)
                 .await
-                .map_err(|e| CallbackError::IoError(e))?;
+                .map_err(CallbackError::IoError)?;
             if line == "\r\n" || line == "\n" {
                 break;
             }
@@ -101,11 +101,8 @@ impl OAuthCallbackServer {
         stream
             .write_all(&resp_vec)
             .await
-            .map_err(|e| CallbackError::IoError(e))?;
-        stream
-            .shutdown()
-            .await
-            .map_err(|e| CallbackError::IoError(e))?;
+            .map_err(CallbackError::IoError)?;
+        stream.shutdown().await.map_err(CallbackError::IoError)?;
 
         callback_result
     }

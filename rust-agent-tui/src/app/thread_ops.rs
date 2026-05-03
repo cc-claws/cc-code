@@ -113,7 +113,7 @@ impl App {
                     None
                 }
             })
-            .last();
+            .next_back();
 
         // 通知渲染线程加载历史消息
         let _ = self

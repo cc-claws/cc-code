@@ -113,10 +113,12 @@ impl GrepInput {
             "content" => OutputMode::Default,
             "files_with_matches" => OutputMode::FilesOnly,
             "count" => OutputMode::CountOnly,
-            other => return Err(format!(
+            other => {
+                return Err(format!(
                 "Invalid output_mode: '{}'. Must be 'content', 'files_with_matches', or 'count'",
                 other
-            )),
+            ))
+            }
         };
 
         // 组装 glob 过滤器：用户提供的 glob + type 映射
@@ -171,7 +173,7 @@ impl Sink for SearchSink {
             OutputMode::Default => {
                 let line_number = mat.line_number().unwrap_or(0);
                 let content = String::from_utf8_lossy(mat.bytes());
-                let content = content.trim_end_matches(|c| c == '\n' || c == '\r');
+                let content = content.trim_end_matches(['\n', '\r']);
                 let line = format!("{}:{}: {}", self.display_path, line_number, content);
 
                 let total = self.total_lines.fetch_add(1, Ordering::Relaxed) + 1;
@@ -207,7 +209,7 @@ impl Sink for SearchSink {
 
         let line_number = ctx.line_number().unwrap_or(0);
         let content = String::from_utf8_lossy(ctx.bytes());
-        let content = content.trim_end_matches(|c| c == '\n' || c == '\r');
+        let content = content.trim_end_matches(['\n', '\r']);
 
         let separator = match ctx.kind() {
             SinkContextKind::Before => '-',
@@ -305,7 +307,7 @@ fn execute_search(
                 if stopped.load(Ordering::Relaxed) {
                     return WalkState::Quit;
                 }
-                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+                if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                     return WalkState::Continue;
                 }
 

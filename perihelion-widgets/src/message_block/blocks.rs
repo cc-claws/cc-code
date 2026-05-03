@@ -122,7 +122,7 @@ pub fn render_block(
                     format!("{} ", arrow),
                     ratatui::style::Style::default().fg(theme.success()),
                 ),
-                ratatui::text::Span::raw(format!("{}", agent_id)),
+                ratatui::text::Span::raw(agent_id.to_string()),
             ])];
             if !collapsed {
                 if let Some(res) = result {

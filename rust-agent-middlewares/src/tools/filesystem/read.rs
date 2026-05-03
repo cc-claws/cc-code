@@ -130,15 +130,13 @@ impl BaseTool for ReadFileTool {
 
         // PDF + pages: 返回占位提示
         if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
-            if ext.eq_ignore_ascii_case("pdf") {
-                if pages.is_some() {
-                    return Ok(format!(
+            if ext.eq_ignore_ascii_case("pdf") && pages.is_some() {
+                return Ok(format!(
                         "[PDF READING NOT YET SUPPORTED]\n\nFile path: {}\nPDF reading with page selection is not yet implemented. Use the Bash tool with a PDF reader command as a workaround.",
                         resolved.display()
                     ));
-                }
-                // PDF 但未提供 pages → 继续走到下面的二进制检测，返回 BINARY FILE DETECTED
             }
+            // PDF 但未提供 pages → 继续走到下面的二进制检测，返回 BINARY FILE DETECTED
         }
 
         if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {

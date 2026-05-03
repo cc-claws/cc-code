@@ -52,15 +52,15 @@ pub async fn run_acp_mode(_cwd: String, model_override: Option<String>) -> Resul
 fn resolve_provider(zen_config: &config::ZenConfig, model_override: Option<&str>) -> LlmProvider {
     if let Some(model) = model_override {
         LlmProvider::from_config_for_alias(zen_config, model)
-            .or_else(|| LlmProvider::from_env())
+            .or_else(LlmProvider::from_env)
             .unwrap_or_else(|| {
                 LlmProvider::from_config(zen_config)
-                    .or_else(|| LlmProvider::from_env())
+                    .or_else(LlmProvider::from_env)
                     .expect("未配置任何 LLM Provider，请运行 peri tui 完成初始设置")
             })
     } else {
         LlmProvider::from_config(zen_config)
-            .or_else(|| LlmProvider::from_env())
+            .or_else(LlmProvider::from_env)
             .expect("未配置任何 LLM Provider，请运行 peri tui 完成初始设置")
     }
 }

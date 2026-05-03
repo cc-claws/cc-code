@@ -249,7 +249,7 @@ pub async fn handle_list_sessions(
         Ok(threads) => {
             let sessions: Vec<SessionInfo> = threads
                 .into_iter()
-                .filter(|t| cwd_filter.as_ref().map_or(true, |cwd| t.cwd == *cwd))
+                .filter(|t| cwd_filter.as_ref().is_none_or(|cwd| t.cwd == *cwd))
                 .map(|t| {
                     SessionInfo::new(SessionId::from(t.id), &t.cwd)
                         .title(t.title.unwrap_or_default())

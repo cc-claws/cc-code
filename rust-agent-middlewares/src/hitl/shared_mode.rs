@@ -4,8 +4,10 @@ use std::sync::Arc;
 /// 权限模式枚举，控制 HITL 审批行为
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum PermissionMode {
     /// 所有敏感工具弹窗审批（默认）
+    #[default]
     Default = 0,
     /// 默认不允许所有 bash
     DontAsk = 1,
@@ -15,12 +17,6 @@ pub enum PermissionMode {
     AutoMode = 3,
     /// 所有都允许
     Bypass = 4,
-}
-
-impl Default for PermissionMode {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl PermissionMode {

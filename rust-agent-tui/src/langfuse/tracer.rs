@@ -295,7 +295,7 @@ impl LangfuseTracer {
             *start_time_ref =
                 Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
         }
-        let parent_span_id = batch_id_ref.clone().unwrap_or_else(|| current_agent_id);
+        let parent_span_id = batch_id_ref.clone().unwrap_or(current_agent_id);
 
         let span_id = uuid::Uuid::now_v7().to_string();
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 /// Langfuse 可观测性状态：Session/Tracer/Flush
+#[derive(Default)]
 pub struct LangfuseState {
     /// Thread 级别的 Langfuse Session（Thread 创建/打开时懒加载，new_thread/open_thread 时重置）
     pub langfuse_session: Option<Arc<crate::langfuse::LangfuseSession>>,
@@ -8,14 +9,4 @@ pub struct LangfuseState {
     pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
     /// on_trace_end 返回的 flush JoinHandle，进程退出前应 await 确保 batcher flush 完成
     pub langfuse_flush_handle: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl Default for LangfuseState {
-    fn default() -> Self {
-        Self {
-            langfuse_session: None,
-            langfuse_tracer: None,
-            langfuse_flush_handle: None,
-        }
-    }
 }

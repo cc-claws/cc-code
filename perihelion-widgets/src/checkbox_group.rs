@@ -67,6 +67,10 @@ impl CheckboxState {
     pub fn len(&self) -> usize {
         self.checked.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.checked.is_empty()
+    }
 }
 
 /// 多选按钮组 widget

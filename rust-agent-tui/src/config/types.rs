@@ -195,7 +195,7 @@ mod tests {
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ThinkingConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.enabled, true);
+        assert!(back.enabled);
         assert_eq!(back.budget_tokens, 5000);
         assert_eq!(back.effort, "medium");
     }
@@ -225,7 +225,7 @@ mod tests {
         }"#;
         let cfg: AppConfig = serde_json::from_str(json).unwrap();
         let t = cfg.thinking.as_ref().unwrap();
-        assert_eq!(t.enabled, true);
+        assert!(t.enabled);
         assert_eq!(t.budget_tokens, 8000);
 
         // 序列化后 thinking 字段存在

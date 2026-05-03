@@ -153,18 +153,16 @@ impl BaseTool for GlobFilesTool {
 
         if results.is_empty() {
             Ok("No files found.".to_string())
+        } else if results.len() > MAX_RESULTS {
+            let truncated = &results[..MAX_RESULTS];
+            Ok(format!(
+                "{}\n\n[Output truncated: {} files total, showing first {}]",
+                truncated.join("\n"),
+                results.len(),
+                MAX_RESULTS
+            ))
         } else {
-            if results.len() > MAX_RESULTS {
-                let truncated = &results[..MAX_RESULTS];
-                Ok(format!(
-                    "{}\n\n[Output truncated: {} files total, showing first {}]",
-                    truncated.join("\n"),
-                    results.len(),
-                    MAX_RESULTS
-                ))
-            } else {
-                Ok(results.join("\n"))
-            }
+            Ok(results.join("\n"))
         }
     }
 }

@@ -115,6 +115,12 @@ impl Step1Field {
     }
 }
 
+impl Default for SetupWizardPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SetupWizardPanel {
     pub fn new() -> Self {
         let pt = ProviderType::Anthropic;

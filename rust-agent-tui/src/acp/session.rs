@@ -131,11 +131,7 @@ impl SessionManager {
     }
 
     pub async fn list_sessions(&self) -> anyhow::Result<Vec<ThreadMeta>> {
-        self.inner
-            .thread_store
-            .list_threads()
-            .await
-            .map_err(Into::into)
+        self.inner.thread_store.list_threads().await
     }
 
     pub fn get_session(
@@ -175,10 +171,6 @@ impl SessionManager {
         &self,
         thread_id: &ThreadId,
     ) -> anyhow::Result<Vec<BaseMessage>> {
-        self.inner
-            .thread_store
-            .load_messages(thread_id)
-            .await
-            .map_err(Into::into)
+        self.inner.thread_store.load_messages(thread_id).await
     }
 }

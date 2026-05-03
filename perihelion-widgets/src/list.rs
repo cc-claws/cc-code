@@ -81,6 +81,7 @@ impl<T> ListState<T> {
 /// render_item 闭包签名为 `Fn(&T, bool) -> Line<'a>`，bool 表示当前行是否为 cursor。
 /// "特殊首项"模式由调用方在闭包中处理（如 items[0] 是 "New Thread"）。
 pub struct SelectableList<'a, T> {
+    #[allow(clippy::type_complexity)]
     render_item: Box<dyn Fn(&T, bool) -> Line<'a>>,
     cursor_marker: &'a str,
     cursor_style: Style,

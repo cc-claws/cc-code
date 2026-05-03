@@ -44,7 +44,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         if !label.is_empty() {
             let is_highlight = app
                 .mode_highlight_until
-                .map_or(false, |until| std::time::Instant::now() < until);
+                .is_some_and(|until| std::time::Instant::now() < until);
             let mut style = Style::default().fg(color);
             if is_highlight {
                 style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
@@ -66,10 +66,16 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
 
     // 模型名（只显示 model name）
     spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
-    spans.push(Span::styled(
-        format!(" {}", app.model_name),
-        Style::default().fg(theme::MODEL_INFO),
-    ));
+    {
+        let is_highlight = app
+            .model_highlight_until
+            .is_some_and(|until| std::time::Instant::now() < until);
+        let mut style = Style::default().fg(theme::MODEL_INFO);
+        if is_highlight {
+            style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
+        }
+        spans.push(Span::styled(format!(" {}", app.model_name), style));
+    }
 
     // 上下文使用率
     {

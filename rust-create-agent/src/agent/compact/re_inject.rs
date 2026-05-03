@@ -532,9 +532,11 @@ mod tests {
                 ai_read_file(&format!("tc{}", i), &f)
             })
             .collect();
-        let mut config = CompactConfig::default();
-        config.re_inject_file_budget = 5000;
-        config.re_inject_max_files = 5;
+        let config = CompactConfig {
+            re_inject_file_budget: 5000,
+            re_inject_max_files: 5,
+            ..Default::default()
+        };
         let result = re_inject(&msgs, &config, dir.path().to_str().unwrap()).await;
         assert!(result.files_injected < 3);
     }
@@ -548,8 +550,10 @@ mod tests {
                 ai_read_file(&format!("tc{}", i), &f)
             })
             .collect();
-        let mut config = CompactConfig::default();
-        config.re_inject_max_files = 3;
+        let config = CompactConfig {
+            re_inject_max_files: 3,
+            ..Default::default()
+        };
         let result = re_inject(&msgs, &config, dir.path().to_str().unwrap()).await;
         assert!(result.files_injected <= 3);
     }

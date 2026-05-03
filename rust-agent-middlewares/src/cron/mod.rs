@@ -197,7 +197,7 @@ mod tests {
         let (mut sched, _rx) = new_scheduler();
         // croner 6-field format: use 5-field standard cron
         for i in 0..20 {
-            let expr = format!("* * * * *");
+            let expr = "* * * * *".to_string();
             sched.register(&expr, &format!("task {}", i)).unwrap();
         }
         let result = sched.register("* * * * *", "overflow");

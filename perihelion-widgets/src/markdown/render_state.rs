@@ -121,7 +121,7 @@ impl TableBuilder {
         max_width: usize,
         _theme: &dyn MarkdownTheme,
     ) -> Vec<Vec<Vec<Vec<Span<'static>>>>> {
-        let num_cols = self.rows.get(0).map(|r| r.len()).unwrap_or(0);
+        let num_cols = self.rows.first().map(|r| r.len()).unwrap_or(0);
         if num_cols == 0 {
             return vec![];
         }

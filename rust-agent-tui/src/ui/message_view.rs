@@ -75,12 +75,10 @@ impl ToolCategory {
             ToolCategory::Read.summary(count)
         } else if has_glob {
             ToolCategory::Glob.summary(count)
+        } else if count == 1 {
+            "1 operation".to_string()
         } else {
-            if count == 1 {
-                "1 operation".to_string()
-            } else {
-                format!("{} operations", count)
-            }
+            format!("{} operations", count)
         }
     }
 }

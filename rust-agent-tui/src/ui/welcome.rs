@@ -130,7 +130,9 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         Span::styled("Alt+Enter", Style::default().fg(theme::DIM)),
         Span::styled(":NewLine  ", Style::default().fg(theme::DIM)),
         Span::styled("Shift+Tab", Style::default().fg(theme::DIM)),
-        Span::styled(":Mode", Style::default().fg(theme::DIM)),
+        Span::styled(":Mode  ", Style::default().fg(theme::DIM)),
+        Span::styled("Ctrl+Tab", Style::default().fg(theme::DIM)),
+        Span::styled(":Model", Style::default().fg(theme::DIM)),
     ]));
 
     // ── 动态信息 ────────────────────────────────────────────────────────

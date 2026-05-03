@@ -28,18 +28,13 @@ impl ClientConfig {
 }
 
 /// 背压策略
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackpressurePolicy {
     /// 队列满时丢弃新事件
+    #[default]
     DropNew,
     /// 队列满时阻塞等待
     Block,
-}
-
-impl Default for BackpressurePolicy {
-    fn default() -> Self {
-        Self::DropNew
-    }
 }
 
 /// Batcher 批量聚合配置

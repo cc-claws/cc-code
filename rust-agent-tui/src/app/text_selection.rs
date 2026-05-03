@@ -11,6 +11,12 @@ pub struct TextSelection {
     pub selected_text: Option<String>,
 }
 
+impl Default for TextSelection {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TextSelection {
     pub fn new() -> Self {
         Self {
@@ -71,6 +77,12 @@ pub struct PanelTextSelection {
     pub dragging: bool,
     /// 选区对应的纯文本内容
     pub selected_text: Option<String>,
+}
+
+impl Default for PanelTextSelection {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PanelTextSelection {

@@ -314,7 +314,7 @@ mod tests {
         let path = tmp.path().to_path_buf();
         drop(tmp);
         let store = Arc::new(FileCredentialStore::with_path(path));
-        let mut manager = OAuthFlowManager::new(store, move |_| {
+        let manager = OAuthFlowManager::new(store, move |_| {
             counter_clone.fetch_add(1, Ordering::SeqCst);
         });
 

@@ -8,6 +8,7 @@ use tokio::time::{interval, Duration};
 use tracing::{debug, error, info, warn};
 
 /// Batcher 内部命令（不导出）
+#[allow(clippy::large_enum_variant)]
 enum BatcherCommand {
     /// 添加事件到待发送队列
     Add(IngestionEvent),
@@ -109,7 +110,7 @@ impl Batcher {
             return;
         }
 
-        let events: Vec<IngestionEvent> = buffer.drain(..).collect();
+        let events: Vec<IngestionEvent> = std::mem::take(buffer);
         debug!("Batcher flushing {} events via OTLP", events.len());
 
         match client.ingest(events).await {

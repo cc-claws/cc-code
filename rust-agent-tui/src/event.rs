@@ -92,14 +92,37 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // Ctrl+Tab 循环切换模型别名（opus → sonnet → haiku → opus）
+            if key_event.code == KeyCode::Tab && key_event.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                if let Some(cfg) = app.zen_config.as_mut() {
+                    let aliases = ["opus", "sonnet", "haiku"];
+                    let current = cfg.config.active_alias.as_str();
+                    let idx = aliases.iter().position(|&a| a == current).unwrap_or(0);
+                    let next = aliases[(idx + 1) % aliases.len()];
+                    cfg.config.active_alias = next.to_string();
+                    if let Err(e) = App::save_config(cfg, app.config_path_override.as_deref()) {
+                        app.core
+                            .view_messages
+                            .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+                    }
+                    if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
+                        app.provider_name = p.display_name().to_string();
+                        app.model_name = p.model_name().to_string();
+                    }
+                    app.model_highlight_until =
+                        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                }
+                return Ok(Some(Action::Redraw));
+            }
+
             // macOS: Cmd+C (Super+C) 复制选区文本（遵循系统剪贴板快捷键惯例）
             // tui_textarea::Input 没有 super 字段，需在转换前从原始 key_event 检测。
             if key_event.code == KeyCode::Char('c')
                 && key_event.modifiers.contains(KeyModifiers::SUPER)
+                && copy_selection_to_clipboard(app)
             {
-                if copy_selection_to_clipboard(app) {
-                    return Ok(Some(Action::Redraw));
-                }
+                return Ok(Some(Action::Redraw));
             }
 
             // 全局复制：有选区时 Ctrl+C 优先复制，不被任何面板拦截
@@ -755,7 +778,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         .core
         .thread_browser
         .as_ref()
-        .map_or(false, |b| b.confirm_delete)
+        .is_some_and(|b| b.confirm_delete)
     {
         match input {
             Input {
@@ -784,7 +807,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         .core
         .thread_browser
         .as_ref()
-        .map_or(false, |b| b.search_focused);
+        .is_some_and(|b| b.search_focused);
 
     if search_focused {
         match input {
@@ -1319,7 +1342,6 @@ fn handle_memory_panel(app: &mut App, input: Input) {
             if let Err(e) = app.memory_panel_open_editor() {
                 tracing::error!("Failed to open editor: {}", e);
             }
-            return;
         }
         Input { key: Key::Esc, .. } => {
             app.memory_panel = None;
@@ -1334,7 +1356,7 @@ fn handle_cron_panel(app: &mut App, input: Input) {
         .cron
         .cron_panel
         .as_ref()
-        .map_or(false, |p| p.confirm_delete)
+        .is_some_and(|p| p.confirm_delete)
     {
         match input {
             Input {
@@ -1389,7 +1411,7 @@ fn handle_mcp_panel(app: &mut App, input: Input) {
     if app
         .mcp_panel
         .as_ref()
-        .map_or(false, |p| p.confirm_delete.is_some())
+        .is_some_and(|p| p.confirm_delete.is_some())
     {
         match input {
             Input {
@@ -1407,7 +1429,7 @@ fn handle_mcp_panel(app: &mut App, input: Input) {
     let is_server_list = app
         .mcp_panel
         .as_ref()
-        .map_or(true, |p| p.view.is_server_list());
+        .is_none_or(|p| p.view.is_server_list());
 
     match input {
         Input {

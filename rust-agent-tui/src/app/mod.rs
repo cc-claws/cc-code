@@ -94,6 +94,8 @@ pub struct App {
     pub permission_mode: Arc<rust_agent_middlewares::prelude::SharedPermissionMode>,
     /// 权限模式切换后的闪烁高亮截止时间，None 表示不闪烁
     pub mode_highlight_until: Option<std::time::Instant>,
+    /// 模型切换后的闪烁高亮截止时间，None 表示不闪烁
+    pub model_highlight_until: Option<std::time::Instant>,
     pub spinner_state: perihelion_widgets::SpinnerState,
     /// 测试时覆盖配置文件路径，防止污染全局 ~/.zen-code/settings.json
     pub config_path_override: Option<PathBuf>,
@@ -117,6 +119,12 @@ pub struct App {
     pub memory_panel: Option<crate::app::memory_panel::MemoryPanel>,
     /// 当前运行中的后台任务数量（状态栏指示器使用）
     pub background_task_count: usize,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl App {
@@ -204,6 +212,7 @@ impl App {
                 rust_agent_middlewares::prelude::PermissionMode::Bypass,
             ),
             mode_highlight_until: None,
+            model_highlight_until: None,
             spinner_state: perihelion_widgets::SpinnerState::new(
                 perihelion_widgets::SpinnerMode::Idle,
             ),

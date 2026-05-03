@@ -127,10 +127,8 @@ impl McpClientPool {
         }
 
         let token_store = Arc::new(FileCredentialStore::new());
-        let mut oauth_manager: Option<OAuthFlowManager> = match oauth_event_callback {
-            Some(cb) => Some(OAuthFlowManager::new(token_store, cb)),
-            None => None,
-        };
+        let mut oauth_manager: Option<OAuthFlowManager> =
+            oauth_event_callback.map(|cb| OAuthFlowManager::new(token_store, cb));
 
         for (name, server_config) in &config.mcp_servers {
             pool.configs
@@ -279,7 +277,7 @@ impl McpClientPool {
                     }
                 }
                 Err(_) => {
-                    Self::insert_failed(&pool, name, format!("连接超时"));
+                    Self::insert_failed(&pool, name, "连接超时".to_string());
                 }
             }
         }
@@ -424,8 +422,8 @@ impl McpClientPool {
             } => {
                 if let (Some(oauth_cfg), Some(cb)) = (oauth, oauth_event_callback) {
                     let ts = Arc::new(FileCredentialStore::new());
-                    let mut mgr = OAuthFlowManager::new(ts, move |ev| cb(ev));
-                    match mgr.run_oauth_flow(server_name, &url, &oauth_cfg).await {
+                    let mut mgr = OAuthFlowManager::new(ts, cb);
+                    match mgr.run_oauth_flow(server_name, url, oauth_cfg).await {
                         Ok(()) => {
                             used_oauth = true;
                             if let Some(am) = mgr.get_authorization_manager(server_name) {
@@ -433,7 +431,7 @@ impl McpClientPool {
                                     timeout,
                                     rmcp::service::serve_client(
                                         (),
-                                        build_authed_transport(&url, &headers, am),
+                                        build_authed_transport(url, headers, am),
                                     ),
                                 )
                                 .await
@@ -442,7 +440,7 @@ impl McpClientPool {
                                     timeout,
                                     rmcp::service::serve_client(
                                         (),
-                                        build_http_transport(&url, &headers),
+                                        build_http_transport(url, headers),
                                     ),
                                 )
                                 .await
@@ -461,13 +459,13 @@ impl McpClientPool {
                     used_oauth = true;
                     tokio::time::timeout(
                         timeout,
-                        rmcp::service::serve_client((), build_http_transport(&url, &headers)),
+                        rmcp::service::serve_client((), build_http_transport(url, headers)),
                     )
                     .await
                 } else {
                     tokio::time::timeout(
                         timeout,
-                        rmcp::service::serve_client((), build_http_transport(&url, &headers)),
+                        rmcp::service::serve_client((), build_http_transport(url, headers)),
                     )
                     .await
                 }
@@ -561,7 +559,7 @@ impl McpClientPool {
             }
         };
         let ts = Arc::new(FileCredentialStore::new());
-        let mut mgr = OAuthFlowManager::new(ts, move |ev| oauth_event_callback(ev));
+        let mut mgr = OAuthFlowManager::new(ts, oauth_event_callback);
         mgr.run_oauth_flow(server_name, &url, &oauth_cfg)
             .await
             .map_err(|e| McpPoolError::ConnectionFailed {
@@ -778,10 +776,8 @@ impl McpClientPool {
         let config = super::load_merged_config(cwd);
         let pool = Arc::new(Self::new_pending());
         let token_store = Arc::new(FileCredentialStore::new());
-        let mut oauth_manager: Option<OAuthFlowManager> = match oauth_event_callback {
-            Some(cb) => Some(OAuthFlowManager::new(token_store, cb)),
-            None => None,
-        };
+        let mut oauth_manager: Option<OAuthFlowManager> =
+            oauth_event_callback.map(|cb| OAuthFlowManager::new(token_store, cb));
 
         for (name, sc) in &config.mcp_servers {
             pool.configs.write().insert(name.clone(), sc.clone());

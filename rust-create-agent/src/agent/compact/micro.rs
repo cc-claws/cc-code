@@ -87,6 +87,7 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
 
     let mut round_index = vec![0usize; messages.len()];
     for (ri, round) in rounds.iter().enumerate() {
+        #[allow(clippy::needless_range_loop)]
         for mi in round.start..round.end {
             if mi < messages.len() {
                 round_index[mi] = ri;

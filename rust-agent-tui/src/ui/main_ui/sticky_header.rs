@@ -41,8 +41,7 @@ pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
 
     let lines: Vec<Line> = wrapped_lines
         .into_iter()
-        .enumerate()
-        .map(|(_idx, text)| {
+        .map(|text| {
             Line::from(vec![
                 Span::styled("❯ ", label_style),
                 Span::styled(text, text_style),
@@ -61,7 +60,7 @@ pub(super) fn estimate_header_lines(msg: &str, width: u16) -> usize {
     }
     let width = width as usize;
     let char_count = msg.chars().count();
-    let lines = (char_count + width - 1) / width;
+    let lines = char_count.div_ceil(width);
     lines.clamp(1, 3)
 }
 

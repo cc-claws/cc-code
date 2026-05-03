@@ -33,6 +33,12 @@ pub struct FileCredentialStore {
     mutex: Mutex<()>,
 }
 
+impl Default for FileCredentialStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileCredentialStore {
     pub fn new() -> Self {
         let path = dirs_next::home_dir()
