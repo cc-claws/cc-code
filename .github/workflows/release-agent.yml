@@ -81,7 +81,7 @@ jobs:
               if: matrix.ext == ''
               run: |
                   mkdir -p dist
-                  cp target/${{ matrix.target }}/release/agent-tui dist/agent-tui-${{ matrix.platform }}
+                  cp target/${{ matrix.target }}/release/peri dist/agent-tui-${{ matrix.platform }}
                   chmod +x dist/agent-tui-${{ matrix.platform }}
 
             - name: Package binaries (Windows)
@@ -89,7 +89,7 @@ jobs:
               shell: pwsh
               run: |
                   New-Item -ItemType Directory -Force -Path dist
-                  Copy-Item "target/${{ matrix.target }}/release/agent-tui.exe" "dist/agent-tui-${{ matrix.platform }}.exe"
+                  Copy-Item "target/${{ matrix.target }}/release/peri.exe" "dist/agent-tui-${{ matrix.platform }}.exe"
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v4
