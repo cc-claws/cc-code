@@ -917,8 +917,8 @@ mod tests {
 
         let cancel_token = CancellationToken::new();
 
-        // This should timeout after ~1s
-        let start = std::time::Instant::now();
+        // The execute_dag itself doesn't enforce the timeout - run_workflow does.
+        // Here we just verify the workflow is configured with timeout.
         let result = execute_dag(
             Arc::new(pool.clone()),
             &run_id,
@@ -927,13 +927,8 @@ mod tests {
             &cancel_token,
         )
         .await;
-        let elapsed = start.elapsed();
 
-        // The execute_dag itself doesn't enforce the timeout - run_workflow does.
-        // But we can verify the workflow is configured with timeout
         assert!(wf.timeout == Some(1));
-        // The DAG won't timeout here because execute_dag doesn't have timeout wrapping.
-        // The timeout is in run_workflow. So we just verify the schema parses correctly.
         drop(result);
     }
 
