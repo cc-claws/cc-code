@@ -145,3 +145,26 @@ pre.stderr { background:#fff8f0; }
 ::-webkit-scrollbar { width:5px; }
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* API Docs Modal */
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:900; }
+.modal-content { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:680px; max-width:90vw; max-height:85vh; background:var(--bg); border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,0.18); z-index:901; display:flex; flex-direction:column; }
+.modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.modal-header h2 { font-size:15px; font-weight:600; }
+.modal-close { background:none; border:none; font-size:20px; cursor:pointer; color:var(--text2); padding:0 4px; }
+.modal-close:hover { color:var(--text); }
+.modal-body { padding:16px 20px; overflow-y:auto; flex:1; }
+.api-section { margin-bottom:20px; }
+.api-section h3 { font-size:13px; font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+.api-section h3 .method { font-size:10px; padding:2px 7px; border-radius:3px; font-weight:700; letter-spacing:0.3px; }
+.method-get { background:#ddf4ff; color:#0969da; }
+.method-post { background:#dafbe1; color:#1a7f37; }
+.api-section p { font-size:12px; color:var(--text2); margin-bottom:6px; line-height:1.5; }
+.api-curl { position:relative; background:#1b1f24; color:#e6edf3; border-radius:6px; padding:12px 14px; font-size:11px; font-family:"SF Mono",Menlo,monospace; white-space:pre-wrap; word-break:break-all; line-height:1.6; margin-bottom:4px; }
+.api-curl .curl-copy { position:absolute; top:6px; right:6px; background:rgba(255,255,255,0.1); border:none; color:#8b949e; font-size:10px; padding:3px 8px; border-radius:3px; cursor:pointer; }
+.api-curl .curl-copy:hover { background:rgba(255,255,255,0.2); color:#e6edf3; }
+.api-param-table { width:100%; font-size:11px; border-collapse:collapse; margin:6px 0 10px; }
+.api-param-table th { text-align:left; padding:4px 8px; background:var(--bg2); border:1px solid var(--border); font-weight:600; color:var(--text2); }
+.api-param-table td { padding:4px 8px; border:1px solid var(--border); }
+.api-param-table code { background:var(--bg2); padding:1px 4px; border-radius:3px; font-size:10px; }
+.api-response { background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-size:11px; font-family:"SF Mono",Menlo,monospace; white-space:pre-wrap; margin-top:6px; }

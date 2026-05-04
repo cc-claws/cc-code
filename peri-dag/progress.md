@@ -108,3 +108,19 @@ required input 未填时直接提交导致后端 400。添加前端校验：空 
 ### 测试覆盖
 - 新增 9 个测试（loader: find_exit_nodes/parallel, prefix_id, rewire_depends/no_match, with_value_to_map_number_and_bool; api: empty_declared, extra_provided_ignored, negative_number; template: 移除未使用 ctx）
 - 总计 43 个测试全部通过
+
+## 2026-05-04 Round 6
+
+### 发现并修复的问题
+
+**1. 消除所有内联 onclick 处理器（高优先级）**
+run 列表项、DAG 图节点、log header 三处使用 `onclick="fn('...')"` 内联 JS，存在潜在注入风险且不利于 CSP 策略。全部改为 `data-*` 属性 + `addEventListener` 事件委托模式，与模板卡片统一风格。
+
+**2. API 文档 curl Copy 机制不可靠（中等优先级）**
+`copyCurl` 用 `textContent.replace('Copy','')` 移除按钮文本，若 curl 内容含 "Copy" 会被误删。改为 `data-curl` 属性存储原始命令，按钮直接读取属性值复制。
+
+**3. 新增 API 文档模态框（功能增强）**
+sidebar Templates header 添加 API 按钮，点击弹出模态框显示 6 个端点文档，每个含方法标签、参数表、可复制的 curl 示例和响应示例。
+
+### 测试覆盖
+- 43 个测试全部通过（本轮无新增后端代码变更，前端优化为主）

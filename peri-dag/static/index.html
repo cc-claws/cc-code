@@ -11,6 +11,7 @@
 <div id="sidebar">
   <div class="runs-header" style="flex-shrink:0">
     <span>Templates</span>
+    <button class="btn btn-sm" onclick="toggleApiDocs()" title="API documentation">API</button>
   </div>
   <div id="templates-section" style="overflow:auto;flex:1;min-height:0">
     <div class="template-empty"><span class="spinner"></span> Loading...</div>
@@ -47,5 +48,16 @@
 </div>
 
 <script src="app.js?v=2"></script>
+
+<div id="api-modal" style="display:none">
+  <div class="modal-backdrop" onclick="toggleApiDocs()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>API Reference</h2>
+      <button class="modal-close" onclick="toggleApiDocs()">&times;</button>
+    </div>
+    <div class="modal-body" id="api-docs-body"></div>
+  </div>
+</div>
 </body>
 </html>
