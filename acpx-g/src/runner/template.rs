@@ -72,7 +72,12 @@ fn find_close_brace(input: &str, start: usize) -> Option<usize> {
 }
 
 fn resolve_expr(expr: &str, ctx: &TemplateContext) -> String {
-    let parts: Vec<&str> = expr.split('.').collect();
+    let trimmed = expr.trim();
+    if trimmed.is_empty() {
+        // Empty expression like {{ }} — leave as-is (likely a mistake)
+        return "{{ }}".to_string();
+    }
+    let parts: Vec<&str> = trimmed.split('.').collect();
     match parts.as_slice() {
         ["inputs", key] => ctx.inputs.get(*key).cloned().unwrap_or_default(),
         ["env", key] => ctx.env.get(*key).cloned().unwrap_or_default(),
@@ -179,6 +184,24 @@ mod tests {
             "plain text no templates"
         );
         assert_eq!(interpolate("", &ctx), "");
+    }
+
+    #[test]
+    fn test_interpolate_empty_expression() {
+        let ctx = make_ctx();
+        // Empty {{ }} should be preserved, not silently replaced
+        assert_eq!(interpolate("{{ }}", &ctx), "{{ }}");
+        assert_eq!(
+            interpolate("before {{ }} after", &ctx),
+            "before {{ }} after"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_whitespace_only_expression() {
+        let ctx = make_ctx();
+        // Whitespace-only {{   }} should also be preserved
+        assert_eq!(interpolate("{{   }}", &ctx), "{{ }}");
     }
 
     #[test]

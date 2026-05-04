@@ -12,10 +12,20 @@ use crate::schema::parse_workflow;
 /// Track the latest seen version for each workflow name.
 #[derive(Default)]
 struct VersionTracker {
-    /// workflow_name → latest workflow_version
-    versions: HashMap<String, String>,
+    /// workflow_name → (workflow_version, content_hash)
+    entries: HashMap<String, (String, u64)>,
     /// True until first scan completes (only tracks versions, no submission).
     is_first_scan: bool,
+}
+
+/// Simple FNV-1a hash for content change detection.
+fn fnv1a_hash(data: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in data.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 /// Periodically scan a directory for .yaml/.yml workflow files.
@@ -28,7 +38,7 @@ pub async fn watch_directory(
     dir_path: String,
 ) {
     let mut tracker = VersionTracker {
-        versions: HashMap::new(),
+        entries: HashMap::new(),
         is_first_scan: true,
     };
     let mut interval = tokio::time::interval(Duration::from_secs(10));
@@ -124,11 +134,16 @@ async fn run_scan(
 
                 if first {
                     // First scan: only track versions, don't submit
-                    tracker.versions.insert(name, wf.version);
+                    tracker
+                        .entries
+                        .insert(name, (wf.version, fnv1a_hash(&content)));
                 } else {
-                    // Subsequent scans: submit on version change or new workflow
-                    let should_submit = match tracker.versions.get(&name) {
-                        Some(prev_version) => prev_version != &wf.version,
+                    // Subsequent scans: submit on version change, content change, or new workflow
+                    let content_hash = fnv1a_hash(&content);
+                    let should_submit = match tracker.entries.get(&name) {
+                        Some((prev_version, prev_hash)) => {
+                            prev_version != &wf.version || prev_hash != &content_hash
+                        }
                         None => true,
                     };
 
@@ -139,7 +154,7 @@ async fn run_scan(
                             tracing::error!(name = %name, error = %e, "failed to submit workflow");
                             continue;
                         }
-                        tracker.versions.insert(name, wf.version);
+                        tracker.entries.insert(name, (wf.version, content_hash));
                         new_runs += 1;
                     }
                 }
@@ -217,4 +232,57 @@ async fn submit_workflow_from_file(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fnv1a_hash_deterministic() {
+        let h1 = fnv1a_hash("hello world");
+        let h2 = fnv1a_hash("hello world");
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_fnv1a_hash_different_inputs() {
+        let h1 = fnv1a_hash("version: 1.0");
+        let h2 = fnv1a_hash("version: 2.0");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_fnv1a_hash_empty() {
+        let h = fnv1a_hash("");
+        assert_ne!(h, 0);
+    }
+
+    #[test]
+    fn test_scan_yaml_files_nonexistent_dir() {
+        let result = scan_yaml_files(Path::new("/nonexistent/path/that/does/not/exist"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scan_yaml_files_empty_dir() {
+        let dir = std::env::temp_dir().join("acpx_g_test_empty");
+        std::fs::create_dir_all(&dir).unwrap();
+        let files = scan_yaml_files(&dir).unwrap();
+        assert!(files.is_empty());
+        std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_scan_yaml_files_filters_extension() {
+        let dir = std::env::temp_dir().join("acpx_g_test_scan");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("workflow.yaml"), "test").unwrap();
+        std::fs::write(dir.join("workflow.yml"), "test").unwrap();
+        std::fs::write(dir.join("readme.md"), "test").unwrap();
+        std::fs::write(dir.join("config.json"), "test").unwrap();
+        let files = scan_yaml_files(&dir).unwrap();
+        assert_eq!(files.len(), 2);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

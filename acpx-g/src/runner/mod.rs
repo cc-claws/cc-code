@@ -76,14 +76,28 @@ async fn execute_dag(
 
         for &idx in level {
             let node = &nodes[idx];
-            let deps_ready = node_depends(node).iter().all(|dep| {
+
+            // Check dependency status: a node should only run if all deps succeeded
+            // or if deps have continue_on_error and completed (even if failed)
+            let deps_satisfied = node_depends(node).iter().all(|dep| {
+                node_index
+                    .get(dep.as_str())
+                    .is_some_and(|&di| completed.contains(&di))
+            });
+
+            let deps_any_finished = node_depends(node).iter().all(|dep| {
                 node_index
                     .get(dep.as_str())
                     .is_some_and(|&di| completed.contains(&di) || failed.contains(&di))
             });
 
-            if !deps_ready {
-                tracing::warn!(node_id = %node_id(node), "dependencies not met, skipping");
+            if !deps_satisfied {
+                if !deps_any_finished {
+                    tracing::warn!(node_id = %node_id(node), "dependencies not met, skipping");
+                    continue;
+                }
+                // All deps finished but some failed — skip this node
+                tracing::warn!(node_id = %node_id(node), "dependency failed, skipping");
                 continue;
             }
 
@@ -121,10 +135,18 @@ async fn execute_dag(
                 Ok(Err(e)) => {
                     tracing::error!(node_idx = idx, error = %e, "node failed");
                     failed.insert(idx);
+                    // For continue_on_error nodes, we still treat them as "completed"
+                    // so downstream nodes can access their (possibly partial) outputs
+                    if node_continue_on_error(&nodes[idx]) {
+                        completed.insert(idx);
+                    }
                 }
                 Err(e) => {
                     tracing::error!(node_idx = idx, error = %e, "node task panicked");
                     failed.insert(idx);
+                    if node_continue_on_error(&nodes[idx]) {
+                        completed.insert(idx);
+                    }
                 }
             }
         }
@@ -205,6 +227,22 @@ fn get_node_env(node: &NodeDef) -> HashMap<String, String> {
 /// Topological sort returning levels of node indices that can run in parallel.
 fn topological_sort(nodes: &[NodeDef]) -> anyhow::Result<Vec<Vec<usize>>> {
     let n = nodes.len();
+
+    // Detect duplicate node IDs
+    let mut seen_ids: HashMap<&str, usize> = HashMap::new();
+    for (i, node) in nodes.iter().enumerate() {
+        let id = node_id(node);
+        if let Some(&prev) = seen_ids.get(id) {
+            anyhow::bail!(
+                "duplicate node id '{}' found at indices {} and {}",
+                id,
+                prev,
+                i
+            );
+        }
+        seen_ids.insert(id, i);
+    }
+
     let id_to_idx: HashMap<&str, usize> = nodes
         .iter()
         .enumerate()
@@ -345,6 +383,30 @@ mod tests {
     fn test_topological_sort_unknown_dep() {
         let nodes = vec![make_shell_node("a", vec!["nonexistent".to_string()], false)];
         assert!(topological_sort(&nodes).is_err());
+    }
+
+    #[test]
+    fn test_topological_sort_duplicate_id() {
+        let nodes = vec![
+            make_shell_node("a", vec![], false),
+            make_shell_node("a", vec![], false), // duplicate
+        ];
+        let err = topological_sort(&nodes).unwrap_err();
+        assert!(err.to_string().contains("duplicate node id 'a'"));
+    }
+
+    #[test]
+    fn test_topological_sort_empty() {
+        let levels = topological_sort(&[]).unwrap();
+        assert!(levels.is_empty());
+    }
+
+    #[test]
+    fn test_topological_sort_single() {
+        let nodes = vec![make_shell_node("only", vec![], false)];
+        let levels = topological_sort(&nodes).unwrap();
+        assert_eq!(levels.len(), 1);
+        assert_eq!(levels[0], vec![0]);
     }
 
     #[test]
