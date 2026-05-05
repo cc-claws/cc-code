@@ -147,6 +147,9 @@ function renderRunDetailHeader(run) {
   const header = document.getElementById('runDetailHeader');
   if (!header) return;
 
+  // Update page title with workflow name for tab identification
+  document.title = `${run.workflow_name || '运行详情'} — ACPX-G`;
+
   header.innerHTML = `
     <div class="session-header">
       <div>

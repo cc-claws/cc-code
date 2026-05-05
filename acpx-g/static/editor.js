@@ -658,8 +658,10 @@ function importFromYaml(yamlStr) {
 
     setTimeout(() => editorAutoLayout(), 100);
     updateYamlFromCanvas(); clearHistory(); pushHistory(); saveDraft();
+    return true;
   } catch (e) {
     showToast('导入失败: ' + e.message, 'error');
+    return false;
   }
 }
 
@@ -877,8 +879,8 @@ function doImportYaml() {
   const yaml = document.getElementById('import-yaml-input')?.value;
   if (!yaml?.trim()) { showToast('请粘贴 YAML 内容', 'error'); return; }
   closeImportModal();
-  importFromYaml(yaml);
-  showToast('工作流导入成功', 'success');
+  const ok = importFromYaml(yaml);
+  if (ok) showToast('工作流导入成功', 'success');
 }
 
 async function editorSave() {

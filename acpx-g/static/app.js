@@ -276,6 +276,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === e.currentTarget) apiDocsOverlay.classList.remove('open');
   });
 
+  // Global Escape key to close modals
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (apiDocsOverlay.classList.contains('open')) {
+        apiDocsOverlay.classList.remove('open');
+      } else if (document.getElementById('modalOverlay')?.classList.contains('open')) {
+        closeModal();
+      }
+    }
+  });
+
   // Hash-based routing
   function handleHash() {
     const hash = location.hash.slice(1) || 'editor';

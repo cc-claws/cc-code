@@ -80,3 +80,7 @@
 ## R27 — Design Review Round 5 (用户思维)
 
 拓扑图 depends JSON.parse 加 try-catch 防格式错误崩溃、属性面板 textarea 增加 input 事件 500ms 防抖实时同步 YAML、拓扑节点 ID 超 16 字符截断加省略号防溢出、保存按钮增加 loading 状态防重复提交。
+
+## R28 — Design Review Round 6 (用户思维)
+
+全局 Escape 键关闭模态框、YAML 导入成功/失败区分 toast 提示、运行详情页标题包含工作流名称。
