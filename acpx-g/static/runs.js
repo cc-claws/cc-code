@@ -311,13 +311,16 @@ async function cancelRun(id) {
 }
 
 async function rerunRun(id) {
-  try {
-    const result = await api(`${API_WF}/${id}/rerun`, { method: 'POST' });
-    showToast('已重新启动: ' + (result.run_id || ''), 'success');
-    location.hash = '#run/' + (result.run_id || id);
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+  confirmDialog('重新运行', '确定要重新运行此工作流吗？', id, async () => {
+    try {
+      const result = await api(`${API_WF}/${id}/rerun`, { method: 'POST' });
+      const newId = result.run_id || id;
+      showToast('已重新启动: ' + newId, 'success');
+      location.hash = '#run/' + newId;
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  });
 }
 
 async function deleteRun(id) {

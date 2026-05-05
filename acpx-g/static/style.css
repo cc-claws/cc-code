@@ -708,10 +708,12 @@ body {
     opacity: 0;
 }
 
-.data-table tbody tr:hover .table-action {
+.data-table tbody tr:hover .table-action,
+.table-action:focus {
     opacity: 1;
 }
-.table-action:hover {
+.table-action:hover,
+.table-action:focus {
     background: var(--surface-overlay);
     color: var(--text-primary);
     border-color: var(--border-default);

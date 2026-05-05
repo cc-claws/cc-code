@@ -136,3 +136,7 @@ YAML 编辑器 textarea 新增 `:focus` 可见焦点状态（`box-shadow: inset 
 ## R41 — Design Review Round 19 (用户思维)
 
 CSS 硬编码颜色统一为变量：`#E2E8F0`（run-detail 进度条轨道）→ `var(--border-default)`、`#f8fafc`（code-block 背景）→ `var(--surface-void)`、`#dc2626`（danger 按钮悬停）→ `color-mix(in srgb, var(--danger) 85%, black)`、`#8250df`（代理节点紫色）→ 新增 `--node-agent` CSS 变量并替换 editor.css 中两处引用。
+
+## R42 — Design Review Round 20 (用户思维)
+
+`rerunRun` 新增 `confirmDialog` 确认对话框（用户不再意外触发资源消耗型操作）、修复 `result.run_id` 为空时 URL 变为 `#run/undefined` 的 bug；`.table-action` 新增 `:focus` 规则使键盘用户 Tab 聚焦时操作按钮可见。
