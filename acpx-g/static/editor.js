@@ -770,20 +770,24 @@ function displayValidation(errors) {
   lastValidationErrors = errors || [];
   const statusEl = document.getElementById('validation-status');
   if (!statusEl) return;
+  // Remove old click handler by cloning node
+  const newEl = statusEl.cloneNode(true);
+  statusEl.parentNode.replaceChild(newEl, statusEl);
+  const el = newEl;
+
   if (!errors.length) {
-    statusEl.className = 'validation-ok';
-    statusEl.textContent = '无错误';
-    statusEl.title = '';
-    statusEl.style.cursor = 'default';
+    el.className = 'validation-ok';
+    el.textContent = '无错误';
+    el.title = '';
+    el.style.cursor = 'default';
   } else {
-    statusEl.className = 'validation-err';
-    statusEl.textContent = `${errors.length} 个错误`;
-    statusEl.title = errors.join('\n');
-    statusEl.style.cursor = 'pointer';
-    // Show errors list on click
-    statusEl.onclick = () => {
+    el.className = 'validation-err';
+    el.textContent = `${errors.length} 个错误`;
+    el.title = errors.join('\n');
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => {
       showToast(errors.join('; '), 'error', 5000);
-    };
+    });
   }
 }
 

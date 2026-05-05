@@ -101,12 +101,12 @@ function confirmDialog(title, message, detail, onConfirm) {
       <button class="btn btn-danger" id="confirmBtn">确认</button>
     </div>
   `);
-  document.getElementById('confirmCloseBtn').onclick = closeModal;
-  document.getElementById('confirmCancelBtn').onclick = closeModal;
-  document.getElementById('confirmBtn').onclick = () => {
+  document.getElementById('confirmCloseBtn')?.addEventListener('click', closeModal);
+  document.getElementById('confirmCancelBtn')?.addEventListener('click', closeModal);
+  document.getElementById('confirmBtn')?.addEventListener('click', () => {
     closeModal();
     onConfirm();
-  };
+  });
 }
 
 // ── Router ────────────────────────────────────────────────

@@ -164,10 +164,12 @@ async function pollRunDetail(runId) {
     renderRunDetailStats(run);
     renderTopology(run);
     renderContextPanel(run);
+    renderContextActions(run);
 
     if (run.status !== 'running' && run.status !== 'pending') {
       clearInterval(runDetailState.pollTimer);
       runDetailState.pollTimer = null;
+      renderRunDetailHeader(run);
       const live = document.getElementById('topologyLive');
       if (live) live.style.display = 'none';
     }
