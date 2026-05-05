@@ -627,6 +627,7 @@ function importFromYaml(yamlStr) {
     wfMeta.inputs = parsed.inputs || {};
     wfMeta.env = parsed.env || {};
     wfMeta.references = parsed.references || {};
+    wfBaseDir = null;
 
     const nameEl = document.getElementById('wf-name');
     const verEl = document.getElementById('wf-version');

@@ -193,6 +193,7 @@ function formatDuration(startedAt, finishedAt) {
     ? new Date(finishedAt + (finishedAt.includes('Z') || finishedAt.includes('+') ? '' : 'Z'))
     : new Date();
   const diff = Math.max(0, (end - start) / 1000);
+  if (diff < 1) return '<1s';
   if (diff < 60) return `${Math.floor(diff)}s`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ${Math.floor(diff % 60)}s`;
   const h = Math.floor(diff / 3600);

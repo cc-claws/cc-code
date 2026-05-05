@@ -1050,6 +1050,30 @@ nodes:
     }
 
     #[test]
+    fn test_parse_workflow_agent_with_optional_fields() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes:
+  - id: review
+    type: agent
+    prompt: review the code
+    agent: claude
+    model: sonnet
+    cwd: /tmp/project
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        match &wf.nodes[0] {
+            NodeDef::Agent(n) => {
+                assert_eq!(n.agent.as_deref(), Some("claude"));
+                assert_eq!(n.model.as_deref(), Some("sonnet"));
+                assert_eq!(n.cwd.as_deref(), Some("/tmp/project"));
+            }
+            _ => panic!("expected agent node"),
+        }
+    }
+
+    #[test]
     fn test_parse_workflow_agent_if_condition() {
         let yaml = r#"
 name: test
