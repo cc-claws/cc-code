@@ -72,3 +72,7 @@
 ## R25 — Design Review Round 3 (用户思维)
 
 工作流设置弹窗 6 处内联 onclick 替换为 addEventListener、YAML 应用后自动验证并提示错误数、运行详情 ID 可点击复制完整值、验证错误徽章可点击查看详情（title+toast）、筛选无结果区分"无数据"与"无匹配"两种空状态文案。
+
+## R26 — Design Review Round 4 (用户思维)
+
+页面标题随路由动态更新（编辑器/运行记录/运行详情）、编辑器运行按钮增加 loading 状态防重复点击、运行详情轮询失败时 toast 通知用户实时更新已停止、relativeTime 处理负值（时钟偏差）避免奇怪显示。

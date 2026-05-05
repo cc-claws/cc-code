@@ -894,6 +894,11 @@ async function editorSave() {
 async function editorRun() {
   const errors = validateWorkflow();
   if (errors.length) { showToast('运行前请修复验证错误', 'error'); return; }
+
+  const btn = document.getElementById('btnRun');
+  const originalHtml = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> 启动中...'; }
+
   const yaml = exportToYaml();
   const payload = { yaml };
   if (wfBaseDir) payload.base_dir = wfBaseDir;
@@ -903,6 +908,7 @@ async function editorRun() {
     location.hash = '#run/' + result.run_id;
   } catch (e) {
     showToast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; lucide.createIcons({ nodes: [btn] }); }
   }
 }
 

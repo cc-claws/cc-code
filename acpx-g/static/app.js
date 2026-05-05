@@ -115,6 +115,10 @@ function navigate(page, params = {}) {
   AppState.currentPage = page;
   AppState.pageParams = params;
 
+  // Update page title
+  const titleMap = { editor: '工作流编辑器', runs: '运行记录', 'run-detail': '运行详情' };
+  document.title = `${titleMap[page] || 'ACPX-G'} — ACPX-G`;
+
   // Destroy editor when navigating away
   if (page !== 'editor' && typeof destroyEditor === 'function') {
     destroyEditor();
@@ -168,6 +172,7 @@ function relativeTime(dateStr) {
   const now = new Date();
   const date = new Date(dateStr + (dateStr.includes('Z') || dateStr.includes('+') ? '' : 'Z'));
   const diff = (now - date) / 1000;
+  if (diff < 0) return '刚刚';
   if (diff < 60) return '刚刚';
   if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;

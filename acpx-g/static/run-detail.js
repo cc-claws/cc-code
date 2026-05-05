@@ -139,6 +139,7 @@ async function pollRunDetail(runId) {
   } catch (e) {
     clearInterval(runDetailState.pollTimer);
     runDetailState.pollTimer = null;
+    showToast('实时更新已停止: ' + e.message, 'warning');
   }
 }
 
