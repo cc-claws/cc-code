@@ -398,6 +398,20 @@ body {
     box-shadow: 0 1px 3px rgba(99, 102, 241, 0.25);
 }
 
+.topbar-badge {
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 99px;
+    background: var(--status-active);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .topbar-spacer {
     flex: 1;
 }

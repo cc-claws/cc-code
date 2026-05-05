@@ -189,6 +189,9 @@
 
 .tool-bar-fill.brand { background: var(--brand); }
 .tool-bar-fill.green { background: var(--status-active); }
+.tool-bar-fill.danger { background: var(--status-error); }
+.tool-bar-fill.warning { background: var(--status-cancelled); }
+.tool-bar-fill.muted { background: var(--status-skipped); }
 
 .tool-bar-count {
   font-size: 11px;

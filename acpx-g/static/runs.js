@@ -341,9 +341,12 @@ async function deleteRun(id) {
 }
 
 function updateSidebarStatus() {
-  const runningCount = runsState.runs.filter(r => r.status === 'running').length;
+  const runningCount = runsState.runs.filter(r => r.status === 'running' || r.status === 'pending').length;
   const el = document.getElementById('statusRunningCount');
-  if (el) el.textContent = runningCount;
+  if (el) {
+    el.textContent = runningCount;
+    el.style.display = runningCount > 0 ? '' : 'none';
+  }
 }
 
 function scheduleAutoRefresh() {

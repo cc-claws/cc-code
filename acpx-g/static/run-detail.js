@@ -402,7 +402,7 @@ function renderContextPanel(run) {
 
     let html = '<div class="tool-bar-group">';
     const order = ['success', 'running', 'pending', 'failed', 'cancelled', 'skipped'];
-    const barColors = { success: 'green', running: 'brand', pending: 'brand', failed: 'brand', cancelled: 'brand', skipped: 'brand' };
+    const barColors = { success: 'green', running: 'brand', pending: 'brand', failed: 'danger', cancelled: 'warning', skipped: 'muted' };
 
     order.forEach(status => {
       const count = statusCounts[status] || 0;

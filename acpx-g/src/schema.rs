@@ -969,6 +969,24 @@ nodes:
     }
 
     #[test]
+    fn test_parse_workflow_depends_string_instead_of_array() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes:
+  - id: build
+    type: shell
+    run: echo build
+  - id: deploy
+    type: shell
+    depends: build
+    run: echo deploy
+"#;
+        let result = parse_workflow(yaml);
+        assert!(result.is_err(), "depends as bare string should fail");
+    }
+
+    #[test]
     fn test_parse_workflow_depends_invalid_chars() {
         let yaml = r#"
 name: test
