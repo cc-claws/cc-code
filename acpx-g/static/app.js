@@ -73,6 +73,9 @@ function openModal(html, opts = {}) {
   overlay.classList.add('open');
   if (opts.onClose) overlay._onClose = opts.onClose;
   lucide.createIcons({ nodes: [content] });
+  // Auto-focus first focusable element for keyboard/screen reader users
+  const focusable = content.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (focusable) setTimeout(() => focusable.focus(), 50);
 }
 
 function closeModal() {
@@ -226,7 +229,7 @@ function statusClass(status) {
 function nodeTypeColor(type) {
   const map = {
     shell: 'var(--brand)',
-    agent: '#8250DF',
+    agent: 'var(--node-agent)',
     reference: 'var(--status-active)',
   };
   return map[type] || 'var(--text-dim)';
@@ -242,11 +245,30 @@ function nodeTypeLabel(type) {
 }
 
 function copyToClipboard(text) {
-  navigator.clipboard.writeText(text).then(() => {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('已复制到剪贴板', 'success', 2000);
+    }).catch(() => {
+      fallbackCopy(text);
+    });
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
     showToast('已复制到剪贴板', 'success', 2000);
-  }).catch(() => {
+  } catch (_) {
     showToast('复制失败', 'error');
-  });
+  }
+  document.body.removeChild(ta);
 }
 
 // ── Init ──────────────────────────────────────────────────

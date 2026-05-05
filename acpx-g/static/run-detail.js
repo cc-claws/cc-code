@@ -320,10 +320,6 @@ function renderTopology(run) {
     failed: '#EF4444', cancelled: '#F97316', skipped: '#CBD5E1',
   };
 
-  const typeColors = {
-    shell: '#6366F1', agent: '#8250DF', reference: '#10B981',
-  };
-
   let svg = `<svg viewBox="0 0 ${svgW} ${svgH}" width="100%" style="max-height:400px;">`;
   svg += '<defs>';
   svg += '<filter id="topoShadow"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.08"/></filter>';
