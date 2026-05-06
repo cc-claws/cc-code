@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-05-07 第42轮：LLM adapter builder 方法测试补充
+
+为 ChatAnthropic 补充 6 个测试：with_base_url 设置与空串处理、with_extended_thinking（budget 低于 1024 钳位、有效值透传）、without_cache 关闭缓存、new 默认值验证。为 ChatOpenAI 补充 4 个测试：with_base_url、with_reasoning_effort、new 默认值（base_url/reasoning_effort）、o3 系列 context_window。避免 from_env 环境变量测试的并发安全问题。rust-create-agent 测试总数从 254 增至 264。
+
 ## 2026-05-07 第41轮：widgets 死代码删除 + compact re-export 收紧
 
 删除 perihelion-widgets/render_state.rs 中 TableBuilder::render 方法（58 行，被 render_with_wrap 替代）和 make_data_line 函数（57 行，仅被已删除的 render 调用），共净减 115 行 #[allow(dead_code)] 标记的死代码。移除 compact/mod.rs 中 group_messages_by_round、adjust_index_to_preserve_invariants、MessageRound 三项无外部调用者的 re-export。全量测试通过，编译零警告。
