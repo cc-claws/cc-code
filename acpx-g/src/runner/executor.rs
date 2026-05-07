@@ -43,7 +43,7 @@ pub async fn execute_node(
     default_retry: u32,
     cancel_token: CancellationToken,
 ) -> anyhow::Result<HashMap<String, String>> {
-    let nid = node_id(node);
+    let nid = super::node_id(node);
     let node_run = NodeRun::find_by_run_and_node(pool, run_id, nid)
         .await?
         .ok_or_else(|| anyhow::anyhow!("node_run not found for run={run_id} node={nid}"))?;
@@ -481,14 +481,6 @@ fn build_env(node_env: &HashMap<String, String>, ctx: &TemplateContext) -> HashM
     env
 }
 
-fn node_id(node: &NodeDef) -> &str {
-    match node {
-        NodeDef::Shell(n) => &n.id,
-        NodeDef::Agent(n) => &n.id,
-        NodeDef::Reference(n) => &n.id,
-    }
-}
-
 /// Parse `$ACPX_OUTPUT` file: each line should be `key=value`.
 /// Lines without `=` or empty lines are skipped. Only the last value for a
 /// given key is kept (later lines override earlier ones).
@@ -514,6 +506,7 @@ fn parse_output_file(path: &str) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runner::node_id;
 
     #[test]
     fn test_load_script_inline() {

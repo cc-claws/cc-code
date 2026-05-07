@@ -296,36 +296,20 @@ fn with_value_to_map(value: &serde_yaml::Value) -> HashMap<String, String> {
 fn find_exit_nodes(nodes: &[NodeDef]) -> Vec<String> {
     let mut depended = HashSet::new();
     for node in nodes {
-        for dep in node_depends(node) {
+        for dep in super::node_depends(node) {
             depended.insert(dep.clone());
         }
     }
     nodes
         .iter()
-        .map(node_id)
+        .map(super::node_id)
         .filter(|id| !depended.contains(*id))
         .map(|s| s.to_string())
         .collect()
 }
 
-fn node_id(node: &NodeDef) -> &str {
-    match node {
-        NodeDef::Shell(n) => &n.id,
-        NodeDef::Agent(n) => &n.id,
-        NodeDef::Reference(n) => &n.id,
-    }
-}
-
-fn node_depends(node: &NodeDef) -> &[String] {
-    match node {
-        NodeDef::Shell(n) => &n.depends,
-        NodeDef::Agent(n) => &n.depends,
-        NodeDef::Reference(n) => &n.depends,
-    }
-}
-
 fn internal_depends_empty(node: &NodeDef) -> bool {
-    node_depends(node).is_empty()
+    super::node_depends(node).is_empty()
 }
 
 fn prefix_id(node: NodeDef, prefix: &str) -> NodeDef {
@@ -404,6 +388,7 @@ fn rewire_depends(node: &mut NodeDef, replacements: &HashMap<String, Vec<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runner::{node_depends, node_id};
 
     #[test]
     fn test_with_value_to_map() {

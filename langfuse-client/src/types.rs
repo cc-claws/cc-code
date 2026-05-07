@@ -194,7 +194,7 @@ impl IngestionEvent {
 /// - EventCreate → span with `langfuse.observation.type` = "event"
 /// - ScoreCreate → span with `langfuse.observation.type` = omitted (attached to trace)
 /// - Others → span with basic attributes
-pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportRequest {
+pub(crate) fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportRequest {
     let mut spans: Vec<OtelSpan> = Vec::with_capacity(events.len());
 
     for event in events {
