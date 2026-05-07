@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-05-07 第43轮：langfuse-client re-export 收紧 + acpx-g 重复代码消除
+
+langfuse-client：ingestion_events_to_otel 改为 pub(crate)，移除 lib.rs 中 11 个未使用 OTLP 类型 re-export（OtelAttribute/Span/Status 等）。acpx-g：消除 executor.rs 和 loader.rs 中重复定义的 node_id/node_depends 函数（共 3 处重复），统一复用 runner/mod.rs 的 pub 版本。净减 46 行，编译零警告，161 测试全通过。
+
 ## 2026-05-07 第42轮：LLM adapter builder 方法测试补充
 
 为 ChatAnthropic 补充 6 个测试：with_base_url 设置与空串处理、with_extended_thinking（budget 低于 1024 钳位、有效值透传）、without_cache 关闭缓存、new 默认值验证。为 ChatOpenAI 补充 4 个测试：with_base_url、with_reasoning_effort、new 默认值（base_url/reasoning_effort）、o3 系列 context_window。避免 from_env 环境变量测试的并发安全问题。rust-create-agent 测试总数从 254 增至 264。
