@@ -459,7 +459,7 @@ impl App {
                     panel.servers = self
                         .mcp_pool
                         .as_ref()
-                        .map(|p| p.server_infos())
+                        .map(|p| p.all_server_infos())
                         .unwrap_or_default();
                 }
                 let vm = MessageViewModel::system(format!("[i] OAuth 授权完成: {}", server_name));
@@ -480,7 +480,7 @@ impl App {
                     panel.servers = self
                         .mcp_pool
                         .as_ref()
-                        .map(|p| p.server_infos())
+                        .map(|p| p.all_server_infos())
                         .unwrap_or_default();
                 }
                 let vm = MessageViewModel::system(format!(
@@ -506,7 +506,7 @@ impl App {
                     panel.servers = self
                         .mcp_pool
                         .as_ref()
-                        .map(|p| p.server_infos())
+                        .map(|p| p.all_server_infos())
                         .unwrap_or_default();
                 }
                 let msg = match (action.as_str(), success) {

@@ -19,6 +19,8 @@ pub enum ClientStatus {
     Failed(String),
     Disconnected,
     Disabled,
+    /// 配置存在但从未尝试连接（不在 clients 表中，仅在 configs 表中）
+    Uninitialized,
 }
 
 /// MCP 连接池初始化状态
@@ -783,6 +785,51 @@ impl McpClientPool {
                 plugin_source: self.plugin_source_of(&h.name),
             })
             .collect()
+    }
+
+    /// 返回所有 MCP 服务器信息（合并 configs + clients）
+    ///
+    /// config 中有但 clients 中没有的 server 会被标记为 Uninitialized。
+    /// 这覆盖了连接失败后被移除、运行时新增配置、以及 disabled 后被清理等场景。
+    pub fn all_server_infos(&self) -> Vec<ServerInfo> {
+        let clients = self.clients.read();
+        let configs = self.configs.read();
+
+        let mut result: Vec<ServerInfo> = Vec::new();
+
+        // 先遍历 clients 表中的所有条目
+        for h in clients.values() {
+            result.push(ServerInfo {
+                name: h.name.clone(),
+                transport_type: if h.url.is_some() { "http" } else { "stdio" }.to_string(),
+                status: h.status.clone(),
+                tool_count: h.tools.len(),
+                resource_count: h.resources.len(),
+                oauth_status: h.oauth_status.clone(),
+                source: h.source.clone(),
+                url: h.url.clone(),
+                plugin_source: self.plugin_source_of(&h.name),
+            });
+        }
+
+        // 遍历 configs，补充 clients 中不存在的条目（标记为 Uninitialized）
+        for (name, sc) in configs.iter() {
+            if !clients.contains_key(name) {
+                result.push(ServerInfo {
+                    name: name.clone(),
+                    transport_type: if sc.url.is_some() { "http" } else { "stdio" }.to_string(),
+                    status: ClientStatus::Uninitialized,
+                    tool_count: 0,
+                    resource_count: 0,
+                    oauth_status: OAuthStatus::default(),
+                    source: sc.source.clone(),
+                    url: sc.url.clone(),
+                    plugin_source: self.plugin_source_of(name),
+                });
+            }
+        }
+
+        result
     }
 
     pub fn get_tools(&self, name: &str) -> Vec<Tool> {

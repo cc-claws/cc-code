@@ -1,4 +1,4 @@
-use rust_agent_middlewares::mcp::{ClientStatus, Resource, ServerInfo, Tool};
+use rust_agent_middlewares::mcp::{ClientStatus, ConfigSource, Resource, ServerInfo, Tool};
 
 use super::AgentEvent;
 
@@ -64,7 +64,16 @@ impl McpPanelView {
 }
 
 impl McpPanel {
-    pub fn new(servers: Vec<ServerInfo>) -> Self {
+    pub fn new(mut servers: Vec<ServerInfo>) -> Self {
+        // 排序以匹配视觉分组顺序：Project 在前，user（Global/Plugin/None）在后
+        // 否则 panel.servers[cursor] 与列表页渲染的 visual cursor 不一致
+        servers.sort_by(|a, b| {
+            let a_is_project = matches!(a.source, Some(ConfigSource::Project(_)));
+            let b_is_project = matches!(b.source, Some(ConfigSource::Project(_)));
+            b_is_project
+                .cmp(&a_is_project)
+                .then_with(|| a.name.cmp(&b.name))
+        });
         Self {
             servers,
             cursor: 0,
@@ -135,12 +144,17 @@ impl crate::app::App {
                         actions.push(DetailAction::ReAuthenticate);
                         actions.push(DetailAction::ClearAuth);
                     }
-                    actions.push(DetailAction::Reconnect);
-                    // 根据当前状态显示 Enable 或 Disable
-                    if matches!(server.status, ClientStatus::Disabled) {
-                        actions.push(DetailAction::Enable);
+                    // Uninitialized server: only Reconnect (can't view tools/disable etc.)
+                    if server.status == ClientStatus::Uninitialized {
+                        actions = vec![DetailAction::Reconnect];
                     } else {
-                        actions.push(DetailAction::Disable);
+                        actions.push(DetailAction::Reconnect);
+                        // 根据当前状态显示 Enable 或 Disable
+                        if matches!(server.status, ClientStatus::Disabled) {
+                            actions.push(DetailAction::Enable);
+                        } else {
+                            actions.push(DetailAction::Disable);
+                        }
                     }
 
                     panel.view = McpPanelView::ServerDetail {
@@ -335,7 +349,7 @@ impl crate::app::App {
             panel.servers = self
                 .mcp_pool
                 .as_ref()
-                .map(|p| p.server_infos())
+                .map(|p| p.all_server_infos())
                 .unwrap_or_default();
             if panel.cursor >= panel.servers.len() && !panel.servers.is_empty() {
                 panel.cursor = panel.servers.len() - 1;
@@ -365,7 +379,7 @@ impl crate::app::App {
             panel.servers = self
                 .mcp_pool
                 .as_ref()
-                .map(|p| p.server_infos())
+                .map(|p| p.all_server_infos())
                 .unwrap_or_default();
             if panel.cursor >= panel.servers.len() && !panel.servers.is_empty() {
                 panel.cursor = panel.servers.len() - 1;

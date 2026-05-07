@@ -143,6 +143,9 @@ fn render_server_group(
             ),
             (ClientStatus::Failed(_), _) => ("✗", Style::default().fg(theme::ERROR), "error"),
             (ClientStatus::Disabled, _) => ("◯", Style::default().fg(theme::MUTED), "disabled"),
+            (ClientStatus::Uninitialized, _) => {
+                ("◯", Style::default().fg(theme::MUTED), "not initialized")
+            }
             (ClientStatus::Disconnected, _) => ("◯", Style::default().fg(theme::MUTED), "offline"),
         };
 
@@ -220,6 +223,8 @@ fn render_server_detail(f: &mut Frame, app: &mut App, area: Rect) {
             (ClientStatus::Connected, _) => ("✔", Style::default().fg(theme::SAGE)),
             (ClientStatus::Disabled, _) => ("⊘", Style::default().fg(theme::MUTED)),
             (_, OAuthStatus::NeedsAuthorization) => ("△", Style::default().fg(theme::WARNING)),
+            (ClientStatus::Failed(_), _) => ("✗", Style::default().fg(theme::ERROR)),
+            (ClientStatus::Uninitialized, _) => ("◯", Style::default().fg(theme::MUTED)),
             _ => ("◯", Style::default().fg(theme::MUTED)),
         };
         let status_label = match (&info.status, &info.oauth_status) {
@@ -227,6 +232,7 @@ fn render_server_detail(f: &mut Frame, app: &mut App, area: Rect) {
             (ClientStatus::Disabled, _) => "disabled",
             (_, OAuthStatus::NeedsAuthorization) => "needs authentication",
             (ClientStatus::Failed(_), _) => "error",
+            (ClientStatus::Uninitialized, _) => "not initialized",
             (ClientStatus::Disconnected, _) => "offline",
         };
         lines.push(detail_line(
@@ -455,7 +461,7 @@ fn apply_panel_selection(app: &mut App, lines: &mut Vec<Line>, area: Rect) {
 mod tests {
     use rust_agent_middlewares::mcp::{ClientStatus, ConfigSource, ServerInfo};
 
-    use crate::app::{App, McpPanel, McpPanelView};
+    use crate::app::{App, DetailAction, McpPanel, McpPanelView};
 
     fn make_server(name: &str, status: ClientStatus) -> ServerInfo {
         ServerInfo {
@@ -589,5 +595,102 @@ mod tests {
             snap.contains("Plugin"),
             "Detail view should show Plugin source"
         );
+    }
+
+    /// 验证多 server 时，进入第二个 server 的详情页显示的是对应 server 的数据
+    #[tokio::test]
+    async fn test_mcp_panel_detail_shows_correct_server_on_multi() {
+        let (mut app, mut handle) = App::new_headless(120, 30).await;
+
+        let mut srv_a = make_server("server-a", ClientStatus::Connected);
+        srv_a.url = Some("https://a.example.com/mcp".to_string());
+        srv_a.transport_type = "http".to_string();
+
+        let mut srv_b = make_server("server-b", ClientStatus::Failed("connect err".into()));
+        srv_b.url = Some("https://b.example.com/mcp".to_string());
+        srv_b.transport_type = "http".to_string();
+
+        app.mcp_panel = Some(McpPanel::new(vec![srv_a, srv_b]));
+
+        // 选择第二个 server 并进入详情
+        {
+            let panel = app.mcp_panel.as_mut().unwrap();
+            panel.cursor = 1;
+        }
+        app.mcp_panel_enter();
+
+        // 验证进入了 server-b 的详情
+        match &app.mcp_panel.as_ref().unwrap().view {
+            McpPanelView::ServerDetail { server_name, .. } => {
+                assert_eq!(server_name, "server-b", "应进入 server-b 的详情页");
+            }
+            _ => panic!("应在 ServerDetail 视图"),
+        }
+
+        // 渲染并验证显示的是 server-b 的数据
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot().join("\n");
+        assert!(snap.contains("server-b"), "详情页标题应显示 server-b");
+        assert!(
+            snap.contains("https://b.example.com/mcp"),
+            "详情页应显示 server-b 的 URL"
+        );
+        assert!(!snap.contains("server-a"), "详情页不应显示 server-a");
+    }
+
+    /// 验证未初始化 server 的详情页只显示 Reconnect 且正确渲染
+    #[tokio::test]
+    async fn test_mcp_panel_uninitialized_detail() {
+        let (mut app, mut handle) = App::new_headless(120, 30).await;
+
+        let mut uninit_srv = make_server("new-server", ClientStatus::Uninitialized);
+        uninit_srv.url = Some("https://new.example.com/mcp".to_string());
+        uninit_srv.transport_type = "http".to_string();
+
+        let mut connected_srv = make_server("old-server", ClientStatus::Connected);
+        connected_srv.url = Some("https://old.example.com/mcp".to_string());
+        connected_srv.transport_type = "http".to_string();
+
+        app.mcp_panel = Some(McpPanel::new(vec![connected_srv, uninit_srv]));
+
+        // 排序后 "new-server" < "old-server"（字母序），uninit 在位置 0
+        {
+            let panel = app.mcp_panel.as_mut().unwrap();
+            panel.cursor = 0;
+        }
+        app.mcp_panel_enter();
+
+        // 验证操作菜单只有 Reconnect
+        match &app.mcp_panel.as_ref().unwrap().view {
+            McpPanelView::ServerDetail {
+                server_name,
+                actions,
+                ..
+            } => {
+                assert_eq!(server_name, "new-server");
+                assert_eq!(actions.len(), 1, "Uninitialized 应只有一个 action");
+                assert!(
+                    matches!(actions[0], DetailAction::Reconnect),
+                    "唯一 action 应为 Reconnect"
+                );
+            }
+            _ => panic!("应在 ServerDetail 视图"),
+        }
+
+        // 渲染并验证
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot().join("\n");
+        assert!(snap.contains("new-server"), "详情页标题应显示 new-server");
+        assert!(
+            snap.contains("not initialized"),
+            "详情页应显示 not initialized 状态"
+        );
+        assert!(snap.contains("Reconnect"), "详情页应显示 Reconnect 操作");
     }
 }

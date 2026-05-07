@@ -16,7 +16,7 @@ impl Command for McpCommand {
         let infos = app
             .mcp_pool
             .as_ref()
-            .map(|p| p.server_infos())
+            .map(|p| p.all_server_infos())
             .unwrap_or_default();
 
         if infos.is_empty() {
