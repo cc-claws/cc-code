@@ -1,5 +1,6 @@
 use rust_create_agent::agent::BackgroundTaskResult;
 use std::collections::HashMap;
+use tracing::warn;
 
 /// 后台任务状态
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -66,7 +67,12 @@ impl BackgroundTaskRegistry {
                 BackgroundTaskStatus::Failed
             };
         }
-        let _ = self.notification_tx.send(result);
+        if self.notification_tx.send(result).is_err() {
+            warn!(
+                task_id = %task_id,
+                "background task complete: failed to send notification (channel closed)"
+            );
+        }
     }
 
     /// 获取所有任务状态（UI 使用）
