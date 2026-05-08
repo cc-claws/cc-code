@@ -274,8 +274,8 @@ pub(crate) fn expand_server_config(config: &McpServerConfig) -> McpServerConfig 
 /// 优先级：global < plugin < project（项目级最高）
 /// 内容 hash 去重：手动配置（global/project）覆盖插件配置
 /// 所有字段执行 ${VAR} 展开，插件来源在合并前即完成 per-plugin 独立上下文展开
-/// 返回合并后的配置 + plugin_sources 旁路表
-/// plugin_sources 的 key 格式为 `"plugin_name__server_name"`（双下划线分隔），
+/// 返回合并后的配置 + plugin_sources（marketplace 追踪，用于 UI 展示插件来源）
+/// plugin_sources 的 key 格式为 `"plugin:{name}:{server}"`，
 /// 与工具名 `mcp__{plugin_name}__{server_name}` 中的 server 部分一致
 pub(crate) fn load_merged_config_full(
     cwd: &Path,
@@ -301,21 +301,8 @@ pub(crate) fn load_merged_config_full(
     }
 
     // 2. 加载插件 MCP 配置（~/.claude/ 目录下的已启用插件）
-    // 每插件独立上下文展开 env 变量，同时构建 plugin_sources 旁路表
+    // 每插件独立上下文展开 env 变量，同时构建 plugin_sources（marketing 追踪）
     let plugin_load_result = crate::plugin::loader::load_enabled_plugins_aggregated(claude_home);
-
-    // 加载 installed_plugins 建立 plugin_name → marketplace 映射
-    let installed_path = claude_home.join("plugins").join("installed_plugins.json");
-    let marketplace_map: HashMap<String, String> =
-        crate::plugin::config::load_installed_plugins(Some(&installed_path))
-            .map(|installed| {
-                installed
-                    .plugins
-                    .iter()
-                    .map(|p| (p.name.clone(), p.marketplace.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
 
     let mut plugin_servers: HashMap<String, McpServerConfig> = HashMap::new();
     for plugin in &plugin_load_result.plugins {
@@ -332,14 +319,16 @@ pub(crate) fn load_merged_config_full(
             );
             plugin_servers.insert(namespaced.clone(), expanded_cfg);
 
-            // 构建 plugin_sources 旁路表条目（key 与 config 中 server name 一致）
+            // 构建 plugin_sources（key 与 config 中 server name 一致）
+            // marketplace 现在直接来自 LoadedPlugin，无需额外加载 installed_plugins.json
             let source_id = format!(
                 "{}@{}",
                 plugin.name,
-                marketplace_map
-                    .get(&plugin.name)
-                    .cloned()
-                    .unwrap_or_default()
+                if plugin.marketplace.is_empty() {
+                    String::new()
+                } else {
+                    plugin.marketplace.clone()
+                }
             );
             plugin_sources.insert(namespaced, source_id);
         }

@@ -78,6 +78,8 @@ pub struct LoadedPlugin {
     pub data_path: PathBuf,
     /// 插件 hooks 配置（从 hooks/hooks.json 或 plugin.json hooks 字段提取）
     pub hooks_config: Option<HooksConfig>,
+    /// 插件来源 marketplace（如 "claude-plugins-official"），用于追踪插件来源
+    pub marketplace: String,
 }
 
 pub fn load_manifest(plugin_dir: &Path) -> Result<PluginManifest, LoaderError> {
@@ -306,6 +308,7 @@ pub fn load_plugins(installed: &InstalledPlugins) -> Result<Vec<LoadedPlugin>, L
             mcp_servers,
             data_path,
             hooks_config,
+            marketplace: plugin.marketplace.clone(),
         });
     }
 
@@ -914,6 +917,7 @@ pub(crate) mod tests {
             mcp_servers: HashMap::new(),
             data_path: PathBuf::new(),
             hooks_config: None,
+            marketplace: String::new(),
         };
         p1.mcp_servers.insert(
             "db".into(),
@@ -940,6 +944,7 @@ pub(crate) mod tests {
             mcp_servers: HashMap::new(),
             data_path: PathBuf::new(),
             hooks_config: None,
+            marketplace: String::new(),
         };
         p2.mcp_servers.insert(
             "db".into(),
@@ -1116,6 +1121,7 @@ pub(crate) mod tests {
                 mcp_servers: HashMap::new(),
                 data_path: PathBuf::new(),
                 hooks_config: None,
+                marketplace: String::new(),
             },
             LoadedPlugin {
                 name: "p2".into(),
@@ -1139,6 +1145,7 @@ pub(crate) mod tests {
                 mcp_servers: HashMap::new(),
                 data_path: PathBuf::new(),
                 hooks_config: None,
+                marketplace: String::new(),
             },
         ];
 

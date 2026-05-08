@@ -51,6 +51,7 @@ mod tests {
             mcp_servers: HashMap::new(),
             data_path: PathBuf::new(),
             hooks_config: None,
+            marketplace: String::new(),
         }
     }
 
