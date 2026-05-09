@@ -1,4 +1,8 @@
-use std::mem::ManuallyDrop;
+mod final_answer;
+mod llm_step;
+mod tool_dispatch;
+mod tool_setup;
+
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -7,45 +11,14 @@ use tracing::instrument;
 use crate::agent::events::{AgentEvent, AgentEventHandler, BackgroundTaskResult};
 use crate::agent::react::{AgentInput, AgentOutput, ReactLLM, ToolCall, ToolResult};
 use crate::agent::state::State;
-use crate::agent::token::ContextBudget;
 use crate::error::{AgentError, AgentResult};
-use crate::messages::{BaseMessage, ToolCallRequest};
+use crate::messages::BaseMessage;
 use crate::middleware::chain::MiddlewareChain;
 use crate::middleware::r#trait::Middleware;
 use crate::tools::BaseTool;
 use std::collections::HashMap;
 
 pub use tokio_util::sync::CancellationToken as AgentCancellationToken;
-
-/// 将 Box<dyn BaseTool> 转换为 Arc<dyn BaseTool>
-///
-/// Rust 标准库不直接支持 `Box<dyn Trait>` → `Arc<dyn Trait>` 转换。
-/// 通过一个中间 wrapper struct 持有 `ManuallyDrop<Box<dyn BaseTool>>`，
-/// 实现 `BaseTool` trait 透传所有调用，再用 `Arc::from()` 创建 trait object。
-fn box_to_arc(tool: Box<dyn BaseTool>) -> Arc<dyn BaseTool> {
-    struct ToolWrapper(ManuallyDrop<Box<dyn BaseTool>>);
-
-    #[async_trait::async_trait]
-    impl BaseTool for ToolWrapper {
-        fn name(&self) -> &str {
-            self.0.name()
-        }
-        fn description(&self) -> &str {
-            self.0.description()
-        }
-        fn parameters(&self) -> serde_json::Value {
-            self.0.parameters()
-        }
-        async fn invoke(
-            &self,
-            input: serde_json::Value,
-        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-            self.0.invoke(input).await
-        }
-    }
-
-    Arc::new(ToolWrapper(ManuallyDrop::new(tool)))
-}
 
 #[allow(clippy::type_complexity)]
 /// Agent 执行器 - 管理 ReAct 循环
@@ -54,23 +27,23 @@ where
     L: ReactLLM,
     S: State,
 {
-    llm: L,
-    tools: HashMap<String, Box<dyn BaseTool>>,
-    chain: MiddlewareChain<S>,
-    max_iterations: usize,
+    pub(crate) llm: L,
+    pub(crate) tools: HashMap<String, Box<dyn BaseTool>>,
+    pub(crate) chain: MiddlewareChain<S>,
+    pub(crate) max_iterations: usize,
     /// 可选事件回调：在工具调用、答案生成等关键节点触发
-    event_handler: Option<Arc<dyn AgentEventHandler>>,
+    pub(crate) event_handler: Option<Arc<dyn AgentEventHandler>>,
     /// 固定系统提示词：在所有中间件 before_agent 执行完毕后 prepend，无顺序约束
-    system_prompt: Option<String>,
+    pub(crate) system_prompt: Option<String>,
     /// 上下文窗口预算配置（用于监控 token 用量和触发 compact 建议）
-    context_budget: Option<ContextBudget>,
+    pub(crate) context_budget: Option<crate::agent::token::ContextBudget>,
     /// 后台任务通知接收端：后台 agent 完成时推送结果
-    notification_rx:
+    pub(crate) notification_rx:
         Option<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<BackgroundTaskResult>>>,
     /// 工具过滤器：返回 true 的工具从 LLM 可见列表中移除（None = 不过滤，向后兼容）
-    tool_filter: Option<fn(&str) -> bool>,
+    pub(crate) tool_filter: Option<fn(&str) -> bool>,
     /// 共享工具注册表：包含所有工具（包括 deferred），供 ExecuteExtraTool 代理执行使用
-    shared_tools: Option<Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>>,
+    pub(crate) shared_tools: Option<Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>>,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -124,7 +97,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     ///
     /// 用于监控 token 用量：当 context 使用率超过 `warning_threshold` 时发出日志警告，
     /// 提示用户使用 `/compact` 压缩上下文。设置为 None 则禁用监控。
-    pub fn with_context_budget(mut self, budget: ContextBudget) -> Self {
+    pub fn with_context_budget(mut self, budget: crate::agent::token::ContextBudget) -> Self {
         self.context_budget = Some(budget);
         self
     }
@@ -171,7 +144,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     }
 
     /// 发出事件（无 handler 时静默忽略）
-    fn emit(&self, event: AgentEvent) {
+    pub(crate) fn emit(&self, event: AgentEvent) {
         if let Some(h) = &self.event_handler {
             h.on_event(event);
         }
@@ -204,14 +177,18 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         let middleware_tools = self.chain.collect_tools(state.cwd());
 
         // 将所有工具转为 Arc 并收集
-        let mut tool_arcs: Vec<Arc<dyn BaseTool>> = Vec::new();
-        for tool in middleware_tools {
-            tool_arcs.push(box_to_arc(tool));
+        let tool_arcs: Vec<Arc<dyn BaseTool>> = middleware_tools
+            .into_iter()
+            .map(self::tool_setup::box_to_arc)
+            .collect();
+
+        // 将所有工具写入共享注册表（供 ExecuteExtraTool 代理执行使用）
+        if let Some(ref shared) = self.shared_tools {
+            let mut map = shared.write();
+            for arc in &tool_arcs {
+                map.insert(arc.name().to_string(), Arc::clone(arc));
+            }
         }
-        // 手动注册的工具也需要转为 Arc
-        // 由于 BaseTool 不实现 Clone，手动注册的工具无法转为 Arc
-        // 但手动注册的工具（通过 register_tool）不会被 deferred filter 过滤
-        // 所以 shared_tools 中只需要 middleware 的工具
 
         // 构建引用 map（用于 executor 内部工具查找）
         let mut all_tools: HashMap<String, &dyn BaseTool> = HashMap::new();
@@ -220,14 +197,6 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         }
         for (name, tool) in &self.tools {
             all_tools.insert(name.clone(), tool.as_ref());
-        }
-
-        // 将所有工具写入共享注册表（供 ExecuteExtraTool 代理执行使用）
-        if let Some(ref shared) = self.shared_tools {
-            let mut map = shared.write();
-            for arc in &tool_arcs {
-                map.insert(arc.name().to_string(), Arc::clone(arc));
-            }
         }
 
         let tool_refs: Vec<&dyn BaseTool> = if let Some(filter) = self.tool_filter {
@@ -252,438 +221,37 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         for step in 0..self.max_iterations {
             state.set_current_step(step);
 
-            // ── LLM 推理（与 cancel 竞争）────────────────────────────────────
-            self.emit(AgentEvent::LlmCallStart {
-                step,
-                messages: state.messages().to_vec(),
-                tools: tool_refs.iter().map(|t| t.definition()).collect(),
-            });
-            let reasoning = tokio::select! {
-                biased;
-                _ = cancel.cancelled() => {
-                    return Err(AgentError::Interrupted);
-                }
-                result = self.llm.generate_reasoning(state.messages(), &tool_refs) => {
-                    match result {
-                        Ok(r) => r,
-                        Err(e) => {
-                                tracing::error!(
-                                    step,
-                                    model = %self.llm.model_name(),
-                                    error = %e,
-                                    "LLM generate_reasoning 失败"
-                                );
-                                // LLM 报错时仍 emit LlmCallEnd，确保 Langfuse generation 可观测
-                            self.emit(AgentEvent::LlmCallEnd {
-                                step,
-                                model: self.llm.model_name(),
-                                output: format!("ERROR: {}", e),
-                                usage: None,
-                            });
-                            self.chain.run_on_error(state, &e).await?;
-                            return Err(e);
-                        }
-                    }
-                }
-            };
-            {
-                let llm_output = reasoning
-                    .final_answer
-                    .as_deref()
-                    .unwrap_or(&reasoning.thought)
-                    .to_string();
-                self.emit(AgentEvent::LlmCallEnd {
-                    step,
-                    model: self.llm.model_name(),
-                    output: llm_output,
-                    usage: reasoning.usage.clone(),
-                });
-                // 自动累积 token 用量到 state
-                if let Some(ref usage) = reasoning.usage {
-                    state.token_tracker_mut().accumulate(usage);
-                    // 使用 ContextBudget（若已设置）进行上下文用量监控
-                    if let Some(ref budget) = self.context_budget {
-                        let tracker = state.token_tracker();
-                        if let Some(pct_used) = tracker.estimated_context_tokens() {
-                            let should_warn = budget.should_warn(tracker);
-                            if should_warn {
-                                tracing::warn!(
-                                    used_tokens = ?tracker.estimated_context_tokens(),
-                                    total_tokens = budget.context_window,
-                                    percentage = tracker.context_usage_percent(budget.context_window).map(|p| p as u32).unwrap_or(0),
-                                    model = %self.llm.model_name(),
-                                    step,
-                                    "context 接近上限"
-                                );
-                            }
-                            if should_warn || budget.should_auto_compact(tracker) {
-                                if let Some(percentage) =
-                                    tracker.context_usage_percent(budget.context_window)
-                                {
-                                    self.emit(AgentEvent::ContextWarning {
-                                        used_tokens: pct_used,
-                                        total_tokens: budget.context_window as u64,
-                                        percentage,
-                                    });
-                                }
-                            }
-                        }
-                    } else {
-                        // Fallback: 无 ContextBudget 时使用硬编码 80% 阈值（向后兼容）
-                        let tracker = state.token_tracker();
-                        let total = self.llm.context_window();
-                        if let Some(used) = tracker.estimated_context_tokens() {
-                            let pct = used as f64 / total as f64 * 100.0;
-                            let exceeded = pct as u32 >= 80;
-                            if exceeded {
-                                tracing::warn!(
-                                    used_tokens = used,
-                                    total_tokens = total,
-                                    percentage = pct as u32,
-                                    model = %self.llm.model_name(),
-                                    step,
-                                    "context 接近上限"
-                                );
-                                self.emit(AgentEvent::ContextWarning {
-                                    used_tokens: used,
-                                    total_tokens: total as u64,
-                                    percentage: pct,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
+            // LLM 推理
+            let reasoning =
+                self::llm_step::call_llm(self, state, &tool_refs, step, &cancel).await?;
 
             if reasoning.needs_tool_call() {
-                let tc_reqs: Vec<ToolCallRequest> = reasoning
-                    .tool_calls
-                    .iter()
-                    .map(|tc| {
-                        ToolCallRequest::new(tc.id.clone(), tc.name.clone(), tc.input.clone())
-                    })
-                    .collect();
-                // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
-                // source_message 的 tool_calls 字段在 LLM 解析阶段已填好
-                let ai_msg = reasoning.source_message.clone().unwrap_or_else(|| {
-                    BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs)
-                });
-                let ai_msg_id = ai_msg.id(); // 捕获 message_id（Copy，供后续 ToolStart/ToolEnd 使用）
-                let ai_msg_clone = ai_msg.clone();
-                state.add_message(ai_msg);
-                self.emit(AgentEvent::MessageAdded(ai_msg_clone));
-                // emit AI 推理内容
-                self.emit(AgentEvent::AiReasoning(reasoning.thought.clone()));
+                // 工具分发
+                let step_calls = self::tool_dispatch::dispatch_tools(
+                    self, state, &reasoning, &all_tools, &cancel,
+                )
+                .await?;
+                all_tool_calls.extend(step_calls);
 
-                // 阶段一：批量 before_tool（利用中间件的 batch 方法，如 HITL 批量审批）
-                let original_calls: Vec<ToolCall> = reasoning.tool_calls.clone();
-                let before_results = self
-                    .chain
-                    .run_before_tools_batch(state, original_calls.clone())
-                    .await;
-                let mut modified_calls: Vec<ToolCall> = Vec::with_capacity(original_calls.len());
-
-                for (tool_call, before_result) in
-                    original_calls.iter().zip(before_results.into_iter())
-                {
-                    // before_tool 阶段也检查取消
-                    if cancel.is_cancelled() {
-                        return Err(AgentError::Interrupted);
-                    }
-                    let modified_call = match before_result {
-                        Ok(c) => c,
-                        Err(AgentError::ToolRejected { ref reason, .. }) => {
-                            // 拒绝不终止 Agent，将拒绝原因作为工具错误反馈给 LLM
-                            let rejection_result =
-                                ToolResult::error(&tool_call.id, &tool_call.name, reason.clone());
-                            self.emit(AgentEvent::ToolStart {
-                                message_id: ai_msg_id,
-                                tool_call_id: tool_call.id.clone(),
-                                name: tool_call.name.clone(),
-                                input: tool_call.input.clone(),
-                            });
-                            self.emit(AgentEvent::ToolEnd {
-                                message_id: ai_msg_id,
-                                tool_call_id: tool_call.id.clone(),
-                                name: tool_call.name.clone(),
-                                output: rejection_result.output.clone(),
-                                is_error: true,
-                            });
-                            let tool_msg = BaseMessage::tool_error(
-                                &rejection_result.tool_call_id,
-                                rejection_result.output.as_str(),
-                            );
-                            let tool_msg_clone = tool_msg.clone();
-                            state.add_message(tool_msg);
-                            self.emit(AgentEvent::MessageAdded(tool_msg_clone));
-                            all_tool_calls.push((tool_call.clone(), rejection_result));
-                            continue;
-                        }
-                        Err(e) => {
-                            self.chain.run_on_error(state, &e).await?;
-                            return Err(e);
-                        }
-                    };
-                    self.emit(AgentEvent::ToolStart {
-                        message_id: ai_msg_id,
-                        tool_call_id: modified_call.id.clone(),
-                        name: modified_call.name.clone(),
-                        input: modified_call.input.clone(),
-                    });
-                    modified_calls.push(modified_call);
-                }
-
-                // 阶段二：并发执行所有工具；取消时每个工具以 error 收尾
-                let tool_results: Vec<Result<String, AgentError>> = {
-                    let futures: Vec<_> = modified_calls
-                        .iter()
-                        .map(|call| {
-                            let tool_name = call.name.clone();
-                            let call_id = call.id.clone();
-                            let input = call.input.clone();
-                            let tool = all_tools.get(&call.name).copied();
-                            let cancel = cancel.clone();
-                            async move {
-                                let span = tracing::info_span!(
-                                    "agent.tool_call",
-                                    tool.name = %tool_name,
-                                    tool.call_id = %call_id,
-                                );
-                                let _enter = span.enter();
-                                let invoke_fut = async {
-                                    match tool {
-                                        Some(t) => t.invoke(input).await.map_err(|e| {
-                                            AgentError::ToolExecutionFailed {
-                                                tool: tool_name.clone(),
-                                                reason: e.to_string(),
-                                            }
-                                        }),
-                                        None => Err(AgentError::ToolNotFound(tool_name.clone())),
-                                    }
-                                };
-                                tokio::select! {
-                                    biased;
-                                    _ = cancel.cancelled() => {
-                                        Err(AgentError::ToolExecutionFailed {
-                                            tool: tool_name,
-                                            reason: "interrupted by user".to_string(),
-                                        })
-                                    }
-                                    result = invoke_fut => result,
-                                }
-                            }
-                        })
-                        .collect();
-                    futures::future::join_all(futures).await
-                };
-
-                // 检查是否已取消（工具全部结束后再决定是否继续）
-                let was_cancelled = cancel.is_cancelled();
-
-                // 阶段三：串行处理结果、after_tool、state 更新
-                for (modified_call, tool_result) in
-                    modified_calls.into_iter().zip(tool_results.into_iter())
-                {
-                    let result = match tool_result {
-                        Ok(output) => {
-                            ToolResult::success(&modified_call.id, &modified_call.name, output)
-                        }
-                        Err(AgentError::ToolNotFound(ref name)) => {
-                            tracing::warn!(tool.name = %name, "工具未找到，作为错误结果返回");
-                            ToolResult::error(
-                                &modified_call.id,
-                                &modified_call.name,
-                                format!("工具 '{}' 不存在", name),
-                            )
-                        }
-                        Err(ref e) => {
-                            self.chain.run_on_error(state, e).await?;
-                            ToolResult::error(&modified_call.id, &modified_call.name, e.to_string())
-                        }
-                    };
-
-                    tracing::debug!(
-                        tool.name = %result.tool_name,
-                        tool.is_error = result.is_error,
-                        "tool call completed"
-                    );
-                    if result.is_error {
-                        tracing::warn!(
-                            tool.name = %result.tool_name,
-                            tool.is_error = true,
-                            error_len = result.output.len(),
-                            "tool call failed"
-                        );
-                    }
-                    self.emit(AgentEvent::ToolEnd {
-                        message_id: ai_msg_id,
-                        tool_call_id: modified_call.id.clone(),
-                        name: modified_call.name.clone(),
-                        output: result.output.clone(),
-                        is_error: result.is_error,
-                    });
-
-                    if let Err(e) = self
-                        .chain
-                        .run_after_tool(state, &modified_call, &result)
-                        .await
-                    {
-                        self.chain.run_on_error(state, &e).await?;
-                        return Err(e);
-                    }
-
-                    let tool_msg = if result.is_error {
-                        BaseMessage::tool_error(&result.tool_call_id, result.output.as_str())
-                    } else {
-                        BaseMessage::tool_result(&result.tool_call_id, result.output.as_str())
-                    };
-                    let tool_msg_clone = tool_msg.clone();
-                    state.add_message(tool_msg);
-                    self.emit(AgentEvent::MessageAdded(tool_msg_clone));
-
-                    all_tool_calls.push((modified_call, result));
-                }
-
-                // 工具结果全部写入状态后，若已取消则以 Interrupted 退出
-                // （调用方可保存此刻的 state.messages 实现断点续跑）
-                if was_cancelled {
-                    return Err(AgentError::Interrupted);
-                }
-
-                tracing::debug!(step, "react step done");
-                self.emit(AgentEvent::StepDone { step });
-
-                // 发送状态快照（从用户消息开始的所有消息），便于增量持久化
-                let msgs_since_human = state.messages()[last_message_count..].to_vec();
-                tracing::debug!(count = msgs_since_human.len(), "sending state snapshot");
-                for msg in &msgs_since_human {
-                    match msg {
-                        BaseMessage::Ai {
-                            content: _,
-                            tool_calls,
-                            ..
-                        } => {
-                            tracing::debug!(
-                                has_tc = !tool_calls.is_empty(),
-                                tc_len = tool_calls.len(),
-                                "ai message in snapshot"
-                            );
-                        }
-                        BaseMessage::Tool { tool_call_id, .. } => {
-                            tracing::debug!(tc_id = %tool_call_id, "tool message in snapshot");
-                        }
-                        _ => {}
-                    }
-                }
-                if !msgs_since_human.is_empty() {
-                    self.emit(AgentEvent::StateSnapshot(msgs_since_human));
-                }
-
-                // 消费后台任务完成通知
-                // 仅注入 state 供 LLM 下一轮迭代可见，不发射 MessageAdded 或 BackgroundTaskCompleted
-                // （后台任务自身已通过 event handler 发射 BackgroundTaskCompleted）
-                if let Some(ref rx) = self.notification_rx {
-                    let mut rx_lock = rx.lock().await;
-                    while let Ok(result) = rx_lock.try_recv() {
-                        let notification = if result.success {
-                            format!(
-                                "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n结果:\n{}",
-                                result.task_id,
-                                result.agent_name,
-                                result.tool_calls_count,
-                                result.duration_ms,
-                                result.output,
-                            )
-                        } else {
-                            format!(
-                                "[后台任务 {} 执行失败] Agent: {}\n错误:\n{}",
-                                result.task_id, result.agent_name, result.output,
-                            )
-                        };
-                        let msg = BaseMessage::human(notification);
-                        state.add_message(msg);
-                    }
-                }
-
-                last_message_count = state.messages().len();
+                // StateSnapshot + 通知消费
+                self::final_answer::emit_snapshot_and_drain_notifications(
+                    self,
+                    state,
+                    &mut last_message_count,
+                )
+                .await;
             } else {
-                let answer = reasoning
-                    .final_answer
-                    .unwrap_or_else(|| reasoning.thought.clone());
-
-                if answer.trim().is_empty() {
-                    tracing::warn!(
-                        step,
-                        "LLM 返回空最终回答（无 tool_calls 且 final_answer/thought 为空）"
-                    );
-                }
-
-                // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
-                let ai_msg = reasoning
-                    .source_message
-                    .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
-                let ai_msg_id = ai_msg.id(); // 捕获 message_id（Copy，供 TextChunk 使用）
-                let ai_msg_clone = ai_msg.clone();
-                state.add_message(ai_msg);
-                self.emit(AgentEvent::MessageAdded(ai_msg_clone));
-
-                self.emit(AgentEvent::TextChunk {
-                    message_id: ai_msg_id,
-                    chunk: answer.clone(),
-                });
-
-                // 发送包含最终回答的 StateSnapshot，确保 TUI 侧的 agent_state_messages
-                // 包含完整对话历史（包括本次最终回答），否则下一轮对话上下文会丢失
-                let msgs_since_last = state.messages()[last_message_count..].to_vec();
-                if !msgs_since_last.is_empty() {
-                    self.emit(AgentEvent::StateSnapshot(msgs_since_last));
-                }
-
-                // 消费后台任务完成通知（最终回答前）
-                // 仅注入 state 供 LLM 可见，不发射事件（后台任务自身已通过 event handler 发射）
-                if let Some(ref rx) = self.notification_rx {
-                    let mut rx_lock = rx.lock().await;
-                    while let Ok(result) = rx_lock.try_recv() {
-                        let notification = if result.success {
-                            format!(
-                                "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n结果:\n{}",
-                                result.task_id,
-                                result.agent_name,
-                                result.tool_calls_count,
-                                result.duration_ms,
-                                result.output,
-                            )
-                        } else {
-                            format!(
-                                "[后台任务 {} 执行失败] Agent: {}\n错误:\n{}",
-                                result.task_id, result.agent_name, result.output,
-                            )
-                        };
-                        let msg = BaseMessage::human(notification);
-                        state.add_message(msg);
-                    }
-                }
-
-                let output = AgentOutput {
-                    text: answer,
-                    steps: step + 1,
-                    tool_calls: all_tool_calls,
-                    stop_reason: None,
-                };
-
-                tracing::info!(
-                    steps = output.steps,
-                    tool_calls = output.tool_calls.len(),
-                    "agent finished"
-                );
-
-                return match self.chain.run_after_agent(state, output).await {
-                    Ok(o) => Ok(o),
-                    Err(e) => {
-                        self.chain.run_on_error(state, &e).await?;
-                        Err(e)
-                    }
-                };
+                // 最终回答
+                let output = self::final_answer::handle_final_answer(
+                    self,
+                    state,
+                    &reasoning,
+                    all_tool_calls,
+                    last_message_count,
+                    step,
+                )
+                .await?;
+                return Ok(output);
             }
         }
 
@@ -1453,7 +1021,7 @@ mod tests {
         }
 
         // context_window=1000, warning_threshold=0.5 → 600/1000=60% > 50%
-        let budget = ContextBudget::new(1000).with_warning_threshold(0.5);
+        let budget = crate::agent::token::ContextBudget::new(1000).with_warning_threshold(0.5);
         let agent = ReActAgent::new(TokenLLM {
             input_tokens: 400,
             output_tokens: 200,
@@ -1535,7 +1103,7 @@ mod tests {
         let events_clone = events.clone();
 
         // context_window=1000, warning_threshold=0.5 → 400+200=600/1000=60% > 50%
-        let budget = ContextBudget::new(1000).with_warning_threshold(0.5);
+        let budget = crate::agent::token::ContextBudget::new(1000).with_warning_threshold(0.5);
         let agent = ReActAgent::new(TokenLLM {
             input_tokens: 400,
             output_tokens: 200,
