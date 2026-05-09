@@ -40,6 +40,7 @@ pub use plugin::{
     PluginMiddleware, PluginOption,
 };
 pub mod skills;
+pub mod tool_search;
 pub mod tools;
 
 pub use agent_define::{AgentDefineMiddleware, AgentOverrides};
@@ -50,8 +51,8 @@ pub use ask_user::{
 };
 pub use cron::{CronMiddleware, CronScheduler, CronTask, CronTrigger};
 pub use hitl::{
-    default_requires_approval, is_yolo_mode, AutoClassifier, BatchItem, Classification,
-    HitlDecision, HumanInTheLoopMiddleware, LlmAutoClassifier, PermissionMode,
+    default_requires_approval, effective_tool_name, is_yolo_mode, AutoClassifier, BatchItem,
+    Classification, HitlDecision, HumanInTheLoopMiddleware, LlmAutoClassifier, PermissionMode,
     SharedPermissionMode,
 };
 #[allow(deprecated)]
@@ -63,6 +64,7 @@ pub use subagent::{
     scan_agents, scan_agents_with_extra_dirs, BackgroundTask, BackgroundTaskRegistry,
     BackgroundTaskStatus, SkillPreloadMiddleware, SubAgentMiddleware, SubAgentTool,
 };
+pub use tool_search::{is_deferred_tool, ToolSearchMiddleware, CORE_TOOLS, META_TOOLS};
 pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
 
 /// Prelude - 常用类型一次性导入

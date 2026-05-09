@@ -54,6 +54,8 @@ pub fn format_tool_args(
         }
         "WebSearch" => input["query"].as_str().map(|s| truncate(s, 60)),
         "WebFetch" => input["url"].as_str().map(|s| truncate(s, 60)),
+        "ExecuteExtraTool" => input["tool_name"].as_str().map(|s| truncate(s, 40)),
+        "SearchExtraTools" => input["query"].as_str().map(|s| truncate(s, 40)),
         _ => None,
     }
 }

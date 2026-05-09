@@ -58,6 +58,24 @@ pub fn is_edit_tool(tool_name: &str) -> bool {
     tool_name == "Write" || tool_name == "Edit" || tool_name == "folder_operations"
 }
 
+// ─── ExecuteExtraTool 权限透传 ─────────────────────────────────────────────
+
+/// 获取有效的工具名称
+///
+/// 当 tool_name 为 "ExecuteExtraTool" 时，从 input["tool_name"] 提取目标工具名，
+/// 用于 HITL 权限判断。否则直接返回原始工具名。
+pub fn effective_tool_name(tool_name: &str, input: &serde_json::Value) -> String {
+    if tool_name == "ExecuteExtraTool" {
+        input
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| tool_name.to_string())
+    } else {
+        tool_name.to_string()
+    }
+}
+
 // ─── HumanInTheLoopMiddleware ──────────────────────────────────────────────────
 
 /// HumanInTheLoopMiddleware — 敏感工具调用前需用户确认
@@ -156,8 +174,9 @@ impl HumanInTheLoopMiddleware {
         let mode_snapshot = self.mode.clone();
 
         for (i, call) in calls.iter().enumerate() {
-            // 非敏感工具 → 直接放行
-            if !(self.requires_approval)(&call.name) {
+            // 非敏感工具 → 直接放行（ExecuteExtraTool 透传目标工具名）
+            let effective_name = effective_tool_name(&call.name, &call.input);
+            if !(self.requires_approval)(&effective_name) {
                 results.push(Ok(call.clone()));
                 continue;
             }
@@ -280,7 +299,7 @@ impl HumanInTheLoopMiddleware {
             .iter()
             .enumerate()
             .skip(start_idx)
-            .filter(|(_, c)| (self.requires_approval)(&c.name))
+            .filter(|(_, c)| (self.requires_approval)(&effective_tool_name(&c.name, &c.input)))
             .collect();
 
         if needs_approval.is_empty() {
@@ -313,7 +332,7 @@ impl HumanInTheLoopMiddleware {
         let mut decision_iter = decisions.into_iter();
 
         for call in calls.iter().skip(start_idx) {
-            if (self.requires_approval)(&call.name) {
+            if (self.requires_approval)(&effective_tool_name(&call.name, &call.input)) {
                 let decision = decision_iter.next().unwrap_or(ApprovalDecision::Reject {
                     reason: "用户拒绝".to_string(),
                 });
@@ -345,7 +364,7 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
 
     async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
         // 1. 非敏感工具 → 所有模式都放行
-        if !(self.requires_approval)(&tool_call.name) {
+        if !(self.requires_approval)(&effective_tool_name(&tool_call.name, &tool_call.input)) {
             return Ok(tool_call.clone());
         }
 

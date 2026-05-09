@@ -1,3 +1,4 @@
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -16,6 +17,37 @@ use std::collections::HashMap;
 
 pub use tokio_util::sync::CancellationToken as AgentCancellationToken;
 
+/// 将 Box<dyn BaseTool> 转换为 Arc<dyn BaseTool>
+///
+/// Rust 标准库不直接支持 `Box<dyn Trait>` → `Arc<dyn Trait>` 转换。
+/// 通过一个中间 wrapper struct 持有 `ManuallyDrop<Box<dyn BaseTool>>`，
+/// 实现 `BaseTool` trait 透传所有调用，再用 `Arc::from()` 创建 trait object。
+fn box_to_arc(tool: Box<dyn BaseTool>) -> Arc<dyn BaseTool> {
+    struct ToolWrapper(ManuallyDrop<Box<dyn BaseTool>>);
+
+    #[async_trait::async_trait]
+    impl BaseTool for ToolWrapper {
+        fn name(&self) -> &str {
+            self.0.name()
+        }
+        fn description(&self) -> &str {
+            self.0.description()
+        }
+        fn parameters(&self) -> serde_json::Value {
+            self.0.parameters()
+        }
+        async fn invoke(
+            &self,
+            input: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            self.0.invoke(input).await
+        }
+    }
+
+    Arc::new(ToolWrapper(ManuallyDrop::new(tool)))
+}
+
+#[allow(clippy::type_complexity)]
 /// Agent 执行器 - 管理 ReAct 循环
 pub struct ReActAgent<L, S>
 where
@@ -36,6 +68,10 @@ where
     /// 后台任务通知接收端：后台 agent 完成时推送结果
     notification_rx:
         Option<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<BackgroundTaskResult>>>,
+    /// 工具过滤器：返回 true 的工具从 LLM 可见列表中移除（None = 不过滤，向后兼容）
+    tool_filter: Option<fn(&str) -> bool>,
+    /// 共享工具注册表：包含所有工具（包括 deferred），供 ExecuteExtraTool 代理执行使用
+    shared_tools: Option<Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>>,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -50,6 +86,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             system_prompt: None,
             context_budget: None,
             notification_rx: None,
+            tool_filter: None,
+            shared_tools: None,
         }
     }
 
@@ -111,6 +149,27 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         self
     }
 
+    /// 设置工具过滤器
+    ///
+    /// 返回 `true` 的工具从 LLM 可见列表中移除（延迟加载），
+    /// 返回 `false` 或 `None` 时保留所有工具（向后兼容）。
+    pub fn with_tool_filter(mut self, filter: fn(&str) -> bool) -> Self {
+        self.tool_filter = Some(filter);
+        self
+    }
+
+    /// 设置共享工具注册表
+    ///
+    /// 包含所有工具（包括 deferred tools），供 ExecuteExtraTool 代理执行使用。
+    /// executor 在工具收集完成后将所有工具写入此注册表。
+    pub fn with_shared_tools(
+        mut self,
+        tools: Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
+    ) -> Self {
+        self.shared_tools = Some(tools);
+        self
+    }
+
     pub fn middleware_names(&self) -> Vec<&str> {
         self.chain.names()
     }
@@ -156,16 +215,46 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             .flat_map(|p| p.tools(state.cwd()))
             .collect();
         let middleware_tools = self.chain.collect_tools(state.cwd());
-        let mut all_tools: HashMap<String, &dyn BaseTool> = provider_tools
-            .iter()
-            .chain(middleware_tools.iter())
-            .map(|t| (t.name().to_string(), t.as_ref()))
-            .collect();
+
+        // 将所有工具转为 Arc 并收集
+        let mut tool_arcs: Vec<Arc<dyn BaseTool>> = Vec::new();
+        for tool in provider_tools {
+            tool_arcs.push(box_to_arc(tool));
+        }
+        for tool in middleware_tools {
+            tool_arcs.push(box_to_arc(tool));
+        }
+        // 手动注册的工具也需要转为 Arc
+        // 由于 BaseTool 不实现 Clone，手动注册的工具无法转为 Arc
+        // 但手动注册的工具（通过 register_tool）不会被 deferred filter 过滤
+        // 所以 shared_tools 中只需要 provider 和 middleware 的工具
+
+        // 构建引用 map（用于 executor 内部工具查找）
+        let mut all_tools: HashMap<String, &dyn BaseTool> = HashMap::new();
+        for arc in &tool_arcs {
+            all_tools.insert(arc.name().to_string(), arc.as_ref());
+        }
         for (name, tool) in &self.tools {
             all_tools.insert(name.clone(), tool.as_ref());
         }
 
-        let tool_refs: Vec<&dyn BaseTool> = all_tools.values().copied().collect();
+        // 将所有工具写入共享注册表（供 ExecuteExtraTool 代理执行使用）
+        if let Some(ref shared) = self.shared_tools {
+            let mut map = shared.write();
+            for arc in &tool_arcs {
+                map.insert(arc.name().to_string(), Arc::clone(arc));
+            }
+        }
+
+        let tool_refs: Vec<&dyn BaseTool> = if let Some(filter) = self.tool_filter {
+            all_tools
+                .values()
+                .copied()
+                .filter(|t| !filter(t.name()))
+                .collect()
+        } else {
+            all_tools.values().copied().collect()
+        };
 
         self.chain.run_before_agent(state).await?;
 

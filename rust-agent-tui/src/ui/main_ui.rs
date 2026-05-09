@@ -220,7 +220,7 @@ fn render_session_column(
             .messages
             .pending_messages;
         let visible_count = (pending_count).min(queued_height as usize);
-        let dim_style = Style::default().fg(theme::MUTED);
+        let pending_style = Style::default().fg(theme::MUTED).bg(theme::USER_BG);
         for (i, msg) in msgs.iter().take(visible_count).enumerate() {
             let line_area = Rect {
                 x: queued_area.x + 2,
@@ -237,7 +237,7 @@ fn render_session_column(
                 ""
             };
             f.render_widget(
-                Paragraph::new(format!("{}{}", display, suffix)).style(dim_style),
+                Paragraph::new(format!("{}{}", display, suffix)).style(pending_style),
                 line_area,
             );
         }
@@ -250,7 +250,7 @@ fn render_session_column(
             };
             f.render_widget(
                 Paragraph::new(format!("… +{} more", pending_count - visible_count))
-                    .style(dim_style),
+                    .style(pending_style),
                 more_area,
             );
         }

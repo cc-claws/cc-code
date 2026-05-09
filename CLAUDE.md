@@ -63,6 +63,18 @@ acpx-g (DAG workflow engine，独立)
 
 **消息管线**：`MessagePipeline` 统一管理消息状态，`PipelineAction` 枚举描述 UI 变更，`reconcile_tail()` 在 Done/Interrupted 时触发尾部重建。
 
+## Tool Search 延迟加载
+
+非核心工具（MCP 工具、Cron 工具等）从 LLM 工具列表中移除，通过 `SearchExtraTools` 按需发现、`ExecuteExtraTool` 代理执行。
+
+**核心工具（12 个，始终发送给 LLM）**：Read/Write/Edit/Glob/Grep/folder_operations/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite
+
+**架构**：`ReActAgent.with_tool_filter(is_deferred_tool)` 过滤 `tool_refs`（LLM 可见），`with_shared_tools(Arc<RwLock<HashMap>>)` 将所有工具写入共享注册表供 `ExecuteExtraTool` 代理执行。`ToolSearchMiddleware` 注册两个元工具，在 `before_agent` 时从 `shared_tools` 读取 deferred 工具自动构建 `ToolSearchIndex`，然后注入延迟工具列表到 system prompt。
+
+**[TRAP]** `Box<dyn BaseTool>` 不能直接转为 `Arc<dyn BaseTool>`（Rust 不支持 unsized trait object 的所有权转移）。executor 使用 `box_to_arc()` 通过中间 `ToolWrapper` struct（持有 `ManuallyDrop<Box<dyn BaseTool>>`，实现 `BaseTool` trait 透传）安全地完成转换。**绝不能使用 `Box::into_raw` + `Arc::from_raw`**——`Box` 指向 `T`，`Arc` 指向 `ArcInner<T>`，布局不同会导致 UB。
+
+**[TRAP]** `std::sync::RwLockReadGuard` 不是 `Send`，在 async 函数中不能跨 `.await` 持有。使用 `parking_lot::RwLock`（guard 是 `Send`）或在 await 前 clone Arc。
+
 ## HITL 审批
 
 默认需审批工具：`Bash`、`folder_operations`、`Agent`、`Write`、`Edit`、`delete_*`、`rm_*`、`mcp__*`、`WebFetch`、`WebSearch`。

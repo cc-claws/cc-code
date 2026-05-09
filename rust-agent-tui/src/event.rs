@@ -685,6 +685,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                 .messages
                                 .pending_messages
                                 .push(text);
+                            app.session_mgr.sessions[app.session_mgr.active].ui.textarea =
+                                crate::app::build_textarea(false);
                             app.update_textarea_hint();
                         } else if text.starts_with('/') {
                             app.session_mgr.sessions[app.session_mgr.active].ui.textarea =

@@ -266,10 +266,21 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
 
     // 构建 ReActAgent
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具
+
+    // Tool Search: 创建共享工具注册表和搜索索引
+    let tool_search_index = Arc::new(rust_agent_middlewares::tool_search::ToolSearchIndex::new());
+    let shared_tools: Arc<
+        parking_lot::RwLock<
+            std::collections::HashMap<String, Arc<dyn rust_create_agent::tools::BaseTool>>,
+        >,
+    > = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
+
     let executor = ReActAgent::new(model)
         .max_iterations(500)
         .with_notification_rx(bg_notification_rx)
         .with_system_prompt(system_prompt) // executor 内部固定 prepend，无顺序约束
+        .with_tool_filter(rust_agent_middlewares::tool_search::is_deferred_tool)
+        .with_shared_tools(Arc::clone(&shared_tools))
         .add_middleware(Box::new(AgentsMdMiddleware::new()))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new(
@@ -333,6 +344,14 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     } else {
         executor
     };
+
+    // ToolSearch 中间件：注册 SearchExtraTools + ExecuteExtraTool 元工具
+    // 必须在 MCP 之后，确保 MCP 工具已注册到 executor
+    let executor =
+        executor.add_middleware(Box::new(rust_agent_middlewares::ToolSearchMiddleware::new(
+            Arc::clone(&tool_search_index),
+            Arc::clone(&shared_tools),
+        )));
 
     let executor = executor
         .with_event_handler(Arc::clone(&handler))
