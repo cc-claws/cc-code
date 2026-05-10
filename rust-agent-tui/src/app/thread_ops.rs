@@ -129,6 +129,9 @@ impl App {
         self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .last_submitted_text = None;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .spinner_state
+            .reset();
     }
 
     /// 恢复历史 thread：加载消息，关闭 browser
@@ -293,14 +296,6 @@ impl App {
             .messages
             .render_tx
             .send(RenderEvent::Clear);
-
-        // 清空后添加新建反馈（Clear 之后，消息会在下一帧渲染）
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .view_messages
-            .push(crate::ui::message_view::MessageViewModel::system(
-                "已创建新对话".to_string(),
-            ));
     }
 
     /// 压缩当前对话上下文：调用 LLM 生成摘要，替换 agent_state_messages

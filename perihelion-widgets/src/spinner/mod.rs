@@ -111,6 +111,18 @@ impl SpinnerState {
     pub fn displayed_tokens(&self) -> usize {
         self.displayed_tokens
     }
+
+    /// 重置所有字段到初始状态
+    pub fn reset(&mut self) {
+        self.mode = SpinnerMode::Idle;
+        self.verb = String::new();
+        self.start_time = Instant::now();
+        self.token_count = 0;
+        self.displayed_tokens = 0;
+        self.tick = 0;
+        self.raw_tick = 0;
+        self.last_summary_elapsed_ms = 0;
+    }
 }
 
 pub struct SpinnerWidget<'a> {
