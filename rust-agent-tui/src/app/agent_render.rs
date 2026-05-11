@@ -49,7 +49,7 @@ impl App {
             }
             PipelineAction::RebuildAll {
                 prefix_len,
-                tail_vms,
+                mut tail_vms,
             } => {
                 // 保存即将被截断的 ephemeral SystemNote（通过 AddMessage 添加的系统通知）
                 let session = &mut self.session_mgr.sessions[self.session_mgr.active];
@@ -59,6 +59,29 @@ impl App {
                     .drain(prefix_len..)
                     .filter(|vm| matches!(vm, MessageViewModel::SystemNote { .. }))
                     .collect();
+
+                // 去重：如果前缀末尾是 UserBubble 且 tail 首个也是 UserBubble（同一轮 Human 消息被
+                // submit_message 的 UserBubble 和 StateSnapshot reconcile 的 UserBubble 重复渲染），
+                // 移除 tail 中重复的 UserBubble
+                if prefix_len > 0 && !tail_vms.is_empty() {
+                    let prefix_last = session.messages.view_messages.get(prefix_len - 1);
+                    if let Some(MessageViewModel::UserBubble {
+                        content: prefix_content,
+                        ..
+                    }) = prefix_last
+                    {
+                        if let Some(MessageViewModel::UserBubble {
+                            content: tail_content,
+                            ..
+                        }) = tail_vms.first()
+                        {
+                            if prefix_content == tail_content {
+                                tail_vms.remove(0);
+                            }
+                        }
+                    }
+                }
+
                 session.messages.view_messages.extend(tail_vms);
                 session.messages.view_messages.extend(saved_notes);
                 let anchor_message_idx = {
