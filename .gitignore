@@ -173,4 +173,4 @@ process.md
 
 vendor/
 
-skills/*-workspace
+.claude/skills/*-workspace
