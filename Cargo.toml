@@ -5,7 +5,6 @@ members = [
     "rust-agent-tui",
     "langfuse-client",
     "perihelion-widgets",
-    "acpx-g",
     "perihelion-lsp",
 ]
 resolver = "2"
