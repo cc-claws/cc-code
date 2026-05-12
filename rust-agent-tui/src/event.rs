@@ -11,6 +11,90 @@ use crate::app::plugin_panel::PluginPanel;
 use crate::app::{App, MessageViewModel, PendingAttachment};
 use rust_create_agent::messages::BaseMessage;
 
+/// 将终端显示列坐标转换为字符串的字符索引
+///
+/// 终端中 CJK 等全角字符占 2 列宽，`mouse.column` 是终端列坐标，
+/// 但 `CursorMove::Jump(row, col)` 的 `col` 是字符索引。
+/// 此函数逐字符累加 `unicode_width`，找到不超过 `display_col` 的最大字符索引。
+fn display_col_to_char_idx(line: &str, display_col: usize) -> usize {
+    let mut col = 0usize;
+    for (char_idx, ch) in line.chars().enumerate() {
+        if col >= display_col {
+            return char_idx;
+        }
+        col += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+    }
+    // 点击位置超过行末 → 返回行末字符索引
+    line.chars().count()
+}
+
+/// 将鼠标在 textarea 区域内的坐标转换为 textarea 的 (row, char_idx)
+///
+/// 需要处理四个偏移：
+/// 1. **Block border + padding**：textarea 渲染时通过 `Block::inner(area)` 去掉
+///    边框和 padding，鼠标坐标需要减去这些偏移才能得到文本区域的坐标
+/// 2. **垂直滚动偏移**：当文本行数超过可视区域高度时，textarea 会垂直滚动（`top_row`），
+///    可见区域内的第 0 行对应文本的第 `top_row` 行
+/// 3. **水平滚动偏移**：当文本超长时，textarea 会水平滚动（`top_col`），
+///    可见区域内的第 0 列对应文本的第 `top_col` 显示列
+/// 4. **CJK 字符宽度**：`Jump(row, col)` 的 `col` 是字符索引而非显示列宽，
+///    需要通过 `unicode_width` 逐字符累加转换
+///
+/// `top_row` 和 `top_col` 通过 cursor 位置反推，因为 tui_textarea 的 viewport 是私有的。
+fn textarea_mouse_to_cursor(
+    textarea: &tui_textarea::TextArea<'_>,
+    textarea_area: ratatui::layout::Rect,
+    mouse: &ratatui::crossterm::event::MouseEvent,
+) -> (usize, usize) {
+    // 1. 计算 inner area（去掉 border + padding）
+    let inner = textarea
+        .block()
+        .map(|b| b.inner(textarea_area))
+        .unwrap_or(textarea_area);
+    let inner_width = inner.width as usize;
+    let inner_height = inner.height as usize;
+
+    // 鼠标在 inner 区域内的坐标（saturating 防止点击边框时 u16 溢出）
+    let visual_row = mouse.row.saturating_sub(inner.y) as usize;
+    let visual_col = mouse.column.saturating_sub(inner.x) as usize;
+
+    // 2. 反推垂直滚动偏移（top_row）
+    // tui_textarea 使用 next_scroll_top 逻辑：cursor < top_row → top_row = cursor;
+    // cursor >= top_row + height → top_row = cursor + 1 - height; 否则不变
+    // 由于 viewport 是私有的，我们只能从 cursor 位置反推：
+    // cursor 一定在 [top_row, top_row + height) 内，所以 top_row <= cursor_row
+    let (cursor_row, cursor_col) = textarea.cursor();
+    let scroll_row = cursor_row.saturating_sub(inner_height.saturating_sub(1));
+
+    // 3. 反推水平滚动偏移（top_col，以显示列为单位）
+    let cursor_line = textarea
+        .lines()
+        .get(cursor_row)
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let cursor_display_col: usize = cursor_line
+        .chars()
+        .take(cursor_col)
+        .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum();
+    let scroll_col = cursor_display_col.saturating_sub(inner_width.saturating_sub(1));
+
+    // 4. 文本内的行和显示列
+    let target_row = scroll_row + visual_row;
+    let text_display_col = visual_col + scroll_col;
+
+    // 5. 将显示列转换为字符索引
+    let target_row = target_row.min(textarea.lines().len().saturating_sub(1));
+    let target_line = textarea
+        .lines()
+        .get(target_row)
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let char_idx = display_col_to_char_idx(target_line, text_display_col);
+
+    (target_row, char_idx)
+}
+
 /// 将 RGBA 像素数据编码为 PNG，再返回 base64 字符串和 PNG 字节数
 fn rgba_to_png_base64(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<(String, usize)> {
     let mut png_bytes: Vec<u8> = Vec::new();
@@ -725,11 +809,24 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     }
                 }
 
+                // PageUp/PageDown：VS Code 终端中 Option+Backspace 被映射为 PageUp
+                // 检测 VS Code 终端环境，当 textarea 有内容时执行删除单词操作
                 Input {
                     key: Key::PageUp, ..
-                } => {
-                    for _ in 0..10 {
-                        app.scroll_up();
+                } if std::env::var("TERM_PROGRAM").as_deref() == Ok("vscode") => {
+                    let session = &mut app.session_mgr.sessions[app.session_mgr.active];
+                    let has_content = session
+                        .ui
+                        .textarea
+                        .lines()
+                        .iter()
+                        .any(|line| !line.is_empty());
+                    if has_content {
+                        session.ui.textarea.delete_word();
+                    } else {
+                        for _ in 0..10 {
+                            app.scroll_up();
+                        }
                     }
                 }
                 Input {
@@ -1105,8 +1202,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
                     {
-                        let row = (mouse.row - area.y).saturating_sub(1) as usize; // 跳过顶部边框
-                        let col = mouse.column.saturating_sub(area.x) as usize;
+                        let session = &app.session_mgr.sessions[app.session_mgr.active];
+                        let (row, col) =
+                            textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
                         app.session_mgr.sessions[app.session_mgr.active]
                             .ui
                             .textarea
@@ -1173,8 +1271,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         .textarea_area
                     {
                         if mouse.row >= area.y && mouse.row < area.y + area.height {
-                            let row = (mouse.row - area.y).saturating_sub(1) as usize;
-                            let col = mouse.column.saturating_sub(area.x) as usize;
+                            let session = &app.session_mgr.sessions[app.session_mgr.active];
+                            let (row, col) =
+                                textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
                             app.session_mgr.sessions[app.session_mgr.active]
                                 .ui
                                 .textarea
