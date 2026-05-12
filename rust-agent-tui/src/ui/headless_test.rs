@@ -3176,6 +3176,427 @@ async fn test_auto_compact_triggers_when_no_background_tasks() {
     );
 }
 
+// ── Background Agent SubAgentGroup 消失诊断 ───────────────────────────
+
+/// 统计 view_messages 中 SubAgentGroup 的数量
+fn bg_diag_count_subagent_groups(app: &App) -> usize {
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .iter()
+        .filter(|vm| vm.is_subagent_group())
+        .count()
+}
+
+/// 打印当前 view_messages 的摘要（诊断用）
+#[allow(dead_code)]
+fn bg_diag_print_vms(app: &App, label: &str) {
+    let vms = &app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages;
+    eprintln!("\n=== {} (total: {}) ===", label, vms.len());
+    for (i, vm) in vms.iter().enumerate() {
+        match vm {
+            MessageViewModel::UserBubble { content, .. } => {
+                let preview: String = content.chars().take(30).collect();
+                eprintln!("  [{}] UserBubble({})", i, preview);
+            }
+            MessageViewModel::AssistantBubble { is_streaming, .. } => {
+                eprintln!("  [{}] AssistantBubble(streaming={})", i, is_streaming);
+            }
+            MessageViewModel::ToolBlock {
+                tool_name, content, ..
+            } => {
+                let preview: String = content.chars().take(40).collect();
+                eprintln!("  [{}] ToolBlock({}, content={:?})", i, tool_name, preview);
+            }
+            MessageViewModel::SubAgentGroup {
+                agent_id,
+                is_running,
+                final_result,
+                total_steps,
+                ..
+            } => {
+                eprintln!(
+                    "  [{}] SubAgentGroup(id={}, running={}, steps={}, has_result={})",
+                    i,
+                    agent_id,
+                    is_running,
+                    total_steps,
+                    final_result.is_some()
+                );
+            }
+            MessageViewModel::ToolCallGroup { category, .. } => {
+                eprintln!("  [{}] ToolCallGroup({:?})", i, category);
+            }
+            MessageViewModel::SystemNote { content } => {
+                let preview: String = content.chars().take(40).collect();
+                eprintln!("  [{}] SystemNote({})", i, preview);
+            }
+            MessageViewModel::CacheWarning { content } => {
+                let preview: String = content.chars().take(40).collect();
+                eprintln!("  [{}] CacheWarning({})", i, preview);
+            }
+        }
+    }
+    eprintln!(
+        "  SubAgentGroup count: {}",
+        bg_diag_count_subagent_groups(app)
+    );
+}
+
+/// 诊断测试：复现 background agent SubAgentGroup 在 BackgroundTaskCompleted 后消失
+///
+/// 事件流：
+/// 1. User message → SubAgentStart(bg) → SubAgentEnd → StateSnapshot → Done
+/// 2. BackgroundTaskCompleted → 检查 SubAgentGroup 是否仍在
+#[tokio::test]
+async fn test_diagnostic_bg_subagent_group_disappears() {
+    use crate::app::message_pipeline::PipelineAction;
+    use rust_create_agent::messages::{BaseMessage, ToolCallRequest};
+
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+
+    // Step 1: 模拟用户消息（begin_round + AddMessage）
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .pipeline
+        .begin_round();
+    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+        "run background agent".into(),
+    )));
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .round_start_vm_idx = app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .len();
+
+    bg_diag_print_vms(&app, "Step 1: After UserBubble");
+
+    // Step 2: SubAgentStart (background agent)
+    app.push_agent_event(AgentEvent::SubAgentStart {
+        agent_id: "code-reviewer".into(),
+        task_preview: "review the code".into(),
+        is_background: true,
+    });
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Step 2: After SubAgentStart");
+
+    assert!(
+        bg_diag_count_subagent_groups(&app) >= 1,
+        "After SubAgentStart: should have SubAgentGroup"
+    );
+
+    // Step 3: SubAgentEnd (invoke_background returns immediately)
+    app.push_agent_event(AgentEvent::SubAgentEnd {
+        result: "Background task bg-abc123 started.".into(),
+        is_error: false,
+    });
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Step 3: After SubAgentEnd");
+
+    // Step 4: StateSnapshot (includes Tool(Agent) message)
+    let snapshot_msgs = vec![
+        BaseMessage::ai_with_tool_calls(
+            "",
+            vec![ToolCallRequest::new(
+                "call_1",
+                "Agent",
+                serde_json::json!({
+                    "subagent_type": "code-reviewer",
+                    "prompt": "review the code",
+                    "run_in_background": true
+                }),
+            )],
+        ),
+        BaseMessage::tool_result("call_1", "Background task bg-abc123 started."),
+        BaseMessage::ai("Started the background task."),
+    ];
+    app.push_agent_event(AgentEvent::StateSnapshot(snapshot_msgs));
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Step 4: After StateSnapshot");
+
+    // Step 5: Done (with background task still running)
+    app.session_mgr.sessions[app.session_mgr.active].background_task_count = 1;
+    app.push_agent_event(AgentEvent::Done);
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Step 5: After Done");
+
+    let count_after_done = bg_diag_count_subagent_groups(&app);
+    assert!(
+        count_after_done >= 1,
+        "After Done: SubAgentGroup should exist, but count={}. VMs:\n{:?}",
+        count_after_done,
+        app.session_mgr.sessions[app.session_mgr.active]
+            .messages
+            .view_messages
+            .iter()
+            .map(|vm| std::mem::discriminant(vm))
+            .collect::<Vec<_>>()
+    );
+
+    // 验证 agent_done_pending_bg 被设置
+    assert!(
+        app.session_mgr.sessions[app.session_mgr.active]
+            .agent
+            .agent_done_pending_bg,
+        "Done with background_task_count > 0 should set agent_done_pending_bg = true"
+    );
+
+    // Step 6: BackgroundTaskCompleted — 精确模拟真实场景
+    // 在真实场景中，agent_done_pending_bg=true，所以 handle_background_task_completed
+    // 会设置 pending_bg_continuation 并返回 (true, false, true)
+    app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
+        task_id: "bg-abc123".into(),
+        agent_name: "code-reviewer".into(),
+        success: true,
+        output: "LGTM".into(),
+        tool_calls_count: 5,
+        duration_ms: 3000,
+    });
+    app.process_pending_events();
+    bg_diag_print_vms(
+        &app,
+        "Step 6: After BackgroundTaskCompleted (with agent_done_pending_bg=true)",
+    );
+
+    // 验证 pending_bg_continuation 被设置
+    assert!(
+        app.session_mgr.sessions[app.session_mgr.active]
+            .agent
+            .pending_bg_continuation
+            .is_some(),
+        "BackgroundTaskCompleted with agent_done_pending_bg=true should set pending_bg_continuation"
+    );
+
+    let count_after_bg = bg_diag_count_subagent_groups(&app);
+    assert_eq!(
+        count_after_bg, count_after_done,
+        "BUG REPRODUCED: SubAgentGroup disappeared after BackgroundTaskCompleted! Before={}, After={}",
+        count_after_done, count_after_bg
+    );
+
+    // === 第二阶段：模拟 continuation 触发 ===
+    // BackgroundTaskCompleted 处理器在 agent_done_pending_bg=true 时
+    // 设置 pending_bg_continuation，下一帧 poll_agent 触发 submit_message
+    // submit_message 调用 begin_round + AddMessage(UserBubble) + 启动新 agent
+
+    // 模拟 submit_message 的 begin_round
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .pipeline
+        .begin_round();
+    // 模拟 submit_message 的 AddMessage(UserBubble)
+    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+        "[bg continuation] process result".into(),
+    )));
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .round_start_vm_idx = app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .len();
+
+    bg_diag_print_vms(&app, "Step 7: After continuation begin_round + UserBubble");
+
+    // 模拟新 agent 运行的 StateSnapshot（只有新消息，不含历史）
+    let continuation_snapshot = vec![BaseMessage::ai("Processing background result...")];
+    app.push_agent_event(AgentEvent::StateSnapshot(continuation_snapshot));
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Step 8: After continuation StateSnapshot");
+
+    // 模拟新 agent Done
+    app.push_agent_event(AgentEvent::Done);
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Step 9: After continuation Done");
+
+    let count_final = bg_diag_count_subagent_groups(&app);
+    assert!(
+        count_final >= 1,
+        "BUG REPRODUCED: SubAgentGroup disappeared during continuation! After Done={}, After continuation={}. VMs:\n{:?}",
+        count_after_done,
+        count_final,
+        app.session_mgr.sessions[app.session_mgr.active]
+            .messages
+            .view_messages
+            .iter()
+            .enumerate()
+            .map(|(i, vm)| {
+                let tag = match vm {
+                    MessageViewModel::UserBubble { .. } => "User",
+                    MessageViewModel::AssistantBubble { .. } => "Assistant",
+                    MessageViewModel::ToolBlock { tool_name, .. } => return format!("[{}] Tool({})", i, tool_name),
+                    MessageViewModel::SubAgentGroup { agent_id, .. } => return format!("[{}] SubAgent({})", i, agent_id),
+                    _ => "Other",
+                };
+                format!("[{}] {}", i, tag)
+            })
+            .collect::<Vec<_>>()
+    );
+}
+
+/// 诊断测试：复现 fork+run_in_background 场景下 SubAgentGroup 消失
+///
+/// 根因：当 LLM 发送 {fork:true, run_in_background:true} 时，
+/// invoke() 中 fork 检测优先于 background 检测（tool.rs:645-649），
+/// 走 invoke_fork 同步路径，但 map_executor_event 仍设置 is_background=true，
+/// 导致 background_task_count 被 +1 但永远不会被递减（无 BackgroundTaskCompleted 事件）。
+///
+/// 这导致：
+/// 1. Done 时 background_task_count > 0 → agent_done_pending_bg = true
+/// 2. agent_rx 被保持存活，但 agent 任务结束后通道断开
+/// 3. Disconnected 分支清理 pipeline → SubAgentGroup 可能丢失
+#[tokio::test]
+async fn test_diagnostic_fork_plus_background_subagent_group() {
+    use crate::app::message_pipeline::PipelineAction;
+    use rust_create_agent::messages::{BaseMessage, ToolCallRequest};
+
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+
+    // Step 1: 用户消息
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .pipeline
+        .begin_round();
+    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+        "run fork in background".into(),
+    )));
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .round_start_vm_idx = app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .len();
+
+    // Step 2: SubAgentStart — fork+background 场景
+    // map_executor_event 从 input 中读取 run_in_background=true，设置 is_background=true
+    // 但 invoke_fork 是同步的，不会产生 BackgroundTaskCompleted
+    app.push_agent_event(AgentEvent::SubAgentStart {
+        agent_id: "fork".into(), // fork 模式 agent_id 为 "fork"
+        task_preview: "do something in background".into(),
+        is_background: true, // 关键：fork+background 时 is_background=true
+    });
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Fork+BG Step 1: After SubAgentStart");
+
+    // 验证 background_task_count 被 +1
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active].background_task_count, 1,
+        "SubAgentStart with is_background=true should increment background_task_count"
+    );
+
+    // Step 3: SubAgentEnd — invoke_fork 同步完成后触发
+    // fork 路径的 SubAgentEnd 正常触发（因为 invoke_fork 是同步的）
+    app.push_agent_event(AgentEvent::SubAgentEnd {
+        result: "[Sub-agent executed 3 tool calls: Read, Bash, Grep]\n\nDone.".into(),
+        is_error: false,
+    });
+    app.process_pending_events();
+    bg_diag_print_vms(
+        &app,
+        "Fork+BG Step 2: After SubAgentEnd (fork completed synchronously)",
+    );
+
+    // 验证 background_task_count 仍为 1（SubAgentEnd 不递减）
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active].background_task_count,
+        1,
+        "SubAgentEnd should NOT decrement background_task_count (only BackgroundTaskCompleted does)"
+    );
+
+    // Step 4: StateSnapshot（包含 fork 的完整结果）
+    let snapshot_msgs = vec![
+        BaseMessage::ai_with_tool_calls(
+            "",
+            vec![ToolCallRequest::new(
+                "call_fork_1",
+                "Agent",
+                serde_json::json!({
+                    "fork": true,
+                    "run_in_background": true,
+                    "prompt": "do something in background"
+                }),
+            )],
+        ),
+        BaseMessage::tool_result(
+            "call_fork_1",
+            "[Sub-agent executed 3 tool calls: Read, Bash, Grep]\n\nDone.",
+        ),
+        BaseMessage::ai("Fork task completed."),
+    ];
+    app.push_agent_event(AgentEvent::StateSnapshot(snapshot_msgs));
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Fork+BG Step 3: After StateSnapshot");
+
+    // Step 5: Done — 此时 background_task_count=1，触发 agent_done_pending_bg
+    app.push_agent_event(AgentEvent::Done);
+    app.process_pending_events();
+    bg_diag_print_vms(&app, "Fork+BG Step 4: After Done");
+
+    // 验证 agent_done_pending_bg 被设置（因为 background_task_count > 0）
+    assert!(
+        app.session_mgr.sessions[app.session_mgr.active]
+            .agent
+            .agent_done_pending_bg,
+        "Done with background_task_count > 0 should set agent_done_pending_bg = true"
+    );
+
+    // 验证 SubAgentGroup 在 Done 后存在
+    let count_after_done = bg_diag_count_subagent_groups(&app);
+    assert!(
+        count_after_done >= 1,
+        "After Done: SubAgentGroup should exist for fork+bg, count={}",
+        count_after_done
+    );
+
+    // Step 6: 模拟下一帧 — 没有 BackgroundTaskCompleted 事件
+    // 因为 invoke_fork 是同步的，不会产生 BackgroundTaskCompleted
+    // 但 agent_rx 被保持存活，等待永远不会到来的事件
+    // 最终通道会因为 agent task 结束而断开
+
+    // 模拟通道断开（agent_rx 的 sender 被 drop）
+    // 在 headless 模式中，我们直接模拟这个状态：
+    // agent_done_pending_bg = true, background_task_count = 1, 但没有 BackgroundTaskCompleted
+
+    // 模拟下一轮用户发消息（真实场景中用户可能等待后发新消息）
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .pipeline
+        .begin_round();
+    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+        "next message".into(),
+    )));
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .round_start_vm_idx = app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .len();
+
+    // 新一轮 StateSnapshot
+    app.push_agent_event(AgentEvent::StateSnapshot(vec![BaseMessage::ai("OK")]));
+    app.process_pending_events();
+    app.flush_rebuild();
+    bg_diag_print_vms(&app, "Fork+BG Step 5: After next round StateSnapshot");
+
+    // 验证 SubAgentGroup 在新一轮后是否消失
+    let count_final = bg_diag_count_subagent_groups(&app);
+    assert!(
+        count_final >= 1,
+        "BUG REPRODUCED: SubAgentGroup disappeared! fork+background causes phantom background_task_count. Before={}, After={}",
+        count_after_done,
+        count_final
+    );
+
+    // 验证 background_task_count 仍为 1（永远不会被清除）
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active].background_task_count,
+        1,
+        "background_task_count should still be 1 (no BackgroundTaskCompleted will ever arrive for fork path)"
+    );
+}
+
 /// 回归：Anthropic thinking 模式下，流式阶段 AI message 不可见是预期的（reasoning 被跳过），
 /// 但 Done 后 RebuildAll 不应丢失 user message
 #[tokio::test]

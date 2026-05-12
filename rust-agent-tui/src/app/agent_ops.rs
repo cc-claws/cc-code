@@ -299,6 +299,17 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Done => {
+                // Child agent Done during tool execution — ignore to prevent
+                // TUI from treating it as parent completion (setting agent_rx=None,
+                // loading=false, etc.). The parent ReAct loop is still blocked in
+                // the tool call and will continue after it returns.
+                if self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .pipeline
+                    .in_subagent()
+                {
+                    return (false, false, false);
+                }
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
                     .retry_status = None;
@@ -438,6 +449,15 @@ impl App {
                 (true, false, true)
             }
             AgentEvent::Interrupted => {
+                // Child agent interrupted during tool execution — ignore;
+                // parent tool call will handle the result when it returns.
+                if self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .pipeline
+                    .in_subagent()
+                {
+                    return (false, false, false);
+                }
                 // 中断后不应触发 auto-compact（上下文可能还很充裕），
                 // 清除标记，防止紧随其后的 Done 事件误触发
                 self.session_mgr.sessions[self.session_mgr.active]
@@ -530,6 +550,16 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Error(ref e) => {
+                // Child agent error during tool execution — ignore;
+                // the error is captured in the tool result string that
+                // invoke_fork/invoke_normal returns to the parent.
+                if self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .pipeline
+                    .in_subagent()
+                {
+                    return (false, false, false);
+                }
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
                     .retry_status = None;
@@ -815,14 +845,16 @@ impl App {
     /// 每帧调用：消费 channel 事件，返回是否有 UI 更新
     pub fn poll_agent(&mut self) -> bool {
         // 优先处理延迟的后台任务 continuation（由 BackgroundTaskCompleted 处理器设置）
-        if let Some(continuation) = self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pending_bg_continuation
-            .take()
+        // 只有在 loading=false 时才 take()，避免 loading=true（如 compact 中）时
+        // continuation 被消费但未使用而永久丢失
+        if !self.session_mgr.sessions[self.session_mgr.active]
+            .ui
+            .loading
         {
-            if !self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .loading
+            if let Some(continuation) = self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .pending_bg_continuation
+                .take()
             {
                 tracing::info!("auto-submitting background task continuation");
                 self.submit_message(continuation);

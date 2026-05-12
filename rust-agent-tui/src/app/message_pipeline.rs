@@ -200,11 +200,17 @@ impl MessagePipeline {
                 // Fire pending throttle before disarming to ensure text streamed before
                 // tool call is displayed. This fixes the bug where AI text disappears
                 // when tool calls arrive.
+                //
+                // Note: We use prefix_len=0 here because MessagePipeline doesn't have
+                // access to round_start_vm_idx (the correct VM index). Using 0 means
+                // "rebuild all messages" which is safe - just slightly less optimal.
+                // The alternative would require MessagePipeline to track VM count or
+                // receive prefix_len as a parameter, which would complicate the API.
                 let action = if self.throttle_armed {
                     self.throttle_armed = false;
                     // Return RebuildAll with the current streaming content
                     Some(PipelineAction::RebuildAll {
-                        prefix_len: self.completed_len_at_round_start,
+                        prefix_len: 0, // Safe fallback: rebuild all messages
                         tail_vms: self.build_tail_vms(),
                     })
                 } else {
@@ -276,12 +282,24 @@ impl MessagePipeline {
                 vec![PipelineAction::None]
             }
             AgentEvent::Done => {
-                self.done();
-                vec![PipelineAction::None]
+                if self.in_subagent() {
+                    // Child agent done during tool execution — ignore to avoid
+                    // finalizing parent state or corrupting the subagent_stack.
+                    vec![PipelineAction::None]
+                } else {
+                    self.done();
+                    vec![PipelineAction::None]
+                }
             }
             AgentEvent::Interrupted => {
-                self.interrupt();
-                vec![PipelineAction::None]
+                if self.in_subagent() {
+                    // Child agent interrupted — ignore; parent tool call will
+                    // handle the result (including interruption) when it returns.
+                    vec![PipelineAction::None]
+                } else {
+                    self.interrupt();
+                    vec![PipelineAction::None]
+                }
             }
             AgentEvent::StateSnapshot(msgs) => {
                 self.set_completed(msgs);
@@ -445,11 +463,7 @@ impl MessagePipeline {
         self.completed_tools.clear();
         self.throttle_armed = false;
         self.throttle_last_fire = None;
-        for sub in self.subagent_stack.drain(..) {
-            if let Some(vm) = sub.finalized_vm {
-                self.frozen_subagent_vms.push(vm);
-            }
-        }
+        self.drain_subagent_stack();
     }
 
     /// 中断：finalize 当前状态并清理残留
@@ -460,10 +474,32 @@ impl MessagePipeline {
         self.completed_tools.clear();
         self.throttle_armed = false;
         self.throttle_last_fire = None;
+        self.drain_subagent_stack();
+    }
+
+    /// 清理 subagent_stack：只推入**未**在 tool_end_internal 中 freeze 的残留条目。
+    ///
+    /// `tool_end_internal` 在 SubAgentEnd 时已将 finalized_vm 推入 frozen_subagent_vms，
+    /// 这里只处理异常情况（SubAgent 未正常结束，如被 Interrupted/Error 打断时仍在运行）。
+    /// 已 finalized 的条目不重复推入，避免 frozen 列表膨胀导致 merge_frozen_subagents 错位。
+    fn drain_subagent_stack(&mut self) {
         for sub in self.subagent_stack.drain(..) {
-            if let Some(vm) = sub.finalized_vm {
-                self.frozen_subagent_vms.push(vm);
+            if sub.finalized_vm.is_none() && !sub.is_running {
+                // 未 finalized 但已停止：异常残留，构建一个基本 VM 保留显示
+                self.frozen_subagent_vms
+                    .push(MessageViewModel::SubAgentGroup {
+                        agent_id: sub.agent_id,
+                        task_preview: sub.task_preview,
+                        total_steps: sub.total_steps,
+                        recent_messages: sub.recent_messages,
+                        is_running: false,
+                        collapsed: false,
+                        final_result: None,
+                        is_error: false,
+                    });
             }
+            // 已 finalized（finalized_vm.is_some()）的不推入——tool_end_internal 已处理
+            // 仍在运行（is_running=true）的不推入——background agent 仍在执行
         }
     }
 
@@ -493,6 +529,11 @@ impl MessagePipeline {
     /// 是否在 SubAgent 执行中
     pub fn in_subagent(&self) -> bool {
         self.subagent_stack.last().is_some_and(|s| s.is_running)
+    }
+
+    /// 诊断用：返回 frozen_subagent_vms 的数量
+    pub fn frozen_subagent_vms_count(&self) -> usize {
+        self.frozen_subagent_vms.len()
     }
 
     /// 构建当前流式 AssistantBubble（从 pipeline 流式缓冲区构建完整内容）
@@ -576,15 +617,27 @@ impl MessagePipeline {
         let mut tail_vms = Vec::new();
 
         if self.has_snapshot_this_round {
-            // 从 completed 中本轮的最后一条 Human 消息开始 reconcile
-            let round_completed = &self.completed[self.completed_len_at_round_start..];
+            let start = self.completed_len_at_round_start.min(self.completed.len());
+            let round_completed = &self.completed[start..];
             let last_human_offset = round_completed
                 .iter()
                 .rposition(|msg| matches!(msg, BaseMessage::Human { .. }))
-                .map(|idx| idx + self.completed_len_at_round_start)
-                .unwrap_or(self.completed_len_at_round_start);
+                .map(|idx| idx + start)
+                .unwrap_or(start);
             tail_vms =
                 Self::messages_to_view_models(&self.completed[last_human_offset..], &self.cwd);
+            let reconcile_subagent_count =
+                tail_vms.iter().filter(|vm| vm.is_subagent_group()).count();
+            tracing::debug!(
+                has_snapshot = true,
+                completed_len = self.completed.len(),
+                start_offset = start,
+                last_human_offset,
+                reconcile_total = tail_vms.len(),
+                reconcile_subagent_count,
+                frozen_count = self.frozen_subagent_vms.len(),
+                "[bg-diag] build_tail_vms reconcile"
+            );
         }
 
         // 追加流式 AssistantBubble（当前 AI 正在输出的文本）
@@ -675,6 +728,8 @@ impl MessagePipeline {
     /// 从外部加载全量 BaseMessages（用于历史恢复后覆盖），并清除所有状态
     pub fn restore_completed(&mut self, msgs: Vec<BaseMessage>) {
         self.completed = msgs;
+        self.completed_len_at_round_start = self.completed.len();
+        self.has_snapshot_this_round = false;
         self.current_ai_text.clear();
         self.current_ai_reasoning.clear();
         self.current_ai_tool_calls.clear();

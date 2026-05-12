@@ -372,11 +372,15 @@ impl SubAgentTool {
     }
 
     /// Background path: spawn sub-agent as a background task, return immediately
+    ///
+    /// When `is_fork` is true, the background agent inherits parent messages and
+    /// system prompt (fork semantics) instead of loading an agent definition file.
     async fn invoke_background(
         &self,
         prompt: String,
         subagent_type: Option<String>,
         cwd: String,
+        is_fork: bool,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let registry = self
             .background_registry
@@ -392,13 +396,21 @@ impl SubAgentTool {
 
         let task_id = format!("bg-{}", uuid::Uuid::new_v4());
 
-        // background mode requires subagent_type
-        let agent_id = match &subagent_type {
-            Some(id) => id.clone(),
-            None => {
-                return Ok("Error: background mode requires subagent_type parameter".to_string())
-            }
-        };
+        // Fork mode: no agent definition needed, use parent context
+        if is_fork {
+            return self
+                .invoke_background_fork(prompt, cwd, task_id, registry)
+                .await;
+        }
+
+        let agent_id =
+            match &subagent_type {
+                Some(id) => id.clone(),
+                None => return Ok(
+                    "Error: background mode requires subagent_type parameter (or use fork: true)"
+                        .to_string(),
+                ),
+            };
 
         let agent_def = match self.load_agent_def(&agent_id, &cwd) {
             Ok(a) => a,
@@ -559,6 +571,135 @@ impl SubAgentTool {
             task_id
         ))
     }
+
+    /// Background fork: spawn a fork-style sub-agent as a background task.
+    ///
+    /// Combines fork semantics (inherit parent messages + system prompt + tools)
+    /// with background execution (return immediately, notify on completion).
+    async fn invoke_background_fork(
+        &self,
+        prompt: String,
+        cwd: String,
+        task_id: String,
+        registry: &Arc<BackgroundTaskRegistry>,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let agent_name = "fork".to_string();
+        let prompt_summary: String = prompt.chars().take(100).collect();
+
+        // Build fork directive
+        let fork_directive = super::fork::build_fork_directive(&prompt);
+
+        // Obtain parent messages
+        let parent_msgs: Vec<BaseMessage> = match &self.parent_messages {
+            Some(pm) => pm.read().clone(),
+            None => return Ok(
+                "Error: Fork path requires parent message history, but parent_messages is not set"
+                    .to_string(),
+            ),
+        };
+
+        // Assemble child ReActAgent with fork semantics
+        let llm = (self.llm_factory)(None);
+        let mut agent_builder = ReActAgent::new(llm).max_iterations(200);
+        agent_builder = agent_builder
+            .add_middleware(Box::new(AgentsMdMiddleware::new()))
+            .add_middleware(Box::new(SkillsMiddleware::new().with_global_config()))
+            .add_middleware(Box::new(TodoMiddleware::new({
+                let (tx, _rx) = mpsc::channel(8);
+                tx
+            })));
+
+        if let Some(ref builder) = self.system_builder {
+            let system_content = builder(None, &cwd);
+            agent_builder = agent_builder.with_system_prompt(system_content);
+        }
+
+        // Register all parent tools (fork inherits everything)
+        for tool in self.parent_tools.iter() {
+            agent_builder = agent_builder.register_tool(Box::new(ArcToolWrapper(Arc::clone(tool))));
+        }
+
+        let cancel_token = self.cancel.clone();
+        let event_handler = self.event_handler.clone();
+        let spawn_registry = Arc::clone(registry);
+        let spawn_hooks = Arc::clone(&self.registered_hooks);
+        let spawn_task_id = task_id.clone();
+        let spawn_agent_name = agent_name.clone();
+        let spawn_prompt_summary = prompt_summary.clone();
+
+        self.fire_subagent_lifecycle_hook(HookEvent::SubagentStart, &cwd, &agent_name, None)
+            .await;
+
+        let handle = tokio::spawn(async move {
+            let mut fork_state = AgentState::with_messages(cwd.clone(), parent_msgs);
+            let start = std::time::Instant::now();
+
+            let result = match agent_builder
+                .execute(
+                    AgentInput::text(&fork_directive),
+                    &mut fork_state,
+                    cancel_token,
+                )
+                .await
+            {
+                Ok(output) => {
+                    let tool_calls_count = fork_state
+                        .messages
+                        .iter()
+                        .filter(|m| matches!(m, BaseMessage::Tool { .. }))
+                        .count();
+                    BackgroundTaskResult {
+                        task_id: spawn_task_id.clone(),
+                        agent_name: spawn_agent_name.clone(),
+                        prompt_summary: spawn_prompt_summary.clone(),
+                        success: true,
+                        output: output.text,
+                        tool_calls_count,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                    }
+                }
+                Err(e) => BackgroundTaskResult {
+                    task_id: spawn_task_id.clone(),
+                    agent_name: spawn_agent_name.clone(),
+                    prompt_summary: spawn_prompt_summary.clone(),
+                    success: false,
+                    output: e.to_string(),
+                    tool_calls_count: 0,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+            };
+
+            spawn_registry.complete(&spawn_task_id, result.clone());
+
+            fire_subagent_lifecycle_hooks_static(
+                &spawn_hooks,
+                HookEvent::SubagentStop,
+                &cwd,
+                &spawn_agent_name,
+                Some(&result.output),
+            )
+            .await;
+
+            if let Some(ref handler) = event_handler {
+                handler.on_event(AgentEvent::BackgroundTaskCompleted(result));
+            }
+        });
+
+        registry.register(BackgroundTask {
+            id: task_id.clone(),
+            agent_name: agent_name.clone(),
+            prompt_summary: prompt_summary.clone(),
+            status: BackgroundTaskStatus::Running,
+            started_at: std::time::Instant::now(),
+            abort_handle: handle,
+        })?;
+
+        Ok(format!(
+            "Background task {} started. You will be notified when it completes. \
+             You can continue with other tasks in the meantime.",
+            task_id
+        ))
+    }
 }
 
 #[async_trait]
@@ -639,17 +780,26 @@ impl BaseTool for SubAgentTool {
             .unwrap_or(&self.parent_cwd)
             .to_string();
 
-        if run_in_background && self.background_registry.is_some() {
-            return self.invoke_background(prompt, subagent_type, cwd).await;
-        }
-        // No registry configured: fall through to normal execution
-
-        // Fork detection branch: explicit fork:true OR subagent_type="fork" (common LLM mistake)
+        // Fork detection: explicit fork:true OR subagent_type="fork" (common LLM mistake)
         let is_fork = input.get("fork").and_then(|v| v.as_bool()).unwrap_or(false)
             || subagent_type.as_deref() == Some("fork");
+
+        // Background path takes priority when run_in_background is set and registry exists.
+        // This handles both regular background agents AND fork+background combinations.
+        // Previously fork+background fell through to invoke_fork (synchronous), which
+        // produced a phantom background_task_count (from SubAgentStart with is_background=true)
+        // but no BackgroundTaskCompleted event, breaking the continuation flow.
+        if run_in_background && self.background_registry.is_some() {
+            return self
+                .invoke_background(prompt, subagent_type, cwd, is_fork)
+                .await;
+        }
+
+        // Fork without background: synchronous path
         if is_fork {
             return self.invoke_fork(&prompt, &cwd).await;
         }
+        // No registry configured: fall through to normal execution
 
         // 1. Load agent definition (filesystem with built-in fallback)
         let agent_id = match &subagent_type {

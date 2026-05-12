@@ -72,6 +72,29 @@ impl App {
         }
         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
 
+        // 诊断日志：记录 BackgroundTaskCompleted 处理后的 view_messages 中 SubAgentGroup 数量
+        {
+            let subagent_count = self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .view_messages
+                .iter()
+                .filter(|vm| vm.is_subagent_group())
+                .count();
+            let frozen_count = self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .pipeline
+                .frozen_subagent_vms_count();
+            tracing::debug!(
+                task_id = %&task_id[..8.min(task_id.len())],
+                agent_name = %agent_name,
+                subagent_count_in_view = subagent_count,
+                frozen_count,
+                background_task_count = self.session_mgr.sessions[self.session_mgr.active].background_task_count,
+                agent_done_pending_bg = self.session_mgr.sessions[self.session_mgr.active].agent.agent_done_pending_bg,
+                "[bg-diag] after BackgroundTaskCompleted"
+            );
+        }
+
         // 如果 agent 已完成（Done）且所有后台任务都已完成，关闭通道并自动提交 continuation
         if self.session_mgr.sessions[self.session_mgr.active]
             .agent
