@@ -7,6 +7,7 @@ use tui_textarea::Input;
 use crate::config::PeriConfig;
 
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
@@ -70,8 +71,8 @@ const FIELD_COUNT: usize = 6;
 #[derive(Clone)]
 pub struct ConfigPanel {
     pub mode: ConfigPanelMode,
-    /// Browse 模式当前选中字段索引（0-5）
-    pub cursor: usize,
+    /// Browse 模式光标管理
+    browse_list: PanelList<ConfigEditField>,
     pub edit_field: ConfigEditField,
     // 编辑缓冲区
     pub buf_autocompact: bool,
@@ -84,7 +85,6 @@ pub struct ConfigPanel {
     pub buf_tone: String,
     pub cur_tone: usize,
     pub buf_proactiveness: String, // "low" / "medium" / "high"
-    pub scroll_offset: u16,
 }
 
 impl ConfigPanel {
@@ -102,9 +102,19 @@ impl ConfigPanel {
             .clone()
             .unwrap_or_else(|| "medium".to_string());
 
+        let mut browse_list = PanelList::new();
+        browse_list.set_items(vec![
+            ConfigEditField::Autocompact,
+            ConfigEditField::CompactThreshold,
+            ConfigEditField::Language,
+            ConfigEditField::Persona,
+            ConfigEditField::Tone,
+            ConfigEditField::Proactiveness,
+        ]);
+
         Self {
             mode: ConfigPanelMode::Browse,
-            cursor: 0,
+            browse_list,
             edit_field: ConfigEditField::Autocompact,
             buf_autocompact: autocompact,
             buf_threshold: threshold,
@@ -116,21 +126,16 @@ impl ConfigPanel {
             buf_tone: cfg.config.tone.clone().unwrap_or_default(),
             cur_tone: 0,
             buf_proactiveness: proactiveness,
-            scroll_offset: 0,
         }
     }
 
     pub fn enter_edit(&mut self) {
         self.mode = ConfigPanelMode::Edit;
-        // 将 cursor 映射到 edit_field
-        self.edit_field = match self.cursor {
-            0 => ConfigEditField::Autocompact,
-            1 => ConfigEditField::CompactThreshold,
-            2 => ConfigEditField::Language,
-            3 => ConfigEditField::Persona,
-            4 => ConfigEditField::Tone,
-            _ => ConfigEditField::Proactiveness,
-        };
+        self.edit_field = self
+            .browse_list
+            .selected()
+            .cloned()
+            .unwrap_or(ConfigEditField::Autocompact);
         // 设置光标到末尾
         self.cur_threshold = self.buf_threshold.chars().count();
         self.cur_language = self.buf_language.chars().count();
@@ -232,6 +237,10 @@ impl ConfigPanel {
         FIELD_COUNT
     }
 
+    pub fn cursor(&self) -> usize {
+        self.browse_list.cursor()
+    }
+
     pub fn field_label(index: usize) -> &'static str {
         match index {
             0 => "Autocompact",
@@ -291,15 +300,11 @@ impl PanelComponent for ConfigPanel {
         match self.mode {
             ConfigPanelMode::Browse => match input {
                 Input { key: Key::Up, .. } => {
-                    if self.cursor > 0 {
-                        self.cursor -= 1;
-                    } else {
-                        self.cursor = Self::field_count() - 1;
-                    }
+                    self.browse_list.move_cursor(-1);
                     EventResult::Consumed
                 }
                 Input { key: Key::Down, .. } => {
-                    self.cursor = (self.cursor + 1) % Self::field_count();
+                    self.browse_list.move_cursor(1);
                     EventResult::Consumed
                 }
                 Input {
@@ -412,6 +417,39 @@ impl PanelComponent for ConfigPanel {
     fn handle_paste(&mut self, text: &str, _ctx: &mut PanelContext<'_>) -> EventResult {
         self.paste_text(text);
         EventResult::Consumed
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        if matches!(self.mode, ConfigPanelMode::Browse) {
+            self.browse_list.handle_scroll(lines, 10);
+            EventResult::Consumed
+        } else {
+            EventResult::NotConsumed
+        }
+    }
+
+    fn handle_mouse(
+        &mut self,
+        mouse: ratatui::crossterm::event::MouseEvent,
+        area: Rect,
+        _ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if matches!(self.mode, ConfigPanelMode::Browse) =>
+            {
+                if self
+                    .browse_list
+                    .handle_mouse_click(mouse.row, mouse.column, area, 1)
+                {
+                    self.enter_edit();
+                    return EventResult::Consumed;
+                }
+                EventResult::NotConsumed
+            }
+            _ => EventResult::NotConsumed,
+        }
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {

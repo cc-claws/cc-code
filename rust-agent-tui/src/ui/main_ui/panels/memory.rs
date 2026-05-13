@@ -23,7 +23,7 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
     let mut lines: Vec<Line> = Vec::new();
 
     for (i, entry) in panel.entries.iter().enumerate() {
-        let is_cursor = i == panel.cursor;
+        let is_cursor = i == panel.cursor();
         let cursor_char = if is_cursor { "❯ " } else { "  " };
 
         let style = if is_cursor {
@@ -72,7 +72,7 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
         .panel_area = Some(inner);
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
-        .panel_scroll_offset = panel.scroll_offset;
+        .panel_scroll_offset = panel.scroll_offset();
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
         .panel_plain_lines = lines
@@ -85,7 +85,7 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
         })
         .collect();
 
-    let mut scroll_state = ScrollState::with_offset(panel.scroll_offset);
+    let mut scroll_state = ScrollState::with_offset(panel.scroll_offset());
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
         .render(f, inner, &mut scroll_state);

@@ -1,5 +1,8 @@
 use std::any::Any;
 
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 use tui_textarea::Input;
@@ -7,6 +10,7 @@ use tui_textarea::Input;
 use crate::config::{PeriConfig, ThinkingConfig};
 
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
@@ -59,12 +63,12 @@ pub const ROW_COUNT: usize = 4;
 pub struct ModelPanel {
     /// 当前激活 Provider 的显示名称
     pub provider_name: String,
-    /// 竖向列表光标 (0..ROW_COUNT)
-    pub cursor: usize,
     /// 当前选中的级别
     pub active_tab: AliasTab,
     /// Thinking effort 缓冲 "low" / "medium" / "high"
     pub buf_thinking_effort: String,
+    /// 光标/滚动状态管理
+    pub(crate) list: PanelList<AliasTab>,
 }
 
 impl ModelPanel {
@@ -96,21 +100,25 @@ impl ModelPanel {
             .map(|t| t.effort.clone())
             .unwrap_or_else(|| "high".to_string());
 
+        let mut list = PanelList::new();
+        list.set_items(vec![AliasTab::Opus, AliasTab::Sonnet, AliasTab::Haiku]);
+        // PanelList 管理 3 个 AliasTab，但实际有 4 行（含 Effort）
+        // cursor 直接用 list 管理，第 4 行（Effort）通过 cursor == 3 处理
+        for _ in 0..cursor {
+            list.move_cursor(1);
+        }
+
         Self {
             provider_name,
-            cursor,
             active_tab,
             buf_thinking_effort: effort,
+            list,
         }
     }
 
-    /// 上下移动光标（循环）
-    pub fn move_cursor(&mut self, delta: i32) {
-        if delta > 0 {
-            self.cursor = (self.cursor + 1) % ROW_COUNT;
-        } else if delta < 0 {
-            self.cursor = (self.cursor + ROW_COUNT - 1) % ROW_COUNT;
-        }
+    /// 光标位置
+    pub fn cursor(&self) -> usize {
+        self.list.cursor()
     }
 
     /// 循环切换 effort：low → medium → high → xhigh → max → low（任意光标位置可切换）
@@ -159,16 +167,17 @@ impl PanelComponent for ModelPanel {
         match input {
             Input { key: Key::Esc, .. } => EventResult::ClosePanel,
             Input { key: Key::Up, .. } => {
-                self.move_cursor(-1);
+                // clamp 模式，不循环
+                self.list.move_cursor(-1);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                self.move_cursor(1);
+                self.list.move_cursor(1);
                 EventResult::Consumed
             }
             Input {
                 key: Key::Enter, ..
-            } => match self.cursor {
+            } => match self.cursor() {
                 ROW_OPUS => {
                     self.active_tab = AliasTab::Opus;
                     Self::apply_and_close(self, ctx);
@@ -213,6 +222,36 @@ impl PanelComponent for ModelPanel {
         }
     }
 
+    fn handle_mouse(
+        &mut self,
+        mouse: MouseEvent,
+        area: Rect,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            // border_top=1，计算点击的行索引
+            let relative_y = mouse.row.saturating_sub(area.y);
+            if relative_y >= 1 {
+                let clicked = (relative_y - 1) as usize;
+                if clicked < ROW_COUNT {
+                    // 直接设置 cursor（绕过 PanelList 的 items 长度限制）
+                    // PanelList 只有 3 个 items，但实际有 4 行
+                    for _ in 0..clicked.saturating_sub(self.cursor()) {
+                        self.list.move_cursor(1);
+                    }
+                    for _ in 0..self.cursor().saturating_sub(clicked) {
+                        self.list.move_cursor(-1);
+                    }
+                    return self.handle_key(
+                        Input::from(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                        ctx,
+                    );
+                }
+            }
+        }
+        EventResult::NotConsumed
+    }
+
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
         12
     }
@@ -231,10 +270,10 @@ impl PanelComponent for ModelPanel {
 
     fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
         vec![
-            ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-            ("Enter", "\u{786e}\u{8ba4}"),
-            ("\u{2190}\u{2192}/Space", "Effort"),
-            ("Esc", "\u{5173}\u{95ed}"),
+            ("↑↓", "导航"),
+            ("Enter", "确认"),
+            ("←→/Space", "Effort"),
+            ("Esc", "关闭"),
         ]
     }
 }
@@ -261,17 +300,14 @@ impl ModelPanel {
         ctx.session_mgr.sessions[ctx.session_mgr.active]
             .messages
             .push_system_note(format!(
-                "\u{6a21}\u{578b}\u{5df2}\u{5207}\u{6362}\u{4e3a}: {} ({} effort)",
+                "模型已切换为: {} ({} effort)",
                 alias_label, effort_display
             ));
 
         if let Err(e) = App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
             ctx.session_mgr.sessions[ctx.session_mgr.active]
                 .messages
-                .push_system_note(format!(
-                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
-                    e
-                ));
+                .push_system_note(format!("配置保存失败: {}", e));
         }
 
         if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
@@ -313,7 +349,7 @@ mod tests {
         let cfg = make_config();
         let panel = ModelPanel::from_config(&cfg);
         assert_eq!(panel.active_tab, AliasTab::Opus);
-        assert_eq!(panel.cursor, ROW_OPUS);
+        assert_eq!(panel.cursor(), ROW_OPUS);
         assert_eq!(panel.provider_name, "TestProvider");
         assert_eq!(panel.buf_thinking_effort, "medium");
     }
@@ -324,31 +360,33 @@ mod tests {
         cfg.config.active_alias = "sonnet".to_string();
         let panel = ModelPanel::from_config(&cfg);
         assert_eq!(panel.active_tab, AliasTab::Sonnet);
-        assert_eq!(panel.cursor, ROW_SONNET);
+        assert_eq!(panel.cursor(), ROW_SONNET);
     }
 
     #[test]
-    fn test_move_cursor_wrap() {
+    fn test_move_cursor_clamp() {
         let cfg = make_config();
         let mut panel = ModelPanel::from_config(&cfg);
-        assert_eq!(panel.cursor, ROW_OPUS);
-        panel.move_cursor(1);
-        assert_eq!(panel.cursor, ROW_SONNET);
-        panel.move_cursor(1);
-        assert_eq!(panel.cursor, ROW_HAIKU);
-        panel.move_cursor(1);
-        assert_eq!(panel.cursor, ROW_EFFORT);
-        panel.move_cursor(1);
-        assert_eq!(panel.cursor, ROW_OPUS);
-        panel.move_cursor(-1);
-        assert_eq!(panel.cursor, ROW_EFFORT);
+        assert_eq!(panel.cursor(), ROW_OPUS);
+        panel.list.move_cursor(1);
+        assert_eq!(panel.cursor(), ROW_SONNET);
+        panel.list.move_cursor(1);
+        assert_eq!(panel.cursor(), ROW_HAIKU);
+        // clamp：不再循环到 OPUS
+        panel.list.move_cursor(1);
+        assert_eq!(panel.cursor(), ROW_HAIKU);
+        panel.list.move_cursor(-1);
+        assert_eq!(panel.cursor(), ROW_SONNET);
+        panel.list.move_cursor(-1);
+        assert_eq!(panel.cursor(), ROW_OPUS);
+        panel.list.move_cursor(-1);
+        assert_eq!(panel.cursor(), ROW_OPUS, "不应循环到底部");
     }
 
     #[test]
     fn test_cycle_effort() {
         let cfg = make_config();
         let mut panel = ModelPanel::from_config(&cfg);
-        panel.cursor = ROW_EFFORT;
 
         assert_eq!(panel.buf_thinking_effort, "medium");
         panel.cycle_effort(false);
@@ -376,8 +414,7 @@ mod tests {
     fn test_cycle_effort_works_from_any_row() {
         let cfg = make_config();
         let mut panel = ModelPanel::from_config(&cfg);
-        assert_eq!(panel.cursor, ROW_OPUS);
-        // cycle_effort 现在可以在任意光标位置切换
+        assert_eq!(panel.cursor(), ROW_OPUS);
         panel.cycle_effort(false);
         assert_eq!(panel.buf_thinking_effort, "high");
     }

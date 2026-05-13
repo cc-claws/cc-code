@@ -37,7 +37,7 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, _app: &App
         ConfigPanelMode::Browse => {
             let mut lines: Vec<Line> = Vec::new();
             for i in 0..ConfigPanel::field_count() {
-                let is_cursor = i == panel.cursor;
+                let is_cursor = i == panel.cursor();
                 let cursor_char = if is_cursor { "❯ " } else { "  " };
                 let label = ConfigPanel::field_label(i);
                 let value = panel.field_display_value(i);

@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use tui_textarea::{Input, Key};
 
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
@@ -176,10 +177,9 @@ impl PluginPanelView {
 /// /plugin 面板状态
 #[derive(Debug, Clone)]
 pub struct PluginPanel {
-    pub cursor: usize,
     pub view: PluginPanelView,
-    pub scroll_offset: u16,
     pub entries: Vec<PluginEntry>,
+    pub installed_list: PanelList<PluginEntry>,
     pub confirm_delete: Option<String>,
     /// 详情视图：已进入时为 Some(entry_index)
     pub detail_index: Option<usize>,
@@ -190,8 +190,7 @@ pub struct PluginPanel {
     pub discover_plugins: Vec<DiscoverPlugin>,
     pub discover_search: InputState,
     pub discover_searching: bool,
-    pub discover_cursor: usize,
-    pub discover_scroll: u16,
+    pub discover_list: PanelList<DiscoverPlugin>,
     pub discover_loading: bool,
     pub discover_selected: HashSet<String>,
     pub discover_detail_index: Option<usize>,
@@ -199,8 +198,7 @@ pub struct PluginPanel {
 
     // --- Marketplaces 视图状态 ---
     pub marketplace_entries: Vec<MarketplaceViewEntry>,
-    pub marketplace_cursor: usize,
-    pub marketplace_scroll: u16,
+    pub marketplace_list: PanelList<MarketplaceViewEntry>,
     pub marketplace_confirm_delete: Option<usize>,
     pub marketplace_updating: HashSet<String>,
     /// 添加 marketplace 输入框
@@ -215,26 +213,25 @@ pub struct PluginPanel {
 
 impl PluginPanel {
     pub fn new(entries: Vec<PluginEntry>) -> Self {
+        let mut installed_list = PanelList::new();
+        installed_list.set_items(entries.clone());
         Self {
-            cursor: 0,
             view: PluginPanelView::Installed,
-            scroll_offset: 0,
             entries,
+            installed_list,
             confirm_delete: None,
             detail_index: None,
             detail_cursor: 0,
             discover_plugins: Vec::new(),
             discover_search: InputState::new(),
             discover_searching: false,
-            discover_cursor: 0,
-            discover_scroll: 0,
+            discover_list: PanelList::new(),
             discover_loading: false,
             discover_selected: HashSet::new(),
             discover_detail_index: None,
             discover_detail_cursor: 0,
             marketplace_entries: Vec::new(),
-            marketplace_cursor: 0,
-            marketplace_scroll: 0,
+            marketplace_list: PanelList::new(),
             marketplace_confirm_delete: None,
             marketplace_updating: HashSet::new(),
             add_marketplace_input: InputState::new(),
@@ -271,7 +268,7 @@ impl PluginPanel {
     /// 获取当前光标处的 Discover 插件
     pub fn discover_current_plugin(&self) -> Option<&DiscoverPlugin> {
         let filtered = self.discover_filtered_plugins();
-        filtered.get(self.discover_cursor).copied()
+        filtered.get(self.discover_list.cursor()).copied()
     }
 
     /// 根据当前视图过滤后的可见条目索引列表
@@ -289,12 +286,88 @@ impl PluginPanel {
     }
 
     pub fn current_list_len(&self) -> usize {
-        self.visible_indices().len()
+        match self.view {
+            PluginPanelView::Installed => self.installed_list.len(),
+            PluginPanelView::Errors => {
+                // Errors 视图过滤有 load_error 的条目
+                self.entries
+                    .iter()
+                    .filter(|e| e.load_error.is_some())
+                    .count()
+            }
+            PluginPanelView::Discover => self.discover_list.len(),
+            PluginPanelView::Marketplaces => {
+                // marketplace_cursor = 0 是 Add Marketplace，+ marketplace_entries.len()
+                self.marketplace_entries.len() + 1
+            }
+        }
+    }
+
+    /// 根据当前视图返回 cursor
+    pub fn cursor(&self) -> usize {
+        match self.view {
+            PluginPanelView::Installed => self.installed_list.cursor(),
+            PluginPanelView::Discover => self.discover_list.cursor(),
+            PluginPanelView::Marketplaces => self.marketplace_list.cursor(),
+            PluginPanelView::Errors => self.installed_list.cursor(),
+        }
+    }
+
+    /// 根据当前视图返回 scroll_offset
+    pub fn scroll_offset(&self) -> u16 {
+        match self.view {
+            PluginPanelView::Installed => self.installed_list.scroll_offset(),
+            PluginPanelView::Discover => self.discover_list.scroll_offset(),
+            PluginPanelView::Marketplaces => self.marketplace_list.scroll_offset(),
+            PluginPanelView::Errors => self.installed_list.scroll_offset(),
+        }
+    }
+
+    /// 根据当前视图设置 scroll_offset
+    pub fn set_scroll_offset(&mut self, offset: u16) {
+        match self.view {
+            PluginPanelView::Installed => self.installed_list.set_scroll_offset(offset),
+            PluginPanelView::Discover => self.discover_list.set_scroll_offset(offset),
+            PluginPanelView::Marketplaces => self.marketplace_list.set_scroll_offset(offset),
+            PluginPanelView::Errors => self.installed_list.set_scroll_offset(offset),
+        }
     }
 
     pub fn selected_entry(&self) -> Option<&PluginEntry> {
         let indices = self.visible_indices();
-        indices.get(self.cursor).and_then(|&i| self.entries.get(i))
+        indices
+            .get(self.cursor())
+            .and_then(|&i| self.entries.get(i))
+    }
+
+    /// 切换视图后同步当前视图的 PanelList items
+    fn sync_current_view_items(&mut self) {
+        match self.view {
+            PluginPanelView::Installed => {
+                // installed_list items 已在 new() 时设置，无需同步
+            }
+            PluginPanelView::Errors => {
+                // Errors 视图：只显示有 load_error 的 entries
+                let error_entries: Vec<PluginEntry> = self
+                    .entries
+                    .iter()
+                    .filter(|e| e.load_error.is_some())
+                    .cloned()
+                    .collect();
+                self.installed_list.set_items(error_entries);
+            }
+            PluginPanelView::Discover => {
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
+            }
+            PluginPanelView::Marketplaces => {
+                // marketplace_list items 在 open_plugin_panel 中设置
+            }
+        }
     }
 }
 
@@ -347,17 +420,23 @@ impl PanelComponent for PluginPanel {
             for ch in text.chars() {
                 self.discover_search.insert(ch);
             }
-            self.discover_cursor = 0;
+            self.discover_list.set_items(
+                self.discover_filtered_plugins()
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            );
             return EventResult::Consumed;
         }
         EventResult::Consumed
     }
 
     fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
-        if lines > 0 {
-            self.scroll_offset = self.scroll_offset.saturating_add(lines as u16);
-        } else {
-            self.scroll_offset = self.scroll_offset.saturating_sub((-lines) as u16);
+        match self.view {
+            PluginPanelView::Installed => self.installed_list.handle_scroll(lines, 10),
+            PluginPanelView::Discover => self.discover_list.handle_scroll(lines, 10),
+            PluginPanelView::Marketplaces => self.marketplace_list.handle_scroll(lines, 10),
+            PluginPanelView::Errors => self.installed_list.handle_scroll(lines, 10),
         }
         EventResult::Consumed
     }
@@ -507,7 +586,12 @@ impl PluginPanel {
                 key: Key::Char(c), ..
             } => {
                 self.discover_search.insert(c);
-                self.discover_cursor = 0;
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
                 EventResult::Consumed
             }
             Input {
@@ -515,47 +599,70 @@ impl PluginPanel {
                 ..
             } => {
                 self.discover_search.backspace();
-                self.discover_cursor = 0;
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
                 EventResult::Consumed
             }
             Input { key: Key::Up, .. } => {
                 self.discover_searching = false;
-                if self.discover_cursor > 0 {
-                    self.discover_cursor -= 1;
-                }
+                self.discover_list.move_cursor(-1);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
                 self.discover_searching = false;
-                let max = self.discover_filtered_plugins().len().saturating_sub(1);
-                if self.discover_cursor < max {
-                    self.discover_cursor += 1;
-                }
+                self.discover_list.move_cursor(1);
                 EventResult::Consumed
             }
             Input { key: Key::Left, .. } => {
                 self.discover_searching = false;
-                self.discover_cursor = 0;
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
                 self.view.prev();
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input {
                 key: Key::Right, ..
             } => {
                 self.discover_searching = false;
-                self.discover_cursor = 0;
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
                 self.view.next();
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input { key: Key::Esc, .. } => {
                 self.discover_searching = false;
-                self.discover_cursor = 0;
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
                 EventResult::Consumed
             }
             Input {
                 key: Key::Enter, ..
             } => {
                 self.discover_searching = false;
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
                 self.spawn_install_current(ctx);
                 EventResult::Consumed
             }
@@ -695,7 +802,6 @@ impl PluginPanel {
             Input { key: Key::Esc, .. } => {
                 self.detail_index = None;
                 self.detail_cursor = 0;
-                self.scroll_offset = 0;
                 EventResult::Consumed
             }
             _ => EventResult::Consumed,
@@ -709,34 +815,27 @@ impl PluginPanel {
             }
             | Input { key: Key::Tab, .. } => {
                 self.view.next();
-                self.cursor = 0;
-                self.scroll_offset = 0;
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input { key: Key::Left, .. } => {
                 self.view.prev();
-                self.cursor = 0;
-                self.scroll_offset = 0;
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input { key: Key::Up, .. } => {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
-                }
+                self.installed_list.move_cursor(-1);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                let max = self.current_list_len().saturating_sub(1);
-                if self.cursor < max {
-                    self.cursor += 1;
-                }
+                self.installed_list.move_cursor(1);
                 EventResult::Consumed
             }
             Input {
                 key: Key::Char(' '),
                 ..
             } => {
-                if let Some(&entry_idx) = self.visible_indices().get(self.cursor) {
+                if let Some(&entry_idx) = self.visible_indices().get(self.installed_list.cursor()) {
                     if let Some(entry) = self.entries.get_mut(entry_idx) {
                         entry.enabled = !entry.enabled;
                     }
@@ -747,10 +846,9 @@ impl PluginPanel {
             Input {
                 key: Key::Enter, ..
             } => {
-                if let Some(&entry_idx) = self.visible_indices().get(self.cursor) {
+                if let Some(&entry_idx) = self.visible_indices().get(self.installed_list.cursor()) {
                     self.detail_index = Some(entry_idx);
                     self.detail_cursor = 0;
-                    self.scroll_offset = 0;
                 }
                 EventResult::Consumed
             }
@@ -766,27 +864,20 @@ impl PluginPanel {
             }
             | Input { key: Key::Tab, .. } => {
                 self.view.next();
-                self.cursor = 0;
-                self.scroll_offset = 0;
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input { key: Key::Left, .. } => {
                 self.view.prev();
-                self.cursor = 0;
-                self.scroll_offset = 0;
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input { key: Key::Up, .. } => {
-                if self.discover_cursor > 0 {
-                    self.discover_cursor -= 1;
-                }
+                self.discover_list.move_cursor(-1);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                let max = self.discover_filtered_plugins().len().saturating_sub(1);
-                if self.discover_cursor < max {
-                    self.discover_cursor += 1;
-                }
+                self.discover_list.move_cursor(1);
                 EventResult::Consumed
             }
             Input {
@@ -794,7 +885,12 @@ impl PluginPanel {
             } => {
                 self.discover_searching = true;
                 self.discover_search.insert(c);
-                self.discover_cursor = 0;
+                self.discover_list.set_items(
+                    self.discover_filtered_plugins()
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                );
                 EventResult::Consumed
             }
             Input {
@@ -830,38 +926,32 @@ impl PluginPanel {
             }
             | Input { key: Key::Tab, .. } => {
                 self.view.next();
-                self.cursor = 0;
-                self.scroll_offset = 0;
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input { key: Key::Left, .. } => {
                 self.view.prev();
-                self.cursor = 0;
-                self.scroll_offset = 0;
+                self.sync_current_view_items();
                 EventResult::Consumed
             }
             Input { key: Key::Up, .. } => {
-                if self.marketplace_cursor > 0 {
-                    self.marketplace_cursor -= 1;
-                }
+                self.marketplace_list.move_cursor(-1);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                let max = self.marketplace_entries.len();
-                if self.marketplace_cursor < max {
-                    self.marketplace_cursor += 1;
-                }
+                self.marketplace_list.move_cursor(1);
                 EventResult::Consumed
             }
             Input {
                 key: Key::Enter, ..
             } => {
-                if self.marketplace_cursor == 0 {
+                if self.marketplace_list.cursor() == 0 {
                     // Add Marketplace
                     self.add_marketplace_input = InputState::new();
                     self.add_marketplace_active = true;
-                } else if let Some(entry) =
-                    self.marketplace_entries.get(self.marketplace_cursor - 1)
+                } else if let Some(entry) = self
+                    .marketplace_entries
+                    .get(self.marketplace_list.cursor() - 1)
                 {
                     let name = entry.name.clone();
                     let source = entry.source.clone();
@@ -930,8 +1020,8 @@ impl PluginPanel {
                 key: Key::Backspace,
                 ..
             } => {
-                if self.marketplace_cursor > 0 {
-                    let idx = self.marketplace_cursor - 1;
+                if self.marketplace_list.cursor() > 0 {
+                    let idx = self.marketplace_list.cursor() - 1;
                     if self.marketplace_entries.get(idx).is_some() {
                         self.marketplace_confirm_delete = Some(idx);
                     }
@@ -960,10 +1050,8 @@ impl PluginPanel {
                     if let Some(entry) = self.marketplace_entries.get(idx) {
                         let name = entry.name.clone();
                         self.marketplace_entries.remove(idx);
-                        let max = self.marketplace_entries.len();
-                        if self.marketplace_cursor > max {
-                            self.marketplace_cursor = max;
-                        }
+                        self.marketplace_list
+                            .set_items(self.marketplace_entries.clone());
 
                         // Persist delete
                         if let Err(e) = self.persist_marketplace_delete(&name) {
@@ -1083,7 +1171,6 @@ impl PluginPanel {
             Some(DetailAction::BackToList) => {
                 self.detail_index = None;
                 self.detail_cursor = 0;
-                self.scroll_offset = 0;
             }
             None => {}
         }
@@ -1251,17 +1338,32 @@ impl PluginPanel {
 impl App {
     pub fn plugin_panel_move_up(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            if panel.cursor > 0 {
-                panel.cursor -= 1;
+            match panel.view {
+                PluginPanelView::Installed | PluginPanelView::Errors => {
+                    panel.installed_list.move_cursor(-1);
+                }
+                PluginPanelView::Discover => {
+                    panel.discover_list.move_cursor(-1);
+                }
+                PluginPanelView::Marketplaces => {
+                    panel.marketplace_list.move_cursor(-1);
+                }
             }
         }
     }
 
     pub fn plugin_panel_move_down(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            let max = panel.current_list_len().saturating_sub(1);
-            if panel.cursor < max {
-                panel.cursor += 1;
+            match panel.view {
+                PluginPanelView::Installed | PluginPanelView::Errors => {
+                    panel.installed_list.move_cursor(1);
+                }
+                PluginPanelView::Discover => {
+                    panel.discover_list.move_cursor(1);
+                }
+                PluginPanelView::Marketplaces => {
+                    panel.marketplace_list.move_cursor(1);
+                }
             }
         }
     }
@@ -1269,16 +1371,14 @@ impl App {
     pub fn plugin_panel_tab(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.view.next();
-            panel.cursor = 0;
-            panel.scroll_offset = 0;
+            panel.sync_current_view_items();
         }
     }
 
     pub fn plugin_panel_shift_tab(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.view.prev();
-            panel.cursor = 0;
-            panel.scroll_offset = 0;
+            panel.sync_current_view_items();
         }
     }
 
@@ -1304,13 +1404,14 @@ impl App {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if let Some(id) = panel.confirm_delete.take() {
                 panel.entries.retain(|p| p.id != id);
+                panel.installed_list.set_items(panel.entries.clone());
             }
         }
     }
 
     pub fn plugin_panel_toggle_enabled(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            if let Some(entry_idx) = panel.visible_indices().get(panel.cursor).copied() {
+            if let Some(entry_idx) = panel.visible_indices().get(panel.cursor()).copied() {
                 if let Some(entry) = panel.entries.get_mut(entry_idx) {
                     entry.enabled = !entry.enabled;
                     self.persist_plugin_enabled_state();
@@ -1339,10 +1440,9 @@ impl App {
     /// 进入选中插件的详情视图
     pub fn plugin_panel_enter_detail(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            if let Some(&entry_idx) = panel.visible_indices().get(panel.cursor) {
+            if let Some(&entry_idx) = panel.visible_indices().get(panel.cursor()) {
                 panel.detail_index = Some(entry_idx);
                 panel.detail_cursor = 0;
-                panel.scroll_offset = 0;
             }
         }
     }
@@ -1352,7 +1452,6 @@ impl App {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.detail_index = None;
             panel.detail_cursor = 0;
-            panel.scroll_offset = 0;
         }
     }
 
@@ -1413,7 +1512,6 @@ impl App {
                 Some(DetailAction::BackToList) => {
                     panel.detail_index = None;
                     panel.detail_cursor = 0;
-                    panel.scroll_offset = 0;
                 }
                 None => {}
             }
@@ -1424,18 +1522,13 @@ impl App {
 
     pub fn discover_move_up(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            if panel.discover_cursor > 0 {
-                panel.discover_cursor -= 1;
-            }
+            panel.discover_list.move_cursor(-1);
         }
     }
 
     pub fn discover_move_down(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            let max = panel.discover_filtered_plugins().len().saturating_sub(1);
-            if panel.discover_cursor < max {
-                panel.discover_cursor += 1;
-            }
+            panel.discover_list.move_cursor(1);
         }
     }
 
@@ -1462,28 +1555,46 @@ impl App {
     pub fn discover_exit_search(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_searching = false;
-            panel.discover_cursor = 0;
+            panel.discover_list.set_items(
+                panel
+                    .discover_filtered_plugins()
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            );
         }
     }
 
     pub fn discover_search_input(&mut self, ch: char) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_search.insert(ch);
-            panel.discover_cursor = 0;
+            panel.discover_list.set_items(
+                panel
+                    .discover_filtered_plugins()
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            );
         }
     }
 
     pub fn discover_search_backspace(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_search.backspace();
-            panel.discover_cursor = 0;
+            panel.discover_list.set_items(
+                panel
+                    .discover_filtered_plugins()
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            );
         }
     }
 
     pub fn discover_enter_detail(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if panel.discover_current_plugin().is_some() {
-                panel.discover_detail_index = Some(panel.discover_cursor);
+                panel.discover_detail_index = Some(panel.discover_list.cursor());
                 panel.discover_detail_cursor = 0;
             }
         }
@@ -1549,9 +1660,7 @@ impl App {
 
     pub fn marketplace_move_up(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            if panel.marketplace_cursor > 0 {
-                panel.marketplace_cursor -= 1;
-            }
+            panel.marketplace_list.move_cursor(-1);
         }
     }
 
@@ -1559,8 +1668,8 @@ impl App {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，最大值是 marketplace_entries.len()
             let max = panel.marketplace_entries.len();
-            if panel.marketplace_cursor < max {
-                panel.marketplace_cursor += 1;
+            if panel.marketplace_list.cursor() < max {
+                panel.marketplace_list.move_cursor(1);
             }
         }
     }
@@ -1569,7 +1678,7 @@ impl App {
     pub fn marketplace_is_add_selected(&self) -> bool {
         self.global_panels
             .get::<PluginPanel>()
-            .map(|p| p.marketplace_cursor == 0)
+            .map(|p| p.marketplace_list.cursor() == 0)
             .unwrap_or(false)
     }
 
@@ -1577,8 +1686,8 @@ impl App {
     pub fn marketplace_current_name(&self) -> Option<String> {
         self.global_panels
             .get::<PluginPanel>()
-            .filter(|p| p.marketplace_cursor > 0)
-            .and_then(|p| p.marketplace_entries.get(p.marketplace_cursor - 1))
+            .filter(|p| p.marketplace_list.cursor() > 0)
+            .and_then(|p| p.marketplace_entries.get(p.marketplace_list.cursor() - 1))
             .map(|m| m.name.clone())
     }
 
@@ -1586,8 +1695,8 @@ impl App {
     pub fn marketplace_request_delete(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，不能删除
-            if panel.marketplace_cursor > 0 {
-                let idx = panel.marketplace_cursor - 1;
+            if panel.marketplace_list.cursor() > 0 {
+                let idx = panel.marketplace_list.cursor() - 1;
                 if panel.marketplace_entries.get(idx).is_some() {
                     panel.marketplace_confirm_delete = Some(idx);
                 }
@@ -1610,11 +1719,9 @@ impl App {
                     let name = entry.name.clone();
                     // 从列表中移除
                     panel.marketplace_entries.remove(idx);
-                    // 调整光标位置（确保不超出范围）
-                    let max = panel.marketplace_entries.len();
-                    if panel.marketplace_cursor > max {
-                        panel.marketplace_cursor = max;
-                    }
+                    panel
+                        .marketplace_list
+                        .set_items(panel.marketplace_entries.clone());
                     return Some(name);
                 }
             }
@@ -1626,8 +1733,8 @@ impl App {
     pub fn marketplace_request_update(&mut self) -> Option<String> {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，不能更新
-            if panel.marketplace_cursor > 0 {
-                let idx = panel.marketplace_cursor - 1;
+            if panel.marketplace_list.cursor() > 0 {
+                let idx = panel.marketplace_list.cursor() - 1;
                 if let Some(entry) = panel.marketplace_entries.get(idx) {
                     let name = entry.name.clone();
                     panel.marketplace_updating.insert(name.clone());
@@ -1644,8 +1751,8 @@ impl App {
     ) -> Option<(String, rust_agent_middlewares::plugin::MarketplaceSource)> {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，不能更新
-            if panel.marketplace_cursor > 0 {
-                let idx = panel.marketplace_cursor - 1;
+            if panel.marketplace_list.cursor() > 0 {
+                let idx = panel.marketplace_list.cursor() - 1;
                 if let Some(entry) = panel.marketplace_entries.get(idx) {
                     let name = entry.name.clone();
                     let source = entry.source.clone();
@@ -1739,7 +1846,7 @@ mod tests {
     #[test]
     fn test_plugin_panel_new() {
         let panel = PluginPanel::new(vec![]);
-        assert_eq!(panel.cursor, 0);
+        assert_eq!(panel.cursor(), 0);
         assert_eq!(panel.view, PluginPanelView::Installed);
         assert!(panel.confirm_delete.is_none());
     }
@@ -1760,12 +1867,12 @@ mod tests {
         for _ in 0..5 {
             app.plugin_panel_move_up();
         }
-        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor, 0);
+        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor(), 0);
 
         for _ in 0..5 {
             app.plugin_panel_move_down();
         }
-        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor, 2);
+        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor(), 2);
     }
 
     #[tokio::test]

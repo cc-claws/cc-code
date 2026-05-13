@@ -25,8 +25,8 @@ pub(crate) fn render_mcp_panel(f: &mut Frame, panel: &McpPanel, app: &mut App, a
 fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect) {
     // Phase 1: 读取面板数据并构建所有行（不可变借用 panel）
     let (mut lines, scroll_offset) = {
-        let scroll_offset = panel.scroll_offset;
-        let cursor = panel.cursor;
+        let scroll_offset = panel.scroll_offset();
+        let cursor = panel.cursor();
         let servers = &panel.servers;
         let mut lines: Vec<Line> = Vec::new();
 
@@ -186,8 +186,8 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
             resources.clone(),
             actions.clone(),
             *show_tools,
-            panel.cursor,
-            panel.scroll_offset,
+            panel.cursor(),
+            panel.scroll_offset(),
         )
     };
 
@@ -624,10 +624,7 @@ mod tests {
             .open(crate::app::panel_manager::PanelState::Mcp(panel.clone()));
 
         // 选择第二个 server 并进入详情
-        {
-            let panel = app.global_panels.get_mut::<McpPanel>().unwrap();
-            panel.cursor = 1;
-        }
+        app.mcp_panel_move_down();
         app.mcp_panel_enter();
 
         // 验证进入了 server-b 的详情
@@ -669,11 +666,7 @@ mod tests {
         app.global_panels
             .open(crate::app::panel_manager::PanelState::Mcp(panel.clone()));
 
-        // 排序后 "new-server" < "old-server"（字母序），uninit 在位置 0
-        {
-            let panel = app.global_panels.get_mut::<McpPanel>().unwrap();
-            panel.cursor = 0;
-        }
+        // 排序后 "new-server" < "old-server"（字母序），uninit 在位置 0（默认 cursor=0）
         app.mcp_panel_enter();
 
         // 验证操作菜单只有 Reconnect

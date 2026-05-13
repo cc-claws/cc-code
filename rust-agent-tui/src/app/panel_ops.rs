@@ -97,7 +97,7 @@ impl App {
         };
         let selected_name = panel
             .providers
-            .get(panel.cursor)
+            .get(panel.cursor())
             .map(|p| p.display_name().to_string())
             .unwrap_or_default();
         let Some(cfg) = self.services.peri_config.as_mut() else {
@@ -184,7 +184,7 @@ impl App {
         };
         let deleted_name = panel
             .providers
-            .get(panel.cursor)
+            .get(panel.cursor())
             .map(|p| p.display_name().to_string())
             .unwrap_or_default();
         panel.confirm_delete(cfg);
@@ -777,8 +777,8 @@ impl App {
             p.view = crate::app::plugin_panel::PluginPanelView::Marketplaces;
             // 确保 cursor 不越界
             let max = p.marketplace_entries.len();
-            if p.marketplace_cursor > max {
-                p.marketplace_cursor = max;
+            if p.marketplace_list.cursor() > max {
+                p.marketplace_list.move_cursor_to(max);
             }
         }
 
@@ -790,7 +790,7 @@ impl App {
         let entry = self
             .global_panels
             .get::<crate::app::memory_panel::MemoryPanel>()
-            .and_then(|p| p.entries.get(p.cursor))
+            .and_then(|p| p.entries.get(p.cursor()))
             .cloned();
         let Some(entry) = entry else {
             return Ok(());
@@ -867,30 +867,6 @@ impl App {
         self.session_mgr.sessions[self.session_mgr.active]
             .session_panels
             .close_if(PanelKind::Agent);
-    }
-
-    /// 在 agent 面板中上移光标
-    pub fn agent_panel_move_up(&mut self) {
-        if let Some(panel) = self.session_mgr.sessions[self.session_mgr.active]
-            .session_panels
-            .get_mut::<AgentPanel>()
-        {
-            panel.move_cursor(-1);
-            panel.scroll_offset =
-                ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
-        }
-    }
-
-    /// 在 agent 面板中下移光标
-    pub fn agent_panel_move_down(&mut self) {
-        if let Some(panel) = self.session_mgr.sessions[self.session_mgr.active]
-            .session_panels
-            .get_mut::<AgentPanel>()
-        {
-            panel.move_cursor(1);
-            panel.scroll_offset =
-                ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
-        }
     }
 
     /// 确认选择当前 agent，关闭面板，设置 agent_id
@@ -970,30 +946,6 @@ impl App {
         self.session_mgr.sessions[self.session_mgr.active]
             .session_panels
             .close_if(PanelKind::Hooks);
-    }
-
-    /// 在 hooks 面板中上移光标
-    pub fn hooks_panel_move_up(&mut self) {
-        if let Some(panel) = self.session_mgr.sessions[self.session_mgr.active]
-            .session_panels
-            .get_mut::<HooksPanel>()
-        {
-            panel.move_cursor(-1);
-            panel.scroll_offset =
-                ensure_cursor_visible(panel.cursor_line(), panel.scroll_offset, 10);
-        }
-    }
-
-    /// 在 hooks 面板中下移光标
-    pub fn hooks_panel_move_down(&mut self) {
-        if let Some(panel) = self.session_mgr.sessions[self.session_mgr.active]
-            .session_panels
-            .get_mut::<HooksPanel>()
-        {
-            panel.move_cursor(1);
-            panel.scroll_offset =
-                ensure_cursor_visible(panel.cursor_line(), panel.scroll_offset, 10);
-        }
     }
 }
 

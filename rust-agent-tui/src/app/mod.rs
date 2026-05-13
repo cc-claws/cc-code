@@ -53,6 +53,7 @@ mod mcp_panel;
 pub mod message_pipeline;
 mod oauth_prompt;
 pub mod panel_component;
+pub mod panel_list;
 pub mod panel_manager;
 mod panel_ops;
 mod thread_ops;

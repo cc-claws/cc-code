@@ -1,15 +1,22 @@
 use std::any::Any;
 
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 use tui_textarea::Input;
 
 use crate::command::agents::AgentItem;
 
-use super::ensure_cursor_visible;
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
+
+/// AgentPanel 内部用占位单元管理 cursor/scroll，实际 agent 数据在 agents 字段
+#[derive(Clone)]
+pub(crate) struct AgentEntry;
 
 // ─── AgentPanel ────────────────────────────────────────────────────────────────
 
@@ -19,14 +26,13 @@ pub struct AgentPanel {
     pub agents: Vec<AgentItem>,
     /// 当前选中的 agent_id
     pub selected_id: Option<String>,
-    /// 光标位置（0 = "无 Agent" 选项，1+ = agents 列表索引-1）
-    pub cursor: usize,
-    /// 内容滚动偏移
-    pub scroll_offset: u16,
+    /// 光标/滚动状态管理（items 长度 = 1 + agents.len()，包含"无 Agent"占位）
+    pub(crate) list: PanelList<AgentEntry>,
 }
 
 impl AgentPanel {
     pub fn new(agents: Vec<AgentItem>, current_id: Option<String>) -> Self {
+        let total = 1 + agents.len();
         // 如果已有选中，定位光标到对应的 agents 索引+1（+1 因为第0项是"无 Agent"）
         let cursor = current_id
             .as_ref()
@@ -34,34 +40,41 @@ impl AgentPanel {
             .map(|i| i + 1)
             .unwrap_or(0);
 
+        let mut list = PanelList::new();
+        list.set_items(vec![AgentEntry; total]);
+        // 恢复 cursor 位置
+        for _ in 0..cursor {
+            list.move_cursor(1);
+        }
+
         Self {
             agents,
             selected_id: current_id,
-            cursor,
-            scroll_offset: 0,
+            list,
         }
     }
 
     /// 总项数 = "无 Agent" 选项 + agents 列表
     pub fn total(&self) -> usize {
-        1 + self.agents.len()
+        self.list.len()
     }
 
-    /// 上下移动光标
-    pub fn move_cursor(&mut self, delta: isize) {
-        let total = self.total();
-        if total == 0 {
-            return;
-        }
-        self.cursor = ((self.cursor as isize + delta).rem_euclid(total as isize)) as usize;
+    /// 光标位置（0 = "无 Agent"，1+ = agents 列表索引）
+    pub fn cursor(&self) -> usize {
+        self.list.cursor()
+    }
+
+    /// 内容滚动偏移
+    pub fn scroll_offset(&self) -> u16 {
+        self.list.scroll_offset()
     }
 
     /// 选择当前光标处的 agent（Enter 确认选择）
     /// 返回 (is_none: bool, agent_id: Option<String>)
     pub fn get_selection(&self) -> (bool, Option<String>) {
-        if self.cursor == 0 {
+        if self.cursor() == 0 {
             (true, None)
-        } else if let Some(agent) = self.agents.get(self.cursor - 1) {
+        } else if let Some(agent) = self.agents.get(self.cursor() - 1) {
             (false, Some(agent.id.clone()))
         } else {
             (true, None)
@@ -70,10 +83,10 @@ impl AgentPanel {
 
     /// 获取当前光标处的 agent（不包含"无 Agent"选项）
     pub fn current_agent(&self) -> Option<&AgentItem> {
-        if self.cursor == 0 {
+        if self.cursor() == 0 {
             None
         } else {
-            self.agents.get(self.cursor - 1)
+            self.agents.get(self.cursor() - 1)
         }
     }
 }
@@ -95,21 +108,18 @@ impl PanelComponent for AgentPanel {
             } => EventResult::NotConsumed,
             Input { key: Key::Esc, .. } => EventResult::ClosePanel,
             Input { key: Key::Up, .. } => {
-                self.move_cursor(-1);
-                self.scroll_offset =
-                    ensure_cursor_visible(self.cursor as u16, self.scroll_offset, 10);
+                self.list.move_cursor(-1);
+                self.list.ensure_visible(10);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                self.move_cursor(1);
-                self.scroll_offset =
-                    ensure_cursor_visible(self.cursor as u16, self.scroll_offset, 10);
+                self.list.move_cursor(1);
+                self.list.ensure_visible(10);
                 EventResult::Consumed
             }
             Input {
                 key: Key::Enter, ..
             } => {
-                // Enter 确认选择当前 agent（或取消选择）
                 let (is_none, agent_id, agent_name) = {
                     let (is_none, agent_id) = self.get_selection();
                     let agent_name = if is_none {
@@ -128,9 +138,7 @@ impl PanelComponent for AgentPanel {
                         .agent_id = None;
                     ctx.session_mgr.sessions[ctx.session_mgr.active]
                         .messages
-                        .push_system_note(
-                            "Agent \u{5df2}\u{91cd}\u{7f6e}\u{ff08}\u{672a}\u{8bbe}\u{7f6e} agent_id\u{ff09}".to_string(),
-                        );
+                        .push_system_note("Agent 已重置（未设置 agent_id）".to_string());
                 } else if let Some(id) = agent_id {
                     ctx.session_mgr.sessions[ctx.session_mgr.active]
                         .agent
@@ -138,15 +146,37 @@ impl PanelComponent for AgentPanel {
                     let name = agent_name.unwrap_or_else(|| id.clone());
                     ctx.session_mgr.sessions[ctx.session_mgr.active]
                         .messages
-                        .push_system_note(format!(
-                            "Agent \u{5df2}\u{5207}\u{6362}\u{4e3a}: {} ({})",
-                            name, id
-                        ));
+                        .push_system_note(format!("Agent 已切换为: {} ({})", name, id));
                 }
                 EventResult::ClosePanel
             }
             _ => EventResult::Consumed,
         }
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        self.list.handle_scroll(lines, 10);
+        EventResult::Consumed
+    }
+
+    fn handle_mouse(
+        &mut self,
+        mouse: MouseEvent,
+        area: Rect,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            if self
+                .list
+                .handle_mouse_click(mouse.row, mouse.column, area, 1)
+            {
+                return self.handle_key(
+                    Input::from(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                    ctx,
+                );
+            }
+        }
+        EventResult::NotConsumed
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
@@ -166,10 +196,6 @@ impl PanelComponent for AgentPanel {
     }
 
     fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
-        vec![
-            ("\u{2191}\u{2193}", "\u{9009}\u{62e9}"),
-            ("Enter", "\u{786e}\u{8ba4}"),
-            ("Esc", "\u{53d6}\u{6d88}"),
-        ]
+        vec![("↑↓", "选择"), ("Enter", "确认"), ("Esc", "取消")]
     }
 }

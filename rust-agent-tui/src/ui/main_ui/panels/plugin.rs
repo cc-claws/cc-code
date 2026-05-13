@@ -47,7 +47,7 @@ pub fn render_plugin_panel(f: &mut Frame, panel: &PluginPanel, app: &mut App, ar
 
 fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
     let (lines, scroll_offset, cursor_row) = {
-        let scroll_offset = panel.scroll_offset;
+        let scroll_offset = panel.scroll_offset();
         let mut lines: Vec<Line> = Vec::new();
         let mut cursor_row = 0; // 光标所在行号（不含 Tab 行）
 
@@ -75,7 +75,7 @@ fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
         match panel.view {
             PluginPanelView::Installed => {
                 let indices = panel.visible_indices();
-                let cursor_idx = indices.get(panel.cursor).copied();
+                let cursor_idx = indices.get(panel.cursor()).copied();
                 let table_header_height = 3; // 表头行 + 空行
 
                 if indices.is_empty() {
@@ -168,7 +168,7 @@ fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
             }
             PluginPanelView::Errors => {
                 let indices = panel.visible_indices();
-                let cursor_idx = indices.get(panel.cursor).copied();
+                let cursor_idx = indices.get(panel.cursor()).copied();
                 let table_header_height = 3; // 表头行 + 空行
 
                 if indices.is_empty() {
@@ -247,12 +247,12 @@ fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
                 cursor_row = if panel.marketplace_confirm_delete.is_some() {
                     // 确认删除状态：确认消息在 row 2
                     2
-                } else if panel.marketplace_cursor == 0 {
+                } else if panel.marketplace_list.cursor() == 0 {
                     // Add Marketplace 标题行
                     2
                 } else {
                     // 第 (cursor-1) 个 marketplace
-                    5 + (panel.marketplace_cursor - 1) * 4
+                    5 + (panel.marketplace_list.cursor() - 1) * 4
                 };
 
                 // 检查是否处于确认删除状态
@@ -296,7 +296,7 @@ fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
                     }
                 } else {
                     // 添加 "Add Marketplace" 选项（始终在第一位，cursor = 0）
-                    let is_add_cursor = panel.marketplace_cursor == 0;
+                    let is_add_cursor = panel.marketplace_list.cursor() == 0;
                     let add_style = if is_add_cursor {
                         Style::default()
                             .fg(theme::THINKING)
@@ -326,7 +326,7 @@ fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
                     } else {
                         for (i, mkt) in panel.marketplace_entries.iter().enumerate() {
                             // cursor 0 表示 Add Marketplace，实际 marketplace 从 cursor = 1 开始
-                            let is_cursor = panel.marketplace_cursor == i + 1;
+                            let is_cursor = panel.marketplace_list.cursor() == i + 1;
                             let is_updating = panel.marketplace_updating.contains(&mkt.name);
                             let cursor_char = if is_cursor { "\u{276F} " } else { "  " };
 
@@ -453,7 +453,7 @@ fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
 
     // 回写 scroll offset（通过 global_panels）
     if let Some(p) = app.global_panels.get_mut::<PluginPanel>() {
-        p.scroll_offset = scroll_state.offset();
+        p.set_scroll_offset(scroll_state.offset());
     }
 
     ScrollableArea::new(Text::from(lines))
@@ -471,7 +471,7 @@ fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) 
             Some(e) => e,
             None => return,
         };
-        let scroll_offset = panel.scroll_offset;
+        let scroll_offset = panel.scroll_offset();
         let detail_cursor = panel.detail_cursor;
         let mut lines: Vec<Line> = Vec::new();
 
@@ -645,7 +645,7 @@ fn render_discover_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
             Some(p) => p,
             None => return,
         };
-        let scroll_offset = panel.discover_scroll;
+        let scroll_offset = panel.discover_list.scroll_offset();
         let detail_cursor = panel.discover_detail_cursor;
         let mut lines: Vec<Line> = Vec::new();
 
@@ -898,7 +898,7 @@ fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area:
     } else {
         // 计算光标所在的逻辑行号（每个插件占 2 行：名称行 + 描述行）
         for (i, plugin) in filtered.iter().enumerate() {
-            let is_cursor = i == panel.discover_cursor;
+            let is_cursor = i == panel.discover_list.cursor();
             let is_selected = panel.discover_selected.contains(&plugin.plugin_id);
             let is_installing = panel.installing.contains(&plugin.plugin_id);
             let is_uninstalling = panel.uninstalling.contains(&plugin.plugin_id);
@@ -1010,14 +1010,14 @@ fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area:
     }
 
     // -- 跟随机制：确保光标行在可视区域内 --
-    let cursor_row = (panel.discover_cursor * 2) as u16;
+    let cursor_row = (panel.discover_list.cursor() * 2) as u16;
     let visible_height = list_area.height;
-    let mut scroll_state = ScrollState::with_offset(panel.discover_scroll);
+    let mut scroll_state = ScrollState::with_offset(panel.discover_list.scroll_offset());
     scroll_state.ensure_visible(cursor_row, visible_height);
 
     // 回写 scroll offset 供下次渲染使用（通过 global_panels）
     if let Some(p) = app.global_panels.get_mut::<PluginPanel>() {
-        p.discover_scroll = scroll_state.offset();
+        p.discover_list.set_scroll_offset(scroll_state.offset());
     }
 
     app.session_mgr.sessions[app.session_mgr.active]

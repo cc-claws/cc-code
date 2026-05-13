@@ -1,5 +1,8 @@
 use std::any::Any;
 
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 use tui_textarea::Input;
@@ -7,6 +10,7 @@ use tui_textarea::Input;
 use rust_agent_middlewares::mcp::{ClientStatus, ConfigSource, Resource, ServerInfo, Tool};
 
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::AgentEvent;
 use super::App;
@@ -33,14 +37,16 @@ pub enum DetailAction {
 pub struct McpPanel {
     /// 服务器列表信息
     pub servers: Vec<ServerInfo>,
-    /// 当前选中索引
-    pub cursor: usize,
+    /// ServerList 视图的列表状态（cursor + scroll_offset）
+    server_list: PanelList<ServerInfo>,
     /// 当前视图层级
     pub view: McpPanelView,
     /// 确认删除弹窗（server name），None 表示非确认状态
     pub confirm_delete: Option<String>,
-    /// 详情页滚动偏移
-    pub scroll_offset: u16,
+    /// ServerDetail 视图的光标
+    detail_cursor: usize,
+    /// ServerDetail 视图的滚动偏移
+    detail_scroll_offset: u16,
 }
 
 /// 面板视图层级
@@ -85,12 +91,31 @@ impl McpPanel {
                 .cmp(&a_is_project)
                 .then_with(|| a.name.cmp(&b.name))
         });
+        let mut server_list = PanelList::new();
+        server_list.set_items(servers.clone());
         Self {
             servers,
-            cursor: 0,
+            server_list,
             view: McpPanelView::ServerList,
             confirm_delete: None,
-            scroll_offset: 0,
+            detail_cursor: 0,
+            detail_scroll_offset: 0,
+        }
+    }
+
+    /// 委托方法：根据当前视图返回光标位置
+    pub fn cursor(&self) -> usize {
+        match &self.view {
+            McpPanelView::ServerList => self.server_list.cursor(),
+            McpPanelView::ServerDetail { .. } => self.detail_cursor,
+        }
+    }
+
+    /// 委托方法：根据当前视图返回滚动偏移
+    pub fn scroll_offset(&self) -> u16 {
+        match &self.view {
+            McpPanelView::ServerList => self.server_list.scroll_offset(),
+            McpPanelView::ServerDetail { .. } => self.detail_scroll_offset,
         }
     }
 }
@@ -100,11 +125,12 @@ impl crate::app::App {
         if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             match &panel.view {
                 McpPanelView::ServerList => {
-                    panel.cursor = panel.cursor.saturating_sub(1);
+                    panel.server_list.move_cursor(-1);
+                    panel.server_list.ensure_visible(16);
                 }
                 McpPanelView::ServerDetail { .. } => {
                     let max = panel.view.action_count().saturating_sub(1);
-                    panel.cursor = panel.cursor.saturating_sub(1).min(max);
+                    panel.detail_cursor = panel.detail_cursor.saturating_sub(1).min(max);
                 }
             }
         }
@@ -114,15 +140,13 @@ impl crate::app::App {
         if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             match &panel.view {
                 McpPanelView::ServerList => {
-                    let max = panel.servers.len().saturating_sub(1);
-                    if panel.cursor < max {
-                        panel.cursor += 1;
-                    }
+                    panel.server_list.move_cursor(1);
+                    panel.server_list.ensure_visible(16);
                 }
                 McpPanelView::ServerDetail { .. } => {
                     let max = panel.view.action_count().saturating_sub(1);
-                    if panel.cursor < max {
-                        panel.cursor += 1;
+                    if panel.detail_cursor < max {
+                        panel.detail_cursor += 1;
                     }
                 }
             }
@@ -133,11 +157,11 @@ impl crate::app::App {
         if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             match &panel.view {
                 McpPanelView::ServerList => {
-                    if panel.cursor >= panel.servers.len() {
+                    if panel.server_list.cursor() >= panel.servers.len() {
                         return;
                     }
-                    let name = panel.servers[panel.cursor].name.clone();
-                    let server = &panel.servers[panel.cursor];
+                    let name = panel.servers[panel.server_list.cursor()].name.clone();
+                    let server = &panel.servers[panel.server_list.cursor()];
                     let tools = self
                         .services
                         .mcp_pool
@@ -177,14 +201,14 @@ impl crate::app::App {
                         actions,
                         show_tools: false,
                     };
-                    panel.cursor = 0;
-                    panel.scroll_offset = 0;
+                    panel.detail_cursor = 0;
+                    panel.detail_scroll_offset = 0;
                 }
                 McpPanelView::ServerDetail { ref actions, .. } => {
-                    if panel.cursor >= actions.len() {
+                    if panel.detail_cursor >= actions.len() {
                         return;
                     }
-                    let action = actions[panel.cursor].clone();
+                    let action = actions[panel.detail_cursor].clone();
                     self.mcp_panel_execute_action(action);
                 }
             }
@@ -251,11 +275,12 @@ impl crate::app::App {
     /// 将 MCP 面板 cursor 设置到指定服务器
     fn set_mcp_cursor_to_server(&mut self, server_name: &str) {
         if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
-            panel.cursor = panel
+            let pos = panel
                 .servers
                 .iter()
                 .position(|s| s.name == server_name)
                 .unwrap_or(0);
+            panel.server_list.move_cursor_to(pos);
         }
     }
 
@@ -270,24 +295,14 @@ impl crate::app::App {
                 _ => String::new(),
             };
             panel.view = McpPanelView::ServerList;
-            panel.cursor = panel
+            let pos = panel
                 .servers
                 .iter()
                 .position(|s| s.name == name)
                 .unwrap_or(0);
-            panel.scroll_offset = 0;
-        }
-    }
-
-    pub fn mcp_panel_scroll_up(&mut self, delta: u16) {
-        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
-            panel.scroll_offset = panel.scroll_offset.saturating_sub(delta);
-        }
-    }
-
-    pub fn mcp_panel_scroll_down(&mut self, delta: u16) {
-        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
-            panel.scroll_offset = panel.scroll_offset.saturating_add(delta);
+            panel.server_list.move_cursor_to(pos);
+            panel.server_list.ensure_visible(16);
+            panel.detail_scroll_offset = 0;
         }
     }
 
@@ -296,10 +311,10 @@ impl crate::app::App {
             if !panel.view.is_server_list() {
                 return;
             }
-            if panel.cursor >= panel.servers.len() {
+            if panel.cursor() >= panel.servers.len() {
                 return;
             }
-            panel.confirm_delete = Some(panel.servers[panel.cursor].name.clone());
+            panel.confirm_delete = Some(panel.servers[panel.cursor()].name.clone());
         }
     }
 
@@ -365,9 +380,8 @@ impl crate::app::App {
                 .as_ref()
                 .map(|p| p.all_server_infos())
                 .unwrap_or_default();
-            if panel.cursor >= panel.servers.len() && !panel.servers.is_empty() {
-                panel.cursor = panel.servers.len() - 1;
-            }
+            panel.server_list.set_items(panel.servers.clone());
+            panel.server_list.clamp_cursor();
         }
     }
 
@@ -396,9 +410,8 @@ impl crate::app::App {
                 .as_ref()
                 .map(|p| p.all_server_infos())
                 .unwrap_or_default();
-            if panel.cursor >= panel.servers.len() && !panel.servers.is_empty() {
-                panel.cursor = panel.servers.len() - 1;
-            }
+            panel.server_list.set_items(panel.servers.clone());
+            panel.server_list.clamp_cursor();
             if panel.servers.is_empty() {
                 self.global_panels.close();
             }
@@ -416,10 +429,10 @@ impl crate::app::App {
             if !panel.view.is_server_list() {
                 return;
             }
-            if panel.cursor >= panel.servers.len() {
+            if panel.cursor() >= panel.servers.len() {
                 return;
             }
-            let name = panel.servers[panel.cursor].name.clone();
+            let name = panel.servers[panel.cursor()].name.clone();
             if let Some(pool) = self.services.mcp_pool.clone() {
                 let tx = self.services.bg_event_tx.clone();
                 let pool2 = pool.clone();
@@ -462,10 +475,10 @@ impl crate::app::App {
             if !panel.view.is_server_list() {
                 return;
             }
-            if panel.cursor >= panel.servers.len() {
+            if panel.cursor() >= panel.servers.len() {
                 return;
             }
-            let server = &panel.servers[panel.cursor];
+            let server = &panel.servers[panel.cursor()];
             if server.transport_type != "http" {
                 return;
             }
@@ -598,12 +611,57 @@ impl PanelComponent for McpPanel {
     }
 
     fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
-        if lines > 0 {
-            self.scroll_offset = self.scroll_offset.saturating_add(lines as u16);
-        } else {
-            self.scroll_offset = self.scroll_offset.saturating_sub((-lines) as u16);
+        match &self.view {
+            McpPanelView::ServerList => {
+                self.server_list.handle_scroll(lines, 16);
+            }
+            McpPanelView::ServerDetail { .. } => {
+                if lines > 0 {
+                    self.detail_scroll_offset =
+                        self.detail_scroll_offset.saturating_add(lines as u16);
+                } else {
+                    self.detail_scroll_offset =
+                        self.detail_scroll_offset.saturating_sub((-lines) as u16);
+                }
+            }
         }
         EventResult::Consumed
+    }
+
+    fn handle_mouse(
+        &mut self,
+        mouse: MouseEvent,
+        area: Rect,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            match &self.view {
+                McpPanelView::ServerList => {
+                    if self
+                        .server_list
+                        .handle_mouse_click(mouse.row, mouse.column, area, 2)
+                    {
+                        return self.handle_key(
+                            Input::from(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                            ctx,
+                        );
+                    }
+                }
+                McpPanelView::ServerDetail { actions, .. } => {
+                    let inner_y = area.y + 4;
+                    if mouse.row >= inner_y {
+                        let clicked = (mouse.row - inner_y) as usize;
+                        if clicked < actions.len() {
+                            self.detail_cursor = clicked;
+                            let action = actions[clicked].clone();
+                            self.do_execute_action(ctx, action);
+                            return EventResult::Consumed;
+                        }
+                    }
+                }
+            }
+        }
+        EventResult::NotConsumed
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
@@ -654,11 +712,12 @@ impl McpPanel {
     fn do_move_up(&mut self) {
         match &self.view {
             McpPanelView::ServerList => {
-                self.cursor = self.cursor.saturating_sub(1);
+                self.server_list.move_cursor(-1);
+                self.server_list.ensure_visible(16);
             }
             McpPanelView::ServerDetail { .. } => {
                 let max = self.view.action_count().saturating_sub(1);
-                self.cursor = self.cursor.saturating_sub(1).min(max);
+                self.detail_cursor = self.detail_cursor.saturating_sub(1).min(max);
             }
         }
     }
@@ -666,15 +725,13 @@ impl McpPanel {
     fn do_move_down(&mut self) {
         match &self.view {
             McpPanelView::ServerList => {
-                let max = self.servers.len().saturating_sub(1);
-                if self.cursor < max {
-                    self.cursor += 1;
-                }
+                self.server_list.move_cursor(1);
+                self.server_list.ensure_visible(16);
             }
             McpPanelView::ServerDetail { .. } => {
                 let max = self.view.action_count().saturating_sub(1);
-                if self.cursor < max {
-                    self.cursor += 1;
+                if self.detail_cursor < max {
+                    self.detail_cursor += 1;
                 }
             }
         }
@@ -683,11 +740,12 @@ impl McpPanel {
     fn do_enter(&mut self, ctx: &mut PanelContext<'_>) {
         match &self.view {
             McpPanelView::ServerList => {
-                if self.cursor >= self.servers.len() {
+                if self.cursor() >= self.servers.len() {
                     return;
                 }
-                let name = self.servers[self.cursor].name.clone();
-                let server = &self.servers[self.cursor];
+                let idx = self.cursor();
+                let name = self.servers[idx].name.clone();
+                let server = &self.servers[idx];
                 let tools = ctx
                     .services
                     .mcp_pool
@@ -725,14 +783,14 @@ impl McpPanel {
                     actions,
                     show_tools: false,
                 };
-                self.cursor = 0;
-                self.scroll_offset = 0;
+                self.detail_cursor = 0;
+                self.detail_scroll_offset = 0;
             }
             McpPanelView::ServerDetail { actions, .. } => {
-                if self.cursor >= actions.len() {
+                if self.detail_cursor >= actions.len() {
                     return;
                 }
-                let action = actions[self.cursor].clone();
+                let action = actions[self.detail_cursor].clone();
                 self.do_execute_action(ctx, action);
             }
         }
@@ -747,22 +805,24 @@ impl McpPanel {
             _ => String::new(),
         };
         self.view = McpPanelView::ServerList;
-        self.cursor = self
+        let pos = self
             .servers
             .iter()
             .position(|s| s.name == name)
             .unwrap_or(0);
-        self.scroll_offset = 0;
+        self.server_list.move_cursor_to(pos);
+        self.server_list.ensure_visible(16);
+        self.detail_scroll_offset = 0;
     }
 
     fn do_request_delete(&mut self) {
         if !self.view.is_server_list() {
             return;
         }
-        if self.cursor >= self.servers.len() {
+        if self.cursor() >= self.servers.len() {
             return;
         }
-        self.confirm_delete = Some(self.servers[self.cursor].name.clone());
+        self.confirm_delete = Some(self.servers[self.cursor()].name.clone());
     }
 
     fn do_confirm_delete(&mut self, ctx: &mut PanelContext<'_>) {
@@ -789,19 +849,18 @@ impl McpPanel {
             .as_ref()
             .map(|p| p.all_server_infos())
             .unwrap_or_default();
-        if self.cursor >= self.servers.len() && !self.servers.is_empty() {
-            self.cursor = self.servers.len() - 1;
-        }
+        self.server_list.set_items(self.servers.clone());
+        self.server_list.clamp_cursor();
     }
 
     fn do_reconnect(&mut self, ctx: &mut PanelContext<'_>) {
         if !self.view.is_server_list() {
             return;
         }
-        if self.cursor >= self.servers.len() {
+        if self.cursor() >= self.servers.len() {
             return;
         }
-        let name = self.servers[self.cursor].name.clone();
+        let name = self.servers[self.cursor()].name.clone();
         if let Some(pool) = ctx.services.mcp_pool.clone() {
             let tx = ctx.services.bg_event_tx.clone();
             let pool2 = pool.clone();
@@ -888,9 +947,8 @@ impl McpPanel {
                     .as_ref()
                     .map(|p| p.all_server_infos())
                     .unwrap_or_default();
-                if self.cursor >= self.servers.len() && !self.servers.is_empty() {
-                    self.cursor = self.servers.len() - 1;
-                }
+                self.server_list.set_items(self.servers.clone());
+                self.server_list.clamp_cursor();
             }
             DetailAction::Enable => {
                 self.do_back();
@@ -903,29 +961,29 @@ impl McpPanel {
                     .as_ref()
                     .map(|p| p.all_server_infos())
                     .unwrap_or_default();
-                if self.cursor >= self.servers.len() && !self.servers.is_empty() {
-                    self.cursor = self.servers.len() - 1;
-                }
+                self.server_list.set_items(self.servers.clone());
+                self.server_list.clamp_cursor();
             }
         }
     }
 
     fn set_cursor_to_server(&mut self, server_name: &str) {
-        self.cursor = self
+        let pos = self
             .servers
             .iter()
             .position(|s| s.name == server_name)
             .unwrap_or(0);
+        self.server_list.move_cursor_to(pos);
     }
 
     fn do_request_oauth(&mut self, ctx: &mut PanelContext<'_>) {
         if !self.view.is_server_list() {
             return;
         }
-        if self.cursor >= self.servers.len() {
+        if self.cursor() >= self.servers.len() {
             return;
         }
-        let server = &self.servers[self.cursor];
+        let server = &self.servers[self.cursor()];
         if server.transport_type != "http" {
             return;
         }
@@ -1042,7 +1100,7 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_panel_new() {
         let panel = McpPanel::new(vec![]);
-        assert_eq!(panel.cursor, 0);
+        assert_eq!(panel.cursor(), 0);
         assert!(matches!(panel.view, McpPanelView::ServerList));
         assert!(panel.confirm_delete.is_none());
 
@@ -1071,12 +1129,12 @@ mod tests {
         for _ in 0..5 {
             app.mcp_panel_move_up();
         }
-        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor, 0);
+        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor(), 0);
 
         for _ in 0..5 {
             app.mcp_panel_move_down();
         }
-        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor, 2);
+        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor(), 2);
     }
 
     #[tokio::test]
@@ -1148,9 +1206,13 @@ mod tests {
             .open(crate::app::panel_manager::PanelState::Mcp(McpPanel::new(
                 servers,
             )));
-        app.global_panels.get_mut::<McpPanel>().unwrap().cursor = 1;
+        app.global_panels
+            .get_mut::<McpPanel>()
+            .unwrap()
+            .server_list
+            .move_cursor_to(1);
         app.mcp_panel_enter();
         app.mcp_panel_back();
-        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor, 1);
+        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor(), 1);
     }
 }

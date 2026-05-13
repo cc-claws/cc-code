@@ -2,6 +2,7 @@
 
 use std::any::Any;
 
+use ratatui::crossterm::event::MouseEvent;
 use ratatui::layout::Rect;
 use ratatui::Frame;
 use tui_textarea::Input;
@@ -24,7 +25,20 @@ pub trait PanelComponent: Any {
 
     /// 处理滚动事件
     fn handle_scroll(&mut self, _lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
-        EventResult::Consumed
+        EventResult::NotConsumed
+    }
+
+    /// 处理鼠标事件（点击、悬停移动等）
+    ///
+    /// 默认不消费。面板按需覆写以支持鼠标点击选择等交互。
+    /// 鼠标滚轮事件通过 `handle_scroll` 分发，不经过此方法。
+    fn handle_mouse(
+        &mut self,
+        _mouse: MouseEvent,
+        _area: Rect,
+        _ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        EventResult::NotConsumed
     }
 
     /// 期望的面板高度

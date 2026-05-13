@@ -1,11 +1,15 @@
 use std::any::Any;
 use std::path::PathBuf;
 
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 use tui_textarea::Input;
 
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
@@ -21,8 +25,7 @@ pub struct MemoryEntry {
 #[derive(Debug, Clone)]
 pub struct MemoryPanel {
     pub entries: Vec<MemoryEntry>,
-    pub cursor: usize,
-    pub scroll_offset: u16,
+    pub(crate) list: PanelList<MemoryEntry>,
 }
 
 impl MemoryPanel {
@@ -47,11 +50,10 @@ impl MemoryPanel {
             },
         ];
 
-        Self {
-            entries,
-            cursor: 0,
-            scroll_offset: 0,
-        }
+        let mut list = PanelList::new();
+        list.set_items(entries.clone());
+
+        Self { entries, list }
     }
 
     /// 刷新所有条目的 exists 状态
@@ -61,18 +63,14 @@ impl MemoryPanel {
         }
     }
 
-    /// 光标上移
-    pub fn move_cursor_up(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-        }
+    /// 光标位置委托
+    pub fn cursor(&self) -> usize {
+        self.list.cursor()
     }
 
-    /// 光标下移
-    pub fn move_cursor_down(&mut self) {
-        if self.cursor < self.entries.len() - 1 {
-            self.cursor += 1;
-        }
+    /// 滚动偏移委托
+    pub fn scroll_offset(&self) -> u16 {
+        self.list.scroll_offset()
     }
 }
 
@@ -87,11 +85,11 @@ impl PanelComponent for MemoryPanel {
         use tui_textarea::Key;
         match input {
             Input { key: Key::Up, .. } => {
-                self.move_cursor_up();
+                self.list.move_cursor(-1);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                self.move_cursor_down();
+                self.list.move_cursor(1);
                 EventResult::Consumed
             }
             Input {
@@ -103,6 +101,31 @@ impl PanelComponent for MemoryPanel {
             Input { key: Key::Esc, .. } => EventResult::ClosePanel,
             _ => EventResult::Consumed,
         }
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        self.list.handle_scroll(lines, 10);
+        EventResult::Consumed
+    }
+
+    fn handle_mouse(
+        &mut self,
+        mouse: MouseEvent,
+        area: Rect,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            if self
+                .list
+                .handle_mouse_click(mouse.row, mouse.column, area, 1)
+            {
+                return self.handle_key(
+                    Input::from(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                    ctx,
+                );
+            }
+        }
+        EventResult::NotConsumed
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
@@ -160,15 +183,15 @@ mod tests {
     #[test]
     fn test_memory_panel_cursor_navigation() {
         let mut panel = MemoryPanel::new("/test", None);
-        assert_eq!(panel.cursor, 0);
-        panel.move_cursor_down();
-        assert_eq!(panel.cursor, 1);
-        panel.move_cursor_down(); // 不再下移
-        assert_eq!(panel.cursor, 1);
-        panel.move_cursor_up();
-        assert_eq!(panel.cursor, 0);
-        panel.move_cursor_up(); // 不再上移
-        assert_eq!(panel.cursor, 0);
+        assert_eq!(panel.cursor(), 0);
+        panel.list.move_cursor(1);
+        assert_eq!(panel.cursor(), 1);
+        panel.list.move_cursor(1); // 不再下移
+        assert_eq!(panel.cursor(), 1);
+        panel.list.move_cursor(-1);
+        assert_eq!(panel.cursor(), 0);
+        panel.list.move_cursor(-1); // 不再上移
+        assert_eq!(panel.cursor(), 0);
     }
 
     #[test]

@@ -7,6 +7,7 @@ use tui_textarea::Input;
 use crate::config::{PeriConfig, ProviderConfig, ProviderModels};
 
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
@@ -93,8 +94,8 @@ pub struct LoginPanel {
     pub providers: Vec<ProviderConfig>,
     /// 当前模式
     pub mode: LoginPanelMode,
-    /// 光标位置（Browse 模式下标记选中行）
-    pub cursor: usize,
+    /// Browse 模式光标管理
+    pub(crate) browse_list: PanelList<()>,
     /// 正在编辑的字段（Edit/New 模式下）
     pub edit_field: LoginEditField,
     /// 编辑缓冲区
@@ -112,8 +113,6 @@ pub struct LoginPanel {
     pub cur_opus_model: usize,
     pub cur_sonnet_model: usize,
     pub cur_haiku_model: usize,
-    /// 内容滚动偏移
-    pub scroll_offset: u16,
 }
 
 impl LoginPanel {
@@ -124,10 +123,13 @@ impl LoginPanel {
             .iter()
             .position(|p| p.id == cfg.config.active_provider_id)
             .unwrap_or(0);
+        let mut browse_list = PanelList::new();
+        browse_list.set_items(vec![(); providers.len()]);
+        browse_list.move_cursor_to(cursor);
         Self {
             providers,
             mode: LoginPanelMode::Browse,
-            cursor,
+            browse_list,
             edit_field: LoginEditField::Name,
             buf_name: String::new(),
             buf_type: String::new(),
@@ -142,24 +144,24 @@ impl LoginPanel {
             cur_opus_model: 0,
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
-            scroll_offset: 0,
         }
     }
 
     // ── Browse 模式操作 ──────────────────────────────────────────────────────
 
-    /// 列表上下移动光标（循环）
+    /// 当前光标位置（Browse 模式下标记选中行）
+    pub fn cursor(&self) -> usize {
+        self.browse_list.cursor()
+    }
+
+    /// 列表上下移动光标（clamp 模式，不循环）
     pub fn move_cursor(&mut self, delta: isize) {
-        if self.providers.is_empty() {
-            return;
-        }
-        let len = self.providers.len();
-        self.cursor = ((self.cursor as isize + delta).rem_euclid(len as isize)) as usize;
+        self.browse_list.move_cursor(delta);
     }
 
     /// 进入编辑模式（编辑光标处的 provider）
     pub fn enter_edit(&mut self) {
-        if let Some(p) = self.providers.get(self.cursor) {
+        if let Some(p) = self.providers.get(self.cursor()) {
             self.buf_name = p.display_name().to_string();
             self.buf_type = p.provider_type.clone();
             self.buf_base_url = p.base_url.clone();
@@ -202,7 +204,7 @@ impl LoginPanel {
 
     /// 选中（激活）光标处的 Provider，写入 cfg
     pub fn select_provider(&mut self, cfg: &mut PeriConfig) {
-        if let Some(p) = self.providers.get(self.cursor) {
+        if let Some(p) = self.providers.get(self.cursor()) {
             cfg.config.active_provider_id = p.id.clone();
         }
     }
@@ -325,7 +327,7 @@ impl LoginPanel {
             self.buf_name.trim().to_lowercase().replace(' ', "_")
         } else {
             self.providers
-                .get(self.cursor)
+                .get(self.cursor())
                 .map(|p| p.id.clone())
                 .unwrap_or_default()
         };
@@ -354,14 +356,13 @@ impl LoginPanel {
 
         // 编辑模式：保留原有的 extra 字段
         if self.mode == LoginPanelMode::Edit {
-            if let Some(orig) = self.providers.get(self.cursor) {
+            if let Some(orig) = self.providers.get(self.cursor()) {
                 p.extra = orig.extra.clone();
             }
         }
 
         if is_new {
             cfg.config.providers.push(p);
-            self.cursor = cfg.config.providers.len() - 1;
             // active_provider_id 为空时自动设置
             if cfg.config.active_provider_id.is_empty() {
                 cfg.config.active_provider_id = id;
@@ -371,19 +372,20 @@ impl LoginPanel {
         }
 
         self.providers = cfg.config.providers.clone();
+        self.browse_list.set_items(vec![(); self.providers.len()]);
+        self.browse_list.clamp_cursor();
         self.mode = LoginPanelMode::Browse;
         true
     }
 
     /// 确认删除光标处的 provider，写入 cfg
     pub fn confirm_delete(&mut self, cfg: &mut PeriConfig) {
-        if let Some(p) = self.providers.get(self.cursor) {
+        if let Some(p) = self.providers.get(self.cursor()) {
             let id = p.id.clone();
             cfg.config.providers.retain(|x| x.id != id);
             self.providers = cfg.config.providers.clone();
-            if self.cursor >= self.providers.len() && !self.providers.is_empty() {
-                self.cursor = self.providers.len() - 1;
-            }
+            self.browse_list.set_items(vec![(); self.providers.len()]);
+            self.browse_list.clamp_cursor();
             // 如果删除的是当前激活的 provider，清空 active_provider_id
             if cfg.config.active_provider_id == id {
                 cfg.config.active_provider_id.clear();
@@ -418,7 +420,7 @@ impl PanelComponent for LoginPanel {
                         // select_provider + close
                         let selected_name = self
                             .providers
-                            .get(self.cursor)
+                            .get(self.cursor())
                             .map(|p| p.display_name().to_string())
                             .unwrap_or_default();
                         let Some(cfg) = ctx.services.peri_config.as_mut() else {
@@ -614,7 +616,7 @@ impl PanelComponent for LoginPanel {
                         };
                         let deleted_name = self
                             .providers
-                            .get(self.cursor)
+                            .get(self.cursor())
                             .map(|p| p.display_name().to_string())
                             .unwrap_or_default();
                         self.confirm_delete(cfg);
@@ -657,6 +659,39 @@ impl PanelComponent for LoginPanel {
     fn handle_paste(&mut self, text: &str, _ctx: &mut PanelContext<'_>) -> EventResult {
         self.paste_text(text);
         EventResult::Consumed
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        if matches!(self.mode, LoginPanelMode::Browse) {
+            self.browse_list.handle_scroll(lines, 10);
+            EventResult::Consumed
+        } else {
+            EventResult::NotConsumed
+        }
+    }
+
+    fn handle_mouse(
+        &mut self,
+        mouse: ratatui::crossterm::event::MouseEvent,
+        area: Rect,
+        _ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if matches!(self.mode, LoginPanelMode::Browse) =>
+            {
+                // 每个 provider 占 2 行（名称 + 模型子行），border_top=1
+                if self
+                    .browse_list
+                    .handle_mouse_click(mouse.row, mouse.column, area, 1)
+                {
+                    return EventResult::Consumed;
+                }
+                EventResult::NotConsumed
+            }
+            _ => EventResult::NotConsumed,
+        }
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
@@ -744,27 +779,29 @@ mod tests {
     fn test_login_panel_from_config_cursor_at_active_provider() {
         let cfg = make_test_config();
         let panel = LoginPanel::from_config(&cfg);
-        assert_eq!(panel.cursor, 0); // anthropic is at index 0
+        assert_eq!(panel.cursor(), 0); // anthropic is at index 0
     }
 
     #[test]
     fn test_login_panel_from_config_empty_providers_cursor_zero() {
         let cfg = PeriConfig::default();
         let panel = LoginPanel::from_config(&cfg);
-        assert_eq!(panel.cursor, 0);
+        assert_eq!(panel.cursor(), 0);
     }
 
     #[test]
-    fn test_login_panel_move_cursor_cycle() {
+    fn test_login_panel_move_cursor_clamp() {
         let cfg = make_test_config();
         let mut panel = LoginPanel::from_config(&cfg);
-        assert_eq!(panel.cursor, 0);
+        assert_eq!(panel.cursor(), 0);
         panel.move_cursor(1);
-        assert_eq!(panel.cursor, 1);
+        assert_eq!(panel.cursor(), 1);
         panel.move_cursor(1);
-        assert_eq!(panel.cursor, 0); // cycle back
+        assert_eq!(panel.cursor(), 1); // clamp，不再循环
         panel.move_cursor(-1);
-        assert_eq!(panel.cursor, 1); // cycle backwards
+        assert_eq!(panel.cursor(), 0);
+        panel.move_cursor(-1);
+        assert_eq!(panel.cursor(), 0); // clamp，不再循环
     }
 
     #[test]
@@ -956,7 +993,7 @@ mod tests {
     fn test_login_panel_confirm_delete_removes_provider() {
         let mut cfg = make_test_config();
         let mut panel = LoginPanel::from_config(&cfg);
-        panel.cursor = 1; // openrouter
+        panel.browse_list.move_cursor_to(1); // openrouter
         panel.mode = LoginPanelMode::ConfirmDelete;
         panel.confirm_delete(&mut cfg);
         assert_eq!(cfg.config.providers.len(), 1);
@@ -967,7 +1004,7 @@ mod tests {
     fn test_login_panel_confirm_delete_clears_active_provider_id() {
         let mut cfg = make_test_config();
         let mut panel = LoginPanel::from_config(&cfg);
-        panel.cursor = 0; // anthropic (active)
+        panel.browse_list.move_cursor_to(0); // anthropic (active)
         panel.mode = LoginPanelMode::ConfirmDelete;
         panel.confirm_delete(&mut cfg);
         assert!(cfg.config.active_provider_id.is_empty());

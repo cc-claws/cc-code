@@ -61,8 +61,8 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
             Style::default().fg(theme::MUTED),
         )]));
     } else {
-        for (i, entry) in panel.entries.iter().enumerate() {
-            let is_cursor = panel.cursor == i;
+        for (i, entry) in panel.list.items().iter().enumerate() {
+            let is_cursor = panel.cursor() == i;
             let cursor_char = if is_cursor { "❯" } else { " " };
 
             let name_style = if is_cursor {
@@ -134,7 +134,7 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
     }
 
     // 存储面板元数据供鼠标选区使用
-    let scroll_offset = panel.scroll_offset;
+    let scroll_offset = panel.scroll_offset();
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
         .panel_area = Some(inner);

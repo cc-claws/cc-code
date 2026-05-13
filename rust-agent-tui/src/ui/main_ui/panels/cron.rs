@@ -25,8 +25,8 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
     .render(f, area);
     let mut lines: Vec<Line> = Vec::new();
 
-    for (i, task) in panel.tasks.iter().enumerate() {
-        let is_cursor = i == panel.cursor;
+    for (i, task) in panel.tasks().iter().enumerate() {
+        let is_cursor = i == panel.cursor();
         let cursor_char = if is_cursor { "❯ " } else { "  " };
         let status_icon = if task.enabled {
             "✓启用"
@@ -76,7 +76,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
     }
 
     // 空列表引导
-    if panel.tasks.is_empty() {
+    if panel.tasks().is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  （无定时任务，使用 /loop 命令创建）",
@@ -90,7 +90,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
         .panel_area = Some(inner);
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
-        .panel_scroll_offset = panel.scroll_offset;
+        .panel_scroll_offset = panel.scroll_offset();
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
         .panel_plain_lines = lines
@@ -141,7 +141,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
         }
     }
 
-    let mut scroll_state = ScrollState::with_offset(panel.scroll_offset);
+    let mut scroll_state = ScrollState::with_offset(panel.scroll_offset());
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
         .render(f, inner, &mut scroll_state);

@@ -2493,7 +2493,7 @@ async fn test_model_panel_space_selects_model() {
 
     let mut panel = ModelPanel::from_config(&cfg);
     // 光标移到 Sonnet 行
-    panel.cursor = ROW_SONNET;
+    panel.list.move_cursor_to(ROW_SONNET);
     assert_eq!(panel.active_tab, AliasTab::Opus);
 
     // 直接验证 Space 的实际处理逻辑：应设置 active_tab
@@ -2527,7 +2527,10 @@ async fn test_cron_panel_delete_confirmation() {
         .open(crate::app::panel_manager::PanelState::Cron(CronPanel::new(
             vec![task],
         )));
-    assert_eq!(app.global_panels.get::<CronPanel>().unwrap().tasks.len(), 1);
+    assert_eq!(
+        app.global_panels.get::<CronPanel>().unwrap().tasks().len(),
+        1
+    );
     assert!(!app.global_panels.get::<CronPanel>().unwrap().confirm_delete);
 
     // Ctrl+D → 进入确认状态
@@ -2537,7 +2540,7 @@ async fn test_cron_panel_delete_confirmation() {
         "Ctrl+D 应设置 confirm_delete = true"
     );
     assert_eq!(
-        app.global_panels.get::<CronPanel>().unwrap().tasks.len(),
+        app.global_panels.get::<CronPanel>().unwrap().tasks().len(),
         1,
         "确认前不应删除任务"
     );
@@ -2549,7 +2552,7 @@ async fn test_cron_panel_delete_confirmation() {
         "取消后 confirm_delete 应为 false"
     );
     assert_eq!(
-        app.global_panels.get::<CronPanel>().unwrap().tasks.len(),
+        app.global_panels.get::<CronPanel>().unwrap().tasks().len(),
         1,
         "取消后任务应仍存在"
     );
@@ -2708,7 +2711,8 @@ async fn test_login_select_provider_shows_feedback() {
         .session_panels
         .get_mut::<LoginPanel>()
         .unwrap()
-        .cursor = 1;
+        .browse_list
+        .move_cursor_to(1);
 
     app.login_panel_select_provider();
 

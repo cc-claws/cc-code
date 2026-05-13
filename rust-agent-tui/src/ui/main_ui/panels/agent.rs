@@ -35,7 +35,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     let mut lines: Vec<Line> = Vec::new();
 
     // 第 0 项：取消选择（无 agent）
-    let is_none_cursor = panel.cursor == 0;
+    let is_none_cursor = panel.cursor() == 0;
     let is_none_selected = panel.selected_id.is_none();
     lines.push(Line::from(vec![
         Span::styled(
@@ -62,7 +62,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     // Agent 列表
     for (i, agent) in panel.agents.iter().enumerate() {
         let cursor_idx = i + 1; // +1 因为第 0 项是"无 Agent"
-        let is_cursor = panel.cursor == cursor_idx;
+        let is_cursor = panel.cursor() == cursor_idx;
         let is_selected = panel.selected_id.as_ref() == Some(&agent.id);
 
         let bullet = if is_selected { "●" } else { "○" };
@@ -114,7 +114,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     }
 
     // 存储面板元数据供鼠标选区使用
-    let scroll_offset = panel.scroll_offset;
+    let scroll_offset = panel.scroll_offset();
     let panel_selection_active = app.session_mgr.sessions[app.session_mgr.active]
         .ui
         .panel_selection

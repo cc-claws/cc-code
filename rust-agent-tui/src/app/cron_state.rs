@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
+use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 use rust_agent_middlewares::cron::{CronScheduler, CronTask, CronTrigger};
@@ -10,43 +11,43 @@ use tokio::sync::mpsc;
 use tui_textarea::Input;
 
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
 /// CronPanel 面板状态
 #[derive(Debug, Clone)]
 pub struct CronPanel {
-    pub tasks: Vec<CronTask>,
-    pub cursor: usize,
-    pub scroll_offset: u16,
+    pub(crate) list: PanelList<CronTask>,
     /// 是否处于删除确认状态
     pub confirm_delete: bool,
 }
 
 impl CronPanel {
     pub fn new(tasks: Vec<CronTask>) -> Self {
+        let mut list = PanelList::new();
+        list.set_items(tasks);
         Self {
-            tasks,
-            cursor: 0,
-            scroll_offset: 0,
+            list,
             confirm_delete: false,
         }
     }
 
-    pub fn move_cursor(&mut self, delta: i32) {
-        if self.tasks.is_empty() {
-            return;
-        }
-        let max = self.tasks.len() - 1;
-        let new = self.cursor as i32 + delta;
-        self.cursor = new.clamp(0, max as i32) as usize;
+    pub fn tasks(&self) -> &[CronTask] {
+        self.list.items()
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.list.cursor()
+    }
+
+    pub fn scroll_offset(&self) -> u16 {
+        self.list.scroll_offset()
     }
 
     pub fn refresh(&mut self, scheduler: &Mutex<CronScheduler>) {
-        self.tasks = scheduler.lock().list_tasks().into_iter().cloned().collect();
-        if self.cursor >= self.tasks.len() && !self.tasks.is_empty() {
-            self.cursor = self.tasks.len() - 1;
-        }
+        let new_tasks: Vec<CronTask> = scheduler.lock().list_tasks().into_iter().cloned().collect();
+        self.list.set_items(new_tasks);
     }
 }
 
@@ -66,7 +67,7 @@ impl PanelComponent for CronPanel {
                 } => {
                     self.do_confirm_delete(ctx);
                     // if tasks empty after delete, close
-                    if self.tasks.is_empty() {
+                    if self.list.is_empty() {
                         EventResult::ClosePanel
                     } else {
                         EventResult::Consumed
@@ -80,11 +81,11 @@ impl PanelComponent for CronPanel {
         } else {
             match input {
                 Input { key: Key::Up, .. } => {
-                    self.move_cursor(-1);
+                    self.list.move_cursor(-1);
                     EventResult::Consumed
                 }
                 Input { key: Key::Down, .. } => {
-                    self.move_cursor(1);
+                    self.list.move_cursor(1);
                     EventResult::Consumed
                 }
                 Input {
@@ -103,13 +104,33 @@ impl PanelComponent for CronPanel {
                     ctrl: true,
                     ..
                 } => {
-                    if self.cursor < self.tasks.len() {
+                    if self.cursor() < self.tasks().len() {
                         self.confirm_delete = true;
                     }
                     EventResult::Consumed
                 }
                 _ => EventResult::Consumed,
             }
+        }
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        self.list.handle_scroll(lines, 10);
+        EventResult::Consumed
+    }
+
+    fn handle_mouse(
+        &mut self,
+        mouse: MouseEvent,
+        area: Rect,
+        _ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            self.list
+                .handle_mouse_click(mouse.row, mouse.column, area, 2);
+            EventResult::Consumed
+        } else {
+            EventResult::NotConsumed
         }
     }
 
@@ -147,9 +168,9 @@ impl PanelComponent for CronPanel {
 
 impl CronPanel {
     fn do_toggle(&mut self, ctx: &mut PanelContext<'_>) {
-        let idx = self.cursor;
-        if idx < self.tasks.len() {
-            let id = self.tasks[idx].id.clone();
+        let idx = self.cursor();
+        if idx < self.tasks().len() {
+            let id = self.tasks()[idx].id.clone();
             ctx.services.cron.scheduler.lock().toggle(&id);
             self.refresh(&ctx.services.cron.scheduler);
         }
@@ -157,10 +178,10 @@ impl CronPanel {
 
     fn do_confirm_delete(&mut self, ctx: &mut PanelContext<'_>) {
         self.confirm_delete = false;
-        let idx = self.cursor;
-        if idx < self.tasks.len() {
-            let prompt_preview: String = self.tasks[idx].prompt.chars().take(30).collect();
-            let id = self.tasks[idx].id.clone();
+        let idx = self.cursor();
+        if idx < self.tasks().len() {
+            let prompt_preview: String = self.tasks()[idx].prompt.chars().take(30).collect();
+            let id = self.tasks()[idx].id.clone();
             ctx.services.cron.scheduler.lock().remove(&id);
             self.refresh(&ctx.services.cron.scheduler);
             ctx.session_mgr.sessions[ctx.session_mgr.active]

@@ -7,9 +7,17 @@ use std::time::Duration;
 use tui_textarea::{Input, Key};
 
 use crate::app::panel_manager::{EventResult, PanelContext, PanelKind};
-use crate::app::plugin_panel::PluginPanel;
 use crate::app::{App, MessageViewModel, PendingAttachment};
+use ratatui::layout::Rect;
 use rust_create_agent::messages::BaseMessage;
+
+/// 检查鼠标事件是否在指定矩形区域内
+fn mouse_in_rect(mouse: &ratatui::crossterm::event::MouseEvent, area: Rect) -> bool {
+    mouse.row >= area.y
+        && mouse.row < area.y + area.height
+        && mouse.column >= area.x
+        && mouse.column < area.x + area.width
+}
 
 /// 将终端显示列坐标转换为字符串的字符索引
 ///
@@ -1007,64 +1015,64 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
         }
         Event::Mouse(mouse) => match mouse.kind {
             MouseEventKind::ScrollUp => {
-                // MCP 面板区域滚轮滚动面板，否则滚动消息区
-                if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
+                let panel_area = app.session_mgr.sessions[app.session_mgr.active]
                     .ui
-                    .panel_area
-                {
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                        && app.global_panels.is_active(PanelKind::Mcp)
-                    {
-                        app.mcp_panel_scroll_up(3);
-                        return Ok(Some(Action::Redraw));
-                    }
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                        && app.global_panels.is_active(PanelKind::Plugin)
-                    {
-                        if let Some(panel) = &mut app.global_panels.get_mut::<PluginPanel>() {
-                            panel.scroll_offset = panel.scroll_offset.saturating_sub(3);
+                    .panel_area;
+                if let Some(area) = panel_area {
+                    if mouse_in_rect(&mouse, area) && app.global_panels.is_any_open() {
+                        let mut pm = std::mem::take(&mut app.global_panels);
+                        let mut ctx = PanelContext {
+                            services: &mut app.services,
+                            session_mgr: &mut app.session_mgr,
+                        };
+                        let result = pm.dispatch_scroll(-3, &mut ctx);
+                        app.global_panels = pm;
+                        if result == EventResult::Consumed {
+                            return Ok(Some(Action::Redraw));
                         }
-                        return Ok(Some(Action::Redraw));
                     }
                 }
                 app.scroll_up();
             }
             MouseEventKind::ScrollDown => {
-                if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
+                let panel_area = app.session_mgr.sessions[app.session_mgr.active]
                     .ui
-                    .panel_area
-                {
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                        && app.global_panels.is_active(PanelKind::Mcp)
-                    {
-                        app.mcp_panel_scroll_down(3);
-                        return Ok(Some(Action::Redraw));
-                    }
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                        && app.global_panels.is_active(PanelKind::Plugin)
-                    {
-                        if let Some(panel) = &mut app.global_panels.get_mut::<PluginPanel>() {
-                            let max = panel.current_list_len() as u16;
-                            panel.scroll_offset = (panel.scroll_offset + 3).min(max);
+                    .panel_area;
+                if let Some(area) = panel_area {
+                    if mouse_in_rect(&mouse, area) && app.global_panels.is_any_open() {
+                        let mut pm = std::mem::take(&mut app.global_panels);
+                        let mut ctx = PanelContext {
+                            services: &mut app.services,
+                            session_mgr: &mut app.session_mgr,
+                        };
+                        let result = pm.dispatch_scroll(3, &mut ctx);
+                        app.global_panels = pm;
+                        if result == EventResult::Consumed {
+                            return Ok(Some(Action::Redraw));
                         }
-                        return Ok(Some(Action::Redraw));
                     }
                 }
                 app.scroll_down();
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                // 面板区域优先拦截鼠标点击
+                let panel_area = app.session_mgr.sessions[app.session_mgr.active]
+                    .ui
+                    .panel_area;
+                if let Some(area) = panel_area {
+                    if mouse_in_rect(&mouse, area) && app.global_panels.is_any_open() {
+                        let mut pm = std::mem::take(&mut app.global_panels);
+                        let mut ctx = PanelContext {
+                            services: &mut app.services,
+                            session_mgr: &mut app.session_mgr,
+                        };
+                        let result = pm.dispatch_mouse(mouse, area, &mut ctx);
+                        app.global_panels = pm;
+                        if result == EventResult::Consumed {
+                            return Ok(Some(Action::Redraw));
+                        }
+                    }
+                }
                 // 多 session：点击非 active session 列区域时切换焦点
                 if app.session_mgr.sessions.len() > 1 {
                     for (i, area) in app.session_mgr.session_areas.iter().enumerate() {
@@ -1080,15 +1088,8 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     }
                 }
                 // 面板区域：开始面板选区
-                if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
-                    .ui
-                    .panel_area
-                {
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                    {
+                if let Some(area) = panel_area {
+                    if mouse_in_rect(&mouse, area) {
                         let content_row = mouse.row - area.y
                             + app.session_mgr.sessions[app.session_mgr.active]
                                 .ui

@@ -115,7 +115,7 @@ impl PanelKind {
 // ─── EventResult ────────────────────────────────────────────────────────────
 
 /// 面板事件处理返回值
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EventResult {
     /// 事件已被消费，无需进一步处理
     Consumed,
@@ -397,6 +397,32 @@ impl PanelManager {
             PanelState::Mcp(p) => p.handle_scroll(lines, ctx),
             PanelState::Cron(p) => p.handle_scroll(lines, ctx),
             PanelState::Plugin(p) => p.handle_scroll(lines, ctx),
+        }
+    }
+
+    /// 分发鼠标事件到当前激活面板
+    pub fn dispatch_mouse(
+        &mut self,
+        mouse: ratatui::crossterm::event::MouseEvent,
+        area: ratatui::layout::Rect,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        use super::panel_component::PanelComponent;
+        let Some(state) = self.active.as_mut() else {
+            return EventResult::NotConsumed;
+        };
+        match state {
+            PanelState::Model(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Agent(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Hooks(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Status(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Memory(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Login(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Config(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::ThreadBrowser(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Mcp(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Cron(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Plugin(p) => p.handle_mouse(mouse, area, ctx),
         }
     }
 

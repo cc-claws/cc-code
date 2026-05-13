@@ -51,7 +51,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &App, a
                 if i > 0 {
                     lines.push(Line::from(""));
                 }
-                let is_cursor = i == panel.cursor;
+                let is_cursor = i == panel.cursor();
                 let is_active = p.id == active_provider_id;
                 let bullet = if is_active { "●" } else { "○" };
                 let cursor_char = if is_cursor { "❯" } else { " " };
@@ -208,7 +208,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &App, a
         LoginPanelMode::ConfirmDelete => {
             let mut list_lines: Vec<Line> = Vec::new();
             for (i, p) in panel.providers.iter().enumerate() {
-                let is_cursor = i == panel.cursor;
+                let is_cursor = i == panel.cursor();
                 let is_active = p.id == active_provider_id;
                 let bullet = if is_active { "●" } else { "○" };
                 let cursor_char = if is_cursor { "❯" } else { " " };
@@ -238,7 +238,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &App, a
                 height: 2,
                 ..inner
             };
-            if let Some(p) = panel.providers.get(panel.cursor) {
+            if let Some(p) = panel.providers.get(panel.cursor()) {
                 let confirm_lines = vec![
                     Line::from(""),
                     Line::from(vec![
@@ -277,7 +277,7 @@ mod tests {
 
     async fn render_headless_login_browse() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        let panel = LoginPanel {
+        let mut panel = LoginPanel {
             providers: vec![ProviderConfig {
                 id: "test".to_string(),
                 provider_type: "openai".to_string(),
@@ -291,7 +291,7 @@ mod tests {
                 ..Default::default()
             }],
             mode: LoginPanelMode::Browse,
-            cursor: 0,
+            browse_list: crate::app::panel_list::PanelList::new(),
             edit_field: LoginEditField::Name,
             buf_name: String::new(),
             buf_type: String::new(),
@@ -306,8 +306,8 @@ mod tests {
             cur_opus_model: 0,
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
-            scroll_offset: 0,
         };
+        panel.browse_list.set_items(vec![(); 1]);
         app.session_mgr.sessions[app.session_mgr.active]
             .session_panels
             .open(crate::app::panel_manager::PanelState::Login(panel.clone()));
@@ -342,7 +342,7 @@ mod tests {
         let panel = LoginPanel {
             providers: vec![],
             mode: LoginPanelMode::New,
-            cursor: 0,
+            browse_list: crate::app::panel_list::PanelList::new(),
             edit_field: LoginEditField::Name,
             buf_name: String::new(),
             buf_type: "openai".to_string(),
@@ -357,7 +357,6 @@ mod tests {
             cur_opus_model: 0,
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
-            scroll_offset: 0,
         };
         app.session_mgr.sessions[app.session_mgr.active]
             .session_panels

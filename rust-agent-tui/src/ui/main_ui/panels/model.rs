@@ -59,7 +59,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &App, a
 
     for (row_idx, alias, label, num) in &rows {
         let is_active = alias.to_key() == active_alias;
-        let is_cursor = panel.cursor == *row_idx;
+        let is_cursor = panel.cursor() == *row_idx;
         let model_name = models
             .and_then(|m| m.get_model(alias.to_key()))
             .unwrap_or("");
@@ -134,16 +134,18 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &App, a
 
 #[cfg(test)]
 mod tests {
-    use crate::app::model_panel::{AliasTab, ModelPanel, ROW_OPUS};
+    use crate::app::model_panel::{AliasTab, ModelPanel};
     use crate::app::App;
 
     async fn render_headless_model_no_provider() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
+        let mut list = crate::app::panel_list::PanelList::new();
+        list.set_items(vec![AliasTab::Opus, AliasTab::Sonnet, AliasTab::Haiku]);
         let panel = ModelPanel {
             provider_name: String::new(),
-            cursor: ROW_OPUS,
             active_tab: AliasTab::Opus,
             buf_thinking_effort: "medium".to_string(),
+            list,
         };
         app.session_mgr.sessions[app.session_mgr.active]
             .session_panels

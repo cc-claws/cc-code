@@ -15,6 +15,8 @@ pub struct ListState<T> {
     items: Vec<T>,
     cursor: usize,
     pub scroll: ScrollState,
+    mouse_pos: Option<(u16, u16)>,
+    on_select: Option<Box<dyn Fn(usize)>>,
 }
 
 impl<T> ListState<T> {
@@ -23,6 +25,8 @@ impl<T> ListState<T> {
             items,
             cursor: 0,
             scroll: ScrollState::new(),
+            mouse_pos: None,
+            on_select: None,
         }
     }
 
@@ -73,27 +77,67 @@ impl<T> ListState<T> {
         self.items = items;
         self.clamp_cursor();
     }
+
+    /// 更新鼠标位置（渲染前由 TUI 层调用，传入相对坐标）
+    pub fn update_mouse(&mut self, pos: Option<(u16, u16)>) {
+        self.mouse_pos = pos;
+    }
+
+    /// 根据鼠标位置计算悬停的 item 索引（考虑 scroll offset）
+    pub fn hovered(&self) -> Option<usize> {
+        let (row, _) = self.mouse_pos?;
+        let idx = row as usize + self.scroll.offset() as usize;
+        if idx < self.items.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
+    /// 设置鼠标位置对应的 item 为 cursor（点击选择）
+    pub fn set_cursor_by_mouse(&mut self, row: u16) {
+        let idx = row as usize + self.scroll.offset() as usize;
+        if idx < self.items.len() {
+            self.cursor = idx;
+        }
+    }
+
+    /// 触发选中回调
+    pub fn select(&self) {
+        if let Some(ref cb) = self.on_select {
+            cb(self.cursor);
+        }
+    }
+
+    /// 设置选中回调（builder 模式）
+    pub fn on_select(mut self, f: impl Fn(usize) + 'static) -> Self {
+        self.on_select = Some(Box::new(f));
+        self
+    }
 }
 
 /// 可选择列表 widget——通过闭包自定义每项渲染
 ///
 /// 实现 ratatui StatefulWidget trait，状态类型为 ListState<T>。
-/// render_item 闭包签名为 `Fn(&T, bool) -> Line<'a>`，bool 表示当前行是否为 cursor。
+/// render_item 闭包签名为 `Fn(&T, bool, bool) -> Line<'a>`，
+/// 第一个 bool 表示当前行是否为 cursor，第二个 bool 表示是否为鼠标悬停。
 /// "特殊首项"模式由调用方在闭包中处理（如 items[0] 是 "New Thread"）。
 pub struct SelectableList<'a, T> {
     #[allow(clippy::type_complexity)]
-    render_item: Box<dyn Fn(&T, bool) -> Line<'a>>,
+    render_item: Box<dyn Fn(&T, bool, bool) -> Line<'a>>,
     cursor_marker: &'a str,
     cursor_style: Style,
+    hover_style: Style,
     normal_style: Style,
 }
 
 impl<'a, T> SelectableList<'a, T> {
-    pub fn new(render_item: impl Fn(&T, bool) -> Line<'a> + 'static) -> Self {
+    pub fn new(render_item: impl Fn(&T, bool, bool) -> Line<'a> + 'static) -> Self {
         Self {
             render_item: Box::new(render_item),
             cursor_marker: "▶ ",
             cursor_style: Style::default(),
+            hover_style: Style::default(),
             normal_style: Style::default(),
         }
     }
@@ -108,6 +152,11 @@ impl<'a, T> SelectableList<'a, T> {
         self
     }
 
+    pub fn hover_style(mut self, style: Style) -> Self {
+        self.hover_style = style;
+        self
+    }
+
     pub fn normal_style(mut self, style: Style) -> Self {
         self.normal_style = style;
         self
@@ -119,21 +168,30 @@ impl<T> StatefulWidget for SelectableList<'_, T> {
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let cursor = state.cursor;
+        let hovered_idx = state.hovered();
 
         let mut lines: Vec<Line<'_>> = Vec::with_capacity(state.items.len());
         for (i, item) in state.items.iter().enumerate() {
             let is_cursor = i == cursor;
-            let line = (self.render_item)(item, is_cursor);
-            let marker = if is_cursor {
-                Span::styled(self.cursor_marker.to_string(), self.cursor_style)
+            let is_hovered = hovered_idx == Some(i);
+
+            let line = (self.render_item)(item, is_cursor, is_hovered);
+
+            // 三态：cursor 优先 > hover > normal
+            let style = if is_cursor {
+                self.cursor_style
+            } else if is_hovered {
+                self.hover_style
             } else {
-                Span::styled(
-                    " ".repeat(self.cursor_marker.chars().count()),
-                    self.normal_style,
-                )
+                self.normal_style
+            };
+            let marker = if is_cursor {
+                Span::styled(self.cursor_marker.to_string(), style)
+            } else {
+                Span::styled(" ".repeat(self.cursor_marker.chars().count()), style)
             };
             let mut spans = vec![marker];
-            spans.extend(line.spans.iter().cloned());
+            spans.extend(line.spans.iter().cloned().map(|s| s.patch_style(style)));
             lines.push(Line::from(spans));
         }
 
@@ -150,6 +208,7 @@ impl<T> StatefulWidget for SelectableList<'_, T> {
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
     use ratatui::Terminal;
 
     #[test]
@@ -190,6 +249,48 @@ mod tests {
     }
 
     #[test]
+    fn test_list_state_hovered_within_viewport() {
+        let state = ListState::new(vec!["a", "b", "c"]);
+        let mut state = state;
+        state.update_mouse(Some((1, 0)));
+        assert_eq!(state.hovered(), Some(1));
+    }
+
+    #[test]
+    fn test_list_state_hovered_with_scroll_offset() {
+        let mut state = ListState::new((0..20i32).collect());
+        state.move_cursor(15);
+        state.ensure_visible(10);
+        assert_eq!(state.scroll.offset(), 6);
+        state.update_mouse(Some((0, 0)));
+        assert_eq!(state.hovered(), Some(6)); // row 0 + offset 6
+    }
+
+    #[test]
+    fn test_list_state_hovered_out_of_bounds() {
+        let state = ListState::new(vec!["a", "b", "c"]);
+        let mut state = state;
+        state.update_mouse(Some((100, 0)));
+        assert_eq!(state.hovered(), None);
+    }
+
+    #[test]
+    fn test_list_state_hovered_none_when_no_mouse() {
+        let state = ListState::new(vec!["a", "b", "c"]);
+        assert_eq!(state.hovered(), None);
+    }
+
+    #[test]
+    fn test_list_state_set_cursor_by_mouse() {
+        let mut state = ListState::new((0..10i32).collect());
+        state.move_cursor(5);
+        state.ensure_visible(5);
+        let offset = state.scroll.offset();
+        state.set_cursor_by_mouse(2);
+        assert_eq!(state.cursor(), 2 + offset as usize);
+    }
+
+    #[test]
     fn selectable_list_renders_cursor_marker() {
         let backend = TestBackend::new(20, 5);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -198,7 +299,10 @@ mod tests {
         terminal
             .draw(|f| {
                 let area = Rect::new(0, 0, 20, 5);
-                let list = SelectableList::new(|item: &&str, _is_cursor: bool| Line::from(*item));
+                let list =
+                    SelectableList::new(|item: &&str, _is_cursor: bool, _is_hovered: bool| {
+                        Line::from(*item)
+                    });
                 f.render_stateful_widget(list, area, &mut state);
             })
             .unwrap();
@@ -228,9 +332,10 @@ mod tests {
         terminal
             .draw(|f| {
                 let area = Rect::new(0, 0, 20, 5);
-                let list = SelectableList::new(|item: &&str, _is_cursor: bool| {
-                    Line::from(format!("[{}]", item))
-                });
+                let list =
+                    SelectableList::new(|item: &&str, _is_cursor: bool, _is_hovered: bool| {
+                        Line::from(format!("[{}]", item))
+                    });
                 f.render_stateful_widget(list, area, &mut state);
             })
             .unwrap();
@@ -244,5 +349,85 @@ mod tests {
             "Expected [a] on row 0, got: {:?}",
             row0
         );
+    }
+
+    #[test]
+    fn test_selectable_list_hover_style_applied() {
+        let backend = TestBackend::new(20, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = ListState::new(vec!["a", "b", "c"]);
+        state.update_mouse(Some((1, 0))); // hover on item 1
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 20, 5);
+                let list =
+                    SelectableList::new(|item: &&str, _is_cursor: bool, _is_hovered: bool| {
+                        Line::from(*item)
+                    })
+                    .hover_style(Style::default().bg(Color::Blue));
+                f.render_stateful_widget(list, area, &mut state);
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let area = buf.area;
+        // Row 1 (hovered) should have blue background
+        let cell = buf.cell((area.x + 2, area.y + 1)).unwrap();
+        assert_eq!(cell.bg, Color::Blue, "Hovered 行应有蓝色背景");
+        // Row 0 (normal) 不应有蓝色背景
+        let cell0 = buf.cell((area.x + 2, area.y)).unwrap();
+        assert_ne!(cell0.bg, Color::Blue);
+    }
+
+    #[test]
+    fn test_selectable_list_cursor_overrides_hover() {
+        let backend = TestBackend::new(20, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = ListState::new(vec!["a", "b", "c"]);
+        state.move_cursor(1); // cursor on item 1
+        state.update_mouse(Some((1, 0))); // hover on item 1 (same as cursor)
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 20, 5);
+                let list =
+                    SelectableList::new(|item: &&str, _is_cursor: bool, _is_hovered: bool| {
+                        Line::from(*item)
+                    })
+                    .cursor_style(Style::default().bg(Color::Red))
+                    .hover_style(Style::default().bg(Color::Blue));
+                f.render_stateful_widget(list, area, &mut state);
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let area = buf.area;
+        // Row 1: cursor 和 hover 重合，应使用 cursor_style (Red)
+        let cell = buf.cell((area.x + 2, area.y + 1)).unwrap();
+        assert_eq!(cell.bg, Color::Red, "cursor 应覆盖 hover 样式");
+    }
+
+    #[test]
+    fn test_selectable_list_no_mouse_unchanged() {
+        // 回归测试：不调用 update_mouse 时渲染结果应与原有行为一致
+        let backend = TestBackend::new(20, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = ListState::new(vec!["a", "b"]);
+        state.move_cursor(1);
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 20, 5);
+                let list =
+                    SelectableList::new(|item: &&str, _is_cursor: bool, _is_hovered: bool| {
+                        Line::from(*item)
+                    });
+                f.render_stateful_widget(list, area, &mut state);
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let area = buf.area;
+        // Row 0 (non-cursor, no hover) 应为默认样式
+        let cell0 = buf.cell((area.x + 2, area.y)).unwrap();
+        assert_eq!(cell0.bg, Color::Reset);
+        // Row 1 (cursor) 应为默认 cursor 样式
+        let cell1 = buf.cell((area.x + 2, area.y + 1)).unwrap();
+        assert_eq!(cell1.bg, Color::Reset);
     }
 }

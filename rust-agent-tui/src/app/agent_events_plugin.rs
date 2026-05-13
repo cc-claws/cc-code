@@ -42,15 +42,28 @@ impl App {
                         panel.discover_detail_cursor = 0;
                     }
                     // 调整 cursor 避免越界
-                    if panel.cursor >= panel.current_list_len() {
-                        panel.cursor = panel.current_list_len().saturating_sub(1);
+                    let list_len = panel.current_list_len();
+                    if panel.cursor() >= list_len {
+                        let new_cursor = list_len.saturating_sub(1);
+                        match panel.view {
+                            super::plugin_panel::PluginPanelView::Installed
+                            | super::plugin_panel::PluginPanelView::Errors => {
+                                panel.installed_list.move_cursor_to(new_cursor);
+                            }
+                            super::plugin_panel::PluginPanelView::Discover => {
+                                panel.discover_list.move_cursor_to(new_cursor);
+                            }
+                            super::plugin_panel::PluginPanelView::Marketplaces => {
+                                panel.marketplace_list.move_cursor_to(new_cursor);
+                            }
+                        }
                     }
                 }
                 ("refresh", true) | ("add", true) => {
                     // Marketplace 刷新/添加成功，重新加载面板数据
                     // 保存当前面板状态
                     let current_view = panel.view;
-                    let current_marketplace_cursor = panel.marketplace_cursor;
+                    let current_marketplace_cursor = panel.marketplace_list.cursor();
                     // 重新加载面板数据
                     self.open_plugin_panel();
                     // 恢复面板状态
@@ -58,31 +71,39 @@ impl App {
                         p.view = current_view;
                         // 确保 cursor 不越界
                         let max = p.marketplace_entries.len();
-                        p.marketplace_cursor = if current_marketplace_cursor <= max {
-                            current_marketplace_cursor
-                        } else {
-                            max
-                        };
+                        let restored = current_marketplace_cursor.min(max);
+                        p.marketplace_list.move_cursor_to(restored);
                     }
                 }
                 ("install_counts_refresh", _) => {
                     // 安装量数据后台刷新完成，重新加载面板以更新排序
                     let current_view = panel.view;
-                    let current_cursor = panel.cursor;
-                    let current_discover_cursor = panel.discover_cursor;
-                    let current_marketplace_cursor = panel.marketplace_cursor;
+                    let current_cursor = panel.cursor();
+                    let current_discover_cursor = panel.discover_list.cursor();
+                    let current_marketplace_cursor = panel.marketplace_list.cursor();
                     self.open_plugin_panel();
                     if let Some(ref mut p) = self.global_panels.get_mut::<PluginPanel>() {
                         p.view = current_view;
-                        p.cursor = current_cursor.min(p.current_list_len().saturating_sub(1));
-                        p.discover_cursor = current_discover_cursor
-                            .min(p.discover_filtered_plugins().len().saturating_sub(1));
+                        let restored = current_cursor.min(p.current_list_len().saturating_sub(1));
+                        match p.view {
+                            super::plugin_panel::PluginPanelView::Installed
+                            | super::plugin_panel::PluginPanelView::Errors => {
+                                p.installed_list.move_cursor_to(restored);
+                            }
+                            super::plugin_panel::PluginPanelView::Discover => {
+                                p.discover_list.move_cursor_to(restored);
+                            }
+                            super::plugin_panel::PluginPanelView::Marketplaces => {
+                                p.marketplace_list.move_cursor_to(restored);
+                            }
+                        }
+                        p.discover_list.move_cursor_to(
+                            current_discover_cursor
+                                .min(p.discover_filtered_plugins().len().saturating_sub(1)),
+                        );
                         let max = p.marketplace_entries.len();
-                        p.marketplace_cursor = if current_marketplace_cursor <= max {
-                            current_marketplace_cursor
-                        } else {
-                            max
-                        };
+                        let restored_marketplace = current_marketplace_cursor.min(max);
+                        p.marketplace_list.move_cursor_to(restored_marketplace);
                     }
                     // 不显示系统消息
                     return (false, false, false);

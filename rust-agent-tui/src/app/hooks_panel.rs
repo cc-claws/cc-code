@@ -1,13 +1,14 @@
 use std::any::Any;
 
+use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 use tui_textarea::Input;
 
 use rust_agent_middlewares::hooks::types::{HookEvent, HookType, RegisteredHook};
 
-use super::ensure_cursor_visible;
 use super::panel_component::PanelComponent;
+use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
@@ -109,12 +110,8 @@ pub struct HookDetail {
 
 #[derive(Clone)]
 pub struct HooksPanel {
-    /// 所有事件条目（仅包含有 hooks 的事件）
-    pub entries: Vec<HookEventEntry>,
-    /// 光标位置（entries 索引）
-    pub cursor: usize,
-    /// 内容滚动偏移（以渲染行为单位）
-    pub scroll_offset: u16,
+    /// 统一列表状态管理
+    pub(crate) list: PanelList<HookEventEntry>,
 }
 
 /// 计算单个 hook 详情占几行（type+summary 行 + 可选 matcher 行 + plugin 行）
@@ -173,37 +170,35 @@ impl HooksPanel {
             });
         }
 
-        Self {
-            entries,
-            cursor: 0,
-            scroll_offset: 0,
-        }
+        let mut list = PanelList::new();
+        list.set_items(entries);
+        Self { list }
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.list.cursor()
+    }
+
+    pub fn scroll_offset(&self) -> u16 {
+        self.list.scroll_offset()
     }
 
     pub fn total(&self) -> usize {
-        self.entries.len()
+        self.list.len()
     }
 
     pub fn total_hooks(&self) -> usize {
-        self.entries.iter().map(|e| e.hook_count).sum()
-    }
-
-    pub fn move_cursor(&mut self, delta: isize) {
-        let total = self.total();
-        if total == 0 {
-            return;
-        }
-        self.cursor = ((self.cursor as isize + delta).rem_euclid(total as isize)) as usize;
+        self.list.items().iter().map(|e| e.hook_count).sum()
     }
 
     /// 当前选中的事件条目
     pub fn current_entry(&self) -> Option<&HookEventEntry> {
-        self.entries.get(self.cursor)
+        self.list.selected()
     }
 
     /// 固定头部行数（统计行 + 提示行 + 空行）
     pub fn header_lines(&self) -> u16 {
-        if self.entries.is_empty() {
+        if self.list.is_empty() {
             2 // "none configured" + 空行
         } else {
             3 // 统计行 + 提示行 + 空行
@@ -215,15 +210,13 @@ impl HooksPanel {
         let mut line = self.header_lines();
         // 每个 entry 前面有一个事件头行
         // 光标 entry 之前的所有 entry 各占 1 行（不展开）
-        line += self.cursor as u16;
-        // 如果光标在前面，前面没有展开详情，但光标 entry 本身展开
-        // 展开详情从光标行之后开始，光标行就是事件头行
+        line += self.list.cursor() as u16;
         line
     }
 
     /// 当前光标 entry 展开后的总行数（事件头 + 详情 + 空行）
     pub fn expanded_lines(&self) -> u16 {
-        let entry = match self.entries.get(self.cursor) {
+        let entry = match self.list.selected() {
             Some(e) => e,
             None => return 0,
         };
@@ -234,11 +227,11 @@ impl HooksPanel {
     /// 整个面板的内容总行数
     pub fn total_content_lines(&self) -> u16 {
         let mut h = self.header_lines();
-        for _entry in &self.entries {
+        for _entry in self.list.items() {
             h += 1; // 事件头行
         }
         // 加上当前展开的详情行
-        if let Some(entry) = self.entries.get(self.cursor) {
+        if let Some(entry) = self.list.selected() {
             let detail: u16 = entry.hooks.iter().map(detail_lines).sum();
             h += detail + 1; // 详情行 + 空行
         }
@@ -311,19 +304,35 @@ impl PanelComponent for HooksPanel {
             } => EventResult::NotConsumed,
             Input { key: Key::Esc, .. } => EventResult::ClosePanel,
             Input { key: Key::Up, .. } => {
-                self.move_cursor(-1);
-                self.scroll_offset =
-                    ensure_cursor_visible(self.cursor_line(), self.scroll_offset, 10);
+                self.list.move_cursor(-1);
+                self.list.ensure_visible(10);
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                self.move_cursor(1);
-                self.scroll_offset =
-                    ensure_cursor_visible(self.cursor_line(), self.scroll_offset, 10);
+                self.list.move_cursor(1);
+                self.list.ensure_visible(10);
                 EventResult::Consumed
             }
             _ => EventResult::Consumed,
         }
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        self.list.handle_scroll(lines, 10);
+        EventResult::Consumed
+    }
+
+    fn handle_mouse(
+        &mut self,
+        mouse: MouseEvent,
+        area: Rect,
+        _ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            self.list
+                .handle_mouse_click(mouse.row, mouse.column, area, 1);
+        }
+        EventResult::NotConsumed
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
@@ -395,7 +404,7 @@ mod tests {
             make_hook(HookEvent::Stop, None),
         ];
         let mut panel = HooksPanel::new(hooks);
-        panel.cursor = 1;
+        panel.list.move_cursor(1);
         assert_eq!(panel.cursor_line(), 4); // header=3, cursor=1 → line 4
     }
 
