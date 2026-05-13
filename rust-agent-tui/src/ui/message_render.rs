@@ -3,7 +3,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use super::message_view::{ContentBlockView, MessageViewModel, ToolCategory};
+use super::message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory};
 use super::theme;
 
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
@@ -19,6 +19,103 @@ fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
             ])
         })
         .collect()
+}
+
+/// 批次汇总树形渲染：折叠态显示 header + 每行摘要，展开态显示各 agent 详情。
+fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let total = agents.len();
+    let failed_count = agents.iter().filter(|a| a.is_error).count();
+
+    // Header 行
+    let header_text = if failed_count == total {
+        // 全部失败
+        format!("{} agents failed", total)
+    } else if failed_count > 0 {
+        // 部分失败
+        format!("{} agents finished, {} failed", total, failed_count)
+    } else {
+        format!("{} agents finished", total)
+    };
+    lines.push(Line::from(vec![
+        Span::styled("⏺ ", Style::default().fg(theme::SAGE)),
+        Span::styled(header_text, Style::default().fg(theme::TEXT)),
+    ]));
+
+    if *collapsed {
+        // 折叠态：每行 agent 摘要
+        for (idx, agent) in agents.iter().enumerate() {
+            let is_last = idx == total - 1;
+            let connector = if is_last { "└─" } else { "├─" };
+            let status = if agent.is_error {
+                ("Failed", theme::ERROR)
+            } else {
+                ("Done", theme::SAGE)
+            };
+
+            let mut spans = vec![
+                Span::styled("   ", Style::default().fg(theme::DIM)),
+                Span::styled(connector.to_string(), Style::default().fg(theme::DIM)),
+                Span::styled(" ".to_string(), Style::default()),
+                Span::styled(agent.task_preview.clone(), Style::default().fg(theme::TEXT)),
+            ];
+
+            if agent.tool_count > 0 {
+                spans.push(Span::styled(
+                    format!(" · {} tool uses", agent.tool_count),
+                    Style::default().fg(theme::DIM),
+                ));
+            }
+
+            spans.push(Span::styled(" · ", Style::default().fg(theme::DIM)));
+            spans.push(Span::styled(
+                status.0.to_string(),
+                Style::default().fg(status.1),
+            ));
+
+            lines.push(Line::from(spans));
+        }
+    } else {
+        // 展开态：每个 agent 显示 task_preview + final_result
+        let bg_style = Style::default().bg(theme::SUB_AGENT_BG);
+        for (idx, agent) in agents.iter().enumerate() {
+            let is_last = idx == total - 1;
+            let connector = if is_last { "└─" } else { "├─" };
+
+            // task_preview 行
+            lines.push(Line::from(vec![
+                Span::styled("   ", bg_style),
+                Span::styled(
+                    connector.to_string(),
+                    Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
+                ),
+                Span::styled(" ".to_string(), bg_style),
+                Span::styled(
+                    agent.task_preview.clone(),
+                    Style::default().fg(theme::TEXT).bg(theme::SUB_AGENT_BG),
+                ),
+            ]));
+
+            // final_result 行（如果有）
+            if let Some(ref result) = agent.final_result {
+                if !result.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled("     ", bg_style),
+                        Span::styled(
+                            "⎿ ",
+                            Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
+                        ),
+                        Span::styled(
+                            result.clone(),
+                            Style::default().fg(theme::MUTED).bg(theme::SUB_AGENT_BG),
+                        ),
+                    ]));
+                }
+            }
+        }
+    }
+
+    lines
 }
 
 /// AskUserQuestion 专用渲染：`⏺ User answered Peri's questions:` + `⎿ · H → V`
@@ -293,6 +390,11 @@ pub fn render_view_model(
             lines
         }
         MessageViewModel::SubAgentGroup {
+            batch_agents,
+            collapsed,
+            ..
+        } if !batch_agents.is_empty() => render_batch_summary(batch_agents, collapsed),
+        MessageViewModel::SubAgentGroup {
             agent_id,
             task_preview,
             recent_messages,
@@ -554,5 +656,110 @@ pub fn render_view_model(
 
             lines
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::message_view::AgentSummary;
+
+    fn make_agent(id: &str, task: &str, tools: usize, error: bool) -> AgentSummary {
+        AgentSummary {
+            agent_id: id.to_string(),
+            task_preview: task.to_string(),
+            tool_count: tools,
+            is_error: error,
+            final_result: if error {
+                Some("failed".to_string())
+            } else {
+                Some("done".to_string())
+            },
+        }
+    }
+
+    #[test]
+    fn test_render_batch_summary_collapsed() {
+        let agents = vec![
+            make_agent("agent-1", "task one", 3, false),
+            make_agent("agent-2", "task two", 5, false),
+            make_agent("agent-3", "task three", 0, false),
+        ];
+        let lines = render_batch_summary(&agents, &true);
+        // Header + 3 行 agent 摘要 = 4 行
+        assert_eq!(lines.len(), 4, "折叠态应有 header + 3 行摘要");
+        // Header 应包含 "3 agents finished"
+        let header_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(
+            header_text.contains("3 agents finished"),
+            "header 应显示 agent 数量: {}",
+            header_text
+        );
+    }
+
+    #[test]
+    fn test_render_batch_summary_expanded() {
+        let agents = vec![
+            make_agent("agent-1", "task one", 3, false),
+            make_agent("agent-2", "task two", 5, false),
+        ];
+        let lines = render_batch_summary(&agents, &false);
+        // Header + 2 * (task_preview + final_result) = 5 行
+        assert_eq!(lines.len(), 5, "展开态应有 header + 2*(task+result)");
+    }
+
+    #[test]
+    fn test_render_batch_summary_with_error() {
+        let agents = vec![
+            make_agent("agent-1", "task one", 3, false),
+            make_agent("agent-2", "task two", 1, true),
+            make_agent("agent-3", "task three", 2, true),
+        ];
+        let lines = render_batch_summary(&agents, &true);
+        let header_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(
+            header_text.contains("2 failed"),
+            "header 应显示失败数: {}",
+            header_text
+        );
+    }
+
+    #[test]
+    fn test_render_batch_summary_tree_connectors() {
+        let agents = vec![
+            make_agent("agent-1", "task one", 3, false),
+            make_agent("agent-2", "task two", 5, false),
+            make_agent("agent-3", "task three", 0, false),
+        ];
+        let lines = render_batch_summary(&agents, &true);
+        // 第一个 agent 应使用 ├─
+        let line1_text: String = lines[1].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(
+            line1_text.contains("├─"),
+            "非最后一个 agent 应使用 ├─: {}",
+            line1_text
+        );
+        // 最后一个 agent 应使用 └─
+        let line3_text: String = lines[3].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(
+            line3_text.contains("└─"),
+            "最后一个 agent 应使用 └─: {}",
+            line3_text
+        );
+    }
+
+    #[test]
+    fn test_render_single_agent_unchanged() {
+        // batch_agents 为空时走现有渲染路径，不经过 render_batch_summary
+        // 此测试验证 render_batch_summary 对空 agents 列表的边界行为
+        let agents: Vec<AgentSummary> = vec![];
+        let lines = render_batch_summary(&agents, &true);
+        assert_eq!(lines.len(), 1, "空 agents 应只有 header");
+        let header_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(
+            header_text.contains("0 agents"),
+            "header 应包含 0 agents: {}",
+            header_text
+        );
     }
 }

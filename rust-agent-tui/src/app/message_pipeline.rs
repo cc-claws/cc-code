@@ -26,6 +26,7 @@ use rust_create_agent::messages::{BaseMessage, ToolCallRequest};
 use crate::app::events::AgentEvent;
 use crate::app::tool_display;
 use crate::ui::markdown::parse_markdown_default;
+pub use crate::ui::message_view::aggregate_batch_groups;
 use crate::ui::message_view::{
     aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel,
 };
@@ -114,6 +115,17 @@ struct SubAgentState {
     bg_hash: Option<String>,
 }
 
+/// 批次检测状态：跟踪连续的 SubAgentStart/SubAgentEnd
+struct BatchInfo {
+    /// 已开始的 agent 数
+    started: usize,
+    /// 已完成的 agent 数
+    completed: usize,
+    /// 批次开始时的 subagent_stack 深度（用于交叉验证）
+    #[allow(dead_code)]
+    stack_depth: usize,
+}
+
 // ─── MessagePipeline ─────────────────────────────────────────────────────────
 
 /// 统一消息渲染管线。
@@ -140,6 +152,8 @@ pub struct MessagePipeline {
     subagent_stack: Vec<SubAgentState>,
     /// 冻结的 SubAgentGroup VMs（SubAgentEnd 时构建，done() 时收集）
     frozen_subagent_vms: Vec<MessageViewModel>,
+    /// 批次检测状态（连续的 SubAgentStart/SubAgentEnd 跟踪）
+    active_batch: Option<BatchInfo>,
     // ── 节流状态 ──
     /// 是否有待发射的节流 RebuildAll（有流式 chunk 积累但尚未发射）
     throttle_armed: bool,
@@ -165,6 +179,7 @@ impl MessagePipeline {
             completed_tools: Vec::new(),
             subagent_stack: Vec::new(),
             frozen_subagent_vms: Vec::new(),
+            active_batch: None,
             throttle_armed: false,
             throttle_last_fire: None,
             completed_len_at_round_start: 0,
@@ -368,6 +383,20 @@ impl MessagePipeline {
                 is_background,
                 bg_hash: None,
             });
+            // 批次检测：第一个 agent 创建批次，后续递增
+            let stack_depth = self.subagent_stack.len() - 1;
+            if let Some(ref mut batch) = self.active_batch {
+                batch.started += 1;
+            } else {
+                self.active_batch = Some(BatchInfo {
+                    started: 1,
+                    completed: 0,
+                    stack_depth,
+                });
+            }
+        } else {
+            // 非 Agent 工具打断批次连续性
+            self.active_batch = None;
         }
 
         self.pending_tools.insert(
@@ -410,11 +439,16 @@ impl MessagePipeline {
                         is_error,
                         is_background: false,
                         bg_hash: None,
+                        batch_agents: Vec::new(),
                     };
                     sub.finalized_vm = Some(vm.clone());
                     // 立即冻结：RebuildAll 可能在下一个 StateSnapshot 前触发
                     self.frozen_subagent_vms.push(vm);
                 }
+            }
+            // 批次检测：递增完成计数
+            if let Some(ref mut batch) = self.active_batch {
+                batch.completed += 1;
             }
         } else {
             // 非 SubAgent 工具：保存到 completed_tools，在 StateSnapshot 到达前显示
@@ -479,6 +513,7 @@ impl MessagePipeline {
         self.completed_tools.clear();
         self.throttle_armed = false;
         self.throttle_last_fire = None;
+        self.active_batch = None;
         self.drain_subagent_stack();
     }
 
@@ -490,6 +525,7 @@ impl MessagePipeline {
         self.completed_tools.clear();
         self.throttle_armed = false;
         self.throttle_last_fire = None;
+        self.active_batch = None;
         self.drain_subagent_stack();
     }
 
@@ -514,6 +550,7 @@ impl MessagePipeline {
                         is_error: false,
                         is_background: sub.is_background,
                         bg_hash: sub.bg_hash,
+                        batch_agents: Vec::new(),
                     });
             }
             // 已 finalized（finalized_vm.is_some()）的不推入——tool_end_internal 已处理
@@ -532,6 +569,7 @@ impl MessagePipeline {
         self.completed_tools.clear();
         self.subagent_stack.clear();
         self.frozen_subagent_vms.clear();
+        self.active_batch = None;
     }
 
     /// 当前 AI 消息是否有可见内容
@@ -723,6 +761,7 @@ impl MessagePipeline {
                         is_error: false,
                         is_background: sub.is_background,
                         bg_hash: sub.bg_hash.clone(),
+                        batch_agents: Vec::new(),
                     }
                 };
                 tail_vms.push(vm);
@@ -731,6 +770,12 @@ impl MessagePipeline {
 
         // 聚合相邻只读工具
         aggregate_tool_groups(&mut tail_vms);
+
+        // 批次聚合：仅在无流式内容时执行（Done 后、轮次结束时）
+        // 流式期间跳过，因为 SubAgentGroup 字段不断变化会导致 hash 不稳定，引发界面跳动
+        if !self.has_streaming_content() && self.current_ai_tool_calls.is_empty() {
+            aggregate_batch_groups(&mut tail_vms);
+        }
 
         tail_vms
     }

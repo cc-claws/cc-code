@@ -159,12 +159,15 @@ impl App {
             .agent_state_messages = base_msgs.clone();
 
         // 使用统一管线转换：与流式路径共享同一个 messages_to_view_models()
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .view_messages = message_pipeline::MessagePipeline::messages_to_view_models(
+        let mut view_msgs = message_pipeline::MessagePipeline::messages_to_view_models(
             &base_msgs,
             &self.services.cwd,
         );
+        // 历史恢复时聚合连续的已完成 SubAgentGroup 为批次汇总
+        message_pipeline::aggregate_batch_groups(&mut view_msgs);
+        self.session_mgr.sessions[self.session_mgr.active]
+            .messages
+            .view_messages = view_msgs;
 
         // 同步 Pipeline 内部状态，确保后续流式事件能正确续接
         self.session_mgr.sessions[self.session_mgr.active]

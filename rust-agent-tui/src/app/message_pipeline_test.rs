@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::message_view::aggregate_batch_groups;
 use rust_create_agent::messages::{BaseMessage, ContentBlock, MessageContent, ToolCallRequest};
 use serde_json::json;
 
@@ -747,4 +748,197 @@ fn test_done_idempotent_build_tail_vms() {
     for (a, b) in tail_vms1.iter().zip(tail_vms2.iter()) {
         assert_eq!(a, b, "多次 done 后 build_tail_vms 结果应一致");
     }
+}
+
+// ── 批次聚合集成测试 ──
+
+/// 创建一个包含 N 个 Agent ToolUse/ToolResult 对的 BaseMessage 历史
+fn make_agent_history(agent_count: usize, separated: bool) -> Vec<BaseMessage> {
+    use rust_create_agent::messages::MessageId;
+    let mut tool_calls: Vec<ToolCallRequest> = Vec::new();
+    for i in 0..agent_count {
+        tool_calls.push(ToolCallRequest::new(
+            format!("tc_{}", i),
+            "Agent",
+            json!({"subagent_type": format!("agent-{}", i), "prompt": format!("task {}", i)}),
+        ));
+    }
+    let mut msgs = vec![
+        BaseMessage::human("dispatch agents"),
+        BaseMessage::ai_with_tool_calls(MessageContent::text(""), tool_calls.clone()),
+    ];
+    for i in 0..agent_count {
+        msgs.push(BaseMessage::Tool {
+            id: MessageId::new(),
+            tool_call_id: format!("tc_{}", i),
+            content: MessageContent::text(format!(
+                "[Sub-agent executed {} tool calls: done{}]",
+                i + 1,
+                i
+            )),
+            is_error: false,
+        });
+    }
+    // 在两组 agent 之间插入非 Agent 消息（测试批次分离）
+    if separated {
+        msgs.push(BaseMessage::human("continue"));
+        let tool_calls2 = vec![ToolCallRequest::new(
+            "tc_sep".to_string(),
+            "Agent",
+            json!({"subagent_type": "agent-sep", "prompt": "separated task"}),
+        )];
+        msgs.push(BaseMessage::ai_with_tool_calls(
+            MessageContent::text(""),
+            tool_calls2,
+        ));
+        msgs.push(BaseMessage::Tool {
+            id: MessageId::new(),
+            tool_call_id: "tc_sep".to_string(),
+            content: MessageContent::text("[Sub-agent executed 2 tool calls: done_sep]"),
+            is_error: false,
+        });
+    }
+    msgs
+}
+
+#[test]
+fn test_batch_info_single_agent_no_batch() {
+    let msgs = make_agent_history(1, false);
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    // 单个 agent 不应聚合
+    let subagent_vms: Vec<_> = vms
+        .iter()
+        .filter(|vm| matches!(vm, MessageViewModel::SubAgentGroup { .. }))
+        .collect();
+    assert_eq!(subagent_vms.len(), 1, "单个 agent 应保持独立");
+    if let MessageViewModel::SubAgentGroup { batch_agents, .. } = subagent_vms[0] {
+        assert!(batch_agents.is_empty(), "单个 agent 的 batch_agents 应为空");
+    }
+}
+
+#[test]
+fn test_batch_info_multi_agent_triggers() {
+    let msgs = make_agent_history(3, false);
+    let mut vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    aggregate_batch_groups(&mut vms);
+    // 3 个连续 Agent Tool 结果应聚合为 1 个批次
+    let batch_vms: Vec<_> = vms
+        .iter()
+        .filter(|vm| matches!(vm, MessageViewModel::SubAgentGroup { batch_agents, .. } if !batch_agents.is_empty()))
+        .collect();
+    assert_eq!(batch_vms.len(), 1, "3 个连续 agent 完成后应聚合为 1 个批次");
+    if let MessageViewModel::SubAgentGroup { batch_agents, .. } = batch_vms[0] {
+        assert_eq!(batch_agents.len(), 3);
+    }
+}
+
+#[test]
+fn test_batch_info_reset_on_done() {
+    // 模拟 Done 后新起一批 agent
+    let mut msgs = make_agent_history(2, false);
+    // 模拟 Done（新的 Ai 回复分隔两批）
+    msgs.push(BaseMessage::ai("I'll continue"));
+    let more = make_agent_history(1, false);
+    // 跳过 human 和 ai 消息，只追加 Tool 消息
+    msgs.extend(more.iter().skip(2).cloned());
+    let mut vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    aggregate_batch_groups(&mut vms);
+    // Ai 消息分隔了两批 agent，不应跨批次聚合
+    let batch_vms: Vec<_> = vms
+        .iter()
+        .filter(|vm| matches!(vm, MessageViewModel::SubAgentGroup { batch_agents, .. } if !batch_agents.is_empty()))
+        .collect();
+    // 第一批 2 个 agent 聚合为 1 个批次，第二批 1 个 agent 保持独立
+    assert_eq!(
+        batch_vms.len(),
+        1,
+        "Done 后新起的 agent 不应与前面合并，只有第一批聚合"
+    );
+    if let MessageViewModel::SubAgentGroup { batch_agents, .. } = batch_vms[0] {
+        assert_eq!(batch_agents.len(), 2, "第一批应聚合 2 个 agent");
+    }
+}
+
+#[test]
+fn test_batch_info_reset_on_non_agent_tool() {
+    // 非 Agent 工具打断连续的 Agent Tool 结果
+    use rust_create_agent::messages::MessageId;
+    let mut msgs = vec![
+        BaseMessage::human("go"),
+        BaseMessage::ai_with_tool_calls(
+            MessageContent::text(""),
+            vec![
+                ToolCallRequest::new(
+                    "tc1",
+                    "Agent",
+                    json!({"subagent_type": "a1", "prompt": "t1"}),
+                ),
+                ToolCallRequest::new("tc_bash", "Bash", json!({"command": "ls"})),
+                ToolCallRequest::new(
+                    "tc2",
+                    "Agent",
+                    json!({"subagent_type": "a2", "prompt": "t2"}),
+                ),
+            ],
+        ),
+    ];
+    // Agent Tool 结果
+    msgs.push(BaseMessage::Tool {
+        id: MessageId::new(),
+        tool_call_id: "tc1".to_string(),
+        content: MessageContent::text("[Sub-agent executed 3 tool calls: done1]"),
+        is_error: false,
+    });
+    // Bash Tool 结果（打断连续区间）
+    msgs.push(BaseMessage::Tool {
+        id: MessageId::new(),
+        tool_call_id: "tc_bash".to_string(),
+        content: MessageContent::text("file1.txt"),
+        is_error: false,
+    });
+    // Agent Tool 结果
+    msgs.push(BaseMessage::Tool {
+        id: MessageId::new(),
+        tool_call_id: "tc2".to_string(),
+        content: MessageContent::text("[Sub-agent executed 5 tool calls: done2]"),
+        is_error: false,
+    });
+    let mut vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    aggregate_batch_groups(&mut vms);
+    let batch_vms: Vec<_> = vms
+        .iter()
+        .filter(|vm| matches!(vm, MessageViewModel::SubAgentGroup { batch_agents, .. } if !batch_agents.is_empty()))
+        .collect();
+    // Bash Tool 结果打断了连续区间，两个 Agent 各自独立
+    assert_eq!(batch_vms.len(), 0, "非 Agent 工具打断后 agent 不应聚合");
+}
+
+#[test]
+fn test_batch_info_different_batches_no_merge() {
+    // 两组 agent 被用户消息分隔
+    let msgs = make_agent_history(2, true);
+    let mut vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    aggregate_batch_groups(&mut vms);
+    let batch_vms: Vec<_> = vms
+        .iter()
+        .filter(|vm| matches!(vm, MessageViewModel::SubAgentGroup { batch_agents, .. } if !batch_agents.is_empty()))
+        .collect();
+    // 第一批 2 个 agent 聚合为 1 个批次，第二批 1 个 agent 保持独立
+    assert_eq!(batch_vms.len(), 1, "用户消息分隔后只有第一批聚合");
+    if let MessageViewModel::SubAgentGroup { batch_agents, .. } = batch_vms[0] {
+        assert_eq!(batch_agents.len(), 2, "第一批应聚合 2 个 agent");
+    }
+}
+
+#[test]
+fn test_build_tail_vms_aggregate_after_all_done() {
+    // 通过 reconcile 路径验证聚合（reconcile 内部调用 messages_to_view_models）
+    let msgs = make_agent_history(3, false);
+    let mut vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    aggregate_batch_groups(&mut vms);
+    let batch_vms: Vec<_> = vms
+        .iter()
+        .filter(|vm| matches!(vm, MessageViewModel::SubAgentGroup { batch_agents, .. } if !batch_agents.is_empty()))
+        .collect();
+    assert_eq!(batch_vms.len(), 1, "reconcile 路径应触发聚合");
 }

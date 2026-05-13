@@ -2438,6 +2438,7 @@ fn test_subagent_group_error_red_title_and_summary() {
         is_error: true,
         is_background: false,
         bg_hash: None,
+        batch_agents: Vec::new(),
     };
     let lines = render_view_model(&vm, Some(1), 80);
     // 标题行 "Agent" 文字应为红色（第二个 span，第一个是 ❯ 符号）

@@ -214,6 +214,7 @@ impl RenderTask {
                     is_background: old_bg,
                     bg_hash: old_hash,
                     collapsed: old_collapsed,
+                    batch_agents: old_batch,
                     ..
                 },
                 MessageViewModel::SubAgentGroup {
@@ -226,6 +227,7 @@ impl RenderTask {
                     is_background: new_bg,
                     bg_hash: new_hash,
                     collapsed: new_collapsed,
+                    batch_agents: new_batch,
                     ..
                 },
             ) => {
@@ -238,6 +240,7 @@ impl RenderTask {
                     && old_bg == new_bg
                     && old_hash == new_hash
                     && old_collapsed == new_collapsed
+                    && old_batch == new_batch
             }
 
             // 其他类型变化都不是 cosmetic

@@ -134,6 +134,20 @@ pub struct ToolEntry {
     pub is_error: bool,
 }
 
+/// 批次中单个 agent 的摘要信息
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AgentSummary {
+    pub agent_id: String,
+    /// 任务描述，截断到 50 字符
+    pub task_preview: String,
+    /// 工具调用数
+    pub tool_count: usize,
+    /// 是否以错误结束
+    pub is_error: bool,
+    /// 最终结果（仅第一行）
+    pub final_result: Option<String>,
+}
+
 /// 将 view_messages 中相邻的只读 ToolBlock 聚合为 ToolCallGroup（支持跨类别，跳过空 thinking bubble）
 pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
     aggregate_tail_tool_groups(messages, 0);
@@ -207,6 +221,93 @@ pub fn aggregate_tail_tool_groups(messages: &mut Vec<MessageViewModel>, from_idx
     *messages = result;
 }
 
+/// 将连续的、已完成的 SubAgentGroup 聚合为批次汇总视图。
+///
+/// 扫描 messages，找到连续的、`batch_agents` 为空且非运行中的 SubAgentGroup 区间，
+/// 区间长度 > 1 时合并为一个带 `batch_agents` 的汇总 VM，默认折叠。
+/// 流式期间 `is_running: true` 的 VM 不参与聚合。
+pub fn aggregate_batch_groups(messages: &mut Vec<MessageViewModel>) {
+    if messages.is_empty() {
+        return;
+    }
+
+    let mut result: Vec<MessageViewModel> = Vec::with_capacity(messages.len());
+    let mut i = 0;
+    let len = messages.len();
+
+    while i < len {
+        // 检查当前 VM 是否为可聚合的 SubAgentGroup
+        let is_aggregatable = matches!(
+            &messages[i],
+            MessageViewModel::SubAgentGroup {
+                is_running: false,
+                batch_agents,
+                ..
+            } if batch_agents.is_empty()
+        );
+
+        if !is_aggregatable {
+            result.push(messages[i].clone());
+            i += 1;
+            continue;
+        }
+
+        // 收集连续的可聚合 SubAgentGroup
+        let run_start = i;
+        let mut batch_summaries: Vec<AgentSummary> = Vec::new();
+
+        while i < len {
+            if let MessageViewModel::SubAgentGroup {
+                agent_id,
+                task_preview,
+                total_steps,
+                is_running: false,
+                is_error,
+                final_result,
+                batch_agents,
+                ..
+            } = &messages[i]
+            {
+                if batch_agents.is_empty() {
+                    batch_summaries.push(AgentSummary {
+                        agent_id: agent_id.clone(),
+                        task_preview: task_preview.chars().take(50).collect(),
+                        tool_count: *total_steps,
+                        is_error: *is_error,
+                        final_result: final_result
+                            .as_ref()
+                            .map(|r| r.lines().next().unwrap_or("").chars().take(80).collect()),
+                    });
+                    i += 1;
+                    continue;
+                }
+            }
+            break;
+        }
+
+        let run_len = i - run_start;
+        if run_len <= 1 {
+            // 单个 SubAgentGroup，不聚合
+            result.push(messages[run_start].clone());
+        } else {
+            // 合并：保留第一个 VM 的位置，设置 batch_agents，collapsed=true
+            let mut merged = messages[run_start].clone();
+            if let MessageViewModel::SubAgentGroup {
+                ref mut batch_agents,
+                ref mut collapsed,
+                ..
+            } = merged
+            {
+                *batch_agents = batch_summaries;
+                *collapsed = true;
+            }
+            result.push(merged);
+        }
+    }
+
+    *messages = result;
+}
+
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来
 #[derive(Debug, Clone)]
 pub enum MessageViewModel {
@@ -265,6 +366,8 @@ pub enum MessageViewModel {
         is_background: bool,
         /// 后台任务的短 ID（task_id 前 8 位）
         bg_hash: Option<String>,
+        /// 批次汇总信息：空 = 单 agent，非空 = 批次汇总模式
+        batch_agents: Vec<AgentSummary>,
     },
 }
 
@@ -337,6 +440,7 @@ impl PartialEq for MessageViewModel {
                     is_error: a_err,
                     is_background: a_bg,
                     bg_hash: a_hash,
+                    batch_agents: a_batch,
                     ..
                 },
                 MessageViewModel::SubAgentGroup {
@@ -348,6 +452,7 @@ impl PartialEq for MessageViewModel {
                     is_error: b_err,
                     is_background: b_bg,
                     bg_hash: b_hash,
+                    batch_agents: b_batch,
                     ..
                 },
             ) => {
@@ -359,6 +464,7 @@ impl PartialEq for MessageViewModel {
                     && a_err == b_err
                     && a_bg == b_bg
                     && a_hash == b_hash
+                    && a_batch == b_batch
             }
             _ => false,
         }
@@ -433,6 +539,7 @@ impl Hash for MessageViewModel {
                 is_error,
                 is_background,
                 bg_hash,
+                batch_agents,
             } => {
                 6u8.hash(state);
                 agent_id.hash(state);
@@ -445,6 +552,7 @@ impl Hash for MessageViewModel {
                 is_error.hash(state);
                 is_background.hash(state);
                 bg_hash.hash(state);
+                batch_agents.hash(state);
             }
         }
     }
@@ -689,6 +797,7 @@ impl MessageViewModel {
                         is_error: *is_error,
                         is_background,
                         bg_hash,
+                        batch_agents: Vec::new(),
                     };
                 }
                 // 使用统一格式化函数生成 display_name 和 args_display
@@ -854,6 +963,7 @@ impl MessageViewModel {
             is_error: false,
             is_background: false,
             bg_hash: None,
+            batch_agents: Vec::new(),
         }
     }
 
@@ -1079,5 +1189,202 @@ mod tests {
         assert_eq!(tool_color("Agent"), theme::THINKING);
         assert_eq!(tool_color("AskUserQuestion"), theme::THINKING);
         assert_eq!(tool_color("TodoWrite"), theme::THINKING);
+    }
+
+    // ── aggregate_batch_groups 测试 ──
+
+    /// 创建一个已完成的单 agent SubAgentGroup VM
+    fn make_done_subagent(agent_id: &str, task: &str) -> MessageViewModel {
+        MessageViewModel::SubAgentGroup {
+            agent_id: agent_id.to_string(),
+            task_preview: task.to_string(),
+            total_steps: 3,
+            recent_messages: Vec::new(),
+            is_running: false,
+            collapsed: false,
+            final_result: Some("done".to_string()),
+            is_error: false,
+            is_background: false,
+            bg_hash: None,
+            batch_agents: Vec::new(),
+        }
+    }
+
+    /// 创建一个运行中的 SubAgentGroup VM
+    fn make_running_subagent(agent_id: &str, task: &str) -> MessageViewModel {
+        MessageViewModel::SubAgentGroup {
+            agent_id: agent_id.to_string(),
+            task_preview: task.to_string(),
+            total_steps: 0,
+            recent_messages: Vec::new(),
+            is_running: true,
+            collapsed: false,
+            final_result: None,
+            is_error: false,
+            is_background: false,
+            bg_hash: None,
+            batch_agents: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_aggregate_batch_groups_single_agent_noop() {
+        let mut vms = vec![make_done_subagent("explorer", "explore code")];
+        aggregate_batch_groups(&mut vms);
+        assert_eq!(vms.len(), 1, "单个 SubAgentGroup 不应聚合");
+        // batch_agents 应保持为空
+        if let MessageViewModel::SubAgentGroup { batch_agents, .. } = &vms[0] {
+            assert!(batch_agents.is_empty());
+        } else {
+            panic!("应为 SubAgentGroup");
+        }
+    }
+
+    #[test]
+    fn test_aggregate_batch_groups_consecutive_agents() {
+        let mut vms = vec![
+            make_done_subagent("agent-1", "task one"),
+            make_done_subagent("agent-2", "task two"),
+            make_done_subagent("agent-3", "task three"),
+        ];
+        aggregate_batch_groups(&mut vms);
+        assert_eq!(vms.len(), 1, "3 个连续已完成 SubAgentGroup 应合并为 1 个");
+        if let MessageViewModel::SubAgentGroup {
+            batch_agents,
+            collapsed,
+            ..
+        } = &vms[0]
+        {
+            assert_eq!(batch_agents.len(), 3);
+            assert!(*collapsed, "合并后应默认折叠");
+            assert_eq!(batch_agents[0].agent_id, "agent-1");
+            assert_eq!(batch_agents[1].agent_id, "agent-2");
+            assert_eq!(batch_agents[2].agent_id, "agent-3");
+        } else {
+            panic!("应为 SubAgentGroup");
+        }
+    }
+
+    #[test]
+    fn test_aggregate_batch_groups_running_agent_skip() {
+        let mut vms = vec![
+            make_done_subagent("agent-1", "task one"),
+            make_running_subagent("agent-2", "task two"),
+            make_done_subagent("agent-3", "task three"),
+        ];
+        aggregate_batch_groups(&mut vms);
+        // running agent 打断连续区间，不应聚合
+        assert_eq!(vms.len(), 3, "中间有 is_running=true 时不合并");
+    }
+
+    #[test]
+    fn test_aggregate_batch_groups_mixed_batch() {
+        // 3 完成 + 1 running + 2 完成 = 两个独立的聚合区间
+        // 但由于 running 打断，每个区间只有 1 个或 2 个
+        let mut vms = vec![
+            make_done_subagent("agent-1", "task one"),
+            make_done_subagent("agent-2", "task two"),
+            make_done_subagent("agent-3", "task three"),
+            make_running_subagent("agent-4", "task four"),
+            make_done_subagent("agent-5", "task five"),
+            make_done_subagent("agent-6", "task six"),
+        ];
+        aggregate_batch_groups(&mut vms);
+        // 前 3 个合并为 1，running 保持独立，后 2 个合并为 1
+        assert_eq!(vms.len(), 3, "3+1+2 = 两个聚合区间 + 1 个 running");
+        // 第一个是合并后的
+        if let MessageViewModel::SubAgentGroup { batch_agents, .. } = &vms[0] {
+            assert_eq!(batch_agents.len(), 3);
+        } else {
+            panic!("第一个应为聚合的 SubAgentGroup");
+        }
+        // 第二个是 running 的
+        if let MessageViewModel::SubAgentGroup { is_running, .. } = &vms[1] {
+            assert!(*is_running);
+        } else {
+            panic!("第二个应为 running 的 SubAgentGroup");
+        }
+        // 第三个是合并后的
+        if let MessageViewModel::SubAgentGroup { batch_agents, .. } = &vms[2] {
+            assert_eq!(batch_agents.len(), 2);
+        } else {
+            panic!("第三个应为聚合的 SubAgentGroup");
+        }
+    }
+
+    #[test]
+    fn test_aggregate_batch_groups_already_aggregated_skip() {
+        // 已聚合的 SubAgentGroup（batch_agents 非空）不参与二次聚合
+        let aggregated = MessageViewModel::SubAgentGroup {
+            agent_id: "agent-1".to_string(),
+            task_preview: "task one".to_string(),
+            total_steps: 3,
+            recent_messages: Vec::new(),
+            is_running: false,
+            collapsed: true,
+            final_result: Some("done".to_string()),
+            is_error: false,
+            is_background: false,
+            bg_hash: None,
+            batch_agents: vec![
+                AgentSummary {
+                    agent_id: "agent-1".to_string(),
+                    task_preview: "task one".to_string(),
+                    tool_count: 3,
+                    is_error: false,
+                    final_result: Some("done".to_string()),
+                },
+                AgentSummary {
+                    agent_id: "agent-2".to_string(),
+                    task_preview: "task two".to_string(),
+                    tool_count: 5,
+                    is_error: false,
+                    final_result: Some("done".to_string()),
+                },
+            ],
+        };
+        let mut vms = vec![aggregated.clone()];
+        aggregate_batch_groups(&mut vms);
+        assert_eq!(vms.len(), 1, "已聚合的不应二次聚合");
+        if let MessageViewModel::SubAgentGroup { batch_agents, .. } = &vms[0] {
+            assert_eq!(batch_agents.len(), 2, "batch_agents 应保持不变");
+        } else {
+            panic!("应为 SubAgentGroup");
+        }
+    }
+
+    #[test]
+    fn test_agent_summary_truncation() {
+        let long_task = "这是一个非常非常非常非常非常非常非常非常非常非常非常非常长的任务描述需要超过五十个字符的长度才能触发截断逻辑验证";
+        assert!(long_task.chars().count() > 50, "测试数据应超过 50 字符");
+        let mut vms = vec![
+            make_done_subagent("agent-1", long_task),
+            make_done_subagent("agent-2", "short task"),
+        ];
+        aggregate_batch_groups(&mut vms);
+        if let MessageViewModel::SubAgentGroup { batch_agents, .. } = &vms[0] {
+            assert_eq!(
+                batch_agents[0].task_preview.chars().count(),
+                50,
+                "task_preview 应截断到 50 字符"
+            );
+            assert_eq!(batch_agents[1].task_preview, "short task", "短文本不应截断");
+        } else {
+            panic!("应为 SubAgentGroup");
+        }
+    }
+
+    #[test]
+    fn test_batch_group_default_collapsed() {
+        let mut vms = vec![
+            make_done_subagent("agent-1", "task one"),
+            make_done_subagent("agent-2", "task two"),
+        ];
+        aggregate_batch_groups(&mut vms);
+        if let MessageViewModel::SubAgentGroup { collapsed, .. } = &vms[0] {
+            assert!(*collapsed, "合并后应默认折叠");
+        } else {
+            panic!("应为 SubAgentGroup");
+        }
     }
 }
