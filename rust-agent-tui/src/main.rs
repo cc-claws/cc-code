@@ -186,11 +186,11 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
     // 检测是否需要 Setup 向导
     if let Some(ref cfg) = app.services.peri_config {
         if rust_agent_tui::app::setup_wizard::needs_setup(&cfg.config) {
-            app.services.setup_wizard = Some(rust_agent_tui::app::SetupWizardPanel::new());
+            app.global_ui.setup_wizard = Some(rust_agent_tui::app::SetupWizardPanel::new());
         }
     } else {
         // 无配置文件 → 必然需要 setup
-        app.services.setup_wizard = Some(rust_agent_tui::app::SetupWizardPanel::new());
+        app.global_ui.setup_wizard = Some(rust_agent_tui::app::SetupWizardPanel::new());
     }
 
     // 后台初始化 MCP 连接池（不阻塞 UI）

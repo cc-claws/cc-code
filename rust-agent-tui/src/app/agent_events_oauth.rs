@@ -11,7 +11,7 @@ impl App {
     ) -> (bool, bool, bool) {
         // 关闭 MCP 面板，避免与 OAuth 面板渲染冲突
         self.global_panels.close_if(PanelKind::Mcp);
-        self.services.oauth_prompt = Some(OAuthPrompt::new(
+        self.global_ui.oauth_prompt = Some(OAuthPrompt::new(
             server_name,
             authorization_url,
             callback_tx,
@@ -20,7 +20,7 @@ impl App {
     }
 
     pub(crate) fn handle_oauth_completed(&mut self, server_name: String) -> (bool, bool, bool) {
-        self.services.oauth_prompt = None;
+        self.global_ui.oauth_prompt = None;
         // 刷新 MCP 面板的服务器列表以反映新的连接状态
         if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             panel.servers = self
@@ -40,7 +40,7 @@ impl App {
         server_name: String,
         error: String,
     ) -> (bool, bool, bool) {
-        self.services.oauth_prompt = None;
+        self.global_ui.oauth_prompt = None;
         // 刷新 MCP 面板的服务器列表（可能仍是 Failed 状态但信息已更新）
         if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             panel.servers = self

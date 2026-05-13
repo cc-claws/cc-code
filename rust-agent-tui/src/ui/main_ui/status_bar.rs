@@ -43,7 +43,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         // Default 模式不显示标签
         if !label.is_empty() {
             let is_highlight = app
-                .services
+                .global_ui
                 .mode_highlight_until
                 .is_some_and(|until| std::time::Instant::now() < until);
             let mut style = Style::default().fg(color);
@@ -69,7 +69,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
     {
         let is_highlight = app
-            .services
+            .global_ui
             .model_highlight_until
             .is_some_and(|until| std::time::Instant::now() < until);
         let mut style = Style::default().fg(theme::MODEL_INFO);
@@ -242,12 +242,12 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 has_content = true;
             }
             McpInitStatus::Ready { total } if total > 0 => {
-                if app.services.mcp_ready_shown_until.get().is_none() {
-                    app.services.mcp_ready_shown_until.set(Some(
+                if app.global_ui.mcp_ready_shown_until.get().is_none() {
+                    app.global_ui.mcp_ready_shown_until.set(Some(
                         std::time::Instant::now() + std::time::Duration::from_secs(3),
                     ));
                 }
-                if let Some(until) = app.services.mcp_ready_shown_until.get() {
+                if let Some(until) = app.global_ui.mcp_ready_shown_until.get() {
                     if std::time::Instant::now() < until {
                         if has_content {
                             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
@@ -296,7 +296,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         .agent
         .interaction_prompt
     {
-        Some(_) if app.services.oauth_prompt.is_some() => format_hints(
+        Some(_) if app.global_ui.oauth_prompt.is_some() => format_hints(
             &[
                 ("Ctrl+O", ":打开浏览器"),
                 ("Enter", ":提交"),
@@ -321,7 +321,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
             desc_style,
         ),
         None => {
-            let no_mouse = app.services.mouse_available == Some(false);
+            let no_mouse = app.global_ui.mouse_available == Some(false);
             let hints = if app.session_mgr.sessions[app.session_mgr.active]
                 .session_panels
                 .is_any_open()
@@ -346,7 +346,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                         ("Ctrl+W", ":关闭"),
                     ]
                 }
-            } else if app.services.quit_pending_since.is_some() {
+            } else if app.global_ui.quit_pending_since.is_some() {
                 vec![("Ctrl+C", ":关闭"), ("其他键", ":取消")]
             } else if no_mouse {
                 vec![("/", "命令"), ("Alt+Enter", ":换行"), ("Ctrl+U/D", ":滚动")]

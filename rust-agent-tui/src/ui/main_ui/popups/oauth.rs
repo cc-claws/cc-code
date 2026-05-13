@@ -7,7 +7,7 @@ use crate::app::{edit_display_parts, App};
 use crate::ui::theme;
 
 pub(crate) fn render_oauth_popup(f: &mut Frame, app: &mut App, area: Rect) {
-    let prompt = match app.services.oauth_prompt.as_ref() {
+    let prompt = match app.global_ui.oauth_prompt.as_ref() {
         Some(p) => p,
         None => return,
     };
@@ -84,7 +84,7 @@ mod tests {
     async fn test_render_oauth_popup_shows_url() {
         let (mut app, mut handle) = crate::app::App::new_headless(80, 30).await;
         let (tx, _rx) = tokio::sync::oneshot::channel();
-        app.services.oauth_prompt = Some(crate::app::OAuthPrompt::new(
+        app.global_ui.oauth_prompt = Some(crate::app::OAuthPrompt::new(
             "test-server".into(),
             "http://auth.example.com/authorize".into(),
             tx,
@@ -107,7 +107,7 @@ mod tests {
         let mut prompt =
             crate::app::OAuthPrompt::new("srv".into(), "http://auth.example.com".into(), tx);
         prompt.error_message = Some("parse error".to_string());
-        app.services.oauth_prompt = Some(prompt);
+        app.global_ui.oauth_prompt = Some(prompt);
         handle
             .terminal
             .draw(|f| render_oauth_popup(f, &mut app, ratatui::layout::Rect::new(0, 0, 80, 9)))

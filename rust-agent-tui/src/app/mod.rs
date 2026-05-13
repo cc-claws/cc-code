@@ -15,7 +15,9 @@ pub mod status_panel;
 pub mod text_selection;
 pub mod tool_display;
 
+mod global_ui_state;
 mod service_registry;
+pub use global_ui_state::GlobalUiState;
 pub use service_registry::ServiceRegistry;
 
 mod session_manager;
@@ -117,6 +119,8 @@ pub struct App {
     pub session_mgr: SessionManager,
     /// 全局服务/状态聚合（跨 session 共享）
     pub services: ServiceRegistry,
+    /// 跨 session 全局 UI 临时状态
+    pub global_ui: GlobalUiState,
     pub global_panels: panel_manager::PanelManager,
     /// 应用焦点状态（true=聚焦，false=失焦）
     pub focused: bool,
@@ -204,13 +208,6 @@ impl App {
             bg_event_rx: Some(bg_event_rx),
             config_path_override: None,
             claude_settings_override: None,
-            setup_wizard: None,
-            oauth_prompt: None,
-            mode_highlight_until: None,
-            model_highlight_until: None,
-            mcp_ready_shown_until: std::cell::Cell::new(None),
-            quit_pending_since: None,
-            mouse_available: None,
             resource_monitor: parking_lot::Mutex::new(
                 service_registry::ProcessResourceMonitor::new(),
             ),
@@ -219,6 +216,7 @@ impl App {
         Self {
             session_mgr,
             services,
+            global_ui: GlobalUiState::new(),
             global_panels: panel_manager::PanelManager::new(),
             focused: true,
         }

@@ -1065,18 +1065,12 @@ impl App {
                     "claude-settings-test-{}.json",
                     uuid::Uuid::now_v7()
                 ))),
-                setup_wizard: None,
-                oauth_prompt: None,
-                mode_highlight_until: None,
-                model_highlight_until: None,
-                mcp_ready_shown_until: std::cell::Cell::new(None),
-                quit_pending_since: None,
-                mouse_available: None,
                 resource_monitor: parking_lot::Mutex::new(
                     super::service_registry::ProcessResourceMonitor::new(),
                 ),
             },
             global_panels: PanelManager::new(),
+            global_ui: super::GlobalUiState::new(),
             focused: true,
         };
 

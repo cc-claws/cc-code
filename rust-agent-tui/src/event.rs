@@ -214,29 +214,29 @@ fn copy_panel_selection_to_clipboard(app: &mut App) -> bool {
 pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     // 退出待确认状态 2 秒后自动过期，快捷键栏恢复正常
     // 退出待确认状态 2 秒后自动过期，触发重绘让快捷键栏恢复正常
-    if let Some(since) = app.services.quit_pending_since {
+    if let Some(since) = app.global_ui.quit_pending_since {
         if since.elapsed() >= std::time::Duration::from_secs(1) {
-            app.services.quit_pending_since = None;
+            app.global_ui.quit_pending_since = None;
             return Ok(Some(Action::Redraw));
         }
     }
 
     // 鼠标可用性 probe：启动后首次收到任意用户输入时判定
-    if app.services.mouse_available.is_none() {
+    if app.global_ui.mouse_available.is_none() {
         // 等待首个事件（最多 1 秒），期间不计入正常 poll 超时
         if event::poll(Duration::from_secs(1))? {
             let ev = event::read()?;
             if matches!(ev, Event::Mouse(_)) {
-                app.services.mouse_available = Some(true);
+                app.global_ui.mouse_available = Some(true);
             } else {
                 // 收到键盘/resize 等非鼠标事件 → 终端很可能不支持鼠标
                 //（支持鼠标的终端用户几乎必然在 1s 内触发滚轮/移动）
-                app.services.mouse_available = Some(false);
+                app.global_ui.mouse_available = Some(false);
             }
             return handle_event(app, ev).await;
         } else {
             // 1 秒内无任何事件 → 无鼠标
-            app.services.mouse_available = Some(false);
+            app.global_ui.mouse_available = Some(false);
             return Ok(None);
         }
     }
@@ -279,7 +279,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             // 因此在这里提前拦截，直接处理权限模式切换。
             if matches!(key_event.code, ratatui::crossterm::event::KeyCode::BackTab) {
                 let _new_mode = app.services.permission_mode.cycle();
-                app.services.mode_highlight_until =
+                app.global_ui.mode_highlight_until =
                     Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 return Ok(Some(Action::Redraw));
             }
@@ -308,7 +308,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         app.services.provider_name = p.display_name().to_string();
                         app.services.model_name = p.model_name().to_string();
                     }
-                    app.services.model_highlight_until =
+                    app.global_ui.model_highlight_until =
                         Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 }
                 return Ok(Some(Action::Redraw));
@@ -317,16 +317,16 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             let input = Input::from(ev);
 
             // Setup 向导：优先拦截所有按键事件
-            if app.services.setup_wizard.is_some() {
+            if app.global_ui.setup_wizard.is_some() {
                 let input_clone = input.clone();
-                if let Some(ref mut wizard) = app.services.setup_wizard {
+                if let Some(ref mut wizard) = app.global_ui.setup_wizard {
                     if let Some(action) =
                         crate::app::setup_wizard::handle_setup_wizard_key(wizard, input_clone)
                     {
                         match action {
                             crate::app::setup_wizard::SetupWizardAction::SaveAndClose => {
                                 let wizard = app
-                                    .services
+                                    .global_ui
                                     .setup_wizard
                                     .take()
                                     .expect("setup_wizard must be Some (checked above)");
@@ -346,7 +346,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                                 }
                             }
                             crate::app::setup_wizard::SetupWizardAction::Skip => {
-                                app.services.setup_wizard = None;
+                                app.global_ui.setup_wizard = None;
                                 return Ok(Some(Action::Quit));
                             }
                             crate::app::setup_wizard::SetupWizardAction::Redraw => {}
@@ -442,7 +442,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             }
 
             // OAuth 弹窗优先处理
-            if app.services.oauth_prompt.is_some() {
+            if app.global_ui.oauth_prompt.is_some() {
                 handle_oauth_prompt(app, input);
                 return Ok(Some(Action::Redraw));
             }
@@ -535,18 +535,18 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
                         // agent 运行中：优先中断，清除退出待确认状态
                         app.interrupt();
-                        app.services.quit_pending_since = None;
-                    } else if let Some(since) = app.services.quit_pending_since {
+                        app.global_ui.quit_pending_since = None;
+                    } else if let Some(since) = app.global_ui.quit_pending_since {
                         // 非 loading，2 秒内再次 Ctrl+C → 退出
                         if since.elapsed() < std::time::Duration::from_secs(2) {
                             return Ok(Some(Action::Quit));
                         } else {
                             // 超时，重新开始计时
-                            app.services.quit_pending_since = Some(std::time::Instant::now());
+                            app.global_ui.quit_pending_since = Some(std::time::Instant::now());
                         }
                     } else {
                         // 第一次 Ctrl+C，进入退出待确认状态
-                        app.services.quit_pending_since = Some(std::time::Instant::now());
+                        app.global_ui.quit_pending_since = Some(std::time::Instant::now());
                     }
                 }
 
@@ -962,7 +962,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
 
                 _ => {
                     // 任何其他按键取消退出待确认状态
-                    app.services.quit_pending_since = None;
+                    app.global_ui.quit_pending_since = None;
                 }
             }
         }
@@ -972,7 +972,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             let text = text.replace('\r', "\n");
 
             // setup_wizard 打开时粘贴到当前字段
-            if let Some(wizard) = &mut app.services.setup_wizard {
+            if let Some(wizard) = &mut app.global_ui.setup_wizard {
                 wizard.paste_text(&text);
                 return Ok(Some(Action::Redraw));
             }
@@ -1336,7 +1336,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
 
 fn handle_oauth_prompt(app: &mut App, input: Input) {
     use crate::app::handle_edit_key;
-    let prompt = match app.services.oauth_prompt.as_mut() {
+    let prompt = match app.global_ui.oauth_prompt.as_mut() {
         Some(p) => p,
         None => return,
     };
@@ -1345,7 +1345,7 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
             key: Key::Enter, ..
         } => {
             if prompt.submit() {
-                app.services.oauth_prompt = None;
+                app.global_ui.oauth_prompt = None;
             }
         }
         Input {
@@ -1362,7 +1362,7 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
                 .spawn();
         }
         Input { key: Key::Esc, .. } => {
-            app.services.oauth_prompt = None;
+            app.global_ui.oauth_prompt = None;
         }
         Input {
             key: Key::Char('c'),

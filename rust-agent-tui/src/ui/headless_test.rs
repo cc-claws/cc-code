@@ -1289,8 +1289,8 @@ mod setup_wizard_e2e {
     #[tokio::test]
     async fn test_setup_wizard_skip_on_choose() {
         let (mut app, _handle) = App::new_headless(120, 30).await;
-        app.services.setup_wizard = Some(SetupWizardPanel::new());
-        let wizard = app.services.setup_wizard.as_mut().unwrap();
+        app.global_ui.setup_wizard = Some(SetupWizardPanel::new());
+        let wizard = app.global_ui.setup_wizard.as_mut().unwrap();
         let action = handle_setup_wizard_key(wizard, make_key(Key::Esc));
         assert!(matches!(action, Some(SetupWizardAction::Skip)));
     }
@@ -1360,19 +1360,19 @@ mod setup_wizard_e2e {
         fill_and_submit(&mut wizard, "sk-final-test");
         assert_eq!(wizard.step, SetupStep::Done);
 
-        app.services.setup_wizard = Some(wizard);
-        let wizard = app.services.setup_wizard.as_mut().unwrap();
+        app.global_ui.setup_wizard = Some(wizard);
+        let wizard = app.global_ui.setup_wizard.as_mut().unwrap();
         let action = handle_setup_wizard_key(wizard, make_key(Key::Enter));
         assert!(matches!(action, Some(SetupWizardAction::SaveAndClose)));
 
-        let wizard = app.services.setup_wizard.take().unwrap();
+        let wizard = app.global_ui.setup_wizard.take().unwrap();
         let temp_dir =
             std::env::temp_dir().join(format!("zen-setup-final-{}", uuid::Uuid::now_v7()));
         let config_path = temp_dir.join("settings.json");
         let cfg = save_setup_to(&wizard, &config_path).expect("save should succeed");
         assert!(!needs_setup(&cfg.config));
         app.services.peri_config = Some(cfg);
-        assert!(app.services.setup_wizard.is_none());
+        assert!(app.global_ui.setup_wizard.is_none());
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
@@ -1515,19 +1515,19 @@ async fn test_mode_highlight_until_set_on_cycle() {
     let (mut app, _handle) = App::new_headless(120, 24).await;
     // 初始无闪烁
     assert!(
-        app.services.mode_highlight_until.is_none(),
+        app.global_ui.mode_highlight_until.is_none(),
         "初始不应有闪烁"
     );
     // 模拟 Shift+Tab: cycle + 设置 highlight
     app.services.permission_mode.cycle();
-    app.services.mode_highlight_until =
+    app.global_ui.mode_highlight_until =
         Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
     assert!(
-        app.services.mode_highlight_until.is_some(),
+        app.global_ui.mode_highlight_until.is_some(),
         "cycle 后应设置闪烁截止时间"
     );
     // 验证截止时间在未来
-    let until = app.services.mode_highlight_until.unwrap();
+    let until = app.global_ui.mode_highlight_until.unwrap();
     assert!(std::time::Instant::now() < until, "截止时间应在未来");
 }
 

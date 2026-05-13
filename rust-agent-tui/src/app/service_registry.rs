@@ -8,8 +8,6 @@ use rust_agent_middlewares::prelude::SharedPermissionMode;
 
 use super::cron_state::CronState;
 use super::events::AgentEvent;
-use super::oauth_prompt::OAuthPrompt;
-use super::setup_wizard::SetupWizardPanel;
 use crate::config::PeriConfig;
 use crate::thread::ThreadStore;
 
@@ -69,14 +67,6 @@ pub struct ServiceRegistry {
     pub bg_event_rx: Option<tokio::sync::mpsc::Receiver<AgentEvent>>,
     pub config_path_override: Option<PathBuf>,
     pub claude_settings_override: Option<PathBuf>,
-    pub setup_wizard: Option<SetupWizardPanel>,
-    pub oauth_prompt: Option<OAuthPrompt>,
-    pub mode_highlight_until: Option<std::time::Instant>,
-    pub model_highlight_until: Option<std::time::Instant>,
-    pub mcp_ready_shown_until: std::cell::Cell<Option<std::time::Instant>>,
-    pub quit_pending_since: Option<std::time::Instant>,
-    /// 鼠标是否可用。`None` = 启动 probe 尚未完成，`Some(true/false)` = 已确定。
-    pub mouse_available: Option<bool>,
     /// 进程内存监控（2s 刷新）
     pub resource_monitor: parking_lot::Mutex<ProcessResourceMonitor>,
 }

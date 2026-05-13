@@ -14,7 +14,7 @@ use crate::ui::theme;
 /// Setup 向导全屏渲染入口
 pub(crate) fn render_setup_wizard(f: &mut Frame, app: &crate::app::App) {
     let area = f.area();
-    let wizard = app.services.setup_wizard.as_ref().unwrap();
+    let wizard = app.global_ui.setup_wizard.as_ref().unwrap();
 
     match wizard.step {
         SetupStep::Choose => render_step_choose(f, wizard, area),
@@ -443,7 +443,7 @@ mod tests {
         wizard: SetupWizardPanel,
     ) -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.services.setup_wizard = Some(wizard);
+        app.global_ui.setup_wizard = Some(wizard);
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))

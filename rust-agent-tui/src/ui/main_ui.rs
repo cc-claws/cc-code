@@ -19,7 +19,7 @@ use rust_agent_middlewares::prelude::TodoStatus;
 
 pub fn render(f: &mut Frame, app: &mut App) {
     // Setup 向导：全屏覆盖，优先于所有正常界面
-    if app.services.setup_wizard.is_some() {
+    if app.global_ui.setup_wizard.is_some() {
         popups::setup_wizard::render_setup_wizard(f, app);
         return;
     }
@@ -181,7 +181,7 @@ fn render_session_column(
             }
             None => {}
         }
-        if app.services.oauth_prompt.is_some() {
+        if app.global_ui.oauth_prompt.is_some() {
             popups::oauth::render_oauth_popup(f, app, panel_area);
         }
         // PanelManager 统一渲染分发：session 面板优先，global 面板次之
@@ -189,7 +189,7 @@ fn render_session_column(
             .agent
             .interaction_prompt
             .is_none()
-            && app.services.oauth_prompt.is_none()
+            && app.global_ui.oauth_prompt.is_none()
         {
             if app.session_mgr.sessions[session_idx]
                 .session_panels
@@ -333,7 +333,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         .interaction_prompt
     {
         (p.items.len() as u16 * 2 + 5).max(5)
-    } else if app.services.oauth_prompt.is_some() {
+    } else if app.global_ui.oauth_prompt.is_some() {
         9 // 标题1 + 提示1 + URL1 + 空行1 + 输入框1 + 错误1 + 快捷键1 + 边框2
     } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.session_mgr.sessions
         [app.session_mgr.active]
