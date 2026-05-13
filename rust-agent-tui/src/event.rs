@@ -6,10 +6,41 @@ use ratatui::crossterm::event::{
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
-use crate::app::panel_manager::{EventResult, PanelContext, PanelKind};
+use crate::app::panel_manager::{EventResult, PanelKind};
 use crate::app::{App, MessageViewModel, PendingAttachment};
 use ratatui::layout::Rect;
 use rust_create_agent::messages::BaseMessage;
+
+/// 在 global_panels 上执行面板 dispatch，自动处理 mem::take 借用规避。
+/// 使用方式：`with_global_panels!(app, |pm, ctx| { ... })`，闭包内 pm 为 &mut PanelManager。
+macro_rules! with_global_panels {
+    ($app:expr, |$pm:ident, $ctx:ident| $body:expr) => {{
+        let mut $pm = std::mem::take(&mut $app.global_panels);
+        let mut $ctx = $crate::app::panel_manager::PanelContext {
+            services: &mut $app.services,
+            session_mgr: &mut $app.session_mgr,
+        };
+        let result = { $body };
+        $app.global_panels = $pm;
+        result
+    }};
+}
+
+/// 在 session 的 session_panels 上执行面板 dispatch，自动处理 mem::take 借用规避。
+/// 使用方式：`with_session_panels!(app, |sp, ctx| { ... })`，闭包内 sp 为 &mut PanelManager。
+macro_rules! with_session_panels {
+    ($app:expr, |$sp:ident, $ctx:ident| $body:expr) => {{
+        let active_idx = $app.session_mgr.active;
+        let mut $sp = std::mem::take(&mut $app.session_mgr.sessions[active_idx].session_panels);
+        let mut $ctx = $crate::app::panel_manager::PanelContext {
+            services: &mut $app.services,
+            session_mgr: &mut $app.session_mgr,
+        };
+        let result = { $body };
+        $app.session_mgr.sessions[active_idx].session_panels = $sp;
+        result
+    }};
+}
 
 /// 检查鼠标事件是否在指定矩形区域内
 fn mouse_in_rect(mouse: &ratatui::crossterm::event::MouseEvent, area: Rect) -> bool {
@@ -340,42 +371,36 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         | Some(PanelKind::Config)
                         | Some(PanelKind::ThreadBrowser)
                 ) {
-                    let active_idx = app.session_mgr.active;
-                    // SAFETY: 临时取出 PanelManager 避免借用冲突。
-                    // dispatch_key(&self, &mut PanelContext) 需要 &self + &mut App 内的字段，
-                    // Rust 借用检查器无法证明两者不重叠。take 后归还，语义等价。
-                    // TODO: 若重构 dispatch 签名为独立 &mut 参数可消除此 workaround。
-                    let mut pm =
-                        std::mem::take(&mut app.session_mgr.sessions[active_idx].session_panels);
-                    let mut ctx = PanelContext {
-                        services: &mut app.services,
-                        session_mgr: &mut app.session_mgr,
-                    };
-                    let result = pm.dispatch_key(input, &mut ctx);
-                    match result {
-                        EventResult::ClosePanel => {
-                            pm.close();
-                            app.session_mgr.sessions[active_idx]
-                                .ui
-                                .panel_selection
-                                .clear();
-                            app.session_mgr.sessions[active_idx].ui.panel_area = None;
+                    with_session_panels!(app, |sp, ctx| {
+                        let result = sp.dispatch_key(input, &mut ctx);
+                        let active_idx = app.session_mgr.active;
+                        match result {
+                            EventResult::ClosePanel => {
+                                sp.close();
+                                app.session_mgr.sessions[active_idx]
+                                    .ui
+                                    .panel_selection
+                                    .clear();
+                                app.session_mgr.sessions[active_idx].ui.panel_area = None;
+                            }
+                            EventResult::OpenThread(thread_id) => {
+                                sp.close();
+                                app.session_mgr.sessions[active_idx]
+                                    .ui
+                                    .panel_selection
+                                    .clear();
+                                app.session_mgr.sessions[active_idx].ui.panel_area = None;
+                                // with_session_panels! 宏会在闭包结束时自动放回，
+                                // 但 OpenThread 路径需要提前放回再调用 open_thread_with_feedback
+                                app.session_mgr.sessions[active_idx].session_panels = sp;
+                                // 提前 return，阻止宏再次放回（宏的 result 语句在 return 后不执行）
+                                app.open_thread_with_feedback(thread_id);
+                                return Ok(Some(Action::Redraw));
+                            }
+                            _ => {}
                         }
-                        EventResult::OpenThread(thread_id) => {
-                            pm.close();
-                            app.session_mgr.sessions[active_idx]
-                                .ui
-                                .panel_selection
-                                .clear();
-                            app.session_mgr.sessions[active_idx].ui.panel_area = None;
-                            app.session_mgr.sessions[active_idx].session_panels = pm;
-                            app.open_thread_with_feedback(thread_id);
-                            return Ok(Some(Action::Redraw));
-                        }
-                        _ => {}
-                    }
-                    // 放回 PanelManager
-                    app.session_mgr.sessions[active_idx].session_panels = pm;
+                        result
+                    });
                     return Ok(Some(Action::Redraw));
                 }
 
@@ -390,33 +415,28 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         | Some(PanelKind::Plugin)
                 ) {
                     let active_idx = app.session_mgr.active;
-                    // SAFETY: 同上，global_panels 嵌套在 App 内，dispatch_key 需 &mut App 字段
-                    let mut pm = std::mem::take(&mut app.global_panels);
-                    let mut ctx = PanelContext {
-                        services: &mut app.services,
-                        session_mgr: &mut app.session_mgr,
-                    };
-                    let result = pm.dispatch_key(input, &mut ctx);
-                    match result {
-                        EventResult::ClosePanel => {
-                            pm.close();
-                            app.session_mgr.sessions[active_idx]
-                                .ui
-                                .panel_selection
-                                .clear();
-                            app.session_mgr.sessions[active_idx].ui.panel_area = None;
-                        }
-                        EventResult::OpenPanel(PanelKind::Memory) => {
-                            app.global_panels = pm;
-                            if let Err(e) = app.memory_panel_open_editor() {
-                                tracing::error!("Failed to open editor: {}", e);
+                    with_global_panels!(app, |pm, ctx| {
+                        let result = pm.dispatch_key(input, &mut ctx);
+                        match result {
+                            EventResult::ClosePanel => {
+                                pm.close();
+                                app.session_mgr.sessions[active_idx]
+                                    .ui
+                                    .panel_selection
+                                    .clear();
+                                app.session_mgr.sessions[active_idx].ui.panel_area = None;
                             }
-                            return Ok(Some(Action::Redraw));
+                            EventResult::OpenPanel(PanelKind::Memory) => {
+                                app.global_panels = pm;
+                                if let Err(e) = app.memory_panel_open_editor() {
+                                    tracing::error!("Failed to open editor: {}", e);
+                                }
+                                return Ok(Some(Action::Redraw));
+                            }
+                            _ => {}
                         }
-                        _ => {}
-                    }
-                    // 放回 PanelManager
-                    app.global_panels = pm;
+                        result
+                    });
                     return Ok(Some(Action::Redraw));
                 }
             }
@@ -972,16 +992,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         | Some(PanelKind::Config)
                         | Some(PanelKind::ThreadBrowser)
                 ) {
-                    let active_idx = app.session_mgr.active;
-                    // SAFETY: 同上，session_panels 嵌套在 App 内，dispatch_paste 需 &mut App 字段
-                    let mut pm =
-                        std::mem::take(&mut app.session_mgr.sessions[active_idx].session_panels);
-                    let mut ctx = PanelContext {
-                        services: &mut app.services,
-                        session_mgr: &mut app.session_mgr,
-                    };
-                    pm.dispatch_paste(&text, &mut ctx);
-                    app.session_mgr.sessions[active_idx].session_panels = pm;
+                    with_session_panels!(app, |sp, ctx| { sp.dispatch_paste(&text, &mut ctx) });
                     return Ok(Some(Action::Redraw));
                 }
 
@@ -995,14 +1006,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         | Some(PanelKind::Cron)
                         | Some(PanelKind::Plugin)
                 ) {
-                    // SAFETY: 同上，global_panels 嵌套在 App 内，dispatch_paste 需 &mut App 字段
-                    let mut pm = std::mem::take(&mut app.global_panels);
-                    let mut ctx = PanelContext {
-                        services: &mut app.services,
-                        session_mgr: &mut app.session_mgr,
-                    };
-                    pm.dispatch_paste(&text, &mut ctx);
-                    app.global_panels = pm;
+                    with_global_panels!(app, |pm, ctx| { pm.dispatch_paste(&text, &mut ctx) });
                     return Ok(Some(Action::Redraw));
                 }
             }
@@ -1023,29 +1027,18 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         // Session 面板优先
                         let sp = &app.session_mgr.sessions[app.session_mgr.active].session_panels;
                         if sp.is_any_open() {
-                            let active_idx = app.session_mgr.active;
-                            let mut pm = std::mem::take(
-                                &mut app.session_mgr.sessions[active_idx].session_panels,
-                            );
-                            let mut ctx = PanelContext {
-                                services: &mut app.services,
-                                session_mgr: &mut app.session_mgr,
-                            };
-                            let result = pm.dispatch_scroll(-3, &mut ctx);
-                            app.session_mgr.sessions[active_idx].session_panels = pm;
+                            let result = with_session_panels!(app, |sp, ctx| {
+                                sp.dispatch_scroll(-3, &mut ctx)
+                            });
                             if result == EventResult::Consumed {
                                 return Ok(Some(Action::Redraw));
                             }
                         }
                         // Global 面板
                         if app.global_panels.is_any_open() {
-                            let mut pm = std::mem::take(&mut app.global_panels);
-                            let mut ctx = PanelContext {
-                                services: &mut app.services,
-                                session_mgr: &mut app.session_mgr,
-                            };
-                            let result = pm.dispatch_scroll(-3, &mut ctx);
-                            app.global_panels = pm;
+                            let result = with_global_panels!(app, |pm, ctx| {
+                                pm.dispatch_scroll(-3, &mut ctx)
+                            });
                             if result == EventResult::Consumed {
                                 return Ok(Some(Action::Redraw));
                             }
@@ -1063,29 +1056,18 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         // Session 面板优先
                         let sp = &app.session_mgr.sessions[app.session_mgr.active].session_panels;
                         if sp.is_any_open() {
-                            let active_idx = app.session_mgr.active;
-                            let mut pm = std::mem::take(
-                                &mut app.session_mgr.sessions[active_idx].session_panels,
-                            );
-                            let mut ctx = PanelContext {
-                                services: &mut app.services,
-                                session_mgr: &mut app.session_mgr,
-                            };
-                            let result = pm.dispatch_scroll(3, &mut ctx);
-                            app.session_mgr.sessions[active_idx].session_panels = pm;
+                            let result = with_session_panels!(app, |sp, ctx| {
+                                sp.dispatch_scroll(3, &mut ctx)
+                            });
                             if result == EventResult::Consumed {
                                 return Ok(Some(Action::Redraw));
                             }
                         }
                         // Global 面板
                         if app.global_panels.is_any_open() {
-                            let mut pm = std::mem::take(&mut app.global_panels);
-                            let mut ctx = PanelContext {
-                                services: &mut app.services,
-                                session_mgr: &mut app.session_mgr,
-                            };
-                            let result = pm.dispatch_scroll(3, &mut ctx);
-                            app.global_panels = pm;
+                            let result = with_global_panels!(app, |pm, ctx| {
+                                pm.dispatch_scroll(3, &mut ctx)
+                            });
                             if result == EventResult::Consumed {
                                 return Ok(Some(Action::Redraw));
                             }
@@ -1107,16 +1089,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             let sp =
                                 &app.session_mgr.sessions[app.session_mgr.active].session_panels;
                             if sp.is_any_open() {
-                                let active_idx = app.session_mgr.active;
-                                let mut pm = std::mem::take(
-                                    &mut app.session_mgr.sessions[active_idx].session_panels,
-                                );
-                                let mut ctx = PanelContext {
-                                    services: &mut app.services,
-                                    session_mgr: &mut app.session_mgr,
-                                };
-                                let result = pm.dispatch_mouse(mouse, area, &mut ctx);
-                                app.session_mgr.sessions[active_idx].session_panels = pm;
+                                let result = with_session_panels!(app, |sp, ctx| {
+                                    sp.dispatch_mouse(mouse, area, &mut ctx)
+                                });
                                 if result == EventResult::Consumed {
                                     click_consumed = true;
                                 }
@@ -1124,13 +1099,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         }
                         // Global 面板
                         if !click_consumed && app.global_panels.is_any_open() {
-                            let mut pm = std::mem::take(&mut app.global_panels);
-                            let mut ctx = PanelContext {
-                                services: &mut app.services,
-                                session_mgr: &mut app.session_mgr,
-                            };
-                            let result = pm.dispatch_mouse(mouse, area, &mut ctx);
-                            app.global_panels = pm;
+                            let result = with_global_panels!(app, |pm, ctx| {
+                                pm.dispatch_mouse(mouse, area, &mut ctx)
+                            });
                             if result == EventResult::Consumed {
                                 click_consumed = true;
                             }
