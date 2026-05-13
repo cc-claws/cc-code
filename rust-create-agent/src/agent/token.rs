@@ -17,10 +17,14 @@ pub struct TokenTracker {
     pub llm_call_count: u32,
     /// 最近一次 LLM 响应的 API request ID
     pub last_request_id: Option<String>,
+    /// 每次 LLM 请求的 token 用量历史（仅内存，不持久化）
+    #[serde(skip)]
+    pub request_history: Vec<RequestRecord>,
 }
 
 impl TokenTracker {
     pub fn accumulate(&mut self, usage: &TokenUsage) {
+        self.request_history.push(RequestRecord::from_usage(usage));
         self.total_input_tokens += usage.input_tokens as u64;
         self.total_output_tokens += usage.output_tokens as u64;
         if let Some(v) = usage.cache_creation_input_tokens {
@@ -70,6 +74,34 @@ impl TokenTracker {
     /// 重置追踪器（compact 后调用）
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+}
+
+/// 单次 LLM 请求的 token 用量快照（仅内存，不持久化）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RequestRecord {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cache_creation_input_tokens: u32,
+    pub cache_read_input_tokens: u32,
+}
+
+impl RequestRecord {
+    pub fn from_usage(usage: &TokenUsage) -> Self {
+        Self {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_creation_input_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
+            cache_read_input_tokens: usage.cache_read_input_tokens.unwrap_or(0),
+        }
+    }
+
+    /// 当次请求的缓存命中率
+    pub fn cache_hit_rate(&self) -> f64 {
+        if self.input_tokens == 0 {
+            return 0.0;
+        }
+        self.cache_read_input_tokens as f64 / self.input_tokens as f64
     }
 }
 
@@ -506,5 +538,71 @@ mod tests {
         tracker.accumulate(&usage);
         tracker.reset();
         assert!(tracker.last_request_id.is_none());
+    }
+
+    #[test]
+    fn test_request_record_from_usage() {
+        let usage = TokenUsage {
+            input_tokens: 8500,
+            output_tokens: 200,
+            cache_creation_input_tokens: Some(8000),
+            cache_read_input_tokens: Some(0),
+            request_id: Some("req_01".to_string()),
+        };
+        let record = RequestRecord::from_usage(&usage);
+        assert_eq!(record.input_tokens, 8500);
+        assert_eq!(record.output_tokens, 200);
+        assert_eq!(record.cache_creation_input_tokens, 8000);
+        assert_eq!(record.cache_read_input_tokens, 0);
+    }
+
+    #[test]
+    fn test_request_record_cache_hit_rate() {
+        let record = RequestRecord {
+            input_tokens: 8500,
+            output_tokens: 200,
+            cache_creation_input_tokens: 8000,
+            cache_read_input_tokens: 0,
+        };
+        assert_eq!(record.cache_hit_rate(), 0.0);
+
+        let record2 = RequestRecord {
+            input_tokens: 8500,
+            output_tokens: 200,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 8000,
+        };
+        assert!((record2.cache_hit_rate() - 8000.0 / 8500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_accumulate_appends_to_history() {
+        let mut tracker = TokenTracker::default();
+        let u1 = make_usage(100, 50, Some(30), Some(20));
+        let u2 = make_usage(200, 80, Some(10), Some(40));
+        tracker.accumulate(&u1);
+        tracker.accumulate(&u2);
+        assert_eq!(tracker.request_history.len(), 2);
+        assert_eq!(tracker.request_history[0].input_tokens, 100);
+        assert_eq!(tracker.request_history[1].input_tokens, 200);
+        assert_eq!(tracker.request_history[0].cache_read_input_tokens, 20);
+    }
+
+    #[test]
+    fn test_accumulate_from_usage_with_none_cache() {
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(100, 50, None, None));
+        assert_eq!(tracker.request_history.len(), 1);
+        assert_eq!(tracker.request_history[0].cache_creation_input_tokens, 0);
+        assert_eq!(tracker.request_history[0].cache_read_input_tokens, 0);
+    }
+
+    #[test]
+    fn test_reset_clears_history() {
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(100, 50, Some(30), Some(20)));
+        assert_eq!(tracker.request_history.len(), 1);
+        tracker.reset();
+        assert!(tracker.request_history.is_empty());
     }
 }
