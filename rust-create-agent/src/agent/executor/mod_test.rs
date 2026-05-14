@@ -1095,3 +1095,83 @@ async fn test_state_snapshot_no_overlap() {
         "StateSnapshot 之间不应有重叠消息（重复 message_id 数量: {dup_count}）"
     );
 }
+
+/// 验证 StateSnapshot 不包含 System 消息
+///
+/// 回归测试：prepend_message 的 insert(0) 会右移所有元素，
+/// 导致 messages[last_message_count..] 在空 history 场景下包含
+/// 被 prepend 的 System 消息。这些消息不应泄露到 agent_state_messages。
+#[tokio::test]
+async fn test_state_snapshot_excludes_system_messages() {
+    use crate::agent::events::{AgentEvent, FnEventHandler};
+    use crate::middleware::r#trait::Middleware;
+    use std::sync::{Arc, Mutex};
+
+    struct AnswerLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for AnswerLLM {
+        async fn generate_reasoning(
+            &self,
+            _messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+        ) -> crate::error::AgentResult<Reasoning> {
+            Ok(Reasoning::with_answer("done", "final answer"))
+        }
+    }
+
+    // 收集所有事件的中间件，用于验证 before_agent 是否执行
+    struct PrependSystemMiddleware;
+    #[async_trait::async_trait]
+    impl<S: crate::agent::state::State> Middleware<S> for PrependSystemMiddleware {
+        fn name(&self) -> &str {
+            "PrependSystemMiddleware"
+        }
+        async fn before_agent(&self, state: &mut S) -> crate::error::AgentResult<()> {
+            state.prepend_message(BaseMessage::system("middleware injected system content"));
+            Ok(())
+        }
+    }
+
+    let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+
+    let agent = ReActAgent::new(AnswerLLM)
+        .max_iterations(10)
+        .with_system_prompt("main system prompt".to_string())
+        .add_middleware(Box::new(PrependSystemMiddleware))
+        .with_event_handler(Arc::new(FnEventHandler(move |event| {
+            events_clone.lock().unwrap().push(event);
+        })));
+
+    // 空 history 场景（新会话首条消息）
+    let mut state = AgentState::new("/tmp");
+    agent
+        .execute(AgentInput::text("test"), &mut state, None)
+        .await
+        .unwrap();
+
+    let evs = events.lock().unwrap();
+    let snapshots: Vec<Vec<BaseMessage>> = evs
+        .iter()
+        .filter_map(|e| {
+            if let AgentEvent::StateSnapshot(msgs) = e {
+                Some(msgs.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(!snapshots.is_empty(), "应至少有一个 StateSnapshot");
+
+    // 所有 StateSnapshot 中不应包含任何 System 消息
+    for (i, snapshot) in snapshots.iter().enumerate() {
+        for (j, msg) in snapshot.iter().enumerate() {
+            assert!(
+                !msg.is_system(),
+                "StateSnapshot[{i}][{j}] 不应包含 System 消息，但发现: {:?}",
+                msg.content().chars().take(50).collect::<String>()
+            );
+        }
+    }
+}

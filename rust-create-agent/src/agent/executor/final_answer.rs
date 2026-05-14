@@ -45,7 +45,15 @@ pub(crate) async fn emit_snapshot_and_drain_notifications<L: ReactLLM, S: State>
     last_message_count: &mut usize,
 ) {
     // 发送状态快照（从用户消息开始的所有消息），便于增量持久化
-    let msgs_since_human = state.messages()[*last_message_count..].to_vec();
+    // 过滤 System 消息：prepend_message 的 insert(0) 会右移所有元素，
+    // 导致 messages[last_message_count..] 包含被右移到该范围内的 System 消息。
+    // System 消息不应泄露到 agent_state_messages，否则下一轮执行时
+    // OpenAI adapter 会将新旧 System 消息合并导致重复，破坏 prompt cache。
+    let msgs_since_human: Vec<BaseMessage> = state.messages()[*last_message_count..]
+        .iter()
+        .filter(|m| !m.is_system())
+        .cloned()
+        .collect();
     if !msgs_since_human.is_empty() {
         agent.emit(AgentEvent::StateSnapshot(msgs_since_human));
     }
@@ -91,7 +99,11 @@ pub(crate) async fn handle_final_answer<L: ReactLLM, S: State>(
         chunk: answer.clone(),
     });
 
-    let msgs_since_last = state.messages()[*last_message_count..].to_vec();
+    let msgs_since_last: Vec<BaseMessage> = state.messages()[*last_message_count..]
+        .iter()
+        .filter(|m| !m.is_system())
+        .cloned()
+        .collect();
     if !msgs_since_last.is_empty() {
         agent.emit(AgentEvent::StateSnapshot(msgs_since_last));
         *last_message_count = state.messages().len();
@@ -99,7 +111,11 @@ pub(crate) async fn handle_final_answer<L: ReactLLM, S: State>(
 
     drain_notifications(agent, state).await;
 
-    let msgs_after_drain = state.messages()[*last_message_count..].to_vec();
+    let msgs_after_drain: Vec<BaseMessage> = state.messages()[*last_message_count..]
+        .iter()
+        .filter(|m| !m.is_system())
+        .cloned()
+        .collect();
     if !msgs_after_drain.is_empty() {
         agent.emit(AgentEvent::StateSnapshot(msgs_after_drain));
         *last_message_count = state.messages().len();
@@ -120,7 +136,11 @@ pub(crate) async fn handle_final_answer<L: ReactLLM, S: State>(
 
     match agent.chain.run_after_agent(state, output).await {
         Ok(o) => {
-            let msgs_after = state.messages()[*last_message_count..].to_vec();
+            let msgs_after: Vec<BaseMessage> = state.messages()[*last_message_count..]
+                .iter()
+                .filter(|m| !m.is_system())
+                .cloned()
+                .collect();
             if !msgs_after.is_empty() {
                 agent.emit(AgentEvent::StateSnapshot(msgs_after));
             }
