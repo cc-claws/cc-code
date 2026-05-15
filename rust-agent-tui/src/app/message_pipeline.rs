@@ -321,6 +321,11 @@ impl MessagePipeline {
                     vec![PipelineAction::None]
                 }
             }
+            AgentEvent::SubagentLifecycle { .. } => {
+                // SubagentLifecycle 仅由 agent_ops 处理（spinner + request_rebuild），
+                // Pipeline 不修改状态，直接返回 None
+                vec![PipelineAction::None]
+            }
             // 以下事件由 agent_ops 直接处理，Pipeline 返回 None
             AgentEvent::Error(_)
             | AgentEvent::InteractionRequest { .. }
@@ -750,6 +755,26 @@ impl MessagePipeline {
             // reconcile 已从 completed 生成 SubAgentGroup 占位符，用冻结版本替换
             // （冻结版本含 recent_messages、final_result 等 richer 信息）
             merge_frozen_subagents(&self.frozen_subagent_vms, &mut tail_vms);
+            // 追加 subagent_stack 中尚未 frozen 的运行中 SubAgent（reconcile 不生成
+            // 运行中 SubAgent 的 VM，必须手动从 stack 注入，否则在 StateSnapshot 之后
+            // 启动的 SubAgent 卡片不可见）
+            for sub in &self.subagent_stack {
+                if sub.finalized_vm.is_none() {
+                    tail_vms.push(MessageViewModel::SubAgentGroup {
+                        agent_id: sub.agent_id.clone(),
+                        task_preview: sub.task_preview.clone(),
+                        total_steps: sub.total_steps,
+                        recent_messages: sub.recent_messages.clone(),
+                        is_running: sub.is_running,
+                        collapsed: false,
+                        final_result: None,
+                        is_error: false,
+                        is_background: sub.is_background,
+                        bg_hash: sub.bg_hash.clone(),
+                        batch_agents: Vec::new(),
+                    });
+                }
+            }
         } else {
             // 无 snapshot 时 reconcile 不执行，直接从 subagent_stack 构建 SubAgentGroup
             for sub in &self.subagent_stack {

@@ -608,10 +608,20 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             warnings,
             files_with_errors,
         },
-        // Hook lifecycle events — not yet handled in TUI, ignore
-        ExecutorEvent::SubagentStarted { .. }
-        | ExecutorEvent::SubagentStopped { .. }
-        | ExecutorEvent::SessionEnded
+        // SubAgent 生命周期事件 → 触发 spinner 更新 + 刷新显示
+        ExecutorEvent::SubagentStarted { agent_name } => AgentEvent::SubagentLifecycle {
+            agent_name,
+            started: true,
+        },
+        ExecutorEvent::SubagentStopped {
+            agent_name,
+            result: _,
+        } => AgentEvent::SubagentLifecycle {
+            agent_name,
+            started: false,
+        },
+        // Other lifecycle events — not yet handled in TUI, ignore
+        ExecutorEvent::SessionEnded
         | ExecutorEvent::CompactStarted
         | ExecutorEvent::CompactCompleted => return None,
     })

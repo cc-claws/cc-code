@@ -44,6 +44,14 @@ pub enum AgentEvent {
     },
     /// 上下文压缩失败，携带错误信息
     CompactError(String),
+    /// SubAgent 生命周期事件（中间件发出，用于 UI 状态同步）
+    ///
+    /// 在 SubAgent 实际开始/停止执行时由 SubAgentMiddleware 发出。
+    /// 不修改 pipeline 状态，仅用于触发 spinner 更新 + RebuildAll 刷新显示。
+    SubagentLifecycle {
+        agent_name: String,
+        started: bool,
+    },
     /// SubAgent 开始执行（由 Agent ToolStart 映射而来）
     SubAgentStart {
         agent_id: String,

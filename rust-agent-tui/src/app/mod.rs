@@ -196,7 +196,7 @@ impl App {
         let (cron_state, scheduler_arc) = CronState::new();
         CronState::spawn_tick_task(scheduler_arc);
 
-        let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(32);
+        let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(128);
 
         let initial_session = ChatSession::new(cwd.clone(), command_registry, skills, &lc);
 

@@ -39,6 +39,32 @@ impl App {
                 self.request_rebuild();
                 (true, false, false)
             }
+            AgentEvent::SubagentLifecycle {
+                agent_name,
+                started,
+            } => {
+                if started {
+                    // SubAgent 实际开始执行：更新 spinner 为工具使用模式
+                    let verb = format!("Agent: {}", agent_name);
+                    self.session_mgr.sessions[self.session_mgr.active]
+                        .spinner_state
+                        .set_mode(perihelion_widgets::SpinnerMode::ToolUse);
+                    self.session_mgr.sessions[self.session_mgr.active]
+                        .spinner_state
+                        .set_verb(Some(&verb));
+                } else {
+                    // SubAgent 执行结束：恢复 spinner 为响应模式
+                    self.session_mgr.sessions[self.session_mgr.active]
+                        .spinner_state
+                        .set_mode(perihelion_widgets::SpinnerMode::Responding);
+                    self.session_mgr.sessions[self.session_mgr.active]
+                        .spinner_state
+                        .set_verb(Some("思考中…"));
+                }
+                // 触发 rebuild 刷新 SubAgentGroup 卡片显示
+                self.request_rebuild();
+                (true, false, false)
+            }
             AgentEvent::SubAgentEnd { result, is_error } => {
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent

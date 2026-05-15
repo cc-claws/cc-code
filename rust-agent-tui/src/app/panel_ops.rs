@@ -1049,7 +1049,7 @@ impl App {
             uuid::Uuid::now_v7()
         ));
 
-        let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(32);
+        let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(128);
 
         let lc = crate::i18n::LcRegistry::default();
         let commands =
