@@ -383,8 +383,15 @@ pub async fn handle_prompt(
         // 权限转发：perm_rx → RequestPermissionRequest → conn.send_request() → map → response_tx
         let conn_for_perm = conn.clone();
         let sid_for_perm = session_id_acp.clone();
+        let mgr_for_perm = mgr().clone();
         tokio::spawn(async move {
-            super::broker::permission_forwarding_loop(perm_rx, conn_for_perm, sid_for_perm).await;
+            super::broker::permission_forwarding_loop(
+                perm_rx,
+                conn_for_perm,
+                sid_for_perm,
+                mgr_for_perm,
+            )
+            .await;
         });
 
         // 组装 Agent

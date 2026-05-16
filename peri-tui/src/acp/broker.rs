@@ -1,8 +1,9 @@
 use agent_client_protocol::role::acp::Client;
 use agent_client_protocol::schema::{
-    Content, ContentBlock, PermissionOption, PermissionOptionKind, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
-    TextContent, ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+    Content, ContentBlock, PermissionOption, PermissionOptionKind, RequestId,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionId, TextContent, ToolCallContent, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::ConnectionTo;
 use async_trait::async_trait;
@@ -10,6 +11,8 @@ use peri_agent::interaction::{
     ApprovalDecision, InteractionContext, InteractionResponse, UserInteractionBroker,
 };
 use tokio::sync::{mpsc, oneshot};
+
+use super::session::{PendingRequestEntry, SessionManager};
 
 pub struct PendingPermission {
     pub context: InteractionContext,
@@ -60,9 +63,10 @@ pub async fn permission_forwarding_loop(
     mut rx: mpsc::Receiver<PendingPermission>,
     conn: ConnectionTo<Client>,
     session_id: SessionId,
+    mgr: SessionManager,
 ) {
     while let Some(pending) = rx.recv().await {
-        let response = handle_pending_permission(pending.context, &conn, &session_id).await;
+        let response = handle_pending_permission(pending.context, &conn, &session_id, &mgr).await;
         let _ = pending.response_tx.send(response);
     }
 }
@@ -71,6 +75,7 @@ async fn handle_pending_permission(
     ctx: InteractionContext,
     conn: &ConnectionTo<Client>,
     session_id: &SessionId,
+    mgr: &SessionManager,
 ) -> InteractionResponse {
     match ctx {
         InteractionContext::Approval { items } => {
@@ -89,7 +94,6 @@ async fn handle_pending_permission(
                         ))]),
                 );
 
-                // 构建权限选项
                 let options = vec![
                     PermissionOption::new(
                         "allow_once",
@@ -106,16 +110,80 @@ async fn handle_pending_permission(
                 let request =
                     RequestPermissionRequest::new(session_id.clone(), tool_update, options);
 
-                // 发送请求并等待 Client 响应（block_task 仅在 spawned task 中安全）
-                let decision = match conn.send_request(request).block_task().await {
-                    Ok(resp) => map_permission_response(resp),
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Permission request failed, defaulting to reject");
+                // Send request and get its JSON-RPC ID for cancellation tracking
+                let sent = conn.send_request(request);
+                let request_id = sent.id();
+
+                // Create a cancel channel for this request
+                let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+
+                // Register in session's pending requests table with a unique generation
+                let rid = serde_json::from_value::<RequestId>(request_id.clone())
+                    .unwrap_or(RequestId::Null);
+                if let Some(session) = mgr.get_session(session_id.0.as_ref()) {
+                    let gen = session
+                        .pending_gen
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    session.pending_requests.insert(
+                        rid.clone(),
+                        PendingRequestEntry {
+                            cancel_tx,
+                            generation: gen,
+                        },
+                    );
+                } else {
+                    // Session gone, reject immediately
+                    decisions.push(ApprovalDecision::Reject {
+                        reason: "Session not found".into(),
+                    });
+                    continue;
+                }
+
+                // Convert SentRequest to a receivable future via a oneshot channel
+                let (tx, rx) = oneshot::channel();
+                let sid_for_cleanup = session_id.clone();
+                let rid_for_cleanup = rid.clone();
+                if let Err(e) = sent.on_receiving_result(move |result| {
+                    let _ = tx.send(result);
+                    async { Ok(()) }
+                }) {
+                    tracing::warn!(error = %e, "Failed to register response handler for permission");
+                    // Cleanup pending entry
+                    if let Some(session) = mgr.get_session(sid_for_cleanup.0.as_ref()) {
+                        session.pending_requests.remove(&rid_for_cleanup);
+                    }
+                    decisions.push(ApprovalDecision::Reject {
+                        reason: format!("Permission request failed: {e}"),
+                    });
+                    continue;
+                }
+
+                // Race between client response and cancellation signal
+                let decision = tokio::select! {
+                    result = rx => {
+                        match result {
+                            Ok(Ok(resp)) => map_permission_response(resp),
+                            Err(_) | Ok(Err(_)) => {
+                                tracing::warn!("Permission request channel error");
+                                ApprovalDecision::Reject {
+                                    reason: "Permission request failed".into(),
+                                }
+                            }
+                        }
+                    }
+                    _ = cancel_rx => {
+                        tracing::info!(%session_id, ?request_id, "Permission request cancelled via $/cancel_request");
                         ApprovalDecision::Reject {
-                            reason: format!("Permission request failed: {e}"),
+                            reason: "Cancelled by client".into(),
                         }
                     }
                 };
+
+                // Cleanup pending entry after resolution
+                if let Some(session) = mgr.get_session(session_id.0.as_ref()) {
+                    session.pending_requests.remove(&rid);
+                }
+
                 decisions.push(decision);
             }
             InteractionResponse::Decisions(decisions)
