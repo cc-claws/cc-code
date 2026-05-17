@@ -1,8 +1,10 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-16-setup-migrate-codex-doc-vs-impl.md
 # migrate_from_claude_code 文档声称支持 CODEX 前缀但未实现
 
-**状态**：Open
+**状态**：Closed
 **优先级**：中
 **创建日期**：2026-05-16
+**关闭日期**：2026-05-17
 
 ## 问题描述
 

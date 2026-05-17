@@ -1,3 +1,4 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-16-model-panel-1m-context-toggle.md
 # Model 面板添加 1M 上下文开关
 
 **状态**：Fixed

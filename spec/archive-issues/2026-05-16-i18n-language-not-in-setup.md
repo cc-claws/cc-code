@@ -1,3 +1,4 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-16-i18n-language-not-in-setup.md
 # Setup 向导缺少语言配置步骤
 
 **状态**Fixed

@@ -1,8 +1,10 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-16-setup-empty-providers-no-hint.md
 # 空 providers 时无空状态提示
 
-**状态**：Open
+**状态**：Closed
 **优先级**：低
 **创建日期**：2026-05-16
+**关闭日期**：2026-05-17
 
 ## 问题描述
 

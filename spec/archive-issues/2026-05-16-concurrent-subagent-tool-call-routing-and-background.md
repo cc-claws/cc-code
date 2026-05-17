@@ -1,3 +1,4 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-16-concurrent-subagent-tool-call-routing-and-background.md
 # 并发 SubAgent 工具调用路由错误 + 死锁修复
 
 **状态**：Fixed

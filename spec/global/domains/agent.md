@@ -463,6 +463,19 @@ launch_agent 工具调用
 **涉及文件:** peri-middlewares/src/tools/filesystem/write.rs, peri-agent/src/llm/anthropic/invoke.rs, peri-agent/src/llm/openai/invoke.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background
+
+**摘要:** 并发 SubAgent 工具调用路由错误 + 死锁修复
+**状态:** Fixed
+**归档日期:** 2026-05-17
+**关键词:** source_agent_id routing, SubAgent 并发, streaming cancellation, agent_id 匹配, 通道容量
+**问题本质:** 并发 SubAgent 场景下的四个系统性缺陷：(1) `subagent_stack.last_mut()` 位置路由将所有内部事件路由到最后一个 SubAgent；(2) LLM 流式期间不检查取消令牌导致 Ctrl+C 死锁；(3) `mpsc::channel(256)` 容量不足以承载 SubAgent 500+ 事件导致静默丢弃；(4) 同名 SubAgent 的 `find(|s| s.agent_id == target)` 永远命中第一个导致 `is_running` 不清零
+**通用模式:** 事件路由必须使用唯一标识（agent_id）而非位置索引；流式循环必须通过 `tokio::select!` 竞争取消令牌和 stream.next()；事件通道容量应基于 SubAgent 速率而非主 Agent；同名实体匹配需加状态条件（如 `is_running`）
+**架构影响:** `source_agent_id` 字段为所有事件类型添加了精确路由能力，从此 SubAgent 路由不再依赖位置堆栈；`deferred_error` 模式在 tool_dispatch 中成熟
+**技术决策:** Agent 工具改为顺序执行消除并发争用（非 Agent 工具保持并发）；通道容量 256→4096；`SourceAgentIdHandler` 包装器注入子 Agent 事件标记
+**涉及文件:** peri-agent/src/agent/events.rs, peri-agent/src/agent/executor/tool_dispatch.rs, peri-agent/src/agent/executor/llm_step.rs, peri-agent/src/llm/types.rs, peri-agent/src/llm/anthropic/stream.rs, peri-agent/src/llm/openai/stream.rs, peri-middlewares/src/subagent/tool.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_submit.rs, peri-tui/src/app/message_pipeline.rs
+**CLAUDE.md 链接:** true
+
 ---
 
 ## 相关 Feature

@@ -139,6 +139,7 @@
 
 ### context_window
 - [OpenAI 兼容第三方 Provider 上下文用量计算不准确](domains/token-tracking.md#issue_2026-05-11-context-usage-miscalculation-openai-compatible) — token-tracking
+- [Model 面板添加 1M 上下文开关](domains/tui.md#issue_2026-05-16-model-panel-1m-context-toggle) — tui
 
 ### 缓存命中率
 - [OpenAI 兼容第三方 Provider 上下文用量计算不准确](domains/token-tracking.md#issue_2026-05-11-context-usage-miscalculation-openai-compatible) — token-tracking
@@ -441,6 +442,81 @@
 ### 错误提示
 - [Browse 模式 Submit 失败时无任何反馈](domains/tui.md#issue_2026-05-16-setup-browse-submit-no-feedback) — tui
 
+### 1M context
+- [Model 面板添加 1M 上下文开关](domains/tui.md#issue_2026-05-16-model-panel-1m-context-toggle) — tui
+
+### ACP
+- [ACP 未实现 $/cancel_request 与 AvailableCommandsUpdate](domains/acp.md#issue_2026-05-16-acp-cancel-request-unimplemented) — acp
+
+### agent_id 匹配
+- [并发 SubAgent 工具调用路由错误 + 死锁修复](domains/agent.md#issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background) — agent
+
+### AvailableCommandsUpdate
+- [ACP 未实现 $/cancel_request 与 AvailableCommandsUpdate](domains/acp.md#issue_2026-05-16-acp-cancel-request-unimplemented) — acp
+
+### cancel_request
+- [ACP 未实现 $/cancel_request 与 AvailableCommandsUpdate](domains/acp.md#issue_2026-05-16-acp-cancel-request-unimplemented) — acp
+
+### char vs byte
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### CODEX migrate
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### ContextBudget
+- [Model 面板添加 1M 上下文开关](domains/tui.md#issue_2026-05-16-model-panel-1m-context-toggle) — tui
+
+### Ctrl 修饰符
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### empty state
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### env_get
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### form validation
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### language
+- [Setup 向导缺少语言配置步骤](domains/tui.md#issue_2026-05-16-i18n-language-not-in-setup) — tui
+
+### model panel
+- [Model 面板添加 1M 上下文开关](domains/tui.md#issue_2026-05-16-model-panel-1m-context-toggle) — tui
+
+### needs_setup
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### oneshot
+- [ACP 未实现 $/cancel_request 与 AvailableCommandsUpdate](domains/acp.md#issue_2026-05-16-acp-cancel-request-unimplemented) — acp
+
+### paste newline
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### pending requests
+- [ACP 未实现 $/cancel_request 与 AvailableCommandsUpdate](domains/acp.md#issue_2026-05-16-acp-cancel-request-unimplemented) — acp
+
+### setup wizard
+- [Setup 向导缺少语言配置步骤](domains/tui.md#issue_2026-05-16-i18n-language-not-in-setup) — tui
+
+### setup wizard polish
+- [Setup Wizard 波兰系列（8 个 UI 小修）](domains/tui.md#issue_2026-05-16-setup-polish-series) — tui
+
+### SetupStep
+- [Setup 向导缺少语言配置步骤](domains/tui.md#issue_2026-05-16-i18n-language-not-in-setup) — tui
+
+### source_agent_id routing
+- [并发 SubAgent 工具调用路由错误 + 死锁修复](domains/agent.md#issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background) — agent
+
+### streaming cancellation
+- [并发 SubAgent 工具调用路由错误 + 死锁修复](domains/agent.md#issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background) — agent
+
+### SubAgent 并发
+- [并发 SubAgent 工具调用路由错误 + 死锁修复](domains/agent.md#issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background) — agent
+
+### 通道容量
+- [并发 SubAgent 工具调用路由错误 + 死锁修复](domains/agent.md#issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background) — agent
+
 ## 更新记录
 
 - 2026-05-13: 首次创建，归档 22 个 issue，提取 14 条领域认知
@@ -448,3 +524,4 @@
 - 2026-05-15: 第三次归档，归档 8 个 issue，提取 7 条领域认知（agent 3 + code-architecture 2 + message-pipeline 2 + tui 1）
 - 2026-05-16: 第四次归档，归档 11 个 issue，提取 7 条领域认知（agent 6 + tui 1）
 - 2026-05-16: 第五次归档，归档 13 个 issue，提取 11 条领域认知（tui 10 + message-pipeline 1 + cli 1 + tools 1）
+- 2026-05-17: 归档 12 个 issue，新增 ACP 领域，22 个新关键词条目

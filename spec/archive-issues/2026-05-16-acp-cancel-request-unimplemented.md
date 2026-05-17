@@ -1,3 +1,4 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-16-acp-cancel-request-unimplemented.md
 # ACP 未实现 `$/cancel_request` 与 `AvailableCommandsUpdate`
 
 **状态**：Closed

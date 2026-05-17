@@ -1,8 +1,10 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-16-setup-ctrl-left-right-not-filtered.md
 # Left/Right 匹配臂未过滤 Ctrl 修饰符——Ctrl+Left 仍切换 ProviderType
 
-**状态**：Open
+**状态**：Closed
 **优先级**：中
 **创建日期**：2026-05-16
+**关闭日期**：2026-05-17
 
 ## 问题描述
 

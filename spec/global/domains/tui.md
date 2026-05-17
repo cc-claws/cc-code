@@ -676,6 +676,49 @@ submit_message(text)
 **涉及文件:** peri-tui/src/app/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-16-i18n-language-not-in-setup
+
+**摘要:** Setup 向导缺少语言配置步骤
+**状态:** Fixed（实际已完成但 issue 文档未更新状态——issue 创建时 Fixed 但描述的问题已在代码中解决）
+**归档日期:** 2026-05-17
+**关键词:** setup wizard, language, i18n, SetupStep
+**问题本质:** Setup 向导只有 Choose/Form/Done 三步，缺少 Language 步骤，导致初次运行时无法选择 zh-CN
+**通用模式:** 首次运行向导应覆盖所有用户偏好（语言、provider、key、model），早期遗漏会在后续补丁中累积复杂度
+**涉及文件:** peri-tui/src/app/setup_wizard.rs, peri-tui/src/ui/main_ui/popups/setup_wizard.rs, peri-tui/src/config/types.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-16-model-panel-1m-context-toggle
+
+**摘要:** Model 面板添加 1M 上下文开关
+**状态:** Fixed
+**归档日期:** 2026-05-17
+**关键词:** context_window, 1M context, model panel, ContextBudget
+**问题本质:** 1M context 模型需要手动开启开关，compact 阈值才能以 1M 而非模型默认值为基准
+**通用模式:** 上下文窗口覆盖需要在三个路径同步：(1) 模型切换时立即反映到 status line；(2) 消息提交前覆盖；(3) Agent 运行时 ContextWarning 计算前覆盖。单路径覆盖不足以保证一致性
+**技术决策:** `agent.context_window` 在 `apply_and_close`、`agent_submit.rs`、`agent_ops.rs` 三处同步覆盖
+**涉及文件:** peri-tui/src/config/types.rs, peri-tui/src/app/model_panel.rs, peri-tui/src/ui/main_ui/panels/model.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/agent_submit.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-16-setup-polish-series
+
+**摘要:** Setup Wizard 波兰系列（8 个 UI 小修）
+**状态:** Closed（全部 8 个）
+**归档日期:** 2026-05-17
+**关键词:** setup wizard polish, paste newline, char vs byte, Ctrl 修饰符, form validation, empty state, env_get, CODEX migrate, needs_setup
+**问题本质:** Setup 向导实现初版后的 8 个边界情况修复，涵盖粘贴、CJK、键盘、校验、空状态、环境变量、迁移、完整性检测
+**子问题:**
+- `paste-strips-all-newlines`: `text.replace('\n', "")` 把多行拼成一行 → 改为 `text.lines().next()`
+- `char-vs-byte-index-confusion`: 3 处 `buf.len()` 字符索引边界检查 → 改为 `buf.chars().count()`
+- `ctrl-left-right-not-filtered`: Ctrl+Left 在 ProviderType 字段误触类型切换 → 加 `ctrl: false` 守卫
+- `edit-confirm-no-validation`: Enter 无条件返回 Browse 无字段校验 → 检查 provider_id/api_key/aliases 非空
+- `empty-providers-no-hint`: 空 providers 时界面空白 → 渲染 `setup-no-providers` i18n 提示
+- `env-get-silent-fail-on-non-string`: 非字符串 env 值静默返回空串 → match `is_string()` + `tracing::warn!`
+- `migrate-codex-doc-vs-impl`: CODEX 前缀注释声称支持但实现缺失 → 添加 `("CODEX", ...)` 到 prefixes 数组
+- `needs-setup-incomplete-check`: 仅检查 api_key 为空跳过 setup → 添加 `provider.id.trim().is_empty()` 检查
+**通用模式:** UI 向导的边界情况修复是集中爆发的——初版必然有键盘、粘贴、校验、空状态四类遗漏。用一个 issue 追踪全系列比拆分成 8 个更高效
+**涉及文件:** peri-tui/src/app/setup_wizard.rs, peri-tui/src/ui/main_ui/popups/setup_wizard.rs, peri-tui/src/app/mod.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature
