@@ -808,14 +808,17 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         } else if text.starts_with('/') {
                             app.session_mgr.sessions[app.session_mgr.active].ui.textarea =
                                 crate::app::build_textarea(false);
-                            // SAFETY: 同上，command_registry 嵌套在 App 内，dispatch 需 &mut App
+                            // SAFETY: command_registry 嵌套在 App 内，dispatch 需 &mut App
+                            // NOTE: 必须在 take 前保存 session index，因为 dispatch 内部
+                            // （如 /split）可能改变 app.session_mgr.active
+                            let session_idx = app.session_mgr.active;
                             let registry = std::mem::take(
-                                &mut app.session_mgr.sessions[app.session_mgr.active]
+                                &mut app.session_mgr.sessions[session_idx]
                                     .commands
                                     .command_registry,
                             );
                             let known = registry.dispatch(app, &text);
-                            app.session_mgr.sessions[app.session_mgr.active]
+                            app.session_mgr.sessions[session_idx]
                                 .commands
                                 .command_registry = registry;
                             if known {

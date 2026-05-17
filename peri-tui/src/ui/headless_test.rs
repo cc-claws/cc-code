@@ -2489,7 +2489,7 @@ fn test_subagent_group_error_red_title_and_summary() {
         final_result: Some("Agent failed: permission denied".to_string()),
         is_error: true,
         is_background: false,
-        bg_hash: None,
+        bg_hash: Some("abc123".to_string()),
         batch_agents: Vec::new(),
     };
     let lines = render_view_model(&vm, Some(1), 80);
@@ -3073,6 +3073,210 @@ async fn test_subagent_group_preserved_after_done_reconcile() {
 mod split_panel_tests {
     use crate::app::panel_manager::PanelKind;
     use crate::app::App;
+
+    #[tokio::test]
+    async fn test_split_session_hint_shows_for_both_columns() {
+        use crate::ui::main_ui;
+        let (mut app, mut handle) = App::new_headless(120, 40).await;
+
+        // 创建第二个 session
+        app.new_session();
+        assert_eq!(app.session_mgr.sessions.len(), 2);
+
+        // 在 session 0 的 textarea 中输入 /
+        app.session_mgr.active = 0;
+        app.session_mgr.sessions[0].ui.textarea = crate::app::build_textarea(false);
+        app.session_mgr.sessions[0].ui.textarea.insert_str("/");
+
+        // 在 session 1 的 textarea 中输入 hello（不应触发 hint）
+        app.session_mgr.sessions[1].ui.textarea = crate::app::build_textarea(false);
+        app.session_mgr.sessions[1].ui.textarea.insert_str("hello");
+
+        // 渲染
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        // session 0 的 hint 应包含 exit（被排序到前 10 项的最后一个命令）
+        // model 在字母序中排在第 19/23 位，不在视口前 10 项内
+        // 故使用 exit 验证 hint 渲染是否正常工作
+        assert!(
+            snap_text.contains("/exit"),
+            "session 0 输入 / 后应显示 exit 命令\n实际输出:\n{}",
+            snap_text
+        );
+
+        // 切到 session 1，输入 /
+        app.session_mgr.active = 1;
+        app.session_mgr.sessions[1].ui.textarea = crate::app::build_textarea(false);
+        app.session_mgr.sessions[1].ui.textarea.insert_str("/");
+
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap2 = handle.snapshot();
+        let snap2_text = snap2.join("\n");
+
+        // session 1 的 hint 应包含 exit（前 10 个视口命令之一）
+        assert!(
+            snap2_text.contains("/exit"),
+            "session 1 输入 / 后应显示 exit 命令\n实际输出:\n{}",
+            snap2_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_split_session_both_have_slash_hint_shows_on_both() {
+        use crate::ui::main_ui;
+        let (mut app, mut handle) = App::new_headless(120, 40).await;
+
+        // 创建第二个 session
+        app.new_session();
+        assert_eq!(app.session_mgr.sessions.len(), 2);
+
+        // 两个 session 都输入 /
+        app.session_mgr.sessions[0].ui.textarea = crate::app::build_textarea(false);
+        app.session_mgr.sessions[0].ui.textarea.insert_str("/");
+        app.session_mgr.sessions[1].ui.textarea = crate::app::build_textarea(false);
+        app.session_mgr.sessions[1].ui.textarea.insert_str("/");
+
+        // session 0 active
+        app.session_mgr.active = 0;
+
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        // hint 中 /exit 应出现 2 次（左列和右列各一次）
+        // model 在字母序排第 19/23，不在视口前 10 项内
+        let exit_count = snap_text.matches("/exit").count();
+        assert!(
+            exit_count >= 2,
+            "两个 session 都输入 /，/exit 应出现至少 2 次，实际 {} 次\n输出:\n{}",
+            exit_count,
+            snap_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_split_session_left_inactive_shows_model_with_m_prefix() {
+        use crate::ui::main_ui;
+        let (mut app, mut handle) = App::new_headless(120, 40).await;
+
+        // 创建第二个 session
+        app.new_session();
+        assert_eq!(app.session_mgr.sessions.len(), 2);
+
+        // 模拟用户场景：右侧 session (1) 是活跃的，左侧 session (0) 输入了 /m
+        app.session_mgr.active = 1;
+        app.session_mgr.sessions[0].ui.textarea = crate::app::build_textarea(false);
+        app.session_mgr.sessions[0].ui.textarea.insert_str("/m");
+
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        // 左侧 session (非活跃) 的 hint 应包含 model
+        assert!(
+            snap_text.contains("/mcp")
+                || snap_text.contains("/memory")
+                || snap_text.contains("/model"),
+            "左侧 session 输入 /m，应至少显示 m 开头的命令\n输出:\n{}",
+            snap_text
+        );
+        assert!(
+            snap_text.contains("/model"),
+            "左侧 session 输入 /m，应显示 /model\n输出:\n{}",
+            snap_text,
+        );
+    }
+
+    /// 验证 /split 命令 dispatch 后 session 0 的 CommandRegistry 不会被清空
+    #[tokio::test]
+    async fn test_split_command_preserves_session0_command_registry() {
+        use crate::ui::main_ui;
+        let (mut app, mut handle) = App::new_headless(120, 40).await;
+
+        // 初始只有 1 个 session
+        assert_eq!(app.session_mgr.sessions.len(), 1);
+        app.session_mgr.active = 0;
+
+        // 验证 session 0 初始有所有命令
+        let cmds_before: Vec<String> = app.session_mgr.sessions[0]
+            .commands
+            .command_registry
+            .match_prefix("", &app.services.lc)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        assert!(
+            cmds_before.contains(&"model".to_string()),
+            "split 前应有 model 命令"
+        );
+
+        // 模拟 dispatch 路径：take → dispatch "/split" → put back
+        let session_idx = app.session_mgr.active;
+        let registry = std::mem::take(
+            &mut app.session_mgr.sessions[session_idx]
+                .commands
+                .command_registry,
+        );
+        let _known = registry.dispatch(&mut app, "/split");
+        app.session_mgr.sessions[session_idx]
+            .commands
+            .command_registry = registry;
+
+        // 验证：现在有 2 个 session，active 是 1
+        assert_eq!(app.session_mgr.sessions.len(), 2);
+        assert_eq!(app.session_mgr.active, 1);
+
+        // 关键验证：session 0 的 registry 未被清空
+        let cmds_after: Vec<String> = app.session_mgr.sessions[0]
+            .commands
+            .command_registry
+            .match_prefix("m", &app.services.lc)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        assert!(
+            cmds_after.contains(&"model".to_string()),
+            "/split 后 session 0 应仍有 model 命令，实际 m 前缀匹配: {:?}",
+            cmds_after
+        );
+        assert!(
+            cmds_after.contains(&"mcp".to_string()),
+            "/split 后 session 0 应仍有 mcp 命令"
+        );
+        assert!(
+            cmds_after.contains(&"memory".to_string()),
+            "/split 后 session 0 应仍有 memory 命令"
+        );
+
+        // 额外验证：session 1 的 hint 正常
+        app.session_mgr.sessions[1].ui.textarea = crate::app::build_textarea(false);
+        app.session_mgr.sessions[1].ui.textarea.insert_str("/m");
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            snap_text.contains("/model"),
+            "session 1 输入 /m，应显示 /model\n输出:\n{}",
+            snap_text
+        );
+    }
 
     #[tokio::test]
     async fn test_split_session_panel_independence() {

@@ -294,10 +294,8 @@ fn render_session_column(
     });
     f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
 
-    if is_active {
-        // 统一命令/Skills 提示条
-        popups::hints::render_unified_hint(f, app, chunks[5]);
-    }
+    // 统一命令/Skills 提示条（每个 session 列各自渲染）
+    popups::hints::render_unified_hint(f, app, chunks[5]);
 
     // 单 session 模式下渲染状态栏
     if app.session_mgr.sessions.len() == 1 {

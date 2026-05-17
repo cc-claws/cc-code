@@ -1,6 +1,7 @@
 # 分屏模式下非活跃 Session 命令浮层显示异常
 
-**状态**：Open
+**状态**：Fixed
+**修复日期**：2026-05-17
 **优先级**：中
 **创建日期**：2026-05-12
 
@@ -59,24 +60,55 @@
 
 ## 根因分析
 
-1. **命令浮层渲染条件限制**：`render_unified_hint` 只在 `is_active == true` 时被调用
-2. **数据来源单一**：命令浮层始终读取 `app.session_mgr.sessions[app.session_mgr.active]` 的数据，而不是当前正在渲染的 session
-3. **临时 active 切换不生效**：虽然 `render_session_column` 临时切换了 `active`，但由于 `is_active` 参数的存在，非活跃 session 的命令浮层根本不会渲染
+问题由**两个独立 bug** 叠加导致：
+
+### Bug 1：命令浮层只在活跃 session 渲染（已修复）
+
+`main_ui.rs:297` 的 `if is_active` 守卫导致非活跃 session 完全不渲染命令提示浮层。
+
+**修复**：移除 `if is_active` 守卫，依赖 `render_session_column` 已有的临时 `active` 切换机制（第 82 行 `app.session_mgr.active = session_idx`）。
+
+### Bug 2：`/split` dispatch 后命令注册表被归还到错误 session（根因）
+
+`event.rs:812-820` 的 `std::mem::take` + `dispatch` + 归还模式存在 session index 竞态：
+
+```
+// 执行 /split 前: session 0 是 active，command_registry = [24 命令]
+let registry = std::mem::take(
+    &mut app.session_mgr.sessions[app.session_mgr.active]  // ← 从 session 0 取出
+        .commands.command_registry,
+);
+let known = registry.dispatch(app, "/split");
+// ↑ dispatch 内部: SplitCommand::execute → app.new_session() → active 变为 1
+app.session_mgr.sessions[app.session_mgr.active]  // ← BUG: 此时 active=1，归还到 session 1
+    .commands.command_registry = registry;
+```
+
+结果：
+- **Session 0（左侧）**：CommandRegistry 被 `take` 后为空壳（`Vec::new()`），永未恢复
+- **Session 1（右侧）**：获得完整的 24 个内置命令（原属于 session 0 的 registry）
+- Skills 不受影响（独立的 `Vec<SkillMetadata>`，不走 `std::mem::take`）
+
+**修复**：在 `take` 前保存 `let session_idx = app.session_mgr.active;`，归还时使用保存的 `session_idx`。
+
+## 修复详情
+
+| 文件 | 行 | 修改 |
+|------|-----|------|
+| `peri-tui/src/ui/main_ui.rs` | 297-298 | 移除 `if is_active` 守卫 |
+| `peri-tui/src/event.rs` | 811-820 | take 前保存 session_idx，归还时使用保存值 |
+
+## 验证
+
+- 527 个测试全部通过
+- 新增回归测试 `test_split_command_preserves_session0_command_registry`：验证 dispatch `/split` 后 session 0 的 CommandRegistry 仍包含 model/mcp/memory 命令
 
 ## 影响范围
 
 - 所有使用 `/split` 分屏功能的用户
 - 特别是在左侧 session 输入命令时
 
-## 可能的修复方向
+## 经验教训
 
-1. **方案 A**：让命令浮层读取当前渲染 session 的数据，而非 active session
-   - 修改 `render_unified_hint` 接受 `session_idx` 参数
-   - 移除 `is_active` 条件限制
-
-2. **方案 B**：点击非活跃 session 的输入区域时自动切换焦点
-   - 在鼠标点击事件处理中检测是否点击了输入区域
-   - 自动切换 `app.session_mgr.active`
-
-3. **方案 C**：仅对 active session 显示命令浮层（当前行为）
-   - 需要更新用户文档说明此行为
+1. **`std::mem::take` + 归还模式有 session index 竞态风险**：任何在 `dispatch` 期间可能改变 `app.session_mgr.active` 的命令（如 `/split`、`/loop` 等）都会导致归还目标错误。核心原则：**在 take 前保存 index，归还时使用保存值**。
+2. **Hint 渲染依赖 `active` 临时切换**：非活跃 session 的渲染通过 `render_session_column` 临时切换实现。所有渲染函数都应无条件执行，不应有 `is_active` 守卫——数据隔离依赖临时切换，视觉区分依赖 `is_active` 传参处理边框颜色和光标样式。
