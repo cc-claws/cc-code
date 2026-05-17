@@ -82,8 +82,6 @@ pub(crate) struct BareAgentConfig {
     pub mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
     pub tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
     pub shared_tools: Arc<RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
-    /// TUI 事件 channel sender，用于创建子 Agent 专用 handler（绕过 Langfuse Mutex）
-    pub child_event_tx: Option<mpsc::Sender<AgentEvent>>,
 }
 
 pub(crate) struct BareAgentOutput {
@@ -115,7 +113,6 @@ pub(crate) fn build_bare_agent(cfg: BareAgentConfig) -> BareAgentOutput {
         mcp_pool,
         tool_search_index,
         shared_tools,
-        child_event_tx,
     } = cfg;
 
     // 应用 agent overrides 到系统提示词
@@ -234,78 +231,8 @@ pub(crate) fn build_bare_agent(cfg: BareAgentConfig) -> BareAgentOutput {
         .clone()
         .unwrap_or_default();
 
-    // 子 Agent 专用事件 handler factory（不经过 Langfuse Mutex，避免并发死锁）
-    // 每个 child agent 调用 factory(agent_id) 获得独立 handler，
-    // handler 将事件 tag source_agent_id 后直接发送到 TUI channel。
-    #[allow(clippy::type_complexity)]
-    let child_handler_factory: Option<
-        Arc<dyn Fn(String) -> Arc<dyn peri_agent::agent::events::AgentEventHandler> + Send + Sync>,
-    > = child_event_tx.map(|tx_child| {
-        let cwd_for_child = cwd.clone();
-        let factory: Arc<
-            dyn Fn(String) -> Arc<dyn peri_agent::agent::events::AgentEventHandler> + Send + Sync,
-        > = Arc::new(move |agent_id: String| {
-            let tx = tx_child.clone();
-            let cwd = cwd_for_child.clone();
-            Arc::new(peri_agent::agent::events::FnEventHandler(
-                move |event: ExecutorEvent| {
-                    // 注入 source_agent_id（与 SourceAgentIdHandler 相同逻辑）
-                    let tagged = match event {
-                        ExecutorEvent::ToolStart {
-                            message_id,
-                            tool_call_id,
-                            name,
-                            input,
-                            ..
-                        } => ExecutorEvent::ToolStart {
-                            message_id,
-                            tool_call_id,
-                            name,
-                            input,
-                            source_agent_id: Some(agent_id.clone()),
-                        },
-                        ExecutorEvent::ToolEnd {
-                            message_id,
-                            tool_call_id,
-                            name,
-                            output,
-                            is_error,
-                            ..
-                        } => ExecutorEvent::ToolEnd {
-                            message_id,
-                            tool_call_id,
-                            name,
-                            output,
-                            is_error,
-                            source_agent_id: Some(agent_id.clone()),
-                        },
-                        ExecutorEvent::TextChunk {
-                            message_id, chunk, ..
-                        } => ExecutorEvent::TextChunk {
-                            message_id,
-                            chunk,
-                            source_agent_id: Some(agent_id.clone()),
-                        },
-                        other => other,
-                    };
-                    // 映射为 TUI AgentEvent 并直接发送到 channel（无 Langfuse）
-                    // 注意：on_event 是 sync 上下文，必须用 try_send 而非 send（async）
-                    if let Some(msg) = map_executor_event(tagged, &cwd) {
-                        let _ = tx.try_send(msg);
-                    }
-                },
-            )) as Arc<dyn peri_agent::agent::events::AgentEventHandler>
-        })
-            as Arc<
-                dyn Fn(String) -> Arc<dyn peri_agent::agent::events::AgentEventHandler>
-                    + Send
-                    + Sync,
-            >;
-        factory
-    });
-
     // SubAgent middleware
-    let mut subagent = SubAgentMiddleware::new(
+    let subagent = SubAgentMiddleware::new(
         parent_tools,
         Some(Arc::clone(&event_handler) as Arc<dyn peri_agent::agent::events::AgentEventHandler>),
         llm_factory.clone(),
@@ -315,9 +242,6 @@ pub(crate) fn build_bare_agent(cfg: BareAgentConfig) -> BareAgentOutput {
     .with_parent_messages(parent_messages)
     .with_background_registry(Arc::clone(&background_registry))
     .with_registered_hooks(vec![]);
-    if let Some(factory) = child_handler_factory {
-        subagent = subagent.with_child_handler_factory(factory);
-    }
 
     // 上下文预算
     let mut context_window = model.context_window();
@@ -550,7 +474,6 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         mcp_pool,
         tool_search_index: Arc::clone(&tool_search_index),
         shared_tools: Arc::clone(&shared_tools),
-        child_event_tx: Some(tx.clone()),
     };
     let BareAgentOutput {
         mut executor,
