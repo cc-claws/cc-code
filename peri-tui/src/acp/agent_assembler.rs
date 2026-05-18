@@ -63,6 +63,7 @@ pub fn assemble_agent(
         mcp_pool: None,
         tool_search_index,
         shared_tools,
+        child_event_tx: None,
     };
 
     let BareAgentOutput {
