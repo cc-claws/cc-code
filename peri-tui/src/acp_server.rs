@@ -252,11 +252,11 @@ async fn handle_request(
                         }
                     };
                     let agent_event_params = json!({
-                        "session_id": sid,
+                        "sessionId": sid,
                         "event": event_value,
                     });
                     if let Err(e) = transport_clone
-                        .send_notification("notifications/agent_event", agent_event_params)
+                        .send_notification("peri/agent_event", agent_event_params)
                         .await
                     {
                         error!(event_count = event_count, error = %e, "ACP pump: send agent_event failed");
@@ -267,26 +267,27 @@ async fn handle_request(
                     let peri_notifs = map_executor_to_peri_notifications(&exec_event);
                     for (method, mut payload) in peri_notifs {
                         if let serde_json::Value::Object(ref mut map) = payload {
-                            map.insert("session_id".to_string(), json!(sid));
+                            map.insert("sessionId".to_string(), json!(sid));
                         }
                         let _ = transport_clone.send_notification(method, payload).await;
                     }
 
+                    // Standard ACP session/update notifications
                     let updates = map_executor_to_updates(&exec_event, context_window_u32);
                     for update in updates {
-                        let payload = match serde_json::to_value(&update) {
+                        let mut payload = match serde_json::to_value(&update) {
                             Ok(p) => p,
                             Err(e) => {
                                 error!(error = %e, "ACP pump: serialize SessionUpdate failed");
                                 continue;
                             }
                         };
-                        let notif_params = json!({
-                            "session_id": sid,
-                            "update": payload,
-                        });
+                        // Merge sessionId into the top-level object alongside the tagged SessionUpdate
+                        if let serde_json::Value::Object(ref mut map) = payload {
+                            map.insert("sessionId".to_string(), json!(sid));
+                        }
                         let _ = transport_clone
-                            .send_notification("notifications/session_update", notif_params)
+                            .send_notification("session/update", payload)
                             .await;
                     }
                 }
@@ -294,9 +295,9 @@ async fn handle_request(
                 debug!(session_id = %sid, event_count = event_count, "ACP pump: sending agent_event_done");
                 let send_result = transport_clone
                     .send_notification(
-                        "notifications/agent_event_done",
+                        "peri/agent_event_done",
                         json!({
-                            "session_id": sid,
+                            "sessionId": sid,
                         }),
                     )
                     .await;

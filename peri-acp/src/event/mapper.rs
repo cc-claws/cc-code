@@ -5,8 +5,8 @@
 //! for SubAgent, Compact, LSP, Background tasks, and Session lifecycle events.
 
 use agent_client_protocol::schema::{
-    Content, ContentBlock, ContentChunk, SessionInfoUpdate, SessionUpdate, TextContent, ToolCall,
-    ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind, UsageUpdate,
+    ContentBlock, ContentChunk, SessionInfoUpdate, SessionUpdate, TextContent, ToolCall,
+    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind, UsageUpdate,
 };
 use peri_agent::agent::events::AgentEvent as ExecutorEvent;
 use serde_json::json;
@@ -32,14 +32,10 @@ pub fn map_executor_to_updates(event: &ExecutorEvent, context_window: u32) -> Ve
             input,
             ..
         } => {
-            let args_str = input.to_string();
             vec![SessionUpdate::ToolCall(
                 ToolCall::new(tool_call_id.clone(), name.clone())
                     .kind(infer_tool_kind(name))
                     .status(ToolCallStatus::InProgress)
-                    .content(vec![ToolCallContent::Content(Content::new(
-                        ContentBlock::Text(TextContent::new(truncate_str(&args_str, 500))),
-                    ))])
                     .raw_input(Some(input.clone())),
             )]
         }
@@ -61,9 +57,6 @@ pub fn map_executor_to_updates(event: &ExecutorEvent, context_window: u32) -> Ve
                     } else {
                         ToolCallStatus::Completed
                     })
-                    .content(vec![ToolCallContent::Content(Content::new(
-                        ContentBlock::Text(TextContent::new(truncate_str(output, 500))),
-                    ))])
                     .raw_output(raw_output),
             ))]
         }
@@ -112,15 +105,6 @@ fn infer_tool_kind(name: &str) -> ToolKind {
     }
 }
 
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max_len);
-        format!("{}...", &s[..boundary])
-    }
-}
-
 // ── peri/* custom notification mapping ────────────────────────────────────────────
 
 /// 将 ExecutorEvent 映射为 `peri/*` 自定义通知列表。
@@ -130,7 +114,7 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 /// - CompactCompleted → `notifications/peri/compact/end`
 /// - SessionEnded → `notifications/peri/session/ended`
 ///
-/// 其余事件通过 `notifications/agent_event` 由 `map_executor_event` 统一处理。
+/// 其余事件通过 `peri/agent_event` 由 `map_executor_event` 统一处理。
 pub fn map_executor_to_peri_notifications(
     event: &ExecutorEvent,
 ) -> Vec<(&'static str, serde_json::Value)> {

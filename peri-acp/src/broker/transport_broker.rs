@@ -1,7 +1,7 @@
 use agent_client_protocol::schema::{
-    Content, ContentBlock, PermissionOption, PermissionOptionKind, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
-    TextContent, ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+    PermissionOption, PermissionOptionKind, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionId, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol_schema::{
     CreateElicitationRequest, CreateElicitationResponse, ElicitationAction,
@@ -51,16 +51,12 @@ impl AcpTransportBroker {
         let mut decisions = Vec::with_capacity(items.len());
 
         for item in &items {
-            let tool_input_str = truncate_str(&item.tool_input.to_string(), 500);
             let tool_update = ToolCallUpdate::new(
                 item.tool_call_id.clone(),
                 ToolCallUpdateFields::new()
                     .title(item.tool_name.clone())
                     .status(ToolCallStatus::Pending)
-                    .raw_input(item.tool_input.clone())
-                    .content(vec![ToolCallContent::Content(Content::new(
-                        ContentBlock::Text(TextContent::new(tool_input_str)),
-                    ))]),
+                    .raw_input(item.tool_input.clone()),
             );
 
             let options = vec![
@@ -74,7 +70,7 @@ impl AcpTransportBroker {
 
             match self
                 .transport
-                .send_request("RequestPermission", params)
+                .send_request("session/request_permission", params)
                 .await
             {
                 Ok(response) => {
@@ -299,14 +295,5 @@ fn inject_option_descriptions(params: &mut serde_json::Value, requests: &[Questi
                 }
             }
         }
-    }
-}
-
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max_len);
-        format!("{}...", &s[..boundary])
     }
 }

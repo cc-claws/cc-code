@@ -92,10 +92,10 @@ impl AcpTuiClient {
             let msg = transport.recv().await;
             match msg {
                 Some(IncomingMessage::Notification { method, params }) => {
-                    if method == "notifications/agent_event" {
+                    if method == "peri/agent_event" {
                         event_count += 1;
                         let session_id = params
-                            .get("session_id")
+                            .get("sessionId")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
@@ -129,17 +129,17 @@ impl AcpTuiClient {
                                 "ACP client pump: agent_event notification missing 'event' field"
                             );
                         }
-                    } else if method == "notifications/session_update" {
+                    } else if method == "session/update" {
                         let session_id = params
-                            .get("session_id")
+                            .get("sessionId")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
                         let _ = notification_tx
                             .send(AcpNotification::SessionUpdate { session_id, params });
-                    } else if method == "notifications/agent_event_done" {
+                    } else if method == "peri/agent_event_done" {
                         let session_id = params
-                            .get("session_id")
+                            .get("sessionId")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
@@ -151,7 +151,7 @@ impl AcpTuiClient {
                         let _ = notification_tx.send(AcpNotification::AgentDone { session_id });
                     } else if method.starts_with("notifications/peri/") {
                         let session_id = params
-                            .get("session_id")
+                            .get("sessionId")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
@@ -167,7 +167,7 @@ impl AcpTuiClient {
                     }
                 }
                 Some(IncomingMessage::Request { id, method, params }) => {
-                    if method == "RequestPermission" {
+                    if method == "session/request_permission" {
                         let _ =
                             notification_tx.send(AcpNotification::RequestPermission { id, params });
                     } else if method == "elicitation/create" {
