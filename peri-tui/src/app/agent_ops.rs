@@ -58,19 +58,26 @@ impl App {
         id: RequestId,
         params: serde_json::Value,
     ) -> (bool, bool, bool) {
+        use agent_client_protocol::schema::RequestPermissionRequest;
         use tokio::sync::oneshot;
 
-        // ACP protocol serializes with camelCase: toolCall, title, rawInput
-        // ToolCallUpdate: { toolCallId, title (tool name), rawInput, status, content, ... }
-        // ToolCallUpdateFields is #[serde(flatten)] so all fields are at the same level.
-        let tool_call = params.get("toolCall").or_else(|| params.get("tool_call"));
-        let tool_name = tool_call
-            .and_then(|tc| tc.get("title").and_then(|v| v.as_str()))
-            .unwrap_or("unknown")
-            .to_string();
-        let tool_input = tool_call
-            .and_then(|tc| tc.get("rawInput").or_else(|| tc.get("raw_input")))
-            .cloned()
+        let req = match serde_json::from_value::<RequestPermissionRequest>(params) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to parse RequestPermissionRequest");
+                return (false, false, false);
+            }
+        };
+
+        let tool_name = req
+            .tool_call
+            .fields
+            .title
+            .unwrap_or_else(|| "unknown".to_string());
+        let tool_input = req
+            .tool_call
+            .fields
+            .raw_input
             .unwrap_or(serde_json::Value::Null);
 
         let batch_items = vec![BatchItem {
