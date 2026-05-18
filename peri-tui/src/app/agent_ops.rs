@@ -161,14 +161,30 @@ impl App {
             {
                 if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
                     for (prop_id, prop) in props {
-                        let options: Vec<AskUserOption> = prop
-                            .get("oneOf")
-                            .or_else(|| prop.get("one_of"))
+                        let prop_type = prop
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("string");
+                        // StringPropertySchema: options in "oneOf"
+                        // MultiSelectPropertySchema (type=array): options in "items.anyOf"
+                        let is_multi = prop_type == "array";
+                        let options_arr = if is_multi {
+                            prop.get("items").and_then(|i| i.get("anyOf"))
+                        } else {
+                            prop.get("oneOf").or_else(|| prop.get("one_of"))
+                        };
+                        let options: Vec<AskUserOption> = options_arr
                             .and_then(|o| o.as_array())
                             .map(|arr| {
                                 arr.iter()
                                     .map(|o| AskUserOption {
-                                        label: o["label"].as_str().unwrap_or("").to_string(),
+                                        // EnumOption serializes as {"const": value, "title": title}
+                                        // description is injected by ACP broker (not in EnumOption schema)
+                                        label: o["title"]
+                                            .as_str()
+                                            .or_else(|| o["const"].as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
                                         description: o["description"]
                                             .as_str()
                                             .map(|s| s.to_string()),
@@ -180,7 +196,7 @@ impl App {
                             tool_call_id: prop_id.clone(),
                             question: prop["description"].as_str().unwrap_or("").to_string(),
                             header: prop["title"].as_str().unwrap_or("").to_string(),
-                            multi_select: false,
+                            multi_select: is_multi,
                             options,
                         });
                     }

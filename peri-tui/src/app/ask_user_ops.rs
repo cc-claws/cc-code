@@ -111,6 +111,68 @@ impl App {
                     .view_messages
                     .push(vm);
                 self.render_rebuild();
+
+                // ACP 模式：通过 transport 回传结构化响应
+                let acp_request_id = self.session_mgr.sessions[self.session_mgr.active]
+                    .agent
+                    .pending_acp_request_id
+                    .take();
+                if let Some(request_id) = acp_request_id {
+                    let acp_client = match self.acp_client {
+                        Some(ref c) => c.clone(),
+                        None => {
+                            p.confirm();
+                            return;
+                        }
+                    };
+                    // Build CreateElicitationResponse: { action: "accept", content: { prop_id: value } }
+                    let content: serde_json::Map<String, serde_json::Value> = p
+                        .questions
+                        .iter()
+                        .map(|q| {
+                            let selected_labels: Vec<String> = q
+                                .selected
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, &v)| v)
+                                .map(|(i, _)| q.data.options[i].label.clone())
+                                .collect();
+                            let value = if q.data.multi_select {
+                                serde_json::Value::Array(
+                                    selected_labels
+                                        .into_iter()
+                                        .map(serde_json::Value::String)
+                                        .collect(),
+                                )
+                            } else {
+                                let text = selected_labels
+                                    .into_iter()
+                                    .next()
+                                    .or_else(|| {
+                                        let s = q.custom_input.trim().to_string();
+                                        if s.is_empty() {
+                                            None
+                                        } else {
+                                            Some(s)
+                                        }
+                                    })
+                                    .unwrap_or_default();
+                                serde_json::Value::String(text)
+                            };
+                            (q.data.tool_call_id.clone(), value)
+                        })
+                        .collect();
+                    let response = serde_json::json!({
+                        "action": "accept",
+                        "content": content
+                    });
+                    tokio::spawn(async move {
+                        if let Err(e) = acp_client.send_response(request_id, Ok(response)).await {
+                            tracing::error!(error = %e, "ACP elicitation response send failed");
+                        }
+                    });
+                }
+
                 p.confirm();
             }
         }

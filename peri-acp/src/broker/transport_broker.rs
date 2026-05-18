@@ -141,7 +141,11 @@ impl AcpTransportBroker {
         let form_mode = ElicitationFormMode::new(scope, schema);
         let request =
             CreateElicitationRequest::new(form_mode, "Please provide the requested information");
-        let params = serde_json::to_value(&request).unwrap_or_default();
+        let mut params = serde_json::to_value(&request).unwrap_or_default();
+
+        // EnumOption only has const+title, no description field.
+        // Inject description into each option's JSON so the TUI can read it.
+        inject_option_descriptions(&mut params, &requests);
 
         match self
             .transport
@@ -253,6 +257,49 @@ fn empty_answers(requests: Vec<QuestionItem>) -> Vec<QuestionAnswer> {
             text: Some(String::new()),
         })
         .collect()
+}
+
+/// Inject `description` from `QuestionOption` into the serialized JSON's
+/// `oneOf`/`anyOf` arrays. `EnumOption` (external crate) only has `const` + `title`,
+/// so we patch the JSON value post-serialization.
+fn inject_option_descriptions(params: &mut serde_json::Value, requests: &[QuestionItem]) {
+    let Some(props) = params
+        .get_mut("requestedSchema")
+        .and_then(|s| s.get_mut("properties"))
+        .and_then(|p| p.as_object_mut())
+    else {
+        return;
+    };
+
+    for q in requests {
+        if q.options.is_empty() {
+            continue;
+        }
+        let Some(prop) = props.get_mut(&q.id) else {
+            continue;
+        };
+        let key = if prop.get("type").and_then(|t| t.as_str()) == Some("array") {
+            "anyOf" // MultiSelectPropertySchema: items.anyOf
+        } else {
+            "oneOf" // StringPropertySchema: oneOf
+        };
+        // For array type, options are nested under "items"
+        let container = if key == "anyOf" {
+            prop.get_mut("items").map(|i| i.as_object_mut()).flatten()
+        } else {
+            prop.as_object_mut()
+        };
+        let Some(container) = container else {
+            continue;
+        };
+        if let Some(arr) = container.get_mut(key).and_then(|v| v.as_array_mut()) {
+            for (opt_json, opt_data) in arr.iter_mut().zip(q.options.iter()) {
+                if let Some(desc) = &opt_data.description {
+                    opt_json["description"] = serde_json::Value::String(desc.clone());
+                }
+            }
+        }
+    }
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {
