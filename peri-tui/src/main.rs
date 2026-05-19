@@ -336,17 +336,14 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
     use agent_client_protocol::schema::{
         AgentCapabilities, CancelNotification, InitializeRequest, InitializeResponse,
         NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, ProtocolVersion,
-        SessionId, SessionNotification, SetSessionConfigOptionRequest,
-        SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
-        SetSessionModelRequest, SetSessionModelResponse, StopReason,
+        SessionId, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+        SetSessionModeRequest, SetSessionModeResponse, SetSessionModelRequest,
+        SetSessionModelResponse, StopReason,
     };
     use agent_client_protocol::{Agent, Client, ConnectionTo};
     use agent_client_protocol_tokio::Stdio;
-    use peri_acp::event::map_executor_to_updates;
-    use peri_acp::prompt::{build_system_prompt, PromptFeatures};
-    use peri_agent::agent::events::{AgentEventHandler, FnEventHandler};
-    use peri_agent::agent::react::AgentInput;
-    use peri_agent::agent::state::AgentState;
+    use peri_acp::session::event_sink::StdioEventSink;
+    use peri_acp::session::executor;
     use peri_agent::agent::AgentCancellationToken;
 
     let ctx_clone = ctx.clone();
@@ -419,10 +416,10 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                         }
                     }).collect::<Vec<&str>>().join("");
 
-                    let (agent_cwd, is_empty_history) = {
+                    let (agent_cwd, history, is_empty_history) = {
                         let sessions = ctx.sessions.read();
                         match sessions.get(&sid) {
-                            Some(s) => (s.cwd.clone(), s.history.is_empty()),
+                            Some(s) => (s.cwd.clone(), s.history.clone(), s.history.is_empty()),
                             None => {
                                 let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
                                 return Ok(());
@@ -430,8 +427,6 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                         }
                     };
 
-                    let agent_input = AgentInput::text(content);
-                    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<peri_agent::agent::events::AgentEvent>();
                     let cancel = AgentCancellationToken::new();
                     {
                         let mut sessions = ctx.sessions.write();
@@ -440,72 +435,41 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                         }
                     }
 
-                    let event_handler: Arc<dyn AgentEventHandler> =
-                        Arc::new(FnEventHandler(move |event| {
-                            let _ = event_tx.send(event);
-                        }));
-
-                    let features = PromptFeatures::detect();
-                    let system_prompt = build_system_prompt(None, &agent_cwd, features, &ctx.plugin_agent_dirs);
-                    let context_window = ctx.provider.read().context_window();
-
                     let broker: Arc<dyn peri_agent::interaction::UserInteractionBroker> =
                         Arc::new(StdioBroker::new());
 
+                    let event_sink = Arc::new(StdioEventSink::new(cx, req.session_id.clone()));
                     let provider_snapshot = ctx.provider.read().clone();
-                    let peri_config_snapshot = ctx.peri_config.read().clone();
-                    let agent_output = acp_server::build_agent_bridge(
+                    let peri_config_snapshot = Arc::new(ctx.peri_config.read().clone());
+
+                    let result = executor::execute_prompt(
                         &provider_snapshot,
+                        peri_config_snapshot,
                         &agent_cwd,
-                        system_prompt,
-                        event_handler,
-                        cancel.clone(),
+                        content,
+                        history,
+                        is_empty_history,
                         ctx.permission_mode.clone(),
-                        Arc::new(peri_config_snapshot),
-                        Some(ctx.cron_scheduler.clone()),
-                        sid.clone(),
+                        event_sink,
+                        cancel,
                         broker,
                         ctx.plugin_skill_dirs.clone(),
                         ctx.plugin_agent_dirs.clone(),
                         ctx.hook_groups.clone(),
-                        is_empty_history,
+                        Some(ctx.cron_scheduler.clone()),
+                        sid.clone(),
                         ctx.mcp_pool.clone(),
                         ctx.tool_search_index.clone(),
                         ctx.shared_tools.clone(),
                         ctx.plugin_lsp_servers.clone(),
-                    );
+                    )
+                    .await;
 
-                    // Pump events → SessionNotification
-                    let sid_for_pump = SessionId::new(&*sid);
-                    let cx_clone = cx.clone();
-                    let (pump_done_tx, pump_done_rx) = tokio::sync::oneshot::channel();
-                    tokio::spawn(async move {
-                        while let Some(exec_event) = event_rx.recv().await {
-                            let updates = map_executor_to_updates(&exec_event, context_window);
-                            for update in updates {
-                                let notif = SessionNotification::new(sid_for_pump.clone(), update);
-                                if let Err(e) = cx_clone.send_notification(notif) {
-                                    tracing::error!(error = %e, "Failed to send SessionNotification");
-                                    break;
-                                }
-                            }
-                        }
-                        let _ = pump_done_tx.send(());
-                    });
-
-                    let mut agent_state = AgentState::with_messages(agent_cwd, {
-                        let sessions = ctx.sessions.read();
-                        sessions.get(&sid).map(|s| s.history.clone()).unwrap_or_default()
-                    });
-                    let result = agent_output.executor.execute(agent_input, &mut agent_state, Some(cancel)).await;
-                    drop(agent_output);
-
-                    let _ = pump_done_rx.await;
-
-                    if result.is_ok() {
+                    {
                         let mut sessions = ctx.sessions.write();
                         if let Some(s) = sessions.get_mut(&sid) {
-                            s.history = agent_state.into_messages();
+                            s.history = result.messages;
+                            s.cancel_token = None;
                         }
                     }
 

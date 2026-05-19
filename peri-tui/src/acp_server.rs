@@ -404,54 +404,6 @@ async fn execute_prompt(
     serde_json::to_value(resp).map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
 }
 
-// ── Bridge: convert TUI types → peri-acp types for build_agent ───────────────
-
-#[allow(clippy::too_many_arguments)]
-pub fn build_agent_bridge(
-    provider: &LlmProvider,
-    cwd: &str,
-    system_prompt: String,
-    event_handler: Arc<dyn AgentEventHandler>,
-    cancel: AgentCancellationToken,
-    permission_mode: Arc<SharedPermissionMode>,
-    peri_config: Arc<PeriConfig>,
-    cron_scheduler: Option<Arc<parking_lot::Mutex<CronScheduler>>>,
-    session_id: String,
-    broker: Arc<dyn peri_agent::interaction::UserInteractionBroker>,
-    plugin_skill_dirs: Vec<std::path::PathBuf>,
-    plugin_agent_dirs: Vec<std::path::PathBuf>,
-    hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>>,
-    hook_session_start: bool,
-    mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
-    tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
-    shared_tools: Arc<RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
-    lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
-) -> peri_acp::agent::builder::AcpAgentOutput {
-    peri_acp::agent::builder::build_agent(peri_acp::agent::builder::AcpAgentConfig {
-        provider: provider.clone(),
-        cwd: cwd.to_string(),
-        system_prompt,
-        event_handler,
-        cancel,
-        permission_mode,
-        peri_config,
-        cron_scheduler,
-        agent_overrides: None,
-        preload_skills: Vec::new(),
-        session_id: Some(session_id),
-        broker,
-        plugin_skill_dirs,
-        plugin_agent_dirs,
-        hook_groups,
-        hook_session_start,
-        mcp_pool,
-        tool_search_index,
-        shared_tools,
-        child_handler_factory: None,
-        lsp_servers,
-    })
-}
-
 // ── ACP standard state builders ────────────────────────────────────────────────
 
 pub fn parse_permission_mode(mode_id: &str) -> PermissionMode {

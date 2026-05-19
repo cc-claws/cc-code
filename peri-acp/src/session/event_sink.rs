@@ -12,6 +12,10 @@ use tracing::{debug, error};
 use crate::event::{map_executor_to_peri_notifications, map_executor_to_updates};
 use crate::transport::AcpTransport;
 
+// Re-export SDK types used by StdioEventSink.
+pub use agent_client_protocol::schema::{SessionId as SdkSessionId, SessionNotification};
+pub use agent_client_protocol::{Client, ConnectionTo};
+
 /// Receives [`ExecutorEvent`]s produced during agent execution and routes them
 /// to the appropriate transport.
 #[async_trait]
@@ -101,5 +105,41 @@ impl EventSink for TransportEventSink {
         {
             error!(session_id = %session_id, error = %e, "EventSink: agent_event_done send failed")
         }
+    }
+}
+
+// ── SDK-backed EventSink for stdio path ─────────────────────────────────────
+
+/// [`EventSink`] backed by the SDK's [`ConnectionTo<Client>`].
+///
+/// Sends standard ACP `session/update` notifications only (no `peri/*` custom
+/// notifications — those are TUI-specific). Used by the stdio `peri acp` mode
+/// which communicates with external IDE clients via the agent-client-protocol SDK.
+pub struct StdioEventSink {
+    cx: ConnectionTo<Client>,
+    session_id: SdkSessionId,
+}
+
+impl StdioEventSink {
+    pub fn new(cx: ConnectionTo<Client>, session_id: SdkSessionId) -> Self {
+        Self { cx, session_id }
+    }
+}
+
+#[async_trait]
+impl EventSink for StdioEventSink {
+    async fn push_event(&self, _session_id: &str, event: &ExecutorEvent, context_window: u32) {
+        let updates = map_executor_to_updates(event, context_window);
+        for update in updates {
+            let notif = SessionNotification::new(self.session_id.clone(), update);
+            if let Err(e) = self.cx.send_notification(notif) {
+                error!(error = %e, "StdioEventSink: failed to send SessionNotification");
+                break;
+            }
+        }
+    }
+
+    async fn push_done(&self, _session_id: &str) {
+        // No explicit done signal in standard ACP protocol.
     }
 }
