@@ -3,6 +3,8 @@
 //! Manages ACP session creation, loading, resumption, and closure.
 //! Each session owns a ThreadStore entry, an Agent instance, and associated state.
 
+pub mod event_sink;
+
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 

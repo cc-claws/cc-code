@@ -1249,7 +1249,7 @@ mod setup_wizard_e2e {
     async fn test_needs_setup_triggers_for_empty_config() {
         let (app, _handle) = App::new_headless(120, 30).await;
         assert!(app.services.peri_config.is_none());
-        let empty_cfg = crate::config::types::PeriConfig::default();
+        let empty_cfg = crate::config::PeriConfig::default();
         assert!(needs_setup(&empty_cfg.config));
     }
 
@@ -1742,7 +1742,7 @@ async fn test_get_compact_config_default() {
 #[tokio::test]
 async fn test_get_compact_config_from_settings() {
     let (mut app, _handle) = App::new_headless(120, 30).await;
-    let mut zen = crate::config::types::PeriConfig::default();
+    let mut zen = crate::config::PeriConfig::default();
     zen.config.compact = Some(peri_agent::agent::CompactConfig {
         auto_compact_threshold: 0.9,
         ..Default::default()
@@ -2521,7 +2521,7 @@ fn test_subagent_group_error_red_title_and_summary() {
 #[tokio::test]
 async fn test_model_panel_space_selects_model() {
     use crate::app::model_panel::{AliasTab, ModelPanel, ROW_SONNET};
-    use crate::config::types::AppConfig;
+    use crate::config::AppConfig;
     use crate::config::{PeriConfig, ProviderConfig, ThinkingConfig};
 
     let cfg = PeriConfig {
@@ -2667,7 +2667,7 @@ async fn test_cron_panel_confirm_delete_renders() {
 #[tokio::test]
 async fn test_model_panel_confirm_shows_feedback() {
     use crate::app::model_panel::{AliasTab, ModelPanel};
-    use crate::config::types::AppConfig;
+    use crate::config::AppConfig;
     use crate::config::{PeriConfig, ProviderConfig, ThinkingConfig};
 
     let (mut app, _handle) = App::new_headless(120, 30).await;
@@ -2730,7 +2730,7 @@ async fn test_model_panel_confirm_shows_feedback() {
 #[tokio::test]
 async fn test_login_select_provider_shows_feedback() {
     use crate::app::login_panel::LoginPanel;
-    use crate::config::types::AppConfig;
+    use crate::config::AppConfig;
     use crate::config::{PeriConfig, ProviderConfig};
 
     let (mut app, _handle) = App::new_headless(120, 30).await;

@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::types::{AppConfig, ProviderConfig};
+use crate::config::{AppConfig, ProviderConfig};
 
 #[test]
 fn test_needs_setup_empty_providers() {

@@ -208,6 +208,7 @@ fn test_provider_config_models_serde_roundtrip() {
             sonnet: "claude-sonnet-4-6".to_string(),
             haiku: "claude-haiku-4-5".to_string(),
         },
+        thinking: None,
         extra: Default::default(),
     };
     let json = serde_json::to_string(&p).unwrap();

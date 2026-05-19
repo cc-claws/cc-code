@@ -257,35 +257,44 @@ impl PanelComponent for ModelPanel {
             } => {
                 if self.cursor() == ROW_MAX_TOKENS {
                     self.cycle_max_tokens(false);
+                    EventResult::Consumed
                 } else if self.cursor() == ROW_1M_CONTEXT {
                     self.buf_context_1m = !self.buf_context_1m;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
                 } else {
                     self.cycle_effort(false);
+                    EventResult::Consumed
                 }
-                EventResult::Consumed
             }
             // ←/→: 随时切换 effort 等级或 max_tokens 或 1M 上下文
             Input { key: Key::Left, .. } => {
                 if self.cursor() == ROW_MAX_TOKENS {
                     self.cycle_max_tokens(true);
+                    EventResult::Consumed
                 } else if self.cursor() == ROW_1M_CONTEXT {
                     self.buf_context_1m = !self.buf_context_1m;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
                 } else {
                     self.cycle_effort(true);
+                    EventResult::Consumed
                 }
-                EventResult::Consumed
             }
             Input {
                 key: Key::Right, ..
             } => {
                 if self.cursor() == ROW_MAX_TOKENS {
                     self.cycle_max_tokens(false);
+                    EventResult::Consumed
                 } else if self.cursor() == ROW_1M_CONTEXT {
                     self.buf_context_1m = !self.buf_context_1m;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
                 } else {
                     self.cycle_effort(false);
+                    EventResult::Consumed
                 }
-                EventResult::Consumed
             }
             _ => EventResult::Consumed,
         }

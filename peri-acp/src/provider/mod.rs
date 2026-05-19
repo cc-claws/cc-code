@@ -5,8 +5,7 @@
 
 pub mod config;
 
-pub use config::PeriConfig;
-use config::ThinkingConfig;
+pub use config::{AppConfig, PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig};
 use peri_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
 
 #[derive(Clone)]

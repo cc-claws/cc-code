@@ -1,4 +1,4 @@
-use super::types::PeriConfig;
+use super::PeriConfig;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 

@@ -6,7 +6,7 @@ use super::{
 };
 
 /// 检测配置是否需要 Setup 向导
-pub fn needs_setup(config: &crate::config::types::AppConfig) -> bool {
+pub fn needs_setup(config: &crate::config::AppConfig) -> bool {
     if config.providers.is_empty() {
         return true;
     }
@@ -351,12 +351,12 @@ pub fn build_wizard_config(wizard: &SetupWizardPanel) -> crate::config::PeriConf
         if mp.provider_id.trim().is_empty() || mp.api_key.trim().is_empty() {
             continue;
         }
-        let provider = crate::config::types::ProviderConfig {
+        let provider = crate::config::ProviderConfig {
             id: mp.provider_id.clone(),
             provider_type: mp.provider_type.type_str().to_string(),
             api_key: mp.api_key.clone(),
             base_url: mp.base_url.clone(),
-            models: crate::config::types::ProviderModels {
+            models: crate::config::ProviderModels {
                 opus: mp.aliases[0].model_id.clone(),
                 sonnet: mp.aliases[1].model_id.clone(),
                 haiku: mp.aliases[2].model_id.clone(),

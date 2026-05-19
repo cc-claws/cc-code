@@ -342,6 +342,7 @@ impl LoginPanel {
                 sonnet: self.buf_sonnet_model.clone(),
                 haiku: self.buf_haiku_model.clone(),
             },
+            thinking: None,
             extra: Default::default(),
         };
 

@@ -543,26 +543,14 @@ pub fn build_agent_bridge(
     shared_tools: Arc<RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
     lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
 ) -> peri_acp::agent::builder::AcpAgentOutput {
-    let acp_provider = convert_provider(provider);
-
-    let acp_peri_config = Arc::new(peri_acp::provider::config::PeriConfig {
-        config: peri_acp::provider::config::AppConfig {
-            claude_md_excludes: peri_config.config.claude_md_excludes.clone(),
-            context_1m: peri_config.config.context_1m,
-            compact: peri_config.config.compact.clone(),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-
     peri_acp::agent::builder::build_agent(peri_acp::agent::builder::AcpAgentConfig {
-        provider: acp_provider,
+        provider: provider.clone(),
         cwd: cwd.to_string(),
         system_prompt,
         event_handler,
         cancel,
         permission_mode,
-        peri_config: acp_peri_config,
+        peri_config,
         cron_scheduler,
         agent_overrides: None,
         preload_skills: Vec::new(),
@@ -578,42 +566,6 @@ pub fn build_agent_bridge(
         child_handler_factory: None,
         lsp_servers,
     })
-}
-
-fn convert_provider(p: &LlmProvider) -> peri_acp::provider::LlmProvider {
-    let convert_thinking = |t: &Option<crate::config::ThinkingConfig>| {
-        t.as_ref()
-            .map(|t| peri_acp::provider::config::ThinkingConfig {
-                enabled: t.enabled,
-                budget_tokens: t.budget_tokens,
-                effort: t.effort.clone(),
-                max_tokens: t.max_tokens,
-            })
-    };
-    match p {
-        LlmProvider::OpenAi {
-            api_key,
-            base_url,
-            model,
-            thinking,
-        } => peri_acp::provider::LlmProvider::OpenAi {
-            api_key: api_key.clone(),
-            base_url: base_url.clone(),
-            model: model.clone(),
-            thinking: convert_thinking(thinking),
-        },
-        LlmProvider::Anthropic {
-            api_key,
-            model,
-            base_url,
-            thinking,
-        } => peri_acp::provider::LlmProvider::Anthropic {
-            api_key: api_key.clone(),
-            model: model.clone(),
-            base_url: base_url.clone(),
-            thinking: convert_thinking(thinking),
-        },
-    }
 }
 
 // ── ACP standard state builders ────────────────────────────────────────────────

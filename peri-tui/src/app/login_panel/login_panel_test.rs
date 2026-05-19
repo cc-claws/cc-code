@@ -14,6 +14,7 @@ fn make_test_config() -> PeriConfig {
             sonnet: "claude-sonnet-4-6".to_string(),
             haiku: "claude-haiku-4-5".to_string(),
         },
+        thinking: None,
         extra: Default::default(),
     });
     cfg.config.providers.push(ProviderConfig {
@@ -27,6 +28,7 @@ fn make_test_config() -> PeriConfig {
             sonnet: "gpt-4o-mini".to_string(),
             haiku: "gpt-3.5-turbo".to_string(),
         },
+        thinking: None,
         extra: Default::default(),
     });
     cfg
