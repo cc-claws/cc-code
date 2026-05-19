@@ -25,6 +25,11 @@ pub struct TokenTracker {
 impl TokenTracker {
     pub fn accumulate(&mut self, usage: &TokenUsage) {
         self.request_history.push(RequestRecord::from_usage(usage));
+        // 防止长时间会话中 request_history 无限增长
+        if self.request_history.len() > 1000 {
+            let excess = self.request_history.len() - 1000;
+            self.request_history.drain(0..excess);
+        }
         self.total_input_tokens += usage.input_tokens as u64;
         self.total_output_tokens += usage.output_tokens as u64;
         if let Some(v) = usage.cache_creation_input_tokens {

@@ -60,13 +60,18 @@ impl BackgroundTaskRegistry {
 
     /// 任务完成时调用：更新状态 + 推送通知
     pub fn complete(&self, task_id: &str, result: BackgroundTaskResult) {
-        if let Some(task) = self.tasks.lock().get_mut(task_id) {
+        // 持锁：更新状态 + 清理所有非 Running 任务，防止 JoinHandle 长期驻留内存
+        let mut tasks = self.tasks.lock();
+        if let Some(task) = tasks.get_mut(task_id) {
             task.status = if result.success {
                 BackgroundTaskStatus::Completed
             } else {
                 BackgroundTaskStatus::Failed
             };
         }
+        tasks.retain(|_, t| matches!(t.status, BackgroundTaskStatus::Running));
+        drop(tasks);
+
         if self.notification_tx.send(result).is_err() {
             warn!(
                 task_id = %task_id,

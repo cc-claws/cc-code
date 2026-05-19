@@ -447,3 +447,26 @@ fn test_reset_clears_history() {
     tracker.reset();
     assert!(tracker.request_history.is_empty());
 }
+
+#[test]
+fn test_request_history_capped_at_1000() {
+    let mut tracker = TokenTracker::default();
+    // 推入 1500 条记录
+    for i in 0..1500u32 {
+        tracker.accumulate(&make_usage(i, i / 2, None, None));
+    }
+    // request_history 不应超过 1000 条
+    assert_eq!(tracker.request_history.len(), 1000);
+    // 保留的应是最新的 1000 条（idx 500..1499）
+    assert_eq!(tracker.request_history[0].input_tokens, 500);
+    assert_eq!(tracker.request_history[999].input_tokens, 1499);
+    // 累计值不受裁剪影响
+    let expected_total_input: u64 = (0..1500u64).sum();
+    assert_eq!(
+        tracker.total_input_tokens, expected_total_input,
+        "累计值不受 history 裁剪影响"
+    );
+    assert_eq!(tracker.llm_call_count, 1500);
+    // last_usage 应为最后一次调用
+    assert_eq!(tracker.estimated_context_tokens(), Some(1499));
+}

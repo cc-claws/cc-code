@@ -58,10 +58,9 @@
 
         registry.complete("bg-1", result);
 
-        // 任务状态应变为 Completed
+        // 已完成任务应被立即清理，list_tasks 不再返回
         let tasks = registry.list_tasks();
-        assert_eq!(tasks.len(), 1);
-        assert!(matches!(tasks[0].1, BackgroundTaskStatus::Completed));
+        assert_eq!(tasks.len(), 0, "completed tasks should be cleaned up immediately");
         assert_eq!(registry.active_count(), 0);
 
         // 通知应已发送
