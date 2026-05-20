@@ -1,7 +1,7 @@
 use ratatui::{
     layout::Rect,
-    style::Style,
-    text::Text,
+    style::{Modifier, Style},
+    text::{Span, Text},
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
@@ -16,6 +16,19 @@ pub fn unified_vertical_scrollbar() -> Scrollbar<'static> {
         .begin_symbol(None)
         .end_symbol(None)
         .track_symbol(None)
+}
+
+/// 滚动条几何信息，供事件循环进行鼠标交互
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollbarMetrics {
+    /// 滚动条列区域（宽 1，面板全高）
+    pub bar_area: Rect,
+    /// 最大滚动偏移量
+    pub max_offset: u16,
+    /// ▲ 按钮区域（offset > 0 时显示）
+    pub up_btn_area: Option<Rect>,
+    /// ▼ 按钮区域（offset < max_offset 时显示）
+    pub down_btn_area: Option<Rect>,
 }
 
 /// 滚动偏移状态
@@ -109,7 +122,12 @@ impl<'a> ScrollableArea<'a> {
     ///
     /// 自动根据内容高度和可见高度决定是否显示滚动条。
     /// 内容区域宽度减 1 留给滚动条（当 scrollbar 显示时）。
-    pub fn render(self, f: &mut Frame, area: Rect, state: &mut ScrollState) {
+    pub fn render(
+        self,
+        f: &mut Frame,
+        area: Rect,
+        state: &mut ScrollState,
+    ) -> Option<ScrollbarMetrics> {
         let content_height = self.content.height() as u16;
         let visible_height = area.height;
         let max_scroll = content_height.saturating_sub(visible_height);
@@ -133,6 +151,13 @@ impl<'a> ScrollableArea<'a> {
         f.render_widget(paragraph, text_area);
 
         if needs_scrollbar {
+            let bar_area = Rect {
+                x: area.right().saturating_sub(1),
+                y: area.y,
+                width: 1,
+                height: area.height,
+            };
+
             let viewport = if let Some(max_thumb) = self.max_thumb_length {
                 visible_height.min(max_thumb)
             } else {
@@ -143,6 +168,51 @@ impl<'a> ScrollableArea<'a> {
                 .position(state.offset as usize);
             let scrollbar = unified_vertical_scrollbar().style(self.scrollbar_style);
             f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+
+            // ▲ 按钮（offset > 0 时显示）
+            let up_btn_area = if state.offset > 0 {
+                let btn = Rect {
+                    x: bar_area.x,
+                    y: bar_area.y,
+                    width: 1,
+                    height: 1,
+                };
+                let arrow = Paragraph::new(Text::from(Span::styled(
+                    "▲",
+                    self.scrollbar_style.add_modifier(Modifier::BOLD),
+                )));
+                f.render_widget(arrow, btn);
+                Some(btn)
+            } else {
+                None
+            };
+
+            // ▼ 按钮（offset < max_scroll 时显示）
+            let down_btn_area = if state.offset < max_scroll && bar_area.height > 1 {
+                let btn = Rect {
+                    x: bar_area.x,
+                    y: bar_area.bottom().saturating_sub(1),
+                    width: 1,
+                    height: 1,
+                };
+                let arrow = Paragraph::new(Text::from(Span::styled(
+                    "▼",
+                    self.scrollbar_style.add_modifier(Modifier::BOLD),
+                )));
+                f.render_widget(arrow, btn);
+                Some(btn)
+            } else {
+                None
+            };
+
+            Some(ScrollbarMetrics {
+                bar_area,
+                max_offset: max_scroll,
+                up_btn_area,
+                down_btn_area,
+            })
+        } else {
+            None
         }
     }
 }
