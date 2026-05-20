@@ -219,12 +219,16 @@ impl CompactMiddleware {
         let files = Self::extract_file_info(&re_inject_result.messages);
         let skills = Self::extract_skill_names(&re_inject_result.messages);
 
-        // Build new messages: system(summary) + re_injected + continuation prompt
-        let mut new_messages = vec![BaseMessage::system(compact_result.summary.clone())];
+        // 摘要作为 Human 消息（与 Claude Code 实现对齐）。
+        // 原因：LLM 适配器将 System 消息提取到 system 字段，不进入 messages 数组。
+        // 若摘要为 System 类型，compact 后 messages 数组可能只有 system 角色消息，
+        // DeepSeek/OpenAI 兼容 API 要求至少一条 user/assistant 消息，否则返回 400。
+        let summary_content = format!(
+            "{}\n\n[上下文已压缩，请根据摘要继续工作]",
+            compact_result.summary
+        );
+        let mut new_messages = vec![BaseMessage::human(summary_content)];
         new_messages.extend(re_inject_result.messages.clone());
-        // compact 后消息全是 System 类型，LLM API（DeepSeek/OpenAI）要求至少一条
-        // 非 system 消息，否则返回 400。追加 continuation prompt 让 LLM 继续工作。
-        new_messages.push(BaseMessage::human("[上下文已压缩，请根据摘要继续工作]"));
 
         self.send_event(ExecutorEvent::CompactCompleted {
             summary: compact_result.summary.clone(),
