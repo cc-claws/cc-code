@@ -104,10 +104,13 @@ pub(crate) async fn execute_compact(
     let files = extract_file_info(&re_inject_result.messages);
     let skills = extract_skill_names(&re_inject_result.messages);
 
-    // 构建新消息
-    let mut new_messages = vec![BaseMessage::system(compact_result.summary.clone())];
+    // 摘要作为 Human 消息（与 auto-compact 路径和 Claude Code 实现对齐）
+    let summary_content = format!(
+        "{}\n\n[上下文已压缩，请根据摘要继续工作]",
+        compact_result.summary
+    );
+    let mut new_messages = vec![BaseMessage::human(summary_content)];
     new_messages.extend(re_inject_result.messages.clone());
-    new_messages.push(BaseMessage::human("[上下文已压缩，请根据摘要继续工作]"));
 
     // 发送 CompactCompleted 事件
     event_sink
