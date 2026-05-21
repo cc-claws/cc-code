@@ -67,6 +67,7 @@ impl App {
                 self.services.model_name = p.model_name().to_string();
             }
         }
+        self.services.sync_peri_config_to_acp();
         self.session_mgr.sessions[self.session_mgr.active]
             .session_panels
             .close_if(PanelKind::Model);

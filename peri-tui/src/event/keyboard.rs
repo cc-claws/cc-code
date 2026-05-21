@@ -52,6 +52,7 @@ pub fn handle_key_event(
                 app.services.provider_name = p.display_name().to_string();
                 app.services.model_name = p.model_name().to_string();
             }
+            app.services.sync_peri_config_to_acp();
             app.global_ui.model_highlight_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
         }

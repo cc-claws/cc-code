@@ -172,6 +172,8 @@ impl App {
                 service_registry::ProcessResourceMonitor::new(),
             ),
             lc,
+            acp_peri_config: None,
+            acp_provider: None,
         };
 
         Self {
@@ -539,6 +541,8 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
+        // 同步到 ACP Server，确保 Agent 构建时能读取最新的 API key
+        self.services.sync_peri_config_to_acp();
     }
 
     pub fn get_compact_config(&self) -> peri_agent::agent::CompactConfig {

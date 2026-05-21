@@ -616,6 +616,11 @@ async fn run_app(
                 thread_store: app.services.thread_store.clone(),
             };
 
+            // Store shared Arc references so config changes (setup wizard,
+            // login panel, model panel) can be synced into the ACP server.
+            app.services.acp_provider = Some(server_config.provider.clone());
+            app.services.acp_peri_config = Some(server_config.peri_config.clone());
+
             let (client_transport, server_transport) = mpsc_transport_pair();
             tokio::spawn(async move {
                 run_acp_server(Arc::new(server_transport), server_config).await;

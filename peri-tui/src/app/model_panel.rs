@@ -402,6 +402,8 @@ impl ModelPanel {
                     .context_window = cw;
             }
         }
+
+        ctx.services.sync_peri_config_to_acp();
     }
 
     /// 即时应用 1M 上下文开关（不关闭面板）
@@ -438,6 +440,8 @@ impl ModelPanel {
                     .context_window = cw;
             }
         }
+
+        ctx.services.sync_peri_config_to_acp();
     }
 }
 

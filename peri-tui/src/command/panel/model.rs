@@ -32,6 +32,7 @@ impl Command for ModelCommand {
                     app.services.provider_name = p.display_name().to_string();
                     app.services.model_name = p.model_name().to_string();
                 }
+                app.services.sync_peri_config_to_acp();
             }
             _ => {
                 app.open_model_panel();

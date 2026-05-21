@@ -71,4 +71,27 @@ pub struct ServiceRegistry {
     pub resource_monitor: parking_lot::Mutex<ProcessResourceMonitor>,
     /// i18n 语言注册表（跨 session 共享）
     pub lc: crate::i18n::LcRegistry,
+    /// ACP Server 的 PeriConfig Arc（与 ACP Server 共享引用，setup/面板修改后需同步写入）
+    pub acp_peri_config: Option<Arc<parking_lot::RwLock<PeriConfig>>>,
+    /// ACP Server 的 LlmProvider Arc（与 ACP Server 共享引用，setup/面板修改后需同步写入）
+    pub acp_provider: Option<Arc<parking_lot::RwLock<crate::app::agent::LlmProvider>>>,
+}
+
+impl ServiceRegistry {
+    /// 将当前 TUI 侧的 peri_config / provider 同步写入 ACP Server 持有的 Arc 副本。
+    ///
+    /// 调用时机：任意修改 peri_config 或切换 provider 后（setup 向导保存、login 面板、
+    /// model 面板等路径）。
+    pub fn sync_peri_config_to_acp(&mut self) {
+        if let Some(ref cfg) = self.peri_config {
+            if let Some(ref acp_cfg) = self.acp_peri_config {
+                *acp_cfg.write() = cfg.clone();
+            }
+            if let Some(ref acp_provider) = self.acp_provider {
+                if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
+                    *acp_provider.write() = p;
+                }
+            }
+        }
+    }
 }

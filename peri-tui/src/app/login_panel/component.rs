@@ -62,6 +62,7 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
+                    ctx.services.sync_peri_config_to_acp();
                     EventResult::ClosePanel
                 }
                 Input {
@@ -206,6 +207,7 @@ impl PanelComponent for LoginPanel {
                             ctx.services.provider_name = p.display_name().to_string();
                             ctx.services.model_name = p.model_name().to_string();
                         }
+                        ctx.services.sync_peri_config_to_acp();
                         EventResult::ClosePanel
                     }
                     _ => {
@@ -253,6 +255,7 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
+                    ctx.services.sync_peri_config_to_acp();
                     EventResult::Consumed
                 }
                 Input { key: Key::Esc, .. } => {

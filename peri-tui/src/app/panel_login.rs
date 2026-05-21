@@ -55,6 +55,7 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
+        self.services.sync_peri_config_to_acp();
         self.close_login_panel();
     }
 
@@ -113,6 +114,7 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
+        self.services.sync_peri_config_to_acp();
         self.close_login_panel();
     }
 
@@ -155,5 +157,6 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
+        self.services.sync_peri_config_to_acp();
     }
 }

@@ -48,6 +48,7 @@ impl Command for EffortCommand {
                     .messages
                     .view_messages
                     .push(vm);
+                app.services.sync_peri_config_to_acp();
                 app.render_rebuild();
             }
             _ => {
