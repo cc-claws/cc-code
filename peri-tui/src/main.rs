@@ -22,6 +22,7 @@ use peri_tui::ui;
 use std::sync::Arc;
 
 mod acp_stdio;
+mod cli_args;
 
 // ─── CLI 定义 ──────────────────────────────────────────────────────────────
 
