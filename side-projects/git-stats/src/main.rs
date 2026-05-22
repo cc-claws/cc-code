@@ -1,4 +1,5 @@
 mod commit;
+mod git;
 
 use clap::Parser;
 
