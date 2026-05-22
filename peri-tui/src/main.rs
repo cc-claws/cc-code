@@ -614,6 +614,16 @@ async fn run_app(
                 tool_search_index: tool_search_index.clone(),
                 shared_tools: shared_tools.clone(),
                 thread_store: app.services.thread_store.clone(),
+                langfuse_session: {
+                    if let Some(config) = peri_acp::langfuse::LangfuseConfig::from_env() {
+                        tracing::info!("Langfuse tracing enabled (TUI mode)");
+                        peri_acp::langfuse::LangfuseSession::new(config)
+                            .await
+                            .map(Arc::new)
+                    } else {
+                        None
+                    }
+                },
             };
 
             // Store shared Arc references so config changes (setup wizard,

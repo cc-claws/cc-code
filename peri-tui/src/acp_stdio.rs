@@ -41,6 +41,7 @@ struct StdioContext {
     >,
     sessions: parking_lot::RwLock<std::collections::HashMap<String, SessionInfo>>,
     thread_store: Arc<dyn peri_agent::thread::ThreadStore>,
+    langfuse_session: Option<Arc<peri_acp::langfuse::LangfuseSession>>,
 }
 
 /// Stdio 模式下的简化 Broker：直接 approve 所有权限请求，questions 返回空答案。
@@ -178,6 +179,18 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
             ),
         };
 
+    // 初始化 Langfuse
+    let langfuse_session = if let Some(config) = peri_acp::langfuse::LangfuseConfig::from_env() {
+        peri_acp::langfuse::LangfuseSession::new(config)
+            .await
+            .map(Arc::new)
+    } else {
+        None
+    };
+    if langfuse_session.is_some() {
+        tracing::info!("Langfuse tracing enabled (stdio mode)");
+    }
+
     // 构建共享的 ServerContext，所有请求处理器通过 Arc 共享
     let ctx = Arc::new(StdioContext {
         provider: parking_lot::RwLock::new(provider),
@@ -193,6 +206,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         shared_tools,
         sessions: parking_lot::RwLock::new(std::collections::HashMap::new()),
         thread_store,
+        langfuse_session,
     });
 
     use agent_client_protocol::schema::{
@@ -446,6 +460,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             ctx_for_task.tool_search_index.clone(),
                             ctx_for_task.shared_tools.clone(),
                             ctx_for_task.plugin_lsp_servers.clone(),
+                            ctx_for_task.langfuse_session.clone(),
                         )
                         .await;
 

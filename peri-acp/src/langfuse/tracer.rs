@@ -20,13 +20,15 @@ struct PendingTool {
 
 /// Langfuse 单轮追踪器（per-turn）
 ///
-/// 持有对 LangfuseSession 的引用，复用 client/batcher/session_id。
-/// 生命周期：从 submit_message() 开始 → AgentEvent::Done/Error 时结束。
+/// 持有对 LangfuseSession 的引用，复用 client/batcher。
+/// 生命周期：从 execute_prompt 开始 → AgentEvent::Done/Error 时结束。
 ///
 /// 所有事件通过 `batcher.try_add()` 同步入队，保证事件顺序与调用顺序一致，
 /// 确保 Langfuse 层级关系正确（父 span 先于子 span 入队）。
 pub struct LangfuseTracer {
     session: Arc<LangfuseSession>,
+    /// Langfuse session_id = 会话的 thread_id，用于在 Langfuse UI 中按会话分组
+    session_id: String,
     /// 当前对话轮次的 Trace ID（提前生成，所有观测对象共享）
     trace_id: String,
     /// 主 Agent Observation 的 ID
@@ -64,9 +66,10 @@ struct SubAgentContext {
 
 impl LangfuseTracer {
     /// 从共享 Session 构造 per-turn Tracer
-    pub fn new(session: Arc<LangfuseSession>) -> Self {
+    pub fn new(session: Arc<LangfuseSession>, session_id: String) -> Self {
         Self {
             session,
+            session_id,
             trace_id: uuid::Uuid::now_v7().to_string(),
             agent_observation_id: uuid::Uuid::now_v7().to_string(),
             generation_data: HashMap::new(),
@@ -148,7 +151,7 @@ impl LangfuseTracer {
             level: None,
             version: None,
             environment: None,
-            session_id: Some(self.session.session_id.clone()),
+            session_id: Some(self.session_id.clone()),
         };
         let event = IngestionEvent::SpanCreate {
             id: uuid::Uuid::now_v7().to_string(),
@@ -166,7 +169,6 @@ impl LangfuseTracer {
         let batcher = &self.session.batcher;
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        // 创建 agent-run Observation（type=Agent，Langfuse 语义：agent decides on application flow, uses tools with LLM guidance）
         let body = ObservationBody {
             id: Some(self.agent_observation_id.clone()),
             trace_id: Some(self.trace_id.clone()),
@@ -185,7 +187,7 @@ impl LangfuseTracer {
             status_message: None,
             version: None,
             environment: None,
-            session_id: Some(self.session.session_id.clone()),
+            session_id: Some(self.session_id.clone()),
         };
         let event = IngestionEvent::ObservationCreate {
             id: uuid::Uuid::now_v7().to_string(),
@@ -272,7 +274,7 @@ impl LangfuseTracer {
             parent_observation_id: Some(self.current_agent_id()),
             start_time: Some(start_time),
             end_time: Some(end_time.clone()),
-            session_id: Some(self.session.session_id.clone()),
+            session_id: Some(self.session_id.clone()),
             ..Default::default()
         };
         let event = IngestionEvent::GenerationCreate {
@@ -418,7 +420,6 @@ impl LangfuseTracer {
         let observation_id = uuid::Uuid::now_v7().to_string();
         let parent_observation_id = self.current_agent_id();
 
-        // 创建 SubAgent 的 Observation（type=Agent）
         let body = ObservationBody {
             id: Some(observation_id.clone()),
             trace_id: Some(self.trace_id.clone()),
@@ -437,7 +438,7 @@ impl LangfuseTracer {
             status_message: None,
             version: None,
             environment: None,
-            session_id: Some(self.session.session_id.clone()),
+            session_id: Some(self.session_id.clone()),
         };
         let event = IngestionEvent::ObservationCreate {
             id: uuid::Uuid::now_v7().to_string(),

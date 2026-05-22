@@ -69,6 +69,7 @@ pub struct AcpServerConfig {
     pub shared_tools:
         Arc<parking_lot::RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
     pub thread_store: Arc<dyn peri_agent::thread::ThreadStore>,
+    pub langfuse_session: Option<Arc<peri_acp::langfuse::LangfuseSession>>,
 }
 
 // ── Main server loop ────────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ pub async fn run_acp_server(
                     let plugin_lsp_servers = cfg.plugin_lsp_servers.clone();
                     let thread_store = cfg.thread_store.clone();
                     let prompt_session_id = extract_session_id(&params, "").to_string();
+                    let langfuse_session = cfg.langfuse_session.clone();
                     tokio::spawn(async move {
                         let result = execute_prompt(
                             params,
@@ -123,6 +125,7 @@ pub async fn run_acp_server(
                             &plugin_lsp_servers,
                             &transport,
                             &thread_store,
+                            langfuse_session,
                         )
                         .await;
                         let _ = transport.send_response(id, result).await;

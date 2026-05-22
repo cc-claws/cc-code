@@ -9,6 +9,7 @@ use serde_json::Value;
 use tracing::info;
 
 use peri_acp::broker::AcpTransportBroker;
+use peri_acp::langfuse::LangfuseSession;
 use peri_acp::session::event_sink::TransportEventSink;
 use peri_acp::session::executor;
 use peri_acp::transport::types::AcpError;
@@ -41,6 +42,7 @@ pub(crate) async fn execute_prompt(
     plugin_lsp_servers: &[peri_lsp::config::LspServerConfig],
     transport: &Arc<dyn peri_acp::transport::AcpTransport>,
     thread_store: &Arc<dyn peri_agent::thread::ThreadStore>,
+    langfuse_session: Option<Arc<LangfuseSession>>,
 ) -> Result<Value, AcpError> {
     let session_id = params
         .get("sessionId")
@@ -135,6 +137,7 @@ pub(crate) async fn execute_prompt(
         tool_search_index,
         shared_tools,
         plugin_lsp_servers.to_vec(),
+        langfuse_session,
     )
     .await;
 

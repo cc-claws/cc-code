@@ -20,6 +20,7 @@ use tokio::sync::oneshot;
 use tracing::{debug, error};
 
 use crate::agent::builder::{self, AcpAgentConfig};
+use crate::langfuse::{LangfuseSession, LangfuseTracer};
 use crate::prompt::{build_system_prompt, PromptFeatures};
 use crate::provider::LlmProvider;
 use crate::session::event_sink::EventSink;
@@ -107,7 +108,9 @@ pub async fn execute_prompt(
         >,
     >,
     lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
+    langfuse_session: Option<Arc<LangfuseSession>>,
 ) -> PromptResult {
+    let trace_input = content.clone();
     let agent_input = peri_agent::agent::react::AgentInput::text(content);
 
     // Compact config and context budget (computed once)
@@ -137,11 +140,89 @@ pub async fn execute_prompt(
     let sid = session_id.clone();
     let (pump_done_tx, pump_done_rx) = oneshot::channel();
     let pump_cw = effective_context_window;
+
+    // Langfuse per-turn tracer
+    let langfuse_tracer = langfuse_session
+        .as_ref()
+        .map(|s| parking_lot::Mutex::new(LangfuseTracer::new(Arc::clone(s), session_id.clone())));
+    if langfuse_tracer.is_some() {
+        debug!(session_id = %session_id, "Langfuse tracer created for turn");
+    }
+
+    let provider_display_name = provider.display_name().to_string();
+
     tokio::spawn(async move {
+        // Start Langfuse trace
+        if let Some(ref tracer) = langfuse_tracer {
+            tracer.lock().on_trace_start(&trace_input);
+        }
+
         while let Some(exec_event) = event_rx.recv().await {
+            // Langfuse tracing
+            if let Some(ref tracer) = langfuse_tracer {
+                match &exec_event {
+                    ExecutorEvent::LlmCallStart {
+                        step,
+                        messages,
+                        tools,
+                    } => {
+                        tracer.lock().on_llm_start(*step, messages, tools);
+                    }
+                    ExecutorEvent::LlmCallEnd {
+                        step,
+                        model,
+                        output,
+                        usage,
+                    } => {
+                        tracer.lock().on_llm_end(
+                            *step,
+                            model,
+                            &provider_display_name,
+                            output,
+                            usage.as_ref(),
+                        );
+                    }
+                    ExecutorEvent::ToolStart {
+                        tool_call_id,
+                        name,
+                        input,
+                        ..
+                    } => {
+                        tracer.lock().on_tool_start(tool_call_id, name, input);
+                    }
+                    ExecutorEvent::ToolEnd {
+                        tool_call_id,
+                        output,
+                        is_error,
+                        ..
+                    } => {
+                        tracer.lock().on_tool_end(tool_call_id, output, *is_error);
+                    }
+                    ExecutorEvent::TextChunk { chunk, .. } => {
+                        tracer.lock().on_text_chunk(chunk);
+                    }
+                    _ => {}
+                }
+            }
+
             sink.push_event(&sid, &exec_event, pump_cw).await;
         }
+
+        // End Langfuse trace and flush
+        let langfuse_flush = if let Some(tracer) = langfuse_tracer {
+            let handle = tracer.into_inner().on_trace_end(None);
+            Some(handle)
+        } else {
+            None
+        };
+
         sink.push_done(&sid).await;
+
+        // Wait for Langfuse flush before exiting pump
+        if let Some(handle) = langfuse_flush {
+            let _ = handle.await;
+        }
+
         let _ = pump_done_tx.send(());
     });
 

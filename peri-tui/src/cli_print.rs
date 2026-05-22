@@ -204,6 +204,7 @@ pub async fn run_print(
         tool_search_index,
         shared_tools,
         plugin_lsp_servers,
+        None, // langfuse_session（print 模式暂不启用）
     )
     .await;
     let c = collector.lock().unwrap();

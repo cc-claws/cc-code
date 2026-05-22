@@ -5,20 +5,18 @@ use langfuse_client::{BackpressurePolicy, Batcher, BatcherConfig, LangfuseClient
 
 use super::config::LangfuseConfig;
 
-/// Langfuse Thread 级别会话，持有跨多轮复用的共享连接状态。
+/// Langfuse 进程级共享连接状态。
 ///
-/// 生命周期：Thread 创建/打开时构造，new_thread()/open_thread() 时重置（= None）。
-/// 同一 Thread 内所有 `LangfuseTracer` 共享同一个 client + batcher + session_id。
+/// 生命周期：进程启动时构造一次，所有 session 的 `LangfuseTracer` 共享同一个 client + batcher。
+/// `session_id` 在 per-turn `LangfuseTracer` 级别传入（每次 execute_prompt 的 session_id 不同）。
 pub struct LangfuseSession {
     pub client: Arc<LangfuseClient>,
     pub batcher: Arc<Batcher>,
-    /// session_id = thread_id，Thread 内所有 Trace 共享
-    pub session_id: String,
 }
 
 impl LangfuseSession {
-    /// 从配置和 session_id 构造 Session，失败时返回 None（静默降级）
-    pub async fn new(config: LangfuseConfig, session_id: String) -> Option<Self> {
+    /// 从配置构造 Session，失败时返回 None（静默降级）
+    pub async fn new(config: LangfuseConfig) -> Option<Self> {
         let client = Arc::new(LangfuseClient::new(
             &config.public_key,
             &config.secret_key,
@@ -37,7 +35,6 @@ impl LangfuseSession {
         Some(Self {
             client,
             batcher: Arc::new(batcher),
-            session_id,
         })
     }
 }
