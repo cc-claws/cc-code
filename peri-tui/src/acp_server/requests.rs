@@ -6,16 +6,14 @@ use std::collections::HashMap;
 use serde_json::Value;
 use tracing::{debug, info};
 
+use peri_acp::dispatch;
 use peri_acp::transport::types::AcpError;
 use peri_agent::thread::{ThreadId, ThreadMeta};
 
 use agent_client_protocol::schema::{
-    AgentCapabilities, CloseSessionResponse, ForkSessionResponse, InitializeResponse,
-    ListSessionsResponse, LoadSessionResponse, NewSessionResponse, PromptCapabilities,
-    ProtocolVersion, ResumeSessionResponse, SessionCapabilities, SessionCloseCapabilities,
-    SessionForkCapabilities, SessionId, SessionInfo, SessionListCapabilities,
-    SessionResumeCapabilities, SetSessionConfigOptionResponse, SetSessionModeResponse,
-    SetSessionModelResponse,
+    CloseSessionResponse, ForkSessionResponse, ListSessionsResponse, LoadSessionResponse,
+    NewSessionResponse, ResumeSessionResponse, SessionId, SessionInfo,
+    SetSessionConfigOptionResponse, SetSessionModeResponse, SetSessionModelResponse,
 };
 
 use crate::app::agent::LlmProvider;
@@ -42,17 +40,7 @@ pub(crate) async fn handle_request(
                 .and_then(|v| v.as_u64())
                 .unwrap_or(1);
             info!(protocol_version = %version, "ACP initialize");
-            let caps = AgentCapabilities::new()
-                .load_session(true)
-                .prompt_capabilities(PromptCapabilities::new())
-                .session_capabilities(
-                    SessionCapabilities::new()
-                        .list(SessionListCapabilities::new())
-                        .close(SessionCloseCapabilities::new())
-                        .resume(SessionResumeCapabilities::new())
-                        .fork(SessionForkCapabilities::new()),
-                );
-            let resp = InitializeResponse::new(ProtocolVersion::V1).agent_capabilities(caps);
+            let resp = dispatch::build_initialize_response();
             serde_json::to_value(resp)
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }

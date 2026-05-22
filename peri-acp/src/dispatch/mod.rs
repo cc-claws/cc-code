@@ -1,6 +1,12 @@
-//! ACP method dispatch.
+//! ACP method dispatch — shared business logic.
 //!
-//! Routes incoming ACP JSON-RPC requests (initialize, session/*, prompt, etc)
-//! to the appropriate handler functions.
+//! Provides pure functions that implement ACP session lifecycle
+//! operations. Both TUI (MpscTransport) and stdio transports call these
+//! functions, keeping only JSON-RPC framing and session-state management
+//! in their respective transport layers.
 
-// TODO: migrate from peri-tui/src/acp/dispatch.rs
+pub mod init;
+pub mod list_sessions;
+
+pub use init::build_initialize_response;
+pub use list_sessions::list_sessions_as_info;

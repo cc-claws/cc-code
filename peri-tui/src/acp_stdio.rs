@@ -238,15 +238,16 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
     });
 
     use agent_client_protocol::schema::{
-        AgentCapabilities, AvailableCommandsUpdate, CancelNotification, ConfigOptionUpdate,
-        InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse,
-        PromptCapabilities, PromptRequest, PromptResponse, ProtocolVersion, SessionId,
-        SessionInfoUpdate, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
-        SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
-        SetSessionModelRequest, SetSessionModelResponse, StopReason,
+        AvailableCommandsUpdate, CancelNotification, ConfigOptionUpdate, InitializeRequest,
+        ListSessionsRequest, ListSessionsResponse, NewSessionRequest, NewSessionResponse,
+        PromptRequest, PromptResponse, SessionId, SessionInfoUpdate, SessionNotification,
+        SessionUpdate, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+        SetSessionModeRequest, SetSessionModeResponse, SetSessionModelRequest,
+        SetSessionModelResponse, StopReason,
     };
     use agent_client_protocol::{Agent, Client, ConnectionTo};
     use agent_client_protocol_tokio::Stdio;
+    use peri_acp::dispatch;
     use peri_acp::session::event_sink::StdioEventSink;
     use peri_acp::session::executor;
     use peri_acp::session::state_builders::{
@@ -264,13 +265,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         .on_receive_request(
             async move |_req: InitializeRequest, responder, _cx| {
                 tracing::info!("ACP initialize");
-                responder.respond(
-                    InitializeResponse::new(ProtocolVersion::V1)
-                        .agent_capabilities(
-                            AgentCapabilities::new()
-                                .prompt_capabilities(PromptCapabilities::new()),
-                        ),
-                )
+                responder.respond(dispatch::build_initialize_response())
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -362,6 +357,30 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(cmds)),
                     );
                     let _ = cx.send_notification(ac_notif);
+                    Ok(())
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        // ── session/list ──
+        .on_receive_request(
+            {
+                let ctx = ctx_clone.clone();
+                async move |req: ListSessionsRequest, responder, _cx: ConnectionTo<Client>| {
+                    let cwd_filter = req
+                        .cwd
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string());
+                    let entries = dispatch::list_sessions_as_info(
+                        ctx.thread_store.as_ref(),
+                        cwd_filter.as_deref(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::warn!(error = %e, "session/list: failed to list threads");
+                        Vec::new()
+                    });
+                    let _ = responder.respond(ListSessionsResponse::new(entries));
                     Ok(())
                 }
             },
