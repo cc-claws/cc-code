@@ -1,6 +1,7 @@
 mod analysis;
 mod commit;
 mod git;
+mod render;
 
 use clap::Parser;
 
