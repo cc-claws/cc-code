@@ -18,10 +18,20 @@ pub(crate) fn jemalloc_decay() {
         }
     };
     for i in 0..narenas {
-        let mut key = format!("arena.{}.purge", i);
-        key.push(0 as char);
+        // 先触发 decay：处理 decay timeline 中正在老化的 dirty pages
+        let mut decay_key = format!("arena.{}.decay", i);
+        decay_key.push(0 as char);
         unsafe {
-            let _: u8 = match tikv_jemalloc_ctl::raw::read(key.as_bytes()) {
+            let _: u8 = match tikv_jemalloc_ctl::raw::read(decay_key.as_bytes()) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+        }
+        // 再触发 purge：立即释放所有已达到 decay 阈值的 dirty pages
+        let mut purge_key = format!("arena.{}.purge", i);
+        purge_key.push(0 as char);
+        unsafe {
+            let _: u8 = match tikv_jemalloc_ctl::raw::read(purge_key.as_bytes()) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
