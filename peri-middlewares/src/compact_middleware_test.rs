@@ -32,6 +32,7 @@ fn make_middleware() -> CompactMiddleware {
         hooks: vec![],
         session_id: "test-session".to_string(),
         provider_name: "test-model".to_string(),
+        micro_compact_done: AtomicBool::new(false),
     }
 }
 
@@ -149,4 +150,76 @@ async fn test_is_disabled_detects_config() {
         ..make_middleware()
     };
     assert!(mw.is_disabled());
+}
+
+#[tokio::test]
+async fn test_micro_compact_once_per_prompt() {
+    // 验证 micro compact 在同一个 middleware 实例中只触发一次
+    let mut state = make_state();
+    // 添加足够的消息使 stale_steps 之外的工具有可压缩内容
+    for i in 0..8 {
+        state.add_message(BaseMessage::ai_with_tool_calls(
+            peri_agent::messages::MessageContent::text("using tool"),
+            vec![peri_agent::messages::ToolCallRequest::new(
+                &format!("tc{}", i),
+                "Bash",
+                serde_json::json!({}),
+            )],
+        ));
+        state.add_message(BaseMessage::tool_result(
+            &format!("tc{}", i),
+            "x".repeat(600),
+        ));
+    }
+
+    // 设置 token tracker 使 should_warn() 返回 true
+    // context_window=1000, input_tokens=800 → 80% > 70% (warning threshold)
+    state
+        .token_tracker_mut()
+        .accumulate(&peri_agent::llm::types::TokenUsage {
+            input_tokens: 800,
+            output_tokens: 100,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+            request_id: None,
+        });
+
+    // 极小 budget 使 should_warn() 返回 true（70% 阈值）
+    let mut mw = CompactMiddleware {
+        budget: ContextBudget::new(1000),
+        config: {
+            let mut c = make_config();
+            c.micro_compact_stale_steps = 1;
+            c
+        },
+        ..make_middleware()
+    };
+
+    // 第一次调用：micro compact 应该触发
+    let (tx1, mut rx1) = tokio::sync::mpsc::unbounded_channel();
+    mw.event_tx = Arc::new(Mutex::new(Some(tx1)));
+
+    mw.before_model(&mut state).await.unwrap();
+
+    // 应收到 CompactCompleted 事件
+    let event1 = rx1.try_recv();
+    assert!(
+        matches!(event1, Ok(ExecutorEvent::CompactCompleted { micro_cleared, .. }) if micro_cleared > 0),
+        "第一次 micro compact 应触发并清理工具结果"
+    );
+
+    // 第二次调用：micro compact 不应再触发
+    let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
+    mw.event_tx = Arc::new(Mutex::new(Some(tx2)));
+
+    mw.before_model(&mut state).await.unwrap();
+
+    let event2 = rx2.try_recv();
+    assert!(
+        event2.is_err(),
+        "第二次 micro compact 不应触发（once-per-prompt 守卫）"
+    );
+
+    // 确认标志已设置
+    assert!(mw.micro_compact_done.load(Ordering::Relaxed));
 }

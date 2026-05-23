@@ -62,7 +62,7 @@ impl App {
         use peri_middlewares::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
         use tokio::sync::oneshot;
 
-        let req = match serde_json::from_value::<CreateElicitationRequest>(params) {
+        let req = match serde_json::from_value::<CreateElicitationRequest>(params.clone()) {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!(error = %e, "Failed to parse CreateElicitationRequest");
@@ -74,7 +74,7 @@ impl App {
 
         if let ElicitationMode::Form(form) = req.mode {
             for (prop_id, prop) in &form.requested_schema.properties {
-                let (title, description, is_multi, options) = match prop {
+                let (title, description, is_multi, mut options) = match prop {
                     agent_client_protocol_schema::ElicitationPropertySchema::String(s) => (
                         s.title.clone(),
                         s.description.clone(),
@@ -109,6 +109,17 @@ impl App {
                     ),
                     _ => continue,
                 };
+
+                // 从原始 JSON 中提取被 EnumOption 丢弃的 description
+                let opt_descs = extract_option_descriptions(&params, prop_id, is_multi);
+                for (i, desc) in opt_descs.into_iter().enumerate() {
+                    if let Some(opt) = options.get_mut(i) {
+                        if opt.description.is_none() {
+                            opt.description = desc;
+                        }
+                    }
+                }
+
                 questions.push(AskUserQuestionData {
                     tool_call_id: prop_id.clone(),
                     question: description.unwrap_or_default(),
@@ -244,4 +255,40 @@ impl App {
             }
         }
     }
+}
+
+/// 从 Elicitation JSON 中提取每个属性的选项 description。
+/// `inject_option_descriptions` (transport_broker) 在 JSON 层面注入了 description，
+/// 但 `EnumOption` 结构体无此字段，反序列化后丢失。
+fn extract_option_descriptions(
+    params: &serde_json::Value,
+    prop_id: &str,
+    is_multi: bool,
+) -> Vec<Option<String>> {
+    let container_key = if is_multi { "anyOf" } else { "oneOf" };
+    let Some(arr) = params
+        .get("mode")
+        .and_then(|m| m.get("requestedSchema"))
+        .and_then(|s| s.get("properties"))
+        .and_then(|p| p.get(prop_id))
+        .and_then(|prop| {
+            // multi-select: options 在 items 下面；single: options 在 prop 下面
+            if is_multi {
+                prop.get("items")
+            } else {
+                Some(prop)
+            }
+        })
+        .and_then(|p| p.get(container_key))
+        .and_then(|v| v.as_array())
+    else {
+        return vec![];
+    };
+    arr.iter()
+        .map(|opt| {
+            opt.get("description")
+                .and_then(|d| d.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect()
 }

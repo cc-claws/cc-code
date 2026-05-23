@@ -3,6 +3,7 @@
 //! `before_model` 钩子: 每轮 LLM 调用前检查 token 阈值，超过时执行
 //! micro/full compact。compact 后不改变控制流，ReAct 循环自然继续。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -45,6 +46,10 @@ pub struct CompactMiddleware {
     session_id: String,
     /// Provider 名称（hook 上下文）
     provider_name: String,
+    /// micro compact 在当前 prompt 执行中是否已触发过。
+    /// 每次 execute_prompt 创建新的 CompactMiddleware 实例，天然 per-prompt 作用域。
+    /// 防止 micro compact 反复触发（压缩量 < 新增量时会在每轮重复触发）。
+    micro_compact_done: AtomicBool,
 }
 
 impl CompactMiddleware {
@@ -71,6 +76,7 @@ impl CompactMiddleware {
             hooks,
             session_id,
             provider_name,
+            micro_compact_done: AtomicBool::new(false),
         }
     }
 
@@ -283,7 +289,10 @@ impl<S: State> Middleware<S> for CompactMiddleware {
         let (should_full, should_micro) = {
             let tracker = state.token_tracker();
             let full = self.budget.should_auto_compact(tracker);
-            let micro = !full && self.budget.should_warn(tracker);
+            // micro compact 每轮只触发一次，防止压缩量 < 新增量时的反复触发振荡
+            let micro = !full
+                && self.budget.should_warn(tracker)
+                && !self.micro_compact_done.load(Ordering::Relaxed);
             (full, micro)
         };
 
@@ -291,6 +300,7 @@ impl<S: State> Middleware<S> for CompactMiddleware {
         if should_full {
             self.do_full_compact(state).await?;
         } else if should_micro {
+            self.micro_compact_done.store(true, Ordering::Relaxed);
             self.do_micro_compact(state);
         }
 
