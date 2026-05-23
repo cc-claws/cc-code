@@ -28,6 +28,12 @@ pub trait State: Send + Sync + Clone + 'static {
 
     /// 获取消息的可变引用（用于 micro_compact 等原地修改场景）
     fn messages_mut(&mut self) -> &mut Vec<BaseMessage>;
+
+    /// Push a recall item into the session's recall buffer.
+    fn push_recall(&mut self, item: String);
+
+    /// Drain all recall items (one-time consumption).
+    fn drain_recall(&mut self) -> Vec<String>;
 }
 
 /// 基础 Agent 状态（与 TypeScript BaseAgentStateType 对齐）
@@ -49,6 +55,10 @@ pub struct AgentState {
     /// 避免 tokio::spawn 的 fire-and-forget 模式因 .await 让步导致乱序。
     #[serde(skip)]
     persist_tx: Option<Arc<tokio::sync::mpsc::UnboundedSender<BaseMessage>>>,
+    /// 会话级 recall 缓冲区：收集运行时事件通知，executor 在构建用户消息前 drain 消费。
+    /// 不随 session 持久化，仅存活于当前会话生命周期内。
+    #[serde(skip)]
+    recall_buffer: Vec<String>,
 }
 
 impl std::fmt::Debug for AgentState {
@@ -187,6 +197,14 @@ impl State for AgentState {
 
     fn messages_mut(&mut self) -> &mut Vec<BaseMessage> {
         &mut self.messages
+    }
+
+    fn push_recall(&mut self, item: String) {
+        self.recall_buffer.push(item);
+    }
+
+    fn drain_recall(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.recall_buffer)
     }
 }
 
