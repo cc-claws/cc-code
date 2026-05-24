@@ -25,7 +25,9 @@ use crate::langfuse::{LangfuseSession, LangfuseTracer};
 use crate::prompt::{build_system_prompt, PromptFeatures};
 use crate::provider::LlmProvider;
 use crate::session::agent_pool::AgentPool;
+use crate::session::agent_runtime::{AgentRuntime, CancelPolicy};
 use crate::session::event_sink::EventSink;
+use crate::session::SessionManager;
 
 /// High-level reason why prompt execution stopped, used to derive ACP `StopReason`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +119,7 @@ pub async fn execute_prompt(
     pool: Arc<parking_lot::Mutex<AgentPool>>,
     thread_store: Option<Arc<dyn peri_agent::thread::ThreadStore>>,
     thread_id: Option<String>,
+    session_manager: Option<SessionManager>,
 ) -> PromptResult {
     let trace_input = content.text_content();
     let agent_input = if incoming_recalls.is_empty() {
@@ -298,6 +301,35 @@ pub async fn execute_prompt(
             .or_else(|| Some(provider.clone().into_model().into()))
     };
 
+    // Build register/deregister closures for SubAgentMiddleware
+    let register_runtime = session_manager.clone().map(|sm| {
+        let sid = session_id.clone();
+        Arc::new(
+            move |thread_id: String, cancel_token: AgentCancellationToken, policy: String| {
+                if let Some(mut session) = sm.get_session_mut(&sid) {
+                    let runtime =
+                        AgentRuntime::new(thread_id.clone(), CancelPolicy::from_str(&policy));
+                    // Store the provided cancel_token so external cancellation works
+                    let rt = AgentRuntime {
+                        thread_id,
+                        cancel_token,
+                        cancel_policy: runtime.cancel_policy,
+                        status: runtime.status,
+                    };
+                    session.active_agents.insert(rt.thread_id.clone(), rt);
+                }
+            },
+        ) as crate::agent::builder::RegisterRuntimeFn
+    });
+    let deregister_runtime = session_manager.clone().map(|sm| {
+        let sid = session_id.clone();
+        Arc::new(move |thread_id: &str| {
+            if let Some(mut session) = sm.get_session_mut(&sid) {
+                session.active_agents.remove(thread_id);
+            }
+        }) as crate::agent::builder::DeregisterRuntimeFn
+    });
+
     let (agent_output, new_cache) = builder::build_agent(
         AcpAgentConfig {
             provider: provider.clone(),
@@ -335,6 +367,8 @@ pub async fn execute_prompt(
             compact_event_tx: Some(event_tx.clone()),
             thread_store,
             parent_thread_id: thread_id,
+            register_runtime,
+            deregister_runtime,
         },
         cached_llm.as_ref(),
     );
@@ -426,6 +460,15 @@ pub async fn execute_prompt(
     } else {
         PromptStopReason::EndTurn
     };
+
+    // Cancel cascade children when this agent is cancelled
+    if stop_reason == PromptStopReason::Cancelled {
+        if let Some(ref sm) = session_manager {
+            if let Some(session) = sm.get_session(&session_id) {
+                session.cancel_cascade_children();
+            }
+        }
+    }
 
     close_channel(&event_tx);
     wait_for_pump(pump_done_rx, &session_id).await;

@@ -19,6 +19,11 @@ use peri_agent::llm::BaseModel;
 
 /// 子 Agent 事件 handler 工厂类型
 pub type ChildHandlerFactory = Arc<dyn Fn(String) -> Arc<dyn AgentEventHandler> + Send + Sync>;
+/// Register callback: (thread_id, cancel_token, cancel_policy_str) → ()
+pub type RegisterRuntimeFn =
+    Arc<dyn Fn(String, peri_agent::agent::AgentCancellationToken, String) + Send + Sync>;
+/// Deregister callback: &str (thread_id) → ()
+pub type DeregisterRuntimeFn = Arc<dyn Fn(&str) + Send + Sync>;
 /// System prompt 构建器类型
 pub type SystemPromptBuilder = Arc<
     dyn Fn(Option<&peri_middlewares::agent_define::AgentOverrides>, &str) -> String + Send + Sync,
@@ -83,6 +88,10 @@ pub struct AcpAgentConfig {
     pub thread_store: Option<Arc<dyn peri_agent::thread::ThreadStore>>,
     /// Parent thread ID for child thread hierarchy (None = top-level agent)
     pub parent_thread_id: Option<String>,
+    /// Register callback: called when a child agent starts executing.
+    pub register_runtime: Option<RegisterRuntimeFn>,
+    /// Deregister callback: called when a child agent finishes.
+    pub deregister_runtime: Option<DeregisterRuntimeFn>,
 }
 
 pub struct AcpAgentOutput {
@@ -138,6 +147,8 @@ pub fn build_agent(
         compact_event_tx: mw_compact_event_tx,
         thread_store,
         parent_thread_id,
+        register_runtime,
+        deregister_runtime,
     } = cfg;
 
     // 应用 agent overrides 到系统提示词
@@ -287,6 +298,12 @@ pub fn build_agent(
     }
     if let Some(factory) = child_handler_factory {
         subagent = subagent.with_child_handler_factory(factory);
+    }
+    if let Some(register) = register_runtime {
+        subagent = subagent.with_register_runtime(register);
+    }
+    if let Some(deregister) = deregister_runtime {
+        subagent = subagent.with_deregister_runtime(deregister);
     }
 
     // 上下文预算

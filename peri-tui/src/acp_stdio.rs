@@ -498,6 +498,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             pool_arc.clone(),
                             Some(Arc::clone(&ctx_for_task.thread_store)),
                             Some(thread_id.clone()),
+                            None, // session_manager（stdio 使用自定义 SessionInfo，不走 SessionManager）
                         )
                         .await;
 

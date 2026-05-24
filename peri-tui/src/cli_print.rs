@@ -214,6 +214,7 @@ pub async fn run_print(
         pool,
         None, // thread_store（print 模式不需要持久化）
         None, // parent_thread_id
+        None, // session_manager（print 模式不需要 cancel 级联）
     )
     .await;
     let c = collector.lock().unwrap();

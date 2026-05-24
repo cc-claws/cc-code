@@ -144,6 +144,7 @@ pub(crate) async fn execute_prompt(
         pool,
         Some(Arc::clone(thread_store)),
         Some(thread_id.clone()),
+        None, // session_manager（TUI 使用 SharedSessions，不走 SessionManager）
     )
     .await;
 

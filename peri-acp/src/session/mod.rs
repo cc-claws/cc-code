@@ -193,12 +193,26 @@ impl SessionManager {
         self.inner.sessions.get(session_id)
     }
 
+    pub fn get_session_mut(
+        &self,
+        session_id: &str,
+    ) -> Option<dashmap::mapref::one::RefMut<'_, String, AcpSession>> {
+        self.inner.sessions.get_mut(session_id)
+    }
+
     pub fn inner_sessions(&self) -> &DashMap<String, AcpSession> {
         &self.inner.sessions
     }
 
     pub fn cancel_session(&self, session_id: &str) {
         if let Some(mut session) = self.inner.sessions.get_mut(session_id) {
+            // Cancel all cascade-policy agents first
+            for runtime in session.active_agents.values() {
+                if runtime.cancel_policy == CancelPolicy::Cascade {
+                    runtime.cancel_token.cancel();
+                }
+            }
+
             // Cancel the current token so all clones (held by link tasks,
             // permission loops) detect cancellation. Then replace with a fresh
             // token so subsequent prompts on the same session are not affected.
