@@ -5,8 +5,10 @@ use peri_agent::agent::events::{AgentEvent, AgentEventHandler};
 use peri_agent::agent::react::{AgentInput, ReactLLM};
 use peri_agent::agent::state::AgentState;
 use peri_agent::agent::BackgroundTaskResult;
+use peri_agent::agent::State as _;
 use peri_agent::agent::{AgentCancellationToken, ReActAgent};
 use peri_agent::messages::BaseMessage;
+use peri_agent::thread::{ThreadMeta, ThreadStore};
 use peri_agent::tools::BaseTool;
 
 use crate::agent_define::{AgentDefineMiddleware, AgentOverrides};
@@ -84,6 +86,10 @@ pub struct SubAgentTool {
     /// 后台任务完成事件的独立发送通道（不随 executor 生命周期销毁）
     bg_event_sender:
         Option<tokio::sync::mpsc::UnboundedSender<peri_agent::agent::events::AgentEvent>>,
+    /// Thread persistence store for child threads
+    thread_store: Option<Arc<dyn ThreadStore>>,
+    /// Parent thread ID for child thread hierarchy
+    parent_thread_id: Option<String>,
 }
 
 impl SubAgentTool {
@@ -106,6 +112,8 @@ impl SubAgentTool {
             registered_hooks: Arc::new(Vec::new()),
             child_handler_factory: None,
             bg_event_sender: None,
+            thread_store: None,
+            parent_thread_id: None,
         }
     }
 
@@ -152,6 +160,16 @@ impl SubAgentTool {
         sender: tokio::sync::mpsc::UnboundedSender<peri_agent::agent::events::AgentEvent>,
     ) -> Self {
         self.bg_event_sender = Some(sender);
+        self
+    }
+
+    pub fn with_thread_store(mut self, store: Arc<dyn ThreadStore>) -> Self {
+        self.thread_store = Some(store);
+        self
+    }
+
+    pub fn with_parent_thread_id(mut self, id: String) -> Self {
+        self.parent_thread_id = Some(id);
         self
     }
 
@@ -227,8 +245,33 @@ impl SubAgentTool {
             ),
         };
 
+        // Create child thread for fork mode
+        let child_thread_id = uuid::Uuid::now_v7().to_string();
+        if let Some(ref store) = self.thread_store {
+            let snapshot_id = parent_msgs.last().map(|m| m.id().as_uuid().to_string());
+            let mut child_meta = ThreadMeta::new(cwd);
+            child_meta.id = child_thread_id.clone();
+            child_meta.parent_thread_id = self.parent_thread_id.clone();
+            child_meta.snapshot_at_message_id = snapshot_id;
+            child_meta.hidden = true;
+            child_meta.cancel_policy = "cascade".to_string();
+            child_meta.title = Some("fork".to_string());
+            store
+                .create_thread(child_meta)
+                .await
+                .map_err(|e| format!("Failed to create child thread: {}", e))?;
+        }
+
         let fork_directive = crate::subagent::fork::build_fork_directive(prompt);
-        let mut fork_state = AgentState::with_messages(cwd.to_string(), parent_msgs);
+        let mut fork_state = if let Some(ref store) = self.thread_store {
+            AgentState::new(cwd).with_persistence(Arc::clone(store), child_thread_id.clone())
+        } else {
+            AgentState::new(cwd)
+        };
+        // For immediate execution, inject parent messages into state
+        for msg in parent_msgs {
+            fork_state.add_message(msg);
+        }
         let llm = (self.llm_factory)(None);
         let mut agent_builder = ReActAgent::new(llm).max_iterations(200);
         let instance_id = format!("sub_{}", &uuid::Uuid::new_v4().to_string()[..8]);
@@ -307,11 +350,32 @@ impl SubAgentTool {
         .await;
 
         match fork_result {
-            Ok(output) => Ok(format_subagent_result(&output)),
+            Ok(output) => {
+                if let Some(ref store) = self.thread_store {
+                    let _ = store.update_thread_status(&child_thread_id, "done").await;
+                }
+                let result_text = format_subagent_result(&output);
+                if self.thread_store.is_some() {
+                    Ok(format!(
+                        "child_thread_id: {}\n{}",
+                        child_thread_id, result_text
+                    ))
+                } else {
+                    Ok(result_text)
+                }
+            }
             Err(peri_agent::error::AgentError::Interrupted) => {
+                if let Some(ref store) = self.thread_store {
+                    let _ = store
+                        .update_thread_status(&child_thread_id, "cancelled")
+                        .await;
+                }
                 Ok("Fork sub-agent execution was interrupted".to_string())
             }
             Err(e) => {
+                if let Some(ref store) = self.thread_store {
+                    let _ = store.update_thread_status(&child_thread_id, "error").await;
+                }
                 let msg = format!("Fork sub-agent execution failed: {}", e);
                 Err(msg.into())
             }
@@ -419,6 +483,23 @@ impl SubAgentTool {
         let spawn_hooks = Arc::clone(&self.registered_hooks);
         let spawn_bg_sender = self.bg_event_sender.clone();
 
+        // Create child thread for background mode
+        let bg_child_thread_id = uuid::Uuid::now_v7().to_string();
+        if let Some(ref store) = self.thread_store {
+            let mut child_meta = ThreadMeta::new(&cwd);
+            child_meta.id = bg_child_thread_id.clone();
+            child_meta.parent_thread_id = self.parent_thread_id.clone();
+            child_meta.hidden = true;
+            child_meta.cancel_policy = "independent".to_string();
+            child_meta.title = Some(format!("bg-{}", task_id));
+            store
+                .create_thread(child_meta)
+                .await
+                .map_err(|e| format!("Failed to create child thread: {}", e))?;
+        }
+        let spawn_thread_store = self.thread_store.clone();
+        let spawn_child_thread_id = bg_child_thread_id.clone();
+
         self.fire_subagent_lifecycle_hook(
             crate::hooks::types::HookEvent::SubagentStart,
             &cwd,
@@ -428,7 +509,12 @@ impl SubAgentTool {
         .await;
 
         let handle = tokio::spawn(async move {
-            let mut state = AgentState::new(&cwd);
+            let mut state = if let Some(ref store) = spawn_thread_store {
+                AgentState::new(&cwd)
+                    .with_persistence(Arc::clone(store), spawn_child_thread_id.clone())
+            } else {
+                AgentState::new(&cwd)
+            };
             let start = std::time::Instant::now();
 
             let result = match agent_builder
@@ -461,6 +547,14 @@ impl SubAgentTool {
                     duration_ms: start.elapsed().as_millis() as u64,
                 },
             };
+
+            // Update child thread status
+            if let Some(ref store) = spawn_thread_store {
+                let status = if result.success { "done" } else { "error" };
+                let _ = store
+                    .update_thread_status(&spawn_child_thread_id, status)
+                    .await;
+            }
 
             spawn_registry.complete(&spawn_task_id, result.clone());
 
@@ -510,11 +604,17 @@ impl SubAgentTool {
             });
         }
 
-        Ok(format!(
-            "Background task {} started. You will be notified when it completes. \
-             You can continue with other tasks in the meantime.",
-            task_id
-        ))
+        if self.thread_store.is_some() {
+            Ok(format!(
+                "Background task {} started (thread: {}). You will be notified when it completes.                  You can continue with other tasks in the meantime.",
+                task_id, bg_child_thread_id
+            ))
+        } else {
+            Ok(format!(
+                "Background task {} started. You will be notified when it completes.                  You can continue with other tasks in the meantime.",
+                task_id
+            ))
+        }
     }
 
     async fn invoke_background_fork(
@@ -535,6 +635,23 @@ impl SubAgentTool {
                     .to_string(),
             ),
         };
+
+        // Create child thread for background fork
+        let bg_fork_child_thread_id = uuid::Uuid::now_v7().to_string();
+        if let Some(ref store) = self.thread_store {
+            let snapshot_id = parent_msgs.last().map(|m| m.id().as_uuid().to_string());
+            let mut child_meta = ThreadMeta::new(&cwd);
+            child_meta.id = bg_fork_child_thread_id.clone();
+            child_meta.parent_thread_id = self.parent_thread_id.clone();
+            child_meta.snapshot_at_message_id = snapshot_id;
+            child_meta.hidden = true;
+            child_meta.cancel_policy = "independent".to_string();
+            child_meta.title = Some(format!("bg-fork-{}", task_id));
+            store
+                .create_thread(child_meta)
+                .await
+                .map_err(|e| format!("Failed to create child thread: {}", e))?;
+        }
 
         let llm = (self.llm_factory)(None);
         let mut agent_builder = ReActAgent::new(llm).max_iterations(200);
@@ -558,6 +675,8 @@ impl SubAgentTool {
         let spawn_task_id = task_id.clone();
         let spawn_agent_name = agent_name.clone();
         let spawn_prompt_summary = prompt_summary.clone();
+        let spawn_thread_store = self.thread_store.clone();
+        let spawn_child_thread_id = bg_fork_child_thread_id.clone();
 
         self.fire_subagent_lifecycle_hook(
             crate::hooks::types::HookEvent::SubagentStart,
@@ -568,7 +687,16 @@ impl SubAgentTool {
         .await;
 
         let handle = tokio::spawn(async move {
-            let mut fork_state = AgentState::with_messages(cwd.clone(), parent_msgs);
+            let mut fork_state = if let Some(ref store) = spawn_thread_store {
+                AgentState::new(&cwd)
+                    .with_persistence(Arc::clone(store), spawn_child_thread_id.clone())
+            } else {
+                AgentState::new(&cwd)
+            };
+            // Inject parent messages for immediate execution
+            for msg in parent_msgs {
+                fork_state.add_message(msg);
+            }
             let start = std::time::Instant::now();
 
             let result = match agent_builder
@@ -606,6 +734,14 @@ impl SubAgentTool {
                 },
             };
 
+            // Update child thread status
+            if let Some(ref store) = spawn_thread_store {
+                let status = if result.success { "done" } else { "error" };
+                let _ = store
+                    .update_thread_status(&spawn_child_thread_id, status)
+                    .await;
+            }
+
             spawn_registry.complete(&spawn_task_id, result.clone());
 
             fire_subagent_lifecycle_hooks_static(
@@ -645,7 +781,7 @@ impl SubAgentTool {
         })?;
 
         // 通知 TUI background agent 启动（递增 background_task_count）。
-        // 必须在 registry.register() 成功之后发送，防止注册失败留下幽灵计数。
+        // 必须在 registry.register() 成功之后发送，防止注册��败��下幽灵计数。
         if let Some(ref handler) = self.event_handler {
             handler.on_event(AgentEvent::SubagentStarted {
                 agent_name: agent_name.clone(),
@@ -654,11 +790,17 @@ impl SubAgentTool {
             });
         }
 
-        Ok(format!(
-            "Background task {} started. You will be notified when it completes. \
-             You can continue with other tasks in the meantime.",
-            task_id
-        ))
+        if self.thread_store.is_some() {
+            Ok(format!(
+                "Background task {} started (thread: {}). You will be notified when it completes.                  You can continue with other tasks in the meantime.",
+                task_id, bg_fork_child_thread_id
+            ))
+        } else {
+            Ok(format!(
+                "Background task {} started. You will be notified when it completes.                  You can continue with other tasks in the meantime.",
+                task_id
+            ))
+        }
     }
 }
 
@@ -762,6 +904,22 @@ impl BaseTool for SubAgentTool {
 
         let instance_id = format!("sub_{}", &uuid::Uuid::new_v4().to_string()[..8]);
 
+        // Create child thread for normal (non-fork, non-background) mode
+        let child_thread_id = uuid::Uuid::now_v7().to_string();
+        if let Some(ref store) = self.thread_store {
+            let mut child_meta = ThreadMeta::new(&cwd);
+            child_meta.id = child_thread_id.clone();
+            child_meta.parent_thread_id = self.parent_thread_id.clone();
+            child_meta.snapshot_at_message_id = None;
+            child_meta.hidden = true;
+            child_meta.cancel_policy = "cascade".to_string();
+            child_meta.title = Some(agent_id.clone());
+            store
+                .create_thread(child_meta)
+                .await
+                .map_err(|e| format!("Failed to create child thread: {}", e))?;
+        }
+
         let agent_def = match self.load_agent_def(&agent_id, &cwd) {
             Ok(a) => a,
             Err(e) => return Ok(e),
@@ -818,7 +976,12 @@ impl BaseTool for SubAgentTool {
             agent_builder = agent_builder.with_event_handler(tagged);
         }
 
-        let mut state = AgentState::new(cwd.clone());
+        let mut state = if let Some(ref store) = self.thread_store {
+            AgentState::new(cwd.clone())
+                .with_persistence(Arc::clone(store), child_thread_id.clone())
+        } else {
+            AgentState::new(cwd.clone())
+        };
 
         if let Some(ref handler) = self.event_handler {
             handler.on_event(AgentEvent::SubagentStarted {
@@ -878,11 +1041,33 @@ impl BaseTool for SubAgentTool {
         .await;
 
         match exec_result {
-            Ok(output) => Ok(format_subagent_result(&output)),
+            Ok(output) => {
+                if let Some(ref store) = self.thread_store {
+                    let _ = store.update_thread_status(&child_thread_id, "done").await;
+                }
+                let result_text = format_subagent_result(&output);
+                if self.thread_store.is_some() {
+                    Ok(format!(
+                        "child_thread_id: {}
+{}",
+                        child_thread_id, result_text
+                    ))
+                } else {
+                    Ok(result_text)
+                }
+            }
             Err(peri_agent::error::AgentError::Interrupted) => {
+                if let Some(ref store) = self.thread_store {
+                    let _ = store
+                        .update_thread_status(&child_thread_id, "cancelled")
+                        .await;
+                }
                 Ok("Sub-agent execution was interrupted".to_string())
             }
             Err(e) => {
+                if let Some(ref store) = self.thread_store {
+                    let _ = store.update_thread_status(&child_thread_id, "error").await;
+                }
                 let msg = format!("Sub-agent execution failed: {}", e);
                 Err(msg.into())
             }

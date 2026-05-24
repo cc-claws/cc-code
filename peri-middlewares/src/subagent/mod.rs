@@ -52,6 +52,8 @@ use peri_agent::messages::BaseMessage;
 use peri_agent::middleware::r#trait::Middleware;
 use peri_agent::tools::BaseTool;
 
+use peri_agent::thread::ThreadStore;
+
 use crate::agent_define::AgentOverrides;
 use crate::parse_agent_file;
 use crate::tools::BoxToolWrapper;
@@ -107,6 +109,10 @@ pub struct SubAgentMiddleware {
     /// 后台任务完成事件的���立发送通道（不随 executor 生命周期销毁）
     bg_event_sender:
         Option<tokio::sync::mpsc::UnboundedSender<peri_agent::agent::events::AgentEvent>>,
+    /// Thread persistence store for child threads
+    thread_store: Option<Arc<dyn ThreadStore>>,
+    /// Parent thread ID for child thread hierarchy
+    parent_thread_id: Option<String>,
 }
 
 impl SubAgentMiddleware {
@@ -131,6 +137,8 @@ impl SubAgentMiddleware {
             registered_hooks: Arc::new(Vec::new()),
             child_handler_factory: None,
             bg_event_sender: None,
+            thread_store: None,
+            parent_thread_id: None,
         }
     }
 
@@ -195,6 +203,18 @@ impl SubAgentMiddleware {
         self
     }
 
+    /// Set thread persistence store for child thread creation
+    pub fn with_thread_store(mut self, store: Arc<dyn ThreadStore>) -> Self {
+        self.thread_store = Some(store);
+        self
+    }
+
+    /// Set parent thread ID for child thread hierarchy
+    pub fn with_parent_thread_id(mut self, id: String) -> Self {
+        self.parent_thread_id = Some(id);
+        self
+    }
+
     /// Build SubAgentTool instance (clone Arc fields, do not transfer ownership)
     pub fn build_tool(&self, cwd: &str) -> SubAgentTool {
         let mut tool = SubAgentTool::new(
@@ -223,6 +243,12 @@ impl SubAgentMiddleware {
         }
         if let Some(ref sender) = self.bg_event_sender {
             tool = tool.with_bg_event_sender(sender.clone());
+        }
+        if let Some(ref store) = self.thread_store {
+            tool = tool.with_thread_store(Arc::clone(store));
+        }
+        if let Some(ref id) = self.parent_thread_id {
+            tool = tool.with_parent_thread_id(id.clone());
         }
         tool
     }
