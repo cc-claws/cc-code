@@ -161,13 +161,13 @@ async fn test_micro_compact_once_per_prompt() {
         state.add_message(BaseMessage::ai_with_tool_calls(
             peri_agent::messages::MessageContent::text("using tool"),
             vec![peri_agent::messages::ToolCallRequest::new(
-                &format!("tc{}", i),
+                format!("tc{}", i),
                 "Bash",
                 serde_json::json!({}),
             )],
         ));
         state.add_message(BaseMessage::tool_result(
-            &format!("tc{}", i),
+            format!("tc{}", i),
             "x".repeat(600),
         ));
     }
