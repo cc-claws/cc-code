@@ -11,7 +11,7 @@ use super::session::LangfuseSession;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// 工具调用的中间缓冲数据（start 时存储，end 时取出组合成完整 span-create）
-struct PendingTool {
+pub(crate) struct PendingTool {
     span_id: String,
     name: String,
     input: serde_json::Value,
@@ -34,7 +34,7 @@ pub struct LangfuseTracer {
     /// 当前对话轮次的 Trace ID（提前生成，所有观测对象共享）
     trace_id: String,
     /// 主 Agent Observation 的 ID
-    agent_observation_id: String,
+    pub(crate) agent_observation_id: String,
     /// step → (generation_id, input_messages, tools, start_time_rfc3339)
     generation_data: HashMap<usize, (String, Vec<BaseMessage>, Vec<ToolDefinition>, String)>,
     /// 工具调用缓冲数据：tool_call_id → PendingTool
@@ -49,21 +49,21 @@ pub struct LangfuseTracer {
     final_answer: String,
     /// SubAgent 栈：保存当前活动的 subagent observation IDs
     /// 支持 subagent 嵌套调用（subagent 中再调用 subagent）
-    subagent_stack: Vec<SubAgentContext>,
+    pub(crate) subagent_stack: Vec<SubAgentContext>,
 }
 
 /// SubAgent 追踪上下文
-struct SubAgentContext {
+pub(crate) struct SubAgentContext {
     /// SubAgent 的 Observation ID
-    observation_id: String,
+    pub(crate) observation_id: String,
     /// SubAgent 的 agent_id（如 "code-reviewer"）
-    agent_id: String,
+    pub(crate) agent_id: String,
     /// 当前 subagent 下的 tools batch 信息
-    tools_batch_span_id: Option<String>,
-    tools_batch_start_time: Option<String>,
-    tools_batch_end_time: Option<String>,
+    pub(crate) tools_batch_span_id: Option<String>,
+    pub(crate) tools_batch_start_time: Option<String>,
+    pub(crate) tools_batch_end_time: Option<String>,
     /// SubAgent 下的工具调用缓冲
-    pending_tools: HashMap<String, PendingTool>,
+    pub(crate) pending_tools: HashMap<String, PendingTool>,
 }
 
 impl LangfuseTracer {
@@ -86,7 +86,7 @@ impl LangfuseTracer {
 
     /// 获取当前活动的 agent observation ID
     /// 若有 subagent 栈，返回栈顶的 subagent ID；否则返回主 agent ID
-    fn current_agent_id(&self) -> String {
+    pub(crate) fn current_agent_id(&self) -> String {
         self.subagent_stack
             .last()
             .map(|ctx| ctx.observation_id.clone())
@@ -125,7 +125,7 @@ impl LangfuseTracer {
     }
 
     /// 从 Agent 工具的输入 JSON 中提取 subagent 标识（用于 Langfuse 显示名称）
-    fn subagent_identity(input: &serde_json::Value) -> String {
+    pub(crate) fn subagent_identity(input: &serde_json::Value) -> String {
         input
             .get("subagent_type")
             .and_then(|v| v.as_str())
@@ -457,13 +457,30 @@ impl LangfuseTracer {
         let trace_id = self.trace_id.clone();
         let trace_id_for_log = self.trace_id.clone();
 
+        // Agent 工具的 PendingTool 在 on_tool_start 时插入到**父级** context
+        //（begin_subagent push 前），而 current_tools_context() 会返回子 agent 的 context。
+        // 因此必须先 end_subagent（pop 栈回到父级），再查找 PendingTool。
+        let is_agent = self
+            .pending_tools
+            .get(tool_call_id)
+            .map(|t| t.name == "Agent")
+            .unwrap_or(false)
+            || self.subagent_stack.iter().any(|ctx| {
+                ctx.pending_tools
+                    .get(tool_call_id)
+                    .map(|t| t.name == "Agent")
+                    .unwrap_or(false)
+            });
+        if is_agent {
+            self.end_subagent(output, is_error);
+        }
+
         let (_, _, end_time_ref, pending_tools) = self.current_tools_context();
         let Some(tool) = pending_tools.remove(tool_call_id) else {
             return;
         };
         let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        let is_agent = tool.name == "Agent";
         let tool_name = tool.name.clone();
         let span_id = tool.span_id;
         let tool_name_for_body = tool.name.clone();
@@ -506,11 +523,6 @@ impl LangfuseTracer {
         // 释放 current_tools_context 的可变借用
         let _ = end_time_ref;
         let _ = pending_tools;
-
-        // Agent 工具：先完成 SubAgent observation（flush + pop + update）
-        if is_agent {
-            self.end_subagent(output, is_error);
-        }
 
         if let Err(e) = self.session.batcher.try_add(event) {
             tracing::warn!(error = %e, trace_id = %trace_id_for_log, tool = %tool_name, "langfuse: tool observation 入队失败（背压丢弃）");
@@ -563,3 +575,7 @@ impl LangfuseTracer {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "tracer_test.rs"]
+mod tests;
