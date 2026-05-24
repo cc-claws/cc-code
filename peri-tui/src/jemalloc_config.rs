@@ -3,16 +3,15 @@
 //! Two-phase configuration:
 //! 1. `malloc_conf` global symbol — compile-time embedded config string, read
 //!    by jemalloc during its **first** initialization (before `main()` runs).
-//!    This is the **only** reliable way to enable `background_thread`, because
-//!    jemalloc initializes at process startup when `#[global_allocator]` triggers
-//!    the first allocation inside `lang_start` — before any Rust code can set
-//!    env vars or call mallctl.
 //! 2. `configure_jemalloc()` — runtime mallctl writes as fallback/diagnostics.
 //!
 //! Configuration applied:
 //! - `dirty_decay_ms:200` — purge freed arena pages after 200ms (default: 10000ms)
-//! - `background_thread:true` — enable background purge thread (default: disabled)
 //! - `lg_tcache_max:16` — limit thread cache to objects ≤64KB (default: unlimited)
+//!
+//! NOTE: `background_thread:true` is NOT set here because it requires pthread and
+//! does not work on macOS — jemalloc prints a warning and ignores the option.
+//! The runtime `raw::write` fallback also fails silently on macOS.
 
 // ─── Compile-time malloc_conf ──────────────────────────────────────────────
 //
@@ -35,7 +34,7 @@ pub static JEMALLOC_CONF: Option<&'static std::ffi::c_char> = Some(unsafe {
         y: &'static std::ffi::c_char,
     }
     U {
-        x: &b"dirty_decay_ms:200,background_thread:true,lg_tcache_max:16\0"[0],
+        x: &b"dirty_decay_ms:200,lg_tcache_max:16\0"[0],
     }
     .y
 });
@@ -43,8 +42,8 @@ pub static JEMALLOC_CONF: Option<&'static std::ffi::c_char> = Some(unsafe {
 /// Configure jemalloc for aggressive memory reclamation via runtime mallctl.
 ///
 /// This is a best-effort fallback that applies settings at runtime.
-/// `background_thread` may not take effect if arenas already exist;
-/// the `malloc_conf` global symbol handles that case.
+/// `background_thread` is not set because it requires pthread and does not
+/// work on macOS.
 // Called from main.rs (bin target) via peri_tui::jemalloc_config::configure_jemalloc().
 // Clippy's dead_code lint fires on lib targets even when used by the bin target.
 #[allow(dead_code)]
@@ -64,16 +63,7 @@ pub fn configure_jemalloc() {
         Err(e) => warn!("jemalloc: failed to set dirty_decay_ms: {}", e),
     }
 
-    // 2. background_thread — enables a background thread per arena that
-    //    proactively purges dirty pages. Without this, purge only happens
-    //    during foreground allocations (the "lazy" purge path), which can't
-    //    keep up with our churn rate.
-    match unsafe { tikv_jemalloc_ctl::raw::write(b"background_thread\0", true) } {
-        Ok(()) => debug!("jemalloc: background_thread = true"),
-        Err(e) => warn!("jemalloc: failed to enable background_thread: {}", e),
-    }
-
-    // 3. lg_tcache_max — log2 of max cached allocation size in thread caches.
+    // 2. lg_tcache_max — log2 of max cached allocation size in thread caches.
     //    Default is ~23 (8MB), which means large allocations linger in tcache.
     //    Setting to 16 (64KB) limits tcache to small objects, reducing the
     //    5-7MB tcache_bytes overhead observed in heapdumps.
@@ -106,20 +96,5 @@ mod tests {
         let val: i64 = unsafe { tikv_jemalloc_ctl::raw::read(b"arenas.dirty_decay_ms\0") }
             .expect("should read dirty_decay_ms");
         assert_eq!(val, 200, "dirty_decay_ms should be 200ms after configure");
-    }
-
-    #[test]
-    #[cfg(not(target_os = "windows"))]
-    fn test_malloc_conf_background_thread_enabled() {
-        // Verify that the compile-time malloc_conf symbol correctly enabled
-        // background_thread — this is the key assertion that the global symbol
-        // approach works (env var approach would fail this test).
-        let _ = tikv_jemalloc_ctl::epoch::advance();
-        let enabled = tikv_jemalloc_ctl::opt::background_thread::read()
-            .expect("should read opt.background_thread");
-        assert!(
-            enabled,
-            "background_thread should be enabled via malloc_conf global symbol"
-        );
     }
 }

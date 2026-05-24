@@ -7,7 +7,7 @@
 
 ## 问题描述
 
-Agent 对话过程中，内存（RSS）随对话轮数线性增长，每轮约增长 40 MB，且不会自动下降。持续跑 50-100 轮对话后可达数 GB，最终导致 OOM。**debug 和 release 模式下均表现相同**：`/clear` 后 RSS 不会下降。**根因为双重问题**（详见现象 6 修正）：jemalloc arena 碎片化（~17 MB/轮）+ 非 jemalloc 运行时基础设施持有（~20 MB/轮，tokio/hyper/reqwest/rustls），而非单纯的数据结构泄漏。
+Agent 对话过程中，内存（RSS）随对话轮数线性增长，每轮约增长 40 MB，且不会自动下降。持续跑 50-100 轮对话后可达数 GB，最终导致 OOM。**debug 和 release 模式下均表现相同**：`/clear` 后 RSS 不会下降。**根因为双重问题**（详见现象 6 修正）：jemalloc arena 碎片化（~17 MB/轮）+ 非 jemalloc 运行时基础设施持有（~20 MB/轮，tokio/hyper/reqwest/rustls），而非单纯的数据��构泄漏。**注**：`background_thread` 在 macOS 上不可用（依赖 pthread），已从配置中移除（2026-05-24）。
 
 ## 症状详情
 
@@ -154,23 +154,23 @@ non_arena:             89.4 MB   ← mapped - active
 
 **关键发现——P0 修复效果有限的原因**：
 
-1. **`background_thread: false`**：`configure_jemalloc()` 中 `raw::write("background_thread", true)` **写入失败**。jemalloc 的 `background_thread` 需要在任何 arena 分配发生前设置才可靠，tokio runtime 创建后 arena 已分配给线程，此时写入可能静默失败。`dirty_decay_ms` 写入成功说明函数本身被调用了，但 `background_thread` 因时序问题未生效
+1. **`background_thread: false`**：~~`configure_jemalloc()` 中 `raw::write("background_thread", true)` **写入失败**~~ **macOS 不支持 `background_thread`**：该功能依赖 pthread API，macOS 线程模型不兼容，jemalloc 启动时打印 `option background_thread currently supports pthread only` 并忽略。无论是 `_rjem_malloc_conf` 全局符号还是运行时 `raw::write`，在 macOS 上均无效。Linux 上可能有效但未验证
 2. **非 jemalloc 内存（43.4 MB）才是 RSS 的主要组成**：tokio runtime 线程栈（默认 8MB×N threads）、hyper/reqwest HTTP 连接池、rustls TLS session 缓冲区、tokio 任务缓冲区。这些不受 jemalloc 管理，`/clear` 不会释放，`jemalloc_decay()` 也无法触及
-3. **arena 碎片化（17.5 MB）是次要来源**：`dirty_decay_ms: 200` 已生效，但无 `background_thread` 前台 decay 在空闲时仍不够积极
+3. **arena 碎片化（17.5 MB）是次要来源**：`dirty_decay_ms: 200` 已生效，但 macOS 上无 `background_thread`（不支持 pthread），前台 decay 在空闲时仍不够积极
 4. **mapped 虚拟地址空间（116.2 MB）膨胀**：jemalloc 地址空间保留，macOS 上 munmap 策略保守，decommit 后虚拟地址空间仍保留。不影响 RSS 但说明 jemalloc 管理开销大
 
 **与之前根因分析的修正**：
 
 现象 5 将根因归为 "jemalloc 分配器碎片化"。现象 6 的数据表明这是**双重问题**：
 
-- **arena 碎片化（17.5 MB）**：可通过 jemalloc 调优解决（修复 `background_thread` + 更激进 purge）
+- **arena 碎片化（17.5 MB）**：可通过 jemalloc 调优缓解（`dirty_decay_ms: 200` + 主动 `jemalloc_decay()`）。`background_thread` 在 macOS 上不可用（依赖 pthread）
 - **非 jemalloc 运行时持有（43.4 MB）**：这是 tokio/hyper/reqwest 的**正常基础设施开销**，不是泄漏，但 `/clear` 无法回收。系统分配器（非 jemalloc）测试也表现出同样行为，进一步确认这不是分配器层面的问题
 
 **每轮增长 ~40 MB 的实际组成**（结合现象 5 + 6）：
 
 ```
 RSS 增长/轮 (~40 MB)
-├── jemalloc arena 碎片化 (~17 MB)       ← 可优化：修复 background_thread
+├── jemalloc arena 碎片化 (~17 MB)       ← 可缓解：dirty_decay_ms + jemalloc_decay()
 │   └── active slabs 碎片 + dirty pages 积压
 ├── 非 jemalloc 运行时增长 (~20 MB)       ← 难优化：tokio/hyper/reqwest 基础设施
 │   ├── reqwest HTTP 连接池 + TLS session 缓存
@@ -205,7 +205,7 @@ RSS 增长 (+41.9 MB)
 
 **最终根因是双重问题**：
 
-1. **jemalloc arena 碎片化（17.5 MB）**：每轮 68 万次瞬态分配造成 arena slabs 碎片化，`background_thread` 设置失败导致 purge 不够积极。可通过 MALLOC_CONF 环境变量修复
+1. **jemalloc arena 碎片化（17.5 MB）**：每轮 68 万次瞬态分配造成 arena slabs 碎片化。macOS 不支持 `background_thread`（依赖 pthread），只能依赖 `dirty_decay_ms: 200` + 主动 `jemalloc_decay()` 调用进行 purge
 2. **非 jemalloc 运行时持有（43.4 MB）**：tokio runtime 线程栈、hyper/reqwest HTTP 连接池、rustls TLS session 缓冲区。这些是基础设施的正常持有，`/clear` 不释放。**系统分配器对照实验确认这不是 jemalloc 独有问题**
 
 ### 现象 4 与现象 5 的差异说明
@@ -219,10 +219,10 @@ RSS 增长 (+41.9 MB)
 
 ## 修复方向
 
-### P0：分配器调优（部分已实施，需修复 background_thread）
+### P0：分配器调优（部分已实施，background_thread 不可用）
 
 1. ~~**`dirty_decay_ms` 降至 100-200ms**~~：✅ 已实施，设为 200ms（heapdump 确认生效）
-2. **修复 `background_thread` 设置失败**：当前 `raw::write` 方式在 tokio runtime 创建后无效。改为通过 `MALLOC_CONF` 环境变量在进程启动前设置（如 `MALLOC_CONF="dirty_decay_ms:200,background_thread:true"`），或使用 `tikv_jemallocator::Jemalloc::init()` 的早期初始化。预估可回收 ~10-17 MB arena 碎片化
+2. ~~**修复 `background_thread` 设置失败**~~：❌ **不可修复**。`background_thread` 依赖 pthread API，macOS 不支持。jemalloc 启动时打印 `<jemalloc>: option background_thread currently supports pthread only` 并忽略该选项。已从 `_rjem_malloc_conf` 全局符号和 `configure_jemalloc()` 运行时写入中移除 `background_thread:true`，消除启动警告。macOS 上 arena purge 只能依赖 `dirty_decay_ms` + 主动 `jemalloc_decay()` 调用
 3. ~~**限制 tcache 大小**~~：✅ 已实施，`lg_tcache_max=16`（tcache_bytes 从 7.2 MB 降至 4.4 MB）
 
 ### P0（新）：降低非 jemalloc 运行时开销
@@ -265,4 +265,4 @@ RSS 增长 (+41.9 MB)
 - `peri-acp/src/session/event_sink.rs` —— event 序列化（`to_string()` → `into()` 优化）
 - `peri-tui/src/command/core/heapdump.rs` —— `/heapdump` 诊断命令
 - `peri-tui/src/main.rs` —— `configure_jemalloc()` 分配器调优入口
-- `peri-tui/src/jemalloc_config.rs` —— jemalloc 配置模块（`background_thread` 修复目标）
+- `peri-tui/src/jemalloc_config.rs` —— jemalloc ���置模块（`background_thread` 已移除：macOS 不支持）
