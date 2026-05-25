@@ -10,5 +10,8 @@ pub use session_manager::SessionManager;
 mod ui_state;
 pub use ui_state::UiState;
 
+mod at_mention;
+pub use at_mention::AtMentionState;
+
 mod message_state;
 pub use message_state::MessageState;

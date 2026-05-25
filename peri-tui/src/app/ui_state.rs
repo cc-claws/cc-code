@@ -1,6 +1,7 @@
 use peri_widgets::ScrollbarMetrics;
 use tui_textarea::TextArea;
 
+use super::at_mention::AtMentionState;
 use crate::app::text_selection::{PanelTextSelection, TextSelection};
 
 /// UI 交互状态：会话级的输入、滚动、选区、历史等。
@@ -31,6 +32,8 @@ pub struct UiState {
     pub panel_scrollbar_metrics: Option<ScrollbarMetrics>,
     /// Whether user is currently dragging the panel scrollbar
     pub panel_scrollbar_dragging: bool,
+    /// @ 文件提及状态
+    pub at_mention: AtMentionState,
 }
 
 impl UiState {
@@ -60,6 +63,7 @@ impl UiState {
             scrollbar_max_offset: 0,
             panel_scrollbar_metrics: None,
             panel_scrollbar_dragging: false,
+            at_mention: AtMentionState::new(),
         }
     }
 }
