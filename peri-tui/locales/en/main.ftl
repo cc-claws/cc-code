@@ -210,8 +210,7 @@ setup-language-press-enter = Press Enter to confirm
 
 # ---- Config Panel ----
 
-config-panel-title-browse =  /config — Configuration
-config-panel-title-edit =  /config — Edit Configuration
+config-panel-title =  /config — Configuration
 config-field-autocompact = Autocompact
 config-field-compact-threshold = Compact Threshold
 config-field-language = Language
@@ -221,10 +220,18 @@ config-field-proactiveness = Proactiveness
 config-value-on = ON
 config-value-off = OFF
 config-saved = Configuration saved
-config-key-navigate = :Navigate
-config-key-edit = :Edit
-config-key-save = :Save
-config-key-toggle = :Toggle
+
+# Config panel groups
+config-group-general = General
+config-group-prompt-overrides = Prompt Overrides
+
+# Config field descriptions
+config-desc-autocompact = (ON/OFF — auto-compact context when full)
+config-desc-threshold = 50-99% — trigger threshold for auto-compact
+config-desc-language = en, zh-CN, or leave empty for auto
+config-desc-persona = Override system prompt persona (empty = default)
+config-desc-tone = Override system prompt tone (empty = default)
+config-desc-proactiveness = low / medium / high — agent initiative level
 
 # ---- Login Panel ----
 
@@ -304,10 +311,9 @@ hint-login-toggle = :Toggle
 hint-login-back = :Back
 
 # Config panel
-hint-config-browse-navigate = :Navigate
-hint-config-browse-edit = :Edit
-hint-config-edit-field = :Field
-hint-config-edit-save = :Save
+hint-config-field = :Field
+hint-config-toggle = :Toggle
+hint-config-save = :Save & close
 
 # Model panel
 hint-model-navigate = :Navigate

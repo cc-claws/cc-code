@@ -8,22 +8,31 @@ use ratatui::{
 
 use peri_widgets::BorderedPanel;
 
-use crate::app::config_panel::{ConfigEditField, ConfigPanel, ConfigPanelMode};
+use crate::app::config_panel::{
+    ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_GENERAL_HEADER, ROW_LANGUAGE,
+    ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_SEPARATOR, ROW_THRESHOLD, ROW_TONE,
+};
 use crate::app::App;
 use crate::ui::theme;
 
-/// /config 面板渲染
+/// 行号 → i18n 字段标签键
+fn field_label_key(row: usize) -> &'static str {
+    match row {
+        ROW_AUTOCOMPACT => "config-field-autocompact",
+        ROW_THRESHOLD => "config-field-compact-threshold",
+        ROW_LANGUAGE => "config-field-language",
+        ROW_PERSONA => "config-field-persona",
+        ROW_TONE => "config-field-tone",
+        ROW_PROACTIVENESS => "config-field-proactiveness",
+        _ => "???",
+    }
+}
+
+/// /config 面板渲染（单一直接编辑模式）
 pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut App, area: Rect) {
     let lc = &app.services.lc;
-    let border_color = match panel.mode {
-        ConfigPanelMode::Browse => theme::BORDER,
-        ConfigPanelMode::Edit => theme::WARNING,
-    };
 
-    let title = match panel.mode {
-        ConfigPanelMode::Browse => lc.tr("config-panel-title-browse"),
-        ConfigPanelMode::Edit => lc.tr("config-panel-title-edit"),
-    };
+    let title = lc.tr("config-panel-title");
 
     let inner = BorderedPanel::new(Span::styled(
         title,
@@ -31,212 +40,157 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
             .fg(theme::THINKING)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(border_color))
+    .border_style(Style::default().fg(theme::BORDER))
     .render(f, area);
 
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
         .panel_area = Some(inner);
 
-    match panel.mode {
-        ConfigPanelMode::Browse => {
-            let mut lines: Vec<Line> = Vec::new();
-            for i in 0..ConfigPanel::field_count() {
-                let is_cursor = i == panel.cursor();
-                let cursor_char = if is_cursor { "❯ " } else { "  " };
-                let label = ConfigPanel::field_label(i);
-                let value = panel.field_display_value(i);
+    let mut lines: Vec<Line> = Vec::new();
 
-                let style = if is_cursor {
+    for row in 0..ROW_COUNT {
+        match row {
+            ROW_GENERAL_HEADER => {
+                lines.push(Line::from(vec![Span::styled(
+                    lc.tr("config-group-general"),
                     Style::default()
-                        .fg(theme::THINKING)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme::TEXT)
-                };
-
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        cursor_char.to_string(),
-                        Style::default().fg(theme::THINKING),
-                    ),
-                    Span::styled(format!("{:<14}", label), style),
-                    Span::styled(value, Style::default().fg(theme::TEXT)),
-                ]));
+                        .fg(theme::SAGE)
+                        .add_modifier(Modifier::BOLD),
+                )]));
             }
-            lines.truncate(inner.height as usize);
-            f.render_widget(Paragraph::new(Text::from(lines)), inner);
-        }
-
-        ConfigPanelMode::Edit => {
-            let mut lines: Vec<Line> = vec![Line::from("")];
-
-            // Autocompact
-            {
-                let is_active = panel.edit_field == ConfigEditField::Autocompact;
-                let on_off = if panel.buf_autocompact {
-                    vec![
-                        Span::styled(
-                            format!("[{}]", lc.tr("config-value-on")),
-                            Style::default()
-                                .fg(theme::THINKING)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            format!("  {}", lc.tr("config-value-off")),
-                            Style::default().fg(theme::MUTED),
-                        ),
-                    ]
-                } else {
-                    vec![
-                        Span::styled(
-                            format!("{}  ", lc.tr("config-value-on")),
-                            Style::default().fg(theme::MUTED),
-                        ),
-                        Span::styled(
-                            format!("[{}]", lc.tr("config-value-off")),
-                            Style::default()
-                                .fg(theme::THINKING)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ]
-                };
-                let label_style = if is_active {
+            ROW_SEPARATOR => {
+                lines.push(Line::from(""));
+            }
+            ROW_OVERRIDES_HEADER => {
+                lines.push(Line::from(vec![Span::styled(
+                    lc.tr("config-group-prompt-overrides"),
                     Style::default()
-                        .fg(theme::THINKING)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme::MUTED)
-                };
-                let mut spans = vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled(
-                        format!("{:<14}", ConfigEditField::Autocompact.label()),
-                        label_style,
-                    ),
-                ];
-                spans.extend(on_off);
-                lines.push(Line::from(spans));
+                        .fg(theme::SAGE)
+                        .add_modifier(Modifier::BOLD),
+                )]));
             }
-
-            // CompactThreshold (text input)
-            render_text_field(
-                &mut lines,
-                ConfigEditField::CompactThreshold,
-                &panel.edit_field,
-                &panel.buf_threshold,
-                panel.cur_threshold,
-            );
-
-            // Language (text input)
-            render_text_field(
-                &mut lines,
-                ConfigEditField::Language,
-                &panel.edit_field,
-                &panel.buf_language,
-                panel.cur_language,
-            );
-
-            // Persona (text input)
-            render_text_field(
-                &mut lines,
-                ConfigEditField::Persona,
-                &panel.edit_field,
-                &panel.buf_persona,
-                panel.cur_persona,
-            );
-
-            // Tone (text input)
-            render_text_field(
-                &mut lines,
-                ConfigEditField::Tone,
-                &panel.edit_field,
-                &panel.buf_tone,
-                panel.cur_tone,
-            );
-
-            // Proactiveness (radio)
-            {
-                let is_active = panel.edit_field == ConfigEditField::Proactiveness;
+            ROW_AUTOCOMPACT => {
+                let is_active = panel.cursor == row;
+                let label_style = active_or_text(is_active);
                 let active_style = Style::default()
                     .fg(theme::THINKING)
                     .add_modifier(Modifier::BOLD);
                 let inactive_style = Style::default().fg(theme::MUTED);
-                let vals = ["low", "medium", "high"];
-                let spans: Vec<Span> = vals
-                    .iter()
-                    .flat_map(|v| {
-                        let cur = panel.buf_proactiveness.as_str();
-                        if *v == cur {
-                            vec![
-                                Span::styled(format!("[{}]", v), active_style),
-                                Span::styled("  ", Style::default()),
-                            ]
-                        } else {
-                            vec![
-                                Span::styled(v.to_string(), inactive_style),
-                                Span::styled("  ", Style::default()),
-                            ]
-                        }
-                    })
-                    .collect();
-                let label_style = if is_active {
-                    Style::default()
-                        .fg(theme::THINKING)
-                        .add_modifier(Modifier::BOLD)
+                let desc_style = Style::default().fg(theme::MUTED);
+
+                let on_span = if panel.buf_autocompact {
+                    Span::styled(format!("[{}]", lc.tr("config-value-on")), active_style)
                 } else {
-                    Style::default().fg(theme::MUTED)
+                    Span::styled(lc.tr("config-value-on"), inactive_style)
                 };
+                let off_span = if panel.buf_autocompact {
+                    Span::styled(lc.tr("config-value-off"), inactive_style)
+                } else {
+                    Span::styled(format!("[{}]", lc.tr("config-value-off")), active_style)
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                    on_span,
+                    Span::styled("  ", Style::default()),
+                    off_span,
+                    Span::styled(
+                        format!("  {}", lc.tr("config-desc-autocompact")),
+                        desc_style,
+                    ),
+                ]));
+            }
+            ROW_PROACTIVENESS => {
+                let is_active = panel.cursor == row;
+                let label_style = active_or_text(is_active);
+                let active_style = Style::default()
+                    .fg(theme::THINKING)
+                    .add_modifier(Modifier::BOLD);
+                let inactive_style = Style::default().fg(theme::MUTED);
+                let desc_style = Style::default().fg(theme::MUTED);
+
+                let vals = ["low", "medium", "high"];
+                let mut value_spans: Vec<Span> = Vec::new();
+                for (i, v) in vals.iter().enumerate() {
+                    if *v == panel.buf_proactiveness.as_str() {
+                        value_spans.push(Span::styled(format!("[{}]", v), active_style));
+                    } else {
+                        value_spans.push(Span::styled(v.to_string(), inactive_style));
+                    }
+                    if i < vals.len() - 1 {
+                        value_spans.push(Span::styled("  ", Style::default()));
+                    }
+                }
+                value_spans.push(Span::styled(
+                    format!("  {}", lc.tr("config-desc-proactiveness")),
+                    desc_style,
+                ));
+
                 let mut line_spans = vec![
                     Span::styled("  ", Style::default()),
-                    Span::styled(
-                        format!("{:<14}", ConfigEditField::Proactiveness.label()),
-                        label_style,
-                    ),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
                 ];
-                line_spans.extend(spans);
+                line_spans.extend(value_spans);
                 lines.push(Line::from(line_spans));
             }
+            ROW_THRESHOLD | ROW_LANGUAGE | ROW_PERSONA | ROW_TONE => {
+                let is_active = panel.cursor == row;
+                let desc_key = match row {
+                    ROW_THRESHOLD => "config-desc-threshold",
+                    ROW_LANGUAGE => "config-desc-language",
+                    ROW_PERSONA => "config-desc-persona",
+                    ROW_TONE => "config-desc-tone",
+                    _ => "",
+                };
 
-            lines.truncate(inner.height as usize);
-            f.render_widget(Paragraph::new(Text::from(lines)), inner);
+                let (buf, cursor) = match row {
+                    ROW_THRESHOLD => (&panel.buf_threshold, panel.cur_threshold),
+                    ROW_LANGUAGE => (&panel.buf_language, panel.cur_language),
+                    ROW_PERSONA => (&panel.buf_persona, panel.cur_persona),
+                    ROW_TONE => (&panel.buf_tone, panel.cur_tone),
+                    _ => unreachable!(),
+                };
+
+                let label_style = active_or_text(is_active);
+                let value_style = if is_active {
+                    Style::default().fg(theme::THINKING)
+                } else {
+                    Style::default().fg(theme::TEXT)
+                };
+                let desc_style = Style::default().fg(theme::MUTED);
+
+                let value_display = if is_active {
+                    let (before, after) = crate::app::edit_display_parts(buf, cursor);
+                    format!("{}█{}", before, after)
+                } else if buf.is_empty() {
+                    "-".to_string()
+                } else {
+                    buf.to_string()
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                    Span::styled(value_display, value_style),
+                    Span::styled(format!("  {}", lc.tr(desc_key)), desc_style),
+                ]));
+            }
+            _ => {}
         }
     }
+
+    lines.truncate(inner.height as usize);
+    f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
-fn render_text_field(
-    lines: &mut Vec<Line<'static>>,
-    field: ConfigEditField,
-    active_field: &ConfigEditField,
-    buf: &str,
-    cursor: usize,
-) {
-    let is_active = field == *active_field;
-    let label_style = if is_active {
+fn active_or_text(is_active: bool) -> Style {
+    if is_active {
         Style::default()
             .fg(theme::THINKING)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::MUTED)
-    };
-    let value_style = if is_active {
-        Style::default().fg(theme::THINKING)
-    } else {
         Style::default().fg(theme::TEXT)
-    };
-
-    let value_display = if is_active {
-        let (before, after) = crate::app::edit_display_parts(buf, cursor);
-        format!("{}█{}", before, after)
-    } else if buf.is_empty() {
-        "-".to_string()
-    } else {
-        buf.to_string()
-    };
-
-    lines.push(Line::from(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(format!("{:<14}", field.label()), label_style),
-        Span::styled(value_display, value_style),
-    ]));
+    }
 }

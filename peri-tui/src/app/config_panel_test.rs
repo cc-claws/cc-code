@@ -8,6 +8,7 @@ fn make_lc() -> crate::i18n::LcRegistry {
 fn test_config_panel_from_config_defaults() {
     let cfg = PeriConfig::default();
     let panel = ConfigPanel::from_config(&cfg);
+    assert_eq!(panel.cursor, ROW_AUTOCOMPACT);
     assert!(panel.buf_autocompact);
     assert_eq!(panel.buf_threshold, "85");
     assert!(panel.buf_language.is_empty());
@@ -15,29 +16,68 @@ fn test_config_panel_from_config_defaults() {
 }
 
 #[test]
-fn test_config_panel_field_navigation() {
-    let _panel = ConfigPanel::from_config(&PeriConfig::default());
-    let _fields: Vec<_> = (0..6)
-        .map(|_| {
-            let mut p = ConfigEditField::Autocompact;
-            for _ in std::iter::empty::<u8>() {
-                p = p.next();
-            }
-            p
-        })
-        .collect();
-    // verify all 6 fields are distinct
-    assert_eq!(ConfigPanel::field_count(), 6);
+fn test_config_panel_cursor_navigation() {
+    // cursor_down 从第一个可编辑行遍历所有可编辑行，验证循环
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    assert_eq!(panel.cursor, ROW_AUTOCOMPACT);
 
-    let mut f = ConfigEditField::Autocompact;
-    for _ in 0..6 {
-        f = f.next();
-    }
-    assert_eq!(f, ConfigEditField::Autocompact);
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_THRESHOLD);
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_LANGUAGE);
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_PROACTIVENESS);
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_PERSONA);
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_TONE);
+    // wrapping: TONE → AUTOCOMPACT
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_AUTOCOMPACT);
 
-    f = ConfigEditField::Proactiveness;
-    f = f.prev();
-    assert_eq!(f, ConfigEditField::Tone);
+    // cursor_up 从 AUTOCOMPACT wrap 到 TONE
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_TONE);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_PERSONA);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_PROACTIVENESS);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_LANGUAGE);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_THRESHOLD);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_AUTOCOMPACT);
+}
+
+#[test]
+fn test_config_panel_cursor_skips_headers() {
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+
+    // 设置 cursor 到 ROW_SEPARATOR（不可编辑），验证跳到下一个可编辑行
+    panel.cursor = ROW_SEPARATOR;
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_PERSONA);
+
+    // cursor_up 从 SEPARATOR 跳到上一个可编辑行
+    panel.cursor = ROW_SEPARATOR;
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_PROACTIVENESS);
+
+    // ROW_GENERAL_HEADER 不可编辑，cursor_down 应跳到 AUTOCOMPACT
+    panel.cursor = ROW_GENERAL_HEADER;
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_AUTOCOMPACT);
+
+    // ROW_OVERRIDES_HEADER 不可编辑，cursor_down 应跳到 PERSONA
+    panel.cursor = ROW_OVERRIDES_HEADER;
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_PERSONA);
+
+    // ROW_OVERRIDES_HEADER 不可编辑，cursor_up 应跳到 PROACTIVENESS
+    panel.cursor = ROW_OVERRIDES_HEADER;
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_PROACTIVENESS);
 }
 
 #[test]
@@ -150,47 +190,4 @@ fn test_config_panel_apply_edit_language_validation_invalid() {
     assert!(err.contains("fr"), "错误消息应包含无效语言: {}", err);
     // 语言不应被修改
     assert_eq!(cfg.config.language, None);
-}
-
-#[test]
-fn test_config_panel_field_display_language() {
-    let panel = ConfigPanel::from_config(&PeriConfig::default());
-    // 空语言显示 auto
-    assert_eq!(panel.field_display_value(2), "auto");
-
-    // en 显示 English
-    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
-    panel.buf_language = "en".to_string();
-    assert_eq!(panel.field_display_value(2), "English");
-
-    // zh-CN 显示 简体中文
-    panel.buf_language = "zh-CN".to_string();
-    assert_eq!(panel.field_display_value(2), "简体中文");
-
-    // 未知语言原样显示
-    panel.buf_language = "ja".to_string();
-    assert_eq!(panel.field_display_value(2), "ja");
-}
-
-#[test]
-fn test_config_panel_active_field_text_editable() {
-    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
-    // Autocompact → None
-    panel.edit_field = ConfigEditField::Autocompact;
-    assert!(panel.active_field().is_none());
-    // Proactiveness → None
-    panel.edit_field = ConfigEditField::Proactiveness;
-    assert!(panel.active_field().is_none());
-    // Language → Some
-    panel.edit_field = ConfigEditField::Language;
-    assert!(panel.active_field().is_some());
-    // Persona → Some
-    panel.edit_field = ConfigEditField::Persona;
-    assert!(panel.active_field().is_some());
-    // Tone → Some
-    panel.edit_field = ConfigEditField::Tone;
-    assert!(panel.active_field().is_some());
-    // CompactThreshold → Some
-    panel.edit_field = ConfigEditField::CompactThreshold;
-    assert!(panel.active_field().is_some());
 }

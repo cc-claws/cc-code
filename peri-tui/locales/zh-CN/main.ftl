@@ -209,8 +209,7 @@ setup-language-press-enter = 按 Enter 确认
 
 # ---- Config Panel ----
 
-config-panel-title-browse =  /config — 配置
-config-panel-title-edit =  /config — 编辑配置
+config-panel-title =  /config — 配置
 config-field-autocompact = Autocompact
 config-field-compact-threshold = Compact 阈值
 config-field-language = 语言
@@ -220,10 +219,18 @@ config-field-proactiveness = Proactiveness
 config-value-on = 开
 config-value-off = 关
 config-saved = 配置已保存
-config-key-navigate = :导航
-config-key-edit = :编辑
-config-key-save = :保存
-config-key-toggle = :切换
+
+# Config panel groups
+config-group-general = 通用
+config-group-prompt-overrides = 提示词覆盖
+
+# Config field descriptions
+config-desc-autocompact = （开/关 — 上下文满时自动压缩）
+config-desc-threshold = 50-99% — 自动压缩触发阈值
+config-desc-language = en, zh-CN，或留空为自动
+config-desc-persona = 覆盖系统提示词 persona（留空=默认）
+config-desc-tone = 覆盖系统提示词 tone（留空=默认）
+config-desc-proactiveness = low / medium / high — agent 主动性级别
 
 # ---- Login Panel ----
 
@@ -303,10 +310,9 @@ hint-login-toggle = :切换
 hint-login-back = :返回
 
 # Config panel
-hint-config-browse-navigate = :导航
-hint-config-browse-edit = :编辑
-hint-config-edit-field = :字段
-hint-config-edit-save = :保存
+hint-config-field = :字段
+hint-config-toggle = :切换
+hint-config-save = :保存并关闭
 
 # Model panel
 hint-model-navigate = :导航

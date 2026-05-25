@@ -7,73 +7,52 @@ use tui_textarea::Input;
 use crate::config::PeriConfig;
 
 use super::panel_component::PanelComponent;
-use super::panel_list::PanelList;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::App;
 
-// ─── 枚举 ─────────────────────────────────────────────────────────────────────
+// ─── 行索引常量 ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConfigPanelMode {
-    Browse,
-    Edit,
-}
+pub const ROW_GENERAL_HEADER: usize = 0;
+pub const ROW_AUTOCOMPACT: usize = 1;
+pub const ROW_THRESHOLD: usize = 2;
+pub const ROW_LANGUAGE: usize = 3;
+pub const ROW_PROACTIVENESS: usize = 4;
+pub const ROW_SEPARATOR: usize = 5;
+pub const ROW_OVERRIDES_HEADER: usize = 6;
+pub const ROW_PERSONA: usize = 7;
+pub const ROW_TONE: usize = 8;
+pub const ROW_COUNT: usize = 9;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConfigEditField {
-    Autocompact,
-    CompactThreshold,
-    Language,
-    Persona,
-    Tone,
-    Proactiveness,
-}
-
-impl ConfigEditField {
-    pub fn next(&self) -> Self {
-        match self {
-            Self::Autocompact => Self::CompactThreshold,
-            Self::CompactThreshold => Self::Language,
-            Self::Language => Self::Persona,
-            Self::Persona => Self::Tone,
-            Self::Tone => Self::Proactiveness,
-            Self::Proactiveness => Self::Autocompact,
-        }
-    }
-
-    pub fn prev(&self) -> Self {
-        match self {
-            Self::Autocompact => Self::Proactiveness,
-            Self::CompactThreshold => Self::Autocompact,
-            Self::Language => Self::CompactThreshold,
-            Self::Persona => Self::Language,
-            Self::Tone => Self::Persona,
-            Self::Proactiveness => Self::Tone,
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Autocompact => "Autocompact",
-            Self::CompactThreshold => "Compact 阈值",
-            Self::Language => "语言",
-            Self::Persona => "Persona",
-            Self::Tone => "Tone",
-            Self::Proactiveness => "Proactiveness",
-        }
+fn next_editable_row(current: usize, reverse: bool) -> usize {
+    let editable: &[usize] = &[
+        ROW_AUTOCOMPACT,
+        ROW_THRESHOLD,
+        ROW_LANGUAGE,
+        ROW_PROACTIVENESS,
+        ROW_PERSONA,
+        ROW_TONE,
+    ];
+    if reverse {
+        editable
+            .iter()
+            .rev()
+            .find(|&&r| r < current)
+            .copied()
+            .unwrap_or(editable[editable.len() - 1])
+    } else {
+        editable
+            .iter()
+            .find(|&&r| r > current)
+            .copied()
+            .unwrap_or(editable[0])
     }
 }
 
 // ─── ConfigPanel ─────────────────────────────────────────────────────────────
 
-const FIELD_COUNT: usize = 6;
-
 #[derive(Clone)]
 pub struct ConfigPanel {
-    pub mode: ConfigPanelMode,
-    /// Browse 模式光标管理
-    browse_list: PanelList<ConfigEditField>,
-    pub edit_field: ConfigEditField,
+    pub cursor: usize,
     // 编辑缓冲区
     pub buf_autocompact: bool,
     pub buf_threshold: String,
@@ -102,20 +81,8 @@ impl ConfigPanel {
             .clone()
             .unwrap_or_else(|| "medium".to_string());
 
-        let mut browse_list = PanelList::new();
-        browse_list.set_items(vec![
-            ConfigEditField::Autocompact,
-            ConfigEditField::CompactThreshold,
-            ConfigEditField::Language,
-            ConfigEditField::Persona,
-            ConfigEditField::Tone,
-            ConfigEditField::Proactiveness,
-        ]);
-
         Self {
-            mode: ConfigPanelMode::Browse,
-            browse_list,
-            edit_field: ConfigEditField::Autocompact,
+            cursor: ROW_AUTOCOMPACT,
             buf_autocompact: autocompact,
             buf_threshold: threshold,
             cur_threshold: 0,
@@ -129,40 +96,12 @@ impl ConfigPanel {
         }
     }
 
-    pub fn enter_edit(&mut self) {
-        self.mode = ConfigPanelMode::Edit;
-        self.edit_field = self
-            .browse_list
-            .selected()
-            .cloned()
-            .unwrap_or(ConfigEditField::Autocompact);
-        // 设置光标到末尾
-        self.cur_threshold = self.buf_threshold.chars().count();
-        self.cur_language = self.buf_language.chars().count();
-        self.cur_persona = self.buf_persona.chars().count();
-        self.cur_tone = self.buf_tone.chars().count();
+    pub fn cursor_down(&mut self) {
+        self.cursor = next_editable_row(self.cursor, false);
     }
 
-    pub fn field_next(&mut self) {
-        self.edit_field = self.edit_field.next();
-    }
-
-    pub fn field_prev(&mut self) {
-        self.edit_field = self.edit_field.prev();
-    }
-
-    /// 返回当前可编辑字段的 (buf, cursor) 可变引用
-    /// Autocompact 和 Proactiveness 返回 None（用 Space 切换）
-    pub fn active_field(&mut self) -> Option<(&mut String, &mut usize)> {
-        match self.edit_field {
-            ConfigEditField::Autocompact | ConfigEditField::Proactiveness => None,
-            ConfigEditField::CompactThreshold => {
-                Some((&mut self.buf_threshold, &mut self.cur_threshold))
-            }
-            ConfigEditField::Language => Some((&mut self.buf_language, &mut self.cur_language)),
-            ConfigEditField::Persona => Some((&mut self.buf_persona, &mut self.cur_persona)),
-            ConfigEditField::Tone => Some((&mut self.buf_tone, &mut self.cur_tone)),
-        }
+    pub fn cursor_up(&mut self) {
+        self.cursor = next_editable_row(self.cursor, true);
     }
 
     pub fn cycle_autocompact(&mut self) {
@@ -179,18 +118,68 @@ impl ConfigPanel {
 
     pub fn paste_text(&mut self, text: &str) {
         let text: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
-        if let Some((buf, cursor)) = self.active_field() {
-            let char_count = buf.chars().count();
-            if *cursor > char_count {
-                *cursor = char_count;
+        match self.cursor {
+            ROW_THRESHOLD => {
+                let buf = &mut self.buf_threshold;
+                let cursor = &mut self.cur_threshold;
+                let char_count = buf.chars().count();
+                if *cursor > char_count {
+                    *cursor = char_count;
+                }
+                let byte_pos = buf
+                    .char_indices()
+                    .nth(*cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(buf.len());
+                buf.insert_str(byte_pos, &text);
+                *cursor += text.chars().count();
             }
-            let byte_pos = buf
-                .char_indices()
-                .nth(*cursor)
-                .map(|(i, _)| i)
-                .unwrap_or(buf.len());
-            buf.insert_str(byte_pos, &text);
-            *cursor += text.chars().count();
+            ROW_LANGUAGE => {
+                let buf = &mut self.buf_language;
+                let cursor = &mut self.cur_language;
+                let char_count = buf.chars().count();
+                if *cursor > char_count {
+                    *cursor = char_count;
+                }
+                let byte_pos = buf
+                    .char_indices()
+                    .nth(*cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(buf.len());
+                buf.insert_str(byte_pos, &text);
+                *cursor += text.chars().count();
+            }
+            ROW_PERSONA => {
+                let buf = &mut self.buf_persona;
+                let cursor = &mut self.cur_persona;
+                let char_count = buf.chars().count();
+                if *cursor > char_count {
+                    *cursor = char_count;
+                }
+                let byte_pos = buf
+                    .char_indices()
+                    .nth(*cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(buf.len());
+                buf.insert_str(byte_pos, &text);
+                *cursor += text.chars().count();
+            }
+            ROW_TONE => {
+                let buf = &mut self.buf_tone;
+                let cursor = &mut self.cur_tone;
+                let char_count = buf.chars().count();
+                if *cursor > char_count {
+                    *cursor = char_count;
+                }
+                let byte_pos = buf
+                    .char_indices()
+                    .nth(*cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(buf.len());
+                buf.insert_str(byte_pos, &text);
+                *cursor += text.chars().count();
+            }
+            _ => {}
         }
     }
 
@@ -249,63 +238,75 @@ impl ConfigPanel {
         Ok(())
     }
 
-    pub fn field_count() -> usize {
-        FIELD_COUNT
-    }
-
-    pub fn cursor(&self) -> usize {
-        self.browse_list.cursor()
-    }
-
-    pub fn field_label(index: usize) -> &'static str {
-        match index {
-            0 => "Autocompact",
-            1 => "Compact 阈值",
-            2 => "语言",
-            3 => "Persona",
-            4 => "Tone",
-            5 => "Proactiveness",
-            _ => "???",
+    fn input_char(&mut self, c: char) {
+        match self.cursor {
+            ROW_THRESHOLD => {
+                super::handle_edit_key(
+                    &mut self.buf_threshold,
+                    &mut self.cur_threshold,
+                    Input {
+                        key: tui_textarea::Key::Char(c),
+                        ctrl: false,
+                        alt: false,
+                        shift: false,
+                    },
+                );
+            }
+            ROW_LANGUAGE => {
+                super::handle_edit_key(
+                    &mut self.buf_language,
+                    &mut self.cur_language,
+                    Input {
+                        key: tui_textarea::Key::Char(c),
+                        ctrl: false,
+                        alt: false,
+                        shift: false,
+                    },
+                );
+            }
+            ROW_PERSONA => {
+                super::handle_edit_key(
+                    &mut self.buf_persona,
+                    &mut self.cur_persona,
+                    Input {
+                        key: tui_textarea::Key::Char(c),
+                        ctrl: false,
+                        alt: false,
+                        shift: false,
+                    },
+                );
+            }
+            ROW_TONE => {
+                super::handle_edit_key(
+                    &mut self.buf_tone,
+                    &mut self.cur_tone,
+                    Input {
+                        key: tui_textarea::Key::Char(c),
+                        ctrl: false,
+                        alt: false,
+                        shift: false,
+                    },
+                );
+            }
+            _ => {}
         }
     }
 
-    pub fn field_display_value(&self, index: usize) -> String {
-        match index {
-            0 => {
-                if self.buf_autocompact {
-                    "ON".to_string()
-                } else {
-                    "OFF".to_string()
-                }
+    fn handle_text_key(&mut self, input: Input) {
+        match self.cursor {
+            ROW_THRESHOLD => {
+                super::handle_edit_key(&mut self.buf_threshold, &mut self.cur_threshold, input);
             }
-            1 => format!("{}%", self.buf_threshold),
-            2 => {
-                if self.buf_language.is_empty() {
-                    "auto".to_string()
-                } else {
-                    match self.buf_language.as_str() {
-                        "en" => "English".to_string(),
-                        "zh-CN" => "简体中文".to_string(),
-                        other => other.to_string(),
-                    }
-                }
+            ROW_LANGUAGE => {
+                super::handle_edit_key(&mut self.buf_language, &mut self.cur_language, input);
             }
-            3 => {
-                if self.buf_persona.is_empty() {
-                    "-".to_string()
-                } else {
-                    self.buf_persona.clone()
-                }
+            ROW_PERSONA => {
+                super::handle_edit_key(&mut self.buf_persona, &mut self.cur_persona, input);
             }
-            4 => {
-                if self.buf_tone.is_empty() {
-                    "-".to_string()
-                } else {
-                    self.buf_tone.clone()
-                }
+            ROW_TONE => {
+                super::handle_edit_key(&mut self.buf_tone, &mut self.cur_tone, input);
             }
-            5 => self.buf_proactiveness.clone(),
-            _ => String::new(),
+            _ => {}
         }
     }
 }
@@ -317,130 +318,85 @@ impl PanelComponent for ConfigPanel {
 
     fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
         use tui_textarea::Key;
-        match self.mode {
-            ConfigPanelMode::Browse => match input {
-                Input { key: Key::Up, .. } => {
-                    self.browse_list.move_cursor(-1);
-                    EventResult::Consumed
-                }
-                Input { key: Key::Down, .. } => {
-                    self.browse_list.move_cursor(1);
-                    EventResult::Consumed
-                }
-                Input {
-                    key: Key::Enter, ..
-                } => {
-                    self.enter_edit();
-                    EventResult::Consumed
-                }
-                Input { key: Key::Esc, .. } => EventResult::ClosePanel,
-                _ => EventResult::Consumed,
-            },
-            ConfigPanelMode::Edit => {
-                match input {
-                    Input { key: Key::Esc, .. } => {
-                        self.mode = ConfigPanelMode::Browse;
-                        EventResult::Consumed
-                    }
-                    Input {
-                        key: Key::Enter, ..
-                    } => {
-                        // apply_config and close
-                        let Some(cfg) = ctx.services.peri_config.as_mut() else {
-                            return EventResult::Consumed;
-                        };
-                        match self.apply_edit(cfg, &ctx.services.lc) {
-                            Ok(()) => {
-                                if let Some(ref lang) = cfg.config.language {
-                                    let _ = ctx.services.lc.switch(lang);
-                                }
-                                use super::App;
-                                if let Err(e) = App::save_config(
-                                    cfg,
-                                    ctx.services.config_path_override.as_deref(),
-                                ) {
-                                    ctx.session_mgr.sessions[ctx.session_mgr.active]
-                                        .messages
-                                        .push_system_note(ctx.services.lc.tr_args(
-                                            "app-config-save-failed",
-                                            &[("error".into(), e.to_string().into())],
-                                        ));
-                                } else {
-                                    ctx.session_mgr.sessions[ctx.session_mgr.active]
-                                        .messages
-                                        .push_system_note(ctx.services.lc.tr("app-config-saved"));
-                                }
-                                EventResult::ClosePanel
-                            }
-                            Err(err_msg) => {
-                                ctx.session_mgr.sessions[ctx.session_mgr.active]
-                                    .messages
-                                    .push_system_note(err_msg);
-                                EventResult::Consumed
-                            }
+        match input {
+            Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+            Input { key: Key::Up, .. } => {
+                self.cursor_up();
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                self.cursor_down();
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                let Some(cfg) = ctx.services.peri_config.as_mut() else {
+                    return EventResult::Consumed;
+                };
+                match self.apply_edit(cfg, &ctx.services.lc) {
+                    Ok(()) => {
+                        if let Some(ref lang) = cfg.config.language {
+                            let _ = ctx.services.lc.switch(lang);
                         }
-                    }
-                    Input { key: Key::Up, .. } => {
-                        self.field_prev();
-                        EventResult::Consumed
-                    }
-                    Input { key: Key::Down, .. } => {
-                        self.field_next();
-                        EventResult::Consumed
-                    }
-                    Input {
-                        key: Key::Char(' '),
-                        ctrl: false,
-                        ..
-                    } => {
-                        match self.edit_field {
-                            ConfigEditField::Autocompact => self.cycle_autocompact(),
-                            ConfigEditField::Proactiveness => self.cycle_proactiveness(),
-                            _ => {
-                                if let Some((buf, cursor)) = self.active_field() {
-                                    super::handle_edit_key(
-                                        buf,
-                                        cursor,
-                                        Input {
-                                            key: Key::Char(' '),
-                                            ctrl: false,
-                                            alt: false,
-                                            shift: false,
-                                        },
-                                    );
-                                }
-                            }
+                        if let Err(e) =
+                            App::save_config(cfg, ctx.services.config_path_override.as_deref())
+                        {
+                            ctx.session_mgr.sessions[ctx.session_mgr.active]
+                                .messages
+                                .push_system_note(ctx.services.lc.tr_args(
+                                    "app-config-save-failed",
+                                    &[("error".into(), e.to_string().into())],
+                                ));
+                        } else {
+                            ctx.session_mgr.sessions[ctx.session_mgr.active]
+                                .messages
+                                .push_system_note(ctx.services.lc.tr("app-config-saved"));
                         }
+                        EventResult::ClosePanel
+                    }
+                    Err(err_msg) => {
+                        ctx.session_mgr.sessions[ctx.session_mgr.active]
+                            .messages
+                            .push_system_note(err_msg);
                         EventResult::Consumed
                     }
-                    Input {
-                        key: Key::Left,
-                        ctrl: false,
-                        ..
-                    }
-                    | Input {
-                        key: Key::Right,
-                        ctrl: false,
-                        ..
-                    } => {
-                        match self.edit_field {
-                            ConfigEditField::Autocompact => self.cycle_autocompact(),
-                            ConfigEditField::Proactiveness => self.cycle_proactiveness(),
-                            _ => {
-                                if let Some((buf, cursor)) = self.active_field() {
-                                    super::handle_edit_key(buf, cursor, input);
-                                }
-                            }
-                        }
-                        EventResult::Consumed
-                    }
+                }
+            }
+            Input {
+                key: Key::Char(' '),
+                ctrl: false,
+                ..
+            } => {
+                match self.cursor {
+                    ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                    ROW_PROACTIVENESS => self.cycle_proactiveness(),
+                    _ => self.input_char(' '),
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Left,
+                ctrl: false,
+                ..
+            }
+            | Input {
+                key: Key::Right,
+                ctrl: false,
+                ..
+            } => {
+                match self.cursor {
+                    ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                    ROW_PROACTIVENESS => self.cycle_proactiveness(),
                     _ => {
-                        if let Some((buf, cursor)) = self.active_field() {
-                            super::handle_edit_key(buf, cursor, input);
-                        }
-                        EventResult::Consumed
+                        self.handle_text_key(input);
                     }
                 }
+                EventResult::Consumed
+            }
+            _ => {
+                self.handle_text_key(input);
+                EventResult::Consumed
             }
         }
     }
@@ -450,20 +406,11 @@ impl PanelComponent for ConfigPanel {
         EventResult::Consumed
     }
 
-    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
-        if matches!(self.mode, ConfigPanelMode::Browse) {
-            self.browse_list.handle_scroll(lines, 10);
-            EventResult::Consumed
-        } else {
-            EventResult::NotConsumed
-        }
+    fn handle_scroll(&mut self, _lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        EventResult::NotConsumed
     }
 
-    fn set_scroll_offset(&mut self, offset: u16) {
-        if matches!(self.mode, ConfigPanelMode::Browse) {
-            self.browse_list.set_scroll_offset(offset);
-        }
-    }
+    fn set_scroll_offset(&mut self, _offset: u16) {}
 
     fn handle_mouse(
         &mut self,
@@ -472,28 +419,29 @@ impl PanelComponent for ConfigPanel {
         _ctx: &mut PanelContext<'_>,
     ) -> EventResult {
         use ratatui::crossterm::event::{MouseButton, MouseEventKind};
-        match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left)
-                if matches!(self.mode, ConfigPanelMode::Browse) =>
-            {
-                if self
-                    .browse_list
-                    .handle_mouse_click(mouse.row, mouse.column, area, 1)
-                {
-                    self.enter_edit();
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            let relative_y = mouse.row.saturating_sub(area.y);
+            if relative_y >= 1 {
+                let clicked = (relative_y - 1) as usize;
+                if matches!(
+                    clicked,
+                    ROW_AUTOCOMPACT
+                        | ROW_THRESHOLD
+                        | ROW_LANGUAGE
+                        | ROW_PROACTIVENESS
+                        | ROW_PERSONA
+                        | ROW_TONE
+                ) {
+                    self.cursor = clicked;
                     return EventResult::Consumed;
                 }
-                EventResult::NotConsumed
             }
-            _ => EventResult::NotConsumed,
         }
+        EventResult::NotConsumed
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
-        match self.mode {
-            ConfigPanelMode::Browse => 12,
-            ConfigPanelMode::Edit => 14,
-        }
+        14
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
@@ -508,26 +456,13 @@ impl PanelComponent for ConfigPanel {
         self
     }
 
-    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
-        match self.mode {
-            ConfigPanelMode::Browse => vec![
-                (
-                    "\u{2191}\u{2193}".to_string(),
-                    "\u{5bfc}\u{822a}".to_string(),
-                ),
-                ("Enter".to_string(), "\u{7f16}\u{8f91}".to_string()),
-                ("Esc".to_string(), "\u{5173}\u{95ed}".to_string()),
-            ],
-            ConfigPanelMode::Edit => vec![
-                (
-                    "\u{2191}\u{2193}".to_string(),
-                    "\u{5b57}\u{6bb5}".to_string(),
-                ),
-                ("Enter".to_string(), "\u{4fdd}\u{5b58}".to_string()),
-                ("Space".to_string(), "\u{5207}\u{6362}".to_string()),
-                ("Esc".to_string(), "\u{53d6}\u{6d88}".to_string()),
-            ],
-        }
+    fn status_bar_hints(&self, lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
+        vec![
+            ("↑↓".to_string(), lc.tr("hint-config-field")),
+            ("Space".to_string(), lc.tr("hint-config-toggle")),
+            ("Enter".to_string(), lc.tr("hint-config-save")),
+            ("Esc".to_string(), lc.tr("key-close")),
+        ]
     }
 }
 
