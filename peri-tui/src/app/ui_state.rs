@@ -34,7 +34,8 @@ pub struct UiState {
 }
 
 impl UiState {
-    pub fn new(textarea: TextArea<'static>) -> Self {
+    pub fn new(textarea: TextArea<'static>, cwd: &str) -> Self {
+        let input_history = super::history_persistence::load_input_history(cwd);
         Self {
             textarea,
             loading: false,
@@ -42,7 +43,7 @@ impl UiState {
             scroll_follow: true,
             show_tool_messages: false,
             hint_cursor: None,
-            input_history: Vec::new(),
+            input_history,
             history_index: None,
             draft_input: None,
             text_selection: TextSelection::new(),

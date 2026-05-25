@@ -37,7 +37,7 @@ impl ChatSession {
             crate::ui::render_thread::spawn_render_thread(80);
         let commands = CommandSystem::new(command_registry, skills.clone(), lc);
         Self {
-            ui: UiState::new(super::build_textarea(false)),
+            ui: UiState::new(super::build_textarea(false), &cwd),
             messages: MessageState::new(
                 cwd.clone(),
                 render_tx.clone(),

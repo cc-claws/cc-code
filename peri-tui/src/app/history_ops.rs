@@ -18,7 +18,13 @@ impl App {
         self.session_mgr.sessions[self.session_mgr.active]
             .ui
             .input_history
-            .truncate(200);
+            .truncate(1000);
+        // 持久化到磁盘（按 cwd 隔离）
+        let cwd = self.services.cwd.clone();
+        let history = &self.session_mgr.sessions[self.session_mgr.active]
+            .ui
+            .input_history;
+        super::history_persistence::save_input_history(&cwd, history);
     }
 
     /// Up 键：向上浏览历史（更早的消息）

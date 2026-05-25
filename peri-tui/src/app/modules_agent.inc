@@ -15,6 +15,7 @@ mod cron_ops;
 mod cron_state;
 mod hint_ops;
 mod history_ops;
+mod history_persistence;
 mod hitl_ops;
 mod hitl_prompt;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
