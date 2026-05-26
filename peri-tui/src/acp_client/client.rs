@@ -266,6 +266,30 @@ impl AcpTuiClient {
             .map_err(|e| e.to_string())
     }
 
+    /// Submit background task results as synthetic tool_use + tool_result pairs.
+    /// The executor injects AgentResult tool calls with the results before the user message.
+    pub async fn prompt_with_bg_results(
+        &self,
+        bg_results: Vec<peri_agent::agent::events::BackgroundTaskResult>,
+    ) -> Result<(), String> {
+        let session_id = self
+            .current_session_id
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("no active session")?;
+        let params = json!({
+            "sessionId": session_id,
+            "message": { "role": "user", "content": "Background agents completed. Please review the results." },
+            "bgResults": bg_results,
+        });
+        self.transport
+            .send_request("session/prompt", params)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     /// Change the model for the current session.
     pub async fn set_model(&self, alias: &str) -> Result<(), String> {
         let session_id = self

@@ -299,6 +299,7 @@ app-bg-task-done = [Background task { $id } completed] Agent: { $agent } | Tool 
 app-bg-task-done-with-result = [Background task { $id } completed] Agent: { $agent } | Tool calls: { $tools } | Duration: { $duration }ms\nResult:\n{ $result }
 app-bg-task-failed = [Background task { $id } failed] Agent: { $agent } | { $error }
 app-bg-task-failed-with-error = [Background task { $id } failed] Agent: { $agent }\nError:\n{ $error }
+app-bg-continuation = Reviewing { $count } background agent result(s)...
 
 # ---- Panel Status Bar Hints ----
 

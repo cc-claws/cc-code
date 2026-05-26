@@ -296,7 +296,7 @@ impl App {
             );
         }
 
-        // 累积当前完成通知到 pre_done_bg_completions
+        // 累积当前完成通知到 pre_done_bg_completions（显示文本）
         let display_notification = build_bg_display_notification(
             &task_id,
             &agent_name,
@@ -311,6 +311,21 @@ impl App {
             .pre_done_bg_completions
             .push(display_notification);
 
+        // 累积结构化结果到 pre_done_bg_results（供 auto-continuation 注入合成消息）
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .pre_done_bg_results
+            .push(peri_agent::agent::events::BackgroundTaskResult {
+                task_id: task_id.clone(),
+                agent_name: agent_name.clone(),
+                prompt_summary: String::new(),
+                success,
+                output,
+                tool_calls_count,
+                duration_ms,
+                child_thread_id: child_thread_id.clone(),
+            });
+
         // 如果 agent 已完成（Done）且所有后台任务都已完成，关闭通道并自动提交 continuation
         if self.session_mgr.sessions[self.session_mgr.active]
             .agent
@@ -324,16 +339,15 @@ impl App {
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_rx = None;
-            // 合并所有累积的通知（不只是最后一个）
-            let all_notifications: Vec<String> = self.session_mgr.sessions[self.session_mgr.active]
+            // 使用结构化结果（而非显示文本）驱动 continuation
+            let all_results: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .pre_done_bg_completions
+                .pre_done_bg_results
                 .drain(..)
                 .collect();
-            let combined = all_notifications.join("\n");
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .pending_bg_continuation = Some(combined);
+                .pending_bg_continuation = Some(all_results);
 
             return (true, false, true);
         } else if !self.session_mgr.sessions[self.session_mgr.active]

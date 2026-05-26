@@ -16,18 +16,19 @@ Rust Agent 框架，7 个 Workspace Crate + 1 个独立 Node.js CLI（`peri-cli/
 
 `rmcp` crate（v1.6.0）通过 `[patch.crates-io]` 指向本地 `rust-mcp-patch/`，上游修复后删除补丁目录即可。
 
-**其他目录**：`peri-cli/`（Node.js CLI，版本管理/安装工具）、`scripts/`（启动脚本）、`peri-control/`、`peri-workflow-engine/`、`side-projects/`（实验性/空壳，未纳入 workspace）。
+**其他目录**：`peri-cli/`（Node.js CLI，版本管理/安装工具）、`scripts/`（启动脚本）、`side-projects/`（实验性/空壳，未纳入 workspace）。
 
 ## 依赖关系
 
-```
-peri-agent ← peri-middlewares ← peri-acp ← peri-tui
-    ↓              ↗ peri-lsp              ↗ peri-widgets
-langfuse-client（独立）
-peri-cli（独立，Node.js）
-```
+依赖关系（A → B 表示 A 依赖 B）：
 
-**TUI→ACP 通信**: TUI 不直接依赖 peri-agent/peri-middlewares，通过 `peri-acp` 的 `MpscTransport`（in-memory channel pair）与 ACP Server 通信。ACP Server 持有 Agent 构建和执行逻辑，TUI 作为纯 ACP client 前端消费 `AcpNotification` 事件。
+- `peri-widgets`、`peri-lsp`、`langfuse-client` → 无 workspace 内部依赖（独立基础库）
+- `peri-middlewares` → `peri-agent`、`peri-lsp`
+- `peri-acp` → `peri-agent`、`peri-middlewares`、`peri-lsp`、`langfuse-client`
+- `peri-tui` → `peri-acp`（运行时通信）+ `peri-agent`、`peri-middlewares`、`peri-lsp`、`langfuse-client`、`peri-widgets`（类型依赖，用于 UI 渲染的类型如 `BaseMessage`/`ContentBlock`）
+- `peri-cli` → 独立（Node.js）
+
+**TUI→ACP 通信**: TUI 运行时仅通过 `peri-acp` 的 `MpscTransport`（in-memory channel pair）与 ACP Server 通信，不经过 `peri-agent`/`peri-middlewares` 的运行时路径。ACP Server 持有 Agent 构建和执行逻辑，TUI 作为纯 ACP client 前端消费 `AcpNotification` 事件。
 
 ## 开发命令
 
@@ -50,11 +51,13 @@ scripts/start-relay.sh               # 启动 Relay Server（端口 8080）
 
 **ReAct 循环**（`peri-agent`）：AgentInput → collect_tools → before_agent → loop(500) { LLM → [工具调用] before_tool → 并发执行 → after_tool → emit | [回答] → emit TextChunk + StateSnapshot → after_agent }。TUI 覆盖 `max_iterations(500)`（核心默认 10）。
 
-**[TRAP]** `tool_dispatch.rs` 采用延迟写入模式：`collect_tool_results` 执行 before_tool + 并发工具调用 + 收集结果，**不写 state**；`dispatch_tools` 在最后一步统一写入 AI 消息 + 所有 tool_result。**修改此模块时不要在 `collect_tool_results` 中调用 `state.add_message`。** 错误路径分两类：before_tool 错误 / Cancel（`collect_tool_results` 返回 `Err`，state 未修改，无孤儿 tool_use 风险）；Cancel 在执行阶段 / deferred_error（`collect_tool_results` 返回 `Ok((results, true/false, ...))`，`dispatch_tools` 写入 state 后再返回 `Err`）。链上 16 个中间件（排除 `CompactMiddleware`（compact 专用）和 `PluginMiddleware`（数据容器，空 hook））的 `before_tool`/`after_tool`/`on_error` 均不读 `state.messages()`（已验证），新增中间件必须遵守此约束。`ExecutorEvent::MessageAdded` 被 TUI 的 `map_executor_event` 丢弃，TUI 通过 `StateSnapshot` + 流式事件维护状态，不依赖 `MessageAdded` 到达顺序。（详见 spec/global/domains/agent.md#issue_2026-05-15-orphaned-tool-use-after-concurrent-tool-error）
+**[TRAP]** `tool_dispatch.rs` 采用延迟写入模式：`collect_tool_results` 执行 before_tool + 并发工具调用 + 收集结果，**不写 state**；`dispatch_tools` 在最后一步统一写入 AI 消息 + 所有 tool_result。**修改此模块时不要在 `collect_tool_results` 中调用 `state.add_message`。** 错误路径分两类：before_tool 错误 / Cancel（`collect_tool_results` 返回 `Err`，state 未修改，无孤儿 tool_use 风险）；Cancel 在执行阶段 / deferred_error（`collect_tool_results` 返回 `Ok((results, true/false, ...))`，`dispatch_tools` 写入 state 后再返回 `Err`）。链上 17 个中间件（排除 `CompactMiddleware`（compact 专用）和 `PluginMiddleware`（数据容器，空 hook））的 `before_tool`/`after_tool`/`on_error` 均不读 `state.messages()`（已验证），新增中间件必须遵守此约束。`ExecutorEvent::MessageAdded` 被 TUI 的 `map_executor_event` 丢弃，TUI 通过 `StateSnapshot` + 流式事件维护状态，不依赖 `MessageAdded` 到达顺序。（详见 spec/global/domains/agent.md#issue_2026-05-15-orphaned-tool-use-after-concurrent-tool-error）
 
 **[TRAP]** 新增/修改事件类型语义（如工具前文本从 AiReasoning 改为 TextChunk）时，必须同步检查 TUI 侧事件映射层（`map_executor_event`）。新增 ExecutorEvent 变体时必须同步更新映射，事件丢弃会导致下游状态不一致。（详见 spec/global/domains/agent.md#issue_2026-05-11-streaming-text-invisible-with-tools，spec/global/domains/message-pipeline.md#issue_2026-05-13-streaming-text-tool-aggregation-visual-issues）
 
 **[TRAP]** 多工具并发的结果处理循环中，P3/P4 错误路径提前返回会导致后续 tool_result 缺失。必须用 deferred_error 模式——先收集所有错误，循环结束后统一判断。所有 tool_result 必须始终写入 state。（详见 spec/global/domains/agent.md#issue_2026-05-14-orphaned-tool-use-without-tool-result，spec/global/domains/agent.md#issue_2026-05-15-tool-execution-error-stops-agent，spec/global/domains/agent.md#issue_2026-05-18-agent-tool-calls-execute-serially）
+
+**[TRAP]** `prepended_ids` 必须只追踪 `prepend_message` 插入的消息，不能计入 `add_message`。`before_agent` 中间件有两种注入方式：`prepend_message`（头部 insert System）和 `add_message`（尾部 push Ai/Tool）。cleanup 时只能清理前者。旧逻辑用 `len_after - len_before` 从头部取 N 条 ID，会把 `add_message` 的尾部追加也计入 N，导致从头部误删原始消息，破坏 Ai[ToolUse]/Tool[ToolResult] 配对，产生 Anthropic 400 孤儿 tool_result。正确做法：`take_while(|m| m.is_system())` 只收集头部连续 System 消息。**新增中间件在 `before_agent` 中使用 `add_message` 注入非 System 消息时，不会受 cleanup 影响，但绝不能假设 cleanup 会帮你清理这些消息。**（详见 spec/issues/2026-05-26-skillpreload-anthropic-400-tool-result-orphan.md）
 
 **消息类型**：`BaseMessage`（Human/Ai/System/Tool），`ContentBlock`（Text/Image/Document/ToolUse/ToolResult/Reasoning/Unknown）。
 
@@ -99,7 +102,7 @@ scripts/start-relay.sh               # 启动 Relay Server（端口 8080）
 
 ## Tool Search 延迟加载
 
-非核心工具通过 `SearchExtraTools` 按需发现、`ExecuteExtraTool` 代理执行。核心工具（12 个）：Read/Write/Edit/Glob/Grep/folder_operations/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite。以 `tool_dispatch.rs` 中的核心工具定义为准。新增工具优先配置为 extra tool，避免膨胀核心工具列表。
+工具分三层：**Core（12 个）**——Read/Write/Edit/Glob/Grep/folder_operations/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite，始终对 LLM 可见；**Meta（2 个）**——`SearchExtraTools`/`ExecuteExtraTool`，始终可见，用于按需发现和执行 deferred tools；**Deferred（其余）**——Cron*、MCP 工具、LspTool 等，LLM 不直接可见，通过 Meta 工具桥接。核心工具定义以 `tool_search/core_tools.rs` 中的 `CORE_TOOLS` 为准，Meta 工具定义在 `META_TOOLS`。新增工具优先配置为 deferred tool，避免膨胀核心工具列表。
 
 **[TRAP]** `Box<dyn BaseTool>` 不能直接转 `Arc<dyn BaseTool>`，用 `box_to_arc()` 通过 `ToolWrapper(ManuallyDrop<Box>)` 透传。**绝不能用 `Box::into_raw` + `Arc::from_raw`**——布局不同导致 UB。
 
@@ -121,18 +124,19 @@ scripts/start-relay.sh               # 启动 Relay Server（端口 8080）
 2.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
 3.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
 4.  SkillPreloadMiddleware   ← #skill-name 全文注入
-5.  FilesystemMiddleware     ← 6 个文件系统工具
-6.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
-7.  TerminalMiddleware       ← Bash
-8.  WebMiddleware            ← WebFetch/WebSearch
-9.  TodoMiddleware           ← after_tool 解析 TodoWrite
-10. CronMiddleware           ← Cron 调度
-11. HookMiddleware           ← hooks 事件拦截（多组实例）
-12. HumanInTheLoopMiddleware ← before_tool 拦截
-13. SubAgentMiddleware       ← Agent 工具
-14. McpMiddleware            ← MCP 工具和资源（pool 成功时注册）
-15. ToolSearchMiddleware     ← SearchExtraTools/ExecuteExtraTool 代理
-16. LspMiddleware            ← LSP 工具 + after_tool 文件变更同步
+5.  AtMentionMiddleware      ← @path 解析，注入 Read 工具调用
+6.  FilesystemMiddleware     ← 6 个文件系统工具
+7.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
+8.  TerminalMiddleware       ← Bash
+9.  WebMiddleware            ← WebFetch/WebSearch
+10. TodoMiddleware           ← after_tool 解析 TodoWrite
+11. CronMiddleware           ← Cron 调度
+12. HookMiddleware           ← hooks 事件拦截（多组实例）
+13. HumanInTheLoopMiddleware ← before_tool 拦截
+14. SubAgentMiddleware       ← Agent 工具
+15. McpMiddleware            ← MCP 工具和资源（pool 成功时注册）
+16. ToolSearchMiddleware     ← SearchExtraTools/ExecuteExtraTool 代理
+17. LspMiddleware            ← LSP 工具 + after_tool 文件变更同步
 [ReActAgent.with_system_prompt()] ← prepend
 ```
 

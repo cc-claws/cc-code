@@ -16,7 +16,7 @@ use peri_agent::agent::AgentCancellationToken;
 use peri_agent::agent::State;
 use peri_agent::error::AgentError;
 use peri_agent::interaction::UserInteractionBroker;
-use peri_agent::messages::{BaseMessage, MessageContent};
+use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent, MessageId};
 use tokio::sync::oneshot;
 use tracing::{debug, error};
 
@@ -120,7 +120,15 @@ pub async fn execute_prompt(
     thread_store: Option<Arc<dyn peri_agent::thread::ThreadStore>>,
     thread_id: Option<String>,
     session_manager: Option<SessionManager>,
+    bg_results: Vec<peri_agent::agent::events::BackgroundTaskResult>,
 ) -> PromptResult {
+    // Inject synthetic AgentResult tool_use + tool_result messages when bg_results present
+    let (history, content) = if !bg_results.is_empty() {
+        inject_bg_result_messages(history, content, &bg_results)
+    } else {
+        (history, content)
+    };
+
     let trace_input = content.text_content();
     let agent_input = if incoming_recalls.is_empty() {
         peri_agent::agent::react::AgentInput::blocks(content)
@@ -526,4 +534,58 @@ async fn wait_for_pump(pump_done_rx: oneshot::Receiver<()>, session_id: &str) {
         Ok(()) => debug!(session_id, "Event pump done"),
         Err(_) => error!(session_id, "Event pump done channel closed unexpectedly"),
     }
+}
+
+/// Inject synthetic AgentResult tool_use + tool_result messages into the conversation history.
+///
+/// When background agents complete, the TUI sends a `prompt_with_bg_results` request.
+/// This function prepends synthetic messages to the history so the LLM sees them as
+/// prior tool calls and results:
+///
+/// ```text
+/// history (prepended):
+///   AI: [ToolUse(AgentResult, task_id=xxx), ToolUse(AgentResult, task_id=yyy)]
+///   Tool: [tool_result for xxx]
+///   Tool: [tool_result for yyy]
+/// ```
+///
+/// Returns modified history with synthetic messages prepended.
+fn inject_bg_result_messages(
+    mut history: Vec<BaseMessage>,
+    user_content: MessageContent,
+    bg_results: &[peri_agent::agent::events::BackgroundTaskResult],
+) -> (Vec<BaseMessage>, MessageContent) {
+    // Build tool_use blocks (one per bg result) and collect ID mappings
+    let mut tool_use_blocks = Vec::new();
+    let mut tool_result_data: Vec<(String, &peri_agent::agent::events::BackgroundTaskResult)> =
+        Vec::new();
+
+    for result in bg_results {
+        let tool_use_id = MessageId::new().as_uuid().to_string();
+        tool_use_blocks.push(ContentBlock::ToolUse {
+            id: tool_use_id.clone(),
+            name: "AgentResult".to_string(),
+            input: serde_json::json!({
+                "task_id": result.task_id,
+            }),
+        });
+        tool_result_data.push((tool_use_id, result));
+    }
+
+    // 1. AI message with tool_use blocks
+    let ai_msg = BaseMessage::ai_from_blocks(tool_use_blocks);
+    history.push(ai_msg);
+
+    // 2. One tool_result message per bg result
+    for (tool_use_id, result) in tool_result_data {
+        let result_text = result.to_notification();
+        let tool_msg = if result.success {
+            BaseMessage::tool_result(&tool_use_id, result_text)
+        } else {
+            BaseMessage::tool_error(&tool_use_id, result_text)
+        };
+        history.push(tool_msg);
+    }
+
+    (history, user_content)
 }

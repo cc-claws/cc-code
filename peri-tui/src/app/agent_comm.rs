@@ -21,6 +21,9 @@ pub struct RetryStatus {
     pub error: String,
 }
 
+/// 后台任务结构化结果（供 auto-continuation 注入合成 tool_use + tool_result）
+pub type BgTaskResult = peri_agent::agent::events::BackgroundTaskResult;
+
 /// Agent 通信状态：事件接收、交互弹窗、取消/计时
 pub struct AgentComm {
     /// Legacy: AgentEvent receiver (will be replaced by acp_notification_rx in Step 6-e)
@@ -57,14 +60,15 @@ pub struct AgentComm {
     pub session_start_time: Option<std::time::Instant>,
     /// 会话级工具调用次数（统计 ToolStart 事件数）
     pub tool_call_count: u32,
-    /// 后台任务全部完成后的待提交 continuation 消息
-    ///（延迟到下一帧提交，避免在 handle_agent_event 内部修改 agent_rx）
-    pub pending_bg_continuation: Option<String>,
+    /// 后台任务全部完成后的待提交 continuation（结构化结果，用于注入合成 tool_use + tool_result）
+    pub pending_bg_continuation: Option<Vec<BgTaskResult>>,
     /// Agent 已完成（Done/Error）但仍有后台任务在运行，
     /// 此时 agent_rx 保持存活以接收 BackgroundTaskCompleted 事件
     pub agent_done_pending_bg: bool,
-    /// Agent 尚未 Done 但后台任务已完成的通知缓存。
+    /// Agent 尚未 Done 但后台任务已完成的通知缓存（显示文本，供 pre-Done 路径使用）
     pub pre_done_bg_completions: Vec<String>,
+    /// Agent 尚未 Done 但后台任务已完成的结构化结果缓存（供 auto-continuation 路径使用）
+    pub pre_done_bg_results: Vec<BgTaskResult>,
     /// 本轮 agent 是否已产生回复（收到 TextChunk/ToolStart/AssistantChunk）
     pub agent_replied: bool,
     /// 标记 Interrupted/Error 处理器已完成 reconcile，Done 到达时应跳过重复 reconcile
@@ -109,6 +113,7 @@ impl Default for AgentComm {
             pending_bg_continuation: None,
             agent_done_pending_bg: false,
             pre_done_bg_completions: Vec::new(),
+            pre_done_bg_results: Vec::new(),
             agent_replied: false,
             reconcile_already_done: false,
             lsp_errors: 0,

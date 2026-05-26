@@ -4116,7 +4116,7 @@ async fn test_multiple_bg_completed_before_done() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
 
-    // 断言：最后一个使 count 归零的任务通知被暂存并由 Done 消费
+    // 断言���最后一个使 count 归零的任务通知被暂存并由 Done 消费
     let continuation = &app.session_mgr.sessions[app.session_mgr.active]
         .agent
         .pending_bg_continuation;
@@ -4124,17 +4124,17 @@ async fn test_multiple_bg_completed_before_done() {
         continuation.is_some(),
         "多后台任务 Done 前完成时应设置 pending_bg_continuation"
     );
-    let text = continuation.as_ref().unwrap();
+    let results = continuation.as_ref().unwrap();
     assert!(
-        text.contains("reviewer-2"),
-        "continuation 应包含最后一个（使 count 归零的）任务通知"
+        results.iter().any(|r| r.agent_name.contains("reviewer-2")),
+        "continuation 应包含最后一个（使 count 归零的）任务结果"
     );
     assert!(
         app.session_mgr.sessions[app.session_mgr.active]
             .agent
-            .pre_done_bg_completions
+            .pre_done_bg_results
             .is_empty(),
-        "Done 后 pre_done_bg_completions 应清空"
+        "Done 后 pre_done_bg_results 应清空"
     );
 }
 
@@ -4190,9 +4190,9 @@ async fn test_bg_completed_after_done_unchanged() {
     assert!(
         app.session_mgr.sessions[app.session_mgr.active]
             .agent
-            .pre_done_bg_completions
+            .pre_done_bg_results
             .is_empty(),
-        "正常路径不应写入 pre_done_bg_completions"
+        "正常路径 pre_done_bg_results 应被消费"
     );
 }
 

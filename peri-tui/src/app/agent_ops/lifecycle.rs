@@ -109,23 +109,27 @@ impl App {
             // 竞态修复：处理暂存的后台任务完成通知
             if !self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .pre_done_bg_completions
+                .pre_done_bg_results
                 .is_empty()
             {
-                let notifications: Vec<String> = self.session_mgr.sessions[self.session_mgr.active]
+                let results: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .pre_done_bg_completions
+                    .pre_done_bg_results
                     .drain(..)
                     .collect();
-                let combined = notifications.join("\n");
                 tracing::info!(
-                    count = notifications.len(),
+                    count = results.len(),
                     "Done: processing pre-done background task completions, setting continuation"
                 );
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .pending_bg_continuation = Some(combined);
+                    .pending_bg_continuation = Some(results);
             }
+            // 清理显示文本缓存
+            self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .pre_done_bg_completions
+                .clear();
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_rx = None;
@@ -333,23 +337,27 @@ impl App {
         } else {
             if !self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .pre_done_bg_completions
+                .pre_done_bg_results
                 .is_empty()
             {
-                let notifications: Vec<String> = self.session_mgr.sessions[self.session_mgr.active]
+                let results: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .pre_done_bg_completions
+                    .pre_done_bg_results
                     .drain(..)
                     .collect();
-                let combined = notifications.join("\n");
                 tracing::info!(
-                    count = notifications.len(),
+                    count = results.len(),
                     "Error: processing pre-done background task completions, setting continuation"
                 );
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .pending_bg_continuation = Some(combined);
+                    .pending_bg_continuation = Some(results);
             }
+            // 清理显示文本缓存
+            self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .pre_done_bg_completions
+                .clear();
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_rx = None;

@@ -212,9 +212,10 @@ pub async fn run_print(
         plugin_lsp_servers,
         None, // langfuse_session（print 模式暂不启用）
         pool,
-        None, // thread_store（print 模式不需要持久化）
-        None, // parent_thread_id
-        None, // session_manager（print 模式不需要 cancel 级联）
+        None,   // thread_store（print 模式不需要持久化）
+        None,   // parent_thread_id
+        None,   // session_manager（print 模式不需要 cancel 级联）
+        vec![], // bg_results（print 模式无后台任务）
     )
     .await;
     let c = collector.lock().unwrap();

@@ -1,8 +1,10 @@
+mod agent_result;
 mod background;
 mod built_in_agents;
 mod fork;
 mod skill_preload;
 mod tool;
+pub use agent_result::AgentResultTool;
 pub use background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus};
 pub use built_in_agents::{get_built_in_agent, list_built_in_agents, BuiltInAgent};
 pub use skill_preload::SkillPreloadMiddleware;
@@ -443,7 +445,11 @@ impl<S: State> Middleware<S> for SubAgentMiddleware {
     }
 
     fn collect_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        vec![Box::new(self.build_tool(cwd))]
+        let mut tools: Vec<Box<dyn BaseTool>> = vec![Box::new(self.build_tool(cwd))];
+        if self.background_registry.is_some() {
+            tools.push(Box::new(AgentResultTool::new()));
+        }
+        tools
     }
 
     async fn before_agent(&self, state: &mut S) -> AgentResult<()> {

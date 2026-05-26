@@ -31,13 +31,13 @@ impl App {
             .ui
             .loading
         {
-            if let Some(continuation) = self.session_mgr.sessions[self.session_mgr.active]
+            if let Some(results) = self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .pending_bg_continuation
                 .take()
             {
-                tracing::info!("auto-submitting background task continuation");
-                self.submit_message(continuation);
+                tracing::info!("auto-submitting background task continuation with tool results");
+                self.submit_bg_continuation(results);
                 return true;
             }
         }
@@ -154,6 +154,10 @@ impl App {
                         self.session_mgr.sessions[self.session_mgr.active]
                             .agent
                             .pre_done_bg_completions
+                            .clear();
+                        self.session_mgr.sessions[self.session_mgr.active]
+                            .agent
+                            .pre_done_bg_results
                             .clear();
                         self.session_mgr.sessions[self.session_mgr.active]
                             .agent

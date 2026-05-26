@@ -169,6 +169,10 @@ impl App {
             .agent
             .pre_done_bg_completions
             .clear();
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .pre_done_bg_results
+            .clear();
         // 重置 LSP 诊断计数
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
@@ -255,6 +259,117 @@ impl App {
                 .pending_messages
                 .remove(0);
             self.submit_message(msg);
+        }
+    }
+
+    /// 提交后台任务 continuation（使用合成 AgentResult tool_use + tool_result 消息）
+    ///
+    /// 与 `submit_message` 不同，此方法通过 `prompt_with_bg_results` 将结构化
+    /// 后台任务结果发送给 ACP server，由 executor 注入合成消息。
+    pub(crate) fn submit_bg_continuation(
+        &mut self,
+        results: Vec<crate::app::agent_comm::BgTaskResult>,
+    ) {
+        if results.is_empty() {
+            return;
+        }
+
+        // 记录提交前的状态长度，用于中断时回滚
+        self.session_mgr.sessions[self.session_mgr.active]
+            .metadata
+            .pre_submit_state_len = self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .agent_state_messages
+            .len();
+
+        // 构建 display 文本（用于 UserBubble 显示）
+        let count = results.len();
+        let display = self.services.lc.tr_args(
+            "app-bg-continuation",
+            &[("count".into(), (count as i64).into())],
+        );
+
+        self.session_mgr.sessions[self.session_mgr.active]
+            .messages
+            .pipeline
+            .begin_round();
+        let user_vm = MessageViewModel::user(display.clone());
+        self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
+        self.session_mgr.sessions[self.session_mgr.active]
+            .messages
+            .round_start_vm_idx = self.session_mgr.sessions[self.session_mgr.active]
+            .messages
+            .view_messages
+            .len();
+        self.session_mgr.sessions[self.session_mgr.active]
+            .metadata
+            .last_human_message = Some(display);
+        self.session_mgr.sessions[self.session_mgr.active]
+            .messages
+            .last_submitted_text = None; // bg continuation 不恢复到输入框
+        self.set_loading(true);
+        self.session_mgr.sessions[self.session_mgr.active]
+            .ui
+            .scroll_offset = u16::MAX;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .ui
+            .scroll_follow = true;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .todo_items
+            .clear();
+
+        // 开始计时新任务
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .task_start_time = Some(std::time::Instant::now());
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .last_task_duration = None;
+        if self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .session_start_time
+            .is_none()
+        {
+            self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .session_start_time = Some(std::time::Instant::now());
+        }
+
+        // 重置状态
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .subagent_depth = 0;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .agent_replied = false;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .reconcile_already_done = false;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .lsp_errors = 0;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .lsp_warnings = 0;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .lsp_files_with_errors = 0;
+
+        // 通过 ACP client 提交 bg continuation
+        if let Some(ref acp_client) = self.acp_client {
+            let acp_client_clone = acp_client.clone();
+            tokio::spawn(async move {
+                match acp_client_clone.prompt_with_bg_results(results).await {
+                    Ok(()) => tracing::info!("ACP bg continuation: prompt_with_bg_results completed"),
+                    Err(e) => tracing::error!(error = %e, "ACP bg continuation: prompt_with_bg_results FAILED"),
+                }
+            });
+        } else {
+            tracing::error!("ACP client not initialized, cannot submit bg continuation");
+            self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+                self.services.lc.tr("app-no-provider-submit"),
+            )));
+            self.set_loading(false);
         }
     }
 }

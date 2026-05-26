@@ -59,6 +59,12 @@ pub(crate) async fn execute_prompt(
         .map(|v| serde_json::from_value(v.clone()).unwrap_or_default())
         .unwrap_or_default();
 
+    // Parse optional background task results for synthetic tool_use + tool_result injection
+    let bg_results: Vec<peri_agent::agent::events::BackgroundTaskResult> = params
+        .get("bgResults")
+        .map(|v| serde_json::from_value(v.clone()).unwrap_or_default())
+        .unwrap_or_default();
+
     // Create cancel token and register in sessions.
     let cancel = AgentCancellationToken::new();
     {
@@ -147,6 +153,7 @@ pub(crate) async fn execute_prompt(
         Some(Arc::clone(thread_store)),
         Some(thread_id.clone()),
         None, // session_manager（TUI 使用 SharedSessions，不走 SessionManager）
+        bg_results,
     )
     .await;
 
