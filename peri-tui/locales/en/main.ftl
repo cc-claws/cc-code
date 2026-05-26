@@ -435,3 +435,6 @@ app-plugin-updating = Updating marketplace: { $name }
 app-plugin-delete-failed = Delete failed: { $error }
 app-plugin-add-failed = Add failed: { $error }
 app-plugin-added = Marketplace added: { $name } (fetching content...)
+
+# Background Agent Bar
+bg-bar-focus-hint = Press Esc to exit focus

@@ -4227,3 +4227,105 @@ async fn test_submit_message_clears_pre_done_completions() {
         "清理后 pre_done_bg_completions 应为空"
     );
 }
+
+/// 验证后台 agent 生命周期：SubAgentStart(bg) → push，BackgroundTaskCompleted → remove + 自动退出聚焦
+#[tokio::test]
+async fn test_background_agents_lifecycle() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+
+    // 设置 view_messages 基础状态
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .round_start_vm_idx = app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .len();
+    let user_vm = MessageViewModel::user("test query".into());
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .push(user_vm);
+    app.render_rebuild();
+
+    // SubAgentStart(bg=true) → push agent
+    app.push_agent_event(AgentEvent::SubAgentStart {
+        agent_id: "code-reviewer".into(),
+        instance_id: "inst-001".into(),
+        task_preview: String::new(),
+        is_background: true,
+    });
+    app.process_pending_events();
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active]
+            .background_agents
+            .len(),
+        1,
+        "SubAgentStart(bg) 应增加 background_agents"
+    );
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active].background_agents[0].agent_name,
+        "code-reviewer"
+    );
+
+    // 再启动一个
+    app.push_agent_event(AgentEvent::SubAgentStart {
+        agent_id: "explorer".into(),
+        instance_id: "inst-002".into(),
+        task_preview: String::new(),
+        is_background: true,
+    });
+    app.process_pending_events();
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active]
+            .background_agents
+            .len(),
+        2,
+        "两个后台 agent 应有 2 条记录"
+    );
+
+    // BackgroundTaskCompleted → 移除匹配的 agent
+    app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
+        task_id: "bg-test-1".into(),
+        agent_name: "code-reviewer".into(),
+        success: true,
+        output: "done".into(),
+        tool_calls_count: 1,
+        duration_ms: 100,
+    });
+    app.process_pending_events();
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active]
+            .background_agents
+            .len(),
+        1,
+        "完成后应只剩 1 个 agent"
+    );
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active].background_agents[0].agent_name,
+        "explorer"
+    );
+
+    // 设置聚焦到 explorer
+    app.session_mgr.sessions[app.session_mgr.active].focused_instance_id = Some("inst-002".into());
+
+    // 完成聚焦的 agent → 自动退出聚焦
+    app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
+        task_id: "bg-test-2".into(),
+        agent_name: "explorer".into(),
+        success: true,
+        output: "done".into(),
+        tool_calls_count: 1,
+        duration_ms: 100,
+    });
+    app.process_pending_events();
+    assert!(
+        app.session_mgr.sessions[app.session_mgr.active]
+            .background_agents
+            .is_empty(),
+        "所有 agent 完成后列表应为空"
+    );
+    assert_eq!(
+        app.session_mgr.sessions[app.session_mgr.active].focused_instance_id, None,
+        "聚焦的 agent 完成后应自动退出聚焦"
+    );
+}

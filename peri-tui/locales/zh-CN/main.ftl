@@ -434,3 +434,6 @@ app-plugin-updating = 正在更新 marketplace: { $name }
 app-plugin-delete-failed = 删除失败: { $error }
 app-plugin-add-failed = 添加失败: { $error }
 app-plugin-added = Marketplace 已添加: { $name } (正在获取内容...)
+
+# 后台 Agent 管理栏
+bg-bar-focus-hint = 按 Esc 退出聚焦
