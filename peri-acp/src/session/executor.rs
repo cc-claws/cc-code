@@ -465,19 +465,13 @@ pub async fn execute_prompt(
         }
     });
 
-    // Execute agent — move executor out to avoid drop-after-borrow conflict.
+    // Execute agent
     let mut agent_state = AgentState::with_messages(cwd.to_string(), history);
-    let cancel_for_select = cancel.clone();
-    let executor = agent_output.executor;
-    let exec_fut = executor.execute(agent_input.clone(), &mut agent_state, Some(cancel.clone()));
-    let result = tokio::select! {
-        biased;
-        _ = cancel_for_select.cancelled() => {
-            Err(AgentError::Interrupted)
-        }
-        result = exec_fut => result,
-    };
-    drop(executor);
+    let result = agent_output
+        .executor
+        .execute(agent_input.clone(), &mut agent_state, Some(cancel.clone()))
+        .await;
+    drop(agent_output.executor);
 
     let ok = result.is_ok();
     if let Err(e) = &result {
