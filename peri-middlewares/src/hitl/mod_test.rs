@@ -9,7 +9,10 @@ impl UserInteractionBroker for AutoApproveBroker {
     async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
         match ctx {
             InteractionContext::Approval { items } => InteractionResponse::Decisions(
-                items.iter().map(|_| ApprovalDecision::Approve).collect(),
+                items
+                    .iter()
+                    .map(|_| ApprovalDecision::Approve { source: None })
+                    .collect(),
             ),
             _ => InteractionResponse::Decisions(vec![]),
         }
@@ -28,6 +31,7 @@ impl UserInteractionBroker for AutoRejectBroker {
                     .iter()
                     .map(|_| ApprovalDecision::Reject {
                         reason: "用户拒绝".to_string(),
+                        source: None,
                     })
                     .collect(),
             ),

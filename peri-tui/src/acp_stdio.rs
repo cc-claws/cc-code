@@ -68,7 +68,9 @@ impl peri_agent::interaction::UserInteractionBroker for StdioBroker {
                 peri_agent::interaction::InteractionResponse::Decisions(
                     items
                         .into_iter()
-                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve)
+                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve {
+                            source: None,
+                        })
                         .collect(),
                 )
             }

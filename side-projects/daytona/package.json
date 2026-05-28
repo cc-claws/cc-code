@@ -1,6 +1,10 @@
 {
     "name": "daytona",
     "private": true,
+    "scripts": {
+        "build": "bun build ./src/server.ts --outfile ./dist/app.js --target bun",
+        "start": "bun run ./dist/app.js"
+    },
     "devDependencies": {
         "@types/bun": "latest"
     },
@@ -8,6 +12,8 @@
         "typescript": "^6"
     },
     "dependencies": {
-        "@daytona/sdk": "^0.182.0"
+        "@daytona/sdk": "^0.182.0",
+        "@octokit/webhooks": "^14.2.0",
+        "hono": "^4.12.23"
     }
 }
