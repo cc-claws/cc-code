@@ -13,9 +13,11 @@ use crate::skills::{list_skills, load_global_skills_dir};
 /// 支持格式：
 /// - `/skill-name` — 单个 skill
 /// - `/skill-a /skill-b` — 多个 skill（空格分隔）
+/// - `/namespace:skill-name` — 带命名空间的 skill
 /// - 消息中任意位置出现即可（不限于行首）
 ///
-/// 仅匹配由 `/` 开头、后跟 `[a-zA-Z0-9_-]` 的 token。
+/// 匹配由 `/` 开头、后跟 `[a-zA-Z0-9_:.-]` 的 token。
+/// 允许 `:` 以支持插件命名空间（如 `/ecc:plan`）。
 pub fn extract_skill_names_from_text(text: &str) -> Vec<String> {
     text.split_whitespace()
         .filter_map(|word| {
@@ -23,7 +25,7 @@ pub fn extract_skill_names_from_text(text: &str) -> Vec<String> {
             if !name.is_empty()
                 && name
                     .chars()
-                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.')
             {
                 Some(name.to_string())
             } else {
@@ -122,7 +124,15 @@ impl<S: State> Middleware<S> for SkillPreloadMiddleware {
             let all_skills = list_skills(&dirs);
             all_skills
                 .into_iter()
-                .filter(|s| names_lower.contains(&s.name.to_lowercase()))
+                .filter(|s| {
+                    let skill_name_lower = s.name.to_lowercase();
+                    names_lower.iter().any(|name| {
+                        // 精确匹配（/plan）
+                        skill_name_lower == *name
+                        // 或去掉命名空间前缀后匹配（/ecc:plan → plan）
+                        || name.rsplit_once(':').map(|(_, n)| n.to_lowercase()) == Some(skill_name_lower.clone())
+                    })
+                })
                 .filter_map(|s| {
                     let content = std::fs::read_to_string(&s.path).ok()?;
                     Some((s.path.to_string_lossy().to_string(), content))
