@@ -2,7 +2,7 @@
     "name": "daytona",
     "private": true,
     "scripts": {
-        "build": "bun build ./src/server.ts --outfile ./dist/app.js --target bun",
+        "build": "bun build ./src/server.ts --outfile ./dist/app.js --target bun --external hono --external @octokit/webhooks --external @daytona/sdk",
         "start": "bun run ./dist/app.js"
     },
     "devDependencies": {

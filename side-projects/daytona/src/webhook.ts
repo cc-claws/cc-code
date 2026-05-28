@@ -1,11 +1,9 @@
 import { Webhooks } from "@octokit/webhooks";
-import type {
-    EmitterWebhookEvent,
-    PushEvent,
-} from "@octokit/webhooks";
+import type { EmitterWebhookEvent } from "@octokit/webhooks";
+import { dispatcher } from "./dispatch";
 
 // ---------------------------------------------------------------------------
-// 初始化 Webhooks 实例
+// 初始化
 // ---------------------------------------------------------------------------
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 
@@ -20,44 +18,24 @@ export const webhooks = new Webhooks({
 });
 
 // ---------------------------------------------------------------------------
-// 事件处理器
+// 事件 → 派发器桥接
 // ---------------------------------------------------------------------------
 
-webhooks.on("push", ({ id, payload }: EmitterWebhookEvent<"push">) => {
-    console.log(`[webhook] push (id=${id})`);
-    console.log(`  repo:   ${payload.repository.full_name}`);
-    console.log(`  ref:    ${payload.ref}`);
-    console.log(
-        `  head:   ${payload.head_commit?.id.slice(0, 7) ?? "N/A"}`,
-    );
-});
+/**
+ * 将 GitHub 的扁平事件名（如 "pull_request"）和 payload.action
+ * 拼成调度事件名（如 "pull_request.opened"），然后交给 dispatcher。
+ */
+function forward(event: EmitterWebhookEvent<any>): void {
+    const type = "action" in event.payload
+        ? `${event.name}.${(event.payload as any).action}`
+        : event.name;
 
-webhooks.on(
-    "pull_request",
-    ({ id, payload }: EmitterWebhookEvent<"pull_request">) => {
-        console.log(
-            `[webhook] pull_request ${payload.action} (id=${id})`,
-        );
-        console.log(
-            `  repo: ${payload.repository.full_name}`,
-        );
-        console.log(
-            `  PR:   #${payload.pull_request.number} ${payload.pull_request.title}`,
-        );
-    },
-);
+    console.log(`[webhook] ${type} (id=${event.id})`);
+    dispatcher.dispatch(type, event.payload);
+}
 
-webhooks.on(
-    "issues",
-    ({ id, payload }: EmitterWebhookEvent<"issues">) => {
-        console.log(
-            `[webhook] issues ${payload.action} (id=${id})`,
-        );
-        console.log(
-            `  repo:  ${payload.repository.full_name}`,
-        );
-    },
-);
+webhooks.on("issues", forward);
+webhooks.on("pull_request", forward);
 
 webhooks.onError((error: Error) => {
     console.error(`[webhook] Error: ${error.message}`);
