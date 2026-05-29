@@ -65,23 +65,17 @@ impl AgentCommand for MockCommand {
 /// Mock EventSink，记录所有推送的事件。
 struct MockEventSink {
     events: Mutex<Vec<(String, String)>>,
-    done_count: Mutex<usize>,
 }
 
 impl MockEventSink {
     fn new() -> Self {
         Self {
             events: Mutex::new(Vec::new()),
-            done_count: Mutex::new(0),
         }
     }
 
     fn events(&self) -> Vec<(String, String)> {
         self.events.lock().unwrap().clone()
-    }
-
-    fn done_count(&self) -> usize {
-        *self.done_count.lock().unwrap()
     }
 }
 
@@ -95,10 +89,7 @@ impl crate::session::event_sink::EventSink for MockEventSink {
             .push((session_id.to_string(), json));
     }
 
-    async fn push_done(&self, session_id: &str) {
-        let _ = session_id;
-        *self.done_count.lock().unwrap() += 1;
-    }
+    async fn push_done(&self, _session_id: &str) {}
 }
 
 /// 构造最小 CommandContext。
@@ -297,16 +288,16 @@ async fn test_clear_command_sends_event() {
     let events = sink.events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].0, "test-session");
-    // CompactCompleted 的 JSON 应包含 "CompactCompleted"
+    // CompactCompleted 的 JSON 应包含 "compact_completed"（serde 序列化为 snake_case）
     assert!(
-        events[0].1.contains("CompactCompleted"),
-        "事件应包含 CompactCompleted，实际: {}",
+        events[0].1.contains("compact_completed"),
+        "事件应包含 compact_completed，实际: {}",
         events[0].1
     );
     // messages 应为空数组
     assert!(
         events[0].1.contains("\"messages\":[]"),
-        "CompactCompleted.messages 应为空数组，实际: {}",
+        "compact_completed.messages 应为空数组，实际: {}",
         events[0].1
     );
 }

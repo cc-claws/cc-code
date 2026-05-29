@@ -365,3 +365,118 @@ fn test_todo_update_empty_entries() {
         other => panic!("预期 Plan，实际: {:?}", other),
     }
 }
+
+// ── Category ③: TUI-only 变体 ──────────────────────────────────────────────
+// 所有 TUI-only 变体应满足: forward_to_tui=true, updates 为空
+
+fn assert_tui_only(event: &ExecutorEvent, label: &str) {
+    let mapped = map_event(event, 200_000);
+    assert_eq!(mapped.len(), 1, "{} 应产出 1 个 MappedEvent", label);
+    assert!(mapped[0].forward_to_tui, "{} 应转发到 TUI", label);
+    assert!(
+        mapped[0].updates.is_empty(),
+        "{} 不应产生 SessionUpdate",
+        label
+    );
+}
+
+#[test]
+fn test_state_snapshot_is_tui_only() {
+    assert_tui_only(&ExecutorEvent::StateSnapshot(vec![]), "StateSnapshot");
+}
+
+#[test]
+fn test_subagent_started_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::SubagentStarted {
+            agent_name: "sub-agent".to_string(),
+            instance_id: "inst-001".to_string(),
+            is_background: false,
+        },
+        "SubagentStarted",
+    );
+}
+
+#[test]
+fn test_subagent_stopped_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::SubagentStopped {
+            agent_name: "sub-agent".to_string(),
+            result: "done".to_string(),
+            is_error: false,
+            instance_id: "inst-001".to_string(),
+        },
+        "SubagentStopped",
+    );
+}
+
+#[test]
+fn test_compact_started_is_tui_only() {
+    assert_tui_only(&ExecutorEvent::CompactStarted, "CompactStarted");
+}
+
+#[test]
+fn test_compact_completed_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::CompactCompleted {
+            summary: "compressed".to_string(),
+            files: vec![CompactFileInfo {
+                path: "src/main.rs".to_string(),
+                lines: 100,
+            }],
+            skills: vec!["skill-a".to_string()],
+            micro_cleared: 0,
+            messages: vec![],
+        },
+        "CompactCompleted",
+    );
+}
+
+#[test]
+fn test_compact_error_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::CompactError {
+            message: "compact failed".to_string(),
+        },
+        "CompactError",
+    );
+}
+
+#[test]
+fn test_background_task_completed_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::BackgroundTaskCompleted(BackgroundTaskResult {
+            task_id: "bg-001".to_string(),
+            agent_name: "bg-agent".to_string(),
+            prompt_summary: "do stuff".to_string(),
+            success: true,
+            output: "ok".to_string(),
+            tool_calls_count: 3,
+            duration_ms: 5000,
+            child_thread_id: None,
+        }),
+        "BackgroundTaskCompleted",
+    );
+}
+
+#[test]
+fn test_lsp_diagnostics_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::LspDiagnostics {
+            errors: 2,
+            warnings: 5,
+            files_with_errors: 3,
+        },
+        "LspDiagnostics",
+    );
+}
+
+#[test]
+fn test_agent_execution_failed_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::AgentExecutionFailed {
+            message: "agent crashed".to_string(),
+        },
+        "AgentExecutionFailed",
+    );
+}

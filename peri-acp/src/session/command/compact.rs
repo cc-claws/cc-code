@@ -437,8 +437,8 @@ mod tests {
         let events = sink.events();
         assert_eq!(events.len(), 1);
         assert!(
-            events[0].1.contains("CompactError"),
-            "空历史应推送 CompactError，实际: {}",
+            events[0].1.contains("compact_error"),
+            "空历史应推送 compact_error，实际: {}",
             events[0].1
         );
         assert!(
@@ -467,8 +467,8 @@ mod tests {
         let events = sink.events();
         assert_eq!(events.len(), 1);
         assert!(
-            events[0].1.contains("CompactError"),
-            "无模型应推送 CompactError，实际: {}",
+            events[0].1.contains("compact_error"),
+            "无模型应推送 compact_error，实际: {}",
             events[0].1
         );
         assert!(
