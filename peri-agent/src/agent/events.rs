@@ -106,6 +106,8 @@ pub enum AgentEvent {
         model: String,
         output: String,
         usage: Option<crate::llm::types::TokenUsage>,
+        /// LLM 响应停止原因（None 表示 LLM 调用失败/异常）
+        stop_reason: Option<crate::llm::types::StopReason>,
     },
     /// 上下文窗口使用警告（阈值触发时发出）
     ContextWarning {

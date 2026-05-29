@@ -270,6 +270,7 @@ pub async fn execute_prompt(
                         model,
                         output,
                         usage,
+                        stop_reason: _,
                     } => {
                         tracer.lock().on_llm_end(
                             *step,
