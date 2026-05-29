@@ -333,7 +333,7 @@ pub(crate) fn extract_tail_lines(text: &str, n: usize) -> String {
 
 /// 扫描 tail_vms 的最后一个 AssistantBubble，
 /// 若满足条件（无 Text block + 最后一个 block 是 Reasoning）则设置 tail_lines。
-pub(crate) fn add_thinking_tail_snapshot(tail_vms: &mut [MessageViewModel]) {
+fn add_thinking_tail_snapshot(tail_vms: &mut [MessageViewModel]) {
     for vm in tail_vms.iter_mut().rev() {
         if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
             let has_text = blocks

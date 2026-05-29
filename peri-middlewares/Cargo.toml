@@ -48,6 +48,3 @@ lsp-types.workspace = true
 tokio-test.workspace = true
 tempfile.workspace = true
 filetime = "0.2"
-
-[features]
-integration = []

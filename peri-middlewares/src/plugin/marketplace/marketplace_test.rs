@@ -137,7 +137,7 @@ fn test_read_directory_not_found() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "integration"), ignore)]
+#[ignore] // 需要 network，CI 环境手动启用
 async fn test_fetch_url_cache_fallback() {
     let dir = tempdir().unwrap();
     let cache_base = dir.path().join("marketplaces");
@@ -151,7 +151,7 @@ async fn test_fetch_url_cache_fallback() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "integration"), ignore)]
+#[ignore] // 需要 network，CI 环境手动启用
 async fn test_fetch_url_no_cache_no_server() {
     let dir = tempdir().unwrap();
     let cache_base = dir.path().join("marketplaces");

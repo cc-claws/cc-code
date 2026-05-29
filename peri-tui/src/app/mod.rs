@@ -98,7 +98,6 @@ pub use interaction::InteractionPrompt;
 mod edit_utils;
 pub use edit_utils::{build_textarea, edit_display_parts, ensure_cursor_visible, handle_edit_key};
 
-#[allow(unused_imports)]
 use crate::acp_client::{AcpNotification, AcpTuiClient};
 use peri_agent::messages::BaseMessage;
 use peri_middlewares::prelude::HitlDecision;

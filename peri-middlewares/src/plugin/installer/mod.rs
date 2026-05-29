@@ -1,7 +1,8 @@
 #[cfg(test)]
 use crate::plugin::config::{load_installed_plugins, save_installed_plugins};
-#[allow(unused_imports)]
-use crate::plugin::types::{InstallScope, InstalledPlugin, InstalledPlugins};
+use crate::plugin::types::InstallScope;
+#[cfg(test)]
+use crate::plugin::types::{InstalledPlugin, InstalledPlugins};
 use crate::plugin::{marketplace::read_manifest_from_path, PluginConfigError};
 use std::path::{Path, PathBuf};
 use thiserror::Error;

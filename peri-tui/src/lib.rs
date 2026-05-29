@@ -11,8 +11,6 @@
     clippy::infallible_try_from
 )]
 
-// ── Deprecated modules (Step 6-b: moved to peri-acp) ──
-// pub mod acp;
 pub mod acp_client;
 pub mod acp_server;
 pub mod app;

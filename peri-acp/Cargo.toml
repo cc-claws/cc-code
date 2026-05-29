@@ -23,7 +23,6 @@ serde_json.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
-thiserror.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 dashmap = "6"

@@ -84,7 +84,6 @@ pub fn build_system_prompt(
     cwd: &str,
     features: PromptFeatures,
     extra_agent_dirs: &[std::path::PathBuf],
-    #[allow(unused)] frozen_date: Option<&str>,
 ) -> String {
     let env = PromptEnv::detect(cwd);
 

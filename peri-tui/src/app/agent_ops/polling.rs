@@ -321,5 +321,3 @@ impl App {
         }
     }
 }
-
-// #[cfg(test)] block moved to mod.rs

@@ -26,18 +26,15 @@ use std::{
 use peri_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::{events::AgentEvent, tool_display};
-#[allow(unused_imports)]
-use crate::ui::message_view::{aggregate_tool_groups, ContentBlockView, MessageViewModel};
+use crate::ui::message_view::MessageViewModel;
 
 mod reconcile;
 mod transform;
 
 pub use crate::ui::message_view::aggregate_batch_groups;
 pub use reconcile::PipelineAction;
-#[allow(unused_imports)]
-pub(crate) use reconcile::{
-    add_thinking_tail_snapshot, extract_tail_lines, merge_frozen_subagents,
-};
+#[cfg(test)]
+use reconcile::{extract_tail_lines, merge_frozen_subagents};
 
 // ─── 管线内部状态 ────────────────────────────────────────────────────────────
 
