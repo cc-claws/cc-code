@@ -481,3 +481,51 @@ fn test_agent_execution_failed_is_tui_only() {
         "AgentExecutionFailed",
     );
 }
+
+// ── Filtered 变体 ─────────────────────────────────────────────────────────
+// 所有 filtered 变体应满足: forward_to_tui=false, updates 为空
+
+fn assert_filtered(event: &ExecutorEvent, label: &str) {
+    let mapped = map_event(event, 200_000);
+    assert_eq!(mapped.len(), 1, "{} 应产出 1 个 MappedEvent", label);
+    assert!(!mapped[0].forward_to_tui, "{} 不应转发到 TUI", label);
+    assert!(
+        mapped[0].updates.is_empty(),
+        "{} 不应产生 SessionUpdate",
+        label
+    );
+}
+
+#[test]
+fn test_step_done_produces_no_output() {
+    assert_filtered(&ExecutorEvent::StepDone { step: 1 }, "StepDone");
+}
+
+#[test]
+fn test_message_added_produces_no_output() {
+    assert_filtered(
+        &ExecutorEvent::MessageAdded(BaseMessage::human("test message")),
+        "MessageAdded",
+    );
+}
+
+#[test]
+fn test_llm_call_start_produces_no_output() {
+    assert_filtered(
+        &ExecutorEvent::LlmCallStart {
+            step: 1,
+            messages: vec![BaseMessage::human("hello")],
+            tools: vec![ToolDefinition {
+                name: "Bash".to_string(),
+                description: "Run command".to_string(),
+                parameters: serde_json::Value::Null,
+            }],
+        },
+        "LlmCallStart",
+    );
+}
+
+#[test]
+fn test_session_ended_produces_no_output() {
+    assert_filtered(&ExecutorEvent::SessionEnded, "SessionEnded");
+}
