@@ -1,6 +1,6 @@
 # 统一 Token Usage 传递：引入 prompt_complete 事件
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-29
 
