@@ -16,8 +16,8 @@
 
 /// 有状态 SSE 解析器
 pub struct SseParser {
-    /// 跨 chunk 不完整行缓冲区（上一个 chunk 末尾未以 \n 结尾的部分）
-    pending_line: String,
+    /// 跨 chunk 不完整行缓冲区（上一个 chunk 末尾未以 \n 结尾的原始字节）
+    pending_bytes: Vec<u8>,
     /// 当前累积的 event type（Anthropic 格式：`event: content_block_delta`）
     event_type: Option<String>,
     /// 当前累积的 data 文本（`data:` 行内容拼接）
@@ -29,7 +29,7 @@ pub struct SseParser {
 impl SseParser {
     pub fn new() -> Self {
         Self {
-            pending_line: String::new(),
+            pending_bytes: Vec::new(),
             event_type: None,
             data: String::new(),
             done: false,
@@ -41,24 +41,30 @@ impl SseParser {
     pub fn push(&mut self, bytes: &[u8]) -> Vec<(Option<String>, String)> {
         let mut events = Vec::new();
 
-        // 将 pending_line + 新数据合并为完整文本
-        let mut text = std::mem::take(&mut self.pending_line);
-        text.push_str(&String::from_utf8_lossy(bytes));
+        // 字节级拼接：保留原始字节，避免 from_utf8_lossy 截断多字节 UTF-8 序列
+        self.pending_bytes.extend_from_slice(bytes);
 
-        // 找到最后一个 \n，以区分完整行和不完整行
-        // 仅处理完整部分（到最后一个 \n），剩余部分保存为 pending_line
-        let complete_end = text.rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let complete = &text[..complete_end];
-        let incomplete = &text[complete_end..];
+        // 找最后一个 \n，分离完整行和残留字节
+        // SSE 是行协议，行边界一定是 UTF-8 安全的
+        let complete_end = self
+            .pending_bytes
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
 
-        // 保存不完整部分
-        if !incomplete.is_empty() {
-            self.pending_line = incomplete.to_string();
+        if complete_end == 0 {
+            return events; // 无完整行，继续累积
         }
 
-        let lines = complete.lines();
+        // 先拆分再解码，避免借用冲突
+        let remaining = self.pending_bytes[complete_end..].to_vec();
+        self.pending_bytes.truncate(complete_end);
+        // into_owned() 断开对 self.pending_bytes 的借用
+        let text = String::from_utf8_lossy(&self.pending_bytes).into_owned();
+        self.pending_bytes = remaining;
 
-        for mut line in lines {
+        for mut line in text.lines() {
             // 处理 \r\n: lines() 分割时可能残留 \r 后缀
             if line.ends_with('\r') {
                 line = &line[..line.len() - 1];
