@@ -72,7 +72,7 @@ pub struct LlmResponse {
 }
 
 /// 停止原因
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum StopReason {
     EndTurn,
     ToolUse,

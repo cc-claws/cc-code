@@ -59,6 +59,7 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
                         model: agent.llm.model_name(),
                         output: format!("ERROR: {}", e),
                         usage: None,
+                        stop_reason: None,
                     });
                     agent.chain.run_on_error(state, &e).await?;
                     return Err(e);
@@ -77,6 +78,7 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
             model: agent.llm.model_name(),
             output: llm_output,
             usage: reasoning.usage.clone(),
+            stop_reason: Some(reasoning.stop_reason.clone()),
         });
         // 自动累积 token 用量到 state
         if let Some(ref usage) = reasoning.usage {
