@@ -1,6 +1,8 @@
-use crate::app::panel_manager::PanelContext;
-use crate::app::plugin_panel::{MarketplaceViewEntry, MarketplaceViewStatus, PluginPanel};
-use crate::app::AgentEvent;
+use crate::app::{
+    panel_manager::PanelContext,
+    plugin_panel::{MarketplaceViewEntry, MarketplaceViewStatus, PluginPanel},
+    AgentEvent,
+};
 
 impl PluginPanel {
     /// 持久化 enabled 状态到 Claude settings

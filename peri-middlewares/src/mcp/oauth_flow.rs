@@ -1,13 +1,14 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use thiserror::Error;
 use tokio::sync::oneshot;
 use tracing::{info, warn};
 
-use super::auth_store::{FileCredentialStore, PerServerCredentialStore};
-use super::callback_server::{CallbackError, OAuthCallbackServer};
-use super::config::OAuthConfig;
+use super::{
+    auth_store::{FileCredentialStore, PerServerCredentialStore},
+    callback_server::{CallbackError, OAuthCallbackServer},
+    config::OAuthConfig,
+};
 use rmcp::transport::auth::{AuthError, OAuthState};
 
 /// OAuth 回调结果（从 TUI 传回后台 OAuth 流程）

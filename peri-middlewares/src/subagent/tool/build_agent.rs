@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
-use peri_agent::agent::events::AgentEvent;
-use peri_agent::agent::react::ReactLLM;
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::{AgentCancellationToken, ReActAgent};
-use peri_agent::thread::ThreadMeta;
+use peri_agent::{
+    agent::{
+        events::AgentEvent, react::ReactLLM, state::AgentState, AgentCancellationToken, ReActAgent,
+    },
+    thread::ThreadMeta,
+};
 
-use crate::claude_agent_parser::ClaudeAgent;
-use crate::hooks::types::HookEvent;
-use crate::subagent::SubAgentMiddlewareConfig;
+use crate::{
+    claude_agent_parser::ClaudeAgent, hooks::types::HookEvent, subagent::SubAgentMiddlewareConfig,
+};
 
-use super::build_subagent_middlewares;
-use super::SourceAgentIdHandler;
+use super::{build_subagent_middlewares, SourceAgentIdHandler};
 
 /// Controls how parent cancellation affects child agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

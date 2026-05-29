@@ -1,6 +1,5 @@
 use super::*;
-use crate::config::AppConfig;
-use crate::config::ProviderConfig;
+use crate::config::{AppConfig, ProviderConfig};
 
 fn make_config() -> PeriConfig {
     PeriConfig {

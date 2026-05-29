@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::messages::{BaseMessage, MessageContent};
-use crate::tools::BaseTool;
+use crate::{
+    messages::{BaseMessage, MessageContent},
+    tools::BaseTool,
+};
 
 /// Agent 输入
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,5 @@
 use crate::plugin::loader::LoadedPlugin;
-use peri_agent::agent::state::State;
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{agent::state::State, middleware::r#trait::Middleware};
 use std::sync::Arc;
 
 pub struct PluginMiddleware {
@@ -34,9 +33,7 @@ impl<S: State> Middleware<S> for PluginMiddleware {
 mod tests {
     use super::*;
     use crate::plugin::loader::tests::make_manifest_with_commands;
-    use peri_agent::agent::state::AgentState;
-    use peri_agent::middleware::r#trait::Middleware;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
+    use peri_agent::{agent::state::AgentState, middleware::r#trait::Middleware};
+    use std::{collections::HashMap, path::PathBuf};
     include!("middleware_test.rs");
 }

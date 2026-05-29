@@ -6,8 +6,7 @@
 //!   subagent.rs  — token usage, subagent start
 //!   polling.rs   — poll_agent, poll_background_events, poll_cron_triggers
 
-use super::agent_events_bg::BackgroundTaskResult;
-use super::*;
+use super::{agent_events_bg::BackgroundTaskResult, *};
 mod acp_bridge;
 mod lifecycle;
 mod polling;

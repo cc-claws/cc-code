@@ -1,7 +1,5 @@
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::middleware::r#trait::Middleware;
-use peri_agent::tools::BaseTool;
+use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
 use serde_json::Value;
 use std::process::Stdio;
 use tokio::time::{timeout, Duration};

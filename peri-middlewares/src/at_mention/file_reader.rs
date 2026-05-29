@@ -1,5 +1,7 @@
-use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
 /// 最大读取行数
 const MAX_LINES: usize = 2000;

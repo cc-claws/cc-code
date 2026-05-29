@@ -2,12 +2,16 @@ use std::collections::HashMap;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::agent::events::AgentEvent;
-use crate::agent::react::{ReactLLM, Reasoning, ToolCall, ToolResult};
-use crate::agent::state::State;
-use crate::error::{AgentError, AgentResult};
-use crate::messages::{message::MessageId, BaseMessage, ToolCallRequest};
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        events::AgentEvent,
+        react::{ReactLLM, Reasoning, ToolCall, ToolResult},
+        state::State,
+    },
+    error::{AgentError, AgentResult},
+    messages::{message::MessageId, BaseMessage, ToolCallRequest},
+    tools::BaseTool,
+};
 
 use super::ReActAgent;
 

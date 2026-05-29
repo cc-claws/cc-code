@@ -1,10 +1,14 @@
-use crate::config::{BackpressurePolicy, BatcherConfig};
-use crate::error::LangfuseError;
-use crate::types::IngestionEvent;
-use crate::LangfuseClient;
+use crate::{
+    config::{BackpressurePolicy, BatcherConfig},
+    error::LangfuseError,
+    types::IngestionEvent,
+    LangfuseClient,
+};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::{interval, Duration};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::{interval, Duration},
+};
 use tracing::{debug, error, info, warn};
 
 /// Batcher 内部命令（不导出）

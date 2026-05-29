@@ -1,8 +1,12 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
-use crate::plugin::config::{load_installed_plugins, save_installed_plugins};
-use crate::plugin::types::InstalledPlugins;
+use crate::plugin::{
+    config::{load_installed_plugins, save_installed_plugins},
+    types::InstalledPlugins,
+};
 
 use super::{
     atomic_write_settings, get_marketplace_manifest, match_project_path,

@@ -1,7 +1,5 @@
-use super::message_pipeline::PipelineAction;
-use super::*;
-use peri_agent::agent::events::CompactFileInfo;
-use peri_agent::messages::BaseMessage;
+use super::{message_pipeline::PipelineAction, *};
+use peri_agent::{agent::events::CompactFileInfo, messages::BaseMessage};
 
 impl App {
     pub(crate) fn handle_compact_started(&mut self) -> (bool, bool, bool) {
@@ -10,6 +8,11 @@ impl App {
         self.session_mgr.sessions[self.session_mgr.active]
             .ui
             .bg_bar_cursor = None;
+
+        // 标记手动 compact（/compact 命令），handle_compact_completed 依赖此标志结束 loading
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .compact_manual = true;
 
         // 显示 loading 状态（spinner + 禁用输入）
         self.set_loading(true);

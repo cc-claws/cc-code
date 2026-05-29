@@ -3,8 +3,7 @@
 
 use super::super::*;
 
-use crate::app::message_pipeline::PipelineAction;
-use crate::app::App;
+use crate::app::{message_pipeline::PipelineAction, App};
 
 impl App {
     pub(super) fn handle_token_usage_update(

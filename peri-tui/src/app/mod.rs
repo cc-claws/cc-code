@@ -104,8 +104,10 @@ use peri_agent::messages::BaseMessage;
 use peri_middlewares::prelude::HitlDecision;
 use tokio::sync::mpsc;
 
-use crate::config::PeriConfig;
-use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
+use crate::{
+    config::PeriConfig,
+    thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore},
+};
 
 // Re-export MessageViewModel from ui::message_view
 use crate::command::agents::AgentItem;
@@ -123,8 +125,7 @@ use std::sync::Arc;
 use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
-pub use agent_comm::AgentComm;
-pub use agent_comm::RetryStatus;
+pub use agent_comm::{AgentComm, RetryStatus};
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};

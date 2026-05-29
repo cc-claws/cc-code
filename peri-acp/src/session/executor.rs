@@ -9,25 +9,32 @@
 
 use std::sync::Arc;
 
-use peri_agent::agent::events::{AgentEvent as ExecutorEvent, AgentEventHandler};
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::token::ContextBudget;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::agent::State;
-use peri_agent::error::AgentError;
-use peri_agent::interaction::{ChannelState, UserInteractionBroker};
-use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent, MessageId};
+use peri_agent::{
+    agent::{
+        events::{AgentEvent as ExecutorEvent, AgentEventHandler},
+        state::AgentState,
+        token::ContextBudget,
+        AgentCancellationToken, State,
+    },
+    error::AgentError,
+    interaction::{ChannelState, UserInteractionBroker},
+    messages::{BaseMessage, ContentBlock, MessageContent, MessageId},
+};
 use tokio::sync::oneshot;
 use tracing::{debug, error};
 
-use crate::agent::builder::{self, AcpAgentConfig};
-use crate::langfuse::{LangfuseSession, LangfuseTracer};
-use crate::prompt::{build_system_prompt, PromptFeatures};
-use crate::provider::LlmProvider;
-use crate::session::agent_pool::AgentPool;
-use crate::session::agent_runtime::{AgentRuntime, CancelPolicy};
-use crate::session::event_sink::EventSink;
-use crate::session::SessionManager;
+use crate::{
+    agent::builder::{self, AcpAgentConfig},
+    langfuse::{LangfuseSession, LangfuseTracer},
+    prompt::{build_system_prompt, PromptFeatures},
+    provider::LlmProvider,
+    session::{
+        agent_pool::AgentPool,
+        agent_runtime::{AgentRuntime, CancelPolicy},
+        event_sink::EventSink,
+        SessionManager,
+    },
+};
 
 /// High-level reason why prompt execution stopped, used to derive ACP `StopReason`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +171,11 @@ pub async fn execute_prompt(
             let command_registry = crate::session::command::default_command_registry();
             if let Some((cmd, args)) = command_registry.find(&content.text_content()) {
                 if cmd.kind() == crate::session::command::CommandKind::Immediate {
+                    tracing::info!(
+                        command = %cmd.name(),
+                        history_len = history.len(),
+                        "Immediate command intercepted"
+                    );
                     let ctx = crate::session::command::CommandContext {
                         session_id: session_id.clone(),
                         history: history.clone(),

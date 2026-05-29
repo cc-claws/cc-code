@@ -4,8 +4,7 @@
 use super::super::*;
 use tracing::debug;
 
-use crate::app::message_pipeline::PipelineAction;
-use crate::app::App;
+use crate::app::{message_pipeline::PipelineAction, App};
 
 impl App {
     /// Shared agent state teardown for Done, Error, and Disconnected paths.

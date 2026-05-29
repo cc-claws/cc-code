@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
-use super::auth_store::FileCredentialStore;
-use super::client::{
-    build_authed_transport, build_http_transport, spawn_stdio_transport, ClientStatus,
-    McpClientHandle, McpClientPool, McpPoolError, McpServiceWrapper, OAuthStatus,
-    HTTP_CONNECT_TIMEOUT, SHUTDOWN_TIMEOUT, STDIO_CONNECT_TIMEOUT,
+use super::{
+    auth_store::FileCredentialStore,
+    client::{
+        build_authed_transport, build_http_transport, spawn_stdio_transport, ClientStatus,
+        McpClientHandle, McpClientPool, McpPoolError, McpServiceWrapper, OAuthStatus,
+        HTTP_CONNECT_TIMEOUT, SHUTDOWN_TIMEOUT, STDIO_CONNECT_TIMEOUT,
+    },
+    oauth_flow::{OAuthFlowEvent, OAuthFlowManager},
+    transport::TransportConfig,
 };
-use super::oauth_flow::{OAuthFlowEvent, OAuthFlowManager};
-use super::transport::TransportConfig;
 
 impl McpClientPool {
     pub async fn reconnect(

@@ -1,8 +1,10 @@
 use tui_textarea::{Input, Key};
 
-use crate::app::panel_manager::{EventResult, PanelContext};
-use crate::app::plugin_panel::{DiscoverDetailAction, PluginPanel};
-use crate::app::AgentEvent;
+use crate::app::{
+    panel_manager::{EventResult, PanelContext},
+    plugin_panel::{DiscoverDetailAction, PluginPanel},
+    AgentEvent,
+};
 
 use peri_middlewares::plugin::InstallScope;
 

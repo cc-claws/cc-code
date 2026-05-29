@@ -1,14 +1,17 @@
 use std::any::Any;
 
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{layout::Rect, Frame};
 use tui_textarea::Input;
 
 use crate::i18n::LcRegistry;
 
-use super::super::panel_component::PanelComponent;
-use super::super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::{App, LoginEditField, LoginPanel, LoginPanelMode};
+use super::{
+    super::{
+        panel_component::PanelComponent,
+        panel_manager::{EventResult, PanelContext, PanelKind},
+    },
+    App, LoginEditField, LoginPanel, LoginPanelMode,
+};
 
 impl PanelComponent for LoginPanel {
     fn kind(&self) -> PanelKind {

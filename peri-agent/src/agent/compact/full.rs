@@ -1,9 +1,12 @@
-use crate::agent::compact::config::CompactConfig;
-use crate::agent::compact::invariant::{group_messages_by_round, MessageRound};
-use crate::error::{AgentError, AgentResult};
-use crate::llm::types::LlmRequest;
-use crate::llm::BaseModel;
-use crate::messages::{BaseMessage, ContentBlock, MessageContent};
+use crate::{
+    agent::compact::{
+        config::CompactConfig,
+        invariant::{group_messages_by_round, MessageRound},
+    },
+    error::{AgentError, AgentResult},
+    llm::{types::LlmRequest, BaseModel},
+    messages::{BaseMessage, ContentBlock, MessageContent},
+};
 use tracing::warn;
 
 /// 结构化摘要 system prompt

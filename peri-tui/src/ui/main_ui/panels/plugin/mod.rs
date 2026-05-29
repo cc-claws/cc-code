@@ -1,7 +1,6 @@
 use ratatui::{layout::Rect, Frame};
 
-use crate::app::plugin_panel::PluginPanel;
-use crate::app::App;
+use crate::app::{plugin_panel::PluginPanel, App};
 
 mod plugin_render;
 

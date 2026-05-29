@@ -1,21 +1,26 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use parking_lot::{Mutex, RwLock};
 
-use peri_agent::agent::react::ReactLLM;
-use peri_agent::agent::react::{AgentOutput, ToolCall, ToolResult};
-use peri_agent::agent::state::State;
-use peri_agent::error::{AgentError, AgentResult};
-use peri_agent::messages::BaseMessage;
-use peri_agent::middleware::Middleware;
-
-use crate::hooks::executor::{
-    execute_agent_hook, execute_command_hook, execute_http_hook, execute_prompt_hook,
+use peri_agent::{
+    agent::{
+        react::{AgentOutput, ReactLLM, ToolCall, ToolResult},
+        state::State,
+    },
+    error::{AgentError, AgentResult},
+    messages::BaseMessage,
+    middleware::Middleware,
 };
-use crate::hooks::matcher::{matches_if_condition, matches_matcher};
-use crate::hooks::types::{HookAction, HookEvent, HookInput, HookType, RegisteredHook};
+
+use crate::hooks::{
+    executor::{execute_agent_hook, execute_command_hook, execute_http_hook, execute_prompt_hook},
+    matcher::{matches_if_condition, matches_matcher},
+    types::{HookAction, HookEvent, HookInput, HookType, RegisteredHook},
+};
 
 /// Plugin hook middleware — fires registered hooks at lifecycle events.
 pub struct HookMiddleware {

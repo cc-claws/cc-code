@@ -4,8 +4,7 @@ mod render_state;
 mod highlight;
 
 use pulldown_cmark::{Options, Parser};
-use ratatui::style::Color;
-use ratatui::text::Text;
+use ratatui::{style::Color, text::Text};
 
 use render_state::RenderState;
 

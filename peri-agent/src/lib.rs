@@ -17,22 +17,25 @@ pub mod tools;
 
 /// Prelude - 常用类型一次性导入
 pub mod prelude {
-    pub use crate::agent::{
-        events::{AgentEvent, AgentEventHandler, FnEventHandler},
-        react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult},
-        state::{AgentState, State},
-        token::{ContextBudget, TokenTracker},
-        AgentCancellationToken, ReActAgent,
+    pub use crate::{
+        agent::{
+            events::{AgentEvent, AgentEventHandler, FnEventHandler},
+            react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult},
+            state::{AgentState, State},
+            token::{ContextBudget, TokenTracker},
+            AgentCancellationToken, ReActAgent,
+        },
+        ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData},
+        error::{AgentError, AgentResult},
+        hitl::{BatchItem, HitlDecision},
+        llm::{BaseModel, BaseModelReactLLM, ChatAnthropic, ChatOpenAI, MockLLM},
+        messages::{
+            BaseMessage, ContentBlock, DocumentSource, ImageSource, MessageContent, ToolCallRequest,
+        },
+        middleware::{
+            r#trait::Middleware, LoggingMiddleware, MetricsMiddleware, MiddlewareChain,
+            NoopMiddleware,
+        },
+        tools::{BaseTool, ToolDefinition},
     };
-    pub use crate::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
-    pub use crate::error::{AgentError, AgentResult};
-    pub use crate::hitl::{BatchItem, HitlDecision};
-    pub use crate::llm::{BaseModel, BaseModelReactLLM, ChatAnthropic, ChatOpenAI, MockLLM};
-    pub use crate::messages::{
-        BaseMessage, ContentBlock, DocumentSource, ImageSource, MessageContent, ToolCallRequest,
-    };
-    pub use crate::middleware::{
-        r#trait::Middleware, LoggingMiddleware, MetricsMiddleware, MiddlewareChain, NoopMiddleware,
-    };
-    pub use crate::tools::{BaseTool, ToolDefinition};
 }

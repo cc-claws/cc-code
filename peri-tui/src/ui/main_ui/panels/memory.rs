@@ -1,6 +1,7 @@
-use crate::app::memory_panel::MemoryPanel;
-use crate::app::App;
-use crate::ui::theme;
+use crate::{
+    app::{memory_panel::MemoryPanel, App},
+    ui::theme,
+};
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 use ratatui::{
     layout::Rect,

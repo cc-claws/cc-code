@@ -1,5 +1,4 @@
-use crate::app::App;
-use crate::command::Command;
+use crate::{app::App, command::Command};
 use peri_middlewares::plugin::CommandEntry;
 
 /// 将插件的 CommandEntry 适配为 TUI Command trait

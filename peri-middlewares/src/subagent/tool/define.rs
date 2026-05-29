@@ -1,23 +1,28 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use peri_agent::agent::events::{AgentEvent, AgentEventHandler};
-use peri_agent::agent::react::{AgentInput, ReactLLM};
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::ThreadStore;
-use peri_agent::tools::BaseTool;
+use peri_agent::{
+    agent::{
+        events::{AgentEvent, AgentEventHandler},
+        react::{AgentInput, ReactLLM},
+        AgentCancellationToken,
+    },
+    messages::BaseMessage,
+    thread::ThreadStore,
+    tools::BaseTool,
+};
 
-use crate::agent_define::{AgentDefineMiddleware, AgentOverrides};
-use crate::claude_agent_parser::{parse_agent_file, ClaudeAgent, ToolsValue};
-use crate::hooks::types::{HookEvent, RegisteredHook};
-use crate::subagent::background::BackgroundTaskRegistry;
-use crate::subagent::built_in_agents::get_built_in_agent;
+use crate::{
+    agent_define::{AgentDefineMiddleware, AgentOverrides},
+    claude_agent_parser::{parse_agent_file, ClaudeAgent, ToolsValue},
+    hooks::types::{HookEvent, RegisteredHook},
+    subagent::{background::BackgroundTaskRegistry, built_in_agents::get_built_in_agent},
+};
 use parking_lot::RwLock;
 
-use super::build_agent::CancelPolicy;
-use super::fire_subagent_lifecycle_hooks_static;
-use super::format_subagent_result;
+use super::{
+    build_agent::CancelPolicy, fire_subagent_lifecycle_hooks_static, format_subagent_result,
+};
 
 /// RAII guard that calls deregister on drop (panic-safe cleanup).
 pub(crate) struct DeregisterGuard {

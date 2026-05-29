@@ -6,14 +6,22 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc,
+    },
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
+    sync::{mpsc, oneshot, Mutex},
+};
 
-use super::types::{AcpError, IncomingMessage, RequestId};
-use super::AcpTransport;
+use super::{
+    types::{AcpError, IncomingMessage, RequestId},
+    AcpTransport,
+};
 
 type PendingMap = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>>;
 

@@ -2,12 +2,12 @@ use super::{
     find_marketplace_json, read_manifest_from_path, AvailablePlugin, MarketplaceEntry,
     MarketplaceRefreshEvent, MarketplaceStatus,
 };
-use crate::plugin::config::{
-    claude_settings_path, known_marketplaces_path, load_claude_settings, load_known_marketplaces,
-    marketplaces_cache_dir, save_known_marketplaces,
-};
-use crate::plugin::types::{
-    KnownMarketplace, MarketplaceManifest, MarketplacePlugin, MarketplaceSource,
+use crate::plugin::{
+    config::{
+        claude_settings_path, known_marketplaces_path, load_claude_settings,
+        load_known_marketplaces, marketplaces_cache_dir, save_known_marketplaces,
+    },
+    types::{KnownMarketplace, MarketplaceManifest, MarketplacePlugin, MarketplaceSource},
 };
 use chrono::Utc;
 use std::path::PathBuf;

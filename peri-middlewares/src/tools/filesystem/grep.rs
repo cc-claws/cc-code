@@ -1,13 +1,19 @@
 use peri_agent::tools::BaseTool;
 use serde_json::Value;
-use std::cell::Cell;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::Cell,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+};
 use tokio::time::{timeout, Duration};
 
-use grep::regex::RegexMatcherBuilder;
-use grep::searcher::{BinaryDetection, SearcherBuilder};
+use grep::{
+    regex::RegexMatcherBuilder,
+    searcher::{BinaryDetection, SearcherBuilder},
+};
 use ignore::WalkBuilder;
 
 /// Grep tool - 与 Claude Code Grep 工具对齐
@@ -55,8 +61,10 @@ When to use:
 
 use crate::tools::output_persist::persist_truncated_output;
 
-use super::grep_args::{GrepInput, OutputMode, ParsedArgs};
-use super::grep_format::SearchSink;
+use super::{
+    grep_args::{GrepInput, OutputMode, ParsedArgs},
+    grep_format::SearchSink,
+};
 
 /// 核心搜索函数（同步，在 spawn_blocking 中运行）
 fn execute_search(

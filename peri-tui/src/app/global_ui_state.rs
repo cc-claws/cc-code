@@ -1,10 +1,8 @@
 //! App 级 UI 状态：跨 session 共享的全局 UI 临时状态
 
-use std::cell::Cell;
-use std::time::Instant;
+use std::{cell::Cell, time::Instant};
 
-use super::oauth_prompt::OAuthPrompt;
-use super::setup_wizard::SetupWizardPanel;
+use super::{oauth_prompt::OAuthPrompt, setup_wizard::SetupWizardPanel};
 
 /// App 级 UI 状态：跨 session 共享的全局 UI 临时状态。
 ///

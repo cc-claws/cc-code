@@ -1,7 +1,5 @@
 use super::*;
-use ratatui::backend::TestBackend;
-use ratatui::style::Color;
-use ratatui::Terminal;
+use ratatui::{backend::TestBackend, style::Color, Terminal};
 
 #[test]
 fn list_state_move_cursor_clamp() {

@@ -1,14 +1,16 @@
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
-use peri_agent::llm::types::LlmRequest;
-use peri_agent::llm::BaseModel;
-use peri_agent::messages::BaseMessage;
+use peri_agent::{
+    llm::{types::LlmRequest, BaseModel},
+    messages::BaseMessage,
+};
 use tokio::sync::Mutex as AsyncMutex;
 
 /// 分类结果枚举
@@ -169,8 +171,10 @@ impl AutoClassifier for LlmAutoClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use peri_agent::error::{AgentError, AgentResult};
-    use peri_agent::llm::types::{LlmResponse, StopReason};
+    use peri_agent::{
+        error::{AgentError, AgentResult},
+        llm::types::{LlmResponse, StopReason},
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
     include!("auto_classifier_test.rs");
 }

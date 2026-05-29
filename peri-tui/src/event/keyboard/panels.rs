@@ -1,8 +1,12 @@
 use tui_textarea::Input;
 
-use crate::app::panel_manager::{EventResult, PanelKind};
-use crate::app::App;
-use crate::{with_global_panels, with_session_panels};
+use crate::{
+    app::{
+        panel_manager::{EventResult, PanelKind},
+        App,
+    },
+    with_global_panels, with_session_panels,
+};
 
 use super::super::Action;
 

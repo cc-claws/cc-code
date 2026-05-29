@@ -8,9 +8,13 @@ use ratatui::{
 
 use peri_widgets::BorderedPanel;
 
-use crate::app::login_panel::{LoginEditField, LoginPanel, LoginPanelMode};
-use crate::app::App;
-use crate::ui::theme;
+use crate::{
+    app::{
+        login_panel::{LoginEditField, LoginPanel, LoginPanelMode},
+        App,
+    },
+    ui::theme,
+};
 
 /// /login 面板渲染（底部展开区）
 pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut App, area: Rect) {
@@ -282,8 +286,12 @@ fn mask_api_key(key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::login_panel::{LoginEditField, LoginPanel, LoginPanelMode};
-    use crate::app::App;
-    use crate::config::ProviderConfig;
+    use crate::{
+        app::{
+            login_panel::{LoginEditField, LoginPanel, LoginPanelMode},
+            App,
+        },
+        config::ProviderConfig,
+    };
     include!("login_test.rs");
 }

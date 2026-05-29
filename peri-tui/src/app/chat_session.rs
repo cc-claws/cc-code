@@ -1,16 +1,11 @@
 use std::time::Instant;
 
-use peri_middlewares::prelude::SkillMetadata;
-use peri_middlewares::prelude::TodoItem;
+use peri_middlewares::prelude::{SkillMetadata, TodoItem};
 
-use super::langfuse_state::LangfuseState;
-use super::AgentComm;
-use super::CommandSystem;
-use super::MessageState;
-use super::SessionMetadata;
-use super::UiState;
-use crate::command::CommandRegistry;
-use crate::thread::ThreadId;
+use super::{
+    langfuse_state::LangfuseState, AgentComm, CommandSystem, MessageState, SessionMetadata, UiState,
+};
+use crate::{command::CommandRegistry, thread::ThreadId};
 
 /// 正在运行的后台 SubAgent
 #[derive(Clone, Debug)]

@@ -79,36 +79,37 @@ pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
 
 /// Prelude - 常用类型一次性导入
 pub mod prelude {
-    pub use crate::agent_define::AgentDefineMiddleware;
-    pub use crate::agents_md::AgentsMdMiddleware;
-    pub use crate::ask_user::{
-        ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserOption,
-        AskUserQuestionData,
-    };
-    pub use crate::attribution::GitAttributionMiddleware;
-    pub use crate::cron::{CronMiddleware, CronScheduler, CronTask, CronTrigger};
-    pub use crate::hitl::{
-        default_requires_approval, is_yolo_mode, AutoClassifier, BatchItem, Classification,
-        HitlDecision, HumanInTheLoopMiddleware, LlmAutoClassifier, PermissionMode,
-        SharedPermissionMode,
-    };
-    pub use crate::hooks::{HookMiddleware, RegisteredHook};
-    pub use crate::middleware::{
-        FilesystemMiddleware, TerminalMiddleware, TodoMiddleware, WebMiddleware,
-    };
-    pub use crate::plugin::{
-        AvailablePlugin, ClaudeSettings, CommandEntry, CommandProvider, CommandSource,
-        InstallScope, InstalledPlugin, InstalledPlugins, KnownMarketplace, LoadedPlugin,
-        LoaderError, MarketplaceEntry, MarketplaceError, MarketplaceManager, MarketplaceManifest,
-        MarketplacePlugin, MarketplaceRefreshEvent, MarketplaceSource, PluginAgent, PluginAuthor,
-        PluginChannel, PluginCommand, PluginCommandProvider, PluginConfigError, PluginLspServer,
-        PluginManifest, PluginMiddleware, PluginOption,
-    };
-    pub use crate::skills::{SkillMetadata, SkillsMiddleware};
-    pub use crate::subagent::{SkillPreloadMiddleware, SubAgentMiddleware, SubAgentTool};
-    pub use crate::tools::{
-        ArcToolWrapper, AskUserTool, BoxToolWrapper, EditFileTool, FolderOperationsTool,
-        GlobFilesTool, GrepTool, ReadFileTool, TodoItem, TodoStatus, TodoWriteTool, WriteFileTool,
+    pub use crate::{
+        agent_define::AgentDefineMiddleware,
+        agents_md::AgentsMdMiddleware,
+        ask_user::{
+            ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserOption,
+            AskUserQuestionData,
+        },
+        attribution::GitAttributionMiddleware,
+        cron::{CronMiddleware, CronScheduler, CronTask, CronTrigger},
+        hitl::{
+            default_requires_approval, is_yolo_mode, AutoClassifier, BatchItem, Classification,
+            HitlDecision, HumanInTheLoopMiddleware, LlmAutoClassifier, PermissionMode,
+            SharedPermissionMode,
+        },
+        hooks::{HookMiddleware, RegisteredHook},
+        middleware::{FilesystemMiddleware, TerminalMiddleware, TodoMiddleware, WebMiddleware},
+        plugin::{
+            AvailablePlugin, ClaudeSettings, CommandEntry, CommandProvider, CommandSource,
+            InstallScope, InstalledPlugin, InstalledPlugins, KnownMarketplace, LoadedPlugin,
+            LoaderError, MarketplaceEntry, MarketplaceError, MarketplaceManager,
+            MarketplaceManifest, MarketplacePlugin, MarketplaceRefreshEvent, MarketplaceSource,
+            PluginAgent, PluginAuthor, PluginChannel, PluginCommand, PluginCommandProvider,
+            PluginConfigError, PluginLspServer, PluginManifest, PluginMiddleware, PluginOption,
+        },
+        skills::{SkillMetadata, SkillsMiddleware},
+        subagent::{SkillPreloadMiddleware, SubAgentMiddleware, SubAgentTool},
+        tools::{
+            ArcToolWrapper, AskUserTool, BoxToolWrapper, EditFileTool, FolderOperationsTool,
+            GlobFilesTool, GrepTool, ReadFileTool, TodoItem, TodoStatus, TodoWriteTool,
+            WriteFileTool,
+        },
     };
     // 重导出 peri-agent 核心类型
     pub use peri_agent::prelude::*;

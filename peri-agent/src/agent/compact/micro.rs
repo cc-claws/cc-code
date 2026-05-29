@@ -1,8 +1,10 @@
-use crate::agent::compact::config::CompactConfig;
-use crate::agent::compact::invariant::{
-    adjust_index_to_preserve_invariants, group_messages_by_round,
+use crate::{
+    agent::compact::{
+        config::CompactConfig,
+        invariant::{adjust_index_to_preserve_invariants, group_messages_by_round},
+    },
+    messages::{BaseMessage, ContentBlock, MessageContent},
 };
-use crate::messages::{BaseMessage, ContentBlock, MessageContent};
 
 fn find_tool_name_for_tool_result(messages: &[BaseMessage], tool_call_id: &str) -> Option<String> {
     for msg in messages.iter().rev() {

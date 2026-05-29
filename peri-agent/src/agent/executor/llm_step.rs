@@ -1,13 +1,17 @@
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use crate::agent::events::AgentEvent;
-use crate::agent::react::{ReactLLM, Reasoning};
-use crate::agent::state::State;
-use crate::error::{AgentError, AgentResult};
-use crate::llm::types::StreamingContext;
-use crate::messages::MessageId;
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        events::AgentEvent,
+        react::{ReactLLM, Reasoning},
+        state::State,
+    },
+    error::{AgentError, AgentResult},
+    llm::types::StreamingContext,
+    messages::MessageId,
+    tools::BaseTool,
+};
 
 use super::ReActAgent;
 

@@ -1,5 +1,7 @@
-use crate::app::{agent, App, MessageViewModel};
-use crate::command::Command;
+use crate::{
+    app::{agent, App, MessageViewModel},
+    command::Command,
+};
 
 pub struct ModelCommand;
 

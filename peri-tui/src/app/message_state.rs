@@ -4,8 +4,10 @@ use parking_lot::RwLock;
 use peri_agent::interaction::channel_types::ChannelNotification;
 use tokio::sync::{mpsc, Notify};
 
-use crate::ui::message_view::MessageViewModel;
-use crate::ui::render_thread::{RenderCache, RenderEvent};
+use crate::ui::{
+    message_view::MessageViewModel,
+    render_thread::{RenderCache, RenderEvent},
+};
 
 use super::message_pipeline::MessagePipeline;
 

@@ -3,9 +3,11 @@
 //! Translates raw [`IncomingMessage`]s into [`AcpNotification`]s for the TUI event
 //! loop to consume. The notification pump runs as a background tokio task.
 
-use peri_acp::transport::mpsc::MpscClientTransport;
-use peri_acp::transport::types::{AcpError, IncomingMessage, RequestId};
-use peri_acp::transport::AcpTransport;
+use peri_acp::transport::{
+    mpsc::MpscClientTransport,
+    types::{AcpError, IncomingMessage, RequestId},
+    AcpTransport,
+};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;

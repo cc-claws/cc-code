@@ -5,9 +5,13 @@
 
 use std::sync::Arc;
 
-use peri_agent::agent::compact::{full_compact, re_inject};
-use peri_agent::agent::events::{AgentEvent as ExecutorEvent, CompactFileInfo};
-use peri_agent::messages::BaseMessage;
+use peri_agent::{
+    agent::{
+        compact::{full_compact, re_inject},
+        events::{AgentEvent as ExecutorEvent, CompactFileInfo},
+    },
+    messages::BaseMessage,
+};
 use tracing::{info, warn};
 
 use super::{AgentCommand, CommandContext, CommandKind, CommandResult};
@@ -48,6 +52,8 @@ impl AgentCommand for CompactCommand {
             event_sink,
             ..
         } = ctx;
+
+        tracing::info!(history_len = history.len(), "compact: execute called");
 
         if history.is_empty() {
             warn!("compact: 无历史消息可压缩");

@@ -1,5 +1,4 @@
-use crate::messages::BaseMessage;
-use crate::tools::ToolDefinition;
+use crate::{messages::BaseMessage, tools::ToolDefinition};
 use tokio_util::sync::CancellationToken;
 
 /// LLM 请求
@@ -81,8 +80,7 @@ pub enum StopReason {
     Other(String),
 }
 
-use crate::agent::events::AgentEventHandler;
-use crate::messages::MessageId;
+use crate::{agent::events::AgentEventHandler, messages::MessageId};
 use std::sync::Arc;
 
 /// 流式输出上下文，由 Executor 注入到 LLM 适配器。

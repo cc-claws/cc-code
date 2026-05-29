@@ -189,8 +189,16 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                             .contains(&skill_name)
                         {
                             // Agent command matched (from ACP AvailableCommandsUpdate): submit to agent
+                            tracing::info!(skill_name, "Matched agent command, submitting to ACP");
                             return Ok(Some(Action::Submit(text)));
                         } else {
+                            tracing::info!(
+                                skill_name,
+                                agent_commands = ?app.session_mgr.sessions[app.session_mgr.active]
+                                    .commands
+                                    .agent_commands,
+                                "Command not found in local registry, skills, or agent_commands"
+                            );
                             // Distinguish "prefix ambiguity" from "completely unknown"
                             let prefix = text.trim_start_matches('/').to_string();
                             let cmd_matches = app.session_mgr.sessions[app.session_mgr.active]

@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 /// 替换插件路径变量和 $ARGUMENTS
 ///

@@ -1,5 +1,7 @@
-use super::tools::{AgentSummary, ToolCategory, ToolEntry};
-use super::MessageViewModel;
+use super::{
+    tools::{AgentSummary, ToolCategory, ToolEntry},
+    MessageViewModel,
+};
 
 /// 将 view_messages 中相邻的只读 ToolBlock 聚合为 ToolCallGroup（支持跨类别，跳过空 thinking bubble）
 pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {

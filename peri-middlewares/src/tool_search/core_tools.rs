@@ -1,7 +1,6 @@
 //! Core Tools 白名单定义与延迟加载判定逻辑
 
-use std::collections::HashSet;
-use std::sync::LazyLock;
+use std::{collections::HashSet, sync::LazyLock};
 
 // ─── 共享常量 ────────────────────────────────────────────────────────────────
 

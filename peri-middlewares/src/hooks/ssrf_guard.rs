@@ -1,5 +1,4 @@
-use std::net::SocketAddr;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// SSRF 防护：阻止对私有/内部网络的 HTTP 请求
 ///

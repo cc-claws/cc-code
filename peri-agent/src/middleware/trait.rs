@@ -1,9 +1,13 @@
 use async_trait::async_trait;
 
-use crate::agent::react::{AgentOutput, Reasoning, ToolCall, ToolResult};
-use crate::agent::state::State;
-use crate::error::{AgentError, AgentResult};
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        react::{AgentOutput, Reasoning, ToolCall, ToolResult},
+        state::State,
+    },
+    error::{AgentError, AgentResult},
+    tools::BaseTool,
+};
 
 /// 中间件 trait - 与 TypeScript AgentMiddleware 对齐
 ///

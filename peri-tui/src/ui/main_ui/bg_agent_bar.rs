@@ -1,13 +1,14 @@
 //! 后台 Agent 管理栏——显示运行中的后台 SubAgent 列表
 
-use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem};
-use ratatui::Frame;
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{List, ListItem},
+    Frame,
+};
 
-use crate::app::App;
-use crate::ui::message_view::MessageViewModel;
+use crate::{app::App, ui::message_view::MessageViewModel};
 
 /// 固定调色板（最多 8 种颜色循环）
 const AGENT_COLORS: &[Color] = &[

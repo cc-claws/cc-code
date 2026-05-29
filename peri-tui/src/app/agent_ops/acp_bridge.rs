@@ -207,16 +207,22 @@ impl App {
             }
             "available_commands_update" => {
                 // 从 ACP AvailableCommandsUpdate 学习 Agent 命令列表
-                if let Some(cmds) = update.get("commands").and_then(|c| c.as_array()) {
+                tracing::info!(?update, "ACP→TUI: received available_commands_update");
+                if let Some(cmds) = update
+                    .get("availableCommands")
+                    .or_else(|| update.get("commands"))
+                    .and_then(|c| c.as_array())
+                {
                     let names: Vec<String> = cmds
                         .iter()
                         .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(String::from))
                         .collect();
+                    tracing::info!(?names, "ACP→TUI: parsed command names");
                     if !names.is_empty() {
                         self.session_mgr.sessions[self.session_mgr.active]
                             .commands
                             .update_agent_commands(names);
-                        tracing::debug!(
+                        tracing::info!(
                             "ACP→TUI: learned {} agent commands from AvailableCommandsUpdate",
                             self.session_mgr.sessions[self.session_mgr.active]
                                 .commands

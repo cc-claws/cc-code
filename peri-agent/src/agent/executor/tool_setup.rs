@@ -1,5 +1,4 @@
-use std::mem::ManuallyDrop;
-use std::sync::Arc;
+use std::{mem::ManuallyDrop, sync::Arc};
 
 use crate::tools::BaseTool;
 

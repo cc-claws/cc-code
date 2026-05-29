@@ -8,8 +8,10 @@
 
 use anyhow::{Context, Result};
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+};
 
 const SCRIPT_URL_SH: &str =
     "https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh";

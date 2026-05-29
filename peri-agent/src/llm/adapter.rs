@@ -1,11 +1,15 @@
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
-use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
-use crate::error::AgentResult;
-use crate::messages::BaseMessage;
-use crate::tools::BaseTool;
+use crate::{
+    agent::react::{ReactLLM, Reasoning, ToolCall},
+    error::AgentResult,
+    messages::BaseMessage,
+    tools::BaseTool,
+};
 
 /// Mock ReactLLM - 用于测试，按预设脚本返回推理结果
 ///

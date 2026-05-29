@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::sync::protocol::{FileEntry, FilesItem, McpItem, SettingsItem, SyncItems};
-    use crate::sync::writer;
-    use std::fs;
-    use std::path::Path;
+    use crate::sync::{
+        protocol::{FileEntry, FilesItem, McpItem, SettingsItem, SyncItems},
+        writer,
+    };
+    use std::{fs, path::Path};
     use tempfile::TempDir;
 
     #[test]

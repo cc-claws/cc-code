@@ -7,9 +7,7 @@ use std::sync::Arc;
 
 use peri_agent::tools::BaseTool;
 
-use crate::agent_define::AgentOverrides;
-use crate::claude_agent_parser::ToolsValue;
-use crate::tools::ArcToolWrapper;
+use crate::{agent_define::AgentOverrides, claude_agent_parser::ToolsValue, tools::ArcToolWrapper};
 
 /// Filter tools from parent set based on agent definition's tools/disallowedTools fields.
 ///

@@ -1,7 +1,9 @@
 //! Load session context from ThreadStore (includes ancestor chain snapshots).
 
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadStore};
+use peri_agent::{
+    messages::BaseMessage,
+    thread::{ThreadId, ThreadStore},
+};
 
 /// Load complete context for a session thread including ancestor snapshots.
 ///

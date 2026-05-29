@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 
 use super::BaseModel;
-use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
-use crate::error::AgentResult;
-use crate::llm::types::{LlmRequest, StopReason, StreamingContext};
-use crate::messages::{BaseMessage, ContentBlock};
-use crate::tools::BaseTool;
+use crate::{
+    agent::react::{ReactLLM, Reasoning, ToolCall},
+    error::AgentResult,
+    llm::types::{LlmRequest, StopReason, StreamingContext},
+    messages::{BaseMessage, ContentBlock},
+    tools::BaseTool,
+};
 
 /// BaseModelReactLLM - 将 BaseModel 适配为 ReactLLM
 pub struct BaseModelReactLLM {

@@ -41,24 +41,23 @@ impl SubAgentMiddlewareConfig {
         }
     }
 }
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
-use peri_agent::agent::events::AgentEventHandler;
-use peri_agent::agent::react::ReactLLM;
-use peri_agent::agent::state::State;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::error::AgentResult;
-use peri_agent::messages::BaseMessage;
-use peri_agent::middleware::r#trait::Middleware;
-use peri_agent::tools::BaseTool;
+use peri_agent::{
+    agent::{events::AgentEventHandler, react::ReactLLM, state::State, AgentCancellationToken},
+    error::AgentResult,
+    messages::BaseMessage,
+    middleware::r#trait::Middleware,
+    tools::BaseTool,
+};
 
 use peri_agent::thread::ThreadStore;
 
-use crate::agent_define::AgentOverrides;
-use crate::parse_agent_file;
-use crate::tools::BoxToolWrapper;
+use crate::{agent_define::AgentOverrides, parse_agent_file, tools::BoxToolWrapper};
 
 /// SubAgentMiddleware - injects `Agent` tool into the parent agent
 ///

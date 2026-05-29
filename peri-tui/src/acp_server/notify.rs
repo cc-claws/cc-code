@@ -6,9 +6,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use tracing::{debug, info};
 
-use agent_client_protocol::schema::{
-    AvailableCommandsUpdate, ConfigOptionUpdate, SessionId, SessionNotification, SessionUpdate,
-};
+use agent_client_protocol::schema::{AvailableCommandsUpdate, ConfigOptionUpdate, SessionUpdate};
 
 use super::{build_config_options, AcpServerConfig, SessionState};
 use peri_middlewares::skills::SkillMetadata;
@@ -59,14 +57,17 @@ pub(crate) async fn send_config_option_update(
         build_config_options(&c, &p, cfg.permission_mode.load())
     };
     let update = SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(config_options));
-    let notif = SessionNotification::new(SessionId::new(session_id.to_string()), update);
-    let payload = match serde_json::to_value(&notif) {
+    let update_value = match serde_json::to_value(&update) {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!(error = %e, "Failed to serialize ConfigOptionUpdate notification");
+            tracing::error!(error = %e, "Failed to serialize ConfigOptionUpdate");
             return;
         }
     };
+    let payload = serde_json::json!({
+        "sessionId": session_id,
+        "update": update_value,
+    });
     let _ = transport.send_notification("session/update", payload).await;
 }
 
@@ -81,14 +82,19 @@ pub(crate) async fn send_available_commands_update(
     }
     let commands = peri_acp::dispatch::build_available_commands(skills);
     let update = SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(commands));
-    let notif = SessionNotification::new(SessionId::new(session_id.to_string()), update);
-    let payload = match serde_json::to_value(&notif) {
+    let update_value = match serde_json::to_value(&update) {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!(error = %e, "Failed to serialize AvailableCommandsUpdate notification");
+            tracing::error!(error = %e, "Failed to serialize AvailableCommandsUpdate");
             return;
         }
     };
+    // Use {"update": ..., "sessionId": ...} format — same as TransportEventSink —
+    // so that handle_session_update_peri on the TUI side can parse via params.get("update").
+    let payload = serde_json::json!({
+        "sessionId": session_id,
+        "update": update_value,
+    });
     let _ = transport.send_notification("session/update", payload).await;
 }
 
@@ -100,13 +106,16 @@ pub(crate) async fn send_session_info_update(
     use agent_client_protocol::schema::SessionInfoUpdate;
     let info = SessionInfoUpdate::new().updated_at(chrono::Utc::now().to_rfc3339());
     let update = SessionUpdate::SessionInfoUpdate(info);
-    let notif = SessionNotification::new(SessionId::new(session_id.to_string()), update);
-    let payload = match serde_json::to_value(&notif) {
+    let update_value = match serde_json::to_value(&update) {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!(error = %e, "Failed to serialize SessionInfoUpdate notification");
+            tracing::error!(error = %e, "Failed to serialize SessionInfoUpdate");
             return;
         }
     };
+    let payload = serde_json::json!({
+        "sessionId": session_id,
+        "update": update_value,
+    });
     let _ = transport.send_notification("session/update", payload).await;
 }

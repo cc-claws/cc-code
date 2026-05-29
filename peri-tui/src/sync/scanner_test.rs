@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::sync::protocol::{SettingsItem, SyncItems};
-    use crate::sync::scanner;
-    use std::fs;
-    use std::path::Path;
+    use crate::sync::{
+        protocol::{SettingsItem, SyncItems},
+        scanner,
+    };
+    use std::{fs, path::Path};
     use tempfile::TempDir;
 
     fn make_home_dir() -> TempDir {

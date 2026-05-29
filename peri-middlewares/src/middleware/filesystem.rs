@@ -1,7 +1,5 @@
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::middleware::r#trait::Middleware;
-use peri_agent::tools::BaseTool;
+use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
 
 use crate::tools::{
     EditFileTool, FolderOperationsTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool,

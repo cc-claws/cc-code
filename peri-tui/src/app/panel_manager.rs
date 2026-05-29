@@ -4,22 +4,15 @@ use std::any::Any;
 
 use tui_textarea::Input;
 
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{layout::Rect, Frame};
 
-use super::agent_panel::AgentPanel;
-use super::config_panel::ConfigPanel;
-use super::cron_state::CronPanel;
-use super::hooks_panel::HooksPanel;
-use super::login_panel::LoginPanel;
-use super::mcp_panel::McpPanel;
-use super::memory_panel::MemoryPanel;
-use super::model_panel::ModelPanel;
-use super::plugin_panel::PluginPanel;
-use super::service_registry::ServiceRegistry;
-use super::session_manager::SessionManager;
-use super::status_panel::StatusPanel;
-use super::tasks_panel::TasksPanel;
+use super::{
+    agent_panel::AgentPanel, config_panel::ConfigPanel, cron_state::CronPanel,
+    hooks_panel::HooksPanel, login_panel::LoginPanel, mcp_panel::McpPanel,
+    memory_panel::MemoryPanel, model_panel::ModelPanel, plugin_panel::PluginPanel,
+    service_registry::ServiceRegistry, session_manager::SessionManager, status_panel::StatusPanel,
+    tasks_panel::TasksPanel,
+};
 use crate::thread::ThreadBrowser;
 
 // ─── PanelScope ─────────────────────────────────────────────────────────────

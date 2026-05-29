@@ -9,12 +9,12 @@ pub mod compact;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use peri_agent::llm::BaseModel;
-use peri_agent::messages::BaseMessage;
+use peri_agent::{llm::BaseModel, messages::BaseMessage};
 
-use crate::provider::PeriConfig;
-use crate::session::event_sink::EventSink;
-use crate::session::executor::PromptStopReason;
+use crate::{
+    provider::PeriConfig,
+    session::{event_sink::EventSink, executor::PromptStopReason},
+};
 
 /// 命令执行方式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -3,9 +3,7 @@ use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
 };
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
+use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
 
 pub static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
 pub static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);

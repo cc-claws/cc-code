@@ -1,19 +1,21 @@
-use std::collections::HashSet;
-use std::process::Stdio;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::HashSet, process::Stdio, sync::Arc, time::Duration};
 
 use tokio::io::AsyncWriteExt;
 
-use crate::hooks::output_parser::{parse_command_hook_output, parse_http_hook_response};
-use crate::hooks::ssrf_guard::check_url;
-use crate::hooks::types::{HookAction, HookInput, HookType, RegisteredHook};
-use crate::hooks::variables::resolve_hook_variables;
-use peri_agent::agent::react::{AgentInput, ReactLLM};
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::ReActAgent;
-use peri_agent::agent::State;
-use peri_agent::messages::BaseMessage;
+use crate::hooks::{
+    output_parser::{parse_command_hook_output, parse_http_hook_response},
+    ssrf_guard::check_url,
+    types::{HookAction, HookInput, HookType, RegisteredHook},
+    variables::resolve_hook_variables,
+};
+use peri_agent::{
+    agent::{
+        react::{AgentInput, ReactLLM},
+        state::AgentState,
+        ReActAgent, State,
+    },
+    messages::BaseMessage,
+};
 
 /// Execute a command hook (shell script).
 ///

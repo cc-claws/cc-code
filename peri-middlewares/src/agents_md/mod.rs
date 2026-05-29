@@ -1,11 +1,12 @@
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::messages::BaseMessage;
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{
+    agent::state::State, error::AgentResult, messages::BaseMessage, middleware::r#trait::Middleware,
+};
 
 /// AgentsMdMiddleware - 注入项目指引文件（AGENTS.md / CLAUDE.md）
 ///

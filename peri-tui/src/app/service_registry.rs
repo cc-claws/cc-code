@@ -1,16 +1,14 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use peri_agent::interaction::ChannelState;
-use peri_middlewares::mcp::McpClientPool;
-use peri_middlewares::mcp::McpInitStatus;
-use peri_middlewares::plugin::PluginLoadResult;
-use peri_middlewares::prelude::SharedPermissionMode;
+use peri_middlewares::{
+    mcp::{McpClientPool, McpInitStatus},
+    plugin::PluginLoadResult,
+    prelude::SharedPermissionMode,
+};
 
-use super::cron_state::CronState;
-use super::events::AgentEvent;
-use crate::config::PeriConfig;
-use crate::thread::ThreadStore;
+use super::{cron_state::CronState, events::AgentEvent};
+use crate::{config::PeriConfig, thread::ThreadStore};
 
 /// 进程资源采样器：每 2 秒采样一次当前进程的 CPU 和内存
 pub struct ProcessResourceMonitor {

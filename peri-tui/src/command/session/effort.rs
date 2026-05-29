@@ -1,7 +1,6 @@
-use crate::app::App;
-use crate::command::Command;
-use crate::config::ThinkingConfig;
-use crate::ui::message_view::MessageViewModel;
+use crate::{
+    app::App, command::Command, config::ThinkingConfig, ui::message_view::MessageViewModel,
+};
 
 pub struct EffortCommand;
 

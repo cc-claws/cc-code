@@ -1,12 +1,18 @@
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use super::*;
-use crate::agent::events::{AgentEvent, FnEventHandler};
-use crate::agent::react::{AgentInput, Reasoning};
-use crate::agent::state::AgentState;
-use crate::middleware::r#trait::Middleware;
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        events::{AgentEvent, FnEventHandler},
+        react::{AgentInput, Reasoning},
+        state::AgentState,
+    },
+    middleware::r#trait::Middleware,
+    tools::BaseTool,
+};
 
 /// 通用不变量：state 中每个 tool_use 必须有对应 tool_result。
 fn assert_no_orphaned_tool_uses(state: &AgentState) {

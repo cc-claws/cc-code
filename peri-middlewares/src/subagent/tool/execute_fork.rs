@@ -1,20 +1,15 @@
 use std::sync::Arc;
 
-use peri_agent::agent::events::AgentEvent;
-use peri_agent::agent::react::AgentInput;
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::ReActAgent;
-use peri_agent::agent::State as _;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::ThreadMeta;
-use peri_agent::tools::BaseTool;
+use peri_agent::{
+    agent::{events::AgentEvent, react::AgentInput, state::AgentState, ReActAgent, State as _},
+    messages::BaseMessage,
+    thread::ThreadMeta,
+    tools::BaseTool,
+};
 
-use crate::subagent::SubAgentMiddlewareConfig;
-use crate::tools::ArcToolWrapper;
+use crate::{subagent::SubAgentMiddlewareConfig, tools::ArcToolWrapper};
 
-use super::build_subagent_middlewares;
-use super::format_subagent_result;
-use super::SourceAgentIdHandler;
+use super::{build_subagent_middlewares, format_subagent_result, SourceAgentIdHandler};
 
 impl super::SubAgentTool {
     pub(crate) async fn invoke_fork(

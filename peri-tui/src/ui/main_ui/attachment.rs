@@ -6,8 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
-use crate::ui::theme;
+use crate::{app::App, ui::theme};
 
 /// 待发送附件栏（有附件时显示在输入框上方）
 pub(crate) fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {

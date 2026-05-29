@@ -10,20 +10,27 @@ pub mod event_sink;
 pub mod executor;
 pub mod state_builders;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Utc;
 use dashmap::DashMap;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
-use peri_middlewares::agent_define::AgentOverrides;
-use peri_middlewares::prelude::{PermissionMode, SharedPermissionMode};
+use peri_agent::{
+    messages::BaseMessage,
+    thread::{ThreadId, ThreadMeta, ThreadStore},
+};
+use peri_middlewares::{
+    agent_define::AgentOverrides,
+    prelude::{PermissionMode, SharedPermissionMode},
+};
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::config::{PeriConfig, ThinkingConfig};
-use crate::provider::LlmProvider;
-use crate::session::agent_runtime::{AgentRuntime, CancelPolicy};
+use crate::{
+    provider::{
+        config::{PeriConfig, ThinkingConfig},
+        LlmProvider,
+    },
+    session::agent_runtime::{AgentRuntime, CancelPolicy},
+};
 
 pub struct AcpSession {
     pub session_id: String,

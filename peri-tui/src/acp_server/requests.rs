@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use tracing::{debug, info};
 
-use peri_acp::dispatch;
-use peri_acp::transport::types::AcpError;
+use peri_acp::{dispatch, transport::types::AcpError};
 use peri_agent::thread::ThreadMeta;
 
 use agent_client_protocol::schema::{
@@ -16,14 +15,11 @@ use agent_client_protocol::schema::{
     SetSessionConfigOptionResponse, SetSessionModeResponse, SetSessionModelResponse,
 };
 
-use crate::app::agent::LlmProvider;
-use crate::config::save_to;
+use crate::{app::agent::LlmProvider, config::save_to};
 
-use super::notify::{
-    extract_session_id, send_available_commands_update, send_config_option_update,
-};
 use super::{
     apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
+    notify::{extract_session_id, send_available_commands_update, send_config_option_update},
     parse_permission_mode, AcpServerConfig, SessionState,
 };
 

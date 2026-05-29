@@ -1,10 +1,14 @@
-use ratatui::layout::Rect;
-use ratatui::text::Span;
-use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Frame;
+use ratatui::{
+    layout::Rect,
+    text::Span,
+    widgets::{Block, Borders, Paragraph},
+    Frame,
+};
 
-use crate::app::{edit_display_parts, App};
-use crate::ui::theme;
+use crate::{
+    app::{edit_display_parts, App},
+    ui::theme,
+};
 
 pub(crate) fn render_oauth_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let prompt = match app.global_ui.oauth_prompt.as_ref() {

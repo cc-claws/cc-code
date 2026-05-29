@@ -218,26 +218,35 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         langfuse_session,
     });
 
-    use agent_client_protocol::schema::{
-        AvailableCommandsUpdate, CancelNotification, CloseSessionRequest, CloseSessionResponse,
-        ConfigOptionUpdate, ForkSessionRequest, ForkSessionResponse, InitializeRequest,
-        ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
-        NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, ResumeSessionRequest,
-        ResumeSessionResponse, SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate,
-        SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-        SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse, StopReason,
+    use agent_client_protocol::{
+        schema::{
+            AvailableCommandsUpdate, CancelNotification, CloseSessionRequest, CloseSessionResponse,
+            ConfigOptionUpdate, ForkSessionRequest, ForkSessionResponse, InitializeRequest,
+            ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
+            NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
+            ResumeSessionRequest, ResumeSessionResponse, SessionId, SessionInfoUpdate,
+            SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+            SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
+            SetSessionModelRequest, SetSessionModelResponse, StopReason,
+        },
+        Agent, Client, ConnectionTo,
     };
-    use agent_client_protocol::{Agent, Client, ConnectionTo};
     use agent_client_protocol_tokio::Stdio;
-    use peri_acp::dispatch;
-    use peri_acp::session::event_sink::StdioEventSink;
-    use peri_acp::session::executor;
-    use peri_acp::session::state_builders::{
-        apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
-        parse_permission_mode,
+    use peri_acp::{
+        dispatch,
+        session::{
+            event_sink::StdioEventSink,
+            executor,
+            state_builders::{
+                apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
+                parse_permission_mode,
+            },
+        },
     };
-    use peri_agent::agent::AgentCancellationToken;
-    use peri_agent::messages::{ContentBlock as PeriContentBlock, MessageContent};
+    use peri_agent::{
+        agent::AgentCancellationToken,
+        messages::{ContentBlock as PeriContentBlock, MessageContent},
+    };
 
     let ctx_clone = ctx.clone();
 

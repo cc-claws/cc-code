@@ -6,8 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
-    widgets::Widget,
+    widgets::{Paragraph, Widget},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

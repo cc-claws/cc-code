@@ -1,10 +1,7 @@
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::middleware::r#trait::Middleware;
-use peri_agent::tools::BaseTool;
+use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
 
-use super::web_fetch::WebFetchTool;
-use super::web_search::WebSearchTool;
+use super::{web_fetch::WebFetchTool, web_search::WebSearchTool};
 
 /// Web 中间件，提供 WebFetch 和 WebSearch 工具
 pub struct WebMiddleware;

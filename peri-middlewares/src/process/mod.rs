@@ -3,9 +3,7 @@
 //! On Unix, wraps commands in `bash -c "<command> <args...>"`.
 //! On Windows, wraps commands in `cmd /C <command> <args...>`.
 
-use std::collections::HashMap;
-use std::io;
-use std::process::Stdio;
+use std::{collections::HashMap, io, process::Stdio};
 
 /// Build a `tokio::process::Command` that executes the given command through the
 /// platform shell.

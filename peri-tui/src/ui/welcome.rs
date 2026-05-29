@@ -8,8 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
-use crate::ui::theme;
+use crate::{app::App, ui::theme};
 
 /// ASCII Art Logo（"PERI"，ansi_shadow 字体，6 行）
 const LOGO: &[&str] = &[

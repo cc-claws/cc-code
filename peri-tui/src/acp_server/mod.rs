@@ -9,21 +9,17 @@
 //! `session/cancel` notifications. Sessions are shared via
 //! `Arc<tokio::sync::Mutex<HashMap>>`.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 pub use peri_acp::session::state_builders::{
     apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
     parse_permission_mode,
 };
 use peri_acp::transport::types::IncomingMessage;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::interaction::ChannelState;
-use peri_agent::messages::BaseMessage;
+use peri_agent::{agent::AgentCancellationToken, interaction::ChannelState, messages::BaseMessage};
 use peri_middlewares::prelude::*;
 
-use crate::app::agent::LlmProvider;
-use crate::config::PeriConfig;
+use crate::{app::agent::LlmProvider, config::PeriConfig};
 
 mod notify;
 mod prompt;
@@ -92,6 +88,10 @@ pub async fn run_acp_server(
     cfg: AcpServerConfig,
 ) {
     let sessions: SharedSessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    // Per-session prompt serialization lock: ensures that when a prompt completes
+    // (state.history updated) the next prompt for the same session sees the updated history.
+    let prompt_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
     while let Some(msg) = transport.recv().await {
         match msg {
@@ -133,7 +133,18 @@ pub async fn run_acp_server(
                         Arc::new(parking_lot::Mutex::new(pool))
                     };
 
+                    let prompt_lock = {
+                        let mut locks = prompt_locks.lock().await;
+                        locks
+                            .entry(prompt_session_id.clone())
+                            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                            .clone()
+                    };
+
                     tokio::spawn(async move {
+                        // Serialize prompts per session: wait for any in-flight prompt to finish
+                        // so that state.history is up-to-date when this prompt reads it.
+                        let _guard = prompt_lock.lock().await;
                         let result = execute_prompt(
                             params,
                             &sessions,

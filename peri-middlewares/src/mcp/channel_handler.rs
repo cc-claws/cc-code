@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
-use peri_agent::interaction::channel_types::{ChannelNotification, PermissionResponse};
-use peri_agent::interaction::ChannelState;
-use rmcp::handler::client::ClientHandler;
-use rmcp::model::{
-    ClientCapabilities, CustomNotification, Implementation, InitializeRequestParams,
+use peri_agent::interaction::{
+    channel_types::{ChannelNotification, PermissionResponse},
+    ChannelState,
 };
-use rmcp::service::{NotificationContext, RoleClient};
+use rmcp::{
+    handler::client::ClientHandler,
+    model::{ClientCapabilities, CustomNotification, Implementation, InitializeRequestParams},
+    service::{NotificationContext, RoleClient},
+};
 
 /// MCP 自定义通知处理器，实现 `ClientHandler` trait
 ///

@@ -8,8 +8,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::Paragraph,
-    widgets::Widget,
+    widgets::{Paragraph, Widget},
 };
 
 use crate::theme::Theme;

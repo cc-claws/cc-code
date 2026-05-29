@@ -1,5 +1,4 @@
-use super::message_pipeline::PipelineAction;
-use super::*;
+use super::{message_pipeline::PipelineAction, *};
 use crate::ui::message_view::MessageViewModel;
 
 /// 后台任务完成的事件参数

@@ -1,5 +1,4 @@
-use super::message_pipeline::PipelineAction;
-use super::*;
+use super::{message_pipeline::PipelineAction, *};
 
 impl App {
     pub fn submit_message(&mut self, input: String) {

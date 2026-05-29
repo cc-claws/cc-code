@@ -6,8 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
-use crate::ui::theme;
+use crate::{app::App, ui::theme};
 
 /// 浅色背景色（不影响整体终端背景，只在文字区域可见）
 const HEADER_BG: ratatui::style::Color = theme::USER_BG;

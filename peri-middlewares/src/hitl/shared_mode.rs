@@ -1,5 +1,7 @@
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU8, Ordering},
+    Arc,
+};
 
 /// 权限模式枚举，控制 HITL 审批行为
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

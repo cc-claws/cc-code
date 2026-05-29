@@ -1,12 +1,16 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use std::path::PathBuf;
 
-use crate::messages::BaseMessage;
-use crate::thread::{ThreadId, ThreadMeta, ThreadStore};
+use crate::{
+    messages::BaseMessage,
+    thread::{ThreadId, ThreadMeta, ThreadStore},
+};
 
 /// SELECT 所有 thread 列的统一常量
 const THREAD_COLUMNS: &str = "t.id, t.title, t.cwd, t.created_at, t.updated_at, t.message_count,

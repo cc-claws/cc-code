@@ -1,5 +1,7 @@
-use crate::error::LangfuseError;
-use crate::types::{ingestion_events_to_otel, IngestionEvent};
+use crate::{
+    error::LangfuseError,
+    types::{ingestion_events_to_otel, IngestionEvent},
+};
 use base64::Engine;
 use reqwest::Client;
 use std::time::Duration;

@@ -9,14 +9,13 @@ use peri_agent::agent::events::AgentEvent as ExecutorEvent;
 use serde_json::json;
 use tracing::{debug, error};
 
-use crate::event::map_event;
-use crate::transport::AcpTransport;
+use crate::{event::map_event, transport::AcpTransport};
 
 // Re-export SDK types used by StdioEventSink.
-pub use agent_client_protocol::schema::{
-    SessionId as SdkSessionId, SessionNotification, SessionUpdate,
+pub use agent_client_protocol::{
+    schema::{SessionId as SdkSessionId, SessionNotification, SessionUpdate},
+    Client, ConnectionTo,
 };
-pub use agent_client_protocol::{Client, ConnectionTo};
 
 /// Receives [`ExecutorEvent`]s produced during agent execution and routes them
 /// to the appropriate transport.
@@ -52,17 +51,22 @@ impl EventSink for TransportEventSink {
         for m in mapped {
             // 1. session/update — standard ACP notifications
             for update in m.updates {
-                let mut payload = match serde_json::to_value(&update) {
+                let update_value = match serde_json::to_value(&update) {
                     Ok(p) => p,
                     Err(e) => {
                         error!(error = %e, "EventSink: serialize SessionUpdate failed");
                         continue;
                     }
                 };
-                if let serde_json::Value::Object(ref mut map) = payload {
-                    map.insert("sessionId".to_string(), json!(session_id));
-                    // Inject _peri metadata for TUI consumption (source_agent_id)
-                    if let Some(ref aid) = m.source_agent_id {
+                // Wrap in {"update": ..., "sessionId": ...} format expected by
+                // handle_session_update_peri on the TUI side.
+                let mut payload = serde_json::json!({
+                    "sessionId": session_id,
+                    "update": update_value,
+                });
+                // Inject _peri metadata for TUI consumption (source_agent_id)
+                if let Some(ref aid) = m.source_agent_id {
+                    if let serde_json::Value::Object(ref mut map) = payload {
                         map.insert("_peri".to_string(), json!({ "sourceAgentId": aid }));
                     }
                 }

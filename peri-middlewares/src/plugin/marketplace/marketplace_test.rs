@@ -1,5 +1,4 @@
-use super::fetch::*;
-use super::*;
+use super::{fetch::*, *};
 use crate::plugin::types::MarketplacePlugin;
 use tempfile::tempdir;
 use tokio::sync::mpsc;

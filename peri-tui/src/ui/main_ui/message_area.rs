@@ -6,10 +6,10 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
-use crate::ui::render_thread::RenderEvent;
-use crate::ui::theme;
-use crate::ui::welcome;
+use crate::{
+    app::App,
+    ui::{render_thread::RenderEvent, theme, welcome},
+};
 use peri_middlewares::prelude::TodoStatus;
 
 use super::sticky_header;

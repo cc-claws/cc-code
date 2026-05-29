@@ -15,11 +15,12 @@ use ratatui::{
 use std::io;
 
 use peri_acp::transport::mpsc::mpsc_transport_pair;
-use peri_tui::acp_client::AcpTuiClient;
-use peri_tui::acp_server::{run_acp_server, AcpServerConfig};
-use peri_tui::app::App;
-use peri_tui::event;
-use peri_tui::ui;
+use peri_tui::{
+    acp_client::AcpTuiClient,
+    acp_server::{run_acp_server, AcpServerConfig},
+    app::App,
+    event, ui,
+};
 use std::sync::Arc;
 
 mod acp_stdio;

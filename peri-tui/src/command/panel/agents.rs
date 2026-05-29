@@ -1,8 +1,6 @@
-use std::collections::HashSet;
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
-use crate::app::App;
-use crate::command::Command;
+use crate::{app::App, command::Command};
 
 /// /agents 命令：打开 agent 选择弹窗
 pub struct AgentsCommand;
