@@ -96,3 +96,158 @@
             header_text
         );
     }
+
+    // ─── 从 headless_test.rs 迁移的 render_view_model 测试 ──────────────────
+
+    #[test]
+    fn test_system_note_error_detection() {
+        let error_content = "Compact failed: No LLM Provider";
+        assert!(
+            error_content.contains("failed") || error_content.contains("Compact failed"),
+            "应检测到错误标记"
+        );
+        let warn_content = "⚠ Interrupted";
+        assert!(warn_content.contains("⚠"), "应检测到警告标记");
+        let info_content = "Configuration saved";
+        assert!(
+            !info_content.contains("❌")
+                && !info_content.contains("failed")
+                && !info_content.contains("⚠"),
+            "普通消息不应被标记为错误"
+        );
+    }
+
+    #[test]
+    fn test_tool_block_error_visible_when_collapsed() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_err".to_string(),
+            display_name: "Shell".to_string(),
+            args_display: Some("bad_command".to_string()),
+            content: "command not found: bad_command\nexit code 127".to_string(),
+            is_error: true,
+            collapsed: true,
+            color: crate::ui::theme::ERROR,
+            diff_lines: None,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false);
+        assert!(
+            lines.len() >= 3,
+            "collapsed error ToolBlock should have header + error lines, got {}",
+            lines.len()
+        );
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            text.contains("command not found"),
+            "error content should be visible: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_tool_block_success_no_summary_when_collapsed() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Read".to_string(),
+            tool_call_id: "tc_ok".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("file.txt".to_string()),
+            content: "file contents here".to_string(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::SAGE,
+            diff_lines: None,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false);
+        assert_eq!(
+            lines.len(),
+            1,
+            "successful collapsed ToolBlock should have only header"
+        );
+    }
+
+    #[test]
+    fn test_tool_call_group_error_visible_when_collapsed() {
+        use crate::app::MessageViewModel;
+        use crate::ui::message_view::{ToolCategory, ToolEntry};
+
+        let vm = MessageViewModel::ToolCallGroup {
+            category: ToolCategory::Read,
+            tools: vec![
+                ToolEntry {
+                    tool_name: "Read".to_string(),
+                    display_name: "Read".to_string(),
+                    args_display: Some("ok_file.txt".to_string()),
+                    content: "ok content".to_string(),
+                    is_error: false,
+                },
+                ToolEntry {
+                    tool_name: "Read".to_string(),
+                    display_name: "Read".to_string(),
+                    args_display: Some("missing.txt".to_string()),
+                    content: "Error: file not found".to_string(),
+                    is_error: true,
+                },
+            ],
+            collapsed: true,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            text.contains("Error: file not found"),
+            "error from failed tool should be visible: {}",
+            text
+        );
+        assert!(
+            !text.contains("ok content"),
+            "successful tool content should NOT be visible: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_subagent_group_error_red_title_and_summary() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::SubAgentGroup {
+            agent_id: "test-agent".to_string(),
+            task_preview: "do something risky".to_string(),
+            total_steps: 3,
+            recent_messages: Vec::new(),
+            is_running: false,
+            collapsed: true,
+            final_result: Some("Agent failed: permission denied".to_string()),
+            is_error: true,
+            is_background: false,
+            bg_hash: Some("abc123".to_string()),
+            batch_agents: Vec::new(),
+            instance_id: None,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false);
+        let title_color = lines
+            .first()
+            .and_then(|l| l.spans.get(1).and_then(|s| s.style.fg));
+        assert_eq!(
+            title_color,
+            Some(crate::ui::theme::ERROR),
+            "title should be red on error"
+        );
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            text.contains("Agent failed"),
+            "error summary should be visible: {}",
+            text
+        );
+    }
