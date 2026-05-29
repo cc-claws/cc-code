@@ -6,7 +6,7 @@
 //!
 //! **Cancel architecture**: `session/prompt` execution is spawned into a
 //! background tokio task so the main server loop remains responsive to
-//! `$/cancel_request` notifications. Sessions are shared via
+//! `session/cancel` notifications. Sessions are shared via
 //! `Arc<tokio::sync::Mutex<HashMap>>`.
 
 use std::collections::HashMap;
@@ -25,12 +25,10 @@ use peri_middlewares::prelude::*;
 use crate::app::agent::LlmProvider;
 use crate::config::PeriConfig;
 
-mod compact;
 mod notify;
 mod prompt;
 mod requests;
 
-pub(crate) use compact::execute_compact;
 pub(crate) use notify::{extract_session_id, handle_notification, send_session_info_update};
 pub(crate) use prompt::execute_prompt;
 pub(crate) use requests::handle_request;
@@ -78,6 +76,7 @@ pub struct AcpServerConfig {
         Arc<parking_lot::RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
     pub thread_store: Arc<dyn peri_agent::thread::ThreadStore>,
     pub langfuse_session: Option<Arc<peri_acp::langfuse::LangfuseSession>>,
+    pub config_path: std::path::PathBuf,
 }
 
 // ── Main server loop ────────────────────────────────────────────────────────
@@ -87,7 +86,7 @@ type SharedSessions = Arc<tokio::sync::Mutex<HashMap<String, SessionState>>>;
 /// Main ACP server loop. Accepts any `AcpTransport` (mpsc for TUI, stdio for IDE).
 ///
 /// `session/prompt` is spawned into a background task so the loop stays
-/// responsive to `$/cancel_request` and other incoming messages.
+/// responsive to `session/cancel` and other incoming messages.
 pub async fn run_acp_server(
     transport: Arc<dyn peri_acp::transport::AcpTransport>,
     cfg: AcpServerConfig,
@@ -99,7 +98,7 @@ pub async fn run_acp_server(
             IncomingMessage::Request { id, method, params } => {
                 if method == "session/prompt" {
                     // Spawn long-running prompt execution so the server loop
-                    // continues processing $/cancel_request notifications.
+                    // continues processing session/cancel notifications.
                     let sessions = sessions.clone();
                     let transport = Arc::clone(&transport);
                     let provider = cfg.provider.clone();
@@ -168,31 +167,6 @@ pub async fn run_acp_server(
                         let _ = transport.send_response(id, result).await;
                         if !prompt_session_id.is_empty() {
                             send_session_info_update(transport.as_ref(), &prompt_session_id).await;
-                        }
-                    });
-                } else if method == "session/compact" {
-                    // Spawn compact execution so server loop stays responsive
-                    let compact_session_id = params
-                        .get("sessionId")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let sessions = sessions.clone();
-                    let transport = Arc::clone(&transport);
-                    let provider = cfg.provider.clone();
-                    let peri_config = cfg.peri_config.clone();
-                    tokio::spawn(async move {
-                        let result = execute_compact(
-                            &compact_session_id,
-                            &sessions,
-                            &provider,
-                            &peri_config,
-                            &transport,
-                        )
-                        .await;
-                        let _ = transport.send_response(id, result).await;
-                        if !compact_session_id.is_empty() {
-                            send_session_info_update(transport.as_ref(), &compact_session_id).await;
                         }
                     });
                 } else {

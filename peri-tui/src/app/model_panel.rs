@@ -403,7 +403,23 @@ impl ModelPanel {
             }
         }
 
-        ctx.services.sync_peri_config_to_acp();
+        // 通过 ACP 协议同步到 Server
+        if let Some(ref acp_client) = ctx.acp_client {
+            let acp = acp_client.clone();
+            let alias = ctx
+                .services
+                .peri_config
+                .as_ref()
+                .map(|c| c.config.active_alias.clone())
+                .unwrap_or_default();
+            let effort = panel.buf_thinking_effort.clone();
+            let context_1m_val = panel.buf_context_1m.to_string();
+            tokio::spawn(async move {
+                let _ = acp.set_config_option("model", &alias).await;
+                let _ = acp.set_config_option("thinking_effort", &effort).await;
+                let _ = acp.set_config_option("context_1m", &context_1m_val).await;
+            });
+        }
     }
 
     /// 即时应用 1M 上下文开关（不关闭面板）
@@ -441,7 +457,14 @@ impl ModelPanel {
             }
         }
 
-        ctx.services.sync_peri_config_to_acp();
+        // 通过 ACP 协议同步到 Server
+        if let Some(ref acp_client) = ctx.acp_client {
+            let acp = acp_client.clone();
+            let val = panel.buf_context_1m.to_string();
+            tokio::spawn(async move {
+                let _ = acp.set_config_option("context_1m", &val).await;
+            });
+        }
     }
 }
 

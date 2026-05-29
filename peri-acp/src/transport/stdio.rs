@@ -273,10 +273,10 @@ mod tests {
 
     #[test]
     fn test_envelope_roundtrip_notification() {
-        let json = r#"{"jsonrpc":"2.0","method":"$/cancel_request","params":{"session_id":"s1"}}"#;
+        let json = r#"{"jsonrpc":"2.0","method":"session/cancel","params":{"session_id":"s1"}}"#;
         let envelope: JsonRpcEnvelope = serde_json::from_str(json).unwrap();
         assert!(envelope.id.is_none());
-        assert_eq!(envelope.method.as_deref(), Some("$/cancel_request"));
+        assert_eq!(envelope.method.as_deref(), Some("session/cancel"));
     }
 
     #[test]

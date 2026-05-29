@@ -187,7 +187,7 @@ impl App {
             .clear();
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .agent_state_messages = base_msgs.clone();
+            .origin_messages = base_msgs.clone();
 
         // 使用统一管线转换：与流式路径共享同一个 messages_to_view_models()
         let mut view_msgs = message_pipeline::MessagePipeline::messages_to_view_models(
@@ -326,11 +326,11 @@ impl App {
             .clear();
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .agent_state_messages
+            .origin_messages
             .clear();
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .agent_state_messages
+            .origin_messages
             .shrink_to_fit();
         self.session_mgr.sessions[self.session_mgr.active]
             .messages
@@ -366,20 +366,25 @@ impl App {
 
         self.reset_agent_session();
 
+        // 通过 ACP 协议创建新 session，清空 server 端 history
+        if let Some(ref acp_client) = self.acp_client {
+            let client = acp_client.clone();
+            let cwd = self.services.cwd.clone();
+            let model = self.services.model_name.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    match client.new_session(&cwd, Some(&model)).await {
+                        Ok(sid) => tracing::info!(session_id = %sid, "new_thread: ACP new_session succeeded"),
+                        Err(e) => tracing::warn!(error = %e, "new_thread: ACP new_session failed"),
+                    }
+                })
+            });
+        }
+
         let _ = self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .render_tx
             .send(RenderEvent::Clear);
-
-        // 通知 ACP Server 清空会话历史
-        if let Some(ref acp_client) = self.acp_client {
-            let client = acp_client.clone();
-            tokio::spawn(async move {
-                if let Err(e) = client.clear().await {
-                    tracing::warn!(error = %e, "Failed to clear ACP session history");
-                }
-            });
-        }
 
         // 归还已释放内存页给 OS
         alloc_collect();

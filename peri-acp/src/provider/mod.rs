@@ -4,9 +4,11 @@
 //! Decoupled from TUI-specific types.
 
 pub mod config;
+pub mod store;
 
 pub use config::{AppConfig, PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig};
 use peri_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
+pub use store::{config_path, load, load_from, save, save_to, workspace_config_path};
 
 #[derive(Clone)]
 pub enum LlmProvider {

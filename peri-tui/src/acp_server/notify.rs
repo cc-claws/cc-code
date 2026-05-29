@@ -20,12 +20,8 @@ pub(crate) fn handle_notification(
     params: &Value,
     sessions: &HashMap<String, SessionState>,
 ) {
-    if method == "$/cancel_request" {
-        let session_id = params
-            .get("sessionId")
-            .or_else(|| params.get("session_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+    if method == "session/cancel" {
+        let session_id = extract_session_id(params, "");
         if let Some(state) = sessions.get(session_id) {
             if let Some(ref token) = state.cancel_token {
                 token.cancel();

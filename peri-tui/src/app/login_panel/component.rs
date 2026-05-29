@@ -62,7 +62,13 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
-                    ctx.services.sync_peri_config_to_acp();
+                    if let Some(ref acp_client) = ctx.acp_client {
+                        let acp = acp_client.clone();
+                        let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
+                        tokio::spawn(async move {
+                            let _ = acp.update_config(&cfg).await;
+                        });
+                    }
                     EventResult::ClosePanel
                 }
                 Input {
@@ -207,7 +213,13 @@ impl PanelComponent for LoginPanel {
                             ctx.services.provider_name = p.display_name().to_string();
                             ctx.services.model_name = p.model_name().to_string();
                         }
-                        ctx.services.sync_peri_config_to_acp();
+                        if let Some(ref acp_client) = ctx.acp_client {
+                            let acp = acp_client.clone();
+                            let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
+                            tokio::spawn(async move {
+                                let _ = acp.update_config(&cfg).await;
+                            });
+                        }
                         EventResult::ClosePanel
                     }
                     _ => {
@@ -255,7 +267,13 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
-                    ctx.services.sync_peri_config_to_acp();
+                    if let Some(ref acp_client) = ctx.acp_client {
+                        let acp = acp_client.clone();
+                        let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
+                        tokio::spawn(async move {
+                            let _ = acp.update_config(&cfg).await;
+                        });
+                    }
                     EventResult::Consumed
                 }
                 Input { key: Key::Esc, .. } => {

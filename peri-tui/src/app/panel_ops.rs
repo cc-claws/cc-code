@@ -129,8 +129,6 @@ impl App {
                     super::service_registry::ProcessResourceMonitor::new(),
                 ),
                 lc: crate::i18n::LcRegistry::default(),
-                acp_peri_config: None,
-                acp_provider: None,
                 channel_state: None,
             },
             global_panels: PanelManager::new(),

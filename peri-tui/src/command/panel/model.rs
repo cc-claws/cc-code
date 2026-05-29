@@ -32,7 +32,13 @@ impl Command for ModelCommand {
                     app.services.provider_name = p.display_name().to_string();
                     app.services.model_name = p.model_name().to_string();
                 }
-                app.services.sync_peri_config_to_acp();
+                if let Some(ref acp_client) = app.acp_client {
+                    let acp = acp_client.clone();
+                    let alias_val = alias.clone();
+                    tokio::spawn(async move {
+                        let _ = acp.set_config_option("model", &alias_val).await;
+                    });
+                }
             }
             _ => {
                 app.open_model_panel();

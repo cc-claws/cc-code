@@ -175,6 +175,7 @@ vendor/
 
 .claude/skills/*-workspace
 .wrangler.worktrees/
+.worktrees/
 
 .peri
 node_modules

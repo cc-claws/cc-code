@@ -183,6 +183,13 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                         {
                             // Skill matched: submit full message to agent
                             return Ok(Some(Action::Submit(text)));
+                        } else if app.session_mgr.sessions[app.session_mgr.active]
+                            .commands
+                            .agent_commands
+                            .contains(&skill_name)
+                        {
+                            // Agent command matched (from ACP AvailableCommandsUpdate): submit to agent
+                            return Ok(Some(Action::Submit(text)));
                         } else {
                             // Distinguish "prefix ambiguity" from "completely unknown"
                             let prefix = text.trim_start_matches('/').to_string();

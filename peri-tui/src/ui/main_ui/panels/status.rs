@@ -385,7 +385,7 @@ fn build_context_summary(app: &App) -> Line<'static> {
         .context_window;
     let msg_count = app.session_mgr.sessions[app.session_mgr.active]
         .agent
-        .agent_state_messages
+        .origin_messages
         .len();
     let tool_count = app.session_mgr.sessions[app.session_mgr.active]
         .agent

@@ -30,7 +30,7 @@ impl App {
             // Micro-compact: 更新内部状态，保留 pipeline 显示
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .agent_state_messages = messages;
+                .origin_messages = messages;
             let vm = MessageViewModel::system(self.services.lc.tr_args(
                 "app-compact-auto-cleared",
                 &[("count".into(), (micro_cleared as i64).into())],
@@ -63,7 +63,7 @@ impl App {
         // 更新内部状态消息（供下一次 prompt 使用）
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .agent_state_messages = messages.clone();
+            .origin_messages = messages.clone();
 
         // 清空 pipeline 内部状态 + 用压缩后消息恢复
         self.session_mgr.sessions[self.session_mgr.active]

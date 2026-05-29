@@ -272,6 +272,7 @@ impl PanelState {
 pub struct PanelContext<'a> {
     pub services: &'a mut ServiceRegistry,
     pub session_mgr: &'a mut SessionManager,
+    pub acp_client: Option<crate::acp_client::AcpTuiClient>,
 }
 
 // ─── PanelManager ───────────────────────────────────────────────────────────
