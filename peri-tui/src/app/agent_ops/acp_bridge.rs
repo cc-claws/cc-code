@@ -77,7 +77,10 @@ impl App {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let update_type = update.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let update_type = update
+            .get("sessionUpdate")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         match update_type {
             "agent_message_chunk" => {
