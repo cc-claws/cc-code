@@ -1,4 +1,6 @@
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
+use peri_agent::agent::events::{
+    AgentEvent as ExecutorEvent, BackgroundTaskResult, CompactFileInfo, TodoEntry, TodoStatus,
+};
 use peri_agent::llm::types::{StopReason, TokenUsage};
 use peri_agent::messages::MessageId;
 
@@ -169,5 +171,197 @@ fn test_stop_reason_display_roundtrip() {
         let s = reason.to_string();
         assert_eq!(&s, expected, "Display 不匹配");
         assert_eq!(StopReason::from_display(&s), reason, "from_display 不匹配");
+    }
+}
+
+// ── Category ①: SessionUpdate 变体 ──────────────────────────────────────────
+
+#[test]
+fn test_ai_reasoning_maps_to_session_update() {
+    // AiReasoning → AgentThoughtChunk SessionUpdate，forward_to_tui=false
+    let event = ExecutorEvent::AiReasoning("let me think...".to_string());
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1, "应产出 1 个 MappedEvent");
+    assert!(!mapped[0].forward_to_tui, "AiReasoning 不应转发到 TUI");
+    assert_eq!(mapped[0].updates.len(), 1, "应包含 1 个 SessionUpdate");
+    assert!(
+        mapped[0].source_agent_id.is_none(),
+        "AiReasoning 不应携带 source_agent_id"
+    );
+    match &mapped[0].updates[0] {
+        SessionUpdate::AgentThoughtChunk(chunk) => {
+            // 验证 ContentChunk 内含 Text ContentBlock
+            match &chunk.content {
+                ContentBlock::Text(tc) => {
+                    assert_eq!(tc.text, "let me think...");
+                }
+                other => panic!("预期 Text ContentBlock，实际: {:?}", other),
+            }
+        }
+        other => panic!("预期 AgentThoughtChunk，实际: {:?}", other),
+    }
+}
+
+#[test]
+fn test_text_chunk_maps_to_session_update_with_source() {
+    // TextChunk → AgentMessageChunk，携带 source_agent_id
+    let event = ExecutorEvent::TextChunk {
+        message_id: MessageId::new(),
+        chunk: "Hello world".to_string(),
+        source_agent_id: Some("sub-agent-1".to_string()),
+    };
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    assert!(!mapped[0].forward_to_tui, "TextChunk 不应转发到 TUI");
+    assert_eq!(mapped[0].updates.len(), 1);
+    assert_eq!(
+        mapped[0].source_agent_id.as_deref(),
+        Some("sub-agent-1"),
+        "应携带 source_agent_id"
+    );
+    match &mapped[0].updates[0] {
+        SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+            ContentBlock::Text(tc) => {
+                assert_eq!(tc.text, "Hello world");
+            }
+            other => panic!("预期 Text ContentBlock，实际: {:?}", other),
+        },
+        other => panic!("预期 AgentMessageChunk，实际: {:?}", other),
+    }
+}
+
+#[test]
+fn test_text_chunk_without_source_agent_id() {
+    // TextChunk 无 source_agent_id 时 source_agent_id 为 None
+    let event = ExecutorEvent::TextChunk {
+        message_id: MessageId::new(),
+        chunk: "main text".to_string(),
+        source_agent_id: None,
+    };
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    assert!(mapped[0].source_agent_id.is_none());
+}
+
+#[test]
+fn test_tool_start_maps_to_session_update_with_tool_info() {
+    // ToolStart → ToolCall SessionUpdate，携带 tool_call_id/name/kind/status/raw_input
+    let event = ExecutorEvent::ToolStart {
+        message_id: MessageId::new(),
+        tool_call_id: "tc-456".to_string(),
+        name: "Bash".to_string(),
+        input: serde_json::json!({"command": "ls -la"}),
+        source_agent_id: Some("sub-agent-2".to_string()),
+    };
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    assert!(!mapped[0].forward_to_tui, "ToolStart 不应转发到 TUI");
+    assert_eq!(mapped[0].updates.len(), 1);
+    assert_eq!(
+        mapped[0].source_agent_id.as_deref(),
+        Some("sub-agent-2"),
+        "应携带 source_agent_id"
+    );
+    match &mapped[0].updates[0] {
+        SessionUpdate::ToolCall(tc) => {
+            assert_eq!(tc.tool_call_id.0.as_ref(), "tc-456");
+            assert_eq!(tc.title, "Bash");
+            assert_eq!(tc.kind, ToolKind::Execute, "Bash 应推断为 Execute");
+            assert_eq!(tc.status, ToolCallStatus::InProgress);
+            assert!(tc.raw_input.is_some(), "raw_input 应存在");
+        }
+        other => panic!("预期 ToolCall，实际: {:?}", other),
+    }
+}
+
+#[test]
+fn test_tool_start_infer_tool_kind_variants() {
+    // 验证 infer_tool_kind 对不同工具名的推断结果
+    let cases = [
+        ("Read", ToolKind::Read),
+        ("Write", ToolKind::Edit),
+        ("Edit", ToolKind::Edit),
+        ("folder_operations", ToolKind::Edit),
+        ("Bash", ToolKind::Execute),
+        ("Grep", ToolKind::Search),
+        ("Glob", ToolKind::Search),
+        ("WebFetch", ToolKind::Fetch),
+        ("WebSearch", ToolKind::Fetch),
+        ("mcp__server__tool", ToolKind::Other),
+    ];
+    for (name, expected_kind) in cases {
+        let event = ExecutorEvent::ToolStart {
+            message_id: MessageId::new(),
+            tool_call_id: "tc-x".to_string(),
+            name: name.to_string(),
+            input: serde_json::Value::Null,
+            source_agent_id: None,
+        };
+        let mapped = map_event(&event, 200_000);
+        match &mapped[0].updates[0] {
+            SessionUpdate::ToolCall(tc) => {
+                assert_eq!(
+                    tc.kind, expected_kind,
+                    "工具名 {} 的 kind 应为 {:?}",
+                    name, expected_kind
+                );
+            }
+            other => panic!("{} 预期 ToolCall，实际: {:?}", name, other),
+        }
+    }
+}
+
+#[test]
+fn test_todo_update_maps_to_session_update() {
+    // TodoUpdate → Plan SessionUpdate，条目状态正确映射
+    let entries = vec![
+        TodoEntry {
+            content: "实现功能 A".to_string(),
+            active_form: Some("正在实现功能 A".to_string()),
+            status: TodoStatus::InProgress,
+        },
+        TodoEntry {
+            content: "测试功能 B".to_string(),
+            active_form: None,
+            status: TodoStatus::Pending,
+        },
+        TodoEntry {
+            content: "完成功能 C".to_string(),
+            active_form: None,
+            status: TodoStatus::Completed,
+        },
+    ];
+    let event = ExecutorEvent::TodoUpdate(entries);
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    assert!(!mapped[0].forward_to_tui, "TodoUpdate 不应转发到 TUI");
+    assert_eq!(mapped[0].updates.len(), 1);
+    match &mapped[0].updates[0] {
+        SessionUpdate::Plan(plan) => {
+            assert_eq!(plan.entries.len(), 3, "Plan 应包含 3 个条目");
+            assert_eq!(plan.entries[0].content, "实现功能 A");
+            assert_eq!(plan.entries[0].status, PlanEntryStatus::InProgress);
+            assert_eq!(plan.entries[1].status, PlanEntryStatus::Pending);
+            assert_eq!(plan.entries[2].status, PlanEntryStatus::Completed);
+            // 所有条目优先级为 Medium（mapper 中硬编码）
+            for entry in &plan.entries {
+                assert_eq!(entry.priority, PlanEntryPriority::Medium);
+            }
+        }
+        other => panic!("预期 Plan，实际: {:?}", other),
+    }
+}
+
+#[test]
+fn test_todo_update_empty_entries() {
+    // 空 TodoUpdate → 空 Plan（条目数为 0）
+    let event = ExecutorEvent::TodoUpdate(vec![]);
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    match &mapped[0].updates[0] {
+        SessionUpdate::Plan(plan) => {
+            assert!(plan.entries.is_empty(), "空 TodoUpdate 应产出空 Plan");
+        }
+        other => panic!("预期 Plan，实际: {:?}", other),
     }
 }

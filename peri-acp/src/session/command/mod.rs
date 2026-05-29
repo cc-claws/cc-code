@@ -129,3 +129,7 @@ pub fn default_command_registry() -> CommandRegistry {
     reg.register(Box::new(clear::ClearCommand));
     reg
 }
+
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod tests;

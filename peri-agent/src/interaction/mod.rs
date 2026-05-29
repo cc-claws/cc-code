@@ -124,3 +124,8 @@ pub mod multiplex;
 
 pub use channel_broker::ChannelBroker;
 pub use multiplex::MultiplexBroker;
+
+#[cfg(test)]
+mod channel_broker_test;
+#[cfg(test)]
+mod multiplex_test;

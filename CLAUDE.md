@@ -50,13 +50,13 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 **ReAct 循环**（`peri-agent`）：AgentInput → collect_tools → before_agent → loop(500) { before_model → LLM → after_model → [工具调用] before_tool → 并发执行 → after_tool → emit | [回答] → emit TextChunk + StateSnapshot → after_agent }。TUI 覆盖 `max_iterations(500)`（核心默认 10）。
 
-**[TRAP]** `tool_dispatch.rs` 采用延迟写入模式：`collect_tool_results` 执行 before_tool + 并发工具调用 + 收集结果，**不写 state**；`dispatch_tools` 在最后一步统一写入 AI 消息 + 所有 tool_result。**修改此模块时不要在 `collect_tool_results` 中调用 `state.add_message`。** 错误路径分两类：before_tool 错误 / Cancel（`collect_tool_results` 返回 `Err`，state 未修改，无孤儿 tool_use 风险）；Cancel 在执行阶段 / deferred_error（`collect_tool_results` 返回 `Ok((results, true/false, ...))`，`dispatch_tools` 写入 state 后再返回 `Err`）。链上 17 个中间件（排除 `CompactMiddleware`（compact 专用）和 `PluginMiddleware`（数据容器，空 hook））的 `before_tool`/`after_tool`/`on_error` 均不读 `state.messages()`（已验证），新增中间件必须遵守此约束。`ExecutorEvent::MessageAdded` 被 TUI 的 `map_executor_event` 丢弃，TUI 通过 `StateSnapshot` + 流式事件维护状态，不依赖 `MessageAdded` 到达顺序。（详见 spec/global/domains/agent.md#issue_2026-05-15-orphaned-tool-use-after-concurrent-tool-error）
+**[TRAP]** `tool_dispatch.rs` 延迟写入：`collect_tool_results` 执行 before_tool + 并发调用 + 收集结果，**不写 state**；`dispatch_tools` 最后统一写入 AI 消息 + 所有 tool_result。禁止在 `collect_tool_results` 中调用 `state.add_message`。错误路径：before_tool 错误/Cancel 返回 `Err`（state 未修改）；执行阶段 Cancel/deferred_error 返回 `Ok((.., true, ..))`，`dispatch_tools` 写入 state 后再返回 `Err`。链上 17 个中间件的 `before_tool`/`after_tool`/`on_error` 均不读 `state.messages()`，新增中间件必须遵守。`ExecutorEvent::MessageAdded` 被 TUI 丢弃，TUI 通过 `StateSnapshot` + 流式事件维护状态。（详见 spec/global/domains/agent.md#issue_2026-05-15-orphaned-tool-use-after-concurrent-tool-error）
 
 **[TRAP]** 新增/修改事件类型语义（如工具前文本从 AiReasoning 改为 TextChunk）时，必须同步检查 TUI 侧事件映射层（`map_executor_event`）。新增 ExecutorEvent 变体时必须同步更新映射，事件丢弃会导致下游状态不一致。（详见 spec/global/domains/agent.md#issue_2026-05-11-streaming-text-invisible-with-tools，spec/global/domains/message-pipeline.md#issue_2026-05-13-streaming-text-tool-aggregation-visual-issues）
 
 **[TRAP]** 多工具并发的结果处理循环中，P3/P4 错误路径提前返回会导致后续 tool_result 缺失。必须用 deferred_error 模式——先收集所有错误，循环结束后统一判断。所有 tool_result 必须始终写入 state。（详见 spec/global/domains/agent.md#issue_2026-05-14-orphaned-tool-use-without-tool-result，spec/global/domains/agent.md#issue_2026-05-15-tool-execution-error-stops-agent，spec/global/domains/agent.md#issue_2026-05-18-agent-tool-calls-execute-serially）
 
-**[TRAP]** `prepended_ids` 必须只追踪 `prepend_message` 插入的消息，不能计入 `add_message`。`before_agent` 中间件有两种注入方式：`prepend_message`（头部 insert System）和 `add_message`（尾部 push Ai/Tool）。cleanup 时只能清理前者。旧逻辑用 `len_after - len_before` 从头部取 N 条 ID，会把 `add_message` 的尾部追加也计入 N，导致从头部误删原始消息，破坏 Ai[ToolUse]/Tool[ToolResult] 配对，产生 Anthropic 400 孤儿 tool_result。正确做法：`take_while(|m| m.is_system())` 只收集头部连续 System 消息。**新增中间件在 `before_agent` 中使用 `add_message` 注入非 System 消息时，不会受 cleanup 影响，但绝不能假设 cleanup 会帮你清理这些消息。**（详见 spec/global/domains/agent.md#issue_2026-05-26-skillpreload-anthropic-400-tool-result-orphan）
+**[TRAP]** `prepended_ids` 只追踪 `prepend_message`（头部 insert System），不能计入 `add_message`（尾部 push）。cleanup 用 `take_while(|m| m.is_system())` 只收集头部连续 System 消息，禁止用长度差计算。新增中间件的 `add_message` 注入不受 cleanup 影响，也不能假设 cleanup 会清理它们。（详见 spec/global/domains/agent.md#issue_2026-05-26-skillpreload-anthropic-400-tool-result-orphan）
 
 **消息类型**：`BaseMessage`（Human/Ai/System/Tool），`ContentBlock`（Text/Image/Document/ToolUse/ToolResult/Reasoning/Unknown）。
 
@@ -72,9 +72,9 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 **[TRAP]** `Interrupted`/`Error` + `Done` 互斥：`Interrupted`/`Error` 先 `request_rebuild()` + 添加通知，设 `reconcile_already_done=true`，后续 `Done` 跳过 `request_rebuild()` 防止覆盖通知。（详见 spec/global/domains/agent.md#issue_2026-05-25-interrupt-undo-last-user-message）**[TRAP]** Cancel 后历史不应无条件截断：ACP server 在 `result.ok==false` 时无条件 truncate history 会丢失 agent 已写入 state 的消息，导致 agent 失忆。应检查 `result.messages.len()` 判断是否有进展，有则保留。（详见 spec/global/domains/agent.md#issue_2026-05-26-ctrl-c-interrupt-causes-agent-amnesia）
 
-**[TRAP]** frozen_subagent_vms：`frozen_subagent_vms: Vec<MessageViewModel>` 按 agent_id + 位置匹配（先 instance_id 精确匹配，失败后按顺序 agent_id 匹配）。轮次作用域状态（frozen_vms、ephemeral_notes）在 `begin_round()` 时显式清空；`done()` 不清空 frozen_subagent_vms（允许 build_tail_vms 在 Done 到下一轮之间消费）。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-16-frozen-subagent-vms-cross-round-accumulation-duplication）
+**[TRAP]** frozen_subagent_vms 按 agent_id + 位置匹配（先 instance_id 精确匹配，失败后按顺序 agent_id 匹配）。`begin_round()` 清空 frozen_vms 和 ephemeral_notes，但 `done()` 不清空 frozen_subagent_vms（允许 Done→下一轮之间消费）。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-16-frozen-subagent-vms-cross-round-accumulation-duplication）
 
-**系统提示词**：`build_system_prompt(overrides, cwd, features, extra_agent_dirs, frozen_date)` 合成。`session/new` 时调用一次，传入 `Some(frozen_date)` 冻结日期，产出完整 system prompt 字符串存入 `SessionState.frozen_system_prompt`。后续所有 `session/prompt` 轮次直接使用 frozen 值，不再重建。段落文件位于 `peri-tui/prompts/sections/`（运行时加载 01-06 静态 + 07+10-13 动态，共 11 个；`14_system_reminder.md` 存在于磁盘但未被运行时使用），`peri-acp` 通过 `concat!(env!("CARGO_MANIFEST_DIR"), "/../peri-tui/prompts/sections/")` 交叉引用。`PromptFeatures` 控制条件段落注入。静态段落（01-06）与动态段落（07_env + feature-gated 10-13）通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前的内容被 Anthropic prompt cache 命中，标记后的内容变���不影响前缀缓存。`messages_to_anthropic()` 中 `split_system_blocks()` 负责拆分。Agent 构建（`build_agent()` in `peri-acp`）在 system prompt 末尾追加 Git Attribution 段落（`Co-Authored-By` 指令），位于动态区域内不影响缓存前缀。
+**系统提示词**：`build_system_prompt()` 在 `session/new` 时调用一次，产出 `frozen_system_prompt` 存入 `SessionState`，后续轮次直接复用。段落文件位于 `peri-tui/prompts/sections/`（01-06 静态 + 07+10-13 动态，共 11 个），通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前可缓存，标记后不影响前缀缓存。`PromptFeatures` 控制条件段落注入。Agent 构建在 system prompt 末尾追加 Git Attribution 段落（动态区域内不影响缓存前缀）。
 
 ## Thinking/推理模式
 
@@ -112,7 +112,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 - （c）动态占位符（日期、cwd、环境变量）放在边界标记之后
 - （d）middleware 注入的 System 消息天然在边界标记之后（非缓存块）
 
-已踩坑的违反模式：（2）`prepend_message` 向消息头部插入非 System 内容改变了 `cache_control` 标记的第一条 user 消息位置——已修复（SkillPreload 改用 `add_message`）；（3）system prompt 内动态占位符（`{{date}}` 每日变化、`{{cwd}}` 跨项目变化）导致整个缓存段失效——已通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记解决；（1）HashMap 迭代顺序（已通过 frozen_system_prompt + cached_prompt 解决）；（4）`i == last_idx` fallback（已被 `cached_prompt` 旁路）。（详见 spec/global/domains/message-pipeline.md，spec/global/domains/message-pipeline.md#issue_2026-05-14-cache-breakpoint-structural-inefficiency，spec/global/domains/system-prompt.md#issue_2026-05-23-mcp-tools-instability-breaks-anthropic-cache）
+历史踩坑已全部修复并固化到 frozen_system_prompt + cached_prompt + boundary 标记机制中。（详见 spec/global/domains/message-pipeline.md，spec/global/domains/message-pipeline.md#issue_2026-05-14-cache-breakpoint-structural-inefficiency，spec/global/domains/system-prompt.md#issue_2026-05-23-mcp-tools-instability-breaks-anthropic-cache）
 
 **[TRAP]** `prepend_message` 的 `insert(0)` 右移导致 StateSnapshot 快照范围扩大，泄露 System 消息到 `agent_state_messages`。StateSnapshot 应始终 `.filter(|m| !m.is_system())`，`agent_state_messages` 不应包含 System 变体。（详见 spec/global/domains/system-prompt.md#issue_2026-05-13-system-prompt-dynamic-parts-duplicated-in-consecutive-calls，spec/global/domains/agent.md#issue_2026-05-14-deepseek-multi-turn-tool-result-duplication，spec/global/domains/system-prompt.md#issue_2026-05-20-rapid-context-expansion）
 
@@ -196,23 +196,14 @@ session/new → chrono::Local::now() → frozen_date
 **核心文件**：
 | 文件 | 职责 |
 |------|------|
-| `peri-acp/src/session/executor.rs` | 共享 agent 执行管线：`execute_prompt()` + `EventSink` trait，TUI 和 stdio 共用 |
-| `peri-acp/src/session/event_sink.rs` | `EventSink` trait + `TransportEventSink`（TUI）+ `StdioEventSink`（stdio） |
-| `peri-acp/src/session/state_builders.rs` | ACP 协议状态构建器：modes/models/configOptions |
-| `peri-acp/src/` | ACP 服务层：transport trait、agent builder、event mapper、broker、prompt、provider、session、langfuse、hooks、lsp |
-| `peri-tui/src/acp_server/mod.rs` | ACP Server 配置（`SessionState`/`AcpServerConfig`）+ re-export state builders |
-| `peri-tui/src/acp_server/requests.rs` | `handle_request()`：处理 `session/new`/`prompt`/`compact`/`set_model`/`set_mode`/`cancel` 等 ACP 请求 |
-| `peri-tui/src/acp_server/prompt.rs` | `execute_prompt()`：TUI 侧 prompt 执行入口，委托 `executor::execute_prompt()` |
-| `peri-tui/src/acp_server/compact.rs` | `execute_compact()`：手动 compact 入口，调用 `full_compact()` + `re_inject()` |
-| `peri-tui/src/acp_server/notify.rs` | `handle_notification()`/`send_session_info_update()`：通知推送 |
-| `peri-tui/src/acp_client/client.rs` | `AcpTuiClient`：TUI 端 ACP 封装，提供 `new_session()`/`prompt()`/`compact()`/`set_model()`/`set_mode()`/`cancel()`/`send_response()` |
-| `peri-tui/src/app/agent_ops/mod.rs` | `handle_agent_event()`：AgentEvent 变体分发到 lifecycle/subagent/polling 子模块 |
-| `peri-tui/src/app/agent_ops/acp_bridge.rs` | `handle_acp_notification()`：将 `AcpNotification` 桥接为 `AgentEvent` |
-| `peri-tui/src/app/agent_ops/lifecycle.rs` | Agent 生命周期处理：cleanup/done/interrupted/error |
-| `peri-tui/src/app/agent_ops/subagent.rs` | SubAgent 启动/生命周期/Token 用量处理 |
-| `peri-tui/src/app/agent_ops/polling.rs` | `poll_agent()`/`poll_background_events()`/`poll_cron_triggers()` |
-| `peri-tui/src/app/agent_submit.rs` | `submit_message()`：通过 `acp_client.new_session()` + `acp_client.prompt()` 提交用户输入 |
-| `peri-tui/src/app/agent.rs` | `map_executor_event()`：`ExecutorEvent` → `AgentEvent` 映射（由 ACP bridge 调用） |
+| `peri-acp/src/session/executor.rs` | 共享 agent 执行管线（TUI/stdio 共用） |
+| `peri-acp/src/session/event_sink.rs` | `EventSink` trait + Transport/Stdio 实现 |
+| `peri-tui/src/acp_server/requests.rs` | TUI 侧 ACP 请求路由 |
+| `peri-tui/src/acp_client/client.rs` | TUI 端 ACP client 封装 |
+| `peri-tui/src/app/agent_ops/acp_bridge.rs` | AcpNotification → AgentEvent 桥接 |
+| `peri-tui/src/app/agent.rs` | ExecutorEvent → AgentEvent 映射 |
+| `peri-tui/src/app/agent_submit.rs` | 用户输入提交入口 |
+| `peri-tui/src/app/agent_ops/lifecycle.rs` | Agent 生命周期处理 |
 
 **AcpNotification 变体**（`acp_client/client.rs`）：
 - `AgentEvent { session_id, event }` — 携带 `AgentEvent` 枚举，由 `map_executor_event()` 转换为 TUI `AgentEvent`
@@ -276,9 +267,7 @@ session/new → chrono::Local::now() → frozen_date
 | `peri-agent/src/agent/compact/config.rs` | `CompactConfig`：阈值、开关、环境变量覆盖 |
 | `peri-agent/src/agent/compact/invariant.rs` | 消息轮次分组（工具调用配对完整性检查） |
 | `peri-middlewares/src/compact_middleware.rs` | `CompactMiddleware`：`before_model` 钩子，在 ReAct 循环内触发 compact。**[TRAP]** Micro compact 必须加 once-per-prompt 守卫（AtomicBool），否则每轮都重复触发。（详见 spec/global/domains/compact.md#issue_2026-05-23-micro-compact-repeated-triggering） |
-| `peri-acp/src/session/executor.rs` | executor 中 compact 触发判断（阈值检查） |
-| `peri-tui/src/acp_server/compact.rs` | 手动 compact 入口：`full_compact()` + `re_inject()` |
-| `peri-tui/src/command/session/compact.rs` | 已删除（逻辑移至 `peri-acp/src/session/command/compact.rs`） |
+| `peri-acp/src/session/command/compact.rs` | `/compact` Slash Command 实现（`CommandKind::Immediate`） |
 | `peri-tui/src/app/agent_compact.rs` | TUI 侧 compact 事件处理：pipeline 清理 + UI 通知 |
 
 **[TRAP]** `handle_compact_completed` 必须三步清理：① `pipeline.clear()` ② `pipeline.restore_completed(messages)` ③ `RebuildAll { prefix_len: 0 }`。缺少任一步都会导致旧消息残留或 system 消息泄漏到显示。`CompactCompleted` 事件必须携带 `messages: Vec<BaseMessage>`，TUI 用它更新 `agent_state_messages` 和 pipeline。禁止在 TUI 层触发 auto-compact——所有触发判断在 executor 内部。（详见 spec/global/domains/compact.md#issue_2026-05-20-compact-command-not-triggering）
