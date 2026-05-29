@@ -11,8 +11,7 @@ async fn test_transport_full_roundtrip() {
 
     // Server: echo back
     let server_handle = tokio::spawn(async move {
-        use peri_acp::transport::types::IncomingMessage;
-        use peri_acp::transport::AcpTransport;
+        use peri_acp::transport::{types::IncomingMessage, AcpTransport};
         if let Some(IncomingMessage::Request { id, params, .. }) = server.recv().await {
             let _ = server.send_response(id, Ok(params)).await;
         }
@@ -31,8 +30,10 @@ async fn test_transport_full_roundtrip() {
 
 #[tokio::test]
 async fn test_broker_approval_flow() {
-    use peri_acp::broker::AcpTransportBroker;
-    use peri_acp::transport::{mpsc::mpsc_transport_pair, AcpTransport};
+    use peri_acp::{
+        broker::AcpTransportBroker,
+        transport::{mpsc::mpsc_transport_pair, AcpTransport},
+    };
     use peri_agent::interaction::{
         ApprovalDecision, ApprovalItem, InteractionContext, InteractionResponse,
         UserInteractionBroker,
@@ -70,9 +71,8 @@ async fn test_broker_approval_flow() {
 
 #[tokio::test]
 async fn test_event_mapper_tool_start() {
-    use peri_acp::event::map_executor_to_updates;
-    use peri_agent::agent::events::AgentEvent as ExecutorEvent;
-    use peri_agent::messages::MessageId;
+    use peri_acp::event::map_event;
+    use peri_agent::{agent::events::AgentEvent as ExecutorEvent, messages::MessageId};
 
     let event = ExecutorEvent::ToolStart {
         message_id: MessageId::new(),
@@ -82,15 +82,23 @@ async fn test_event_mapper_tool_start() {
         source_agent_id: None,
     };
 
-    let updates = map_executor_to_updates(&event, 200000);
-    assert!(!updates.is_empty(), "ToolStart must produce SessionUpdate");
+    let mapped = map_event(&event, 200000);
+    assert_eq!(mapped.len(), 1, "ToolStart must produce one MappedEvent");
+    assert!(
+        !mapped[0].updates.is_empty(),
+        "ToolStart must produce SessionUpdate"
+    );
+    assert!(!mapped[0].forward_to_tui, "ToolStart is category ①");
+    assert!(
+        mapped[0].source_agent_id.is_none(),
+        "ToolStart has no source_agent_id"
+    );
 }
 
 #[tokio::test]
 async fn test_event_mapper_text_chunk() {
-    use peri_acp::event::map_executor_to_updates;
-    use peri_agent::agent::events::AgentEvent as ExecutorEvent;
-    use peri_agent::messages::MessageId;
+    use peri_acp::event::map_event;
+    use peri_agent::{agent::events::AgentEvent as ExecutorEvent, messages::MessageId};
 
     let event = ExecutorEvent::TextChunk {
         message_id: MessageId::new(),
@@ -98,14 +106,23 @@ async fn test_event_mapper_text_chunk() {
         source_agent_id: None,
     };
 
-    let updates = map_executor_to_updates(&event, 200000);
-    assert!(!updates.is_empty(), "TextChunk must produce SessionUpdate");
+    let mapped = map_event(&event, 200000);
+    assert_eq!(mapped.len(), 1, "TextChunk must produce one MappedEvent");
+    assert!(
+        !mapped[0].updates.is_empty(),
+        "TextChunk must produce SessionUpdate"
+    );
+    assert!(!mapped[0].forward_to_tui, "TextChunk is category ①");
+    assert!(
+        mapped[0].source_agent_id.is_none(),
+        "TextChunk has no source_agent_id"
+    );
 }
 
 #[test]
 fn test_event_mapper_todo_update_maps_to_plan() {
     use agent_client_protocol::schema::{PlanEntryPriority, PlanEntryStatus, SessionUpdate};
-    use peri_acp::event::map_executor_to_updates;
+    use peri_acp::event::map_event;
     use peri_agent::agent::events::{AgentEvent as ExecutorEvent, TodoEntry, TodoStatus};
 
     let event = ExecutorEvent::TodoUpdate(vec![
@@ -126,14 +143,15 @@ fn test_event_mapper_todo_update_maps_to_plan() {
         },
     ]);
 
-    let updates = map_executor_to_updates(&event, 200000);
+    let mapped = map_event(&event, 200000);
     assert_eq!(
-        updates.len(),
+        mapped.len(),
         1,
-        "TodoUpdate must produce exactly one SessionUpdate"
+        "TodoUpdate must produce exactly one MappedEvent"
     );
+    assert!(!mapped[0].forward_to_tui, "TodoUpdate is category ①");
 
-    match &updates[0] {
+    match &mapped[0].updates[0] {
         SessionUpdate::Plan(plan) => {
             assert_eq!(plan.entries.len(), 3);
             assert_eq!(plan.entries[0].content, "Fix the bug");

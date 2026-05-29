@@ -8,12 +8,17 @@ use ratatui::{
 
 use peri_widgets::BorderedPanel;
 
-use crate::app::config_panel::{
-    ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_DIFF, ROW_GENERAL_HEADER, ROW_LANGUAGE,
-    ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_SEPARATOR, ROW_THRESHOLD, ROW_TONE,
+use crate::{
+    app::{
+        config_panel::{
+            ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_DIFF, ROW_GENERAL_HEADER, ROW_LANGUAGE,
+            ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_SEPARATOR, ROW_THRESHOLD,
+            ROW_TONE,
+        },
+        App,
+    },
+    ui::theme,
 };
-use crate::app::App;
-use crate::ui::theme;
 
 /// 行号 → i18n 字段标签键
 fn field_label_key(row: usize) -> &'static str {

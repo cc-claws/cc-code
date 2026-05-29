@@ -1,5 +1,4 @@
-use super::message_pipeline::PipelineAction;
-use super::*;
+use super::{message_pipeline::PipelineAction, *};
 
 impl App {
     pub fn submit_message(&mut self, input: String) {
@@ -7,12 +6,12 @@ impl App {
             return;
         }
 
-        // 记录提交前的状态长度，用于中断时回滚 agent_state_messages
+        // 记录提交前的状态长度，用于中断时回滚 origin_messages
         self.session_mgr.sessions[self.session_mgr.active]
             .metadata
             .pre_submit_state_len = self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .agent_state_messages
+            .origin_messages
             .len();
 
         self.push_input_history(input.clone());
@@ -279,7 +278,7 @@ impl App {
             .metadata
             .pre_submit_state_len = self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .agent_state_messages
+            .origin_messages
             .len();
 
         // 构建 display 文本（用于 UserBubble 显示）

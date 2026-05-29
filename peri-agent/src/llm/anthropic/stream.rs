@@ -2,11 +2,15 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 
 use super::invoke::{build_request_body, parse_content_blocks};
-use crate::agent::events::AgentEvent;
-use crate::error::{AgentError, AgentResult};
-use crate::llm::sse::SseParser;
-use crate::llm::types::{LlmResponse, StopReason, StreamingContext};
-use crate::messages::{BaseMessage, MessageContent};
+use crate::{
+    agent::events::AgentEvent,
+    error::{AgentError, AgentResult},
+    llm::{
+        sse::SseParser,
+        types::{LlmResponse, StopReason, StreamingContext},
+    },
+    messages::{BaseMessage, MessageContent},
+};
 
 /// Anthropic SSE 流式处理
 ///

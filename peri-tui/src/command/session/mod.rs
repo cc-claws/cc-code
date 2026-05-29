@@ -1,5 +1,4 @@
 pub mod channel;
-pub mod compact;
 pub mod context_cmd;
 pub mod cost;
 pub mod effort;
@@ -10,7 +9,6 @@ pub mod rename;
 pub mod setup;
 pub mod split;
 
-pub use compact::CompactCommand;
 pub use context_cmd::ContextCommand;
 pub use cost::CostCommand;
 pub use effort::EffortCommand;

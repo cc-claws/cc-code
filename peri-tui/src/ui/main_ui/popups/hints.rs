@@ -8,8 +8,7 @@ use ratatui::{
 
 use peri_widgets::BorderedPanel;
 
-use crate::app::App;
-use crate::ui::theme;
+use crate::{app::App, ui::theme};
 
 /// 统一候选项：命令或 Skill，按名称排序后扁平展示
 enum HintItem<'a> {

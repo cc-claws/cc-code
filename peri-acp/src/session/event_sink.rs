@@ -9,14 +9,13 @@ use peri_agent::agent::events::AgentEvent as ExecutorEvent;
 use serde_json::json;
 use tracing::{debug, error};
 
-use crate::event::{map_executor_to_peri_notifications, map_executor_to_updates};
-use crate::transport::AcpTransport;
+use crate::{event::map_event, transport::AcpTransport};
 
 // Re-export SDK types used by StdioEventSink.
-pub use agent_client_protocol::schema::{
-    SessionId as SdkSessionId, SessionNotification, SessionUpdate,
+pub use agent_client_protocol::{
+    schema::{SessionId as SdkSessionId, SessionNotification, SessionUpdate},
+    Client, ConnectionTo,
 };
-pub use agent_client_protocol::{Client, ConnectionTo};
 
 /// Receives [`ExecutorEvent`]s produced during agent execution and routes them
 /// to the appropriate transport.
@@ -31,10 +30,9 @@ pub trait EventSink: Send + Sync {
 
 // ── TUI transport-backed EventSink ──────────────────────────────────────────
 
-/// [`EventSink`] backed by an [`AcpTransport`]. Sends three notification types:
-/// - `peri/agent_event` — raw serialized ExecutorEvent (consumed by TUI pump)
-/// - `peri/*` — custom notifications (compact, session lifecycle)
-/// - `session/update` — standard ACP SessionUpdate notifications
+/// [`EventSink`] backed by an [`AcpTransport`]. Sends two notification types:
+/// - `session/update` — standard ACP SessionUpdate (with `_peri` metadata for TUI)
+/// - `peri/agent_event` — raw serialized ExecutorEvent (for TUI-only events, categories ②③)
 pub struct TransportEventSink {
     transport: std::sync::Arc<dyn AcpTransport>,
 }
@@ -48,59 +46,57 @@ impl TransportEventSink {
 #[async_trait]
 impl EventSink for TransportEventSink {
     async fn push_event(&self, session_id: &str, event: &ExecutorEvent, context_window: u32) {
-        // 1. peri/agent_event — serialize ExecutorEvent to JSON string once
-        let event_json = match serde_json::to_string(event) {
-            Ok(s) => s,
-            Err(e) => {
-                error!(error = %e, "EventSink: serialize ExecutorEvent failed");
-                return;
-            }
-        };
-        if matches!(event, ExecutorEvent::BackgroundTaskCompleted(_)) {
-            tracing::info!(
-                event_json_len = event_json.len(),
-                "[bg-diag] EventSink: serialized BackgroundTaskCompleted, sending via transport"
-            );
-        }
-        let agent_event_params = json!({
-            "sessionId": session_id,
-            "event_json": event_json,
-        });
-        if let Err(e) = self
-            .transport
-            .send_notification("peri/agent_event", agent_event_params)
-            .await
-        {
-            error!(error = %e, "EventSink: send peri/agent_event failed");
-            return;
-        }
+        let mapped = map_event(event, context_window);
 
-        // 2. peri/* custom notifications (compact, session lifecycle)
-        let peri_notifs = map_executor_to_peri_notifications(event);
-        for (method, mut payload) in peri_notifs {
-            if let serde_json::Value::Object(ref mut map) = payload {
-                map.insert("sessionId".to_string(), json!(session_id));
-            }
-            let _ = self.transport.send_notification(method, payload).await;
-        }
-
-        // 3. session/update — standard ACP SessionUpdate
-        let updates = map_executor_to_updates(event, context_window);
-        for update in updates {
-            let mut payload = match serde_json::to_value(&update) {
-                Ok(p) => p,
-                Err(e) => {
-                    error!(error = %e, "EventSink: serialize SessionUpdate failed");
-                    continue;
+        for m in mapped {
+            // 1. session/update — standard ACP notifications
+            for update in m.updates {
+                let update_value = match serde_json::to_value(&update) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        error!(error = %e, "EventSink: serialize SessionUpdate failed");
+                        continue;
+                    }
+                };
+                // Wrap in {"update": ..., "sessionId": ...} format expected by
+                // handle_session_update_peri on the TUI side.
+                let mut payload = serde_json::json!({
+                    "sessionId": session_id,
+                    "update": update_value,
+                });
+                // Inject _peri metadata for TUI consumption (source_agent_id)
+                if let Some(ref aid) = m.source_agent_id {
+                    if let serde_json::Value::Object(ref mut map) = payload {
+                        map.insert("_peri".to_string(), json!({ "sourceAgentId": aid }));
+                    }
                 }
-            };
-            if let serde_json::Value::Object(ref mut map) = payload {
-                map.insert("sessionId".to_string(), json!(session_id));
+                let _ = self
+                    .transport
+                    .send_notification("session/update", payload)
+                    .await;
             }
-            let _ = self
-                .transport
-                .send_notification("session/update", payload)
-                .await;
+
+            // 2. peri/agent_event — TUI-specific events (categories ②③)
+            if m.forward_to_tui {
+                let event_json = match serde_json::to_string(event) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!(error = %e, "EventSink: serialize ExecutorEvent failed");
+                        continue;
+                    }
+                };
+                let agent_event_params = json!({
+                    "sessionId": session_id,
+                    "event_json": event_json,
+                });
+                if let Err(e) = self
+                    .transport
+                    .send_notification("peri/agent_event", agent_event_params)
+                    .await
+                {
+                    error!(error = %e, "EventSink: send peri/agent_event failed");
+                }
+            }
         }
     }
 
@@ -145,12 +141,14 @@ impl StdioEventSink {
 #[async_trait]
 impl EventSink for StdioEventSink {
     async fn push_event(&self, _session_id: &str, event: &ExecutorEvent, context_window: u32) {
-        let updates = map_executor_to_updates(event, context_window);
-        for update in updates {
-            let notif = SessionNotification::new(self.session_id.clone(), update);
-            if let Err(e) = self.cx.send_notification(notif) {
-                error!(error = %e, "StdioEventSink: failed to send SessionNotification");
-                break;
+        let mapped = map_event(event, context_window);
+        for m in mapped {
+            for update in m.updates {
+                let notif = SessionNotification::new(self.session_id.clone(), update);
+                if let Err(e) = self.cx.send_notification(notif) {
+                    error!(error = %e, "StdioEventSink: failed to send SessionNotification");
+                    break;
+                }
             }
         }
     }

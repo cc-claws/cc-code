@@ -1,5 +1,4 @@
-use crate::app::App;
-use crate::command::Command;
+use crate::{app::App, command::Command};
 
 pub struct LoginCommand;
 

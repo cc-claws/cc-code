@@ -1,6 +1,5 @@
 use super::*;
-use ratatui::backend::TestBackend;
-use ratatui::Terminal;
+use ratatui::{backend::TestBackend, Terminal};
 
 #[test]
 fn test_overlay_state_initial_none() {

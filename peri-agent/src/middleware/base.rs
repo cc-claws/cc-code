@@ -1,9 +1,13 @@
 use async_trait::async_trait;
 
-use crate::agent::react::{AgentOutput, ToolCall, ToolResult};
-use crate::agent::state::State;
-use crate::error::{AgentError, AgentResult};
-use crate::middleware::r#trait::Middleware;
+use crate::{
+    agent::{
+        react::{AgentOutput, ToolCall, ToolResult},
+        state::State,
+    },
+    error::{AgentError, AgentResult},
+    middleware::r#trait::Middleware,
+};
 
 /// 日志中间件 - 记录 Agent 执行过程
 pub struct LoggingMiddleware {

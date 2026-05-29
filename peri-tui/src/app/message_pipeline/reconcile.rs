@@ -1,10 +1,12 @@
 use peri_agent::messages::BaseMessage;
 
-use crate::app::tool_display;
-use crate::ui::message_view::{
-    aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel,
+use crate::{
+    app::tool_display,
+    ui::{
+        message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
+        theme,
+    },
 };
-use crate::ui::theme;
 
 pub use crate::ui::message_view::aggregate_batch_groups;
 

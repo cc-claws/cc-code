@@ -2,8 +2,10 @@ use std::hash::{Hash, Hasher};
 
 use crate::ui::theme;
 use peri_agent::messages::{BaseMessage, ContentBlock};
-use ratatui::style::Color;
-use ratatui::text::{Line, Text};
+use ratatui::{
+    style::Color,
+    text::{Line, Text},
+};
 
 use super::markdown::parse_markdown_default;
 

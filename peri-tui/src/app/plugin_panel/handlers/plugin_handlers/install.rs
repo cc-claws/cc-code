@@ -1,6 +1,8 @@
-use crate::app::panel_manager::PanelContext;
-use crate::app::plugin_panel::{DetailAction, PluginPanel};
-use crate::app::AgentEvent;
+use crate::app::{
+    panel_manager::PanelContext,
+    plugin_panel::{DetailAction, PluginPanel},
+    AgentEvent,
+};
 
 use peri_middlewares::plugin::InstallScope;
 

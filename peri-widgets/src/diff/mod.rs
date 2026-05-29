@@ -1,5 +1,7 @@
-use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Mutex,
+};
 
 use lru::LruCache;
 use once_cell::sync::Lazy;

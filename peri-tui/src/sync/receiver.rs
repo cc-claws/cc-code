@@ -3,14 +3,15 @@
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use std::io::Write;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::info;
 
-use crate::sync::crypto;
-use crate::sync::protocol::WsMessage;
-use crate::sync::ui::{build_default_items, confirm_sync, println_overwrite, select_sync_items};
-use crate::sync::writer;
+use crate::sync::{
+    crypto,
+    protocol::WsMessage,
+    ui::{build_default_items, confirm_sync, println_overwrite, select_sync_items},
+    writer,
+};
 
 pub async fn run_sync_receiver(server_url: &str) -> Result<()> {
     let home_dir = dirs_next::home_dir().context("Failed to get HOME directory")?;

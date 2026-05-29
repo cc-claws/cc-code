@@ -1,20 +1,16 @@
 #[cfg(test)]
 use crate::plugin::config::{load_installed_plugins, save_installed_plugins};
-use crate::plugin::marketplace::read_manifest_from_path;
 #[allow(unused_imports)]
 use crate::plugin::types::{InstallScope, InstalledPlugin, InstalledPlugins};
-use crate::plugin::PluginConfigError;
+use crate::plugin::{marketplace::read_manifest_from_path, PluginConfigError};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod install;
 mod uninstall;
 
-pub use install::install_plugin;
-pub use install::update_plugin;
-pub use uninstall::check_updates;
-pub use uninstall::cleanup_orphaned_plugins;
-pub use uninstall::uninstall_plugin;
+pub use install::{install_plugin, update_plugin};
+pub use uninstall::{check_updates, cleanup_orphaned_plugins, uninstall_plugin};
 
 // ─── Error & Types ────────────────────────────────────────────────────
 

@@ -6,10 +6,12 @@ pub use file_reader::FileContent;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::messages::{BaseMessage, ContentBlock};
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{
+    agent::state::State,
+    error::AgentResult,
+    messages::{BaseMessage, ContentBlock},
+    middleware::r#trait::Middleware,
+};
 
 /// AtMentionMiddleware — 解析用户消息中的 @path 提及，注入 Read 工具调用结果
 ///

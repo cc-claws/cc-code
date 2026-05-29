@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use crate::app::App;
-use crate::command::Command;
-use crate::i18n::LcRegistry;
+use crate::{app::App, command::Command, i18n::LcRegistry};
 
 pub struct ChannelCommand;
 

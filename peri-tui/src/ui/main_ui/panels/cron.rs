@@ -7,10 +7,10 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::App;
-use crate::app::CronPanel;
-use crate::ui::main_ui::highlight_line_spans;
-use crate::ui::theme;
+use crate::{
+    app::{App, CronPanel},
+    ui::{main_ui::highlight_line_spans, theme},
+};
 
 /// CronPanel 渲染
 pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App, area: Rect) {
@@ -151,8 +151,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
 
 #[cfg(test)]
 mod tests {
-    use crate::app::App;
-    use crate::app::CronPanel;
+    use crate::app::{App, CronPanel};
 
     async fn render_headless_cron_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;

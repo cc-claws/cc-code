@@ -1,7 +1,8 @@
 use super::*;
-use crate::app::MessageViewModel;
-use crate::app::{AgentEvent, App};
-use crate::ui::main_ui;
+use crate::{
+    app::{AgentEvent, App, MessageViewModel},
+    ui::main_ui,
+};
 
 #[tokio::test]
 async fn test_snapshot_row_count() {
@@ -1193,11 +1194,13 @@ async fn test_tab_bar_integration() {
 }
 
 mod setup_wizard_e2e {
-    use crate::app::setup_wizard::{
-        handle_setup_wizard_key, needs_setup, save_setup_to, FormField, FormMode, MigratedProvider,
-        ProviderType, SetupStep, SetupWizardAction, SetupWizardPanel,
+    use crate::app::{
+        setup_wizard::{
+            handle_setup_wizard_key, needs_setup, save_setup_to, FormField, FormMode,
+            MigratedProvider, ProviderType, SetupStep, SetupWizardAction, SetupWizardPanel,
+        },
+        App,
     };
-    use crate::app::App;
     use tui_textarea::{Input, Key};
 
     fn make_char(c: char) -> Input {
@@ -2434,8 +2437,10 @@ fn test_tool_block_success_no_summary_when_collapsed() {
 
 #[test]
 fn test_tool_call_group_error_visible_when_collapsed() {
-    use crate::ui::message_render::render_view_model;
-    use crate::ui::message_view::{ToolCategory, ToolEntry};
+    use crate::ui::{
+        message_render::render_view_model,
+        message_view::{ToolCategory, ToolEntry},
+    };
 
     let vm = MessageViewModel::ToolCallGroup {
         category: ToolCategory::Read,
@@ -2520,9 +2525,10 @@ fn test_subagent_group_error_red_title_and_summary() {
 /// Model 面板 Space 键在模型行应选中对应模型（而非静默无响应）
 #[tokio::test]
 async fn test_model_panel_space_selects_model() {
-    use crate::app::model_panel::{AliasTab, ModelPanel, ROW_SONNET};
-    use crate::config::AppConfig;
-    use crate::config::{PeriConfig, ProviderConfig, ThinkingConfig};
+    use crate::{
+        app::model_panel::{AliasTab, ModelPanel, ROW_SONNET},
+        config::{AppConfig, PeriConfig, ProviderConfig, ThinkingConfig},
+    };
 
     let cfg = PeriConfig {
         schema: None,
@@ -2666,9 +2672,10 @@ async fn test_cron_panel_confirm_delete_renders() {
 /// Model 面板确认选择后应显示"模型已切换为"反馈消息
 #[tokio::test]
 async fn test_model_panel_confirm_shows_feedback() {
-    use crate::app::model_panel::{AliasTab, ModelPanel};
-    use crate::config::AppConfig;
-    use crate::config::{PeriConfig, ProviderConfig, ThinkingConfig};
+    use crate::{
+        app::model_panel::{AliasTab, ModelPanel},
+        config::{AppConfig, PeriConfig, ProviderConfig, ThinkingConfig},
+    };
 
     let (mut app, _handle) = App::new_headless(120, 30).await;
     let cfg = PeriConfig {
@@ -2729,9 +2736,10 @@ async fn test_model_panel_confirm_shows_feedback() {
 /// Login 面板激活 Provider 后应显示"已激活"反馈消息
 #[tokio::test]
 async fn test_login_select_provider_shows_feedback() {
-    use crate::app::login_panel::LoginPanel;
-    use crate::config::AppConfig;
-    use crate::config::{PeriConfig, ProviderConfig};
+    use crate::{
+        app::login_panel::LoginPanel,
+        config::{AppConfig, PeriConfig, ProviderConfig},
+    };
 
     let (mut app, _handle) = App::new_headless(120, 30).await;
     let cfg = PeriConfig {
@@ -3126,8 +3134,7 @@ async fn test_subagent_group_preserved_after_done_reconcile() {
 }
 
 mod split_panel_tests {
-    use crate::app::panel_manager::PanelKind;
-    use crate::app::App;
+    use crate::app::{panel_manager::PanelKind, App};
 
     #[tokio::test]
     async fn test_split_session_hint_shows_for_both_columns() {

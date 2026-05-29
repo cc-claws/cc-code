@@ -1,4 +1,4 @@
-use super::store::load_from;
+use super::load_from;
 use std::io::Write;
 
 /// 在临时目录创建 .peri/settings.json
@@ -22,7 +22,7 @@ fn test_load_global_only_no_workspace() {
 fn test_workspace_config_path_does_not_panic() {
     // workspace_config_path 依赖 current_dir，集成测试中不做断言
     // 只验证函数不 panic
-    let _ = super::store::workspace_config_path();
+    let _ = super::workspace_config_path();
 }
 
 #[test]

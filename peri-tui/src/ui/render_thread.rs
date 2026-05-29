@@ -1,16 +1,21 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use parking_lot::RwLock;
-use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::{
+    text::Line,
+    widgets::{Paragraph, Wrap},
+};
 use tokio::sync::{mpsc, Notify};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::markdown::ensure_rendered_incremental;
-use super::message_render::render_view_model;
-use super::message_view::MessageViewModel;
+use super::{
+    markdown::ensure_rendered_incremental, message_render::render_view_model,
+    message_view::MessageViewModel,
+};
 
 /// 单个逻辑行的换行映射信息
 #[derive(Debug, Clone)]

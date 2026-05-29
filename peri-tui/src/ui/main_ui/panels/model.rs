@@ -8,12 +8,16 @@ use ratatui::{
 
 use peri_widgets::BorderedPanel;
 
-use crate::app::model_panel::{
-    AliasTab, ModelPanel, ROW_1M_CONTEXT, ROW_EFFORT, ROW_HAIKU, ROW_MAX_TOKENS, ROW_OPUS,
-    ROW_SONNET,
+use crate::{
+    app::{
+        model_panel::{
+            AliasTab, ModelPanel, ROW_1M_CONTEXT, ROW_EFFORT, ROW_HAIKU, ROW_MAX_TOKENS, ROW_OPUS,
+            ROW_SONNET,
+        },
+        App,
+    },
+    ui::theme,
 };
-use crate::app::App;
-use crate::ui::theme;
 
 pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut App, area: Rect) {
     let inner = BorderedPanel::new(Span::styled(
@@ -231,7 +235,9 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::model_panel::{AliasTab, ModelPanel};
-    use crate::app::App;
+    use crate::app::{
+        model_panel::{AliasTab, ModelPanel},
+        App,
+    };
     include!("model_test.rs");
 }

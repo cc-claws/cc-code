@@ -1,16 +1,14 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use peri_agent::interaction::ChannelState;
-use peri_middlewares::mcp::McpClientPool;
-use peri_middlewares::mcp::McpInitStatus;
-use peri_middlewares::plugin::PluginLoadResult;
-use peri_middlewares::prelude::SharedPermissionMode;
+use peri_middlewares::{
+    mcp::{McpClientPool, McpInitStatus},
+    plugin::PluginLoadResult,
+    prelude::SharedPermissionMode,
+};
 
-use super::cron_state::CronState;
-use super::events::AgentEvent;
-use crate::config::PeriConfig;
-use crate::thread::ThreadStore;
+use super::{cron_state::CronState, events::AgentEvent};
+use crate::{config::PeriConfig, thread::ThreadStore};
 
 /// 进程资源采样器：每 2 秒采样一次当前进程的 CPU 和内存
 pub struct ProcessResourceMonitor {
@@ -80,29 +78,6 @@ pub struct ServiceRegistry {
     pub resource_monitor: parking_lot::Mutex<ProcessResourceMonitor>,
     /// i18n 语言注册表（跨 session 共享）
     pub lc: crate::i18n::LcRegistry,
-    /// ACP Server 的 PeriConfig Arc（与 ACP Server 共享引用，setup/面板修改后需同步写入）
-    pub acp_peri_config: Option<Arc<parking_lot::RwLock<PeriConfig>>>,
-    /// ACP Server 的 LlmProvider Arc（与 ACP Server 共享引用，setup/面板修改后需同步写入）
-    pub acp_provider: Option<Arc<parking_lot::RwLock<crate::app::agent::LlmProvider>>>,
     /// Channel 共享状态（MCP handler ↔ TUI/broker 桥接）
     pub channel_state: Option<Arc<ChannelState>>,
-}
-
-impl ServiceRegistry {
-    /// 将当前 TUI 侧的 peri_config / provider 同步写入 ACP Server 持有的 Arc 副本。
-    ///
-    /// 调用时机：任意修改 peri_config 或切换 provider 后（setup 向导保存、login 面板、
-    /// model 面板等路径）。
-    pub fn sync_peri_config_to_acp(&mut self) {
-        if let Some(ref cfg) = self.peri_config {
-            if let Some(ref acp_cfg) = self.acp_peri_config {
-                *acp_cfg.write() = cfg.clone();
-            }
-            if let Some(ref acp_provider) = self.acp_provider {
-                if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
-                    *acp_provider.write() = p;
-                }
-            }
-        }
-    }
 }

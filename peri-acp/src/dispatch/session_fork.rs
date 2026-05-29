@@ -1,7 +1,9 @@
 //! Fork a session: create a new thread and copy messages from source.
 
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
+use peri_agent::{
+    messages::BaseMessage,
+    thread::{ThreadId, ThreadMeta, ThreadStore},
+};
 
 /// Fork a session by creating a new thread and copying source messages.
 ///

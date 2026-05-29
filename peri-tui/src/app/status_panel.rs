@@ -1,13 +1,14 @@
 use std::any::Any;
 
 use peri_widgets::tab_bar::TabState;
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{layout::Rect, Frame};
 use tui_textarea::Input;
 
-use super::panel_component::PanelComponent;
-use super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::App;
+use super::{
+    panel_component::PanelComponent,
+    panel_manager::{EventResult, PanelContext, PanelKind},
+    App,
+};
 
 /// Status 面板 Tab 索引
 pub const STATUS_TAB_COST: usize = 0;

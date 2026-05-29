@@ -167,7 +167,7 @@ Stdio 路径:
     → SDK cx.send_notification() → stdout JSON-RPC
 ```
 
-**Stdio 路径约束**：Stdio 和 TUI 路径共享 `executor::execute_prompt()`，但请求入口和错误处理独立。Stdio 当前支持的方法：`session/new`、`session/prompt`、`session/cancel`、`session/compact`、`session/set_config_option`。缺失方法（如 `session/load`、`session/list`）会返回 "Method not found" 错误。新增 ACP 方法时必须检查两条路径是否都需要实现。
+**Stdio 路径约束**：Stdio 和 TUI 路径共享 `executor::execute_prompt()`，但请求入口和错误处理独立。Stdio 当前支持的方法：`session/new`、`session/prompt`、`session/cancel`、`session/set_config_option`。Slash Commands（如 `/compact`、`/clear`）通过 `session/prompt` 发送，两条路径天然统一。缺失方法（如 `session/load`、`session/list`）会返回 "Method not found" 错误。新增 ACP 方法时必须检查两条路径是否都需要实现。
 
 **[TRAP]** Stdio `initialize` 响应必须声明 session capabilities（与 TUI 路径的 `AcpServerConfig` 对齐），新增 capability 时必须同步更新 `StdioTransport` 的 initialize 响应。
 
@@ -225,24 +225,32 @@ session/new → chrono::Local::now() → frozen_date
 
 **ACP Server 请求处理**（`acp_server/requests.rs`）：
 - `initialize` → 协议握手，声明 session capabilities
-- `session/new` → 创建 session state，分配 session_id
-- `session/prompt` → 构建 Agent，执行，推送 `notifications/agent_event`
-- `session/compact` → 手动 compact（TUI），调用 `full_compact()` + `re_inject()`
+- `session/new` → 创建 session state，分配 session_id，推送 `AvailableCommandsUpdate`
+- `session/prompt` → Slash Commands（`/compact` 等）和普通 prompt 统一入口；executor 入口拦截 `/` 前缀命令
 - `session/set_model` → 模型切换（通过 peri_config.alias）
 - `session/set_mode` → 权限模式切换
 - `session/set_config_option` → 统一配置选项（mode/model/thinking_effort）
-- `session/set_thinking` → 推理模式配置（TUI）
 - `session/load` → 加载已有 session
 - `session/list` → 列出所有 session
 - `session/close` → 关闭 session
-- `session/clear` → 清除历史记录（TUI 专用）
 - `session/resume` → 按 ID 恢复 session
 - `session/fork` → 分叉 session
-- `$/cancel_request` → 取消当前 session 的 Agent 执行（TUI；stdio 侧用 `session/cancel`）
+- `session/cancel` → 取消当前 session 的 Agent 执行（notification，TUI 和 stdio 均使用）
+
+**ACP Slash Commands**（符合 https://agentclientprotocol.com/protocol/slash-commands）：
+- Agent 通过 `AvailableCommandsUpdate` 通知广播可用命令列表（`session/new` response + 增量更新）
+- Client 将 `/compact` 等命令作为 `session/prompt` 发送（text = `/compact`）
+- Executor 入口拦截 `/` 前缀，按 `CommandKind`（`Immediate`/`Passthrough`/`Transform`）分类执行
+- `Immediate` 命令（compact/clear）直接执行，不构建 agent；结果通过 EventSink 推送事件。**[TRAP]** Immediate 命令路径绕过 agent event pump，必须手动调用 `sink.push_done()` 发送 AgentDone 事件，否则 TUI 永久卡在 loading。新增 Immediate 命令时必须确保所有退出路径都调用了 push_done。（详见 spec/global/domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done）
+- `Passthrough` 命令（skill）透传给 agent，由 middleware 处理
+- TUI 通过 `agent_commands` HashSet（从 `AvailableCommandsUpdate` 学习）区分 UICommand 和 AgentCommand
+- `/clear` 保留为 UICommand（`app.new_thread()` 创建新 session），不走 ACP
 
 **依赖关系说明**：TUI 保留 `AgentEvent` 枚举和 `handle_agent_event()` 处理器（`agent_ops/mod.rs:handle_agent_event`）以复用 UI 逻辑。Config/LlmProvider 类型已统一（TUI re-export `peri-acp` 的定义）。Agent 执行逻辑通过 `EventSink` trait + `executor::execute_prompt()` 统一在 `peri-acp`，TUI 和 stdio 各自提供 EventSink 实现。`peri-tui/Cargo.toml` 保留 `peri-agent`/`peri-middlewares` 作为**类型依赖**（UI 渲染所需的 `BaseMessage`/`ContentBlock` 等类型），运行时通信仅通过 `peri-acp`。
 
 **[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`（内部调用 `peri_acp::agent::builder::build_agent()`）。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵——使用 `EventSink` 实现委托给 executor。`build_agent()` 每轮重建的大对象（LLM 实例、middleware）已通过 `AgentPool` session 级缓存复用，避免 jemalloc arena 碎片化。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
+
+**[TRAP]** TUI 层数据必须通过 ACP 协议到达 ACP 层，禁止直连。所有 TUI → ACP Server 的状态变更必须通过 `acp_client` 的协议方法（`new_session()`/`load_session()`/`prompt()`/`set_config_option()` 等）。TUI 本地清空状态（如 `new_thread()` 清空 `view_messages`/`agent_state_messages`/`pipeline`）不等于 ACP Server 端状态同步——必须同时通过 ACP 协议通知 Server 侧（如调用 `new_session()` 创建新 session）。违反此原则会导致 TUI 与 Server 状态不一致（如 `/clear` 后旧 history 泄漏到新对话）。（详见 spec/global/domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history）
 
 **[TRAP]** Session Config Options 覆盖旧的 Session Modes API。ACP 规范明确指出 `configOptions` 取代 `modes`/`models`，但过渡期内需同时发送两者以兼容旧客户端。IDE 客户端通过 `configOptions` 中条目的 `category` 字段决定渲染哪些 UI 控件：`category: "mode"` → 权限模式选择器，`category: "model"` → 模型下拉，`category: "thought_level"` → 推理强度。`build_config_options()` 必须按优先级顺序返回（mode → model → thinking_effort），`session/set_config_option` 处理器必须处理 `"mode"` 和 `"model"` config ID（除了已有的 `"thinking_effort"`）。仅发送 `modes`/`models` 而缺少对应 `configOptions` 条目的，已迁移到新 API 的 IDE 不会显示任何控件。
 
@@ -256,7 +264,7 @@ session/new → chrono::Local::now() → frozen_date
 
 **触发**：`CompactMiddleware::before_model` 在每轮 LLM 调用前检查 `ContextBudget`：0.70 micro-compact（清除 ≥5 步前的工具结果），0.85 full compact（LLM 生成摘要 + re_inject）。环境变量覆盖：`DISABLE_COMPACT`、`DISABLE_AUTO_COMPACT`、`COMPACT_THRESHOLD`（0.0-1.0）。
 
-**手动 /compact**：通过 ACP `session/compact` 请求 → `acp_server/compact.rs` → `full_compact()` + `re_inject()`。TUI 的 `/compact` 命令通过 `AcpTuiClient.compact()` 委托。
+**手动 /compact**：通过 ACP Slash Command `/compact` → `session/prompt` → executor 入口拦截 → `CompactCommand`（`peri-acp/src/session/command/compact.rs`）→ `full_compact()` + `re_inject()` → EventSink 推送 `CompactStarted`/`CompactCompleted` 事件。
 
 **核心文件**：
 | 文件 | 职责 |
@@ -270,7 +278,7 @@ session/new → chrono::Local::now() → frozen_date
 | `peri-middlewares/src/compact_middleware.rs` | `CompactMiddleware`：`before_model` 钩子，在 ReAct 循环内触发 compact。**[TRAP]** Micro compact 必须加 once-per-prompt 守卫（AtomicBool），否则每轮都重复触发。（详见 spec/global/domains/compact.md#issue_2026-05-23-micro-compact-repeated-triggering） |
 | `peri-acp/src/session/executor.rs` | executor 中 compact 触发判断（阈值检查） |
 | `peri-tui/src/acp_server/compact.rs` | 手动 compact 入口：`full_compact()` + `re_inject()` |
-| `peri-tui/src/command/session/compact.rs` | `/compact` 命令路由 |
+| `peri-tui/src/command/session/compact.rs` | 已删除（逻辑移至 `peri-acp/src/session/command/compact.rs`） |
 | `peri-tui/src/app/agent_compact.rs` | TUI 侧 compact 事件处理：pipeline 清理 + UI 通知 |
 
 **[TRAP]** `handle_compact_completed` 必须三步清理：① `pipeline.clear()` ② `pipeline.restore_completed(messages)` ③ `RebuildAll { prefix_len: 0 }`。缺少任一步都会导致旧消息残留或 system 消息泄漏到显示。`CompactCompleted` 事件必须携带 `messages: Vec<BaseMessage>`，TUI 用它更新 `agent_state_messages` 和 pipeline。禁止在 TUI 层触发 auto-compact——所有触发判断在 executor 内部。（详见 spec/global/domains/compact.md#issue_2026-05-20-compact-command-not-triggering）

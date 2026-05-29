@@ -79,10 +79,12 @@ pub enum AgentEvent {
         /// 唯一实例标识符
         instance_id: Option<String>,
     },
-    /// Token 使用量更新（从核心层 LlmCallEnd 映射而来）
+    /// Token 使用量更新（从 enriched UsageUpdate _meta 解析而来）
     TokenUsageUpdate {
         usage: peri_agent::llm::types::TokenUsage,
         model: String,
+        /// LLM 响应停止原因
+        stop_reason: Option<peri_agent::llm::types::StopReason>,
     },
     /// LLM 调用重试中（从核心层 LlmRetrying 映射而来）
     LlmRetrying {

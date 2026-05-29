@@ -1,19 +1,23 @@
 use std::any::Any;
 
-use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+use ratatui::{
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    layout::Rect,
+    Frame,
 };
-use ratatui::layout::Rect;
-use ratatui::Frame;
 use tui_textarea::Input;
 
 use peri_middlewares::mcp::ClientStatus;
 
 use crate::i18n::LcRegistry;
 
-use super::super::panel_component::PanelComponent;
-use super::super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::{App, DetailAction, McpPanel, McpPanelView};
+use super::{
+    super::{
+        panel_component::PanelComponent,
+        panel_manager::{EventResult, PanelContext, PanelKind},
+    },
+    App, DetailAction, McpPanel, McpPanelView,
+};
 
 impl PanelComponent for McpPanel {
     fn kind(&self) -> PanelKind {

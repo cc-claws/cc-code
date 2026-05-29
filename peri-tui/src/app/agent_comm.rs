@@ -1,9 +1,7 @@
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::messages::BaseMessage;
+use peri_agent::{agent::AgentCancellationToken, messages::BaseMessage};
 use tokio::sync::mpsc;
 
-use super::events::AgentEvent;
-use super::InteractionPrompt;
+use super::{events::AgentEvent, InteractionPrompt};
 use crate::acp_client::AcpNotification;
 
 type SharedToolRegistry = std::sync::Arc<
@@ -36,8 +34,9 @@ pub struct AgentComm {
     pub pending_hitl_items: Option<Vec<String>>,
     /// AskUser 是否已提交（用于广播 resolved）
     pub pending_ask_user: Option<bool>,
-    /// 持久化的 Agent 消息历史（多轮对话的上下文）
-    pub agent_state_messages: Vec<BaseMessage>,
+    /// TUI 侧的消息历史缓存（流式输出快照，非权威数据源）。
+    /// 权威持久化数据由 ACP server 的 state.history 维护。
+    pub origin_messages: Vec<BaseMessage>,
     /// 当前 Agent 的 ID（用于 AgentDefineMiddleware 加载 agent 定义）
     pub agent_id: Option<String>,
     /// 当前 Agent 任务的取消令牌（loading 时有效，Ctrl+C 触发）
@@ -98,7 +97,7 @@ impl Default for AgentComm {
             interaction_prompt: None,
             pending_hitl_items: None,
             pending_ask_user: None,
-            agent_state_messages: Vec::new(),
+            origin_messages: Vec::new(),
             agent_id: None,
             cancel_token: None,
             task_start_time: None,

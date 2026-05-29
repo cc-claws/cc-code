@@ -1,8 +1,7 @@
 pub mod file_search;
 pub mod popup;
 
-use std::collections::HashMap;
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use file_search::FileCandidate;
 use tokio_util::sync::CancellationToken;

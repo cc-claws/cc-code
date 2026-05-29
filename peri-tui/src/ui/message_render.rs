@@ -3,8 +3,10 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use super::message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory};
-use super::theme;
+use super::{
+    message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory},
+    theme,
+};
 
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
 /// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).

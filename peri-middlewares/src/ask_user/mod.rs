@@ -1,5 +1,4 @@
-use peri_agent::agent::react::ToolCall;
-use peri_agent::error::AgentError;
+use peri_agent::{agent::react::ToolCall, error::AgentError};
 
 // 从核心库导入 trait 和数据类型
 pub use peri_agent::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};

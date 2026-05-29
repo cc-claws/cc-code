@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::messages::{BaseMessage, ContentBlock};
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{
+    agent::state::State,
+    error::AgentResult,
+    messages::{BaseMessage, ContentBlock},
+    middleware::r#trait::Middleware,
+};
 
 use crate::skills::{list_skills, load_global_skills_dir};
 
@@ -178,8 +180,7 @@ impl<S: State> Middleware<S> for SkillPreloadMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use peri_agent::agent::state::AgentState;
-    use peri_agent::middleware::r#trait::Middleware;
+    use peri_agent::{agent::state::AgentState, middleware::r#trait::Middleware};
     use tempfile::tempdir;
     include!("skill_preload_test.rs");
 }

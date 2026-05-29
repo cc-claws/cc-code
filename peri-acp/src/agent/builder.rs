@@ -7,15 +7,18 @@
 //! 删除 TUI 特有依赖（AgentEvent channel、map_executor_event），
 //! 改为通过 `child_handler_factory` 参数从外部注入。
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
 
-use peri_agent::agent::compact::CompactConfig;
-use peri_agent::agent::events::{AgentEvent as ExecutorEvent, AgentEventHandler};
-use peri_agent::agent::token::ContextBudget;
-use peri_agent::llm::BaseModel;
+use peri_agent::{
+    agent::{
+        compact::CompactConfig,
+        events::{AgentEvent as ExecutorEvent, AgentEventHandler},
+        token::ContextBudget,
+    },
+    llm::BaseModel,
+};
 
 /// 子 Agent 事件 handler 工厂类型
 pub type ChildHandlerFactory = Arc<dyn Fn(String) -> Arc<dyn AgentEventHandler> + Send + Sync>;
@@ -28,19 +31,21 @@ pub type DeregisterRuntimeFn = Arc<dyn Fn(&str) + Send + Sync>;
 pub type SystemPromptBuilder = Arc<
     dyn Fn(Option<&peri_middlewares::agent_define::AgentOverrides>, &str) -> String + Send + Sync,
 >;
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::{AgentCancellationToken, ReActAgent};
-use peri_agent::interaction::{
-    ChannelBroker, ChannelState, MultiplexBroker, UserInteractionBroker,
+use peri_agent::{
+    agent::{state::AgentState, AgentCancellationToken, ReActAgent},
+    interaction::{ChannelBroker, ChannelState, MultiplexBroker, UserInteractionBroker},
+    llm::BaseModelReactLLM,
 };
-use peri_agent::llm::BaseModelReactLLM;
-use peri_middlewares::compact_middleware::CompactMiddleware;
-use peri_middlewares::prelude::*;
-use peri_middlewares::tools::{AskUserTool, TodoItem};
+use peri_middlewares::{
+    compact_middleware::CompactMiddleware,
+    prelude::*,
+    tools::{AskUserTool, TodoItem},
+};
 
-use crate::provider::config::PeriConfig;
-use crate::provider::LlmProvider;
-use crate::session::agent_pool::CachedLlmInstances;
+use crate::{
+    provider::{config::PeriConfig, LlmProvider},
+    session::agent_pool::CachedLlmInstances,
+};
 
 // ── 共享 Agent 构建（ACP 和 TUI 共用）─────────────────────────────────────────
 

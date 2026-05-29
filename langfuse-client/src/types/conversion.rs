@@ -1,5 +1,4 @@
-use super::otlp::*;
-use super::ObservationLevel;
+use super::{otlp::*, ObservationLevel};
 
 // ─── IngestionEvent → OTLP Spans ───────────────────────
 

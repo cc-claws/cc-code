@@ -1,6 +1,7 @@
 use super::*;
-use crate::plugin::types::PluginCommand;
-use crate::plugin::types::{InstallScope, InstalledPlugin, PluginAgent, PluginCommandEntry};
+use crate::plugin::types::{
+    InstallScope, InstalledPlugin, PluginAgent, PluginCommand, PluginCommandEntry,
+};
 use tempfile::tempdir;
 
 pub(crate) fn make_manifest_with_commands(commands: Vec<PluginCommand>) -> PluginManifest {

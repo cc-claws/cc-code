@@ -1,6 +1,8 @@
 use super::*;
-use crate::llm::types::StopReason;
-use crate::messages::{BaseMessage, ContentBlock, MessageContent};
+use crate::{
+    llm::types::StopReason,
+    messages::{BaseMessage, ContentBlock, MessageContent},
+};
 use serde_json::{json, Value};
 
 /// Reasoning block 默认被过滤（大多数 provider 不支持 thinking content type）

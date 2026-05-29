@@ -15,11 +15,12 @@ use ratatui::{
 use std::io;
 
 use peri_acp::transport::mpsc::mpsc_transport_pair;
-use peri_tui::acp_client::AcpTuiClient;
-use peri_tui::acp_server::{run_acp_server, AcpServerConfig};
-use peri_tui::app::App;
-use peri_tui::event;
-use peri_tui::ui;
+use peri_tui::{
+    acp_client::AcpTuiClient,
+    acp_server::{run_acp_server, AcpServerConfig},
+    app::App,
+    event, ui,
+};
 use std::sync::Arc;
 
 mod acp_stdio;
@@ -648,12 +649,8 @@ async fn run_app(
                         None
                     }
                 },
+                config_path: peri_tui::config::config_path(),
             };
-
-            // Store shared Arc references so config changes (setup wizard,
-            // login panel, model panel) can be synced into the ACP server.
-            app.services.acp_provider = Some(server_config.provider.clone());
-            app.services.acp_peri_config = Some(server_config.peri_config.clone());
 
             let (client_transport, server_transport) = mpsc_transport_pair();
             tokio::spawn(async move {

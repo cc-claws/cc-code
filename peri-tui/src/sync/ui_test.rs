@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::sync::protocol::SyncItems;
-    use crate::sync::ui;
+    use crate::sync::{protocol::SyncItems, ui};
 
     #[test]
     fn test_build_default_items_all_keys_present() {

@@ -1,16 +1,18 @@
-use crate::diagnostics::DiagnosticsRegistry;
-use crate::error::LspError;
-use crate::jsonrpc::transport::MessageDispatcher;
-use crate::jsonrpc::{JsonRpcNotification, JsonRpcRequest};
-use crate::protocol::notifications::{
-    did_change_notification, did_close_notification, did_open_notification, did_save_notification,
-    parse_publish_diagnostics,
+use crate::{
+    diagnostics::DiagnosticsRegistry,
+    error::LspError,
+    jsonrpc::{transport::MessageDispatcher, JsonRpcNotification, JsonRpcRequest},
+    protocol::{
+        notifications::{
+            did_change_notification, did_close_notification, did_open_notification,
+            did_save_notification, parse_publish_diagnostics,
+        },
+        requests::initialize_params,
+    },
 };
-use crate::protocol::requests::initialize_params;
 use parking_lot::RwLock;
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 /// LSP 服务器状态
 #[derive(Debug, Clone, PartialEq)]

@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use langfuse_client::{GenerationBody, IngestionEvent, ObservationBody, ObservationType, SpanBody};
-use peri_agent::llm::types::TokenUsage;
-use peri_agent::messages::BaseMessage;
-use peri_agent::tools::ToolDefinition;
+use peri_agent::{llm::types::TokenUsage, messages::BaseMessage, tools::ToolDefinition};
 
 use super::session::LangfuseSession;
 

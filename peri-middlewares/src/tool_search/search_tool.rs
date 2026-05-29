@@ -6,8 +6,7 @@ use async_trait::async_trait;
 use peri_agent::tools::BaseTool;
 use serde_json::{json, Value};
 
-use super::core_tools::SEARCH_EXTRA_TOOLS_NAME;
-use super::tool_index::ToolSearchIndex;
+use super::{core_tools::SEARCH_EXTRA_TOOLS_NAME, tool_index::ToolSearchIndex};
 
 /// 搜索延迟加载工具的元工具
 ///

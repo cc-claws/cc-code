@@ -1,14 +1,17 @@
 use std::any::Any;
 
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{layout::Rect, Frame};
 use tui_textarea::Input;
 
 use crate::i18n::LcRegistry;
 
-use super::super::panel_component::PanelComponent;
-use super::super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::{App, LoginEditField, LoginPanel, LoginPanelMode};
+use super::{
+    super::{
+        panel_component::PanelComponent,
+        panel_manager::{EventResult, PanelContext, PanelKind},
+    },
+    App, LoginEditField, LoginPanel, LoginPanelMode,
+};
 
 impl PanelComponent for LoginPanel {
     fn kind(&self) -> PanelKind {
@@ -62,7 +65,13 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
-                    ctx.services.sync_peri_config_to_acp();
+                    if let Some(ref acp_client) = ctx.acp_client {
+                        let acp = acp_client.clone();
+                        let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
+                        tokio::spawn(async move {
+                            let _ = acp.update_config(&cfg).await;
+                        });
+                    }
                     EventResult::ClosePanel
                 }
                 Input {
@@ -207,7 +216,13 @@ impl PanelComponent for LoginPanel {
                             ctx.services.provider_name = p.display_name().to_string();
                             ctx.services.model_name = p.model_name().to_string();
                         }
-                        ctx.services.sync_peri_config_to_acp();
+                        if let Some(ref acp_client) = ctx.acp_client {
+                            let acp = acp_client.clone();
+                            let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
+                            tokio::spawn(async move {
+                                let _ = acp.update_config(&cfg).await;
+                            });
+                        }
                         EventResult::ClosePanel
                     }
                     _ => {
@@ -255,7 +270,13 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
-                    ctx.services.sync_peri_config_to_acp();
+                    if let Some(ref acp_client) = ctx.acp_client {
+                        let acp = acp_client.clone();
+                        let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
+                        tokio::spawn(async move {
+                            let _ = acp.update_config(&cfg).await;
+                        });
+                    }
                     EventResult::Consumed
                 }
                 Input { key: Key::Esc, .. } => {

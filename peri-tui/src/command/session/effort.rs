@@ -1,7 +1,6 @@
-use crate::app::App;
-use crate::command::Command;
-use crate::config::ThinkingConfig;
-use crate::ui::message_view::MessageViewModel;
+use crate::{
+    app::App, command::Command, config::ThinkingConfig, ui::message_view::MessageViewModel,
+};
 
 pub struct EffortCommand;
 
@@ -48,7 +47,13 @@ impl Command for EffortCommand {
                     .messages
                     .view_messages
                     .push(vm);
-                app.services.sync_peri_config_to_acp();
+                if let Some(ref acp_client) = app.acp_client {
+                    let acp = acp_client.clone();
+                    let val = arg.clone();
+                    tokio::spawn(async move {
+                        let _ = acp.set_config_option("thinking_effort", &val).await;
+                    });
+                }
                 app.render_rebuild();
             }
             _ => {

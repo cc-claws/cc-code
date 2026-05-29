@@ -7,10 +7,10 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::agent_panel::AgentPanel;
-use crate::app::App;
-use crate::ui::main_ui::highlight_line_spans;
-use crate::ui::theme;
+use crate::{
+    app::{agent_panel::AgentPanel, App},
+    ui::{main_ui::highlight_line_spans, theme},
+};
 
 /// /agents 面板渲染（底部展开区）
 pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut App, area: Rect) {
@@ -181,7 +181,6 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
 
 #[cfg(test)]
 mod tests {
-    use crate::app::agent_panel::AgentPanel;
-    use crate::app::App;
+    use crate::app::{agent_panel::AgentPanel, App};
     include!("agent_test.rs");
 }

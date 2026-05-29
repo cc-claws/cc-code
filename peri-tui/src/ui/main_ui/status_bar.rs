@@ -6,8 +6,10 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{AgentPanel, App};
-use crate::ui::theme;
+use crate::{
+    app::{AgentPanel, App},
+    ui::theme,
+};
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::default()

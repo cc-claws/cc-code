@@ -17,14 +17,20 @@ mod state;
 pub use model_email::get_attribution_email;
 pub use state::AttributionState;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
-use peri_agent::agent::react::{ToolCall, ToolResult};
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::middleware::Middleware;
+use peri_agent::{
+    agent::{
+        react::{ToolCall, ToolResult},
+        state::State,
+    },
+    error::AgentResult,
+    middleware::Middleware,
+};
 
 /// Git 留名中间件
 ///

@@ -1,16 +1,20 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use peri_agent::agent::events::{AgentEvent, AgentEventHandler};
-use peri_agent::agent::state::AgentState;
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{
+    agent::{
+        events::{AgentEvent, AgentEventHandler},
+        state::AgentState,
+    },
+    middleware::r#trait::Middleware,
+};
 
-use crate::agents_md::AgentsMdMiddleware;
-use crate::hooks::types::{HookEvent, RegisteredHook};
-use crate::middleware::todo::TodoMiddleware;
-use crate::skills::SkillsMiddleware;
-use crate::subagent::skill_preload::SkillPreloadMiddleware;
-use crate::subagent::SubAgentMiddlewareConfig;
+use crate::{
+    agents_md::AgentsMdMiddleware,
+    hooks::types::{HookEvent, RegisteredHook},
+    middleware::todo::TodoMiddleware,
+    skills::SkillsMiddleware,
+    subagent::{skill_preload::SkillPreloadMiddleware, SubAgentMiddlewareConfig},
+};
 use tokio::sync::mpsc;
 
 /// 事件处理器包装器：为子 Agent 事件注入 source_agent_id

@@ -1,8 +1,6 @@
 use peri_middlewares::mcp::{ConfigSource, Resource, ServerInfo, Tool};
 
-use super::panel_list::PanelList;
-use super::AgentEvent;
-use super::App;
+use super::{panel_list::PanelList, AgentEvent, App};
 
 mod component;
 mod ops;

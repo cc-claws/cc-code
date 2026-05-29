@@ -139,6 +139,16 @@ pub fn claude_settings_path() -> PathBuf {
     claude_home().join("settings.json")
 }
 
+/// 确保插件系统所需的所有子目录存在（无 CC 环境下的首次启动保障）
+pub fn ensure_plugin_dirs() {
+    let dirs = [plugins_dir(), marketplaces_cache_dir(), plugin_cache_dir()];
+    for dir in dirs {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::warn!(path = %dir.display(), error = %e, "创建插件目录失败");
+        }
+    }
+}
+
 fn atomic_write_json(path: &Path, data: &serde_json::Value) -> Result<(), PluginConfigError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| PluginConfigError::WriteError {

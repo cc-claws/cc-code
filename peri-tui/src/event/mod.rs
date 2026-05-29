@@ -9,8 +9,7 @@ pub mod keyboard;
 mod macros;
 pub mod mouse;
 
-use crate::with_global_panels;
-use crate::with_session_panels;
+use crate::{with_global_panels, with_session_panels};
 
 use anyhow::Result;
 use ratatui::crossterm::event::{
@@ -19,8 +18,10 @@ use ratatui::crossterm::event::{
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
-use crate::app::panel_manager::{EventResult, PanelKind};
-use crate::app::App;
+use crate::app::{
+    panel_manager::{EventResult, PanelKind},
+    App,
+};
 
 // ── Action ──────────────────────────────────────────────────────────────────
 

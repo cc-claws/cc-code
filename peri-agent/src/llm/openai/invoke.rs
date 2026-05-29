@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::super::BaseModel;
-use super::ChatOpenAI;
-use crate::error::{AgentError, AgentResult};
-use crate::llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
-use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
+use super::{super::BaseModel, ChatOpenAI};
+use crate::{
+    error::{AgentError, AgentResult},
+    llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext},
+    messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest},
+};
 
 fn block_to_openai_part(block: &ContentBlock, supports_thinking_content: bool) -> Option<Value> {
     match block {

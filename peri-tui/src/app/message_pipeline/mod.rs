@@ -18,13 +18,14 @@
 //! 但在 "finalize 边界"（ToolStart / ToolEnd / Done）会 reconcile 最后的
 //! AssistantBubble，确保最终状态与 restore 路径完全一致。
 
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use peri_agent::messages::{BaseMessage, ToolCallRequest};
 
-use crate::app::events::AgentEvent;
-use crate::app::tool_display;
+use crate::app::{events::AgentEvent, tool_display};
 #[allow(unused_imports)]
 use crate::ui::message_view::{aggregate_tool_groups, ContentBlockView, MessageViewModel};
 

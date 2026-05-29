@@ -1,8 +1,9 @@
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
-use crate::hooks::types::{HooksConfig, RegisteredHook};
-use crate::plugin::types::PluginManifest;
+use crate::{
+    hooks::types::{HooksConfig, RegisteredHook},
+    plugin::types::PluginManifest,
+};
 
 /// Extract hooks config from a plugin.
 ///

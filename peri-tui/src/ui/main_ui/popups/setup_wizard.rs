@@ -8,10 +8,12 @@ use ratatui::{
 
 use peri_widgets::BorderedPanel;
 
-use crate::app::setup_wizard::{
-    FormField, FormMode, SetupSource, SetupStep, SetupWizardPanel, LANGUAGE_OPTIONS,
+use crate::{
+    app::setup_wizard::{
+        FormField, FormMode, SetupSource, SetupStep, SetupWizardPanel, LANGUAGE_OPTIONS,
+    },
+    ui::theme,
 };
-use crate::ui::theme;
 
 /// Setup 向导全屏渲染入口
 pub(crate) fn render_setup_wizard(f: &mut Frame, app: &crate::app::App) {
@@ -606,7 +608,6 @@ fn mask_api_key(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::setup_wizard::SetupWizardPanel;
-    use crate::app::App;
+    use crate::app::{setup_wizard::SetupWizardPanel, App};
     include!("setup_wizard_test.rs");
 }

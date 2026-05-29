@@ -1,11 +1,15 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::super::BaseModel;
-use super::cache::{self, SystemPromptBlock, SYSTEM_PROMPT_DYNAMIC_BOUNDARY};
-use crate::error::{AgentError, AgentResult};
-use crate::llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
-use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
+use super::{
+    super::BaseModel,
+    cache::{self, SystemPromptBlock, SYSTEM_PROMPT_DYNAMIC_BOUNDARY},
+};
+use crate::{
+    error::{AgentError, AgentResult},
+    llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext},
+    messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest},
+};
 
 // ─── ContentBlock → Anthropic content part ────────────────────────────────
 

@@ -1,6 +1,8 @@
 use async_trait::async_trait;
-use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent};
-use peri_agent::prelude::*;
+use peri_agent::{
+    messages::{BaseMessage, ContentBlock, MessageContent},
+    prelude::*,
+};
 
 // ── 辅助工具（实现 BaseTool trait） ────────────────────────────────────────────
 

@@ -1,7 +1,8 @@
 use super::*;
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::token::ContextBudget;
-use peri_agent::messages::{BaseMessage, ContentBlock};
+use peri_agent::{
+    agent::{state::AgentState, token::ContextBudget},
+    messages::{BaseMessage, ContentBlock},
+};
 use std::sync::Arc;
 
 fn make_state() -> AgentState {

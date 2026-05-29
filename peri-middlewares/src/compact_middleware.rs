@@ -3,23 +3,28 @@
 //! `before_model` 钩子: 每轮 LLM 调用前检查 token 阈值，超过时执行
 //! micro/full compact。compact 后不改变控制流，ReAct 循环自然继续。
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use peri_agent::agent::compact::config::CompactConfig;
-use peri_agent::agent::compact::{full_compact, micro_compact_enhanced, re_inject};
-use peri_agent::agent::events::{AgentEvent as ExecutorEvent, CompactFileInfo};
-use peri_agent::agent::state::State;
-use peri_agent::agent::token::ContextBudget;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::error::AgentResult;
-use peri_agent::llm::BaseModel;
-use peri_agent::messages::BaseMessage;
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{
+    agent::{
+        compact::{config::CompactConfig, full_compact, micro_compact_enhanced, re_inject},
+        events::{AgentEvent as ExecutorEvent, CompactFileInfo},
+        state::State,
+        token::ContextBudget,
+        AgentCancellationToken,
+    },
+    error::AgentResult,
+    llm::BaseModel,
+    messages::BaseMessage,
+    middleware::r#trait::Middleware,
+};
 
 use crate::hooks::{self, RegisteredHook};
 

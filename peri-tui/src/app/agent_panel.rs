@@ -1,18 +1,20 @@
 use std::any::Any;
 
-use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+use ratatui::{
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    layout::Rect,
+    Frame,
 };
-use ratatui::layout::Rect;
-use ratatui::Frame;
 use tui_textarea::Input;
 
 use crate::command::agents::AgentItem;
 
-use super::panel_component::PanelComponent;
-use super::panel_list::PanelList;
-use super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::App;
+use super::{
+    panel_component::PanelComponent,
+    panel_list::PanelList,
+    panel_manager::{EventResult, PanelContext, PanelKind},
+    App,
+};
 
 /// AgentPanel 内部用占位单元管理 cursor/scroll，实际 agent 数据在 agents 字段
 #[derive(Clone)]

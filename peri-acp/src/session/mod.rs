@@ -5,36 +5,32 @@
 
 pub mod agent_pool;
 pub mod agent_runtime;
+pub mod command;
 pub mod event_sink;
 pub mod executor;
 pub mod state_builders;
 
-use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use agent_client_protocol::schema::RequestId;
 use chrono::Utc;
 use dashmap::DashMap;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
-use peri_middlewares::agent_define::AgentOverrides;
-use peri_middlewares::prelude::{PermissionMode, SharedPermissionMode};
-use tokio::sync::oneshot;
+use peri_agent::{
+    messages::BaseMessage,
+    thread::{ThreadId, ThreadMeta, ThreadStore},
+};
+use peri_middlewares::{
+    agent_define::AgentOverrides,
+    prelude::{PermissionMode, SharedPermissionMode},
+};
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::config::{PeriConfig, ThinkingConfig};
-use crate::provider::LlmProvider;
-use crate::session::agent_runtime::{AgentRuntime, CancelPolicy};
-
-/// Entry in the pending requests table, keyed by JSON-RPC request ID.
-#[derive(Debug)]
-pub struct PendingRequestEntry {
-    /// Channel to signal cancellation to the request awaiter.
-    pub cancel_tx: oneshot::Sender<()>,
-    /// Monotonic generation counter for this session's pending requests.
-    pub generation: u64,
-}
+use crate::{
+    provider::{
+        config::{PeriConfig, ThinkingConfig},
+        LlmProvider,
+    },
+    session::agent_runtime::{AgentRuntime, CancelPolicy},
+};
 
 pub struct AcpSession {
     pub session_id: String,
@@ -51,11 +47,6 @@ pub struct AcpSession {
     pub permission_mode: Arc<SharedPermissionMode>,
     /// 每会话独立的 thinking 配置
     pub thinking: Option<ThinkingConfig>,
-    /// Pending JSON-RPC requests that can be cancelled via $/cancel_request.
-    /// Keyed by the request's `RequestId`.
-    pub pending_requests: DashMap<RequestId, PendingRequestEntry>,
-    /// Monotonic counter for assigning generations to pending requests.
-    pub pending_gen: AtomicU64,
     /// 运行时 agent 实例（根 agent + 子 agent）
     pub active_agents: HashMap<ThreadId, AgentRuntime>,
 }
@@ -144,8 +135,6 @@ impl SessionManager {
             model_alias,
             permission_mode: SharedPermissionMode::new(PermissionMode::AutoMode),
             thinking,
-            pending_requests: DashMap::new(),
-            pending_gen: AtomicU64::new(0),
             active_agents: HashMap::new(),
         };
 
@@ -165,8 +154,6 @@ impl SessionManager {
             model_alias: self.inner.peri_config.config.active_alias.clone(),
             permission_mode: SharedPermissionMode::new(PermissionMode::AutoMode),
             thinking: self.inner.peri_config.config.thinking.clone(),
-            pending_requests: DashMap::new(),
-            pending_gen: AtomicU64::new(0),
             active_agents: HashMap::new(),
         }
     }
@@ -219,39 +206,7 @@ impl SessionManager {
             // CancellationToken has no reset() — once cancelled it stays cancelled.
             session.cancel_token.cancel();
             session.cancel_token = CancellationToken::new();
-
-            // Cancel all pending per-request operations so the
-            // tokio::select! in the permission forwarding loop unblocks.
-            let keys: Vec<RequestId> = session
-                .pending_requests
-                .iter()
-                .map(|e| e.key().clone())
-                .collect();
-            for key in keys {
-                if let Some((_, entry)) = session.pending_requests.remove(&key) {
-                    let _ = entry.cancel_tx.send(());
-                }
-            }
         }
-    }
-
-    /// Handle a $/cancel_request notification by looking up the target
-    /// request ID and cancelling it. Returns the session_id if found.
-    pub fn cancel_pending_request(&self, request_id: &RequestId) -> Option<String> {
-        for entry in self.inner.sessions.iter() {
-            if let Some((_, pending)) = entry.pending_requests.remove(request_id) {
-                let _ = pending.cancel_tx.send(());
-                tracing::info!(
-                    session_id = %entry.key(),
-                    ?request_id,
-                    generation = pending.generation,
-                    "ACP per-request cancellation applied"
-                );
-                return Some(entry.key().clone());
-            }
-        }
-        tracing::warn!(?request_id, "$/cancel_request: unknown request ID");
-        None
     }
 
     pub fn provider(&self) -> &LlmProvider {

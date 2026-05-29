@@ -1,8 +1,12 @@
 use super::*;
-use crate::agent::react::{AgentInput, Reasoning};
-use crate::agent::state::AgentState;
-use crate::messages::BaseMessage;
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        react::{AgentInput, Reasoning},
+        state::AgentState,
+    },
+    messages::BaseMessage,
+    tools::BaseTool,
+};
 use std::time::{Duration, Instant};
 
 // ─── Mock LLM：第一步返回两个并发工具调用，第二步返回最终答案 ───────────
@@ -567,8 +571,7 @@ async fn test_execute_no_system_accumulation_across_calls() {
 /// 验证 TextChunk/ToolStart/ToolEnd 序列化后含 message_id 字段
 #[test]
 fn test_agent_event_message_id_serialization() {
-    use crate::agent::events::AgentEvent;
-    use crate::messages::MessageId;
+    use crate::{agent::events::AgentEvent, messages::MessageId};
 
     let mid = MessageId::new();
 
@@ -1191,8 +1194,10 @@ async fn test_state_snapshot_no_overlap() {
 /// 被 prepend 的 System 消息。这些消息不应泄露到 agent_state_messages。
 #[tokio::test]
 async fn test_state_snapshot_excludes_system_messages() {
-    use crate::agent::events::{AgentEvent, FnEventHandler};
-    use crate::middleware::r#trait::Middleware;
+    use crate::{
+        agent::events::{AgentEvent, FnEventHandler},
+        middleware::r#trait::Middleware,
+    };
     use std::sync::{Arc, Mutex};
 
     struct AnswerLLM;

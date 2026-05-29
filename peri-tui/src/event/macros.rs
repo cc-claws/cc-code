@@ -9,6 +9,7 @@ macro_rules! with_global_panels {
         let mut $ctx = $crate::app::panel_manager::PanelContext {
             services: &mut $app.services,
             session_mgr: &mut $app.session_mgr,
+            acp_client: $app.acp_client.clone(),
         };
         let result = { $body };
         $app.global_panels = $pm;
@@ -28,6 +29,7 @@ macro_rules! with_session_panels {
         let mut $ctx = $crate::app::panel_manager::PanelContext {
             services: &mut $app.services,
             session_mgr: &mut $app.session_mgr,
+            acp_client: $app.acp_client.clone(),
         };
         let result = { $body };
         $app.session_mgr.sessions[active_idx].session_panels = $sp;

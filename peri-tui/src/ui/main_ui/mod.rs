@@ -15,8 +15,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
-use crate::ui::theme;
+use crate::{app::App, ui::theme};
 
 pub fn render(f: &mut Frame, app: &mut App) {
     // Setup 向导：全屏覆盖，优先于所有正常界面

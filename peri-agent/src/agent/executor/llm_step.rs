@@ -1,13 +1,17 @@
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use crate::agent::events::AgentEvent;
-use crate::agent::react::{ReactLLM, Reasoning};
-use crate::agent::state::State;
-use crate::error::{AgentError, AgentResult};
-use crate::llm::types::StreamingContext;
-use crate::messages::MessageId;
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        events::AgentEvent,
+        react::{ReactLLM, Reasoning},
+        state::State,
+    },
+    error::{AgentError, AgentResult},
+    llm::types::StreamingContext,
+    messages::MessageId,
+    tools::BaseTool,
+};
 
 use super::ReActAgent;
 
@@ -55,6 +59,7 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
                         model: agent.llm.model_name(),
                         output: format!("ERROR: {}", e),
                         usage: None,
+                        stop_reason: None,
                     });
                     agent.chain.run_on_error(state, &e).await?;
                     return Err(e);
@@ -73,6 +78,7 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
             model: agent.llm.model_name(),
             output: llm_output,
             usage: reasoning.usage.clone(),
+            stop_reason: Some(reasoning.stop_reason.clone()),
         });
         // 自动累积 token 用量到 state
         if let Some(ref usage) = reasoning.usage {

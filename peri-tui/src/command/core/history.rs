@@ -1,5 +1,7 @@
-use crate::app::{App, MessageViewModel};
-use crate::command::Command;
+use crate::{
+    app::{App, MessageViewModel},
+    command::Command,
+};
 
 pub struct HistoryCommand;
 

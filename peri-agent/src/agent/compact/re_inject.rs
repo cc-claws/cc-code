@@ -1,5 +1,4 @@
-use crate::agent::compact::config::CompactConfig;
-use crate::messages::BaseMessage;
+use crate::{agent::compact::config::CompactConfig, messages::BaseMessage};
 use std::path::Path;
 use tracing::{debug, warn};
 

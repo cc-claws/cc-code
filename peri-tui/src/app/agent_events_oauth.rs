@@ -1,6 +1,4 @@
-use super::events::OAuthCallbackResult;
-use super::message_pipeline::PipelineAction;
-use super::*;
+use super::{events::OAuthCallbackResult, message_pipeline::PipelineAction, *};
 
 impl App {
     pub(crate) fn handle_oauth_needed(

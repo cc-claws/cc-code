@@ -1,12 +1,15 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
-use rmcp::model::{Resource, Tool};
-use rmcp::service::{Peer, QuitReason, RoleClient, RunningService, ServiceError};
+use rmcp::{
+    model::{Resource, Tool},
+    service::{Peer, QuitReason, RoleClient, RunningService, ServiceError},
+};
 
-use super::channel_handler::ChannelHandler;
-use super::config::{ConfigSource, McpServerConfig};
+use super::{
+    channel_handler::ChannelHandler,
+    config::{ConfigSource, McpServerConfig},
+};
 
 /// Wrapper for RunningService that can hold either handler type
 pub(crate) enum McpServiceWrapper {

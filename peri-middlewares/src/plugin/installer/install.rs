@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use crate::plugin::config::{load_installed_plugins, load_plugin_manifest, save_installed_plugins};
-use crate::plugin::types::{InstallScope, InstalledPlugin};
+use crate::plugin::{
+    config::{load_installed_plugins, load_plugin_manifest, save_installed_plugins},
+    types::{InstallScope, InstalledPlugin},
+};
 
 use super::{
     copy_dir_recursive, generate_synthetic_manifest, get_marketplace_manifest, match_project_path,

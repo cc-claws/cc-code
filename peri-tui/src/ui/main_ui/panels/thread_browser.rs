@@ -10,10 +10,11 @@ use ratatui::{
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::app::App;
-use crate::thread::ThreadBrowser;
-use crate::ui::main_ui::highlight_line_spans;
-use crate::ui::theme;
+use crate::{
+    app::App,
+    thread::ThreadBrowser,
+    ui::{main_ui::highlight_line_spans, theme},
+};
 
 /// 搜索框 + 空行占用的固定高度
 const SEARCH_OVERHEAD: u16 = 4; // 3 行搜索框 + 1 行空行

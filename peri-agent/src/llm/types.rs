@@ -1,5 +1,4 @@
-use crate::messages::BaseMessage;
-use crate::tools::ToolDefinition;
+use crate::{messages::BaseMessage, tools::ToolDefinition};
 use tokio_util::sync::CancellationToken;
 
 /// LLM 请求
@@ -73,7 +72,7 @@ pub struct LlmResponse {
 }
 
 /// 停止原因
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum StopReason {
     EndTurn,
     ToolUse,
@@ -81,8 +80,29 @@ pub enum StopReason {
     Other(String),
 }
 
-use crate::agent::events::AgentEventHandler;
-use crate::messages::MessageId;
+impl StopReason {
+    pub fn from_display(s: &str) -> Self {
+        match s {
+            "end_turn" => StopReason::EndTurn,
+            "tool_use" => StopReason::ToolUse,
+            "max_tokens" => StopReason::MaxTokens,
+            other => StopReason::Other(other.to_string()),
+        }
+    }
+}
+
+impl std::fmt::Display for StopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StopReason::EndTurn => write!(f, "end_turn"),
+            StopReason::ToolUse => write!(f, "tool_use"),
+            StopReason::MaxTokens => write!(f, "max_tokens"),
+            StopReason::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+use crate::{agent::events::AgentEventHandler, messages::MessageId};
 use std::sync::Arc;
 
 /// 流式输出上下文，由 Executor 注入到 LLM 适配器。

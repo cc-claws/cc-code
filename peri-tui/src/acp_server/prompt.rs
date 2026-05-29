@@ -1,26 +1,24 @@
 //! ACP Prompt execution — builds and executes the agent via peri_acp::executor.
 //! Extracted from original acp_server.rs (2026-05-20 split).
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
 use serde_json::Value;
 use tracing::info;
 
-use peri_acp::broker::AcpTransportBroker;
-use peri_acp::langfuse::LangfuseSession;
-use peri_acp::session::event_sink::TransportEventSink;
-use peri_acp::session::executor;
-use peri_acp::transport::types::AcpError;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::interaction::ChannelState;
+use peri_acp::{
+    broker::AcpTransportBroker,
+    langfuse::LangfuseSession,
+    session::{event_sink::TransportEventSink, executor},
+    transport::types::AcpError,
+};
+use peri_agent::{agent::AgentCancellationToken, interaction::ChannelState};
 use peri_middlewares::prelude::*;
 
 use agent_client_protocol::schema::{PromptResponse, StopReason};
 
-use crate::app::agent::LlmProvider;
-use crate::config::PeriConfig;
+use crate::{app::agent::LlmProvider, config::PeriConfig};
 
 use super::SharedSessions;
 
@@ -177,12 +175,12 @@ pub(crate) async fn execute_prompt(
                     }
                 }
                 state.history = result.messages;
-            } else if result.stop_reason == executor::PromptStopReason::Cancelled
-                && result.messages.len() > history_len + 1
-            {
-                // Cancelled but agent made progress (user msg + AI/tool messages beyond
+            } else if result.messages.len() > history_len + 1 {
+                // Error/cancel but agent made progress (user msg + AI/tool messages beyond
                 // just the user message). Preserve history so the agent remembers the
-                // interrupted round's context on the next prompt.
+                // interrupted round's context on the next prompt. Covers all error paths:
+                // LLM stream errors, HTTP errors, tool failures, middleware errors,
+                // MaxIterationsExceeded, and Ctrl+C cancel.
                 //
                 // NOTE: execute() skips cleanup_prepended on error paths (? propagation),
                 // so result.messages may contain leaked system prepends at the beginning.

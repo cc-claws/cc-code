@@ -1,4 +1,4 @@
-use super::PeriConfig;
+use super::config::PeriConfig;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ pub fn workspace_config_path() -> Option<PathBuf> {
 /// 加载配置（全局 + 工作区合并），文件不存在时返回默认空配置
 ///
 /// 先加载 ~/.peri/settings.json 获取全局配置，
-/// 再检测当前工作目录的 .peri/settings.json 是否存在，
+/// 再检测当��工作目录的 .peri/settings.json 是否存在，
 /// 若存在则加载并以工作区字段覆盖全局对应字段。
 pub fn load() -> Result<PeriConfig> {
     let mut merged = load_from(&config_path())?;
@@ -67,3 +67,7 @@ pub fn save_to(cfg: &PeriConfig, path: &Path) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "store_test.rs"]
+mod store_tests;

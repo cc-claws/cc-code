@@ -4,8 +4,7 @@
 use super::super::*;
 use tracing::debug;
 
-use crate::app::message_pipeline::PipelineAction;
-use crate::app::App;
+use crate::app::{message_pipeline::PipelineAction, App};
 
 impl App {
     /// Shared agent state teardown for Done, Error, and Disconnected paths.
@@ -245,13 +244,13 @@ impl App {
                 .view_messages
                 .len();
             tracing::info!(view_len_after, "handle_interrupted: after RebuildAll");
-            // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
+            // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
             let pre_len = self.session_mgr.sessions[self.session_mgr.active]
                 .metadata
                 .pre_submit_state_len;
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .agent_state_messages
+                .origin_messages
                 .truncate(pre_len);
             // 恢复文本到输入框
             let mut ta = crate::app::build_textarea(false);
@@ -275,7 +274,7 @@ impl App {
                 .done();
             let restored = self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .agent_state_messages
+                .origin_messages
                 .clone();
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages

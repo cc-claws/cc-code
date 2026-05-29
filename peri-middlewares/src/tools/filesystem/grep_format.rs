@@ -1,6 +1,10 @@
-use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::Cell,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+};
 
 use grep::searcher::{Searcher, Sink, SinkContext, SinkContextKind, SinkMatch};
 

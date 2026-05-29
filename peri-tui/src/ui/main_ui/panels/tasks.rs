@@ -7,10 +7,13 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::tasks_panel::{TasksPanel, TasksTab};
-use crate::app::App;
-use crate::ui::main_ui::highlight_line_spans;
-use crate::ui::theme;
+use crate::{
+    app::{
+        tasks_panel::{TasksPanel, TasksTab},
+        App,
+    },
+    ui::{main_ui::highlight_line_spans, theme},
+};
 
 /// TasksPanel 渲染
 pub(crate) fn render_tasks_panel(f: &mut Frame, panel: &mut TasksPanel, app: &mut App, area: Rect) {

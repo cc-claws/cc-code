@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use peri_agent::agent::react::ToolCall;
-use peri_agent::agent::state::State;
-use peri_agent::error::{AgentError, AgentResult};
-use peri_agent::interaction::{
-    ApprovalDecision, ApprovalItem, InteractionContext, InteractionResponse, UserInteractionBroker,
+use peri_agent::{
+    agent::{react::ToolCall, state::State},
+    error::{AgentError, AgentResult},
+    interaction::{
+        ApprovalDecision, ApprovalItem, InteractionContext, InteractionResponse,
+        UserInteractionBroker,
+    },
+    middleware::r#trait::Middleware,
 };
-use peri_agent::middleware::r#trait::Middleware;
 
 pub mod auto_classifier;
 pub mod shared_mode;

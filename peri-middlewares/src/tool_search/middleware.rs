@@ -1,19 +1,17 @@
 //! ToolSearchMiddleware — 注册元工具并注入延迟工具列表到 system prompt
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::messages::BaseMessage;
-use peri_agent::middleware::r#trait::Middleware;
-use peri_agent::tools::BaseTool;
+use peri_agent::{
+    agent::state::State, error::AgentResult, messages::BaseMessage,
+    middleware::r#trait::Middleware, tools::BaseTool,
+};
 
-use super::execute_tool::ExecuteExtraTool;
-use super::search_tool::SearchExtraTools;
-use super::tool_index::ToolSearchIndex;
+use super::{
+    execute_tool::ExecuteExtraTool, search_tool::SearchExtraTools, tool_index::ToolSearchIndex,
+};
 
 /// ToolSearch 中间件
 ///

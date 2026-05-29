@@ -7,11 +7,13 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::plugin_panel::{
-    MarketplaceViewStatus, PluginItemType, PluginPanel, PluginPanelView,
+use crate::{
+    app::{
+        plugin_panel::{MarketplaceViewStatus, PluginItemType, PluginPanel, PluginPanelView},
+        App,
+    },
+    ui::theme,
 };
-use crate::app::App;
-use crate::ui::theme;
 
 use peri_middlewares::plugin::InstallScope;
 

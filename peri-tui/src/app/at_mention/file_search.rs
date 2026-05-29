@@ -1,5 +1,4 @@
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 use std::path::Path;
 
 /// 文件搜索候选结果

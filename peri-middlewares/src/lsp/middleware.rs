@@ -1,13 +1,19 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use peri_agent::agent::react::{ToolCall, ToolResult};
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::middleware::Middleware;
-use peri_agent::tools::BaseTool;
-use peri_lsp::config::{LspConfigFile, LspServerConfig};
-use peri_lsp::pool::LspServerPool;
+use peri_agent::{
+    agent::{
+        react::{ToolCall, ToolResult},
+        state::State,
+    },
+    error::AgentResult,
+    middleware::Middleware,
+    tools::BaseTool,
+};
+use peri_lsp::{
+    config::{LspConfigFile, LspServerConfig},
+    pool::LspServerPool,
+};
 
 use super::tool::LspTool;
 

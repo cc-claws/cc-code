@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 
 use super::BaseModel;
-use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
-use crate::error::AgentResult;
-use crate::llm::types::{LlmRequest, StopReason, StreamingContext};
-use crate::messages::{BaseMessage, ContentBlock};
-use crate::tools::BaseTool;
+use crate::{
+    agent::react::{ReactLLM, Reasoning, ToolCall},
+    error::AgentResult,
+    llm::types::{LlmRequest, StopReason, StreamingContext},
+    messages::{BaseMessage, ContentBlock},
+    tools::BaseTool,
+};
 
 /// BaseModelReactLLM - 将 BaseModel 适配为 ReactLLM
 pub struct BaseModelReactLLM {
@@ -120,6 +122,7 @@ impl ReactLLM for BaseModelReactLLM {
 
             if !calls.is_empty() {
                 let mut r = Reasoning::with_tools(thought, calls);
+                r.stop_reason = response.stop_reason.clone();
                 r.source_message = Some(response.message);
                 r.usage = usage;
                 r.model = model_name;
@@ -142,6 +145,7 @@ impl ReactLLM for BaseModelReactLLM {
                     thought
                 };
                 let mut r = Reasoning::with_answer("", text);
+                r.stop_reason = response.stop_reason.clone();
                 r.source_message = Some(response.message);
                 r.usage = usage;
                 r.model = model_name;
@@ -149,6 +153,7 @@ impl ReactLLM for BaseModelReactLLM {
                 return Ok(r);
             }
             let mut r = Reasoning::with_tools(thought, calls);
+            r.stop_reason = response.stop_reason.clone();
             r.source_message = Some(response.message);
             r.usage = usage;
             r.model = model_name;
@@ -171,6 +176,7 @@ impl ReactLLM for BaseModelReactLLM {
             );
             let text = response.message.content();
             let mut r = Reasoning::with_tools(text, calls);
+            r.stop_reason = response.stop_reason.clone();
             r.source_message = Some(response.message);
             r.usage = usage;
             r.model = model_name;
@@ -184,6 +190,7 @@ impl ReactLLM for BaseModelReactLLM {
                 text.push_str("\n\n[⚠ 回答因输出长度限制被截断]");
             }
             let mut r = Reasoning::with_answer("", text);
+            r.stop_reason = response.stop_reason.clone();
             r.source_message = Some(response.message);
             r.usage = usage;
             r.model = model_name;

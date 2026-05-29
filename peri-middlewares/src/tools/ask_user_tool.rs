@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use peri_agent::interaction::{
-    InteractionContext, InteractionResponse, QuestionItem, QuestionOption, UserInteractionBroker,
+use peri_agent::{
+    interaction::{
+        InteractionContext, InteractionResponse, QuestionItem, QuestionOption,
+        UserInteractionBroker,
+    },
+    tools::BaseTool,
 };
-use peri_agent::tools::BaseTool;
 use serde_json::Value;
 
 use crate::ask_user::ask_user_tool_definition;

@@ -3,9 +3,11 @@
 //! Translates raw [`IncomingMessage`]s into [`AcpNotification`]s for the TUI event
 //! loop to consume. The notification pump runs as a background tokio task.
 
-use peri_acp::transport::mpsc::MpscClientTransport;
-use peri_acp::transport::types::{AcpError, IncomingMessage, RequestId};
-use peri_acp::transport::AcpTransport;
+use peri_acp::transport::{
+    mpsc::MpscClientTransport,
+    types::{AcpError, IncomingMessage, RequestId},
+    AcpTransport,
+};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -324,53 +326,41 @@ impl AcpTuiClient {
         Ok(())
     }
 
-    /// Change the thinking config (effort + enabled) for the current session.
-    pub async fn set_thinking(&self, effort: &str, enabled: bool) -> Result<(), String> {
-        let session_id = self
-            .current_session_id
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or("no active session")?;
-        let params = json!({ "sessionId": session_id, "effort": effort, "enabled": enabled });
+    /// Set a config option (mode/model/thought_level) via the unified config API.
+    /// Silently returns Ok if no session exists yet — ACP Server will load
+    /// the latest config from disk when a session is eventually created.
+    pub async fn set_config_option(&self, config_id: &str, value: &str) -> Result<(), String> {
+        let session_id = match self.current_session_id.lock().unwrap().clone() {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+        let params = json!({ "sessionId": session_id, "configId": config_id, "value": value });
         let _ = self
             .transport
-            .send_request("session/set_thinking", params)
+            .send_request("session/set_config_option", params)
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    /// Trigger manual full compact on the current session.
-    pub async fn compact(&self) -> Result<(), String> {
-        let session_id = self
-            .current_session_id
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or("no active session")?;
-        let params = json!({ "sessionId": session_id });
-        self.transport
-            .send_request("session/compact", params)
+    /// Update the full PeriConfig on the ACP server (for Login panel CRUD).
+    /// Silently returns Ok if no session exists yet — ACP Server will load
+    /// the latest config from disk when a session is eventually created.
+    pub async fn update_config(&self, config: &crate::config::PeriConfig) -> Result<(), String> {
+        let session_id = match self.current_session_id.lock().unwrap().clone() {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+        let params = json!({
+            "sessionId": session_id,
+            "config": config,
+        });
+        let _ = self
+            .transport
+            .send_request("session/update_config", params)
             .await
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-
-    /// Clear conversation history for the current session.
-    pub async fn clear(&self) -> Result<(), String> {
-        let session_id = self
-            .current_session_id
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or("no active session")?;
-        let params = json!({ "sessionId": session_id });
-        self.transport
-            .send_request("session/clear", params)
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     /// Cancel the currently running prompt.
@@ -383,7 +373,7 @@ impl AcpTuiClient {
             .ok_or("no active session")?;
         let params = json!({ "sessionId": session_id });
         self.transport
-            .send_notification("$/cancel_request", params)
+            .send_notification("session/cancel", params)
             .await
             .map_err(|e| e.to_string())
     }

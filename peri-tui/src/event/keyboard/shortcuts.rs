@@ -64,7 +64,13 @@ pub(super) fn handle_shortcuts(
                 app.services.provider_name = p.display_name().to_string();
                 app.services.model_name = p.model_name().to_string();
             }
-            app.services.sync_peri_config_to_acp();
+            if let Some(ref acp_client) = app.acp_client {
+                let acp = acp_client.clone();
+                let alias = next.to_string();
+                tokio::spawn(async move {
+                    let _ = acp.set_config_option("model", &alias).await;
+                });
+            }
             app.global_ui.model_highlight_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
         }
@@ -96,7 +102,13 @@ pub(super) fn handle_shortcuts(
                         .view_messages
                         .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
                 }
-                app.services.sync_peri_config_to_acp();
+                if let Some(ref acp_client) = app.acp_client {
+                    let acp = acp_client.clone();
+                    let alias = cfg.config.active_alias.clone();
+                    tokio::spawn(async move {
+                        let _ = acp.set_config_option("model", &alias).await;
+                    });
+                }
                 app.global_ui.provider_highlight_until =
                     Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
             }

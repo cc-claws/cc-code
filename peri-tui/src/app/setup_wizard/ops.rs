@@ -384,7 +384,7 @@ pub fn save_setup_to(
     path: &std::path::Path,
 ) -> anyhow::Result<crate::config::PeriConfig> {
     let cfg = build_wizard_config(wizard);
-    crate::config::store::save_to(&cfg, path)?;
+    crate::config::save_to(&cfg, path)?;
     Ok(cfg)
 }
 

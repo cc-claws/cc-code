@@ -104,8 +104,10 @@ use peri_agent::messages::BaseMessage;
 use peri_middlewares::prelude::HitlDecision;
 use tokio::sync::mpsc;
 
-use crate::config::PeriConfig;
-use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
+use crate::{
+    config::PeriConfig,
+    thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore},
+};
 
 // Re-export MessageViewModel from ui::message_view
 use crate::command::agents::AgentItem;
@@ -123,8 +125,7 @@ use std::sync::Arc;
 use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
-pub use agent_comm::AgentComm;
-pub use agent_comm::RetryStatus;
+pub use agent_comm::{AgentComm, RetryStatus};
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};
@@ -257,8 +258,6 @@ impl App {
                 service_registry::ProcessResourceMonitor::new(),
             ),
             lc,
-            acp_peri_config: None,
-            acp_provider: None,
             channel_state: Some(channel_state.clone()),
         };
 
@@ -425,7 +424,7 @@ impl App {
         override_path: Option<&std::path::Path>,
     ) -> anyhow::Result<()> {
         match override_path {
-            Some(path) => crate::config::store::save_to(cfg, path),
+            Some(path) => crate::config::save_to(cfg, path),
             None => crate::config::save(cfg),
         }
     }
@@ -515,13 +514,13 @@ impl App {
                         .render_tx
                         .send(RenderEvent::Rebuild(remaining));
                 }
-                // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
+                // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.sessions[self.session_mgr.active]
                     .metadata
                     .pre_submit_state_len;
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .agent_state_messages
+                    .origin_messages
                     .truncate(pre_len);
                 // 清除 pipeline 状态
                 self.session_mgr.sessions[self.session_mgr.active]
@@ -530,7 +529,7 @@ impl App {
                     .done();
                 let restored = self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .agent_state_messages
+                    .origin_messages
                     .clone();
                 self.session_mgr.sessions[self.session_mgr.active]
                     .messages
@@ -631,8 +630,14 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
-        // 同步到 ACP Server，确保 Agent 构建时能读取最新的 API key
-        self.services.sync_peri_config_to_acp();
+        // 通过 ACP 协议同步完整配置到 Server
+        if let Some(ref acp_client) = self.acp_client {
+            let acp = acp_client.clone();
+            let cfg_clone = cfg_ref.clone();
+            tokio::spawn(async move {
+                let _ = acp.update_config(&cfg_clone).await;
+            });
+        }
     }
 
     pub fn get_compact_config(&self) -> peri_agent::agent::CompactConfig {

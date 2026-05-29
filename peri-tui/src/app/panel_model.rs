@@ -67,19 +67,18 @@ impl App {
                 self.services.model_name = p.model_name().to_string();
             }
         }
-        self.services.sync_peri_config_to_acp();
         self.session_mgr.sessions[self.session_mgr.active]
             .session_panels
             .close_if(PanelKind::Model);
 
-        // ACP 模式：同步模型和思考度设置到 ACP server
+        // 通过 ACP 协议同步模型和思考度设置到 Server
         if let Some(ref acp_client) = self.acp_client {
             let acp = acp_client.clone();
             let alias = alias_label.clone().to_lowercase();
             let effort_val = effort.clone();
             tokio::spawn(async move {
-                let _ = acp.set_model(&alias).await;
-                let _ = acp.set_thinking(&effort_val, true).await;
+                let _ = acp.set_config_option("model", &alias).await;
+                let _ = acp.set_config_option("thinking_effort", &effort_val).await;
             });
         }
     }

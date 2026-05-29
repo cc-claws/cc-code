@@ -1,9 +1,11 @@
 use peri_agent::messages::BaseMessage;
 
-use crate::app::tool_display;
-use crate::ui::markdown::parse_markdown_default;
-use crate::ui::message_view::{
-    aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel,
+use crate::{
+    app::tool_display,
+    ui::{
+        markdown::parse_markdown_default,
+        message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
+    },
 };
 
 use super::MessagePipeline;
