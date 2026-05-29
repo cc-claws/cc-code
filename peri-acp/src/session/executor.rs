@@ -171,7 +171,7 @@ pub async fn execute_prompt(
             let command_registry = crate::session::command::default_command_registry();
             if let Some((cmd, args)) = command_registry.find(&content.text_content()) {
                 if cmd.kind() == crate::session::command::CommandKind::Immediate {
-                    tracing::info!(
+                    tracing::debug!(
                         command = %cmd.name(),
                         history_len = history.len(),
                         "Immediate command intercepted"

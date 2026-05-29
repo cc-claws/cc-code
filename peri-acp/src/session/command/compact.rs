@@ -53,7 +53,7 @@ impl AgentCommand for CompactCommand {
             ..
         } = ctx;
 
-        tracing::info!(history_len = history.len(), "compact: execute called");
+        tracing::debug!(history_len = history.len(), "compact: execute called");
 
         if history.is_empty() {
             warn!("compact: 无历史消息可压缩");
