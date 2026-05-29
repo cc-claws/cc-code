@@ -165,9 +165,15 @@ impl App {
                     super::super::tool_display::truncate(raw_output, 200)
                 };
 
+                let name = update
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
                 self.handle_agent_event(super::super::AgentEvent::ToolEnd {
                     tool_call_id,
-                    name: String::new(),
+                    name,
                     output,
                     is_error,
                     source_agent_id,

@@ -1,5 +1,6 @@
 use peri_agent::agent::events::AgentEvent as ExecutorEvent;
 use peri_agent::llm::types::{StopReason, TokenUsage};
+use peri_agent::messages::MessageId;
 
 use super::*;
 
@@ -128,6 +129,33 @@ fn test_llm_retrying_is_tui_only() {
         mapped[0].updates.is_empty(),
         "LlmRetrying 不应产生 SessionUpdate"
     );
+}
+
+#[test]
+fn test_tool_end_carries_title() {
+    // ToolEnd 映射为 ToolCallUpdate 时必须携带 title（工具名）
+    let event = ExecutorEvent::ToolEnd {
+        message_id: MessageId::new(),
+        tool_call_id: "tc-123".to_string(),
+        name: "Bash".to_string(),
+        output: "ok".to_string(),
+        is_error: false,
+        source_agent_id: None,
+    };
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    assert!(!mapped[0].forward_to_tui, "ToolEnd 不应转发到 TUI");
+    assert_eq!(mapped[0].updates.len(), 1);
+
+    match &mapped[0].updates[0] {
+        SessionUpdate::ToolCallUpdate(update) => {
+            assert_eq!(update.tool_call_id.0.as_ref(), "tc-123");
+            // title 必须携带工具名，不能为空
+            let title = update.fields.title.as_deref().unwrap_or("");
+            assert_eq!(title, "Bash", "ToolCallUpdate.title 应为工具名");
+        }
+        other => panic!("预期 ToolCallUpdate，实际: {:?}", other),
+    }
 }
 
 #[test]

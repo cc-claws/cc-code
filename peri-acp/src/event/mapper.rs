@@ -122,6 +122,7 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
 
         ExecutorEvent::ToolEnd {
             tool_call_id,
+            name,
             output,
             is_error,
             source_agent_id,
@@ -135,6 +136,7 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
                 vec![SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                     tool_call_id.clone(),
                     ToolCallUpdateFields::new()
+                        .title(name.clone())
                         .status(if *is_error {
                             ToolCallStatus::Failed
                         } else {

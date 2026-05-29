@@ -1,8 +1,9 @@
 # ToolEnd 事件经 ACP bridge 后工具名丢失，显示为空字符串
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-29
+**修复日期**：2026-05-29
 
 ## 问题描述
 
@@ -25,8 +26,18 @@ ACP 事件映射重构（bb388ca）中，`ExecutorEvent::ToolEnd` 被映射为 `
   3. 观察工具调用完成后的 ToolBlock：工具名为空
 - **环境**：所有 provider
 
+## 根因分析
+
+`mapper.rs` 将 `ExecutorEvent::ToolEnd` 映射为 `ToolCallUpdate` 时，`ToolCallUpdateFields` 缺少 `.title(name)` 调用（对比 `transport_broker.rs:57` 的 HITL 路径正确使用了 `.title()`）。TUI 侧 `acp_bridge.rs` 解析 `tool_call_update` 时也硬编码 `name: String::new()` 未从 JSON 中读取 `title` 字段。
+
+## 修复
+
+1. `peri-acp/src/event/mapper.rs` — `ToolCallUpdateFields` 添加 `.title(name.clone())`，绑定 `name` 到 pattern
+2. `peri-tui/src/app/agent_ops/acp_bridge.rs` — 从 JSON `title` 字段解析工具名，替代 `String::new()`
+3. `peri-acp/src/event/mapper_test.rs` — 新增 `test_tool_end_carries_title` 回归测试
+
 ## 涉及文件
 
-- `peri-acp/src/event/mapper.rs:125-143` — `ToolEnd` 映射为 `ToolCallUpdate`，schema 无 `name` 字段
-- `peri-tui/src/app/agent_ops/acp_bridge.rs:168-174` — bridge 中 `name: String::new()` 硬编码为空
-- `peri-tui/src/app/agent.rs` — `map_executor_event` 中 ToolEnd 仍正确携带 name（类别③路径），但类别①路径丢失
+- `peri-acp/src/event/mapper.rs:125-148` — `ToolEnd` 映射，添加 `.title(name.clone())`
+- `peri-tui/src/app/agent_ops/acp_bridge.rs:146-180` — bridge 解析 `title` 字段
+- `peri-acp/src/event/mapper_test.rs` — 回归测试
