@@ -11,26 +11,6 @@ pub(crate) fn alloc_collect() {}
 pub(crate) fn alloc_collect() {}
 
 impl App {
-    /// 获取或新建当前 thread id（同步，block_in_place）
-    #[allow(dead_code)]
-    pub(super) fn ensure_thread_id(&mut self) -> ThreadId {
-        if let Some(id) = &self.session_mgr.sessions[self.session_mgr.active].current_thread_id {
-            return id.clone();
-        }
-        let meta = ThreadMeta::new(&self.services.cwd);
-        let store = self.services.thread_store.clone();
-        let id = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(store.create_thread(meta))
-                .unwrap_or_else(|e| {
-                    tracing::warn!(error = %e, "创建 thread 失败，使用临时 ID（消息将无法持久化）");
-                    uuid::Uuid::now_v7().to_string()
-                })
-        });
-        self.session_mgr.sessions[self.session_mgr.active].current_thread_id = Some(id.clone());
-        id
-    }
-
     pub fn scroll_up(&mut self) {
         self.session_mgr.sessions[self.session_mgr.active]
             .ui
@@ -418,6 +398,6 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::thread::ThreadMeta;
     include!("thread_ops_test.rs");
 }

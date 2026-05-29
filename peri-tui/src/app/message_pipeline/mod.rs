@@ -43,7 +43,7 @@ pub(crate) use reconcile::{
 
 /// 已开始但未结束的工具调用
 pub(crate) struct PendingTool {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // 用于工具调用匹配，reconcile 阶段读取
     tool_call_id: String,
     name: String,
     input: serde_json::Value,
@@ -106,9 +106,6 @@ struct BatchInfo {
     started: usize,
     /// 已完成的 agent 数
     completed: usize,
-    /// 批次开始时的 subagent_stack 深度（用于交叉验证）
-    #[allow(dead_code)]
-    stack_depth: usize,
 }
 
 // ─── MessagePipeline ─────────────────────────────────────────────────────────
@@ -425,14 +422,12 @@ impl MessagePipeline {
                 bg_hash: Some(instance_hash(tool_call_id)),
             });
             // 批次检测：第一个 agent 创建批次，后续递增
-            let stack_depth = self.subagent_stack.len() - 1;
             if let Some(ref mut batch) = self.active_batch {
                 batch.started += 1;
             } else {
                 self.active_batch = Some(BatchInfo {
                     started: 1,
                     completed: 0,
-                    stack_depth,
                 });
             }
         } else {

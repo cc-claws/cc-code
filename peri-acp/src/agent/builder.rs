@@ -106,8 +106,6 @@ pub struct AcpAgentConfig {
 pub struct AcpAgentOutput {
     pub executor: ReActAgent<peri_agent::llm::RetryableLLM<BaseModelReactLLM>, AgentState>,
     pub todo_rx: tokio::sync::mpsc::Receiver<Vec<TodoItem>>,
-    #[allow(dead_code)]
-    pub context_window: u32,
     /// 后台任务完成事件的独立接收端（不随 executor 生命周期销毁）
     pub bg_event_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
 }
@@ -510,7 +508,6 @@ pub fn build_agent(
         AcpAgentOutput {
             executor,
             todo_rx,
-            context_window,
             bg_event_rx,
         },
         new_cache,

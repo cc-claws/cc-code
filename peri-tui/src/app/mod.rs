@@ -106,7 +106,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     config::PeriConfig,
-    thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore},
+    thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadStore},
 };
 
 // Re-export MessageViewModel from ui::message_view

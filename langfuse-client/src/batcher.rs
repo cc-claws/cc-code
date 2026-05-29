@@ -29,9 +29,6 @@ enum BatcherCommand {
 pub struct Batcher {
     tx: mpsc::Sender<BatcherCommand>,
     backpressure: BackpressurePolicy,
-    /// 后台 task 的 JoinHandle（Drop 时 detach，由 Shutdown 命令驱动优雅退出）
-    #[allow(dead_code)]
-    handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Batcher {
@@ -45,15 +42,11 @@ impl Batcher {
         let max_events = config.max_events;
         let flush_interval = config.flush_interval;
 
-        let handle = tokio::spawn(async move {
+        let _handle = tokio::spawn(async move {
             Self::run_loop(batch_client, rx, max_events, flush_interval).await;
         });
 
-        Self {
-            tx,
-            backpressure,
-            handle: Some(handle),
-        }
+        Self { tx, backpressure }
     }
 
     /// 后台事件处理循环

@@ -172,6 +172,5 @@ mod execute_fork;
 pub use define::SubAgentTool;
 
 #[cfg(test)]
-#[allow(dead_code)]
 #[path = "tool_test.rs"]
 mod tests;

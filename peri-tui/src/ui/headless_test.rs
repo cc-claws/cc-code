@@ -2741,7 +2741,6 @@ fn bg_diag_count_subagent_groups(app: &App) -> usize {
 }
 
 /// 打印当前 view_messages 的摘要（诊断用）
-#[allow(dead_code)]
 fn bg_diag_print_vms(app: &App, label: &str) {
     let vms = &app.session_mgr.sessions[app.session_mgr.active]
         .messages

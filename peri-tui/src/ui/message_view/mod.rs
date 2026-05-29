@@ -79,7 +79,6 @@ fn build_diff_lines(name: &str, input: &serde_json::Value) -> Option<Vec<Line<'s
 pub enum MessageViewModel {
     /// 用户输入
     UserBubble {
-        #[allow(dead_code)]
         content: String,
         rendered: Text<'static>,
     },
@@ -92,7 +91,6 @@ pub enum MessageViewModel {
     },
     /// 工具调用结果
     ToolBlock {
-        #[allow(dead_code)]
         tool_name: String,
         tool_call_id: String,
         display_name: String,
@@ -655,20 +653,6 @@ impl MessageViewModel {
                 rendered_prefix_len: 0,
                 rendered_prefix_lines: 0,
             });
-        }
-    }
-
-    /// 切换折叠状态（对 ToolBlock、AssistantBubble、SubAgentGroup、ToolCallGroup 生效）
-    #[allow(dead_code)]
-    pub fn toggle_collapse(&mut self) {
-        match self {
-            MessageViewModel::ToolBlock { collapsed, .. }
-            | MessageViewModel::AssistantBubble { collapsed, .. }
-            | MessageViewModel::SubAgentGroup { collapsed, .. }
-            | MessageViewModel::ToolCallGroup { collapsed, .. } => {
-                *collapsed = !*collapsed;
-            }
-            _ => {}
         }
     }
 
