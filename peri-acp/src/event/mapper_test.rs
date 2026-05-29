@@ -2,7 +2,8 @@ use peri_agent::agent::events::{
     AgentEvent as ExecutorEvent, BackgroundTaskResult, CompactFileInfo, TodoEntry, TodoStatus,
 };
 use peri_agent::llm::types::{StopReason, TokenUsage};
-use peri_agent::messages::MessageId;
+use peri_agent::messages::{BaseMessage, MessageId};
+use peri_agent::tools::ToolDefinition;
 
 use super::*;
 
