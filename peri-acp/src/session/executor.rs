@@ -174,6 +174,9 @@ pub async fn execute_prompt(
                         args: args.to_string(),
                     };
                     let result = cmd.execute(ctx).await;
+                    // Immediate 命令跳过 agent event pump，必须手动发送 push_done
+                    // 通知 TUI agent 执行完成，否则界面永久卡在 loading 状态。
+                    event_sink.push_done(&session_id).await;
                     return PromptResult {
                         messages: result.messages,
                         ok: true,
