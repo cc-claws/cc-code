@@ -80,6 +80,28 @@ pub enum StopReason {
     Other(String),
 }
 
+impl StopReason {
+    pub fn from_display(s: &str) -> Self {
+        match s {
+            "end_turn" => StopReason::EndTurn,
+            "tool_use" => StopReason::ToolUse,
+            "max_tokens" => StopReason::MaxTokens,
+            other => StopReason::Other(other.to_string()),
+        }
+    }
+}
+
+impl std::fmt::Display for StopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StopReason::EndTurn => write!(f, "end_turn"),
+            StopReason::ToolUse => write!(f, "tool_use"),
+            StopReason::MaxTokens => write!(f, "max_tokens"),
+            StopReason::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 use crate::{agent::events::AgentEventHandler, messages::MessageId};
 use std::sync::Arc;
 

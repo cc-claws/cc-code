@@ -1,19 +1,17 @@
 //! Event mapping from ExecutorEvent to ACP SessionUpdate and peri/agent_event routing.
 //!
 //! Produces [`MappedEvent`] structs with three categories:
-//! - **Category ①** (Full SessionUpdate): TextChunk, AiReasoning, ToolStart, ToolEnd, TodoUpdate
-//!   → `updates` only, `forward_to_tui: false`
-//! - **Category ②** (Lossy SessionUpdate): LlmCallEnd(usage), ContextWarning, LlmRetrying
-//!   → `updates` + `forward_to_tui: true`
-//! - **Category ③** (No SessionUpdate): StateSnapshot, Subagent*, Compact*, etc.
+//! - **Category ①** (Enriched SessionUpdate): TextChunk, AiReasoning, ToolStart, ToolEnd, TodoUpdate,
+//!   LlmCallEnd(usage) → `updates` only, `forward_to_tui: false`
+//! - **Category ③** (TUI-only): StateSnapshot, Subagent*, Compact*, ContextWarning, LlmRetrying, etc.
 //!   → `forward_to_tui: true` only
 //! - **Filtered**: StepDone, MessageAdded, LlmCallStart, SessionEnded, LlmCallEnd(usage:None)
 //!   → empty
 
 use agent_client_protocol::schema::{
-    ContentBlock, ContentChunk, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
-    SessionInfoUpdate, SessionUpdate, TextContent, ToolCall, ToolCallStatus, ToolCallUpdate,
-    ToolCallUpdateFields, ToolKind, UsageUpdate,
+    ContentBlock, ContentChunk, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionUpdate,
+    TextContent, ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    UsageUpdate,
 };
 use peri_agent::agent::events::AgentEvent as ExecutorEvent;
 
@@ -174,42 +172,39 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
             ))])]
         }
 
-        // ── Category ②: Lossy SessionUpdate (also forward to TUI) ─────────────────
-        ExecutorEvent::LlmCallEnd { usage: Some(u), .. } => {
-            vec![MappedEvent::both(vec![SessionUpdate::UsageUpdate(
+        ExecutorEvent::LlmCallEnd {
+            usage: Some(u),
+            model,
+            stop_reason,
+            ..
+        } => {
+            let mut meta = serde_json::Map::new();
+            meta.insert("inputTokens".into(), serde_json::json!(u.input_tokens));
+            meta.insert("outputTokens".into(), serde_json::json!(u.output_tokens));
+            if let Some(v) = u.cache_creation_input_tokens {
+                meta.insert("cacheCreationTokens".into(), serde_json::json!(v));
+            }
+            if let Some(v) = u.cache_read_input_tokens {
+                meta.insert("cacheReadTokens".into(), serde_json::json!(v));
+            }
+            meta.insert("model".into(), serde_json::json!(model));
+            if let Some(ref sr) = stop_reason {
+                meta.insert("stopReason".into(), serde_json::json!(sr.to_string()));
+            }
+
+            vec![MappedEvent::standard(vec![SessionUpdate::UsageUpdate(
                 UsageUpdate::new(
                     u64::from(u.input_tokens) + u64::from(u.output_tokens),
                     u64::from(context_window),
-                ),
-            )])]
-        }
-
-        ExecutorEvent::ContextWarning {
-            used_tokens,
-            total_tokens,
-            ..
-        } => {
-            vec![MappedEvent::both(vec![SessionUpdate::UsageUpdate(
-                UsageUpdate::new(*used_tokens, *total_tokens),
-            )])]
-        }
-
-        ExecutorEvent::LlmRetrying {
-            attempt,
-            max_attempts,
-            delay_ms,
-            ..
-        } => {
-            vec![MappedEvent::both(vec![SessionUpdate::SessionInfoUpdate(
-                SessionInfoUpdate::new().title(format!(
-                    "Retrying LLM call (attempt {}/{}, {}ms delay)",
-                    attempt, max_attempts, delay_ms
-                )),
+                )
+                .meta(meta),
             )])]
         }
 
         // ── Category ③: TUI-only (no SessionUpdate) ──────────────────────────────
-        ExecutorEvent::StateSnapshot(_)
+        ExecutorEvent::ContextWarning { .. }
+        | ExecutorEvent::LlmRetrying { .. }
+        | ExecutorEvent::StateSnapshot(_)
         | ExecutorEvent::SubagentStarted { .. }
         | ExecutorEvent::SubagentStopped { .. }
         | ExecutorEvent::CompactStarted
@@ -242,3 +237,7 @@ fn infer_tool_kind(name: &str) -> ToolKind {
         _ => ToolKind::Other,
     }
 }
+
+#[cfg(test)]
+#[path = "mapper_test.rs"]
+mod tests;
