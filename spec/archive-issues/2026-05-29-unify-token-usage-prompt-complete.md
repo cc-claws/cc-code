@@ -1,3 +1,4 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-unify-token-usage-prompt-complete.md
 # 统一 Token Usage 传递：引入 prompt_complete 事件
 
 **状态**：Fixed

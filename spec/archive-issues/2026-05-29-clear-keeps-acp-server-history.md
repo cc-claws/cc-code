@@ -1,3 +1,4 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-clear-keeps-acp-server-history.md
 # /clear 后 ACP Server 端 history 未清理，新会话延续旧上下文
 
 **状态**：Fixed

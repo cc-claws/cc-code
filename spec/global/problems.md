@@ -1175,8 +1175,76 @@
 
 ### tool_result orphan
 - [SkillPreload 触发 Anthropic 400 Bad Request：tool_result 缺少配对 tool_use](domains/agent.md#issue_2026-05-26-skillpreload-anthropic-400-tool-result-orphan) — agent
+
+### SSE UTF-8 截断
+- [SSE 流式解析跨 chunk UTF-8 截断产生乱码（U+FFFD）](domains/agent.md#issue_2026-05-29-sse-utf8-truncation-mojibake) — agent
+
+### from_utf8_lossy
+- [SSE 流式解析跨 chunk UTF-8 截断产生乱码（U+FFFD）](domains/agent.md#issue_2026-05-29-sse-utf8-truncation-mojibake) — agent
+
+### pending_bytes
+- [SSE 流式解析跨 chunk UTF-8 截断产生乱码（U+FFFD）](domains/agent.md#issue_2026-05-29-sse-utf8-truncation-mojibake) — agent
+
+### CJK 乱码
+- [SSE 流式解析跨 chunk UTF-8 截断产生乱码（U+FFFD）](domains/agent.md#issue_2026-05-29-sse-utf8-truncation-mojibake) — agent
+
+### push_done 缺失
+- [Immediate 命令（/compact、/clear）执行后 TUI 永久卡在 loading 状态](domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done) — agent
+
+### Immediate 命令
+- [Immediate 命令（/compact、/clear）执行后 TUI 永久卡在 loading 状态](domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done) — agent
+
+### 并发 prompt 竞争
+- [Immediate 命令（/compact、/clear）执行后 TUI 永久卡在 loading 状态](domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done) — agent
+
+### JSON 格式不一致
+- [/compact 显示"未知命令"——AvailableCommandsUpdate 通知 JSON 格式不匹配被静默丢弃](domains/agent.md#issue_2026-05-29-available-commands-update-format-mismatch) — agent
+
+### SessionNotification
+- [/compact 显示"未知命令"——AvailableCommandsUpdate 通知 JSON 格式不匹配被静默丢弃](domains/agent.md#issue_2026-05-29-available-commands-update-format-mismatch) — agent
+
+### serde tag 字段名
+- [ACP 大重构后所有流式事件静默丢失——字段名 "type" vs "sessionUpdate" 不匹配](domains/agent.md#issue_2026-05-29-acp-session-update-field-name-mismatch) — agent
+
+### sessionUpdate vs type
+- [ACP 大重构后所有流式事件静默丢失——字段名 "type" vs "sessionUpdate" 不匹配](domains/agent.md#issue_2026-05-29-acp-session-update-field-name-mismatch) — agent
+
+### 事件静默丢失
+- [ACP 大重构后所有流式事件静默丢失——字段名 "type" vs "sessionUpdate" 不匹配](domains/agent.md#issue_2026-05-29-acp-session-update-field-name-mismatch) — agent
+
+### /clear session 泄漏
+- [/clear 后 ACP Server 端 history 未清理，新会话延续旧上下文](domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history) — agent
+
+### reset_session
+- [/clear 后 ACP Server 端 history 未清理，新会话延续旧上下文](domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history) — agent
+
+### ACP session 状态不一致
+- [/clear 后 ACP Server 端 history 未清理，新会话延续旧上下文](domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history) — agent
+
+### prompt_complete
+- [统一 Token Usage 传递：引入 prompt_complete 事件替代双路径冗余](domains/agent.md#issue_2026-05-29-unify-token-usage-prompt-complete) — agent
+
+### token usage 双路径
+- [统一 Token Usage 传递：引入 prompt_complete 事件替代双路径冗余](domains/agent.md#issue_2026-05-29-unify-token-usage-prompt-complete) — agent
+
+### ToolEnd 工具名
+- [ToolEnd 事件经 ACP bridge 后工具名丢失，显示为空字符串](domains/agent.md#issue_2026-05-29-tool-end-name-lost-in-acp-bridge) — agent
+
+### ToolCallUpdate title
+- [ToolEnd 事件经 ACP bridge 后工具名丢失，显示为空字符串](domains/agent.md#issue_2026-05-29-tool-end-name-lost-in-acp-bridge) — agent
+
+### ACP event mapping
+- [ToolEnd 事件经 ACP bridge 后工具名丢失，显示为空字符串](domains/agent.md#issue_2026-05-29-tool-end-name-lost-in-acp-bridge) — agent
+
+### 插件依赖 CC
+- [Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用](domains/plugin.md#issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail) — plugin
+
+### marketplace git clone
+- [Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用](domains/plugin.md#issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail) — plugin
+
 ## 更新记录
 
+- 2026-05-29: 归档 8 个 issue（agent 7 + plugin 1），新增 22 个关键词索引
 - 2026-05-27: 归档 16 个 issue（agent 4 + system-prompt 2 + compact 1 + tui 4 + mcp 1），新增 42 个关键词索引
 - 2026-05-26: 归档 6 个 issue（agent 3 + compact 1 + code-architecture 1 + tui 1），新增 22 个关键词索引
 - 2026-05-25: 归档 4 个 issue，新增关键词索引

@@ -1,3 +1,4 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-wsl-plugin-install-marketplace-uninstall-fail.md
 # Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用
 
 **状态**：Fixed

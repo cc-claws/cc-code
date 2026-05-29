@@ -1,8 +1,11 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-sse-utf8-truncation-mojibake.md
 # SSE 流式解析跨 chunk UTF-8 截断产生乱码（U+FFFD）
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-05-29
+**修复日期**：2026-05-29
+**修复提交**：5dead19
 
 ## 问题描述
 

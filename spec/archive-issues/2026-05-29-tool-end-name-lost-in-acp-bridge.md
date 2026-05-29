@@ -1,3 +1,4 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-tool-end-name-lost-in-acp-bridge.md
 # ToolEnd 事件经 ACP bridge 后工具名丢失，显示为空字符串
 
 **状态**：Fixed

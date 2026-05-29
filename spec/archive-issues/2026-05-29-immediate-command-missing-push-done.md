@@ -1,3 +1,4 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-immediate-command-missing-push-done.md
 # Immediate 命令（/compact、/clear）执行后 TUI 永久卡在 loading 状态
 
 **状态**：Fixed

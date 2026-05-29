@@ -1,3 +1,4 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-available-commands-update-format-mismatch.md
 # /compact 显示"未知命令或 Skill"——AvailableCommandsUpdate 通知 JSON 格式不匹配被静默丢弃
 
 **状态**：Fixed

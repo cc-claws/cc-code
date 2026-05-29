@@ -1,3 +1,4 @@
+> 归档于 2026-05-29，原路径 spec/issues/2026-05-29-acp-session-update-field-name-mismatch.md
 # ACP 大重构后所有流式事件静默丢失，TUI 只能通过 StateSnapshot 获取最终结果
 
 **状态**：Fixed（749fa34）

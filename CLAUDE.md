@@ -241,7 +241,7 @@ session/new → chrono::Local::now() → frozen_date
 - Agent 通过 `AvailableCommandsUpdate` 通知广播可用命令列表（`session/new` response + 增量更新）
 - Client 将 `/compact` 等命令作为 `session/prompt` 发送（text = `/compact`）
 - Executor 入口拦截 `/` 前缀，按 `CommandKind`（`Immediate`/`Passthrough`/`Transform`）分类执行
-- `Immediate` 命令（compact/clear）直接执行，不构建 agent；结果通过 EventSink 推送事件
+- `Immediate` 命令（compact/clear）直接执行，不构建 agent；结果通过 EventSink 推送事件。**[TRAP]** Immediate 命令路径绕过 agent event pump，必须手动调用 `sink.push_done()` 发送 AgentDone 事件，否则 TUI 永久卡在 loading。新增 Immediate 命令时必须确保所有退出路径都调用了 push_done。（详见 spec/global/domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done）
 - `Passthrough` 命令（skill）透传给 agent，由 middleware 处理
 - TUI 通过 `agent_commands` HashSet（从 `AvailableCommandsUpdate` 学习）区分 UICommand 和 AgentCommand
 - `/clear` 保留为 UICommand（`app.new_thread()` 创建新 session），不走 ACP
@@ -250,7 +250,7 @@ session/new → chrono::Local::now() → frozen_date
 
 **[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`（内部调用 `peri_acp::agent::builder::build_agent()`）。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵——使用 `EventSink` 实现委托给 executor。`build_agent()` 每轮重建的大对象（LLM 实例、middleware）已通过 `AgentPool` session 级缓存复用，避免 jemalloc arena 碎片化。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
 
-**[TRAP]** TUI 层数据必须通过 ACP 协议到达 ACP 层，禁止直连。所有 TUI → ACP Server 的状态变更必须通过 `acp_client` 的协议方法（`new_session()`/`load_session()`/`prompt()`/`set_config_option()` 等）。TUI 本地清空状态（如 `new_thread()` 清空 `view_messages`/`agent_state_messages`/`pipeline`）不等于 ACP Server 端状态同步——必须同时通过 ACP 协议通知 Server 侧（如调用 `new_session()` 创建新 session）。违反此原则会导致 TUI 与 Server 状态不一致（如 `/clear` 后旧 history 泄漏到新对话）。（详见 spec/issues/2026-05-29-clear-keeps-acp-server-history.md）
+**[TRAP]** TUI 层数据必须通过 ACP 协议到达 ACP 层，禁止直连。所有 TUI → ACP Server 的状态变更必须通过 `acp_client` 的协议方法（`new_session()`/`load_session()`/`prompt()`/`set_config_option()` 等）。TUI 本地清空状态（如 `new_thread()` 清空 `view_messages`/`agent_state_messages`/`pipeline`）不等于 ACP Server 端状态同步——必须同时通过 ACP 协议通知 Server 侧（如调用 `new_session()` 创建新 session）。违反此原则会导致 TUI 与 Server 状态不一致（如 `/clear` 后旧 history 泄漏到新对话）。（详见 spec/global/domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history）
 
 **[TRAP]** Session Config Options 覆盖旧的 Session Modes API。ACP 规范明确指出 `configOptions` 取代 `modes`/`models`，但过渡期内需同时发送两者以兼容旧客户端。IDE 客户端通过 `configOptions` 中条目的 `category` 字段决定渲染哪些 UI 控件：`category: "mode"` → 权限模式选择器，`category: "model"` → 模型下拉，`category: "thought_level"` → 推理强度。`build_config_options()` 必须按优先级顺序返回（mode → model → thinking_effort），`session/set_config_option` 处理器必须处理 `"mode"` 和 `"model"` config ID（除了已有的 `"thinking_effort"`）。仅发送 `modes`/`models` 而缺少对应 `configOptions` 条目的，已迁移到新 API 的 IDE 不会显示任何控件。
 
