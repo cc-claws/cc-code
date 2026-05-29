@@ -201,10 +201,50 @@ impl App {
                 }
                 self.handle_agent_event(super::super::AgentEvent::TodoUpdate(todos))
             }
-            "usage_update" | "session_info_update" => {
-                // Peri 模式忽略 — 完整数据通过 peri/agent_event（类别②）获取
-                (false, false, false)
+            "usage_update" => {
+                // 从 enriched UsageUpdate _meta 中解析完整 token 用量
+                let meta = update.get("_meta");
+                let input_tokens = meta
+                    .and_then(|m| m.get("inputTokens"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+                let output_tokens = meta
+                    .and_then(|m| m.get("outputTokens"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+                let cache_creation_input_tokens = meta
+                    .and_then(|m| m.get("cacheCreationTokens"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                let cache_read_input_tokens = meta
+                    .and_then(|m| m.get("cacheReadTokens"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                let model = meta
+                    .and_then(|m| m.get("model"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let stop_reason = meta
+                    .and_then(|m| m.get("stopReason"))
+                    .and_then(|v| v.as_str())
+                    .map(peri_agent::llm::types::StopReason::from_display);
+
+                let usage = peri_agent::llm::types::TokenUsage {
+                    input_tokens,
+                    output_tokens,
+                    cache_creation_input_tokens,
+                    cache_read_input_tokens,
+                    request_id: None,
+                };
+
+                self.handle_agent_event(super::super::AgentEvent::TokenUsageUpdate {
+                    usage,
+                    model,
+                    stop_reason,
+                })
             }
+            "session_info_update" => (false, false, false),
             "available_commands_update" => {
                 // 从 ACP AvailableCommandsUpdate 学习 Agent 命令列表
                 tracing::debug!(?update, "ACP→TUI: received available_commands_update");

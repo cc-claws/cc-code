@@ -147,6 +147,7 @@ impl App {
             AgentEvent::TokenUsageUpdate {
                 usage,
                 model: _model,
+                stop_reason: _,
             } => self.handle_token_usage_update(usage),
             AgentEvent::ToolStart {
                 tool_call_id,

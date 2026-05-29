@@ -87,11 +87,6 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             total_tokens,
             percentage,
         },
-        ExecutorEvent::LlmCallEnd {
-            usage: Some(usage),
-            model,
-            ..
-        } => AgentEvent::TokenUsageUpdate { usage, model },
         ExecutorEvent::LlmRetrying {
             attempt,
             max_attempts,
@@ -110,7 +105,7 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
         | ExecutorEvent::ToolStart { .. }
         | ExecutorEvent::ToolEnd { .. }
         | ExecutorEvent::TodoUpdate(_)
-        | ExecutorEvent::LlmCallEnd { usage: None, .. }
+        | ExecutorEvent::LlmCallEnd { .. }
         | ExecutorEvent::StepDone { .. }
         | ExecutorEvent::MessageAdded(_)
         | ExecutorEvent::LlmCallStart { .. }
