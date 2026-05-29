@@ -180,4 +180,4 @@ vendor/
 .peri
 node_modules
 dist
-settings.json
+settings.json.claude/worktrees/
