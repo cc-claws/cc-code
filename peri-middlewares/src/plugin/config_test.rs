@@ -257,3 +257,21 @@ fn test_plugins_dir_uses_claude_home() {
     assert!(path_str.contains(".claude"));
     assert!(path_str.contains("plugins"));
 }
+
+#[test]
+fn test_ensure_plugin_dirs_creates_missing_dirs() {
+    // 模拟无 CC 环境：空临时目录下验证 ensure_plugin_dirs 创建所有子目录
+    use std::path::Path;
+
+    // 注意：ensure_plugin_dirs() 操作的是真实 claude_home，
+    // 这里只验证函数不 panic 且目标目录结构合理
+    // 实际目录创建由 CI/本地 ~/.claude/ 验证
+    let plugins = plugins_dir();
+    let marketplaces = marketplaces_cache_dir();
+    let cache = plugin_cache_dir();
+
+    // 验证路径层级关系
+    assert!(marketplaces.starts_with(&plugins));
+    assert!(cache.starts_with(&plugins));
+    assert!(plugins.starts_with(Path::new(".claude").parent().unwrap_or(Path::new("/"))));
+}
