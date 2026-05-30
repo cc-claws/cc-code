@@ -5,10 +5,11 @@ mod graph;
 mod render;
 mod theme;
 mod ui;
+mod update;
 
 use app::App;
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -19,17 +20,39 @@ use std::io;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "gig", about = "Git Graph TUI")]
+#[command(name = "gig", about = "Git Graph TUI", version)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     /// 仓库路径（默认当前目录）
     repo_path: Option<PathBuf>,
 }
 
+#[derive(Subcommand)]
+enum Commands {
+    /// 更新 gig 到最新版本
+    Update,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let repo_path = cli.repo_path.unwrap_or_else(|| PathBuf::from("."));
 
-    let repo = git::repo::GitRepo::open(&repo_path)?;
+    match cli.command {
+        Some(Commands::Update) => {
+            update::run_update()?;
+        }
+        None => {
+            let repo_path = cli.repo_path.unwrap_or_else(|| PathBuf::from("."));
+            run_tui(&repo_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn run_tui(repo_path: &std::path::Path) -> Result<()> {
+    let repo = git::repo::GitRepo::open(repo_path)?;
     let mut app = App::new(repo)?;
 
     enable_raw_mode()?;

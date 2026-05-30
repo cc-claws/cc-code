@@ -1,6 +1,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use super::*;
+use crate::markdown::cache::MarkdownCache;
 use ratatui::style::Modifier;
 
 fn default_theme() -> DefaultMarkdownTheme {
@@ -389,30 +390,32 @@ fn parse_markdown_cache_hit_on_repeat() {
     }
 }
 
-/// 集成测试：不同宽度产生不同渲染结果
+/// 集成测试：不同宽度产生不同缓存条目
 #[test]
 fn parse_markdown_different_width_different_cache_entry() {
-    // Arrange
-    let content = "| A | B |\n| --- | --- |\n| 内容 | 更多内容 |";
+    // Arrange: 用长文本段落，宽度差异会影响换行
+    let content =
+        "这是一段足够长的文本内容，用于测试不同渲染宽度下是否会产生不同的缓存条目和渲染结果。";
     let theme = default_theme();
+    let cache = MarkdownCache::global();
+    cache.clear();
 
     // Act: 用两个不同宽度调用
     let r1 = parse_markdown(content, &theme, 80);
-    let r2 = parse_markdown(content, &theme, 40);
+    let r2 = parse_markdown(content, &theme, 20);
 
-    // Assert: 不同宽度应产生不同的渲染结果（行数或内容不同）
-    let different = r1.lines.len() != r2.lines.len()
-        || r1.lines.iter().zip(r2.lines.iter()).any(|(a, b)| {
-            a.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<String>()
-                != b.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-        });
-    assert!(different, "不同宽度应产生不同渲染结果");
+    // Assert: 两次结果不同（窄宽度会产生更多行）
+    assert_ne!(
+        r1.lines.len(),
+        r2.lines.len(),
+        "不同宽度应产生不同行数：80 宽度有 {} 行，20 宽度有 {} 行",
+        r1.lines.len(),
+        r2.lines.len()
+    );
+    // Assert: 缓存中应有两个独立条目
+    assert!(cache.get(content, 80).is_some(), "宽度 80 应命中缓存");
+    assert!(cache.get(content, 20).is_some(), "宽度 20 应命中缓存");
+    cache.clear();
 }
 
 /// 集成测试：空字符串返回空结果

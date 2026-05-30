@@ -41,6 +41,7 @@ $env:GIG_INSTALL_VERSION="gig-v0.1.0"; irm https://raw.githubusercontent.com/kon
 ```bash
 gig              # 可视化当前目录的 Git 仓库
 gig /path/to/repo  # 指定仓库路径
+gig update       # 自更新到最新版本
 ```
 
 ## 从源码构建
@@ -49,8 +50,8 @@ gig /path/to/repo  # 指定仓库路径
 
 ```bash
 git clone https://github.com/konghayao/peri.git
-cd peri
-cargo build -p gig --release
+cd peri/side-projects/git-graph
+cargo build --release
 # 二进制位于 target/release/gig
 ```
 
