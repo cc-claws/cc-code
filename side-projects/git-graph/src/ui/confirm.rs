@@ -28,10 +28,7 @@ pub fn draw_confirm(f: &mut Frame, area: Rect, app: &App) {
     let inner = popup_area.inner(Margin::new(1, 1));
 
     let lines = vec![
-        Line::from(Span::styled(
-            msg.clone(),
-            Style::default().fg(Color::White),
-        )),
+        Line::from(Span::styled(msg.clone(), Style::default().fg(Color::White))),
         Line::from(""),
         Line::from(vec![
             Span::styled(

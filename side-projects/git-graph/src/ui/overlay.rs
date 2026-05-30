@@ -45,7 +45,12 @@ fn draw_list(f: &mut Frame, area: Rect, title: &str, items: &[String]) {
 
     let lines: Vec<Line> = items
         .iter()
-        .map(|item| Line::from(Span::styled(item.clone(), Style::default().fg(Color::White))))
+        .map(|item| {
+            Line::from(Span::styled(
+                item.clone(),
+                Style::default().fg(Color::White),
+            ))
+        })
         .collect();
 
     let para = Paragraph::new(lines).block(

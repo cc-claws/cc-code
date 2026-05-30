@@ -24,10 +24,7 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) -> SidebarLayout {
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
     app.sidebar_split_y = chunks[0].height + chunks[0].y;

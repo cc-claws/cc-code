@@ -81,9 +81,7 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 }
             }
             KeyCode::Char(c) => {
-                app.search_query
-                    .get_or_insert_with(String::new)
-                    .push(c);
+                app.search_query.get_or_insert_with(String::new).push(c);
             }
             _ => {}
         }
@@ -130,30 +128,28 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
 
     // Sidebar 焦点处理
     match app.focus {
-        Focus::FileTree => {
-            match code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    app.file_tree_state.move_cursor(-1);
-                    return;
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    app.file_tree_state.move_cursor(1);
-                    return;
-                }
-                KeyCode::Enter => {
-                    let idx = app.file_tree_state.cursor();
-                    if let Some(result) = app.file_tree_state.toggle(idx) {
-                        if result.needs_load {
-                            let children = crate::app::scan_dir_children(&result.path);
-                            app.file_tree_state.set_children(&result.path, children);
-                            app.file_tree_state.toggle(idx);
-                        }
-                    }
-                    return;
-                }
-                _ => {}
+        Focus::FileTree => match code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.file_tree_state.move_cursor(-1);
+                return;
             }
-        }
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.file_tree_state.move_cursor(1);
+                return;
+            }
+            KeyCode::Enter => {
+                let idx = app.file_tree_state.cursor();
+                if let Some(result) = app.file_tree_state.toggle(idx) {
+                    if result.needs_load {
+                        let children = crate::app::scan_dir_children(&result.path);
+                        app.file_tree_state.set_children(&result.path, children);
+                        app.file_tree_state.toggle(idx);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        },
         Focus::Status => {
             // Status 面板暂时只读
             if !matches!(code, KeyCode::Esc | KeyCode::Tab | KeyCode::BackTab) {
@@ -323,10 +319,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
             {
                 app.focus = Focus::Status;
                 let sl = &app.sidebar_layout;
-                let panels: [(
-                    ratatui::layout::Rect,
-                    &Option<status_panel::PanelLayout>,
-                ); 2] = [
+                let panels: [(ratatui::layout::Rect, &Option<status_panel::PanelLayout>); 2] = [
                     (sl.staged_inner, &sl.staged_layout),
                     (sl.changes_inner, &sl.changes_layout),
                 ];
@@ -346,21 +339,24 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                     match btn_type {
                                         status_panel::StatusButton::Stage => {
                                             if let Err(e) = app.repo.stage_file(git_path) {
-                                                app.remote_status = Some(format!("暂存失败: {}", e));
+                                                app.remote_status =
+                                                    Some(format!("暂存失败: {}", e));
                                             } else {
                                                 let _ = app.reload();
                                             }
                                         }
                                         status_panel::StatusButton::Unstage => {
                                             if let Err(e) = app.repo.unstage_file(git_path) {
-                                                app.remote_status = Some(format!("取消暂存失败: {}", e));
+                                                app.remote_status =
+                                                    Some(format!("取消暂存失败: {}", e));
                                             } else {
                                                 let _ = app.reload();
                                             }
                                         }
                                         status_panel::StatusButton::Discard => {
                                             if let Err(e) = app.repo.discard_file(git_path) {
-                                                app.remote_status = Some(format!("丢弃修改失败: {}", e));
+                                                app.remote_status =
+                                                    Some(format!("丢弃修改失败: {}", e));
                                             } else {
                                                 let _ = app.reload();
                                             }
@@ -603,8 +599,7 @@ fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
             if let Some(oid) = app.selected_oid {
                 if let Some(stashes) = app.stash_map.get(&oid) {
                     if let Some(stash) = stashes.first() {
-                        app.confirm_message =
-                            Some(format!("确认删除 stash@{}?", stash.index));
+                        app.confirm_message = Some(format!("确认删除 stash@{}?", stash.index));
                         app.confirm_action = Some(ConfirmAction::StashDrop(stash.index));
                         app.overlay = Overlay::ConfirmDialog;
                     }
@@ -706,7 +701,8 @@ fn handle_global_action(app: &mut App, action: GlobalAction) {
                 spawn_remote(app, RemoteOp::Push, None);
             } else if let Some(branch) = app.repo.head_branch() {
                 app.confirm_message = Some(format!(
-                    "分支 '{}' 没有 upstream，是否 push -u origin {}？", branch, branch
+                    "分支 '{}' 没有 upstream，是否 push -u origin {}？",
+                    branch, branch
                 ));
                 app.confirm_action = Some(ConfirmAction::PushSetUpstream(branch));
                 app.overlay = Overlay::ConfirmDialog;

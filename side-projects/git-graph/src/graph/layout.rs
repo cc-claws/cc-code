@@ -85,7 +85,11 @@ impl ColorPool {
     /// 获取一个可用的颜色（优先复用已释放的）
     fn acquire(&mut self, row: usize, colors: &mut BranchColors) -> Color {
         // 找一个已经不会再被使用的颜色（释放行 < 当前行）
-        if let Some(pos) = self.freed.iter().position(|(_, freed_row)| *freed_row < row) {
+        if let Some(pos) = self
+            .freed
+            .iter()
+            .position(|(_, freed_row)| *freed_row < row)
+        {
             let (color, _) = self.freed.remove(pos);
             return color;
         }
@@ -176,9 +180,7 @@ pub fn build_layout(
         }
         cells[my_lane] = CellType::Commit(my_color);
 
-        let branch_name = branch_map
-            .get(&node.oid)
-            .and_then(|v| v.first().cloned());
+        let branch_name = branch_map.get(&node.oid).and_then(|v| v.first().cloned());
         let all_branches = branch_map.get(&node.oid).cloned().unwrap_or_default();
         let has_stash = stash_oids.contains(&node.oid)
             || stash_map
@@ -216,7 +218,9 @@ pub fn build_layout(
             .iter()
             .enumerate()
             .find(|(i, l)| {
-                *i != my_lane && l.as_ref().map_or(false, |ll| ll.target == Some(first_parent))
+                *i != my_lane
+                    && l.as_ref()
+                        .map_or(false, |ll| ll.target == Some(first_parent))
             })
             .map(|(i, _)| i);
 
@@ -241,10 +245,7 @@ pub fn build_layout(
                 push_convergence(&mut rows, &lanes, target_lane, my_lane, target_color);
             } else {
                 // target_lane 更低 → 保留 target_lane，释放 my_lane
-                let my_lane_color = lanes[my_lane]
-                    .as_ref()
-                    .map(|l| l.color)
-                    .unwrap_or(my_color);
+                let my_lane_color = lanes[my_lane].as_ref().map(|l| l.color).unwrap_or(my_color);
                 color_pool.release(my_lane_color, row_idx);
                 lanes[my_lane] = None;
                 push_convergence(&mut rows, &lanes, my_lane, target_lane, my_lane_color);
@@ -270,16 +271,20 @@ pub fn build_layout(
                 let existing = lanes
                     .iter()
                     .enumerate()
-                    .find(|(_, l)| l.as_ref().map_or(false, |ll| ll.target == Some(*parent_oid)))
+                    .find(|(_, l)| {
+                        l.as_ref()
+                            .map_or(false, |ll| ll.target == Some(*parent_oid))
+                    })
                     .map(|(i, _)| i);
 
                 if let Some(col) = existing {
                     extra_lane_pairs.push((col, lanes[col].as_ref().unwrap().color));
                 } else {
                     // 分配新 lane
-                    let parent_color = commit_color.get(parent_oid).copied().unwrap_or_else(|| {
-                        color_pool.acquire(row_idx, colors)
-                    });
+                    let parent_color = commit_color
+                        .get(parent_oid)
+                        .copied()
+                        .unwrap_or_else(|| color_pool.acquire(row_idx, colors));
                     if !commit_color.contains_key(parent_oid) {
                         commit_color.insert(*parent_oid, parent_color);
                     }
@@ -716,25 +721,22 @@ mod tests {
         );
 
         // 查找收敛连接器（oid == None 的行）
-        let connectors: Vec<_> = layout
-            .rows
-            .iter()
-            .filter(|r| r.oid.is_none())
-            .collect();
+        let connectors: Vec<_> = layout.rows.iter().filter(|r| r.oid.is_none()).collect();
 
         // 应该至少有一个收敛连接器（E→B 汇入 C→B）
         let convergence = connectors.iter().find(|c| {
-            c.cells.iter().any(|cell| {
-                matches!(cell, CellType::MergeLeft(_) | CellType::MergeRight(_))
-            })
+            c.cells
+                .iter()
+                .any(|cell| matches!(cell, CellType::MergeLeft(_) | CellType::MergeRight(_)))
         });
 
         if let Some(conn) = convergence {
             // 收敛连接器中 from_lane > to_lane 时，from 应有 MergeLeft (╯)
             // 即从上方来向左转（路径结束于侧面，需要 TOP 边）
-            let has_merge_corner = conn.cells.iter().any(|c| {
-                matches!(c, CellType::MergeLeft(_) | CellType::MergeRight(_))
-            });
+            let has_merge_corner = conn
+                .cells
+                .iter()
+                .any(|c| matches!(c, CellType::MergeLeft(_) | CellType::MergeRight(_)));
             assert!(
                 has_merge_corner,
                 "收敛连接器应使用 Merge*(╰/╯) 角落，而非 Branch*(╭/╮): {:?}",
@@ -769,9 +771,10 @@ mod tests {
         assert!(connector.oid.is_none(), "Second row should be a connector");
 
         // 分叉到右侧时，extra lane 应使用 BranchLeft(╮) = BOTTOM+LEFT（新分支向下走）
-        let has_branch_corner = connector.cells.iter().any(|c| {
-            matches!(c, CellType::BranchLeft(_) | CellType::BranchRight(_))
-        });
+        let has_branch_corner = connector
+            .cells
+            .iter()
+            .any(|c| matches!(c, CellType::BranchLeft(_) | CellType::BranchRight(_)));
         assert!(
             has_branch_corner,
             "分叉连接器应使用 Branch*(╭/╮) 角落，而非 Merge*(╰/╯): {:?}",
@@ -831,7 +834,12 @@ mod debug_tests {
             let graph: String = row.cells.iter().map(cell_to_str).collect();
             let info = if let Some(o) = row.oid {
                 let oid_short = format!("{:02x}", o.as_bytes()[0]);
-                format!("c{}(oid={}) [lane={}]", row.message_short.trim_start_matches('c'), oid_short, row.lane)
+                format!(
+                    "c{}(oid={}) [lane={}]",
+                    row.message_short.trim_start_matches('c'),
+                    oid_short,
+                    row.lane
+                )
             } else {
                 format!("[connector] lane={}", row.lane)
             };
@@ -846,13 +854,27 @@ mod debug_tests {
     fn validate_continuity(label: &str, layout: &GraphLayout) {
         for (i, row) in layout.rows.iter().enumerate() {
             if row.oid.is_some() {
-                let commit_count = row.cells.iter().filter(|c| matches!(c, CellType::Commit(_))).count();
-                assert_eq!(commit_count, 1, "{} row {}: commit row should have exactly 1 Commit cell, got {} — cells={:?}", 
-                    label, i, commit_count, row.cells);
+                let commit_count = row
+                    .cells
+                    .iter()
+                    .filter(|c| matches!(c, CellType::Commit(_)))
+                    .count();
+                assert_eq!(
+                    commit_count, 1,
+                    "{} row {}: commit row should have exactly 1 Commit cell, got {} — cells={:?}",
+                    label, i, commit_count, row.cells
+                );
             } else {
-                let commit_count = row.cells.iter().filter(|c| matches!(c, CellType::Commit(_))).count();
-                assert_eq!(commit_count, 0, "{} row {}: connector row should have 0 Commit cells, got {} — cells={:?}", 
-                    label, i, commit_count, row.cells);
+                let commit_count = row
+                    .cells
+                    .iter()
+                    .filter(|c| matches!(c, CellType::Commit(_)))
+                    .count();
+                assert_eq!(
+                    commit_count, 0,
+                    "{} row {}: connector row should have 0 Commit cells, got {} — cells={:?}",
+                    label, i, commit_count, row.cells
+                );
             }
         }
     }
@@ -865,7 +887,13 @@ mod debug_tests {
             node(1, vec![]),     // c1
         ];
         let mut colors = BranchColors::new();
-        let layout = build_layout(&nodes, &HashMap::new(), &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         dump_layout("Simple Merge: c3->c2,c1", &layout);
         validate_continuity("Simple Merge", &layout);
     }
@@ -880,7 +908,13 @@ mod debug_tests {
             node(1, vec![]),  // c1
         ];
         let mut colors = BranchColors::new();
-        let layout = build_layout(&nodes, &HashMap::new(), &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         dump_layout("Diamond: c4->c3->c2, c5->c2", &layout);
         validate_continuity("Diamond", &layout);
     }
@@ -896,7 +930,13 @@ mod debug_tests {
             node(1, vec![]),  // c1
         ];
         let mut colors = BranchColors::new();
-        let layout = build_layout(&nodes, &HashMap::new(), &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         dump_layout("Two branches converge at c2", &layout);
         validate_continuity("Two branches", &layout);
     }
@@ -911,7 +951,13 @@ mod debug_tests {
             node(1, vec![]),     // c1
         ];
         let mut colors = BranchColors::new();
-        let layout = build_layout(&nodes, &HashMap::new(), &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         dump_layout("Consecutive merges", &layout);
         validate_continuity("Consecutive merges", &layout);
     }
@@ -930,7 +976,13 @@ mod debug_tests {
             node(1, vec![]),  // c1
         ];
         let mut colors = BranchColors::new();
-        let layout = build_layout(&nodes, &HashMap::new(), &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         dump_layout("Three branches to c1", &layout);
         validate_continuity("Three branches", &layout);
     }
@@ -943,7 +995,7 @@ mod debug_tests {
         let nodes = vec![
             node(7, vec![4, 6]), // G (merge of D and F)
             node(6, vec![5]),    // F (feature tip)
-            node(5, vec![3]),    // E 
+            node(5, vec![3]),    // E
             node(4, vec![2]),    // D (main tip)
             node(3, vec![2]),    // C
             node(2, vec![1]),    // B
@@ -953,7 +1005,13 @@ mod debug_tests {
         let mut branch_map = HashMap::new();
         branch_map.insert(oid(4), vec!["main".to_string()]);
         branch_map.insert(oid(6), vec!["feature".to_string()]);
-        let layout = build_layout(&nodes, &branch_map, &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &branch_map,
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         dump_layout("Realistic: main+feature merge", &layout);
         validate_continuity("Realistic", &layout);
     }
@@ -973,7 +1031,13 @@ mod debug_tests {
             node(1, vec![]),
         ];
         let mut colors = BranchColors::new();
-        let layout = build_layout(&nodes, &HashMap::new(), &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         validate_continuity("Three converge", &layout);
 
         // 所有收敛连接器应使用 Branch*(╭/╮) 角落（从上方来向侧面转）
@@ -1000,16 +1064,31 @@ mod debug_tests {
             node(1, vec![]),
         ];
         let mut colors = BranchColors::new();
-        let layout = build_layout(&nodes, &HashMap::new(), &HashMap::new(), &mut colors, &HashMap::new());
+        let layout = build_layout(
+            &nodes,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut colors,
+            &HashMap::new(),
+        );
         validate_continuity("No phantom", &layout);
 
-        let c2_idx = layout.rows.iter().position(|r| r.oid == Some(oid(2))).unwrap();
+        let c2_idx = layout
+            .rows
+            .iter()
+            .position(|r| r.oid == Some(oid(2)))
+            .unwrap();
         for row in &layout.rows[c2_idx + 1..] {
-            let pipe_count = row.cells.iter().filter(|c| matches!(c, CellType::Pipe(_))).count();
+            let pipe_count = row
+                .cells
+                .iter()
+                .filter(|c| matches!(c, CellType::Pipe(_)))
+                .count();
             assert!(
                 pipe_count <= 1,
                 "c2 之后不应有多余 pipe: {:?} (pipes={})",
-                row.cells, pipe_count
+                row.cells,
+                pipe_count
             );
         }
     }

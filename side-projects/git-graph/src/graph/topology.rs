@@ -23,11 +23,8 @@ impl Topology {
     ) -> Self {
         // 按时间降序排列（最新在前）
         nodes.sort_by_key(|b| std::cmp::Reverse(b.time));
-        let index: HashMap<Oid, usize> = nodes
-            .iter()
-            .enumerate()
-            .map(|(i, n)| (n.oid, i))
-            .collect();
+        let index: HashMap<Oid, usize> =
+            nodes.iter().enumerate().map(|(i, n)| (n.oid, i)).collect();
         Self {
             nodes,
             index,
@@ -58,7 +55,10 @@ impl Topology {
     }
 
     pub fn branches_for(&self, oid: Oid) -> &[String] {
-        self.branch_map.get(&oid).map(|v| v.as_slice()).unwrap_or(&[])
+        self.branch_map
+            .get(&oid)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn tags_for(&self, oid: Oid) -> &[String] {
@@ -66,7 +66,10 @@ impl Topology {
     }
 
     pub fn stashes_for(&self, oid: Oid) -> &[StashInfo] {
-        self.stash_map.get(&oid).map(|v| v.as_slice()).unwrap_or(&[])
+        self.stash_map
+            .get(&oid)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn branch_map_raw(&self) -> HashMap<Oid, Vec<String>> {

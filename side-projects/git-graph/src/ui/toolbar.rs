@@ -182,7 +182,11 @@ impl ToolbarState {
             return None;
         }
         for (i, &start) in self.button_starts.iter().enumerate() {
-            let width = self.button_widths.get(i).copied().unwrap_or(self.width_per_button);
+            let width = self
+                .button_widths
+                .get(i)
+                .copied()
+                .unwrap_or(self.width_per_button);
             if col >= start && col < start + width {
                 return Some(i);
             }
@@ -277,9 +281,7 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
         app.global_toolbar_state.button_starts.push(x);
         spans.push(Span::styled(
             text.clone(),
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Rgb(35, 35, 45)),
+            Style::default().fg(Color::White).bg(Color::Rgb(35, 35, 45)),
         ));
         x += text_width;
         if i < buttons.len() - 1 {
@@ -292,10 +294,7 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
     if let Some(status) = &app.remote_status {
         let status_text = status.chars().take(40).collect::<String>();
         spans.push(Span::raw("  "));
-        spans.push(Span::styled(
-            status_text,
-            Style::default().fg(Color::Cyan),
-        ));
+        spans.push(Span::styled(status_text, Style::default().fg(Color::Cyan)));
     }
 
     let para = Paragraph::new(Line::from(spans));

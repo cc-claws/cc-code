@@ -11,8 +11,8 @@ pub struct GitRepo {
 
 impl GitRepo {
     pub fn open(path: &Path) -> Result<Self> {
-        let repo = Repository::discover(path)
-            .with_context(|| format!("不是 git 仓库: {:?}", path))?;
+        let repo =
+            Repository::discover(path).with_context(|| format!("不是 git 仓库: {:?}", path))?;
         Ok(Self { repo })
     }
 
@@ -99,11 +99,9 @@ impl GitRepo {
         };
 
         let mut opts = DiffOptions::new();
-        let diff = self.repo.diff_tree_to_tree(
-            parent_tree.as_ref(),
-            Some(&tree),
-            Some(&mut opts),
-        )?;
+        let diff =
+            self.repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))?;
 
         let stats = diff.stats()?;
         let mut files = Vec::new();
@@ -111,7 +109,10 @@ impl GitRepo {
             let new_file = delta.new_file();
             let old_file = delta.old_file();
             files.push(FileChange {
-                path: new_file.path().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                path: new_file
+                    .path()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
                 old_path: if delta.status() == git2::Delta::Renamed {
                     old_file.path().map(|p| p.to_string_lossy().to_string())
                 } else {
@@ -164,10 +165,9 @@ impl GitRepo {
         let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
         for branch in self.repo.branches(Some(git2::BranchType::Local))? {
             let branch = branch?.0;
-            if let (Some(name), Some(target)) = (
-                branch.name()?.map(|s| s.to_string()),
-                branch.get().target(),
-            ) {
+            if let (Some(name), Some(target)) =
+                (branch.name()?.map(|s| s.to_string()), branch.get().target())
+            {
                 map.entry(target).or_default().push(name);
             }
         }
@@ -242,12 +242,32 @@ mod tests {
     fn setup_test_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path();
-        Command::new("git").args(["init"]).current_dir(path).output().unwrap();
-        Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(path).output().unwrap();
-        Command::new("git").args(["config", "user.name", "test"]).current_dir(path).output().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(path)
+            .output()
+            .unwrap();
         std::fs::write(path.join("a.txt"), "hello").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
-        Command::new("git").args(["commit", "-m", "initial"]).current_dir(path).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(path)
+            .output()
+            .unwrap();
         dir
     }
 

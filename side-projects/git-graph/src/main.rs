@@ -7,8 +7,8 @@ mod theme;
 mod ui;
 mod update;
 
-use app::App;
 use anyhow::Result;
+use app::App;
 use clap::{Parser, Subcommand};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},

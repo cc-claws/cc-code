@@ -7,6 +7,7 @@ members = [
     "langfuse-client",
     "peri-widgets",
     "peri-lsp",
+    "side-projects/git-graph",
 ]
 resolver = "2"
 

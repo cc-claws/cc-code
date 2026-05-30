@@ -62,9 +62,7 @@ impl GitRepo {
     }
 
     fn workdir(&self) -> Result<&std::path::Path> {
-        self.repo()
-            .workdir()
-            .context("bare 仓库不支持此操作")
+        self.repo().workdir().context("bare 仓库不支持此操作")
     }
 
     fn run_git(&self, args: &[&str]) -> Result<()> {

@@ -29,9 +29,7 @@ pub fn render_graph_row(
         // branch 标记（背景色与分支颜色一致）
         if !row.branches.is_empty() {
             for branch in &row.branches {
-                let bg = colors
-                    .get(branch)
-                    .unwrap_or(Color::Magenta);
+                let bg = colors.get(branch).unwrap_or(Color::Magenta);
                 spans.push(Span::styled(
                     format!(" {} ", branch),
                     Style::default()

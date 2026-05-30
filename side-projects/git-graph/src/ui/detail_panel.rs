@@ -44,17 +44,29 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
 
         // Hash 行
         lines.push(Line::from(vec![
-            Span::styled(" Hash   ", Style::default().fg(Color::Black).bg(Color::Rgb(100, 60, 140))),
+            Span::styled(
+                " Hash   ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Rgb(100, 60, 140)),
+            ),
             Span::raw(" "),
             Span::styled(
                 detail.short_hash.clone(),
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]));
 
         // Author 行
         lines.push(Line::from(vec![
-            Span::styled(" Author ", Style::default().fg(Color::Black).bg(Color::Rgb(60, 100, 140))),
+            Span::styled(
+                " Author ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Rgb(60, 100, 140)),
+            ),
             Span::raw(" "),
             Span::styled(
                 format!("{} <{}>", detail.author_name, detail.author_email),
@@ -125,12 +137,16 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
                 Span::raw(" "),
                 Span::styled(
                     format!(" +{} ", stats.insertions),
-                    Style::default().fg(Color::White).bg(Color::Rgb(30, 100, 30)),
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Rgb(30, 100, 30)),
                 ),
                 Span::raw(" "),
                 Span::styled(
                     format!(" -{} ", stats.deletions),
-                    Style::default().fg(Color::White).bg(Color::Rgb(120, 30, 30)),
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Rgb(120, 30, 30)),
                 ),
             ]));
 
@@ -144,7 +160,10 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!(" {} ", status_ch),
-                        Style::default().fg(Color::White).bg(status_bg).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::White)
+                            .bg(status_bg)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(" "),
                     Span::styled(file.path.clone(), Style::default().fg(Color::Gray)),
@@ -153,7 +172,9 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
         }
 
         // 计算实际行数（wrap 后）并渲染
-        let para = Paragraph::new(lines).wrap(Wrap { trim: true }).scroll((app.detail_scroll, 0));
+        let para = Paragraph::new(lines)
+            .wrap(Wrap { trim: true })
+            .scroll((app.detail_scroll, 0));
         let line_count = para.line_count(content_area.width) as u16;
         app.detail_total_lines = line_count;
 
@@ -173,8 +194,8 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
                 1,
                 content_height,
             );
-            let mut scrollbar_state = ScrollbarState::new(max_scroll as usize)
-                .position(app.detail_scroll as usize);
+            let mut scrollbar_state =
+                ScrollbarState::new(max_scroll as usize).position(app.detail_scroll as usize);
             f.render_stateful_widget(
                 Scrollbar::new(ScrollbarOrientation::VerticalRight),
                 scrollbar_area,

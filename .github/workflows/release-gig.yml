@@ -67,7 +67,7 @@ jobs:
             - name: Cache build artifacts
               uses: actions/cache@v4
               with:
-                  path: side-projects/git-graph/target
+                  path: target
                   key: ${{ runner.os }}-${{ matrix.target }}-gig-${{ hashFiles('**/Cargo.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-${{ matrix.target }}-gig-
@@ -79,33 +79,29 @@ jobs:
 
             - name: Build gig (Linux)
               if: runner.os == 'Linux'
-              working-directory: side-projects/git-graph
-              run: cross build --release --target ${{ matrix.target }}
+              run: cross build --release --target ${{ matrix.target }} --manifest-path side-projects/git-graph/Cargo.toml
 
             - name: Build gig (non-Linux)
               if: runner.os != 'Linux'
-              working-directory: side-projects/git-graph
-              run: cargo build --release --target ${{ matrix.target }}
+              run: cargo build --release --target ${{ matrix.target }} --manifest-path side-projects/git-graph/Cargo.toml
 
             - name: Package binaries (Unix)
               if: matrix.ext == ''
-              working-directory: side-projects/git-graph
               run: |
-                  mkdir -p dist
-                  cp target/${{ matrix.target }}/release/gig dist/gig-${{ matrix.platform }}
-                  chmod +x dist/gig-${{ matrix.platform }}
-                  tar -czf dist/gig-${{ matrix.platform }}.tar.gz -C dist gig-${{ matrix.platform }}
-                  rm dist/gig-${{ matrix.platform }}
+                  mkdir -p side-projects/git-graph/dist
+                  cp target/${{ matrix.target }}/release/gig side-projects/git-graph/dist/gig-${{ matrix.platform }}
+                  chmod +x side-projects/git-graph/dist/gig-${{ matrix.platform }}
+                  tar -czf side-projects/git-graph/dist/gig-${{ matrix.platform }}.tar.gz -C side-projects/git-graph/dist gig-${{ matrix.platform }}
+                  rm side-projects/git-graph/dist/gig-${{ matrix.platform }}
 
             - name: Package binaries (Windows)
               if: matrix.ext == '.exe'
               shell: pwsh
-              working-directory: side-projects/git-graph
               run: |
-                  New-Item -ItemType Directory -Force -Path dist
-                  Copy-Item "target/${{ matrix.target }}/release/gig.exe" "dist/gig-${{ matrix.platform }}.exe"
-                  Compress-Archive -Path "dist/gig-${{ matrix.platform }}.exe" -DestinationPath "dist/gig-${{ matrix.platform }}.zip"
-                  Remove-Item "dist/gig-${{ matrix.platform }}.exe"
+                  New-Item -ItemType Directory -Force -Path side-projects/git-graph/dist
+                  Copy-Item "target/${{ matrix.target }}/release/gig.exe" "side-projects/git-graph/dist/gig-${{ matrix.platform }}.exe"
+                  Compress-Archive -Path "side-projects/git-graph/dist/gig-${{ matrix.platform }}.exe" -DestinationPath "side-projects/git-graph/dist/gig-${{ matrix.platform }}.zip"
+                  Remove-Item "side-projects/git-graph/dist/gig-${{ matrix.platform }}.exe"
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v4

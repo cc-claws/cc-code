@@ -33,13 +33,25 @@ pub struct PanelLayout {
 }
 
 enum TreeNode {
-    Dir { name: String, children: BTreeMap<String, TreeNode> },
-    File { name: String, status: FileStatus },
+    Dir {
+        name: String,
+        children: BTreeMap<String, TreeNode>,
+    },
+    File {
+        name: String,
+        status: FileStatus,
+    },
 }
 
 enum FlatNode {
-    Dir { display_path: String, children: Vec<FlatNode> },
-    File { name: String, status: FileStatus },
+    Dir {
+        display_path: String,
+        children: Vec<FlatNode>,
+    },
+    File {
+        name: String,
+        status: FileStatus,
+    },
 }
 
 fn build_tree(entries: &[crate::git::status::StatusEntry]) -> Vec<FlatNode> {
@@ -51,15 +63,23 @@ fn build_tree(entries: &[crate::git::status::StatusEntry]) -> Vec<FlatNode> {
     flatten_and_merge(&root)
 }
 
-fn insert_into_tree(map: &mut BTreeMap<String, TreeNode>, parts: &[&str], depth: usize, status: FileStatus) {
+fn insert_into_tree(
+    map: &mut BTreeMap<String, TreeNode>,
+    parts: &[&str],
+    depth: usize,
+    status: FileStatus,
+) {
     if depth == parts.len() - 1 {
         let name = parts[depth].to_string();
         map.insert(name.clone(), TreeNode::File { name, status });
     } else {
         let dir_name = parts[depth].to_string();
-        let child = map.entry(dir_name.clone()).or_insert_with(|| TreeNode::Dir {
-            name: dir_name, children: BTreeMap::new(),
-        });
+        let child = map
+            .entry(dir_name.clone())
+            .or_insert_with(|| TreeNode::Dir {
+                name: dir_name,
+                children: BTreeMap::new(),
+            });
         if let TreeNode::Dir { children, .. } = child {
             insert_into_tree(children, parts, depth + 1, status);
         }
@@ -71,7 +91,10 @@ fn flatten_and_merge(nodes: &BTreeMap<String, TreeNode>) -> Vec<FlatNode> {
     for node in nodes.values() {
         match node {
             TreeNode::Dir { name, children } => result.push(compress_dir(name, children)),
-            TreeNode::File { name, status } => result.push(FlatNode::File { name: name.clone(), status: *status }),
+            TreeNode::File { name, status } => result.push(FlatNode::File {
+                name: name.clone(),
+                status: *status,
+            }),
         }
     }
     result
@@ -81,10 +104,20 @@ fn compress_dir(name: &str, children: &BTreeMap<String, TreeNode>) -> FlatNode {
     let mut display_path = format!("{}/", name);
     let mut cur = children;
     loop {
-        let dirs: Vec<_> = cur.values().filter(|n| matches!(n, TreeNode::Dir { .. })).collect();
-        let files: Vec<_> = cur.values().filter(|n| matches!(n, TreeNode::File { .. })).collect();
+        let dirs: Vec<_> = cur
+            .values()
+            .filter(|n| matches!(n, TreeNode::Dir { .. }))
+            .collect();
+        let files: Vec<_> = cur
+            .values()
+            .filter(|n| matches!(n, TreeNode::File { .. }))
+            .collect();
         if dirs.len() == 1 && files.is_empty() {
-            if let Some(TreeNode::Dir { name: sub, children: sub_ch }) = dirs.into_iter().next() {
+            if let Some(TreeNode::Dir {
+                name: sub,
+                children: sub_ch,
+            }) = dirs.into_iter().next()
+            {
                 display_path = format!("{}{}/", display_path, sub);
                 cur = sub_ch;
                 continue;
@@ -92,28 +125,39 @@ fn compress_dir(name: &str, children: &BTreeMap<String, TreeNode>) -> FlatNode {
         }
         break;
     }
-    FlatNode::Dir { display_path, children: flatten_and_merge(cur) }
+    FlatNode::Dir {
+        display_path,
+        children: flatten_and_merge(cur),
+    }
 }
 
 fn spans_width(spans: &[Span<'_>]) -> usize {
-    spans.iter().map(|s| UnicodeWidthStr::width(s.content.as_ref())).sum()
+    spans
+        .iter()
+        .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+        .sum()
 }
 
 fn truncate_spans(spans: &mut Vec<Span<'static>>, max: usize) {
-    if spans.is_empty() { return; }
+    if spans.is_empty() {
+        return;
+    }
     while spans_width(spans) > max {
         let idx = spans.len() - 1;
         let s = spans[idx].content.clone().into_owned();
-        if s.is_empty() { break; }
+        if s.is_empty() {
+            break;
+        }
         let has_el = s.ends_with('…');
         let rm = if has_el { 2 } else { 1 };
         let chars: Vec<char> = s.chars().collect();
         let nl = chars.len().saturating_sub(rm);
-        if nl == 0 { break; }
+        if nl == 0 {
+            break;
+        }
         spans[idx].content = Cow::Owned(format!("{}…", chars[..nl].iter().collect::<String>()));
     }
 }
-
 
 /// 按钮区域宽度：空格 + 按钮字符 + 空格 = 3 列
 const BTN_W: u16 = 3;
@@ -124,20 +168,28 @@ fn append_button(spans: &mut Vec<Span<'static>>, btn: StatusButton, width: u16) 
     truncate_spans(spans, btn_x);
     let cur = spans_width(spans);
     let pad = btn_x.saturating_sub(cur);
-    if pad > 0 { spans.push(Span::raw(" ".repeat(pad))); }
+    if pad > 0 {
+        spans.push(Span::raw(" ".repeat(pad)));
+    }
     // 徽章样式按钮：带背景色
     let (ch, style) = match btn {
         StatusButton::Stage => (
             "+",
-            Style::default().fg(ratatui::style::Color::White).bg(ratatui::style::Color::Rgb(40, 80, 40)),
+            Style::default()
+                .fg(ratatui::style::Color::White)
+                .bg(ratatui::style::Color::Rgb(40, 80, 40)),
         ),
         StatusButton::Unstage => (
             "-",
-            Style::default().fg(ratatui::style::Color::White).bg(ratatui::style::Color::Rgb(140, 110, 20)),
+            Style::default()
+                .fg(ratatui::style::Color::White)
+                .bg(ratatui::style::Color::Rgb(140, 110, 20)),
         ),
         StatusButton::Discard => (
             "-",
-            Style::default().fg(ratatui::style::Color::White).bg(ratatui::style::Color::Rgb(140, 40, 40)),
+            Style::default()
+                .fg(ratatui::style::Color::White)
+                .bg(ratatui::style::Color::Rgb(140, 40, 40)),
         ),
     };
     spans.push(Span::raw(" "));
@@ -146,35 +198,60 @@ fn append_button(spans: &mut Vec<Span<'static>>, btn: StatusButton, width: u16) 
 }
 
 fn render_tree(
-    nodes: &[FlatNode], depth: usize, prefix: &str,
+    nodes: &[FlatNode],
+    depth: usize,
+    prefix: &str,
     collapsed: &HashSet<String>,
     dir_rows: &mut Vec<(u16, String)>,
     button_rows: &mut Vec<(u16, u16, StatusButton, String)>,
-    row: &mut u16, lines: &mut Vec<Line<'static>>,
+    row: &mut u16,
+    lines: &mut Vec<Line<'static>>,
     theme: &crate::theme::GigTheme,
-    section: StatusButton, area_width: u16,
+    section: StatusButton,
+    area_width: u16,
 ) {
     for node in nodes {
         match node {
-            FlatNode::Dir { display_path, children } => {
+            FlatNode::Dir {
+                display_path,
+                children,
+            } => {
                 let key = format!("{}{}", prefix, display_path);
                 let is_expanded = !collapsed.contains(&key);
                 let marker = if is_expanded { "▾" } else { "▸" };
                 let mut spans = indent_spans(depth, theme);
-                spans.push(Span::styled(format!("{} {}", marker, display_path), Style::default().fg(theme.text())));
+                spans.push(Span::styled(
+                    format!("{} {}", marker, display_path),
+                    Style::default().fg(theme.text()),
+                ));
                 dir_rows.push((*row, key.clone()));
                 let bx = append_button(&mut spans, section, area_width);
                 button_rows.push((*row, bx, section, key.clone()));
                 lines.push(Line::from(spans));
                 *row += 1;
                 if is_expanded {
-                    render_tree(children, depth + 1, &key, collapsed, dir_rows, button_rows, row, lines, theme, section, area_width);
+                    render_tree(
+                        children,
+                        depth + 1,
+                        &key,
+                        collapsed,
+                        dir_rows,
+                        button_rows,
+                        row,
+                        lines,
+                        theme,
+                        section,
+                        area_width,
+                    );
                 }
             }
             FlatNode::File { name, status } => {
                 let (ch, color) = status_style(*status, theme);
                 let mut spans = indent_spans(depth, theme);
-                spans.push(Span::styled(name.clone(), Style::default().fg(theme.muted())));
+                spans.push(Span::styled(
+                    name.clone(),
+                    Style::default().fg(theme.muted()),
+                ));
                 spans.push(Span::styled(format!(" {}", ch), Style::default().fg(color)));
                 let fk = format!("{}{}", prefix, name);
                 let bx = append_button(&mut spans, section, area_width);
@@ -187,10 +264,15 @@ fn render_tree(
 }
 
 fn indent_spans(depth: usize, theme: &crate::theme::GigTheme) -> Vec<Span<'static>> {
-    (0..depth).map(|_| Span::styled("│ ".to_string(), Style::default().fg(theme.dim()))).collect()
+    (0..depth)
+        .map(|_| Span::styled("│ ".to_string(), Style::default().fg(theme.dim())))
+        .collect()
 }
 
-fn status_style(status: FileStatus, theme: &crate::theme::GigTheme) -> (char, ratatui::style::Color) {
+fn status_style(
+    status: FileStatus,
+    theme: &crate::theme::GigTheme,
+) -> (char, ratatui::style::Color) {
     match status {
         FileStatus::New | FileStatus::Renamed => ('A', theme.status_added()),
         FileStatus::Deleted | FileStatus::WorkingDeleted => ('D', theme.status_deleted()),
@@ -202,10 +284,17 @@ fn status_style(status: FileStatus, theme: &crate::theme::GigTheme) -> (char, ra
 /// 渲染单个面板内容（带边框），返回 (inner Rect, Option<PanelLayout>)
 /// `scroll` / `total_lines` / `viewport` 传入面板各自的滚动状态引用
 fn draw_panel(
-    f: &mut Frame, area: Rect, title: &str, entries: &[crate::git::status::StatusEntry],
-    expanded: bool, section: StatusButton,
-    collapsed: &HashSet<String>, theme: &crate::theme::GigTheme,
-    scroll: &mut u16, total_lines: &mut u16, viewport: &mut u16,
+    f: &mut Frame,
+    area: Rect,
+    title: &str,
+    entries: &[crate::git::status::StatusEntry],
+    expanded: bool,
+    section: StatusButton,
+    collapsed: &HashSet<String>,
+    theme: &crate::theme::GigTheme,
+    scroll: &mut u16,
+    total_lines: &mut u16,
+    viewport: &mut u16,
 ) -> (Rect, Option<PanelLayout>) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -234,9 +323,19 @@ fn draw_panel(
         let tree = build_tree(entries);
         // 为 scrollbar 预留 1 列
         let content_width = inner.width.saturating_sub(1);
-        render_tree(&tree, 0, "", collapsed,
-            &mut layout.dir_rows, &mut layout.button_rows, &mut row, &mut lines,
-            theme, section, content_width);
+        render_tree(
+            &tree,
+            0,
+            "",
+            collapsed,
+            &mut layout.dir_rows,
+            &mut layout.button_rows,
+            &mut row,
+            &mut lines,
+            theme,
+            section,
+            content_width,
+        );
     }
 
     *total_lines = lines.len() as u16;
@@ -274,8 +373,8 @@ fn draw_panel(
             1,
             inner.height,
         );
-        let mut scrollbar_state = ScrollbarState::new(max_scroll as usize)
-            .position(*scroll as usize);
+        let mut scrollbar_state =
+            ScrollbarState::new(max_scroll as usize).position(*scroll as usize);
         f.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
             scrollbar_area,
@@ -297,14 +396,29 @@ pub fn draw_staged(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<Pa
             .title_style(Style::default().fg(theme.dim()))
             .border_style(Style::default().fg(theme.border()));
         f.render_widget(block, area);
-        let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) };
+        let inner = Rect {
+            x: area.x + 1,
+            y: area.y + 1,
+            width: area.width.saturating_sub(2),
+            height: area.height.saturating_sub(2),
+        };
         app.staged_total_lines = 0;
         app.staged_viewport = inner.height;
         return (inner, None);
     }
-    draw_panel(f, area, &title, &status.staged, app.status_staged_expanded,
-        StatusButton::Unstage, &app.status_dir_collapsed, &app.theme,
-        &mut app.staged_scroll, &mut app.staged_total_lines, &mut app.staged_viewport)
+    draw_panel(
+        f,
+        area,
+        &title,
+        &status.staged,
+        app.status_staged_expanded,
+        StatusButton::Unstage,
+        &app.status_dir_collapsed,
+        &app.theme,
+        &mut app.staged_scroll,
+        &mut app.staged_total_lines,
+        &mut app.staged_viewport,
+    )
 }
 
 /// 渲染 Changes 面板（unstaged + untracked）
@@ -320,14 +434,29 @@ pub fn draw_changes(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<P
             .title_style(Style::default().fg(theme.dim()))
             .border_style(Style::default().fg(theme.border()));
         f.render_widget(block, area);
-        let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) };
+        let inner = Rect {
+            x: area.x + 1,
+            y: area.y + 1,
+            width: area.width.saturating_sub(2),
+            height: area.height.saturating_sub(2),
+        };
         app.changes_total_lines = 0;
         app.changes_viewport = inner.height;
         return (inner, None);
     }
     let mut all = status.unstaged.clone();
     all.extend(status.untracked.clone());
-    draw_panel(f, area, &title, &all, app.status_unstaged_expanded,
-        StatusButton::Stage, &app.status_dir_collapsed, &app.theme,
-        &mut app.changes_scroll, &mut app.changes_total_lines, &mut app.changes_viewport)
+    draw_panel(
+        f,
+        area,
+        &title,
+        &all,
+        app.status_unstaged_expanded,
+        StatusButton::Stage,
+        &app.status_dir_collapsed,
+        &app.theme,
+        &mut app.changes_scroll,
+        &mut app.changes_total_lines,
+        &mut app.changes_viewport,
+    )
 }

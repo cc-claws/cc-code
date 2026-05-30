@@ -42,7 +42,7 @@ pub enum ConfirmAction {
     ForcePush,
     PushSetUpstream(String), // branch name
     PullRebase,
-    CheckoutBranch(String),  // branch name
+    CheckoutBranch(String), // branch name
 }
 
 #[allow(dead_code)]
@@ -132,7 +132,12 @@ impl App {
         let stash_map = repo.stash_by_commit()?;
         let stash_oids: Vec<git2::Oid> = stash_map.values().flatten().map(|s| s.oid).collect();
         let nodes = repo.scan_topology_with_extra(&stash_oids)?;
-        let topology = Topology::new(nodes, branch_map.clone(), tag_map.clone(), stash_map.clone());
+        let topology = Topology::new(
+            nodes,
+            branch_map.clone(),
+            tag_map.clone(),
+            stash_map.clone(),
+        );
         let mut colors = BranchColors::new();
         let layout = crate::graph::layout::build_layout(
             topology.nodes(),
@@ -149,8 +154,7 @@ impl App {
 
         // 准备 sidebar 数据（在 repo move 之前）
         let workdir = repo.repo().workdir().map(|p| p.to_path_buf());
-        let git_status = crate::git::status::read_status(repo.repo())
-            .unwrap_or_default();
+        let git_status = crate::git::status::read_status(repo.repo()).unwrap_or_default();
 
         let mut file_tree_state = peri_widgets::FileTreeState::new();
         if let Some(wd) = &workdir {
@@ -261,7 +265,12 @@ impl App {
         let stash_map = self.repo.stash_by_commit()?;
         let stash_oids: Vec<git2::Oid> = stash_map.values().flatten().map(|s| s.oid).collect();
         let nodes = self.repo.scan_topology_with_extra(&stash_oids)?;
-        self.topology = Topology::new(nodes, branch_map.clone(), tag_map.clone(), stash_map.clone());
+        self.topology = Topology::new(
+            nodes,
+            branch_map.clone(),
+            tag_map.clone(),
+            stash_map.clone(),
+        );
         self.stash_map = stash_map;
         self.layout = crate::graph::layout::build_layout(
             self.topology.nodes(),
@@ -277,8 +286,7 @@ impl App {
             }
         }
         self.select_keep_scroll(self.selected_idx);
-        self.git_status = crate::git::status::read_status(self.repo.repo())
-            .unwrap_or_default();
+        self.git_status = crate::git::status::read_status(self.repo.repo()).unwrap_or_default();
         self.dirty = true;
         Ok(())
     }
@@ -326,8 +334,7 @@ impl App {
 
     /// 恢复已展开路径的展开状态
     fn restore_expanded_paths(&mut self, paths: &[String]) {
-        let path_set: std::collections::HashSet<&str> =
-            paths.iter().map(|s| s.as_str()).collect();
+        let path_set: std::collections::HashSet<&str> = paths.iter().map(|s| s.as_str()).collect();
         // 遍历 flat 列表，对匹配路径的目录执行 toggle
         let flat_len = self.file_tree_state.len();
         for idx in 0..flat_len {
@@ -394,11 +401,9 @@ pub fn scan_dir_children(dir_path: &str) -> Vec<FileNode> {
 
 /// 排序：目录优先 + 字母序
 fn sort_nodes(nodes: &mut Vec<FileNode>) {
-    nodes.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.cmp(&b.name),
-        }
+    nodes.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
     });
 }

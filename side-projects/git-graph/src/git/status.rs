@@ -103,10 +103,7 @@ pub fn read_status(repo: &Repository) -> Result<StatusResult> {
             continue;
         };
 
-        let se = StatusEntry {
-            path,
-            status,
-        };
+        let se = StatusEntry { path, status };
 
         if status.is_staged() {
             result.staged.push(se);

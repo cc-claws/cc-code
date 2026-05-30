@@ -16,7 +16,12 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
     app.viewport_height = inner.height as usize;
 
     // 为 scrollbar 预留最右 1 列
-    let graph_inner = Rect::new(inner.x, inner.y, inner.width.saturating_sub(1), inner.height);
+    let graph_inner = Rect::new(
+        inner.x,
+        inner.y,
+        inner.width.saturating_sub(1),
+        inner.height,
+    );
     let visible_rows = graph_inner.height as usize;
     let start = app.scroll_offset;
     let end = (start + visible_rows).min(app.layout.rows.len());
@@ -33,7 +38,12 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
         );
         f.render_widget(
             Paragraph::new(line),
-            Rect::new(graph_inner.x, graph_inner.y + i as u16, graph_inner.width, 1),
+            Rect::new(
+                graph_inner.x,
+                graph_inner.y + i as u16,
+                graph_inner.width,
+                1,
+            ),
         );
     }
 
@@ -47,8 +57,8 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
             1,
             inner.height,
         );
-        let mut scrollbar_state = ScrollbarState::new(max_scroll)
-            .position(app.scroll_offset.min(max_scroll));
+        let mut scrollbar_state =
+            ScrollbarState::new(max_scroll).position(app.scroll_offset.min(max_scroll));
         f.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
             scrollbar_area,
