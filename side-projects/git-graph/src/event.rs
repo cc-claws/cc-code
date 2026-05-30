@@ -228,12 +228,63 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
 }
 
 fn handle_mouse(app: &mut App, mouse: MouseEvent) {
-    // overlay 或 confirm 弹窗打开时，拦截鼠标事件防止穿透到底层面板
-    if app.overlay != Overlay::None || app.confirm_message.is_some() {
-        if app.overlay != Overlay::None {
-            if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+    // 确认弹窗优先处理：检测 [Y]es / [N]o 按钮点击
+    if app.confirm_message.is_some() {
+        if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+            let area = app.frame_area;
+            let popup_width = 50u16.min(area.width);
+            let popup_height = 5u16;
+            let px = (area.width.saturating_sub(popup_width)) / 2;
+            let py = (area.height.saturating_sub(popup_height)) / 2;
+            // inner 区域 = popup 去掉边框（各 1 列/行）
+            let inner_x = px + 1;
+            let inner_y = py + 1;
+            // 按钮在第 3 行（0-indexed）= inner_y + 2
+            let btn_row = inner_y + 2;
+            if mouse.row == btn_row {
+                // 居中对齐：计算行内容宽度
+                // " [Y]es " (7) + "  " (2) + " [N]o " (6) = 15
+                let content_width = 15u16;
+                let inner_w = popup_width.saturating_sub(2);
+                let line_start = inner_x + (inner_w.saturating_sub(content_width)) / 2;
+                let yes_start = line_start;
+                let yes_end = yes_start + 7; // " [Y]es "
+                let no_start = yes_end + 2; // "  " 分隔
+                let no_end = no_start + 6; // " [N]o "
+                if mouse.column >= yes_start && mouse.column < yes_end {
+                    execute_confirm_action(app);
+                    app.confirm_message = None;
+                    app.confirm_action = None;
+                    return;
+                }
+                if mouse.column >= no_start && mouse.column < no_end {
+                    // No: PullRebase 时 n = merge，其他取消
+                    if let Some(ConfirmAction::PullRebase) = &app.confirm_action {
+                        spawn_remote(app, RemoteOp::Pull, None);
+                    }
+                    app.confirm_message = None;
+                    app.confirm_action = None;
+                    return;
+                }
+            }
+            // 点击弹窗外部区域：关闭弹窗
+            let in_popup = mouse.column >= px
+                && mouse.column < px + popup_width
+                && mouse.row >= py
+                && mouse.row < py + popup_height;
+            if !in_popup {
+                app.confirm_message = None;
+                app.confirm_action = None;
                 app.overlay = Overlay::None;
             }
+        }
+        return;
+    }
+
+    // overlay 打开时，拦截鼠标事件防止穿透到底层面板
+    if app.overlay != Overlay::None {
+        if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+            app.overlay = Overlay::None;
         }
         return;
     }
@@ -255,44 +306,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                 return;
             }
 
-            // 检查确认弹窗按钮（[Y]es / [N]o）
-            if app.confirm_message.is_some() {
-                let area = app.frame_area;
-                let popup_width = 50u16.min(area.width);
-                let popup_height = 5u16;
-                let px = (area.width.saturating_sub(popup_width)) / 2;
-                let py = (area.height.saturating_sub(popup_height)) / 2;
-                let inner_x = px + 1;
-                let inner_y = py + 1;
-                // 按钮在第 3 行（0-indexed）= inner_y + 2
-                let btn_row = inner_y + 2;
-                if mouse.row == btn_row {
-                    // 居中对齐：计算行内容宽度
-                    // " [Y]es " (7) + "  " (2) + " [N]o " (6) = 15
-                    let content_width = 15u16;
-                    let line_start = inner_x + (popup_width.saturating_sub(2).saturating_sub(content_width)) / 2;
-                    let yes_start = line_start;
-                    let yes_end = yes_start + 7; // " [Y]es "
-                    let no_start = yes_end + 2; // "  " 分隔
-                    let no_end = no_start + 6;  // " [N]o "
-                    if mouse.column >= yes_start && mouse.column < yes_end {
-                        execute_confirm_action(app);
-                        app.confirm_message = None;
-                        app.confirm_action = None;
-                        return;
-                    }
-                    if mouse.column >= no_start && mouse.column < no_end {
-                        // No: PullRebase 时 n = merge，其他取消
-                        if let Some(ConfirmAction::PullRebase) = &app.confirm_action {
-                            spawn_remote(app, RemoteOp::Pull, None);
-                        }
-                        app.confirm_message = None;
-                        app.confirm_action = None;
-                        return;
-                    }
-                }
-            }
-            // 再检查 commit 工具栏点击
+            // 检查 commit 工具栏点击
             if let Some(idx) = app.toolbar_state.hit_test(mouse.column, mouse.row) {
                 let buttons = crate::ui::toolbar::commit_buttons(app);
                 if let Some(btn) = buttons.get(idx) {
