@@ -617,9 +617,13 @@ fn handle_global_action(app: &mut App, action: GlobalAction) {
     match action {
         GlobalAction::RemoteFetch => spawn_remote(app, RemoteOp::Fetch, None),
         GlobalAction::RemotePull => {
-            app.confirm_message = Some("Pull 方式？y=rebase, n=merge".to_string());
-            app.confirm_action = Some(ConfirmAction::PullRebase);
-            app.overlay = Overlay::ConfirmDialog;
+            if app.repo.head_branch().is_none() {
+                app.remote_status = Some("detached HEAD，无法 pull".to_string());
+            } else {
+                app.confirm_message = Some("Pull 方式？y=rebase, n=merge".to_string());
+                app.confirm_action = Some(ConfirmAction::PullRebase);
+                app.overlay = Overlay::ConfirmDialog;
+            }
         }
         GlobalAction::RemotePush => {
             if app.repo.has_upstream() {
