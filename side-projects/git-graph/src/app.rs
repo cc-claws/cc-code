@@ -42,6 +42,7 @@ pub enum ConfirmAction {
     ForcePush,
     PushSetUpstream(String), // branch name
     PullRebase,
+    CheckoutBranch(String),  // branch name
 }
 
 #[allow(dead_code)]
