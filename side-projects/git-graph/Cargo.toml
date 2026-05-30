@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 ratatui = ">=0.30"
 crossterm = "0.28"
-git2 = "0.20"
+git2 = { version = "0.20", features = ["vendored-openssl"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
