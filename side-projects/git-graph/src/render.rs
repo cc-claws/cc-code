@@ -7,6 +7,7 @@ use ratatui::{
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let size = f.area();
+    app.frame_area = size;
 
     // 全局工具栏占顶部 1 行
     let (toolbar_area, body_area) = if size.height > 2 {

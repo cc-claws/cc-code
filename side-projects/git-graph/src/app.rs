@@ -112,6 +112,8 @@ pub struct App {
     pub detail_total_lines: u16,
     /// detail 面板可见行数（渲染时更新）
     pub detail_viewport: u16,
+    /// 全屏区域（渲染时更新，供弹窗点击检测用）
+    pub frame_area: ratatui::layout::Rect,
     /// detail 面板内容区 y 起始坐标
     pub detail_content_y: u16,
     /// detail 面板区域
@@ -204,6 +206,7 @@ impl App {
             detail_scroll: 0,
             detail_total_lines: 0,
             detail_viewport: 0,
+            frame_area: ratatui::layout::Rect::default(),
             detail_content_y: 0,
             detail_area: Rect::default(),
             sidebar_layout: crate::ui::sidebar::SidebarLayout::default(),

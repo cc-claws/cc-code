@@ -257,10 +257,9 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
 
             // 检查确认弹窗按钮（[Y]es / [N]o）
             if app.confirm_message.is_some() {
-                // 弹窗布局与 confirm.rs draw_confirm 一致
-                let popup_width = 50u16.min(app.graph_area.width);
+                let area = app.frame_area;
+                let popup_width = 50u16.min(area.width);
                 let popup_height = 5u16;
-                let area = app.graph_area;
                 let px = (area.width.saturating_sub(popup_width)) / 2;
                 let py = (area.height.saturating_sub(popup_height)) / 2;
                 let inner_x = px + 1;
