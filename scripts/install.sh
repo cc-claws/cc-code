@@ -85,6 +85,64 @@ github_api() {
     curl -fsSL ${auth_header:-} "${url}" 2>/dev/null
 }
 
+# --- Cleanup Old Versions ---
+cleanup_old_versions() {
+    local install_dir="$1"
+    local current_version="$2"
+
+    # Collect agent-v* directories, excluding current version
+    local old_dirs=()
+    for d in "${install_dir}"/agent-v*; do
+        [[ -d "$d" ]] || continue
+        local base
+        base=$(basename "$d")
+        [[ "$base" == "$current_version" ]] && continue
+        old_dirs+=("$d")
+    done
+
+    if [[ ${#old_dirs[@]} -eq 0 ]]; then
+        info "No old versions to clean up."
+        return
+    fi
+
+    echo ""
+    warn "Found ${#old_dirs[@]} old version(s):"
+    for d in "${old_dirs[@]}"; do
+        local size
+        size=$(du -sh "$d" 2>/dev/null | cut -f1)
+        echo "  $(basename "$d")  (${size})"
+    done
+    local total_human
+    total_human=$(du -sh "${old_dirs[@]}" 2>/dev/null | tail -1 | cut -f1)
+    echo "  Total: ${total_human}"
+    echo ""
+
+    # Read from /dev/tty to work with curl | bash pipe
+    if ! [[ -t 0 ]] && [[ -e /dev/tty ]]; then
+        exec 3< /dev/tty
+    else
+        exec 3<&0
+    fi
+
+    echo -e "${YELLOW}[WARN]${NC}  Delete old versions? [y/N] " >&2
+    local answer
+    read -r answer <&3
+    exec 3<&-
+
+    case "${answer}" in
+        [yY]|[yY][eE][sS])
+            for d in "${old_dirs[@]}"; do
+                rm -rf "$d"
+                info "Removed: $(basename "$d")"
+            done
+            info "Cleaned up ${#old_dirs[@]} old version(s)."
+            ;;
+        *)
+            info "Skipped cleanup."
+            ;;
+    esac
+}
+
 # --- Main ---
 main() {
     INSTALL_DIR="${PERI_INSTALL_DIR:-${HOME}/.peri}"
@@ -219,6 +277,9 @@ main() {
             echo ""
         fi
     fi
+
+    # Offer to clean up old versions
+    cleanup_old_versions "${INSTALL_DIR}" "${VERSION_TAG}"
 
     echo ""
     info "Installation complete! Version: ${VERSION_TAG}"
