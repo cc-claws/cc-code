@@ -218,6 +218,23 @@ impl App {
         }
         self.selected_idx = idx;
         self.detail_scroll = 0;
+        self.update_selected_detail();
+    }
+
+    /// 刷新选中 commit 的详情，但保留 scroll 位置
+    fn select_keep_scroll(&mut self, idx: usize) {
+        if idx >= self.layout.rows.len() {
+            return;
+        }
+        self.selected_idx = idx;
+        self.update_selected_detail();
+    }
+
+    fn update_selected_detail(&mut self) {
+        let idx = self.selected_idx;
+        if idx >= self.layout.rows.len() {
+            return;
+        }
         let row = &self.layout.rows[idx];
         if let Some(oid) = row.oid {
             self.selected_oid = Some(oid);
@@ -255,7 +272,7 @@ impl App {
                 self.selected_idx = idx;
             }
         }
-        self.select(self.selected_idx);
+        self.select_keep_scroll(self.selected_idx);
         self.git_status = crate::git::status::read_status(self.repo.repo())
             .unwrap_or_default();
         self.dirty = true;
