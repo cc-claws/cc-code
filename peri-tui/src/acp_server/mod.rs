@@ -18,6 +18,7 @@ pub use peri_acp::session::state_builders::{
 };
 use peri_acp::transport::types::IncomingMessage;
 use peri_agent::agent::AgentCancellationToken;
+use peri_agent::interaction::ChannelState;
 use peri_agent::messages::BaseMessage;
 use peri_middlewares::prelude::*;
 
@@ -66,6 +67,7 @@ pub struct AcpServerConfig {
     pub permission_mode: Arc<SharedPermissionMode>,
     pub cron_scheduler: Option<Arc<parking_lot::Mutex<CronScheduler>>>,
     pub mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    pub channel_state: Option<Arc<ChannelState>>,
     pub plugin_skill_dirs: Vec<std::path::PathBuf>,
     pub plugin_agent_dirs: Vec<std::path::PathBuf>,
     pub plugin_hooks: Vec<peri_middlewares::hooks::RegisteredHook>,
@@ -108,6 +110,7 @@ pub async fn run_acp_server(
                     let plugin_agent_dirs = cfg.plugin_agent_dirs.clone();
                     let hook_groups = cfg.hook_groups.clone();
                     let mcp_pool = cfg.mcp_pool.clone();
+                    let channel_state = cfg.channel_state.clone();
                     let tool_search_index = cfg.tool_search_index.clone();
                     let shared_tools = cfg.shared_tools.clone();
                     let plugin_lsp_servers = cfg.plugin_lsp_servers.clone();
@@ -143,6 +146,7 @@ pub async fn run_acp_server(
                             &plugin_agent_dirs,
                             &hook_groups,
                             mcp_pool,
+                            channel_state,
                             tool_search_index,
                             shared_tools,
                             &plugin_lsp_servers,

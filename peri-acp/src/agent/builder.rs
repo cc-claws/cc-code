@@ -30,7 +30,9 @@ pub type SystemPromptBuilder = Arc<
 >;
 use peri_agent::agent::state::AgentState;
 use peri_agent::agent::{AgentCancellationToken, ReActAgent};
-use peri_agent::interaction::UserInteractionBroker;
+use peri_agent::interaction::{
+    ChannelBroker, ChannelState, MultiplexBroker, UserInteractionBroker,
+};
 use peri_agent::llm::BaseModelReactLLM;
 use peri_middlewares::compact_middleware::CompactMiddleware;
 use peri_middlewares::prelude::*;
@@ -69,6 +71,8 @@ pub struct AcpAgentConfig {
     pub hook_groups: Vec<Vec<RegisteredHook>>,
     pub hook_session_start: bool,
     pub mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    /// Channel 共享状态（None = 不启用 channel 功能，不使用 MultiplexBroker）
+    pub channel_state: Option<Arc<ChannelState>>,
     pub tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
     pub shared_tools: Arc<RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
     /// 子 Agent 专用事件 handler factory（由调用方提供，取代 TUI 的 child_event_tx）
@@ -137,6 +141,7 @@ pub fn build_agent(
         hook_groups,
         hook_session_start,
         mcp_pool,
+        channel_state,
         tool_search_index,
         shared_tools,
         child_handler_factory,
@@ -194,15 +199,30 @@ pub fn build_agent(
     let auto_classifier: Option<Arc<dyn AutoClassifier>> = Some(Arc::new(LlmAutoClassifier::new(
         auto_classifier_model.clone(),
     )));
+    // 构造 permission broker（当 channel_state 存在时用 MultiplexBroker 包装）
+    let effective_broker: Arc<dyn UserInteractionBroker> = match (&channel_state, &mcp_pool) {
+        (Some(cs), Some(pool)) => {
+            let channel_broker = Arc::new(ChannelBroker::new(cs.clone(), pool.clone()));
+            Arc::new(MultiplexBroker::new(vec![
+                ("tui".to_string(), permission_broker.clone()),
+                (
+                    "channel".to_string(),
+                    channel_broker as Arc<dyn UserInteractionBroker>,
+                ),
+            ]))
+        }
+        _ => permission_broker.clone(),
+    };
+
     let hitl = HumanInTheLoopMiddleware::with_shared_mode(
-        permission_broker.clone(),
+        effective_broker.clone(),
         default_requires_approval,
         permission_mode,
         auto_classifier,
     );
 
     // AskUser 工具
-    let ask_user_tool = AskUserTool::new(permission_broker);
+    let ask_user_tool = AskUserTool::new(effective_broker);
 
     // 父工具集（供子 agent 继承）
     let mut parent_tools: Vec<Box<dyn peri_agent::tools::BaseTool>> =

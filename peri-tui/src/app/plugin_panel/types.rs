@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use peri_middlewares::plugin::InstallScope;
+pub use peri_middlewares::plugin::InstallScope;
 use peri_widgets::InputState;
 
 use super::super::panel_list::PanelList;

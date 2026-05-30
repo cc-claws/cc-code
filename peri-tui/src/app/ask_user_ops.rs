@@ -38,10 +38,7 @@ impl App {
                 .get(cursor_opt)
                 .copied()
                 .unwrap_or_default();
-            let visible_h = p
-                .scrollbar_metrics
-                .map(|m| m.bar_area.height)
-                .unwrap_or(20);
+            let visible_h = p.scrollbar_metrics.map(|m| m.bar_area.height).unwrap_or(20);
             p.scroll_offset = ensure_cursor_visible(cursor_row, p.scroll_offset, visible_h);
         }
     }

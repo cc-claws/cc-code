@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use peri_agent::interaction::channel_types::ChannelNotification;
 use tokio::sync::{mpsc, Notify};
 
 use crate::ui::message_view::MessageViewModel;
@@ -25,6 +26,8 @@ pub struct MessageState {
     pub ephemeral_notes: Vec<(usize, MessageViewModel)>,
     /// 最近一次发送给渲染线程的 resize 宽度（用于去抖，避免每帧重复发送）
     pub last_resize_width: Option<u16>,
+    /// Channel 消息通知接收端
+    pub channel_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ChannelNotification>>,
 }
 
 impl MessageState {
@@ -46,6 +49,7 @@ impl MessageState {
             last_submitted_text: None,
             ephemeral_notes: Vec::new(),
             last_resize_width: None,
+            channel_notification_rx: None,
         }
     }
 

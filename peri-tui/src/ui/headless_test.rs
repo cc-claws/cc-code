@@ -3155,12 +3155,10 @@ mod split_panel_tests {
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
-        // session 0 的 hint 应包含 exit（被排序到前 10 项的最后一个命令）
-        // model 在字母序中排在第 19/23 位，不在视口前 10 项内
-        // 故使用 exit 验证 hint 渲染是否正常工作
+        // session 0 的 hint 应包含 channel（字母序中较早，始终在视口前 10 项内）
         assert!(
-            snap_text.contains("/exit"),
-            "session 0 输入 / 后应显示 exit 命令\n实际输出:\n{}",
+            snap_text.contains("/channel"),
+            "session 0 输入 / 后应显示 channel 命令\n实际输出:\n{}",
             snap_text
         );
 
@@ -3176,10 +3174,10 @@ mod split_panel_tests {
         let snap2 = handle.snapshot();
         let snap2_text = snap2.join("\n");
 
-        // session 1 的 hint 应包含 exit（前 10 个视口命令之一）
+        // session 1 的 hint 应包含 channel（字母序中较早）
         assert!(
-            snap2_text.contains("/exit"),
-            "session 1 输入 / 后应显示 exit 命令\n实际输出:\n{}",
+            snap2_text.contains("/channel"),
+            "session 1 输入 / 后应显示 channel 命令\n实际输出:\n{}",
             snap2_text
         );
     }
@@ -3209,13 +3207,12 @@ mod split_panel_tests {
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
-        // hint 中 /exit 应出现 2 次（左列和右列各一次）
-        // model 在字母序排第 19/23，不在视口前 10 项内
-        let exit_count = snap_text.matches("/exit").count();
+        // hint 中 /channel 应出现 2 次（左列和右列各一次）
+        let channel_count = snap_text.matches("/channel").count();
         assert!(
-            exit_count >= 2,
-            "两个 session 都输入 /，/exit 应出现至少 2 次，实际 {} 次\n输出:\n{}",
-            exit_count,
+            channel_count >= 2,
+            "两个 session 都输入 /，/channel 应出现至少 2 次，实际 {} 次\n输出:\n{}",
+            channel_count,
             snap_text
         );
     }

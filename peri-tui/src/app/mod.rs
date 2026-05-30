@@ -1,9 +1,86 @@
-include!("modules_panels.inc");
-include!("modules_state.inc");
-include!("modules_agent.inc");
-include!("modules_system.inc");
+// ── Panel Modules ────────────────────────────────────────────────────────────
+pub mod agent_panel;
+pub mod config_panel;
+pub mod hooks_panel;
+pub mod login_panel;
+pub mod mcp_panel;
+pub mod memory_panel;
+pub mod model_panel;
+pub mod panel_component;
+pub mod panel_list;
+pub mod panel_manager;
+pub mod panel_plugin;
+pub mod plugin_panel;
+pub mod setup_wizard;
+pub mod status_panel;
+pub mod tasks_panel;
 
-// Remaining direct declarations not in categorical groups
+// Panel private modules
+mod panel_agent;
+mod panel_config;
+mod panel_hooks;
+mod panel_login;
+mod panel_memory;
+mod panel_model;
+mod panel_ops;
+mod panel_status;
+
+// ── State Management ─────────────────────────────────────────────────────────
+mod global_ui_state;
+mod service_registry;
+pub use global_ui_state::GlobalUiState;
+pub use service_registry::ServiceRegistry;
+
+mod session_manager;
+pub use session_manager::SessionManager;
+
+mod ui_state;
+pub use ui_state::UiState;
+
+pub(crate) mod at_mention;
+pub use at_mention::AtMentionState;
+
+mod message_state;
+pub use message_state::MessageState;
+
+// ── Agent Communication ──────────────────────────────────────────────────────
+mod agent_comm;
+mod agent_compact;
+mod agent_events_bg;
+mod agent_events_oauth;
+mod agent_events_plugin;
+mod agent_ops;
+mod agent_ops_interaction;
+mod agent_render;
+mod agent_submit;
+mod ask_user_ops;
+mod ask_user_prompt;
+pub use ask_user_prompt::AskUserBatchPrompt;
+mod cron_ops;
+mod cron_state;
+mod hint_ops;
+mod history_ops;
+mod history_persistence;
+mod hitl_ops;
+mod hitl_prompt;
+pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
+
+// ── System Infrastructure ────────────────────────────────────────────────────
+mod chat_session;
+mod command_system;
+mod session_metadata;
+pub use chat_session::ChatSession;
+#[cfg(test)]
+pub(crate) use chat_session::RunningBgAgent;
+pub use command_system::CommandSystem;
+pub use session_metadata::SessionMetadata;
+
+mod langfuse_state;
+mod oauth_prompt;
+pub use oauth_prompt::OAuthPrompt;
+mod thread_ops;
+
+// ── Other Modules ─────────────────────────────────────────────────────────────
 pub mod agent;
 pub mod events;
 pub mod message_pipeline;
@@ -160,6 +237,7 @@ impl App {
         let permission_mode = peri_middlewares::prelude::SharedPermissionMode::new(
             peri_middlewares::prelude::PermissionMode::Bypass,
         );
+        let channel_state = peri_agent::interaction::ChannelState::new();
         let services = ServiceRegistry {
             peri_config: peri_config.clone(),
             cwd: cwd.clone(),
@@ -181,6 +259,7 @@ impl App {
             lc,
             acp_peri_config: None,
             acp_provider: None,
+            channel_state: Some(channel_state.clone()),
         };
 
         Self {
@@ -334,6 +413,7 @@ impl App {
                 &claude_home,
                 init_tx,
                 Some(oauth_cb),
+                None,
             )
             .await;
         });

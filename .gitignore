@@ -175,3 +175,13 @@ process.md
 deploy/peri-arm32-v0.1.0/peri
 deploy/peri-arm32-v0.1.0/lib/
 deploy/peri-arm32-*.tar.gz
+
+vendor/
+
+.claude/skills/*-workspace
+.wrangler.worktrees/
+
+.peri
+node_modules
+dist
+settings.json

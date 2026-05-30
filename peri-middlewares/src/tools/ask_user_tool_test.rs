@@ -150,7 +150,7 @@
     #[tokio::test]
     async fn test_unexpected_response_type() {
         use peri_agent::interaction::ApprovalDecision;
-        let response = InteractionResponse::Decisions(vec![ApprovalDecision::Approve]);
+        let response = InteractionResponse::Decisions(vec![ApprovalDecision::Approve { source: None }]);
         let tool = make_tool(response);
         let result = tool.invoke(single_question_input()).await;
         assert!(result.is_err(), "non-Answers response should return Err");

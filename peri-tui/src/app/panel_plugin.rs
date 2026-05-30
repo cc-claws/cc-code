@@ -438,10 +438,7 @@ impl App {
             .into_iter()
             .filter(|t| t.cwd == *cwd)
             .map(|t| {
-                let title = t
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| "(untitled)".to_string());
+                let title = t.title.clone().unwrap_or_else(|| "(untitled)".to_string());
                 AgentThreadEntry {
                     thread_id: t.id.clone(),
                     title,

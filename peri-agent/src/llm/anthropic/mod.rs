@@ -2,17 +2,6 @@ mod cache;
 mod invoke;
 mod stream;
 
-/// Build a reqwest client with connection pool limits to prevent TLS session
-/// accumulation. Default pool is unbounded — each idle connection holds
-/// ~50-100 KB of TLS state that is never released.
-fn build_reqwest_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .pool_max_idle_per_host(1)
-        .pool_idle_timeout(std::time::Duration::from_secs(30))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-}
-
 /// ChatAnthropic - Anthropic Messages API 实现
 pub struct ChatAnthropic {
     pub api_key: String,
@@ -41,7 +30,7 @@ impl ChatAnthropic {
             enable_cache: true,
             base_url: None,
             max_tokens: 32000,
-            client: build_reqwest_client(),
+            client: super::build_reqwest_client(),
         }
     }
 

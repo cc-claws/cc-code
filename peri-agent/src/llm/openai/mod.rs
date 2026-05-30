@@ -4,17 +4,6 @@ mod stream;
 #[cfg(test)]
 use serde_json::Value;
 
-/// Build a reqwest client with connection pool limits to prevent TLS session
-/// accumulation. Default pool is unbounded — each idle connection holds
-/// ~50-100 KB of TLS state that is never released.
-fn build_reqwest_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .pool_max_idle_per_host(1)
-        .pool_idle_timeout(std::time::Duration::from_secs(30))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-}
-
 /// ChatOpenAI - OpenAI 兼容 API 的 LLM 实现
 pub struct ChatOpenAI {
     pub api_key: String,
@@ -45,7 +34,7 @@ impl ChatOpenAI {
             supports_thinking_content: Self::detect_thinking_content_support(&model),
             max_tokens: 32000,
             model,
-            client: build_reqwest_client(),
+            client: super::build_reqwest_client(),
         }
     }
 

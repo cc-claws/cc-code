@@ -10,3 +10,7 @@ pub use store::{load, save};
 #[cfg(test)]
 #[path = "types_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "store_test.rs"]
+mod store_tests;

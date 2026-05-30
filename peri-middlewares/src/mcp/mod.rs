@@ -1,9 +1,11 @@
 pub mod auth_store;
 pub mod callback_server;
+pub mod channel_handler;
 pub mod client;
 pub mod client_oauth;
 pub mod config;
 pub mod initialize;
+pub mod mcp_notify;
 pub mod middleware;
 pub mod oauth_flow;
 pub mod reconnect;
@@ -13,6 +15,7 @@ pub mod transport;
 
 pub use auth_store::{AuthStoreError, FileCredentialStore, PerServerCredentialStore};
 pub use callback_server::{parse_code_from_url, CallbackError, OAuthCallbackServer};
+pub use channel_handler::ChannelHandler;
 pub use client::{
     ClientStatus, McpClientHandle, McpClientPool, McpInitStatus, McpPoolError, OAuthStatus,
     ServerInfo,

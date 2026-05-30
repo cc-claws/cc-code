@@ -69,6 +69,7 @@
                 oauth_status: OAuthStatus::default(),
                 source: None,
                 url: None,
+                channel_capable: false,
             }),
         );
         pool.remove_server("a").await;
@@ -88,6 +89,7 @@
                 oauth_status: OAuthStatus::default(),
                 source: None,
                 url: None,
+                channel_capable: false,
             }),
         );
         assert!(pool.get_tools("s").is_empty());

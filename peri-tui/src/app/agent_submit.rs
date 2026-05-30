@@ -360,8 +360,12 @@ impl App {
             let acp_client_clone = acp_client.clone();
             tokio::spawn(async move {
                 match acp_client_clone.prompt_with_bg_results(results).await {
-                    Ok(()) => tracing::info!("ACP bg continuation: prompt_with_bg_results completed"),
-                    Err(e) => tracing::error!(error = %e, "ACP bg continuation: prompt_with_bg_results FAILED"),
+                    Ok(()) => {
+                        tracing::info!("ACP bg continuation: prompt_with_bg_results completed")
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "ACP bg continuation: prompt_with_bg_results FAILED")
+                    }
                 }
             });
         } else {

@@ -336,10 +336,7 @@ impl PanelComponent for LoginPanel {
     fn status_bar_hints(&self, lc: &LcRegistry) -> Vec<(String, String)> {
         match self.mode {
             LoginPanelMode::Browse => vec![
-                (
-                    "\u{2191}\u{2193}".to_string(),
-                    lc.tr("hint-login-browse"),
-                ),
+                ("\u{2191}\u{2193}".to_string(), lc.tr("hint-login-browse")),
                 ("Enter".to_string(), lc.tr("hint-login-activate")),
                 ("Tab".to_string(), lc.tr("hint-login-edit")),
                 ("Ctrl+N".to_string(), lc.tr("hint-login-new")),
@@ -347,20 +344,14 @@ impl PanelComponent for LoginPanel {
                 ("Esc".to_string(), lc.tr("hint-login-close")),
             ],
             LoginPanelMode::Edit | LoginPanelMode::New => vec![
-                (
-                    "\u{2191}\u{2193}".to_string(),
-                    lc.tr("hint-login-field"),
-                ),
+                ("\u{2191}\u{2193}".to_string(), lc.tr("hint-login-field")),
                 ("Enter".to_string(), lc.tr("hint-login-save")),
                 ("Ctrl+V".to_string(), lc.tr("hint-login-paste")),
                 ("Space".to_string(), lc.tr("hint-login-toggle")),
                 ("Esc".to_string(), lc.tr("hint-login-back")),
             ],
             LoginPanelMode::ConfirmDelete => vec![
-                (
-                    "Enter".to_string(),
-                    lc.tr("login-confirm-delete"),
-                ),
+                ("Enter".to_string(), lc.tr("login-confirm-delete")),
                 ("Esc".to_string(), lc.tr("key-cancel")),
             ],
         }

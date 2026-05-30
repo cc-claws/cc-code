@@ -1,3 +1,4 @@
+pub mod channel;
 pub mod compact;
 pub mod context_cmd;
 pub mod cost;

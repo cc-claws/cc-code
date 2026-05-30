@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use peri_agent::interaction::ChannelState;
 use peri_middlewares::mcp::McpClientPool;
 use peri_middlewares::mcp::McpInitStatus;
 use peri_middlewares::plugin::PluginLoadResult;
@@ -83,6 +84,8 @@ pub struct ServiceRegistry {
     pub acp_peri_config: Option<Arc<parking_lot::RwLock<PeriConfig>>>,
     /// ACP Server 的 LlmProvider Arc（与 ACP Server 共享引用，setup/面板修改后需同步写入）
     pub acp_provider: Option<Arc<parking_lot::RwLock<crate::app::agent::LlmProvider>>>,
+    /// Channel 共享状态（MCP handler ↔ TUI/broker 桥接）
+    pub channel_state: Option<Arc<ChannelState>>,
 }
 
 impl ServiceRegistry {

@@ -1,5 +1,5 @@
-use super::message_pipeline::PipelineAction;
 use super::message_pipeline::MessagePipeline;
+use super::message_pipeline::PipelineAction;
 use super::*;
 use crate::ui::render_thread::RenderEvent;
 

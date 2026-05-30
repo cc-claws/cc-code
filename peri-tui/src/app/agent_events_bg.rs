@@ -106,7 +106,9 @@ impl App {
         // 聚焦检查：如果被移除的是当前聚焦的 agent，退出聚焦
         if was_focused {
             self.session_mgr.sessions[self.session_mgr.active].focused_instance_id = None;
-            self.session_mgr.sessions[self.session_mgr.active].ui.bg_bar_cursor = None;
+            self.session_mgr.sessions[self.session_mgr.active]
+                .ui
+                .bg_bar_cursor = None;
             self.request_rebuild();
         }
 
@@ -239,7 +241,6 @@ impl App {
             }
         }
 
-
         if found_and_updated {
             // 成功更新 SubAgentGroup，触发 RebuildAll
             self.request_rebuild();
@@ -330,7 +331,9 @@ impl App {
         if self.session_mgr.sessions[self.session_mgr.active]
             .agent
             .agent_done_pending_bg
-            && self.session_mgr.sessions[self.session_mgr.active].background_agents.is_empty()
+            && self.session_mgr.sessions[self.session_mgr.active]
+                .background_agents
+                .is_empty()
         {
             tracing::info!("all background tasks completed, auto-submitting continuation");
             self.session_mgr.sessions[self.session_mgr.active]
@@ -353,7 +356,9 @@ impl App {
         } else if !self.session_mgr.sessions[self.session_mgr.active]
             .agent
             .agent_done_pending_bg
-            && self.session_mgr.sessions[self.session_mgr.active].background_agents.is_empty()
+            && self.session_mgr.sessions[self.session_mgr.active]
+                .background_agents
+                .is_empty()
         {
             // 竞态修复：agent 尚未 Done，但所有后台任务已完成。
             // 暂存通知已在上方 push，待 Done 处理时检查此字段并设置 pending_bg_continuation。

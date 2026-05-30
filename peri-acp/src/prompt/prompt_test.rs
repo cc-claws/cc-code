@@ -121,6 +121,10 @@ fn test_features_none_excludes_all_gated_sections() {
         !result.contains("\n# Skills\n") && !result.starts_with("# Skills\n"),
         "全关闭时不应包含 Skills 标题段落"
     );
+    assert!(
+        !result.contains("Channel 频道消息"),
+        "全关闭时不应包含 Channel 段落"
+    );
 }
 
 #[test]
@@ -182,6 +186,7 @@ fn test_all_features_enabled_includes_all() {
         subagent_enabled: true,
         cron_enabled: true,
         skills_enabled: true,
+        channel_enabled: true,
     };
     let result = build_system_prompt(None, "/tmp", features, &[], None, None);
     assert!(result.contains("Human-in-the-Loop"), "应包含 HITL 段落");
@@ -191,6 +196,7 @@ fn test_all_features_enabled_includes_all() {
     );
     assert!(result.contains("Scheduled Tasks"), "应包含 Cron 段落");
     assert!(result.contains("# Skills"), "应包含 Skills 段落标题");
+    assert!(result.contains("Channel 频道消息"), "应包含 Channel 段落");
 }
 
 #[test]
@@ -201,6 +207,7 @@ fn test_detect_default_values() {
     assert!(features.subagent_enabled);
     assert!(features.cron_enabled);
     assert!(features.skills_enabled);
+    assert!(features.channel_enabled);
 }
 
 // ─── boundary marker tests ──────────────────────────────────────────────
@@ -237,6 +244,7 @@ fn test_boundary_marker_with_all_features() {
         subagent_enabled: true,
         cron_enabled: true,
         skills_enabled: true,
+        channel_enabled: true,
     };
     let result = build_system_prompt(None, "/tmp", features, &[], None, None);
     let boundary_pos = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();

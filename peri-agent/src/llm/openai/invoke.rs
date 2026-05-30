@@ -3,11 +3,9 @@ use serde_json::{json, Value};
 
 use super::super::BaseModel;
 use super::ChatOpenAI;
-use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
 use crate::error::{AgentError, AgentResult};
 use crate::llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
 use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
-use crate::tools::BaseTool;
 
 fn block_to_openai_part(block: &ContentBlock, supports_thinking_content: bool) -> Option<Value> {
     match block {
@@ -416,6 +414,31 @@ pub(super) fn build_request_body(
     body
 }
 
+/// 从 OpenAI API 响应中提取 TokenUsage
+///
+/// OpenAI 格式：`usage.prompt_tokens` / `usage.completion_tokens` /
+/// `usage.prompt_tokens_details.cached_tokens`
+pub(super) fn extract_openai_usage(
+    usage_val: &serde_json::Value,
+    request_id: Option<String>,
+) -> Option<crate::llm::types::TokenUsage> {
+    let input = usage_val["prompt_tokens"].as_u64().map(|v| v as u32);
+    let output = usage_val["completion_tokens"].as_u64().map(|v| v as u32);
+    let cache_read = usage_val["prompt_tokens_details"]["cached_tokens"]
+        .as_u64()
+        .map(|v| v as u32);
+    match (input, output) {
+        (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
+            input_tokens: i,
+            output_tokens: o,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: cache_read,
+            request_id,
+        }),
+        _ => None,
+    }
+}
+
 #[async_trait]
 impl BaseModel for ChatOpenAI {
     async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse> {
@@ -514,27 +537,7 @@ impl BaseModel for ChatOpenAI {
 
         let request_id = resp_json["id"].as_str().map(|s| s.to_string());
 
-        let usage = {
-            let input = resp_json["usage"]["prompt_tokens"]
-                .as_u64()
-                .map(|v| v as u32);
-            let output = resp_json["usage"]["completion_tokens"]
-                .as_u64()
-                .map(|v| v as u32);
-            let cache_read = resp_json["usage"]["prompt_tokens_details"]["cached_tokens"]
-                .as_u64()
-                .map(|v| v as u32);
-            match (input, output) {
-                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
-                    input_tokens: i,
-                    output_tokens: o,
-                    cache_creation_input_tokens: None,
-                    cache_read_input_tokens: cache_read,
-                    request_id: request_id.clone(),
-                }),
-                _ => None,
-            }
-        };
+        let usage = extract_openai_usage(&resp_json["usage"], request_id.clone());
         Ok(LlmResponse {
             message,
             stop_reason,
@@ -561,104 +564,5 @@ impl BaseModel for ChatOpenAI {
         ctx: StreamingContext,
     ) -> AgentResult<LlmResponse> {
         super::stream::do_invoke_streaming(self, request, ctx).await
-    }
-}
-
-#[async_trait]
-impl ReactLLM for ChatOpenAI {
-    async fn generate_reasoning(
-        &self,
-        messages: &[BaseMessage],
-        tools: &[&dyn BaseTool],
-        _streaming: Option<StreamingContext>,
-    ) -> AgentResult<Reasoning> {
-        let tool_defs = tools.iter().map(|t| t.definition()).collect();
-        let request = LlmRequest::new(messages.to_vec()).with_tools(tool_defs);
-
-        let response = self.invoke(request).await?;
-        let usage = response.usage.clone();
-        let model_name = self.model.clone();
-
-        if response.stop_reason == StopReason::ToolUse {
-            let blocks = response.message.content_blocks();
-            let thought = blocks
-                .iter()
-                .filter_map(|b| b.as_text())
-                .collect::<Vec<_>>()
-                .join("");
-
-            let calls: Vec<ToolCall> = blocks
-                .iter()
-                .filter_map(|b| {
-                    if let ContentBlock::ToolUse { id, name, input } = b {
-                        Some(ToolCall::new(id.clone(), name.clone(), input.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            if !calls.is_empty() {
-                let mut r = Reasoning::with_tools(thought, calls);
-                r.source_message = Some(response.message);
-                r.usage = usage;
-                r.model = model_name;
-                return Ok(r);
-            }
-
-            let calls: Vec<ToolCall> = response
-                .message
-                .tool_calls()
-                .iter()
-                .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
-                .collect();
-            let mut r = Reasoning::with_tools(thought, calls);
-            r.source_message = Some(response.message);
-            r.usage = usage;
-            r.model = model_name;
-            Ok(r)
-        } else {
-            // 防御：某些 provider 可能返回 stop_reason != ToolUse 但响应含 tool_use blocks
-            let blocks = response.message.content_blocks();
-            let calls: Vec<ToolCall> = blocks
-                .iter()
-                .filter_map(|b| {
-                    if let ContentBlock::ToolUse { id, name, input } = b {
-                        Some(ToolCall::new(id.clone(), name.clone(), input.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            if !calls.is_empty() {
-                tracing::warn!(
-                    stop_reason = ?response.stop_reason,
-                    tool_count = calls.len(),
-                    "stop_reason 与内容不一致：响应含 tool_use blocks 但 stop_reason 非 ToolUse，按工具调用处理"
-                );
-                let thought = blocks
-                    .iter()
-                    .filter_map(|b| b.as_text())
-                    .collect::<Vec<_>>()
-                    .join("");
-                let mut r = Reasoning::with_tools(thought, calls);
-                r.source_message = Some(response.message);
-                r.usage = usage;
-                r.model = model_name;
-                return Ok(r);
-            }
-
-            let text = response.message.content();
-            let mut r = Reasoning::with_answer("", text);
-            r.source_message = Some(response.message);
-            r.usage = usage;
-            r.model = model_name;
-            Ok(r)
-        }
-    }
-
-    fn model_name(&self) -> String {
-        self.model.clone()
     }
 }

@@ -2,12 +2,12 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-use super::invoke::build_request_body;
+use super::invoke::{build_request_body, extract_openai_usage};
 use crate::agent::events::AgentEvent;
 use crate::error::{AgentError, AgentResult};
 use crate::llm::sse::SseParser;
 use crate::llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
-use crate::messages::{BaseMessage, ContentBlock, MessageContent, ToolCallRequest};
+use crate::messages::ToolCallRequest;
 
 /// 流式工具调用参数累积器（按 index 管理，处理多工具交错场景）
 struct ToolCallAccumulator {
@@ -206,14 +206,40 @@ pub(super) async fn do_invoke_streaming(
         })
         .collect();
 
-    // Build content blocks
-    let mut blocks: Vec<ContentBlock> = Vec::new();
-
-    if !reasoning_text.is_empty() {
-        blocks.push(ContentBlock::reasoning(&reasoning_text));
-    }
-
     let stop_reason = StopReason::from_openai(finish_reason.as_deref().unwrap_or("stop"));
+    let usage = final_usage
+        .as_ref()
+        .and_then(|u| extract_openai_usage(u, stream_request_id.clone()));
+
+    Ok(build_stream_response(
+        &reasoning_text,
+        &content_text,
+        tool_call_requests,
+        stop_reason,
+        usage,
+        stream_request_id,
+    ))
+}
+
+/// 从流式累积状态构建最终 LlmResponse
+///
+/// ToolUse 和 text 两种 stop_reason 的 LlmResponse 构建逻辑合并，
+/// 差异仅在 content 和 message 类型上。
+fn build_stream_response(
+    reasoning_text: &str,
+    content_text: &str,
+    tool_call_requests: Vec<crate::messages::ToolCallRequest>,
+    stop_reason: crate::llm::types::StopReason,
+    usage: Option<crate::llm::types::TokenUsage>,
+    request_id: Option<String>,
+) -> crate::llm::types::LlmResponse {
+    use crate::llm::types::StopReason;
+    use crate::messages::{BaseMessage, ContentBlock, MessageContent};
+
+    let mut blocks: Vec<ContentBlock> = Vec::new();
+    if !reasoning_text.is_empty() {
+        blocks.push(ContentBlock::reasoning(reasoning_text));
+    }
 
     if stop_reason == StopReason::ToolUse {
         for tc in &tool_call_requests {
@@ -226,36 +252,21 @@ pub(super) async fn do_invoke_streaming(
         if content_text.is_empty() && blocks.is_empty() {
             blocks.push(ContentBlock::text(""));
         }
-        let content = MessageContent::Blocks(blocks);
-        let source_message = BaseMessage::ai_with_tool_calls(content, tool_call_requests);
-
-        let usage = final_usage.as_ref().and_then(|u| {
-            let input = u["prompt_tokens"].as_u64().map(|v| v as u32);
-            let output = u["completion_tokens"].as_u64().map(|v| v as u32);
-            let cache_read = u["prompt_tokens_details"]["cached_tokens"]
-                .as_u64()
-                .map(|v| v as u32);
-            match (input, output) {
-                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
-                    input_tokens: i,
-                    output_tokens: o,
-                    cache_creation_input_tokens: None,
-                    cache_read_input_tokens: cache_read,
-                    request_id: stream_request_id.clone(),
-                }),
-                _ => None,
-            }
-        });
-
-        Ok(LlmResponse {
-            message: source_message,
+        let content = if blocks.len() == 1 && blocks[0].as_text().is_some() {
+            MessageContent::text(content_text)
+        } else {
+            MessageContent::Blocks(blocks)
+        };
+        let message = BaseMessage::ai_with_tool_calls(content, tool_call_requests);
+        crate::llm::types::LlmResponse {
+            message,
             stop_reason,
             usage,
-            request_id: stream_request_id,
-        })
+            request_id,
+        }
     } else {
         if !content_text.is_empty() {
-            blocks.push(ContentBlock::text(&content_text));
+            blocks.push(ContentBlock::text(content_text));
         }
         if blocks.is_empty() {
             blocks.push(ContentBlock::text(""));
@@ -265,31 +276,12 @@ pub(super) async fn do_invoke_streaming(
         } else {
             MessageContent::Blocks(blocks)
         };
-        let source_message = BaseMessage::ai(content);
-
-        let usage = final_usage.as_ref().and_then(|u| {
-            let input = u["prompt_tokens"].as_u64().map(|v| v as u32);
-            let output = u["completion_tokens"].as_u64().map(|v| v as u32);
-            let cache_read = u["prompt_tokens_details"]["cached_tokens"]
-                .as_u64()
-                .map(|v| v as u32);
-            match (input, output) {
-                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
-                    input_tokens: i,
-                    output_tokens: o,
-                    cache_creation_input_tokens: None,
-                    cache_read_input_tokens: cache_read,
-                    request_id: stream_request_id.clone(),
-                }),
-                _ => None,
-            }
-        });
-
-        Ok(LlmResponse {
-            message: source_message,
+        let message = BaseMessage::ai(content);
+        crate::llm::types::LlmResponse {
+            message,
             stop_reason,
             usage,
-            request_id: stream_request_id,
-        })
+            request_id,
+        }
     }
 }

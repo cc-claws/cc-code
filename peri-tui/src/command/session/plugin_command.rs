@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::command::Command;
-use peri_middlewares::plugin::{CommandEntry, CommandSource};
+use peri_middlewares::plugin::CommandEntry;
 
 /// 将插件的 CommandEntry 适配为 TUI Command trait
 pub struct PluginCommandAdapter {
@@ -20,17 +20,16 @@ impl Command for PluginCommandAdapter {
     fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
         self.entry.description.clone()
     }
-    fn execute(&self, app: &mut App, _args: &str) {
-        match &self.entry.source {
-            CommandSource::Plugin { path } => {
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    app.active_mut().ui.textarea.insert_str(&content);
-                } else {
-                    tracing::warn!(path = %path.display(), "读取插件命令文件失败");
-                }
-            }
-            CommandSource::Builtin => {}
-        }
+    fn execute(&self, app: &mut App, args: &str) {
+        // 插件命令的行为是触发对应的 skill 预加载。
+        // 保持用户原始输入（含命名空间前缀），让 SkillPreloadMiddleware 识别。
+        let message = if args.is_empty() {
+            format!("/{}", self.entry.name)
+        } else {
+            format!("/{} {}", self.entry.name, args)
+        };
+
+        app.submit_message(message);
     }
 }
 

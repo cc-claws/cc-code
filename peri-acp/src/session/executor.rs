@@ -15,7 +15,7 @@ use peri_agent::agent::token::ContextBudget;
 use peri_agent::agent::AgentCancellationToken;
 use peri_agent::agent::State;
 use peri_agent::error::AgentError;
-use peri_agent::interaction::UserInteractionBroker;
+use peri_agent::interaction::{ChannelState, UserInteractionBroker};
 use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent, MessageId};
 use tokio::sync::oneshot;
 use tracing::{debug, error};
@@ -111,6 +111,7 @@ pub async fn execute_prompt(
     cron_scheduler: Option<Arc<parking_lot::Mutex<peri_middlewares::cron::CronScheduler>>>,
     session_id: String,
     mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    channel_state: Option<Arc<ChannelState>>,
     tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
     shared_tools: Arc<
         parking_lot::RwLock<
@@ -408,6 +409,7 @@ pub async fn execute_prompt(
             hook_groups: hook_groups.clone(),
             hook_session_start: is_empty_history,
             mcp_pool: mcp_pool.clone(),
+            channel_state: channel_state.clone(),
             tool_search_index: tool_search_index.clone(),
             shared_tools: shared_tools.clone(),
             child_handler_factory: None,

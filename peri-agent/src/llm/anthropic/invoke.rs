@@ -3,11 +3,9 @@ use serde_json::{json, Value};
 
 use super::super::BaseModel;
 use super::cache::{self, SystemPromptBlock, SYSTEM_PROMPT_DYNAMIC_BOUNDARY};
-use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
 use crate::error::{AgentError, AgentResult};
 use crate::llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
 use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
-use crate::tools::BaseTool;
 
 // ─── ContentBlock → Anthropic content part ────────────────────────────────
 
@@ -614,96 +612,5 @@ impl BaseModel for super::ChatAnthropic {
         ctx: StreamingContext,
     ) -> AgentResult<LlmResponse> {
         super::stream::do_invoke_streaming(self, request, ctx).await
-    }
-}
-
-#[async_trait]
-impl ReactLLM for super::ChatAnthropic {
-    async fn generate_reasoning(
-        &self,
-        messages: &[BaseMessage],
-        tools: &[&dyn BaseTool],
-        _streaming: Option<StreamingContext>,
-    ) -> AgentResult<Reasoning> {
-        let tool_defs = tools.iter().map(|t| t.definition()).collect();
-        let request = LlmRequest::new(messages.to_vec()).with_tools(tool_defs);
-
-        // system 消息由 messages_to_anthropic 从消息列表提取，无需单独处理
-
-        let response = self.invoke(request).await?;
-        let usage = response.usage.clone();
-        let model_name = self.model.clone();
-
-        if response.stop_reason == StopReason::ToolUse {
-            let blocks = response.message.content_blocks();
-            let thought = blocks
-                .iter()
-                .filter_map(|b| b.as_text())
-                .collect::<Vec<_>>()
-                .join("");
-
-            let calls: Vec<ToolCall> = blocks
-                .iter()
-                .filter_map(|b| {
-                    if let ContentBlock::ToolUse { id, name, input } = b {
-                        Some(ToolCall::new(id.clone(), name.clone(), input.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            if !calls.is_empty() {
-                let mut r = Reasoning::with_tools(thought, calls);
-                r.source_message = Some(response.message);
-                r.usage = usage;
-                r.model = model_name;
-                return Ok(r);
-            }
-
-            let calls: Vec<ToolCall> = response
-                .message
-                .tool_calls()
-                .iter()
-                .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
-                .collect();
-            let mut r = Reasoning::with_tools(thought, calls);
-            r.source_message = Some(response.message);
-            r.usage = usage;
-            r.model = model_name;
-            Ok(r)
-        } else if response.message.has_tool_calls() {
-            // 防御：某些 provider（如 DeepSeek）可能返回 stop_reason != ToolUse
-            // 但响应内容含 tool_use blocks。此时必须按工具调用处理，
-            // 否则 source_message（含 tool_use）会通过 handle_final_answer 写入 state
-            // 而无配对 tool_result，导致下次 API 调用 400。
-            let tc_reqs = response.message.tool_calls();
-            let calls: Vec<ToolCall> = tc_reqs
-                .iter()
-                .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
-                .collect();
-            tracing::warn!(
-                stop_reason = ?response.stop_reason,
-                tool_count = calls.len(),
-                "stop_reason 与内容不一致：响应含 tool_use 但 stop_reason 非 ToolUse，按工具调用处理"
-            );
-            let text = response.message.content();
-            let mut r = Reasoning::with_tools(text, calls);
-            r.source_message = Some(response.message);
-            r.usage = usage;
-            r.model = model_name;
-            Ok(r)
-        } else {
-            let text = response.message.content();
-            let mut r = Reasoning::with_answer("", text);
-            r.source_message = Some(response.message);
-            r.usage = usage;
-            r.model = model_name;
-            Ok(r)
-        }
-    }
-
-    fn model_name(&self) -> String {
-        self.model.clone()
     }
 }

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use super::auth_store::FileCredentialStore;
 use super::client::{
     build_authed_transport, build_http_transport, spawn_stdio_transport, ClientStatus,
-    McpClientHandle, McpClientPool, McpPoolError, OAuthStatus, HTTP_CONNECT_TIMEOUT,
-    SHUTDOWN_TIMEOUT, STDIO_CONNECT_TIMEOUT,
+    McpClientHandle, McpClientPool, McpPoolError, McpServiceWrapper, OAuthStatus,
+    HTTP_CONNECT_TIMEOUT, SHUTDOWN_TIMEOUT, STDIO_CONNECT_TIMEOUT,
 };
 use super::oauth_flow::{OAuthFlowEvent, OAuthFlowManager};
 use super::transport::TransportConfig;
@@ -159,12 +159,13 @@ impl McpClientPool {
                         oauth_status,
                         source: server_config.source.clone(),
                         url: server_config.url.clone(),
+                        channel_capable: false,
                     }),
                 );
                 self.services
                     .lock()
                     .await
-                    .insert(server_name.to_string(), rs);
+                    .insert(server_name.to_string(), McpServiceWrapper::Default(rs));
                 Ok(())
             }
             Ok(Err(e)) => {

@@ -47,10 +47,19 @@ pub enum InteractionContext {
 /// 单项审批决策（对齐 HitlDecision 四种语义）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ApprovalDecision {
-    Approve,
-    Reject { reason: String },
-    Edit { new_input: serde_json::Value },
-    Respond { message: String },
+    Approve {
+        source: Option<String>,
+    },
+    Reject {
+        reason: String,
+        source: Option<String>,
+    },
+    Edit {
+        new_input: serde_json::Value,
+    },
+    Respond {
+        message: String,
+    },
 }
 
 /// 问题答案
@@ -88,3 +97,30 @@ pub trait UserInteractionBroker: Send + Sync {
     /// 发起一次人机交互，挂起直到用户响应
     async fn request(&self, ctx: InteractionContext) -> InteractionResponse;
 }
+
+// ─── ChannelNotificationSender ─────────────────────────────────────────────────
+
+/// 发送 channel 通知的抽象（由 McpClientPool 在 peri-middlewares 中实现）
+#[async_trait]
+pub trait ChannelNotificationSender: Send + Sync {
+    async fn send_notification(
+        &self,
+        server_name: &str,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<(), String>;
+}
+
+pub mod channel_types;
+pub use channel_types::{
+    short_request_id, ChannelNotification, PermissionRequest, PermissionResponse,
+};
+
+pub mod channel_state;
+pub use channel_state::ChannelState;
+
+pub mod channel_broker;
+pub mod multiplex;
+
+pub use channel_broker::ChannelBroker;
+pub use multiplex::MultiplexBroker;

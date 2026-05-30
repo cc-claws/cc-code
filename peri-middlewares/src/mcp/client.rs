@@ -3,9 +3,49 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use rmcp::model::{Resource, Tool};
-use rmcp::service::{Peer, RoleClient, RunningService};
+use rmcp::service::{Peer, QuitReason, RoleClient, RunningService, ServiceError};
 
+use super::channel_handler::ChannelHandler;
 use super::config::{ConfigSource, McpServerConfig};
+
+/// Wrapper for RunningService that can hold either handler type
+pub(crate) enum McpServiceWrapper {
+    Default(RunningService<RoleClient, ()>),
+    Channel(RunningService<RoleClient, Arc<ChannelHandler>>),
+}
+
+impl McpServiceWrapper {
+    pub async fn close_with_timeout(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Result<Option<QuitReason>, tokio::task::JoinError> {
+        match self {
+            McpServiceWrapper::Default(svc) => svc.close_with_timeout(timeout).await,
+            McpServiceWrapper::Channel(svc) => svc.close_with_timeout(timeout).await,
+        }
+    }
+
+    pub async fn list_all_tools(&self) -> Result<Vec<Tool>, ServiceError> {
+        match self {
+            McpServiceWrapper::Default(svc) => svc.list_all_tools().await,
+            McpServiceWrapper::Channel(svc) => svc.list_all_tools().await,
+        }
+    }
+
+    pub async fn list_all_resources(&self) -> Result<Vec<Resource>, ServiceError> {
+        match self {
+            McpServiceWrapper::Default(svc) => svc.list_all_resources().await,
+            McpServiceWrapper::Channel(svc) => svc.list_all_resources().await,
+        }
+    }
+
+    pub fn peer(&self) -> &Peer<RoleClient> {
+        match self {
+            McpServiceWrapper::Default(svc) => svc.peer(),
+            McpServiceWrapper::Channel(svc) => svc.peer(),
+        }
+    }
+}
 
 /// MCP 客户端连接状态
 #[derive(Debug, Clone, PartialEq)]
@@ -86,12 +126,14 @@ pub struct McpClientHandle {
     pub source: Option<ConfigSource>,
     /// 服务器 URL（HTTP 传输）
     pub url: Option<String>,
+    /// Whether the MCP server declared experimental.claude/channel capability
+    pub channel_capable: bool,
 }
 
 /// MCP 客户端连接池
 pub struct McpClientPool {
     pub(crate) clients: parking_lot::RwLock<HashMap<String, Arc<McpClientHandle>>>,
-    pub(crate) services: tokio::sync::Mutex<HashMap<String, RunningService<RoleClient, ()>>>,
+    pub(crate) services: tokio::sync::Mutex<HashMap<String, McpServiceWrapper>>,
     pub(crate) configs: parking_lot::RwLock<HashMap<String, McpServerConfig>>,
     /// 插件来源旁路表：key 为 server name（如 `"plugin:p1:srv1"`），value 为 `"name@marketplace"`
     pub(crate) plugin_sources: parking_lot::RwLock<HashMap<String, String>>,
@@ -140,6 +182,7 @@ impl McpClientPool {
                 oauth_status: OAuthStatus::default(),
                 source,
                 url,
+                channel_capable: false,
             }),
         );
     }
@@ -164,6 +207,7 @@ impl McpClientPool {
                 oauth_status: OAuthStatus::NeedsAuthorization,
                 source,
                 url,
+                channel_capable: false,
             }),
         );
     }
@@ -205,6 +249,7 @@ impl McpClientPool {
                 oauth_status: OAuthStatus::default(),
                 source,
                 url,
+                channel_capable: false,
             }),
         );
     }

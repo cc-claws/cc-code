@@ -33,6 +33,7 @@ struct StdioContext {
     permission_mode: Arc<peri_middlewares::prelude::SharedPermissionMode>,
     cron_scheduler: Arc<parking_lot::Mutex<peri_middlewares::cron::CronScheduler>>,
     mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    channel_state: Option<Arc<peri_agent::interaction::ChannelState>>,
     plugin_skill_dirs: Vec<std::path::PathBuf>,
     plugin_agent_dirs: Vec<std::path::PathBuf>,
     hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>>,
@@ -68,7 +69,9 @@ impl peri_agent::interaction::UserInteractionBroker for StdioBroker {
                 peri_agent::interaction::InteractionResponse::Decisions(
                     items
                         .into_iter()
-                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve)
+                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve {
+                            source: None,
+                        })
                         .collect(),
                 )
             }
@@ -137,6 +140,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 &claude_home,
                 init_tx,
                 None,
+                None,
             )
             .await;
         });
@@ -202,6 +206,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         permission_mode,
         cron_scheduler,
         mcp_pool,
+        channel_state: None,
         plugin_skill_dirs,
         plugin_agent_dirs,
         hook_groups,
@@ -497,6 +502,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             Some(ctx_for_task.cron_scheduler.clone()),
                             sid.clone(),
                             ctx_for_task.mcp_pool.clone(),
+                            ctx_for_task.channel_state.clone(),
                             ctx_for_task.tool_search_index.clone(),
                             ctx_for_task.shared_tools.clone(),
                             ctx_for_task.plugin_lsp_servers.clone(),

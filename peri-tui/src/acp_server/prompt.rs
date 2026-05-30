@@ -14,6 +14,7 @@ use peri_acp::session::event_sink::TransportEventSink;
 use peri_acp::session::executor;
 use peri_acp::transport::types::AcpError;
 use peri_agent::agent::AgentCancellationToken;
+use peri_agent::interaction::ChannelState;
 use peri_middlewares::prelude::*;
 
 use agent_client_protocol::schema::{PromptResponse, StopReason};
@@ -37,6 +38,7 @@ pub(crate) async fn execute_prompt(
     plugin_agent_dirs: &[std::path::PathBuf],
     hook_groups: &[Vec<peri_middlewares::hooks::RegisteredHook>],
     mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    channel_state: Option<Arc<ChannelState>>,
     tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
     shared_tools: Arc<RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
     plugin_lsp_servers: &[peri_lsp::config::LspServerConfig],
@@ -148,6 +150,7 @@ pub(crate) async fn execute_prompt(
         cron_scheduler,
         session_id.clone(),
         mcp_pool,
+        channel_state,
         tool_search_index,
         shared_tools,
         plugin_lsp_servers.to_vec(),

@@ -106,9 +106,7 @@ impl PanelComponent for TasksPanel {
         } else {
             match input {
                 // Tab switching
-                Input {
-                    key: Key::Left, ..
-                }
+                Input { key: Key::Left, .. }
                 | Input {
                     key: Key::Char('h'),
                     ..
@@ -126,9 +124,7 @@ impl PanelComponent for TasksPanel {
                     self.switch_tab(1);
                     EventResult::Consumed
                 }
-                Input {
-                    key: Key::Tab, ..
-                } => {
+                Input { key: Key::Tab, .. } => {
                     self.switch_tab(1);
                     EventResult::Consumed
                 }
@@ -211,10 +207,12 @@ impl PanelComponent for TasksPanel {
         if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
             match self.tab {
                 TasksTab::AgentThreads => {
-                    self.agent_list.handle_mouse_click(mouse.row, mouse.column, area, 3)
+                    self.agent_list
+                        .handle_mouse_click(mouse.row, mouse.column, area, 3)
                 }
                 TasksTab::CronTasks => {
-                    self.cron_list.handle_mouse_click(mouse.row, mouse.column, area, 3)
+                    self.cron_list
+                        .handle_mouse_click(mouse.row, mouse.column, area, 3)
                 }
             };
             EventResult::Consumed

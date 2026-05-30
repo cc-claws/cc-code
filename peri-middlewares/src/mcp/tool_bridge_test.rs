@@ -24,6 +24,7 @@ fn make_disconnected_handle(name: &str) -> Arc<McpClientHandle> {
         oauth_status: Default::default(),
         source: None,
         url: None,
+        channel_capable: false,
     })
 }
 

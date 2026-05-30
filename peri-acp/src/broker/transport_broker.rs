@@ -82,6 +82,7 @@ impl AcpTransportBroker {
                             tracing::warn!(error = %e, "Failed to parse RequestPermission response");
                             ApprovalDecision::Reject {
                                 reason: format!("Invalid response: {e}"),
+                                source: None,
                             }
                         }
                     };
@@ -91,6 +92,7 @@ impl AcpTransportBroker {
                     tracing::warn!(error = %e, "RequestPermission transport error");
                     decisions.push(ApprovalDecision::Reject {
                         reason: format!("Permission request failed: {e}"),
+                        source: None,
                     });
                 }
             }
@@ -187,17 +189,20 @@ fn map_permission_response(resp: RequestPermissionResponse) -> ApprovalDecision 
         RequestPermissionOutcome::Selected(selected) => {
             let SelectedPermissionOutcome { option_id, .. } = selected;
             match option_id.0.as_ref() {
-                "allow_once" | "allow_always" => ApprovalDecision::Approve,
+                "allow_once" | "allow_always" => ApprovalDecision::Approve { source: None },
                 _ => ApprovalDecision::Reject {
                     reason: format!("User selected {option_id}"),
+                    source: None,
                 },
             }
         }
         RequestPermissionOutcome::Cancelled => ApprovalDecision::Reject {
             reason: "Cancelled by user".into(),
+            source: None,
         },
         _ => ApprovalDecision::Reject {
             reason: "Unknown response".into(),
+            source: None,
         },
     }
 }

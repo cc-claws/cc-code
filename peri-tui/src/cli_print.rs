@@ -136,6 +136,7 @@ pub async fn run_print(
                 &claude_home,
                 init_tx,
                 None,
+                None,
             )
             .await;
         });
@@ -207,6 +208,7 @@ pub async fn run_print(
         Some(cron_scheduler),
         String::new(), // session_id（print 模式不需要）
         mcp_pool,
+        None, // channel_state
         tool_search_index,
         shared_tools,
         plugin_lsp_servers,
@@ -238,7 +240,9 @@ impl peri_agent::interaction::UserInteractionBroker for PrintBroker {
                 peri_agent::interaction::InteractionResponse::Decisions(
                     items
                         .into_iter()
-                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve)
+                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve {
+                            source: None,
+                        })
                         .collect(),
                 )
             }

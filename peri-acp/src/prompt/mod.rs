@@ -14,6 +14,7 @@ pub struct PromptFeatures {
     pub subagent_enabled: bool,
     pub cron_enabled: bool,
     pub skills_enabled: bool,
+    pub channel_enabled: bool,
 }
 
 impl PromptFeatures {
@@ -24,6 +25,7 @@ impl PromptFeatures {
             subagent_enabled: true,
             cron_enabled: true,
             skills_enabled: true,
+            channel_enabled: true,
         }
     }
 
@@ -35,6 +37,7 @@ impl PromptFeatures {
             subagent_enabled: false,
             cron_enabled: false,
             skills_enabled: false,
+            channel_enabled: false,
         }
     }
 }
@@ -173,6 +176,12 @@ pub fn build_system_prompt(
         dynamic_sections.push(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../peri-tui/prompts/sections/13_skills.md"
+        )));
+    }
+    if features.channel_enabled {
+        dynamic_sections.push(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../peri-tui/prompts/sections/15_channel.md"
         )));
     }
 

@@ -10,9 +10,30 @@ pub fn config_path() -> PathBuf {
         .join("settings.json")
 }
 
-/// 加载配置，文件不存在时返回默认空配置
+/// 工作区配置文件路径：{cwd}/.peri/settings.json
+/// 文件不存在时返回 None
+pub fn workspace_config_path() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    let path = cwd.join(".peri").join("settings.json");
+    if path.exists() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+/// 加载配置（全局 + 工作区合并），文件不存在时返回默认空配置
+///
+/// 先加载 ~/.peri/settings.json 获取全局配置，
+/// 再检测当前工作目录的 .peri/settings.json 是否存在，
+/// 若存在则加载并以工作区字段覆盖全局对应字段。
 pub fn load() -> Result<PeriConfig> {
-    load_from(&config_path())
+    let mut merged = load_from(&config_path())?;
+    if let Some(ws_path) = workspace_config_path() {
+        let workspace = load_from(&ws_path)?;
+        merged.config.merge_overrides(workspace.config);
+    }
+    Ok(merged)
 }
 
 /// 从指定路径加载配置

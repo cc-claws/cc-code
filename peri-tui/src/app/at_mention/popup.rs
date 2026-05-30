@@ -55,7 +55,9 @@ pub fn render_at_mention_popup(f: &mut Frame, state: &AtMentionState, input_area
 
             let prefix = if is_selected { "❯ " } else { "  " };
             let style = if is_selected {
-                Style::default().fg(theme::THINKING).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(theme::THINKING)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme::TEXT)
             };

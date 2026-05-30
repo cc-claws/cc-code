@@ -97,12 +97,17 @@ impl App {
             self.render_rebuild();
         }
         // 后台任务：保持通道存活
-        if !self.session_mgr.sessions[self.session_mgr.active].background_agents.is_empty() {
+        if !self.session_mgr.sessions[self.session_mgr.active]
+            .background_agents
+            .is_empty()
+        {
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_done_pending_bg = true;
             tracing::info!(
-                count = self.session_mgr.sessions[self.session_mgr.active].background_agents.len(),
+                count = self.session_mgr.sessions[self.session_mgr.active]
+                    .background_agents
+                    .len(),
                 "agent done but background tasks still running, keeping channel alive"
             );
         } else {
@@ -165,7 +170,9 @@ impl App {
             // The in_subagent() guard was designed to ignore *child agent* interruptions
             // (e.g. a background agent being cancelled), but it also catches *parent agent*
             // interruptions during sync SubAgent execution — which is the user's Ctrl+C intent.
-            tracing::info!("Parent agent interrupted during sync SubAgent — proceeding with cleanup");
+            tracing::info!(
+                "Parent agent interrupted during sync SubAgent — proceeding with cleanup"
+            );
         }
         // Pipeline：finalize 当前状态
         let actions = self.session_mgr.sessions[self.session_mgr.active]
@@ -237,10 +244,7 @@ impl App {
                 .messages
                 .view_messages
                 .len();
-            tracing::info!(
-                view_len_after,
-                "handle_interrupted: after RebuildAll"
-            );
+            tracing::info!(view_len_after, "handle_interrupted: after RebuildAll");
             // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
             let pre_len = self.session_mgr.sessions[self.session_mgr.active]
                 .metadata
@@ -330,7 +334,10 @@ impl App {
             .agent
             .reconcile_already_done = true;
         // 后台任务：保持通道存活
-        if !self.session_mgr.sessions[self.session_mgr.active].background_agents.is_empty() {
+        if !self.session_mgr.sessions[self.session_mgr.active]
+            .background_agents
+            .is_empty()
+        {
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_done_pending_bg = true;

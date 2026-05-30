@@ -2,10 +2,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::auth_store::FileCredentialStore;
+use super::channel_handler::ChannelHandler;
 use super::client::{
     build_authed_transport, build_http_transport, spawn_stdio_transport, ClientStatus,
-    McpClientHandle, McpClientPool, McpInitStatus, OAuthStatus, HTTP_CONNECT_TIMEOUT,
-    STDIO_CONNECT_TIMEOUT,
+    McpClientHandle, McpClientPool, McpInitStatus, McpServiceWrapper, OAuthStatus,
+    HTTP_CONNECT_TIMEOUT, STDIO_CONNECT_TIMEOUT,
 };
 use super::config::OAuthConfig;
 use super::oauth_flow::{OAuthFlowEvent, OAuthFlowManager};
@@ -18,6 +19,7 @@ impl McpClientPool {
         claude_home: &Path,
         status_tx: tokio::sync::watch::Sender<McpInitStatus>,
         oauth_event_callback: Option<Box<dyn Fn(OAuthFlowEvent) + Send + Sync>>,
+        channel_handler: Option<Arc<ChannelHandler>>,
     ) {
         let (config, plugin_sources) = super::load_merged_config_full(cwd, claude_home);
         let connectable = config
@@ -62,6 +64,7 @@ impl McpClientPool {
                         oauth_status: OAuthStatus::default(),
                         source: server_config.source.clone(),
                         url: server_config.url.clone(),
+                        channel_capable: false,
                     }),
                 );
                 continue;
@@ -82,15 +85,28 @@ impl McpClientPool {
             };
 
             let mut used_oauth = false;
-            let connect_result: Result<Result<_, _>, _> = match transport_config {
+            let connect_result = match transport_config {
                 TransportConfig::Stdio {
                     ref command,
                     ref args,
                     ref env,
                 } => match spawn_stdio_transport(command, args, env) {
                     Ok(transport) => {
-                        tokio::time::timeout(timeout, rmcp::service::serve_client((), transport))
+                        if let Some(ref handler) = channel_handler {
+                            tokio::time::timeout(
+                                timeout,
+                                rmcp::service::serve_client(handler.clone(), transport),
+                            )
                             .await
+                            .map(|inner| inner.map(McpServiceWrapper::Channel))
+                        } else {
+                            tokio::time::timeout(
+                                timeout,
+                                rmcp::service::serve_client((), transport),
+                            )
+                            .await
+                            .map(|inner| inner.map(McpServiceWrapper::Default))
+                        }
                     }
                     Err(e) => {
                         Self::insert_failed(&pool, name, format!("stdio 启动失败: {e}"));
@@ -103,8 +119,6 @@ impl McpClientPool {
                     ref oauth,
                 } => {
                     let oauth_cfg = oauth.as_ref().cloned().or_else(|| {
-                        // 没有显式 OAuth 配置的 HTTP 服务器：检查磁盘是否有已保存的凭证
-                        // 如果有，用默认配置触发 OAuth 恢复流程
                         if let Some(ref mgr) = oauth_manager {
                             let token_store = mgr.token_store();
                             match tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(token_store.load_server(name))) {
@@ -122,7 +136,29 @@ impl McpClientPool {
                         match mgr.run_oauth_flow(name, url, cfg).await {
                             Ok(()) => {
                                 used_oauth = true;
-                                if let Some(am) = mgr.get_authorization_manager(name) {
+                                if let Some(ref handler) = channel_handler {
+                                    if let Some(am) = mgr.get_authorization_manager(name) {
+                                        tokio::time::timeout(
+                                            timeout,
+                                            rmcp::service::serve_client(
+                                                handler.clone(),
+                                                build_authed_transport(url, headers, am),
+                                            ),
+                                        )
+                                        .await
+                                        .map(|inner| inner.map(McpServiceWrapper::Channel))
+                                    } else {
+                                        tokio::time::timeout(
+                                            timeout,
+                                            rmcp::service::serve_client(
+                                                handler.clone(),
+                                                build_http_transport(url, headers),
+                                            ),
+                                        )
+                                        .await
+                                        .map(|inner| inner.map(McpServiceWrapper::Channel))
+                                    }
+                                } else if let Some(am) = mgr.get_authorization_manager(name) {
                                     tokio::time::timeout(
                                         timeout,
                                         rmcp::service::serve_client(
@@ -131,6 +167,7 @@ impl McpClientPool {
                                         ),
                                     )
                                     .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Default))
                                 } else {
                                     tokio::time::timeout(
                                         timeout,
@@ -140,27 +177,53 @@ impl McpClientPool {
                                         ),
                                     )
                                     .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Default))
                                 }
                             }
                             Err(e) => {
-                                // OAuth 恢复失败（如凭证过期），回退到裸连接，让 401 错误处理接管
                                 tracing::warn!(server = %name, error = %e, "OAuth 恢复失败，尝试裸连接");
-                                tokio::time::timeout(
-                                    timeout,
-                                    rmcp::service::serve_client(
-                                        (),
-                                        build_http_transport(url, headers),
-                                    ),
-                                )
-                                .await
+                                if let Some(ref handler) = channel_handler {
+                                    tokio::time::timeout(
+                                        timeout,
+                                        rmcp::service::serve_client(
+                                            handler.clone(),
+                                            build_http_transport(url, headers),
+                                        ),
+                                    )
+                                    .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Channel))
+                                } else {
+                                    tokio::time::timeout(
+                                        timeout,
+                                        rmcp::service::serve_client(
+                                            (),
+                                            build_http_transport(url, headers),
+                                        ),
+                                    )
+                                    .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Default))
+                                }
                             }
                         }
                     } else {
-                        tokio::time::timeout(
-                            timeout,
-                            rmcp::service::serve_client((), build_http_transport(url, headers)),
-                        )
-                        .await
+                        if let Some(ref handler) = channel_handler {
+                            tokio::time::timeout(
+                                timeout,
+                                rmcp::service::serve_client(
+                                    handler.clone(),
+                                    build_http_transport(url, headers),
+                                ),
+                            )
+                            .await
+                            .map(|inner| inner.map(McpServiceWrapper::Channel))
+                        } else {
+                            tokio::time::timeout(
+                                timeout,
+                                rmcp::service::serve_client((), build_http_transport(url, headers)),
+                            )
+                            .await
+                            .map(|inner| inner.map(McpServiceWrapper::Default))
+                        }
                     }
                 }
             };
@@ -171,6 +234,11 @@ impl McpClientPool {
                     let resources = rs.list_all_resources().await.unwrap_or_default();
                     tracing::info!(server = %name, tools = tools.len(), resources = resources.len(), "MCP 连接成功");
                     let peer = rs.peer().clone();
+                    let channel_capable = peer
+                        .peer_info()
+                        .and_then(|info| info.capabilities.experimental.as_ref())
+                        .and_then(|exp| exp.get("claude/channel"))
+                        .is_some();
                     let oauth_status = if used_oauth {
                         OAuthStatus::Authorized
                     } else {
@@ -185,6 +253,7 @@ impl McpClientPool {
                         oauth_status,
                         source: server_config.source.clone(),
                         url: server_config.url.clone(),
+                        channel_capable,
                     });
                     pool.clients.write().insert(name.clone(), handle);
                     pool.services.lock().await.insert(name.clone(), rs);
@@ -246,6 +315,7 @@ impl McpClientPool {
         cwd: &Path,
         claude_home: &Path,
         oauth_event_callback: Option<Box<dyn Fn(OAuthFlowEvent) + Send + Sync>>,
+        channel_handler: Option<Arc<ChannelHandler>>,
     ) -> Self {
         use std::collections::HashMap;
 
@@ -275,6 +345,7 @@ impl McpClientPool {
                         oauth_status: OAuthStatus::default(),
                         source: server_config.source.clone(),
                         url: server_config.url.clone(),
+                        channel_capable: false,
                     }),
                 );
                 continue;
@@ -301,7 +372,18 @@ impl McpClientPool {
                     ref env,
                 } => match spawn_stdio_transport(command, args, env) {
                     Ok(t) => {
-                        tokio::time::timeout(timeout, rmcp::service::serve_client((), t)).await
+                        if let Some(ref handler) = channel_handler {
+                            tokio::time::timeout(
+                                timeout,
+                                rmcp::service::serve_client(handler.clone(), t),
+                            )
+                            .await
+                            .map(|inner| inner.map(McpServiceWrapper::Channel))
+                        } else {
+                            tokio::time::timeout(timeout, rmcp::service::serve_client((), t))
+                                .await
+                                .map(|inner| inner.map(McpServiceWrapper::Default))
+                        }
                     }
                     Err(e) => {
                         Self::insert_failed(&pool, name, format!("stdio 失败: {e}"));
@@ -331,7 +413,29 @@ impl McpClientPool {
                         match mgr.run_oauth_flow(name, url, cfg).await {
                             Ok(()) => {
                                 used_oauth = true;
-                                if let Some(am) = mgr.get_authorization_manager(name) {
+                                if let Some(ref handler) = channel_handler {
+                                    if let Some(am) = mgr.get_authorization_manager(name) {
+                                        tokio::time::timeout(
+                                            timeout,
+                                            rmcp::service::serve_client(
+                                                handler.clone(),
+                                                build_authed_transport(url, headers, am),
+                                            ),
+                                        )
+                                        .await
+                                        .map(|inner| inner.map(McpServiceWrapper::Channel))
+                                    } else {
+                                        tokio::time::timeout(
+                                            timeout,
+                                            rmcp::service::serve_client(
+                                                handler.clone(),
+                                                build_http_transport(url, headers),
+                                            ),
+                                        )
+                                        .await
+                                        .map(|inner| inner.map(McpServiceWrapper::Channel))
+                                    }
+                                } else if let Some(am) = mgr.get_authorization_manager(name) {
                                     tokio::time::timeout(
                                         timeout,
                                         rmcp::service::serve_client(
@@ -340,6 +444,7 @@ impl McpClientPool {
                                         ),
                                     )
                                     .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Default))
                                 } else {
                                     tokio::time::timeout(
                                         timeout,
@@ -349,26 +454,53 @@ impl McpClientPool {
                                         ),
                                     )
                                     .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Default))
                                 }
                             }
                             Err(e) => {
                                 tracing::warn!(server = %name, error = %e, "OAuth 恢复失败，尝试裸连接");
-                                tokio::time::timeout(
-                                    timeout,
-                                    rmcp::service::serve_client(
-                                        (),
-                                        build_http_transport(url, headers),
-                                    ),
-                                )
-                                .await
+                                if let Some(ref handler) = channel_handler {
+                                    tokio::time::timeout(
+                                        timeout,
+                                        rmcp::service::serve_client(
+                                            handler.clone(),
+                                            build_http_transport(url, headers),
+                                        ),
+                                    )
+                                    .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Channel))
+                                } else {
+                                    tokio::time::timeout(
+                                        timeout,
+                                        rmcp::service::serve_client(
+                                            (),
+                                            build_http_transport(url, headers),
+                                        ),
+                                    )
+                                    .await
+                                    .map(|inner| inner.map(McpServiceWrapper::Default))
+                                }
                             }
                         }
                     } else {
-                        tokio::time::timeout(
-                            timeout,
-                            rmcp::service::serve_client((), build_http_transport(url, headers)),
-                        )
-                        .await
+                        if let Some(ref handler) = channel_handler {
+                            tokio::time::timeout(
+                                timeout,
+                                rmcp::service::serve_client(
+                                    handler.clone(),
+                                    build_http_transport(url, headers),
+                                ),
+                            )
+                            .await
+                            .map(|inner| inner.map(McpServiceWrapper::Channel))
+                        } else {
+                            tokio::time::timeout(
+                                timeout,
+                                rmcp::service::serve_client((), build_http_transport(url, headers)),
+                            )
+                            .await
+                            .map(|inner| inner.map(McpServiceWrapper::Default))
+                        }
                     }
                 }
             };
@@ -378,6 +510,11 @@ impl McpClientPool {
                     let tools = rs.list_all_tools().await.unwrap_or_default();
                     let resources = rs.list_all_resources().await.unwrap_or_default();
                     let peer = rs.peer().clone();
+                    let channel_capable = peer
+                        .peer_info()
+                        .and_then(|info| info.capabilities.experimental.as_ref())
+                        .and_then(|exp| exp.get("claude/channel"))
+                        .is_some();
                     let oauth_status = if used_oauth {
                         OAuthStatus::Authorized
                     } else {
@@ -394,6 +531,7 @@ impl McpClientPool {
                             oauth_status,
                             source: server_config.source.clone(),
                             url: server_config.url.clone(),
+                            channel_capable,
                         }),
                     );
                     pool.services.lock().await.insert(name.clone(), rs);

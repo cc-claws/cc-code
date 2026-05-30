@@ -629,6 +629,7 @@ async fn run_app(
                 permission_mode: app.services.permission_mode.clone(),
                 cron_scheduler: Some(app.services.cron.scheduler.clone()),
                 mcp_pool: app.services.mcp_pool.clone(),
+                channel_state: app.services.channel_state.clone(),
                 plugin_skill_dirs,
                 plugin_agent_dirs,
                 plugin_hooks: flat_hooks,

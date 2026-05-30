@@ -182,9 +182,10 @@ impl App {
                         let approval_decisions: Vec<ApprovalDecision> = decisions
                             .into_iter()
                             .map(|d| match d {
-                                HitlDecision::Approve => ApprovalDecision::Approve,
+                                HitlDecision::Approve => ApprovalDecision::Approve { source: None },
                                 HitlDecision::Reject => ApprovalDecision::Reject {
                                     reason: "User rejected".to_string(),
+                                    source: None,
                                 },
                                 HitlDecision::Edit(v) => ApprovalDecision::Edit { new_input: v },
                                 HitlDecision::Respond(msg) => {

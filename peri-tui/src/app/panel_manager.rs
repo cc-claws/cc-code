@@ -91,7 +91,9 @@ impl PanelKind {
         match self {
             PanelKind::Model | PanelKind::Login | PanelKind::Config => MutexGroup::Settings,
             PanelKind::Agent | PanelKind::Hooks => MutexGroup::Agent,
-            PanelKind::Mcp | PanelKind::Plugin | PanelKind::Cron | PanelKind::Tasks => MutexGroup::Tools,
+            PanelKind::Mcp | PanelKind::Plugin | PanelKind::Cron | PanelKind::Tasks => {
+                MutexGroup::Tools
+            }
             PanelKind::Status | PanelKind::Memory => MutexGroup::Info,
             PanelKind::ThreadBrowser => MutexGroup::Thread,
         }
@@ -486,7 +488,9 @@ impl PanelManager {
     /// 分发绝对滚动偏移到当前激活面板（滚动条拖拽）
     pub fn dispatch_set_scroll_offset(&mut self, offset: u16) {
         use super::panel_component::PanelComponent;
-        let Some(state) = self.active.as_mut() else { return };
+        let Some(state) = self.active.as_mut() else {
+            return;
+        };
         match state {
             PanelState::Model(p) => p.set_scroll_offset(offset),
             PanelState::Agent(p) => p.set_scroll_offset(offset),

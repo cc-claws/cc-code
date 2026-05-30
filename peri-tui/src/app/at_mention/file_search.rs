@@ -48,7 +48,11 @@ pub fn search_files(cwd: &str, query: &str) -> Vec<FileCandidate> {
     let dir_abs = if dir_part.is_empty() {
         cwd.to_string()
     } else {
-        format!("{}/{}", cwd.trim_end_matches('/'), dir_part.trim_end_matches('/'))
+        format!(
+            "{}/{}",
+            cwd.trim_end_matches('/'),
+            dir_part.trim_end_matches('/')
+        )
     };
 
     let pattern = if file_part.is_empty() {
@@ -65,7 +69,9 @@ pub fn search_files(cwd: &str, query: &str) -> Vec<FileCandidate> {
 
     for entry in paths.take(MAX_GLOB_RESULTS) {
         let Ok(entry) = entry else { continue };
-        let Ok(rel) = entry.strip_prefix(base) else { continue };
+        let Ok(rel) = entry.strip_prefix(base) else {
+            continue;
+        };
         let rel_str = rel.to_string_lossy().to_string();
 
         // 跳过忽略目录
@@ -161,28 +167,24 @@ pub fn filter_candidates(candidates: &[FileCandidate], query: &str) -> Vec<FileC
                 });
             }
 
-            let file_name = c
-                .path
-                .rsplit('/')
-                .next()
-                .unwrap_or(&c.path)
-                .to_string();
+            let file_name = c.path.rsplit('/').next().unwrap_or(&c.path).to_string();
             let name_score = matcher.fuzzy_match(&file_name, file_part).unwrap_or(0);
             let path_score = matcher.fuzzy_match(&c.path, query).unwrap_or(0);
             let score = name_score * 2 + path_score;
 
             if score > 0 {
-                Some(FileCandidate {
-                    score,
-                    ..c.clone()
-                })
+                Some(FileCandidate { score, ..c.clone() })
             } else {
                 None
             }
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.path.len().cmp(&b.path.len())));
+    results.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.path.len().cmp(&b.path.len()))
+    });
     results.truncate(MAX_CANDIDATES);
     results
 }

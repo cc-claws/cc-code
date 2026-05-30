@@ -139,13 +139,13 @@ impl HumanInTheLoopMiddleware {
 /// 将 `ApprovalDecision` 映射为 `AgentResult<ToolCall>`
 fn apply_decision(call: &ToolCall, decision: ApprovalDecision) -> AgentResult<ToolCall> {
     match decision {
-        ApprovalDecision::Approve => Ok(call.clone()),
+        ApprovalDecision::Approve { .. } => Ok(call.clone()),
         ApprovalDecision::Edit { new_input } => {
             let mut modified = call.clone();
             modified.input = new_input;
             Ok(modified)
         }
-        ApprovalDecision::Reject { reason } => Err(AgentError::ToolRejected {
+        ApprovalDecision::Reject { reason, source: _ } => Err(AgentError::ToolRejected {
             tool: call.name.clone(),
             reason,
         }),
@@ -210,9 +210,11 @@ impl HumanInTheLoopMiddleware {
         let decision = match response {
             InteractionResponse::Decisions(mut d) => d.pop().unwrap_or(ApprovalDecision::Reject {
                 reason: "用户拒绝".to_string(),
+                source: None,
             }),
             _ => ApprovalDecision::Reject {
                 reason: "用户拒绝".to_string(),
+                source: None,
             },
         };
         apply_decision(tool_call, decision)
@@ -314,7 +316,8 @@ impl HumanInTheLoopMiddleware {
             InteractionResponse::Decisions(d) => d,
             _ => vec![
                 ApprovalDecision::Reject {
-                    reason: "unexpected response".to_string()
+                    reason: "unexpected response".to_string(),
+                    source: None,
                 };
                 needs_approval.len()
             ],
@@ -326,6 +329,7 @@ impl HumanInTheLoopMiddleware {
             if (self.requires_approval)(&effective_tool_name(&call.name, &call.input)) {
                 let decision = decision_iter.next().unwrap_or(ApprovalDecision::Reject {
                     reason: "用户拒绝".to_string(),
+                    source: None,
                 });
                 results.push(apply_decision(call, decision));
             } else {

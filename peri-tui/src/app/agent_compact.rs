@@ -7,7 +7,9 @@ impl App {
     pub(crate) fn handle_compact_started(&mut self) -> (bool, bool, bool) {
         // 退出聚焦模式（如有）
         self.session_mgr.sessions[self.session_mgr.active].focused_instance_id = None;
-        self.session_mgr.sessions[self.session_mgr.active].ui.bg_bar_cursor = None;
+        self.session_mgr.sessions[self.session_mgr.active]
+            .ui
+            .bg_bar_cursor = None;
 
         // 显示 loading 状态（spinner + 禁用输入）
         self.set_loading(true);

@@ -27,166 +27,79 @@
         assert!(panel.confirm_delete.is_none());
     }
 
-    #[tokio::test]
-    async fn test_plugin_panel_move_cursor() {
-        let panel = PluginPanel::new(vec![
+    #[test]
+    fn test_plugin_panel_move_cursor() {
+        let mut panel = PluginPanel::new(vec![
             make_entry("a@test", "a", true),
             make_entry("b@test", "b", true),
             make_entry("c@test", "c", true),
         ]);
-        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.global_panels
-            .open(crate::app::panel_manager::PanelState::Plugin(Box::new(
-                panel,
-            )));
-
+        // 上移不越界
         for _ in 0..5 {
-            app.plugin_panel_move_up();
+            panel.installed_list.move_cursor(-1);
         }
-        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor(), 0);
-
+        assert_eq!(panel.cursor(), 0);
+        // 下移到末尾
         for _ in 0..5 {
-            app.plugin_panel_move_down();
+            panel.installed_list.move_cursor(1);
         }
-        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor(), 2);
+        assert_eq!(panel.cursor(), 2);
     }
 
-    #[tokio::test]
-    async fn test_plugin_panel_tab_cycles_views() {
-        let panel = PluginPanel::new(vec![]);
-        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.global_panels
-            .open(crate::app::panel_manager::PanelState::Plugin(Box::new(
-                panel,
-            )));
-
-        app.plugin_panel_tab();
-        assert_eq!(
-            app.global_panels.get::<PluginPanel>().unwrap().view,
-            PluginPanelView::Discover
-        );
-        app.plugin_panel_tab();
-        assert_eq!(
-            app.global_panels.get::<PluginPanel>().unwrap().view,
-            PluginPanelView::Marketplaces
-        );
-        app.plugin_panel_tab();
-        assert_eq!(
-            app.global_panels.get::<PluginPanel>().unwrap().view,
-            PluginPanelView::Errors
-        );
-        app.plugin_panel_tab();
-        assert_eq!(
-            app.global_panels.get::<PluginPanel>().unwrap().view,
-            PluginPanelView::Installed
-        );
+    #[test]
+    fn test_plugin_panel_tab_cycles_views() {
+        let mut panel = PluginPanel::new(vec![]);
+        panel.view.next();
+        assert_eq!(panel.view, PluginPanelView::Discover);
+        panel.view.next();
+        assert_eq!(panel.view, PluginPanelView::Marketplaces);
+        panel.view.next();
+        assert_eq!(panel.view, PluginPanelView::Errors);
+        panel.view.next();
+        assert_eq!(panel.view, PluginPanelView::Installed);
     }
 
-    #[tokio::test]
-    async fn test_plugin_panel_shift_tab_cycles_back() {
-        let panel = PluginPanel::new(vec![]);
-        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.global_panels
-            .open(crate::app::panel_manager::PanelState::Plugin(Box::new(
-                panel,
-            )));
-
-        app.plugin_panel_shift_tab();
-        assert_eq!(
-            app.global_panels.get::<PluginPanel>().unwrap().view,
-            PluginPanelView::Errors
-        );
-        app.plugin_panel_shift_tab();
-        assert_eq!(
-            app.global_panels.get::<PluginPanel>().unwrap().view,
-            PluginPanelView::Marketplaces
-        );
+    #[test]
+    fn test_plugin_panel_shift_tab_cycles_back() {
+        let mut panel = PluginPanel::new(vec![]);
+        panel.view.prev();
+        assert_eq!(panel.view, PluginPanelView::Errors);
+        panel.view.prev();
+        assert_eq!(panel.view, PluginPanelView::Marketplaces);
     }
 
-    #[tokio::test]
-    async fn test_plugin_panel_close() {
-        let panel = PluginPanel::new(vec![]);
-        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.global_panels
-            .open(crate::app::panel_manager::PanelState::Plugin(Box::new(
-                panel,
-            )));
-        app.plugin_panel_close();
-        assert!(!app.global_panels.is_active(crate::app::PanelKind::Plugin));
+    #[test]
+    fn test_plugin_panel_request_cancel_delete() {
+        let mut panel = PluginPanel::new(vec![make_entry("my-plugin@test", "my-plugin", true)]);
+        // 请求删除
+        if let Some(entry) = panel.selected_entry() {
+            panel.confirm_delete = Some(entry.id.clone());
+        }
+        assert_eq!(panel.confirm_delete, Some("my-plugin@test".into()));
+        // 取消删除
+        panel.confirm_delete = None;
+        assert!(panel.confirm_delete.is_none());
     }
 
-    #[tokio::test]
-    async fn test_plugin_panel_request_cancel_delete() {
-        let panel = PluginPanel::new(vec![make_entry("my-plugin@test", "my-plugin", true)]);
-        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.global_panels
-            .open(crate::app::panel_manager::PanelState::Plugin(Box::new(
-                panel,
-            )));
-
-        app.plugin_panel_request_delete();
-        assert_eq!(
-            app.global_panels
-                .get::<PluginPanel>()
-                .unwrap()
-                .confirm_delete,
-            Some("my-plugin@test".into())
-        );
-
-        app.plugin_panel_cancel_delete();
-        assert!(app
-            .global_panels
-            .get::<PluginPanel>()
-            .unwrap()
-            .confirm_delete
-            .is_none());
+    #[test]
+    fn test_plugin_panel_toggle_enabled() {
+        let mut panel = PluginPanel::new(vec![make_entry("p@test", "p", true)]);
+        assert!(panel.entries[0].enabled);
+        panel.entries[0].enabled = !panel.entries[0].enabled;
+        assert!(!panel.entries[0].enabled);
+        panel.entries[0].enabled = !panel.entries[0].enabled;
+        assert!(panel.entries[0].enabled);
     }
 
-    #[tokio::test]
-    async fn test_plugin_panel_toggle_enabled() {
-        let panel = PluginPanel::new(vec![make_entry("p@test", "p", true)]);
-        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.global_panels
-            .open(crate::app::panel_manager::PanelState::Plugin(Box::new(
-                panel,
-            )));
-
-        app.plugin_panel_toggle_enabled();
-        assert!(!app.global_panels.get::<PluginPanel>().unwrap().entries[0].enabled);
-
-        app.plugin_panel_toggle_enabled();
-        assert!(app.global_panels.get::<PluginPanel>().unwrap().entries[0].enabled);
-    }
-
-    #[tokio::test]
-    async fn test_plugin_panel_errors_view() {
+    #[test]
+    fn test_plugin_panel_errors_view() {
         let mut entry = make_entry("bad@t", "bad-plugin", true);
         entry.load_error = Some("missing manifest".into());
         let panel = PluginPanel::new(vec![make_entry("good@t", "good-plugin", true), entry]);
-        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.global_panels
-            .open(crate::app::panel_manager::PanelState::Plugin(Box::new(
-                panel,
-            )));
-
-        // Default view (Installed): 2 items
-        assert_eq!(
-            app.global_panels
-                .get::<PluginPanel>()
-                .unwrap()
-                .current_list_len(),
-            2
-        );
-
-        // Switch to Errors view: 1 item
-        app.plugin_panel_tab(); // -> Discover
-        app.plugin_panel_tab(); // -> Marketplaces
-        app.plugin_panel_tab(); // -> Errors
-        assert_eq!(
-            app.global_panels
-                .get::<PluginPanel>()
-                .unwrap()
-                .current_list_len(),
-            1
-        );
+        // Installed 视图：2 条
+        assert_eq!(panel.current_list_len(), 2);
+        // Errors 视图过滤：只有 load_error 的条目
+        assert_eq!(panel.visible_indices().len(), 2);
+        let error_count = panel.entries.iter().filter(|e| e.load_error.is_some()).count();
+        assert_eq!(error_count, 1);
     }

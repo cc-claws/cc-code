@@ -63,7 +63,7 @@ async fn test_broker_approval_flow() {
     };
     let response = broker.request(ctx).await;
     assert!(matches!(response, InteractionResponse::Decisions(decisions)
-            if decisions.len() == 1 && matches!(decisions[0], ApprovalDecision::Approve)));
+            if decisions.len() == 1 && matches!(decisions[0], ApprovalDecision::Approve { .. })));
 
     server_handle.await.unwrap();
 }

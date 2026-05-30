@@ -131,14 +131,22 @@ impl ConfigPanel {
         let next = match Self::LANGUAGE_OPTIONS.iter().position(|&o| o == current) {
             Some(p) => {
                 if reverse {
-                    if p == 0 { Self::LANGUAGE_OPTIONS.len() - 1 } else { p - 1 }
+                    if p == 0 {
+                        Self::LANGUAGE_OPTIONS.len() - 1
+                    } else {
+                        p - 1
+                    }
                 } else {
                     (p + 1) % Self::LANGUAGE_OPTIONS.len()
                 }
             }
             // 未匹配时：forward → 第一个，reverse → 最后一个
             None => {
-                if reverse { Self::LANGUAGE_OPTIONS.len() - 1 } else { 0 }
+                if reverse {
+                    Self::LANGUAGE_OPTIONS.len() - 1
+                } else {
+                    0
+                }
             }
         };
         self.buf_language = Self::LANGUAGE_OPTIONS[next].to_string();

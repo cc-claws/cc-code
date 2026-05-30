@@ -149,6 +149,59 @@ pub struct AppConfig {
     pub extra: Map<String, Value>,
 }
 
+impl AppConfig {
+    /// 用 workspace 配置覆盖全局配置。
+    /// workspace 中出现的字段替换全局对应字段，未出现的保留全局值。
+    pub fn merge_overrides(&mut self, workspace: AppConfig) {
+        // providers — 空列表视为"未填写"，不覆盖
+        if !workspace.providers.is_empty() {
+            self.providers = workspace.providers;
+        }
+        // 字符串字段 — 非空则覆盖
+        if !workspace.active_alias.is_empty() {
+            self.active_alias = workspace.active_alias;
+        }
+        if !workspace.active_provider_id.is_empty() {
+            self.active_provider_id = workspace.active_provider_id;
+        }
+        // Option<T> 字段 — is_some() 则覆盖
+        if workspace.skills_dir.is_some() {
+            self.skills_dir = workspace.skills_dir;
+        }
+        if workspace.thinking.is_some() {
+            self.thinking = workspace.thinking;
+        }
+        if workspace.env.is_some() {
+            self.env = workspace.env;
+        }
+        if workspace.compact.is_some() {
+            self.compact = workspace.compact;
+        }
+        if workspace.language.is_some() {
+            self.language = workspace.language;
+        }
+        if workspace.persona.is_some() {
+            self.persona = workspace.persona;
+        }
+        if workspace.tone.is_some() {
+            self.tone = workspace.tone;
+        }
+        if workspace.claude_md_excludes.is_some() {
+            self.claude_md_excludes = workspace.claude_md_excludes;
+        }
+        if workspace.proactiveness.is_some() {
+            self.proactiveness = workspace.proactiveness;
+        }
+        if workspace.context_1m.is_some() {
+            self.context_1m = workspace.context_1m;
+        }
+        // diff_enabled: bool 直接覆盖（无法区分"未写 false"和"写了 false"）
+        self.diff_enabled = workspace.diff_enabled;
+        // 保留未知字段
+        self.extra.extend(workspace.extra);
+    }
+}
+
 /// 单个 Provider 配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
@@ -178,3 +231,7 @@ impl ProviderConfig {
         self.name.as_deref().unwrap_or(&self.id)
     }
 }
+
+#[cfg(test)]
+#[path = "config_test.rs"]
+mod tests;

@@ -42,3 +42,14 @@ pub use anthropic::ChatAnthropic;
 pub use openai::ChatOpenAI;
 pub use react_adapter::BaseModelReactLLM; // BaseModel → ReactLLM 适配器（当前推荐的适配路径）
 pub use retry::{RetryConfig, RetryableLLM};
+
+/// Build a reqwest client with connection pool limits to prevent TLS session
+/// accumulation. Default pool is unbounded — each idle connection holds
+/// ~50-100 KB of TLS state that is never released.
+pub(crate) fn build_reqwest_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .pool_max_idle_per_host(1)
+        .pool_idle_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
