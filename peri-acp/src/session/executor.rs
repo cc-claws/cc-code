@@ -184,8 +184,18 @@ pub async fn execute_prompt(
                         compact_model: compact_model.clone(),
                         event_sink: event_sink.clone(),
                         args: args.to_string(),
+                        cancel_token: cancel.clone(),
                     };
-                    let result = cmd.execute(ctx).await;
+                    let result = tokio::select! {
+                        r = cmd.execute(ctx) => r,
+                        _ = cancel.cancelled() => {
+                            tracing::info!(session_id = %session_id, "Immediate command cancelled");
+                            crate::session::command::CommandResult {
+                                messages: history,
+                                stop_reason: PromptStopReason::Cancelled,
+                            }
+                        }
+                    };
                     // Immediate 命令跳过 agent event pump，必须手动发送 push_done
                     // 通知 TUI agent 执行完成，否则界面永久卡在 loading 状态。
                     event_sink.push_done(&session_id).await;

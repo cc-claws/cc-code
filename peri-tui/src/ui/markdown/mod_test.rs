@@ -99,6 +99,7 @@ fn test_ensure_rendered_incremental_basic() {
         dirty: false,
         rendered_prefix_len: "hello".len(),
         rendered_prefix_lines: 0,
+        holdback_scanner: Default::default(),
     };
     // 先全量渲染建立基线
     set_dirty(&mut block, true);
@@ -122,6 +123,7 @@ fn test_ensure_rendered_incremental_full_fallback() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        holdback_scanner: Default::default(),
     };
     ensure_rendered_incremental(&mut block, 80);
 
@@ -138,6 +140,7 @@ fn test_ensure_rendered_incremental_not_dirty() {
         dirty: false,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        holdback_scanner: Default::default(),
     };
     let lines_before = rendered_line_count(&block);
     ensure_rendered_incremental(&mut block, 80);
@@ -157,6 +160,7 @@ fn test_ensure_rendered_incremental_no_new_content() {
         dirty: false,
         rendered_prefix_len: "hello".len(),
         rendered_prefix_lines: 1,
+        holdback_scanner: Default::default(),
     };
     let lines_before = rendered_line_count(&block);
     ensure_rendered_incremental(&mut block, 80);
@@ -176,6 +180,7 @@ fn test_ensure_rendered_incremental_code_block_recovery() {
         dirty: false,
         rendered_prefix_len: "intro\n\n```\ncode\n```".len(),
         rendered_prefix_lines: 0,
+        holdback_scanner: Default::default(),
     };
     // 先全量渲染
     set_dirty(&mut block, true);
@@ -481,5 +486,154 @@ fn test_md_table_with_inline_code() {
     assert!(
         all.contains("ls"),
         "Should contain inline code content, got: {all:?}"
+    );
+}
+
+// ─── 表格 Holdback 测试 ─────────────────────────────────────────────────
+
+use super::TableHoldbackScanner;
+
+/// 辅助：创建 streaming 模式的 scanner
+fn streaming_scanner() -> TableHoldbackScanner {
+    let mut s = TableHoldbackScanner::new();
+    s.set_streaming(true);
+    s
+}
+
+#[test]
+fn test_ensure_rendered_incremental_table_holdback_incomplete() {
+    // 模拟流式输入：表头完整，数据行不完整
+    let mut block = ContentBlockView::Text {
+        raw: "| A | B |\n|---|---|\n| 1".to_string(),
+        rendered: Text::raw(""),
+        dirty: true,
+        rendered_prefix_len: 0,
+        rendered_prefix_lines: 0,
+        holdback_scanner: streaming_scanner(),
+    };
+    ensure_rendered_incremental(&mut block, 80);
+    // 应该渲染了表头和分隔行，但 holdback 了不完整的数据行
+    // rendered_prefix_len 应小于 raw.len()
+    let prefix_len = get_prefix_len(&block);
+    assert!(
+        prefix_len < "| A | B |\n|---|---|\n| 1".len(),
+        "不完整的表格行应被 holdback，prefix_len={}, raw.len()={}",
+        prefix_len,
+        "| A | B |\n|---|---|\n| 1".len()
+    );
+}
+
+#[test]
+fn test_ensure_rendered_incremental_table_complete() {
+    // 完整表格：不应 holdback
+    let mut block = ContentBlockView::Text {
+        raw: "| A | B |\n|---|---|\n| 1 | 2 |\n".to_string(),
+        rendered: Text::raw(""),
+        dirty: true,
+        rendered_prefix_len: 0,
+        rendered_prefix_lines: 0,
+        holdback_scanner: streaming_scanner(),
+    };
+    ensure_rendered_incremental(&mut block, 80);
+    assert_eq!(
+        get_prefix_len(&block),
+        "| A | B |\n|---|---|\n| 1 | 2 |\n".len(),
+        "完整表格不应 holdback"
+    );
+}
+
+#[test]
+fn test_ensure_rendered_incremental_table_streaming_then_complete() {
+    // 第一步：流式输入不完整的表格
+    let mut block = ContentBlockView::Text {
+        raw: "| H1 | H2 |\n|----|----|\n| da".to_string(),
+        rendered: Text::raw(""),
+        dirty: true,
+        rendered_prefix_len: 0,
+        rendered_prefix_lines: 0,
+        holdback_scanner: streaming_scanner(),
+    };
+    ensure_rendered_incremental(&mut block, 80);
+    let prefix_after_first = get_prefix_len(&block);
+    assert!(
+        prefix_after_first < "| H1 | H2 |\n|----|----|\n| da".len(),
+        "第一步：数据行不完整应 holdback"
+    );
+
+    // 第二步：补全数据行
+    append_to_block(&mut block, "ta | val |\n");
+    set_dirty(&mut block, true);
+    ensure_rendered_incremental(&mut block, 80);
+    let full_text = "| H1 | H2 |\n|----|----|\n| data | val |\n";
+    assert_eq!(
+        get_prefix_len(&block),
+        full_text.len(),
+        "第二步：数据行完整后应全部渲染"
+    );
+}
+
+#[test]
+fn test_ensure_rendered_incremental_non_table_no_holdback() {
+    // 非 `|` 开头的普通文本不应 holdback
+    let mut block = ContentBlockView::Text {
+        raw: "Just some text without tables\nSecond line\n".to_string(),
+        rendered: Text::raw(""),
+        dirty: true,
+        rendered_prefix_len: 0,
+        rendered_prefix_lines: 0,
+        holdback_scanner: streaming_scanner(),
+    };
+    ensure_rendered_incremental(&mut block, 80);
+    assert_eq!(
+        get_prefix_len(&block),
+        "Just some text without tables\nSecond line\n".len(),
+        "非表格文本不应 holdback"
+    );
+}
+
+#[test]
+fn test_ensure_rendered_incremental_table_flush_on_non_streaming() {
+    // 非流式模式不应 holdback
+    let mut block = ContentBlockView::Text {
+        raw: "| A | B |\n|---|---|\n| 1".to_string(),
+        rendered: Text::raw(""),
+        dirty: true,
+        rendered_prefix_len: 0,
+        rendered_prefix_lines: 0,
+        holdback_scanner: {
+            let mut s = TableHoldbackScanner::new();
+            s.set_streaming(false);
+            s
+        },
+    };
+    ensure_rendered_incremental(&mut block, 80);
+    assert_eq!(
+        get_prefix_len(&block),
+        "| A | B |\n|---|---|\n| 1".len(),
+        "非流式模式不应 holdback"
+    );
+}
+
+#[test]
+fn test_ensure_rendered_flush_releases_holdback() {
+    // 先以 streaming 模式创建，有 holdback
+    let mut block = ContentBlockView::Text {
+        raw: "| A | B |\n|---|---|\n| 1".to_string(),
+        rendered: Text::raw(""),
+        dirty: true,
+        rendered_prefix_len: 0,
+        rendered_prefix_lines: 0,
+        holdback_scanner: streaming_scanner(),
+    };
+    ensure_rendered_incremental(&mut block, 80);
+    let held_prefix = get_prefix_len(&block);
+    assert!(held_prefix < "| A | B |\n|---|---|\n| 1".len());
+
+    // flush 释放所有 holdback
+    ensure_rendered_flush(&mut block, 80);
+    assert_eq!(
+        get_prefix_len(&block),
+        "| A | B |\n|---|---|\n| 1".len(),
+        "flush 应提交所有 holdback 内容"
     );
 }

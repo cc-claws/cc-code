@@ -1,3 +1,4 @@
+mod cache;
 mod render_state;
 
 #[cfg(feature = "markdown-highlight")]
@@ -6,6 +7,7 @@ mod highlight;
 use pulldown_cmark::{Options, Parser};
 use ratatui::{style::Color, text::Text};
 
+use cache::MarkdownCache;
 use render_state::RenderState;
 
 // ── MarkdownTheme trait ──────────────────────────────────────
@@ -108,11 +110,23 @@ impl MarkdownTheme for DefaultMarkdownTheme {
     } // MUTED #999999
 }
 
-/// 解析 markdown 文本为 ratatui Text
+/// 解析 markdown 文本为 ratatui Text（带 LRU 缓存）
+///
+/// 缓存 key = (content_hash, max_width)，全局单例共享。
+/// 命中时直接返回克隆的 Text<'static>，跳过完整解析。
 pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) -> Text<'static> {
     if input.is_empty() {
         return Text::raw("");
     }
+
+    // 检查缓存
+    let width_u16 = max_width.min(u16::MAX as usize) as u16;
+    let cache = MarkdownCache::global();
+    if let Some(cached) = cache.get(input, width_u16) {
+        return cached;
+    }
+
+    // 缓存未命中，执行完整解析
     let options = Options::all() - Options::ENABLE_SMART_PUNCTUATION;
     let parser = Parser::new_ext(input, options);
     let mut state = RenderState::new(theme).with_max_width(max_width);
@@ -126,9 +140,18 @@ pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) 
     while state.lines.last().is_some_and(|l| l.spans.is_empty()) {
         state.lines.pop();
     }
-    Text::from(state.lines)
+    let result = Text::from(state.lines);
+
+    // 写入缓存
+    cache.put(input, width_u16, result.clone());
+
+    result
 }
 
 #[cfg(test)]
 #[path = "mod_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cache_test.rs"]
+mod cache_tests;

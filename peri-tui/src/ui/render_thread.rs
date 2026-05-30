@@ -12,8 +12,14 @@ use ratatui::{
 use tokio::sync::{mpsc, Notify};
 use unicode_segmentation::UnicodeSegmentation;
 
+/// 渲染事件通道容量。
+/// 128 足以缓冲大量事件（resize 风暴 + 流式 Rebuild），同时防止内存无限膨胀。
+/// 正常运行时队列深度通常 < 5。
+const RENDER_CHANNEL_CAPACITY: usize = 128;
+
 use super::{
-    markdown::ensure_rendered_incremental, message_render::render_view_model,
+    markdown::{ensure_rendered_flush, ensure_rendered_incremental},
+    message_render::render_view_model,
     message_view::MessageViewModel,
 };
 
@@ -151,6 +157,9 @@ impl RenderTask {
     }
 
     /// 渲染单条消息为 lines（含前后空行分隔）
+    ///
+    /// 注意：此函数修改的 rendered/dirty/rendered_prefix_len 等字段不参与 Hash 计算，
+    /// 因此不会使 content_hash 失效。
     fn render_one(
         vm: &mut MessageViewModel,
         index: usize,
@@ -158,9 +167,18 @@ impl RenderTask {
         diff_visible: bool,
     ) -> Vec<Line<'static>> {
         // 处理 dirty blocks（使用增量解析）
-        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+        if let MessageViewModel::AssistantBubble {
+            blocks,
+            is_streaming,
+            ..
+        } = vm
+        {
             for block in blocks.iter_mut() {
-                ensure_rendered_incremental(block, width);
+                if *is_streaming {
+                    ensure_rendered_incremental(block, width);
+                } else {
+                    ensure_rendered_flush(block, width);
+                }
             }
         }
         // 用实际终端宽度重新解析用户消息的 markdown（初始创建时用默认宽度 80）
@@ -177,7 +195,8 @@ impl RenderTask {
         lines
     }
 
-    /// 计算单个 MessageViewModel 的语义 hash
+    /// 计算单个 MessageViewModel 的语义 hash（legacy，应使用 vm.content_hash()）
+    #[allow(dead_code)]
     fn compute_hash(vm: &MessageViewModel) -> u64 {
         let mut hasher = DefaultHasher::new();
         vm.hash(&mut hasher);
@@ -263,8 +282,8 @@ impl RenderTask {
         // 保留一份用于 Resize（Resize 时没有新的 Rebuild 事件）
         let old_messages = std::mem::replace(&mut self.last_messages, messages.clone());
 
-        // 在渲染前计算 hash（render_one 会修改 dirty 等字段）
-        let new_hashes: Vec<u64> = messages.iter().map(Self::compute_hash).collect();
+        // 直接读取预计算的 content_hash，无需重算
+        let new_hashes: Vec<u64> = messages.iter().map(|vm| vm.content_hash()).collect();
 
         // 计算 prefix_stable_len：前缀中连续 hash 未变的消息数量
         let old_len = self.message_hashes.len();
@@ -346,7 +365,7 @@ impl RenderTask {
     }
 
     /// 主事件循环
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<RenderEvent>) {
+    async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
         while let Some(event) = rx.recv().await {
             match event {
                 RenderEvent::Rebuild(messages) => {
@@ -425,16 +444,18 @@ impl RenderTask {
 
 /// 启动渲染线程，返回事件发送端、共享缓存和通知
 ///
-/// 使用无界 channel：渲染事件处理耗时微秒级，不会积压；
-/// 有界 channel 的 try_send 静默丢弃会导致渲染线程与 App 状态分叉。
+/// 使用有界 channel（容量 128）：正常使用远达不到上限，极端场景下通过背压限速防止内存膨胀。
+/// - 所有事件使用 `try_send()`，通道满时静默丢弃（128 容量在实践中不会达到上限）
+/// - Resize 丢弃更安全（下一帧 resize 会补偿，渲染线程有 drain 合并逻辑）
+/// - Rebuild 丢弃可接受（下一个 Rebuild 携带完整快照，丢失的是中间状态）
 pub fn spawn_render_thread(
     width: u16,
 ) -> (
-    mpsc::UnboundedSender<RenderEvent>,
+    mpsc::Sender<RenderEvent>,
     Arc<RwLock<RenderCache>>,
     Arc<Notify>,
 ) {
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(RENDER_CHANNEL_CAPACITY);
     let cache = Arc::new(RwLock::new(RenderCache::new()));
     let notify = Arc::new(Notify::new());
 

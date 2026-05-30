@@ -72,3 +72,7 @@ lru = "0.18"
 
 # --- Build ---
 tempfile = "3"
+
+# --- Allocator ---
+mimalloc = "0.1"
+libmimalloc-sys = { version = "0.1", features = ["extended"] }

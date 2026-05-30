@@ -18,7 +18,11 @@ pub mod command;
 pub mod config;
 pub mod event;
 pub mod i18n;
+pub mod mimalloc_config;
 pub mod sync;
 pub mod thread;
 pub mod ui;
 pub mod update;
+
+#[cfg(test)]
+mod mimalloc_config_test;

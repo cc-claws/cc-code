@@ -1,6 +1,7 @@
 pub mod bordered_panel;
 pub mod checkbox_group;
 pub mod diff;
+pub mod file_tree;
 pub mod form;
 pub mod input_field;
 pub mod list;
@@ -19,6 +20,8 @@ pub mod markdown;
 // 重导出核心类型
 pub use bordered_panel::BorderedPanel;
 pub use diff::{DiffHunk, DiffInput, DiffLine, DiffResult, DiffWordType, WordDiff};
+pub use file_tree::render::FileTree;
+pub use file_tree::{FileNode, FileTreeState, FlatNode, ToggleResult};
 pub use form::{FormField, FormState};
 pub use input_field::InputState;
 pub use scrollable::{unified_vertical_scrollbar, ScrollState, ScrollableArea, ScrollbarMetrics};

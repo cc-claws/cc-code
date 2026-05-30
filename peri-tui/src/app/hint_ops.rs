@@ -1,9 +1,10 @@
 use super::*;
 
-/// 统一候选项：命令或 Skill，与渲染侧 hints.rs 保持一致
+/// 统一候选项：命令、Skill 或 Agent 命令，与渲染侧 hints.rs 保持一致
 enum HintItem {
     Cmd { name: String },
     Skill { name: String },
+    AgentCmd { name: String },
 }
 
 impl HintItem {
@@ -11,12 +12,8 @@ impl HintItem {
         match self {
             HintItem::Cmd { name } => name,
             HintItem::Skill { name } => name,
+            HintItem::AgentCmd { name } => name,
         }
-    }
-
-    /// 命令优先于 Skill
-    fn is_cmd(&self) -> bool {
-        matches!(self, HintItem::Cmd { .. })
     }
 }
 
@@ -44,6 +41,13 @@ impl App {
             .iter()
             .filter(|s| prefix.is_empty() || s.name.contains(prefix))
             .collect();
+        // Agent commands from ACP AvailableCommandsUpdate (e.g. /compact)
+        let agent_cmd_candidates: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
+            .commands
+            .agent_commands
+            .iter()
+            .filter(|n| prefix.is_empty() || n.contains(prefix))
+            .collect();
 
         let mut items: Vec<HintItem> = Vec::new();
         for (name, _) in &cmd_candidates {
@@ -54,13 +58,28 @@ impl App {
                 name: skill.name.clone(),
             });
         }
+        for name in &agent_cmd_candidates {
+            items.push(HintItem::AgentCmd {
+                name: (*name).clone(),
+            });
+        }
         items.sort_by(|a, b| {
             let a_starts = a.name().starts_with(prefix) as u8;
             let b_starts = b.name().starts_with(prefix) as u8;
-            // 前缀匹配优先 > 命令优先于 Skill > 字母序
+            // 前缀匹配优先 > 命令 > Skill > AgentCmd > 字母序
+            let a_rank = match a {
+                HintItem::Cmd { .. } => 2,
+                HintItem::Skill { .. } => 1,
+                HintItem::AgentCmd { .. } => 0,
+            };
+            let b_rank = match b {
+                HintItem::Cmd { .. } => 2,
+                HintItem::Skill { .. } => 1,
+                HintItem::AgentCmd { .. } => 0,
+            };
             b_starts
                 .cmp(&a_starts)
-                .then_with(|| b.is_cmd().cmp(&a.is_cmd()))
+                .then_with(|| b_rank.cmp(&a_rank))
                 .then_with(|| a.name().cmp(b.name()))
         });
         items

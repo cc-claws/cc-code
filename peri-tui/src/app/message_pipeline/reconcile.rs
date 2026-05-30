@@ -242,7 +242,7 @@ impl MessagePipeline {
             } else {
                 None
             };
-            tail_vms.push(MessageViewModel::ToolBlock {
+            let mut vm = MessageViewModel::ToolBlock {
                 tool_name: ct.name.clone(),
                 tool_call_id: ct.tool_call_id.clone(),
                 display_name: display,
@@ -256,7 +256,10 @@ impl MessagePipeline {
                     tool_color(&ct.name)
                 },
                 diff_lines,
-            });
+                content_hash: 0,
+            };
+            vm.recompute_hash();
+            tail_vms.push(vm);
         }
 
         // SubAgentGroup VMs
@@ -271,7 +274,7 @@ impl MessagePipeline {
             }
             for sub in &self.subagent_stack {
                 if sub.finalized_vm.is_none() {
-                    tail_vms.push(MessageViewModel::SubAgentGroup {
+                    let mut vm = MessageViewModel::SubAgentGroup {
                         agent_id: sub.agent_id.clone(),
                         task_preview: sub.task_preview.clone(),
                         total_steps: sub.total_steps,
@@ -284,7 +287,10 @@ impl MessagePipeline {
                         bg_hash: sub.bg_hash.clone(),
                         batch_agents: Vec::new(),
                         instance_id: Some(sub.instance_id.clone()),
-                    });
+                        content_hash: 0,
+                    };
+                    vm.recompute_hash();
+                    tail_vms.push(vm);
                 }
             }
         } else {
@@ -292,7 +298,7 @@ impl MessagePipeline {
                 let vm = if let Some(ref finalized) = sub.finalized_vm {
                     finalized.clone()
                 } else {
-                    MessageViewModel::SubAgentGroup {
+                    let mut vm = MessageViewModel::SubAgentGroup {
                         agent_id: sub.agent_id.clone(),
                         task_preview: sub.task_preview.clone(),
                         total_steps: sub.total_steps,
@@ -305,7 +311,10 @@ impl MessagePipeline {
                         bg_hash: sub.bg_hash.clone(),
                         batch_agents: Vec::new(),
                         instance_id: Some(sub.instance_id.clone()),
-                    }
+                        content_hash: 0,
+                    };
+                    vm.recompute_hash();
+                    vm
                 };
                 tail_vms.push(vm);
             }

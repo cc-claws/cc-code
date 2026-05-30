@@ -130,6 +130,7 @@
             collapsed: true,
             color: crate::ui::theme::ERROR,
             diff_lines: None,
+            content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false);
         assert!(
@@ -162,6 +163,7 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_lines: None,
+            content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false);
         assert_eq!(
@@ -195,6 +197,7 @@
                 },
             ],
             collapsed: true,
+            content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false);
         let text: String = lines
@@ -230,6 +233,7 @@
             bg_hash: Some("abc123".to_string()),
             batch_agents: Vec::new(),
             instance_id: None,
+            content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false);
         let title_color = lines

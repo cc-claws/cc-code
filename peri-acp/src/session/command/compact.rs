@@ -50,6 +50,7 @@ impl AgentCommand for CompactCommand {
             peri_config,
             compact_model,
             event_sink,
+            cancel_token,
             ..
         } = ctx;
 
@@ -102,27 +103,46 @@ impl AgentCommand for CompactCommand {
             .push_event(&session_id, &ExecutorEvent::CompactStarted, 0)
             .await;
 
-        // 执行 full_compact
-        let compact_result =
-            match full_compact(&history, compact_model.as_ref(), &compact_config, "").await {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!(error = %e, "compact: full_compact 失败");
-                    event_sink
-                        .push_event(
-                            &session_id,
-                            &ExecutorEvent::CompactError {
-                                message: e.to_string(),
-                            },
-                            0,
-                        )
-                        .await;
-                    return CommandResult {
-                        messages: history,
-                        stop_reason: PromptStopReason::EndTurn,
-                    };
+        // 执行 full_compact（支持 Ctrl+C 取消）
+        let compact_result = tokio::select! {
+            r = full_compact(&history, compact_model.as_ref(), &compact_config, "") => {
+                match r {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!(error = %e, "compact: full_compact 失败");
+                        event_sink
+                            .push_event(
+                                &session_id,
+                                &ExecutorEvent::CompactError {
+                                    message: e.to_string(),
+                                },
+                                0,
+                            )
+                            .await;
+                        return CommandResult {
+                            messages: history,
+                            stop_reason: PromptStopReason::EndTurn,
+                        };
+                    }
                 }
-            };
+            }
+            _ = cancel_token.cancelled() => {
+                tracing::info!(session_id = %session_id, "compact cancelled by user");
+                event_sink
+                    .push_event(
+                        &session_id,
+                        &ExecutorEvent::CompactError {
+                            message: "compact cancelled".into(),
+                        },
+                        0,
+                    )
+                    .await;
+                return CommandResult {
+                    messages: history,
+                    stop_reason: PromptStopReason::Cancelled,
+                };
+            }
+        };
 
         info!(
             summary_len = compact_result.summary.len(),
@@ -227,6 +247,7 @@ mod tests {
             compact_model: None,
             event_sink: sink,
             args: String::new(),
+            cancel_token: peri_agent::agent::AgentCancellationToken::new(),
         }
     }
 

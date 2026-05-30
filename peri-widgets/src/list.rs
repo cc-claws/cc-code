@@ -4,7 +4,7 @@ use ratatui::{
     prelude::*,
     style::Style,
     text::{Line, Text},
-    widgets::{Paragraph, StatefulWidget, Widget},
+    widgets::{Paragraph, StatefulWidget, StatefulWidgetRef, Widget},
 };
 
 /// 泛型列表状态——管理 items + cursor + scroll offset
@@ -163,10 +163,10 @@ impl<'a, T> SelectableList<'a, T> {
     }
 }
 
-impl<T> StatefulWidget for SelectableList<'_, T> {
+impl<T> StatefulWidgetRef for SelectableList<'_, T> {
     type State = ListState<T>;
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let cursor = state.cursor;
         let hovered_idx = state.hovered();
 
@@ -201,6 +201,14 @@ impl<T> StatefulWidget for SelectableList<'_, T> {
 
         let paragraph = Paragraph::new(text).scroll((state.scroll.offset(), 0));
         Widget::render(paragraph, area, buf);
+    }
+}
+
+impl<T> StatefulWidget for SelectableList<'_, T> {
+    type State = ListState<T>;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        self.render_ref(area, buf, state);
     }
 }
 

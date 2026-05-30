@@ -110,7 +110,7 @@ pub(crate) fn render_messages(
             messages.last_resize_width = Some(text_area_width);
             let _ = messages
                 .render_tx
-                .send(RenderEvent::Resize(text_area_width));
+                .try_send(RenderEvent::Resize(text_area_width));
         }
     }
 

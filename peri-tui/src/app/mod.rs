@@ -507,7 +507,7 @@ impl App {
                     let _ = self.session_mgr.sessions[self.session_mgr.active]
                         .messages
                         .render_tx
-                        .send(RenderEvent::Rebuild(remaining));
+                        .try_send(RenderEvent::Rebuild(remaining));
                 }
                 // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.sessions[self.session_mgr.active]

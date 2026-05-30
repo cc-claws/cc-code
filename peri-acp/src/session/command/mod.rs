@@ -9,6 +9,7 @@ pub mod compact;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use peri_agent::agent::AgentCancellationToken;
 use peri_agent::{llm::BaseModel, messages::BaseMessage};
 
 use crate::{
@@ -38,6 +39,8 @@ pub struct CommandContext {
     pub event_sink: Arc<dyn EventSink>,
     /// 命令参数（命令名之后的文本）。
     pub args: String,
+    /// 取消令牌，用于 Ctrl+C 打断长时间运行的命令（如 compact 的 LLM 调用）。
+    pub cancel_token: AgentCancellationToken,
 }
 
 /// 命令执行结果。

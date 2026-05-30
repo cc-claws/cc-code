@@ -7,6 +7,8 @@ use ratatui::{
     text::{Line, Text},
 };
 
+use super::markdown::parse_markdown_default;
+
 mod aggregate;
 mod tools;
 mod utils;
@@ -77,8 +79,11 @@ fn build_diff_lines(name: &str, input: &serde_json::Value) -> Option<Vec<Line<'s
 pub enum MessageViewModel {
     /// 用户输入
     UserBubble {
+        #[allow(dead_code)]
         content: String,
         rendered: Text<'static>,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
     },
     /// AI 回复（支持流式追加）
     AssistantBubble {
@@ -86,9 +91,12 @@ pub enum MessageViewModel {
         is_streaming: bool,
         /// 折叠状态：true 表示完全隐藏，false 表示展开显示
         collapsed: bool,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
     },
     /// 工具调用结果
     ToolBlock {
+        #[allow(dead_code)]
         tool_name: String,
         tool_call_id: String,
         display_name: String,
@@ -99,16 +107,28 @@ pub enum MessageViewModel {
         color: Color,
         /// 内嵌 diff 视图（Write/Edit 工具执行成功后填充，预渲染缓存）
         diff_lines: Option<Vec<Line<'static>>>,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
     },
     /// 系统消息
-    SystemNote { content: String },
+    SystemNote {
+        content: String,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
+    },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
-    CacheWarning { content: String },
+    CacheWarning {
+        content: String,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
+    },
     /// 只读工具调用聚合组（read/search/glob 折叠显示）
     ToolCallGroup {
         category: ToolCategory,
         tools: Vec<ToolEntry>,
         collapsed: bool,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
     },
     /// SubAgent 执行块（可折叠，含滑动窗口消息）
     SubAgentGroup {
@@ -134,6 +154,8 @@ pub enum MessageViewModel {
         batch_agents: Vec<AgentSummary>,
         /// Agent 实例的唯一标识符（用于聚焦模式过滤）
         instance_id: Option<String>,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
     },
 }
 
@@ -180,12 +202,12 @@ impl PartialEq for MessageViewModel {
                     && a_diff == b_diff
             }
             (
-                MessageViewModel::SystemNote { content: a },
-                MessageViewModel::SystemNote { content: b },
+                MessageViewModel::SystemNote { content: a, .. },
+                MessageViewModel::SystemNote { content: b, .. },
             ) => a == b,
             (
-                MessageViewModel::CacheWarning { content: a },
-                MessageViewModel::CacheWarning { content: b },
+                MessageViewModel::CacheWarning { content: a, .. },
+                MessageViewModel::CacheWarning { content: b, .. },
             ) => a == b,
             (
                 MessageViewModel::ToolCallGroup {
@@ -284,11 +306,11 @@ impl Hash for MessageViewModel {
                 collapsed.hash(state);
                 diff_lines.hash(state);
             }
-            MessageViewModel::SystemNote { content } => {
+            MessageViewModel::SystemNote { content, .. } => {
                 3u8.hash(state);
                 content.hash(state);
             }
-            MessageViewModel::CacheWarning { content } => {
+            MessageViewModel::CacheWarning { content, .. } => {
                 4u8.hash(state);
                 content.hash(state);
             }
@@ -296,6 +318,7 @@ impl Hash for MessageViewModel {
                 category,
                 tools,
                 collapsed,
+                ..
             } => {
                 5u8.hash(state);
                 category.hash(state);
@@ -315,6 +338,7 @@ impl Hash for MessageViewModel {
                 bg_hash,
                 batch_agents,
                 instance_id,
+                ..
             } => {
                 6u8.hash(state);
                 agent_id.hash(state);
@@ -346,6 +370,8 @@ pub enum ContentBlockView {
         rendered_prefix_len: usize,
         /// `rendered` 中对应前缀的行数（避免重解析计数）
         rendered_prefix_lines: usize,
+        /// 流式表格 holdback 扫描器
+        holdback_scanner: crate::ui::markdown::TableHoldbackScanner,
     },
     /// 推理/思考过程（仅显示字数摘要，尾部预览可选）
     Reasoning {
@@ -439,10 +465,14 @@ impl MessageViewModel {
         match msg {
             BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
-                MessageViewModel::UserBubble {
+                let rendered = parse_markdown_default(&raw);
+                let mut vm = MessageViewModel::UserBubble {
                     content: raw,
-                    rendered: Text::raw(""),
-                }
+                    rendered,
+                    content_hash: 0,
+                };
+                vm.recompute_hash();
+                vm
             }
             BaseMessage::Ai {
                 content,
@@ -454,13 +484,18 @@ impl MessageViewModel {
                     .content_blocks()
                     .into_iter()
                     .map(|block| match block {
-                        ContentBlock::Text { text } => ContentBlockView::Text {
-                            raw: text.clone(),
-                            rendered: Text::raw(""),
-                            dirty: true,
-                            rendered_prefix_len: 0,
-                            rendered_prefix_lines: 0,
-                        },
+                        ContentBlock::Text { text } => {
+                            let rendered = parse_markdown_default(&text);
+                            let rendered_prefix_lines = rendered.lines.len();
+                            ContentBlockView::Text {
+                                raw: text.clone(),
+                                rendered,
+                                dirty: false,
+                                rendered_prefix_len: text.len(),
+                                rendered_prefix_lines,
+                                holdback_scanner: Default::default(),
+                            }
+                        }
                         ContentBlock::Reasoning { text, .. } => ContentBlockView::Reasoning {
                             char_count: text.chars().count(),
                             text: text.clone(),
@@ -473,6 +508,7 @@ impl MessageViewModel {
                             dirty: false,
                             rendered_prefix_len: 7,
                             rendered_prefix_lines: 1,
+                            holdback_scanner: Default::default(),
                         },
                         ContentBlock::Document { title, .. } => {
                             let label = title.as_deref().unwrap_or("Document");
@@ -484,6 +520,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
+                                holdback_scanner: Default::default(),
                             }
                         }
                         ContentBlock::Unknown(v) => {
@@ -497,6 +534,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
+                                holdback_scanner: Default::default(),
                             }
                         }
                         // ToolResult 在 Ai 消息中不常见，静默跳过
@@ -506,6 +544,7 @@ impl MessageViewModel {
                             dirty: false,
                             rendered_prefix_len: 0,
                             rendered_prefix_lines: 0,
+                            holdback_scanner: Default::default(),
                         },
                     })
                     .collect();
@@ -531,11 +570,14 @@ impl MessageViewModel {
                     }
                 }
 
-                MessageViewModel::AssistantBubble {
+                let mut vm = MessageViewModel::AssistantBubble {
                     blocks,
                     is_streaming: false,
                     collapsed: false,
-                }
+                    content_hash: 0,
+                };
+                vm.recompute_hash();
+                vm
             }
             BaseMessage::Tool {
                 tool_call_id,
@@ -572,7 +614,7 @@ impl MessageViewModel {
                     } else {
                         Some(instance_hash(tool_call_id))
                     };
-                    return MessageViewModel::SubAgentGroup {
+                    let mut vm = MessageViewModel::SubAgentGroup {
                         agent_id,
                         task_preview,
                         total_steps: parse_subagent_tool_count(&raw_content),
@@ -585,7 +627,10 @@ impl MessageViewModel {
                         bg_hash,
                         batch_agents: Vec::new(),
                         instance_id: None,
+                        content_hash: 0,
                     };
+                    vm.recompute_hash();
+                    return vm;
                 }
                 // 使用统一格式化函数生成 display_name 和 args_display
                 // cwd 参数确保流式和恢复路径产生一致的路径显示
@@ -603,7 +648,7 @@ impl MessageViewModel {
                 } else {
                     build_diff_lines(&tool_name, &input)
                 };
-                MessageViewModel::ToolBlock {
+                let mut vm = MessageViewModel::ToolBlock {
                     tool_name,
                     tool_call_id: tool_call_id.clone(),
                     display_name,
@@ -613,11 +658,19 @@ impl MessageViewModel {
                     collapsed: true,
                     color,
                     diff_lines,
-                }
+                    content_hash: 0,
+                };
+                vm.recompute_hash();
+                vm
             }
-            BaseMessage::System { content, .. } => MessageViewModel::SystemNote {
-                content: content.text_content(),
-            },
+            BaseMessage::System { content, .. } => {
+                let mut vm = MessageViewModel::SystemNote {
+                    content: content.text_content(),
+                    content_hash: 0,
+                };
+                vm.recompute_hash();
+                vm
+            }
         }
     }
 
@@ -634,6 +687,7 @@ impl MessageViewModel {
             if let Some(ContentBlockView::Text { raw, dirty, .. }) = blocks.last_mut() {
                 raw.push_str(chunk);
                 *dirty = true;
+                self.recompute_hash();
                 return;
             }
             // 没有 Text block，创建新的
@@ -645,7 +699,24 @@ impl MessageViewModel {
                 dirty: true,
                 rendered_prefix_len: 0,
                 rendered_prefix_lines: 0,
+                holdback_scanner: Default::default(),
             });
+            self.recompute_hash();
+        }
+    }
+
+    /// 切换折叠状态（对 ToolBlock、AssistantBubble、SubAgentGroup、ToolCallGroup 生效）
+    #[allow(dead_code)]
+    pub fn toggle_collapse(&mut self) {
+        match self {
+            MessageViewModel::ToolBlock { collapsed, .. }
+            | MessageViewModel::AssistantBubble { collapsed, .. }
+            | MessageViewModel::SubAgentGroup { collapsed, .. }
+            | MessageViewModel::ToolCallGroup { collapsed, .. } => {
+                *collapsed = !*collapsed;
+                self.recompute_hash();
+            }
+            _ => {}
         }
     }
 
@@ -672,19 +743,26 @@ impl MessageViewModel {
 
     /// 创建用户消息
     pub fn user(content: String) -> Self {
-        MessageViewModel::UserBubble {
+        let rendered = parse_markdown_default(&content);
+        let mut vm = MessageViewModel::UserBubble {
             content,
-            rendered: Text::raw(""),
-        }
+            rendered,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 
     /// 创建助手消息
     pub fn assistant() -> Self {
-        MessageViewModel::AssistantBubble {
+        let mut vm = MessageViewModel::AssistantBubble {
             blocks: Vec::new(),
             is_streaming: true,
             collapsed: false,
-        }
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 
     /// 创建工具消息
@@ -710,7 +788,7 @@ impl MessageViewModel {
         } else {
             tool_color(&tool_name)
         };
-        MessageViewModel::ToolBlock {
+        let mut vm = MessageViewModel::ToolBlock {
             tool_call_id,
             tool_name,
             display_name: display,
@@ -720,22 +798,35 @@ impl MessageViewModel {
             collapsed: true,
             color,
             diff_lines: None,
-        }
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 
     /// 创建系统消息
     pub fn system(content: String) -> Self {
-        MessageViewModel::SystemNote { content }
+        let mut vm = MessageViewModel::SystemNote {
+            content,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 
     /// 创建缓存率警告消息（黄色纯文本，无前缀符号）
     pub fn cache_warning(content: String) -> Self {
-        MessageViewModel::CacheWarning { content }
+        let mut vm = MessageViewModel::CacheWarning {
+            content,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 
     /// 创建 SubAgentGroup（初始状态：运行中、展开、0 步）
     pub fn subagent_group(agent_id: String, task_preview: String) -> Self {
-        MessageViewModel::SubAgentGroup {
+        let mut vm = MessageViewModel::SubAgentGroup {
             agent_id,
             task_preview,
             total_steps: 0,
@@ -748,12 +839,45 @@ impl MessageViewModel {
             bg_hash: None,
             batch_agents: Vec::new(),
             instance_id: None,
-        }
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 
     /// 判断是否为 SubAgentGroup
     pub fn is_subagent_group(&self) -> bool {
         matches!(self, MessageViewModel::SubAgentGroup { .. })
+    }
+
+    /// 返回预计算的语义 hash
+    pub fn content_hash(&self) -> u64 {
+        match self {
+            MessageViewModel::UserBubble { content_hash, .. } => *content_hash,
+            MessageViewModel::AssistantBubble { content_hash, .. } => *content_hash,
+            MessageViewModel::ToolBlock { content_hash, .. } => *content_hash,
+            MessageViewModel::SystemNote { content_hash, .. } => *content_hash,
+            MessageViewModel::CacheWarning { content_hash, .. } => *content_hash,
+            MessageViewModel::ToolCallGroup { content_hash, .. } => *content_hash,
+            MessageViewModel::SubAgentGroup { content_hash, .. } => *content_hash,
+        }
+    }
+
+    /// 重新计算语义 hash（内容变更后调用）
+    pub fn recompute_hash(&mut self) {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        let hash = hasher.finish();
+        match self {
+            MessageViewModel::UserBubble { content_hash, .. } => *content_hash = hash,
+            MessageViewModel::AssistantBubble { content_hash, .. } => *content_hash = hash,
+            MessageViewModel::ToolBlock { content_hash, .. } => *content_hash = hash,
+            MessageViewModel::SystemNote { content_hash, .. } => *content_hash = hash,
+            MessageViewModel::CacheWarning { content_hash, .. } => *content_hash = hash,
+            MessageViewModel::ToolCallGroup { content_hash, .. } => *content_hash = hash,
+            MessageViewModel::SubAgentGroup { content_hash, .. } => *content_hash = hash,
+        }
     }
 }
 

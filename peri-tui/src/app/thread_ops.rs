@@ -55,7 +55,7 @@ impl App {
         let _ = self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .render_tx
-            .send(RenderEvent::ToggleToolMessages(
+            .try_send(RenderEvent::ToggleToolMessages(
                 self.session_mgr.sessions[self.session_mgr.active]
                     .ui
                     .show_tool_messages,
@@ -72,7 +72,7 @@ impl App {
         let _ = self.session_mgr.sessions[active]
             .messages
             .render_tx
-            .send(RenderEvent::ToggleDiff(new_visible));
+            .try_send(RenderEvent::ToggleDiff(new_visible));
     }
 
     /// 添加一个图片附件到待发送列表
@@ -209,6 +209,8 @@ impl App {
             .clear();
 
         self.reset_agent_session();
+        // 回收释放的内存给 OS
+        crate::mimalloc_config::alloc_collect();
 
         // 恢复 sticky header：找到 thread 中最后一条 Human 消息
         self.session_mgr.sessions[self.session_mgr.active]
@@ -233,7 +235,7 @@ impl App {
         let _ = self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .render_tx
-            .send(RenderEvent::Rebuild(
+            .try_send(RenderEvent::Rebuild(
                 self.session_mgr.sessions[self.session_mgr.active]
                     .messages
                     .view_messages
@@ -344,11 +346,16 @@ impl App {
                 })
             });
         }
+        // 回收释放的内存给 OS
+        crate::mimalloc_config::alloc_collect();
 
         let _ = self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .render_tx
-            .send(RenderEvent::Clear);
+            .try_send(RenderEvent::Clear);
+
+        // 归还已释放内存页给 OS
+        crate::mimalloc_config::alloc_collect();
     }
 
     /// 打开 thread 浏览面板（通过命令触发）
