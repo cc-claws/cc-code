@@ -348,12 +348,18 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                         let graph_row = &app.layout.rows[target_idx];
                         // cells 区域结束列（每 cell 占 2 列 + 左边框 1）
                         let cells_end = ga.x + 1 + graph_row.cells.len() as u16 * 2;
-                        // 点击在 badge 区域（cells 之后）且有分支 → 弹窗 checkout
-                        if mouse.column >= cells_end && !graph_row.branches.is_empty() {
-                            let branch = graph_row.branches[0].clone();
-                            app.confirm_message = Some(format!("是否 checkout 到 '{}'？", branch));
-                            app.confirm_action = Some(ConfirmAction::CheckoutBranch(branch));
-                            app.overlay = Overlay::ConfirmDialog;
+                        // 精确检测 badge 点击：cells_end + 1(空格) 起，每个 badge = " branch " + " "(分隔)
+                        let mut badge_x = cells_end + 1;
+                        for branch in &graph_row.branches {
+                            let badge_width = branch.len() as u16 + 2; // " " + branch + " "
+                            if mouse.column >= badge_x && mouse.column < badge_x + badge_width {
+                                let b = branch.clone();
+                                app.confirm_message = Some(format!("是否 checkout 到 '{}'？", b));
+                                app.confirm_action = Some(ConfirmAction::CheckoutBranch(b));
+                                app.overlay = Overlay::ConfirmDialog;
+                                break;
+                            }
+                            badge_x += badge_width + 1; // +1 分隔空格
                         }
                         app.select(target_idx);
                         ensure_selected_visible(app);

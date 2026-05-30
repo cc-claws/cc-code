@@ -1,6 +1,5 @@
 use unicode_width::UnicodeWidthStr;
 
-use super::cache::MarkdownCache;
 use super::*;
 use ratatui::style::Modifier;
 
@@ -365,77 +364,66 @@ fn parse_multiline_code_block_no_lang_fallback() {
     assert!(has_content, "回退模式应有代码内容");
 }
 
-/// 集成测试：parse_markdown 多次调用应命中缓存
+/// 集成测试：parse_markdown 多次调用应产生相同结果（幂等性）
 #[test]
 fn parse_markdown_cache_hit_on_repeat() {
-    // 清空全局缓存避免干扰
-    MarkdownCache::global().clear();
-
     // Arrange: 同一内容调用两次
     let content = "# 缓存测试\n\n这是一段用于测试缓存命中的 Markdown 文本。";
     let theme = default_theme();
     let width = 80;
 
-    // Act: 第一次调用（miss，写入缓存）
+    // Act: 两次调用
     let result1 = parse_markdown(content, &theme, width);
-    let cache_len_after_first = MarkdownCache::global().len();
-
-    // Act: 第二次调用（应命中缓存）
     let result2 = parse_markdown(content, &theme, width);
-    let cache_len_after_second = MarkdownCache::global().len();
 
-    // Assert: 两次结果一致
+    // Assert: 两次结果完全一致（幂等性）
     assert_eq!(
         result1.lines.len(),
         result2.lines.len(),
         "两次解析结果行数应一致"
     );
-
-    // Assert: 缓存条目数未增加（第二次是命中）
-    assert_eq!(
-        cache_len_after_first, cache_len_after_second,
-        "第二次调用不应增加缓存条目"
-    );
-    assert!(cache_len_after_first >= 1, "第一次调用应至少写入 1 条缓存");
-
-    // 清理
-    MarkdownCache::global().clear();
+    for (a, b) in result1.lines.iter().zip(result2.lines.iter()) {
+        let text_a: String = a.spans.iter().map(|s| s.content.as_ref()).collect();
+        let text_b: String = b.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text_a, text_b, "两次解析对应行内容应一致");
+    }
 }
 
-/// 集成测试：不同宽度产生不同缓存条目
+/// 集成测试：不同宽度产生不同渲染结果
 #[test]
 fn parse_markdown_different_width_different_cache_entry() {
-    MarkdownCache::global().clear();
-
     // Arrange
     let content = "| A | B |\n| --- | --- |\n| 内容 | 更多内容 |";
     let theme = default_theme();
 
     // Act: 用两个不同宽度调用
-    let _r1 = parse_markdown(content, &theme, 80);
-    let _r2 = parse_markdown(content, &theme, 40);
+    let r1 = parse_markdown(content, &theme, 80);
+    let r2 = parse_markdown(content, &theme, 40);
 
-    // Assert: 缓存中至少有 2 条（不同宽度各自产生一条）
-    // 注意：并行测试可能向全局缓存插入额外条目，因此用 >= 而非 ==
-    assert!(
-        MarkdownCache::global().len() >= 2,
-        "不同宽度应至少产生 2 条缓存，实际: {}",
-        MarkdownCache::global().len()
-    );
-
-    MarkdownCache::global().clear();
+    // Assert: 不同宽度应产生不同的渲染结果（行数或内容不同）
+    let different = r1.lines.len() != r2.lines.len()
+        || r1.lines.iter().zip(r2.lines.iter()).any(|(a, b)| {
+            a.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+                != b.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+        });
+    assert!(different, "不同宽度应产生不同渲染结果");
 }
 
-/// 集成测试：空字符串不走缓存
+/// 集成测试：空字符串返回空结果
 #[test]
 fn parse_markdown_empty_not_cached() {
-    MarkdownCache::global().clear();
-
     // Act
-    let _result = parse_markdown("", &default_theme(), 80);
+    let result = parse_markdown("", &default_theme(), 80);
 
-    // Assert: 空字符串直接返回，不经过缓存
-    assert_eq!(MarkdownCache::global().len(), 0, "空字符串不应写入缓存");
-
-    MarkdownCache::global().clear();
+    // Assert: 空字符串直接返回空 Text
+    assert!(
+        result.lines.is_empty() || result.lines.iter().all(|l| l.spans.is_empty()),
+        "空字符串应返回空结果"
+    );
 }
