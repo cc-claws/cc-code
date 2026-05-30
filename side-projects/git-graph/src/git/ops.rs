@@ -10,6 +10,11 @@ impl GitRepo {
         self.run_git(&["checkout", &short])
     }
 
+    /// 按分支名 checkout
+    pub fn checkout_branch(&self, name: &str) -> Result<()> {
+        self.run_git(&["checkout", name])
+    }
+
     pub fn merge(&self, oid: Oid) -> Result<()> {
         let short = format!("{:.7}", oid);
         self.run_git(&["merge", &short])

@@ -22,7 +22,15 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 app.confirm_message = None;
                 app.confirm_action = None;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                // PullRebase 时 n = 用 merge；其他操作 n = 取消
+                if let Some(ConfirmAction::PullRebase) = &app.confirm_action {
+                    spawn_remote(app, RemoteOp::Pull, None);
+                }
+                app.confirm_message = None;
+                app.confirm_action = None;
+            }
+            KeyCode::Esc => {
                 app.confirm_message = None;
                 app.confirm_action = None;
             }
@@ -187,13 +195,13 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.search_query = Some(String::new());
         }
         KeyCode::Char('f') if !mods.contains(KeyModifiers::CONTROL) => {
-            spawn_remote(app, RemoteOp::Fetch);
+            spawn_remote(app, RemoteOp::Fetch, None);
         }
         KeyCode::Char('P') => {
-            spawn_remote(app, RemoteOp::Pull);
+            spawn_remote(app, RemoteOp::Pull, None);
         }
         KeyCode::Char('p') if !mods.contains(KeyModifiers::CONTROL) => {
-            spawn_remote(app, RemoteOp::Push);
+            spawn_remote(app, RemoteOp::Push, None);
         }
         KeyCode::Up | KeyCode::Char('k') if app.selected_idx > 0 => {
             app.select(app.selected_idx - 1);
@@ -254,92 +262,70 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                 }
                 return;
             }
-            // 检查 sidebar 区域点击
+            // 检查 sidebar 区域点击（Staged / Changes 双面板）
             let sa = app.sidebar_area;
             if mouse.column >= sa.x
                 && mouse.column < sa.x + sa.width
                 && mouse.row >= sa.y
                 && mouse.row < sa.y + sa.height
             {
-                if mouse.row < app.sidebar_split_y {
-                    app.focus = Focus::FileTree;
-                    let inner_y = sa.y + 1;
-                    if mouse.row >= inner_y {
-                        let row = mouse.row - inner_y;
-                        if let Some(idx) = app.file_tree_state.click(row) {
-                            // 点击目录时展开/折叠
-                            if let Some(result) = app.file_tree_state.toggle(idx) {
-                                if result.needs_load {
-                                    let children = crate::app::scan_dir_children(&result.path);
-                                    app.file_tree_state.set_children(&result.path, children);
-                                    app.file_tree_state.toggle(idx);
-                                }
-                            }
-                        }
+                app.focus = Focus::Status;
+                let sl = &app.sidebar_layout;
+                let panels: [(
+                    ratatui::layout::Rect,
+                    &Option<status_panel::PanelLayout>,
+                ); 2] = [
+                    (sl.staged_inner, &sl.staged_layout),
+                    (sl.changes_inner, &sl.changes_layout),
+                ];
+
+                for (inner, panel_layout) in &panels {
+                    if mouse.row < inner.y || mouse.row >= inner.y + inner.height {
+                        continue;
                     }
-                } else {
-                    // status 面板点击
-                    app.focus = Focus::Status;
-                    let sl = &app.sidebar_layout;
-
-                    // 判断点击在哪个面板内，处理按钮和目录行
-                    let panels: [(
-                        ratatui::layout::Rect,
-                        &Option<status_panel::PanelLayout>,
-                        bool, // is_staged_panel
-                    ); 2] = [
-                        (sl.staged_inner, &sl.staged_layout, true),
-                        (sl.changes_inner, &sl.changes_layout, false),
-                    ];
-
-                    for (inner, panel_layout, is_staged) in &panels {
-                        if mouse.row < inner.y || mouse.row >= inner.y + inner.height {
-                            continue;
-                        }
-                        let rel_row = mouse.row.saturating_sub(inner.y);
-                        if let Some(ref layout) = panel_layout {
-                            // 按钮点击检测
-                            for &(btn_row, btn_x, btn_type, ref path) in &layout.button_rows {
-                                if rel_row == btn_row {
-                                    let abs_btn_x = inner.x + btn_x;
-                                    if mouse.column >= abs_btn_x && mouse.column < abs_btn_x + 3 {
-                                        let git_path = path.as_str();
-                                        match btn_type {
-                                            status_panel::StatusButton::Stage => {
-                                                if let Err(e) = app.repo.stage_file(git_path) {
-                                                    app.remote_status = Some(format!("暂存失败: {}", e));
-                                                } else {
-                                                    let _ = app.reload();
-                                                }
-                                            }
-                                            status_panel::StatusButton::Unstage => {
-                                                if let Err(e) = app.repo.unstage_file(git_path) {
-                                                    app.remote_status = Some(format!("取消暂存失败: {}", e));
-                                                } else {
-                                                    let _ = app.reload();
-                                                }
-                                            }
-                                            status_panel::StatusButton::Discard => {
-                                                if let Err(e) = app.repo.discard_file(git_path) {
-                                                    app.remote_status = Some(format!("丢弃修改失败: {}", e));
-                                                } else {
-                                                    let _ = app.reload();
-                                                }
+                    let rel_row = mouse.row.saturating_sub(inner.y);
+                    if let Some(ref layout) = panel_layout {
+                        // 按钮点击检测
+                        for &(btn_row, btn_x, btn_type, ref path) in &layout.button_rows {
+                            if rel_row == btn_row {
+                                let abs_btn_x = inner.x + btn_x;
+                                if mouse.column >= abs_btn_x && mouse.column < abs_btn_x + 3 {
+                                    let git_path = path.as_str();
+                                    match btn_type {
+                                        status_panel::StatusButton::Stage => {
+                                            if let Err(e) = app.repo.stage_file(git_path) {
+                                                app.remote_status = Some(format!("暂存失败: {}", e));
+                                            } else {
+                                                let _ = app.reload();
                                             }
                                         }
-                                        app.dirty = true;
-                                        return;
+                                        status_panel::StatusButton::Unstage => {
+                                            if let Err(e) = app.repo.unstage_file(git_path) {
+                                                app.remote_status = Some(format!("取消暂存失败: {}", e));
+                                            } else {
+                                                let _ = app.reload();
+                                            }
+                                        }
+                                        status_panel::StatusButton::Discard => {
+                                            if let Err(e) = app.repo.discard_file(git_path) {
+                                                app.remote_status = Some(format!("丢弃修改失败: {}", e));
+                                            } else {
+                                                let _ = app.reload();
+                                            }
+                                        }
                                     }
+                                    app.dirty = true;
+                                    return;
                                 }
                             }
-                            // 目录行点击
-                            for &(dir_row, ref key) in &layout.dir_rows {
-                                if rel_row == dir_row {
-                                    if app.status_dir_collapsed.contains(key) {
-                                        app.status_dir_collapsed.remove(key);
-                                    } else {
-                                        app.status_dir_collapsed.insert(key.clone());
-                                    }
+                        }
+                        // 目录行点击
+                        for &(dir_row, ref key) in &layout.dir_rows {
+                            if rel_row == dir_row {
+                                if app.status_dir_collapsed.contains(key) {
+                                    app.status_dir_collapsed.remove(key);
+                                } else {
+                                    app.status_dir_collapsed.insert(key.clone());
                                 }
                             }
                         }
@@ -359,6 +345,16 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                     let row = (mouse.row - offset_y) as usize;
                     let target_idx = app.scroll_offset + row;
                     if target_idx < app.layout.rows.len() {
+                        let graph_row = &app.layout.rows[target_idx];
+                        // cells 区域结束列（每 cell 占 2 列 + 左边框 1）
+                        let cells_end = ga.x + 1 + graph_row.cells.len() as u16 * 2;
+                        // 点击在 badge 区域（cells 之后）且有分支 → 弹窗 checkout
+                        if mouse.column >= cells_end && !graph_row.branches.is_empty() {
+                            let branch = graph_row.branches[0].clone();
+                            app.confirm_message = Some(format!("是否 checkout 到 '{}'？", branch));
+                            app.confirm_action = Some(ConfirmAction::CheckoutBranch(branch));
+                            app.overlay = Overlay::ConfirmDialog;
+                        }
                         app.select(target_idx);
                         ensure_selected_visible(app);
                     }
@@ -587,12 +583,27 @@ fn execute_confirm_action(app: &mut App) {
         Some(ConfirmAction::ForcePush) => {
             // TODO: 实现 force push
         }
+        Some(ConfirmAction::PushSetUpstream(branch)) => {
+            spawn_remote(app, RemoteOp::PushSetUpstream, Some(branch));
+        }
+        Some(ConfirmAction::PullRebase) => {
+            // y=rebase, 其他=merge
+            spawn_remote(app, RemoteOp::PullRebase, None);
+        }
+        Some(ConfirmAction::CheckoutBranch(branch)) => {
+            if let Err(e) = app.repo.checkout_branch(&branch) {
+                app.remote_status = Some(format!("checkout 失败: {}", e));
+            } else {
+                app.remote_status = Some(format!("已切换到 {}", branch));
+                let _ = app.reload();
+            }
+        }
         None => {}
     }
     app.overlay = Overlay::None;
 }
 
-fn spawn_remote(app: &mut App, op: RemoteOp) {
+fn spawn_remote(app: &mut App, op: RemoteOp, branch: Option<String>) {
     let workdir = match app.repo.repo().workdir().map(|p| p.to_path_buf()) {
         Some(d) => d,
         None => {
@@ -601,30 +612,50 @@ fn spawn_remote(app: &mut App, op: RemoteOp) {
         }
     };
     app.remote_status = Some(format!("{}ing...", op));
-    let handle = remote::spawn_remote_op(workdir, op);
-    // Fire-and-forget: spawn a thread to await the result and log it
-    // For MVP we just show status, result will update on next interaction
+    let result_rx = app.remote_result_rx.clone();
+    let handle = remote::spawn_remote_op(workdir, op, branch);
     std::thread::spawn(move || {
         let result = handle.join().unwrap_or(RemoteResult {
             operation: op,
             success: false,
             message: "thread panicked".to_string(),
         });
-        // 结果只能通过日志查看，MVP 不回写 app 状态
-        tracing::info!(
-            "remote {} {}",
-            result.operation,
-            if result.success { "ok" } else { "failed" }
-        );
-        let _ = result; // suppress unused
+        let msg = if result.success {
+            format!("{} {}", result.operation, result.message.trim())
+        } else {
+            format!("{} 失败: {}", result.operation, result.message.trim())
+        };
+        if let Ok(mut rx) = result_rx.lock() {
+            *rx = Some(msg);
+        }
     });
 }
 
 fn handle_global_action(app: &mut App, action: GlobalAction) {
     match action {
-        GlobalAction::RemoteFetch => spawn_remote(app, RemoteOp::Fetch),
-        GlobalAction::RemotePull => spawn_remote(app, RemoteOp::Pull),
-        GlobalAction::RemotePush => spawn_remote(app, RemoteOp::Push),
+        GlobalAction::RemoteFetch => spawn_remote(app, RemoteOp::Fetch, None),
+        GlobalAction::RemotePull => {
+            if app.repo.head_branch().is_none() {
+                app.remote_status = Some("detached HEAD，无法 pull".to_string());
+            } else {
+                app.confirm_message = Some("Pull 方式？y=rebase, n=merge".to_string());
+                app.confirm_action = Some(ConfirmAction::PullRebase);
+                app.overlay = Overlay::ConfirmDialog;
+            }
+        }
+        GlobalAction::RemotePush => {
+            if app.repo.has_upstream() {
+                spawn_remote(app, RemoteOp::Push, None);
+            } else if let Some(branch) = app.repo.head_branch() {
+                app.confirm_message = Some(format!(
+                    "分支 '{}' 没有 upstream，是否 push -u origin {}？", branch, branch
+                ));
+                app.confirm_action = Some(ConfirmAction::PushSetUpstream(branch));
+                app.overlay = Overlay::ConfirmDialog;
+            } else {
+                app.remote_status = Some("detached HEAD，无法 push".to_string());
+            }
+        }
         GlobalAction::ToggleBranches => {
             app.overlay = Overlay::BranchList;
         }

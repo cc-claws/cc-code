@@ -40,6 +40,9 @@ pub enum ConfirmAction {
     DeleteBranch(String),
     StashDrop(usize),
     ForcePush,
+    PushSetUpstream(String), // branch name
+    PullRebase,
+    CheckoutBranch(String),  // branch name
 }
 
 #[allow(dead_code)]
@@ -68,6 +71,8 @@ pub struct App {
     pub filter_branch: Option<String>,
     pub search_query: Option<String>,
     pub remote_status: Option<String>,
+    /// 远程操作完成的结果通道（主循环轮询更新 remote_status）
+    pub remote_result_rx: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub toolbar_state: ToolbarState,
     pub global_toolbar_state: GlobalToolbarState,
     /// graph 面板内容区域的 y 坐标（用于鼠标点击偏移计算）
@@ -177,6 +182,7 @@ impl App {
             filter_branch: None,
             search_query: None,
             remote_status: None,
+            remote_result_rx: std::sync::Arc::new(std::sync::Mutex::new(None)),
             toolbar_state: ToolbarState::new(),
             global_toolbar_state: GlobalToolbarState::new(),
             graph_inner_y: 0,
@@ -213,6 +219,23 @@ impl App {
         }
         self.selected_idx = idx;
         self.detail_scroll = 0;
+        self.update_selected_detail();
+    }
+
+    /// 刷新选中 commit 的详情，但保留 scroll 位置
+    fn select_keep_scroll(&mut self, idx: usize) {
+        if idx >= self.layout.rows.len() {
+            return;
+        }
+        self.selected_idx = idx;
+        self.update_selected_detail();
+    }
+
+    fn update_selected_detail(&mut self) {
+        let idx = self.selected_idx;
+        if idx >= self.layout.rows.len() {
+            return;
+        }
         let row = &self.layout.rows[idx];
         if let Some(oid) = row.oid {
             self.selected_oid = Some(oid);
@@ -250,7 +273,7 @@ impl App {
                 self.selected_idx = idx;
             }
         }
-        self.select(self.selected_idx);
+        self.select_keep_scroll(self.selected_idx);
         self.git_status = crate::git::status::read_status(self.repo.repo())
             .unwrap_or_default();
         self.dirty = true;
@@ -259,6 +282,13 @@ impl App {
 
     /// 刷新 sidebar 数据（git status + 文件树 + graph），超过 interval 才刷新
     pub fn refresh_sidebar(&mut self) {
+        // 先检查远程操作结果
+        if let Ok(mut rx) = self.remote_result_rx.lock() {
+            if let Some(result) = rx.take() {
+                self.remote_status = Some(result);
+            }
+        }
+
         if self.last_sidebar_refresh.elapsed() < std::time::Duration::from_secs(2) {
             return;
         }
