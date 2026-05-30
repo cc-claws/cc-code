@@ -67,7 +67,7 @@ jobs:
             - name: Cache build artifacts
               uses: actions/cache@v4
               with:
-                  path: target
+                  path: side-projects/git-graph/target
                   key: ${{ runner.os }}-${{ matrix.target }}-gig-${{ hashFiles('**/Cargo.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-${{ matrix.target }}-gig-
@@ -79,14 +79,17 @@ jobs:
 
             - name: Build gig (Linux)
               if: runner.os == 'Linux'
-              run: cross build -p gig --release --target ${{ matrix.target }}
+              working-directory: side-projects/git-graph
+              run: cross build --release --target ${{ matrix.target }}
 
             - name: Build gig (non-Linux)
               if: runner.os != 'Linux'
-              run: cargo build -p gig --release --target ${{ matrix.target }}
+              working-directory: side-projects/git-graph
+              run: cargo build --release --target ${{ matrix.target }}
 
             - name: Package binaries (Unix)
               if: matrix.ext == ''
+              working-directory: side-projects/git-graph
               run: |
                   mkdir -p dist
                   cp target/${{ matrix.target }}/release/gig dist/gig-${{ matrix.platform }}
@@ -97,6 +100,7 @@ jobs:
             - name: Package binaries (Windows)
               if: matrix.ext == '.exe'
               shell: pwsh
+              working-directory: side-projects/git-graph
               run: |
                   New-Item -ItemType Directory -Force -Path dist
                   Copy-Item "target/${{ matrix.target }}/release/gig.exe" "dist/gig-${{ matrix.platform }}.exe"
@@ -107,7 +111,7 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: binaries-${{ matrix.platform }}
-                  path: dist/
+                  path: side-projects/git-graph/dist/
                   retention-days: 7
 
     release:
