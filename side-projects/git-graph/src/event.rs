@@ -345,6 +345,16 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                     let row = (mouse.row - offset_y) as usize;
                     let target_idx = app.scroll_offset + row;
                     if target_idx < app.layout.rows.len() {
+                        let graph_row = &app.layout.rows[target_idx];
+                        // cells 区域结束列（每 cell 占 2 列 + 左边框 1）
+                        let cells_end = ga.x + 1 + graph_row.cells.len() as u16 * 2;
+                        // 点击在 badge 区域（cells 之后）且有分支 → 弹窗 checkout
+                        if mouse.column >= cells_end && !graph_row.branches.is_empty() {
+                            let branch = graph_row.branches[0].clone();
+                            app.confirm_message = Some(format!("是否 checkout 到 '{}'？", branch));
+                            app.confirm_action = Some(ConfirmAction::CheckoutBranch(branch));
+                            app.overlay = Overlay::ConfirmDialog;
+                        }
                         app.select(target_idx);
                         ensure_selected_visible(app);
                     }
@@ -579,6 +589,14 @@ fn execute_confirm_action(app: &mut App) {
         Some(ConfirmAction::PullRebase) => {
             // y=rebase, 其他=merge
             spawn_remote(app, RemoteOp::PullRebase, None);
+        }
+        Some(ConfirmAction::CheckoutBranch(branch)) => {
+            if let Err(e) = app.repo.checkout_branch(&branch) {
+                app.remote_status = Some(format!("checkout 失败: {}", e));
+            } else {
+                app.remote_status = Some(format!("已切换到 {}", branch));
+                let _ = app.reload();
+            }
         }
         None => {}
     }
