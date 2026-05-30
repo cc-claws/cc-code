@@ -14,8 +14,11 @@ use tracing::{info, warn};
 
 use peri_agent::{
     agent::{
-        compact::{config::CompactConfig, full_compact, micro_compact_enhanced, re_inject},
-        events::{AgentEvent as ExecutorEvent, CompactFileInfo},
+        compact::{
+            config::CompactConfig, extract_file_info, extract_skill_names, full_compact,
+            micro_compact_enhanced, re_inject,
+        },
+        events::AgentEvent as ExecutorEvent,
         state::State,
         token::ContextBudget,
         AgentCancellationToken,
@@ -101,40 +104,6 @@ impl CompactMiddleware {
         if let Some(tx) = self.event_tx.lock().unwrap().as_ref() {
             let _ = tx.send(event);
         }
-    }
-
-    /// 提取 re_inject 结果中的文件信息
-    fn extract_file_info(messages: &[BaseMessage]) -> Vec<CompactFileInfo> {
-        let mut files = Vec::new();
-        for msg in messages {
-            let content = msg.content();
-            if let Some(rest) = content.strip_prefix("[最近读取的文件: ") {
-                let path = rest.lines().next().unwrap_or("");
-                let line_count = rest.lines().count().saturating_sub(1);
-                if !path.is_empty() {
-                    files.push(CompactFileInfo {
-                        path: path.to_string(),
-                        lines: line_count,
-                    });
-                }
-            }
-        }
-        files
-    }
-
-    /// 提取 re_inject 结果中的 skill 名称
-    fn extract_skill_names(messages: &[BaseMessage]) -> Vec<String> {
-        let mut skills = Vec::new();
-        for msg in messages {
-            let content = msg.content();
-            if let Some(rest) = content.strip_prefix("[激活的 Skill 指令: ") {
-                let name = rest.lines().next().unwrap_or("");
-                if !name.is_empty() {
-                    skills.push(name.to_string());
-                }
-            }
-        }
-        skills
     }
 
     async fn fire_hooks(&self, event: hooks::types::HookEvent, msg_count: usize) {
@@ -248,8 +217,8 @@ impl CompactMiddleware {
             "CompactMiddleware: re_inject 完成"
         );
 
-        let files = Self::extract_file_info(&re_inject_result.messages);
-        let skills = Self::extract_skill_names(&re_inject_result.messages);
+        let files = extract_file_info(&re_inject_result.messages);
+        let skills = extract_skill_names(&re_inject_result.messages);
 
         // 摘要作为 Human 消息（与 Claude Code 实现对齐）。
         // 原因：LLM 适配器将 System 消息提取到 system 字段，不进入 messages 数组。

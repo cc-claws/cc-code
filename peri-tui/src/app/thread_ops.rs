@@ -1,15 +1,5 @@
 use super::*;
 
-/// 通知分配器将空闲内存页归还给 OS。
-/// 在 `/clear`、`/compact`、切换会话等大块内存释放后调用。
-/// 使用系统默认分配器（macOS malloc / Linux glibc malloc），
-/// 系统分配器自行管理内存归还策略。
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn alloc_collect() {}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn alloc_collect() {}
-
 impl App {
     pub fn scroll_up(&mut self) {
         self.session_mgr.sessions[self.session_mgr.active]
@@ -138,9 +128,6 @@ impl App {
             .agent
             .cancel_token = None;
         self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_rx = None;
-        self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .last_submitted_text = None;
         self.session_mgr.sessions[self.session_mgr.active]
@@ -252,9 +239,6 @@ impl App {
                     .view_messages
                     .clone(),
             ));
-
-        // 切换会话时旧数据已释放，归还内存页给 OS
-        alloc_collect();
     }
 
     pub fn open_thread_with_feedback(&mut self, thread_id: ThreadId) {
@@ -365,9 +349,6 @@ impl App {
             .messages
             .render_tx
             .send(RenderEvent::Clear);
-
-        // 归还已释放内存页给 OS
-        alloc_collect();
     }
 
     /// 打开 thread 浏览面板（通过命令触发）

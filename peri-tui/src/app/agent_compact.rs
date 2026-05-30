@@ -96,9 +96,6 @@ impl App {
             tail_vms: view_msgs,
         });
 
-        // Full compact 释放了大量消息数据，归���内存页给 OS
-        super::thread_ops::alloc_collect();
-
         (true, false, false)
     }
 

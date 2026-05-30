@@ -112,8 +112,6 @@ pub enum McpPoolError {
         server: String,
         status: ClientStatus,
     },
-    #[error("MCP 服务器 \"{server}\" 调用超时")]
-    CallTimeout { server: String },
 }
 
 /// 单个 MCP 服务器的客户端句柄

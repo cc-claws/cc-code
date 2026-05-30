@@ -12,6 +12,7 @@ use peri_agent::{
     tools::BaseTool,
 };
 
+use crate::tool_search::core_tools::TOOL_AGENT;
 use crate::{
     agent_define::{AgentDefineMiddleware, AgentOverrides},
     claude_agent_parser::{parse_agent_file, ClaudeAgent, ToolsValue},
@@ -274,7 +275,7 @@ impl SubAgentTool {
 #[async_trait]
 impl BaseTool for SubAgentTool {
     fn name(&self) -> &str {
-        "Agent"
+        TOOL_AGENT
     }
 
     fn description(&self) -> &str {

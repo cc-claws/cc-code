@@ -15,6 +15,8 @@ use peri_lsp::{
     pool::LspServerPool,
 };
 
+use crate::tool_search::core_tools::{TOOL_EDIT, TOOL_WRITE};
+
 use super::tool::LspTool;
 
 pub struct LspMiddleware {
@@ -58,7 +60,7 @@ impl<S: State> Middleware<S> for LspMiddleware {
         tool_call: &ToolCall,
         _result: &ToolResult,
     ) -> AgentResult<()> {
-        if tool_call.name != "Write" && tool_call.name != "Edit" {
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
             return Ok(());
         }
 

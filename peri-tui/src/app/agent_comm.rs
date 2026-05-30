@@ -24,8 +24,6 @@ pub type BgTaskResult = peri_agent::agent::events::BackgroundTaskResult;
 
 /// Agent 通信状态：事件接收、交互弹窗、取消/计时
 pub struct AgentComm {
-    /// Legacy: AgentEvent receiver (will be replaced by acp_notification_rx in Step 6-e)
-    pub agent_rx: Option<mpsc::Receiver<AgentEvent>>,
     /// ACP notification receiver (new path, replaces agent_rx)
     pub acp_notification_rx: Option<mpsc::UnboundedReceiver<AcpNotification>>,
     /// 当前激活的交互弹窗（HITL 审批或 AskUser 问答，同一时刻只有一种）
@@ -61,8 +59,7 @@ pub struct AgentComm {
     pub tool_call_count: u32,
     /// 后台任务全部完成后的待提交 continuation（结构化结果，用于注入合成 tool_use + tool_result）
     pub pending_bg_continuation: Option<Vec<BgTaskResult>>,
-    /// Agent 已完成（Done/Error）但仍有后台任务在运行，
-    /// 此时 agent_rx 保持存活以接收 BackgroundTaskCompleted 事件
+    /// Agent 已完成（Done/Error）但仍有后台任务在运行
     pub agent_done_pending_bg: bool,
     /// Agent 尚未 Done 但后台任务已完成的通知缓存（显示文本，供 pre-Done 路径使用）
     pub pre_done_bg_completions: Vec<String>,
@@ -92,7 +89,6 @@ pub struct AgentComm {
 impl Default for AgentComm {
     fn default() -> Self {
         Self {
-            agent_rx: None,
             acp_notification_rx: None,
             interaction_prompt: None,
             pending_hitl_items: None,

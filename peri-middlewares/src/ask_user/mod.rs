@@ -1,5 +1,7 @@
 use peri_agent::{agent::react::ToolCall, error::AgentError};
 
+use crate::tool_search::core_tools::TOOL_ASK_USER;
+
 // 从核心库导入 trait 和数据类型
 pub use peri_agent::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
 
@@ -28,12 +30,12 @@ struct AskUserInput {
 
 /// 将一个 ToolCall 解析为 AskUserQuestionData 列表；非 ask_user_question 工具返回空 Vec。
 pub fn parse_ask_user(tool_call: &ToolCall) -> Result<Vec<AskUserQuestionData>, AgentError> {
-    if tool_call.name != "AskUserQuestion" {
+    if tool_call.name != TOOL_ASK_USER {
         return Ok(vec![]);
     }
     let input: AskUserInput = serde_json::from_value(tool_call.input.clone()).map_err(|e| {
         AgentError::ToolExecutionFailed {
-            tool: "AskUserQuestion".to_string(),
+            tool: TOOL_ASK_USER.to_string(),
             reason: format!("参数解析失败: {e}"),
         }
     })?;
@@ -62,7 +64,7 @@ pub fn parse_ask_user(tool_call: &ToolCall) -> Result<Vec<AskUserQuestionData>, 
 /// `ask_user_question` tool definition (aligned with Claude AskUserQuestion)
 pub fn ask_user_tool_definition() -> peri_agent::tools::ToolDefinition {
     peri_agent::tools::ToolDefinition {
-        name: "AskUserQuestion".to_string(),
+        name: TOOL_ASK_USER.to_string(),
         description: "Batch ask users questions with options to get their selection or custom input.\
                       Use when a task requires users to provide details, preferences, or make choices.\
                       One call supports 1-4 questions, all displayed together to the user.\

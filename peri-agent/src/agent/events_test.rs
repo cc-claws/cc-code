@@ -103,15 +103,6 @@ fn test_subagent_stopped_serde_roundtrip() {
 }
 
 #[test]
-fn test_session_ended_serde() {
-    let ev = AgentEvent::SessionEnded;
-    let json = serde_json::to_string(&ev).unwrap();
-    assert!(json.contains(r#""type":"session_ended""#));
-    let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
-    assert!(matches!(deserialized, AgentEvent::SessionEnded));
-}
-
-#[test]
 fn test_compact_started_serde() {
     let ev = AgentEvent::CompactStarted;
     let json = serde_json::to_string(&ev).unwrap();

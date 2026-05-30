@@ -497,11 +497,6 @@ fn assert_filtered(event: &ExecutorEvent, label: &str) {
 }
 
 #[test]
-fn test_step_done_produces_no_output() {
-    assert_filtered(&ExecutorEvent::StepDone { step: 1 }, "StepDone");
-}
-
-#[test]
 fn test_message_added_produces_no_output() {
     assert_filtered(
         &ExecutorEvent::MessageAdded(BaseMessage::human("test message")),
@@ -523,9 +518,4 @@ fn test_llm_call_start_produces_no_output() {
         },
         "LlmCallStart",
     );
-}
-
-#[test]
-fn test_session_ended_produces_no_output() {
-    assert_filtered(&ExecutorEvent::SessionEnded, "SessionEnded");
 }

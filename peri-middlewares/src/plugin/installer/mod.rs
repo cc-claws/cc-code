@@ -19,12 +19,6 @@ pub use uninstall::{check_updates, cleanup_orphaned_plugins, uninstall_plugin};
 pub enum InstallerError {
     #[error("插件未找到: {name} (marketplace: {marketplace})")]
     PluginNotFound { name: String, marketplace: String },
-    #[error("插件清单解析失败: {path}")]
-    ManifestInvalid {
-        path: PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
     #[error("复制失败: {src} -> {dst}")]
     CopyFailed {
         src: PathBuf,

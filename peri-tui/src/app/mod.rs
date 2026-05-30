@@ -101,7 +101,6 @@ pub use edit_utils::{build_textarea, edit_display_parts, ensure_cursor_visible, 
 use crate::acp_client::{AcpNotification, AcpTuiClient};
 use peri_agent::messages::BaseMessage;
 use peri_middlewares::prelude::HitlDecision;
-use tokio::sync::mpsc;
 
 use crate::{
     config::PeriConfig,
@@ -461,9 +460,6 @@ impl App {
         {
             tracing::warn!("interrupt: 无 cancel_token 但 loading=true，强制清理");
             self.set_loading(false);
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .interaction_prompt = None;

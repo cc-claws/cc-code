@@ -18,8 +18,6 @@ pub mod command;
 pub mod config;
 pub mod event;
 pub mod i18n;
-pub mod langfuse; // temporary bridge re-export from peri-acp
-pub mod prompt;
 pub mod sync;
 pub mod thread;
 pub mod ui;

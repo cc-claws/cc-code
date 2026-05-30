@@ -338,9 +338,6 @@ impl App {
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_done_pending_bg = false;
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
             // 使用结构化结果（而非显示文本）驱动 continuation
             let all_results: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
                 .agent

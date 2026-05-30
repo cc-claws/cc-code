@@ -13,6 +13,21 @@ pub const EXTRA_TOOL_NAME_FIELD: &str = "tool_name";
 /// ExecuteExtraTool 输入字段名：目标工具参数
 pub const EXTRA_TOOL_PARAMS_FIELD: &str = "params";
 
+// ─── Core tool name constants ──────────────────────────────────────────────
+
+pub const TOOL_BASH: &str = "Bash";
+pub const TOOL_WRITE: &str = "Write";
+pub const TOOL_EDIT: &str = "Edit";
+pub const TOOL_READ: &str = "Read";
+pub const TOOL_GLOB: &str = "Glob";
+pub const TOOL_GREP: &str = "Grep";
+pub const TOOL_FOLDER_OPS: &str = "folder_operations";
+pub const TOOL_AGENT: &str = "Agent";
+pub const TOOL_WEBFETCH: &str = "WebFetch";
+pub const TOOL_WEBSEARCH: &str = "WebSearch";
+pub const TOOL_ASK_USER: &str = "AskUserQuestion";
+pub const TOOL_TODO: &str = "TodoWrite";
+
 /// 核心工具白名单（始终发送给 LLM，共 12 个）
 ///
 /// - 文件操作 (6): Read, Write, Edit, Glob, Grep, folder_operations
@@ -23,22 +38,22 @@ pub const EXTRA_TOOL_PARAMS_FIELD: &str = "params";
 pub static CORE_TOOLS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         // 文件操作
-        "Read",
-        "Write",
-        "Edit",
-        "Glob",
-        "Grep",
-        "folder_operations",
+        TOOL_READ,
+        TOOL_WRITE,
+        TOOL_EDIT,
+        TOOL_GLOB,
+        TOOL_GREP,
+        TOOL_FOLDER_OPS,
         // 执行
-        "Bash",
+        TOOL_BASH,
         // Web
-        "WebFetch",
-        "WebSearch",
+        TOOL_WEBFETCH,
+        TOOL_WEBSEARCH,
         // 交互
-        "Agent",
-        "AskUserQuestion",
+        TOOL_AGENT,
+        TOOL_ASK_USER,
         // 管理
-        "TodoWrite",
+        TOOL_TODO,
     ]
     .into_iter()
     .collect()

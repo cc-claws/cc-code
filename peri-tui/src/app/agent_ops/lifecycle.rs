@@ -134,9 +134,6 @@ impl App {
                 .agent
                 .pre_done_bg_completions
                 .clear();
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
         }
         self.cleanup_agent_state(None);
         // 检查缓冲消息，合并发送
@@ -364,9 +361,6 @@ impl App {
                 .agent
                 .pre_done_bg_completions
                 .clear();
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
         }
         let err_label = format!("ERROR: {}", error_msg);
         self.cleanup_agent_state(Some(&err_label));

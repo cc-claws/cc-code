@@ -98,8 +98,6 @@ pub enum PluginConfigError {
         #[source]
         source: std::io::Error,
     },
-    #[error("插件清单缺少必需字段: {field}")]
-    MissingField { field: String },
 }
 
 /// 返回 `~/.claude/` 根目录，不存在时返回 fallback（当前目录）

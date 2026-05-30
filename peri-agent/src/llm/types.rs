@@ -134,15 +134,6 @@ impl StopReason {
             other => Self::Other(other.to_string()),
         }
     }
-
-    pub fn from_anthropic(s: &str) -> Self {
-        match s {
-            "end_turn" => Self::EndTurn,
-            "tool_use" => Self::ToolUse,
-            "max_tokens" => Self::MaxTokens,
-            other => Self::Other(other.to_string()),
-        }
-    }
 }
 
 #[cfg(test)]

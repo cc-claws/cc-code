@@ -2318,7 +2318,6 @@ dependencies = [
  "temp-env",
  "thiserror 2.0.18",
  "tokio",
- "tokio-test",
  "tracing",
 ]
 
@@ -2419,15 +2418,6 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
-
-[[package]]
-name = "lru"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
-dependencies = [
- "hashbrown 0.15.5",
-]
 
 [[package]]
 name = "lru"
@@ -2946,7 +2936,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tokio-test",
  "tokio-util",
  "tracing",
  "uuid",
@@ -2970,7 +2959,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-test",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
@@ -2989,7 +2977,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-test",
  "tracing",
 ]
 
@@ -3025,7 +3012,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-test",
  "tracing",
  "url",
  "uuid",
@@ -3066,7 +3052,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
@@ -3082,7 +3068,7 @@ dependencies = [
 name = "peri-widgets"
 version = "0.1.0"
 dependencies = [
- "lru 0.12.5",
+ "lru 0.18.0",
  "once_cell",
  "pulldown-cmark",
  "rand 0.10.1",
@@ -3728,7 +3714,6 @@ checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
 dependencies = [
  "base64",
  "bytes",
- "futures-channel",
  "futures-core",
  "futures-util",
  "http",
@@ -5002,17 +4987,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6d24790a10a7af737693a3e8f1d03faef7e6ca0cc99aae5066f533766de545"
-dependencies = [
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
