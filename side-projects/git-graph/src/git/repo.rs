@@ -137,6 +137,29 @@ impl GitRepo {
         Ok(target)
     }
 
+    /// 获取当前分支名，如果处于 detached HEAD 则返回 None
+    pub fn head_branch(&self) -> Option<String> {
+        let head = self.repo.head().ok()?;
+        if head.is_branch() {
+            head.shorthand().map(|s| s.to_string())
+        } else {
+            None
+        }
+    }
+
+    /// 当前分支是否有 upstream 跟踪
+    pub fn has_upstream(&self) -> bool {
+        if let Some(branch_name) = self.head_branch() {
+            if let Ok(branch) = self.repo.find_branch(&branch_name, git2::BranchType::Local) {
+                branch.upstream().is_ok()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn branch_map(&self) -> Result<HashMap<Oid, Vec<String>>> {
         let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
         for branch in self.repo.branches(Some(git2::BranchType::Local))? {

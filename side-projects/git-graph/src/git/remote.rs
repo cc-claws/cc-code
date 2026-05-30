@@ -5,7 +5,9 @@ use std::process::Command;
 pub enum RemoteOp {
     Fetch,
     Pull,
+    PullRebase,
     Push,
+    PushSetUpstream, // push -u origin <branch>
 }
 
 #[derive(Debug, Clone)]
@@ -16,15 +18,20 @@ pub struct RemoteResult {
     pub message: String,
 }
 
-/// Execute a remote git operation in a background thread (fire-and-forget for MVP)
-pub fn spawn_remote_op(workdir: PathBuf, op: RemoteOp) -> std::thread::JoinHandle<RemoteResult> {
+/// Execute a remote git operation in a background thread
+pub fn spawn_remote_op(workdir: PathBuf, op: RemoteOp, branch: Option<String>) -> std::thread::JoinHandle<RemoteResult> {
     std::thread::spawn(move || {
-        let args: &[&str] = match op {
-            RemoteOp::Fetch => &["fetch"],
-            RemoteOp::Pull => &["pull"],
-            RemoteOp::Push => &["push"],
+        let args: Vec<String> = match op {
+            RemoteOp::Fetch => vec!["fetch".to_string()],
+            RemoteOp::Pull => vec!["pull".to_string()],
+            RemoteOp::PullRebase => vec!["pull".to_string(), "--rebase".to_string()],
+            RemoteOp::Push => vec!["push".to_string()],
+            RemoteOp::PushSetUpstream => {
+                let b = branch.unwrap_or_default();
+                vec!["push".to_string(), "-u".to_string(), "origin".to_string(), b]
+            }
         };
-        let output = Command::new("git").args(args).current_dir(&workdir).output();
+        let output = Command::new("git").args(&args).current_dir(&workdir).output();
         match output {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -58,7 +65,9 @@ impl std::fmt::Display for RemoteOp {
         match self {
             RemoteOp::Fetch => write!(f, "fetch"),
             RemoteOp::Pull => write!(f, "pull"),
+            RemoteOp::PullRebase => write!(f, "pull --rebase"),
             RemoteOp::Push => write!(f, "push"),
+            RemoteOp::PushSetUpstream => write!(f, "push -u"),
         }
     }
 }
