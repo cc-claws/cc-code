@@ -154,7 +154,7 @@ impl App {
         let tid = thread_id.clone();
         let base_msgs = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
-                .block_on(store.load_messages(&tid))
+                .block_on(store.load_context(&tid))
                 .unwrap_or_default()
         });
         self.session_mgr.sessions[self.session_mgr.active]
