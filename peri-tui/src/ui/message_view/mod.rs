@@ -7,8 +7,6 @@ use ratatui::{
     text::{Line, Text},
 };
 
-use super::markdown::parse_markdown_default;
-
 mod aggregate;
 mod tools;
 mod utils;
@@ -441,10 +439,9 @@ impl MessageViewModel {
         match msg {
             BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
-                let rendered = parse_markdown_default(&raw);
                 MessageViewModel::UserBubble {
                     content: raw,
-                    rendered,
+                    rendered: Text::raw(""),
                 }
             }
             BaseMessage::Ai {
@@ -457,17 +454,13 @@ impl MessageViewModel {
                     .content_blocks()
                     .into_iter()
                     .map(|block| match block {
-                        ContentBlock::Text { text } => {
-                            let rendered = parse_markdown_default(&text);
-                            let rendered_prefix_lines = rendered.lines.len();
-                            ContentBlockView::Text {
-                                raw: text.clone(),
-                                rendered,
-                                dirty: false,
-                                rendered_prefix_len: text.len(),
-                                rendered_prefix_lines,
-                            }
-                        }
+                        ContentBlock::Text { text } => ContentBlockView::Text {
+                            raw: text.clone(),
+                            rendered: Text::raw(""),
+                            dirty: true,
+                            rendered_prefix_len: 0,
+                            rendered_prefix_lines: 0,
+                        },
                         ContentBlock::Reasoning { text, .. } => ContentBlockView::Reasoning {
                             char_count: text.chars().count(),
                             text: text.clone(),
@@ -679,8 +672,10 @@ impl MessageViewModel {
 
     /// 创建用户消息
     pub fn user(content: String) -> Self {
-        let rendered = parse_markdown_default(&content);
-        MessageViewModel::UserBubble { content, rendered }
+        MessageViewModel::UserBubble {
+            content,
+            rendered: Text::raw(""),
+        }
     }
 
     /// 创建助手消息
