@@ -100,6 +100,8 @@ impl ClientHandler for ChannelHandler {
         )
     }
 
+    // rmcp trait 要求返回 impl Future，无法改为 async fn
+    #[allow(clippy::manual_async_fn)]
     fn on_custom_notification(
         &self,
         notification: CustomNotification,

@@ -102,6 +102,7 @@ fn make_command_context(sink: Arc<dyn crate::session::event_sink::EventSink>) ->
         compact_model: None,
         event_sink: sink,
         args: String::new(),
+        cancel_token: peri_agent::agent::AgentCancellationToken::new(),
     }
 }
 
@@ -314,6 +315,7 @@ async fn test_clear_command_ignores_existing_history() {
         compact_model: None,
         event_sink: sink.clone(),
         args: String::new(),
+        cancel_token: peri_agent::agent::AgentCancellationToken::new(),
     };
     let cmd = ClearCommand;
 

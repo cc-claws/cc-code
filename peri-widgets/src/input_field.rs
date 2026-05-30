@@ -1,4 +1,10 @@
-use ratatui::{layout::Rect, prelude::*, style::Style, text::Line, widgets::StatefulWidget};
+use ratatui::{
+    layout::Rect,
+    prelude::*,
+    style::Style,
+    text::Line,
+    widgets::{StatefulWidget, StatefulWidgetRef},
+};
 
 /// 文本输入状态——管理 buffer + cursor（UTF-8 字节偏移）+ masked 标志
 #[derive(Debug, Clone)]
@@ -220,12 +226,20 @@ impl<'a> InputField<'a> {
     }
 }
 
+impl StatefulWidgetRef for InputField<'_> {
+    type State = InputState;
+
+    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let line = self.to_line(state);
+        line.render(area, buf);
+    }
+}
+
 impl StatefulWidget for InputField<'_> {
     type State = InputState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let line = self.to_line(state);
-        Widget::render(line, area, buf);
+        self.render_ref(area, buf, state);
     }
 }
 

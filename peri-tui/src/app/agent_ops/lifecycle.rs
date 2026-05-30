@@ -85,13 +85,15 @@ impl App {
                 self.request_rebuild();
             }
         } else {
-            if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .view_messages
-                    .last_mut()
+            if let Some(vm) = self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .view_messages
+                .last_mut()
             {
-                *is_streaming = false;
+                if let MessageViewModel::AssistantBubble { is_streaming, .. } = vm {
+                    *is_streaming = false;
+                }
+                vm.recompute_hash();
             }
             self.render_rebuild();
         }
@@ -134,9 +136,6 @@ impl App {
                 .agent
                 .pre_done_bg_completions
                 .clear();
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
         }
         self.cleanup_agent_state(None);
         // 检查缓冲消息，合并发送
@@ -326,6 +325,7 @@ impl App {
         {
             *content = error_msg.to_string();
             *collapsed = false;
+            vm.recompute_hash();
         }
         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖错误消息
@@ -364,9 +364,6 @@ impl App {
                 .agent
                 .pre_done_bg_completions
                 .clear();
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
         }
         let err_label = format!("ERROR: {}", error_msg);
         self.cleanup_agent_state(Some(&err_label));

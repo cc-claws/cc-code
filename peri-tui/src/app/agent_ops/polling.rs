@@ -1,9 +1,7 @@
 //! Agent polling functions — poll_agent, poll_background_events, poll_cron_triggers.
 //! Extracted from original agent_ops.rs (2026-05-20 split).
 
-use super::super::*;
-
-use crate::app::{message_pipeline::PipelineAction, App};
+use crate::app::App;
 
 impl App {
     pub fn poll_agent(&mut self) -> bool {
@@ -50,12 +48,8 @@ impl App {
             .agent
             .acp_notification_rx
             .is_some();
-        let has_legacy_rx = self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_rx
-            .is_some();
 
-        if !has_acp && !has_legacy_rx {
+        if !has_acp {
             return false;
         }
 
@@ -96,95 +90,7 @@ impl App {
                 }
                 continue;
             }
-            // channel empty or not available, fall through to legacy
-
-            // Try legacy agent_rx channel (backward compat)
-            let result = self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx
-                .as_mut()
-                .map(|rx| rx.try_recv());
-            match result {
-                Some(Ok(event)) => {
-                    let (ev_updated, should_break, should_return) = self.handle_agent_event(event);
-                    if ev_updated {
-                        updated = true;
-                    }
-                    if should_return {
-                        return true;
-                    }
-                    if should_break {
-                        break;
-                    }
-                }
-                Some(Err(mpsc::error::TryRecvError::Empty)) | None => break,
-                Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
-                    // 清理 pipeline 状态（残留 SubAgent 栈等）
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .messages
-                        .pipeline
-                        .done();
-                    // 重置 subagent_depth，防止残留计数过滤后续 TokenUsageUpdate
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .subagent_depth = 0;
-
-                    // 后台任务场景：spawn closure 结束后丢弃最后一个 sender 导致通道关闭。
-                    // 如果有后台任务，说明 BackgroundTaskCompleted 已处理或通道竞态关闭，
-                    // 不应显示 "连接异常断开" 错误。静默清理并结束 loading 状态。
-                    if self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .agent_done_pending_bg
-                        || !self.session_mgr.sessions[self.session_mgr.active]
-                            .background_agents
-                            .is_empty()
-                    {
-                        tracing::info!(
-                            agent_done = self.session_mgr.sessions[self.session_mgr.active]
-                                .agent
-                                .agent_done_pending_bg,
-                            bg_count = self.session_mgr.sessions[self.session_mgr.active]
-                                .background_agents
-                                .len(),
-                            "channel disconnected during background task flow, suppressing error"
-                        );
-                        self.session_mgr.sessions[self.session_mgr.active]
-                            .agent
-                            .agent_done_pending_bg = false;
-                        self.session_mgr.sessions[self.session_mgr.active]
-                            .background_agents
-                            .clear();
-                        self.session_mgr.sessions[self.session_mgr.active]
-                            .agent
-                            .pre_done_bg_completions
-                            .clear();
-                        self.session_mgr.sessions[self.session_mgr.active]
-                            .agent
-                            .pre_done_bg_results
-                            .clear();
-                        self.session_mgr.sessions[self.session_mgr.active]
-                            .agent
-                            .agent_rx = None;
-                        self.cleanup_agent_state(None);
-                        return true;
-                    }
-
-                    let vm = MessageViewModel::tool_block(
-                        "error".to_string(),
-                        "agent-error".to_string(),
-                        Some(self.services.lc.tr("app-agent-disconnected")),
-                        true,
-                    );
-                    self.apply_pipeline_action(PipelineAction::AddMessage(vm));
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .agent_rx = None;
-                    self.cleanup_agent_state(Some(
-                        "ERROR: agent channel disconnected unexpectedly",
-                    ));
-                    return true;
-                }
-            }
+            break;
         }
 
         // 当 loading=true 时（如 compact 中），即使没有新事件也返回 true，
@@ -321,5 +227,3 @@ impl App {
         }
     }
 }
-
-// #[cfg(test)] block moved to mod.rs

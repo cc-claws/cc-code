@@ -484,7 +484,7 @@ async fn handle_anthropic_response(
     );
 
     let stop_reason =
-        StopReason::from_anthropic(resp_json["stop_reason"].as_str().unwrap_or("end_turn"));
+        StopReason::from_display(resp_json["stop_reason"].as_str().unwrap_or("end_turn"));
 
     let raw_blocks = resp_json["content"]
         .as_array()

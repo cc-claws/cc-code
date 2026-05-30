@@ -50,10 +50,6 @@ impl DiagnosticSummary {
     pub fn total(&self) -> usize {
         self.errors + self.warnings + self.info + self.hints
     }
-
-    pub fn has_issues(&self) -> bool {
-        self.total() > 0
-    }
 }
 
 const MAX_DIAGNOSTICS_PER_FILE: usize = 10;
@@ -206,12 +202,6 @@ impl DiagnosticsRegistry {
             }
         }
         summary
-    }
-
-    /// 清除指定文件的诊断
-    pub fn clear_for_file(&self, uri: &str) {
-        self.current.write().remove(uri);
-        self.delivered.lock().pop(uri);
     }
 
     /// 清除所有诊断

@@ -1,8 +1,5 @@
     #[test]
     fn test_oauth_flow_error_display() {
-        let err = OAuthFlowError::FlowFailed("test".to_string());
-        assert!(err.to_string().contains("OAuth 流程失败"));
-
         let err = OAuthFlowError::Cancelled;
         assert!(err.to_string().contains("取消"));
     }

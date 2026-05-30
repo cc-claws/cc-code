@@ -5,7 +5,7 @@ edition.workspace = true
 description = "Reusable ratatui widget library for Peri"
 
 [dependencies]
-ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info"] }
+ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
 pulldown-cmark = { version = "0.13", optional = true }
 syntect = { version = "5", default-features = false, features = [
     "default-fancy",
@@ -15,6 +15,7 @@ unicode-width = "0.2"
 rand = "0.10"
 similar = "2"
 lru = "0.12"
+parking_lot.workspace = true
 
 [features]
 default = []

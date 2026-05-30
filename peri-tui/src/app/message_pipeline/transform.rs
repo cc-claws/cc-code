@@ -27,12 +27,15 @@ impl MessagePipeline {
         if !self.current_ai_text.trim().is_empty() {
             let rendered = parse_markdown_default(&self.current_ai_text);
             let rendered_prefix_lines = rendered.lines.len();
+            let mut scanner = crate::ui::markdown::TableHoldbackScanner::new();
+            scanner.set_streaming(true);
             blocks.push(ContentBlockView::Text {
                 raw: self.current_ai_text.clone(),
                 rendered,
                 dirty: false,
                 rendered_prefix_len: self.current_ai_text.len(),
                 rendered_prefix_lines,
+                holdback_scanner: scanner,
             });
         }
         for tc in &self.current_ai_tool_calls {
@@ -42,11 +45,14 @@ impl MessagePipeline {
                 });
             }
         }
-        MessageViewModel::AssistantBubble {
+        let mut vm = MessageViewModel::AssistantBubble {
             blocks,
             is_streaming: true,
             collapsed: false,
-        }
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 
     /// 从规范 BaseMessage[] 构建完整的 MessageViewModel[]。
@@ -123,7 +129,7 @@ impl MessagePipeline {
     ) -> MessageViewModel {
         let display_name = tool_display::format_tool_name(name);
         let args_display = tool_display::format_tool_args(name, input, Some(&self.cwd));
-        MessageViewModel::ToolBlock {
+        let mut vm = MessageViewModel::ToolBlock {
             tool_name: name.to_string(),
             tool_call_id: tool_call_id.to_string(),
             display_name,
@@ -133,6 +139,9 @@ impl MessagePipeline {
             collapsed: true,
             color: tool_color(name),
             diff_lines: None,
-        }
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }
 }

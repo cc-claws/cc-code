@@ -5,7 +5,7 @@
 //!   LlmCallEnd(usage) → `updates` only, `forward_to_tui: false`
 //! - **Category ③** (TUI-only): StateSnapshot, Subagent*, Compact*, ContextWarning, LlmRetrying, etc.
 //!   → `forward_to_tui: true` only
-//! - **Filtered**: StepDone, MessageAdded, LlmCallStart, SessionEnded, LlmCallEnd(usage:None)
+//! - **Filtered**: MessageAdded, LlmCallStart, LlmCallEnd(usage:None)
 //!   → empty
 
 use agent_client_protocol::schema::{
@@ -219,10 +219,8 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
         }
 
         // ── Filtered: no output ───────────────────────────────────────────────────
-        ExecutorEvent::StepDone { .. }
-        | ExecutorEvent::MessageAdded(_)
+        ExecutorEvent::MessageAdded(_)
         | ExecutorEvent::LlmCallStart { .. }
-        | ExecutorEvent::SessionEnded
         | ExecutorEvent::LlmCallEnd { usage: None, .. } => {
             vec![MappedEvent::none()]
         }

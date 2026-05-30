@@ -22,8 +22,6 @@ pub struct OAuthCallbackResult {
 /// OAuth 流程编排错误
 #[derive(Debug, Error)]
 pub enum OAuthFlowError {
-    #[error("OAuth 流程失败: {0}")]
-    FlowFailed(String),
     #[error("OAuth 回调服务器错误: {0}")]
     CallbackError(#[from] CallbackError),
     #[error("OAuth 授权错误: {0}")]

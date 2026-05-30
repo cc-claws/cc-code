@@ -4,8 +4,8 @@ use crate::{
     jsonrpc::{transport::MessageDispatcher, JsonRpcNotification, JsonRpcRequest},
     protocol::{
         notifications::{
-            did_change_notification, did_close_notification, did_open_notification,
-            did_save_notification, parse_publish_diagnostics,
+            did_change_notification, did_open_notification, did_save_notification,
+            parse_publish_diagnostics,
         },
         requests::initialize_params,
     },
@@ -331,19 +331,6 @@ impl LspClient {
     /// 文件同步: didSave
     pub async fn did_save(&self, uri: &str) -> Result<(), LspError> {
         let notif = did_save_notification(uri, None);
-        let mut guard = self.dispatcher.lock().await;
-        match guard.as_mut() {
-            Some(d) => d.send_notification(&notif).await,
-            None => Err(LspError::NotReady {
-                server: self.name.clone(),
-            }),
-        }
-    }
-
-    /// 文件同步: didClose
-    pub async fn did_close(&self, uri: &str) -> Result<(), LspError> {
-        self.open_files.write().remove(uri);
-        let notif = did_close_notification(uri);
         let mut guard = self.dispatcher.lock().await;
         match guard.as_mut() {
             Some(d) => d.send_notification(&notif).await,

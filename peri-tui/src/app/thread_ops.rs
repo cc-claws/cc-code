@@ -1,36 +1,6 @@
 use super::*;
 
-/// 通知分配器将空闲内存页归还给 OS。
-/// 在 `/clear`、`/compact`、切换会话等大块内存释放后调用。
-/// 使用系统默认分配器（macOS malloc / Linux glibc malloc），
-/// 系统分配器自行管理内存归还策略。
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn alloc_collect() {}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn alloc_collect() {}
-
 impl App {
-    /// 获取或新建当前 thread id（同步，block_in_place）
-    #[allow(dead_code)]
-    pub(super) fn ensure_thread_id(&mut self) -> ThreadId {
-        if let Some(id) = &self.session_mgr.sessions[self.session_mgr.active].current_thread_id {
-            return id.clone();
-        }
-        let meta = ThreadMeta::new(&self.services.cwd);
-        let store = self.services.thread_store.clone();
-        let id = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(store.create_thread(meta))
-                .unwrap_or_else(|e| {
-                    tracing::warn!(error = %e, "创建 thread 失败，使用临时 ID（消息将无法持久化）");
-                    uuid::Uuid::now_v7().to_string()
-                })
-        });
-        self.session_mgr.sessions[self.session_mgr.active].current_thread_id = Some(id.clone());
-        id
-    }
-
     pub fn scroll_up(&mut self) {
         self.session_mgr.sessions[self.session_mgr.active]
             .ui
@@ -85,7 +55,7 @@ impl App {
         let _ = self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .render_tx
-            .send(RenderEvent::ToggleToolMessages(
+            .try_send(RenderEvent::ToggleToolMessages(
                 self.session_mgr.sessions[self.session_mgr.active]
                     .ui
                     .show_tool_messages,
@@ -102,7 +72,7 @@ impl App {
         let _ = self.session_mgr.sessions[active]
             .messages
             .render_tx
-            .send(RenderEvent::ToggleDiff(new_visible));
+            .try_send(RenderEvent::ToggleDiff(new_visible));
     }
 
     /// 添加一个图片附件到待发送列表
@@ -158,9 +128,6 @@ impl App {
             .agent
             .cancel_token = None;
         self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_rx = None;
-        self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .last_submitted_text = None;
         self.session_mgr.sessions[self.session_mgr.active]
@@ -174,7 +141,7 @@ impl App {
         let tid = thread_id.clone();
         let base_msgs = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
-                .block_on(store.load_messages(&tid))
+                .block_on(store.load_context(&tid))
                 .unwrap_or_default()
         });
         self.session_mgr.sessions[self.session_mgr.active]
@@ -242,6 +209,8 @@ impl App {
             .clear();
 
         self.reset_agent_session();
+        // 回收释放的内存给 OS
+        crate::mimalloc_config::alloc_collect();
 
         // 恢复 sticky header：找到 thread 中最后一条 Human 消息
         self.session_mgr.sessions[self.session_mgr.active]
@@ -266,15 +235,12 @@ impl App {
         let _ = self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .render_tx
-            .send(RenderEvent::Rebuild(
+            .try_send(RenderEvent::Rebuild(
                 self.session_mgr.sessions[self.session_mgr.active]
                     .messages
                     .view_messages
                     .clone(),
             ));
-
-        // 切换会话时旧数据已释放，归还内存页给 OS
-        alloc_collect();
     }
 
     pub fn open_thread_with_feedback(&mut self, thread_id: ThreadId) {
@@ -380,14 +346,16 @@ impl App {
                 })
             });
         }
+        // 回收释放的内存给 OS
+        crate::mimalloc_config::alloc_collect();
 
         let _ = self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .render_tx
-            .send(RenderEvent::Clear);
+            .try_send(RenderEvent::Clear);
 
         // 归还已释放内存页给 OS
-        alloc_collect();
+        crate::mimalloc_config::alloc_collect();
     }
 
     /// 打开 thread 浏览面板（通过命令触发）
@@ -418,6 +386,6 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::thread::ThreadMeta;
     include!("thread_ops_test.rs");
 }

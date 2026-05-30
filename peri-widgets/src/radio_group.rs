@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::StatefulWidget,
+    widgets::{StatefulWidget, StatefulWidgetRef},
 };
 
 /// 单选按钮组选项
@@ -99,10 +99,10 @@ impl<'a> RadioGroup<'a> {
     }
 }
 
-impl StatefulWidget for RadioGroup<'_> {
+impl StatefulWidgetRef for RadioGroup<'_> {
     type State = RadioState;
 
-    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
+    fn render_ref(&self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
         if self.options.is_empty() {
             return;
         }
@@ -135,6 +135,14 @@ impl StatefulWidget for RadioGroup<'_> {
                 let _ = buf.set_line(area.x, area.y + i as u16, line, area.width);
             }
         }
+    }
+}
+
+impl StatefulWidget for RadioGroup<'_> {
+    type State = RadioState;
+
+    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
+        self.render_ref(area, buf, state);
     }
 }
 

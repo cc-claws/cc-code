@@ -24,27 +24,27 @@ fn test_from_openai_unknown() {
 }
 
 #[test]
-fn test_from_anthropic_end_turn() {
-    assert_eq!(StopReason::from_anthropic("end_turn"), StopReason::EndTurn);
+fn test_from_display_end_turn() {
+    assert_eq!(StopReason::from_display("end_turn"), StopReason::EndTurn);
 }
 
 #[test]
-fn test_from_anthropic_tool_use() {
-    assert_eq!(StopReason::from_anthropic("tool_use"), StopReason::ToolUse);
+fn test_from_display_tool_use() {
+    assert_eq!(StopReason::from_display("tool_use"), StopReason::ToolUse);
 }
 
 #[test]
-fn test_from_anthropic_max_tokens() {
+fn test_from_display_max_tokens() {
     assert_eq!(
-        StopReason::from_anthropic("max_tokens"),
+        StopReason::from_display("max_tokens"),
         StopReason::MaxTokens
     );
 }
 
 #[test]
-fn test_from_anthropic_unknown() {
+fn test_from_display_unknown() {
     assert!(matches!(
-        StopReason::from_anthropic("pause_turn"),
+        StopReason::from_display("pause_turn"),
         StopReason::Other(_)
     ));
 }

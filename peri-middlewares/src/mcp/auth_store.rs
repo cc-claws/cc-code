@@ -26,8 +26,6 @@ pub enum AuthStoreError {
     WriteFailed { path: PathBuf, detail: String },
     #[error("Token 文件格式无效: {reason}")]
     InvalidFormat { reason: String },
-    #[error("服务器 \"{server}\" 的 Token 未找到")]
-    NotFound { server: String },
 }
 
 pub struct FileCredentialStore {

@@ -51,16 +51,6 @@ pub fn did_save_notification(uri: &str, text: Option<&str>) -> JsonRpcNotificati
     JsonRpcNotification::new("textDocument/didSave", Some(params))
 }
 
-/// 构建 textDocument/didClose 通知
-pub fn did_close_notification(uri: &str) -> JsonRpcNotification {
-    JsonRpcNotification::new(
-        "textDocument/didClose",
-        Some(serde_json::json!({
-            "textDocument": { "uri": uri }
-        })),
-    )
-}
-
 /// 构建 initialized 通知
 pub fn initialized_notification() -> JsonRpcNotification {
     JsonRpcNotification::new("initialized", Some(Value::Object(Default::default())))

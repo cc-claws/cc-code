@@ -497,7 +497,7 @@ pub fn render_view_model(
 
             lines
         }
-        MessageViewModel::SystemNote { content } => {
+        MessageViewModel::SystemNote { content, .. } => {
             let mut lines = Vec::new();
             for line in content.lines() {
                 if line.starts_with('✻') {
@@ -529,7 +529,7 @@ pub fn render_view_model(
             }
             lines
         }
-        MessageViewModel::CacheWarning { content } => {
+        MessageViewModel::CacheWarning { content, .. } => {
             vec![Line::from(Span::styled(
                 content.clone(),
                 Style::default().fg(theme::WARNING),

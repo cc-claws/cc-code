@@ -13,6 +13,8 @@ use peri_agent::{
     middleware::r#trait::Middleware,
 };
 
+use crate::tool_search::core_tools::TOOL_READ;
+
 /// AtMentionMiddleware — 解析用户消息中的 @path 提及，注入 Read 工具调用结果
 ///
 /// 在 `before_agent` 时从最后一条 Human 消息中提取 @ 提及，
@@ -104,7 +106,7 @@ impl<S: State> Middleware<S> for AtMentionMiddleware {
                 if let Some(offset) = mention.line_start {
                     input["offset"] = serde_json::json!(offset);
                 }
-                ContentBlock::tool_use(id.clone(), "Read", input)
+                ContentBlock::tool_use(id.clone(), TOOL_READ, input)
             })
             .collect();
 

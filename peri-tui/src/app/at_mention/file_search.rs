@@ -116,31 +116,6 @@ pub fn search_files(cwd: &str, query: &str) -> Vec<FileCandidate> {
         .collect()
 }
 
-/// 计算所有候选路径的公共前缀（用于 Tab 补全）
-#[allow(dead_code)]
-pub fn find_common_prefix(candidates: &[FileCandidate]) -> Option<String> {
-    if candidates.is_empty() {
-        return None;
-    }
-    let first = &candidates[0].path;
-    let mut end = first.len();
-    for cand in &candidates[1..] {
-        let common: String = first
-            .chars()
-            .zip(cand.path.chars())
-            .take_while(|(a, b)| a == b)
-            .map(|(a, _)| a)
-            .collect();
-        if common.len() < end {
-            end = common.len();
-        }
-    }
-    if end == 0 {
-        return None;
-    }
-    Some(first.chars().take(end).collect())
-}
-
 /// 从已有候选列表中过滤匹配 query 的结果（纯内存操作，无 IO）
 /// 用于 query 变长时从缓存过滤，避免重新 glob
 pub fn filter_candidates(candidates: &[FileCandidate], query: &str) -> Vec<FileCandidate> {
@@ -235,29 +210,5 @@ mod tests {
 
         let results = search_files(&base.to_string_lossy(), "visible");
         assert!(results.iter().all(|r| !r.path.contains("target")));
-    }
-
-    #[test]
-    fn test_find_common_prefix_basic() {
-        let candidates = vec![
-            FileCandidate {
-                path: "src/main.rs".into(),
-                display: "src/main.rs".into(),
-                is_dir: false,
-                score: 0,
-            },
-            FileCandidate {
-                path: "src/lib.rs".into(),
-                display: "src/lib.rs".into(),
-                is_dir: false,
-                score: 0,
-            },
-        ];
-        assert_eq!(find_common_prefix(&candidates), Some("src/".to_string()));
-    }
-
-    #[test]
-    fn test_find_common_prefix_empty() {
-        assert_eq!(find_common_prefix(&[]), None);
     }
 }

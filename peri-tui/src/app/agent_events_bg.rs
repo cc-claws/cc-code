@@ -189,6 +189,7 @@ impl App {
                         *final_result = Some(output.clone());
                         *is_error = !success;
                         *total_steps = tool_calls_count;
+                        vm.recompute_hash();
                         found_and_updated = true;
                         break;
                     }
@@ -223,18 +224,20 @@ impl App {
                 }
             }
             if let Some(idx) = best_idx {
+                let vm = &mut session.messages.view_messages[idx];
                 if let MessageViewModel::SubAgentGroup {
                     is_running,
                     total_steps,
                     final_result,
                     is_error,
                     ..
-                } = &mut session.messages.view_messages[idx]
+                } = vm
                 {
                     *is_running = false;
                     *final_result = Some(output.clone());
                     *is_error = !success;
                     *total_steps = tool_calls_count;
+                    vm.recompute_hash();
                     found_and_updated = true;
                 }
             }
@@ -268,6 +271,7 @@ impl App {
                 MessageViewModel::tool_block(display_name.clone(), header_info, None, !success);
             if let MessageViewModel::ToolBlock { collapsed, .. } = &mut vm {
                 *collapsed = true; // 始终折叠，摘要已在 header 中
+                vm.recompute_hash();
             }
             self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         }
@@ -338,9 +342,6 @@ impl App {
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_done_pending_bg = false;
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
             // 使用结构化结果（而非显示文本）驱动 continuation
             let all_results: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
                 .agent

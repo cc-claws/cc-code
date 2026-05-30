@@ -32,6 +32,8 @@ use peri_agent::{
     middleware::Middleware,
 };
 
+use crate::tool_search::core_tools::{TOOL_EDIT, TOOL_WRITE};
+
 /// Git 留名中间件
 ///
 /// 注册在 `FilesystemMiddleware` 之后，hook 其 Write/Edit 工具调用。
@@ -74,7 +76,7 @@ impl<S: State> Middleware<S> for GitAttributionMiddleware {
 
     async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
         // 仅处理 Write 和 Edit
-        if tool_call.name != "Write" && tool_call.name != "Edit" {
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
             return Ok(tool_call.clone());
         }
         // 读取当前文件内容，暂存到 pending
@@ -96,7 +98,7 @@ impl<S: State> Middleware<S> for GitAttributionMiddleware {
         _result: &ToolResult,
     ) -> AgentResult<()> {
         // 仅处理 Write 和 Edit
-        if tool_call.name != "Write" && tool_call.name != "Edit" {
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
             return Ok(());
         }
         let file_path = match tool_call.input.get("file_path").and_then(|v| v.as_str()) {

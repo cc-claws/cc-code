@@ -23,9 +23,6 @@ pub enum AgentError {
     #[error("Tool rejected: {tool} - {reason}")]
     ToolRejected { tool: String, reason: String },
 
-    #[error("State error: {0}")]
-    StateError(String),
-
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 

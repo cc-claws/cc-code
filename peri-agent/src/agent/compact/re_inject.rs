@@ -1,4 +1,7 @@
-use crate::{agent::compact::config::CompactConfig, messages::BaseMessage};
+use crate::{
+    agent::{compact::config::CompactConfig, events::CompactFileInfo},
+    messages::BaseMessage,
+};
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -232,6 +235,40 @@ pub async fn re_inject(
         files_injected,
         skills_injected,
     }
+}
+
+/// Extract file info from re_inject messages (e.g., "[最近读取的文件: ...")
+pub fn extract_file_info(messages: &[BaseMessage]) -> Vec<CompactFileInfo> {
+    let mut files = Vec::new();
+    for msg in messages {
+        let content = msg.content();
+        if let Some(rest) = content.strip_prefix("[最近读取的文件: ") {
+            let path = rest.lines().next().unwrap_or("");
+            let line_count = rest.lines().count().saturating_sub(1);
+            if !path.is_empty() {
+                files.push(CompactFileInfo {
+                    path: path.to_string(),
+                    lines: line_count,
+                });
+            }
+        }
+    }
+    files
+}
+
+/// Extract skill names from re_inject messages (e.g., "[激活的 Skill 指令: ...")
+pub fn extract_skill_names(messages: &[BaseMessage]) -> Vec<String> {
+    let mut skills = Vec::new();
+    for msg in messages {
+        let content = msg.content();
+        if let Some(rest) = content.strip_prefix("[激活的 Skill 指令: ") {
+            let name = rest.lines().next().unwrap_or("");
+            if !name.is_empty() {
+                skills.push(name.to_string());
+            }
+        }
+    }
+    skills
 }
 
 #[cfg(test)]

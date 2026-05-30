@@ -58,7 +58,6 @@ fn test_group_single_tool_pair() {
     assert_eq!(rounds.len(), 1);
     assert_eq!(rounds[0].start, 0);
     assert_eq!(rounds[0].end, 2);
-    assert_eq!(rounds[0].tool_call_ids, vec!["tc1".to_string()]);
 }
 
 #[test]
@@ -71,10 +70,6 @@ fn test_group_multiple_tools_one_ai() {
     let rounds = group_messages_by_round(&msgs);
     assert_eq!(rounds.len(), 1);
     assert_eq!(rounds[0].end, 3);
-    assert_eq!(
-        rounds[0].tool_call_ids,
-        vec!["tc1".to_string(), "tc2".to_string()]
-    );
 }
 
 #[test]
@@ -89,10 +84,10 @@ fn test_group_mixed_rounds() {
     ];
     let rounds = group_messages_by_round(&msgs);
     assert_eq!(rounds.len(), 4);
-    assert!(rounds[0].tool_call_ids.is_empty());
-    assert_eq!(rounds[1].tool_call_ids, vec!["tc1"]);
-    assert!(rounds[2].tool_call_ids.is_empty());
-    assert_eq!(rounds[3].tool_call_ids, vec!["tc2"]);
+    assert_eq!(rounds[0].start, 0); // Human
+    assert_eq!(rounds[1].start, 1); // Ai+Tool
+    assert_eq!(rounds[2].start, 3); // Ai plain
+    assert_eq!(rounds[3].start, 4); // Ai+Tool
 }
 
 #[test]
@@ -100,7 +95,7 @@ fn test_group_orphan_tool_message() {
     let msgs = vec![BaseMessage::tool_result("orphan", "orphan output")];
     let rounds = group_messages_by_round(&msgs);
     assert_eq!(rounds.len(), 1);
-    assert!(rounds[0].tool_call_ids.is_empty());
+    assert_eq!(rounds[0].start, 0);
 }
 
 #[test]
@@ -114,7 +109,7 @@ fn test_group_interleaved_human_in_tool_pair() {
     let rounds = group_messages_by_round(&msgs);
     assert_eq!(rounds.len(), 3);
     assert_eq!(rounds[0].end, 2);
-    assert!(rounds[1].tool_call_ids.is_empty());
+    assert_eq!(rounds[1].start, 2);
 }
 
 // find_tool_pair_boundary tests
@@ -261,10 +256,6 @@ fn test_group_system_message_as_plain_round() {
     assert_eq!(rounds.len(), 3);
     assert_eq!(rounds[0].start, 0);
     assert_eq!(rounds[0].end, 1);
-    assert!(
-        rounds[0].tool_call_ids.is_empty(),
-        "System 消息的 tool_call_ids 应为空"
-    );
 }
 
 #[test]
@@ -278,10 +269,8 @@ fn test_group_consecutive_ai_with_tool_calls() {
     assert_eq!(rounds.len(), 2, "两组 AI+Tool 应形成独立 rounds");
     assert_eq!(rounds[0].start, 0);
     assert_eq!(rounds[0].end, 2);
-    assert_eq!(rounds[0].tool_call_ids, vec!["tc1".to_string()]);
     assert_eq!(rounds[1].start, 2);
     assert_eq!(rounds[1].end, 3);
-    assert_eq!(rounds[1].tool_call_ids, vec!["tc2".to_string()]);
 }
 
 #[test]

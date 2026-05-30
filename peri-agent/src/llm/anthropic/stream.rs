@@ -259,7 +259,7 @@ pub(super) async fn do_invoke_streaming(
     }
 
     // Build final response using parse_content_blocks
-    let stop_reason = StopReason::from_anthropic(&stop_reason_str);
+    let stop_reason = StopReason::from_display(&stop_reason_str);
     let (blocks, tool_calls) = parse_content_blocks(&accumulated_blocks);
 
     let message = if !tool_calls.is_empty() {

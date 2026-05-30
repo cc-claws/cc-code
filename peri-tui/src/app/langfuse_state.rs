@@ -4,9 +4,9 @@ use std::sync::Arc;
 #[derive(Default)]
 pub struct LangfuseState {
     /// Thread 级别的 Langfuse Session（Thread 创建/打开时懒加载，new_thread/open_thread 时重置）
-    pub langfuse_session: Option<Arc<crate::langfuse::LangfuseSession>>,
+    pub langfuse_session: Option<Arc<peri_acp::langfuse::LangfuseSession>>,
     /// 当前轮次的 Langfuse Tracer（submit_message 时创建，Done 时结束，未配置时为 None）
-    pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
+    pub langfuse_tracer: Option<Arc<parking_lot::Mutex<peri_acp::langfuse::LangfuseTracer>>>,
     /// on_trace_end 返回的 flush JoinHandle，进程退出前应 await 确保 batcher flush 完成
     pub langfuse_flush_handle: Option<tokio::task::JoinHandle<()>>,
 }

@@ -5,3 +5,4 @@
 5. 多轮对话完整性
    1. 是否多轮有失忆现象
 6. Ctrl+C 中断会话能力
+7. ask me some question using ask user question

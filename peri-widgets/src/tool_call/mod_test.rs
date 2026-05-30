@@ -45,3 +45,23 @@ fn test_status_equality() {
     assert_ne!(ToolCallStatus::Pending, ToolCallStatus::Running);
     assert_ne!(ToolCallStatus::Completed, ToolCallStatus::Failed);
 }
+
+#[test]
+fn test_tool_call_widget_ref_render() {
+    // 验证 WidgetRef 渲染路径正常工作
+    let state = ToolCallState::new("Read".to_string(), Color::Cyan);
+    let widget = ToolCallWidget::new(&state);
+    let area = Rect::new(0, 0, 40, 5);
+    let mut buf = Buffer::empty(area);
+    // 通过引用渲染
+    WidgetRef::render_ref(&widget, area, &mut buf);
+    // 验证 buffer 中包含工具名
+    let content: String = (0..40)
+        .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+        .collect();
+    assert!(
+        content.contains("Read"),
+        "WidgetRef 渲染结果应包含工具名 Read，实际: {:?}",
+        content
+    );
+}

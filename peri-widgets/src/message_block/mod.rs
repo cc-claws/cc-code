@@ -5,7 +5,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     text::Line,
-    widgets::{Paragraph, Widget},
+    widgets::{Paragraph, Widget, WidgetRef},
 };
 
 use crate::theme::DarkTheme;
@@ -42,8 +42,8 @@ impl<'a> MessageBlockWidget<'a> {
     }
 }
 
-impl<'a> Widget for MessageBlockWidget<'a> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+impl WidgetRef for MessageBlockWidget<'_> {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let theme = DarkTheme;
         let mut all_lines: Vec<Line<'_>> = Vec::new();
         for block in &self.state.blocks {
@@ -51,5 +51,11 @@ impl<'a> Widget for MessageBlockWidget<'a> {
             all_lines.extend(lines);
         }
         Paragraph::new(all_lines).render(area, buf);
+    }
+}
+
+impl Widget for MessageBlockWidget<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        self.render_ref(area, buf);
     }
 }

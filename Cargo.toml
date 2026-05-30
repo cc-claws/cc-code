@@ -31,7 +31,6 @@ codegen-units = 1
 # --- Async runtime ---
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-tokio-test = "0.4"
 futures = "0.3"
 async-trait = "0.1"
 
@@ -73,3 +72,7 @@ lru = "0.18"
 
 # --- Build ---
 tempfile = "3"
+
+# --- Allocator ---
+mimalloc = "0.1"
+libmimalloc-sys = { version = "0.1", features = ["extended"] }

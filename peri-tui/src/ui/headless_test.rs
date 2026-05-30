@@ -102,7 +102,7 @@ async fn test_clear_empties_render_cache() {
     let _ = app.session_mgr.sessions[app.session_mgr.active]
         .messages
         .render_tx
-        .send(RenderEvent::Rebuild(msgs));
+        .try_send(RenderEvent::Rebuild(msgs));
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
 
@@ -118,7 +118,7 @@ async fn test_clear_empties_render_cache() {
     let _ = app.session_mgr.sessions[app.session_mgr.active]
         .messages
         .render_tx
-        .send(RenderEvent::Clear);
+        .try_send(RenderEvent::Clear);
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
 
@@ -1091,6 +1091,7 @@ async fn test_tool_call_widget_renders_completed() {
         is_error: false,
         collapsed: false,
         diff_lines: None,
+        content_hash: 0,
     };
 
     let lines = crate::ui::message_render::render_view_model(&vm, Some(1), 80, false); // Render into a visible area for verification
@@ -1189,7 +1190,7 @@ async fn test_compact_done_with_re_inject() {
         msgs.len()
     );
     let has_compact = msgs.iter().any(|m| {
-        if let MessageViewModel::SystemNote { content } = m {
+        if let MessageViewModel::SystemNote { content, .. } = m {
             content.contains("✻ Context compressed")
                 && content.contains("Read /a.rs")
                 && content.contains("Skill: skill.md")
@@ -1213,7 +1214,7 @@ async fn test_compact_done_without_re_inject() {
         .view_messages;
     assert_eq!(msgs.len(), 1, "应只有 1 条压缩占位消息");
     let has_compact = msgs.iter().any(|m| {
-        if let MessageViewModel::SystemNote { content } = m {
+        if let MessageViewModel::SystemNote { content, .. } = m {
             content.contains("✻ Context compressed")
         } else {
             false
@@ -1221,7 +1222,7 @@ async fn test_compact_done_without_re_inject() {
     });
     assert!(has_compact, "应包含压缩提示消息");
     let has_re_inject = msgs.iter().any(|m| {
-        if let MessageViewModel::SystemNote { content } = m {
+        if let MessageViewModel::SystemNote { content, .. } = m {
             content.contains("Read ") || content.contains("Skill:")
         } else {
             false
@@ -2741,7 +2742,6 @@ fn bg_diag_count_subagent_groups(app: &App) -> usize {
 }
 
 /// 打印当前 view_messages 的摘要（诊断用）
-#[allow(dead_code)]
 fn bg_diag_print_vms(app: &App, label: &str) {
     let vms = &app.session_mgr.sessions[app.session_mgr.active]
         .messages
@@ -2781,11 +2781,11 @@ fn bg_diag_print_vms(app: &App, label: &str) {
             MessageViewModel::ToolCallGroup { category, .. } => {
                 eprintln!("  [{}] ToolCallGroup({:?})", i, category);
             }
-            MessageViewModel::SystemNote { content } => {
+            MessageViewModel::SystemNote { content, .. } => {
                 let preview: String = content.chars().take(40).collect();
                 eprintln!("  [{}] SystemNote({})", i, preview);
             }
-            MessageViewModel::CacheWarning { content } => {
+            MessageViewModel::CacheWarning { content, .. } => {
                 let preview: String = content.chars().take(40).collect();
                 eprintln!("  [{}] CacheWarning({})", i, preview);
             }

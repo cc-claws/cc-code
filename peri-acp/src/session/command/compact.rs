@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use peri_agent::{
     agent::{
-        compact::{full_compact, re_inject},
-        events::{AgentEvent as ExecutorEvent, CompactFileInfo},
+        compact::{extract_file_info, extract_skill_names, full_compact, re_inject},
+        events::AgentEvent as ExecutorEvent,
     },
     messages::BaseMessage,
 };
@@ -50,6 +50,7 @@ impl AgentCommand for CompactCommand {
             peri_config,
             compact_model,
             event_sink,
+            cancel_token,
             ..
         } = ctx;
 
@@ -102,27 +103,46 @@ impl AgentCommand for CompactCommand {
             .push_event(&session_id, &ExecutorEvent::CompactStarted, 0)
             .await;
 
-        // 执行 full_compact
-        let compact_result =
-            match full_compact(&history, compact_model.as_ref(), &compact_config, "").await {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!(error = %e, "compact: full_compact 失败");
-                    event_sink
-                        .push_event(
-                            &session_id,
-                            &ExecutorEvent::CompactError {
-                                message: e.to_string(),
-                            },
-                            0,
-                        )
-                        .await;
-                    return CommandResult {
-                        messages: history,
-                        stop_reason: PromptStopReason::EndTurn,
-                    };
+        // 执行 full_compact（支持 Ctrl+C 取消）
+        let compact_result = tokio::select! {
+            r = full_compact(&history, compact_model.as_ref(), &compact_config, "") => {
+                match r {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!(error = %e, "compact: full_compact 失败");
+                        event_sink
+                            .push_event(
+                                &session_id,
+                                &ExecutorEvent::CompactError {
+                                    message: e.to_string(),
+                                },
+                                0,
+                            )
+                            .await;
+                        return CommandResult {
+                            messages: history,
+                            stop_reason: PromptStopReason::EndTurn,
+                        };
+                    }
                 }
-            };
+            }
+            _ = cancel_token.cancelled() => {
+                tracing::info!(session_id = %session_id, "compact cancelled by user");
+                event_sink
+                    .push_event(
+                        &session_id,
+                        &ExecutorEvent::CompactError {
+                            message: "compact cancelled".into(),
+                        },
+                        0,
+                    )
+                    .await;
+                return CommandResult {
+                    messages: history,
+                    stop_reason: PromptStopReason::Cancelled,
+                };
+            }
+        };
 
         info!(
             summary_len = compact_result.summary.len(),
@@ -172,40 +192,6 @@ impl AgentCommand for CompactCommand {
             stop_reason: PromptStopReason::EndTurn,
         }
     }
-}
-
-/// 从 re_inject 消息中提取文件信息。
-fn extract_file_info(messages: &[BaseMessage]) -> Vec<CompactFileInfo> {
-    let mut files = Vec::new();
-    for msg in messages {
-        let content = msg.content();
-        if let Some(rest) = content.strip_prefix("[最近读取的文件: ") {
-            let path = rest.lines().next().unwrap_or("");
-            let line_count = rest.lines().count().saturating_sub(1);
-            if !path.is_empty() {
-                files.push(CompactFileInfo {
-                    path: path.to_string(),
-                    lines: line_count,
-                });
-            }
-        }
-    }
-    files
-}
-
-/// 从 re_inject 消息中提取 skill 名称。
-fn extract_skill_names(messages: &[BaseMessage]) -> Vec<String> {
-    let mut skills = Vec::new();
-    for msg in messages {
-        let content = msg.content();
-        if let Some(rest) = content.strip_prefix("[激活的 Skill 指令: ") {
-            let name = rest.lines().next().unwrap_or("");
-            if !name.is_empty() {
-                skills.push(name.to_string());
-            }
-        }
-    }
-    skills
 }
 
 #[cfg(test)]
@@ -261,6 +247,7 @@ mod tests {
             compact_model: None,
             event_sink: sink,
             args: String::new(),
+            cancel_token: peri_agent::agent::AgentCancellationToken::new(),
         }
     }
 

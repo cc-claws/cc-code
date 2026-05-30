@@ -1,0 +1,638 @@
+use crate::app::{App, ConfirmAction, Focus, Overlay};
+use crate::git::remote::{self, RemoteOp, RemoteResult};
+use crate::ui::sidebar::status_panel;
+use crate::ui::toolbar::{GlobalAction, ToolbarAction};
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+pub fn handle_event(app: &mut App, event: crossterm::event::Event) -> anyhow::Result<()> {
+    match event {
+        crossterm::event::Event::Key(key) => handle_key(app, key.code, key.modifiers),
+        crossterm::event::Event::Mouse(mouse) => handle_mouse(app, mouse),
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
+    // 确认弹窗优先拦截
+    if app.confirm_message.is_some() {
+        match code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                execute_confirm_action(app);
+                app.confirm_message = None;
+                app.confirm_action = None;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                app.confirm_message = None;
+                app.confirm_action = None;
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // SearchBar 输入模式
+    if app.overlay == Overlay::SearchBar {
+        match code {
+            KeyCode::Esc => {
+                app.search_query = None;
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Enter => {
+                // 跳转到第一个匹配的 commit（hash 前缀或 message 子串）
+                if let Some(query) = &app.search_query {
+                    let q = query.to_ascii_lowercase();
+                    let found = app.layout.rows.iter().position(|r| {
+                        if let Some(oid) = r.oid {
+                            let hash = format!("{:.7}", oid).to_ascii_lowercase();
+                            if hash.starts_with(&q) {
+                                return true;
+                            }
+                            // 尝试加载 commit message 进行匹配
+                            if let Ok(detail) = app.repo.commit_detail(oid) {
+                                if detail.message.to_ascii_lowercase().contains(&q) {
+                                    return true;
+                                }
+                            }
+                        }
+                        false
+                    });
+                    if let Some(idx) = found {
+                        app.select(idx);
+                        ensure_selected_visible(app);
+                    }
+                }
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Backspace => {
+                if let Some(query) = &mut app.search_query {
+                    query.pop();
+                    if query.is_empty() {
+                        app.search_query = None;
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                app.search_query
+                    .get_or_insert_with(String::new)
+                    .push(c);
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // overlay 打开时仅响应 Esc
+    if app.overlay == Overlay::BranchList
+        || app.overlay == Overlay::TagList
+        || app.overlay == Overlay::StashList
+    {
+        if code == KeyCode::Esc {
+            app.overlay = Overlay::None;
+        }
+        return;
+    }
+
+    // Ctrl+u / Ctrl+d / Ctrl+C
+    if mods.contains(KeyModifiers::CONTROL) {
+        match code {
+            KeyCode::Char('c') => {
+                app.quit();
+                return;
+            }
+            KeyCode::Char('u') => {
+                let delta = app.viewport_height.min(3);
+                if app.selected_idx >= delta {
+                    app.select(app.selected_idx - delta);
+                }
+                ensure_selected_visible(app);
+                return;
+            }
+            KeyCode::Char('d') => {
+                let delta = app.viewport_height.min(3);
+                let new_idx =
+                    (app.selected_idx + delta).min(app.layout.rows.len().saturating_sub(1));
+                app.select(new_idx);
+                ensure_selected_visible(app);
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    // Sidebar 焦点处理
+    match app.focus {
+        Focus::FileTree => {
+            match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    app.file_tree_state.move_cursor(-1);
+                    return;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    app.file_tree_state.move_cursor(1);
+                    return;
+                }
+                KeyCode::Enter => {
+                    let idx = app.file_tree_state.cursor();
+                    if let Some(result) = app.file_tree_state.toggle(idx) {
+                        if result.needs_load {
+                            let children = crate::app::scan_dir_children(&result.path);
+                            app.file_tree_state.set_children(&result.path, children);
+                            app.file_tree_state.toggle(idx);
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        Focus::Status => {
+            // Status 面板暂时只读
+            if !matches!(code, KeyCode::Esc | KeyCode::Tab | KeyCode::BackTab) {
+                return;
+            }
+        }
+        _ => {}
+    }
+
+    match code {
+        KeyCode::Tab => {
+            app.focus = match app.focus {
+                Focus::FileTree => Focus::Status,
+                Focus::Status => Focus::Graph,
+                Focus::Graph => Focus::Detail,
+                Focus::Detail => Focus::FileTree,
+            };
+        }
+        KeyCode::BackTab => {
+            app.focus = match app.focus {
+                Focus::FileTree => Focus::Detail,
+                Focus::Status => Focus::FileTree,
+                Focus::Graph => Focus::Status,
+                Focus::Detail => Focus::Graph,
+            };
+        }
+        KeyCode::Char('q') if !mods.contains(KeyModifiers::CONTROL) => app.quit(),
+        KeyCode::Char('b') => {
+            app.overlay = Overlay::BranchList;
+        }
+        KeyCode::Char('t') => {
+            app.overlay = Overlay::TagList;
+        }
+        KeyCode::Char('s') => {
+            app.overlay = Overlay::StashList;
+        }
+        KeyCode::Char('/') => {
+            app.overlay = Overlay::SearchBar;
+            app.search_query = Some(String::new());
+        }
+        KeyCode::Char('f') if !mods.contains(KeyModifiers::CONTROL) => {
+            spawn_remote(app, RemoteOp::Fetch);
+        }
+        KeyCode::Char('P') => {
+            spawn_remote(app, RemoteOp::Pull);
+        }
+        KeyCode::Char('p') if !mods.contains(KeyModifiers::CONTROL) => {
+            spawn_remote(app, RemoteOp::Push);
+        }
+        KeyCode::Up | KeyCode::Char('k') if app.selected_idx > 0 => {
+            app.select(app.selected_idx - 1);
+            ensure_selected_visible(app);
+        }
+        KeyCode::Down | KeyCode::Char('j')
+            if !app.layout.rows.is_empty() && app.selected_idx < app.layout.rows.len() - 1 =>
+        {
+            app.select(app.selected_idx + 1);
+            ensure_selected_visible(app);
+        }
+        KeyCode::Enter if app.overlay == Overlay::None => {
+            app.focus = Focus::Detail;
+        }
+        KeyCode::Esc => {
+            if app.overlay != Overlay::None {
+                app.overlay = Overlay::None;
+            } else if app.focus != Focus::Graph {
+                app.focus = Focus::Graph;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_mouse(app: &mut App, mouse: MouseEvent) {
+    // overlay 或 confirm 弹窗打开时，拦截鼠标事件防止穿透到底层面板
+    if app.overlay != Overlay::None || app.confirm_message.is_some() {
+        if app.overlay != Overlay::None {
+            if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+                app.overlay = Overlay::None;
+            }
+        }
+        return;
+    }
+
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            scroll_panel(app, mouse.column, mouse.row, ScrollDirection::Up);
+        }
+        MouseEventKind::ScrollDown => {
+            scroll_panel(app, mouse.column, mouse.row, ScrollDirection::Down);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            // 先检查全局工具栏
+            if let Some(idx) = app.global_toolbar_state.hit_test(mouse.column, mouse.row) {
+                let buttons = crate::ui::toolbar::global_buttons();
+                if let Some(btn) = buttons.get(idx) {
+                    handle_global_action(app, btn.action);
+                }
+                return;
+            }
+            // 再检查 commit 工具栏点击
+            if let Some(idx) = app.toolbar_state.hit_test(mouse.column, mouse.row) {
+                let buttons = crate::ui::toolbar::commit_buttons(app);
+                if let Some(btn) = buttons.get(idx) {
+                    handle_toolbar_action(app, btn.action);
+                }
+                return;
+            }
+            // 检查 sidebar 区域点击
+            let sa = app.sidebar_area;
+            if mouse.column >= sa.x
+                && mouse.column < sa.x + sa.width
+                && mouse.row >= sa.y
+                && mouse.row < sa.y + sa.height
+            {
+                if mouse.row < app.sidebar_split_y {
+                    app.focus = Focus::FileTree;
+                    let inner_y = sa.y + 1;
+                    if mouse.row >= inner_y {
+                        let row = mouse.row - inner_y;
+                        if let Some(idx) = app.file_tree_state.click(row) {
+                            // 点击目录时展开/折叠
+                            if let Some(result) = app.file_tree_state.toggle(idx) {
+                                if result.needs_load {
+                                    let children = crate::app::scan_dir_children(&result.path);
+                                    app.file_tree_state.set_children(&result.path, children);
+                                    app.file_tree_state.toggle(idx);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // status 面板点击
+                    app.focus = Focus::Status;
+                    let sl = &app.sidebar_layout;
+
+                    // 判断点击在哪个面板内，处理按钮和目录行
+                    let panels: [(
+                        ratatui::layout::Rect,
+                        &Option<status_panel::PanelLayout>,
+                        bool, // is_staged_panel
+                    ); 2] = [
+                        (sl.staged_inner, &sl.staged_layout, true),
+                        (sl.changes_inner, &sl.changes_layout, false),
+                    ];
+
+                    for (inner, panel_layout, is_staged) in &panels {
+                        if mouse.row < inner.y || mouse.row >= inner.y + inner.height {
+                            continue;
+                        }
+                        let rel_row = mouse.row.saturating_sub(inner.y);
+                        if let Some(ref layout) = panel_layout {
+                            // 按钮点击检测
+                            for &(btn_row, btn_x, btn_type, ref path) in &layout.button_rows {
+                                if rel_row == btn_row {
+                                    let abs_btn_x = inner.x + btn_x;
+                                    if mouse.column >= abs_btn_x && mouse.column < abs_btn_x + 3 {
+                                        let git_path = path.as_str();
+                                        match btn_type {
+                                            status_panel::StatusButton::Stage => {
+                                                if let Err(e) = app.repo.stage_file(git_path) {
+                                                    app.remote_status = Some(format!("暂存失败: {}", e));
+                                                } else {
+                                                    let _ = app.reload();
+                                                }
+                                            }
+                                            status_panel::StatusButton::Unstage => {
+                                                if let Err(e) = app.repo.unstage_file(git_path) {
+                                                    app.remote_status = Some(format!("取消暂存失败: {}", e));
+                                                } else {
+                                                    let _ = app.reload();
+                                                }
+                                            }
+                                            status_panel::StatusButton::Discard => {
+                                                if let Err(e) = app.repo.discard_file(git_path) {
+                                                    app.remote_status = Some(format!("丢弃修改失败: {}", e));
+                                                } else {
+                                                    let _ = app.reload();
+                                                }
+                                            }
+                                        }
+                                        app.dirty = true;
+                                        return;
+                                    }
+                                }
+                            }
+                            // 目录行点击
+                            for &(dir_row, ref key) in &layout.dir_rows {
+                                if rel_row == dir_row {
+                                    if app.status_dir_collapsed.contains(key) {
+                                        app.status_dir_collapsed.remove(key);
+                                    } else {
+                                        app.status_dir_collapsed.insert(key.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+            // 检查是否在 graph 面板区域内
+            let ga = app.graph_area;
+            if mouse.column >= ga.x
+                && mouse.column < ga.x + ga.width
+                && mouse.row >= ga.y
+                && mouse.row < ga.y + ga.height
+            {
+                let offset_y = app.graph_inner_y;
+                if mouse.row >= offset_y {
+                    let row = (mouse.row - offset_y) as usize;
+                    let target_idx = app.scroll_offset + row;
+                    if target_idx < app.layout.rows.len() {
+                        app.select(target_idx);
+                        ensure_selected_visible(app);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+enum ScrollDirection {
+    Up,
+    Down,
+}
+
+/// 根据鼠标位置判断滚动哪个面板
+fn scroll_panel(app: &mut App, col: u16, row: u16, dir: ScrollDirection) {
+    let delta = 3;
+    let sa = app.sidebar_area;
+
+    // sidebar 区域？
+    if col >= sa.x && col < sa.x + sa.width && row >= sa.y && row < sa.y + sa.height {
+        if row < app.sidebar_split_y {
+            // Staged 面板滚动
+            let max = app.staged_total_lines.saturating_sub(app.staged_viewport);
+            match dir {
+                ScrollDirection::Up => {
+                    let new = app.staged_scroll.saturating_sub(delta);
+                    if new != app.staged_scroll {
+                        app.staged_scroll = new;
+                        app.dirty = true;
+                    }
+                }
+                ScrollDirection::Down => {
+                    let new = (app.staged_scroll + delta).min(max);
+                    if new != app.staged_scroll {
+                        app.staged_scroll = new;
+                        app.dirty = true;
+                    }
+                }
+            }
+        } else {
+            // Changes 面板滚动
+            let max = app.changes_total_lines.saturating_sub(app.changes_viewport);
+            match dir {
+                ScrollDirection::Up => {
+                    let new = app.changes_scroll.saturating_sub(delta);
+                    if new != app.changes_scroll {
+                        app.changes_scroll = new;
+                        app.dirty = true;
+                    }
+                }
+                ScrollDirection::Down => {
+                    let new = (app.changes_scroll + delta).min(max);
+                    if new != app.changes_scroll {
+                        app.changes_scroll = new;
+                        app.dirty = true;
+                    }
+                }
+            }
+        }
+        app.dirty = true;
+        return;
+    }
+
+    let ga = app.graph_area;
+    if col >= ga.x && col < ga.x + ga.width && row >= ga.y && row < ga.y + ga.height {
+        // Graph 面板
+        match dir {
+            ScrollDirection::Up => {
+                let new = app.scroll_offset.saturating_sub(delta as usize);
+                if new != app.scroll_offset {
+                    app.scroll_offset = new;
+                    app.dirty = true;
+                }
+            }
+            ScrollDirection::Down => {
+                let max = app.layout.rows.len().saturating_sub(app.viewport_height);
+                let new = (app.scroll_offset + delta as usize).min(max);
+                if new != app.scroll_offset {
+                    app.scroll_offset = new;
+                    app.dirty = true;
+                }
+            }
+        }
+        return;
+    }
+
+    let da = app.detail_area;
+    if col >= da.x && col < da.x + da.width && row >= da.y && row < da.y + da.height {
+        // Detail 面板
+        let max = app.detail_total_lines.saturating_sub(app.detail_viewport);
+        match dir {
+            ScrollDirection::Up => {
+                let new = app.detail_scroll.saturating_sub(delta);
+                if new != app.detail_scroll {
+                    app.detail_scroll = new;
+                    app.dirty = true;
+                }
+            }
+            ScrollDirection::Down => {
+                let new = (app.detail_scroll + delta).min(max);
+                if new != app.detail_scroll {
+                    app.detail_scroll = new;
+                    app.dirty = true;
+                }
+            }
+        }
+    }
+}
+
+fn ensure_selected_visible(app: &mut App) {
+    if app.selected_idx < app.scroll_offset {
+        app.scroll_offset = app.selected_idx;
+    } else if app.selected_idx >= app.scroll_offset + app.viewport_height {
+        app.scroll_offset = app.selected_idx - app.viewport_height + 1;
+    }
+}
+
+fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
+    match action {
+        ToolbarAction::CopyHash => {
+            if let Some(oid) = app.selected_oid {
+                // 复制到剪贴板（简化实现：仅标记，实际需要 clipboard crate）
+                let _ = format!("{:.7}", oid);
+            }
+        }
+        ToolbarAction::Checkout => {
+            if let Some(oid) = app.selected_oid {
+                if let Err(e) = app.repo.checkout(oid) {
+                    app.remote_status = Some(format!("checkout 失败: {}", e));
+                } else {
+                    let _ = app.reload();
+                }
+            }
+        }
+        ToolbarAction::CreateTag => {
+            // TODO: 弹出输入框输入 tag 名称
+        }
+        ToolbarAction::Merge => {
+            if let Some(oid) = app.selected_oid {
+                if let Err(e) = app.repo.merge(oid) {
+                    app.remote_status = Some(format!("merge 失败: {}", e));
+                } else {
+                    let _ = app.reload();
+                }
+            }
+        }
+        ToolbarAction::CherryPick => {
+            if let Some(oid) = app.selected_oid {
+                if let Err(e) = app.repo.cherry_pick(oid) {
+                    app.remote_status = Some(format!("cherry-pick 失败: {}", e));
+                } else {
+                    let _ = app.reload();
+                }
+            }
+        }
+        ToolbarAction::Reset => {
+            if let Some(oid) = app.selected_oid {
+                app.confirm_message = Some(format!("确认 reset --hard 到 {:.7}?", oid));
+                app.confirm_action = Some(ConfirmAction::ResetHard(oid));
+                app.overlay = Overlay::ConfirmDialog;
+            }
+        }
+        ToolbarAction::DeleteBranch => {
+            if let Some(detail) = &app.selected_detail {
+                if let Some(branch) = detail.branches.first() {
+                    app.confirm_message = Some(format!("确认删除分支 {}?", branch));
+                    app.confirm_action = Some(ConfirmAction::DeleteBranch(branch.clone()));
+                    app.overlay = Overlay::ConfirmDialog;
+                }
+            }
+        }
+        ToolbarAction::StashPop => {
+            if let Some(oid) = app.selected_oid {
+                if let Some(stashes) = app.stash_map.get(&oid) {
+                    if let Some(stash) = stashes.first() {
+                        if let Err(e) = app.repo.stash_pop(stash.index) {
+                            app.remote_status = Some(format!("stash pop 失败: {}", e));
+                        } else {
+                            let _ = app.reload();
+                        }
+                    }
+                }
+            }
+        }
+        ToolbarAction::StashDrop => {
+            if let Some(oid) = app.selected_oid {
+                if let Some(stashes) = app.stash_map.get(&oid) {
+                    if let Some(stash) = stashes.first() {
+                        app.confirm_message =
+                            Some(format!("确认删除 stash@{}?", stash.index));
+                        app.confirm_action = Some(ConfirmAction::StashDrop(stash.index));
+                        app.overlay = Overlay::ConfirmDialog;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn execute_confirm_action(app: &mut App) {
+    let action = app.confirm_action.clone();
+    match action {
+        Some(ConfirmAction::ResetHard(oid)) => {
+            if let Err(e) = app.repo.reset_hard(oid) {
+                app.remote_status = Some(format!("reset 失败: {}", e));
+            } else {
+                let _ = app.reload();
+            }
+        }
+        Some(ConfirmAction::DeleteBranch(name)) => {
+            if let Err(e) = app.repo.delete_branch(&name) {
+                app.remote_status = Some(format!("删除分支失败: {}", e));
+            } else {
+                let _ = app.reload();
+            }
+        }
+        Some(ConfirmAction::StashDrop(index)) => {
+            if let Err(e) = app.repo.stash_drop(index) {
+                app.remote_status = Some(format!("stash drop 失败: {}", e));
+            } else {
+                let _ = app.reload();
+            }
+        }
+        Some(ConfirmAction::ForcePush) => {
+            // TODO: 实现 force push
+        }
+        None => {}
+    }
+    app.overlay = Overlay::None;
+}
+
+fn spawn_remote(app: &mut App, op: RemoteOp) {
+    let workdir = match app.repo.repo().workdir().map(|p| p.to_path_buf()) {
+        Some(d) => d,
+        None => {
+            app.remote_status = Some("bare 仓库不支持远程操作".to_string());
+            return;
+        }
+    };
+    app.remote_status = Some(format!("{}ing...", op));
+    let handle = remote::spawn_remote_op(workdir, op);
+    // Fire-and-forget: spawn a thread to await the result and log it
+    // For MVP we just show status, result will update on next interaction
+    std::thread::spawn(move || {
+        let result = handle.join().unwrap_or(RemoteResult {
+            operation: op,
+            success: false,
+            message: "thread panicked".to_string(),
+        });
+        // 结果只能通过日志查看，MVP 不回写 app 状态
+        tracing::info!(
+            "remote {} {}",
+            result.operation,
+            if result.success { "ok" } else { "failed" }
+        );
+        let _ = result; // suppress unused
+    });
+}
+
+fn handle_global_action(app: &mut App, action: GlobalAction) {
+    match action {
+        GlobalAction::RemoteFetch => spawn_remote(app, RemoteOp::Fetch),
+        GlobalAction::RemotePull => spawn_remote(app, RemoteOp::Pull),
+        GlobalAction::RemotePush => spawn_remote(app, RemoteOp::Push),
+        GlobalAction::ToggleBranches => {
+            app.overlay = Overlay::BranchList;
+        }
+        GlobalAction::ToggleTags => {
+            app.overlay = Overlay::TagList;
+        }
+        GlobalAction::ToggleStash => {
+            app.overlay = Overlay::StashList;
+        }
+    }
+}

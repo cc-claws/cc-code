@@ -9,8 +9,4 @@ pub use batcher::Batcher;
 pub use client::LangfuseClient;
 pub use config::{BackpressurePolicy, BatcherConfig, ClientConfig};
 pub use error::LangfuseError;
-pub use types::{
-    CostDetails, EventBody, GenerationBody, IngestionEvent, IngestionUsage, ObservationBody,
-    ObservationLevel, ObservationType, ScoreBody, ScoreDataType, SdkLogBody, SpanBody, TraceBody,
-    Usage, UsageDetails,
-};
+pub use types::{GenerationBody, IngestionEvent, ObservationBody, ObservationType, SpanBody};

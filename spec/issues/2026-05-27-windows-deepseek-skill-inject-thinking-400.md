@@ -1,8 +1,9 @@
 # Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-27
+**更新日期**：2026-05-30
 
 ## 问题描述
 

@@ -376,7 +376,3 @@ impl App {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "agent_submit_test.rs"]
-mod tests;

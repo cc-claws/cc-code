@@ -98,15 +98,13 @@ pub use interaction::InteractionPrompt;
 mod edit_utils;
 pub use edit_utils::{build_textarea, edit_display_parts, ensure_cursor_visible, handle_edit_key};
 
-#[allow(unused_imports)]
 use crate::acp_client::{AcpNotification, AcpTuiClient};
 use peri_agent::messages::BaseMessage;
 use peri_middlewares::prelude::HitlDecision;
-use tokio::sync::mpsc;
 
 use crate::{
     config::PeriConfig,
-    thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore},
+    thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadStore},
 };
 
 // Re-export MessageViewModel from ui::message_view
@@ -464,9 +462,6 @@ impl App {
             self.set_loading(false);
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .agent_rx = None;
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
                 .interaction_prompt = None;
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
@@ -512,7 +507,7 @@ impl App {
                     let _ = self.session_mgr.sessions[self.session_mgr.active]
                         .messages
                         .render_tx
-                        .send(RenderEvent::Rebuild(remaining));
+                        .try_send(RenderEvent::Rebuild(remaining));
                 }
                 // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.sessions[self.session_mgr.active]

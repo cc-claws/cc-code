@@ -1,8 +1,9 @@
 # ACP InitializeResponse 缺少 prompt_capabilities 声明
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-19
+**更新日期**：2026-05-30
 
 ## 问题描述
 

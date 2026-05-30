@@ -106,10 +106,8 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
         | ExecutorEvent::ToolEnd { .. }
         | ExecutorEvent::TodoUpdate(_)
         | ExecutorEvent::LlmCallEnd { .. }
-        | ExecutorEvent::StepDone { .. }
         | ExecutorEvent::MessageAdded(_)
-        | ExecutorEvent::LlmCallStart { .. }
-        | ExecutorEvent::SessionEnded => return None,
+        | ExecutorEvent::LlmCallStart { .. } => return None,
     })
 }
 
