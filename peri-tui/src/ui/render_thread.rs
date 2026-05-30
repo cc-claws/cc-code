@@ -67,18 +67,6 @@ impl RenderCache {
             scroll_anchor: None,
         }
     }
-
-    /// 计算给定 lines 在指定宽度下 wrap 后的真实视觉行数。
-    /// 使用 ratatui 的 Paragraph::line_count 与 Wrap{trim:false} 确保与实际渲染一致。
-    fn compute_wrapped_height(lines: &[Line<'static>], width: u16) -> usize {
-        if width == 0 || lines.is_empty() {
-            return 0;
-        }
-        let text = ratatui::text::Text::from(lines.to_vec());
-        Paragraph::new(text)
-            .wrap(Wrap { trim: false })
-            .line_count(width)
-    }
 }
 
 /// 渲染线程接收的事件
@@ -124,9 +112,9 @@ impl RenderTask {
     /// 对每个逻辑行使用 ratatui 的 Paragraph::line_count 精确计算视觉行数，
     /// 与实际渲染的 WordWrapper 算法完全一致。
     /// char_widths 使用 grapheme 级别（与 ratatui 一致）。
-    fn build_wrap_map(lines: &[Line<'static>], width: u16) -> Vec<WrappedLineInfo> {
+    fn build_wrap_map(lines: &[Line<'static>], width: u16) -> (usize, Vec<WrappedLineInfo>) {
         if width == 0 || lines.is_empty() {
-            return Vec::new();
+            return (0, Vec::new());
         }
         let mut wrap_map = Vec::with_capacity(lines.len());
         let mut visual_row: u16 = 0;
@@ -159,7 +147,7 @@ impl RenderTask {
             });
             visual_row += visual_count;
         }
-        wrap_map
+        (visual_row as usize, wrap_map)
     }
 
     /// 渲染单条消息为 lines（含前后空行分隔）
@@ -347,12 +335,12 @@ impl RenderTask {
             deduped.pop();
         }
 
-        let render_width = self.width;
+        let (total_lines, wrap_map) = Self::build_wrap_map(&deduped, self.width);
         let mut cache = self.cache.write();
         cache.lines = deduped;
         cache.message_offsets = offsets;
-        cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
-        cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
+        cache.total_lines = total_lines;
+        cache.wrap_map = wrap_map;
         cache.width = self.width;
         cache.version += 1;
     }

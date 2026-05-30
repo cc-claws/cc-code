@@ -165,36 +165,40 @@ async fn test_resize_rebuilds_with_new_width() {
 
 #[test]
 fn test_build_wrap_map_empty() {
-    let result = RenderTask::build_wrap_map(&[], 80);
+    let (total, result) = RenderTask::build_wrap_map(&[], 80);
     assert!(result.is_empty());
+    assert_eq!(total, 0);
 }
 
 #[test]
 fn test_build_wrap_map_single_short_line() {
     let lines = vec![Line::from("Hello")];
-    let result = RenderTask::build_wrap_map(&lines, 80);
+    let (total, result) = RenderTask::build_wrap_map(&lines, 80);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].visual_row_start, 0);
     assert_eq!(result[0].visual_row_end, 1);
     assert_eq!(result[0].plain_text, "Hello");
+    assert_eq!(total, 1);
 }
 
 #[test]
 fn test_build_wrap_map_single_long_line_wraps() {
     let long_text: String = "A".repeat(200);
     let lines: Vec<Line<'static>> = vec![Line::from(long_text)];
-    let result = RenderTask::build_wrap_map(&lines, 40);
+    let (total, result) = RenderTask::build_wrap_map(&lines, 40);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].visual_row_start, 0);
     assert_eq!(result[0].visual_row_end, 5);
+    assert_eq!(total, 5);
 }
 
 #[test]
 fn test_build_wrap_map_cjk_char_width() {
     let lines = vec![Line::from("你好世界")];
-    let result = RenderTask::build_wrap_map(&lines, 80);
+    let (total, result) = RenderTask::build_wrap_map(&lines, 80);
     assert_eq!(result[0].char_widths, vec![2, 2, 2, 2]);
     assert_eq!(result[0].visual_row_end - result[0].visual_row_start, 1);
+    assert_eq!(total, 1);
 }
 
 #[test]
@@ -202,18 +206,20 @@ fn test_build_wrap_map_multi_line_visual_rows() {
     let first_line: String = "A".repeat(80);
     let second_line = Line::from("short");
     let lines: Vec<Line<'static>> = vec![Line::from(first_line), second_line];
-    let result = RenderTask::build_wrap_map(&lines, 40);
+    let (total, result) = RenderTask::build_wrap_map(&lines, 40);
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].visual_row_start, 0);
     assert_eq!(result[0].visual_row_end, 2);
     assert_eq!(result[1].visual_row_start, 2);
     assert_eq!(result[1].visual_row_end, 3);
+    assert_eq!(total, 3);
 }
 
 #[test]
 fn test_build_wrap_map_empty_line() {
     let lines = vec![Line::from("")];
-    let result = RenderTask::build_wrap_map(&lines, 80);
+    let (total, result) = RenderTask::build_wrap_map(&lines, 80);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].visual_row_end - result[0].visual_row_start, 1);
+    assert_eq!(total, 1);
 }
