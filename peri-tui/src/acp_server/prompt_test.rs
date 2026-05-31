@@ -18,7 +18,7 @@ fn test_strip_leaked_prepends_有历史时剥离头部system消息() {
         BaseMessage::ai("response"),
     ];
     // Act
-    let cleaned = strip_leaked_prepends(&result_messages, &history);
+    let cleaned = strip_leaked_prepends(&result_messages, history.first().map(|m| m.id()));
     // Assert: 应该去掉头部两条 leaked system，保留从原始历史开始的所有消息
     assert_eq!(cleaned.len(), 4, "应去掉2条leaked system，剩4条");
     assert_eq!(
@@ -41,7 +41,7 @@ fn test_strip_leaked_prepends_空历史时剥离头部system() {
         BaseMessage::ai("response"),
     ];
     // Act
-    let cleaned = strip_leaked_prepends(&result_messages, &history);
+    let cleaned = strip_leaked_prepends(&result_messages, history.first().map(|m| m.id()));
     // Assert: 应该去掉头部两条 system，只保留 human + ai
     assert_eq!(cleaned.len(), 2, "应去掉2条leaked system，剩2条");
     assert!(!cleaned[0].is_system(), "第一条不应是system消息");
@@ -59,7 +59,7 @@ fn test_strip_leaked_prepends_历史id找不到时原样返回() {
         BaseMessage::ai("response"),
     ];
     // Act
-    let cleaned = strip_leaked_prepends(&result_messages, &history);
+    let cleaned = strip_leaked_prepends(&result_messages, history.first().map(|m| m.id()));
     // Assert: 找不到原始历史，原样返回
     assert_eq!(cleaned.len(), 3, "找不到原始历史时应原样返回");
 }
@@ -74,7 +74,7 @@ fn test_strip_leaked_prepends_无leaked时正常返回() {
         history[1].clone(),
         BaseMessage::human("new question"),
     ];
-    let cleaned = strip_leaked_prepends(&result_messages, &history);
+    let cleaned = strip_leaked_prepends(&result_messages, history.first().map(|m| m.id()));
     assert_eq!(cleaned.len(), 3, "无leaked时应正常返回所有消息");
     assert_eq!(cleaned[0].id(), history[0].id());
 }

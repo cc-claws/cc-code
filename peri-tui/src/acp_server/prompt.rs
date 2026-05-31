@@ -127,8 +127,9 @@ pub(crate) async fn execute_prompt(
         language: frozen_language,
     });
 
-    // Keep a reference for the cancel-with-progress path (history is moved below)
-    let history_for_cancel = history.clone();
+    // Track first history message ID for cancel-with-progress path (history is moved below)
+    // Uses Option<MessageId> (16 bytes) instead of cloning the entire history.
+    let first_history_id = history.first().map(|m| m.id());
     let result = executor::execute_prompt(
         &provider_snapshot,
         peri_config_snapshot,
@@ -185,7 +186,7 @@ pub(crate) async fn execute_prompt(
                 // NOTE: execute() skips cleanup_prepended on error paths (? propagation),
                 // so result.messages may contain leaked system prepends at the beginning.
                 // Strip them by locating where the original history starts (ID matching).
-                let cleaned = strip_leaked_prepends(&result.messages, &history_for_cancel);
+                let cleaned = strip_leaked_prepends(&result.messages, first_history_id);
                 let new_count = cleaned.len().saturating_sub(history_len);
                 // Persist newly added messages to ThreadStore
                 if new_count > 0 && history_len < cleaned.len() {
@@ -230,12 +231,12 @@ pub(crate) async fn execute_prompt(
 /// (by matching the first message ID) and returns messages from that point onward.
 fn strip_leaked_prepends(
     result_messages: &[peri_agent::messages::BaseMessage],
-    original_history: &[peri_agent::messages::BaseMessage],
+    first_history_id: Option<peri_agent::messages::MessageId>,
 ) -> Vec<peri_agent::messages::BaseMessage> {
-    match original_history.first() {
-        Some(first) => {
+    match first_history_id {
+        Some(first_id) => {
             // Find where original history starts in result (skip leaked prepends)
-            match result_messages.iter().position(|m| m.id() == first.id()) {
+            match result_messages.iter().position(|m| m.id() == first_id) {
                 Some(start) => result_messages[start..].to_vec(),
                 None => {
                     // Original history not found — compact may have replaced messages.
