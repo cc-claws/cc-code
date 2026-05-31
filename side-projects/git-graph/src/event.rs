@@ -542,7 +542,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                         for &(btn_row, btn_x, btn_type, ref path) in &layout.button_rows {
                             if rel_row == btn_row {
                                 let abs_btn_x = inner.x + btn_x;
-                                if mouse.column >= abs_btn_x && mouse.column < abs_btn_x + 3 {
+                                if mouse.column >= abs_btn_x && mouse.column < abs_btn_x + 2 {
                                     let git_path = path.as_str();
                                     match btn_type {
                                         status_panel::StatusButton::Stage => {
@@ -565,13 +565,28 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                                 let _ = app.reload();
                                             }
                                         }
-                                        status_panel::StatusButton::Discard => {
-                                            if let Err(e) = app.repo.discard_file(git_path) {
-                                                app.show_toast(
-                                                    format!("丢弃修改失败: {}", e),
-                                                    ToastStyle::Error,
-                                                );
+                                        status_panel::StatusButton::Delete => {
+                                            // 先尝试 git rm（已跟踪），失败则直接删除（未跟踪）
+                                            if app.repo.delete_tracked_file(git_path).is_err() {
+                                                if let Err(e) =
+                                                    app.repo.delete_untracked_file(git_path)
+                                                {
+                                                    app.show_toast(
+                                                        format!("删除失败: {}", e),
+                                                        ToastStyle::Error,
+                                                    );
+                                                } else {
+                                                    app.show_toast(
+                                                        format!("已删除 {}", git_path),
+                                                        ToastStyle::Success,
+                                                    );
+                                                    let _ = app.reload();
+                                                }
                                             } else {
+                                                app.show_toast(
+                                                    format!("已删除 {}", git_path),
+                                                    ToastStyle::Success,
+                                                );
                                                 let _ = app.reload();
                                             }
                                         }

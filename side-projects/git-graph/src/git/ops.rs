@@ -70,8 +70,27 @@ impl GitRepo {
     }
 
     /// 丢弃工作区修改（git restore <path>）
+    #[allow(dead_code)]
     pub fn discard_file(&self, path: &str) -> Result<()> {
         self.run_git(&["restore", path])
+    }
+
+    /// 删除已跟踪文件的修改并删除文件（git rm <path>）
+    pub fn delete_tracked_file(&self, path: &str) -> Result<()> {
+        self.run_git(&["rm", "-f", path])
+    }
+
+    /// 删除未跟踪文件（直接 rm）
+    pub fn delete_untracked_file(&self, path: &str) -> Result<()> {
+        let full = self.workdir()?.join(path);
+        if full.exists() {
+            if full.is_dir() {
+                std::fs::remove_dir_all(&full)?;
+            } else {
+                std::fs::remove_file(&full)?;
+            }
+        }
+        Ok(())
     }
 
     fn workdir(&self) -> Result<&std::path::Path> {
