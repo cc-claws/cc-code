@@ -655,4 +655,21 @@ impl App {
                 .interaction_prompt
                 .is_some()
     }
+
+    /// 将粘贴文本路由到当前激活弹窗的输入区。用于支持 IME 组合输入（macOS
+    /// 终端通过 Bracketed Paste 发送组合后的中文），以及常规粘贴操作。
+    /// 仅处理 AskUser 弹窗的 custom_input；HITL/OAuth 弹窗无文本输入区，静默丢弃。
+    pub fn paste_to_interaction_popup(&mut self, text: &str) {
+        if let Some(crate::app::InteractionPrompt::Questions(p)) = self.session_mgr.sessions
+            [self.session_mgr.active]
+            .agent
+            .interaction_prompt
+            .as_mut()
+        {
+            let q = p.current();
+            q.custom_input.push_str(text);
+            q.custom_cursor += text.chars().count();
+            q.in_custom_input = true;
+        }
+    }
 }

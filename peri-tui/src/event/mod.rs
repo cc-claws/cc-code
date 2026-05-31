@@ -269,6 +269,14 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // ─── 交互弹窗优先路由（AskUser/HITL/OAuth） ──────────────────
+            // 弹窗激活时，Paste（含终端 IME 组合后的中文）应进入弹窗
+            // 而非 textarea。仅 AskUser 弹窗有 custom_input 接收文本。
+            if app.is_interaction_popup_active() {
+                app.paste_to_interaction_popup(&text);
+                return Ok(Some(Action::Redraw));
+            }
+
             // ─── PanelManager paste dispatch ────────────────────────────
             {
                 // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser
