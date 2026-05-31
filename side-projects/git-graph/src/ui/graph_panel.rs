@@ -39,6 +39,7 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
             is_selected,
             Some(app.head_oid),
             &app.colors,
+            &app.theme,
         );
         f.render_widget(
             Paragraph::new(line),
