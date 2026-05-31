@@ -95,7 +95,8 @@ pub enum AgentEvent {
     /// LLM 调用开始（携带完整 input messages 快照 + 工具定义，用于 Langfuse Generation）
     LlmCallStart {
         step: usize,
-        messages: Vec<crate::messages::BaseMessage>,
+        /// Arc 共享引用——Clone AgentEvent 时为浅拷贝（引用计数 +1），不产生独立副本
+        messages: std::sync::Arc<Vec<crate::messages::BaseMessage>>,
         tools: Vec<crate::tools::ToolDefinition>,
     },
     /// LLM 调用结束（携带模型名、输出文本、token 使用量）
