@@ -304,10 +304,13 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             }
 
             // Fallback: paste into textarea
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .textarea
-                .insert_str(&text);
+            // 弹窗激活时不写入 textarea——用户应通过弹窗 UI 交互
+            if !app.is_interaction_popup_active() {
+                app.session_mgr.sessions[app.session_mgr.active]
+                    .ui
+                    .textarea
+                    .insert_str(&text);
+            }
         }
         Event::Mouse(mouse) => match mouse.kind {
             // ── AskUser 弹窗鼠标交互（优先于面板/消息区） ────────────────────────
@@ -653,26 +656,31 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     }
                 }
                 // Textarea area: start textarea selection
-                if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
-                    .ui
-                    .textarea_area
-                {
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
+                // 弹窗激活时跳过——光标不应移到 textarea 内
+                if !app.is_interaction_popup_active() {
+                    if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
+                        .ui
+                        .textarea_area
                     {
-                        let session = &app.session_mgr.sessions[app.session_mgr.active];
-                        let (row, col) =
-                            mouse::textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
-                        app.session_mgr.sessions[app.session_mgr.active]
-                            .ui
-                            .textarea
-                            .move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
-                        app.session_mgr.sessions[app.session_mgr.active]
-                            .ui
-                            .textarea
-                            .start_selection();
+                        if mouse.row >= area.y
+                            && mouse.row < area.y + area.height
+                            && mouse.column >= area.x
+                            && mouse.column < area.x + area.width
+                        {
+                            let session = &app.session_mgr.sessions[app.session_mgr.active];
+                            let (row, col) =
+                                mouse::textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .textarea
+                                .move_cursor(tui_textarea::CursorMove::Jump(
+                                    row as u16, col as u16,
+                                ));
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .textarea
+                                .start_selection();
+                        }
                     }
                 }
             }
