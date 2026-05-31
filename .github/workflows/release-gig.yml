@@ -79,11 +79,11 @@ jobs:
 
             - name: Build gig (Linux)
               if: runner.os == 'Linux'
-              run: cross build --release --target ${{ matrix.target }} --manifest-path side-projects/git-graph/Cargo.toml
+              run: cross build --release --target ${{ matrix.target }} -p gig
 
             - name: Build gig (non-Linux)
               if: runner.os != 'Linux'
-              run: cargo build --release --target ${{ matrix.target }} --manifest-path side-projects/git-graph/Cargo.toml
+              run: cargo build --release --target ${{ matrix.target }} -p gig
 
             - name: Package binaries (Unix)
               if: matrix.ext == ''
