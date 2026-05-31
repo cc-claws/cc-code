@@ -3,8 +3,14 @@
 //! The biggest allocation win: `reqwest::Client` inside each LLM instance
 //! is ~1-2 MB (connection pool + TLS session cache). Caching these across
 //! prompts eliminates ~2-4 MB of transient allocation per turn.
+//!
+//! ### Cached entries
+//! | Cache | Key | Entry | Lifetime |
+//! |-------|-----|-------|----------|
+//! | `cached_llm` | `"provider:model"` fingerprint | `compact_model` + `auto_classifier_model` | Validated per-prompt via `has_valid_cache()` |
+//! | `subagent_llm_cache` | `"provider:model"` fingerprint | `Arc<dyn BaseModel>` (shared `reqwest::Client`) | Held until `invalidate()` or session close |
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use peri_agent::llm::BaseModel;
 
@@ -35,6 +41,10 @@ pub struct AgentPool {
     cached_llm: Option<CachedLlmInstances>,
     /// Provider fingerprint for invalidation detection.
     fingerprint: String,
+    /// SubAgent LLM cache: keyed by `"provider_name:model_name"` fingerprint.
+    /// Each entry holds an `Arc<dyn BaseModel>` with a shared `reqwest::Client`.
+    /// Avoids creating a new HTTP client per SubAgent invocation.
+    pub(crate) subagent_llm_cache: HashMap<String, Arc<dyn BaseModel>>,
 }
 
 impl Default for AgentPool {
@@ -48,6 +58,7 @@ impl AgentPool {
         Self {
             cached_llm: None,
             fingerprint: String::new(),
+            subagent_llm_cache: HashMap::new(),
         }
     }
 
@@ -72,11 +83,39 @@ impl AgentPool {
     pub fn invalidate(&mut self) {
         self.cached_llm = None;
         self.fingerprint.clear();
+        self.subagent_llm_cache.clear();
     }
 
     /// Current fingerprint (empty if no cache).
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
+    }
+
+    /// Get or create a SubAgent LLM instance (double-checked locking).
+    ///
+    /// Fast path (cache hit): holds lock ~1μs to query HashMap.
+    /// Slow path (cache miss): creates `reqwest::Client` outside lock (~10-100ms),
+    /// then writes to cache inside lock, avoiding blocking other SubAgents' fast paths.
+    pub(crate) fn get_or_create_subagent_llm(
+        pool: &Arc<parking_lot::Mutex<AgentPool>>,
+        fingerprint: &str,
+        create: impl FnOnce() -> Box<dyn BaseModel>,
+    ) -> Arc<dyn BaseModel> {
+        // Fast path: query cache under lock
+        {
+            let guard = pool.lock();
+            if let Some(cached) = guard.subagent_llm_cache.get(fingerprint) {
+                return Arc::clone(cached);
+            }
+        }
+        // Slow path: create outside lock
+        let new_model: Arc<dyn BaseModel> = Arc::from(create());
+        // Write back under lock (or_insert handles concurrent insert race)
+        pool.lock()
+            .subagent_llm_cache
+            .entry(fingerprint.to_string())
+            .or_insert(new_model)
+            .clone()
     }
 }
 

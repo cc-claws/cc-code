@@ -152,6 +152,10 @@ pub(crate) async fn handle_request(
                 info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
                 *cfg.provider.write() = new_provider;
             }
+            // Model switch → invalidate cached LLM instances (Main Agent + SubAgent)
+            if let Some(s) = sessions.get_mut(session_id) {
+                s.agent_pool.invalidate();
+            }
             persist_config(cfg);
             let resp = SetSessionModelResponse::new();
             send_config_option_update(transport, session_id, cfg).await;
@@ -199,6 +203,10 @@ pub(crate) async fn handle_request(
                     if let Some(new_provider) = new_provider {
                         info!(model_id = %value, model = %new_provider.model_name(), "Model changed via configOption");
                         *cfg.provider.write() = new_provider;
+                    }
+                    // Model switch → invalidate cached LLM instances
+                    if let Some(s) = sessions.get_mut(session_id) {
+                        s.agent_pool.invalidate();
                     }
                     persist_config(cfg);
                 }
@@ -448,6 +456,11 @@ pub(crate) async fn handle_request(
 
             if let Some(p) = LlmProvider::from_config(&new_cfg) {
                 *cfg.provider.write() = p;
+            }
+
+            // Model switch → invalidate cached LLM instances (Main Agent + SubAgent)
+            if let Some(s) = sessions.get_mut(session_id) {
+                s.agent_pool.invalidate();
             }
 
             persist_config(cfg);

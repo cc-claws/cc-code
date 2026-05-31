@@ -44,7 +44,7 @@ use peri_middlewares::{
 
 use crate::{
     provider::{config::PeriConfig, LlmProvider},
-    session::agent_pool::CachedLlmInstances,
+    session::agent_pool::{AgentPool, CachedLlmInstances},
 };
 
 // ── 共享 Agent 构建（ACP 和 TUI 共用）─────────────────────────────────────────
@@ -118,9 +118,14 @@ pub struct AcpAgentOutput {
 /// `cached_llm` 允许跨 prompt 复用 LLM 实例（compact_model、auto_classifier_model），
 /// 避免每轮重建 reqwest::Client（~1-2 MB/实例）。首次调用传 `None`，
 /// 后续调用传上一次返回的 `Some(CachedLlmInstances)`。
+///
+/// `pool` 提供 SubAgent LLM 缓存，跨 SubAgent 调用复用 `Arc<dyn BaseModel>`
+/// （含共享的 `reqwest::Client`）。首次同模型 SubAgent 调用时创建新实例并插入缓存，
+/// 后续调用直接命中缓存，避免每 SubAgent 分配 ~1-2 MB 的 HTTP client。
 pub fn build_agent(
     cfg: AcpAgentConfig,
     cached_llm: Option<&CachedLlmInstances>,
+    pool: &Arc<parking_lot::Mutex<AgentPool>>,
 ) -> (AcpAgentOutput, Option<CachedLlmInstances>) {
     let AcpAgentConfig {
         provider,
@@ -245,10 +250,11 @@ pub fn build_agent(
         }
     }
 
-    // 子 agent LLM 工厂
+    // 子 agent LLM 工厂（支持 SubAgent LLM 缓存复用）
     let provider_clone = provider_for_factory;
     let config_for_factory = peri_config.clone();
     let session_id_for_factory = session_id.clone();
+    let pool_for_subagent = Arc::clone(pool);
     #[allow(clippy::type_complexity)]
     let llm_factory: Arc<
         dyn Fn(Option<&str>) -> Box<dyn peri_agent::agent::react::ReactLLM + Send + Sync>
@@ -256,19 +262,43 @@ pub fn build_agent(
             + Sync,
     > = Arc::new(move |model_alias: Option<&str>| {
         let sid = session_id_for_factory.as_deref();
-        if let Some(alias) = model_alias {
-            if let Some(p) = LlmProvider::from_config_for_alias(&config_for_factory, alias) {
-                let mut llm = BaseModelReactLLM::new(p.into_model());
-                if let Some(s) = sid {
-                    llm = llm.with_session_id(s);
+        // 解析 provider 并构建 fingerprint
+        let (p, fp) = if let Some(alias) = model_alias {
+            match LlmProvider::from_config_for_alias(&config_for_factory, alias) {
+                Some(p) => {
+                    let fp = format!("{}:{}", p.display_name(), p.model_name());
+                    (Some(p), fp)
                 }
-                return Box::new(peri_agent::llm::RetryableLLM::new(
-                    llm,
-                    peri_agent::llm::RetryConfig::default(),
-                ));
+                None => {
+                    let fp = format!(
+                        "{}:{}",
+                        provider_clone.display_name(),
+                        provider_clone.model_name()
+                    );
+                    (None, fp)
+                }
             }
-        }
-        let mut llm = BaseModelReactLLM::new(provider_clone.clone().into_model());
+        } else {
+            let fp = format!(
+                "{}:{}",
+                provider_clone.display_name(),
+                provider_clone.model_name()
+            );
+            (None, fp)
+        };
+
+        // 尝试 SubAgent 缓存
+        let model: Arc<dyn BaseModel> =
+            crate::session::agent_pool::AgentPool::get_or_create_subagent_llm(
+                &pool_for_subagent,
+                &fp,
+                || match &p {
+                    Some(provider) => provider.clone().into_model(),
+                    None => provider_clone.clone().into_model(),
+                },
+            );
+
+        let mut llm = BaseModelReactLLM::from_arc(model);
         if let Some(s) = sid {
             llm = llm.with_session_id(s);
         }

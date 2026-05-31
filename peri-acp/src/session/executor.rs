@@ -482,6 +482,7 @@ pub async fn execute_prompt(
             deregister_runtime,
         },
         cached_llm.as_ref(),
+        &pool,
     );
 
     // Store updated cache back into pool

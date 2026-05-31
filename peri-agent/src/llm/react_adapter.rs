@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::sync::Arc;
 
 use super::BaseModel;
 use crate::{
@@ -11,7 +12,7 @@ use crate::{
 
 /// BaseModelReactLLM - 将 BaseModel 适配为 ReactLLM
 pub struct BaseModelReactLLM {
-    pub model: Box<dyn BaseModel>,
+    pub model: Arc<dyn BaseModel>,
     pub system: Option<String>,
     /// 会话级 ID，透传到 LlmRequest，供代理（如 LiteLLM）按 session 聚合请求
     pub session_id: Option<String>,
@@ -19,6 +20,15 @@ pub struct BaseModelReactLLM {
 
 impl BaseModelReactLLM {
     pub fn new(model: Box<dyn BaseModel>) -> Self {
+        Self {
+            model: Arc::from(model),
+            system: None,
+            session_id: None,
+        }
+    }
+
+    /// 从已有 `Arc<dyn BaseModel>` 构造（复用 SubAgent/AgentPool 缓存的 LLM 实例）。
+    pub fn from_arc(model: Arc<dyn BaseModel>) -> Self {
         Self {
             model,
             system: None,
