@@ -161,6 +161,37 @@ impl GitRepo {
         }
     }
 
+    /// 获取当前分支的 upstream 名称（如 "origin/main"）
+    pub fn upstream_name(&self) -> Option<String> {
+        let branch_name = self.head_branch()?;
+        let branch = self
+            .repo
+            .find_branch(&branch_name, git2::BranchType::Local)
+            .ok()?;
+        let upstream = branch.upstream().ok()?;
+        upstream.name().ok()?.map(|s| s.to_string())
+    }
+
+    /// 获取远程仓库的默认分支名（通过 origin/HEAD 符号引用）
+    pub fn remote_head_branch(&self) -> Option<String> {
+        let remote_head = self.repo.find_reference("refs/remotes/origin/HEAD").ok()?;
+        let target = remote_head.symbolic_target()?;
+        // target 格式: "refs/remotes/origin/main"
+        target.rsplit('/').next().map(|s| s.to_string())
+    }
+    /// 返回 (ahead, behind)，如果没有 upstream 返回 None
+    pub fn ahead_behind(&self) -> Option<(usize, usize)> {
+        let branch_name = self.head_branch()?;
+        let branch = self
+            .repo
+            .find_branch(&branch_name, git2::BranchType::Local)
+            .ok()?;
+        let upstream = branch.upstream().ok()?;
+        let local_oid = branch.get().target()?;
+        let upstream_oid = upstream.get().target()?;
+        self.repo.graph_ahead_behind(local_oid, upstream_oid).ok()
+    }
+
     pub fn branch_map(&self) -> Result<HashMap<Oid, Vec<String>>> {
         let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
         for branch in self.repo.branches(Some(git2::BranchType::Local))? {
@@ -172,6 +203,26 @@ impl GitRepo {
             }
         }
         // 排序保证确定性，避免 HashMap/迭代器顺序不稳定导致颜色跳动
+        for names in map.values_mut() {
+            names.sort();
+        }
+        Ok(map)
+    }
+
+    /// 远程分支 → Oid 映射（过滤 origin/HEAD）
+    pub fn remote_branch_map(&self) -> Result<HashMap<Oid, Vec<String>>> {
+        let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
+        for branch in self.repo.branches(Some(git2::BranchType::Remote))? {
+            let branch = branch?.0;
+            if let (Some(full_name), Some(target)) =
+                (branch.name()?.map(|s| s.to_string()), branch.get().target())
+            {
+                if full_name.ends_with("/HEAD") {
+                    continue;
+                }
+                map.entry(target).or_default().push(full_name);
+            }
+        }
         for names in map.values_mut() {
             names.sort();
         }

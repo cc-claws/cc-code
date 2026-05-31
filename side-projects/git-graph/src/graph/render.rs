@@ -1,5 +1,6 @@
 use super::color::BranchColors;
 use super::layout::{CellType, GraphRow};
+use crate::theme::GigTheme;
 use git2::Oid;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -11,6 +12,7 @@ pub fn render_graph_row(
     is_selected: bool,
     head_oid: Option<Oid>,
     colors: &BranchColors,
+    theme: &GigTheme,
 ) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
 
@@ -36,6 +38,19 @@ pub fn render_graph_row(
                         .fg(Color::White)
                         .bg(bg)
                         .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::raw(" "));
+            }
+        }
+
+        // remote branch 标记（灰色小字）
+        if !row.remote_branches.is_empty() {
+            for remote_branch in &row.remote_branches {
+                spans.push(Span::styled(
+                    format!(" {} ", remote_branch),
+                    Style::default()
+                        .fg(Color::Rgb(160, 160, 160))
+                        .bg(Color::Rgb(40, 40, 50)),
                 ));
                 spans.push(Span::raw(" "));
             }
@@ -93,7 +108,7 @@ pub fn render_graph_row(
     }
 
     if is_selected {
-        let bg = Color::Rgb(40, 40, 60);
+        let bg = theme.selected_bg();
         spans = spans
             .into_iter()
             .map(|span| {
@@ -158,8 +173,10 @@ mod tests {
             message_short: "initial commit".to_string(),
             has_stash: false,
             tags: Vec::new(),
+            remote_branches: Vec::new(),
         };
-        let line = render_graph_row(&row, 40, false, Some(oid(1)), &BranchColors::new());
+        let theme = GigTheme::new();
+        let line = render_graph_row(&row, 40, false, Some(oid(1)), &BranchColors::new(), &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains('◉'));
         assert!(text.contains("main"));
@@ -179,8 +196,10 @@ mod tests {
             message_short: "test".to_string(),
             has_stash: false,
             tags: Vec::new(),
+            remote_branches: Vec::new(),
         };
-        let line = render_graph_row(&row, 20, true, None, &BranchColors::new());
+        let theme = GigTheme::new();
+        let line = render_graph_row(&row, 20, true, None, &BranchColors::new(), &theme);
         assert!(line.spans.iter().all(|s| s.style.bg.is_some()));
     }
 
@@ -199,8 +218,10 @@ mod tests {
             message_short: String::new(),
             has_stash: false,
             tags: Vec::new(),
+            remote_branches: Vec::new(),
         };
-        let line = render_graph_row(&row, 20, false, None, &BranchColors::new());
+        let theme = GigTheme::new();
+        let line = render_graph_row(&row, 20, false, None, &BranchColors::new(), &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains('├'));
         assert!(text.contains('─'));

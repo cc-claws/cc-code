@@ -1,4 +1,4 @@
-use crate::app::{App, ConfirmAction, Focus, Overlay};
+use crate::app::{App, ConfirmAction, Focus, InputAction, InputDialog, Overlay, ToastStyle};
 use crate::git::remote::{self, RemoteOp, RemoteResult};
 use crate::ui::sidebar::status_panel;
 use crate::ui::toolbar::{GlobalAction, ToolbarAction};
@@ -33,6 +33,123 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             KeyCode::Esc => {
                 app.confirm_message = None;
                 app.confirm_action = None;
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // InputDialog 弹窗输入模式（tag / branch）
+    if app.overlay == Overlay::InputDialog {
+        match code {
+            KeyCode::Esc => {
+                app.input_dialog = None;
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Enter => {
+                if let Some(dialog) = app.input_dialog.take() {
+                    if !dialog.value.is_empty() {
+                        if let Some(oid) = app.selected_oid {
+                            let result = match dialog.action {
+                                InputAction::CreateTag => app.repo.create_tag(oid, &dialog.value),
+                                InputAction::CreateBranch => {
+                                    app.repo.create_branch(oid, &dialog.value)
+                                }
+                            };
+                            match result {
+                                Ok(()) => {
+                                    let label = match dialog.action {
+                                        InputAction::CreateTag => "标签",
+                                        InputAction::CreateBranch => "分支",
+                                    };
+                                    app.show_toast(
+                                        format!("已创建{} {}", label, dialog.value),
+                                        ToastStyle::Success,
+                                    );
+                                    let _ = app.reload();
+                                }
+                                Err(e) => {
+                                    app.show_toast(format!("创建失败: {}", e), ToastStyle::Error);
+                                }
+                            }
+                        }
+                    }
+                }
+                app.input_dialog = None;
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Left => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = dialog.cursor_pos.saturating_sub(1);
+                }
+            }
+            KeyCode::Right => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = dialog
+                        .cursor_pos
+                        .min(dialog.value.chars().count().saturating_sub(1));
+                }
+            }
+            KeyCode::Home => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = 0;
+                }
+            }
+            KeyCode::End => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = dialog.value.chars().count();
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    if dialog.cursor_pos > 0 {
+                        let pos = dialog.cursor_pos;
+                        let byte_pos = dialog.value.char_indices().nth(pos - 1).map(|(i, _)| i);
+                        let byte_next = dialog
+                            .value
+                            .char_indices()
+                            .nth(pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(dialog.value.len());
+                        if let Some(bp) = byte_pos {
+                            dialog.value.drain(bp..byte_next);
+                            dialog.cursor_pos -= 1;
+                        }
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    let pos = dialog.cursor_pos;
+                    let len = dialog.value.chars().count();
+                    if pos < len {
+                        let byte_pos = dialog
+                            .value
+                            .char_indices()
+                            .nth(pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(dialog.value.len());
+                        let byte_next = dialog
+                            .value
+                            .char_indices()
+                            .nth(pos + 1)
+                            .map(|(i, _)| i)
+                            .unwrap_or(dialog.value.len());
+                        dialog.value.drain(byte_pos..byte_next);
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    let byte_pos = dialog
+                        .value
+                        .char_indices()
+                        .nth(dialog.cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(dialog.value.len());
+                    dialog.value.insert(byte_pos, c);
+                    dialog.cursor_pos += 1;
+                }
             }
             _ => {}
         }
@@ -88,13 +205,55 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         return;
     }
 
-    // overlay 打开时仅响应 Esc
+    // overlay 打开时处理
     if app.overlay == Overlay::BranchList
         || app.overlay == Overlay::TagList
         || app.overlay == Overlay::StashList
     {
-        if code == KeyCode::Esc {
-            app.overlay = Overlay::None;
+        match code {
+            KeyCode::Esc => {
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let max = match app.overlay {
+                    Overlay::BranchList => app.repo.branch_names().unwrap_or_default().len(),
+                    Overlay::TagList => app.repo.tag_names_list().unwrap_or_default().len(),
+                    Overlay::StashList => app.stash_map.values().flatten().count(),
+                    _ => 0,
+                };
+                if max > 0 {
+                    app.overlay_selected = (app.overlay_selected + 1).min(max - 1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                app.overlay_selected = app.overlay_selected.saturating_sub(1);
+            }
+            // TagList 专属操作
+            KeyCode::Char('d') if app.overlay == Overlay::TagList => {
+                let tags = app.repo.tag_names_list().unwrap_or_default();
+                if let Some(tag) = tags.get(app.overlay_selected) {
+                    let name = tag.clone();
+                    app.confirm_message = Some(format!("是否删除标签 '{}'？", name));
+                    app.confirm_action = Some(ConfirmAction::DeleteTag(name));
+                    app.overlay = Overlay::ConfirmDialog;
+                }
+            }
+            KeyCode::Char('p') if app.overlay == Overlay::TagList => {
+                let tags = app.repo.tag_names_list().unwrap_or_default();
+                if let Some(tag) = tags.get(app.overlay_selected) {
+                    let name = tag.clone();
+                    match app.repo.push_tag(&name) {
+                        Ok(()) => {
+                            app.show_toast(format!("已推送标签 {}", name), ToastStyle::Success);
+                        }
+                        Err(e) => {
+                            app.show_toast(format!("推送标签失败: {}", e), ToastStyle::Error);
+                        }
+                    }
+                    app.overlay = Overlay::None;
+                }
+            }
+            _ => {}
         }
         return;
     }
@@ -178,6 +337,18 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             };
         }
         KeyCode::Char('q') if !mods.contains(KeyModifiers::CONTROL) => app.quit(),
+        KeyCode::Char('m') if !mods.contains(KeyModifiers::CONTROL) => {
+            app.mouse_enabled = !app.mouse_enabled;
+            use crate::app::ToastStyle;
+            if app.mouse_enabled {
+                app.show_toast("鼠标已启用（滚动/点击）".to_string(), ToastStyle::Info);
+            } else {
+                app.show_toast(
+                    "鼠标已禁用（终端选择复制可用）".to_string(),
+                    ToastStyle::Info,
+                );
+            }
+        }
         KeyCode::Char('b') => {
             app.overlay = Overlay::BranchList;
         }
@@ -294,6 +465,42 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
             scroll_panel(app, mouse.column, mouse.row, ScrollDirection::Down);
         }
         MouseEventKind::Down(MouseButton::Left) => {
+            let mods = mouse.modifiers;
+
+            // Ctrl+左键：在 sidebar 区域复制文件路径
+            if mods.contains(KeyModifiers::CONTROL) {
+                let sa = app.sidebar_area;
+                if mouse.column >= sa.x
+                    && mouse.column < sa.x + sa.width
+                    && mouse.row >= sa.y
+                    && mouse.row < sa.y + sa.height
+                {
+                    let sl = &app.sidebar_layout;
+                    let panels: [(ratatui::layout::Rect, &Option<status_panel::PanelLayout>); 2] = [
+                        (sl.staged_inner, &sl.staged_layout),
+                        (sl.changes_inner, &sl.changes_layout),
+                    ];
+                    for (inner, panel_layout) in &panels {
+                        if mouse.row < inner.y || mouse.row >= inner.y + inner.height {
+                            continue;
+                        }
+                        let rel_row = mouse.row.saturating_sub(inner.y);
+                        if let Some(ref layout) = panel_layout {
+                            for &(row, ref path, _is_dir) in &layout.path_rows {
+                                if rel_row == row {
+                                    let path = path.clone();
+                                    let shift = mods.contains(KeyModifiers::SHIFT);
+                                    copy_path_to_clipboard(app, &path, shift);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Ctrl+点击不在 sidebar 路径行上，继续走正常逻辑
+            }
+
+            // 普通左键点击
             // 先检查全局工具栏
             if let Some(idx) = app.global_toolbar_state.hit_test(mouse.column, mouse.row) {
                 let buttons = crate::ui::toolbar::global_buttons();
@@ -335,30 +542,51 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                         for &(btn_row, btn_x, btn_type, ref path) in &layout.button_rows {
                             if rel_row == btn_row {
                                 let abs_btn_x = inner.x + btn_x;
-                                if mouse.column >= abs_btn_x && mouse.column < abs_btn_x + 3 {
+                                if mouse.column >= abs_btn_x && mouse.column < abs_btn_x + 2 {
                                     let git_path = path.as_str();
                                     match btn_type {
                                         status_panel::StatusButton::Stage => {
                                             if let Err(e) = app.repo.stage_file(git_path) {
-                                                app.remote_status =
-                                                    Some(format!("暂存失败: {}", e));
+                                                app.show_toast(
+                                                    format!("暂存失败: {}", e),
+                                                    ToastStyle::Error,
+                                                );
                                             } else {
                                                 let _ = app.reload();
                                             }
                                         }
                                         status_panel::StatusButton::Unstage => {
                                             if let Err(e) = app.repo.unstage_file(git_path) {
-                                                app.remote_status =
-                                                    Some(format!("取消暂存失败: {}", e));
+                                                app.show_toast(
+                                                    format!("取消暂存失败: {}", e),
+                                                    ToastStyle::Error,
+                                                );
                                             } else {
                                                 let _ = app.reload();
                                             }
                                         }
-                                        status_panel::StatusButton::Discard => {
-                                            if let Err(e) = app.repo.discard_file(git_path) {
-                                                app.remote_status =
-                                                    Some(format!("丢弃修改失败: {}", e));
+                                        status_panel::StatusButton::Delete => {
+                                            // 先尝试 git rm（已跟踪），失败则直接删除（未跟踪）
+                                            if app.repo.delete_tracked_file(git_path).is_err() {
+                                                if let Err(e) =
+                                                    app.repo.delete_untracked_file(git_path)
+                                                {
+                                                    app.show_toast(
+                                                        format!("删除失败: {}", e),
+                                                        ToastStyle::Error,
+                                                    );
+                                                } else {
+                                                    app.show_toast(
+                                                        format!("已删除 {}", git_path),
+                                                        ToastStyle::Success,
+                                                    );
+                                                    let _ = app.reload();
+                                                }
                                             } else {
+                                                app.show_toast(
+                                                    format!("已删除 {}", git_path),
+                                                    ToastStyle::Success,
+                                                );
                                                 let _ = app.reload();
                                             }
                                         }
@@ -531,28 +759,37 @@ fn ensure_selected_visible(app: &mut App) {
 
 fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
     match action {
-        ToolbarAction::CopyHash => {
-            if let Some(oid) = app.selected_oid {
-                // 复制到剪贴板（简化实现：仅标记，实际需要 clipboard crate）
-                let _ = format!("{:.7}", oid);
-            }
-        }
         ToolbarAction::Checkout => {
             if let Some(oid) = app.selected_oid {
                 if let Err(e) = app.repo.checkout(oid) {
-                    app.remote_status = Some(format!("checkout 失败: {}", e));
+                    app.show_toast(format!("checkout 失败: {}", e), ToastStyle::Error);
                 } else {
                     let _ = app.reload();
                 }
             }
         }
         ToolbarAction::CreateTag => {
-            // TODO: 弹出输入框输入 tag 名称
+            app.input_dialog = Some(InputDialog {
+                title: "Create Tag".to_string(),
+                value: String::new(),
+                cursor_pos: 0,
+                action: InputAction::CreateTag,
+            });
+            app.overlay = Overlay::InputDialog;
+        }
+        ToolbarAction::CreateBranch => {
+            app.input_dialog = Some(InputDialog {
+                title: "Create Branch".to_string(),
+                value: String::new(),
+                cursor_pos: 0,
+                action: InputAction::CreateBranch,
+            });
+            app.overlay = Overlay::InputDialog;
         }
         ToolbarAction::Merge => {
             if let Some(oid) = app.selected_oid {
                 if let Err(e) = app.repo.merge(oid) {
-                    app.remote_status = Some(format!("merge 失败: {}", e));
+                    app.show_toast(format!("merge 失败: {}", e), ToastStyle::Error);
                 } else {
                     let _ = app.reload();
                 }
@@ -561,7 +798,7 @@ fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
         ToolbarAction::CherryPick => {
             if let Some(oid) = app.selected_oid {
                 if let Err(e) = app.repo.cherry_pick(oid) {
-                    app.remote_status = Some(format!("cherry-pick 失败: {}", e));
+                    app.show_toast(format!("cherry-pick 失败: {}", e), ToastStyle::Error);
                 } else {
                     let _ = app.reload();
                 }
@@ -588,7 +825,7 @@ fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
                 if let Some(stashes) = app.stash_map.get(&oid) {
                     if let Some(stash) = stashes.first() {
                         if let Err(e) = app.repo.stash_pop(stash.index) {
-                            app.remote_status = Some(format!("stash pop 失败: {}", e));
+                            app.show_toast(format!("stash pop 失败: {}", e), ToastStyle::Error);
                         } else {
                             let _ = app.reload();
                         }
@@ -615,22 +852,30 @@ fn execute_confirm_action(app: &mut App) {
     match action {
         Some(ConfirmAction::ResetHard(oid)) => {
             if let Err(e) = app.repo.reset_hard(oid) {
-                app.remote_status = Some(format!("reset 失败: {}", e));
+                app.show_toast(format!("reset 失败: {}", e), ToastStyle::Error);
             } else {
                 let _ = app.reload();
             }
         }
         Some(ConfirmAction::DeleteBranch(name)) => {
             if let Err(e) = app.repo.delete_branch(&name) {
-                app.remote_status = Some(format!("删除分支失败: {}", e));
+                app.show_toast(format!("删除分支失败: {}", e), ToastStyle::Error);
             } else {
                 let _ = app.reload();
             }
         }
         Some(ConfirmAction::StashDrop(index)) => {
             if let Err(e) = app.repo.stash_drop(index) {
-                app.remote_status = Some(format!("stash drop 失败: {}", e));
+                app.show_toast(format!("stash drop 失败: {}", e), ToastStyle::Error);
             } else {
+                let _ = app.reload();
+            }
+        }
+        Some(ConfirmAction::DeleteTag(name)) => {
+            if let Err(e) = app.repo.delete_tag(&name) {
+                app.show_toast(format!("删除标签失败: {}", e), ToastStyle::Error);
+            } else {
+                app.show_toast(format!("已删除标签 {}", name), ToastStyle::Success);
                 let _ = app.reload();
             }
         }
@@ -646,9 +891,9 @@ fn execute_confirm_action(app: &mut App) {
         }
         Some(ConfirmAction::CheckoutBranch(branch)) => {
             if let Err(e) = app.repo.checkout_branch(&branch) {
-                app.remote_status = Some(format!("checkout 失败: {}", e));
+                app.show_toast(format!("checkout 失败: {}", e), ToastStyle::Error);
             } else {
-                app.remote_status = Some(format!("已切换到 {}", branch));
+                app.show_toast(format!("已切换到 {}", branch), ToastStyle::Success);
                 let _ = app.reload();
             }
         }
@@ -661,11 +906,11 @@ fn spawn_remote(app: &mut App, op: RemoteOp, branch: Option<String>) {
     let workdir = match app.repo.repo().workdir().map(|p| p.to_path_buf()) {
         Some(d) => d,
         None => {
-            app.remote_status = Some("bare 仓库不支持远程操作".to_string());
+            app.show_toast("bare 仓库不支持远程操作".to_string(), ToastStyle::Error);
             return;
         }
     };
-    app.remote_status = Some(format!("{}ing...", op));
+    app.show_toast(format!("{}ing...", op), ToastStyle::Info);
     let result_rx = app.remote_result_rx.clone();
     let handle = remote::spawn_remote_op(workdir, op, branch);
     std::thread::spawn(move || {
@@ -690,7 +935,7 @@ fn handle_global_action(app: &mut App, action: GlobalAction) {
         GlobalAction::RemoteFetch => spawn_remote(app, RemoteOp::Fetch, None),
         GlobalAction::RemotePull => {
             if app.repo.head_branch().is_none() {
-                app.remote_status = Some("detached HEAD，无法 pull".to_string());
+                app.show_toast("detached HEAD，无法 pull".to_string(), ToastStyle::Error);
             } else {
                 app.confirm_message = Some("Pull 方式？y=rebase, n=merge".to_string());
                 app.confirm_action = Some(ConfirmAction::PullRebase);
@@ -708,7 +953,7 @@ fn handle_global_action(app: &mut App, action: GlobalAction) {
                 app.confirm_action = Some(ConfirmAction::PushSetUpstream(branch));
                 app.overlay = Overlay::ConfirmDialog;
             } else {
-                app.remote_status = Some("detached HEAD，无法 push".to_string());
+                app.show_toast("detached HEAD，无法 push".to_string(), ToastStyle::Error);
             }
         }
         GlobalAction::ToggleBranches => {
@@ -720,5 +965,31 @@ fn handle_global_action(app: &mut App, action: GlobalAction) {
         GlobalAction::ToggleStash => {
             app.overlay = Overlay::StashList;
         }
+    }
+}
+
+/// 复制文件路径到剪贴板并显示 toast
+fn copy_path_to_clipboard(app: &mut App, relative_path: &str, use_relative: bool) {
+    let path = if use_relative {
+        relative_path.to_string()
+    } else {
+        // 拼接绝对路径
+        match app.repo.repo().workdir() {
+            Some(wd) => {
+                let abs = wd.join(relative_path);
+                abs.to_string_lossy().to_string()
+            }
+            None => relative_path.to_string(),
+        }
+    };
+
+    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+        if let Err(e) = clipboard.set_text(&path) {
+            app.show_toast(format!("复制失败: {}", e), ToastStyle::Error);
+            return;
+        }
+        app.show_toast(format!("已复制 {}", path), ToastStyle::Success);
+    } else {
+        app.show_toast("无法访问剪贴板".to_string(), ToastStyle::Error);
     }
 }
