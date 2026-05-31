@@ -63,6 +63,7 @@ pub enum ConfirmAction {
 #[allow(dead_code)]
 pub struct App {
     pub running: bool,
+    pub mouse_enabled: bool,
     pub dirty: bool,
     pub theme: GigTheme,
     pub repo: GitRepo,
@@ -184,6 +185,7 @@ impl App {
 
         let mut app = Self {
             running: true,
+            mouse_enabled: true,
             dirty: true,
             theme: GigTheme::new(),
             repo,

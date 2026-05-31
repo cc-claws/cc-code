@@ -93,7 +93,24 @@ fn run_tui(repo_path: &std::path::Path) -> Result<()> {
 
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
             let event = crossterm::event::read()?;
+
+            // 鼠标禁用时跳过鼠标事件，让终端原生选择复制可用
+            if !app.mouse_enabled {
+                if let crossterm::event::Event::Mouse(_) = event {
+                    continue;
+                }
+            }
+
+            // 鼠标模式切换：切换后需要通知终端
+            let prev_mouse = app.mouse_enabled;
             event::handle_event(&mut app, event)?;
+            if app.mouse_enabled != prev_mouse {
+                if app.mouse_enabled {
+                    execute!(terminal.backend_mut(), EnableMouseCapture)?;
+                } else {
+                    execute!(terminal.backend_mut(), DisableMouseCapture)?;
+                }
+            }
             app.dirty = true;
         }
     }

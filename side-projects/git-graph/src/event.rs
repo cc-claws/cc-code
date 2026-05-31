@@ -178,6 +178,18 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             };
         }
         KeyCode::Char('q') if !mods.contains(KeyModifiers::CONTROL) => app.quit(),
+        KeyCode::Char('m') if !mods.contains(KeyModifiers::CONTROL) => {
+            app.mouse_enabled = !app.mouse_enabled;
+            use crate::app::ToastStyle;
+            if app.mouse_enabled {
+                app.show_toast("鼠标已启用（滚动/点击）".to_string(), ToastStyle::Info);
+            } else {
+                app.show_toast(
+                    "鼠标已禁用（终端选择复制可用）".to_string(),
+                    ToastStyle::Info,
+                );
+            }
+        }
         KeyCode::Char('b') => {
             app.overlay = Overlay::BranchList;
         }
