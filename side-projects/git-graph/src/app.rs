@@ -84,6 +84,9 @@ pub enum ConfirmAction {
     CheckoutBranch(String), // branch name
 }
 
+/// 后台高亮批次：Vec<(行号, Vec<(Style, 文本)>)>
+type HighlightBatch = Vec<(usize, Vec<(ratatui::style::Style, String)>)>;
+
 #[allow(dead_code)]
 pub struct App {
     pub running: bool,
@@ -180,12 +183,22 @@ pub struct App {
     pub staged_visible_files: Vec<String>,
     /// Changes 面板可见文件路径列表（渲染时更新）
     pub changes_visible_files: Vec<String>,
-    /// 文件预览滚动偏移（虚拟滚动）
+    /// 文件预览垂直滚动偏移（虚拟滚动）
     pub preview_scroll: u16,
-    /// 文件预览内容（一次性高亮后的 styled spans，每行一个 Vec）
-    pub preview_highlighted: Vec<Vec<(ratatui::style::Style, String)>>,
+    /// 文件预览水平滚动偏移
+    pub preview_scroll_x: u16,
+    /// 文件预览原始行（无高亮，秒开用）
+    pub preview_raw_lines: Vec<String>,
+    /// 文件预览高亮缓存：None=未处理，Some=已高亮（索引与 raw_lines 对齐）
+    pub preview_highlighted: Vec<Option<Vec<(ratatui::style::Style, String)>>>,
     /// 文件预览是否被截断（超大文件）
     pub preview_truncated: bool,
+    /// 后台高亮是否进行中
+    pub preview_highlighting: bool,
+    /// 后台高亮进度接收端
+    pub preview_hl_rx: Option<std::sync::mpsc::Receiver<HighlightBatch>>,
+    /// 预览内容最大行宽（渲染时计算，水平滚动用）
+    pub preview_max_line_width: u16,
 }
 
 impl App {
@@ -292,8 +305,13 @@ impl App {
             staged_visible_files: Vec::new(),
             changes_visible_files: Vec::new(),
             preview_scroll: 0,
+            preview_scroll_x: 0,
+            preview_raw_lines: Vec::new(),
             preview_highlighted: Vec::new(),
             preview_truncated: false,
+            preview_highlighting: false,
+            preview_hl_rx: None,
+            preview_max_line_width: 0,
         };
         app.select(selected_idx);
         Ok(app)
@@ -347,11 +365,16 @@ impl App {
         self.running = false;
     }
 
-    /// 加载文件预览内容，一次性完成语法高亮。调用前确保 preview_file 已设置。
+    /// 加载文件预览内容：秒读原始行立即可渲染，后台线程渐进高亮。
     pub fn load_preview(&mut self) {
         self.preview_highlighted.clear();
+        self.preview_raw_lines.clear();
         self.preview_truncated = false;
         self.preview_scroll = 0;
+        self.preview_scroll_x = 0;
+        self.preview_max_line_width = 0;
+        self.preview_highlighting = false;
+        self.preview_hl_rx = None; // drop old rx → 取消旧后台任务
         if let Some((ref path, is_staged)) = self.preview_file {
             let result = if is_staged {
                 self.repo.read_staged_file(path)
@@ -361,42 +384,99 @@ impl App {
             if let Ok(data) = result {
                 let text = String::from_utf8_lossy(&data);
                 const MAX_LINES: usize = 500_000;
-                let lines: Vec<&str> = text.lines().take(MAX_LINES).collect();
+                let lines: Vec<String> = text
+                    .lines()
+                    .take(MAX_LINES)
+                    .map(|s| s.to_string())
+                    .collect();
                 self.preview_truncated = lines.len() >= MAX_LINES;
-
-                // 一次性高亮全部行
+                // 计算最大行宽
+                use unicode_width::UnicodeWidthStr;
+                self.preview_max_line_width = lines
+                    .iter()
+                    .map(|l| UnicodeWidthStr::width(l.as_str()) as u16)
+                    .max()
+                    .unwrap_or(0);
+                // 秒开：原始行立即可渲染
+                self.preview_raw_lines = lines;
+                // 如果无扩展名可识别，跳过后台高亮
                 let ext = crate::ui::syntax::extension_from_path(path);
                 let syntax = crate::ui::syntax::find_syntax(ext);
-                if let Some(syn) = syntax {
-                    let theme = crate::ui::syntax::get_theme();
-                    let ss = crate::ui::syntax::get_syntax_set();
-                    let mut h = syntect::easy::HighlightLines::new(syn, theme);
-                    for line in lines {
-                        match h.highlight_line(line, ss) {
-                            Ok(segments) => {
-                                let spans: Vec<_> = segments
+                if syntax.is_some() {
+                    // 启动后台高亮，每 200 行推送一批
+                    self.preview_highlighting = true;
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    self.preview_hl_rx = Some(rx);
+                    let lines_for_thread = self.preview_raw_lines.clone();
+                    let path_clone = path.clone();
+                    std::thread::spawn(move || {
+                        // 在子线程内获取静态引用
+                        let syn = match crate::ui::syntax::find_syntax(
+                            crate::ui::syntax::extension_from_path(&path_clone),
+                        ) {
+                            Some(s) => s,
+                            None => return,
+                        };
+                        let theme = crate::ui::syntax::get_theme();
+                        let ss = crate::ui::syntax::get_syntax_set();
+                        let mut h = syntect::easy::HighlightLines::new(syn, theme);
+                        let mut batch: Vec<(usize, Vec<(ratatui::style::Style, String)>)> =
+                            Vec::with_capacity(200);
+                        for (i, line) in lines_for_thread.iter().enumerate() {
+                            let spans = match h.highlight_line(line, ss) {
+                                Ok(segments) => segments
                                     .into_iter()
                                     .map(|(s, t)| {
                                         (crate::ui::syntax::to_ratatui_style(s), t.to_string())
                                     })
-                                    .collect();
-                                self.preview_highlighted.push(spans);
-                            }
-                            Err(_) => {
-                                self.preview_highlighted.push(vec![(
-                                    ratatui::style::Style::default(),
-                                    line.to_string(),
-                                )]);
+                                    .collect(),
+                                Err(_) => vec![(ratatui::style::Style::default(), line.clone())],
+                            };
+                            batch.push((i, spans));
+                            if (batch.len() >= 200 || i == lines_for_thread.len() - 1)
+                                && tx.send(std::mem::take(&mut batch)).is_err()
+                            {
+                                return;
                             }
                         }
-                    }
+                    });
                 } else {
-                    // 无语法高亮，存纯文本
-                    for line in lines {
-                        self.preview_highlighted
-                            .push(vec![(ratatui::style::Style::default(), line.to_string())]);
+                    // 无语法识别，无高亮但缓存也填满（全 None 即用 raw）
+                    self.preview_highlighted = vec![None; self.preview_raw_lines.len()];
+                }
+            }
+        }
+    }
+
+    /// 检查后台高亮进度（主循环每次迭代调用，非阻塞）
+    pub fn check_preview_progress(&mut self) {
+        if let Some(ref rx) = self.preview_hl_rx {
+            let mut any = false;
+            // 确保 highlighted 容量足够（可能渲染时已分配）
+            if self.preview_highlighted.is_empty() {
+                self.preview_highlighted = vec![None; self.preview_raw_lines.len()];
+            }
+            loop {
+                match rx.try_recv() {
+                    Ok(batch) => {
+                        for (idx, spans) in batch {
+                            if idx < self.preview_highlighted.len() {
+                                self.preview_highlighted[idx] = Some(spans);
+                            }
+                        }
+                        any = true;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        self.preview_highlighting = false;
+                        self.preview_hl_rx = None;
+                        any = true;
+                        break;
                     }
                 }
+            }
+            if any {
+                self.dirty = true;
             }
         }
     }

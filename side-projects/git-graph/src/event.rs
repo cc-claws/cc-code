@@ -270,7 +270,7 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             KeyCode::Char('u') => {
                 if app.preview_file.is_some() {
                     // 在文件预览中向上翻页
-                    let delta = (app.preview_highlighted.len() as u16).min(10);
+                    let delta = (app.preview_raw_lines.len() as u16).min(10);
                     app.preview_scroll = app.preview_scroll.saturating_sub(delta);
                     return;
                 }
@@ -284,12 +284,13 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             KeyCode::Char('d') => {
                 if app.preview_file.is_some() {
                     // 在文件预览中向下翻页
-                    let delta = (app.preview_highlighted.len() as u16).min(10);
+                    let delta = (app.preview_raw_lines.len() as u16).min(10);
                     let max = app
-                        .preview_highlighted
+                        .preview_raw_lines
                         .len()
-                        .saturating_sub(app.preview_highlighted.len().min(40));
-                    let new = (app.preview_scroll + delta).min(max as u16);
+                        .saturating_sub(40)
+                        .min(u16::MAX as usize) as u16;
+                    let new = (app.preview_scroll + delta).min(max);
                     if new != app.preview_scroll {
                         app.preview_scroll = new;
                     }
@@ -300,6 +301,27 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                     (app.selected_idx + delta).min(app.layout.rows.len().saturating_sub(1));
                 app.select(new_idx);
                 ensure_selected_visible(app);
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    // 文件预览模式下的键盘操作（优先于 Sidebar 焦点处理）
+    if app.preview_file.is_some() {
+        match code {
+            KeyCode::Left => {
+                app.preview_scroll_x = app.preview_scroll_x.saturating_sub(3);
+                return;
+            }
+            KeyCode::Right => {
+                let max_x = app
+                    .preview_max_line_width
+                    .saturating_sub(app.preview_max_line_width.min(80));
+                let new = (app.preview_scroll_x + 3).min(max_x);
+                if new != app.preview_scroll_x {
+                    app.preview_scroll_x = new;
+                }
                 return;
             }
             _ => {}
@@ -377,8 +399,13 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                     if let Some(path) = files.get(app.status_file_index) {
                         let is_staged = matches!(app.status_sub_panel, StatusSubPanel::Staged);
                         app.preview_file = Some((path.clone(), is_staged));
-                        app.preview_highlighted.clear(); // 触发懒加载
+                        app.preview_raw_lines.clear(); // 触发懒加载
+                        app.preview_highlighted.clear();
                         app.preview_scroll = 0;
+                        app.preview_scroll_x = 0;
+                        app.preview_highlighting = false;
+                        app.preview_hl_rx = None;
+                        app.preview_max_line_width = 0;
                     }
                     return;
                 }
@@ -461,9 +488,14 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             // 先关闭文件预览
             if app.preview_file.is_some() {
                 app.preview_file = None;
+                app.preview_raw_lines.clear();
                 app.preview_highlighted.clear();
                 app.preview_truncated = false;
                 app.preview_scroll = 0;
+                app.preview_scroll_x = 0;
+                app.preview_highlighting = false;
+                app.preview_hl_rx = None;
+                app.preview_max_line_width = 0;
                 app.focus = Focus::Status;
                 return;
             }
@@ -710,8 +742,13 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                     app.status_file_index = idx;
                                 }
                                 app.preview_file = Some((path.clone(), *is_staged));
+                                app.preview_raw_lines.clear();
                                 app.preview_highlighted.clear();
                                 app.preview_scroll = 0;
+                                app.preview_scroll_x = 0;
+                                app.preview_highlighting = false;
+                                app.preview_hl_rx = None;
+                                app.preview_max_line_width = 0;
                                 app.dirty = true;
                                 return;
                             }
@@ -819,7 +856,7 @@ fn scroll_panel(app: &mut App, col: u16, row: u16, dir: ScrollDirection) {
         let da = app.detail_area;
         if col >= da.x && col < da.x + da.width && row >= da.y && row < da.y + da.height {
             let max = app
-                .preview_highlighted
+                .preview_raw_lines
                 .len()
                 .saturating_sub(da.height.saturating_sub(2) as usize)
                 .min(u16::MAX as usize) as u16;

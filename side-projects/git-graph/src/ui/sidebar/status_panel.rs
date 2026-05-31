@@ -19,7 +19,7 @@ pub enum StatusButton {
     Stage,
     /// [-] 取消暂存文件/目录（git restore --staged）
     Unstage,
-    /// [x] 删除文件（git rm / rm）
+    /// [-] 删除文件（git rm / rm）
     Delete,
 }
 
@@ -144,20 +144,24 @@ fn truncate_spans(spans: &mut Vec<Span<'static>>, max: usize) {
     if spans.is_empty() {
         return;
     }
-    while spans_width(spans) > max {
-        let idx = spans.len() - 1;
-        let s = spans[idx].content.clone().into_owned();
+    // 从右向左逐 span 截断，耗尽最后一个 span 后移除并继续截前一个
+    while spans_width(spans) > max && !spans.is_empty() {
+        let last_idx = spans.len() - 1;
+        let s = spans[last_idx].content.clone().into_owned();
         if s.is_empty() {
-            break;
+            spans.remove(last_idx);
+            continue;
         }
         let has_el = s.ends_with('…');
         let rm = if has_el { 2 } else { 1 };
         let chars: Vec<char> = s.chars().collect();
         let nl = chars.len().saturating_sub(rm);
         if nl == 0 {
-            break;
+            spans.remove(last_idx);
+        } else {
+            spans[last_idx].content =
+                Cow::Owned(format!("{}…", chars[..nl].iter().collect::<String>()));
         }
-        spans[idx].content = Cow::Owned(format!("{}…", chars[..nl].iter().collect::<String>()));
     }
 }
 
@@ -195,7 +199,7 @@ fn append_buttons(
                     .bg(ratatui::style::Color::Rgb(140, 110, 20)),
             ),
             StatusButton::Delete => (
-                "x",
+                "-",
                 Style::default()
                     .fg(ratatui::style::Color::White)
                     .bg(ratatui::style::Color::Rgb(140, 40, 40)),
