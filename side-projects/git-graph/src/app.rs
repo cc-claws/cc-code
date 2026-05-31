@@ -46,6 +46,7 @@ pub enum Overlay {
     ConfirmDialog,
     FilterBar,
     SearchBar,
+    TagInput,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +87,8 @@ pub struct App {
     pub confirm_action: Option<ConfirmAction>,
     pub filter_branch: Option<String>,
     pub search_query: Option<String>,
+    /// tag 输入框内容
+    pub tag_input: Option<String>,
     /// Toast 通知（统一替代 remote_status）
     pub toast: Option<Toast>,
     /// 远程操作完成的结果通道（主循环轮询更新 toast）
@@ -208,6 +211,7 @@ impl App {
             confirm_action: None,
             filter_branch: None,
             search_query: None,
+            tag_input: None,
             toast: None,
             remote_result_rx: std::sync::Arc::new(std::sync::Mutex::new(None)),
             toolbar_state: ToolbarState::new(),

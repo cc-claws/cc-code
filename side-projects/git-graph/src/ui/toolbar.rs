@@ -10,7 +10,6 @@ use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarAction {
-    CopyHash,
     Checkout,
     CreateTag,
     Merge,
@@ -90,12 +89,6 @@ pub fn global_buttons() -> Vec<GlobalToolbarButton> {
 /// 获取基于当前选中 commit 的操作按钮
 pub fn commit_buttons(app: &App) -> Vec<ToolbarButton> {
     let mut buttons = vec![
-        ToolbarButton {
-            emoji: "📋",
-            label: "copy",
-            action: ToolbarAction::CopyHash,
-            dangerous: false,
-        },
         ToolbarButton {
             emoji: "⎇",
             label: "checkout",

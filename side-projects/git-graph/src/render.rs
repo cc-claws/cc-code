@@ -22,7 +22,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     };
 
     // 搜索栏占底部 1 行
-    let (content_area, search_area) = if app.overlay == Overlay::SearchBar && body_area.height > 2 {
+    let needs_input_bar = app.overlay == Overlay::SearchBar || app.overlay == Overlay::TagInput;
+    let (content_area, search_area) = if needs_input_bar && body_area.height > 2 {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(0), Constraint::Length(1)])
@@ -56,9 +57,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         crate::ui::toast::draw_toast(f, toast_area, app);
     }
 
-    // 搜索栏
+    // 搜索栏 / tag 输入栏
     if let Some(sb_area) = search_area {
-        crate::ui::search_bar::draw_search_bar(f, sb_area, app);
+        if app.overlay == Overlay::TagInput {
+            crate::ui::search_bar::draw_tag_input(f, sb_area, app);
+        } else {
+            crate::ui::search_bar::draw_search_bar(f, sb_area, app);
+        }
     }
 
     // 确认弹窗

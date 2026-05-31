@@ -39,6 +39,54 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         return;
     }
 
+    // TagInput 输入模式
+    if app.overlay == Overlay::TagInput {
+        match code {
+            KeyCode::Esc => {
+                app.tag_input = None;
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Enter => {
+                if let Some(tag_name) = &app.tag_input {
+                    if !tag_name.is_empty() {
+                        if let Some(oid) = app.selected_oid {
+                            match app.repo.create_tag(oid, tag_name) {
+                                Ok(()) => {
+                                    app.show_toast(
+                                        format!("已创建标签 {}", tag_name),
+                                        ToastStyle::Success,
+                                    );
+                                    let _ = app.reload();
+                                }
+                                Err(e) => {
+                                    app.show_toast(
+                                        format!("创建标签失败: {}", e),
+                                        ToastStyle::Error,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                app.tag_input = None;
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Backspace => {
+                if let Some(input) = &mut app.tag_input {
+                    input.pop();
+                    if input.is_empty() {
+                        app.tag_input = None;
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                app.tag_input.get_or_insert_with(String::new).push(c);
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // SearchBar 输入模式
     if app.overlay == Overlay::SearchBar {
         match code {
@@ -585,12 +633,6 @@ fn ensure_selected_visible(app: &mut App) {
 
 fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
     match action {
-        ToolbarAction::CopyHash => {
-            if let Some(oid) = app.selected_oid {
-                // 复制到剪贴板（简化实现：仅标记，实际需要 clipboard crate）
-                let _ = format!("{:.7}", oid);
-            }
-        }
         ToolbarAction::Checkout => {
             if let Some(oid) = app.selected_oid {
                 if let Err(e) = app.repo.checkout(oid) {
@@ -601,7 +643,8 @@ fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
             }
         }
         ToolbarAction::CreateTag => {
-            // TODO: 弹出输入框输入 tag 名称
+            app.tag_input = Some(String::new());
+            app.overlay = Overlay::TagInput;
         }
         ToolbarAction::Merge => {
             if let Some(oid) = app.selected_oid {
