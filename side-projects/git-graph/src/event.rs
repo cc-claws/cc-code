@@ -218,19 +218,17 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 app.overlay = Overlay::None;
             }
             KeyCode::Enter => {
-                if let Some(path) = app
-                    .file_search_results
-                    .get(app.file_search_selected)
-                    .cloned()
-                {
-                    app.preview_file = Some((path, true));
-                    app.preview_raw_lines.clear();
-                    app.preview_highlighted.clear();
-                    app.preview_scroll = 0;
-                    app.preview_scroll_x = 0;
-                    app.preview_highlighting = false;
-                    app.preview_hl_rx = None;
-                    app.preview_max_line_width = 0;
+                if let Some(idx) = app.file_search_results.get(app.file_search_selected) {
+                    if let Some(path) = app.all_tracked_files.get(*idx) {
+                        app.preview_file = Some((path.clone(), true));
+                        app.preview_raw_lines.clear();
+                        app.preview_highlighted.clear();
+                        app.preview_scroll = 0;
+                        app.preview_scroll_x = 0;
+                        app.preview_highlighting = false;
+                        app.preview_hl_rx = None;
+                        app.preview_max_line_width = 0;
+                    }
                 }
                 app.file_search_query = None;
                 app.file_search_cursor = 0;
@@ -580,10 +578,13 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.file_search_results.clear();
             if app.all_tracked_files.is_empty() {
                 match app.repo.list_all_files() {
-                    Ok(files) => app.all_tracked_files = files,
+                    Ok(files) => {
+                        app.all_tracked_files_lower =
+                            files.iter().map(|f| f.to_ascii_lowercase()).collect();
+                        app.all_tracked_files = files;
+                    }
                     Err(e) => {
                         app.show_toast(format!("文件扫描失败: {}", e), ToastStyle::Error);
-                        // 即使扫描失败也打开弹窗，至少用户能看到错误提示
                     }
                 }
             }

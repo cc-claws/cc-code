@@ -203,9 +203,13 @@ pub struct App {
     // === 文件搜索状态 ===
     pub file_search_query: Option<String>,
     pub file_search_cursor: usize,
-    pub file_search_results: Vec<String>,
+    /// 过滤结果：all_tracked_files 的索引列表（预计算 lowercase 避免每次按键分配）
+    pub file_search_results: Vec<usize>,
     pub file_search_selected: usize,
+    /// 原始路径（单次加载，不重复分配）
     pub all_tracked_files: Vec<String>,
+    /// all_tracked_files 的小写版本，仅用于过滤比较
+    pub all_tracked_files_lower: Vec<String>,
 }
 
 impl App {
@@ -324,6 +328,7 @@ impl App {
             file_search_results: Vec::new(),
             file_search_selected: 0,
             all_tracked_files: Vec::new(),
+            all_tracked_files_lower: Vec::new(),
         };
         app.select(selected_idx);
         Ok(app)
@@ -377,26 +382,26 @@ impl App {
         self.running = false;
     }
 
-    /// 根据查询文本过滤文件搜索结果
+    /// 根据查询文本过滤文件搜索结果（使用预计算 lowercase，零分配）
     pub fn update_file_search_results(&mut self) {
+        self.file_search_selected = 0;
         let query = match self.file_search_query.as_deref() {
             Some(q) if !q.is_empty() => q.to_ascii_lowercase(),
             _ => {
-                self.file_search_results =
-                    self.all_tracked_files.iter().take(50).cloned().collect();
-                self.file_search_selected = 0;
+                // 无查询时显示前 50 个文件
+                self.file_search_results = (0..self.all_tracked_files.len().min(50)).collect();
                 return;
             }
         };
         let q = &query;
         self.file_search_results = self
-            .all_tracked_files
+            .all_tracked_files_lower
             .iter()
-            .filter(|path| path.to_ascii_lowercase().contains(q))
+            .enumerate()
+            .filter(|(_, lower)| lower.contains(q))
             .take(50)
-            .cloned()
+            .map(|(i, _)| i)
             .collect();
-        self.file_search_selected = 0;
     }
 
     /// 加载文件预览内容：秒读原始行立即可渲染，后台线程渐进高亮。

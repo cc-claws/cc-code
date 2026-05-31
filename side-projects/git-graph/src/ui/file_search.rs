@@ -22,7 +22,7 @@ pub fn draw_file_search(f: &mut Frame, area: Rect, app: &App) {
     let query = app.file_search_query.as_deref().unwrap_or("");
     let cursor_pos = app.file_search_cursor;
 
-    // 输入行
+    // 输入行（零 allocation）
     let before: String = query.chars().take(cursor_pos).collect();
     let cursor_char = query.chars().nth(cursor_pos).unwrap_or(' ');
     let after: String = query.chars().skip(cursor_pos + 1).collect();
@@ -43,7 +43,7 @@ pub fn draw_file_search(f: &mut Frame, area: Rect, app: &App) {
     ));
 
     // 结果行（虚拟滚动）
-    let visible = popup_height as usize - 5; // 减去边框+输入+分隔+提示
+    let visible = popup_height as usize - 5;
     let scroll = if app.file_search_selected >= visible {
         app.file_search_selected - visible + 1
     } else {
@@ -51,22 +51,24 @@ pub fn draw_file_search(f: &mut Frame, area: Rect, app: &App) {
     };
 
     let mut lines: Vec<Line> = vec![input_line, sep];
-    for i in scroll..app.file_search_results.len() {
+    for j in scroll..app.file_search_results.len() {
         if lines.len() >= popup_height as usize - 2 - 1 {
-            // 留 1 行给提示
             break;
         }
-        let path = &app.file_search_results[i];
+        let idx = app.file_search_results[j];
+        let Some(path) = app.all_tracked_files.get(idx) else {
+            continue;
+        };
         let (dir, file) = split_path(path);
-        if i == app.file_search_selected {
+        if j == app.file_search_selected {
             lines.push(Line::from(vec![
                 Span::styled(" ▸ ", Style::default().fg(Color::Cyan)),
                 Span::styled(
-                    dir.clone(),
+                    dir,
                     Style::default().fg(Color::Cyan).bg(Color::Rgb(38, 79, 120)),
                 ),
                 Span::styled(
-                    file.clone(),
+                    file,
                     Style::default()
                         .fg(Color::White)
                         .bg(Color::Rgb(38, 79, 120))
@@ -104,12 +106,9 @@ pub fn draw_file_search(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(para, popup_area);
 }
 
-fn split_path(path: &str) -> (String, String) {
+fn split_path(path: &str) -> (&str, &str) {
     match path.rfind('/') {
-        Some(pos) => {
-            let (dir, file) = path.split_at(pos + 1);
-            (dir.to_string(), file.to_string())
-        }
-        None => (String::new(), path.to_string()),
+        Some(pos) => path.split_at(pos + 1),
+        None => ("", path),
     }
 }
