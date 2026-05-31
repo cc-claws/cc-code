@@ -172,10 +172,7 @@ impl GitRepo {
         let upstream = branch.upstream().ok()?;
         let local_oid = branch.get().target()?;
         let upstream_oid = upstream.get().target()?;
-        self.repo
-            .graph_ahead_behind(local_oid, upstream_oid)
-            .ok()
-            .map(|(a, b)| (a, b))
+        self.repo.graph_ahead_behind(local_oid, upstream_oid).ok()
     }
 
     pub fn branch_map(&self) -> Result<HashMap<Oid, Vec<String>>> {
