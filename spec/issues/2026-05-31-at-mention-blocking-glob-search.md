@@ -1,8 +1,9 @@
 # @ mention 文件搜索性能差 + 多目录搜不到
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-05-31
+**修复日期**：2026-05-31
 
 ## 问题描述
 
@@ -61,6 +62,28 @@
   2. 继续输入任意字符（如 `s` 或 `side`）
   3. 观察到 UI 卡顿，CPU 飙升
   4. 候选列表中 `side-projects/` 和 `spec/issues/` 下的文件不可见
+
+## 修复记录（2026-05-31）
+
+**方案**：线程模型（非进程模型），复用 Glob 工具逻辑。
+
+**核心改动**：
+1. `file_search.rs`：`glob::glob()` → `walkdir::WalkDir` + `should_skip_dir`（对齐 GlobFilesTool），移除 `MAX_GLOB_RESULTS` 截断
+2. `mod.rs`：`tokio::spawn` + `spawn_blocking` + `CancellationToken` → `std::thread::spawn` + `std::sync::mpsc` + `recv_timeout(1s)` idle 退出
+3. `keyboard.rs`：`start_async_search(cwd, query)` → `ensure_cwd(cwd)` + `start_search(query)`
+4. Debounce 300ms → 200ms
+
+**效果**：
+- 搜索遗漏：walkdir + should_skip_dir 在遍历时跳过 node_modules/target，不再被截断，side-projects/spec/issues 均可搜到
+- 内存：专用线程（2MB stack），idle 1s 自动退出并 drop 所有数据；不再占用 tokio 线程池
+- CPU：glob 密集计算在独立线程，排空队列只处理最新 query
+- 性能：200ms debounce + 搜索线程排空，连续输入无卡顿
+
+**涉及文件**：
+- `peri-tui/src/app/at_mention/file_search.rs`
+- `peri-tui/src/app/at_mention/mod.rs`
+- `peri-tui/src/event/keyboard.rs`
+- `peri-tui/Cargo.toml`（`glob` → `walkdir`）
 
 ## 涉及文件
 

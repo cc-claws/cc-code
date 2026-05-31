@@ -180,6 +180,8 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
         .ui
         .at_mention;
 
+    at.ensure_cwd(app.services.cwd.clone());
+
     if let Some((query, start)) = crate::app::AtMentionState::detect(&text, pos) {
         if at.active && at.query == query {
             return; // 未变化
@@ -192,14 +194,13 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
             return;
         }
 
-        // 节流：距离上次 glob 不到 300ms 时，保留旧结果不搜索
+        // 节流：距离上次搜索不到 200ms 时，保留旧结果不搜索
         if !at.should_search_now() && !at.candidates.is_empty() {
             return;
         }
 
-        // 异步搜索：spawn 后台任务，不阻塞 UI 线程
-        let cwd = app.services.cwd.clone();
-        at.start_async_search(cwd, query);
+        // 搜索线程处理，不阻塞 UI
+        at.start_search(query);
     } else if at.active {
         at.close();
     }

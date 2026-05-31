@@ -3232,7 +3232,6 @@ dependencies = [
  "fluent-bundle",
  "futures-util",
  "fuzzy-matcher",
- "glob",
  "libmimalloc-sys",
  "mimalloc",
  "parking_lot",
@@ -3259,6 +3258,7 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]
