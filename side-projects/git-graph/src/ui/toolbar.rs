@@ -1,7 +1,7 @@
 use crate::app::App;
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -10,9 +10,9 @@ use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarAction {
-    CopyHash,
     Checkout,
     CreateTag,
+    CreateBranch,
     Merge,
     CherryPick,
     Reset,
@@ -91,12 +91,6 @@ pub fn global_buttons() -> Vec<GlobalToolbarButton> {
 pub fn commit_buttons(app: &App) -> Vec<ToolbarButton> {
     let mut buttons = vec![
         ToolbarButton {
-            emoji: "📋",
-            label: "copy",
-            action: ToolbarAction::CopyHash,
-            dangerous: false,
-        },
-        ToolbarButton {
             emoji: "⎇",
             label: "checkout",
             action: ToolbarAction::Checkout,
@@ -106,6 +100,12 @@ pub fn commit_buttons(app: &App) -> Vec<ToolbarButton> {
             emoji: "🏷",
             label: "tag",
             action: ToolbarAction::CreateTag,
+            dangerous: false,
+        },
+        ToolbarButton {
+            emoji: "⑂",
+            label: "branch",
+            action: ToolbarAction::CreateBranch,
             dangerous: false,
         },
         ToolbarButton {
@@ -275,6 +275,76 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
     let mut spans: Vec<Span> = Vec::new();
     let mut x = area.x;
 
+    // 左侧：分支名 + ahead/behind + dirty 标记
+    if let Some(branch) = app.repo.head_branch() {
+        spans.push(Span::styled(
+            format!(" {} ", branch),
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(80, 50, 130))
+                .add_modifier(Modifier::BOLD),
+        ));
+        x += UnicodeWidthStr::width(format!(" {} ", branch).as_str()) as u16;
+
+        // ahead/behind 标记
+        if let Some((ahead, behind)) = app.ahead_behind {
+            if ahead > 0 || behind > 0 {
+                let mut ab_text = String::new();
+                if behind > 0 {
+                    ab_text = format!("↓{}", behind);
+                }
+                if ahead > 0 {
+                    if !ab_text.is_empty() {
+                        ab_text.push(' ');
+                    }
+                    ab_text.push_str(&format!("↑{}", ahead));
+                }
+                let styled = format!(" {} ", ab_text);
+                spans.push(Span::styled(
+                    styled.clone(),
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Rgb(40, 70, 110)),
+                ));
+                x += UnicodeWidthStr::width(styled.as_str()) as u16;
+            }
+        }
+
+        // dirty 标记：工作区不干净时显示 *
+        if !app.git_status.is_empty() {
+            spans.push(Span::styled(
+                " * ".to_string(),
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Rgb(140, 100, 20)),
+            ));
+            x += 3;
+        }
+
+        spans.push(Span::raw("  "));
+        x += 2;
+    }
+
+    // 远程跟踪信息
+    let mut remote_info = String::new();
+    if let Some(upstream) = app.repo.upstream_name() {
+        remote_info.push_str(&format!(" {} ", upstream));
+    }
+    if let Some(remote_head) = app.repo.remote_head_branch() {
+        remote_info.push_str(&format!(" ▸ {} ", remote_head));
+    }
+    if !remote_info.is_empty() {
+        spans.push(Span::styled(
+            remote_info.clone(),
+            Style::default()
+                .fg(Color::Rgb(180, 180, 180))
+                .bg(Color::Rgb(30, 30, 35)),
+        ));
+        x += UnicodeWidthStr::width(remote_info.as_str()) as u16;
+        spans.push(Span::raw("  "));
+        x += 2;
+    }
+
     for (i, btn) in buttons.iter().enumerate() {
         let text = format!(" {}{} ", btn.emoji, btn.label);
         let text_width = UnicodeWidthStr::width(text.as_str()) as u16;
@@ -288,13 +358,6 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
             spans.push(Span::raw(" "));
             x += 1;
         }
-    }
-
-    // 显示远程操作状态
-    if let Some(status) = &app.remote_status {
-        let status_text = status.chars().take(40).collect::<String>();
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(status_text, Style::default().fg(Color::Cyan)));
     }
 
     let para = Paragraph::new(Line::from(spans));

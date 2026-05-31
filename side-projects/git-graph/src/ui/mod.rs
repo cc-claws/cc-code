@@ -5,4 +5,5 @@ pub mod graph_panel;
 pub mod overlay;
 pub mod search_bar;
 pub mod sidebar;
+pub mod toast;
 pub mod toolbar;

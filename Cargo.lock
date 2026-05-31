@@ -1651,6 +1651,7 @@ name = "gig"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "assert_cmd",
  "clap",
  "crossterm 0.28.1",

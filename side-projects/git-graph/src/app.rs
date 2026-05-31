@@ -13,6 +13,36 @@ use ratatui::layout::Rect;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+/// Toast 通知消息
+#[derive(Debug, Clone)]
+pub struct Toast {
+    pub message: String,
+    pub style: ToastStyle,
+    pub expires_at: std::time::Instant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToastStyle {
+    Success,
+    Error,
+    Info,
+}
+
+/// 弹窗输入状态（创建 tag / branch 共用）
+#[derive(Debug, Clone)]
+pub struct InputDialog {
+    pub title: String,
+    pub value: String,
+    pub cursor_pos: usize,
+    pub action: InputAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputAction {
+    CreateTag,
+    CreateBranch,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     FileTree,
@@ -31,6 +61,7 @@ pub enum Overlay {
     ConfirmDialog,
     FilterBar,
     SearchBar,
+    InputDialog,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +69,7 @@ pub enum Overlay {
 pub enum ConfirmAction {
     ResetHard(Oid),
     DeleteBranch(String),
+    DeleteTag(String),
     StashDrop(usize),
     ForcePush,
     PushSetUpstream(String), // branch name
@@ -48,6 +80,7 @@ pub enum ConfirmAction {
 #[allow(dead_code)]
 pub struct App {
     pub running: bool,
+    pub mouse_enabled: bool,
     pub dirty: bool,
     pub theme: GigTheme,
     pub repo: GitRepo,
@@ -57,6 +90,8 @@ pub struct App {
     pub head_oid: Oid,
     pub focus: Focus,
     pub overlay: Overlay,
+    /// overlay 列表选中索引（BranchList/TagList/StashList 共用）
+    pub overlay_selected: usize,
     pub selected_idx: usize,
     pub scroll_offset: usize,
     pub viewport_height: usize,
@@ -70,11 +105,16 @@ pub struct App {
     pub confirm_action: Option<ConfirmAction>,
     pub filter_branch: Option<String>,
     pub search_query: Option<String>,
-    pub remote_status: Option<String>,
-    /// 远程操作完成的结果通道（主循环轮询更新 remote_status）
+    /// 弹窗输入框内容（tag/branch 名称）
+    pub input_dialog: Option<InputDialog>,
+    /// Toast 通知（统一替代 remote_status）
+    pub toast: Option<Toast>,
+    /// 远程操作完成的结果通道（主循环轮询更新 toast）
     pub remote_result_rx: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub toolbar_state: ToolbarState,
     pub global_toolbar_state: GlobalToolbarState,
+    /// 当前分支相对 upstream 的 ahead/behind（reload 时更新）
+    pub ahead_behind: Option<(usize, usize)>,
     /// graph 面板内容区域的 y 坐标（用于鼠标点击偏移计算）
     pub graph_inner_y: u16,
     /// graph 面板区域（用于鼠标点击检测）
@@ -129,6 +169,7 @@ impl App {
         let head_oid = repo.head_oid()?;
         let branch_map = repo.branch_map()?;
         let tag_map = repo.tag_map()?;
+        let remote_branch_map = repo.remote_branch_map()?;
         let stash_map = repo.stash_by_commit()?;
         let stash_oids: Vec<git2::Oid> = stash_map.values().flatten().map(|s| s.oid).collect();
         let nodes = repo.scan_topology_with_extra(&stash_oids)?;
@@ -145,6 +186,7 @@ impl App {
             &stash_map,
             &mut colors,
             topology.tag_map(),
+            &remote_branch_map,
         );
         let selected_idx = layout
             .rows
@@ -155,6 +197,7 @@ impl App {
         // 准备 sidebar 数据（在 repo move 之前）
         let workdir = repo.repo().workdir().map(|p| p.to_path_buf());
         let git_status = crate::git::status::read_status(repo.repo()).unwrap_or_default();
+        let ahead_behind = repo.ahead_behind();
 
         let mut file_tree_state = peri_widgets::FileTreeState::new();
         if let Some(wd) = &workdir {
@@ -165,6 +208,7 @@ impl App {
 
         let mut app = Self {
             running: true,
+            mouse_enabled: true,
             dirty: true,
             theme: GigTheme::new(),
             repo,
@@ -174,6 +218,7 @@ impl App {
             head_oid,
             focus: Focus::Graph,
             overlay: Overlay::None,
+            overlay_selected: 0,
             selected_idx,
             scroll_offset: 0,
             viewport_height: 40,
@@ -187,10 +232,12 @@ impl App {
             confirm_action: None,
             filter_branch: None,
             search_query: None,
-            remote_status: None,
+            input_dialog: None,
+            toast: None,
             remote_result_rx: std::sync::Arc::new(std::sync::Mutex::new(None)),
             toolbar_state: ToolbarState::new(),
             global_toolbar_state: GlobalToolbarState::new(),
+            ahead_behind,
             graph_inner_y: 0,
             graph_area: Rect::default(),
             file_tree_state,
@@ -255,6 +302,15 @@ impl App {
         }
     }
 
+    pub fn show_toast(&mut self, message: String, style: ToastStyle) {
+        self.toast = Some(Toast {
+            message,
+            style,
+            expires_at: std::time::Instant::now() + std::time::Duration::from_secs(2),
+        });
+        self.dirty = true;
+    }
+
     pub fn quit(&mut self) {
         self.running = false;
     }
@@ -262,6 +318,7 @@ impl App {
     pub fn reload(&mut self) -> Result<()> {
         let branch_map = self.repo.branch_map()?;
         let tag_map = self.repo.tag_map()?;
+        let remote_branch_map = self.repo.remote_branch_map()?;
         let stash_map = self.repo.stash_by_commit()?;
         let stash_oids: Vec<git2::Oid> = stash_map.values().flatten().map(|s| s.oid).collect();
         let nodes = self.repo.scan_topology_with_extra(&stash_oids)?;
@@ -278,8 +335,10 @@ impl App {
             &self.stash_map,
             &mut self.colors,
             self.topology.tag_map(),
+            &remote_branch_map,
         );
         self.head_oid = self.repo.head_oid()?;
+        self.ahead_behind = self.repo.ahead_behind();
         if let Some(oid) = self.selected_oid {
             if let Some(idx) = self.layout.rows.iter().position(|r| r.oid == Some(oid)) {
                 self.selected_idx = idx;
@@ -294,10 +353,18 @@ impl App {
     /// 刷新 sidebar 数据（git status + 文件树 + graph），超过 interval 才刷新
     pub fn refresh_sidebar(&mut self) {
         // 先检查远程操作结果
-        if let Ok(mut rx) = self.remote_result_rx.lock() {
-            if let Some(result) = rx.take() {
-                self.remote_status = Some(result);
-            }
+        let remote_result = if let Ok(mut rx) = self.remote_result_rx.lock() {
+            rx.take()
+        } else {
+            None
+        };
+        if let Some(result) = remote_result {
+            let style = if result.contains("失败") {
+                ToastStyle::Error
+            } else {
+                ToastStyle::Success
+            };
+            self.show_toast(result, style);
         }
 
         if self.last_sidebar_refresh.elapsed() < std::time::Duration::from_secs(2) {

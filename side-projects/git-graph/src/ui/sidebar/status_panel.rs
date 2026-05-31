@@ -19,9 +19,8 @@ pub enum StatusButton {
     Stage,
     /// [-] 取消暂存文件/目录（git restore --staged）
     Unstage,
-    /// [-] 丢弃工作区修改（git restore）
-    #[allow(dead_code)]
-    Discard,
+    /// [x] 删除文件（git rm / rm）
+    Delete,
 }
 
 /// 记录面板中目录行和按钮行位置（用于点击检测）
@@ -31,6 +30,8 @@ pub struct PanelLayout {
     pub dir_rows: Vec<(u16, String)>,
     /// 按钮行：(相对行号, 按钮起始列 x, 按钮类型, 操作路径)
     pub button_rows: Vec<(u16, u16, StatusButton, String)>,
+    /// 路径行：(相对行号, 完整的相对路径, 是否为目录)
+    pub path_rows: Vec<(u16, String, bool)>,
 }
 
 enum TreeNode {
@@ -160,42 +161,51 @@ fn truncate_spans(spans: &mut Vec<Span<'static>>, max: usize) {
     }
 }
 
-/// 按钮区域宽度：空格 + 按钮字符 + 空格 = 3 列
-const BTN_W: u16 = 3;
+/// 按钮区域宽度：空格 + 按钮字符 = 2 列
+const BTN_W: u16 = 2;
 
-/// 截断文本、填充空格、追加徽章按钮到行尾，返回按钮起始列
-fn append_button(spans: &mut Vec<Span<'static>>, btn: StatusButton, width: u16) -> u16 {
-    let btn_x = width.saturating_sub(BTN_W) as usize;
+/// 截断文本、填充空格、追加徽章按钮到行尾，返回按钮起始列列表
+fn append_buttons(
+    spans: &mut Vec<Span<'static>>,
+    buttons: &[StatusButton],
+    width: u16,
+) -> Vec<(u16, StatusButton)> {
+    let total_btn_width = BTN_W * buttons.len() as u16;
+    let btn_x = width.saturating_sub(total_btn_width) as usize;
     truncate_spans(spans, btn_x);
     let cur = spans_width(spans);
     let pad = btn_x.saturating_sub(cur);
     if pad > 0 {
         spans.push(Span::raw(" ".repeat(pad)));
     }
-    // 徽章样式按钮：带背景色
-    let (ch, style) = match btn {
-        StatusButton::Stage => (
-            "+",
-            Style::default()
-                .fg(ratatui::style::Color::White)
-                .bg(ratatui::style::Color::Rgb(40, 80, 40)),
-        ),
-        StatusButton::Unstage => (
-            "-",
-            Style::default()
-                .fg(ratatui::style::Color::White)
-                .bg(ratatui::style::Color::Rgb(140, 110, 20)),
-        ),
-        StatusButton::Discard => (
-            "-",
-            Style::default()
-                .fg(ratatui::style::Color::White)
-                .bg(ratatui::style::Color::Rgb(140, 40, 40)),
-        ),
-    };
-    spans.push(Span::raw(" "));
-    spans.push(Span::styled(ch.to_string(), style));
-    btn_x as u16
+    let mut result = Vec::new();
+    for btn in buttons {
+        spans.push(Span::raw(" "));
+        let (ch, style) = match btn {
+            StatusButton::Stage => (
+                "+",
+                Style::default()
+                    .fg(ratatui::style::Color::White)
+                    .bg(ratatui::style::Color::Rgb(40, 80, 40)),
+            ),
+            StatusButton::Unstage => (
+                "-",
+                Style::default()
+                    .fg(ratatui::style::Color::White)
+                    .bg(ratatui::style::Color::Rgb(140, 110, 20)),
+            ),
+            StatusButton::Delete => (
+                "x",
+                Style::default()
+                    .fg(ratatui::style::Color::White)
+                    .bg(ratatui::style::Color::Rgb(140, 40, 40)),
+            ),
+        };
+        let start_x = spans_width(spans) as u16;
+        spans.push(Span::styled(ch.to_string(), style));
+        result.push((start_x, *btn));
+    }
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -206,10 +216,11 @@ fn render_tree(
     collapsed: &HashSet<String>,
     dir_rows: &mut Vec<(u16, String)>,
     button_rows: &mut Vec<(u16, u16, StatusButton, String)>,
+    path_rows: &mut Vec<(u16, String, bool)>,
     row: &mut u16,
     lines: &mut Vec<Line<'static>>,
     theme: &crate::theme::GigTheme,
-    section: StatusButton,
+    section: &[StatusButton],
     area_width: u16,
 ) {
     for node in nodes {
@@ -227,8 +238,11 @@ fn render_tree(
                     Style::default().fg(theme.text()),
                 ));
                 dir_rows.push((*row, key.clone()));
-                let bx = append_button(&mut spans, section, area_width);
-                button_rows.push((*row, bx, section, key.clone()));
+                path_rows.push((*row, key.trim_end_matches('/').to_string(), true));
+                let btns = append_buttons(&mut spans, section, area_width);
+                for (bx, btn) in btns {
+                    button_rows.push((*row, bx, btn, key.clone()));
+                }
                 lines.push(Line::from(spans));
                 *row += 1;
                 if is_expanded {
@@ -239,6 +253,7 @@ fn render_tree(
                         collapsed,
                         dir_rows,
                         button_rows,
+                        path_rows,
                         row,
                         lines,
                         theme,
@@ -256,8 +271,11 @@ fn render_tree(
                 ));
                 spans.push(Span::styled(format!(" {}", ch), Style::default().fg(color)));
                 let fk = format!("{}{}", prefix, name);
-                let bx = append_button(&mut spans, section, area_width);
-                button_rows.push((*row, bx, section, fk));
+                path_rows.push((*row, fk.clone(), false));
+                let btns = append_buttons(&mut spans, section, area_width);
+                for (bx, btn) in btns {
+                    button_rows.push((*row, bx, btn, fk.clone()));
+                }
                 lines.push(Line::from(spans));
                 *row += 1;
             }
@@ -292,7 +310,7 @@ fn draw_panel(
     title: &str,
     entries: &[crate::git::status::StatusEntry],
     expanded: bool,
-    section: StatusButton,
+    section: &[StatusButton],
     collapsed: &HashSet<String>,
     theme: &crate::theme::GigTheme,
     scroll: &mut u16,
@@ -333,6 +351,7 @@ fn draw_panel(
             collapsed,
             &mut layout.dir_rows,
             &mut layout.button_rows,
+            &mut layout.path_rows,
             &mut row,
             &mut lines,
             theme,
@@ -361,6 +380,9 @@ fn draw_panel(
         *r = r.saturating_sub(scroll_u16);
     }
     for (r, _, _, _) in &mut layout.button_rows {
+        *r = r.saturating_sub(scroll_u16);
+    }
+    for (r, _, _) in &mut layout.path_rows {
         *r = r.saturating_sub(scroll_u16);
     }
 
@@ -415,7 +437,7 @@ pub fn draw_staged(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<Pa
         &title,
         &status.staged,
         app.status_staged_expanded,
-        StatusButton::Unstage,
+        &[StatusButton::Unstage],
         &app.status_dir_collapsed,
         &app.theme,
         &mut app.staged_scroll,
@@ -455,7 +477,7 @@ pub fn draw_changes(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<P
         &title,
         &all,
         app.status_unstaged_expanded,
-        StatusButton::Stage,
+        &[StatusButton::Stage, StatusButton::Delete],
         &app.status_dir_collapsed,
         &app.theme,
         &mut app.changes_scroll,
