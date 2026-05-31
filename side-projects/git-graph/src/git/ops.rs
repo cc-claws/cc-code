@@ -42,6 +42,11 @@ impl GitRepo {
         self.run_git(&["tag", name, &short])
     }
 
+    pub fn create_branch(&self, oid: Oid, name: &str) -> Result<()> {
+        let short = format!("{:.7}", oid);
+        self.run_git(&["branch", name, &short])
+    }
+
     pub fn delete_branch(&self, name: &str) -> Result<()> {
         self.run_git(&["branch", "-D", name])
     }

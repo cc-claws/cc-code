@@ -16,13 +16,3 @@ pub fn draw_search_bar(f: &mut Frame, area: Rect, app: &App) {
     ]);
     f.render_widget(Paragraph::new(line), area);
 }
-
-pub fn draw_tag_input(f: &mut Frame, area: Rect, app: &App) {
-    let input = app.tag_input.as_deref().unwrap_or("");
-    let line = Line::from(vec![
-        Span::styled(" tag ", Style::default().fg(Color::Yellow)),
-        Span::styled(input.to_string(), Style::default().fg(Color::White)),
-        Span::styled("▎", Style::default().fg(Color::Yellow)),
-    ]);
-    f.render_widget(Paragraph::new(line), area);
-}

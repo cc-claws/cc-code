@@ -1,4 +1,4 @@
-use crate::app::{App, ConfirmAction, Focus, Overlay, ToastStyle};
+use crate::app::{App, ConfirmAction, Focus, InputAction, InputDialog, Overlay, ToastStyle};
 use crate::git::remote::{self, RemoteOp, RemoteResult};
 use crate::ui::sidebar::status_panel;
 use crate::ui::toolbar::{GlobalAction, ToolbarAction};
@@ -39,48 +39,54 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         return;
     }
 
-    // TagInput 输入模式
-    if app.overlay == Overlay::TagInput {
+    // InputDialog 弹窗输入模式（tag / branch）
+    if app.overlay == Overlay::InputDialog {
         match code {
             KeyCode::Esc => {
-                app.tag_input = None;
+                app.input_dialog = None;
                 app.overlay = Overlay::None;
             }
             KeyCode::Enter => {
-                if let Some(tag_name) = &app.tag_input {
-                    if !tag_name.is_empty() {
+                if let Some(dialog) = app.input_dialog.take() {
+                    if !dialog.value.is_empty() {
                         if let Some(oid) = app.selected_oid {
-                            match app.repo.create_tag(oid, tag_name) {
+                            let result = match dialog.action {
+                                InputAction::CreateTag => app.repo.create_tag(oid, &dialog.value),
+                                InputAction::CreateBranch => {
+                                    app.repo.create_branch(oid, &dialog.value)
+                                }
+                            };
+                            match result {
                                 Ok(()) => {
+                                    let label = match dialog.action {
+                                        InputAction::CreateTag => "标签",
+                                        InputAction::CreateBranch => "分支",
+                                    };
                                     app.show_toast(
-                                        format!("已创建标签 {}", tag_name),
+                                        format!("已创建{} {}", label, dialog.value),
                                         ToastStyle::Success,
                                     );
                                     let _ = app.reload();
                                 }
                                 Err(e) => {
-                                    app.show_toast(
-                                        format!("创建标签失败: {}", e),
-                                        ToastStyle::Error,
-                                    );
+                                    app.show_toast(format!("创建失败: {}", e), ToastStyle::Error);
                                 }
                             }
                         }
                     }
                 }
-                app.tag_input = None;
+                app.input_dialog = None;
                 app.overlay = Overlay::None;
             }
             KeyCode::Backspace => {
-                if let Some(input) = &mut app.tag_input {
-                    input.pop();
-                    if input.is_empty() {
-                        app.tag_input = None;
-                    }
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.value.pop();
                 }
             }
             KeyCode::Char(c) => {
-                app.tag_input.get_or_insert_with(String::new).push(c);
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.value.push(c);
+                }
             }
             _ => {}
         }
@@ -643,8 +649,20 @@ fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
             }
         }
         ToolbarAction::CreateTag => {
-            app.tag_input = Some(String::new());
-            app.overlay = Overlay::TagInput;
+            app.input_dialog = Some(InputDialog {
+                title: "Create Tag".to_string(),
+                value: String::new(),
+                action: InputAction::CreateTag,
+            });
+            app.overlay = Overlay::InputDialog;
+        }
+        ToolbarAction::CreateBranch => {
+            app.input_dialog = Some(InputDialog {
+                title: "Create Branch".to_string(),
+                value: String::new(),
+                action: InputAction::CreateBranch,
+            });
+            app.overlay = Overlay::InputDialog;
         }
         ToolbarAction::Merge => {
             if let Some(oid) = app.selected_oid {

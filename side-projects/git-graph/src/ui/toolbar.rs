@@ -12,6 +12,7 @@ use unicode_width::UnicodeWidthStr;
 pub enum ToolbarAction {
     Checkout,
     CreateTag,
+    CreateBranch,
     Merge,
     CherryPick,
     Reset,
@@ -99,6 +100,12 @@ pub fn commit_buttons(app: &App) -> Vec<ToolbarButton> {
             emoji: "🏷",
             label: "tag",
             action: ToolbarAction::CreateTag,
+            dangerous: false,
+        },
+        ToolbarButton {
+            emoji: "⑂",
+            label: "branch",
+            action: ToolbarAction::CreateBranch,
             dangerous: false,
         },
         ToolbarButton {
