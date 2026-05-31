@@ -47,6 +47,14 @@ impl GitRepo {
         self.run_git(&["branch", name, &short])
     }
 
+    pub fn delete_tag(&self, name: &str) -> Result<()> {
+        self.run_git(&["tag", "-d", name])
+    }
+
+    pub fn push_tag(&self, name: &str) -> Result<()> {
+        self.run_git(&["push", "origin", name])
+    }
+
     pub fn delete_branch(&self, name: &str) -> Result<()> {
         self.run_git(&["branch", "-D", name])
     }

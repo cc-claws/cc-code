@@ -78,14 +78,77 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 app.input_dialog = None;
                 app.overlay = Overlay::None;
             }
+            KeyCode::Left => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = dialog.cursor_pos.saturating_sub(1);
+                }
+            }
+            KeyCode::Right => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = dialog
+                        .cursor_pos
+                        .min(dialog.value.chars().count().saturating_sub(1));
+                }
+            }
+            KeyCode::Home => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = 0;
+                }
+            }
+            KeyCode::End => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    dialog.cursor_pos = dialog.value.chars().count();
+                }
+            }
             KeyCode::Backspace => {
                 if let Some(dialog) = &mut app.input_dialog {
-                    dialog.value.pop();
+                    if dialog.cursor_pos > 0 {
+                        let pos = dialog.cursor_pos;
+                        let byte_pos = dialog.value.char_indices().nth(pos - 1).map(|(i, _)| i);
+                        let byte_next = dialog
+                            .value
+                            .char_indices()
+                            .nth(pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(dialog.value.len());
+                        if let Some(bp) = byte_pos {
+                            dialog.value.drain(bp..byte_next);
+                            dialog.cursor_pos -= 1;
+                        }
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                if let Some(dialog) = &mut app.input_dialog {
+                    let pos = dialog.cursor_pos;
+                    let len = dialog.value.chars().count();
+                    if pos < len {
+                        let byte_pos = dialog
+                            .value
+                            .char_indices()
+                            .nth(pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(dialog.value.len());
+                        let byte_next = dialog
+                            .value
+                            .char_indices()
+                            .nth(pos + 1)
+                            .map(|(i, _)| i)
+                            .unwrap_or(dialog.value.len());
+                        dialog.value.drain(byte_pos..byte_next);
+                    }
                 }
             }
             KeyCode::Char(c) => {
                 if let Some(dialog) = &mut app.input_dialog {
-                    dialog.value.push(c);
+                    let byte_pos = dialog
+                        .value
+                        .char_indices()
+                        .nth(dialog.cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(dialog.value.len());
+                    dialog.value.insert(byte_pos, c);
+                    dialog.cursor_pos += 1;
                 }
             }
             _ => {}
@@ -142,13 +205,55 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         return;
     }
 
-    // overlay 打开时仅响应 Esc
+    // overlay 打开时处理
     if app.overlay == Overlay::BranchList
         || app.overlay == Overlay::TagList
         || app.overlay == Overlay::StashList
     {
-        if code == KeyCode::Esc {
-            app.overlay = Overlay::None;
+        match code {
+            KeyCode::Esc => {
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let max = match app.overlay {
+                    Overlay::BranchList => app.repo.branch_names().unwrap_or_default().len(),
+                    Overlay::TagList => app.repo.tag_names_list().unwrap_or_default().len(),
+                    Overlay::StashList => app.stash_map.values().flatten().count(),
+                    _ => 0,
+                };
+                if max > 0 {
+                    app.overlay_selected = (app.overlay_selected + 1).min(max - 1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                app.overlay_selected = app.overlay_selected.saturating_sub(1);
+            }
+            // TagList 专属操作
+            KeyCode::Char('d') if app.overlay == Overlay::TagList => {
+                let tags = app.repo.tag_names_list().unwrap_or_default();
+                if let Some(tag) = tags.get(app.overlay_selected) {
+                    let name = tag.clone();
+                    app.confirm_message = Some(format!("是否删除标签 '{}'？", name));
+                    app.confirm_action = Some(ConfirmAction::DeleteTag(name));
+                    app.overlay = Overlay::ConfirmDialog;
+                }
+            }
+            KeyCode::Char('p') if app.overlay == Overlay::TagList => {
+                let tags = app.repo.tag_names_list().unwrap_or_default();
+                if let Some(tag) = tags.get(app.overlay_selected) {
+                    let name = tag.clone();
+                    match app.repo.push_tag(&name) {
+                        Ok(()) => {
+                            app.show_toast(format!("已推送标签 {}", name), ToastStyle::Success);
+                        }
+                        Err(e) => {
+                            app.show_toast(format!("推送标签失败: {}", e), ToastStyle::Error);
+                        }
+                    }
+                    app.overlay = Overlay::None;
+                }
+            }
+            _ => {}
         }
         return;
     }
@@ -652,6 +757,7 @@ fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
             app.input_dialog = Some(InputDialog {
                 title: "Create Tag".to_string(),
                 value: String::new(),
+                cursor_pos: 0,
                 action: InputAction::CreateTag,
             });
             app.overlay = Overlay::InputDialog;
@@ -660,6 +766,7 @@ fn handle_toolbar_action(app: &mut App, action: ToolbarAction) {
             app.input_dialog = Some(InputDialog {
                 title: "Create Branch".to_string(),
                 value: String::new(),
+                cursor_pos: 0,
                 action: InputAction::CreateBranch,
             });
             app.overlay = Overlay::InputDialog;
@@ -746,6 +853,14 @@ fn execute_confirm_action(app: &mut App) {
             if let Err(e) = app.repo.stash_drop(index) {
                 app.show_toast(format!("stash drop 失败: {}", e), ToastStyle::Error);
             } else {
+                let _ = app.reload();
+            }
+        }
+        Some(ConfirmAction::DeleteTag(name)) => {
+            if let Err(e) = app.repo.delete_tag(&name) {
+                app.show_toast(format!("删除标签失败: {}", e), ToastStyle::Error);
+            } else {
+                app.show_toast(format!("已删除标签 {}", name), ToastStyle::Success);
                 let _ = app.reload();
             }
         }

@@ -33,6 +33,7 @@ pub enum ToastStyle {
 pub struct InputDialog {
     pub title: String,
     pub value: String,
+    pub cursor_pos: usize,
     pub action: InputAction,
 }
 
@@ -68,6 +69,7 @@ pub enum Overlay {
 pub enum ConfirmAction {
     ResetHard(Oid),
     DeleteBranch(String),
+    DeleteTag(String),
     StashDrop(usize),
     ForcePush,
     PushSetUpstream(String), // branch name
@@ -88,6 +90,8 @@ pub struct App {
     pub head_oid: Oid,
     pub focus: Focus,
     pub overlay: Overlay,
+    /// overlay 列表选中索引（BranchList/TagList/StashList 共用）
+    pub overlay_selected: usize,
     pub selected_idx: usize,
     pub scroll_offset: usize,
     pub viewport_height: usize,
@@ -212,6 +216,7 @@ impl App {
             head_oid,
             focus: Focus::Graph,
             overlay: Overlay::None,
+            overlay_selected: 0,
             selected_idx,
             scroll_offset: 0,
             viewport_height: 40,
