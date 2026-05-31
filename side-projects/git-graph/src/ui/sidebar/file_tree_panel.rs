@@ -8,6 +8,7 @@ use ratatui::{
     Frame,
 };
 
+#[allow(dead_code)]
 pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
     let theme = &app.theme;
     let block = Block::default()

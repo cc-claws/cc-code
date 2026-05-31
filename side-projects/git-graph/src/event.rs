@@ -152,6 +152,7 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         },
         Focus::Status => {
             // Status 面板暂时只读
+            #[allow(clippy::collapsible_match)]
             if !matches!(code, KeyCode::Esc | KeyCode::Tab | KeyCode::BackTab) {
                 return;
             }

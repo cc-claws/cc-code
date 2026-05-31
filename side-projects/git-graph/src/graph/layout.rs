@@ -218,9 +218,7 @@ pub fn build_layout(
             .iter()
             .enumerate()
             .find(|(i, l)| {
-                *i != my_lane
-                    && l.as_ref()
-                        .map_or(false, |ll| ll.target == Some(first_parent))
+                *i != my_lane && l.as_ref().is_some_and(|ll| ll.target == Some(first_parent))
             })
             .map(|(i, _)| i);
 
@@ -235,9 +233,7 @@ pub fn build_layout(
                 color_pool.release(target_color, row_idx);
                 lanes[target_lane] = None;
                 commit_lane.insert(first_parent, my_lane);
-                if !commit_color.contains_key(&first_parent) {
-                    commit_color.insert(first_parent, my_color);
-                }
+                commit_color.entry(first_parent).or_insert(my_color);
                 lanes[my_lane] = Some(Lane {
                     target: Some(first_parent),
                     color: my_color,
@@ -252,9 +248,7 @@ pub fn build_layout(
             }
         } else {
             // 第一 parent 继续在 my_lane
-            if !commit_color.contains_key(&first_parent) {
-                commit_color.insert(first_parent, my_color);
-            }
+            commit_color.entry(first_parent).or_insert(my_color);
             commit_lane.insert(first_parent, my_lane);
             lanes[my_lane] = Some(Lane {
                 target: Some(first_parent),
@@ -271,10 +265,7 @@ pub fn build_layout(
                 let existing = lanes
                     .iter()
                     .enumerate()
-                    .find(|(_, l)| {
-                        l.as_ref()
-                            .map_or(false, |ll| ll.target == Some(*parent_oid))
-                    })
+                    .find(|(_, l)| l.as_ref().is_some_and(|ll| ll.target == Some(*parent_oid)))
                     .map(|(i, _)| i);
 
                 if let Some(col) = existing {
@@ -415,6 +406,7 @@ fn push_convergence(
     };
 
     // 水平线连接
+    #[allow(clippy::needless_range_loop)]
     for c in (left + 1)..right {
         cc[c] = CellType::Horizontal(color);
     }
@@ -494,6 +486,7 @@ fn push_fork(
         };
 
         // 水平线
+        #[allow(clippy::needless_range_loop)]
         for c in (left + 1)..right {
             // 如果已经被更高优先级的连接器占据，跳过
             if matches!(cc[c], CellType::Empty) {

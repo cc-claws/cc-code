@@ -400,7 +400,7 @@ pub fn scan_dir_children(dir_path: &str) -> Vec<FileNode> {
 }
 
 /// 排序：目录优先 + 字母序
-fn sort_nodes(nodes: &mut Vec<FileNode>) {
+fn sort_nodes(nodes: &mut [FileNode]) {
     nodes.sort_by(|a, b| match (a.is_dir, b.is_dir) {
         (true, false) => std::cmp::Ordering::Less,
         (false, true) => std::cmp::Ordering::Greater,

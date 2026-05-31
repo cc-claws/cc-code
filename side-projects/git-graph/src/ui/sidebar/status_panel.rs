@@ -20,6 +20,7 @@ pub enum StatusButton {
     /// [-] 取消暂存文件/目录（git restore --staged）
     Unstage,
     /// [-] 丢弃工作区修改（git restore）
+    #[allow(dead_code)]
     Discard,
 }
 
@@ -197,6 +198,7 @@ fn append_button(spans: &mut Vec<Span<'static>>, btn: StatusButton, width: u16) 
     btn_x as u16
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tree(
     nodes: &[FlatNode],
     depth: usize,
@@ -283,6 +285,7 @@ fn status_style(
 
 /// 渲染单个面板内容（带边框），返回 (inner Rect, Option<PanelLayout>)
 /// `scroll` / `total_lines` / `viewport` 传入面板各自的滚动状态引用
+#[allow(clippy::too_many_arguments)]
 fn draw_panel(
     f: &mut Frame,
     area: Rect,
