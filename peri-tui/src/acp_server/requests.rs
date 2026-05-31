@@ -439,6 +439,13 @@ pub(crate) async fn handle_request(
                 serde_json::from_value(params.get("config").cloned().unwrap_or_default())
                     .map_err(|e| AcpError::new(-32602, format!("Invalid config: {e}")))?;
 
+            info!(
+                session_id = %session_id,
+                active_provider_id = %new_cfg.config.active_provider_id,
+                active_alias = %new_cfg.config.active_alias,
+                "Config update received"
+            );
+
             if new_cfg.config.providers.is_empty() {
                 return Err(AcpError::new(-32602, "providers cannot be empty"));
             }
@@ -455,7 +462,16 @@ pub(crate) async fn handle_request(
             *cfg.peri_config.write() = new_cfg.clone();
 
             if let Some(p) = LlmProvider::from_config(&new_cfg) {
+                info!(
+                    provider = %p.display_name(),
+                    model = %p.model_name(),
+                    "Provider updated via update_config"
+                );
                 *cfg.provider.write() = p;
+            } else {
+                tracing::warn!(
+                    "update_config: LlmProvider::from_config returned None, provider not updated"
+                );
             }
 
             // Model switch → invalidate cached LLM instances (Main Agent + SubAgent)
@@ -478,3 +494,7 @@ pub(crate) async fn handle_request(
         _ => Err(AcpError::new(-32601, format!("Method not found: {method}"))),
     }
 }
+
+#[cfg(test)]
+#[path = "requests_test.rs"]
+mod tests;
