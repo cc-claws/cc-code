@@ -65,13 +65,7 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
-                    if let Some(ref acp_client) = ctx.acp_client {
-                        let acp = acp_client.clone();
-                        let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
-                        tokio::spawn(async move {
-                            let _ = acp.update_config(&cfg).await;
-                        });
-                    }
+                    ctx.sync_acp_config();
                     EventResult::ClosePanel
                 }
                 Input {
@@ -216,13 +210,7 @@ impl PanelComponent for LoginPanel {
                             ctx.services.provider_name = p.display_name().to_string();
                             ctx.services.model_name = p.model_name().to_string();
                         }
-                        if let Some(ref acp_client) = ctx.acp_client {
-                            let acp = acp_client.clone();
-                            let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
-                            tokio::spawn(async move {
-                                let _ = acp.update_config(&cfg).await;
-                            });
-                        }
+                        ctx.sync_acp_config();
                         EventResult::ClosePanel
                     }
                     _ => {
@@ -270,13 +258,7 @@ impl PanelComponent for LoginPanel {
                         ctx.services.provider_name = p.display_name().to_string();
                         ctx.services.model_name = p.model_name().to_string();
                     }
-                    if let Some(ref acp_client) = ctx.acp_client {
-                        let acp = acp_client.clone();
-                        let cfg = ctx.services.peri_config.as_ref().unwrap().clone();
-                        tokio::spawn(async move {
-                            let _ = acp.update_config(&cfg).await;
-                        });
-                    }
+                    ctx.sync_acp_config();
                     EventResult::Consumed
                 }
                 Input { key: Key::Esc, .. } => {

@@ -117,13 +117,6 @@ pub(crate) async fn execute_prompt(
     let provider_snapshot = provider.read().clone();
     let peri_config_snapshot = Arc::new(peri_config.read().clone());
 
-    tracing::info!(
-        session_id = %session_id,
-        provider = %provider_snapshot.display_name(),
-        model = %provider_snapshot.model_name(),
-        "[diag] prompt: provider snapshot taken"
-    );
-
     let frozen = frozen_system_prompt.map(|sp| executor::FrozenSessionData {
         system_prompt: sp,
         claude_md: frozen_claude_md,

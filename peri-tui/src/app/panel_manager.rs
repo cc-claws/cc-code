@@ -268,6 +268,27 @@ pub struct PanelContext<'a> {
     pub acp_client: Option<crate::acp_client::AcpTuiClient>,
 }
 
+impl PanelContext<'_> {
+    /// 同步等待 ACP Server 更新完整配置，确保 provider 在内存中已更新。
+    pub fn sync_acp_config(&self) {
+        let Some(ref acp_client) = self.acp_client else {
+            return;
+        };
+        let cfg = match self.services.peri_config.as_ref() {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        let acp = acp_client.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                if let Err(e) = acp.update_config(&cfg).await {
+                    tracing::error!(error = %e, "sync_acp_config: update_config failed");
+                }
+            });
+        });
+    }
+}
+
 // ─── PanelManager ───────────────────────────────────────────────────────────
 
 /// 面板管理器：集中管理面板的打开/关闭/查询和事件分发

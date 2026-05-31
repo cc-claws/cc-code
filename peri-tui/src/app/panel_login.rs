@@ -55,25 +55,7 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
-        if let Some(ref acp_client) = self.acp_client {
-            let acp = acp_client.clone();
-            let cfg = self.services.peri_config.as_ref().unwrap().clone();
-            let alias = cfg.config.active_alias.clone();
-            // 同步等待 update_config 完成，确保 ACP Server 端 provider 已更新
-            // 再关闭面板，避免后续 prompt 使用旧 provider
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    if let Err(e) = acp.update_config(&cfg).await {
-                        tracing::error!(error = %e, "login_panel: update_config failed");
-                    }
-                    // 额外发送 set_config_option("model") 作为 double-check，
-                    // 确保 ACP Server 端的 provider 和 active_alias 完全同步
-                    if let Err(e) = acp.set_config_option("model", &alias).await {
-                        tracing::error!(error = %e, "login_panel: set_config_option(model) failed");
-                    }
-                });
-            });
-        }
+        self.sync_acp_config();
         self.close_login_panel();
     }
 
@@ -132,21 +114,7 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
-        if let Some(ref acp_client) = self.acp_client {
-            let acp = acp_client.clone();
-            let cfg = self.services.peri_config.as_ref().unwrap().clone();
-            let alias = cfg.config.active_alias.clone();
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    if let Err(e) = acp.update_config(&cfg).await {
-                        tracing::error!(error = %e, "login_panel_apply_edit: update_config failed");
-                    }
-                    if let Err(e) = acp.set_config_option("model", &alias).await {
-                        tracing::error!(error = %e, "login_panel_apply_edit: set_config_option failed");
-                    }
-                });
-            });
-        }
+        self.sync_acp_config();
         self.close_login_panel();
     }
 
@@ -189,20 +157,6 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
-        if let Some(ref acp_client) = self.acp_client {
-            let acp = acp_client.clone();
-            let cfg = self.services.peri_config.as_ref().unwrap().clone();
-            let alias = cfg.config.active_alias.clone();
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    if let Err(e) = acp.update_config(&cfg).await {
-                        tracing::error!(error = %e, "login_panel_confirm_delete: update_config failed");
-                    }
-                    if let Err(e) = acp.set_config_option("model", &alias).await {
-                        tracing::error!(error = %e, "login_panel_confirm_delete: set_config_option failed");
-                    }
-                });
-            });
-        }
+        self.sync_acp_config();
     }
 }

@@ -102,23 +102,7 @@ pub(super) fn handle_shortcuts(
                         .view_messages
                         .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
                 }
-                if let Some(ref acp_client) = app.acp_client {
-                    let acp = acp_client.clone();
-                    let cfg_clone = cfg.clone();
-                    let alias = cfg.config.active_alias.clone();
-                    // 同步等待：切换 provider 需要 ACP Server 端同步更新 active_provider_id，
-                    // 仅 set_config_option("model") 只改 alias 不改 provider_id
-                    tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            if let Err(e) = acp.update_config(&cfg_clone).await {
-                                tracing::error!(error = %e, "Ctrl+Shift+T: update_config failed");
-                            }
-                            if let Err(e) = acp.set_config_option("model", &alias).await {
-                                tracing::error!(error = %e, "Ctrl+Shift+T: set_config_option failed");
-                            }
-                        });
-                    });
-                }
+                app.sync_acp_config();
                 app.global_ui.provider_highlight_until =
                     Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
             }

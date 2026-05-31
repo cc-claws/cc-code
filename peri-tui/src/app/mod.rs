@@ -625,14 +625,27 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
-        // 通过 ACP 协议同步完整配置到 Server
-        if let Some(ref acp_client) = self.acp_client {
-            let acp = acp_client.clone();
-            let cfg_clone = cfg_ref.clone();
-            tokio::spawn(async move {
-                let _ = acp.update_config(&cfg_clone).await;
+        self.sync_acp_config();
+    }
+
+    /// 同步等待 ACP Server 更新完整配置，确保 provider 在内存中已更新。
+    /// 使用 block_in_place + block_on 避免 tokio runtime 死锁。
+    pub(crate) fn sync_acp_config(&self) {
+        let Some(ref acp_client) = self.acp_client else {
+            return;
+        };
+        let cfg = match self.services.peri_config.as_ref() {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        let acp = acp_client.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                if let Err(e) = acp.update_config(&cfg).await {
+                    tracing::error!(error = %e, "sync_acp_config: update_config failed");
+                }
             });
-        }
+        });
     }
 
     pub fn get_compact_config(&self) -> peri_agent::agent::CompactConfig {

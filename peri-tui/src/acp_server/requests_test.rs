@@ -44,13 +44,15 @@ fn make_provider_config(
     api_key: &str,
     model: &str,
 ) -> ProviderConfig {
-    let mut models = ProviderModels::default();
-    // 将模型名填入 sonnet 别名（默认 alias）
-    models.sonnet = model.to_string();
     ProviderConfig {
         id: id.to_string(),
         provider_type: provider_type.to_string(),
         api_key: api_key.to_string(),
+        // 将模型名填入 sonnet 别名（默认 alias）
+        models: ProviderModels {
+            sonnet: model.to_string(),
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
