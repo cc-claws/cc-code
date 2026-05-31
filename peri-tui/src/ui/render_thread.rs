@@ -156,6 +156,75 @@ impl RenderTask {
         (visual_row as usize, wrap_map)
     }
 
+    /// 增量构建 wrap_map：复用旧 cache 中稳定前缀的 wrap_map，
+    /// 只对 prefix_stable_len 之后的变化部分调用 build_wrap_map。
+    ///
+    /// 前提：deduped 和 offsets 必须在同一索引空间（由 rebuild() 保证）。
+    fn build_wrap_map_incremental(
+        &self,
+        deduped: &[Line<'static>],
+        offsets: &[usize],
+        prefix_stable_len: usize,
+    ) -> (usize, Vec<WrappedLineInfo>) {
+        // 快速路径：无稳定前缀 → 全量计算
+        if prefix_stable_len == 0 || offsets.is_empty() {
+            return Self::build_wrap_map(deduped, self.width);
+        }
+
+        // 稳定区在 deduped 中的行边界
+        let stable_line_end = if prefix_stable_len < offsets.len() {
+            offsets[prefix_stable_len]
+        } else {
+            deduped.len()
+        };
+
+        let old_cache = self.cache.read();
+        let can_reuse = old_cache.width == self.width
+            && !old_cache.wrap_map.is_empty()
+            && old_cache.wrap_map.len() >= stable_line_end;
+
+        if !can_reuse {
+            drop(old_cache);
+            return Self::build_wrap_map(deduped, self.width);
+        }
+
+        // 完全稳定：所有 VM 未变 → 直接复用整个 wrap_map
+        if stable_line_end == deduped.len() && old_cache.wrap_map.len() == deduped.len() {
+            let total = old_cache.total_lines;
+            let wrap = old_cache.wrap_map.clone();
+            drop(old_cache);
+            return (total, wrap);
+        }
+
+        // 部分稳定：复用前缀 wrap_map，只重算变化部分
+        let base_visual = if stable_line_end > 0 {
+            old_cache.wrap_map[stable_line_end - 1].visual_row_end
+        } else {
+            0
+        };
+
+        // 只对变化部分计算 wrap
+        let (delta_total, mut delta_wrap) =
+            Self::build_wrap_map(&deduped[stable_line_end..], self.width);
+
+        // 修正 delta_wrap 的偏移
+        for info in &mut delta_wrap {
+            info.visual_row_start += base_visual;
+            info.visual_row_end += base_visual;
+            info.line_idx += stable_line_end;
+        }
+
+        // 拼接：clone 前缀 + extend delta
+        // clone 开销：~3000 个 WrappedLineInfo ≈ 240-480KB，约 200-500μs
+        // 相比全量 build_wrap_map 的 ~2-6ms，仍节省 60-80%
+        let mut wrap_map = old_cache.wrap_map[..stable_line_end].to_vec();
+        drop(old_cache);
+
+        let total_lines = base_visual as usize + delta_total;
+        wrap_map.append(&mut delta_wrap);
+        (total_lines, wrap_map)
+    }
+
     /// 渲染单条消息为 lines（含前后空行分隔）
     ///
     /// 注意：此函数修改的 rendered/dirty/rendered_prefix_len 等字段不参与 Hash 计算，
@@ -327,25 +396,24 @@ impl RenderTask {
 
         self.message_hashes = new_hashes;
 
-        // 拼接所有消息行
-        let mut all_lines: Vec<Line<'static>> = Vec::new();
+        // 拼接所有消息行，同时做全局 dedup（消除连续空行），
+        // 并在 deduped 索引空间构建 message_offsets。
+        // 修复：旧代码先构建 offsets（基于 all_lines），再做 dedup 生成 deduped，
+        // 导致 offsets 和 wrap_map 处于不同索引空间。
+        let mut deduped: Vec<Line<'static>> = Vec::new();
         let mut offsets: Vec<usize> = Vec::new();
-        for lines in &self.message_lines {
-            offsets.push(all_lines.len());
-            all_lines.extend(lines.iter().cloned());
-        }
-
-        // 过滤连续空行，保留单个空行作为消息分隔符
-        let mut deduped: Vec<Line<'static>> = Vec::with_capacity(all_lines.len());
         let mut prev_empty = false;
-        for line in all_lines {
-            let is_empty = line.spans.is_empty()
-                || (line.spans.len() == 1 && line.spans[0].content.is_empty());
-            if is_empty && prev_empty {
-                continue;
+        for lines in &self.message_lines {
+            offsets.push(deduped.len());
+            for line in lines {
+                let is_empty = line.spans.is_empty()
+                    || (line.spans.len() == 1 && line.spans[0].content.is_empty());
+                if is_empty && prev_empty {
+                    continue;
+                }
+                prev_empty = is_empty;
+                deduped.push(line.clone());
             }
-            prev_empty = is_empty;
-            deduped.push(line);
         }
         // 移除末尾多余空行
         while deduped.last().is_some_and(|l| {
@@ -354,7 +422,8 @@ impl RenderTask {
             deduped.pop();
         }
 
-        let (total_lines, wrap_map) = Self::build_wrap_map(&deduped, self.width);
+        let (total_lines, wrap_map) =
+            self.build_wrap_map_incremental(&deduped, &offsets, prefix_stable_len);
         let mut cache = self.cache.write();
         cache.lines = deduped;
         cache.message_offsets = offsets;

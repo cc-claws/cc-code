@@ -348,3 +348,218 @@ async fn test_resize_coalesce_under_pressure() {
         width_80
     );
 }
+
+// ─── 增量 wrap_map 测试 ──────────────────────────────────────────────────
+
+/// 辅助：构建 V2 的全量 wrap_map，返回 (total_lines, wrap_map)
+fn full_wrap(vms: &[MessageViewModel], width: u16) -> (usize, Vec<super::WrappedLineInfo>) {
+    let mut all_lines: Vec<Line<'static>> = Vec::new();
+    for vm in vms {
+        let mut lines = super::RenderTask::render_one(&mut vm.clone(), 0, width as usize, false);
+        all_lines.append(&mut lines);
+    }
+    // dedup 连续空行
+    let mut deduped: Vec<Line<'static>> = Vec::new();
+    let mut prev_empty = false;
+    for line in all_lines {
+        let is_empty =
+            line.spans.is_empty() || (line.spans.len() == 1 && line.spans[0].content.is_empty());
+        if is_empty && prev_empty {
+            continue;
+        }
+        prev_empty = is_empty;
+        deduped.push(line);
+    }
+    while deduped.last().is_some_and(|l| {
+        l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.is_empty())
+    }) {
+        deduped.pop();
+    }
+    super::RenderTask::build_wrap_map(&deduped, width)
+}
+
+/// 验证 message_offsets 在 deduped 索引空间中正确定位
+#[tokio::test]
+async fn test_message_offsets_match_deduped_space() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    // 三条消息
+    tx.send(RenderEvent::Rebuild(vec![
+        MessageViewModel::user("First".to_string()),
+        MessageViewModel::user("Second".to_string()),
+        MessageViewModel::user("Third".to_string()),
+    ]))
+    .await
+    .unwrap();
+    wait_render().await;
+
+    let c = cache.read();
+    // offsets 应在 deduped 索引空间中
+    // 每条消息至少一行内容 + 一行空行分隔（最后一条的尾部空行被 dedup 移除）
+    assert!(c.message_offsets.len() == 3, "应有 3 个 offsets");
+    // 第一个 offset 应为 0
+    assert_eq!(c.message_offsets[0], 0, "第一条消息应从 0 开始");
+    // offsets 中的值应 <= lines.len()
+    for &off in &c.message_offsets {
+        assert!(
+            off <= c.lines.len(),
+            "offset {off} 应 <= lines.len() {}",
+            c.lines.len()
+        );
+    }
+    // offsets 应单调递增
+    for w in c.message_offsets.windows(2) {
+        assert!(w[0] <= w[1], "offsets 应单调递增");
+    }
+}
+
+/// 核心测试：增量 wrap_map 结果与全量计算完全一致
+#[tokio::test]
+async fn test_incremental_wrap_map_matches_full() {
+    let (tx, cache, _notify) = spawn_render_thread(40);
+
+    // 第一次 Rebuild：3 条长消息（需要 wrap）
+    let long_text: String = "Hello world ".repeat(10);
+    let vms = vec![
+        MessageViewModel::user(long_text.clone()),
+        MessageViewModel::user("Short".to_string()),
+        MessageViewModel::user(long_text.clone()),
+    ];
+    tx.send(RenderEvent::Rebuild(vms.clone())).await.unwrap();
+    wait_render().await;
+
+    let (expected_total, expected_wrap) = full_wrap(&vms, 40);
+    {
+        let c = cache.read();
+        assert_eq!(c.total_lines, expected_total, "total_lines 应一致");
+        assert_eq!(c.wrap_map.len(), expected_wrap.len(), "wrap_map 长度应一致");
+        for (i, (got, exp)) in c.wrap_map.iter().zip(expected_wrap.iter()).enumerate() {
+            assert_eq!(
+                got.visual_row_start, exp.visual_row_start,
+                "wrap_map[{i}].visual_row_start 不一致"
+            );
+            assert_eq!(
+                got.visual_row_end, exp.visual_row_end,
+                "wrap_map[{i}].visual_row_end 不一致"
+            );
+        }
+    }
+
+    // 第二次 Rebuild：改变最后一条消息（prefix_stable_len = 2）
+    let vms2 = vec![
+        MessageViewModel::user(long_text.clone()),
+        MessageViewModel::user("Short".to_string()),
+        MessageViewModel::user("Changed content".to_string()),
+    ];
+    tx.send(RenderEvent::Rebuild(vms2.clone())).await.unwrap();
+    wait_render().await;
+
+    let (expected_total2, expected_wrap2) = full_wrap(&vms2, 40);
+    let c2 = cache.read();
+    assert_eq!(c2.total_lines, expected_total2, "增量 total_lines 应一致");
+    assert_eq!(
+        c2.wrap_map.len(),
+        expected_wrap2.len(),
+        "增量 wrap_map 长度应一致"
+    );
+    for (i, (got, exp)) in c2.wrap_map.iter().zip(expected_wrap2.iter()).enumerate() {
+        assert_eq!(
+            got.visual_row_start, exp.visual_row_start,
+            "增量 wrap_map[{i}].visual_row_start 不一致"
+        );
+        assert_eq!(
+            got.visual_row_end, exp.visual_row_end,
+            "增量 wrap_map[{i}].visual_row_end 不一致"
+        );
+    }
+}
+
+/// 所有 VM 不变时 wrap_map 完全复用
+#[tokio::test]
+async fn test_incremental_wrap_map_all_stable() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    let vms = vec![
+        MessageViewModel::user("Hello".to_string()),
+        MessageViewModel::user("World".to_string()),
+    ];
+    tx.send(RenderEvent::Rebuild(vms.clone())).await.unwrap();
+    wait_render().await;
+
+    let v1 = cache.read().version;
+    let total_v1 = cache.read().total_lines;
+    let wrap_len_v1 = cache.read().wrap_map.len();
+
+    // 完全相同的 Rebuild
+    tx.send(RenderEvent::Rebuild(vms)).await.unwrap();
+    wait_render().await;
+
+    let c = cache.read();
+    assert!(c.version > v1, "version 应递增");
+    assert_eq!(c.total_lines, total_v1, "total_lines 应不变");
+    assert_eq!(c.wrap_map.len(), wrap_len_v1, "wrap_map 长度应不变");
+}
+
+/// 无稳定前缀时走全量路径
+#[tokio::test]
+async fn test_incremental_wrap_map_prefix_stable_len_zero() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    // 第一次 Rebuild
+    tx.send(RenderEvent::Rebuild(vec![MessageViewModel::user(
+        "First".to_string(),
+    )]))
+    .await
+    .unwrap();
+    wait_render().await;
+
+    // 第二次 Rebuild：完全不同的消息（prefix_stable_len = 0）
+    tx.send(RenderEvent::Rebuild(vec![MessageViewModel::user(
+        "Completely different".to_string(),
+    )]))
+    .await
+    .unwrap();
+    wait_render().await;
+
+    let c = cache.read();
+    // 应正常渲染，不 panic
+    assert!(!c.lines.is_empty());
+    assert!(c.total_lines > 0);
+}
+
+/// 新增 VM 时只重算尾部
+#[tokio::test]
+async fn test_incremental_wrap_map_add_new_vm() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    let vms1 = vec![MessageViewModel::user("Hello".to_string())];
+    tx.send(RenderEvent::Rebuild(vms1)).await.unwrap();
+    wait_render().await;
+
+    // 新增一条 VM（prefix_stable_len = 1，覆盖旧消息）
+    let vms2 = vec![
+        MessageViewModel::user("Hello".to_string()),
+        MessageViewModel::user("Added".to_string()),
+    ];
+    tx.send(RenderEvent::Rebuild(vms2.clone())).await.unwrap();
+    wait_render().await;
+
+    let (expected_total, expected_wrap) = full_wrap(&vms2, 80);
+    let c = cache.read();
+    assert_eq!(
+        c.total_lines, expected_total,
+        "新增 VM 后 total_lines 应一致"
+    );
+    assert_eq!(
+        c.wrap_map.len(),
+        expected_wrap.len(),
+        "新增 VM 后 wrap_map 长度应一致"
+    );
+    // 前缀部分 wrap_map 应与全量计算一致
+    for (i, (got, exp)) in c.wrap_map.iter().zip(expected_wrap.iter()).enumerate() {
+        assert_eq!(
+            got.visual_row_start, exp.visual_row_start,
+            "新增 VM 后 wrap_map[{i}].visual_row_start 不一致"
+        );
+    }
+}
