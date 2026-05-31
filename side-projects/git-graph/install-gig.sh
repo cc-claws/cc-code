@@ -3,7 +3,7 @@ set -euo pipefail
 export LC_ALL=C
 
 # Gig Install Script
-# Usage: curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.sh | bash
 #
 # Options:
 #   GIG_INSTALL_VERSION    Specific version tag (e.g. gig-v0.1.0), empty = latest

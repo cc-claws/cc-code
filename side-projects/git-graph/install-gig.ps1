@@ -1,5 +1,5 @@
 # Gig Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.ps1 | iex
 #
 # Options:
 #   $env:GIG_INSTALL_VERSION     Specific version tag (e.g. gig-v0.1.0), empty = latest
