@@ -7,23 +7,23 @@
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.sh | bash
+curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.ps1 | iex
+irm https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.ps1 | iex
 ```
 
 ### 指定版本
 
 ```bash
-GIG_INSTALL_VERSION=gig-v0.1.0 curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.sh | bash
+GIG_INSTALL_VERSION=gig-v0.1.0 curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.sh | bash
 ```
 
 ```powershell
-$env:GIG_INSTALL_VERSION="gig-v0.1.0"; irm https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.ps1 | iex
+$env:GIG_INSTALL_VERSION="gig-v0.1.0"; irm https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.ps1 | iex
 ```
 
 ### 环境变量
