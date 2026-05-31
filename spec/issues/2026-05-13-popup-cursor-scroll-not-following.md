@@ -1,7 +1,7 @@
 # 弹窗光标移动时滚动不跟随
 
-**状态**：Open
-**优先级**：高
+**状态**：Partial — 症状三/四（hints.rs panic）已修复，症状一/二（AskUser/HITL 滚动）仍 Open
+**优先级**：中（panic 已修复，剩余为体验问题）
 **创建日期**：2026-05-13
 
 ## 问题描述
@@ -106,6 +106,22 @@ let visible_items = &items[scroll_offset..scroll_offset + viewport];
 - 所有使用命令提示浮层的用户
 - 特别是在选项/项目较多时，问题严重
 
+### 现象四（2026-05-31）：Windows 平台 hints.rs 切片越界 panic
+
+在 Windows 平台上输入 `/` 后按 Up/Down 移动光标即可触发 panic（无需输入过滤字符）：
+
+```
+thread 'main' (40176) panicked at peri-tui\src\ui\main_ui\popups\hints.rs:91:31:
+range end index 29 out of range for slice of length 28
+```
+
+- **触发步骤**：
+  1. 输入 `/` 触发提示浮层
+  2. 按 Up/Down 移动光标
+  3. Panic 崩溃
+- **环境**：Windows 平台（非 Windows 平台也可能触发，取决于 agent_commands 数量）
+- **关键观察**：`hint_ops.rs::build_hint_items()` 包含三类候选项（Cmd + Skill + **AgentCmd**），而 `hints.rs::render_unified_hint()` 只构建了两类（Cmd + Skill，**缺少 AgentCmd**）。cursor 的 Up/Down 循环范围基于 `hint_candidates_count()`（含 AgentCmd），但渲染切片 `&items[scroll_offset..scroll_offset + viewport]` 用的 `items` 不含 AgentCmd，两者长度不一致。当 agent_commands 数量 ≥ 1 时，cursor 可被设到超出渲染列表长度的位置，触发 slice panic。
+
 ## 修复方向
 
 ### AskUser 弹窗
@@ -120,3 +136,14 @@ let visible_items = &items[scroll_offset..scroll_offset + viewport];
 ### 命令提示浮层
 1. **过滤时 clamp cursor**：输入过滤字符导致 `hint_candidates_count()` 变化时，clamp `hint_cursor` 到新长度内
 2. **渲染保护**：在 `items[scroll_offset..]` 前检查 `scroll_offset` 是否越界
+
+## 修复记录
+
+### 症状三/四修复（2026-05-31）
+
+**根因**：`hints.rs::render_unified_hint()` 只收集 Cmd + Skill 候选项，但 `hint_ops.rs::build_hint_items()` 还包含 AgentCmd。cursor 的 Up/Down 循环范围基于 `hint_candidates_count()`（含 AgentCmd，更长），渲染切片 `&items[scroll_offset..scroll_offset + viewport]` 基于不含 AgentCmd 的更短列表，导致 slice 越界 panic。
+
+**修复**：`hints.rs` 中补齐 `agent_cmd_candidates` 收集逻辑，`HintItem` 枚举新增 `AgentCmd` 变体，排序优先级（`rank()`）与 `hint_ops.rs` 完全对齐。AgentCmd 无 description，渲染时显示空字符串。
+
+- 文件：`peri-tui/src/ui/main_ui/popups/hints.rs`
+- commit：待提交
