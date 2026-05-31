@@ -1242,6 +1242,160 @@
 ### marketplace git clone
 - [Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用](domains/plugin.md#issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail) — plugin
 
+### 有界通道
+- [RenderThread 事件通道使用 UnboundedChannel，极端情况下可能内存膨胀](domains/tui.md#issue_2026-05-30-render-event-unbounded-channel) — tui
+
+### 背压
+- [RenderThread 事件通道使用 UnboundedChannel，极端情况下可能内存膨胀](domains/tui.md#issue_2026-05-30-render-event-unbounded-channel) — tui
+
+### 内存膨胀
+- [RenderThread 事件通道使用 UnboundedChannel，极端情况下可能内存膨胀](domains/tui.md#issue_2026-05-30-render-event-unbounded-channel) — tui
+
+### 渲染线程
+- [RenderThread 事件通道使用 UnboundedChannel，极端情况下可能内存膨胀](domains/tui.md#issue_2026-05-30-render-event-unbounded-channel) — tui
+
+### 帧率限制
+- [TUI 渲染缺少显式帧率限制，loading 动画期间持续满帧重绘](domains/tui.md#issue_2026-05-30-no-explicit-frame-rate-limit) — tui
+
+### CPU 占用
+- [TUI 渲染缺少显式帧率限制，loading 动画期间持续满帧重绘](domains/tui.md#issue_2026-05-30-no-explicit-frame-rate-limit) — tui
+
+### loading 动画
+- [TUI 渲染缺少显式帧率限制，loading 动画期间持续满帧重绘](domains/tui.md#issue_2026-05-30-no-explicit-frame-rate-limit) — tui
+
+### 渲染节流
+- [TUI 渲染缺少显式帧率限制，loading 动画期间持续满帧重绘](domains/tui.md#issue_2026-05-30-no-explicit-frame-rate-limit) — tui
+
+### WidgetRef
+- [peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
+
+### 所有权
+- [peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
+
+### ratatui
+- [peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
+
+### 弹窗
+- [交互弹窗激活时底部常驻输入框未失效](domains/tui.md#issue_2026-05-31-interaction-popup-textarea-not-disabled) — tui
+
+### Paste 事件
+- [交互弹窗激活时底部常驻输入框未失效](domains/tui.md#issue_2026-05-31-interaction-popup-textarea-not-disabled) — tui
+
+### IME
+- [交互弹窗激活时底部常驻输入框未失效](domains/tui.md#issue_2026-05-31-interaction-popup-textarea-not-disabled) — tui
+
+### 事件路由
+- [交互弹窗激活时底部常驻输入框未失效](domains/tui.md#issue_2026-05-31-interaction-popup-textarea-not-disabled) — tui
+- [AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效](domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete) — agent
+
+### 终端光标
+- [交互弹窗激活时底部常驻输入框未失效](domains/tui.md#issue_2026-05-31-interaction-popup-textarea-not-disabled) — tui
+
+### 表格
+- [流式 Markdown 表格渲染缺少 holdback 机制，显示不完整列](domains/tui.md#issue_2026-05-30-table-holdback-during-streaming) — tui
+
+### 流式
+- [流式 Markdown 表格渲染缺少 holdback 机制，显示不完整列](domains/tui.md#issue_2026-05-30-table-holdback-during-streaming) — tui
+
+### holdback
+- [流式 Markdown 表格渲染缺少 holdback 机制，显示不完整列](domains/tui.md#issue_2026-05-30-table-holdback-during-streaming) — tui
+
+### 列对齐
+- [流式 Markdown 表格渲染缺少 holdback 机制，显示不完整列](domains/tui.md#issue_2026-05-30-table-holdback-during-streaming) — tui
+
+### LRU 缓存
+- [TUI Markdown 解析缺少 LRU 缓存，每次渲染完整重解析](domains/tui.md#issue_2026-05-30-markdown-parse-lru-cache) — tui
+
+### pulldown-cmark
+- [TUI Markdown 解析缺少 LRU 缓存，每次渲染完整重解析](domains/tui.md#issue_2026-05-30-markdown-parse-lru-cache) — tui
+
+### 性能优化
+- [TUI Markdown 解析缺少 LRU 缓存，每次渲染完整重解析](domains/tui.md#issue_2026-05-30-markdown-parse-lru-cache) — tui
+
+### Ctrl+C
+- [Ctrl+C 改为优先级链：清空输入框 → 中断 Agent → 退出](domains/tui.md#issue_2026-05-29-ctrl-c-priority-chain-clear-input) — tui
+
+### 优先级链
+- [Ctrl+C 改为优先级链：清空输入框 → 中断 Agent → 退出](domains/tui.md#issue_2026-05-29-ctrl-c-priority-chain-clear-input) — tui
+
+### 交互设计
+- [Ctrl+C 改为优先级链：清空输入框 → 中断 Agent → 退出](domains/tui.md#issue_2026-05-29-ctrl-c-priority-chain-clear-input) — tui
+
+### prompt_capabilities
+- [ACP InitializeResponse 缺少 prompt_capabilities 声明](domains/acp.md#issue_2026-05-19-acp-missing-prompt-capabilities) — acp
+
+### 协议声明
+- [ACP InitializeResponse 缺少 prompt_capabilities 声明](domains/acp.md#issue_2026-05-19-acp-missing-prompt-capabilities) — acp
+
+### AskUserQuestion
+- [AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效](domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete) — agent
+
+### MultiplexBroker
+- [AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效](domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete) — agent
+
+### 竞速
+- [AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效](domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete) — agent
+
+### 空答案
+- [AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效](domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete) — agent
+
+### Broker 选择
+- [AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效](domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete) — agent
+
+### DeepSeek
+- [Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误](domains/agent.md#issue_2026-05-27-windows-deepseek-skill-inject-thinking-400) — agent
+
+### SkillPreload
+- [Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误](domains/agent.md#issue_2026-05-27-windows-deepseek-skill-inject-thinking-400) — agent
+
+### Anthropic 兼容
+- [Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误](domains/agent.md#issue_2026-05-27-windows-deepseek-skill-inject-thinking-400) — agent
+
+### 400 错误
+- [Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误](domains/agent.md#issue_2026-05-27-windows-deepseek-skill-inject-thinking-400) — agent
+
+### 假消息
+- [Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误](domains/agent.md#issue_2026-05-27-windows-deepseek-skill-inject-thinking-400) — agent
+
+### Tavily
+- [WebSearch/WebFetch 后端迁移至 Tavily 兼容接口](domains/tools.md#issue_2026-05-23-migrate-web-tools-to-tavily-backend) — tools
+
+### WebSearch
+- [WebSearch/WebFetch 后端迁移至 Tavily 兼容接口](domains/tools.md#issue_2026-05-23-migrate-web-tools-to-tavily-backend) — tools
+
+### WebFetch
+- [WebSearch/WebFetch 后端迁移至 Tavily 兼容接口](domains/tools.md#issue_2026-05-23-migrate-web-tools-to-tavily-backend) — tools
+
+### Bing
+- [WebSearch/WebFetch 后端迁移至 Tavily 兼容接口](domains/tools.md#issue_2026-05-23-migrate-web-tools-to-tavily-backend) — tools
+
+### 后端迁移
+- [WebSearch/WebFetch 后端迁移至 Tavily 兼容接口](domains/tools.md#issue_2026-05-23-migrate-web-tools-to-tavily-backend) — tools
+
+### 安装脚本
+- [Shell 安装脚本完成后缺少旧版本清理交互](domains/cli.md#issue_2026-05-30-install-clean-old-versions-confirm) — cli
+
+### 旧版本清理
+- [Shell 安装脚本完成后缺少旧版本清理交互](domains/cli.md#issue_2026-05-30-install-clean-old-versions-confirm) — cli
+
+### 交互确认
+- [Shell 安装脚本完成后缺少旧版本清理交互](domains/cli.md#issue_2026-05-30-install-clean-old-versions-confirm) — cli
+
+### mimalloc
+- [重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）](domains/code-architecture.md#issue_2026-05-30-retry-mimalloc-with-mi-options) — code-architecture
+
+### 分配器
+- [重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）](domains/code-architecture.md#issue_2026-05-30-retry-mimalloc-with-mi-options) — code-architecture
+
+### MI_OPTION
+- [重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）](domains/code-architecture.md#issue_2026-05-30-retry-mimalloc-with-mi-options) — code-architecture
+
+### RSS 增长
+- [重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）](domains/code-architecture.md#issue_2026-05-30-retry-mimalloc-with-mi-options) — code-architecture
+
+### 内存管理
+- [重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）](domains/code-architecture.md#issue_2026-05-30-retry-mimalloc-with-mi-options) — code-architecture
+
 ## 更新记录
 
 - 2026-05-29: 归档 8 个 issue（agent 7 + plugin 1），新增 22 个关键词索引

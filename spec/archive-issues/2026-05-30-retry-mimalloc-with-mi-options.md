@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-30-retry-mimalloc-with-mi-options.md
+
 # 重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）
 
 **状态**：Fixed

@@ -29,3 +29,14 @@
 **技术决策:** 共享函数 `persist_truncated_output` 统一处理 7 个工具的截断持久化（Bash/Grep/Glob/FolderOperations/WebFetch/MCP ToolBridge/MCP ResourceTool），Read/WebSearch 排除
 **涉及文件:** peri-middlewares/src/tools/output_persist.rs, terminal.rs, grep.rs, glob.rs, folder.rs, web_fetch.rs, tool_bridge.rs, resource_tool.rs
 **CLAUDE.md 链接:** false
+
+### issue_2026-05-23-migrate-web-tools-to-tavily-backend
+
+**摘要:** WebSearch/WebFetch 后端迁移至 Tavily 兼容接口
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** Tavily, WebSearch, WebFetch, Bing, 后端迁移
+**问题本质:** Bing HTML 解析不稳定且维护成本高，需迁移到统一 API 后端
+**通用模式:** 外部依赖（搜索引擎）应通过统一 API 封装，避免直接解析 HTML；API 迁移时需完整移除旧实现防止代码残留
+**涉及文件:** peri-middlewares/src/middleware/web_search.rs, peri-middlewares/src/middleware/web_fetch.rs, peri-middlewares/src/middleware/web_common.rs
+**CLAUDE.md 链接:** false

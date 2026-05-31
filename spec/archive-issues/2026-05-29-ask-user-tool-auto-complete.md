@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-29-ask-user-tool-auto-complete.md
+
 # AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效
 
 **状态**：Fixed

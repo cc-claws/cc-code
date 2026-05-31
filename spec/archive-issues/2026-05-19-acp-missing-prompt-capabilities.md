@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-19-acp-missing-prompt-capabilities.md
+
 # ACP InitializeResponse 缺少 prompt_capabilities 声明
 
 **状态**：Fixed

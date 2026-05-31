@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-30-markdown-parse-lru-cache.md
+
 # TUI Markdown 解析缺少 LRU 缓存，每次渲染完整重解析
 
 **状态**：Fixed

@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-30-migrate-widgets-to-widgetref.md
+
 # peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆
 
 **状态**：Fixed

@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-30-render-event-unbounded-channel.md
+
 # RenderThread 事件通道使用 UnboundedChannel，极端情况下可能内存膨胀
 
 **状态**：Fixed

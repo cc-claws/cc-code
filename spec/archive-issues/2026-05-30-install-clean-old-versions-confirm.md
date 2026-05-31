@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-30-install-clean-old-versions-confirm.md
+
 # Shell 安装脚本完成后缺少旧版本清理交互
 
 **状态**：Fixed

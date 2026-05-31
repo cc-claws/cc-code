@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-23-migrate-web-tools-to-tavily-backend.md
+
 # WebSearch/WebFetch 后端迁移至 Tavily 兼容接口
 
 **状态**：Fixed

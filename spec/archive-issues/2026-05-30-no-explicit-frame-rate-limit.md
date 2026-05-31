@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-30-no-explicit-frame-rate-limit.md
+
 # TUI 渲染缺少显式帧率限制，loading 动画期间持续满帧重绘
 
 **状态**：Fixed

@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-27-windows-deepseek-skill-inject-thinking-400.md
+
 # Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误
 
 **状态**：Fixed

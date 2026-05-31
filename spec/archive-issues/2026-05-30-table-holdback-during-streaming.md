@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-30-table-holdback-during-streaming.md
+
 # 流式 Markdown 表格渲染缺少 holdback 机制，显示不完整列
 
 **状态**：Fixed

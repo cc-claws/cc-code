@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-29-ctrl-c-priority-chain-clear-input.md
+
 # Ctrl+C 改为优先级链：清空输入框 → 中断 Agent → 退出
 
 **状态**：Fixed

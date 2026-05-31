@@ -10,9 +10,9 @@ use anyhow::{bail, Result};
 use std::process::Command;
 
 const SCRIPT_URL_UNIX: &str =
-    "https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.sh";
+    "https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.sh";
 const SCRIPT_URL_WINDOWS: &str =
-    "https://raw.githubusercontent.com/konghayao/peri/main/scripts/install-gig.ps1";
+    "https://raw.githubusercontent.com/konghayao/peri/main/side-projects/git-graph/install-gig.ps1";
 
 pub fn run_update() -> Result<()> {
     if cfg!(windows) {

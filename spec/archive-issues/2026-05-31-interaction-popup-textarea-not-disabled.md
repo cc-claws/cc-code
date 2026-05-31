@@ -1,3 +1,5 @@
+> 归档于 2026-05-31，原路径 spec/issues/2026-05-31-interaction-popup-textarea-not-disabled.md
+
 # 交互弹窗激活时底部常驻输入框未失效
 
 **状态**：Fixed

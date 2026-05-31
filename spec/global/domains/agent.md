@@ -719,6 +719,29 @@ launch_agent 工具调用
 **涉及文件:** peri-acp/src/event/mapper.rs, peri-tui/src/app/agent_ops/acp_bridge.rs, peri-acp/src/event/mapper_test.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-29-ask-user-tool-auto-complete
+
+**摘要:** AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** AskUserQuestion, MultiplexBroker, 竞速, 空答案, Broker 选择
+**问题本质:** MultiplexBroker 中 ChannelBroker 对 Questions 交互立即返回空答案，与 TUI broker 竞速导致空答案被采纳
+**通用模式:** Broker/代理模式需为不同交互类型选择正确的后端；不支持特定交互类型的后端不应参与竞速
+**架构影响:** MultiplexBroker 的设计需要按交互类型路由，而非简单竞速
+**涉及文件:** peri-acp/src/agent/builder.rs, peri-acp/src/broker/transport_broker.rs, peri-tui/src/app/agent_ops_interaction.rs, peri-tui/src/app/ask_user_ops.rs
+**CLAUDE.md 链接:** true
+
+### issue_2026-05-27-windows-deepseek-skill-inject-thinking-400
+
+**摘要:** Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** thinking, DeepSeek, SkillPreload, Anthropic 兼容, 400 错误, 假消息
+**问题本质:** SkillPreloadMiddleware 注入的假 Read 工具调用消息在 DeepSeek Anthropic 兼容模式下触发 thinking 回传校验失败
+**通用模式:** LLM 适配层需考虑不同 provider 的协议变体，假消息注入需符合目标 provider 的约束（如 thinking block 回传要求）
+**涉及文件:** peri-middlewares/src/subagent/skill_preload.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature
