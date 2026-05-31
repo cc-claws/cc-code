@@ -269,13 +269,14 @@ fn render_tree(
                 }
             }
             FlatNode::File { name, status } => {
-                let (ch, color) = status_style(*status, theme);
+                let (_, color) = status_style(*status, theme);
                 let mut spans = indent_spans(depth, theme);
-                spans.push(Span::styled(
-                    name.clone(),
-                    Style::default().fg(theme.muted()),
-                ));
-                spans.push(Span::styled(format!(" {}", ch), Style::default().fg(color)));
+                let is_deleted = matches!(status, FileStatus::Deleted | FileStatus::WorkingDeleted);
+                let mut name_style = Style::default().fg(color);
+                if is_deleted {
+                    name_style = name_style.add_modifier(ratatui::style::Modifier::CROSSED_OUT);
+                }
+                spans.push(Span::styled(name.clone(), name_style));
                 let fk = format!("{}{}", prefix, name);
                 // 高亮选中的文件
                 let should_highlight = highlight_path == Some(fk.as_str());
