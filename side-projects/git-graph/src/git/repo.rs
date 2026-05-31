@@ -161,7 +161,24 @@ impl GitRepo {
         }
     }
 
-    /// 计算当前分支相对 upstream 的 ahead/behind commit 数
+    /// 获取当前分支的 upstream 名称（如 "origin/main"）
+    pub fn upstream_name(&self) -> Option<String> {
+        let branch_name = self.head_branch()?;
+        let branch = self
+            .repo
+            .find_branch(&branch_name, git2::BranchType::Local)
+            .ok()?;
+        let upstream = branch.upstream().ok()?;
+        upstream.name().ok()?.map(|s| s.to_string())
+    }
+
+    /// 获取远程仓库的默认分支名（通过 origin/HEAD 符号引用）
+    pub fn remote_head_branch(&self) -> Option<String> {
+        let remote_head = self.repo.find_reference("refs/remotes/origin/HEAD").ok()?;
+        let target = remote_head.symbolic_target()?;
+        // target 格式: "refs/remotes/origin/main"
+        target.rsplit('/').next().map(|s| s.to_string())
+    }
     /// 返回 (ahead, behind)，如果没有 upstream 返回 None
     pub fn ahead_behind(&self) -> Option<(usize, usize)> {
         let branch_name = self.head_branch()?;
