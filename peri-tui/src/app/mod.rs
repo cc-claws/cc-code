@@ -645,4 +645,14 @@ impl App {
         config.apply_env_overrides();
         config
     }
+
+    /// 检查是否有任何交互弹窗处于激活状态（AskUser / HITL / OAuth）。
+    /// 弹窗激活时，底部 textarea 应失效——隐藏光标、禁止输入、视觉变暗。
+    pub fn is_interaction_popup_active(&self) -> bool {
+        self.global_ui.oauth_prompt.is_some()
+            || self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .interaction_prompt
+                .is_some()
+    }
 }
