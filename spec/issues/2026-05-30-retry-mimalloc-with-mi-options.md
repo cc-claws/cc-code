@@ -1,8 +1,9 @@
 # 重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-30
+**实施日期**：2026-05-30
 
 ## 问题描述
 
@@ -52,3 +53,16 @@
 - `spec/archive-issues/2026-05-25-mimalloc-worse-than-jemalloc.md`（mimalloc 表现更差的记录）
 - `spec/archive-issues/2026-05-24-build-agent-per-turn-arc-transient-fragmentation.md`（arena 碎片化根因分析）
 - `docs/superpowers/plans/2026-05-23-memory-rss-growth-fix.md`（jemalloc 调优方案）
+
+## 实施记录（2026-05-30）
+
+已实施内容：
+
+| 项目 | 文件 | 状态 |
+|------|------|------|
+| mimalloc 依赖 | `Cargo.toml`, `peri-tui/Cargo.toml` | ✅ |
+| 全局分配器声明 | `peri-tui/src/main.rs:28-29` | ✅ |
+| MI_OPTION 配置 | `peri-tui/src/mimalloc_config.rs` → `init_mimalloc_conf()` | ✅ |
+| 内存回收 | `peri-tui/src/app/thread_ops.rs` → `alloc_collect()` (`mi_collect(true)`) | ✅ |
+
+**结果**：内存线性增长问题**仍然存在**（现象未改善），详见 `spec/issues/2026-05-22-memory-linear-growth-no-compact.md`。

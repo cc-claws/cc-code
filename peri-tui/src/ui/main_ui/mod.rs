@@ -348,7 +348,7 @@ fn render_session_column(
     // 输入框：非聚焦 session 或应用失焦时隐藏光标（移除 REVERSED 修饰符）
     let textarea_ref = &app.session_mgr.sessions[session_idx].ui.textarea;
     // 应用失焦 或 当前 session 未激活 → 隐藏光标
-    let should_hide_cursor = !app.focused || !is_active || popup_active;
+    let should_hide_cursor = !app.focused || !is_active;
     if should_hide_cursor {
         // 克隆并移除光标的 REVERSED 样式，使光标不可见
         let mut ta = textarea_ref.clone();
