@@ -1,7 +1,7 @@
 use crate::app::{App, Overlay};
 use crate::ui::overlay;
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     Frame,
 };
 
@@ -9,15 +9,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let size = f.area();
     app.frame_area = size;
 
-    // 全局工具栏占顶部 1 行
-    let (toolbar_area, body_area) = if size.height > 2 {
+    // 底部分栏：全局工具栏(1行) + toast(1行)
+    let bottom_height = if size.height > 4 { 2 } else { 0 };
+    let (body_area, bottom_area) = if bottom_height > 0 {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .constraints([Constraint::Min(0), Constraint::Length(bottom_height)])
             .split(size);
-        (Some(chunks[0]), chunks[1])
+        (chunks[0], Some(chunks[1]))
     } else {
-        (None, size)
+        (size, None)
     };
 
     // 搜索栏占底部 1 行
@@ -47,9 +48,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     crate::ui::graph_panel::draw(f, v_chunks[0], app);
     crate::ui::detail_panel::draw(f, v_chunks[1], app);
 
-    // 全局工具栏
-    if let Some(tb_area) = toolbar_area {
-        crate::ui::toolbar::draw_global_toolbar(f, tb_area, app);
+    // 底部：全局工具栏 + toast
+    if let Some(ba) = bottom_area {
+        let toolbar_area = Rect::new(ba.x, ba.y, ba.width, 1);
+        let toast_area = Rect::new(ba.x, ba.y + 1, ba.width, 1);
+        crate::ui::toolbar::draw_global_toolbar(f, toolbar_area, app);
+        crate::ui::toast::draw_toast(f, toast_area, app);
     }
 
     // 搜索栏

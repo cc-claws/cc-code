@@ -65,6 +65,14 @@ fn run_tui(repo_path: &std::path::Path) -> Result<()> {
         // 刷新 sidebar 数据（每 2 秒自动刷新 git status）
         app.refresh_sidebar();
 
+        // Toast 过期检测
+        if let Some(toast) = &app.toast {
+            if std::time::Instant::now() >= toast.expires_at {
+                app.toast = None;
+                app.dirty = true;
+            }
+        }
+
         // 只在 dirty 时重绘
         if app.dirty {
             terminal.draw(|f| render::draw(f, &mut app))?;

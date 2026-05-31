@@ -31,6 +31,8 @@ pub struct PanelLayout {
     pub dir_rows: Vec<(u16, String)>,
     /// 按钮行：(相对行号, 按钮起始列 x, 按钮类型, 操作路径)
     pub button_rows: Vec<(u16, u16, StatusButton, String)>,
+    /// 路径行：(相对行号, 完整的相对路径, 是否为目录)
+    pub path_rows: Vec<(u16, String, bool)>,
 }
 
 enum TreeNode {
@@ -206,6 +208,7 @@ fn render_tree(
     collapsed: &HashSet<String>,
     dir_rows: &mut Vec<(u16, String)>,
     button_rows: &mut Vec<(u16, u16, StatusButton, String)>,
+    path_rows: &mut Vec<(u16, String, bool)>,
     row: &mut u16,
     lines: &mut Vec<Line<'static>>,
     theme: &crate::theme::GigTheme,
@@ -227,6 +230,7 @@ fn render_tree(
                     Style::default().fg(theme.text()),
                 ));
                 dir_rows.push((*row, key.clone()));
+                path_rows.push((*row, key.trim_end_matches('/').to_string(), true));
                 let bx = append_button(&mut spans, section, area_width);
                 button_rows.push((*row, bx, section, key.clone()));
                 lines.push(Line::from(spans));
@@ -239,6 +243,7 @@ fn render_tree(
                         collapsed,
                         dir_rows,
                         button_rows,
+                        path_rows,
                         row,
                         lines,
                         theme,
@@ -256,6 +261,7 @@ fn render_tree(
                 ));
                 spans.push(Span::styled(format!(" {}", ch), Style::default().fg(color)));
                 let fk = format!("{}{}", prefix, name);
+                path_rows.push((*row, fk.clone(), false));
                 let bx = append_button(&mut spans, section, area_width);
                 button_rows.push((*row, bx, section, fk));
                 lines.push(Line::from(spans));
@@ -333,6 +339,7 @@ fn draw_panel(
             collapsed,
             &mut layout.dir_rows,
             &mut layout.button_rows,
+            &mut layout.path_rows,
             &mut row,
             &mut lines,
             theme,
@@ -361,6 +368,9 @@ fn draw_panel(
         *r = r.saturating_sub(scroll_u16);
     }
     for (r, _, _, _) in &mut layout.button_rows {
+        *r = r.saturating_sub(scroll_u16);
+    }
+    for (r, _, _) in &mut layout.path_rows {
         *r = r.saturating_sub(scroll_u16);
     }
 

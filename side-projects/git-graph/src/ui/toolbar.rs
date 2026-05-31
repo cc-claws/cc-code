@@ -290,13 +290,7 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
         }
     }
 
-    // 显示远程操作状态
-    if let Some(status) = &app.remote_status {
-        let status_text = status.chars().take(40).collect::<String>();
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(status_text, Style::default().fg(Color::Cyan)));
-    }
-
+    // 远程操作状态已迁移到 toast 栏
     let para = Paragraph::new(Line::from(spans));
     f.render_widget(para, area);
 }

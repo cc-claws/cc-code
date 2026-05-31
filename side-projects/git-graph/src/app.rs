@@ -13,6 +13,21 @@ use ratatui::layout::Rect;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+/// Toast 通知消息
+#[derive(Debug, Clone)]
+pub struct Toast {
+    pub message: String,
+    pub style: ToastStyle,
+    pub expires_at: std::time::Instant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToastStyle {
+    Success,
+    Error,
+    Info,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     FileTree,
@@ -70,8 +85,9 @@ pub struct App {
     pub confirm_action: Option<ConfirmAction>,
     pub filter_branch: Option<String>,
     pub search_query: Option<String>,
-    pub remote_status: Option<String>,
-    /// 远程操作完成的结果通道（主循环轮询更新 remote_status）
+    /// Toast 通知（统一替代 remote_status）
+    pub toast: Option<Toast>,
+    /// 远程操作完成的结果通道（主循环轮询更新 toast）
     pub remote_result_rx: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub toolbar_state: ToolbarState,
     pub global_toolbar_state: GlobalToolbarState,
@@ -187,7 +203,7 @@ impl App {
             confirm_action: None,
             filter_branch: None,
             search_query: None,
-            remote_status: None,
+            toast: None,
             remote_result_rx: std::sync::Arc::new(std::sync::Mutex::new(None)),
             toolbar_state: ToolbarState::new(),
             global_toolbar_state: GlobalToolbarState::new(),
@@ -255,6 +271,15 @@ impl App {
         }
     }
 
+    pub fn show_toast(&mut self, message: String, style: ToastStyle) {
+        self.toast = Some(Toast {
+            message,
+            style,
+            expires_at: std::time::Instant::now() + std::time::Duration::from_secs(2),
+        });
+        self.dirty = true;
+    }
+
     pub fn quit(&mut self) {
         self.running = false;
     }
@@ -294,10 +319,18 @@ impl App {
     /// 刷新 sidebar 数据（git status + 文件树 + graph），超过 interval 才刷新
     pub fn refresh_sidebar(&mut self) {
         // 先检查远程操作结果
-        if let Ok(mut rx) = self.remote_result_rx.lock() {
-            if let Some(result) = rx.take() {
-                self.remote_status = Some(result);
-            }
+        let remote_result = if let Ok(mut rx) = self.remote_result_rx.lock() {
+            rx.take()
+        } else {
+            None
+        };
+        if let Some(result) = remote_result {
+            let style = if result.contains("失败") {
+                ToastStyle::Error
+            } else {
+                ToastStyle::Success
+            };
+            self.show_toast(result, style);
         }
 
         if self.last_sidebar_refresh.elapsed() < std::time::Duration::from_secs(2) {
