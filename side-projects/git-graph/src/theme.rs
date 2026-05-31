@@ -19,7 +19,7 @@ impl GigTheme {
         Color::Rgb(25, 25, 30)
     }
     pub fn selected_bg(&self) -> Color {
-        Color::Rgb(40, 40, 60)
+        Color::Rgb(50, 50, 90)
     }
     pub fn toolbar_bg(&self) -> Color {
         Color::Rgb(35, 35, 45)

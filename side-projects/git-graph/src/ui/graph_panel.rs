@@ -1,13 +1,17 @@
 use crate::app::App;
 use crate::graph::render::render_graph_row;
+use peri_widgets::Theme as _;
 use ratatui::{
     layout::{Margin, Rect},
+    style::Style,
     widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
 pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
-    let block = Block::default().borders(ratatui::widgets::Borders::ALL);
+    let block = Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .border_style(Style::default().fg(app.theme.border()));
     f.render_widget(block, area);
 
     let inner = area.inner(Margin::new(1, 1));
