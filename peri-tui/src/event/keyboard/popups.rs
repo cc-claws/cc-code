@@ -14,9 +14,7 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
 
     // AskUser batch popup
     if matches!(
-        &app.session_mgr.sessions[app.session_mgr.active]
-            .agent
-            .interaction_prompt,
+        &app.session_mgr.current_mut().agent.interaction_prompt,
         Some(crate::app::InteractionPrompt::Questions(_))
     ) {
         match input {
@@ -69,9 +67,7 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
 
     // HITL batch popup active — handle popup keys first
     if matches!(
-        &app.session_mgr.sessions[app.session_mgr.active]
-            .agent
-            .interaction_prompt,
+        &app.session_mgr.current_mut().agent.interaction_prompt,
         Some(crate::app::InteractionPrompt::Approval(_))
     ) {
         match input {

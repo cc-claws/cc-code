@@ -11,18 +11,8 @@ struct SessionInfo {
     cwd: String,
     history: Vec<peri_agent::messages::BaseMessage>,
     cancel_token: Option<peri_agent::agent::AgentCancellationToken>,
-    /// Frozen system prompt (built at session/new).
-    frozen_system_prompt: Option<String>,
-    /// Frozen CLAUDE.md content.
-    frozen_claude_md: Option<String>,
-    /// Frozen CLAUDE.local.md content.
-    frozen_claude_local_md: Option<String>,
-    /// Frozen skills summary.
-    frozen_skill_summary: Option<String>,
-    /// Session creation date (YYYY-MM-DD).
-    frozen_date: Option<String>,
-    /// Frozen language preference (e.g. "zh-CN", "en").
-    frozen_language: Option<String>,
+    /// Frozen session data (built once at session/new).
+    frozen: Option<peri_acp::session::executor::FrozenSessionData>,
     /// Session-scoped agent pool for LLM instance reuse.
     agent_pool: peri_acp::session::agent_pool::AgentPool,
 }
@@ -238,8 +228,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
             event_sink::StdioEventSink,
             executor,
             state_builders::{
-                apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
-                parse_permission_mode,
+                apply_thinking_effort, build_mode_state, build_model_state, parse_permission_mode,
             },
         },
     };
@@ -280,25 +269,14 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     // ── Freeze system prompt data at session creation ──
                     let frozen_date =
                         chrono::Local::now().format("%Y-%m-%d").to_string();
-
                     let frozen_language = ctx.peri_config.read().config.language.clone();
-                    let (frozen_claude_md, frozen_claude_local_md) =
-                        peri_middlewares::AgentsMdMiddleware::read_frozen_content(&cwd_str);
 
-                    let frozen_skill_summary =
-                        peri_middlewares::SkillsMiddleware::build_frozen_summary(
-                            &cwd_str,
-                            &ctx.plugin_skill_dirs,
-                        );
-
-                    let features = peri_acp::prompt::PromptFeatures::detect();
-                    let frozen_system_prompt = peri_acp::prompt::build_system_prompt(
-                        None,
+                    let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
                         &cwd_str,
-                        features,
-                        &ctx.plugin_agent_dirs,
-                        Some(&frozen_date),
                         frozen_language.as_deref(),
+                        &ctx.plugin_skill_dirs,
+                        &ctx.plugin_agent_dirs,
+                        &frozen_date,
                     );
 
                     // Scan skills for AvailableCommands
@@ -318,12 +296,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd: cwd_str,
                                 history: Vec::new(),
                                 cancel_token: None,
-                                frozen_system_prompt: Some(frozen_system_prompt),
-                                frozen_claude_md,
-                                frozen_claude_local_md,
-                                frozen_skill_summary,
-                                frozen_date: Some(frozen_date),
-                                frozen_language,
+                                frozen: Some(frozen_data),
                                 agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
@@ -338,7 +311,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let config_options = {
                         let c = ctx.peri_config.read();
                         let p = ctx.provider.read();
-                        build_config_options(&c, &p, ctx.permission_mode.load())
+                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
                     };
                     let _ = responder.respond(
                         NewSessionResponse::new(SessionId::new(&*sid))
@@ -417,28 +390,13 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let (agent_cwd, history, is_empty_history, thread_id, frozen) = {
                         let sessions = ctx.sessions.read();
                         match sessions.get(&sid) {
-                            Some(s) => {
-                                let frozen = s.frozen_system_prompt.as_ref().map(|sp| {
-                                    executor::FrozenSessionData {
-                                        system_prompt: sp.clone(),
-                                        claude_md: s.frozen_claude_md.clone(),
-                                        claude_local_md: s.frozen_claude_local_md.clone(),
-                                        skill_summary: s.frozen_skill_summary.clone(),
-                                        date: s.frozen_date.clone().unwrap_or_default(),
-                                        is_git_repo: std::path::Path::new(&s.cwd)
-                                            .join(".git")
-                                            .exists(),
-                                        language: s.frozen_language.clone(),
-                                    }
-                                });
-                                (
-                                    s.cwd.clone(),
-                                    s.history.clone(),
-                                    s.history.is_empty(),
-                                    s.thread_id.clone(),
-                                    frozen,
-                                )
-                            }
+                            Some(s) => (
+                                s.cwd.clone(),
+                                s.history.clone(),
+                                s.history.is_empty(),
+                                s.thread_id.clone(),
+                                s.frozen.clone(),
+                            ),
                             None => {
                                 let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
                                 return Ok(());
@@ -580,7 +538,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let config_options = {
                         let c = ctx.peri_config.read();
                         let p = ctx.provider.read();
-                        build_config_options(&c, &p, ctx.permission_mode.load())
+                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
                     };
                     let notif = SessionNotification::new(
                         req.session_id.clone(),
@@ -617,7 +575,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let config_options = {
                         let c = ctx.peri_config.read();
                         let p = ctx.provider.read();
-                        build_config_options(&c, &p, ctx.permission_mode.load())
+                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
                     };
                     let notif = SessionNotification::new(
                         req.session_id.clone(),
@@ -681,7 +639,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let config_options = {
                         let cfg = ctx.peri_config.read();
                         let p = ctx.provider.read();
-                        build_config_options(&cfg, &p, ctx.permission_mode.load())
+                        dispatch::config_update::make_config_options(&cfg, &p, ctx.permission_mode.load())
                     };
                     let notif = SessionNotification::new(
                         req.session_id.clone(),
@@ -747,12 +705,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd,
                                 history: Vec::new(),
                                 cancel_token: None,
-                                frozen_system_prompt: None,
-                                frozen_claude_md: None,
-                                frozen_claude_local_md: None,
-                                frozen_skill_summary: None,
-                                frozen_date: None,
-                                frozen_language: None,
+                                frozen: None,
                                 agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
@@ -797,12 +750,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     cwd,
                                     history,
                                     cancel_token: None,
-                                    frozen_system_prompt: None,
-                                    frozen_claude_md: None,
-                                    frozen_claude_local_md: None,
-                                    frozen_skill_summary: None,
-                                    frozen_date: None,
-                                    frozen_language: None,
+                                    frozen: None,
                                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                                 },
                             );
@@ -818,7 +766,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let config_options = {
                         let c = ctx.peri_config.read();
                         let p = ctx.provider.read();
-                        build_config_options(&c, &p, ctx.permission_mode.load())
+                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
                     };
                     let resp = LoadSessionResponse::new()
                         .modes(modes)
@@ -899,12 +847,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd: cwd_str,
                                 history: copied_history,
                                 cancel_token: None,
-                                frozen_system_prompt: None,
-                                frozen_claude_md: None,
-                                frozen_claude_local_md: None,
-                                frozen_skill_summary: None,
-                                frozen_date: None,
-                                frozen_language: None,
+                                frozen: None,
                                 agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
@@ -973,7 +916,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let config_options = {
                         let c = ctx.peri_config.read();
                         let p = ctx.provider.read();
-                        build_config_options(&c, &p, ctx.permission_mode.load())
+                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
                     };
                     let notif = SessionNotification::new(
                         SessionId::new(&*session_id),

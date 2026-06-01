@@ -556,23 +556,21 @@ async fn run_app(
             .map(|pd| pd.all_skill_dirs.clone())
             .unwrap_or_default();
         let plugin_skills = peri_middlewares::skills::list_skills(&plugin_skill_dirs);
-        for session in &mut app.session_mgr.sessions {
-            session
-                .commands
-                .command_registry
-                .register_plugin_commands(plugin_commands.clone());
-        }
-        for session in &mut app.session_mgr.sessions {
-            let existing_names: std::collections::HashSet<String> = session
-                .commands
-                .skills
-                .iter()
-                .map(|s| s.name.clone())
-                .collect();
-            for skill in &plugin_skills {
-                if !existing_names.contains(&skill.name) {
-                    session.commands.skills.push(skill.clone());
-                }
+        app.session_mgr
+            .current_mut()
+            .commands
+            .command_registry
+            .register_plugin_commands(plugin_commands.clone());
+        let session = app.session_mgr.current_mut();
+        let existing_names: std::collections::HashSet<String> = session
+            .commands
+            .skills
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        for skill in &plugin_skills {
+            if !existing_names.contains(&skill.name) {
+                session.commands.skills.push(skill.clone());
             }
         }
     }
@@ -670,17 +668,13 @@ async fn run_app(
             // Spawn notification pump
             acp_client.spawn_pump();
             // Wire notification receiver to active session's AgentComm
-            app.session_mgr.sessions[app.session_mgr.active]
-                .agent
-                .acp_notification_rx = Some(notification_rx);
+            app.session_mgr.current_mut().agent.acp_notification_rx = Some(notification_rx);
             app.acp_client = Some(acp_client);
         }
     }
 
     // Spinner tick 驱动：每次渲染前推进一帧
-    app.session_mgr.sessions[app.session_mgr.active]
-        .spinner_state
-        .advance_tick();
+    app.session_mgr.current_mut().spinner_state.advance_tick();
 
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
@@ -692,19 +686,12 @@ async fn run_app(
     const TARGET_FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
     'event_loop: loop {
-        // 推进所有 session 的 Spinner 动画帧
-        for i in 0..app.session_mgr.sessions.len() {
-            app.session_mgr.sessions[i].spinner_state.advance_tick();
-        }
-        // 轮询所有 session 的 agent 结果
+        // 推进 Spinner 动画帧
+        app.session_mgr.current_mut().spinner_state.advance_tick();
+        // 轮询 agent 结果
         let mut agent_updated = false;
-        for i in 0..app.session_mgr.sessions.len() {
-            let prev_active = app.session_mgr.active;
-            app.session_mgr.active = i;
-            agent_updated |= app.poll_agent();
-            agent_updated |= app.poll_at_mention();
-            app.session_mgr.active = prev_active;
-        }
+        agent_updated |= app.poll_agent();
+        agent_updated |= app.poll_at_mention();
         // 轮询后台事件（MCP OAuth 等）
         let bg_updated = app.poll_background_events();
         // 检查 cron 定时触发
@@ -727,16 +714,16 @@ async fn run_app(
             None => {
                 // 无用户事件（poll 超时）：在阻塞结束后重新读取缓存版本
                 // 这样能捕获渲染线程在等待期间发出的更新
-                let cache_version = app.session_mgr.sessions[app.session_mgr.active]
+                let cache_version = app
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .render_cache
                     .read()
                     .version;
-                let cache_updated = cache_version
-                    != app.session_mgr.sessions[app.session_mgr.active]
-                        .messages
-                        .last_render_version;
-                let loading = app.session_mgr.sessions[app.session_mgr.active].ui.loading;
+                let cache_updated =
+                    cache_version != app.session_mgr.current_mut().messages.last_render_version;
+                let loading = app.session_mgr.current_mut().ui.loading;
                 let should_render = cache_updated || agent_updated || bg_updated || loading;
                 if should_render {
                     let now = Instant::now();
@@ -763,7 +750,9 @@ async fn run_app(
     }
 
     // 等待最后一次 Langfuse flush 完成，防止 runtime drop 前 batcher 数据丢失
-    if let Some(handle) = app.session_mgr.sessions[app.session_mgr.active]
+    if let Some(handle) = app
+        .session_mgr
+        .current_mut()
         .langfuse
         .langfuse_flush_handle
         .take()

@@ -19,7 +19,8 @@ impl App {
 
     /// 关闭 /hooks 面板
     pub fn close_hooks_panel(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .session_panels
             .close_if(PanelKind::Hooks);
     }

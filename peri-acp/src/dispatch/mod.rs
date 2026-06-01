@@ -6,6 +6,7 @@
 //! in their respective transport layers.
 
 pub mod commands;
+pub mod config_update;
 pub mod init;
 pub mod list_sessions;
 pub mod session_fork;

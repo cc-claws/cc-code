@@ -70,12 +70,7 @@ pub(crate) async fn handle_request(
                     cwd: cwd.clone(),
                     history: Vec::new(),
                     cancel_token: None,
-                    frozen_system_prompt: None,
-                    frozen_claude_md: None,
-                    frozen_claude_local_md: None,
-                    frozen_skill_summary: None,
-                    frozen_date: None,
-                    frozen_language: None,
+                    frozen: None,
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                 },
@@ -85,31 +80,16 @@ pub(crate) async fn handle_request(
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
             let frozen_language = cfg.peri_config.read().config.language.clone();
 
-            let (frozen_claude_md, frozen_claude_local_md) =
-                peri_middlewares::AgentsMdMiddleware::read_frozen_content(&cwd);
-
-            let frozen_skill_summary = peri_middlewares::SkillsMiddleware::build_frozen_summary(
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
                 &cwd,
-                &cfg.plugin_skill_dirs,
-            );
-
-            let features = peri_acp::prompt::PromptFeatures::detect();
-            let system_prompt = peri_acp::prompt::build_system_prompt(
-                None,
-                &cwd,
-                features,
-                &cfg.plugin_agent_dirs,
-                Some(&frozen_date),
                 frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
             );
 
             let state = sessions.get_mut(&session_id).unwrap();
-            state.frozen_system_prompt = Some(system_prompt);
-            state.frozen_claude_md = frozen_claude_md;
-            state.frozen_claude_local_md = frozen_claude_local_md;
-            state.frozen_skill_summary = frozen_skill_summary;
-            state.frozen_date = Some(frozen_date);
-            state.frozen_language = frozen_language;
+            state.frozen = Some(frozen_data);
             info!(session_id = %session_id, "ACP session created with ThreadStore");
             let modes = build_mode_state(&cfg.permission_mode);
             let models = {
@@ -264,12 +244,7 @@ pub(crate) async fn handle_request(
                         cwd: cwd.to_string(),
                         history,
                         cancel_token: None,
-                        frozen_system_prompt: None,
-                        frozen_claude_md: None,
-                        frozen_claude_local_md: None,
-                        frozen_skill_summary: None,
-                        frozen_date: None,
-                        frozen_language: None,
+                        frozen: None,
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     },
@@ -368,12 +343,7 @@ pub(crate) async fn handle_request(
                         cwd: cwd.to_string(),
                         history: Vec::new(),
                         cancel_token: None,
-                        frozen_system_prompt: None,
-                        frozen_claude_md: None,
-                        frozen_claude_local_md: None,
-                        frozen_skill_summary: None,
-                        frozen_date: None,
-                        frozen_language: None,
+                        frozen: None,
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     },
@@ -416,12 +386,7 @@ pub(crate) async fn handle_request(
                     cwd: cwd.to_string(),
                     history: copied_history,
                     cancel_token: None,
-                    frozen_system_prompt: None,
-                    frozen_claude_md: None,
-                    frozen_claude_local_md: None,
-                    frozen_skill_summary: None,
-                    frozen_date: None,
-                    frozen_language: None,
+                    frozen: None,
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                 },
