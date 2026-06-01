@@ -15,6 +15,36 @@ use crate::{
 
 use super::ReActAgent;
 
+/// 工具名语义别名表：LLM 输出的名称 → 实际注册的工具名。
+const TOOL_ALIASES: &[(&str, &str)] = &[("task", "Agent"), ("shell", "Bash"), ("reading", "Read")];
+
+/// 工具名解析：精确匹配 → 大小写无关匹配 → 语义别名。
+fn resolve_tool<'a>(
+    name: &str,
+    all_tools: &HashMap<String, &'a dyn BaseTool>,
+) -> Option<&'a dyn BaseTool> {
+    // 1. 精确匹配
+    if let Some(tool) = all_tools.get(name).copied() {
+        return Some(tool);
+    }
+    // 2. 大小写无关匹配
+    for (key, tool) in all_tools {
+        if key.eq_ignore_ascii_case(name) {
+            return Some(*tool);
+        }
+    }
+    // 3. 语义别名
+    for (alias, real_name) in TOOL_ALIASES {
+        if name.eq_ignore_ascii_case(alias) {
+            if let Some(tool) = all_tools.get(*real_name).copied() {
+                tracing::debug!(alias = %name, resolved = %real_name, "工具名别名匹配");
+                return Some(tool);
+            }
+        }
+    }
+    None
+}
+
 /// 工具审批 → 并发执行 → 结果收集（不写 state）→ 统一写入
 pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     agent: &ReActAgent<L, S>,
@@ -214,7 +244,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 let tool_name = call.name.clone();
                 let call_id = call.id.clone();
                 let input = call.input.clone();
-                let tool = all_tools.get(&call.name).copied();
+                let tool = resolve_tool(&call.name, all_tools);
                 let cancel = cancel.clone();
                 async move {
                     let span = tracing::info_span!(

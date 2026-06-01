@@ -146,7 +146,10 @@ impl MessageAdapter for OpenAiAdapter {
                 } => {
                     let content_val = Self::content_to_openai(content);
                     let final_content = if *is_error {
-                        let text = content_val.as_str().map(|s| s.to_string()).unwrap_or_else(|| content_val.to_string());
+                        let text = content_val
+                            .as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| content_val.to_string());
                         json!(format!("[ERROR] {}", text))
                     } else {
                         content_val
