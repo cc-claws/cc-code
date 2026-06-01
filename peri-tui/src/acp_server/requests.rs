@@ -15,10 +15,12 @@ use agent_client_protocol::schema::{
     SetSessionConfigOptionResponse, SetSessionModeResponse, SetSessionModelResponse,
 };
 
+use peri_acp::dispatch::config_update::make_config_options;
+
 use crate::{app::agent::LlmProvider, config::save_to};
 
 use super::{
-    apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
+    apply_thinking_effort, build_mode_state, build_model_state,
     notify::{extract_session_id, send_available_commands_update, send_config_option_update},
     parse_permission_mode, AcpServerConfig, SessionState,
 };
@@ -100,7 +102,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = NewSessionResponse::new(SessionId::new(&*session_id))
                 .modes(modes)
@@ -211,7 +213,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = SetSessionConfigOptionResponse::new(config_options);
             send_config_option_update(transport, session_id, cfg).await;
@@ -251,6 +253,20 @@ pub(crate) async fn handle_request(
                 );
             }
 
+            // ── Freeze session data at load time ──
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let frozen_language = cfg.peri_config.read().config.language.clone();
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                cwd,
+                frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+            );
+            if let Some(s) = sessions.get_mut(req_session_id) {
+                s.frozen = Some(frozen_data);
+            }
+
             let modes = build_mode_state(&cfg.permission_mode);
             let models = {
                 let p = cfg.provider.read();
@@ -260,7 +276,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = LoadSessionResponse::new()
                 .modes(modes)
@@ -353,6 +369,20 @@ pub(crate) async fn handle_request(
                 info!(session_id = %req_session_id, "Session resumed (existing)");
             }
 
+            // ── Freeze session data at resume time ──
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let frozen_language = cfg.peri_config.read().config.language.clone();
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                cwd,
+                frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+            );
+            if let Some(s) = sessions.get_mut(req_session_id) {
+                s.frozen = Some(frozen_data);
+            }
+
             let resp = ResumeSessionResponse::new();
             serde_json::to_value(resp)
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
@@ -391,6 +421,20 @@ pub(crate) async fn handle_request(
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                 },
             );
+
+            // ── Freeze session data at fork time ──
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let frozen_language = cfg.peri_config.read().config.language.clone();
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                cwd,
+                frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+            );
+            if let Some(s) = sessions.get_mut(&new_session_id) {
+                s.frozen = Some(frozen_data);
+            }
 
             info!(source = %source_id, new = %new_session_id, "Session forked");
             let resp = ForkSessionResponse::new(SessionId::new(new_session_id));
@@ -437,7 +481,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             send_config_option_update(transport, session_id, cfg).await;
             serde_json::to_value(SetSessionConfigOptionResponse::new(config_options))

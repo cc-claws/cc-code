@@ -695,6 +695,16 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 async move |req: ResumeSessionRequest, responder, _cx: ConnectionTo<Client>| {
                     let sid = req.session_id.0.to_string();
                     let cwd = req.cwd.to_string_lossy().to_string();
+                    // Build frozen data for session
+                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    let frozen_language = ctx.peri_config.read().config.language.clone();
+                    let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                        &cwd,
+                        frozen_language.as_deref(),
+                        &ctx.plugin_skill_dirs,
+                        &ctx.plugin_agent_dirs,
+                        &frozen_date,
+                    );
                     let mut sessions = ctx.sessions.write();
                     if !sessions.contains_key(&sid) {
                         sessions.insert(
@@ -705,7 +715,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd,
                                 history: Vec::new(),
                                 cancel_token: None,
-                                frozen: None,
+                                frozen: Some(frozen_data),
                                 agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
@@ -727,6 +737,17 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let sid = req.session_id.0.to_string();
                     let cwd = req.cwd.to_string_lossy().to_string();
                     let cwd_for_skills = cwd.clone();
+
+                    // Build frozen data for session
+                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    let frozen_language = ctx.peri_config.read().config.language.clone();
+                    let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                        &cwd,
+                        frozen_language.as_deref(),
+                        &ctx.plugin_skill_dirs,
+                        &ctx.plugin_agent_dirs,
+                        &frozen_date,
+                    );
 
                     // Load history from ThreadStore via dispatch function
                     let history = dispatch::load_session_messages(
@@ -750,7 +771,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     cwd,
                                     history,
                                     cancel_token: None,
-                                    frozen: None,
+                                    frozen: Some(frozen_data),
                                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                                 },
                             );
@@ -837,6 +858,16 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
 
                     // Insert new session
                     let new_session_id = new_thread_id.clone();
+                    // Build frozen data for forked session
+                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    let frozen_language = ctx.peri_config.read().config.language.clone();
+                    let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                        &cwd_str,
+                        frozen_language.as_deref(),
+                        &ctx.plugin_skill_dirs,
+                        &ctx.plugin_agent_dirs,
+                        &frozen_date,
+                    );
                     {
                         let mut sessions = ctx.sessions.write();
                         sessions.insert(
@@ -847,7 +878,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd: cwd_str,
                                 history: copied_history,
                                 cancel_token: None,
-                                frozen: None,
+                                frozen: Some(frozen_data),
                                 agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
