@@ -87,7 +87,7 @@ pub struct TextEditor {
     // 语法高亮
     /// 每行的高亮结果：None = 未高亮，Some = 已高亮
     highlight_cache: Vec<Option<Vec<(Style, String)>>>,
-    /// 标记缓存是否需要重建（编辑后置 true，下次渲染前同步重建）
+    /// 编辑后标记缓存需要全量重建
     highlight_dirty: bool,
     /// 防抖计时器：编辑后等 200ms 再重建高亮
     highlight_debounce: Option<std::time::Instant>,
@@ -169,29 +169,39 @@ impl TextEditor {
 
     /// 主循环调用：同步高亮可见行。
     ///
-    /// 两种触发路径：
-    /// 1. 编辑后（highlight_dirty=true）：防抖 200ms 后重建可见行高亮
-    /// 2. 滚动后（无 dirty 标记）：补高亮新进入视口的未高亮行
+    /// 策略：
+    /// - 编辑后：防抖 200ms，到期后从第 0 行重建到视口末尾
+    /// - 滚动后：5 行 warmup + 补高亮新进入视口的行
+    /// - 无工作可做时立即返回 false（不阻塞主循环）
+    ///
+    /// 注意：syntect 不支持状态快照/恢复，无法从检查点续跑。
+    /// 滚动时用 5 行 warmup 覆盖大部分多行语法，接受极少数边界情况着色错误。
     pub fn sync_highlight_visible(&mut self, scroll_y: usize, viewport_height: usize) -> bool {
-        // 检查可见区域内是否有未高亮行
         let total = self.rope.len_lines();
+        if total == 0 {
+            return false;
+        }
         self.highlight_cache.resize(total, None);
         let end = (scroll_y + viewport_height).min(total);
+        if end == 0 {
+            return false;
+        }
 
-        let needs_fill = (scroll_y..end).any(|i| self.highlight_cache[i].is_none());
+        // 快速路径：视口内全部已高亮且无 dirty → 跳过
+        if !self.highlight_dirty {
+            let all_filled = (scroll_y..end).all(|i| self.highlight_cache[i].is_some());
+            if all_filled {
+                return false;
+            }
+        }
 
+        // 编辑后防抖：200ms 内不重建（显示旧缓存）
         if self.highlight_dirty {
-            // 编辑后防抖：200ms 内不重建（显示旧缓存）
             if let Some(t) = self.highlight_debounce {
                 if t.elapsed() < std::time::Duration::from_millis(200) {
                     return false;
                 }
             }
-            // 防抖到期 → 重建全部可见行
-        } else if needs_fill {
-            // 滚动导致新行进入视口 → 只补高亮缺失行
-        } else {
-            return false;
         }
 
         let ext = crate::ui::syntax::extension_from_path(self.path.to_str().unwrap_or(""));
@@ -199,20 +209,46 @@ impl TextEditor {
             Some(s) => s,
             None => {
                 self.highlight_dirty = false;
-                return needs_fill;
+                return true;
             }
         };
 
-        let warmup_start = scroll_y.saturating_sub(5);
-
         let theme = crate::ui::syntax::get_theme();
         let ss = crate::ui::syntax::get_syntax_set();
+
+        if self.highlight_dirty {
+            // 编辑后全量重建：从第 0 行跑到 end（syntect 需要状态累积）
+            let mut h = syntect::easy::HighlightLines::new(syntax, theme);
+            for i in 0..end {
+                let line = self.line_text(i);
+                let spans = match h.highlight_line(&line, ss) {
+                    Ok(segments) => segments
+                        .into_iter()
+                        .map(|(s, t)| (crate::ui::syntax::to_ratatui_style(s), t.to_string()))
+                        .collect(),
+                    Err(_) => vec![(Style::default(), line)],
+                };
+                self.highlight_cache[i] = Some(spans);
+            }
+            self.highlight_dirty = false;
+            self.highlight_debounce = None;
+            return true;
+        }
+
+        // 滚动增量：5 行 warmup + 只填充缺失行
+        let warmup_start = scroll_y.saturating_sub(5);
         let mut h = syntect::easy::HighlightLines::new(syntax, theme);
 
-        for i in warmup_start..end {
-            // 非 dirty 模式：跳过已有缓存的行
-            if !self.highlight_dirty && i >= scroll_y && self.highlight_cache[i].is_some() {
-                // warmup 行仍需跑过以维持 syntect 状态
+        // Phase 1: warmup 行——跑过以恢复 syntect 状态，不存缓存
+        for i in warmup_start..scroll_y {
+            let line = self.line_text(i);
+            let _ = h.highlight_line(&line, ss);
+        }
+
+        // Phase 2: 可见行——跳过已有缓存，只填充 None 的行
+        for i in scroll_y..end {
+            if self.highlight_cache[i].is_some() {
+                // 已有缓存，但需跑过以维持 syntect 状态给后续行
                 let line = self.line_text(i);
                 let _ = h.highlight_line(&line, ss);
                 continue;
@@ -225,12 +261,9 @@ impl TextEditor {
                     .collect(),
                 Err(_) => vec![(Style::default(), line)],
             };
-            if i >= scroll_y {
-                self.highlight_cache[i] = Some(spans);
-            }
+            self.highlight_cache[i] = Some(spans);
         }
-        self.highlight_dirty = false;
-        self.highlight_debounce = None;
+
         true
     }
 
@@ -254,6 +287,7 @@ impl TextEditor {
     fn invalidate_highlight(&mut self) {
         self.highlight_dirty = true;
         self.highlight_debounce = Some(std::time::Instant::now());
+        // 编辑后需要重跑，但不清缓存——防抖期间显示旧高亮
     }
 
     /// 将缓冲区内容写入磁盘。成功后清除 modified 标记。
