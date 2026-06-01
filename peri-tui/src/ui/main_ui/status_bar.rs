@@ -380,9 +380,28 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 desc_style,
             )
         }
-        Some(crate::app::InteractionPrompt::Rewind(_)) => {
-            // TODO: Rewind 弹窗快捷键提示
-            Vec::new()
+        Some(crate::app::InteractionPrompt::Rewind(prompt)) => {
+            use crate::app::RewindMode;
+            match prompt.mode {
+                RewindMode::ConfirmRevert => format_hints(
+                    &[
+                        ("Enter".to_string(), lc.tr("key-confirm")),
+                        ("Esc".to_string(), lc.tr("key-cancel")),
+                    ],
+                    key_style,
+                    desc_style,
+                ),
+                _ => format_hints(
+                    &[
+                        ("↑↓".to_string(), "移动".to_string()),
+                        ("Tab".to_string(), "切换回退文件".to_string()),
+                        ("Enter".to_string(), lc.tr("key-confirm")),
+                        ("Esc".to_string(), lc.tr("key-cancel")),
+                    ],
+                    key_style,
+                    desc_style,
+                ),
+            }
         }
         None => {
             let no_mouse = app.global_ui.mouse_available == Some(false);
