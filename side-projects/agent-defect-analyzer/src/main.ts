@@ -17,6 +17,12 @@ import { analyzeStrategyQuality } from "./analyzers/strategy_quality.js";
 import { analyzeUserBehavior } from "./analyzers/user_behavior.js";
 import { analyzeDeathLoops } from "./analyzers/death_loops.js";
 import { analyzePayloadSize } from "./analyzers/payload_size.js";
+import { analyzeAnswerQuality } from "./analyzers/answer_quality.js";
+import { analyzeSessionClustering } from "./analyzers/session_clustering.js";
+import { analyzeToolPatterns } from "./analyzers/tool_patterns.js";
+import { analyzeGrepEffectiveness } from "./analyzers/grep_effectiveness.js";
+import { analyzeSkillUsage } from "./analyzers/skill_usage.js";
+import { analyzeSkillChains } from "./analyzers/skill_chains.js";
 import type { DefectReport } from "./types.js";
 
 // ── CLI 参数解析 ──
@@ -25,7 +31,7 @@ const args = process.argv.slice(2);
 const focusIdx = args.indexOf("--focus");
 const focus = focusIdx >= 0 ? args[focusIdx + 1] : "all";
 
-const VALID_FOCUSES = ["all", "errors", "efficiency", "strategy", "ux", "loops", "payload"];
+const VALID_FOCUSES = ["all", "errors", "efficiency", "strategy", "ux", "loops", "payload", "semantic", "cluster", "tools", "grep", "skills", "chains"];
 if (!VALID_FOCUSES.includes(focus)) {
   console.error(chalk.red(`无效的 --focus 值: ${focus}`));
   console.error(chalk.gray(`可选: ${VALID_FOCUSES.join(", ")}`));
@@ -83,6 +89,42 @@ try {
     console.time("  入参/出参检测耗时");
     allReports.push(...analyzePayloadSize(loader));
     console.timeEnd("  入参/出参检测耗时");
+  }
+
+  if (focus === "all" || focus === "semantic") {
+    console.time("  回答语义质量分析耗时");
+    allReports.push(...analyzeAnswerQuality(loader));
+    console.timeEnd("  回答语义质量分析耗时");
+  }
+
+  if (focus === "all" || focus === "cluster") {
+    console.time("  会话聚类分析耗时");
+    allReports.push(...analyzeSessionClustering(loader));
+    console.timeEnd("  会话聚类分析耗时");
+  }
+
+  if (focus === "all" || focus === "tools") {
+    console.time("  工具使用模式分析耗时");
+    allReports.push(...analyzeToolPatterns(loader));
+    console.timeEnd("  工具使用模式分析耗时");
+  }
+
+  if (focus === "all" || focus === "grep") {
+    console.time("  Grep 搜索效能分析耗时");
+    allReports.push(...analyzeGrepEffectiveness(loader));
+    console.timeEnd("  Grep 搜索效能分析耗时");
+  }
+
+  if (focus === "all" || focus === "skills") {
+    console.time("  Skill 使用效能分析耗时");
+    allReports.push(...analyzeSkillUsage(loader));
+    console.timeEnd("  Skill 使用效能分析耗时");
+  }
+
+  if (focus === "all" || focus === "chains") {
+    console.time("  Skill 链深度分析耗时");
+    allReports.push(...analyzeSkillChains(loader));
+    console.timeEnd("  Skill 链深度分析耗时");
   }
 
   // 综合报告
