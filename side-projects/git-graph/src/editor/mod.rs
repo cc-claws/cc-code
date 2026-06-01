@@ -85,13 +85,16 @@ pub struct TextEditor {
     redo_stack: Vec<EditAction>,
 
     // 语法高亮
-    /// 每行的高亮结果：None = 未高亮，Some = 已高亮
+    /// 每行的高亮结果。打开/编辑后全量重建，滚动时只读不写。
     highlight_cache: Vec<Option<Vec<(Style, String)>>>,
-    /// 编辑后标记缓存需要全量重建
+    /// 编辑后标记缓存需要重建
     highlight_dirty: bool,
     /// 防抖计时器：编辑后等 200ms 再重建高亮
     highlight_debounce: Option<std::time::Instant>,
 }
+
+/// 全量高亮的行数上限。超过此大小的文件降级为纯文本。
+const HIGHLIGHT_MAX_LINES: usize = 10000;
 
 impl TextEditor {
     // ── 文件 I/O ──
@@ -124,27 +127,30 @@ impl TextEditor {
         })
     }
 
-    /// 同步重建全部语法高亮。文件 ≤ 5000 行时每次编辑后调用（< 1ms）。
-    /// 超过限制则跳过，降级为纯文本。
+    /// 同步重建全部语法高亮（≤ HIGHLIGHT_MAX_LINES 行）。
+    ///
+    /// 设计参照 Zed：预计算整个文件，滚动时零开销。
+    /// syntect 不支持增量/快照，所以全量重建是唯一正确策略。
+    /// 1000 行 Rust 文件 ~5ms，5000 行 ~25ms，配合防抖可接受。
     pub fn rehighlight_all(&mut self) {
+        let total = self.rope.len_lines();
+
+        // 超大文件降级为纯文本
+        if total > HIGHLIGHT_MAX_LINES {
+            self.highlight_cache = vec![None; total];
+            self.highlight_dirty = false;
+            return;
+        }
+
         let ext = crate::ui::syntax::extension_from_path(self.path.to_str().unwrap_or(""));
         let syntax = match crate::ui::syntax::find_syntax(ext) {
             Some(s) => s,
             None => {
-                let total = self.rope.len_lines();
                 self.highlight_cache = vec![None; total];
                 self.highlight_dirty = false;
                 return;
             }
         };
-
-        let total = self.rope.len_lines();
-        // 超长文件跳过高亮（降级为纯文本）
-        if total > 5000 {
-            self.highlight_cache = vec![None; total];
-            self.highlight_dirty = false;
-            return;
-        }
 
         let theme = crate::ui::syntax::get_theme();
         let ss = crate::ui::syntax::get_syntax_set();
@@ -167,103 +173,23 @@ impl TextEditor {
         self.highlight_dirty = false;
     }
 
-    /// 主循环调用：同步高亮可见行。
+    /// 主循环调用：检查是否需要重建高亮。
     ///
-    /// 策略：
-    /// - 编辑后：防抖 200ms，到期后从第 0 行重建到视口末尾
-    /// - 滚动后：5 行 warmup + 补高亮新进入视口的行
-    /// - 无工作可做时立即返回 false（不阻塞主循环）
-    ///
-    /// 注意：syntect 不支持状态快照/恢复，无法从检查点续跑。
-    /// 滚动时用 5 行 warmup 覆盖大部分多行语法，接受极少数边界情况着色错误。
-    pub fn sync_highlight_visible(&mut self, scroll_y: usize, viewport_height: usize) -> bool {
-        let total = self.rope.len_lines();
-        if total == 0 {
-            return false;
-        }
-        self.highlight_cache.resize(total, None);
-        let end = (scroll_y + viewport_height).min(total);
-        if end == 0 {
-            return false;
-        }
-
-        // 快速路径：视口内全部已高亮且无 dirty → 跳过
+    /// 策略（参照 Zed）：
+    /// - 脏标记 + 防抖 → 全量重建整个文件（非仅视口）
+    /// - 无脏标记 → 零开销直接返回（滚动不触发任何计算）
+    pub fn sync_highlight_visible(&mut self, _scroll_y: usize, _viewport_height: usize) -> bool {
         if !self.highlight_dirty {
-            let all_filled = (scroll_y..end).all(|i| self.highlight_cache[i].is_some());
-            if all_filled {
+            return false;
+        }
+        // 防抖：编辑后 200ms 内不重建（显示旧缓存）
+        if let Some(t) = self.highlight_debounce {
+            if t.elapsed() < std::time::Duration::from_millis(200) {
                 return false;
             }
         }
-
-        // 编辑后防抖：200ms 内不重建（显示旧缓存）
-        if self.highlight_dirty {
-            if let Some(t) = self.highlight_debounce {
-                if t.elapsed() < std::time::Duration::from_millis(200) {
-                    return false;
-                }
-            }
-        }
-
-        let ext = crate::ui::syntax::extension_from_path(self.path.to_str().unwrap_or(""));
-        let syntax = match crate::ui::syntax::find_syntax(ext) {
-            Some(s) => s,
-            None => {
-                self.highlight_dirty = false;
-                return true;
-            }
-        };
-
-        let theme = crate::ui::syntax::get_theme();
-        let ss = crate::ui::syntax::get_syntax_set();
-
-        if self.highlight_dirty {
-            // 编辑后全量重建：从第 0 行跑到 end（syntect 需要状态累积）
-            let mut h = syntect::easy::HighlightLines::new(syntax, theme);
-            for i in 0..end {
-                let line = self.line_text(i);
-                let spans = match h.highlight_line(&line, ss) {
-                    Ok(segments) => segments
-                        .into_iter()
-                        .map(|(s, t)| (crate::ui::syntax::to_ratatui_style(s), t.to_string()))
-                        .collect(),
-                    Err(_) => vec![(Style::default(), line)],
-                };
-                self.highlight_cache[i] = Some(spans);
-            }
-            self.highlight_dirty = false;
-            self.highlight_debounce = None;
-            return true;
-        }
-
-        // 滚动增量：5 行 warmup + 只填充缺失行
-        let warmup_start = scroll_y.saturating_sub(5);
-        let mut h = syntect::easy::HighlightLines::new(syntax, theme);
-
-        // Phase 1: warmup 行——跑过以恢复 syntect 状态，不存缓存
-        for i in warmup_start..scroll_y {
-            let line = self.line_text(i);
-            let _ = h.highlight_line(&line, ss);
-        }
-
-        // Phase 2: 可见行——跳过已有缓存，只填充 None 的行
-        for i in scroll_y..end {
-            if self.highlight_cache[i].is_some() {
-                // 已有缓存，但需跑过以维持 syntect 状态给后续行
-                let line = self.line_text(i);
-                let _ = h.highlight_line(&line, ss);
-                continue;
-            }
-            let line = self.line_text(i);
-            let spans = match h.highlight_line(&line, ss) {
-                Ok(segments) => segments
-                    .into_iter()
-                    .map(|(s, t)| (crate::ui::syntax::to_ratatui_style(s), t.to_string()))
-                    .collect(),
-                Err(_) => vec![(Style::default(), line)],
-            };
-            self.highlight_cache[i] = Some(spans);
-        }
-
+        self.rehighlight_all();
+        self.highlight_debounce = None;
         true
     }
 
