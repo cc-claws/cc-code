@@ -12,7 +12,7 @@ impl Command for GcCommand {
     }
 
     fn aliases(&self) -> Vec<&str> {
-        vec!["memory"]
+        vec![]
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
