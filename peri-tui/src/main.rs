@@ -611,10 +611,14 @@ async fn run_app(
                 .map(|pd| pd.all_hooks.clone())
                 .unwrap_or_default();
 
-            // Build hook groups from plugin hooks + local hooks
+            // Build hook groups from plugin hooks + global hooks + local hooks
             let mut hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>> = Vec::new();
             if !plugin_hooks.is_empty() {
                 hook_groups.push(plugin_hooks);
+            }
+            let global_hooks = peri_middlewares::hooks::loader::load_global_settings_hooks();
+            if !global_hooks.is_empty() {
+                hook_groups.push(global_hooks);
             }
             let local_hooks =
                 peri_middlewares::hooks::loader::load_settings_local_hooks(&app.services.cwd);
@@ -739,6 +743,38 @@ async fn run_app(
         // /exit 或 /quit 命令设置的退出标志
         if app.global_ui.quit_requested {
             break 'event_loop;
+        }
+    }
+
+    // Fire SessionEnd hooks before shutdown
+    {
+        let mut hooks = app
+            .services
+            .plugin_data
+            .as_ref()
+            .map(|pd| pd.all_hooks.clone())
+            .unwrap_or_default();
+        hooks.extend(peri_middlewares::hooks::loader::load_global_settings_hooks());
+        hooks.extend(peri_middlewares::hooks::loader::load_settings_local_hooks(
+            &app.services.cwd,
+        ));
+        if !hooks.is_empty() {
+            let cwd = app.services.cwd.clone();
+            let provider_name = app.services.provider_name.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    peri_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
+                        &hooks,
+                        peri_middlewares::hooks::types::HookEvent::SessionEnd,
+                        &cwd,
+                        "",
+                        "",
+                        &provider_name,
+                        None,
+                    )
+                    .await;
+                })
+            });
         }
     }
 

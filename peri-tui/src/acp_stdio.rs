@@ -153,6 +153,10 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
     if !plugin_hooks.is_empty() {
         hook_groups.push(plugin_hooks);
     }
+    let global_hooks = peri_middlewares::hooks::loader::load_global_settings_hooks();
+    if !global_hooks.is_empty() {
+        hook_groups.push(global_hooks);
+    }
     let local_hooks = peri_middlewares::hooks::loader::load_settings_local_hooks(&cwd);
     if !local_hooks.is_empty() {
         hook_groups.push(local_hooks);

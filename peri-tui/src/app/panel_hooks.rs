@@ -10,6 +10,8 @@ impl App {
             .map(|pd| pd.all_hooks.clone())
             .unwrap_or_default();
         // 合并 settings.local.json 中的 hooks
+        let global_hooks = peri_middlewares::hooks::loader::load_global_settings_hooks();
+        hooks.extend(global_hooks);
         let local_hooks =
             peri_middlewares::hooks::loader::load_settings_local_hooks(&self.services.cwd);
         hooks.extend(local_hooks);

@@ -213,6 +213,7 @@ impl App {
                 .as_ref()
                 .map(|pd| pd.all_hooks.clone())
                 .unwrap_or_default();
+            hooks.extend(peri_middlewares::hooks::loader::load_global_settings_hooks());
             hooks.extend(peri_middlewares::hooks::loader::load_settings_local_hooks(
                 &self.services.cwd,
             ));
