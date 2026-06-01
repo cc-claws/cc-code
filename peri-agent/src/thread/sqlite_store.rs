@@ -595,6 +595,38 @@ impl ThreadStore for SqliteThreadStore {
             .await?;
         Ok(())
     }
+
+    async fn delete_messages(
+        &self,
+        thread_id: &ThreadId,
+        message_ids: &[crate::messages::MessageId],
+    ) -> Result<()> {
+        if message_ids.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin().await?;
+        for mid in message_ids {
+            let uuid_str = mid.as_uuid().to_string();
+            sqlx::query("DELETE FROM messages WHERE message_id = ?1 AND thread_id = ?2")
+                .bind(&uuid_str)
+                .bind(thread_id.as_str())
+                .execute(&mut *tx)
+                .await?;
+        }
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "UPDATE threads SET updated_at = ?1,
+                message_count = (SELECT COUNT(*) FROM messages WHERE thread_id = ?2)
+             WHERE id = ?2",
+        )
+        .bind(&now)
+        .bind(thread_id.as_str())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.invalidate_context_cache(thread_id).await?;
+        Ok(())
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
