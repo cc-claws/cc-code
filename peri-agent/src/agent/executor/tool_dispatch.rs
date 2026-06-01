@@ -18,6 +18,9 @@ use super::ReActAgent;
 /// 工具名语义别名表：LLM 输出的名称 → 实际注册的工具名。
 const TOOL_ALIASES: &[(&str, &str)] = &[("task", "Agent"), ("shell", "Bash"), ("reading", "Read")];
 
+/// 连续失败检测阈值
+const CONSECUTIVE_FAILURE_THRESHOLD: usize = 5;
+
 /// 工具名解析：精确匹配 → 大小写无关匹配 → 语义别名。
 fn resolve_tool<'a>(
     name: &str,
@@ -52,6 +55,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     reasoning: &Reasoning,
     all_tools: &HashMap<String, &dyn BaseTool>,
     cancel: &CancellationToken,
+    consecutive_failures: &mut HashMap<String, usize>,
 ) -> AgentResult<Vec<(ToolCall, ToolResult)>> {
     let tc_reqs: Vec<ToolCallRequest> = reasoning
         .tool_calls
@@ -104,6 +108,30 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     state.add_message(ai_msg);
 
     for (_, result) in &results {
+        // 连续失败追踪
+        if result.is_error {
+            let key = format!("{}:{}", result.tool_name, result.output);
+            let count = consecutive_failures.entry(key).or_insert(0);
+            *count += 1;
+            if *count >= CONSECUTIVE_FAILURE_THRESHOLD {
+                tracing::warn!(
+                    tool = %result.tool_name,
+                    count = *count,
+                    "连续 {} 次相同错误，注入纠正消息",
+                    count
+                );
+                state.add_message(BaseMessage::system(format!(
+                    "Warning: Tool '{}' has failed {} consecutive times with the same error. \
+                     Stop retrying and analyze the root cause. Consider using a different approach \
+                     or asking the user for guidance.",
+                    result.tool_name, count
+                )));
+            }
+        } else {
+            // 成功则重置该工具的所有失败计数
+            consecutive_failures.retain(|k, _| !k.starts_with(&format!("{}:", result.tool_name)));
+        }
+
         let tool_msg = if result.is_error {
             BaseMessage::tool_error(&result.tool_call_id, result.output.as_str())
         } else {
