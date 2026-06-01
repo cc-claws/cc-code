@@ -33,7 +33,9 @@ impl App {
             let msg = &origin_messages[human_idx];
             let text = msg.content();
             let summary: String = text.chars().take(60).collect();
+            // 该消息及其之后的消息数量
             let count_after = origin_messages.len() - human_idx;
+            // 文件变更从该消息开始提取（含目标消息之后的 AI 回复中的工具调用）
             let file_changes = extract_file_changes_from_messages(&origin_messages[human_idx..]);
 
             items.push(crate::app::rewind_prompt::RewindItem {

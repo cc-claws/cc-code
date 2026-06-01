@@ -154,6 +154,13 @@ pub enum AgentEvent {
         /// 压缩后的新消息列表（full compact 时非空）
         messages: Vec<crate::messages::BaseMessage>,
     },
+    /// 对话回退完成（rewind 命令，保留目标用户消息，移除之后的 AI 回复和后续交互）
+    RewindCompleted {
+        /// 摘要文本（如"已回滚 N 条消息"）
+        summary: String,
+        /// 回退后的新消息列表（保留到目标用户消息）
+        messages: Vec<crate::messages::BaseMessage>,
+    },
     /// 上下文压缩失败
     CompactError { message: String },
     /// Todo 列表更新

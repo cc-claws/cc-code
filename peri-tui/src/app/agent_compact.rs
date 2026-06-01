@@ -96,4 +96,41 @@ impl App {
 
         (true, false, false)
     }
+
+    /// Rewind 完成：更新消息历史，显示回退通知。
+    ///
+    /// 与 compact 不同：保留到目标用户消息（含），不显示文件/skill 信息，
+    /// 直接使用 rewind 命令传入的摘要文本。
+    pub(crate) fn handle_rewind_completed(
+        &mut self,
+        summary: String,
+        messages: Vec<BaseMessage>,
+    ) -> (bool, bool, bool) {
+        // 更新内部状态消息
+        self.session_mgr.current_mut().agent.origin_messages = messages.clone();
+
+        // 清空 pipeline + 用回退后消息恢复
+        self.session_mgr.current_mut().messages.pipeline.clear();
+        self.session_mgr
+            .current_mut()
+            .messages
+            .pipeline
+            .restore_completed(messages);
+        self.session_mgr
+            .current_mut()
+            .messages
+            .ephemeral_notes
+            .clear();
+
+        // 显示回退通知
+        let label = format!("↩ {summary}");
+        let view_msgs = vec![MessageViewModel::system(label)];
+        self.session_mgr.current_mut().messages.round_start_vm_idx = 0;
+        self.apply_pipeline_action(PipelineAction::RebuildAll {
+            prefix_len: 0,
+            tail_vms: view_msgs,
+        });
+
+        (true, false, false)
+    }
 }

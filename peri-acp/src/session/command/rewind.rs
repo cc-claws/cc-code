@@ -106,6 +106,8 @@ impl AgentCommand for RewindCommand {
             }
         };
 
+        // 截断：保留目标消息之前的所有消息（不含目标本身）
+        // 目标用户消息及其之后的所有消息（AI 回复、工具调用、后续交互）全部移除
         let removed_messages = &history[target_idx..];
         let retained_messages = history[..target_idx].to_vec();
 
@@ -136,7 +138,7 @@ impl AgentCommand for RewindCommand {
             }
         }
 
-        // Step 6: 发送 CompactCompleted 事件
+        // Step 6: 发送 RewindCompleted 事件
         let mut summary = format!("已回滚 {removed_count} 条消息");
         if !revert_warnings.is_empty() {
             summary.push_str(&format!("（警告: {}）", revert_warnings.join("; ")));
@@ -144,11 +146,8 @@ impl AgentCommand for RewindCommand {
         ctx.event_sink
             .push_event(
                 &ctx.session_id,
-                &ExecutorEvent::CompactCompleted {
+                &ExecutorEvent::RewindCompleted {
                     summary,
-                    files: vec![],
-                    skills: vec![],
-                    micro_cleared: 0,
                     messages: retained_messages.clone(),
                 },
                 0,
