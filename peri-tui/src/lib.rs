@@ -11,8 +11,6 @@
     clippy::infallible_try_from
 )]
 
-// ── Deprecated modules (Step 6-b: moved to peri-acp) ──
-// pub mod acp;
 pub mod acp_client;
 pub mod acp_server;
 pub mod app;
@@ -20,9 +18,11 @@ pub mod command;
 pub mod config;
 pub mod event;
 pub mod i18n;
-pub mod langfuse; // temporary bridge re-export from peri-acp
-pub mod prompt;
+pub mod mimalloc_config;
 pub mod sync;
 pub mod thread;
 pub mod ui;
 pub mod update;
+
+#[cfg(test)]
+mod mimalloc_config_test;

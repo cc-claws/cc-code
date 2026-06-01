@@ -1,11 +1,15 @@
-use std::hash::{Hash, Hasher};
-use std::num::NonZeroUsize;
-use std::sync::Mutex;
+use std::{
+    hash::{Hash, Hasher},
+    num::NonZeroUsize,
+    sync::Mutex,
+};
 
 use lru::LruCache;
 use once_cell::sync::Lazy;
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
+use ratatui::{
+    style::{Color, Style},
+    text::{Line, Span},
+};
 
 use super::{compute_diff, DiffInput, DiffLine, DiffWordType};
 use crate::theme::Theme;

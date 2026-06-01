@@ -646,6 +646,104 @@ launch_agent 工具调用
 
 ---
 
+### issue_2026-05-29-sse-utf8-truncation-mojibake
+**摘要:** SSE 流式解析跨 chunk UTF-8 截断产生乱码（U+FFFD）
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** SSE UTF-8 截断, from_utf8_lossy, pending_bytes, CJK 乱码
+**问题本质:** SseParser 将 pending_line 存为 String，新 chunk 通过 from_utf8_lossy 不可逆替换不完整 UTF-8 序列为 U+FFFD，后续 chunk 到达无法恢复
+**通用模式:** 流式协议中跨 chunk 的字节拼接必须在原始字节层完成，仅在行边界处做 UTF-8 解码。from_utf8_lossy 不可逆，不能用于中间状态
+**技术决策:** pending_line: String → pending_bytes: Vec&lt;u8&gt;，字节级拼接 + 行边界整体验码
+**涉及文件:** peri-agent/src/llm/sse.rs, peri-agent/src/llm/sse_test.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-29-immediate-command-missing-push-done
+**摘要:** Immediate 命令（/compact、/clear）执行后 TUI 永久卡在 loading 状态
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** push_done 缺失, Immediate 命令, 并发 prompt 竞争, AvailableCommandsUpdate
+**问题本质:** ACP 命令系统重构后，Immediate 命令路径直接 return PromptResult 绕过了 event pump 的 push_done() 调用。缺少 AgentDone 事件 → TUI 永久 loading。同时 /clear 不发 StateSnapshot 导致旧视图残留。并发 prompt 竞争也需要 per-session Mutex 串行化。
+**通用模式:** 任何绕过主循环的快捷路径必须手动补全主循环的清理步骤（push_done、StateSnapshot、loading 状态清理）。并发请求到同一 session 必须串行化。
+**架构影响:** executor 中的 Immediate 命令路径、Compact 命令路径、Normal agent 路径需要统一生命周期管理
+**涉及文件:** peri-acp/src/session/executor.rs, peri-acp/src/session/command/clear.rs, peri-acp/src/session/command/compact.rs, peri-tui/src/app/agent_ops/lifecycle.rs
+**CLAUDE.md 链接:** true
+
+### issue_2026-05-29-available-commands-update-format-mismatch
+**摘要:** /compact 显示"未知命令"——AvailableCommandsUpdate 通知 JSON 格式不匹配被静默丢弃
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** JSON 格式不一致, SessionNotification, notify.rs vs event_sink.rs, agent_commands HashSet
+**问题本质:** 两条 session/update 发送路径（TransportEventSink vs notify.rs）使用不同的 JSON 结构。TUI bridge 统一用 params.get("update") 解析，后者被 warn 丢弃。
+**通用模式:** 多个发送方必须统一输出格式，否则接收方无法正确解析。引入新发送方时必须对照已有路径的序列化格式
+**涉及文件:** peri-tui/src/acp_server/notify.rs, peri-tui/src/app/agent_ops/acp_bridge.rs, peri-acp/src/session/event_sink.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-29-acp-session-update-field-name-mismatch
+**摘要:** ACP 大重构后所有流式事件静默丢失——字段名 "type" vs "sessionUpdate" 不匹配
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** serde tag 字段名, sessionUpdate vs type, 事件静默丢失, 流式失效
+**问题本质:** SessionUpdate 枚举的 serde tag 配置为 #[serde(tag = "sessionUpdate")]，序列化后 JSON 结构为 {"sessionUpdate": "agent_thought_chunk"}，但 TUI bridge 使用 update.get("type") 解析——字段名不匹配导致所有流式事件被静默丢弃
+**通用模式:** 枚举序列化的 tag 字段名必须与消费方的解析字段名一致。重构序列化格式时必须同步检查所有消费方
+**涉及文件:** peri-tui/src/app/agent_ops/acp_bridge.rs, peri-acp/src/event/mapper.rs, peri-acp/src/session/event_sink.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-29-clear-keeps-acp-server-history
+**摘要:** /clear 后 ACP Server 端 history 未清理，新会话延续旧上下文
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** /clear session 泄漏, reset_session, new_thread, ACP session 状态不一致
+**问题本质:** new_thread() 清空 TUI 本地状态但未清除 acp_client.current_session_id，下次 submit 复用旧 session，Agent 看到旧 history
+**通用模式:** TUI 层清空本地状态不等于 ACP Server 端状态同步——必须同时通过 ACP 协议通知 Server 侧
+**涉及文件:** peri-tui/src/acp_client/client.rs, peri-tui/src/app/thread_ops.rs, peri-tui/src/acp_server/mod.rs
+**CLAUDE.md 链接:** true
+
+### issue_2026-05-29-unify-token-usage-prompt-complete
+**摘要:** 统一 Token Usage 传递：引入 prompt_complete 事件替代双路径冗余
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** prompt_complete, token usage 双路径, UsageUpdate 有损, stopReason
+**问题本质:** Token usage 通过两条路径传递（peri/agent_event 完整 + session/update 有损），TUI 和 IDE 各消费不同路径导致数据不一致
+**通用模式:** 同一数据不应通过多条路径传递，应统一为单来源。多路径传递导致数据分叉和维护负担
+**技术决策:** 引入 prompt_complete SessionUpdate 变体统一携带 stopReason + 完整 usage，废弃双路径模式
+**涉及文件:** peri-acp/src/event/mapper.rs, peri-acp/src/session/event_sink.rs, peri-agent/src/agent/events.rs, peri-tui/src/app/agent.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-29-tool-end-name-lost-in-acp-bridge
+**摘要:** ToolEnd 事件经 ACP bridge 后工具名丢失，显示为空字符串
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** ToolEnd 工具名, ToolCallUpdate title, ACP event mapping, 字段遗漏
+**问题本质:** ToolEnd 映射为 ToolCallUpdate 时缺少 .title(name) 调用，TUI bridge 硬编码 name: String::new()。双重遗漏导致工具名丢失
+**通用模式:** 事件映射（ExecutorEvent → SessionUpdate → AgentEvent）每个环节都必须完整传递所有业务字段。新增映射路径时必须对照源事件的所有字段
+**涉及文件:** peri-acp/src/event/mapper.rs, peri-tui/src/app/agent_ops/acp_bridge.rs, peri-acp/src/event/mapper_test.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-29-ask-user-tool-auto-complete
+
+**摘要:** AskUserQuestion 弹窗出现后工具调用自行结束，用户操作无效
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** AskUserQuestion, MultiplexBroker, 竞速, 空答案, Broker 选择
+**问题本质:** MultiplexBroker 中 ChannelBroker 对 Questions 交互立即返回空答案，与 TUI broker 竞速导致空答案被采纳
+**通用模式:** Broker/代理模式需为不同交互类型选择正确的后端；不支持特定交互类型的后端不应参与竞速
+**架构影响:** MultiplexBroker 的设计需要按交互类型路由，而非简单竞速
+**涉及文件:** peri-acp/src/agent/builder.rs, peri-acp/src/broker/transport_broker.rs, peri-tui/src/app/agent_ops_interaction.rs, peri-tui/src/app/ask_user_ops.rs
+**CLAUDE.md 链接:** true
+
+### issue_2026-05-27-windows-deepseek-skill-inject-thinking-400
+
+**摘要:** Windows + DeepSeek Anthropic 兼容模式 /skill 注入假 Read 调用触发 thinking 400 错误
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** thinking, DeepSeek, SkillPreload, Anthropic 兼容, 400 错误, 假消息
+**问题本质:** SkillPreloadMiddleware 注入的假 Read 工具调用消息在 DeepSeek Anthropic 兼容模式下触发 thinking 回传校验失败
+**通用模式:** LLM 适配层需考虑不同 provider 的协议变体，假消息注入需符合目标 provider 的约束（如 thinking block 回传要求）
+**涉及文件:** peri-middlewares/src/subagent/skill_preload.rs
+**CLAUDE.md 链接:** false
+
+---
+
 ## 相关 Feature
 
 - → [relay-server.md#feature_20260326_F009_relay-message-id-propagation](./relay-server.md) — message_id 透传到 Web 前端

@@ -1,5 +1,4 @@
-use crate::app::App;
-use crate::command::Command;
+use crate::{app::App, command::Command};
 
 /// /setup 命令 —— 打开 Setup 向导全屏面板
 pub struct SetupCommand;

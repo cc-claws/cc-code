@@ -9,8 +9,7 @@ pub mod keyboard;
 mod macros;
 pub mod mouse;
 
-use crate::with_global_panels;
-use crate::with_session_panels;
+use crate::{with_global_panels, with_session_panels};
 
 use anyhow::Result;
 use ratatui::crossterm::event::{
@@ -19,8 +18,10 @@ use ratatui::crossterm::event::{
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
-use crate::app::panel_manager::{EventResult, PanelKind};
-use crate::app::App;
+use crate::app::{
+    panel_manager::{EventResult, PanelKind},
+    App,
+};
 
 // ── Action ──────────────────────────────────────────────────────────────────
 
@@ -268,6 +269,14 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // ─── 交互弹窗优先路由（AskUser/HITL/OAuth） ──────────────────
+            // 弹窗激活时，Paste（含终端 IME 组合后的中文）应进入弹窗
+            // 而非 textarea。仅 AskUser 弹窗有 custom_input 接收文本。
+            if app.is_interaction_popup_active() {
+                app.paste_to_interaction_popup(&text);
+                return Ok(Some(Action::Redraw));
+            }
+
             // ─── PanelManager paste dispatch ────────────────────────────
             {
                 // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser
@@ -303,10 +312,13 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             }
 
             // Fallback: paste into textarea
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .textarea
-                .insert_str(&text);
+            // 弹窗激活时不写入 textarea——用户应通过弹窗 UI 交互
+            if !app.is_interaction_popup_active() {
+                app.session_mgr.sessions[app.session_mgr.active]
+                    .ui
+                    .textarea
+                    .insert_str(&text);
+            }
         }
         Event::Mouse(mouse) => match mouse.kind {
             // ── AskUser 弹窗鼠标交互（优先于面板/消息区） ────────────────────────
@@ -652,26 +664,31 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     }
                 }
                 // Textarea area: start textarea selection
-                if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
-                    .ui
-                    .textarea_area
-                {
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
+                // 弹窗激活时跳过——光标不应移到 textarea 内
+                if !app.is_interaction_popup_active() {
+                    if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
+                        .ui
+                        .textarea_area
                     {
-                        let session = &app.session_mgr.sessions[app.session_mgr.active];
-                        let (row, col) =
-                            mouse::textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
-                        app.session_mgr.sessions[app.session_mgr.active]
-                            .ui
-                            .textarea
-                            .move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
-                        app.session_mgr.sessions[app.session_mgr.active]
-                            .ui
-                            .textarea
-                            .start_selection();
+                        if mouse.row >= area.y
+                            && mouse.row < area.y + area.height
+                            && mouse.column >= area.x
+                            && mouse.column < area.x + area.width
+                        {
+                            let session = &app.session_mgr.sessions[app.session_mgr.active];
+                            let (row, col) =
+                                mouse::textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .textarea
+                                .move_cursor(tui_textarea::CursorMove::Jump(
+                                    row as u16, col as u16,
+                                ));
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .textarea
+                                .start_selection();
+                        }
                     }
                 }
             }

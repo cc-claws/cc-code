@@ -1,16 +1,27 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use parking_lot::RwLock;
-use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::{
+    text::Line,
+    widgets::{Paragraph, Wrap},
+};
 use tokio::sync::{mpsc, Notify};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::markdown::ensure_rendered_incremental;
-use super::message_render::render_view_model;
-use super::message_view::MessageViewModel;
+/// 渲染事件通道容量。
+/// 128 足以缓冲大量事件（resize 风暴 + 流式 Rebuild），同时防止内存无限膨胀。
+/// 正常运行时队列深度通常 < 5。
+const RENDER_CHANNEL_CAPACITY: usize = 128;
+
+use super::{
+    markdown::{ensure_rendered_flush, ensure_rendered_incremental},
+    message_render::render_view_model,
+    message_view::MessageViewModel,
+};
 
 /// 单个逻辑行的换行映射信息
 #[derive(Debug, Clone)]
@@ -62,18 +73,6 @@ impl RenderCache {
             scroll_anchor: None,
         }
     }
-
-    /// 计算给定 lines 在指定宽度下 wrap 后的真实视觉行数。
-    /// 使用 ratatui 的 Paragraph::line_count 与 Wrap{trim:false} 确保与实际渲染一致。
-    fn compute_wrapped_height(lines: &[Line<'static>], width: u16) -> usize {
-        if width == 0 || lines.is_empty() {
-            return 0;
-        }
-        let text = ratatui::text::Text::from(lines.to_vec());
-        Paragraph::new(text)
-            .wrap(Wrap { trim: false })
-            .line_count(width)
-    }
 }
 
 /// 渲染线程接收的事件
@@ -119,9 +118,9 @@ impl RenderTask {
     /// 对每个逻辑行使用 ratatui 的 Paragraph::line_count 精确计算视觉行数，
     /// 与实际渲染的 WordWrapper 算法完全一致。
     /// char_widths 使用 grapheme 级别（与 ratatui 一致）。
-    fn build_wrap_map(lines: &[Line<'static>], width: u16) -> Vec<WrappedLineInfo> {
+    fn build_wrap_map(lines: &[Line<'static>], width: u16) -> (usize, Vec<WrappedLineInfo>) {
         if width == 0 || lines.is_empty() {
-            return Vec::new();
+            return (0, Vec::new());
         }
         let mut wrap_map = Vec::with_capacity(lines.len());
         let mut visual_row: u16 = 0;
@@ -154,10 +153,82 @@ impl RenderTask {
             });
             visual_row += visual_count;
         }
-        wrap_map
+        (visual_row as usize, wrap_map)
+    }
+
+    /// 增量构建 wrap_map：复用旧 cache 中稳定前缀的 wrap_map，
+    /// 只对 prefix_stable_len 之后的变化部分调用 build_wrap_map。
+    ///
+    /// 前提：deduped 和 offsets 必须在同一索引空间（由 rebuild() 保证）。
+    fn build_wrap_map_incremental(
+        &self,
+        deduped: &[Line<'static>],
+        offsets: &[usize],
+        prefix_stable_len: usize,
+    ) -> (usize, Vec<WrappedLineInfo>) {
+        // 快速路径：无稳定前缀 → 全量计算
+        if prefix_stable_len == 0 || offsets.is_empty() {
+            return Self::build_wrap_map(deduped, self.width);
+        }
+
+        // 稳定区在 deduped 中的行边界
+        let stable_line_end = if prefix_stable_len < offsets.len() {
+            offsets[prefix_stable_len]
+        } else {
+            deduped.len()
+        };
+
+        let old_cache = self.cache.read();
+        let can_reuse = old_cache.width == self.width
+            && !old_cache.wrap_map.is_empty()
+            && old_cache.wrap_map.len() >= stable_line_end;
+
+        if !can_reuse {
+            drop(old_cache);
+            return Self::build_wrap_map(deduped, self.width);
+        }
+
+        // 完全稳定：所有 VM 未变 → 直接复用整个 wrap_map
+        if stable_line_end == deduped.len() && old_cache.wrap_map.len() == deduped.len() {
+            let total = old_cache.total_lines;
+            let wrap = old_cache.wrap_map.clone();
+            drop(old_cache);
+            return (total, wrap);
+        }
+
+        // 部分稳定：复用前缀 wrap_map，只重算变化部分
+        let base_visual = if stable_line_end > 0 {
+            old_cache.wrap_map[stable_line_end - 1].visual_row_end
+        } else {
+            0
+        };
+
+        // 只对变化部分计算 wrap
+        let (delta_total, mut delta_wrap) =
+            Self::build_wrap_map(&deduped[stable_line_end..], self.width);
+
+        // 修正 delta_wrap 的偏移
+        for info in &mut delta_wrap {
+            info.visual_row_start += base_visual;
+            info.visual_row_end += base_visual;
+            info.line_idx += stable_line_end;
+        }
+
+        // 拼接：clone 前缀 + extend delta
+        // clone 开销：~3000 个 WrappedLineInfo ≈ 240-480KB，约 200-500μs
+        // 相比全量 build_wrap_map 的 ~2-6ms，仍节省 60-80%
+        let mut wrap_map = old_cache.wrap_map[..stable_line_end].to_vec();
+        drop(old_cache);
+
+        let total_lines = base_visual as usize + delta_total;
+        wrap_map.append(&mut delta_wrap);
+        (total_lines, wrap_map)
     }
 
     /// 渲染单条消息为 lines（含前后空行分隔）
+    ///
+    /// 注意：此函数修改的 rendered/dirty/rendered_prefix_len 等字段不参与 Hash 计算，
+    /// 因此不会使 content_hash 失效。
     fn render_one(
         vm: &mut MessageViewModel,
         index: usize,
@@ -165,9 +236,18 @@ impl RenderTask {
         diff_visible: bool,
     ) -> Vec<Line<'static>> {
         // 处理 dirty blocks（使用增量解析）
-        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+        if let MessageViewModel::AssistantBubble {
+            blocks,
+            is_streaming,
+            ..
+        } = vm
+        {
             for block in blocks.iter_mut() {
-                ensure_rendered_incremental(block, width);
+                if *is_streaming {
+                    ensure_rendered_incremental(block, width);
+                } else {
+                    ensure_rendered_flush(block, width);
+                }
             }
         }
         // 用实际终端宽度重新解析用户消息的 markdown（初始创建时用默认宽度 80）
@@ -184,7 +264,8 @@ impl RenderTask {
         lines
     }
 
-    /// 计算单个 MessageViewModel 的语义 hash
+    /// 计算单个 MessageViewModel 的语义 hash（legacy，应使用 vm.content_hash()）
+    #[allow(dead_code)]
     fn compute_hash(vm: &MessageViewModel) -> u64 {
         let mut hasher = DefaultHasher::new();
         vm.hash(&mut hasher);
@@ -270,8 +351,8 @@ impl RenderTask {
         // 保留一份用于 Resize（Resize 时没有新的 Rebuild 事件）
         let old_messages = std::mem::replace(&mut self.last_messages, messages.clone());
 
-        // 在渲染前计算 hash（render_one 会修改 dirty 等字段）
-        let new_hashes: Vec<u64> = messages.iter().map(Self::compute_hash).collect();
+        // 直接读取预计算的 content_hash，无需重算
+        let new_hashes: Vec<u64> = messages.iter().map(|vm| vm.content_hash()).collect();
 
         // 计算 prefix_stable_len：前缀中连续 hash 未变的消息数量
         let old_len = self.message_hashes.len();
@@ -315,25 +396,24 @@ impl RenderTask {
 
         self.message_hashes = new_hashes;
 
-        // 拼接所有消息行
-        let mut all_lines: Vec<Line<'static>> = Vec::new();
+        // 拼接所有消息行，同时做全局 dedup（消除连续空行），
+        // 并在 deduped 索引空间构建 message_offsets。
+        // 修复：旧代码先构建 offsets（基于 all_lines），再做 dedup 生成 deduped，
+        // 导致 offsets 和 wrap_map 处于不同索引空间。
+        let mut deduped: Vec<Line<'static>> = Vec::new();
         let mut offsets: Vec<usize> = Vec::new();
-        for lines in &self.message_lines {
-            offsets.push(all_lines.len());
-            all_lines.extend(lines.iter().cloned());
-        }
-
-        // 过滤连续空行，保留单个空行作为消息分隔符
-        let mut deduped: Vec<Line<'static>> = Vec::with_capacity(all_lines.len());
         let mut prev_empty = false;
-        for line in all_lines {
-            let is_empty = line.spans.is_empty()
-                || (line.spans.len() == 1 && line.spans[0].content.is_empty());
-            if is_empty && prev_empty {
-                continue;
+        for lines in &self.message_lines {
+            offsets.push(deduped.len());
+            for line in lines {
+                let is_empty = line.spans.is_empty()
+                    || (line.spans.len() == 1 && line.spans[0].content.is_empty());
+                if is_empty && prev_empty {
+                    continue;
+                }
+                prev_empty = is_empty;
+                deduped.push(line.clone());
             }
-            prev_empty = is_empty;
-            deduped.push(line);
         }
         // 移除末尾多余空行
         while deduped.last().is_some_and(|l| {
@@ -342,18 +422,19 @@ impl RenderTask {
             deduped.pop();
         }
 
-        let render_width = self.width;
+        let (total_lines, wrap_map) =
+            self.build_wrap_map_incremental(&deduped, &offsets, prefix_stable_len);
         let mut cache = self.cache.write();
         cache.lines = deduped;
         cache.message_offsets = offsets;
-        cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
-        cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
+        cache.total_lines = total_lines;
+        cache.wrap_map = wrap_map;
         cache.width = self.width;
         cache.version += 1;
     }
 
     /// 主事件循环
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<RenderEvent>) {
+    async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
         while let Some(event) = rx.recv().await {
             match event {
                 RenderEvent::Rebuild(messages) => {
@@ -432,16 +513,18 @@ impl RenderTask {
 
 /// 启动渲染线程，返回事件发送端、共享缓存和通知
 ///
-/// 使用无界 channel：渲染事件处理耗时微秒级，不会积压；
-/// 有界 channel 的 try_send 静默丢弃会导致渲染线程与 App 状态分叉。
+/// 使用有界 channel（容量 128）：正常使用远达不到上限，极端场景下通过背压限速防止内存膨胀。
+/// - 所有事件使用 `try_send()`，通道满时静默丢弃（128 容量在实践中不会达到上限）
+/// - Resize 丢弃更安全（下一帧 resize 会补偿，渲染线程有 drain 合并逻辑）
+/// - Rebuild 丢弃可接受（下一个 Rebuild 携带完整快照，丢失的是中间状态）
 pub fn spawn_render_thread(
     width: u16,
 ) -> (
-    mpsc::UnboundedSender<RenderEvent>,
+    mpsc::Sender<RenderEvent>,
     Arc<RwLock<RenderCache>>,
     Arc<Notify>,
 ) {
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(RENDER_CHANNEL_CAPACITY);
     let cache = Arc::new(RwLock::new(RenderCache::new()));
     let notify = Arc::new(Notify::new());
 

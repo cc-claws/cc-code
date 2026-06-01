@@ -7,15 +7,18 @@
 //! 删除 TUI 特有依赖（AgentEvent channel、map_executor_event），
 //! 改为通过 `child_handler_factory` 参数从外部注入。
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
 
-use peri_agent::agent::compact::CompactConfig;
-use peri_agent::agent::events::{AgentEvent as ExecutorEvent, AgentEventHandler};
-use peri_agent::agent::token::ContextBudget;
-use peri_agent::llm::BaseModel;
+use peri_agent::{
+    agent::{
+        compact::CompactConfig,
+        events::{AgentEvent as ExecutorEvent, AgentEventHandler},
+        token::ContextBudget,
+    },
+    llm::BaseModel,
+};
 
 /// 子 Agent 事件 handler 工厂类型
 pub type ChildHandlerFactory = Arc<dyn Fn(String) -> Arc<dyn AgentEventHandler> + Send + Sync>;
@@ -28,19 +31,21 @@ pub type DeregisterRuntimeFn = Arc<dyn Fn(&str) + Send + Sync>;
 pub type SystemPromptBuilder = Arc<
     dyn Fn(Option<&peri_middlewares::agent_define::AgentOverrides>, &str) -> String + Send + Sync,
 >;
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::{AgentCancellationToken, ReActAgent};
-use peri_agent::interaction::{
-    ChannelBroker, ChannelState, MultiplexBroker, UserInteractionBroker,
+use peri_agent::{
+    agent::{state::AgentState, AgentCancellationToken, ReActAgent},
+    interaction::{ChannelBroker, ChannelState, MultiplexBroker, UserInteractionBroker},
+    llm::BaseModelReactLLM,
 };
-use peri_agent::llm::BaseModelReactLLM;
-use peri_middlewares::compact_middleware::CompactMiddleware;
-use peri_middlewares::prelude::*;
-use peri_middlewares::tools::{AskUserTool, TodoItem};
+use peri_middlewares::{
+    compact_middleware::CompactMiddleware,
+    prelude::*,
+    tools::{AskUserTool, TodoItem},
+};
 
-use crate::provider::config::PeriConfig;
-use crate::provider::LlmProvider;
-use crate::session::agent_pool::CachedLlmInstances;
+use crate::{
+    provider::{config::PeriConfig, LlmProvider},
+    session::agent_pool::{AgentPool, CachedLlmInstances},
+};
 
 // ── 共享 Agent 构建（ACP 和 TUI 共用）─────────────────────────────────────────
 
@@ -101,8 +106,6 @@ pub struct AcpAgentConfig {
 pub struct AcpAgentOutput {
     pub executor: ReActAgent<peri_agent::llm::RetryableLLM<BaseModelReactLLM>, AgentState>,
     pub todo_rx: tokio::sync::mpsc::Receiver<Vec<TodoItem>>,
-    #[allow(dead_code)]
-    pub context_window: u32,
     /// 后台任务完成事件的独立接收端（不随 executor 生命周期销毁）
     pub bg_event_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
 }
@@ -115,9 +118,14 @@ pub struct AcpAgentOutput {
 /// `cached_llm` 允许跨 prompt 复用 LLM 实例（compact_model、auto_classifier_model），
 /// 避免每轮重建 reqwest::Client（~1-2 MB/实例）。首次调用传 `None`，
 /// 后续调用传上一次返回的 `Some(CachedLlmInstances)`。
+///
+/// `pool` 提供 SubAgent LLM 缓存，跨 SubAgent 调用复用 `Arc<dyn BaseModel>`
+/// （含共享的 `reqwest::Client`）。首次同模型 SubAgent 调用时创建新实例并插入缓存，
+/// 后续调用直接命中缓存，避免每 SubAgent 分配 ~1-2 MB 的 HTTP client。
 pub fn build_agent(
     cfg: AcpAgentConfig,
     cached_llm: Option<&CachedLlmInstances>,
+    pool: &Arc<parking_lot::Mutex<AgentPool>>,
 ) -> (AcpAgentOutput, Option<CachedLlmInstances>) {
     let AcpAgentConfig {
         provider,
@@ -221,8 +229,10 @@ pub fn build_agent(
         auto_classifier,
     );
 
-    // AskUser 工具
-    let ask_user_tool = AskUserTool::new(effective_broker);
+    // AskUser 工具：使用原始 TUI broker（permission_broker），不使用 MultiplexBroker。
+    // ChannelBroker 对 Questions 立即返回空答案，MultiplexBroker 竞速时 Channel 总是先返回，
+    // 导致 AskUserQuestion 弹窗被绕过。
+    let ask_user_tool = AskUserTool::new(permission_broker.clone());
 
     // 父工具集（供子 agent 继承）
     let mut parent_tools: Vec<Box<dyn peri_agent::tools::BaseTool>> =
@@ -240,10 +250,11 @@ pub fn build_agent(
         }
     }
 
-    // 子 agent LLM 工厂
+    // 子 agent LLM 工厂（支持 SubAgent LLM 缓存复用）
     let provider_clone = provider_for_factory;
     let config_for_factory = peri_config.clone();
     let session_id_for_factory = session_id.clone();
+    let pool_for_subagent = Arc::clone(pool);
     #[allow(clippy::type_complexity)]
     let llm_factory: Arc<
         dyn Fn(Option<&str>) -> Box<dyn peri_agent::agent::react::ReactLLM + Send + Sync>
@@ -251,19 +262,43 @@ pub fn build_agent(
             + Sync,
     > = Arc::new(move |model_alias: Option<&str>| {
         let sid = session_id_for_factory.as_deref();
-        if let Some(alias) = model_alias {
-            if let Some(p) = LlmProvider::from_config_for_alias(&config_for_factory, alias) {
-                let mut llm = BaseModelReactLLM::new(p.into_model());
-                if let Some(s) = sid {
-                    llm = llm.with_session_id(s);
+        // 解析 provider 并构建 fingerprint
+        let (p, fp) = if let Some(alias) = model_alias {
+            match LlmProvider::from_config_for_alias(&config_for_factory, alias) {
+                Some(p) => {
+                    let fp = format!("{}:{}", p.display_name(), p.model_name());
+                    (Some(p), fp)
                 }
-                return Box::new(peri_agent::llm::RetryableLLM::new(
-                    llm,
-                    peri_agent::llm::RetryConfig::default(),
-                ));
+                None => {
+                    let fp = format!(
+                        "{}:{}",
+                        provider_clone.display_name(),
+                        provider_clone.model_name()
+                    );
+                    (None, fp)
+                }
             }
-        }
-        let mut llm = BaseModelReactLLM::new(provider_clone.clone().into_model());
+        } else {
+            let fp = format!(
+                "{}:{}",
+                provider_clone.display_name(),
+                provider_clone.model_name()
+            );
+            (None, fp)
+        };
+
+        // 尝试 SubAgent 缓存
+        let model: Arc<dyn BaseModel> =
+            crate::session::agent_pool::AgentPool::get_or_create_subagent_llm(
+                &pool_for_subagent,
+                &fp,
+                || match &p {
+                    Some(provider) => provider.clone().into_model(),
+                    None => provider_clone.clone().into_model(),
+                },
+            );
+
+        let mut llm = BaseModelReactLLM::from_arc(model);
         if let Some(s) = sid {
             llm = llm.with_session_id(s);
         }
@@ -503,7 +538,6 @@ pub fn build_agent(
         AcpAgentOutput {
             executor,
             todo_rx,
-            context_window,
             bg_event_rx,
         },
         new_cache,

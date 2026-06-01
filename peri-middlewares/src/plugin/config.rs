@@ -98,8 +98,6 @@ pub enum PluginConfigError {
         #[source]
         source: std::io::Error,
     },
-    #[error("插件清单缺少必需字段: {field}")]
-    MissingField { field: String },
 }
 
 /// 返回 `~/.claude/` 根目录，不存在时返回 fallback（当前目录）
@@ -137,6 +135,16 @@ pub fn plugin_cache_dir() -> PathBuf {
 /// 返回 `~/.claude/settings.json` 路径
 pub fn claude_settings_path() -> PathBuf {
     claude_home().join("settings.json")
+}
+
+/// 确保插件系统所需的所有子目录存在（无 CC 环境下的首次启动保障）
+pub fn ensure_plugin_dirs() {
+    let dirs = [plugins_dir(), marketplaces_cache_dir(), plugin_cache_dir()];
+    for dir in dirs {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::warn!(path = %dir.display(), error = %e, "创建插件目录失败");
+        }
+    }
 }
 
 fn atomic_write_json(path: &Path, data: &serde_json::Value) -> Result<(), PluginConfigError> {

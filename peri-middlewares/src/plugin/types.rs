@@ -1,8 +1,6 @@
-use crate::hooks::types::HooksConfig;
-use crate::mcp::McpServerConfig;
+use crate::{hooks::types::HooksConfig, mcp::McpServerConfig};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 /// plugin.json 中 mcpServers 字段的值：内联配置对象或文件路径引用
 #[derive(Debug, Clone)]

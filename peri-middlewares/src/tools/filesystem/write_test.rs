@@ -97,11 +97,11 @@
                 .unwrap();
         }
         let tool = WriteFileTool::new(readonly_dir.to_str().unwrap());
-        let result = tool
+        let _result = tool
             .invoke(serde_json::json!({"file_path": "sub/nope.txt", "content": "x"}))
             .await;
         #[cfg(unix)]
-        assert!(result.is_err(), "写入只读目录应返回 Err");
+        assert!(_result.is_err(), "写入只读目录应返回 Err");
     }
 
     #[test]

@@ -7,9 +7,13 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::hooks_panel::{hook_type_label, hook_type_summary, HooksPanel};
-use crate::app::App;
-use crate::ui::theme;
+use crate::{
+    app::{
+        hooks_panel::{hook_type_label, hook_type_summary, HooksPanel},
+        App,
+    },
+    ui::theme,
+};
 
 /// /hooks 面板渲染（底部展开区）
 pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut App, area: Rect) {
@@ -158,10 +162,8 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
 
 #[cfg(test)]
 mod tests {
-    use crate::app::hooks_panel::HooksPanel;
-    use crate::app::App;
+    use crate::app::{hooks_panel::HooksPanel, App};
     use peri_middlewares::hooks::types::{HookEvent, HookType, RegisteredHook};
-    use std::collections::HashMap;
-    use std::path::PathBuf;
+    use std::{collections::HashMap, path::PathBuf};
     include!("hooks_test.rs");
 }

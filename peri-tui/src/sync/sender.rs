@@ -2,13 +2,14 @@
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::sync::packer::{self, PackedData};
-use crate::sync::protocol::WsMessage;
-use crate::sync::scanner;
-use crate::sync::ui::{println_overwrite, ProgressBar};
+use crate::sync::{
+    packer::{self, PackedData},
+    protocol::WsMessage,
+    scanner,
+    ui::{println_overwrite, ProgressBar},
+};
 
 pub async fn run_sync_sender(server_url: &str) -> Result<()> {
     let home_dir = dirs_next::home_dir().context("Failed to get HOME directory")?;

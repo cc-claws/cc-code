@@ -5,7 +5,7 @@ use std::sync::Arc;
 // ─── ACP Stdio 类型 ──────────────────────────────────────────────────────
 
 struct SessionInfo {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // session 标识字段，保留供调试
     session_id: String,
     thread_id: String,
     cwd: String,
@@ -218,26 +218,35 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         langfuse_session,
     });
 
-    use agent_client_protocol::schema::{
-        AvailableCommandsUpdate, CancelNotification, CloseSessionRequest, CloseSessionResponse,
-        ConfigOptionUpdate, ForkSessionRequest, ForkSessionResponse, InitializeRequest,
-        ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
-        NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, ResumeSessionRequest,
-        ResumeSessionResponse, SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate,
-        SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-        SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse, StopReason,
+    use agent_client_protocol::{
+        schema::{
+            AvailableCommandsUpdate, CancelNotification, CloseSessionRequest, CloseSessionResponse,
+            ConfigOptionUpdate, ForkSessionRequest, ForkSessionResponse, InitializeRequest,
+            ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
+            NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
+            ResumeSessionRequest, ResumeSessionResponse, SessionId, SessionInfoUpdate,
+            SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+            SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
+            SetSessionModelRequest, SetSessionModelResponse, StopReason,
+        },
+        Agent, Client, ConnectionTo,
     };
-    use agent_client_protocol::{Agent, Client, ConnectionTo};
     use agent_client_protocol_tokio::Stdio;
-    use peri_acp::dispatch;
-    use peri_acp::session::event_sink::StdioEventSink;
-    use peri_acp::session::executor;
-    use peri_acp::session::state_builders::{
-        apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
-        parse_permission_mode,
+    use peri_acp::{
+        dispatch,
+        session::{
+            event_sink::StdioEventSink,
+            executor,
+            state_builders::{
+                apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
+                parse_permission_mode,
+            },
+        },
     };
-    use peri_agent::agent::AgentCancellationToken;
-    use peri_agent::messages::{ContentBlock as PeriContentBlock, MessageContent};
+    use peri_agent::{
+        agent::AgentCancellationToken,
+        messages::{ContentBlock as PeriContentBlock, MessageContent},
+    };
 
     let ctx_clone = ctx.clone();
 
@@ -597,6 +606,14 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         tracing::info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
                         *ctx.provider.write() = new_provider;
                     }
+                    // Model switch → invalidate cached LLM instances for the session
+                    {
+                        let sid = req.session_id.0.to_string();
+                        let mut sessions = ctx.sessions.write();
+                        if let Some(s) = sessions.get_mut(&sid) {
+                            s.agent_pool.invalidate();
+                        }
+                    }
                     let config_options = {
                         let c = ctx.peri_config.read();
                         let p = ctx.provider.read();
@@ -635,6 +652,14 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     if let Some(new_provider) = new_provider {
                                         tracing::info!(model_id = %v, model = %new_provider.model_name(), "Model changed via configOption");
                                         *ctx.provider.write() = new_provider;
+                                    }
+                                    // Model switch → invalidate cached LLM instances
+                                    {
+                                        let sid = req.session_id.0.to_string();
+                                        let mut sessions = ctx.sessions.write();
+                                        if let Some(s) = sessions.get_mut(&sid) {
+                                            s.agent_pool.invalidate();
+                                        }
                                     }
                                 }
                                 "thinking_effort" => {
@@ -888,6 +913,78 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let resp = ForkSessionResponse::new(SessionId::new(new_session_id));
                     let _ = responder.respond(resp);
                     Ok(())
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        // ── session/update_config (custom extension) ──
+        .on_receive_request(
+            {
+                let ctx = ctx_clone.clone();
+                async move |req: agent_client_protocol::UntypedMessage, responder, cx: ConnectionTo<Client>| {
+                    // Only handle session/update_config; pass through all others
+                    if req.method() != "session/update_config" {
+                        return Ok(agent_client_protocol::Handled::No {
+                            message: (req, responder),
+                            retry: false,
+                        });
+                    }
+
+                    let session_id = req.params()
+                        .get("sessionId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let config_val = req.params().get("config").cloned().unwrap_or_default();
+
+                    let new_cfg: peri_tui::config::PeriConfig =
+                        serde_json::from_value(config_val)
+                            .map_err(|e| agent_client_protocol::Error::invalid_request()
+                                .data(format!("Invalid config: {e}")))?;
+
+                    // Validate providers
+                    if new_cfg.config.providers.is_empty() {
+                        return Err(agent_client_protocol::Error::invalid_request()
+                            .data("providers cannot be empty"));
+                    }
+                    let active_pid = new_cfg.config.active_provider_id.as_str();
+                    if !active_pid.is_empty()
+                        && !new_cfg.config.providers.iter().any(|p| p.id == active_pid)
+                    {
+                        return Err(agent_client_protocol::Error::invalid_request()
+                            .data(format!("active_provider_id '{active_pid}' not found")));
+                    }
+
+                    *ctx.peri_config.write() = new_cfg.clone();
+
+                    if let Some(p) = peri_tui::app::agent::LlmProvider::from_config(&new_cfg) {
+                        tracing::info!(model = %p.model_name(), "Provider updated via session/update_config");
+                        *ctx.provider.write() = p;
+                    }
+
+                    // Model switch → invalidate cached LLM instances
+                    if !session_id.is_empty() {
+                        let mut sessions = ctx.sessions.write();
+                        if let Some(s) = sessions.get_mut(&session_id) {
+                            s.agent_pool.invalidate();
+                        }
+                    }
+
+                    let config_options = {
+                        let c = ctx.peri_config.read();
+                        let p = ctx.provider.read();
+                        build_config_options(&c, &p, ctx.permission_mode.load())
+                    };
+                    let notif = SessionNotification::new(
+                        SessionId::new(&*session_id),
+                        SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(config_options.clone())),
+                    );
+                    let _ = cx.send_notification(notif);
+                    let resp = serde_json::to_value(SetSessionConfigOptionResponse::new(config_options))
+                        .map_err(|e| agent_client_protocol::Error::internal_error()
+                            .data(format!("Serialize failed: {e}")))?;
+                    let _ = responder.respond(resp);
+                    Ok(agent_client_protocol::Handled::Yes)
                 }
             },
             agent_client_protocol::on_receive_request!(),

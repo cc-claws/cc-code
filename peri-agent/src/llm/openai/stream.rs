@@ -3,11 +3,15 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 use super::invoke::{build_request_body, extract_openai_usage};
-use crate::agent::events::AgentEvent;
-use crate::error::{AgentError, AgentResult};
-use crate::llm::sse::SseParser;
-use crate::llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
-use crate::messages::ToolCallRequest;
+use crate::{
+    agent::events::AgentEvent,
+    error::{AgentError, AgentResult},
+    llm::{
+        sse::SseParser,
+        types::{LlmRequest, LlmResponse, StopReason, StreamingContext},
+    },
+    messages::ToolCallRequest,
+};
 
 /// 流式工具调用参数累积器（按 index 管理，处理多工具交错场景）
 struct ToolCallAccumulator {
@@ -233,8 +237,10 @@ fn build_stream_response(
     usage: Option<crate::llm::types::TokenUsage>,
     request_id: Option<String>,
 ) -> crate::llm::types::LlmResponse {
-    use crate::llm::types::StopReason;
-    use crate::messages::{BaseMessage, ContentBlock, MessageContent};
+    use crate::{
+        llm::types::StopReason,
+        messages::{BaseMessage, ContentBlock, MessageContent},
+    };
 
     let mut blocks: Vec<ContentBlock> = Vec::new();
     if !reasoning_text.is_empty() {

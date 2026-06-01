@@ -1,6 +1,8 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use rmcp::transport::auth::{AuthError, CredentialStore, StoredCredentials};
@@ -24,8 +26,6 @@ pub enum AuthStoreError {
     WriteFailed { path: PathBuf, detail: String },
     #[error("Token 文件格式无效: {reason}")]
     InvalidFormat { reason: String },
-    #[error("服务器 \"{server}\" 的 Token 未找到")]
-    NotFound { server: String },
 }
 
 pub struct FileCredentialStore {

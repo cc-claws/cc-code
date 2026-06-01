@@ -1,7 +1,6 @@
 use crate::interaction::channel_types::{ChannelNotification, PermissionResponse};
 use parking_lot::Mutex as SyncMutex;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 
 /// Channel 共享状态 — 桥接 MCP handler 与 TUI/broker

@@ -1,8 +1,11 @@
+mod table_holdback;
+
 use ratatui::text::Text;
 
 use peri_widgets::DefaultMarkdownTheme;
 
 use super::message_view::ContentBlockView;
+pub use table_holdback::{HoldbackDecision, TableHoldbackScanner};
 
 static THEME: DefaultMarkdownTheme = DefaultMarkdownTheme;
 
@@ -63,6 +66,9 @@ pub fn find_last_block_boundary(text: &str, prefix_len: usize) -> usize {
 
 /// 增量版本的 ensure_rendered：只解析新增内容，复用已缓存的渲染前缀。
 ///
+/// 支持表格 holdback：流式过程中，不完整的表格行会被暂缓渲染，
+/// 直到行完整或流结束后再提交。非流式模式（历史恢复）始终全部渲染。
+///
 /// 三条路径：
 /// 1. 前文稳定（boundary == rendered_prefix_len）→ 只解析新增部分，追加到 rendered
 /// 2. 有不稳定块（0 < boundary < rendered_prefix_len）→ 保留稳定前缀，重解析 boundary 之后
@@ -74,17 +80,43 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
         dirty,
         rendered_prefix_len,
         rendered_prefix_lines,
+        holdback_scanner,
     } = block
     {
         if !*dirty || raw.len() == *rendered_prefix_len {
             return;
         }
 
-        let last_stable_boundary = find_last_block_boundary(raw, *rendered_prefix_len);
+        // 表格 holdback 检查
+        let decision = holdback_scanner.scan(raw);
 
-        if last_stable_boundary == *rendered_prefix_len {
+        // 确定实际可渲染的文本范围
+        let effective_end = match &decision {
+            HoldbackDecision::Hold { holdback_offset } => {
+                // 只渲染到 holdback 位置
+                let offset = (*holdback_offset).min(raw.len());
+                // 不要回退到已渲染的前面
+                offset.max(*rendered_prefix_len)
+            }
+            HoldbackDecision::Commit | HoldbackDecision::FlushAll => raw.len(),
+        };
+
+        if effective_end <= *rendered_prefix_len {
+            // 没有新内容可渲染（全部被 holdback）
+            *dirty = false;
+            return;
+        }
+
+        // 根据实际渲染范围决定渲染策略
+        let text_to_render = &raw[..effective_end];
+        let effective_prefix_len = *rendered_prefix_len;
+
+        let last_stable_boundary =
+            find_last_block_boundary(text_to_render, effective_prefix_len).min(effective_end);
+
+        if last_stable_boundary == effective_prefix_len {
             // 路径 1：前文稳定，只解析新增部分
-            let new_text = &raw[*rendered_prefix_len..];
+            let new_text = &text_to_render[effective_prefix_len..];
             if !new_text.is_empty() {
                 let new_lines = parse_markdown(new_text, max_width);
                 // 追加新行到已有渲染结果
@@ -95,17 +127,12 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
         } else if last_stable_boundary > 0 {
             // 路径 2：有不稳定块，保留前缀，重解析 boundary 之后
             let keep_count = *rendered_prefix_lines;
-            // 计算保留的行数：从 rendered.lines 截断到 keep_count
-            // （保守策略：boundary 之前的行数可能需要调整）
-            let reparse_text = &raw[last_stable_boundary..];
+            let reparse_text = &text_to_render[last_stable_boundary..];
             let new_lines = parse_markdown(reparse_text, max_width);
             rendered.lines.truncate(keep_count);
-            // 如果截断过头（boundary < prefix_len），需要回退更多行
-            // 简化处理：如果 keep_count 对应的 boundary 不等于 last_stable_boundary，
-            // 使用全量重解析兜底
-            if keep_count > 0 && last_stable_boundary < *rendered_prefix_len {
+            if keep_count > 0 && last_stable_boundary < effective_prefix_len {
                 // 需要重新计算：从 boundary 开始全量重解析
-                let full_new = parse_markdown(&raw[last_stable_boundary..], max_width);
+                let full_new = parse_markdown(&text_to_render[last_stable_boundary..], max_width);
                 rendered.lines.truncate(0);
                 for line in full_new.lines {
                     rendered.lines.push(line);
@@ -117,12 +144,41 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
             }
         } else {
             // 路径 3：全量重解析
-            *rendered = parse_markdown(raw, max_width);
+            *rendered = parse_markdown(text_to_render, max_width);
         }
 
-        *rendered_prefix_len = raw.len();
+        *rendered_prefix_len = effective_end;
         *rendered_prefix_lines = rendered.lines.len();
+
+        // FlushAll 时重置 scanner（流结束）
+        if matches!(decision, HoldbackDecision::FlushAll) {
+            holdback_scanner.reset();
+        }
+
         *dirty = false;
+    }
+}
+
+/// 强制提交所有 holdback 内容（流结束时调用）
+///
+/// 将 scanner 设为非流式模式，然后执行一次完整渲染。
+pub fn ensure_rendered_flush(block: &mut ContentBlockView, max_width: usize) {
+    if let ContentBlockView::Text {
+        holdback_scanner,
+        dirty,
+        raw,
+        ..
+    } = block
+    {
+        // 如果 raw 为空，无需处理
+        if raw.is_empty() {
+            return;
+        }
+        // 切换到非流式模式（触发 FlushAll）
+        holdback_scanner.set_streaming(false);
+        // 标记 dirty 以确保渲染发生
+        *dirty = true;
+        ensure_rendered_incremental(block, max_width);
     }
 }
 

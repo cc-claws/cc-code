@@ -1,7 +1,6 @@
 use ratatui::text::Line;
 
-use crate::theme::Theme;
-use crate::tool_call::ToolCallState;
+use crate::{theme::Theme, tool_call::ToolCallState};
 
 #[derive(Debug, Clone)]
 pub enum BlockRenderStrategy {

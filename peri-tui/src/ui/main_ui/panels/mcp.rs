@@ -7,10 +7,11 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::{App, DetailAction, McpPanel, McpPanelView};
-use crate::i18n::LcRegistry;
-use crate::ui::main_ui::highlight_line_spans;
-use crate::ui::theme;
+use crate::{
+    app::{App, DetailAction, McpPanel, McpPanelView},
+    i18n::LcRegistry,
+    ui::{main_ui::highlight_line_spans, theme},
+};
 
 use peri_middlewares::mcp::{ClientStatus, ConfigSource, OAuthStatus, ServerInfo};
 

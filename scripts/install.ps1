@@ -68,6 +68,50 @@ function Invoke-GitHubApi {
     return $response
 }
 
+# --- Cleanup Old Versions ---
+function Clean-OldVersions {
+    param([string]$InstallDir, [string]$CurrentVersion)
+
+    # Collect agent-v* directories, excluding current version
+    $oldDirs = @(Get-ChildItem -Path $InstallDir -Directory | Where-Object {
+        $_.Name -match '^agent-v' -and $_.Name -ne $CurrentVersion
+    })
+
+    if ($oldDirs.Count -eq 0) {
+        info "No old versions to clean up."
+        return
+    }
+
+    Write-Host ""
+    warn "Found $($oldDirs.Count) old version(s):"
+    $totalSize = 0
+    foreach ($d in $oldDirs) {
+        $size = (Get-ChildItem -Path $d.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                 Measure-Object -Property Length -Sum).Sum
+        if (-not $size) { $size = 0 }
+        $totalSize += $size
+        $sizeMB = [math]::Round($size / 1MB, 1)
+        Write-Host "  $($d.Name)  ($sizeMB MB)"
+    }
+    $totalMB = [math]::Round($totalSize / 1MB, 1)
+    Write-Host "  Total: $totalMB MB"
+    Write-Host ""
+
+    $answer = Read-Host "Delete old versions? [y/N]"
+    switch ($answer) {
+        { $_ -match '^[yY](es)?$' } {
+            foreach ($d in $oldDirs) {
+                Remove-Item -Recurse -Force $d.FullName
+                info "Removed: $($d.Name)"
+            }
+            info "Cleaned up $($oldDirs.Count) old version(s)."
+        }
+        default {
+            info "Skipped cleanup."
+        }
+    }
+}
+
 # --- Main ---
 function Main {
     $InstallDir = if ($env:PERI_INSTALL_DIR) { $env:PERI_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".peri" }
@@ -205,6 +249,9 @@ function Main {
             $env:Path = "$InstallDir;$env:Path"
         }
     }
+
+    # Offer to clean up old versions
+    Clean-OldVersions -InstallDir $InstallDir -CurrentVersion $VersionTag
 
     Write-Host ""
     info "Installation complete! Version: $VersionTag"

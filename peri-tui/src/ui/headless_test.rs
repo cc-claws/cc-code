@@ -1,7 +1,8 @@
 use super::*;
-use crate::app::MessageViewModel;
-use crate::app::{AgentEvent, App};
-use crate::ui::main_ui;
+use crate::{
+    app::{AgentEvent, App, MessageViewModel},
+    ui::main_ui,
+};
 
 #[tokio::test]
 async fn test_snapshot_row_count() {
@@ -25,7 +26,8 @@ async fn test_assistant_chunk_renders() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
     handle
         .terminal
         .draw(|f| main_ui::render(f, &mut app))
@@ -100,8 +102,9 @@ async fn test_clear_empties_render_cache() {
     let _ = app.session_mgr.sessions[app.session_mgr.active]
         .messages
         .render_tx
-        .send(RenderEvent::Rebuild(msgs));
-    tokio::time::sleep(Duration::from_millis(50)).await;
+        .try_send(RenderEvent::Rebuild(msgs));
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     // 验证 RenderCache 有内容
     let lines_before = app.session_mgr.sessions[app.session_mgr.active]
@@ -115,8 +118,9 @@ async fn test_clear_empties_render_cache() {
     let _ = app.session_mgr.sessions[app.session_mgr.active]
         .messages
         .render_tx
-        .send(RenderEvent::Clear);
-    tokio::time::sleep(Duration::from_millis(50)).await;
+        .try_send(RenderEvent::Clear);
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     // 验证 RenderCache 已清空
     let cache = app.session_mgr.sessions[app.session_mgr.active]
@@ -124,306 +128,6 @@ async fn test_clear_empties_render_cache() {
         .render_cache
         .read();
     assert_eq!(cache.total_lines, 0, "清空后 RenderCache 应为空");
-}
-
-mod markdown_tests {
-    use crate::ui::markdown::parse_markdown_default;
-    use ratatui::style::Modifier;
-
-    fn all_text(text: &ratatui::text::Text) -> String {
-        text.lines
-            .iter()
-            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
-            .collect::<Vec<_>>()
-            .join("")
-    }
-
-    #[test]
-    fn test_md_heading() {
-        use peri_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-        let theme = DefaultMarkdownTheme;
-
-        let text = parse_markdown_default("# Hello World");
-        // 标题前有空行，标题在 index 1
-        let heading_line = &text.lines[1];
-        let all_content: String = heading_line
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(
-            all_content.contains("Hello World"),
-            "H1 应含标题文字，实际: {all_content:?}"
-        );
-        let has_heading_color = heading_line
-            .spans
-            .iter()
-            .any(|s| s.style.fg == Some(theme.heading()));
-        assert!(has_heading_color, "H1 应为 markdown 主题 heading 颜色");
-    }
-
-    #[test]
-    fn test_md_heading_h2() {
-        use peri_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-        let theme = DefaultMarkdownTheme;
-
-        let text = parse_markdown_default("## Section Title");
-        // 标题前有空行，标题在 index 1
-        let heading_line = &text.lines[1];
-        let has_heading_color = heading_line
-            .spans
-            .iter()
-            .any(|s| s.style.fg == Some(theme.heading()));
-        assert!(has_heading_color, "H2 应为 markdown 主题 heading 颜色");
-    }
-
-    #[test]
-    fn test_md_inline_styles() {
-        let text = parse_markdown_default("**bold** *italic* ~~strike~~");
-        let all = all_text(&text);
-        assert!(all.contains("bold"), "应含 bold 文字");
-        assert!(all.contains("italic"), "应含 italic 文字");
-        assert!(all.contains("strike"), "应含 strike 文字");
-
-        let has_bold =
-            text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.add_modifier.contains(Modifier::BOLD) && s.content.contains("bold")
-            });
-        assert!(has_bold, "bold span 应有 BOLD modifier");
-
-        let has_italic = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-            s.style.add_modifier.contains(Modifier::ITALIC) && s.content.contains("italic")
-        });
-        assert!(has_italic, "italic span 应有 ITALIC modifier");
-
-        let has_strike = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-            s.style.add_modifier.contains(Modifier::CROSSED_OUT) && s.content.contains("strike")
-        });
-        assert!(has_strike, "strikethrough span 应有 CROSSED_OUT modifier");
-    }
-
-    #[test]
-    fn test_md_inline_code() {
-        use peri_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-        let theme = DefaultMarkdownTheme;
-
-        let text = parse_markdown_default("`hello`");
-        let has_code = text
-            .lines
-            .iter()
-            .flat_map(|l| l.spans.iter())
-            .any(|s| s.style.fg == Some(theme.code()) && s.content.contains("hello"));
-        assert!(
-            has_code,
-            "行内代码应为 markdown 主题 code 颜色，含 hello 文字"
-        );
-    }
-
-    #[test]
-    fn test_md_code_block() {
-        let text = parse_markdown_default("```rust\nfn main() {}\n```");
-        let all_lines: Vec<String> = text
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
-        // 单行代码块：无 [lang] 标签，无 │ 前缀
-        assert_eq!(
-            all_lines.len(),
-            1,
-            "单行代码块应只产生一行，got: {all_lines:#?}"
-        );
-        assert!(
-            !all_lines[0].contains("[rust]"),
-            "单行代码块不应含 [lang] 标签"
-        );
-        assert!(!all_lines[0].contains('│'), "单行代码块不应含 │ 前缀");
-        assert!(all_lines[0].contains("fn main"), "应包含代码内容");
-    }
-
-    #[test]
-    fn test_md_unordered_list() {
-        let text = parse_markdown_default("- item1\n- item2");
-        let all_lines: Vec<String> = text
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
-        let bullet_lines: Vec<&String> = all_lines.iter().filter(|l| l.contains('•')).collect();
-        assert_eq!(
-            bullet_lines.len(),
-            2,
-            "无序列表应有 2 行含 • ，实际:{all_lines:#?}"
-        );
-    }
-
-    #[test]
-    fn test_md_ordered_list() {
-        let text = parse_markdown_default("1. first\n2. second");
-        let all_lines: Vec<String> = text
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
-        let has_one = all_lines.iter().any(|l| l.contains("1."));
-        let has_two = all_lines.iter().any(|l| l.contains("2."));
-        assert!(has_one, "有序列表应含 1. 前缀，实际:{all_lines:#?}");
-        assert!(has_two, "有序列表应含 2. 前缀，实际:{all_lines:#?}");
-    }
-
-    #[test]
-    fn test_md_blockquote() {
-        let text = parse_markdown_default("> quoted text");
-        let has_prefix = text
-            .lines
-            .iter()
-            .flat_map(|l| l.spans.iter())
-            .any(|s| s.content.contains('▍'));
-        assert!(has_prefix, "引用块应含 ▍ 前缀");
-    }
-
-    #[test]
-    fn test_md_rule() {
-        let text = parse_markdown_default("---");
-        let has_rule = text
-            .lines
-            .iter()
-            .flat_map(|l| l.spans.iter())
-            .any(|s| s.content.matches('─').count() >= 10);
-        assert!(has_rule, "水平线应含多个 ─ 字符");
-    }
-
-    #[test]
-    fn test_md_incomplete_does_not_panic() {
-        // 不完整 Markdown 不应 panic，应降级为纯文本
-        let text = parse_markdown_default("**unclosed bold");
-        let all = all_text(&text);
-        assert!(
-            all.contains("unclosed bold"),
-            "不完整 Markdown 应降级为纯文本，实际: {all:?}"
-        );
-    }
-
-    #[test]
-    fn test_md_table_basic() {
-        let md = "| Name  | Value |\n|-------|-------|\n| foo   | 123   |\n| bar   | 456   |";
-        let text = parse_markdown_default(md);
-        let all = all_text(&text);
-        // Should contain header and data cells
-        assert!(
-            all.contains("Name"),
-            "Table should contain header 'Name', got: {all:?}"
-        );
-        assert!(
-            all.contains("foo"),
-            "Table should contain data 'foo', got: {all:?}"
-        );
-        assert!(
-            all.contains("456"),
-            "Table should contain data '456', got: {all:?}"
-        );
-        // Should have border characters
-        assert!(
-            all.contains("│"),
-            "Table should have vertical borders, got: {all:?}"
-        );
-        assert!(
-            all.contains("┌"),
-            "Table should have top-left corner, got: {all:?}"
-        );
-        assert!(
-            all.contains("└"),
-            "Table should have bottom-left corner, got: {all:?}"
-        );
-        assert!(
-            all.contains("┼"),
-            "Table should have header separator, got: {all:?}"
-        );
-    }
-
-    #[test]
-    fn test_md_table_cell_count() {
-        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        let text = parse_markdown_default(md);
-        // Should produce exactly: top border + header + separator + 1 data row + bottom border = 5 lines
-        assert_eq!(
-            text.lines.len(),
-            5,
-            "2-col table should produce 5 lines, got: {}",
-            text.lines.len()
-        );
-    }
-
-    #[test]
-    fn test_md_table_border_alignment() {
-        let md = "| Name | Value |\n|------|-------|\n| foo  | 123   |";
-        let text = parse_markdown_default(md);
-        // Debug: print each line
-        for (i, line) in text.lines.iter().enumerate() {
-            let content: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-            eprintln!(
-                "line {}: {:?} (chars={})",
-                i,
-                content,
-                content.chars().count()
-            );
-        }
-        // Each line should have the same visual width (measured in chars, not bytes)
-        let widths: Vec<usize> = text
-            .lines
-            .iter()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|s| s.content.chars().count())
-                    .sum::<usize>()
-            })
-            .collect();
-        let unique_widths: std::collections::HashSet<usize> = widths.iter().copied().collect();
-        assert!(
-            unique_widths.len() == 1,
-            "All table lines should have same visual width, got: {:?}",
-            widths
-        );
-    }
-
-    #[test]
-    fn test_md_table_alignment() {
-        let md = "| Left | Center | Right |\n|:-----|:------:|------:|\n| a    | b      | c     |";
-        let text = parse_markdown_default(md);
-        let all = all_text(&text);
-        assert!(
-            all.contains("Left"),
-            "Should contain 'Left' header, got: {all:?}"
-        );
-        assert!(all.contains("a"), "Should contain data 'a', got: {all:?}");
-    }
-
-    #[test]
-    fn test_md_table_with_inline_code() {
-        let md = "| Command |\n|---------|\n| `ls`    |";
-        let text = parse_markdown_default(md);
-        let all = all_text(&text);
-        assert!(
-            all.contains("ls"),
-            "Should contain inline code content, got: {all:?}"
-        );
-    }
 }
 
 #[tokio::test]
@@ -461,7 +165,8 @@ async fn test_subagent_group_basic() {
     });
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -703,7 +408,8 @@ async fn test_empty_then_nonempty_assistant_chunk() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -809,7 +515,8 @@ async fn test_welcome_card_hidden_after_message() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -1192,232 +899,6 @@ async fn test_tab_bar_integration() {
     );
 }
 
-mod setup_wizard_e2e {
-    use crate::app::setup_wizard::{
-        handle_setup_wizard_key, needs_setup, save_setup_to, FormField, FormMode, MigratedProvider,
-        ProviderType, SetupStep, SetupWizardAction, SetupWizardPanel,
-    };
-    use crate::app::App;
-    use tui_textarea::{Input, Key};
-
-    fn make_char(c: char) -> Input {
-        Input {
-            key: Key::Char(c),
-            ctrl: false,
-            alt: false,
-            shift: false,
-        }
-    }
-    fn make_key(key: Key) -> Input {
-        Input {
-            key,
-            ctrl: false,
-            alt: false,
-            shift: false,
-        }
-    }
-    fn type_text(wizard: &mut SetupWizardPanel, text: &str) {
-        for c in text.chars() {
-            let _ = handle_setup_wizard_key(wizard, make_char(c));
-        }
-    }
-
-    fn advance_to_form(wizard: &mut SetupWizardPanel) {
-        wizard.step = SetupStep::Choose;
-        let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter));
-        assert_eq!(wizard.step, SetupStep::Form);
-        assert_eq!(wizard.form_mode, FormMode::Browse);
-    }
-
-    /// 进入 Edit 模式，填写 API Key，Confirm 回到 Browse，然后 Submit
-    fn fill_and_submit(wizard: &mut SetupWizardPanel, api_key: &str) {
-        // 确保在第一个 provider 位置
-        wizard.browse_cursor = 0;
-        // Browse → Edit（Enter on first provider）
-        let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter));
-        assert_eq!(wizard.form_mode, FormMode::Edit);
-
-        // 填写 API Key
-        wizard.form_focus = FormField::ApiKey;
-        type_text(wizard, api_key);
-
-        // Confirm 回到 Browse
-        wizard.form_focus = FormField::Confirm;
-        let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter));
-        assert_eq!(wizard.form_mode, FormMode::Browse);
-
-        // 移到 Submit 并提交
-        wizard.browse_cursor = wizard.providers.len();
-        let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter));
-    }
-
-    #[tokio::test]
-    async fn test_needs_setup_triggers_for_empty_config() {
-        let (app, _handle) = App::new_headless(120, 30).await;
-        assert!(app.services.peri_config.is_none());
-        let empty_cfg = crate::config::PeriConfig::default();
-        assert!(needs_setup(&empty_cfg.config));
-    }
-
-    #[tokio::test]
-    async fn test_setup_wizard_full_flow_anthropic() {
-        let mut wizard = SetupWizardPanel::new();
-        advance_to_form(&mut wizard);
-        assert_eq!(wizard.providers.len(), 1);
-        assert_eq!(wizard.providers[0].provider_type, ProviderType::Anthropic);
-
-        fill_and_submit(&mut wizard, "sk-ant-test-key-12345");
-        assert_eq!(wizard.step, SetupStep::Done);
-
-        let action = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert!(matches!(action, Some(SetupWizardAction::SaveAndClose)));
-
-        let temp_dir =
-            std::env::temp_dir().join(format!("zen-setup-test-{}", uuid::Uuid::now_v7()));
-        let config_path = temp_dir.join("settings.json");
-        let cfg = save_setup_to(&wizard, &config_path).expect("save should succeed");
-        assert_eq!(cfg.config.providers.len(), 1);
-        assert_eq!(cfg.config.providers[0].provider_type, "anthropic");
-        assert_eq!(cfg.config.providers[0].api_key, "sk-ant-test-key-12345");
-        assert!(!needs_setup(&cfg.config));
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[tokio::test]
-    async fn test_setup_wizard_full_flow_openai() {
-        let mut wizard = SetupWizardPanel::new();
-        advance_to_form(&mut wizard);
-
-        // Enter Edit mode, change type to OpenAI
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert_eq!(wizard.form_mode, FormMode::Edit);
-        wizard.form_focus = FormField::ProviderType;
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Right));
-        assert_eq!(
-            wizard.providers[0].provider_type,
-            ProviderType::OpenAiCompatible
-        );
-
-        // Fill key
-        wizard.form_focus = FormField::ApiKey;
-        type_text(&mut wizard, "sk-openai-test-key");
-
-        // Confirm back to Browse
-        wizard.form_focus = FormField::Confirm;
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert_eq!(wizard.form_mode, FormMode::Browse);
-
-        // Submit
-        wizard.browse_cursor = wizard.providers.len();
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert_eq!(wizard.step, SetupStep::Done);
-
-        let action = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert!(matches!(action, Some(SetupWizardAction::SaveAndClose)));
-
-        let temp_dir =
-            std::env::temp_dir().join(format!("zen-setup-test-openai-{}", uuid::Uuid::now_v7()));
-        let config_path = temp_dir.join("settings.json");
-        let cfg = save_setup_to(&wizard, &config_path).expect("save should succeed");
-        assert_eq!(cfg.config.providers[0].provider_type, "openai");
-        assert_eq!(cfg.config.providers[0].api_key, "sk-openai-test-key");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[tokio::test]
-    async fn test_setup_wizard_skip_on_choose() {
-        let (mut app, _handle) = App::new_headless(120, 30).await;
-        app.global_ui.setup_wizard = Some(SetupWizardPanel::new());
-        let wizard = app.global_ui.setup_wizard.as_mut().unwrap();
-        let action = handle_setup_wizard_key(wizard, make_key(Key::Esc));
-        assert!(matches!(action, Some(SetupWizardAction::Skip)));
-    }
-
-    #[tokio::test]
-    async fn test_setup_wizard_esc_navigation() {
-        let mut wizard = SetupWizardPanel::new();
-        advance_to_form(&mut wizard);
-
-        // Browse → Submit → Enter (empty key, should stay)
-        wizard.browse_cursor = wizard.providers.len();
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert_eq!(wizard.step, SetupStep::Form);
-
-        fill_and_submit(&mut wizard, "test-key");
-        assert_eq!(wizard.step, SetupStep::Done);
-
-        // Done → Esc → Form
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
-        assert_eq!(wizard.step, SetupStep::Form);
-
-        // Form → Esc → Choose
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
-        assert_eq!(wizard.step, SetupStep::Choose);
-
-        // Choose → Esc → Language
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
-        assert_eq!(wizard.step, SetupStep::Language);
-    }
-
-    #[tokio::test]
-    async fn test_setup_wizard_toggle_select() {
-        let mut wizard = SetupWizardPanel::new();
-        advance_to_form(&mut wizard);
-        // Browse mode: Space toggles
-        assert!(wizard.providers[0].selected);
-        let _ = handle_setup_wizard_key(&mut wizard, make_char(' '));
-        assert!(!wizard.providers[0].selected);
-        let _ = handle_setup_wizard_key(&mut wizard, make_char(' '));
-        assert!(wizard.providers[0].selected);
-    }
-
-    #[tokio::test]
-    async fn test_setup_wizard_multi_provider() {
-        let mut wizard = SetupWizardPanel::new();
-        advance_to_form(&mut wizard);
-        wizard
-            .providers
-            .push(MigratedProvider::new(ProviderType::OpenAiCompatible));
-        wizard.providers[1].api_key = "sk-openai".to_string();
-        wizard.providers[0].api_key = "sk-ant".to_string();
-
-        // Browse: Submit
-        wizard.browse_cursor = wizard.providers.len();
-        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert_eq!(wizard.step, SetupStep::Done);
-
-        let temp_dir =
-            std::env::temp_dir().join(format!("zen-setup-multi-{}", uuid::Uuid::now_v7()));
-        let config_path = temp_dir.join("settings.json");
-        let cfg = save_setup_to(&wizard, &config_path).expect("save should succeed");
-        assert_eq!(cfg.config.providers.len(), 2);
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[tokio::test]
-    async fn test_setup_wizard_saves_and_clears() {
-        let (mut app, _handle) = App::new_headless(120, 30).await;
-        let mut wizard = SetupWizardPanel::new();
-        advance_to_form(&mut wizard);
-        fill_and_submit(&mut wizard, "sk-final-test");
-        assert_eq!(wizard.step, SetupStep::Done);
-
-        app.global_ui.setup_wizard = Some(wizard);
-        let wizard = app.global_ui.setup_wizard.as_mut().unwrap();
-        let action = handle_setup_wizard_key(wizard, make_key(Key::Enter));
-        assert!(matches!(action, Some(SetupWizardAction::SaveAndClose)));
-
-        let wizard = app.global_ui.setup_wizard.take().unwrap();
-        let temp_dir =
-            std::env::temp_dir().join(format!("zen-setup-final-{}", uuid::Uuid::now_v7()));
-        let config_path = temp_dir.join("settings.json");
-        let cfg = save_setup_to(&wizard, &config_path).expect("save should succeed");
-        assert!(!needs_setup(&cfg.config));
-        app.services.peri_config = Some(cfg);
-        assert!(app.global_ui.setup_wizard.is_none());
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-}
 // ─── Permission Mode Tests ──────────────────────────────────────────────
 
 #[tokio::test]
@@ -1610,6 +1091,7 @@ async fn test_tool_call_widget_renders_completed() {
         is_error: false,
         collapsed: false,
         diff_lines: None,
+        content_hash: 0,
     };
 
     let lines = crate::ui::message_render::render_view_model(&vm, Some(1), 80, false); // Render into a visible area for verification
@@ -1708,7 +1190,7 @@ async fn test_compact_done_with_re_inject() {
         msgs.len()
     );
     let has_compact = msgs.iter().any(|m| {
-        if let MessageViewModel::SystemNote { content } = m {
+        if let MessageViewModel::SystemNote { content, .. } = m {
             content.contains("✻ Context compressed")
                 && content.contains("Read /a.rs")
                 && content.contains("Skill: skill.md")
@@ -1732,7 +1214,7 @@ async fn test_compact_done_without_re_inject() {
         .view_messages;
     assert_eq!(msgs.len(), 1, "应只有 1 条压缩占位消息");
     let has_compact = msgs.iter().any(|m| {
-        if let MessageViewModel::SystemNote { content } = m {
+        if let MessageViewModel::SystemNote { content, .. } = m {
             content.contains("✻ Context compressed")
         } else {
             false
@@ -1740,7 +1222,7 @@ async fn test_compact_done_without_re_inject() {
     });
     assert!(has_compact, "应包含压缩提示消息");
     let has_re_inject = msgs.iter().any(|m| {
-        if let MessageViewModel::SystemNote { content } = m {
+        if let MessageViewModel::SystemNote { content, .. } = m {
             content.contains("Read ") || content.contains("Skill:")
         } else {
             false
@@ -1802,7 +1284,8 @@ async fn test_user_message_survives_assistant_chunk() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -1867,7 +1350,8 @@ async fn test_messages_accumulate_across_turns() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     // 第二轮：用户 → AI
     // 模拟 submit_message：先记录 round_start_vm_idx，再 push Human VM
@@ -1897,7 +1381,8 @@ async fn test_messages_accumulate_across_turns() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -2002,7 +1487,8 @@ async fn test_tool_then_text_preserves_tool_block() {
     });
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -2354,175 +1840,15 @@ async fn test_ambiguous_command_shows_candidates() {
     assert!(!known, "歧义前缀 dispatch 应返回 false");
 }
 
-// ── SystemNote Error Color Detection ────────────────────────────────────
-
-#[test]
-fn test_system_note_error_detection() {
-    // 错误类 system note
-    let error_content = "Compact failed: No LLM Provider";
-    assert!(
-        error_content.contains("failed") || error_content.contains("Compact failed"),
-        "应检测到错误标记"
-    );
-    let warn_content = "⚠ Interrupted";
-    assert!(warn_content.contains("⚠"), "应检测到警告标记");
-    // 普通信息
-    let info_content = "Configuration saved";
-    assert!(
-        !info_content.contains("❌")
-            && !info_content.contains("failed")
-            && !info_content.contains("⚠"),
-        "普通消息不应被标记为错误"
-    );
-}
-
-// ─── 错误信息红色显示测试 ─────────────────────────────────────────────────
-
-#[test]
-fn test_tool_block_error_visible_when_collapsed() {
-    use crate::ui::message_render::render_view_model;
-    let vm = MessageViewModel::ToolBlock {
-        tool_name: "Bash".to_string(),
-        tool_call_id: "tc_err".to_string(),
-        display_name: "Shell".to_string(),
-        args_display: Some("bad_command".to_string()),
-        content: "command not found: bad_command\nexit code 127".to_string(),
-        is_error: true,
-        collapsed: true,
-        color: crate::ui::theme::ERROR,
-        diff_lines: None,
-    };
-    let lines = render_view_model(&vm, Some(1), 80, false); // header + 2 error summary lines (content has 2 lines)
-    assert!(
-        lines.len() >= 3,
-        "collapsed error ToolBlock should have header + error lines, got {}",
-        lines.len()
-    );
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
-        .collect::<Vec<_>>()
-        .join("");
-    assert!(
-        text.contains("command not found"),
-        "error content should be visible: {}",
-        text
-    );
-}
-
-#[test]
-fn test_tool_block_success_no_summary_when_collapsed() {
-    use crate::ui::message_render::render_view_model;
-    let vm = MessageViewModel::ToolBlock {
-        tool_name: "Read".to_string(),
-        tool_call_id: "tc_ok".to_string(),
-        display_name: "Read".to_string(),
-        args_display: Some("file.txt".to_string()),
-        content: "file contents here".to_string(),
-        is_error: false,
-        collapsed: true,
-        color: crate::ui::theme::SAGE,
-        diff_lines: None,
-    };
-    let lines = render_view_model(&vm, Some(1), 80, false);
-    assert_eq!(
-        lines.len(),
-        1,
-        "successful collapsed ToolBlock should have only header"
-    );
-}
-
-#[test]
-fn test_tool_call_group_error_visible_when_collapsed() {
-    use crate::ui::message_render::render_view_model;
-    use crate::ui::message_view::{ToolCategory, ToolEntry};
-
-    let vm = MessageViewModel::ToolCallGroup {
-        category: ToolCategory::Read,
-        tools: vec![
-            ToolEntry {
-                tool_name: "Read".to_string(),
-                display_name: "Read".to_string(),
-                args_display: Some("ok_file.txt".to_string()),
-                content: "ok content".to_string(),
-                is_error: false,
-            },
-            ToolEntry {
-                tool_name: "Read".to_string(),
-                display_name: "Read".to_string(),
-                args_display: Some("missing.txt".to_string()),
-                content: "Error: file not found".to_string(),
-                is_error: true,
-            },
-        ],
-        collapsed: true,
-    };
-    let lines = render_view_model(&vm, Some(1), 80, false);
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
-        .collect::<Vec<_>>()
-        .join("");
-    assert!(
-        text.contains("Error: file not found"),
-        "error from failed tool should be visible: {}",
-        text
-    );
-    assert!(
-        !text.contains("ok content"),
-        "successful tool content should NOT be visible: {}",
-        text
-    );
-}
-
-#[test]
-fn test_subagent_group_error_red_title_and_summary() {
-    use crate::ui::message_render::render_view_model;
-
-    let vm = MessageViewModel::SubAgentGroup {
-        agent_id: "test-agent".to_string(),
-        task_preview: "do something risky".to_string(),
-        total_steps: 3,
-        recent_messages: Vec::new(),
-        is_running: false,
-        collapsed: true,
-        final_result: Some("Agent failed: permission denied".to_string()),
-        is_error: true,
-        is_background: false,
-        bg_hash: Some("abc123".to_string()),
-        batch_agents: Vec::new(),
-        instance_id: None,
-    };
-    let lines = render_view_model(&vm, Some(1), 80, false); // 标题行 "Agent" 文字应为红色（第二个 span，第一个是 ❯ 符号）
-    let title_color = lines
-        .first()
-        .and_then(|l| l.spans.get(1).and_then(|s| s.style.fg));
-    assert_eq!(
-        title_color,
-        Some(crate::ui::theme::ERROR),
-        "title should be red on error"
-    );
-    // 错误摘要应可见
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
-        .collect::<Vec<_>>()
-        .join("");
-    assert!(
-        text.contains("Agent failed"),
-        "error summary should be visible: {}",
-        text
-    );
-}
-
 // ─── Design Review 第22轮：Model 面板 Space 键 + Cron 确认删除 + 面板 Paste 拦截 ────
 
 /// Model 面板 Space 键在模型行应选中对应模型（而非静默无响应）
 #[tokio::test]
 async fn test_model_panel_space_selects_model() {
-    use crate::app::model_panel::{AliasTab, ModelPanel, ROW_SONNET};
-    use crate::config::AppConfig;
-    use crate::config::{PeriConfig, ProviderConfig, ThinkingConfig};
+    use crate::{
+        app::model_panel::{AliasTab, ModelPanel, ROW_SONNET},
+        config::{AppConfig, PeriConfig, ProviderConfig, ThinkingConfig},
+    };
 
     let cfg = PeriConfig {
         schema: None,
@@ -2666,9 +1992,10 @@ async fn test_cron_panel_confirm_delete_renders() {
 /// Model 面板确认选择后应显示"模型已切换为"反馈消息
 #[tokio::test]
 async fn test_model_panel_confirm_shows_feedback() {
-    use crate::app::model_panel::{AliasTab, ModelPanel};
-    use crate::config::AppConfig;
-    use crate::config::{PeriConfig, ProviderConfig, ThinkingConfig};
+    use crate::{
+        app::model_panel::{AliasTab, ModelPanel},
+        config::{AppConfig, PeriConfig, ProviderConfig, ThinkingConfig},
+    };
 
     let (mut app, _handle) = App::new_headless(120, 30).await;
     let cfg = PeriConfig {
@@ -2729,9 +2056,10 @@ async fn test_model_panel_confirm_shows_feedback() {
 /// Login 面板激活 Provider 后应显示"已激活"反馈消息
 #[tokio::test]
 async fn test_login_select_provider_shows_feedback() {
-    use crate::app::login_panel::LoginPanel;
-    use crate::config::AppConfig;
-    use crate::config::{PeriConfig, ProviderConfig};
+    use crate::{
+        app::login_panel::LoginPanel,
+        config::{AppConfig, PeriConfig, ProviderConfig},
+    };
 
     let (mut app, _handle) = App::new_headless(120, 30).await;
     let cfg = PeriConfig {
@@ -3126,8 +2454,7 @@ async fn test_subagent_group_preserved_after_done_reconcile() {
 }
 
 mod split_panel_tests {
-    use crate::app::panel_manager::PanelKind;
-    use crate::app::App;
+    use crate::app::{panel_manager::PanelKind, App};
 
     #[tokio::test]
     async fn test_split_session_hint_shows_for_both_columns() {
@@ -3415,7 +2742,6 @@ fn bg_diag_count_subagent_groups(app: &App) -> usize {
 }
 
 /// 打印当前 view_messages 的摘要（诊断用）
-#[allow(dead_code)]
 fn bg_diag_print_vms(app: &App, label: &str) {
     let vms = &app.session_mgr.sessions[app.session_mgr.active]
         .messages
@@ -3455,11 +2781,11 @@ fn bg_diag_print_vms(app: &App, label: &str) {
             MessageViewModel::ToolCallGroup { category, .. } => {
                 eprintln!("  [{}] ToolCallGroup({:?})", i, category);
             }
-            MessageViewModel::SystemNote { content } => {
+            MessageViewModel::SystemNote { content, .. } => {
                 let preview: String = content.chars().take(40).collect();
                 eprintln!("  [{}] SystemNote({})", i, preview);
             }
-            MessageViewModel::CacheWarning { content } => {
+            MessageViewModel::CacheWarning { content, .. } => {
                 let preview: String = content.chars().take(40).collect();
                 eprintln!("  [{}] CacheWarning({})", i, preview);
             }
@@ -3903,7 +3229,8 @@ async fn test_thinking_mode_user_message_survives_rebuild() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -4004,7 +3331,8 @@ async fn test_thinking_toolcall_text_rebuild_preserves_user() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal

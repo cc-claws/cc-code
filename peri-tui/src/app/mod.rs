@@ -98,14 +98,14 @@ pub use interaction::InteractionPrompt;
 mod edit_utils;
 pub use edit_utils::{build_textarea, edit_display_parts, ensure_cursor_visible, handle_edit_key};
 
-#[allow(unused_imports)]
 use crate::acp_client::{AcpNotification, AcpTuiClient};
 use peri_agent::messages::BaseMessage;
 use peri_middlewares::prelude::HitlDecision;
-use tokio::sync::mpsc;
 
-use crate::config::PeriConfig;
-use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
+use crate::{
+    config::PeriConfig,
+    thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadStore},
+};
 
 // Re-export MessageViewModel from ui::message_view
 use crate::command::agents::AgentItem;
@@ -123,8 +123,7 @@ use std::sync::Arc;
 use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
-pub use agent_comm::AgentComm;
-pub use agent_comm::RetryStatus;
+pub use agent_comm::{AgentComm, RetryStatus};
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};
@@ -257,8 +256,6 @@ impl App {
                 service_registry::ProcessResourceMonitor::new(),
             ),
             lc,
-            acp_peri_config: None,
-            acp_provider: None,
             channel_state: Some(channel_state.clone()),
         };
 
@@ -425,7 +422,7 @@ impl App {
         override_path: Option<&std::path::Path>,
     ) -> anyhow::Result<()> {
         match override_path {
-            Some(path) => crate::config::store::save_to(cfg, path),
+            Some(path) => crate::config::save_to(cfg, path),
             None => crate::config::save(cfg),
         }
     }
@@ -463,9 +460,6 @@ impl App {
         {
             tracing::warn!("interrupt: 无 cancel_token 但 loading=true，强制清理");
             self.set_loading(false);
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .interaction_prompt = None;
@@ -513,15 +507,15 @@ impl App {
                     let _ = self.session_mgr.sessions[self.session_mgr.active]
                         .messages
                         .render_tx
-                        .send(RenderEvent::Rebuild(remaining));
+                        .try_send(RenderEvent::Rebuild(remaining));
                 }
-                // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
+                // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.sessions[self.session_mgr.active]
                     .metadata
                     .pre_submit_state_len;
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .agent_state_messages
+                    .origin_messages
                     .truncate(pre_len);
                 // 清除 pipeline 状态
                 self.session_mgr.sessions[self.session_mgr.active]
@@ -530,7 +524,7 @@ impl App {
                     .done();
                 let restored = self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .agent_state_messages
+                    .origin_messages
                     .clone();
                 self.session_mgr.sessions[self.session_mgr.active]
                     .messages
@@ -631,8 +625,27 @@ impl App {
             self.services.provider_name = p.display_name().to_string();
             self.services.model_name = p.model_name().to_string();
         }
-        // 同步到 ACP Server，确保 Agent 构建时能读取最新的 API key
-        self.services.sync_peri_config_to_acp();
+        self.sync_acp_config();
+    }
+
+    /// 同步等待 ACP Server 更新完整配置，确保 provider 在内存中已更新。
+    /// 使用 block_in_place + block_on 避免 tokio runtime 死锁。
+    pub(crate) fn sync_acp_config(&self) {
+        let Some(ref acp_client) = self.acp_client else {
+            return;
+        };
+        let cfg = match self.services.peri_config.as_ref() {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        let acp = acp_client.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                if let Err(e) = acp.update_config(&cfg).await {
+                    tracing::error!(error = %e, "sync_acp_config: update_config failed");
+                }
+            });
+        });
     }
 
     pub fn get_compact_config(&self) -> peri_agent::agent::CompactConfig {
@@ -644,5 +657,32 @@ impl App {
             .unwrap_or_default();
         config.apply_env_overrides();
         config
+    }
+
+    /// 检查是否有任何交互弹窗处于激活状态（AskUser / HITL / OAuth）。
+    /// 弹窗激活时，底部 textarea 应失效——隐藏光标、禁止输入、视觉变暗。
+    pub fn is_interaction_popup_active(&self) -> bool {
+        self.global_ui.oauth_prompt.is_some()
+            || self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .interaction_prompt
+                .is_some()
+    }
+
+    /// 将粘贴文本路由到当前激活弹窗的输入区。用于支持 IME 组合输入（macOS
+    /// 终端通过 Bracketed Paste 发送组合后的中文），以及常规粘贴操作。
+    /// 仅处理 AskUser 弹窗的 custom_input；HITL/OAuth 弹窗无文本输入区，静默丢弃。
+    pub fn paste_to_interaction_popup(&mut self, text: &str) {
+        if let Some(crate::app::InteractionPrompt::Questions(p)) = self.session_mgr.sessions
+            [self.session_mgr.active]
+            .agent
+            .interaction_prompt
+            .as_mut()
+        {
+            let q = p.current();
+            q.custom_input.push_str(text);
+            q.custom_cursor += text.chars().count();
+            q.in_custom_input = true;
+        }
     }
 }

@@ -88,8 +88,6 @@ pub enum AgentEvent {
         is_error: bool,
         source_agent_id: Option<String>,
     },
-    /// 一轮 ReAct 步骤完成
-    StepDone { step: usize },
     /// 状态快照（含完整的消息历史），用于持久化和断点续跑
     StateSnapshot(Vec<crate::messages::BaseMessage>),
     /// 增量消息（BaseMessage），持久化和遥测的最小数据单元
@@ -106,6 +104,8 @@ pub enum AgentEvent {
         model: String,
         output: String,
         usage: Option<crate::llm::types::TokenUsage>,
+        /// LLM 响应停止原因（None 表示 LLM 调用失败/异常）
+        stop_reason: Option<crate::llm::types::StopReason>,
     },
     /// 上下文窗口使用警告（阈值触发时发出）
     ContextWarning {
@@ -138,8 +138,6 @@ pub enum AgentEvent {
         /// 唯一实例标识符
         instance_id: String,
     },
-    /// Session 结束
-    SessionEnded,
     /// 上下文压缩开始
     CompactStarted,
     /// 上下文压缩完成

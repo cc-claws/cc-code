@@ -1,13 +1,19 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use peri_agent::agent::react::ToolCall;
-use peri_agent::agent::state::State;
-use peri_agent::error::{AgentError, AgentResult};
-use peri_agent::interaction::{
-    ApprovalDecision, ApprovalItem, InteractionContext, InteractionResponse, UserInteractionBroker,
+use peri_agent::{
+    agent::{react::ToolCall, state::State},
+    error::{AgentError, AgentResult},
+    interaction::{
+        ApprovalDecision, ApprovalItem, InteractionContext, InteractionResponse,
+        UserInteractionBroker,
+    },
+    middleware::r#trait::Middleware,
 };
-use peri_agent::middleware::r#trait::Middleware;
+
+use crate::tool_search::core_tools::{
+    TOOL_AGENT, TOOL_BASH, TOOL_EDIT, TOOL_FOLDER_OPS, TOOL_WEBFETCH, TOOL_WEBSEARCH, TOOL_WRITE,
+};
 
 pub mod auto_classifier;
 pub mod shared_mode;
@@ -38,15 +44,15 @@ pub fn is_yolo_mode() -> bool {
 /// - `folder_operations`：目录操作
 /// - `launch_agent`：子 Agent 委派（子 Agent 不含 HITL，可传递绕过审批）
 pub fn default_requires_approval(tool_name: &str) -> bool {
-    tool_name == "Bash"
-        || tool_name == "folder_operations"
-        || tool_name == "Agent"
-        || tool_name == "Write"
-        || tool_name == "Edit"
+    tool_name == TOOL_BASH
+        || tool_name == TOOL_FOLDER_OPS
+        || tool_name == TOOL_AGENT
+        || tool_name == TOOL_WRITE
+        || tool_name == TOOL_EDIT
         || tool_name.starts_with("delete_")
         || tool_name.starts_with("rm_")
-        || tool_name == "WebFetch"
-        || tool_name == "WebSearch"
+        || tool_name == TOOL_WEBFETCH
+        || tool_name == TOOL_WEBSEARCH
         || tool_name.starts_with("mcp__")
 }
 
@@ -55,7 +61,7 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
 /// `Write`、`Edit`、`folder_operations` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
 /// `Bash`、`Agent`、`delete_*`、`rm_*` 不属于编辑工具，仍需审批。
 pub fn is_edit_tool(tool_name: &str) -> bool {
-    tool_name == "Write" || tool_name == "Edit" || tool_name == "folder_operations"
+    tool_name == TOOL_WRITE || tool_name == TOOL_EDIT || tool_name == TOOL_FOLDER_OPS
 }
 
 // ─── ExecuteExtraTool 权限透传 ─────────────────────────────────────────────

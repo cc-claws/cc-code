@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 
 /// MCP 服务器配置来源
@@ -148,8 +150,10 @@ pub(crate) fn load_global_config(
 
 /// 基于 command+args+env 计算服务器配置的内容 hash，用于去重
 pub(crate) fn server_config_hash(cfg: &McpServerConfig) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use std::{
+        collections::hash_map::DefaultHasher,
+        hash::{Hash, Hasher},
+    };
 
     let mut hasher = DefaultHasher::new();
     if let Some(cmd) = &cfg.command {

@@ -2,9 +2,11 @@ use tui_textarea::{Input, Key};
 
 use peri_widgets::InputState;
 
-use crate::app::panel_manager::{EventResult, PanelContext};
-use crate::app::plugin_panel::PluginPanel;
-use crate::app::AgentEvent;
+use crate::app::{
+    panel_manager::{EventResult, PanelContext},
+    plugin_panel::PluginPanel,
+    AgentEvent,
+};
 
 impl PluginPanel {
     pub(crate) fn handle_marketplaces_list(

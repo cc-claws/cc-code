@@ -3,8 +3,10 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use super::message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory};
-use super::theme;
+use super::{
+    message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory},
+    theme,
+};
 
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
 /// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).
@@ -495,7 +497,7 @@ pub fn render_view_model(
 
             lines
         }
-        MessageViewModel::SystemNote { content } => {
+        MessageViewModel::SystemNote { content, .. } => {
             let mut lines = Vec::new();
             for line in content.lines() {
                 if line.starts_with('✻') {
@@ -527,7 +529,7 @@ pub fn render_view_model(
             }
             lines
         }
-        MessageViewModel::CacheWarning { content } => {
+        MessageViewModel::CacheWarning { content, .. } => {
             vec![Line::from(Span::styled(
                 content.clone(),
                 Style::default().fg(theme::WARNING),

@@ -1,19 +1,21 @@
-use std::any::Any;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{any::Any, sync::Arc, time::Duration};
 
 use parking_lot::Mutex;
 use peri_middlewares::cron::{CronScheduler, CronTask, CronTrigger};
-use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{
+    crossterm::event::{MouseButton, MouseEvent, MouseEventKind},
+    layout::Rect,
+    Frame,
+};
 use tokio::sync::mpsc;
 use tui_textarea::Input;
 
-use super::panel_component::PanelComponent;
-use super::panel_list::PanelList;
-use super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::App;
+use super::{
+    panel_component::PanelComponent,
+    panel_list::PanelList,
+    panel_manager::{EventResult, PanelContext, PanelKind},
+    App,
+};
 
 /// CronPanel 面板状态
 #[derive(Debug, Clone)]

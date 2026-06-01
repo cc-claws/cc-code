@@ -4,8 +4,7 @@
 use super::super::*;
 use tracing::debug;
 
-use crate::app::message_pipeline::PipelineAction;
-use crate::app::App;
+use crate::app::{message_pipeline::PipelineAction, App};
 
 impl App {
     /// Shared agent state teardown for Done, Error, and Disconnected paths.
@@ -86,13 +85,15 @@ impl App {
                 self.request_rebuild();
             }
         } else {
-            if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .view_messages
-                    .last_mut()
+            if let Some(vm) = self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .view_messages
+                .last_mut()
             {
-                *is_streaming = false;
+                if let MessageViewModel::AssistantBubble { is_streaming, .. } = vm {
+                    *is_streaming = false;
+                }
+                vm.recompute_hash();
             }
             self.render_rebuild();
         }
@@ -135,9 +136,6 @@ impl App {
                 .agent
                 .pre_done_bg_completions
                 .clear();
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
         }
         self.cleanup_agent_state(None);
         // 检查缓冲消息，合并发送
@@ -245,13 +243,13 @@ impl App {
                 .view_messages
                 .len();
             tracing::info!(view_len_after, "handle_interrupted: after RebuildAll");
-            // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
+            // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
             let pre_len = self.session_mgr.sessions[self.session_mgr.active]
                 .metadata
                 .pre_submit_state_len;
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .agent_state_messages
+                .origin_messages
                 .truncate(pre_len);
             // 恢复文本到输入框
             let mut ta = crate::app::build_textarea(false);
@@ -275,7 +273,7 @@ impl App {
                 .done();
             let restored = self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .agent_state_messages
+                .origin_messages
                 .clone();
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
@@ -327,6 +325,7 @@ impl App {
         {
             *content = error_msg.to_string();
             *collapsed = false;
+            vm.recompute_hash();
         }
         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖错误消息
@@ -365,9 +364,6 @@ impl App {
                 .agent
                 .pre_done_bg_completions
                 .clear();
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_rx = None;
         }
         let err_label = format!("ERROR: {}", error_msg);
         self.cleanup_agent_state(Some(&err_label));

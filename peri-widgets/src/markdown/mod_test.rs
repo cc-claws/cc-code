@@ -363,3 +363,41 @@ fn parse_multiline_code_block_no_lang_fallback() {
         .any(|l| l.spans.iter().any(|s| s.content.contains("code here")));
     assert!(has_content, "回退模式应有代码内容");
 }
+
+/// 集成测试：parse_markdown 多次调用应产生相同结果（幂等性）
+#[test]
+fn parse_markdown_cache_hit_on_repeat() {
+    // Arrange: 同一内容调用两次
+    let content = "# 缓存测试\n\n这是一段用于测试缓存命中的 Markdown 文本。";
+    let theme = default_theme();
+    let width = 80;
+
+    // Act: 两次调用
+    let result1 = parse_markdown(content, &theme, width);
+    let result2 = parse_markdown(content, &theme, width);
+
+    // Assert: 两次结果完全一致（幂等性）
+    assert_eq!(
+        result1.lines.len(),
+        result2.lines.len(),
+        "两次解析结果行数应一致"
+    );
+    for (a, b) in result1.lines.iter().zip(result2.lines.iter()) {
+        let text_a: String = a.spans.iter().map(|s| s.content.as_ref()).collect();
+        let text_b: String = b.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text_a, text_b, "两次解析对应行内容应一致");
+    }
+}
+
+/// 集成测试：空字符串返回空结果
+#[test]
+fn parse_markdown_empty_not_cached() {
+    // Act
+    let result = parse_markdown("", &default_theme(), 80);
+
+    // Assert: 空字符串直接返回空 Text
+    assert!(
+        result.lines.is_empty() || result.lines.iter().all(|l| l.spans.is_empty()),
+        "空字符串应返回空结果"
+    );
+}

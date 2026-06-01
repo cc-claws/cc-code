@@ -1,5 +1,7 @@
-use crate::error::LangfuseError;
-use crate::types::{ingestion_events_to_otel, IngestionEvent};
+use crate::{
+    error::LangfuseError,
+    types::{ingestion_events_to_otel, IngestionEvent},
+};
 use base64::Engine;
 use reqwest::Client;
 use std::time::Duration;
@@ -124,86 +126,6 @@ impl LangfuseClient {
                         let delay = Duration::from_secs(1 << (attempt - 1));
                         warn!(
                             "OTLP ingestion network error (attempt {}/{}), retrying in {:?}: {}",
-                            attempt, self.max_retries, delay, e
-                        );
-                        tokio::time::sleep(delay).await;
-                        continue;
-                    }
-                    return Err(LangfuseError::Http(e));
-                }
-            }
-        }
-    }
-    /// 发送一批事件到 Langfuse 原生 Ingestion 端点
-    ///
-    /// POST /api/public/ingestion
-    /// 直接以 IngestionEvent JSON 格式发送（不走 OTLP 转换），保留完整字段映射。
-    /// Headers:
-    ///   - Authorization: Basic {base64(public_key:secret_key)}
-    ///   - Content-Type: application/json
-    ///
-    /// 响应: 200 OK（空对象）表示成功
-    /// 错误重试: 网络错误和 5xx 自动重试 max_retries 次，指数退避（1s, 2s, 4s...）
-    /// 4xx 错误不重试，直接返回 LangfuseError::IngestionApi
-    pub async fn ingest_native(&self, events: Vec<IngestionEvent>) -> Result<(), LangfuseError> {
-        if events.is_empty() {
-            return Ok(());
-        }
-
-        let url = format!("{}/api/public/ingestion", self.base_url);
-        let payload = serde_json::json!({ "batch": events });
-
-        let mut attempt = 0;
-        loop {
-            let result = self
-                .http
-                .post(&url)
-                .header("Authorization", &self.auth_header)
-                .header("Content-Type", "application/json")
-                .header("x-langfuse-ingestion-version", "4")
-                .json(&payload)
-                .send()
-                .await;
-
-            match result {
-                Ok(response) => {
-                    let status = response.status();
-                    if status.is_success() {
-                        let body = response.text().await.unwrap_or_default();
-                        if !body.contains("\"success\"") && body.len() > 5 {
-                            warn!("Native ingestion response: {}", body);
-                        }
-                        return Ok(());
-                    } else if status.is_client_error() {
-                        let error_text = response.text().await.unwrap_or_default();
-                        return Err(LangfuseError::IngestionApi(format!(
-                            "Native ingestion HTTP {}: {}",
-                            status, error_text
-                        )));
-                    } else {
-                        let error_text = response.text().await.unwrap_or_default();
-                        if attempt < self.max_retries {
-                            attempt += 1;
-                            let delay = Duration::from_secs(1 << (attempt - 1));
-                            warn!(
-                                "Native ingestion server error (attempt {}/{}), retrying in {:?}: HTTP {} {}",
-                                attempt, self.max_retries, delay, status, error_text
-                            );
-                            tokio::time::sleep(delay).await;
-                            continue;
-                        }
-                        return Err(LangfuseError::IngestionApi(format!(
-                            "Native ingestion HTTP {} after {} retries: {}",
-                            status, self.max_retries, error_text
-                        )));
-                    }
-                }
-                Err(e) => {
-                    if attempt < self.max_retries {
-                        attempt += 1;
-                        let delay = Duration::from_secs(1 << (attempt - 1));
-                        warn!(
-                            "Native ingestion network error (attempt {}/{}), retrying in {:?}: {}",
                             attempt, self.max_retries, delay, e
                         );
                         tokio::time::sleep(delay).await;

@@ -8,8 +8,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::Paragraph,
-    widgets::Widget,
+    widgets::{Paragraph, Widget, WidgetRef},
 };
 
 use crate::theme::Theme;
@@ -170,8 +169,8 @@ impl<'a> SpinnerWidget<'a> {
     }
 }
 
-impl<'a> Widget for SpinnerWidget<'a> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+impl WidgetRef for SpinnerWidget<'_> {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut spans: Vec<Span<'_>> = vec![];
 
         let frame = animation::tick_to_frame(self.state.tick());
@@ -207,5 +206,11 @@ impl<'a> Widget for SpinnerWidget<'a> {
         }
 
         Paragraph::new(Line::from(spans)).render(area, buf);
+    }
+}
+
+impl Widget for SpinnerWidget<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        self.render_ref(area, buf);
     }
 }

@@ -24,10 +24,6 @@ pub enum TransportConfig {
 pub enum TransportError {
     #[error("MCP 服务器配置无效: 缺少 command 或 url 字段")]
     InvalidConfig,
-    #[error("MCP stdio 传输子进程启动失败: {0}")]
-    StdioLaunchFailed(String),
-    #[error("MCP HTTP 传输配置失败: {0}")]
-    HttpConfigFailed(String),
 }
 
 impl TryFrom<&McpServerConfig> for TransportConfig {

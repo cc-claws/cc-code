@@ -8,8 +8,7 @@ pub mod list;
 use ratatui::text::Line;
 
 pub(crate) fn detail_kv_line<'a>(key: &str, value: &str) -> Line<'a> {
-    use ratatui::style::Style;
-    use ratatui::text::Span;
+    use ratatui::{style::Style, text::Span};
     Line::from(vec![
         Span::styled(
             format!("  {}: ", key),

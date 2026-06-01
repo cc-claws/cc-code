@@ -6,8 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
-    widgets::Widget,
+    widgets::{Paragraph, Widget, WidgetRef},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,8 +72,8 @@ impl<'a> ToolCallWidget<'a> {
     }
 }
 
-impl<'a> Widget for ToolCallWidget<'a> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+impl WidgetRef for ToolCallWidget<'_> {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let indicator = display::format_indicator(self.state.status.clone(), self.state.tick);
         let arrow = if self.state.collapsed { "▸" } else { "▾" };
 
@@ -118,6 +117,12 @@ impl<'a> Widget for ToolCallWidget<'a> {
         }
 
         Paragraph::new(lines).render(area, buf);
+    }
+}
+
+impl Widget for ToolCallWidget<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        self.render_ref(area, buf);
     }
 }
 

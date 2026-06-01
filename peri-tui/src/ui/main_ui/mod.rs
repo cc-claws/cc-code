@@ -15,8 +15,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
-use crate::ui::theme;
+use crate::{app::App, ui::theme};
 
 pub fn render(f: &mut Frame, app: &mut App) {
     // Setup 向导：全屏覆盖，优先于所有正常界面
@@ -287,7 +286,13 @@ fn render_session_column(
         .focused_instance_id
         .clone();
 
-    if bar_focused {
+    let popup_active = app.global_ui.oauth_prompt.is_some()
+        || app.session_mgr.sessions[session_idx]
+            .agent
+            .interaction_prompt
+            .is_some();
+
+    if bar_focused || popup_active {
         // Bar 焦点模式：输入框变暗
         let block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)

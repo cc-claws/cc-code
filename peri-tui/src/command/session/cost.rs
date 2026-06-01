@@ -1,6 +1,7 @@
-use crate::app::status_panel::STATUS_TAB_COST;
-use crate::app::App;
-use crate::command::Command;
+use crate::{
+    app::{status_panel::STATUS_TAB_COST, App},
+    command::Command,
+};
 
 pub struct CostCommand;
 

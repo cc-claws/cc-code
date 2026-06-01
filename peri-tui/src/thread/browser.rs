@@ -1,15 +1,15 @@
-use std::any::Any;
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{layout::Rect, Frame};
 use tui_textarea::Input;
 
 use peri_widgets::InputState;
 
-use crate::app::panel_component::PanelComponent;
-use crate::app::panel_manager::{EventResult, PanelContext, PanelKind};
-use crate::app::App;
+use crate::app::{
+    panel_component::PanelComponent,
+    panel_manager::{EventResult, PanelContext, PanelKind},
+    App,
+};
 
 use super::{ThreadId, ThreadMeta, ThreadStore};
 

@@ -1,9 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{agent::state::State, error::AgentResult, middleware::r#trait::Middleware};
 
 use crate::parse_agent_file;
 

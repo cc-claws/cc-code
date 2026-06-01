@@ -2,13 +2,13 @@
 
 use std::any::Any;
 
-use ratatui::crossterm::event::MouseEvent;
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{crossterm::event::MouseEvent, layout::Rect, Frame};
 use tui_textarea::Input;
 
-use super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::App;
+use super::{
+    panel_manager::{EventResult, PanelContext, PanelKind},
+    App,
+};
 
 /// 面板组件统一行为接口
 pub trait PanelComponent: Any {

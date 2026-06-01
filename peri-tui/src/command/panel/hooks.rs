@@ -1,5 +1,4 @@
-use crate::app::App;
-use crate::command::Command;
+use crate::{app::App, command::Command};
 
 /// /hooks 命令：打开 Hooks 查看面板
 pub struct HooksCommand;

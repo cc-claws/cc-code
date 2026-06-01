@@ -180,8 +180,10 @@ vendor/
 
 .claude/skills/*-workspace
 .wrangler.worktrees/
+.worktrees/
 
 .peri
 node_modules
 dist
 settings.json
+.claude/worktrees/

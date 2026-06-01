@@ -7,9 +7,8 @@ use std::sync::Arc;
 
 use peri_agent::tools::BaseTool;
 
-use crate::agent_define::AgentOverrides;
-use crate::claude_agent_parser::ToolsValue;
-use crate::tools::ArcToolWrapper;
+use crate::tool_search::core_tools::TOOL_AGENT;
+use crate::{agent_define::AgentOverrides, claude_agent_parser::ToolsValue, tools::ArcToolWrapper};
 
 /// Filter tools from parent set based on agent definition's tools/disallowedTools fields.
 ///
@@ -33,7 +32,7 @@ pub fn filter_tools(
         .filter(|tool| {
             let name = tool.name();
             let name_lower = name.to_lowercase();
-            if name == "Agent" {
+            if name == TOOL_AGENT {
                 return false;
             }
             if !is_wildcard

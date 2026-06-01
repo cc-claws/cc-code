@@ -176,6 +176,18 @@ load_merged_config()
 **涉及文件:** peri-middlewares/src/plugin/config.rs, peri-tui/src/app/panel_ops.rs, peri-tui/src/ui/main_ui/panels/plugin.rs, peri-middlewares/src/plugin/marketplace/manager.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail
+
+**摘要:** Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用
+**状态:** Fixed
+**归档日期:** 2026-05-29
+**关键词:** 插件依赖 CC, marketplace git clone, ~/.claude 目录
+**问题本质:** 插件系统隐式依赖 Claude Code 的目录结构（~/.claude/plugins/marketplaces/），marketplace refresh 的 git clone 在无缓存目录时失败，导致后续安装/卸载连锁失败
+**通用模式:** 外部服务依赖必须显式检测并提供回退方案，不能假设上游目录结构已存在
+**架构影响:** 插件系统应能在独立环境中运行，启动时需自动补建最小目录结构
+**涉及文件:** peri-middlewares/src/plugin/config.rs, peri-middlewares/src/plugin/installer/install.rs, peri-tui/src/app/plugin_panel/handlers/plugin_handlers/persistence.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

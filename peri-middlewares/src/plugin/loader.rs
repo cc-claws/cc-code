@@ -1,19 +1,23 @@
-use crate::hooks::types::HooksConfig;
-use crate::hooks::types::RegisteredHook;
-use crate::mcp::config::McpConfigFile;
-use crate::mcp::McpServerConfig;
-use crate::plugin::config::{
-    load_claude_settings, load_installed_plugins, load_plugin_manifest, marketplaces_cache_dir,
+use crate::{
+    hooks::types::{HooksConfig, RegisteredHook},
+    mcp::{config::McpConfigFile, McpServerConfig},
+    plugin::{
+        config::{
+            load_claude_settings, load_installed_plugins, load_plugin_manifest,
+            marketplaces_cache_dir,
+        },
+        installer::generate_synthetic_manifest,
+        marketplace::read_manifest_from_path,
+        types::{InstalledPlugins, McpServerEntry, PluginCommandEntry, PluginManifest},
+    },
 };
-use crate::plugin::installer::generate_synthetic_manifest;
-use crate::plugin::marketplace::read_manifest_from_path;
-use crate::plugin::types::{InstalledPlugins, McpServerEntry, PluginCommandEntry, PluginManifest};
 use gray_matter::{engine::YAML, Matter};
-use peri_lsp::config::LspConfigSource;
-use peri_lsp::config::LspServerConfig;
+use peri_lsp::config::{LspConfigSource, LspServerConfig};
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 use tracing::{debug, warn};
 

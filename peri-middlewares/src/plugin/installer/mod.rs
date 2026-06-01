@@ -1,20 +1,17 @@
 #[cfg(test)]
 use crate::plugin::config::{load_installed_plugins, save_installed_plugins};
-use crate::plugin::marketplace::read_manifest_from_path;
-#[allow(unused_imports)]
-use crate::plugin::types::{InstallScope, InstalledPlugin, InstalledPlugins};
-use crate::plugin::PluginConfigError;
+use crate::plugin::types::InstallScope;
+#[cfg(test)]
+use crate::plugin::types::{InstalledPlugin, InstalledPlugins};
+use crate::plugin::{marketplace::read_manifest_from_path, PluginConfigError};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod install;
 mod uninstall;
 
-pub use install::install_plugin;
-pub use install::update_plugin;
-pub use uninstall::check_updates;
-pub use uninstall::cleanup_orphaned_plugins;
-pub use uninstall::uninstall_plugin;
+pub use install::{install_plugin, update_plugin};
+pub use uninstall::{check_updates, cleanup_orphaned_plugins, uninstall_plugin};
 
 // ─── Error & Types ────────────────────────────────────────────────────
 
@@ -22,12 +19,6 @@ pub use uninstall::uninstall_plugin;
 pub enum InstallerError {
     #[error("插件未找到: {name} (marketplace: {marketplace})")]
     PluginNotFound { name: String, marketplace: String },
-    #[error("插件清单解析失败: {path}")]
-    ManifestInvalid {
-        path: PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
     #[error("复制失败: {src} -> {dst}")]
     CopyFailed {
         src: PathBuf,

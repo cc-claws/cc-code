@@ -184,8 +184,7 @@ pub fn format_hover(result: &serde_json::Value) -> String {
 
 /// 格式化 documentSymbol 结果
 pub fn format_document_symbols(result: &serde_json::Value) -> String {
-    use lsp_types::DocumentSymbol;
-    use lsp_types::SymbolInformation;
+    use lsp_types::{DocumentSymbol, SymbolInformation};
 
     // 尝试 DocumentSymbol[] 格式（层级）
     if let Ok(symbols) = serde_json::from_value::<Vec<DocumentSymbol>>(result.clone()) {

@@ -1,5 +1,7 @@
-use super::tools::{AgentSummary, ToolCategory, ToolEntry};
-use super::MessageViewModel;
+use super::{
+    tools::{AgentSummary, ToolCategory, ToolEntry},
+    MessageViewModel,
+};
 
 /// 将 view_messages 中相邻的只读 ToolBlock 聚合为 ToolCallGroup（支持跨类别，跳过空 thinking bubble）
 pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
@@ -55,11 +57,14 @@ pub fn aggregate_tail_tool_groups(messages: &mut Vec<MessageViewModel>, from_idx
                     }
                     break;
                 }
-                result.push(MessageViewModel::ToolCallGroup {
+                let mut vm = MessageViewModel::ToolCallGroup {
                     category: cat,
                     tools: entries,
                     collapsed: true,
-                });
+                    content_hash: 0,
+                };
+                vm.recompute_hash();
+                result.push(vm);
                 i = j;
                 continue;
             }
@@ -147,6 +152,7 @@ pub fn aggregate_batch_groups(messages: &mut Vec<MessageViewModel>) {
                 *batch_agents = batch_summaries;
                 *collapsed = true;
             }
+            merged.recompute_hash();
             result.push(merged);
         }
     }

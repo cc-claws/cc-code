@@ -17,14 +17,22 @@ mod state;
 pub use model_email::get_attribution_email;
 pub use state::AttributionState;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
-use peri_agent::agent::react::{ToolCall, ToolResult};
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::middleware::Middleware;
+use peri_agent::{
+    agent::{
+        react::{ToolCall, ToolResult},
+        state::State,
+    },
+    error::AgentResult,
+    middleware::Middleware,
+};
+
+use crate::tool_search::core_tools::{TOOL_EDIT, TOOL_WRITE};
 
 /// Git 留名中间件
 ///
@@ -68,7 +76,7 @@ impl<S: State> Middleware<S> for GitAttributionMiddleware {
 
     async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
         // 仅处理 Write 和 Edit
-        if tool_call.name != "Write" && tool_call.name != "Edit" {
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
             return Ok(tool_call.clone());
         }
         // 读取当前文件内容，暂存到 pending
@@ -90,7 +98,7 @@ impl<S: State> Middleware<S> for GitAttributionMiddleware {
         _result: &ToolResult,
     ) -> AgentResult<()> {
         // 仅处理 Write 和 Edit
-        if tool_call.name != "Write" && tool_call.name != "Edit" {
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
             return Ok(());
         }
         let file_path = match tool_call.input.get("file_path").and_then(|v| v.as_str()) {

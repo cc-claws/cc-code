@@ -85,8 +85,10 @@ async fn test_concurrent_bg_tasks_all_emit_completion() {
 /// EventSink → MpscTransport. Uses the same pattern as executor.rs:346-355.
 #[tokio::test]
 async fn test_bg_event_pump_receives_all_completions() {
-    use peri_acp::session::event_sink::{EventSink, TransportEventSink};
-    use peri_acp::transport::mpsc::mpsc_transport_pair;
+    use peri_acp::{
+        session::event_sink::{EventSink, TransportEventSink},
+        transport::mpsc::mpsc_transport_pair,
+    };
     use std::sync::Arc;
 
     let (client_transport, server_transport) = mpsc_transport_pair();

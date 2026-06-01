@@ -1,10 +1,10 @@
 use super::map_executor_event;
 use crate::app::AgentEvent;
 use peri_agent::agent::events::{AgentEvent as ExecutorEvent, TodoEntry, TodoStatus};
-use peri_middlewares::tools::todo::TodoStatus as TuiTodoStatus;
 
 #[test]
-fn test_map_executor_event_todo_update() {
+fn test_map_executor_event_todo_update_returns_none() {
+    // TodoUpdate 属于类别①，已由 session/update → handle_session_update_peri() 处理
     let event = ExecutorEvent::TodoUpdate(vec![
         TodoEntry {
             content: "Fix the bug".into(),
@@ -19,20 +19,10 @@ fn test_map_executor_event_todo_update() {
     ]);
 
     let result = map_executor_event(event, "/tmp");
-    assert!(result.is_some(), "TodoUpdate must map to Some");
-
-    match result.unwrap() {
-        AgentEvent::TodoUpdate(todos) => {
-            assert_eq!(todos.len(), 2);
-            assert_eq!(todos[0].content, "Fix the bug");
-            assert_eq!(todos[0].active_form, Some("Fixing the bug".into()));
-            assert_eq!(todos[0].status, TuiTodoStatus::InProgress);
-            assert_eq!(todos[1].content, "Write tests");
-            assert_eq!(todos[1].active_form, None);
-            assert_eq!(todos[1].status, TuiTodoStatus::Pending);
-        }
-        _ => panic!("Expected TodoUpdate, got a different variant"),
-    }
+    assert!(
+        result.is_none(),
+        "TodoUpdate should return None — handled by session/update bridge"
+    );
 }
 
 #[test]
@@ -64,4 +54,45 @@ fn test_map_executor_event_interrupted() {
         AgentEvent::Interrupted => {}
         _ => panic!("Expected AgentEvent::Interrupted, got a different variant"),
     }
+}
+
+#[test]
+fn test_map_executor_event_text_chunk_returns_none() {
+    // TextChunk 属于类别①，已由 session/update 处理
+    let event = ExecutorEvent::TextChunk {
+        message_id: Default::default(),
+        chunk: "hello".to_string(),
+        source_agent_id: None,
+    };
+    let result = map_executor_event(event, "/tmp");
+    assert!(result.is_none(), "TextChunk should return None");
+}
+
+#[test]
+fn test_map_executor_event_tool_start_returns_none() {
+    // ToolStart 属于类别①
+    let event = ExecutorEvent::ToolStart {
+        message_id: Default::default(),
+        tool_call_id: "tc_1".to_string(),
+        name: "Bash".to_string(),
+        input: serde_json::json!({"command": "ls"}),
+        source_agent_id: None,
+    };
+    let result = map_executor_event(event, "/tmp");
+    assert!(result.is_none(), "ToolStart should return None");
+}
+
+#[test]
+fn test_map_executor_event_tool_end_returns_none() {
+    // ToolEnd 属于类别①
+    let event = ExecutorEvent::ToolEnd {
+        message_id: Default::default(),
+        tool_call_id: "tc_1".to_string(),
+        name: "Bash".to_string(),
+        output: "file1.txt\nfile2.txt".to_string(),
+        is_error: false,
+        source_agent_id: None,
+    };
+    let result = map_executor_event(event, "/tmp");
+    assert!(result.is_none(), "ToolEnd should return None");
 }

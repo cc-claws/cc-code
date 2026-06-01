@@ -1,7 +1,5 @@
-use super::message_pipeline::PipelineAction;
-use super::*;
-use peri_agent::agent::events::CompactFileInfo;
-use peri_agent::messages::BaseMessage;
+use super::{message_pipeline::PipelineAction, *};
+use peri_agent::{agent::events::CompactFileInfo, messages::BaseMessage};
 
 impl App {
     pub(crate) fn handle_compact_started(&mut self) -> (bool, bool, bool) {
@@ -10,6 +8,11 @@ impl App {
         self.session_mgr.sessions[self.session_mgr.active]
             .ui
             .bg_bar_cursor = None;
+
+        // 标记手动 compact（/compact 命令），handle_compact_completed 依赖此标志结束 loading
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .compact_manual = true;
 
         // 显示 loading 状态（spinner + 禁用输入）
         self.set_loading(true);
@@ -30,7 +33,7 @@ impl App {
             // Micro-compact: 更新内部状态，保留 pipeline 显示
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .agent_state_messages = messages;
+                .origin_messages = messages;
             let vm = MessageViewModel::system(self.services.lc.tr_args(
                 "app-compact-auto-cleared",
                 &[("count".into(), (micro_cleared as i64).into())],
@@ -63,7 +66,7 @@ impl App {
         // 更新内部状态消息（供下一次 prompt 使用）
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .agent_state_messages = messages.clone();
+            .origin_messages = messages.clone();
 
         // 清空 pipeline 内部状态 + 用压缩后消息恢复
         self.session_mgr.sessions[self.session_mgr.active]
@@ -92,9 +95,6 @@ impl App {
             prefix_len: 0,
             tail_vms: view_msgs,
         });
-
-        // Full compact 释放了大量消息数据，归���内存页给 OS
-        super::thread_ops::alloc_collect();
 
         (true, false, false)
     }

@@ -1,5 +1,7 @@
-use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
 use crate::sync::protocol::{FileEntry, SyncItems};
 

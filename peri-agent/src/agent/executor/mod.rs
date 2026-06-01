@@ -8,15 +8,17 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-use crate::agent::events::{AgentEvent, AgentEventHandler, BackgroundTaskResult};
-use crate::agent::react::{AgentInput, AgentOutput, ReactLLM, ToolCall, ToolResult};
-use crate::agent::state::State;
-use crate::error::{AgentError, AgentResult};
-use crate::messages::message::MessageId;
-use crate::messages::BaseMessage;
-use crate::middleware::chain::MiddlewareChain;
-use crate::middleware::r#trait::Middleware;
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        events::{AgentEvent, AgentEventHandler, BackgroundTaskResult},
+        react::{AgentInput, AgentOutput, ReactLLM, ToolCall, ToolResult},
+        state::State,
+    },
+    error::{AgentError, AgentResult},
+    messages::{message::MessageId, BaseMessage},
+    middleware::{chain::MiddlewareChain, r#trait::Middleware},
+    tools::BaseTool,
+};
 use std::collections::HashMap;
 
 pub use tokio_util::sync::CancellationToken as AgentCancellationToken;

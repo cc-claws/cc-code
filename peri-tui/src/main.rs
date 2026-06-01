@@ -13,14 +13,20 @@ use ratatui::{
     prelude::*,
 };
 use std::io;
+use std::time::{Duration, Instant};
 
 use peri_acp::transport::mpsc::mpsc_transport_pair;
-use peri_tui::acp_client::AcpTuiClient;
-use peri_tui::acp_server::{run_acp_server, AcpServerConfig};
-use peri_tui::app::App;
-use peri_tui::event;
-use peri_tui::ui;
+use peri_tui::{
+    acp_client::AcpTuiClient,
+    acp_server::{run_acp_server, AcpServerConfig},
+    app::App,
+    event, ui,
+};
 use std::sync::Arc;
+
+#[cfg(not(target_os = "windows"))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod acp_stdio;
 mod cli_args;
@@ -246,6 +252,10 @@ fn inject_settings_override(source: &str) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
+    // Set mimalloc env vars BEFORE any allocation.
+    // Must be the very first line — mimalloc reads these during init.
+    peri_tui::mimalloc_config::init_mimalloc_conf();
+
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();
 
@@ -355,7 +365,7 @@ fn main() -> Result<()> {
 // ─── TUI 模式 ──────────────────────────────────────────────────────────────
 
 /// TUI 模式启动选项
-#[allow(dead_code)]
+#[allow(dead_code)] // 部分 CLI 桥接字段尚未接入
 struct TuiOptions {
     approve: bool,
     permission_mode: Option<String>,
@@ -648,12 +658,8 @@ async fn run_app(
                         None
                     }
                 },
+                config_path: peri_tui::config::config_path(),
             };
-
-            // Store shared Arc references so config changes (setup wizard,
-            // login panel, model panel) can be synced into the ACP server.
-            app.services.acp_provider = Some(server_config.provider.clone());
-            app.services.acp_peri_config = Some(server_config.peri_config.clone());
 
             let (client_transport, server_transport) = mpsc_transport_pair();
             tokio::spawn(async move {
@@ -678,6 +684,12 @@ async fn run_app(
 
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+    let mut last_render = Instant::now();
+
+    /// loading 动画帧率限制间隔（约 30 FPS）。
+    /// 仅在 loading=true 且无用户事件的 poll 超时路径生效，
+    /// 用户交互（键盘/鼠标/resize）始终立即渲染。
+    const TARGET_FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
     'event_loop: loop {
         // 推进所有 session 的 Spinner 动画帧
@@ -690,6 +702,7 @@ async fn run_app(
             let prev_active = app.session_mgr.active;
             app.session_mgr.active = i;
             agent_updated |= app.poll_agent();
+            agent_updated |= app.poll_at_mention();
             app.session_mgr.active = prev_active;
         }
         // 轮询后台事件（MCP OAuth 等）
@@ -703,10 +716,12 @@ async fn run_app(
                 event::Action::Submit(input) => {
                     app.submit_message(input);
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    last_render = Instant::now();
                 }
                 event::Action::Redraw => {
                     // 有用户交互（键盘/鼠标/resize）→ 始终重绘
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    last_render = Instant::now();
                 }
             },
             None => {
@@ -721,12 +736,16 @@ async fn run_app(
                     != app.session_mgr.sessions[app.session_mgr.active]
                         .messages
                         .last_render_version;
-                if cache_updated
-                    || agent_updated
-                    || bg_updated
-                    || app.session_mgr.sessions[app.session_mgr.active].ui.loading
-                {
-                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                let loading = app.session_mgr.sessions[app.session_mgr.active].ui.loading;
+                let should_render = cache_updated || agent_updated || bg_updated || loading;
+                if should_render {
+                    let now = Instant::now();
+                    // loading 路径：限制帧率到 TARGET_FRAME_INTERVAL，降低 CPU 开销
+                    // 非 loading 路径（cache_updated/agent_updated/bg_updated）始终立即渲染
+                    if !loading || now.duration_since(last_render) >= TARGET_FRAME_INTERVAL {
+                        terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                        last_render = now;
+                    }
                 }
             }
         }

@@ -1,16 +1,20 @@
 use std::any::Any;
 
-use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{
+    crossterm::event::{MouseButton, MouseEvent, MouseEventKind},
+    layout::Rect,
+    Frame,
+};
 use tui_textarea::Input;
 
 use peri_middlewares::hooks::types::{HookEvent, HookType, RegisteredHook};
 
-use super::panel_component::PanelComponent;
-use super::panel_list::PanelList;
-use super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::App;
+use super::{
+    panel_component::PanelComponent,
+    panel_list::PanelList,
+    panel_manager::{EventResult, PanelContext, PanelKind},
+    App,
+};
 
 /// Hook 事件描述信息
 struct HookEventInfo {
@@ -369,7 +373,6 @@ impl PanelComponent for HooksPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
+    use std::{collections::HashMap, path::PathBuf};
     include!("hooks_panel_test.rs");
 }

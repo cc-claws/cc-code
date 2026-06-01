@@ -1,16 +1,17 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
-use super::auth_store::FileCredentialStore;
-use super::channel_handler::ChannelHandler;
-use super::client::{
-    build_authed_transport, build_http_transport, spawn_stdio_transport, ClientStatus,
-    McpClientHandle, McpClientPool, McpInitStatus, McpServiceWrapper, OAuthStatus,
-    HTTP_CONNECT_TIMEOUT, STDIO_CONNECT_TIMEOUT,
+use super::{
+    auth_store::FileCredentialStore,
+    channel_handler::ChannelHandler,
+    client::{
+        build_authed_transport, build_http_transport, spawn_stdio_transport, ClientStatus,
+        McpClientHandle, McpClientPool, McpInitStatus, McpServiceWrapper, OAuthStatus,
+        HTTP_CONNECT_TIMEOUT, STDIO_CONNECT_TIMEOUT,
+    },
+    config::OAuthConfig,
+    oauth_flow::{OAuthFlowEvent, OAuthFlowManager},
+    transport::TransportConfig,
 };
-use super::config::OAuthConfig;
-use super::oauth_flow::{OAuthFlowEvent, OAuthFlowManager};
-use super::transport::TransportConfig;
 
 impl McpClientPool {
     pub async fn run_initialize(

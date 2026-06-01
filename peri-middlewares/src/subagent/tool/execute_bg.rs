@@ -1,23 +1,26 @@
 use std::sync::Arc;
 
-use peri_agent::agent::events::AgentEvent;
-use peri_agent::agent::react::AgentInput;
-use peri_agent::agent::state::AgentState;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::agent::BackgroundTaskResult;
-use peri_agent::agent::ReActAgent;
-use peri_agent::agent::State as _;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::ThreadMeta;
+use peri_agent::{
+    agent::{
+        events::AgentEvent, react::AgentInput, state::AgentState, AgentCancellationToken,
+        BackgroundTaskResult, ReActAgent, State as _,
+    },
+    messages::BaseMessage,
+    thread::ThreadMeta,
+};
 
-use crate::hooks::types::HookEvent;
-use crate::subagent::background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus};
-use crate::subagent::SubAgentMiddlewareConfig;
-use crate::tools::ArcToolWrapper;
+use crate::{
+    hooks::types::HookEvent,
+    subagent::{
+        background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus},
+        SubAgentMiddlewareConfig,
+    },
+    tools::ArcToolWrapper,
+};
 
-use super::build_agent::CancelPolicy;
-use super::build_subagent_middlewares;
-use super::fire_subagent_lifecycle_hooks_static;
+use super::{
+    build_agent::CancelPolicy, build_subagent_middlewares, fire_subagent_lifecycle_hooks_static,
+};
 
 impl super::SubAgentTool {
     pub(crate) async fn invoke_background(

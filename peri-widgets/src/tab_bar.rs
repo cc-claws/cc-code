@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::StatefulWidget,
+    widgets::{StatefulWidget, StatefulWidgetRef},
 };
 
 /// Tab 导航状态
@@ -115,10 +115,10 @@ impl Default for TabBar {
     }
 }
 
-impl StatefulWidget for TabBar {
+impl StatefulWidgetRef for TabBar {
     type State = TabState;
 
-    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
+    fn render_ref(&self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
         if state.labels.is_empty() || area.width < 3 {
             return;
         }
@@ -151,10 +151,17 @@ impl StatefulWidget for TabBar {
     }
 }
 
+impl StatefulWidget for TabBar {
+    type State = TabState;
+
+    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
+        self.render_ref(area, buf, state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
-    use ratatui::Terminal;
+    use ratatui::{backend::TestBackend, Terminal};
     include!("tab_bar_test.rs");
 }

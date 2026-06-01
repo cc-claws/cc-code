@@ -1,6 +1,7 @@
-use super::message_pipeline::MessagePipeline;
-use super::message_pipeline::PipelineAction;
-use super::*;
+use super::{
+    message_pipeline::{MessagePipeline, PipelineAction},
+    *,
+};
 use crate::ui::render_thread::RenderEvent;
 
 impl App {
@@ -12,7 +13,10 @@ impl App {
     pub(crate) fn render_rebuild(&self) {
         let session = &self.session_mgr.sessions[self.session_mgr.active];
         let vms = self.resolve_render_vms(session);
-        let _ = session.messages.render_tx.send(RenderEvent::Rebuild(vms));
+        let _ = session
+            .messages
+            .render_tx
+            .try_send(RenderEvent::Rebuild(vms));
     }
 
     /// 发送带滚动锚点的全量重建到渲染线程。
@@ -24,14 +28,17 @@ impl App {
         if session.focused_instance_id.is_some() {
             // 聚焦模式：从 SQLite 加载，��保留主视图锚点
             let vms = self.resolve_render_vms(session);
-            let _ = session.messages.render_tx.send(RenderEvent::Rebuild(vms));
+            let _ = session
+                .messages
+                .render_tx
+                .try_send(RenderEvent::Rebuild(vms));
         } else {
             let vms = session.messages.view_messages.clone();
             let adjusted_anchor = anchor_message_idx.min(vms.len().saturating_sub(1));
             let _ = session
                 .messages
                 .render_tx
-                .send(RenderEvent::RebuildWithAnchor {
+                .try_send(RenderEvent::RebuildWithAnchor {
                     messages: vms,
                     anchor_message_idx: adjusted_anchor,
                 });

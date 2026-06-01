@@ -1,6 +1,4 @@
-use crate::app::App;
-use crate::command::Command;
-use crate::ui::message_view::MessageViewModel;
+use crate::{app::App, command::Command, ui::message_view::MessageViewModel};
 
 pub struct RenameCommand;
 

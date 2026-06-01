@@ -8,8 +8,7 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea, TabBar, TabState, TabStyle};
 
-use crate::app::App;
-use crate::ui::theme;
+use crate::{app::App, ui::theme};
 
 /// AskUser 批量弹窗（底部展开区）：header tab 行 + 编号选项列表
 ///

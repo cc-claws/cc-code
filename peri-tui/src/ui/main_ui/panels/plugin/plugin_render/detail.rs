@@ -7,9 +7,13 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::plugin_panel::{DetailAction, PluginPanel};
-use crate::app::App;
-use crate::ui::theme;
+use crate::{
+    app::{
+        plugin_panel::{DetailAction, PluginPanel},
+        App,
+    },
+    ui::theme,
+};
 
 use peri_middlewares::plugin::InstallScope;
 

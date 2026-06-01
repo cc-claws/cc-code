@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpListener;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpListener,
+};
 use tracing::{info, warn};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 120;

@@ -1,8 +1,12 @@
-use crate::agent::react::{AgentOutput, Reasoning, ToolCall, ToolResult};
-use crate::agent::state::State;
-use crate::error::AgentResult;
-use crate::middleware::r#trait::Middleware;
-use crate::tools::BaseTool;
+use crate::{
+    agent::{
+        react::{AgentOutput, Reasoning, ToolCall, ToolResult},
+        state::State,
+    },
+    error::AgentResult,
+    middleware::r#trait::Middleware,
+    tools::BaseTool,
+};
 
 /// 中间件链 - 按顺序执行所有中间件
 pub struct MiddlewareChain<S: State> {
@@ -175,10 +179,12 @@ impl<S: State> Default for MiddlewareChain<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::state::AgentState;
-    use crate::error::{AgentError, AgentResult};
-    use crate::messages::{BaseMessage, ContentBlock, MessageId};
-    use crate::middleware::r#trait::{Middleware, NoopMiddleware};
+    use crate::{
+        agent::state::AgentState,
+        error::{AgentError, AgentResult},
+        messages::{BaseMessage, ContentBlock, MessageId},
+        middleware::r#trait::{Middleware, NoopMiddleware},
+    };
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
     include!("chain_test.rs");

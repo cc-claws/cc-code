@@ -1,9 +1,12 @@
-use crate::agent::events::AgentEvent;
-use crate::agent::react::{AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult};
-use crate::agent::state::State;
-use crate::error::AgentResult;
-use crate::messages::message::MessageId;
-use crate::messages::BaseMessage;
+use crate::{
+    agent::{
+        events::AgentEvent,
+        react::{AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult},
+        state::State,
+    },
+    error::AgentResult,
+    messages::{message::MessageId, BaseMessage},
+};
 
 use super::ReActAgent;
 

@@ -4,8 +4,10 @@ use parking_lot::RwLock;
 use peri_agent::interaction::channel_types::ChannelNotification;
 use tokio::sync::{mpsc, Notify};
 
-use crate::ui::message_view::MessageViewModel;
-use crate::ui::render_thread::{RenderCache, RenderEvent};
+use crate::ui::{
+    message_view::MessageViewModel,
+    render_thread::{RenderCache, RenderEvent},
+};
 
 use super::message_pipeline::MessagePipeline;
 
@@ -14,7 +16,7 @@ pub struct MessageState {
     pub view_messages: Vec<MessageViewModel>,
     pub round_start_vm_idx: usize,
     pub pipeline: MessagePipeline,
-    pub render_tx: mpsc::UnboundedSender<RenderEvent>,
+    pub render_tx: mpsc::Sender<RenderEvent>,
     pub render_cache: Arc<RwLock<RenderCache>>,
     pub render_notify: Arc<Notify>,
     pub last_render_version: u64,
@@ -33,7 +35,7 @@ pub struct MessageState {
 impl MessageState {
     pub fn new(
         cwd: String,
-        render_tx: mpsc::UnboundedSender<RenderEvent>,
+        render_tx: mpsc::Sender<RenderEvent>,
         render_cache: Arc<RwLock<RenderCache>>,
         render_notify: Arc<Notify>,
     ) -> Self {

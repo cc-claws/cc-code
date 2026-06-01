@@ -879,6 +879,84 @@ submit_message(text)
 **涉及文件:** peri-tui/src/ui/main_ui/message_area.rs, peri-tui/src/event/mod.rs, peri-widgets/src/scrollable.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-30-render-event-unbounded-channel
+
+**摘要:** RenderThread 事件通道使用 UnboundedChannel，极端情况下可能内存膨胀
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** 有界通道, 背压, 内存膨胀, 渲染线程
+**问题本质:** 无界通道在极端场景（LLM 快速输出 + resize 风暴 + 大量 compact 事件）下事件积压导致内存无界增长
+**通用模式:** 生产者-消费者场景中使用有界通道 + 背压防止内存无界增长；紧急事件可用 try_send + 覆盖策略
+**涉及文件:** peri-tui/src/ui/render_thread.rs, peri-tui/src/app/message_pipeline/mod.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-30-no-explicit-frame-rate-limit
+
+**摘要:** TUI 渲染缺少显式帧率限制，loading 动画期间持续满帧重绘
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** 帧率限制, CPU 占用, loading 动画, 渲染节流
+**问题本质:** loading 状态为 true 时每次事件循环都触发 terminal.draw()，无时间间隔检查
+**通用模式:** 动画/loading 场景需要显式帧率限制（如 30 FPS），避免 CPU 空转
+**涉及文件:** peri-tui/src/main.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-30-migrate-widgets-to-widgetref
+
+**摘要:** peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** WidgetRef, 所有权, 克隆, ratatui, 渲染优化
+**问题本质:** 标准 Widget trait 消费所有权，流式输出每 100ms 重绘导致频繁重建和克隆
+**通用模式:** 高频渲染场景使用引用渲染模式（WidgetRef/unstable-widget-ref feature）避免所有权转移
+**涉及文件:** peri-widgets/src/markdown/mod.rs, peri-tui/Cargo.toml
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-31-interaction-popup-textarea-not-disabled
+
+**摘要:** 交互弹窗激活时底部常驻输入框未失效
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** 弹窗, Paste 事件, IME, 事件路由, 终端光标
+**问题本质:** Paste 和 Mouse 事件不走弹窗键盘拦截路径，导致输入泄漏到底层 textarea
+**通用模式:** 事件系统中每类事件（Key/Paste/Mouse）都需独立检查弹窗/模态状态；终端 IME 预编辑窗口依赖可见光标作为锚点，不能简单隐藏
+**架构影响:** 终端 IME 兼容性要求光标可见性与输入焦点解耦
+**涉及文件:** peri-tui/src/event/mod.rs, peri-tui/src/ui/main_ui/mod.rs, peri-tui/src/event/keyboard/popups.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-30-table-holdback-during-streaming
+
+**摘要:** 流式 Markdown 表格渲染缺少 holdback 机制，显示不完整列
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** 表格, 流式, holdback, Markdown 解析, 列对齐
+**问题本质:** Markdown 表格在流式输出中列数不完整时被提前渲染，导致列错位和视觉闪烁
+**通用模式:** 流式渲染中结构性内容（表格、列表、代码块）需要完整性检测后再提交；不完整行保持 holdback 状态
+**涉及文件:** peri-tui/src/ui/markdown/mod.rs, peri-tui/src/app/message_pipeline/mod.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-30-markdown-parse-lru-cache
+
+**摘要:** TUI Markdown 解析缺少 LRU 缓存，每次渲染完整重解析
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** LRU 缓存, Markdown 解析, pulldown-cmark, 性能优化
+**问题本质:** Markdown 解析无缓存，resize/RebuildAll 时重复解析相同内容造成 CPU 开销
+**通用模式:** 纯计算 + 输入不变的场景使用缓存（key = content_hash + 上下文参数如 max_width）
+**涉及文件:** peri-widgets/src/markdown/mod.rs, peri-tui/src/ui/render_thread.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-29-ctrl-c-priority-chain-clear-input
+
+**摘要:** Ctrl+C 改为优先级链：清空输入框 → 中断 Agent → 退出
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** Ctrl+C, 优先级链, 中断, 事件处理, 交互设计
+**问题本质:** Ctrl+C 行为缺少优先级层次，输入框有内容时直接中断 Agent 或进入 quit-pending
+**通用模式:** 全局快捷键应设计优先级链（从局部到全局），避免误操作；shell 风格交互中 Ctrl+C 先清空输入行是用户预期
+**涉及文件:** peri-tui/src/event/keyboard/normal_keys.rs, peri-tui/src/app/mod.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

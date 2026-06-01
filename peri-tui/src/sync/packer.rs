@@ -1,5 +1,4 @@
-use crate::sync::crypto;
-use crate::sync::protocol::SyncPackage;
+use crate::sync::{crypto, protocol::SyncPackage};
 use anyhow::{anyhow, Result};
 
 /// 加密分片后的数据块

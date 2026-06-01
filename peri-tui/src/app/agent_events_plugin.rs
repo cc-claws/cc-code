@@ -1,6 +1,4 @@
-use super::message_pipeline::PipelineAction;
-use super::plugin_panel::PluginPanel;
-use super::*;
+use super::{message_pipeline::PipelineAction, plugin_panel::PluginPanel, *};
 
 impl App {
     pub(crate) fn handle_plugin_action_completed(

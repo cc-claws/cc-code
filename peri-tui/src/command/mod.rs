@@ -26,7 +26,6 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(session::split::SplitCommand));
     r.register(Box::new(session::rename::RenameCommand));
     r.register(Box::new(session::channel::ChannelCommand));
-    r.register(Box::new(session::compact::CompactCommand));
     r.register(Box::new(session::context_cmd::ContextCommand));
     r.register(Box::new(session::cost::CostCommand));
     r.register(Box::new(session::lang::LangCommand));

@@ -1,13 +1,14 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use thiserror::Error;
 use tokio::sync::oneshot;
 use tracing::{info, warn};
 
-use super::auth_store::{FileCredentialStore, PerServerCredentialStore};
-use super::callback_server::{CallbackError, OAuthCallbackServer};
-use super::config::OAuthConfig;
+use super::{
+    auth_store::{FileCredentialStore, PerServerCredentialStore},
+    callback_server::{CallbackError, OAuthCallbackServer},
+    config::OAuthConfig,
+};
 use rmcp::transport::auth::{AuthError, OAuthState};
 
 /// OAuth 回调结果（从 TUI 传回后台 OAuth 流程）
@@ -21,8 +22,6 @@ pub struct OAuthCallbackResult {
 /// OAuth 流程编排错误
 #[derive(Debug, Error)]
 pub enum OAuthFlowError {
-    #[error("OAuth 流程失败: {0}")]
-    FlowFailed(String),
     #[error("OAuth 回调服务器错误: {0}")]
     CallbackError(#[from] CallbackError),
     #[error("OAuth 授权错误: {0}")]

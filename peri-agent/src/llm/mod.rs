@@ -7,8 +7,12 @@ pub mod types;
 mod adapter;
 mod react_adapter;
 
+// Re-export types for external crate usage (e.g. BaseModel trait impls, tests)
+pub use self::react_adapter::BaseModelReactLLM;
+pub use self::retry::{RetryConfig, RetryableLLM};
+pub use self::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
+
 use crate::error::AgentResult;
-use crate::llm::types::{LlmRequest, LlmResponse, StreamingContext};
 use async_trait::async_trait;
 
 /// BaseModel trait - 统一 LLM 接口，对齐 LangChain Python BaseModel
@@ -40,8 +44,6 @@ pub trait BaseModel: Send + Sync {
 pub use adapter::MockLLM;
 pub use anthropic::ChatAnthropic;
 pub use openai::ChatOpenAI;
-pub use react_adapter::BaseModelReactLLM; // BaseModel → ReactLLM 适配器（当前推荐的适配路径）
-pub use retry::{RetryConfig, RetryableLLM};
 
 /// Build a reqwest client with connection pool limits to prevent TLS session
 /// accumulation. Default pool is unbounded — each idle connection holds

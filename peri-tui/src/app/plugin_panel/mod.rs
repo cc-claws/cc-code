@@ -1,15 +1,15 @@
-use std::any::Any;
-use std::collections::HashSet;
+use std::{any::Any, collections::HashSet};
 
 use peri_widgets::InputState;
-use ratatui::layout::Rect;
-use ratatui::Frame;
+use ratatui::{layout::Rect, Frame};
 use tui_textarea::Input;
 
-use super::panel_component::PanelComponent;
-use super::panel_list::PanelList;
-use super::panel_manager::{EventResult, PanelContext, PanelKind};
-use super::App;
+use super::{
+    panel_component::PanelComponent,
+    panel_list::PanelList,
+    panel_manager::{EventResult, PanelContext, PanelKind},
+    App,
+};
 
 pub mod handlers;
 pub mod types;

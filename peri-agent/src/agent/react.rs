@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::messages::{BaseMessage, MessageContent};
-use crate::tools::BaseTool;
+use crate::{
+    messages::{BaseMessage, MessageContent},
+    tools::BaseTool,
+};
 
 /// Agent 输入
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +135,8 @@ pub struct Reasoning {
     pub model: String,
     /// 标记是否已通过事件流式发射过文本（由流式 LLM 适配器设为 true）
     pub streamed: bool,
+    /// LLM 响应的停止原因（end_turn / tool_use / max_tokens）
+    pub stop_reason: crate::llm::types::StopReason,
 }
 
 impl Reasoning {
@@ -145,6 +149,7 @@ impl Reasoning {
             usage: None,
             model: String::new(),
             streamed: false,
+            stop_reason: crate::llm::types::StopReason::ToolUse,
         }
     }
 
@@ -157,6 +162,7 @@ impl Reasoning {
             usage: None,
             model: String::new(),
             streamed: false,
+            stop_reason: crate::llm::types::StopReason::EndTurn,
         }
     }
 

@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::sync::crypto;
-    use crate::sync::protocol;
+    use crate::sync::{crypto, protocol};
 
     // ── crypto 测试 ──
 

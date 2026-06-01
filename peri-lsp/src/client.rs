@@ -1,16 +1,18 @@
-use crate::diagnostics::DiagnosticsRegistry;
-use crate::error::LspError;
-use crate::jsonrpc::transport::MessageDispatcher;
-use crate::jsonrpc::{JsonRpcNotification, JsonRpcRequest};
-use crate::protocol::notifications::{
-    did_change_notification, did_close_notification, did_open_notification, did_save_notification,
-    parse_publish_diagnostics,
+use crate::{
+    diagnostics::DiagnosticsRegistry,
+    error::LspError,
+    jsonrpc::{transport::MessageDispatcher, JsonRpcNotification, JsonRpcRequest},
+    protocol::{
+        notifications::{
+            did_change_notification, did_open_notification, did_save_notification,
+            parse_publish_diagnostics,
+        },
+        requests::initialize_params,
+    },
 };
-use crate::protocol::requests::initialize_params;
 use parking_lot::RwLock;
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 /// LSP 服务器状态
 #[derive(Debug, Clone, PartialEq)]
@@ -329,19 +331,6 @@ impl LspClient {
     /// 文件同步: didSave
     pub async fn did_save(&self, uri: &str) -> Result<(), LspError> {
         let notif = did_save_notification(uri, None);
-        let mut guard = self.dispatcher.lock().await;
-        match guard.as_mut() {
-            Some(d) => d.send_notification(&notif).await,
-            None => Err(LspError::NotReady {
-                server: self.name.clone(),
-            }),
-        }
-    }
-
-    /// 文件同步: didClose
-    pub async fn did_close(&self, uri: &str) -> Result<(), LspError> {
-        self.open_files.write().remove(uri);
-        let notif = did_close_notification(uri);
         let mut guard = self.dispatcher.lock().await;
         match guard.as_mut() {
             Some(d) => d.send_notification(&notif).await,

@@ -7,9 +7,13 @@ use ratatui::{
 
 use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::plugin_panel::{DiscoverDetailAction, PluginPanel};
-use crate::app::App;
-use crate::ui::theme;
+use crate::{
+    app::{
+        plugin_panel::{DiscoverDetailAction, PluginPanel},
+        App,
+    },
+    ui::theme,
+};
 
 use super::detail_kv_line;
 

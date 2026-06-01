@@ -1,6 +1,8 @@
 use super::*;
-use crate::error::AgentError;
-use crate::llm::types::{LlmResponse, StopReason};
+use crate::{
+    error::AgentError,
+    llm::types::{LlmResponse, StopReason},
+};
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

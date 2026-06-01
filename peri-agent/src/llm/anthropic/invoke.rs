@@ -1,11 +1,15 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::super::BaseModel;
-use super::cache::{self, SystemPromptBlock, SYSTEM_PROMPT_DYNAMIC_BOUNDARY};
-use crate::error::{AgentError, AgentResult};
-use crate::llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext};
-use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
+use super::{
+    super::BaseModel,
+    cache::{self, SystemPromptBlock, SYSTEM_PROMPT_DYNAMIC_BOUNDARY},
+};
+use crate::{
+    error::{AgentError, AgentResult},
+    llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext},
+    messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest},
+};
 
 // ─── ContentBlock → Anthropic content part ────────────────────────────────
 
@@ -480,7 +484,7 @@ async fn handle_anthropic_response(
     );
 
     let stop_reason =
-        StopReason::from_anthropic(resp_json["stop_reason"].as_str().unwrap_or("end_turn"));
+        StopReason::from_display(resp_json["stop_reason"].as_str().unwrap_or("end_turn"));
 
     let raw_blocks = resp_json["content"]
         .as_array()

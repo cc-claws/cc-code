@@ -1,5 +1,4 @@
-use ratatui::style::Style;
-use ratatui::text::Span;
+use ratatui::{style::Style, text::Span};
 use tui_textarea::TextArea;
 
 use crate::ui::theme;

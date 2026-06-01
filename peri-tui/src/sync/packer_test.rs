@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::sync::packer;
-    use crate::sync::protocol::SyncItems;
-    use crate::sync::protocol::SyncPackage;
+    use crate::sync::{
+        packer,
+        protocol::{SyncItems, SyncPackage},
+    };
 
     #[test]
     fn test_to_msgpack_roundtrip() {

@@ -1,7 +1,6 @@
 //! TF-IDF 搜索索引 — 工具索引构建、混合搜索（TF-IDF + 关键词）、工具查找
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
 use peri_agent::tools::BaseTool;

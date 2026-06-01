@@ -6,8 +6,7 @@
 //!   subagent.rs  — token usage, subagent start
 //!   polling.rs   — poll_agent, poll_background_events, poll_cron_triggers
 
-use super::agent_events_bg::BackgroundTaskResult;
-use super::*;
+use super::{agent_events_bg::BackgroundTaskResult, *};
 mod acp_bridge;
 mod lifecycle;
 mod polling;
@@ -148,6 +147,7 @@ impl App {
             AgentEvent::TokenUsageUpdate {
                 usage,
                 model: _model,
+                stop_reason: _,
             } => self.handle_token_usage_update(usage),
             AgentEvent::ToolStart {
                 tool_call_id,
@@ -258,7 +258,7 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::StateSnapshot(msgs) => {
-                // 子 Agent 的 StateSnapshot 不应污染父 Agent 的 agent_state_messages，
+                // 子 Agent 的 StateSnapshot 不应污染父 Agent 的 origin_messages，
                 // 否则子 Agent 的全部内部消息会混入父 Agent 的对话历史和持久化。
                 if self.session_mgr.sessions[self.session_mgr.active]
                     .agent
@@ -269,7 +269,7 @@ impl App {
                 }
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
-                    .agent_state_messages
+                    .origin_messages
                     .extend(msgs.clone());
                 let actions = self.session_mgr.sessions[self.session_mgr.active]
                     .messages

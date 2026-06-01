@@ -134,6 +134,18 @@
 **涉及文件:** Cargo.toml, peri-tui/Cargo.toml, peri-tui/src/main.rs, peri-tui/src/app/thread_ops.rs, peri-tui/src/command/core/heapdump.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-30-retry-mimalloc-with-mi-options
+
+**摘要:** 重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** mimalloc, 分配器, MI_OPTION, RSS 增长, 内存管理
+**问题本质:** 未调参的 mimalloc 测试结论不可靠，重新评估需配合 MI_OPTION（PAGE_RESET/DECOMMIT/BACKGROUND_THREAD）
+**通用模式:** 评估第三方库/工具时必须考虑配置调优，未调优的测试结论不可迁移；全局分配器切换需配合环境调优
+**技术决策:** 分配器选择需结合实际负载特征（AgentPool 已减少瞬态分配），单独调参可能不足以解决根本问题
+**涉及文件:** Cargo.toml, peri-tui/Cargo.toml, peri-tui/src/main.rs, peri-tui/src/app/thread_ops.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

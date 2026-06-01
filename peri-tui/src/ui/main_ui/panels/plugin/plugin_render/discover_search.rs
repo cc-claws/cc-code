@@ -6,8 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::plugin_panel::PluginPanel;
-use crate::ui::theme;
+use crate::{app::plugin_panel::PluginPanel, ui::theme};
 
 /// 渲染搜索框到固定区域（不参与滚动）
 pub(crate) fn render_discover_search_box(f: &mut Frame, panel: &PluginPanel, area: Rect) {

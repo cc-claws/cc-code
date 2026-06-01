@@ -1,5 +1,6 @@
 use super::*;
 use crate::ui::message_view::aggregate_batch_groups;
+use crate::ui::message_view::ContentBlockView;
 use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent, ToolCallRequest};
 use serde_json::json;
 
@@ -183,7 +184,7 @@ fn test_from_base_message_backward_compat() {
 
 // ─── handle_event 测试 ─────────────────────────────────────────────────
 
-/// 测试：handle_event AssistantChunk 更新内部状态并 arm throttle
+/// 测试：handle_event AssistantChunk 更新内部状态并通过策略跟踪积压
 #[test]
 fn test_handle_event_assistant_chunk() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
@@ -194,7 +195,10 @@ fn test_handle_event_assistant_chunk() {
     assert_eq!(actions.len(), 1);
     assert!(matches!(actions[0], PipelineAction::None));
     assert_eq!(pipeline.current_ai_text, "hello");
-    assert!(pipeline.throttle_armed, "AssistantChunk 应 arm throttle");
+    assert!(
+        pipeline.adaptive_policy.pending_lines > 0,
+        "AssistantChunk 应通过策略跟踪积压"
+    );
 }
 
 /// 测试：handle_event 空 chunk 不产生 AppendChunk
@@ -1287,19 +1291,24 @@ fn test_frozen_subagent_vms_cleared_on_begin_round() {
 /// merge_frozen_subagents 在 frozen_vms 为空时不应修改 new_vms。
 #[test]
 fn test_merge_frozen_subagents_empty_is_noop() {
-    let mut new_vms = vec![MessageViewModel::SubAgentGroup {
-        agent_id: "sa1".into(),
-        task_preview: "task".into(),
-        total_steps: 3,
-        recent_messages: Vec::new(),
-        is_running: false,
-        collapsed: false,
-        final_result: Some("result".into()),
-        is_error: false,
-        is_background: false,
-        bg_hash: Some("abc123".to_string()),
-        batch_agents: Vec::new(),
-        instance_id: None,
+    let mut new_vms = vec![{
+        let mut vm = MessageViewModel::SubAgentGroup {
+            agent_id: "sa1".into(),
+            task_preview: "task".into(),
+            total_steps: 3,
+            recent_messages: Vec::new(),
+            is_running: false,
+            collapsed: false,
+            final_result: Some("result".into()),
+            is_error: false,
+            is_background: false,
+            bg_hash: Some("abc123".to_string()),
+            batch_agents: Vec::new(),
+            instance_id: None,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
     }];
     let original = new_vms.clone();
     merge_frozen_subagents(&[], &mut new_vms);
@@ -1538,4 +1547,334 @@ fn test_error_tool_end_no_diff_lines() {
             diff_lines
         );
     }
+}
+
+// ─── AdaptiveChunkingPolicy 测试 ───────────────────────────────────────
+
+use super::{AdaptiveChunkingPolicy, ChunkingMode, DrainPlan};
+
+/// 辅助：创建策略并用指定数量的行填充
+fn make_policy_with_lines(line_count: usize) -> AdaptiveChunkingPolicy {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    // 每行一个 chunk，模拟逐行到达
+    for _ in 0..line_count {
+        policy.on_chunk("hello\n");
+    }
+    policy
+}
+
+/// 测试：新策略初始状态为 Smooth，无积压，check 返回 None
+#[test]
+fn test_policy_initial_state() {
+    let policy = AdaptiveChunkingPolicy::new();
+    assert_eq!(policy.mode, ChunkingMode::Smooth);
+    assert_eq!(policy.pending_lines, 0);
+    assert!(policy.oldest_chunk_at.is_none());
+}
+
+/// 测试：单个 chunk 正确累积行数
+#[test]
+fn test_policy_on_chunk_single_line() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    policy.on_chunk("hello");
+    assert_eq!(policy.pending_lines, 1);
+    assert!(policy.oldest_chunk_at.is_some());
+}
+
+/// 测试：多行 chunk 正确累积行数
+#[test]
+fn test_policy_on_chunk_multi_line() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    policy.on_chunk("line1\nline2\nline3");
+    assert_eq!(policy.pending_lines, 3);
+}
+
+/// 测试：空 chunk 仍记为 1 行（min 1）
+#[test]
+fn test_policy_on_chunk_empty() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    policy.on_chunk("");
+    assert_eq!(policy.pending_lines, 1);
+}
+
+/// 测试：积压为 0 时 check 返回 None
+#[test]
+fn test_policy_check_no_pending() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    assert!(policy.check().is_none());
+}
+
+/// 测试：Smooth 模式下少量积压返回 Single
+#[test]
+fn test_policy_smooth_returns_single() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    // 低于 queue_depth_threshold(8)，仍在 Smooth
+    policy.on_chunk("hello\n");
+    let plan = policy.check();
+    assert_eq!(plan, Some(DrainPlan::Single));
+}
+
+/// 测试：队列深度达到阈值（8 行）触发 CatchUp
+#[test]
+fn test_policy_catchup_by_depth() {
+    let mut policy = make_policy_with_lines(8);
+    let plan = policy.check();
+    assert_eq!(plan, Some(DrainPlan::Batch));
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+}
+
+/// 测试：队列深度超过阈值（10 行）也触发 CatchUp
+#[test]
+fn test_policy_catchup_by_depth_overflow() {
+    let mut policy = make_policy_with_lines(10);
+    let plan = policy.check();
+    assert_eq!(plan, Some(DrainPlan::Batch));
+}
+
+/// 测试：最老行年龄达到阈值（120ms）触发 CatchUp
+#[test]
+fn test_policy_catchup_by_age() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    policy.on_chunk("hello\n");
+    // 手动设置 oldest_chunk_at 为 150ms 前
+    policy.oldest_chunk_at = Some(Instant::now() - Duration::from_millis(150));
+    let plan = policy.check();
+    assert_eq!(plan, Some(DrainPlan::Batch));
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+}
+
+/// 测试：队列深度 7 + 年龄 119ms → 不触发 CatchUp（两个条件都未达阈值）
+#[test]
+fn test_policy_no_catchup_below_threshold() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    // 7 行，低于阈值 8
+    for _ in 0..7 {
+        policy.on_chunk("hello\n");
+    }
+    // 年龄 119ms，低于阈值 120ms
+    policy.oldest_chunk_at = Some(Instant::now() - Duration::from_millis(119));
+    let plan = policy.check();
+    assert_eq!(plan, Some(DrainPlan::Single));
+    assert_eq!(policy.mode, ChunkingMode::Smooth);
+}
+
+/// 测试：CatchUp 模式下 drain 后队列清空，但模式保持 CatchUp
+/// （需要同时满足 exit_depth 和 exit_age 才退出）
+#[test]
+fn test_policy_catchup_drain_stays_catchup() {
+    let mut policy = make_policy_with_lines(10);
+    // 触发 CatchUp
+    let _ = policy.check();
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    // drain 后队列为空
+    policy.drain();
+    assert_eq!(policy.pending_lines, 0);
+    // 下一个 check：无积压，返回 None
+    assert!(policy.check().is_none());
+}
+
+/// 测试：CatchUp → Smooth 退出条件：队列深度 <= 2 且年龄 <= 40ms
+#[test]
+fn test_policy_exit_catchup() {
+    let mut policy = make_policy_with_lines(10);
+    let _ = policy.check();
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    // drain 后重新填充少量数据（2 行，年龄 < 40ms）
+    policy.drain();
+    policy.on_chunk("a\n");
+    policy.on_chunk("b\n");
+    let plan = policy.check();
+    // 退出条件满足：depth=2 <= 2 且年龄 ≈ 0ms <= 40ms
+    assert_eq!(policy.mode, ChunkingMode::Smooth);
+    assert_eq!(plan, Some(DrainPlan::Single));
+}
+
+/// 测试：CatchUp 不退出：深度 <= 2 但年龄 > 40ms
+#[test]
+fn test_policy_no_exit_age_too_old() {
+    let mut policy = make_policy_with_lines(10);
+    let _ = policy.check();
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    // drain 后重新填充 2 行，但设置年龄为 50ms（> 40ms）
+    policy.drain();
+    policy.on_chunk("a\n");
+    policy.on_chunk("b\n");
+    policy.oldest_chunk_at = Some(Instant::now() - Duration::from_millis(50));
+    let _ = policy.check();
+    // 不满足退出：年龄 50ms > 40ms
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+}
+
+/// 测试：CatchUp 不退出：年龄 <= 40ms 但深度 > 2
+#[test]
+fn test_policy_no_exit_depth_too_high() {
+    let mut policy = make_policy_with_lines(10);
+    let _ = policy.check();
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    // drain 后重新填充 3 行（> exit_depth=2），年龄约 0ms
+    policy.drain();
+    for _ in 0..3 {
+        policy.on_chunk("a\n");
+    }
+    let _ = policy.check();
+    // 不满足退出：depth=3 > 2
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+}
+
+/// 测试：reset 恢复到初始状态
+#[test]
+fn test_policy_reset() {
+    let mut policy = make_policy_with_lines(10);
+    let _ = policy.check();
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    policy.reset();
+    assert_eq!(policy.mode, ChunkingMode::Smooth);
+    assert_eq!(policy.pending_lines, 0);
+    assert!(policy.oldest_chunk_at.is_none());
+}
+
+/// 测试：drain 只清空积压，不改变模式
+#[test]
+fn test_policy_drain_preserves_mode() {
+    let mut policy = make_policy_with_lines(10);
+    let _ = policy.check();
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    policy.drain();
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    assert_eq!(policy.pending_lines, 0);
+}
+
+/// 测试：on_reasoning_chunk 正确累积
+#[test]
+fn test_policy_on_reasoning_chunk() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+    policy.on_reasoning_chunk();
+    assert_eq!(policy.pending_lines, 1);
+    assert!(policy.oldest_chunk_at.is_some());
+}
+
+/// 测试：连续多轮 chunk → check → drain → chunk 的完整生命周期
+#[test]
+fn test_policy_lifecycle_smooth_to_catchup_and_back() {
+    let mut policy = AdaptiveChunkingPolicy::new();
+
+    // 第一轮：Smooth，3 行
+    for _ in 0..3 {
+        policy.on_chunk("hello\n");
+    }
+    assert_eq!(policy.check(), Some(DrainPlan::Single));
+    assert_eq!(policy.mode, ChunkingMode::Smooth);
+    policy.drain();
+
+    // 第二轮：积压爆发，12 行 → CatchUp
+    for _ in 0..12 {
+        policy.on_chunk("burst\n");
+    }
+    assert_eq!(policy.check(), Some(DrainPlan::Batch));
+    assert_eq!(policy.mode, ChunkingMode::CatchUp);
+    policy.drain();
+
+    // 第三轮：恢复正常，1 行 → 应回到 Smooth
+    policy.on_chunk("normal\n");
+    // drain 后 oldest_chunk_at 已清空，重新填充后年龄约 0ms
+    // depth=1 <= 2 且年龄 ≈ 0 <= 40ms → 退出 CatchUp
+    assert_eq!(policy.check(), Some(DrainPlan::Single));
+    assert_eq!(policy.mode, ChunkingMode::Smooth);
+}
+
+// ─── check_throttle 集成测试 ────────────────────────────────────────────
+
+/// 测试：无流式内容时 check_throttle 返回 None
+#[test]
+fn test_check_throttle_no_content() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let result = pipeline.check_throttle(0);
+    assert!(result.is_none());
+}
+
+/// 测试：单次 chunk 后 check_throttle 返回 RebuildAll
+#[test]
+fn test_check_throttle_single_chunk() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.handle_event(AgentEvent::AssistantChunk {
+        chunk: "hello".into(),
+        source_agent_id: None,
+    });
+    let result = pipeline.check_throttle(0);
+    assert!(result.is_some());
+    assert!(matches!(result.unwrap(), PipelineAction::RebuildAll { .. }));
+}
+
+/// 测试：连续 chunk 积压触发 CatchUp 模式
+#[test]
+fn test_check_throttle_catchup_on_burst() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    // 发送 10 个 chunk（超过 queue_depth_threshold=8）
+    for i in 0..10 {
+        pipeline.handle_event(AgentEvent::AssistantChunk {
+            chunk: format!("line {}\n", i),
+            source_agent_id: None,
+        });
+    }
+    // check_throttle 会触发 update_mode，此时应切换到 CatchUp 并立即返回
+    let result = pipeline.check_throttle(0);
+    assert!(result.is_some(), "CatchUp 模式应立即返回 RebuildAll");
+    // drain 后 pending_lines 归零
+    assert_eq!(pipeline.adaptive_policy.pending_lines, 0);
+}
+
+/// 测试：ToolStart 消费积压后 check_throttle 返回 None
+#[test]
+fn test_check_throttle_drained_after_tool_start() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.handle_event(AgentEvent::AssistantChunk {
+        chunk: "hello".into(),
+        source_agent_id: None,
+    });
+    // ToolStart 会 drain 积压
+    pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "tc1".into(),
+        name: "Read".into(),
+        display: "ReadFile".into(),
+        args: "src/main.rs".into(),
+        input: serde_json::json!({"file_path": "/tmp/src/main.rs"}),
+        source_agent_id: None,
+    });
+    // 积压已被消费
+    assert_eq!(pipeline.adaptive_policy.pending_lines, 0);
+    let result = pipeline.check_throttle(0);
+    assert!(result.is_none());
+}
+
+/// 测试：done() 重置策略状态
+#[test]
+fn test_done_resets_policy() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    // 积压数据
+    for _ in 0..10 {
+        pipeline.handle_event(AgentEvent::AssistantChunk {
+            chunk: "burst\n".into(),
+            source_agent_id: None,
+        });
+    }
+    assert!(pipeline.adaptive_policy.pending_lines > 0);
+    pipeline.done();
+    assert_eq!(pipeline.adaptive_policy.pending_lines, 0);
+    assert_eq!(pipeline.adaptive_policy.mode, ChunkingMode::Smooth);
+    assert!(pipeline.check_throttle(0).is_none());
+}
+
+/// 测试：begin_round() 重置策略状态
+#[test]
+fn test_begin_round_resets_policy() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    for _ in 0..10 {
+        pipeline.handle_event(AgentEvent::AssistantChunk {
+            chunk: "burst\n".into(),
+            source_agent_id: None,
+        });
+    }
+    pipeline.begin_round();
+    assert_eq!(pipeline.adaptive_policy.pending_lines, 0);
+    assert_eq!(pipeline.adaptive_policy.mode, ChunkingMode::Smooth);
 }

@@ -117,3 +117,42 @@ fn test_done_without_space() {
     let _ = parser.push(b"data:[DONE]\n\n");
     assert!(parser.is_done());
 }
+
+#[test]
+fn test_cross_chunk_utf8_cjk() {
+    // "描述" UTF-8: E6 8F 8F E8 BF B0
+    // chunk 切在字符之间：第一个 chunk 含完整 "描"，第二个含完整 "述"
+    let mut parser = SseParser::new();
+    let events1 = parser.push(b"data: \xe6\x8f\x8f");
+    assert!(events1.is_empty());
+    let events2 = parser.push(b"\xe8\xbf\xb0\n\n");
+    assert_eq!(events2.len(), 1);
+    assert_eq!(events2[0].1, "描述");
+}
+
+#[test]
+fn test_cross_chunk_utf8_mid_character() {
+    // "描述" UTF-8: E6 8F 8F E8 BF B0
+    // chunk 切在 "描" 的最后一个字节之前：E6 8F | 8F E8 BF B0
+    // 旧代码会在此处产生 U+FFFD
+    let mut parser = SseParser::new();
+    let events1 = parser.push(b"data: \xe6\x8f");
+    assert!(events1.is_empty());
+    let events2 = parser.push(b"\x8f\xe8\xbf\xb0\n\n");
+    assert_eq!(events2.len(), 1);
+    assert_eq!(events2[0].1, "描述");
+    // 确保没有乱码字符
+    assert!(!events2[0].1.contains('\u{FFFD}'));
+}
+
+#[test]
+fn test_cross_chunk_utf8_emoji() {
+    // "🎉" UTF-8: F0 9F 8E 89 (4 字节)
+    // chunk 切在 2+2：F0 9F | 8E 89
+    let mut parser = SseParser::new();
+    let events1 = parser.push(b"data: \xf0\x9f");
+    assert!(events1.is_empty());
+    let events2 = parser.push(b"\x8e\x89\n\n");
+    assert_eq!(events2.len(), 1);
+    assert_eq!(events2[0].1, "🎉");
+}

@@ -132,6 +132,17 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **涉及文件:** peri-tui/src/acp_stdio.rs:79-108, peri-tui/src/acp_server/notify.rs:118-146, peri-tui/src/acp_stdio.rs:362-363, peri-middlewares/src/skills/mod.rs:115-122
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-19-acp-missing-prompt-capabilities
+
+**摘要:** ACP InitializeResponse 缺少 prompt_capabilities 声明
+**状态:** Fixed
+**归档日期:** 2026-05-31
+**关键词:** ACP, prompt_capabilities, 协议声明, 能力声明
+**问题本质:** InitializeResponse 未按 ACP 规范声明 prompt_capabilities（图片/音频/嵌入上下文），客户端行为不确定
+**通用模式:** 协议实现必须完整声明所有能力字段（即使不支持也要显式声明为空或 false），不能省略
+**涉及文件:** peri-tui/src/acp_server.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

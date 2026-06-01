@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::messages::BaseMessage;
-use crate::thread::{ThreadId, ThreadStore};
+use crate::{
+    messages::BaseMessage,
+    thread::{ThreadId, ThreadStore},
+};
 
 /// State trait - 所有 Agent 状态必须实现此 trait
 /// 与 TypeScript BaseAgentStateType 对齐

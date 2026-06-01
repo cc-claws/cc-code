@@ -4,8 +4,6 @@ use crate::messages::BaseMessage;
 pub(crate) struct MessageRound {
     pub(crate) start: usize,
     pub(crate) end: usize,
-    #[allow(dead_code)]
-    pub(crate) tool_call_ids: Vec<String>,
 }
 
 pub(crate) fn group_messages_by_round(messages: &[BaseMessage]) -> Vec<MessageRound> {
@@ -37,14 +35,12 @@ pub(crate) fn group_messages_by_round(messages: &[BaseMessage]) -> Vec<MessageRo
             rounds.push(MessageRound {
                 start: round_start,
                 end,
-                tool_call_ids,
             });
             i = end;
         } else {
             rounds.push(MessageRound {
                 start: round_start,
                 end: i + 1,
-                tool_call_ids: Vec::new(),
             });
             i += 1;
         }

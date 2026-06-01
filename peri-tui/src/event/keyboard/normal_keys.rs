@@ -183,7 +183,22 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                         {
                             // Skill matched: submit full message to agent
                             return Ok(Some(Action::Submit(text)));
+                        } else if app.session_mgr.sessions[app.session_mgr.active]
+                            .commands
+                            .agent_commands
+                            .contains(&skill_name)
+                        {
+                            // Agent command matched (from ACP AvailableCommandsUpdate): submit to agent
+                            tracing::debug!(skill_name, "Matched agent command, submitting to ACP");
+                            return Ok(Some(Action::Submit(text)));
                         } else {
+                            tracing::debug!(
+                                skill_name,
+                                agent_commands = ?app.session_mgr.sessions[app.session_mgr.active]
+                                    .commands
+                                    .agent_commands,
+                                "Command not found in local registry, skills, or agent_commands"
+                            );
                             // Distinguish "prefix ambiguity" from "completely unknown"
                             let prefix = text.trim_start_matches('/').to_string();
                             let cmd_matches = app.session_mgr.sessions[app.session_mgr.active]
@@ -349,20 +364,35 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
 // ── Per-arm helper functions ──────────────────────────────────────────────
 
 fn handle_ctrl_c(app: &mut App) -> Option<Action> {
-    if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
-        // Agent running: interrupt first, clear quit-pending state
+    let session = &mut app.session_mgr.sessions[app.session_mgr.active];
+
+    // 优先级 1: 输入框有内容 → 清空输入框
+    if session.ui.textarea.lines().iter().any(|l| !l.is_empty()) {
+        session
+            .ui
+            .textarea
+            .move_cursor(tui_textarea::CursorMove::Head);
+        session.ui.textarea.select_all();
+        session.ui.textarea.cut();
+        app.global_ui.quit_pending_since = None;
+        return None;
+    }
+
+    // 优先级 2: Agent 运行中 → 中断 agent
+    if session.ui.loading {
         app.interrupt();
         app.global_ui.quit_pending_since = None;
-    } else if let Some(since) = app.global_ui.quit_pending_since {
-        // Not loading, second Ctrl+C within 2s → quit
+        return None;
+    }
+
+    // 优先级 3: Agent 未运行 → quit-pending 逻辑
+    if let Some(since) = app.global_ui.quit_pending_since {
         if since.elapsed() < std::time::Duration::from_secs(2) {
             return Some(Action::Quit);
         } else {
-            // Timeout expired, restart timer
             app.global_ui.quit_pending_since = Some(std::time::Instant::now());
         }
     } else {
-        // First Ctrl+C, enter quit-pending state
         app.global_ui.quit_pending_since = Some(std::time::Instant::now());
     }
     None
@@ -530,5 +560,97 @@ fn handle_tab(app: &mut App) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::build_textarea;
+    use crate::event::Action;
+
+    async fn make_app() -> App {
+        let (app, _) = App::new_headless(80, 24).await;
+        app
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_clears_textarea_when_has_content() {
+        let mut app = make_app().await;
+        app.session_mgr.sessions[app.session_mgr.active].ui.textarea = build_textarea(false);
+        app.session_mgr.sessions[app.session_mgr.active]
+            .ui
+            .textarea
+            .insert_str("hello world");
+
+        let result = handle_ctrl_c(&mut app);
+
+        assert!(result.is_none(), "有内容时 Ctrl+C 不应返回 Quit");
+        let lines = app.session_mgr.sessions[app.session_mgr.active]
+            .ui
+            .textarea
+            .lines()
+            .to_vec();
+        assert!(
+            lines.iter().all(|l| l.is_empty()),
+            "清空后 textarea 应为空，实际: {:?}",
+            lines
+        );
+        assert!(
+            app.global_ui.quit_pending_since.is_none(),
+            "清空输入框不应进入 quit-pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_interrupts_agent_when_textarea_empty() {
+        let mut app = make_app().await;
+        app.set_loading(true);
+
+        let result = handle_ctrl_c(&mut app);
+
+        assert!(result.is_none(), "中断 agent 不应返回 Quit");
+        assert!(
+            app.global_ui.quit_pending_since.is_none(),
+            "中断 agent 不应进入 quit-pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_enters_quit_pending_when_idle_and_empty() {
+        let mut app = make_app().await;
+
+        let result = handle_ctrl_c(&mut app);
+
+        assert!(result.is_none(), "第一次 Ctrl+C 不应返回 Quit");
+        assert!(
+            app.global_ui.quit_pending_since.is_some(),
+            "空闲时应进入 quit-pending"
+        );
+
+        let result = handle_ctrl_c(&mut app);
+        assert!(
+            matches!(result, Some(Action::Quit)),
+            "2 秒内第二次 Ctrl+C 应返回 Quit"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_does_not_quit_when_textarea_has_content() {
+        let mut app = make_app().await;
+        let _ = handle_ctrl_c(&mut app);
+        assert!(app.global_ui.quit_pending_since.is_some());
+
+        app.session_mgr.sessions[app.session_mgr.active]
+            .ui
+            .textarea
+            .insert_str("some text");
+        let result = handle_ctrl_c(&mut app);
+
+        assert!(result.is_none(), "有内容时不应退出");
+        assert!(
+            app.global_ui.quit_pending_since.is_none(),
+            "清空输入框应重置 quit-pending"
+        );
     }
 }

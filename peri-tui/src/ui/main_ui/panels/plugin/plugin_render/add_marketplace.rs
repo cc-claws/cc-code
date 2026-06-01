@@ -8,9 +8,10 @@ use ratatui::{
 
 use peri_widgets::BorderedPanel;
 
-use crate::app::plugin_panel::PluginPanel;
-use crate::app::App;
-use crate::ui::theme;
+use crate::{
+    app::{plugin_panel::PluginPanel, App},
+    ui::theme,
+};
 
 /// 渲染 Add Marketplace 面板
 pub(crate) fn render_add_marketplace(

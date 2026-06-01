@@ -1,11 +1,14 @@
 use super::*;
 use crate::claude_agent_parser::ToolsValue;
 use parking_lot::RwLock;
-use peri_agent::agent::react::ReactLLM;
-use peri_agent::agent::react::Reasoning;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::messages::BaseMessage;
-use peri_agent::tools::BaseTool;
+use peri_agent::{
+    agent::{
+        react::{ReactLLM, Reasoning},
+        AgentCancellationToken,
+    },
+    messages::BaseMessage,
+    tools::BaseTool,
+};
 use std::sync::Arc;
 use tempfile::tempdir;
 

@@ -5,10 +5,9 @@ pub use loader::{list_skills, load_skill_metadata, SkillMetadata};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::messages::BaseMessage;
-use peri_agent::middleware::r#trait::Middleware;
+use peri_agent::{
+    agent::state::State, error::AgentResult, messages::BaseMessage, middleware::r#trait::Middleware,
+};
 
 /// 全局配置文件路径：~/.peri/settings.json
 pub fn global_config_path() -> PathBuf {

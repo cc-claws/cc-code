@@ -1,6 +1,4 @@
-use std::env;
-use std::fs;
-use std::path::PathBuf;
+use std::{env, fs, path::PathBuf};
 
 /// 当输出被截断时，将完整内容写入临时文件。
 /// 返回追加到截断信息后的提示字符串。

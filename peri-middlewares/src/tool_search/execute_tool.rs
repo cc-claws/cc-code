@@ -1,7 +1,6 @@
 //! ExecuteExtraTool 元工具 — 代理执行延迟加载的工具
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use parking_lot::RwLock;

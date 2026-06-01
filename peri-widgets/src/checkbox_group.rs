@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::StatefulWidget,
+    widgets::{StatefulWidget, StatefulWidgetRef},
 };
 
 /// 多选按钮组状态
@@ -107,10 +107,10 @@ impl<'a> CheckboxGroup<'a> {
     }
 }
 
-impl StatefulWidget for CheckboxGroup<'_> {
+impl StatefulWidgetRef for CheckboxGroup<'_> {
     type State = CheckboxState;
 
-    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
+    fn render_ref(&self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
         if self.labels.is_empty() {
             return;
         }
@@ -139,6 +139,14 @@ impl StatefulWidget for CheckboxGroup<'_> {
                 let _ = buf.set_line(area.x, area.y + i as u16, line, area.width);
             }
         }
+    }
+}
+
+impl StatefulWidget for CheckboxGroup<'_> {
+    type State = CheckboxState;
+
+    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
+        self.render_ref(area, buf, state);
     }
 }
 
