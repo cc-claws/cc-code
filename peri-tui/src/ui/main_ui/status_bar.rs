@@ -325,6 +325,17 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    // Rewind 忙碌提示
+    if let Some(until) = app.global_ui.rewind_busy_hint_until {
+        if std::time::Instant::now() < until {
+            left_spans.push(Span::styled(
+                " Agent 运行中，请等待后再撤销 ",
+                Style::default().fg(theme::WARNING),
+            ));
+            has_content = true;
+        }
+    }
+
     // 右侧：快捷键提示（统一灰色显示）
     let key_style = Style::default()
         .fg(theme::MUTED)
@@ -368,6 +379,10 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 key_style,
                 desc_style,
             )
+        }
+        Some(crate::app::InteractionPrompt::Rewind(_)) => {
+            // TODO: Rewind 弹窗快捷键提示
+            Vec::new()
         }
         None => {
             let no_mouse = app.global_ui.mouse_available == Some(false);

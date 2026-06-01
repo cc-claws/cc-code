@@ -108,6 +108,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             Some(crate::app::InteractionPrompt::Questions(_)) => {
                 popups::ask_user::render_ask_user_popup(f, app, panel_area);
             }
+            Some(crate::app::InteractionPrompt::Rewind(_)) => {}
             None => {}
         }
         if app.global_ui.oauth_prompt.is_some() {
