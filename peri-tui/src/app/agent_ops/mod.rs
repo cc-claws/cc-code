@@ -280,6 +280,9 @@ impl App {
             } => self.handle_compact_completed(summary, files, skills, micro_cleared, messages),
             AgentEvent::CompactStarted => self.handle_compact_started(),
             AgentEvent::CompactError(msg) => self.handle_compact_error(msg),
+            AgentEvent::RewindCompleted { summary, messages } => {
+                self.handle_rewind_completed(summary, messages)
+            }
             AgentEvent::LlmRetrying {
                 attempt,
                 max_attempts,

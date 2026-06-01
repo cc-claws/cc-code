@@ -84,9 +84,9 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
     // ── 分隔 + 模式指示 ──
     lines.push(Line::from(""));
     let mode_label = match prompt.mode {
-        RewindMode::MessagesOnly => "1. Rewind only",
-        RewindMode::MessagesAndFiles => "2. Rewind + Revert files",
-        RewindMode::ConfirmRevert => "⚠ Confirm: Revert files?",
+        RewindMode::MessagesOnly => "1. 回到此 prompt",
+        RewindMode::MessagesAndFiles => "2. 回到此 prompt + 恢复文件",
+        RewindMode::ConfirmRevert => "⚠ 确认: 恢复文件?",
     };
     lines.push(Line::from(vec![
         Span::styled(
@@ -103,15 +103,15 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
         let selected = &prompt.items[prompt.cursor];
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "Files to be reverted:",
+            "将恢复的文件:",
             Style::default()
                 .fg(theme::WARNING)
                 .add_modifier(Modifier::BOLD),
         )));
         for fc in &selected.file_changes {
             let op_label = match fc.operation.as_str() {
-                "Write" => "Write → Delete+Git restore",
-                "Edit" => "Edit → Revert",
+                "Write" => "Write → 删除+Git restore",
+                "Edit" => "Edit → 恢复",
                 _ => &fc.operation,
             };
             let path_display: String = fc.path.chars().take(max_width.saturating_sub(20)).collect();
@@ -126,7 +126,7 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
         }
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "Enter to confirm, Esc to cancel",
+            "Enter 确认, Esc 取消",
             Style::default().fg(theme::WARNING),
         )));
     }
