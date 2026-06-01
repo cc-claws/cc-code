@@ -28,7 +28,6 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
         AvailableCommand::new("agents", "Manage sub-agent definitions"),
         AvailableCommand::new("memory", "Manage persistent memory entries"),
         AvailableCommand::new("login", "Configure authentication"),
-        AvailableCommand::new("split", "Manage split session layouts"),
         AvailableCommand::new("rename", "Rename the current session"),
         AvailableCommand::new("lang", "Switch display language / locale"),
         AvailableCommand::new("exit", "Exit the application"),
