@@ -17,3 +17,6 @@ pub use init::build_initialize_response;
 pub use list_sessions::list_sessions_as_info;
 pub use session_fork::fork_session;
 pub use session_load::load_session_messages;
+
+#[cfg(test)]
+mod commands_test;
