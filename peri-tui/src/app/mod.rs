@@ -64,6 +64,8 @@ mod history_persistence;
 mod hitl_ops;
 mod hitl_prompt;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
+mod rewind_prompt;
+pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};
 
 // ── System Infrastructure ────────────────────────────────────────────────────
 mod chat_session;

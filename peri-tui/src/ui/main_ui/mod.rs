@@ -108,6 +108,9 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             Some(crate::app::InteractionPrompt::Questions(_)) => {
                 popups::ask_user::render_ask_user_popup(f, app, panel_area);
             }
+            Some(crate::app::InteractionPrompt::Rewind(_)) => {
+                popups::rewind::render_rewind_popup(f, app, panel_area);
+            }
             None => {}
         }
         if app.global_ui.oauth_prompt.is_some() {
@@ -336,6 +339,17 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         // BorderedPanel 无左右边框，内容区宽度 = screen_width；滚动条占 1 列
         let panel_width = screen_width.saturating_sub(1) as usize;
         popups::ask_user_height::ask_user_content_height(&cur.data, panel_width).max(8)
+    } else if let Some(crate::app::InteractionPrompt::Rewind(p)) =
+        &app.session_mgr.current().agent.interaction_prompt
+    {
+        let base = p.items.len() as u16 * 1 + 3;
+        let confirm_extra = if p.mode == crate::app::RewindMode::ConfirmRevert {
+            let selected = &p.items[p.cursor];
+            (selected.file_changes.len() as u16 + 3).min(10)
+        } else {
+            0
+        };
+        (base + confirm_extra).max(5)
     } else {
         0
     };

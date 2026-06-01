@@ -325,6 +325,17 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    // Rewind 忙碌提示
+    if let Some(until) = app.global_ui.rewind_busy_hint_until {
+        if std::time::Instant::now() < until {
+            left_spans.push(Span::styled(
+                " Agent 运行中，请等待后再撤销 ",
+                Style::default().fg(theme::WARNING),
+            ));
+            has_content = true;
+        }
+    }
+
     // 右侧：快捷键提示（统一灰色显示）
     let key_style = Style::default()
         .fg(theme::MUTED)
@@ -368,6 +379,29 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 key_style,
                 desc_style,
             )
+        }
+        Some(crate::app::InteractionPrompt::Rewind(prompt)) => {
+            use crate::app::RewindMode;
+            match prompt.mode {
+                RewindMode::ConfirmRevert => format_hints(
+                    &[
+                        ("Enter".to_string(), lc.tr("key-confirm")),
+                        ("Esc".to_string(), lc.tr("key-cancel")),
+                    ],
+                    key_style,
+                    desc_style,
+                ),
+                _ => format_hints(
+                    &[
+                        ("↑↓".to_string(), "移动".to_string()),
+                        ("Tab".to_string(), "切换回退文件".to_string()),
+                        ("Enter".to_string(), lc.tr("key-confirm")),
+                        ("Esc".to_string(), lc.tr("key-cancel")),
+                    ],
+                    key_style,
+                    desc_style,
+                ),
+            }
         }
         None => {
             let no_mouse = app.global_ui.mouse_available == Some(false);

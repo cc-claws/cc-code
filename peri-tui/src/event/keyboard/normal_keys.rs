@@ -35,11 +35,29 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                     .pending_messages
                     .clear();
             }
+            // 设置 rewind 不可用提示（Status Bar，3秒后消失）
+            app.global_ui.rewind_busy_hint_until =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
         }
 
         // Esc: 关闭 @ 提及弹窗
         Input { key: Key::Esc, .. } if app.session_mgr.current_mut().ui.at_mention.active => {
             app.session_mgr.current_mut().ui.at_mention.close();
+        }
+
+        // Esc: 双击触发 rewind 选择器（仅空闲时）
+        Input { key: Key::Esc, .. } if !app.session_mgr.current().ui.loading => {
+            if let Some(since) = app.global_ui.rewind_pending_since {
+                if since.elapsed() < std::time::Duration::from_secs(2) {
+                    // 双击 ESC → 打开 rewind 选择器
+                    app.global_ui.rewind_pending_since = None;
+                    app.open_rewind_prompt();
+                } else {
+                    app.global_ui.rewind_pending_since = Some(std::time::Instant::now());
+                }
+            } else {
+                app.global_ui.rewind_pending_since = Some(std::time::Instant::now());
+            }
         }
 
         // Up: @ 提及导航 > hint navigation > history browse (only first row) > textarea cursor
@@ -282,8 +300,9 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         }
 
         _ => {
-            // Any other key cancels quit-pending state
+            // Any other key cancels quit-pending and rewind-pending state
             app.global_ui.quit_pending_since = None;
+            app.global_ui.rewind_pending_since = None;
         }
     }
 
