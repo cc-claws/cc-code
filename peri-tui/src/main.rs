@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 #[cfg(not(target_os = "windows"))]
 #[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod acp_stdio;
 mod cli_args;
@@ -264,7 +264,8 @@ fn main() -> Result<()> {
     // -p/--print 模式（优先级高于子命令）
     if cli.print.is_some() {
         let rt = tokio::runtime::Builder::new_multi_thread()
-            .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+            .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+            .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
             .enable_all()
             .build()?;
         return rt.block_on(cli_print::run_print(
@@ -304,14 +305,16 @@ fn main() -> Result<()> {
             agent: _,
         }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(acp_stdio::run_acp_stdio(cwd))
         }
         Some(Commands::Update) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(async {
@@ -327,7 +330,8 @@ fn main() -> Result<()> {
         }
         Some(Commands::Sync { action, server }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(async {
@@ -344,7 +348,8 @@ fn main() -> Result<()> {
         }
         Some(Commands::Plugin { action }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(async {
@@ -400,7 +405,8 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
     let _telemetry = peri_agent::telemetry::init_tracing("agent-tui");
 
     let rt = tokio::runtime::Builder::new_multi_thread()
-        .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+        .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+        .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
         .enable_all()
         .build()?;
 

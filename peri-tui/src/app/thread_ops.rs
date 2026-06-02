@@ -205,6 +205,29 @@ impl App {
 
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）
     pub fn new_thread(&mut self) {
+        // ── 诊断：记录清理前内存 ──
+        let rss_before = crate::mimalloc_config::query_rss();
+        let os_before = os_rss_mb();
+        let origin_count = self.session_mgr.current_mut().agent.origin_messages.len();
+        let origin_bytes = crate::command::core::gc::estimate_messages_heap(
+            &self.session_mgr.current_mut().agent.origin_messages,
+        );
+        let (completed_count, completed_bytes) = self
+            .session_mgr
+            .current_mut()
+            .messages
+            .pipeline
+            .completed_stats();
+        tracing::info!(
+            origin_count,
+            origin_bytes,
+            completed_count,
+            completed_bytes,
+            rss_mb = rss_before.map(|(r, _)| r / 1024 / 1024),
+            os_rss_mb = os_before,
+            "new_thread: 开始清理",
+        );
+
         // Fire SessionEnd hooks before clearing session state
         {
             let mut hooks = self
@@ -281,6 +304,11 @@ impl App {
         self.reset_agent_session();
 
         // 通过 ACP 协议创建新 session，清空 server 端 history
+        let rss_after_tui_clear = crate::mimalloc_config::query_rss();
+        tracing::info!(
+            rss_mb = rss_after_tui_clear.map(|(r, _)| r / 1024 / 1024),
+            "new_thread: TUI 侧数据已清空",
+        );
         if let Some(ref acp_client) = self.acp_client {
             let client = acp_client.clone();
             let cwd = self.services.cwd.clone();
@@ -296,6 +324,11 @@ impl App {
         }
         // 回收释放的内存给 OS
         crate::mimalloc_config::alloc_collect();
+        let rss_after_acp = crate::mimalloc_config::query_rss();
+        tracing::info!(
+            rss_mb = rss_after_acp.map(|(r, _)| r / 1024 / 1024),
+            "new_thread: ACP session/close + alloc_collect 完成",
+        );
 
         let _ = self
             .session_mgr
@@ -306,6 +339,20 @@ impl App {
 
         // 归还已释放内存页给 OS
         crate::mimalloc_config::alloc_collect();
+        let rss_final = crate::mimalloc_config::query_rss();
+        let os_final = os_rss_mb();
+        let freed = match (rss_before, rss_final) {
+            (Some((b, _)), Some((a, _))) => b as isize - a as isize,
+            _ => 0,
+        };
+        tracing::info!(
+            rss_before_mb = rss_before.map(|(r, _)| r / 1024 / 1024),
+            rss_final_mb = rss_final.map(|(r, _)| r / 1024 / 1024),
+            freed_mb = freed / 1024 / 1024,
+            os_before_mb = os_before,
+            os_final_mb = os_final,
+            "new_thread: 清理完成",
+        );
     }
 
     /// 打开 thread 浏览面板（通过命令触发）
@@ -338,4 +385,13 @@ impl App {
 mod tests {
     use crate::thread::ThreadMeta;
     include!("thread_ops_test.rs");
+}
+
+/// 通过 sysinfo 获取 OS 级 RSS（MB），供诊断用
+fn os_rss_mb() -> Option<u64> {
+    use sysinfo::{ProcessesToUpdate, System};
+    let mut sys = System::new();
+    let pid = sysinfo::get_current_pid().ok()?;
+    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    sys.process(pid).map(|p| p.memory() / 1024) // KB → MB
 }
