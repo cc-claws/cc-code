@@ -679,3 +679,55 @@ async fn test_consecutive_failure_injects_correction() {
     });
     assert!(has_correction, "应注入连续失败纠正消息");
 }
+
+#[test]
+fn test_normalize_params_path_to_file_path() {
+    // Arrange: input has "path" but no "file_path"
+    let input = serde_json::json!({"path": "/tmp/test.rs", "offset": 10});
+
+    // Act
+    let normalized = super::normalize_params(input);
+
+    // Assert: "path" → "file_path", "offset" unchanged
+    assert_eq!(normalized["file_path"], "/tmp/test.rs");
+    assert!(normalized.get("path").is_none());
+    assert_eq!(normalized["offset"], 10);
+}
+
+#[test]
+fn test_normalize_params_file_path_already_exists() {
+    // Arrange: input has both "path" and "file_path" (LLM wrote both)
+    let input = serde_json::json!({"path": "/tmp/wrong.rs", "file_path": "/tmp/right.rs"});
+
+    // Act
+    let normalized = super::normalize_params(input);
+
+    // Assert: "file_path" unchanged, "path" 不清除（保守策略，不丢数据）
+    assert_eq!(normalized["file_path"], "/tmp/right.rs");
+    // "path" 保留原样（因为已经有了 file_path，不覆盖）
+    assert_eq!(normalized["path"], "/tmp/wrong.rs");
+}
+
+#[test]
+fn test_normalize_params_no_alias_present() {
+    // Arrange: normal Read call with correct parameter names
+    let input = serde_json::json!({"file_path": "/tmp/test.rs"});
+
+    // Act
+    let normalized = super::normalize_params(input);
+
+    // Assert: no change
+    assert_eq!(normalized["file_path"], "/tmp/test.rs");
+}
+
+#[test]
+fn test_normalize_params_non_object_input() {
+    // Arrange: input is a string (edge: unlikely but safe)
+    let input = serde_json::Value::String("hello".to_string());
+
+    // Act
+    let normalized = super::normalize_params(input);
+
+    // Assert: returned as-is
+    assert_eq!(normalized, serde_json::Value::String("hello".to_string()));
+}
