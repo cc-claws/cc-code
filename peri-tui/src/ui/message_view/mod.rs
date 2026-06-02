@@ -84,6 +84,8 @@ pub enum MessageViewModel {
         rendered: Text<'static>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
+        /// 是否为 <system-reminder> 包裹的系统提醒消息（compact summary 等）
+        system_reminder: bool,
     },
     /// AI 回复（支持流式追加）
     AssistantBubble {
@@ -167,9 +169,17 @@ impl PartialEq for MessageViewModel {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                MessageViewModel::UserBubble { content: a, .. },
-                MessageViewModel::UserBubble { content: b, .. },
-            ) => a == b,
+                MessageViewModel::UserBubble {
+                    content: a,
+                    system_reminder: a_sr,
+                    ..
+                },
+                MessageViewModel::UserBubble {
+                    content: b,
+                    system_reminder: b_sr,
+                    ..
+                },
+            ) => a == b && a_sr == b_sr,
             (
                 MessageViewModel::AssistantBubble { blocks: a, .. },
                 MessageViewModel::AssistantBubble { blocks: b, .. },
@@ -270,9 +280,14 @@ impl PartialEq for MessageViewModel {
 impl Hash for MessageViewModel {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            MessageViewModel::UserBubble { content, .. } => {
+            MessageViewModel::UserBubble {
+                content,
+                system_reminder,
+                ..
+            } => {
                 0u8.hash(state);
                 content.hash(state);
+                system_reminder.hash(state);
             }
             MessageViewModel::AssistantBubble {
                 blocks,
@@ -465,11 +480,22 @@ impl MessageViewModel {
         match msg {
             BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
-                let rendered = parse_markdown_default(&raw);
+                let (display_text, system_reminder) = if raw.contains("<system-reminder>") {
+                    let cleaned = raw
+                        .replacen("<system-reminder>\n", "", 1)
+                        .replacen("\n</system-reminder>", "", 1)
+                        .trim()
+                        .to_string();
+                    (cleaned, true)
+                } else {
+                    (raw, false)
+                };
+                let rendered = parse_markdown_default(&display_text);
                 let mut vm = MessageViewModel::UserBubble {
-                    content: raw,
+                    content: display_text,
                     rendered,
                     content_hash: 0,
+                    system_reminder,
                 };
                 vm.recompute_hash();
                 vm
@@ -748,6 +774,7 @@ impl MessageViewModel {
             content,
             rendered,
             content_hash: 0,
+            system_reminder: false,
         };
         vm.recompute_hash();
         vm

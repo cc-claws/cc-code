@@ -18,6 +18,33 @@ use super::ReActAgent;
 /// 工具名语义别名表：LLM 输出的名称 → 实际注册的工具名。
 const TOOL_ALIASES: &[(&str, &str)] = &[("task", "Agent"), ("shell", "Bash"), ("reading", "Read")];
 
+/// 工具参数名别名表：LLM 输出的参数名 → 实际参数名。
+/// 主要解决 Read/Write/Edit（file_path）与 Glob/Grep（path）之间的 LLM 参数名混淆。
+const PARAM_ALIASES: &[(&str, &str)] = &[("path", "file_path")];
+
+/// 将 LLM 有时会误用的参数名归一化为标准名。
+/// 仅在有别名键且无目标键时才替换（不覆盖已有正确值）。
+fn normalize_params(input: serde_json::Value) -> serde_json::Value {
+    let mut obj = match input {
+        serde_json::Value::Object(map) => map,
+        _ => return input,
+    };
+
+    for (alias, real) in PARAM_ALIASES {
+        if obj.contains_key(*alias) && !obj.contains_key(*real) {
+            let value = obj.remove(*alias).unwrap();
+            obj.insert(real.to_string(), value);
+            tracing::warn!(
+                alias = %alias,
+                resolved = %real,
+                "参数名别名归一化：LLM 使用了非标准参数名"
+            );
+        }
+    }
+
+    serde_json::Value::Object(obj)
+}
+
 /// 连续失败检测阈值
 const CONSECUTIVE_FAILURE_THRESHOLD: usize = 5;
 
@@ -272,6 +299,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 let tool_name = call.name.clone();
                 let call_id = call.id.clone();
                 let input = call.input.clone();
+                let input = normalize_params(input); // 新增：参数名归一化
                 let tool = resolve_tool(&call.name, all_tools);
                 let cancel = cancel.clone();
                 async move {

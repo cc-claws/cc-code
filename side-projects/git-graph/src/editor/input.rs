@@ -2,6 +2,29 @@
 //!
 //! 提供 [`handle_key`]（键盘）和 [`handle_mouse`]（鼠标）两个公共入口，
 //! 返回 `bool` 指示事件是否被编辑器消费。
+//!
+//! ## 快捷键对照（对标 VSCode）
+//!
+//! | 快捷键 | 功能 |
+//! |--------|------|
+//! | `Ctrl+Z` / `Ctrl+Shift+Z` | 撤销 / 重做 |
+//! | `Ctrl+Y` | 重做 |
+//! | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | 复制 / 剪切 / 粘贴 |
+//! | `Ctrl+A` | 全选 |
+//! | `Ctrl+S` | 保存 |
+//! | `Ctrl+Left/Right` | 按单词移动 |
+//! | `Ctrl+Backspace/Delete` | 按单词删除 |
+//! | `Ctrl+Home/End` | 文件开头/末尾 |
+//! | `Ctrl+D` | 复制当前行 |
+//! | `Ctrl+L` | 选中当前行（重复按扩展） |
+//! | `Ctrl+Shift+K` | 删除当前行 |
+//! | `Ctrl+Shift+Left/Right` | 按单词选区 |
+//! | `Ctrl+Shift+Home/End` | 选区到文件开头/末尾 |
+//! | `Shift+方向键` | 扩展选区 |
+//! | `Shift+Home/End` | 选区到行首/行末 |
+//! | `Alt+Up/Down` | 上移/下移当前行 |
+//! | `Tab` / `Shift+Tab` | 缩进 / 反缩进 |
+//! | `Home` | 智能 Home（行首↔首个非空白） |
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -14,11 +37,28 @@ use super::TextEditor;
 ///
 /// `Ctrl+S` 保存文件，`Esc` 和未知按键返回 `false` 交给父级处理。
 pub fn handle_key(editor: &mut TextEditor, code: KeyCode, mods: KeyModifiers) -> bool {
-    // Ctrl 组合键优先判断
-    if mods.contains(KeyModifiers::CONTROL) {
+    let ctrl = mods.contains(KeyModifiers::CONTROL);
+    let shift = mods.contains(KeyModifiers::SHIFT);
+    let alt = mods.contains(KeyModifiers::ALT);
+
+    // 优先级：Ctrl+Shift > Ctrl > Alt > Shift > 无修饰
+    if ctrl && shift {
+        return handle_ctrl_shift(editor, code);
+    }
+    if ctrl {
         return handle_ctrl(editor, code);
     }
+    if alt {
+        return handle_alt(editor, code);
+    }
+    if shift {
+        return handle_shift(editor, code);
+    }
+    handle_plain(editor, code)
+}
 
+/// 无修饰键处理。
+fn handle_plain(editor: &mut TextEditor, code: KeyCode) -> bool {
     match code {
         KeyCode::Char(ch) => {
             editor.insert_char(ch);
@@ -36,28 +76,32 @@ pub fn handle_key(editor: &mut TextEditor, code: KeyCode, mods: KeyModifiers) ->
             editor.delete_forward();
             true
         }
+        KeyCode::Tab => {
+            editor.insert_tab();
+            true
+        }
         KeyCode::Up => {
-            editor.move_up();
+            editor.move_up(false);
             true
         }
         KeyCode::Down => {
-            editor.move_down();
+            editor.move_down(false);
             true
         }
         KeyCode::Left => {
-            editor.move_left();
+            editor.move_left(false);
             true
         }
         KeyCode::Right => {
-            editor.move_right();
+            editor.move_right(false);
             true
         }
         KeyCode::Home => {
-            editor.move_home();
+            editor.move_smart_home(false);
             true
         }
         KeyCode::End => {
-            editor.move_end();
+            editor.move_end(false);
             true
         }
         KeyCode::PageUp => {
@@ -65,7 +109,7 @@ pub fn handle_key(editor: &mut TextEditor, code: KeyCode, mods: KeyModifiers) ->
             true
         }
         KeyCode::PageDown => {
-            editor.set_scroll_y(editor.scroll_y() + 20); // set_scroll_y 内部钳位
+            editor.set_scroll_y(editor.scroll_y() + 20);
             true
         }
         KeyCode::Esc => false,
@@ -73,7 +117,43 @@ pub fn handle_key(editor: &mut TextEditor, code: KeyCode, mods: KeyModifiers) ->
     }
 }
 
-/// 处理 Ctrl 组合键。
+/// Shift 组合键：选区扩展。
+fn handle_shift(editor: &mut TextEditor, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Up => {
+            editor.move_up(true);
+            true
+        }
+        KeyCode::Down => {
+            editor.move_down(true);
+            true
+        }
+        KeyCode::Left => {
+            editor.move_left(true);
+            true
+        }
+        KeyCode::Right => {
+            editor.move_right(true);
+            true
+        }
+        KeyCode::Home => {
+            editor.move_smart_home(true);
+            true
+        }
+        KeyCode::End => {
+            editor.move_end(true);
+            true
+        }
+        KeyCode::Tab => {
+            editor.outdent_lines();
+            true
+        }
+        // Shift+字母等不处理
+        _ => false,
+    }
+}
+
+/// Ctrl 组合键。
 fn handle_ctrl(editor: &mut TextEditor, code: KeyCode) -> bool {
     match code {
         KeyCode::Char('s') | KeyCode::Char('S') => {
@@ -113,6 +193,110 @@ fn handle_ctrl(editor: &mut TextEditor, code: KeyCode) -> bool {
             if let Some(text) = paste_from_clipboard() {
                 editor.insert_text(&text);
             }
+            true
+        }
+        KeyCode::Char('d') | KeyCode::Char('D') => {
+            editor.duplicate_line();
+            true
+        }
+        KeyCode::Char('l') | KeyCode::Char('L') => {
+            editor.select_line();
+            true
+        }
+        KeyCode::Left | KeyCode::Char('b') => {
+            editor.move_word_left(false);
+            true
+        }
+        KeyCode::Right | KeyCode::Char('f') => {
+            editor.move_word_right(false);
+            true
+        }
+        KeyCode::Home => {
+            editor.move_file_start(false);
+            true
+        }
+        KeyCode::End => {
+            editor.move_file_end(false);
+            true
+        }
+        KeyCode::Backspace => {
+            editor.delete_word_backward();
+            true
+        }
+        KeyCode::Delete => {
+            editor.delete_word_forward();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Ctrl+Shift 组合键。
+fn handle_ctrl_shift(editor: &mut TextEditor, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('z') | KeyCode::Char('Z') => {
+            editor.redo();
+            true
+        }
+        KeyCode::Char('k') | KeyCode::Char('K') => {
+            editor.delete_current_line();
+            true
+        }
+        KeyCode::Left => {
+            editor.move_word_left(true);
+            true
+        }
+        KeyCode::Right => {
+            editor.move_word_right(true);
+            true
+        }
+        KeyCode::Home => {
+            editor.move_file_start(true);
+            true
+        }
+        KeyCode::End => {
+            editor.move_file_end(true);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Alt 组合键。
+///
+/// macOS 终端 Option+←/→ 发送 `\x1bb`/`\x1bf`，crossterm 解析为 Alt+Char('b'/'f')。
+/// 因此同时支持方向键和 readline 字符两种绑定。
+fn handle_alt(editor: &mut TextEditor, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Up => {
+            editor.move_line_up();
+            true
+        }
+        KeyCode::Down => {
+            editor.move_line_down();
+            true
+        }
+        // macOS Option+← → Alt+Char('b') 或 Alt+Left
+        KeyCode::Left | KeyCode::Char('b') => {
+            editor.move_word_left(false);
+            true
+        }
+        // macOS Option+→ → Alt+Char('f') 或 Alt+Right
+        KeyCode::Right | KeyCode::Char('f') => {
+            editor.move_word_right(false);
+            true
+        }
+        // Alt+d: 删除光标后一个单词（readline 标准）
+        KeyCode::Char('d') => {
+            editor.delete_word_forward();
+            true
+        }
+        KeyCode::Backspace => {
+            editor.delete_word_backward();
+            true
+        }
+        KeyCode::Delete => {
+            editor.delete_word_forward();
             true
         }
         _ => false,

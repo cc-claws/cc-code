@@ -91,6 +91,9 @@ pub(crate) async fn execute_prompt(
         )
     };
     let history_len = history.len();
+    // Save message IDs for compact persistence path (history is moved into execute_prompt below).
+    let history_ids: Vec<peri_agent::messages::MessageId> =
+        history.iter().map(|m| m.id()).collect();
 
     let broker: Arc<dyn peri_agent::interaction::UserInteractionBroker> = Arc::new(
         AcpTransportBroker::new(Arc::clone(transport), session_id.clone().into()),
@@ -146,6 +149,31 @@ pub(crate) async fn execute_prompt(
                     let new_msgs = &result.messages[history_len..];
                     if let Err(e) = thread_store.append_messages(&thread_id, new_msgs).await {
                         tracing::warn!(error = %e, "Failed to persist messages to ThreadStore");
+                    }
+                } else if result.messages.len() < history_len {
+                    // Compact replaced own messages with a condensed summary.
+                    // Delete old messages from ThreadStore and persist compacted state,
+                    // otherwise session restore loads old + new messages causing duplication.
+                    info!(
+                        session_id = %session_id,
+                        old_count = history_len,
+                        new_count = result.messages.len(),
+                        "Compact detected: updating ThreadStore"
+                    );
+                    if let Err(e) = thread_store.delete_messages(&thread_id, &history_ids).await {
+                        tracing::warn!(
+                            error = %e,
+                            "Failed to delete pre-compact messages from ThreadStore"
+                        );
+                    }
+                    if let Err(e) = thread_store
+                        .append_messages(&thread_id, &result.messages)
+                        .await
+                    {
+                        tracing::warn!(
+                            error = %e,
+                            "Failed to persist compacted messages to ThreadStore"
+                        );
                     }
                 }
                 state.history = result.messages;

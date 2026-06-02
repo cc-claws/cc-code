@@ -65,6 +65,10 @@ pub enum EditAction {
     Insert { pos: CursorPos, text: String },
     /// 在 `pos` 位置删除了 `text`。
     Delete { pos: CursorPos, text: String },
+    /// 交换两相邻行内容（line1 < line2），用于 move_line_up/down。
+    SwapLines { line1: usize, line2: usize },
+    /// 多步操作的原子组合，undo/redo 作为一个整体。
+    Group { actions: Vec<EditAction> },
 }
 
 // ── TextEditor ──
@@ -486,6 +490,253 @@ impl TextEditor {
         self.delete_selection();
     }
 
+    // ── 单词级编辑 ──
+
+    /// 向左删除一个单词（Ctrl+Backspace）。
+    pub fn delete_word_backward(&mut self) {
+        if self.selection_anchor.is_some() {
+            self.delete_selection();
+            return;
+        }
+        let pos = self.cursor;
+        if pos.col == 0 {
+            // 行首 → 合并到上一行
+            self.delete_backward();
+            return;
+        }
+        let new_col = self.find_word_boundary_left(pos.line, pos.col);
+        let start_col = if new_col < pos.col { new_col } else { 0 };
+        if start_col == pos.col {
+            return;
+        }
+        let start = CursorPos::new(pos.line, start_col);
+        let start_idx = self.pos_to_char(start);
+        let end_idx = self.pos_to_char(pos);
+        let text = self.rope.slice(start_idx..end_idx).to_string();
+        self.rope.remove(start_idx..end_idx);
+        self.cursor = start;
+        self.push_undo(EditAction::Delete { pos: start, text });
+        self.modified = true;
+    }
+
+    /// 向右删除一个单词（Ctrl+Delete）。
+    pub fn delete_word_forward(&mut self) {
+        if self.selection_anchor.is_some() {
+            self.delete_selection();
+            return;
+        }
+        let pos = self.cursor;
+        let line_len = self.line_content_len(pos.line);
+        if pos.col >= line_len {
+            // 行末 → 合并下一行
+            self.delete_forward();
+            return;
+        }
+        let new_col = self.find_word_boundary_right(pos.line, pos.col);
+        let end_col = if new_col > pos.col { new_col } else { line_len };
+        if end_col == pos.col {
+            return;
+        }
+        let end = CursorPos::new(pos.line, end_col);
+        let start_idx = self.pos_to_char(pos);
+        let end_idx = self.pos_to_char(end);
+        let text = self.rope.slice(start_idx..end_idx).to_string();
+        self.rope.remove(start_idx..end_idx);
+        self.push_undo(EditAction::Delete { pos, text });
+        self.modified = true;
+    }
+
+    // ── 行级操作 ──
+
+    /// 复制当前行并插入到下方（Ctrl+D）。
+    pub fn duplicate_line(&mut self) {
+        let line = self.cursor.line;
+        let line_text = self.line_text(line);
+        let insert_text = format!("{}\n", line_text);
+        let char_idx = self.pos_to_char(CursorPos::new(line + 1, 0));
+        self.rope.insert(char_idx, &insert_text);
+        self.cursor.line += 1;
+        // 保持 col 不变
+        self.push_undo(EditAction::Insert {
+            pos: CursorPos::new(line + 1, 0),
+            text: insert_text,
+        });
+        self.modified = true;
+    }
+
+    /// 将当前行上移一行（Alt+Up）。
+    pub fn move_line_up(&mut self) {
+        let line = self.cursor.line;
+        if line == 0 {
+            return;
+        }
+        let target = line - 1;
+        self.do_swap_lines(target, line);
+        self.cursor.line = target;
+        self.push_undo(EditAction::SwapLines {
+            line1: target,
+            line2: line,
+        });
+        self.modified = true;
+    }
+
+    /// 将当前行下移一行（Alt+Down）。
+    pub fn move_line_down(&mut self) {
+        let line = self.cursor.line;
+        if line + 1 >= self.line_count() {
+            return;
+        }
+        let target = line + 1;
+        self.do_swap_lines(line, target);
+        self.cursor.line = target;
+        self.push_undo(EditAction::SwapLines {
+            line1: line,
+            line2: target,
+        });
+        self.modified = true;
+    }
+
+    /// 交换两相邻行的内容（line1 < line2）。
+    fn do_swap_lines(&mut self, line1: usize, line2: usize) {
+        let l1_content = self.line_text(line1);
+        let l2_content = self.line_text(line2);
+        let l1_raw_len = self.rope.line(line1).len_chars();
+        let l2_raw_len = self.rope.line(line2).len_chars();
+        // l2 可能是最后一行（无尾部 \n），需要记录以便重建
+        let l2_had_nl = l2_raw_len > 0 && self.rope.line(line2).char(l2_raw_len - 1) == '\n';
+        let start = self.rope.line_to_char(line1);
+        let end = start + l1_raw_len + l2_raw_len;
+        self.rope.remove(start..end);
+        // l1 一定有尾部 \n（因为 l2 = l1+1），重建时 l2 在前、l1 在后
+        let new_text = format!(
+            "{}\n{}{}",
+            l2_content,
+            l1_content,
+            if l2_had_nl { "\n" } else { "" }
+        );
+        self.rope.insert(start, &new_text);
+        self.invalidate_highlight();
+    }
+
+    /// 选中当前行（Ctrl+L）。重复按可扩展到下一行。
+    pub fn select_line(&mut self) {
+        if let Some(anchor) = self.selection_anchor {
+            // 已有选区 → 扩展到下一行
+            let end_line = anchor.max(self.cursor).line;
+            let next = (end_line + 1).min(self.line_count().saturating_sub(1));
+            self.cursor = CursorPos::new(next, self.line_content_len(next));
+            // anchor 不变
+        } else {
+            // 无选区 → 选中当前行
+            let line = self.cursor.line;
+            self.selection_anchor = Some(CursorPos::new(line, 0));
+            self.cursor = CursorPos::new(line, self.line_content_len(line));
+        }
+    }
+
+    /// 删除当前行（Ctrl+Shift+K）。
+    pub fn delete_current_line(&mut self) {
+        let line = self.cursor.line;
+        if line >= self.line_count() {
+            return;
+        }
+        let line_chars = self.rope.line(line).len_chars();
+        let char_idx = self.rope.line_to_char(line);
+        let text = self.rope.line(line).to_string();
+        self.rope.remove(char_idx..char_idx + line_chars);
+        // 光标移到下一行（现在是当前行）的相同行号
+        let total = self.line_count();
+        if total == 0 {
+            self.cursor = CursorPos::new(0, 0);
+        } else {
+            let new_line = line.min(total.saturating_sub(1));
+            self.cursor = CursorPos::new(
+                new_line,
+                self.cursor.col.min(self.line_content_len(new_line)),
+            );
+        }
+        self.selection_anchor = None;
+        self.push_undo(EditAction::Delete {
+            pos: CursorPos::new(line, 0),
+            text,
+        });
+        self.modified = true;
+    }
+
+    // ── 缩进 ──
+
+    /// 插入 Tab 或缩进选区（Tab 键）。
+    pub fn insert_tab(&mut self) {
+        if let Some((start, end)) = self.selection_range() {
+            // 多行选区 → 缩进所有行
+            let mut actions = Vec::new();
+            for line in start.line..=end.line.min(self.line_count().saturating_sub(1)) {
+                let pos = CursorPos::new(line, 0);
+                let char_idx = self.pos_to_char(pos);
+                self.rope.insert_char(char_idx, '\t');
+                actions.push(EditAction::Insert {
+                    pos,
+                    text: "\t".to_string(),
+                });
+            }
+            // 调整选区：col += 1
+            if let Some(anchor) = self.selection_anchor {
+                self.selection_anchor = Some(CursorPos::new(anchor.line, anchor.col + 1));
+            }
+            self.cursor.col += 1;
+            self.push_undo(EditAction::Group { actions });
+            self.modified = true;
+        } else {
+            // 无选区 → 插入 Tab 字符
+            self.insert_char('\t');
+        }
+    }
+
+    /// 反缩进当前行或选区（Shift+Tab）。
+    pub fn outdent_lines(&mut self) {
+        let (start_line, end_line) = if let Some((start, end)) = self.selection_range() {
+            (start.line, end.line)
+        } else {
+            (self.cursor.line, self.cursor.line)
+        };
+        let mut actions = Vec::new();
+        let mut any_removed = false;
+        for line in start_line..=end_line.min(self.line_count().saturating_sub(1)) {
+            let text = self.line_text(line);
+            let (remove_col, remove_len) = if text.starts_with('\t') {
+                (0, 1)
+            } else {
+                // 最多移除 TAB_WIDTH 个前导空格
+                let spaces = text.chars().take_while(|&c| c == ' ').count();
+                (0, spaces.min(TAB_WIDTH))
+            };
+            if remove_len > 0 {
+                let pos = CursorPos::new(line, remove_col);
+                let char_idx = self.pos_to_char(pos);
+                let removed: String = text.chars().skip(remove_col).take(remove_len).collect();
+                self.rope.remove(char_idx..char_idx + remove_len);
+                actions.push(EditAction::Delete { pos, text: removed });
+                any_removed = true;
+                // 调整选区/光标
+                if line == self.cursor.line && self.cursor.col > 0 {
+                    self.cursor.col = self.cursor.col.saturating_sub(remove_len);
+                }
+                if let Some(anchor) = self.selection_anchor {
+                    if line == anchor.line && anchor.col > 0 {
+                        self.selection_anchor = Some(CursorPos::new(
+                            anchor.line,
+                            anchor.col.saturating_sub(remove_len),
+                        ));
+                    }
+                }
+            }
+        }
+        if any_removed {
+            self.push_undo(EditAction::Group { actions });
+            self.modified = true;
+        }
+    }
+
     /// 撤销上一步操作。
     pub fn undo(&mut self) {
         let Some(action) = self.undo_stack.pop() else {
@@ -504,30 +755,27 @@ impl TextEditor {
         self.undo_stack.push(action);
     }
 
-    /// 将编辑操作推入 undo 栈。合并同行相邻位置的单字符插入。
+    /// 将编辑操作推入 undo 栈。合并同类连续单字符操作：
+    /// - Insert：同行相邻位置的单字符插入
+    /// - Delete：同行相邻位置的单字符删除（正向删除或退格）
     pub fn push_undo(&mut self, action: EditAction) {
-        // 尝试合并：连续单字符（非换行）插入且在同一行相邻位置
-        if let EditAction::Insert {
-            pos: new_pos,
-            ref text,
-        } = action
-        {
-            if text.chars().count() == 1 && !text.contains('\n') {
-                if let Some(EditAction::Insert {
-                    pos: prev_pos,
-                    text: ref mut prev_text,
-                }) = self.undo_stack.last_mut()
-                {
-                    if prev_pos.line == new_pos.line
-                        && prev_pos.col + prev_text.chars().count() == new_pos.col
-                    {
-                        prev_text.push_str(text);
-                        // 合并成功，不压入新 action
-                        self.redo_stack.clear();
-                        return;
-                    }
-                }
+        // SwapLines 和 Group 不参与合并
+        if matches!(
+            action,
+            EditAction::SwapLines { .. } | EditAction::Group { .. }
+        ) {
+            self.undo_stack.push(action);
+            self.redo_stack.clear();
+            if self.undo_stack.len() > 10000 {
+                self.undo_stack.remove(0);
             }
+            self.invalidate_highlight();
+            return;
+        }
+        // 尝试合并连续单字符操作
+        if self.try_merge_undo(&action) {
+            self.redo_stack.clear();
+            return;
         }
         // 未合并，正常压栈
         self.undo_stack.push(action);
@@ -538,6 +786,59 @@ impl TextEditor {
         }
         // 编辑后使高亮失效
         self.invalidate_highlight();
+    }
+
+    /// 尝试将 action 合并到 undo 栈顶。返回 true 表示合并成功。
+    fn try_merge_undo(&mut self, action: &EditAction) -> bool {
+        match action {
+            EditAction::Insert { pos: new_pos, text } => {
+                if text.chars().count() != 1 || text.contains('\n') {
+                    return false;
+                }
+                let Some(EditAction::Insert {
+                    pos: prev_pos,
+                    text: ref mut prev_text,
+                }) = self.undo_stack.last_mut()
+                else {
+                    return false;
+                };
+                if prev_pos.line == new_pos.line
+                    && prev_pos.col + prev_text.chars().count() == new_pos.col
+                {
+                    prev_text.push_str(text);
+                    return true;
+                }
+                false
+            }
+            EditAction::Delete { pos: new_pos, text } => {
+                if text.chars().count() != 1 || text.contains('\n') {
+                    return false;
+                }
+                let Some(EditAction::Delete {
+                    pos: ref mut prev_pos,
+                    text: ref mut prev_text,
+                }) = self.undo_stack.last_mut()
+                else {
+                    return false;
+                };
+                if prev_pos.line != new_pos.line {
+                    return false;
+                }
+                // 正向删除（Delete 键）：pos 不变，追加到末尾
+                if new_pos == prev_pos {
+                    prev_text.push_str(text);
+                    return true;
+                }
+                // 退格（Backspace）：pos 递减，前置插入
+                if new_pos.col + 1 == prev_pos.col {
+                    prev_text.insert_str(0, text);
+                    *prev_pos = *new_pos;
+                    return true;
+                }
+                false
+            }
+            _ => false,
+        }
     }
 
     /// 反向应用编辑操作（用于 undo）。
@@ -554,8 +855,21 @@ impl TextEditor {
                 self.rope.insert(char_idx, text);
                 self.cursor = *pos;
             }
+            EditAction::SwapLines { line1, line2 } => {
+                // 交换回来（swap 的逆操作就是再 swap 一次）
+                self.do_swap_lines(*line1, *line2);
+                // 光标回到原来位置（较高行号）
+                let col = self.cursor.col.min(self.line_content_len(*line2));
+                self.cursor = CursorPos::new(*line2, col);
+            }
+            EditAction::Group { actions } => {
+                for action in actions.iter().rev() {
+                    self.apply_inverse(action);
+                }
+            }
         }
         self.clamp_cursor();
+        self.invalidate_highlight();
     }
 
     /// 正向应用编辑操作（用于 redo）。
@@ -579,33 +893,45 @@ impl TextEditor {
                 self.rope.remove(char_idx..char_idx + text.chars().count());
                 self.cursor = *pos;
             }
+            EditAction::SwapLines { line1, line2 } => {
+                self.do_swap_lines(*line1, *line2);
+                // 光标移到较低行号（move up 后的位置）
+                let col = self.cursor.col.min(self.line_content_len(*line1));
+                self.cursor = CursorPos::new(*line1, col);
+            }
+            EditAction::Group { actions } => {
+                for action in actions {
+                    self.apply_forward(action);
+                }
+            }
         }
         self.clamp_cursor();
+        self.invalidate_highlight();
     }
 
     // ── 光标移动 ──
 
-    /// 光标上移一行，列钳位到目标行内容长度。清除选区。
-    pub fn move_up(&mut self) {
-        self.clear_selection();
+    /// 光标上移一行，列钳位到目标行内容长度。
+    pub fn move_up(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
         if self.cursor.line > 0 {
             self.cursor.line -= 1;
             self.cursor.col = self.cursor.col.min(self.line_content_len(self.cursor.line));
         }
     }
 
-    /// 光标下移一行，列钳位到目标行内容长度。清除选区。
-    pub fn move_down(&mut self) {
-        self.clear_selection();
+    /// 光标下移一行，列钳位到目标行内容长度。
+    pub fn move_down(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
         if self.cursor.line + 1 < self.line_count() {
             self.cursor.line += 1;
             self.cursor.col = self.cursor.col.min(self.line_content_len(self.cursor.line));
         }
     }
 
-    /// 光标左移一字符，到行首时跳到上一行末尾。清除选区。
-    pub fn move_left(&mut self) {
-        self.clear_selection();
+    /// 光标左移一字符，到行首时跳到上一行末尾。
+    pub fn move_left(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
         if self.cursor.col > 0 {
             self.cursor.col -= 1;
         } else if self.cursor.line > 0 {
@@ -614,9 +940,9 @@ impl TextEditor {
         }
     }
 
-    /// 光标右移一字符，到行末时跳到下一行行首。清除选区。
-    pub fn move_right(&mut self) {
-        self.clear_selection();
+    /// 光标右移一字符，到行末时跳到下一行行首。
+    pub fn move_right(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
         let line_len = self.line_content_len(self.cursor.line);
         if self.cursor.col < line_len {
             self.cursor.col += 1;
@@ -626,16 +952,82 @@ impl TextEditor {
         }
     }
 
-    /// 光标移到当前行行首（col = 0）。清除选区。
-    pub fn move_home(&mut self) {
-        self.clear_selection();
+    /// 光标移到当前行行首（col = 0）。
+    pub fn move_home(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
         self.cursor.col = 0;
     }
 
-    /// 光标移到当前行行末（col = line_content_len）。清除选区。
-    pub fn move_end(&mut self) {
-        self.clear_selection();
+    /// 光标移到当前行行末（col = line_content_len）。
+    pub fn move_end(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
         self.cursor.col = self.line_content_len(self.cursor.line);
+    }
+
+    /// 智能 Home：在行首和第一个非空白字符之间切换（VSCode 行为）。
+    pub fn move_smart_home(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
+        let first_non_ws = self.first_non_whitespace_col(self.cursor.line);
+        if self.cursor.col == 0 {
+            // 在行首 → 跳到第一个非空白
+            self.cursor.col = first_non_ws;
+        } else if self.cursor.col <= first_non_ws {
+            // 在第一个非空白或之前 → 跳到行首
+            self.cursor.col = 0;
+        } else {
+            // 其他位置 → 跳到第一个非空白
+            self.cursor.col = first_non_ws;
+        }
+    }
+
+    /// 按单词左移（Ctrl+Left）。
+    pub fn move_word_left(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
+        let pos = self.cursor;
+        if pos.col == 0 {
+            if pos.line > 0 {
+                self.cursor = CursorPos::new(pos.line - 1, self.line_content_len(pos.line - 1));
+            }
+            return;
+        }
+        let new_col = self.find_word_boundary_left(pos.line, pos.col);
+        if new_col < pos.col {
+            self.cursor.col = new_col;
+        } else {
+            self.cursor.col = 0;
+        }
+    }
+
+    /// 按单词右移（Ctrl+Right）。
+    pub fn move_word_right(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
+        let pos = self.cursor;
+        let line_len = self.line_content_len(pos.line);
+        if pos.col >= line_len {
+            if pos.line + 1 < self.line_count() {
+                self.cursor = CursorPos::new(pos.line + 1, 0);
+            }
+            return;
+        }
+        let new_col = self.find_word_boundary_right(pos.line, pos.col);
+        if new_col > pos.col {
+            self.cursor.col = new_col;
+        } else {
+            self.cursor.col = line_len;
+        }
+    }
+
+    /// 光标移到文件开头（Ctrl+Home）。
+    pub fn move_file_start(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
+        self.cursor = CursorPos::new(0, 0);
+    }
+
+    /// 光标移到文件末尾（Ctrl+End）。
+    pub fn move_file_end(&mut self, extend: bool) {
+        self.begin_selection_if_extending(extend);
+        let last_line = self.line_count().saturating_sub(1);
+        self.cursor = CursorPos::new(last_line, self.line_content_len(last_line));
     }
 
     // ── 鼠标交互 ──
@@ -780,6 +1172,87 @@ impl TextEditor {
     /// 设置水平滚动偏移。
     pub fn set_scroll_x(&mut self, x: usize) {
         self.scroll_x = x;
+    }
+
+    // ── 辅助工具 ──
+
+    /// 扩展选区时设置锚点；非扩展时清除选区。
+    fn begin_selection_if_extending(&mut self, extend: bool) {
+        if extend {
+            if self.selection_anchor.is_none() {
+                self.selection_anchor = Some(self.cursor);
+            }
+        } else {
+            self.selection_anchor = None;
+        }
+    }
+
+    /// 判断字符是否为单词字符（字母、数字、下划线）。
+    fn is_word_char(ch: char) -> bool {
+        ch.is_alphanumeric() || ch == '_'
+    }
+
+    /// 向左查找单词边界：跳过空白，再跳过同类字符（单词字符或非空白标点）。
+    fn find_word_boundary_left(&self, line: usize, col: usize) -> usize {
+        let text = self.line_text(line);
+        let chars: Vec<char> = text.chars().collect();
+        let mut pos = col;
+        // 跳过空白
+        while pos > 0 && chars[pos - 1].is_whitespace() {
+            pos -= 1;
+        }
+        if pos == 0 {
+            return 0;
+        }
+        // 跳过同类字符
+        let is_word = Self::is_word_char(chars[pos - 1]);
+        while pos > 0
+            && Self::is_word_char(chars[pos - 1]) == is_word
+            && !chars[pos - 1].is_whitespace()
+        {
+            pos -= 1;
+        }
+        pos
+    }
+
+    /// 向右查找单词边界：跳过当前同类字符，再跳过空白停在下一个词首。
+    fn find_word_boundary_right(&self, line: usize, col: usize) -> usize {
+        let text = self.line_text(line);
+        let chars: Vec<char> = text.chars().collect();
+        let len = chars.len();
+        let mut pos = col;
+        if pos >= len {
+            return len;
+        }
+        // 跳过空白
+        if chars[pos].is_whitespace() {
+            while pos < len && chars[pos].is_whitespace() {
+                pos += 1;
+            }
+            return pos;
+        }
+        // 跳过同类字符
+        let is_word = Self::is_word_char(chars[pos]);
+        while pos < len && Self::is_word_char(chars[pos]) == is_word && !chars[pos].is_whitespace()
+        {
+            pos += 1;
+        }
+        // 跳过后置空白，停在下一个词首
+        while pos < len && chars[pos].is_whitespace() {
+            pos += 1;
+        }
+        pos
+    }
+
+    /// 返回指定行第一个非空白字符的列索引。全空白返回 0。
+    fn first_non_whitespace_col(&self, line: usize) -> usize {
+        let text = self.line_text(line);
+        for (i, ch) in text.chars().enumerate() {
+            if !ch.is_whitespace() {
+                return i;
+            }
+        }
+        0
     }
 }
 
@@ -929,17 +1402,17 @@ mod tests {
     fn test_cursor_movement() {
         let mut ed = make_editor("abc\ndef\nghi");
         ed.cursor = CursorPos::new(1, 1);
-        ed.move_up();
+        ed.move_up(false);
         assert_eq!(ed.cursor, CursorPos::new(0, 1), "上移到第 0 行 col 1");
-        ed.move_end();
+        ed.move_end(false);
         assert_eq!(ed.cursor, CursorPos::new(0, 3), "行末 col 3");
-        ed.move_right();
+        ed.move_right(false);
         assert_eq!(ed.cursor, CursorPos::new(1, 0), "行末右移跳到下一行行首");
-        ed.move_home();
+        ed.move_home(false);
         assert_eq!(ed.cursor, CursorPos::new(1, 0), "行首 col 0");
-        ed.move_left();
+        ed.move_left(false);
         assert_eq!(ed.cursor, CursorPos::new(0, 3), "行首左移跳到上一行行末");
-        ed.move_down();
+        ed.move_down(false);
         assert_eq!(ed.cursor, CursorPos::new(1, 3), "下移 col 钳位到行长度");
         assert_eq!(ed.cursor.col, 3, "def 长度 3，col 钳位到 3");
     }
@@ -1009,5 +1482,294 @@ mod tests {
         assert_eq!(ed.char_idx_to_display_col(0, 1), 2);
         assert_eq!(ed.char_idx_to_display_col(0, 2), 4);
         assert_eq!(ed.char_idx_to_display_col(0, 3), 5);
+    }
+
+    // === 新增功能测试 ===
+
+    #[test]
+    fn test_shift_selection() {
+        let mut ed = make_editor("abc\ndef\nghi");
+        ed.cursor = CursorPos::new(1, 1);
+        // Shift+Right: 扩展选区
+        ed.move_right(true);
+        assert_eq!(ed.cursor, CursorPos::new(1, 2));
+        assert_eq!(
+            ed.selection_anchor,
+            Some(CursorPos::new(1, 1)),
+            "锚点在起点"
+        );
+        assert_eq!(ed.selected_text(), "e", "选中一个字符");
+        // Shift+Down: 扩展到下一行
+        ed.move_down(true);
+        assert_eq!(ed.selected_text(), "ef\ngh", "跨行选区");
+        // 不带 extend 的移动清除选区
+        ed.move_left(false);
+        assert!(!ed.has_selection(), "普通移动清除选区");
+    }
+
+    #[test]
+    fn test_word_movement() {
+        let mut ed = make_editor("hello world_foo bar");
+        ed.cursor = CursorPos::new(0, 0);
+        // Ctrl+Right: 跳到 "world_foo" 开头
+        ed.move_word_right(false);
+        assert_eq!(ed.cursor.col, 6, "跳过 hello 后的空格");
+        // Ctrl+Right: 跳到 "bar" 开头（world_foo 是一个单词）
+        ed.move_word_right(false);
+        assert_eq!(
+            ed.cursor.col, 16,
+            "world_foo 作为一个单词跳过，停在 bar 开头"
+        );
+        // Ctrl+Left: 回到 world_foo 开头
+        ed.move_word_left(false);
+        assert_eq!(ed.cursor.col, 6, "回到 world_foo 开头");
+        // Ctrl+Left: 回到行首
+        ed.move_word_left(false);
+        assert_eq!(ed.cursor.col, 0, "回到行首");
+    }
+
+    #[test]
+    fn test_word_movement_punctuation() {
+        let mut ed = make_editor("foo.bar baz");
+        ed.cursor = CursorPos::new(0, 5); // 光标在 'b'
+        ed.move_word_left(false);
+        assert_eq!(ed.cursor.col, 4, "跳过 . 到 'b' 之前");
+        ed.move_word_left(false);
+        assert_eq!(ed.cursor.col, 3, "跳过 . 作为一个独立段");
+        ed.move_word_left(false);
+        assert_eq!(ed.cursor.col, 0, "回到 foo 开头");
+    }
+
+    #[test]
+    fn test_word_movement_cross_line() {
+        let mut ed = make_editor("abc\ndef");
+        ed.cursor = CursorPos::new(1, 0);
+        // Ctrl+Left at line start → end of previous line
+        ed.move_word_left(false);
+        assert_eq!(ed.cursor, CursorPos::new(0, 3), "跳到上一行行末");
+        ed.cursor = CursorPos::new(0, 3);
+        // Ctrl+Right at line end → start of next line
+        ed.move_word_right(false);
+        assert_eq!(ed.cursor, CursorPos::new(1, 0), "跳到下一行行首");
+    }
+
+    #[test]
+    fn test_delete_word() {
+        let mut ed = make_editor("hello world test");
+        ed.cursor = CursorPos::new(0, 12); // 光标在 'test' 的 t
+        ed.delete_word_backward();
+        assert_eq!(ed.line_text(0), "hello test", "删除 'world '");
+        assert_eq!(ed.cursor.col, 6, "光标在删除后位置");
+        ed.delete_word_forward();
+        assert_eq!(ed.line_text(0), "hello ", "删除 'test'");
+    }
+
+    #[test]
+    fn test_delete_word_undo() {
+        let mut ed = make_editor("hello world");
+        ed.cursor = CursorPos::new(0, 6);
+        ed.delete_word_backward();
+        assert_eq!(ed.line_text(0), "world");
+        ed.undo();
+        assert_eq!(ed.line_text(0), "hello world", "undo 恢复单词删除");
+    }
+
+    #[test]
+    fn test_smart_home() {
+        let mut ed = make_editor("    hello world");
+        ed.cursor = CursorPos::new(0, 7); // 在 'e' 位置
+        ed.move_smart_home(false);
+        assert_eq!(ed.cursor.col, 4, "跳到第一个非空白字符");
+        ed.move_smart_home(false);
+        assert_eq!(ed.cursor.col, 0, "已经在非空白 → 跳到行首");
+        ed.move_smart_home(false);
+        assert_eq!(ed.cursor.col, 4, "在行首 → 跳到非空白");
+    }
+
+    #[test]
+    fn test_file_start_end() {
+        let mut ed = make_editor("abc\ndef\nghi");
+        ed.cursor = CursorPos::new(2, 1);
+        ed.move_file_start(false);
+        assert_eq!(ed.cursor, CursorPos::new(0, 0), "文件开头");
+        ed.move_file_end(false);
+        assert_eq!(ed.cursor, CursorPos::new(2, 3), "文件末尾");
+    }
+
+    #[test]
+    fn test_duplicate_line() {
+        let mut ed = make_editor("abc\ndef");
+        ed.cursor = CursorPos::new(0, 2);
+        ed.duplicate_line();
+        assert_eq!(ed.line_text(0), "abc", "原行不变");
+        assert_eq!(ed.line_text(1), "abc", "复制行在下方");
+        assert_eq!(ed.line_text(2), "def", "原第二行下移");
+        assert_eq!(ed.cursor, CursorPos::new(1, 2), "光标在复制行相同列");
+        ed.undo();
+        assert_eq!(ed.line_text(0), "abc", "undo 恢复");
+        assert_eq!(ed.line_text(1), "def", "undo 恢复第二行");
+        assert_eq!(ed.line_count(), 2, "undo 恢复为 2 行");
+    }
+
+    #[test]
+    fn test_move_line_up_down() {
+        let mut ed = make_editor("aaa\nbbb\nccc");
+        ed.cursor = CursorPos::new(1, 1);
+        // move up: bbb 和 aaa 交换
+        ed.move_line_up();
+        assert_eq!(ed.line_text(0), "bbb", "bbb 移到第一行");
+        assert_eq!(ed.line_text(1), "aaa", "aaa 移到第二行");
+        assert_eq!(ed.line_text(2), "ccc", "ccc 不变");
+        assert_eq!(ed.cursor, CursorPos::new(0, 1), "光标跟随上移");
+        // undo
+        ed.undo();
+        assert_eq!(ed.line_text(0), "aaa", "undo 恢复");
+        assert_eq!(ed.line_text(1), "bbb");
+        assert_eq!(ed.line_text(2), "ccc");
+        assert_eq!(ed.cursor, CursorPos::new(1, 1), "光标恢复");
+        // move down: bbb 和 ccc 交换
+        ed.move_line_down();
+        assert_eq!(ed.line_text(0), "aaa");
+        assert_eq!(ed.line_text(1), "ccc", "ccc 上移");
+        assert_eq!(ed.line_text(2), "bbb", "bbb 下移");
+        assert_eq!(ed.cursor, CursorPos::new(2, 1), "光标跟随下移");
+    }
+
+    #[test]
+    fn test_move_line_up_at_first_line() {
+        let mut ed = make_editor("abc\ndef");
+        ed.cursor = CursorPos::new(0, 1);
+        ed.move_line_up();
+        assert_eq!(ed.line_text(0), "abc", "首行不动");
+        assert_eq!(ed.cursor, CursorPos::new(0, 1));
+    }
+
+    #[test]
+    fn test_select_line() {
+        let mut ed = make_editor("abc\ndef\nghi");
+        ed.cursor = CursorPos::new(1, 1);
+        // 第一次 Ctrl+L: 选中当前行
+        ed.select_line();
+        assert_eq!(ed.selected_text(), "def", "选中整行");
+        // 第二次 Ctrl+L: 扩展到下一行
+        ed.select_line();
+        assert_eq!(ed.selected_text(), "def\nghi", "扩展选区");
+    }
+
+    #[test]
+    fn test_delete_current_line() {
+        let mut ed = make_editor("abc\ndef\nghi");
+        ed.cursor = CursorPos::new(1, 1);
+        ed.delete_current_line();
+        assert_eq!(ed.line_text(0), "abc");
+        assert_eq!(ed.line_text(1), "ghi", "def 被删除");
+        assert_eq!(ed.cursor, CursorPos::new(1, 1), "光标在下一行");
+        ed.undo();
+        assert_eq!(ed.line_text(1), "def", "undo 恢复");
+    }
+
+    #[test]
+    fn test_indent_outdent() {
+        let mut ed = make_editor("abc\ndef");
+        ed.cursor = CursorPos::new(0, 1);
+        // Tab 插入（无选区 → 在光标位置插入）
+        ed.insert_tab();
+        assert_eq!(ed.line_text(0), "a\tbc", "在光标位置插入 Tab");
+        assert_eq!(ed.cursor.col, 2, "光标在 Tab 后");
+        // 反缩进：移除行首 Tab（需要先将光标移到行首，再 outdent）
+        // 当前光标在 col 2，outdent 会尝试移除行首的 tab（但 tab 不在行首）
+        // outdent 只移除行首的缩进，当前行 "a\tbc" 行首是 'a' 不是 tab，不会移除
+        // 先测试行首 Tab 的场景
+        ed.move_home(false);
+        // 现在光标在 col 0
+        ed.insert_tab();
+        assert_eq!(ed.line_text(0), "\ta\tbc", "在行首插入 Tab");
+        // 反缩进
+        ed.outdent_lines();
+        assert_eq!(ed.line_text(0), "a\tbc", "移除行首 Tab");
+    }
+
+    #[test]
+    fn test_indent_outdent_selection() {
+        let mut ed = make_editor("abc\ndef\nghi");
+        // 选中第 0 和第 1 行
+        ed.selection_anchor = Some(CursorPos::new(0, 0));
+        ed.cursor = CursorPos::new(1, 3);
+        ed.insert_tab();
+        assert_eq!(ed.line_text(0), "\tabc", "第 0 行缩进");
+        assert_eq!(ed.line_text(1), "\tdef", "第 1 行缩进");
+        assert_eq!(ed.line_text(2), "ghi", "第 2 行不变");
+        // undo 作为一步
+        ed.undo();
+        assert_eq!(ed.line_text(0), "abc", "undo 缩进");
+        assert_eq!(ed.line_text(1), "def");
+    }
+
+    #[test]
+    fn test_ctrl_shift_z_redo() {
+        // Ctrl+Shift+Z 和 Ctrl+Y 都触发 redo，这里测试 redo 栈行为
+        let mut ed = make_editor("ab");
+        ed.insert_char('x');
+        ed.undo();
+        assert_eq!(ed.line_text(0), "ab");
+        ed.redo();
+        assert_eq!(ed.line_text(0), "xab");
+    }
+
+    /// 连续退格应合并为一次 undo
+    #[test]
+    fn test_undo_merge_backspace() {
+        let mut ed = make_editor("abcde");
+        ed.cursor = CursorPos::new(0, 5);
+        // 连续 3 次退格
+        ed.delete_backward(); // 删 e
+        ed.delete_backward(); // 删 d
+        ed.delete_backward(); // 删 c
+        assert_eq!(ed.line_text(0), "ab", "连续退格后应为 ab");
+        // undo 一次应恢复全部
+        ed.undo();
+        assert_eq!(ed.line_text(0), "abcde", "undo 一次恢复所有退格");
+    }
+
+    /// 连续正向删除应合并为一次 undo
+    #[test]
+    fn test_undo_merge_forward_delete() {
+        let mut ed = make_editor("abcde");
+        ed.cursor = CursorPos::new(0, 0);
+        ed.delete_forward(); // 删 a
+        ed.delete_forward(); // 删 b
+        ed.delete_forward(); // 删 c
+        assert_eq!(ed.line_text(0), "de", "连续正向删除后应为 de");
+        ed.undo();
+        assert_eq!(ed.line_text(0), "abcde", "undo 一次恢复所有正向删除");
+    }
+
+    /// 不同类型的操作不合并（插入后删除是两次 undo）
+    #[test]
+    fn test_undo_no_cross_merge() {
+        let mut ed = make_editor("ab");
+        ed.insert_char('x');
+        ed.delete_backward();
+        assert_eq!(ed.line_text(0), "ab");
+        // undo 删除 → 恢复 x
+        ed.undo();
+        assert_eq!(ed.line_text(0), "xab", "undo 删除恢复 x");
+        // undo 插入 → 移除 x
+        ed.undo();
+        assert_eq!(ed.line_text(0), "ab", "undo 插入移除 x");
+    }
+
+    #[test]
+    fn test_ctrl_home_end_selection() {
+        let mut ed = make_editor("abc\ndef\nghi");
+        ed.cursor = CursorPos::new(1, 1);
+        ed.move_file_start(true);
+        assert_eq!(ed.selected_text(), "abc\nd", "选到文件开头");
+        ed.move_file_end(true);
+        assert_eq!(
+            ed.selected_text(),
+            "ef\nghi",
+            "选到文件末尾（从原光标 d 之后）"
+        );
     }
 }
