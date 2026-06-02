@@ -33,9 +33,9 @@ detect_platform() {
     local os arch platform
 
     if [[ -n "${GIG_INSTALL_PLATFORM:-}" ]]; then
-        if [[ ! "${GIG_INSTALL_PLATFORM}" =~ ^(macos|linux|windows)-(x86_64|aarch64)$ ]]; then
+        if [[ ! "${GIG_INSTALL_PLATFORM}" =~ ^(macos|linux|windows)-(x86_64|aarch64|riscv64)$ ]]; then
             error "Invalid GIG_INSTALL_PLATFORM: ${GIG_INSTALL_PLATFORM}"
-            echo "  Expected: macos-x86_64 | macos-aarch64 | linux-x86_64 | linux-aarch64 | windows-x86_64"
+            echo "  Expected: macos-x86_64 | macos-aarch64 | linux-x86_64 | linux-aarch64 | linux-riscv64 | windows-x86_64"
             exit 1
         fi
         info "Platform (manual): ${GIG_INSTALL_PLATFORM}" >&2
@@ -52,6 +52,7 @@ detect_platform() {
     case "$(uname -m)" in
         x86_64|amd64)  arch="x86_64" ;;
         aarch64|arm64) arch="aarch64" ;;
+        riscv64)       arch="riscv64" ;;
         *)             error "Unsupported arch: $(uname -m)"; exit 1 ;;
     esac
 
