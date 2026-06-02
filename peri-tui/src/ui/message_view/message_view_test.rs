@@ -456,3 +456,65 @@ fn test_recompute_hash_idempotent() {
     let h2 = vm.content_hash();
     assert_eq!(h1, h2, "未修改内容时 recompute_hash 应幂等");
 }
+
+#[test]
+fn test_human_message_with_system_reminder_detection() {
+    let text = "<system-reminder>\n此会话从之前的对话延续。\n## Summary\nDone.\n[上下文已压缩，请根据摘要继续工作]\n</system-reminder>";
+    let msg = BaseMessage::human(text);
+    let vm = MessageViewModel::from_base_message(&msg, &[]);
+    match vm {
+        MessageViewModel::UserBubble {
+            system_reminder,
+            content,
+            ..
+        } => {
+            assert!(system_reminder, "应识别为系统提醒");
+            assert!(
+                !content.contains("<system-reminder>"),
+                "标签应被剥离: {}",
+                content
+            );
+            assert!(!content.contains("</system-reminder>"), "结束标签应被剥离");
+            assert!(content.contains("## Summary"), "正文应保留");
+            assert!(content.contains("[上下文已压缩"), "续接指令应保留");
+        }
+        _ => panic!("应为 UserBubble"),
+    }
+}
+
+#[test]
+fn test_human_message_without_system_reminder() {
+    let text = "普通用户消息";
+    let msg = BaseMessage::human(text);
+    let vm = MessageViewModel::from_base_message(&msg, &[]);
+    match vm {
+        MessageViewModel::UserBubble {
+            system_reminder, ..
+        } => {
+            assert!(!system_reminder, "普通消息不应标记为系统提醒");
+        }
+        _ => panic!("应为 UserBubble"),
+    }
+}
+
+#[test]
+fn test_system_reminder_partial_eq_different() {
+    let msg1 = BaseMessage::human("普通消息");
+    let msg2 = BaseMessage::human("<system-reminder>\n压缩摘要\n</system-reminder>");
+    let vm1 = MessageViewModel::from_base_message(&msg1, &[]);
+    let vm2 = MessageViewModel::from_base_message(&msg2, &[]);
+    assert_ne!(vm1, vm2, "系统提醒消息和普通消息不应相等");
+}
+
+#[test]
+fn test_system_reminder_content_hash_different() {
+    let msg1 = BaseMessage::human("普通消息");
+    let msg2 = BaseMessage::human("<system-reminder>\n压缩摘要\n</system-reminder>");
+    let vm1 = MessageViewModel::from_base_message(&msg1, &[]);
+    let vm2 = MessageViewModel::from_base_message(&msg2, &[]);
+    assert_ne!(
+        vm1.content_hash(),
+        vm2.content_hash(),
+        "content_hash 应不同"
+    );
+}
