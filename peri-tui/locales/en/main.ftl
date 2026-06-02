@@ -119,6 +119,7 @@ key-select = :Select
 key-confirm = :Confirm
 key-delete = :Delete
 key-reconnect = :Reconnect
+key-exit-detail = :Exit Verbose
 key-detail = :Detail
 key-execute = :Execute
 key-back = :Back

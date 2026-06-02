@@ -417,6 +417,14 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     ("Ctrl+C".to_string(), lc.tr("key-close")),
                     ("其他键".to_string(), lc.tr("key-cancel")),
                 ]
+            } else if app.session_mgr.current().ui.detail_mode {
+                // 详细模式：显示展示模式提示
+                vec![
+                    ("● Verbose".to_string(), String::new()),
+                    ("/".to_string(), lc.tr("key-command")),
+                    ("Ctrl+O".to_string(), lc.tr("key-exit-detail")),
+                    ("PgUp/PgDn".to_string(), lc.tr("key-scroll")),
+                ]
             } else if no_mouse {
                 vec![
                     ("/".to_string(), lc.tr("key-command")),

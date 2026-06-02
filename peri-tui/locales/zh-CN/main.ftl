@@ -118,6 +118,7 @@ key-select = :选择
 key-confirm = :确认
 key-delete = :删除
 key-reconnect = :重连
+key-exit-detail = :退出详细
 key-detail = :详情
 key-execute = :执行
 key-back = :返回
