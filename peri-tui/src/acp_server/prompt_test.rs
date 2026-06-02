@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn test_strip_leaked_prepends_有历史时剥离头部system消息() {
     // Arrange: 原始历史 [Human("hello"), Ai("hi")]
-    let history = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
+    let history = [BaseMessage::human("hello"), BaseMessage::ai("hi")];
     // 模拟 execute() 错误路径返回的 messages:
     // [SystemPrepend, SystemPrompt, Human("hello"), Ai("hi"), Human("new"), Ai("response")]
     let leaked_system_1 = BaseMessage::system("injected by middleware");
@@ -51,7 +51,7 @@ fn test_strip_leaked_prepends_空历史时剥离头部system() {
 #[test]
 fn test_strip_leaked_prepends_历史id找不到时原样返回() {
     // Arrange: 原始历史有一条消息
-    let history = vec![BaseMessage::human("hello")];
+    let history = [BaseMessage::human("hello")];
     // result_messages 中不包含原始历史的消息（compact 替换了所有消息）
     let result_messages = vec![
         BaseMessage::system("system prompt"),
@@ -67,7 +67,7 @@ fn test_strip_leaked_prepends_历史id找不到时原样返回() {
 /// 测试 strip_leaked_prepends：没有 leaked prepends 时正常返回
 #[test]
 fn test_strip_leaked_prepends_无leaked时正常返回() {
-    let history = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
+    let history = [BaseMessage::human("hello"), BaseMessage::ai("hi")];
     // 没有 leaked system，直接是原始历史 + 新消息
     let result_messages = vec![
         history[0].clone(),
