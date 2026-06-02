@@ -6,7 +6,7 @@
 
 **用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
 
-DeepSeek-V4-Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑。
+DeepSeek-V4-Pro + GLM-5.1 + MiMo-V2.5-Pro 驱动，`.claude/` 配置零迁移，RISC-V 也能跑。
 
 [![GitHub stars](https://img.shields.io/github/stars/konghayao/peri?style=social)](https://github.com/konghayao/peri/stargazers)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
@@ -22,7 +22,7 @@ DeepSeek-V4-Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑
 | 对比项 | 其他终端 Agent | Peri |
 |--------|---------------|------|
 | 运行时 | Node.js / Bun，动辄吃 1GB 内存 | Rust 原生，启动快，~50MB 内存 |
-| 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM |
+| 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM、MiMO |
 | Prompt 缓存 | 每轮重算，token 白烧 | 冻结 system prompt，95-99% 缓存命中率 |
 | 工具加载 | 全量塞进每轮请求 | 核心工具常驻，其余 Tool Search 按需懒加载 |
 | IDE 集成 | 只有终端 | ACP 协议，Zed 等 IDE 直连 |
@@ -36,7 +36,7 @@ DeepSeek-V4-Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑
 |------|------|
 | **Rust 原生** | 快启动、低内存、零运行时开销 |
 | **Context 优化** | system prompt 冻结 + 动态内容隔离，token 不浪费 |
-| **多 LLM 支持** | Anthropic / OpenAI 兼容 API，DeepSeek、GLM 随便切 |
+| **多 LLM 支持** | Anthropic / OpenAI 兼容 API，DeepSeek、GLM、MiMO 随便切 |
 | **Claude Code 兼容** | `.claude/` 配置、agents、skills、hooks、MCP、子 agent 直接复用 |
 | **流式 Markdown** | 代码块、表格、diff 实时渲染 |
 | **ACP 协议** | 接入 Zed 等 IDE，也支持自建 "Cloud Code" 平台 |
@@ -67,7 +67,7 @@ irm https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.ps1 | 
 
 **Nobody Coding** 字面意思：没有人类写过一行 Peri 代码 — 架构、TUI、harness tuning 全是 AI 干的。人决定 *做什么*，AI 想 *怎么做*。你不是在结对编程，你是在管一个不睡觉的工程师。Peri 99% 的代码都是这么来的。
 
-> 最近的 commit 几乎全是 DeepSeek 和 GLM 的产出。Claude 只在最初参与过。
+> 最近的 commit 几乎全是 DeepSeek、GLM 和 MiMO 的产出。Claude 只在最初参与过。
 
 ### 典型工作流
 
