@@ -59,7 +59,7 @@ fn build_visual_rows(
                 is_first: true,
             });
         } else {
-            let wrap_count = (line_width + content_width - 1) / content_width;
+            let wrap_count = line_width.div_ceil(content_width);
             for wrap_idx in 0..wrap_count {
                 if rows.len() >= max_rows {
                     break;
@@ -238,6 +238,7 @@ fn spans_to_chars(spans: &[(Style, String)]) -> Vec<(char, Option<Style>)> {
 
 /// 通用的字符渲染：逐字符累加 display_col，跳过 scroll_x 之前的部分，
 /// 超出 area.width 时停止（严格视口裁剪）。
+#[allow(clippy::too_many_arguments)]
 fn render_chars(
     buf: &mut Buffer,
     area: Rect,
@@ -313,7 +314,7 @@ fn render_scrollbar(
     buf: &mut Buffer,
     area: Rect,
     height: u16,
-    visual_rows: &[VisualRow],
+    _visual_rows: &[VisualRow],
 ) {
     let sb_x = area.x + area.width.saturating_sub(1);
     let total_lines = editor.line_count();

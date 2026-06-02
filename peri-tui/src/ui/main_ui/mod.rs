@@ -342,7 +342,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
     } else if let Some(crate::app::InteractionPrompt::Rewind(p)) =
         &app.session_mgr.current().agent.interaction_prompt
     {
-        let base = p.items.len() as u16 * 1 + 3;
+        let base = p.items.len() as u16 + 3;
         let confirm_extra = if p.mode == crate::app::RewindMode::ConfirmRevert {
             let selected = &p.items[p.cursor];
             (selected.file_changes.len() as u16 + 3).min(10)

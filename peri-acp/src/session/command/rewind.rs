@@ -32,6 +32,7 @@ struct RewindArgs {
 enum FileChange {
     Write {
         path: String,
+        #[allow(dead_code)]
         content: String,
     },
     Edit {

@@ -6,6 +6,28 @@ use crate::ui::sidebar::status_panel;
 use crate::ui::toolbar::{GlobalAction, ToolbarAction};
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
+/// 打开文件搜索弹窗（Ctrl+P 或工具栏按钮共用）
+fn open_file_search(app: &mut App) {
+    app.file_search_query = Some(String::new());
+    app.file_search_cursor = 0;
+    app.file_search_selected = 0;
+    app.file_search_results.clear();
+    if app.all_tracked_files.is_empty() {
+        match app.repo.list_all_files() {
+            Ok(files) => {
+                app.all_tracked_files_lower =
+                    files.iter().map(|f| f.to_ascii_lowercase()).collect();
+                app.all_tracked_files = files;
+            }
+            Err(e) => {
+                app.show_toast(format!("文件扫描失败: {}", e), ToastStyle::Error);
+            }
+        }
+    }
+    app.update_file_search_results();
+    app.overlay = Overlay::FileSearch;
+}
+
 /// 打开文件编辑器（替代旧的 preview_file 逻辑）
 fn open_file_in_editor(app: &mut App, relative_path: &str) {
     if let Some(wd) = app.repo.repo().workdir() {
@@ -552,24 +574,7 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.search_query = Some(String::new());
         }
         KeyCode::Char('p') if mods.contains(KeyModifiers::CONTROL) => {
-            app.file_search_query = Some(String::new());
-            app.file_search_cursor = 0;
-            app.file_search_selected = 0;
-            app.file_search_results.clear();
-            if app.all_tracked_files.is_empty() {
-                match app.repo.list_all_files() {
-                    Ok(files) => {
-                        app.all_tracked_files_lower =
-                            files.iter().map(|f| f.to_ascii_lowercase()).collect();
-                        app.all_tracked_files = files;
-                    }
-                    Err(e) => {
-                        app.show_toast(format!("文件扫描失败: {}", e), ToastStyle::Error);
-                    }
-                }
-            }
-            app.update_file_search_results();
-            app.overlay = Overlay::FileSearch;
+            open_file_search(app);
         }
         KeyCode::Char('f') if !mods.contains(KeyModifiers::CONTROL) => {
             spawn_remote(app, RemoteOp::Fetch, None);
@@ -1239,6 +1244,9 @@ fn handle_global_action(app: &mut App, action: GlobalAction) {
         }
         GlobalAction::ToggleStash => {
             app.overlay = Overlay::StashList;
+        }
+        GlobalAction::FileSearch => {
+            open_file_search(app);
         }
     }
 }

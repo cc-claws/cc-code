@@ -60,7 +60,7 @@ impl Ord for CursorPos {
 
 /// 编辑操作记录（用于 undo/redo）。
 #[derive(Debug, Clone)]
-enum EditAction {
+pub enum EditAction {
     /// 在 `pos` 位置插入了 `text`。
     Insert { pos: CursorPos, text: String },
     /// 在 `pos` 位置删除了 `text`。
@@ -96,6 +96,7 @@ pub struct TextEditor {
 /// 全量高亮的行数上限。超过此大小的文件降级为纯文本。
 const HIGHLIGHT_MAX_LINES: usize = 10000;
 
+#[allow(dead_code)]
 impl TextEditor {
     // ── 文件 I/O ──
 
@@ -328,7 +329,7 @@ impl TextEditor {
     /// 计算指定行的显示宽度（所有字符的 display width 之和）。
     pub fn line_display_width(&self, line: usize) -> usize {
         let text = self.line_text(line);
-        text.chars().map(|ch| char_width(ch)).sum()
+        text.chars().map(char_width).sum()
     }
 
     /// [`CursorPos`] 转换为 Rope 绝对字符索引。
@@ -520,7 +521,7 @@ impl TextEditor {
                     if prev_pos.line == new_pos.line
                         && prev_pos.col + prev_text.chars().count() == new_pos.col
                     {
-                        prev_text.push_str(&text);
+                        prev_text.push_str(text);
                         // 合并成功，不压入新 action
                         self.redo_stack.clear();
                         return;
@@ -738,7 +739,7 @@ impl TextEditor {
             let wrap_count = if line_width == 0 {
                 1
             } else {
-                (line_width + content_width - 1) / content_width
+                line_width.div_ceil(content_width)
             };
 
             for wrap_idx in 0..wrap_count {

@@ -332,7 +332,6 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 " Agent 运行中，请等待后再撤销 ",
                 Style::default().fg(theme::WARNING),
             ));
-            has_content = true;
         }
     }
 

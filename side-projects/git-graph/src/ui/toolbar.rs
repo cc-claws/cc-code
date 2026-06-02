@@ -29,6 +29,7 @@ pub enum GlobalAction {
     ToggleBranches,
     ToggleTags,
     ToggleStash,
+    FileSearch,
 }
 
 pub struct ToolbarButton {
@@ -83,6 +84,12 @@ pub fn global_buttons() -> Vec<GlobalToolbarButton> {
             label: "stash",
             shortcut: 's',
             action: GlobalAction::ToggleStash,
+        },
+        GlobalToolbarButton {
+            emoji: "🔍",
+            label: "files",
+            shortcut: 'p', // Ctrl+P
+            action: GlobalAction::FileSearch,
         },
     ]
 }

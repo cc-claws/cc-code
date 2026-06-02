@@ -62,18 +62,15 @@ impl Command for GcCommand {
             _ => lines.push("RSS: 不可用（Windows 不支持）".to_string()),
         }
 
-        match (os_rss_before, os_rss_after) {
-            (Some(before), Some(after)) => {
-                let delta = before as isize - after as isize;
-                let sign = if delta >= 0 { "+" } else { "" };
-                lines.push(format!(
-                    "OS RSS: {} → {} ({sign}{})",
-                    fmt_mb(before),
-                    fmt_mb(after),
-                    fmt_mb_from_usize(delta.unsigned_abs()),
-                ));
-            }
-            _ => {}
+        if let (Some(before), Some(after)) = (os_rss_before, os_rss_after) {
+            let delta = before as isize - after as isize;
+            let sign = if delta >= 0 { "+" } else { "" };
+            lines.push(format!(
+                "OS RSS: {} → {} ({sign}{})",
+                fmt_mb(before),
+                fmt_mb(after),
+                fmt_mb_from_usize(delta.unsigned_abs()),
+            ));
         }
 
         // ── 数据结构诊断 ──
