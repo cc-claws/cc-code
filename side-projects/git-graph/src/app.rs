@@ -12,6 +12,7 @@ use peri_widgets::FileNode;
 use ratatui::layout::Rect;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use sysinfo::System;
 
 /// Toast 通知消息
 #[derive(Debug, Clone)]
@@ -215,6 +216,11 @@ pub struct App {
     pub editor: Option<crate::editor::TextEditor>,
     /// 编辑器渲染区域（渲染时更新）
     pub editor_area: ratatui::layout::Rect,
+    // === 系统资源监控（后台线程更新） ===
+    pub cpu_usage: f32,
+    pub mem_used_gb: f64,
+    pub mem_total_gb: f64,
+    sys_info_rx: std::sync::mpsc::Receiver<(f32, f64, f64)>,
 }
 
 impl App {
@@ -336,6 +342,10 @@ impl App {
             all_tracked_files_lower: Vec::new(),
             editor: None,
             editor_area: ratatui::layout::Rect::default(),
+            cpu_usage: 0.0,
+            mem_used_gb: 0.0,
+            mem_total_gb: 0.0,
+            sys_info_rx: Self::spawn_sysinfo_thread(),
         };
         app.select(selected_idx);
         Ok(app)
@@ -596,6 +606,36 @@ impl App {
             self.file_tree_state.set_root(new_root);
             self.file_tree_state.sort();
             self.restore_expanded_paths(&expanded_paths);
+        }
+    }
+
+    /// 启动后台线程定期采集 CPU/MEM，通过 channel 传递
+    fn spawn_sysinfo_thread() -> std::sync::mpsc::Receiver<(f32, f64, f64)> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut sys = System::new_all();
+            loop {
+                sys.refresh_cpu_usage();
+                sys.refresh_memory();
+                let cpu = sys.global_cpu_usage();
+                let mem_used = sys.used_memory() as f64 / 1073741824.0;
+                let mem_total = sys.total_memory() as f64 / 1073741824.0;
+                // 如果主线程已退出（sender drop），退出后台线程
+                if tx.send((cpu, mem_used, mem_total)).is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        });
+        rx
+    }
+
+    /// 非阻塞读取后台线程采集的系统指标
+    pub fn refresh_sys_info(&mut self) {
+        while let Ok((cpu, mem_used, mem_total)) = self.sys_info_rx.try_recv() {
+            self.cpu_usage = cpu;
+            self.mem_used_gb = mem_used;
+            self.mem_total_gb = mem_total;
         }
     }
 

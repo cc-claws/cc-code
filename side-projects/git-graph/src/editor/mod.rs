@@ -89,16 +89,27 @@ pub struct TextEditor {
     redo_stack: Vec<EditAction>,
 
     // 语法高亮
-    /// 每行的高亮结果。打开/编辑后全量重建，滚动时只读不写。
+    /// 每行的高亮结果。打开/编辑后增量重建，滚动时只读不写。
     highlight_cache: Vec<Option<Vec<(Style, String)>>>,
     /// 编辑后标记缓存需要重建
     highlight_dirty: bool,
     /// 防抖计时器：编辑后等 200ms 再重建高亮
     highlight_debounce: Option<std::time::Instant>,
+    /// 增量高亮：当前已处理到的行号（0-based）
+    highlight_progress: usize,
+    /// syntect 状态检查点：(行号, HighlightState, ParseState)
+    /// 每 BATCH_SIZE 行保存一次，恢复时从最近检查点开始
+    highlight_checkpoints: Vec<(
+        usize,
+        syntect::highlighting::HighlightState,
+        syntect::parsing::ParseState,
+    )>,
 }
 
 /// 全量高亮的行数上限。超过此大小的文件降级为纯文本。
 const HIGHLIGHT_MAX_LINES: usize = 10000;
+/// 每次主循环增量高亮的行数上限
+const HIGHLIGHT_BATCH_SIZE: usize = 200;
 
 #[allow(dead_code)]
 impl TextEditor {
@@ -129,60 +140,94 @@ impl TextEditor {
             highlight_dirty: true,
             // 首次打开立即高亮（防抖已过期）
             highlight_debounce: Some(std::time::Instant::now() - std::time::Duration::from_secs(1)),
+            highlight_progress: 0,
+            highlight_checkpoints: Vec::new(),
         })
     }
 
-    /// 同步重建全部语法高亮（≤ HIGHLIGHT_MAX_LINES 行）。
-    ///
-    /// 设计参照 Zed：预计算整个文件，滚动时零开销。
-    /// syntect 不支持增量/快照，所以全量重建是唯一正确策略。
-    /// 1000 行 Rust 文件 ~5ms，5000 行 ~25ms，配合防抖可接受。
-    pub fn rehighlight_all(&mut self) {
+    /// 增量高亮一批行（从 highlight_progress 开始，最多 HIGHLIGHT_BATCH_SIZE 行）。
+    /// 利用 highlight_checkpoints 避免每帧从头跑 syntect 状态。
+    /// 返回 true 表示有更新（需要重绘）。
+    fn rehighlight_batch(&mut self) -> bool {
         let total = self.rope.len_lines();
+        if total == 0 || !self.highlight_dirty {
+            return false;
+        }
 
         // 超大文件降级为纯文本
         if total > HIGHLIGHT_MAX_LINES {
-            self.highlight_cache = vec![None; total];
+            self.highlight_cache.resize(total, None);
             self.highlight_dirty = false;
-            return;
+            self.highlight_progress = total;
+            return false;
         }
 
         let ext = crate::ui::syntax::extension_from_path(self.path.to_str().unwrap_or(""));
         let syntax = match crate::ui::syntax::find_syntax(ext) {
             Some(s) => s,
             None => {
-                self.highlight_cache = vec![None; total];
+                self.highlight_cache.resize(total, None);
                 self.highlight_dirty = false;
-                return;
+                self.highlight_progress = total;
+                return false;
             }
         };
 
+        // 确保 cache 容量
+        if self.highlight_cache.len() != total {
+            self.highlight_cache.resize(total, None);
+        }
+
         let theme = crate::ui::syntax::get_theme();
         let ss = crate::ui::syntax::get_syntax_set();
-        let mut h = syntect::easy::HighlightLines::new(syntax, theme);
 
-        self.highlight_cache.clear();
-        self.highlight_cache.reserve(total);
+        // 从最近的 checkpoint 恢复 syntect 状态
+        let mut h = if let Some((cp_line, hs, ps)) = self
+            .highlight_checkpoints
+            .iter()
+            .rev()
+            .find(|(l, _, _)| *l <= self.highlight_progress)
+        {
+            // 从检查点恢复后，跑到 highlight_progress
+            let mut hl = syntect::easy::HighlightLines::from_state(theme, hs.clone(), ps.clone());
+            for i in *cp_line..self.highlight_progress {
+                let _ = hl.highlight_line(&self.line_text(i), ss);
+            }
+            hl
+        } else {
+            syntect::easy::HighlightLines::new(syntax, theme)
+        };
 
-        for i in 0..total {
+        let start = self.highlight_progress;
+        let end = (start + HIGHLIGHT_BATCH_SIZE).min(total);
+
+        for i in start..end {
             let line = self.line_text(i);
-            let spans = match h.highlight_line(&line, ss) {
+            let spans = match h.highlight_line(&self.line_text(i), ss) {
                 Ok(segments) => segments
                     .into_iter()
                     .map(|(s, t)| (crate::ui::syntax::to_ratatui_style(s), t.to_string()))
                     .collect(),
                 Err(_) => vec![(Style::default(), line)],
             };
-            self.highlight_cache.push(Some(spans));
+            self.highlight_cache[i] = Some(spans);
         }
-        self.highlight_dirty = false;
+
+        // 批次结束后保存检查点（通过 state(self) 取出状态）
+        let (hs, ps) = h.state();
+        self.highlight_checkpoints.push((end, hs, ps));
+
+        self.highlight_progress = end;
+        if end >= total {
+            self.highlight_dirty = false;
+        }
+
+        true
     }
 
-    /// 主循环调用：检查是否需要重建高亮。
+    /// 主循环调用：增量高亮。
     ///
-    /// 策略（参照 Zed）：
-    /// - 脏标记 + 防抖 → 全量重建整个文件（非仅视口）
-    /// - 无脏标记 → 零开销直接返回（滚动不触发任何计算）
+    /// 策略：脏标记 + 防抖 → 每帧增量处理 200 行 → 完成后清除脏标记。
     pub fn sync_highlight_visible(&mut self, _scroll_y: usize, _viewport_height: usize) -> bool {
         if !self.highlight_dirty {
             return false;
@@ -193,9 +238,7 @@ impl TextEditor {
                 return false;
             }
         }
-        self.rehighlight_all();
-        self.highlight_debounce = None;
-        true
+        self.rehighlight_batch()
     }
 
     /// 兼容旧调用
@@ -203,8 +246,7 @@ impl TextEditor {
         if !self.highlight_dirty {
             return false;
         }
-        self.rehighlight_all();
-        true
+        self.rehighlight_batch()
     }
 
     /// 获取指定行的高亮 spans（如果已缓存）
@@ -218,6 +260,8 @@ impl TextEditor {
     fn invalidate_highlight(&mut self) {
         self.highlight_dirty = true;
         self.highlight_debounce = Some(std::time::Instant::now());
+        self.highlight_progress = 0;
+        self.highlight_checkpoints.clear();
         // 编辑后需要重跑，但不清缓存——防抖期间显示旧高亮
     }
 
@@ -1771,5 +1815,59 @@ mod tests {
             "ef\nghi",
             "选到文件末尾（从原光标 d 之后）"
         );
+    }
+
+    /// 验证常用语言的语法高亮是否可用
+    #[test]
+    fn test_syntax_detection_common_languages() {
+        let cases = [
+            ("py", "Python"),
+            ("rs", "Rust"),
+            ("js", "JavaScript"),
+            ("ts", "TypeScript"),
+            ("go", "Go"),
+            ("json", "JSON"),
+            ("yaml", "YAML"),
+        ];
+        for (ext, expected_name) in cases {
+            let path = format!("test.{}", ext);
+            let ext_str = crate::ui::syntax::extension_from_path(&path);
+            let syntax = crate::ui::syntax::find_syntax(ext_str);
+            match syntax {
+                Some(s) => assert!(
+                    s.name.contains(expected_name),
+                    "ext={}: expected name containing '{}', got '{}'",
+                    ext,
+                    expected_name,
+                    s.name
+                ),
+                None => panic!("ext={}: 未找到语法定义", ext),
+            }
+        }
+    }
+
+    /// 验证 Python 文件增量高亮能正常产出
+    #[test]
+    fn test_rehighlight_batch_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.py");
+        {
+            let mut f = fs::File::create(&file_path).unwrap();
+            f.write_all(b"def hello():\n    print('world')\n    return 42\n")
+                .unwrap();
+        }
+
+        let mut ed = TextEditor::open(file_path).unwrap();
+        assert!(ed.highlight_dirty, "打开后应标记为 dirty");
+        assert!(ed.highlight_cache.is_empty(), "初始缓存为空");
+
+        let changed = ed.rehighlight_batch();
+        assert!(changed, "应有更新");
+
+        assert!(!ed.highlight_dirty, "小文件应一次完成");
+        assert_eq!(ed.highlight_cache.len(), 4, "4 行（含末尾空行）");
+        for (i, cache) in ed.highlight_cache.iter().enumerate() {
+            assert!(cache.is_some(), "第 {} 行应有高亮", i);
+        }
     }
 }

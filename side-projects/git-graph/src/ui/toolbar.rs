@@ -375,6 +375,28 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
         x += text_width;
     }
 
+    // 右侧：CPU/MEM 读数（右对齐）
+    let cpu_text = format!(" CPU {:.0}% ", app.cpu_usage);
+    let mem_text = format!(" MEM {:.1}/{:.0}GB ", app.mem_used_gb, app.mem_total_gb);
+    let cpu_width = UnicodeWidthStr::width(cpu_text.as_str()) as u16;
+    let mem_width = UnicodeWidthStr::width(mem_text.as_str()) as u16;
+    let right_width = cpu_width + mem_width;
+
+    let total_content = (x - area.x) + right_width;
+    if total_content < area.width {
+        let padding = area.width - total_content;
+        spans.push(Span::raw(" ".repeat(padding as usize)));
+    }
+
+    spans.push(Span::styled(
+        cpu_text,
+        Style::default().fg(Color::White).bg(Color::Rgb(60, 60, 80)),
+    ));
+    spans.push(Span::styled(
+        mem_text,
+        Style::default().fg(Color::White).bg(Color::Rgb(50, 80, 60)),
+    ));
+
     let para = Paragraph::new(Line::from(spans));
     f.render_widget(para, area);
 }
