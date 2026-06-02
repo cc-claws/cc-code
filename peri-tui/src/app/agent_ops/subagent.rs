@@ -23,13 +23,23 @@ impl App {
             .accumulate(&usage);
 
         // 缓存率检查：当次命中率低于 80% 时显示黄色提示
-        let rate = self
-            .session_mgr
-            .current_mut()
-            .agent
-            .session_token_tracker
-            .cache_hit_rate();
-        if rate < 0.8 {
+        // 首轮请求缓存尚未创建，cache_creation 有值但 cache_read=0，0% 是正常行为
+        // 限制：1分钟内最多显示一次警告，避免频繁打扰
+        let tracker = &self.session_mgr.current().agent.session_token_tracker;
+        let should_check = tracker.llm_call_count > 1;
+        let rate = tracker.cache_hit_rate();
+        let now = std::time::Instant::now();
+        let should_warn = should_check
+            && rate < 0.8
+            && self
+                .session_mgr
+                .current()
+                .agent
+                .last_cache_warning_at
+                .map(|t| now.duration_since(t).as_secs() >= 60)
+                .unwrap_or(true);
+        if should_warn {
+            self.session_mgr.current_mut().agent.last_cache_warning_at = Some(now);
             let tracker = &self.session_mgr.current_mut().agent.session_token_tracker;
             tracing::warn!(
                 input = tracker.total_input_tokens,

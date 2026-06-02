@@ -84,6 +84,8 @@ pub struct AgentComm {
     /// 标记当前 compact 是手动触发的（/compact 命令），而非 auto-compact
     /// handle_compact_completed 据此决定是否调用 set_loading(false)
     pub compact_manual: bool,
+    /// 上次显示缓存率警告的时间（用于限制显示频率）
+    pub last_cache_warning_at: Option<std::time::Instant>,
 }
 
 impl Default for AgentComm {
@@ -119,6 +121,7 @@ impl Default for AgentComm {
             pending_acp_request_id: None,
             cancel_sent_at: None,
             compact_manual: false,
+            last_cache_warning_at: None,
         }
     }
 }

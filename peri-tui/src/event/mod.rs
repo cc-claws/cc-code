@@ -18,6 +18,9 @@ use ratatui::crossterm::event::{
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
+/// 大段粘贴阈值：超过此字符数的粘贴内容将显示为占位符
+const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
+
 use crate::app::{
     panel_manager::{EventResult, PanelKind},
     App,
@@ -309,7 +312,16 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             // Fallback: paste into textarea
             // 弹窗激活时不写入 textarea——用户应通过弹窗 UI 交互
             if !app.is_interaction_popup_active() {
-                app.session_mgr.current_mut().ui.textarea.insert_str(&text);
+                let char_count = text.chars().count();
+                let ui = &mut app.session_mgr.current_mut().ui;
+                if char_count > LARGE_PASTE_CHAR_THRESHOLD {
+                    // 大段粘贴：显示占位符，保存实际内容
+                    let placeholder = ui.next_large_paste_placeholder(char_count);
+                    ui.pending_pastes.push((placeholder.clone(), text));
+                    ui.textarea.insert_str(&placeholder);
+                } else {
+                    ui.textarea.insert_str(&text);
+                }
             }
         }
         Event::Mouse(mouse) => match mouse.kind {

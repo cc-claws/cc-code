@@ -46,18 +46,18 @@ impl App {
             .try_send(RenderEvent::ToggleToolMessages(show_tool_messages));
     }
 
-    /// 切换 Write/Edit 工具结果内联 diff 的显隐
-    pub fn toggle_diff(&mut self) {
-        let new_visible = !self.session_mgr.current_mut().ui.diff_visible;
-        self.session_mgr.current_mut().ui.diff_visible = new_visible;
+    /// 切换详细模式：强制展开所有工具调用，显示完整内容
+    pub fn toggle_detail_mode(&mut self) {
+        let new_visible = !self.session_mgr.current_mut().ui.detail_mode;
+        self.session_mgr.current_mut().ui.detail_mode = new_visible;
 
-        // ToggleDiff 会清空 hash 缓存并触发全量重渲染
+        // ToggleDetail 会清空 hash 缓存并触发全量重渲染
         let _ = self
             .session_mgr
             .current()
             .messages
             .render_tx
-            .try_send(RenderEvent::ToggleDiff(new_visible));
+            .try_send(RenderEvent::ToggleDetail(new_visible));
     }
 
     /// 添加一个图片附件到待发送列表
