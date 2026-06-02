@@ -18,8 +18,8 @@ impl Command for GcCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
-        let stats_before = crate::mimalloc_config::query_stats();
-        let os_rss_before = os_rss_mb();
+        let stats_before = crate::alloc_config::query_stats();
+        let os_rss_before = crate::alloc_config::os_rss_mb();
 
         // ── 诊断：各数据结构大小 ──
         let active = app.active();
@@ -34,10 +34,10 @@ impl Command for GcCommand {
 
         let mut lines = Vec::new();
 
-        crate::mimalloc_config::alloc_collect();
+        crate::alloc_config::alloc_collect();
 
-        let stats_after = crate::mimalloc_config::query_stats();
-        let os_rss_after = os_rss_mb();
+        let stats_after = crate::alloc_config::query_stats();
+        let os_rss_after = crate::alloc_config::os_rss_mb();
 
         // ── RSS 汇总 ──
         match (stats_before, stats_after) {
@@ -45,23 +45,21 @@ impl Command for GcCommand {
                 let delta = before.current_rss as isize - after.current_rss as isize;
                 let sign = if delta >= 0 { "+" } else { "" };
                 lines.push(format!(
-                    "mimalloc RSS: {} → {} ({sign}{}) / 峰值 {}",
+                    "RSS: {} → {} ({sign}{})",
                     fmt_bytes(before.current_rss),
                     fmt_bytes(after.current_rss),
                     fmt_bytes(delta.unsigned_abs()),
-                    fmt_bytes(after.peak_rss),
                 ));
-                // commit vs RSS（Unix 上相同，Windows 上有差异）
-                let commit_delta = after.current_commit as isize - after.current_rss as isize;
-                if commit_delta != 0 {
+                let alloc_delta = after.current_allocated as isize - after.current_rss as isize;
+                if alloc_delta != 0 {
                     lines.push(format!(
-                        "commit: {} (与 RSS 差 {})",
-                        fmt_bytes(after.current_commit),
-                        fmt_bytes(commit_delta.unsigned_abs()),
+                        "jemalloc allocated: {} (与 RSS 差 {})",
+                        fmt_bytes(after.current_allocated),
+                        fmt_bytes(alloc_delta.unsigned_abs()),
                     ));
                 }
             }
-            _ => lines.push("mimalloc RSS: 不可用".to_string()),
+            _ => lines.push("RSS: 不可用（Windows 不支持）".to_string()),
         }
 
         match (os_rss_before, os_rss_after) {
@@ -75,7 +73,7 @@ impl Command for GcCommand {
                     fmt_mb_from_usize(delta.unsigned_abs()),
                 ));
             }
-            _ => lines.push("OS RSS: 不可用".to_string()),
+            _ => {}
         }
 
         // ── 数据结构诊断 ──
@@ -112,7 +110,7 @@ impl Command for GcCommand {
         lines.push(format!("markdown_cache: {md_cache_len}/{md_cache_cap} 条"));
 
         // ── jemalloc breakdown（关键：allocated vs active vs resident）──
-        if let Some(bd) = crate::mimalloc_config::query_breakdown() {
+        if let Some(bd) = crate::alloc_config::query_breakdown() {
             lines.push(String::new());
             lines.push("── jemalloc 明细 ──".to_string());
             lines.push(format!(
@@ -150,15 +148,17 @@ impl Command for GcCommand {
             }
         }
 
-        // ── mimalloc 全量 stats → tracing ──
-        lines.push(String::new());
-        lines.push("── jemalloc 全量统计（见日志 stderr）──".to_string());
-        tracing::info!("=== /gc jemalloc full stats dump ===");
-        crate::mimalloc_config::dump_stats();
-        tracing::info!("=== /gc jemalloc full stats end ===");
+        // ── jemalloc 全量 stats → tracing ──
+        if cfg!(not(target_os = "windows")) {
+            lines.push(String::new());
+            lines.push("── jemalloc 全量统计（见日志）──".to_string());
+            tracing::info!("=== /gc jemalloc full stats dump ===");
+            crate::alloc_config::dump_stats();
+            tracing::info!("=== /gc jemalloc full stats end ===");
+        }
 
         // ── 已知 vs 未识别 ──
-        if let Some(bd) = crate::mimalloc_config::query_breakdown() {
+        if let Some(bd) = crate::alloc_config::query_breakdown() {
             let known_bytes = origin_bytes + completed_bytes;
             let gap = bd.allocated.saturating_sub(known_bytes);
             lines.push(format!(
@@ -268,15 +268,6 @@ fn estimate_json_heap(v: &serde_json::Value) -> usize {
         }
         _ => 0,
     }
-}
-
-/// 通过 sysinfo 获取 OS 级 RSS（MB）
-fn os_rss_mb() -> Option<u64> {
-    use sysinfo::{ProcessesToUpdate, System};
-    let mut sys = System::new();
-    let pid = sysinfo::get_current_pid().ok()?;
-    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).map(|p| p.memory() / 1024) // KB → MB (已除以 1024)
 }
 
 // ── 格式化 ────────────────────────────────────────────────────────────────────

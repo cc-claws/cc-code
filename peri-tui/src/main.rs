@@ -252,9 +252,9 @@ fn inject_settings_override(source: &str) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
-    // Set mimalloc env vars BEFORE any allocation.
-    // Must be the very first line — mimalloc reads these during init.
-    peri_tui::mimalloc_config::init_mimalloc_conf();
+    // Set jemalloc MALLOC_CONF env vars BEFORE any allocation.
+    // Must be the very first line — jemalloc reads these during init.
+    peri_tui::alloc_config::init_alloc_conf();
 
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();

@@ -3,22 +3,20 @@
 //! Using jemalloc with aggressive decay for better fragmentation handling on macOS.
 //!
 //! Public API:
-//! - `init_mimalloc_conf()` — set env vars before allocator init
+//! - `init_alloc_conf()` — set env vars before allocator init
 //! - `alloc_collect()` — force aggressive memory reclamation
-//! - `query_rss()` — get current and peak RSS
-//! - `query_stats()` — get full allocator stats (RSS + jemalloc breakdown)
+//! - `query_stats()` — get allocator stats (RSS + jemalloc allocated)
 //! - `query_breakdown()` — jemalloc allocated/active/resident/metadata/mapped/retained
 //! - `dump_stats()` — print detailed allocator stats to stderr
+//! - `os_rss_mb()` — OS-level RSS via sysinfo (MB)
 
-/// Allocator stats breakdown.
+/// Allocator stats (RSS from sysinfo + jemalloc allocated).
 #[derive(Debug, Clone, Copy)]
-pub struct MimallocStats {
-    /// OS 级 RSS（sysinfo 报告，含所有内存）
+pub struct AllocStats {
+    /// OS 级 RSS（sysinfo 报告，含所有内存，字节）
     pub current_rss: usize,
-    pub peak_rss: usize,
     /// jemalloc stats.allocated（应用实际分配字节数，不含碎片/元数据）
-    pub current_commit: usize,
-    pub peak_commit: usize,
+    pub current_allocated: usize,
 }
 
 /// jemalloc 详细统计（需要 advance epoch 才准确）。
@@ -41,7 +39,7 @@ pub struct JemallocBreakdown {
 /// Set allocator environment variables before initialization.
 #[cfg(not(target_os = "windows"))]
 #[allow(dead_code)]
-pub fn init_mimalloc_conf() {
+pub fn init_alloc_conf() {
     if std::env::var("MALLOC_CONF").is_err() {
         std::env::set_var(
             "MALLOC_CONF",
@@ -52,7 +50,7 @@ pub fn init_mimalloc_conf() {
 
 #[cfg(target_os = "windows")]
 #[allow(dead_code)]
-pub fn init_mimalloc_conf() {}
+pub fn init_alloc_conf() {}
 
 /// Force jemalloc to aggressively reclaim freed memory.
 #[cfg(not(target_os = "windows"))]
@@ -87,15 +85,9 @@ fn advance_epoch() {
     let _ = tikv_jemalloc_ctl::epoch::advance();
 }
 
-/// Query OS-level RSS via sysinfo.
-#[cfg(not(target_os = "windows"))]
-pub fn query_rss() -> Option<(usize, usize)> {
-    query_stats().map(|s| (s.current_rss, s.peak_rss))
-}
-
 /// Query RSS + jemalloc allocated bytes.
 #[cfg(not(target_os = "windows"))]
-pub fn query_stats() -> Option<MimallocStats> {
+pub fn query_stats() -> Option<AllocStats> {
     advance_epoch();
     use sysinfo::{ProcessesToUpdate, System};
     let mut sys = System::new();
@@ -103,12 +95,10 @@ pub fn query_stats() -> Option<MimallocStats> {
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let proc = sys.process(pid)?;
     let current_rss = (proc.memory() * 1024) as usize; // sysinfo returns KB
-    let current_commit = tikv_jemalloc_ctl::stats::allocated::read().unwrap_or(current_rss);
-    Some(MimallocStats {
+    let current_allocated = tikv_jemalloc_ctl::stats::allocated::read().unwrap_or(current_rss);
+    Some(AllocStats {
         current_rss,
-        peak_rss: current_rss,
-        current_commit,
-        peak_commit: current_commit,
+        current_allocated,
     })
 }
 
@@ -126,7 +116,7 @@ pub fn query_breakdown() -> Option<JemallocBreakdown> {
     })
 }
 
-/// Print jemalloc full stats to stderr.
+/// Print jemalloc full stats to stderr via tracing.
 #[cfg(not(target_os = "windows"))]
 pub fn dump_stats() {
     let mut buf = Vec::new();
@@ -138,12 +128,21 @@ pub fn dump_stats() {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub fn query_rss() -> Option<(usize, usize)> {
-    None
+/// 通过 sysinfo 获取 OS 级 RSS（MB）。
+/// 公共函数，供 gc.rs 和 thread_ops.rs 复用。
+#[cfg(not(target_os = "windows"))]
+pub fn os_rss_mb() -> Option<u64> {
+    use sysinfo::{ProcessesToUpdate, System};
+    let mut sys = System::new();
+    let pid = sysinfo::get_current_pid().ok()?;
+    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    sys.process(pid).map(|p| p.memory() / 1024) // KB → MB
 }
+
+// ── Windows stubs ──────────────────────────────────────────────────────────
+
 #[cfg(target_os = "windows")]
-pub fn query_stats() -> Option<MimallocStats> {
+pub fn query_stats() -> Option<AllocStats> {
     None
 }
 #[cfg(target_os = "windows")]
@@ -152,3 +151,7 @@ pub fn query_breakdown() -> Option<JemallocBreakdown> {
 }
 #[cfg(target_os = "windows")]
 pub fn dump_stats() {}
+#[cfg(target_os = "windows")]
+pub fn os_rss_mb() -> Option<u64> {
+    None
+}
