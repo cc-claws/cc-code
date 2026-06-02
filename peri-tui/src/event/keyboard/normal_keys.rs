@@ -300,9 +300,15 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         }
 
         _ => {
-            // Any other key cancels quit-pending and rewind-pending state
+            // Any other key cancels quit-pending state (Ctrl+C double-tap)
             app.global_ui.quit_pending_since = None;
-            app.global_ui.rewind_pending_since = None;
+            // Note: do NOT reset rewind_pending_since here. The fallback arm
+            // captures keys like Key::Enter (with unmatched modifiers) and
+            // terminal-generated sequences (e.g. focus events, unknown keys).
+            // Resetting here would break the ESC double-tap detection because
+            // spurious key events between two ESC presses would clear the state.
+            // rewind_pending_since is naturally reset when the user types actual
+            // content (the `input if input.key != Key::Enter` arm above).
         }
     }
 
