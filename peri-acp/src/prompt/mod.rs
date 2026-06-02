@@ -154,6 +154,10 @@ pub fn build_system_prompt(
         env!("CARGO_MANIFEST_DIR"),
         "/../peri-tui/prompts/sections/07_env.md"
     )));
+    dynamic_sections.push(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../peri-tui/prompts/sections/14_system_reminder.md"
+    )));
     if features.hitl_enabled {
         dynamic_sections.push(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

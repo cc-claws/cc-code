@@ -255,3 +255,25 @@
             text
         );
     }
+
+    #[test]
+    fn test_render_system_reminder_user_bubble() {
+        let mut vm = MessageViewModel::user("irrelevant content".to_string());
+        if let MessageViewModel::UserBubble { system_reminder, .. } = &mut vm {
+            *system_reminder = true;
+        }
+        vm.recompute_hash();
+        let lines = render_view_model(&vm, Some(1), 80, false);
+        assert_eq!(lines.len(), 1, "系统提醒应只渲染一行");
+        let text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(text.contains("上下文已压缩"), "应显示压缩提示文字，实际: {}", text);
+    }
+
+    #[test]
+    fn test_render_normal_user_bubble_unchanged() {
+        let vm = MessageViewModel::user("Hello World".to_string());
+        let lines = render_view_model(&vm, Some(1), 80, false);
+        let first_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(first_text.contains("\u{276f}"), "普通消息应有 ❯ 前缀");
+        assert!(first_text.contains("Hello"), "应包含原始内容");
+    }
