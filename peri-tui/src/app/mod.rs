@@ -315,13 +315,13 @@ impl App {
             }
             command_registry.register_plugin_commands(pd.all_commands.clone());
         }
-        let diff_visible = self.session_mgr.current_mut().ui.diff_visible;
+        let detail_mode = self.session_mgr.current_mut().ui.detail_mode;
         let session = ChatSession::new(
             self.services.cwd.clone(),
             command_registry,
             skills,
             &self.services.lc,
-            diff_visible,
+            detail_mode,
         );
         self.session_mgr.replace(session);
     }

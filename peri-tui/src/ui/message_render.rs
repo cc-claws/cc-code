@@ -163,7 +163,7 @@ pub fn render_view_model(
     vm: &MessageViewModel,
     _index: Option<usize>,
     _width: usize,
-    diff_visible: bool,
+    detail_mode: bool,
 ) -> Vec<Line<'static>> {
     match vm {
         MessageViewModel::UserBubble { rendered, .. } => {
@@ -211,24 +211,53 @@ pub fn render_view_model(
                                 lines.push(Line::from(diff_spans));
                             }
                         } else {
-                            for line in rendered.lines.iter() {
-                                lines.push(Line::from(line.spans.clone()));
+                            // AI 回复内容：与 Codex 对齐，第一行用 "• " 前缀，后续行用 "  " 缩进
+                            let is_first = lines.is_empty();
+                            for (i, line) in rendered.lines.iter().enumerate() {
+                                let prefix = if i == 0 && is_first {
+                                    "• "
+                                } else {
+                                    "  "
+                                };
+                                let mut spans = vec![Span::styled(prefix, Style::default().fg(Color::White))];
+                                for span in &line.spans {
+                                    spans.push(span.clone());
+                                }
+                                lines.push(Line::from(spans));
                             }
                         }
                     }
                     ContentBlockView::Reasoning {
                         char_count,
                         tail_lines,
+                        text,
                         ..
                     } => {
-                        lines.push(Line::from(vec![Span::styled(
-                            format!("Thought for {} chars", char_count),
-                            Style::default().fg(theme::DIM),
-                        )]));
-                        if let Some(tail) = tail_lines {
+                        // Thought 标题：缩进 2 列对齐
+                        lines.push(Line::from(vec![
+                            Span::styled("  ", Style::default()),
+                            Span::styled(
+                                format!("Thought for {} chars", char_count),
+                                Style::default().fg(theme::DIM),
+                            ),
+                        ]));
+                        // detail_mode 显示完整 reasoning，否则只显示 tail_lines
+                        if detail_mode {
+                            // 详细模式：显示完整 reasoning 内容
+                            for tail_line in text.lines() {
+                                lines.push(Line::from(vec![
+                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                    Span::styled(
+                                        tail_line.to_string(),
+                                        Style::default().fg(theme::DIM),
+                                    ),
+                                ]));
+                            }
+                        } else if let Some(tail) = tail_lines {
+                            // 普通模式：只显示 tail 预览
                             for tail_line in tail.lines() {
                                 lines.push(Line::from(vec![
-                                    Span::styled(" ⎿ ", Style::default().fg(theme::DIM)),
+                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                                     Span::styled(
                                         tail_line.to_string(),
                                         Style::default().fg(theme::DIM),
@@ -253,7 +282,6 @@ pub fn render_view_model(
             color: _color,
             is_error,
             tool_name,
-            diff_lines,
             ..
         } => {
             // AskUserQuestion 专用渲染路径
@@ -272,13 +300,14 @@ pub fn render_view_model(
                 peri_widgets::ToolCallStatus::Completed
             };
 
-            // Write/Edit 工具完成后默认展开（显示写入/编辑结果摘要）
-            let effective_collapsed =
-                if !is_running && (tool_name == "Write" || tool_name == "Edit") {
-                    false
-                } else {
-                    *collapsed
-                };
+            // 详细模式：强制展开所有工具；否则 Write/Edit 完成后默认展开
+            let effective_collapsed = if detail_mode {
+                false
+            } else if !is_running && (tool_name == "Write" || tool_name == "Edit") {
+                false
+            } else {
+                *collapsed
+            };
             let mut state = peri_widgets::ToolCallState::new(display_name.clone(), theme::TEXT);
             state.status = status;
             state.collapsed = effective_collapsed;
@@ -332,7 +361,19 @@ pub fn render_view_model(
                     theme::MUTED
                 };
                 let border_color = if *is_error { theme::ERROR } else { theme::DIM };
-                for line in &state.result_lines {
+                // 详细模式显示完整内容，否则截断
+                let max_lines = if detail_mode { usize::MAX } else { 20 };
+                for (i, line) in state.result_lines.iter().enumerate() {
+                    if i >= max_lines {
+                        lines.push(Line::from(vec![
+                            Span::styled("  ⎿ ", Style::default().fg(border_color)),
+                            Span::styled(
+                                format!("... ({} more lines)", state.result_lines.len() - max_lines),
+                                Style::default().fg(theme::DIM),
+                            ),
+                        ]));
+                        break;
+                    }
                     lines.push(Line::from(vec![
                         Span::styled("  ⎿ ".to_string(), Style::default().fg(border_color)),
                         Span::styled(line.clone(), Style::default().fg(result_color)),
@@ -340,12 +381,6 @@ pub fn render_view_model(
                 }
             } else if *is_error && !content.is_empty() {
                 lines.extend(error_summary_lines(content));
-            }
-            // 内嵌 diff 视图（预渲染缓存，默认关闭，Ctrl+O 切换）
-            if diff_visible {
-                if let Some(ref cached_lines) = diff_lines {
-                    lines.extend(cached_lines.iter().cloned());
-                }
             }
             lines
         }
@@ -463,7 +498,7 @@ pub fn render_view_model(
                     if matches!(inner_vm, MessageViewModel::AssistantBubble { .. }) {
                         continue;
                     }
-                    let inner_lines = render_view_model(inner_vm, None, _width, diff_visible);
+                    let inner_lines = render_view_model(inner_vm, None, _width, detail_mode);
                     if inner_lines.is_empty() {
                         continue;
                     }
@@ -591,6 +626,38 @@ pub fn render_view_model(
                             Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                             Span::styled(text, Style::default().fg(entry_color)),
                         ]));
+                    }
+                }
+            } else if detail_mode {
+                // 详细模式：显示每条工具的名称和结果
+                for entry in tools {
+                    let entry_color = if entry.is_error {
+                        theme::ERROR
+                    } else {
+                        theme::SAGE
+                    };
+                    let indicator = if entry.is_error { "✗" } else { "●" };
+                    lines.push(Line::from(vec![
+                        Span::styled(indicator.to_string(), Style::default().fg(entry_color)),
+                        Span::raw(" "),
+                        Span::styled(
+                            entry.display_name.clone(),
+                            Style::default()
+                                .fg(theme::TEXT)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                    if !entry.content.is_empty() {
+                        let truncated: String = entry.content.chars().take(200).collect();
+                        for line in truncated.lines() {
+                            lines.push(Line::from(vec![
+                                Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                Span::styled(
+                                    line.to_string(),
+                                    Style::default().fg(theme::MUTED),
+                                ),
+                            ]));
+                        }
                     }
                 }
             } else {
