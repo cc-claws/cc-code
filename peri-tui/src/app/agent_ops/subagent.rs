@@ -24,12 +24,17 @@ impl App {
 
         // 缓存率检查：当次命中率低于 80% 时显示黄色提示
         // 首轮请求缓存尚未创建，cache_creation 有值但 cache_read=0，0% 是正常行为
+        // 如果 provider 不支持缓存（累计 cache_creation + cache_read 始终为 0），跳过警告
         // 限制：1分钟内最多显示一次警告，避免频繁打扰
         let tracker = &self.session_mgr.current().agent.session_token_tracker;
         let should_check = tracker.llm_call_count > 1;
         let rate = tracker.cache_hit_rate();
+        // provider 是否实际报告过缓存数据（cache_creation > 0 或 cache_read > 0）
+        let has_cache_data = tracker.total_cache_creation_tokens > 0
+            || tracker.total_cache_read_tokens > 0;
         let now = std::time::Instant::now();
         let should_warn = should_check
+            && has_cache_data
             && rate < 0.8
             && self
                 .session_mgr

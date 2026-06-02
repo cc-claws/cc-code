@@ -212,13 +212,16 @@ pub fn render_view_model(
                             }
                         } else {
                             // AI 回复内容：与 Codex 对齐，第一行用 "• " 前缀，后续行用 "  " 缩进
-                            let is_first = lines.is_empty();
-                            for (i, line) in rendered.lines.iter().enumerate() {
-                                let prefix = if i == 0 && is_first {
-                                    "• "
+                            // 注意：不能用 lines.is_empty() 判断，因为 Reasoning block 可能已先填充了 lines
+                            // 用独立的 text_line_count 追踪 Text block 自身的行数
+                            let mut text_line_count = 0usize;
+                            for line in rendered.lines.iter() {
+                                let prefix = if text_line_count == 0 {
+                                    "● "
                                 } else {
                                     "  "
                                 };
+                                text_line_count += 1;
                                 let mut spans = vec![Span::styled(prefix, Style::default().fg(Color::White))];
                                 for span in &line.spans {
                                     spans.push(span.clone());
