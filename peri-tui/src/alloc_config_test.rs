@@ -27,6 +27,8 @@ fn test_alloc_collect_does_not_panic() {
     alloc_collect();
 }
 
+/// jemalloc stats 查询仅在非 Windows 平台有效（Windows stub 返回 None）
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn test_query_stats_returns_valid_data() {
     let stats = query_stats().expect("query_stats 应返回数据");
@@ -47,6 +49,8 @@ fn test_query_stats_returns_valid_data() {
     );
 }
 
+/// jemalloc breakdown 查询仅在非 Windows 平台有效（Windows stub 返回 None）
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn test_breakdown_shows_fragmentation() {
     let bd = query_breakdown().expect("query_breakdown 应返回数据");
@@ -80,6 +84,7 @@ fn test_breakdown_shows_fragmentation() {
     );
 }
 
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn test_dump_stats() {
     // 分配一些内存让 stats 有意义
