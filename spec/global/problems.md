@@ -1396,8 +1396,39 @@
 ### 内存管理
 - [重新引入 mimalloc 作为全局分配器（带 MI_OPTION 调参）](domains/code-architecture.md#issue_2026-05-30-retry-mimalloc-with-mi-options) — code-architecture
 
+### at-mention 文件搜索
+- [@ mention 文件搜索性能差 + 多目录搜不到](domains/tui.md#issue_2026-05-31-at-mention-blocking-glob-search) — tui
+
+### glob 性能
+- [@ mention 文件搜索性能差 + 多目录搜不到](domains/tui.md#issue_2026-05-31-at-mention-blocking-glob-search) — tui
+
+### walkdir
+- [@ mention 文件搜索性能差 + 多目录搜不到](domains/tui.md#issue_2026-05-31-at-mention-blocking-glob-search) — tui
+
+### 线程隔离
+- [@ mention 文件搜索性能差 + 多目录搜不到](domains/tui.md#issue_2026-05-31-at-mention-blocking-glob-search) — tui
+
+### Rewind 消息丢失
+- [Rewind 回退后前文消息全部丢失 + 双击 ESC 偶发无响应](domains/tui.md#issue_2026-06-02-rewind-loses-messages-esc-unresponsive) — tui
+
+### rewind_pending_since
+- [Rewind 回退后前文消息全部丢失 + 双击 ESC 偶发无响应](domains/tui.md#issue_2026-06-02-rewind-loses-messages-esc-unresponsive) — tui
+
+### 多 session 分屏
+- [移除 /split 多 session 分屏功能](domains/tui.md#issue_2026-06-01-remove-split-multi-session) — tui
+
+### SessionManager
+- [移除 /split 多 session 分屏功能](domains/tui.md#issue_2026-06-01-remove-split-multi-session) — tui
+
+### 架构简化
+- [移除 /split 多 session 分屏功能](domains/tui.md#issue_2026-06-01-remove-split-multi-session) — tui
+
+### /split 移除
+- [移除 /split 多 session 分屏功能](domains/tui.md#issue_2026-06-01-remove-split-multi-session) — tui
+
 ## 更新记录
 
+- 2026-06-03: 归档 3 个 issue（at-mention 搜索、rewind 消息丢失、多 session 分屏移除）
 - 2026-05-29: 归档 8 个 issue（agent 7 + plugin 1），新增 22 个关键词索引
 - 2026-05-27: 归档 16 个 issue（agent 4 + system-prompt 2 + compact 1 + tui 4 + mcp 1），新增 42 个关键词索引
 - 2026-05-26: 归档 6 个 issue（agent 3 + compact 1 + code-architecture 1 + tui 1），新增 22 个关键词索引

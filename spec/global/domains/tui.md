@@ -957,6 +957,40 @@ submit_message(text)
 **涉及文件:** peri-tui/src/event/keyboard/normal_keys.rs, peri-tui/src/app/mod.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-31-at-mention-blocking-glob-search
+
+- **摘要:** @ mention 文件搜索性能差 + 多目录搜不到
+- **状态:** Fixed
+- **归档日期:** 2026-06-03
+- **关键词:** at-mention 文件搜索, glob 性能, walkdir, 线程隔离
+- **问题本质:** glob::glob() 深度优先遍历无法跳过大目录(node_modules/target)，MAX_GLOB_RESULTS 截断导致有效结果丢失；spawn_blocking 占用 tokio 线程池不释放
+- **通用模式:** 文件系统遍历应用 walkdir + should_skip_dir 在目录层级过滤，而非 glob 后截断；CPU/内存密集搜索应放独立线程 + idle 自动退出，不占 tokio 线程池
+- **技术决策:** 从 glob crate 迁移到 walkdir + should_skip_dir（对齐 GlobFilesTool），搜索从 spawn_blocking 改为 std::thread::spawn + mpsc + recv_timeout idle 退出
+- **涉及文件:** peri-tui/src/app/at_mention/file_search.rs, peri-tui/src/app/at_mention/mod.rs, peri-tui/src/event/keyboard.rs
+
+### issue_2026-06-02-rewind-loses-messages-esc-unresponsive
+
+- **摘要:** Rewind 回退后前文消息全部丢失 + 双击 ESC 偶发无响应
+- **状态:** Fixed
+- **归档日期:** 2026-06-03
+- **关键词:** Rewind 消息丢失, RebuildAll, 双击 ESC, rewind_pending_since
+- **问题本质:** handle_rewind_completed 只把保留消息放入 pipeline.completed 但未触发 VM 转换，RebuildAll 的 tail_vms 只有 rewind 通知，保留消息永远不渲染；兜底分支无差别重置 rewind_pending_since 导致双击序列被中间事件中断
+- **通用模式:** pipeline 操作后必须确保 completed 消息被渲染（通过 messages_to_view_models 或 StateSnapshot 触发）；双击/连续按键检测不应在兜底分支重置状态，应在明确的用户输入分支处理
+- **架构影响:** rewind 与 compact 共享 pipeline 操作但 rewind 没有后续 agent 执行来触发 StateSnapshot，需自行处理渲染
+- **涉及文件:** peri-tui/src/app/agent_compact.rs, peri-tui/src/event/keyboard/normal_keys.rs
+
+### issue_2026-06-01-remove-split-multi-session
+
+- **摘要:** 移除 /split 多 session 分屏功能
+- **状态:** Fixed
+- **归档日期:** 2026-06-03
+- **关键词:** 多 session 分屏, SessionManager, 架构简化, /split 移除
+- **问题本质:** TUI 层维护多 session 并发分屏功能增加 ~900 处 session_mgr 引用，但用户实际需求被 tmux 等工具覆盖，投入产出不成比例
+- **通用模式:** 低使用率功能的大面积架构复杂度应及时清理；终端应用的多窗口需求应交给终端复用工具而非应用自身
+- **架构影响:** SessionManager 保留但限制 len=1，多列布局改单列，删除 /split 命令和 Ctrl+N/P/W 快捷键
+- **技术决策:** 完全移除 TUI 多 session 并发分屏，保留 ACP 层 SessionStore 的多 session 存储（用于 /history 恢复）
+- **涉及文件:** peri-tui/src/command/session/split.rs, peri-tui/src/app/session_manager.rs, peri-tui/src/ui/main_ui/mod.rs
+
 ---
 
 ## 相关 Feature
