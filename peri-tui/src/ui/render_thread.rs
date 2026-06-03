@@ -260,6 +260,12 @@ impl RenderTask {
                 deduped.push(line.clone());
             }
         }
+        // 清除尾部空行
+        while deduped.last().is_some_and(|l| {
+            l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.is_empty())
+        }) {
+            deduped.pop();
+        }
 
         let (total_visual_rows, wrap_map) = Self::build_wrap_map(&deduped, self.width);
 
@@ -269,6 +275,7 @@ impl RenderTask {
             cache.message_offsets = offsets;
             cache.total_lines = total_visual_rows;
             cache.wrap_map = wrap_map;
+            cache.width = self.width;
             cache.version += 1;
         }
         // 更新 last_messages（用于 Resize 时全量重建）
