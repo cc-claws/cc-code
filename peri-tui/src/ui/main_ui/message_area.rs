@@ -25,6 +25,7 @@ struct ViewportClip {
 pub(crate) fn render_messages(
     f: &mut Frame,
     app: &mut App,
+    session_area: Rect,
     header_area: Rect,
     messages_area: Rect,
 ) {
@@ -35,7 +36,8 @@ pub(crate) fn render_messages(
     }
 
     let inner = messages_area;
-    app.session_mgr.current_mut().ui.messages_area = Some(inner);
+    let text_area = message_text_area(session_area, inner);
+    app.session_mgr.current_mut().ui.messages_area = Some(text_area);
     let visible_height = inner.height;
 
     // 计算 loading spinner 行（Claude Code 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
@@ -90,7 +92,7 @@ pub(crate) fn render_messages(
     // 避免每秒 N 次 resize 事件导致渲染线程队列积压和 CPU 暴涨
     // （参见 spec/issues/2026-05-14-streaming-resize-cpu-spike）。
     {
-        let text_area_width = inner.width.saturating_sub(1);
+        let text_area_width = text_area.width;
         let cache_width = app.session_mgr.current().messages.render_cache.read().width;
         let last_resize = app.session_mgr.current().messages.last_resize_width;
         if last_resize != Some(text_area_width)
@@ -145,12 +147,6 @@ pub(crate) fn render_messages(
         sticky_header::render_sticky_header(f, app, header_area);
     }
 
-    // 文字区域（留出右侧 1 列给滚动条）
-    let text_area = Rect {
-        width: inner.width.saturating_sub(1),
-        ..inner
-    };
-
     // ── 视口裁剪 ──────────────────────────────────────────────────────────
     // 利用 wrap_map 定位可见的逻辑行范围，只传递视口内的行给 Paragraph，
     // 避免 ratatui Paragraph::render 内部 O(offset) 的 WordWrapper 遍历导致 CPU 暴涨。
@@ -162,47 +158,35 @@ pub(crate) fn render_messages(
         .wrap(Wrap { trim: false });
     f.render_widget(paragraph, text_area);
 
-    // 滚动条
     if max_scroll > 0 {
         let mut scrollbar_state =
             ScrollbarState::new(max_scroll as usize).position(offset as usize);
+        let scrollbar_area = message_scrollbar_area(session_area, inner);
         let scrollbar =
             peri_widgets::unified_vertical_scrollbar().style(Style::default().fg(theme::MUTED));
-        f.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
+        f.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+    }
+}
 
-        // 滚动到底按钮（当用户滚离底部时显示）
-        if offset < max_scroll {
-            let btn_area = Rect {
-                x: inner.right().saturating_sub(1),
-                y: inner.bottom().saturating_sub(1),
-                width: 1,
-                height: 1,
-            };
-            let arrow = Paragraph::new(Text::from(Span::styled(
-                "▼",
-                Style::default()
-                    .fg(theme::MUTED)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            f.render_widget(arrow, btn_area);
-        }
+fn message_text_area(session_area: Rect, messages_area: Rect) -> Rect {
+    let right_edge = session_area.right().saturating_sub(1);
+    let width = if messages_area.right() > right_edge {
+        right_edge.saturating_sub(messages_area.x)
+    } else {
+        messages_area.width.saturating_sub(1)
+    };
+    Rect {
+        width,
+        ..messages_area
+    }
+}
 
-        // 滚动到顶按钮（当用户滚离顶部时显示）
-        if offset > 0 {
-            let btn_area = Rect {
-                x: inner.right().saturating_sub(1),
-                y: inner.y,
-                width: 1,
-                height: 1,
-            };
-            let arrow = Paragraph::new(Text::from(Span::styled(
-                "▲",
-                Style::default()
-                    .fg(theme::MUTED)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            f.render_widget(arrow, btn_area);
-        }
+fn message_scrollbar_area(session_area: Rect, messages_area: Rect) -> Rect {
+    Rect {
+        x: session_area.right().saturating_sub(1),
+        y: messages_area.y,
+        width: 1,
+        height: messages_area.height,
     }
 }
 
@@ -345,7 +329,7 @@ fn viewport_clip(
                 .current()
                 .ui
                 .messages_area
-                .map(|a| a.width.saturating_sub(1))
+                .map(|a| a.width)
                 .unwrap_or(0);
 
             let ((sr, sc), (er, ec)) = if start <= end {

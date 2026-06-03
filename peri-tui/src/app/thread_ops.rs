@@ -2,23 +2,28 @@ use super::*;
 
 impl App {
     pub fn scroll_up(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = self
-            .session_mgr
-            .current_mut()
-            .ui
-            .scroll_offset
-            .saturating_sub(3);
-        self.session_mgr.current_mut().ui.scroll_follow = false;
+        let ui = &mut self.session_mgr.current_mut().ui;
+        let max_scroll = ui.scrollbar_max_offset;
+        let current = if ui.scroll_follow {
+            max_scroll
+        } else {
+            ui.scroll_offset.min(max_scroll)
+        };
+        ui.scroll_offset = current.saturating_sub(3);
+        ui.scroll_follow = false;
     }
 
     pub fn scroll_down(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = self
-            .session_mgr
-            .current_mut()
-            .ui
-            .scroll_offset
-            .saturating_add(3);
-        self.session_mgr.current_mut().ui.scroll_follow = false;
+        let ui = &mut self.session_mgr.current_mut().ui;
+        let max_scroll = ui.scrollbar_max_offset;
+        let current = if ui.scroll_follow {
+            max_scroll
+        } else {
+            ui.scroll_offset.min(max_scroll)
+        };
+        let next = current.saturating_add(3).min(max_scroll);
+        ui.scroll_offset = next;
+        ui.scroll_follow = next >= max_scroll;
     }
 
     /// 滚动到底部（恢复 follow 模式）

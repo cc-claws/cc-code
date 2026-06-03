@@ -580,63 +580,6 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     }
                 }
                 if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                    let scroll_offset = app.session_mgr.current_mut().ui.scroll_offset;
-                    let scroll_follow = app.session_mgr.current_mut().ui.scroll_follow;
-
-                    // Scroll-to-bottom button: bottom-right click when user has scrolled away
-                    let btn_col_start = area.right().saturating_sub(2);
-                    let btn_row_start = area.bottom().saturating_sub(2);
-                    if !scroll_follow
-                        && mouse.column >= btn_col_start
-                        && mouse.column < area.right()
-                        && mouse.row >= btn_row_start
-                        && mouse.row < area.bottom()
-                    {
-                        app.scroll_to_bottom();
-                        return Ok(Some(Action::Redraw));
-                    }
-
-                    // Scroll-to-top button: top-right click when user has scrolled up
-                    if scroll_offset > 0
-                        && mouse.column >= btn_col_start
-                        && mouse.column < area.right()
-                        && mouse.row >= area.y
-                        && mouse.row < area.y.saturating_add(2)
-                    {
-                        app.scroll_to_top();
-                        return Ok(Some(Action::Redraw));
-                    }
-
-                    // Scrollbar drag: click on the rightmost scrollbar column
-                    // (▲/▼ buttons already handled above, so this catches the track area)
-                    // 记录起始位置，拖拽时用相对位移计算 offset，无需匹配 thumb 几何
-                    let scrollbar_col = area.right().saturating_sub(1);
-                    if mouse.column == scrollbar_col
-                        && mouse.row >= area.y
-                        && mouse.row < area.bottom()
-                    {
-                        let track = area.height;
-                        if track > 0 {
-                            let max_scroll = app.session_mgr.current_mut().ui.scrollbar_max_offset;
-                            // 首次点击：按比例跳到点击位置
-                            let rel_y = mouse.row.saturating_sub(area.y);
-                            let new_offset = if max_scroll > 0 {
-                                ((rel_y as f64 / track as f64) * max_scroll as f64)
-                                    .clamp(0.0, max_scroll as f64)
-                                    as u16
-                            } else {
-                                0
-                            };
-                            app.session_mgr.current_mut().ui.scroll_offset = new_offset;
-                            app.session_mgr.current_mut().ui.scroll_follow = false;
-                            app.session_mgr.current_mut().ui.scrollbar_dragging = true;
-                            app.session_mgr.current_mut().ui.scrollbar_drag_start_y = mouse.row;
-                            app.session_mgr.current_mut().ui.scrollbar_drag_start_offset =
-                                new_offset;
-                        }
-                        return Ok(Some(Action::Redraw));
-                    }
-
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
@@ -673,29 +616,6 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                // Scrollbar drag: 用相对位移计算 offset，无需匹配 thumb 几何
-                if app.session_mgr.current_mut().ui.scrollbar_dragging {
-                    if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                        let track = area.height;
-                        if track > 0 {
-                            let max_scroll = app.session_mgr.current_mut().ui.scrollbar_max_offset;
-                            let start_y = app.session_mgr.current_mut().ui.scrollbar_drag_start_y;
-                            let start_offset =
-                                app.session_mgr.current_mut().ui.scrollbar_drag_start_offset;
-                            if max_scroll > 0 {
-                                let delta_y = mouse.row as i32 - start_y as i32;
-                                // 每移动 1 行 track = 移动 max_scroll / track 的 offset
-                                let delta_offset =
-                                    (delta_y as f64 * (max_scroll as f64 / track as f64)) as i32;
-                                let new_offset = (start_offset as i32 + delta_offset)
-                                    .clamp(0, max_scroll as i32)
-                                    as u16;
-                                app.session_mgr.current_mut().ui.scroll_offset = new_offset;
-                                app.session_mgr.current_mut().ui.scroll_follow = false;
-                            }
-                        }
-                    }
-                }
                 // Panel scrollbar drag: update panel scroll offset from mouse Y
                 {
                     let session = &mut app.session_mgr.current_mut();
@@ -762,8 +682,6 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                // End scrollbar drag
-                app.session_mgr.current_mut().ui.scrollbar_dragging = false;
                 // End panel scrollbar drag
                 app.session_mgr.current_mut().ui.panel_scrollbar_dragging = false;
                 // Panel selection released
@@ -793,7 +711,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             .current_mut()
                             .ui
                             .messages_area
-                            .map(|a| a.width.saturating_sub(1))
+                            .map(|a| a.width)
                             .unwrap_or(0);
                         let cache = app.session_mgr.current_mut().messages.render_cache.read();
                         let text = crate::app::text_selection::extract_selected_text(

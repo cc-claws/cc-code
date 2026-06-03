@@ -104,7 +104,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         ])
         .split(area);
 
-    message_area::render_messages(f, app, chunks[0], chunks[1]);
+    message_area::render_messages(f, app, area, chunks[0], chunks[1]);
     attachment::render_attachment_bar(f, app, chunks[2]);
 
     // 底部展开区

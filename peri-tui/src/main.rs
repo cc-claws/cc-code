@@ -8,9 +8,10 @@ use ratatui::{
             EnableFocusChange, EnableMouseCapture,
         },
         execute,
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        terminal::{disable_raw_mode, enable_raw_mode},
     },
     prelude::*,
+    TerminalOptions, Viewport,
 };
 use std::io;
 use std::time::{Duration, Instant};
@@ -416,13 +417,18 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         let mut stdout = io::stdout();
         execute!(
             stdout,
-            EnterAlternateScreen,
             EnableMouseCapture,
             EnableBracketedPaste,
             EnableFocusChange
         )?;
         let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
+        let (_, viewport_height) = ratatui::crossterm::terminal::size()?;
+        let mut terminal = Terminal::with_options(
+            backend,
+            TerminalOptions {
+                viewport: Viewport::Inline(viewport_height),
+            },
+        )?;
 
         // 运行应用
         let result = run_app(&mut terminal, &opts).await;
@@ -431,7 +437,6 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         disable_raw_mode()?;
         execute!(
             terminal.backend_mut(),
-            LeaveAlternateScreen,
             DisableMouseCapture,
             DisableBracketedPaste,
             DisableFocusChange
@@ -687,7 +692,7 @@ async fn run_app(
     app.session_mgr.current_mut().spinner_state.advance_tick();
 
     // 初始全量绘制一次
-    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+    draw_app(terminal, &mut app)?;
     let mut last_render = Instant::now();
 
     /// loading 动画帧率限制间隔（约 30 FPS）。
@@ -712,17 +717,17 @@ async fn run_app(
                 event::Action::Quit => break 'event_loop,
                 event::Action::Submit(input) => {
                     app.submit_message(input);
-                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    draw_app(terminal, &mut app)?;
                     last_render = Instant::now();
                 }
                 event::Action::RunShellCommand(command) => {
                     app.run_shell_command(command);
-                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    draw_app(terminal, &mut app)?;
                     last_render = Instant::now();
                 }
                 event::Action::Redraw => {
                     // 有用户交互（键盘/鼠标/resize）→ 始终重绘
-                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    draw_app(terminal, &mut app)?;
                     last_render = Instant::now();
                 }
             },
@@ -745,7 +750,7 @@ async fn run_app(
                     // loading 路径：限制帧率到 TARGET_FRAME_INTERVAL，降低 CPU 开销
                     // 非 loading 路径（cache_updated/agent_updated/bg_updated）始终立即渲染
                     if !loading || now.duration_since(last_render) >= TARGET_FRAME_INTERVAL {
-                        terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                        draw_app(terminal, &mut app)?;
                         last_render = now;
                     }
                 }
@@ -807,6 +812,11 @@ async fn run_app(
         let _ = handle.await;
     }
 
+    Ok(())
+}
+
+fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+    terminal.draw(|f| ui::main_ui::render(f, app))?;
     Ok(())
 }
 

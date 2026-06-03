@@ -67,3 +67,19 @@ fn test_highlight_line_spans_outside() {
     assert!(!has_selection_bg(result[0].style));
     assert_eq!(result[0].content, "Hello");
 }
+
+#[test]
+fn test_message_scrollbar_uses_session_rightmost_column() {
+    let session_area = Rect::new(0, 0, 100, 30);
+    let messages_area = Rect::new(0, 3, 100, 20);
+
+    let text_area = message_text_area(session_area, messages_area);
+    let scrollbar_area = message_scrollbar_area(session_area, messages_area);
+
+    assert_eq!(scrollbar_area.x, 99, "滚动条应贴在当前 TUI frame 最右列");
+    assert_eq!(scrollbar_area.y, messages_area.y);
+    assert_eq!(scrollbar_area.width, 1);
+    assert_eq!(scrollbar_area.height, messages_area.height);
+    assert_eq!(text_area.x, messages_area.x);
+    assert_eq!(text_area.width, 99, "文本区域应给最右滚动条留出 1 列");
+}
