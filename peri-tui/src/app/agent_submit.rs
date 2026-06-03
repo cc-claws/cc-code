@@ -6,10 +6,6 @@ impl App {
             return;
         }
 
-        // 展开大段粘贴的占位符
-        let input = self.session_mgr.current_mut().ui.expand_pending_pastes(&input);
-        self.session_mgr.current_mut().ui.pending_pastes.clear();
-
         // 记录提交前的状态长度，用于中断时回滚 origin_messages
         self.session_mgr.current_mut().metadata.pre_submit_state_len =
             self.session_mgr.current_mut().agent.origin_messages.len();

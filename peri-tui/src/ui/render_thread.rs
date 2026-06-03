@@ -11,10 +11,10 @@ use ratatui::text::Line;
 use tokio::sync::{mpsc, Notify};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::message_view::MessageViewModel;
-use super::message_render::render_view_model;
-use super::markdown::ensure_rendered_incremental;
 use super::markdown::ensure_rendered_flush;
+use super::markdown::ensure_rendered_incremental;
+use super::message_render::render_view_model;
+use super::message_view::MessageViewModel;
 
 use ratatui::widgets::{Paragraph, Wrap};
 
@@ -253,7 +253,8 @@ impl RenderTask {
             offsets.push(deduped.len());
             for line in msg_lines {
                 // 全局 dedup：跳过紧跟在空行后的空行
-                if line.spans.is_empty() && deduped.last().is_some_and(|l: &Line| l.spans.is_empty())
+                if line.spans.is_empty()
+                    && deduped.last().is_some_and(|l: &Line| l.spans.is_empty())
                 {
                     continue;
                 }

@@ -30,8 +30,8 @@ impl App {
         let should_check = tracker.llm_call_count > 1;
         let rate = tracker.cache_hit_rate();
         // provider 是否实际报告过缓存数据（cache_creation > 0 或 cache_read > 0）
-        let has_cache_data = tracker.total_cache_creation_tokens > 0
-            || tracker.total_cache_read_tokens > 0;
+        let has_cache_data =
+            tracker.total_cache_creation_tokens > 0 || tracker.total_cache_read_tokens > 0;
         let now = std::time::Instant::now();
         let should_warn = should_check
             && has_cache_data
