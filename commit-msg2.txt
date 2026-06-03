@@ -1,0 +1,3 @@
+chore: 移除临时 commit-msg 文件
+
+Co-Authored-By: claude-sonnet-4-6 <noreply@anthropic.com>
