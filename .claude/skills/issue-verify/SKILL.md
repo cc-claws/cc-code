@@ -29,6 +29,7 @@ description: >
 | 状态 | 含义 | 终态（可归档） |
 |------|------|---------------|
 | `Open` | 待处理 | 否 |
+| `Pending` | 已修复，等待用户验证 | 否 |
 | `Partial` | 部分修复，仍有残留问题 | 否 |
 | `Reopen` | 曾修复但问题复现 | 否 |
 | `Fixed` | 已修复（开发者确认），待用户验证 | 否 |
@@ -38,10 +39,11 @@ description: >
 **合法转换**：
 
 ```
-Open → Fixed | Partial | Closed
+Open → Pending | Fixed | Partial | Closed
+Pending → Verified | Reopen | Partial | Closed
 Fixed → Verified | Reopen | Partial | Closed
-Partial → Fixed | Reopen | Closed
-Reopen → Fixed | Closed
+Partial → Fixed | Pending | Reopen | Closed
+Reopen → Fixed | Pending | Closed
 Verified → Reopen（问题回归）
 Closed → Reopen（重新打开）
 ```
@@ -76,6 +78,7 @@ Closed → Reopen（重新打开）
 | "还是不行"、"没修好"、"又出现了" | `Reopen` |
 | "部分好了"、"XX 修了但 YY 还有问题" | `Partial` |
 | "不用修了"、"关了吧"、"不做了" | `Closed` |
+| "修完了等验证"、"代码已改待验证"、"等待验证" | `Pending` |
 
 用 AskUserQuestion 确认推断：
 
@@ -110,6 +113,13 @@ Closed → Reopen（重新打开）
 
 问用户：
 1. 关闭原因？（不修复 / 已废弃 / 不是 bug / 已有其他方案）
+
+**→ Pending（等待验证）**
+
+问用户：
+1. 修复了什么？（概要）
+2. 涉及哪些文件/commit？
+3. 用户原意是什么？（用户最初想要什么效果）
 
 **→ Fixed（开发者标记已修复）**
 
