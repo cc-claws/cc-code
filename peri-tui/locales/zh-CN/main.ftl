@@ -107,6 +107,7 @@ key-command = 命令
 key-switch-session = :切换Session
 key-close = :关闭
 key-scroll = :滚动
+key-jump = :跳转
 key-cancel = :取消
 key-newline = :换行
 key-open-browser = :打开浏览器

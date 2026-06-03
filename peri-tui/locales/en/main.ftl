@@ -108,6 +108,7 @@ key-command = command
 key-switch-session = :Switch Session
 key-close = :Close
 key-scroll = :Scroll
+key-jump = :Jump
 key-cancel = :Cancel
 key-newline = :NewLine
 key-open-browser = :Open browser

@@ -421,8 +421,8 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 // 详细模式：显示展示模式提示
                 vec![
                     ("● Verbose".to_string(), String::new()),
-                    ("/".to_string(), lc.tr("key-command")),
                     ("Ctrl+O".to_string(), lc.tr("key-exit-detail")),
+                    ("Home/End".to_string(), lc.tr("key-jump")),
                     ("PgUp/PgDn".to_string(), lc.tr("key-scroll")),
                 ]
             } else if no_mouse {
