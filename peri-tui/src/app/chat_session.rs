@@ -3,7 +3,8 @@ use std::time::Instant;
 use peri_middlewares::prelude::{SkillMetadata, TodoItem};
 
 use super::{
-    langfuse_state::LangfuseState, AgentComm, CommandSystem, MessageState, SessionMetadata, UiState,
+    langfuse_state::LangfuseState, AgentComm, CommandSystem, MessageState, SessionMetadata,
+    ShellCommandRuntime, UiState,
 };
 use crate::{command::CommandRegistry, thread::ThreadId};
 
@@ -29,6 +30,7 @@ pub struct ChatSession {
     pub background_agents: Vec<RunningBgAgent>,
     pub focused_instance_id: Option<String>,
     pub spinner_state: peri_widgets::SpinnerState,
+    pub shell_command: ShellCommandRuntime,
 }
 
 impl ChatSession {
@@ -60,6 +62,7 @@ impl ChatSession {
             background_agents: Vec::new(),
             focused_instance_id: None,
             spinner_state: peri_widgets::SpinnerState::new(peri_widgets::SpinnerMode::Idle),
+            shell_command: ShellCommandRuntime::default(),
         }
     }
 }

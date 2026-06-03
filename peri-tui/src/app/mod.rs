@@ -66,6 +66,8 @@ mod hitl_prompt;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
 mod rewind_prompt;
 pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};
+mod shell_command;
+pub(crate) use shell_command::ShellCommandRuntime;
 
 // ── System Infrastructure ────────────────────────────────────────────────────
 mod chat_session;
@@ -202,6 +204,13 @@ impl App {
                     .expect("无法创建临时 SQLite 数据库"),
             ),
         };
+        let shell_command_store = Arc::new(
+            crate::shell_history::ShellCommandStore::default_path().unwrap_or_else(|_| {
+                crate::shell_history::ShellCommandStore::new(
+                    std::env::temp_dir().join("peri-shell-commands.jsonl"),
+                )
+            }),
+        );
 
         // 预计算命令帮助列表
         let command_registry = crate::command::default_registry();
@@ -246,6 +255,7 @@ impl App {
             model_name: model_name.clone(),
             permission_mode: permission_mode.clone(),
             thread_store: thread_store.clone(),
+            shell_command_store,
             mcp_pool: None,
             mcp_init_rx: None,
             cron: cron_state,

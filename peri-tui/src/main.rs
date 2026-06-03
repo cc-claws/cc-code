@@ -715,6 +715,11 @@ async fn run_app(
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
                     last_render = Instant::now();
                 }
+                event::Action::RunShellCommand(command) => {
+                    app.run_shell_command(command);
+                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    last_render = Instant::now();
+                }
                 event::Action::Redraw => {
                     // 有用户交互（键盘/鼠标/resize）→ 始终重绘
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;

@@ -16,6 +16,9 @@ mod subagent;
 impl App {
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         match event {
+            AgentEvent::ShellCommandCompleted(record) => {
+                self.handle_shell_command_completed(record)
+            }
             AgentEvent::SubAgentStart {
                 agent_id,
                 instance_id,

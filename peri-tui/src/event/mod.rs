@@ -28,6 +28,7 @@ use crate::app::{
 pub enum Action {
     Quit,
     Submit(String),
+    RunShellCommand(String),
     Redraw,
 }
 

@@ -2,10 +2,14 @@ use peri_agent::interaction::{InteractionContext, InteractionResponse};
 use peri_middlewares::prelude::TodoItem;
 use tokio::sync::oneshot;
 
+use crate::shell_history::ShellCommandRecord;
+
 pub use peri_middlewares::mcp::OAuthCallbackResult;
 
 /// TUI 与后台 Agent 任务之间的通信事件（通过 mpsc channel 传递）
 pub enum AgentEvent {
+    /// TUI 本地 shell 命令执行完成（不进入 Agent history）
+    ShellCommandCompleted(ShellCommandRecord),
     /// 工具调用开始（参数已就绪）
     ToolStart {
         tool_call_id: String,

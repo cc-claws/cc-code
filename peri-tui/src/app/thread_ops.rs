@@ -105,6 +105,7 @@ impl App {
     pub fn open_thread(&mut self, thread_id: ThreadId) {
         let store = self.services.thread_store.clone();
         let tid = thread_id.clone();
+        let shell_tid = thread_id.clone();
         let base_msgs = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(store.load_context(&tid))
@@ -129,6 +130,13 @@ impl App {
         );
         // 历史恢复时聚合连续的已完成 SubAgentGroup 为批次汇总
         message_pipeline::aggregate_batch_groups(&mut view_msgs);
+        let shell_store = self.services.shell_command_store.clone();
+        let shell_records = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(shell_store.load_for_thread(&shell_tid))
+                .unwrap_or_default()
+        });
+        let view_msgs = self.merge_shell_records_into_view(view_msgs, &base_msgs, shell_records);
         self.session_mgr.current_mut().messages.view_messages = view_msgs;
 
         // 同步 Pipeline 内部状态，确保后续流式事件能正确续接
@@ -169,6 +177,8 @@ impl App {
         self.session_mgr.current_mut().todo_items.clear();
 
         self.reset_agent_session();
+        self.session_mgr.current_mut().shell_command = ShellCommandRuntime::default();
+        self.set_loading(false);
         // 回收释放的内存给 OS
         crate::alloc_config::alloc_collect();
 
@@ -263,6 +273,7 @@ impl App {
             .pipeline
             .shrink_to_fit();
         self.session_mgr.current_mut().current_thread_id = None;
+        self.session_mgr.current_mut().shell_command = ShellCommandRuntime::default();
         self.session_mgr.current_mut().todo_items.clear();
         self.session_mgr
             .current_mut()
@@ -279,6 +290,7 @@ impl App {
         self.session_mgr.current_mut().metadata.pre_submit_state_len = 0;
 
         self.reset_agent_session();
+        self.set_loading(false);
 
         // 通过 ACP 协议创建新 session，清空 server 端 history
         if let Some(ref acp_client) = self.acp_client {
