@@ -85,7 +85,7 @@ impl App {
             super::CommandSystem::new(crate::command::default_registry(), Vec::new(), &lc);
 
         let session = super::ChatSession {
-            ui: super::UiState::new(super::build_textarea(false), "/tmp", false),
+            ui: super::UiState::new(super::build_textarea(false), "/tmp", false, false),
             messages: super::MessageState::new(
                 "/tmp".to_string(),
                 render_tx.clone(),

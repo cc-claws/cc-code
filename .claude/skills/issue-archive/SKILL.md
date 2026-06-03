@@ -18,10 +18,10 @@ description: >
 
 | 状态模式 | 归档 | 说明 |
 |---------|------|------|
-| `Fixed`（含 `Fixed + Verify`、`Fixed（待用户验证）`） | 是 | 已修复 |
+| `Verified` | 是 | 用户已验证通过（规范终态） |
 | `Closed` | 是 | 已关闭 |
-| `Done` | 是 | 已完成 |
-| `Verify`（含 `verify`） | 是 | 待验证，修复已完成仅需用户确认 |
+| `Fixed` | 是 | 已修复（旧 issue 兼容：`Fixed`、`Fixed + Verify`、`Fixed（待用户验证）`等变体） |
+| `Done`/`已完成`/`Resolved`/`完成`/`verify` | 是 | 旧格式兼容 |
 | `Open`、`Open (搁置)` | 否 | 仍需处理 |
 | `Partial`、`Reopen` | 否 | 未完全解决 |
 

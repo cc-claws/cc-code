@@ -6,6 +6,12 @@ impl App {
             return;
         }
 
+        // ── TUI 本地命令拦截：/streaming ──
+        if let Some(args) = input.strip_prefix("/streaming") {
+            self.handle_streaming_command(args.trim());
+            return;
+        }
+
         // 记录提交前的状态长度，用于中断时回滚 origin_messages
         self.session_mgr.current_mut().metadata.pre_submit_state_len =
             self.session_mgr.current_mut().agent.origin_messages.len();
@@ -297,5 +303,72 @@ impl App {
             )));
             self.set_loading(false);
         }
+    }
+
+    /// 处理 `/streaming` 本地命令：查看或切换流式渲染模式。
+    fn handle_streaming_command(&mut self, args: &str) {
+        use crate::app::message_pipeline::StreamingMode;
+
+        let (mode, label) = match args {
+            "" => {
+                let current = self
+                    .session_mgr
+                    .current()
+                    .messages
+                    .pipeline
+                    .streaming_mode();
+                let mode_str = match current {
+                    StreamingMode::Streaming => "Streaming",
+                    StreamingMode::Block => "Block",
+                    StreamingMode::None => "None",
+                };
+                let msg = format!(
+                    "当前渲染模式：{}（可选：streaming / block / none）",
+                    mode_str
+                );
+                self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+                    msg,
+                )));
+                return;
+            }
+            "streaming" => (StreamingMode::Streaming, "Streaming"),
+            "block" => (StreamingMode::Block, "Block"),
+            "none" => (StreamingMode::None, "None"),
+            _ => {
+                self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+                    "用法：/streaming [streaming|block|none]".to_string(),
+                )));
+                return;
+            }
+        };
+
+        self.session_mgr
+            .current_mut()
+            .messages
+            .pipeline
+            .set_streaming_mode(mode);
+
+        // 如果有 block buffer 残留需要 flush
+        if self
+            .session_mgr
+            .current()
+            .messages
+            .pipeline
+            .has_pending_block_flush()
+        {
+            let prefix = self.session_mgr.current().messages.round_start_vm_idx;
+            if let Some(action) = self
+                .session_mgr
+                .current_mut()
+                .messages
+                .pipeline
+                .check_throttle(prefix)
+            {
+                self.apply_pipeline_action(action);
+            }
+        }
+
+        let msg = format!("渲染模式已切换为：{}", label);
+        self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(msg)));
     }
 }

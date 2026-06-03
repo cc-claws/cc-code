@@ -1,3 +1,5 @@
+> 归档于 2026-06-03，原路径 spec/issues/2026-06-01-remove-split-multi-session.md
+
 # 移除 /split 多 session 分屏功能
 
 **状态**：Fixed

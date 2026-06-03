@@ -238,9 +238,20 @@ impl App {
             .as_ref()
             .map(|c| c.config.diff_enabled)
             .unwrap_or(false);
+        let streaming_mode = peri_config
+            .as_ref()
+            .and_then(|c| c.config.streaming_mode.clone());
+        let detail_enabled = false;
 
-        let initial_session =
-            ChatSession::new(cwd.clone(), command_registry, skills, &lc, diff_enabled);
+        let initial_session = ChatSession::new(
+            cwd.clone(),
+            command_registry,
+            skills,
+            &lc,
+            detail_enabled,
+            diff_enabled,
+            streaming_mode,
+        );
 
         let session_mgr = SessionManager::new(initial_session);
 
@@ -326,12 +337,20 @@ impl App {
             command_registry.register_plugin_commands(pd.all_commands.clone());
         }
         let detail_mode = self.session_mgr.current_mut().ui.detail_mode;
+        let diff_visible = self.session_mgr.current_mut().ui.diff_visible;
+        let streaming_mode = self
+            .services
+            .peri_config
+            .as_ref()
+            .and_then(|c| c.config.streaming_mode.clone());
         let session = ChatSession::new(
             self.services.cwd.clone(),
             command_registry,
             skills,
             &self.services.lc,
             detail_mode,
+            diff_visible,
+            streaming_mode,
         );
         self.session_mgr.replace(session);
     }

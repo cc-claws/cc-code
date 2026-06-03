@@ -44,10 +44,17 @@ pub struct UiState {
     pub bg_bar_area: Option<ratatui::layout::Rect>,
     /// 详细模式：强制展开所有工具调用，显示完整内容（Ctrl+O 切换）
     pub detail_mode: bool,
+    /// Write/Edit 工具结果内联 diff 是否可见
+    pub diff_visible: bool,
 }
 
 impl UiState {
-    pub fn new(textarea: TextArea<'static>, cwd: &str, detail_enabled: bool) -> Self {
+    pub fn new(
+        textarea: TextArea<'static>,
+        cwd: &str,
+        detail_enabled: bool,
+        diff_enabled: bool,
+    ) -> Self {
         let _ = cwd; // 历史路径已迁移至 ~/.peri/，cwd 保留用于未来扩展
         let input_history = super::history_persistence::load_input_history();
         Self {
@@ -79,6 +86,7 @@ impl UiState {
             bg_bar_cursor: None,
             bg_bar_area: None,
             detail_mode: detail_enabled,
+            diff_visible: diff_enabled,
         }
     }
 }

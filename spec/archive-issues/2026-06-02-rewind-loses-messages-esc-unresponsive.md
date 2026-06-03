@@ -1,3 +1,5 @@
+> 归档于 2026-06-03，原路径 spec/issues/2026-06-02-rewind-loses-messages-esc-unresponsive.md
+
 # Rewind 回退后前文消息全部丢失 + 双击 ESC 偶发无响应
 
 **状态**：Fixed

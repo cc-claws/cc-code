@@ -144,6 +144,9 @@ pub struct AppConfig {
     /// Write/Edit 工具结果内联 diff 默认是否可见
     #[serde(default)]
     pub diff_enabled: bool,
+    /// 流式渲染模式：streaming / block / none
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub streaming_mode: Option<String>,
     /// 保留未知字段
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -197,6 +200,10 @@ impl AppConfig {
         }
         // diff_enabled: bool 直接覆盖（无法区分"未写 false"和"写了 false"）
         self.diff_enabled = workspace.diff_enabled;
+        // streaming_mode: Option<String>
+        if workspace.streaming_mode.is_some() {
+            self.streaming_mode = workspace.streaming_mode;
+        }
         // 保留未知字段
         self.extra.extend(workspace.extra);
     }

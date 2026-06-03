@@ -1,3 +1,5 @@
+> 归档于 2026-06-03，原路径 spec/issues/2026-05-31-at-mention-blocking-glob-search.md
+
 # @ mention 文件搜索性能差 + 多目录搜不到
 
 **状态**：Fixed
