@@ -8,7 +8,7 @@ use peri_middlewares::{
 };
 
 use super::{cron_state::CronState, events::AgentEvent};
-use crate::{config::PeriConfig, thread::ThreadStore};
+use crate::{config::PeriConfig, shell_history::ShellCommandStore, thread::ThreadStore};
 
 /// 进程资源采样器：每 2 秒采样一次当前进程的 CPU 和内存
 pub struct ProcessResourceMonitor {
@@ -66,6 +66,7 @@ pub struct ServiceRegistry {
     pub model_name: String,
     pub permission_mode: Arc<SharedPermissionMode>,
     pub thread_store: Arc<dyn ThreadStore>,
+    pub shell_command_store: Arc<ShellCommandStore>,
     pub mcp_pool: Option<Arc<McpClientPool>>,
     pub mcp_init_rx: Option<tokio::sync::watch::Receiver<McpInitStatus>>,
     pub cron: CronState,

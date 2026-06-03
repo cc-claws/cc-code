@@ -69,6 +69,12 @@ pub const SELECTED_FG: Color = Color::Rgb(178, 185, 249);
 /// Bash 工具调用边框色 #FD5DB1（Claude bashBorder）
 pub const BASH_BORDER: Color = Color::Rgb(253, 93, 177);
 
+/// 本地 shell 命令输出背景色 #242424
+pub const SHELL_BG: Color = Color::Rgb(36, 36, 36);
+
+/// 本地 shell 命令输出边框色 #6A6A6A
+pub const SHELL_BORDER: Color = Color::Rgb(106, 106, 106);
+
 /// SubAgent 嵌套消息背景色 #1E1E26（比终端背景略亮，形成视觉容器）
 pub const SUB_AGENT_BG: Color = Color::Rgb(30, 30, 38);
 

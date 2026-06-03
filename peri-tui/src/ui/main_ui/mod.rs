@@ -10,12 +10,21 @@ pub(crate) use message_area::highlight_line_spans;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
+    text::Span,
     widgets::{Padding, Paragraph},
     Frame,
 };
+use tui_textarea::{CursorMove, TextArea};
 
 use crate::{app::App, ui::theme};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TextareaShellMode {
+    None,
+    Command,
+    Stdin,
+}
 
 pub fn render(f: &mut Frame, app: &mut App) {
     // Setup 向导：全屏覆盖，优先于所有正常界面
@@ -200,6 +209,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             .agent
             .interaction_prompt
             .is_some();
+    let shell_mode = textarea_shell_mode(app);
 
     if bar_focused || popup_active {
         // Bar 焦点模式：输入框变暗
@@ -234,11 +244,17 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             .set_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
     } else {
         // 正常模式：恢复与 build_textarea 一致的边框样式
-        let border_color = theme::MUTED;
-        let block = ratatui::widgets::Block::default()
+        let border_color = textarea_shell_border_color(shell_mode);
+        let mut block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
             .border_style(ratatui::style::Style::default().fg(border_color))
             .padding(Padding::new(2, 0, 0, 0));
+        if let Some(hint) = textarea_shell_hint(shell_mode) {
+            block = block.title(Span::styled(
+                hint,
+                Style::default().fg(textarea_shell_hint_color(shell_mode)),
+            ));
+        }
         app.session_mgr.current_mut().ui.textarea.set_block(block);
         app.session_mgr
             .current_mut()
@@ -249,18 +265,10 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
 
     // 输入框渲染
     let textarea_ref = &app.session_mgr.current_mut().ui.textarea;
-    // 应用失焦时隐藏光标
-    let should_hide_cursor = !app.focused;
-    if should_hide_cursor {
-        let mut ta = textarea_ref.clone();
-        ta.set_cursor_style(Style::default().fg(theme::DIM));
-        f.render_widget(&ta, chunks[5]);
-    } else {
-        f.render_widget(textarea_ref, chunks[5]);
-    }
+    render_textarea(f, textarea_ref, chunks[5], shell_mode, app.focused);
     app.session_mgr.current_mut().ui.textarea_area = Some(chunks[5]);
 
-    // ❯ 前缀
+    // 输入提示符
     let prompt_x = chunks[5].x;
     let prompt_y = chunks[5].y + 1;
     let prompt_area = Rect {
@@ -270,13 +278,8 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         height: 1,
     };
     let loading = app.session_mgr.current_mut().ui.loading;
-    let prompt_color = if loading { theme::MUTED } else { theme::TEXT };
-    let prompt_style = Style::default().fg(prompt_color).add_modifier(if loading {
-        Modifier::empty()
-    } else {
-        Modifier::BOLD
-    });
-    f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
+    let (prompt, prompt_style) = textarea_prompt(shell_mode, loading);
+    f.render_widget(Paragraph::new(prompt).style(prompt_style), prompt_area);
 
     // 统一命令/Skills 提示条 或 @ 提及弹窗（互斥）
     if app.session_mgr.current_mut().ui.at_mention.active {
@@ -297,6 +300,106 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         app.session_mgr.current_mut().ui.bg_bar_area = None;
     }
+}
+
+fn textarea_shell_mode(app: &App) -> TextareaShellMode {
+    let text = app.session_mgr.current().ui.textarea.lines().join("\n");
+    textarea_shell_mode_from_text(&text, app.is_shell_command_running())
+}
+
+fn textarea_shell_mode_from_text(text: &str, is_shell_running: bool) -> TextareaShellMode {
+    if is_shell_running {
+        TextareaShellMode::Stdin
+    } else if text.starts_with('!') {
+        TextareaShellMode::Command
+    } else {
+        TextareaShellMode::None
+    }
+}
+
+fn textarea_shell_hint(mode: TextareaShellMode) -> Option<&'static str> {
+    match mode {
+        TextareaShellMode::Command => Some("Enter shell command..."),
+        TextareaShellMode::Stdin => Some("stdin"),
+        TextareaShellMode::None => None,
+    }
+}
+
+fn textarea_shell_border_color(mode: TextareaShellMode) -> Color {
+    match mode {
+        TextareaShellMode::Command => theme::ERROR,
+        TextareaShellMode::Stdin | TextareaShellMode::None => theme::MUTED,
+    }
+}
+
+fn textarea_shell_hint_color(mode: TextareaShellMode) -> Color {
+    match mode {
+        TextareaShellMode::Command => theme::ERROR,
+        TextareaShellMode::Stdin | TextareaShellMode::None => theme::MUTED,
+    }
+}
+
+fn textarea_prompt(mode: TextareaShellMode, loading: bool) -> (&'static str, Style) {
+    match mode {
+        TextareaShellMode::Command => (
+            "!",
+            Style::default()
+                .fg(theme::ERROR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        TextareaShellMode::Stdin | TextareaShellMode::None => {
+            let prompt_color = if loading { theme::MUTED } else { theme::TEXT };
+            let modifier = if loading {
+                Modifier::empty()
+            } else {
+                Modifier::BOLD
+            };
+            (
+                "❯",
+                Style::default().fg(prompt_color).add_modifier(modifier),
+            )
+        }
+    }
+}
+
+fn render_textarea(
+    f: &mut Frame,
+    textarea: &TextArea<'static>,
+    area: Rect,
+    shell_mode: TextareaShellMode,
+    focused: bool,
+) {
+    if shell_mode == TextareaShellMode::Command || !focused {
+        let mut display_textarea = textarea.clone();
+        if shell_mode == TextareaShellMode::Command {
+            hide_shell_prefix_for_display(&mut display_textarea);
+        }
+        if !focused {
+            display_textarea.set_cursor_style(Style::default().fg(theme::DIM));
+        }
+        f.render_widget(&display_textarea, area);
+        return;
+    }
+    f.render_widget(textarea, area);
+}
+
+fn hide_shell_prefix_for_display(textarea: &mut TextArea<'static>) {
+    if !textarea
+        .lines()
+        .first()
+        .is_some_and(|line| line.starts_with('!'))
+    {
+        return;
+    }
+    let (cursor_row, cursor_col) = textarea.cursor();
+    textarea.move_cursor(CursorMove::Jump(0, 1));
+    textarea.delete_char();
+    let display_col = if cursor_row == 0 {
+        cursor_col.saturating_sub(1)
+    } else {
+        cursor_col
+    };
+    textarea.move_cursor(CursorMove::Jump(cursor_row as u16, display_col as u16));
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
@@ -355,3 +458,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
     };
     raw.min(max_h)
 }
+
+#[cfg(test)]
+#[path = "main_ui_test.rs"]
+mod main_ui_test;

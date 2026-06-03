@@ -8,6 +8,9 @@ use super::{
     theme,
 };
 
+const SHELL_OUTPUT_COLLAPSED_LINES: usize = 6;
+const SHELL_OUTPUT_DETAIL_LINES: usize = 40;
+
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
 /// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).
 fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
@@ -155,6 +158,216 @@ fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
         ]));
     }
 
+    lines
+}
+
+fn shell_fg_color(code: u16) -> Option<Color> {
+    match code {
+        30 => Some(Color::Black),
+        31 => Some(Color::Red),
+        32 => Some(Color::Green),
+        33 => Some(Color::Yellow),
+        34 => Some(Color::Blue),
+        35 => Some(Color::Magenta),
+        36 => Some(Color::Cyan),
+        37 => Some(Color::White),
+        90 => Some(Color::DarkGray),
+        91 => Some(Color::LightRed),
+        92 => Some(Color::LightGreen),
+        93 => Some(Color::LightYellow),
+        94 => Some(Color::LightBlue),
+        95 => Some(Color::LightMagenta),
+        96 => Some(Color::LightCyan),
+        97 => Some(Color::White),
+        _ => None,
+    }
+}
+
+fn apply_sgr_codes(style: &mut Style, default_style: Style, codes: &str) {
+    let parsed: Vec<u16> = if codes.trim().is_empty() {
+        vec![0]
+    } else {
+        codes
+            .split(';')
+            .filter_map(|part| part.parse::<u16>().ok())
+            .collect()
+    };
+    let mut iter = parsed.into_iter().peekable();
+    while let Some(code) = iter.next() {
+        match code {
+            0 => *style = default_style,
+            1 => *style = style.add_modifier(Modifier::BOLD),
+            22 => *style = style.remove_modifier(Modifier::BOLD),
+            39 => *style = default_style,
+            38 => match iter.next() {
+                Some(2) => {
+                    let (Some(r), Some(g), Some(b)) = (iter.next(), iter.next(), iter.next())
+                    else {
+                        continue;
+                    };
+                    *style = style.fg(Color::Rgb(r as u8, g as u8, b as u8));
+                }
+                Some(5) => {
+                    let _ = iter.next();
+                }
+                _ => {}
+            },
+            code => {
+                if let Some(color) = shell_fg_color(code) {
+                    *style = style.fg(color);
+                }
+            }
+        }
+    }
+}
+
+fn ansi_spans(line: &str, default_style: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut style = default_style;
+    let mut buf = String::new();
+    let mut i = 0;
+    while i < line.len() {
+        if line[i..].starts_with("\x1b[") {
+            if let Some(end) = line[i + 2..].find('m') {
+                if !buf.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut buf), style));
+                }
+                let codes = &line[i + 2..i + 2 + end];
+                apply_sgr_codes(&mut style, default_style, codes);
+                i += end + 3;
+                continue;
+            }
+        }
+        let Some(ch) = line[i..].chars().next() else {
+            break;
+        };
+        if ch != '\r' {
+            buf.push(ch);
+        }
+        i += ch.len_utf8();
+    }
+    if !buf.is_empty() || spans.is_empty() {
+        spans.push(Span::styled(buf, style));
+    }
+    spans
+}
+
+fn shell_output_line(prefix: &'static str, text: &str, default_style: Style) -> Line<'static> {
+    let bg_style = Style::default().bg(theme::SHELL_BG);
+    let mut spans = vec![Span::styled(
+        prefix,
+        Style::default().fg(theme::SHELL_BORDER).bg(theme::SHELL_BG),
+    )];
+    spans.extend(
+        ansi_spans(text, default_style)
+            .into_iter()
+            .map(|span| span.patch_style(bg_style)),
+    );
+    Line::from(spans)
+}
+
+fn render_shell_command(
+    command: &str,
+    cwd: &str,
+    stdin: &[String],
+    stdout: &str,
+    stderr: &str,
+    exit_code: Option<i32>,
+    detail_mode: bool,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let status_style = match exit_code {
+        None => Style::default().fg(theme::LOADING),
+        Some(0) => Style::default().fg(theme::SAGE),
+        Some(_) => Style::default().fg(theme::ERROR),
+    };
+    let status = match exit_code {
+        None => " running".to_string(),
+        Some(code) => format!(" exit {}", code),
+    };
+    let cwd_label: String = cwd.chars().take(80).collect();
+    lines.push(Line::from(vec![
+        Span::styled("> ", Style::default().fg(theme::DIM)),
+        Span::styled(
+            format!("!{}", command),
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(status, status_style),
+        Span::styled(format!(" · {}", cwd_label), Style::default().fg(theme::DIM)),
+    ]));
+
+    let mut output_lines: Vec<(String, bool)> = Vec::new();
+    for input in stdin {
+        output_lines.push((format!("< {}", input), false));
+    }
+    for line in stdout.lines() {
+        output_lines.push((line.to_string(), false));
+    }
+    for line in stderr.lines() {
+        output_lines.push((line.to_string(), true));
+    }
+
+    if output_lines.is_empty() {
+        let text = if exit_code.is_none() {
+            "running..."
+        } else {
+            "(no output)"
+        };
+        lines.push(shell_output_line(
+            "  │ ",
+            text,
+            Style::default().fg(theme::DIM),
+        ));
+    } else {
+        let max_lines = if detail_mode {
+            SHELL_OUTPUT_DETAIL_LINES
+        } else {
+            SHELL_OUTPUT_COLLAPSED_LINES
+        };
+        for (idx, (line, is_error)) in output_lines.iter().enumerate() {
+            if idx >= max_lines {
+                let hint = if detail_mode {
+                    format!(
+                        "... output truncated at {} lines ({} more lines hidden)",
+                        max_lines,
+                        output_lines.len() - max_lines
+                    )
+                } else {
+                    format!(
+                        "... {} more lines hidden, Ctrl+O for details",
+                        output_lines.len() - max_lines
+                    )
+                };
+                lines.push(shell_output_line(
+                    "  │ ",
+                    &hint,
+                    Style::default().fg(theme::DIM),
+                ));
+                break;
+            }
+            let default_style = if *is_error {
+                Style::default().fg(theme::ERROR)
+            } else {
+                Style::default().fg(theme::MUTED)
+            };
+            lines.push(shell_output_line("  │ ", line, default_style));
+        }
+    }
+
+    if let Some(code) = exit_code {
+        let footer_style = if code == 0 {
+            Style::default().fg(theme::SAGE)
+        } else {
+            Style::default().fg(theme::ERROR)
+        };
+        lines.push(shell_output_line(
+            "  └ ",
+            &format!("exit code {}", code),
+            footer_style,
+        ));
+    }
     lines
 }
 
@@ -400,6 +613,15 @@ pub fn render_view_model(
             }
             lines
         }
+        MessageViewModel::ShellCommand {
+            command,
+            cwd,
+            stdin,
+            stdout,
+            stderr,
+            exit_code,
+            ..
+        } => render_shell_command(command, cwd, stdin, stdout, stderr, *exit_code, detail_mode),
         MessageViewModel::SubAgentGroup {
             batch_agents,
             collapsed,

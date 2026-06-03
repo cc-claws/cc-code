@@ -118,6 +118,80 @@
     }
 
     #[test]
+    fn test_shell_command_render_header_and_truncation() {
+        let stdout = (0..60)
+            .map(|idx| format!("line {idx:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut vm = MessageViewModel::ShellCommand {
+            id: "shell-1".to_string(),
+            command: "git status".to_string(),
+            cwd: ".".to_string(),
+            stdin: Vec::new(),
+            stdout,
+            stderr: String::new(),
+            exit_code: Some(0),
+            collapsed: true,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+
+        let lines = render_view_model(&vm, None, 80, false);
+        let full_text = lines
+            .iter()
+            .flat_map(|line| line.spans.iter().map(|span| span.content.clone()))
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(full_text.contains("> !git status"), "应显示带 ! 前缀的命令");
+        assert!(
+            full_text.contains("Ctrl+O for details"),
+            "超长输出应显示 Ctrl+O 详细模式提示"
+        );
+        assert!(full_text.contains("line 05"), "普通模式应展示前 6 行");
+        assert!(!full_text.contains("line 06"), "普通模式应截断第 7 行后的输出");
+
+        let detail_lines = render_view_model(&vm, None, 80, true);
+        let detail_text = detail_lines
+            .iter()
+            .flat_map(|line| line.spans.iter().map(|span| span.content.clone()))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(detail_text.contains("line 39"), "详细模式应显示前 40 行");
+        assert!(
+            !detail_text.contains("line 40"),
+            "详细模式也应在 40 行后截断"
+        );
+        assert!(
+            detail_text.contains("output truncated at 40 lines"),
+            "详细模式截断后应提示硬上限"
+        );
+    }
+
+    #[test]
+    fn test_shell_command_render_preserves_basic_ansi_color() {
+        let mut vm = MessageViewModel::ShellCommand {
+            id: "shell-2".to_string(),
+            command: "echo color".to_string(),
+            cwd: ".".to_string(),
+            stdin: Vec::new(),
+            stdout: "\x1b[31mred\x1b[0m".to_string(),
+            stderr: String::new(),
+            exit_code: Some(0),
+            collapsed: true,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+
+        let lines = render_view_model(&vm, None, 80, false);
+        let has_red_span = lines.iter().flat_map(|line| &line.spans).any(|span| {
+            span.content.as_ref() == "red" && span.style.fg == Some(Color::Red)
+        });
+
+        assert!(has_red_span, "ANSI 31m 应渲染为红色 span");
+    }
+
+    #[test]
     fn test_tool_block_error_visible_when_collapsed() {
         use crate::app::MessageViewModel;
         let vm = MessageViewModel::ToolBlock {
