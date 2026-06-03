@@ -232,6 +232,8 @@ config-desc-persona = 覆盖系统提示词 persona（留空=默认）
 config-desc-tone = 覆盖系统提示词 tone（留空=默认）
 config-desc-proactiveness = low / medium / high — agent 主动性级别
 config-desc-diff = （开/关 — 显示 Write/Edit 工具的内联 diff）
+config-field-streaming = 渲染模式
+config-desc-streaming = streaming / block / none — LLM 输出渲染粒度
 
 # ---- Login Panel ----
 

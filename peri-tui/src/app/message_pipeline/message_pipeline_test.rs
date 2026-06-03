@@ -1878,3 +1878,133 @@ fn test_begin_round_resets_policy() {
     assert_eq!(pipeline.adaptive_policy.pending_lines, 0);
     assert_eq!(pipeline.adaptive_policy.mode, ChunkingMode::Smooth);
 }
+
+// ─── StreamingMode 测试 ──────────────────────────────────────────────────
+
+use super::StreamingMode;
+
+#[test]
+fn test_streaming_mode_default() {
+    let pipeline = MessagePipeline::new("/tmp".to_string());
+    assert_eq!(pipeline.streaming_mode(), StreamingMode::Streaming);
+}
+
+#[test]
+fn test_set_streaming_mode() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    assert_eq!(pipeline.streaming_mode(), StreamingMode::Block);
+    pipeline.set_streaming_mode(StreamingMode::None);
+    assert_eq!(pipeline.streaming_mode(), StreamingMode::None);
+    pipeline.set_streaming_mode(StreamingMode::Streaming);
+    assert_eq!(pipeline.streaming_mode(), StreamingMode::Streaming);
+}
+
+#[test]
+fn test_push_chunk_streaming_updates_policy() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Streaming);
+    pipeline.push_chunk("hello");
+    assert_eq!(pipeline.current_ai_text, "hello");
+    assert!(pipeline.adaptive_policy.pending_lines > 0);
+}
+
+#[test]
+fn test_push_chunk_none_only_accumulates() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::None);
+    pipeline.push_chunk("hello");
+    assert_eq!(pipeline.current_ai_text, "hello");
+    assert_eq!(pipeline.adaptive_policy.pending_lines, 0);
+}
+
+#[test]
+fn test_push_chunk_block_buffering() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.push_chunk("hello");
+    assert_eq!(pipeline.current_ai_text, "");
+    assert_eq!(pipeline.block_buffer, "hello");
+}
+
+#[test]
+fn test_push_chunk_block_flush_on_double_newline() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.push_chunk("paragraph one\n\n");
+    assert_eq!(pipeline.current_ai_text, "paragraph one\n\n");
+    assert!(pipeline.block_buffer.is_empty());
+    assert!(pipeline.block_pending_flush);
+}
+
+#[test]
+fn test_push_chunk_block_code_fence() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.push_chunk("```rust\n");
+    assert!(pipeline.inside_code_fence);
+    assert_eq!(pipeline.current_ai_text, "");
+    pipeline.push_chunk("fn main() {}\n");
+    assert_eq!(pipeline.current_ai_text, "");
+    pipeline.push_chunk("```\n");
+    assert!(!pipeline.inside_code_fence);
+    assert_eq!(pipeline.current_ai_text, "```rust\nfn main() {}\n```\n");
+    assert!(pipeline.block_pending_flush);
+}
+
+#[test]
+fn test_check_throttle_none_mode() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::None);
+    pipeline.handle_event(AgentEvent::AssistantChunk {
+        chunk: "hello".into(),
+        source_agent_id: None,
+    });
+    let result = pipeline.check_throttle(0);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_check_throttle_block_no_flush() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.push_chunk("hello");
+    let result = pipeline.check_throttle(0);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_check_throttle_block_after_flush() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.push_chunk("hello\n\n");
+    let result = pipeline.check_throttle(0);
+    assert!(result.is_some());
+    let result2 = pipeline.check_throttle(0);
+    assert!(result2.is_none());
+}
+
+#[test]
+fn test_set_streaming_mode_flushes_on_exit_block() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.push_chunk("unflushed content");
+    assert_eq!(pipeline.current_ai_text, "");
+    pipeline.set_streaming_mode(StreamingMode::Streaming);
+    assert_eq!(pipeline.current_ai_text, "unflushed content");
+    assert!(pipeline.block_buffer.is_empty());
+}
+
+#[test]
+fn test_done_flushes_block_buffer() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.handle_event(AgentEvent::AssistantChunk {
+        chunk: "hello".into(),
+        source_agent_id: None,
+    });
+    assert_eq!(pipeline.current_ai_text, "");
+    pipeline.done();
+    // done() calls finalize_current_ai() which clears current_ai_text, but block_buffer was flushed
+    assert!(pipeline.block_buffer.is_empty());
+}

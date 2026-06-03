@@ -18,12 +18,13 @@ pub const ROW_AUTOCOMPACT: usize = 1;
 pub const ROW_THRESHOLD: usize = 2;
 pub const ROW_LANGUAGE: usize = 3;
 pub const ROW_DIFF: usize = 4;
-pub const ROW_PROACTIVENESS: usize = 5;
-pub const ROW_SEPARATOR: usize = 6;
-pub const ROW_OVERRIDES_HEADER: usize = 7;
-pub const ROW_PERSONA: usize = 8;
-pub const ROW_TONE: usize = 9;
-pub const ROW_COUNT: usize = 10;
+pub const ROW_STREAMING: usize = 5;
+pub const ROW_PROACTIVENESS: usize = 6;
+pub const ROW_SEPARATOR: usize = 7;
+pub const ROW_OVERRIDES_HEADER: usize = 8;
+pub const ROW_PERSONA: usize = 9;
+pub const ROW_TONE: usize = 10;
+pub const ROW_COUNT: usize = 11;
 
 fn next_editable_row(current: usize, reverse: bool) -> usize {
     let editable: &[usize] = &[
@@ -31,6 +32,7 @@ fn next_editable_row(current: usize, reverse: bool) -> usize {
         ROW_THRESHOLD,
         ROW_LANGUAGE,
         ROW_DIFF,
+        ROW_STREAMING,
         ROW_PROACTIVENESS,
         ROW_PERSONA,
         ROW_TONE,
@@ -67,6 +69,7 @@ pub struct ConfigPanel {
     pub cur_tone: usize,
     pub buf_proactiveness: String, // "low" / "medium" / "high"
     pub buf_diff: bool,
+    pub buf_streaming: String, // "streaming" / "block" / "none"
 }
 
 impl ConfigPanel {
@@ -97,6 +100,11 @@ impl ConfigPanel {
             cur_tone: 0,
             buf_proactiveness: proactiveness,
             buf_diff: diff_enabled,
+            buf_streaming: cfg
+                .config
+                .streaming_mode
+                .clone()
+                .unwrap_or_else(|| "streaming".to_string()),
         }
     }
 
@@ -122,6 +130,22 @@ impl ConfigPanel {
 
     pub fn cycle_diff(&mut self) {
         self.buf_diff = !self.buf_diff;
+    }
+
+    pub fn cycle_streaming(&mut self, reverse: bool) {
+        self.buf_streaming = if reverse {
+            match self.buf_streaming.as_str() {
+                "none" => "block".to_string(),
+                "block" => "streaming".to_string(),
+                _ => "none".to_string(),
+            }
+        } else {
+            match self.buf_streaming.as_str() {
+                "streaming" => "block".to_string(),
+                "block" => "none".to_string(),
+                _ => "streaming".to_string(),
+            }
+        };
     }
 
     /// 可选语言列表："" (auto) → "en" → "zh-CN" → ""
@@ -250,6 +274,13 @@ impl ConfigPanel {
         // diff
         cfg.config.diff_enabled = self.buf_diff;
 
+        // streaming mode
+        cfg.config.streaming_mode = if self.buf_streaming == "streaming" {
+            None
+        } else {
+            Some(self.buf_streaming.clone())
+        };
+
         Ok(())
     }
 
@@ -375,6 +406,7 @@ impl PanelComponent for ConfigPanel {
                     ROW_LANGUAGE => self.cycle_language(false),
                     ROW_PROACTIVENESS => self.cycle_proactiveness(),
                     ROW_DIFF => self.cycle_diff(),
+                    ROW_STREAMING => self.cycle_streaming(false),
                     _ => self.input_char(' '),
                 }
                 EventResult::Consumed
@@ -389,6 +421,7 @@ impl PanelComponent for ConfigPanel {
                     ROW_LANGUAGE => self.cycle_language(true),
                     ROW_PROACTIVENESS => self.cycle_proactiveness(),
                     ROW_DIFF => self.cycle_diff(),
+                    ROW_STREAMING => self.cycle_streaming(true),
                     _ => {
                         self.handle_text_key(input);
                     }
@@ -405,6 +438,7 @@ impl PanelComponent for ConfigPanel {
                     ROW_LANGUAGE => self.cycle_language(false),
                     ROW_PROACTIVENESS => self.cycle_proactiveness(),
                     ROW_DIFF => self.cycle_diff(),
+                    ROW_STREAMING => self.cycle_streaming(false),
                     _ => {
                         self.handle_text_key(input);
                     }
@@ -446,6 +480,7 @@ impl PanelComponent for ConfigPanel {
                         | ROW_THRESHOLD
                         | ROW_LANGUAGE
                         | ROW_DIFF
+                        | ROW_STREAMING
                         | ROW_PROACTIVENESS
                         | ROW_PERSONA
                         | ROW_TONE
@@ -459,7 +494,7 @@ impl PanelComponent for ConfigPanel {
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
-        16
+        18
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {

@@ -233,6 +233,8 @@ config-desc-persona = Override system prompt persona (empty = default)
 config-desc-tone = Override system prompt tone (empty = default)
 config-desc-proactiveness = low / medium / high — agent initiative level
 config-desc-diff = (ON/OFF — show inline diff for Write/Edit tools)
+config-field-streaming = Streaming Mode
+config-desc-streaming = streaming / block / none — render granularity for LLM output
 
 # ---- Login Panel ----
 

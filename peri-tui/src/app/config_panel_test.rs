@@ -27,6 +27,8 @@ fn test_config_panel_cursor_navigation() {
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_DIFF);
     panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_STREAMING);
+    panel.cursor_down();
     assert_eq!(panel.cursor, ROW_PROACTIVENESS);
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_PERSONA);
@@ -42,6 +44,8 @@ fn test_config_panel_cursor_navigation() {
     assert_eq!(panel.cursor, ROW_PERSONA);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_PROACTIVENESS);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_STREAMING);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_DIFF);
     panel.cursor_up();

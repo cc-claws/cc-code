@@ -37,6 +37,20 @@ pub use reconcile::PipelineAction;
 #[cfg(test)]
 use reconcile::{extract_tail_lines, merge_frozen_subagents};
 
+// ─── 流式渲染模式 ──────────────────────────────────────────────────────────
+
+/// 流式渲染模式：控制 LLM 输出时的渲染粒度。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum StreamingMode {
+    /// 逐 token 实时渲染 + 自适应帧率（默认）
+    #[default]
+    Streaming,
+    /// 按 Markdown block 粒度整块渲染（段落/代码块完成后渲染）
+    Block,
+    /// 不渲染流式内容，LLM 完成后一次性显示
+    None,
+}
+
 // ─── 自适应分块策略 ──────────────────────────────────────────────────────────
 
 /// 排空计划：控制每次 check_throttle 的消费量
@@ -262,6 +276,16 @@ pub struct MessagePipeline {
     adaptive_policy: AdaptiveChunkingPolicy,
     /// 上次节流发射的时间（Smooth 模式下的最小间隔守卫）
     throttle_last_fire: Option<Instant>,
+    // ── 流式渲染模式 ──
+    /// 当前流式渲染模式
+    streaming_mode: StreamingMode,
+    // ── Block 模式缓冲 ──
+    /// Block 模式下累积未完成 block 的 chunk
+    block_buffer: String,
+    /// Block 模式下是否处于代码围栏内部
+    inside_code_fence: bool,
+    /// Block 模式下是否有待 flush 的内容
+    block_pending_flush: bool,
     // ── 轮次追踪 ──
     /// 本轮开始时 completed 的长度（用于区分首轮 StateSnapshot 前/后）
     completed_len_at_round_start: usize,
@@ -285,6 +309,10 @@ impl MessagePipeline {
             active_batch: None,
             adaptive_policy: AdaptiveChunkingPolicy::new(),
             throttle_last_fire: None,
+            streaming_mode: StreamingMode::default(),
+            block_buffer: String::new(),
+            inside_code_fence: false,
+            block_pending_flush: false,
             completed_len_at_round_start: 0,
             has_snapshot_this_round: false,
         }
@@ -292,6 +320,36 @@ impl MessagePipeline {
 
     pub fn cwd(&self) -> &str {
         &self.cwd
+    }
+
+    /// 获取当前流式渲染模式
+    pub(crate) fn streaming_mode(&self) -> StreamingMode {
+        self.streaming_mode
+    }
+
+    /// 设置流式渲染模式。切换时强制 flush Block 缓冲区。
+    pub(crate) fn set_streaming_mode(&mut self, mode: StreamingMode) {
+        if self.streaming_mode == StreamingMode::Block && mode != StreamingMode::Block {
+            self.flush_block_buffer();
+        }
+        self.streaming_mode = mode;
+        self.inside_code_fence = false;
+        tracing::info!(?mode, "streaming mode changed");
+    }
+
+    /// 从配置字符串设置初始模式（"streaming" / "block" / "none"）
+    pub fn init_streaming_mode_from_config(&mut self, mode_str: &str) {
+        let mode = match mode_str {
+            "block" => StreamingMode::Block,
+            "none" => StreamingMode::None,
+            _ => StreamingMode::Streaming,
+        };
+        self.streaming_mode = mode;
+    }
+
+    /// 检查 Block 模式是否有待 flush 的内容
+    pub(crate) fn has_pending_block_flush(&self) -> bool {
+        self.block_pending_flush || !self.block_buffer.is_empty()
     }
 
     /// 统一事件处理入口：将 AgentEvent 转换为 PipelineAction 列表。
@@ -348,6 +406,7 @@ impl MessagePipeline {
                 // 之前此处使用 prefix_len: 0 会导致 view_messages 被全部替换，
                 // 随后 request_rebuild() 用旧的 round_start_vm_idx 做 drain 时 panic。
                 self.adaptive_policy.drain();
+                self.force_flush_block();
 
                 if let Some(ref aid) = source_agent_id {
                     let cwd = self.cwd.clone();
@@ -392,6 +451,7 @@ impl MessagePipeline {
                 source_agent_id,
             } => {
                 self.adaptive_policy.drain();
+                self.force_flush_block();
                 if let Some(ref aid) = source_agent_id {
                     if let Some(sub) = self.find_running_subagent_mut(aid) {
                         Self::update_tool_end_in_subagent(sub, &tool_call_id, &output, is_error);
@@ -466,6 +526,7 @@ impl MessagePipeline {
                     // 否则子 Agent 的全部内部消息会污染父 Agent 的消息历史。
                     vec![PipelineAction::None]
                 } else {
+                    self.force_flush_block();
                     self.set_completed(msgs);
                     vec![PipelineAction::None]
                 }
@@ -502,14 +563,75 @@ impl MessagePipeline {
 
     /// 追加流式文本 chunk
     pub fn push_chunk(&mut self, chunk: &str) {
-        self.current_ai_text.push_str(chunk);
-        self.adaptive_policy.on_chunk(chunk);
+        match self.streaming_mode {
+            StreamingMode::Streaming => {
+                self.current_ai_text.push_str(chunk);
+                self.adaptive_policy.on_chunk(chunk);
+            }
+            StreamingMode::Block => {
+                if self.push_chunk_block(chunk) {
+                    self.flush_block_buffer();
+                }
+            }
+            StreamingMode::None => {
+                self.current_ai_text.push_str(chunk);
+            }
+        }
     }
 
     /// 追加推理 chunk
     pub fn push_reasoning(&mut self, text: &str) {
         self.current_ai_reasoning.push_str(text);
         self.adaptive_policy.on_reasoning_chunk();
+    }
+
+    // ─── Block 模式缓冲区管理 ────────────────────────────────────────────
+
+    /// Block 模式下追加 chunk 到缓冲区并检测 block 边界。返回 true 表示检测到边界。
+    fn push_chunk_block(&mut self, chunk: &str) -> bool {
+        self.block_buffer.push_str(chunk);
+
+        if self.inside_code_fence {
+            if self.detect_code_fence_close() {
+                self.inside_code_fence = false;
+                return true;
+            }
+        } else {
+            if self.block_buffer.contains("\n\n") {
+                return true;
+            }
+            if self.detect_code_fence_open() {
+                self.inside_code_fence = true;
+            }
+        }
+        false
+    }
+
+    fn detect_code_fence_open(&self) -> bool {
+        self.block_buffer
+            .lines()
+            .last()
+            .is_some_and(|line| line.trim_start().starts_with("```"))
+    }
+
+    fn detect_code_fence_close(&self) -> bool {
+        self.block_buffer
+            .lines()
+            .last()
+            .is_some_and(|line| line.trim() == "```")
+    }
+
+    fn flush_block_buffer(&mut self) {
+        if !self.block_buffer.is_empty() {
+            self.current_ai_text.push_str(&self.block_buffer);
+            self.block_buffer.clear();
+            self.block_pending_flush = true;
+        }
+    }
+
+    fn force_flush_block(&mut self) {
+        self.flush_block_buffer();
+        self.inside_code_fence = false;
     }
 
     /// 工具调用开始（内部版本，只更新状态，不返回 PipelineAction）
@@ -710,6 +832,7 @@ impl MessagePipeline {
         self.pending_tools.clear();
         self.completed_tools.clear();
         self.adaptive_policy.reset();
+        self.force_flush_block();
         self.throttle_last_fire = None;
         self.active_batch = None;
         self.drain_subagent_stack();
@@ -722,6 +845,7 @@ impl MessagePipeline {
         self.pending_tools.clear();
         self.completed_tools.clear();
         self.adaptive_policy.reset();
+        self.force_flush_block();
         self.throttle_last_fire = None;
         self.active_batch = None;
         self.drain_subagent_stack();
@@ -853,19 +977,26 @@ impl MessagePipeline {
 
     // ── 节流机制 ──────────────────────────────────────────────────────────────
 
-    /// 检查自适应节流策略，根据队列压力决定是否发射 RebuildAll。
+    /// 检查自适应节流策略，根据流式渲染模式决定是否发射 RebuildAll。
     ///
-    /// 策略：
-    /// - Smooth 模式：最小 16ms 间隔（~60fps），返回 Single（单次 RebuildAll）
-    /// - CatchUp 模式：无间隔限制，立即排空，返回 Batch（单次 RebuildAll 含全部内容）
+    /// - Streaming 模式：自适应分块策略（Smooth/CatchUp）
+    /// - Block 模式：检测 block_pending_flush 标记
+    /// - None 模式：始终返回 None（不触发流式重绘）
     ///
     /// 由 poll_agent() 每帧调用。
     pub fn check_throttle(&mut self, prefix_len: usize) -> Option<PipelineAction> {
+        match self.streaming_mode {
+            StreamingMode::Streaming => self.check_throttle_streaming(prefix_len),
+            StreamingMode::Block => self.check_throttle_block(prefix_len),
+            StreamingMode::None => None,
+        }
+    }
+
+    fn check_throttle_streaming(&mut self, prefix_len: usize) -> Option<PipelineAction> {
         let plan = self.adaptive_policy.check()?;
 
         match plan {
             DrainPlan::Single => {
-                // Smooth 模式：应用最小间隔守卫，防止 CPU 空转
                 let now = Instant::now();
                 let min_interval = Duration::from_millis(16);
                 let should_fire = match self.throttle_last_fire {
@@ -880,11 +1011,19 @@ impl MessagePipeline {
                 Some(self.build_rebuild_all(prefix_len))
             }
             DrainPlan::Batch => {
-                // CatchUp 模式：立即排空，不受间隔限制
                 self.throttle_last_fire = Some(Instant::now());
                 self.adaptive_policy.drain();
                 Some(self.build_rebuild_all(prefix_len))
             }
+        }
+    }
+
+    fn check_throttle_block(&mut self, prefix_len: usize) -> Option<PipelineAction> {
+        if self.block_pending_flush {
+            self.block_pending_flush = false;
+            Some(self.build_rebuild_all(prefix_len))
+        } else {
+            None
         }
     }
 

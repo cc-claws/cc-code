@@ -12,8 +12,8 @@ use crate::{
     app::{
         config_panel::{
             ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_DIFF, ROW_GENERAL_HEADER, ROW_LANGUAGE,
-            ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_SEPARATOR, ROW_THRESHOLD,
-            ROW_TONE,
+            ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_SEPARATOR, ROW_STREAMING,
+            ROW_THRESHOLD, ROW_TONE,
         },
         App,
     },
@@ -27,6 +27,7 @@ fn field_label_key(row: usize) -> &'static str {
         ROW_THRESHOLD => "config-field-compact-threshold",
         ROW_LANGUAGE => "config-field-language",
         ROW_DIFF => "config-field-diff",
+        ROW_STREAMING => "config-field-streaming",
         ROW_PERSONA => "config-field-persona",
         ROW_TONE => "config-field-tone",
         ROW_PROACTIVENESS => "config-field-proactiveness",
@@ -179,6 +180,39 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                     off_span,
                     Span::styled(format!("  {}", lc.tr("config-desc-diff")), desc_style),
                 ]));
+            }
+            ROW_STREAMING => {
+                let is_active = panel.cursor == row;
+                let label_style = active_or_text(is_active);
+                let active_style = Style::default()
+                    .fg(theme::THINKING)
+                    .add_modifier(Modifier::BOLD);
+                let inactive_style = Style::default().fg(theme::MUTED);
+                let desc_style = Style::default().fg(theme::MUTED);
+
+                let vals = ["streaming", "block", "none"];
+                let mut value_spans: Vec<Span> = Vec::new();
+                for (i, v) in vals.iter().enumerate() {
+                    if *v == panel.buf_streaming.as_str() {
+                        value_spans.push(Span::styled(format!("[{}]", v), active_style));
+                    } else {
+                        value_spans.push(Span::styled(v.to_string(), inactive_style));
+                    }
+                    if i < vals.len() - 1 {
+                        value_spans.push(Span::styled("  ", Style::default()));
+                    }
+                }
+                value_spans.push(Span::styled(
+                    format!("  {}", lc.tr("config-desc-streaming")),
+                    desc_style,
+                ));
+
+                let mut line_spans = vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                ];
+                line_spans.extend(value_spans);
+                lines.push(Line::from(line_spans));
             }
             ROW_PROACTIVENESS => {
                 let is_active = panel.cursor == row;
