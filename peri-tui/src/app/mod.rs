@@ -35,7 +35,7 @@ mod session_manager;
 pub use session_manager::SessionManager;
 
 mod ui_state;
-pub use ui_state::UiState;
+pub use ui_state::{PastedTextBlock, UiState};
 
 pub(crate) mod at_mention;
 pub use at_mention::AtMentionState;
@@ -63,6 +63,7 @@ mod history_ops;
 mod history_persistence;
 mod hitl_ops;
 mod hitl_prompt;
+mod paste_ops;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
 mod rewind_prompt;
 pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};

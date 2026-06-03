@@ -4,6 +4,12 @@ use tui_textarea::TextArea;
 use super::at_mention::AtMentionState;
 use crate::app::text_selection::{PanelTextSelection, TextSelection};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PastedTextBlock {
+    pub placeholder: String,
+    pub content: String,
+}
+
 /// UI 交互状态：会话级的输入、滚动、选区、历史等。
 pub struct UiState {
     pub textarea: TextArea<'static>,
@@ -46,6 +52,10 @@ pub struct UiState {
     pub detail_mode: bool,
     /// Write/Edit 工具结果内联 diff 是否可见
     pub diff_visible: bool,
+    /// 输入框中被占位符折叠展示的外部多行粘贴内容
+    pub pasted_text_blocks: Vec<PastedTextBlock>,
+    /// 当前 draft 内下一个粘贴占位符编号
+    pub next_pasted_text_id: usize,
 }
 
 impl UiState {
@@ -87,6 +97,8 @@ impl UiState {
             bg_bar_area: None,
             detail_mode: detail_enabled,
             diff_visible: diff_enabled,
+            pasted_text_blocks: Vec::new(),
+            next_pasted_text_id: 1,
         }
     }
 }

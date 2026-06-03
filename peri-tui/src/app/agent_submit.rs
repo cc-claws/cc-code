@@ -2,13 +2,21 @@ use super::{message_pipeline::PipelineAction, *};
 
 impl App {
     pub fn submit_message(&mut self, input: String) {
-        if input.trim().is_empty() {
+        let display_input = input;
+        let expanded_input = self.expand_pasted_text(&display_input);
+        let had_pasted_blocks = !self.session_mgr.current().ui.pasted_text_blocks.is_empty()
+            || self.input_contains_pasted_text_placeholder(&display_input);
+
+        if expanded_input.trim().is_empty() {
             return;
         }
 
         // ── TUI 本地命令拦截：/streaming ──
-        if let Some(args) = input.strip_prefix("/streaming") {
+        if let Some(args) = expanded_input.strip_prefix("/streaming") {
             self.handle_streaming_command(args.trim());
+            if had_pasted_blocks {
+                self.clear_pasted_text_blocks();
+            }
             return;
         }
 
@@ -16,7 +24,7 @@ impl App {
         self.session_mgr.current_mut().metadata.pre_submit_state_len =
             self.session_mgr.current_mut().agent.origin_messages.len();
 
-        self.push_input_history(input.clone());
+        self.push_input_history(expanded_input.clone());
 
         // 消费待发送附件
         let attachments =
@@ -24,12 +32,12 @@ impl App {
 
         // 构建用于显示的文字（附件摘要追加在末尾）
         let display = if attachments.is_empty() {
-            input.clone()
+            display_input.clone()
         } else {
             self.services.lc.tr_args(
                 "app-submit-attachments",
                 &[
-                    ("input".into(), input.clone().into()),
+                    ("input".into(), display_input.clone().into()),
                     ("count".into(), (attachments.len() as i64).into()),
                 ],
             )
@@ -37,9 +45,11 @@ impl App {
 
         // 构建发送给 LLM 的 MessageContent（含附件图片 blocks）
         let message_content = if attachments.is_empty() {
-            peri_agent::messages::MessageContent::text(input.clone())
+            peri_agent::messages::MessageContent::text(expanded_input.clone())
         } else {
-            let mut blocks = vec![peri_agent::messages::ContentBlock::text(input.clone())];
+            let mut blocks = vec![peri_agent::messages::ContentBlock::text(
+                expanded_input.clone(),
+            )];
             for att in attachments {
                 blocks.push(peri_agent::messages::ContentBlock::image_base64(
                     &att.media_type,
@@ -60,7 +70,10 @@ impl App {
         self.session_mgr.current_mut().messages.round_start_vm_idx =
             self.session_mgr.current_mut().messages.view_messages.len();
         self.session_mgr.current_mut().metadata.last_human_message = Some(display);
-        self.session_mgr.current_mut().messages.last_submitted_text = Some(input.clone());
+        self.session_mgr.current_mut().messages.last_submitted_text = Some(expanded_input.clone());
+        if had_pasted_blocks {
+            self.clear_pasted_text_blocks();
+        }
         self.set_loading(true);
         self.session_mgr.current_mut().ui.scroll_offset = u16::MAX;
         self.session_mgr.current_mut().ui.scroll_follow = true;

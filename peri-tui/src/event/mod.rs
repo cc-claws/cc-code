@@ -151,58 +151,69 @@ fn coalesce_mouse_events(ev: Event) -> Event {
 /// individual Key events — each character becomes a Char event and each
 /// newline becomes a bare Enter event.
 ///
-/// This function detects that pattern: when a bare Enter arrives and the
-/// event queue already contains more Key events buffered behind it (within
-/// a 1 ms window), we drain the entire burst, reconstruct the pasted text,
-/// and return an `Event::Paste` so the normal paste path handles it.
+/// This function detects that pattern from the first key in a burst. Waiting
+/// until Enter is too late: the first pasted line has already been inserted as
+/// normal typing, which splits one external paste into raw text plus multiple
+/// placeholders.
 ///
-/// A 1 ms poll window is too short for human typing to trigger, so false
-/// positives are negligible.
+/// A 1 ms start window is too short for human typing to trigger in practice.
+/// Once a burst is detected, a small idle window lets slower Windows terminals
+/// deliver the rest of the paste without fragmenting it at every newline.
 fn detect_simulated_paste(ev: Event) -> Event {
-    match &ev {
-        Event::Key(k)
-            if k.code == KeyCode::Enter
-                && k.modifiers == KeyModifiers::NONE
-                && k.kind == KeyEventKind::Press => {}
-        _ => return ev,
+    const START_WINDOW: Duration = Duration::from_millis(1);
+    const IDLE_WINDOW: Duration = Duration::from_millis(15);
+
+    if !is_simulated_paste_start(&ev) {
+        return ev;
     }
 
     // Quick probe: any queued event within 1 ms?
-    if !event::poll(Duration::from_millis(1)).unwrap_or(false) {
-        return ev; // No queued events → manual Enter → submit normally
+    if !event::poll(START_WINDOW).unwrap_or(false) {
+        return ev; // No queued events → manual typing / manual Enter
     }
 
-    // Simulated paste detected. Collect the full burst into text.
-    let mut text = String::from('\n');
+    let original_ev = ev.clone();
+    let mut text = String::new();
+    let _ = key_event_to_text(ev, &mut text);
+    let mut meaningful_after_first = false;
 
-    // Read the first queued event we already probed
-    if let Ok(next) = event::read() {
-        key_event_to_text(next, &mut text);
-    }
-
-    // Drain remaining queued events (ZERO = non-blocking)
-    while event::poll(Duration::ZERO).unwrap_or(false) {
+    while event::poll(IDLE_WINDOW).unwrap_or(false) {
         match event::read() {
-            Ok(next) => key_event_to_text(next, &mut text),
+            Ok(next) => {
+                meaningful_after_first |= key_event_to_text(next, &mut text);
+            }
             Err(_) => break,
         }
     }
 
-    // If the burst only contained the initial Enter's own Release event
-    // (filtered out by key_event_to_text), this is a genuine Enter press,
-    // not a simulated paste. Return the original event.
-    if text == "\n" {
-        return ev;
+    // A key release queued behind the press is not a paste. It is safe that the
+    // release event was consumed because the TUI only acts on key presses.
+    if !meaningful_after_first {
+        return original_ev;
     }
 
     Event::Paste(text)
+}
+
+fn is_simulated_paste_start(ev: &Event) -> bool {
+    match ev {
+        Event::Key(k) if k.kind == KeyEventKind::Press => match k.code {
+            KeyCode::Char(_) | KeyCode::Tab => {
+                !k.modifiers.contains(KeyModifiers::CONTROL)
+                    && !k.modifiers.contains(KeyModifiers::ALT)
+            }
+            KeyCode::Enter => k.modifiers == KeyModifiers::NONE,
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Append a single crossterm `Event` into `text` for simulated-paste
 /// reconstruction. Key(Char) appends the character; Key(Enter) appends
 /// `\n`; Key(Tab) appends `\t`; Key(Backspace) removes the last char;
 /// everything else (modifiers, non-printable keys) terminates the drain.
-fn key_event_to_text(ev: Event, text: &mut String) {
+fn key_event_to_text(ev: Event, text: &mut String) -> bool {
     match ev {
         Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
             KeyCode::Char(c) => {
@@ -216,22 +227,58 @@ fn key_event_to_text(ev: Event, text: &mut String) {
                 } else {
                     text.push(c);
                 }
+                true
             }
-            KeyCode::Enter => text.push('\n'),
-            KeyCode::Tab => text.push('\t'),
+            KeyCode::Enter => {
+                text.push('\n');
+                true
+            }
+            KeyCode::Tab => {
+                text.push('\t');
+                true
+            }
             KeyCode::Backspace => {
                 text.pop();
+                true
             }
-            _ => {} // Ignore other keys (arrows, etc.) during paste
+            _ => false, // Ignore other keys (arrows, etc.) during paste
         },
         Event::Mouse(_) | Event::FocusGained | Event::FocusLost | Event::Resize(_, _) => {
             // Non-key events shouldn't appear in a paste burst; stop collecting.
+            false
         }
         Event::Paste(p) => {
             // Rare: a real Paste event appeared mid-burst (shouldn't happen).
             text.push_str(&p);
+            true
         }
-        _ => {}
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyEvent;
+
+    fn make_key(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn test_key_event_to_text_simulated_paste_includes_first_line() {
+        let mut text = String::new();
+
+        assert!(key_event_to_text(make_key(KeyCode::Char('b')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('u')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Enter), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('i')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('d')), &mut text));
+
+        assert_eq!(
+            text, "bu\nid",
+            "模拟粘贴重建必须从第一个字符开始，不能等到 Enter 后才收集"
+        );
     }
 }
 
@@ -310,7 +357,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             // Fallback: paste into textarea
             // 弹窗激活时不写入 textarea——用户应通过弹窗 UI 交互
             if !app.is_interaction_popup_active() {
-                app.session_mgr.current_mut().ui.textarea.insert_str(&text);
+                app.paste_text_into_textarea(&text);
             }
         }
         Event::Mouse(mouse) => match mouse.kind {

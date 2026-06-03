@@ -127,24 +127,29 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                 app.session_mgr.current_mut().ui.at_mention.close();
             }
             let raw_text = app.session_mgr.current_mut().ui.textarea.lines().join("\n");
+            let expanded_raw_text = app.expand_pasted_text(&raw_text);
             if app.session_mgr.current_mut().ui.loading && app.is_shell_command_running() {
-                app.send_shell_stdin_line(raw_text);
+                app.send_shell_stdin_line(expanded_raw_text);
+                app.clear_pasted_text_blocks();
                 return Ok(Some(Action::Redraw));
             }
             let text = raw_text.trim().to_string();
-            if !text.is_empty() {
+            let expanded_text = app.expand_pasted_text(&text);
+            if !expanded_text.trim().is_empty() {
                 if app.session_mgr.current_mut().ui.loading {
                     // Loading state: buffer message
                     app.session_mgr
                         .current_mut()
                         .messages
                         .pending_messages
-                        .push(text);
+                        .push(expanded_text);
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+                    app.clear_pasted_text_blocks();
                     app.update_textarea_hint();
-                } else if let Some(command) = text.strip_prefix('!') {
+                } else if let Some(command) = expanded_text.trim().strip_prefix('!') {
                     let command = command.trim().to_string();
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+                    app.clear_pasted_text_blocks();
                     if command.is_empty() {
                         app.session_mgr
                             .current_mut()
@@ -155,19 +160,21 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                     } else {
                         return Ok(Some(Action::RunShellCommand(command)));
                     }
-                } else if text.starts_with('/') {
+                } else if expanded_text.trim().starts_with('/') {
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+                    let command_text = expanded_text.trim().to_string();
                     // SAFETY: command_registry is nested inside App; dispatch needs &mut App
                     let registry = std::mem::take(
                         &mut app.session_mgr.current_mut().commands.command_registry,
                     );
-                    let known = registry.dispatch(app, &text);
+                    let known = registry.dispatch(app, &command_text);
                     app.session_mgr.current_mut().commands.command_registry = registry;
                     if known {
                         // Command matched, done
+                        app.clear_pasted_text_blocks();
                     } else {
                         // Command not matched, try Skill matching
-                        let skill_name: String = text
+                        let skill_name: String = command_text
                             .trim_start_matches('/')
                             .chars()
                             .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
@@ -228,6 +235,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                                 .messages
                                 .view_messages
                                 .push(MessageViewModel::system(error_msg));
+                            app.clear_pasted_text_blocks();
                         }
                     }
                 } else {
@@ -417,6 +425,7 @@ fn handle_ctrl_c(app: &mut App) -> Option<Action> {
             .move_cursor(tui_textarea::CursorMove::Head);
         session.ui.textarea.select_all();
         session.ui.textarea.cut();
+        app.clear_pasted_text_blocks();
         app.global_ui.quit_pending_since = None;
         return None;
     }
@@ -532,8 +541,7 @@ fn handle_ctrl_v(app: &mut App) {
                 });
             }
         } else if let Ok(text) = clipboard.get_text() {
-            let text = text.replace('\r', "\n");
-            app.session_mgr.current_mut().ui.textarea.insert_str(&text);
+            app.paste_text_into_textarea(&text);
         }
     }
 }

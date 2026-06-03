@@ -173,6 +173,7 @@ impl App {
             .metadata
             .pending_attachments
             .clear();
+        self.clear_pasted_text_blocks();
         self.session_mgr.current_mut().langfuse.langfuse_session = None;
         self.session_mgr.current_mut().todo_items.clear();
 
@@ -280,6 +281,7 @@ impl App {
             .metadata
             .pending_attachments
             .clear();
+        self.clear_pasted_text_blocks();
         self.session_mgr
             .current_mut()
             .session_panels
