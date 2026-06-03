@@ -178,13 +178,16 @@ main() {
 
     info "Found release: ${VERSION_TAG}"
 
-    ASSET_DOWNLOAD_URL=$(echo "${RELEASE_JSON}" | tr ',' '\n' | grep -F '"browser_download_url"' | grep -F "${ASSET_NAME}" | head -1 | cut -d'"' -f4)
+    ASSET_DOWNLOAD_URL=$(echo "${RELEASE_JSON}" | tr ',' '\n' | grep -F '"browser_download_url"' | grep -F "${ASSET_NAME}" | head -1 | cut -d'"' -f4 || true)
 
     if [[ -z "${ASSET_DOWNLOAD_URL}" ]]; then
         error "No binary found for platform '${PLATFORM}'."
         echo ""
         echo "Available assets:"
         echo "${RELEASE_JSON}" | tr ',' '\n' | grep -F '"browser_download_url"' | cut -d'"' -f4 | sed 's/^/  - /'
+        echo ""
+        echo "Your platform '${PLATFORM}' may not be supported yet."
+        echo "Check available platforms at: https://github.com/konghayao/peri/releases/tag/${VERSION_TAG}"
         exit 1
     fi
 
