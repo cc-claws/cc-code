@@ -223,9 +223,32 @@ impl BaseTool for EditFileTool {
                 .into());
             }
             if occurrences > 1 {
+                let locations: Vec<String> = content
+                    .match_indices(old_string)
+                    .take(10)
+                    .map(|(offset, _)| {
+                        let line = content[..offset].lines().count() + 1;
+                        let end_line = line + old_string.lines().count().saturating_sub(1);
+                        if end_line > line {
+                            format!("第 {}-{} 行", line, end_line)
+                        } else {
+                            format!("第 {} 行", line)
+                        }
+                    })
+                    .collect();
+                let location_text = if occurrences > 10 {
+                    format!(
+                        "{}（共 {} 处，仅显示前 10 处）",
+                        locations.join("、"),
+                        occurrences
+                    )
+                } else {
+                    locations.join("、")
+                };
                 return Err(format!(
-                    "Error: old_string is not unique in {} (found {} occurrences). \
-                     Please provide more context or set replace_all to true.",
+                    "Error: old_string is not unique in {} (found {} occurrences).\n\
+                     匹配位置：{location_text}。\n\
+                     请提供更多上下文使其唯一，或设置 replace_all=true。",
                     resolved.display(),
                     occurrences
                 )

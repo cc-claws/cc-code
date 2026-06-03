@@ -191,3 +191,47 @@
         assert!(msg.contains("建议先 Read"), "超长 old_string 应只给建议: {msg}");
         assert!(!msg.contains("匹配到文件"), "超长 old_string 不应做模糊匹配: {msg}");
     }
+
+    #[tokio::test]
+    async fn test_edit_not_unique_shows_line_ranges() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "aaa\nfoo\nbbb\nfoo\nccc\n").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "old_string": "foo",
+                "new_string": "bar"
+            }))
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("第 2 行"), "应报告第一个匹配行号: {msg}");
+        assert!(msg.contains("第 4 行"), "应报告第二个匹配行号: {msg}");
+        assert!(msg.contains("匹配位置"), "应包含匹配位置标签: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_edit_not_unique_many_occurrences_truncated() {
+        let dir = tempfile::tempdir().unwrap();
+        // 15 次 "x\n"
+        let content = "x\n".repeat(15);
+        std::fs::write(dir.path().join("f.txt"), &content).unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "old_string": "x",
+                "new_string": "y"
+            }))
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("15 occurrences"), "应报告总匹配数: {msg}");
+        // 最多报告 10 个位置
+        let location_count = msg.matches("第").count();
+        assert!(
+            location_count <= 10,
+            "超过 10 个匹配时应截断位置列表，实际 {location_count} 个: {msg}"
+        );
+    }
