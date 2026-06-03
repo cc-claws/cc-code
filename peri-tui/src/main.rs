@@ -388,6 +388,25 @@ struct TuiOptions {
 }
 
 fn run_tui(opts: TuiOptions) -> Result<()> {
+    // Windows: 拦截 Ctrl+C / Ctrl+Break，防止进程被 OS 直接终止。
+    // crossterm raw mode 在部分 Windows 终端下无法完全拦截 CTRL_C_EVENT，
+    // 需要显式注册 handler 返回 TRUE，让 Ctrl+C 作为 KeyEvent 传递给应用层。
+    #[cfg(target_os = "windows")]
+    {
+        unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
+            // CTRL_C_EVENT (0) 和 CTRL_BREAK_EVENT (1) → 忽略，交给 crossterm 处理
+            if ctrl_type == windows_sys::Win32::System::Console::CTRL_C_EVENT
+                || ctrl_type == windows_sys::Win32::System::Console::CTRL_BREAK_EVENT
+            {
+                return 1; // TRUE = 已处理，不传递给默认 handler
+            }
+            0 // FALSE = 其他信号交给默认 handler
+        }
+        unsafe {
+            windows_sys::Win32::System::Console::SetConsoleCtrlHandler(Some(ctrl_handler), 1);
+        }
+    }
+
     // --settings 覆盖
     if let Some(ref settings_path) = opts.settings {
         inject_settings_override(settings_path);
