@@ -383,12 +383,20 @@ pub async fn execute_prompt(
 
         sink.push_done(&sid).await;
 
-        // Wait for Langfuse flush before exiting pump
-        if let Some(handle) = langfuse_flush {
-            let _ = handle.await;
-        }
-
+        // Signal pump completion BEFORE Langfuse flush.
+        // Langfuse is telemetry — it must never block the execution pipeline.
+        // Without this, a slow/unreachable Langfuse API blocks pump_done_tx,
+        // which blocks wait_for_pump(), which blocks execute_prompt() from
+        // returning, which holds the prompt_lock and prevents the next prompt
+        // from starting. Ctrl+C can't recover because the new prompt's cancel
+        // token hasn't been created yet (still waiting on the lock).
         let _ = pump_done_tx.send(());
+
+        // Langfuse flush: fire-and-forget. The spawned task runs independently;
+        // worst-case it blocks for ~150s (HTTP 30s × 3 retries + backoff) then
+        // logs warnings. The pump has already signaled completion above, so this
+        // never blocks the execution pipeline.
+        drop(langfuse_flush);
     });
 
     // 单次 Agent 执行（compact 由 CompactMiddleware 在循环内处理）
@@ -627,9 +635,13 @@ fn close_channel(
 }
 
 async fn wait_for_pump(pump_done_rx: oneshot::Receiver<()>, session_id: &str) {
-    match pump_done_rx.await {
-        Ok(()) => debug!(session_id, "Event pump done"),
-        Err(_) => error!(session_id, "Event pump done channel closed unexpectedly"),
+    match tokio::time::timeout(std::time::Duration::from_secs(10), pump_done_rx).await {
+        Ok(Ok(())) => debug!(session_id, "Event pump done"),
+        Ok(Err(_)) => error!(session_id, "Event pump done channel closed unexpectedly"),
+        Err(_) => error!(
+            session_id,
+            "Event pump timed out (10s) — Langfuse flush may have blocked push_done"
+        ),
     }
 }
 
