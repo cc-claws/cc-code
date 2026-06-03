@@ -225,7 +225,7 @@ impl CompactMiddleware {
         // 若摘要为 System 类型，compact 后 messages 数组可能只有 system 角色消息，
         // DeepSeek/OpenAI 兼容 API 要求至少一条 user/assistant 消息，否则返回 400。
         let summary_content = format!(
-            "{}\n\n[上下文已压缩，请根据摘要继续工作]",
+            "<system-reminder>\n{}\n\n[上下文已压缩，请根据摘要继续工作]\n</system-reminder>",
             compact_result.summary
         );
         let mut new_messages = vec![BaseMessage::human(summary_content)];

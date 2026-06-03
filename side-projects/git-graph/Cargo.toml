@@ -17,6 +17,7 @@ unicode-width = "0.2"
 syntect = { version = "5", default-features = false, features = ["default-fancy"] }
 ropey = "1"
 peri-widgets = { path = "../../peri-widgets" }
+sysinfo = "0.34"
 
 [dev-dependencies]
 tempfile = "3"

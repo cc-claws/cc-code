@@ -65,6 +65,8 @@ fn run_tui(repo_path: &std::path::Path) -> Result<()> {
     while app.running {
         // 刷新 sidebar 数据（每 2 秒自动刷新 git status）
         app.refresh_sidebar();
+        // 刷新系统资源读数（后台线程采集，非阻塞读取）
+        app.refresh_sys_info();
 
         // Toast 过期检测
         if let Some(toast) = &app.toast {

@@ -166,7 +166,22 @@ pub fn render_view_model(
     detail_mode: bool,
 ) -> Vec<Line<'static>> {
     match vm {
-        MessageViewModel::UserBubble { rendered, .. } => {
+        MessageViewModel::UserBubble {
+            rendered,
+            system_reminder,
+            ..
+        } => {
+            if *system_reminder {
+                // 系统提醒：渲染一行简略提示
+                let hint = Span::styled(
+                    "\u{1f4cb} 上下文已压缩",
+                    Style::default()
+                        .fg(theme::DIM)
+                        .add_modifier(Modifier::ITALIC),
+                );
+                return vec![Line::from(hint)];
+            }
+            // 普通 UserBubble — 原有渲染逻辑不变
             let user_bg: Color = theme::USER_BG;
             let mut lines = Vec::with_capacity(rendered.lines.len() + 1);
             for (i, line) in rendered.lines.iter().enumerate() {

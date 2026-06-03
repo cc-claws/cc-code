@@ -33,63 +33,62 @@ pub enum GlobalAction {
 }
 
 pub struct ToolbarButton {
-    pub emoji: &'static str,
     pub label: &'static str,
     pub action: ToolbarAction,
-    pub dangerous: bool,
+    pub group: u8,
 }
 
 #[allow(dead_code)]
 pub struct GlobalToolbarButton {
-    pub emoji: &'static str,
     pub label: &'static str,
     pub shortcut: char,
     pub action: GlobalAction,
+    pub group: u8,
 }
 
 pub fn global_buttons() -> Vec<GlobalToolbarButton> {
     vec![
         GlobalToolbarButton {
-            emoji: "⬇",
             label: "fetch",
             shortcut: 'f',
             action: GlobalAction::RemoteFetch,
+            group: 0,
         },
         GlobalToolbarButton {
-            emoji: "⬆",
             label: "push",
             shortcut: 'p',
             action: GlobalAction::RemotePush,
+            group: 0,
         },
         GlobalToolbarButton {
-            emoji: "⬇⬆",
             label: "pull",
             shortcut: 'P',
             action: GlobalAction::RemotePull,
+            group: 0,
         },
         GlobalToolbarButton {
-            emoji: "🌿",
             label: "branches",
             shortcut: 'b',
             action: GlobalAction::ToggleBranches,
+            group: 1,
         },
         GlobalToolbarButton {
-            emoji: "🏷",
             label: "tags",
             shortcut: 't',
             action: GlobalAction::ToggleTags,
+            group: 1,
         },
         GlobalToolbarButton {
-            emoji: "📦",
             label: "stash",
             shortcut: 's',
             action: GlobalAction::ToggleStash,
+            group: 1,
         },
         GlobalToolbarButton {
-            emoji: "🔍",
             label: "files",
             shortcut: 'p', // Ctrl+P
             action: GlobalAction::FileSearch,
+            group: 2,
         },
     ]
 }
@@ -98,50 +97,50 @@ pub fn global_buttons() -> Vec<GlobalToolbarButton> {
 pub fn commit_buttons(app: &App) -> Vec<ToolbarButton> {
     let mut buttons = vec![
         ToolbarButton {
-            emoji: "⎇",
             label: "checkout",
             action: ToolbarAction::Checkout,
-            dangerous: false,
+
+            group: 0,
         },
         ToolbarButton {
-            emoji: "🏷",
             label: "tag",
             action: ToolbarAction::CreateTag,
-            dangerous: false,
+
+            group: 0,
         },
         ToolbarButton {
-            emoji: "⑂",
             label: "branch",
             action: ToolbarAction::CreateBranch,
-            dangerous: false,
+
+            group: 0,
         },
         ToolbarButton {
-            emoji: "🔀",
             label: "merge",
             action: ToolbarAction::Merge,
-            dangerous: false,
+
+            group: 1,
         },
         ToolbarButton {
-            emoji: "🍒",
             label: "pick",
             action: ToolbarAction::CherryPick,
-            dangerous: false,
+
+            group: 1,
         },
         ToolbarButton {
-            emoji: "⏪",
             label: "reset",
             action: ToolbarAction::Reset,
-            dangerous: true,
+
+            group: 2,
         },
     ];
 
     if let Some(detail) = &app.selected_detail {
         if !detail.branches.is_empty() {
             buttons.push(ToolbarButton {
-                emoji: "❌",
                 label: "del",
                 action: ToolbarAction::DeleteBranch,
-                dangerous: true,
+
+                group: 3,
             });
         }
     }
@@ -149,16 +148,16 @@ pub fn commit_buttons(app: &App) -> Vec<ToolbarButton> {
     if let Some(oid) = app.selected_oid {
         if app.stash_map.contains_key(&oid) {
             buttons.push(ToolbarButton {
-                emoji: "📤",
                 label: "pop",
                 action: ToolbarAction::StashPop,
-                dangerous: false,
+
+                group: 4,
             });
             buttons.push(ToolbarButton {
-                emoji: "🗑",
                 label: "drop",
                 action: ToolbarAction::StashDrop,
-                dangerous: true,
+
+                group: 4,
             });
         }
     }
@@ -202,6 +201,19 @@ impl ToolbarState {
     }
 }
 
+/// commit 工具栏每个按钮独立配色（按按钮在 vec 中的位置分配）
+const COMMIT_BG_PALETTE: [Color; 9] = [
+    Color::Rgb(50, 100, 140), // checkout — 蓝绿
+    Color::Rgb(130, 110, 40), // tag — 金
+    Color::Rgb(100, 50, 130), // branch — 紫
+    Color::Rgb(40, 120, 80),  // merge — 绿
+    Color::Rgb(140, 90, 40),  // pick — 橙
+    Color::Rgb(140, 40, 40),  // reset — 深红
+    Color::Rgb(160, 70, 50),  // del — 砖红（与 reset 区分）
+    Color::Rgb(50, 110, 120), // pop — 青
+    Color::Rgb(120, 60, 40),  // drop — 暗红棕
+];
+
 pub fn draw_toolbar(
     f: &mut Frame,
     area: Rect,
@@ -214,25 +226,25 @@ pub fn draw_toolbar(
 
     let mut spans: Vec<Span> = Vec::new();
     let mut x = area.x;
+    let mut prev_group: Option<u8> = None;
     for (i, btn) in buttons.iter().enumerate() {
-        let color = if btn.dangerous {
-            Color::Rgb(255, 100, 100)
-        } else {
-            Color::White
-        };
-        let text = format!(" {}{} ", btn.emoji, btn.label);
-        let text_width = UnicodeWidthStr::width(text.as_str()) as u16;
-        state.button_starts.push(x);
-        state.button_widths.push(text_width);
-        spans.push(Span::styled(
-            text.clone(),
-            Style::default().fg(color).bg(Color::Rgb(35, 35, 45)),
-        ));
-        x += text_width;
-        if i < buttons.len() - 1 {
+        // 不同组之间加空格分隔
+        if prev_group.is_some_and(|pg| pg != btn.group) {
             spans.push(Span::raw(" "));
             x += 1;
         }
+        prev_group = Some(btn.group);
+
+        let text = format!(" {} ", btn.label);
+        let text_width = UnicodeWidthStr::width(text.as_str()) as u16;
+        state.button_starts.push(x);
+        state.button_widths.push(text_width);
+        let bg = COMMIT_BG_PALETTE[i % COMMIT_BG_PALETTE.len()];
+        spans.push(Span::styled(
+            text.clone(),
+            Style::default().fg(Color::White).bg(bg),
+        ));
+        x += text_width;
     }
 
     let para = Paragraph::new(Line::from(spans));
@@ -332,20 +344,58 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
         x += 2;
     }
 
+    /// 全局工具栏每个按钮的底色
+    const GLOBAL_BG_COLORS: [Color; 7] = [
+        Color::Rgb(40, 80, 140),  // fetch — 蓝
+        Color::Rgb(160, 80, 30),  // push — 橙
+        Color::Rgb(40, 120, 60),  // pull — 绿
+        Color::Rgb(100, 50, 130), // branches — 紫
+        Color::Rgb(130, 110, 40), // tags — 金
+        Color::Rgb(50, 110, 120), // stash — 青
+        Color::Rgb(90, 90, 100),  // files — 灰
+    ];
+
+    let mut prev_group: Option<u8> = None;
     for (i, btn) in buttons.iter().enumerate() {
-        let text = format!(" {}{} ", btn.emoji, btn.label);
-        let text_width = UnicodeWidthStr::width(text.as_str()) as u16;
-        app.global_toolbar_state.button_starts.push(x);
-        spans.push(Span::styled(
-            text.clone(),
-            Style::default().fg(Color::White).bg(Color::Rgb(35, 35, 45)),
-        ));
-        x += text_width;
-        if i < buttons.len() - 1 {
+        // 不同组之间加空格分隔
+        if prev_group.is_some_and(|pg| pg != btn.group) {
             spans.push(Span::raw(" "));
             x += 1;
         }
+        prev_group = Some(btn.group);
+
+        let text = format!(" {} ", btn.label);
+        let text_width = UnicodeWidthStr::width(text.as_str()) as u16;
+        app.global_toolbar_state.button_starts.push(x);
+        let bg = GLOBAL_BG_COLORS[i % GLOBAL_BG_COLORS.len()];
+        spans.push(Span::styled(
+            text.clone(),
+            Style::default().fg(Color::White).bg(bg),
+        ));
+        x += text_width;
     }
+
+    // 右侧：CPU/MEM 读数（右对齐）
+    let cpu_text = format!(" CPU {:.0}% ", app.cpu_usage);
+    let mem_text = format!(" MEM {:.1}/{:.0}GB ", app.mem_used_gb, app.mem_total_gb);
+    let cpu_width = UnicodeWidthStr::width(cpu_text.as_str()) as u16;
+    let mem_width = UnicodeWidthStr::width(mem_text.as_str()) as u16;
+    let right_width = cpu_width + mem_width;
+
+    let total_content = (x - area.x) + right_width;
+    if total_content < area.width {
+        let padding = area.width - total_content;
+        spans.push(Span::raw(" ".repeat(padding as usize)));
+    }
+
+    spans.push(Span::styled(
+        cpu_text,
+        Style::default().fg(Color::White).bg(Color::Rgb(60, 60, 80)),
+    ));
+    spans.push(Span::styled(
+        mem_text,
+        Style::default().fg(Color::White).bg(Color::Rgb(50, 80, 60)),
+    ));
 
     let para = Paragraph::new(Line::from(spans));
     f.render_widget(para, area);
