@@ -23,6 +23,7 @@ import { analyzeToolPatterns } from "./analyzers/tool_patterns.js";
 import { analyzeGrepEffectiveness } from "./analyzers/grep_effectiveness.js";
 import { analyzeSkillUsage } from "./analyzers/skill_usage.js";
 import { analyzeSkillChains } from "./analyzers/skill_chains.js";
+import { analyzeEditErrors } from "./analyzers/edit_errors.js";
 import type { DefectReport } from "./types.js";
 
 // ── CLI 参数解析 ──
@@ -31,7 +32,7 @@ const args = process.argv.slice(2);
 const focusIdx = args.indexOf("--focus");
 const focus = focusIdx >= 0 ? args[focusIdx + 1] : "all";
 
-const VALID_FOCUSES = ["all", "errors", "efficiency", "strategy", "ux", "loops", "payload", "semantic", "cluster", "tools", "grep", "skills", "chains"];
+const VALID_FOCUSES = ["all", "errors", "efficiency", "strategy", "ux", "loops", "payload", "semantic", "cluster", "tools", "grep", "skills", "chains", "edit"];
 if (!VALID_FOCUSES.includes(focus)) {
   console.error(chalk.red(`无效的 --focus 值: ${focus}`));
   console.error(chalk.gray(`可选: ${VALID_FOCUSES.join(", ")}`));
@@ -125,6 +126,12 @@ try {
     console.time("  Skill 链深度分析耗时");
     allReports.push(...analyzeSkillChains(loader));
     console.timeEnd("  Skill 链深度分析耗时");
+  }
+
+  if (focus === "all" || focus === "edit") {
+    console.time("  Edit 工具错误分析耗时");
+    allReports.push(...analyzeEditErrors(loader));
+    console.timeEnd("  Edit 工具错误分析耗时");
   }
 
   // 综合报告

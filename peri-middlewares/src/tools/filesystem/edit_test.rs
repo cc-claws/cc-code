@@ -25,11 +25,11 @@
         let tool = EditFileTool::new(dir.path().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "missing", "new_string": "x"}))
-            .await
-            .unwrap();
+            .await;
+        let err = result.unwrap_err();
         assert!(
-            result.contains("not found"),
-            "should report not found: {result}"
+            err.to_string().contains("not found"),
+            "should report not found: {err}"
         );
     }
 
@@ -59,11 +59,11 @@
             .invoke(
                 serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}),
             )
-            .await
-            .unwrap();
+            .await;
+        let err = result.unwrap_err();
         assert!(
-            result.contains("not unique"),
-            "should report ambiguity: {result}"
+            err.to_string().contains("not unique"),
+            "should report ambiguity: {err}"
         );
     }
 
@@ -75,11 +75,11 @@
             .invoke(
                 serde_json::json!({"file_path": "ghost.txt", "old_string": "x", "new_string": "y"}),
             )
-            .await
-            .unwrap();
+            .await;
+        let err = result.unwrap_err();
         assert!(
-            result.contains("File not found"),
-            "should report file not found: {result}"
+            err.to_string().contains("File not found"),
+            "should report file not found: {err}"
         );
     }
 
@@ -90,11 +90,11 @@
         let tool = EditFileTool::new(dir.path().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "", "new_string": "x", "replace_all": true}))
-            .await
-            .unwrap();
+            .await;
+        let err = result.unwrap_err();
         assert!(
-            result.contains("cannot be empty"),
-            "empty old_string should be rejected: {result}"
+            err.to_string().contains("cannot be empty"),
+            "empty old_string should be rejected: {err}"
         );
         // 文件内容不应被修改
         let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();

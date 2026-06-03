@@ -82,7 +82,7 @@ impl BaseTool for EditFileTool {
         let replace_all = input["replace_all"].as_bool().unwrap_or(false);
 
         if old_string.is_empty() {
-            return Ok("Error: old_string cannot be empty".to_string());
+            return Err("Error: old_string cannot be empty".into());
         }
 
         let resolved = resolve_path(&self.cwd, file_path);
@@ -90,7 +90,7 @@ impl BaseTool for EditFileTool {
         let content = match std::fs::read_to_string(&resolved) {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(format!("Error: File not found at {file_path}"));
+                return Err(format!("Error: File not found at {file_path}").into());
             }
             Err(e) => return Err(e.into()),
         };
@@ -121,10 +121,9 @@ impl BaseTool for EditFileTool {
 
         if replace_all {
             if !content.contains(old_string) {
-                return Ok(format!(
-                    "Error: old_string not found in {}",
-                    resolved.display()
-                ));
+                return Err(
+                    format!("Error: old_string not found in {}", resolved.display()).into(),
+                );
             }
             let new_content = content.replace(old_string, new_string);
             let occurrences = content.matches(old_string).count();
@@ -148,18 +147,18 @@ impl BaseTool for EditFileTool {
         } else {
             let occurrences = content.matches(old_string).count();
             if occurrences == 0 {
-                return Ok(format!(
-                    "Error: old_string not found in {}",
-                    resolved.display()
-                ));
+                return Err(
+                    format!("Error: old_string not found in {}", resolved.display()).into(),
+                );
             }
             if occurrences > 1 {
-                return Ok(format!(
+                return Err(format!(
                     "Error: old_string is not unique in {} (found {} occurrences). \
                      Please provide more context or set replace_all to true.",
                     resolved.display(),
                     occurrences
-                ));
+                )
+                .into());
             }
             let new_content = content.replacen(old_string, new_string, 1);
             // 原子写入：先写临时文件再 rename

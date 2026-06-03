@@ -110,11 +110,11 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                     on_span,
                     Span::styled("  ", Style::default()),
                     off_span,
-                    Span::styled(
-                        format!("  {}", lc.tr("config-desc-autocompact")),
-                        desc_style,
-                    ),
                 ]));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-autocompact")),
+                    desc_style,
+                )));
             }
             ROW_LANGUAGE => {
                 let is_active = panel.cursor == row;
@@ -140,17 +140,16 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                         value_spans.push(Span::styled("  ", Style::default()));
                     }
                 }
-                value_spans.push(Span::styled(
-                    format!("  {}", lc.tr("config-desc-language")),
-                    desc_style,
-                ));
-
                 let mut line_spans = vec![
                     Span::styled("  ", Style::default()),
                     Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
                 ];
                 line_spans.extend(value_spans);
                 lines.push(Line::from(line_spans));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-language")),
+                    desc_style,
+                )));
             }
             ROW_DIFF => {
                 let is_active = panel.cursor == row;
@@ -178,8 +177,11 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                     on_span,
                     Span::styled("  ", Style::default()),
                     off_span,
-                    Span::styled(format!("  {}", lc.tr("config-desc-diff")), desc_style),
                 ]));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-diff")),
+                    desc_style,
+                )));
             }
             ROW_STREAMING => {
                 let is_active = panel.cursor == row;
@@ -202,17 +204,16 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                         value_spans.push(Span::styled("  ", Style::default()));
                     }
                 }
-                value_spans.push(Span::styled(
-                    format!("  {}", lc.tr("config-desc-streaming")),
-                    desc_style,
-                ));
-
                 let mut line_spans = vec![
                     Span::styled("  ", Style::default()),
                     Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
                 ];
                 line_spans.extend(value_spans);
                 lines.push(Line::from(line_spans));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-streaming")),
+                    desc_style,
+                )));
             }
             ROW_PROACTIVENESS => {
                 let is_active = panel.cursor == row;
@@ -235,17 +236,16 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                         value_spans.push(Span::styled("  ", Style::default()));
                     }
                 }
-                value_spans.push(Span::styled(
-                    format!("  {}", lc.tr("config-desc-proactiveness")),
-                    desc_style,
-                ));
-
                 let mut line_spans = vec![
                     Span::styled("  ", Style::default()),
                     Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
                 ];
                 line_spans.extend(value_spans);
                 lines.push(Line::from(line_spans));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-proactiveness")),
+                    desc_style,
+                )));
             }
             ROW_THRESHOLD | ROW_PERSONA | ROW_TONE => {
                 let is_active = panel.cursor == row;
@@ -283,9 +283,13 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 lines.push(Line::from(vec![
                     Span::styled("  ", Style::default()),
                     Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                    Span::styled(" ", Style::default()),
                     Span::styled(value_display, value_style),
-                    Span::styled(format!("  {}", lc.tr(desc_key)), desc_style),
                 ]));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr(desc_key)),
+                    desc_style,
+                )));
             }
             _ => {}
         }

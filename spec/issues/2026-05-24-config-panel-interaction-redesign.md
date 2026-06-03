@@ -1,6 +1,6 @@
 # Config 面板交互混乱，需整体重新设计
 
-**状态**：Open
+**状态**：Verified
 **优先级**：中
 **创建日期**：2026-05-24
 
@@ -50,3 +50,36 @@
 - `peri-tui/src/app/panel_config.rs`—— 打开/关闭 ConfigPanel 的 App 扩展方法
 - `peri-tui/src/command/core/config.rs`—— /config 命令定义
 - `peri-tui/src/app/config_panel_test.rs`—— ConfigPanel 单元测试
+
+### 现象 2（2026-06-03 追加）
+
+当前实现已从 Browse/Edit 两步模式改为直编辑模式，但**保存机制仍为 Enter 一次性保存**：
+
+- 修改任意字段后（如 Space 切换 autocompact、输入 threshold 值），配置**不会立即生效**
+- 必须按 Enter 才触发 `apply_edit()` + `save_config()` 一次性保存所有字段并关闭面板
+- 用户期望：**即时生效模式**——修改一个字段就立即保存生效，无需按 Enter 确认
+
+期望行为：
+- 布尔/选择字段（autocompact、language、proactiveness、diff、streaming）：Space/Left/Right 切换后立即保存
+- 文本字段（threshold、persona、tone）：输入后按 Enter 保存当前字段，或失焦时自动保存
+- Esc 仅关闭面板，不撤销已保存的改动
+- 面板内显示已保存状态指示
+
+## 状态变更记录
+
+| 日期 | 从 | 到 | 操作人 | 说明 |
+|------|-----|-----|--------|------|
+| 2026-05-24 | — | Open | agent | 创建 |
+| 2026-06-03 | Open | Open | agent | 追加即时生效模式需求 |
+| 2026-06-03 | Open | Fixed | agent | 实现即时保存：toggle 即存、blur 存、Enter no-op |
+| 2026-06-03 | Fixed | Verified | 用户 | 验证通过 |
+
+## 修复记录
+
+### 修复 #1（2026-06-03）
+
+- **操作人**：agent
+- **用户原意**：配置面板改为即时生效——切换选项或离开文本字段时自动保存，不需要 Enter 确认
+- **修复内容**：提取 `save_config_now()` + `is_text_row()` 辅助函数；Space/Left/Right 切换布尔/选择字段后立即写盘；Up/Down 离开文本字段时写盘；Esc 先保存文本字段再关闭；Enter 改为 no-op；鼠标点击离开文本字段时写盘；移除 status_bar_hints 中的 Enter=保存 提示
+- **涉及 commit**：`77fced43`
+- **验证状态**：已验证

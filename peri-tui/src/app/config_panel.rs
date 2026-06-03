@@ -57,6 +57,34 @@ fn is_text_row(row: usize) -> bool {
     matches!(row, ROW_THRESHOLD | ROW_PERSONA | ROW_TONE)
 }
 
+/// 屏幕行号 → 逻辑行号。
+/// 渲染时每个可编辑字段占 2 行（值行 + 描述行），非编辑行占 1 行。
+const SCREEN_LAYOUT: &[usize] = &[
+    ROW_GENERAL_HEADER,   // screen 0
+    ROW_AUTOCOMPACT,      // screen 1: value
+    ROW_AUTOCOMPACT,      // screen 2: desc
+    ROW_THRESHOLD,        // screen 3: value
+    ROW_THRESHOLD,        // screen 4: desc
+    ROW_LANGUAGE,         // screen 5: value
+    ROW_LANGUAGE,         // screen 6: desc
+    ROW_DIFF,             // screen 7: value
+    ROW_DIFF,             // screen 8: desc
+    ROW_STREAMING,        // screen 9: value
+    ROW_STREAMING,        // screen 10: desc
+    ROW_PROACTIVENESS,    // screen 11: value
+    ROW_PROACTIVENESS,    // screen 12: desc
+    ROW_SEPARATOR,        // screen 13
+    ROW_OVERRIDES_HEADER, // screen 14
+    ROW_PERSONA,          // screen 15: value
+    ROW_PERSONA,          // screen 16: desc
+    ROW_TONE,             // screen 17: value
+    ROW_TONE,             // screen 18: desc
+];
+
+fn screen_to_logical_row(screen_line: usize) -> Option<usize> {
+    SCREEN_LAYOUT.get(screen_line).copied()
+}
+
 fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
     let Some(cfg) = ctx.services.peri_config.as_mut() else {
         return;
@@ -487,23 +515,25 @@ impl PanelComponent for ConfigPanel {
         if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
             let relative_y = mouse.row.saturating_sub(area.y);
             if relative_y >= 1 {
-                let clicked = (relative_y - 1) as usize;
-                if matches!(
-                    clicked,
-                    ROW_AUTOCOMPACT
-                        | ROW_THRESHOLD
-                        | ROW_LANGUAGE
-                        | ROW_DIFF
-                        | ROW_STREAMING
-                        | ROW_PROACTIVENESS
-                        | ROW_PERSONA
-                        | ROW_TONE
-                ) {
-                    if is_text_row(self.cursor) && self.cursor != clicked {
-                        save_config_now(self, _ctx);
+                let screen_line = (relative_y - 1) as usize;
+                if let Some(clicked) = screen_to_logical_row(screen_line) {
+                    if matches!(
+                        clicked,
+                        ROW_AUTOCOMPACT
+                            | ROW_THRESHOLD
+                            | ROW_LANGUAGE
+                            | ROW_DIFF
+                            | ROW_STREAMING
+                            | ROW_PROACTIVENESS
+                            | ROW_PERSONA
+                            | ROW_TONE
+                    ) {
+                        if is_text_row(self.cursor) && self.cursor != clicked {
+                            save_config_now(self, _ctx);
+                        }
+                        self.cursor = clicked;
+                        return EventResult::Consumed;
                     }
-                    self.cursor = clicked;
-                    return EventResult::Consumed;
                 }
             }
         }
@@ -511,7 +541,7 @@ impl PanelComponent for ConfigPanel {
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
-        18
+        (SCREEN_LAYOUT.len() + 2) as u16
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
