@@ -229,15 +229,10 @@ pub fn render_view_model(
                             // AI 回复内容：与 Codex 对齐，第一行用 "• " 前缀，后续行用 "  " 缩进
                             // 注意：不能用 lines.is_empty() 判断，因为 Reasoning block 可能已先填充了 lines
                             // 用独立的 text_line_count 追踪 Text block 自身的行数
-                            let mut text_line_count = 0usize;
-                            for line in rendered.lines.iter() {
-                                let prefix = if text_line_count == 0 {
-                                    "● "
-                                } else {
-                                    "  "
-                                };
-                                text_line_count += 1;
-                                let mut spans = vec![Span::styled(prefix, Style::default().fg(Color::White))];
+                            for (text_line_count, line) in rendered.lines.iter().enumerate() {
+                                let prefix = if text_line_count == 0 { "● " } else { "  " };
+                                let mut spans =
+                                    vec![Span::styled(prefix, Style::default().fg(Color::White))];
                                 for span in &line.spans {
                                     spans.push(span.clone());
                                 }
@@ -386,7 +381,10 @@ pub fn render_view_model(
                         lines.push(Line::from(vec![
                             Span::styled("  ⎿ ", Style::default().fg(border_color)),
                             Span::styled(
-                                format!("... ({} more lines)", state.result_lines.len() - max_lines),
+                                format!(
+                                    "... ({} more lines)",
+                                    state.result_lines.len() - max_lines
+                                ),
                                 Style::default().fg(theme::DIM),
                             ),
                         ]));
@@ -670,10 +668,7 @@ pub fn render_view_model(
                         for line in truncated.lines() {
                             lines.push(Line::from(vec![
                                 Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
-                                Span::styled(
-                                    line.to_string(),
-                                    Style::default().fg(theme::MUTED),
-                                ),
+                                Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
                             ]));
                         }
                     }

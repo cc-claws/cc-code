@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use peri_widgets::ScrollbarMetrics;
 use tui_textarea::TextArea;
 
@@ -46,8 +44,6 @@ pub struct UiState {
     pub bg_bar_area: Option<ratatui::layout::Rect>,
     /// 详细模式：强制展开所有工具调用，显示完整内容（Ctrl+O 切换）
     pub detail_mode: bool,
-    /// 大段粘贴的占位符和实际内容（占位符, 实际内容）
-    pub pending_pastes: Vec<(String, String)>,
 }
 
 impl UiState {
@@ -83,55 +79,6 @@ impl UiState {
             bg_bar_cursor: None,
             bg_bar_area: None,
             detail_mode: detail_enabled,
-            pending_pastes: Vec::new(),
         }
-    }
-
-    /// 生成大段粘贴的占位符文本
-    pub fn next_large_paste_placeholder(&self, char_count: usize) -> String {
-        let base = format!("[Pasted Content {} chars]", char_count);
-        let prefix = format!("{} #", base);
-        let mut max_suffix = 0usize;
-
-        for (placeholder, _) in &self.pending_pastes {
-            if placeholder == &base {
-                max_suffix = max_suffix.max(1);
-                continue;
-            }
-            if let Some(suffix) = placeholder.strip_prefix(&prefix) {
-                if let Ok(value) = suffix.parse::<usize>() {
-                    max_suffix = max_suffix.max(value);
-                }
-            }
-        }
-
-        if max_suffix == 0 {
-            base
-        } else {
-            format!("{} #{}", base, max_suffix + 1)
-        }
-    }
-
-    /// 展开 pending_pastes 中的占位符，返回完整文本
-    pub fn expand_pending_pastes(&self, text: &str) -> String {
-        if self.pending_pastes.is_empty() {
-            return text.to_string();
-        }
-
-        let mut result = text.to_string();
-        let mut pending_queue: VecDeque<&str> = VecDeque::new();
-        for (placeholder, actual) in &self.pending_pastes {
-            if result.contains(placeholder.as_str()) {
-                pending_queue.push_back(actual.as_str());
-            }
-        }
-
-        for (placeholder, _) in &self.pending_pastes {
-            if let Some(actual) = pending_queue.pop_front() {
-                result = result.replacen(placeholder, actual, 1);
-            }
-        }
-
-        result
     }
 }

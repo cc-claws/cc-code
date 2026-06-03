@@ -275,7 +275,14 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         Input {
             key: Key::PageUp, ..
         } => {
-            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
             if !has_content {
                 for _ in 0..20 {
                     app.scroll_up();
@@ -286,7 +293,14 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         Input {
             key: Key::PageDown, ..
         } => {
-            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
             if !has_content {
                 for _ in 0..20 {
                     app.scroll_down();
@@ -294,19 +308,29 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
         // Home: scroll to top (only when textarea is empty)
-        Input {
-            key: Key::Home, ..
-        } => {
-            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
+        Input { key: Key::Home, .. } => {
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
             if !has_content {
                 app.scroll_to_top();
             }
         }
         // End: scroll to bottom (only when textarea is empty)
-        Input {
-            key: Key::End, ..
-        } => {
-            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
+        Input { key: Key::End, .. } => {
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
             if !has_content {
                 app.scroll_to_bottom();
             }
