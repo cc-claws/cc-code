@@ -20,24 +20,9 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // ESC: no longer quits main window; only clears buffer while loading
+        // ESC: 中断 agent 运行（与 Ctrl+C 行为一致）
         Input { key: Key::Esc, .. } if app.session_mgr.current_mut().ui.loading => {
-            if !app
-                .session_mgr
-                .current_mut()
-                .messages
-                .pending_messages
-                .is_empty()
-            {
-                app.session_mgr
-                    .current_mut()
-                    .messages
-                    .pending_messages
-                    .clear();
-            }
-            // 设置 rewind 不可用提示（Status Bar，3秒后消失）
-            app.global_ui.rewind_busy_hint_until =
-                Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+            app.interrupt();
         }
 
         // Esc: 关闭 @ 提及弹窗
