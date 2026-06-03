@@ -31,6 +31,71 @@ impl EditFileTool {
     }
 }
 
+/// 为 old_string not found 错误构建模糊匹配提示。
+///
+/// 策略 1：取 old_string 前 5 行做前缀匹配，报告匹配到的行号范围。
+/// 策略 2：前缀匹配失败时，用滑动窗口找最接近的区域，报告差异行数。
+/// old_string > 5000 字符时跳过，仅返回建议 Read 提示。
+fn build_not_found_hint(content: &str, old_string: &str) -> String {
+    const MAX_FUZZY_LEN: usize = 5000;
+    if old_string.len() > MAX_FUZZY_LEN {
+        return "建议先 Read 此文件获取最新内容再重试。".to_string();
+    }
+
+    // 策略 1：前缀匹配
+    let prefix_lines: Vec<&str> = old_string.lines().take(5).collect();
+    let prefix: String = prefix_lines.join("\n");
+    if !prefix.is_empty() {
+        if let Some(byte_offset) = content.find(&prefix) {
+            let line_start = content[..byte_offset].lines().count() + 1;
+            let line_end = line_start + prefix_lines.len() - 1;
+            return format!(
+                "old_string 前 {} 行匹配到文件第 {}-{} 行，但整体不匹配。\
+                 文件可能已被修改。建议先 Read 此文件获取最新内容再重试。",
+                prefix_lines.len(),
+                line_start,
+                line_end
+            );
+        }
+    }
+
+    // 策略 2：行数近似匹配（回退）
+    let old_lines: Vec<&str> = old_string.lines().collect();
+    let file_lines: Vec<&str> = content.lines().collect();
+    let window_len = old_lines.len();
+
+    if window_len > 0 && window_len <= file_lines.len() {
+        let mut best_pos = 0;
+        let mut best_common = 0;
+
+        for start in 0..=file_lines.len().saturating_sub(window_len) {
+            let window = &file_lines[start..start + window_len];
+            let common = window
+                .iter()
+                .zip(old_lines.iter())
+                .filter(|(a, b)| a.trim() == b.trim())
+                .count();
+            if common > best_common {
+                best_common = common;
+                best_pos = start;
+            }
+        }
+
+        if best_common > 0 {
+            let line_start = best_pos + 1;
+            let line_end = best_pos + window_len;
+            let diff_count = window_len - best_common;
+            return format!(
+                "最接近的匹配在文件第 {}-{} 行（{} 行中有 {} 行不同）。\
+                 建议先 Read 此文件获取最新内容再重试。",
+                line_start, line_end, window_len, diff_count
+            );
+        }
+    }
+
+    "建议先 Read 此文件获取最新内容再重试。".to_string()
+}
+
 #[async_trait::async_trait]
 impl BaseTool for EditFileTool {
     fn name(&self) -> &str {
@@ -121,9 +186,12 @@ impl BaseTool for EditFileTool {
 
         if replace_all {
             if !content.contains(old_string) {
-                return Err(
-                    format!("Error: old_string not found in {}", resolved.display()).into(),
-                );
+                let hint = build_not_found_hint(&content, old_string);
+                return Err(format!(
+                    "Error: old_string not found in {}\n{hint}",
+                    resolved.display()
+                )
+                .into());
             }
             let new_content = content.replace(old_string, new_string);
             let occurrences = content.matches(old_string).count();
@@ -147,9 +215,12 @@ impl BaseTool for EditFileTool {
         } else {
             let occurrences = content.matches(old_string).count();
             if occurrences == 0 {
-                return Err(
-                    format!("Error: old_string not found in {}", resolved.display()).into(),
-                );
+                let hint = build_not_found_hint(&content, old_string);
+                return Err(format!(
+                    "Error: old_string not found in {}\n{hint}",
+                    resolved.display()
+                )
+                .into());
             }
             if occurrences > 1 {
                 return Err(format!(
