@@ -256,32 +256,6 @@ fn key_event_to_text(ev: Event, text: &mut String) -> bool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ratatui::crossterm::event::KeyEvent;
-
-    fn make_key(code: KeyCode) -> Event {
-        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
-    }
-
-    #[test]
-    fn test_key_event_to_text_simulated_paste_includes_first_line() {
-        let mut text = String::new();
-
-        assert!(key_event_to_text(make_key(KeyCode::Char('b')), &mut text));
-        assert!(key_event_to_text(make_key(KeyCode::Char('u')), &mut text));
-        assert!(key_event_to_text(make_key(KeyCode::Enter), &mut text));
-        assert!(key_event_to_text(make_key(KeyCode::Char('i')), &mut text));
-        assert!(key_event_to_text(make_key(KeyCode::Char('d')), &mut text));
-
-        assert_eq!(
-            text, "bu\nid",
-            "模拟粘贴重建必须从第一个字符开始，不能等到 Enter 后才收集"
-        );
-    }
-}
-
 // ── Event dispatcher ────────────────────────────────────────────────────────
 
 /// Core event-handling logic (extracted from `next_event` to avoid duplicating
@@ -782,5 +756,31 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
             prompt.error_message = None;
             handle_edit_key(&mut prompt.input, &mut prompt.cursor, input);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyEvent;
+
+    fn make_key(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn test_key_event_to_text_simulated_paste_includes_first_line() {
+        let mut text = String::new();
+
+        assert!(key_event_to_text(make_key(KeyCode::Char('b')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('u')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Enter), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('i')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('d')), &mut text));
+
+        assert_eq!(
+            text, "bu\nid",
+            "模拟粘贴重建必须从第一个字符开始，不能等到 Enter 后才收集"
+        );
     }
 }
