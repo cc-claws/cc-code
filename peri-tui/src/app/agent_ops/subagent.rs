@@ -25,7 +25,7 @@ impl App {
         // 缓存率检查：当次命中率低于 80% 时显示黄色提示
         // 首轮请求缓存尚未创建，cache_creation 有值但 cache_read=0，0% 是正常行为
         // 如果 provider 不支持缓存（累计 cache_creation + cache_read 始终为 0），跳过警告
-        // 限制：CLI 启动 300 秒后才允许提醒，之后每 60 秒最多一次，避免频繁打扰
+        // 限制：CLI 启动 1800 秒（30分钟）后才允许提醒，之后每 60 秒最多一次，避免频繁打扰
         let tracker = &self.session_mgr.current().agent.session_token_tracker;
         let should_check = tracker.llm_call_count > 1;
         let rate = tracker.cache_hit_rate();
@@ -39,7 +39,7 @@ impl App {
             .current()
             .agent
             .session_start_time
-            .map(|t| now.duration_since(t).as_secs() >= 300)
+            .map(|t| now.duration_since(t).as_secs() >= 1800)
             .unwrap_or(true);
         let should_warn = should_check
             && has_cache_data
