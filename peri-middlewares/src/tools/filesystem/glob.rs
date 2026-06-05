@@ -137,10 +137,7 @@ impl BaseTool for GlobFilesTool {
         };
 
         if !search_root.exists() {
-            return Ok(format!(
-                "Error: Directory not found: {}",
-                search_root.display()
-            ));
+            return Err(format!("Error: Directory not found: {}", search_root.display()).into());
         }
 
         let mut results = Vec::new();

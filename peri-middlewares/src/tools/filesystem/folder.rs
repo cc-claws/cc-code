@@ -208,21 +208,17 @@ impl BaseTool for FolderOperationsTool {
 
             "list" => {
                 if !resolved.exists() {
-                    return Ok(format!("\u{2717} Folder not found: {}", resolved.display()));
+                    return Err(format!("Folder not found: {}", resolved.display()).into());
                 }
                 if !resolved.is_dir() {
-                    return Ok(format!(
-                        "\u{2717} Path exists but is not a folder: {}",
-                        resolved.display()
-                    ));
+                    return Err(
+                        format!("Path exists but is not a folder: {}", resolved.display()).into(),
+                    );
                 }
-                match list_folder(&resolved) {
-                    Ok(s) => Ok(s),
-                    Err(e) => Ok(format!("\u{2717} Error: {e}")),
-                }
+                list_folder(&resolved)
             }
 
-            other => Ok(format!("\u{2717} Unknown operation: {other}")),
+            other => Err(format!("Unknown operation: {other}").into()),
         }
     }
 }

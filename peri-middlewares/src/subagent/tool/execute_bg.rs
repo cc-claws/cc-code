@@ -36,9 +36,9 @@ impl super::SubAgentTool {
             .ok_or("Background tasks not available: no registry configured")?;
 
         if registry.active_count() >= 3 {
-            return Ok("Error: maximum 3 concurrent background tasks reached. \
+            return Err("Error: maximum 3 concurrent background tasks reached. \
                  Wait for a running task to complete before starting a new one."
-                .to_string());
+                .into());
         }
 
         let task_id = format!("bg-{}", uuid::Uuid::new_v4());
@@ -52,15 +52,15 @@ impl super::SubAgentTool {
         let agent_id =
             match &subagent_type {
                 Some(id) => id.clone(),
-                None => return Ok(
+                None => return Err(
                     "Error: background mode requires subagent_type parameter (or use fork: true)"
-                        .to_string(),
+                        .into(),
                 ),
             };
 
         let agent_def = match self.load_agent_def(&agent_id, &cwd) {
             Ok(a) => a,
-            Err(e) => return Ok(e),
+            Err(e) => return Err(e.into()),
         };
 
         let build_result = self
@@ -254,9 +254,9 @@ impl super::SubAgentTool {
 
         let parent_msgs: Vec<BaseMessage> = match &self.parent_messages {
             Some(pm) => pm.read().clone(),
-            None => return Ok(
+            None => return Err(
                 "Error: Fork path requires parent message history, but parent_messages is not set"
-                    .to_string(),
+                    .into(),
             ),
         };
 

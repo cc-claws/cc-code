@@ -37,10 +37,11 @@ async fn test_grep_no_match() {
 async fn test_grep_missing_pattern() {
     let dir = tempfile::tempdir().unwrap();
     let tool = GrepTool::new(dir.path().to_str().unwrap());
-    let result = tool.invoke(serde_json::json!({})).await.unwrap();
+    let result = tool.invoke(serde_json::json!({})).await;
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        result.contains("Missing required parameter 'pattern'"),
-        "should report missing pattern: {result}"
+        err_msg.contains("Missing required parameter 'pattern'"),
+        "should report missing pattern: {err_msg}"
     );
 }
 
@@ -186,11 +187,11 @@ async fn test_grep_invalid_output_mode() {
             "pattern": "needle",
             "output_mode": "invalid_mode"
         }))
-        .await
-        .unwrap();
+        .await;
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        result.contains("Error"),
-        "should report invalid output_mode: {result}"
+        err_msg.contains("Error"),
+        "should report invalid output_mode: {err_msg}"
     );
 }
 

@@ -345,7 +345,7 @@ impl BaseTool for GrepTool {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let pattern = match input.get("pattern").and_then(|v| v.as_str()) {
             Some(p) => p.to_string(),
-            None => return Ok("Error: Missing required parameter 'pattern'".to_string()),
+            None => return Err("Error: Missing required parameter 'pattern'".into()),
         };
 
         let grep_input = GrepInput {
@@ -403,7 +403,7 @@ impl BaseTool for GrepTool {
 
         let parsed = match grep_input.to_parsed_args() {
             Ok(p) => p,
-            Err(e) => return Ok(format!("Error: {e}")),
+            Err(e) => return Err(format!("Error: {e}").into()),
         };
 
         let head_limit = grep_input.head_limit;
@@ -418,13 +418,13 @@ impl BaseTool for GrepTool {
         // offset 后处理（在超时/结果后应用）
         let output =
             match result {
-                Err(_) => return Ok(
+                Err(_) => return Err(
                     "Error: Search timed out after 15 seconds. Please use a more specific pattern."
-                        .to_string(),
+                        .into(),
                 ),
-                Ok(Err(e)) => return Ok(format!("Error: {e}")),
+                Ok(Err(e)) => return Err(format!("Error: {e}").into()),
                 Ok(Ok(Ok(output))) => output,
-                Ok(Ok(Err(e))) => return Ok(format!("Error: {e}")),
+                Ok(Ok(Err(e))) => return Err(format!("Error: {e}").into()),
             };
 
         // 应用 offset：跳过前 N 行

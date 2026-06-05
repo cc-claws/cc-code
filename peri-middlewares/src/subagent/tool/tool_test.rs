@@ -97,12 +97,12 @@ async fn test_agent_prompt_missing_returns_error() {
             "subagent_type": "test-agent",
             "cwd": dir.path().to_str().unwrap()
         }))
-        .await
-        .unwrap();
+        .await;
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        result.contains("prompt"),
+        err_msg.contains("prompt"),
         "Should return missing prompt error: {}",
-        result
+        err_msg
     );
 }
 
@@ -114,12 +114,12 @@ async fn test_agent_subagent_type_missing_returns_error() {
         .invoke(serde_json::json!({
             "prompt": "do something"
         }))
-        .await
-        .unwrap();
+        .await;
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        result.contains("subagent_type") || result.contains("fork"),
+        err_msg.contains("subagent_type") || err_msg.contains("fork"),
         "Should return missing subagent_type error with fork hint: {}",
-        result
+        err_msg
     );
 }
 
@@ -161,12 +161,12 @@ async fn test_tool_agent_not_found() {
             "prompt": "do something",
             "cwd": "/tmp"
         }))
-        .await
-        .unwrap();
+        .await;
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        result.contains("cannot find"),
+        err_msg.contains("cannot find"),
         "Should return not found error: {}",
-        result
+        err_msg
     );
 }
 
@@ -821,13 +821,14 @@ async fn test_fork_without_parent_messages_returns_error() {
             "fork": true,
             "prompt": "do something"
         }))
-        .await
-        .unwrap();
+        .await;
 
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        result.contains("parent_messages is not set") || result.contains("parent message history"),
+        err_msg.contains("parent_messages is not set")
+            || err_msg.contains("parent message history"),
         "Fork without parent_messages should return error, got: {}",
-        result
+        err_msg
     );
 }
 

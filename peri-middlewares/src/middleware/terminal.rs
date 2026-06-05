@@ -167,11 +167,12 @@ impl BaseTool for BashTool {
         .await;
 
         match result {
-            Err(_) => Ok(format!(
+            Err(_) => Err(format!(
                 "Error: Command timed out after {} seconds.\nCommand: {command}",
                 timeout_ms as f64 / 1000.0
-            )),
-            Ok(Err(e)) => Ok(format!("Error executing command: {e}")),
+            )
+            .into()),
+            Ok(Err(e)) => Err(format!("Error executing command: {e}").into()),
             Ok(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();

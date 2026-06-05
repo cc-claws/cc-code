@@ -19,9 +19,9 @@ impl super::SubAgentTool {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let parent_msgs: Vec<BaseMessage> = match &self.parent_messages {
             Some(pm) => pm.read().clone(),
-            None => return Ok(
+            None => return Err(
                 "Error: Fork path requires parent message history, but parent_messages is not set"
-                    .to_string(),
+                    .into(),
             ),
         };
 

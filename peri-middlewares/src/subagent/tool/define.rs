@@ -51,7 +51,7 @@ Fork mode (fork: true):
 
 Usage:
 - Provide a clear, self-contained task description via the prompt parameter. The sub-agent has no access to the parent conversation history
-- Specify subagent_type matching an existing agent definition file. When not provided, creates a fork of the current agent
+- **subagent_type is REQUIRED** unless fork=true. Specify an agent ID matching an existing agent definition file. Do NOT omit this parameter unless you intend to fork the current agent
 - The sub-agent inherits the parent's tool set by default, excluding Agent itself (to prevent recursion)
 - Agent definitions may restrict available tools via the tools and disallowedTools fields in frontmatter
 - The sub-agent executes in isolated state — it cannot access the parent's message history or intermediate results
@@ -297,7 +297,7 @@ impl BaseTool for SubAgentTool {
                 },
                 "subagent_type": {
                     "type": "string",
-                    "description": "The agent ID from the available agents list (e.g., 'code-reviewer', 'explorer'). Must exactly match an agent definition file at .claude/agents/{subagent_type}.md or .claude/agents/{subagent_type}/agent.md. When empty or not provided, creates a fork of the current agent with all tools"
+                    "description": "The agent ID from the available agents list (e.g., 'code-reviewer', 'explorer'). Must exactly match an agent definition file at .claude/agents/{subagent_type}.md or .claude/agents/{subagent_type}/agent.md. REQUIRED unless fork=true. When not provided and fork is not set, the call will fail with an error"
                 },
                 "name": {
                     "type": "string",
@@ -329,7 +329,7 @@ impl BaseTool for SubAgentTool {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let prompt = match input.get("prompt").and_then(|v| v.as_str()) {
             Some(p) => p.to_string(),
-            None => return Ok("Error: missing required parameter prompt".to_string()),
+            None => return Err("Error: missing required parameter prompt".into()),
         };
         let subagent_type = input
             .get("subagent_type")
@@ -363,16 +363,16 @@ impl BaseTool for SubAgentTool {
         let agent_id = match &subagent_type {
             Some(id) => id.clone(),
             None => {
-                return Ok(
+                return Err(
                     "Error: please provide subagent_type parameter to specify the agent type, or use fork: true for fork mode"
-                        .to_string(),
+                        .into(),
                 )
             }
         };
 
         let agent_def = match self.load_agent_def(&agent_id, &cwd) {
             Ok(a) => a,
-            Err(e) => return Ok(e),
+            Err(e) => return Err(e.into()),
         };
 
         let build_result = self

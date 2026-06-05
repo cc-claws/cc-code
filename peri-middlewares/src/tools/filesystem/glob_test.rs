@@ -45,11 +45,11 @@
         let tool = GlobFilesTool::new(dir.path().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({"pattern": "*.rs", "path": "nonexistent_dir"}))
-            .await
-            .unwrap();
+            .await;
+        let err_msg = result.unwrap_err().to_string();
         assert!(
-            result.contains("Directory not found"),
-            "should report missing dir: {result}"
+            err_msg.contains("Directory not found"),
+            "should report missing dir: {err_msg}"
         );
     }
 
