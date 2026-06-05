@@ -52,7 +52,7 @@ Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64 /
 ### npm (Recommended)
 
 ```bash
-npm install -g peri-agent
+npm install -g @cc-claw/peri
 ```
 
 ### macOS / Linux (Script)

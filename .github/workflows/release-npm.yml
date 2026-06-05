@@ -190,6 +190,7 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
+          scope: "@cc-claw"
           
 
       - name: Set npm version

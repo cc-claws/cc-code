@@ -2,13 +2,13 @@
 
 **用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
 
-[![npm](https://img.shields.io/npm/v/peri-agent)](https://www.npmjs.com/package/peri-agent)
+[![npm](https://img.shields.io/npm/v/@cc-claw/peri)](https://www.npmjs.com/package/@cc-claw/peri)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## 安装
 
 ```bash
-npm install -g peri-agent
+npm install -g @cc-claw/peri
 ```
 
 安装时自动下载对应平台的预编译二进制（Linux x64/arm64/riscv64、macOS x64/arm64、Windows x64）。

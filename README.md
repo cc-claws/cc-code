@@ -8,7 +8,7 @@
 
 DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑。
 
-[![npm](https://img.shields.io/npm/v/peri-agent)](https://www.npmjs.com/package/peri-agent)
+[![npm](https://img.shields.io/npm/v/@cc-claw/peri)](https://www.npmjs.com/package/@cc-claw/peri)
 [![GitHub stars](https://img.shields.io/github/stars/wismyzhizi2018/peri?style=social)](https://github.com/wismyzhizi2018/peri/stargazers)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
 
@@ -53,7 +53,7 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RI
 ### npm（推荐）
 
 ```bash
-npm install -g peri-agent
+npm install -g @cc-claw/peri
 ```
 
 ### macOS / Linux（脚本安装）
@@ -91,7 +91,7 @@ irm https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.p
 
 ```text
 peri/
-├── peri-agent/                # 核心：Agent loop、工具系统、持久化、遥测
+├── @cc-claw/peri/                # 核心：Agent loop、工具系统、持久化、遥测
 ├── peri-middlewares/           # 中间件：文件系统、终端、MCP、Hooks 等
 ├── peri-tui/                  # TUI 应用 (Ratatui)
 ├── peri-acp/                  # ACP 服务层：桥接 TUI/IDE 与 Agent
