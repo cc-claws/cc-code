@@ -8,8 +8,13 @@
 
 DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` config, runs on RISC-V.
 
+[![npm](https://img.shields.io/npm/v/@cc-claw/peri)](https://www.npmjs.com/package/@cc-claw/peri)
 [![GitHub stars](https://img.shields.io/github/stars/wismyzhizi2018/peri?style=social)](https://github.com/wismyzhizi2018/peri/stargazers)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
+
+```bash
+npm install -g @cc-claw/peri
+```
 
 [Why Peri](#why-peri) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-peri-with-nobody-coding) · [Acknowledgments](#acknowledgments)
 
