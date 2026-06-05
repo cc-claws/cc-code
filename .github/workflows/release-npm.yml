@@ -46,10 +46,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set version from tag
+      - name: Set version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#npm-v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#npm-v}"
+          fi
           echo "Setting version to ${VERSION}"
           sed -i.bak -e "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
           rm -f Cargo.toml.bak
@@ -126,6 +130,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#npm-v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create tag (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git tag "npm-v${{ steps.version.outputs.version }}"
+          git push origin "npm-v${{ steps.version.outputs.version }}"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -141,11 +161,12 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: "npm-v${{ steps.version.outputs.version }}"
           files: |
             artifacts/*
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          prerelease: ${{ contains(steps.version.outputs.version, '-alpha') || contains(steps.version.outputs.version, '-beta') || contains(steps.version.outputs.version, '-rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -168,7 +189,11 @@ jobs:
 
       - name: Set npm version
         run: |
-          VERSION="${GITHUB_REF_NAME#npm-v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#npm-v}"
+          fi
           cd npm
           npm version "${VERSION}" --no-git-tag-version
 
