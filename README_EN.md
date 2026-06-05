@@ -49,7 +49,13 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` c
 
 Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64 / riscv64), and Windows (x86_64).
 
-### macOS / Linux
+### npm (Recommended)
+
+```bash
+npm install -g peri-agent
+```
+
+### macOS / Linux (Script)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.sh | bash
