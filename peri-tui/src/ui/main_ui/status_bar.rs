@@ -669,7 +669,7 @@ fn simplify_mcp_error(msg: &str) -> String {
     if let Some(bracket_start) = truncated.find('[') {
         let prefix = &truncated[..bracket_start];
         // 移除尾部的空格和标点
-        let simplified = prefix.trim_end().trim_end_matches(|c: char| c == ':' || c == '-');
+        let simplified = prefix.trim_end().trim_end_matches([':', '-']);
         if !simplified.is_empty() {
             return simplified.to_string();
         }
