@@ -108,10 +108,12 @@ peri/
 ├── peri-widgets/              # Widget component library
 ├── peri-lsp/                  # LSP client library
 ├── langfuse-client/           # Langfuse telemetry client
+├── npm/                       # npm package: postinstall script + shell wrapper
 ├── scripts/
 │   ├── install.sh             # macOS / Linux installer
 │   └── install.ps1            # Windows installer
-├── side-projects/             # Experimental projects
+├── side-projects/             # Experimental projects (gig, llm-gateway, etc.)
+├── spec/                      # Design docs and specs
 ├── README.md
 └── LICENSE                    # Apache 2.0
 ```

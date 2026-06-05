@@ -101,17 +101,19 @@ irm https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.p
 
 ```text
 peri/
-├── @cc-claw/peri/                # 核心：Agent loop、工具系统、持久化、遥测
+├── peri-agent/                # 核心：Agent loop、工具系统、持久化、遥测
 ├── peri-middlewares/           # 中间件：文件系统、终端、MCP、Hooks 等
 ├── peri-tui/                  # TUI 应用 (Ratatui)
 ├── peri-acp/                  # ACP 服务层：桥接 TUI/IDE 与 Agent
 ├── peri-widgets/              # Widget 组件库
 ├── peri-lsp/                  # LSP 客户端库
 ├── langfuse-client/           # Langfuse 遥测客户端
+├── npm/                       # npm 包：postinstall 脚本 + shell wrapper
 ├── scripts/
 │   ├── install.sh             # macOS / Linux 安装器
 │   └── install.ps1            # Windows 安装器
-├── side-projects/             # 实验性项目
+├── side-projects/             # 实验性项目（gig、llm-gateway 等）
+├── spec/                      # 设计文档与规范
 ├── README.md
 └── LICENSE                    # Apache 2.0
 ```
