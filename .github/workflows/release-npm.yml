@@ -143,8 +143,12 @@ jobs:
       - name: Create tag (manual trigger)
         if: github.event_name == 'workflow_dispatch'
         run: |
-          git tag "npm-v${{ steps.version.outputs.version }}"
-          git push origin "npm-v${{ steps.version.outputs.version }}"
+          if git rev-parse "npm-v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag npm-v${{ steps.version.outputs.version }} already exists, skipping creation"
+          else
+            git tag "npm-v${{ steps.version.outputs.version }}"
+            git push origin "npm-v${{ steps.version.outputs.version }}"
+          fi
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
