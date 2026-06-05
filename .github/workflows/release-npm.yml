@@ -180,7 +180,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write  # Required for OIDC trusted publishing
 
     steps:
       - name: Checkout repository
@@ -191,7 +190,7 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
-          scope: "@cc-claw"
+          
 
       - name: Set npm version
         run: |
@@ -207,3 +206,5 @@ jobs:
         run: |
           cd npm
           npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
