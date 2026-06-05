@@ -8,6 +8,7 @@
 
 DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑。
 
+[![npm](https://img.shields.io/npm/v/peri-agent)](https://www.npmjs.com/package/peri-agent)
 [![GitHub stars](https://img.shields.io/github/stars/wismyzhizi2018/peri?style=social)](https://github.com/wismyzhizi2018/peri/stargazers)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
 
@@ -49,7 +50,13 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RI
 
 支持 macOS (x86_64 / Apple Silicon)、Linux (x86_64 / aarch64 / riscv64)、Windows (x86_64)。
 
-### macOS / Linux
+### npm（推荐）
+
+```bash
+npm install -g peri-agent
+```
+
+### macOS / Linux（脚本安装）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.sh | bash
