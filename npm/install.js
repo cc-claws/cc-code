@@ -98,7 +98,11 @@ async function main() {
   }
 
   if (platform.os !== "win32") {
-    chmodSync(finalPath, 0o755);
+    const { chmodSync: chmod } = require("fs");
+    chmod(finalPath, 0o755);
+    // Ensure the shell wrapper is also executable
+    const wrapperPath = join(__dirname, "bin", "peri");
+    if (existsSync(wrapperPath)) chmod(wrapperPath, 0o755);
   }
 
   console.log(`peri ${VERSION} installed successfully.`);
