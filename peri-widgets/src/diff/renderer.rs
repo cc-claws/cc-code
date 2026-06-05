@@ -189,10 +189,6 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
     let gutter_width = 1 + n + 1 + n + 3;
 
     for hunk in &result.hunks {
-        // 新文件场景：限制最多显示 6 行内容（不含 hunk header 和省略提示）
-        const NEW_FILE_MAX_LINES: usize = 6;
-        let new_file_limit = result.is_new_file.then_some(NEW_FILE_MAX_LINES);
-
         // 计算本 hunk 内所有内容行的公共前导空格数，然后裁剪
         let common_indent = hunk
             .lines
@@ -213,18 +209,7 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
             .min()
             .unwrap_or(0);
 
-        let mut content_count: usize = 0;
-        let mut truncated_new_file = false;
-
         for dl in &hunk.lines {
-            // 新文件截断：超过限制后停止渲染内容行
-            if let Some(limit) = new_file_limit {
-                if content_count >= limit && !matches!(dl, DiffLine::HunkHeader { .. }) {
-                    truncated_new_file = true;
-                    break;
-                }
-            }
-
             match dl {
                 DiffLine::HunkHeader { text } => {
                     let truncated = truncate_to_width(text.trim_end_matches('\n'), width);
@@ -238,7 +223,6 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                     old_line_num,
                     new_line_num,
                 } => {
-                    content_count += 1;
                     let gutter = format!(" {:>n$} {:>n$} │ ", old_line_num, new_line_num, n = n);
                     let dedented = dedent_line(text, common_indent);
                     let content = truncate_to_width(&dedented, width.saturating_sub(gutter_width));
@@ -252,7 +236,6 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                     line_num,
                     word_diff,
                 } => {
-                    content_count += 1;
                     let marker = "+";
                     let gutter = format!("{}{:>n$} {:>n$} │ ", marker, "", line_num, n = n);
                     let fg = theme.diff_add();
@@ -288,7 +271,6 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                     line_num,
                     word_diff,
                 } => {
-                    content_count += 1;
                     let marker = "-";
                     let gutter = format!("{}{:>n$} {:>n$} │ ", marker, line_num, "", n = n);
                     let fg = theme.diff_remove();
@@ -320,28 +302,6 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                     }
                 }
             }
-        }
-
-        // 新文件截断提示
-        if truncated_new_file {
-            let total_lines: usize = result
-                .hunks
-                .iter()
-                .map(|h| {
-                    h.lines
-                        .iter()
-                        .filter(|l| !matches!(l, DiffLine::HunkHeader { .. }))
-                        .count()
-                })
-                .sum();
-            lines.push(Line::from(vec![Span::styled(
-                format!(
-                    "  ... {} more lines not shown",
-                    total_lines.saturating_sub(NEW_FILE_MAX_LINES)
-                ),
-                Style::default().fg(theme.dim()),
-            )]));
-            break;
         }
     }
 

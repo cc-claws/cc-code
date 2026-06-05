@@ -103,6 +103,34 @@ fn test_render_new_file_all_green() {
 }
 
 #[test]
+fn test_render_new_file_shows_tail_lines() {
+    let input = DiffInput {
+        file_path: "new_file.rs".to_string(),
+        old_content: String::new(),
+        new_content: (0..12)
+            .map(|idx| format!("line {idx:02}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        is_new_file: true,
+        is_deleted_file: false,
+        is_binary: false,
+    };
+    let theme = DarkTheme;
+    let lines = render_diff_impl(&input, 80, &theme);
+    let text: String = lines
+        .iter()
+        .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+        .collect::<Vec<_>>()
+        .join("");
+
+    assert!(text.contains("line 11"), "新文件 diff 应显示尾部代码行");
+    assert!(
+        !text.contains("more lines not shown"),
+        "新文件 diff 不应在详细视图中隐藏代码行"
+    );
+}
+
+#[test]
 fn test_render_truncated_diff() {
     let input = DiffInput {
         file_path: "big.txt".to_string(),

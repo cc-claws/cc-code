@@ -285,6 +285,53 @@
     }
 
     #[test]
+    fn test_tool_block_detail_mode_shows_full_long_output() {
+        use crate::app::MessageViewModel;
+        let content = (0..30)
+            .map(|idx| format!("line {idx:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_long".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("printf long output".to_string()),
+            content,
+            is_error: false,
+            collapsed: false,
+            color: crate::ui::theme::SAGE,
+            diff_lines: None,
+            content_hash: 0,
+        };
+
+        let normal_text = render_view_model(&vm, Some(1), 80, false)
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        let detail_text = render_view_model(&vm, Some(1), 80, true)
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(normal_text.contains("line 19"), "普通模式应显示前 20 行");
+        assert!(
+            !normal_text.contains("line 20"),
+            "普通模式应截断第 21 行后的输出"
+        );
+        assert!(
+            normal_text.contains("... (10 more lines)"),
+            "普通模式应显示隐藏行数提示"
+        );
+        assert!(detail_text.contains("line 29"), "详细模式应显示完整工具输出");
+        assert!(
+            !detail_text.contains("more lines"),
+            "详细模式不应显示截断提示"
+        );
+    }
+
+    #[test]
     fn test_tool_call_group_error_visible_when_collapsed() {
         use crate::app::MessageViewModel;
         use crate::ui::message_view::{ToolCategory, ToolEntry};
@@ -325,6 +372,36 @@
             !text.contains("ok content"),
             "successful tool content should NOT be visible: {}",
             text
+        );
+    }
+
+    #[test]
+    fn test_tool_call_group_detail_mode_shows_full_content() {
+        use crate::app::MessageViewModel;
+        use crate::ui::message_view::{ToolCategory, ToolEntry};
+        let long_content = format!("{}tail-marker", "a".repeat(220));
+        let vm = MessageViewModel::ToolCallGroup {
+            category: ToolCategory::Search,
+            tools: vec![ToolEntry {
+                tool_name: "Grep".to_string(),
+                display_name: "Grep".to_string(),
+                args_display: Some("needle".to_string()),
+                content: long_content,
+                is_error: false,
+            }],
+            collapsed: true,
+            content_hash: 0,
+        };
+
+        let detail_text = render_view_model(&vm, Some(1), 80, true)
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(
+            detail_text.contains("tail-marker"),
+            "聚合工具组详细模式应显示完整内容"
         );
     }
 

@@ -537,7 +537,7 @@ pub fn render_view_model(
 
             let is_running = content.is_empty() && !*is_error;
 
-            // 构建状态（仅用于 result_lines 管理）
+            // 构建状态（仅用于 header/collapse 管理）
             let status = if *is_error {
                 peri_widgets::ToolCallStatus::Failed
             } else if is_running {
@@ -560,9 +560,6 @@ pub fn render_view_model(
             state.is_error = *is_error;
             if let Some(args) = args_display {
                 state.args_summary = args.clone();
-            }
-            if !content.is_empty() {
-                state.set_result(content.clone());
             }
 
             // 指示器颜色：Running=黄，Completed/Error=绿（对齐 Claude Hub）
@@ -607,7 +604,12 @@ pub fn render_view_model(
                 ));
             }
             let mut lines = vec![Line::from(header_spans)];
-            if !state.collapsed && !state.result_lines.is_empty() {
+            let result_lines: Vec<&str> = if content.is_empty() {
+                Vec::new()
+            } else {
+                content.split('\n').collect()
+            };
+            if !state.collapsed && !result_lines.is_empty() {
                 let result_color = if *is_error {
                     theme::ERROR
                 } else {
@@ -616,15 +618,12 @@ pub fn render_view_model(
                 let border_color = if *is_error { theme::ERROR } else { theme::DIM };
                 // 详细模式显示完整内容，否则截断
                 let max_lines = if detail_mode { usize::MAX } else { 20 };
-                for (i, line) in state.result_lines.iter().enumerate() {
+                for (i, line) in result_lines.iter().enumerate() {
                     if i >= max_lines {
                         lines.push(Line::from(vec![
                             Span::styled("  ⎿ ", Style::default().fg(border_color)),
                             Span::styled(
-                                format!(
-                                    "... ({} more lines)",
-                                    state.result_lines.len() - max_lines
-                                ),
+                                format!("... ({} more lines)", result_lines.len() - max_lines),
                                 Style::default().fg(theme::DIM),
                             ),
                         ]));
@@ -632,7 +631,7 @@ pub fn render_view_model(
                     }
                     lines.push(Line::from(vec![
                         Span::styled("  ⎿ ".to_string(), Style::default().fg(border_color)),
-                        Span::styled(line.clone(), Style::default().fg(result_color)),
+                        Span::styled((*line).to_string(), Style::default().fg(result_color)),
                     ]));
                 }
             } else if *is_error && !content.is_empty() {
@@ -928,8 +927,7 @@ pub fn render_view_model(
                         ),
                     ]));
                     if !entry.content.is_empty() {
-                        let truncated: String = entry.content.chars().take(200).collect();
-                        for line in truncated.lines() {
+                        for line in entry.content.lines() {
                             lines.push(Line::from(vec![
                                 Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                                 Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
