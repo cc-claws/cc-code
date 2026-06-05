@@ -6,7 +6,7 @@
 
 **Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible**
 
-DeepSeek-V4-Pro + GLM-5.1 driven, zero migration from `.claude/` config, runs on RISC-V.
+DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` config, runs on RISC-V.
 
 [![GitHub stars](https://img.shields.io/github/stars/wismyzhizi2018/peri?style=social)](https://github.com/wismyzhizi2018/peri/stargazers)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
@@ -67,7 +67,7 @@ irm https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.p
 
 **Nobody Coding** means exactly what it sounds like. No human wrote a single line of Peri — not the architecture, not the TUI, not the harness tuning that makes open-source models reliable in an Agent loop. Humans decide *what*. AI figures out *how*. You're not pair programming — you're product managing an engineer that never sleeps. 99% of Peri was built this way.
 
-> Recent commits are almost entirely DeepSeek and GLM. Claude was just there in the beginning.
+> Recent commits are almost entirely DeepSeek, Mimo, and GLM. Claude was just there in the beginning.
 
 ### Typical Workflow
 
