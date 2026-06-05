@@ -64,7 +64,7 @@ impl App {
             .current()
             .messages
             .render_tx
-            .try_send(RenderEvent::ToggleDiff(new_visible));
+            .try_send(RenderEvent::ToggleDetail(new_visible));
     }
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐

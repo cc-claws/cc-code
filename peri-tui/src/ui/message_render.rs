@@ -382,6 +382,7 @@ pub fn render_view_model(
         MessageViewModel::UserBubble {
             rendered,
             system_reminder,
+            expanded_content,
             ..
         } => {
             if *system_reminder {
@@ -394,10 +395,23 @@ pub fn render_view_model(
                 );
                 return vec![Line::from(hint)];
             }
+
+            // 详细模式且有展开内容时，显示完整的粘贴文本
+            let effective_rendered = if detail_mode {
+                if let Some(expanded) = expanded_content {
+                    // 使用展开后的内容重新解析 markdown
+                    super::markdown::parse_markdown_default(expanded)
+                } else {
+                    rendered.clone()
+                }
+            } else {
+                rendered.clone()
+            };
+
             // 普通 UserBubble — 原有渲染逻辑不变
             let user_bg: Color = theme::USER_BG;
-            let mut lines = Vec::with_capacity(rendered.lines.len() + 1);
-            for (i, line) in rendered.lines.iter().enumerate() {
+            let mut lines = Vec::with_capacity(effective_rendered.lines.len() + 1);
+            for (i, line) in effective_rendered.lines.iter().enumerate() {
                 if i == 0 {
                     // 第一行：用户消息用 ❯ 前缀，带底色
                     let mut spans = vec![Span::styled(
