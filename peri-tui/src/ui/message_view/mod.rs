@@ -87,6 +87,9 @@ pub enum MessageViewModel {
         content_hash: u64,
         /// 是否为 <system-reminder> 包裹的系统提醒消息（compact summary 等）
         system_reminder: bool,
+        /// 展开后的内容（用于详细模式显示粘贴的完整文本）
+        /// 当 content 包含 [Pasted text #N +M lines] 占位符时，此字段存储展开后的实际内容
+        expanded_content: Option<String>,
     },
     /// AI 回复（支持流式追加）
     AssistantBubble {
@@ -561,6 +564,7 @@ impl MessageViewModel {
                     rendered,
                     content_hash: 0,
                     system_reminder,
+                    expanded_content: None,
                 };
                 vm.recompute_hash();
                 vm
@@ -841,6 +845,21 @@ impl MessageViewModel {
             rendered,
             content_hash: 0,
             system_reminder: false,
+            expanded_content: None,
+        };
+        vm.recompute_hash();
+        vm
+    }
+
+    /// 创建带展开内容的用户消息（用于粘贴内容的详细模式显示）
+    pub fn user_with_expanded(content: String, expanded: String) -> Self {
+        let rendered = parse_markdown_default(&content);
+        let mut vm = MessageViewModel::UserBubble {
+            content,
+            rendered,
+            content_hash: 0,
+            system_reminder: false,
+            expanded_content: Some(expanded),
         };
         vm.recompute_hash();
         vm

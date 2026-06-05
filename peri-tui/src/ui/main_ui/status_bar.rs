@@ -372,10 +372,12 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 if has_content {
                     left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
                 }
+                // 截断过长的错误信息，移除内部技术细节
+                let simplified = simplify_mcp_error(msg);
                 left_spans.push(Span::styled(
                     lc.tr_args(
                         "statusbar-mcp-failed",
-                        &[("msg".into(), msg.clone().into())],
+                        &[("msg".into(), simplified.into())],
                     ),
                     Style::default().fg(theme::ERROR),
                 ));
@@ -652,4 +654,31 @@ fn render_truncated_line(
     all_spans.extend(right_spans);
 
     f.render_widget(Paragraph::new(Line::from(all_spans)), area);
+}
+
+/// 简化 MCP 错误信息，移除内部技术细节
+///
+/// 输入示例: "sentry: Send message error Transport [rmcp::transport::worker::WorkerTransport<rmcp::transport::streamable_http_client::StreamableHttpClientWorker<reqwest::...>>]"
+/// 输出示例: "sentry: Send message error"
+fn simplify_mcp_error(msg: &str) -> String {
+    // 截断过长的错误信息
+    let max_len = 80;
+    let truncated: String = msg.chars().take(max_len).collect();
+
+    // 移除方括号内的技术细节（如 [rmcp::transport::worker::...]）
+    if let Some(bracket_start) = truncated.find('[') {
+        let prefix = &truncated[..bracket_start];
+        // 移除尾部的空格和标点
+        let simplified = prefix.trim_end().trim_end_matches(|c: char| c == ':' || c == '-');
+        if !simplified.is_empty() {
+            return simplified.to_string();
+        }
+    }
+
+    // 如果没有方括号，直接返回截断后的信息
+    if truncated.len() < msg.len() {
+        format!("{}...", truncated)
+    } else {
+        truncated
+    }
 }

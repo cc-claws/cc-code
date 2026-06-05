@@ -43,6 +43,13 @@ impl App {
             )
         };
 
+        // 如果有粘贴内容，存储展开后的实际内容用于详细模式显示
+        let expanded_for_detail = if had_pasted_blocks {
+            Some(expanded_input.clone())
+        } else {
+            None
+        };
+
         // 构建发送给 LLM 的 MessageContent（含附件图片 blocks）
         let message_content = if attachments.is_empty() {
             peri_agent::messages::MessageContent::text(expanded_input.clone())
@@ -63,7 +70,11 @@ impl App {
             .messages
             .pipeline
             .begin_round();
-        let user_vm = MessageViewModel::user(display.clone());
+        let user_vm = if let Some(expanded) = expanded_for_detail {
+            MessageViewModel::user_with_expanded(display.clone(), expanded)
+        } else {
+            MessageViewModel::user(display.clone())
+        };
         self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
         // round_start_vm_idx 在 UserBubble 推入之后设置，
         // 确保 RebuildAll 不会截掉当前轮次的用户消息

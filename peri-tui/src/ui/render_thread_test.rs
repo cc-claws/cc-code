@@ -355,7 +355,7 @@ async fn test_resize_coalesce_under_pressure() {
 fn full_wrap(vms: &[MessageViewModel], width: u16) -> (usize, Vec<super::WrappedLineInfo>) {
     let mut all_lines: Vec<Line<'static>> = Vec::new();
     for vm in vms {
-        let mut lines = super::RenderTask::render_one(&mut vm.clone(), 0, width as usize, false);
+        let mut lines = super::RenderTask::render_one(&mut vm.clone(), 0, width as usize, false, false);
         all_lines.append(&mut lines);
     }
     // dedup 连续空行
