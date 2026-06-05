@@ -5,6 +5,7 @@
 
 pub mod clear;
 pub mod compact;
+pub mod init;
 pub mod rewind;
 
 use std::sync::Arc;
@@ -136,6 +137,7 @@ pub fn default_command_registry() -> CommandRegistry {
     reg.register(Box::new(compact::CompactCommand));
     reg.register(Box::new(clear::ClearCommand));
     reg.register(Box::new(rewind::RewindCommand));
+    reg.register(Box::new(init::InitCommand));
     reg
 }
 

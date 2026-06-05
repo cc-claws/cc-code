@@ -49,7 +49,7 @@ pub struct RenderCache {
     /// 版本号，UI 线程比较是否有变化以决定是否重绘
     pub version: u64,
     pub wrap_map: Vec<WrappedLineInfo>,
-    /// 当前渲染使用的宽度（= text_area.width，已减去滚动条 1 列）
+    /// 当前渲染使用的文本区域宽度
     pub width: u16,
     /// RebuildAll 后的滚动锚点（视觉行号），UI 线程读取后清除
     pub scroll_anchor: Option<usize>,

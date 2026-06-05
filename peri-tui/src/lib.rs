@@ -19,6 +19,8 @@ pub mod command;
 pub mod config;
 pub mod event;
 pub mod i18n;
+pub mod shell_exec;
+pub mod shell_history;
 pub mod sync;
 pub mod thread;
 pub mod ui;

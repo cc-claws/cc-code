@@ -28,6 +28,7 @@ use crate::app::{
 pub enum Action {
     Quit,
     Submit(String),
+    RunShellCommand(String),
     Redraw,
 }
 
@@ -150,58 +151,69 @@ fn coalesce_mouse_events(ev: Event) -> Event {
 /// individual Key events — each character becomes a Char event and each
 /// newline becomes a bare Enter event.
 ///
-/// This function detects that pattern: when a bare Enter arrives and the
-/// event queue already contains more Key events buffered behind it (within
-/// a 1 ms window), we drain the entire burst, reconstruct the pasted text,
-/// and return an `Event::Paste` so the normal paste path handles it.
+/// This function detects that pattern from the first key in a burst. Waiting
+/// until Enter is too late: the first pasted line has already been inserted as
+/// normal typing, which splits one external paste into raw text plus multiple
+/// placeholders.
 ///
-/// A 1 ms poll window is too short for human typing to trigger, so false
-/// positives are negligible.
+/// A 1 ms start window is too short for human typing to trigger in practice.
+/// Once a burst is detected, a small idle window lets slower Windows terminals
+/// deliver the rest of the paste without fragmenting it at every newline.
 fn detect_simulated_paste(ev: Event) -> Event {
-    match &ev {
-        Event::Key(k)
-            if k.code == KeyCode::Enter
-                && k.modifiers == KeyModifiers::NONE
-                && k.kind == KeyEventKind::Press => {}
-        _ => return ev,
+    const START_WINDOW: Duration = Duration::from_millis(1);
+    const IDLE_WINDOW: Duration = Duration::from_millis(15);
+
+    if !is_simulated_paste_start(&ev) {
+        return ev;
     }
 
     // Quick probe: any queued event within 1 ms?
-    if !event::poll(Duration::from_millis(1)).unwrap_or(false) {
-        return ev; // No queued events → manual Enter → submit normally
+    if !event::poll(START_WINDOW).unwrap_or(false) {
+        return ev; // No queued events → manual typing / manual Enter
     }
 
-    // Simulated paste detected. Collect the full burst into text.
-    let mut text = String::from('\n');
+    let original_ev = ev.clone();
+    let mut text = String::new();
+    let _ = key_event_to_text(ev, &mut text);
+    let mut meaningful_after_first = false;
 
-    // Read the first queued event we already probed
-    if let Ok(next) = event::read() {
-        key_event_to_text(next, &mut text);
-    }
-
-    // Drain remaining queued events (ZERO = non-blocking)
-    while event::poll(Duration::ZERO).unwrap_or(false) {
+    while event::poll(IDLE_WINDOW).unwrap_or(false) {
         match event::read() {
-            Ok(next) => key_event_to_text(next, &mut text),
+            Ok(next) => {
+                meaningful_after_first |= key_event_to_text(next, &mut text);
+            }
             Err(_) => break,
         }
     }
 
-    // If the burst only contained the initial Enter's own Release event
-    // (filtered out by key_event_to_text), this is a genuine Enter press,
-    // not a simulated paste. Return the original event.
-    if text == "\n" {
-        return ev;
+    // A key release queued behind the press is not a paste. It is safe that the
+    // release event was consumed because the TUI only acts on key presses.
+    if !meaningful_after_first {
+        return original_ev;
     }
 
     Event::Paste(text)
+}
+
+fn is_simulated_paste_start(ev: &Event) -> bool {
+    match ev {
+        Event::Key(k) if k.kind == KeyEventKind::Press => match k.code {
+            KeyCode::Char(_) | KeyCode::Tab => {
+                !k.modifiers.contains(KeyModifiers::CONTROL)
+                    && !k.modifiers.contains(KeyModifiers::ALT)
+            }
+            KeyCode::Enter => k.modifiers == KeyModifiers::NONE,
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Append a single crossterm `Event` into `text` for simulated-paste
 /// reconstruction. Key(Char) appends the character; Key(Enter) appends
 /// `\n`; Key(Tab) appends `\t`; Key(Backspace) removes the last char;
 /// everything else (modifiers, non-printable keys) terminates the drain.
-fn key_event_to_text(ev: Event, text: &mut String) {
+fn key_event_to_text(ev: Event, text: &mut String) -> bool {
     match ev {
         Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
             KeyCode::Char(c) => {
@@ -215,22 +227,58 @@ fn key_event_to_text(ev: Event, text: &mut String) {
                 } else {
                     text.push(c);
                 }
+                true
             }
-            KeyCode::Enter => text.push('\n'),
-            KeyCode::Tab => text.push('\t'),
+            KeyCode::Enter => {
+                text.push('\n');
+                true
+            }
+            KeyCode::Tab => {
+                text.push('\t');
+                true
+            }
             KeyCode::Backspace => {
                 text.pop();
+                true
             }
-            _ => {} // Ignore other keys (arrows, etc.) during paste
+            _ => false, // Ignore other keys (arrows, etc.) during paste
         },
         Event::Mouse(_) | Event::FocusGained | Event::FocusLost | Event::Resize(_, _) => {
             // Non-key events shouldn't appear in a paste burst; stop collecting.
+            false
         }
         Event::Paste(p) => {
             // Rare: a real Paste event appeared mid-burst (shouldn't happen).
             text.push_str(&p);
+            true
         }
-        _ => {}
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyEvent;
+
+    fn make_key(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn test_key_event_to_text_simulated_paste_includes_first_line() {
+        let mut text = String::new();
+
+        assert!(key_event_to_text(make_key(KeyCode::Char('b')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('u')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Enter), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('i')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('d')), &mut text));
+
+        assert_eq!(
+            text, "bu\nid",
+            "模拟粘贴重建必须从第一个字符开始，不能等到 Enter 后才收集"
+        );
     }
 }
 
@@ -309,7 +357,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             // Fallback: paste into textarea
             // 弹窗激活时不写入 textarea——用户应通过弹窗 UI 交互
             if !app.is_interaction_popup_active() {
-                app.session_mgr.current_mut().ui.textarea.insert_str(&text);
+                app.paste_text_into_textarea(&text);
             }
         }
         Event::Mouse(mouse) => match mouse.kind {
@@ -532,63 +580,6 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     }
                 }
                 if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                    let scroll_offset = app.session_mgr.current_mut().ui.scroll_offset;
-                    let scroll_follow = app.session_mgr.current_mut().ui.scroll_follow;
-
-                    // Scroll-to-bottom button: bottom-right click when user has scrolled away
-                    let btn_col_start = area.right().saturating_sub(2);
-                    let btn_row_start = area.bottom().saturating_sub(2);
-                    if !scroll_follow
-                        && mouse.column >= btn_col_start
-                        && mouse.column < area.right()
-                        && mouse.row >= btn_row_start
-                        && mouse.row < area.bottom()
-                    {
-                        app.scroll_to_bottom();
-                        return Ok(Some(Action::Redraw));
-                    }
-
-                    // Scroll-to-top button: top-right click when user has scrolled up
-                    if scroll_offset > 0
-                        && mouse.column >= btn_col_start
-                        && mouse.column < area.right()
-                        && mouse.row >= area.y
-                        && mouse.row < area.y.saturating_add(2)
-                    {
-                        app.scroll_to_top();
-                        return Ok(Some(Action::Redraw));
-                    }
-
-                    // Scrollbar drag: click on the rightmost scrollbar column
-                    // (▲/▼ buttons already handled above, so this catches the track area)
-                    // 记录起始位置，拖拽时用相对位移计算 offset，无需匹配 thumb 几何
-                    let scrollbar_col = area.right().saturating_sub(1);
-                    if mouse.column == scrollbar_col
-                        && mouse.row >= area.y
-                        && mouse.row < area.bottom()
-                    {
-                        let track = area.height;
-                        if track > 0 {
-                            let max_scroll = app.session_mgr.current_mut().ui.scrollbar_max_offset;
-                            // 首次点击：按比例跳到点击位置
-                            let rel_y = mouse.row.saturating_sub(area.y);
-                            let new_offset = if max_scroll > 0 {
-                                ((rel_y as f64 / track as f64) * max_scroll as f64)
-                                    .clamp(0.0, max_scroll as f64)
-                                    as u16
-                            } else {
-                                0
-                            };
-                            app.session_mgr.current_mut().ui.scroll_offset = new_offset;
-                            app.session_mgr.current_mut().ui.scroll_follow = false;
-                            app.session_mgr.current_mut().ui.scrollbar_dragging = true;
-                            app.session_mgr.current_mut().ui.scrollbar_drag_start_y = mouse.row;
-                            app.session_mgr.current_mut().ui.scrollbar_drag_start_offset =
-                                new_offset;
-                        }
-                        return Ok(Some(Action::Redraw));
-                    }
-
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
@@ -625,29 +616,6 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                // Scrollbar drag: 用相对位移计算 offset，无需匹配 thumb 几何
-                if app.session_mgr.current_mut().ui.scrollbar_dragging {
-                    if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                        let track = area.height;
-                        if track > 0 {
-                            let max_scroll = app.session_mgr.current_mut().ui.scrollbar_max_offset;
-                            let start_y = app.session_mgr.current_mut().ui.scrollbar_drag_start_y;
-                            let start_offset =
-                                app.session_mgr.current_mut().ui.scrollbar_drag_start_offset;
-                            if max_scroll > 0 {
-                                let delta_y = mouse.row as i32 - start_y as i32;
-                                // 每移动 1 行 track = 移动 max_scroll / track 的 offset
-                                let delta_offset =
-                                    (delta_y as f64 * (max_scroll as f64 / track as f64)) as i32;
-                                let new_offset = (start_offset as i32 + delta_offset)
-                                    .clamp(0, max_scroll as i32)
-                                    as u16;
-                                app.session_mgr.current_mut().ui.scroll_offset = new_offset;
-                                app.session_mgr.current_mut().ui.scroll_follow = false;
-                            }
-                        }
-                    }
-                }
                 // Panel scrollbar drag: update panel scroll offset from mouse Y
                 {
                     let session = &mut app.session_mgr.current_mut();
@@ -714,8 +682,6 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                // End scrollbar drag
-                app.session_mgr.current_mut().ui.scrollbar_dragging = false;
                 // End panel scrollbar drag
                 app.session_mgr.current_mut().ui.panel_scrollbar_dragging = false;
                 // Panel selection released
@@ -745,7 +711,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             .current_mut()
                             .ui
                             .messages_area
-                            .map(|a| a.width.saturating_sub(1))
+                            .map(|a| a.width)
                             .unwrap_or(0);
                         let cache = app.session_mgr.current_mut().messages.render_cache.read();
                         let text = crate::app::text_selection::extract_selected_text(

@@ -34,6 +34,7 @@ command-doctor-description = Diagnose configuration completeness
 command-rename-description = View or modify current session title
 command-lang-description = Switch interface language (e.g. /lang zh-CN)
 command-setup-description = Open setup wizard to configure providers
+command-init-description = Generate or optimize project CLAUDE.md knowledge base
 command-agent-description = Set Agent definition, switch different Agent roles
 
 # ---- Command Execution Messages ----
@@ -89,10 +90,12 @@ lang-unsupported = Unsupported language: { $lang }
 
 # ---- Status Bar ----
 
+statusbar-permission-default = Default
 statusbar-permission-dont-ask = Don't Ask
 statusbar-permission-accept-edit = Accept Edit
 statusbar-permission-auto = Auto Mode
 statusbar-permission-bypass = Bypass
+statusbar-permission-cycle-hint = (Shift+Tab to cycle)
 statusbar-copied =  { $count } chars copied
 statusbar-no-agent = None
 statusbar-bg-indicator = [BG: { $count }]
@@ -108,6 +111,7 @@ key-command = command
 key-switch-session = :Switch Session
 key-close = :Close
 key-scroll = :Scroll
+key-jump = :Jump
 key-cancel = :Cancel
 key-newline = :NewLine
 key-open-browser = :Open browser
@@ -119,6 +123,7 @@ key-select = :Select
 key-confirm = :Confirm
 key-delete = :Delete
 key-reconnect = :Reconnect
+key-exit-detail = :Exit Verbose
 key-detail = :Detail
 key-execute = :Execute
 key-back = :Back
@@ -151,7 +156,7 @@ tip-2 = Ctrl+T switch model (opus / sonnet / haiku), Ctrl+Shift+T switch provide
 tip-3 = Shift+Enter for newline in input box
 tip-4 = Drag files or images to terminal to auto-attach to message
 tip-5 = Long press Ctrl+V to paste clipboard image
-tip-6 = Ctrl+U/D scroll message history, Up/Down browse input history
+tip-6 = PgUp/PgDn scroll message history, Home/End jump to top/bottom, Up/Down browse input history
 tip-7 = Ctrl+N/P switch Session, Ctrl+W close
 tip-8 = Esc closes popup or panel, Enter confirms selection
 tip-9 = /compact compresses context to save tokens
@@ -442,3 +447,6 @@ app-plugin-added = Marketplace added: { $name } (fetching content...)
 
 # Background Agent Bar
 bg-bar-focus-hint = Press Esc to exit focus
+
+# Exit prompt
+app-exit-resume = Resume session: peri -r { $id }

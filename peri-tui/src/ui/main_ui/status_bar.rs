@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{AgentPanel, App},
+    app::App,
     ui::theme,
 };
 
@@ -15,116 +15,40 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(1), // 第一行：模型 + 进度条 + git + 会话 + token
+            Constraint::Length(1), // 第二行：执行中工具 + 工具历史
+            Constraint::Length(1), // 第三行：权限/瞬时状态 + CPU/MEM + 快捷键
         ])
         .split(area);
 
     render_first_row(f, app, rows[0]);
     render_second_row(f, app, rows[1]);
-    // 第三行留空，作为视觉缓冲
+    render_third_row(f, app, rows[2]);
 }
 
-/// 第一行：权限模式 │ 工作目录 │ 模型名
+/// 第一行：[model] progress | dir git:(branch) | session name | ⏱️ duration tok:detail
 fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span> = Vec::new();
 
-    // 权限模式标签
-    {
-        use peri_middlewares::prelude::PermissionMode;
-        let mode = app.services.permission_mode.load();
-        let (label, color) = match mode {
-            PermissionMode::Default => ("", theme::TEXT),
-            PermissionMode::DontAsk => ("Don't Ask", theme::WARNING),
-            PermissionMode::AcceptEdit => ("Accept Edit", theme::THINKING),
-            PermissionMode::AutoMode => ("Auto Mode", theme::WARNING),
-            PermissionMode::Bypass => ("Bypass", theme::ERROR),
-        };
-
-        // Default 模式不显示标签
-        if !label.is_empty() {
-            let is_highlight = app
-                .global_ui
-                .mode_highlight_until
-                .is_some_and(|until| std::time::Instant::now() < until);
-            let mut style = Style::default().fg(color);
-            if is_highlight {
-                style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
-            }
-            spans.push(Span::styled(format!(" {}", label), style));
-        }
-    }
-
-    // 工作目录
-    spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-    let cwd_short = std::path::Path::new(&app.services.cwd)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(&app.services.cwd);
-    spans.push(Span::styled(
-        cwd_short.to_string(),
-        Style::default().fg(theme::MUTED),
-    ));
-
-    // 模型名（只显示 model name）
-    spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+    // 模型名（方括号）— 对齐 Claude Hub CYAN
     {
         let is_highlight = app
             .global_ui
             .model_highlight_until
             .is_some_and(|until| std::time::Instant::now() < until);
-        let mut style = Style::default().fg(theme::MODEL_INFO);
+        let mut style = Style::default().fg(theme::CYAN);
         if is_highlight {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
-        spans.push(Span::styled(format!(" {}", app.services.model_name), style));
+        spans.push(Span::styled(format!(" [{}]", app.services.model_name), style));
     }
 
-    // 进程资源监控
+    // 上下文进度条
     {
-        let mut monitor = app.services.resource_monitor.lock();
-        monitor.refresh_if_needed();
-        let mem = monitor.memory_mb();
-        let cpu = monitor.cpu_percent();
-        drop(monitor); // 释放锁后再渲染
-
-        // CPU 着色：< 30% 绿，30-70% 黄，> 70% 红
-        let cpu_color = if cpu > 70.0 {
-            theme::ERROR
-        } else if cpu > 30.0 {
-            theme::WARNING
-        } else {
-            theme::SAGE
-        };
-
-        let mem_color = if mem > 1024 {
-            theme::ERROR
-        } else if mem > 512 {
-            theme::WARNING
-        } else {
-            theme::SAGE
-        };
-
-        spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-        spans.push(Span::styled(
-            format!("CPU {:.0}%", cpu),
-            Style::default().fg(cpu_color),
-        ));
-        spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-        spans.push(Span::styled(
-            format!("MEM {}MB", mem),
-            Style::default().fg(mem_color),
-        ));
-    }
-
-    // 上下文使用率（放最后）
-    {
-        let tracker = &app.session_mgr.current().agent.session_token_tracker;
-        if let Some(pct) =
-            tracker.context_usage_percent(app.session_mgr.current().agent.context_window)
-        {
-            let total = app.session_mgr.current().agent.context_window;
+        let agent = &app.session_mgr.current().agent;
+        let tracker = &agent.session_token_tracker;
+        if let Some(pct) = tracker.context_usage_percent(agent.context_window) {
+            let total = agent.context_window;
             let color = if pct >= 85.0 {
                 theme::ERROR
             } else if pct >= 70.0 {
@@ -132,15 +56,96 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 theme::SAGE
             };
-            spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-            let total_display = if total >= 1_000_000 {
-                format!("{:.0}M", total as f64 / 1_000_000.0)
+            spans.push(Span::styled(" ", Style::default()));
+            spans.extend(render_context_bar(pct, total, color));
+        }
+    }
+
+    // 分隔符 + 工作目录
+    spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
+    let cwd_short = std::path::Path::new(&app.services.cwd)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&app.services.cwd);
+    spans.push(Span::styled(
+        cwd_short.to_string(),
+        Style::default().fg(theme::WARNING),
+    ));
+
+    // Git 分支 — 对齐 Claude Hub: git:( MAGENTA + branch CYAN + ) MAGENTA
+    {
+        let mut cache = app.services.git_branch_cache.lock();
+        if let Some(branch) = cache.get_or_refresh(&app.services.cwd) {
+            spans.push(Span::styled(" git:(", Style::default().fg(theme::MAGENTA)));
+            spans.push(Span::styled(branch.to_string(), Style::default().fg(theme::CYAN)));
+            spans.push(Span::styled(")", Style::default().fg(theme::MAGENTA)));
+        }
+    }
+
+    // 分隔符 + ⏱️ 会话时长 + token 明细
+    {
+        let agent = &app.session_mgr.current().agent;
+        let tracker = &agent.session_token_tracker;
+        let has_duration = agent.session_start_time.is_some();
+        let total_tokens = tracker.total_input_tokens + tracker.total_output_tokens;
+        if has_duration || total_tokens > 0 {
+            spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
+        }
+
+        // 会话时长
+        if let Some(start) = agent.session_start_time {
+            let s = start.elapsed().as_secs();
+            let text = if s >= 3600 {
+                format!("{}h{}m", s / 3600, (s % 3600) / 60)
+            } else if s >= 60 {
+                format!("{}m", s / 60)
             } else {
-                format!("{:.0}k", total as f64 / 1000.0)
+                format!("{}s", s)
             };
             spans.push(Span::styled(
-                format!("{:.0}% {}", pct, total_display),
-                Style::default().fg(color),
+                format!("⏱ {} ", text),
+                Style::default().fg(theme::DIM),
+            ));
+        }
+
+        // Token 明细
+        if total_tokens > 0 {
+            spans.push(Span::styled(
+                "tok:".to_string(),
+                Style::default().fg(theme::DIM),
+            ));
+            spans.push(Span::styled(
+                format_tokens_compact(total_tokens),
+                Style::default().fg(theme::DIM),
+            ));
+            spans.push(Span::styled(
+                " (in:".to_string(),
+                Style::default().fg(theme::DIM),
+            ));
+            spans.push(Span::styled(
+                format_tokens_compact(tracker.total_input_tokens),
+                Style::default().fg(theme::DIM),
+            ));
+            spans.push(Span::styled(
+                ", out:".to_string(),
+                Style::default().fg(theme::DIM),
+            ));
+            spans.push(Span::styled(
+                format_tokens_compact(tracker.total_output_tokens),
+                Style::default().fg(theme::DIM),
+            ));
+            let cache_rate = tracker.cache_hit_rate();
+            spans.push(Span::styled(
+                ", cached:".to_string(),
+                Style::default().fg(theme::DIM),
+            ));
+            spans.push(Span::styled(
+                format!("{:.0}%", cache_rate * 100.0),
+                Style::default().fg(theme::SAGE),
+            ));
+            spans.push(Span::styled(
+                ")".to_string(),
+                Style::default().fg(theme::DIM),
             ));
         }
     }
@@ -148,15 +153,119 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     render_truncated_line(f, spans, Vec::new(), area);
 }
 
-/// 第二行：[Agent 面板信息] │ [快捷键提示]
+/// 第二行：◐ active tool | ✓ tool history
 fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
-    let lc = &app.services.lc;
     let mut left_spans: Vec<Span> = Vec::new();
     let mut has_content = false;
 
+    // 执行中工具指示器 — 对齐 Claude Hub: ◐ YELLOW + name CYAN + args DIM
+    {
+        let agent = &app.session_mgr.current().agent;
+        if let Some(ref active) = agent.active_tool {
+            left_spans.push(Span::styled(" ◐ ", Style::default().fg(theme::YELLOW)));
+            left_spans.push(Span::styled(active.display.clone(), Style::default().fg(theme::CYAN)));
+            if active.args_summary.is_empty() {
+                left_spans.push(Span::styled("…", Style::default().fg(theme::DIM)));
+            } else {
+                left_spans.push(Span::styled(
+                    format!(":{}", active.args_summary),
+                    Style::default().fg(theme::DIM),
+                ));
+            }
+            has_content = true;
+        } else if !agent.session_tool_stats.is_empty() {
+            // 工具执行完后保留最近工具名，用 DIM 色
+            let last = agent
+                .session_tool_stats
+                .iter()
+                .max_by_key(|(_, c)| *c)
+                .map(|(n, _)| n.clone());
+            if let Some(name) = last {
+                let display = format_tool_display_name(&name);
+                left_spans.push(Span::styled(
+                    format!(" ◐ {}", display),
+                    Style::default().fg(theme::DIM),
+                ));
+                has_content = true;
+            }
+        } else {
+            // 默认占位：还没有执行过工具时显示
+            left_spans.push(Span::styled(
+                " ◐ Tool",
+                Style::default().fg(theme::DIM),
+            ));
+            has_content = true;
+        }
+    }
+
+    // 工具历史计数（按次数降序，最多 5 个）
+    {
+        let agent = &app.session_mgr.current().agent;
+        if !agent.session_tool_stats.is_empty() {
+            if has_content {
+                left_spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
+            }
+            let mut entries: Vec<_> = agent.session_tool_stats.iter().collect();
+            entries.sort_by(|a, b| b.1.cmp(a.1));
+            for (i, (name, count)) in entries.iter().take(5).enumerate() {
+                if i > 0 {
+                    left_spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
+                }
+                let display = format_tool_display_name(name);
+                left_spans.push(Span::styled("✓", Style::default().fg(theme::SAGE)));
+                left_spans.push(Span::styled(
+                    format!(" {}", display),
+                    Style::default(),
+                ));
+                left_spans.push(Span::styled(
+                    format!(" ×{}", count),
+                    Style::default().fg(theme::DIM),
+                ));
+            }
+        }
+    }
+
+    render_truncated_line(f, left_spans, Vec::new(), area);
+}
+
+/// 第三行：权限/瞬时状态 + CPU/MEM + 快捷键提示
+fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
+    let lc = &app.services.lc;
+    let mut left_spans: Vec<Span> = Vec::new();
+    let has_content = true;
+
+    // 权限模式
+    {
+        use peri_middlewares::prelude::PermissionMode;
+        let mode = app.services.permission_mode.load();
+        let (i18n_key, color) = match mode {
+            PermissionMode::Default => ("statusbar-permission-default", theme::TEXT),
+            PermissionMode::DontAsk => ("statusbar-permission-dont-ask", theme::WARNING),
+            PermissionMode::AcceptEdit => ("statusbar-permission-accept-edit", theme::THINKING),
+            PermissionMode::AutoMode => ("statusbar-permission-auto", theme::WARNING),
+            PermissionMode::Bypass => ("statusbar-permission-bypass", theme::ERROR),
+        };
+        let label = lc.tr(i18n_key);
+        let hint = lc.tr("statusbar-permission-cycle-hint");
+        let is_highlight = app
+            .global_ui
+            .mode_highlight_until
+            .is_some_and(|until| std::time::Instant::now() < until);
+        let mut style = Style::default().fg(color);
+        if is_highlight {
+            style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
+        }
+        left_spans.push(Span::styled(format!(" {} ", label), style));
+        left_spans.push(Span::styled(hint, Style::default().fg(theme::DIM)));
+    }
+
+    // 瞬时状态
     // 复制成功提示
     if let Some(until) = app.session_mgr.current().ui.copy_message_until {
         if std::time::Instant::now() < until {
+            if has_content {
+                left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+            }
             let count = app.session_mgr.current().ui.copy_char_count;
             left_spans.push(Span::styled(
                 format!(
@@ -168,7 +277,6 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 ),
                 Style::default().fg(theme::MUTED),
             ));
-            has_content = true;
         }
     }
 
@@ -187,36 +295,9 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
             ),
             Style::default().fg(theme::WARNING),
         ));
-        has_content = true;
     }
 
-    // Agent 面板信息（仅面板激活时）
-    if let Some(panel) = app.session_mgr.current().session_panels.get::<AgentPanel>() {
-        if has_content {
-            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-        }
-        if let Some(agent) = panel.current_agent() {
-            left_spans.push(Span::styled(
-                format!(" {}", agent.name),
-                Style::default().fg(theme::MUTED),
-            ));
-        } else {
-            left_spans.push(Span::styled(
-                format!(" {}", lc.tr("statusbar-no-agent")),
-                Style::default().fg(theme::MUTED),
-            ));
-        }
-    } else if let Some(id) = app.get_agent_id() {
-        if has_content {
-            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-        }
-        left_spans.push(Span::styled(
-            format!(" {}", id),
-            Style::default().fg(theme::MUTED),
-        ));
-    }
-
-    // 重试状态（放在左侧）
+    // 重试状态
     if let Some(ref retry) = app.session_mgr.current().agent.retry_status {
         if has_content {
             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
@@ -245,7 +326,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
-    // MCP 初始化进度（瞬时事件）
+    // MCP 初始化进度
     if let Some(ref rx) = app.services.mcp_init_rx {
         let status = rx.borrow().clone();
         use peri_middlewares::mcp::McpInitStatus;
@@ -264,7 +345,6 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     ),
                     Style::default().fg(theme::MUTED),
                 ));
-                has_content = true;
             }
             McpInitStatus::Ready { total } if total > 0 => {
                 if app.global_ui.mcp_ready_shown_until.get().is_none() {
@@ -275,7 +355,8 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 if let Some(until) = app.global_ui.mcp_ready_shown_until.get() {
                     if std::time::Instant::now() < until {
                         if has_content {
-                            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+                            left_spans
+                                .push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
                         }
                         left_spans.push(Span::styled(
                             lc.tr_args(
@@ -284,7 +365,6 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                             ),
                             Style::default().fg(theme::SAGE),
                         ));
-                        has_content = true;
                     }
                 }
             }
@@ -299,13 +379,12 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     ),
                     Style::default().fg(theme::ERROR),
                 ));
-                has_content = true;
             }
             McpInitStatus::Pending | McpInitStatus::Ready { .. } => {}
         }
     }
 
-    // LSP 诊断计数（瞬时事件）
+    // LSP 诊断计数
     {
         let agent = &app.session_mgr.current().agent;
         if agent.lsp_errors > 0 || agent.lsp_warnings > 0 {
@@ -335,7 +414,42 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // 右侧：快捷键提示（统一灰色显示）
+    // CPU/MEM（右侧快捷键前面）
+    {
+        let mut monitor = app.services.resource_monitor.lock();
+        monitor.refresh_if_needed();
+        let mem = monitor.memory_mb();
+        let cpu = monitor.cpu_percent();
+        drop(monitor);
+
+        let cpu_color = if cpu > 70.0 {
+            theme::ERROR
+        } else if cpu > 30.0 {
+            theme::WARNING
+        } else {
+            theme::SAGE
+        };
+        let mem_color = if mem > 1024 {
+            theme::ERROR
+        } else if mem > 512 {
+            theme::WARNING
+        } else {
+            theme::SAGE
+        };
+
+        left_spans.push(Span::styled("  ", Style::default()));
+        left_spans.push(Span::styled(
+            format!("CPU {:.0}%", cpu),
+            Style::default().fg(cpu_color),
+        ));
+        left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+        left_spans.push(Span::styled(
+            format!("MEM {}MB", mem),
+            Style::default().fg(mem_color),
+        ));
+    }
+
+    // 右侧：快捷键提示
     let key_style = Style::default()
         .fg(theme::MUTED)
         .add_modifier(Modifier::BOLD);
@@ -417,6 +531,13 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     ("Ctrl+C".to_string(), lc.tr("key-close")),
                     ("其他键".to_string(), lc.tr("key-cancel")),
                 ]
+            } else if app.session_mgr.current().ui.detail_mode {
+                vec![
+                    ("● Verbose".to_string(), String::new()),
+                    ("Ctrl+O".to_string(), lc.tr("key-exit-detail")),
+                    ("Home/End".to_string(), lc.tr("key-jump")),
+                    ("PgUp/PgDn".to_string(), lc.tr("key-scroll")),
+                ]
             } else if no_mouse {
                 vec![
                     ("/".to_string(), lc.tr("key-command")),
@@ -438,6 +559,63 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     render_truncated_line(f, left_spans, right_spans, area);
 }
 
+/// 上下文进度条渲染
+fn render_context_bar(pct: f64, total: u32, color: ratatui::style::Color) -> Vec<Span<'static>> {
+    const BAR_WIDTH: usize = 10;
+    let filled = ((pct / 100.0) * BAR_WIDTH as f64).round() as usize;
+    let filled = filled.min(BAR_WIDTH);
+    let empty = BAR_WIDTH - filled;
+
+    let bar: String = "█".repeat(filled) + &"░".repeat(empty);
+    let total_display = if total >= 1_000_000 {
+        format!("{:.0}M", total as f64 / 1_000_000.0)
+    } else {
+        format!("{:.0}k", total as f64 / 1000.0)
+    };
+
+    vec![
+        Span::styled(bar, Style::default().fg(color)),
+        Span::styled(
+            format!(" {:.0}% {}", pct, total_display),
+            Style::default().fg(color),
+        ),
+    ]
+}
+
+/// 工具显示名映射
+fn format_tool_display_name(name: &str) -> &str {
+    match name {
+        "Read" => "Read",
+        "Write" => "Write",
+        "Edit" => "Edit",
+        "Glob" => "Glob",
+        "Grep" => "Grep",
+        "Bash" => "Bash",
+        "WebFetch" => "WebFetch",
+        "WebSearch" => "WebSearch",
+        "Agent" => "Agent",
+        "AskUser" => "AskUser",
+        "AskUserQuestion" => "Ask",
+        "TodoWrite" => "Todo",
+        "SearchExtraTools" => "Search",
+        "ExecuteExtraTool" => "Exec",
+        "LspTool" => "LSP",
+        "Shell" => "Shell",
+        other => other,
+    }
+}
+
+/// Token 数量简写
+fn format_tokens_compact(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.0}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.0}k", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 /// 将 (key, desc) 对列表格式化为 Span 列表
 fn format_hints(
     hints: &[(String, String)],
@@ -452,8 +630,13 @@ fn format_hints(
     spans
 }
 
-/// 渲染一行 spans，右侧右对齐，超出宽度时截断右侧
-fn render_truncated_line(f: &mut Frame, left_spans: Vec<Span>, right_spans: Vec<Span>, area: Rect) {
+/// 渲染一行 spans，左侧左对齐，右侧右对齐，中间填充空格
+fn render_truncated_line(
+    f: &mut Frame,
+    left_spans: Vec<Span>,
+    right_spans: Vec<Span>,
+    area: Rect,
+) {
     let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
     let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
 

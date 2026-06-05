@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use peri_agent::{agent::AgentCancellationToken, messages::BaseMessage};
 use tokio::sync::mpsc;
 
@@ -9,6 +11,14 @@ type SharedToolRegistry = std::sync::Arc<
         std::collections::HashMap<String, std::sync::Arc<dyn peri_agent::tools::BaseTool>>,
     >,
 >;
+
+/// 当前正在执行的工具信息（ToolStart 时设置，ToolEnd 时清除）
+#[derive(Clone, Debug)]
+pub struct ActiveToolInfo {
+    pub name: String,
+    pub display: String,
+    pub args_summary: String,
+}
 
 /// LLM 重试状态（由 AgentEvent::LlmRetrying 更新）
 pub struct RetryStatus {
@@ -84,6 +94,12 @@ pub struct AgentComm {
     /// 标记当前 compact 是手动触发的（/compact 命令），而非 auto-compact
     /// handle_compact_completed 据此决定是否调用 set_loading(false)
     pub compact_manual: bool,
+    /// 上次显示缓存率警告的时间（用于限制显示频率）
+    pub last_cache_warning_at: Option<std::time::Instant>,
+    /// 当前正在执行的工具（ToolStart 设置，ToolEnd/Done/Interrupted 清除）
+    pub active_tool: Option<ActiveToolInfo>,
+    /// 会话级按工具类型统计已完成调用次数（会话累计，new_thread 时清零）
+    pub session_tool_stats: HashMap<String, u32>,
 }
 
 impl Default for AgentComm {
@@ -119,6 +135,9 @@ impl Default for AgentComm {
             pending_acp_request_id: None,
             cancel_sent_at: None,
             compact_manual: false,
+            last_cache_warning_at: None,
+            active_tool: None,
+            session_tool_stats: HashMap::new(),
         }
     }
 }

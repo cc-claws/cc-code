@@ -12,6 +12,13 @@ impl App {
     pub(crate) fn handle_acp_notification(&mut self, notif: AcpNotification) -> (bool, bool, bool) {
         match notif {
             AcpNotification::AgentEvent { event, session_id } => {
+                // 首次收到 AgentEvent 时回填 current_thread_id（新会话由 ACP server 创建，
+                // session_id == thread_id，但 submit_message 的异步任务无法直接写回 App 状态）
+                if self.session_mgr.current().current_thread_id.is_none() && !session_id.is_empty()
+                {
+                    self.session_mgr.current_mut().current_thread_id =
+                        Some(session_id.clone());
+                }
                 // Convert peri-agent ExecutorEvent → TUI AgentEvent via map_executor_event
                 if let Some(agent_event) =
                     super::super::agent::map_executor_event(event, &self.services.cwd)

@@ -24,6 +24,15 @@ pub const ERROR: Color = Color::Rgb(255, 107, 128);
 /// 标准紫 — 推理/CoT 思考内容 #A2A9E4
 pub const THINKING: Color = Color::Rgb(162, 169, 228);
 
+/// 标准黄 — Running 状态指示器（ANSI Yellow）#FFCC00
+pub const YELLOW: Color = Color::Rgb(255, 204, 0);
+
+/// 标准青 — Running 工具名（ANSI Cyan）#00BCD4
+pub const CYAN: Color = Color::Rgb(0, 188, 212);
+
+/// 标准品红 — Agent 类型名（ANSI Magenta）#C864C8
+pub const MAGENTA: Color = Color::Rgb(200, 100, 200);
+
 // ── 文字层级（三级亮度）──────────────────────────────────────────────────────
 
 /// 纯白 — 主文字 #FFFFFF
@@ -68,6 +77,12 @@ pub const SELECTED_FG: Color = Color::Rgb(178, 185, 249);
 
 /// Bash 工具调用边框色 #FD5DB1（Claude bashBorder）
 pub const BASH_BORDER: Color = Color::Rgb(253, 93, 177);
+
+/// 本地 shell 命令输出背景色 #242424
+pub const SHELL_BG: Color = Color::Rgb(36, 36, 36);
+
+/// 本地 shell 命令输出边框色 #6A6A6A
+pub const SHELL_BORDER: Color = Color::Rgb(106, 106, 106);
 
 /// SubAgent 嵌套消息背景色 #1E1E26（比终端背景略亮，形成视觉容器）
 pub const SUB_AGENT_BG: Color = Color::Rgb(30, 30, 38);

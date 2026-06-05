@@ -8,7 +8,7 @@ use peri_middlewares::{
 };
 
 use super::{cron_state::CronState, events::AgentEvent};
-use crate::{config::PeriConfig, thread::ThreadStore};
+use crate::{config::PeriConfig, shell_history::ShellCommandStore, thread::ThreadStore};
 
 /// 进程资源采样器：每 2 秒采样一次当前进程的 CPU 和内存
 pub struct ProcessResourceMonitor {
@@ -66,6 +66,7 @@ pub struct ServiceRegistry {
     pub model_name: String,
     pub permission_mode: Arc<SharedPermissionMode>,
     pub thread_store: Arc<dyn ThreadStore>,
+    pub shell_command_store: Arc<ShellCommandStore>,
     pub mcp_pool: Option<Arc<McpClientPool>>,
     pub mcp_init_rx: Option<tokio::sync::watch::Receiver<McpInitStatus>>,
     pub cron: CronState,
@@ -80,4 +81,53 @@ pub struct ServiceRegistry {
     pub lc: crate::i18n::LcRegistry,
     /// Channel 共享状态（MCP handler ↔ TUI/broker 桥接）
     pub channel_state: Option<Arc<ChannelState>>,
+    /// Git 分支缓存（5s 刷新）
+    pub git_branch_cache: parking_lot::Mutex<GitBranchCache>,
+}
+
+/// Git 分支名缓存，避免每帧都 spawn 子进程
+pub struct GitBranchCache {
+    branch: Option<String>,
+    last_check: Option<std::time::Instant>,
+}
+
+impl GitBranchCache {
+    pub fn new() -> Self {
+        Self {
+            branch: None,
+            last_check: None,
+        }
+    }
+
+    /// 获取缓存的分支名，超过 5 秒则刷新
+    pub fn get_or_refresh(&mut self, cwd: &str) -> Option<&str> {
+        let should_refresh = self
+            .last_check
+            .map(|t| t.elapsed() >= std::time::Duration::from_secs(5))
+            .unwrap_or(true);
+
+        if should_refresh {
+            self.branch = Self::detect_branch(cwd);
+            self.last_check = Some(std::time::Instant::now());
+        }
+
+        self.branch.as_deref()
+    }
+
+    fn detect_branch(cwd: &str) -> Option<String> {
+        use std::process::Command;
+        let output = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(cwd)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() || branch == "HEAD" {
+            return None;
+        }
+        Some(branch)
+    }
 }

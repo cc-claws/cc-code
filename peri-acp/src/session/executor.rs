@@ -134,7 +134,7 @@ pub async fn execute_prompt(
     bg_results: Vec<peri_agent::agent::events::BackgroundTaskResult>,
 ) -> PromptResult {
     // Inject synthetic AgentResult tool_use + tool_result messages when bg_results present
-    let (history, content) = if !bg_results.is_empty() {
+    let (history, mut content) = if !bg_results.is_empty() {
         inject_bg_result_messages(history, content, &bg_results)
     } else {
         (history, content)
@@ -208,7 +208,30 @@ pub async fn execute_prompt(
                         recall_items: Vec::new(),
                     };
                 }
-                // Passthrough/Transform → fall through to normal agent flow
+                // Passthrough: 调用命令 execute() 转换 content，然后 fall through 到 agent 管线
+                if cmd.kind() == crate::session::command::CommandKind::Passthrough {
+                    tracing::debug!(
+                        command = %cmd.name(),
+                        "Passthrough command intercepted, transforming content"
+                    );
+                    let ctx = crate::session::command::CommandContext {
+                        session_id: session_id.clone(),
+                        history: history.clone(),
+                        cwd: cwd.to_string(),
+                        peri_config: Arc::new(peri_config.as_ref().clone()),
+                        compact_model: compact_model.clone(),
+                        event_sink: event_sink.clone(),
+                        args: args.to_string(),
+                        cancel_token: cancel.clone(),
+                        thread_store: thread_store.clone(),
+                        thread_id: thread_id.clone(),
+                    };
+                    let result = cmd.execute(ctx).await;
+                    if let Some(msg) = result.messages.into_iter().next() {
+                        content = msg.message_content().clone();
+                    }
+                }
+                // Transform/其他 → fall through to normal agent flow
             }
         }
     }

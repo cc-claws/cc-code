@@ -1,5 +1,16 @@
 use super::*;
+use crate::ui::render_thread::WrappedLineInfo;
 use crate::ui::theme;
+
+fn wrapped_line(line_idx: usize, start: u16, end: u16) -> WrappedLineInfo {
+    WrappedLineInfo {
+        line_idx,
+        visual_row_start: start,
+        visual_row_end: end,
+        plain_text: String::new(),
+        char_widths: Vec::new(),
+    }
+}
 
 /// 检查 span 是否有选区背景色
 fn has_selection_bg(style: Style) -> bool {
@@ -66,4 +77,22 @@ fn test_highlight_line_spans_outside() {
     assert_eq!(result.len(), 1);
     assert!(!has_selection_bg(result[0].style));
     assert_eq!(result[0].content, "Hello");
+}
+
+#[test]
+fn test_committed_visual_start_uses_next_uncommitted_line() {
+    let wrap_map = vec![
+        wrapped_line(0, 0, 1),
+        wrapped_line(1, 1, 4),
+        wrapped_line(2, 4, 5),
+    ];
+    let result = committed_visual_start(2, 3, 5, &wrap_map);
+    assert_eq!(result, 4);
+}
+
+#[test]
+fn test_committed_visual_start_all_committed_uses_total_visual_rows() {
+    let wrap_map = vec![wrapped_line(0, 0, 2), wrapped_line(1, 2, 5)];
+    let result = committed_visual_start(2, 2, 5, &wrap_map);
+    assert_eq!(result, 5);
 }

@@ -2,23 +2,30 @@ use super::*;
 
 impl App {
     pub fn scroll_up(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = self
-            .session_mgr
-            .current_mut()
-            .ui
-            .scroll_offset
-            .saturating_sub(3);
-        self.session_mgr.current_mut().ui.scroll_follow = false;
+        let ui = &mut self.session_mgr.current_mut().ui;
+        let max_scroll = ui.scrollbar_max_offset;
+        let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+        let current = if ui.scroll_follow {
+            max_scroll
+        } else {
+            ui.scroll_offset.clamp(min_scroll, max_scroll)
+        };
+        ui.scroll_offset = current.saturating_sub(3).max(min_scroll);
+        ui.scroll_follow = false;
     }
 
     pub fn scroll_down(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = self
-            .session_mgr
-            .current_mut()
-            .ui
-            .scroll_offset
-            .saturating_add(3);
-        self.session_mgr.current_mut().ui.scroll_follow = false;
+        let ui = &mut self.session_mgr.current_mut().ui;
+        let max_scroll = ui.scrollbar_max_offset;
+        let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+        let current = if ui.scroll_follow {
+            max_scroll
+        } else {
+            ui.scroll_offset.clamp(min_scroll, max_scroll)
+        };
+        let next = current.saturating_add(3).min(max_scroll);
+        ui.scroll_offset = next;
+        ui.scroll_follow = next >= max_scroll;
     }
 
     /// 滚动到底部（恢复 follow 模式）
@@ -29,8 +36,9 @@ impl App {
 
     /// 滚动到顶部
     pub fn scroll_to_top(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = 0;
-        self.session_mgr.current_mut().ui.scroll_follow = false;
+        let ui = &mut self.session_mgr.current_mut().ui;
+        ui.scroll_offset = ui.scrollbar_min_offset.min(ui.scrollbar_max_offset);
+        ui.scroll_follow = false;
     }
 
     /// 展开/折叠所有工具调用消息
@@ -44,6 +52,19 @@ impl App {
             .messages
             .render_tx
             .try_send(RenderEvent::ToggleToolMessages(show_tool_messages));
+    }
+
+    pub fn toggle_detail_mode(&mut self) {
+        let new_visible = !self.session_mgr.current_mut().ui.detail_mode;
+        self.session_mgr.current_mut().ui.detail_mode = new_visible;
+
+        // ToggleDetail 会清空 hash 缓存并触发全量重渲染
+        let _ = self
+            .session_mgr
+            .current()
+            .messages
+            .render_tx
+            .try_send(RenderEvent::ToggleDiff(new_visible));
     }
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐
@@ -97,6 +118,12 @@ impl App {
         self.session_mgr.current_mut().agent.pending_hitl_items = None;
         self.session_mgr.current_mut().agent.pending_ask_user = None;
         self.session_mgr.current_mut().agent.cancel_token = None;
+        self.session_mgr.current_mut().agent.active_tool = None;
+        self.session_mgr
+            .current_mut()
+            .agent
+            .session_tool_stats
+            .clear();
         self.session_mgr.current_mut().messages.last_submitted_text = None;
         self.session_mgr.current_mut().spinner_state.reset();
     }
@@ -121,6 +148,11 @@ impl App {
             .ephemeral_notes
             .clear();
         self.session_mgr.current_mut().agent.origin_messages = base_msgs.clone();
+        self.session_mgr
+            .current_mut()
+            .messages
+            .scrollback_committed_lines = 0;
+        self.session_mgr.current_mut().ui.scrollbar_min_offset = 0;
 
         // 使用统一管线转换：与流式路径共享同一个 messages_to_view_models()
         let mut view_msgs = message_pipeline::MessagePipeline::messages_to_view_models(
@@ -129,6 +161,16 @@ impl App {
         );
         // 历史恢复时聚合连续的已完成 SubAgentGroup 为批次汇总
         message_pipeline::aggregate_batch_groups(&mut view_msgs);
+
+        // 合并 shell 命令记录到 view messages
+        let shell_store = self.services.shell_command_store.clone();
+        let shell_tid = thread_id.to_string();
+        let shell_records = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(shell_store.load_for_thread(&shell_tid))
+                .unwrap_or_default()
+        });
+        let view_msgs = self.merge_shell_records_into_view(view_msgs, &base_msgs, shell_records);
         self.session_mgr.current_mut().messages.view_messages = view_msgs;
 
         // 同步 Pipeline 内部状态，确保后续流式事件能正确续接
@@ -165,6 +207,7 @@ impl App {
             .metadata
             .pending_attachments
             .clear();
+        self.clear_pasted_text_blocks();
         self.session_mgr.current_mut().langfuse.langfuse_session = None;
         self.session_mgr.current_mut().todo_items.clear();
 
@@ -253,6 +296,11 @@ impl App {
         self.session_mgr.current_mut().agent.origin_messages.clear();
         self.session_mgr
             .current_mut()
+            .messages
+            .scrollback_committed_lines = 0;
+        self.session_mgr.current_mut().ui.scrollbar_min_offset = 0;
+        self.session_mgr
+            .current_mut()
             .agent
             .origin_messages
             .shrink_to_fit();
@@ -269,6 +317,7 @@ impl App {
             .metadata
             .pending_attachments
             .clear();
+        self.clear_pasted_text_blocks();
         self.session_mgr
             .current_mut()
             .session_panels

@@ -68,6 +68,9 @@ impl App {
                 .await
                 .expect("无法创建测试用 SQLite 数据库"),
         );
+        let shell_command_store = Arc::new(crate::shell_history::ShellCommandStore::new(
+            std::env::temp_dir().join(format!("peri-shell-test-{}.jsonl", uuid::Uuid::now_v7())),
+        ));
 
         // 将配置路径重定向到临时目录，防止测试污染全局 ~/.peri/settings.json
         let test_config_path = std::env::temp_dir().join(format!(
@@ -82,7 +85,7 @@ impl App {
             super::CommandSystem::new(crate::command::default_registry(), Vec::new(), &lc);
 
         let session = super::ChatSession {
-            ui: super::UiState::new(super::build_textarea(false), "/tmp", false),
+            ui: super::UiState::new(super::build_textarea(false), "/tmp", false, false),
             messages: super::MessageState::new(
                 "/tmp".to_string(),
                 render_tx.clone(),
@@ -99,6 +102,7 @@ impl App {
             background_agents: Vec::new(),
             focused_instance_id: None,
             spinner_state: peri_widgets::SpinnerState::new(peri_widgets::SpinnerMode::Idle),
+            shell_command: super::ShellCommandRuntime::default(),
         };
 
         let app = App {
@@ -112,6 +116,7 @@ impl App {
                     peri_middlewares::prelude::PermissionMode::Bypass,
                 ),
                 thread_store,
+                shell_command_store,
                 mcp_pool: None,
                 mcp_init_rx: None,
                 cron: super::CronState::default(),
@@ -128,6 +133,9 @@ impl App {
                 ),
                 lc: crate::i18n::LcRegistry::default(),
                 channel_state: None,
+                git_branch_cache: parking_lot::Mutex::new(
+                    super::service_registry::GitBranchCache::new(),
+                ),
             },
             global_panels: PanelManager::new(),
             global_ui: super::GlobalUiState::new(),
