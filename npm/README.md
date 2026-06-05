@@ -11,7 +11,11 @@
 npm install -g @cc-claw/peri
 ```
 
-安装时自动下载对应平台的预编译二进制（Linux x64/arm64/riscv64、macOS x64/arm64、Windows x64）。
+## 升级
+
+```bash
+npm update -g @cc-claw/peri
+```
 
 ## 快速开始
 

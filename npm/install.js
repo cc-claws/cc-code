@@ -84,7 +84,7 @@ async function main() {
   }
 
   // Rename binary and set permissions
-  const binaryName = platform.os === "win32" ? "peri.exe" : "peri";
+  const binaryName = platform.os === "win32" ? "peri.exe" : "peri-bin";
   const binaryPath = join(binDir, binaryName);
 
   if (platform.os !== "win32") {

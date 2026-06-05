@@ -60,6 +60,12 @@ npm install -g @cc-claw/peri
 npm install -g @cc-claw/peri
 ```
 
+### 升级
+
+```bash
+npm update -g @cc-claw/peri
+```
+
 ### macOS / Linux（脚本安装）
 
 ```bash

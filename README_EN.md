@@ -60,6 +60,12 @@ Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64 /
 npm install -g @cc-claw/peri
 ```
 
+### Upgrade
+
+```bash
+npm update -g @cc-claw/peri
+```
+
 ### macOS / Linux (Script)
 
 ```bash
