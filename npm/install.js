@@ -83,12 +83,22 @@ async function main() {
     extractZip(buffer, binDir);
   }
 
-  // Rename binary and set permissions
-  const binaryName = platform.os === "win32" ? "peri.exe" : "peri-bin";
-  const binaryPath = join(binDir, binaryName);
+  // Rename extracted binary to a fixed name so bin/peri wrapper can find it
+  const { renameSync, unlinkSync } = require("fs");
+  const extractedName = platform.os === "win32"
+    ? `peri-${platform.suffix}.exe`
+    : `peri-${platform.suffix}`;
+  const finalName = platform.os === "win32" ? "peri.exe" : "peri-bin";
+  const extractedPath = join(binDir, extractedName);
+  const finalPath = join(binDir, finalName);
+
+  if (existsSync(extractedPath)) {
+    if (existsSync(finalPath)) unlinkSync(finalPath);
+    renameSync(extractedPath, finalPath);
+  }
 
   if (platform.os !== "win32") {
-    chmodSync(binaryPath, 0o755);
+    chmodSync(finalPath, 0o755);
   }
 
   console.log(`peri ${VERSION} installed successfully.`);
