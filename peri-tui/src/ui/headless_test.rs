@@ -2402,6 +2402,11 @@ fn bg_diag_print_vms(app: &App, label: &str) {
                 let preview: String = content.chars().take(40).collect();
                 eprintln!("  [{}] ToolBlock({}, content={:?})", i, tool_name, preview);
             }
+            MessageViewModel::ShellCommand {
+                command, exit_code, ..
+            } => {
+                eprintln!("  [{}] ShellCommand(!{}, exit={:?})", i, command, exit_code);
+            }
             MessageViewModel::SubAgentGroup {
                 agent_id,
                 is_running,

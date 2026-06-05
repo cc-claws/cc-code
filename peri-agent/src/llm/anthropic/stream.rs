@@ -231,13 +231,21 @@ pub(super) async fn do_invoke_streaming(
                     // 部分代理不发送 message_start 事件，将 input_tokens 放在此处
                     if input_tokens == 0 {
                         input_tokens = parsed["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32;
-                        cache_creation_input_tokens = parsed["usage"]["cache_creation_input_tokens"]
-                            .as_u64()
-                            .unwrap_or(0)
-                            as u32;
-                        cache_read_input_tokens = parsed["usage"]["cache_read_input_tokens"]
-                            .as_u64()
-                            .unwrap_or(0) as u32;
+                    }
+                    // cache 字段可能在 message_start 或 message_delta 中出现
+                    // 某些代理（如中转站）在 message_start 不返回 cache 字段，只在 message_delta 返回
+                    // 始终从 message_delta 尝试更新 cache 字段（非零值覆盖零值）
+                    let delta_cache_creation = parsed["usage"]["cache_creation_input_tokens"]
+                        .as_u64()
+                        .unwrap_or(0) as u32;
+                    let delta_cache_read = parsed["usage"]["cache_read_input_tokens"]
+                        .as_u64()
+                        .unwrap_or(0) as u32;
+                    if delta_cache_creation > 0 {
+                        cache_creation_input_tokens = delta_cache_creation;
+                    }
+                    if delta_cache_read > 0 {
+                        cache_read_input_tokens = delta_cache_read;
                     }
                 }
                 "message_stop" if input_tokens == 0 => {

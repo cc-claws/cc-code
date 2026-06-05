@@ -25,6 +25,7 @@ impl App {
             s.agent.interaction_prompt = None;
             s.agent.pending_hitl_items = None;
             s.agent.pending_ask_user = None;
+            s.agent.active_tool = None;
 
             // Record task duration
             if let Some(start) = s.agent.task_start_time {

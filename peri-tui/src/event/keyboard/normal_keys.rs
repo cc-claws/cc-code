@@ -111,8 +111,12 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             if app.session_mgr.current_mut().ui.at_mention.active {
                 app.session_mgr.current_mut().ui.at_mention.close();
             }
-            let text = app.session_mgr.current_mut().ui.textarea.lines().join("\n");
-            let text = text.trim().to_string();
+            let raw_text = app.session_mgr.current_mut().ui.textarea.lines().join("\n");
+            if app.session_mgr.current_mut().ui.loading && app.is_shell_command_running() {
+                app.send_shell_stdin_line(raw_text);
+                return Ok(Some(Action::Redraw));
+            }
+            let text = raw_text.trim().to_string();
             if !text.is_empty() {
                 if app.session_mgr.current_mut().ui.loading {
                     // Loading state: buffer message
@@ -123,6 +127,19 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                         .push(text);
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
                     app.update_textarea_hint();
+                } else if let Some(command) = text.strip_prefix('!') {
+                    let command = command.trim().to_string();
+                    app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+                    if command.is_empty() {
+                        app.session_mgr
+                            .current_mut()
+                            .messages
+                            .view_messages
+                            .push(MessageViewModel::system("请输入 shell 命令".to_string()));
+                        app.render_rebuild();
+                    } else {
+                        return Ok(Some(Action::RunShellCommand(command)));
+                    }
                 } else if text.starts_with('/') {
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
                     // SAFETY: command_registry is nested inside App; dispatch needs &mut App
@@ -250,9 +267,81 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             key: Key::Char('d'),
             ctrl: true,
             ..
+        } if app.is_shell_command_running() => {
+            app.close_shell_stdin();
+        }
+        Input {
+            key: Key::Char('d'),
+            ctrl: true,
+            ..
         } => {
             for _ in 0..20 {
                 app.scroll_down();
+            }
+        }
+
+        // PageUp: half-page scroll (only when textarea is empty)
+        Input {
+            key: Key::PageUp, ..
+        } => {
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
+            if !has_content {
+                for _ in 0..20 {
+                    app.scroll_up();
+                }
+            }
+        }
+        // PageDown: half-page scroll (only when textarea is empty)
+        Input {
+            key: Key::PageDown, ..
+        } => {
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
+            if !has_content {
+                for _ in 0..20 {
+                    app.scroll_down();
+                }
+            }
+        }
+        // Home: scroll to top (only when textarea is empty)
+        Input { key: Key::Home, .. } => {
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
+            if !has_content {
+                app.scroll_to_top();
+            }
+        }
+        // End: scroll to bottom (only when textarea is empty)
+        Input { key: Key::End, .. } => {
+            let has_content = app
+                .session_mgr
+                .current_mut()
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .any(|line| !line.is_empty());
+            if !has_content {
+                app.scroll_to_bottom();
             }
         }
 
@@ -543,6 +632,58 @@ mod tests {
         assert!(
             app.global_ui.quit_pending_since.is_none(),
             "清空输入框应重置 quit-pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_enter_shell_command_returns_run_shell_action() {
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .ui
+            .textarea
+            .insert_str("!git status");
+
+        let result = handle_normal_keys(
+            &mut app,
+            Input {
+                key: Key::Enter,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            matches!(result, Some(Action::RunShellCommand(cmd)) if cmd == "git status"),
+            "! 前缀输入应剥离前缀后返回 RunShellCommand"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_enter_shell_command_trims_prefix_and_spaces() {
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .ui
+            .textarea
+            .insert_str("!  cargo build  ");
+
+        let result = handle_normal_keys(
+            &mut app,
+            Input {
+                key: Key::Enter,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            matches!(result, Some(Action::RunShellCommand(cmd)) if cmd == "cargo build"),
+            "shell 命令应去掉 ! 前缀和首尾空格"
         );
     }
 }

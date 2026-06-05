@@ -33,6 +33,7 @@ command-doctor-description = 诊断配置完整性
 command-rename-description = 查看或修改当前会话标题
 command-lang-description = 切换界面语言（如 /lang zh-CN）
 command-setup-description = 打开配置向导，设置 Provider
+command-init-description = 生成或优化项目 CLAUDE.md 知识库
 command-agent-description = 设置 Agent 定义，切换不同的 Agent 角色
 
 # ---- Command Execution Messages ----
@@ -88,10 +89,12 @@ lang-unsupported = 不支持的语言: { $lang }
 
 # ---- Status Bar ----
 
+statusbar-permission-default = Default
 statusbar-permission-dont-ask = Don't Ask
 statusbar-permission-accept-edit = Accept Edit
 statusbar-permission-auto = Auto Mode
 statusbar-permission-bypass = Bypass
+statusbar-permission-cycle-hint = (Shift+Tab 切换)
 statusbar-copied = 已复制 { $count } 个字符
 statusbar-no-agent = 无
 statusbar-bg-indicator = [BG: { $count }]
@@ -107,6 +110,7 @@ key-command = 命令
 key-switch-session = :切换Session
 key-close = :关闭
 key-scroll = :滚动
+key-jump = :跳转
 key-cancel = :取消
 key-newline = :换行
 key-open-browser = :打开浏览器
@@ -118,6 +122,7 @@ key-select = :选择
 key-confirm = :确认
 key-delete = :删除
 key-reconnect = :重连
+key-exit-detail = :退出详细
 key-detail = :详情
 key-execute = :执行
 key-back = :返回
@@ -150,7 +155,7 @@ tip-2 = Ctrl+T 切换模型（opus / sonnet / haiku），Ctrl+Shift+T 切换 Pro
 tip-3 = Shift+Enter 在输入框中换行
 tip-4 = 拖拽文件或图片到终端可自动附加到消息
 tip-5 = 长按 Ctrl+V 粘贴剪贴板图片
-tip-6 = Ctrl+U/D 滚动消息历史，↑/↓ 浏览输入历史
+tip-6 = PgUp/PgDn 滚动消息历史，Home/End 跳转顶/底，↑/↓ 浏览输入历史
 tip-7 = Ctrl+N/P 切换 Session，Ctrl+W 关闭
 tip-8 = Esc 关闭弹窗或面板，Enter 确认选择
 tip-9 = /compact 压缩上下文节省 token
@@ -441,3 +446,6 @@ app-plugin-added = Marketplace 已添加: { $name } (正在获取内容...)
 
 # 后台 Agent 管理栏
 bg-bar-focus-hint = 按 Esc 退出聚焦
+
+# 退出提示
+app-exit-resume = 恢复会话: peri -r { $id }

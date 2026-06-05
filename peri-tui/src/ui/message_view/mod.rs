@@ -8,6 +8,7 @@ use ratatui::{
 };
 
 use super::markdown::parse_markdown_default;
+use crate::shell_history::ShellCommandRecord;
 
 mod aggregate;
 mod tools;
@@ -112,6 +113,19 @@ pub enum MessageViewModel {
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
     },
+    /// TUI 本地 shell 命令结果（不进入 Agent history）
+    ShellCommand {
+        id: String,
+        command: String,
+        cwd: String,
+        stdin: Vec<String>,
+        stdout: String,
+        stderr: String,
+        exit_code: Option<i32>,
+        collapsed: bool,
+        /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
+        content_hash: u64,
+    },
     /// 系统消息
     SystemNote {
         content: String,
@@ -210,6 +224,36 @@ impl PartialEq for MessageViewModel {
                     && a_content == b_content
                     && a_err == b_err
                     && a_diff == b_diff
+            }
+            (
+                MessageViewModel::ShellCommand {
+                    id: a_id,
+                    command: a_command,
+                    cwd: a_cwd,
+                    stdin: a_stdin,
+                    stdout: a_stdout,
+                    stderr: a_stderr,
+                    exit_code: a_exit,
+                    ..
+                },
+                MessageViewModel::ShellCommand {
+                    id: b_id,
+                    command: b_command,
+                    cwd: b_cwd,
+                    stdin: b_stdin,
+                    stdout: b_stdout,
+                    stderr: b_stderr,
+                    exit_code: b_exit,
+                    ..
+                },
+            ) => {
+                a_id == b_id
+                    && a_command == b_command
+                    && a_cwd == b_cwd
+                    && a_stdin == b_stdin
+                    && a_stdout == b_stdout
+                    && a_stderr == b_stderr
+                    && a_exit == b_exit
             }
             (
                 MessageViewModel::SystemNote { content: a, .. },
@@ -320,6 +364,27 @@ impl Hash for MessageViewModel {
                 is_error.hash(state);
                 collapsed.hash(state);
                 diff_lines.hash(state);
+            }
+            MessageViewModel::ShellCommand {
+                id,
+                command,
+                cwd,
+                stdin,
+                stdout,
+                stderr,
+                exit_code,
+                collapsed,
+                ..
+            } => {
+                7u8.hash(state);
+                id.hash(state);
+                command.hash(state);
+                cwd.hash(state);
+                stdin.hash(state);
+                stdout.hash(state);
+                stderr.hash(state);
+                exit_code.hash(state);
+                collapsed.hash(state);
             }
             MessageViewModel::SystemNote { content, .. } => {
                 3u8.hash(state);
@@ -736,6 +801,7 @@ impl MessageViewModel {
     pub fn toggle_collapse(&mut self) {
         match self {
             MessageViewModel::ToolBlock { collapsed, .. }
+            | MessageViewModel::ShellCommand { collapsed, .. }
             | MessageViewModel::AssistantBubble { collapsed, .. }
             | MessageViewModel::SubAgentGroup { collapsed, .. }
             | MessageViewModel::ToolCallGroup { collapsed, .. } => {
@@ -831,6 +897,40 @@ impl MessageViewModel {
         vm
     }
 
+    /// 创建运行中的 shell 命令消息
+    pub fn shell_command_pending(id: String, command: String, cwd: String) -> Self {
+        let mut vm = MessageViewModel::ShellCommand {
+            id,
+            command,
+            cwd,
+            stdin: Vec::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: None,
+            collapsed: true,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
+    }
+
+    /// 从持久化记录创建已完成的 shell 命令消息
+    pub fn shell_command_completed(record: &ShellCommandRecord) -> Self {
+        let mut vm = MessageViewModel::ShellCommand {
+            id: record.id.clone(),
+            command: record.command.clone(),
+            cwd: record.cwd.clone(),
+            stdin: record.stdin.clone(),
+            stdout: record.stdout.clone(),
+            stderr: record.stderr.clone(),
+            exit_code: Some(record.exit_code),
+            collapsed: true,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        vm
+    }
+
     /// 创建系统消息
     pub fn system(content: String) -> Self {
         let mut vm = MessageViewModel::SystemNote {
@@ -883,6 +983,7 @@ impl MessageViewModel {
             MessageViewModel::UserBubble { content_hash, .. } => *content_hash,
             MessageViewModel::AssistantBubble { content_hash, .. } => *content_hash,
             MessageViewModel::ToolBlock { content_hash, .. } => *content_hash,
+            MessageViewModel::ShellCommand { content_hash, .. } => *content_hash,
             MessageViewModel::SystemNote { content_hash, .. } => *content_hash,
             MessageViewModel::CacheWarning { content_hash, .. } => *content_hash,
             MessageViewModel::ToolCallGroup { content_hash, .. } => *content_hash,
@@ -900,6 +1001,7 @@ impl MessageViewModel {
             MessageViewModel::UserBubble { content_hash, .. } => *content_hash = hash,
             MessageViewModel::AssistantBubble { content_hash, .. } => *content_hash = hash,
             MessageViewModel::ToolBlock { content_hash, .. } => *content_hash = hash,
+            MessageViewModel::ShellCommand { content_hash, .. } => *content_hash = hash,
             MessageViewModel::SystemNote { content_hash, .. } => *content_hash = hash,
             MessageViewModel::CacheWarning { content_hash, .. } => *content_hash = hash,
             MessageViewModel::ToolCallGroup { content_hash, .. } => *content_hash = hash,

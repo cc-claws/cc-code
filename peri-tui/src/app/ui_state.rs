@@ -4,6 +4,12 @@ use tui_textarea::TextArea;
 use super::at_mention::AtMentionState;
 use crate::app::text_selection::{PanelTextSelection, TextSelection};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PastedTextBlock {
+    pub placeholder: String,
+    pub content: String,
+}
+
 /// UI 交互状态：会话级的输入、滚动、选区、历史等。
 pub struct UiState {
     pub textarea: TextArea<'static>,
@@ -24,14 +30,10 @@ pub struct UiState {
     pub panel_area: Option<ratatui::layout::Rect>,
     pub panel_plain_lines: Vec<String>,
     pub panel_scroll_offset: u16,
-    /// 用户是否正在拖拽消息区域右侧滚动条
-    pub scrollbar_dragging: bool,
+    /// 消息区域最小偏移量；小于该值的历史已交给终端原生 scrollback。
+    pub scrollbar_min_offset: u16,
     /// 消息区域滚动条的最大偏移量（内容高度 - 可见高度）
     pub scrollbar_max_offset: u16,
-    /// 滚动条拖拽起始时的鼠标 Y 坐标
-    pub scrollbar_drag_start_y: u16,
-    /// 滚动条拖拽起始时的 scroll offset
-    pub scrollbar_drag_start_offset: u16,
     /// Panel scrollbar geometry for mouse interaction
     pub panel_scrollbar_metrics: Option<ScrollbarMetrics>,
     /// Whether user is currently dragging the panel scrollbar
@@ -44,10 +46,16 @@ pub struct UiState {
     pub bg_bar_area: Option<ratatui::layout::Rect>,
     /// Write/Edit 工具结果内联 diff 是否可见
     pub diff_visible: bool,
+    /// Shell 命令输出详细模式（Ctrl+O 切换）
+    pub detail_mode: bool,
+    /// 输入框中被占位符折叠展示的外部多行粘贴内容
+    pub pasted_text_blocks: Vec<PastedTextBlock>,
+    /// 当前 draft 内下一个粘贴占位符编号
+    pub next_pasted_text_id: usize,
 }
 
 impl UiState {
-    pub fn new(textarea: TextArea<'static>, cwd: &str, diff_enabled: bool) -> Self {
+    pub fn new(textarea: TextArea<'static>, cwd: &str, detail_enabled: bool, diff_enabled: bool) -> Self {
         let _ = cwd; // 历史路径已迁移至 ~/.peri/，cwd 保留用于未来扩展
         let input_history = super::history_persistence::load_input_history();
         Self {
@@ -69,16 +77,17 @@ impl UiState {
             panel_area: None,
             panel_plain_lines: Vec::new(),
             panel_scroll_offset: 0,
-            scrollbar_dragging: false,
+            scrollbar_min_offset: 0,
             scrollbar_max_offset: 0,
-            scrollbar_drag_start_y: 0,
-            scrollbar_drag_start_offset: 0,
             panel_scrollbar_metrics: None,
             panel_scrollbar_dragging: false,
             at_mention: AtMentionState::new(),
             bg_bar_cursor: None,
             bg_bar_area: None,
             diff_visible: diff_enabled,
+            detail_mode: detail_enabled,
+            pasted_text_blocks: Vec::new(),
+            next_pasted_text_id: 1,
         }
     }
 }

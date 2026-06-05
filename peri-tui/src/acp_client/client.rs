@@ -57,6 +57,11 @@ impl AcpTuiClient {
         self.current_session_id.lock().unwrap().is_some()
     }
 
+    /// Get the current session ID (if any).
+    pub fn session_id(&self) -> Option<String> {
+        self.current_session_id.lock().unwrap().clone()
+    }
+
     /// Create a new client wrapping an existing `MpscClientTransport`.
     ///
     /// Returns `(Self, notification_receiver)`. The caller must:

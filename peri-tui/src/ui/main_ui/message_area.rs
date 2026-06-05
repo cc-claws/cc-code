@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Paragraph, ScrollbarState, Wrap},
+    widgets::{Paragraph, Wrap},
     Frame,
 };
 
@@ -79,7 +79,7 @@ pub(crate) fn render_messages(
                 .last_summary_elapsed_ms(),
         );
         Some(Line::from(Span::styled(
-            format!("  ✻  Brewed for {elapsed}"),
+            format!("✻  Brewed for {elapsed}"),
             Style::default().fg(theme::MUTED),
         )))
     } else {
@@ -90,7 +90,7 @@ pub(crate) fn render_messages(
     // 避免每秒 N 次 resize 事件导致渲染线程队列积压和 CPU 暴涨
     // （参见 spec/issues/2026-05-14-streaming-resize-cpu-spike）。
     {
-        let text_area_width = inner.width.saturating_sub(1);
+        let text_area_width = inner.width;
         let cache_width = app.session_mgr.current().messages.render_cache.read().width;
         let last_resize = app.session_mgr.current().messages.last_resize_width;
         if last_resize != Some(text_area_width)
@@ -113,18 +113,34 @@ pub(crate) fn render_messages(
     } else {
         0
     };
-    let (max_scroll, offset) = {
+    let (min_scroll, max_scroll, offset) = {
         let cache = app.session_mgr.current().messages.render_cache.read();
 
-        let total_lines = cache.total_lines;
-        let visual_total = (total_lines as u16).saturating_add(spinner_extra);
-        let max_scroll = visual_total.saturating_sub(visible_height);
+        let committed_lines = app
+            .session_mgr
+            .current()
+            .messages
+            .scrollback_committed_lines
+            .min(cache.lines.len());
+        let base_visual = committed_visual_start(
+            committed_lines,
+            cache.lines.len(),
+            cache.total_lines,
+            &cache.wrap_map,
+        );
+        let live_visual_rows = cache.total_lines.saturating_sub(base_visual);
+        let visual_total = live_visual_rows.saturating_add(spinner_extra as usize);
+        let min_scroll = to_u16_saturated(base_visual);
+        let max_scroll = to_u16_saturated(
+            base_visual.saturating_add(visual_total.saturating_sub(visible_height as usize)),
+        )
+        .max(min_scroll);
         let scroll_follow = app.session_mgr.current().ui.scroll_follow;
         let scroll_offset = app.session_mgr.current().ui.scroll_offset;
         let (new_follow, off) = if scroll_follow {
             (true, max_scroll)
         } else {
-            let off = scroll_offset.min(max_scroll);
+            let off = scroll_offset.clamp(min_scroll, max_scroll);
             let new_follow = off >= max_scroll;
             (new_follow, off)
         };
@@ -135,21 +151,16 @@ pub(crate) fn render_messages(
         app.session_mgr.current_mut().messages.last_render_version = version;
         app.session_mgr.current_mut().ui.scroll_follow = new_follow;
         app.session_mgr.current_mut().ui.scroll_offset = off;
+        app.session_mgr.current_mut().ui.scrollbar_min_offset = min_scroll;
         app.session_mgr.current_mut().ui.scrollbar_max_offset = max_scroll;
 
-        (max_scroll, off)
+        (min_scroll, max_scroll, off)
     };
 
-    // 仅在有滚动条时显示 sticky header
-    if max_scroll > 0 {
+    // 仅在当前 TUI 尾部仍可滚动时显示 sticky header
+    if max_scroll > min_scroll {
         sticky_header::render_sticky_header(f, app, header_area);
     }
-
-    // 文字区域（留出右侧 1 列给滚动条）
-    let text_area = Rect {
-        width: inner.width.saturating_sub(1),
-        ..inner
-    };
 
     // ── 视口裁剪 ──────────────────────────────────────────────────────────
     // 利用 wrap_map 定位可见的逻辑行范围，只传递视口内的行给 Paragraph，
@@ -160,50 +171,29 @@ pub(crate) fn render_messages(
     let paragraph = Paragraph::new(Text::from(clip.lines))
         .scroll((clip.local_offset, 0))
         .wrap(Wrap { trim: false });
-    f.render_widget(paragraph, text_area);
+    f.render_widget(paragraph, inner);
+}
 
-    // 滚动条
-    if max_scroll > 0 {
-        let mut scrollbar_state =
-            ScrollbarState::new(max_scroll as usize).position(offset as usize);
-        let scrollbar =
-            peri_widgets::unified_vertical_scrollbar().style(Style::default().fg(theme::MUTED));
-        f.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
+fn to_u16_saturated(value: usize) -> u16 {
+    value.min(u16::MAX as usize) as u16
+}
 
-        // 滚动到底按钮（当用户滚离底部时显示）
-        if offset < max_scroll {
-            let btn_area = Rect {
-                x: inner.right().saturating_sub(1),
-                y: inner.bottom().saturating_sub(1),
-                width: 1,
-                height: 1,
-            };
-            let arrow = Paragraph::new(Text::from(Span::styled(
-                "▼",
-                Style::default()
-                    .fg(theme::MUTED)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            f.render_widget(arrow, btn_area);
-        }
-
-        // 滚动到顶按钮（当用户滚离顶部时显示）
-        if offset > 0 {
-            let btn_area = Rect {
-                x: inner.right().saturating_sub(1),
-                y: inner.y,
-                width: 1,
-                height: 1,
-            };
-            let arrow = Paragraph::new(Text::from(Span::styled(
-                "▲",
-                Style::default()
-                    .fg(theme::MUTED)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            f.render_widget(arrow, btn_area);
-        }
+fn committed_visual_start(
+    committed_lines: usize,
+    line_count: usize,
+    total_visual_rows: usize,
+    wrap_map: &[crate::ui::render_thread::WrappedLineInfo],
+) -> usize {
+    if committed_lines == 0 {
+        return 0;
     }
+    if committed_lines >= line_count {
+        return total_visual_rows;
+    }
+    wrap_map
+        .get(committed_lines)
+        .map(|info| info.visual_row_start as usize)
+        .unwrap_or(total_visual_rows)
 }
 
 /// 基于视口裁剪提取可见行。
@@ -345,7 +335,7 @@ fn viewport_clip(
                 .current()
                 .ui
                 .messages_area
-                .map(|a| a.width.saturating_sub(1))
+                .map(|a| a.width)
                 .unwrap_or(0);
 
             let ((sr, sc), (er, ec)) = if start <= end {

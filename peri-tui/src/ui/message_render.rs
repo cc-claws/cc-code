@@ -8,6 +8,9 @@ use super::{
     theme,
 };
 
+const SHELL_OUTPUT_COLLAPSED_LINES: usize = 6;
+const SHELL_OUTPUT_DETAIL_LINES: usize = 40;
+
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
 /// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).
 fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
@@ -158,12 +161,222 @@ fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
     lines
 }
 
+fn shell_fg_color(code: u16) -> Option<Color> {
+    match code {
+        30 => Some(Color::Black),
+        31 => Some(Color::Red),
+        32 => Some(Color::Green),
+        33 => Some(Color::Yellow),
+        34 => Some(Color::Blue),
+        35 => Some(Color::Magenta),
+        36 => Some(Color::Cyan),
+        37 => Some(Color::White),
+        90 => Some(Color::DarkGray),
+        91 => Some(Color::LightRed),
+        92 => Some(Color::LightGreen),
+        93 => Some(Color::LightYellow),
+        94 => Some(Color::LightBlue),
+        95 => Some(Color::LightMagenta),
+        96 => Some(Color::LightCyan),
+        97 => Some(Color::White),
+        _ => None,
+    }
+}
+
+fn apply_sgr_codes(style: &mut Style, default_style: Style, codes: &str) {
+    let parsed: Vec<u16> = if codes.trim().is_empty() {
+        vec![0]
+    } else {
+        codes
+            .split(';')
+            .filter_map(|part| part.parse::<u16>().ok())
+            .collect()
+    };
+    let mut iter = parsed.into_iter().peekable();
+    while let Some(code) = iter.next() {
+        match code {
+            0 => *style = default_style,
+            1 => *style = style.add_modifier(Modifier::BOLD),
+            22 => *style = style.remove_modifier(Modifier::BOLD),
+            39 => *style = default_style,
+            38 => match iter.next() {
+                Some(2) => {
+                    let (Some(r), Some(g), Some(b)) = (iter.next(), iter.next(), iter.next())
+                    else {
+                        continue;
+                    };
+                    *style = style.fg(Color::Rgb(r as u8, g as u8, b as u8));
+                }
+                Some(5) => {
+                    let _ = iter.next();
+                }
+                _ => {}
+            },
+            code => {
+                if let Some(color) = shell_fg_color(code) {
+                    *style = style.fg(color);
+                }
+            }
+        }
+    }
+}
+
+fn ansi_spans(line: &str, default_style: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut style = default_style;
+    let mut buf = String::new();
+    let mut i = 0;
+    while i < line.len() {
+        if line[i..].starts_with("\x1b[") {
+            if let Some(end) = line[i + 2..].find('m') {
+                if !buf.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut buf), style));
+                }
+                let codes = &line[i + 2..i + 2 + end];
+                apply_sgr_codes(&mut style, default_style, codes);
+                i += end + 3;
+                continue;
+            }
+        }
+        let Some(ch) = line[i..].chars().next() else {
+            break;
+        };
+        if ch != '\r' {
+            buf.push(ch);
+        }
+        i += ch.len_utf8();
+    }
+    if !buf.is_empty() || spans.is_empty() {
+        spans.push(Span::styled(buf, style));
+    }
+    spans
+}
+
+fn shell_output_line(prefix: &'static str, text: &str, default_style: Style) -> Line<'static> {
+    let bg_style = Style::default().bg(theme::SHELL_BG);
+    let mut spans = vec![Span::styled(
+        prefix,
+        Style::default().fg(theme::SHELL_BORDER).bg(theme::SHELL_BG),
+    )];
+    spans.extend(
+        ansi_spans(text, default_style)
+            .into_iter()
+            .map(|span| span.patch_style(bg_style)),
+    );
+    Line::from(spans)
+}
+
+fn render_shell_command(
+    command: &str,
+    cwd: &str,
+    stdin: &[String],
+    stdout: &str,
+    stderr: &str,
+    exit_code: Option<i32>,
+    detail_mode: bool,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let status_style = match exit_code {
+        None => Style::default().fg(theme::LOADING),
+        Some(0) => Style::default().fg(theme::SAGE),
+        Some(_) => Style::default().fg(theme::ERROR),
+    };
+    let status = match exit_code {
+        None => " running".to_string(),
+        Some(code) => format!(" exit {}", code),
+    };
+    let cwd_label: String = cwd.chars().take(80).collect();
+    lines.push(Line::from(vec![
+        Span::styled("> ", Style::default().fg(theme::DIM)),
+        Span::styled(
+            format!("!{}", command),
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(status, status_style),
+        Span::styled(format!(" · {}", cwd_label), Style::default().fg(theme::DIM)),
+    ]));
+
+    let mut output_lines: Vec<(String, bool)> = Vec::new();
+    for input in stdin {
+        output_lines.push((format!("< {}", input), false));
+    }
+    for line in stdout.lines() {
+        output_lines.push((line.to_string(), false));
+    }
+    for line in stderr.lines() {
+        output_lines.push((line.to_string(), true));
+    }
+
+    if output_lines.is_empty() {
+        let text = if exit_code.is_none() {
+            "running..."
+        } else {
+            "(no output)"
+        };
+        lines.push(shell_output_line(
+            "  │ ",
+            text,
+            Style::default().fg(theme::DIM),
+        ));
+    } else {
+        let max_lines = if detail_mode {
+            SHELL_OUTPUT_DETAIL_LINES
+        } else {
+            SHELL_OUTPUT_COLLAPSED_LINES
+        };
+        for (idx, (line, is_error)) in output_lines.iter().enumerate() {
+            if idx >= max_lines {
+                let hint = if detail_mode {
+                    format!(
+                        "... output truncated at {} lines ({} more lines hidden)",
+                        max_lines,
+                        output_lines.len() - max_lines
+                    )
+                } else {
+                    format!(
+                        "... {} more lines hidden, Ctrl+O for details",
+                        output_lines.len() - max_lines
+                    )
+                };
+                lines.push(shell_output_line(
+                    "  │ ",
+                    &hint,
+                    Style::default().fg(theme::DIM),
+                ));
+                break;
+            }
+            let default_style = if *is_error {
+                Style::default().fg(theme::ERROR)
+            } else {
+                Style::default().fg(theme::MUTED)
+            };
+            lines.push(shell_output_line("  │ ", line, default_style));
+        }
+    }
+
+    if let Some(code) = exit_code {
+        let footer_style = if code == 0 {
+            Style::default().fg(theme::SAGE)
+        } else {
+            Style::default().fg(theme::ERROR)
+        };
+        lines.push(shell_output_line(
+            "  └ ",
+            &format!("exit code {}", code),
+            footer_style,
+        ));
+    }
+    lines
+}
+
 /// 将单个 ViewModel 渲染为 Vec<Line>
 pub fn render_view_model(
     vm: &MessageViewModel,
     _index: Option<usize>,
     _width: usize,
-    diff_visible: bool,
+    detail_mode: bool,
 ) -> Vec<Line<'static>> {
     match vm {
         MessageViewModel::UserBubble {
@@ -226,30 +439,62 @@ pub fn render_view_model(
                                 lines.push(Line::from(diff_spans));
                             }
                         } else {
-                            for line in rendered.lines.iter() {
-                                lines.push(Line::from(line.spans.clone()));
+                            // AI 回复内容：与 Codex 对齐，第一行用 "• " 前缀，后续行用 "  " 缩进
+                            // 注意：不能用 lines.is_empty() 判断，因为 Reasoning block 可能已先填充了 lines
+                            // 用独立的 text_line_count 追踪 Text block 自身的行数
+                            for (text_line_count, line) in rendered.lines.iter().enumerate() {
+                                let prefix = if text_line_count == 0 { "● " } else { "  " };
+                                let mut spans =
+                                    vec![Span::styled(prefix, Style::default().fg(Color::White))];
+                                for span in &line.spans {
+                                    spans.push(span.clone());
+                                }
+                                lines.push(Line::from(spans));
                             }
                         }
                     }
                     ContentBlockView::Reasoning {
                         char_count,
                         tail_lines,
+                        text,
                         ..
                     } => {
-                        lines.push(Line::from(vec![Span::styled(
-                            format!("Thought for {} chars", char_count),
-                            Style::default().fg(theme::DIM),
-                        )]));
-                        if let Some(tail) = tail_lines {
-                            for tail_line in tail.lines() {
+                        // Thought 标题：缩进 2 列对齐
+                        lines.push(Line::from(vec![
+                            Span::styled("∴ ", Style::default().fg(theme::DIM)),
+                            Span::styled(
+                                format!("Thought for {} chars (ctrl+o to expand)", char_count),
+                                Style::default().fg(theme::DIM),
+                            ),
+                        ]));
+                        // detail_mode 显示完整 reasoning，否则只显示 tail_lines
+                        if detail_mode {
+                            // 详细模式：显示完整 reasoning 内容
+                            for tail_line in text.lines() {
                                 lines.push(Line::from(vec![
-                                    Span::styled(" ⎿ ", Style::default().fg(theme::DIM)),
+                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                                     Span::styled(
                                         tail_line.to_string(),
                                         Style::default().fg(theme::DIM),
                                     ),
                                 ]));
                             }
+                        } else if let Some(tail) = tail_lines {
+                            // 普通模式：只显示 tail 预览
+                            for tail_line in tail.lines() {
+                                lines.push(Line::from(vec![
+                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                    Span::styled(
+                                        tail_line.to_string(),
+                                        Style::default().fg(theme::DIM),
+                                    ),
+                                ]));
+                            }
+                            // tail 预览后加空行分隔后续内容
+                            lines.push(Line::from(""));
+                        } else {
+                            // 无 tail 预览时，摘要行后加空行分隔
+                            lines.push(Line::from(""));
                         }
                     }
                     ContentBlockView::ToolUse { .. } => {
@@ -287,13 +532,14 @@ pub fn render_view_model(
                 peri_widgets::ToolCallStatus::Completed
             };
 
-            // Write/Edit 工具完成后默认展开（显示写入/编辑结果摘要）
-            let effective_collapsed =
-                if !is_running && (tool_name == "Write" || tool_name == "Edit") {
-                    false
-                } else {
-                    *collapsed
-                };
+            // 详细模式：强制展开所有工具；否则 Write/Edit 完成后默认展开
+            let effective_collapsed = if detail_mode {
+                false
+            } else if !is_running && (tool_name == "Write" || tool_name == "Edit") {
+                false
+            } else {
+                *collapsed
+            };
             let mut state = peri_widgets::ToolCallState::new(display_name.clone(), theme::TEXT);
             state.status = status;
             state.collapsed = effective_collapsed;
@@ -305,31 +551,38 @@ pub fn render_view_model(
                 state.set_result(content.clone());
             }
 
-            let tool_color = if *is_error { theme::ERROR } else { theme::SAGE };
+            // 指示器颜色：Running=黄，Completed/Error=绿（对齐 Claude Hub）
+            let indicator_color = if is_running {
+                theme::YELLOW
+            } else {
+                theme::SAGE
+            };
 
-            // ● 指示器：运行中闪烁，完成固定，失败 ✗
+            // 图标：Running=◐ 闪烁，Completed=✓，Error=✓（对齐 Claude Hub）
             let indicator = if is_running {
                 let tick = std::time::Instant::now().elapsed().as_millis() as u64 / 200;
                 if (tick / 4).is_multiple_of(2) {
-                    "●"
+                    "◐"
                 } else {
                     " "
                 }
-            } else if *is_error {
-                "✗"
             } else {
-                "●"
+                "✓"
+            };
+
+            // 工具名颜色：Running=青色 bold，Completed/Error=白色（对齐 Claude Hub）
+            let name_style = if is_running {
+                Style::default()
+                    .fg(theme::CYAN)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::TEXT)
             };
 
             let mut header_spans = vec![
-                Span::styled(indicator.to_string(), Style::default().fg(tool_color)),
+                Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),
                 Span::raw(" "),
-                Span::styled(
-                    state.tool_name.clone(),
-                    Style::default()
-                        .fg(theme::TEXT)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(state.tool_name.clone(), name_style),
             ];
             if !state.args_summary.is_empty() {
                 let summary =
@@ -347,7 +600,22 @@ pub fn render_view_model(
                     theme::MUTED
                 };
                 let border_color = if *is_error { theme::ERROR } else { theme::DIM };
-                for line in &state.result_lines {
+                // 详细模式显示完整内容，否则截断
+                let max_lines = if detail_mode { usize::MAX } else { 20 };
+                for (i, line) in state.result_lines.iter().enumerate() {
+                    if i >= max_lines {
+                        lines.push(Line::from(vec![
+                            Span::styled("  ⎿ ", Style::default().fg(border_color)),
+                            Span::styled(
+                                format!(
+                                    "... ({} more lines)",
+                                    state.result_lines.len() - max_lines
+                                ),
+                                Style::default().fg(theme::DIM),
+                            ),
+                        ]));
+                        break;
+                    }
                     lines.push(Line::from(vec![
                         Span::styled("  ⎿ ".to_string(), Style::default().fg(border_color)),
                         Span::styled(line.clone(), Style::default().fg(result_color)),
@@ -356,14 +624,22 @@ pub fn render_view_model(
             } else if *is_error && !content.is_empty() {
                 lines.extend(error_summary_lines(content));
             }
-            // 内嵌 diff 视图（预渲染缓存，默认关闭，Ctrl+O 切换）
-            if diff_visible {
+            if detail_mode {
                 if let Some(ref cached_lines) = diff_lines {
                     lines.extend(cached_lines.iter().cloned());
                 }
             }
             lines
         }
+        MessageViewModel::ShellCommand {
+            command,
+            cwd,
+            stdin,
+            stdout,
+            stderr,
+            exit_code,
+            ..
+        } => render_shell_command(command, cwd, stdin, stdout, stderr, *exit_code, detail_mode),
         MessageViewModel::SubAgentGroup {
             batch_agents,
             collapsed,
@@ -376,30 +652,38 @@ pub fn render_view_model(
             collapsed,
             is_error,
             is_running,
-            is_background,
+            is_background: _,
             bg_hash,
             final_result,
             ..
         } => {
-            let agent_color = if *is_error {
-                theme::ERROR
-            } else if *is_running && *is_background {
-                theme::WARNING
+            let mut lines: Vec<Line<'static>> = Vec::new();
+
+            // 状态指示器颜色（对齐 Claude Hub）
+            let indicator_icon = if *is_running { "◐" } else { "✓" };
+            let indicator_color = if *is_running {
+                theme::YELLOW
             } else {
                 theme::SAGE
             };
-            let mut lines: Vec<Line<'static>> = Vec::new();
+            let agent_name_color = if *is_error {
+                theme::ERROR
+            } else {
+                theme::MAGENTA
+            };
 
             if *collapsed {
                 // 折叠状态：两行显示
-                // Header: ❯ Agent(type) #hash
-                let arrow_color = theme::LOADING; // 淡蓝紫色 #93A5FF
+                // Header: ◐ Agent(type) #hash
                 let mut header_spans = vec![
-                    Span::styled("❯ ".to_string(), Style::default().fg(arrow_color)),
+                    Span::styled(
+                        format!("{} ", indicator_icon),
+                        Style::default().fg(indicator_color),
+                    ),
                     Span::styled(
                         "Agent".to_string(),
                         Style::default()
-                            .fg(agent_color)
+                            .fg(agent_name_color)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(format!("({})", agent_id), Style::default().fg(theme::MUTED)),
@@ -432,14 +716,16 @@ pub fn render_view_model(
                 }
             } else {
                 // 展开状态：名称 + 任务描述
-                // Header: ❯ Agent(type) #hash
-                let arrow_color = theme::LOADING; // 淡蓝紫色 #93A5FF
+                // Header: ◐ Agent(type) #hash
                 let mut header_spans = vec![
-                    Span::styled("❯ ".to_string(), Style::default().fg(arrow_color)),
+                    Span::styled(
+                        format!("{} ", indicator_icon),
+                        Style::default().fg(indicator_color),
+                    ),
                     Span::styled(
                         "Agent".to_string(),
                         Style::default()
-                            .fg(agent_color)
+                            .fg(agent_name_color)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(format!("({})", agent_id), Style::default().fg(theme::MUTED)),
@@ -478,7 +764,7 @@ pub fn render_view_model(
                     if matches!(inner_vm, MessageViewModel::AssistantBubble { .. }) {
                         continue;
                     }
-                    let inner_lines = render_view_model(inner_vm, None, _width, diff_visible);
+                    let inner_lines = render_view_model(inner_vm, None, _width, detail_mode);
                     if inner_lines.is_empty() {
                         continue;
                     }
@@ -606,6 +892,35 @@ pub fn render_view_model(
                             Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                             Span::styled(text, Style::default().fg(entry_color)),
                         ]));
+                    }
+                }
+            } else if detail_mode {
+                // 详细模式：显示每条工具的名称和结果
+                for entry in tools {
+                    let entry_color = if entry.is_error {
+                        theme::ERROR
+                    } else {
+                        theme::SAGE
+                    };
+                    let indicator = if entry.is_error { "✗" } else { "●" };
+                    lines.push(Line::from(vec![
+                        Span::styled(indicator.to_string(), Style::default().fg(entry_color)),
+                        Span::raw(" "),
+                        Span::styled(
+                            entry.display_name.clone(),
+                            Style::default()
+                                .fg(theme::TEXT)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                    if !entry.content.is_empty() {
+                        let truncated: String = entry.content.chars().take(200).collect();
+                        for line in truncated.lines() {
+                            lines.push(Line::from(vec![
+                                Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
+                            ]));
+                        }
                     }
                 }
             } else {

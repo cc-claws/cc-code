@@ -28,6 +28,10 @@ pub struct MessageState {
     pub ephemeral_notes: Vec<(usize, MessageViewModel)>,
     /// 最近一次发送给渲染线程的 resize 宽度（用于去抖，避免每帧重复发送）
     pub last_resize_width: Option<u16>,
+    /// 已写入终端原生 scrollback 的 RenderCache 逻辑行数。
+    ///
+    /// TUI 视口只渲染这之后的尾部内容，避免应用内滚动条和终端原生滚动条并存。
+    pub scrollback_committed_lines: usize,
     /// Channel 消息通知接收端
     pub channel_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ChannelNotification>>,
 }
@@ -51,6 +55,7 @@ impl MessageState {
             last_submitted_text: None,
             ephemeral_notes: Vec::new(),
             last_resize_width: None,
+            scrollback_committed_lines: 0,
             channel_notification_rx: None,
         }
     }

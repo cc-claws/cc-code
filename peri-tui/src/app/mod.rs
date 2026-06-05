@@ -36,6 +36,7 @@ pub use session_manager::SessionManager;
 
 mod ui_state;
 pub use ui_state::UiState;
+pub use ui_state::PastedTextBlock;
 
 pub(crate) mod at_mention;
 pub use at_mention::AtMentionState;
@@ -64,8 +65,11 @@ mod history_persistence;
 mod hitl_ops;
 mod hitl_prompt;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
+mod paste_ops;
 mod rewind_prompt;
 pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};
+mod shell_command;
+pub(crate) use shell_command::ShellCommandRuntime;
 
 // ── System Infrastructure ────────────────────────────────────────────────────
 mod chat_session;
@@ -202,6 +206,13 @@ impl App {
                     .expect("无法创建临时 SQLite 数据库"),
             ),
         };
+        let shell_command_store = Arc::new(
+            crate::shell_history::ShellCommandStore::default_path().unwrap_or_else(|_| {
+                crate::shell_history::ShellCommandStore::new(
+                    std::env::temp_dir().join("peri-shell-commands.jsonl"),
+                )
+            }),
+        );
 
         // 预计算命令帮助列表
         let command_registry = crate::command::default_registry();
@@ -232,12 +243,14 @@ impl App {
         let streaming_mode = peri_config
             .as_ref()
             .and_then(|c| c.config.streaming_mode.clone());
+        let detail_enabled = false;
 
         let initial_session = ChatSession::new(
             cwd.clone(),
             command_registry,
             skills,
             &lc,
+            detail_enabled,
             diff_enabled,
             streaming_mode,
         );
@@ -255,6 +268,7 @@ impl App {
             model_name: model_name.clone(),
             permission_mode: permission_mode.clone(),
             thread_store: thread_store.clone(),
+            shell_command_store,
             mcp_pool: None,
             mcp_init_rx: None,
             cron: cron_state,
@@ -268,6 +282,9 @@ impl App {
             ),
             lc,
             channel_state: Some(channel_state.clone()),
+            git_branch_cache: parking_lot::Mutex::new(
+                service_registry::GitBranchCache::new(),
+            ),
         };
 
         Self {
@@ -324,6 +341,7 @@ impl App {
             }
             command_registry.register_plugin_commands(pd.all_commands.clone());
         }
+        let detail_mode = self.session_mgr.current_mut().ui.detail_mode;
         let diff_visible = self.session_mgr.current_mut().ui.diff_visible;
         let streaming_mode = self
             .services
@@ -335,6 +353,7 @@ impl App {
             command_registry,
             skills,
             &self.services.lc,
+            detail_mode,
             diff_visible,
             streaming_mode,
         );
@@ -402,6 +421,10 @@ impl App {
 
     /// 中断正在运行的 Agent（Ctrl+C during loading）
     pub fn interrupt(&mut self) {
+        if self.cancel_shell_command() {
+            return;
+        }
+
         // Try ACP cancel first (agent runs in ACP server)
         // Spawn cancel async without blocking the UI thread
         if let Some(ref acp_client) = self.acp_client {

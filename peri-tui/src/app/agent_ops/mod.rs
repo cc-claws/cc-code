@@ -16,6 +16,9 @@ mod subagent;
 impl App {
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         match event {
+            AgentEvent::ShellCommandCompleted(record) => {
+                self.handle_shell_command_completed(record)
+            }
             AgentEvent::SubAgentStart {
                 agent_id,
                 instance_id,
@@ -152,6 +155,16 @@ impl App {
                 self.session_mgr.current_mut().agent.retry_status = None;
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 self.session_mgr.current_mut().agent.tool_call_count += 1;
+                // 记录当前执行中的工具
+                {
+                    let args_summary: String = args.chars().take(40).collect();
+                    self.session_mgr.current_mut().agent.active_tool =
+                        Some(super::agent_comm::ActiveToolInfo {
+                            name: name.clone(),
+                            display: display.clone(),
+                            args_summary,
+                        });
+                }
                 // 跨切面：spinner
                 self.session_mgr
                     .current_mut()
@@ -194,6 +207,19 @@ impl App {
                 is_error,
                 source_agent_id,
             } => {
+                // 清除执行中工具，累加工具统计
+                self.session_mgr.current_mut().agent.active_tool = None;
+                if !name.is_empty() {
+                    let count = *self
+                        .session_mgr
+                        .current_mut()
+                        .agent
+                        .session_tool_stats
+                        .entry(name.clone())
+                        .or_insert(0) + 1;
+                    self.session_mgr.current_mut().agent.session_tool_stats.insert(name.clone(), count);
+                    tracing::debug!(tool = %name, count, "session_tool_stats updated");
+                }
                 let actions = self
                     .session_mgr
                     .current_mut()

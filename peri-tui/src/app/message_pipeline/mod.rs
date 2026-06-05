@@ -537,7 +537,8 @@ impl MessagePipeline {
                 vec![PipelineAction::None]
             }
             // 以下事件由 agent_ops 直接处理，Pipeline 返回 None
-            AgentEvent::Error(_)
+            AgentEvent::ShellCommandCompleted(_)
+            | AgentEvent::Error(_)
             | AgentEvent::InteractionRequest { .. }
             | AgentEvent::TodoUpdate(_)
             | AgentEvent::CompactStarted

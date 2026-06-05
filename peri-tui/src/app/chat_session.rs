@@ -3,7 +3,8 @@ use std::time::Instant;
 use peri_middlewares::prelude::{SkillMetadata, TodoItem};
 
 use super::{
-    langfuse_state::LangfuseState, AgentComm, CommandSystem, MessageState, SessionMetadata, UiState,
+    langfuse_state::LangfuseState, AgentComm, CommandSystem, MessageState, SessionMetadata,
+    ShellCommandRuntime, UiState,
 };
 use crate::{command::CommandRegistry, thread::ThreadId};
 
@@ -29,6 +30,7 @@ pub struct ChatSession {
     pub background_agents: Vec<RunningBgAgent>,
     pub focused_instance_id: Option<String>,
     pub spinner_state: peri_widgets::SpinnerState,
+    pub shell_command: ShellCommandRuntime,
 }
 
 impl ChatSession {
@@ -37,6 +39,7 @@ impl ChatSession {
         command_registry: CommandRegistry,
         skills: Vec<SkillMetadata>,
         lc: &crate::i18n::LcRegistry,
+        detail_enabled: bool,
         diff_enabled: bool,
         streaming_mode: Option<String>,
     ) -> Self {
@@ -53,7 +56,12 @@ impl ChatSession {
             messages.pipeline.init_streaming_mode_from_config(mode);
         }
         Self {
-            ui: UiState::new(super::build_textarea(false), &cwd, diff_enabled),
+            ui: UiState::new(
+                super::build_textarea(false),
+                &cwd,
+                detail_enabled,
+                diff_enabled,
+            ),
             messages,
             session_panels: super::panel_manager::PanelManager::new(),
             commands,
@@ -65,6 +73,7 @@ impl ChatSession {
             background_agents: Vec::new(),
             focused_instance_id: None,
             spinner_state: peri_widgets::SpinnerState::new(peri_widgets::SpinnerMode::Idle),
+            shell_command: ShellCommandRuntime::default(),
         }
     }
 }

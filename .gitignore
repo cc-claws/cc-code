@@ -188,3 +188,7 @@ node_modules
 dist
 settings.json
 .claude/worktrees/
+
+# Local test files (not for commit)
+CLAUDE.local.md
+.mcp.json
