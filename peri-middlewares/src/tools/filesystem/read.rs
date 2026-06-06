@@ -169,7 +169,7 @@ impl BaseTool for ReadFileTool {
             },
         };
 
-        let lines: Vec<&str> = content.split('\n').collect();
+        let lines: Vec<&str> = content.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
         if offset >= lines.len() {
             return Ok(format!(
                 "Error: offset {} exceeds file length ({} lines)",
