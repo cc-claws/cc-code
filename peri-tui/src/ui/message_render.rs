@@ -548,7 +548,8 @@ pub fn render_view_model(
 
             // 详细模式：强制展开所有工具；否则 Write/Edit 完成后默认展开
             let effective_collapsed = if detail_mode {
-                false
+                // Read 始终折叠：内容是文件原文，无需在 detail mode 展开
+                tool_name == "Read"
             } else if !is_running && (tool_name == "Write" || tool_name == "Edit") {
                 false
             } else {
