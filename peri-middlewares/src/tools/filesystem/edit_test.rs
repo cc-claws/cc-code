@@ -235,3 +235,59 @@
             "超过 10 个匹配时应截断位置列表，实际 {location_count} 个: {msg}"
         );
     }
+
+    #[tokio::test]
+    async fn test_edit_crlf_file_with_lf_old_string() {
+        // 模拟 LLM 从 Read 工具提取的 LF 格式 old_string 编辑 CRLF 文件
+        let dir = tempfile::tempdir().unwrap();
+        let crlf_content = "line1\r\nline2\r\nline3\r\n";
+        std::fs::write(dir.path().join("f.txt"), crlf_content).unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "old_string": "line2",
+                "new_string": "replaced"
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("Replaced text"), "应成功替换: {result}");
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "line1\r\nreplaced\r\nline3\r\n", "写回应保持 CRLF");
+    }
+
+    #[tokio::test]
+    async fn test_edit_crlf_file_multiline_replace() {
+        // 多行 CRLF 替换
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "a\r\nb\r\nc\r\n").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "old_string": "a\nb",
+                "new_string": "x\ny"
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("Replaced text"), "多行替换应成功: {result}");
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "x\r\ny\r\nc\r\n", "多行替换后应保持 CRLF");
+    }
+
+    #[tokio::test]
+    async fn test_edit_crlf_file_replace_all() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "foo\r\nbar\r\nfoo\r\n").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({
+            "file_path": "f.txt",
+            "old_string": "foo",
+            "new_string": "baz",
+            "replace_all": true
+        }))
+        .await
+        .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "baz\r\nbar\r\nbaz\r\n", "replace_all 后应保持 CRLF");
+    }
