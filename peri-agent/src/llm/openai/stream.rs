@@ -7,6 +7,7 @@ use crate::{
     agent::events::AgentEvent,
     error::{AgentError, AgentResult},
     llm::{
+        repetition::RepetitionDetector,
         sse::SseParser,
         types::{LlmRequest, LlmResponse, StopReason, StreamingContext},
     },
@@ -79,6 +80,8 @@ pub(super) async fn do_invoke_streaming(
     let mut parser = SseParser::new();
     let mut reasoning_text = String::new();
     let mut content_text = String::new();
+    let mut repetition_detector = RepetitionDetector::new();
+    let mut repetition_detected = false;
     let mut tool_accums: BTreeMap<usize, ToolCallAccumulator> = BTreeMap::new();
     let mut finish_reason: Option<String> = None;
     let mut final_usage: Option<Value> = None;
@@ -144,6 +147,17 @@ pub(super) async fn do_invoke_streaming(
                     ctx.event_handler
                         .on_event(AgentEvent::AiReasoning(r.to_string()));
                     reasoning_text.push_str(r);
+                    // 退化重复检测
+                    if repetition_detector.check(&reasoning_text) {
+                        tracing::warn!(
+                            provider = "openai",
+                            model = %adapter.model,
+                            accumulated_chars = reasoning_text.len(),
+                            "LLM reasoning 退化重复检测触发，提前终止流"
+                        );
+                        repetition_detected = true;
+                        break;
+                    }
                 }
             }
 
@@ -183,7 +197,7 @@ pub(super) async fn do_invoke_streaming(
             }
         }
 
-        if parser.is_done() {
+        if repetition_detected || parser.is_done() {
             break;
         }
     }
