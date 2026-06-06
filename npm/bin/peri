@@ -1,7 +1,19 @@
-#!/bin/sh
-dir="$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")")"
-if [ -f "${dir}/peri-bin" ]; then
-  exec "${dir}/peri-bin" "$@"
-else
-  exec "${dir}/peri.exe" "$@"
-fi
+#!/usr/bin/env node
+
+const { existsSync } = require("fs");
+const { join, dirname } = require("path");
+const { execFileSync } = require("child_process");
+
+const dir = dirname(__filename);
+const binPath = existsSync(join(dir, "peri-bin"))
+  ? join(dir, "peri-bin")
+  : join(dir, "peri.exe");
+
+try {
+  execFileSync(binPath, process.argv.slice(2), { stdio: "inherit" });
+} catch (err) {
+  if (err.status !== null) {
+    process.exit(err.status);
+  }
+  throw err;
+}
