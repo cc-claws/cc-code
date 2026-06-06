@@ -282,6 +282,11 @@
             detail_text.contains("+new line"),
             "详细模式应兼容显示内嵌 diff_lines"
         );
+        assert!(
+            detail_text.contains("  ⎿ "),
+            "diff 行应带缩进前缀 `  ⎿ `，实际: {}",
+            detail_text
+        );
     }
 
     #[test]

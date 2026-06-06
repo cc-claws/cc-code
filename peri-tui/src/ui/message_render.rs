@@ -640,7 +640,17 @@ pub fn render_view_model(
             }
             if detail_mode {
                 if let Some(ref cached_lines) = diff_lines {
-                    lines.extend(cached_lines.iter().cloned());
+                    for line in cached_lines.iter() {
+                        let mut prefixed = line.clone();
+                        prefixed.spans.insert(
+                            0,
+                            Span::styled(
+                                "  ⎿ ".to_string(),
+                                Style::default().fg(if *is_error { theme::ERROR } else { theme::DIM }),
+                            ),
+                        );
+                        lines.push(prefixed);
+                    }
                 }
             }
             lines
