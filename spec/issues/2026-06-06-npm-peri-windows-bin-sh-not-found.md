@@ -1,6 +1,6 @@
 # npm 全局安装 peri 后 Windows 上执行报 /bin/sh.exe not found
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-06-06
 
@@ -60,7 +60,14 @@ if (Test-Path "$basedir//bin/sh$exe") {
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-06-06 | — | Open | agent | 创建 |
+| 2026-06-06 | Open | Fixed | agent | 修复：bin/peri 从 shell 改为 Node.js 脚本 |
 
 ## 修复记录
 
-（由 fix-issue 或 issue-verify skill 追加，创建时留空）
+**修复方案**：将 `npm/bin/peri` 从 shell 脚本（`#!/bin/sh`）改为 Node.js 脚本（`#!/usr/bin/env node`）
+
+**根因**：npm 的 `bin` 字段指向 shell 脚本时，npm 在 Windows 上生成的全局 shim 会尝试用 `/bin/sh` 执行，但 Windows 没有这个路径。
+
+**解决方式**：改为 Node.js 脚本后，npm 生成的 shim 使用 `node` 执行，跨平台兼容。
+
+**提交**：`hotfix#npm-windows-bin-sh` 分支，commit b33864a
