@@ -162,3 +162,18 @@
             "should return binary: {result}"
         );
     }
+
+    #[tokio::test]
+    async fn test_read_crlf_file_strips_cr() {
+        // CRLF 文件输出不应包含 \r
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("crlf.txt"), "line1\r\nline2\r\nline3\r\n").unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "crlf.txt"}))
+            .await
+            .unwrap();
+        assert!(!result.contains('\r'), "CRLF 文件输出不应包含 \\r: {result}");
+        assert!(result.contains("1\tline1"), "应包含 line1: {result}");
+        assert!(result.contains("2\tline2"), "应包含 line2: {result}");
+    }

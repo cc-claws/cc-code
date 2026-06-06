@@ -152,12 +152,21 @@ impl BaseTool for EditFileTool {
 
         let resolved = resolve_path(&self.cwd, file_path);
 
-        let content = match std::fs::read_to_string(&resolved) {
+        let raw_content = match std::fs::read_to_string(&resolved) {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Err(format!("Error: File not found at {file_path}").into());
             }
             Err(e) => return Err(e.into()),
+        };
+
+        // CRLF 兼容：Read 工具已剥离 \r，LLM 提取的 old_string 为 LF 格式。
+        // 归一化到 LF 进行匹配和替换，写回时恢复原始行尾。
+        let is_crlf = raw_content.contains("\r\n");
+        let content = if is_crlf {
+            raw_content.replace("\r\n", "\n")
+        } else {
+            raw_content.clone()
         };
 
         let old_lines = old_string.lines().count();
@@ -195,10 +204,16 @@ impl BaseTool for EditFileTool {
             }
             let new_content = content.replace(old_string, new_string);
             let occurrences = content.matches(old_string).count();
+            // 恢复原始行尾格式
+            let final_content = if is_crlf {
+                new_content.replace('\n', "\r\n")
+            } else {
+                new_content
+            };
             // 原子写入：先写临时文件再 rename
             let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
             let tmp_path = resolved.with_extension(tmp_ext);
-            std::fs::write(&tmp_path, &new_content)?;
+            std::fs::write(&tmp_path, &final_content)?;
             match std::fs::rename(&tmp_path, &resolved) {
                 Ok(_) => Ok(format!(
                     "{} to {} (replaced {} occurrence{})",
@@ -255,10 +270,16 @@ impl BaseTool for EditFileTool {
                 .into());
             }
             let new_content = content.replacen(old_string, new_string, 1);
+            // 恢复原始行尾格式
+            let final_content = if is_crlf {
+                new_content.replace('\n', "\r\n")
+            } else {
+                new_content
+            };
             // 原子写入：先写临时文件再 rename
             let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
             let tmp_path = resolved.with_extension(tmp_ext);
-            std::fs::write(&tmp_path, &new_content)?;
+            std::fs::write(&tmp_path, &final_content)?;
             match std::fs::rename(&tmp_path, &resolved) {
                 Ok(_) => Ok(format!("{} to {}", diff_desc, rel)),
                 Err(e) => {
