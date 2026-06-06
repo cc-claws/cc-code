@@ -743,6 +743,8 @@ async fn run_app(
     'event_loop: loop {
         // 推进 Spinner 动画帧
         app.session_mgr.current_mut().spinner_state.advance_tick();
+        // 推进光标闪烁（返回 true 表示可见性切换，需要重绘）
+        let cursor_blinked = app.session_mgr.current_mut().ui.advance_cursor_tick();
         // 轮询 agent 结果
         let mut agent_updated = false;
         agent_updated |= app.poll_agent();
@@ -798,7 +800,7 @@ async fn run_app(
                 let cache_updated =
                     cache_version != app.session_mgr.current_mut().messages.last_render_version;
                 let loading = app.session_mgr.current_mut().ui.loading;
-                let should_render = cache_updated || agent_updated || bg_updated || loading;
+                let should_render = cache_updated || agent_updated || bg_updated || loading || cursor_blinked;
                 if should_render {
                     let now = Instant::now();
                     // loading 路径：限制帧率到 TARGET_FRAME_INTERVAL，降低 CPU 开销

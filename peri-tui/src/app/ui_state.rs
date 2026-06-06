@@ -52,6 +52,10 @@ pub struct UiState {
     pub pasted_text_blocks: Vec<PastedTextBlock>,
     /// 当前 draft 内下一个粘贴占位符编号
     pub next_pasted_text_id: usize,
+    /// 光标闪烁状态：true=可见，false=隐藏
+    pub cursor_visible: bool,
+    /// 光标闪烁计数器（每 tick 递增，每 15 tick 切换一次，约 500ms）
+    pub cursor_tick_count: u8,
 }
 
 impl UiState {
@@ -88,6 +92,27 @@ impl UiState {
             detail_mode: detail_enabled,
             pasted_text_blocks: Vec::new(),
             next_pasted_text_id: 1,
+            cursor_visible: true,
+            cursor_tick_count: 0,
         }
+    }
+
+    /// 推进光标闪烁状态（每 10 tick 切换一次，约 500ms @ 50ms/tick）
+    /// 返回 true 表示可见性发生了切换，调用方应触发重绘
+    pub fn advance_cursor_tick(&mut self) -> bool {
+        self.cursor_tick_count = self.cursor_tick_count.wrapping_add(1);
+        if self.cursor_tick_count >= 10 {
+            self.cursor_tick_count = 0;
+            self.cursor_visible = !self.cursor_visible;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 重置光标为可见状态（用户输入时调用）
+    pub fn reset_cursor_blink(&mut self) {
+        self.cursor_visible = true;
+        self.cursor_tick_count = 0;
     }
 }

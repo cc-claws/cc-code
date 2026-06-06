@@ -158,6 +158,7 @@ pub struct InputFieldStyle {
     pub value_focused: Style,
     pub value_unfocused: Style,
     pub cursor_char: char,
+    pub cursor_visible: bool,
     pub mask_char: char,
 }
 
@@ -168,7 +169,8 @@ impl Default for InputFieldStyle {
             label_unfocused: Style::default(),
             value_focused: Style::default(),
             value_unfocused: Style::default(),
-            cursor_char: '█',
+            cursor_char: '│',
+            cursor_visible: true,
             mask_char: '•',
         }
     }
@@ -213,8 +215,14 @@ impl<'a> InputField<'a> {
         };
 
         let display = state.display_text(self.style.mask_char);
-        let value_text = if self.focused {
-            format!("{}{}", display, self.style.cursor_char)
+        let value_text = if self.focused && self.style.cursor_visible {
+            let pos = state.display_cursor(self.style.mask_char);
+            let chars: Vec<char> = display.chars().collect();
+            let mut s = String::new();
+            s.extend(chars[..pos].iter());
+            s.push(self.style.cursor_char);
+            s.extend(chars[pos..].iter());
+            s
         } else {
             display
         };
