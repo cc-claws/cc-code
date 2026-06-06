@@ -9,6 +9,7 @@ mod sticky_header;
 pub(crate) use message_area::highlight_line_spans;
 
 use ratatui::{
+    buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Span,
@@ -264,8 +265,9 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 输入框渲染
+    let cursor_visible = app.session_mgr.current().ui.cursor_visible;
     let textarea_ref = &app.session_mgr.current_mut().ui.textarea;
-    render_textarea(f, textarea_ref, chunks[5], shell_mode, app.focused);
+    render_textarea(f, textarea_ref, chunks[5], shell_mode, app.focused, cursor_visible);
     app.session_mgr.current_mut().ui.textarea_area = Some(chunks[5]);
 
     // 输入提示符
@@ -339,7 +341,7 @@ fn textarea_shell_hint_color(mode: TextareaShellMode) -> Color {
     }
 }
 
-fn textarea_prompt(mode: TextareaShellMode, loading: bool) -> (&'static str, Style) {
+fn textarea_prompt(mode: TextareaShellMode, _loading: bool) -> (&'static str, Style) {
     match mode {
         TextareaShellMode::Command => (
             "!",
@@ -348,15 +350,9 @@ fn textarea_prompt(mode: TextareaShellMode, loading: bool) -> (&'static str, Sty
                 .add_modifier(Modifier::BOLD),
         ),
         TextareaShellMode::Stdin | TextareaShellMode::None => {
-            let prompt_color = if loading { theme::MUTED } else { theme::TEXT };
-            let modifier = if loading {
-                Modifier::empty()
-            } else {
-                Modifier::BOLD
-            };
             (
                 "❯",
-                Style::default().fg(prompt_color).add_modifier(modifier),
+                Style::default().fg(theme::MUTED),
             )
         }
     }
@@ -368,19 +364,97 @@ fn render_textarea(
     area: Rect,
     shell_mode: TextareaShellMode,
     focused: bool,
+    cursor_visible: bool,
 ) {
-    if shell_mode == TextareaShellMode::Command || !focused {
-        let mut display_textarea = textarea.clone();
-        if shell_mode == TextareaShellMode::Command {
-            hide_shell_prefix_for_display(&mut display_textarea);
-        }
-        if !focused {
-            display_textarea.set_cursor_style(Style::default().fg(theme::DIM));
-        }
-        f.render_widget(&display_textarea, area);
+    let mut display_textarea = textarea.clone();
+    if shell_mode == TextareaShellMode::Command {
+        hide_shell_prefix_for_display(&mut display_textarea);
+    }
+
+    // textarea 自带块光标始终设为与文本同色（视觉不可见），由 draw_bar_cursor 画 │
+    display_textarea.set_cursor_style(Style::default().fg(theme::TEXT));
+    f.render_widget(&display_textarea, area);
+
+    // 聚焦 + 非 Command 模式：始终右移 cells 防止字符抖动，仅亮相时画 │
+    if focused && shell_mode != TextareaShellMode::Command {
+        draw_bar_cursor(f.buffer_mut(), textarea, area, cursor_visible);
+    }
+}
+
+/// 在 buffer 中绘制 │ 细线光标
+/// 始终右移 cells（防止抖动），仅 cursor_visible 时画 │，否则留空格
+fn draw_bar_cursor(buf: &mut Buffer, textarea: &TextArea<'static>, area: Rect, cursor_visible: bool) {
+    let (data_row, data_col) = textarea.cursor();
+
+    let inner_x = area.x + 2;
+    let inner_y = area.y + 1;
+    let inner_w = area.width.saturating_sub(2);
+    let inner_h = area.height.saturating_sub(2);
+
+    if inner_w == 0 || inner_h == 0 {
         return;
     }
-    f.render_widget(textarea, area);
+
+    let line = textarea.lines().get(data_row).map(|s| s.as_str()).unwrap_or("");
+    // data_col 是字符索引，需转换为显示列（累加 unicode-width）
+    let display_col: usize = line
+        .chars()
+        .take(data_col)
+        .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum();
+
+    let cell_x = inner_x + display_col as u16;
+    let cell_y = inner_y + data_row as u16;
+
+    if cell_x >= inner_x + inner_w || cell_y >= inner_y + inner_h {
+        return;
+    }
+
+    let at_end_of_line = data_col >= line.chars().count();
+
+    if !at_end_of_line && display_col > 0 {
+        // 光标在行内字符上（非最左）：右移后续文本，腾出 1 格给光标
+        let line_display_width: usize = line
+            .chars()
+            .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
+            .sum();
+        let last_text_cell = (inner_x + line_display_width as u16).saturating_sub(1);
+        let last_visible = inner_x + inner_w - 1;
+        let shift_end = last_text_cell.min(last_visible.saturating_sub(1));
+
+        if shift_end >= cell_x {
+            for x in (cell_x..=shift_end).rev() {
+                let (sym, sty) = buf
+                    .cell((x, cell_y))
+                    .map(|c| (c.symbol().to_string(), c.style()))
+                    .unwrap_or_default();
+                if let Some(dst) = buf.cell_mut((x + 1, cell_y)) {
+                    dst.set_symbol(&sym);
+                    dst.set_style(sty);
+                }
+            }
+        }
+        write_cursor_cell(buf, cell_x, cell_y, cursor_visible);
+    } else if !at_end_of_line && display_col == 0 {
+        // 光标在最左边：│ 画在 padding 区域，不右移不占文本位置
+        write_cursor_cell(buf, inner_x.saturating_sub(1), cell_y, cursor_visible);
+    } else {
+        // 行尾：直接覆盖光标位空格
+        write_cursor_cell(buf, cell_x, cell_y, cursor_visible);
+    }
+}
+
+/// 在指定 cell 写入 │（亮相）或空格（灭相）
+fn write_cursor_cell(buf: &mut Buffer, x: u16, y: u16, visible: bool) {
+    if let Some(cell) = buf.cell_mut((x, y)) {
+        if visible {
+            cell.set_symbol("│");
+            cell.set_style(Style::default().fg(theme::MUTED));
+        } else {
+            cell.set_symbol(" ");
+            cell.set_style(Style::default());
+        }
+    }
 }
 
 fn hide_shell_prefix_for_display(textarea: &mut TextArea<'static>) {

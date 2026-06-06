@@ -74,7 +74,7 @@ fn input_field_to_line_focused() {
     let line = field.to_line(&s);
     let line_str: String = line.spans.iter().map(|s| s.content.clone()).collect();
     assert!(
-        line_str.contains('█'),
+        line_str.contains('│'),
         "Expected cursor char, got: {}",
         line_str
     );
@@ -87,8 +87,25 @@ fn input_field_to_line_unfocused() {
     let line = field.to_line(&s);
     let line_str: String = line.spans.iter().map(|s| s.content.clone()).collect();
     assert!(
-        !line_str.contains('█'),
+        !line_str.contains('│'),
         "Expected no cursor char, got: {}",
+        line_str
+    );
+}
+
+#[test]
+fn input_field_to_line_cursor_hidden() {
+    let s = InputState::with_value("test".into());
+    let style = InputFieldStyle {
+        cursor_visible: false,
+        ..Default::default()
+    };
+    let field = InputField::new("Name").focused(true).style(style);
+    let line = field.to_line(&s);
+    let line_str: String = line.spans.iter().map(|s| s.content.clone()).collect();
+    assert!(
+        !line_str.contains('│'),
+        "Expected no cursor when hidden, got: {}",
         line_str
     );
 }
