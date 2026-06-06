@@ -366,6 +366,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                 app.exit_history();
             }
             app.session_mgr.current_mut().ui.textarea.input(input);
+            app.session_mgr.current_mut().ui.reset_cursor_blink();
             // When input changes: reset cursor (don't pre-select; wait for user to press Tab/Up/Down)
             if !app.session_mgr.current_mut().ui.loading {
                 app.session_mgr.current_mut().ui.hint_cursor = None;
