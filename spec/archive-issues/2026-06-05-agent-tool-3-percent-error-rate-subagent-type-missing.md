@@ -1,3 +1,5 @@
+> 归档于 2026-06-06，原路径 spec/issues/2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing.md
+
 # Agent 工具调用 3.35% 错误率——93% 源于 subagent_type 参数缺失
 
 **状态**：Fixed

@@ -1,3 +1,5 @@
+> 归档于 2026-06-06，原路径 spec/issues/2026-05-24-config-panel-interaction-redesign.md
+
 # Config 面板交互混乱，需整体重新设计
 
 **状态**：Verified

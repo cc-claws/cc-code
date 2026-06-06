@@ -1426,6 +1426,30 @@
 ### /split 移除
 - [移除 /split 多 session 分屏功能](domains/tui.md#issue_2026-06-01-remove-split-multi-session) — tui
 
+### Config 面板
+- [Config 面板交互混乱，Browse/Edit 两步模式改为直编辑+即时保存](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
+### 直编辑
+- [Config 面板交互混乱，Browse/Edit 两步模式改为直编辑+即时保存](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
+### 即时保存
+- [Config 面板交互混乱，Browse/Edit 两步模式改为直编辑+即时保存](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
+### 面板交互
+- [Config 面板交互混乱，Browse/Edit 两步模式改为直编辑+即时保存](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
+### SubAgent 错误率
+- [Agent 工具 3.35% 错误率，93% 源于 subagent_type 参数缺失，Ok("Error:") 导致监控系统不可见](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
+### Ok("Error:") 反模式
+- [Agent 工具 3.35% 错误率，93% 源于 subagent_type 参数缺失，Ok("Error:") 导致监控系统不可见](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
+### 参数校验
+- [Agent 工具 3.35% 错误率，93% 源于 subagent_type 参数缺失，Ok("Error:") 导致监控系统不可见](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
+### 工具错误可见性
+- [Agent 工具 3.35% 错误率，93% 源于 subagent_type 参数缺失，Ok("Error:") 导致监控系统不可见](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
 ## 更新记录
 
 - 2026-06-03: 归档 3 个 issue（at-mention 搜索、rewind 消息丢失、多 session 分屏移除）
@@ -1446,3 +1470,4 @@
 - 2026-05-20: 归档 1 个 issue，新增 4 个关键词索引（session恢复/System消息过滤/messages_to_view_models/SystemNote泄漏）
 - 2026-05-20: 归档 5 个 issue（compact 2, message-pipeline 1, system-prompt 1, tui 1），新增 24 个关键词索引
 - 2026-05-24: 归档 15 个 issue（tui 4 + agent 2 + langfuse 2 + system-prompt 1 + cli 1 + acp 4 + code-architecture 1），新增 29 个关键词索引
+- 2026-06-06: 归档 2 个 issue（tui 1 + agent 1），新增 9 个关键词索引

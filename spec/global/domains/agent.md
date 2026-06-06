@@ -744,6 +744,18 @@ launch_agent 工具调用
 
 ---
 
+### issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing
+**摘要:** Agent 工具 3.35% 错误率，93% 源于 subagent_type 参数缺失，Ok("Error:") 导致监控系统不可见
+**状态:** Fixed
+**归档日期:** 2026-06-06
+**关键词:** SubAgent 错误率, Ok("Error:") 反模式, 参数校验, 工具错误可见性
+**问题本质:** 工具参数校验失败时用 `Ok("Error: ...")` 返回而非 `Err()`，导致错误对监控系统（is_error、tool_errors 分析器）不可见；同时参数描述不够强调必填，LLM 频繁遗漏 subagent_type
+**通用模式:** 所有工具的参数校验错误必须用 `Err()` 返回，禁止 `Ok("Error: ...")` 反模式。`is_error` 标记和遥测系统依赖 `Err()` 路径。参数描述中对必填字段应显式标注 REQUIRED
+**架构影响:** define.rs + execute_bg.rs + execute_fork.rs 共 7 处 Ok("Error:") → Err()，统一了 SubAgent 工具链的错误返回方式
+**涉及文件:** peri-middlewares/src/subagent/tool/define.rs, peri-middlewares/src/subagent/tool/execute_bg.rs, peri-middlewares/src/subagent/tool/execute_fork.rs
+
+---
+
 ## 相关 Feature
 
 - → [relay-server.md#feature_20260326_F009_relay-message-id-propagation](./relay-server.md) — message_id 透传到 Web 前端

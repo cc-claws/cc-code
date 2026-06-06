@@ -12,6 +12,7 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RI
 [![GitHub stars](https://img.shields.io/github/stars/wismyzhizi2018/peri?style=social)](https://github.com/wismyzhizi2018/peri/stargazers)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
 [![Website](https://img.shields.io/badge/website-cc--claw.com-orange?style=flat-square)](https://www.cc-claw.com)
+[![GitHub last commit](https://img.shields.io/github/last-commit/wismyzhizi2018/peri?style=flat-square)](https://github.com/wismyzhizi2018/peri/commits/main)
 
 ```bash
 npm install -g @cc-claw/peri
