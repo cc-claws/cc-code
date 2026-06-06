@@ -2,41 +2,21 @@ use async_trait::async_trait;
 use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
 
 use crate::tools::{
-    EditFileTool, FolderOperationsTool, GlobFilesTool, GrepTool, LineEditTool, ReadFileTool,
-    WriteFileTool,
+    EditFileTool, FolderOperationsTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool,
 };
 
-pub struct FilesystemMiddleware {
-    line_edit_mode: bool,
-}
+pub struct FilesystemMiddleware;
 
 impl FilesystemMiddleware {
     pub fn new() -> Self {
-        Self {
-            line_edit_mode: false,
-        }
-    }
-
-    pub fn with_line_edit_mode(mut self, enabled: bool) -> Self {
-        self.line_edit_mode = enabled;
-        self
+        Self
     }
 
     pub fn build_tools(cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        Self::build_tools_with_mode(cwd, false)
-    }
-
-    pub fn build_tools_with_mode(cwd: &str, line_edit_mode: bool) -> Vec<Box<dyn BaseTool>> {
-        let edit_tool: Box<dyn BaseTool> = if line_edit_mode {
-            Box::new(LineEditTool::new(cwd))
-        } else {
-            Box::new(EditFileTool::new(cwd))
-        };
-
         vec![
             Box::new(ReadFileTool::new(cwd)),
             Box::new(WriteFileTool::new(cwd)),
-            edit_tool,
+            Box::new(EditFileTool::new(cwd)),
             Box::new(GlobFilesTool::new(cwd)),
             Box::new(GrepTool::new(cwd)),
             Box::new(FolderOperationsTool::new(cwd)),
@@ -45,17 +25,6 @@ impl FilesystemMiddleware {
 
     pub fn tool_names() -> Vec<&'static str> {
         vec!["Read", "Write", "Edit", "Glob", "Grep", "folder_operations"]
-    }
-
-    pub fn tool_names_line_edit() -> Vec<&'static str> {
-        vec![
-            "Read",
-            "Write",
-            "LineEdit",
-            "Glob",
-            "Grep",
-            "folder_operations",
-        ]
     }
 }
 
@@ -68,7 +37,7 @@ impl Default for FilesystemMiddleware {
 #[async_trait]
 impl<S: State> Middleware<S> for FilesystemMiddleware {
     fn collect_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        Self::build_tools_with_mode(cwd, self.line_edit_mode)
+        Self::build_tools(cwd)
     }
 
     fn name(&self) -> &str {
