@@ -90,6 +90,8 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 工具分三层：**Core（12 个）**——Read/Write/Edit/Glob/Grep/folder_operations/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite，始终对 LLM 可见；**Meta（2 个）**——`SearchExtraTools`/`ExecuteExtraTool`，始终可见，用于按需发现和执行 deferred tools；**Deferred（其余）**——Cron*、MCP 工具、LspTool 等，LLM 不直接可见，通过 Meta 工具桥接。核心工具定义以 `tool_search/core_tools.rs` 中的 `CORE_TOOLS` 为准。新增工具优先配置为 deferred tool，避免膨胀核心工具列表。
 
+**[TRAP]** 工具参数校验错误必须用 `Err()` 返回，禁止 `Ok("Error: ...")` 反模式——`is_error` 标记、遥测系统、tool_errors 分析器均依赖 `Err()` 路径。参数描述中对必填字段应显式标注 REQUIRED。（详见 spec/global/domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing）
+
 **[TRAP]** `Box<dyn BaseTool>` 不能直接转 `Arc<dyn BaseTool>`，用 `box_to_arc()` 通过 `ToolWrapper(ManuallyDrop<Box>)` 透传。**绝不能用 `Box::into_raw` + `Arc::from_raw`**——布局不同导致 UB。
 
 **[TRAP]** Prompt Cache 前缀稳定性——通用原则：所有参与缓存前缀的数据（system prompt、tools 数组、消息顺序）必须保证跨请求稳定。具体规则：

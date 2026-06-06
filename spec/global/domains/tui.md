@@ -993,6 +993,16 @@ submit_message(text)
 
 ---
 
+### issue_2026-05-24-config-panel-interaction-redesign
+**摘要:** Config 面板交互混乱，Browse/Edit 两步模式改为直编辑+即时保存
+**状态:** Verified
+**归档日期:** 2026-06-06
+**关键词:** Config 面板, 直编辑, 即时保存, 面板交互
+**问题本质:** 面板交互设计中，模式切换（Browse→Edit）增加认知负担，且同一按键在不同字段类型上行为不一致（Space/Left/Right 在布尔/选择/文本字段含义不同），导致用户无法预测操作结果
+**通用模式:** 面板类 UI 应遵循"即改即走"原则——打开即可修改、修改即生效，避免模式切换。布尔/选择字段 Space 切换后立即写盘，文本字段失焦时自动保存，Esc 仅关闭不撤销已保存改动
+**架构影响:** 提取 `save_config_now()` 辅助函数作为统一保存入口，所有字段变更路径（键盘切换、失焦、鼠标点击）统一调用
+**涉及文件:** peri-tui/src/app/config_panel.rs, peri-tui/src/ui/main_ui/panels/config.rs, peri-tui/src/app/panel_config.rs
+
 ## 相关 Feature
 
 - → [agent.md#20260322_F001_agent-storage-refactor](./agent.md#20260322_F001_agent-storage-refactor) — SQLite 持久化，TUI 消息渲染依赖此存储

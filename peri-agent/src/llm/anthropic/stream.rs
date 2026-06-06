@@ -6,6 +6,7 @@ use crate::{
     agent::events::AgentEvent,
     error::{AgentError, AgentResult},
     llm::{
+        repetition::RepetitionDetector,
         sse::SseParser,
         types::{LlmResponse, StopReason, StreamingContext},
     },
@@ -80,6 +81,8 @@ pub(super) async fn do_invoke_streaming(
     // Accumulators
     let mut text_content = String::new();
     let mut reasoning_content = String::new();
+    let mut repetition_detector = RepetitionDetector::new();
+    let mut repetition_detected = false;
     let mut thinking_signature: Option<String> = None;
     let mut tool_use_id: Option<String> = None;
     let mut tool_use_name: Option<String> = None;
@@ -167,6 +170,17 @@ pub(super) async fn do_invoke_streaming(
                                     ctx.event_handler
                                         .on_event(AgentEvent::AiReasoning(t.to_string()));
                                     reasoning_content.push_str(t);
+                                    // 退化重复检测
+                                    if repetition_detector.check(&reasoning_content) {
+                                        tracing::warn!(
+                                            provider = "anthropic",
+                                            model = %adapter.model,
+                                            accumulated_chars = reasoning_content.len(),
+                                            "LLM reasoning 退化重复检测触发，提前终止流"
+                                        );
+                                        repetition_detected = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -261,7 +275,7 @@ pub(super) async fn do_invoke_streaming(
             }
         }
 
-        if parser.is_done() {
+        if repetition_detected || parser.is_done() {
             break;
         }
     }

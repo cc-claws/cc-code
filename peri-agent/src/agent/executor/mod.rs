@@ -11,7 +11,7 @@ use tracing::instrument;
 use crate::{
     agent::{
         events::{AgentEvent, AgentEventHandler, BackgroundTaskResult},
-        react::{AgentInput, AgentOutput, ReactLLM, ToolCall, ToolResult},
+        react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult},
         state::State,
     },
     error::{AgentError, AgentResult},
@@ -279,6 +279,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         let mut final_result: Option<AgentOutput> = None;
         let mut consecutive_failures: HashMap<String, usize> = HashMap::new();
 
+        // 卡住检测：跟踪连续多轮 thinking 相似度
+        let mut stuck_count: usize = 0;
+        let mut prev_fingerprint: Option<String> = None;
+
         for step in 0..self.max_iterations {
             state.set_current_step(step);
 
@@ -291,6 +295,15 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
             // 钩子: after_model — LLM 调用后（响应后处理）
             self.chain.run_after_model(state, &reasoning).await?;
+
+            // 卡住检测：连续多轮 thinking 前缀相同则注入换策略提示
+            Self::check_stuck(
+                state,
+                &reasoning,
+                &mut stuck_count,
+                &mut prev_fingerprint,
+                step,
+            );
 
             if reasoning.needs_tool_call() {
                 // 工具分发
@@ -376,6 +389,65 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             return;
         }
         state.messages_mut().retain(|m| !ids.contains(&m.id()));
+    }
+
+    /// 卡住检测：连续多轮 thinking 前缀相同则注入换策略提示
+    ///
+    /// 退化输出场景下 agent 可能在不同迭代中重复相同思考模式。
+    /// 当连续 3 轮 thinking 指纹相同时，注入一条 Human 消息鼓励换策略。
+    /// 注入后重置计数器，避免重复注入。
+    fn check_stuck(
+        state: &mut S,
+        reasoning: &Reasoning,
+        stuck_count: &mut usize,
+        prev_fingerprint: &mut Option<String>,
+        step: usize,
+    ) {
+        let fp = Self::thinking_fingerprint(reasoning);
+        if fp.is_empty() {
+            return;
+        }
+
+        if prev_fingerprint.as_deref() == Some(fp.as_str()) {
+            *stuck_count += 1;
+        } else {
+            *stuck_count = 0;
+        }
+        *prev_fingerprint = Some(fp);
+
+        if *stuck_count >= 3 {
+            tracing::warn!(
+                step,
+                stuck_count,
+                "Agent 连续多轮思考高度相似，注入换策略提示"
+            );
+            state.add_message(BaseMessage::human(
+                "你似乎在重复同样的思考模式。请尝试完全不同的方法——\
+                 使用不同的工具、换一个分析角度、或向用户请求更多信息。",
+            ));
+            *stuck_count = 0;
+        }
+    }
+
+    /// 提取 thinking 内容指纹（前 200 字符）
+    ///
+    /// 优先从 source_message 的 Reasoning blocks 提取，
+    /// 回退到 thought 字段（Text blocks）。
+    fn thinking_fingerprint(reasoning: &Reasoning) -> String {
+        // 优先从 source_message 提取 reasoning blocks 文本
+        if let Some(ref msg) = reasoning.source_message {
+            let r: String = msg
+                .content_blocks()
+                .iter()
+                .filter_map(|b| b.as_reasoning())
+                .collect::<Vec<_>>()
+                .join("");
+            if !r.is_empty() {
+                return r.chars().take(200).collect();
+            }
+        }
+        // 回退到 thought 字段
+        reasoning.thought.chars().take(200).collect()
     }
 }
 
