@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
-const { createWriteStream, mkdirSync, chmodSync, existsSync } = require("fs");
+const { createWriteStream, mkdirSync, chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } = require("fs");
 const { join } = require("path");
-const { get } = require("https");
 const { execSync } = require("child_process");
 
 const VERSION = require("./package.json").version;
@@ -18,20 +17,36 @@ const PLATFORMS = {
 };
 
 function getPlatformKey() {
-  const os = process.platform;
-  const arch = process.arch;
-  const key = `${os}-${arch}`;
+  const key = `${process.platform}-${process.arch}`;
   if (!PLATFORMS[key]) {
-    throw new Error(`Unsupported platform: ${os}-${arch}. Supported: ${Object.keys(PLATFORMS).join(", ")}`);
+    throw new Error(`Unsupported platform: ${key}. Supported: ${Object.keys(PLATFORMS).join(", ")}`);
   }
   return key;
 }
 
+function getProxyUrl() {
+  // Check common proxy environment variables
+  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy
+    || process.env.HTTP_PROXY || process.env.http_proxy
+    || process.env.ALL_PROXY || process.env.all_proxy;
+  return proxy || null;
+}
+
 function download(url) {
+  const proxyUrl = getProxyUrl();
+
+  if (proxyUrl) {
+    return downloadViaProxy(url, proxyUrl);
+  }
+  return downloadDirect(url);
+}
+
+function downloadDirect(url) {
+  const { get } = require("https");
   return new Promise((resolve, reject) => {
     get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        download(res.headers.location).then(resolve, reject);
+        downloadDirect(res.headers.location).then(resolve, reject);
         return;
       }
       if (res.statusCode !== 200) {
@@ -46,8 +61,51 @@ function download(url) {
   });
 }
 
+function downloadViaProxy(url, proxyUrl) {
+  const { URL } = require("url");
+  const target = new URL(url);
+  const proxy = new URL(proxyUrl);
+
+  const isHttps = proxy.protocol === "https:" || proxy.protocol === "https:";
+  const proxyModule = isHttps ? require("https") : require("http");
+
+  const proxyOpts = {
+    hostname: proxy.hostname,
+    port: proxy.port || (isHttps ? 443 : 80),
+    path: url,
+    method: "GET",
+    headers: { "Host": target.hostname, "User-Agent": "peri-installer" },
+  };
+
+  // Support proxy auth
+  if (proxy.username) {
+    const auth = decodeURIComponent(`${proxy.username}:${proxy.password || ""}`);
+    proxyOpts.headers["Proxy-Authorization"] = `Basic ${Buffer.from(auth).toString("base64")}`;
+  }
+
+  console.log(`  Using proxy: ${proxy.hostname}:${proxy.port || (isHttps ? 443 : 80)}`);
+
+  return new Promise((resolve, reject) => {
+    const req = proxyModule.request(proxyOpts, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        download(res.headers.location).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`Download failed: HTTP ${res.statusCode} for ${url}`));
+        return;
+      }
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 function extractTarGz(buffer, dest) {
-  const { writeFileSync, unlinkSync } = require("fs");
   const tmpFile = join(dest, "peri.tar.gz");
   writeFileSync(tmpFile, buffer);
   execSync(`tar -xzf "${tmpFile}" -C "${dest}"`, { stdio: "ignore" });
@@ -55,7 +113,6 @@ function extractTarGz(buffer, dest) {
 }
 
 function extractZip(buffer, dest) {
-  const { writeFileSync } = require("fs");
   const AdmZip = require("adm-zip");
   const zip = new AdmZip(buffer);
   zip.extractAllTo(dest, true);
@@ -83,8 +140,6 @@ async function main() {
     extractZip(buffer, binDir);
   }
 
-  // Rename extracted binary to a fixed name so bin/peri wrapper can find it
-  const { renameSync, unlinkSync } = require("fs");
   const extractedName = platform.os === "win32"
     ? `peri-${platform.suffix}.exe`
     : `peri-${platform.suffix}`;
@@ -98,11 +153,9 @@ async function main() {
   }
 
   if (platform.os !== "win32") {
-    const { chmodSync: chmod } = require("fs");
-    chmod(finalPath, 0o755);
-    // Ensure the shell wrapper is also executable
+    chmodSync(finalPath, 0o755);
     const wrapperPath = join(__dirname, "bin", "peri");
-    if (existsSync(wrapperPath)) chmod(wrapperPath, 0o755);
+    if (existsSync(wrapperPath)) chmodSync(wrapperPath, 0o755);
   }
 
   console.log(`peri ${VERSION} installed successfully.`);
