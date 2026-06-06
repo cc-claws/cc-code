@@ -66,7 +66,7 @@ function downloadViaProxy(url, proxyUrl) {
   const target = new URL(url);
   const proxy = new URL(proxyUrl);
 
-  const isHttps = proxy.protocol === "https:" || proxy.protocol === "https:";
+  const isHttps = proxy.protocol === "https:" || proxy.protocol === "HTTPS:";
   const proxyModule = isHttps ? require("https") : require("http");
 
   const proxyOpts = {
@@ -156,6 +156,11 @@ async function main() {
     chmodSync(finalPath, 0o755);
     const wrapperPath = join(__dirname, "bin", "peri");
     if (existsSync(wrapperPath)) chmodSync(wrapperPath, 0o755);
+  } else {
+    // Generate Windows batch wrapper so npm's peri.cmd/peri.ps1 can invoke it
+    const binDirPath = join(__dirname, "bin");
+    writeFileSync(join(binDirPath, "peri.cmd"), `@echo off\r\n"%~dp0peri.exe" %*\r\n`);
+    writeFileSync(join(binDirPath, "peri.ps1"), `$basedir = Split-Path $MyInvocation.MyCommand.Definition -Parent\r\n& "$basedir\\peri.exe" @args\r\nexit $LASTEXITCODE\r\n`);
   }
 
   console.log(`peri ${VERSION} installed successfully.`);
