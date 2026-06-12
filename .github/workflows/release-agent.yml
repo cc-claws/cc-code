@@ -49,8 +49,12 @@ jobs:
               shell: bash
               run: |
                   VERSION="${GITHUB_REF_NAME#agent-v}"
+                  # Auto-append .0 if only two parts (e.g. 2.3 -> 2.3.0)
+                  if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                    VERSION="${VERSION}.0"
+                  fi
                   echo "Setting version to ${VERSION}"
-                  sed -i.bak -e "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+                  sed -i.bak -e "/^\[workspace\.package\]/,/^\[/{s/^version = \".*\"/version = \"${VERSION}\"/;}" Cargo.toml
                   rm -f Cargo.toml.bak
 
             - name: Install Rust toolchain
