@@ -2,7 +2,7 @@
 
 **中文** | [English](README_EN.md)
 
-# Peri
+# Peri Code
 
 **用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
 
@@ -18,15 +18,15 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RI
 npm install -g @cc-claw/peri
 ```
 
-[为什么选 Peri](#为什么选-peri) · [核心能力](#核心能力) · [安装](#安装) · [Nobody Coding](#我们怎么用-nobody-coding-造-peri) · [致谢](#致谢)
+[为什么选 Peri Code](#为什么选-peri-code) · [核心能力](#核心能力) · [安装](#安装) · [Nobody Coding](#我们怎么用-nobody-coding-造-peri-code) · [致谢](#致谢)
 
 </div>
 
 ---
 
-## 为什么选 Peri？
+## 为什么选 Peri Code？
 
-| 对比项 | 其他终端 Agent | Peri |
+| 对比项 | 其他终端 Agent | Peri Code |
 |--------|---------------|------|
 | 运行时 | Node.js / Bun，动辄吃 1GB 内存 | Rust 原生，启动快，~50MB 内存 |
 | 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM |
@@ -82,9 +82,9 @@ irm https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.p
 
 ---
 
-## 我们怎么用 Nobody Coding 造 Peri
+## 我们怎么用 Nobody Coding 造 Peri Code
 
-**Nobody Coding** 字面意思：没有人类写过一行 Peri 代码 — 架构、TUI、harness tuning 全是 AI 干的。人决定 *做什么*，AI 想 *怎么做*。你不是在结对编程，你是在管一个不睡觉的工程师。Peri 99% 的代码都是这么来的。
+**Nobody Coding** 字面意思：没有人类写过一行 Peri Code 代码 — 架构、TUI、harness tuning 全是 AI 干的。人决定 *做什么*，AI 想 *怎么做*。你不是在结对编程，你是在管一个不睡觉的工程师。Peri Code 99% 的代码都是这么来的。
 
 > 最近的 commit 几乎全是 DeepSeek、Mimo 和 GLM 的产出。Claude 只在最初参与过。
 
@@ -127,7 +127,7 @@ peri/
 | 项目 | 说明 |
 |------|------|
 | [Claude Code Best](https://github.com/claude-code-best/claude-code) | 社区支持和反馈 |
-| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | 驱动 Peri AI 工程工作流的 skill 套件 |
+| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | 驱动 Peri Code AI 工程工作流的 skill 套件 |
 | [ACP](https://agentclientprotocol.com/) | Agent-IDE 通信开放协议 |
 | [rmcp](https://github.com/anthropics/rmcp) | Rust MCP 客户端库 |
 | [Ratatui](https://ratatui.rs) & [Tokio](https://tokio.rs) | TUI 框架和异步运行时 |

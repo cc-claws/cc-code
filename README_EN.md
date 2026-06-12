@@ -2,7 +2,7 @@
 
 [中文](README.md) | **English**
 
-# Peri
+# Peri Code
 
 **Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible**
 
@@ -16,15 +16,15 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` c
 npm install -g @cc-claw/peri
 ```
 
-[Why Peri](#why-peri) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-peri-with-nobody-coding) · [Acknowledgments](#acknowledgments)
+[Why Peri Code](#why-peri-code) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-peri-code-with-nobody-coding) · [Acknowledgments](#acknowledgments)
 
 </div>
 
 ---
 
-## Why Peri?
+## Why Peri Code?
 
-| Comparison | Other Terminal Agents | Peri |
+| Comparison | Other Terminal Agents | Peri Code |
 |------------|----------------------|------|
 | Runtime | Node.js / Bun, easily eats 1GB RAM | Rust native, fast startup, ~50MB memory |
 | Model Lock-in | Locked to one LLM | Switch freely: Anthropic, OpenAI-compatible, DeepSeek, GLM |
@@ -80,9 +80,9 @@ irm https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.p
 
 ---
 
-## How We Built Peri with Nobody Coding
+## How We Built Peri Code with Nobody Coding
 
-**Nobody Coding** means exactly what it sounds like. No human wrote a single line of Peri — not the architecture, not the TUI, not the harness tuning that makes open-source models reliable in an Agent loop. Humans decide *what*. AI figures out *how*. You're not pair programming — you're product managing an engineer that never sleeps. 99% of Peri was built this way.
+**Nobody Coding** means exactly what it sounds like. No human wrote a single line of Peri Code — not the architecture, not the TUI, not the harness tuning that makes open-source models reliable in an Agent loop. Humans decide *what*. AI figures out *how*. You're not pair programming — you're product managing an engineer that never sleeps. 99% of Peri Code was built this way.
 
 > Recent commits are almost entirely DeepSeek, Mimo, and GLM. Claude was just there in the beginning.
 
@@ -125,7 +125,7 @@ peri/
 | Project | Description |
 |---------|-------------|
 | [Claude Code Best](https://github.com/claude-code-best/claude-code) | Community support and feedback |
-| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | Skill suites driving Peri's AI engineering workflow |
+| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | Skill suites driving Peri Code's AI engineering workflow |
 | [ACP](https://agentclientprotocol.com/) | Open protocol for agent-IDE communication |
 | [rmcp](https://github.com/anthropics/rmcp) | Rust MCP client library |
 | [Ratatui](https://ratatui.rs) & [Tokio](https://tokio.rs) | TUI framework and async runtime |

@@ -1,4 +1,4 @@
-# Peri
+# Peri Code
 
 **用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
 
@@ -38,9 +38,9 @@ peri --model deepseek/deepseek-chat "重构这个函数"
 | macOS | x86_64 (Intel), aarch64 (Apple Silicon) |
 | Windows | x86_64 |
 
-## 为什么选 Peri？
+## 为什么选 Peri Code？
 
-| 对比项 | 其他终端 Agent | Peri |
+| 对比项 | 其他终端 Agent | Peri Code |
 |--------|---------------|------|
 | 运行时 | Node.js / Bun，动辄吃 1GB 内存 | Rust 原生，启动快，~50MB 内存 |
 | 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM |
