@@ -10,14 +10,15 @@ use ratatui::{
 
 use crate::{app::App, ui::theme};
 
-/// ASCII Art Logo（"PERI"，ansi_shadow 字体，6 行）
-const LOGO: &[&str] = &[
-    "██████╗ ███████╗██████╗ ██╗",
-    "██╔══██╗██╔════╝██╔══██╗██║",
-    "██████╔╝█████╗  ██████╔╝██║",
-    "██╔═══╝ ██╔══╝  ██╔══██╗██║",
-    "██║     ███████╗██║  ██║██║",
-    "╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝",
+/// ASCII Art Logo（"PERI CODE"，ansi_shadow 字体，6 行）
+/// PERI 用 ACCENT（橙色），CODE 用 TEXT（白色）
+const LOGO: &[(&str, &str)] = &[
+    ("██████╗ ███████╗██████╗ ██╗", "  ██████╗  ██████╗ ██████╗ ███████╗"),
+    ("██╔══██╗██╔════╝██╔══██╗██║", " ██╔═══╝  ██╔═══██╗██╔══██╗██╔════╝"),
+    ("██████╔╝█████╗  ██████╔╝██║", " ██║      ██║   ██║██║  ██║█████╗  "),
+    ("██╔═══╝ ██╔══╝  ██╔══██╗██║", " ██║      ██║   ██║██║  ██║██╔══╝  "),
+    ("██║     ███████╗██║  ██║██║", " ╚██████╔╝╚██████╔╝██████╔╝███████╗"),
+    ("╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝", "  ╚═════╝  ╚═════╝ ╚═════╝ ╚══════╝"),
 ];
 
 /// 窄屏阈值：低于此宽度跳过 ASCII Art Logo
@@ -33,22 +34,39 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     // ── Logo 区域 ────────────────────────────────────────────────────────
     if narrow {
         // 窄屏：单行文字标题
-        lines.push(Line::from(Span::styled(
-            "Peri",
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        )));
-    } else {
-        // 宽屏：ASCII Art Logo
-        lines.push(Line::from(""));
-        for row in LOGO {
-            lines.push(Line::from(Span::styled(
-                row.to_string(),
+        lines.push(Line::from(vec![
+            Span::styled(
+                "Peri",
                 Style::default()
                     .fg(theme::ACCENT)
                     .add_modifier(Modifier::BOLD),
-            )));
+            ),
+            Span::styled(
+                " Code",
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    } else {
+        // 宽屏：ASCII Art Logo（PERI 橙色 + CODE 白色）
+        lines.push(Line::from(""));
+        for (peri_part, code_part) in LOGO {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    peri_part.to_string(),
+                    Style::default()
+                        .fg(theme::ACCENT)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    code_part.to_string(),
+                    Style::default()
+                        .fg(theme::TEXT)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
         }
     }
 
