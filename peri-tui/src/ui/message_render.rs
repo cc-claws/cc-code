@@ -493,6 +493,7 @@ pub fn render_view_model(
                                     ),
                                 ]));
                             }
+                            lines.push(Line::from(""));
                         } else if let Some(tail) = tail_lines {
                             // 普通模式：只显示 tail 预览
                             for tail_line in tail.lines() {
