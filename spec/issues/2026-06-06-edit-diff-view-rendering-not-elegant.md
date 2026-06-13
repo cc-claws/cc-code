@@ -1,6 +1,6 @@
 # Edit 工具内联 diff 视图渲染不优雅，内容贴到终端边缘
 
-**状态**：Open
+**状态**：Partial Fix（现象 1 已修复，现象 2 待确认）
 **优先级**：低
 **创建日期**：2026-06-06
 
@@ -57,7 +57,16 @@ let lines = peri_widgets::diff::render_diff(&diff_input, 80, &peri_widgets::Dark
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-06-06 | — | Open | agent | 创建 |
+| 2026-06-06 | Open | Partial Fix | agent | 现象 1 修复：diff 行添加 `  ⎿ ` 缩进前缀（commit 4f1a9212） |
 
 ## 修复记录
 
-（由 fix-issue 或 issue-verify skill 追加，创建时留空）
+### 现象 1：diff 行缺少缩进前缀 — 已修复
+
+- **Commit**: `4f1a9212` (`fix/diff-prefix-indent`)
+- **改动**：`message_render.rs:641-655`，给 diff 行 insert `"  ⎿ "` 前缀 Span，与 result 行风格一致
+- **验证**：新增断言 `detail_text.contains("  ⎿ ")`，18 个 message_render 测试全部通过
+
+### 现象 2：diff 渲染宽度硬编码 80 — 待确认
+
+需要架构层面改动（存 DiffInput，渲染时计算），非简单参数透传。待确认 bug 后单独处理。

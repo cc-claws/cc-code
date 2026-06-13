@@ -252,6 +252,7 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                             bg,
                             theme.diff_add_word_bg(),
                             content_width,
+                            true, // 只保留 Added + Unchanged
                         );
                         let mut result_spans = vec![Span::styled(gutter, gutter_style)];
                         result_spans.extend(spans);
@@ -287,6 +288,7 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                             bg,
                             theme.diff_remove_word_bg(),
                             content_width,
+                            false, // 只保留 Removed + Unchanged
                         );
                         let mut result_spans = vec![Span::styled(gutter, gutter_style)];
                         result_spans.extend(spans);
@@ -345,6 +347,7 @@ fn render_word_diff_spans(
     bg: Color,
     word_bg: Color,
     max_width: usize,
+    is_add: bool,
 ) -> Vec<Span<'static>> {
     // 先判断是否所有段都是 Unchanged
     let has_change = wd
@@ -361,6 +364,15 @@ fn render_word_diff_spans(
     let mut used_width = 0usize;
 
     for (text, word_type) in &wd.segments {
+        // Add 行跳过 Removed 段，Remove 行跳过 Added 段
+        let should_skip = match word_type {
+            DiffWordType::Added => !is_add,
+            DiffWordType::Removed => is_add,
+            DiffWordType::Unchanged => false,
+        };
+        if should_skip {
+            continue;
+        }
         if used_width >= max_width {
             break;
         }

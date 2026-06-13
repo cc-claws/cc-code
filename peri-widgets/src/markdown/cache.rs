@@ -12,7 +12,7 @@ use parking_lot::Mutex;
 use ratatui::text::Text;
 
 /// 缓存容量上限
-const CACHE_CAPACITY: usize = 256;
+const CACHE_CAPACITY: usize = 1024;
 
 /// 全局 Markdown 缓存单例
 static MARKDOWN_CACHE: Lazy<MarkdownCache> = Lazy::new(MarkdownCache::new);

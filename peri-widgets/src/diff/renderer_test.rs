@@ -171,3 +171,36 @@ fn test_render_binary_file() {
         text
     );
 }
+
+/// 模拟 Edit 工具单行替换场景：old_string 和 new_string 各一行
+#[test]
+fn test_render_diff_single_line_edit_no_concat() {
+    let input = DiffInput {
+        file_path: "cache.rs".to_string(),
+        old_content: "const CACHE_CAPACITY: usize = 256;".to_string(),
+        new_content: "const CACHE_CAPACITY: usize = 1024;".to_string(),
+        is_new_file: false,
+        is_deleted_file: false,
+        is_binary: false,
+    };
+    let theme = DarkTheme;
+    let lines = render_diff_impl(&input, 80, &theme);
+    let texts: Vec<String> = lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect();
+    let all = texts.join("\n");
+    assert!(
+        !all.contains("256;1024"),
+        "old/new 不应拼在同一行，实际输出:\n{}",
+        all
+    );
+    assert!(all.contains("256"), "应包含旧值 256，实际:\n{}", all);
+    assert!(all.contains("1024"), "应包含新值 1024，实际:\n{}", all);
+}
