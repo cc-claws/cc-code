@@ -73,7 +73,7 @@
 | `Read` | `Read` | ✅ |
 | `Write` | `Edit` | ✅ |
 | `Edit` | `Edit` | ✅ |
-| `folder_operations` | `Edit` | ⚠️ 应为 `Move` 或独立分类 |
+| `FolderOperations` | `Edit` | ⚠️ 应为 `Move` 或独立分类 |
 | `Bash` | `Execute` | ✅ |
 | `Grep` | `Search` | ✅ |
 | `Glob` | `Search` | ✅ |

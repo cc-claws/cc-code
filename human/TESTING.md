@@ -32,7 +32,7 @@
 
 ### 2. 文件系统工具（逐个工具）
 
-`Read`、`Write`、`Edit`、`Glob`、`Grep`、`folder_operations` — 工具实现本身无单元测试，只有中间件注册的集成测试。
+`Read`、`Write`、`Edit`、`Glob`、`Grep`、`FolderOperations` — 工具实现本身无单元测试，只有中间件注册的集成测试。
 
 ### 3. `ask_user` 工具
 

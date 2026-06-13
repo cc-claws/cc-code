@@ -74,7 +74,7 @@
                 .view_messages
         );
         assert!(
-            text.contains("cron_register"),
+            text.contains("CronRegister"),
             "提交的消息应包含 cron_register 指令，实际: {}",
             text
         );
