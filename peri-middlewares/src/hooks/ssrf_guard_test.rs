@@ -92,6 +92,17 @@ fn test_check_url_ipv6_private_blocked() {
 }
 
 #[test]
+fn test_is_blocked_ipv6_public_allowed() {
+    // ::/0 removed: 公网 IPv6 不再被阻止
+    // 2001:db8::/32 是 IETF 文档保留前缀，不在任何阻止范围内
+    assert!(!is_blocked_ipv6("2001:db8::1".parse().unwrap()));
+    // Google DNS IPv6 (公网)
+    assert!(!is_blocked_ipv6("2001:4860:4860::8888".parse().unwrap()));
+    // Cloudflare DNS IPv6 (公网)
+    assert!(!is_blocked_ipv6("2606:4700:4700::1111".parse().unwrap()));
+}
+
+#[test]
 fn test_check_url_ipv4_mapped_blocked() {
     let result = check_url("http://[::ffff:192.168.1.1]");
     assert!(result.is_err());
