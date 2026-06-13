@@ -30,7 +30,7 @@ impl Command for GcCommand {
 
         // ── Markdown/Diff 缓存诊断 ──
         let md_cache_len = peri_widgets::markdown::cache::MarkdownCache::global().len();
-        let md_cache_cap = 256usize; // CACHE_CAPACITY
+        let md_cache_cap = peri_widgets::markdown::cache::MarkdownCache::global().capacity();
 
         let mut lines = Vec::new();
 
