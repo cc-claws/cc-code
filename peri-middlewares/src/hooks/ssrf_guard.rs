@@ -10,9 +10,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 ///   172.16.0.0/12    private
 ///   192.168.0.0/16   private
 ///
-/// 阻止范围（IPv6）：
-///   ::               unspecified
-///   fc00::/7         unique local
+/// 阻止范围（IPv6）:
+///   fc00::/7         unique local (ULA)
 ///   fe80::/10        link-local
 ///   ::ffff:<v4>      mapped IPv4 in blocked range
 ///
@@ -95,12 +94,11 @@ fn is_blocked_ipv6(ip: Ipv6Addr) -> bool {
 
     use ipnet::Ipv6Net;
     let blocked_ranges: &[Ipv6Net] = &[
-        "::/0".parse().unwrap(), // unspecified (we only need to check specific blocked ranges)
-        "fc00::/7".parse().unwrap(), // unique local
+        "fc00::/7".parse().unwrap(),  // unique local
         "fe80::/10".parse().unwrap(), // link-local
     ];
 
-    // :: (unspecified)
+    // :: (unspecified) — checked via is_unspecified()
     if ip.is_unspecified() {
         return true;
     }
