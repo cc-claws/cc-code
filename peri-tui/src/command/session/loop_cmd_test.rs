@@ -66,7 +66,7 @@
                 > initial_len,
             "有参数时应提交消息给 Agent"
         );
-        // 检查提交的消息包含 cron_register 指令
+        // 检查提交的消息包含 CronRegister 指令
         let text = format!(
             "{:?}",
             app.session_mgr.current_mut()
@@ -75,7 +75,7 @@
         );
         assert!(
             text.contains("CronRegister"),
-            "提交的消息应包含 cron_register 指令，实际: {}",
+            "提交的消息应包含 CronRegister 指令，实际: {}",
             text
         );
     }
