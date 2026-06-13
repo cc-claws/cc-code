@@ -393,28 +393,14 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
 // ── Per-arm helper functions ──────────────────────────────────────────────
 
 fn handle_ctrl_c(app: &mut App) -> Option<Action> {
-    let session = &mut app.session_mgr.current_mut();
-
-    // 优先级 1: 输入框有内容 → 清空输入框
-    if session.ui.textarea.lines().iter().any(|l| !l.is_empty()) {
-        session
-            .ui
-            .textarea
-            .move_cursor(tui_textarea::CursorMove::Head);
-        session.ui.textarea.select_all();
-        session.ui.textarea.cut();
-        app.global_ui.quit_pending_since = None;
-        return None;
-    }
-
-    // 优先级 2: Agent 运行中 → 中断 agent
-    if session.ui.loading {
+    // Agent 运行中 → 中断 agent
+    if app.session_mgr.current_mut().ui.loading {
         app.interrupt();
         app.global_ui.quit_pending_since = None;
         return None;
     }
 
-    // 优先级 3: Agent 未运行 → quit-pending 逻辑
+    // quit-pending: 2 秒内连按两次退出
     if let Some(since) = app.global_ui.quit_pending_since {
         if since.elapsed() < std::time::Duration::from_secs(2) {
             return Some(Action::Quit);
@@ -559,7 +545,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ctrl_c_clears_textarea_when_has_content() {
+    async fn test_ctrl_c_ignores_textarea_content_enters_quit_pending() {
         let mut app = make_app().await;
         app.session_mgr.current_mut().ui.textarea = build_textarea(false);
         app.session_mgr
@@ -570,16 +556,16 @@ mod tests {
 
         let result = handle_ctrl_c(&mut app);
 
-        assert!(result.is_none(), "有内容时 Ctrl+C 不应返回 Quit");
-        let lines = app.session_mgr.current_mut().ui.textarea.lines().to_vec();
+        assert!(result.is_none(), "第一次 Ctrl+C 不应返回 Quit");
+        // 输入框内容不影响 quit-pending
         assert!(
-            lines.iter().all(|l| l.is_empty()),
-            "清空后 textarea 应为空，实际: {:?}",
-            lines
+            app.global_ui.quit_pending_since.is_some(),
+            "有内容时也应进入 quit-pending"
         );
+        // 输入框内容不被清空
         assert!(
-            app.global_ui.quit_pending_since.is_none(),
-            "清空输入框不应进入 quit-pending"
+            !app.session_mgr.current_mut().ui.textarea.lines()[0].is_empty(),
+            "输入框内容不应被清空"
         );
     }
 
@@ -617,11 +603,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ctrl_c_does_not_quit_when_textarea_has_content() {
+    async fn test_ctrl_c_quits_even_when_textarea_has_content() {
         let mut app = make_app().await;
         let _ = handle_ctrl_c(&mut app);
         assert!(app.global_ui.quit_pending_since.is_some());
 
+        // 输入框有内容，第二次 Ctrl+C 仍应退出
         app.session_mgr
             .current_mut()
             .ui
@@ -629,10 +616,9 @@ mod tests {
             .insert_str("some text");
         let result = handle_ctrl_c(&mut app);
 
-        assert!(result.is_none(), "有内容时不应退出");
         assert!(
-            app.global_ui.quit_pending_since.is_none(),
-            "清空输入框应重置 quit-pending"
+            matches!(result, Some(Action::Quit)),
+            "有内容时第二次 Ctrl+C 应退出"
         );
     }
 

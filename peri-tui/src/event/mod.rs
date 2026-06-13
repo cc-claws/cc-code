@@ -35,10 +35,10 @@ pub enum Action {
 // ── Event loop ──────────────────────────────────────────────────────────────
 
 pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
-    // Quit-pending state auto-expires after 1s; trigger redraw so the shortcut bar
-    // returns to normal
+    // Quit-pending state auto-expires after 2s; trigger redraw so the shortcut bar
+    // returns to normal.  Must match the window used by handle_ctrl_c().
     if let Some(since) = app.global_ui.quit_pending_since {
-        if since.elapsed() >= std::time::Duration::from_secs(1) {
+        if since.elapsed() >= std::time::Duration::from_secs(2) {
             app.global_ui.quit_pending_since = None;
             return Ok(Some(Action::Redraw));
         }
