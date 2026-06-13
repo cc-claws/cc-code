@@ -474,10 +474,11 @@ pub fn render_view_model(
                         ..
                     } => {
                         // Thought 标题：缩进 2 列对齐
+                        let hint = if detail_mode { "" } else { " (ctrl+o to expand)" };
                         lines.push(Line::from(vec![
                             Span::styled("∴ ", Style::default().fg(theme::DIM)),
                             Span::styled(
-                                format!("Thought for {} chars (ctrl+o to expand)", char_count),
+                                format!("Thought for {} chars{}", char_count, hint),
                                 Style::default().fg(theme::DIM),
                             ),
                         ]));
