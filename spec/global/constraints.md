@@ -65,7 +65,7 @@
 
 ## 安全约束
 
-- **HITL 默认拦截清单:** `bash`、`write_*`、`edit_*`、`delete_*`、`rm_*`、`folder_operations`，需明确审批才执行
+- **HITL 默认拦截清单:** `bash`、`write_*`、`edit_*`、`delete_*`、`rm_*`、`FolderOperations`，需明确审批才执行
 - **API Key 安全:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 可通过环境变量或 `~/.peri/settings.json` 的 `env` 字段配置（用户目录配置文件已 gitignore）
 - **SubAgent 防递归:** `Agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 - **配置同步 E2E 加密:** 配对码 → PBKDF2-SHA256 → AES-256-GCM 端到端加密，Relay Server 只转发密文无法解密

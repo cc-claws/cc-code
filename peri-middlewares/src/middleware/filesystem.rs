@@ -24,7 +24,7 @@ impl FilesystemMiddleware {
     }
 
     pub fn tool_names() -> Vec<&'static str> {
-        vec!["Read", "Write", "Edit", "Glob", "Grep", "folder_operations"]
+        vec!["Read", "Write", "Edit", "Glob", "Grep", "FolderOperations"]
     }
 }
 

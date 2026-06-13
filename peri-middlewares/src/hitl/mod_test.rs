@@ -89,7 +89,7 @@ fn test_default_requires_approval() {
     assert!(default_requires_approval("Bash"));
     assert!(default_requires_approval("Write"));
     assert!(default_requires_approval("Edit"));
-    assert!(default_requires_approval("folder_operations"));
+    assert!(default_requires_approval("FolderOperations"));
     assert!(default_requires_approval("delete_something"));
     assert!(default_requires_approval("rm_rf"));
     assert!(default_requires_approval("Agent"));
@@ -200,7 +200,7 @@ async fn test_respond_returns_error_with_reason() {
 fn test_is_edit_tool() {
     assert!(is_edit_tool("Write"));
     assert!(is_edit_tool("Edit"));
-    assert!(is_edit_tool("folder_operations"));
+    assert!(is_edit_tool("FolderOperations"));
     assert!(!is_edit_tool("Bash"));
     assert!(!is_edit_tool("Agent"));
     assert!(!is_edit_tool("delete_x"));

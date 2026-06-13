@@ -3,7 +3,7 @@
 When approval mode is enabled, certain tool calls require explicit user approval before execution. The following tools always require approval:
 
 - `bash` — shell command execution
-- `folder_operations` — folder create/list/exists
+- `FolderOperations` — folder create/list/exists
 - `Agent` — sub-agent delegation
 - `write_*` — any file write operation
 - `edit_*` — any file edit operation

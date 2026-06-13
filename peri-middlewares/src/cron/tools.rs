@@ -19,7 +19,7 @@ impl CronRegisterTool {
 #[async_trait]
 impl BaseTool for CronRegisterTool {
     fn name(&self) -> &str {
-        "cron_register"
+        "CronRegister"
     }
 
     fn description(&self) -> &str {
@@ -83,7 +83,7 @@ impl CronListTool {
 #[async_trait]
 impl BaseTool for CronListTool {
     fn name(&self) -> &str {
-        "cron_list"
+        "CronList"
     }
 
     fn description(&self) -> &str {
@@ -141,7 +141,7 @@ impl CronRemoveTool {
 #[async_trait]
 impl BaseTool for CronRemoveTool {
     fn name(&self) -> &str {
-        "cron_remove"
+        "CronRemove"
     }
 
     fn description(&self) -> &str {
