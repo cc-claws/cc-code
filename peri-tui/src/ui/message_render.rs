@@ -17,9 +17,11 @@ fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
     let truncated: String = content.chars().take(400).collect();
     truncated
         .lines()
-        .map(|line| {
+        .enumerate()
+        .map(|(i, line)| {
+            let prefix = if i == 0 { "  ⎿ " } else { "    " };
             Line::from(vec![
-                Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                Span::styled(prefix, Style::default().fg(theme::DIM)),
                 Span::styled(line.to_string(), Style::default().fg(theme::ERROR)),
             ])
         })
@@ -485,9 +487,11 @@ pub fn render_view_model(
                         // detail_mode 显示完整 reasoning，否则只显示 tail_lines
                         if detail_mode {
                             // 详细模式：显示完整 reasoning 内容
-                            for tail_line in text.lines() {
+                            let lines_iter = text.lines();
+                            for (i, tail_line) in lines_iter.enumerate() {
+                                let prefix = if i == 0 { "  ⎿ " } else { "    " };
                                 lines.push(Line::from(vec![
-                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                    Span::styled(prefix, Style::default().fg(theme::DIM)),
                                     Span::styled(
                                         tail_line.to_string(),
                                         Style::default().fg(theme::DIM),
@@ -497,9 +501,11 @@ pub fn render_view_model(
                             lines.push(Line::from(""));
                         } else if let Some(tail) = tail_lines {
                             // 普通模式：只显示 tail 预览
-                            for tail_line in tail.lines() {
+                            let lines_iter = tail.lines();
+                            for (i, tail_line) in lines_iter.enumerate() {
+                                let prefix = if i == 0 { "  ⎿ " } else { "    " };
                                 lines.push(Line::from(vec![
-                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                    Span::styled(prefix, Style::default().fg(theme::DIM)),
                                     Span::styled(
                                         tail_line.to_string(),
                                         Style::default().fg(theme::DIM),
@@ -624,7 +630,7 @@ pub fn render_view_model(
                 for (i, line) in result_lines.iter().enumerate() {
                     if i >= max_lines {
                         lines.push(Line::from(vec![
-                            Span::styled("  ⎿ ", Style::default().fg(border_color)),
+                            Span::styled("    ", Style::default().fg(border_color)),
                             Span::styled(
                                 format!("... ({} more lines)", result_lines.len() - max_lines),
                                 Style::default().fg(theme::DIM),
@@ -632,8 +638,9 @@ pub fn render_view_model(
                         ]));
                         break;
                     }
+                    let prefix = if i == 0 { "  ⎿ " } else { "    " };
                     lines.push(Line::from(vec![
-                        Span::styled("  ⎿ ".to_string(), Style::default().fg(border_color)),
+                        Span::styled(prefix, Style::default().fg(border_color)),
                         Span::styled((*line).to_string(), Style::default().fg(result_color)),
                     ]));
                 }
@@ -642,12 +649,13 @@ pub fn render_view_model(
             }
             if detail_mode {
                 if let Some(ref cached_lines) = diff_lines {
-                    for line in cached_lines.iter() {
+                    for (i, line) in cached_lines.iter().enumerate() {
                         let mut prefixed = line.clone();
+                        let prefix = if i == 0 { "  ⎿ " } else { "    " };
                         prefixed.spans.insert(
                             0,
                             Span::styled(
-                                "  ⎿ ".to_string(),
+                                prefix,
                                 Style::default().fg(if *is_error { theme::ERROR } else { theme::DIM }),
                             ),
                         );
@@ -940,23 +948,17 @@ pub fn render_view_model(
                         ),
                     ]));
                     if !entry.content.is_empty() {
-                        for line in entry.content.lines() {
+                        for (i, line) in entry.content.lines().enumerate() {
+                            let prefix = if i == 0 { "  ⎿ " } else { "    " };
                             lines.push(Line::from(vec![
-                                Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                Span::styled(prefix, Style::default().fg(theme::DIM)),
                                 Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
                             ]));
                         }
                     }
                 }
             } else {
-                let summary = ToolCategory::summary_for_tools(tools);
-
-                // 统一 ● 前缀，仅显示汇总行
-                lines.push(Line::from(vec![
-                    Span::styled("● ", Style::default().fg(theme::SAGE)),
-                    Span::styled(summary, Style::default().fg(theme::MUTED)),
-                ]));
-                // 显示出错工具的错误摘要
+                // 折叠态：仅显示出错工具的错误摘要（正常工具由工具栏展示，无需汇总行）
                 for entry in tools {
                     if entry.is_error && !entry.content.is_empty() {
                         lines.extend(error_summary_lines(&entry.content));

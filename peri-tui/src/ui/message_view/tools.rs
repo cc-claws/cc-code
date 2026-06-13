@@ -28,37 +28,6 @@ impl ToolCategory {
             _ => None,
         }
     }
-
-    pub fn summary(&self, count: usize) -> String {
-        match self {
-            Self::Search | Self::Glob | Self::Grep | Self::Read => format!("读取{} 次", count),
-            Self::Write => format!("编辑{} 次", count),
-            Self::AskUser => format!("提问{} 次", count),
-        }
-    }
-
-    pub fn summary_for_tools(tools: &[ToolEntry]) -> String {
-        if tools.is_empty() {
-            return String::new();
-        }
-        if tools.len() == 1 {
-            return tools[0].display_name.clone();
-        }
-        let mut cats: std::collections::HashMap<ToolCategory, usize> =
-            std::collections::HashMap::new();
-        for t in tools {
-            if let Some(cat) = Self::from_tool_name(&t.tool_name) {
-                *cats.entry(cat).or_insert(0) += 1;
-            }
-        }
-        let mut entries: Vec<_> = cats.into_iter().collect();
-        entries.sort_by_key(|(_, c)| std::cmp::Reverse(*c));
-        entries
-            .iter()
-            .map(|(cat, count)| cat.summary(*count))
-            .collect::<Vec<_>>()
-            .join(" · ")
-    }
 }
 
 /// 工具条目（聚合组内）

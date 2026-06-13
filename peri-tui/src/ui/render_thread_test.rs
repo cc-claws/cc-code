@@ -527,6 +527,288 @@ async fn test_incremental_wrap_map_prefix_stable_len_zero() {
     assert!(c.total_lines > 0);
 }
 
+/// ToggleDetail 切换后 AssistantBubble 的 Text 内容不会丢失
+#[tokio::test]
+async fn test_toggle_detail_preserves_assistant_text() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    // 构建含 Text block 的 AssistantBubble
+    let mut assistant = MessageViewModel::assistant();
+    assistant.append_chunk("Agent reply here");
+    // 设为非流式，确保 rebuild 时走 ensure_rendered_flush 路径
+    if let MessageViewModel::AssistantBubble {
+        ref mut is_streaming,
+        ..
+    } = assistant
+    {
+        *is_streaming = false;
+    }
+
+    // 步骤 1：Rebuild
+    tx.send(RenderEvent::Rebuild(vec![
+        MessageViewModel::user("Hello".to_string()),
+        assistant.clone(),
+    ]))
+    .await
+    .unwrap();
+    wait_render().await;
+
+    // 步骤 2：记录初始行数
+    let initial_count = {
+        let c = cache.read();
+        c.lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("Agent reply here"))
+            })
+            .count()
+    };
+    assert!(
+        initial_count > 0,
+        "初始 Rebuild 后应能找到 'Agent reply here'"
+    );
+
+    // 步骤 3：ToggleDetail(true)
+    tx.send(RenderEvent::ToggleDetail(true))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    {
+        let c = cache.read();
+        let count = c
+            .lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("Agent reply here"))
+            })
+            .count();
+        assert!(
+            count > 0,
+            "ToggleDetail(true) 后 'Agent reply here' 不应丢失"
+        );
+    }
+
+    // 步骤 4：ToggleDetail(false)
+    tx.send(RenderEvent::ToggleDetail(false))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    {
+        let c = cache.read();
+        let count = c
+            .lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("Agent reply here"))
+            })
+            .count();
+        assert!(
+            count > 0,
+            "ToggleDetail(false) 后 'Agent reply here' 不应丢失"
+        );
+    }
+}
+
+/// 模拟真实场景：reconcile 路径创建的 VM（from_base_message_with_cwd）
+/// 多轮对话 + ToggleDetail 切换后，上一轮 agent 回复内容不应丢失
+#[tokio::test]
+async fn test_toggle_detail_reconcile_path_preserves_content() {
+    use crate::ui::message_view::MessageViewModel;
+    use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent};
+
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    // ── 构建第一轮对话的 BaseMessage ──
+    let user1 = BaseMessage::human("你好");
+    let ai1 = BaseMessage::ai(MessageContent::blocks(vec![
+        ContentBlock::text("这是第一轮 agent 的回复内容，包含一些文字。"),
+        ContentBlock::Reasoning {
+            text: "这是思考过程的内容，比较长的一段 reasoning 文本。".to_string(),
+            signature: None,
+        },
+    ]));
+
+    // 通过 reconcile 路径（from_base_message_with_cwd）创建 VM
+    let vm_user1 = MessageViewModel::from_base_message_with_cwd(&user1, &[], None);
+    let vm_ai1 = MessageViewModel::from_base_message_with_cwd(
+        &ai1,
+        &[],
+        None,
+    );
+
+    // 步骤 1：初始 Rebuild（模拟 agent 完成后的 render_rebuild）
+    tx.send(RenderEvent::Rebuild(vec![vm_user1.clone(), vm_ai1]))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    let initial_text_count = {
+        let c = cache.read();
+        c.lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("第一轮 agent 的回复内容"))
+            })
+            .count()
+    };
+    assert!(
+        initial_text_count > 0,
+        "初始 Rebuild 后应能找到第一轮回复内容，实际 lines 总数: {}",
+        cache.read().lines.len()
+    );
+
+    // 步骤 2：构建第二轮（新增 UserBubble）
+    let vm_user2 = MessageViewModel::user("第二个问题".to_string());
+
+    // 模拟第二轮 RebuildAll：第一轮保留为 prefix，第二轮追加
+    let vm_ai1_clone = MessageViewModel::from_base_message_with_cwd(&ai1, &[], None);
+    tx.send(RenderEvent::Rebuild(vec![vm_user1.clone(), vm_ai1_clone, vm_user2]))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    let round2_text_count = {
+        let c = cache.read();
+        c.lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("第一轮 agent 的回复内容"))
+            })
+            .count()
+    };
+    assert!(
+        round2_text_count > 0,
+        "第二轮 Rebuild 后第一轮回复内容应保留"
+    );
+
+    // 步骤 3：ToggleDetail(true) — 切到详细模式
+    tx.send(RenderEvent::ToggleDetail(true))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    let detail_text_count = {
+        let c = cache.read();
+        let text_lines: Vec<_> = c
+            .lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("第一轮 agent 的回复内容"))
+            })
+            .collect();
+        text_lines.len()
+    };
+    assert!(
+        detail_text_count > 0,
+        "ToggleDetail(true) 后第一轮 Text 内容不应丢失，实际 lines 总数: {}",
+        cache.read().lines.len()
+    );
+
+    // detail 模式下 reasoning 也应该可见
+    let detail_reasoning_count = {
+        let c = cache.read();
+        c.lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("思考过程"))
+            })
+            .count()
+    };
+    assert!(
+        detail_reasoning_count > 0,
+        "ToggleDetail(true) 后 reasoning 内容应可见"
+    );
+
+    // 步骤 4：ToggleDetail(false) — 切回普通模式
+    tx.send(RenderEvent::ToggleDetail(false))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    // ★ 核心断言：切回普通模式后，第一轮的 Text 内容必须保留
+    let normal_text_count = {
+        let c = cache.read();
+        c.lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("第一轮 agent 的回复内容"))
+            })
+            .count()
+    };
+    assert!(
+        normal_text_count > 0,
+        "ToggleDetail(false) 后第一轮 Text 内容不应丢失！实际 lines 总数: {}, \
+         前 30 行: {:?}",
+        cache.read().lines.len(),
+        cache
+            .read()
+            .lines
+            .iter()
+            .take(30)
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .collect::<Vec<_>>()
+    );
+
+    // reasoning 在普通模式下应该只有摘要行，不含完整内容
+    let normal_reasoning_count = {
+        let c = cache.read();
+        c.lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("思考过程"))
+            })
+            .count()
+    };
+    // 普通模式下 reasoning 折叠，不应显示完整内容（但摘要行 "Thought for X chars" 应存在）
+    let normal_reasoning_summary = {
+        let c = cache.read();
+        c.lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .any(|s| s.content.contains("Thought for"))
+            })
+            .count()
+    };
+    assert!(
+        normal_reasoning_summary > 0,
+        "普通模式下 reasoning 摘要行应存在"
+    );
+    assert!(
+        normal_reasoning_count == 0 || normal_reasoning_count < detail_reasoning_count,
+        "普通模式下 reasoning 完整内容应折叠，detail={}, normal={}",
+        detail_reasoning_count,
+        normal_reasoning_count
+    );
+}
+
 /// 新增 VM 时只重算尾部
 #[tokio::test]
 async fn test_incremental_wrap_map_add_new_vm() {
