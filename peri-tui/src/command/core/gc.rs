@@ -165,10 +165,8 @@ impl Command for GcCommand {
             ));
         }
 
-        app.active_mut()
-            .messages
-            .pending_messages
-            .push(lines.join("\n"));
+        app.push_system_note(lines.join("\n"));
+        app.render_rebuild();
     }
 }
 
