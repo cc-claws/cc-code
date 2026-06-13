@@ -143,15 +143,53 @@ pub fn os_rss_mb() -> Option<u64> {
 
 #[cfg(target_os = "windows")]
 pub fn query_stats() -> Option<AllocStats> {
-    None
+    // sysinfo works on Windows, just no jemalloc allocated
+    use sysinfo::{ProcessesToUpdate, System};
+    let mut sys = System::new();
+    let pid = sysinfo::get_current_pid().ok()?;
+    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    let proc = sys.process(pid)?;
+    let current_rss = (proc.memory() * 1024) as usize; // sysinfo returns KB
+    Some(AllocStats {
+        current_rss,
+        current_allocated: 0, // no jemalloc on Windows
+    })
 }
+
 #[cfg(target_os = "windows")]
 pub fn query_breakdown() -> Option<JemallocBreakdown> {
-    None
+    // No jemalloc on Windows, but report OS-level memory info via GetProcessMemoryInfo
+    use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
+    let handle = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcess() };
+    let ok = unsafe {
+        GetProcessMemoryInfo(
+            handle,
+            &mut counters as *mut _ as *mut _,
+            std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    Some(JemallocBreakdown {
+        allocated: 0, // no jemalloc
+        active: 0,
+        resident: counters.WorkingSetSize as usize,
+        metadata: 0,
+        mapped: counters.PagefileUsage as usize,
+        retained: 0,
+    })
 }
+
 #[cfg(target_os = "windows")]
 pub fn dump_stats() {}
+
 #[cfg(target_os = "windows")]
 pub fn os_rss_mb() -> Option<u64> {
-    None
+    use sysinfo::{ProcessesToUpdate, System};
+    let mut sys = System::new();
+    let pid = sysinfo::get_current_pid().ok()?;
+    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    sys.process(pid).map(|p| p.memory() / 1024) // KB → MB
 }
