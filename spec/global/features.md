@@ -17,7 +17,7 @@
 
 ## 中间件（peri-middlewares）
 
-- **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep`、`folder_operations` 六个工具；只读工具无需 HITL
+- **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep`、`FolderOperations` 六个工具；只读工具无需 HITL
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm/folder），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
 - **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要
@@ -56,7 +56,7 @@
 - **配色系统（v1.1）:** 橙色仅保留最高优先级交互（命令输入框）；工具名三级分级（bash=ACCENT / 写操作=WARNING / 只读=MUTED）；配置面板边框 MUTED 降噪；HITL/AskUser 弹窗 WARNING
 - **Setup Wizard:** 首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），支持 Anthropic/OpenAI Compatible，save_setup() 原子写回 settings.json
 - **历史面板工作区过滤:** /history 面板按 cwd 过滤 ThreadMeta，只显示当前工作区的对话，标题包含工作区路径
-- **定时任务（cron）:** /loop 注册定时任务（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用）；AI 通过 cron_register/cron_list/cron_remove 工具创建管理；内存任务表上限 20，TUI 重启后清空
+- **定时任务（cron）:** /loop 注册定时任务（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用）；AI 通过 CronRegister/CronList/CronRemove 工具创建管理；内存任务表上限 20，TUI 重启后清空
 - **子 Agent 模型切换:** agent.md 的 model 字段生效，LLM Factory 签名升级为 Fn(Option<&str>)，alias 解析在 TUI 层；SkillFrontmatter 增加 model 文档字段
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
 - **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头
