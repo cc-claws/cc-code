@@ -91,6 +91,12 @@ impl MarkdownCache {
         self.len() == 0
     }
 
+    /// 缓存容量上限
+    pub fn capacity(&self) -> usize {
+        let guard = self.cache.lock();
+        guard.cap().get()
+    }
+
     /// 创建指定容量的缓存实例（测试用）
     #[cfg(test)]
     pub fn new_for_test_with_capacity(cap: usize) -> Self {
