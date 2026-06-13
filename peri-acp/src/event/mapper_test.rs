@@ -282,7 +282,7 @@ fn test_tool_start_infer_tool_kind_variants() {
         ("Read", ToolKind::Read),
         ("Write", ToolKind::Edit),
         ("Edit", ToolKind::Edit),
-        ("folder_operations", ToolKind::Edit),
+        ("FolderOperations", ToolKind::Edit),
         ("Bash", ToolKind::Execute),
         ("Grep", ToolKind::Search),
         ("Glob", ToolKind::Search),

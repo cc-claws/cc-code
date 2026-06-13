@@ -27,13 +27,13 @@ impl Command for LoopCommand {
             return;
         }
 
-        // 将用户输入包装为指令提交给 Agent，由 LLM 解析时间并调用 cron_register 工具
+        // 将用户输入包装为指令提交给 Agent，由 LLM 解析时间并调用 CronRegister 工具
         let prompt = format!(
             "请根据以下要求注册一个定时循环任务。\
             你需要解析用户描述的时间间隔，转换为标准 5 段 cron 表达式，\
-            然后调用 cron_register 工具完成注册。\n\n\
+            然后调用 CronRegister 工具完成注册。\n\n\
             用户要求: {}\n\n\
-            注意：直接调用 cron_register 工具，不需要额外确认。",
+            注意：直接调用 CronRegister 工具，不需要额外确认。",
             args
         );
 

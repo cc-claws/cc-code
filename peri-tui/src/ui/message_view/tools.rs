@@ -83,7 +83,7 @@ pub(crate) fn parse_subagent_tool_count(content: &str) -> usize {
 pub fn tool_color(name: &str) -> Color {
     match name {
         "Read" | "Glob" | "Grep" => theme::SAGE,
-        "Write" | "Edit" | "folder_operations" | "delete_file" | "delete_folder" | "rm"
+        "Write" | "Edit" | "FolderOperations" | "delete_file" | "delete_folder" | "rm"
         | "rm_rf" => theme::WARNING,
         "Bash" => theme::BASH_BORDER,
         "Agent" | "AskUserQuestion" | "TodoWrite" => theme::THINKING,

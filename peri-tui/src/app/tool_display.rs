@@ -23,7 +23,7 @@ pub fn format_tool_name(tool: &str) -> String {
         "Edit" => "Edit",
         "Glob" => "Glob",
         "Grep" => "Grep",
-        "folder_operations" => "Folder",
+        "FolderOperations" => "Folder",
         "TodoWrite" => "Todo",
         "AskUserQuestion" => "Ask",
         "Agent" => "Agent",
@@ -46,7 +46,7 @@ pub fn format_tool_args(
             .as_str()
             .map(|p| truncate(&strip_cwd(p, cwd), 200)),
         "Grep" => input["pattern"].as_str().map(|s| truncate(s, 200)),
-        "folder_operations" => {
+        "FolderOperations" => {
             let op = input["operation"].as_str().unwrap_or("?");
             let path = input["folder_path"].as_str().unwrap_or("?");
             Some(format!("{} {}", op, strip_cwd(path, cwd)))

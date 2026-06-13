@@ -196,7 +196,7 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
 fn infer_tool_kind(name: &str) -> ToolKind {
     match name {
         "Read" => ToolKind::Read,
-        "Write" | "Edit" | "folder_operations" => ToolKind::Edit,
+        "Write" | "Edit" | "FolderOperations" => ToolKind::Edit,
         "Bash" => ToolKind::Execute,
         "Grep" | "Glob" => ToolKind::Search,
         "WebFetch" | "WebSearch" => ToolKind::Fetch,

@@ -152,3 +152,76 @@
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "mock tool error");
     }
+
+    #[tokio::test]
+    async fn test_case_insensitive_match() {
+        let registry = build_test_registry();
+        let tool = ExecuteExtraTool::new(registry);
+
+        // "cronregister" 大小写不敏感匹配 "CronRegister"
+        let result = tool
+            .invoke(json!({"tool_name": "cronregister", "params": {}}))
+            .await
+            .unwrap();
+        assert_eq!(result, "CronRegister executed");
+    }
+
+    #[tokio::test]
+    async fn test_camelcase_to_snake_case_match() {
+        // 注册表用 snake_case，LLM 用 CamelCase
+        let mut map = HashMap::new();
+        map.insert(
+            "cron_register".to_string(),
+            Arc::new(MockTool::new("cron_register", "Register a cron task")) as Arc<dyn BaseTool>,
+        );
+        let registry = Arc::new(RwLock::new(map));
+        let tool = ExecuteExtraTool::new(registry);
+
+        // "CronRegister" 规范化为 "cron_register"，匹配注册表
+        let result = tool
+            .invoke(json!({"tool_name": "CronRegister", "params": {}}))
+            .await
+            .unwrap();
+        assert_eq!(result, "cron_register executed");
+    }
+
+    #[tokio::test]
+    async fn test_prefix_match_cron_create() {
+        // 模拟实际场景：注册表有 cron_register，LLM 用 CronCreate
+        let mut map = HashMap::new();
+        map.insert(
+            "cron_register".to_string(),
+            Arc::new(MockTool::new("cron_register", "Register a cron task")) as Arc<dyn BaseTool>,
+        );
+        let registry = Arc::new(RwLock::new(map));
+        let tool = ExecuteExtraTool::new(registry);
+
+        // "CronCreate" → normalize → "cron_create" → 首词 "cron" → 匹配 "cron_register"
+        let result = tool
+            .invoke(json!({"tool_name": "CronCreate", "params": {}}))
+            .await
+            .unwrap();
+        assert_eq!(result, "cron_register executed");
+    }
+
+    #[tokio::test]
+    async fn test_prefix_match_ambiguous_returns_error() {
+        // 同前缀多个工具时，不猜测
+        let mut map = HashMap::new();
+        map.insert(
+            "cron_register".to_string(),
+            Arc::new(MockTool::new("cron_register", "Register")) as Arc<dyn BaseTool>,
+        );
+        map.insert(
+            "cron_remove".to_string(),
+            Arc::new(MockTool::new("cron_remove", "Remove")) as Arc<dyn BaseTool>,
+        );
+        let registry = Arc::new(RwLock::new(map));
+        let tool = ExecuteExtraTool::new(registry);
+
+        // "CronXxx" → 首词 "cron"，但 cron_register 和 cron_remove 都匹配 → 歧义
+        let result = tool
+            .invoke(json!({"tool_name": "CronXxx", "params": {}}))
+            .await;
+        assert!(result.is_err());
+    }

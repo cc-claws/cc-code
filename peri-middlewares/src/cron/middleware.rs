@@ -9,7 +9,7 @@ use super::{
     CronScheduler,
 };
 
-/// Cron 中间件：提供 cron_register / cron_list / cron_remove 工具
+/// Cron 中间件：提供 CronRegister / CronList / CronRemove 工具
 pub struct CronMiddleware {
     scheduler: Arc<Mutex<CronScheduler>>,
 }

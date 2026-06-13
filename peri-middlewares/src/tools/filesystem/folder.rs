@@ -131,7 +131,7 @@ fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Se
 #[async_trait::async_trait]
 impl BaseTool for FolderOperationsTool {
     fn name(&self) -> &str {
-        "folder_operations"
+        "FolderOperations"
     }
 
     fn description(&self) -> &str {

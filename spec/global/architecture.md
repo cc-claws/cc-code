@@ -345,7 +345,7 @@ Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，�
 5. FilesystemMiddleware       ← 提供 6 个文件系统工具
 6. TerminalMiddleware         ← 提供 bash 工具
 7. TodoMiddleware             ← after_tool 解析 TodoWrite 结果
-8. CronMiddleware             ← cron_register/cron_list/cron_remove
+8. CronMiddleware             ← CronRegister/CronList/CronRemove
 9. HumanInTheLoopMiddleware   ← before_tool 拦截敏感工具
 10. SubAgentMiddleware         ← 提供 Agent 工具（支持 fork/normal/background 三路径）
 11. McpMiddleware             ← MCP 工具和资源注入（仅 pool 初始化成功时注册）
