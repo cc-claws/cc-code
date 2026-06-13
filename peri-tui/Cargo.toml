@@ -70,4 +70,4 @@ tikv-jemalloc-ctl.workspace = true
 tikv-jemalloc-sys.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
