@@ -17,6 +17,10 @@ headless = []
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"
+
 [dependencies]
 serde.workspace = true
 peri-agent = { path = "../peri-agent" }
