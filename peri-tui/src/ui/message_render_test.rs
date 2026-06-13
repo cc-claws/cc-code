@@ -192,6 +192,58 @@
     }
 
     #[test]
+    fn test_shell_command_stderr_exit0_uses_muted_not_error() {
+        // exit 0 + stderr → MUTED（成功，stderr 不应显示红色）
+        let mut vm_ok = MessageViewModel::ShellCommand {
+            id: "shell-stderr-ok".to_string(),
+            command: "git status".to_string(),
+            cwd: ".".to_string(),
+            stdin: Vec::new(),
+            stdout: String::new(),
+            stderr: "warning: something".to_string(),
+            exit_code: Some(0),
+            collapsed: true,
+            content_hash: 0,
+        };
+        vm_ok.recompute_hash();
+        let lines_ok = render_view_model(&vm_ok, None, 80, false);
+        let stderr_span_ok = lines_ok
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content.contains("warning: something"));
+        assert!(stderr_span_ok.is_some(), "应找到 stderr 内容");
+        assert_eq!(
+            stderr_span_ok.unwrap().style.fg,
+            Some(crate::ui::theme::MUTED),
+            "exit 0 时 stderr 应为 MUTED 色，非 ERROR 红色"
+        );
+        // exit 1 + stderr → ERROR（失败，stderr 应显示红色）
+        let mut vm_err = MessageViewModel::ShellCommand {
+            id: "shell-stderr-err".to_string(),
+            command: "bad_cmd".to_string(),
+            cwd: ".".to_string(),
+            stdin: Vec::new(),
+            stdout: String::new(),
+            stderr: "command not found".to_string(),
+            exit_code: Some(1),
+            collapsed: true,
+            content_hash: 0,
+        };
+        vm_err.recompute_hash();
+        let lines_err = render_view_model(&vm_err, None, 80, false);
+        let stderr_span_err = lines_err
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content.contains("command not found"));
+        assert!(stderr_span_err.is_some(), "应找到 stderr 内容");
+        assert_eq!(
+            stderr_span_err.unwrap().style.fg,
+            Some(crate::ui::theme::ERROR),
+            "exit 非 0 时 stderr 应为 ERROR 红色"
+        );
+    }
+
+    #[test]
     fn test_tool_block_error_visible_when_collapsed() {
         use crate::app::MessageViewModel;
         let vm = MessageViewModel::ToolBlock {

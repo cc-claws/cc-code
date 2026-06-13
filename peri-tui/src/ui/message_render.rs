@@ -349,7 +349,7 @@ fn render_shell_command(
                 ));
                 break;
             }
-            let default_style = if *is_error {
+            let default_style = if *is_error && exit_code != Some(0) {
                 Style::default().fg(theme::ERROR)
             } else {
                 Style::default().fg(theme::MUTED)
