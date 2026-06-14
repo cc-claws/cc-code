@@ -257,6 +257,17 @@ impl HookMiddleware {
                         new_input: new_input.clone(),
                     };
                 }
+                HookAction::PermissionOverride { decision, reason } => {
+                    tracing::debug!(
+                        "PermissionOverride from hook: {:?} (reason: {:?})",
+                        decision,
+                        reason
+                    );
+                    final_action = HookAction::PermissionOverride {
+                        decision: decision.clone(),
+                        reason: reason.clone(),
+                    };
+                }
                 _ => {}
             }
         }

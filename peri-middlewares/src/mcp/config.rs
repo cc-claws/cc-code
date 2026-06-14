@@ -315,11 +315,20 @@ pub(crate) fn load_merged_config_full(
             let mut cfg = config.clone();
             cfg.source = Some(ConfigSource::Plugin);
             // 每插件独立上下文展开：在合并之前即完成 env 变量替换
-            let expanded_cfg = expand_server_config_with_context(
+            let mut expanded_cfg = expand_server_config_with_context(
                 &cfg,
                 Some(&plugin.install_path),
                 Some(&plugin.data_path),
                 None,
+            );
+            let env = expanded_cfg.env.get_or_insert_with(HashMap::new);
+            env.insert(
+                "CLAUDE_PLUGIN_ROOT".to_string(),
+                plugin.install_path.to_string_lossy().to_string(),
+            );
+            env.insert(
+                "CLAUDE_PLUGIN_DATA".to_string(),
+                plugin.data_path.to_string_lossy().to_string(),
             );
             plugin_servers.insert(namespaced.clone(), expanded_cfg);
 

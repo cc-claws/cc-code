@@ -119,3 +119,84 @@
         let tool = WriteFileTool::new("/tmp");
         assert_eq!(tool.name(), "Write");
     }
+
+    #[tokio::test]
+    async fn test_write_append_to_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("log.txt"), "line1\n").unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "log.txt", "content": "line2\n", "append": true}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("log.txt")).unwrap();
+        assert_eq!(content, "line1\nline2\n");
+        assert!(result.contains("Appended 1 line"), "unexpected message: {result}");
+        assert!(result.contains("file total: 2 lines"), "应包含总行数: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_write_append_creates_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "new_append.txt", "content": "first line\n", "append": true}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("new_append.txt")).unwrap();
+        assert_eq!(content, "first line\n");
+    }
+
+    #[tokio::test]
+    async fn test_write_append_multiline() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "a\n").unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "content": "b\nc\nd\n", "append": true}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "a\nb\nc\nd\n");
+        assert!(result.contains("Appended 3 lines"), "unexpected message: {result}");
+        assert!(result.contains("file total: 4 lines"), "应包含总行数: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_write_append_false_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "old content").unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "f.txt", "content": "new", "append": false}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "new", "append=false 应覆写文件");
+    }
+
+    #[tokio::test]
+    async fn test_write_append_sequential_chunks() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "chunked.txt", "content": "chunk1\n"}))
+            .await
+            .unwrap();
+        tool.invoke(serde_json::json!({"file_path": "chunked.txt", "content": "chunk2\n", "append": true}))
+            .await
+            .unwrap();
+        tool.invoke(serde_json::json!({"file_path": "chunked.txt", "content": "chunk3\n", "append": true}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("chunked.txt")).unwrap();
+        assert_eq!(content, "chunk1\nchunk2\nchunk3\n");
+    }
+
+    #[tokio::test]
+    async fn test_write_append_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "sub/dir/file.txt", "content": "deep\n", "append": true}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("sub/dir/file.txt")).unwrap();
+        assert_eq!(content, "deep\n");
+    }

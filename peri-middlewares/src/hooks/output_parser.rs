@@ -111,10 +111,11 @@ fn hook_specific_to_action(specific: &HookSpecificOutput) -> HookAction {
         },
         HookSpecificOutput::PreToolUse {
             permission_decision: Some(decision),
+            permission_decision_reason,
             ..
         } => HookAction::PermissionOverride {
             decision: decision.clone(),
-            reason: None,
+            reason: permission_decision_reason.clone(),
         },
         HookSpecificOutput::UserPromptSubmit {
             additional_context: Some(ctx),

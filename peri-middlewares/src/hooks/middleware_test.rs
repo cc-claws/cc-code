@@ -239,6 +239,46 @@ async fn test_before_tool_modify_input() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn test_fire_event_preserves_permission_override() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "echo '{\"hook_specific_output\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"blocked by policy\"}}'"
+    }))
+    .unwrap();
+
+    let registered = make_registered(HookEvent::PreToolUse, hook);
+    let mw = make_middleware(vec![registered]);
+
+    let input = HookInput::tool_call(
+        "s",
+        "/t",
+        "/c",
+        "default",
+        "Bash",
+        &serde_json::json!({"command": "rm -rf /"}),
+        "c1",
+    );
+
+    let action = mw
+        .fire_event(
+            HookEvent::PreToolUse,
+            &input,
+            Some("Bash"),
+            Some(&serde_json::json!({"command": "rm -rf /"})),
+        )
+        .await;
+
+    match action {
+        HookAction::PermissionOverride { decision, reason } => {
+            assert_eq!(decision, crate::hooks::PermissionDecision::Deny);
+            assert_eq!(reason.as_deref(), Some("blocked by policy"));
+        }
+        other => panic!("expected PermissionOverride, got: {:?}", other),
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn test_before_agent_fires_user_prompt_submit() {
     let hook: HookType = serde_json::from_value(serde_json::json!({
         "type": "command",
