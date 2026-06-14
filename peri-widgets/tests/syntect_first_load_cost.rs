@@ -19,6 +19,11 @@ fn current_rss_kb() -> usize {
     0
 }
 
+#[cfg(not(unix))]
+fn current_rss_kb() -> usize {
+    0
+}
+
 #[test]
 fn measure_syntaxset_load_cost() {
     let baseline = current_rss_kb();

@@ -24,6 +24,11 @@ fn current_rss_kb() -> usize {
     0
 }
 
+#[cfg(not(unix))]
+fn current_rss_kb() -> usize {
+    0
+}
+
 /// 模拟一轮 AI 回复事件流：流式文本 → StateSnapshot → Done
 fn feed_one_round(
     pipeline: &mut MessagePipeline,

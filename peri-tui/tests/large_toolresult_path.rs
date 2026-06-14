@@ -39,7 +39,8 @@ fn mb(kb: usize) -> f64 {
 fn large_toolresult_full_path_attribution() {
     println!("\n=== 单次大工具结果（5MB）经过 5 个存储点的真实 RSS 成本 ===\n");
 
-    let mut base = current_rss_kb();
+    let baseline = current_rss_kb();
+    let mut base = baseline;
     println!("[基线] RSS = {} KB ({:.2} MB)\n", base, mb(base));
 
     // === 5MB 大文件内容（模拟 Read 了一个 5MB 文件）===
@@ -96,16 +97,11 @@ fn large_toolresult_full_path_attribution() {
     let after_cache = current_rss_kb();
     println!("[第 5 步：RenderCache 渲染 ×2（paragraph + line）] RSS = {} KB (+{} KB = +{:.2} MB)",
         after_cache, after_cache.saturating_sub(base), mb(after_cache.saturating_sub(base)));
-    base = after_cache;
 
-    let total_delta = after_cache.saturating_sub(current_rss_kb() - (after_cache - base)); // 重新计算
-    let initial = current_rss_kb() - (after_cache - base); // 不准确，重新算
-    let _ = total_delta;
-    let _ = initial;
+    let total_delta = after_cache.saturating_sub(baseline);
 
     println!("\n=== 结论 ===");
-    println!("5MB 单次工具结果经过完整存储路径后，总 RSS 增长 = {:.2} MB",
-        mb(after_cache.saturating_sub(current_rss_kb()) + (after_cache - current_rss_kb())));
+    println!("5MB 单次工具结果经过完整存储路径后，总 RSS 增长 = {:.2} MB", mb(total_delta));
 
     drop(msg1);
     drop(snapshot_msgs);
