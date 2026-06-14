@@ -242,7 +242,7 @@ async fn test_before_tool_modify_input() {
 async fn test_fire_event_preserves_permission_override() {
     let hook: HookType = serde_json::from_value(serde_json::json!({
         "type": "command",
-        "command": "echo '{\"hook_specific_output\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"blocked by policy\"}}}'"
+        "command": "echo '{\"hook_specific_output\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"blocked by policy\"}}'"
     }))
     .unwrap();
 
