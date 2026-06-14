@@ -270,7 +270,7 @@ async fn test_fire_event_preserves_permission_override() {
 
     match action {
         HookAction::PermissionOverride { decision, reason } => {
-            assert_eq!(decision, PermissionDecision::Deny);
+            assert_eq!(decision, crate::hooks::PermissionDecision::Deny);
             assert_eq!(reason.as_deref(), Some("blocked by policy"));
         }
         other => panic!("expected PermissionOverride, got: {:?}", other),
