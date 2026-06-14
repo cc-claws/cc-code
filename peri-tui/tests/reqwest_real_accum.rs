@@ -79,7 +79,7 @@ async fn measure_50_real_https_requests() {
             }
         };
         // 读完 body 避免连接 keep-alive 失效
-        if let Ok(mut r) = resp {
+        if let Ok(r) = resp {
             let _ = r.text().await;
         }
 

@@ -9,8 +9,10 @@
 //!    → reconcile_tail → view_messages 重建（含 ToolBlock.content: String 深拷贝）
 //! 3. flush_rebuild → RenderCache 渲染（Vec<Line<'static>> 含完整字符串）
 //! 4. 测量总 RSS 增长
+//!
+//! 需用 `--features headless` 启用，因为 App::new_headless 是 headless feature gated
 
-#![cfg(unix)]
+#![cfg(all(unix, feature = "headless"))]
 
 use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use peri_tui::app::{AgentEvent, App};

@@ -3,7 +3,7 @@
 
 #![cfg(feature = "markdown")]
 
-use peri_widgets::markdown::{cache::MarkdownCache, parse_markdown, DefaultMarkdownTheme, MarkdownTheme};
+use peri_widgets::markdown::{cache::MarkdownCache, parse_markdown, DefaultMarkdownTheme};
 
 #[cfg(unix)]
 fn current_rss_kb() -> usize {

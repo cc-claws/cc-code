@@ -1,5 +1,9 @@
 //! 精细分割 TUI 首轮的各个阶段，找出每个操作的具体 RSS 增量
 //! 100% 证明 syntect 加载发生在哪个具体调用点
+//!
+//! 需用 `--features headless` 启用，因为 App::new_headless 是 headless feature gated
+
+#![cfg(feature = "headless")]
 
 use peri_agent::messages::BaseMessage;
 use peri_tui::app::{events::AgentEvent, App};

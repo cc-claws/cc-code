@@ -1,5 +1,9 @@
 //! 用真实 App::new_headless 跑多轮 AgentEvent，测真实 TUI App 的 RSS 增长
 //! 这是定位 TUI 层内存大头的最关键测试
+//!
+//! 需用 `--features headless` 启用，因为 App::new_headless 是 headless feature gated
+
+#![cfg(feature = "headless")]
 
 use peri_agent::messages::BaseMessage;
 use peri_tui::app::{events::AgentEvent, App};

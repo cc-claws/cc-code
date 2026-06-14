@@ -138,11 +138,11 @@ fn varying_toolresult_size_scan() {
         let s1 = current_rss_kb().saturating_sub(base);
         base = current_rss_kb();
 
-        let mut origin: Vec<BaseMessage> = vec![msg.clone()];
+        let origin: Vec<BaseMessage> = vec![msg.clone()];
         let s2 = current_rss_kb().saturating_sub(base);
         base = current_rss_kb();
 
-        let mut completed: Vec<BaseMessage> = vec![msg.clone()];
+        let completed: Vec<BaseMessage> = vec![msg.clone()];
         let s3 = current_rss_kb().saturating_sub(base);
         base = current_rss_kb();
 
