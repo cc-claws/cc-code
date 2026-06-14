@@ -122,6 +122,22 @@ submit_message(text)
 | /compact 迁移 | 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头 |
 | AskUser 高度 | wrapped_line_count 动态换行计算，visible_height 替代硬编码滚动区域 |
 | 弹窗滚动 | `scroll_offset: u16`，`ensure_cursor_visible(visible_height)`，Tab 切换重置 scroll_offset |
+| 消息区滚动 | `scroll_offset: usize` + `scrollbar_min/max_offset: usize`，`usize::MAX` 哨兵 + `clamp(min, max)` 收敛，follow-bottom / `scroll_anchor` / manual offset 三级优先级链 |
+| 视觉行号 | `WrappedLineInfo.visual_row_start/end: usize`，承接 `Paragraph::line_count()` 累加，禁止 u16（详见 issue_2026-06-14-tui-scroll-overflow-u16-saturation） |
+
+## [TRAP] 经验沉淀
+
+### 消息区视觉行号必须 usize，禁止 u16
+
+**Why:** 长对话场景下 wrap 后的视觉行号会快速累积（窄终端 + 多轮长回复），65535 是个会被实际触达的阈值。曾用 `u16` 保存 `WrappedLineInfo.visual_row_start/end` 和 `UiState.scroll_offset`，超过 65535 行后所有依赖行号的逻辑（follow-bottom、scrollbar、鼠标坐标映射、文本选区）全部失效，并用 `to_u16_saturated()` 显式饱和掩盖了类型设计错误。
+
+**How to apply:**
+- 任何承接 `Paragraph::line_count()` 累加结果的字段必须是 `usize`
+- 任何承接用户操作累计（滚动、选区、锚点）的字段必须是 `usize`
+- 单行内偏移（`local_offset`）和面板/弹窗内容滚动可以保留 `u16`（单行 wrap 不会超 65535，面板内容也不会）
+- 哨兵值用 `usize::MAX` + 后续 `clamp(min, max)` 模式，**禁止** `to_u16_saturated()` 这类显式饱和辅助函数
+
+（详见 `spec/issues/2026-06-14-tui-scroll-overflow-u16-saturation.md`）
 
 ## Feature 附录
 
