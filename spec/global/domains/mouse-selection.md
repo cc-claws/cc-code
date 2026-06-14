@@ -39,10 +39,10 @@ Ctrl+C 按下
 
 | 维度 | 选型 |
 |------|------|
-| 选区数据结构 | TextSelection { start, end, dragging, selected_text } |
+| 选区数据结构 | `TextSelection { start: Option<(usize, u16)>, end: Option<(usize, u16)>, dragging, selected_text }`（visual_row 用 usize 避免长对话饱和，visual_col 保留 u16 屏幕宽度有限） |
 | 面板选区 | PanelTextSelection，Vec<String> 纯文本行直接索引 |
-| 换行映射 | WrappedLineInfo { line_idx, visual_row_start/end, plain_text, char_widths } |
-| 坐标映射 | visual_to_logical()：视觉坐标 → 逻辑行+字符偏移 |
+| 换行映射 | `WrappedLineInfo { line_idx, visual_row_start/end: usize, plain_text, char_widths }`（行号 usize，详见 issue_2026-06-14-tui-scroll-overflow-u16-saturation） |
+| 坐标映射 | `visual_to_logical(visual_row: usize, visual_col: u16, ...)`：视觉坐标 → 逻辑行+字符偏移 |
 | 宽字符 | unicode-width crate，char_widths 累积宽度定位字符 |
 | 高亮渲染 | highlight_line_spans()：Span 在字符边界拆分 + Modifier::REVERSED |
 | 剪贴板 | arboard::Clipboard 跨平台写入 |

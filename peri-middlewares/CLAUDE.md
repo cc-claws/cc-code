@@ -41,6 +41,8 @@
 
 **Hooks**（`src/hooks/`）：4 种执行类型（Command/Prompt/Http/Agent），14 种事件。exit code 控制流程：0=Allow，1=Warn，2=Block。SSRF 防护阻止内网地址（`ssrf_guard.rs`），回环地址允许。
 
+**[TRAP]** `hook_specific_to_action` 必须透传 hook 返回的所有字段，禁止 hardcode 默认值。曾把 `PreToolUse.permission_decision_reason` 用 `..` 通配后 hardcode `reason: None`，导致 HITL 弹窗和遥测拿不到 hook 给出的拒绝理由。新增 `HookSpecificOutput` 变体或字段时，必须同步检查所有 match arm 是否透传新字段。Hook 测试 JSON 必须用 `serde_json::json!` 宏构造，避免手写字符串易错（typo 会让 JSON 解析失败静默回退 Allow）。（详见 `spec/issues/2026-06-14-hooks-permission-override-reason-dropped.md`）
+
 **Frontmatter 解析**：skill 和插件命令用 `gray_matter` crate（YAML engine），必须复用 `Matter::<YAML>::new()` 模式。
 
 **Skills**：搜索顺序 `~/.claude/skills/` → `skillsDir` → `./.claude/skills/` → 插件 skills。`SkillsMiddleware.with_extra_dirs()` 是插件扩展点。
