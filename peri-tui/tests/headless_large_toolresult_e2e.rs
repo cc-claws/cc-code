@@ -76,7 +76,7 @@ async fn large_toolresult_full_e2e_real_app() {
     let snapshot_msgs = vec![
         BaseMessage::human("read this big file"),
         BaseMessage::ai_from_blocks(vec![
-            ContentBlock::Text { text: "reading...".to_string() },
+            ContentBlock::text("reading..."),
             ContentBlock::ToolUse {
                 id: "toolu_big".to_string(),
                 name: "Read".to_string(),
@@ -150,7 +150,7 @@ async fn varying_toolresult_size_real_app() {
         let snapshot_msgs = vec![
             BaseMessage::human("read big file"),
             BaseMessage::ai_from_blocks(vec![
-                ContentBlock::Text { text: "reading".to_string() },
+                ContentBlock::text("reading"),
                 ContentBlock::ToolUse {
                     id: "toolu_big".to_string(),
                     name: "Read".to_string(),
@@ -216,7 +216,7 @@ async fn multi_round_accumulation_real_app() {
         if round == 3 || round == 7 {
             let large: String = std::iter::repeat_n("X", 3 * 1024 * 1024).collect();
             snapshot.push(BaseMessage::ai_from_blocks(vec![
-                ContentBlock::Text { text: "reading big file".to_string() },
+                ContentBlock::text("reading big file"),
                 ContentBlock::ToolUse {
                     id: format!("toolu_{}", round),
                     name: "Read".to_string(),

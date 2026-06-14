@@ -246,12 +246,12 @@ fn extract_title(msgs: &[BaseMessage]) -> Option<String> {
     for msg in msgs {
         if let BaseMessage::Human { content, .. } = msg {
             let text = match content {
-                MessageContent::Text(t) => t.clone(),
+                MessageContent::Text(t) => t.to_string(),
                 MessageContent::Blocks(blocks) => blocks
                     .iter()
                     .filter_map(|b| {
                         if let ContentBlock::Text { text } = b {
-                            Some(text.as_str())
+                            Some(text.as_ref())
                         } else {
                             None
                         }

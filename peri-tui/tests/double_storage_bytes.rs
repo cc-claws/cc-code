@@ -24,7 +24,7 @@ fn build_small_tool_session(rounds: usize) -> Vec<BaseMessage> {
     for i in 0..rounds {
         msgs.push(BaseMessage::human(format!("用户问题 {i}：读取 config.json 并告诉我里面的字段")));
         msgs.push(BaseMessage::ai_from_blocks(vec![
-            ContentBlock::Text { text: "我来读取文件。".to_string() },
+            ContentBlock::text("我来读取文件。"),
             ContentBlock::ToolUse {
                 id: format!("toolu_{i}"),
                 name: "Read".to_string(),
@@ -49,7 +49,7 @@ fn build_large_tool_session(rounds: usize) -> Vec<BaseMessage> {
     for i in 0..rounds {
         msgs.push(BaseMessage::human(format!("用户问题 {i}：阅读这个大文件并总结")));
         msgs.push(BaseMessage::ai_from_blocks(vec![
-            ContentBlock::Text { text: "开始处理。".to_string() },
+            ContentBlock::text("开始处理。"),
             ContentBlock::ToolUse {
                 id: format!("toolu_{i}"),
                 name: "Read".to_string(),
@@ -108,7 +108,7 @@ fn measure_extreme_scenarios() {
     for i in 0..100 {
         mega_msgs.push(BaseMessage::human(format!("run command {i}")));
         mega_msgs.push(BaseMessage::ai_from_blocks(vec![
-            ContentBlock::Text { text: "running".to_string() },
+            ContentBlock::text("running"),
             ContentBlock::ToolUse {
                 id: format!("toolu_{i}"),
                 name: "Bash".to_string(),

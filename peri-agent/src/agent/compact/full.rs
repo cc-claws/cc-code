@@ -56,7 +56,7 @@ fn replace_images_and_truncate(content: &MessageContent, max_chars: usize) -> St
         .map(|b| match b {
             ContentBlock::Image { .. } => "[image]".to_string(),
             _ => match b {
-                ContentBlock::Text { text } => text.clone(),
+                ContentBlock::Text { text } => text.to_string(),
                 ContentBlock::ToolUse { name, input, .. } => {
                     format!("调用 {}({})", name, input)
                 }
