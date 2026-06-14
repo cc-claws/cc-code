@@ -114,7 +114,7 @@ pub(crate) fn render_messages(
         0
     };
     let (min_scroll, max_scroll, offset) = {
-        let cache = app.session_mgr.current().messages.render_cache.read();
+        let mut cache = app.session_mgr.current().messages.render_cache.write();
 
         let committed_lines = app
             .session_mgr
@@ -130,15 +130,19 @@ pub(crate) fn render_messages(
         );
         let live_visual_rows = cache.total_lines.saturating_sub(base_visual);
         let visual_total = live_visual_rows.saturating_add(spinner_extra as usize);
-        let min_scroll = to_u16_saturated(base_visual);
-        let max_scroll = to_u16_saturated(
-            base_visual.saturating_add(visual_total.saturating_sub(visible_height as usize)),
-        )
-        .max(min_scroll);
+        let min_scroll = base_visual;
+        let max_scroll = base_visual
+            .saturating_add(visual_total.saturating_sub(visible_height as usize))
+            .max(min_scroll);
         let scroll_follow = app.session_mgr.current().ui.scroll_follow;
         let scroll_offset = app.session_mgr.current().ui.scroll_offset;
+        let scroll_anchor = cache.scroll_anchor.take();
         let (new_follow, off) = if scroll_follow {
             (true, max_scroll)
+        } else if let Some(anchor) = scroll_anchor {
+            let off = anchor.clamp(min_scroll, max_scroll);
+            let new_follow = off >= max_scroll;
+            (new_follow, off)
         } else {
             let off = scroll_offset.clamp(min_scroll, max_scroll);
             let new_follow = off >= max_scroll;
@@ -174,10 +178,6 @@ pub(crate) fn render_messages(
     f.render_widget(paragraph, inner);
 }
 
-fn to_u16_saturated(value: usize) -> u16 {
-    value.min(u16::MAX as usize) as u16
-}
-
 fn committed_visual_start(
     committed_lines: usize,
     line_count: usize,
@@ -192,7 +192,7 @@ fn committed_visual_start(
     }
     wrap_map
         .get(committed_lines)
-        .map(|info| info.visual_row_start as usize)
+        .map(|info| info.visual_row_start)
         .unwrap_or(total_visual_rows)
 }
 
@@ -207,7 +207,7 @@ fn committed_visual_start(
 /// 5. 如果有文本选区，在裁剪后的行上做高亮
 fn viewport_clip(
     app: &App,
-    offset: u16,
+    offset: usize,
     visible_height: u16,
     spinner_line: &Option<Line<'static>>,
 ) -> ViewportClip {
@@ -215,27 +215,29 @@ fn viewport_clip(
     let (mut lines, local_offset, first_idx, total_lines) = {
         let cache = app.session_mgr.current().messages.render_cache.read();
 
-        let vis_start = offset as usize;
+        let vis_start = offset;
         // +1 给 wrap 行留余量
-        let vis_end = (offset as usize + visible_height as usize + 1).min(cache.total_lines);
+        let vis_end = (offset + visible_height as usize + 1).min(cache.total_lines);
 
         // wrap_map 按 visual_row_start 升序排列
         // 二分找第一个 visual_row_end > vis_start 的行（即首个与视口相交的行）
         let first_visible = cache
             .wrap_map
-            .partition_point(|info| info.visual_row_end as usize <= vis_start);
+            .partition_point(|info| info.visual_row_end <= vis_start);
         // 二分找最后一个 visual_row_start < vis_end 的行
         let last_visible = cache
             .wrap_map
-            .partition_point(|info| (info.visual_row_start as usize) < vis_end)
+            .partition_point(|info| info.visual_row_start < vis_end)
             .saturating_sub(1);
 
         let total_lines = cache.total_lines;
 
         let (lines, local_offset, first_idx) =
             if first_visible < cache.wrap_map.len() && first_visible <= last_visible {
-                let first_visual = cache.wrap_map[first_visible].visual_row_start as usize;
-                let local_offset = vis_start.saturating_sub(first_visual) as u16;
+                let first_visual = cache.wrap_map[first_visible].visual_row_start;
+                let local_offset = vis_start
+                    .saturating_sub(first_visual)
+                    .min(u16::MAX as usize) as u16;
                 let lines = cache.lines[first_visible..=last_visible].to_vec();
                 (lines, local_offset, first_visible)
             } else {
@@ -253,10 +255,10 @@ fn viewport_clip(
         let spinner_visual_start = total_lines;
         let spinner_extra = spinner_extra_count(app);
         let spinner_visual_end = spinner_visual_start + spinner_extra as usize;
-        let vis_start = offset as usize;
+        let vis_start = offset;
         // 视口底边不截断到 total_lines——spinner 在 total_lines 之外，
         // 必须用完整的视口范围才能正确检测交集
-        let viewport_bottom = offset as usize + visible_height as usize;
+        let viewport_bottom = offset + visible_height as usize;
 
         // 视口与 spinner 区域有交集
         if vis_start < spinner_visual_end && viewport_bottom > spinner_visual_start {

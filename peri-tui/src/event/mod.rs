@@ -559,8 +559,8 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
                     {
-                        let visual_row =
-                            mouse.row - area.y + app.session_mgr.current_mut().ui.scroll_offset;
+                        let visual_row = usize::from(mouse.row - area.y)
+                            + app.session_mgr.current_mut().ui.scroll_offset;
                         let visual_col = mouse.column - area.x;
                         app.session_mgr
                             .current_mut()
@@ -629,10 +629,8 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
                 if app.session_mgr.current_mut().ui.text_selection.dragging {
                     if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                        let visual_row = mouse
-                            .row
-                            .saturating_sub(area.y)
-                            .saturating_add(app.session_mgr.current_mut().ui.scroll_offset);
+                        let visual_row = usize::from(mouse.row.saturating_sub(area.y))
+                            + app.session_mgr.current_mut().ui.scroll_offset;
                         let visual_col = mouse.column.saturating_sub(area.x);
                         app.session_mgr
                             .current_mut()

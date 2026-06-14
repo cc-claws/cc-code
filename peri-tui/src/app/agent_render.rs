@@ -175,14 +175,14 @@ impl App {
 
                 let anchor_message_idx = {
                     let cache = self.session_mgr.current().messages.render_cache.read();
-                    let scroll_row = self.session_mgr.current().ui.scroll_offset as usize;
+                    let scroll_row = self.session_mgr.current().ui.scroll_offset;
                     let msg_idx = cache
                         .message_offsets
                         .iter()
                         .enumerate()
                         .find(|(_, &offset)| {
                             offset < cache.wrap_map.len()
-                                && cache.wrap_map[offset].visual_row_start as usize >= scroll_row
+                                && cache.wrap_map[offset].visual_row_start >= scroll_row
                         })
                         .map(|(idx, _)| idx)
                         .unwrap_or(prefix_len);

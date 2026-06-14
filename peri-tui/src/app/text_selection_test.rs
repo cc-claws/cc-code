@@ -59,8 +59,8 @@ fn test_is_active() {
 
 fn make_wrap_map_entry(
     line_idx: usize,
-    start: u16,
-    end: u16,
+    start: usize,
+    end: usize,
     text: &str,
 ) -> crate::ui::render_thread::WrappedLineInfo {
     let char_widths: Vec<u8> = text

@@ -14,7 +14,7 @@ pub struct PastedTextBlock {
 pub struct UiState {
     pub textarea: TextArea<'static>,
     pub loading: bool,
-    pub scroll_offset: u16,
+    pub scroll_offset: usize,
     pub scroll_follow: bool,
     pub show_tool_messages: bool,
     pub hint_cursor: Option<usize>,
@@ -31,9 +31,9 @@ pub struct UiState {
     pub panel_plain_lines: Vec<String>,
     pub panel_scroll_offset: u16,
     /// 消息区域最小偏移量；小于该值的历史已交给终端原生 scrollback。
-    pub scrollbar_min_offset: u16,
+    pub scrollbar_min_offset: usize,
     /// 消息区域滚动条的最大偏移量（内容高度 - 可见高度）
-    pub scrollbar_max_offset: u16,
+    pub scrollbar_max_offset: usize,
     /// Panel scrollbar geometry for mouse interaction
     pub panel_scrollbar_metrics: Option<ScrollbarMetrics>,
     /// Whether user is currently dragging the panel scrollbar
@@ -65,7 +65,7 @@ impl UiState {
         Self {
             textarea,
             loading: false,
-            scroll_offset: u16::MAX,
+            scroll_offset: usize::MAX,
             scroll_follow: true,
             show_tool_messages: false,
             hint_cursor: None,
