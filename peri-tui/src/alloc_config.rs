@@ -94,7 +94,7 @@ pub fn query_stats() -> Option<AllocStats> {
     let pid = sysinfo::get_current_pid().ok()?;
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let proc = sys.process(pid)?;
-    let current_rss = (proc.memory() * 1024) as usize; // sysinfo returns KB
+    let current_rss = proc.memory() as usize; // sysinfo returns bytes
     let current_allocated = tikv_jemalloc_ctl::stats::allocated::read().unwrap_or(current_rss);
     Some(AllocStats {
         current_rss,
@@ -136,7 +136,7 @@ pub fn os_rss_mb() -> Option<u64> {
     let mut sys = System::new();
     let pid = sysinfo::get_current_pid().ok()?;
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).map(|p| p.memory() / 1024) // KB → MB
+    sys.process(pid).map(|p| p.memory() / (1024 * 1024)) // bytes → MB
 }
 
 // ── Windows stubs ──────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ pub fn query_stats() -> Option<AllocStats> {
     let pid = sysinfo::get_current_pid().ok()?;
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let proc = sys.process(pid)?;
-    let current_rss = (proc.memory() * 1024) as usize; // sysinfo returns KB
+    let current_rss = proc.memory() as usize; // sysinfo returns bytes
     Some(AllocStats {
         current_rss,
         current_allocated: 0, // no jemalloc on Windows
@@ -191,5 +191,5 @@ pub fn os_rss_mb() -> Option<u64> {
     let mut sys = System::new();
     let pid = sysinfo::get_current_pid().ok()?;
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).map(|p| p.memory() / 1024) // KB → MB
+    sys.process(pid).map(|p| p.memory() / (1024 * 1024)) // bytes → MB
 }
