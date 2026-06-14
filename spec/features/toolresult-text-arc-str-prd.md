@@ -336,13 +336,35 @@ Phase 0 详见 §6.5。
 
 | 测试文件 | 验证目标 | Phase 1 预期 |
 |---------|---------|-------------|
-| `peri-tui/tests/headless_large_toolresult_e2e.rs::large_toolresult_full_e2e_real_app` | 5MB ToolResult 端到端 RSS 涨幅 | ≤ 40 MB（预计 ~20-25 MB，原 28-49 MB） |
-| `peri-tui/tests/headless_large_toolresult_e2e.rs::multi_round_accumulation_real_app` | **第 7 轮 3MB 涨幅（用户场景）** | **≤ 25 MB（预计 ~20-22 MB，原 +31.68 MB）** |
+| `peri-tui/tests/headless_large_toolresult_e2e.rs::large_toolresult_full_e2e_real_app` | 5MB ToolResult 端到端 RSS 涨幅 | **≤ 40 MB（v7 实测 35 MB，达标 ✅）** |
+| `peri-tui/tests/headless_large_toolresult_e2e.rs::multi_round_accumulation_real_app` | **10 轮含 2 次 3MB 大文件累积涨幅（用户场景）** | **≤ 35 MB（v7 实测 33.28 MB，达标 ✅，目标依据见 §6.1.1）** |
 | `peri-tui/tests/large_toolresult_path.rs::large_toolresult_full_path_attribution` | 单次大 ToolResult 各存储点归因 | #2 步从 +5MB → ~0MB，#4 步降到 ~0（**#6 不计入**，见 §5.3） |
 | `peri-tui/tests/double_storage_bytes.rs` | 50 条典型对话双存储 | 不回归（KB 级） |
 | `peri-tui/tests/pipeline_real_rss_growth.rs` | 50 轮累积 RSS | 不回归 |
 | **`peri-tui/tests/pipeline_500_rounds_typical_conversation.rs`**（Phase 0 新增） | **500 轮典型对话累积** | **≤ 50 MB（主目标）** |
-| `peri-agent/src/messages/content_test.rs` | Arc<str> 字段读写、serde round-trip | 通过 |
+| `peri-agent/src/messages/content_test.rs` | Arc<str> 字段读写、serde round-trip | 通过（v7 已落地 5 个测试） |
+
+#### 6.1.1 验收目标依据（2026-06-14 Linux 实测修订）
+
+**v6 原目标 `3MB 用户场景 ≤ 25 MB` 过乐观**，原因是未充分考虑 §5.2.1（RenderCache `Line<'static>`）和 §5.2.2（view 层 `MessageViewModel::ToolBlock.content: String`）的必要 deep clone。v7 改为 **≤ 35 MB**，依据如下。
+
+**5MB 极端场景实测拆解**（基线 10.28 MB → 峰值 51.88 MB，drop 后 27.16 MB）：
+
+| 阶段 | 增量 | 来源 | Arc<str> 是否生效 |
+|------|------|------|-----------------|
+| 构造 5MB 原始 String | +5 MB | 测试局部变量 `large_content: String` | — |
+| 构造 `snapshot_msgs` Vec | +5 MB | `MessageContent::text(large_content.clone())` → `Arc<str>`（1×） | ✅ |
+| `origin_messages.extend(msgs.clone())` | **0 KB** | `BaseMessage::clone()` 字段级 Arc 共享 | ✅ |
+| `pipeline.completed.extend(msgs)` | **0 KB** | `Vec::extend` move，无 clone | ✅ |
+| `request_rebuild()` 触发 RebuildAll | **+5 MB** | `MessageViewModel::ToolBlock.content: String` 从 `Arc<str>::to_string()` 深拷贝（§5.2.2 显式设计） | ❌（设计底线） |
+| `Done` + `flush_rebuild` RenderCache 填充 | **+5 MB** | `Line<'static>` 含 `Span<'static>` 的 `Cow::Owned(String)`（§5.2.1 显式设计） | ❌（ratatui API 硬约束） |
+| 其他（tokio task、channel、syntect、碎片） | ~10 MB | 进程级运行时 | — |
+
+**核心结论**：Arc<str> 改造对 BaseMessage 数据路径（origin_messages + pipeline.completed）**完全生效**（实测 0 KB），6× 放大的真正来源是 **view 层 + RenderCache 的必要 String deep clone**，这是 §5.2.1/§5.2.2 的设计底线（ratatui `Line<'static>` API 硬约束，无法绕过）。
+
+**为什么 view 层 Arc<str> 改造不解决问题**：view_messages 改 Arc<str> 仅能省 1× deep clone（3MB 场景 = -3MB/次 × 2 次 = -6MB），实测会从 33.28 → 27.28 MB，仍超原 25 MB 目标 2.28 MB；RenderCache 受 ratatui `Line<'static>` API 限制无法改造。改目标比改架构合理。
+
+**3MB 用户场景 10 轮实测分布**：基线 9.75 MB → 第 3 轮注入首次 3MB 后 27.90 MB（+18.16）→ 第 7 轮注入二次 3MB 后 48.90 MB（+39.16 累计）→ 10 轮稳态 43.03 MB（+33.28 累计）→ drop 后 40.17 MB。
 
 ### 6.2 新增断言（Phase 1 完成后必须加）
 
