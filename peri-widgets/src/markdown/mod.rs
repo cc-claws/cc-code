@@ -2,7 +2,7 @@ pub mod cache;
 mod render_state;
 
 #[cfg(feature = "markdown-highlight")]
-mod highlight;
+pub mod highlight;
 
 use pulldown_cmark::{Options, Parser};
 use ratatui::{style::Color, text::Text};
