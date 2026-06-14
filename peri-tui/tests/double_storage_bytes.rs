@@ -24,7 +24,7 @@ fn build_small_tool_session(rounds: usize) -> Vec<BaseMessage> {
     for i in 0..rounds {
         msgs.push(BaseMessage::human(format!("用户问题 {i}：读取 config.json 并告诉我里面的字段")));
         msgs.push(BaseMessage::ai_from_blocks(vec![
-            ContentBlock::Text { text: format!("我来读取文件。") },
+            ContentBlock::Text { text: "我来读取文件。".to_string() },
             ContentBlock::ToolUse {
                 id: format!("toolu_{i}"),
                 name: "Read".to_string(),
@@ -49,7 +49,7 @@ fn build_large_tool_session(rounds: usize) -> Vec<BaseMessage> {
     for i in 0..rounds {
         msgs.push(BaseMessage::human(format!("用户问题 {i}：阅读这个大文件并总结")));
         msgs.push(BaseMessage::ai_from_blocks(vec![
-            ContentBlock::Text { text: format!("开始处理。") },
+            ContentBlock::Text { text: "开始处理。".to_string() },
             ContentBlock::ToolUse {
                 id: format!("toolu_{i}"),
                 name: "Read".to_string(),
@@ -57,8 +57,7 @@ fn build_large_tool_session(rounds: usize) -> Vec<BaseMessage> {
             },
         ]));
         // 50KB 大文件内容
-        let big_body: String = std::iter::repeat("// 这是模拟的大文件内容行，用于测大 ToolResult 内存占用。\n")
-            .take(1000)
+        let big_body: String = std::iter::repeat_n("// 这是模拟的大文件内容行，用于测大 ToolResult 内存占用。\n", 1000)
             .map(|line| format!("{line}# round {i}"))
             .collect();
         msgs.push(BaseMessage::tool_result(
@@ -109,7 +108,7 @@ fn measure_extreme_scenarios() {
     for i in 0..100 {
         mega_msgs.push(BaseMessage::human(format!("run command {i}")));
         mega_msgs.push(BaseMessage::ai_from_blocks(vec![
-            ContentBlock::Text { text: format!("running") },
+            ContentBlock::Text { text: "running".to_string() },
             ContentBlock::ToolUse {
                 id: format!("toolu_{i}"),
                 name: "Bash".to_string(),
@@ -136,7 +135,7 @@ fn verify_estimate_reflects_real_rss_growth() {
     let rss_before = current_rss_kb();
 
     // 模拟双存储：clone 一份
-    let cloned: Vec<BaseMessage> = msgs.iter().cloned().collect();
+    let cloned: Vec<BaseMessage> = msgs.to_vec();
     let actual_clone_bytes = estimate_messages_heap(&cloned);
 
     let rss_after = current_rss_kb();
@@ -203,7 +202,7 @@ fn measure_llm_client_creation_cost() {
     let rss_after_1 = {
         for i in 0..10 {
             anthropic_clients.push(ChatAnthropic::new(
-                &format!("sk-test-{i}"),
+                format!("sk-test-{i}"),
                 "claude-test",
             ));
         }
@@ -222,7 +221,7 @@ fn measure_llm_client_creation_cost() {
     let rss_after_2 = {
         for i in 0..10 {
             openai_clients.push(ChatOpenAI::new(
-                &format!("sk-openai-{i}"),
+                format!("sk-openai-{i}"),
                 "gpt-test",
             ));
         }
@@ -370,9 +369,9 @@ fn measure_50_rounds_real_rss_growth() {
         ]);
         let tool_result = BaseMessage::tool_result(
             format!("toolu_{round}"),
-            MessageContent::text(format!(
-                "1: fn process(data: &Vec<u8>) -> Option<Result<{{\n2:     // ... 30-100 行模拟代码 ...\n}}",
-            )),
+            MessageContent::text(
+                "1: fn process(data: &Vec<u8>) -> Option<Result<{\n2:     // ... 30-100 行模拟代码 ...\n}".to_string(),
+            ),
         );
         let ai_summary = BaseMessage::ai(format!("第 {round} 轮分析完成，建议改用迭代器链。"));
 
@@ -427,9 +426,7 @@ fn measure_system_prompt_build_cost() {
     // 强制分配 ~1MB 字符串模拟 system prompt
     let mut prompts = Vec::new();
     for i in 0..10 {
-        let big_prompt: String = std::iter::repeat(format!("section {i}: ...\n"))
-            .take(5000)
-            .collect();
+        let big_prompt: String = format!("section {i}: ...\n").repeat(5000);
         prompts.push(big_prompt);
     }
     let rss_after = current_rss_kb();
