@@ -6,6 +6,20 @@ async fn wait_render() {
     tokio::task::yield_now().await;
 }
 
+#[test]
+fn test_wrapped_line_info_supports_more_than_u16_rows() {
+    let info = WrappedLineInfo {
+        line_idx: 0,
+        visual_row_start: u16::MAX as usize + 1,
+        visual_row_end: u16::MAX as usize + 2,
+        plain_text: String::new(),
+        char_widths: Vec::new(),
+    };
+
+    assert_eq!(info.visual_row_start, u16::MAX as usize + 1);
+    assert_eq!(info.visual_row_end, u16::MAX as usize + 2);
+}
+
 #[tokio::test]
 async fn test_rebuild_increments_version() {
     let (tx, cache, _notify) = spawn_render_thread(80);

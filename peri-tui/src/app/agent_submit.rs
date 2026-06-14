@@ -86,7 +86,7 @@ impl App {
             self.clear_pasted_text_blocks();
         }
         self.set_loading(true);
-        self.session_mgr.current_mut().ui.scroll_offset = u16::MAX;
+        self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
         self.session_mgr.current_mut().ui.scroll_follow = true;
         self.session_mgr.current_mut().todo_items.clear();
 
@@ -281,7 +281,7 @@ impl App {
         self.session_mgr.current_mut().metadata.last_human_message = Some(display);
         self.session_mgr.current_mut().messages.last_submitted_text = None; // bg continuation 不恢复到输入框
         self.set_loading(true);
-        self.session_mgr.current_mut().ui.scroll_offset = u16::MAX;
+        self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
         self.session_mgr.current_mut().ui.scroll_follow = true;
         self.session_mgr.current_mut().todo_items.clear();
 

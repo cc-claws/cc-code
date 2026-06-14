@@ -4,9 +4,9 @@ use unicode_segmentation::UnicodeSegmentation;
 #[derive(Debug, Clone)]
 pub struct TextSelection {
     /// 选区起始视觉坐标（相对于消息区域左上角）
-    pub start: Option<(u16, u16)>, // (visual_row, visual_col)
+    pub start: Option<(usize, u16)>, // (visual_row, visual_col)
     /// 选区结束视觉坐标
-    pub end: Option<(u16, u16)>,
+    pub end: Option<(usize, u16)>,
     /// 是否正在拖拽中
     pub dragging: bool,
     /// 选区对应的纯文本内容（松开鼠标后计算）
@@ -30,7 +30,7 @@ impl TextSelection {
     }
 
     /// 开始拖拽：记录起始坐标，清除旧选区
-    pub fn start_drag(&mut self, row: u16, col: u16) {
+    pub fn start_drag(&mut self, row: usize, col: u16) {
         self.start = Some((row, col));
         self.end = Some((row, col));
         self.dragging = true;
@@ -38,7 +38,7 @@ impl TextSelection {
     }
 
     /// 更新拖拽：更新结束坐标
-    pub fn update_drag(&mut self, row: u16, col: u16) {
+    pub fn update_drag(&mut self, row: usize, col: u16) {
         if self.dragging {
             self.end = Some((row, col));
         }
@@ -267,7 +267,7 @@ fn char_col_to_offset(
 /// 将视觉坐标 (visual_row, visual_col) 通过 wrap_map 映射为 (line_idx, grapheme_offset)。
 /// `usable_width` 为消息区域可用宽度（text_area.width）。
 pub fn visual_to_logical(
-    visual_row: u16,
+    visual_row: usize,
     visual_col: u16,
     wrap_map: &[crate::ui::render_thread::WrappedLineInfo],
     usable_width: u16,
@@ -280,7 +280,7 @@ pub fn visual_to_logical(
     if visual_row < info.visual_row_start {
         return None;
     }
-    let row_in_line = (visual_row - info.visual_row_start) as usize;
+    let row_in_line = visual_row - info.visual_row_start;
     let char_offset = char_col_to_offset(&info.char_widths, visual_col, row_in_line, usable_width);
     Some((info.line_idx, char_offset))
 }
@@ -300,8 +300,8 @@ fn grapheme_to_byte_idx(text: &str, grapheme_idx: usize) -> usize {
 /// 首行从 start_col 对应的字符位置截取，末行到 end_col 对应的字符位置截取，中间行整行。
 /// 所有 char offset 通过 grapheme_to_byte_idx 转为 byte 索引后切割，保证 unicode 安全。
 pub fn extract_selected_text(
-    start: (u16, u16),
-    end: (u16, u16),
+    start: (usize, u16),
+    end: (usize, u16),
     wrap_map: &[crate::ui::render_thread::WrappedLineInfo],
     usable_width: u16,
 ) -> Option<String> {
@@ -331,8 +331,8 @@ pub fn extract_selected_text(
 
         if start_idx == end_idx {
             // 同一逻辑行：截取 [start_char, end_char)
-            let row_in_start = (start_row - info.visual_row_start) as usize;
-            let row_in_end = (end_row - info.visual_row_start) as usize;
+            let row_in_start = start_row - info.visual_row_start;
+            let row_in_end = end_row - info.visual_row_start;
             let c_start =
                 char_col_to_offset(&info.char_widths, start_col, row_in_start, usable_width);
             let c_end = char_col_to_offset(&info.char_widths, end_col, row_in_end, usable_width);
@@ -344,14 +344,14 @@ pub fn extract_selected_text(
             parts.push(text[b_start..b_end].to_string());
         } else if i == start_idx {
             // 首行：从 start_col 对应的字符位置到行尾
-            let row_in_line = (start_row - info.visual_row_start) as usize;
+            let row_in_line = start_row - info.visual_row_start;
             let c_start =
                 char_col_to_offset(&info.char_widths, start_col, row_in_line, usable_width);
             let b_start = grapheme_to_byte_idx(text, c_start);
             parts.push(text[b_start..].to_string());
         } else if i == end_idx {
             // 末行：从行首到 end_col 对应的字符位置
-            let row_in_line = (end_row - info.visual_row_start) as usize;
+            let row_in_line = end_row - info.visual_row_start;
             let c_end = char_col_to_offset(&info.char_widths, end_col, row_in_line, usable_width);
             let b_end = grapheme_to_byte_idx(text, c_end);
             parts.push(text[..b_end].to_string());
