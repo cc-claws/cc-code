@@ -375,7 +375,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         let blocks: Vec<PeriContentBlock> = req.prompt.iter().filter_map(|b| {
                             match b {
                                 agent_client_protocol::schema::ContentBlock::Text(t) => {
-                                    Some(PeriContentBlock::text(&t.text))
+                                    Some(PeriContentBlock::text(t.text.as_str()))
                                 }
                                 agent_client_protocol::schema::ContentBlock::Image(img) => {
                                     Some(PeriContentBlock::image_base64(&img.mime_type, &img.data))

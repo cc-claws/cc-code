@@ -583,7 +583,7 @@ impl MessageViewModel {
                             let rendered = parse_markdown_default(&text);
                             let rendered_prefix_lines = rendered.lines.len();
                             ContentBlockView::Text {
-                                raw: text.clone(),
+                                raw: text.to_string(),
                                 rendered,
                                 dirty: false,
                                 rendered_prefix_len: text.len(),

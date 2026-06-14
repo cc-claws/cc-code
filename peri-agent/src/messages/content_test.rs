@@ -1,9 +1,95 @@
 use super::*;
+use crate::messages::BaseMessage;
+use std::sync::Arc;
 
 #[test]
 fn test_content_block_text() {
     let b = ContentBlock::text("hello");
     assert_eq!(b.as_text(), Some("hello"));
+}
+
+#[test]
+fn test_content_block_text_arc_shares_memory_on_clone() {
+    let big = "x".repeat(64 * 1024);
+    let block1 = ContentBlock::text(big.clone());
+    let block2 = block1.clone();
+
+    match (&block1, &block2) {
+        (ContentBlock::Text { text: t1 }, ContentBlock::Text { text: t2 }) => {
+            assert!(Arc::ptr_eq(t1, t2), "clone 后应共享同一份文本内存");
+            assert_eq!(t1.as_ref(), big.as_str());
+        }
+        _ => panic!("应为 ContentBlock::Text 变体"),
+    }
+}
+
+#[test]
+fn test_message_content_text_arc_shares_memory_on_clone() {
+    let big = "x".repeat(64 * 1024);
+    let mc1 = MessageContent::text(big.clone());
+    let mc2 = mc1.clone();
+
+    match (&mc1, &mc2) {
+        (MessageContent::Text(t1), MessageContent::Text(t2)) => {
+            assert!(Arc::ptr_eq(t1, t2), "clone 后应共享同一份文本内存");
+            assert_eq!(t1.as_ref(), big.as_str());
+        }
+        _ => panic!("应为 MessageContent::Text 变体"),
+    }
+}
+
+#[test]
+fn test_tool_result_base_message_clone_reuses_text_arc() {
+    let msg = BaseMessage::tool_result("tool-call-1", MessageContent::text("x".repeat(64 * 1024)));
+    let cloned = msg.clone();
+
+    match (&msg, &cloned) {
+        (
+            BaseMessage::Tool {
+                content: MessageContent::Text(t1),
+                ..
+            },
+            BaseMessage::Tool {
+                content: MessageContent::Text(t2),
+                ..
+            },
+        ) => assert!(
+            Arc::ptr_eq(t1, t2),
+            "BaseMessage clone 后 ToolResult 文本应共享同一份 Arc"
+        ),
+        _ => panic!("应为 Tool 消息的 Text 内容"),
+    }
+}
+
+#[test]
+fn test_message_content_blocks_reuses_text_arc() {
+    let mc = MessageContent::text("x".repeat(64 * 1024));
+    let original = match &mc {
+        MessageContent::Text(text) => Arc::clone(text),
+        _ => panic!("应为 MessageContent::Text 变体"),
+    };
+
+    let blocks = mc.content_blocks();
+    match &blocks[0] {
+        ContentBlock::Text { text } => {
+            assert!(
+                Arc::ptr_eq(&original, text),
+                "content_blocks 应复用 MessageContent::Text 的 Arc"
+            );
+        }
+        _ => panic!("应为 ContentBlock::Text 变体"),
+    }
+}
+
+#[test]
+fn test_text_json_shape_is_unchanged() {
+    let block = ContentBlock::text("hello world");
+    let block_json = serde_json::to_string(&block).unwrap();
+    assert_eq!(block_json, r#"{"type":"text","text":"hello world"}"#);
+
+    let content = MessageContent::text("hello world");
+    let content_json = serde_json::to_string(&content).unwrap();
+    assert_eq!(content_json, r#""hello world""#);
 }
 
 #[test]

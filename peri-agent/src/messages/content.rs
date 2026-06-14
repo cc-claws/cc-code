@@ -1,4 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::sync::Arc;
 
 // ─── ImageSource ──────────────────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ pub enum DocumentSource {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentBlock {
     /// 纯文本
-    Text { text: String },
+    Text { text: Arc<str> },
 
     /// 图片（多模态）
     Image { source: ImageSource },
@@ -155,7 +156,7 @@ impl<'de> Deserialize<'de> for ContentBlock {
                     .and_then(|t| t.as_str())
                     .ok_or_else(|| serde::de::Error::missing_field("text"))?;
                 Ok(Self::Text {
-                    text: text.to_string(),
+                    text: Arc::<str>::from(text),
                 })
             }
             "image" => {
@@ -233,7 +234,7 @@ impl<'de> Deserialize<'de> for ContentBlock {
 }
 
 impl ContentBlock {
-    pub fn text(text: impl Into<String>) -> Self {
+    pub fn text(text: impl Into<Arc<str>>) -> Self {
         Self::Text { text: text.into() }
     }
 
@@ -294,7 +295,7 @@ impl ContentBlock {
     /// 若是 TextBlock，返回文字内容
     pub fn as_text(&self) -> Option<&str> {
         match self {
-            Self::Text { text } => Some(text),
+            Self::Text { text } => Some(text.as_ref()),
             _ => None,
         }
     }
@@ -329,7 +330,7 @@ impl ContentBlock {
 #[serde(untagged)]
 pub enum MessageContent {
     /// 纯文本
-    Text(String),
+    Text(Arc<str>),
     /// 标准 content blocks（type-safe）
     Blocks(Vec<ContentBlock>),
     /// Provider 原生格式（raw JSON objects）
@@ -338,7 +339,7 @@ pub enum MessageContent {
 
 impl MessageContent {
     /// 从字符串构建
-    pub fn text(s: impl Into<String>) -> Self {
+    pub fn text(s: impl Into<Arc<str>>) -> Self {
         Self::Text(s.into())
     }
 
@@ -355,7 +356,7 @@ impl MessageContent {
     /// 提取所有文本内容（拼接多个 text block）
     pub fn text_content(&self) -> String {
         match self {
-            Self::Text(s) => s.clone(),
+            Self::Text(s) => s.to_string(),
             Self::Blocks(blocks) => blocks
                 .iter()
                 .filter_map(|b| b.as_text())
@@ -381,7 +382,7 @@ impl MessageContent {
                 if s.is_empty() {
                     vec![]
                 } else {
-                    vec![ContentBlock::text(s.clone())]
+                    vec![ContentBlock::text(Arc::clone(s))]
                 }
             }
             Self::Blocks(blocks) => blocks.clone(),
@@ -435,19 +436,25 @@ impl MessageContent {
 
 impl Default for MessageContent {
     fn default() -> Self {
-        Self::Text(String::new())
+        Self::Text(Arc::<str>::from(""))
     }
 }
 
 impl From<String> for MessageContent {
     fn from(s: String) -> Self {
-        Self::Text(s)
+        Self::Text(s.into())
     }
 }
 
 impl From<&str> for MessageContent {
     fn from(s: &str) -> Self {
-        Self::Text(s.to_string())
+        Self::Text(s.into())
+    }
+}
+
+impl From<Arc<str>> for MessageContent {
+    fn from(s: Arc<str>) -> Self {
+        Self::Text(s)
     }
 }
 

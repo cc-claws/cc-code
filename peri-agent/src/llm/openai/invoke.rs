@@ -243,7 +243,7 @@ pub(super) fn parse_assistant_message(
 
     // 添加文本 block
     if !content_str.is_empty() {
-        blocks.push(ContentBlock::text(&content_str));
+        blocks.push(ContentBlock::text(content_str.as_str()));
     }
 
     if *stop_reason == StopReason::ToolUse {
