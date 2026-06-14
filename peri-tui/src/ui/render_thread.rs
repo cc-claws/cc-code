@@ -29,9 +29,9 @@ pub struct WrappedLineInfo {
     /// 该行在 cache.lines 中的索引
     pub line_idx: usize,
     /// 该逻辑行渲染后的起始视觉行号（基于 0）
-    pub visual_row_start: u16,
+    pub visual_row_start: usize,
     /// 该逻辑行渲染后的结束视觉行号（不含）
-    pub visual_row_end: u16,
+    pub visual_row_end: usize,
     /// 该逻辑行的纯文本内容（去样式，用于复制）
     pub plain_text: String,
     /// 每个字符的显示宽度序列（ASCII=1, CJK=2）
@@ -126,7 +126,7 @@ impl RenderTask {
             return (0, Vec::new());
         }
         let mut wrap_map = Vec::with_capacity(lines.len());
-        let mut visual_row: u16 = 0;
+        let mut visual_row: usize = 0;
 
         for (idx, line) in lines.iter().enumerate() {
             let plain_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -144,7 +144,7 @@ impl RenderTask {
                 let count = Paragraph::new(text)
                     .wrap(Wrap { trim: false })
                     .line_count(width);
-                count.max(1) as u16
+                count.max(1)
             };
 
             wrap_map.push(WrappedLineInfo {
@@ -156,7 +156,7 @@ impl RenderTask {
             });
             visual_row += visual_count;
         }
-        (visual_row as usize, wrap_map)
+        (visual_row, wrap_map)
     }
 
     /// 增量构建 wrap_map：复用旧 cache 中稳定前缀的 wrap_map，
@@ -223,7 +223,7 @@ impl RenderTask {
         let mut wrap_map = old_cache.wrap_map[..stable_line_end].to_vec();
         drop(old_cache);
 
-        let total_lines = base_visual as usize + delta_total;
+        let total_lines = base_visual + delta_total;
         wrap_map.append(&mut delta_wrap);
         (total_lines, wrap_map)
     }
@@ -459,7 +459,7 @@ impl RenderTask {
                             let cache = self.cache.read();
                             let line_idx = cache.message_offsets[anchor_message_idx];
                             if line_idx < cache.wrap_map.len() {
-                                Some(cache.wrap_map[line_idx].visual_row_start as usize)
+                                Some(cache.wrap_map[line_idx].visual_row_start)
                             } else {
                                 None
                             }

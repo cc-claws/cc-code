@@ -944,7 +944,7 @@ fn flush_scrollback_history(
         let mut capped_end = start;
         let mut capped_height = 0usize;
         for info in &cache.wrap_map[start..end] {
-            let next_height = (info.visual_row_end as usize).saturating_sub(start_visual);
+            let next_height = info.visual_row_end.saturating_sub(start_visual);
             if next_height > u16::MAX as usize {
                 break;
             }
@@ -984,7 +984,7 @@ fn scrollback_commit_end(
         return 0;
     }
     let retain_from_visual = total_visual_rows - retained_height;
-    wrap_map.partition_point(|info| info.visual_row_end as usize <= retain_from_visual)
+    wrap_map.partition_point(|info| info.visual_row_end <= retain_from_visual)
 }
 
 fn committed_visual_start(
@@ -1001,7 +1001,7 @@ fn committed_visual_start(
     }
     wrap_map
         .get(committed_lines)
-        .map(|info| info.visual_row_start as usize)
+        .map(|info| info.visual_row_start)
         .unwrap_or(total_visual_rows)
 }
 
@@ -1025,7 +1025,7 @@ mod tests {
     use super::*;
     use peri_tui::ui::render_thread::WrappedLineInfo;
 
-    fn wrapped_line(line_idx: usize, start: u16, end: u16) -> WrappedLineInfo {
+    fn wrapped_line(line_idx: usize, start: usize, end: usize) -> WrappedLineInfo {
         WrappedLineInfo {
             line_idx,
             visual_row_start: start,
@@ -1063,7 +1063,7 @@ mod tests {
     #[test]
     fn test_scrollback_commit_end_retains_last_viewport() {
         let wrap_map = (0..10)
-            .map(|idx| wrapped_line(idx, idx as u16, idx as u16 + 1))
+            .map(|idx| wrapped_line(idx, idx, idx + 1))
             .collect::<Vec<_>>();
         let result = scrollback_commit_end(10, 4, &wrap_map);
         assert_eq!(result, 6);
@@ -1072,7 +1072,7 @@ mod tests {
     #[test]
     fn test_scrollback_commit_end_does_not_commit_when_content_fits() {
         let wrap_map = (0..4)
-            .map(|idx| wrapped_line(idx, idx as u16, idx as u16 + 1))
+            .map(|idx| wrapped_line(idx, idx, idx + 1))
             .collect::<Vec<_>>();
         let result = scrollback_commit_end(4, 4, &wrap_map);
         assert_eq!(result, 0);

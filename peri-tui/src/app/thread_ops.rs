@@ -30,7 +30,7 @@ impl App {
 
     /// 滚动到底部（恢复 follow 模式）
     pub fn scroll_to_bottom(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = u16::MAX;
+        self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
         self.session_mgr.current_mut().ui.scroll_follow = true;
     }
 

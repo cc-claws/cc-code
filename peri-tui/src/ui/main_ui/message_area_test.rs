@@ -2,7 +2,7 @@ use super::*;
 use crate::ui::render_thread::WrappedLineInfo;
 use crate::ui::theme;
 
-fn wrapped_line(line_idx: usize, start: u16, end: u16) -> WrappedLineInfo {
+fn wrapped_line(line_idx: usize, start: usize, end: usize) -> WrappedLineInfo {
     WrappedLineInfo {
         line_idx,
         visual_row_start: start,
@@ -15,6 +15,16 @@ fn wrapped_line(line_idx: usize, start: u16, end: u16) -> WrappedLineInfo {
 /// 检查 span 是否有选区背景色
 fn has_selection_bg(style: Style) -> bool {
     matches!(style.bg, Some(theme::SELECTION_BG))
+}
+
+#[test]
+fn test_committed_visual_start_allows_large_visual_rows() {
+    let wrap_map = vec![
+        wrapped_line(0, 0, u16::MAX as usize + 10),
+        wrapped_line(1, u16::MAX as usize + 10, u16::MAX as usize + 20),
+    ];
+    let result = committed_visual_start(1, 2, u16::MAX as usize + 20, &wrap_map);
+    assert_eq!(result, u16::MAX as usize + 10);
 }
 
 #[test]
