@@ -417,7 +417,23 @@ fn test_load_merged_config_full_with_plugin() {
     )
     .unwrap();
 
-    let (_config, plugin_sources) = load_merged_config_full(&cwd, &claude_home);
+    let (config, plugin_sources) = load_merged_config_full(&cwd, &claude_home);
+    let server = config.mcp_servers.get("plugin:p1:srv1").unwrap();
+    let env = server.env.as_ref().unwrap();
+    let plugin_root = plugin_dir.to_string_lossy().to_string();
+    let plugin_data = plugin_dir
+        .join(".claude-plugin")
+        .join("data")
+        .to_string_lossy()
+        .to_string();
+    assert_eq!(
+        env.get("CLAUDE_PLUGIN_ROOT").map(String::as_str),
+        Some(plugin_root.as_str())
+    );
+    assert_eq!(
+        env.get("CLAUDE_PLUGIN_DATA").map(String::as_str),
+        Some(plugin_data.as_str())
+    );
     assert!(
         plugin_sources.contains_key("plugin:p1:srv1"),
         "plugin_sources should contain plugin:p1:srv1, got: {:?}",
