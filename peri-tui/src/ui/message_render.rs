@@ -299,9 +299,9 @@ fn render_shell_command(
     };
     let cwd_label: String = cwd.chars().take(80).collect();
     lines.push(Line::from(vec![
-        Span::styled("> ", Style::default().fg(theme::DIM)),
         Span::styled(indicator_ch.to_string(), Style::default().fg(indicator_color)),
         Span::raw(" "),
+        Span::styled("> ", Style::default().fg(theme::DIM)),
         Span::styled(
             format!("!{}", command),
             Style::default()

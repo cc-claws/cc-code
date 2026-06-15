@@ -143,7 +143,7 @@
             .collect::<Vec<_>>()
             .join("");
 
-        assert!(full_text.contains("!git status"), "应显示带 ! 前缀的命令");
+        assert!(full_text.contains("> !git status"), "应显示带 ! 前缀的命令");
         assert!(
             full_text.contains("Ctrl+O for details"),
             "超长输出应显示 Ctrl+O 详细模式提示"
