@@ -1070,7 +1070,7 @@ async fn test_tool_call_widget_renders_completed() {
         content_hash: 0,
     };
 
-    let lines = crate::ui::message_render::render_view_model(&vm, Some(1), 80, false); // Render into a visible area for verification
+    let lines = crate::ui::message_render::render_view_model(&vm, Some(1), 80, false, 0); // Render into a visible area for verification
     use ratatui::widgets::Paragraph;
     let paragraph = Paragraph::new(lines);
     handle

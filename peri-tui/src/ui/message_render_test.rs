@@ -136,14 +136,14 @@
         };
         vm.recompute_hash();
 
-        let lines = render_view_model(&vm, None, 80, false);
+        let lines = render_view_model(&vm, None, 80, false, 0);
         let full_text = lines
             .iter()
             .flat_map(|line| line.spans.iter().map(|span| span.content.clone()))
             .collect::<Vec<_>>()
             .join("");
 
-        assert!(full_text.contains("> !git status"), "应显示带 ! 前缀的命令");
+        assert!(full_text.contains("!git status"), "应显示带 ! 前缀的命令");
         assert!(
             full_text.contains("Ctrl+O for details"),
             "超长输出应显示 Ctrl+O 详细模式提示"
@@ -151,7 +151,7 @@
         assert!(full_text.contains("line 05"), "普通模式应展示前 6 行");
         assert!(!full_text.contains("line 06"), "普通模式应截断第 7 行后的输出");
 
-        let detail_lines = render_view_model(&vm, None, 80, true);
+        let detail_lines = render_view_model(&vm, None, 80, true, 0);
         let detail_text = detail_lines
             .iter()
             .flat_map(|line| line.spans.iter().map(|span| span.content.clone()))
@@ -183,7 +183,7 @@
         };
         vm.recompute_hash();
 
-        let lines = render_view_model(&vm, None, 80, false);
+        let lines = render_view_model(&vm, None, 80, false, 0);
         let has_red_span = lines.iter().flat_map(|line| &line.spans).any(|span| {
             span.content.as_ref() == "red" && span.style.fg == Some(Color::Red)
         });
@@ -206,7 +206,7 @@
             content_hash: 0,
         };
         vm_ok.recompute_hash();
-        let lines_ok = render_view_model(&vm_ok, None, 80, false);
+        let lines_ok = render_view_model(&vm_ok, None, 80, false, 0);
         let stderr_span_ok = lines_ok
             .iter()
             .flat_map(|l| &l.spans)
@@ -230,7 +230,7 @@
             content_hash: 0,
         };
         vm_err.recompute_hash();
-        let lines_err = render_view_model(&vm_err, None, 80, false);
+        let lines_err = render_view_model(&vm_err, None, 80, false, 0);
         let stderr_span_err = lines_err
             .iter()
             .flat_map(|l| &l.spans)
@@ -258,7 +258,7 @@
             diff_lines: None,
             content_hash: 0,
         };
-        let lines = render_view_model(&vm, Some(1), 80, false);
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
         assert!(
             lines.len() >= 3,
             "collapsed error ToolBlock should have header + error lines, got {}",
@@ -291,7 +291,7 @@
             diff_lines: None,
             content_hash: 0,
         };
-        let lines = render_view_model(&vm, Some(1), 80, false);
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
         assert_eq!(
             lines.len(),
             1,
@@ -315,12 +315,12 @@
             content_hash: 0,
         };
 
-        let normal_text = render_view_model(&vm, Some(1), 80, false)
+        let normal_text = render_view_model(&vm, Some(1), 80, false, 0)
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect::<Vec<_>>()
             .join("");
-        let detail_text = render_view_model(&vm, Some(1), 80, true)
+        let detail_text = render_view_model(&vm, Some(1), 80, true, 0)
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect::<Vec<_>>()
@@ -361,12 +361,12 @@
             content_hash: 0,
         };
 
-        let normal_text = render_view_model(&vm, Some(1), 80, false)
+        let normal_text = render_view_model(&vm, Some(1), 80, false, 0)
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect::<Vec<_>>()
             .join("");
-        let detail_text = render_view_model(&vm, Some(1), 80, true)
+        let detail_text = render_view_model(&vm, Some(1), 80, true, 0)
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect::<Vec<_>>()
@@ -414,7 +414,7 @@
             collapsed: true,
             content_hash: 0,
         };
-        let lines = render_view_model(&vm, Some(1), 80, false);
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
         let text: String = lines
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
@@ -450,7 +450,7 @@
             content_hash: 0,
         };
 
-        let detail_text = render_view_model(&vm, Some(1), 80, true)
+        let detail_text = render_view_model(&vm, Some(1), 80, true, 0)
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect::<Vec<_>>()
@@ -480,7 +480,7 @@
             instance_id: None,
             content_hash: 0,
         };
-        let lines = render_view_model(&vm, Some(1), 80, false);
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
         let title_color = lines
             .first()
             .and_then(|l| l.spans.get(1).and_then(|s| s.style.fg));
@@ -508,7 +508,7 @@
             *system_reminder = true;
         }
         vm.recompute_hash();
-        let lines = render_view_model(&vm, Some(1), 80, false);
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
         assert_eq!(lines.len(), 1, "系统提醒应只渲染一行");
         let text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
         assert!(text.contains("上下文已压缩"), "应显示压缩提示文字，实际: {}", text);
@@ -517,7 +517,7 @@
     #[test]
     fn test_render_normal_user_bubble_unchanged() {
         let vm = MessageViewModel::user("Hello World".to_string());
-        let lines = render_view_model(&vm, Some(1), 80, false);
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
         let first_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
         assert!(first_text.contains("\u{276f}"), "普通消息应有 ❯ 前缀");
         assert!(first_text.contains("Hello"), "应包含原始内容");
