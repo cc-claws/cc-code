@@ -1,17 +1,22 @@
 use super::ToolCallStatus;
+use ratatui::style::Color;
 
-pub fn format_indicator(status: ToolCallStatus, tick: u64) -> &'static str {
+/// 返回 (指示器字符, 颜色)
+///
+/// - Pending: 灰色 ●
+/// - Running: 黄色 ● 闪烁
+/// - Completed: 绿色 ●
+/// - Failed: 红色 ●
+pub fn format_indicator(status: ToolCallStatus, tick: u64) -> (&'static str, Color) {
     match status {
-        ToolCallStatus::Pending => "●",
+        ToolCallStatus::Pending => ("●", Color::Rgb(153, 153, 153)), // #999999 MUTED
         ToolCallStatus::Running => {
-            if (tick / 4).is_multiple_of(2) {
-                "●"
-            } else {
-                " "
-            }
+            let visible = (tick / 4).is_multiple_of(2);
+            let ch = if visible { "●" } else { " " };
+            (ch, Color::Rgb(255, 204, 0)) // #FFCC00 YELLOW
         }
-        ToolCallStatus::Completed => "●",
-        ToolCallStatus::Failed => "✗",
+        ToolCallStatus::Completed => ("●", Color::Rgb(78, 186, 101)), // #4EBA65 SAGE
+        ToolCallStatus::Failed => ("●", Color::Rgb(255, 107, 128)),   // #FF6B80 ERROR
     }
 }
 

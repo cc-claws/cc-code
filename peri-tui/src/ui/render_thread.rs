@@ -1,7 +1,8 @@
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    sync::Arc,
+    sync::{Arc, OnceLock},
+    time::Instant,
 };
 
 use parking_lot::RwLock;
@@ -239,6 +240,10 @@ impl RenderTask {
         diff_visible: bool,
         detail_mode: bool,
     ) -> Vec<Line<'static>> {
+        // 进程级启动锚点（首次调用时初始化），用于计算闪烁 tick
+        // 200ms 一格 → 800ms 闪烁周期（4 格一周期，2 格显示 2 格隐藏）
+        static STARTUP: OnceLock<Instant> = OnceLock::new();
+        let tick = STARTUP.get_or_init(Instant::now).elapsed().as_millis() as u64 / 200;
         // 处理 dirty blocks（使用增量解析）
         if let MessageViewModel::AssistantBubble {
             blocks,
@@ -266,7 +271,7 @@ impl RenderTask {
         // diff_visible 控制 Write/Edit 工具的 diff 显示
         // 两者独立，取并集：任一为 true 时展开对应内容
         let expand_mode = detail_mode || diff_visible;
-        let mut lines = render_view_model(vm, Some(index), width, expand_mode);
+        let mut lines = render_view_model(vm, Some(index), width, expand_mode, tick);
         // 每条消息后追加空行分隔符（包括空内容消息，确保间距一致）
         lines.push(Line::from(""));
         lines
