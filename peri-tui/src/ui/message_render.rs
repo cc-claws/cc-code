@@ -279,9 +279,19 @@ fn render_shell_command(
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let status_style = match exit_code {
-        None => Style::default().fg(theme::LOADING),
+        None => Style::default().fg(theme::YELLOW),
         Some(0) => Style::default().fg(theme::SAGE),
         Some(_) => Style::default().fg(theme::ERROR),
+    };
+    let (indicator_ch, indicator_color) = match exit_code {
+        None => {
+            let tick = std::time::Instant::now().elapsed().as_millis() as u64 / 200;
+            let visible = (tick / 4).is_multiple_of(2);
+            let ch = if visible { "●" } else { " " };
+            (ch, theme::YELLOW)
+        }
+        Some(0) => ("●", theme::SAGE),
+        Some(_) => ("●", theme::ERROR),
     };
     let status = match exit_code {
         None => " running".to_string(),
@@ -290,6 +300,8 @@ fn render_shell_command(
     let cwd_label: String = cwd.chars().take(80).collect();
     lines.push(Line::from(vec![
         Span::styled("> ", Style::default().fg(theme::DIM)),
+        Span::styled(indicator_ch.to_string(), Style::default().fg(indicator_color)),
+        Span::raw(" "),
         Span::styled(
             format!("!{}", command),
             Style::default()
@@ -571,30 +583,25 @@ pub fn render_view_model(
                 state.args_summary = args.clone();
             }
 
-            // 指示器颜色：Running=黄，Completed/Error=绿（对齐 Claude Hub）
-            let indicator_color = if is_running {
-                theme::YELLOW
-            } else {
-                theme::SAGE
-            };
-
-            // 图标：Running=◐ 闪烁，Completed=✓，Error=✓（对齐 Claude Hub）
-            let indicator = if is_running {
+            // 指示器：统一 ● 圆点，颜色语义化
+            let (indicator, indicator_color) = if is_running {
                 let tick = std::time::Instant::now().elapsed().as_millis() as u64 / 200;
-                if (tick / 4).is_multiple_of(2) {
-                    "◐"
-                } else {
-                    " "
-                }
+                let visible = (tick / 4).is_multiple_of(2);
+                let ch = if visible { "●" } else { " " };
+                (ch, theme::YELLOW)
+            } else if *is_error {
+                ("●", theme::ERROR)
             } else {
-                "✓"
+                ("●", theme::SAGE)
             };
 
-            // 工具名颜色：Running=青色 bold，Completed/Error=白色（对齐 Claude Hub）
+            // 工具名颜色：Running=青色 bold，Completed=白色，Error=红色
             let name_style = if is_running {
                 Style::default()
                     .fg(theme::CYAN)
                     .add_modifier(Modifier::BOLD)
+            } else if *is_error {
+                Style::default().fg(theme::ERROR)
             } else {
                 Style::default().fg(theme::TEXT)
             };
