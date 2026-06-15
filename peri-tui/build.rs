@@ -11,7 +11,7 @@ fn main() {
         res.set("FileVersion", "0.2.0.0");
         res.set("ProductVersion", "0.2.0.0");
         res.set("ProductName", "Peri");
-        res.set("FileDescription", "Peri - AI Agent Terminal Interface");
+        res.set("FileDescription", "Peri Code");
         res.set("CompanyName", "Peri");
         res.set("LegalCopyright", "Copyright (c) 2026 Peri");
         res.set_manifest(
