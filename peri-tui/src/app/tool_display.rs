@@ -17,7 +17,7 @@ fn strip_cwd(path: &str, cwd: Option<&str>) -> String {
 /// 返回简短 display name，控制在 3-6 字符以保持 UI 对齐
 pub fn format_tool_name(tool: &str) -> String {
     match tool {
-        "Bash" => "Shell",
+        "Bash" => "Bash",
         "Read" => "Read",
         "Write" => "Write",
         "Edit" => "Edit",

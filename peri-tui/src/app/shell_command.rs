@@ -74,7 +74,7 @@ impl App {
         self.session_mgr
             .current_mut()
             .spinner_state
-            .set_verb(Some("Shell"));
+            .set_verb(Some("Bash"));
         self.scroll_to_bottom();
         self.render_rebuild();
 
@@ -175,7 +175,7 @@ impl App {
         self.session_mgr
             .current_mut()
             .spinner_state
-            .set_verb(Some("Shell"));
+            .set_verb(Some("Bash"));
         self.session_mgr.current_mut().ui.textarea = build_textarea(true);
     }
 
