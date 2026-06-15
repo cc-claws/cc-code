@@ -249,7 +249,7 @@
         let vm = MessageViewModel::ToolBlock {
             tool_name: "Bash".to_string(),
             tool_call_id: "tc_err".to_string(),
-            display_name: "Shell".to_string(),
+            display_name: "Bash".to_string(),
             args_display: Some("bad_command".to_string()),
             content: "command not found: bad_command\nexit code 127".to_string(),
             is_error: true,

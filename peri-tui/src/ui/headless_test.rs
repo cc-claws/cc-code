@@ -323,7 +323,7 @@ async fn test_tool_call_message_visible_when_toggled() {
     // ToolStart 创建的 ToolBlock，display_name 为 format_tool_name 的结果
     let has_tool_call_text = snap
         .iter()
-        .any(|l| l.contains("Shell") || l.contains("Bash"));
+        .any(|l| l.contains("Bash"));
     assert!(
         has_tool_call_text,
         "ToolCall 创建的 ToolBlock 应在快照中可见，但实际内容为:\n{}",
@@ -1430,7 +1430,7 @@ async fn test_tool_then_text_preserves_tool_block() {
     app.push_agent_event(AgentEvent::ToolStart {
         tool_call_id: "tc1".into(),
         name: "Bash".into(),
-        display: "Shell".into(),
+        display: "Bash".into(),
         args: "ls".into(),
         input: serde_json::json!({"command": "ls"}),
         source_agent_id: None,

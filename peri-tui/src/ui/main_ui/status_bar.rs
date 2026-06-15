@@ -602,7 +602,6 @@ fn format_tool_display_name(name: &str) -> &str {
         "SearchExtraTools" => "Search",
         "ExecuteExtraTool" => "Exec",
         "LspTool" => "LSP",
-        "Shell" => "Shell",
         other => other,
     }
 }
