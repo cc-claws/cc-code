@@ -1,12 +1,40 @@
 use ratatui::{
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
 };
 
 use super::{
     message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory},
     theme,
 };
+
+/// 将 markdown 渲染结果的所有 span 颜色压暗到 DIM 色板。
+///
+/// 保留 syntect 语法高亮的色相，但统一降亮度，
+/// 使 reasoning 内容在视觉层级上低于正文。
+fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
+    text.lines
+        .into_iter()
+        .map(|line| {
+            let dimmed: Vec<Span<'static>> = line
+                .spans
+                .into_iter()
+                .map(|span| {
+                    let style = span.style;
+                    // 如果 span 有前景色，保持色相但强制加 DIM 修饰
+                    // 如果无前景色（默认色），直接设为 DIM
+                    let dim_style = if style.fg.is_some() {
+                        style.add_modifier(Modifier::DIM)
+                    } else {
+                        Style::default().fg(theme::DIM)
+                    };
+                    Span::styled(span.content, dim_style)
+                })
+                .collect();
+            Line::from(dimmed)
+        })
+        .collect()
+}
 
 const SHELL_OUTPUT_COLLAPSED_LINES: usize = 6;
 const SHELL_OUTPUT_DETAIL_LINES: usize = 40;
@@ -498,34 +526,22 @@ pub fn render_view_model(
                             ),
                         ]));
                         // detail_mode 显示完整 reasoning，否则只显示 tail_lines
-                        if detail_mode {
-                            // 详细模式：显示完整 reasoning 内容
-                            let lines_iter = text.lines();
-                            for (i, tail_line) in lines_iter.enumerate() {
+                        // 两者都走 markdown 解析 + DIM overlay，代码块获得语法高亮
+                        let content = if detail_mode {
+                            Some(text.as_str())
+                        } else {
+                            tail_lines.as_deref()
+                        };
+                        if let Some(content_text) = content {
+                            let parsed = super::markdown::parse_markdown_default(content_text);
+                            let dimmed = dim_markdown_lines(parsed);
+                            for (i, mut line) in dimmed.into_iter().enumerate() {
                                 let prefix = if i == 0 { "  ⎿ " } else { "    " };
-                                lines.push(Line::from(vec![
-                                    Span::styled(prefix, Style::default().fg(theme::DIM)),
-                                    Span::styled(
-                                        tail_line.to_string(),
-                                        Style::default().fg(theme::DIM),
-                                    ),
-                                ]));
+                                let mut spans =
+                                    vec![Span::styled(prefix, Style::default().fg(theme::DIM))];
+                                spans.append(&mut line.spans);
+                                lines.push(Line::from(spans));
                             }
-                            lines.push(Line::from(""));
-                        } else if let Some(tail) = tail_lines {
-                            // 普通模式：只显示 tail 预览
-                            let lines_iter = tail.lines();
-                            for (i, tail_line) in lines_iter.enumerate() {
-                                let prefix = if i == 0 { "  ⎿ " } else { "    " };
-                                lines.push(Line::from(vec![
-                                    Span::styled(prefix, Style::default().fg(theme::DIM)),
-                                    Span::styled(
-                                        tail_line.to_string(),
-                                        Style::default().fg(theme::DIM),
-                                    ),
-                                ]));
-                            }
-                            // tail 预览后加空行分隔后续内容
                             lines.push(Line::from(""));
                         } else {
                             // 无 tail 预览时，摘要行后加空行分隔
@@ -974,6 +990,5 @@ pub fn render_view_model(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::message_view::AgentSummary;
     include!("message_render_test.rs");
 }
