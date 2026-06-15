@@ -5,7 +5,7 @@ fn test_format_tool_name_new_names() {
     assert_eq!(format_tool_name("Edit"), "Edit");
     assert_eq!(format_tool_name("Glob"), "Glob");
     assert_eq!(format_tool_name("Grep"), "Grep");
-    assert_eq!(format_tool_name("Bash"), "Shell");
+    assert_eq!(format_tool_name("Bash"), "Bash");
     assert_eq!(format_tool_name("TodoWrite"), "Todo");
     assert_eq!(format_tool_name("AskUserQuestion"), "Ask");
     assert_eq!(format_tool_name("Agent"), "Agent");

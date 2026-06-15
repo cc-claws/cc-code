@@ -1,24 +1,34 @@
 use super::*;
+use ratatui::style::Color;
 
 #[test]
 fn test_indicator_running_blinks() {
-    assert_eq!(format_indicator(ToolCallStatus::Running, 0), "●");
-    assert_eq!(format_indicator(ToolCallStatus::Running, 4), " ");
+    let (ch, color) = format_indicator(ToolCallStatus::Running, 0);
+    assert_eq!(ch, "●");
+    assert_eq!(color, Color::Rgb(255, 204, 0));
+    let (ch, _) = format_indicator(ToolCallStatus::Running, 4);
+    assert_eq!(ch, " ");
 }
 
 #[test]
 fn test_indicator_pending() {
-    assert_eq!(format_indicator(ToolCallStatus::Pending, 0), "●");
+    let (ch, color) = format_indicator(ToolCallStatus::Pending, 0);
+    assert_eq!(ch, "●");
+    assert_eq!(color, Color::Rgb(153, 153, 153));
 }
 
 #[test]
 fn test_indicator_completed() {
-    assert_eq!(format_indicator(ToolCallStatus::Completed, 0), "●");
+    let (ch, color) = format_indicator(ToolCallStatus::Completed, 0);
+    assert_eq!(ch, "●");
+    assert_eq!(color, Color::Rgb(78, 186, 101));
 }
 
 #[test]
 fn test_indicator_failed() {
-    assert_eq!(format_indicator(ToolCallStatus::Failed, 0), "✗");
+    let (ch, color) = format_indicator(ToolCallStatus::Failed, 0);
+    assert_eq!(ch, "●");
+    assert_eq!(color, Color::Rgb(255, 107, 128));
 }
 
 #[test]
