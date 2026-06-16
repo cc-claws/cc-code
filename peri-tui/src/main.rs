@@ -436,7 +436,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         let mut stdout = io::stdout();
         execute!(stdout, EnableBracketedPaste, EnableFocusChange)?;
         // 设置终端标题
-        let _ = execute!(stdout, SetTitle("✻ peri"));
+        let _ = execute!(stdout, SetTitle("✻ Peri Code"));
         let backend = CrosstermBackend::new(stdout);
         let (_, terminal_rows) = terminal_size()?;
         let mut terminal = Terminal::with_options(
