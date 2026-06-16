@@ -604,11 +604,13 @@ pub fn render_view_model(
             let (indicator, indicator_color) =
                 peri_widgets::tool_call::display::format_indicator(status, tick);
 
-            // 工具名颜色：Running=青色 bold，Completed=白色，Error=红色
-            let name_style = if is_running {
+            // 工具名颜色：Running=青色 bold（Bash 除外，保持白色），Completed=白色，Error=红色
+            let name_style = if is_running && tool_name != "Bash" {
                 Style::default()
                     .fg(theme::CYAN)
                     .add_modifier(Modifier::BOLD)
+            } else if is_running {
+                Style::default().fg(theme::TEXT)
             } else if *is_error {
                 Style::default().fg(theme::ERROR)
             } else {
