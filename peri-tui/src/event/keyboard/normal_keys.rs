@@ -1,4 +1,4 @@
-use tui_textarea::{Input, Key};
+use tui_textarea::{CursorMove, Input, Key};
 
 use crate::app::{App, MessageViewModel, PendingAttachment};
 
@@ -316,7 +316,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                 }
             }
         }
-        // Home: scroll to top (only when textarea is empty)
+        // Home: textarea 有内容时光标移到行首，否则滚动到顶
         Input { key: Key::Home, .. } => {
             let has_content = app
                 .session_mgr
@@ -326,11 +326,18 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                 .lines()
                 .iter()
                 .any(|line| !line.is_empty());
-            if !has_content {
+            if has_content {
+                app.session_mgr
+                    .current_mut()
+                    .ui
+                    .textarea
+                    .move_cursor(CursorMove::Head);
+                app.session_mgr.current_mut().ui.reset_cursor_blink();
+            } else {
                 app.scroll_to_top();
             }
         }
-        // End: scroll to bottom (only when textarea is empty)
+        // End: textarea 有内容时光标移到行尾，否则滚动到底
         Input { key: Key::End, .. } => {
             let has_content = app
                 .session_mgr
@@ -340,7 +347,14 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                 .lines()
                 .iter()
                 .any(|line| !line.is_empty());
-            if !has_content {
+            if has_content {
+                app.session_mgr
+                    .current_mut()
+                    .ui
+                    .textarea
+                    .move_cursor(CursorMove::End);
+                app.session_mgr.current_mut().ui.reset_cursor_blink();
+            } else {
                 app.scroll_to_bottom();
             }
         }
