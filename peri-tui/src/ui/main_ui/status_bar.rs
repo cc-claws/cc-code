@@ -103,7 +103,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
                 format!("{}s", s)
             };
             spans.push(Span::styled(
-                format!("⏱ {} ", text),
+                format!("⏱  {} ", text),
                 Style::default().fg(theme::DIM),
             ));
         }
