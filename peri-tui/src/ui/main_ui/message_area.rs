@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Paragraph, Wrap},
+    widgets::{Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -172,6 +172,10 @@ pub(crate) fn render_messages(
     // （ratatui 即使设了 scroll(offset)，仍会对 offset 之前的所有行做 grapheme 分割 + wrap 计算）
     let clip = viewport_clip(app, offset, visible_height, &spinner_line);
 
+    // 先用 Clear 清空整个 messages_area：insert_before 后 ratatui current buffer 未重置，
+    // Paragraph 不填满 area 时未覆盖 cell 会保留旧值，最终经 diff 输出到终端造成渲染残留。
+    // 清空后 Paragraph 只渲染有效行、剩余为空格，确保每帧 viewport 区域 buffer 正确。
+    f.render_widget(Clear, inner);
     let paragraph = Paragraph::new(Text::from(clip.lines))
         .scroll((clip.local_offset, 0))
         .wrap(Wrap { trim: false });
