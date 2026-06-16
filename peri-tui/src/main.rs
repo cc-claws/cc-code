@@ -7,7 +7,7 @@ use ratatui::{
             DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
         },
         execute,
-        terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size},
+        terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size, SetTitle},
     },
     prelude::*,
     text::Text,
@@ -435,6 +435,8 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnableBracketedPaste, EnableFocusChange)?;
+        // 设置终端标题
+        let _ = execute!(stdout, SetTitle("✻ peri"));
         let backend = CrosstermBackend::new(stdout);
         let (_, terminal_rows) = terminal_size()?;
         let mut terminal = Terminal::with_options(

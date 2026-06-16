@@ -540,9 +540,19 @@ impl App {
             s.ui.textarea = build_textarea(true);
             s.spinner_state
                 .set_mode(peri_widgets::SpinnerMode::Responding);
+            // 更新终端标题
+            let _ = ratatui::crossterm::execute!(
+                std::io::stdout(),
+                ratatui::crossterm::terminal::SetTitle("✻ peri — running")
+            );
         } else {
             s.spinner_state.set_mode(peri_widgets::SpinnerMode::Idle);
             s.agent.cancel_token = None;
+            // 更新终端标题
+            let _ = ratatui::crossterm::execute!(
+                std::io::stdout(),
+                ratatui::crossterm::terminal::SetTitle("✻ peri — done")
+            );
         }
     }
 
