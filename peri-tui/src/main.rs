@@ -905,7 +905,10 @@ async fn run_app(
 }
 
 fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
-    flush_scrollback_history(terminal, app)?;
+    // [临时验证-控制变量] 禁用 scrollback flush（terminal.insert_before）。
+    // 目的：若禁用后渲染残留消失 → 根因确认在 insert_before/inline viewport；
+    //       若残留仍在 → 根因在 viewport_clip 等其他路径。验证后必须回退此注释。
+    // flush_scrollback_history(terminal, app)?;
     terminal.draw(|f| ui::main_ui::render(f, app))?;
     Ok(())
 }
