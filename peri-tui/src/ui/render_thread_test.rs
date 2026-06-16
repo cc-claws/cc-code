@@ -859,3 +859,60 @@ async fn test_incremental_wrap_map_add_new_vm() {
         );
     }
 }
+
+#[test]
+fn test_refresh_running_tool_indicator_updates_cached_header() {
+    let cache = std::sync::Arc::new(parking_lot::RwLock::new(RenderCache::new()));
+    let mut task = RenderTask {
+        last_messages: Vec::new(),
+        message_lines: Vec::new(),
+        message_hashes: Vec::new(),
+        cache: std::sync::Arc::clone(&cache),
+        notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+        width: 80,
+        show_tool_messages: false,
+        diff_visible: false,
+        detail_mode: false,
+    };
+
+    task.rebuild(vec![MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("sleep 30".to_string()),
+        false,
+    )]);
+
+    assert!(
+        task.has_running_tool_blocks(),
+        "空 content 且非错误的 ToolBlock 应识别为运行中"
+    );
+    task.refresh_running_tool_indicators(4);
+    {
+        let c = cache.read();
+        assert_eq!(
+            c.lines[0].spans[0].content.as_ref(),
+            " ",
+            "tick=4 时运行中指示器应隐藏"
+        );
+    }
+    let version_after_hidden = cache.read().version;
+
+    let changed = task.refresh_running_tool_indicators(0);
+
+    assert!(changed, "tick=0 应把隐藏状态切回可见状态");
+    assert_eq!(
+        task.message_lines[0][0].spans[0].content.as_ref(),
+        "●",
+        "message_lines 缓存应同步更新"
+    );
+    let c = cache.read();
+    assert_eq!(
+        c.lines[0].spans[0].content.as_ref(),
+        "●",
+        "RenderCache 行缓存应同步更新"
+    );
+    assert!(
+        c.version > version_after_hidden,
+        "指示器发生变化后 cache version 应递增"
+    );
+}

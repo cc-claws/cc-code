@@ -2,11 +2,12 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     sync::{Arc, OnceLock},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use parking_lot::RwLock;
 use ratatui::{
+    style::Style,
     text::Line,
     widgets::{Paragraph, Wrap},
 };
@@ -23,6 +24,13 @@ use super::{
     message_render::render_view_model,
     message_view::MessageViewModel,
 };
+
+const TOOL_INDICATOR_TICK_INTERVAL: Duration = Duration::from_millis(200);
+
+fn current_tool_indicator_tick() -> u64 {
+    static STARTUP: OnceLock<Instant> = OnceLock::new();
+    STARTUP.get_or_init(Instant::now).elapsed().as_millis() as u64 / 200
+}
 
 /// 单个逻辑行的换行映射信息
 #[derive(Debug, Clone)]
@@ -240,10 +248,7 @@ impl RenderTask {
         diff_visible: bool,
         detail_mode: bool,
     ) -> Vec<Line<'static>> {
-        // 进程级启动锚点（首次调用时初始化），用于计算闪烁 tick
-        // 200ms 一格 → 800ms 闪烁周期（4 格一周期，2 格显示 2 格隐藏）
-        static STARTUP: OnceLock<Instant> = OnceLock::new();
-        let tick = STARTUP.get_or_init(Instant::now).elapsed().as_millis() as u64 / 200;
+        let tick = current_tool_indicator_tick();
         // 处理 dirty blocks（使用增量解析）
         if let MessageViewModel::AssistantBubble {
             blocks,
@@ -446,96 +451,190 @@ impl RenderTask {
         cache.version += 1;
     }
 
-    /// 主事件循环
-    async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
-        while let Some(event) = rx.recv().await {
-            match event {
-                RenderEvent::Rebuild(messages) => {
-                    self.rebuild(messages);
-                }
-                RenderEvent::RebuildWithAnchor {
-                    messages,
-                    anchor_message_idx,
-                } => {
-                    self.rebuild(messages);
-                    // 计算锚点消息在新布局中的视觉行起始位置
-                    let anchor_visual_row =
-                        if anchor_message_idx < self.cache.read().message_offsets.len() {
-                            let cache = self.cache.read();
-                            let line_idx = cache.message_offsets[anchor_message_idx];
-                            if line_idx < cache.wrap_map.len() {
-                                Some(cache.wrap_map[line_idx].visual_row_start)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-                    if let Some(row) = anchor_visual_row {
-                        self.cache.write().scroll_anchor = Some(row);
-                    }
-                }
-                RenderEvent::Resize(new_width) => {
-                    self.width = new_width;
-                    // Drain coalesce：拖动 resize 时可能积压多个 Resize 事件，
-                    // 合并为一个最终宽度，避免连续多次全量重建导致 CPU 暴涨
-                    while let Ok(RenderEvent::Resize(w)) = rx.try_recv() {
-                        self.width = w;
-                    }
-                    // 清空 hash 缓存，强制全量重渲染
-                    self.message_hashes.clear();
-                    // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
-                    if !self.last_messages.is_empty() {
-                        let messages = std::mem::take(&mut self.last_messages);
-                        self.rebuild(messages);
-                    }
-                }
-                RenderEvent::Clear => {
-                    self.message_lines.clear();
-                    self.message_lines.shrink_to_fit();
-                    self.message_hashes.clear();
-                    self.message_hashes.shrink_to_fit();
-                    self.last_messages.clear();
-                    self.last_messages.shrink_to_fit();
-                    let mut cache = self.cache.write();
-                    cache.lines.clear();
-                    cache.lines.shrink_to_fit();
-                    cache.message_offsets.clear();
-                    cache.message_offsets.shrink_to_fit();
-                    cache.total_lines = 0;
-                    cache.wrap_map = Vec::new();
-                    cache.version += 1;
-                }
-                RenderEvent::ToggleToolMessages(show) => {
-                    self.show_tool_messages = show;
-                    // collapsed 状态是 hash 的一部分，ToggleToolMessages 会改变消息的 hash
-                    // 但如果 App 端没有修改 view_messages 中的 collapsed 状态，
-                    // 需要 App 发送新的 Rebuild 事件来反映变化
-                    // 这里只更新标志位，实际渲染由后续 Rebuild 驱动
-                }
-                RenderEvent::ToggleDiff(show) => {
-                    self.diff_visible = show;
-                    // diff_visible 不影响消息的语义 hash，必须清空 hash 缓存
-                    // 强制后续 Rebuild 全量重渲染
-                    self.message_hashes.clear();
-                    if !self.last_messages.is_empty() {
-                        let messages = std::mem::take(&mut self.last_messages);
-                        self.rebuild(messages);
-                    }
-                }
-                RenderEvent::ToggleDetail(show) => {
-                    self.detail_mode = show;
-                    // detail_mode 不影响消息的语义 hash，必须清空 hash 缓存
-                    // 强制后续 Rebuild 全量重渲染
-                    self.message_hashes.clear();
-                    if !self.last_messages.is_empty() {
-                        let messages = std::mem::take(&mut self.last_messages);
-                        self.rebuild(messages);
-                    }
-                }
+    fn has_running_tool_blocks(&self) -> bool {
+        self.last_messages.iter().any(|vm| {
+            matches!(
+                vm,
+                MessageViewModel::ToolBlock {
+                    tool_name,
+                    content,
+                    is_error,
+                    ..
+                } if tool_name != "AskUserQuestion" && content.is_empty() && !*is_error
+            )
+        })
+    }
+
+    fn refresh_running_tool_indicators(&mut self, tick: u64) -> bool {
+        if !self.has_running_tool_blocks() {
+            return false;
+        }
+
+        let (indicator, indicator_color) = peri_widgets::tool_call::display::format_indicator(
+            peri_widgets::ToolCallStatus::Running,
+            tick,
+        );
+        let mut changed = false;
+        let mut cache = self.cache.write();
+
+        for (idx, vm) in self.last_messages.iter().enumerate() {
+            let is_running_tool = matches!(
+                vm,
+                MessageViewModel::ToolBlock {
+                    tool_name,
+                    content,
+                    is_error,
+                    ..
+                } if tool_name != "AskUserQuestion" && content.is_empty() && !*is_error
+            );
+            if !is_running_tool {
+                continue;
             }
 
-            self.notify.notify_one();
+            let Some(lines) = self.message_lines.get_mut(idx) else {
+                continue;
+            };
+            let Some(header) = lines.first_mut() else {
+                continue;
+            };
+            let Some(indicator_span) = header.spans.first_mut() else {
+                continue;
+            };
+
+            if indicator_span.content.as_ref() == indicator {
+                continue;
+            }
+
+            indicator_span.content = indicator.to_string().into();
+            indicator_span.style = Style::default().fg(indicator_color);
+
+            if let Some(cache_idx) = cache.message_offsets.get(idx).copied() {
+                if let Some(cache_line) = cache.lines.get_mut(cache_idx) {
+                    *cache_line = header.clone();
+                }
+            }
+            changed = true;
+        }
+
+        if changed {
+            cache.version += 1;
+        }
+        changed
+    }
+
+    fn handle_event(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
+        match event {
+            RenderEvent::Rebuild(messages) => {
+                self.rebuild(messages);
+            }
+            RenderEvent::RebuildWithAnchor {
+                messages,
+                anchor_message_idx,
+            } => {
+                self.rebuild(messages);
+                // 计算锚点消息在新布局中的视觉行起始位置
+                let anchor_visual_row = if anchor_message_idx < self.cache.read().message_offsets.len()
+                {
+                    let cache = self.cache.read();
+                    let line_idx = cache.message_offsets[anchor_message_idx];
+                    if line_idx < cache.wrap_map.len() {
+                        Some(cache.wrap_map[line_idx].visual_row_start)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if let Some(row) = anchor_visual_row {
+                    self.cache.write().scroll_anchor = Some(row);
+                }
+            }
+            RenderEvent::Resize(new_width) => {
+                self.width = new_width;
+                // Drain coalesce：拖动 resize 时可能积压多个 Resize 事件，
+                // 合并为一个最终宽度，避免连续多次全量重建导致 CPU 暴涨
+                while let Ok(RenderEvent::Resize(w)) = rx.try_recv() {
+                    self.width = w;
+                }
+                // 清空 hash 缓存，强制全量重渲染
+                self.message_hashes.clear();
+                // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild(messages);
+                }
+            }
+            RenderEvent::Clear => {
+                self.message_lines.clear();
+                self.message_lines.shrink_to_fit();
+                self.message_hashes.clear();
+                self.message_hashes.shrink_to_fit();
+                self.last_messages.clear();
+                self.last_messages.shrink_to_fit();
+                let mut cache = self.cache.write();
+                cache.lines.clear();
+                cache.lines.shrink_to_fit();
+                cache.message_offsets.clear();
+                cache.message_offsets.shrink_to_fit();
+                cache.total_lines = 0;
+                cache.wrap_map = Vec::new();
+                cache.version += 1;
+            }
+            RenderEvent::ToggleToolMessages(show) => {
+                self.show_tool_messages = show;
+                // collapsed 状态是 hash 的一部分，ToggleToolMessages 会改变消息的 hash
+                // 但如果 App 端没有修改 view_messages 中的 collapsed 状态，
+                // 需要 App 发送新的 Rebuild 事件来反映变化
+                // 这里只更新标志位，实际渲染由后续 Rebuild 驱动
+            }
+            RenderEvent::ToggleDiff(show) => {
+                self.diff_visible = show;
+                // diff_visible 不影响消息的语义 hash，必须清空 hash 缓存
+                // 强制后续 Rebuild 全量重渲染
+                self.message_hashes.clear();
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild(messages);
+                }
+            }
+            RenderEvent::ToggleDetail(show) => {
+                self.detail_mode = show;
+                // detail_mode 不影响消息的语义 hash，必须清空 hash 缓存
+                // 强制后续 Rebuild 全量重渲染
+                self.message_hashes.clear();
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild(messages);
+                }
+            }
+        }
+    }
+
+    /// 主事件循环
+    async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
+        loop {
+            if self.has_running_tool_blocks() {
+                tokio::select! {
+                    event = rx.recv() => {
+                        let Some(event) = event else {
+                            break;
+                        };
+                        self.handle_event(event, &mut rx);
+                        self.notify.notify_one();
+                    }
+                    _ = tokio::time::sleep(TOOL_INDICATOR_TICK_INTERVAL) => {
+                        if self.refresh_running_tool_indicators(current_tool_indicator_tick()) {
+                            self.notify.notify_one();
+                        }
+                    }
+                }
+            } else {
+                let Some(event) = rx.recv().await else {
+                    break;
+                };
+                self.handle_event(event, &mut rx);
+                self.notify.notify_one();
+            }
         }
     }
 }
