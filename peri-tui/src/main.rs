@@ -913,6 +913,7 @@ fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App
     Ok(())
 }
 
+#[allow(dead_code)]
 fn flush_scrollback_history(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
@@ -977,6 +978,7 @@ fn flush_scrollback_history(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn scrollback_commit_end(
     total_visual_rows: usize,
     retained_height: u16,
@@ -990,6 +992,7 @@ fn scrollback_commit_end(
     wrap_map.partition_point(|info| info.visual_row_end <= retain_from_visual)
 }
 
+#[allow(dead_code)]
 fn committed_visual_start(
     committed_lines: usize,
     line_count: usize,
