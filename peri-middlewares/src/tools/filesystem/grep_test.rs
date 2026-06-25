@@ -818,3 +818,77 @@ async fn test_grep_files_singular_plural() {
         "单文件应用单数 `file`（对齐上游 plural）: {result}"
     );
 }
+
+/// 测试环境（cfg(test)）下 files_with_matches 按纯 filename 升序排序，deterministic
+/// 对齐上游 GrepTool.ts:543-545：NODE_ENV=test 时 localeCompare
+#[tokio::test]
+async fn test_grep_files_with_matches_sorted_by_filename_in_tests() {
+    let dir = tempfile::tempdir().unwrap();
+    // 故意按非字母序写入，验证排序生效
+    std::fs::write(dir.path().join("z.txt"), "needle").unwrap();
+    std::fs::write(dir.path().join("m.txt"), "needle").unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "files_with_matches",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    let lines: Vec<&str> = result.lines().collect();
+    // 头部是 "Found 3 files"，随后 3 行文件名应按字母升序
+    assert_eq!(lines[0], "Found 3 files");
+    assert!(lines[1].ends_with("a.txt"), "第一项应是 a.txt: {result}");
+    assert!(lines[2].ends_with("m.txt"), "第二项应是 m.txt: {result}");
+    assert!(lines[3].ends_with("z.txt"), "第三项应是 z.txt: {result}");
+}
+
+/// FilesWithoutMatch 模式同样按 filename 升序（cfg(test) 下），保持 FilesOnly 风格一致
+#[tokio::test]
+async fn test_grep_files_without_matches_sorted_by_filename() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("z.txt"), "needle").unwrap(); // 有匹配
+    std::fs::write(dir.path().join("m.txt"), "no match").unwrap();
+    std::fs::write(dir.path().join("a.txt"), "no match").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "files_without_matches",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    let lines: Vec<&str> = result.lines().collect();
+    assert_eq!(lines[0], "Found 2 files");
+    assert!(lines[1].ends_with("a.txt"), "应按字母序：a.txt: {result}");
+    assert!(lines[2].ends_with("m.txt"), "应按字母序：m.txt: {result}");
+    assert!(!result.contains("z.txt"), "有匹配的 z.txt 不应出现");
+}
+
+/// content 模式不排序（按目录遍历顺序输出）— 验证排序仅作用于 FilesOnly/FilesWithoutMatch
+#[tokio::test]
+async fn test_grep_content_mode_not_sorted() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("z.txt"), "needle").unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    // content 模式应输出两个文件的匹配行
+    assert!(result.contains("a.txt:1: needle"), "应包含 a.txt: {result}");
+    assert!(result.contains("z.txt:1: needle"), "应包含 z.txt: {result}");
+    // 不应有 Found N files 头部（content 模式不参与 mtime/filename 排序格式化）
+    assert!(
+        !result.contains("Found"),
+        "content 模式不应有 Found 头部: {result}"
+    );
+}
