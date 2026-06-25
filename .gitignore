@@ -193,3 +193,8 @@ settings.json
 # Local test files (not for commit)
 CLAUDE.local.md
 .mcp.json
+
+# .claude/CLAUDE.md 是 Claude Code 工具加载的个人规则文件，
+# 之前误传过 adim 钉钉/PowerShell/PHP 那套无关内容，统一忽略。
+# 项目级开发规范写在根目录 CLAUDE.md。
+.claude/CLAUDE.md
