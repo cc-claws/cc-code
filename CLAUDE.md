@@ -267,6 +267,22 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - **跨平台 spawn [TRAP]**：所有子进程 spawn 必须通过 `shell_command()` 统一 wrapper，Windows 用 `cmd /C`、Unix 用 `bash -c`。新增 spawn 时必须复用。
 - **MultiplexBroker 竞速 [TRAP]**：ChannelBroker 不支持 Questions 交互类型，不应与 TUI broker 参与竞速。（详见 spec/global/domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete）
 
+## PR / Issue 流程
+
+**[强制]** PR 阶段必须先在 GitHub 创建 Issue，并 reference 该 Issue 编号。commit 阶段不强制 issue，可以独立提交。
+
+**完整流程：**
+
+1. **commit 阶段**：在 feature 分支上开发 + commit，分支命名可用占位工单号（如 `T0_xxx`），不强制建 issue。
+2. **准备 PR 阶段**：先在 [cc-claws/cc-code](https://github.com/cc-claws/cc-code) 创建 GitHub Issue，描述问题/需求，拿到自动分配的 `#N` 编号。
+3. **rename 分支**：把分支 rename 为 `feature#<姓名>#<月份>#T<N>_<需求名>`，让工单号字段对齐 GitHub Issue 编号。
+4. **PR 描述**：用 `Fixes #N` 或 `Closes #N` 关联 Issue，便于合并后自动关闭。
+
+**注意：**
+- `spec/issues/` 下的本地 md 文件是 Issue 的**详细分析补充**（架构影响、复现条件、根因分析等），不替代 GitHub Issue 本身。
+- GitHub Issue 是工单号唯一来源；本地 md 是工程文档。
+- 仅文档/配置类的小改动（如规则记录）也可走 commit，不必强建 Issue——但若走 PR 仍需补 Issue。
+
 ## npm 发版流程
 
 npm 包（`@cc-claw/code`）通过 GitHub Actions 发版，触发方式：推送 `npm-v*` tag 或手动 workflow_dispatch。
