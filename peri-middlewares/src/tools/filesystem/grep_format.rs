@@ -92,6 +92,11 @@ impl Sink for SearchSink {
             _ => {}
         }
 
+        // 对齐上游 `rg --max-columns 500`：影响所有输出行（含 -A/-B/-C 上下文）
+        if self.max_columns > 0 && ctx.bytes().len() > self.max_columns {
+            return Ok(true);
+        }
+
         let line_number = ctx.line_number().unwrap_or(0);
         let content = String::from_utf8_lossy(ctx.bytes());
         let content = content.trim_end_matches(['\n', '\r']);

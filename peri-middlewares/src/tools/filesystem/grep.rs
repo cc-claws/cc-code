@@ -293,16 +293,12 @@ fn execute_search(
         total_collected
     };
     let slice_start = offset.min(total_collected);
-    let final_items: Vec<String> = if slice_start >= slice_end && !all_items.is_empty() && offset >= total_collected {
-        Vec::new()
-    } else {
-        all_items.drain(slice_start..slice_end).collect()
-    };
+    let final_items: Vec<String> = all_items.drain(slice_start..slice_end).collect();
 
     // 分页信息：limit 仅在截断时显示；offset 仅在 > 0 时显示
-    let pagination_info = |show_limit: bool| -> String {
+    let pagination_info = || -> String {
         let mut parts: Vec<String> = Vec::new();
-        if show_limit && was_truncated {
+        if was_truncated {
             parts.push(format!("limit: {}", head_limit));
         }
         if offset > 0 {
@@ -317,16 +313,16 @@ fn execute_search(
                 "No matches found".to_string()
             } else {
                 let mut s = final_items.join("\n");
-                let limit_info = pagination_info(true);
+                let limit_info = pagination_info();
                 if was_truncated {
                     s.push_str(&format!(
                         "\n\n[Showing results with pagination = {}]",
                         limit_info
                     ));
-                    if head_limit > 0 {
-                        let persist_hint = persist_truncated_output(&s);
-                        s.push_str(&persist_hint);
-                    }
+                }
+                if was_truncated && head_limit > 0 {
+                    let persist_hint = persist_truncated_output(&s);
+                    s.push_str(&persist_hint);
                 }
                 s
             }
@@ -337,7 +333,7 @@ fn execute_search(
             } else {
                 let n = final_items.len();
                 let plural = if n == 1 { "file" } else { "files" };
-                let limit_info = pagination_info(true);
+                let limit_info = pagination_info();
                 let header = if limit_info.is_empty() {
                     format!("Found {} {}", n, plural)
                 } else {
@@ -370,7 +366,7 @@ fn execute_search(
             };
             let occ_plural = if total_matches == 1 { "occurrence" } else { "occurrences" };
             let file_plural = if file_count == 1 { "file" } else { "files" };
-            let limit_info = pagination_info(true);
+            let limit_info = pagination_info();
             // 上游 summary：`... files.` 句点无条件，` with pagination = ...` 仅在 limitInfo 非空时拼接
             let mut s = format!(
                 "{}\n\nFound {} total {} across {} {}.",
@@ -392,7 +388,7 @@ fn execute_search(
             } else {
                 let n = final_items.len();
                 let plural = if n == 1 { "file" } else { "files" };
-                let limit_info = pagination_info(true);
+                let limit_info = pagination_info();
                 let header = if limit_info.is_empty() {
                     format!("Found {} {}", n, plural)
                 } else {
