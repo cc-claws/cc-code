@@ -5,9 +5,9 @@ const { join, dirname } = require("path");
 const { execFileSync } = require("child_process");
 
 const dir = dirname(__filename);
-const binPath = existsSync(join(dir, "peri-bin"))
-  ? join(dir, "peri-bin")
-  : join(dir, "peri.exe");
+const binPath = existsSync(join(dir, "cc-code-bin"))
+  ? join(dir, "cc-code-bin")
+  : join(dir, "cc-code.exe");
 
 try {
   execFileSync(binPath, process.argv.slice(2), { stdio: "inherit" });

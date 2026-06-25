@@ -74,7 +74,7 @@ function downloadViaProxy(url, proxyUrl) {
     port: proxy.port || (isHttps ? 443 : 80),
     path: url,
     method: "GET",
-    headers: { "Host": target.hostname, "User-Agent": "peri-installer" },
+    headers: { "Host": target.hostname, "User-Agent": "cc-code-installer" },
   };
 
   // Support proxy auth
@@ -106,7 +106,7 @@ function downloadViaProxy(url, proxyUrl) {
 }
 
 function extractTarGz(buffer, dest) {
-  const tmpFile = join(dest, "peri.tar.gz");
+  const tmpFile = join(dest, "cc-code.tar.gz");
   writeFileSync(tmpFile, buffer);
   execSync(`tar -xzf "${tmpFile}" -C "${dest}"`, { stdio: "ignore" });
   unlinkSync(tmpFile);
@@ -121,7 +121,7 @@ function extractZip(buffer, dest) {
 async function main() {
   const key = getPlatformKey();
   const platform = PLATFORMS[key];
-  const fileName = `peri-${platform.suffix}.${platform.ext}`;
+  const fileName = `cc-code-${platform.suffix}.${platform.ext}`;
   const url = `${BASE_URL}/${fileName}`;
   const binDir = join(__dirname, "bin");
 
@@ -129,7 +129,7 @@ async function main() {
     mkdirSync(binDir, { recursive: true });
   }
 
-  console.log(`Downloading peri ${VERSION} for ${platform.os}-${platform.arch}...`);
+  console.log(`Downloading cc-code ${VERSION} for ${platform.os}-${platform.arch}...`);
   console.log(`  URL: ${url}`);
 
   const buffer = await download(url);
@@ -141,9 +141,9 @@ async function main() {
   }
 
   const extractedName = platform.os === "win32"
-    ? `peri-${platform.suffix}.exe`
-    : `peri-${platform.suffix}`;
-  const finalName = platform.os === "win32" ? "peri.exe" : "peri-bin";
+    ? `cc-code-${platform.suffix}.exe`
+    : `cc-code-${platform.suffix}`;
+  const finalName = platform.os === "win32" ? "cc-code.exe" : "cc-code-bin";
   const extractedPath = join(binDir, extractedName);
   const finalPath = join(binDir, finalName);
 
@@ -154,19 +154,19 @@ async function main() {
 
   if (platform.os !== "win32") {
     chmodSync(finalPath, 0o755);
-    const wrapperPath = join(__dirname, "bin", "peri");
+    const wrapperPath = join(__dirname, "bin", "cc-code");
     if (existsSync(wrapperPath)) chmodSync(wrapperPath, 0o755);
   } else {
-    // Generate Windows batch wrapper so npm's peri.cmd/peri.ps1 can invoke it
+    // Generate Windows batch wrapper so npm's cc-code.cmd/ps1 can invoke it
     const binDirPath = join(__dirname, "bin");
-    writeFileSync(join(binDirPath, "peri.cmd"), `@echo off\r\n"%~dp0peri.exe" %*\r\n`);
-    writeFileSync(join(binDirPath, "peri.ps1"), `$basedir = Split-Path $MyInvocation.MyCommand.Definition -Parent\r\n& "$basedir\\peri.exe" @args\r\nexit $LASTEXITCODE\r\n`);
+    writeFileSync(join(binDirPath, "cc-code.cmd"), `@echo off\r\n"%~dp0cc-code.exe" %*\r\n`);
+    writeFileSync(join(binDirPath, "cc-code.ps1"), `$basedir = Split-Path $MyInvocation.MyCommand.Definition -Parent\r\n& "$basedir\\cc-code.exe" @args\r\nexit $LASTEXITCODE\r\n`);
   }
 
-  console.log(`peri ${VERSION} installed successfully.`);
+  console.log(`cc-code ${VERSION} installed successfully.`);
 }
 
 main().catch((err) => {
-  console.error("Failed to install peri:", err.message);
+  console.error("Failed to install cc-code:", err.message);
   process.exit(1);
 });
