@@ -539,6 +539,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 vec![
                     ("/".to_string(), lc.tr("key-command")),
                     ("Shift+Enter".to_string(), lc.tr("key-newline")),
+                    ("Ctrl+P".to_string(), lc.tr("key-command-palette")),
                     ("Ctrl+T".to_string(), lc.tr("key-switch-model")),
                     ("Ctrl+U/D".to_string(), lc.tr("key-scroll")),
                 ]

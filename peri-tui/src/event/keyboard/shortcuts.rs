@@ -1,15 +1,14 @@
 use ratatui::crossterm::event::KeyCode;
 
-use super::{
-    SHORTCUT_BG_BAR, SHORTCUT_COMMAND_PALETTE, SHORTCUT_CTRL_CYCLE_MODE,
-    SHORTCUT_CTRL_CYCLE_PROVIDER, SHORTCUT_CYCLE_MODE, SHORTCUT_CYCLE_PROVIDER,
-};
-use crate::app::{App, MessageViewModel};
+use super::{SHORTCUT_BG_BAR, SHORTCUT_COMMAND_PALETTE, SHORTCUT_CTRL_CYCLE_MODE, SHORTCUT_CYCLE_MODE};
 use crate::app::panel_manager::PanelKind;
+use crate::app::{App, MessageViewModel};
 
 use super::super::Action;
 
-/// 处理全局快捷键：BackTab（权限循环）、Ctrl+B（bg bar）、Ctrl+T（模型切换）、Ctrl+Shift+T（Provider 切换）、Ctrl+O（详细模式切换）
+/// 处理全局快捷键：BackTab（权限循环）、Ctrl+B（bg bar）、Ctrl+P（命令面板）、
+/// Ctrl+T（模型 alias 切换）、Ctrl+O（详细模式切换）。
+/// Provider 切换已统一收敛到 Ctrl+P 命令面板，不再单独提供循环快捷键。
 pub(super) fn handle_shortcuts(
     app: &mut App,
     key_event: &ratatui::crossterm::event::KeyEvent,
@@ -60,13 +59,32 @@ pub(super) fn handle_shortcuts(
         return Some(Action::Redraw);
     }
 
-    // Ctrl+T / Alt+M: cycle model aliases
+    // Ctrl+T / Alt+M: cycle model aliases（仅切换当前 provider 下非空 alias）
     if SHORTCUT_CTRL_CYCLE_MODE.matches(key_event) || SHORTCUT_CYCLE_MODE.matches(key_event) {
         if let Some(cfg) = app.services.peri_config.as_mut() {
-            let aliases = ["opus", "sonnet", "haiku"];
+            // 从当前激活 provider 收集非空 alias，避免循环到未配置的空槽位
+            let active_provider_id = cfg.config.active_provider_id.as_str();
+            let active_provider = cfg
+                .config
+                .providers
+                .iter()
+                .find(|p| p.id == active_provider_id);
+            let candidates: Vec<&'static str> = match active_provider {
+                Some(p) => ["opus", "sonnet", "haiku"]
+                    .iter()
+                    .filter_map(|&a| {
+                        p.models.get_model(a).filter(|m| !m.is_empty()).map(|_| a)
+                    })
+                    .collect(),
+                None => vec!["opus", "sonnet", "haiku"],
+            };
+            if candidates.len() <= 1 {
+                // 当前 provider 只有一个可用 alias，无可循环对象，静默忽略
+                return Some(Action::Redraw);
+            }
             let current = cfg.config.active_alias.as_str();
-            let idx = aliases.iter().position(|&a| a == current).unwrap_or(0);
-            let next = aliases[(idx + 1) % aliases.len()];
+            let idx = candidates.iter().position(|&a| a == current).unwrap_or(0);
+            let next = candidates[(idx + 1) % candidates.len()];
             cfg.config.active_alias = next.to_string();
             if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref()) {
                 app.session_mgr
@@ -88,40 +106,6 @@ pub(super) fn handle_shortcuts(
             }
             app.global_ui.model_highlight_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
-        }
-        return Some(Action::Redraw);
-    }
-
-    // Ctrl+Shift+T / Alt+Shift+M: cycle providers
-    if SHORTCUT_CTRL_CYCLE_PROVIDER.matches(key_event) || SHORTCUT_CYCLE_PROVIDER.matches(key_event)
-    {
-        if let Some(cfg) = app.services.peri_config.as_mut() {
-            let providers = &cfg.config.providers;
-            if providers.len() > 1 {
-                let current_id = cfg.config.active_provider_id.as_str();
-                let idx = providers
-                    .iter()
-                    .position(|p| p.id == current_id)
-                    .unwrap_or(0);
-                let next_idx = (idx + 1) % providers.len();
-                let next_provider = &providers[next_idx];
-                cfg.config.active_provider_id = next_provider.id.clone();
-                if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
-                    app.services.provider_name = p.display_name().to_string();
-                    app.services.model_name = p.model_name().to_string();
-                }
-                if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref())
-                {
-                    app.session_mgr
-                        .current_mut()
-                        .messages
-                        .view_messages
-                        .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
-                }
-                app.sync_acp_config();
-                app.global_ui.provider_highlight_until =
-                    Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
-            }
         }
         return Some(Action::Redraw);
     }
