@@ -892,3 +892,113 @@ async fn test_grep_content_mode_not_sorted() {
         "content 模式不应有 Found 头部: {result}"
     );
 }
+
+// === 审计补漏：context 行 max_columns + 边界组合 ===
+
+/// 对齐上游 `rg --max-columns 500` 影响所有输出行（含 -A/-B/-C 上下文）
+/// 构造：needle 短匹配行 + 上下文行超 500 bytes，验证上下文也被跳过
+#[tokio::test]
+async fn test_grep_context_lines_also_filtered_by_max_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let long_line = "b".repeat(600);
+    // 第 1 行：超长 before 上下文
+    // 第 2 行：短匹配行（needle）
+    // 第 3 行：短 after 上下文
+    std::fs::write(
+        dir.path().join("test.txt"),
+        format!("{}\nneedle here\nshort after", long_line),
+    )
+    .unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./",
+            "-B": 1,
+            "-A": 1
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("needle here"),
+        "短匹配行应正常输出: {result}"
+    );
+    assert!(
+        result.contains("short after"),
+        "短 after 上下文应输出: {result}"
+    );
+    // 关键断言：超长 before 上下文应被 max_columns 跳过
+    assert!(
+        !result.contains(&long_line[..100]),
+        "context 行超 500 bytes 也应被 max_columns 过滤（对齐上游 rg --max-columns）: {result}"
+    );
+}
+
+/// FilesWithoutMatch + offset 切片：验证 cc-code 扩展模式也支持分页
+#[tokio::test]
+async fn test_grep_files_without_matches_with_offset() {
+    let dir = tempfile::tempdir().unwrap();
+    // 5 个无匹配文件（按字母序：a/b/c/d/e），1 个有匹配文件 z
+    for c in ['a', 'b', 'c', 'd', 'e'] {
+        let name = format!("{c}.txt");
+        std::fs::write(dir.path().join(&name), "no match here").unwrap();
+    }
+    std::fs::write(dir.path().join("z.txt"), "needle here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "files_without_matches",
+            "path": "./",
+            "head_limit": 2,
+            "offset": 1
+        }))
+        .await
+        .unwrap();
+    // cfg(test) 下按 filename 升序：a/b/c/d/e
+    // slice(1, 3) → b, c
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(
+        result.starts_with("Found 2 files limit: 2, offset: 1"),
+        "头部应反映 limit 和 offset: {result}"
+    );
+    assert!(lines[1].ends_with("b.txt"), "slice 第 1 项: {result}");
+    assert!(lines[2].ends_with("c.txt"), "slice 第 2 项: {result}");
+    assert!(!result.contains("a.txt"), "a.txt 应被 offset 跳过: {result}");
+    assert!(!result.contains("z.txt"), "z.txt 有匹配，不应出现在无匹配列表: {result}");
+}
+
+/// head_limit=0（unlimited）+ offset>0 边界组合
+/// 对齐上游 applyHeadLimit L116：limit === 0 时走 `items.slice(offset)`，appliedLimit=undefined
+#[tokio::test]
+async fn test_grep_unlimited_with_offset() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines: Vec<String> = (0..5).map(|i| format!("line {} needle", i)).collect();
+    std::fs::write(dir.path().join("test.txt"), lines.join("\n")).unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./",
+            "head_limit": 0,
+            "offset": 2
+        }))
+        .await
+        .unwrap();
+    // head_limit=0 表示不限制，offset=2 跳过前 2 行
+    assert!(
+        !result.contains("line 0") && !result.contains("line 1"),
+        "offset=2 应跳过前 2 行: {result}"
+    );
+    assert!(
+        result.contains("line 2") && result.contains("line 3") && result.contains("line 4"),
+        "unlimited 模式应保留剩余所有匹配: {result}"
+    );
+    // 关键：head_limit=0 时 was_truncated=false，不应有分页提示
+    assert!(
+        !result.contains("[Showing results"),
+        "head_limit=0 不截断不应显示分页提示: {result}"
+    );
+}
