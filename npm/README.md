@@ -21,13 +21,13 @@ npm update -g @cc-claw/code
 
 ```bash
 # 启动交互式 TUI
-peri
+cc-code
 
 # 直接给任务
-peri "解释这个项目的目录结构"
+cc-code "解释这个项目的目录结构"
 
 # 指定模型
-peri --model deepseek/deepseek-chat "重构这个函数"
+cc-code --model deepseek/deepseek-chat "重构这个函数"
 ```
 
 ## 支持的平台

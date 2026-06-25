@@ -4,6 +4,18 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.13 — 2026-06-25
+
+### npm 包
+
+- npm 包二进制命名统一为 `cc-code-*`（原 `peri-*`），与 CI workflow 对齐
+- `install.js` 下载文件名、解压目标、Windows wrapper 全部改为 `cc-code`
+- `bin/cc-code` wrapper 查找 `cc-code-bin` / `cc-code.exe`
+- `npm/README.md` 命令示例更新为 `cc-code`
+- 删除 `mimo-code-vs-peri-analysis.md`
+
+---
+
 ## v0.99.14 — 2026-06-02
 
 ### Performance

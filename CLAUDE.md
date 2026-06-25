@@ -266,3 +266,23 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - **`app/mod.rs` 模块组织**：使用 `include!` 按功能类别分组声明（`.inc` 文件）。
 - **跨平台 spawn [TRAP]**：所有子进程 spawn 必须通过 `shell_command()` 统一 wrapper，Windows 用 `cmd /C`、Unix 用 `bash -c`。新增 spawn 时必须复用。
 - **MultiplexBroker 竞速 [TRAP]**：ChannelBroker 不支持 Questions 交互类型，不应与 TUI broker 参与竞速。（详见 spec/global/domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete）
+
+## npm 发版流程
+
+npm 包（`@cc-claw/code`）通过 GitHub Actions 发版，触发方式：推送 `npm-v*` tag 或手动 workflow_dispatch。
+
+**发版前必须完成：**
+1. 更新 `CHANGELOG.md`，记录本次版本变更
+2. 更新 `npm/README.md` 中的更新说明（如有）
+3. 确认 `npm/package.json` 版本号与目标版本一致
+
+**触发发版：**
+```bash
+# 方式一：推送 tag
+git tag npm-v<VERSION>
+git push origin npm-v<VERSION>
+
+# 方式二：GitHub Actions 页面手动触发，输入版本号
+```
+
+**CI 流程：** build（5 平台交叉编译）→ release（GitHub Release + 二进制上传）→ publish（npm publish）
