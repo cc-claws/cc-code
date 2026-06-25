@@ -14,9 +14,7 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RI
 [![Website](https://img.shields.io/badge/website-cc--claw.com-orange?style=flat-square)](https://www.cc-claw.com)
 [![GitHub last commit](https://img.shields.io/github/last-commit/cc-claws/cc-code?style=flat-square)](https://github.com/cc-claws/cc-code/commits/main)
 
-```bash
-npm install -g @cc-claw/code
-```
+<p align="center"><code>npm install -g @cc-claw/code</code></p>
 
 ### 🌐 官网：**[cc-claw.com](https://www.cc-claw.com)**
 
