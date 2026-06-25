@@ -95,7 +95,7 @@
 | 思考 (Reasoning) | — | — | 不在消息流中渲染，完全隐藏 |
 | 工具调用 | `⏺` | SAGE (绿) | 工具名 TEXT + BOLD，参数 DIM `(...)` |
 | 工具聚合组 | `⏺` | SAGE (绿) 前缀 + MUTED 汇总文字 | 仅一行汇总文本，不可展开 |
-| AskUserQuestion | `⏺` | SAGE (绿) | 标题 `User answered Peri's questions:` + `⎿ · header → answer` |
+| AskUserQuestion | `⏺` | SAGE (绿) | 标题 `User answered CC Code's questions:` + `⎿ · header → answer` |
 | SubAgent | `●` | SAGE / ERROR | 折叠：名称 + 任务预览；展开：嵌套消息 + 执行结果 |
 | 系统消息 | `·` | DIM | 自动检测错误/警告/信息颜色 |
 
@@ -123,7 +123,7 @@
 专用渲染路径，独立于普通 ToolBlock：
 
 ```
-⏺ User answered Peri's questions:
+⏺ User answered CC Code's questions:
   ⎿ · header → answer
   ⎿ · header2 → answer2
 ```
@@ -162,8 +162,8 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | 区域 | 样式 |
 |------|------|
 | ASCII Art Logo (>=50 cols) | ACCENT + BOLD，6 行 `███╗` 风格 |
-| 窄屏标题 (<50 cols) | ACCENT + BOLD `Peri` |
-| 副标题 | MUTED `Peri Agent Framework` |
+| 窄屏标题 (<50 cols) | ACCENT + BOLD `CC` |
+| 副标题 | MUTED `CC Code Agent Framework` |
 | 分隔线 | DIM `────── What can I do? ──────` |
 | 功能亮点 | ACCENT ` • ` + TEXT 内容 |
 | 命令提示 | WARNING `/model` 等 + MUTED 间距 |

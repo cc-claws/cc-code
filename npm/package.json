@@ -1,7 +1,7 @@
 {
-  "name": "@cc-claw/peri",
+  "name": "@cc-claw/code",
   "version": "0.6.12",
-  "description": "Peri Code — Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible",
+  "description": "cc-code — Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible",
   "keywords": [
     "agent",
     "coding",
@@ -12,15 +12,15 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/wismyzhizi2018/peri.git"
+    "url": "git+https://github.com/cc-claws/cc-code.git"
   },
-  "homepage": "https://github.com/wismyzhizi2018/peri",
+  "homepage": "https://github.com/cc-claws/cc-code",
   "bugs": {
-    "url": "https://github.com/wismyzhizi2018/peri/issues"
+    "url": "https://github.com/cc-claws/cc-code/issues"
   },
   "license": "Apache-2.0",
   "bin": {
-    "peri": "./bin/peri"
+    "cc-code": "bin/cc-code"
   },
   "scripts": {
     "postinstall": "node install.js"

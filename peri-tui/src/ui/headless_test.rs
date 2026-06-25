@@ -467,8 +467,8 @@ async fn test_welcome_card_renders_when_empty() {
     let snap = handle.snapshot();
     let snap_text = snap.join("\n");
     assert!(
-        snap_text.contains("Peri"),
-        "Welcome Card 应包含 'Peri'，实际:\n{}",
+        snap_text.contains("CC Code"),
+        "Welcome Card 应包含 'CC Code'，实际:\n{}",
         snap_text
     );
     assert!(
@@ -532,8 +532,8 @@ async fn test_welcome_card_narrow_screen() {
     );
     // 但仍应包含文字版标题
     assert!(
-        snap_text.contains("Peri"),
-        "窄屏应显示文字版标题 'Peri'，实际:\n{}",
+        snap_text.contains("CC Code"),
+        "窄屏应显示文字版标题 'CC Code'，实际:\n{}",
         snap_text
     );
 }

@@ -2,29 +2,58 @@
 
 [中文](README.md) | **English**
 
-# Peri Code
+# cc-code
 
 **Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible**
 
 DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` config, runs on RISC-V.
 
-[![npm](https://img.shields.io/npm/v/@cc-claw/peri)](https://www.npmjs.com/package/@cc-claw/peri)
-[![GitHub stars](https://img.shields.io/github/stars/wismyzhizi2018/peri?style=social)](https://github.com/wismyzhizi2018/peri/stargazers)
+[![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
+[![GitHub stars](https://img.shields.io/github/stars/cc-claws/cc-code?style=social)](https://github.com/cc-claws/cc-code/stargazers)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
 
 ```bash
-npm install -g @cc-claw/peri
+npm install -g @cc-claw/code
 ```
 
-[Why Peri Code](#why-peri-code) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-peri-code-with-nobody-coding) · [Acknowledgments](#acknowledgments)
+### 🌐 Official Website: **[cc-claw.com](https://www.cc-claw.com)**
+
+[Why cc-code](#why-cc-code) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-cc-code-with-nobody-coding) · [Acknowledgments](#acknowledgments)
 
 </div>
 
+## ❤️Sponsor
+
+> [Want to appear here?](mailto:wismyzhizi2018@gmail.com)
+
+<details open>
+<summary>Click to collapse</summary>
+
+[![Kimi K2.6](assets/partners/logos/kimi.png)](https://platform.moonshot.cn/console?aff=cc-code)
+
+Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, built for long-horizon coding, coding-driven design, and swarm-based task orchestration. It handles complex end-to-end engineering work across front-end, DevOps, performance optimization, and full-stack workflows. [Register here](https://platform.moonshot.cn/console?aff=cc-code)
+
 ---
 
-## Why Peri Code?
+<table>
+<tr>
+<td width="180"><a href="https://platform.xiaomimimo.com?ref=JBEYTF"><img src="assets/partners/logos/mimo.png" alt="Xiaomi MiMo" width="150"></a></td>
+<td>Top-tier model MiMo V2.5 from Xiaomi. Register with invite code: both get ¥10 API credit + 10% off first order. Invite code: JBEYTF. <a href="https://platform.xiaomimimo.com?ref=JBEYTF">Register here</a> (auto-filled on registration · credit valid for 40 days)</td>
+</tr>
 
-| Comparison | Other Terminal Agents | Peri Code |
+<tr>
+<td width="180"><a href="https://www.bigmodel.cn/glm-coding?ic=MR7BVITFAY"><img src="assets/partners/logos/glm.png" alt="GLM" width="150"></a></td>
+<td>GLM Coding Plan from Zhipu AI — top-tier coding model in China, compatible with 20+ mainstream tools, best value. <a href="https://www.bigmodel.cn/glm-coding?ic=MR7BVITFAY">Join now</a></td>
+</tr>
+</table>
+
+</details>
+
+---
+
+## Why cc-code?
+
+| Comparison | Other Terminal Agents | cc-code |
 |------------|----------------------|------|
 | Runtime | Node.js / Bun, easily eats 1GB RAM | Rust native, fast startup, ~50MB memory |
 | Model Lock-in | Locked to one LLM | Switch freely: Anthropic, OpenAI-compatible, DeepSeek, GLM |
@@ -46,7 +75,9 @@ npm install -g @cc-claw/peri
 | **Streaming Markdown** | Code blocks, tables, diffs rendered in real-time |
 | **ACP Protocol** | Connect to Zed and other IDEs, or build your own "Cloud Code" platform |
 | **Auto Compact** | Long sessions auto-compressed, stays fast and cheap |
-| **Experimental** | Built-in LSP, split-screen, background sub-agent parallelism |
+| **Sub-Agent Concurrency** | Background sub-agents run in parallel with fork and background modes |
+| **HITL Approval** | Sensitive operations auto-intercepted with auto-classifier and shared-mode |
+| **Nobody Coding** | 99% of code produced by DeepSeek, Mimo, and GLM — humans decide what, AI figures out how |
 
 ---
 
@@ -57,32 +88,32 @@ Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64 /
 ### npm (Recommended)
 
 ```bash
-npm install -g @cc-claw/peri
+npm install -g @cc-claw/code
 ```
 
 ### Upgrade
 
 ```bash
-npm update -g @cc-claw/peri
+npm update -g @cc-claw/code
 ```
 
 ### macOS / Linux (Script)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 | iex
 ```
 
 ---
 
-## How We Built Peri Code with Nobody Coding
+## How We Built cc-code with Nobody Coding
 
-**Nobody Coding** means exactly what it sounds like. No human wrote a single line of Peri Code — not the architecture, not the TUI, not the harness tuning that makes open-source models reliable in an Agent loop. Humans decide *what*. AI figures out *how*. You're not pair programming — you're product managing an engineer that never sleeps. 99% of Peri Code was built this way.
+**Nobody Coding** means exactly what it sounds like. No human wrote a single line of cc-code — not the architecture, not the TUI, not the harness tuning that makes open-source models reliable in an Agent loop. Humans decide *what*. AI figures out *how*. You're not pair programming — you're product managing an engineer that never sleeps. 99% of cc-code was built this way.
 
 > Recent commits are almost entirely DeepSeek, Mimo, and GLM. Claude was just there in the beginning.
 
@@ -100,7 +131,7 @@ irm https://raw.githubusercontent.com/wismyzhizi2018/peri/main/scripts/install.p
 ## Repository Structure
 
 ```text
-peri/
+cc-code/
 ├── peri-agent/                # Core: Agent loop, tool system, persistence, telemetry
 ├── peri-middlewares/           # Middleware: filesystem, terminal, MCP, Hooks, etc.
 ├── peri-tui/                  # TUI application (Ratatui)
@@ -124,13 +155,19 @@ peri/
 
 | Project | Description |
 |---------|-------------|
-| [Claude Code Best](https://github.com/claude-code-best/claude-code) | Community support and feedback |
-| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | Skill suites driving Peri Code's AI engineering workflow |
+| [Peri (KonghaYao)](https://github.com/KonghaYao/peri) | This project is forked from Peri, distributed under Apache 2.0. Credit to the original author. |
+| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | Skill suites driving cc-code's AI engineering workflow |
 | [ACP](https://agentclientprotocol.com/) | Open protocol for agent-IDE communication |
 | [rmcp](https://github.com/anthropics/rmcp) | Rust MCP client library |
 | [Ratatui](https://ratatui.rs) & [Tokio](https://tokio.rs) | TUI framework and async runtime |
 | [Langfuse](https://langfuse.com) | LLM observability |
 | [Zed](https://zed.dev) | First ACP-compatible IDE, proved the protocol works |
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=cc-claws/cc-code&type=Date)](https://www.star-history.com/#cc-claws/cc-code&Date)
 
 ---
 

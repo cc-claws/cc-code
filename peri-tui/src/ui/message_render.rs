@@ -198,14 +198,14 @@ fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'
     lines
 }
 
-/// AskUserQuestion 专用渲染：`● User answered Peri's questions:` + `⎿ · H → V`
+/// AskUserQuestion 专用渲染：`● User answered CC Code's questions:` + `⎿ · H → V`
 fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let color = if is_error { theme::ERROR } else { theme::SAGE };
     lines.push(Line::from(vec![
         Span::styled("● ", Style::default().fg(color)),
         Span::styled(
-            "User answered Peri's questions:".to_string(),
+            "User answered CC Code's questions:".to_string(),
             Style::default().fg(theme::TEXT),
         ),
     ]));
@@ -1019,7 +1019,7 @@ pub fn render_view_model(
                 lines.push(Line::from(vec![
                     Span::styled("● ", Style::default().fg(color)),
                     Span::styled(
-                        "User answered Peri's questions:".to_string(),
+                        "User answered CC Code's questions:".to_string(),
                         Style::default().fg(theme::TEXT),
                     ),
                 ]));

@@ -14,15 +14,15 @@ use tokio::{
 };
 
 const SCRIPT_URL_SH: &str =
-    "https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh";
+    "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh";
 const SCRIPT_URL_PS1: &str =
-    "https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.ps1";
+    "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1";
 
 /// Run the update flow. Returns Ok(new_tag) on success.
 ///
 /// Streams the remote install script's stdout/stderr to the terminal.
 pub async fn run_update() -> Result<String> {
-    println!("Peri update");
+    println!("cc-code update");
 
     if cfg!(target_os = "windows") {
         run_update_windows().await
@@ -98,7 +98,7 @@ async fn stream_output(child: &mut tokio::process::Child) -> Result<()> {
 fn read_installed_version() -> Result<String> {
     let version_file = dirs_next::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".peri")
+        .join(".cc-code")
         .join("current-version.txt");
     let tag = std::fs::read_to_string(&version_file)
         .ok()

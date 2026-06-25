@@ -134,7 +134,7 @@ key-switch-model = :Switch Model
 
 # ---- Welcome Page ----
 
-welcome-title = Peri Agent Framework
+welcome-title = CC Code Agent Framework
 welcome-divider = ────── What can I do? ──────
 welcome-feature-code = Ask me to code, debug, or refactor
 welcome-feature-files = Manage files and run terminal commands
@@ -171,7 +171,7 @@ tip-17 = For complex tasks, have Agent plan first before executing
 
 # ---- Setup Wizard ----
 
-setup-welcome-title =  ── Peri Setup ── Welcome
+setup-welcome-title =  ── CC Code Setup ── Welcome
 setup-choose-provider =  Choose how to configure your provider:
 setup-source-custom-api = Custom API
 setup-source-migrate = Migrate from Claude Code
@@ -180,7 +180,7 @@ setup-source-migrate-desc = Import config from ~/.claude/
 setup-key-confirm = :Confirm
 setup-key-select = :Select
 setup-key-quit = :Quit
-setup-configure-title =  ── Peri Setup ── Configure Providers
+setup-configure-title =  ── CC Code Setup ── Configure Providers
 setup-submit = Submit
 setup-key-edit-submit = :Edit/Submit
 setup-key-check = :Check
@@ -208,7 +208,7 @@ setup-to-start = to start using
 setup-no-key = (no key)
 setup-no-providers = No providers configured. Add one by selecting "Custom API" or importing from Claude Code.
 
-setup-language-title = ── Peri Setup ── Language
+setup-language-title = ── CC Code Setup ── Language
 setup-language-prompt = Choose your interface language:
 setup-language-press-enter = Press Enter to confirm
 
@@ -449,4 +449,4 @@ app-plugin-added = Marketplace added: { $name } (fetching content...)
 bg-bar-focus-hint = Press Esc to exit focus
 
 # Exit prompt
-app-exit-resume = Resume session: peri -r { $id }
+app-exit-resume = Resume session: cc-code -r { $id }

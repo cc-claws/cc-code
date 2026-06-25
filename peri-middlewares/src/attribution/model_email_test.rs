@@ -12,7 +12,7 @@ fn test_claude() {
 fn test_gpt() {
     assert_eq!(
         get_attribution_email("gpt-4o"),
-        "openai@claude-code-best.win"
+        "openai@cc-code"
     );
 }
 
@@ -20,7 +20,7 @@ fn test_gpt() {
 fn test_o_series() {
     assert_eq!(
         get_attribution_email("o4-mini"),
-        "openai@claude-code-best.win"
+        "openai@cc-code"
     );
 }
 
@@ -28,7 +28,7 @@ fn test_o_series() {
 fn test_gemini() {
     assert_eq!(
         get_attribution_email("gemini-2.5-flash"),
-        "google-gemini@claude-code-best.win"
+        "google-gemini@cc-code"
     );
 }
 
@@ -36,7 +36,7 @@ fn test_gemini() {
 fn test_grok() {
     assert_eq!(
         get_attribution_email("grok-3"),
-        "xai-org@claude-code-best.win"
+        "xai-org@cc-code"
     );
 }
 
@@ -44,7 +44,7 @@ fn test_grok() {
 fn test_glm() {
     assert_eq!(
         get_attribution_email("glm-4-plus"),
-        "zai-org@claude-code-best.win"
+        "zai-org@cc-code"
     );
 }
 
@@ -52,7 +52,7 @@ fn test_glm() {
 fn test_deepseek() {
     assert_eq!(
         get_attribution_email("deepseek-v3"),
-        "deepseek-ai@claude-code-best.win"
+        "deepseek-ai@cc-code"
     );
 }
 
@@ -60,7 +60,7 @@ fn test_deepseek() {
 fn test_qwen() {
     assert_eq!(
         get_attribution_email("qwen-max"),
-        "QwenLM@claude-code-best.win"
+        "QwenLM@cc-code"
     );
 }
 
@@ -68,7 +68,7 @@ fn test_qwen() {
 fn test_minimax() {
     assert_eq!(
         get_attribution_email("minimax-m1"),
-        "MiniMax-AI@claude-code-best.win"
+        "MiniMax-AI@cc-code"
     );
 }
 
@@ -76,7 +76,7 @@ fn test_minimax() {
 fn test_mimo() {
     assert_eq!(
         get_attribution_email("mimo-v2"),
-        "XiaomiMiMo@claude-code-best.win"
+        "XiaomiMiMo@cc-code"
     );
 }
 
@@ -84,7 +84,7 @@ fn test_mimo() {
 fn test_kimi() {
     assert_eq!(
         get_attribution_email("kimi-k2"),
-        "MoonshotAI@claude-code-best.win"
+        "MoonshotAI@cc-code"
     );
 }
 
@@ -96,7 +96,7 @@ fn test_case_insensitive() {
     );
     assert_eq!(
         get_attribution_email("GPT-4-TURBO"),
-        "openai@claude-code-best.win"
+        "openai@cc-code"
     );
 }
 
@@ -112,6 +112,6 @@ fn test_unknown_fallback() {
 fn test_dalle_matches_openai() {
     assert_eq!(
         get_attribution_email("dall-e-3"),
-        "openai@claude-code-best.win"
+        "openai@cc-code"
     );
 }

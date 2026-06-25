@@ -195,7 +195,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `DISABLE_AUTO_COMPACT` | 仅禁用 auto compact |
 | `COMPACT_THRESHOLD` | 覆盖 auto compact 阈值（0.0-1.0，默认 0.85） |
 
-配置通过 `~/.peri/settings.json` 的 `env` 字段注入。
+配置通过 `~/.cc-code/settings.json` 的 `env` 字段注入。
 
 ## CLI 参数
 

@@ -91,7 +91,7 @@ pub fn init_panic_notify() -> tokio::sync::mpsc::UnboundedReceiver<String> {
 // ─── CLI 定义 ──────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
-#[command(name = "peri", version, about = "Peri AI Agent")]
+#[command(name = "cc-code", version, about = "CC Code AI Agent")]
 struct Cli {
     // ── 向后兼容 ──
     /// 向后兼容，无操作（YOLO 已是默认行为）
@@ -544,7 +544,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // notify, with ANSI + ?1007h as defense-in-depth.
         conpty::enable_mouse_tracking()?;
         // 设置终端标题
-        let _ = execute!(stdout, SetTitle("✻ Peri Code"));
+        let _ = execute!(stdout, SetTitle("✻ CC Code"));
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -862,7 +862,7 @@ async fn run_app(
             if mode != peri_widgets::SpinnerMode::Idle {
                 let _ = ratatui::crossterm::execute!(
                     std::io::stdout(),
-                    ratatui::crossterm::terminal::SetTitle(format!("{} Peri Code — Running", frame))
+                    ratatui::crossterm::terminal::SetTitle(format!("{} CC Code — Running", frame))
                 );
             }
             last_title_refresh = Instant::now();

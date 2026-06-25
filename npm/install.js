@@ -5,7 +5,7 @@ const { join } = require("path");
 const { execSync } = require("child_process");
 
 const VERSION = require("./package.json").version;
-const REPO = "wismyzhizi2018/peri";
+const REPO = "cc-claws/cc-code";
 const BASE_URL = `https://github.com/${REPO}/releases/download/npm-v${VERSION}`;
 
 const PLATFORMS = {

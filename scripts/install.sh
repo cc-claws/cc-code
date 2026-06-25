@@ -2,7 +2,7 @@
 set -euo pipefail
 export LC_ALL=C
 
-# Peri Install Script
+# cc-code Install Script
 # Usage: curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh | bash
 #
 # Options:
@@ -145,15 +145,15 @@ cleanup_old_versions() {
 
 # --- Main ---
 main() {
-    INSTALL_DIR="${PERI_INSTALL_DIR:-${HOME}/.peri}"
-    GITHUB_API="https://api.github.com/repos/konghayao/peri"
+    INSTALL_DIR="${CCCODE_INSTALL_DIR:-${HOME}/.cc-code}"
+    GITHUB_API="https://api.github.com/repos/cc-claws/cc-code"
 
     echo ""
-    info "Peri Agent Installer"
+    info "cc-code Agent Installer"
     info "-------------------------------"
 
     PLATFORM=$(detect_platform)
-    ASSET_NAME="peri-${PLATFORM}.tar.gz"
+    ASSET_NAME="cc-code-${PLATFORM}.tar.gz"
 
     # Fetch release info
     if [[ -n "${PERI_INSTALL_VERSION:-}" ]]; then

@@ -1,9 +1,9 @@
 use super::load_from;
 use std::io::Write;
 
-/// 在临时目录创建 .peri/settings.json
+/// 在临时目录创建 .cc-code/settings.json
 fn write_settings(dir: &std::path::Path, content: &str) {
-    let peri_dir = dir.join(".peri");
+    let peri_dir = dir.join(".cc-code");
     std::fs::create_dir_all(&peri_dir).unwrap();
     let mut f = std::fs::File::create(peri_dir.join("settings.json")).unwrap();
     f.write_all(content.as_bytes()).unwrap();
@@ -54,11 +54,11 @@ fn test_merge_global_and_workspace_via_load_from() {
     write_settings(&ws_dir, ws_content);
 
     // 加载全局
-    let global_path = global_dir.join(".peri").join("settings.json");
+    let global_path = global_dir.join(".cc-code").join("settings.json");
     let mut global = load_from(&global_path).unwrap();
 
     // 加载工作区并合并
-    let ws_path = ws_dir.join(".peri").join("settings.json");
+    let ws_path = ws_dir.join(".cc-code").join("settings.json");
     let workspace = load_from(&ws_path).unwrap();
     global.config.merge_overrides(workspace.config);
 

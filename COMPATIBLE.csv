@@ -1,4 +1,4 @@
-特性,Claude Code,Peri,状态
+特性,Claude Code,cc-code,状态
 Agent Loop 及界面,,,
 语言及 TUI 框架,TypeScript + Bun + Ink,Rust + ratatui,✅
 ReAct,最大迭代控制 + 重试机制 + 主动取消中断,最大迭代控制 + 重试机制 + 主动取消中断,✅
@@ -101,7 +101,7 @@ Context Collapse,contextCollapse（持久化上下文折叠）,--,❌
 /context 命令,/context（实时分类用量 + 优化建议）,/context（上下文窗口使用情况）,⚠️
 ,,,
 用户配置,,,
-全局用户配置,~/.claude/settings.json,~/.peri/settings.json（兼容读取 .claude/）,⚠️
+全局用户配置,~/.claude/settings.json,~/.cc-code/settings.json（兼容读取 .claude/）,⚠️
 项目级配置,.claude/settings.json（可提交 git）,--,❌
 本地配置（gitignore）,.claude/settings.local.json,--,❌
 多源合并,7 层优先级（plugin → user → project → local → policy → flag → inline）,单文件加载,⚠️

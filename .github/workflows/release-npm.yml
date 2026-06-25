@@ -86,11 +86,11 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo install cross
 
-      - name: Build peri-tui (Linux)
+      - name: Build cc-code (Linux)
         if: runner.os == 'Linux'
         run: cross build -p peri-tui --release --target ${{ matrix.target }}
 
-      - name: Build peri-tui (non-Linux)
+      - name: Build cc-code (non-Linux)
         if: runner.os != 'Linux'
         run: cargo build -p peri-tui --release --target ${{ matrix.target }}
 
@@ -98,19 +98,19 @@ jobs:
         if: matrix.ext == ''
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/peri dist/peri-${{ matrix.platform }}
-          chmod +x dist/peri-${{ matrix.platform }}
-          tar -czf dist/peri-${{ matrix.platform }}.tar.gz -C dist peri-${{ matrix.platform }}
-          rm dist/peri-${{ matrix.platform }}
+          cp target/${{ matrix.target }}/release/cc-code dist/cc-code-${{ matrix.platform }}
+          chmod +x dist/cc-code-${{ matrix.platform }}
+          tar -czf dist/cc-code-${{ matrix.platform }}.tar.gz -C dist cc-code-${{ matrix.platform }}
+          rm dist/cc-code-${{ matrix.platform }}
 
       - name: Package binaries (Windows)
         if: matrix.ext == '.exe'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist
-          Copy-Item "target/${{ matrix.target }}/release/peri.exe" "dist/peri-${{ matrix.platform }}.exe"
-          Compress-Archive -Path "dist/peri-${{ matrix.platform }}.exe" -DestinationPath "dist/peri-${{ matrix.platform }}.zip"
-          Remove-Item "dist/peri-${{ matrix.platform }}.exe"
+          Copy-Item "target/${{ matrix.target }}/release/cc-code.exe" "dist/cc-code-${{ matrix.platform }}.exe"
+          Compress-Archive -Path "dist/cc-code-${{ matrix.platform }}.exe" -DestinationPath "dist/cc-code-${{ matrix.platform }}.zip"
+          Remove-Item "dist/cc-code-${{ matrix.platform }}.exe"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

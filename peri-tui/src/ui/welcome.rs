@@ -10,15 +10,15 @@ use ratatui::{
 
 use crate::{app::App, ui::theme};
 
-/// ASCII Art Logo（"PERI CODE"，ansi_shadow 字体，6 行）
-/// PERI 用 ACCENT（橙色），CODE 用 TEXT（白色）
+/// ASCII Art Logo（"CC-CODE"，ansi_shadow 字体，6 行）
+/// CC 用 ACCENT（橙色），CODE 用 ACCENT（橙色）
 const LOGO: &[(&str, &str)] = &[
-    ("██████╗ ███████╗██████╗ ██╗", "  ██████╗  ██████╗ ██████╗ ███████╗"),
-    ("██╔══██╗██╔════╝██╔══██╗██║", " ██╔═══╝  ██╔═══██╗██╔══██╗██╔════╝"),
-    ("██████╔╝█████╗  ██████╔╝██║", " ██║      ██║   ██║██║  ██║█████╗  "),
-    ("██╔═══╝ ██╔══╝  ██╔══██╗██║", " ██║      ██║   ██║██║  ██║██╔══╝  "),
-    ("██║     ███████╗██║  ██║██║", " ╚██████╔╝╚██████╔╝██████╔╝███████╗"),
-    ("╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝", "  ╚═════╝  ╚═════╝ ╚═════╝ ╚══════╝"),
+    (" ██████╗ ██████╗ ", "  ██████╗  ██████╗ ██████╗ ███████╗"),
+    ("██╔════╝██╔═══██╗", " ██╔═══╝  ██╔═══██╗██╔══██╗██╔════╝"),
+    ("██║     ██║   ██║", " ██║      ██║   ██║██║  ██║█████╗  "),
+    ("██║     ██║   ██║", " ██║      ██║   ██║██║  ██║██╔══╝  "),
+    ("╚██████╗╚██████╔╝", " ╚██████╔╝╚██████╔╝██████╔╝███████╗"),
+    (" ╚═════╝ ╚═════╝ ", "  ╚═════╝  ╚═════╝ ╚═════╝ ╚══════╝"),
 ];
 
 /// 窄屏阈值：低于此宽度跳过 ASCII Art Logo
@@ -36,7 +36,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         // 窄屏：单行文字标题
         lines.push(Line::from(vec![
             Span::styled(
-                "Peri",
+                "CC",
                 Style::default()
                     .fg(theme::ACCENT)
                     .add_modifier(Modifier::BOLD),
@@ -44,17 +44,17 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 " Code",
                 Style::default()
-                    .fg(theme::TEXT)
+                    .fg(theme::ACCENT)
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
     } else {
-        // 宽屏：ASCII Art Logo（PERI 橙色 + CODE 白色）
+        // 宽屏：ASCII Art Logo（CC-CODE 全橙色）
         lines.push(Line::from(""));
-        for (peri_part, code_part) in LOGO {
+        for (left_part, code_part) in LOGO {
             lines.push(Line::from(vec![
                 Span::styled(
-                    peri_part.to_string(),
+                    left_part.to_string(),
                     Style::default()
                         .fg(theme::ACCENT)
                         .add_modifier(Modifier::BOLD),
@@ -63,7 +63,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(
                     code_part.to_string(),
                     Style::default()
-                        .fg(theme::TEXT)
+                        .fg(theme::ACCENT)
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
