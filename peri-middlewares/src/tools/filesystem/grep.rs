@@ -257,6 +257,32 @@ fn execute_search(
     let total_collected = all_items.len();
     drop(results);
 
+    // 对齐上游 GrepTool.ts:528-552：FilesOnly / FilesWithoutMatch 模式按 mtime 排序
+    // - 生产：mtime 降序（newest first），mtime 相同按 filename 升序 tiebreaker
+    // - 测试：纯 filename 升序，保证 deterministic
+    // - stat 失败按 epoch 0 处理
+    if matches!(parsed.output_mode, OutputMode::FilesOnly | OutputMode::FilesWithoutMatch) {
+        let cwd_str = cwd.as_str();
+        let mut keyed: Vec<(String, std::time::SystemTime)> = all_items
+            .iter()
+            .map(|p| {
+                let abs = Path::new(cwd_str).join(p);
+                let mtime = std::fs::metadata(&abs)
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                (p.clone(), mtime)
+            })
+            .collect();
+        #[cfg(test)]
+        keyed.sort_by(|a, b| a.0.cmp(&b.0));
+        #[cfg(not(test))]
+        keyed.sort_by(|a, b| match b.1.cmp(&a.1) {
+            std::cmp::Ordering::Equal => a.0.cmp(&b.0),
+            other => other,
+        });
+        all_items = keyed.into_iter().map(|(p, _)| p).collect();
+    }
+
     // 上游 wasTruncated = items.length - offset > limit = items.length > offset + limit
     let was_truncated = head_limit > 0 && total_collected > offset.saturating_add(head_limit);
 
