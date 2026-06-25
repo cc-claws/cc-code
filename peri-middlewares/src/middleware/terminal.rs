@@ -39,6 +39,7 @@ fn rewrite_git_commit_for_windows(command: &str) -> (String, Vec<(String, String
 
 /// 按 shell 连接符（`&&`、`||`、`|`）拆分命令字符串，跳过引号内的内容。
 /// 返回 `Vec<(segment, Option<separator>)>`。
+#[cfg(windows)]
 fn split_shell_segments(command: &str) -> Vec<(String, Option<String>)> {
     let mut segments = Vec::new();
     let mut current = String::new();
@@ -106,6 +107,7 @@ fn split_shell_segments(command: &str) -> Vec<(String, Option<String>)> {
 
 /// 尝试将单个命令段中的 `git commit -m "msg"` 改写为 `git commit -F tempfile`。
 /// 返回 `Some((rewritten_cmd, (temp_path, msg)))` 或 `None`。
+#[cfg(windows)]
 fn rewrite_single_git_commit(trimmed: &str) -> Option<(String, (String, String))> {
     let commit_pos = trimmed.find("commit").or_else(|| trimmed.find("COMMIT"))?;
     let pos = commit_pos;
