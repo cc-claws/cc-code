@@ -19,9 +19,18 @@ use crate::{
     middleware::{chain::MiddlewareChain, r#trait::Middleware},
     tools::BaseTool,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub use tokio_util::sync::CancellationToken as AgentCancellationToken;
+
+/// 卡住检测：滑动窗口大小（轮）。覆盖约 2 个完整循环周期（典型循环 3-4 轮），
+/// 太小会误杀正常的"读→改→读"探索，太大则检测过慢浪费 token。
+const STUCK_WINDOW_SIZE: usize = 8;
+
+/// 卡住检测：窗口内同一 thinking 指纹重复出现次数阈值。
+/// 达到此值判定为循环（如 A→B→C→D→A→B→C→D 中 A 在 8 轮内出现 2 次，
+/// 但配合其他指纹的交叉重复，整体频率足以判定循环）。
+const STUCK_REPEAT_THRESHOLD: usize = 3;
 
 #[allow(clippy::type_complexity)]
 /// Agent 执行器 - 管理 ReAct 循环
@@ -279,9 +288,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         let mut final_result: Option<AgentOutput> = None;
         let mut consecutive_failures: HashMap<String, usize> = HashMap::new();
 
-        // 卡住检测：跟踪连续多轮 thinking 相似度
-        let mut stuck_count: usize = 0;
-        let mut prev_fingerprint: Option<String> = None;
+        // 卡住检测：跟踪最近若干轮 thinking 指纹，检测循环模式
+        let mut recent_fingerprints: VecDeque<String> = VecDeque::with_capacity(STUCK_WINDOW_SIZE);
 
         for step in 0..self.max_iterations {
             state.set_current_step(step);
@@ -296,16 +304,16 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             // 钩子: after_model — LLM 调用后（响应后处理）
             self.chain.run_after_model(state, &reasoning).await?;
 
-            // 卡住检测：连续多轮 thinking 前缀相同则注入换策略提示
-            Self::check_stuck(
-                state,
-                &reasoning,
-                &mut stuck_count,
-                &mut prev_fingerprint,
-                step,
-            );
+            // 卡住检测：滑动窗口内同一 thinking 指纹重复出现则判定为循环，
+            // 检测到时跳过本轮工具执行，强制 agent 带着换策略提示重新思考
+            let is_stuck = Self::check_stuck(state, &reasoning, &mut recent_fingerprints, step);
 
             if reasoning.needs_tool_call() {
+                if is_stuck {
+                    // 检测到循环：换策略提示已由 check_stuck 注入，
+                    // 跳过本轮工具执行，直接进入下一轮 LLM 调用
+                    continue;
+                }
                 // 工具分发
                 let step_calls = self::tool_dispatch::dispatch_tools(
                     self,
@@ -391,42 +399,54 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         state.messages_mut().retain(|m| !ids.contains(&m.id()));
     }
 
-    /// 卡住检测：连续多轮 thinking 前缀相同则注入换策略提示
+    /// 卡住检测：滑动窗口内同一 thinking 指纹重复出现则判定为循环
     ///
-    /// 退化输出场景下 agent 可能在不同迭代中重复相同思考模式。
-    /// 当连续 3 轮 thinking 指纹相同时，注入一条 Human 消息鼓励换策略。
-    /// 注入后重置计数器，避免重复注入。
+    /// 退化输出场景下 agent 可能陷入 A→B→C→D→A→B→C→D 的循环模式，
+    /// 任意相邻两轮 thinking 都不相同，旧版"连续相同"检测无法识别。
+    /// 改用滑动窗口（最近 STUCK_WINDOW_SIZE 轮）+ 频率检测
+    /// （同一指纹累计出现 STUCK_REPEAT_THRESHOLD 次）。
+    ///
+    /// 检测到循环时注入换策略 Human 消息，并返回 true 让主循环跳过
+    /// 本轮工具执行，强制 agent 带着新提示重新思考，而非继续转圈。
+    /// 注入后清空窗口，避免连续误触发。
     fn check_stuck(
         state: &mut S,
         reasoning: &Reasoning,
-        stuck_count: &mut usize,
-        prev_fingerprint: &mut Option<String>,
+        recent: &mut VecDeque<String>,
         step: usize,
-    ) {
+    ) -> bool {
         let fp = Self::thinking_fingerprint(reasoning);
         if fp.is_empty() {
-            return;
+            return false;
         }
 
-        if prev_fingerprint.as_deref() == Some(fp.as_str()) {
-            *stuck_count += 1;
-        } else {
-            *stuck_count = 0;
-        }
-        *prev_fingerprint = Some(fp);
+        // 统计当前指纹在窗口内已出现次数（不计本次）
+        let repeats = recent.iter().filter(|f| *f == &fp).count();
 
-        if *stuck_count >= 3 {
+        // 维护滑动窗口：超出容量则弹出最旧
+        recent.push_back(fp);
+        if recent.len() > STUCK_WINDOW_SIZE {
+            recent.pop_front();
+        }
+
+        // 窗口内同一指纹累计达到阈值（含本次）判定为循环
+        if repeats + 1 >= STUCK_REPEAT_THRESHOLD {
             tracing::warn!(
                 step,
-                stuck_count,
-                "Agent 连续多轮思考高度相似，注入换策略提示"
+                repeats = repeats + 1,
+                window = STUCK_WINDOW_SIZE,
+                "Agent 思考陷入循环模式，跳过本轮工具执行并注入换策略提示"
             );
             state.add_message(BaseMessage::human(
-                "你似乎在重复同样的思考模式。请尝试完全不同的方法——\
+                "你似乎陷入了重复的思考循环。请停止当前方法，尝试完全不同的策略——\
                  使用不同的工具、换一个分析角度、或向用户请求更多信息。",
             ));
-            *stuck_count = 0;
+            // 清空窗口，避免下一轮因残留指纹再次触发
+            recent.clear();
+            return true;
         }
+
+        false
     }
 
     /// 提取 thinking 内容指纹（前 200 字符）

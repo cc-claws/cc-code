@@ -691,7 +691,11 @@ async fn test_state_snapshot_on_final_answer() {
 /// 验证达到最大迭代次数时返回 MaxIterationsExceeded 错误
 #[tokio::test]
 async fn test_max_iterations_exceeded() {
-    struct AlwaysToolLLM;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct AlwaysToolLLM {
+        count: AtomicUsize,
+    }
     #[async_trait::async_trait]
     impl ReactLLM for AlwaysToolLLM {
         async fn generate_reasoning(
@@ -700,8 +704,11 @@ async fn test_max_iterations_exceeded() {
             _tools: &[&dyn BaseTool],
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> crate::error::AgentResult<Reasoning> {
+            // 每轮返回不同的 thought，使 thinking 指纹不同，避免触发卡住检测，
+            // 从而纯粹测试 max_iterations 耗尽路径
+            let n = self.count.fetch_add(1, Ordering::SeqCst);
             Ok(Reasoning::with_tools(
-                "loop",
+                format!("loop {n}"),
                 vec![ToolCall::new("id1", "echo_tool", serde_json::json!({}))],
             ))
         }
@@ -727,9 +734,11 @@ async fn test_max_iterations_exceeded() {
         }
     }
 
-    let agent = ReActAgent::new(AlwaysToolLLM)
-        .max_iterations(3)
-        .register_tool(Box::new(EchoTool));
+    let agent = ReActAgent::new(AlwaysToolLLM {
+        count: AtomicUsize::new(0),
+    })
+    .max_iterations(3)
+    .register_tool(Box::new(EchoTool));
 
     let mut state = AgentState::new("/tmp");
     let result = agent
@@ -739,6 +748,80 @@ async fn test_max_iterations_exceeded() {
     assert!(matches!(result, Err(AgentError::MaxIterationsExceeded(3))));
     // 1 human + 3*(ai + tool_result)
     assert_eq!(state.messages().len(), 7);
+}
+
+/// 验证 thinking 循环模式（A→B→C→A→B→C...）能被检测并注入换策略提示。
+/// 旧的"连续相同"检测无法识别此类循环——任意相邻两轮 thinking 都不同。
+/// 滑动窗口（8 轮）+ 频率检测（同一指纹 3 次）应能捕获。
+#[tokio::test]
+async fn test_stuck_cycling_thought_detected() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // LLM 循环返回 A/B/C 三种 thinking，每轮都调工具，模拟 agent 陷入循环模式
+    struct CyclingLLM {
+        count: AtomicUsize,
+    }
+    #[async_trait::async_trait]
+    impl ReactLLM for CyclingLLM {
+        async fn generate_reasoning(
+            &self,
+            _messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> crate::error::AgentResult<Reasoning> {
+            let n = self.count.fetch_add(1, Ordering::SeqCst);
+            let thought = match n % 3 {
+                0 => "让我尝试用 ssh 的 -T 标志通过 stdin 传命令",
+                1 => "实际上，最简单的方案是通过文件传命令给 SSH",
+                _ => "等等，我可以换一种 stdin 的方法处理引号",
+            };
+            Ok(Reasoning::with_tools(
+                thought,
+                vec![ToolCall::new("id1", "echo_tool", serde_json::json!({}))],
+            ))
+        }
+    }
+
+    struct EchoTool;
+    #[async_trait::async_trait]
+    impl BaseTool for EchoTool {
+        fn name(&self) -> &str {
+            "echo_tool"
+        }
+        fn description(&self) -> &str {
+            "echoes"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("echo".to_string())
+        }
+    }
+
+    let agent = ReActAgent::new(CyclingLLM {
+        count: AtomicUsize::new(0),
+    })
+    .max_iterations(20)
+    .register_tool(Box::new(EchoTool));
+
+    let mut state = AgentState::new("/tmp");
+    let _ = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await;
+
+    // 循环检测触发后应注入换策略提示 Human 消息
+    let has_hint = state.messages().iter().any(|m| {
+        if let BaseMessage::Human { content, .. } = m {
+            content.text_content().contains("重复的思考循环")
+        } else {
+            false
+        }
+    });
+    assert!(has_hint, "A→B→C 循环模式应被滑动窗口检测并注入换策略提示");
 }
 
 /// 验证两个工具调用通过批量 before_tools_batch 处理（HITL 批量审批路径）
