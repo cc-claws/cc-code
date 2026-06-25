@@ -323,21 +323,21 @@ mod windows_git_rewrite {
 
     #[test]
     fn test_rewrite_simple_commit() {
-        let (cmd, info) =
+        let (cmd, infos) =
             rewrite_git_commit_for_windows(r#"git commit -m "feat(tui): display version""#);
         assert!(cmd.contains("git commit -F"), "应改写为 -F: {cmd}");
-        assert!(info.is_some(), "应返回临时文件信息");
-        let (path, content) = info.unwrap();
+        assert!(!infos.is_empty(), "应返回临时文件信息");
+        let (path, content) = &infos[0];
         assert!(path.ends_with(".txt"), "临时文件应为 .txt: {path}");
         assert_eq!(content, "feat(tui): display version");
     }
 
     #[test]
     fn test_rewrite_long_flag() {
-        let (cmd, info) =
+        let (cmd, infos) =
             rewrite_git_commit_for_windows(r#"git commit --message "hello world""#);
         assert!(cmd.contains("git commit -F"), "应改写 --message: {cmd}");
-        assert_eq!(info.unwrap().1, "hello world");
+        assert_eq!(infos[0].1, "hello world");
     }
 
     #[test]
@@ -351,43 +351,47 @@ mod windows_git_rewrite {
 
     #[test]
     fn test_no_rewrite_without_quotes() {
-        let (cmd, info) = rewrite_git_commit_for_windows("git commit -m msg");
-        assert!(info.is_none(), "无引号时不应重写");
+        let (cmd, infos) = rewrite_git_commit_for_windows("git commit -m msg");
+        assert!(infos.is_empty(), "无引号时不应重写");
         assert_eq!(cmd, "git commit -m msg");
     }
 
     #[test]
-    fn test_no_rewrite_chained_command() {
+    fn test_rewrite_chained_command() {
         let input = r#"git add . && git commit -m "msg""#;
-        let (cmd, info) = rewrite_git_commit_for_windows(input);
-        assert!(info.is_none(), "链式命令不应重写");
-        assert_eq!(cmd, input);
+        let (cmd, infos) = rewrite_git_commit_for_windows(input);
+        assert!(!infos.is_empty(), "链式命令应重写 commit 段");
+        assert!(cmd.contains("git add ."), "应保留 git add: {cmd}");
+        assert!(cmd.contains("git commit -F"), "应改写 commit: {cmd}");
+        assert!(cmd.contains("&&"), "应保留 && 分隔符: {cmd}");
+        assert_eq!(infos[0].1, "msg");
     }
 
     #[test]
     fn test_no_rewrite_non_commit() {
         let input = "git status";
-        let (cmd, info) = rewrite_git_commit_for_windows(input);
-        assert!(info.is_none());
+        let (cmd, infos) = rewrite_git_commit_for_windows(input);
+        assert!(infos.is_empty());
         assert_eq!(cmd, input);
     }
 
     #[test]
-    fn test_no_rewrite_pipe() {
+    fn test_rewrite_pipe() {
         let input = r#"git commit -m "msg" | cat"#;
-        let (cmd, info) = rewrite_git_commit_for_windows(input);
-        assert!(info.is_none(), "管道命令不应重写");
-        assert_eq!(cmd, input);
+        let (cmd, infos) = rewrite_git_commit_for_windows(input);
+        assert!(!infos.is_empty(), "管道命令应重写 commit 段");
+        assert!(cmd.contains("git commit -F"), "应改写: {cmd}");
+        assert!(cmd.contains("| cat"), "应保留管道: {cmd}");
     }
 
     #[test]
     fn test_rewrite_multiple_m_flags() {
-        let (cmd, info) = rewrite_git_commit_for_windows(
+        let (cmd, infos) = rewrite_git_commit_for_windows(
             r#"git commit -m "subject" -m "body paragraph""#,
         );
         assert!(cmd.contains("git commit -F"), "应改写为 -F: {cmd}");
         assert!(!cmd.contains(" -m "), "不应残留 -m: {cmd}");
-        let (path, content) = info.unwrap();
+        let (path, content) = &infos[0];
         assert!(path.ends_with(".txt"));
         // git 语义：多个 -m 以双换行拼接
         assert_eq!(content, "subject\n\nbody paragraph");
@@ -395,22 +399,42 @@ mod windows_git_rewrite {
 
     #[test]
     fn test_rewrite_three_m_flags() {
-        let (cmd, info) = rewrite_git_commit_for_windows(
+        let (cmd, infos) = rewrite_git_commit_for_windows(
             r#"git commit -m "first" -m "second" -m "third""#,
         );
         assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
-        assert_eq!(info.unwrap().1, "first\n\nsecond\n\nthird");
+        assert_eq!(infos[0].1, "first\n\nsecond\n\nthird");
     }
 
     #[test]
     fn test_rewrite_mixed_m_and_other_flags() {
-        let (cmd, info) = rewrite_git_commit_for_windows(
+        let (cmd, infos) = rewrite_git_commit_for_windows(
             r#"git commit --no-verify -m "msg" --amend"#,
         );
         assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
         assert!(cmd.contains("--no-verify"), "应保留 --no-verify: {cmd}");
         assert!(cmd.contains("--amend"), "应保留 --amend: {cmd}");
         assert!(!cmd.contains(" -m "), "不应残留 -m: {cmd}");
-        assert_eq!(info.unwrap().1, "msg");
+        assert_eq!(infos[0].1, "msg");
+    }
+
+    #[test]
+    fn test_rewrite_chained_with_quote_containing_separator() {
+        let input = r#"git add . && git commit -m "fix: a && b""#;
+        let (cmd, infos) = rewrite_git_commit_for_windows(input);
+        assert!(!infos.is_empty(), "应正确处理引号内的 &&");
+        assert_eq!(infos[0].1, "fix: a && b");
+        assert!(cmd.contains("git commit -F"), "应改写: {cmd}");
+    }
+
+    #[test]
+    fn test_rewrite_triple_chained() {
+        let input = r#"git add -A && git status && git commit -m "done""#;
+        let (cmd, infos) = rewrite_git_commit_for_windows(input);
+        assert!(!infos.is_empty(), "三段链式应重写 commit 段");
+        assert!(cmd.contains("git add -A"), "应保留第一段: {cmd}");
+        assert!(cmd.contains("git status"), "应保留第二段: {cmd}");
+        assert!(cmd.contains("git commit -F"), "应改写第三段: {cmd}");
+        assert_eq!(infos[0].1, "done");
     }
 }
