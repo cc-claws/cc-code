@@ -405,8 +405,12 @@ async fn test_grep_output_mode_default() {
         .await
         .unwrap();
     assert!(
-        result.contains("needle"),
-        "不传 output_mode 时应默认为 content 模式: {result}"
+        result.contains("test.txt"),
+        "不传 output_mode 时应默认为 files_with_matches 模式（输出文件名）: {result}"
+    );
+    assert!(
+        !result.contains("needle here"),
+        "默认 files_with_matches 不应输出匹配行内容: {result}"
     );
 }
 
@@ -504,8 +508,8 @@ async fn test_grep_truncation_persists_full_output() {
         .await
         .unwrap();
     assert!(
-        result.contains("truncated at 3 lines"),
-        "应显示截断信息: {result}"
+        result.contains("[Showing results with pagination = limit: 3, offset: 0]"),
+        "应显示分页提示: {result}"
     );
     assert!(
         result.contains("Read tool"),
@@ -514,5 +518,99 @@ async fn test_grep_truncation_persists_full_output() {
     assert!(
         result.contains("peri-tool-output-"),
         "应包含文件路径: {result}"
+    );
+}
+
+// === P0：默认模式 + max-columns + 分页提示 ===
+
+#[tokio::test]
+async fn test_grep_default_output_mode_is_files_with_matches() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("a.rs"),
+        "fn needle() {}\nfn other() {}",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("b.rs"), "no match").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("a.rs"),
+        "默认 output_mode 应为 files_with_matches，输出含匹配的文件名: {result}"
+    );
+    assert!(
+        !result.contains("b.rs"),
+        "无匹配文件不应出现: {result}"
+    );
+    assert!(
+        !result.contains("fn needle"),
+        "默认 files_with_matches 不应输出匹配行内容: {result}"
+    );
+}
+
+#[tokio::test]
+async fn test_grep_max_columns_skips_long_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    // 构造一行 > 500 bytes 的匹配（600 字节前缀 + needle）
+    let long_prefix = "a".repeat(600);
+    let content = format!("{} needle\nshort needle", long_prefix);
+    std::fs::write(dir.path().join("test.txt"), content).unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("short needle"),
+        "短行应正常输出: {result}"
+    );
+    assert!(
+        !long_prefix.is_empty() && !result.contains(&long_prefix[..100]),
+        "超 500 字节的长行不应出现在输出: {result}"
+    );
+}
+
+#[tokio::test]
+async fn test_grep_truncated_shows_pagination_hint() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines: Vec<String> = (0..5).map(|i| format!("line {} needle", i)).collect();
+    std::fs::write(dir.path().join("test.txt"), lines.join("\n")).unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./",
+            "head_limit": 2
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("[Showing results with pagination = limit: 2, offset: 0]"),
+        "截断时应输出分页提示: {result}"
+    );
+    let result_with_offset = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./",
+            "head_limit": 2,
+            "offset": 2
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result_with_offset.contains("[Showing results with pagination = limit: 2, offset: 2]"),
+        "带 offset 时分页提示应反映当前 offset: {result_with_offset}"
     );
 }
