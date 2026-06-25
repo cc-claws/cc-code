@@ -26,7 +26,8 @@ mod shortcuts;
 /// A cross-platform key-binding definition that accounts for macOS Option-key
 /// character composition.
 pub(super) struct KeyBinding {
-    /// Human-readable label (for status bar / docs).
+    /// Human-readable label (kept for debugging / future status-bar use).
+    #[allow(dead_code)]
     label: &'static str,
     /// Character produced on macOS when Option (+ optional Shift) is held.
     macos_char: Option<char>,
@@ -57,11 +58,7 @@ impl KeyBinding {
     /// Resolve the actual modifiers needed. bitflags `|` is not const,
     /// so multi-flag bindings store `KeyModifiers::empty()` and reconstruct here.
     fn resolved_modifiers(&self) -> KeyModifiers {
-        match self.label {
-            "Alt+Shift+M" => KeyModifiers::ALT | KeyModifiers::SHIFT,
-            "Ctrl+Shift+T" => KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-            _ => self.modifiers,
-        }
+        self.modifiers
     }
 }
 
@@ -74,26 +71,12 @@ pub(super) static SHORTCUT_CYCLE_MODE: KeyBinding = KeyBinding {
     key: KeyCode::Char('m'),
 };
 
-pub(super) static SHORTCUT_CYCLE_PROVIDER: KeyBinding = KeyBinding {
-    label: "Alt+Shift+M",
-    macos_char: Some('Â'),
-    modifiers: KeyModifiers::empty(), // resolved_modifiers() returns ALT|SHIFT
-    key: KeyCode::Char('m'),
-};
-
-// Ctrl+T / Ctrl+Shift+T: cross-platform model/provider cycling.
+// Ctrl+T: cross-platform model alias cycling.
 // Ctrl combos have no macOS composition issue, so macos_char is None.
 pub(super) static SHORTCUT_CTRL_CYCLE_MODE: KeyBinding = KeyBinding {
     label: "Ctrl+T",
     macos_char: None,
     modifiers: KeyModifiers::CONTROL,
-    key: KeyCode::Char('t'),
-};
-
-pub(super) static SHORTCUT_CTRL_CYCLE_PROVIDER: KeyBinding = KeyBinding {
-    label: "Ctrl+Shift+T",
-    macos_char: None,
-    modifiers: KeyModifiers::empty(), // resolved_modifiers() returns CONTROL|SHIFT
     key: KeyCode::Char('t'),
 };
 
@@ -116,11 +99,6 @@ pub fn cycle_model_label() -> &'static str {
     "Ctrl+T"
 }
 
-/// Returns the platform-appropriate label for the provider-cycling shortcut.
-pub fn cycle_provider_label() -> &'static str {
-    "Ctrl+Shift+T"
-}
-
 /// Handles a single key event, dispatching to panels, prompts, textarea, or
 /// application-level shortcuts. Returns an `Action` when a redraw or quit is
 /// needed.
@@ -141,7 +119,7 @@ pub fn handle_key_event(
         return Ok(Some(action));
     }
 
-    // Stage 3-6: Shortcuts (BackTab, Ctrl+B, Ctrl+T, Ctrl+Shift+T)
+    // Stage 3-6: Shortcuts (BackTab, Ctrl+B, Ctrl+P, Ctrl+T)
     if let Some(action) = shortcuts::handle_shortcuts(app, &key_event) {
         return Ok(Some(action));
     }

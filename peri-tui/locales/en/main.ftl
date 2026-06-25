@@ -131,6 +131,7 @@ key-install = :Install
 key-tab = :Tab
 key-effort = :Effort
 key-switch-model = :Switch Model
+key-command-palette = :Command Palette
 
 # ---- Welcome Page ----
 
@@ -152,7 +153,7 @@ welcome-skills-available = { $count } skills available
 
 tip-0 = Type / to enter commands, Tab to autocomplete
 tip-1 = Ctrl+C interrupts Agent, Shift+Tab toggles permission mode
-tip-2 = Ctrl+T switch model (opus / sonnet / haiku), Ctrl+Shift+T switch provider
+tip-2 = Ctrl+P opens command palette (Provider / Model / Effort), Ctrl+T cycles opus / sonnet / haiku
 tip-3 = Shift+Enter for newline in input box
 tip-4 = Drag files or images to terminal to auto-attach to message
 tip-5 = Long press Ctrl+V to paste clipboard image
