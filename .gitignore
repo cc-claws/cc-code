@@ -162,6 +162,7 @@ target
 
 .claude/*.lock
 *.png
+!assets/partners/logos/*.png
 node_modules/
 *.log
 
