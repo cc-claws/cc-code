@@ -37,6 +37,7 @@ Usage:
 - Output includes line numbers by default (use -n to disable)
 - Search times out after 15 seconds; use more specific patterns for large codebases
 - Default head_limit is 250 lines; use sparingly for large result sets
+- Lines longer than 500 bytes are skipped in "content" mode (avoids dumping minified/base64 content)
 - Use fixed_strings (-F) to search literal strings without regex interpretation
 - Use invert_match (-v) to find lines that do NOT match the pattern
 - Use whole_word (-w) to match whole words only
@@ -44,8 +45,8 @@ Usage:
 - Use max_depth to limit search directory depth
 
 Output modes:
-- "content": shows matching lines with line numbers (default)
-- "files_with_matches": lists only file paths that contain matches
+- "files_with_matches": lists only file paths that contain matches (default — token-efficient)
+- "content": shows matching lines with line numbers
 - "count": shows match counts per file
 - "files_without_matches": lists only file paths that do NOT contain matches
 
@@ -59,6 +60,9 @@ When to use:
 - Use Glob for file name search, Grep for content search
 - For open-ended searches, start with the most specific query and broaden if needed"#;
 
+/// Default 模式下超过此字节长度的行不输出（对齐 Claude Code `--max-columns 500`）
+const GREP_MAX_COLUMNS: usize = 500;
+
 use crate::tools::output_persist::persist_truncated_output;
 
 use super::{
@@ -71,6 +75,7 @@ fn execute_search(
     parsed: &ParsedArgs,
     cwd: &str,
     head_limit: usize,
+    offset: Option<usize>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // 构建搜索路径
     let search_path = match &parsed.path {
@@ -200,6 +205,7 @@ fn execute_search(
                     after_context,
                     before_context,
                     show_line_numbers: parsed.line_number,
+                    max_columns: GREP_MAX_COLUMNS,
                 };
 
                 match searcher.search_path(&*matcher, entry.path(), &mut sink) {
@@ -244,7 +250,11 @@ fn execute_search(
     let total = total_lines.load(Ordering::Relaxed);
     if total >= head_limit && head_limit > 0 {
         let persist_hint = persist_truncated_output(&output);
-        output.push_str(&format!("\n... (truncated at {} lines)", head_limit));
+        let offset_val = offset.unwrap_or(0);
+        output.push_str(&format!(
+            "\n\n[Showing results with pagination = limit: {}, offset: {}]",
+            head_limit, offset_val
+        ));
         output.push_str(&persist_hint);
     }
 
@@ -284,7 +294,7 @@ impl BaseTool for GrepTool {
                 "output_mode": {
                     "type": "string",
                     "enum": ["content", "files_with_matches", "count", "files_without_matches"],
-                    "description": "Output mode: \"content\" shows matching lines with line numbers (default), \"files_with_matches\" lists only file paths, \"count\" shows match counts per file, \"files_without_matches\" lists file paths without matches"
+                    "description": "Output mode: \"files_with_matches\" lists only file paths (default, token-efficient), \"content\" shows matching lines with line numbers, \"count\" shows match counts per file, \"files_without_matches\" lists file paths without matches"
                 },
                 "-i": {
                     "type": "boolean",
@@ -407,11 +417,14 @@ impl BaseTool for GrepTool {
         };
 
         let head_limit = grep_input.head_limit;
+        let offset = grep_input.offset;
 
         let cwd = self.cwd.clone();
         let result = timeout(
             Duration::from_secs(15),
-            tokio::task::spawn_blocking(move || execute_search(&parsed, &cwd, head_limit)),
+            tokio::task::spawn_blocking(move || {
+                execute_search(&parsed, &cwd, head_limit, offset)
+            }),
         )
         .await;
 

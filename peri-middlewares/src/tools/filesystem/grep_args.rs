@@ -75,8 +75,8 @@ pub(crate) fn type_to_glob(type_name: &str) -> Vec<&'static str> {
 impl GrepInput {
     /// 将结构化参数转译为搜索引擎所需的 ParsedArgs
     pub(crate) fn to_parsed_args(&self) -> Result<ParsedArgs, String> {
-        // output_mode 字符串 → OutputMode 枚举（默认 "content"）
-        let mode_str = self.output_mode.as_deref().unwrap_or("content");
+        // output_mode 字符串 → OutputMode 枚举（默认 "files_with_matches"，与 Claude Code 上游对齐）
+        let mode_str = self.output_mode.as_deref().unwrap_or("files_with_matches");
         let output_mode = match mode_str {
             "content" => OutputMode::Default,
             "files_with_matches" => OutputMode::FilesOnly,
