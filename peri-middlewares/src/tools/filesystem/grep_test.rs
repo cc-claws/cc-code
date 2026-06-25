@@ -508,8 +508,8 @@ async fn test_grep_truncation_persists_full_output() {
         .await
         .unwrap();
     assert!(
-        result.contains("[Showing results with pagination = limit: 3, offset: 0]"),
-        "应显示分页提示: {result}"
+        result.contains("[Showing results with pagination = limit: 3]"),
+        "应显示分页提示（offset=0 不输出 offset 字段，对齐上游）: {result}"
     );
     assert!(
         result.contains("Read tool"),
@@ -596,8 +596,8 @@ async fn test_grep_truncated_shows_pagination_hint() {
         .await
         .unwrap();
     assert!(
-        result.contains("[Showing results with pagination = limit: 2, offset: 0]"),
-        "截断时应输出分页提示: {result}"
+        result.contains("[Showing results with pagination = limit: 2]"),
+        "截断时应输出分页提示（offset=0 不输出 offset 字段）: {result}"
     );
     let result_with_offset = tool
         .invoke(serde_json::json!({
@@ -612,5 +612,209 @@ async fn test_grep_truncated_shows_pagination_hint() {
     assert!(
         result_with_offset.contains("[Showing results with pagination = limit: 2, offset: 2]"),
         "带 offset 时分页提示应反映当前 offset: {result_with_offset}"
+    );
+}
+
+// === P0+ : 三种 output_mode 差异化输出格式 + offset slice 语义 ===
+
+/// 对齐上游 files_with_matches 模式：`Found N file[s][ limit: X[, offset: Y]]\n{files}`
+#[tokio::test]
+async fn test_grep_files_with_matches_format_aligned_upstream() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle here").unwrap();
+    std::fs::write(dir.path().join("b.txt"), "needle again").unwrap();
+    std::fs::write(dir.path().join("c.txt"), "no match").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "files_with_matches",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.starts_with("Found 2 files\n"),
+        "应对齐上游 files_with_matches 头部格式 `Found N files\\n...`: {result}"
+    );
+    assert!(
+        result.contains("a.txt") && result.contains("b.txt"),
+        "应列出两个匹配文件: {result}"
+    );
+    assert!(
+        !result.contains("limit:") && !result.contains("offset:"),
+        "未截断时不应输出 pagination 信息: {result}"
+    );
+}
+
+/// 对齐上游 count 模式：`{path:count}\n\nFound N total occurrences across M files[ with pagination = ...]`
+#[tokio::test]
+async fn test_grep_count_format_aligned_upstream() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle\nneedle\nneedle").unwrap();
+    std::fs::write(dir.path().join("b.txt"), "needle once").unwrap();
+    std::fs::write(dir.path().join("c.txt"), "no match").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "count",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("a.txt:3") && result.contains("b.txt:1"),
+        "应输出 path:count 行: {result}"
+    );
+    assert!(
+        result.contains("Found 4 total occurrences across 2 files"),
+        "应对齐上游 count summary 格式: {result}"
+    );
+}
+
+/// 对齐上游 count 模式无匹配：`No matches found\n\nFound 0 total occurrences across 0 files.`
+#[tokio::test]
+async fn test_grep_count_no_matches_format() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "nothing here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "zzz_not_here",
+            "output_mode": "count",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        result, "No matches found\n\nFound 0 total occurrences across 0 files.",
+        "count 模式无匹配应对齐上游 summary（不省略）"
+    );
+}
+
+/// 对齐上游 files_with_matches 无匹配：`No files found`
+#[tokio::test]
+async fn test_grep_files_with_matches_no_matches() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "nothing here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "zzz_not_here",
+            "output_mode": "files_with_matches",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        result, "No files found",
+        "files_with_matches 无匹配应对齐上游（No files found）"
+    );
+}
+
+/// 对齐上游 content 无匹配：`No matches found`（注意上游没有句点）
+#[tokio::test]
+async fn test_grep_content_no_matches_format() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "nothing here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "zzz_not_here",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        result, "No matches found",
+        "content 无匹配应对齐上游（No matches found，无句点）"
+    );
+}
+
+/// 对齐上游 applyHeadLimit slice 语义：slice(offset, offset+limit)
+/// 5 行匹配，head_limit=2, offset=2 → 返回 line 2、line 3（共 2 行），且判定为截断
+#[tokio::test]
+async fn test_grep_offset_slice_semantics() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines: Vec<String> = (0..5).map(|i| format!("line {} needle", i)).collect();
+    std::fs::write(dir.path().join("test.txt"), lines.join("\n")).unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./",
+            "head_limit": 2,
+            "offset": 2
+        }))
+        .await
+        .unwrap();
+    // 应跳过前 2 行（line 0、line 1），保留 line 2、line 3
+    assert!(
+        !result.contains("line 0") && !result.contains("line 1"),
+        "offset=2 应跳过前 2 行: {result}"
+    );
+    assert!(
+        result.contains("line 2") && result.contains("line 3"),
+        "应包含 line 2 和 line 3: {result}"
+    );
+    // 关键：slice 语义要求返回 limit=2 行，而不是 limit-offset 行
+    let line_count = result
+        .lines()
+        .filter(|l| l.contains("line ") && l.contains("needle"))
+        .count();
+    assert_eq!(
+        line_count, 2,
+        "slice(offset, offset+limit) 应返回 limit 行，实际 {} 行: {result}",
+        line_count
+    );
+    assert!(
+        result.contains("[Showing results with pagination = limit: 2, offset: 2]"),
+        "截断时应同时显示 limit 和 offset: {result}"
+    );
+}
+
+/// 边界用例：offset 超过总匹配数 → 返回 No matches found
+#[tokio::test]
+async fn test_grep_offset_exceeds_total() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines: Vec<String> = (0..3).map(|i| format!("line {} needle", i)).collect();
+    std::fs::write(dir.path().join("test.txt"), lines.join("\n")).unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./",
+            "head_limit": 10,
+            "offset": 100
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        result, "No matches found",
+        "offset 超过总匹配数应返回 No matches found: {result}"
+    );
+}
+
+/// 单文件时 files_with_matches 用单数 `file`（对齐上游 plural）
+#[tokio::test]
+async fn test_grep_files_singular_plural() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "files_with_matches",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.starts_with("Found 1 file\n"),
+        "单文件应用单数 `file`（对齐上游 plural）: {result}"
     );
 }
