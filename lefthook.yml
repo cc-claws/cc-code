@@ -1,0 +1,22 @@
+# lefthook.yml - Git hooks managed by lefthook
+# Install: lefthook install
+# Run manually: lefthook run pre-commit
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.rs"
+      run: cargo fmt --all -- --check
+      fix: cargo fmt --all
+
+    check:
+      glob: "*.rs"
+      run: cargo check --all-targets
+
+    clippy:
+      glob: "*.rs"
+      run: cargo clippy --all-targets -- -W clippy::all
+
+    typos:
+      run: typos --ignore-hidden 2>/dev/null || true

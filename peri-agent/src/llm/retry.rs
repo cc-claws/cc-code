@@ -1,0 +1,185 @@
+use std::{sync::Arc, time::Duration};
+
+use async_trait::async_trait;
+use rand::RngExt;
+
+use crate::{
+    agent::{
+        events::{AgentEvent, AgentEventHandler},
+        react::{ReactLLM, Reasoning},
+    },
+    error::AgentResult,
+    messages::BaseMessage,
+    tools::BaseTool,
+};
+
+/// 重试配置
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_retries: usize,
+    pub base_delay_ms: u64,
+    pub max_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 5,
+            base_delay_ms: 500,
+            max_delay_ms: 32_000,
+        }
+    }
+}
+
+impl RetryConfig {
+    pub fn with_max_retries(mut self, n: usize) -> Self {
+        self.max_retries = n;
+        self
+    }
+    pub fn with_base_delay_ms(mut self, ms: u64) -> Self {
+        self.base_delay_ms = ms;
+        self
+    }
+    pub fn with_max_delay_ms(mut self, ms: u64) -> Self {
+        self.max_delay_ms = ms;
+        self
+    }
+
+    /// 指数退避 + 25% 随机抖动
+    ///
+    /// attempt 从 0 开始，但首次重试（attempt=0）使用 base_delay * 2
+    /// 以确保对 429 限流有足够等待时间。
+    pub fn exponential_delay(&self, attempt: usize) -> u64 {
+        let effective = attempt + 1;
+        let base =
+            (self.base_delay_ms as f64 * 2f64.powi(effective as i32)).min(self.max_delay_ms as f64);
+        let mut rng = rand::rng();
+        let jitter = rng.random_range(0.0..0.25) * base;
+        (base + jitter) as u64
+    }
+}
+
+/// ReactLLM 装饰器：在调用失败时自动重试
+pub struct RetryableLLM<L: ReactLLM> {
+    inner: L,
+    config: RetryConfig,
+    event_handler: Option<Arc<dyn AgentEventHandler>>,
+}
+
+impl<L: ReactLLM> RetryableLLM<L> {
+    pub fn new(inner: L, config: RetryConfig) -> Self {
+        Self {
+            inner,
+            config,
+            event_handler: None,
+        }
+    }
+
+    pub fn with_event_handler(mut self, handler: Arc<dyn AgentEventHandler>) -> Self {
+        self.event_handler = Some(handler);
+        self
+    }
+
+    fn emit(&self, event: AgentEvent) {
+        if let Some(h) = &self.event_handler {
+            h.on_event(event);
+        }
+    }
+}
+
+#[async_trait]
+impl<L: ReactLLM> ReactLLM for RetryableLLM<L> {
+    async fn generate_reasoning(
+        &self,
+        messages: &[BaseMessage],
+        tools: &[&dyn BaseTool],
+        streaming: Option<crate::llm::types::StreamingContext>,
+    ) -> AgentResult<Reasoning> {
+        // 重试循环：attempt 0..max_retries，每次失败若可重试则延迟后继续
+        for attempt in 0..self.config.max_retries {
+            // 仅首次尝试透传 streaming，重试时传 None 防止同一 message_id 双重发射
+            let retry_streaming = if attempt == 0 {
+                streaming.clone()
+            } else {
+                None
+            };
+            match self
+                .inner
+                .generate_reasoning(messages, tools, retry_streaming)
+                .await
+            {
+                Ok(r) if r.is_empty_response() => {
+                    // 空回答视为可重试异常（LLM 返回了 HTTP 200 但内容为空）
+                    let delay = self.config.exponential_delay(attempt);
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max_retries = self.config.max_retries,
+                        delay_ms = delay,
+                        "LLM 返回空回答（无 tool_calls 且内容为空），准备重试"
+                    );
+                    self.emit(AgentEvent::LlmRetrying {
+                        attempt: attempt + 1,
+                        max_attempts: self.config.max_retries,
+                        delay_ms: delay,
+                        error: "LLM 返回空回答（无 tool_calls 且内容为空）".to_string(),
+                    });
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                }
+                Ok(r) => return Ok(r),
+                Err(e) if e.is_retryable() => {
+                    let delay = self.config.exponential_delay(attempt);
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max_retries = self.config.max_retries,
+                        delay_ms = delay,
+                        error = %e,
+                        "LLM 调用失败，准备重试"
+                    );
+                    self.emit(AgentEvent::LlmRetrying {
+                        attempt: attempt + 1,
+                        max_attempts: self.config.max_retries,
+                        delay_ms: delay,
+                        error: e.to_string(),
+                    });
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        // 最终尝试（不重试），直接返回结果或错误（重试已耗尽，传 None 避免双重发射）
+        let final_result = self.inner.generate_reasoning(messages, tools, None).await;
+        // 重试耗尽后仍为空回答，返回错误走标准错误路径（TUI 显示错误块）
+        if let Ok(ref r) = final_result {
+            if r.is_empty_response() {
+                tracing::error!(
+                    max_retries = self.config.max_retries,
+                    "LLM 连续返回空回答，重试次数已耗尽"
+                );
+                return Err(crate::error::AgentError::LlmError(format!(
+                    "LLM 连续返回 {} 次空回答（无 tool_calls 且内容为空），可能是模型服务异常",
+                    self.config.max_retries
+                )));
+            }
+        }
+        final_result
+    }
+
+    fn model_name(&self) -> String {
+        self.inner.model_name()
+    }
+
+    fn context_window(&self) -> u32 {
+        self.inner.context_window()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::AgentError;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    include!("retry_test.rs");
+}

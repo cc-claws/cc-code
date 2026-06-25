@@ -1,0 +1,12 @@
+name = "peri-sync"
+main = "src/cf-worker.ts"
+compatibility_date = "2025-05-17"
+
+# PairRoom Durable Object — 全局单例，确保 sender/receiver 始终连到同一实例
+[[durable_objects.bindings]]
+name = "PAIR_ROOM"
+class_name = "PairRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PairRoom"]

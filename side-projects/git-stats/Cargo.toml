@@ -1,0 +1,12 @@
+[package]
+name = "git-stats"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+chrono = "0.4"
+regex = "1"
+comfy-table = "7"

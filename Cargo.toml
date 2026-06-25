@@ -1,0 +1,83 @@
+[workspace]
+members = [
+    "peri-agent",
+    "peri-middlewares",
+    "peri-tui",
+    "peri-acp",
+    "langfuse-client",
+    "peri-widgets",
+    "peri-lsp",
+    "side-projects/git-graph",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+
+[profile.release]
+# NOTE: "symbols" not "true" — Apple strip doesn't behave like GNU strip.
+#       "true" on macOS only strips debug info, leaving 8MB of symbol table.
+strip = "symbols"
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+# ============================================================================
+# Workspace-wide dependency declarations
+# Single source of truth — all crates reference via `workspace = true`.
+# ============================================================================
+
+[workspace.dependencies]
+# --- Async runtime ---
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+futures = "0.3"
+async-trait = "0.1"
+
+# --- Serde ecosystem ---
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# --- HTTP ---
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "rustls",
+] }
+
+# --- Time ---
+chrono = { version = "0.4", features = ["serde"] }
+
+# --- Error handling ---
+anyhow = "1.0"
+thiserror = "2.0"
+
+# --- Logging ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "fmt",
+    "json",
+] }
+
+# --- Utilities ---
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+parking_lot = "0.12"
+dirs-next = "2"
+url = "2"
+encoding_rs = "0.8"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+sysinfo = "0.39"
+lsp-types = "0.97"
+lru = "0.18"
+
+# --- Build ---
+tempfile = "3"
+
+# --- Allocator ---
+mimalloc = "0.1"
+libmimalloc-sys = { version = "0.1", features = ["extended"] }
+tikv-jemallocator = "0.6"
+tikv-jemalloc-ctl = { version = "0.6", features = ["stats", "use_std"] }
+tikv-jemalloc-sys = "0.6"

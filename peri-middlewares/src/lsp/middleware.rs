@@ -1,0 +1,103 @@
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use peri_agent::{
+    agent::{
+        react::{ToolCall, ToolResult},
+        state::State,
+    },
+    error::AgentResult,
+    middleware::Middleware,
+    tools::BaseTool,
+};
+use peri_lsp::{
+    config::{LspConfigFile, LspServerConfig},
+    pool::LspServerPool,
+};
+
+use crate::tool_search::core_tools::{TOOL_EDIT, TOOL_WRITE};
+
+use super::tool::LspTool;
+
+pub struct LspMiddleware {
+    pool: Arc<LspServerPool>,
+}
+
+impl LspMiddleware {
+    pub fn new(root_uri: String, config: LspConfigFile) -> Self {
+        let pool = Arc::new(LspServerPool::new(&root_uri, config));
+        Self { pool }
+    }
+
+    pub fn from_configs(root_uri: String, configs: Vec<LspServerConfig>) -> Self {
+        let config = LspConfigFile {
+            lsp_servers: configs.into_iter().map(|c| (c.name.clone(), c)).collect(),
+        };
+        Self::new(root_uri, config)
+    }
+
+    pub fn shared_pool(&self) -> Arc<LspServerPool> {
+        Arc::clone(&self.pool)
+    }
+}
+
+#[async_trait]
+impl<S: State> Middleware<S> for LspMiddleware {
+    fn name(&self) -> &str {
+        "LspMiddleware"
+    }
+
+    fn collect_tools(&self, _cwd: &str) -> Vec<Box<dyn BaseTool>> {
+        if !self.pool.has_servers() {
+            return Vec::new();
+        }
+        vec![Box::new(LspTool::new(Arc::clone(&self.pool)))]
+    }
+
+    async fn after_tool(
+        &self,
+        _state: &mut S,
+        tool_call: &ToolCall,
+        _result: &ToolResult,
+    ) -> AgentResult<()> {
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
+            return Ok(());
+        }
+
+        let file_path = match tool_call.input.get("file_path").and_then(|v| v.as_str()) {
+            Some(p) => p.to_string(),
+            None => return Ok(()),
+        };
+
+        let server = match self.pool.server_for_file(&file_path) {
+            Some(s) if s.is_ready() => s,
+            _ => return Ok(()),
+        };
+
+        let uri = format!("file://{}", file_path);
+        let text = match tokio::fs::read_to_string(&file_path).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::debug!(target: "lsp", file = %file_path, error = %e, "LSP 同步文件时读取失败");
+                return Ok(());
+            }
+        };
+
+        if let Err(e) = server.did_change(&uri, &text).await {
+            tracing::debug!(target: "lsp", file = %file_path, error = %e, "LSP didChange 失败");
+        }
+        if let Err(e) = server.did_save(&uri).await {
+            tracing::debug!(target: "lsp", file = %file_path, error = %e, "LSP didSave 失败");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use peri_agent::agent::state::AgentState;
+    use peri_lsp::config::LspServerConfig;
+    use std::collections::HashMap;
+    include!("middleware_test.rs");
+}
