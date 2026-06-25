@@ -228,7 +228,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 **`-p` 模式架构**：复用 ACP executor，通过 `PrintEventSink` 收集事件并输出。不启动 TUI、不维持 session。`PrintBroker` 自动批准所有交互。
 
-运行时 `Shift+Tab` 切换权限模式，`Ctrl+T` 切换模型，`Ctrl+Shift+T` 切换 Provider。
+运行时 `Shift+Tab` 切换权限模式，`Ctrl+T` 切换模型 alias，`Ctrl+P` 打开命令面板（Provider/Model/Effort 完整选择）。
 
 ## 编码规范
 
@@ -266,6 +266,57 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - **`app/mod.rs` 模块组织**：使用 `include!` 按功能类别分组声明（`.inc` 文件）。
 - **跨平台 spawn [TRAP]**：所有子进程 spawn 必须通过 `shell_command()` 统一 wrapper，Windows 用 `cmd /C`、Unix 用 `bash -c`。新增 spawn 时必须复用。
 - **MultiplexBroker 竞速 [TRAP]**：ChannelBroker 不支持 Questions 交互类型，不应与 TUI broker 参与竞速。（详见 spec/global/domains/agent.md#issue_2026-05-29-ask-user-tool-auto-complete）
+
+## PR / Issue 流程
+
+**[强制]** PR 阶段必须先在 GitHub 创建 Issue，并 reference 该 Issue 编号。commit 阶段不强制 issue，可以独立提交。
+
+**完整流程：**
+
+1. **commit 阶段**：在 feature 分支上开发 + commit，不强制建 issue。
+2. **准备 PR 阶段**：先在 [cc-claws/cc-code](https://github.com/cc-claws/cc-code) 创建 GitHub Issue，描述问题/需求，拿到自动分配的 `#N` 编号。
+3. **rename 分支**：按下方「分支命名规则」把分支 rename 为 `<type>/<name>` 风格，工单号通过 PR 描述关联，不写入分支名。
+4. **PR 描述**：用 `Fixes #N` 或 `Closes #N` 关联 Issue，便于合并后自动关闭。
+
+### 分支命名规则
+
+对齐同源 [KonghaYao/peri](https://github.com/KonghaYao/peri) 仓库历史成功合并的 PR 风格。
+
+**格式**：`<type>/<name>` 或 `<type>/<scope>/<name>`，纯 ASCII、kebab-case。
+
+| type | 含义 |
+|------|------|
+| `feat` / `feature` | 新功能 |
+| `fix` | 缺陷修复 |
+| `perf` | 性能优化 |
+| `refactor` | 重构（无行为变化） |
+| `docs` | 文档 |
+| `chore` | 杂项构建/工具 |
+| `test` | 测试 |
+
+**真实样本**（peri 历史已合并 PR，2026-06-25 拉取）：
+
+- `refactor/ultracode-review`、`refactor/workflows/arch`
+- `feature/goal-command`、`feature/gig-improve`、`feature/acp-improve`
+- `feat/agm`、`feat/tui-perf-optimizations`
+- `fix/windows-pty-and-crlf`、`fix/plugin-command-overwrite`
+- `perf/history-copy`
+
+**[禁用项]**
+
+- **禁用 `#` 字符**：会让 GitHub Actions `pull_request` trigger **静默失效**——webhook 派发被丢弃，`event=pull_request` 的 workflow runs total=0，PR head 上 check-runs 为 0。即使本地 `git check-ref-format` 接受也禁用。（详见 [issue: 分支名 `#` 让 PR CI 失效](spec/issues/)，已在 PR #3 验证）
+- **禁用中文字符**：分支名只用英文（commit message / PR 标题仍可用中文）
+- **禁用姓名/月份/工单号字段**：工单号通过 PR 描述的 `Fixes #N` 关联，不写入分支名
+- **禁用 `master`/`main`/`test` 作为开发分支**：默认仅在 feature/hotfix 分支开发
+
+**commit author 身份**：本仓库所有人工 commit 的 author 都是 `wismyzhizi2018 <wismyzhizi2018@gmail.com>`（仅仓库本地 config，不动全局）。
+
+### 注意
+
+- `spec/issues/` 下的本地 md 文件是 Issue 的**详细分析补充**（架构影响、复现条件、根因分析等），不替代 GitHub Issue 本身。
+- GitHub Issue 是工单号唯一来源；本地 md 是工程文档。
+- 仅文档/配置类的小改动（如规则记录）也可走 commit，不必强建 Issue——但若走 PR 仍需补 Issue。
+- 诊断「PR 没有 CI」时，**先看分支名是否含 `#` / 中文**，再看 workflow 配置；GitHub UI 出现 "head ref may contain hidden characters" 警告即为本规则触发的信号。
 
 ## npm 发版流程
 
