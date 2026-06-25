@@ -4,6 +4,25 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.15 — 2026-06-25
+
+### Bug Fixes
+
+- **TUI 模型切换快捷键收敛**：删 Ctrl+Shift+T / Alt+Shift+M（与 Ctrl+P 命令面板重叠），统一 Ctrl+P 作为 Provider/Model/Effort 完整选择入口
+- **Ctrl+T 硬编码 alias bug**：原硬编码 `[opus, sonnet, haiku]` 三选一，未按当前 Provider 实际配置过滤——切到只配 1 个 alias 的 Provider 时无法切换。改为从激活 Provider 的 `ProviderModels` 动态收集非空 alias
+
+### Documentation
+
+- CLAUDE.md 新增「PR / Issue 流程」+「分支命名规则」段落
+- 分支名禁用 `#` 字符（会让 GitHub Actions `pull_request` trigger 静默失效）
+- spec/issues/ 补模型切换快捷键收敛 issue 详细分析文档
+
+### Chore
+
+- 清理误传的 `.claude/CLAUDE.md`（adim 钉钉/PowerShell/PHP 那套无关内容），加入 `.gitignore`
+
+---
+
 ## v0.6.13 — 2026-06-25
 
 ### npm 包
