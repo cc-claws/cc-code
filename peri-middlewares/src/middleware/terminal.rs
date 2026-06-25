@@ -11,32 +11,112 @@ use crate::tools::output_persist::persist_truncated_output;
 /// 改写为 `git commit -F tempfile`，彻底绕开 cmd.exe 引号解析。
 ///
 /// 支持多个 `-m` 标志，按 git 语义以 `\n\n` 拼接。
-/// 返回 `(rewritten_command, Option<(temp_file_path, message_content)>)`，
+/// 支持 `&&`、`||`、`|` 链式命令——逐段扫描，仅改写含 `git commit -m` 的段。
+/// 返回 `(rewritten_command, Vec<(temp_file_path, message_content)>)`，
 /// 调用方负责写入文件并执行后清理。
 #[cfg(windows)]
-fn rewrite_git_commit_for_windows(command: &str) -> (String, Option<(String, String)>) {
-    // 不处理复杂的 chained 命令（&&、||、| 等），这些原样透传
-    if command.contains("&&") || command.contains("||") || command.contains('|') {
-        return (command.to_string(), None);
+fn rewrite_git_commit_for_windows(command: &str) -> (String, Vec<(String, String)>) {
+    // 按 shell 连接符拆分为多段，分别处理
+    let segments = split_shell_segments(command);
+    let mut rewritten_parts: Vec<String> = Vec::new();
+    let mut all_infos: Vec<(String, String)> = Vec::new();
+
+    for (seg, sep) in &segments {
+        let seg_trimmed = seg.trim();
+        if let Some((new_seg, info)) = rewrite_single_git_commit(seg_trimmed) {
+            rewritten_parts.push(new_seg);
+            all_infos.push(info);
+        } else {
+            rewritten_parts.push(seg.to_string());
+        }
+        if let Some(s) = sep {
+            rewritten_parts.push(s.to_string());
+        }
     }
 
-    let trimmed = command.trim();
+    (rewritten_parts.join(""), all_infos)
+}
 
-    // 匹配 git commit 开头（允许 git -C path commit 等变体）
-    let commit_pos = trimmed.find("commit").or_else(|| trimmed.find("COMMIT"));
-    let Some(pos) = commit_pos else {
-        return (command.to_string(), None);
-    };
-    // "commit" 前面必须是 git 相关命令
+/// 按 shell 连接符（`&&`、`||`、`|`）拆分命令字符串，跳过引号内的内容。
+/// 返回 `Vec<(segment, Option<separator>)>`。
+fn split_shell_segments(command: &str) -> Vec<(String, Option<String>)> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    let mut in_quote: Option<char> = None;
+
+    while let Some(c) = chars.next() {
+        // 处理引号内字符（转义引号跳过）
+        if let Some(q) = in_quote {
+            current.push(c);
+            if c == '\\' {
+                // 转义：吃掉下一个字符
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            } else if c == q {
+                in_quote = None;
+            }
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            in_quote = Some(c);
+            current.push(c);
+            continue;
+        }
+
+        // 检测连接符（需要前后有空格，避免误拆 "foo&&bar"）
+        if c == '&' && chars.peek() == Some(&'&') {
+            chars.next(); // 消费第二个 &
+            // 检查前后是否合理（简单判断：当前段非空）
+            if !current.trim().is_empty() {
+                let sep = "&&".to_string();
+                segments.push((current.clone(), Some(sep)));
+                current.clear();
+                // 跳过分隔符后的空格已由下轮处理
+                continue;
+            }
+        }
+        if c == '|' && chars.peek() == Some(&'|') {
+            chars.next(); // 消费第二个 |
+            if !current.trim().is_empty() {
+                let sep = "||".to_string();
+                segments.push((current.clone(), Some(sep)));
+                current.clear();
+                continue;
+            }
+        }
+        if c == '|' {
+            // 单独的 |（管道），排除 || 的情况（已在上面处理）
+            if !current.trim().is_empty() {
+                let sep = "|".to_string();
+                segments.push((current.clone(), Some(sep)));
+                current.clear();
+                continue;
+            }
+        }
+
+        current.push(c);
+    }
+    if !current.is_empty() || segments.is_empty() {
+        segments.push((current, None));
+    }
+    segments
+}
+
+/// 尝试将单个命令段中的 `git commit -m "msg"` 改写为 `git commit -F tempfile`。
+/// 返回 `Some((rewritten_cmd, (temp_path, msg)))` 或 `None`。
+fn rewrite_single_git_commit(trimmed: &str) -> Option<(String, (String, String))> {
+    let commit_pos = trimmed.find("commit").or_else(|| trimmed.find("COMMIT"))?;
+    let pos = commit_pos;
     let prefix = &trimmed[..pos];
     if !prefix.contains("git") && !prefix.ends_with(' ') {
-        return (command.to_string(), None);
+        return None;
     }
 
     let commit_prefix = &trimmed[..pos + 6]; // 到 "commit" 为止
     let after_commit = trimmed[pos + 6..].trim_start();
 
-    // 循环扫描所有 -m/--message 标志，提取消息并收集其余参数
     let mut remaining = after_commit;
     let mut messages: Vec<String> = Vec::new();
     let mut other_args: Vec<&str> = Vec::new();
@@ -58,40 +138,32 @@ fn rewrite_git_commit_for_windows(command: &str) -> (String, Option<(String, Str
             }
         }
 
-        // 不是 -m/--message，收集为其他参数（取到下一个空格）
         let end = remaining.find(' ').unwrap_or(remaining.len());
         other_args.push(&remaining[..end]);
         remaining = remaining[end..].trim_start();
     }
 
-    // 没找到任何 -m 消息，原样返回
     if messages.is_empty() {
-        return (command.to_string(), None);
+        return None;
     }
 
-    // 拼接消息（git 语义：多个 -m 以双换行分隔）
     let combined_msg = messages.join("\n\n");
 
-    // 构造临时文件路径
     let temp_dir = std::env::temp_dir();
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
     let temp_path = temp_dir.join(format!("peri-commit-msg-{timestamp}.txt"));
-
-    // 重写命令：保留其他参数，替换所有 -m 为 -F tempfile
-    // commit_prefix 已包含 "git commit"，不需要再拼 prefix
-    // Windows路径需要转换反斜杠为正斜杠，避免cmd.exe解析错误
-    // 注意：不加引号！cmd /C 对嵌套引号会保留字面引号导致文件找不到
     let temp_path_str = temp_path.to_string_lossy().replace('\\', "/");
+
     let mut new_cmd = format!("{commit_prefix} -F {temp_path_str}");
     for arg in &other_args {
         new_cmd.push(' ');
         new_cmd.push_str(arg);
     }
 
-    (new_cmd, Some((temp_path.to_string_lossy().to_string(), combined_msg)))
+    Some((new_cmd, (temp_path.to_string_lossy().to_string(), combined_msg)))
 }
 
 /// 从命令字符串中提取引号包裹的 message 内容。
@@ -281,15 +353,17 @@ impl BaseTool for BashTool {
 
         // Windows: 重写 git commit -m 为 git commit -F，绕开 cmd.exe 引号问题
         #[cfg(windows)]
-        let (command, temp_msg_file) = {
-            let (cmd, info) = rewrite_git_commit_for_windows(command);
-            if let Some((ref path, ref content)) = info {
+        let (command, temp_msg_files) = {
+            let (cmd, infos) = rewrite_git_commit_for_windows(command);
+            let mut files = Vec::new();
+            for (ref path, ref content) in &infos {
                 let _ = std::fs::write(path, content);
+                files.push(path.clone());
             }
-            (cmd, info.map(|(p, _)| p))
+            (cmd, files)
         };
         #[cfg(not(windows))]
-        let temp_msg_file: Option<String> = None;
+        let temp_msg_files: Vec<String> = Vec::new();
 
         let result = timeout(Duration::from_millis(timeout_ms), {
             // Windows 分支中 `command` 被 shadow 为 String（L278），需要取引用；
@@ -310,7 +384,7 @@ impl BaseTool for BashTool {
         .await;
 
         // 清理临时文件
-        if let Some(ref path) = temp_msg_file {
+        for path in &temp_msg_files {
             let _ = tokio::fs::remove_file(path).await;
         }
 
