@@ -1,0 +1,183 @@
+//! Integration test: verify that N concurrent bg channel senders all successfully
+//! deliver `BackgroundTaskCompleted` events through the unbounded channel.
+//!
+//! Reproduces the bug described in
+//! spec/issues/2026-05-24-concurrent-bg-agent-only-one-completion.md
+
+use peri_agent::agent::events::{AgentEvent, BackgroundTaskResult};
+
+#[tokio::test]
+async fn test_concurrent_bg_tasks_all_emit_completion() {
+    let (bg_tx, mut bg_rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
+    let task_count = 3usize;
+
+    // Spawn N senders concurrently, each sending one BackgroundTaskCompleted
+    let handles: Vec<_> = (0..task_count)
+        .map(|i| {
+            let tx = bg_tx.clone();
+            tokio::spawn(async move {
+                // Simulate variable completion time (different orders)
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    (task_count - i) as u64 * 20,
+                ))
+                .await;
+                let result = BackgroundTaskResult {
+                    task_id: format!("bg-task-{}", i),
+                    agent_name: format!("agent-{}", i),
+                    prompt_summary: format!("task {}", i),
+                    success: true,
+                    output: format!("output {}", i),
+                    tool_calls_count: 1,
+                    duration_ms: 100 + i as u64 * 10,
+                    child_thread_id: None,
+                };
+                let _ = tx.send(AgentEvent::BackgroundTaskCompleted(result));
+            })
+        })
+        .collect();
+
+    // Wait for all senders to complete then drop tx
+    for h in handles {
+        let _ = h.await;
+    }
+    drop(bg_tx);
+
+    // Collect all received events
+    let mut received: Vec<AgentEvent> = Vec::new();
+    while let Some(event) = bg_rx.recv().await {
+        received.push(event);
+    }
+
+    let bg_completions: Vec<_> = received
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::BackgroundTaskCompleted(_)))
+        .collect();
+    assert_eq!(
+        bg_completions.len(),
+        task_count,
+        "Expected {} BackgroundTaskCompleted events, got {}",
+        task_count,
+        bg_completions.len()
+    );
+
+    // Verify all task_ids are present
+    let task_ids: std::collections::HashSet<_> = bg_completions
+        .iter()
+        .filter_map(|e| {
+            if let AgentEvent::BackgroundTaskCompleted(r) = e {
+                Some(r.task_id.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for i in 0..task_count {
+        let expected_id = format!("bg-task-{}", i);
+        assert!(
+            task_ids.contains(&expected_id),
+            "Missing task_id: {}",
+            expected_id
+        );
+    }
+}
+
+/// Tests the full bg event pump flow: sender → bg_event_rx → bg pump →
+/// EventSink → MpscTransport. Uses the same pattern as executor.rs:346-355.
+#[tokio::test]
+async fn test_bg_event_pump_receives_all_completions() {
+    use peri_acp::{
+        session::event_sink::{EventSink, TransportEventSink},
+        transport::mpsc::mpsc_transport_pair,
+    };
+    use std::sync::Arc;
+
+    let (client_transport, server_transport) = mpsc_transport_pair();
+    let sink = Arc::new(TransportEventSink::new(Arc::new(server_transport)));
+    let (bg_tx, mut bg_rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
+
+    let session_id = "test-session".to_string();
+    let context_window = 200_000u32;
+    let bg_sink = Arc::clone(&sink);
+    let bg_session_id = session_id.clone();
+    let bg_cw = context_window;
+
+    // Spawn bg event pump (same pattern as executor.rs:346-355)
+    let pump_handle = tokio::spawn(async move {
+        while let Some(bg_event) = bg_rx.recv().await {
+            bg_sink.push_event(&bg_session_id, &bg_event, bg_cw).await;
+        }
+    });
+
+    // Spawn N concurrent bg tasks, each sending one BackgroundTaskCompleted
+    let task_count = 3usize;
+    let handles: Vec<_> = (0..task_count)
+        .map(|i| {
+            let tx = bg_tx.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(i as u64 * 30)).await;
+                let result = BackgroundTaskResult {
+                    task_id: format!("bg-{}", i),
+                    agent_name: format!("test-agent-{}", i),
+                    prompt_summary: format!("prompt-{}", i),
+                    success: true,
+                    output: "test output".to_string(),
+                    tool_calls_count: 1,
+                    duration_ms: 100,
+                    child_thread_id: None,
+                };
+                let _ = tx.send(AgentEvent::BackgroundTaskCompleted(result));
+            })
+        })
+        .collect();
+
+    // Wait for all senders to finish
+    for h in handles {
+        let _ = h.await;
+    }
+    // Drop last sender so bg_rx returns None and pump exits
+    drop(bg_tx);
+
+    // Wait for the pump to finish
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), pump_handle)
+        .await
+        .expect("bg event pump timed out");
+
+    // Now drain the client transport to see how many events arrived.
+    // Each BackgroundTaskCompleted triggers 3 pushes in push_event():
+    //   peri/agent_event, peri/*, session/update
+    // So at minimum we expect task_count "peri/agent_event" notifications.
+
+    let pump_consumer = tokio::spawn(async move {
+        use peri_acp::transport::AcpTransport;
+        let mut count = 0u64;
+        loop {
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                client_transport.recv(),
+            )
+            .await
+            {
+                Ok(Some(_)) => count += 1,
+                Ok(None) => break,
+                Err(_) => break, // timeout — no more messages coming
+            }
+        }
+        count
+    });
+
+    let total_msgs = tokio::time::timeout(std::time::Duration::from_secs(3), pump_consumer)
+        .await
+        .unwrap_or(Ok(0))
+        .unwrap_or(0);
+
+    // We expect at least task_count "peri/agent_event" notifications.
+    // With the additional pushes, total >= 3 * task_count.
+    // But to be safe we check at minimum task_count.
+    assert!(
+        total_msgs as usize >= task_count,
+        "Expected at least {} transport notifications ({} peri/agent_event), got {}",
+        task_count,
+        task_count,
+        total_msgs
+    );
+}

@@ -1,0 +1,272 @@
+use super::*;
+use peri_agent::{
+    agent::{
+        react::{ReactLLM, Reasoning},
+        state::AgentState,
+    },
+    messages::BaseMessage,
+    middleware::r#trait::Middleware,
+};
+
+struct EchoLLM;
+
+#[async_trait::async_trait]
+impl ReactLLM for EchoLLM {
+    async fn generate_reasoning(
+        &self,
+        messages: &[BaseMessage],
+        _tools: &[&dyn BaseTool],
+        _streaming: Option<peri_agent::llm::types::StreamingContext>,
+    ) -> peri_agent::error::AgentResult<Reasoning> {
+        let last = messages.last().map(|m| m.content()).unwrap_or_default();
+        Ok(Reasoning::with_answer("", format!("echo: {}", last)))
+    }
+}
+
+#[test]
+fn test_middleware_name() {
+    let m = SubAgentMiddleware::new(
+        vec![],
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+    );
+    // Call via Middleware<AgentState>, explicit generic parameter
+    assert_eq!(
+        <SubAgentMiddleware as Middleware<AgentState>>::name(&m),
+        "SubAgentMiddleware"
+    );
+}
+
+#[test]
+fn test_middleware_collect_tools() {
+    let m = SubAgentMiddleware::new(
+        vec![],
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+    );
+    let tools = <SubAgentMiddleware as Middleware<AgentState>>::collect_tools(&m, "/tmp");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name(), "Agent");
+}
+
+#[test]
+fn test_build_tool_returns_subagent_tool() {
+    let m = SubAgentMiddleware::new(
+        vec![],
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+    );
+    let tool = m.build_tool("/tmp");
+    assert_eq!(tool.name(), "Agent");
+}
+
+#[test]
+fn test_scan_agents_no_dir() {
+    let result = scan_agents("/nonexistent/path");
+    // No project-level agents, but built-in agents should still appear
+    assert!(
+        !result.is_empty(),
+        "Built-in agents should always be present"
+    );
+    assert!(
+        result.iter().any(|(id, _, _)| id == "explore"),
+        "Built-in explore agent should be present"
+    );
+}
+
+#[test]
+fn test_scan_agents_flat_md() {
+    use tempfile::tempdir;
+    let dir = tempdir().unwrap();
+    let agents_dir = dir.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&agents_dir).unwrap();
+    std::fs::write(
+        agents_dir.join("code-reviewer.md"),
+        "---\nname: code-reviewer\ndescription: Reviews code quality\n---\n\nYou are a reviewer.\n",
+    )
+    .unwrap();
+
+    let result = scan_agents(dir.path().to_str().unwrap());
+    // Should contain the project agent + built-in agents
+    assert!(
+        result.len() > 1,
+        "Should contain project agent + built-in agents"
+    );
+    let reviewer = result.iter().find(|(id, _, _)| id == "code-reviewer");
+    assert!(reviewer.is_some(), "Project agent should be present");
+    assert_eq!(reviewer.unwrap().1, "code-reviewer");
+    assert_eq!(reviewer.unwrap().2, "Reviews code quality");
+}
+
+#[test]
+fn test_scan_agents_nested_dir() {
+    use tempfile::tempdir;
+    let dir = tempdir().unwrap();
+    let agent_dir = dir.path().join(".claude").join("agents").join("analyst");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::write(
+        agent_dir.join("agent.md"),
+        "---\nname: data-analyst\ndescription: Analyzes data\n---\n\nYou are an analyst.\n",
+    )
+    .unwrap();
+
+    let result = scan_agents(dir.path().to_str().unwrap());
+    // Should contain the project agent + built-in agents
+    assert!(
+        result.len() > 1,
+        "Should contain project agent + built-in agents"
+    );
+    let analyst = result.iter().find(|(id, _, _)| id == "analyst");
+    assert!(analyst.is_some(), "Project agent should be present");
+    assert_eq!(analyst.unwrap().1, "data-analyst");
+    assert_eq!(analyst.unwrap().2, "Analyzes data");
+}
+
+#[tokio::test]
+async fn test_before_agent_no_longer_injects_summary() {
+    use tempfile::tempdir;
+    let dir = tempdir().unwrap();
+    let agents_dir = dir.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&agents_dir).unwrap();
+    std::fs::write(
+        agents_dir.join("tester.md"),
+        "---\nname: tester\ndescription: Runs tests\n---\n\nYou run tests.\n",
+    )
+    .unwrap();
+
+    let m = SubAgentMiddleware::new(
+        vec![],
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+    );
+    let mut state = AgentState::new(dir.path().to_str().unwrap());
+    <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state)
+        .await
+        .unwrap();
+
+    // Agent list has been migrated to system prompt placeholder injection, before_agent no longer prepends messages
+    assert_eq!(
+        state.messages().len(),
+        0,
+        "before_agent should not inject agent summary messages"
+    );
+}
+
+#[tokio::test]
+async fn test_before_agent_no_agents_no_op() {
+    let m = SubAgentMiddleware::new(
+        vec![],
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+    );
+    let mut state = AgentState::new("/nonexistent");
+    <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state)
+        .await
+        .unwrap();
+    assert_eq!(state.messages().len(), 0);
+}
+
+/// Verify before_agent snapshots messages to shared parent_messages
+#[tokio::test]
+async fn test_before_agent_snapshots_messages() {
+    let parent_messages: Arc<RwLock<Vec<BaseMessage>>> = Arc::new(RwLock::new(Vec::new()));
+
+    let m = SubAgentMiddleware::new(
+        vec![],
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+    )
+    .with_parent_messages(Arc::clone(&parent_messages));
+
+    let mut state = AgentState::new("/tmp");
+    state.add_message(BaseMessage::human("Hello"));
+    state.add_message(BaseMessage::ai("Hi"));
+
+    <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state)
+        .await
+        .unwrap();
+
+    let snapshot = parent_messages.read();
+    assert_eq!(
+        snapshot.len(),
+        2,
+        "parent_messages should contain 2 snapshot messages"
+    );
+    assert_eq!(snapshot[0].content(), "Hello");
+    assert_eq!(snapshot[1].content(), "Hi");
+}
+
+/// Verify build_tool passes parent_messages to SubAgentTool
+#[test]
+fn test_build_tool_receives_parent_messages() {
+    let parent_messages: Arc<RwLock<Vec<BaseMessage>>> = Arc::new(RwLock::new(Vec::new()));
+
+    let m = SubAgentMiddleware::new(
+        vec![],
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+    )
+    .with_parent_messages(Arc::clone(&parent_messages));
+
+    let tool = m.build_tool("/tmp");
+    // SubAgentTool with parent_messages set should handle fork: true without error
+    // (the test verifies the field is passed through; functional test is in tool.rs)
+    assert_eq!(tool.name(), "Agent");
+}
+
+#[test]
+fn test_scan_agents_with_extra_dirs() {
+    use tempfile::tempdir;
+    let dir = tempdir().unwrap();
+    let extra_dir = dir.path().join("extra_agents");
+    std::fs::create_dir_all(&extra_dir).unwrap();
+    std::fs::write(
+        extra_dir.join("plugin-agent.md"),
+        "---\nname: plugin-agent\ndescription: From plugin\n---\n\nPlugin agent.\n",
+    )
+    .unwrap();
+
+    let result = scan_agents_with_extra_dirs(
+        dir.path().to_str().unwrap(),
+        std::slice::from_ref(&extra_dir),
+    );
+    // Should contain plugin-agent + built-in agents
+    let plugin = result.iter().find(|(id, _, _)| id == "plugin-agent");
+    assert!(plugin.is_some(), "Plugin agent should be present");
+    assert_eq!(plugin.unwrap().2, "From plugin");
+}
+
+#[test]
+fn test_scan_agents_with_extra_dirs_dedup() {
+    use tempfile::tempdir;
+    let dir = tempdir().unwrap();
+    let cwd_agents = dir.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&cwd_agents).unwrap();
+    std::fs::write(
+        cwd_agents.join("reviewer.md"),
+        "---\nname: reviewer\ndescription: CWD reviewer\n---\n\nReview.\n",
+    )
+    .unwrap();
+
+    let extra_dir = dir.path().join("extra");
+    std::fs::create_dir_all(&extra_dir).unwrap();
+    std::fs::write(
+        extra_dir.join("reviewer.md"),
+        "---\nname: reviewer\ndescription: Plugin reviewer\n---\n\nReview.\n",
+    )
+    .unwrap();
+
+    let result = scan_agents_with_extra_dirs(dir.path().to_str().unwrap(), &[extra_dir]);
+    // Duplicate "reviewer" should be deduped (CWD takes precedence)
+    let reviewer_count = result.iter().filter(|(id, _, _)| id == "reviewer").count();
+    assert_eq!(reviewer_count, 1, "duplicate agent_id should be deduped");
+    // Total: CWD reviewer (1) + built-in agents (4, none named "reviewer") + extra reviewer (deduped) = 5
+    assert_eq!(result.len(), 5);
+}
+
+#[test]
+fn test_scan_agents_with_extra_dirs_empty() {
+    let result = scan_agents_with_extra_dirs("/nonexistent", &[]);
+    let expected = scan_agents("/nonexistent");
+    assert_eq!(result.len(), expected.len());
+}

@@ -1,0 +1,153 @@
+//! Git attribution 中间件。
+//!
+//! 追踪 Write/Edit 工具修改的文件，累积贡献字符数。
+//! Co-Authored-By 指令在 system prompt 构建时注入（`build_bare_agent`）。
+//!
+//! ## 钩子流程
+//!
+//! ```text
+//! before_tool (Write/Edit) → 读取旧文件内容 → 存入 pending
+//!   → [工具执行]
+//! after_tool  (Write/Edit) → 读取新文件内容 → track_change()
+//! ```
+
+mod model_email;
+mod state;
+
+pub use model_email::get_attribution_email;
+pub use state::AttributionState;
+
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+use async_trait::async_trait;
+use peri_agent::{
+    agent::{
+        react::{ToolCall, ToolResult},
+        state::State,
+    },
+    error::AgentResult,
+    middleware::Middleware,
+};
+
+use crate::tool_search::core_tools::{TOOL_EDIT, TOOL_WRITE};
+
+/// Git 留名中间件
+///
+/// 注册在 `FilesystemMiddleware` 之后，hook 其 Write/Edit 工具调用。
+/// `before_tool` 暂存旧文件内容，`after_tool` 计算贡献字符数。
+/// Co-Authored-By 指令由 `build_bare_agent` 在 system prompt 中注入。
+pub struct GitAttributionMiddleware {
+    state: Arc<Mutex<AttributionState>>,
+    pending_old_content: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl GitAttributionMiddleware {
+    pub fn new(model_name: &str) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(AttributionState::new(model_name.to_string()))),
+            pending_old_content: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// 生成 attribution 文本（静态方法，供 system prompt 构建使用）。
+    pub fn attribution_text(model_name: &str) -> String {
+        AttributionState::new(model_name.to_string()).co_authored_by()
+    }
+
+    /// 获取当前 attribution text��用于调试）
+    pub fn current_attribution_text(&self) -> String {
+        self.state.lock().unwrap().co_authored_by()
+    }
+
+    /// Clear per-turn state for reuse across prompts.
+    pub fn reset(&self) {
+        self.pending_old_content.lock().unwrap().clear();
+    }
+}
+
+#[async_trait]
+impl<S: State> Middleware<S> for GitAttributionMiddleware {
+    fn name(&self) -> &str {
+        "GitAttributionMiddleware"
+    }
+
+    async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+        // 仅处理 Write 和 Edit
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
+            return Ok(tool_call.clone());
+        }
+        // 读取当前文件内容，暂存到 pending
+        if let Some(file_path) = tool_call.input.get("file_path").and_then(|v| v.as_str()) {
+            if let Ok(old_content) = tokio::fs::read_to_string(file_path).await {
+                self.pending_old_content
+                    .lock()
+                    .unwrap()
+                    .insert(file_path.to_string(), old_content);
+            }
+        }
+        Ok(tool_call.clone())
+    }
+
+    async fn after_tool(
+        &self,
+        _state: &mut S,
+        tool_call: &ToolCall,
+        _result: &ToolResult,
+    ) -> AgentResult<()> {
+        // 仅处理 Write 和 Edit
+        if tool_call.name != TOOL_WRITE && tool_call.name != TOOL_EDIT {
+            return Ok(());
+        }
+        let file_path = match tool_call.input.get("file_path").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+        let old_content = self
+            .pending_old_content
+            .lock()
+            .unwrap()
+            .remove(file_path)
+            .unwrap_or_default();
+        let new_content = match tokio::fs::read_to_string(file_path).await {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
+        self.state
+            .lock()
+            .unwrap()
+            .track_change(file_path, &old_content, &new_content);
+        Ok(())
+    }
+
+    async fn before_agent(&self, _state: &mut S) -> AgentResult<()> {
+        // Attribution 指令已在 system prompt 中注入，无需再向消息历史写入。
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_git_attribution_reset_clears_pending() {
+        let mw = GitAttributionMiddleware::new("test-model");
+        // 插入一些待处理内容
+        mw.pending_old_content
+            .lock()
+            .unwrap()
+            .insert("file1.rs".to_string(), "old content".to_string());
+        mw.pending_old_content
+            .lock()
+            .unwrap()
+            .insert("file2.rs".to_string(), "more content".to_string());
+        assert_eq!(mw.pending_old_content.lock().unwrap().len(), 2);
+
+        // reset 后应清空
+        mw.reset();
+        assert!(mw.pending_old_content.lock().unwrap().is_empty());
+    }
+}

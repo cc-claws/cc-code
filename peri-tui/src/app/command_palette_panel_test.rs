@@ -1,0 +1,1 @@
+// CommandPalettePanel tests placeholder

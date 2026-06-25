@@ -1,0 +1,25 @@
+{
+    "name": "peri-sandbox",
+    "private": true,
+    "scripts": {
+        "init": "bun run src/cli.ts init",
+        "create": "bun run src/cli.ts create",
+        "ask": "bun run src/cli.ts ask",
+        "build:cli": "bun build ./src/cli.ts --outfile ./dist/peri-sandbox --target bun --external @daytona/sdk",
+        "build:server": "bun build ./src/server.ts --outfile ./dist/app.js --target bun --external hono --external @octokit/webhooks --external @daytona/sdk",
+        "build": "bun run build:cli && bun run build:server",
+        "start": "bun run ./dist/app.js"
+    },
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^6"
+    },
+    "dependencies": {
+        "@daytona/sdk": "^0.182.0",
+        "@inquirer/prompts": "^8.5.0",
+        "commander": "^14.0.3",
+        "ora": "^9.4.0"
+    }
+}
