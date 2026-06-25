@@ -15,7 +15,6 @@ pub struct GlobalUiState {
     pub oauth_prompt: Option<OAuthPrompt>,
     pub mode_highlight_until: Option<Instant>,
     pub model_highlight_until: Option<Instant>,
-    pub provider_highlight_until: Option<Instant>,
     pub mcp_ready_shown_until: Cell<Option<Instant>>,
     pub quit_pending_since: Option<Instant>,
     /// 双击 ESC 检测时间戳（rewind 弹窗触发）
@@ -41,7 +40,6 @@ impl GlobalUiState {
             oauth_prompt: None,
             mode_highlight_until: None,
             model_highlight_until: None,
-            provider_highlight_until: None,
             mcp_ready_shown_until: Cell::new(None),
             quit_pending_since: None,
             rewind_pending_since: None,

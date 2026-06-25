@@ -228,7 +228,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 **`-p` 模式架构**：复用 ACP executor，通过 `PrintEventSink` 收集事件并输出。不启动 TUI、不维持 session。`PrintBroker` 自动批准所有交互。
 
-运行时 `Shift+Tab` 切换权限模式，`Ctrl+T` 切换模型，`Ctrl+Shift+T` 切换 Provider。
+运行时 `Shift+Tab` 切换权限模式，`Ctrl+T` 切换模型 alias，`Ctrl+P` 打开命令面板（Provider/Model/Effort 完整选择）。
 
 ## 编码规范
 

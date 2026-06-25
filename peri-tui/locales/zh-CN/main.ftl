@@ -130,6 +130,7 @@ key-install = :安装
 key-tab = :切换
 key-effort = :力度
 key-switch-model = :切换模型
+key-command-palette = :命令面板
 
 # ---- Welcome Page ----
 
@@ -151,7 +152,7 @@ welcome-skills-available = { $count } 个 skills 可用
 
 tip-0 = 按 / 输入命令，Tab 补全
 tip-1 = Ctrl+C 中断 Agent，Shift+Tab 切换权限模式
-tip-2 = Ctrl+T 切换模型（opus / sonnet / haiku），Ctrl+Shift+T 切换 Provider
+tip-2 = Ctrl+P 打开命令面板（选 Provider / Model / Effort），Ctrl+T 在 opus / sonnet / haiku 间快速切换
 tip-3 = Shift+Enter 在输入框中换行
 tip-4 = 拖拽文件或图片到终端可自动附加到消息
 tip-5 = 长按 Ctrl+V 粘贴剪贴板图片
