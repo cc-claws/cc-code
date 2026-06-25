@@ -1,6 +1,6 @@
 {
   "name": "@cc-claw/peri",
-  "version": "0.6.10",
+  "version": "0.6.11",
   "description": "Peri Code — Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible",
   "keywords": [
     "agent",
