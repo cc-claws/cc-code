@@ -1,4 +1,4 @@
-# Peri Agent Installer for Windows
+# cc-code Agent Installer for Windows
 # Usage: irm https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.ps1 | iex
 #
 # Options:
@@ -114,16 +114,16 @@ function Clean-OldVersions {
 
 # --- Main ---
 function Main {
-    $InstallDir = if ($env:PERI_INSTALL_DIR) { $env:PERI_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".peri" }
-    $GitHubApi = "https://api.github.com/repos/konghayao/peri"
+    $InstallDir = if ($env:CCCODE_INSTALL_DIR) { $env:CCCODE_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".cc-code" }
+    $GitHubApi = "https://api.github.com/repos/cc-claws/cc-code"
 
     Write-Host ""
-    info "Peri Agent Installer (Windows)"
+    info "cc-code Agent Installer (Windows)"
     info "-------------------------------"
 
     $Platform = Detect-Platform
-    $AssetName = "peri-${Platform}.zip"
-    $ExeName = "peri.exe"
+    $AssetName = "cc-code-${Platform}.zip"
+    $ExeName = "cc-code.exe"
 
     # Fetch release info
     if ($env:PERI_INSTALL_VERSION) {

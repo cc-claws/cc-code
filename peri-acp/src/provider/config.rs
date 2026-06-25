@@ -1,4 +1,4 @@
-//! 配置类型定义 — 与 ~/.peri/settings.json 对应
+//! 配置类型定义 — 与 ~/.cc-code/settings.json 对应
 //!
 //! 从 peri-tui 迁移，移除 TUI 特有关联。
 

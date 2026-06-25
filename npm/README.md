@@ -1,20 +1,20 @@
-# Peri Code
+# cc-code
 
 **用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
 
-[![npm](https://img.shields.io/npm/v/@cc-claw/peri)](https://www.npmjs.com/package/@cc-claw/peri)
+[![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## 安装
 
 ```bash
-npm install -g @cc-claw/peri
+npm install -g @cc-claw/code
 ```
 
 ## 升级
 
 ```bash
-npm update -g @cc-claw/peri
+npm update -g @cc-claw/code
 ```
 
 ## 快速开始
@@ -38,9 +38,9 @@ peri --model deepseek/deepseek-chat "重构这个函数"
 | macOS | x86_64 (Intel), aarch64 (Apple Silicon) |
 | Windows | x86_64 |
 
-## 为什么选 Peri Code？
+## 为什么选 cc-code？
 
-| 对比项 | 其他终端 Agent | Peri Code |
+| 对比项 | 其他终端 Agent | cc-code |
 |--------|---------------|------|
 | 运行时 | Node.js / Bun，动辄吃 1GB 内存 | Rust 原生，启动快，~50MB 内存 |
 | 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM |
@@ -49,6 +49,6 @@ peri --model deepseek/deepseek-chat "重构这个函数"
 
 ## 链接
 
-- [GitHub](https://github.com/wismyzhizi2018/peri)
-- [Issues](https://github.com/wismyzhizi2018/peri/issues)
-- [English README](https://github.com/wismyzhizi2018/peri#readme)
+- [GitHub](https://github.com/cc-claws/cc-code)
+- [Issues](https://github.com/cc-claws/cc-code/issues)
+- [English README](https://github.com/cc-claws/cc-code#readme)

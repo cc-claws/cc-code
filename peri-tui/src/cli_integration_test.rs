@@ -3,7 +3,7 @@
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "peri")]
+#[command(name = "cc-code")]
 struct TestCli {
     #[arg(short = 'y', long = "yolo")]
     yolo: bool,

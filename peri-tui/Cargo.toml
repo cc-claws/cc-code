@@ -9,7 +9,7 @@ name = "peri_tui"
 path = "src/lib.rs"
 
 [[bin]]
-name = "peri"
+name = "cc-code"
 path = "src/main.rs"
 
 [features]

@@ -10,10 +10,10 @@ fn main() {
         res.set_icon(icon_path.to_str().unwrap());
         res.set("FileVersion", "0.2.0.0");
         res.set("ProductVersion", "0.2.0.0");
-        res.set("ProductName", "Peri");
-        res.set("FileDescription", "Peri Code");
-        res.set("CompanyName", "Peri");
-        res.set("LegalCopyright", "Copyright (c) 2026 Peri");
+        res.set("ProductName", "CC Code");
+        res.set("FileDescription", "CC Code");
+        res.set("CompanyName", "CC Code");
+        res.set("LegalCopyright", "Copyright (c) 2026 CC Code");
         res.set_manifest(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">

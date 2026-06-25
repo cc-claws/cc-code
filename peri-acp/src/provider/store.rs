@@ -2,19 +2,19 @@ use super::config::PeriConfig;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-/// 配置文件路径：~/.peri/settings.json
+/// 配置文件路径：~/.cc-code/settings.json
 pub fn config_path() -> PathBuf {
     dirs_next::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".peri")
+        .join(".cc-code")
         .join("settings.json")
 }
 
-/// 工作区配置文件路径：{cwd}/.peri/settings.json
+/// 工作区配置文件路径：{cwd}/.cc-code/settings.json
 /// 文件不存在时返回 None
 pub fn workspace_config_path() -> Option<PathBuf> {
     let cwd = std::env::current_dir().ok()?;
-    let path = cwd.join(".peri").join("settings.json");
+    let path = cwd.join(".cc-code").join("settings.json");
     if path.exists() {
         Some(path)
     } else {
@@ -24,8 +24,8 @@ pub fn workspace_config_path() -> Option<PathBuf> {
 
 /// 加载配置（全局 + 工作区合并），文件不存在时返回默认空配置
 ///
-/// 先加载 ~/.peri/settings.json 获取全局配置，
-/// 再检测当��工作目录的 .peri/settings.json 是否存在，
+/// 先加载 ~/.cc-code/settings.json 获取全局配置，
+/// 再检测当前工作目录的 .cc-code/settings.json 是否存在，
 /// 若存在则加载并以工作区字段覆盖全局对应字段。
 pub fn load() -> Result<PeriConfig> {
     let mut merged = load_from(&config_path())?;

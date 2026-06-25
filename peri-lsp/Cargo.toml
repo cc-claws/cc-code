@@ -2,7 +2,7 @@
 name = "peri-lsp"
 version.workspace = true
 edition.workspace = true
-description = "LSP client library for peri agent framework"
+description = "LSP client library for CC Code agent framework"
 
 [dependencies]
 tokio = { workspace = true }

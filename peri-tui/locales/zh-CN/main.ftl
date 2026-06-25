@@ -133,7 +133,7 @@ key-switch-model = :切换模型
 
 # ---- Welcome Page ----
 
-welcome-title = Peri Agent Framework
+welcome-title = CC Code Agent Framework
 welcome-divider = ────── 我能做什么？ ──────
 welcome-feature-code = 让我帮你编写、调试或重构代码
 welcome-feature-files = 管理文件和运行终端命令
@@ -170,7 +170,7 @@ tip-17 = 对复杂任务让 Agent 先制定计划再执行
 
 # ---- Setup Wizard ----
 
-setup-welcome-title =  ── Peri 设置 ── 欢迎
+setup-welcome-title =  ── CC Code 设置 ── 欢迎
 setup-choose-provider =  选择如何配置你的 Provider：
 setup-source-custom-api = Custom API
 setup-source-migrate = 从 Claude Code 迁移
@@ -179,7 +179,7 @@ setup-source-migrate-desc = 从 ~/.claude/ 导入配置
 setup-key-confirm = :确认
 setup-key-select = :选择
 setup-key-quit = :退出
-setup-configure-title =  ── Peri 设置 ── 配置 Providers
+setup-configure-title =  ── CC Code 设置 ── 配置 Providers
 setup-submit = 提交
 setup-key-edit-submit = :编辑/提交
 setup-key-check = :勾选
@@ -207,7 +207,7 @@ setup-to-start = 开始使用
 setup-no-key = (无密钥)
 setup-no-providers = 未配置任何 Provider，请选择"Custom API"或从 Claude Code 导入。
 
-setup-language-title = ── Peri 设置 ── 语言
+setup-language-title = ── CC Code 设置 ── 语言
 setup-language-prompt = 选择界面语言：
 setup-language-press-enter = 按 Enter 确认
 
@@ -448,4 +448,4 @@ app-plugin-added = Marketplace 已添加: { $name } (正在获取内容...)
 bg-bar-focus-hint = 按 Esc 退出聚焦
 
 # 退出提示
-app-exit-resume = 恢复会话: peri -r { $id }
+app-exit-resume = 恢复会话: cc-code -r { $id }

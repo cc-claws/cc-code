@@ -2,7 +2,7 @@
 name = "peri-widgets"
 version.workspace = true
 edition.workspace = true
-description = "Reusable ratatui widget library for Peri"
+description = "Reusable ratatui widget library for CC Code"
 
 [dependencies]
 ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
