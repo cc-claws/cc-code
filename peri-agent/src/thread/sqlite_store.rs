@@ -51,6 +51,25 @@ impl SqliteThreadStore {
             .await?;
         let store = Self { pool };
         store.init_schema().await?;
+
+        // messages.content 含完整对话历史（含用户粘贴的 API key/令牌/源码/PII），
+        // 限制为 owner-only。WAL/SHM 同步处理。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let owner_only = std::fs::Permissions::from_mode(0o600);
+            let _ = std::fs::set_permissions(&db_path, owner_only.clone());
+            for suffix in ["wal", "shm"] {
+                let sidecar = db_path.with_extension(format!("db.{}", suffix));
+                if sidecar.exists() {
+                    let _ = std::fs::set_permissions(&sidecar, owner_only.clone());
+                }
+            }
+            if let Some(parent) = db_path.parent() {
+                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+
         Ok(store)
     }
 
