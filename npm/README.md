@@ -7,6 +7,8 @@
 
 ## 安装
 
+[![install](https://img.shields.io/badge/npm_install-g%20@cc--claw%2Fcode-47d147?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cc-claw/code)
+
 ```bash
 npm install -g @cc-claw/code
 ```

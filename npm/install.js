@@ -4,6 +4,8 @@ const { createWriteStream, mkdirSync, chmodSync, existsSync, renameSync, unlinkS
 const { join } = require("path");
 const { execSync } = require("child_process");
 
+const { homedir } = require("os");
+
 const VERSION = require("./package.json").version;
 const REPO = "cc-claws/cc-code";
 const BASE_URL = `https://github.com/${REPO}/releases/download/npm-v${VERSION}`;
@@ -118,6 +120,74 @@ function extractZip(buffer, dest) {
   zip.extractAllTo(dest, true);
 }
 
+function migrateFromClaudeCode() {
+  const home = homedir();
+  const claudeSettingsPath = join(home, ".claude", "settings.json");
+  const ccCodeDir = join(home, ".cc-code");
+  const ccCodeSettingsPath = join(ccCodeDir, "settings.json");
+
+  // 已有 cc-code 配置，跳过
+  if (existsSync(ccCodeSettingsPath)) {
+    return true;
+  }
+
+  // 无 Claude Code 配置
+  if (!existsSync(claudeSettingsPath)) {
+    return false;
+  }
+
+  let claudeSettings;
+  try {
+    claudeSettings = JSON.parse(require("fs").readFileSync(claudeSettingsPath, "utf-8"));
+  } catch {
+    return false;
+  }
+
+  const env = claudeSettings.env || {};
+  const providers = [];
+
+  // 检测 Anthropic
+  const anthropicKey = env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN || "";
+  const anthropicBaseUrl = env.ANTHROPIC_BASE_URL || "";
+  if (anthropicKey || anthropicBaseUrl) {
+    const p = { provider_type: "anthropic", api_key: anthropicKey };
+    if (anthropicBaseUrl) p.base_url = anthropicBaseUrl;
+    const models = {};
+    if (env.ANTHROPIC_DEFAULT_SONNET_MODEL) models.default = env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+    if (env.ANTHROPIC_DEFAULT_OPUS_MODEL) models.opus = env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+    if (env.ANTHROPIC_DEFAULT_HAIKU_MODEL) models.haiku = env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    if (Object.keys(models).length > 0) p.models = models;
+    providers.push(p);
+  }
+
+  // 检测 OpenAI 兼容
+  const openaiKey = env.OPENAI_API_KEY || env.CODEX_API_KEY || "";
+  const openaiBaseUrl = env.OPENAI_BASE_URL || env.OPENAI_API_BASE || "";
+  if (openaiKey || openaiBaseUrl) {
+    const p = { provider_type: "openai", api_key: openaiKey };
+    if (openaiBaseUrl) p.base_url = openaiBaseUrl;
+    const models = {};
+    if (env.OPENAI_MODEL) models.default = env.OPENAI_MODEL;
+    if (Object.keys(models).length > 0) p.models = models;
+    providers.push(p);
+  }
+
+  if (providers.length === 0) {
+    return false;
+  }
+
+  if (!existsSync(ccCodeDir)) {
+    mkdirSync(ccCodeDir, { recursive: true });
+  }
+
+  const ccCodeSettings = { config: { providers } };
+  writeFileSync(ccCodeSettingsPath, JSON.stringify(ccCodeSettings, null, 2) + "\n");
+  console.log("");
+  console.log("  Migrated ~/.claude/settings.json -> ~/.cc-code/settings.json");
+  console.log(`  Found ${providers.length} provider(s): ${providers.map(p => p.provider_type).join(", ")}`);
+  return true;
+}
+
 async function main() {
   const key = getPlatformKey();
   const platform = PLATFORMS[key];
@@ -164,6 +234,46 @@ async function main() {
   }
 
   console.log(`cc-code ${VERSION} installed successfully.`);
+
+  const migrated = migrateFromClaudeCode();
+
+  if (!migrated) {
+    console.log("");
+    console.log("─── Quick Start ───");
+    console.log("");
+    console.log("  Set your API key (pick one):");
+    console.log("");
+    console.log("     # DeepSeek");
+    console.log("     export OPENAI_API_KEY=sk-xxx");
+    console.log("     export OPENAI_BASE_URL=https://api.deepseek.com/v1");
+    console.log("     export OPENAI_MODEL=deepseek-chat");
+    console.log("");
+    console.log("     # Anthropic");
+    console.log("     export ANTHROPIC_API_KEY=sk-ant-xxx");
+    console.log("");
+    console.log("  Or create config file:");
+    console.log("");
+    console.log("     mkdir -p ~/.cc-code");
+    console.log('     cat > ~/.cc-code/settings.json << \'EOF\'');
+    console.log("     {");
+    console.log('       "config": {');
+    console.log('         "providers": [');
+    console.log("           {");
+    console.log('             "provider_type": "openai",');
+    console.log('             "api_key": "sk-xxx",');
+    console.log('             "base_url": "https://api.deepseek.com/v1",');
+    console.log('             "models": { "default": "deepseek-chat" }');
+    console.log("           }");
+    console.log("         ]");
+    console.log("       }");
+    console.log("     }");
+    console.log("     EOF");
+  }
+
+  console.log("");
+  console.log("  Launch: cc-code");
+  console.log("  Docs:   https://github.com/cc-claws/cc-code");
+  console.log("");
 }
 
 main().catch((err) => {
