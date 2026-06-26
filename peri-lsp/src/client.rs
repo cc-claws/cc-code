@@ -123,7 +123,7 @@ impl LspClient {
             let state = Arc::clone(&self.state);
             let name = self.name.clone();
             dispatcher.set_on_error(Box::new(move |error: LspError| {
-                tracing::warn!(target: "lsp", server = %name, error = %error, "LSP 服务器错误");
+                tracing::warn!(target: "lsp", server = %name, error = %error, "LSP server error");
                 *state.write() = ServerState::Error(error.to_string());
             }));
         }
@@ -168,7 +168,7 @@ impl LspClient {
         tracing::info!(
             target: "lsp",
             server = %self.name,
-            "LSP 服务器初始化成功"
+            "LSP server initialized successfully"
         );
 
         self.notify("initialized", Some(Value::Object(Default::default())))
@@ -222,7 +222,7 @@ impl LspClient {
                             server = %self.name,
                             method,
                             error = %e,
-                            "LSP 请求发送失败（服务器可能已崩溃）"
+                            "LSP request send failed (server may have crashed)"
                         );
                         return Err(e);
                     }
@@ -239,7 +239,7 @@ impl LspClient {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(LspError::RequestFailed {
                 method: method.to_string(),
-                reason: "请求被取消".to_string(),
+                reason: "Request cancelled".to_string(),
             }),
             Err(_) => Err(LspError::RequestTimeout {
                 method: method.to_string(),

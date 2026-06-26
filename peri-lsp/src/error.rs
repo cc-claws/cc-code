@@ -2,44 +2,44 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum LspError {
-    #[error("LSP 服务器 \"{server}\" 启动失败: {reason}")]
+    #[error("Failed to launch LSP server \"{server}\": {reason}")]
     LaunchFailed { server: String, reason: String },
 
-    #[error("LSP 服务器 \"{server}\" 初始化失败: {reason}")]
+    #[error("Failed to initialize LSP server \"{server}\": {reason}")]
     InitFailed { server: String, reason: String },
 
-    #[error("LSP 请求超时 ({method}, {timeout_ms}ms)")]
+    #[error("LSP request timeout ({method}, {timeout_ms}ms)")]
     RequestTimeout { method: String, timeout_ms: u64 },
 
-    #[error("LSP 请求失败 ({method}): {reason}")]
+    #[error("LSP request failed ({method}): {reason}")]
     RequestFailed { method: String, reason: String },
 
-    #[error("文件内容已被修改，需要重试")]
+    #[error("File content has been modified, retry needed")]
     ContentModified,
 
-    #[error("服务器 \"{server}\" 已崩溃 (重启次数: {restart_count}/{max_restarts})")]
+    #[error("Server \"{server}\" crashed (restarts: {restart_count}/{max_restarts})")]
     ServerCrashed {
         server: String,
         restart_count: u32,
         max_restarts: u32,
     },
 
-    #[error("无可用 LSP 服务器处理文件: {file_path}")]
+    #[error("No LSP server available for file: {file_path}")]
     NoServerForFile { file_path: String },
 
-    #[error("LSP 服务器 \"{server}\" 未就绪")]
+    #[error("LSP server \"{server}\" not ready")]
     NotReady { server: String },
 
-    #[error("LSP 服务器连接已断开")]
+    #[error("LSP server connection closed")]
     TransportClosed,
 
     #[error("JSON-RPC 错误 (code {code}): {message}")]
     JsonRpcError { code: i64, message: String },
 
-    #[error("IO 错误: {0}")]
+    #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON 解析错误: {0}")]
+    #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
 }
 

@@ -98,11 +98,11 @@ impl LspServerPool {
         for (name, client) in &to_start {
             match client.start(&self.root_uri).await {
                 Ok(()) => {
-                    tracing::info!(target: "lsp", server = %name, "LSP 服务器启动成功");
+                    tracing::info!(target: "lsp", server = %name, "LSP server started successfully");
                     self.initialized.write().insert(name.clone());
                 }
                 Err(e) => {
-                    tracing::warn!(target: "lsp", server = %name, error = %e, "LSP 服务器启动失败");
+                    tracing::warn!(target: "lsp", server = %name, error = %e, "LSP server failed to start");
                     failed.push(name.clone());
                 }
             }
@@ -111,7 +111,7 @@ impl LspServerPool {
         if failed.len() == total_count {
             return Err(LspError::InitFailed {
                 server: "all".to_string(),
-                reason: format!("所有 LSP 服务器启动失败: {}", failed.join(", ")),
+                reason: format!("All LSP servers failed to start: {}", failed.join(", ")),
             });
         }
 
@@ -162,12 +162,12 @@ impl LspServerPool {
 
         match client.start(&self.root_uri).await {
             Ok(()) => {
-                tracing::info!(target: "lsp", server = %server_name, "LSP 服务器启动成功");
+                tracing::info!(target: "lsp", server = %server_name, "LSP server started successfully");
                 self.initialized.write().insert(server_name);
                 Ok(())
             }
             Err(e) => {
-                tracing::warn!(target: "lsp", server = %server_name, error = %e, "LSP 服务器启动失败");
+                tracing::warn!(target: "lsp", server = %server_name, error = %e, "LSP server failed to start");
                 Err(LspError::InitFailed {
                     server: server_name,
                     reason: e.to_string(),
@@ -223,7 +223,7 @@ impl LspServerPool {
                 .collect()
         };
         for (name, client) in servers.iter() {
-            tracing::info!(target: "lsp", server = %name, "正在关闭 LSP 服务器");
+            tracing::info!(target: "lsp", server = %name, "Shutting down LSP server");
             client.shutdown().await;
         }
         self.initialized.write().clear();
@@ -261,11 +261,11 @@ impl LspServerPool {
         if !self.initialized.read().is_empty() {
             match client.start(&self.root_uri).await {
                 Ok(()) => {
-                    tracing::info!(target: "lsp", server = %name, "动态添加的 LSP 服务器启动成功");
+                    tracing::info!(target: "lsp", server = %name, "Dynamically added LSP server started successfully");
                     self.initialized.write().insert(name);
                 }
                 Err(e) => {
-                    tracing::warn!(target: "lsp", server = %name, error = %e, "动态添加的 LSP 服务器启动失败")
+                    tracing::warn!(target: "lsp", server = %name, error = %e, "Dynamically added LSP server failed to start")
                 }
             }
         }
