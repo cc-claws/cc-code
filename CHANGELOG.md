@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.18 — 2026-06-26
+
+### i18n
+
+- **peri-lsp 硬编码中文改英文**：error.rs 12 处、transport.rs 8 处、client.rs 4 处、pool.rs 8 处，共 32 处 `#[error()]` / tracing / 错误字符串
+- **peri-agent 硬编码中文改英文**：sqlite_store.rs 2 处、filesystem.rs 4 处，共 6 处 anyhow context 消息
+
+---
+
 ## v0.6.17 — 2026-06-26
 
 ### i18n
