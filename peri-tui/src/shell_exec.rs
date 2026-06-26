@@ -1,6 +1,7 @@
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
+use peri_agent::encoding::decode_output_bytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
@@ -41,7 +42,7 @@ pub async fn execute_shell_command_with_stdin(
 
     let mut child = cmd
         .spawn()
-        .with_context(|| format!("执行 shell 命令失败: {}", command))?;
+        .with_context(|| format!("Failed to spawn shell command: {}", command))?;
 
     if let Some(mut rx) = stdin_rx {
         if let Some(mut stdin) = child.stdin.take() {
@@ -61,8 +62,8 @@ pub async fn execute_shell_command_with_stdin(
         }
     }
 
-    let mut stdout = child.stdout.take().context("无法捕获 shell stdout")?;
-    let mut stderr = child.stderr.take().context("无法捕获 shell stderr")?;
+    let mut stdout = child.stdout.take().context("Failed to capture shell stdout")?;
+    let mut stderr = child.stderr.take().context("Failed to capture shell stderr")?;
 
     let stdout_task = tokio::spawn(async move {
         let mut buf = Vec::new();
@@ -74,12 +75,12 @@ pub async fn execute_shell_command_with_stdin(
     });
 
     let status = child.wait().await?;
-    let stdout_bytes = stdout_task.await.context("stdout 读取任务失败")??;
-    let stderr_bytes = stderr_task.await.context("stderr 读取任务失败")??;
+    let stdout_bytes = stdout_task.await.context("stdout read task failed")??;
+    let stderr_bytes = stderr_task.await.context("stderr read task failed")??;
 
     Ok(CommandOutput {
-        stdout: String::from_utf8_lossy(&stdout_bytes).to_string(),
-        stderr: String::from_utf8_lossy(&stderr_bytes).to_string(),
+        stdout: decode_output_bytes(&stdout_bytes),
+        stderr: decode_output_bytes(&stderr_bytes),
         exit_code: status.code().unwrap_or(-1),
     })
 }
