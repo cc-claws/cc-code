@@ -1,0 +1,176 @@
+<div align="center">
+
+**中文** | [English](README.md)
+
+# cc-code
+
+**用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
+
+DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑。
+
+[![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
+[![GitHub stars](https://img.shields.io/github/stars/cc-claws/cc-code?style=social)](https://github.com/cc-claws/cc-code/stargazers)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
+[![Website](https://img.shields.io/badge/website-cc--claw.com-orange?style=flat-square)](https://www.cc-claw.com)
+[![GitHub last commit](https://img.shields.io/github/last-commit/cc-claws/cc-code?style=flat-square)](https://github.com/cc-claws/cc-code/commits/main)
+
+<p align="center"><code>npm install -g @cc-claw/code</code></p>
+
+### 🌐 官网：**[cc-claw.com](https://www.cc-claw.com)**
+
+[为什么选 cc-code](#为什么选-cc-code) · [核心能力](#核心能力) · [安装](#安装) · [Nobody Coding](#我们怎么用-nobody-coding-造-cc-code) · [致谢](#致谢)
+
+</div>
+
+## ❤️Sponsor
+
+> [想出现在这里？](mailto:wismyzhizi2018@gmail.com)
+
+<details open>
+<summary>Click to collapse</summary>
+
+[![Kimi K2.6](assets/partners/logos/kimi.png)](https://platform.moonshot.cn/console?aff=cc-code)
+
+Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程编程、编程驱动设计和群组任务编排而生。支持前端、DevOps、性能优化、全栈工程等复杂端到端工作流。[点击注册](https://platform.moonshot.cn/console?aff=cc-code)
+
+---
+
+<table>
+<tr>
+<td width="180"><a href="https://platform.xiaomimimo.com?ref=JBEYTF"><img src="assets/partners/logos/mimo.png" alt="Xiaomi MiMo" width="150"></a></td>
+<td>小米顶尖模型 MiMo V2.5，通过邀请码注册：双方各得 ¥10 API 体验金 + 首单 9 折。邀请码：JBEYTF。<a href="https://platform.xiaomimimo.com?ref=JBEYTF">点击注册</a>（注册后自动填入 · 体验金 40 天有效）</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://www.bigmodel.cn/glm-coding?ic=MR7BVITFAY"><img src="assets/partners/logos/glm.png" alt="GLM" width="150"></a></td>
+<td>智谱 GLM Coding Plan — 国内顶流编程大模型，20+ 主流工具全适配，性价比拉满。<a href="https://www.bigmodel.cn/glm-coding?ic=MR7BVITFAY">立即参与「拼好模」</a></td>
+</tr>
+</table>
+
+</details>
+
+---
+
+## 为什么选 cc-code？
+
+| 对比项 | 其他终端 Agent | cc-code |
+|--------|---------------|------|
+| 运行时 | Node.js / Bun，动辄吃 1GB 内存 | Rust 原生，启动快，~50MB 内存 |
+| 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM |
+| Prompt 缓存 | 每轮重算，token 白烧 | 冻结 system prompt，95-99% 缓存命中率 |
+| 工具加载 | 全量塞进每轮请求 | 核心工具常驻，其余 Tool Search 按需懒加载 |
+| IDE 集成 | 只有终端 | ACP 协议，Zed 等 IDE 直连 |
+| Claude Code 生态 | 不兼容 | 直接用 `.claude/` 配置、agents、skills、hooks、MCP |
+
+---
+
+## 核心能力
+
+| 能力 | 说明 |
+|------|------|
+| **Rust 原生** | 快启动、低内存、零运行时开销 |
+| **Context 优化** | system prompt 冻结 + 动态内容隔离，token 不浪费 |
+| **多 LLM 支持** | Anthropic / OpenAI 兼容 API，DeepSeek、GLM 随便切 |
+| **Claude Code 兼容** | `.claude/` 配置、agents、skills、hooks、MCP、子 agent 直接复用 |
+| **流式 Markdown** | 代码块、表格、diff 实时渲染 |
+| **ACP 协议** | 接入 Zed 等 IDE，也支持自建 "Cloud Code" 平台 |
+| **Auto Compact** | 长会话自动压缩，保持响应快且省 token |
+| **Sub-Agent 并发** | 后台子 agent 并行执行，支持 fork 和 background 模式 |
+| **HITL 审批** | 敏感操作自动拦截，支持 auto-classifier 和 shared-mode |
+| **Nobody Coding** | 99% 代码由 DeepSeek、Mimo、GLM 产出 — 人决定做什么，AI 想怎么做 |
+
+---
+
+## 安装
+
+支持 macOS (x86_64 / Apple Silicon)、Linux (x86_64 / aarch64 / riscv64)、Windows (x86_64)。
+
+### npm（推荐）
+
+```bash
+npm install -g @cc-claw/code
+```
+
+### 升级
+
+```bash
+npm update -g @cc-claw/code
+```
+
+### macOS / Linux（脚本安装）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 | iex
+```
+
+---
+
+## 我们怎么用 Nobody Coding 造 cc-code
+
+**Nobody Coding** 字面意思：没有人类写过一行 cc-code 代码 — 架构、TUI、harness tuning 全是 AI 干的。人决定 *做什么*，AI 想 *怎么做*。你不是在结对编程，你是在管一个不睡觉的工程师。cc-code 99% 的代码都是这么来的。
+
+> 最近的 commit 几乎全是 DeepSeek、Mimo 和 GLM 的产出。Claude 只在最初参与过。
+
+### 典型工作流
+
+| 你要做的事 | 流水线 |
+|-----------|--------|
+| 发现 bug 或技术债 | `issue-create` → `systematic-debugging` → `writing-plans` → `subagent-driven-development` → `issue-archive` → 改进 CLAUDE.md |
+| 开新功能 | `grill-me` → `writing-plans` → `subagent-driven-development` |
+| 代码库变乱了 | `slop-cleaner` → `improve-codebase-architecture` → `writing-plans` → `subagent-driven-development` |
+| 需要理解架构 | `teacher` → 分配任务 → `teacher` |
+
+---
+
+## 仓库结构
+
+```text
+cc-code/
+├── peri-agent/                # 核心：Agent loop、工具系统、持久化、遥测
+├── peri-middlewares/           # 中间件：文件系统、终端、MCP、Hooks 等
+├── peri-tui/                  # TUI 应用 (Ratatui)
+├── peri-acp/                  # ACP 服务层：桥接 TUI/IDE 与 Agent
+├── peri-widgets/              # Widget 组件库
+├── peri-lsp/                  # LSP 客户端库
+├── langfuse-client/           # Langfuse 遥测客户端
+├── npm/                       # npm 包：postinstall 脚本 + shell wrapper
+├── scripts/
+│   ├── install.sh             # macOS / Linux 安装器
+│   └── install.ps1            # Windows 安装器
+├── side-projects/             # 实验性项目（gig、llm-gateway 等）
+├── spec/                      # 设计文档与规范
+├── README.md
+└── LICENSE                    # Apache 2.0
+```
+
+---
+
+## 致谢
+
+| 项目 | 说明 |
+|------|------|
+| [Peri (KonghaYao)](https://github.com/KonghaYao/peri) | 本项目 fork 自 Peri，基于 Apache 2.0 协议分发，感谢原作者的开创性工作 |
+| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | 驱动 cc-code AI 工程工作流的 skill 套件 |
+| [ACP](https://agentclientprotocol.com/) | Agent-IDE 通信开放协议 |
+| [rmcp](https://github.com/anthropics/rmcp) | Rust MCP 客户端库 |
+| [Ratatui](https://ratatui.rs) & [Tokio](https://tokio.rs) | TUI 框架和异步运行时 |
+| [Langfuse](https://langfuse.com) | LLM 可观测性 |
+| [Zed](https://zed.dev) | 第一个 ACP 兼容 IDE，验证了协议可行性 |
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=cc-claws/cc-code&type=Date)](https://www.star-history.com/#cc-claws/cc-code&Date)
+
+---
+
+## 许可证
+
+[Apache License 2.0](LICENSE) — 可自由使用、修改、分发，包括商业用途。
