@@ -3152,6 +3152,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dirs-next",
+ "encoding_rs",
  "futures",
  "parking_lot",
  "rand 0.10.1",

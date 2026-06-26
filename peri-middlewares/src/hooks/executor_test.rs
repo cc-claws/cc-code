@@ -35,19 +35,19 @@ fn make_command_hook(command: &str) -> HookType {
 }
 
 #[test]
-fn test_decode_hook_output_utf8() {
-    assert_eq!(decode_hook_output("hook 错误".as_bytes()), "hook 错误");
+fn test_decode_output_bytes_utf8() {
+    assert_eq!(peri_agent::encoding::decode_output_bytes("hook 错误".as_bytes()), "hook 错误");
 }
 
 #[cfg(target_os = "windows")]
 #[test]
-fn test_decode_hook_output_windows_gbk_fallback() {
+fn test_decode_output_bytes_windows_gbk_fallback() {
     let gbk_bytes = [
         0xB2, 0xBB, 0xCA, 0xC7, 0xC4, 0xDA, 0xB2, 0xBF, 0xBB, 0xF2, 0xCD, 0xE2, 0xB2, 0xBF, 0xC3,
         0xFC, 0xC1, 0xEE,
     ];
 
-    assert_eq!(decode_hook_output(&gbk_bytes), "不是内部或外部命令");
+    assert_eq!(peri_agent::encoding::decode_output_bytes(&gbk_bytes), "不是内部或外部命令");
 }
 
 #[tokio::test]

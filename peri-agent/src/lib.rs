@@ -5,6 +5,7 @@
 
 pub mod agent;
 pub mod ask_user;
+pub mod encoding;
 pub mod error;
 pub mod hitl;
 pub mod interaction;
