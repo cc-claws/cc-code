@@ -37,6 +37,7 @@ Usage:
 - Output includes line numbers by default (use -n to disable)
 - Search times out after 15 seconds; use more specific patterns for large codebases
 - Default head_limit is 250 lines; use sparingly for large result sets
+- Lines longer than 500 bytes are skipped in "content" mode (avoids dumping minified/base64 content)
 - Use fixed_strings (-F) to search literal strings without regex interpretation
 - Use invert_match (-v) to find lines that do NOT match the pattern
 - Use whole_word (-w) to match whole words only
@@ -44,8 +45,8 @@ Usage:
 - Use max_depth to limit search directory depth
 
 Output modes:
-- "content": shows matching lines with line numbers (default)
-- "files_with_matches": lists only file paths that contain matches
+- "files_with_matches": lists only file paths that contain matches (default — token-efficient)
+- "content": shows matching lines with line numbers
 - "count": shows match counts per file
 - "files_without_matches": lists only file paths that do NOT contain matches
 
@@ -59,6 +60,9 @@ When to use:
 - Use Glob for file name search, Grep for content search
 - For open-ended searches, start with the most specific query and broaden if needed"#;
 
+/// Default 模式下超过此字节长度的行不输出（对齐 Claude Code `--max-columns 500`）
+const GREP_MAX_COLUMNS: usize = 500;
+
 use crate::tools::output_persist::persist_truncated_output;
 
 use super::{
@@ -67,10 +71,17 @@ use super::{
 };
 
 /// 核心搜索函数（同步，在 spawn_blocking 中运行）
+///
+/// `head_limit`=0 表示无限制（对齐上游 limit=0 语义）。
+/// offset/head_limit 应用采用上游 `applyHeadLimit` 语义：
+///   `slice(offset, offset + head_limit)`，
+/// 截断检测：`collected.len() > offset + head_limit`。
+/// 为能判断是否还有更多结果，搜索 cap = `offset + head_limit + 1`。
 fn execute_search(
     parsed: &ParsedArgs,
     cwd: &str,
     head_limit: usize,
+    offset: usize,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // 构建搜索路径
     let search_path = match &parsed.path {
@@ -123,6 +134,12 @@ fn execute_search(
         .collect();
 
     // 共享状态
+    // cap = offset + head_limit + 1：多扫一行用来判断是否还有更多结果（对齐上游 wasTruncated）
+    let effective_cap = if head_limit > 0 {
+        offset.saturating_add(head_limit).saturating_add(1)
+    } else {
+        0
+    };
     let results = Arc::new(Mutex::new(Vec::new()));
     let total_lines = Arc::new(AtomicUsize::new(0));
     let stopped = Arc::new(AtomicBool::new(false));
@@ -192,7 +209,7 @@ fn execute_search(
                     output_mode: parsed.output_mode,
                     results: Arc::clone(&results),
                     total_lines: Arc::clone(&total_lines),
-                    max_limit: head_limit,
+                    max_limit: effective_cap,
                     stopped: Arc::clone(&stopped),
                     display_path: display_path.clone(),
                     match_count: Cell::new(0),
@@ -200,6 +217,7 @@ fn execute_search(
                     after_context,
                     before_context,
                     show_line_numbers: parsed.line_number,
+                    max_columns: GREP_MAX_COLUMNS,
                 };
 
                 match searcher.search_path(&*matcher, entry.path(), &mut sink) {
@@ -234,19 +252,157 @@ fn execute_search(
         )
     });
 
-    // 格式化输出
-    let results = results.lock().unwrap();
-    if results.is_empty() {
-        return Ok("No matches found.".to_string());
+    // 格式化输出：对齐上游 applyHeadLimit + mapToolResultToToolResultBlockParam 语义
+    let mut all_items = results.lock().unwrap().clone();
+    let total_collected = all_items.len();
+    drop(results);
+
+    // 对齐上游 GrepTool.ts:528-552：FilesOnly / FilesWithoutMatch 模式按 mtime 排序
+    // - 生产：mtime 降序（newest first），mtime 相同按 filename 升序 tiebreaker
+    // - 测试：纯 filename 升序，保证 deterministic
+    // - stat 失败按 epoch 0 处理
+    if matches!(parsed.output_mode, OutputMode::FilesOnly | OutputMode::FilesWithoutMatch) {
+        let cwd_str = cwd.as_str();
+        let mut keyed: Vec<(String, std::time::SystemTime)> = all_items
+            .iter()
+            .map(|p| {
+                let abs = Path::new(cwd_str).join(p);
+                let mtime = std::fs::metadata(&abs)
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                (p.clone(), mtime)
+            })
+            .collect();
+        #[cfg(test)]
+        keyed.sort_by(|a, b| a.0.cmp(&b.0));
+        #[cfg(not(test))]
+        keyed.sort_by(|a, b| match b.1.cmp(&a.1) {
+            std::cmp::Ordering::Equal => a.0.cmp(&b.0),
+            other => other,
+        });
+        all_items = keyed.into_iter().map(|(p, _)| p).collect();
     }
 
-    let mut output = results.join("\n");
-    let total = total_lines.load(Ordering::Relaxed);
-    if total >= head_limit && head_limit > 0 {
-        let persist_hint = persist_truncated_output(&output);
-        output.push_str(&format!("\n... (truncated at {} lines)", head_limit));
-        output.push_str(&persist_hint);
-    }
+    // 上游 wasTruncated = items.length - offset > limit = items.length > offset + limit
+    let was_truncated = head_limit > 0 && total_collected > offset.saturating_add(head_limit);
+
+    // slice(offset, offset + head_limit)
+    let slice_end = if head_limit > 0 {
+        offset.saturating_add(head_limit).min(total_collected)
+    } else {
+        total_collected
+    };
+    let slice_start = offset.min(total_collected);
+    let final_items: Vec<String> = all_items.drain(slice_start..slice_end).collect();
+
+    // 分页信息：limit 仅在截断时显示；offset 仅在 > 0 时显示
+    let pagination_info = || -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if was_truncated {
+            parts.push(format!("limit: {}", head_limit));
+        }
+        if offset > 0 {
+            parts.push(format!("offset: {}", offset));
+        }
+        parts.join(", ")
+    };
+
+    let output = match parsed.output_mode {
+        OutputMode::Default => {
+            if final_items.is_empty() {
+                "No matches found".to_string()
+            } else {
+                let mut s = final_items.join("\n");
+                let limit_info = pagination_info();
+                if was_truncated {
+                    s.push_str(&format!(
+                        "\n\n[Showing results with pagination = {}]",
+                        limit_info
+                    ));
+                }
+                if was_truncated && head_limit > 0 {
+                    let persist_hint = persist_truncated_output(&s);
+                    s.push_str(&persist_hint);
+                }
+                s
+            }
+        }
+        OutputMode::FilesOnly => {
+            if final_items.is_empty() {
+                "No files found".to_string()
+            } else {
+                let n = final_items.len();
+                let plural = if n == 1 { "file" } else { "files" };
+                let limit_info = pagination_info();
+                let header = if limit_info.is_empty() {
+                    format!("Found {} {}", n, plural)
+                } else {
+                    format!("Found {} {} {}", n, plural, limit_info)
+                };
+                let mut s = format!("{}\n{}", header, final_items.join("\n"));
+                if was_truncated && head_limit > 0 {
+                    let persist_hint = persist_truncated_output(&s);
+                    s.push_str(&persist_hint);
+                }
+                s
+            }
+        }
+        OutputMode::CountOnly => {
+            // 解析 path:count 统计
+            let mut total_matches: usize = 0;
+            let mut file_count: usize = 0;
+            for item in &final_items {
+                if let Some(idx) = item.rfind(':') {
+                    if let Ok(c) = item[idx + 1..].parse::<usize>() {
+                        total_matches += c;
+                        file_count += 1;
+                    }
+                }
+            }
+            let raw = if final_items.is_empty() {
+                "No matches found".to_string()
+            } else {
+                final_items.join("\n")
+            };
+            let occ_plural = if total_matches == 1 { "occurrence" } else { "occurrences" };
+            let file_plural = if file_count == 1 { "file" } else { "files" };
+            let limit_info = pagination_info();
+            // 上游 summary：`... files.` 句点无条件，` with pagination = ...` 仅在 limitInfo 非空时拼接
+            let mut s = format!(
+                "{}\n\nFound {} total {} across {} {}.",
+                raw, total_matches, occ_plural, file_count, file_plural
+            );
+            if !limit_info.is_empty() {
+                s.push_str(&format!(" with pagination = {}", limit_info));
+            }
+            if was_truncated && head_limit > 0 {
+                let persist_hint = persist_truncated_output(&s);
+                s.push_str(&persist_hint);
+            }
+            s
+        }
+        OutputMode::FilesWithoutMatch => {
+            // cc-code 扩展模式（上游没有），沿用 FilesOnly 风格保持一致性
+            if final_items.is_empty() {
+                "No files found".to_string()
+            } else {
+                let n = final_items.len();
+                let plural = if n == 1 { "file" } else { "files" };
+                let limit_info = pagination_info();
+                let header = if limit_info.is_empty() {
+                    format!("Found {} {}", n, plural)
+                } else {
+                    format!("Found {} {} {}", n, plural, limit_info)
+                };
+                let mut s = format!("{}\n{}", header, final_items.join("\n"));
+                if was_truncated && head_limit > 0 {
+                    let persist_hint = persist_truncated_output(&s);
+                    s.push_str(&persist_hint);
+                }
+                s
+            }
+        }
+    };
 
     Ok(output)
 }
@@ -284,7 +440,7 @@ impl BaseTool for GrepTool {
                 "output_mode": {
                     "type": "string",
                     "enum": ["content", "files_with_matches", "count", "files_without_matches"],
-                    "description": "Output mode: \"content\" shows matching lines with line numbers (default), \"files_with_matches\" lists only file paths, \"count\" shows match counts per file, \"files_without_matches\" lists file paths without matches"
+                    "description": "Output mode: \"files_with_matches\" lists only file paths (default, token-efficient), \"content\" shows matching lines with line numbers, \"count\" shows match counts per file, \"files_without_matches\" lists file paths without matches"
                 },
                 "-i": {
                     "type": "boolean",
@@ -407,40 +563,26 @@ impl BaseTool for GrepTool {
         };
 
         let head_limit = grep_input.head_limit;
+        let offset = grep_input.offset.unwrap_or(0);
 
         let cwd = self.cwd.clone();
         let result = timeout(
             Duration::from_secs(15),
-            tokio::task::spawn_blocking(move || execute_search(&parsed, &cwd, head_limit)),
+            tokio::task::spawn_blocking(move || {
+                execute_search(&parsed, &cwd, head_limit, offset)
+            }),
         )
         .await;
 
-        // offset 后处理（在超时/结果后应用）
-        let output =
-            match result {
-                Err(_) => return Err(
-                    "Error: Search timed out after 15 seconds. Please use a more specific pattern."
-                        .into(),
-                ),
-                Ok(Err(e)) => return Err(format!("Error: {e}").into()),
-                Ok(Ok(Ok(output))) => output,
-                Ok(Ok(Err(e))) => return Err(format!("Error: {e}").into()),
-            };
-
-        // 应用 offset：跳过前 N 行
-        let final_output = if let Some(offset) = grep_input.offset {
-            if offset > 0 {
-                let lines: Vec<&str> = output.split('\n').collect();
-                let skipped: Vec<&str> = lines.into_iter().skip(offset).collect();
-                skipped.join("\n")
-            } else {
-                output
-            }
-        } else {
-            output
-        };
-
-        Ok(final_output)
+        match result {
+            Err(_) => Err(
+                "Error: Search timed out after 15 seconds. Please use a more specific pattern."
+                    .into(),
+            ),
+            Ok(Err(e)) => Err(format!("Error: {e}").into()),
+            Ok(Ok(Ok(output))) => Ok(output),
+            Ok(Ok(Err(e))) => Err(format!("Error: {e}").into()),
+        }
     }
 }
 
