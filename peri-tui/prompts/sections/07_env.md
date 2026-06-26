@@ -3,5 +3,6 @@ Working directory: {{cwd}}
 Is directory a git repo: {{is_git_repo}}
 Platform: {{platform}}
 OS Version: {{os_version}}
+Python: {{python_version}}
 Today's date: {{date}}
 </env>
