@@ -42,14 +42,11 @@ impl App {
                         .set_verb(Some(&verb));
                 } else {
                     // SubAgent 执行结束：恢复 spinner 为响应模式
+                    let thinking_label = self.services.lc.tr("spinner-thinking");
                     self.session_mgr
                         .current_mut()
                         .spinner_state
-                        .set_mode(peri_widgets::SpinnerMode::Responding);
-                    self.session_mgr
-                        .current_mut()
-                        .spinner_state
-                        .set_verb(Some("思考中…"));
+                        .set_mode_with_label(peri_widgets::SpinnerMode::Responding, Some(thinking_label));
                 }
                 // 触发 rebuild 刷新 SubAgentGroup 卡片显示
                 self.request_rebuild();
@@ -69,14 +66,11 @@ impl App {
                     .saturating_sub(1);
                 // 如果所有 SubAgent 已完成，恢复 spinner 到思考模式
                 if self.session_mgr.current_mut().agent.subagent_depth == 0 {
+                    let thinking_label = self.services.lc.tr("spinner-thinking");
                     self.session_mgr
                         .current_mut()
                         .spinner_state
-                        .set_mode(peri_widgets::SpinnerMode::Responding);
-                    self.session_mgr
-                        .current_mut()
-                        .spinner_state
-                        .set_verb(Some("思考中…"));
+                        .set_mode_with_label(peri_widgets::SpinnerMode::Responding, Some(thinking_label));
                 }
                 // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
                 let actions = self
@@ -250,10 +244,11 @@ impl App {
                 self.session_mgr.current_mut().agent.retry_status = None;
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 // 跨切面：spinner
+                let responding_label = self.services.lc.tr("spinner-responding");
                 self.session_mgr
                     .current_mut()
                     .spinner_state
-                    .set_mode(peri_widgets::SpinnerMode::Responding);
+                    .set_mode_with_label(peri_widgets::SpinnerMode::Responding, Some(responding_label));
                 // Pipeline：路由到 SubAgentGroup 或父 Agent AssistantBubble
                 let actions = self
                     .session_mgr

@@ -450,3 +450,10 @@ bg-bar-focus-hint = 按 Esc 退出聚焦
 
 # 退出提示
 app-exit-resume = 恢复会话: cc-code -r { $id }
+
+# ---- Spinner / Widget ----
+
+spinner-thinking = 思考中…
+spinner-tool-use = 执行工具…
+spinner-responding = 正在生成回复…
+spinner-thinking-header = 💭 思考 ({ $count } chars)

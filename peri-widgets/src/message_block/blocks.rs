@@ -19,6 +19,8 @@ pub enum BlockRenderStrategy {
     Thinking {
         char_count: usize,
         expanded: bool,
+        /// 翻译后的标题，如 "💭 Thinking (N chars)"。None 时回退中文。
+        label: Option<String>,
     },
     SystemNote {
         content: String,
@@ -137,10 +139,13 @@ pub fn render_block(
         BlockRenderStrategy::Thinking {
             char_count,
             expanded,
+            label,
         } => {
             let _ = width;
-            let mut lines: Vec<Line<'_>> =
-                vec![Line::from(format!("💭 思考 ({} chars)", char_count))];
+            let header = label.clone().unwrap_or_else(|| {
+                format!("💭 思考 ({} chars)", char_count)
+            });
+            let mut lines: Vec<Line<'_>> = vec![Line::from(header)];
             if *expanded {
                 lines.push(Line::raw("(thinking content)"));
             }

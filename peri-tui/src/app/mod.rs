@@ -534,12 +534,13 @@ impl App {
     }
 
     pub fn set_loading(&mut self, loading: bool) {
+        let responding_label = self.services.lc.tr("spinner-responding");
         let s = self.active_mut();
         s.ui.loading = loading;
         if loading {
             s.ui.textarea = build_textarea(true);
             s.spinner_state
-                .set_mode(peri_widgets::SpinnerMode::Responding);
+                .set_mode_with_label(peri_widgets::SpinnerMode::Responding, Some(responding_label));
             // 更新终端标题
             let _ = ratatui::crossterm::execute!(
                 std::io::stdout(),
