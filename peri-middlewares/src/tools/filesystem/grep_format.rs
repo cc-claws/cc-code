@@ -23,6 +23,8 @@ pub(crate) struct SearchSink {
     pub(crate) after_context: usize,
     pub(crate) before_context: usize,
     pub(crate) show_line_numbers: bool,
+    /// Default 模式下超过此字节长度的行不输出（对齐 Claude Code `--max-columns 500`）
+    pub(crate) max_columns: usize,
 }
 
 impl Sink for SearchSink {
@@ -35,6 +37,11 @@ impl Sink for SearchSink {
 
         match self.output_mode {
             OutputMode::Default => {
+                // 超过 max_columns 字节长度的行跳过（对齐 Claude Code `--max-columns 500`，避免 minified/base64 撑爆 context）
+                if self.max_columns > 0 && mat.bytes().len() > self.max_columns {
+                    return Ok(!self.stopped.load(Ordering::Relaxed));
+                }
+
                 let line_number = mat.line_number().unwrap_or(0);
                 let content = String::from_utf8_lossy(mat.bytes());
                 let content = content.trim_end_matches(['\n', '\r']);
@@ -83,6 +90,11 @@ impl Sink for SearchSink {
             SinkContextKind::After if self.after_context == 0 => return Ok(true),
             SinkContextKind::Before if self.before_context == 0 => return Ok(true),
             _ => {}
+        }
+
+        // 对齐上游 `rg --max-columns 500`：影响所有输出行（含 -A/-B/-C 上下文）
+        if self.max_columns > 0 && ctx.bytes().len() > self.max_columns {
+            return Ok(true);
         }
 
         let line_number = ctx.line_number().unwrap_or(0);
