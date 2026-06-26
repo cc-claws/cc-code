@@ -14,25 +14,9 @@ use peri_agent::{
         state::AgentState,
         ReActAgent, State,
     },
+    encoding::decode_output_bytes,
     messages::BaseMessage,
 };
-
-fn decode_hook_output(bytes: &[u8]) -> String {
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(text) = std::str::from_utf8(bytes) {
-            return text.to_string();
-        }
-
-        let (decoded, _, _) = encoding_rs::GBK.decode(bytes);
-        decoded.into_owned()
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        String::from_utf8_lossy(bytes).into_owned()
-    }
-}
 
 /// Execute a command hook (shell script).
 ///
@@ -111,8 +95,8 @@ pub async fn execute_command_hook(
 
     match result {
         Ok(Ok(output)) => {
-            let stdout = decode_hook_output(&output.stdout);
-            let stderr = decode_hook_output(&output.stderr);
+            let stdout = decode_output_bytes(&output.stdout);
+            let stderr = decode_output_bytes(&output.stderr);
 
             match output.status.code() {
                 Some(0) => {
