@@ -1,0 +1,14 @@
+# 文本文件：仓库用 LF，checkout 时转为平台原生格式
+* text=auto
+
+# 明确的二进制文件不转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.dll binary
+
+# 强制 LF 的文件
+*.rs text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
