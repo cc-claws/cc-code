@@ -37,7 +37,7 @@ impl SqliteThreadStore {
         // 确保父目录存在
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
-                .with_context(|| format!("创建目录失败: {}", parent.display()))?;
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
         }
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
@@ -57,7 +57,7 @@ impl SqliteThreadStore {
     /// 使用默认路径 `~/.cc-code/threads/threads.db` 创建
     pub async fn default_path() -> Result<Self> {
         let db_path = dirs_next::home_dir()
-            .context("无法获取 home 目录")?
+            .context("Failed to get home directory")?
             .join(".cc-code")
             .join("threads")
             .join("threads.db");

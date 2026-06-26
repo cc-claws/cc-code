@@ -33,7 +33,7 @@ impl FilesystemThreadStore {
     /// 使用默认路径 `~/.peri/threads/` 创建
     pub fn default_path() -> Result<Self> {
         let dir = dirs_next::home_dir()
-            .context("无法获取 home 目录")?
+            .context("Failed to get home directory")?
             .join(".peri")
             .join("threads");
         Ok(Self::new(dir))
@@ -111,7 +111,7 @@ impl ThreadStore for FilesystemThreadStore {
             .append(true)
             .open(&path)
             .await
-            .with_context(|| format!("打开 messages.jsonl 失败: {}", path.display()))?;
+            .with_context(|| format!("Failed to open messages.jsonl: {}", path.display()))?;
 
         for msg in msgs {
             let mut line = serde_json::to_string(msg)?;
@@ -146,7 +146,7 @@ impl ThreadStore for FilesystemThreadStore {
                 continue;
             }
             let msg: BaseMessage =
-                serde_json::from_str(line).with_context(|| format!("反序列化消息失败: {line}"))?;
+                serde_json::from_str(line).with_context(|| format!("Failed to deserialize message: {line}"))?;
             msgs.push(msg);
         }
         Ok(msgs)
@@ -156,7 +156,7 @@ impl ThreadStore for FilesystemThreadStore {
         let path = self.meta_path(id);
         let raw = fs::read_to_string(&path)
             .await
-            .with_context(|| format!("读取 meta.json 失败: {}", path.display()))?;
+            .with_context(|| format!("Failed to read meta.json: {}", path.display()))?;
         let meta: ThreadMeta = serde_json::from_str(&raw)?;
         Ok(meta)
     }
