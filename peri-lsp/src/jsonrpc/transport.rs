@@ -45,19 +45,19 @@ impl LspTransport {
 
         let stdin = child.stdin.take().ok_or_else(|| LspError::LaunchFailed {
             server: command.to_string(),
-            reason: "无法获取 stdin".to_string(),
+            reason: "Failed to get stdin".to_string(),
         })?;
 
         let stdout = child.stdout.take().ok_or_else(|| LspError::LaunchFailed {
             server: command.to_string(),
-            reason: "无法获取 stdout".to_string(),
+            reason: "Failed to get stdout".to_string(),
         })?;
 
         // 启动后立即检查进程是否存活（捕获参数错误等立即退出的情况）
         // 对参数无效等场景，进程退出极快，try_wait 通常能立即捕获
         if let Some(status) = child.try_wait().ok().flatten() {
             let code = status.code().unwrap_or(-1);
-            let reason = format!("进程立即退出 (exit code: {code})，请检查命令和参数是否正确");
+            let reason = format!("Process exited immediately (exit code: {code}), check command and args");
             return Err(LspError::LaunchFailed {
                 server: command.to_string(),
                 reason,
@@ -167,7 +167,7 @@ impl MessageDispatcher {
                         break;
                     }
                     Err(e) => {
-                        tracing::warn!(target: "lsp", error = %e, "读取消息失败");
+                        tracing::warn!(target: "lsp", error = %e, "Failed to read message");
                         break;
                     }
                 }
@@ -213,7 +213,7 @@ impl MessageDispatcher {
         let mut guard = self.stdin.lock().await;
         let stdin = guard.as_mut().ok_or_else(|| LspError::JsonRpcError {
             code: -32002,
-            message: "transport 已关闭".to_string(),
+            message: "transport closed".to_string(),
         })?;
         let body = serde_json::to_string(request)?;
         codec::encode_message(body.as_bytes(), stdin).await
@@ -227,7 +227,7 @@ impl MessageDispatcher {
         let mut guard = self.stdin.lock().await;
         let stdin = guard.as_mut().ok_or_else(|| LspError::JsonRpcError {
             code: -32002,
-            message: "transport 已关闭".to_string(),
+            message: "transport closed".to_string(),
         })?;
         let body = serde_json::to_string(notification)?;
         codec::encode_message(body.as_bytes(), stdin).await
@@ -252,7 +252,7 @@ impl DispatchState {
         let value: Value = match serde_json::from_str(&msg) {
             Ok(v) => v,
             Err(e) => {
-                tracing::warn!(target: "lsp", error = %e, "消息解析失败");
+                tracing::warn!(target: "lsp", error = %e, "Failed to parse message");
                 return;
             }
         };
@@ -307,8 +307,8 @@ pub async fn run_dispatch_loop(state: Arc<DispatchState>, mut rx: mpsc::Unbounde
         state.dispatch(msg);
     }
     // channel 关闭（stdout EOF 或读取错误），拒绝所有 pending 请求
-    tracing::error!(target: "lsp", "LSP transport 断开：stdout EOF，拒绝所有 pending 请求");
-    state.reject_all_pending("LSP 服务器已断开连接");
+    tracing::error!(target: "lsp", "LSP transport disconnected: stdout EOF, rejecting all pending requests");
+    state.reject_all_pending("LSP server disconnected");
     // 通知上层服务器断开，更新 ServerState
     state.invoke_on_error(LspError::TransportClosed);
 }
