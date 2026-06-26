@@ -48,6 +48,7 @@ pub struct PromptEnv {
     pub platform: String,
     pub os_version: String,
     pub date: String,
+    pub python_version: String,
 }
 
 impl PromptEnv {
@@ -56,12 +57,14 @@ impl PromptEnv {
         let platform = std::env::consts::OS.to_string();
         let os_version = os_version_string();
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let python_version = detect_python_version();
         Self {
             cwd: cwd.to_string(),
             is_git_repo,
             platform,
             os_version,
             date,
+            python_version,
         }
     }
 
@@ -71,12 +74,14 @@ impl PromptEnv {
         let is_git_repo = std::path::Path::new(cwd).join(".git").exists();
         let platform = std::env::consts::OS.to_string();
         let os_version = os_version_string();
+        let python_version = detect_python_version();
         Self {
             cwd: cwd.to_string(),
             is_git_repo,
             platform,
             os_version,
             date: frozen_date.to_string(),
+            python_version,
         }
     }
 }
@@ -154,6 +159,13 @@ pub fn build_system_prompt(
         env!("CARGO_MANIFEST_DIR"),
         "/../peri-tui/prompts/sections/07_env.md"
     )));
+    // Windows 平台专属约束：禁用 Bash 文件操作，强制用专用工具
+    if env.platform == "windows" {
+        dynamic_sections.push(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../peri-tui/prompts/sections/08_windows.md"
+        )));
+    }
     dynamic_sections.push(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../peri-tui/prompts/sections/14_system_reminder.md"
@@ -232,6 +244,7 @@ pub fn build_system_prompt(
         )
         .replace("{{platform}}", &env.platform)
         .replace("{{os_version}}", &env.os_version)
+        .replace("{{python_version}}", &env.python_version)
         .replace("{{date}}", &env.date)
         .replace(
             "{{available_agents}}",
@@ -260,6 +273,31 @@ fn build_agent_overrides_block(ov: &AgentOverrides) -> String {
     } else {
         format!("{}\n\n", parts.join("\n\n"))
     }
+}
+
+/// 检测 Python 版本，按平台优先级尝试多个命令，不可用时返回 "Not available"
+fn detect_python_version() -> String {
+    // Windows: python → python3 → py (Python Launcher)
+    // Unix: python3 → python
+    let candidates: &[&str] = if cfg!(target_os = "windows") {
+        &["python", "python3", "py"]
+    } else {
+        &["python3", "python"]
+    };
+    for cmd in candidates {
+        if let Some(ver) = std::process::Command::new(cmd)
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|out| {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            })
+        {
+            return ver;
+        }
+    }
+    "Not available".to_string()
 }
 
 fn os_version_string() -> String {
