@@ -48,13 +48,21 @@ impl SpinnerState {
     }
 
     pub fn set_mode(&mut self, mode: SpinnerMode) {
+        self.set_mode_with_label(mode, None);
+    }
+
+    /// 切换模式，可选传入翻译后的 label 覆盖默认中文。
+    pub fn set_mode_with_label(&mut self, mode: SpinnerMode, label: Option<String>) {
         let was_active = self.mode != SpinnerMode::Idle;
         self.mode = mode;
-        self.verb = match &self.mode {
-            SpinnerMode::Thinking => "思考中…".to_string(),
-            SpinnerMode::ToolUse => "执行工具…".to_string(),
-            SpinnerMode::Responding => "正在生成回复…".to_string(),
-            SpinnerMode::Idle => String::new(),
+        self.verb = match (&self.mode, label) {
+            (SpinnerMode::Thinking, Some(l)) => l,
+            (SpinnerMode::Thinking, None) => "思考中…".to_string(),
+            (SpinnerMode::ToolUse, Some(l)) => l,
+            (SpinnerMode::ToolUse, None) => "执行工具…".to_string(),
+            (SpinnerMode::Responding, Some(l)) => l,
+            (SpinnerMode::Responding, None) => "正在生成回复…".to_string(),
+            (SpinnerMode::Idle, _) => String::new(),
         };
         // 从活跃状态切换到 Idle 时，记录耗时用于总结行
         if was_active && self.mode == SpinnerMode::Idle {

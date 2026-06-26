@@ -451,3 +451,10 @@ bg-bar-focus-hint = Press Esc to exit focus
 
 # Exit prompt
 app-exit-resume = Resume session: cc-code -r { $id }
+
+# ---- Spinner / Widget ----
+
+spinner-thinking = Thinking…
+spinner-tool-use = Using tool…
+spinner-responding = Generating response…
+spinner-thinking-header = 💭 Thinking ({ $count } chars)
