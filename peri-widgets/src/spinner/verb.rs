@@ -128,9 +128,14 @@ pub const DEFAULT_VERBS: &[&str] = &[
 ];
 
 pub fn pick_verb(active_form: Option<&str>) -> String {
+    pick_verb_from(active_form, DEFAULT_VERBS)
+}
+
+/// 从指定动词列表随机选取，支持外部传入翻译后的动词列表。
+pub fn pick_verb_from(active_form: Option<&str>, verbs: &[&str]) -> String {
     active_form.map(|s| format!("{}…", s)).unwrap_or_else(|| {
         let mut rng = rand::rng();
-        DEFAULT_VERBS[rng.random_range(0..DEFAULT_VERBS.len())].to_string()
+        verbs[rng.random_range(0..verbs.len())].to_string()
     })
 }
 
