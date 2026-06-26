@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.19 — 2026-06-26
+
+### Bug Fixes
+
+- **Windows GBK 编码修复**：`shell_exec.rs`（TUI `!command`）和 `executor.rs`（hook）的 subprocess stdout/stderr 在 Windows 中文环境下正确解码 GBK→UTF-8，不再显示乱码
+- 共享 `decode_output_bytes()` 提取到 `peri-agent/encoding.rs`，消除重复代码
+- `shell_exec.rs` 中文 anyhow context 消息改为英文
+
+---
+
 ## v0.6.18 — 2026-06-26
 
 ### i18n
