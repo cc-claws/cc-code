@@ -54,5 +54,17 @@ pub fn save_input_history(history: &[String]) {
     if std::fs::write(&tmp_path, json).is_err() {
         return;
     }
+
+    // 文件含用户原始 prompt（可能粘贴 API key/令牌），限制为 owner-only。
+    // rename 会保留 tmp_path 的权限到最终路径，所以先 chmod 再 rename。
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            &tmp_path,
+            std::fs::Permissions::from_mode(0o600),
+        );
+    }
+
     let _ = std::fs::rename(&tmp_path, &path);
 }
