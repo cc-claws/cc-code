@@ -74,3 +74,22 @@ async fn test_bind_multiple_servers() {
     drop(s1);
     drop(s2);
 }
+
+#[tokio::test]
+async fn test_set_state_enables_callback_validation() {
+    let (mut server, _uri) = OAuthCallbackServer::bind().await.unwrap();
+    // 默认 state_param 为空，set_state 之前 parse_callback_url 因 expected_state
+    // 为空会跳过校验。注入真实 state 后，state 不匹配应被拒绝。
+    server.set_state("expected-csrf".to_string());
+    assert_eq!(server.state_param, "expected-csrf");
+
+    // 空 state 不应被注入（防止误把默认值覆盖成空）
+    server.set_state(String::new());
+    assert_eq!(server.state_param, "expected-csrf");
+
+    let mismatch = parse_callback_url("/callback?code=c&state=other", &server.state_param);
+    assert!(mismatch.is_err(), "state 不匹配应被拒绝");
+
+    let ok = parse_callback_url("/callback?code=c&state=expected-csrf", &server.state_param);
+    assert!(ok.is_ok(), "state 匹配应通过");
+}
