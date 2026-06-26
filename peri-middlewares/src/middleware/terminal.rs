@@ -353,6 +353,10 @@ impl BaseTool for BashTool {
         let _description = input["description"].as_str();
         let _run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
+        // Windows fallback 用原始命令（rewrite 前的），因为 bash 引号语义正常
+        #[cfg(windows)]
+        let original_command = command.to_string();
+
         // Windows: 重写 git commit -m 为 git commit -F，绕开 cmd.exe 引号问题
         #[cfg(windows)]
         let (command, temp_msg_files) = {
@@ -402,6 +406,19 @@ impl BaseTool for BashTool {
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                 let exit_code = out.status.code().unwrap_or(-1);
 
+                // Windows fallback：cmd 不识别命令（exit≠0 且 stderr 命中特征）时，
+                // 用 Git Bash 重试原始命令。可用则返回带 [Retried with Git Bash] 标记的输出。
+                #[cfg(windows)]
+                {
+                    if exit_code != 0 && crate::process::is_unrecognized_command_error(&stderr) {
+                        if let Some(bash) = crate::process::git_bash_path() {
+                            return self
+                                .invoke_with_git_bash(&bash, &original_command, timeout_ms)
+                                .await;
+                        }
+                    }
+                }
+
                 let mut output = String::new();
 
                 if !stdout.is_empty() {
@@ -423,6 +440,66 @@ impl BaseTool for BashTool {
                 }
 
                 // 截断过长输出，防止撑爆 LLM context window
+                Ok(truncate_output(&output))
+            }
+        }
+    }
+}
+
+impl BashTool {
+    /// Windows-only：用 Git Bash 重试原始命令，输出末尾追加 `[Retried with Git Bash]` 标记。
+    /// 复用 truncate_output，保持与首次执行一致的截断行为。
+    #[cfg(windows)]
+    async fn invoke_with_git_bash(
+        &self,
+        bash_exe: &std::path::Path,
+        command: &str,
+        timeout_ms: u64,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let result = timeout(Duration::from_millis(timeout_ms), {
+            let mut cmd = crate::process::git_bash_command(bash_exe, command, &[]);
+            cmd.current_dir(&self.cwd)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            cmd.output()
+        })
+        .await;
+
+        match result {
+            Err(_) => Err(format!(
+                "Error: Command timed out after {} seconds.\nCommand: {command}",
+                timeout_ms as f64 / 1000.0
+            )
+            .into()),
+            Ok(Err(e)) => Err(format!("Error executing command: {e}").into()),
+            Ok(Ok(out)) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let exit_code = out.status.code().unwrap_or(-1);
+
+                let mut output = String::new();
+                if !stdout.is_empty() {
+                    output.push_str(&stdout);
+                }
+                if !stderr.is_empty() {
+                    if !output.is_empty() {
+                        output.push('\n');
+                    }
+                    output.push_str("[stderr]\n");
+                    output.push_str(&stderr);
+                }
+                if exit_code != 0 {
+                    output.push_str(&format!("\n[Exit code: {exit_code}]"));
+                }
+                output.push_str("\n[Retried with Git Bash]");
+
+                if output == "\n[Retried with Git Bash]" {
+                    output = format!(
+                        "[Command completed with exit code {exit_code}]\n[Retried with Git Bash]"
+                    );
+                }
+
                 Ok(truncate_output(&output))
             }
         }
