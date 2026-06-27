@@ -1,4 +1,5 @@
 use super::*;
+use crate::tools::output_persist::truncate_bytes;
 use peri_agent::tools::BaseTool;
 use std::time::Instant;
 
