@@ -4,7 +4,8 @@
 //! On Windows, wraps commands in `cmd /C <command> <args...>`. When `cmd` fails
 //! with the classic "is not recognized as an internal or external command" error
 //! (e.g. the Agent tried to run `grep`/`ls`/`find`), callers can fall back to
-//! Git Bash via [`git_bash_path`] + [`git_bash_command`].
+//! Git Bash via [`git_bash_path`] + [`git_bash_command`]. Use
+//! [`should_fallback_to_bash`] for multi-language matching and fallback logic.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -54,13 +55,21 @@ pub fn git_bash_path() -> Option<PathBuf> {
 }
 
 fn detect_git_bash_path() -> Option<PathBuf> {
+    // 环境变量优先级最高：用户显式指定
+    if let Ok(env_path) = std::env::var("GIT_BASH_PATH") {
+        let p = PathBuf::from(&env_path);
+        if p.exists() && verify_bash_executable(&p) {
+            return Some(p);
+        }
+    }
+
     let candidates: &[&str] = &[
         r"C:\Program Files\Git\bin\bash.exe",
         r"C:\Program Files (x86)\Git\bin\bash.exe",
     ];
     for path in candidates {
         let p = Path::new(path);
-        if p.exists() {
+        if p.exists() && verify_bash_executable(p) {
             return Some(p.to_path_buf());
         }
     }
@@ -78,22 +87,53 @@ fn detect_git_bash_path() -> Option<PathBuf> {
         return None;
     }
     let p = Path::new(trimmed);
-    if p.exists() {
+    if p.exists() && verify_bash_executable(p) {
         Some(p.to_path_buf())
     } else {
         None
     }
 }
 
+/// 验证 bash 可执行文件是否能正常运行（`--version` 检查）。
+fn verify_bash_executable(path: &Path) -> bool {
+    std::process::Command::new(path)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// 判断 stderr 是否包含 Windows `cmd /C` 在命令找不到时输出的特征字符串。
 ///
-/// 典型形态（Windows GBK/UTF-8 控制台均会输出英文版）：
-/// ```text
-/// 'grep' is not recognized as an internal or external command,
-/// operable program or batch file.
-/// ```
+/// 支持多语言 Windows：
+/// - English: `is not recognized as an internal or external command`
+/// - 中文: `不是内部或外部命令`
+/// - 法语: `n'est pas reconnu`
+/// - 德语: `nicht als Befehl erkannt`
 pub fn is_unrecognized_command_error(stderr: &str) -> bool {
     stderr.contains("is not recognized as an internal or external command")
+        || stderr.contains("不是内部或外部命令")
+        || stderr.contains("n'est pas reconnu")
+        || stderr.contains("nicht als Befehl erkannt")
+}
+
+/// 综合判断是否应 fallback 到 Git Bash。
+///
+/// 两种触发条件（满足任一即可）：
+/// 1. stderr 匹配任一语言的"命令未识别"关键词
+/// 2. 兜底：exit_code ≠ 0 且 stdout 为空且 stderr 长度 < 200 bytes
+///    （排除真正的脚本错误——那些通常有较长的 stderr 输出）
+pub fn should_fallback_to_bash(exit_code: i32, stdout: &str, stderr: &str) -> bool {
+    if exit_code == 0 {
+        return false;
+    }
+    if is_unrecognized_command_error(stderr) {
+        return true;
+    }
+    // 兜底：短 stderr + 无 stdout → 大概率是命令找不到（未知语言 Windows）
+    stdout.is_empty() && !stderr.is_empty() && stderr.len() < 200
 }
 
 /// 用显式指定的 bash 可执行文件构造 `bash -c "<command> <args...>"`。
@@ -112,6 +152,8 @@ pub fn git_bash_command(bash_exe: &Path, command: &str, args: &[&str]) -> tokio:
     let shell_cmd = parts.join(" ");
     let mut cmd = tokio::process::Command::new(bash_exe);
     cmd.arg("-c").arg(&shell_cmd);
+    // 禁用 MSYS2/MinGW 的自动路径转换，防止 /pattern 等参数被转为 Windows 路径
+    cmd.env("MSYS_NO_PATHCONV", "1");
     cmd
 }
 
