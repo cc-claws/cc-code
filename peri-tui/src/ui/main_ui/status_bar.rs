@@ -268,26 +268,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         left_spans.push(Span::styled(hint, Style::default().fg(theme::DIM)));
     }
 
-    // 瞬时状态
-    // 复制成功提示
-    if let Some(until) = app.session_mgr.current().ui.copy_message_until {
-        if std::time::Instant::now() < until {
-            if has_content {
-                left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-            }
-            let count = app.session_mgr.current().ui.copy_char_count;
-            left_spans.push(Span::styled(
-                format!(
-                    " {}",
-                    lc.tr_args(
-                        "statusbar-copied",
-                        &[("count".into(), (count as i64).into()),]
-                    )
-                ),
-                Style::default().fg(theme::MUTED),
-            ));
-        }
-    }
+    // 瞬时状态（复制提示已移至消息区右下角浮动显示）
 
     // 后台任务指示器
     if !app.session_mgr.current().background_agents.is_empty() {
