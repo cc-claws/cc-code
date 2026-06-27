@@ -41,7 +41,25 @@ pub fn format_tool_args(
 ) -> Option<String> {
     match tool {
         "Bash" => input["command"].as_str().map(|s| truncate(s, 400)),
-        "Read" | "Write" | "Edit" => {
+        "Read" => {
+            let path = input["file_path"]
+                .as_str()
+                .or_else(|| input["path"].as_str());
+            path.map(|p| {
+                let mut display = strip_cwd(p, cwd);
+                let offset = input["offset"].as_u64().filter(|&v| v > 1);
+                let limit = input["limit"].as_u64();
+                if let Some(offset) = offset {
+                    if let Some(limit) = limit {
+                        display.push_str(&format!(":{}-{}", offset, offset + limit - 1));
+                    } else {
+                        display.push_str(&format!(":{}-", offset));
+                    }
+                }
+                display
+            })
+        }
+        "Write" | "Edit" => {
             let path = input["file_path"]
                 .as_str()
                 .or_else(|| input["path"].as_str());
