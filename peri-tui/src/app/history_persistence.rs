@@ -77,7 +77,10 @@ fn restrict_to_owner_unix(_path: &std::path::Path) {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // 注意：这里不放 `use super::*;`。
+    // Windows 下 restrict_to_owner_unix 是 #[cfg(not(unix))] 的空实现，
+    // 整个 mod tests 在 Windows 下没有任何使用 super::* 内容的代码，
+    // clippy -D unused-imports 会把 super::* 当作未使用 import 报错。
 
     #[cfg(unix)]
     #[test]
@@ -91,7 +94,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::write(&file, b"x").unwrap();
-        restrict_to_owner_unix(&file);
+        super::restrict_to_owner_unix(&file);
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(
@@ -114,7 +117,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir(&dir).unwrap();
-        restrict_to_owner_unix(&dir);
+        super::restrict_to_owner_unix(&dir);
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(
