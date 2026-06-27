@@ -66,7 +66,8 @@ impl HitlBatchPrompt {
         } else {
             10 // fallback：未渲染前用保守值
         };
-        // 钳位到 [vis/3, vis*2/3] 区间，让光标大致在中间区域
+        // 钳位到 [vis/3, vis-1] 区间：光标进入上方 1/3 时上滚，
+        // 接近底部（最后一行）时下滚。注释与代码对齐（cc-claws PR #76 review）。
         let lower = vis / 3;
         let upper = vis.saturating_sub(1);
         if cursor_row < self.scroll_offset.saturating_add(lower) {
