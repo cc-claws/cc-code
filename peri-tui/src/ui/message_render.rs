@@ -65,6 +65,99 @@ fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
 const SHELL_OUTPUT_COLLAPSED_LINES: usize = 6;
 const SHELL_OUTPUT_DETAIL_LINES: usize = 40;
 
+/// 将含多 span 的 Line 按视觉宽度折行，保留各 span 样式。
+///
+/// 算法：flatten → 贪心宽度折行（单词边界优先）→ reassemble。
+/// 用于 reasoning 渲染：每行宽度 ≤ max_width 时不会触发 Paragraph::wrap 二次折行，
+/// 避免续行丢失 4 列前缀缩进。CJK 无空格场景按字符硬断。
+fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
+    use unicode_width::UnicodeWidthChar;
+
+    if max_width == 0 || line.spans.is_empty() {
+        return vec![line];
+    }
+
+    // flatten：spans → Vec<(char, Style)>，消除 span 边界以便任意位置断行
+    let flat: Vec<(char, Style)> = line
+        .spans
+        .iter()
+        .flat_map(|s| s.content.chars().map(move |c| (c, s.style)))
+        .collect();
+
+    // 快速路径：总宽度不超过 max_width 时原样返回
+    let total_width: usize = flat.iter().map(|(c, _)| c.width().unwrap_or(0)).sum();
+    if total_width <= max_width {
+        return vec![line];
+    }
+
+    let mut result: Vec<Line<'static>> = Vec::new();
+    let mut pos = 0;
+    while pos < flat.len() {
+        // 贪心：从 pos 起尽可能多地装入字符
+        let mut cur_width = 0usize;
+        let mut content_end = pos;
+        for i in pos..flat.len() {
+            let cw = flat[i].0.width().unwrap_or(0);
+            if content_end > pos && cur_width + cw > max_width {
+                break;
+            }
+            cur_width += cw;
+            content_end = i + 1;
+        }
+
+        // 单词边界优先：从 content_end 往回找最后一个 whitespace
+        let mut break_at = content_end;
+        for i in (pos..content_end).rev() {
+            if flat[i].0.is_whitespace() {
+                break_at = i;
+                break;
+            }
+        }
+
+        // trim 行首行尾空白
+        let mut seg_start = pos;
+        while seg_start < break_at && flat[seg_start].0.is_whitespace() {
+            seg_start += 1;
+        }
+        let mut seg_end = break_at;
+        while seg_end > seg_start && flat[seg_end - 1].0.is_whitespace() {
+            seg_end -= 1;
+        }
+
+        // reassemble：相邻同 Style 字符合并为一个 Span
+        if seg_start < seg_end {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            let mut cur_text = String::new();
+            let mut cur_style = flat[seg_start].1;
+            for &(ch, st) in &flat[seg_start..seg_end] {
+                if st == cur_style {
+                    cur_text.push(ch);
+                } else {
+                    spans.push(Span::styled(std::mem::take(&mut cur_text), cur_style));
+                    cur_text = ch.to_string();
+                    cur_style = st;
+                }
+            }
+            if !cur_text.is_empty() {
+                spans.push(Span::styled(cur_text, cur_style));
+            }
+            result.push(Line::from(spans));
+        }
+
+        // 推进 pos，跳过断行点后的连续空白
+        pos = break_at;
+        while pos < flat.len() && flat[pos].0.is_whitespace() {
+            pos += 1;
+        }
+    }
+
+    if result.is_empty() {
+        vec![Line::default()]
+    } else {
+        result
+    }
+}
+
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
 /// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).
 fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
@@ -602,12 +695,24 @@ pub fn render_view_model(
                             let content_width = width.saturating_sub(4).max(20);
                             let parsed = super::markdown::parse_markdown(content_text, content_width);
                             let dimmed = dim_markdown_lines(parsed);
-                            for (i, mut line) in dimmed.into_iter().enumerate() {
-                                let prefix = if i == 0 { "  ⎿ " } else { "    " };
-                                let mut spans =
-                                    vec![Span::styled(prefix, Style::default().fg(theme::DIM))];
-                                spans.append(&mut line.spans);
-                                lines.push(Line::from(spans));
+                            for (i, line) in dimmed.into_iter().enumerate() {
+                                // 折行：长段落按 content_width 切成多行，每行加 4 列前缀
+                                // 后不会超过 width，避免 Paragraph::wrap 二次折行使续行
+                                // 缺少缩进
+                                for (j, wline) in
+                                    wrap_line_spans(line, content_width).into_iter().enumerate()
+                                {
+                                    let prefix = if i == 0 && j == 0 {
+                                        "  ⎿ "
+                                    } else {
+                                        "    "
+                                    };
+                                    let mut spans = vec![
+                                        Span::styled(prefix, Style::default().fg(theme::DIM)),
+                                    ];
+                                    spans.extend(wline.spans);
+                                    lines.push(Line::from(spans));
+                                }
                             }
                             lines.push(Line::from(""));
                         } else {

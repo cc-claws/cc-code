@@ -113,6 +113,12 @@ impl GitBranchCache {
             self.last_check = Some(std::time::Instant::now());
         }
 
+        self.get_cached()
+    }
+
+    /// 获取缓存的分支名，不触发子进程刷新。
+    /// loading 期间调用，避免 `git rev-parse` 子进程阻塞渲染线程导致抖动。
+    pub fn get_cached(&self) -> Option<&str> {
         self.branch.as_deref()
     }
 

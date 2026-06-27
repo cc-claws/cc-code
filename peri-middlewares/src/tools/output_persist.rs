@@ -21,6 +21,68 @@ pub fn persist_truncated_output(full_content: &str) -> String {
     }
 }
 
+/// 工具输出公共截断阈值：与 Bash 工具保持一致。
+pub const MAX_OUTPUT_CHARS: usize = 100_000;
+pub const MAX_OUTPUT_LINES: usize = 2_000;
+
+/// 字节级截断，钳位到字符边界，避免切割 UTF-8 多字节字符。
+pub fn truncate_bytes(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
+/// 通用工具输出截断：行数或字节数任一超阈触发 head/tail + 字节兜底。
+/// 任何工具（Grep/Glob/FolderOperations 等）在返回前都应调用此函数做兜底，
+/// 防止单条 tool_result 撑爆 LLM context window（issue #47）。
+pub fn truncate_tool_output(output: &str) -> String {
+    let lines: Vec<&str> = output.split('\n').collect();
+    if lines.len() > MAX_OUTPUT_LINES {
+        let total_lines = lines.len();
+        let persist_hint = persist_truncated_output(output);
+        let head_count = MAX_OUTPUT_LINES / 2;
+        let tail_count = MAX_OUTPUT_LINES - head_count;
+        let head: Vec<&str> = lines.iter().take(head_count).copied().collect();
+        let tail: Vec<&str> = lines
+            .iter()
+            .skip(total_lines - tail_count)
+            .copied()
+            .collect();
+        let mut result = head.join("\n");
+        result.push_str(&format!(
+            "\n\n... [{} lines truncated, showing head {} and tail {} of {} total lines] ...\n\n",
+            total_lines - MAX_OUTPUT_LINES,
+            head_count,
+            tail_count,
+            total_lines
+        ));
+        result.push_str(&tail.join("\n"));
+        result.push_str(&persist_hint);
+        if result.len() > MAX_OUTPUT_CHARS {
+            let truncated = truncate_bytes(&result, MAX_OUTPUT_CHARS);
+            return format!(
+                "{}\n\n[Output truncated: exceeds {} byte limit]{}",
+                truncated, MAX_OUTPUT_CHARS, persist_hint
+            );
+        }
+        return result;
+    }
+    if output.len() > MAX_OUTPUT_CHARS {
+        let persist_hint = persist_truncated_output(output);
+        let truncated = truncate_bytes(output, MAX_OUTPUT_CHARS);
+        return format!(
+            "{}\n\n[Output truncated: exceeds {} byte limit]{}",
+            truncated, MAX_OUTPUT_CHARS, persist_hint
+        );
+    }
+    output.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

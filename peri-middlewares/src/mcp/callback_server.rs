@@ -45,10 +45,12 @@ impl OAuthCallbackServer {
         ))
     }
 
-    /// 设置期望的 CSRF state 值（由 OAuthState 在 start_authorization 后生成）。
-    /// 非空时，wait_for_code 会严格校验回调 URL 中的 state 与之一致（#16）。
-    pub fn set_expected_state(&mut self, state: impl Into<String>) {
-        self.state_param = state.into();
+    /// 在 `wait_for_code` 之前注入 rmcp 生成的 csrf state，启用本地回调服务器的
+    /// state 校验作为 rmcp `state_store` 之外的纵深防御。
+    pub fn set_state(&mut self, state: String) {
+        if !state.is_empty() {
+            self.state_param = state;
+        }
     }
 
     pub async fn wait_for_code(mut self) -> Result<(String, String), CallbackError> {

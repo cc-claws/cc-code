@@ -15,6 +15,7 @@ use anyhow::Result;
 use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
@@ -22,6 +23,25 @@ use crate::app::{
     panel_manager::{EventResult, PanelKind},
     App, MessageScrollbarMetrics,
 };
+
+// ── Mouse event liveness tracking ────────────────────────────────────────────
+// Tracks the timestamp (millis since epoch) of the last mouse event processed
+// by `handle_event`. The main event loop reads this to detect prolonged mouse
+// silence and refresh ConPTY mouse tracking if needed.
+static LAST_MOUSE_EVENT_MS: AtomicU64 = AtomicU64::new(0);
+
+fn record_mouse_event() {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    LAST_MOUSE_EVENT_MS.store(ms, Ordering::Relaxed);
+}
+
+/// Returns millis since epoch of the last mouse event, or 0 if none recorded.
+pub fn last_mouse_event_ms() -> u64 {
+    LAST_MOUSE_EVENT_MS.load(Ordering::Relaxed)
+}
 
 // ── Action ──────────────────────────────────────────────────────────────────
 
@@ -233,6 +253,20 @@ fn point_in_rect(column: u16, row: u16, area: ratatui::layout::Rect) -> bool {
     column >= area.x && column < area.x + area.width && row >= area.y && row < area.y + area.height
 }
 
+/// 消息区滚动条命中横向容差：滚动条视觉仅 1 列（bar_area.width == 1），
+/// 宽屏终端下极难精确点中（280 列里只占 1 列），导致"有时能拖、有时不能"。
+/// 向左扩展若干列作为点击命中区——视觉仍是 1 列细线，仅放大可点击范围。
+/// 消息区文字为只读 Paragraph、无点击交互，让出几列不影响其他功能。
+const MESSAGE_SCROLLBAR_HIT_PAD: u16 = 6;
+
+fn point_in_hit_bar(column: u16, row: u16, bar_area: ratatui::layout::Rect) -> bool {
+    let hit_x_start = bar_area.x.saturating_sub(MESSAGE_SCROLLBAR_HIT_PAD);
+    column >= hit_x_start
+        && column <= bar_area.x
+        && row >= bar_area.y
+        && row < bar_area.y + bar_area.height
+}
+
 fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
     let Some(metrics) = app.session_mgr.current().ui.message_scrollbar_metrics else {
         return false;
@@ -252,7 +286,7 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
         }
     }
 
-    if point_in_rect(column, row, metrics.bar_area) && metrics.max_offset > 0 {
+    if point_in_hit_bar(column, row, metrics.bar_area) && metrics.max_offset > 0 {
         let new_offset = message_scrollbar_offset_for_row(metrics, row);
         set_message_scroll_offset(app, new_offset);
         app.session_mgr.current_mut().ui.message_scrollbar_dragging = true;
@@ -263,7 +297,8 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
 }
 
 fn handle_message_scrollbar_drag(app: &mut App, row: u16) -> bool {
-    if !app.session_mgr.current().ui.message_scrollbar_dragging {
+    let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
+    if !dragging {
         return false;
     }
 
@@ -377,7 +412,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 app.paste_text_into_textarea(&text);
             }
         }
-        Event::Mouse(mouse) => match mouse.kind {
+        Event::Mouse(mouse) => {
+            record_mouse_event();
+            match mouse.kind {
             // ── AskUser 弹窗鼠标交互（优先于面板/消息区） ────────────────────────
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 {
@@ -758,6 +795,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 // its own selection state
             }
             _ => {}
+        }
         },
     }
 
@@ -863,5 +901,103 @@ mod tests {
             message_scrollbar_offset_for_row(metrics, 21),
             usize::MAX - 10
         );
+    }
+
+    /// 运行时证据：用当前 ratatui（0.30）真实渲染 thumb，读出 thumb 实际占据的行，
+    /// 然后用我们的点击映射 `message_scrollbar_offset_for_row` 去「点」thumb 中点，
+    /// 再用算出的 offset 重新渲染 —— 断言 thumb 会跑离鼠标点击的行。
+    ///
+    /// 若该测试通过（漂移非空），即 100% 证明：当前代码下点击可见的滑块，offset 必然
+    /// 跳变、滑块必然从鼠标下跑走，与「点滑块抓不住 / 拖动乱跳」现象一致。
+    /// oracle 是 ratatui 自己的渲染结果，不依赖任何手工公式复刻。
+    #[test]
+    fn thumb_click_drift_runtime_proof() {
+        use peri_widgets::unified_vertical_scrollbar;
+        use ratatui::{
+            buffer::Buffer,
+            layout::{Position, Rect},
+            prelude::StatefulWidget,
+            widgets::ScrollbarState,
+        };
+
+        let h: u16 = 20;
+        // 复刻 message_area.rs 渲染滚动条时的 area（整个消息区内层，高 h）
+        let area = Rect::new(0, 0, 1, h);
+
+        // 多个内容长度 × 多个位置采样，统计「点击 thumb 中点后滑块漂移」的情况
+        let mut total_drifted = 0usize;
+        let mut total_sampled = 0usize;
+        let mut global_max_drift = 0i32;
+        eprintln!("=== thumb 点击漂移运行时证据（H={h}，oracle = ratatui 真实渲染）===");
+        eprintln!("  max_scroll | 漂移采样/总数 | 最大漂移(行)");
+        for &max_scroll in &[50usize, 100, 200, 500, 1000, 2000] {
+            let mut drifted_in_case = 0usize;
+            let mut sampled = 0usize;
+            let mut case_max_drift = 0i32;
+            for &pct in &[10usize, 30, 50, 70, 90] {
+                let orig_offset = max_scroll * pct / 100;
+                sampled += 1;
+
+                // 1. ratatui 真实渲染 thumb
+                let mut buf = Buffer::empty(area);
+                let mut state = ScrollbarState::new(max_scroll).position(orig_offset);
+                unified_vertical_scrollbar().render(area, &mut buf, &mut state);
+
+                // 2. 读出 thumb 实际占据的行（thumb symbol = block::FULL = "█"）
+                let thumb_rows: Vec<u16> = (0..h)
+                    .filter(|&r| {
+                        buf.cell(Position::new(0, r))
+                            .is_some_and(|c| c.symbol() == "█")
+                    })
+                    .collect();
+                assert!(
+                    !thumb_rows.is_empty(),
+                    "max_scroll={max_scroll} offset={orig_offset} 未渲染出 thumb，测试前提不成立"
+                );
+                let thumb_mid = thumb_rows[thumb_rows.len() / 2];
+
+                // 3. 用我们的点击映射算「点 thumb 中点」得到的 offset
+                let metrics = MessageScrollbarMetrics {
+                    bar_area: Rect::new(0, 0, 1, h),
+                    max_offset: max_scroll,
+                    up_btn_area: None,
+                    down_btn_area: None,
+                };
+                let clicked_offset = message_scrollbar_offset_for_row(metrics, thumb_mid);
+
+                // 4. 用 clicked_offset 重新渲染，看 thumb 跑到哪
+                let mut buf2 = Buffer::empty(area);
+                let mut state2 = ScrollbarState::new(max_scroll).position(clicked_offset);
+                unified_vertical_scrollbar().render(area, &mut buf2, &mut state2);
+                let new_thumb_rows: Vec<u16> = (0..h)
+                    .filter(|&r| {
+                        buf2.cell(Position::new(0, r))
+                            .is_some_and(|c| c.symbol() == "█")
+                    })
+                    .collect();
+                let new_mid = new_thumb_rows[new_thumb_rows.len() / 2];
+
+                let drift = (thumb_mid as i32 - new_mid as i32).abs();
+                if drift > 0 {
+                    drifted_in_case += 1;
+                    case_max_drift = case_max_drift.max(drift);
+                }
+            }
+            total_drifted += drifted_in_case;
+            total_sampled += sampled;
+            global_max_drift = global_max_drift.max(case_max_drift);
+            eprintln!(
+                "  {max_scroll:>10} |   {drifted_in_case}/{sampled}      |   {case_max_drift}"
+            );
+        }
+
+        assert!(
+            total_drifted > 0,
+            "所有 {total_sampled} 个采样点点击 thumb 都未漂移 —— bug 不成立"
+        );
+        eprintln!(
+            "\n  合计：{total_drifted}/{total_sampled} 个采样点点击 thumb 后滑块跑离鼠标，最大漂移 {global_max_drift} 行"
+        );
+        eprintln!("  结论：点击可见滑块时 offset 间歇性跳变 —— 即「点滑块抓不住 / 拖动乱跳」必然发生。");
     }
 }
