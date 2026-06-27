@@ -37,12 +37,12 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
             match result {
                 EventResult::ClosePanel => {
                     sp.close();
-                    app.session_mgr.current_mut().ui.panel_selection.clear();
+                    app.session_mgr.current_mut().ui.screen_selection.clear();
                     app.session_mgr.current_mut().ui.panel_area = None;
                 }
                 EventResult::OpenThread(thread_id) => {
                     sp.close();
-                    app.session_mgr.current_mut().ui.panel_selection.clear();
+                    app.session_mgr.current_mut().ui.screen_selection.clear();
                     app.session_mgr.current_mut().ui.panel_area = None;
                     // with_session_panels! macro puts sp back at closure end,
                     // but OpenThread needs to put back first then call open_thread_with_feedback
@@ -79,7 +79,7 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
             match result {
                 EventResult::ClosePanel => {
                     pm.close();
-                    app.session_mgr.current_mut().ui.panel_selection.clear();
+                    app.session_mgr.current_mut().ui.screen_selection.clear();
                     app.session_mgr.current_mut().ui.panel_area = None;
                 }
                 EventResult::OpenPanel(PanelKind::Memory) => {
