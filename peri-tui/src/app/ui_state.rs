@@ -32,6 +32,8 @@ pub struct UiState {
     pub history_index: Option<usize>,
     pub draft_input: Option<String>,
     pub text_selection: TextSelection,
+    /// 最近一次鼠标左键单击的 (时间, 行, 列)，用于双击选行检测
+    pub last_left_click: Option<(std::time::Instant, u16, u16)>,
     /// 全局屏幕选区（面板/状态栏/sticky header/bg agent bar/空白区域，绝对屏幕坐标）
     pub screen_selection: ScreenSelection,
     /// terminal.draw() 后的 Buffer 文本快照，供 MouseUp 提取 screen 选区文本
@@ -96,6 +98,7 @@ impl UiState {
             history_index: None,
             draft_input: None,
             text_selection: TextSelection::new(),
+            last_left_click: None,
             screen_selection: ScreenSelection::default(),
             screen_snapshot: None,
             pending_screen_start: None,
