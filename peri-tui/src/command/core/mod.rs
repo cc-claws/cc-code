@@ -2,6 +2,7 @@ pub mod clear;
 pub mod config;
 pub mod doctor;
 pub mod exit;
+pub mod export_cmd;
 pub mod gc;
 pub mod help;
 pub mod history;
