@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code — 多 Agent 终端效果图</title>
+<style>
+  :root {
+    --bg: #1a1a1e;
+    --bg-s: #232328;
+    --bg-s2: #2a2a30;
+    --bg-s3: #333338;
+    --text: #e8e8e8;
+    --dim: #666;
+    --muted: #999;
+    --orange: #D77757;
+    --blue: #5769F7;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --cyan: #22d3ee;
+    --magenta: #d946ef;
+    --border: #3a3a40;
+    --inv-bg: #e8e8e8;
+    --inv-text: #1a1a1e;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'SF Mono','Cascadia Code','Fira Code','JetBrains Mono',monospace;
+    background: var(--bg); color: var(--text);
+    line-height: 1.5; padding: 40px 20px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 24px; color: var(--orange); margin-bottom: 6px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 40px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+  .screen {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; margin-bottom: 32px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  .scr-h {
+    background: var(--bg-s2); padding: 8px 14px;
+    display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; } .dot.y { background: #febc2e; } .dot.g { background: #28c840; }
+  .scr-t { color: var(--dim); margin-left: 6px; font-size: 11px; }
+  .scr-b { padding: 14px 18px; font-size: 13px; line-height: 1.6; }
+
+  .sec { font-size: 15px; color: var(--blue); font-weight: 600; margin: 36px 0 8px; }
+  .note { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+
+  .d { color: var(--dim); } .m { color: var(--muted); }
+  .o { color: var(--orange); } .b { color: var(--blue); }
+  .g { color: var(--green); } .r { color: var(--red); }
+  .y { color: var(--yellow); } .c { color: var(--cyan); }
+  .mg { color: var(--magenta); } .B { font-weight: 600; }
+  .inv { background: var(--inv-bg); color: var(--inv-text); padding: 0 4px; font-weight: 600; }
+  kbd {
+    background: var(--bg-s3); border: 1px solid var(--border);
+    border-radius: 3px; padding: 0 5px; font-size: 11px;
+    font-family: inherit; color: var(--text);
+  }
+  .sep { border-top: 1px solid var(--border); margin: 0; }
+  .ann {
+    background: var(--bg-s2); border-left: 3px solid var(--orange);
+    padding: 10px 14px; margin: 10px 0 28px;
+    border-radius: 0 6px 6px 0; font-size: 12px; color: var(--muted);
+  }
+  .ann strong { color: var(--orange); }
+
+  .badge-pill {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 11px; font-weight: 600; margin: 0 2px;
+  }
+  .bp-cyan { background: rgba(34,211,238,0.15); color: var(--cyan); }
+  .bp-magenta { background: rgba(217,70,239,0.15); color: var(--magenta); }
+  .bp-green { background: rgba(74,222,128,0.15); color: var(--green); }
+  .bp-yellow { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .bp-blue { background: rgba(87,105,247,0.15); color: var(--blue); }
+  .bp-orange { background: rgba(215,119,87,0.15); color: var(--orange); }
+
+  .cursor {
+    display: inline-block; width: 8px; height: 14px;
+    background: var(--text); animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  table.dt { width:100%; border-collapse:collapse; font-size:12px; margin:12px 0; }
+  table.dt th { text-align:left; padding:8px 12px; background:var(--bg-s2); color:var(--muted); font-weight:600; border-bottom:1px solid var(--border); }
+  table.dt td { padding:8px 12px; border-bottom:1px solid var(--bg-s2); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Claude Code — 多 Agent 终端效果</h1>
+<p class="sub">基于源码分析的 UI 还原 · React/Ink 终端渲染 · 全场景覆盖</p>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 1. 单 Agent 运行中 -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 1：单 Agent 运行中</div>
+<div class="note">Agent 工具调用时，对话区内联显示进度</div>
+
+<div class="screen">
+  <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">claude — ~/my-project</span></div>
+  <div class="scr-b">
+    <div><span class="o B">claude</span><span class="d">&gt;</span> Analyze the auth module and suggest improvements</div>
+    <br>
+    <div><span class="o B">●</span> <span class="B">Agent</span></div>
+    <div style="padding-left:18px">
+      <span class="d">⎿</span> <span class="m">Agent · 5 tool uses · 12.4k tokens</span>
+    </div>
+    <div style="padding-left:36px; margin-top:4px">
+      <span class="d">⎿</span> <span class="m">3 searches, 2 reads (active…)</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 2. 多 Agent 并行（前台） -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 2：多 Agent 并行运行（前台）</div>
+<div class="note">agent 同时 spawn 多个 SubAgent，树形展示</div>
+
+<div class="screen">
+  <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">claude — ~/my-project</span></div>
+  <div class="scr-b">
+    <div><span class="o B">claude</span><span class="d">&gt;</span> Refactor auth, add tests, and update docs</div>
+    <br>
+    <div><span class="o B">●</span> <span class="B">Agent</span></div>
+    <div style="padding-left:18px">
+      <span class="d">⎿</span> <span class="B">Running 3 agents…</span>
+    </div>
+    <div style="padding-left:36px; margin-top:6px; line-height:1.8">
+      <div><span class="d">├─</span> <span class="badge-pill bp-cyan">explore</span> <span class="m">· 2 tool uses · 5.1k tokens</span></div>
+      <div style="padding-left:18px"><span class="d">⎿</span> <span class="m">Searching for auth patterns…</span></div>
+      <div style="margin-top:4px"><span class="d">├─</span> <span class="badge-pill bp-magenta">test</span> <span class="m">· 1 tool use · 2.3k tokens</span></div>
+      <div style="padding-left:18px"><span class="d">⎿</span> <span class="m">Reading config.ts</span></div>
+      <div style="margin-top:4px"><span class="d">└─</span> <span class="badge-pill bp-green">docs</span> <span class="m">· 0 tool uses · Initializing…</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="ann">
+  <strong>颜色编码：</strong>每个 <code>subagent_type</code> 通过 <code>getAgentColor()</code> 分配持久颜色。类型名渲染为彩色 pill（<code>backgroundColor={color} color="inverseText"</code>）。树字符 <code>├─</code> / <code>└─</code> 标识层级。
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 3. 多 Agent 完成 -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 3：多 Agent 全部完成</div>
+
+<div class="grid-2">
+  <div class="screen">
+    <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">前台完成</span></div>
+    <div class="scr-b">
+      <div style="padding-left:18px">
+        <span class="d">⎿</span> <span class="B">3 agents finished</span>
+      </div>
+      <div style="padding-left:36px; margin-top:6px; line-height:1.8">
+        <div><span class="d">├─</span> <span class="badge-pill bp-cyan">explore</span> <span class="g B">Done</span></div>
+        <div><span class="d">├─</span> <span class="badge-pill bp-magenta">test</span> <span class="g B">Done</span></div>
+        <div><span class="d">└─</span> <span class="badge-pill bp-green">docs</span> <span class="g B">Done</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">后台完成</span></div>
+    <div class="scr-b">
+      <div style="padding-left:18px">
+        <span class="d">⎿</span> <span class="m">3 background agents launched</span> <span class="d">(↓ to manage)</span>
+      </div>
+      <div style="margin-top:12px">
+        <div><span class="o B">claude</span><span class="d">&gt;</span> <span class="cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 4. Team Mode — 底部 Pill Bar -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 4：Team Mode — 底部 Agent Pill Bar</div>
+<div class="note">所有后台任务都是 in_process_teammate 时，footer 切换为水平 pill 栏</div>
+
+<div class="screen">
+  <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">claude — ~/my-project</span></div>
+  <div class="scr-b">
+    <div style="opacity:0.3"><span class="d">· · ·</span></div>
+    <br>
+    <div><span class="o B">claude</span><span class="d">&gt;</span> <span class="cursor"></span></div>
+    <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:10px">
+      <span class="badge-pill bp-orange" style="font-weight:700">@main</span>
+      <span class="badge-pill bp-cyan">@alice</span>
+      <span class="badge-pill bp-magenta">@bob</span>
+      <span class="badge-pill bp-green" style="opacity:0.5">@charlie</span>
+      <span class="d" style="margin-left:8px; font-size:11px">· shift+↓ to expand</span>
+    </div>
+    <div style="margin-top:4px; font-size:11px; color:var(--dim)">↑↓ navigate · enter view · f foreground · x stop</div>
+  </div>
+</div>
+
+<div class="ann">
+  <strong>Pill Bar 行为：</strong><code>@main</code> 始终排第一。活跃 agent 排前面，idle 排后面。选中 pill 用 inverse 高亮，当前查看的 agent 加粗，idle agent 半透明。超出终端宽度时水平滚动，显示 <code>← →</code> 箭头。点击 pill 切换查看。
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 5. Team Mode — 展开树 -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 5：Team Mode — 展开树视图（Ctrl+T 切换）</div>
+<div class="note">按 Ctrl+T 循环到 "show teammates" 模式，对话区上方显示实时树</div>
+
+<div class="screen">
+  <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">claude — ~/my-project</span></div>
+  <div class="scr-b">
+    <div style="line-height:1.9; margin-bottom:12px">
+      <div><span class="c B">✻</span> <span class="c B">team-lead</span><span class="d">:</span> <span class="m">Researching API patterns…</span> <span class="d">· 5.2k tokens</span></div>
+      <div><span class="d">├─</span> <span class="badge-pill bp-cyan">@alice</span><span class="d">:</span> <span class="m">Editing auth.ts…</span> <span class="d">· 3 tool uses · 2.1k tokens</span></div>
+      <div style="padding-left:18px; font-size:12px; color:var(--dim)">
+        <div>│  <span class="m">Using FileEditTool…</span></div>
+        <div>│  <span class="m">Updated authentication middleware</span></div>
+        <div>│  <span class="m">to support OAuth2 refresh tokens</span></div>
+      </div>
+      <div><span class="d">├─</span> <span class="badge-pill bp-magenta">@bob</span><span class="d">:</span> <span class="y">Idle for 5s</span> <span class="d">· 1 tool use · 800 tokens</span></div>
+      <div><span class="d">└─</span> <span class="badge-pill bp-green">@charlie</span><span class="d">:</span> <span class="m">Searching for tests…</span> <span class="d">· 2 tool uses · 1.5k tokens</span></div>
+    </div>
+    <div class="sep"></div>
+    <div><span class="o B">claude</span><span class="d">&gt;</span> <span class="cursor"></span></div>
+  </div>
+</div>
+
+<div class="ann">
+  <strong>树节点状态：</strong>Active 显示活动描述 + <code>…</code>；Idle 显示 <code>Idle for Ns</code>（黄色）；All-idle 显示 <code>Worked for Ns</code>（过去式）；Stopping 显示 <code>[stopping]</code>；Awaiting approval 显示 <code>[awaiting approval]</code>（警告色）。选中节点用 <code>╞═</code> / <code>╘═</code> 特殊树字符 + <code>›</code> 指针。
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 6. 查看 Teammate 全文 -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 6：查看 Teammate 全文（Enter / f 键）</div>
+
+<div class="screen">
+  <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">Viewing @alice</span></div>
+  <div class="scr-b">
+    <div style="border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:12px">
+      <span class="d">Viewing</span> <span class="c B">@alice</span> <span class="d">· esc to return</span>
+      <div style="margin-top:2px; font-size:12px; color:var(--dim)">Implement the OAuth2 callback handler for the login flow</div>
+    </div>
+    <div><span class="c B">@alice</span><span class="d">&gt;</span> I'll start by reading the current auth module</div>
+    <br>
+    <div><span class="o B">●</span> <span class="B">Read</span> <span class="d">src/auth/oauth.ts</span></div>
+    <div style="padding-left:18px"><span class="d">⎿</span> <span class="m">Found OAuth2 config with client_id, redirect_uri</span></div>
+    <br>
+    <div><span class="o B">●</span> <span class="B">Edit</span> <span class="d">src/auth/callback.ts</span></div>
+    <div style="padding-left:18px"><span class="d">⎿</span> <span class="g">Updated 15 lines</span></div>
+    <br>
+    <div><span class="c B">@alice</span><span class="d">&gt;</span> I've added the OAuth2 callback handler with PKCE support… <span class="cursor"></span></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 7. BackgroundTasksDialog -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 7：BackgroundTasksDialog（按 ↓ 打开）</div>
+
+<div class="screen">
+  <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">Background tasks</span></div>
+  <div class="scr-b" style="padding:0">
+    <div style="padding:14px 18px">
+      <div class="B" style="font-size:14px">Background tasks</div>
+      <div class="d" style="font-size:11px; margin-top:2px; margin-bottom:14px">3 agents · 1 active shell</div>
+
+      <div class="d B" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px">Agents</div>
+      <div class="d B" style="font-size:11px; margin:6px 0 4px">Team: my-team (4)</div>
+      <div style="padding-left:12px; line-height:1.7">
+        <div><span class="badge-pill bp-orange">@team-lead</span></div>
+        <div><span class="badge-pill bp-cyan">@alice</span> <span class="m">OAuth implementation</span> <span class="b" style="font-size:11px">▶ 45s</span></div>
+        <div><span class="badge-pill bp-magenta">@bob</span> <span class="m">Test suite update</span> <span class="b" style="font-size:11px">▶ 1m23s</span></div>
+        <div><span class="badge-pill bp-green">@charlie</span> <span class="m">Documentation</span> <span class="g" style="font-size:11px">✓ done</span></div>
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="d B" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px">Shells (1)</div>
+      <div style="padding-left:12px">
+        <div><span class="b B">▸</span> <span class="b">npm test</span> <span class="d">(running)</span> <span class="d" style="font-size:11px">· 2m 15s</span></div>
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="d B" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px">Remote agents (1)</div>
+      <div style="padding-left:12px">
+        <div><span class="d">◇ ultraplan</span> <span class="d">·</span> <span class="b">running</span></div>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div style="padding:6px 18px; display:flex; gap:16px; font-size:11px">
+      <span><kbd>↑</kbd><kbd>↓</kbd> <span class="d">select</span></span>
+      <span><kbd>Enter</kbd> <span class="d">view</span></span>
+      <span><kbd>f</kbd> <span class="d">foreground</span></span>
+      <span><kbd>x</kbd> <span class="d">stop</span></span>
+      <span><kbd>Ctrl+X</kbd><kbd>Ctrl+K</kbd> <span class="d">stop all</span></span>
+      <span><kbd>←</kbd> <span class="d">close</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 8. Agent 完成后的对话效果 -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">场景 8：Agent 完成后的对话效果</div>
+
+<div class="screen">
+  <div class="scr-h"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><span class="scr-t">claude — ~/my-project</span></div>
+  <div class="scr-b">
+    <div><span class="o B">claude</span><span class="d">&gt;</span> Implement OAuth2 and write tests</div>
+    <br>
+    <div style="padding-left:18px; line-height:1.8">
+      <div><span class="d">⎿</span> <span class="B">3 agents finished</span></div>
+      <div style="padding-left:18px">
+        <div><span class="d">├─</span> <span class="badge-pill bp-cyan">explore</span> <span class="g B">Done</span> <span class="d">(7 tool uses · 18.2k tokens · 45s)</span> <span class="d">(ctrl+o to expand)</span></div>
+        <div><span class="d">├─</span> <span class="badge-pill bp-magenta">test</span> <span class="g B">Done</span> <span class="d">(4 tool uses · 8.1k tokens · 32s)</span> <span class="d">(ctrl+o to expand)</span></div>
+        <div><span class="d">└─</span> <span class="badge-pill bp-green">docs</span> <span class="g B">Done</span> <span class="d">(2 tool uses · 3.4k tokens · 18s)</span> <span class="d">(ctrl+o to expand)</span></div>
+      </div>
+    </div>
+    <br>
+    <div><span class="o B">●</span> <span class="B">Assistant</span></div>
+    <div style="padding-left:18px; margin-top:4px">
+      I've completed all three tasks:
+    </div>
+    <div style="padding-left:18px; margin-top:6px; font-size:12px">
+      <div>1. <span class="B">Auth module</span> — Added OAuth2 callback with PKCE support</div>
+      <div>2. <span class="B">Tests</span> — Created 12 test cases covering auth flows</div>
+      <div>3. <span class="B">Docs</span> — Updated API documentation with new endpoints</div>
+    </div>
+    <div style="padding-left:18px; margin-top:8px">
+      All changes are in the working directory. Want me to commit them?
+      <span class="cursor"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 快捷键速查 -->
+<!-- ═══════════════════════════════════════ -->
+<div class="sec">多 Agent 快捷键速查</div>
+
+<table class="dt">
+  <thead><tr><th>快捷键</th><th>上下文</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><kbd>Ctrl+T</kbd></td><td>主界面</td><td>循环切换显示模式（normal → show teammates → ...）</td></tr>
+    <tr><td><kbd>Shift+↓</kbd></td><td>主界面（team mode）</td><td>展开 teammate 选择模式</td></tr>
+    <tr><td><kbd>↑</kbd>/<kbd>↓</kbd></td><td>teammate 选择模式</td><td>选择 teammate</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>teammate 选中</td><td>查看该 teammate 全文</td></tr>
+    <tr><td><kbd>f</kbd></td><td>BackgroundTasksDialog</td><td>前台化选中的 teammate</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>查看 teammate</td><td>返回 leader 视图</td></tr>
+    <tr><td><kbd>Ctrl+O</kbd></td><td>主界面</td><td>切换 detail mode（展开/折叠 agent 对话）</td></tr>
+    <tr><td><kbd>↓</kbd></td><td>主界面</td><td>打开 BackgroundTasksDialog</td></tr>
+    <tr><td><kbd>x</kbd></td><td>BackgroundTasksDialog</td><td>stop 选中 agent</td></tr>
+    <tr><td><kbd>Ctrl+X</kbd><kbd>Ctrl+K</kbd></td><td>BackgroundTasksDialog</td><td>stop 所有 agent</td></tr>
+  </tbody>
+</table>
+
+</div>
+</body>
+</html>
