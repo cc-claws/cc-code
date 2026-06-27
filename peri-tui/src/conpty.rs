@@ -51,6 +51,42 @@ pub fn enable_mouse_tracking() -> Result<()> {
     Ok(())
 }
 
+/// Refresh mouse tracking under ConPTY. Re-sends ANSI sequences + toggles the
+/// MOUSE bit to force ConPTY to re-notify Windows Terminal.
+///
+/// ConPTY can silently drop mouse tracking (the `?1000h` mode) during certain
+/// terminal operations (focus changes, resize, alternate screen transitions).
+/// This function is safe to call periodically — all sequences are idempotent.
+///
+/// Must be called from the main event loop when the app detects a prolonged
+/// absence of mouse events while the terminal is still rendering normally.
+pub fn refresh_mouse_tracking() -> Result<()> {
+    #[cfg(windows)]
+    {
+        // Re-toggle MOUSE bit to force ConPTY WriteSGR1006 notification.
+        force_conpty_mouse_notify();
+        // Re-send ANSI mouse tracking sequences (idempotent).
+        let _ = enable_vt_processing();
+        write_console_sequence(ENABLE_MOUSE_TRACKING_SEQUENCE)?;
+        write_console_sequence(ENABLE_ALTERNATE_SCROLL_SEQUENCE)?;
+    }
+    Ok(())
+}
+
+/// 轻量版鼠标追踪刷新：仅重发 ANSI 序列，不 toggle SetConsoleMode。
+///
+/// loading 期间使用：`force_conpty_mouse_notify()` 的 SetConsoleMode toggle
+/// 会干扰 ratatui 渲染管线导致终端抖动，但 ANSI 序列写入是安全的。
+pub fn refresh_mouse_tracking_sequences_only() -> Result<()> {
+    #[cfg(windows)]
+    {
+        let _ = enable_vt_processing();
+        write_console_sequence(ENABLE_MOUSE_TRACKING_SEQUENCE)?;
+        write_console_sequence(ENABLE_ALTERNATE_SCROLL_SEQUENCE)?;
+    }
+    Ok(())
+}
+
 /// Disable mouse tracking under ConPTY. Must be called *before*
 /// `DisableMouseCapture` on Windows. No-op elsewhere.
 pub fn disable_mouse_tracking() -> Result<()> {
