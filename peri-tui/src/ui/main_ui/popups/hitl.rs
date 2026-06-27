@@ -11,102 +11,94 @@ use peri_widgets::BorderedPanel;
 use crate::{app::App, ui::theme};
 
 /// HITL 批量确认弹窗（底部展开区）
-pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
-    let Some(crate::app::InteractionPrompt::Approval(prompt)) =
-        &app.session_mgr.current().agent.interaction_prompt
-    else {
-        return;
-    };
+pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
+    // 先借不可变引用读完渲染需要的纯数据，drop 借用后再写入 last_visible_height
+    let (scroll_offset, lines, inner, inner_height) = {
+        let Some(crate::app::InteractionPrompt::Approval(prompt)) =
+            &app.session_mgr.current().agent.interaction_prompt
+        else {
+            return;
+        };
+        let lc = &app.services.lc;
+        let item_count = prompt.items.len();
+        let popup_area = area;
 
-    let lc = &app.services.lc;
-    let item_count = prompt.items.len();
-    let popup_area = area;
-
-    let title = if item_count == 1 {
-        lc.tr("hitl-single-title")
-    } else {
-        lc.tr("hitl-batch-title")
-    };
-
-    let inner = BorderedPanel::new(Span::styled(
-        title,
-        Style::default()
-            .fg(theme::THINKING)
-            .add_modifier(Modifier::BOLD),
-    ))
-    .border_style(Style::default().fg(theme::WARNING))
-    .render(f, popup_area);
-    let max_width = inner.width as usize;
-
-    // 渲染每个工具调用项
-    let mut lines: Vec<Line> = Vec::new();
-
-    for (i, (item, &approved)) in prompt.items.iter().zip(prompt.approved.iter()).enumerate() {
-        let is_cursor = i == prompt.cursor;
-
-        // 状态图标和颜色
-        let (status_icon, status_color) = if approved {
-            ("✓", theme::SAGE)
+        let title = if item_count == 1 {
+            lc.tr("hitl-single-title")
         } else {
-            ("✗", theme::ERROR)
+            lc.tr("hitl-batch-title")
         };
 
-        // 光标高亮
-        let cursor_indicator = if is_cursor { "❯ " } else { "  " };
-        let _row_style = Style::default();
+        let inner = BorderedPanel::new(Span::styled(
+            title,
+            Style::default()
+                .fg(theme::THINKING)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .border_style(Style::default().fg(theme::WARNING))
+        .render(f, popup_area);
+        let inner_height = inner.height;
+        let max_width = inner.width as usize;
 
-        // 工具名行
-        lines.push(Line::styled(
-            format!(
-                "{}{} {}  {}",
-                cursor_indicator,
-                status_icon,
-                item.tool_name,
-                if approved {
-                    lc.tr("hitl-approved")
-                } else {
-                    lc.tr("hitl-rejected")
-                }
-            ),
-            if is_cursor {
-                Style::default()
-                    .fg(theme::THINKING)
-                    .add_modifier(Modifier::BOLD)
+        let mut lines: Vec<Line> = Vec::new();
+        for (i, (item, &approved)) in prompt.items.iter().zip(prompt.approved.iter()).enumerate() {
+            let is_cursor = i == prompt.cursor;
+            let (status_icon, status_color) = if approved {
+                ("✓", theme::SAGE)
             } else {
-                Style::default().fg(status_color)
-            },
-        ));
+                ("✗", theme::ERROR)
+            };
+            let cursor_indicator = if is_cursor { "❯ " } else { "  " };
+            let approved_label = if approved {
+                lc.tr("hitl-approved")
+            } else {
+                lc.tr("hitl-rejected")
+            };
+            lines.push(Line::styled(
+                format!(
+                    "{}{} {}  {}",
+                    cursor_indicator, status_icon, item.tool_name, approved_label
+                ),
+                if is_cursor {
+                    Style::default()
+                        .fg(theme::THINKING)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(status_color)
+                },
+            ));
+            let input_preview = format_input_preview(&item.input, max_width.saturating_sub(6));
+            lines.push(Line::from(vec![
+                Span::raw("     "),
+                Span::styled(input_preview, Style::default().fg(theme::MUTED)),
+            ]));
+        }
+        if item_count > 1 {
+            let approved_count = prompt.approved.iter().filter(|&&v| v).count() as i64;
+            let rejected_count = prompt.approved.iter().filter(|&&v| !v).count() as i64;
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                lc.tr_args(
+                    "hitl-summary",
+                    &[
+                        ("approved".into(), approved_count.into()),
+                        ("rejected".into(), rejected_count.into()),
+                    ],
+                ),
+                Style::default().fg(theme::MUTED),
+            )));
+        }
+        (prompt.scroll_offset, lines, inner, inner_height)
+    };
 
-        // 参数预览行
-        let input_preview = format_input_preview(&item.input, max_width.saturating_sub(6));
-        lines.push(Line::from(vec![
-            Span::raw("     "),
-            Span::styled(input_preview, Style::default().fg(theme::MUTED)),
-        ]));
+    // 写入 last_visible_height 供 hitl_move 使用
+    if let Some(crate::app::InteractionPrompt::Approval(p)) =
+        &mut app.session_mgr.current_mut().agent.interaction_prompt
+    {
+        p.last_visible_height = inner_height;
     }
 
-    // 底部：多项时显示统计摘要（快捷键由状态栏统一负责）
-    if item_count > 1 {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            lc.tr_args(
-                "hitl-summary",
-                &[
-                    (
-                        "approved".into(),
-                        (prompt.approved.iter().filter(|&&v| v).count() as i64).into(),
-                    ),
-                    (
-                        "rejected".into(),
-                        (prompt.approved.iter().filter(|&&v| !v).count() as i64).into(),
-                    ),
-                ],
-            ),
-            Style::default().fg(theme::MUTED),
-        )));
-    }
-
-    let para = Paragraph::new(Text::from(lines));
+    let para = Paragraph::new(Text::from(lines)).scroll((scroll_offset, 0));
     f.render_widget(para, inner);
 }
 
