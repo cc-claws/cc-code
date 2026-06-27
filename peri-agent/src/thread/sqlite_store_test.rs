@@ -366,7 +366,7 @@
         assert_eq!(ctx[3].content(), "L3-a");
     }
 
-    /// 安全：threads.db 文件权限应为 0o600，父目录 0o700，
+    /// #20：threads.db 创建后文件权限应为 0o600，父目录 0o700，
     /// 防止同机其它账户读取对话历史。
     #[cfg(unix)]
     #[tokio::test]
