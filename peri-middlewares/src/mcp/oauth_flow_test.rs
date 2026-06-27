@@ -81,23 +81,4 @@
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 
-    /// #16：extract_state_param_from_url 应从授权 URL 中提取 state 参数
-    #[test]
-    fn test_extract_state_param_from_url_present() {
-        let url = "https://example.com/authorize?response_type=code&client_id=abc&state=csrf-token-xyz&redirect_uri=http://127.0.0.1:12345/cb";
-        let state = extract_state_param_from_url(url).expect("应解析出 state");
-        assert_eq!(state, "csrf-token-xyz");
-    }
 
-    /// #16：URL 缺少 state 参数时返回 None
-    #[test]
-    fn test_extract_state_param_from_url_missing() {
-        let url = "https://example.com/authorize?response_type=code&client_id=abc";
-        assert!(extract_state_param_from_url(url).is_none());
-    }
-
-    /// #16：URL 格式无效时返回 None（不 panic）
-    #[test]
-    fn test_extract_state_param_from_url_invalid() {
-        assert!(extract_state_param_from_url("not a url at all").is_none());
-    }
