@@ -349,6 +349,8 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
         Event::Resize(_, _) => {
             // Width sync is now driven by render_messages (compares cache.width vs text_area.width)
             app.session_mgr.current_mut().ui.text_selection.clear();
+            app.session_mgr.current_mut().ui.screen_selection.clear();
+            app.session_mgr.current_mut().ui.pending_screen_start = None;
         }
         Event::Key(key_event) => {
             return keyboard::handle_key_event(app, key_event);
@@ -622,41 +624,33 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 if click_consumed {
                     return Ok(Some(Action::Redraw));
                 }
-                // Panel area: start panel selection
-                let panel_area = app.session_mgr.current_mut().ui.panel_area;
-                if let Some(area) = panel_area {
-                    if mouse::mouse_in_rect(&mouse, area) {
-                        let content_row = mouse.row - area.y
-                            + app.session_mgr.current_mut().ui.panel_scroll_offset;
-                        let col = mouse.column - area.x;
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .panel_selection
-                            .start_drag(content_row, col);
-                        app.session_mgr.current_mut().ui.text_selection.clear();
-                        // Don't process other-area selections
-                        return Ok(Some(Action::Redraw));
+                // 消息区域：内容锚定选区（TextSelection，基于 wrap_map）。
+                // 字符级精度、纯文本、支持跨视口复制 + auto-scroll（Drag 到边缘自动滚动消息区）。
+                // 与 ScreenSelection 互斥。弹窗激活时跳过（modal）。
+                if !app.is_interaction_popup_active() {
+                    if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
+                        if mouse.row >= area.y
+                            && mouse.row < area.y + area.height
+                            && mouse.column >= area.x
+                            && mouse.column < area.x + area.width
+                        {
+                            let visual_row = usize::from(mouse.row - area.y)
+                                + app.session_mgr.current_mut().ui.scroll_offset;
+                            let visual_col = mouse.column - area.x;
+                            app.session_mgr
+                                .current_mut()
+                                .ui
+                                .text_selection
+                                .start_drag(visual_row, visual_col);
+                            app.session_mgr.current_mut().ui.screen_selection.clear();
+                            app.session_mgr.current_mut().ui.pending_screen_start = None;
+                            return Ok(Some(Action::Redraw));
+                        }
                     }
                 }
-                if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                    {
-                        let visual_row = usize::from(mouse.row - area.y)
-                            + app.session_mgr.current_mut().ui.scroll_offset;
-                        let visual_col = mouse.column - area.x;
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .text_selection
-                            .start_drag(visual_row, visual_col);
-                    }
-                }
-                // Textarea area: start textarea selection
-                // 弹窗激活时跳过——光标不应移到 textarea 内
+                // Textarea area: start textarea selection（输入框保留内置选区系统）
+                // 弹窗激活时跳过——光标不应移到 textarea 内。
+                // 记录 pending_screen_start：未拖拽=click 定位光标，拖出 textarea=切换 ScreenSelection。
                 if !app.is_interaction_popup_active() {
                     if let Some(area) = app.session_mgr.current_mut().ui.textarea_area {
                         if mouse.row >= area.y
@@ -671,8 +665,25 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                                 tui_textarea::CursorMove::Jump(row as u16, col as u16),
                             );
                             app.session_mgr.current_mut().ui.textarea.start_selection();
+                            app.session_mgr.current_mut().ui.pending_screen_start =
+                                Some((mouse.row, mouse.column));
+                            app.session_mgr.current_mut().ui.screen_selection.clear();
+                            app.session_mgr.current_mut().ui.text_selection.clear();
+                            return Ok(Some(Action::Redraw));
                         }
                     }
+                }
+                // 其余显示区域（面板内容/状态栏/sticky header/bg agent bar/空白）：
+                // 启动 ScreenSelection（Buffer 快照，所见即所得）。弹窗激活时不启动（modal）。
+                // 点击这些区域同时清除消息区 TextSelection 高亮（验收标准 8）。
+                if !app.is_interaction_popup_active() {
+                    app.session_mgr.current_mut().ui.text_selection.clear();
+                    app.session_mgr
+                        .current_mut()
+                        .ui
+                        .screen_selection
+                        .start_drag(mouse.row, mouse.column);
+                    app.session_mgr.current_mut().ui.pending_screen_start = None;
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
@@ -701,43 +712,81 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 if handle_message_scrollbar_drag(app, mouse.row) {
                     return Ok(Some(Action::Redraw));
                 }
-                // Panel selection drag
-                if app.session_mgr.current_mut().ui.panel_selection.dragging {
-                    if let Some(area) = app.session_mgr.current_mut().ui.panel_area {
-                        let content_row = mouse
-                            .row
-                            .saturating_sub(area.y)
-                            .saturating_add(app.session_mgr.current_mut().ui.panel_scroll_offset);
-                        let col = mouse.column.saturating_sub(area.x);
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .panel_selection
-                            .update_drag(content_row, col);
-                    }
-                }
+                // 消息区域 TextSelection 拖拽：内容锚定（visual_row 不随滚动变化），
+                // 支持跨视口选区。auto-scroll：鼠标到达消息区上下边缘（含区内首/末行及区外）
+                // 时滚动消息区，速度随距边缘距离 1-5 行/事件（d51cb7e7 已验证算法）。
                 if app.session_mgr.current_mut().ui.text_selection.dragging {
                     if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                        let visual_row = usize::from(mouse.row.saturating_sub(area.y))
-                            + app.session_mgr.current_mut().ui.scroll_offset;
+                        let ui = &mut app.session_mgr.current_mut().ui;
+                        let area_bottom = area.y + area.height;
+                        if mouse.row >= area_bottom.saturating_sub(1) {
+                            // 向下滚动：鼠标在消息区最后 1 行或更下方
+                            let distance = mouse.row.saturating_sub(area_bottom) as u32;
+                            let step = (1 + distance / 2).min(5) as usize;
+                            let max_scroll = ui.scrollbar_max_offset;
+                            let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+                            let next = ui.scroll_offset.saturating_add(step).min(max_scroll);
+                            ui.scroll_offset = next.max(min_scroll);
+                            ui.scroll_follow = next >= max_scroll;
+                        } else if mouse.row <= area.y {
+                            // 向上滚动：鼠标在消息区第 1 行或更上方
+                            let distance = area.y.saturating_sub(mouse.row) as u32;
+                            let step = (1 + distance / 2).min(5) as usize;
+                            let max_scroll = ui.scrollbar_max_offset;
+                            let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+                            ui.scroll_offset = ui.scroll_offset.saturating_sub(step).max(min_scroll);
+                            ui.scroll_follow = false;
+                        }
+                        let scroll_offset = ui.scroll_offset;
+                        let visual_row =
+                            usize::from(mouse.row.saturating_sub(area.y)) + scroll_offset;
                         let visual_col = mouse.column.saturating_sub(area.x);
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .text_selection
-                            .update_drag(visual_row, visual_col);
+                        ui.text_selection.update_drag(visual_row, visual_col);
                     }
                 }
-                // Textarea area: extend textarea selection
-                if app.session_mgr.current_mut().ui.textarea.is_selecting() {
-                    if let Some(area) = app.session_mgr.current_mut().ui.textarea_area {
-                        if mouse.row >= area.y && mouse.row < area.y + area.height {
-                            let session = &app.session_mgr.current_mut();
-                            let (row, col) =
-                                mouse::textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
-                            app.session_mgr.current_mut().ui.textarea.move_cursor(
-                                tui_textarea::CursorMove::Jump(row as u16, col as u16),
-                            );
+                // ScreenSelection 拖拽：始终用绝对屏幕坐标更新（覆盖所有区域）
+                if app.session_mgr.current_mut().ui.screen_selection.dragging {
+                    app.session_mgr
+                        .current_mut()
+                        .ui
+                        .screen_selection
+                        .update_drag(mouse.row, mouse.column);
+                }
+                // textarea pending：仍在 textarea 内则维持 textarea 选文本；离开则激活 ScreenSelection
+                let pending = app.session_mgr.current().ui.pending_screen_start;
+                if let Some(pending_pt) = pending {
+                    if app.session_mgr.current_mut().ui.textarea.is_selecting() {
+                        let area_opt = app.session_mgr.current_mut().ui.textarea_area;
+                        let still_in_textarea =
+                            area_opt.map(|area| mouse.row >= area.y && mouse.row < area.y + area.height);
+                        match still_in_textarea {
+                            Some(true) => {
+                                // textarea 内拖拽：extend textarea 选区（现有逻辑）
+                                let area = area_opt.unwrap();
+                                let session = &app.session_mgr.current_mut();
+                                let (row, col) = mouse::textarea_mouse_to_cursor(
+                                    &session.ui.textarea,
+                                    area,
+                                    &mouse,
+                                );
+                                app.session_mgr.current_mut().ui.textarea.move_cursor(
+                                    tui_textarea::CursorMove::Jump(row as u16, col as u16),
+                                );
+                            }
+                            _ => {
+                                // 拖出 textarea：激活 ScreenSelection，清除 textarea 选区
+                                app.session_mgr
+                                    .current_mut()
+                                    .ui
+                                    .screen_selection
+                                    .start_drag(pending_pt.0, pending_pt.1);
+                                app.session_mgr
+                                    .current_mut()
+                                    .ui
+                                    .screen_selection
+                                    .update_drag(mouse.row, mouse.column);
+                                app.session_mgr.current_mut().ui.textarea.cancel_selection();
+                            }
                         }
                     }
                 }
@@ -746,24 +795,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 // End panel scrollbar drag
                 app.session_mgr.current_mut().ui.panel_scrollbar_dragging = false;
                 app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
-                // Panel selection released
-                if app.session_mgr.current_mut().ui.panel_selection.dragging {
-                    app.session_mgr.current_mut().ui.panel_selection.end_drag();
-                    let sel = &app.session_mgr.current_mut().ui.panel_selection;
-                    if let (Some(start), Some(end)) = (sel.start, sel.end) {
-                        let text = crate::app::text_selection::extract_panel_text(
-                            start,
-                            end,
-                            &app.session_mgr.current_mut().ui.panel_plain_lines,
-                        );
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .panel_selection
-                            .set_selected_text(text);
-                    }
-                    mouse::copy_panel_selection_to_clipboard(app);
-                }
+                // 消息区域 TextSelection released：从 wrap_map 提取纯文本（跨视口）并复制
                 if app.session_mgr.current_mut().ui.text_selection.dragging {
                     app.session_mgr.current_mut().ui.text_selection.end_drag();
                     let ts = &app.session_mgr.current_mut().ui.text_selection;
@@ -790,6 +822,38 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             .set_selected_text(text);
                     }
                     mouse::copy_selection_to_clipboard(app);
+                }
+                // ScreenSelection released：从 Buffer 快照提取文本并复制（所见即所得）
+                if app.session_mgr.current_mut().ui.screen_selection.dragging {
+                    app.session_mgr.current_mut().ui.screen_selection.end_drag();
+                    let range = {
+                        let sel = &app.session_mgr.current().ui.screen_selection;
+                        (sel.start, sel.end)
+                    };
+                    if let (Some(start), Some(end)) = range {
+                        if start == end {
+                            // 纯 click 未拖拽：取消旧高亮，不复制（验收标准 8）
+                            app.session_mgr.current_mut().ui.screen_selection.clear();
+                            app.session_mgr.current_mut().ui.pending_screen_start = None;
+                        } else {
+                            // as_ref 借用快照提取文本，作用域结束后释放 app 借用再调 copy
+                            let text_opt = app
+                                .session_mgr
+                                .current()
+                                .ui
+                                .screen_snapshot
+                                .as_ref()
+                                .and_then(|s| {
+                                    crate::app::text_selection::extract_snapshot_text(s, start, end)
+                                });
+                            app.session_mgr
+                                .current_mut()
+                                .ui
+                                .screen_selection
+                                .set_selected_text(text_opt);
+                            mouse::copy_screen_selection_to_clipboard(app);
+                        }
+                    }
                 }
                 // textarea selection on mouse up: no extra handling; tui_textarea maintains
                 // its own selection state

@@ -1071,8 +1071,61 @@ async fn run_app(
 }
 
 fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
-    terminal.draw(|f| ui::main_ui::render(f, app))?;
+    // Frame buffer 仅在 draw closure 内可访问，因此 snapshot 在 closure 内克隆、结束后写回 app。
+    let mut snapshot_opt: Option<peri_tui::app::text_selection::ScreenSnapshot> = None;
+    terminal.draw(|f| {
+        // render 内部完成消息区域 TextSelection 的 Span 高亮（现有逻辑不变）
+        ui::main_ui::render(f, app);
+        // ScreenSelection 高亮：在 Frame buffer 上叠加 SELECTION_BG。
+        // render 完成后 messages_area 已更新；ScreenSelection 活跃时 TextSelection 必然已 clear，
+        // 整个选区范围（含消息区域）统一 Buffer 高亮，与 TextSelection 的 Span 高亮互斥，视觉无缝。
+        let screen_sel = app.session_mgr.current().ui.screen_selection.clone();
+        if screen_sel.is_active() {
+            apply_screen_selection_highlight(f.buffer_mut(), &screen_sel);
+        }
+        // 仅在可能需要提取文本时保存 Buffer 快照（平时零开销）。
+        // MouseDown→Redraw→draw_app 之间至少一帧，MouseUp 时 snapshot 必为最新。
+        let need_snapshot = app.session_mgr.current().ui.screen_selection.is_active()
+            || app.session_mgr.current().ui.pending_screen_start.is_some();
+        if need_snapshot {
+            snapshot_opt = Some(peri_tui::app::text_selection::ScreenSnapshot::from_buffer(
+                f.buffer_mut(),
+            ));
+        }
+    })?;
+    if let Some(snap) = snapshot_opt {
+        app.session_mgr.current_mut().ui.screen_snapshot = Some(snap);
+    }
     Ok(())
+}
+
+/// 在 ratatui Frame buffer 上叠加 ScreenSelection 高亮（SELECTION_BG）。
+/// 遍历归一化选区范围的每个 cell 覆盖背景色。由 draw_app 在 render 之后于 draw closure 内调用，
+/// Terminal::draw 结束时自动 diff+flush。全屏 alternate screen 下 buffer area 从 (0,0) 起，
+/// 与 mouse 绝对屏幕坐标一致。
+fn apply_screen_selection_highlight(
+    buffer: &mut ratatui::buffer::Buffer,
+    selection: &peri_tui::app::text_selection::ScreenSelection,
+) {
+    let Some((sr, sc, er, ec)) = selection.normalized_range() else {
+        return;
+    };
+    let area = buffer.area;
+    let max_col = area.x.saturating_add(area.width).saturating_sub(1);
+    let max_row = area.y.saturating_add(area.height).saturating_sub(1);
+    let er = er.min(max_row);
+    for row in sr..=er {
+        if row < area.y {
+            continue;
+        }
+        let col_start = if row == sr { sc.max(area.x) } else { area.x };
+        let col_end = if row == er { ec.min(max_col) } else { max_col };
+        for col in col_start..=col_end {
+            buffer[(col, row)].set_style(
+                ratatui::style::Style::default().bg(peri_tui::ui::theme::SELECTION_BG),
+            );
+        }
+    }
 }
 
 fn select_exit_session_id(
