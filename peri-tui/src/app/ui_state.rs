@@ -2,7 +2,9 @@ use peri_widgets::ScrollbarMetrics;
 use tui_textarea::TextArea;
 
 use super::at_mention::AtMentionState;
-use crate::app::text_selection::{PanelTextSelection, TextSelection};
+use crate::app::text_selection::{
+    PanelTextSelection, ScreenSelection, ScreenSnapshot, TextSelection,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MessageScrollbarMetrics {
@@ -30,6 +32,12 @@ pub struct UiState {
     pub history_index: Option<usize>,
     pub draft_input: Option<String>,
     pub text_selection: TextSelection,
+    /// 全局屏幕选区（面板/状态栏/sticky header/bg agent bar/空白区域，绝对屏幕坐标）
+    pub screen_selection: ScreenSelection,
+    /// terminal.draw() 后的 Buffer 文本快照，供 MouseUp 提取 screen 选区文本
+    pub screen_snapshot: Option<ScreenSnapshot>,
+    /// textarea MouseDown 暂存的屏幕坐标：判断"textarea 内拖选 vs 拖出切换 screen 选区"
+    pub pending_screen_start: Option<(u16, u16)>,
     pub messages_area: Option<ratatui::layout::Rect>,
     pub message_scrollbar_metrics: Option<MessageScrollbarMetrics>,
     pub message_scrollbar_dragging: bool,
@@ -88,6 +96,9 @@ impl UiState {
             history_index: None,
             draft_input: None,
             text_selection: TextSelection::new(),
+            screen_selection: ScreenSelection::default(),
+            screen_snapshot: None,
+            pending_screen_start: None,
             messages_area: None,
             message_scrollbar_metrics: None,
             message_scrollbar_dragging: false,
