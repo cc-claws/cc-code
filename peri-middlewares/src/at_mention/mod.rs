@@ -90,38 +90,69 @@ impl<S: State> Middleware<S> for AtMentionMiddleware {
             return Ok(());
         }
 
-        // 生成 call_id
-        let call_ids: Vec<String> = (0..valid.len())
-            .map(|_| format!("call_{}", uuid::Uuid::new_v4().simple()))
-            .collect();
+        // 按文件/目录分组：文件走 Read ToolUse（语义"读取文件内容"），
+        // 目录改为 System 消息注入——Read 工具的语义是"读文件"，目录列表
+        // 用 ToolUse 包装会让 LLM 误以为是文件内容（issue #28）。
+        let (files, dirs): (Vec<_>, Vec<_>) = valid
+            .into_iter()
+            .partition(|(_, fc)| !fc.is_dir);
 
-        // 构造 ToolUse blocks
-        let tool_use_blocks: Vec<ContentBlock> = valid
-            .iter()
-            .zip(call_ids.iter())
-            .map(|((mention, _), id)| {
-                let mut input = serde_json::json!({
-                    "file_path": mention.path,
-                });
-                if let Some(offset) = mention.line_start {
-                    input["offset"] = serde_json::json!(offset);
-                }
-                ContentBlock::tool_use(id.clone(), TOOL_READ, input)
-            })
-            .collect();
+        if files.is_empty() && dirs.is_empty() {
+            return Ok(());
+        }
 
-        // 追加 Ai 消息
-        state.add_message(BaseMessage::ai_from_blocks(tool_use_blocks));
+        // 文件 @mention：Ai[ToolUse{Read}] + Tool[ToolResult]
+        if !files.is_empty() {
+            // 生成 call_id
+            let call_ids: Vec<String> = (0..files.len())
+                .map(|_| format!("call_{}", uuid::Uuid::new_v4().simple()))
+                .collect();
 
-        // 追加 ToolResult 消息
-        for (id, (_mention, fc)) in call_ids.iter().zip(valid.iter()) {
-            let prefix = match (fc.line_start, fc.line_end) {
-                (Some(s), Some(e)) => format!("→ {} (L{s}-L{e})", fc.path),
-                (Some(s), None) => format!("→ {} (L{s})", fc.path),
-                _ => format!("→ {}", fc.path),
-            };
-            let content = format!("{prefix}\n{}", fc.content);
-            state.add_message(BaseMessage::tool_result(id.clone(), content));
+            // 构造 ToolUse blocks
+            let tool_use_blocks: Vec<ContentBlock> = files
+                .iter()
+                .zip(call_ids.iter())
+                .map(|((mention, _), id)| {
+                    let mut input = serde_json::json!({
+                        "file_path": mention.path,
+                    });
+                    if let Some(offset) = mention.line_start {
+                        input["offset"] = serde_json::json!(offset);
+                    }
+                    ContentBlock::tool_use(id.clone(), TOOL_READ, input)
+                })
+                .collect();
+
+            // 追加 Ai 消息
+            state.add_message(BaseMessage::ai_from_blocks(tool_use_blocks));
+
+            // 追加 ToolResult 消息
+            for (id, (_mention, fc)) in call_ids.iter().zip(files.iter()) {
+                let prefix = match (fc.line_start, fc.line_end) {
+                    (Some(s), Some(e)) => format!("→ {} (L{s}-L{e})", fc.path),
+                    (Some(s), None) => format!("→ {} (L{s})", fc.path),
+                    _ => format!("→ {}", fc.path),
+                };
+                let content = format!("{prefix}\n{}", fc.content);
+                state.add_message(BaseMessage::tool_result(id.clone(), content));
+            }
+        }
+
+        // 目录 @mention：System 消息注入，明确标注是目录列表
+        if !dirs.is_empty() {
+            let mut buf = String::from("## @mentioned directories\n\n");
+            for (mention, fc) in &dirs {
+                buf.push_str(&format!(
+                    "### {path}\n\n```\n{content}\n```\n\n",
+                    path = mention.path,
+                    content = fc.content
+                ));
+            }
+            buf.push_str(
+                "以上为 `@` 提及的目录列表，由 AtMentionMiddleware 在用户提交时展开。\
+                 如需进一步查看子文件，请用 Read/Glob 工具。",
+            );
+            state.add_message(BaseMessage::system(buf));
         }
 
         Ok(())
@@ -176,5 +207,61 @@ mod tests {
         let tool_content = tool_msg.content();
         assert!(tool_content.starts_with("→ test.rs"));
         assert!(tool_content.contains("fn main() {}"));
+    }
+
+    #[tokio::test]
+    async fn test_mention_directory_injects_system_message() {
+        // @some_dir 注入为 System 消息，不再走 Read ToolUse（issue #28）
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join("some_dir")).unwrap();
+        fs::write(dir.path().join("some_dir").join("a.txt"), "aaa").unwrap();
+        fs::write(dir.path().join("some_dir").join("b.txt"), "bbb").unwrap();
+        let mw = AtMentionMiddleware::new(dir.path().to_path_buf());
+        let mut state = AgentState::default();
+        state.cwd = dir.path().to_string_lossy().to_string();
+        state.add_message(BaseMessage::human("看看 @some_dir"));
+
+        mw.before_agent(&mut state).await.unwrap();
+
+        // 1 Human + 1 System = 2
+        assert_eq!(state.messages().len(), 2, "目录应注入 System 而非 ToolUse");
+
+        let sys_msg = &state.messages()[1];
+        assert!(matches!(sys_msg, BaseMessage::System { .. }));
+        let content = sys_msg.content();
+        assert!(
+            content.contains("mentioned directories"),
+            "应明确标注是目录列表: {content}"
+        );
+        // 不应伪装成 ToolResult
+        assert!(!content.starts_with("→ "), "目录不应走 ToolResult 前缀");
+    }
+
+    #[tokio::test]
+    async fn test_mention_mixed_files_and_dirs() {
+        // 混合场景：1 个文件 + 1 个目录
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("file.rs"), "fn main() {}\n").unwrap();
+        fs::create_dir(dir.path().join("subdir")).unwrap();
+        fs::write(dir.path().join("subdir").join("inside.txt"), "x").unwrap();
+        let mw = AtMentionMiddleware::new(dir.path().to_path_buf());
+        let mut state = AgentState::default();
+        state.cwd = dir.path().to_string_lossy().to_string();
+        state.add_message(BaseMessage::human("看 @file.rs 和 @subdir"));
+
+        mw.before_agent(&mut state).await.unwrap();
+
+        // 1 Human + 1 Ai(ToolUse file) + 1 ToolResult(file) + 1 System(dir) = 4
+        assert_eq!(state.messages().len(), 4, "混合场景应有 4 条消息");
+
+        // 验证：[1]=Ai(ToolUse), [2]=Tool(file content), [3]=System(dir)
+        assert!(matches!(state.messages()[1], BaseMessage::Ai { .. }));
+        assert!(matches!(state.messages()[2], BaseMessage::Tool { .. }));
+        assert!(matches!(state.messages()[3], BaseMessage::System { .. }));
+        let sys_content = state.messages()[3].content();
+        assert!(
+            sys_content.contains("inside.txt"),
+            "System 消息应含目录列表: {sys_content}"
+        );
     }
 }
