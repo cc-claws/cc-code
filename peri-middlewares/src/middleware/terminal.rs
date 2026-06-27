@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
 use serde_json::Value;
 use std::process::Stdio;
+#[cfg(windows)]
+use std::time::Instant;
 use tokio::time::{timeout, Duration};
 
 use crate::tools::output_persist::persist_truncated_output;
@@ -371,6 +373,10 @@ impl BaseTool for BashTool {
         #[cfg(not(windows))]
         let temp_msg_files: Vec<String> = Vec::new();
 
+        // 记录 cmd 开始时间，用于计算 fallback 剩余超时（仅 Windows fallback 需要）
+        #[cfg(windows)]
+        let cmd_start = Instant::now();
+
         let result = timeout(Duration::from_millis(timeout_ms), {
             // Windows 分支中 `command` 被 shadow 为 String（L278），需要取引用；
             // 非 Windows 上 `command` 本身就是 &str，直接传递。
@@ -389,34 +395,57 @@ impl BaseTool for BashTool {
         })
         .await;
 
-        // 清理临时文件
-        for path in &temp_msg_files {
-            let _ = tokio::fs::remove_file(path).await;
-        }
+        // ⚠️ temp 文件清理推迟到 fallback 判断之后——
+        // retry 用的是已改写的命令（-F tempfile），需要文件仍存在。
 
         match result {
-            Err(_) => Err(format!(
-                "Error: Command timed out after {} seconds.\nCommand: {command}",
-                timeout_ms as f64 / 1000.0
-            )
-            .into()),
-            Ok(Err(e)) => Err(format!("Error executing command: {e}").into()),
+            Err(_) => {
+                // 超时也需要清理 temp 文件
+                for path in &temp_msg_files {
+                    let _ = tokio::fs::remove_file(path).await;
+                }
+                Err(format!(
+                    "Error: Command timed out after {} seconds.\nCommand: {command}",
+                    timeout_ms as f64 / 1000.0
+                )
+                .into())
+            }
+            Ok(Err(e)) => {
+                for path in &temp_msg_files {
+                    let _ = tokio::fs::remove_file(path).await;
+                }
+                Err(format!("Error executing command: {e}").into())
+            }
             Ok(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                 let exit_code = out.status.code().unwrap_or(-1);
 
-                // Windows fallback：cmd 不识别命令（exit≠0 且 stderr 命中特征）时，
-                // 用 Git Bash 重试原始命令。可用则返回带 [Retried with Git Bash] 标记的输出。
+                // Windows fallback：cmd 不识别命令时用 Git Bash 重试原始命令。
+                // 剩余超时 = 总超时 - cmd 耗时（至少 10s）
                 #[cfg(windows)]
                 {
-                    if exit_code != 0 && crate::process::is_unrecognized_command_error(&stderr) {
+                    if crate::process::should_fallback_to_bash(exit_code, &stdout, &stderr) {
                         if let Some(bash) = crate::process::git_bash_path() {
-                            return self
-                                .invoke_with_git_bash(&bash, &original_command, timeout_ms)
+                            let cmd_elapsed_ms = cmd_start.elapsed().as_millis() as u64;
+                            let remaining_ms = timeout_ms
+                                .saturating_sub(cmd_elapsed_ms)
+                                .max(10_000);
+                            let fallback_result = self
+                                .invoke_with_git_bash(&bash, &original_command, remaining_ms)
                                 .await;
+                            // fallback 完成后清理 temp 文件
+                            for path in &temp_msg_files {
+                                let _ = tokio::fs::remove_file(path).await;
+                            }
+                            return fallback_result;
                         }
                     }
+                }
+
+                // 非 fallback 路径：清理 temp 文件
+                for path in &temp_msg_files {
+                    let _ = tokio::fs::remove_file(path).await;
                 }
 
                 let mut output = String::new();
