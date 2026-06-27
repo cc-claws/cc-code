@@ -4,6 +4,19 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.20 — 2026-06-27
+
+### Features
+
+- **Windows Git Bash fallback**：`cmd /C` 执行 Linux 命令（`grep`/`ls`/`find` 等）失败时自动 fallback 到 Git Bash，Agent 无需自行重试
+  - 多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式
+  - `GIT_BASH_PATH` 环境变量支持，`bash --version` 验证
+  - `MSYS_NO_PATHCONV=1` 防止 MSYS 路径转换
+  - 剩余超时继承（总超时 - cmd 耗时，至少 10s）
+  - `git commit -m` 重写与 fallback 的 temp 文件清理时序修复
+
+---
+
 ## v0.6.19 — 2026-06-26
 
 ### Bug Fixes
