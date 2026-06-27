@@ -106,6 +106,42 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         .split(area);
 
     message_area::render_messages(f, app, chunks[0], chunks[1]);
+
+    // 复制成功浮动提示：消息区右下角，紧贴输入框上方（对齐 Claude Code）
+    if let Some(until) = app.session_mgr.current().ui.copy_message_until {
+        if std::time::Instant::now() < until {
+            let lc = &app.services.lc;
+            let count = app.session_mgr.current().ui.copy_char_count;
+            let text = format!(
+                " {} ",
+                lc.tr_args("statusbar-copied", &[("count".into(), (count as i64).into())])
+            );
+            let text_width = unicode_width::UnicodeWidthStr::width(text.as_str());
+            let msg_area = chunks[1];
+            if msg_area.height > 0 && text_width > 0 {
+                // scrollbar 占据最右 1 列，toast 需左移避让
+                let has_scrollbar = {
+                    let cache = app.session_mgr.current().messages.render_cache.read();
+                    cache.total_lines > msg_area.height as usize && msg_area.width > 1
+                };
+                let scrollbar_col: u16 = if has_scrollbar { 1 } else { 0 };
+                let y = msg_area.y + msg_area.height - 1;
+                let avail_width = msg_area.width.saturating_sub(scrollbar_col);
+                let x = (msg_area.x + avail_width).saturating_sub(text_width as u16);
+                let label_area = Rect {
+                    x,
+                    y,
+                    width: text_width.min(avail_width as usize) as u16,
+                    height: 1,
+                };
+                f.render_widget(
+                    Paragraph::new(text).style(Style::default().fg(Color::Rgb(182, 186, 233))),
+                    label_area,
+                );
+            }
+        }
+    }
+
     attachment::render_attachment_bar(f, app, chunks[2]);
 
     // 底部展开区
