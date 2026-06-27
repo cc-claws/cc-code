@@ -136,3 +136,50 @@ fn test_grep_truncates_at_200() {
     );
     assert!(result.ends_with('…'), "超长 Grep pattern 应以 … 结尾");
 }
+
+#[test]
+fn test_read_offset_limit_shows_range() {
+    // offset=100, limit=50 → 显示 100-149
+    let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 100, "limit": 50});
+    let result = format_tool_args("Read", &input, None);
+    assert_eq!(result.as_deref(), Some("main.rs:100-149"));
+}
+
+#[test]
+fn test_read_offset_only_shows_open_range() {
+    // 只有 offset 无 limit → 显示 offset-
+    let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 855});
+    let result = format_tool_args("Read", &input, None);
+    assert_eq!(result.as_deref(), Some("main.rs:855-"));
+}
+
+#[test]
+fn test_read_no_offset_limit_shows_path_only() {
+    // 无 offset/limit → 纯路径，不追加行号
+    let input = serde_json::json!({"file_path": "/tmp/main.rs"});
+    let result = format_tool_args("Read", &input, None);
+    assert_eq!(result.as_deref(), Some("main.rs"));
+}
+
+#[test]
+fn test_read_offset_1_is_omitted() {
+    // offset=1 等同于从头读，不显示行号
+    let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 1, "limit": 32});
+    let result = format_tool_args("Read", &input, None);
+    assert_eq!(result.as_deref(), Some("main.rs"));
+}
+
+#[test]
+fn test_read_limit_only_no_offset() {
+    // 只有 limit 无 offset → 不显示行号（从头读 limit 行）
+    let input = serde_json::json!({"file_path": "/tmp/main.rs", "limit": 32});
+    let result = format_tool_args("Read", &input, None);
+    assert_eq!(result.as_deref(), Some("main.rs"));
+}
+
+#[test]
+fn test_read_offset_limit_with_cwd() {
+    let input = serde_json::json!({"file_path": "/home/user/project/src/main.rs", "offset": 10, "limit": 20});
+    let result = format_tool_args("Read", &input, Some("/home/user/project/"));
+    assert_eq!(result.as_deref(), Some("src/main.rs:10-29"));
+}
