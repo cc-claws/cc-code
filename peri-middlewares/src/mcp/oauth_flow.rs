@@ -11,6 +11,18 @@ use super::{
 };
 use rmcp::transport::auth::{AuthError, OAuthState};
 
+/// 从授权 URL 中提取 `state` 查询参数。
+/// 用于把 rmcp OAuthState 生成的 CSRF token 传给本地回调服务器做前置校验（#16）。
+fn extract_state_param_from_url(authorization_url: &str) -> Option<String> {
+    let parsed: url::Url = authorization_url.parse().ok()?;
+    for (k, v) in parsed.query_pairs() {
+        if k == "state" {
+            return Some(v.into_owned());
+        }
+    }
+    None
+}
+
 /// OAuth 回调结果（从 TUI 传回后台 OAuth 流程）
 pub struct OAuthCallbackResult {
     /// 授权码
@@ -122,7 +134,7 @@ impl OAuthFlowManager {
         }
 
         // 3. 绑定回调服务器
-        let (callback_server, redirect_uri) = OAuthCallbackServer::bind().await?;
+        let (mut callback_server, redirect_uri) = OAuthCallbackServer::bind().await?;
 
         // 4. 启动授权（DCR + PKCE + metadata 发现）
         let scopes: Vec<&str> = oauth_config
@@ -138,6 +150,18 @@ impl OAuthFlowManager {
 
         // 5. 获取授权 URL
         let authorization_url = state.get_authorization_url().await?;
+
+        // 5.1 从授权 URL 提取 CSRF state 参数，传给回调服务器做严格校验（#16）
+        //      rmcp 内部 handle_callback 会做二次校验，本地回调服务器前置拦截
+        //      可在 rmcp 校验缺陷时提供纵深防御。
+        if let Some(state_value) = extract_state_param_from_url(&authorization_url) {
+            callback_server.set_expected_state(state_value);
+        } else {
+            warn!(
+                server = %server_name,
+                "授权 URL 缺少 state 参数，回调服务器的 CSRF 校验将被跳过"
+            );
+        }
 
         // 6. 创建 oneshot 通道，通知 TUI 等待用户交互
         let (callback_tx, callback_rx) = oneshot::channel::<OAuthCallbackResult>();
