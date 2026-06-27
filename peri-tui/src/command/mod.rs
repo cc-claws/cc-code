@@ -33,6 +33,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(session::loop_cmd::LoopCommand));
     r.register(Box::new(session::setup::SetupCommand));
     r.register(Box::new(session::init::InitCommand));
+    r.register(Box::new(core::export_cmd::ExportCommand));
     r
 }
 

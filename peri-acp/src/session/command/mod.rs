@@ -4,8 +4,10 @@
 //! 命令在 executor 入口拦截，`Immediate` 类型不构建 agent 直接执行。
 
 pub mod clear;
+pub mod commit;
 pub mod compact;
 pub mod init;
+pub mod review;
 pub mod rewind;
 
 use std::sync::Arc;
@@ -138,6 +140,8 @@ pub fn default_command_registry() -> CommandRegistry {
     reg.register(Box::new(clear::ClearCommand));
     reg.register(Box::new(rewind::RewindCommand));
     reg.register(Box::new(init::InitCommand));
+    reg.register(Box::new(commit::CommitCommand));
+    reg.register(Box::new(review::ReviewCommand));
     reg
 }
 
