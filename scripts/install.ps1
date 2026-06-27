@@ -74,7 +74,7 @@ function Clean-OldVersions {
 
     # Collect agent-v* directories, excluding current version
     $oldDirs = @(Get-ChildItem -Path $InstallDir -Directory | Where-Object {
-        $_.Name -match '^agent-v' -and $_.Name -ne $CurrentVersion
+        $_.Name -match '^npm-v' -and $_.Name -ne $CurrentVersion
     })
 
     if ($oldDirs.Count -eq 0) {
@@ -144,8 +144,8 @@ function Main {
             exit 1
         }
 
-        # Find latest agent-* tag
-        $VersionTag = ($Releases | Where-Object { $_.tag_name -like "agent-*" } | Select-Object -First 1).tag_name
+        # Find latest npm-v* tag
+        $VersionTag = ($Releases | Where-Object { $_.tag_name -like "npm-v*" } | Select-Object -First 1).tag_name
         if (-not $VersionTag) {
             error "No agent release found."
             exit 1
