@@ -45,6 +45,12 @@ impl OAuthCallbackServer {
         ))
     }
 
+    /// 设置期望的 CSRF state 值（由 OAuthState 在 start_authorization 后生成）。
+    /// 非空时，wait_for_code 会严格校验回调 URL 中的 state 与之一致（#16）。
+    pub fn set_expected_state(&mut self, state: impl Into<String>) {
+        self.state_param = state.into();
+    }
+
     pub async fn wait_for_code(mut self) -> Result<(String, String), CallbackError> {
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(CALLBACK_TIMEOUT_SECS),
