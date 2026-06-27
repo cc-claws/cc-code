@@ -141,3 +141,29 @@ pub fn copy_screen_selection_to_clipboard(app: &mut App) -> bool {
     }
     false
 }
+
+/// Copies the current message-area text selection (content-anchored, via wrap_map)
+/// to the system clipboard. Returns `true` if text was successfully copied.
+/// Note: does NOT clear the selection — highlight persists until user clicks
+/// elsewhere（与 ScreenSelection 行为一致，符合验收标准 8）。
+pub fn copy_selection_to_clipboard(app: &mut App) -> bool {
+    if let Some(text) = app
+        .session_mgr
+        .current()
+        .ui
+        .text_selection
+        .selected_text
+        .as_ref()
+    {
+        let char_count = text.chars().count();
+        match crate::clipboard::copy::copy_to_clipboard(text) {
+            Ok(lease) => app.global_ui.clipboard_lease = lease,
+            Err(err) => tracing::warn!("copy_selection_to_clipboard failed: {err}"),
+        }
+        app.session_mgr.current_mut().ui.copy_char_count = char_count;
+        app.session_mgr.current_mut().ui.copy_message_until =
+            Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
+        return true;
+    }
+    false
+}
