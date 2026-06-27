@@ -145,7 +145,12 @@ pub(crate) fn render_messages(
         let scroll_follow = app.session_mgr.current().ui.scroll_follow;
         let scroll_offset = app.session_mgr.current().ui.scroll_offset;
         let scroll_anchor = cache.scroll_anchor.take();
-        let (new_follow, off) = if scroll_follow {
+        let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
+        let (new_follow, off) = if dragging {
+            // dragging 期间跳过 follow/anchor 优先级，强制使用用户拖拽的 offset
+            let off = scroll_offset.clamp(min_scroll, max_scroll);
+            (off >= max_scroll, off)
+        } else if scroll_follow {
             (true, max_scroll)
         } else if let Some(anchor) = scroll_anchor {
             let off = anchor.clamp(min_scroll, max_scroll);

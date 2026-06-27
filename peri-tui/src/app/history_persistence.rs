@@ -85,6 +85,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_restrict_to_owner_unix_file_gets_0600() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir();
         let file = dir.join(format!(
             "peri-history-perm-test-{}",
@@ -95,7 +96,6 @@ mod tests {
         ));
         std::fs::write(&file, b"x").unwrap();
         super::restrict_to_owner_unix(&file);
-        use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(
             mode & 0o777,
@@ -109,6 +109,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_restrict_to_owner_unix_dir_gets_0700() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!(
             "peri-history-perm-dir-test-{}",
             std::time::SystemTime::now()
@@ -118,7 +119,6 @@ mod tests {
         ));
         std::fs::create_dir(&dir).unwrap();
         super::restrict_to_owner_unix(&dir);
-        use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(
             mode & 0o777,

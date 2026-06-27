@@ -75,5 +75,10 @@ pub(crate) fn ask_user_content_height(q: &AskUserQuestionData, panel_width: usiz
     }
 
     // header tab 行 + 分隔线 + BorderedPanel 上下边框 = 4
-    lines + 4
+    // 额外 +3 行 safety margin：div_ceil 是字符级换行，ratatui Paragraph::wrap
+    // 是词级换行（WordWrapper），视觉行数 ≥ 字符级行数；CJK 无空格场景两者接近，
+    // 但英文长 label/description 经常多出 1-2 行。+3 吸收差异 + 自定义输入
+    // 在光标态显示完整内容时的额外行（issue #30 多次精确估算尝试均失败，
+    // safety margin 是最稳妥的兜底）。
+    lines + 4 + 3
 }

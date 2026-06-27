@@ -75,14 +75,18 @@ async fn test_bind_multiple_servers() {
     drop(s2);
 }
 
-/// #16：set_expected_state 应该更新内部 state_param，
+/// #16：set_state 应该更新内部 state_param，
 /// 使 wait_for_code 通过 parse_callback_url 严格校验 state 一致。
 #[tokio::test]
-async fn test_set_expected_state_updates_validation() {
+async fn test_set_state_updates_validation() {
     let (mut server, _uri) = OAuthCallbackServer::bind().await.unwrap();
     // 默认 state_param 为空字符串
     assert_eq!(server.state_param, "");
-    server.set_expected_state("csrf-token-123");
+    server.set_state("csrf-token-123".to_string());
+    assert_eq!(server.state_param, "csrf-token-123");
+
+    // 空 state 不应被注入（防止误把默认值覆盖成空）
+    server.set_state(String::new());
     assert_eq!(server.state_param, "csrf-token-123");
 }
 

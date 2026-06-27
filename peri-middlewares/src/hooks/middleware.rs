@@ -35,8 +35,11 @@ pub struct HookMiddleware {
     permission_mode: Arc<SharedPermissionMode>,
     current_model: String,
     once_fired: Arc<Mutex<HashSet<String>>>,
-    /// Whether this is the first message of a new session (triggers SessionStart).
-    is_session_start: bool,
+    /// SessionStart hook 的触发与场景。None 表示不触发；Some(source) 表示触发并
+    /// 携带 matcher：startup（新会话首次 prompt）/ resume（恢复历史会话）/
+    /// clear（/clear 后首次 prompt）/ compact（compact 后）。
+    /// 对齐 Claude Code SessionStart 的 4 种 matcher。
+    session_start_source: Option<String>,
     /// 判断工具是否需要用户审批。用于 PermissionRequest hook 门控。
     /// 默认使用 [`crate::hitl::default_requires_approval`]，
     /// 可通过 `with_requires_approval` 覆盖。
@@ -61,7 +64,7 @@ impl HookMiddleware {
             transcript_path,
             permission_mode,
             current_model,
-            false,
+            None,
         )
     }
 
@@ -74,7 +77,7 @@ impl HookMiddleware {
         transcript_path: impl Into<String>,
         permission_mode: Arc<SharedPermissionMode>,
         current_model: impl Into<String>,
-        is_session_start: bool,
+        session_start_source: Option<String>,
     ) -> Self {
         let mut map: HashMap<HookEvent, Vec<RegisteredHook>> = HashMap::new();
         for hook in registered_hooks {
@@ -85,7 +88,7 @@ impl HookMiddleware {
         tracing::info!(
             total_hooks,
             event_count,
-            is_session_start,
+            session_start_source = ?session_start_source,
             "HookMiddleware created with registered hooks"
         );
         Self {
@@ -97,7 +100,7 @@ impl HookMiddleware {
             permission_mode,
             current_model: current_model.into(),
             once_fired: Arc::new(Mutex::new(HashSet::new())),
-            is_session_start,
+            session_start_source,
             requires_approval: crate::hitl::default_requires_approval,
         }
     }
@@ -319,13 +322,14 @@ impl<S: State> Middleware<S> for HookMiddleware {
             .map(|m| m.content())
             .unwrap_or_default();
 
-        // SessionStart: only when is_session_start is true (first message of a new session)
-        if self.is_session_start {
+        // SessionStart: 触发条件由 session_start_source 决定，source 同时作为
+        // Claude Code matcher 字段（startup/resume/clear/compact）传给 hook。
+        if let Some(source) = self.session_start_source.as_ref() {
             let input = HookInput::session_start(
                 &self.session_id,
                 &self.transcript_path,
                 &self.cwd,
-                "startup",
+                source,
                 &self.current_model,
             );
             let action = self
@@ -559,7 +563,33 @@ impl<S: State> Middleware<S> for HookMiddleware {
             message_count: None,
         };
 
-        let _action = self.fire_event(HookEvent::Stop, &input, None, None).await;
+        let stop_action = self.fire_event(HookEvent::Stop, &input, None, None).await;
+
+        // Stop hook Block/PreventContinuation 语义：Claude Code 规范中，Stop hook
+        // 返回 block 时 agent 不应停止而应继续工作。这里捕获 action 并把 reason
+        // 附加到 AgentOutput.stop_reason，调用方（ACP server / TUI）可识别并自动
+        // 重提一轮 prompt。当前实现是"信号透传 + 日志"，更深层的 auto-continue
+        // 需要在 execute_prompt 顶层循环处理。
+        let output = match stop_action {
+            HookAction::Block { reason } => {
+                tracing::info!(
+                    reason = %reason,
+                    "Stop hook blocked; surfacing continue signal to caller"
+                );
+                let mut next = output.clone();
+                next.stop_reason = Some(format!("stop_hook_blocked: {reason}"));
+                next
+            }
+            HookAction::PreventContinuation { stop_reason } => {
+                let reason = stop_reason
+                    .unwrap_or_else(|| "Stop hook prevented continuation".to_string());
+                tracing::info!(reason = %reason, "Stop hook prevented continuation");
+                let mut next = output.clone();
+                next.stop_reason = Some(reason);
+                next
+            }
+            _ => output.clone(),
+        };
 
         // Fire Notification (agent done, waiting for user input)
         self.fire_event(HookEvent::Notification, &input, None, None)
