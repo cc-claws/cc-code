@@ -116,51 +116,27 @@ pub fn rgba_to_png_base64(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<
     Ok((b64, size))
 }
 
-/// Copies the current text selection to the system clipboard and updates UI
-/// hints. Returns `true` if text was successfully copied.
-pub fn copy_selection_to_clipboard(app: &mut App) -> bool {
-    if let Some(text) = app
-        .session_mgr
-        .current_mut()
-        .ui
-        .text_selection
-        .selected_text
-        .take()
-    {
-        let char_count = text.chars().count();
-        match crate::clipboard::copy::copy_to_clipboard(&text) {
-            Ok(lease) => app.global_ui.clipboard_lease = lease,
-            Err(err) => tracing::warn!("copy_selection_to_clipboard failed: {err}"),
-        }
-        app.session_mgr.current_mut().ui.copy_char_count = char_count;
-        app.session_mgr.current_mut().ui.copy_message_until =
-            Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
-        app.session_mgr.current_mut().ui.text_selection.clear();
-        return true;
-    }
-    false
-}
-
-/// Copies the current panel selection to the system clipboard. Returns `true`
+/// Copies the current screen selection to the system clipboard. Returns `true`
 /// if text was successfully copied.
-pub fn copy_panel_selection_to_clipboard(app: &mut App) -> bool {
+/// Note: does NOT clear the selection — highlight persists until user clicks
+/// elsewhere（点击非拖拽处才清除，符合验收标准 8）。
+pub fn copy_screen_selection_to_clipboard(app: &mut App) -> bool {
     if let Some(text) = app
         .session_mgr
-        .current_mut()
+        .current()
         .ui
-        .panel_selection
+        .screen_selection
         .selected_text
-        .take()
+        .as_ref()
     {
         let char_count = text.chars().count();
-        match crate::clipboard::copy::copy_to_clipboard(&text) {
+        match crate::clipboard::copy::copy_to_clipboard(text) {
             Ok(lease) => app.global_ui.clipboard_lease = lease,
-            Err(err) => tracing::warn!("copy_panel_selection_to_clipboard failed: {err}"),
+            Err(err) => tracing::warn!("copy_screen_selection_to_clipboard failed: {err}"),
         }
         app.session_mgr.current_mut().ui.copy_char_count = char_count;
         app.session_mgr.current_mut().ui.copy_message_until =
             Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
-        app.session_mgr.current_mut().ui.panel_selection.clear();
         return true;
     }
     false

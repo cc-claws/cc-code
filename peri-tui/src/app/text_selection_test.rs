@@ -210,3 +210,135 @@ fn test_extract_panel_text_out_of_range() {
     let result = extract_panel_text((5, 0), (5, 3), &lines);
     assert_eq!(result, None);
 }
+
+// --- ScreenSelection / extract_snapshot_text tests ---
+
+/// 按 unicode_width 构造 ScreenSnapshot：宽字符的后续占位 cell 用空串（模拟 ratatui Buffer）。
+fn make_screen_snapshot(lines: &[&str]) -> ScreenSnapshot {
+    let expanded: Vec<Vec<String>> = lines
+        .iter()
+        .map(|line| {
+            let mut cells = Vec::new();
+            for c in line.chars() {
+                let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                cells.push(c.to_string());
+                for _ in 1..w {
+                    cells.push(String::new()); // 宽字符占位 cell，symbol 为 ""
+                }
+            }
+            cells
+        })
+        .collect();
+    let width = expanded.iter().map(|r| r.len()).max().unwrap_or(0);
+    let height = expanded.len();
+    let mut symbols = Vec::with_capacity(width * height);
+    for row in expanded {
+        for col in 0..width {
+            symbols.push(row.get(col).cloned().unwrap_or_else(|| " ".to_string()));
+        }
+    }
+    ScreenSnapshot {
+        symbols,
+        width,
+        height,
+    }
+}
+
+#[test]
+fn test_screen_selection_normalized_range_forward() {
+    let mut ss = ScreenSelection::default();
+    ss.start = Some((1, 2));
+    ss.end = Some((3, 5));
+    assert_eq!(ss.normalized_range(), Some((1, 2, 3, 5)));
+}
+
+#[test]
+fn test_screen_selection_normalized_range_swapped() {
+    let mut ss = ScreenSelection::default();
+    ss.start = Some((3, 5));
+    ss.end = Some((1, 2));
+    assert_eq!(ss.normalized_range(), Some((1, 2, 3, 5)));
+}
+
+#[test]
+fn test_screen_selection_normalized_range_empty() {
+    let ss = ScreenSelection::default();
+    assert_eq!(ss.normalized_range(), None);
+}
+
+#[test]
+fn test_screen_selection_is_active_after_copy() {
+    // 复制后 selected_text 被 take，但 start 仍在 → is_active 为真（高亮持续到点击他处）
+    let mut ss = ScreenSelection::default();
+    assert!(!ss.is_active());
+    ss.start_drag(2, 3);
+    assert!(ss.is_active());
+    ss.end_drag();
+    ss.set_selected_text(Some("text".into()));
+    assert!(ss.is_active());
+    ss.set_selected_text(None); // 模拟 copy 取走 selected_text
+    assert!(ss.is_active()); // start 仍在 → 高亮持续
+    ss.clear();
+    assert!(!ss.is_active());
+}
+
+#[test]
+fn test_extract_snapshot_text_single_line() {
+    let snap = make_screen_snapshot(&["Hello World"]);
+    // col 2..8（闭区间 [2,7]）= "llo Wo"
+    let result = extract_snapshot_text(&snap, (0, 2), (0, 7));
+    assert_eq!(result, Some("llo Wo".to_string()));
+}
+
+#[test]
+fn test_extract_snapshot_text_multi_line() {
+    let snap = make_screen_snapshot(&["Line0", "Line1", "Line2"]);
+    let result = extract_snapshot_text(&snap, (0, 0), (2, 4));
+    assert_eq!(result, Some("Line0\nLine1\nLine2".to_string()));
+}
+
+#[test]
+fn test_extract_snapshot_text_swapped() {
+    let snap = make_screen_snapshot(&["Line0", "Line1", "Line2"]);
+    let result = extract_snapshot_text(&snap, (2, 4), (0, 0));
+    assert_eq!(result, Some("Line0\nLine1\nLine2".to_string()));
+}
+
+#[test]
+fn test_extract_snapshot_text_partial_first_and_last() {
+    let snap = make_screen_snapshot(&["Hello", "World"]);
+    let result = extract_snapshot_text(&snap, (0, 2), (1, 2));
+    assert_eq!(result, Some("llo\nWor".to_string()));
+}
+
+#[test]
+fn test_extract_snapshot_text_cjk_placeholder() {
+    // "你好AB" → 你(2列)+好(2列)+A+B = 6 cells，占位 cell symbol 为 ""
+    let snap = make_screen_snapshot(&["你好AB"]);
+    // 全行提取：占位 cell 贡献空串，结果应为 "你好AB"（不重复、不漏字）
+    let result = extract_snapshot_text(&snap, (0, 0), (0, 5));
+    assert_eq!(result, Some("你好AB".to_string()));
+}
+
+#[test]
+fn test_extract_snapshot_text_cjk_multi_line() {
+    let snap = make_screen_snapshot(&["你好", "World"]);
+    let result = extract_snapshot_text(&snap, (0, 0), (1, 3));
+    assert_eq!(result, Some("你好\nWorl".to_string()));
+}
+
+#[test]
+fn test_extract_snapshot_text_trims_trailing_blank() {
+    // 行尾空白 trim_end；首尾空行剔除（保留视觉干净）
+    let snap = make_screen_snapshot(&["Hi  ", "    "]);
+    let result = extract_snapshot_text(&snap, (0, 0), (1, 3));
+    assert_eq!(result, Some("Hi".to_string()));
+}
+
+#[test]
+fn test_extract_snapshot_text_out_of_range() {
+    let snap = make_screen_snapshot(&["Hi"]);
+    // 起始行超出高度 → None
+    let result = extract_snapshot_text(&snap, (5, 0), (5, 3));
+    assert_eq!(result, None);
+}

@@ -368,6 +368,165 @@ pub fn extract_selected_text(
     }
 }
 
+// ── ScreenSnapshot / ScreenSelection：基于渲染 Buffer 的全局选区 ──────────────
+//
+// 覆盖消息区域以外的所有区域（面板/状态栏/sticky header/bg agent bar/空白）。
+// MouseUp 时从 ScreenSnapshot 提取选区文本复制到剪贴板，所见即所得。
+// 消息区域仍由 TextSelection（wrap_map 字符级精度）处理，两套系统互斥衔接。
+
+/// terminal.draw() 后克隆的 Buffer 文本快照，作为非消息区域选区的文本源。
+/// 仅存储每个 cell 的 symbol（轻量），不存 style。宽字符占位 cell 的 symbol 为 ""。
+#[derive(Debug, Clone)]
+pub struct ScreenSnapshot {
+    symbols: Vec<String>, // row-major：symbols[row * width + col]
+    width: usize,
+    height: usize,
+}
+
+impl ScreenSnapshot {
+    /// 从 ratatui Buffer 克隆出文本快照。
+    pub fn from_buffer(buffer: &ratatui::buffer::Buffer) -> Self {
+        let area = buffer.area;
+        let width = area.width as usize;
+        let height = area.height as usize;
+        let symbols = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol().to_string())
+            .collect();
+        Self {
+            symbols,
+            width,
+            height,
+        }
+    }
+
+    /// 取 (row, col) 处 cell 的 symbol；越界返回空串。
+    pub fn cell_symbol(&self, row: usize, col: usize) -> &str {
+        if row < self.height && col < self.width {
+            self.symbols[row * self.width + col].as_str()
+        } else {
+            ""
+        }
+    }
+}
+
+/// 屏幕选区状态，使用绝对屏幕坐标 (row, col)。
+#[derive(Debug, Clone, Default)]
+pub struct ScreenSelection {
+    /// 选区起始绝对坐标
+    pub start: Option<(u16, u16)>, // (row, col)
+    /// 选区结束绝对坐标
+    pub end: Option<(u16, u16)>,
+    /// 是否正在拖拽中
+    pub dragging: bool,
+    /// 选区对应的纯文本内容（松开鼠标后计算）
+    pub selected_text: Option<String>,
+}
+
+impl ScreenSelection {
+    /// 开始拖拽：记录起始绝对坐标，清除旧选区文本。
+    pub fn start_drag(&mut self, row: u16, col: u16) {
+        self.start = Some((row, col));
+        self.end = Some((row, col));
+        self.dragging = true;
+        self.selected_text = None;
+    }
+
+    /// 更新拖拽：更新结束绝对坐标。
+    pub fn update_drag(&mut self, row: u16, col: u16) {
+        if self.dragging {
+            self.end = Some((row, col));
+        }
+    }
+
+    /// 结束拖拽：标记拖拽结束，selected_text 由外部计算后通过 set_selected_text 设置。
+    pub fn end_drag(&mut self) {
+        self.dragging = false;
+    }
+
+    /// 设置提取后的选区文本。
+    pub fn set_selected_text(&mut self, text: Option<String>) {
+        self.selected_text = text;
+    }
+
+    /// 清除选区。
+    pub fn clear(&mut self) {
+        self.start = None;
+        self.end = None;
+        self.dragging = false;
+        self.selected_text = None;
+    }
+
+    /// 是否有活跃的选区（正在拖拽，或 start 仍在→复制后高亮持续到点击他处）。
+    pub fn is_active(&self) -> bool {
+        self.dragging || self.start.is_some()
+    }
+
+    /// 返回归一化后的矩形范围 (start_row, start_col, end_row, end_col)，自动 swap。
+    pub fn normalized_range(&self) -> Option<(u16, u16, u16, u16)> {
+        match (self.start, self.end) {
+            (Some(s), Some(e)) => {
+                if s <= e {
+                    Some((s.0, s.1, e.0, e.1))
+                } else {
+                    Some((e.0, e.1, s.0, s.1))
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+/// 从 ScreenSnapshot 提取选区文本（CJK 友好）。
+/// start/end 为绝对屏幕坐标 (row, col)，自动处理 start > end。
+/// 首行从 start_col 起、末行到 end_col 止，中间行整行；每行 trim_end 去尾部空白，
+/// 剔除首尾空行（保留中间空行以维持视觉结构）。宽字符占位 cell 的空 symbol 自然不贡献字符。
+pub fn extract_snapshot_text(
+    snapshot: &ScreenSnapshot,
+    start: (u16, u16),
+    end: (u16, u16),
+) -> Option<String> {
+    let ((sr, sc), (er, ec)) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    let sr = sr as usize;
+    let er = er as usize;
+    let sc = sc as usize;
+    let ec = ec as usize;
+    if sr > er || snapshot.height == 0 || snapshot.width == 0 {
+        return None;
+    }
+    let er = er.min(snapshot.height.saturating_sub(1));
+    let mut lines: Vec<String> = Vec::new();
+    for row in sr..=er {
+        let col_start = if row == sr { sc } else { 0 };
+        let col_end = if row == er {
+            (ec + 1).min(snapshot.width)
+        } else {
+            snapshot.width
+        };
+        let line: String = (col_start..col_end)
+            .map(|col| snapshot.cell_symbol(row, col).to_string())
+            .collect();
+        lines.push(line.trim_end().to_string());
+    }
+    // 剔除首尾空行
+    while lines.first().map(|s| s.is_empty()).unwrap_or(false) {
+        lines.remove(0);
+    }
+    while lines.last().map(|s| s.is_empty()).unwrap_or(false) {
+        lines.pop();
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
 #[cfg(test)]
 #[path = "text_selection_test.rs"]
 mod tests;
