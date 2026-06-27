@@ -27,6 +27,10 @@ pub struct HitlBatchPrompt {
     pub approved: Vec<bool>,
     /// 当前光标所在的行（工具索引）
     pub cursor: usize,
+    /// 渲染时记录的内容区可见行数（hitl_move 据此判断是否滚动）
+    pub last_visible_height: u16,
+    /// 当前滚动偏移（行）。Paragraph::scroll 用，让光标保持可见。
+    pub scroll_offset: u16,
     /// 回复 channel
     pub response_tx: tokio::sync::oneshot::Sender<Vec<HitlDecision>>,
 }
@@ -41,6 +45,8 @@ impl HitlBatchPrompt {
             items,
             approved: vec![true; len], // 默认全部批准
             cursor: 0,
+            last_visible_height: 0,
+            scroll_offset: 0,
             response_tx,
         }
     }
@@ -51,6 +57,25 @@ impl HitlBatchPrompt {
             return;
         }
         self.cursor = ((self.cursor as isize + delta).rem_euclid(len as isize)) as usize;
+        // 光标跟随：每项渲染 2 行（tool 名 + 参数预览），用 cursor_row = cursor*2
+        // 作为实际行号近似（足够防止光标移出可视区，误差 1-2 行可由 visible_height
+        // 的尾数吸收）。底部统计行 +1 但作为缓冲不纳入计算。
+        let cursor_row = (self.cursor as u16).saturating_mul(2);
+        let vis = if self.last_visible_height > 0 {
+            self.last_visible_height
+        } else {
+            10 // fallback：未渲染前用保守值
+        };
+        // 钳位到 [vis/3, vis*2/3] 区间，让光标大致在中间区域
+        let lower = vis / 3;
+        let upper = vis.saturating_sub(1);
+        if cursor_row < self.scroll_offset.saturating_add(lower) {
+            // 光标进入上方缓冲区，往上滚
+            self.scroll_offset = cursor_row.saturating_sub(lower);
+        } else if cursor_row >= self.scroll_offset + upper {
+            // 光标超出底部，往下滚
+            self.scroll_offset = cursor_row.saturating_sub(upper) + 1;
+        }
     }
 
     /// 切换当前项的批准/拒绝状态
