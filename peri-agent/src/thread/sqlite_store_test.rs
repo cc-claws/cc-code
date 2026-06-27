@@ -365,3 +365,36 @@
         assert_eq!(ctx[2].content(), "L2-a");
         assert_eq!(ctx[3].content(), "L3-a");
     }
+
+    /// #20：threads.db 创建后文件权限应为 0o600，父目录 0o700，
+    /// 防止同机其它账户读取对话历史。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_db_file_permissions_restricted_to_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("perm-test.db");
+        let _store = SqliteThreadStore::new(&db_path).await.unwrap();
+
+        let db_mode = std::fs::metadata(&db_path)
+            .expect("db file should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            db_mode & 0o777,
+            0o600,
+            "threads.db 文件权限应为 0o600，实际 0o{:o}",
+            db_mode
+        );
+
+        let dir_mode = std::fs::metadata(dir.path())
+            .expect("parent dir should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            dir_mode & 0o777,
+            0o700,
+            "父目录权限应为 0o700，实际 0o{:o}",
+            dir_mode
+        );
+    }
