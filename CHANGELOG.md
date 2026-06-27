@@ -4,6 +4,30 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.22 — 2026-06-27
+
+### Security
+
+- **MCP OAuth CSRF 防御**（#82）：回调服务器注入 rmcp 生成的 state 参数，纵深防御 CSRF 攻击
+- **Session UUID 校验**（#74）：`session/load` + `session/resume` 增加 UUID 格式校验和存在性校验，防止路径穿越
+- **文件权限加固**（#81）：history_persistence 文件权限 0600，grandparent 目录权限校验
+- **At-mention 目录注入防护**（#77）：防止 `@path` 引用越权访问
+- **工具输出截断加固**（#80）：防止超长输出绕过截断机制
+
+### Bug Fixes
+
+- **输入框鼠标乱码**（#88）：移除 `?1003h`（any-event tracking），防止 ConPTY 缓冲区溢出导致 SGR 鼠标转义序列泄漏为文本
+- **Windows Ctrl+C 双击退出**（#86）：100ms debounce 防止 ConPTY 重复事件
+- **AskUser 弹窗高度**（#76）：修复弹窗高度计算错误
+- **Tab 缩进编辑**（#76）：修复 tab 缩进文件的 Edit 工具匹配问题
+- **Grep offset 测试**（#86）：兼容 `persist_truncated_output` 附加行
+
+### Chore
+
+- npm 版本 bump 到 0.6.22
+
+---
+
 ## v0.6.21 — 2026-06-27
 
 ### Features
