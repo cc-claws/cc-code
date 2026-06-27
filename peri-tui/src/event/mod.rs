@@ -718,14 +718,31 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
                 if app.session_mgr.current_mut().ui.text_selection.dragging {
                     if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                        let visual_row = usize::from(mouse.row.saturating_sub(area.y))
-                            + app.session_mgr.current_mut().ui.scroll_offset;
+                        // Auto-scroll when dragging past viewport boundary
+                        // Speed scales with distance from viewport edge (1-5 lines per event)
+                        let ui = &mut app.session_mgr.current_mut().ui;
+                        let area_bottom = area.y + area.height;
+                        if mouse.row >= area_bottom {
+                            let distance = (mouse.row - area_bottom) as u32;
+                            let step = (1 + distance / 2).min(5) as usize;
+                            let max_scroll = ui.scrollbar_max_offset;
+                            let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+                            let next = ui.scroll_offset.saturating_add(step).min(max_scroll);
+                            ui.scroll_offset = next.max(min_scroll);
+                            ui.scroll_follow = next >= max_scroll;
+                        } else if mouse.row < area.y {
+                            let distance = (area.y - mouse.row) as u32;
+                            let step = (1 + distance / 2).min(5) as usize;
+                            let max_scroll = ui.scrollbar_max_offset;
+                            let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+                            ui.scroll_offset = ui.scroll_offset.saturating_sub(step).max(min_scroll);
+                            ui.scroll_follow = false;
+                        }
+                        let scroll_offset = ui.scroll_offset;
+                        let visual_row =
+                            usize::from(mouse.row.saturating_sub(area.y)) + scroll_offset;
                         let visual_col = mouse.column.saturating_sub(area.x);
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .text_selection
-                            .update_drag(visual_row, visual_col);
+                        ui.text_selection.update_drag(visual_row, visual_col);
                     }
                 }
                 // Textarea area: extend textarea selection
