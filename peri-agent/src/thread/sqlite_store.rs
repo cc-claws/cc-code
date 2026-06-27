@@ -23,6 +23,18 @@ const THREAD_META_COLUMNS: &str = "t.id, t.title, t.cwd, t.created_at, t.updated
     (SELECT COALESCE(SUM(LENGTH(m.content)), 0) FROM messages m WHERE m.thread_id = t.id) as content_size,
     t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy, t.config, NULL as cached_context, t.agent_status";
 
+/// Unix：把给定路径权限收回到 owner-only（文件 0o600、目录 0o700）。
+/// Windows / 其它平台无对应语义，函数为 no-op。
+#[cfg(unix)]
+fn restrict_to_owner_unix(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let target_mode = if path.is_dir() { 0o700 } else { 0o600 };
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(target_mode));
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner_unix(_path: &std::path::Path) {}
+
 /// 基于 SQLite 的 ThreadStore 实现
 ///
 /// 使用 WAL 模式提升并发读性能，sqlx SqlitePool 连接池管理并发。
@@ -38,6 +50,9 @@ impl SqliteThreadStore {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+            // 父目录收紧到 0o700：threads.db 包含完整对话历史（messages.content JSON），
+            // 同机任何账户默认 umask 0o022 下可读，禁止其它账户访问（#20）
+            restrict_to_owner_unix(parent);
         }
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
@@ -49,6 +64,9 @@ impl SqliteThreadStore {
             .max_connections(5)
             .connect_with(options)
             .await?;
+        // connect_with 后 db 文件已创建，立即把权限收到 0o600。
+        // WAL/SHM 文件由父目录 0o700 兜底保护。
+        restrict_to_owner_unix(&db_path);
         let store = Self { pool };
         store.init_schema().await?;
         Ok(store)
