@@ -125,7 +125,7 @@ fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Se
         total_folders, total_files
     ));
 
-    Ok(result)
+    Ok(crate::tools::output_persist::truncate_tool_output(&result))
 }
 
 #[async_trait::async_trait]
