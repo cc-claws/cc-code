@@ -947,7 +947,7 @@ mod tests {
                 let thumb_rows: Vec<u16> = (0..h)
                     .filter(|&r| {
                         buf.cell(Position::new(0, r))
-                            .map_or(false, |c| c.symbol() == "█")
+                            .is_some_and(|c| c.symbol() == "█")
                     })
                     .collect();
                 assert!(
@@ -972,7 +972,7 @@ mod tests {
                 let new_thumb_rows: Vec<u16> = (0..h)
                     .filter(|&r| {
                         buf2.cell(Position::new(0, r))
-                            .map_or(false, |c| c.symbol() == "█")
+                            .is_some_and(|c| c.symbol() == "█")
                     })
                     .collect();
                 let new_mid = new_thumb_rows[new_thumb_rows.len() / 2];
