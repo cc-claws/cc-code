@@ -96,6 +96,42 @@ fn build_not_found_hint(content: &str, old_string: &str) -> String {
     "建议先 Read 此文件获取最新内容再重试。".to_string()
 }
 
+/// 把字符串中每行行首的连续 4-空格组转换为 1 个 tab。
+/// 用于 tab 缩进文件场景：LLM 通常把 Read 出的 tab 错读为 4 空格，
+/// 这里把 old_string/new_string 行首空格转回 tab 以匹配原文风格。
+/// 非行首字符不动，行首不足 4 的余数空格保留。
+fn convert_leading_spaces_to_tabs(s: &str) -> String {
+    s.lines()
+        .map(|line| {
+            let stripped = line.trim_start_matches(' ');
+            let leading = line.len() - stripped.len();
+            let tabs = leading / 4;
+            let rem = leading % 4;
+            format!("{}{}{}", "\t".repeat(tabs), " ".repeat(rem), stripped)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 精确匹配失败时的 tab fallback：仅当文件本身用 tab 缩进，且把 old_string
+/// 行首空格转 tab 后能在文件中至少匹配到一处时启用。返回转换后的 (old, new)
+/// 用于后续替换；new 同步转换以保持文件的 tab 风格。否则返回 None，让上层
+/// 走原本的 not found 错误路径。
+/// 注：调用方负责按单次/replace_all 语义对结果做 unique 校验。
+fn try_tab_fallback(content: &str, old_string: &str, new_string: &str) -> Option<(String, String)> {
+    if !content.lines().any(|l| l.starts_with('\t')) {
+        return None;
+    }
+    let old_tabs = convert_leading_spaces_to_tabs(old_string);
+    if old_tabs == old_string {
+        return None;
+    }
+    if !content.contains(&old_tabs) {
+        return None;
+    }
+    Some((old_tabs, convert_leading_spaces_to_tabs(new_string)))
+}
+
 #[async_trait::async_trait]
 impl BaseTool for EditFileTool {
     fn name(&self) -> &str {
@@ -194,16 +230,25 @@ impl BaseTool for EditFileTool {
         };
 
         if replace_all {
-            if !content.contains(old_string) {
-                let hint = build_not_found_hint(&content, old_string);
-                return Err(format!(
-                    "Error: old_string not found in {}\n{hint}",
-                    resolved.display()
-                )
-                .into());
-            }
-            let new_content = content.replace(old_string, new_string);
-            let occurrences = content.matches(old_string).count();
+            let (new_content, occurrences) = if !content.contains(old_string) {
+                match try_tab_fallback(&content, old_string, new_string) {
+                    Some((old_tabs, new_tabs)) => {
+                        let n = content.matches(&old_tabs).count();
+                        (content.replace(&old_tabs, &new_tabs), n)
+                    }
+                    None => {
+                        let hint = build_not_found_hint(&content, old_string);
+                        return Err(format!(
+                            "Error: old_string not found in {}\n{hint}",
+                            resolved.display()
+                        )
+                        .into());
+                    }
+                }
+            } else {
+                let n = content.matches(old_string).count();
+                (content.replace(old_string, new_string), n)
+            };
             // 恢复原始行尾格式
             let final_content = if is_crlf {
                 new_content.replace('\n', "\r\n")
@@ -228,7 +273,24 @@ impl BaseTool for EditFileTool {
                 }
             }
         } else {
-            let occurrences = content.matches(old_string).count();
+            // tab fallback：精确匹配 0 次时尝试把 old/new 行首空格转 tab。
+            // 命中后用转换后的字符串重新计数，复用下面的 unique 校验路径。
+            let (old_eff, new_eff): (String, String) = if !content.contains(old_string) {
+                match try_tab_fallback(&content, old_string, new_string) {
+                    Some(pair) => pair,
+                    None => {
+                        let hint = build_not_found_hint(&content, old_string);
+                        return Err(format!(
+                            "Error: old_string not found in {}\n{hint}",
+                            resolved.display()
+                        )
+                        .into());
+                    }
+                }
+            } else {
+                (old_string.to_string(), new_string.to_string())
+            };
+            let occurrences = content.matches(old_eff.as_str()).count();
             if occurrences == 0 {
                 let hint = build_not_found_hint(&content, old_string);
                 return Err(format!(
@@ -239,11 +301,11 @@ impl BaseTool for EditFileTool {
             }
             if occurrences > 1 {
                 let locations: Vec<String> = content
-                    .match_indices(old_string)
+                    .match_indices(old_eff.as_str())
                     .take(10)
                     .map(|(offset, _)| {
                         let line = content[..offset].lines().count() + 1;
-                        let end_line = line + old_string.lines().count().saturating_sub(1);
+                        let end_line = line + old_eff.lines().count().saturating_sub(1);
                         if end_line > line {
                             format!("第 {}-{} 行", line, end_line)
                         } else {
@@ -269,7 +331,7 @@ impl BaseTool for EditFileTool {
                 )
                 .into());
             }
-            let new_content = content.replacen(old_string, new_string, 1);
+            let new_content = content.replacen(old_eff.as_str(), new_eff.as_str(), 1);
             // 恢复原始行尾格式
             let final_content = if is_crlf {
                 new_content.replace('\n', "\r\n")
