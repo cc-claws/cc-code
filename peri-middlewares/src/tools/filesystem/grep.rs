@@ -404,7 +404,7 @@ fn execute_search(
         }
     };
 
-    Ok(output)
+    Ok(crate::tools::output_persist::truncate_tool_output(&output))
 }
 
 #[async_trait::async_trait]
