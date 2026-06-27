@@ -58,15 +58,32 @@ impl SqliteThreadStore {
         {
             use std::os::unix::fs::PermissionsExt;
             let owner_only = std::fs::Permissions::from_mode(0o600);
+            let dir_only = std::fs::Permissions::from_mode(0o700);
             let _ = std::fs::set_permissions(&db_path, owner_only.clone());
+            // SQLite 的 WAL/SHM 后缀是 `threads.db-wal`（连字符），不是 `threads.db.wal`。
+            // with_extension("db-wal") 把扩展从 db 替换为 db-wal，得到正确路径。
             for suffix in ["wal", "shm"] {
-                let sidecar = db_path.with_extension(format!("db.{}", suffix));
+                let sidecar = db_path.with_extension(format!("db-{suffix}"));
                 if sidecar.exists() {
                     let _ = std::fs::set_permissions(&sidecar, owner_only.clone());
                 }
             }
+            // 修两层目录：~/.cc-code/threads/ 和 ~/.cc-code/ 都要 0o700
+            // （cc-claws review：原版只修了一层 parent，grandparent 漏修）
+            // grandparent 启发式：仅当目录名以 `.` 开头（隐藏配置目录）才 chmod，
+            // 避免测试环境下误把 /tmp 改成 0o700，也避免项目本地路径被改坏。
             if let Some(parent) = db_path.parent() {
-                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+                let _ = std::fs::set_permissions(parent, dir_only.clone());
+                if let Some(grandparent) = parent.parent() {
+                    let is_hidden = grandparent
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.starts_with('.'))
+                        .unwrap_or(false);
+                    if is_hidden {
+                        let _ = std::fs::set_permissions(grandparent, dir_only.clone());
+                    }
+                }
             }
         }
 
