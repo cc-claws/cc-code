@@ -438,6 +438,12 @@ fn handle_ctrl_c(app: &mut App) -> Option<Action> {
 
     // quit-pending: 2 秒内连按两次退出
     if let Some(since) = app.global_ui.quit_pending_since {
+        // 防抖：100ms 内的重复事件视为同一次按键，忽略。
+        // Windows Terminal (ConPTY) 下 ctrl_handler 注入的 KeyDown 与原生
+        // KeyDown 间隔约 0-1ms，不加防抖会误触发退出。
+        if since.elapsed() < std::time::Duration::from_millis(100) {
+            return None;
+        }
         if since.elapsed() < std::time::Duration::from_secs(2) {
             return Some(Action::Quit);
         } else {
@@ -717,6 +723,8 @@ mod tests {
             "空闲时应进入 quit-pending"
         );
 
+        // 等待超过防抖窗口（100ms），模拟真实双击
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         let result = handle_ctrl_c(&mut app);
         assert!(
             matches!(result, Some(Action::Quit)),
@@ -730,6 +738,8 @@ mod tests {
         let _ = handle_ctrl_c(&mut app);
         assert!(app.global_ui.quit_pending_since.is_some());
 
+        // 等待超过防抖窗口（100ms），模拟真实双击
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         // 输入框有内容，第二次 Ctrl+C 仍应退出
         app.session_mgr
             .current_mut()
