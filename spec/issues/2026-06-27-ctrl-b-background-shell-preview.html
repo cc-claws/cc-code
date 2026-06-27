@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cc-code — Ctrl+B Background Shell 效果图</title>
+<style>
+  :root {
+    --bg: #1e1e2e;
+    --bg-surface: #242434;
+    --bg-surface-2: #2a2a3a;
+    --bg-surface-3: #333344;
+    --text: #cdd6f4;
+    --text-dim: #6c7086;
+    --text-muted: #585b70;
+    --blue: #89b4fa;
+    --green: #a6e3a1;
+    --red: #f38ba8;
+    --yellow: #f9e2af;
+    --orange: #fab387;
+    --mauve: #cba6f7;
+    --teal: #94e2d5;
+    --border: #45475a;
+    --accent: #89b4fa;
+    --selection: #333344;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 40px 20px;
+  }
+
+  .container { max-width: 960px; margin: 0 auto; }
+
+  h1 {
+    font-size: 22px;
+    color: var(--orange);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+  }
+
+  .screen {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 40px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .screen-header {
+    background: var(--bg-surface-2);
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  .screen-title { color: var(--text-dim); margin-left: 6px; font-size: 11px; }
+  .screen-body { padding: 0; font-size: 13px; }
+
+  .section-label {
+    font-size: 15px;
+    color: var(--blue);
+    font-weight: 600;
+    margin: 32px 0 10px;
+  }
+  .section-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+
+  /* ── Terminal content ── */
+  .term { padding: 14px 18px; }
+  .term .dim { color: var(--text-dim); }
+  .term .muted { color: var(--text-muted); }
+  .term .blue { color: var(--blue); }
+  .term .green { color: var(--green); }
+  .term .red { color: var(--red); }
+  .term .yellow { color: var(--yellow); }
+  .term .orange { color: var(--orange); }
+  .term .mauve { color: var(--mauve); }
+  .term .teal { color: var(--teal); }
+  .term .bold { font-weight: 600; }
+  .term .inv {
+    background: var(--text);
+    color: var(--bg);
+    padding: 0 4px;
+    font-weight: 600;
+  }
+  .term .inv-blue {
+    background: var(--blue);
+    color: var(--bg);
+    padding: 0 6px;
+    font-weight: 600;
+    border-radius: 3px;
+  }
+  .term .pill {
+    background: var(--text);
+    color: var(--bg);
+    padding: 0 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .term .hint {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  kbd {
+    background: var(--bg-surface-3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 5px;
+    font-size: 11px;
+    font-family: inherit;
+    color: var(--text);
+  }
+
+  .sep { border-top: 1px solid var(--border); margin: 0; }
+
+  /* ── Panel ── */
+  .panel {
+    border-top: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .panel-header {
+    padding: 10px 18px 6px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-sub {
+    padding: 4px 18px 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .panel-body { padding: 8px 18px; }
+  .panel-footer {
+    border-top: 1px solid var(--border);
+    padding: 6px 18px;
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 16px;
+  }
+
+  .group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 0 4px;
+  }
+
+  .task-row {
+    padding: 3px 0 3px 0;
+    font-size: 13px;
+  }
+  .task-row.selected {
+    background: var(--selection);
+    border-radius: 3px;
+    padding: 3px 6px;
+    margin: 0 -6px;
+  }
+  .task-row .badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+    margin-left: 6px;
+  }
+  .badge.running { background: rgba(137,180,250,0.15); color: var(--blue); }
+  .badge.done { background: rgba(166,227,161,0.15); color: var(--green); }
+  .badge.killed { background: rgba(249,226,175,0.15); color: var(--yellow); }
+
+  /* ── Detail ── */
+  .detail-row {
+    font-size: 12px;
+    padding: 2px 0;
+  }
+  .detail-label { color: var(--text-dim); }
+  .output-box {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    background: var(--bg);
+    font-size: 12px;
+    line-height: 1.7;
+    height: 192px;
+    overflow-y: auto;
+    margin: 8px 0;
+  }
+  .output-foot {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--text);
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── Grid ── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 780px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .annotation {
+    background: var(--bg-surface-2);
+    border-left: 3px solid var(--orange);
+    padding: 10px 14px;
+    margin: 10px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .annotation strong { color: var(--orange); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>cc-code — Ctrl+B Background Shell 实现效果图</h1>
+<p class="subtitle">基于 ratatui TUI 框架 · 纯文本终端渲染 · 全平台</p>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SCREEN 1: 命令运行中，显示 Ctrl+B 提示 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section-label">场景 1：前台 Shell 运行中（超过 2 秒后显示提示）</div>
+<div class="section-note">agent 执行 npm test，运行超过 2 秒后底部出现 Ctrl+B 提示</div>
+
+<div class="screen">
+  <div class="screen-header">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <span class="screen-title">cc-code — ~/my-project</span>
+  </div>
+  <div class="screen-body">
+    <div class="term">
+      <div><span class="orange bold">cc-code</span><span class="dim">&gt;</span> Run the test suite for me</div>
+      <br>
+      <div><span class="orange bold">●</span> <span class="bold">Bash</span></div>
+      <div style="padding-left:16px"><span class="dim">❯</span> npm test</div>
+      <div style="padding-left:16px; margin-top:6px">
+        <span class="green">PASS</span> <span class="dim">src/utils/parser.test.ts</span><br>
+        <span class="green">PASS</span> <span class="dim">src/services/api.test.ts</span><br>
+        <span class="yellow">RUNS</span> <span class="dim">src/integration/e2e.test.ts</span> <span class="cursor"></span>
+      </div>
+      <div style="padding-left:16px; margin-top:8px">
+        <span class="dim">(</span><kbd>Ctrl+B</kbd> <span class="dim">to run in background)</span>
+        <span class="hint" style="margin-left:8px">← 运行超过 2 秒后出现</span>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="term" style="padding:8px 18px; display:flex; justify-content:space-between; align-items:center">
+      <div style="font-size:11px">
+        <span class="dim">sonnet-4</span>
+        <span class="dim" style="margin:0 8px">·</span>
+        <span class="dim">~/my-project</span>
+        <span class="dim" style="margin:0 8px">·</span>
+        <span class="dim">23k/200k tokens</span>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted)">
+        <kbd>Ctrl+P</kbd> palette · <kbd>?</kbd> help
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SCREEN 2: Ctrl+B 后，前台已后台化 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section-label">场景 2：Ctrl+B 后台化后，输入恢复</div>
+<div class="section-note">Bash 输出消失，底部出现后台任务 pill，用户可继续对话</div>
+
+<div class="screen">
+  <div class="screen-header">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <span class="screen-title">cc-code — ~/my-project</span>
+  </div>
+  <div class="screen-body">
+    <div class="term">
+      <div style="opacity:0.3"><span class="dim">· · ·</span></div>
+      <br>
+      <div><span class="orange bold">cc-code</span><span class="dim">&gt;</span> <span class="cursor"></span></div>
+    </div>
+    <div class="sep"></div>
+    <div class="term" style="padding:8px 18px; display:flex; justify-content:space-between; align-items:center">
+      <div style="font-size:11px; display:flex; align-items:center; gap:8px">
+        <span class="dim">sonnet-4</span>
+        <span class="dim">·</span>
+        <span class="pill">1 shell</span>
+        <span class="dim" style="margin-left:4px"><span class="hint">← inverse 样式（亮底暗字）</span></span>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted)">
+        <kbd>Ctrl+B</kbd> bg · <kbd>?</kbd> help
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="annotation">
+  <strong>交互要点：</strong>Ctrl+B 后聊天区域的 Bash 输出消失（转存到磁盘），用户可立即继续输入。底部 pill 实时显示后台任务数量和类型（<code>1 shell</code> / <code>2 shells</code> / <code>1 shell, 1 agent</code>）。按 <kbd>↓</kbd> 或点击 pill 打开 BackgroundTasksPanel。
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SCREEN 3: BackgroundTasksPanel — List 模式 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section-label">场景 3：BackgroundTasksPanel — 列表视图</div>
+<div class="section-note">按 ↓ 打开面板，分组显示所有后台任务</div>
+
+<div class="screen">
+  <div class="screen-header">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <span class="screen-title">Background tasks</span>
+  </div>
+  <div class="screen-body">
+    <div class="term" style="opacity:0.3; padding-bottom:4px">
+      <div><span class="dim">· · ·</span></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Background tasks</div>
+      <div class="panel-sub">1 active shell · 1 completed agent · 1 running remote agent</div>
+      <div class="panel-body">
+        <div class="group-label">Shells (1)</div>
+        <div class="task-row selected">
+          <span class="bold">▸</span> <span class="blue">npm test</span>
+          <span class="badge running">running</span>
+          <span class="dim" style="margin-left:8px">2m 15s</span>
+        </div>
+
+        <div style="height:8px"></div>
+        <div class="group-label">Local agents (1)</div>
+        <div class="task-row">
+          <span style="margin-left:12px" class="dim">explore "find test files"</span>
+          <span class="badge done">done</span>
+          <span class="dim" style="margin-left:8px">12s</span>
+        </div>
+
+        <div style="height:8px"></div>
+        <div class="group-label">Remote agents (1)</div>
+        <div class="task-row">
+          <span style="margin-left:12px" class="dim">◇ my-deploy-session</span>
+          <span class="badge running">running</span>
+          <span class="dim" style="margin-left:8px">5m 03s</span>
+        </div>
+      </div>
+      <div class="panel-footer">
+        <span><kbd>↑</kbd><kbd>↓</kbd> <span class="dim">select</span></span>
+        <span><kbd>Enter</kbd> <span class="dim">view</span></span>
+        <span><kbd>x</kbd> <span class="dim">stop</span></span>
+        <span><kbd>←</kbd> <span class="dim">close</span></span>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="term" style="padding:8px 18px; display:flex; justify-content:flex-end">
+      <div style="font-size:11px; color:var(--text-muted)">
+        <kbd>↑↓</kbd> navigate · <kbd>Enter</kbd> detail · <kbd>x</kbd> kill
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SCREEN 4: Shell Detail — Running vs Completed -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section-label">场景 4：Shell Detail 视图 — 运行中 vs 已完成</div>
+<div class="section-note">按 Enter 进入选中任务的详情，可查看实时输出</div>
+
+<div class="grid-2">
+  <!-- Running -->
+  <div class="screen">
+    <div class="screen-header">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="screen-title">Shell details — running</span>
+    </div>
+    <div class="screen-body">
+      <div class="panel" style="border-top:none">
+        <div class="panel-header">Shell details</div>
+        <div class="panel-body">
+          <div class="detail-row"><span class="detail-label">Status:</span> <span class="inv-blue">running</span></div>
+          <div class="detail-row"><span class="detail-label">Runtime:</span> 2m 15s</div>
+          <div class="detail-row"><span class="detail-label">Command:</span> <span class="blue">npm test</span></div>
+          <div style="height:6px"></div>
+          <div class="detail-label">Output:</div>
+          <div class="output-box">
+            <div><span class="green">PASS</span>  src/utils/parser.test.ts</div>
+            <div><span class="green">PASS</span>  src/services/api.test.ts</div>
+            <div><span class="green">PASS</span>  src/hooks/useAuth.test.ts</div>
+            <div><span class="yellow">RUNS</span>  src/integration/e2e.test.ts</div>
+            <div class="dim">  ✓ should handle login flow (1234ms)</div>
+            <div class="dim">  ✓ should handle error cases (567ms)</div>
+            <div class="dim">  ○ should validate tokens</div>
+            <div><span class="cursor"></span></div>
+          </div>
+          <div class="output-foot">Showing 8 lines of 45.2 KB</div>
+        </div>
+        <div class="panel-footer">
+          <span><kbd>←</kbd> <span class="dim">back</span></span>
+          <span><kbd>Esc</kbd> <span class="dim">close</span></span>
+          <span><kbd>x</kbd> <span class="dim">stop</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Completed -->
+  <div class="screen">
+    <div class="screen-header">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <span class="screen-title">Shell details — completed</span>
+    </div>
+    <div class="screen-body">
+      <div class="panel" style="border-top:none">
+        <div class="panel-header">Shell details</div>
+        <div class="panel-body">
+          <div class="detail-row"><span class="detail-label">Status:</span> <span class="green bold">completed</span></div>
+          <div class="detail-row"><span class="detail-label">Runtime:</span> 3m 42s</div>
+          <div class="detail-row"><span class="detail-label">Command:</span> <span class="blue">npm test</span></div>
+          <div style="height:6px"></div>
+          <div class="detail-label">Output:</div>
+          <div class="output-box">
+            <div><span class="green">PASS</span>  src/utils/parser.test.ts</div>
+            <div><span class="green">PASS</span>  src/services/api.test.ts</div>
+            <div><span class="green">PASS</span>  src/hooks/useAuth.test.ts</div>
+            <div><span class="green">PASS</span>  src/integration/e2e.test.ts</div>
+            <div class="dim">Test Suites: <span class="green">4 passed</span>, 4 total</div>
+            <div class="dim">Tests:       <span class="green">23 passed</span>, 23 total</div>
+            <div class="dim">Time:        3.42s</div>
+          </div>
+          <div class="output-foot">Showing 7 lines of 12.8 KB</div>
+        </div>
+        <div class="panel-footer">
+          <span><kbd>←</kbd> <span class="dim">back</span></span>
+          <span><kbd>Esc</kbd> <span class="dim">close</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SCREEN 5: 任务完成通知 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section-label">场景 5：后台任务完成 → 自动通知 Agent</div>
+<div class="section-note">命令退出后，系统自动注入通知消息，agent 继续推理</div>
+
+<div class="screen">
+  <div class="screen-header">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <span class="screen-title">cc-code — ~/my-project</span>
+  </div>
+  <div class="screen-body">
+    <div class="term">
+      <div><span class="orange bold">cc-code</span><span class="dim">&gt;</span> Run the test suite for me</div>
+      <br>
+      <div style="opacity:0.4"><span class="dim">● Bash · npm test · (moved to background)</span></div>
+      <br>
+      <div class="dim" style="border-left:2px solid var(--teal); padding-left:10px; font-size:12px">
+        <span class="teal bold">[System]</span> Background task completed<br>
+        <span class="dim">command: npm test<br>status: completed (exit 0)<br>output: /tmp/peri-1000/.../tasks/b8f3a2c1.output</span>
+      </div>
+      <br>
+      <div><span class="mauve bold">●</span> <span class="bold">Assistant</span></div>
+      <div style="padding-left:16px; margin-top:4px; font-size:13px">
+        All 4 test suites passed with 23 tests total. The test suite completed successfully in 3.42 seconds. Here's a summary:
+      </div>
+      <div style="padding-left:16px; margin-top:6px; font-size:12px">
+        <div>• <span class="green">parser.test.ts</span> — passed</div>
+        <div>• <span class="green">api.test.ts</span> — passed</div>
+        <div>• <span class="green">useAuth.test.ts</span> — passed</div>
+        <div>• <span class="green">e2e.test.ts</span> — passed</div>
+      </div>
+      <div style="padding-left:16px; margin-top:8px; font-size:13px">
+        All tests are passing. Would you like me to check anything specific?
+        <span class="cursor"></span>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="term" style="padding:8px 18px; display:flex; justify-content:space-between; align-items:center">
+      <div style="font-size:11px">
+        <span class="dim">sonnet-4</span>
+        <span class="dim" style="margin:0 8px">·</span>
+        <span class="dim">~/my-project</span>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted)">
+        <kbd>Ctrl+B</kbd> bg · <kbd>?</kbd> help
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="annotation">
+  <strong>通知流程：</strong>后台命令退出 → <code>enqueue_shell_notification()</code> 生成结构化通知 → 通过 <code>app.submit_message()</code> 注入为 user message → agent 自动读取 <code>output_path</code> 获取完整输出 → 继续推理。用户全程无感知，对话自然衔接。
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SCREEN 6: Stall Watchdog 通知 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section-label">场景 6：Stall Watchdog 检测到命令卡住</div>
+<div class="section-note">后台命令 45 秒无输出 + 末行匹配 prompt 模式 → 通知 agent</div>
+
+<div class="screen">
+  <div class="screen-header">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <span class="screen-title">cc-code — ~/my-project</span>
+  </div>
+  <div class="screen-body">
+    <div class="term">
+      <div style="opacity:0.4"><span class="dim">● Bash · rm -i node_modules/ · (moved to background)</span></div>
+      <br>
+      <div class="dim" style="border-left:2px solid var(--yellow); padding-left:10px; font-size:12px">
+        <span class="yellow bold">[Watchdog]</span> Background task appears to be waiting for input<br>
+        <span class="dim">command: rm -i node_modules/<br>last output: "remove directory 'node_modules'?" (y/n)<br>suggestion: provide input via stdin or kill the task</span>
+      </div>
+      <br>
+      <div><span class="mauve bold">●</span> <span class="bold">Assistant</span></div>
+      <div style="padding-left:16px; margin-top:4px; font-size:13px">
+        The <code>rm -i</code> command is waiting for confirmation. Since it's running in background, I'll provide the input automatically:
+      </div>
+      <div style="padding-left:16px; margin-top:6px; font-size:12px">
+        <span class="dim">❯</span> <span class="yellow">echo "y" | rm -i node_modules/</span> <span class="hint">(providing stdin input)</span>
+        <span class="cursor"></span>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="term" style="padding:8px 18px; display:flex; justify-content:flex-end">
+      <div style="font-size:11px; color:var(--text-muted)">
+        <kbd>Ctrl+B</kbd> bg · <kbd>?</kbd> help
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 差异说明 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section-label" style="margin-top:48px">与 Claude Code (TS) 的设计差异</div>
+
+<div class="screen">
+  <div class="screen-header">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <span class="screen-title">Architecture Differences</span>
+  </div>
+  <div class="screen-body">
+    <div class="term" style="font-size:12px; line-height:1.8">
+      <div><span class="orange bold">1. Panel vs Dialog</span></div>
+      <div style="padding-left:16px; margin-bottom:12px">
+        <span class="dim">Claude Code:</span> BackgroundTasksDialog 是 <span class="blue">modal overlay</span>（弹窗覆盖在聊天区上方）<br>
+        <span class="dim">cc-code:</span> BackgroundTasksPanel 是 <span class="blue">PanelComponent</span>（替换屏幕下半部分，聊天区被压缩）<br>
+        <span class="hint">原因：peri 的 PanelManager 只支持同时打开 1 个 panel，无 overlay 层级</span>
+      </div>
+
+      <div><span class="orange bold">2. Ctrl+B → 输出 channel 切换（进程不中断）</span></div>
+      <div style="padding-left:16px; margin-bottom:12px">
+        <span class="dim">Claude Code:</span> <span class="blue">shellCommand.background()</span> 断开 UI 监听，进程继续运行，输出转存 DiskTaskOutput<br>
+        <span class="dim">cc-code:</span> <span class="blue">output_rx channel 切换</span> 进程不中断，输出从 UI 渲染切换到 DiskOutputWriter 写磁盘<br>
+        <span class="hint">流式输出改造（execute_shell_command_streaming）是前置依赖，stdout/stderr 通过 mpsc channel 推送</span>
+      </div>
+
+      <div><span class="orange bold">3. ↓ to view 条件</span></div>
+      <div style="padding-left:16px; margin-bottom:12px">
+        <span class="dim">Claude Code:</span> <span class="blue">· ↓ to view</span> 仅在单个 ultraplan remote agent + phase=needs_input/plan_ready 时显示<br>
+        <span class="dim">cc-code:</span> 有后台任务时始终显示 <span class="blue">· ↓ to view</span>（更简单，但信息密度略低）<br>
+        <span class="hint">原因：peri 暂无 ultraplan 概念，简化为始终可访问</span>
+      </div>
+
+      <div><span class="orange bold">4. 输出框边框</span></div>
+      <div style="padding-left:16px; margin-bottom:12px">
+        <span class="dim">Claude Code:</span> <span class="blue">borderStyle="round"</span>（Ink 原生圆角边框）<br>
+        <span class="dim">cc-code:</span> <span class="blue">Block::bordered().border_type(BorderType::Rounded)</span>（ratatui >= 0.26 支持）<br>
+        <span class="hint">视觉一致，实现方式不同</span>
+      </div>
+
+      <div><span class="orange bold">5. 通知格式</span></div>
+      <div style="padding-left:16px">
+        <span class="dim">Claude Code:</span> <span class="blue">&lt;task-notification&gt;</span> XML 标签包裹（结构化，agent 可解析）<br>
+        <span class="dim">cc-code:</span> <span class="blue">[Background Task Completed]</span> 纯文本前缀（简单，但 agent 需要正则解析）<br>
+        <span class="hint">建议后续改为结构化格式（JSON 或 XML），便于 agent 精确解析</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
