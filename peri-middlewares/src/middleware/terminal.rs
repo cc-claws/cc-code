@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
 use serde_json::Value;
 use std::process::Stdio;
+#[cfg(windows)]
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
 
@@ -372,7 +373,8 @@ impl BaseTool for BashTool {
         #[cfg(not(windows))]
         let temp_msg_files: Vec<String> = Vec::new();
 
-        // 记录 cmd 开始时间，用于计算 fallback 剩余超时
+        // 记录 cmd 开始时间，用于计算 fallback 剩余超时（仅 Windows fallback 需要）
+        #[cfg(windows)]
         let cmd_start = Instant::now();
 
         let result = timeout(Duration::from_millis(timeout_ms), {
