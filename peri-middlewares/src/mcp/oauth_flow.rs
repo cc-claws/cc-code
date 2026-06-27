@@ -11,18 +11,6 @@ use super::{
 };
 use rmcp::transport::auth::{AuthError, OAuthState};
 
-/// 从授权 URL 中提取 `state` 查询参数。
-/// 用于把 rmcp OAuthState 生成的 CSRF token 传给本地回调服务器做前置校验（#16）。
-fn extract_state_param_from_url(authorization_url: &str) -> Option<String> {
-    let parsed: url::Url = authorization_url.parse().ok()?;
-    for (k, v) in parsed.query_pairs() {
-        if k == "state" {
-            return Some(v.into_owned());
-        }
-    }
-    None
-}
-
 /// OAuth 回调结果（从 TUI 传回后台 OAuth 流程）
 pub struct OAuthCallbackResult {
     /// 授权码
