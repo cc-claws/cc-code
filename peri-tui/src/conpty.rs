@@ -105,8 +105,10 @@ pub const ENABLE_MOUSE_TRACKING_SEQUENCE: &str = concat!(
     "\x1b[?1000h",
     // Button-event tracking: drag events.
     "\x1b[?1002h",
-    // Any-event tracking: hover/drag parity with crossterm's ANSI path.
-    "\x1b[?1003h",
+    // NOTE: ?1003h (any-event tracking / hover) intentionally omitted.
+    // It causes a mouse-event flood during agent execution pauses, overflowing
+    // the ConPTY input buffer and leaking raw SGR bytes as Key(Char) events
+    // into the textarea. ?1002h already covers drag; hover is unused by the TUI.
     // RXVT coordinate mode.
     "\x1b[?1015h",
     // SGR coordinate mode.
@@ -116,7 +118,6 @@ pub const ENABLE_MOUSE_TRACKING_SEQUENCE: &str = concat!(
 pub const DISABLE_MOUSE_TRACKING_SEQUENCE: &str = concat!(
     "\x1b[?1006l",
     "\x1b[?1015l",
-    "\x1b[?1003l",
     "\x1b[?1002l",
     "\x1b[?1000l",
 );
@@ -226,7 +227,7 @@ mod tests {
     fn enable_sequence_enables_mouse_modes() {
         assert_eq!(
             ENABLE_MOUSE_TRACKING_SEQUENCE,
-            "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h"
+            "\x1b[?1000h\x1b[?1002h\x1b[?1015h\x1b[?1006h"
         );
     }
 
@@ -234,7 +235,7 @@ mod tests {
     fn disable_sequence_reverses_mouse_modes() {
         assert_eq!(
             DISABLE_MOUSE_TRACKING_SEQUENCE,
-            "\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l"
+            "\x1b[?1006l\x1b[?1015l\x1b[?1002l\x1b[?1000l"
         );
     }
 
