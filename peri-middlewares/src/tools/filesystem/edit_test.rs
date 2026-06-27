@@ -291,3 +291,89 @@
         let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "baz\r\nbar\r\nbaz\r\n", "replace_all 后应保持 CRLF");
     }
+
+    #[tokio::test]
+    async fn test_edit_tab_indented_file_with_space_old_string_single() {
+        // 文件用 tab 缩进，LLM 给的 old_string 用 4 空格（精确匹配失败）。
+        // tab fallback 应转换并命中唯一一处，写回时保持 tab 风格。
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.py"), "\tdef foo():\n\tpass\n").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({
+            "file_path": "f.py",
+            "old_string": "    def foo():\n    pass\n",
+            "new_string": "    def foo():\n    return 1\n"
+        }))
+        .await
+        .expect("tab fallback 命中时应成功");
+        let content = std::fs::read_to_string(dir.path().join("f.py")).unwrap();
+        assert_eq!(content, "\tdef foo():\n\treturn 1\n", "写回应保持 tab 缩进");
+    }
+
+    #[tokio::test]
+    async fn test_edit_tab_indented_file_with_space_old_string_replace_all() {
+        // replace_all 路径也应支持 tab fallback
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.py"), "\tprint('a')\n\tprint('a')\n").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({
+            "file_path": "f.py",
+            "old_string": "    print('a')",
+            "new_string": "    print('b')",
+            "replace_all": true
+        }))
+        .await
+        .expect("replace_all + tab fallback 应成功");
+        let content = std::fs::read_to_string(dir.path().join("f.py")).unwrap();
+        assert_eq!(content, "\tprint('b')\n\tprint('b')\n", "两处都应替换且保持 tab");
+    }
+
+    #[tokio::test]
+    async fn test_edit_tab_fallback_skipped_when_no_tab_in_file() {
+        // 文件不含 tab 时不应启用 fallback，按原 not found 报错
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.py"), "    def foo():\n        pass\n").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.py",
+                "old_string": "        return 1\n",
+                "new_string": "x"
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not found"), "应报 not found: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_edit_tab_fallback_skipped_when_ambiguous() {
+        // 转换后多次匹配应按 not unique 路径报错，不静默替换
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.py"), "\tfoo\n\tfoo\n").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.py",
+                "old_string": "    foo",
+                "new_string": "    bar"
+            }))
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("not unique"), "应报 not unique: {msg}");
+    }
+
+    #[test]
+    fn test_convert_leading_spaces_to_tabs_basic() {
+        assert_eq!(convert_leading_spaces_to_tabs("    a"), "\ta");
+        assert_eq!(convert_leading_spaces_to_tabs("        b"), "\t\tb");
+        // 余数空格保留
+        assert_eq!(convert_leading_spaces_to_tabs("     c"), "\t c");
+        // 行中空格不动
+        assert_eq!(convert_leading_spaces_to_tabs("    a b    c"), "\ta b    c");
+        // 多行
+        assert_eq!(
+            convert_leading_spaces_to_tabs("    x\n        y"),
+            "\tx\n\t\ty"
+        );
+    }

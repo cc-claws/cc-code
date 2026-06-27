@@ -455,7 +455,14 @@ pub fn build_agent(
                 "",
                 permission_mode.clone(),
                 provider_name.clone(),
-                hook_session_start && i == 0,
+                // 首个 hook 组在 session 首次 prompt 时触发 SessionStart，
+                // source 默认为 "startup"。resume/clear/compact 场景的细分
+                // 由调用方（execute_prompt 之上）后续传入，当前保持向后兼容。
+                if hook_session_start && i == 0 {
+                    Some("startup".to_string())
+                } else {
+                    None
+                },
             );
             executor = executor.add_middleware(Box::new(mw));
         }

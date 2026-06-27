@@ -965,8 +965,15 @@ async fn test_grep_files_without_matches_with_offset() {
     );
     assert!(lines[1].ends_with("b.txt"), "slice 第 1 项: {result}");
     assert!(lines[2].ends_with("c.txt"), "slice 第 2 项: {result}");
-    assert!(!result.contains("a.txt"), "a.txt 应被 offset 跳过: {result}");
-    assert!(!result.contains("z.txt"), "z.txt 有匹配，不应出现在无匹配列表: {result}");
+    // 验证 offset 跳过的文件不在结果中（用 ends_with 避免 persist hint 路径误匹配）
+    assert!(
+        !lines.iter().skip(1).any(|l| l.ends_with("a.txt")),
+        "a.txt 应被 offset 跳过: {result}"
+    );
+    assert!(
+        !lines.iter().skip(1).any(|l| l.ends_with("z.txt")),
+        "z.txt 有匹配，不应出现在无匹配列表: {result}"
+    );
 }
 
 /// head_limit=0（unlimited）+ offset>0 边界组合

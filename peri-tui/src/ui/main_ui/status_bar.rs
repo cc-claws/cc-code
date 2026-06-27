@@ -70,9 +70,21 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     ));
 
     // Git 分支 — 对齐 Claude Hub: git:( MAGENTA + branch CYAN + ) MAGENTA
+    // loading 期间跳过子进程刷新，避免 `git rev-parse` 阻塞渲染线程导致抖动
     {
+        let loading = app.session_mgr.current().ui.loading;
         let mut cache = app.services.git_branch_cache.lock();
-        if let Some(branch) = cache.get_or_refresh(&app.services.cwd) {
+        if loading {
+            // 仅返回缓存值，不触发子进程
+            if let Some(branch) = cache.get_cached() {
+                spans.push(Span::styled(" git:(", Style::default().fg(theme::MAGENTA)));
+                spans.push(Span::styled(
+                    branch.to_string(),
+                    Style::default().fg(theme::CYAN),
+                ));
+                spans.push(Span::styled(")", Style::default().fg(theme::MAGENTA)));
+            }
+        } else if let Some(branch) = cache.get_or_refresh(&app.services.cwd) {
             spans.push(Span::styled(" git:(", Style::default().fg(theme::MAGENTA)));
             spans.push(Span::styled(
                 branch.to_string(),

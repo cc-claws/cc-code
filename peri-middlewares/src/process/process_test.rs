@@ -1,5 +1,6 @@
 use crate::process::{
-    git_bash_command, git_bash_path, is_unrecognized_command_error, shell_command,
+    git_bash_command, git_bash_path, is_unrecognized_command_error, should_fallback_to_bash,
+    shell_command,
 };
 use std::path::Path;
 
@@ -166,4 +167,126 @@ fn test_git_bash_path_returns_none_on_non_windows_or_missing() {
     // 但必须不 panic、且多次调用返回同一结果（OnceLock 缓存）。
     let path2 = git_bash_path();
     assert_eq!(path, path2, "OnceLock 缓存失效，两次结果不一致");
+}
+
+// ── 多语言 is_unrecognized_command_error 测试 ──────────────────────
+
+#[test]
+fn test_is_unrecognized_command_error_chinese() {
+    assert!(
+        is_unrecognized_command_error(
+            "'grep' 不是内部或外部命令，也不是可运行的程序\r\n或批处理文件。"
+        ),
+        "应命中中文 Windows stderr"
+    );
+}
+
+#[test]
+fn test_is_unrecognized_command_error_french() {
+    assert!(
+        is_unrecognized_command_error(
+            "'grep' n'est pas reconnu en tant que commande interne"
+        ),
+        "应命中法语 Windows stderr"
+    );
+}
+
+#[test]
+fn test_is_unrecognized_command_error_german() {
+    assert!(
+        is_unrecognized_command_error(
+            "'grep' nicht als Befehl erkannt"
+        ),
+        "应命中德语 Windows stderr"
+    );
+}
+
+// ── should_fallback_to_bash 测试 ──────────────────────────────────
+
+#[test]
+fn test_should_fallback_exit_code_zero_never_fallback() {
+    // exit code = 0 时不触发 fallback，即使 stderr 有特征字符串
+    assert!(
+        !should_fallback_to_bash(0, "output", "is not recognized"),
+        "exit code 0 不应 fallback"
+    );
+}
+
+#[test]
+fn test_should_fallback_keyword_match() {
+    // exit ≠ 0 + stderr 匹配关键词 → fallback
+    assert!(should_fallback_to_bash(
+        1,
+        "",
+        "'grep' is not recognized as an internal or external command"
+    ));
+    assert!(should_fallback_to_bash(
+        1,
+        "some output",
+        "'grep' 不是内部或外部命令，也不是可运行的程序"
+    ));
+}
+
+#[test]
+fn test_should_fallback_fallback_pattern() {
+    // 兜底：exit ≠ 0 + 无 stdout + 短 stderr（未知语言 Windows）
+    assert!(
+        should_fallback_to_bash(1, "", "some short error"),
+        "应触发兜底 fallback"
+    );
+}
+
+#[test]
+fn test_should_fallback_no_fallback_real_script_error() {
+    // 真正的脚本错误：有 stdout 或 stderr 太长 → 不 fallback
+    assert!(
+        !should_fallback_to_bash(1, "some output", "some short error"),
+        "有 stdout 时不应兜底 fallback"
+    );
+    let long_stderr = "x".repeat(200);
+    assert!(
+        !should_fallback_to_bash(1, "", &long_stderr),
+        "stderr ≥ 200 bytes 时不应兜底 fallback"
+    );
+}
+
+#[test]
+fn test_should_fallback_no_fallback_normal_error() {
+    // 普通错误（如 Permission denied）：有 stdout + 长 stderr → 不 fallback
+    assert!(!should_fallback_to_bash(
+        1,
+        "some output",
+        "Permission denied"
+    ));
+}
+
+#[test]
+fn test_should_fallback_empty_stderr() {
+    // exit ≠ 0 但 stderr 为空 → 不 fallback（兜底要求 stderr 非空）
+    assert!(
+        !should_fallback_to_bash(1, "", ""),
+        "空 stderr 不应触发兜底 fallback"
+    );
+}
+
+// ── MSYS_NO_PATHCONV 测试 ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_git_bash_command_sets_msys_no_pathconv() {
+    // 通过实际执行验证 MSYS_NO_PATHCONV 环境变量已注入
+    let bash_path = Path::new("bash");
+    let mut cmd = git_bash_command(bash_path, "echo $MSYS_NO_PATHCONV", &[]);
+    let output = cmd.output().await;
+    match output {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.trim() == "1",
+                "MSYS_NO_PATHCONV 应为 1，实际: {}",
+                stdout.trim()
+            );
+        }
+        // bash 不可用时跳过（非 Windows CI 环境可能没有 bash）
+        _ => {}
+    }
 }
