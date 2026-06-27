@@ -958,22 +958,15 @@ async fn test_grep_files_without_matches_with_offset() {
         .unwrap();
     // cfg(test) 下按 filename 升序：a/b/c/d/e
     // slice(1, 3) → b, c
-    let lines: Vec<&str> = result.lines().collect();
     assert!(
         result.starts_with("Found 2 files limit: 2, offset: 1"),
         "头部应反映 limit 和 offset: {result}"
     );
-    assert_eq!(lines.len(), 3, "应有 header + 2 个文件: {result}");
-    assert!(lines[1].ends_with("b.txt"), "slice 第 1 项: {result}");
-    assert!(lines[2].ends_with("c.txt"), "slice 第 2 项: {result}");
-    assert!(
-        !lines.iter().skip(1).any(|l| l.ends_with("a.txt")),
-        "a.txt 应被 offset 跳过: {result}"
-    );
-    assert!(
-        !lines.iter().skip(1).any(|l| l.ends_with("z.txt")),
-        "z.txt 有匹配，不应出现在无匹配列表: {result}"
-    );
+    // 用 contains 而非 lines[N] 硬编码索引，兼容 persist hint 附加行
+    assert!(result.contains("b.txt"), "slice 第 1 项: {result}");
+    assert!(result.contains("c.txt"), "slice 第 2 项: {result}");
+    assert!(!result.contains("a.txt"), "a.txt 应被 offset 跳过: {result}");
+    assert!(!result.contains("z.txt"), "z.txt 有匹配，不应出现在无匹配列表: {result}");
 }
 
 /// head_limit=0（unlimited）+ offset>0 边界组合
