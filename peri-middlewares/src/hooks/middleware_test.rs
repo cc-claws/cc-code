@@ -308,7 +308,7 @@ async fn test_before_agent_session_start_controlled_by_flag() {
 
     let registered = make_registered(HookEvent::SessionStart, hook);
 
-    // is_session_start=true → SessionStart fires → blocks
+    // session_start_source=Some → SessionStart fires → blocks
     let mw = HookMiddleware::with_session_start(
         vec![registered.clone()],
         make_llm_factory(),
@@ -317,14 +317,14 @@ async fn test_before_agent_session_start_controlled_by_flag() {
         "/test/transcript.json",
         SharedPermissionMode::new(PermissionMode::Bypass),
         "opus",
-        true,
+        Some("startup".to_string()),
     );
     let mut state = peri_agent::agent::state::AgentState::new("/test");
     state.add_message(BaseMessage::human("first"));
     let result = mw.before_agent(&mut state).await;
     assert!(result.is_err());
 
-    // is_session_start=false → SessionStart skipped → ok
+    // session_start_source=None → SessionStart skipped → ok
     let mw2 = HookMiddleware::with_session_start(
         vec![registered],
         make_llm_factory(),
@@ -333,7 +333,7 @@ async fn test_before_agent_session_start_controlled_by_flag() {
         "/test/transcript.json",
         SharedPermissionMode::new(PermissionMode::Bypass),
         "opus",
-        false,
+        None,
     );
     let mut state2 = peri_agent::agent::state::AgentState::new("/test");
     state2.add_message(BaseMessage::human("second"));
