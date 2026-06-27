@@ -89,6 +89,7 @@ impl SessionManager {
 
     /// 使用指定 session_id 创建会话（用于 session/load 和 session/resume）
     pub async fn new_session_with_id(&self, session_id: &str, cwd: &str) -> anyhow::Result<()> {
+        validate_session_id_format(session_id)?;
         if self.inner.sessions.contains_key(session_id) {
             return Ok(());
         }
@@ -247,4 +248,14 @@ impl AcpSession {
             runtime.cancel_token.cancel();
         }
     }
+}
+
+/// 校验 sessionId 是合法 UUID 格式。
+///
+/// ThreadId 是 String 类型，未做格式校验会让任意字符串（含路径穿越尝试、
+/// 文本垃圾）直接进入 SQLite 主键查询。UUID 校验是最低门槛的安全防线。
+pub fn validate_session_id_format(id: &str) -> anyhow::Result<()> {
+    uuid::Uuid::parse_str(id)
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("sessionId must be a valid UUID: {e}"))
 }
