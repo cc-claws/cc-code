@@ -99,7 +99,10 @@ impl App {
         self.session_mgr.current_mut().ui.scroll_follow = true;
         self.session_mgr.current_mut().todo_items.clear();
 
-        // 开始计时新任务
+        // 开始计时新任务——清理上一个 prompt 可能残留的 cancel 状态。
+        // 不清理会导致 poll_agent() 5s 超时兜底误触发 cleanup_agent_state()，
+        // 把 AskUser 弹窗等交互状态清空（issue #32）。
+        self.session_mgr.current_mut().agent.cancel_sent_at = None;
         self.session_mgr.current_mut().agent.task_start_time = Some(std::time::Instant::now());
         self.session_mgr.current_mut().agent.last_task_duration = None;
         if self
@@ -294,7 +297,10 @@ impl App {
         self.session_mgr.current_mut().ui.scroll_follow = true;
         self.session_mgr.current_mut().todo_items.clear();
 
-        // 开始计时新任务
+        // 开始计时新任务——清理上一个 prompt 可能残留的 cancel 状态。
+        // 不清理会导致 poll_agent() 5s 超时兜底误触发 cleanup_agent_state()，
+        // 把 AskUser 弹窗等交互状态清空（issue #32）。
+        self.session_mgr.current_mut().agent.cancel_sent_at = None;
         self.session_mgr.current_mut().agent.task_start_time = Some(std::time::Instant::now());
         self.session_mgr.current_mut().agent.last_task_duration = None;
         if self
