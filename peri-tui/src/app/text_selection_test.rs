@@ -246,17 +246,21 @@ fn make_screen_snapshot(lines: &[&str]) -> ScreenSnapshot {
 
 #[test]
 fn test_screen_selection_normalized_range_forward() {
-    let mut ss = ScreenSelection::default();
-    ss.start = Some((1, 2));
-    ss.end = Some((3, 5));
+    let ss = ScreenSelection {
+        start: Some((1, 2)),
+        end: Some((3, 5)),
+        ..Default::default()
+    };
     assert_eq!(ss.normalized_range(), Some((1, 2, 3, 5)));
 }
 
 #[test]
 fn test_screen_selection_normalized_range_swapped() {
-    let mut ss = ScreenSelection::default();
-    ss.start = Some((3, 5));
-    ss.end = Some((1, 2));
+    let ss = ScreenSelection {
+        start: Some((3, 5)),
+        end: Some((1, 2)),
+        ..Default::default()
+    };
     assert_eq!(ss.normalized_range(), Some((1, 2, 3, 5)));
 }
 
