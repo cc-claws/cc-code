@@ -843,6 +843,12 @@ async fn run_app(
         tracing::error!(error = %e, "初始绘制失败");
     }
     let mut last_render = Instant::now();
+    // ConPTY 鼠标追踪定期刷新：Windows Terminal / ConPTY 偶发丢失 ?1000h 模式，
+    // 导致鼠标事件"断流"（RENDER 正常但 Down/Drag 全无）。每 5 秒检查一次，
+    // 若超过 5 秒无鼠标事件则重新发送鼠标追踪序列。
+    let mut last_mouse_refresh = Instant::now();
+    const MOUSE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+    const MOUSE_SILENCE_THRESHOLD_MS: u64 = 5_000;
 
     /// loading 动画帧率限制间隔（约 30 FPS）。
     /// 仅在 loading=true 且无用户事件的 poll 超时路径生效，
@@ -941,6 +947,32 @@ async fn run_app(
                             tracing::error!(error = %e, "event loop: draw_app 错误");
                         }
                         last_render = now;
+                    }
+                }
+            }
+        }
+        // ── ConPTY 鼠标追踪定期刷新 ──────────────────────────────────────────
+        // 检测鼠标事件"断流"并主动刷新，修复 Windows Terminal 偶发丢失鼠标追踪。
+        {
+            let now = Instant::now();
+            if now.duration_since(last_mouse_refresh) >= MOUSE_REFRESH_INTERVAL {
+                last_mouse_refresh = now;
+                let last_ms = event::last_mouse_event_ms();
+                if last_ms > 0 {
+                    let sys_now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let silence_ms = sys_now_ms.saturating_sub(last_ms);
+                    if silence_ms > MOUSE_SILENCE_THRESHOLD_MS {
+                        let loading = app.session_mgr.current().ui.loading;
+                        if loading {
+                            // loading 期间用轻量版：仅 ANSI 序列，跳过 SetConsoleMode toggle
+                            // 避免 toggle 干扰 ratatui 渲染管线导致终端抖动
+                            let _ = conpty::refresh_mouse_tracking_sequences_only();
+                        } else {
+                            let _ = conpty::refresh_mouse_tracking();
+                        }
                     }
                 }
             }
