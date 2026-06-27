@@ -57,6 +57,7 @@ pub fn save_input_history(history: &[String]) {
 
     // 文件含用户原始 prompt（可能粘贴 API key/令牌），限制为 owner-only。
     // rename 会保留 tmp_path 的权限到最终路径，所以先 chmod 再 rename。
+    // 父目录（~/.peri/）也要 0o700，防止同机其它账户列出该目录（cc-claws review M4）。
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -64,6 +65,12 @@ pub fn save_input_history(history: &[String]) {
             &tmp_path,
             std::fs::Permissions::from_mode(0o600),
         );
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::set_permissions(
+                parent,
+                std::fs::Permissions::from_mode(0o700),
+            );
+        }
     }
 
     let _ = std::fs::rename(&tmp_path, &path);
