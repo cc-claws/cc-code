@@ -498,6 +498,87 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                // ── 双击检测：与上次左键 Down 间隔 < 400ms 且同位置 → 双击选整行 ──
+                // 消息区用 TextSelection（内容锚定纯文本），其他非 textarea 区域用
+                // ScreenSelection（Buffer 整行，end_col 设 u16::MAX-1 由 extract/highlight 钳位）。
+                // 设 dragging=true，复用 MouseUp 的提取+复制路径，无需新提取逻辑。
+                // textarea 双击走普通 Down（保留其内置选区行为）。
+                {
+                    let now = std::time::Instant::now();
+                    let prev = app.session_mgr.current().ui.last_left_click;
+                    app.session_mgr.current_mut().ui.last_left_click =
+                        Some((now, mouse.row, mouse.column));
+                    let is_double_click = prev
+                        .map(|(t, r, c)| {
+                            now.duration_since(t) < std::time::Duration::from_millis(400)
+                                && r == mouse.row
+                                && c == mouse.column
+                        })
+                        .unwrap_or(false);
+                    if is_double_click && !app.is_interaction_popup_active() {
+                        let in_messages = app
+                            .session_mgr
+                            .current()
+                            .ui
+                            .messages_area
+                            .map(|a| {
+                                mouse.row >= a.y
+                                    && mouse.row < a.y + a.height
+                                    && mouse.column >= a.x
+                                    && mouse.column < a.x + a.width
+                            })
+                            .unwrap_or(false);
+                        let in_textarea = app
+                            .session_mgr
+                            .current()
+                            .ui
+                            .textarea_area
+                            .map(|a| {
+                                mouse.row >= a.y
+                                    && mouse.row < a.y + a.height
+                                    && mouse.column >= a.x
+                                    && mouse.column < a.x + a.width
+                            })
+                            .unwrap_or(false);
+                        if in_messages {
+                            let area =
+                                app.session_mgr.current().ui.messages_area.unwrap();
+                            let scroll_offset =
+                                app.session_mgr.current().ui.scroll_offset;
+                            let visual_row =
+                                usize::from(mouse.row - area.y).saturating_add(scroll_offset);
+                            let cache_total = app
+                                .session_mgr
+                                .current()
+                                .messages
+                                .render_cache
+                                .read()
+                                .total_lines;
+                            let ui = &mut app.session_mgr.current_mut().ui;
+                            if visual_row < cache_total {
+                                // 消息行：TextSelection 整行（内容锚定纯文本）
+                                ui.text_selection.start_drag(visual_row, 0);
+                                ui.text_selection.update_drag(visual_row, area.width);
+                                ui.screen_selection.clear();
+                            } else {
+                                // spinner/总结行：ScreenSelection 整行（buffer）
+                                ui.screen_selection.start_drag(mouse.row, 0);
+                                ui.screen_selection.update_drag(mouse.row, u16::MAX - 1);
+                                ui.text_selection.clear();
+                            }
+                            ui.pending_screen_start = None;
+                            return Ok(Some(Action::Redraw));
+                        } else if !in_textarea {
+                            let ss =
+                                &mut app.session_mgr.current_mut().ui.screen_selection;
+                            ss.start_drag(mouse.row, 0);
+                            ss.update_drag(mouse.row, u16::MAX - 1);
+                            app.session_mgr.current_mut().ui.text_selection.clear();
+                            app.session_mgr.current_mut().ui.pending_screen_start = None;
+                            return Ok(Some(Action::Redraw));
+                        }
+                    }
+                }
                 // ── AskUser 弹窗滚动条点击（优先于面板滚动条） ──────────────────
                 {
                     if let Some(crate::app::InteractionPrompt::Questions(ref p)) =
@@ -624,26 +705,39 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 if click_consumed {
                     return Ok(Some(Action::Redraw));
                 }
-                // 消息区域：内容锚定选区（TextSelection，基于 wrap_map）。
-                // 字符级精度、纯文本、支持跨视口复制 + auto-scroll（Drag 到边缘自动滚动消息区）。
-                // 与 ScreenSelection 互斥。弹窗激活时跳过（modal）。
+                // 消息区域：消息行用内容锚定选区（TextSelection，基于 wrap_map，字符级精度、
+                // 纯文本、跨视口复制 + auto-scroll）。spinner/总结行渲染在 messages_area 底部但
+                // 不在 wrap_map 内，改用 ScreenSelection（buffer，所见即所得）。两者互斥。
+                // 弹窗激活时跳过（modal）。
                 if !app.is_interaction_popup_active() {
-                    if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
+                    if let Some(area) = app.session_mgr.current().ui.messages_area {
                         if mouse.row >= area.y
                             && mouse.row < area.y + area.height
                             && mouse.column >= area.x
                             && mouse.column < area.x + area.width
                         {
-                            let visual_row = usize::from(mouse.row - area.y)
-                                + app.session_mgr.current_mut().ui.scroll_offset;
+                            let scroll_offset =
+                                app.session_mgr.current().ui.scroll_offset;
+                            let visual_row =
+                                usize::from(mouse.row - area.y).saturating_add(scroll_offset);
                             let visual_col = mouse.column - area.x;
-                            app.session_mgr
-                                .current_mut()
-                                .ui
-                                .text_selection
-                                .start_drag(visual_row, visual_col);
-                            app.session_mgr.current_mut().ui.screen_selection.clear();
-                            app.session_mgr.current_mut().ui.pending_screen_start = None;
+                            let cache_total = app
+                                .session_mgr
+                                .current()
+                                .messages
+                                .render_cache
+                                .read()
+                                .total_lines;
+                            let use_text_selection = visual_row < cache_total;
+                            let ui = &mut app.session_mgr.current_mut().ui;
+                            if use_text_selection {
+                                ui.text_selection.start_drag(visual_row, visual_col);
+                                ui.screen_selection.clear();
+                            } else {
+                                ui.screen_selection.start_drag(mouse.row, mouse.column);
+                                ui.text_selection.clear();
+                            }
+                            ui.pending_screen_start = None;
                             return Ok(Some(Action::Redraw));
                         }
                     }
@@ -719,8 +813,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
                         let ui = &mut app.session_mgr.current_mut().ui;
                         let area_bottom = area.y + area.height;
-                        if mouse.row >= area_bottom.saturating_sub(1) {
-                            // 向下滚动：鼠标在消息区最后 1 行或更下方
+                        if mouse.row >= area_bottom {
+                            // 向下滚动：鼠标拖到消息区下方（区外）。
+                            // 区内所有行（含首/末行）必须可正常选中，故仅在拖出边界时滚动。
                             let distance = mouse.row.saturating_sub(area_bottom) as u32;
                             let step = (1 + distance / 2).min(5) as usize;
                             let max_scroll = ui.scrollbar_max_offset;
@@ -728,8 +823,8 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             let next = ui.scroll_offset.saturating_add(step).min(max_scroll);
                             ui.scroll_offset = next.max(min_scroll);
                             ui.scroll_follow = next >= max_scroll;
-                        } else if mouse.row <= area.y {
-                            // 向上滚动：鼠标在消息区第 1 行或更上方
+                        } else if mouse.row < area.y {
+                            // 向上滚动：鼠标拖到消息区上方（区外）
                             let distance = area.y.saturating_sub(mouse.row) as u32;
                             let step = (1 + distance / 2).min(5) as usize;
                             let max_scroll = ui.scrollbar_max_offset;
@@ -739,7 +834,8 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         }
                         let scroll_offset = ui.scroll_offset;
                         let visual_row =
-                            usize::from(mouse.row.saturating_sub(area.y)) + scroll_offset;
+                            usize::from(mouse.row.saturating_sub(area.y))
+                                .saturating_add(scroll_offset);
                         let visual_col = mouse.column.saturating_sub(area.x);
                         ui.text_selection.update_drag(visual_row, visual_col);
                     }
