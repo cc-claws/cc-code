@@ -398,3 +398,37 @@
             dir_mode
         );
     }
+
+    /// 安全：grandparent 为隐藏目录（`.cc-code` 风格）时也要 chmod 0o700。
+    /// cc-claws review：原版只修一层 parent，grandparent 漏修。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_grandparent_hidden_dir_permissions_restricted() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempdir().unwrap();
+        // 模拟生产布局：root/.cc-code/threads/threads.db
+        let db_path = root.path().join(".cc-code").join("threads").join("threads.db");
+        let _store = SqliteThreadStore::new(&db_path).await.unwrap();
+
+        let gp_path = root.path().join(".cc-code");
+        let gp_mode = std::fs::metadata(&gp_path)
+            .expect("grandparent .cc-code should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            gp_mode & 0o777,
+            0o700,
+            "grandparent .cc-code 权限应为 0o700，实际 0o{:o}",
+            gp_mode
+        );
+
+        // WAL/SHM 后缀验证：sidecar 文件名应该是 `threads.db-wal`（连字符），
+        // 而不是 `threads.db.wal`（点号）。直接验证路径计算逻辑。
+        let wal_path = root.path().join(".cc-code").join("threads").join("threads.db-wal");
+        let wal_via_with_extension = db_path.with_extension("db-wal");
+        assert_eq!(
+            wal_path, wal_via_with_extension,
+            "with_extension(\"db-wal\") 应产出 `threads.db-wal`（连字符），实际 {:?}",
+            wal_via_with_extension
+        );
+    }
