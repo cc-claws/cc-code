@@ -77,6 +77,11 @@ fn restrict_to_owner_unix(_path: &std::path::Path) {}
 
 #[cfg(test)]
 mod tests {
+    // 注意：这里不放 `use super::*;`。
+    // Windows 下 restrict_to_owner_unix 是 #[cfg(not(unix))] 的空实现，
+    // 整个 mod tests 在 Windows 下没有任何使用 super::* 内容的代码，
+    // clippy -D unused-imports 会把 super::* 当作未使用 import 报错。
+
     #[cfg(unix)]
     #[test]
     fn test_restrict_to_owner_unix_file_gets_0600() {
