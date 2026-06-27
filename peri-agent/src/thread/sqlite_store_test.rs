@@ -365,3 +365,70 @@
         assert_eq!(ctx[2].content(), "L2-a");
         assert_eq!(ctx[3].content(), "L3-a");
     }
+
+    /// 安全：threads.db 文件权限应为 0o600，父目录 0o700，
+    /// 防止同机其它账户读取对话历史。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_db_file_permissions_restricted_to_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("perm-test.db");
+        let _store = SqliteThreadStore::new(&db_path).await.unwrap();
+
+        let db_mode = std::fs::metadata(&db_path)
+            .expect("db file should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            db_mode & 0o777,
+            0o600,
+            "threads.db 文件权限应为 0o600，实际 0o{:o}",
+            db_mode
+        );
+
+        let dir_mode = std::fs::metadata(dir.path())
+            .expect("parent dir should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            dir_mode & 0o777,
+            0o700,
+            "父目录权限应为 0o700，实际 0o{:o}",
+            dir_mode
+        );
+    }
+
+    /// 安全：grandparent 为隐藏目录（`.cc-code` 风格）时也要 chmod 0o700。
+    /// cc-claws review：原版只修一层 parent，grandparent 漏修。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_grandparent_hidden_dir_permissions_restricted() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempdir().unwrap();
+        // 模拟生产布局：root/.cc-code/threads/threads.db
+        let db_path = root.path().join(".cc-code").join("threads").join("threads.db");
+        let _store = SqliteThreadStore::new(&db_path).await.unwrap();
+
+        let gp_path = root.path().join(".cc-code");
+        let gp_mode = std::fs::metadata(&gp_path)
+            .expect("grandparent .cc-code should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            gp_mode & 0o777,
+            0o700,
+            "grandparent .cc-code 权限应为 0o700，实际 0o{:o}",
+            gp_mode
+        );
+
+        // WAL/SHM 后缀验证：sidecar 文件名应该是 `threads.db-wal`（连字符），
+        // 而不是 `threads.db.wal`（点号）。直接验证路径计算逻辑。
+        let wal_path = root.path().join(".cc-code").join("threads").join("threads.db-wal");
+        let wal_via_with_extension = db_path.with_extension("db-wal");
+        assert_eq!(
+            wal_path, wal_via_with_extension,
+            "with_extension(\"db-wal\") 应产出 `threads.db-wal`（连字符），实际 {:?}",
+            wal_via_with_extension
+        );
+    }
