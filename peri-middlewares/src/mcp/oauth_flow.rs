@@ -122,7 +122,7 @@ impl OAuthFlowManager {
         }
 
         // 3. 绑定回调服务器
-        let (callback_server, redirect_uri) = OAuthCallbackServer::bind().await?;
+        let (mut callback_server, redirect_uri) = OAuthCallbackServer::bind().await?;
 
         // 4. 启动授权（DCR + PKCE + metadata 发现）
         let scopes: Vec<&str> = oauth_config
@@ -138,6 +138,18 @@ impl OAuthFlowManager {
 
         // 5. 获取授权 URL
         let authorization_url = state.get_authorization_url().await?;
+
+        // 5.1 从授权 URL 提取 rmcp 生成的 csrf state，启用本地回调服务器的
+        // state 校验作为 rmcp `state_store` 之外的纵深防御。
+        if let Ok(parsed) = url::Url::parse(&authorization_url) {
+            if let Some(state_value) = parsed
+                .query_pairs()
+                .find(|(k, _)| k == "state")
+                .map(|(_, v)| v.into_owned())
+            {
+                callback_server.set_state(state_value);
+            }
+        }
 
         // 6. 创建 oneshot 通道，通知 TUI 等待用户交互
         let (callback_tx, callback_rx) = oneshot::channel::<OAuthCallbackResult>();
