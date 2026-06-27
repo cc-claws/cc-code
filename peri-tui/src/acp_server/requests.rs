@@ -7,7 +7,7 @@ use serde_json::Value;
 use tracing::{debug, info};
 
 use peri_acp::{dispatch, transport::types::AcpError};
-use peri_agent::thread::ThreadMeta;
+use peri_agent::thread::{ThreadId, ThreadMeta};
 
 use agent_client_protocol::schema::{
     CloseSessionResponse, ForkSessionResponse, ListSessionsResponse, LoadSessionResponse,
@@ -30,6 +30,12 @@ fn persist_config(cfg: &AcpServerConfig) {
     if let Err(e) = save_to(&c, &cfg.config_path) {
         tracing::warn!(error = %e, "Failed to persist config");
     }
+}
+
+fn validate_session_id(id: &str) -> Result<(), AcpError> {
+    uuid::Uuid::parse_str(id)
+        .map(|_| ())
+        .map_err(|_| AcpError::new(-32602, "sessionId must be a valid UUID"))
 }
 
 pub(crate) async fn handle_request(
@@ -226,7 +232,14 @@ pub(crate) async fn handle_request(
                 .get("sessionId")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
+            validate_session_id(req_session_id)?;
             let cwd = params.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
+
+            // 存在性校验：避免对未知 sessionId 静默插入空 SessionState。
+            let thread_id = ThreadId::from(req_session_id.to_string());
+            cfg.thread_store.load_meta(&thread_id).await.map_err(|_| {
+                AcpError::new(-32001, format!("session not found: {req_session_id}"))
+            })?;
 
             // Load history from ThreadStore
             let history =
@@ -348,7 +361,14 @@ pub(crate) async fn handle_request(
                 .get("sessionId")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
+            validate_session_id(req_session_id)?;
             let cwd = params.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
+
+            // 存在性校验：避免对未知 sessionId 静默插入空 SessionState。
+            let thread_id = ThreadId::from(req_session_id.to_string());
+            cfg.thread_store.load_meta(&thread_id).await.map_err(|_| {
+                AcpError::new(-32001, format!("session not found: {req_session_id}"))
+            })?;
 
             if !sessions.contains_key(req_session_id) {
                 sessions.insert(
