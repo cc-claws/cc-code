@@ -90,9 +90,9 @@ cleanup_old_versions() {
     local install_dir="$1"
     local current_version="$2"
 
-    # Collect agent-v* directories, excluding current version
+    # Collect npm-v* directories, excluding current version
     local old_dirs=()
-    for d in "${install_dir}"/agent-v*; do
+    for d in "${install_dir}"/npm-v*; do
         [[ -d "$d" ]] || continue
         local base
         base=$(basename "$d")
@@ -169,10 +169,10 @@ main() {
             error "Failed to fetch releases from GitHub."
             exit 1
         }
-        # Find latest agent-* tag
-        VERSION_TAG=$(echo "${RELEASES_JSON}" | tr ',' '\n' | grep -F '"tag_name"' | grep -F '"agent-' | head -1 | cut -d'"' -f4)
+        # Find latest npm-v* tag
+        VERSION_TAG=$(echo "${RELEASES_JSON}" | tr ',' '\n' | grep -F '"tag_name"' | grep -F '"npm-v' | head -1 | cut -d'"' -f4)
         if [[ -z "${VERSION_TAG}" ]]; then
-            error "No agent release found."
+            error "No npm release found."
             exit 1
         fi
 
