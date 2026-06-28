@@ -1,4 +1,4 @@
-use tui_textarea::{CursorMove, Input, Key};
+use tui_textarea::{Input, Key};
 
 use crate::app::{App, MessageViewModel, PendingAttachment};
 
@@ -20,7 +20,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // ESC: 中断 agent 运行（与 Ctrl+C 行为一致）
+        // ESC: interrupt agent execution (same as Ctrl+C when loading)
         Input { key: Key::Esc, .. } if app.session_mgr.current_mut().ui.loading => {
             app.interrupt();
         }
@@ -45,28 +45,11 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // Ctrl+Up / Ctrl+Down：textarea 光标移动 / 命令历史（原 textarea Up/Down 功能）。
-        // 纯 Up/Down 让给消息区滚动（含滚轮经 ConPTY 变成的方向键），避免与 textarea 冲突。
-        Input { key: Key::Up, ctrl: true, .. } => handle_ctrl_up(app),
-        Input { key: Key::Down, ctrl: true, .. } => handle_ctrl_down(app),
+        // Up: @ 提及导航 > hint navigation > history browse (only first row) > textarea cursor
+        Input { key: Key::Up, .. } => handle_up(app),
 
-        // Up：@ 提及导航 > hint 导航 > 滚动消息区
-        Input { key: Key::Up, .. } => {
-            if let Some(action) = handle_up(app) {
-                return Ok(Some(action));
-            }
-        }
-
-        // Down：有后台 shell 任务时打开 BackgroundTasksPanel，否则 @ 提及导航 > hint 导航 > 滚动消息区
-        Input { key: Key::Down, .. } => {
-            if !app.session_mgr.current().background_shells.is_empty() {
-                app.open_background_tasks_panel();
-                return Ok(Some(Action::Redraw));
-            }
-            if let Some(action) = handle_down(app) {
-                return Ok(Some(action));
-            }
-        }
+        // Down: @ 提及导航 > hint navigation > history restore (only last row) > textarea cursor
+        Input { key: Key::Down, .. } => handle_down(app),
 
         // Ctrl+V: try pasting clipboard image first, fallback to text paste
         Input {
@@ -128,12 +111,8 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             if app.session_mgr.current_mut().ui.at_mention.active {
                 app.session_mgr.current_mut().ui.at_mention.close();
             }
-            let raw_text = app.session_mgr.current_mut().ui.textarea.lines().join("\n");
-            if app.session_mgr.current_mut().ui.loading && app.is_shell_command_running() {
-                app.send_shell_stdin_line(raw_text);
-                return Ok(Some(Action::Redraw));
-            }
-            let text = raw_text.trim().to_string();
+            let text = app.session_mgr.current_mut().ui.textarea.lines().join("\n");
+            let text = text.trim().to_string();
             if !text.is_empty() {
                 if app.session_mgr.current_mut().ui.loading {
                     // Loading state: buffer message
@@ -144,19 +123,6 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                         .push(text);
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
                     app.update_textarea_hint();
-                } else if let Some(command) = text.strip_prefix('!') {
-                    let command = command.trim().to_string();
-                    app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
-                    if command.is_empty() {
-                        app.session_mgr
-                            .current_mut()
-                            .messages
-                            .view_messages
-                            .push(MessageViewModel::system("请输入 shell 命令".to_string()));
-                        app.render_rebuild();
-                    } else {
-                        return Ok(Some(Action::RunShellCommand(command)));
-                    }
                 } else if text.starts_with('/') {
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
                     // SAFETY: command_registry is nested inside App; dispatch needs &mut App
@@ -284,13 +250,6 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             key: Key::Char('d'),
             ctrl: true,
             ..
-        } if app.is_shell_command_running() => {
-            app.close_shell_stdin();
-        }
-        Input {
-            key: Key::Char('d'),
-            ctrl: true,
-            ..
         } => {
             for _ in 0..20 {
                 app.scroll_down();
@@ -301,14 +260,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         Input {
             key: Key::PageUp, ..
         } => {
-            let has_content = app
-                .session_mgr
-                .current_mut()
-                .ui
-                .textarea
-                .lines()
-                .iter()
-                .any(|line| !line.is_empty());
+            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
             if !has_content {
                 for _ in 0..20 {
                     app.scroll_up();
@@ -319,59 +271,28 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         Input {
             key: Key::PageDown, ..
         } => {
-            let has_content = app
-                .session_mgr
-                .current_mut()
-                .ui
-                .textarea
-                .lines()
-                .iter()
-                .any(|line| !line.is_empty());
+            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
             if !has_content {
                 for _ in 0..20 {
                     app.scroll_down();
                 }
             }
         }
-        // Home: textarea 有内容时光标移到行首，否则滚动到顶
-        Input { key: Key::Home, .. } => {
-            let has_content = app
-                .session_mgr
-                .current_mut()
-                .ui
-                .textarea
-                .lines()
-                .iter()
-                .any(|line| !line.is_empty());
-            if has_content {
-                app.session_mgr
-                    .current_mut()
-                    .ui
-                    .textarea
-                    .move_cursor(CursorMove::Head);
-                app.session_mgr.current_mut().ui.reset_cursor_blink();
-            } else {
+        // Home: scroll to top (only when textarea is empty)
+        Input {
+            key: Key::Home, ..
+        } => {
+            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
+            if !has_content {
                 app.scroll_to_top();
             }
         }
-        // End: textarea 有内容时光标移到行尾，否则滚动到底
-        Input { key: Key::End, .. } => {
-            let has_content = app
-                .session_mgr
-                .current_mut()
-                .ui
-                .textarea
-                .lines()
-                .iter()
-                .any(|line| !line.is_empty());
-            if has_content {
-                app.session_mgr
-                    .current_mut()
-                    .ui
-                    .textarea
-                    .move_cursor(CursorMove::End);
-                app.session_mgr.current_mut().ui.reset_cursor_blink();
-            } else {
+        // End: scroll to bottom (only when textarea is empty)
+        Input {
+            key: Key::End, ..
+        } => {
+            let has_content = app.session_mgr.current_mut().ui.textarea.lines().iter().any(|line| !line.is_empty());
+            if !has_content {
                 app.scroll_to_bottom();
             }
         }
@@ -396,17 +317,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             if app.session_mgr.current_mut().ui.history_index.is_some() {
                 app.exit_history();
             }
-
-            // 拦截 Backspace：若光标前是 [Image #N] 占位符，整体删除并联动附件。
-            // 占位符作为 textarea 内原子元素，Backspace 不应只删一个字符破坏占位符。
-            let intercepted = matches!(input.key, Key::Backspace)
-                && !app.session_mgr.current_mut().ui.loading
-                && try_delete_image_placeholder_backspace(app);
-
-            if !intercepted {
-                app.session_mgr.current_mut().ui.textarea.input(input);
-            }
-            app.session_mgr.current_mut().ui.reset_cursor_blink();
+            app.session_mgr.current_mut().ui.textarea.input(input);
             // When input changes: reset cursor (don't pre-select; wait for user to press Tab/Up/Down)
             if !app.session_mgr.current_mut().ui.loading {
                 app.session_mgr.current_mut().ui.hint_cursor = None;
@@ -433,21 +344,29 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
 // ── Per-arm helper functions ──────────────────────────────────────────────
 
 fn handle_ctrl_c(app: &mut App) -> Option<Action> {
-    // Agent 运行中 → 中断 agent
-    if app.session_mgr.current_mut().ui.loading {
+    let session = &mut app.session_mgr.current_mut();
+
+    // 优先级 1: 输入框有内容 → 清空输入框
+    if session.ui.textarea.lines().iter().any(|l| !l.is_empty()) {
+        session
+            .ui
+            .textarea
+            .move_cursor(tui_textarea::CursorMove::Head);
+        session.ui.textarea.select_all();
+        session.ui.textarea.cut();
+        app.global_ui.quit_pending_since = None;
+        return None;
+    }
+
+    // 优先级 2: Agent 运行中 → 中断 agent
+    if session.ui.loading {
         app.interrupt();
         app.global_ui.quit_pending_since = None;
         return None;
     }
 
-    // quit-pending: 2 秒内连按两次退出
+    // 优先级 3: Agent 未运行 → quit-pending 逻辑
     if let Some(since) = app.global_ui.quit_pending_since {
-        // 防抖：100ms 内的重复事件视为同一次按键，忽略。
-        // Windows Terminal (ConPTY) 下 ctrl_handler 注入的 KeyDown 与原生
-        // KeyDown 间隔约 0-1ms，不加防抖会误触发退出。
-        if since.elapsed() < std::time::Duration::from_millis(100) {
-            return None;
-        }
         if since.elapsed() < std::time::Duration::from_secs(2) {
             return Some(Action::Quit);
         } else {
@@ -459,14 +378,12 @@ fn handle_ctrl_c(app: &mut App) -> Option<Action> {
     None
 }
 
-/// 纯 Up：@ 提及导航 > hint 导航 > 滚动消息区（textarea 光标/历史已移至 Ctrl+Up）。
-fn handle_up(app: &mut App) -> Option<Action> {
+fn handle_up(app: &mut App) {
     let hint_count = app.hint_candidates_count();
     if app.session_mgr.current_mut().ui.at_mention.active
         && !app.session_mgr.current_mut().ui.loading
     {
         app.session_mgr.current_mut().ui.at_mention.move_up();
-        None
     } else if hint_count > 0 && !app.session_mgr.current_mut().ui.loading {
         let cur = app.session_mgr.current_mut().ui.hint_cursor.unwrap_or(0);
         app.session_mgr.current_mut().ui.hint_cursor = if cur == 0 {
@@ -474,36 +391,27 @@ fn handle_up(app: &mut App) -> Option<Action> {
         } else {
             Some(cur - 1)
         };
-        None
     } else {
-        app.scroll_up();
-        Some(Action::Redraw)
+        let (row, _col) = app.session_mgr.current_mut().ui.textarea.cursor();
+        if row == 0 {
+            app.history_up();
+        } else {
+            app.session_mgr.current_mut().ui.textarea.input(Input {
+                key: Key::Up,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            });
+        }
     }
 }
 
-/// Ctrl+Up：textarea 光标上移，首行时浏览上一条命令历史。
-fn handle_ctrl_up(app: &mut App) {
-    let (row, _col) = app.session_mgr.current_mut().ui.textarea.cursor();
-    if row == 0 {
-        app.history_up();
-    } else {
-        app.session_mgr.current_mut().ui.textarea.input(Input {
-            key: Key::Up,
-            ctrl: false,
-            alt: false,
-            shift: false,
-        });
-    }
-}
-
-/// 纯 Down：@ 提及导航 > hint 导航 > 滚动消息区（textarea 光标/历史已移至 Ctrl+Down）。
-fn handle_down(app: &mut App) -> Option<Action> {
+fn handle_down(app: &mut App) {
     let hint_count = app.hint_candidates_count();
     if app.session_mgr.current_mut().ui.at_mention.active
         && !app.session_mgr.current_mut().ui.loading
     {
         app.session_mgr.current_mut().ui.at_mention.move_down();
-        None
     } else if hint_count > 0 && !app.session_mgr.current_mut().ui.loading {
         let cur = app
             .session_mgr
@@ -516,128 +424,53 @@ fn handle_down(app: &mut App) -> Option<Action> {
         } else {
             Some(cur + 1)
         };
-        None
-    } else {
-        app.scroll_down();
-        Some(Action::Redraw)
-    }
-}
-
-/// Ctrl+Down：textarea 光标下移，末行或浏览历史时恢复下一条命令历史。
-fn handle_ctrl_down(app: &mut App) {
-    if app.session_mgr.current_mut().ui.history_index.is_some() {
-        app.history_down();
-        return;
-    }
-    let (row, _col) = app.session_mgr.current_mut().ui.textarea.cursor();
-    let last_row = app
-        .session_mgr
-        .current_mut()
-        .ui
-        .textarea
-        .lines()
-        .len()
-        .saturating_sub(1);
-    if row >= last_row {
+    } else if app.session_mgr.current_mut().ui.history_index.is_some() {
         app.history_down();
     } else {
-        app.session_mgr.current_mut().ui.textarea.input(Input {
-            key: Key::Down,
-            ctrl: false,
-            alt: false,
-            shift: false,
-        });
+        let (row, _col) = app.session_mgr.current_mut().ui.textarea.cursor();
+        let last_row = app
+            .session_mgr
+            .current_mut()
+            .ui
+            .textarea
+            .lines()
+            .len()
+            .saturating_sub(1);
+        if row >= last_row {
+            app.history_down();
+        } else {
+            app.session_mgr.current_mut().ui.textarea.input(Input {
+                key: Key::Down,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            });
+        }
     }
-}
-
-/// 若光标正前方（向左方向）是一个完整的 `[Image #N]` 占位符，整体删除占位符 +
-/// 从 `pending_attachments` 中移除对应附件，返回 `true`；否则返回 `false` 不拦截。
-fn try_delete_image_placeholder_backspace(app: &mut App) -> bool {
-    use crate::clipboard::image_placeholder::parse_single_placeholder;
-
-    let (row, col) = app.session_mgr.current().ui.textarea.cursor();
-    let lines = app.session_mgr.current().ui.textarea.lines();
-    let Some(line) = lines.get(row) else {
-        return false;
-    };
-
-    // 取光标前的字符序列（按字符，非字节）
-    let prefix_chars: Vec<char> = line.chars().take(col).collect();
-    if prefix_chars.is_empty() {
-        return false;
-    }
-
-    // 末尾必须是 ']'
-    if prefix_chars.last() != Some(&']') {
-        return false;
-    }
-
-    // 从 ']' 向前查找最近的 '['，把候选段切出来验证
-    let close_idx = prefix_chars.len() - 1;
-    let Some(open_idx) = prefix_chars[..close_idx].iter().rposition(|c| *c == '[') else {
-        return false;
-    };
-
-    let candidate: String = prefix_chars[open_idx..=close_idx].iter().collect();
-    let Some((image_id, placeholder_len)) = parse_single_placeholder(&candidate) else {
-        return false;
-    };
-
-    // 整体删除：先把光标移到占位符开头，再删 placeholder_len 个字符
-    let metadata = &mut app.session_mgr.current_mut().metadata;
-    let before_len = metadata.pending_attachments.len();
-    metadata
-        .pending_attachments
-        .retain(|a| a.image_id != image_id);
-    let attachment_removed = metadata.pending_attachments.len() < before_len;
-
-    let textarea = &mut app.session_mgr.current_mut().ui.textarea;
-    textarea.move_cursor(CursorMove::Jump(
-        row.try_into().unwrap_or(u16::MAX),
-        open_idx.try_into().unwrap_or(u16::MAX),
-    ));
-    let deleted = textarea.delete_str(placeholder_len);
-
-    if !attachment_removed && !deleted {
-        tracing::debug!("Backspace 拦截占位符 image_id={image_id} 但未找到对应附件/未删除文本");
-    }
-    true
 }
 
 fn handle_ctrl_v(app: &mut App) {
-    // 优先尝试图片粘贴（file_list / get_image / WSL PowerShell fallback），
-    // 失败时再退回文本粘贴。
-    match crate::clipboard::paste::paste_image_as_png_base64() {
-        Ok((b64, sz, _w, _h)) => {
-            let metadata = &mut app.session_mgr.current_mut().metadata;
-            let image_id = metadata.alloc_image_id();
-            let n = metadata.pending_attachments.len() + 1;
-            metadata.pending_attachments.push(PendingAttachment {
-                label: format!("clipboard_{}.png", n),
-                media_type: "image/png".to_string(),
-                base64_data: b64,
-                size_bytes: sz,
-                image_id,
-            });
-
-            // 在 textarea 当前光标位置插入 `[Image #N]` 占位符，让用户能在文本中混排图片
-            let placeholder = crate::clipboard::image_placeholder::format_placeholder(image_id);
-            app.session_mgr
-                .current_mut()
-                .ui
-                .textarea
-                .insert_str(&placeholder);
-        }
-        Err(img_err) => {
-            tracing::debug!("paste_image_as_png_base64 failed: {img_err}; fallback to text");
-            // 不是图片或剪贴板不可用，退回文本粘贴；macOS 下抑制 stderr 污染
-            let _guard = crate::clipboard::SuppressStderr::new();
-            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                if let Ok(text) = clipboard.get_text() {
-                    let text = text.replace('\r', "\n");
-                    app.session_mgr.current_mut().ui.textarea.insert_str(&text);
-                }
+    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+        if let Ok(img) = clipboard.get_image() {
+            let (w, h) = (img.width as u32, img.height as u32);
+            if let Ok((b64, sz)) = super::super::mouse::rgba_to_png_base64(w, h, &img.bytes) {
+                let n = app
+                    .session_mgr
+                    .current_mut()
+                    .metadata
+                    .pending_attachments
+                    .len()
+                    + 1;
+                app.add_pending_attachment(PendingAttachment {
+                    label: format!("clipboard_{}.png", n),
+                    media_type: "image/png".to_string(),
+                    base64_data: b64,
+                    size_bytes: sz,
+                });
             }
+        } else if let Ok(text) = clipboard.get_text() {
+            let text = text.replace('\r', "\n");
+            app.session_mgr.current_mut().ui.textarea.insert_str(&text);
         }
     }
 }
@@ -677,7 +510,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ctrl_c_ignores_textarea_content_enters_quit_pending() {
+    async fn test_ctrl_c_clears_textarea_when_has_content() {
         let mut app = make_app().await;
         app.session_mgr.current_mut().ui.textarea = build_textarea(false);
         app.session_mgr
@@ -688,16 +521,16 @@ mod tests {
 
         let result = handle_ctrl_c(&mut app);
 
-        assert!(result.is_none(), "第一次 Ctrl+C 不应返回 Quit");
-        // 输入框内容不影响 quit-pending
+        assert!(result.is_none(), "有内容时 Ctrl+C 不应返回 Quit");
+        let lines = app.session_mgr.current_mut().ui.textarea.lines().to_vec();
         assert!(
-            app.global_ui.quit_pending_since.is_some(),
-            "有内容时也应进入 quit-pending"
+            lines.iter().all(|l| l.is_empty()),
+            "清空后 textarea 应为空，实际: {:?}",
+            lines
         );
-        // 输入框内容不被清空
         assert!(
-            !app.session_mgr.current_mut().ui.textarea.lines()[0].is_empty(),
-            "输入框内容不应被清空"
+            app.global_ui.quit_pending_since.is_none(),
+            "清空输入框不应进入 quit-pending"
         );
     }
 
@@ -727,8 +560,6 @@ mod tests {
             "空闲时应进入 quit-pending"
         );
 
-        // 等待超过防抖窗口（100ms），模拟真实双击
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         let result = handle_ctrl_c(&mut app);
         assert!(
             matches!(result, Some(Action::Quit)),
@@ -737,14 +568,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ctrl_c_quits_even_when_textarea_has_content() {
+    async fn test_ctrl_c_does_not_quit_when_textarea_has_content() {
         let mut app = make_app().await;
         let _ = handle_ctrl_c(&mut app);
         assert!(app.global_ui.quit_pending_since.is_some());
 
-        // 等待超过防抖窗口（100ms），模拟真实双击
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        // 输入框有内容，第二次 Ctrl+C 仍应退出
         app.session_mgr
             .current_mut()
             .ui
@@ -752,61 +580,10 @@ mod tests {
             .insert_str("some text");
         let result = handle_ctrl_c(&mut app);
 
+        assert!(result.is_none(), "有内容时不应退出");
         assert!(
-            matches!(result, Some(Action::Quit)),
-            "有内容时第二次 Ctrl+C 应退出"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_enter_shell_command_returns_run_shell_action() {
-        let mut app = make_app().await;
-        app.session_mgr
-            .current_mut()
-            .ui
-            .textarea
-            .insert_str("!git status");
-
-        let result = handle_normal_keys(
-            &mut app,
-            Input {
-                key: Key::Enter,
-                ctrl: false,
-                alt: false,
-                shift: false,
-            },
-        )
-        .unwrap();
-
-        assert!(
-            matches!(result, Some(Action::RunShellCommand(cmd)) if cmd == "git status"),
-            "! 前缀输入应剥离前缀后返回 RunShellCommand"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_enter_shell_command_trims_prefix_and_spaces() {
-        let mut app = make_app().await;
-        app.session_mgr
-            .current_mut()
-            .ui
-            .textarea
-            .insert_str("!  cargo build  ");
-
-        let result = handle_normal_keys(
-            &mut app,
-            Input {
-                key: Key::Enter,
-                ctrl: false,
-                alt: false,
-                shift: false,
-            },
-        )
-        .unwrap();
-
-        assert!(
-            matches!(result, Some(Action::RunShellCommand(cmd)) if cmd == "cargo build"),
-            "shell 命令应去掉 ! 前缀和首尾空格"
+            app.global_ui.quit_pending_since.is_none(),
+            "清空输入框应重置 quit-pending"
         );
     }
 }
