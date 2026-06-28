@@ -4,8 +4,8 @@ use std::time::Instant;
 use peri_middlewares::prelude::{SkillMetadata, TodoItem};
 
 use super::{
-    langfuse_state::LangfuseState, AgentComm, BackgroundShell, CommandSystem, MessageState,
-    SessionMetadata, ShellCommandPool, UiState,
+    langfuse_state::LangfuseState, AgentComm, AgentShellSlot, BackgroundShell, CommandSystem,
+    MessageState, SessionMetadata, ShellCommandPool, UiState,
 };
 use crate::{command::CommandRegistry, thread::ThreadId};
 
@@ -34,6 +34,10 @@ pub struct ChatSession {
     pub shell_pool: ShellCommandPool,
     /// Ctrl+B 后台化的 shell 任务列表（多个并发后台命令）
     pub background_shells: Vec<BackgroundShell>,
+    /// agent Bash 工具调用的 shell 跟踪槽位（前台可 Ctrl+B + 后台化后的都在此）。
+    /// 与 `background_shells` 平行：本列表的命令由 `BashTool::invoke` 发起，
+    /// result_rx 由 invoke 独占，UI 仅用 ExitSignal 检测退出。
+    pub agent_shells: Vec<AgentShellSlot>,
     /// agent 推理期间到达的后台 shell 完成通知，待 Done 后注入对话流
     pub pending_bg_shell_notifications: VecDeque<String>,
 }
@@ -80,6 +84,7 @@ impl ChatSession {
             spinner_state: peri_widgets::SpinnerState::new(peri_widgets::SpinnerMode::Idle),
             shell_pool: ShellCommandPool::default(),
             background_shells: Vec::new(),
+            agent_shells: Vec::new(),
             pending_bg_shell_notifications: VecDeque::new(),
         }
     }

@@ -104,6 +104,7 @@ impl App {
             spinner_state: peri_widgets::SpinnerState::new(peri_widgets::SpinnerMode::Idle),
             shell_pool: super::ShellCommandPool::default(),
             background_shells: Vec::new(),
+            agent_shells: Vec::new(),
             pending_bg_shell_notifications: std::collections::VecDeque::new(),
         };
 
@@ -144,6 +145,7 @@ impl App {
             global_ui: super::GlobalUiState::new(),
             focused: true,
             acp_client: None,
+            agent_shell_registrations_rx: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {
