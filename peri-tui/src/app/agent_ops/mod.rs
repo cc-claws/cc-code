@@ -19,6 +19,31 @@ impl App {
             AgentEvent::ShellCommandCompleted(record) => {
                 self.handle_shell_command_completed(record)
             }
+            // 后台 shell 完成通知由 poll_background_shell_events 直接 submit_message，
+            // 不经此 event 路径；保留 arm 保证 match 穷尽。
+            AgentEvent::BackgroundShellCompleted { .. } => (false, false, false),
+            // watchdog stall 警告：生成通知注入对话流（idle 直接 submit，推理中暂存 pending）
+            AgentEvent::BackgroundShellStalled {
+                task_id,
+                command,
+                last_output,
+            } => {
+                let notif = super::background_shell::shell_stalled_notification(
+                    &task_id,
+                    &command,
+                    &last_output,
+                );
+                let loading = self.session_mgr.current().ui.loading;
+                if loading {
+                    self.session_mgr
+                        .current_mut()
+                        .pending_bg_shell_notifications
+                        .push_back(notif);
+                } else {
+                    self.submit_message(notif);
+                }
+                (true, false, false)
+            }
             AgentEvent::SubAgentStart {
                 agent_id,
                 instance_id,

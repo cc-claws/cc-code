@@ -2210,8 +2210,8 @@ async fn test_background_task_status_bar() {
     let snap = handle.snapshot().join("\n");
 
     assert!(
-        snap.contains("[BG: 2]"),
-        "Status bar should display [BG: 2], actual:\n{}",
+        snap.contains("2 agents"),
+        "Status bar should display 2 agents pill, actual:\n{}",
         snap
     );
 }

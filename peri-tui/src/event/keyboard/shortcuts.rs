@@ -33,9 +33,15 @@ pub(super) fn handle_shortcuts(
         return Some(Action::Redraw);
     }
 
-    // Ctrl+B: 跳转到后台 agent bar
+    // Ctrl+B: 有前台 shell 时后台化（output_rx 切换到磁盘，进程不中断）；
+    // 否则有后台 shell 时打开面板；否则聚焦 bg agent bar
     if SHORTCUT_BG_BAR.matches(key_event) {
-        if !app.session_mgr.current_mut().background_agents.is_empty() {
+        let has_foreground = app.session_mgr.current().shell_pool.is_running();
+        if has_foreground {
+            app.background_foreground();
+        } else if !app.session_mgr.current().background_shells.is_empty() {
+            app.open_background_tasks_panel();
+        } else if !app.session_mgr.current().background_agents.is_empty() {
             app.session_mgr.current_mut().ui.bg_bar_cursor = Some(0);
         }
         return Some(Action::Redraw);

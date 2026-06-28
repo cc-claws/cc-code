@@ -123,6 +123,10 @@ pub enum MessageViewModel {
         collapsed: bool,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
+        /// pending 时的启动时间（用于渲染 "Ctrl+B to run in background" 2 秒提示）
+        started_at: Option<std::time::Instant>,
+        /// 是否已转入后台（后台化后前台 VM 标记，避免显示矛盾，对齐效果图场景 5）
+        moved_to_background: bool,
     },
     /// 系统消息
     SystemNote {
@@ -232,6 +236,7 @@ impl PartialEq for MessageViewModel {
                     stdout: a_stdout,
                     stderr: a_stderr,
                     exit_code: a_exit,
+                    moved_to_background: a_moved,
                     ..
                 },
                 MessageViewModel::ShellCommand {
@@ -242,6 +247,7 @@ impl PartialEq for MessageViewModel {
                     stdout: b_stdout,
                     stderr: b_stderr,
                     exit_code: b_exit,
+                    moved_to_background: b_moved,
                     ..
                 },
             ) => {
@@ -252,6 +258,7 @@ impl PartialEq for MessageViewModel {
                     && a_stdout == b_stdout
                     && a_stderr == b_stderr
                     && a_exit == b_exit
+                    && a_moved == b_moved
             }
             (
                 MessageViewModel::SystemNote { content: a, .. },
@@ -372,6 +379,7 @@ impl Hash for MessageViewModel {
                 stderr,
                 exit_code,
                 collapsed,
+                moved_to_background,
                 ..
             } => {
                 7u8.hash(state);
@@ -383,6 +391,7 @@ impl Hash for MessageViewModel {
                 stderr.hash(state);
                 exit_code.hash(state);
                 collapsed.hash(state);
+                moved_to_background.hash(state);
             }
             MessageViewModel::SystemNote { content, .. } => {
                 3u8.hash(state);
@@ -923,6 +932,8 @@ impl MessageViewModel {
             exit_code: None,
             collapsed: true,
             content_hash: 0,
+            started_at: Some(std::time::Instant::now()),
+            moved_to_background: false,
         };
         vm.recompute_hash();
         vm
@@ -940,6 +951,8 @@ impl MessageViewModel {
             exit_code: Some(record.exit_code),
             collapsed: true,
             content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
         };
         vm.recompute_hash();
         vm
