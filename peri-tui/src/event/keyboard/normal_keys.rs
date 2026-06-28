@@ -57,8 +57,12 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // Down：@ 提及导航 > hint 导航 > 滚动消息区
+        // Down：有后台 shell 任务时打开 BackgroundTasksPanel，否则 @ 提及导航 > hint 导航 > 滚动消息区
         Input { key: Key::Down, .. } => {
+            if !app.session_mgr.current().background_shells.is_empty() {
+                app.open_background_tasks_panel();
+                return Ok(Some(Action::Redraw));
+            }
             if let Some(action) = handle_down(app) {
                 return Ok(Some(action));
             }

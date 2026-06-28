@@ -457,24 +457,35 @@ fn render_shell_command(
     exit_code: Option<i32>,
     detail_mode: bool,
     tick: u64,
+    started_at: Option<std::time::Instant>,
+    moved_to_background: bool,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    let status_style = match exit_code {
-        None => Style::default().fg(theme::YELLOW),
-        Some(0) => Style::default().fg(theme::SAGE),
-        Some(_) => Style::default().fg(theme::ERROR),
+    // moved 时用 MUTED 淡色（对齐效果图场景 5 opacity 0.4，提示"已转后台"）；否则按 exit_code 语义着色
+    let status_style = if moved_to_background {
+        Style::default().fg(theme::MUTED)
+    } else {
+        match exit_code {
+            None => Style::default().fg(theme::YELLOW),
+            Some(0) => Style::default().fg(theme::SAGE),
+            Some(_) => Style::default().fg(theme::ERROR),
+        }
     };
     // 复用 widget 层指示器：统一 ● 圆点 + 颜色语义化
-    let status = match exit_code {
+    let indicator_status = match exit_code {
         None => peri_widgets::ToolCallStatus::Running,
         Some(0) => peri_widgets::ToolCallStatus::Completed,
         Some(_) => peri_widgets::ToolCallStatus::Failed,
     };
     let (indicator_ch, indicator_color) =
-        peri_widgets::tool_call::display::format_indicator(status, tick);
-    let status = match exit_code {
-        None => " running".to_string(),
-        Some(code) => format!(" exit {}", code),
+        peri_widgets::tool_call::display::format_indicator(indicator_status, tick);
+    let status = if moved_to_background {
+        " (moved to background)".to_string()
+    } else {
+        match exit_code {
+            None => " running".to_string(),
+            Some(code) => format!(" exit {}", code),
+        }
     };
     let cwd_label: String = cwd.chars().take(80).collect();
     lines.push(Line::from(vec![
@@ -550,6 +561,18 @@ fn render_shell_command(
             };
             lines.push(shell_output_line("  │ ", line, default_style));
         }
+    }
+
+    // 2 秒阈值提示：前台 running 超 2 秒显示 "(Ctrl+B to run in background)"（对齐效果图场景 1）
+    if !moved_to_background
+        && exit_code.is_none()
+        && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
+    {
+        lines.push(shell_output_line(
+            "  │ ",
+            "(Ctrl+B to run in background)",
+            Style::default().fg(theme::MUTED),
+        ));
     }
 
     if let Some(code) = exit_code {
@@ -902,6 +925,8 @@ pub fn render_view_model(
             stdout,
             stderr,
             exit_code,
+            started_at,
+            moved_to_background,
             ..
         } => render_shell_command(
             command,
@@ -912,6 +937,8 @@ pub fn render_view_model(
             *exit_code,
             detail_mode,
             tick,
+            *started_at,
+            *moved_to_background,
         ),
         MessageViewModel::SubAgentGroup {
             batch_agents,
