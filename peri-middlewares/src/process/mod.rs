@@ -10,6 +10,18 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+/// 检测命令字符串是否包含 cmd.exe 特殊字符（`& | < > ^`）。
+///
+/// 这些字符在 `cmd /C` 中会被解析为命令分隔符/管道/重定向，
+/// 需要用 `cmd /S /C "..."` 包裹以防止语法错误。
+fn has_cmd_special_chars(command: &str) -> bool {
+    command.contains('&')
+        || command.contains('|')
+        || command.contains('<')
+        || command.contains('>')
+        || command.contains('^')
+}
+
 /// Build a `tokio::process::Command` that executes the given command through the
 /// platform shell.
 ///
@@ -21,7 +33,13 @@ use std::sync::OnceLock;
 pub fn shell_command(command: &str, args: &[&str]) -> tokio::process::Command {
     if cfg!(target_os = "windows") {
         let mut cmd = tokio::process::Command::new("cmd");
-        cmd.arg("/C").arg(command);
+        // cmd.exe 把 & | < > ^ 等字符解析为命令分隔符/管道/重定向。
+        // 用 /S /C "..." 包裹可防止特殊字符被错误解析（/S 剥离外层引号）。
+        if has_cmd_special_chars(command) {
+            cmd.arg("/S").arg("/C").arg(format!("\"{}\"", command));
+        } else {
+            cmd.arg("/C").arg(command);
+        }
         for arg in args {
             cmd.arg(arg);
         }
