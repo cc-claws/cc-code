@@ -4,11 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased — 2026-06-28
+## v0.6.23 — 2026-06-28
 
 ### Features
 
-- **全局屏幕选区（ScreenSelection）**：新增基于渲染 Buffer 的全局选区，覆盖面板、状态栏、sticky header、bg agent bar、空白区域。与消息区域现有 TextSelection 跨区域衔接，松开鼠标自动复制到剪贴板，蓝色高亮显示。详见 [spec/features/screen-selection-prd.md](spec/features/screen-selection-prd.md)
+- **Ctrl+B 后台 Shell**（#99）：Shell 命令支持 Ctrl+B 转为后台运行，输出写入磁盘，支持后台任务面板查看
+- **`/commit` 命令**（#93）：一键 git commit，自动生成 commit message
+- **`/review` 命令**（#95）：PR 代码审查
+- **`/export` 命令**（#95）：对话导出
+- **Read 工具行范围显示**（#91）：Read tool header 显示 offset/limit 行范围
+- **全局屏幕选区（ScreenSelection）**（#94）：新增基于渲染 Buffer 的全局选区，覆盖面板、状态栏、sticky header、bg agent bar、空白区域。与消息区域现有 TextSelection 跨区域衔接，松开鼠标自动复制到剪贴板，蓝色高亮显示。详见 [spec/features/screen-selection-prd.md](spec/features/screen-selection-prd.md)
 - **消息区域 TextSelection 内容锚定**：选区以消息内容为锚（而非屏幕坐标），滚动后选区跟随内容，复制纯文本不受 buffer 渲染影响
 - **双击选整行**：消息区双击用 TextSelection 选整行（纯文本），其他非 textarea 区域双击用 ScreenSelection 选整屏行
 - **spinner / 总结行可选可复制**：`✻ Brewed for...` + 进度条等位于 messages_area 底部但不在 wrap_map 内的行，现可通过 ScreenSelection 选中复制
@@ -19,6 +24,7 @@ Perihelion Agent 版本变更记录。
 
 - **拖选溢出 panic**：`visual_row + scroll_offset` 计算改用 `saturating_add`，修复 `scroll_offset=usize::MAX`（初始/提交/scroll_to_bottom 状态）时拖选导致 exit code 101 的崩溃
 - **安装脚本 tag 前缀**：`install.sh` / `install.ps1` 匹配 `npm-v*` release tag 前缀
+- **Clippy warnings**：`ShellCommandPool` Default derive + `map_or` → `is_none_or`
 
 ---
 
