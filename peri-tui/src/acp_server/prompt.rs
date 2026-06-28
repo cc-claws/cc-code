@@ -44,6 +44,7 @@ pub(crate) async fn execute_prompt(
     thread_store: &Arc<dyn peri_agent::thread::ThreadStore>,
     langfuse_session: Option<Arc<LangfuseSession>>,
     pool: Arc<parking_lot::Mutex<peri_acp::session::agent_pool::AgentPool>>,
+    shell_executor: Option<Arc<dyn peri_agent::shell::ShellExecutor>>,
 ) -> Result<Value, AcpError> {
     let session_id = params
         .get("sessionId")
@@ -119,6 +120,7 @@ pub(crate) async fn execute_prompt(
         event_sink,
         cancel,
         broker,
+        shell_executor,
         plugin_skill_dirs.to_vec(),
         plugin_agent_dirs.to_vec(),
         hook_groups.to_vec(),

@@ -467,6 +467,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             event_sink,
                             cancel,
                             broker,
+                            None, // shell_executor（stdio 无 TUI shell 池，用 InlineShellExecutor）
                             ctx_for_task.plugin_skill_dirs.clone(),
                             ctx_for_task.plugin_agent_dirs.clone(),
                             ctx_for_task.hook_groups.clone(),

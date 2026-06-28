@@ -22,7 +22,7 @@ use peri_acp::transport::mpsc::mpsc_transport_pair;
 use peri_tui::{
     acp_client::AcpTuiClient,
     acp_server::{run_acp_server, AcpServerConfig},
-    app::App,
+    app::{AgentShellExecutor, AgentShellRegistration, App},
     conpty, event, ui,
 };
 
@@ -791,6 +791,20 @@ async fn run_app(
             let tool_search_index = Arc::new(peri_middlewares::tool_search::ToolSearchIndex::new());
             let shared_tools = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
 
+            // Agent shell executor：把 agent BashTool 命令接入 shell 池，支持 Ctrl+B 后台化。
+            // 创建 registration channel，sender 注入 executor（→ ACP server），
+            // receiver 存到 App 主循环（poll_agent_shell_registrations 消费）。
+            let (agent_shell_reg_tx, agent_shell_reg_rx) =
+                tokio::sync::mpsc::unbounded_channel::<AgentShellRegistration>();
+            let shell_executor: Arc<dyn peri_agent::shell::ShellExecutor> = Arc::new(
+                AgentShellExecutor::new(
+                    agent_shell_reg_tx,
+                    app.services.cwd.clone(),
+                    app.session_mgr.current().metadata.session_id.to_string(),
+                ),
+            );
+            app.agent_shell_registrations_rx = Some(agent_shell_reg_rx);
+
             let server_config = AcpServerConfig {
                 provider: Arc::new(parking_lot::RwLock::new(provider.clone())),
                 peri_config: Arc::new(parking_lot::RwLock::new(
@@ -819,6 +833,7 @@ async fn run_app(
                     }
                 },
                 config_path: peri_tui::config::config_path(),
+                shell_executor: Some(shell_executor),
             };
 
             let (client_transport, server_transport) = mpsc_transport_pair();
@@ -885,6 +900,9 @@ async fn run_app(
         let shell_updated = app.poll_foreground_shell();
         // 轮询后台 shell 任务完成（通知注入对话流）
         let bg_shell_updated = app.poll_background_shell_events();
+        // 轮询 agent shell（BashTool 经 ShellExecutor 注入的命令）注册 + 退出
+        let mut agent_shell_updated = app.poll_agent_shell_registrations();
+        agent_shell_updated |= app.poll_agent_shells();
         // 轮询 panic hook 通知
         let panic_updated = app.poll_panic_notifications();
         // 检查 cron 定时触发
@@ -941,6 +959,7 @@ async fn run_app(
                     || bg_updated
                     || shell_updated
                     || bg_shell_updated
+                    || agent_shell_updated
                     || panic_updated
                     || loading
                     || cursor_blinked;

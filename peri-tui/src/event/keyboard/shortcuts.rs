@@ -39,6 +39,8 @@ pub(super) fn handle_shortcuts(
         let has_foreground = app.session_mgr.current().shell_pool.is_running();
         if has_foreground {
             app.background_foreground();
+        } else if app.background_agent_foreground() {
+            // agent Bash 命令被后台化（background_agent_foreground 内部处理）
         } else if !app.session_mgr.current().background_shells.is_empty() {
             app.open_background_tasks_panel();
         } else if !app.session_mgr.current().background_agents.is_empty() {

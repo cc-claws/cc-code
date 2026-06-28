@@ -428,6 +428,160 @@ impl App {
         true
     }
 
+    // ── Agent shell 路径（BashTool 经 ShellExecutor 注入）──────────────────────
+    //
+    // 与上面 !command 路径平行但独立：result_rx 由 BashTool::invoke 独占 await，
+    // UI 仅用 ExitSignal 检测退出 + background_tx 响应 Ctrl+B。详见 agent_shell_executor.rs。
+
+    /// 轮询 agent shell 注册事件：从 registration channel 消费，登记到当前会话。
+    /// 由主循环每帧调用。返回是否有新注册（用于触发重绘）。
+    pub fn poll_agent_shell_registrations(&mut self) -> bool {
+        // 先 drain 到 Vec，避免 &self（rx borrow）与 register_agent_shell 的 &mut self 冲突。
+        let pending: Vec<super::AgentShellRegistration> = match self
+            .agent_shell_registrations_rx
+            .as_mut()
+        {
+            Some(rx) => {
+                let mut v = Vec::new();
+                while let Ok(reg) = rx.try_recv() {
+                    v.push(reg);
+                }
+                v
+            }
+            None => Vec::new(),
+        };
+        if pending.is_empty() {
+            return false;
+        }
+        for reg in pending {
+            self.register_agent_shell(reg);
+        }
+        true
+    }
+
+    /// 注册一个 agent shell 到当前会话（由 App 主循环从 registration channel 消费后调用）。
+    ///
+    /// 前台命令（direct_background=false）：push 到 agent_shells，可被 Ctrl+B 后台化。
+    /// 直接后台命令（direct_background=true）：push 到 agent_shells 并启动 stall watchdog，
+    /// BashTool::invoke 会立即返回 task_id 占位串，退出后注入完成通知。
+    pub fn register_agent_shell(&mut self, reg: super::AgentShellRegistration) {
+        let direct_background = reg.direct_background;
+        let mut slot = super::AgentShellSlot::from_registration(reg);
+        // 直接后台命令启动 stall watchdog（检测卡在等待输入）
+        if direct_background {
+            let watchdog = super::background_shell::spawn_stall_watchdog(
+                slot.task_id.clone(),
+                slot.command.clone(),
+                slot.output_path.clone(),
+                self.services.bg_event_tx.clone(),
+            );
+            slot.stall_watchdog = Some(watchdog);
+        }
+        self.session_mgr.current_mut().agent_shells.push(slot);
+        self.render_rebuild();
+    }
+
+    /// 把当前会话中所有前台 agent shell 后台化（Ctrl+B 触发）。
+    ///
+    /// 与 [`Self::background_foreground`]（!command 路径）协同：Ctrl+B 时先尝试
+    /// !command 前台，再尝试 agent 前台。返回是否有任何 agent shell 被后台化。
+    pub fn background_agent_foreground(&mut self) -> bool {
+        let mut any = false;
+        let cwd_path = std::path::PathBuf::from(
+            self.session_mgr.current().shell_pool.foreground.runtime.cwd.clone(),
+        );
+        let session_id = self.session_mgr.current().metadata.session_id.to_string();
+        for slot in self.session_mgr.current_mut().agent_shells.iter_mut() {
+            if !slot.is_foreground_running() {
+                continue;
+            }
+            // 后台化：启动 stall watchdog（输出已全程写磁盘，无需切 output 目标）
+            let watchdog = super::background_shell::spawn_stall_watchdog(
+                slot.task_id.clone(),
+                slot.command.clone(),
+                slot.output_path.clone(),
+                self.services.bg_event_tx.clone(),
+            );
+            slot.stall_watchdog = Some(watchdog);
+            slot.mark_backgrounded();
+            any = true;
+        }
+        // 抑制未使用变量（cwd_path/session_id 预留后续 VM 标记用）
+        let _ = (&cwd_path, &session_id);
+        any
+    }
+
+    /// 轮询 agent shell 退出状态：检测 ExitSignal，退出则标记 + 注入完成通知。
+    ///
+    /// 由主循环每帧调用（与 [`Self::poll_background_shell_events`] 平行）。
+    /// 返回是否有任何状态变化（用于触发重绘）。
+    pub fn poll_agent_shells(&mut self) -> bool {
+        // 阶段1：收集完成通知（&mut session）
+        let notifications: Vec<String> = {
+            let session = self.session_mgr.current_mut();
+            let mut notifs = Vec::new();
+            for slot in session.agent_shells.iter_mut() {
+                if slot.ended {
+                    continue;
+                }
+                if !slot.exit_signal.is_exited() {
+                    continue;
+                }
+                // 退出：exit_code 未知（ExitSignal 不携带），用 -1 兜底。
+                // 更精确的 exit_code 由 BashTool::invoke 经 result_rx 拿到，通知里不影响 agent 判断。
+                slot.mark_ended(None);
+                let n = super::background_shell::shell_completion_notification(
+                    &slot.task_id,
+                    &slot.command,
+                    slot.exit_code,
+                    &slot.output_path,
+                );
+                notifs.push(n);
+            }
+            notifs
+        };
+
+        if notifications.is_empty() {
+            return false;
+        }
+
+        // 阶段2：注入通知（复用 !command 路径的注入机制：idle 注入首个触发新轮次，其余入 pending）
+        let loading = self.session_mgr.current().ui.loading;
+        let mut first_injected = false;
+        for n in notifications {
+            if !loading && !first_injected {
+                self.submit_message(n);
+                first_injected = true;
+            } else {
+                self.session_mgr
+                    .current_mut()
+                    .pending_bg_shell_notifications
+                    .push_back(n);
+            }
+        }
+        // 清理已完成的 agent shell（与 background_shells 一致的容量管理）
+        self.cleanup_finished_agent_shells();
+        true
+    }
+
+    /// 清理已完成的 agent shell（防无限增长）。
+    fn cleanup_finished_agent_shells(&mut self) {
+        const MAX_AGENT_SHELLS: usize = 20;
+        let session = self.session_mgr.current_mut();
+        if session.agent_shells.len() <= MAX_AGENT_SHELLS {
+            return;
+        }
+        // 移除最旧的已完成任务（运行中永不移除）
+        let to_remove = session
+            .agent_shells
+            .iter()
+            .filter(|s| s.ended)
+            .take(session.agent_shells.len().saturating_sub(MAX_AGENT_SHELLS))
+            .map(|s| s.task_id.clone())
+            .collect::<Vec<_>>();
+        session.agent_shells.retain(|s| !to_remove.contains(&s.task_id));
+    }
+
     /// 直接创建后台 shell 任务（跳过前台阶段，agent 工具调用路径，参考 PRD §9）。
     ///
     /// output_rx 直接交给 DiskOutput writer 写磁盘，不经前台 UI。
