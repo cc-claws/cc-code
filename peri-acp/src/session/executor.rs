@@ -112,6 +112,9 @@ pub async fn execute_prompt(
     event_sink: Arc<dyn EventSink>,
     cancel: AgentCancellationToken,
     broker: Arc<dyn UserInteractionBroker>,
+    // Shell 执行器（注入 BashTool，支持 Ctrl+B 后台化）。
+    // None = 使用默认 InlineShellExecutor（保持原 cmd.output() 同步行为）。
+    shell_executor: Option<Arc<dyn peri_agent::shell::ShellExecutor>>,
     plugin_skill_dirs: Vec<std::path::PathBuf>,
     plugin_agent_dirs: Vec<std::path::PathBuf>,
     hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>>,
@@ -491,6 +494,7 @@ pub async fn execute_prompt(
             preload_skills: Vec::new(),
             session_id: Some(session_id.clone()),
             broker: broker.clone(),
+            shell_executor: shell_executor.clone(),
             plugin_skill_dirs: plugin_skill_dirs.clone(),
             plugin_agent_dirs: plugin_agent_dirs.clone(),
             hook_groups: hook_groups.clone(),
