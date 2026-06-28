@@ -67,6 +67,9 @@ pub struct AcpServerConfig {
     pub thread_store: Arc<dyn peri_agent::thread::ThreadStore>,
     pub langfuse_session: Option<Arc<peri_acp::langfuse::LangfuseSession>>,
     pub config_path: std::path::PathBuf,
+    /// Shell 执行器（注入 BashTool，支持 Ctrl+B 后台化）。
+    /// None = 使用默认 InlineShellExecutor（保持原 cmd.output() 同步行为）。
+    pub shell_executor: Option<Arc<dyn peri_agent::shell::ShellExecutor>>,
 }
 
 // ── Main server loop ────────────────────────────────────────────────────────
@@ -109,6 +112,7 @@ pub async fn run_acp_server(
                     let plugin_lsp_servers = cfg.plugin_lsp_servers.clone();
                     let thread_store = cfg.thread_store.clone();
                     let prompt_session_id = extract_session_id(&params, "").to_string();
+                    let shell_executor = cfg.shell_executor.clone();
                     let langfuse_session = cfg.langfuse_session.clone();
 
                     // Extract AgentPool from session, wrap in Arc<Mutex> for
@@ -158,6 +162,7 @@ pub async fn run_acp_server(
                             &thread_store,
                             langfuse_session,
                             pool_arc.clone(),
+                            shell_executor,
                         )
                         .await;
 

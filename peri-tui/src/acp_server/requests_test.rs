@@ -80,6 +80,7 @@ fn make_server_config(
         thread_store: Arc::new(thread_store),
         langfuse_session: None,
         config_path: tmp.path().join("test_config.json"),
+        shell_executor: None,
     }
 }
 

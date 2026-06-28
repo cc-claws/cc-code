@@ -74,6 +74,8 @@ pub(crate) use background_shell::{BackgroundShell, ShellStatus};
 mod background_tasks_panel;
 mod shell_command;
 pub(crate) use shell_command::ShellCommandPool;
+mod agent_shell_executor;
+pub use agent_shell_executor::{AgentShellExecutor, AgentShellRegistration, AgentShellSlot};
 
 // ── System Infrastructure ────────────────────────────────────────────────────
 mod chat_session;
@@ -159,6 +161,11 @@ pub struct App {
     /// Initialized after App construction in run_app(); None until `set_acp_client` is called.
     /// Added in Step 6-a; fully integrated in Steps 6-c..6-h.
     pub acp_client: Option<AcpTuiClient>,
+    /// agent shell 注册事件接收端：AgentShellExecutor（在 ACP server task 中）发，
+    /// App 主循环收（[`App::poll_agent_shell_registrations`]）。
+    /// 由 run_app 在构造 AgentShellExecutor 后注入。
+    pub agent_shell_registrations_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<AgentShellRegistration>>,
 }
 
 impl App {
@@ -297,6 +304,7 @@ impl App {
             global_panels: panel_manager::PanelManager::new(),
             focused: true,
             acp_client: None,
+            agent_shell_registrations_rx: None,
         }
     }
 

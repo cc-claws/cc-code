@@ -206,6 +206,7 @@ pub async fn run_print(
         event_sink,
         cancel,
         broker,
+        None, // shell_executor（print 模式无 TUI，用 InlineShellExecutor）
         plugin_skill_dirs,
         plugin_agent_dirs,
         hook_groups,
