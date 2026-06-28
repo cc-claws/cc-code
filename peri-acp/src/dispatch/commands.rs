@@ -10,6 +10,8 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
         AvailableCommand::new("help", "Show available commands and their descriptions"),
         AvailableCommand::new("clear", "Clear the current conversation"),
         AvailableCommand::new("init", "Generate or optimize project CLAUDE.md knowledge base"),
+        AvailableCommand::new("commit", "Create a git commit"),
+        AvailableCommand::new("review", "Review a pull request"),
         AvailableCommand::new(
             "compact",
             "Compress the conversation history to save context",

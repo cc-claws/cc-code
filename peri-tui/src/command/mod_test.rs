@@ -280,3 +280,28 @@
         let matches = r.match_prefix("mo", &make_lc());
         assert_eq!(matches.len(), 1);
     }
+
+    // ── 回归：default_registry 必须包含 passthrough 命令及其别名 ──
+    // 历史 bug：commit/review 只在 ACP 层注册，TUI registry 遗漏，
+    // 导致用户输入 /commit /review 时报"未知命令"。此测试防止再次遗漏。
+    #[test]
+    fn test_default_registry_includes_passthrough_commands() {
+        let r = crate::command::default_registry();
+        let list = r.list(&make_lc());
+        let names: Vec<&str> = list.iter().map(|(n, _, _)| n.as_str()).collect();
+        // init / commit / review 均为 Passthrough，TUI 必须注册才能透传给 ACP
+        assert!(names.contains(&"init"), "default_registry 应包含 init");
+        assert!(names.contains(&"commit"), "default_registry 应包含 commit");
+        assert!(names.contains(&"review"), "default_registry 应包含 review");
+        // 别名也必须暴露给补全/Hints
+        let commit_entry = list.iter().find(|(n, _, _)| *n == "commit").unwrap();
+        assert!(
+            commit_entry.2.iter().any(|a| a == "ci"),
+            "commit 应含 ci 别名"
+        );
+        let review_entry = list.iter().find(|(n, _, _)| *n == "review").unwrap();
+        assert!(
+            review_entry.2.iter().any(|a| a == "pr"),
+            "review 应含 pr 别名"
+        );
+    }
