@@ -83,15 +83,15 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-
 
       - name: Install cross
-        if: runner.os == 'Linux'
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: cargo install cross
 
-      - name: Build cc-code (Linux)
-        if: runner.os == 'Linux'
+      - name: Build cc-code (cross)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: cross build -p peri-tui --release --target ${{ matrix.target }}
 
-      - name: Build cc-code (non-Linux)
-        if: runner.os != 'Linux'
+      - name: Build cc-code (native)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
         run: cargo build -p peri-tui --release --target ${{ matrix.target }}
 
       - name: Package binaries (Unix)
