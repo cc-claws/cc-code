@@ -58,17 +58,10 @@ impl Default for ForegroundShell {
 
 /// Shell 命令池：管理前台命令（最多 1 个）。后台命令由
 /// [`super::ChatSession::background_shells`] 管理。
+#[derive(Default)]
 pub struct ShellCommandPool {
     /// 当前前台命令（runtime=default 表示无命令运行）
     pub foreground: ForegroundShell,
-}
-
-impl Default for ShellCommandPool {
-    fn default() -> Self {
-        Self {
-            foreground: ForegroundShell::default(),
-        }
-    }
 }
 
 impl ShellCommandPool {
@@ -347,7 +340,7 @@ impl App {
                     && viewing_id.as_deref() != Some(bg.id.as_str())
                 {
                     let ended = bg.ended_at.unwrap_or(bg.started_at);
-                    if oldest.map_or(true, |(_, t)| ended < t) {
+                    if oldest.is_none_or(|(_, t)| ended < t) {
                         oldest = Some((i, ended));
                     }
                 }
