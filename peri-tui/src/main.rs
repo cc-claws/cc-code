@@ -881,6 +881,10 @@ async fn run_app(
         agent_updated |= app.poll_at_mention();
         // 轮询后台事件（MCP OAuth 等）
         let bg_updated = app.poll_background_events();
+        // 轮询前台 shell 命令（流式输出消费 + 进程退出检测）
+        let shell_updated = app.poll_foreground_shell();
+        // 轮询后台 shell 任务完成（通知注入对话流）
+        let bg_shell_updated = app.poll_background_shell_events();
         // 轮询 panic hook 通知
         let panic_updated = app.poll_panic_notifications();
         // 检查 cron 定时触发
@@ -935,6 +939,8 @@ async fn run_app(
                 let should_render = cache_updated
                     || agent_updated
                     || bg_updated
+                    || shell_updated
+                    || bg_shell_updated
                     || panic_updated
                     || loading
                     || cursor_blinked;

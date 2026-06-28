@@ -75,6 +75,7 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
             | Some(PanelKind::Cron)
             | Some(PanelKind::Plugin)
             | Some(PanelKind::Tasks)
+            | Some(PanelKind::BackgroundTasks)
     ) {
         let result = with_global_panels!(app, |pm, ctx| {
             let result = pm.dispatch_key(input.clone(), &mut ctx);

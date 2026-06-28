@@ -7,10 +7,10 @@ use tui_textarea::Input;
 use ratatui::{layout::Rect, Frame};
 
 use super::{
-    agent_panel::AgentPanel, command_palette_panel::CommandPalettePanel, config_panel::ConfigPanel,
-    cron_state::CronPanel, hooks_panel::HooksPanel, login_panel::LoginPanel,
-    mcp_panel::McpPanel, memory_panel::MemoryPanel, model_panel::ModelPanel,
-    plugin_panel::PluginPanel, service_registry::ServiceRegistry,
+    agent_panel::AgentPanel, background_tasks_panel::BackgroundTasksPanel,
+    command_palette_panel::CommandPalettePanel, config_panel::ConfigPanel, cron_state::CronPanel,
+    hooks_panel::HooksPanel, login_panel::LoginPanel, mcp_panel::McpPanel, memory_panel::MemoryPanel,
+    model_panel::ModelPanel, plugin_panel::PluginPanel, service_registry::ServiceRegistry,
     session_manager::SessionManager, status_panel::StatusPanel, tasks_panel::TasksPanel,
 };
 use crate::thread::ThreadBrowser;
@@ -59,6 +59,7 @@ pub enum PanelKind {
     Memory,
     Tasks,
     CommandPalette,
+    BackgroundTasks,
 }
 
 impl PanelKind {
@@ -77,6 +78,7 @@ impl PanelKind {
             PanelKind::Status => 9,
             PanelKind::Memory => 10,
             PanelKind::Tasks => 11,
+            PanelKind::BackgroundTasks => 12,
             PanelKind::CommandPalette => 0,
         }
     }
@@ -88,9 +90,11 @@ impl PanelKind {
                 MutexGroup::Settings
             }
             PanelKind::Agent | PanelKind::Hooks => MutexGroup::Agent,
-            PanelKind::Mcp | PanelKind::Plugin | PanelKind::Cron | PanelKind::Tasks => {
-                MutexGroup::Tools
-            }
+            PanelKind::Mcp
+            | PanelKind::Plugin
+            | PanelKind::Cron
+            | PanelKind::Tasks
+            | PanelKind::BackgroundTasks => MutexGroup::Tools,
             PanelKind::Status | PanelKind::Memory => MutexGroup::Info,
             PanelKind::ThreadBrowser => MutexGroup::Thread,
         }
@@ -111,7 +115,8 @@ impl PanelKind {
             | PanelKind::Cron
             | PanelKind::Status
             | PanelKind::Memory
-            | PanelKind::Tasks => PanelScope::Global,
+            | PanelKind::Tasks
+            | PanelKind::BackgroundTasks => PanelScope::Global,
         }
     }
 }
@@ -150,6 +155,7 @@ pub enum PanelState {
     Memory(MemoryPanel),
     Tasks(TasksPanel),
     CommandPalette(CommandPalettePanel),
+    BackgroundTasks(BackgroundTasksPanel),
 }
 
 impl PanelState {
@@ -169,6 +175,7 @@ impl PanelState {
             PanelState::Memory(_) => PanelKind::Memory,
             PanelState::Tasks(_) => PanelKind::Tasks,
             PanelState::CommandPalette(_) => PanelKind::CommandPalette,
+            PanelState::BackgroundTasks(_) => PanelKind::BackgroundTasks,
         }
     }
 
@@ -188,6 +195,7 @@ impl PanelState {
             PanelState::Memory(p) => p as &dyn Any,
             PanelState::Tasks(p) => p as &dyn Any,
             PanelState::CommandPalette(p) => p as &dyn Any,
+            PanelState::BackgroundTasks(p) => p as &dyn Any,
         }
     }
 
@@ -207,6 +215,7 @@ impl PanelState {
             PanelState::Memory(p) => p as &mut dyn Any,
             PanelState::Tasks(p) => p as &mut dyn Any,
             PanelState::CommandPalette(p) => p as &mut dyn Any,
+            PanelState::BackgroundTasks(p) => p as &mut dyn Any,
         }
     }
 
@@ -227,6 +236,7 @@ impl PanelState {
             PanelState::Memory(p) => p.render(f, app, area),
             PanelState::Tasks(p) => p.render(f, app, area),
             PanelState::CommandPalette(p) => p.render(f, app, area),
+            PanelState::BackgroundTasks(p) => p.render(f, app, area),
         }
     }
 
@@ -247,6 +257,7 @@ impl PanelState {
             PanelState::Memory(p) => p.desired_height(screen_height, screen_width),
             PanelState::Tasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::CommandPalette(p) => p.desired_height(screen_height, screen_width),
+            PanelState::BackgroundTasks(p) => p.desired_height(screen_height, screen_width),
         }
     }
 
@@ -267,6 +278,7 @@ impl PanelState {
             PanelState::Memory(p) => p.status_bar_hints(lc),
             PanelState::Tasks(p) => p.status_bar_hints(lc),
             PanelState::CommandPalette(p) => p.status_bar_hints(lc),
+            PanelState::BackgroundTasks(p) => p.status_bar_hints(lc),
         }
     }
 }
@@ -335,7 +347,7 @@ impl PanelManager {
 
     /// 放回面板（配合 take_active 使用）
     pub fn put_active(&mut self, state: PanelState) {
-        self.active = Some(state);
+        self.active = Some(state)
     }
 
     /// 检查指定类型的面板是否激活
@@ -397,6 +409,7 @@ impl PanelManager {
             PanelState::Plugin(p) => p.handle_key(input, ctx),
             PanelState::Tasks(p) => p.handle_key(input, ctx),
             PanelState::CommandPalette(p) => p.handle_key(input, ctx),
+            PanelState::BackgroundTasks(p) => p.handle_key(input, ctx),
         }
     }
 
@@ -420,6 +433,7 @@ impl PanelManager {
             PanelState::Plugin(p) => p.handle_paste(text, ctx),
             PanelState::Tasks(p) => p.handle_paste(text, ctx),
             PanelState::CommandPalette(p) => p.handle_paste(text, ctx),
+            PanelState::BackgroundTasks(p) => p.handle_paste(text, ctx),
         }
     }
 
@@ -443,6 +457,7 @@ impl PanelManager {
             PanelState::Plugin(p) => p.handle_scroll(lines, ctx),
             PanelState::Tasks(p) => p.handle_scroll(lines, ctx),
             PanelState::CommandPalette(p) => p.handle_scroll(lines, ctx),
+            PanelState::BackgroundTasks(p) => p.handle_scroll(lines, ctx),
         }
     }
 
@@ -471,6 +486,7 @@ impl PanelManager {
             PanelState::Plugin(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::Tasks(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::CommandPalette(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::BackgroundTasks(p) => p.handle_mouse(mouse, area, ctx),
         }
     }
 
@@ -494,6 +510,7 @@ impl PanelManager {
             PanelState::Plugin(p) => p.status_bar_hints(lc),
             PanelState::Tasks(p) => p.status_bar_hints(lc),
             PanelState::CommandPalette(p) => p.status_bar_hints(lc),
+            PanelState::BackgroundTasks(p) => p.status_bar_hints(lc),
         }
     }
 
@@ -515,6 +532,7 @@ impl PanelManager {
             PanelState::Plugin(p) => p.desired_height(screen_height, screen_width),
             PanelState::Tasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::CommandPalette(p) => p.desired_height(screen_height, screen_width),
+            PanelState::BackgroundTasks(p) => p.desired_height(screen_height, screen_width),
         })
     }
 
@@ -538,6 +556,7 @@ impl PanelManager {
             PanelState::Plugin(p) => p.set_scroll_offset(offset),
             PanelState::Tasks(p) => p.set_scroll_offset(offset),
             PanelState::CommandPalette(p) => p.set_scroll_offset(offset),
+            PanelState::BackgroundTasks(p) => p.set_scroll_offset(offset),
         }
     }
 }

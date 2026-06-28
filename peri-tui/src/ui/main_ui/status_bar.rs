@@ -270,21 +270,41 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
     // 瞬时状态（复制提示已移至消息区右下角浮动显示）
 
-    // 后台任务指示器
-    if !app.session_mgr.current().background_agents.is_empty() {
-        if has_content {
-            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+    // 后台任务指示器（shell + agent 计数 pill，对齐效果图场景 2/3）
+    {
+        let bg_shell_count = app
+            .session_mgr
+            .current()
+            .background_shells
+            .iter()
+            .filter(|b| b.status == crate::app::ShellStatus::Running)
+            .count();
+        let bg_agent_count = app.session_mgr.current().background_agents.len();
+        if bg_shell_count + bg_agent_count > 0 {
+            if has_content {
+                left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+            }
+            let mut parts: Vec<String> = Vec::new();
+            if bg_shell_count > 0 {
+                parts.push(format!(
+                    "{} shell{}",
+                    bg_shell_count,
+                    if bg_shell_count > 1 { "s" } else { "" }
+                ));
+            }
+            if bg_agent_count > 0 {
+                parts.push(format!(
+                    "{} agent{}",
+                    bg_agent_count,
+                    if bg_agent_count > 1 { "s" } else { "" }
+                ));
+            }
+            left_spans.push(Span::styled(
+                format!(" {} ", parts.join(", ")),
+                Style::default().bg(theme::WARNING).fg(theme::CURSOR_BG),
+            ));
+            left_spans.push(Span::styled("↓ to view", Style::default().fg(theme::MUTED)));
         }
-        left_spans.push(Span::styled(
-            lc.tr_args(
-                "statusbar-bg-indicator",
-                &[(
-                    "count".into(),
-                    (app.session_mgr.current().background_agents.len() as i64).into(),
-                )],
-            ),
-            Style::default().fg(theme::WARNING),
-        ));
     }
 
     // 重试状态

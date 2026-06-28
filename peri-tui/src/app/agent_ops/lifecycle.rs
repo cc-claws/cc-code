@@ -134,6 +134,8 @@ impl App {
         }
         self.cleanup_agent_state(None);
         // 检查缓冲消息，合并发送
+        // 注入待处理消息：优先 pending_messages（用户输入排队），否则一个 pending_bg 通知
+        // （剩余 pending_bg 下次 Done 处理，避免连续 submit_message 触发多次 begin_round 覆盖）
         if !self
             .session_mgr
             .current_mut()
@@ -142,6 +144,14 @@ impl App {
             .is_empty()
         {
             self.flush_pending_messages();
+        } else if let Some(notif) = self
+            .session_mgr
+            .current_mut()
+            .pending_bg_shell_notifications
+            .pop_front()
+        {
+            tracing::info!("Done: injecting pending background shell notification");
+            self.submit_message(notif);
         }
         (true, false, true)
     }
