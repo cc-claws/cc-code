@@ -365,7 +365,7 @@ impl BaseTool for BashTool {
         // 委托给 ShellExecutor：peri-tui 注入的实现会把命令接入 shell 池，
         // 支持 Ctrl+B 后台化；默认 InlineShellExecutor 保持原 cmd.output() 行为。
         let req = peri_agent::shell::ShellRequest {
-            command: command.clone(),
+            command: command.to_string(),
             cwd: self.cwd.clone(),
             timeout_ms,
             run_in_background,
