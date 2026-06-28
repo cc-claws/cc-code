@@ -186,7 +186,9 @@ async fn test_bash_default_timeout_is_120_seconds() {
 #[tokio::test]
 async fn test_bash_description_and_run_in_background_parsed() {
     let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
-    // description 和 run_in_background 不影响执行
+    // run_in_background=true 时 invoke 立即返回 task 启动占位串（对齐 Claude Code）。
+    // 真实输出靠宿主的通知机制注入下一轮对话；InlineShellExecutor 无通知系统，
+    // 仅验证占位串结构。
     let result = tool
         .invoke(serde_json::json!({
             "command": "echo ok",
@@ -195,7 +197,11 @@ async fn test_bash_description_and_run_in_background_parsed() {
         }))
         .await
         .unwrap();
-    assert!(result.contains("ok"));
+    assert!(
+        result.contains("<background-task-started>"),
+        "run_in_background 应返回 task 启动占位串: {result}"
+    );
+    assert!(result.contains("echo ok"), "占位串应含命令: {result}");
 }
 
 #[test]
