@@ -102,7 +102,9 @@ impl App {
             background_agents: Vec::new(),
             focused_instance_id: None,
             spinner_state: peri_widgets::SpinnerState::new(peri_widgets::SpinnerMode::Idle),
-            shell_command: super::ShellCommandRuntime::default(),
+            shell_pool: super::ShellCommandPool::default(),
+            background_shells: Vec::new(),
+            pending_bg_shell_notifications: std::collections::VecDeque::new(),
         };
 
         let app = App {

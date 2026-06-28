@@ -141,6 +141,8 @@
             exit_code: Some(0),
             collapsed: true,
             content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
         };
         vm.recompute_hash();
 
@@ -188,6 +190,8 @@
             exit_code: Some(0),
             collapsed: true,
             content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
         };
         vm.recompute_hash();
 
@@ -212,6 +216,8 @@
             exit_code: Some(0),
             collapsed: true,
             content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
         };
         vm_ok.recompute_hash();
         let lines_ok = render_view_model(&vm_ok, None, 80, false, 0);
@@ -236,6 +242,8 @@
             exit_code: Some(1),
             collapsed: true,
             content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
         };
         vm_err.recompute_hash();
         let lines_err = render_view_model(&vm_err, None, 80, false, 0);

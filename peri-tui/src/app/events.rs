@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use peri_agent::interaction::{InteractionContext, InteractionResponse};
 use peri_middlewares::prelude::TodoItem;
 use tokio::sync::oneshot;
@@ -135,6 +137,19 @@ pub enum AgentEvent {
         duration_ms: u64,
         /// 子 agent 唯一实例 ID（child_thread_id / uuid7），用于精确匹配并发同类型后台 agent
         child_thread_id: Option<String>,
+    },
+    /// 后台 shell 命令完成通知（Ctrl+B 后台化的 shell 进程退出）
+    BackgroundShellCompleted {
+        task_id: String,
+        command: String,
+        exit_code: Option<i32>,
+        output_path: PathBuf,
+    },
+    /// 后台 shell 命令 stall 警告（watchdog 检测到命令在等待用户输入）
+    BackgroundShellStalled {
+        task_id: String,
+        command: String,
+        last_output: String,
     },
     /// MCP 面板异步操作完成
     McpActionCompleted {
