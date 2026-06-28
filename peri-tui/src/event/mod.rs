@@ -15,68 +15,65 @@ use anyhow::Result;
 use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
-/// 大段粘贴阈值：超过此字符数的粘贴内容将显示为占位符
-const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
-
 use crate::app::{
     panel_manager::{EventResult, PanelKind},
-    App,
+    App, MessageScrollbarMetrics,
 };
+
+// ── Mouse event liveness tracking ────────────────────────────────────────────
+// Tracks the timestamp (millis since epoch) of the last mouse event processed
+// by `handle_event`. The main event loop reads this to detect prolonged mouse
+// silence and refresh ConPTY mouse tracking if needed.
+static LAST_MOUSE_EVENT_MS: AtomicU64 = AtomicU64::new(0);
+
+fn record_mouse_event() {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    LAST_MOUSE_EVENT_MS.store(ms, Ordering::Relaxed);
+}
+
+/// Returns millis since epoch of the last mouse event, or 0 if none recorded.
+pub fn last_mouse_event_ms() -> u64 {
+    LAST_MOUSE_EVENT_MS.load(Ordering::Relaxed)
+}
 
 // ── Action ──────────────────────────────────────────────────────────────────
 
 pub enum Action {
     Quit,
     Submit(String),
+    RunShellCommand(String),
     Redraw,
 }
 
 // ── Event loop ──────────────────────────────────────────────────────────────
 
 pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
-    // Quit-pending state auto-expires after 1s; trigger redraw so the shortcut bar
-    // returns to normal
+    // Quit-pending state auto-expires after 2s; trigger redraw so the shortcut bar
+    // returns to normal.  Must match the window used by handle_ctrl_c().
     if let Some(since) = app.global_ui.quit_pending_since {
-        if since.elapsed() >= std::time::Duration::from_secs(1) {
+        if since.elapsed() >= std::time::Duration::from_secs(2) {
             app.global_ui.quit_pending_since = None;
             return Ok(Some(Action::Redraw));
         }
     }
 
-    // Mouse-availability probe: on first user input after startup, determine
-    // whether the terminal supports mouse events.
-    if app.global_ui.mouse_available.is_none() {
-        // Wait for the first event (up to 1 s); this is not counted as normal poll timeout
-        if event::poll(Duration::from_secs(1))? {
-            let ev = event::read()?;
-            if matches!(ev, Event::Mouse(_)) {
-                app.global_ui.mouse_available = Some(true);
-            } else {
-                // Received keyboard/resize etc. but not mouse → terminal likely
-                // does not support mice (mouse-capable terminals almost always trigger
-                // scroll/move within 1 s)
-                app.global_ui.mouse_available = Some(false);
-            }
-            return handle_event(app, ev).await;
-        } else {
-            // No event within 1 s → no mouse
-            app.global_ui.mouse_available = Some(false);
-            return Ok(None);
-        }
-    }
-
+    // 全屏 alternate screen + EnableMouseCapture 后鼠标必然可用，无需探测。
     if !event::poll(Duration::from_millis(50))? {
         return Ok(None);
     }
 
     let ev = event::read()?;
 
-    // Scroll/Drag event coalescing: drain queued mouse events to avoid
-    // redundant redraws during rapid scrolling or scrollbar dragging.
-    let ev = coalesce_mouse_events(ev);
+    // Drag event coalescing: keep scrollbar/text-selection dragging responsive
+    // without discarding mouse wheel distance.
+    let ev = coalesce_drag_events(ev);
 
     // Simulated-paste detection: on terminals without bracketed paste support
     // (Windows), multi-line paste arrives as a rapid burst of key events.
@@ -87,25 +84,19 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     handle_event(app, ev).await
 }
 
-// ── Mouse event coalescing ───────────────────────────────────────────────
+// ── Mouse drag coalescing ────────────────────────────────────────────────
 
-/// Coalesces rapid-fire mouse scroll/drag events from the crossterm queue.
+/// Coalesces rapid-fire left-drag events from the crossterm queue.
 ///
-/// When a Scroll or Drag(Left) mouse event is the initial event, drains any
-/// additional queued events using a non-blocking poll, keeping only the last
-/// coalesceable event. This trades scroll precision for CPU: N scroll events
-/// within one poll cycle (~50ms) result in only ±3 lines moved instead of N×3.
-/// Drag(Left) is unaffected since only the final position matters.
-///
-/// Non-coalesceable events (click, keypress, etc.) terminate the drain and
-/// replace the pending scroll as the returned event (not dropped).
-fn coalesce_mouse_events(ev: Event) -> Event {
-    // Only activate coalescing for scroll and drag mouse events
+/// Mouse wheel events intentionally bypass this path: a crossterm
+/// `ScrollUp`/`ScrollDown` event does not carry a repeat count, so draining
+/// several wheel events into one event makes fast scrolling move only one
+/// three-line step.
+fn coalesce_drag_events(ev: Event) -> Event {
+    // Only activate coalescing for left-drag mouse events.
     match &ev {
         Event::Mouse(m) => match m.kind {
-            MouseEventKind::ScrollUp
-            | MouseEventKind::ScrollDown
-            | MouseEventKind::Drag(MouseButton::Left) => {}
+            MouseEventKind::Drag(MouseButton::Left) => {}
             _ => return ev,
         },
         _ => return ev,
@@ -113,8 +104,8 @@ fn coalesce_mouse_events(ev: Event) -> Event {
 
     let mut last_ev = ev;
 
-    // Drain all queued scroll/drag events, keeping only the last one.
-    // Non-scroll/drag events terminate the drain and become the result
+    // Drain all queued drag events, keeping only the last one.
+    // Non-drag events terminate the drain and become the result
     // so they are not lost.
     while event::poll(Duration::ZERO).unwrap_or(false) {
         let next = match event::read() {
@@ -123,13 +114,11 @@ fn coalesce_mouse_events(ev: Event) -> Event {
         };
         match &next {
             Event::Mouse(m) => match m.kind {
-                MouseEventKind::ScrollUp
-                | MouseEventKind::ScrollDown
-                | MouseEventKind::Drag(MouseButton::Left) => {
+                MouseEventKind::Drag(MouseButton::Left) => {
                     last_ev = next;
                 }
                 // Other mouse events (click, release, move): stop draining,
-                // return this event instead so it's handled normally
+                // return this event instead so it's handled normally.
                 _ => {
                     last_ev = next;
                     break;
@@ -153,69 +142,69 @@ fn coalesce_mouse_events(ev: Event) -> Event {
 /// individual Key events — each character becomes a Char event and each
 /// newline becomes a bare Enter event.
 ///
-/// This function detects that pattern: when a printable Key event (Char,
-/// Enter, Tab) arrives and the event queue already contains more Key events
-/// buffered behind it (within a 10 ms window), we drain the entire burst,
-/// reconstruct the pasted text, and return an `Event::Paste` so the normal
-/// paste path handles it.
+/// This function detects that pattern from the first key in a burst. Waiting
+/// until Enter is too late: the first pasted line has already been inserted as
+/// normal typing, which splits one external paste into raw text plus multiple
+/// placeholders.
 ///
-/// A 10 ms poll window is far below human typing speed (~100 ms/keystroke),
-/// so false positives are negligible.
+/// A 1 ms start window is too short for human typing to trigger in practice.
+/// Once a burst is detected, a small idle window lets slower Windows terminals
+/// deliver the rest of the paste without fragmenting it at every newline.
 fn detect_simulated_paste(ev: Event) -> Event {
-    // Only trigger on printable key presses (Char, Enter, Tab) without
-    // modifier keys — Ctrl+C, Alt+X etc. are real shortcuts, not paste.
-    let first_char = match &ev {
-        Event::Key(k) if k.kind == KeyEventKind::Press && k.modifiers.is_empty() => {
-            match k.code {
-                KeyCode::Char(c) => Some(c),
-                KeyCode::Enter => Some('\n'),
-                KeyCode::Tab => Some('\t'),
-                _ => None,
-            }
-        }
-        _ => None,
-    };
-    let Some(first) = first_char else {
+    const START_WINDOW: Duration = Duration::from_millis(1);
+    const IDLE_WINDOW: Duration = Duration::from_millis(15);
+
+    if !is_simulated_paste_start(&ev) {
         return ev;
-    };
-
-    // Quick probe: any queued event within 10 ms?
-    if !event::poll(Duration::from_millis(10)).unwrap_or(false) {
-        return ev; // No queued events → manual keystroke → handle normally
     }
 
-    // Simulated paste detected. Collect the full burst into text.
+    // Quick probe: any queued event within 1 ms?
+    if !event::poll(START_WINDOW).unwrap_or(false) {
+        return ev; // No queued events → manual typing / manual Enter
+    }
+
+    let original_ev = ev.clone();
     let mut text = String::new();
-    text.push(first);
+    let _ = key_event_to_text(ev, &mut text);
+    let mut meaningful_after_first = false;
 
-    // Read the first queued event we already probed
-    if let Ok(next) = event::read() {
-        key_event_to_text(next, &mut text);
-    }
-
-    // Drain remaining queued events (ZERO = non-blocking)
-    while event::poll(Duration::ZERO).unwrap_or(false) {
+    while event::poll(IDLE_WINDOW).unwrap_or(false) {
         match event::read() {
-            Ok(next) => key_event_to_text(next, &mut text),
+            Ok(next) => {
+                meaningful_after_first |= key_event_to_text(next, &mut text);
+            }
             Err(_) => break,
         }
     }
 
-    // If the burst only contained the initial key's own Release event
-    // (filtered out by key_event_to_text), this is a genuine keypress,
-    // not a simulated paste. Return the original event.
-    if text.len() <= 1 && !text.contains('\n') {
-        return ev;
+    // A key release queued behind the press is not a paste. It is safe that the
+    // release event was consumed because the TUI only acts on key presses.
+    if !meaningful_after_first {
+        return original_ev;
     }
 
     Event::Paste(text)
+}
+
+fn is_simulated_paste_start(ev: &Event) -> bool {
+    match ev {
+        Event::Key(k) if k.kind == KeyEventKind::Press => match k.code {
+            KeyCode::Char(_) | KeyCode::Tab => {
+                !k.modifiers.contains(KeyModifiers::CONTROL)
+                    && !k.modifiers.contains(KeyModifiers::ALT)
+            }
+            KeyCode::Enter => k.modifiers == KeyModifiers::NONE,
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Append a single crossterm `Event` into `text` for simulated-paste
 /// reconstruction. Key(Char) appends the character; Key(Enter) appends
 /// `\n`; Key(Tab) appends `\t`; Key(Backspace) removes the last char;
 /// everything else (modifiers, non-printable keys) terminates the drain.
-fn key_event_to_text(ev: Event, text: &mut String) {
+fn key_event_to_text(ev: Event, text: &mut String) -> bool {
     match ev {
         Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
             KeyCode::Char(c) => {
@@ -229,26 +218,121 @@ fn key_event_to_text(ev: Event, text: &mut String) {
                 } else {
                     text.push(c);
                 }
+                true
             }
-            KeyCode::Enter => text.push('\n'),
-            KeyCode::Tab => text.push('\t'),
+            KeyCode::Enter => {
+                text.push('\n');
+                true
+            }
+            KeyCode::Tab => {
+                text.push('\t');
+                true
+            }
             KeyCode::Backspace => {
                 text.pop();
+                true
             }
-            _ => {} // Ignore other keys (arrows, etc.) during paste
+            _ => false, // Ignore other keys (arrows, etc.) during paste
         },
         Event::Mouse(_) | Event::FocusGained | Event::FocusLost | Event::Resize(_, _) => {
             // Non-key events shouldn't appear in a paste burst; stop collecting.
+            false
         }
         Event::Paste(p) => {
             // Rare: a real Paste event appeared mid-burst (shouldn't happen).
             text.push_str(&p);
+            true
         }
-        _ => {}
+        _ => false,
     }
 }
 
 // ── Event dispatcher ────────────────────────────────────────────────────────
+
+fn point_in_rect(column: u16, row: u16, area: ratatui::layout::Rect) -> bool {
+    column >= area.x && column < area.x + area.width && row >= area.y && row < area.y + area.height
+}
+
+/// 消息区滚动条命中横向容差：滚动条视觉仅 1 列（bar_area.width == 1），
+/// 宽屏终端下极难精确点中（280 列里只占 1 列），导致"有时能拖、有时不能"。
+/// 向左扩展若干列作为点击命中区——视觉仍是 1 列细线，仅放大可点击范围。
+/// 消息区文字为只读 Paragraph、无点击交互，让出几列不影响其他功能。
+const MESSAGE_SCROLLBAR_HIT_PAD: u16 = 6;
+
+fn point_in_hit_bar(column: u16, row: u16, bar_area: ratatui::layout::Rect) -> bool {
+    let hit_x_start = bar_area.x.saturating_sub(MESSAGE_SCROLLBAR_HIT_PAD);
+    column >= hit_x_start
+        && column <= bar_area.x
+        && row >= bar_area.y
+        && row < bar_area.y + bar_area.height
+}
+
+fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
+    let Some(metrics) = app.session_mgr.current().ui.message_scrollbar_metrics else {
+        return false;
+    };
+
+    if let Some(btn) = metrics.up_btn_area {
+        if point_in_rect(column, row, btn) {
+            set_message_scroll_offset(app, 0);
+            return true;
+        }
+    }
+
+    if let Some(btn) = metrics.down_btn_area {
+        if point_in_rect(column, row, btn) {
+            set_message_scroll_offset(app, metrics.max_offset);
+            return true;
+        }
+    }
+
+    if point_in_hit_bar(column, row, metrics.bar_area) && metrics.max_offset > 0 {
+        let new_offset = message_scrollbar_offset_for_row(metrics, row);
+        set_message_scroll_offset(app, new_offset);
+        app.session_mgr.current_mut().ui.message_scrollbar_dragging = true;
+        return true;
+    }
+
+    false
+}
+
+fn handle_message_scrollbar_drag(app: &mut App, row: u16) -> bool {
+    let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
+    if !dragging {
+        return false;
+    }
+
+    let Some(metrics) = app.session_mgr.current().ui.message_scrollbar_metrics else {
+        app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
+        return true;
+    };
+
+    let new_offset = message_scrollbar_offset_for_row(metrics, row);
+    set_message_scroll_offset(app, new_offset);
+    true
+}
+
+fn message_scrollbar_offset_for_row(metrics: MessageScrollbarMetrics, row: u16) -> usize {
+    let bar_inner_height = metrics.bar_area.height.saturating_sub(2);
+    if bar_inner_height == 0 || metrics.max_offset == 0 {
+        return 0;
+    }
+
+    let rel_y = row
+        .saturating_sub(metrics.bar_area.y.saturating_add(1))
+        .min(bar_inner_height);
+    ((metrics.max_offset as u128 * rel_y as u128) / bar_inner_height as u128)
+        .min(usize::MAX as u128) as usize
+}
+
+fn set_message_scroll_offset(app: &mut App, offset: usize) {
+    let ui = &mut app.session_mgr.current_mut().ui;
+    let max_scroll = ui.scrollbar_max_offset;
+    let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+    let offset = offset.clamp(min_scroll, max_scroll);
+    ui.scroll_offset = offset;
+    ui.scroll_follow = offset >= max_scroll;
+}
 
 /// Core event-handling logic (extracted from `next_event` to avoid duplicating
 /// the probe and normal paths).
@@ -265,6 +349,8 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
         Event::Resize(_, _) => {
             // Width sync is now driven by render_messages (compares cache.width vs text_area.width)
             app.session_mgr.current_mut().ui.text_selection.clear();
+            app.session_mgr.current_mut().ui.screen_selection.clear();
+            app.session_mgr.current_mut().ui.pending_screen_start = None;
         }
         Event::Key(key_event) => {
             return keyboard::handle_key_event(app, key_event);
@@ -290,7 +376,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
 
             // ─── PanelManager paste dispatch ────────────────────────────
             {
-                // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser
+                // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser, CommandPalette
                 let session_kind = app.session_mgr.current_mut().session_panels.active_kind();
                 if matches!(
                     session_kind,
@@ -300,12 +386,13 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         | Some(PanelKind::Login)
                         | Some(PanelKind::Config)
                         | Some(PanelKind::ThreadBrowser)
+                        | Some(PanelKind::CommandPalette)
                 ) {
                     with_session_panels!(app, |sp, ctx| sp.dispatch_paste(&text, &mut ctx));
                     return Ok(Some(Action::Redraw));
                 }
 
-                // Global panels: Status, Memory, Mcp, Cron, Plugin
+                // Global panels: Status, Memory, Mcp, Cron, Plugin, Tasks
                 let global_kind = app.global_panels.active_kind();
                 if matches!(
                     global_kind,
@@ -314,6 +401,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         | Some(PanelKind::Mcp)
                         | Some(PanelKind::Cron)
                         | Some(PanelKind::Plugin)
+                        | Some(PanelKind::Tasks)
                 ) {
                     with_global_panels!(app, |pm, ctx| pm.dispatch_paste(&text, &mut ctx));
                     return Ok(Some(Action::Redraw));
@@ -323,21 +411,12 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
             // Fallback: paste into textarea
             // 弹窗激活时不写入 textarea——用户应通过弹窗 UI 交互
             if !app.is_interaction_popup_active() {
-                let char_count = text.chars().count();
-                let ui = &mut app.session_mgr.current_mut().ui;
-                // 多行粘贴一律用占位符——用户已经看过原文，无需撑大输入框
-                let is_multiline = text.contains('\n');
-                if char_count > LARGE_PASTE_CHAR_THRESHOLD || is_multiline {
-                    // 大段粘贴：显示占位符，保存实际内容
-                    let placeholder = ui.next_large_paste_placeholder(char_count);
-                    ui.pending_pastes.push((placeholder.clone(), text));
-                    ui.textarea.insert_str(&placeholder);
-                } else {
-                    ui.textarea.insert_str(&text);
-                }
+                app.paste_text_into_textarea(&text);
             }
         }
-        Event::Mouse(mouse) => match mouse.kind {
+        Event::Mouse(mouse) => {
+            record_mouse_event();
+            match mouse.kind {
             // ── AskUser 弹窗鼠标交互（优先于面板/消息区） ────────────────────────
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 {
@@ -385,6 +464,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             }
                         }
                         app.scroll_up();
+                        return Ok(Some(Action::Redraw));
                     }
                     MouseEventKind::ScrollDown => {
                         let panel_area = app.session_mgr.current_mut().ui.panel_area;
@@ -412,11 +492,93 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             }
                         }
                         app.scroll_down();
+                        return Ok(Some(Action::Redraw));
                     }
                     _ => unreachable!(),
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                // ── 双击检测：与上次左键 Down 间隔 < 400ms 且同位置 → 双击选整行 ──
+                // 消息区用 TextSelection（内容锚定纯文本），其他非 textarea 区域用
+                // ScreenSelection（Buffer 整行，end_col 设 u16::MAX-1 由 extract/highlight 钳位）。
+                // 设 dragging=true，复用 MouseUp 的提取+复制路径，无需新提取逻辑。
+                // textarea 双击走普通 Down（保留其内置选区行为）。
+                {
+                    let now = std::time::Instant::now();
+                    let prev = app.session_mgr.current().ui.last_left_click;
+                    app.session_mgr.current_mut().ui.last_left_click =
+                        Some((now, mouse.row, mouse.column));
+                    let is_double_click = prev
+                        .map(|(t, r, c)| {
+                            now.duration_since(t) < std::time::Duration::from_millis(400)
+                                && r == mouse.row
+                                && c == mouse.column
+                        })
+                        .unwrap_or(false);
+                    if is_double_click && !app.is_interaction_popup_active() {
+                        let in_messages = app
+                            .session_mgr
+                            .current()
+                            .ui
+                            .messages_area
+                            .map(|a| {
+                                mouse.row >= a.y
+                                    && mouse.row < a.y + a.height
+                                    && mouse.column >= a.x
+                                    && mouse.column < a.x + a.width
+                            })
+                            .unwrap_or(false);
+                        let in_textarea = app
+                            .session_mgr
+                            .current()
+                            .ui
+                            .textarea_area
+                            .map(|a| {
+                                mouse.row >= a.y
+                                    && mouse.row < a.y + a.height
+                                    && mouse.column >= a.x
+                                    && mouse.column < a.x + a.width
+                            })
+                            .unwrap_or(false);
+                        if in_messages {
+                            let area =
+                                app.session_mgr.current().ui.messages_area.unwrap();
+                            let scroll_offset =
+                                app.session_mgr.current().ui.scroll_offset;
+                            let visual_row =
+                                usize::from(mouse.row - area.y).saturating_add(scroll_offset);
+                            let cache_total = app
+                                .session_mgr
+                                .current()
+                                .messages
+                                .render_cache
+                                .read()
+                                .total_lines;
+                            let ui = &mut app.session_mgr.current_mut().ui;
+                            if visual_row < cache_total {
+                                // 消息行：TextSelection 整行（内容锚定纯文本）
+                                ui.text_selection.start_drag(visual_row, 0);
+                                ui.text_selection.update_drag(visual_row, area.width);
+                                ui.screen_selection.clear();
+                            } else {
+                                // spinner/总结行：ScreenSelection 整行（buffer）
+                                ui.screen_selection.start_drag(mouse.row, 0);
+                                ui.screen_selection.update_drag(mouse.row, u16::MAX - 1);
+                                ui.text_selection.clear();
+                            }
+                            ui.pending_screen_start = None;
+                            return Ok(Some(Action::Redraw));
+                        } else if !in_textarea {
+                            let ss =
+                                &mut app.session_mgr.current_mut().ui.screen_selection;
+                            ss.start_drag(mouse.row, 0);
+                            ss.update_drag(mouse.row, u16::MAX - 1);
+                            app.session_mgr.current_mut().ui.text_selection.clear();
+                            app.session_mgr.current_mut().ui.pending_screen_start = None;
+                            return Ok(Some(Action::Redraw));
+                        }
+                    }
+                }
                 // ── AskUser 弹窗滚动条点击（优先于面板滚动条） ──────────────────
                 {
                     if let Some(crate::app::InteractionPrompt::Questions(ref p)) =
@@ -452,6 +614,10 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         }
                     }
                 }
+                if handle_message_scrollbar_down(app, mouse.row, mouse.column) {
+                    return Ok(Some(Action::Redraw));
+                }
+
                 // Panel scrollbar: ▲/▼ buttons and bar click/drag
                 // Must be checked BEFORE dispatch_mouse so scrollbar clicks
                 // aren't consumed by panel content area handlers.
@@ -539,98 +705,46 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 if click_consumed {
                     return Ok(Some(Action::Redraw));
                 }
-                // Panel area: start panel selection
-                let panel_area = app.session_mgr.current_mut().ui.panel_area;
-                if let Some(area) = panel_area {
-                    if mouse::mouse_in_rect(&mouse, area) {
-                        let content_row = mouse.row - area.y
-                            + app.session_mgr.current_mut().ui.panel_scroll_offset;
-                        let col = mouse.column - area.x;
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .panel_selection
-                            .start_drag(content_row, col);
-                        app.session_mgr.current_mut().ui.text_selection.clear();
-                        // Don't process other-area selections
-                        return Ok(Some(Action::Redraw));
-                    }
-                }
-                if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                    let scroll_offset = app.session_mgr.current_mut().ui.scroll_offset;
-                    let scroll_follow = app.session_mgr.current_mut().ui.scroll_follow;
-
-                    // Scroll-to-bottom button: bottom-right click when user has scrolled away
-                    let btn_col_start = area.right().saturating_sub(2);
-                    let btn_row_start = area.bottom().saturating_sub(2);
-                    if !scroll_follow
-                        && mouse.column >= btn_col_start
-                        && mouse.column < area.right()
-                        && mouse.row >= btn_row_start
-                        && mouse.row < area.bottom()
-                    {
-                        app.scroll_to_bottom();
-                        return Ok(Some(Action::Redraw));
-                    }
-
-                    // Scroll-to-top button: top-right click when user has scrolled up
-                    if scroll_offset > 0
-                        && mouse.column >= btn_col_start
-                        && mouse.column < area.right()
-                        && mouse.row >= area.y
-                        && mouse.row < area.y.saturating_add(2)
-                    {
-                        app.scroll_to_top();
-                        return Ok(Some(Action::Redraw));
-                    }
-
-                    // Scrollbar drag: click on the rightmost scrollbar column
-                    // (▲/▼ buttons already handled above, so this catches the track area)
-                    // 记录起始位置，拖拽时用相对位移计算 offset，无需匹配 thumb 几何
-                    let scrollbar_col = area.right().saturating_sub(1);
-                    if mouse.column == scrollbar_col
-                        && mouse.row >= area.y
-                        && mouse.row < area.bottom()
-                    {
-                        let track = area.height;
-                        if track > 0 {
-                            let max_scroll = app.session_mgr.current_mut().ui.scrollbar_max_offset;
-                            // 首次点击：按比例跳到点击位置
-                            let rel_y = mouse.row.saturating_sub(area.y);
-                            let new_offset = if max_scroll > 0 {
-                                ((rel_y as f64 / track as f64) * max_scroll as f64)
-                                    .clamp(0.0, max_scroll as f64)
-                                    as u16
+                // 消息区域：消息行用内容锚定选区（TextSelection，基于 wrap_map，字符级精度、
+                // 纯文本、跨视口复制 + auto-scroll）。spinner/总结行渲染在 messages_area 底部但
+                // 不在 wrap_map 内，改用 ScreenSelection（buffer，所见即所得）。两者互斥。
+                // 弹窗激活时跳过（modal）。
+                if !app.is_interaction_popup_active() {
+                    if let Some(area) = app.session_mgr.current().ui.messages_area {
+                        if mouse.row >= area.y
+                            && mouse.row < area.y + area.height
+                            && mouse.column >= area.x
+                            && mouse.column < area.x + area.width
+                        {
+                            let scroll_offset =
+                                app.session_mgr.current().ui.scroll_offset;
+                            let visual_row =
+                                usize::from(mouse.row - area.y).saturating_add(scroll_offset);
+                            let visual_col = mouse.column - area.x;
+                            let cache_total = app
+                                .session_mgr
+                                .current()
+                                .messages
+                                .render_cache
+                                .read()
+                                .total_lines;
+                            let use_text_selection = visual_row < cache_total;
+                            let ui = &mut app.session_mgr.current_mut().ui;
+                            if use_text_selection {
+                                ui.text_selection.start_drag(visual_row, visual_col);
+                                ui.screen_selection.clear();
                             } else {
-                                0
-                            };
-                            app.session_mgr.current_mut().ui.scroll_offset = new_offset;
-                            app.session_mgr.current_mut().ui.scroll_follow = false;
-                            app.session_mgr.current_mut().ui.scrollbar_dragging = true;
-                            app.session_mgr.current_mut().ui.scrollbar_drag_start_y = mouse.row;
-                            app.session_mgr.current_mut().ui.scrollbar_drag_start_offset =
-                                new_offset;
+                                ui.screen_selection.start_drag(mouse.row, mouse.column);
+                                ui.text_selection.clear();
+                            }
+                            ui.pending_screen_start = None;
+                            return Ok(Some(Action::Redraw));
                         }
-                        return Ok(Some(Action::Redraw));
-                    }
-
-                    if mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                    {
-                        let visual_row =
-                            mouse.row - area.y + app.session_mgr.current_mut().ui.scroll_offset;
-                        let visual_col = mouse.column - area.x;
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .text_selection
-                            .start_drag(visual_row, visual_col);
                     }
                 }
-                // Textarea area: start textarea selection
-                // 弹窗激活时跳过——光标不应移到 textarea 内
+                // Textarea area: start textarea selection（输入框保留内置选区系统）
+                // 弹窗激活时跳过——光标不应移到 textarea 内。
+                // 记录 pending_screen_start：未拖拽=click 定位光标，拖出 textarea=切换 ScreenSelection。
                 if !app.is_interaction_popup_active() {
                     if let Some(area) = app.session_mgr.current_mut().ui.textarea_area {
                         if mouse.row >= area.y
@@ -645,34 +759,28 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                                 tui_textarea::CursorMove::Jump(row as u16, col as u16),
                             );
                             app.session_mgr.current_mut().ui.textarea.start_selection();
+                            app.session_mgr.current_mut().ui.pending_screen_start =
+                                Some((mouse.row, mouse.column));
+                            app.session_mgr.current_mut().ui.screen_selection.clear();
+                            app.session_mgr.current_mut().ui.text_selection.clear();
+                            return Ok(Some(Action::Redraw));
                         }
                     }
+                }
+                // 其余显示区域（面板内容/状态栏/sticky header/bg agent bar/空白）：
+                // 启动 ScreenSelection（Buffer 快照，所见即所得）。弹窗激活时不启动（modal）。
+                // 点击这些区域同时清除消息区 TextSelection 高亮（验收标准 8）。
+                if !app.is_interaction_popup_active() {
+                    app.session_mgr.current_mut().ui.text_selection.clear();
+                    app.session_mgr
+                        .current_mut()
+                        .ui
+                        .screen_selection
+                        .start_drag(mouse.row, mouse.column);
+                    app.session_mgr.current_mut().ui.pending_screen_start = None;
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                // Scrollbar drag: 用相对位移计算 offset，无需匹配 thumb 几何
-                if app.session_mgr.current_mut().ui.scrollbar_dragging {
-                    if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                        let track = area.height;
-                        if track > 0 {
-                            let max_scroll = app.session_mgr.current_mut().ui.scrollbar_max_offset;
-                            let start_y = app.session_mgr.current_mut().ui.scrollbar_drag_start_y;
-                            let start_offset =
-                                app.session_mgr.current_mut().ui.scrollbar_drag_start_offset;
-                            if max_scroll > 0 {
-                                let delta_y = mouse.row as i32 - start_y as i32;
-                                // 每移动 1 行 track = 移动 max_scroll / track 的 offset
-                                let delta_offset =
-                                    (delta_y as f64 * (max_scroll as f64 / track as f64)) as i32;
-                                let new_offset = (start_offset as i32 + delta_offset)
-                                    .clamp(0, max_scroll as i32)
-                                    as u16;
-                                app.session_mgr.current_mut().ui.scroll_offset = new_offset;
-                                app.session_mgr.current_mut().ui.scroll_follow = false;
-                            }
-                        }
-                    }
-                }
                 // Panel scrollbar drag: update panel scroll offset from mouse Y
                 {
                     let session = &mut app.session_mgr.current_mut();
@@ -695,72 +803,95 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         return Ok(Some(Action::Redraw));
                     }
                 }
-                // Panel selection drag
-                if app.session_mgr.current_mut().ui.panel_selection.dragging {
-                    if let Some(area) = app.session_mgr.current_mut().ui.panel_area {
-                        let content_row = mouse
-                            .row
-                            .saturating_sub(area.y)
-                            .saturating_add(app.session_mgr.current_mut().ui.panel_scroll_offset);
-                        let col = mouse.column.saturating_sub(area.x);
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .panel_selection
-                            .update_drag(content_row, col);
-                    }
+                if handle_message_scrollbar_drag(app, mouse.row) {
+                    return Ok(Some(Action::Redraw));
                 }
+                // 消息区域 TextSelection 拖拽：内容锚定（visual_row 不随滚动变化），
+                // 支持跨视口选区。auto-scroll：鼠标到达消息区上下边缘（含区内首/末行及区外）
+                // 时滚动消息区，速度随距边缘距离 1-5 行/事件（d51cb7e7 已验证算法）。
                 if app.session_mgr.current_mut().ui.text_selection.dragging {
                     if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
-                        let visual_row = mouse
-                            .row
-                            .saturating_sub(area.y)
-                            .saturating_add(app.session_mgr.current_mut().ui.scroll_offset);
+                        let ui = &mut app.session_mgr.current_mut().ui;
+                        let area_bottom = area.y + area.height;
+                        if mouse.row >= area_bottom {
+                            // 向下滚动：鼠标拖到消息区下方（区外）。
+                            // 区内所有行（含首/末行）必须可正常选中，故仅在拖出边界时滚动。
+                            let distance = mouse.row.saturating_sub(area_bottom) as u32;
+                            let step = (1 + distance / 2).min(5) as usize;
+                            let max_scroll = ui.scrollbar_max_offset;
+                            let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+                            let next = ui.scroll_offset.saturating_add(step).min(max_scroll);
+                            ui.scroll_offset = next.max(min_scroll);
+                            ui.scroll_follow = next >= max_scroll;
+                        } else if mouse.row < area.y {
+                            // 向上滚动：鼠标拖到消息区上方（区外）
+                            let distance = area.y.saturating_sub(mouse.row) as u32;
+                            let step = (1 + distance / 2).min(5) as usize;
+                            let max_scroll = ui.scrollbar_max_offset;
+                            let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
+                            ui.scroll_offset = ui.scroll_offset.saturating_sub(step).max(min_scroll);
+                            ui.scroll_follow = false;
+                        }
+                        let scroll_offset = ui.scroll_offset;
+                        let visual_row =
+                            usize::from(mouse.row.saturating_sub(area.y))
+                                .saturating_add(scroll_offset);
                         let visual_col = mouse.column.saturating_sub(area.x);
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .text_selection
-                            .update_drag(visual_row, visual_col);
+                        ui.text_selection.update_drag(visual_row, visual_col);
                     }
                 }
-                // Textarea area: extend textarea selection
-                if app.session_mgr.current_mut().ui.textarea.is_selecting() {
-                    if let Some(area) = app.session_mgr.current_mut().ui.textarea_area {
-                        if mouse.row >= area.y && mouse.row < area.y + area.height {
-                            let session = &app.session_mgr.current_mut();
-                            let (row, col) =
-                                mouse::textarea_mouse_to_cursor(&session.ui.textarea, area, &mouse);
-                            app.session_mgr.current_mut().ui.textarea.move_cursor(
-                                tui_textarea::CursorMove::Jump(row as u16, col as u16),
-                            );
+                // ScreenSelection 拖拽：始终用绝对屏幕坐标更新（覆盖所有区域）
+                if app.session_mgr.current_mut().ui.screen_selection.dragging {
+                    app.session_mgr
+                        .current_mut()
+                        .ui
+                        .screen_selection
+                        .update_drag(mouse.row, mouse.column);
+                }
+                // textarea pending：仍在 textarea 内则维持 textarea 选文本；离开则激活 ScreenSelection
+                let pending = app.session_mgr.current().ui.pending_screen_start;
+                if let Some(pending_pt) = pending {
+                    if app.session_mgr.current_mut().ui.textarea.is_selecting() {
+                        let area_opt = app.session_mgr.current_mut().ui.textarea_area;
+                        let still_in_textarea =
+                            area_opt.map(|area| mouse.row >= area.y && mouse.row < area.y + area.height);
+                        match still_in_textarea {
+                            Some(true) => {
+                                // textarea 内拖拽：extend textarea 选区（现有逻辑）
+                                let area = area_opt.unwrap();
+                                let session = &app.session_mgr.current_mut();
+                                let (row, col) = mouse::textarea_mouse_to_cursor(
+                                    &session.ui.textarea,
+                                    area,
+                                    &mouse,
+                                );
+                                app.session_mgr.current_mut().ui.textarea.move_cursor(
+                                    tui_textarea::CursorMove::Jump(row as u16, col as u16),
+                                );
+                            }
+                            _ => {
+                                // 拖出 textarea：激活 ScreenSelection，清除 textarea 选区
+                                app.session_mgr
+                                    .current_mut()
+                                    .ui
+                                    .screen_selection
+                                    .start_drag(pending_pt.0, pending_pt.1);
+                                app.session_mgr
+                                    .current_mut()
+                                    .ui
+                                    .screen_selection
+                                    .update_drag(mouse.row, mouse.column);
+                                app.session_mgr.current_mut().ui.textarea.cancel_selection();
+                            }
                         }
                     }
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                // End scrollbar drag
-                app.session_mgr.current_mut().ui.scrollbar_dragging = false;
                 // End panel scrollbar drag
                 app.session_mgr.current_mut().ui.panel_scrollbar_dragging = false;
-                // Panel selection released
-                if app.session_mgr.current_mut().ui.panel_selection.dragging {
-                    app.session_mgr.current_mut().ui.panel_selection.end_drag();
-                    let sel = &app.session_mgr.current_mut().ui.panel_selection;
-                    if let (Some(start), Some(end)) = (sel.start, sel.end) {
-                        let text = crate::app::text_selection::extract_panel_text(
-                            start,
-                            end,
-                            &app.session_mgr.current_mut().ui.panel_plain_lines,
-                        );
-                        app.session_mgr
-                            .current_mut()
-                            .ui
-                            .panel_selection
-                            .set_selected_text(text);
-                    }
-                    mouse::copy_panel_selection_to_clipboard(app);
-                }
+                app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
+                // 消息区域 TextSelection released：从 wrap_map 提取纯文本（跨视口）并复制
                 if app.session_mgr.current_mut().ui.text_selection.dragging {
                     app.session_mgr.current_mut().ui.text_selection.end_drag();
                     let ts = &app.session_mgr.current_mut().ui.text_selection;
@@ -770,7 +901,7 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             .current_mut()
                             .ui
                             .messages_area
-                            .map(|a| a.width.saturating_sub(1))
+                            .map(|a| a.width)
                             .unwrap_or(0);
                         let cache = app.session_mgr.current_mut().messages.render_cache.read();
                         let text = crate::app::text_selection::extract_selected_text(
@@ -788,10 +919,43 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     }
                     mouse::copy_selection_to_clipboard(app);
                 }
+                // ScreenSelection released：从 Buffer 快照提取文本并复制（所见即所得）
+                if app.session_mgr.current_mut().ui.screen_selection.dragging {
+                    app.session_mgr.current_mut().ui.screen_selection.end_drag();
+                    let range = {
+                        let sel = &app.session_mgr.current().ui.screen_selection;
+                        (sel.start, sel.end)
+                    };
+                    if let (Some(start), Some(end)) = range {
+                        if start == end {
+                            // 纯 click 未拖拽：取消旧高亮，不复制（验收标准 8）
+                            app.session_mgr.current_mut().ui.screen_selection.clear();
+                            app.session_mgr.current_mut().ui.pending_screen_start = None;
+                        } else {
+                            // as_ref 借用快照提取文本，作用域结束后释放 app 借用再调 copy
+                            let text_opt = app
+                                .session_mgr
+                                .current()
+                                .ui
+                                .screen_snapshot
+                                .as_ref()
+                                .and_then(|s| {
+                                    crate::app::text_selection::extract_snapshot_text(s, start, end)
+                                });
+                            app.session_mgr
+                                .current_mut()
+                                .ui
+                                .screen_selection
+                                .set_selected_text(text_opt);
+                            mouse::copy_screen_selection_to_clipboard(app);
+                        }
+                    }
+                }
                 // textarea selection on mouse up: no extra handling; tui_textarea maintains
                 // its own selection state
             }
             _ => {}
+        }
         },
     }
 
@@ -841,5 +1005,159 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
             prompt.error_message = None;
             handle_edit_key(&mut prompt.input, &mut prompt.cursor, input);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyEvent;
+    use ratatui::layout::Rect;
+
+    fn make_key(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn test_key_event_to_text_simulated_paste_includes_first_line() {
+        let mut text = String::new();
+
+        assert!(key_event_to_text(make_key(KeyCode::Char('b')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('u')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Enter), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('i')), &mut text));
+        assert!(key_event_to_text(make_key(KeyCode::Char('d')), &mut text));
+
+        assert_eq!(
+            text, "bu\nid",
+            "模拟粘贴重建必须从第一个字符开始，不能等到 Enter 后才收集"
+        );
+    }
+
+    #[test]
+    fn test_message_scrollbar_offset_for_row_maps_track_to_range() {
+        let metrics = MessageScrollbarMetrics {
+            bar_area: Rect::new(79, 5, 1, 12),
+            max_offset: 100,
+            up_btn_area: Some(Rect::new(79, 5, 1, 1)),
+            down_btn_area: Some(Rect::new(79, 16, 1, 1)),
+        };
+
+        assert_eq!(message_scrollbar_offset_for_row(metrics, 6), 0);
+        assert_eq!(message_scrollbar_offset_for_row(metrics, 11), 50);
+        assert_eq!(message_scrollbar_offset_for_row(metrics, 16), 100);
+    }
+
+    #[test]
+    fn test_message_scrollbar_offset_for_row_handles_large_offsets() {
+        let metrics = MessageScrollbarMetrics {
+            bar_area: Rect::new(10, 0, 1, 22),
+            max_offset: usize::MAX - 10,
+            up_btn_area: None,
+            down_btn_area: None,
+        };
+
+        assert_eq!(
+            message_scrollbar_offset_for_row(metrics, 21),
+            usize::MAX - 10
+        );
+    }
+
+    /// 运行时证据：用当前 ratatui（0.30）真实渲染 thumb，读出 thumb 实际占据的行，
+    /// 然后用我们的点击映射 `message_scrollbar_offset_for_row` 去「点」thumb 中点，
+    /// 再用算出的 offset 重新渲染 —— 断言 thumb 会跑离鼠标点击的行。
+    ///
+    /// 若该测试通过（漂移非空），即 100% 证明：当前代码下点击可见的滑块，offset 必然
+    /// 跳变、滑块必然从鼠标下跑走，与「点滑块抓不住 / 拖动乱跳」现象一致。
+    /// oracle 是 ratatui 自己的渲染结果，不依赖任何手工公式复刻。
+    #[test]
+    fn thumb_click_drift_runtime_proof() {
+        use peri_widgets::unified_vertical_scrollbar;
+        use ratatui::{
+            buffer::Buffer,
+            layout::{Position, Rect},
+            prelude::StatefulWidget,
+            widgets::ScrollbarState,
+        };
+
+        let h: u16 = 20;
+        // 复刻 message_area.rs 渲染滚动条时的 area（整个消息区内层，高 h）
+        let area = Rect::new(0, 0, 1, h);
+
+        // 多个内容长度 × 多个位置采样，统计「点击 thumb 中点后滑块漂移」的情况
+        let mut total_drifted = 0usize;
+        let mut total_sampled = 0usize;
+        let mut global_max_drift = 0i32;
+        eprintln!("=== thumb 点击漂移运行时证据（H={h}，oracle = ratatui 真实渲染）===");
+        eprintln!("  max_scroll | 漂移采样/总数 | 最大漂移(行)");
+        for &max_scroll in &[50usize, 100, 200, 500, 1000, 2000] {
+            let mut drifted_in_case = 0usize;
+            let mut sampled = 0usize;
+            let mut case_max_drift = 0i32;
+            for &pct in &[10usize, 30, 50, 70, 90] {
+                let orig_offset = max_scroll * pct / 100;
+                sampled += 1;
+
+                // 1. ratatui 真实渲染 thumb
+                let mut buf = Buffer::empty(area);
+                let mut state = ScrollbarState::new(max_scroll).position(orig_offset);
+                unified_vertical_scrollbar().render(area, &mut buf, &mut state);
+
+                // 2. 读出 thumb 实际占据的行（thumb symbol = block::FULL = "█"）
+                let thumb_rows: Vec<u16> = (0..h)
+                    .filter(|&r| {
+                        buf.cell(Position::new(0, r))
+                            .is_some_and(|c| c.symbol() == "█")
+                    })
+                    .collect();
+                assert!(
+                    !thumb_rows.is_empty(),
+                    "max_scroll={max_scroll} offset={orig_offset} 未渲染出 thumb，测试前提不成立"
+                );
+                let thumb_mid = thumb_rows[thumb_rows.len() / 2];
+
+                // 3. 用我们的点击映射算「点 thumb 中点」得到的 offset
+                let metrics = MessageScrollbarMetrics {
+                    bar_area: Rect::new(0, 0, 1, h),
+                    max_offset: max_scroll,
+                    up_btn_area: None,
+                    down_btn_area: None,
+                };
+                let clicked_offset = message_scrollbar_offset_for_row(metrics, thumb_mid);
+
+                // 4. 用 clicked_offset 重新渲染，看 thumb 跑到哪
+                let mut buf2 = Buffer::empty(area);
+                let mut state2 = ScrollbarState::new(max_scroll).position(clicked_offset);
+                unified_vertical_scrollbar().render(area, &mut buf2, &mut state2);
+                let new_thumb_rows: Vec<u16> = (0..h)
+                    .filter(|&r| {
+                        buf2.cell(Position::new(0, r))
+                            .is_some_and(|c| c.symbol() == "█")
+                    })
+                    .collect();
+                let new_mid = new_thumb_rows[new_thumb_rows.len() / 2];
+
+                let drift = (thumb_mid as i32 - new_mid as i32).abs();
+                if drift > 0 {
+                    drifted_in_case += 1;
+                    case_max_drift = case_max_drift.max(drift);
+                }
+            }
+            total_drifted += drifted_in_case;
+            total_sampled += sampled;
+            global_max_drift = global_max_drift.max(case_max_drift);
+            eprintln!(
+                "  {max_scroll:>10} |   {drifted_in_case}/{sampled}      |   {case_max_drift}"
+            );
+        }
+
+        assert!(
+            total_drifted > 0,
+            "所有 {total_sampled} 个采样点点击 thumb 都未漂移 —— bug 不成立"
+        );
+        eprintln!(
+            "\n  合计：{total_drifted}/{total_sampled} 个采样点点击 thumb 后滑块跑离鼠标，最大漂移 {global_max_drift} 行"
+        );
+        eprintln!("  结论：点击可见滑块时 offset 间歇性跳变 —— 即「点滑块抓不住 / 拖动乱跳」必然发生。");
     }
 }
