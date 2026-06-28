@@ -1,6 +1,6 @@
 # Ctrl+C 偶发直接退出（Windows Terminal）
 
-**状态**: Open
+**状态**: Fixed（2026-06-27，PR #86，commit 8d39eb31 / 2e94e12d）
 **创建日期**: 2026-06-27
 **严重程度**: P1
 **平台**: Windows (ConPTY / Windows Terminal)

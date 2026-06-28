@@ -1,6 +1,6 @@
 # Windows Git Bash Fallback
 
-**Status**: Open
+**Status**: Done（2026-06-27，v0.6.21 发版，PR #84，commit c162dfe1 / c3afbfe7）
 **Date**: 2026-06-26
 **Category**: Feature
 **Priority**: Medium
@@ -122,15 +122,15 @@ retry 不额外增加总时长，用户体验上"最多和以前一样慢"。
 
 ## 验收标准
 
-- [ ] Windows 下 `grep`/`ls`/`find`/`sed`/`awk`/`cat` 等命令通过 Git Bash 自动执行，Agent 无需重试
-- [ ] cmd 能正常执行的命令不受影响（仍走 cmd）
-- [ ] Git Bash 未安装时行为与当前完全一致
-- [ ] 输出中包含 `[Retried with Git Bash]` 标记
-- [ ] Linux/macOS 构建不受影响（`#[cfg(windows)]`）
-- [ ] 中文 Windows 下 `grep` 命令也能自动 fallback
-- [ ] `grep /pattern file` 在 Git Bash retry 中不被 MSYS 路径转换破坏
-- [ ] `git commit -m "msg"` 在 fallback 场景下 temp 文件被正确清理
-- [ ] retry 不超过原始 timeout 上限
+- [x] Windows 下 `grep`/`ls`/`find`/`sed`/`awk`/`cat` 等命令通过 Git Bash 自动执行，Agent 无需重试
+- [x] cmd 能正常执行的命令不受影响（仍走 cmd）
+- [x] Git Bash 未安装时行为与当前完全一致
+- [x] 输出中包含 `[Retried with Git Bash]` 标记
+- [x] Linux/macOS 构建不受影响（`#[cfg(windows)]`）
+- [x] 中文 Windows 下 `grep` 命令也能自动 fallback
+- [x] `grep /pattern file` 在 Git Bash retry 中不被 MSYS 路径转换破坏
+- [x] `git commit -m "msg"` 在 fallback 场景下 temp 文件被正确清理
+- [x] retry 不超过原始 timeout 上限
 
 ## 性能影响
 

@@ -18,7 +18,7 @@
 ## 中间件（peri-middlewares）
 
 - **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep`、`FolderOperations` 六个工具；只读工具无需 HITL
-- **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）
+- **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm/folder），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
 - **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
@@ -32,7 +32,7 @@
 - **进程内文件搜索:** grep+grep-regex crate 替代外部 rg 进程，WalkParallel 多线程并行，15 秒超时
 - **MCP 中间件:** McpMiddleware 作为 MCP Client 连接外部服务器（stdio/HTTP），`mcp__{server}__{tool}` 动态工具注册，`mcp_read_resource` 资源读取工具，双层配置合并（全局 settings.json + 项目 .mcp.json），${VAR} 环境变量展开
 - **MCP 运行时管理:** /mcp 面板（Browse/Tools/Resources 三视图），后台连接池初始化不阻塞 TUI，重连/删除服务器
-- **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.peri/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴）
+- **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.peri/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴），回调服务器注入并严格校验 rmcp 生成的 state 参数（CSRF 纵深防御）
 - **工具名称对齐 Claude Code:** 10 个内置工具名称完全对齐（Read/Write/Edit/Glob/Grep/Agent 等），Grep 重构为结构化接口，HITL 默认审批清单同步更新
 
 ## TUI 界面（peri-tui）
@@ -66,6 +66,7 @@
 - **智能折叠策略:** 只读工具默认折叠、写操作默认展开，SubAgent 步数超过 4 自动折叠
 - **syntect 代码高亮:** markdown-highlight feature flag 控制，base16-ocean.dark 主题，单行代码块不高亮
 - **鼠标文字选区:** TextSelection 模块管理拖拽状态，WrappedLineInfo 换行映射，Ctrl+C 优先级链（选区复制>中断>退出），REVERSED 反色高亮
+- **全局屏幕选区:** ScreenSelection 基于渲染 Buffer 覆盖面板/状态栏/sticky header/bg agent bar/空白区域，与消息区 TextSelection 跨区域衔接；ScreenSnapshot 在 `terminal.draw()` 后克隆 Buffer 作为文本源；双击选整行（消息区用 TextSelection 纯文本，其他区域用 ScreenSelection 整屏行）；松开鼠标自动复制 + "已复制 N 个字符" toast
 - **Skills / 触发:** Skills 触发键从 # 统一到 / 前缀，提示浮层合并命令组+Skills 组，命令优先
 - **5 级权限模式:** Default/AcceptEdits/Auto/BypassPermissions/DontAsk，Shift+Tab 循环切换，Arc<AtomicU8> 无锁共享，状态栏实时显示
 - **Background Agent:** Agent 工具 `run_in_background` 参数触发后台执行，最多 3 并发，`mpsc::unbounded_channel` 通知，完成后 Human 消息注入，主 agent Done 后自动 continuation，ToolBlock 样式显示，状态栏 `[BG: N]` 指示器
@@ -89,10 +90,10 @@
 
 ## 基础设施
 
-- **SQLite 线程持久化:** sqlx SqlitePool(max=5) 原生异步连接池，WAL 模式，`append_messages` 事务保证 crash-safe，`StateSnapshot` 事件驱动增量写入
+- **SQLite 线程持久化:** sqlx SqlitePool(max=5) 原生异步连接池，WAL 模式，`append_messages` 事务保证 crash-safe，`StateSnapshot` 事件驱动增量写入，数据库文件 + WAL/SHM 应用 0o600 权限（Unix），grandparent 目录权限校验
 - **OpenTelemetry 追踪:** 内置 OTLP HTTP 导出，`OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量控制开关，tracing-opentelemetry 桥接，兼容 Jaeger
 - **结构化日志:** `RUST_LOG` 级别控制，`RUST_LOG_FORMAT=json` 切换 JSON 格式
 - **配置持久化:** `~/.peri/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
 
 ---
-*最后更新: 2026-05-20 — 由 feature_2026-05-18_F001_acp-tui-separation 和 feature_2026-05-17_F001_config-sync 归档时更新*
+*最后更新: 2026-06-28 — 补充全局屏幕选区、Windows Git Bash fallback、文件权限加固、MCP OAuth state 校验*

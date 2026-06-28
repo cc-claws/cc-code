@@ -1,9 +1,10 @@
 # session/load 和 session/resume 接受任意 sessionId 无所有权校验
 
-**状态**：Open
+**状态**：Fixed（部分） — UUID 格式校验 + 存在性校验已实现（M5 最小修复），所有权校验（owner 字段）未实现
 **优先级**：中
 **创建日期**：2026-06-26
 **来源**：cc-code 全项目安全审计 2026-06-26（Finding M5，置信度 8/10）
+**修复日期**：2026-06-27（PR #74，commit 07802254 / cbafed6d）
 
 ## 问题描述
 
@@ -74,3 +75,4 @@
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-06-26 | — | Open | agent | 创建（安全审计 M5） |
+| 2026-06-27 | Open | Fixed（部分） | agent | PR #74 合入：`session/load` + `session/resume` 增加 UUID 格式校验 + 线程存在性校验（不存在的 sessionId 返回 `session_not_found`）。所有权校验（owner 字段）未实现，威胁模型仍为单用户本地 |

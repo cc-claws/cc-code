@@ -136,4 +136,4 @@
 - [tools](./domains/tools.md) — 工具系统（输出截断持久化、通用工具基础设施）— 0 features
 
 ---
-*最后更新: 2026-05-29 — Issue 归档 8 个 Fixed issue（agent 7 + plugin 1）*
+*最后更新: 2026-06-28 — 文档同步：标记 6 月安全/TUI/Windows issue 为 Fixed，features.md 补充屏幕选区与 Git Bash fallback（屏幕选区尚未归档，仍在 feat/screen-selection 分支）*
