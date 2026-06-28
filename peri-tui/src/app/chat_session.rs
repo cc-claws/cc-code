@@ -1,10 +1,11 @@
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use peri_middlewares::prelude::{SkillMetadata, TodoItem};
 
 use super::{
-    langfuse_state::LangfuseState, AgentComm, CommandSystem, MessageState, SessionMetadata,
-    ShellCommandRuntime, UiState,
+    langfuse_state::LangfuseState, AgentComm, BackgroundShell, CommandSystem, MessageState,
+    SessionMetadata, ShellCommandPool, UiState,
 };
 use crate::{command::CommandRegistry, thread::ThreadId};
 
@@ -30,7 +31,11 @@ pub struct ChatSession {
     pub background_agents: Vec<RunningBgAgent>,
     pub focused_instance_id: Option<String>,
     pub spinner_state: peri_widgets::SpinnerState,
-    pub shell_command: ShellCommandRuntime,
+    pub shell_pool: ShellCommandPool,
+    /// Ctrl+B 后台化的 shell 任务列表（多个并发后台命令）
+    pub background_shells: Vec<BackgroundShell>,
+    /// agent 推理期间到达的后台 shell 完成通知，待 Done 后注入对话流
+    pub pending_bg_shell_notifications: VecDeque<String>,
 }
 
 impl ChatSession {
@@ -73,7 +78,9 @@ impl ChatSession {
             background_agents: Vec::new(),
             focused_instance_id: None,
             spinner_state: peri_widgets::SpinnerState::new(peri_widgets::SpinnerMode::Idle),
-            shell_command: ShellCommandRuntime::default(),
+            shell_pool: ShellCommandPool::default(),
+            background_shells: Vec::new(),
+            pending_bg_shell_notifications: VecDeque::new(),
         }
     }
 }

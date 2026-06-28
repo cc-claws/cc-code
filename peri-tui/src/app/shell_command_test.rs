@@ -76,7 +76,7 @@ async fn test_cancel_shell_command_aborts_task_and_replaces_pending_vm() {
             ".".to_string(),
         ),
     );
-    app.session_mgr.current_mut().shell_command = ShellCommandRuntime {
+    app.session_mgr.current_mut().shell_pool.foreground.runtime = ShellCommandRuntime {
         stdin_tx: None,
         running_record_id: Some(record_id.clone()),
         stdin_lines: vec!["hello".to_string()],
@@ -96,7 +96,7 @@ async fn test_cancel_shell_command_aborts_task_and_replaces_pending_vm() {
         "取消 shell 命令应 abort 后台任务"
     );
     assert!(
-        !app.session_mgr.current().shell_command.is_running(),
+        !app.session_mgr.current().shell_pool.foreground.runtime.is_running(),
         "取消后应清理 ShellCommandRuntime"
     );
     assert!(
@@ -114,5 +114,103 @@ async fn test_cancel_shell_command_aborts_task_and_replaces_pending_vm() {
             }) if id == &record_id && stderr.contains("cancelled")
         ),
         "pending shell VM 应替换为取消结果"
+    );
+}
+
+#[tokio::test]
+async fn test_cleanup_finished_background_shells_超量移除最旧已完成() {
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+    use tokio::sync::oneshot;
+
+    use crate::app::{BackgroundShell, ShellStatus};
+    use crate::shell_exec::CommandOutput;
+
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+
+    // 构造已完成任务的 helper（ended_at = ago_secs 前）
+    let make_bg = |id: &str, ago_secs: u64| -> BackgroundShell {
+        let (_tx, rx) = oneshot::channel::<anyhow::Result<CommandOutput>>();
+        let task = tokio::spawn(async {});
+        let mut bg = BackgroundShell::new(
+            id.to_string(),
+            "cmd".to_string(),
+            PathBuf::from("."),
+            PathBuf::from(format!("/tmp/peri-test-{}.output", id)),
+            rx,
+            task.abort_handle(),
+            std::time::Instant::now(),
+        );
+        bg.status = ShellStatus::Completed;
+        bg.notified = true;
+        bg.ended_at = Some(Instant::now() - Duration::from_secs(ago_secs));
+        bg
+    };
+
+    // 填 21 个已完成任务（task-0 最旧，100s 前）
+    for i in 0..21u64 {
+        app.session_mgr
+            .current_mut()
+            .background_shells
+            .push(make_bg(&format!("task-{}", i), 100 - i));
+    }
+    assert_eq!(
+        app.session_mgr.current().background_shells.len(),
+        21,
+        "前置条件：21 个任务"
+    );
+
+    app.cleanup_finished_background_shells();
+    assert_eq!(
+        app.session_mgr.current().background_shells.len(),
+        20,
+        "超量时应移除最旧的 1 个已完成任务"
+    );
+    let remaining_ids: Vec<&str> = app
+        .session_mgr
+        .current()
+        .background_shells
+        .iter()
+        .map(|b| b.id.as_str())
+        .collect();
+    assert!(
+        !remaining_ids.contains(&"task-0"),
+        "最旧的 task-0 应被移除: {:?}",
+        remaining_ids
+    );
+}
+
+#[tokio::test]
+async fn test_cleanup_finished_background_shells_未超量不移除() {
+    use std::path::PathBuf;
+    use tokio::sync::oneshot;
+
+    use crate::app::{BackgroundShell, ShellStatus};
+    use crate::shell_exec::CommandOutput;
+
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let (_tx, rx) = oneshot::channel::<anyhow::Result<CommandOutput>>();
+    let task = tokio::spawn(async {});
+    let mut bg = BackgroundShell::new(
+        "task-1".to_string(),
+        "cmd".to_string(),
+        PathBuf::from("."),
+        PathBuf::from("/tmp/x.output"),
+        rx,
+        task.abort_handle(),
+        std::time::Instant::now(),
+    );
+    bg.status = ShellStatus::Completed;
+    bg.notified = true;
+    app.session_mgr
+        .current_mut()
+        .background_shells
+        .push(bg);
+
+    app.cleanup_finished_background_shells();
+    assert_eq!(
+        app.session_mgr.current().background_shells.len(),
+        1,
+        "未超量时不应移除"
     );
 }
