@@ -1,7 +1,10 @@
 use async_trait::async_trait;
-use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
+use peri_agent::{
+    agent::state::State, middleware::r#trait::Middleware, shell::ShellExecutor, tools::BaseTool,
+};
 use serde_json::Value;
 use std::process::Stdio;
+use std::sync::Arc;
 #[cfg(windows)]
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
@@ -235,17 +238,56 @@ Output handling:
 - Both stdout and stderr are captured"#;
 pub struct BashTool {
     pub cwd: String,
+    /// Shell 执行器：把命令委托给应用层（peri-tui shell 池）以支持 Ctrl+B 后台化。
+    /// 默认为 [`InlineShellExecutor`]（直接 `cmd.output()`，保持原同步行为），
+    /// peri-tui 会注入真正的实现。
+    pub executor: Arc<dyn ShellExecutor>,
 }
 
 impl BashTool {
+    /// 创建使用默认 [`InlineShellExecutor`] 的 BashTool（保持原 `cmd.output()` 同步行为）。
+    ///
+    /// 供测试 / 非 TUI 场景使用。TUI 场景应改用 [`BashTool::with_executor`]。
     pub fn new(cwd: impl Into<String>) -> Self {
-        Self { cwd: cwd.into() }
+        Self::with_executor(cwd, Arc::new(InlineShellExecutor))
+    }
+
+    /// 创建注入自定义 [`ShellExecutor`] 的 BashTool。
+    pub fn with_executor(cwd: impl Into<String>, executor: Arc<dyn ShellExecutor>) -> Self {
+        Self {
+            cwd: cwd.into(),
+            executor,
+        }
     }
 }
 
 fn truncate_output(output: &str) -> String {
     // 委托到公共实现，便于 Grep/Glob 等工具复用同一截断逻辑（issue #47）
     truncate_tool_output(output)
+}
+
+/// 把 stdout/stderr/exit_code 拼装为给 LLM 的工具结果字符串。
+///
+/// 抽取为独立函数便于 invoke 主路径与 Windows git-bash fallback 共用一致的格式化逻辑。
+fn format_command_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
+    let mut output = String::new();
+    if !stdout.is_empty() {
+        output.push_str(stdout);
+    }
+    if !stderr.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str("[stderr]\n");
+        output.push_str(stderr);
+    }
+    if exit_code != 0 {
+        output.push_str(&format!("\n[Exit code: {exit_code}]"));
+    }
+    if output.is_empty() {
+        output = format!("[Command completed with exit code {exit_code}]");
+    }
+    output
 }
 
 #[async_trait::async_trait]
@@ -296,7 +338,7 @@ impl BaseTool for BashTool {
             .unwrap_or(120_000)
             .clamp(1, 600_000);
         let _description = input["description"].as_str();
-        let _run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
+        let run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
         // Windows fallback 用原始命令（rewrite 前的），因为 bash 引号语义正常
         #[cfg(windows)]
@@ -320,49 +362,60 @@ impl BaseTool for BashTool {
         #[cfg(windows)]
         let cmd_start = Instant::now();
 
-        let result = timeout(Duration::from_millis(timeout_ms), {
-            // Windows 分支中 `command` 被 shadow 为 String（L278），需要取引用；
-            // 非 Windows 上 `command` 本身就是 &str，直接传递。
-            #[cfg(windows)]
-            let command_arg: &str = &command;
-            #[cfg(not(windows))]
-            let command_arg: &str = command;
-            let mut cmd = crate::process::shell_command(command_arg, &[]);
-            cmd.current_dir(&self.cwd)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true);
-            #[cfg(unix)]
-            cmd.process_group(0);
-            cmd.output()
-        })
-        .await;
+        // 委托给 ShellExecutor：peri-tui 注入的实现会把命令接入 shell 池，
+        // 支持 Ctrl+B 后台化；默认 InlineShellExecutor 保持原 cmd.output() 行为。
+        let req = peri_agent::shell::ShellRequest {
+            command: command.clone(),
+            cwd: self.cwd.clone(),
+            timeout_ms,
+            run_in_background,
+        };
+        let handle = self.executor.execute(req).await?;
 
-        // ⚠️ temp 文件清理推迟到 fallback 判断之后——
-        // retry 用的是已改写的命令（-F tempfile），需要文件仍存在。
+        // run_in_background=true：立即转后台，返回 task_id 占位串。
+        // 真实输出靠后续 <background-task-completed> 通知注入下一轮对话。
+        if run_in_background {
+            // 清理 Windows temp 文件（后台路径用不到 -F tempfile）
+            for path in &temp_msg_files {
+                let _ = tokio::fs::remove_file(path).await;
+            }
+            // 通知 executor 进入后台（handle 内已具备 background_tx 时消费它）
+            return Ok(format!(
+                "<background-task-started><task-id>{}</task-id><command>{}</command><output>{}</output></background-task-started>",
+                handle.task_id,
+                command.replace('<', "&lt;").replace('>', "&gt;"),
+                handle.output_path.display()
+            ));
+        }
+
+        // 前台执行：await 到进程退出拿完整输出（对齐 Claude Code，后台化不抢占 result_rx）。
+        // 先取出 kill 句柄，超时时 abort executor task → child 被 drop → kill_on_drop 终止子进程。
+        let kill = handle.kill;
+        let result = timeout(Duration::from_millis(timeout_ms), handle.result_rx).await;
+
+        // 退出后清理 Windows temp 文件
+        for path in &temp_msg_files {
+            let _ = tokio::fs::remove_file(path).await;
+        }
 
         match result {
+            // 超时：abort executor task 终止子进程防泄漏
             Err(_) => {
-                // 超时也需要清理 temp 文件
-                for path in &temp_msg_files {
-                    let _ = tokio::fs::remove_file(path).await;
-                }
+                kill.abort();
                 Err(format!(
                     "Error: Command timed out after {} seconds.\nCommand: {command}",
                     timeout_ms as f64 / 1000.0
                 )
                 .into())
             }
-            Ok(Err(e)) => {
-                for path in &temp_msg_files {
-                    let _ = tokio::fs::remove_file(path).await;
-                }
-                Err(format!("Error executing command: {e}").into())
-            }
-            Ok(Ok(out)) => {
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                let exit_code = out.status.code().unwrap_or(-1);
+            // oneshot channel 关闭（executor task 异常退出未 send）
+            Ok(Err(_)) => Err("Error: command executor closed unexpectedly".into()),
+            // executor 返回错误（spawn 失败等）
+            Ok(Ok(Err(e))) => Err(format!("Error executing command: {e}").into()),
+            Ok(Ok(Ok(output))) => {
+                let stdout = output.stdout;
+                let stderr = output.stderr;
+                let exit_code = output.exit_code;
 
                 // Windows fallback：cmd 不识别命令时用 Git Bash 重试原始命令。
                 // 剩余超时 = 总超时 - cmd 耗时（至少 10s）
@@ -374,44 +427,14 @@ impl BaseTool for BashTool {
                             let remaining_ms = timeout_ms
                                 .saturating_sub(cmd_elapsed_ms)
                                 .max(10_000);
-                            let fallback_result = self
+                            return self
                                 .invoke_with_git_bash(&bash, &original_command, remaining_ms)
                                 .await;
-                            // fallback 完成后清理 temp 文件
-                            for path in &temp_msg_files {
-                                let _ = tokio::fs::remove_file(path).await;
-                            }
-                            return fallback_result;
                         }
                     }
                 }
 
-                // 非 fallback 路径：清理 temp 文件
-                for path in &temp_msg_files {
-                    let _ = tokio::fs::remove_file(path).await;
-                }
-
-                let mut output = String::new();
-
-                if !stdout.is_empty() {
-                    output.push_str(&stdout);
-                }
-                if !stderr.is_empty() {
-                    if !output.is_empty() {
-                        output.push('\n');
-                    }
-                    output.push_str("[stderr]\n");
-                    output.push_str(&stderr);
-                }
-                if exit_code != 0 {
-                    output.push_str(&format!("\n[Exit code: {exit_code}]"));
-                }
-
-                if output.is_empty() {
-                    output = format!("[Command completed with exit code {exit_code}]");
-                }
-
-                // 截断过长输出，防止撑爆 LLM context window
+                let output = format_command_output(&stdout, &stderr, exit_code);
                 Ok(truncate_output(&output))
             }
         }
@@ -450,28 +473,11 @@ impl BashTool {
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                 let exit_code = out.status.code().unwrap_or(-1);
 
-                let mut output = String::new();
-                if !stdout.is_empty() {
-                    output.push_str(&stdout);
-                }
-                if !stderr.is_empty() {
-                    if !output.is_empty() {
-                        output.push('\n');
-                    }
-                    output.push_str("[stderr]\n");
-                    output.push_str(&stderr);
-                }
-                if exit_code != 0 {
-                    output.push_str(&format!("\n[Exit code: {exit_code}]"));
-                }
+                let mut output = format_command_output(&stdout, &stderr, exit_code);
                 output.push_str("\n[Retried with Git Bash]");
 
-                if output == "\n[Retried with Git Bash]" {
-                    output = format!(
-                        "[Command completed with exit code {exit_code}]\n[Retried with Git Bash]"
-                    );
-                }
-
+                // format_command_output 在无输出时返回 "[Command completed ...]"，
+                // 仅追加标记即可，无需再特判空输出。
                 Ok(truncate_output(&output))
             }
         }
@@ -479,15 +485,31 @@ impl BashTool {
 }
 
 /// TerminalMiddleware - 与 TypeScript TerminalMiddleware 对齐
-pub struct TerminalMiddleware;
+pub struct TerminalMiddleware {
+    /// Shell 执行器，注入到 BashTool 以支持 Ctrl+B 后台化。
+    /// None 时使用默认 [`InlineShellExecutor`]（保持原 cmd.output() 行为）。
+    executor: Option<Arc<dyn ShellExecutor>>,
+}
 
 impl TerminalMiddleware {
     pub fn new() -> Self {
-        Self
+        Self { executor: None }
     }
 
-    pub fn build_tools(cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        vec![Box::new(BashTool::new(cwd))]
+    /// 创建注入自定义 [`ShellExecutor`] 的 middleware。
+    pub fn with_executor(executor: Arc<dyn ShellExecutor>) -> Self {
+        Self {
+            executor: Some(executor),
+        }
+    }
+
+    /// 构造 BashTool。executor 为 None 时使用默认 InlineShellExecutor。
+    pub fn build_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
+        let executor = self
+            .executor
+            .clone()
+            .unwrap_or_else(|| Arc::new(InlineShellExecutor));
+        vec![Box::new(BashTool::with_executor(cwd, executor))]
     }
 
     pub fn tool_names() -> Vec<&'static str> {
@@ -504,13 +526,17 @@ impl Default for TerminalMiddleware {
 #[async_trait]
 impl<S: State> Middleware<S> for TerminalMiddleware {
     fn collect_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        Self::build_tools(cwd)
+        self.build_tools(cwd)
     }
 
     fn name(&self) -> &str {
         "TerminalMiddleware"
     }
 }
+
+#[path = "terminal_inline_executor.rs"]
+mod terminal_inline_executor;
+pub use terminal_inline_executor::InlineShellExecutor;
 
 #[cfg(test)]
 #[path = "terminal_test.rs"]
