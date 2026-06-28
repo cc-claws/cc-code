@@ -1,43 +1,43 @@
 {
-  "name": "@cc-claw/code",
-  "version": "0.6.29",
-  "description": "cc-code — Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible",
-  "keywords": [
-    "agent",
-    "coding",
-    "terminal",
-    "rust",
-    "llm",
-    "claude-code"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cc-claws/cc-code.git"
-  },
-  "homepage": "https://github.com/cc-claws/cc-code",
-  "bugs": {
-    "url": "https://github.com/cc-claws/cc-code/issues"
-  },
-  "license": "Apache-2.0",
-  "bin": {
-    "cc-code": "bin/cc-code"
-  },
-  "scripts": {
-    "postinstall": "node install.js"
-  },
-  "os": [
-    "linux",
-    "darwin",
-    "win32"
-  ],
-  "cpu": [
-    "x64",
-    "arm64"
-  ],
-  "engines": {
-    "node": ">=16"
-  },
-  "dependencies": {
-    "adm-zip": "^0.5.16"
-  }
+    "name": "@cc-claw/code",
+    "version": "0.6.30",
+    "description": "cc-code \u2014 Terminal coding agent powered by open-source models \u2014 Rust-built, Claude Code compatible",
+    "keywords": [
+        "agent",
+        "coding",
+        "terminal",
+        "rust",
+        "llm",
+        "claude-code"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/cc-claws/cc-code.git"
+    },
+    "homepage": "https://github.com/cc-claws/cc-code",
+    "bugs": {
+        "url": "https://github.com/cc-claws/cc-code/issues"
+    },
+    "license": "Apache-2.0",
+    "bin": {
+        "cc-code": "bin/cc-code"
+    },
+    "scripts": {
+        "postinstall": "node install.js"
+    },
+    "os": [
+        "linux",
+        "darwin",
+        "win32"
+    ],
+    "cpu": [
+        "x64",
+        "arm64"
+    ],
+    "engines": {
+        "node": ">=16"
+    },
+    "dependencies": {
+        "adm-zip": "^0.5.16"
+    }
 }
