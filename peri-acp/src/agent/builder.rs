@@ -71,6 +71,9 @@ pub struct AcpAgentConfig {
     pub preload_skills: Vec<String>,
     pub session_id: Option<String>,
     pub broker: Arc<dyn UserInteractionBroker>,
+    /// Shell 执行器（注入 BashTool，支持 Ctrl+B 后台化）。
+    /// None = 使用默认 InlineShellExecutor（保持原 cmd.output() 同步行为，无后台化）。
+    pub shell_executor: Option<Arc<dyn peri_agent::shell::ShellExecutor>>,
     pub plugin_skill_dirs: Vec<std::path::PathBuf>,
     pub plugin_agent_dirs: Vec<std::path::PathBuf>,
     pub hook_groups: Vec<Vec<RegisteredHook>>,
@@ -144,6 +147,7 @@ pub fn build_agent(
         preload_skills,
         session_id,
         broker: permission_broker,
+        shell_executor,
         plugin_skill_dirs,
         plugin_agent_dirs,
         hook_groups,
@@ -163,6 +167,12 @@ pub fn build_agent(
         register_runtime,
         deregister_runtime,
     } = cfg;
+
+    // TerminalMiddleware：注入 shell_executor（None = InlineShellExecutor，保持原行为）。
+    // 同一实例同时用于 parent_tools 构造和中间件链，保证 BashTool 与链共享同一 executor。
+    let terminal_middleware = shell_executor
+        .map(TerminalMiddleware::with_executor)
+        .unwrap_or_else(TerminalMiddleware::new);
 
     // 应用 agent overrides 到系统提示词
     let system_prompt = agent_overrides.as_ref().map_or_else(
@@ -237,7 +247,7 @@ pub fn build_agent(
     // 父工具集（供子 agent 继承）
     let mut parent_tools: Vec<Box<dyn peri_agent::tools::BaseTool>> =
         FilesystemMiddleware::build_tools(&cwd);
-    parent_tools.extend(TerminalMiddleware::build_tools(&cwd));
+    parent_tools.extend(terminal_middleware.build_tools(&cwd));
     if let Some(ref pool) = mcp_pool {
         let mcp_tools = peri_middlewares::mcp::build_tool_bridges(pool);
         for tool in mcp_tools {
@@ -421,7 +431,7 @@ pub fn build_agent(
         .add_middleware(Box::new(peri_middlewares::GitAttributionMiddleware::new(
             &model_name,
         )))
-        .add_middleware(Box::new(TerminalMiddleware::new()))
+        .add_middleware(Box::new(terminal_middleware))
         .add_middleware(Box::new(WebMiddleware::new()))
         .add_middleware(Box::new(TodoMiddleware::new(todo_tx)))
         .add_middleware(Box::new(CronMiddleware::new(
