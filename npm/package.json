@@ -1,6 +1,6 @@
 {
   "name": "@cc-claw/code",
-  "version": "0.6.24",
+  "version": "0.6.25",
   "description": "cc-code — Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible",
   "keywords": [
     "agent",
