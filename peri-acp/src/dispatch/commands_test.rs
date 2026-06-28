@@ -13,6 +13,11 @@ fn test_build_available_commands_includes_builtins() {
     assert!(names.contains(&"clear"), "clear 命令应存在");
     assert!(names.contains(&"compact"), "compact 命令应存在");
     assert!(names.contains(&"model"), "model 命令应存在");
+    // 回归：commit/review 必须暴露给 TUI 的 Hints/补全
+    // 历史 bug：available_commands 列表遗漏 commit/review，
+    // 导致 TUI 端永远看不到这两个命令（即便 ACP 能执行）。
+    assert!(names.contains(&"commit"), "commit 命令应存在");
+    assert!(names.contains(&"review"), "review 命令应存在");
 }
 
 #[test]
