@@ -1548,6 +1548,7 @@
 
 ## 更新记录
 
+- 2026-06-28: 文档同步——标记 6 月已修复 issue 为 Fixed（mouse escape sequence leak #88、Ctrl+C 双击退出 #86、MCP OAuth state 校验 M3、session UUID 校验 M5、文件权限加固 M4/H3、工具输出截断 #80、Edit tab 缩进、AskUser 高度、at-mention 目录注入）。新增关键词索引待归档到 domains 后补充（ConPTY SGR 泄漏、Windows Ctrl+C 防抖、CSRF state、文件权限 0o600）
 - 2026-06-24: 归档 11 个 issue（tui 7 + agent 4），新增 38 个关键词索引
 - 2026-06-03: 归档 3 个 issue（at-mention 搜索、rewind 消息丢失、多 session 分屏移除）
 - 2026-05-29: 归档 8 个 issue（agent 7 + plugin 1），新增 22 个关键词索引

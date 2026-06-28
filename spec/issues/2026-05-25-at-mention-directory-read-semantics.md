@@ -1,8 +1,9 @@
 # @ mention 目录引用被注入为 Read 工具调用
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：低
 **创建日期**：2026-05-25
+**修复日期**：2026-06-27（PR #77，commit 8f74bcff / 8714562a）
 
 ## 问题描述
 
@@ -33,3 +34,7 @@
 
 - `peri-middlewares/src/at_mention/file_reader.rs` — `read_file_content()` 目录处理逻辑
 - `peri-middlewares/src/at_mention/mod.rs` — AtMentionMiddleware 注入逻辑
+
+## 修复记录
+
+- 2026-06-27 PR #77（commit 8f74bcff）：采用方案 2，目录 mention 改为注入 System 消息（明确标注目录列表），同时加固目录路径注入防护（commit 8714562a 防止 `@path` 越权访问）

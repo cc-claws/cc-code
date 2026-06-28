@@ -1,5 +1,15 @@
 # PRD: TUI 全局选中复制（Screen Selection）
 
+## 实现状态
+
+| Phase | 状态 | 说明 |
+|-------|------|------|
+| Phase 1：ScreenSelection + ScreenSnapshot 与 TextSelection 并存 | ✅ Done | commit 04121ee0（2026-06-27） |
+| 消息区域 TextSelection 内容锚定（滚动跟随内容） | ✅ Done | commit 86416222（2026-06-28） |
+| auto-scroll + copy toast UX | ✅ Done | commit 07c9a01b（2026-06-27，PR #90） |
+| 双击选整行 + spinner/总结行可选 + 拖选溢出 panic 修复 | ✅ Done | commit 79836cc5（2026-06-28） |
+| Phase 2：移除旧 PanelTextSelection 系统 | ⏳ Pending | 待新系统稳定后清理 |
+
 ## 背景
 
 当前 TUI 的选中复制由两套独立系统组成：
@@ -265,13 +275,20 @@ fn draw_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) ->
 
 ## 验收标准
 
-1. **消息区域选中**：行为与现在完全一致——字符级精度，复制干净文本，蓝色高亮。
-2. **面板区域选中**：所有面板（包括 memory/hooks/plugin 等之前缺少高亮的）均可拖动选中并显示蓝色高亮。
-3. **其他区域选中**：状态栏、sticky header、bg agent bar 均可拖动选中并高亮。
-4. **自动复制**：松开鼠标后文本自动写入剪贴板，显示 "已复制 N 个字符" toast。
-5. **跨区域选中**：选区可跨越消息区域和面板区域的边界，视觉上无缝衔接。
-6. **TextArea 不受影响**：点击输入框可正常定位光标和输入文字；从输入框拖拽可选中文字。
-7. **CJK 支持**：中日韩宽字符选中和复制正确。
-8. **取消选区**：点击任意位置（非拖拽）取消所有选区高亮。
-9. **Resize 清除**：终端 resize 时清除所有选区。
-10. **构建通过**：`cargo build -p peri-tui` 和 `cargo test -p peri-tui` 通过。
+1. ✅ **消息区域选中**：行为与现在完全一致——字符级精度，复制干净文本，蓝色高亮。
+2. ✅ **面板区域选中**：所有面板（包括 memory/hooks/plugin 等之前缺少高亮的）均可拖动选中并显示蓝色高亮。
+3. ✅ **其他区域选中**：状态栏、sticky header、bg agent bar 均可拖动选中并高亮。
+4. ✅ **自动复制**：松开鼠标后文本自动写入剪贴板，显示 "已复制 N 个字符" toast。
+5. ✅ **跨区域选中**：选区可跨越消息区域和面板区域的边界，视觉上无缝衔接。
+6. ✅ **TextArea 不受影响**：点击输入框可正常定位光标和输入文字；从输入框拖拽可选中文字。
+7. ✅ **CJK 支持**：中日韩宽字符选中和复制正确。
+8. ✅ **取消选区**：点击任意位置（非拖拽）取消所有选区高亮。
+9. ✅ **Resize 清除**：终端 resize 时清除所有选区。
+10. ✅ **构建通过**：`cargo build -p peri-tui` 和 `cargo test -p peri-tui` 通过。
+
+### 增量验收（2026-06-28 commit 79836cc5）
+
+11. ✅ **双击选整行**：消息区双击选整行（TextSelection 纯文本），其他非 textarea 区域双击选整屏行（ScreenSelection）。
+12. ✅ **spinner/总结行可选**：`✻ Brewed for...` + 进度条等位于 messages_area 底部但不在 wrap_map 内的行可选中复制。
+13. ✅ **auto-scroll 不误吞首末行**：auto-scroll 仅在鼠标移出消息区域外时触发，区域内首末行可正常选中。
+14. ✅ **拖选溢出不再 panic**：`visual_row + scroll_offset` 改用 `saturating_add`，`scroll_offset=usize::MAX` 时不再崩溃。

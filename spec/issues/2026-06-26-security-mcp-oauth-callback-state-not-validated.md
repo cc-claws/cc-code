@@ -1,9 +1,10 @@
 # MCP OAuth 回调服务器 state 参数实际未校验（永远为空字符串）
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-06-26
 **来源**：cc-code 全项目安全审计 2026-06-26（Finding M3，置信度 8/10）
+**修复日期**：2026-06-27（PR #82，commit 713ddcb1 / 56a1a07f）
 
 ## 问题描述
 
@@ -74,3 +75,4 @@ struct OAuthCallbackServer {
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-06-26 | — | Open | agent | 创建（安全审计 M3） |
+| 2026-06-27 | Open | Fixed | agent | PR #82 合入：`OAuthCallbackServer` 接收 rmcp 生成的 state，`parse_callback_url` 严格校验 state 一致性，绑定后立即 `set_state` 缩小竞态窗口 |
