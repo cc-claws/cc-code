@@ -1,5 +1,11 @@
 use super::*;
+use std::{path::PathBuf, sync::Arc};
+
 use peri_agent::messages::BaseMessage;
+use peri_agent::shell::ExitSignal;
+use tokio::sync::oneshot;
+
+use crate::app::{AgentShellRegistration, AgentShellSlot};
 
 fn make_record(
     thread_id: &str,
@@ -20,6 +26,27 @@ fn make_record(
         completed_at: now,
         anchor_message_id,
     }
+}
+
+fn make_agent_shell_slot(
+    direct_background: bool,
+    command: &str,
+) -> (AgentShellSlot, Arc<ExitSignal>) {
+    let (bg_tx, _bg_rx) = oneshot::channel();
+    let exit_signal = Arc::new(ExitSignal::new());
+    let task = tokio::spawn(async {});
+    let reg = AgentShellRegistration {
+        task_id: uuid::Uuid::now_v7().to_string(),
+        command: command.to_string(),
+        cwd: ".".to_string(),
+        output_path: PathBuf::from("/tmp/peri-agent-shell.output"),
+        exit_signal: Arc::clone(&exit_signal),
+        background_tx: if direct_background { None } else { Some(bg_tx) },
+        kill: task.abort_handle(),
+        started_instant: std::time::Instant::now(),
+        direct_background,
+    };
+    (AgentShellSlot::from_registration(reg), exit_signal)
 }
 
 #[tokio::test]
@@ -96,7 +123,12 @@ async fn test_cancel_shell_command_aborts_task_and_replaces_pending_vm() {
         "取消 shell 命令应 abort 后台任务"
     );
     assert!(
-        !app.session_mgr.current().shell_pool.foreground.runtime.is_running(),
+        !app.session_mgr
+            .current()
+            .shell_pool
+            .foreground
+            .runtime
+            .is_running(),
         "取消后应清理 ShellCommandRuntime"
     );
     assert!(
@@ -114,6 +146,56 @@ async fn test_cancel_shell_command_aborts_task_and_replaces_pending_vm() {
             }) if id == &record_id && stderr.contains("cancelled")
         ),
         "pending shell VM 应替换为取消结果"
+    );
+}
+
+#[tokio::test]
+async fn test_poll_agent_shells_前台结束不注入后台通知() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.set_loading(true);
+    let (slot, exit_signal) = make_agent_shell_slot(false, "echo hi");
+    app.session_mgr.current_mut().agent_shells.push(slot);
+
+    exit_signal.fire();
+    let changed = app.poll_agent_shells();
+
+    assert!(changed, "前台 shell 退出也应产生状态变化用于重绘");
+    assert!(
+        app.session_mgr.current().agent_shells[0].ended,
+        "退出后应标记 ended"
+    );
+    assert!(
+        app.session_mgr
+            .current()
+            .pending_bg_shell_notifications
+            .is_empty(),
+        "未后台化的前台小命令不应注入后台完成通知"
+    );
+}
+
+#[tokio::test]
+async fn test_poll_agent_shells_后台化结束才注入通知() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.set_loading(true);
+    let (slot, exit_signal) = make_agent_shell_slot(true, "cargo test");
+    app.session_mgr.current_mut().agent_shells.push(slot);
+
+    exit_signal.fire();
+    let changed = app.poll_agent_shells();
+
+    assert!(changed, "后台 shell 退出应产生状态变化");
+    let pending = &app.session_mgr.current().pending_bg_shell_notifications;
+    assert_eq!(pending.len(), 1, "后台 shell 完成应注入一条通知");
+    let notification = pending.front().expect("应有后台完成通知");
+    assert!(
+        notification.contains("<background-task-completed>"),
+        "通知应保留 agent 可解析的 XML: {}",
+        notification
+    );
+    assert!(
+        notification.contains("<command>cargo test</command>"),
+        "通知应包含命令: {}",
+        notification
     );
 }
 
@@ -202,10 +284,7 @@ async fn test_cleanup_finished_background_shells_未超量不移除() {
     );
     bg.status = ShellStatus::Completed;
     bg.notified = true;
-    app.session_mgr
-        .current_mut()
-        .background_shells
-        .push(bg);
+    app.session_mgr.current_mut().background_shells.push(bg);
 
     app.cleanup_finished_background_shells();
     assert_eq!(

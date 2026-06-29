@@ -511,14 +511,18 @@ impl App {
         any
     }
 
-    /// 轮询 agent shell 退出状态：检测 ExitSignal，退出则标记 + 注入完成通知。
+    /// 轮询 agent shell 退出状态：检测 ExitSignal，退出则标记。
+    ///
+    /// 只有已经后台化（Ctrl+B）或直接后台启动的 agent shell 才注入完成通知。
+    /// 普通前台命令即使很快结束，也只标记结束，避免“小命令”打断对话流。
     ///
     /// 由主循环每帧调用（与 [`Self::poll_background_shell_events`] 平行）。
     /// 返回是否有任何状态变化（用于触发重绘）。
     pub fn poll_agent_shells(&mut self) -> bool {
         // 阶段1：收集完成通知（&mut session）
-        let notifications: Vec<String> = {
+        let (changed, notifications): (bool, Vec<String>) = {
             let session = self.session_mgr.current_mut();
+            let mut changed = false;
             let mut notifs = Vec::new();
             for slot in session.agent_shells.iter_mut() {
                 if slot.ended {
@@ -529,7 +533,12 @@ impl App {
                 }
                 // 退出：exit_code 未知（ExitSignal 不携带），用 -1 兜底。
                 // 更精确的 exit_code 由 BashTool::invoke 经 result_rx 拿到，通知里不影响 agent 判断。
+                let was_backgrounded = slot.is_backgrounded;
                 slot.mark_ended(None);
+                changed = true;
+                if !was_backgrounded {
+                    continue;
+                }
                 let n = super::background_shell::shell_completion_notification(
                     &slot.task_id,
                     &slot.command,
@@ -538,11 +547,14 @@ impl App {
                 );
                 notifs.push(n);
             }
-            notifs
+            (changed, notifs)
         };
 
         if notifications.is_empty() {
-            return false;
+            if changed {
+                self.cleanup_finished_agent_shells();
+            }
+            return changed;
         }
 
         // 阶段2：注入通知（复用 !command 路径的注入机制：idle 注入首个触发新轮次，其余入 pending）

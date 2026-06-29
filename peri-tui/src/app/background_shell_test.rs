@@ -69,11 +69,89 @@ fn test_shell_completion_notification_完成格式() {
     // Act
     let msg = shell_completion_notification("abc", "npm test", Some(0), path);
     // Assert
-    assert!(msg.contains("<background-task-completed>"), "缺少 XML 根标签: {}", msg);
-    assert!(msg.contains("<task-id>abc</task-id>"), "缺少 task-id: {}", msg);
-    assert!(msg.contains("<command>npm test</command>"), "缺少 command: {}", msg);
+    assert!(
+        msg.contains("<background-task-completed>"),
+        "缺少 XML 根标签: {}",
+        msg
+    );
+    assert!(
+        msg.contains("<task-id>abc</task-id>"),
+        "缺少 task-id: {}",
+        msg
+    );
+    assert!(
+        msg.contains("<command>npm test</command>"),
+        "缺少 command: {}",
+        msg
+    );
     assert!(msg.contains("completed (exit 0)"), "缺少完成状态: {}", msg);
     assert!(msg.contains("abc.output"), "缺少 output 路径: {}", msg);
+}
+
+#[test]
+fn test_shell_notification_display_text_完成提示不泄露_xml() {
+    // Arrange
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let msg = shell_completion_notification("abc", "npm test", Some(0), path);
+    // Act
+    let display = shell_notification_display_text(&msg).expect("应识别后台 shell 完成通知");
+    // Assert
+    assert!(
+        display.contains("后台 shell 已完成"),
+        "应显示完成提示: {}",
+        display
+    );
+    assert!(display.contains("npm test"), "应保留命令摘要: {}", display);
+    assert!(
+        !display.contains("<background-task-completed>"),
+        "不应泄露 XML 标签: {}",
+        display
+    );
+}
+
+#[test]
+fn test_shell_notification_display_text_支持_system_reminder_包裹() {
+    // Arrange
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let msg = shell_completion_notification("abc", "cargo test", Some(0), path);
+    let wrapped = format!("<system-reminder>\n{}\n</system-reminder>", msg);
+    // Act
+    let display = shell_notification_display_text(&wrapped).expect("应识别包裹后的后台 shell 通知");
+    // Assert
+    assert!(
+        display.contains("后台 shell 已完成"),
+        "应显示完成提示: {}",
+        display
+    );
+    assert!(
+        display.contains("cargo test"),
+        "应保留命令摘要: {}",
+        display
+    );
+    assert!(
+        !display.contains("<system-reminder>"),
+        "不应泄露 system-reminder 标签: {}",
+        display
+    );
+}
+
+#[test]
+fn test_shell_notification_display_text_等待输入提示() {
+    // Arrange
+    let msg = shell_stalled_notification("t1", "npm publish", "continue?");
+    // Act
+    let display = shell_notification_display_text(&msg).expect("应识别等待输入通知");
+    // Assert
+    assert!(
+        display.contains("后台 shell 等待输入"),
+        "应显示等待输入: {}",
+        display
+    );
+    assert!(
+        display.contains("npm publish"),
+        "应保留命令摘要: {}",
+        display
+    );
 }
 
 #[test]
