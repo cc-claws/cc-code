@@ -483,6 +483,29 @@ fn test_human_message_with_system_reminder_detection() {
 }
 
 #[test]
+fn test_human_background_shell_notification_renders_as_system_note() {
+    let text = "<system-reminder>\n<background-task-completed>\n<task-id>abc</task-id>\n<command>npm test</command>\n<status>completed (exit 0)</status>\n<output>/tmp/abc.output</output>\n</background-task-completed>\n</system-reminder>";
+    let msg = BaseMessage::human(text);
+    let vm = MessageViewModel::from_base_message(&msg, &[]);
+    match vm {
+        MessageViewModel::SystemNote { content, .. } => {
+            assert!(
+                content.contains("后台 shell 已完成"),
+                "应显示可读系统提示: {}",
+                content
+            );
+            assert!(content.contains("npm test"), "应保留命令摘要: {}", content);
+            assert!(
+                !content.contains("<background-task-completed>"),
+                "不应泄露 XML 标签: {}",
+                content
+            );
+        }
+        _ => panic!("后台 shell 通知应渲染为 SystemNote"),
+    }
+}
+
+#[test]
 fn test_human_message_without_system_reminder() {
     let text = "普通用户消息";
     let msg = BaseMessage::human(text);

@@ -4,6 +4,12 @@ impl App {
     pub fn submit_message(&mut self, input: String) {
         let display_input = input;
         let expanded_input = self.expand_pasted_text(&display_input);
+        let shell_notification_display = super::shell_notification_display_text(&display_input);
+        let agent_input = if shell_notification_display.is_some() {
+            format!("<system-reminder>\n{}\n</system-reminder>", expanded_input)
+        } else {
+            expanded_input.clone()
+        };
         let had_pasted_blocks = !self.session_mgr.current().ui.pasted_text_blocks.is_empty()
             || self.input_contains_pasted_text_placeholder(&display_input);
 
@@ -24,7 +30,9 @@ impl App {
         self.session_mgr.current_mut().metadata.pre_submit_state_len =
             self.session_mgr.current_mut().agent.origin_messages.len();
 
-        self.push_input_history(expanded_input.clone());
+        if shell_notification_display.is_none() {
+            self.push_input_history(expanded_input.clone());
+        }
 
         // 消费待发送附件
         let attachments =
@@ -40,7 +48,9 @@ impl App {
             );
 
         // 构建用于显示的文字（附件摘要追加在末尾）
-        let display = if active_attachments.is_empty() {
+        let display = if let Some(display) = shell_notification_display.clone() {
+            display
+        } else if active_attachments.is_empty() {
             display_input.clone()
         } else {
             self.services.lc.tr_args(
@@ -61,10 +71,10 @@ impl App {
 
         // 构建发送给 LLM 的 MessageContent（含附件图片 blocks）
         let message_content = if active_attachments.is_empty() {
-            peri_agent::messages::MessageContent::text(expanded_input.clone())
+            peri_agent::messages::MessageContent::text(agent_input.clone())
         } else {
             let mut blocks = vec![peri_agent::messages::ContentBlock::text(
-                expanded_input.clone(),
+                agent_input.clone(),
             )];
             for att in active_attachments {
                 blocks.push(peri_agent::messages::ContentBlock::image_base64(
@@ -79,7 +89,9 @@ impl App {
             .messages
             .pipeline
             .begin_round();
-        let user_vm = if let Some(expanded) = expanded_for_detail {
+        let user_vm = if shell_notification_display.is_some() {
+            MessageViewModel::system(display.clone())
+        } else if let Some(expanded) = expanded_for_detail {
             MessageViewModel::user_with_expanded(display.clone(), expanded)
         } else {
             MessageViewModel::user(display.clone())
@@ -90,7 +102,12 @@ impl App {
         self.session_mgr.current_mut().messages.round_start_vm_idx =
             self.session_mgr.current_mut().messages.view_messages.len();
         self.session_mgr.current_mut().metadata.last_human_message = Some(display);
-        self.session_mgr.current_mut().messages.last_submitted_text = Some(expanded_input.clone());
+        self.session_mgr.current_mut().messages.last_submitted_text =
+            if shell_notification_display.is_some() {
+                None
+            } else {
+                Some(expanded_input.clone())
+            };
         if had_pasted_blocks {
             self.clear_pasted_text_blocks();
         }

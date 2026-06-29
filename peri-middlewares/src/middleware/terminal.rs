@@ -3,6 +3,7 @@ use peri_agent::{
     agent::state::State, middleware::r#trait::Middleware, shell::ShellExecutor, tools::BaseTool,
 };
 use serde_json::Value;
+#[cfg(windows)]
 use std::process::Stdio;
 use std::sync::Arc;
 #[cfg(windows)]
