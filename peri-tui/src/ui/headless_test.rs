@@ -1651,15 +1651,15 @@ async fn test_enter_skill_name_submits_message() {
         .current_mut()
         .ui
         .textarea
-        .insert_str("/review");
+        .insert_str("/deploy");
     app.session_mgr
         .current_mut()
         .commands
         .skills
         .push(SkillMetadata {
-            name: "review".into(),
-            description: "code review".into(),
-            path: "/tmp/review.md".into(),
+            name: "deploy".into(),
+            description: "deploy to production".into(),
+            path: "/tmp/deploy.md".into(),
         });
 
     // 模拟 Enter 事件处理
@@ -1671,7 +1671,7 @@ async fn test_enter_skill_name_submits_message() {
     let registry = std::mem::take(&mut app.session_mgr.current_mut().commands.command_registry);
     let known = registry.dispatch(&mut app, &text);
     app.session_mgr.current_mut().commands.command_registry = registry;
-    assert!(!known, "review 不应是已知命令");
+    assert!(!known, "deploy 不应是已知命令");
 
     // 验证 Skill 匹配
     let skill_name: String = text
@@ -1679,7 +1679,7 @@ async fn test_enter_skill_name_submits_message() {
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .collect();
-    assert_eq!(skill_name, "review");
+    assert_eq!(skill_name, "deploy");
     let skill_found = app
         .session_mgr
         .current_mut()
@@ -1687,7 +1687,7 @@ async fn test_enter_skill_name_submits_message() {
         .skills
         .iter()
         .find(|s| s.name == skill_name);
-    assert!(skill_found.is_some(), "应找到 review Skill");
+    assert!(skill_found.is_some(), "应找到 deploy Skill");
 }
 
 #[tokio::test]
