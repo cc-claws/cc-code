@@ -269,11 +269,81 @@ pub fn shell_stalled_notification(task_id: &str, command: &str, last_output: &st
     )
 }
 
+/// 将后台 shell 控制通知转换为 TUI 可读的一行提示。
+///
+/// 原始 XML 仍会发送给 agent；这里仅用于聊天区展示，避免内部标签泄露给用户。
+pub fn shell_notification_display_text(raw: &str) -> Option<String> {
+    let notification = unwrap_system_reminder(raw.trim());
+    if notification.starts_with("<background-task-completed>") {
+        let command = extract_xml_tag(notification, "command")
+            .map(xml_unescape)
+            .unwrap_or_else(|| "shell command".to_string());
+        let status = extract_xml_tag(notification, "status")
+            .map(xml_unescape)
+            .unwrap_or_else(|| "completed".to_string());
+        let verb = if status.starts_with("failed") {
+            "后台 shell 失败"
+        } else if status == "terminated" {
+            "后台 shell 已终止"
+        } else {
+            "后台 shell 已完成"
+        };
+        return Some(format!(
+            "{}: {} ({})",
+            verb,
+            truncate_chars(&command, 80),
+            status
+        ));
+    }
+
+    if notification.starts_with("<background-task-waiting-for-input>") {
+        let command = extract_xml_tag(notification, "command")
+            .map(xml_unescape)
+            .unwrap_or_else(|| "shell command".to_string());
+        return Some(format!(
+            "后台 shell 等待输入: {}",
+            truncate_chars(&command, 80)
+        ));
+    }
+
+    None
+}
+
+fn unwrap_system_reminder(raw: &str) -> &str {
+    raw.strip_prefix("<system-reminder>")
+        .and_then(|s| s.strip_suffix("</system-reminder>"))
+        .map(str::trim)
+        .unwrap_or(raw)
+}
+
+fn extract_xml_tag<'a>(raw: &'a str, tag: &str) -> Option<&'a str> {
+    let start_tag = format!("<{}>", tag);
+    let end_tag = format!("</{}>", tag);
+    let start = raw.find(&start_tag)? + start_tag.len();
+    let end = raw[start..].find(&end_tag)? + start;
+    Some(&raw[start..end])
+}
+
 /// XML 转义（command/last_output 可能含 `<` `>` `&`，如 shell 重定向、错误信息）。
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+fn xml_unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut result: String = s.chars().take(max_chars).collect();
+    result.push_str("...");
+    result
 }
 
 #[cfg(test)]

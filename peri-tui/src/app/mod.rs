@@ -70,7 +70,7 @@ mod paste_ops;
 mod rewind_prompt;
 pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};
 mod background_shell;
-pub(crate) use background_shell::{BackgroundShell, ShellStatus};
+pub(crate) use background_shell::{shell_notification_display_text, BackgroundShell, ShellStatus};
 mod background_tasks_panel;
 mod shell_command;
 pub(crate) use shell_command::ShellCommandPool;
