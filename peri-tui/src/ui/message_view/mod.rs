@@ -552,6 +552,14 @@ impl MessageViewModel {
         match msg {
             BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
+                if let Some(display_text) = crate::app::shell_notification_display_text(&raw) {
+                    let mut vm = MessageViewModel::SystemNote {
+                        content: display_text,
+                        content_hash: 0,
+                    };
+                    vm.recompute_hash();
+                    return vm;
+                }
                 let (display_text, system_reminder) = if raw.contains("<system-reminder>") {
                     let cleaned = raw
                         .replacen("<system-reminder>\n", "", 1)
