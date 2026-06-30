@@ -21,7 +21,7 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
-    message_render::render_view_model,
+    message_render::{render_view_model, CONTROL_B_BACKGROUND_HINT},
     message_view::MessageViewModel,
 };
 
@@ -466,9 +466,46 @@ impl RenderTask {
         })
     }
 
+    fn running_bash_needs_control_b_hint_rebuild(&self) -> bool {
+        self.last_messages.iter().enumerate().any(|(idx, vm)| {
+            let MessageViewModel::ToolBlock {
+                tool_name,
+                content,
+                is_error,
+                started_at,
+                ..
+            } = vm
+            else {
+                return false;
+            };
+
+            if tool_name != "Bash"
+                || !content.is_empty()
+                || *is_error
+                || !started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
+            {
+                return false;
+            }
+
+            self.message_lines.get(idx).is_none_or(|lines| {
+                !lines.iter().any(|line| {
+                    line.spans
+                        .iter()
+                        .any(|span| span.content.as_ref().contains(CONTROL_B_BACKGROUND_HINT))
+                })
+            })
+        })
+    }
+
     fn refresh_running_tool_indicators(&mut self, tick: u64) -> bool {
         if !self.has_running_tool_blocks() {
             return false;
+        }
+        if self.running_bash_needs_control_b_hint_rebuild() {
+            self.message_hashes.clear();
+            let messages = self.last_messages.clone();
+            self.rebuild_safe(messages);
+            return true;
         }
 
         let (indicator, indicator_color) = peri_widgets::tool_call::display::format_indicator(

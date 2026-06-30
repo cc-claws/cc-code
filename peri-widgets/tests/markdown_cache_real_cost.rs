@@ -31,7 +31,11 @@ fn measure_markdown_render_real_cost() {
     let theme = DefaultMarkdownTheme;
     let baseline = current_rss_kb();
     println!("\n=== Markdown 渲染真实 RSS 占用 ===");
-    println!("基线 RSS: {} KB ({:.2} MB)", baseline, baseline as f64 / 1024.0);
+    println!(
+        "基线 RSS: {} KB ({:.2} MB)",
+        baseline,
+        baseline as f64 / 1024.0
+    );
 
     // 模拟 50 条典型 AI 回复（含代码块 + 列表 + 标题）
     let mut all_texts: Vec<_> = Vec::new();
@@ -76,7 +80,10 @@ fn optimized(data: &[u8]) -> Option<Result<()>> {{
     let delta_50 = after_50.saturating_sub(baseline);
     println!(
         "50 条 markdown 渲染后: RSS = {} KB (+{} KB = {:.2} MB, 即 {:.2} KB/条)",
-        after_50, delta_50, delta_50 as f64 / 1024.0, delta_50 as f64 / 50.0,
+        after_50,
+        delta_50,
+        delta_50 as f64 / 1024.0,
+        delta_50 as f64 / 50.0,
     );
 
     // 填满到 1024 条（缓存容量上限）
@@ -92,7 +99,10 @@ fn optimized(data: &[u8]) -> Option<Result<()>> {{
     let delta_1024 = after_1024.saturating_sub(after_50);
     println!(
         "再加 974 条（共 1024，达到缓存上限）: RSS = {} KB (+{} KB = {:.2} MB, 即 {:.2} KB/条)",
-        after_1024, delta_1024, delta_1024 as f64 / 1024.0, delta_1024 as f64 / 974.0,
+        after_1024,
+        delta_1024,
+        delta_1024 as f64 / 1024.0,
+        delta_1024 as f64 / 974.0,
     );
 
     drop(all_texts);
@@ -133,7 +143,9 @@ fn measure_markdown_cache_full_1024_entries() {
     let delta = after_fill.saturating_sub(baseline);
     println!(
         "填满 1024 条后: RSS = {} KB (+{} KB = {:.2} MB)",
-        after_fill, delta, delta as f64 / 1024.0,
+        after_fill,
+        delta,
+        delta as f64 / 1024.0,
     );
     println!("cache 当前 len: {}", cache.len());
 

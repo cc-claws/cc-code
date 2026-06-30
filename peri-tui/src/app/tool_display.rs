@@ -7,11 +7,11 @@ fn strip_cwd(path: &str, cwd: Option<&str>) -> String {
             format!("{}/", cwd)
         };
         if let Some(rel) = path.strip_prefix(&base) {
-            return rel.to_string();
+            return sanitize_display_text(rel);
         }
     }
     // fallback：取最后一段文件名
-    path.rsplit('/').next().unwrap_or(path).to_string()
+    sanitize_display_text(path.rsplit('/').next().unwrap_or(path))
 }
 
 /// 返回简短 display name，控制在 3-6 字符以保持 UI 对齐
@@ -28,7 +28,7 @@ pub fn format_tool_name(tool: &str) -> String {
         "AskUserQuestion" => "Ask",
         "Agent" => "Agent",
         "LSP" => "LSP",
-        other => return to_pascal(other),
+        other => return to_pascal(&sanitize_display_text(other)),
     }
     .to_string()
 }
@@ -68,7 +68,7 @@ pub fn format_tool_args(
         "Glob" => input["pattern"].as_str().map(|p| truncate(p, 200)),
         "Grep" => input["pattern"].as_str().map(|s| truncate(s, 200)),
         "FolderOperations" => {
-            let op = input["operation"].as_str().unwrap_or("?");
+            let op = sanitize_display_text(input["operation"].as_str().unwrap_or("?"));
             let path = input["folder_path"].as_str().unwrap_or("?");
             Some(format!("{} {}", op, strip_cwd(path, cwd)))
         }
@@ -94,10 +94,90 @@ pub fn to_pascal(s: &str) -> String {
 }
 
 pub fn truncate(s: &str, max: usize) -> String {
+    let s = sanitize_display_text(s);
     if s.chars().count() <= max {
-        s.to_string()
+        s
     } else {
         format!("{}…", s.chars().take(max).collect::<String>())
+    }
+}
+
+pub fn sanitize_display_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x1b' => skip_escape_sequence(&mut chars),
+            '\u{009b}' => skip_csi_sequence(&mut chars),
+            '\n' | '\r' | '\t' => out.push(' '),
+            ch if ch.is_control() => {}
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
+fn skip_escape_sequence<I>(chars: &mut std::iter::Peekable<I>)
+where
+    I: Iterator<Item = char>,
+{
+    match chars.peek().copied() {
+        Some('[') => {
+            chars.next();
+            skip_csi_sequence(chars);
+        }
+        Some(']') => {
+            chars.next();
+            skip_osc_sequence(chars);
+        }
+        Some('P' | '_' | '^') => {
+            chars.next();
+            skip_string_control_sequence(chars);
+        }
+        Some(_) => {
+            chars.next();
+        }
+        None => {}
+    }
+}
+
+fn skip_csi_sequence<I>(chars: &mut std::iter::Peekable<I>)
+where
+    I: Iterator<Item = char>,
+{
+    for ch in chars.by_ref() {
+        if matches!(ch, '\u{0040}'..='\u{007e}') {
+            break;
+        }
+    }
+}
+
+fn skip_osc_sequence<I>(chars: &mut std::iter::Peekable<I>)
+where
+    I: Iterator<Item = char>,
+{
+    let mut saw_esc = false;
+    for ch in chars.by_ref() {
+        if ch == '\u{0007}' {
+            break;
+        }
+        if saw_esc && ch == '\\' {
+            break;
+        }
+        saw_esc = ch == '\x1b';
+    }
+}
+
+fn skip_string_control_sequence<I>(chars: &mut std::iter::Peekable<I>)
+where
+    I: Iterator<Item = char>,
+{
+    let mut saw_esc = false;
+    for ch in chars.by_ref() {
+        if saw_esc && ch == '\\' {
+            break;
+        }
+        saw_esc = ch == '\x1b';
     }
 }
 

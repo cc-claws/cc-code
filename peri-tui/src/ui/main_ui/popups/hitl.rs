@@ -2,13 +2,16 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::Paragraph,
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
 use peri_widgets::BorderedPanel;
 
-use crate::{app::App, ui::theme};
+use crate::{
+    app::{tool_display::sanitize_display_text, App},
+    ui::theme,
+};
 
 /// HITL 批量确认弹窗（底部展开区）
 pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
@@ -99,6 +102,7 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let para = Paragraph::new(Text::from(lines)).scroll((scroll_offset, 0));
+    f.render_widget(Clear, inner);
     f.render_widget(para, inner);
 }
 
@@ -128,6 +132,7 @@ fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
         other => other.to_string(),
     };
 
+    let s = sanitize_display_text(&s);
     if s.chars().count() > max_len && max_len > 1 {
         format!("{}…", s.chars().take(max_len - 1).collect::<String>())
     } else {

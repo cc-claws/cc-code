@@ -147,6 +147,9 @@ mod tests {
         let ctx = make_ctx("/tmp");
         let result = cmd.execute(ctx).await;
         let content = result.messages[0].content();
-        assert!(content.contains("gh pr list"), "无参数时应指引列出 open PRs");
+        assert!(
+            content.contains("gh pr list"),
+            "无参数时应指引列出 open PRs"
+        );
     }
 }

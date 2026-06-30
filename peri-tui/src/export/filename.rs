@@ -61,10 +61,7 @@ pub fn sanitize_filename(text: &str) -> String {
             }
         })
         .collect();
-    mapped
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join("-")
+    mapped.split_whitespace().collect::<Vec<_>>().join("-")
 }
 
 /// 从文件名推断导出格式。

@@ -1099,6 +1099,7 @@ async fn test_tool_call_widget_renders_completed() {
         is_error: false,
         collapsed: false,
         diff_input: None,
+        started_at: None,
         content_hash: 0,
     };
 
@@ -2213,6 +2214,42 @@ async fn test_background_task_status_bar() {
         snap.contains("2 agents"),
         "Status bar should display 2 agents pill, actual:\n{}",
         snap
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_failed_status_bar_auto_expires() {
+    use peri_middlewares::mcp::McpInitStatus;
+
+    let (mut app, mut handle) = App::new_headless(120, 30).await;
+    let (_tx, rx) = tokio::sync::watch::channel(McpInitStatus::Failed(
+        "sentry-test-error: Send message error Transport".to_string(),
+    ));
+    app.services.mcp_init_rx = Some(rx);
+
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        handle.contains("sentry-test-error"),
+        "MCP failed 初次出现时应显示在 status bar，实际:\n{}",
+        handle.snapshot().join("\n")
+    );
+
+    app.global_ui.mcp_failed_shown.replace(Some((
+        "sentry-test-error: Send message error Transport".to_string(),
+        std::time::Instant::now() - std::time::Duration::from_secs(1),
+    )));
+
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        !handle.contains("sentry-test-error"),
+        "MCP failed 过期后不应继续占用 status bar，实际:\n{}",
+        handle.snapshot().join("\n")
     );
 }
 

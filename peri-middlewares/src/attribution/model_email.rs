@@ -6,10 +6,7 @@
 /// 模型关键词匹配表。（匹配的关键词列表，邮箱地址）
 const MODEL_EMAIL_MAP: &[(&[&str], &str)] = &[
     (&["claude"], "noreply@anthropic.com"),
-    (
-        &["gpt", "dall-e", "o1-", "o3-", "o4-"],
-        "openai@cc-code",
-    ),
+    (&["gpt", "dall-e", "o1-", "o3-", "o4-"], "openai@cc-code"),
     (&["gemini"], "google-gemini@cc-code"),
     (&["grok"], "xai-org@cc-code"),
     (&["glm"], "zai-org@cc-code"),

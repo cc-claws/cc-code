@@ -115,12 +115,8 @@ pub const ENABLE_MOUSE_TRACKING_SEQUENCE: &str = concat!(
     "\x1b[?1006h",
 );
 
-pub const DISABLE_MOUSE_TRACKING_SEQUENCE: &str = concat!(
-    "\x1b[?1006l",
-    "\x1b[?1015l",
-    "\x1b[?1002l",
-    "\x1b[?1000l",
-);
+pub const DISABLE_MOUSE_TRACKING_SEQUENCE: &str =
+    concat!("\x1b[?1006l", "\x1b[?1015l", "\x1b[?1002l", "\x1b[?1000l",);
 
 /// Disable alternate-scroll mode so the wheel is never turned into arrow keys.
 pub const DISABLE_ALTERNATE_SCROLL_SEQUENCE: &str = "\x1b[?1007l";

@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Span,
-    widgets::{Padding, Paragraph},
+    widgets::{Clear, Padding, Paragraph},
     Frame,
 };
 use tui_textarea::{CursorMove, TextArea};
@@ -40,6 +40,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
 /// 渲染单个 session 列（含垂直布局拆分）
 fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
+    f.render_widget(Clear, area);
+
     // 动态输入框高度
     let line_count = app.session_mgr.current_mut().ui.textarea.lines().len() as u16;
     let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
@@ -114,7 +116,10 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             let count = app.session_mgr.current().ui.copy_char_count;
             let text = format!(
                 " {} ",
-                lc.tr_args("statusbar-copied", &[("count".into(), (count as i64).into())])
+                lc.tr_args(
+                    "statusbar-copied",
+                    &[("count".into(), (count as i64).into())]
+                )
             );
             let text_width = unicode_width::UnicodeWidthStr::width(text.as_str());
             let msg_area = chunks[1];
@@ -242,7 +247,12 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 输入框样式：Bar 焦点变暗 / 聚焦只读模式 / 正常模式
-    let bar_focused = app.session_mgr.current_mut().ui.bg_bar_cursor.is_some();
+    let bar_focused = {
+        let session = app.session_mgr.current();
+        let task_bar_focused =
+            session.ui.background_tasks_bar_focused && app.has_running_background_shell_tasks();
+        session.ui.bg_bar_cursor.is_some() || task_bar_focused
+    };
     let focused_id = app.session_mgr.current_mut().focused_instance_id.clone();
 
     let popup_active = app.global_ui.oauth_prompt.is_some()
@@ -412,6 +422,7 @@ fn render_textarea(
     focused: bool,
     cursor_visible: bool,
 ) {
+    f.render_widget(Clear, area);
     let mut display_textarea = textarea.clone();
     if shell_mode == TextareaShellMode::Command {
         hide_shell_prefix_for_display(&mut display_textarea);

@@ -12,8 +12,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use ratatui::Frame;
-use tui_textarea::Input;
 use tokio::sync::mpsc;
+use tui_textarea::Input;
 
 use super::panel_component::PanelComponent;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
@@ -66,14 +66,31 @@ impl BackgroundTasksPanel {
     /// 当前选中/查看的任务 id（List 用 selected_index，Detail 用 item_id）。
     fn current_item_id(&self, ctx: &PanelContext<'_>) -> Option<String> {
         match &self.view {
-            BackgroundTaskView::List => ctx
-                .session_mgr
-                .current()
-                .background_shells
-                .get(self.selected_index)
-                .map(|b| b.id.clone()),
+            BackgroundTaskView::List => {
+                let session = ctx.session_mgr.current();
+                if let Some(bg) = session.background_shells.get(self.selected_index) {
+                    return Some(bg.id.clone());
+                }
+                session
+                    .agent_shells
+                    .iter()
+                    .filter(|slot| slot.is_backgrounded)
+                    .nth(
+                        self.selected_index
+                            .saturating_sub(session.background_shells.len()),
+                    )
+                    .map(|slot| slot.task_id.clone())
+            }
             BackgroundTaskView::Detail { item_id } => Some(item_id.clone()),
         }
+    }
+
+    fn stop_output_reader(&mut self) {
+        if let Some(t) = self.output_task.take() {
+            t.abort();
+        }
+        self.output_rx = None;
+        self.output_cache_id = None;
     }
 }
 
@@ -100,7 +117,16 @@ impl PanelComponent for BackgroundTasksPanel {
 
     fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
         use tui_textarea::Key;
-        let count = ctx.session_mgr.current().background_shells.len();
+        let count = {
+            let session = ctx.session_mgr.current();
+            session.background_shells.len()
+                + session
+                    .agent_shells
+                    .iter()
+                    .filter(|slot| slot.is_backgrounded)
+                    .count()
+                + session.background_agents.len()
+        };
         match input {
             Input { key: Key::Up, .. } if self.view == BackgroundTaskView::List => {
                 if self.selected_index > 0 {
@@ -114,34 +140,32 @@ impl PanelComponent for BackgroundTasksPanel {
                 }
                 EventResult::Consumed
             }
-            Input { key: Key::Enter, .. } if self.view == BackgroundTaskView::List => {
-                let id = ctx
-                    .session_mgr
-                    .current()
-                    .background_shells
-                    .get(self.selected_index)
-                    .map(|b| b.id.clone());
-                if let Some(id) = id {
+            Input {
+                key: Key::Enter, ..
+            } if self.view == BackgroundTaskView::List => {
+                if let Some(id) = self.current_item_id(ctx) {
                     self.view = BackgroundTaskView::Detail { item_id: id };
                 }
                 EventResult::Consumed
             }
-            Input { key: Key::Char('x'), .. } => {
+            Input {
+                key: Key::Char('x'),
+                ..
+            } => {
                 if let Some(id) = self.current_item_id(ctx) {
                     kill_background_shell(ctx, &id);
                 }
                 EventResult::Consumed
             }
-            Input { key: Key::Esc, .. } | Input { key: Key::Left, .. } => {
+            Input { key: Key::Esc, .. } => {
+                self.stop_output_reader();
+                EventResult::ClosePanel
+            }
+            Input { key: Key::Left, .. } => {
                 if self.view == BackgroundTaskView::List {
                     EventResult::ClosePanel
                 } else {
-                    // Detail→List：abort 后台 output task，释放资源
-                    if let Some(t) = self.output_task.take() {
-                        t.abort();
-                    }
-                    self.output_rx = None;
-                    self.output_cache_id = None;
+                    self.stop_output_reader();
                     self.view = BackgroundTaskView::List;
                     EventResult::Consumed
                 }
@@ -164,7 +188,9 @@ impl PanelComponent for BackgroundTasksPanel {
             .border_style(Style::default().fg(theme::BORDER))
             .title(Span::styled(
                 " Background tasks ",
-                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .add_modifier(Modifier::BOLD),
             ));
         let inner = block.inner(area);
         f.render_widget(block, area);
@@ -227,6 +253,17 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                 status: b.status,
                 elapsed: b.elapsed(),
             })
+            .chain(
+                session
+                    .agent_shells
+                    .iter()
+                    .filter(|slot| slot.is_backgrounded)
+                    .map(|slot| ShellRow {
+                        command: slot.command.clone(),
+                        status: agent_shell_status(slot),
+                        elapsed: slot.elapsed(),
+                    }),
+            )
             .collect();
         let agents = session
             .background_agents
@@ -344,10 +381,7 @@ fn render_task_row(
         Span::raw(" "),
         Span::styled(badge_text, status_badge_style(status)),
         Span::raw(" "),
-        Span::styled(
-            format_elapsed(elapsed),
-            Style::default().fg(theme::MUTED),
-        ),
+        Span::styled(format_elapsed(elapsed), Style::default().fg(theme::MUTED)),
     ];
     if selected {
         for s in &mut spans {
@@ -357,6 +391,16 @@ fn render_task_row(
     Line::from(spans)
 }
 
+fn agent_shell_status(slot: &super::AgentShellSlot) -> ShellStatus {
+    if !slot.ended {
+        ShellStatus::Running
+    } else if slot.exit_code == Some(0) || slot.exit_code.is_none() {
+        ShellStatus::Completed
+    } else {
+        ShellStatus::Failed
+    }
+}
+
 fn render_detail(
     f: &mut Frame,
     panel: &mut BackgroundTasksPanel,
@@ -364,13 +408,35 @@ fn render_detail(
     item_id: &str,
     area: Rect,
 ) {
-    let bg_info = app
-        .session_mgr
-        .current()
-        .background_shells
-        .iter()
-        .find(|b| b.id == item_id)
-        .map(|b| (b.status, b.command.clone(), b.elapsed(), b.output_path.clone()));
+    let bg_info = {
+        let session = app.session_mgr.current();
+        session
+            .background_shells
+            .iter()
+            .find(|b| b.id == item_id)
+            .map(|b| {
+                (
+                    b.status,
+                    b.command.clone(),
+                    b.elapsed(),
+                    b.output_path.clone(),
+                )
+            })
+            .or_else(|| {
+                session
+                    .agent_shells
+                    .iter()
+                    .find(|slot| slot.task_id == item_id)
+                    .map(|slot| {
+                        (
+                            agent_shell_status(slot),
+                            slot.command.clone(),
+                            slot.elapsed(),
+                            slot.output_path.clone(),
+                        )
+                    })
+            })
+    };
     let Some((status, command, elapsed, output_path)) = bg_info else {
         // 任务不存在（可能被 cleanup 淘汰）：abort 后台 output task + 切回 List，避免卡在"任务不存在"
         if let Some(t) = panel.output_task.take() {
@@ -379,7 +445,10 @@ fn render_detail(
         panel.output_rx = None;
         panel.output_cache_id = None;
         panel.view = BackgroundTaskView::List;
-        f.render_widget(Paragraph::new("任务不存在").alignment(Alignment::Center), area);
+        f.render_widget(
+            Paragraph::new("任务不存在").alignment(Alignment::Center),
+            area,
+        );
         return;
     };
 
@@ -458,11 +527,17 @@ fn render_detail(
     let all_lines: Vec<&str> = panel.output_cache.lines().collect();
     let start = all_lines.len().saturating_sub(DETAIL_OUTPUT_MAX_LINES);
     let showing_lines = &all_lines[start..];
-    let mut output_lines: Vec<Line> =
-        showing_lines.iter().map(|l| Line::from(l.to_string())).collect();
+    let mut output_lines: Vec<Line> = showing_lines
+        .iter()
+        .map(|l| Line::from(l.to_string()))
+        .collect();
     output_lines.push(Line::from(""));
     output_lines.push(Line::from(Span::styled(
-        format!("Showing {} lines of {:.1} KB", showing_lines.len(), total_kb),
+        format!(
+            "Showing {} lines of {:.1} KB",
+            showing_lines.len(),
+            total_kb
+        ),
         Style::default().fg(theme::MUTED),
     )));
     f.render_widget(Paragraph::new(output_lines), output_inner);
@@ -474,7 +549,9 @@ fn status_badge_style(status: ShellStatus) -> Style {
         ShellStatus::Running => Style::default().fg(theme::CYAN).bg(Color::Rgb(28, 38, 68)),
         ShellStatus::Completed => Style::default().fg(theme::SAGE).bg(Color::Rgb(28, 48, 32)),
         ShellStatus::Failed => Style::default().fg(theme::ERROR).bg(Color::Rgb(58, 30, 38)),
-        ShellStatus::Killed => Style::default().fg(theme::WARNING).bg(Color::Rgb(52, 46, 26)),
+        ShellStatus::Killed => Style::default()
+            .fg(theme::WARNING)
+            .bg(Color::Rgb(52, 46, 26)),
     }
 }
 
@@ -499,12 +576,28 @@ fn kill_background_shell(ctx: &mut PanelContext<'_>, id: &str) {
         }
         bg.result_rx.take();
         bg.mark_ended(ShellStatus::Killed, Some(-1));
+        return;
+    }
+    if let Some(slot) = session
+        .agent_shells
+        .iter_mut()
+        .find(|slot| slot.task_id == id)
+    {
+        slot.kill.abort();
+        if let Some(watchdog) = slot.stall_watchdog.take() {
+            watchdog.abort();
+        }
+        slot.mark_ended(Some(-1));
     }
 }
 
 impl super::App {
-    /// 打开后台任务面板（↓ 键 / pill 入口，对齐效果图"↓ to view"）。
+    /// 打开后台任务面板（status bar 入口 Enter / Ctrl+B 入口）。
     pub fn open_background_tasks_panel(&mut self) {
+        self.session_mgr
+            .current_mut()
+            .ui
+            .background_tasks_bar_focused = false;
         self.open_panel(super::panel_manager::PanelState::BackgroundTasks(
             BackgroundTasksPanel::new(),
         ));
