@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.33 — 2026-06-30
+
+### Bug Fixes
+
+- **控制字符渲染异常修复**（#102）：修复控制字符和 ANSI 转义序列导致 TUI 渲染异常的问题
+- **Clippy 警告修复**：`map_or(true, ...)` 改为 `is_none_or(...)`，适配 Rust 1.95 新增的 `unnecessary_map_or` lint
+
+---
+
 ## v0.6.32 — 2026-06-29
 
 ### Bug Fixes
