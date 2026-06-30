@@ -268,6 +268,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         // 第二次 Ctrl+C（2 秒内）→ 真正退出
         let r2 = handle_key_event(&mut app, ctrl_c).unwrap();
-        assert!(matches!(r2, Some(Action::Quit)), "第二次 Ctrl+C 应返回 Quit");
+        assert!(
+            matches!(r2, Some(Action::Quit)),
+            "第二次 Ctrl+C 应返回 Quit"
+        );
     }
 }

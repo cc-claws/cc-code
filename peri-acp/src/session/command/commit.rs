@@ -201,7 +201,10 @@ mod tests {
         let result = cmd.execute(ctx).await;
         let content = result.messages[0].content();
         assert!(content.contains("Git Safety Protocol"), "应包含安全协议");
-        assert!(content.contains("NEVER use git commit --amend"), "应禁止 amend");
+        assert!(
+            content.contains("NEVER use git commit --amend"),
+            "应禁止 amend"
+        );
     }
 
     #[tokio::test]
@@ -212,7 +215,10 @@ mod tests {
         let content = result.messages[0].content();
         assert!(content.contains("git status"), "应包含 git status 上下文");
         assert!(content.contains("git diff"), "应包含 git diff 上下文");
-        assert!(content.contains("Recent commits"), "应包含 Recent commits 段落");
+        assert!(
+            content.contains("Recent commits"),
+            "应包含 Recent commits 段落"
+        );
         assert!(content.contains("Co-Authored-By"), "应包含归属行");
     }
 
@@ -244,6 +250,9 @@ mod tests {
         let diff = "line1\nline2\nline3\n".repeat(10_000);
         let result = truncate_diff(&diff, 100);
         assert!(result.len() <= 100, "超限时应截断");
-        assert!(result.ends_with('\n') || result.len() < 100, "应在换行符处截断");
+        assert!(
+            result.ends_with('\n') || result.len() < 100,
+            "应在换行符处截断"
+        );
     }
 }

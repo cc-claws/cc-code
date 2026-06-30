@@ -39,6 +39,10 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
                     sp.close();
                     app.session_mgr.current_mut().ui.screen_selection.clear();
                     app.session_mgr.current_mut().ui.text_selection.clear();
+                    app.session_mgr
+                        .current_mut()
+                        .ui
+                        .background_tasks_bar_focused = false;
                     app.session_mgr.current_mut().ui.panel_area = None;
                 }
                 EventResult::OpenThread(thread_id) => {
@@ -84,6 +88,10 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
                     pm.close();
                     app.session_mgr.current_mut().ui.screen_selection.clear();
                     app.session_mgr.current_mut().ui.text_selection.clear();
+                    app.session_mgr
+                        .current_mut()
+                        .ui
+                        .background_tasks_bar_focused = false;
                     app.session_mgr.current_mut().ui.panel_area = None;
                 }
                 EventResult::OpenPanel(PanelKind::Memory) => {

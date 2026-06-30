@@ -9,11 +9,57 @@ pub(super) fn handle_bar_focus(
     app: &mut App,
     key_event: &ratatui::crossterm::event::KeyEvent,
 ) -> Option<Action> {
+    if app.session_mgr.current().ui.background_tasks_bar_focused {
+        if app.global_panels.is_any_open() || app.session_mgr.current().session_panels.is_any_open()
+        {
+            app.session_mgr
+                .current_mut()
+                .ui
+                .background_tasks_bar_focused = false;
+            return None;
+        }
+        if app.has_running_background_shell_tasks() {
+            return Some(handle_background_tasks_bar_key_event(app, *key_event));
+        }
+        app.session_mgr
+            .current_mut()
+            .ui
+            .background_tasks_bar_focused = false;
+    }
+
     let cursor = app.session_mgr.current_mut().ui.bg_bar_cursor;
     if cursor.is_some() {
         return Some(handle_bar_key_event(app, *key_event));
     }
     None
+}
+
+fn handle_background_tasks_bar_key_event(
+    app: &mut App,
+    key_event: ratatui::crossterm::event::KeyEvent,
+) -> Action {
+    if key_event.kind == KeyEventKind::Release {
+        return Action::Redraw;
+    }
+
+    match key_event.code {
+        KeyCode::Esc => {
+            app.session_mgr
+                .current_mut()
+                .ui
+                .background_tasks_bar_focused = false;
+            Action::Redraw
+        }
+        KeyCode::Enter => {
+            app.session_mgr
+                .current_mut()
+                .ui
+                .background_tasks_bar_focused = false;
+            app.open_background_tasks_panel();
+            Action::Redraw
+        }
+        _ => Action::Redraw,
+    }
 }
 
 /// 聚焦只读模式拦截：focused_instance_id 有值时，仅 Esc 退出

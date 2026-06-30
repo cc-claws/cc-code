@@ -454,9 +454,9 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // 事件到 STD_INPUT，让 crossterm event::read 能读到；return 1 阻止默认终止。
         unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
             use windows_sys::Win32::System::Console::{
-                CTRL_BREAK_EVENT, CTRL_C_EVENT, GetStdHandle, WriteConsoleInputW, INPUT_RECORD,
-                INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD, KEY_EVENT_RECORD_0,
-                LEFT_CTRL_PRESSED, STD_INPUT_HANDLE,
+                GetStdHandle, WriteConsoleInputW, CTRL_BREAK_EVENT, CTRL_C_EVENT, INPUT_RECORD,
+                INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD, KEY_EVENT_RECORD_0, LEFT_CTRL_PRESSED,
+                STD_INPUT_HANDLE,
             };
 
             if ctrl_type != CTRL_C_EVENT && ctrl_type != CTRL_BREAK_EVENT {
@@ -484,12 +484,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
                 let handle = GetStdHandle(STD_INPUT_HANDLE);
                 let records = [make_ctrl_c(1), make_ctrl_c(0)];
                 let mut written: u32 = 0;
-                WriteConsoleInputW(
-                    handle,
-                    records.as_ptr(),
-                    records.len() as u32,
-                    &mut written,
-                );
+                WriteConsoleInputW(handle, records.as_ptr(), records.len() as u32, &mut written);
             }
             1
         }
@@ -796,13 +791,12 @@ async fn run_app(
             // receiver 存到 App 主循环（poll_agent_shell_registrations 消费）。
             let (agent_shell_reg_tx, agent_shell_reg_rx) =
                 tokio::sync::mpsc::unbounded_channel::<AgentShellRegistration>();
-            let shell_executor: Arc<dyn peri_agent::shell::ShellExecutor> = Arc::new(
-                AgentShellExecutor::new(
+            let shell_executor: Arc<dyn peri_agent::shell::ShellExecutor> =
+                Arc::new(AgentShellExecutor::new(
                     agent_shell_reg_tx,
                     app.services.cwd.clone(),
                     app.session_mgr.current().metadata.session_id.to_string(),
-                ),
-            );
+                ));
             app.agent_shell_registrations_rx = Some(agent_shell_reg_rx);
 
             let server_config = AcpServerConfig {
@@ -1146,9 +1140,8 @@ fn apply_screen_selection_highlight(
         let col_start = if row == sr { sc.max(area.x) } else { area.x };
         let col_end = if row == er { ec.min(max_col) } else { max_col };
         for col in col_start..=col_end {
-            buffer[(col, row)].set_style(
-                ratatui::style::Style::default().bg(peri_tui::ui::theme::SELECTION_BG),
-            );
+            buffer[(col, row)]
+                .set_style(ratatui::style::Style::default().bg(peri_tui::ui::theme::SELECTION_BG));
         }
     }
 }

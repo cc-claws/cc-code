@@ -93,9 +93,7 @@ impl<S: State> Middleware<S> for AtMentionMiddleware {
         // 按文件/目录分组：文件走 Read ToolUse（语义"读取文件内容"），
         // 目录改为 System 消息注入——Read 工具的语义是"读文件"，目录列表
         // 用 ToolUse 包装会让 LLM 误以为是文件内容（issue #28）。
-        let (files, dirs): (Vec<_>, Vec<_>) = valid
-            .into_iter()
-            .partition(|(_, fc)| !fc.is_dir);
+        let (files, dirs): (Vec<_>, Vec<_>) = valid.into_iter().partition(|(_, fc)| !fc.is_dir);
 
         if files.is_empty() && dirs.is_empty() {
             return Ok(());

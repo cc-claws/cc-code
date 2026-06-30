@@ -142,9 +142,9 @@ pub fn render_block(
             label,
         } => {
             let _ = width;
-            let header = label.clone().unwrap_or_else(|| {
-                format!("💭 思考 ({} chars)", char_count)
-            });
+            let header = label
+                .clone()
+                .unwrap_or_else(|| format!("💭 思考 ({} chars)", char_count));
             let mut lines: Vec<Line<'_>> = vec![Line::from(header)];
             if *expanded {
                 lines.push(Line::raw("(thinking content)"));

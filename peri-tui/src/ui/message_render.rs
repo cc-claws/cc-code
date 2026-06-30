@@ -7,6 +7,9 @@ use super::{
     message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory},
     theme,
 };
+use crate::app::tool_display::sanitize_display_text;
+
+pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(Ctrl+B to run in background)";
 
 /// 从 Bash 工具输出中解析 exit code。
 ///
@@ -169,14 +172,18 @@ fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
             let prefix = if i == 0 { "  ⎿ " } else { "    " };
             Line::from(vec![
                 Span::styled(prefix, Style::default().fg(theme::DIM)),
-                Span::styled(line.to_string(), Style::default().fg(theme::ERROR)),
+                Span::styled(
+                    sanitize_display_text(line),
+                    Style::default().fg(theme::ERROR),
+                ),
             ])
         })
         .collect()
 }
 
 fn tool_args_header(tool_name: &str, args: &str) -> String {
-    let summary = peri_widgets::tool_call::display::format_args_summary(args, 400);
+    let sanitized_args = sanitize_display_text(args);
+    let summary = peri_widgets::tool_call::display::format_args_summary(&sanitized_args, 400);
     if tool_name == "Glob" {
         format!("pattern: \"{}\"", summary)
     } else {
@@ -190,7 +197,7 @@ fn read_summary(content: &str) -> Option<String> {
     }
     if let Some(first_line) = content.lines().next() {
         if first_line.starts_with("Read ") && first_line.ends_with(" lines") {
-            return Some(first_line.to_string());
+            return Some(sanitize_display_text(first_line));
         }
     }
     Some(format!("Read {} lines", content.lines().count()))
@@ -409,20 +416,46 @@ fn ansi_spans(line: &str, default_style: Style) -> Vec<Span<'static>> {
     let mut i = 0;
     while i < line.len() {
         if line[i..].starts_with("\x1b[") {
-            if let Some(end) = line[i + 2..].find('m') {
-                if !buf.is_empty() {
-                    spans.push(Span::styled(std::mem::take(&mut buf), style));
+            let seq_start = i + 2;
+            let mut seq_end = None;
+            let mut final_char = None;
+            for (offset, ch) in line[seq_start..].char_indices() {
+                if matches!(ch, '\u{0040}'..='\u{007e}') {
+                    seq_end = Some(seq_start + offset);
+                    final_char = Some(ch);
+                    break;
                 }
-                let codes = &line[i + 2..i + 2 + end];
-                apply_sgr_codes(&mut style, default_style, codes);
+            }
+            if let (Some(end), Some(final_ch)) = (seq_end, final_char) {
+                if final_ch == 'm' {
+                    if !buf.is_empty() {
+                        spans.push(Span::styled(std::mem::take(&mut buf), style));
+                    }
+                    let codes = &line[seq_start..end];
+                    apply_sgr_codes(&mut style, default_style, codes);
+                }
+                i = end + final_ch.len_utf8();
+                continue;
+            }
+        }
+        if line[i..].starts_with("\x1b]") {
+            let rest = &line[i + 2..];
+            if let Some(end) = rest.find('\u{0007}') {
                 i += end + 3;
                 continue;
             }
+            if let Some(end) = rest.find("\x1b\\") {
+                i += end + 4;
+                continue;
+            }
+            break;
         }
         let Some(ch) = line[i..].chars().next() else {
             break;
         };
-        if ch != '\r' {
+        if ch == '\t' {
+            buf.push(' ');
+        } else if !ch.is_control() {
             buf.push(ch);
         }
         i += ch.len_utf8();
@@ -461,6 +494,7 @@ fn render_shell_command(
     moved_to_background: bool,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
+    let command = sanitize_display_text(command);
     // moved 时用 MUTED 淡色（对齐效果图场景 5 opacity 0.4，提示"已转后台"）；否则按 exit_code 语义着色
     let status_style = if moved_to_background {
         Style::default().fg(theme::MUTED)
@@ -487,7 +521,7 @@ fn render_shell_command(
             Some(code) => format!(" exit {}", code),
         }
     };
-    let cwd_label: String = cwd.chars().take(80).collect();
+    let cwd_label: String = sanitize_display_text(cwd).chars().take(80).collect();
     lines.push(Line::from(vec![
         Span::styled(
             indicator_ch.to_string(),
@@ -507,7 +541,7 @@ fn render_shell_command(
 
     let mut output_lines: Vec<(String, bool)> = Vec::new();
     for input in stdin {
-        output_lines.push((format!("< {}", input), false));
+        output_lines.push((format!("< {}", sanitize_display_text(input)), false));
     }
     for line in stdout.lines() {
         output_lines.push((line.to_string(), false));
@@ -570,7 +604,7 @@ fn render_shell_command(
     {
         lines.push(shell_output_line(
             "  │ ",
-            "(Ctrl+B to run in background)",
+            CONTROL_B_BACKGROUND_HINT,
             Style::default().fg(theme::MUTED),
         ));
     }
@@ -716,7 +750,8 @@ pub fn render_view_model(
                         if let Some(content_text) = content {
                             // 减去前缀宽度（"  ⎿ " 或 "    " = 4 字符）
                             let content_width = width.saturating_sub(4).max(20);
-                            let parsed = super::markdown::parse_markdown(content_text, content_width);
+                            let parsed =
+                                super::markdown::parse_markdown(content_text, content_width);
                             let dimmed = dim_markdown_lines(parsed);
                             for (i, line) in dimmed.into_iter().enumerate() {
                                 // 折行：长段落按 content_width 切成多行，每行加 4 列前缀
@@ -725,14 +760,9 @@ pub fn render_view_model(
                                 for (j, wline) in
                                     wrap_line_spans(line, content_width).into_iter().enumerate()
                                 {
-                                    let prefix = if i == 0 && j == 0 {
-                                        "  ⎿ "
-                                    } else {
-                                        "    "
-                                    };
-                                    let mut spans = vec![
-                                        Span::styled(prefix, Style::default().fg(theme::DIM)),
-                                    ];
+                                    let prefix = if i == 0 && j == 0 { "  ⎿ " } else { "    " };
+                                    let mut spans =
+                                        vec![Span::styled(prefix, Style::default().fg(theme::DIM))];
                                     spans.extend(wline.spans);
                                     lines.push(Line::from(spans));
                                 }
@@ -760,6 +790,7 @@ pub fn render_view_model(
             is_error,
             tool_name,
             diff_input,
+            started_at,
             ..
         } => {
             // AskUserQuestion 专用渲染路径
@@ -870,7 +901,10 @@ pub fn render_view_model(
                     };
                     lines.push(Line::from(vec![
                         Span::styled(prefix, Style::default().fg(border_color)),
-                        Span::styled((*line).to_string(), Style::default().fg(result_color)),
+                        Span::styled(
+                            sanitize_display_text(line),
+                            Style::default().fg(result_color),
+                        ),
                     ]));
                 }
             } else if *is_error && !content.is_empty() {
@@ -884,6 +918,15 @@ pub fn render_view_model(
                         Span::styled(summary, Style::default().fg(theme::MUTED)),
                     ]));
                 }
+            }
+            if tool_name == "Bash"
+                && is_running
+                && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
+            {
+                lines.push(Line::from(vec![
+                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                    Span::styled(CONTROL_B_BACKGROUND_HINT, Style::default().fg(theme::MUTED)),
+                ]));
             }
             if detail_mode {
                 if let Some(ref diff_input) = diff_input {
@@ -1103,12 +1146,12 @@ pub fn render_view_model(
             for line in content.lines() {
                 if line.starts_with('✻') {
                     lines.push(Line::from(Span::styled(
-                        line.to_string(),
+                        sanitize_display_text(line),
                         Style::default().fg(theme::DIM),
                     )));
                 } else if line.starts_with('⎿') {
                     lines.push(Line::from(Span::styled(
-                        line.to_string(),
+                        sanitize_display_text(line),
                         Style::default().fg(theme::MUTED),
                     )));
                 } else {
@@ -1124,7 +1167,7 @@ pub fn render_view_model(
                     };
                     lines.push(Line::from(vec![
                         Span::styled("· ", Style::default().fg(theme::DIM)),
-                        Span::styled(line.to_string(), Style::default().fg(text_color)),
+                        Span::styled(sanitize_display_text(line), Style::default().fg(text_color)),
                     ]));
                 }
             }
@@ -1246,7 +1289,10 @@ pub fn render_view_model(
                         for line in entry.content.lines() {
                             lines.push(Line::from(vec![
                                 Span::styled("    ", Style::default().fg(theme::DIM)),
-                                Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
+                                Span::styled(
+                                    sanitize_display_text(line),
+                                    Style::default().fg(theme::MUTED),
+                                ),
                             ]));
                         }
                     } else if !entry.content.is_empty() {
@@ -1254,7 +1300,10 @@ pub fn render_view_model(
                             let prefix = if i == 0 { "  ⎿ " } else { "    " };
                             lines.push(Line::from(vec![
                                 Span::styled(prefix, Style::default().fg(theme::DIM)),
-                                Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
+                                Span::styled(
+                                    sanitize_display_text(line),
+                                    Style::default().fg(theme::MUTED),
+                                ),
                             ]));
                         }
                     }
