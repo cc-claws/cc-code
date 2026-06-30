@@ -487,7 +487,7 @@ impl RenderTask {
                 return false;
             }
 
-            self.message_lines.get(idx).map_or(true, |lines| {
+            self.message_lines.get(idx).is_none_or(|lines| {
                 !lines.iter().any(|line| {
                     line.spans
                         .iter()
