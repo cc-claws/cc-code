@@ -57,7 +57,8 @@ impl LspTransport {
         // 对参数无效等场景，进程退出极快，try_wait 通常能立即捕获
         if let Some(status) = child.try_wait().ok().flatten() {
             let code = status.code().unwrap_or(-1);
-            let reason = format!("Process exited immediately (exit code: {code}), check command and args");
+            let reason =
+                format!("Process exited immediately (exit code: {code}), check command and args");
             return Err(LspError::LaunchFailed {
                 server: command.to_string(),
                 reason,

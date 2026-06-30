@@ -1,5 +1,5 @@
-use super::*;
 use super::command_palette_panel::CommandPalettePanel;
+use super::*;
 
 impl App {
     /// 打开 CommandPalette 面板

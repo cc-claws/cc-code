@@ -266,10 +266,7 @@ mod tests {
             prompt.contains("优化现有"),
             "存在 CLAUDE.md 时应使用优化 prompt"
         );
-        assert!(
-            prompt.contains("增量改进"),
-            "优化 prompt 应提及增量改进"
-        );
+        assert!(prompt.contains("增量改进"), "优化 prompt 应提及增量改进");
     }
 
     // ── execute 测试 ──────────────────────────────────────────────────────
@@ -303,10 +300,7 @@ mod tests {
 
         // Assert: 内容包含关键段落
         let content = result.messages[0].content();
-        assert!(
-            content.contains("Phase 1"),
-            "新项目 prompt 应包含 Phase 1"
-        );
+        assert!(content.contains("Phase 1"), "新项目 prompt 应包含 Phase 1");
         assert!(
             content.contains("代码库探索"),
             "新项目 prompt 应包含代码库探索"

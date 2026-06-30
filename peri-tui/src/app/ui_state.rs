@@ -62,6 +62,8 @@ pub struct UiState {
     pub at_mention: AtMentionState,
     /// 后台 Agent Bar 光标位置
     pub bg_bar_cursor: Option<usize>,
+    /// 后台任务 status bar 入口是否聚焦（Down 进入，Enter 打开面板）
+    pub background_tasks_bar_focused: bool,
     /// 后台 Agent Bar 渲染区域（用于鼠标点击检测）
     pub bg_bar_area: Option<ratatui::layout::Rect>,
     /// Write/Edit 工具结果内联 diff 是否可见
@@ -118,6 +120,7 @@ impl UiState {
             panel_scrollbar_dragging: false,
             at_mention: AtMentionState::new(),
             bg_bar_cursor: None,
+            background_tasks_bar_focused: false,
             bg_bar_area: None,
             diff_visible: diff_enabled,
             detail_mode: detail_enabled,

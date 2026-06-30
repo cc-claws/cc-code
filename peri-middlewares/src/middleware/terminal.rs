@@ -75,7 +75,7 @@ fn split_shell_segments(command: &str) -> Vec<(String, Option<String>)> {
         // 检测连接符（需要前后有空格，避免误拆 "foo&&bar"）
         if c == '&' && chars.peek() == Some(&'&') {
             chars.next(); // 消费第二个 &
-            // 检查前后是否合理（简单判断：当前段非空）
+                          // 检查前后是否合理（简单判断：当前段非空）
             if !current.trim().is_empty() {
                 let sep = "&&".to_string();
                 segments.push((current.clone(), Some(sep)));
@@ -171,7 +171,10 @@ fn rewrite_single_git_commit(trimmed: &str) -> Option<(String, (String, String))
         new_cmd.push_str(arg);
     }
 
-    Some((new_cmd, (temp_path.to_string_lossy().to_string(), combined_msg)))
+    Some((
+        new_cmd,
+        (temp_path.to_string_lossy().to_string(), combined_msg),
+    ))
 }
 
 /// 从命令字符串中提取引号包裹的 message 内容。
@@ -425,9 +428,8 @@ impl BaseTool for BashTool {
                     if crate::process::should_fallback_to_bash(exit_code, &stdout, &stderr) {
                         if let Some(bash) = crate::process::git_bash_path() {
                             let cmd_elapsed_ms = cmd_start.elapsed().as_millis() as u64;
-                            let remaining_ms = timeout_ms
-                                .saturating_sub(cmd_elapsed_ms)
-                                .max(10_000);
+                            let remaining_ms =
+                                timeout_ms.saturating_sub(cmd_elapsed_ms).max(10_000);
                             return self
                                 .invoke_with_git_bash(&bash, &original_command, remaining_ms)
                                 .await;

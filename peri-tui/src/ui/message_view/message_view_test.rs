@@ -506,6 +506,33 @@ fn test_human_background_shell_notification_renders_as_system_note() {
 }
 
 #[test]
+fn test_message_view_constructors_convert_background_shell_xml_to_system_note() {
+    let text = "<background-task-completed><task-id>abc</task-id><command>git fetch</command><status>completed (exit 0)</status><output>/tmp/abc.output</output></background-task-completed>";
+    let cases = [
+        MessageViewModel::user(text.to_string()),
+        MessageViewModel::system(format!("<system-reminder>{}</system-reminder>", text)),
+    ];
+    for vm in cases {
+        match vm {
+            MessageViewModel::SystemNote { content, .. } => {
+                assert!(
+                    content.contains("后台 shell 已完成"),
+                    "应显示可读系统提示: {}",
+                    content
+                );
+                assert!(content.contains("git fetch"), "应保留命令摘要: {}", content);
+                assert!(
+                    !content.contains("<background-task-completed>"),
+                    "不应泄露 XML 标签: {}",
+                    content
+                );
+            }
+            _ => panic!("后台 shell XML 构造时应转换为 SystemNote"),
+        }
+    }
+}
+
+#[test]
 fn test_human_message_without_system_reminder() {
     let text = "普通用户消息";
     let msg = BaseMessage::human(text);

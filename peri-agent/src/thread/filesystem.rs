@@ -145,8 +145,8 @@ impl ThreadStore for FilesystemThreadStore {
             if line.is_empty() {
                 continue;
             }
-            let msg: BaseMessage =
-                serde_json::from_str(line).with_context(|| format!("Failed to deserialize message: {line}"))?;
+            let msg: BaseMessage = serde_json::from_str(line)
+                .with_context(|| format!("Failed to deserialize message: {line}"))?;
             msgs.push(msg);
         }
         Ok(msgs)

@@ -1,6 +1,6 @@
 use crate::process::{
-    git_bash_command, git_bash_path, is_unrecognized_command_error, should_fallback_to_bash,
-    shell_command,
+    git_bash_command, git_bash_path, is_unrecognized_command_error, shell_command,
+    should_fallback_to_bash,
 };
 use std::path::Path;
 
@@ -184,9 +184,7 @@ fn test_is_unrecognized_command_error_chinese() {
 #[test]
 fn test_is_unrecognized_command_error_french() {
     assert!(
-        is_unrecognized_command_error(
-            "'grep' n'est pas reconnu en tant que commande interne"
-        ),
+        is_unrecognized_command_error("'grep' n'est pas reconnu en tant que commande interne"),
         "应命中法语 Windows stderr"
     );
 }
@@ -194,9 +192,7 @@ fn test_is_unrecognized_command_error_french() {
 #[test]
 fn test_is_unrecognized_command_error_german() {
     assert!(
-        is_unrecognized_command_error(
-            "'grep' nicht als Befehl erkannt"
-        ),
+        is_unrecognized_command_error("'grep' nicht als Befehl erkannt"),
         "应命中德语 Windows stderr"
     );
 }

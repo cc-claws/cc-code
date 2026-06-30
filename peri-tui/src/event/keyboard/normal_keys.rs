@@ -47,8 +47,16 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
 
         // Ctrl+Up / Ctrl+Down：textarea 光标移动 / 命令历史（原 textarea Up/Down 功能）。
         // 纯 Up/Down 让给消息区滚动（含滚轮经 ConPTY 变成的方向键），避免与 textarea 冲突。
-        Input { key: Key::Up, ctrl: true, .. } => handle_ctrl_up(app),
-        Input { key: Key::Down, ctrl: true, .. } => handle_ctrl_down(app),
+        Input {
+            key: Key::Up,
+            ctrl: true,
+            ..
+        } => handle_ctrl_up(app),
+        Input {
+            key: Key::Down,
+            ctrl: true,
+            ..
+        } => handle_ctrl_down(app),
 
         // Up：@ 提及导航 > hint 导航 > 滚动消息区
         Input { key: Key::Up, .. } => {
@@ -57,10 +65,13 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // Down：有后台 shell 任务时打开 BackgroundTasksPanel，否则 @ 提及导航 > hint 导航 > 滚动消息区
+        // Down：有运行中的后台 shell 时聚焦 status bar 入口，否则 @ 提及导航 > hint 导航 > 滚动消息区
         Input { key: Key::Down, .. } => {
-            if !app.session_mgr.current().background_shells.is_empty() {
-                app.open_background_tasks_panel();
+            if app.has_running_background_shell_tasks() {
+                app.session_mgr
+                    .current_mut()
+                    .ui
+                    .background_tasks_bar_focused = true;
                 return Ok(Some(Action::Redraw));
             }
             if let Some(action) = handle_down(app) {
@@ -668,12 +679,48 @@ fn handle_tab(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::build_textarea;
+    use crate::app::{
+        build_textarea, AgentShellRegistration, AgentShellSlot, BackgroundShell, ShellStatus,
+    };
     use crate::event::Action;
+    use crate::shell_exec::CommandOutput;
+    use peri_agent::shell::{ExitSignal, ShellAbortHandle};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokio::sync::oneshot;
 
     async fn make_app() -> App {
         let (app, _) = App::new_headless(80, 24).await;
         app
+    }
+
+    fn make_background_shell(status: ShellStatus) -> BackgroundShell {
+        let (_tx, rx) = oneshot::channel::<anyhow::Result<CommandOutput>>();
+        let mut shell = BackgroundShell::new(
+            "bg-test".to_string(),
+            "python wuhan_weather.py".to_string(),
+            PathBuf::from("."),
+            PathBuf::from("target/peri-test-bg.output"),
+            rx,
+            ShellAbortHandle::noop(),
+            std::time::Instant::now(),
+        );
+        shell.status = status;
+        shell
+    }
+
+    fn make_backgrounded_agent_shell() -> AgentShellSlot {
+        AgentShellSlot::from_registration(AgentShellRegistration {
+            task_id: "agent-bg-test".to_string(),
+            command: "python wuhan_weather.py".to_string(),
+            cwd: ".".to_string(),
+            output_path: PathBuf::from("target/peri-test-agent-bg.output"),
+            exit_signal: Arc::new(ExitSignal::new()),
+            background_tx: None,
+            kill: ShellAbortHandle::noop(),
+            started_instant: std::time::Instant::now(),
+            direct_background: true,
+        })
     }
 
     #[tokio::test]
@@ -807,6 +854,260 @@ mod tests {
         assert!(
             matches!(result, Some(Action::RunShellCommand(cmd)) if cmd == "cargo build"),
             "shell 命令应去掉 ! 前缀和首尾空格"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_down_completed_background_shell_does_not_focus_task_bar() {
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .background_shells
+            .push(make_background_shell(ShellStatus::Completed));
+
+        let result = handle_normal_keys(
+            &mut app,
+            Input {
+                key: Key::Down,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            matches!(result, Some(Action::Redraw)),
+            "完成的后台 shell 不应拦截 Down，应继续走普通滚动"
+        );
+        assert!(
+            !app.session_mgr.current().ui.background_tasks_bar_focused,
+            "完成的后台 shell 不应让后台任务入口聚焦"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_down_running_background_shell_focuses_task_bar() {
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .background_shells
+            .push(make_background_shell(ShellStatus::Running));
+
+        let result = handle_normal_keys(
+            &mut app,
+            Input {
+                key: Key::Down,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(result, Some(Action::Redraw)));
+        assert!(
+            app.session_mgr.current().ui.background_tasks_bar_focused,
+            "运行中的后台 shell 应让 Down 聚焦 status bar 入口"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_down_backgrounded_agent_shell_focuses_task_bar() {
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .agent_shells
+            .push(make_backgrounded_agent_shell());
+
+        let result = handle_normal_keys(
+            &mut app,
+            Input {
+                key: Key::Down,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(result, Some(Action::Redraw)));
+        assert!(
+            app.session_mgr.current().ui.background_tasks_bar_focused,
+            "后台化的 agent Bash 也应让 Down 聚焦 status bar 入口"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_enter_focused_background_task_bar_opens_panel() {
+        use crate::app::panel_manager::PanelKind;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .background_shells
+            .push(make_background_shell(ShellStatus::Running));
+        app.session_mgr
+            .current_mut()
+            .ui
+            .background_tasks_bar_focused = true;
+
+        let result = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        )
+        .unwrap();
+
+        assert!(matches!(result, Some(Action::Redraw)));
+        assert!(
+            app.global_panels.is_active(PanelKind::BackgroundTasks),
+            "后台任务入口聚焦后 Enter 应打开 BackgroundTasksPanel"
+        );
+        assert!(
+            !app.session_mgr.current().ui.background_tasks_bar_focused,
+            "打开面板后应退出 status bar 入口聚焦"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_b_backgrounded_agent_shell_opens_panel() {
+        use crate::app::panel_manager::PanelKind;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .agent_shells
+            .push(make_backgrounded_agent_shell());
+
+        let result = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+
+        assert!(matches!(result, Some(Action::Redraw)));
+        assert!(
+            app.global_panels.is_active(PanelKind::BackgroundTasks),
+            "后台化的 agent Bash 存在时 Ctrl+B 应打开 BackgroundTasksPanel"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_esc_closes_background_tasks_panel_from_detail() {
+        use crate::app::panel_manager::PanelKind;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .background_shells
+            .push(make_background_shell(ShellStatus::Running));
+        app.open_background_tasks_panel();
+
+        let enter = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        )
+        .unwrap();
+        assert!(matches!(enter, Some(Action::Redraw)));
+        assert!(app.global_panels.is_active(PanelKind::BackgroundTasks));
+        app.session_mgr
+            .current_mut()
+            .ui
+            .background_tasks_bar_focused = true;
+
+        let esc = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        )
+        .unwrap();
+
+        assert!(matches!(esc, Some(Action::Redraw)));
+        assert!(
+            !app.global_panels.is_any_open(),
+            "BackgroundTasksPanel 详情页按 Esc 应真实关闭面板并释放输入区域"
+        );
+        assert!(
+            !app.session_mgr.current().ui.background_tasks_bar_focused,
+            "BackgroundTasksPanel 关闭后不应保留 status bar 入口聚焦态"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_left_returns_background_tasks_panel_to_list_from_detail() {
+        use crate::app::panel_manager::PanelKind;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .background_shells
+            .push(make_background_shell(ShellStatus::Running));
+        app.open_background_tasks_panel();
+
+        let enter = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        )
+        .unwrap();
+        assert!(matches!(enter, Some(Action::Redraw)));
+        assert!(app.global_panels.is_active(PanelKind::BackgroundTasks));
+        app.session_mgr
+            .current_mut()
+            .ui
+            .background_tasks_bar_focused = true;
+
+        let left = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        )
+        .unwrap();
+
+        assert!(matches!(left, Some(Action::Redraw)));
+        assert!(
+            app.global_panels.is_active(PanelKind::BackgroundTasks),
+            "BackgroundTasksPanel 详情页按 ← 应返回列表，不应真实关闭面板"
+        );
+        let hints = app.global_panels.status_bar_hints(&app.services.lc);
+        assert!(
+            hints.contains(&("Enter".to_string(), "详情".to_string())),
+            "BackgroundTasksPanel 详情页按 ← 应回到列表视图"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_left_closes_background_tasks_panel_from_list() {
+        use crate::app::panel_manager::PanelKind;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .background_shells
+            .push(make_background_shell(ShellStatus::Running));
+        app.open_background_tasks_panel();
+        assert!(app.global_panels.is_active(PanelKind::BackgroundTasks));
+        app.session_mgr
+            .current_mut()
+            .ui
+            .background_tasks_bar_focused = true;
+
+        let left = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        )
+        .unwrap();
+
+        assert!(matches!(left, Some(Action::Redraw)));
+        assert!(
+            !app.global_panels.is_any_open(),
+            "BackgroundTasksPanel 列表页按 ← 没有上一步，应真实关闭面板"
+        );
+        assert!(
+            !app.session_mgr.current().ui.background_tasks_bar_focused,
+            "BackgroundTasksPanel 关闭后不应保留 status bar 入口聚焦态"
         );
     }
 }

@@ -581,8 +581,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
                 next
             }
             HookAction::PreventContinuation { stop_reason } => {
-                let reason = stop_reason
-                    .unwrap_or_else(|| "Stop hook prevented continuation".to_string());
+                let reason =
+                    stop_reason.unwrap_or_else(|| "Stop hook prevented continuation".to_string());
                 tracing::info!(reason = %reason, "Stop hook prevented continuation");
                 let mut next = output.clone();
                 next.stop_reason = Some(reason);
