@@ -696,7 +696,10 @@ async fn test_on_error_stop_failure_fires_for_llm_error() {
 
     let error = AgentError::LlmError("connection refused".to_string());
     let _ = mw
-        .on_error(&mut peri_agent::agent::state::AgentState::new("/test"), &error)
+        .on_error(
+            &mut peri_agent::agent::state::AgentState::new("/test"),
+            &error,
+        )
         .await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -728,7 +731,10 @@ async fn test_on_error_stop_failure_fires_for_llm_http_error() {
         message: "Internal Server Error".to_string(),
     };
     let _ = mw
-        .on_error(&mut peri_agent::agent::state::AgentState::new("/test"), &error)
+        .on_error(
+            &mut peri_agent::agent::state::AgentState::new("/test"),
+            &error,
+        )
         .await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -757,7 +763,10 @@ async fn test_on_error_stop_failure_skipped_for_interrupted() {
 
     let error = AgentError::Interrupted;
     let _ = mw
-        .on_error(&mut peri_agent::agent::state::AgentState::new("/test"), &error)
+        .on_error(
+            &mut peri_agent::agent::state::AgentState::new("/test"),
+            &error,
+        )
         .await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -785,7 +794,10 @@ async fn test_on_error_stop_failure_skipped_for_max_iterations() {
 
     let error = AgentError::MaxIterationsExceeded(500);
     let _ = mw
-        .on_error(&mut peri_agent::agent::state::AgentState::new("/test"), &error)
+        .on_error(
+            &mut peri_agent::agent::state::AgentState::new("/test"),
+            &error,
+        )
         .await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -816,7 +828,10 @@ async fn test_on_error_stop_failure_skipped_for_tool_rejected() {
         reason: "user denied".to_string(),
     };
     let _ = mw
-        .on_error(&mut peri_agent::agent::state::AgentState::new("/test"), &error)
+        .on_error(
+            &mut peri_agent::agent::state::AgentState::new("/test"),
+            &error,
+        )
         .await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;

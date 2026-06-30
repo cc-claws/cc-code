@@ -1,6 +1,8 @@
 use ratatui::crossterm::event::KeyCode;
 
-use super::{SHORTCUT_BG_BAR, SHORTCUT_COMMAND_PALETTE, SHORTCUT_CTRL_CYCLE_MODE, SHORTCUT_CYCLE_MODE};
+use super::{
+    SHORTCUT_BG_BAR, SHORTCUT_COMMAND_PALETTE, SHORTCUT_CTRL_CYCLE_MODE, SHORTCUT_CYCLE_MODE,
+};
 use crate::app::panel_manager::PanelKind;
 use crate::app::{App, MessageViewModel};
 
@@ -41,7 +43,7 @@ pub(super) fn handle_shortcuts(
             app.background_foreground();
         } else if app.background_agent_foreground() {
             // agent Bash 命令被后台化（background_agent_foreground 内部处理）
-        } else if !app.session_mgr.current().background_shells.is_empty() {
+        } else if app.has_running_background_shell_tasks() {
             app.open_background_tasks_panel();
         } else if !app.session_mgr.current().background_agents.is_empty() {
             app.session_mgr.current_mut().ui.bg_bar_cursor = Some(0);
@@ -80,9 +82,7 @@ pub(super) fn handle_shortcuts(
             let candidates: Vec<&'static str> = match active_provider {
                 Some(p) => ["opus", "sonnet", "haiku"]
                     .iter()
-                    .filter_map(|&a| {
-                        p.models.get_model(a).filter(|m| !m.is_empty()).map(|_| a)
-                    })
+                    .filter_map(|&a| p.models.get_model(a).filter(|m| !m.is_empty()).map(|_| a))
                     .collect(),
                 None => vec!["opus", "sonnet", "haiku"],
             };

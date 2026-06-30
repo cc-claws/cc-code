@@ -14,10 +14,7 @@ use super::MessagePipeline;
 
 /// 从工具名和入参构造 DiffInput（仅 Write/Edit 工具）。
 /// 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。
-fn try_build_diff_input(
-    name: &str,
-    input: &serde_json::Value,
-) -> Option<peri_widgets::DiffInput> {
+fn try_build_diff_input(name: &str, input: &serde_json::Value) -> Option<peri_widgets::DiffInput> {
     match name {
         "Edit" => {
             let old_string = input
@@ -251,6 +248,7 @@ impl MessagePipeline {
                     tool_color(&ct.name)
                 },
                 diff_input,
+                started_at: None,
                 content_hash: 0,
             };
             vm.recompute_hash();

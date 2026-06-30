@@ -2,9 +2,9 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result};
 use peri_agent::encoding::decode_output_bytes;
+use peri_agent::shell::ShellAbortHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::AbortHandle;
 
 /// 流式执行累积 stdout/stderr 的最大字节数（超出截断，防止大输出命令 OOM）。
 /// 完整输出仍写入磁盘（DiskOutput），acc 截断仅影响 result CommandOutput（用于 shell history）。
@@ -67,8 +67,14 @@ pub async fn execute_shell_command_with_stdin(
         }
     }
 
-    let mut stdout = child.stdout.take().context("Failed to capture shell stdout")?;
-    let mut stderr = child.stderr.take().context("Failed to capture shell stderr")?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .context("Failed to capture shell stdout")?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .context("Failed to capture shell stderr")?;
 
     let stdout_task = tokio::spawn(async move {
         let mut buf = Vec::new();
@@ -98,8 +104,8 @@ pub async fn execute_shell_command_with_stdin(
 pub struct ShellExecution {
     /// 进程退出时 resolve 的 result channel（含 stdout/stderr/exit_code）
     pub result: oneshot::Receiver<Result<CommandOutput>>,
-    /// 进程 task 的 abort handle（kill 用）
-    pub abort: AbortHandle,
+    /// 进程 kill 句柄
+    pub abort: ShellAbortHandle,
     /// 流式输出 channel（stdout + stderr 合并推送）
     pub output_rx: mpsc::Receiver<Vec<u8>>,
 }
@@ -127,7 +133,7 @@ pub fn execute_shell_command_streaming(
         // task 被 abort 时 result_tx drop，result_rx 收到 Canceled，调用方需处理
         let _ = result_tx.send(result);
     });
-    let abort = handle.abort_handle();
+    let abort = ShellAbortHandle::from_tokio_abort(handle.abort_handle());
     drop(handle);
 
     ShellExecution {
@@ -145,7 +151,9 @@ async fn run_streaming(
     mut stdin_rx: Option<mpsc::Receiver<String>>,
     output_tx: mpsc::Sender<Vec<u8>>,
 ) -> Result<CommandOutput> {
-    let mut cmd = peri_middlewares::process::shell_command(command, &[]);
+    let command = streaming_command_with_unbuffered_interpreters(command);
+    let mut cmd = peri_middlewares::process::shell_command(&command, &[]);
+    apply_streaming_unbuffered_env(&mut cmd);
     if !cwd.trim().is_empty() {
         cmd.current_dir(cwd);
     }
@@ -181,8 +189,14 @@ async fn run_streaming(
         }
     }
 
-    let mut stdout = child.stdout.take().context("Failed to capture shell stdout")?;
-    let mut stderr = child.stderr.take().context("Failed to capture shell stderr")?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .context("Failed to capture shell stdout")?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .context("Failed to capture shell stderr")?;
 
     // 流式读取 stdout/stderr：每个 chunk 推送到 output_tx（合并），同时累积用于 result。
     // 两个 reader task 各持 output_tx 的 clone，原始 output_tx 在末尾 drop，
@@ -254,6 +268,42 @@ async fn run_streaming(
         stderr: decode_output_bytes(&stderr_bytes),
         exit_code: status.code().unwrap_or(-1),
     })
+}
+
+fn apply_streaming_unbuffered_env(cmd: &mut tokio::process::Command) {
+    // Python 在 stdout 是 pipe 时默认块缓冲；后台面板需要长脚本的首行能及时落盘。
+    cmd.env("PYTHONUNBUFFERED", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
+}
+
+fn streaming_command_with_unbuffered_interpreters(command: &str) -> String {
+    let trimmed = command.trim_start();
+    let leading_len = command.len() - trimmed.len();
+    let (program, rest) = split_first_shell_token(trimmed);
+    if command_name_matches(program, "php") && !trimmed.contains("implicit_flush") {
+        return format!(
+            "{}{} -d output_buffering=0 -d implicit_flush=1{}",
+            &command[..leading_len],
+            program,
+            rest
+        );
+    }
+    command.to_string()
+}
+
+fn split_first_shell_token(command: &str) -> (&str, &str) {
+    let split_at = command
+        .char_indices()
+        .find_map(|(idx, c)| c.is_whitespace().then_some(idx))
+        .unwrap_or(command.len());
+    command.split_at(split_at)
+}
+
+fn command_name_matches(program: &str, name: &str) -> bool {
+    let unquoted = program.trim_matches('"').trim_matches('\'');
+    let file_name = unquoted.rsplit(['\\', '/']).next().unwrap_or(unquoted);
+    let stem = file_name.strip_suffix(".exe").unwrap_or(file_name);
+    stem.eq_ignore_ascii_case(name)
 }
 
 #[cfg(test)]

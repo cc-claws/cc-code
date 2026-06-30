@@ -136,6 +136,36 @@ fn test_shell_notification_display_text_支持_system_reminder_包裹() {
 }
 
 #[test]
+fn test_shell_notification_display_text_清理终端控制序列() {
+    // Arrange
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let msg = shell_completion_notification(
+        "abc",
+        "git \u{1b}[31mfetch\u{1b}[0m origin \u{1b}[<555;106;49M",
+        Some(0),
+        path,
+    );
+    // Act
+    let display = shell_notification_display_text(&msg).expect("应识别后台 shell 完成通知");
+    // Assert
+    assert!(
+        !display.contains('\u{1b}'),
+        "不应保留 ESC 控制字符: {}",
+        display
+    );
+    assert!(
+        !display.contains("[<555;106;49M"),
+        "不应保留 SGR 鼠标坐标序列: {}",
+        display
+    );
+    assert!(
+        display.contains("git fetch origin"),
+        "普通命令文本应保留: {}",
+        display
+    );
+}
+
+#[test]
 fn test_shell_notification_display_text_等待输入提示() {
     // Arrange
     let msg = shell_stalled_notification("t1", "npm publish", "continue?");

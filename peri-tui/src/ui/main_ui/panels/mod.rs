@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod command_palette;
 pub mod config;
 pub mod cron;
 pub mod hooks;
@@ -9,5 +10,4 @@ pub mod model;
 pub mod plugin;
 pub mod status;
 pub mod tasks;
-pub mod command_palette;
 pub mod thread_browser;

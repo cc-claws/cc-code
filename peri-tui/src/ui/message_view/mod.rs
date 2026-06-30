@@ -2,10 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::ui::theme;
 use peri_agent::messages::{BaseMessage, ContentBlock};
-use ratatui::{
-    style::Color,
-    text::Text,
-};
+use ratatui::{style::Color, text::Text};
 
 use super::markdown::parse_markdown_default;
 use crate::shell_history::ShellCommandRecord;
@@ -108,6 +105,8 @@ pub enum MessageViewModel {
         color: Color,
         /// 内嵌 diff 视图输入（Write/Edit 工具执行成功后填充，由 render_thread 按当前 width 渲染）
         diff_input: Option<peri_widgets::DiffInput>,
+        /// pending 时的启动时间（用于渲染 "Ctrl+B to run in background" 2 秒提示）
+        started_at: Option<std::time::Instant>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
     },
@@ -765,6 +764,7 @@ impl MessageViewModel {
                     collapsed: true,
                     color,
                     diff_input,
+                    started_at: None,
                     content_hash: 0,
                 };
                 vm.recompute_hash();
@@ -851,6 +851,9 @@ impl MessageViewModel {
 
     /// 创建用户消息
     pub fn user(content: String) -> Self {
+        if let Some(display) = crate::app::shell_notification_display_text(&content) {
+            return Self::system(display);
+        }
         let rendered = parse_markdown_default(&content);
         let mut vm = MessageViewModel::UserBubble {
             content,
@@ -865,6 +868,9 @@ impl MessageViewModel {
 
     /// 创建带展开内容的用户消息（用于粘贴内容的详细模式显示）
     pub fn user_with_expanded(content: String, expanded: String) -> Self {
+        if let Some(display) = crate::app::shell_notification_display_text(&content) {
+            return Self::system(display);
+        }
         let rendered = parse_markdown_default(&content);
         let mut vm = MessageViewModel::UserBubble {
             content,
@@ -922,6 +928,7 @@ impl MessageViewModel {
             collapsed: true,
             color,
             diff_input: None,
+            started_at: Some(std::time::Instant::now()),
             content_hash: 0,
         };
         vm.recompute_hash();
@@ -968,6 +975,7 @@ impl MessageViewModel {
 
     /// 创建系统消息
     pub fn system(content: String) -> Self {
+        let content = crate::app::shell_notification_display_text(&content).unwrap_or(content);
         let mut vm = MessageViewModel::SystemNote {
             content,
             content_hash: 0,

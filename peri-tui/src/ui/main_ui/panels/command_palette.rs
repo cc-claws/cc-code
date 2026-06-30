@@ -10,7 +10,7 @@ use peri_widgets::BorderedPanel;
 
 use crate::{
     app::{
-        command_palette_panel::{CommandPalettePanel, EFFORT_OPTIONS, ListRow, SelectPhase},
+        command_palette_panel::{CommandPalettePanel, ListRow, SelectPhase, EFFORT_OPTIONS},
         App,
     },
     ui::theme,
@@ -29,12 +29,7 @@ pub(crate) fn render_command_palette(
 }
 
 /// 第一步：选择 Provider + Model
-fn render_model_phase(
-    f: &mut Frame,
-    panel: &mut CommandPalettePanel,
-    _app: &mut App,
-    area: Rect,
-) {
+fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut App, area: Rect) {
     let active_provider = _app
         .services
         .peri_config
@@ -62,25 +57,19 @@ fn render_model_phase(
         .constraints([
             Constraint::Length(1), // 提示行
             Constraint::Length(1), // 分隔线
-            Constraint::Min(1),   // 列表 + 底部提示
+            Constraint::Min(1),    // 列表 + 底部提示
         ])
         .split(inner);
 
     // ── 顶部提示行 ──
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                " \u{2191}\u{2193} Move",
-                Style::default().fg(theme::MUTED),
-            ),
+            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::MUTED)),
             Span::styled(
                 "  Enter/\u{2192} Effort",
                 Style::default().fg(theme::THINKING),
             ),
-            Span::styled(
-                "  Esc Close",
-                Style::default().fg(theme::MUTED),
-            ),
+            Span::styled("  Esc Close", Style::default().fg(theme::MUTED)),
         ])),
         chunks[0],
     );
@@ -113,8 +102,7 @@ fn render_model_phase(
             ListRow::Entry(entry_idx) => {
                 let entry = &panel.entries[*entry_idx];
                 let is_cursor = panel.cursor == row_idx;
-                let is_active =
-                    entry.provider_id == active_provider && entry.alias == active_alias;
+                let is_active = entry.provider_id == active_provider && entry.alias == active_alias;
 
                 let cursor_char = if is_cursor { "\u{276f}" } else { " " };
                 let check = if is_active { "\u{2714}" } else { "" };
@@ -144,10 +132,7 @@ fn render_model_phase(
                     ),
                     Span::styled(format!("{:<8}", entry.alias.to_uppercase()), label_style),
                     Span::styled(format!(" {} ", check), check_style),
-                    Span::styled(
-                        entry.model_name.clone(),
-                        Style::default().fg(theme::DIM),
-                    ),
+                    Span::styled(entry.model_name.clone(), Style::default().fg(theme::DIM)),
                 ]));
             }
         }
@@ -159,7 +144,11 @@ fn render_model_phase(
     }
 
     // ── 底部 ──
-    let total = panel.rows.iter().filter(|r| matches!(r, ListRow::Entry(_))).count();
+    let total = panel
+        .rows
+        .iter()
+        .filter(|r| matches!(r, ListRow::Entry(_)))
+        .count();
     lines.push(Line::from(Span::styled(
         format!("  {} models available", total),
         Style::default().fg(theme::DIM),
@@ -169,12 +158,7 @@ fn render_model_phase(
 }
 
 /// 第二步：选择 Effort 级别
-fn render_effort_phase(
-    f: &mut Frame,
-    panel: &mut CommandPalettePanel,
-    _app: &mut App,
-    area: Rect,
-) {
+fn render_effort_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut App, area: Rect) {
     let model_label = panel
         .selected_model
         .as_ref()
@@ -195,29 +179,17 @@ fn render_effort_phase(
         .constraints([
             Constraint::Length(1), // 提示行
             Constraint::Length(1), // 分隔线
-            Constraint::Min(1),   // 选项
+            Constraint::Min(1),    // 选项
         ])
         .split(inner);
 
     // ── 顶部提示行 ──
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                " \u{2191}\u{2193} Move",
-                Style::default().fg(theme::MUTED),
-            ),
-            Span::styled(
-                "  1-5 Quick",
-                Style::default().fg(theme::THINKING),
-            ),
-            Span::styled(
-                "  Enter Confirm",
-                Style::default().fg(theme::MUTED),
-            ),
-            Span::styled(
-                "  Esc/\u{2190} Back",
-                Style::default().fg(theme::MUTED),
-            ),
+            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::MUTED)),
+            Span::styled("  1-5 Quick", Style::default().fg(theme::THINKING)),
+            Span::styled("  Enter Confirm", Style::default().fg(theme::MUTED)),
+            Span::styled("  Esc/\u{2190} Back", Style::default().fg(theme::MUTED)),
         ])),
         chunks[0],
     );

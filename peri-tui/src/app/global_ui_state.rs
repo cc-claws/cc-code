@@ -1,6 +1,9 @@
 //! App 级 UI 状态：跨 session 共享的全局 UI 临时状态
 
-use std::{cell::Cell, time::Instant};
+use std::{
+    cell::{Cell, RefCell},
+    time::Instant,
+};
 
 use crate::clipboard::ClipboardLease;
 
@@ -16,6 +19,7 @@ pub struct GlobalUiState {
     pub mode_highlight_until: Option<Instant>,
     pub model_highlight_until: Option<Instant>,
     pub mcp_ready_shown_until: Cell<Option<Instant>>,
+    pub mcp_failed_shown: RefCell<Option<(String, Instant)>>,
     pub quit_pending_since: Option<Instant>,
     /// 双击 ESC 检测时间戳（rewind 弹窗触发）
     pub rewind_pending_since: Option<Instant>,
@@ -41,6 +45,7 @@ impl GlobalUiState {
             mode_highlight_until: None,
             model_highlight_until: None,
             mcp_ready_shown_until: Cell::new(None),
+            mcp_failed_shown: RefCell::new(None),
             quit_pending_since: None,
             rewind_pending_since: None,
             rewind_busy_hint_until: None,

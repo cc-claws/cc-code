@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use tokio::{sync::{mpsc, oneshot}, task::AbortHandle};
+use peri_agent::shell::ShellAbortHandle;
+use tokio::sync::{mpsc, oneshot};
 
 use super::*;
 use crate::shell_exec::CommandOutput;
@@ -13,7 +14,7 @@ pub struct ShellCommandRuntime {
     pub stdin_tx: Option<mpsc::Sender<String>>,
     pub running_record_id: Option<String>,
     pub stdin_lines: Vec<String>,
-    pub abort_handle: Option<AbortHandle>,
+    pub abort_handle: Option<ShellAbortHandle>,
     pub command: String,
     pub cwd: String,
     pub thread_id: Option<ThreadId>,
@@ -72,6 +73,24 @@ impl ShellCommandPool {
 }
 
 impl App {
+    pub(crate) fn running_background_shell_task_count(&self) -> usize {
+        let session = self.session_mgr.current();
+        session
+            .background_shells
+            .iter()
+            .filter(|shell| shell.status == ShellStatus::Running)
+            .count()
+            + session
+                .agent_shells
+                .iter()
+                .filter(|slot| slot.is_backgrounded && !slot.ended)
+                .count()
+    }
+
+    pub(crate) fn has_running_background_shell_tasks(&self) -> bool {
+        self.running_background_shell_task_count() > 0
+    }
+
     pub fn run_shell_command(&mut self, command: String) {
         let command = command.trim().to_string();
         if command.is_empty() {
@@ -125,11 +144,8 @@ impl App {
         // B-2: 流式执行（output_rx/result_rx 存入 ForegroundShell），支持后续 Ctrl+B
         // 后台化时切换 output_rx 给 DiskOutput writer，进程全程不中断。
         // 进程退出由 poll_foreground_shell() 在主循环 poll 检测，不再依赖 spawned task send event。
-        let execution = crate::shell_exec::execute_shell_command_streaming(
-            &command,
-            &cwd,
-            Some(stdin_rx),
-        );
+        let execution =
+            crate::shell_exec::execute_shell_command_streaming(&command, &cwd, Some(stdin_rx));
 
         self.session_mgr.current_mut().shell_pool.foreground = ForegroundShell {
             runtime: ShellCommandRuntime {
@@ -150,7 +166,12 @@ impl App {
     }
 
     pub(crate) fn is_shell_command_running(&self) -> bool {
-        self.session_mgr.current().shell_pool.foreground.runtime.is_running()
+        self.session_mgr
+            .current()
+            .shell_pool
+            .foreground
+            .runtime
+            .is_running()
     }
 
     /// 轮询前台 shell 命令：消费流式输出 + 检测进程退出。
@@ -386,8 +407,7 @@ impl App {
         let id = record_id;
         let cwd_path = std::path::PathBuf::from(&runtime.cwd);
         let session_id = self.session_mgr.current().metadata.session_id.to_string();
-        let output_path =
-            peri_agent::task_output::task_output_path(&id, &cwd_path, &session_id);
+        let output_path = peri_agent::task_output::task_output_path(&id, &cwd_path, &session_id);
         let command = runtime.command;
         // spawn DiskOutput writer 消费 output_rx 写磁盘（进程继续运行，输出转存）
         if let Some(rx) = output_rx {
@@ -401,7 +421,15 @@ impl App {
             self.services.bg_event_tx.clone(),
         );
         let bg_id = id.clone();
-        let mut bg = BackgroundShell::new(id, command, cwd_path, output_path, result_rx, abort_handle, started_instant);
+        let mut bg = BackgroundShell::new(
+            id,
+            command,
+            cwd_path,
+            output_path,
+            result_rx,
+            abort_handle,
+            started_instant,
+        );
         bg.stall_watchdog = Some(watchdog);
 
         // 阶段3：push 到 background_shells + 标记前台 VM moved + set_loading(false)
@@ -437,19 +465,17 @@ impl App {
     /// 由主循环每帧调用。返回是否有新注册（用于触发重绘）。
     pub fn poll_agent_shell_registrations(&mut self) -> bool {
         // 先 drain 到 Vec，避免 &self（rx borrow）与 register_agent_shell 的 &mut self 冲突。
-        let pending: Vec<super::AgentShellRegistration> = match self
-            .agent_shell_registrations_rx
-            .as_mut()
-        {
-            Some(rx) => {
-                let mut v = Vec::new();
-                while let Ok(reg) = rx.try_recv() {
-                    v.push(reg);
+        let pending: Vec<super::AgentShellRegistration> =
+            match self.agent_shell_registrations_rx.as_mut() {
+                Some(rx) => {
+                    let mut v = Vec::new();
+                    while let Ok(reg) = rx.try_recv() {
+                        v.push(reg);
+                    }
+                    v
                 }
-                v
-            }
-            None => Vec::new(),
-        };
+                None => Vec::new(),
+            };
         if pending.is_empty() {
             return false;
         }
@@ -488,7 +514,13 @@ impl App {
     pub fn background_agent_foreground(&mut self) -> bool {
         let mut any = false;
         let cwd_path = std::path::PathBuf::from(
-            self.session_mgr.current().shell_pool.foreground.runtime.cwd.clone(),
+            self.session_mgr
+                .current()
+                .shell_pool
+                .foreground
+                .runtime
+                .cwd
+                .clone(),
         );
         let session_id = self.session_mgr.current().metadata.session_id.to_string();
         for slot in self.session_mgr.current_mut().agent_shells.iter_mut() {
@@ -591,7 +623,9 @@ impl App {
             .take(session.agent_shells.len().saturating_sub(MAX_AGENT_SHELLS))
             .map(|s| s.task_id.clone())
             .collect::<Vec<_>>();
-        session.agent_shells.retain(|s| !to_remove.contains(&s.task_id));
+        session
+            .agent_shells
+            .retain(|s| !to_remove.contains(&s.task_id));
     }
 
     /// 直接创建后台 shell 任务（跳过前台阶段，agent 工具调用路径，参考 PRD §9）。
@@ -600,17 +634,12 @@ impl App {
     /// 返回任务 id，调用方可用于引用该后台任务。
     pub fn spawn_shell_task(&mut self, command: String, cwd: String) -> String {
         let id = uuid::Uuid::now_v7().to_string();
-        let execution =
-            crate::shell_exec::execute_shell_command_streaming(&command, &cwd, None);
+        let execution = crate::shell_exec::execute_shell_command_streaming(&command, &cwd, None);
         let cwd_path = std::path::PathBuf::from(&cwd);
         let session_id = self.session_mgr.current().metadata.session_id.to_string();
-        let output_path =
-            peri_agent::task_output::task_output_path(&id, &cwd_path, &session_id);
+        let output_path = peri_agent::task_output::task_output_path(&id, &cwd_path, &session_id);
         // output_rx 直接写磁盘（不经前台）
-        peri_agent::task_output::DiskOutput::spawn_writer(
-            output_path.clone(),
-            execution.output_rx,
-        );
+        peri_agent::task_output::DiskOutput::spawn_writer(output_path.clone(), execution.output_rx);
         let watchdog = super::background_shell::spawn_stall_watchdog(
             id.clone(),
             command.clone(),
@@ -635,13 +664,22 @@ impl App {
         let record_id = self
             .session_mgr
             .current()
-            .shell_pool.foreground.runtime
+            .shell_pool
+            .foreground
+            .runtime
             .running_record_id
             .clone();
         let Some(record_id) = record_id else {
             return;
         };
-        let tx = self.session_mgr.current().shell_pool.foreground.runtime.stdin_tx.clone();
+        let tx = self
+            .session_mgr
+            .current()
+            .shell_pool
+            .foreground
+            .runtime
+            .stdin_tx
+            .clone();
         let Some(tx) = tx else {
             self.push_system_note("shell stdin 已关闭".to_string());
             self.render_rebuild();
@@ -650,7 +688,9 @@ impl App {
 
         self.session_mgr
             .current_mut()
-            .shell_pool.foreground.runtime
+            .shell_pool
+            .foreground
+            .runtime
             .stdin_lines
             .push(line.clone());
         self.append_shell_stdin_to_vm(&record_id, line.clone());
@@ -667,7 +707,12 @@ impl App {
         if !self.is_shell_command_running() {
             return;
         }
-        self.session_mgr.current_mut().shell_pool.foreground.runtime.stdin_tx = None;
+        self.session_mgr
+            .current_mut()
+            .shell_pool
+            .foreground
+            .runtime
+            .stdin_tx = None;
         self.session_mgr
             .current_mut()
             .spinner_state
@@ -678,10 +723,8 @@ impl App {
     pub(crate) fn cancel_shell_command(&mut self) -> bool {
         // take 整个 ForegroundShell（含 streaming 字段 + runtime），避免 poll_foreground_shell
         // 对已 cancel 的任务重复处理（result_rx/output_rx 随 take 释放）
-        let shell = std::mem::take(
-            &mut self.session_mgr.current_mut().shell_pool.foreground,
-        )
-        .runtime;
+        let shell =
+            std::mem::take(&mut self.session_mgr.current_mut().shell_pool.foreground).runtime;
         let Some(record_id) = shell.running_record_id.clone() else {
             return false;
         };
@@ -715,13 +758,23 @@ impl App {
         let matches_running = self
             .session_mgr
             .current()
-            .shell_pool.foreground.runtime
+            .shell_pool
+            .foreground
+            .runtime
             .running_record_id
             .as_deref()
             == Some(record.id.as_str());
         if matches_running {
-            record.stdin = self.session_mgr.current().shell_pool.foreground.runtime.stdin_lines.clone();
-            self.session_mgr.current_mut().shell_pool.foreground.runtime = ShellCommandRuntime::default();
+            record.stdin = self
+                .session_mgr
+                .current()
+                .shell_pool
+                .foreground
+                .runtime
+                .stdin_lines
+                .clone();
+            self.session_mgr.current_mut().shell_pool.foreground.runtime =
+                ShellCommandRuntime::default();
             self.set_loading(false);
         }
 

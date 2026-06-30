@@ -189,8 +189,9 @@ impl DiskOutput {
         match tokio::fs::remove_file(path).await {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e)
-                .with_context(|| format!("删除后台任务输出文件失败: {}", path.display())),
+            Err(e) => {
+                Err(e).with_context(|| format!("删除后台任务输出文件失败: {}", path.display()))
+            }
         }
     }
 }

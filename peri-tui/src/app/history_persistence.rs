@@ -97,12 +97,7 @@ mod tests {
         std::fs::write(&file, b"x").unwrap();
         super::restrict_to_owner_unix(&file);
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
-        assert_eq!(
-            mode & 0o777,
-            0o600,
-            "文件权限应为 0o600，实际 0o{:o}",
-            mode
-        );
+        assert_eq!(mode & 0o777, 0o600, "文件权限应为 0o600，实际 0o{:o}", mode);
         let _ = std::fs::remove_file(&file);
     }
 
@@ -120,12 +115,7 @@ mod tests {
         std::fs::create_dir(&dir).unwrap();
         super::restrict_to_owner_unix(&dir);
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
-        assert_eq!(
-            mode & 0o777,
-            0o700,
-            "目录权限应为 0o700，实际 0o{:o}",
-            mode
-        );
+        assert_eq!(mode & 0o777, 0o700, "目录权限应为 0o700，实际 0o{:o}", mode);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

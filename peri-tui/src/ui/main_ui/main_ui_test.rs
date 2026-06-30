@@ -71,3 +71,44 @@ fn test_hide_shell_prefix_for_display_handles_only_bang() {
     assert_eq!(display.lines(), [""], "只输入 ! 时文本域展示应为空");
     assert_eq!(display.cursor(), (0, 0), "只输入 ! 时光标应回到行首");
 }
+
+#[tokio::test]
+async fn test_status_area_clears_long_agent_shell_text_after_tool_finishes() {
+    let (mut app, mut handle) = crate::app::App::new_headless(100, 24).await;
+    let long_marker = "residue-mark";
+    app.push_agent_event(crate::app::AgentEvent::ToolStart {
+        tool_call_id: "tc_status_residue".to_string(),
+        name: "Bash".to_string(),
+        display: "Bash".to_string(),
+        args: format!("echo {long_marker}"),
+        input: serde_json::json!({ "command": format!("echo {long_marker}") }),
+        source_agent_id: None,
+    });
+    app.process_pending_events();
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        handle.contains(long_marker),
+        "首帧应显示模拟的 agent shell 命令摘要"
+    );
+
+    app.push_agent_event(crate::app::AgentEvent::ToolEnd {
+        tool_call_id: "tc_status_residue".to_string(),
+        name: "Bash".to_string(),
+        output: "ok".to_string(),
+        is_error: false,
+        source_agent_id: None,
+    });
+    app.process_pending_events();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        !handle.contains(long_marker),
+        "agent shell 状态消失后，底部状态区不应残留旧命令文本"
+    );
+}

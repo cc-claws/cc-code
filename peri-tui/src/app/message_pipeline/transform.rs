@@ -139,6 +139,7 @@ impl MessagePipeline {
             collapsed: true,
             color: tool_color(name),
             diff_input: None,
+            started_at: Some(std::time::Instant::now()),
             content_hash: 0,
         };
         vm.recompute_hash();
