@@ -266,46 +266,13 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // Ctrl+U / Ctrl+D: half-page scroll
-        Input {
-            key: Key::Char('u'),
-            ctrl: true,
-            ..
-        } => {
-            let session = &app.session_mgr.current_mut();
-            let has_content = session
-                .ui
-                .textarea
-                .lines()
-                .iter()
-                .any(|line| !line.is_empty());
-            if has_content {
-                app.session_mgr
-                    .current_mut()
-                    .ui
-                    .textarea
-                    .delete_line_by_head();
-            } else {
-                for _ in 0..20 {
-                    app.scroll_up();
-                }
-            }
-        }
+        // Ctrl+D: close shell stdin when shell command is running
         Input {
             key: Key::Char('d'),
             ctrl: true,
             ..
         } if app.is_shell_command_running() => {
             app.close_shell_stdin();
-        }
-        Input {
-            key: Key::Char('d'),
-            ctrl: true,
-            ..
-        } => {
-            for _ in 0..20 {
-                app.scroll_down();
-            }
         }
 
         // PageUp: half-page scroll (only when textarea is empty)
