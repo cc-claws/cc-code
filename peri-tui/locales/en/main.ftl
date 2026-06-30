@@ -132,6 +132,8 @@ key-tab = :Tab
 key-effort = :Effort
 key-switch-model = :Switch Model
 key-command-palette = :Command Palette
+key-tab-mode = :Switch Mode
+key-settings = :Settings
 
 # ---- Welcome Page ----
 

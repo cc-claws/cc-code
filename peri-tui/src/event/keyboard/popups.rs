@@ -38,17 +38,6 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
             Input {
                 key: Key::Enter, ..
             } => app.ask_user_confirm(),
-            // Ctrl+U / Ctrl+D 页面滚动
-            Input {
-                key: Key::Char('u'),
-                ctrl: true,
-                ..
-            } => app.ask_user_scroll(-10),
-            Input {
-                key: Key::Char('d'),
-                ctrl: true,
-                ..
-            } => app.ask_user_scroll(10),
             // Up/Down move option cursor within current question
             Input { key: Key::Up, .. } => app.ask_user_move(-1),
             Input { key: Key::Down, .. } => app.ask_user_move(1),

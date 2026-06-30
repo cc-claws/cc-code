@@ -194,7 +194,9 @@ pub(crate) fn render_messages(
         .wrap(Wrap { trim: false });
     f.render_widget(paragraph, text_area);
 
-    let metrics = render_message_scrollbar(f, inner, max_scroll, offset);
+    // 滚动条：鼠标悬停在消息区域时显示，离开后隐藏
+    let scrollbar_active = app.session_mgr.current().ui.scrollbar_hover;
+    let metrics = render_message_scrollbar(f, inner, max_scroll, offset, scrollbar_active);
     let ui = &mut app.session_mgr.current_mut().ui;
     ui.message_scrollbar_metrics = metrics;
     if metrics.is_none() {
@@ -207,8 +209,9 @@ fn render_message_scrollbar(
     area: Rect,
     max_scroll: usize,
     offset: usize,
+    active: bool,
 ) -> Option<MessageScrollbarMetrics> {
-    if max_scroll == 0 || area.width == 0 || area.height == 0 {
+    if max_scroll == 0 || area.width == 0 || area.height == 0 || !active {
         return None;
     }
 
@@ -219,7 +222,7 @@ fn render_message_scrollbar(
         height: area.height,
     };
     let offset = offset.min(max_scroll);
-    let style = Style::default().fg(theme::MUTED);
+    let style = Style::default().fg(theme::DIM);
     let mut scrollbar_state = ScrollbarState::new(max_scroll).position(offset);
     f.render_stateful_widget(
         unified_vertical_scrollbar().style(style),
@@ -227,45 +230,11 @@ fn render_message_scrollbar(
         &mut scrollbar_state,
     );
 
-    let up_btn_area = if offset > 0 {
-        let btn = Rect {
-            x: bar_area.x,
-            y: bar_area.y,
-            width: 1,
-            height: 1,
-        };
-        let arrow = Paragraph::new(Text::from(Span::styled(
-            "▲",
-            style.add_modifier(Modifier::BOLD),
-        )));
-        f.render_widget(arrow, btn);
-        Some(btn)
-    } else {
-        None
-    };
-
-    let down_btn_area = if offset < max_scroll && bar_area.height > 1 {
-        let btn = Rect {
-            x: bar_area.x,
-            y: bar_area.bottom().saturating_sub(1),
-            width: 1,
-            height: 1,
-        };
-        let arrow = Paragraph::new(Text::from(Span::styled(
-            "▼",
-            style.add_modifier(Modifier::BOLD),
-        )));
-        f.render_widget(arrow, btn);
-        Some(btn)
-    } else {
-        None
-    };
-
     Some(MessageScrollbarMetrics {
         bar_area,
         max_offset: max_scroll,
-        up_btn_area,
-        down_btn_area,
+        up_btn_area: None,
+        down_btn_area: None,
     })
 }
 

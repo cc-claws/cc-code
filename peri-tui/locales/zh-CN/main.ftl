@@ -131,6 +131,8 @@ key-tab = :切换
 key-effort = :力度
 key-switch-model = :切换模型
 key-command-palette = :命令面板
+key-tab-mode = :切换模式
+key-settings = :设置
 
 # ---- Welcome Page ----
 
