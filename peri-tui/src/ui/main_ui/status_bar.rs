@@ -562,17 +562,11 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             } else if app.session_mgr.current().ui.detail_mode {
                 vec![
                     ("● Verbose".to_string(), String::new()),
-                    ("Ctrl+O".to_string(), lc.tr("key-exit-detail")),
-                    ("Home/End".to_string(), lc.tr("key-jump")),
-                    ("PgUp/PgDn".to_string(), lc.tr("key-scroll")),
                 ]
             } else {
                 vec![
-                    ("/".to_string(), lc.tr("key-command")),
-                    ("Shift+Enter".to_string(), lc.tr("key-newline")),
-                    ("Ctrl+P".to_string(), lc.tr("key-command-palette")),
-                    ("Ctrl+T".to_string(), lc.tr("key-switch-model")),
-                    ("Ctrl+U/D".to_string(), lc.tr("key-scroll")),
+                    ("Tab".to_string(), lc.tr("key-tab-mode")),
+                    ("Ctrl+P".to_string(), lc.tr("key-settings")),
                 ]
             };
             format_hints(&hints, key_style, desc_style)

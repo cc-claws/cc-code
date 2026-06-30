@@ -78,6 +78,8 @@ pub struct UiState {
     pub cursor_visible: bool,
     /// 光标闪烁计数器（每 tick 递增，每 15 tick 切换一次，约 500ms）
     pub cursor_tick_count: u8,
+    /// 鼠标是否悬停在滚动条区域
+    pub scrollbar_hover: bool,
 }
 
 impl UiState {
@@ -128,6 +130,7 @@ impl UiState {
             next_pasted_text_id: 1,
             cursor_visible: true,
             cursor_tick_count: 0,
+            scrollbar_hover: false,
         }
     }
 

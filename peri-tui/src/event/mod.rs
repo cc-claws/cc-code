@@ -958,6 +958,16 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                     // textarea selection on mouse up: no extra handling; tui_textarea maintains
                     // its own selection state
                 }
+                MouseEventKind::Moved => {
+                    // 鼠标悬停在消息区域时显示滚动条
+                    let messages_area = app.session_mgr.current().ui.messages_area;
+                    if let Some(area) = messages_area {
+                        app.session_mgr.current_mut().ui.scrollbar_hover =
+                            mouse::mouse_in_rect(&mouse, area);
+                    } else {
+                        app.session_mgr.current_mut().ui.scrollbar_hover = false;
+                    }
+                }
                 _ => {}
             }
         }
