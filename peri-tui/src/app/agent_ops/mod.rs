@@ -71,7 +71,10 @@ impl App {
                     self.session_mgr
                         .current_mut()
                         .spinner_state
-                        .set_mode_with_label(peri_widgets::SpinnerMode::Responding, Some(thinking_label));
+                        .set_mode_with_label(
+                            peri_widgets::SpinnerMode::Responding,
+                            Some(thinking_label),
+                        );
                 }
                 // 触发 rebuild 刷新 SubAgentGroup 卡片显示
                 self.request_rebuild();
@@ -95,7 +98,10 @@ impl App {
                     self.session_mgr
                         .current_mut()
                         .spinner_state
-                        .set_mode_with_label(peri_widgets::SpinnerMode::Responding, Some(thinking_label));
+                        .set_mode_with_label(
+                            peri_widgets::SpinnerMode::Responding,
+                            Some(thinking_label),
+                        );
                 }
                 // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
                 let actions = self
@@ -176,7 +182,10 @@ impl App {
                 self.session_mgr.current_mut().agent.tool_call_count += 1;
                 // 记录当前执行中的工具
                 {
-                    let args_summary: String = args.chars().take(40).collect();
+                    let args_summary: String = super::tool_display::sanitize_display_text(&args)
+                        .chars()
+                        .take(40)
+                        .collect();
                     self.session_mgr.current_mut().agent.active_tool =
                         Some(super::agent_comm::ActiveToolInfo {
                             name: name.clone(),
@@ -190,7 +199,10 @@ impl App {
                     .spinner_state
                     .set_mode(peri_widgets::SpinnerMode::ToolUse);
                 let verb_text = if !args.is_empty() {
-                    let summary: String = args.chars().take(40).collect();
+                    let summary: String = super::tool_display::sanitize_display_text(&args)
+                        .chars()
+                        .take(40)
+                        .collect();
                     format!("{} {}", display, summary)
                 } else {
                     format!("{}…", display)
@@ -273,7 +285,10 @@ impl App {
                 self.session_mgr
                     .current_mut()
                     .spinner_state
-                    .set_mode_with_label(peri_widgets::SpinnerMode::Responding, Some(responding_label));
+                    .set_mode_with_label(
+                        peri_widgets::SpinnerMode::Responding,
+                        Some(responding_label),
+                    );
                 // Pipeline：路由到 SubAgentGroup 或父 Agent AssistantBubble
                 let actions = self
                     .session_mgr

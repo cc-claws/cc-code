@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
@@ -272,18 +272,14 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
     // 后台任务指示器（shell + agent 计数 pill，对齐效果图场景 2/3）
     {
-        let bg_shell_count = app
-            .session_mgr
-            .current()
-            .background_shells
-            .iter()
-            .filter(|b| b.status == crate::app::ShellStatus::Running)
-            .count();
+        let bg_shell_count = app.running_background_shell_task_count();
         let bg_agent_count = app.session_mgr.current().background_agents.len();
         if bg_shell_count + bg_agent_count > 0 {
             if has_content {
                 left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
             }
+            let task_bar_focused =
+                app.session_mgr.current().ui.background_tasks_bar_focused && bg_shell_count > 0;
             let mut parts: Vec<String> = Vec::new();
             if bg_shell_count > 0 {
                 parts.push(format!(
@@ -299,10 +295,15 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                     if bg_agent_count > 1 { "s" } else { "" }
                 ));
             }
-            left_spans.push(Span::styled(
-                format!(" {} ", parts.join(", ")),
-                Style::default().bg(theme::WARNING).fg(theme::CURSOR_BG),
-            ));
+            let pill_style = if task_bar_focused {
+                Style::default()
+                    .bg(theme::SELECTION_BG)
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().bg(theme::CURSOR_BG).fg(theme::WARNING)
+            };
+            left_spans.push(Span::styled(format!(" {} ", parts.join(", ")), pill_style));
             left_spans.push(Span::styled("↓ to view", Style::default().fg(theme::MUTED)));
         }
     }
@@ -340,6 +341,9 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     if let Some(ref rx) = app.services.mcp_init_rx {
         let status = rx.borrow().clone();
         use peri_middlewares::mcp::McpInitStatus;
+        if !matches!(&status, McpInitStatus::Failed(_)) {
+            app.global_ui.mcp_failed_shown.borrow_mut().take();
+        }
         match status {
             McpInitStatus::Initializing { connected, total } => {
                 if has_content {
@@ -378,15 +382,29 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 }
             }
             McpInitStatus::Failed(ref msg) => {
-                if has_content {
-                    left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
-                }
                 // 截断过长的错误信息，移除内部技术细节
                 let simplified = simplify_mcp_error(msg);
-                left_spans.push(Span::styled(
-                    lc.tr_args("statusbar-mcp-failed", &[("msg".into(), simplified.into())]),
-                    Style::default().fg(theme::ERROR),
-                ));
+                let should_show = {
+                    let now = std::time::Instant::now();
+                    let mut shown = app.global_ui.mcp_failed_shown.borrow_mut();
+                    match shown.as_ref() {
+                        Some((shown_msg, until)) if shown_msg == &simplified => now < *until,
+                        _ => {
+                            *shown =
+                                Some((simplified.clone(), now + std::time::Duration::from_secs(3)));
+                            true
+                        }
+                    }
+                };
+                if should_show {
+                    if has_content {
+                        left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+                    }
+                    left_spans.push(Span::styled(
+                        lc.tr_args("statusbar-mcp-failed", &[("msg".into(), simplified.into())]),
+                        Style::default().fg(theme::ERROR),
+                    ));
+                }
             }
             McpInitStatus::Pending | McpInitStatus::Ready { .. } => {}
         }
@@ -636,6 +654,8 @@ fn format_hints(
 
 /// 渲染一行 spans，左侧左对齐，右侧右对齐，中间填充空格
 fn render_truncated_line(f: &mut Frame, left_spans: Vec<Span>, right_spans: Vec<Span>, area: Rect) {
+    f.render_widget(Clear, area);
+
     let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
     let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
 

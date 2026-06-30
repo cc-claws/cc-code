@@ -28,6 +28,30 @@ fn test_format_tool_args_bash_uses_command() {
 }
 
 #[test]
+fn test_format_tool_args_bash_strips_terminal_control_sequences() {
+    let input = serde_json::json!({
+        "command": "echo ok \u{1b}[<555;106;49M \u{1b}[31mred\u{1b}[0m done"
+    });
+    let result = format_tool_args("Bash", &input, None).expect("Bash 应返回 command 摘要");
+    assert!(
+        !result.contains('\u{1b}'),
+        "不应保留 ESC 控制字符: {result:?}"
+    );
+    assert!(
+        !result.contains("[<555;106;49M"),
+        "不应保留 SGR 鼠标坐标序列: {result:?}"
+    );
+    assert!(result.contains("red"), "应保留普通文本内容: {result:?}");
+    assert!(result.contains("done"), "应保留普通文本内容: {result:?}");
+}
+
+#[test]
+fn test_sanitize_display_text_strips_osc_sequence() {
+    let result = sanitize_display_text("before\u{1b}]0;bad title\u{7}after");
+    assert_eq!(result, "beforeafter", "OSC 序列不应进入 TUI 文本");
+}
+
+#[test]
 fn test_old_tool_names_not_matched() {
     // 验证旧工具名不再被匹配（fallback 到 to_pascal）
     assert_eq!(format_tool_name("bash"), "Bash"); // fallback

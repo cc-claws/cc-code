@@ -9,9 +9,10 @@ use ratatui::{layout::Rect, Frame};
 use super::{
     agent_panel::AgentPanel, background_tasks_panel::BackgroundTasksPanel,
     command_palette_panel::CommandPalettePanel, config_panel::ConfigPanel, cron_state::CronPanel,
-    hooks_panel::HooksPanel, login_panel::LoginPanel, mcp_panel::McpPanel, memory_panel::MemoryPanel,
-    model_panel::ModelPanel, plugin_panel::PluginPanel, service_registry::ServiceRegistry,
-    session_manager::SessionManager, status_panel::StatusPanel, tasks_panel::TasksPanel,
+    hooks_panel::HooksPanel, login_panel::LoginPanel, mcp_panel::McpPanel,
+    memory_panel::MemoryPanel, model_panel::ModelPanel, plugin_panel::PluginPanel,
+    service_registry::ServiceRegistry, session_manager::SessionManager, status_panel::StatusPanel,
+    tasks_panel::TasksPanel,
 };
 use crate::thread::ThreadBrowser;
 

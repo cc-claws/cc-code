@@ -2,7 +2,7 @@ use super::*;
 use std::{path::PathBuf, sync::Arc};
 
 use peri_agent::messages::BaseMessage;
-use peri_agent::shell::ExitSignal;
+use peri_agent::shell::{ExitSignal, ShellAbortHandle};
 use tokio::sync::oneshot;
 
 use crate::app::{AgentShellRegistration, AgentShellSlot};
@@ -34,7 +34,6 @@ fn make_agent_shell_slot(
 ) -> (AgentShellSlot, Arc<ExitSignal>) {
     let (bg_tx, _bg_rx) = oneshot::channel();
     let exit_signal = Arc::new(ExitSignal::new());
-    let task = tokio::spawn(async {});
     let reg = AgentShellRegistration {
         task_id: uuid::Uuid::now_v7().to_string(),
         command: command.to_string(),
@@ -42,7 +41,7 @@ fn make_agent_shell_slot(
         output_path: PathBuf::from("/tmp/peri-agent-shell.output"),
         exit_signal: Arc::clone(&exit_signal),
         background_tx: if direct_background { None } else { Some(bg_tx) },
-        kill: task.abort_handle(),
+        kill: ShellAbortHandle::noop(),
         started_instant: std::time::Instant::now(),
         direct_background,
     };
@@ -93,7 +92,7 @@ async fn test_cancel_shell_command_aborts_task_and_replaces_pending_vm() {
     let task = tokio::spawn(async {
         std::future::pending::<()>().await;
     });
-    let abort_handle = task.abort_handle();
+    let abort_handle = ShellAbortHandle::from_tokio_abort(task.abort_handle());
 
     app.session_mgr.current_mut().current_thread_id = Some(thread_id.clone());
     app.session_mgr.current_mut().messages.view_messages.push(
@@ -213,14 +212,13 @@ async fn test_cleanup_finished_background_shells_超量移除最旧已完成() {
     // 构造已完成任务的 helper（ended_at = ago_secs 前）
     let make_bg = |id: &str, ago_secs: u64| -> BackgroundShell {
         let (_tx, rx) = oneshot::channel::<anyhow::Result<CommandOutput>>();
-        let task = tokio::spawn(async {});
         let mut bg = BackgroundShell::new(
             id.to_string(),
             "cmd".to_string(),
             PathBuf::from("."),
             PathBuf::from(format!("/tmp/peri-test-{}.output", id)),
             rx,
-            task.abort_handle(),
+            ShellAbortHandle::noop(),
             std::time::Instant::now(),
         );
         bg.status = ShellStatus::Completed;
@@ -272,14 +270,13 @@ async fn test_cleanup_finished_background_shells_未超量不移除() {
 
     let (mut app, _handle) = App::new_headless(80, 24).await;
     let (_tx, rx) = oneshot::channel::<anyhow::Result<CommandOutput>>();
-    let task = tokio::spawn(async {});
     let mut bg = BackgroundShell::new(
         "task-1".to_string(),
         "cmd".to_string(),
         PathBuf::from("."),
         PathBuf::from("/tmp/x.output"),
         rx,
-        task.abort_handle(),
+        ShellAbortHandle::noop(),
         std::time::Instant::now(),
     );
     bg.status = ShellStatus::Completed;

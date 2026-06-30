@@ -30,7 +30,40 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::{oneshot, Notify};
-use tokio::task::AbortHandle;
+
+// ─── ShellAbortHandle ────────────────────────────────────────────────────────
+
+/// 可复制的 shell kill 句柄。
+///
+/// ShellExecutor 的具体实现可能由 tokio task、PTY 子进程或宿主侧进程管理器
+/// 持有真实进程。上层只依赖 `abort()`，不绑定某一种运行时句柄。
+#[derive(Clone)]
+pub struct ShellAbortHandle {
+    abort_fn: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl ShellAbortHandle {
+    pub fn new<F>(abort_fn: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        Self {
+            abort_fn: Arc::new(abort_fn),
+        }
+    }
+
+    pub fn from_tokio_abort(handle: tokio::task::AbortHandle) -> Self {
+        Self::new(move || handle.abort())
+    }
+
+    pub fn noop() -> Self {
+        Self::new(|| {})
+    }
+
+    pub fn abort(&self) {
+        (self.abort_fn)();
+    }
+}
 
 // ─── ShellCommandOutput ───────────────────────────────────────────────────────
 
@@ -158,7 +191,7 @@ pub struct AgentShellHandle {
     /// 发送即请求后台化（UI Ctrl+B 时用）。`None` 表示已后台化或进程结束。
     pub background_tx: Option<oneshot::Sender<()>>,
     /// 杀进程句柄（UI 详情面板 `x` 键）。
-    pub kill: AbortHandle,
+    pub kill: ShellAbortHandle,
 }
 
 // ─── ShellExecutor ────────────────────────────────────────────────────────────

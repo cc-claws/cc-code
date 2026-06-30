@@ -70,3 +70,21 @@
             snap
         );
     }
+
+    #[test]
+    fn test_hitl_input_preview_strips_terminal_control_sequences() {
+        let input = serde_json::json!({
+            "command": "echo ok \u{1b}[<555;106;49M\u{1b}[31mred\u{1b}[0m done"
+        });
+        let preview = super::format_input_preview(&input, 120);
+        assert!(
+            !preview.contains('\u{1b}'),
+            "HITL 预览不应保留 ESC 控制字符: {preview:?}"
+        );
+        assert!(
+            !preview.contains("[<555;106;49M"),
+            "HITL 预览不应保留 SGR 鼠标坐标序列: {preview:?}"
+        );
+        assert!(preview.contains("red"), "普通文本应保留: {preview:?}");
+        assert!(preview.contains("done"), "普通文本应保留: {preview:?}");
+    }

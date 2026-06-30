@@ -204,6 +204,38 @@
     }
 
     #[test]
+    fn test_shell_command_render_strips_non_sgr_terminal_sequences() {
+        let mut vm = MessageViewModel::ShellCommand {
+            id: "shell-control".to_string(),
+            command: "echo \x1b[<555;106;49Mcontrol".to_string(),
+            cwd: ".".to_string(),
+            stdin: Vec::new(),
+            stdout: "ok \x1b[<555;106;49M\x1b]0;bad title\u{7}red done".to_string(),
+            stderr: String::new(),
+            exit_code: Some(0),
+            collapsed: true,
+            content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
+        };
+        vm.recompute_hash();
+
+        let lines = render_view_model(&vm, None, 80, false, 0);
+        let text = rendered_text(&lines);
+        assert!(!text.contains('\u{1b}'), "不应输出 ESC 控制字符: {text:?}");
+        assert!(
+            !text.contains("[<555;106;49M"),
+            "不应输出 SGR 鼠标坐标序列: {text:?}"
+        );
+        assert!(
+            !text.contains("bad title"),
+            "OSC 标题序列内容不应进入输出: {text:?}"
+        );
+        assert!(text.contains("!echo control"), "命令标题普通文本应保留: {text:?}");
+        assert!(text.contains("red done"), "普通文本应保留: {text:?}");
+    }
+
+    #[test]
     fn test_shell_command_stderr_exit0_uses_muted_not_error() {
         // exit 0 + stderr → MUTED（成功，stderr 不应显示红色）
         let mut vm_ok = MessageViewModel::ShellCommand {
@@ -272,6 +304,7 @@
             collapsed: true,
             color: crate::ui::theme::ERROR,
             diff_input: None,
+            started_at: None,
             content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
@@ -293,6 +326,86 @@
     }
 
     #[test]
+    fn test_tool_block_header_and_output_strip_terminal_control_sequences() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_control".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("echo \u{1b}[<555;106;49Munsafe".to_string()),
+            content: "ok \u{1b}[<555;106;49Mline\n\u{1b}]0;bad title\u{7}done".to_string(),
+            is_error: false,
+            collapsed: false,
+            color: crate::ui::theme::SAGE,
+            diff_input: None,
+            started_at: None,
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        let text = rendered_text(&lines);
+        assert!(!text.contains('\u{1b}'), "不应输出 ESC 控制字符: {text:?}");
+        assert!(
+            !text.contains("[<555;106;49M"),
+            "不应输出 SGR 鼠标坐标序列: {text:?}"
+        );
+        assert!(
+            !text.contains("bad title"),
+            "OSC 标题序列内容不应进入输出: {text:?}"
+        );
+        assert!(text.contains("unsafe"), "工具参数普通文本应保留: {text:?}");
+        assert!(text.contains("line"), "工具输出普通文本应保留: {text:?}");
+        assert!(text.contains("done"), "工具输出普通文本应保留: {text:?}");
+    }
+
+    #[test]
+    fn test_running_bash_toolblock_after_threshold_shows_control_b_hint() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_running".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("python wuhan_weather.py".to_string()),
+            content: String::new(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::SAGE,
+            diff_input: None,
+            started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(3)),
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        let text = rendered_text(&lines);
+        assert!(
+            text.contains(crate::ui::message_render::CONTROL_B_BACKGROUND_HINT),
+            "运行超过 2 秒的 Bash ToolBlock 应显示 Ctrl+B 提示: {text:?}"
+        );
+    }
+
+    #[test]
+    fn test_running_bash_toolblock_before_threshold_hides_control_b_hint() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_running_new".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("python wuhan_weather.py".to_string()),
+            content: String::new(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::SAGE,
+            diff_input: None,
+            started_at: Some(std::time::Instant::now()),
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        let text = rendered_text(&lines);
+        assert!(
+            !text.contains(crate::ui::message_render::CONTROL_B_BACKGROUND_HINT),
+            "未超过 2 秒的 Bash ToolBlock 不应显示 Ctrl+B 提示: {text:?}"
+        );
+    }
+
+    #[test]
     fn test_tool_block_read_collapsed_shows_summary() {
         use crate::app::MessageViewModel;
         let vm = MessageViewModel::ToolBlock {
@@ -305,6 +418,7 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            started_at: None,
             content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
@@ -333,6 +447,7 @@
                 is_deleted_file: false,
                 is_binary: false,
             }),
+            started_at: None,
             content_hash: 0,
         };
 
@@ -386,6 +501,7 @@
                 is_deleted_file: false,
                 is_binary: false,
             }),
+            started_at: None,
             content_hash: 0,
         };
 
@@ -432,6 +548,7 @@
             collapsed: false,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            started_at: None,
             content_hash: 0,
         };
 
@@ -711,6 +828,7 @@
             collapsed: true,
             color: crate::ui::theme::BASH_BORDER,
             diff_input: None,
+            started_at: None,
             content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
@@ -737,6 +855,7 @@
             collapsed: true,
             color: crate::ui::theme::BASH_BORDER,
             diff_input: None,
+            started_at: None,
             content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
@@ -763,6 +882,7 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            started_at: None,
             content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);

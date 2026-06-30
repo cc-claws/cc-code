@@ -19,10 +19,7 @@ async fn test_spawn_writer_多chunk合并写入并读取尾部() {
     handle.await.unwrap();
     // Assert
     let tail = DiskOutput::read_tail(&path, 1024).await.unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&tail),
-        "hello world\nsecond line\n"
-    );
+    assert_eq!(String::from_utf8_lossy(&tail), "hello world\nsecond line\n");
 }
 
 #[tokio::test]
