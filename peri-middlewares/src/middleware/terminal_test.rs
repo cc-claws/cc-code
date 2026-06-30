@@ -272,8 +272,12 @@ fn test_truncate_output_persists_full_content_on_byte_truncation() {
 
 #[test]
 fn test_extract_quoted_message_double_quotes() {
-    let (msg, rest) = extract_quoted_message(r#""feat(tui): display version number on welcome page""#);
-    assert_eq!(msg.as_deref(), Some("feat(tui): display version number on welcome page"));
+    let (msg, rest) =
+        extract_quoted_message(r#""feat(tui): display version number on welcome page""#);
+    assert_eq!(
+        msg.as_deref(),
+        Some("feat(tui): display version number on welcome page")
+    );
     assert_eq!(rest, "");
 }
 
@@ -341,17 +345,14 @@ mod windows_git_rewrite {
 
     #[test]
     fn test_rewrite_long_flag() {
-        let (cmd, infos) =
-            rewrite_git_commit_for_windows(r#"git commit --message "hello world""#);
+        let (cmd, infos) = rewrite_git_commit_for_windows(r#"git commit --message "hello world""#);
         assert!(cmd.contains("git commit -F"), "应改写 --message: {cmd}");
         assert_eq!(infos[0].1, "hello world");
     }
 
     #[test]
     fn test_rewrite_preserves_extra_flags() {
-        let (cmd, _) = rewrite_git_commit_for_windows(
-            r#"git commit -m "msg" --no-verify"#,
-        );
+        let (cmd, _) = rewrite_git_commit_for_windows(r#"git commit -m "msg" --no-verify"#);
         assert!(cmd.contains("--no-verify"), "应保留额外标志: {cmd}");
         assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
     }
@@ -393,9 +394,8 @@ mod windows_git_rewrite {
 
     #[test]
     fn test_rewrite_multiple_m_flags() {
-        let (cmd, infos) = rewrite_git_commit_for_windows(
-            r#"git commit -m "subject" -m "body paragraph""#,
-        );
+        let (cmd, infos) =
+            rewrite_git_commit_for_windows(r#"git commit -m "subject" -m "body paragraph""#);
         assert!(cmd.contains("git commit -F"), "应改写为 -F: {cmd}");
         assert!(!cmd.contains(" -m "), "不应残留 -m: {cmd}");
         let (path, content) = &infos[0];
@@ -406,18 +406,16 @@ mod windows_git_rewrite {
 
     #[test]
     fn test_rewrite_three_m_flags() {
-        let (cmd, infos) = rewrite_git_commit_for_windows(
-            r#"git commit -m "first" -m "second" -m "third""#,
-        );
+        let (cmd, infos) =
+            rewrite_git_commit_for_windows(r#"git commit -m "first" -m "second" -m "third""#);
         assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
         assert_eq!(infos[0].1, "first\n\nsecond\n\nthird");
     }
 
     #[test]
     fn test_rewrite_mixed_m_and_other_flags() {
-        let (cmd, infos) = rewrite_git_commit_for_windows(
-            r#"git commit --no-verify -m "msg" --amend"#,
-        );
+        let (cmd, infos) =
+            rewrite_git_commit_for_windows(r#"git commit --no-verify -m "msg" --amend"#);
         assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
         assert!(cmd.contains("--no-verify"), "应保留 --no-verify: {cmd}");
         assert!(cmd.contains("--amend"), "应保留 --amend: {cmd}");

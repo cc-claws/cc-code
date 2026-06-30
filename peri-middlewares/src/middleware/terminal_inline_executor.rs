@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use peri_agent::shell::{
-    AgentShellHandle, ExitSignal, ShellCommandOutput, ShellExecutor, ShellRequest,
+    AgentShellHandle, ExitSignal, ShellAbortHandle, ShellCommandOutput, ShellExecutor, ShellRequest,
 };
 use tokio::io::AsyncReadExt;
 
@@ -97,7 +97,7 @@ impl ShellExecutor for InlineShellExecutor {
             result_rx,
             exit_signal,
             background_tx: Some(background_tx),
-            kill: join.abort_handle(),
+            kill: ShellAbortHandle::from_tokio_abort(join.abort_handle()),
         })
     }
 }

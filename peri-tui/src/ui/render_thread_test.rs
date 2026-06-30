@@ -897,3 +897,47 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         "指示器发生变化后 cache version 应递增"
     );
 }
+
+#[test]
+fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
+    let cache = std::sync::Arc::new(parking_lot::RwLock::new(RenderCache::new()));
+    let mut task = RenderTask {
+        last_messages: Vec::new(),
+        message_lines: Vec::new(),
+        message_hashes: Vec::new(),
+        cache: std::sync::Arc::clone(&cache),
+        notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+        width: 80,
+        show_tool_messages: false,
+        diff_visible: false,
+        detail_mode: false,
+    };
+
+    task.rebuild(vec![MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("python wuhan_weather.py".to_string()),
+        false,
+    )]);
+    assert!(
+        !cache.read().lines.iter().any(|line| line
+            .spans
+            .iter()
+            .any(|span| span.content.as_ref().contains(CONTROL_B_BACKGROUND_HINT))),
+        "刚启动的 Bash ToolBlock 不应立即显示 Ctrl+B 提示"
+    );
+
+    if let MessageViewModel::ToolBlock { started_at, .. } = &mut task.last_messages[0] {
+        *started_at = Some(Instant::now() - Duration::from_secs(3));
+    }
+    let changed = task.refresh_running_tool_indicators(0);
+
+    assert!(changed, "超过阈值后应触发一次重渲染");
+    assert!(
+        cache.read().lines.iter().any(|line| line
+            .spans
+            .iter()
+            .any(|span| span.content.as_ref().contains(CONTROL_B_BACKGROUND_HINT))),
+        "超过 2 秒后缓存中应出现 Ctrl+B 提示"
+    );
+}

@@ -1447,7 +1447,12 @@ fn test_edit_tool_end_produces_diff_input() {
         tail_vms
     );
 
-    if let MessageViewModel::ToolBlock { diff_input, args_display, .. } = edit_block.unwrap() {
+    if let MessageViewModel::ToolBlock {
+        diff_input,
+        args_display,
+        ..
+    } = edit_block.unwrap()
+    {
         let input = diff_input
             .as_ref()
             .expect("Edit 工具应产生 diff_input（供渲染时按 width 计算）");

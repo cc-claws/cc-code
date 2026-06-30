@@ -209,7 +209,8 @@ impl PanelComponent for CommandPalettePanel {
                 Input { key: Key::Esc, .. }
                 | Input { key: Key::Left, .. }
                 | Input {
-                    key: Key::Backspace, ..
+                    key: Key::Backspace,
+                    ..
                 } => {
                     self.phase = SelectPhase::Model;
                     EventResult::Consumed
@@ -387,14 +388,15 @@ fn apply_selection(entry: &ProviderModelEntry, effort: &str, ctx: &mut PanelCont
     cfg.config.active_provider_id = entry.provider_id.clone();
     cfg.config.active_alias = entry.alias.clone();
 
-    let t = cfg.config.thinking.get_or_insert_with(|| {
-        crate::config::ThinkingConfig {
+    let t = cfg
+        .config
+        .thinking
+        .get_or_insert_with(|| crate::config::ThinkingConfig {
             enabled: true,
             budget_tokens: 8000,
             effort: effort.to_string(),
             max_tokens: 32000,
-        }
-    });
+        });
     t.enabled = true;
     t.effort = effort.to_string();
 

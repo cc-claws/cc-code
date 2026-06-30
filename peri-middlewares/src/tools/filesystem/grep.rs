@@ -261,7 +261,10 @@ fn execute_search(
     // - 生产：mtime 降序（newest first），mtime 相同按 filename 升序 tiebreaker
     // - 测试：纯 filename 升序，保证 deterministic
     // - stat 失败按 epoch 0 处理
-    if matches!(parsed.output_mode, OutputMode::FilesOnly | OutputMode::FilesWithoutMatch) {
+    if matches!(
+        parsed.output_mode,
+        OutputMode::FilesOnly | OutputMode::FilesWithoutMatch
+    ) {
         let cwd_str = cwd.as_str();
         let mut keyed: Vec<(String, std::time::SystemTime)> = all_items
             .iter()
@@ -364,7 +367,11 @@ fn execute_search(
             } else {
                 final_items.join("\n")
             };
-            let occ_plural = if total_matches == 1 { "occurrence" } else { "occurrences" };
+            let occ_plural = if total_matches == 1 {
+                "occurrence"
+            } else {
+                "occurrences"
+            };
             let file_plural = if file_count == 1 { "file" } else { "files" };
             let limit_info = pagination_info();
             // 上游 summary：`... files.` 句点无条件，` with pagination = ...` 仅在 limitInfo 非空时拼接
@@ -568,9 +575,7 @@ impl BaseTool for GrepTool {
         let cwd = self.cwd.clone();
         let result = timeout(
             Duration::from_secs(15),
-            tokio::task::spawn_blocking(move || {
-                execute_search(&parsed, &cwd, head_limit, offset)
-            }),
+            tokio::task::spawn_blocking(move || execute_search(&parsed, &cwd, head_limit, offset)),
         )
         .await;
 

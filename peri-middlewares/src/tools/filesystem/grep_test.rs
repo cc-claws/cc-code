@@ -526,11 +526,7 @@ async fn test_grep_truncation_persists_full_output() {
 #[tokio::test]
 async fn test_grep_default_output_mode_is_files_with_matches() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("a.rs"),
-        "fn needle() {}\nfn other() {}",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("a.rs"), "fn needle() {}\nfn other() {}").unwrap();
     std::fs::write(dir.path().join("b.rs"), "no match").unwrap();
     let tool = GrepTool::new(dir.path().to_str().unwrap());
     let result = tool
@@ -544,10 +540,7 @@ async fn test_grep_default_output_mode_is_files_with_matches() {
         result.contains("a.rs"),
         "默认 output_mode 应为 files_with_matches，输出含匹配的文件名: {result}"
     );
-    assert!(
-        !result.contains("b.rs"),
-        "无匹配文件不应出现: {result}"
-    );
+    assert!(!result.contains("b.rs"), "无匹配文件不应出现: {result}");
     assert!(
         !result.contains("fn needle"),
         "默认 files_with_matches 不应输出匹配行内容: {result}"
@@ -570,10 +563,7 @@ async fn test_grep_max_columns_skips_long_lines() {
         }))
         .await
         .unwrap();
-    assert!(
-        result.contains("short needle"),
-        "短行应正常输出: {result}"
-    );
+    assert!(result.contains("short needle"), "短行应正常输出: {result}");
     assert!(
         !long_prefix.is_empty() && !result.contains(&long_prefix[..100]),
         "超 500 字节的长行不应出现在输出: {result}"

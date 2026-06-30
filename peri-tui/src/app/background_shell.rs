@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use tokio::sync::oneshot;
-use tokio::task::AbortHandle;
 
 use super::AgentEvent;
 use crate::shell_exec::CommandOutput;
+use peri_agent::shell::ShellAbortHandle;
 use peri_agent::task_output::DiskOutput;
 
 /// 后台 Shell 任务状态
@@ -54,7 +54,7 @@ impl ShellStatus {
 /// `result_rx` 是 oneshot::Receiver（进程退出时 resolve），不是 JoinHandle：
 /// 进程执行由 [`crate::shell_exec::execute_shell_command_streaming`] 的内部
 /// tokio task 持有，这里只接收退出结果。`abort_handle` 保留同一 task 的
-/// AbortHandle，供 BackgroundTasksPanel 的 `x` 键 kill。
+/// kill 句柄，供 BackgroundTasksPanel 的 `x` 键终止进程。
 pub struct BackgroundShell {
     /// 任务 id（uuid7）
     pub id: String,
@@ -80,8 +80,8 @@ pub struct BackgroundShell {
     pub result_rx: Option<oneshot::Receiver<Result<CommandOutput>>>,
     /// stall watchdog task handle（批次 C 启动）
     pub stall_watchdog: Option<tokio::task::JoinHandle<()>>,
-    /// 进程 task 的 abort handle（kill 后台任务用，批次 D 的 `x` 键）
-    pub abort_handle: Option<AbortHandle>,
+    /// 进程 kill 句柄（后台任务面板 `x` 键）
+    pub abort_handle: Option<ShellAbortHandle>,
 }
 
 impl BackgroundShell {
@@ -92,7 +92,7 @@ impl BackgroundShell {
         cwd: PathBuf,
         output_path: PathBuf,
         result_rx: oneshot::Receiver<Result<CommandOutput>>,
-        abort_handle: AbortHandle,
+        abort_handle: ShellAbortHandle,
         started_at: Instant,
     ) -> Self {
         Self {
@@ -277,9 +277,11 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
     if notification.starts_with("<background-task-completed>") {
         let command = extract_xml_tag(notification, "command")
             .map(xml_unescape)
+            .map(|s| super::tool_display::sanitize_display_text(&s))
             .unwrap_or_else(|| "shell command".to_string());
         let status = extract_xml_tag(notification, "status")
             .map(xml_unescape)
+            .map(|s| super::tool_display::sanitize_display_text(&s))
             .unwrap_or_else(|| "completed".to_string());
         let verb = if status.starts_with("failed") {
             "后台 shell 失败"
@@ -299,6 +301,7 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
     if notification.starts_with("<background-task-waiting-for-input>") {
         let command = extract_xml_tag(notification, "command")
             .map(xml_unescape)
+            .map(|s| super::tool_display::sanitize_display_text(&s))
             .unwrap_or_else(|| "shell command".to_string());
         return Some(format!(
             "后台 shell 等待输入: {}",
