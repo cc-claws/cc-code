@@ -188,6 +188,9 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 ));
             }
             has_content = true;
+        } else if agent.session_tool_stats.is_empty() {
+            // 默认占位：还没有执行过工具时显示
+            left_spans.push(Span::styled(" ◐ Tool", Style::default().fg(theme::DIM)));
         } else {
             // 工具全部执行完后不显示灰色 ◐ 占位，只保留右侧工具历史计数
         }
