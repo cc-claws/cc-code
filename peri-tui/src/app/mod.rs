@@ -546,7 +546,10 @@ impl App {
 
     pub fn set_loading(&mut self, loading: bool) {
         let responding_label = self.services.lc.tr("spinner-responding");
+        // 同步当前 session 的动词列表（覆盖 setup wizard 等非 /lang 路径的语言变更）
+        let verb_list = peri_widgets::spinner::verb::verbs_for_lang(self.services.lc.current_lang());
         let s = self.active_mut();
+        s.spinner_state.set_verb_list(verb_list);
         s.ui.loading = loading;
         if loading {
             s.ui.textarea = build_textarea(true);
