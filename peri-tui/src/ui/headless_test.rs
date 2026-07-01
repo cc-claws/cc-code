@@ -630,6 +630,9 @@ async fn test_message_area_renders_scrollbar_metrics_when_overflowing() {
             .view_messages
             .push(MessageViewModel::user(format!("message line {}", i)));
     }
+    // 模拟鼠标悬停在消息区域
+    app.session_mgr.current_mut().ui.scrollbar_hover = true;
+
     let notified = handle.render_notify.notified();
     app.render_rebuild();
     notified.await;
