@@ -37,7 +37,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         if is_highlight {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
-        spans.push(Span::styled(format!(" {}", app.services.model_name), style));
+        spans.push(Span::styled(format!(" [{}]", app.services.model_name), style));
     }
 
     // 上下文进度条
@@ -188,25 +188,8 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 ));
             }
             has_content = true;
-        } else if !agent.session_tool_stats.is_empty() {
-            // 工具执行完后保留最近工具名，用 DIM 色
-            let last = agent
-                .session_tool_stats
-                .iter()
-                .max_by_key(|(_, c)| *c)
-                .map(|(n, _)| n.clone());
-            if let Some(name) = last {
-                let display = format_tool_display_name(&name);
-                left_spans.push(Span::styled(
-                    format!(" ◐ {}", display),
-                    Style::default().fg(theme::DIM),
-                ));
-                has_content = true;
-            }
         } else {
-            // 默认占位：还没有执行过工具时显示
-            left_spans.push(Span::styled(" ◐ Tool", Style::default().fg(theme::DIM)));
-            has_content = true;
+            // 工具全部执行完后不显示灰色 ◐ 占位，只保留右侧工具历史计数
         }
     }
 
@@ -219,6 +202,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
             }
             let mut entries: Vec<_> = agent.session_tool_stats.iter().collect();
             entries.sort_by(|a, b| b.1.cmp(a.1));
+            let total = entries.len();
             for (i, (name, count)) in entries.iter().take(5).enumerate() {
                 if i > 0 {
                     left_spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
@@ -228,6 +212,12 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 left_spans.push(Span::styled(format!(" {}", display), Style::default()));
                 left_spans.push(Span::styled(
                     format!(" ×{}", count),
+                    Style::default().fg(theme::DIM),
+                ));
+            }
+            if total > 5 {
+                left_spans.push(Span::styled(
+                    format!(" | +{} more", total - 5),
                     Style::default().fg(theme::DIM),
                 ));
             }
