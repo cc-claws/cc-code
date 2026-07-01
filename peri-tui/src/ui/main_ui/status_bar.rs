@@ -239,13 +239,11 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let mode = app.services.permission_mode.load();
         let (i18n_key, color) = match mode {
             PermissionMode::Default => ("statusbar-permission-default", theme::TEXT),
-            PermissionMode::DontAsk => ("statusbar-permission-dont-ask", theme::WARNING),
             PermissionMode::AcceptEdit => ("statusbar-permission-accept-edit", theme::THINKING),
             PermissionMode::AutoMode => ("statusbar-permission-auto", theme::WARNING),
             PermissionMode::Bypass => ("statusbar-permission-bypass", theme::ERROR),
         };
         let label = lc.tr(i18n_key);
-        let hint = lc.tr("statusbar-permission-cycle-hint");
         let is_highlight = app
             .global_ui
             .mode_highlight_until
