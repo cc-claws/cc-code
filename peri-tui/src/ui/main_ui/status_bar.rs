@@ -549,11 +549,12 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 app.global_panels.status_bar_hints(lc)
             } else if app.session_mgr.current().ui.detail_mode {
                 vec![
+                    ("● Verbose".to_string(), String::new()),
                     ("Ctrl+O".to_string(), lc.tr("key-exit-detail")),
                 ]
             } else {
                 vec![
-                    ("Tab".to_string(), lc.tr("key-tab-mode")),
+                    ("Ctrl+O".to_string(), lc.tr("key-detail")),
                     ("Ctrl+P".to_string(), lc.tr("key-settings")),
                 ]
             };
@@ -629,7 +630,9 @@ fn format_hints(
     let mut spans: Vec<Span> = Vec::new();
     for (key, desc) in hints {
         spans.push(Span::styled(format!(" {} ", key), key_style));
-        spans.push(Span::styled(format!(":{} ", desc), desc_style));
+        if !desc.is_empty() {
+            spans.push(Span::styled(format!(":{} ", desc), desc_style));
+        }
     }
     spans
 }
