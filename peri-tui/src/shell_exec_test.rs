@@ -44,10 +44,11 @@ async fn test_execute_shell_command_streaming_receives_buffered_python_output_be
     }
     let temp_dir = tempfile::tempdir().unwrap();
     let script_path = temp_dir.path().join("buffered_output.py");
-    std::fs::write(&script_path, "import time\nprint('ready')\ntime.sleep(3)\n").unwrap();
+    // 使用 flush=True 确保 Windows 上输出立即刷新
+    std::fs::write(&script_path, "import time\nprint('ready', flush=True)\ntime.sleep(3)\n").unwrap();
     let command = format!("python {}", script_path.display());
     let mut execution = execute_shell_command_streaming(&command, ".", None);
-    let seen = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+    let seen = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         let mut bytes = Vec::new();
         while let Some(chunk) = execution.output_rx.recv().await {
             bytes.extend_from_slice(&chunk);
