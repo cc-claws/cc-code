@@ -27,8 +27,24 @@ pub struct ProviderModels {
 }
 
 impl ProviderModels {
-    /// 按 alias 名（大小写不敏感）获取对应模型名
+    /// 按 alias 名（大小写不敏感）获取对应模型名。
+    /// 自动过滤 `[...]` 后缀（如 `[1M]`），仅返回纯模型名。
     pub fn get_model(&self, alias: &str) -> Option<&str> {
+        let raw = match alias.to_lowercase().as_str() {
+            "opus" => &self.opus,
+            "sonnet" => &self.sonnet,
+            "haiku" => &self.haiku,
+            _ => return None,
+        };
+        if raw.is_empty() {
+            return None;
+        }
+        // 过滤 `[1M]` 等上下文窗口标记
+        Some(raw.split('[').next().unwrap_or(raw).trim())
+    }
+
+    /// 获取原始模型名（含 `[...]` 标记），用于显示
+    pub fn get_model_raw(&self, alias: &str) -> Option<&str> {
         match alias.to_lowercase().as_str() {
             "opus" => Some(&self.opus),
             "sonnet" => Some(&self.sonnet),
