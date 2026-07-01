@@ -1,7 +1,7 @@
 use rand::RngExt;
 
-/// Claude Code 风格的大量随机动词，用于 loading spinner 显示。
-pub const DEFAULT_VERBS: &[&str] = &[
+/// 中文随机动词，用于 loading spinner 显示。
+pub const ZH_VERBS: &[&str] = &[
     // ── 烹饪/烘焙类 ──
     "烹制中",
     "烘焙中",
@@ -127,6 +127,145 @@ pub const DEFAULT_VERBS: &[&str] = &[
     "测试中",
 ];
 
+/// 向后兼容别名
+pub const DEFAULT_VERBS: &[&str] = ZH_VERBS;
+
+/// 英文随机动词，用于 loading spinner 显示。
+pub const EN_VERBS: &[&str] = &[
+    // ── Cooking/Baking ──
+    "Cooking",
+    "Baking",
+    "Frying",
+    "Simmering",
+    "Stewing",
+    "Seasoning",
+    "Marinating",
+    "Heating",
+    "Stir-frying",
+    "Braising",
+    "Steaming",
+    // ── Thinking/Analysis ──
+    "Thinking",
+    "Analyzing",
+    "Computing",
+    "Reasoning",
+    "Pondering",
+    "Deliberating",
+    "Reflecting",
+    "Meditating",
+    "Contemplating",
+    "Mulling",
+    "Weighing",
+    "Considering",
+    // ── Creating/Building ──
+    "Writing",
+    "Building",
+    "Creating",
+    "Designing",
+    "Sketching",
+    "Painting",
+    "Composing",
+    "Choreographing",
+    "Carving",
+    "Forging",
+    "Polishing",
+    "Decorating",
+    // ── Processing/Searching ──
+    "Processing",
+    "Searching",
+    "Retrieving",
+    "Reading",
+    "Scanning",
+    "Verifying",
+    "Compiling",
+    "Merging",
+    "Converting",
+    "Parsing",
+    // ── Motion/Action ──
+    "Executing",
+    "Running",
+    "Jumping",
+    "Dancing",
+    "Wandering",
+    "Strolling",
+    "Dashing",
+    "Tracking",
+    "Drifting",
+    "Circling",
+    "Gliding",
+    "Spinning",
+    "Swaying",
+    // ── Fantasy/Creative ──
+    "Conjuring",
+    "Transforming",
+    "Teleporting",
+    "Transmuting",
+    "Summoning",
+    "Charging",
+    "Brewing",
+    "Casting",
+    "Awakening",
+    "Fusing",
+    "Quantizing",
+    // ── Nature/Growth ──
+    "Growing",
+    "Sprouting",
+    "Blooming",
+    "Rooting",
+    "Spreading",
+    "Evolving",
+    "Hatching",
+    "Pollinating",
+    "Photosynthesizing",
+    "Transpiring",
+    "Frosting",
+    // ── Playful/Quirky ──
+    "Tinkering",
+    "Fidgeting",
+    "Fussing",
+    "Playing",
+    "Loitering",
+    "Slacking",
+    "Daydreaming",
+    "Wandering off",
+    "Puzzling",
+    "Scratching head",
+    "Getting lost",
+    "Napping",
+    // ── Conceptual/Abstract ──
+    "Recombining",
+    "Folding",
+    "Weaving",
+    "Condensing",
+    "Sublimating",
+    "Precipitating",
+    "Germinating",
+    "Crystallizing",
+    "Aggregating",
+    "Calibrating",
+    "Syncing",
+    // ── Other ──
+    "Working",
+    "Crafting",
+    "Collecting",
+    "Organizing",
+    "Exploring",
+    "Patrolling",
+    "Monitoring",
+    "Experimenting",
+    "Inspecting",
+    "Testing",
+];
+
+/// 根据语言标识选择动词列表。
+pub fn verbs_for_lang(lang: &str) -> &'static [&'static str] {
+    if lang.starts_with("zh") {
+        ZH_VERBS
+    } else {
+        EN_VERBS
+    }
+}
+
 pub fn pick_verb(active_form: Option<&str>) -> String {
     pick_verb_from(active_form, DEFAULT_VERBS)
 }
@@ -162,5 +301,21 @@ mod tests {
             "'{}' should be in DEFAULT_VERBS",
             result
         );
+    }
+
+    #[test]
+    fn test_en_verbs_not_empty() {
+        assert!(!EN_VERBS.is_empty(), "EN_VERBS should not be empty");
+        assert_eq!(EN_VERBS.len(), ZH_VERBS.len(), "EN_VERBS and ZH_VERBS should have the same length");
+    }
+
+    #[test]
+    fn test_verbs_for_lang() {
+        assert_eq!(verbs_for_lang("en"), EN_VERBS);
+        assert_eq!(verbs_for_lang("en-US"), EN_VERBS);
+        assert_eq!(verbs_for_lang("zh-CN"), ZH_VERBS);
+        assert_eq!(verbs_for_lang("zh"), ZH_VERBS);
+        // 未知语言回退英文
+        assert_eq!(verbs_for_lang("fr"), EN_VERBS);
     }
 }

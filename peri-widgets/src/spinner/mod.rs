@@ -31,19 +31,23 @@ pub struct SpinnerState {
     raw_tick: u64,
     /// 最后一次从非 Idle 切换到 Idle 时捕获的耗时（ms），0 表示无记录
     last_summary_elapsed_ms: u64,
+    /// 随机动词列表（按语言选择）
+    verb_list: &'static [&'static str],
 }
 
 impl SpinnerState {
     pub fn new(mode: SpinnerMode) -> Self {
+        let verb_list = verb::ZH_VERBS;
         Self {
             mode,
-            verb: verb::pick_verb(None),
+            verb: verb::pick_verb_from(None, verb_list),
             start_time: Instant::now(),
             token_count: 0,
             displayed_tokens: 0,
             tick: 0,
             raw_tick: 0,
             last_summary_elapsed_ms: 0,
+            verb_list,
         }
     }
 
@@ -76,7 +80,12 @@ impl SpinnerState {
     }
 
     pub fn set_verb(&mut self, active_form: Option<&str>) {
-        self.verb = verb::pick_verb(active_form);
+        self.verb = verb::pick_verb_from(active_form, self.verb_list);
+    }
+
+    /// 设置随机动词列表（按语言切换时调用）
+    pub fn set_verb_list(&mut self, verb_list: &'static [&'static str]) {
+        self.verb_list = verb_list;
     }
 
     pub fn set_token_count(&mut self, count: usize) {
@@ -126,7 +135,7 @@ impl SpinnerState {
         self.displayed_tokens
     }
 
-    /// 重置所有字段到初始状态
+    /// 重置所有字段到初始状态（保留 verb_list）
     pub fn reset(&mut self) {
         self.mode = SpinnerMode::Idle;
         self.verb = String::new();
