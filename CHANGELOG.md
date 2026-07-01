@@ -4,6 +4,23 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.34 — 2026-07-01
+
+### Features
+
+- **滚动条和状态栏优化**（#104）：优化 TUI 滚动条和状态栏的渲染效果
+
+### Bug Fixes
+
+- **Windows CI 流式输出测试超时**：修复 Windows CI 环境下 Python 流式输出测试超时的问题
+- **滚动条测试修复**：修复滚动条相关测试用例
+
+### Documentation
+
+- 完善项目所有 crate 的文档
+
+---
+
 ## v0.6.33 — 2026-06-30
 
 ### Bug Fixes
