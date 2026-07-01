@@ -79,6 +79,21 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **HITL Approval** | Sensitive operations auto-intercepted with auto-classifier and shared-mode |
 | **Nobody Coding** | 99% of code produced by DeepSeek, Mimo, and GLM — humans decide what, AI figures out how |
 
+### v0.6.x New Features
+
+| Feature | Version | Description |
+|---------|---------|-------------|
+| **Ctrl+B Background Shell** | v0.6.29 | Shell commands can run in background with Ctrl+B |
+| **/commit Command** | v0.6.29 | One-click git commit with auto-generated message |
+| **/review Command** | v0.6.29 | PR code review |
+| **/export Command** | v0.6.29 | Export conversation to Markdown |
+| **Global Screen Selection** | v0.6.29 | Buffer-based selection across all UI regions, auto-copy on release |
+| **Windows Git Bash** | v0.6.21 | Auto fallback to Git Bash when cmd fails |
+| **Grep Upstream Alignment** | v0.6.15 | Aligned with Claude Code's files_with_matches mode |
+| **i18n Support** | v0.6.17 | Switch language with `/lang en` or `/lang zh-CN` |
+| **Rewind** | v0.6.0 | Double-click ESC to select rollback point |
+| **/gc Command** | v0.6.0 | Manual memory reclaim + RSS/jemalloc diagnostics |
+
 ---
 
 ## Install
@@ -133,18 +148,34 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 ```text
 cc-code/
 ├── peri-agent/                # Core: Agent loop, tool system, persistence, telemetry
+│   └── README.md              # Agent framework guide
 ├── peri-middlewares/           # Middleware: filesystem, terminal, MCP, Hooks, etc.
+│   ├── README.md              # Middleware overview
+│   └── CLAUDE.md              # Development guide and traps
 ├── peri-tui/                  # TUI application (Ratatui)
+│   ├── README.md              # TUI usage guide
+│   └── CLAUDE.md              # Development guide and traps
 ├── peri-acp/                  # ACP service layer: bridges TUI/IDE with Agent
+│   └── README.md              # ACP architecture and data flow
 ├── peri-widgets/              # Widget component library
+│   └── README.md              # Component list and examples
 ├── peri-lsp/                  # LSP client library
+│   └── README.md              # LSP operations and config
 ├── langfuse-client/           # Langfuse telemetry client
+│   └── README.md              # Telemetry config and usage
 ├── npm/                       # npm package: postinstall script + shell wrapper
+│   └── README.md              # npm package docs
 ├── scripts/
 │   ├── install.sh             # macOS / Linux installer
 │   └── install.ps1            # Windows installer
 ├── side-projects/             # Experimental projects (gig, llm-gateway, etc.)
 ├── spec/                      # Design docs and specs
+│   ├── global/                # Global architecture docs
+│   ├── issues/                # Issue analysis docs
+│   └── prd/                   # Product requirement docs
+├── CLAUDE.md                  # Project development guide
+├── CHANGELOG.md               # Version changelog
+├── CONTRIBUTING.md            # Contribution guide
 ├── README.md
 └── LICENSE                    # Apache 2.0
 ```
