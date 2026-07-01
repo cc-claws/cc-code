@@ -22,10 +22,10 @@ pub enum PermissionMode {
 }
 
 impl PermissionMode {
-    /// 循环切换到下一个模式：Default → DontAsk → AcceptEdit → AutoMode → Bypass → Default
+    /// 循环切换到下一个模式：Default → AcceptEdit → AutoMode → Bypass → Default（DontAsk 跳过）
     pub fn next(self) -> Self {
         match self {
-            Self::Default => Self::DontAsk,
+            Self::Default => Self::AcceptEdit,
             Self::DontAsk => Self::AcceptEdit,
             Self::AcceptEdit => Self::AutoMode,
             Self::AutoMode => Self::Bypass,

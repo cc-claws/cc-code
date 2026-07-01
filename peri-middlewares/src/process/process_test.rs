@@ -1,6 +1,6 @@
 use crate::process::{
     git_bash_command, git_bash_path, is_unrecognized_command_error, shell_command,
-    should_fallback_to_bash,
+    shell_command_with_shell, should_fallback_to_bash,
 };
 use std::path::Path;
 
@@ -285,4 +285,75 @@ async fn test_git_bash_command_sets_msys_no_pathconv() {
         // bash 不可用时跳过（非 Windows CI 环境可能没有 bash）
         _ => {}
     }
+}
+
+// ── shell_command_with_shell 测试 ──────────────────────────────────
+
+#[test]
+fn test_shell_command_with_shell_powershell() {
+    // PowerShell: 应使用 powershell -NoProfile -NonInteractive -Command
+    let cmd = shell_command_with_shell("Write-Host hello", &[], Some("powershell"));
+    let formatted = format!("{cmd:?}");
+    assert!(
+        formatted.contains("powershell"),
+        "expected powershell, got: {formatted}"
+    );
+    assert!(
+        formatted.contains("-Command"),
+        "expected -Command flag, got: {formatted}"
+    );
+    assert!(
+        formatted.contains("Write-Host hello"),
+        "expected command retained, got: {formatted}"
+    );
+}
+
+#[test]
+fn test_shell_command_with_shell_pwsh_alias() {
+    // pwsh 别名应等同于 powershell
+    let cmd = shell_command_with_shell("echo test", &[], Some("pwsh"));
+    let formatted = format!("{cmd:?}");
+    assert!(
+        formatted.contains("powershell"),
+        "expected powershell for pwsh alias, got: {formatted}"
+    );
+}
+
+#[test]
+fn test_shell_command_with_shell_powershell_with_args() {
+    // PowerShell 带参数
+    let cmd = shell_command_with_shell("Get-Process", &["node"], Some("powershell"));
+    let formatted = format!("{cmd:?}");
+    assert!(
+        formatted.contains("Get-Process node"),
+        "expected command with args, got: {formatted}"
+    );
+}
+
+#[test]
+fn test_shell_command_with_shell_none_uses_platform_default() {
+    // shell=None 应使用平台默认
+    let cmd = shell_command_with_shell("echo", &["hello"], None);
+    let formatted = format!("{cmd:?}");
+    #[cfg(windows)]
+    {
+        assert!(formatted.contains("cmd"), "expected cmd on Windows, got: {formatted}");
+    }
+    #[cfg(unix)]
+    {
+        assert!(formatted.contains("bash"), "expected bash on Unix, got: {formatted}");
+    }
+}
+
+#[test]
+fn test_shell_command_with_shell_bash_explicit() {
+    // 显式 bash 应使用 bash -c
+    let _cmd = shell_command_with_shell("ls", &[], Some("bash"));
+    #[cfg(unix)]
+    {
+        let formatted = format!("{_cmd:?}");
+        assert!(formatted.contains("bash"), "expected bash on Unix, got: {formatted}");
+        assert!(formatted.contains("-c"), "expected -c flag, got: {formatted}");
+    }
+    // Windows 上可能回退到 cmd（如果没有 Git Bash）
 }

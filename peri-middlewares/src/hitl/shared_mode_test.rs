@@ -3,7 +3,7 @@ use std::thread;
 
 #[test]
 fn test_next_cycle() {
-    assert_eq!(PermissionMode::Default.next(), PermissionMode::DontAsk);
+    assert_eq!(PermissionMode::Default.next(), PermissionMode::AcceptEdit);
     assert_eq!(PermissionMode::DontAsk.next(), PermissionMode::AcceptEdit);
     assert_eq!(PermissionMode::AcceptEdit.next(), PermissionMode::AutoMode);
     assert_eq!(PermissionMode::AutoMode.next(), PermissionMode::Bypass);
@@ -55,7 +55,6 @@ fn test_shared_store_and_load() {
 #[test]
 fn test_shared_cycle_single_thread() {
     let shared = SharedPermissionMode::new(PermissionMode::Default);
-    assert_eq!(shared.cycle(), PermissionMode::DontAsk);
     assert_eq!(shared.cycle(), PermissionMode::AcceptEdit);
     assert_eq!(shared.cycle(), PermissionMode::AutoMode);
     assert_eq!(shared.cycle(), PermissionMode::Bypass);

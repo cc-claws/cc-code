@@ -29,7 +29,7 @@ pub async fn execute_command_hook(
     input: &HookInput,
     registered: &RegisteredHook,
 ) -> HookAction {
-    let (command, _shell, timeout_secs) = match hook {
+    let (command, shell, timeout_secs) = match hook {
         HookType::Command {
             command,
             shell,
@@ -62,7 +62,7 @@ pub async fn execute_command_hook(
     let hook_event_str = format!("{:?}", input.hook_event_name);
 
     let result = tokio::time::timeout(Duration::from_secs(timeout_secs), async {
-        let mut cmd = crate::process::shell_command(&command, &[]);
+        let mut cmd = crate::process::shell_command_with_shell(&command, &[], shell.as_deref());
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

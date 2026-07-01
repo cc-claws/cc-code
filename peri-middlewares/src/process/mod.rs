@@ -31,33 +31,100 @@ fn has_cmd_special_chars(command: &str) -> bool {
 /// Returns the `Command` object so callers can add custom configuration
 /// (env, current_dir, stdin/stdout/stderr, kill_on_drop, etc.).
 pub fn shell_command(command: &str, args: &[&str]) -> tokio::process::Command {
-    if cfg!(target_os = "windows") {
-        let mut cmd = tokio::process::Command::new("cmd");
-        // cmd.exe 把 & | < > ^ 等字符解析为命令分隔符/管道/重定向。
-        // 用 /S /C "..." 包裹可防止特殊字符被错误解析（/S 剥离外层引号）。
-        if has_cmd_special_chars(command) {
-            cmd.arg("/S").arg("/C").arg(format!("\"{}\"", command));
-        } else {
-            cmd.arg("/C").arg(command);
-        }
-        for arg in args {
-            cmd.arg(arg);
-        }
-        cmd
-    } else {
-        let mut parts = vec![command.to_string()];
-        for arg in args {
-            if arg.contains(' ') || arg.contains('"') || arg.contains('\'') || arg.contains('\\') {
-                parts.push(format!("'{}'", arg.replace('\'', "'\\''")));
+    shell_command_with_shell(command, args, None)
+}
+
+/// Build a `tokio::process::Command` that executes the given command through the
+/// specified shell or platform default.
+///
+/// - **shell = Some("powershell") / Some("pwsh")**: `powershell -Command "<command> <args...>"`
+/// - **shell = Some("bash")**: Git Bash fallback on Windows, `bash -c` on Unix
+/// - **shell = None**: Platform default (`cmd /C` on Windows, `bash -c` on Unix)
+///
+/// Returns the `Command` object so callers can add custom configuration.
+pub fn shell_command_with_shell(
+    command: &str,
+    args: &[&str],
+    shell: Option<&str>,
+) -> tokio::process::Command {
+    let shell_lower = shell.map(|s| s.to_lowercase());
+
+    match shell_lower.as_deref() {
+        Some("powershell" | "pwsh") => {
+            // PowerShell: powershell -Command "..."
+            let mut cmd = tokio::process::Command::new("powershell");
+            cmd.arg("-NoProfile").arg("-NonInteractive").arg("-Command");
+            // PowerShell -Command 需要整个命令作为单个参数
+            let full_command = if args.is_empty() {
+                command.to_string()
             } else {
-                parts.push(arg.to_string());
+                format!("{} {}", command, args.join(" "))
+            };
+            cmd.arg(full_command);
+            cmd
+        }
+        Some("bash") => {
+            // Explicit bash: use Git Bash on Windows, bash on Unix
+            if cfg!(target_os = "windows") {
+                if let Some(bash_exe) = git_bash_path() {
+                    git_bash_command(&bash_exe, command, args)
+                } else {
+                    // Fallback to cmd if no bash available
+                    tracing::warn!("bash shell requested but Git Bash not found, falling back to cmd");
+                    shell_command_cmd(command, args)
+                }
+            } else {
+                // Unix: direct bash
+                let mut parts = vec![command.to_string()];
+                for arg in args {
+                    if arg.contains(' ') || arg.contains('"') || arg.contains('\'') || arg.contains('\\') {
+                        parts.push(format!("'{}'", arg.replace('\'', "'\\''")));
+                    } else {
+                        parts.push(arg.to_string());
+                    }
+                }
+                let shell_cmd = parts.join(" ");
+                let mut cmd = tokio::process::Command::new("bash");
+                cmd.arg("-c").arg(&shell_cmd);
+                cmd
             }
         }
-        let shell_cmd = parts.join(" ");
-        let mut cmd = tokio::process::Command::new("bash");
-        cmd.arg("-c").arg(&shell_cmd);
-        cmd
+        _ => {
+            // Default: platform shell (cmd on Windows, bash on Unix)
+            if cfg!(target_os = "windows") {
+                shell_command_cmd(command, args)
+            } else {
+                let mut parts = vec![command.to_string()];
+                for arg in args {
+                    if arg.contains(' ') || arg.contains('"') || arg.contains('\'') || arg.contains('\\') {
+                        parts.push(format!("'{}'", arg.replace('\'', "'\\''")));
+                    } else {
+                        parts.push(arg.to_string());
+                    }
+                }
+                let shell_cmd = parts.join(" ");
+                let mut cmd = tokio::process::Command::new("bash");
+                cmd.arg("-c").arg(&shell_cmd);
+                cmd
+            }
+        }
     }
+}
+
+/// Helper: build a `cmd /C` command on Windows
+fn shell_command_cmd(command: &str, args: &[&str]) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new("cmd");
+    // cmd.exe 把 & | < > ^ 等字符解析为命令分隔符/管道/重定向。
+    // 用 /S /C "..." 包裹可防止特殊字符被错误解析（/S 剥离外层引号）。
+    if has_cmd_special_chars(command) {
+        cmd.arg("/S").arg("/C").arg(format!("\"{}\"", command));
+    } else {
+        cmd.arg("/C").arg(command);
+    }
+    for arg in args {
+        cmd.arg(arg);
+    }
+    cmd
 }
 
 /// 检测 Git Bash 可执行文件路径。仅 Windows 上有实际意义，其他平台直接返回 None。
