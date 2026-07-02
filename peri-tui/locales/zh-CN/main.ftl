@@ -154,11 +154,11 @@ welcome-skills-available = { $count } 个 skills 可用
 
 tip-0 = 按 / 输入命令，Tab 补全
 tip-1 = Ctrl+C 中断 Agent，Shift+Tab 切换权限模式
-tip-2 = Ctrl+P 打开命令面板（选 Provider / Model / Effort），Ctrl+T 在 opus / sonnet / haiku 间快速切换
+tip-2 = Ctrl+P 打开命令面板（选 Provider / Model / Effort），Ctrl+T 在当前 Provider 的可用模型间切换
 tip-3 = Shift+Enter 在输入框中换行
 tip-4 = 拖拽文件或图片到终端可自动附加到消息
 tip-5 = 长按 Ctrl+V 粘贴剪贴板图片
-tip-6 = PgUp/PgDn 滚动消息历史，Home/End 跳转顶/底，↑/↓ 浏览输入历史
+tip-6 = Ctrl+U/D 滚动消息历史，Home/End 跳转顶/底，↑/↓ 浏览输入历史
 tip-7 = Ctrl+N/P 切换 Session，Ctrl+W 关闭
 tip-8 = Esc 关闭弹窗或面板，Enter 确认选择
 tip-9 = /compact 压缩上下文节省 token
