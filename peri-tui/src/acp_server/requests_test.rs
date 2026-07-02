@@ -1,7 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use peri_acp::provider::{PeriConfig, ProviderConfig, ProviderModels};
+use peri_acp::provider::{
+    format_model_selection_value, PeriConfig, ProviderConfig, ProviderModels,
+};
 use peri_acp::transport::types::{AcpError, IncomingMessage, RequestId};
 use peri_agent::thread::FilesystemThreadStore;
 use peri_middlewares::hitl::shared_mode::{PermissionMode, SharedPermissionMode};
@@ -147,6 +149,62 @@ async fn test_update_config_切换provider后cfg_provider更新() {
     assert!(
         result.get("configOptions").is_some(),
         "响应应包含 configOptions"
+    );
+}
+
+/// 验证 model 配置值携带 provider 后，同名 alias 能正确跨 provider 切换。
+#[tokio::test]
+async fn test_set_config_option_model_携带provider后切换provider() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+    let value = format_model_selection_value("b", "sonnet");
+    let params = json!({
+        "sessionId": "test-session",
+        "configId": "model",
+        "value": value,
+    });
+
+    let result = handle_request(
+        "session/set_config_option",
+        &params,
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+    let result_json = result.to_string();
+    assert!(
+        result_json.contains(&format_model_selection_value("a", "sonnet")),
+        "模型选项应保留 OpenAI provider 的 sonnet value，实际响应: {result_json}",
+    );
+    assert!(
+        result_json.contains(&format_model_selection_value("b", "sonnet")),
+        "模型选项应包含 Anthropic provider 的 sonnet value，实际响应: {result_json}",
+    );
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+    assert_eq!(stored.config.active_alias, "sonnet");
+    drop(stored);
+
+    let provider = cfg.provider.read();
+    assert!(
+        matches!(&*provider, LlmProvider::Anthropic { model, .. } if model == "claude-sonnet-4-6"),
+        "选择 b::sonnet 后应切到 Anthropic，实际: display={} model={}",
+        provider.display_name(),
+        provider.model_name(),
     );
 }
 

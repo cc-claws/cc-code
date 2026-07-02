@@ -39,6 +39,31 @@ struct StdioContext {
     langfuse_session: Option<Arc<peri_acp::langfuse::LangfuseSession>>,
 }
 
+fn apply_stdio_model_selection(
+    ctx: &StdioContext,
+    model_id: &str,
+) -> Option<peri_tui::app::agent::LlmProvider> {
+    let (provider_id, alias) = peri_acp::provider::parse_model_selection_value(model_id);
+    {
+        let mut cfg = ctx.peri_config.write();
+        if let Some(provider_id) = provider_id {
+            if cfg.config.providers.iter().any(|p| p.id == provider_id) {
+                cfg.config.active_provider_id = provider_id.to_string();
+            } else {
+                tracing::warn!(
+                    provider_id = %provider_id,
+                    model_id = %model_id,
+                    "Model selection provider not found"
+                );
+            }
+        }
+        cfg.config.active_alias = alias.to_string();
+    }
+
+    let cfg = ctx.peri_config.read();
+    peri_tui::app::agent::LlmProvider::from_config(&cfg)
+}
+
 /// Stdio 模式下的简化 Broker：直接 approve 所有权限请求，questions 返回空答案。
 struct StdioBroker;
 
@@ -561,10 +586,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 let ctx = ctx_clone.clone();
                 async move |req: SetSessionModelRequest, responder, cx: ConnectionTo<Client>| {
                     let model_id = req.model_id.0.to_string();
-                    let new_provider = {
-                        let cfg = ctx.peri_config.read();
-                        peri_tui::app::agent::LlmProvider::from_config_for_alias(&cfg, &model_id)
-                    };
+                    let new_provider = apply_stdio_model_selection(&ctx, &model_id);
                     if let Some(new_provider) = new_provider {
                         tracing::info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
                         *ctx.provider.write() = new_provider;
@@ -608,10 +630,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     tracing::info!(mode = %v, "Permission mode changed via configOption");
                                 }
                                 "model" => {
-                                    let new_provider = {
-                                        let cfg = ctx.peri_config.read();
-                                        peri_tui::app::agent::LlmProvider::from_config_for_alias(&cfg, v)
-                                    };
+                                    let new_provider = apply_stdio_model_selection(&ctx, v);
                                     if let Some(new_provider) = new_provider {
                                         tracing::info!(model_id = %v, model = %new_provider.model_name(), "Model changed via configOption");
                                         *ctx.provider.write() = new_provider;
