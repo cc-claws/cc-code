@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
 
-use crate::tools::output_persist::truncate_tool_output;
+use crate::tools::output_persist::truncate_shell_output;
 
 /// Windows `cmd /C` 会吞掉引号，导致 `git commit -m "msg with spaces"` 中的
 /// message 被空格拆成多个 pathspec。检测到此模式时，将 message 写入临时文件，
@@ -236,8 +236,9 @@ Platform behavior:
 - On Unix, child processes run in their own process group; timeout kills the entire process tree
 
 Output handling:
-- Output exceeding 2000 lines is truncated (head + tail preserved)
-- Output exceeding 100000 bytes is truncated
+- Output exceeding 50 lines is returned as a compact head/tail preview; the full output is saved to a temp file
+- Output exceeding 20000 bytes is returned as a compact head/tail preview; the full output is saved to a temp file
+- If omitted output is needed, use the Read tool on the saved file path rather than rerunning the command
 - Non-zero exit codes are reported
 - Both stdout and stderr are captured"#;
 pub struct BashTool {
@@ -266,8 +267,8 @@ impl BashTool {
 }
 
 fn truncate_output(output: &str) -> String {
-    // 委托到公共实现，便于 Grep/Glob 等工具复用同一截断逻辑（issue #47）
-    truncate_tool_output(output)
+    // Bash 输出面向 LLM 使用更小 preview；完整内容由 output_persist 写入临时文件。
+    truncate_shell_output(output)
 }
 
 /// 把 stdout/stderr/exit_code 拼装为给 LLM 的工具结果字符串。
