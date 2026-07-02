@@ -155,11 +155,11 @@ welcome-skills-available = { $count } skills available
 
 tip-0 = Type / to enter commands, Tab to autocomplete
 tip-1 = Ctrl+C interrupts Agent, Shift+Tab toggles permission mode
-tip-2 = Ctrl+P opens command palette (Provider / Model / Effort), Ctrl+T cycles opus / sonnet / haiku
+tip-2 = Ctrl+P opens command palette (Provider / Model / Effort), Ctrl+T cycles available models in current provider
 tip-3 = Shift+Enter for newline in input box
 tip-4 = Drag files or images to terminal to auto-attach to message
 tip-5 = Long press Ctrl+V to paste clipboard image
-tip-6 = PgUp/PgDn scroll message history, Home/End jump to top/bottom, Up/Down browse input history
+tip-6 = Ctrl+U/D scroll message history, Home/End jump to top/bottom, Up/Down browse input history
 tip-7 = Ctrl+N/P switch Session, Ctrl+W close
 tip-8 = Esc closes popup or panel, Enter confirms selection
 tip-9 = /compact compresses context to save tokens

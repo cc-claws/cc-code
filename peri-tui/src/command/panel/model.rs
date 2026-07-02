@@ -1,5 +1,5 @@
 use crate::{
-    app::{agent, App, MessageViewModel},
+    app::{App, MessageViewModel},
     command::Command,
 };
 
@@ -16,14 +16,23 @@ impl Command for ModelCommand {
 
     fn execute(&self, app: &mut App, args: &str) {
         let alias = args.trim().to_lowercase();
-        match alias.as_str() {
-            "opus" | "sonnet" | "haiku" => {
-                let cfg = app
-                    .services
-                    .peri_config
-                    .get_or_insert_with(Default::default);
+        // 从当前 provider 动态收集非空 alias，替代硬编码三选一
+        let is_valid_alias = if let Some(cfg) = app.services.peri_config.as_ref() {
+            let active_provider_id = cfg.config.active_provider_id.as_str();
+            cfg.config
+                .providers
+                .iter()
+                .find(|p| p.id == active_provider_id)
+                .map(|p| p.models.get_model(&alias).filter(|m| !m.is_empty()).is_some())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        if !alias.is_empty() && is_valid_alias {
+            if let Some(cfg) = app.services.peri_config.as_mut() {
                 cfg.config.active_alias = alias.clone();
-                if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref())
+                if let Err(e) =
+                    App::save_config(cfg, app.services.config_path_override.as_deref())
                 {
                     app.session_mgr
                         .current_mut()
@@ -31,7 +40,7 @@ impl Command for ModelCommand {
                         .view_messages
                         .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
                 }
-                if let Some(p) = agent::LlmProvider::from_config(cfg) {
+                if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
                     app.services.provider_name = p.display_name().to_string();
                     app.services.model_name = p.model_name().to_string();
                 }
@@ -43,9 +52,8 @@ impl Command for ModelCommand {
                     });
                 }
             }
-            _ => {
-                app.open_model_panel();
-            }
+        } else {
+            app.open_model_panel();
         }
     }
 }
