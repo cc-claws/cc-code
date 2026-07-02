@@ -220,7 +220,12 @@ impl MessagePipeline {
         for tc in &self.current_ai_tool_calls {
             if let Some(pending) = self.pending_tools.get(&tc.id) {
                 if pending.name != "Agent" {
-                    tail_vms.push(self.build_tool_start_vm(&tc.id, &pending.name, &pending.input));
+                    tail_vms.push(self.build_tool_start_vm(
+                        &tc.id,
+                        &pending.name,
+                        &pending.input,
+                        pending.started_at,
+                    ));
                 }
             }
         }

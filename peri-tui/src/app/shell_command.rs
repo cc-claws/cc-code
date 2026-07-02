@@ -72,6 +72,50 @@ impl ShellCommandPool {
     }
 }
 
+fn set_pending_bash_tool_started_at_in_view(
+    view_messages: &mut [MessageViewModel],
+    command: &str,
+    started_at: std::time::Instant,
+) -> bool {
+    for vm in view_messages.iter_mut().rev() {
+        let matched = match vm {
+            MessageViewModel::ToolBlock {
+                tool_name,
+                args_display,
+                content,
+                is_error,
+                started_at: vm_started_at,
+                ..
+            } => {
+                tool_name == "Bash"
+                    && content.is_empty()
+                    && !*is_error
+                    && vm_started_at.is_none()
+                    && args_display
+                        .as_deref()
+                        .is_some_and(|args| bash_args_display_matches_command(args, command))
+            }
+            _ => false,
+        };
+        if matched {
+            if let MessageViewModel::ToolBlock {
+                started_at: vm_started_at,
+                ..
+            } = vm
+            {
+                *vm_started_at = Some(started_at);
+            }
+            vm.recompute_hash();
+            return true;
+        }
+    }
+    false
+}
+
+fn bash_args_display_matches_command(args_display: &str, command: &str) -> bool {
+    args_display == command || args_display == super::tool_display::truncate(command, 400)
+}
+
 impl App {
     pub(crate) fn running_background_shell_task_count(&self) -> usize {
         let session = self.session_mgr.current();
@@ -161,7 +205,7 @@ impl App {
             },
             output_rx: Some(execution.output_rx),
             result_rx: Some(execution.result),
-            started_instant: std::time::Instant::now(),
+            started_instant: execution.started_instant,
         };
     }
 
@@ -493,6 +537,9 @@ impl App {
     pub fn register_agent_shell(&mut self, reg: super::AgentShellRegistration) {
         let direct_background = reg.direct_background;
         let mut slot = super::AgentShellSlot::from_registration(reg);
+        if !direct_background {
+            self.set_agent_bash_tool_started_at(&slot.command, slot.started_instant);
+        }
         // 直接后台命令启动 stall watchdog（检测卡在等待输入）
         if direct_background {
             let watchdog = super::background_shell::spawn_stall_watchdog(
@@ -505,6 +552,24 @@ impl App {
         }
         self.session_mgr.current_mut().agent_shells.push(slot);
         self.render_rebuild();
+    }
+
+    fn set_agent_bash_tool_started_at(
+        &mut self,
+        command: &str,
+        started_at: std::time::Instant,
+    ) -> bool {
+        let session = self.session_mgr.current_mut();
+        let pipeline_changed = session
+            .messages
+            .pipeline
+            .set_bash_tool_started_at(command, started_at);
+        let view_changed = set_pending_bash_tool_started_at_in_view(
+            &mut session.messages.view_messages,
+            command,
+            started_at,
+        );
+        pipeline_changed || view_changed
     }
 
     /// 把当前会话中所有前台 agent shell 后台化（Ctrl+B 触发）。
@@ -672,7 +737,7 @@ impl App {
             output_path,
             execution.result,
             execution.abort,
-            std::time::Instant::now(),
+            execution.started_instant,
         );
         bg.stall_watchdog = Some(watchdog);
         self.session_mgr.current_mut().background_shells.push(bg);

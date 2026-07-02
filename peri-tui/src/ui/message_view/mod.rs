@@ -105,7 +105,7 @@ pub enum MessageViewModel {
         color: Color,
         /// 内嵌 diff 视图输入（Write/Edit 工具执行成功后填充，由 render_thread 按当前 width 渲染）
         diff_input: Option<peri_widgets::DiffInput>,
-        /// pending 时的启动时间（用于渲染 "Ctrl+B to run in background" 2 秒提示）
+        /// pending Bash 子进程真实启动时间；None 表示尚未收到 shell 注册。
         started_at: Option<std::time::Instant>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
@@ -207,6 +207,7 @@ impl PartialEq for MessageViewModel {
                     content: a_content,
                     is_error: a_err,
                     diff_input: a_diff,
+                    started_at: a_started,
                     ..
                 },
                 MessageViewModel::ToolBlock {
@@ -216,6 +217,7 @@ impl PartialEq for MessageViewModel {
                     content: b_content,
                     is_error: b_err,
                     diff_input: b_diff,
+                    started_at: b_started,
                     ..
                 },
             ) => {
@@ -225,6 +227,7 @@ impl PartialEq for MessageViewModel {
                     && a_content == b_content
                     && a_err == b_err
                     && a_diff == b_diff
+                    && a_started.is_some() == b_started.is_some()
             }
             (
                 MessageViewModel::ShellCommand {
@@ -357,6 +360,7 @@ impl Hash for MessageViewModel {
                 is_error,
                 collapsed,
                 diff_input,
+                started_at,
                 ..
             } => {
                 2u8.hash(state);
@@ -368,6 +372,7 @@ impl Hash for MessageViewModel {
                 is_error.hash(state);
                 collapsed.hash(state);
                 diff_input.hash(state);
+                started_at.is_some().hash(state);
             }
             MessageViewModel::ShellCommand {
                 id,
@@ -928,7 +933,7 @@ impl MessageViewModel {
             collapsed: true,
             color,
             diff_input: None,
-            started_at: Some(std::time::Instant::now()),
+            started_at: None,
             content_hash: 0,
         };
         vm.recompute_hash();
