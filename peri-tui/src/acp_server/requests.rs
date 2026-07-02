@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use tracing::{debug, info};
 
-use peri_acp::{dispatch, transport::types::AcpError};
+use peri_acp::{dispatch, provider::parse_model_selection_value, transport::types::AcpError};
 use peri_agent::thread::{ThreadId, ThreadMeta};
 
 use agent_client_protocol::schema::{
@@ -30,6 +30,28 @@ fn persist_config(cfg: &AcpServerConfig) {
     if let Err(e) = save_to(&c, &cfg.config_path) {
         tracing::warn!(error = %e, "Failed to persist config");
     }
+}
+
+fn apply_model_selection(cfg: &AcpServerConfig, model_id: &str) -> Option<LlmProvider> {
+    let (provider_id, alias) = parse_model_selection_value(model_id);
+    {
+        let mut c = cfg.peri_config.write();
+        if let Some(provider_id) = provider_id {
+            if c.config.providers.iter().any(|p| p.id == provider_id) {
+                c.config.active_provider_id = provider_id.to_string();
+            } else {
+                tracing::warn!(
+                    provider_id = %provider_id,
+                    model_id = %model_id,
+                    "Model selection provider not found"
+                );
+            }
+        }
+        c.config.active_alias = alias.to_string();
+    }
+
+    let c = cfg.peri_config.read();
+    LlmProvider::from_config(&c)
 }
 
 /// 校验客户端传入的 sessionId 是合法 UUID 格式。
@@ -132,14 +154,7 @@ pub(crate) async fn handle_request(
         "session/set_model" => {
             let model_id = params.get("modelId").and_then(|v| v.as_str()).unwrap_or("");
             let session_id = extract_session_id(params, "");
-            {
-                let mut c = cfg.peri_config.write();
-                c.config.active_alias = model_id.to_string();
-            }
-            let new_provider = {
-                let c = cfg.peri_config.read();
-                LlmProvider::from_config_for_alias(&c, model_id)
-            };
+            let new_provider = apply_model_selection(cfg, model_id);
             if let Some(new_provider) = new_provider {
                 info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
                 *cfg.provider.write() = new_provider;
@@ -184,14 +199,7 @@ pub(crate) async fn handle_request(
                     info!(mode = %value, "Permission mode changed via configOption");
                 }
                 "model" => {
-                    {
-                        let mut c = cfg.peri_config.write();
-                        c.config.active_alias = value.to_string();
-                    }
-                    let new_provider = {
-                        let c = cfg.peri_config.read();
-                        LlmProvider::from_config_for_alias(&c, value)
-                    };
+                    let new_provider = apply_model_selection(cfg, value);
                     if let Some(new_provider) = new_provider {
                         info!(model_id = %value, model = %new_provider.model_name(), "Model changed via configOption");
                         *cfg.provider.write() = new_provider;

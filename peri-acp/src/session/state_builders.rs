@@ -6,7 +6,9 @@
 use parking_lot::RwLock;
 use peri_middlewares::prelude::{PermissionMode, SharedPermissionMode};
 
-use crate::provider::{LlmProvider, PeriConfig, ThinkingConfig};
+use crate::provider::{
+    format_model_selection_value, LlmProvider, PeriConfig, ProviderConfig, ThinkingConfig,
+};
 
 pub use agent_client_protocol_schema::{
     ModelId, ModelInfo, SessionConfigId, SessionConfigOption, SessionConfigOptionCategory,
@@ -64,26 +66,8 @@ pub fn build_mode_state(pm: &SharedPermissionMode) -> SessionModeState {
 
 /// Build ACP `SessionModelState` from provider and config.
 pub fn build_model_state(provider: &LlmProvider, peri_config: &PeriConfig) -> SessionModelState {
-    let active_alias = peri_config.config.active_alias.clone();
-
-    let active_provider = peri_config.config.providers.iter().find(|prov| {
-        prov.id == peri_config.config.active_provider_id
-            || peri_config.config.active_provider_id.is_empty()
-    });
-
-    let mut available = Vec::new();
-    if let Some(prov) = active_provider {
-        for alias in ["opus", "sonnet", "haiku"] {
-            if let Some(model_name) = prov.models.get_model(alias) {
-                if !model_name.is_empty() {
-                    available.push(ModelInfo::new(
-                        ModelId::new(alias.to_string()),
-                        format!("{} ({})", alias, model_name),
-                    ));
-                }
-            }
-        }
-    }
+    let active_value = active_model_selection_value(peri_config);
+    let mut available = build_model_infos(&peri_config.config.providers);
     if available.is_empty() {
         available.push(ModelInfo::new(
             ModelId::new("current".to_string()),
@@ -91,7 +75,7 @@ pub fn build_model_state(provider: &LlmProvider, peri_config: &PeriConfig) -> Se
         ));
     }
 
-    SessionModelState::new(ModelId::new(active_alias), available)
+    SessionModelState::new(ModelId::new(active_value), available)
 }
 
 /// Build ACP `SessionConfigOption` list from config.
@@ -131,24 +115,8 @@ pub fn build_config_options(
     );
 
     // ── Model (category: model) ──
-    let active_alias = peri_config.config.active_alias.clone();
-    let active_provider = peri_config.config.providers.iter().find(|prov| {
-        prov.id == peri_config.config.active_provider_id
-            || peri_config.config.active_provider_id.is_empty()
-    });
-    let mut model_options = Vec::new();
-    if let Some(prov) = active_provider {
-        for alias in ["opus", "sonnet", "haiku"] {
-            if let Some(model_name) = prov.models.get_model(alias) {
-                if !model_name.is_empty() {
-                    model_options.push(SessionConfigSelectOption::new(
-                        SessionConfigValueId::new(alias.to_string()),
-                        format!("{} ({})", alias, model_name),
-                    ));
-                }
-            }
-        }
-    }
+    let active_value = active_model_selection_value(peri_config);
+    let mut model_options = build_model_config_options(&peri_config.config.providers);
     if model_options.is_empty() {
         model_options.push(SessionConfigSelectOption::new(
             SessionConfigValueId::new("current".to_string()),
@@ -159,7 +127,7 @@ pub fn build_config_options(
         SessionConfigOption::select(
             SessionConfigId::new("model"),
             "Model",
-            SessionConfigValueId::new(active_alias),
+            SessionConfigValueId::new(active_value),
             SessionConfigSelectOptions::Ungrouped(model_options),
         )
         .category(SessionConfigOptionCategory::Model),
@@ -190,4 +158,56 @@ pub fn build_config_options(
     );
 
     options
+}
+
+fn active_model_selection_value(peri_config: &PeriConfig) -> String {
+    format_model_selection_value(
+        &peri_config.config.active_provider_id,
+        &peri_config.config.active_alias,
+    )
+}
+
+fn build_model_infos(providers: &[ProviderConfig]) -> Vec<ModelInfo> {
+    providers
+        .iter()
+        .flat_map(|provider| {
+            ["opus", "sonnet", "haiku"]
+                .into_iter()
+                .filter_map(move |alias| model_entry(provider, alias))
+        })
+        .map(|(provider, alias, model_name)| {
+            ModelInfo::new(
+                ModelId::new(format_model_selection_value(&provider.id, alias)),
+                format!("{} / {} ({})", provider.display_name(), alias, model_name),
+            )
+        })
+        .collect()
+}
+
+fn build_model_config_options(providers: &[ProviderConfig]) -> Vec<SessionConfigSelectOption> {
+    providers
+        .iter()
+        .flat_map(|provider| {
+            ["opus", "sonnet", "haiku"]
+                .into_iter()
+                .filter_map(move |alias| model_entry(provider, alias))
+        })
+        .map(|(provider, alias, model_name)| {
+            SessionConfigSelectOption::new(
+                SessionConfigValueId::new(format_model_selection_value(&provider.id, alias)),
+                format!("{} / {} ({})", provider.display_name(), alias, model_name),
+            )
+        })
+        .collect()
+}
+
+fn model_entry<'a>(
+    provider: &'a ProviderConfig,
+    alias: &'static str,
+) -> Option<(&'a ProviderConfig, &'static str, &'a str)> {
+    provider
+        .models
+        .get_model(alias)
+        .filter(|model_name| !model_name.is_empty())
+        .map(|model_name| (provider, alias, model_name))
 }
