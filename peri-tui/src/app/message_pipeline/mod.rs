@@ -205,6 +205,8 @@ pub(crate) struct PendingTool {
     tool_call_id: String,
     name: String,
     input: serde_json::Value,
+    /// Bash 子进程真实启动时刻；ToolStart 早于 spawn 时保持 None。
+    started_at: Option<Instant>,
 }
 
 /// ToolEnd 后、StateSnapshot 前的工具结果（用于在 reconcile gap 期间显示）
@@ -320,6 +322,23 @@ impl MessagePipeline {
 
     pub fn cwd(&self) -> &str {
         &self.cwd
+    }
+
+    pub(crate) fn set_bash_tool_started_at(&mut self, command: &str, started_at: Instant) -> bool {
+        for pending in self.pending_tools.values_mut() {
+            if pending.name != "Bash" || pending.started_at.is_some() {
+                continue;
+            }
+            let Some(pending_command) = pending.input.get("command").and_then(|v| v.as_str())
+            else {
+                continue;
+            };
+            if pending_command == command {
+                pending.started_at = Some(started_at);
+                return true;
+            }
+        }
+        false
     }
 
     /// 获取当前流式渲染模式
@@ -438,6 +457,7 @@ impl MessagePipeline {
                             tool_call_id: tool_call_id.to_string(),
                             name: name.to_string(),
                             input,
+                            started_at: None,
                         },
                     );
                 } else {
@@ -692,6 +712,7 @@ impl MessagePipeline {
                 tool_call_id: tool_call_id.to_string(),
                 name: name.to_string(),
                 input,
+                started_at: None,
             },
         );
     }

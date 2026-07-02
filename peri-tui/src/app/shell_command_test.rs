@@ -48,6 +48,33 @@ fn make_agent_shell_slot(
     (AgentShellSlot::from_registration(reg), exit_signal)
 }
 
+#[test]
+fn test_set_pending_bash_tool_started_at_in_view() {
+    let command = "echo hello";
+    let mut view_messages = vec![MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some(command.to_string()),
+        false,
+    )];
+    let spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(3);
+
+    assert!(
+        set_pending_bash_tool_started_at_in_view(&mut view_messages, command, spawned_at),
+        "应能回填当前 view 中的 pending Bash ToolBlock"
+    );
+
+    let MessageViewModel::ToolBlock { started_at, .. } = &view_messages[0] else {
+        panic!("测试数据应为 ToolBlock");
+    };
+    assert!(
+        started_at
+            .as_ref()
+            .is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)),
+        "回填后 Ctrl+B 提示应按真实 spawn 时间计时"
+    );
+}
+
 #[tokio::test]
 async fn test_merge_shell_records_inserts_after_anchor_without_origin_messages() {
     let (app, _handle) = App::new_headless(80, 24).await;

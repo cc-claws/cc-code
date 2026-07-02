@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::{process::Stdio, time::Instant};
 
 use anyhow::{Context, Result};
 use peri_agent::encoding::decode_output_bytes;
@@ -108,6 +108,8 @@ pub struct ShellExecution {
     pub abort: ShellAbortHandle,
     /// 流式输出 channel（stdout + stderr 合并推送）
     pub output_rx: mpsc::Receiver<Vec<u8>>,
+    /// 子进程成功 spawn 后的真实启动时刻。
+    pub started_instant: Instant,
 }
 
 /// 流式执行 shell 命令：stdout/stderr 通过 `output_rx` 流式推送，进程退出时
@@ -126,38 +128,48 @@ pub fn execute_shell_command_streaming(
     let (output_tx, output_rx) = mpsc::channel::<Vec<u8>>(256);
     let (result_tx, result_rx) = oneshot::channel::<Result<CommandOutput>>();
 
-    let cmd_str = command.to_string();
-    let cwd_str = cwd.to_string();
-    let handle = tokio::spawn(async move {
-        let result = run_streaming(&cmd_str, &cwd_str, stdin_rx, output_tx).await;
-        // task 被 abort 时 result_tx drop，result_rx 收到 Canceled，调用方需处理
-        let _ = result_tx.send(result);
-    });
-    let abort = ShellAbortHandle::from_tokio_abort(handle.abort_handle());
-    drop(handle);
+    match spawn_streaming_child(command, cwd, stdin_rx.is_some()) {
+        Ok((child, started_instant)) => {
+            let handle = tokio::spawn(async move {
+                let result = run_streaming_child(child, stdin_rx, output_tx).await;
+                // task 被 abort 时 result_tx drop，result_rx 收到 Canceled，调用方需处理
+                let _ = result_tx.send(result);
+            });
+            let abort = ShellAbortHandle::from_tokio_abort(handle.abort_handle());
+            drop(handle);
 
-    ShellExecution {
-        result: result_rx,
-        abort,
-        output_rx,
+            ShellExecution {
+                result: result_rx,
+                abort,
+                output_rx,
+                started_instant,
+            }
+        }
+        Err(error) => {
+            drop(output_tx);
+            let _ = result_tx.send(Err(error));
+            ShellExecution {
+                result: result_rx,
+                abort: ShellAbortHandle::noop(),
+                output_rx,
+                started_instant: Instant::now(),
+            }
+        }
     }
 }
 
-/// 流式执行的实际逻辑：spawn 子进程，stdout/stderr 流式读取推送 + 累积，
-/// 进程退出后返回累积的 CommandOutput。
-async fn run_streaming(
+fn spawn_streaming_child(
     command: &str,
     cwd: &str,
-    mut stdin_rx: Option<mpsc::Receiver<String>>,
-    output_tx: mpsc::Sender<Vec<u8>>,
-) -> Result<CommandOutput> {
+    has_stdin: bool,
+) -> Result<(tokio::process::Child, Instant)> {
     let command = streaming_command_with_unbuffered_interpreters(command);
     let mut cmd = peri_middlewares::process::shell_command(&command, &[]);
     apply_streaming_unbuffered_env(&mut cmd);
     if !cwd.trim().is_empty() {
         cmd.current_dir(cwd);
     }
-    if stdin_rx.is_some() {
+    if has_stdin {
         cmd.stdin(Stdio::piped());
     } else {
         cmd.stdin(Stdio::null());
@@ -166,10 +178,21 @@ async fn run_streaming(
         .stderr(Stdio::piped())
         .kill_on_drop(true);
 
-    let mut child = cmd
+    let child = cmd
         .spawn()
         .with_context(|| format!("Failed to spawn shell command: {}", command))?;
+    let started_instant = Instant::now();
 
+    Ok((child, started_instant))
+}
+
+/// 流式执行的实际逻辑：stdout/stderr 流式读取推送 + 累积，
+/// 进程退出后返回累积的 CommandOutput。
+async fn run_streaming_child(
+    mut child: tokio::process::Child,
+    mut stdin_rx: Option<mpsc::Receiver<String>>,
+    output_tx: mpsc::Sender<Vec<u8>>,
+) -> Result<CommandOutput> {
     // stdin 写入 task（与 execute_shell_command_with_stdin 一致）
     if let Some(mut rx) = stdin_rx.take() {
         if let Some(mut stdin) = child.stdin.take() {
