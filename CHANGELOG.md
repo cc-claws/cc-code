@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.40 — 2026-07-02
+
+### Features
+
+- **状态栏权限模式 cycle 提示**：权限模式标签后追加 `(Shift+Tab to cycle)` 灰色提示，方便用户发现快捷键
+
+---
+
 ## v0.6.39 — 2026-07-02
 
 ### Features
