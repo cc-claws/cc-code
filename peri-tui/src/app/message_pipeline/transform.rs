@@ -126,6 +126,7 @@ impl MessagePipeline {
         tool_call_id: &str,
         name: &str,
         input: &serde_json::Value,
+        started_at: Option<std::time::Instant>,
     ) -> MessageViewModel {
         let display_name = tool_display::format_tool_name(name);
         let args_display = tool_display::format_tool_args(name, input, Some(&self.cwd));
@@ -139,7 +140,7 @@ impl MessagePipeline {
             collapsed: true,
             color: tool_color(name),
             diff_input: None,
-            started_at: Some(std::time::Instant::now()),
+            started_at,
             content_hash: 0,
         };
         vm.recompute_hash();

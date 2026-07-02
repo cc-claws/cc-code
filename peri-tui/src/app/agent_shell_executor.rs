@@ -193,6 +193,7 @@ impl ShellExecutor for AgentShellExecutor {
         // output_rx 全程写磁盘（agent 路径不显示在 UI 输出流，仅写磁盘供详情面板 / 通知读取）。
         // 与 !command 路径不同：那条路径 output_rx 由 App drain 丢弃；本路径交给 DiskOutput。
         peri_agent::task_output::DiskOutput::spawn_writer(output_path.clone(), execution.output_rx);
+        let started_instant = execution.started_instant;
         let process_abort = execution.abort.clone();
 
         // 真正的进程退出信号在 execution.result（peri-tui 的 oneshot）。
@@ -241,7 +242,7 @@ impl ShellExecutor for AgentShellExecutor {
                 Some(background_tx)
             },
             kill: process_abort.clone(),
-            started_instant: std::time::Instant::now(),
+            started_instant,
             direct_background: run_in_background,
         };
         if run_in_background {

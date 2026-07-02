@@ -252,6 +252,43 @@ fn test_handle_event_tool_lifecycle() {
     assert!(matches!(actions[0], PipelineAction::None));
 }
 
+#[test]
+fn test_bash_tool_start_uses_spawn_started_at() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let _ = pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "bash1".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "sleep 10".into(),
+        input: json!({"command": "sleep 10"}),
+        source_agent_id: None,
+    });
+    let tail_vms = pipeline.build_tail_vms();
+    let Some(MessageViewModel::ToolBlock { started_at, .. }) = tail_vms.last() else {
+        panic!("Bash ToolStart 应生成 pending ToolBlock");
+    };
+    assert!(
+        started_at.is_none(),
+        "收到 shell 注册前不应开始 Ctrl+B 计时"
+    );
+
+    let spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(3);
+    assert!(
+        pipeline.set_bash_tool_started_at("sleep 10", spawned_at),
+        "应能按 Bash command 回填真实启动时间"
+    );
+    let tail_vms = pipeline.build_tail_vms();
+    let Some(MessageViewModel::ToolBlock { started_at, .. }) = tail_vms.last() else {
+        panic!("Bash ToolStart 应仍生成 pending ToolBlock");
+    };
+    assert!(
+        started_at
+            .as_ref()
+            .is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)),
+        "Ctrl+B 提示计时应基于真实 spawn 时间"
+    );
+}
+
 /// 测试：handle_event StateSnapshot 更新 completed
 #[test]
 fn test_handle_event_state_snapshot() {
