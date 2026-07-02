@@ -432,9 +432,15 @@ fn render_textarea(
     display_textarea.set_cursor_style(Style::default().fg(theme::TEXT));
     f.render_widget(&display_textarea, area);
 
-    // 聚焦 + 非 Command 模式：始终右移 cells 防止字符抖动，仅亮相时画 │
-    if focused && shell_mode != TextareaShellMode::Command {
-        draw_bar_cursor(f.buffer_mut(), textarea, area, cursor_visible);
+    // 聚焦时画细线光标 │。Command 模式下用 display_textarea（! 前缀已移除、
+    // 光标位置已调整），其他模式用原始 textarea
+    if focused {
+        let cursor_source = if shell_mode == TextareaShellMode::Command {
+            &display_textarea
+        } else {
+            textarea
+        };
+        draw_bar_cursor(f.buffer_mut(), cursor_source, area, cursor_visible);
     }
 }
 
