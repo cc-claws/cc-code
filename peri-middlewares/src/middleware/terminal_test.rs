@@ -78,9 +78,17 @@ fn test_truncate_output_line_count_accurate() {
         result.contains("3000 total lines"),
         "应显示正确的总行数: {result}"
     );
+    assert!(
+        result.contains("showing first 25 and last 25"),
+        "Bash 输出应只给 50 行 head/tail 预览: {result}"
+    );
     // 应保留头部和尾部
     assert!(result.contains("line 0"), "应保留第一行: {result}");
     assert!(result.contains("line 2999"), "应保留最后一行: {result}");
+    assert!(
+        !result.contains("line 1000"),
+        "中间输出不应进入模型预览，应通过 Read 查看完整文件: {result}"
+    );
     assert!(
         result.contains("lines truncated"),
         "应显示截断信息: {result}"
@@ -97,7 +105,15 @@ fn test_truncate_output_no_truncation_when_small() {
 fn test_truncate_output_char_limit() {
     let long_line = "x".repeat(200_000);
     let result = truncate_output(&long_line);
-    assert!(result.contains("byte limit"), "应截断超长输出: {result}");
+    assert!(
+        result.contains("byte preview limit"),
+        "应截断超长输出: {result}"
+    );
+    assert!(
+        result.len() < 25_000,
+        "Bash 字节截断后不应继续返回 100KB 级内容，实际长度: {}",
+        result.len()
+    );
 }
 
 #[test]
