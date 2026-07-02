@@ -42,13 +42,34 @@ impl UserInteractionBroker for MultiplexBroker {
         // Drop the original sender so rx.recv() returns None when all spawned tasks are done
         drop(tx);
 
-        let (source_name, response) = rx
-            .recv()
-            .await
-            .unwrap_or_else(|| ("error".to_string(), InteractionResponse::Decisions(vec![])));
-
-        // Remaining spawned tasks continue in background; only first responder matters.
-        tag_source(response, &source_name)
+        // Race: 收集第一个响应。如果是全 Reject（如 ChannelBroker 无授权），
+        // 继续等下一个响应——TUI broker 可能还在等待用户点击。
+        let mut first_reject: Option<(String, InteractionResponse)> = None;
+        loop {
+            match rx.recv().await {
+                Some((name, response)) => {
+                    let all_reject = matches!(
+                        &response,
+                        InteractionResponse::Decisions(decisions)
+                            if decisions.iter().all(|d| matches!(d, ApprovalDecision::Reject { .. }))
+                    );
+                    if all_reject && first_reject.is_none() {
+                        // 暂存全 Reject 响应，继续等其他 broker
+                        first_reject = Some((name, response));
+                        continue;
+                    }
+                    // 非全 Reject（有 Approve 或 Questions），立即采用
+                    return tag_source(response, &name);
+                }
+                None => {
+                    // 所有 broker 都返回了，用暂存的全 Reject 或空兜底
+                    let (source_name, response) = first_reject.unwrap_or_else(|| {
+                        ("error".to_string(), InteractionResponse::Decisions(vec![]))
+                    });
+                    return tag_source(response, &source_name);
+                }
+            }
+        }
     }
 }
 
