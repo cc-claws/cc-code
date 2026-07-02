@@ -512,6 +512,25 @@ impl App {
     /// 与 [`Self::background_foreground`]（!command 路径）协同：Ctrl+B 时先尝试
     /// !command 前台，再尝试 agent 前台。返回是否有任何 agent shell 被后台化。
     pub fn background_agent_foreground(&mut self) -> bool {
+        // 先消费待处理的 agent shell 注册，避免 Ctrl+B 竞态：
+        // AgentShellExecutor 延迟 2s 发送注册到 channel，Ctrl+B 提示也在 2s
+        // 出现（message_render）。如果 Ctrl+B 按键事件在本帧 poll 之前到达，
+        // agent_shells 仍为空 → 找不到前台 shell 来后台化。
+        let pending: Vec<super::AgentShellRegistration> =
+            match self.agent_shell_registrations_rx.as_mut() {
+                Some(rx) => {
+                    let mut v = Vec::new();
+                    while let Ok(reg) = rx.try_recv() {
+                        v.push(reg);
+                    }
+                    v
+                }
+                None => Vec::new(),
+            };
+        for reg in pending {
+            self.register_agent_shell(reg);
+        }
+
         let mut any = false;
         let cwd_path = std::path::PathBuf::from(
             self.session_mgr
