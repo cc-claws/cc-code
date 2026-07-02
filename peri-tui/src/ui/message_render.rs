@@ -597,11 +597,23 @@ fn render_shell_command(
         }
     }
 
-    // 2 秒阈值提示：前台 running 超 2 秒显示 "(Ctrl+B to run in background)"（对齐效果图场景 1）
+    // 2 秒阈值提示：前台 running 超 2 秒显示已运行时间 + "(Ctrl+B to run in background)"（对齐效果图场景 1）
     if !moved_to_background
         && exit_code.is_none()
         && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
     {
+        let elapsed = started_at.unwrap().elapsed();
+        let secs = elapsed.as_secs();
+        let elapsed_str = if secs >= 60 {
+            format!("({}m {:02}s)", secs / 60, secs % 60)
+        } else {
+            format!("({}s)", secs)
+        };
+        lines.push(shell_output_line(
+            "  │ ",
+            &elapsed_str,
+            Style::default().fg(theme::MUTED),
+        ));
         lines.push(shell_output_line(
             "  │ ",
             CONTROL_B_BACKGROUND_HINT,
@@ -923,6 +935,17 @@ pub fn render_view_model(
                 && is_running
                 && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
             {
+                let elapsed = started_at.unwrap().elapsed();
+                let secs = elapsed.as_secs();
+                let elapsed_str = if secs >= 60 {
+                    format!("({}m {:02}s)", secs / 60, secs % 60)
+                } else {
+                    format!("({}s)", secs)
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                    Span::styled(elapsed_str, Style::default().fg(theme::MUTED)),
+                ]));
                 lines.push(Line::from(vec![
                     Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                     Span::styled(CONTROL_B_BACKGROUND_HINT, Style::default().fg(theme::MUTED)),

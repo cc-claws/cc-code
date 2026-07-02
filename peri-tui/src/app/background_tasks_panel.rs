@@ -24,8 +24,6 @@ use crate::ui::theme;
 const SHELL_DETAIL_TAIL_BYTES: u64 = 8192;
 /// Detail 视图 output 缓存刷新间隔（避免每帧读磁盘）
 const OUTPUT_REFRESH_INTERVAL: Duration = Duration::from_millis(1000);
-/// Detail 视图 output 框显示的最大行数
-const DETAIL_OUTPUT_MAX_LINES: usize = 10;
 
 /// 后台任务面板：List/Detail 双视图。
 pub struct BackgroundTasksPanel {
@@ -522,10 +520,12 @@ fn render_detail(
     let output_inner = output_block.inner(chunks[1]);
     f.render_widget(output_block, chunks[1]);
 
-    // 显示末尾 N 行 + "Showing N lines of X.X KB"
+    // 显示末尾 N 行 + "Showing N lines of X.X KB"（N 根据实际可用高度动态计算）
     let total_kb = panel.output_cache.len() as f64 / 1024.0;
     let all_lines: Vec<&str> = panel.output_cache.lines().collect();
-    let start = all_lines.len().saturating_sub(DETAIL_OUTPUT_MAX_LINES);
+    // footer 占 2 行（空行 + 状态行），剩余空间全部用于显示内容
+    let max_content_lines = output_inner.height.saturating_sub(2) as usize;
+    let start = all_lines.len().saturating_sub(max_content_lines);
     let showing_lines = &all_lines[start..];
     let mut output_lines: Vec<Line> = showing_lines
         .iter()
@@ -603,3 +603,7 @@ impl super::App {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "background_tasks_panel_test.rs"]
+mod tests;
