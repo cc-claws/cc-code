@@ -21,9 +21,11 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
-    message_render::{render_view_model, CONTROL_B_BACKGROUND_HINT},
+    message_render::render_view_model,
     message_view::MessageViewModel,
 };
+#[cfg(test)]
+use super::message_render::CONTROL_B_BACKGROUND_HINT;
 
 const TOOL_INDICATOR_TICK_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -467,7 +469,7 @@ impl RenderTask {
     }
 
     fn running_bash_needs_control_b_hint_rebuild(&self) -> bool {
-        self.last_messages.iter().enumerate().any(|(idx, vm)| {
+        self.last_messages.iter().any(|vm| {
             let MessageViewModel::ToolBlock {
                 tool_name,
                 content,
@@ -479,21 +481,11 @@ impl RenderTask {
                 return false;
             };
 
-            if tool_name != "Bash"
-                || !content.is_empty()
-                || *is_error
-                || !started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
-            {
-                return false;
-            }
-
-            self.message_lines.get(idx).is_none_or(|lines| {
-                !lines.iter().any(|line| {
-                    line.spans
-                        .iter()
-                        .any(|span| span.content.as_ref().contains(CONTROL_B_BACKGROUND_HINT))
-                })
-            })
+            // running Bash 超过 2 秒时每 tick 重建（更新已运行时间显示）
+            tool_name == "Bash"
+                && content.is_empty()
+                && !*is_error
+                && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
         })
     }
 
