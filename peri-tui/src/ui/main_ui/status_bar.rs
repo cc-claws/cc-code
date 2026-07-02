@@ -259,6 +259,10 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
         left_spans.push(Span::styled(format!(" {} ", label), style));
+        left_spans.push(Span::styled(
+            lc.tr("statusbar-permission-cycle-hint"),
+            Style::default().fg(theme::MUTED),
+        ));
     }
 
     // 瞬时状态（复制提示已移至消息区右下角浮动显示）
