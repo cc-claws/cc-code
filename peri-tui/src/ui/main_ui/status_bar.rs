@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::{app::App, ui::theme};
+use crate::{app::{tool_display, App}, ui::theme};
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::default()
@@ -212,7 +212,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 if i > 0 {
                     left_spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
                 }
-                let display = format_tool_display_name(name);
+                let display = tool_display::format_tool_name(name);
                 left_spans.push(Span::styled("✓", Style::default().fg(theme::SAGE)));
                 left_spans.push(Span::styled(format!(" {}", display), Style::default()));
                 left_spans.push(Span::styled(
@@ -595,28 +595,6 @@ fn render_context_bar(pct: f64, total: u32, color: ratatui::style::Color) -> Vec
             Style::default().fg(color),
         ),
     ]
-}
-
-/// 工具显示名映射
-fn format_tool_display_name(name: &str) -> &str {
-    match name {
-        "Read" => "Read",
-        "Write" => "Write",
-        "Edit" => "Edit",
-        "Glob" => "Glob",
-        "Grep" => "Grep",
-        "Bash" => "Bash",
-        "WebFetch" => "WebFetch",
-        "WebSearch" => "WebSearch",
-        "Agent" => "Agent",
-        "AskUser" => "AskUser",
-        "AskUserQuestion" => "Ask",
-        "TodoWrite" => "Todo",
-        "SearchExtraTools" => "Search",
-        "ExecuteExtraTool" => "Exec",
-        "LspTool" => "LSP",
-        other => other,
-    }
 }
 
 /// Token 数量简写
