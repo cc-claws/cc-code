@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.43 — 2026-07-02
+
+### Refactor
+
+- **状态栏工具名映射统一**：删除 `status_bar.rs` 中重复的 `format_tool_display_name` 函数，复用 `tool_display::format_tool_name`，修复 `FolderOperations` 在状态栏未简写为 "Folder" 的问题
+
+---
+
 ## v0.6.42 — 2026-07-02
 
 ### Bug Fixes
