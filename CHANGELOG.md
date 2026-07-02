@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.42 — 2026-07-02
+
+### Bug Fixes
+
+- **后台面板输出自适应终端高度**（#110）：后台任务面板 output 区域根据终端高度动态调整，避免内容溢出
+- **Ctrl+B 显示已运行时间**（#110）：后台 shell 任务在面板中展示已运行时长
+- **Bash Ctrl+B 提示计时修正**：`Ctrl+B` 提示计时起始点修正，message pipeline 新增 transform/reconcile 阶段支持后台状态注入
+
+---
+
 ## v0.6.41 — 2026-07-02
 
 ### Bug Fixes
