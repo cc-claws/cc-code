@@ -10,6 +10,29 @@ pub use config::{AppConfig, PeriConfig, ProviderConfig, ProviderModels, Thinking
 use peri_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
 pub use store::{config_path, load, load_from, save, save_to, workspace_config_path};
 
+const MODEL_SELECTION_SEPARATOR: &str = "::";
+
+/// Format a model selection value with enough information to switch providers.
+pub fn format_model_selection_value(provider_id: &str, alias: &str) -> String {
+    if provider_id.is_empty() {
+        alias.to_string()
+    } else {
+        format!("{provider_id}{MODEL_SELECTION_SEPARATOR}{alias}")
+    }
+}
+
+/// Parse a provider-aware model selection value.
+///
+/// Bare aliases are accepted for backward compatibility with older clients.
+pub fn parse_model_selection_value(value: &str) -> (Option<&str>, &str) {
+    match value.split_once(MODEL_SELECTION_SEPARATOR) {
+        Some((provider_id, alias)) if !provider_id.is_empty() && !alias.is_empty() => {
+            (Some(provider_id), alias)
+        }
+        _ => (None, value),
+    }
+}
+
 #[derive(Clone)]
 pub enum LlmProvider {
     /// OpenAI 兼容 Provider。`base_url` 需要 `/v1` 后缀。
