@@ -112,3 +112,45 @@ async fn test_status_area_clears_long_agent_shell_text_after_tool_finishes() {
         "agent shell 状态消失后，底部状态区不应残留旧命令文本"
     );
 }
+
+#[tokio::test]
+async fn test_status_bar_tool_history_aligns_with_other_rows() {
+    let (mut app, mut handle) = crate::app::App::new_headless(100, 24).await;
+    app.push_agent_event(crate::app::AgentEvent::ToolStart {
+        tool_call_id: "tc_status_align".to_string(),
+        name: "Bash".to_string(),
+        display: "Bash".to_string(),
+        args: "echo ok".to_string(),
+        input: serde_json::json!({ "command": "echo ok" }),
+        source_agent_id: None,
+    });
+    app.push_agent_event(crate::app::AgentEvent::ToolEnd {
+        tool_call_id: "tc_status_align".to_string(),
+        name: "Bash".to_string(),
+        output: "ok".to_string(),
+        is_error: false,
+        source_agent_id: None,
+    });
+    app.process_pending_events();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let status_rows = &snapshot[snapshot.len() - 3..];
+    assert!(
+        status_rows[1].contains("Bash"),
+        "第二行应显示完成态工具统计，实际状态栏:\n{}",
+        status_rows.join("\n")
+    );
+    let columns: Vec<_> = status_rows
+        .iter()
+        .map(|line| line.chars().position(|ch| ch != ' '))
+        .collect();
+    assert_eq!(
+        columns,
+        vec![Some(1), Some(1), Some(1)],
+        "状态栏三行应从同一列开始，实际状态栏:\n{}",
+        status_rows.join("\n")
+    );
+}

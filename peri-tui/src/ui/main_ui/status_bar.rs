@@ -202,6 +202,8 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         if !agent.session_tool_stats.is_empty() {
             if has_content {
                 left_spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
+            } else {
+                left_spans.push(Span::styled(" ", Style::default()));
             }
             let mut entries: Vec<_> = agent.session_tool_stats.iter().collect();
             entries.sort_by(|a, b| b.1.cmp(a.1));
