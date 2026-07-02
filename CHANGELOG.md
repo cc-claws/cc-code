@@ -4,6 +4,19 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.39 — 2026-07-02
+
+### Features
+
+- **跨 provider 模型切换**（#107）：model selection 值使用 `provider_id::alias` 格式，支持同名 alias 跨 provider 正确切换；模型列表展示所有 provider 的可用模型
+
+### Bug Fixes
+
+- **状态栏工具历史行对齐**（#105）：修复第二行在无内容时缺少前导空格导致与其他行左对齐不一致
+- **Bash 输出预览窗口缩小**（#109）：Bash 输出截断阈值从 2000 行/100KB 降为 50 行/20KB，完整内容落盘供 Read 按需查看，避免大输出撑爆 context window
+
+---
+
 ## v0.6.38 — 2026-07-01
 
 ### Bug Fixes
