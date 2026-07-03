@@ -647,12 +647,24 @@ impl App {
     pub fn poll_agent_shells(&mut self) -> bool {
         // 阶段1：收集完成通知（&mut session）
         let (changed, notifications): (bool, Vec<String>) = {
+            let bg_event_tx = self.services.bg_event_tx.clone();
             let session = self.session_mgr.current_mut();
             let mut changed = false;
             let mut notifs = Vec::new();
             for slot in session.agent_shells.iter_mut() {
                 if slot.ended {
                     continue;
+                }
+                if slot.take_auto_background_requested() {
+                    let watchdog = super::background_shell::spawn_stall_watchdog(
+                        slot.task_id.clone(),
+                        slot.command.clone(),
+                        slot.output_path.clone(),
+                        bg_event_tx.clone(),
+                    );
+                    slot.stall_watchdog = Some(watchdog);
+                    slot.mark_backgrounded();
+                    changed = true;
                 }
                 if !slot.exit_signal.is_exited() {
                     continue;
