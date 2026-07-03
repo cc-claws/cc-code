@@ -32,6 +32,14 @@ fn make_agent_shell_slot(
     direct_background: bool,
     command: &str,
 ) -> (AgentShellSlot, Arc<ExitSignal>) {
+    let (reg, exit_signal) = make_agent_shell_registration(direct_background, command);
+    (AgentShellSlot::from_registration(reg), exit_signal)
+}
+
+fn make_agent_shell_registration(
+    direct_background: bool,
+    command: &str,
+) -> (AgentShellRegistration, Arc<ExitSignal>) {
     let (bg_tx, _bg_rx) = oneshot::channel();
     let exit_signal = Arc::new(ExitSignal::new());
     let reg = AgentShellRegistration {
@@ -45,7 +53,7 @@ fn make_agent_shell_slot(
         started_instant: std::time::Instant::now(),
         direct_background,
     };
-    (AgentShellSlot::from_registration(reg), exit_signal)
+    (reg, exit_signal)
 }
 
 #[test]
@@ -187,6 +195,10 @@ async fn test_poll_agent_shells_前台结束不注入后台通知() {
 
     assert!(changed, "前台 shell 退出也应产生状态变化用于重绘");
     assert!(
+        app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 退出后应请求下一帧清理终端残影"
+    );
+    assert!(
         app.session_mgr.current().agent_shells[0].ended,
         "退出后应标记 ended"
     );
@@ -196,6 +208,35 @@ async fn test_poll_agent_shells_前台结束不注入后台通知() {
             .pending_bg_shell_notifications
             .is_empty(),
         "未后台化的前台小命令不应注入后台完成通知"
+    );
+}
+
+#[tokio::test]
+async fn test_register_agent_shell_请求清理终端残影重绘() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let (reg, _exit_signal) = make_agent_shell_registration(false, "sleep 3");
+
+    app.register_agent_shell(reg);
+
+    assert!(
+        app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 注册到状态栏后应强制下一帧全量重绘"
+    );
+}
+
+#[tokio::test]
+async fn test_background_agent_foreground_请求清理终端残影重绘() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let (slot, _exit_signal) = make_agent_shell_slot(false, "sleep 60");
+    app.session_mgr.current_mut().agent_shells.push(slot);
+
+    assert!(
+        app.background_agent_foreground(),
+        "应能将前台 agent Bash 转入后台"
+    );
+    assert!(
+        app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 后台化后应请求下一帧清理终端残影"
     );
 }
 
