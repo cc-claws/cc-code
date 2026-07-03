@@ -45,7 +45,11 @@ async fn test_execute_shell_command_streaming_receives_buffered_python_output_be
     let temp_dir = tempfile::tempdir().unwrap();
     let script_path = temp_dir.path().join("buffered_output.py");
     // 使用 flush=True 确保 Windows 上输出立即刷新
-    std::fs::write(&script_path, "import time\nprint('ready', flush=True)\ntime.sleep(3)\n").unwrap();
+    std::fs::write(
+        &script_path,
+        "import time\nprint('ready', flush=True)\ntime.sleep(3)\n",
+    )
+    .unwrap();
     let command = format!("python {}", script_path.display());
     let mut execution = execute_shell_command_streaming(&command, ".", None);
     let seen = tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -68,6 +72,26 @@ async fn test_execute_shell_command_streaming_receives_buffered_python_output_be
     assert!(
         text.contains("ready"),
         "未显式 flush 的脚本输出应实时进入 streaming channel，实际输出: {text:?}"
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn test_execute_shell_command_streaming_preserves_quoted_absolute_path() {
+    // agent Bash 走 streaming executor，必须保留 Windows 命令里的内层引号。
+    let cargo_toml = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let command = format!("type \"{}\"", cargo_toml.display());
+    let execution = execute_shell_command_streaming(&command, ".", None);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(5), execution.result)
+        .await
+        .expect("streaming 命令应在 5 秒内结束")
+        .expect("streaming result channel 不应关闭")
+        .expect("带引号绝对路径命令应执行成功");
+    assert_eq!(output.exit_code, 0, "命令应成功执行: {output:?}");
+    assert!(
+        output.stdout.contains("peri-tui"),
+        "应读取 peri-tui Cargo.toml，实际输出: {:?}",
+        output.stdout
     );
 }
 
