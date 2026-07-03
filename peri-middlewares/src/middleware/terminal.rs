@@ -10,7 +10,9 @@ use std::sync::Arc;
 #[cfg(windows)]
 use std::time::Instant;
 use tokio::sync::oneshot;
-use tokio::time::{timeout, Duration};
+#[cfg(windows)]
+use tokio::time::timeout;
+use tokio::time::Duration;
 
 use crate::tools::output_persist::truncate_shell_output;
 
@@ -445,6 +447,7 @@ impl BaseTool for BashTool {
             if let Some(tx) = handle.background_tx {
                 let _ = tx.send(());
             }
+            #[allow(clippy::needless_borrow)]
             return Ok(format_background_task_started(
                 &handle.task_id,
                 &command,
@@ -461,6 +464,7 @@ impl BaseTool for BashTool {
             wait_for_shell_result(handle.result_rx, handle.background_rx, timeout_ms).await;
 
         match result {
+            #[allow(clippy::needless_borrow)]
             ShellWaitResult::Backgrounded => Ok(format_background_task_started(
                 &task_id,
                 &command,
@@ -469,6 +473,7 @@ impl BaseTool for BashTool {
             ShellWaitResult::TimedOut => {
                 if let Some(tx) = auto_background_tx {
                     let _ = tx.send(());
+                    #[allow(clippy::needless_borrow)]
                     return Ok(format_background_task_started(
                         &task_id,
                         &command,
