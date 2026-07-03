@@ -940,4 +940,27 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
             .any(|span| span.content.as_ref().contains(CONTROL_B_BACKGROUND_HINT))),
         "超过 2 秒后缓存中应出现 Ctrl+B 提示"
     );
+    let rendered_lines: Vec<String> = cache
+        .read()
+        .lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect();
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|line| line.contains("⎿ Running…")),
+        "超过 2 秒后缓存中应出现 Running 状态行: {rendered_lines:?}"
+    );
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|line| line == "    (ctrl+b to run in background)"),
+        "Ctrl+B 提示应作为缩进行缓存: {rendered_lines:?}"
+    );
 }

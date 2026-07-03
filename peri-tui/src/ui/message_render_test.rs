@@ -370,14 +370,45 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_input: None,
-            started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(3)),
+            started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(39)),
             content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        let rendered_lines: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
         let text = rendered_text(&lines);
         assert!(
             text.contains(crate::ui::message_render::CONTROL_B_BACKGROUND_HINT),
             "运行超过 2 秒的 Bash ToolBlock 应显示 Ctrl+B 提示: {text:?}"
+        );
+        assert!(
+            rendered_lines[0].contains("● Bash(python wuhan_weather.py)"),
+            "Bash ToolBlock header 应保留运行中圆点和命令摘要: {rendered_lines:?}"
+        );
+        assert!(
+            rendered_lines
+                .iter()
+                .any(|line| line.contains("⎿ Running… (39s)")),
+            "Bash 运行状态应显示 Running… 和已运行时间: {rendered_lines:?}"
+        );
+        assert!(
+            rendered_lines
+                .iter()
+                .any(|line| line == "    (ctrl+b to run in background)"),
+            "Ctrl+B 提示应作为缩进行显示，不应重复 ⎿: {rendered_lines:?}"
+        );
+        assert!(
+            !rendered_lines
+                .iter()
+                .any(|line| line.contains("⎿ (ctrl+b to run in background)")),
+            "Ctrl+B 提示行不应再带 ⎿ 前缀: {rendered_lines:?}"
         );
     }
 
