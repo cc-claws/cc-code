@@ -1090,6 +1090,14 @@ async fn run_app(
 }
 
 fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+    if app
+        .session_mgr
+        .current_mut()
+        .ui
+        .take_terminal_clear_redraw()
+    {
+        terminal.clear()?;
+    }
     // Frame buffer 仅在 draw closure 内可访问，因此 snapshot 在 closure 内克隆、结束后写回 app。
     let mut snapshot_opt: Option<peri_tui::app::text_selection::ScreenSnapshot> = None;
     terminal.draw(|f| {

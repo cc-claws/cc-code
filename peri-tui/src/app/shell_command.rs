@@ -551,6 +551,10 @@ impl App {
             slot.stall_watchdog = Some(watchdog);
         }
         self.session_mgr.current_mut().agent_shells.push(slot);
+        self.session_mgr
+            .current_mut()
+            .ui
+            .request_terminal_clear_redraw();
         self.render_rebuild();
     }
 
@@ -624,6 +628,12 @@ impl App {
         }
         // 抑制未使用变量（cwd_path/session_id 预留后续 VM 标记用）
         let _ = (&cwd_path, &session_id);
+        if any {
+            self.session_mgr
+                .current_mut()
+                .ui
+                .request_terminal_clear_redraw();
+        }
         any
     }
 
@@ -665,6 +675,13 @@ impl App {
             }
             (changed, notifs)
         };
+
+        if changed {
+            self.session_mgr
+                .current_mut()
+                .ui
+                .request_terminal_clear_redraw();
+        }
 
         if notifications.is_empty() {
             if changed {
