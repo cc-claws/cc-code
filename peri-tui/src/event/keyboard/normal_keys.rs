@@ -684,9 +684,27 @@ mod tests {
             output_path: PathBuf::from("target/peri-test-agent-bg.output"),
             exit_signal: Arc::new(ExitSignal::new()),
             background_tx: None,
+            auto_background_rx: None,
             kill: ShellAbortHandle::noop(),
             started_instant: std::time::Instant::now(),
             direct_background: true,
+        })
+    }
+
+    fn make_foreground_agent_shell() -> AgentShellSlot {
+        let (background_tx, _background_rx) = oneshot::channel();
+        let (_auto_background_tx, auto_background_rx) = oneshot::channel();
+        AgentShellSlot::from_registration(AgentShellRegistration {
+            task_id: "agent-fg-test".to_string(),
+            command: "python wuhan_weather.py".to_string(),
+            cwd: ".".to_string(),
+            output_path: PathBuf::from("target/peri-test-agent-fg.output"),
+            exit_signal: Arc::new(ExitSignal::new()),
+            background_tx: Some(background_tx),
+            auto_background_rx: Some(auto_background_rx),
+            kill: ShellAbortHandle::noop(),
+            started_instant: std::time::Instant::now(),
+            direct_background: false,
         })
     }
 
@@ -938,7 +956,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ctrl_b_backgrounded_agent_shell_opens_panel() {
+    async fn test_ctrl_b_backgrounded_agent_shell_focuses_task_bar() {
         use crate::app::panel_manager::PanelKind;
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -956,8 +974,56 @@ mod tests {
 
         assert!(matches!(result, Some(Action::Redraw)));
         assert!(
+            !app.global_panels.is_active(PanelKind::BackgroundTasks),
+            "后台化的 agent Bash 存在时 Ctrl+B 不应直接打开 BackgroundTasksPanel"
+        );
+        assert!(
+            app.session_mgr.current().ui.background_tasks_bar_focused,
+            "后台化的 agent Bash 存在时 Ctrl+B 应先聚焦底部 shell 入口"
+        );
+
+        let enter = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        )
+        .unwrap();
+
+        assert!(matches!(enter, Some(Action::Redraw)));
+        assert!(
             app.global_panels.is_active(PanelKind::BackgroundTasks),
-            "后台化的 agent Bash 存在时 Ctrl+B 应打开 BackgroundTasksPanel"
+            "底部 shell 入口聚焦后 Enter 应打开 BackgroundTasksPanel"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_b_foreground_agent_shell_backgrounds_and_focuses_task_bar() {
+        use crate::app::panel_manager::PanelKind;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr
+            .current_mut()
+            .agent_shells
+            .push(make_foreground_agent_shell());
+
+        let result = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+
+        assert!(matches!(result, Some(Action::Redraw)));
+        assert!(
+            app.session_mgr.current().agent_shells[0].is_backgrounded,
+            "Ctrl+B 应先把前台 agent Bash 切到后台"
+        );
+        assert!(
+            !app.global_panels.is_active(PanelKind::BackgroundTasks),
+            "前台 agent Bash 后台化时不应直接打开 BackgroundTasksPanel"
+        );
+        assert!(
+            app.session_mgr.current().ui.background_tasks_bar_focused,
+            "前台 agent Bash 后台化后应聚焦底部 shell 入口"
         );
     }
 

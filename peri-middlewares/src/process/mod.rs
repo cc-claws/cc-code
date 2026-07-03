@@ -10,18 +10,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// 检测命令字符串是否包含 cmd.exe 特殊字符（`& | < > ^`）。
-///
-/// 这些字符在 `cmd /C` 中会被解析为命令分隔符/管道/重定向，
-/// 需要用 `cmd /S /C "..."` 包裹以防止语法错误。
-fn has_cmd_special_chars(command: &str) -> bool {
-    command.contains('&')
-        || command.contains('|')
-        || command.contains('<')
-        || command.contains('>')
-        || command.contains('^')
-}
-
 /// Build a `tokio::process::Command` that executes the given command through the
 /// platform shell.
 ///
@@ -70,14 +58,20 @@ pub fn shell_command_with_shell(
                     git_bash_command(&bash_exe, command, args)
                 } else {
                     // Fallback to cmd if no bash available
-                    tracing::warn!("bash shell requested but Git Bash not found, falling back to cmd");
+                    tracing::warn!(
+                        "bash shell requested but Git Bash not found, falling back to cmd"
+                    );
                     shell_command_cmd(command, args)
                 }
             } else {
                 // Unix: direct bash
                 let mut parts = vec![command.to_string()];
                 for arg in args {
-                    if arg.contains(' ') || arg.contains('"') || arg.contains('\'') || arg.contains('\\') {
+                    if arg.contains(' ')
+                        || arg.contains('"')
+                        || arg.contains('\'')
+                        || arg.contains('\\')
+                    {
                         parts.push(format!("'{}'", arg.replace('\'', "'\\''")));
                     } else {
                         parts.push(arg.to_string());
@@ -96,7 +90,11 @@ pub fn shell_command_with_shell(
             } else {
                 let mut parts = vec![command.to_string()];
                 for arg in args {
-                    if arg.contains(' ') || arg.contains('"') || arg.contains('\'') || arg.contains('\\') {
+                    if arg.contains(' ')
+                        || arg.contains('"')
+                        || arg.contains('\'')
+                        || arg.contains('\\')
+                    {
                         parts.push(format!("'{}'", arg.replace('\'', "'\\''")));
                     } else {
                         parts.push(arg.to_string());
@@ -114,17 +112,25 @@ pub fn shell_command_with_shell(
 /// Helper: build a `cmd /C` command on Windows
 fn shell_command_cmd(command: &str, args: &[&str]) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new("cmd");
-    // cmd.exe 把 & | < > ^ 等字符解析为命令分隔符/管道/重定向。
-    // 用 /S /C "..." 包裹可防止特殊字符被错误解析（/S 剥离外层引号）。
-    if has_cmd_special_chars(command) {
-        cmd.arg("/S").arg("/C").arg(format!("\"{}\"", command));
-    } else {
-        cmd.arg("/C").arg(command);
-    }
+    cmd.arg("/C");
+    push_cmd_raw_command(&mut cmd, command);
     for arg in args {
         cmd.arg(arg);
     }
     cmd
+}
+
+#[cfg(windows)]
+fn push_cmd_raw_command(cmd: &mut tokio::process::Command, command: &str) {
+    // `cmd /C` expects the rest of the process command line to be the command
+    // text. Passing it as a normal argument makes Rust quote the whole string,
+    // so commands like `python "D:/script.py"` leak the quote into argv.
+    cmd.raw_arg(command);
+}
+
+#[cfg(not(windows))]
+fn push_cmd_raw_command(cmd: &mut tokio::process::Command, command: &str) {
+    cmd.arg(command);
 }
 
 /// 检测 Git Bash 可执行文件路径。仅 Windows 上有实际意义，其他平台直接返回 None。

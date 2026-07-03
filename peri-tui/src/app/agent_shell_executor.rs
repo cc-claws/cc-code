@@ -50,6 +50,8 @@ pub struct AgentShellRegistration {
     /// （输出已全程写磁盘，后台化只切 UI 状态 + 启动 stall watchdog）
     /// None 表示该任务直接以后台模式启动（run_in_background=true），无需 Ctrl+B。
     pub background_tx: Option<oneshot::Sender<()>>,
+    /// BashTool 前台等待超时后发送此信号，请求 UI 自动把任务标记为后台继续运行。
+    pub auto_background_rx: Option<oneshot::Receiver<()>>,
     /// 杀进程（UI 详情面板 `x` 键）
     pub kill: ShellAbortHandle,
     pub started_instant: std::time::Instant,
@@ -78,6 +80,8 @@ pub struct AgentShellSlot {
     pub exit_signal: Arc<ExitSignal>,
     /// Ctrl+B 后台化信号（前台时存在；后台化或退出后 None）。
     pub background_tx: Option<oneshot::Sender<()>>,
+    /// invoke timeout 后自动后台化信号（前台时存在；后台化或退出后 None）。
+    pub auto_background_rx: Option<oneshot::Receiver<()>>,
     /// 杀进程句柄（详情面板 `x` 键）。
     pub kill: ShellAbortHandle,
     pub started_instant: std::time::Instant,
@@ -102,6 +106,7 @@ impl AgentShellSlot {
             output_path: reg.output_path,
             exit_signal: reg.exit_signal,
             background_tx: reg.background_tx,
+            auto_background_rx: reg.auto_background_rx,
             kill: reg.kill,
             started_instant: reg.started_instant,
             is_backgrounded,
@@ -128,6 +133,7 @@ impl AgentShellSlot {
             return false;
         }
         self.is_backgrounded = true;
+        self.auto_background_rx = None;
         // 发送后台信号（进程 task 收到后无动作；输出已全程写磁盘）
         if let Some(tx) = self.background_tx.take() {
             let _ = tx.send(());
@@ -135,10 +141,29 @@ impl AgentShellSlot {
         true
     }
 
+    /// 消费 BashTool 超时触发的自动后台化请求。
+    pub fn take_auto_background_requested(&mut self) -> bool {
+        let Some(rx) = self.auto_background_rx.as_mut() else {
+            return false;
+        };
+        match rx.try_recv() {
+            Ok(()) => {
+                self.auto_background_rx = None;
+                true
+            }
+            Err(oneshot::error::TryRecvError::Empty) => false,
+            Err(oneshot::error::TryRecvError::Closed) => {
+                self.auto_background_rx = None;
+                false
+            }
+        }
+    }
+
     /// 标记结束（poll 检测到 exit_signal 后调用）。
     pub fn mark_ended(&mut self, exit_code: Option<i32>) {
         self.ended = true;
         self.exit_code = exit_code;
+        self.auto_background_rx = None;
         // 终止 stall watchdog
         if let Some(w) = self.stall_watchdog.take() {
             w.abort();
@@ -203,13 +228,10 @@ impl ShellExecutor for AgentShellExecutor {
         let exit_signal = Arc::new(ExitSignal::new());
         let exit_signal_clone = Arc::clone(&exit_signal);
         let (background_tx, background_rx) = oneshot::channel::<()>();
+        let (auto_background_tx, auto_background_rx) = oneshot::channel::<()>();
 
         let mut real_result = execution.result;
         tokio::spawn(async move {
-            // background_rx：后台化请求信号。agent 路径下输出已全程写磁盘，
-            // 后台化只是 UI 状态切换，进程 task 无需动作。这里仅消费以避免泄漏。
-            drop(background_rx);
-
             let real = (&mut real_result).await;
             let converted = match real {
                 Ok(Ok(out)) => Ok(ShellCommandOutput {
@@ -241,6 +263,11 @@ impl ShellExecutor for AgentShellExecutor {
             } else {
                 Some(background_tx)
             },
+            auto_background_rx: if run_in_background {
+                None
+            } else {
+                Some(auto_background_rx)
+            },
             kill: process_abort.clone(),
             started_instant,
             direct_background: run_in_background,
@@ -268,7 +295,17 @@ impl ShellExecutor for AgentShellExecutor {
             output_path,
             result_rx,
             exit_signal,
-            background_tx: None, // 已在 registration 里交给了 UI；handle 不再持有
+            background_rx: if run_in_background {
+                None
+            } else {
+                Some(background_rx)
+            },
+            auto_background_tx: if run_in_background {
+                None
+            } else {
+                Some(auto_background_tx)
+            },
+            background_tx: None, // 发送端已在 registration 里交给 UI；handle 持有接收端
             kill: process_abort,
         })
     }
@@ -281,6 +318,7 @@ mod tests {
     /// 构造一个用于测试的 AgentShellRegistration（前台、含 background_tx）。
     fn make_reg(direct_background: bool) -> (AgentShellRegistration, oneshot::Receiver<()>) {
         let (bg_tx, bg_rx) = oneshot::channel();
+        let (_auto_tx, auto_rx) = oneshot::channel();
         let reg = AgentShellRegistration {
             task_id: "test-task".to_string(),
             command: "echo hi".to_string(),
@@ -288,6 +326,11 @@ mod tests {
             output_path: PathBuf::from("/tmp/out.log"),
             exit_signal: Arc::new(ExitSignal::new()),
             background_tx: if direct_background { None } else { Some(bg_tx) },
+            auto_background_rx: if direct_background {
+                None
+            } else {
+                Some(auto_rx)
+            },
             kill: ShellAbortHandle::noop(),
             started_instant: std::time::Instant::now(),
             direct_background,
