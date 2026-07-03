@@ -40,14 +40,10 @@ impl ShellExecutor for InlineShellExecutor {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         let exit_signal = Arc::new(ExitSignal::new());
         let exit_signal_clone = Arc::clone(&exit_signal);
-        // background_tx / background_rx：内联执行器无后台 UI，仅静默丢弃。
+        // background_tx / background_rx：内联执行器无后台 UI，receiver 留给 BashTool select。
         let (background_tx, background_rx) = tokio::sync::oneshot::channel::<()>();
 
         let join = tokio::spawn(async move {
-            // background_rx 在进程跑期间保持存活；收到信号仅表示"请求后台化"，
-            // 内联执行器无后台语义，这里不做切换。drop 它以静默处理。
-            drop(background_rx);
-
             let mut cmd = crate::process::shell_command(&command, &[]);
             cmd.current_dir(&cwd)
                 .stdout(Stdio::piped())
@@ -96,6 +92,8 @@ impl ShellExecutor for InlineShellExecutor {
             output_path: PathBuf::from(output_path),
             result_rx,
             exit_signal,
+            background_rx: Some(background_rx),
+            auto_background_tx: None,
             background_tx: Some(background_tx),
             kill: ShellAbortHandle::from_tokio_abort(join.abort_handle()),
         })
