@@ -4,6 +4,20 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.44 — 2026-07-03
+
+### Features
+
+- **agent Bash 超时自动后台化**：BashTool 超时时不再无条件杀进程，支持通过 `auto_background_tx` 通知 TUI 将仍在运行的前台任务自动转后台继续运行
+- **Windows cmd /C 引号修复**：移除 `has_cmd_special_chars` + `/S /C` 包裹，改用 `raw_arg` 传递命令文本，修复 `python "D:/x.py"` 引号泄漏到 argv 的问题
+- **Ctrl+B 交互优化**：后台化后先聚焦底部 shell 入口，Enter 才打开面板，避免遮挡主视图
+
+### Bug Fixes
+
+- **clippy unused import + needless_borrow**：修复 `terminal.rs` 中 `timeout` 导入和 `&command` 引用的 clippy 错误
+
+---
+
 ## v0.6.43 — 2026-07-02
 
 ### Refactor
