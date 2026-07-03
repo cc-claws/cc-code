@@ -9,7 +9,7 @@ use super::{
 };
 use crate::app::tool_display::sanitize_display_text;
 
-pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(Ctrl+B to run in background)";
+pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
 
 /// 从 Bash 工具输出中解析 exit code。
 ///
@@ -944,10 +944,13 @@ pub fn render_view_model(
                 };
                 lines.push(Line::from(vec![
                     Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
-                    Span::styled(elapsed_str, Style::default().fg(theme::MUTED)),
+                    Span::styled(
+                        format!("Running… {}", elapsed_str),
+                        Style::default().fg(theme::MUTED),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
-                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                    Span::styled("    ", Style::default().fg(theme::DIM)),
                     Span::styled(CONTROL_B_BACKGROUND_HINT, Style::default().fg(theme::MUTED)),
                 ]));
             }
