@@ -79,6 +79,49 @@ fn test_shell_command_multi_args() {
     }
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn test_shell_command_windows_preserves_quoted_absolute_path() {
+    // Windows 上 `cmd /C` 不能把整段带引号命令再作为普通参数转义，
+    // 否则 `type "D:\path\file"` 里的引号会泄漏到文件名中。
+    let cargo_toml = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let command = format!("type \"{}\"", cargo_toml.display());
+    let output = shell_command(&command, &[])
+        .output()
+        .await
+        .expect("带引号绝对路径命令应能启动");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "带引号绝对路径命令应执行成功，stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("peri-middlewares"),
+        "应读取 peri-middlewares Cargo.toml，实际输出: {stdout}"
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn test_shell_command_windows_keeps_cmd_operators() {
+    let output = shell_command("echo alpha && echo beta", &[])
+        .output()
+        .await
+        .expect("cmd 操作符命令应能启动");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "cmd 操作符命令应执行成功，stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("alpha"),
+        "stdout 应包含第一段输出: {stdout}"
+    );
+    assert!(stdout.contains("beta"), "stdout 应包含第二段输出: {stdout}");
+}
+
 #[test]
 fn test_is_unrecognized_command_error_matches_classic_pattern() {
     // 英文版典型 stderr（Windows cmd 默认 locale）
@@ -337,11 +380,17 @@ fn test_shell_command_with_shell_none_uses_platform_default() {
     let formatted = format!("{cmd:?}");
     #[cfg(windows)]
     {
-        assert!(formatted.contains("cmd"), "expected cmd on Windows, got: {formatted}");
+        assert!(
+            formatted.contains("cmd"),
+            "expected cmd on Windows, got: {formatted}"
+        );
     }
     #[cfg(unix)]
     {
-        assert!(formatted.contains("bash"), "expected bash on Unix, got: {formatted}");
+        assert!(
+            formatted.contains("bash"),
+            "expected bash on Unix, got: {formatted}"
+        );
     }
 }
 
@@ -352,8 +401,14 @@ fn test_shell_command_with_shell_bash_explicit() {
     #[cfg(unix)]
     {
         let formatted = format!("{_cmd:?}");
-        assert!(formatted.contains("bash"), "expected bash on Unix, got: {formatted}");
-        assert!(formatted.contains("-c"), "expected -c flag, got: {formatted}");
+        assert!(
+            formatted.contains("bash"),
+            "expected bash on Unix, got: {formatted}"
+        );
+        assert!(
+            formatted.contains("-c"),
+            "expected -c flag, got: {formatted}"
+        );
     }
     // Windows 上可能回退到 cmd（如果没有 Git Bash）
 }

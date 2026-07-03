@@ -35,16 +35,18 @@ pub(super) fn handle_shortcuts(
         return Some(Action::Redraw);
     }
 
-    // Ctrl+B: 有前台 shell 时后台化（output_rx 切换到磁盘，进程不中断）；
-    // 否则有后台 shell 时打开面板；否则聚焦 bg agent bar
+    // Ctrl+B: 有前台 shell 时先后台化（进程不中断），然后聚焦底部 shell 入口；
+    // 已有后台 shell 时也只聚焦入口，Enter 再打开面板；否则聚焦 bg agent bar。
     if SHORTCUT_BG_BAR.matches(key_event) {
         let has_foreground = app.session_mgr.current().shell_pool.is_running();
         if has_foreground {
-            app.background_foreground();
+            if app.background_foreground() {
+                focus_background_tasks_bar(app);
+            }
         } else if app.background_agent_foreground() {
-            // agent Bash 命令被后台化（background_agent_foreground 内部处理）
+            focus_background_tasks_bar(app);
         } else if app.has_running_background_shell_tasks() {
-            app.open_background_tasks_panel();
+            focus_background_tasks_bar(app);
         } else if !app.session_mgr.current().background_agents.is_empty() {
             app.session_mgr.current_mut().ui.bg_bar_cursor = Some(0);
         }
@@ -119,4 +121,11 @@ pub(super) fn handle_shortcuts(
     }
 
     None
+}
+
+fn focus_background_tasks_bar(app: &mut App) {
+    app.session_mgr
+        .current_mut()
+        .ui
+        .background_tasks_bar_focused = true;
 }

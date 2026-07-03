@@ -3,11 +3,13 @@ use peri_agent::{
     agent::state::State, middleware::r#trait::Middleware, shell::ShellExecutor, tools::BaseTool,
 };
 use serde_json::Value;
+use std::path::Path;
 #[cfg(windows)]
 use std::process::Stdio;
 use std::sync::Arc;
 #[cfg(windows)]
 use std::time::Instant;
+use tokio::sync::oneshot;
 use tokio::time::{timeout, Duration};
 
 use crate::tools::output_persist::truncate_shell_output;
@@ -295,6 +297,65 @@ fn format_command_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
     output
 }
 
+fn escape_xml_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn format_background_task_started(task_id: &str, command: &str, output_path: &Path) -> String {
+    format!(
+        "<background-task-started><task-id>{}</task-id><command>{}</command><output>{}</output></background-task-started>",
+        task_id,
+        escape_xml_text(command),
+        output_path.display()
+    )
+}
+
+async fn cleanup_temp_msg_files(paths: &[String]) {
+    for path in paths {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+}
+
+enum ShellWaitResult {
+    Completed(
+        Result<anyhow::Result<peri_agent::shell::ShellCommandOutput>, oneshot::error::RecvError>,
+    ),
+    Backgrounded,
+    TimedOut,
+}
+
+async fn wait_for_shell_result(
+    mut result_rx: oneshot::Receiver<anyhow::Result<peri_agent::shell::ShellCommandOutput>>,
+    mut background_rx: Option<oneshot::Receiver<()>>,
+    timeout_ms: u64,
+) -> ShellWaitResult {
+    let timeout_sleep = tokio::time::sleep(Duration::from_millis(timeout_ms));
+    tokio::pin!(timeout_sleep);
+
+    loop {
+        if let Some(rx) = background_rx.as_mut() {
+            tokio::select! {
+                result = &mut result_rx => return ShellWaitResult::Completed(result),
+                background = rx => {
+                    background_rx = None;
+                    if background.is_ok() {
+                        return ShellWaitResult::Backgrounded;
+                    }
+                }
+                _ = &mut timeout_sleep => return ShellWaitResult::TimedOut,
+            }
+        } else {
+            tokio::select! {
+                result = &mut result_rx => return ShellWaitResult::Completed(result),
+                _ = &mut timeout_sleep => return ShellWaitResult::TimedOut,
+            }
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl BaseTool for BashTool {
     fn name(&self) -> &str {
@@ -315,7 +376,7 @@ impl BaseTool for BashTool {
                 },
                 "timeout": {
                     "type": "number",
-                    "description": "Optional timeout in milliseconds (default 120000, max 600000). If the command takes longer than this, it will be killed and a timeout error returned"
+                    "description": "Optional timeout in milliseconds (default 120000, max 600000). In the TUI host, foreground commands that exceed this continue in the background; in hosts without background support they are killed and a timeout error is returned"
                 },
                 "description": {
                     "type": "string",
@@ -380,33 +441,42 @@ impl BaseTool for BashTool {
         // run_in_background=true：立即转后台，返回 task_id 占位串。
         // 真实输出靠后续 <background-task-completed> 通知注入下一轮对话。
         if run_in_background {
-            // 清理 Windows temp 文件（后台路径用不到 -F tempfile）
-            for path in &temp_msg_files {
-                let _ = tokio::fs::remove_file(path).await;
+            // 后台进程可能稍后才读取 Windows git commit -F 临时文件，不能在这里提前删除。
+            if let Some(tx) = handle.background_tx {
+                let _ = tx.send(());
             }
-            // 通知 executor 进入后台（handle 内已具备 background_tx 时消费它）
-            return Ok(format!(
-                "<background-task-started><task-id>{}</task-id><command>{}</command><output>{}</output></background-task-started>",
-                handle.task_id,
-                command.replace('<', "&lt;").replace('>', "&gt;"),
-                handle.output_path.display()
+            return Ok(format_background_task_started(
+                &handle.task_id,
+                &command,
+                &handle.output_path,
             ));
         }
 
-        // 前台执行：await 到进程退出拿完整输出（对齐 Claude Code，后台化不抢占 result_rx）。
-        // 先取出 kill 句柄，超时时 abort executor task → child 被 drop → kill_on_drop 终止子进程。
+        // 前台执行：等待进程退出、用户手动后台化或宿主支持的自动后台化超时。
         let kill = handle.kill;
-        let result = timeout(Duration::from_millis(timeout_ms), handle.result_rx).await;
-
-        // 退出后清理 Windows temp 文件
-        for path in &temp_msg_files {
-            let _ = tokio::fs::remove_file(path).await;
-        }
+        let task_id = handle.task_id;
+        let output_path = handle.output_path;
+        let auto_background_tx = handle.auto_background_tx;
+        let result =
+            wait_for_shell_result(handle.result_rx, handle.background_rx, timeout_ms).await;
 
         match result {
-            // 超时：abort executor task 终止子进程防泄漏
-            Err(_) => {
+            ShellWaitResult::Backgrounded => Ok(format_background_task_started(
+                &task_id,
+                &command,
+                &output_path,
+            )),
+            ShellWaitResult::TimedOut => {
+                if let Some(tx) = auto_background_tx {
+                    let _ = tx.send(());
+                    return Ok(format_background_task_started(
+                        &task_id,
+                        &command,
+                        &output_path,
+                    ));
+                }
                 kill.abort();
+                cleanup_temp_msg_files(&temp_msg_files).await;
                 Err(format!(
                     "Error: Command timed out after {} seconds.\nCommand: {command}",
                     timeout_ms as f64 / 1000.0
@@ -414,10 +484,17 @@ impl BaseTool for BashTool {
                 .into())
             }
             // oneshot channel 关闭（executor task 异常退出未 send）
-            Ok(Err(_)) => Err("Error: command executor closed unexpectedly".into()),
+            ShellWaitResult::Completed(Err(_)) => {
+                cleanup_temp_msg_files(&temp_msg_files).await;
+                Err("Error: command executor closed unexpectedly".into())
+            }
             // executor 返回错误（spawn 失败等）
-            Ok(Ok(Err(e))) => Err(format!("Error executing command: {e}").into()),
-            Ok(Ok(Ok(output))) => {
+            ShellWaitResult::Completed(Ok(Err(e))) => {
+                cleanup_temp_msg_files(&temp_msg_files).await;
+                Err(format!("Error executing command: {e}").into())
+            }
+            ShellWaitResult::Completed(Ok(Ok(output))) => {
+                cleanup_temp_msg_files(&temp_msg_files).await;
                 let stdout = output.stdout;
                 let stderr = output.stderr;
                 let exit_code = output.exit_code;

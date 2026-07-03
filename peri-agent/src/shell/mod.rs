@@ -21,8 +21,9 @@
 //! Claude Code 的 `shellCommand.result` 是 Promise（多消费者），`call` 和
 //! `backgroundTask` 各自 `.then` 都能拿结果。peri 用 `tokio::oneshot`（单消费者）。
 //! 解法：**invoke 独占 [`AgentShellHandle::result_rx`] 拿完整 stdout**；
-//! 退出检测另起一个轻量信号 [`ExitSignal`] 给 UI poll；后台化只切 output 目标
-//! + UI 状态，**不抢 result_rx**。
+//! 退出检测另起一个轻量信号 [`ExitSignal`] 给 UI poll；手动后台化通过
+//! [`AgentShellHandle::background_rx`] 通知 invoke 提前返回后台任务占位串，
+//! 超时则由 invoke 通过 [`AgentShellHandle::auto_background_tx`] 通知 UI 自动后台化。
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -163,19 +164,20 @@ impl Default for ExitSignal {
 /// 由 [`ShellExecutor::execute`] 返回，是 invoke 与 UI 之间的桥梁：
 /// - `result_rx`：**invoke 独占**，await 拿完整 stdout（后台化不抢占）
 /// - `exit_signal`：UI poll 查退出（独立于 result_rx 的轻量信号）
-/// - `background_tx`：UI 发 Ctrl+B 后台化指令；spawn 进程 task 收到后把
-///   stdout/stderr 监听从屏幕切到磁盘（进程不中断）
+/// - `background_rx`：UI 发 Ctrl+B 后台化后唤醒 invoke，让工具调用返回后台任务占位串
+/// - `auto_background_tx`：invoke 超时时通知 UI 将仍在运行的前台任务转后台
+/// - `background_tx`：非 UI executor 可直接持有的后台化发送端；TUI 场景由注册槽位持有发送端
 /// - `kill`：UI 详情面板按 `x` 杀进程
 /// - `output_path` / `task_id`：磁盘输出路径 + 任务标识（通知 XML 用）
 ///
 /// # 所有者约定
 ///
-/// - **invoke**：持有 `result_rx`，决定返回值（完整 stdout 或 task_id 占位串）
+/// - **invoke**：持有 `result_rx` / `background_rx` / `auto_background_tx`，
+///   决定返回值（完整 stdout 或 task_id 占位串）
 /// - **UI 主循环**：通过 [`crate`] 注册进 `agent_foreground_shells` 槽后，
 ///   持有 `exit_signal` / `background_tx` / `kill` / `output_path` / `task_id`
 ///   的副本，poll 检测退出 + 响应 Ctrl+B
-/// - **spawn 进程 task**：持有 `result_tx` / `background_rx`，进程退出时发结果
-///   + fire exit_signal；收到 background 信号时切换输出目标
+/// - **spawn 进程 task**：持有 `result_tx`，进程退出时发结果 + fire exit_signal
 pub struct AgentShellHandle {
     /// 任务唯一 ID（uuid7），用于通知 XML、面板展示、匹配。
     pub task_id: String,
@@ -188,7 +190,12 @@ pub struct AgentShellHandle {
     pub result_rx: oneshot::Receiver<anyhow::Result<ShellCommandOutput>>,
     /// UI poll 用它检测退出（独立于 result_rx）。
     pub exit_signal: Arc<ExitSignal>,
-    /// 发送即请求后台化（UI Ctrl+B 时用）。`None` 表示已后台化或进程结束。
+    /// 收到即表示用户已把前台命令后台化，invoke 应提前返回 task_id 占位串。
+    pub background_rx: Option<oneshot::Receiver<()>>,
+    /// 发送即表示 invoke 因 timeout 自动把仍在运行的命令转后台。
+    pub auto_background_tx: Option<oneshot::Sender<()>>,
+    /// 发送即请求后台化。TUI 场景下发送端由 UI 注册槽位持有，此字段可为 None。
+    /// 非 TUI executor 可用它实现直接控制。`None` 表示已后台化、进程结束或无 UI 控制端。
     pub background_tx: Option<oneshot::Sender<()>>,
     /// 杀进程句柄（UI 详情面板 `x` 键）。
     pub kill: ShellAbortHandle,

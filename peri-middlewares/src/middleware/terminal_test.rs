@@ -3,6 +3,24 @@ use crate::tools::output_persist::truncate_bytes;
 use peri_agent::tools::BaseTool;
 use std::time::Instant;
 
+struct MockShellExecutor {
+    handle: tokio::sync::Mutex<Option<peri_agent::shell::AgentShellHandle>>,
+}
+
+#[async_trait::async_trait]
+impl peri_agent::shell::ShellExecutor for MockShellExecutor {
+    async fn execute(
+        &self,
+        _req: peri_agent::shell::ShellRequest,
+    ) -> anyhow::Result<peri_agent::shell::AgentShellHandle> {
+        self.handle
+            .lock()
+            .await
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("mock handle already consumed"))
+    }
+}
+
 #[tokio::test]
 async fn test_bash_normal_command() {
     let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
@@ -21,6 +39,109 @@ async fn test_bash_nonzero_exit_code() {
         .await
         .unwrap();
     assert!(result.contains("42"), "应包含退出码: {result}");
+}
+
+#[tokio::test]
+async fn test_bash_ctrl_b_background_returns_task_without_killing() {
+    let (_result_tx, result_rx) =
+        tokio::sync::oneshot::channel::<anyhow::Result<peri_agent::shell::ShellCommandOutput>>();
+    let (background_tx, background_rx) = tokio::sync::oneshot::channel();
+    let killed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let killed_for_abort = std::sync::Arc::clone(&killed);
+    let handle = peri_agent::shell::AgentShellHandle {
+        task_id: "task-manual-bg".to_string(),
+        output_path: std::env::temp_dir().join("peri-manual-bg.output"),
+        result_rx,
+        exit_signal: std::sync::Arc::new(peri_agent::shell::ExitSignal::new()),
+        background_rx: Some(background_rx),
+        auto_background_tx: None,
+        background_tx: None,
+        kill: peri_agent::shell::ShellAbortHandle::new(move || {
+            killed_for_abort.store(true, std::sync::atomic::Ordering::SeqCst);
+        }),
+    };
+    let tool = BashTool::with_executor(
+        std::env::temp_dir().to_string_lossy().to_string(),
+        std::sync::Arc::new(MockShellExecutor {
+            handle: tokio::sync::Mutex::new(Some(handle)),
+        }),
+    );
+
+    let invoke = tokio::spawn(async move {
+        tool.invoke(serde_json::json!({
+            "command": "python long.py",
+            "timeout": 5_000
+        }))
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    background_tx.send(()).expect("应能发送 Ctrl+B 后台化信号");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(1), invoke)
+        .await
+        .expect("Ctrl+B 后 BashTool 应快速返回")
+        .expect("join 应成功")
+        .expect("后台化应返回成功");
+
+    assert!(
+        result.contains("<background-task-started>"),
+        "Ctrl+B 后应返回后台任务占位串: {result}"
+    );
+    assert!(
+        result.contains("<task-id>task-manual-bg</task-id>"),
+        "占位串应包含任务 id: {result}"
+    );
+    assert!(
+        !killed.load(std::sync::atomic::Ordering::SeqCst),
+        "手动后台化不应杀进程"
+    );
+}
+
+#[tokio::test]
+async fn test_bash_timeout_auto_background_returns_task_without_killing() {
+    let (_result_tx, result_rx) =
+        tokio::sync::oneshot::channel::<anyhow::Result<peri_agent::shell::ShellCommandOutput>>();
+    let (auto_background_tx, mut auto_background_rx) = tokio::sync::oneshot::channel();
+    let killed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let killed_for_abort = std::sync::Arc::clone(&killed);
+    let handle = peri_agent::shell::AgentShellHandle {
+        task_id: "task-auto-bg".to_string(),
+        output_path: std::env::temp_dir().join("peri-auto-bg.output"),
+        result_rx,
+        exit_signal: std::sync::Arc::new(peri_agent::shell::ExitSignal::new()),
+        background_rx: None,
+        auto_background_tx: Some(auto_background_tx),
+        background_tx: None,
+        kill: peri_agent::shell::ShellAbortHandle::new(move || {
+            killed_for_abort.store(true, std::sync::atomic::Ordering::SeqCst);
+        }),
+    };
+    let tool = BashTool::with_executor(
+        std::env::temp_dir().to_string_lossy().to_string(),
+        std::sync::Arc::new(MockShellExecutor {
+            handle: tokio::sync::Mutex::new(Some(handle)),
+        }),
+    );
+
+    let result = tool
+        .invoke(serde_json::json!({
+            "command": "python long.py",
+            "timeout": 10
+        }))
+        .await
+        .expect("支持自动后台化时，超时应返回后台任务");
+
+    assert!(
+        result.contains("<background-task-started>"),
+        "超时自动后台化应返回后台任务占位串: {result}"
+    );
+    assert!(
+        auto_background_rx.try_recv().is_ok(),
+        "超时应通知 TUI 自动后台化"
+    );
+    assert!(
+        !killed.load(std::sync::atomic::Ordering::SeqCst),
+        "自动后台化不应杀进程"
+    );
 }
 
 /// 验证超时后在合理时间内返回，且 kill_on_drop 确保子进程被清理
