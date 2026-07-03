@@ -32,7 +32,16 @@ fn make_agent_shell_slot(
     direct_background: bool,
     command: &str,
 ) -> (AgentShellSlot, Arc<ExitSignal>) {
+    let (reg, exit_signal) = make_agent_shell_registration(direct_background, command);
+    (AgentShellSlot::from_registration(reg), exit_signal)
+}
+
+fn make_agent_shell_registration(
+    direct_background: bool,
+    command: &str,
+) -> (AgentShellRegistration, Arc<ExitSignal>) {
     let (bg_tx, _bg_rx) = oneshot::channel();
+    let (_auto_tx, auto_rx) = oneshot::channel();
     let exit_signal = Arc::new(ExitSignal::new());
     let reg = AgentShellRegistration {
         task_id: uuid::Uuid::now_v7().to_string(),
@@ -41,11 +50,34 @@ fn make_agent_shell_slot(
         output_path: PathBuf::from("/tmp/peri-agent-shell.output"),
         exit_signal: Arc::clone(&exit_signal),
         background_tx: if direct_background { None } else { Some(bg_tx) },
+        auto_background_rx: if direct_background {
+            None
+        } else {
+            Some(auto_rx)
+        },
         kill: ShellAbortHandle::noop(),
         started_instant: std::time::Instant::now(),
         direct_background,
     };
-    (AgentShellSlot::from_registration(reg), exit_signal)
+    (reg, exit_signal)
+}
+
+fn make_auto_background_agent_shell_slot(command: &str) -> (AgentShellSlot, oneshot::Sender<()>) {
+    let (bg_tx, _bg_rx) = oneshot::channel();
+    let (auto_tx, auto_rx) = oneshot::channel();
+    let reg = AgentShellRegistration {
+        task_id: uuid::Uuid::now_v7().to_string(),
+        command: command.to_string(),
+        cwd: ".".to_string(),
+        output_path: PathBuf::from("/tmp/peri-agent-shell.output"),
+        exit_signal: Arc::new(ExitSignal::new()),
+        background_tx: Some(bg_tx),
+        auto_background_rx: Some(auto_rx),
+        kill: ShellAbortHandle::noop(),
+        started_instant: std::time::Instant::now(),
+        direct_background: false,
+    };
+    (AgentShellSlot::from_registration(reg), auto_tx)
 }
 
 #[test]
@@ -187,6 +219,10 @@ async fn test_poll_agent_shells_前台结束不注入后台通知() {
 
     assert!(changed, "前台 shell 退出也应产生状态变化用于重绘");
     assert!(
+        app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 退出后应请求下一帧清理终端残影"
+    );
+    assert!(
         app.session_mgr.current().agent_shells[0].ended,
         "退出后应标记 ended"
     );
@@ -196,6 +232,55 @@ async fn test_poll_agent_shells_前台结束不注入后台通知() {
             .pending_bg_shell_notifications
             .is_empty(),
         "未后台化的前台小命令不应注入后台完成通知"
+    );
+}
+
+#[tokio::test]
+async fn test_poll_agent_shells_超时自动后台化继续运行() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let (slot, auto_tx) = make_auto_background_agent_shell_slot("python long.py");
+    app.session_mgr.current_mut().agent_shells.push(slot);
+
+    auto_tx.send(()).expect("应能发送自动后台化信号");
+    let changed = app.poll_agent_shells();
+
+    assert!(changed, "自动后台化应产生状态变化");
+    assert!(
+        app.session_mgr.current().agent_shells[0].is_backgrounded,
+        "收到自动后台化信号后，前台 agent Bash 应切为后台继续运行"
+    );
+    assert!(
+        app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "自动后台化后应请求下一帧清理终端残影"
+    );
+}
+
+#[tokio::test]
+async fn test_register_agent_shell_请求清理终端残影重绘() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let (reg, _exit_signal) = make_agent_shell_registration(false, "sleep 3");
+
+    app.register_agent_shell(reg);
+
+    assert!(
+        app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 注册到状态栏后应强制下一帧全量重绘"
+    );
+}
+
+#[tokio::test]
+async fn test_background_agent_foreground_请求清理终端残影重绘() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let (slot, _exit_signal) = make_agent_shell_slot(false, "sleep 60");
+    app.session_mgr.current_mut().agent_shells.push(slot);
+
+    assert!(
+        app.background_agent_foreground(),
+        "应能将前台 agent Bash 转入后台"
+    );
+    assert!(
+        app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 后台化后应请求下一帧清理终端残影"
     );
 }
 

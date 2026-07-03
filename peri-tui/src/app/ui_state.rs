@@ -38,6 +38,8 @@ pub struct UiState {
     pub screen_selection: ScreenSelection,
     /// terminal.draw() 后的 Buffer 文本快照，供 MouseUp 提取 screen 选区文本
     pub screen_snapshot: Option<ScreenSnapshot>,
+    /// 请求下一帧先清理物理终端，再交给 ratatui 全量重绘。
+    pub force_terminal_clear_redraw: bool,
     /// textarea MouseDown 暂存的屏幕坐标：判断"textarea 内拖选 vs 拖出切换 screen 选区"
     pub pending_screen_start: Option<(u16, u16)>,
     pub messages_area: Option<ratatui::layout::Rect>,
@@ -105,6 +107,7 @@ impl UiState {
             last_left_click: None,
             screen_selection: ScreenSelection::default(),
             screen_snapshot: None,
+            force_terminal_clear_redraw: false,
             pending_screen_start: None,
             messages_area: None,
             message_scrollbar_metrics: None,
@@ -151,5 +154,13 @@ impl UiState {
     pub fn reset_cursor_blink(&mut self) {
         self.cursor_visible = true;
         self.cursor_tick_count = 0;
+    }
+
+    pub fn request_terminal_clear_redraw(&mut self) {
+        self.force_terminal_clear_redraw = true;
+    }
+
+    pub fn take_terminal_clear_redraw(&mut self) -> bool {
+        std::mem::take(&mut self.force_terminal_clear_redraw)
     }
 }
