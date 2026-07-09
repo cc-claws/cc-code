@@ -186,12 +186,15 @@ impl App {
                         .chars()
                         .take(40)
                         .collect();
-                    self.session_mgr.current_mut().agent.active_tool =
-                        Some(super::agent_comm::ActiveToolInfo {
-                            name: name.clone(),
-                            display: display.clone(),
-                            args_summary,
-                        });
+                    let active = super::agent_comm::ActiveToolInfo {
+                        tool_call_id: tool_call_id.clone(),
+                        name: name.clone(),
+                        display: display.clone(),
+                        args_summary,
+                    };
+                    let agent = &mut self.session_mgr.current_mut().agent;
+                    agent.running_tools.push(active.clone());
+                    agent.active_tool = Some(active);
                 }
                 // 跨切面：spinner
                 self.session_mgr
@@ -239,7 +242,13 @@ impl App {
                 source_agent_id,
             } => {
                 // 清除执行中工具，累加工具统计
-                self.session_mgr.current_mut().agent.active_tool = None;
+                {
+                    let agent = &mut self.session_mgr.current_mut().agent;
+                    agent
+                        .running_tools
+                        .retain(|tool| tool.tool_call_id != tool_call_id);
+                    agent.active_tool = agent.running_tools.last().cloned();
+                }
                 if !name.is_empty() {
                     let count = *self
                         .session_mgr
