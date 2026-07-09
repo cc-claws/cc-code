@@ -31,7 +31,7 @@ mod panel_status;
 mod global_ui_state;
 mod service_registry;
 pub use global_ui_state::GlobalUiState;
-pub use service_registry::ServiceRegistry;
+pub use service_registry::{GitBranchStatus, ServiceRegistry};
 
 mod session_manager;
 pub use session_manager::SessionManager;
@@ -135,7 +135,7 @@ use std::sync::Arc;
 use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
-pub use agent_comm::{AgentComm, RetryStatus};
+pub use agent_comm::{ActiveToolInfo, AgentComm, RetryStatus};
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};
@@ -547,7 +547,8 @@ impl App {
     pub fn set_loading(&mut self, loading: bool) {
         let responding_label = self.services.lc.tr("spinner-responding");
         // 同步当前 session 的动词列表（覆盖 setup wizard 等非 /lang 路径的语言变更）
-        let verb_list = peri_widgets::spinner::verb::verbs_for_lang(self.services.lc.current_lang());
+        let verb_list =
+            peri_widgets::spinner::verb::verbs_for_lang(self.services.lc.current_lang());
         let s = self.active_mut();
         s.spinner_state.set_verb_list(verb_list);
         s.ui.loading = loading;

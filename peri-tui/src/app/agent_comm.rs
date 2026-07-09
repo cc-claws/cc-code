@@ -15,6 +15,7 @@ type SharedToolRegistry = std::sync::Arc<
 /// 当前正在执行的工具信息（ToolStart 时设置，ToolEnd 时清除）
 #[derive(Clone, Debug)]
 pub struct ActiveToolInfo {
+    pub tool_call_id: String,
     pub name: String,
     pub display: String,
     pub args_summary: String,
@@ -98,6 +99,8 @@ pub struct AgentComm {
     pub last_cache_warning_at: Option<std::time::Instant>,
     /// 当前正在执行的工具（ToolStart 设置，ToolEnd/Done/Interrupted 清除）
     pub active_tool: Option<ActiveToolInfo>,
+    /// 当前仍在运行的工具列表，用于状态栏展示最近的 running tools
+    pub running_tools: Vec<ActiveToolInfo>,
     /// 会话级按工具类型统计已完成调用次数（会话累计，new_thread 时清零）
     pub session_tool_stats: HashMap<String, u32>,
 }
@@ -137,6 +140,7 @@ impl Default for AgentComm {
             compact_manual: false,
             last_cache_warning_at: None,
             active_tool: None,
+            running_tools: Vec::new(),
             session_tool_stats: HashMap::new(),
         }
     }

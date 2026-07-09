@@ -87,42 +87,48 @@ pub struct ServiceRegistry {
     pub panic_notify_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
 }
 
-/// Git 分支名缓存，避免每帧都 spawn 子进程
+/// Git 分支状态缓存，避免每帧都 spawn 子进程
+#[derive(Clone, Debug)]
+pub struct GitBranchStatus {
+    pub branch: String,
+    pub dirty: bool,
+}
+
 pub struct GitBranchCache {
-    branch: Option<String>,
+    status: Option<GitBranchStatus>,
     last_check: Option<std::time::Instant>,
 }
 
 impl GitBranchCache {
     pub fn new() -> Self {
         Self {
-            branch: None,
+            status: None,
             last_check: None,
         }
     }
 
-    /// 获取缓存的分支名，超过 5 秒则刷新
-    pub fn get_or_refresh(&mut self, cwd: &str) -> Option<&str> {
+    /// 获取缓存的分支状态，超过 5 秒则刷新
+    pub fn get_or_refresh(&mut self, cwd: &str) -> Option<&GitBranchStatus> {
         let should_refresh = self
             .last_check
             .map(|t| t.elapsed() >= std::time::Duration::from_secs(5))
             .unwrap_or(true);
 
         if should_refresh {
-            self.branch = Self::detect_branch(cwd);
+            self.status = Self::detect_status(cwd);
             self.last_check = Some(std::time::Instant::now());
         }
 
         self.get_cached()
     }
 
-    /// 获取缓存的分支名，不触发子进程刷新。
+    /// 获取缓存的分支状态，不触发子进程刷新。
     /// loading 期间调用，避免 `git rev-parse` 子进程阻塞渲染线程导致抖动。
-    pub fn get_cached(&self) -> Option<&str> {
-        self.branch.as_deref()
+    pub fn get_cached(&self) -> Option<&GitBranchStatus> {
+        self.status.as_ref()
     }
 
-    fn detect_branch(cwd: &str) -> Option<String> {
+    fn detect_status(cwd: &str) -> Option<GitBranchStatus> {
         use std::process::Command;
         let output = Command::new("git")
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -136,6 +142,14 @@ impl GitBranchCache {
         if branch.is_empty() || branch == "HEAD" {
             return None;
         }
-        Some(branch)
+        let dirty = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(cwd)
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| !String::from_utf8_lossy(&output.stdout).trim().is_empty())
+            .unwrap_or(false);
+        Some(GitBranchStatus { branch, dirty })
     }
 }
