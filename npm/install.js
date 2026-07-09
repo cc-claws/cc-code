@@ -120,8 +120,7 @@ function extractZip(buffer, dest) {
   zip.extractAllTo(dest, true);
 }
 
-function migrateFromClaudeCode() {
-  const home = homedir();
+function migrateFromClaudeCode(home = homedir()) {
   const claudeSettingsPath = join(home, ".claude", "settings.json");
   const ccCodeDir = join(home, ".cc-code");
   const ccCodeSettingsPath = join(ccCodeDir, "settings.json");
@@ -150,12 +149,16 @@ function migrateFromClaudeCode() {
   const anthropicKey = env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN || "";
   const anthropicBaseUrl = env.ANTHROPIC_BASE_URL || "";
   if (anthropicKey || anthropicBaseUrl) {
-    const p = { provider_type: "anthropic", api_key: anthropicKey };
-    if (anthropicBaseUrl) p.base_url = anthropicBaseUrl;
     const models = {};
-    if (env.ANTHROPIC_DEFAULT_SONNET_MODEL) models.default = env.ANTHROPIC_DEFAULT_SONNET_MODEL;
     if (env.ANTHROPIC_DEFAULT_OPUS_MODEL) models.opus = env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+    if (env.ANTHROPIC_DEFAULT_SONNET_MODEL) models.sonnet = env.ANTHROPIC_DEFAULT_SONNET_MODEL;
     if (env.ANTHROPIC_DEFAULT_HAIKU_MODEL) models.haiku = env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    const p = {
+      id: "anthropic",
+      type: "anthropic",
+      apiKey: anthropicKey,
+    };
+    if (anthropicBaseUrl) p.baseUrl = anthropicBaseUrl;
     if (Object.keys(models).length > 0) p.models = models;
     providers.push(p);
   }
@@ -164,10 +167,14 @@ function migrateFromClaudeCode() {
   const openaiKey = env.OPENAI_API_KEY || env.CODEX_API_KEY || "";
   const openaiBaseUrl = env.OPENAI_BASE_URL || env.OPENAI_API_BASE || "";
   if (openaiKey || openaiBaseUrl) {
-    const p = { provider_type: "openai", api_key: openaiKey };
-    if (openaiBaseUrl) p.base_url = openaiBaseUrl;
     const models = {};
-    if (env.OPENAI_MODEL) models.default = env.OPENAI_MODEL;
+    if (env.OPENAI_MODEL) models.sonnet = env.OPENAI_MODEL;
+    const p = {
+      id: "openai",
+      type: "openai",
+      apiKey: openaiKey,
+    };
+    if (openaiBaseUrl) p.baseUrl = openaiBaseUrl;
     if (Object.keys(models).length > 0) p.models = models;
     providers.push(p);
   }
@@ -180,11 +187,26 @@ function migrateFromClaudeCode() {
     mkdirSync(ccCodeDir, { recursive: true });
   }
 
-  const ccCodeSettings = { config: { providers } };
+  // 根据第一个 provider 的可用模型决定默认激活别名
+  const firstProvider = providers[0];
+  let activeAlias = "opus";
+  if (firstProvider.models) {
+    if (firstProvider.models.opus) activeAlias = "opus";
+    else if (firstProvider.models.sonnet) activeAlias = "sonnet";
+    else if (firstProvider.models.haiku) activeAlias = "haiku";
+  }
+
+  const ccCodeSettings = {
+    config: {
+      active_alias: activeAlias,
+      active_provider_id: firstProvider.id,
+      providers,
+    },
+  };
   writeFileSync(ccCodeSettingsPath, JSON.stringify(ccCodeSettings, null, 2) + "\n");
   console.log("");
   console.log("  Migrated ~/.claude/settings.json -> ~/.cc-code/settings.json");
-  console.log(`  Found ${providers.length} provider(s): ${providers.map(p => p.provider_type).join(", ")}`);
+  console.log(`  Found ${providers.length} provider(s): ${providers.map(p => p.type).join(", ")}`);
   return true;
 }
 
@@ -259,10 +281,10 @@ async function main() {
     console.log('       "config": {');
     console.log('         "providers": [');
     console.log("           {");
-    console.log('             "provider_type": "openai",');
-    console.log('             "api_key": "sk-xxx",');
-    console.log('             "base_url": "https://api.deepseek.com/v1",');
-    console.log('             "models": { "default": "deepseek-chat" }');
+    console.log('             "type": "openai",');
+    console.log('             "apiKey": "sk-xxx",');
+    console.log('             "baseUrl": "https://api.deepseek.com/v1",');
+    console.log('             "models": { "sonnet": "deepseek-chat" }');
     console.log("           }");
     console.log("         ]");
     console.log("       }");
@@ -276,7 +298,11 @@ async function main() {
   console.log("");
 }
 
-main().catch((err) => {
-  console.error("Failed to install cc-code:", err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("Failed to install cc-code:", err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { migrateFromClaudeCode };
