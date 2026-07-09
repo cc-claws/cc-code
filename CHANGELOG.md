@@ -4,6 +4,19 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.45 — 2026-07-09
+
+### Refactor
+
+- **状态栏重构为 codebuddy-hud 风格**：动态 2-3 行布局，支持多工具并发跟踪、Git dirty 状态标记、上下文进度条优化
+
+### Bug Fixes
+
+- **clippy items-after-test-module**：将 `status_bar.rs` 测试模块移到文件末尾
+- **tip-6 快捷键描述修正**：Ctrl+U/D → PageUp/Down（Ctrl+U 是删除到行首，Ctrl+D 是关闭 shell stdin）
+
+---
+
 ## v0.6.44 — 2026-07-03
 
 ### Features
