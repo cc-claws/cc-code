@@ -1,12 +1,12 @@
 <div align="center">
 
-**中文** | [English](README_EN.md)
+**English** | [中文](README_ZH.md)
 
 # cc-code
 
-**用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
+**Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible**
 
-DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑。
+DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` config, runs on RISC-V.
 
 [![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
 [![GitHub stars](https://img.shields.io/github/stars/cc-claws/cc-code?style=social)](https://github.com/cc-claws/cc-code/stargazers)
@@ -16,34 +16,34 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RI
 
 <p align="center"><code>npm install -g @cc-claw/code</code></p>
 
-### 🌐 官网：**[cc-claw.com](https://www.cc-claw.com)**
+### 🌐 Official Website: **[cc-claw.com](https://www.cc-claw.com)**
 
-[为什么选 cc-code](#为什么选-cc-code) · [核心能力](#核心能力) · [安装](#安装) · [Nobody Coding](#我们怎么用-nobody-coding-造-cc-code) · [致谢](#致谢)
+[Why cc-code](#why-cc-code) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-cc-code-with-nobody-coding) · [Acknowledgments](#acknowledgments)
 
 </div>
 
 ## ❤️Sponsor
 
-> [想出现在这里？](mailto:wismyzhizi2018@gmail.com)
+> [Want to appear here?](mailto:wismyzhizi2018@gmail.com)
 
 <details open>
 <summary>Click to collapse</summary>
 
 [![Kimi K2.6](assets/partners/logos/kimi.png)](https://platform.moonshot.cn/console?aff=cc-code)
 
-Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程编程、编程驱动设计和群组任务编排而生。支持前端、DevOps、性能优化、全栈工程等复杂端到端工作流。[点击注册](https://platform.moonshot.cn/console?aff=cc-code)
+Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, built for long-horizon coding, coding-driven design, and swarm-based task orchestration. It handles complex end-to-end engineering work across front-end, DevOps, performance optimization, and full-stack workflows. [Register here](https://platform.moonshot.cn/console?aff=cc-code)
 
 ---
 
 <table>
 <tr>
 <td width="180"><a href="https://platform.xiaomimimo.com?ref=JBEYTF"><img src="assets/partners/logos/mimo.png" alt="Xiaomi MiMo" width="150"></a></td>
-<td>小米顶尖模型 MiMo V2.5，通过邀请码注册：双方各得 ¥10 API 体验金 + 首单 9 折。邀请码：JBEYTF。<a href="https://platform.xiaomimimo.com?ref=JBEYTF">点击注册</a>（注册后自动填入 · 体验金 40 天有效）</td>
+<td>Top-tier model MiMo V2.5 from Xiaomi. Register with invite code: both get ¥10 API credit + 10% off first order. Invite code: JBEYTF. <a href="https://platform.xiaomimimo.com?ref=JBEYTF">Register here</a> (auto-filled on registration · credit valid for 40 days)</td>
 </tr>
 
 <tr>
 <td width="180"><a href="https://www.bigmodel.cn/glm-coding?ic=MR7BVITFAY"><img src="assets/partners/logos/glm.png" alt="GLM" width="150"></a></td>
-<td>智谱 GLM Coding Plan — 国内顶流编程大模型，20+ 主流工具全适配，性价比拉满。<a href="https://www.bigmodel.cn/glm-coding?ic=MR7BVITFAY">立即参与「拼好模」</a></td>
+<td>GLM Coding Plan from Zhipu AI — top-tier coding model in China, compatible with 20+ mainstream tools, best value. <a href="https://www.bigmodel.cn/glm-coding?ic=MR7BVITFAY">Join now</a></td>
 </tr>
 </table>
 
@@ -51,68 +51,68 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 ---
 
-## 为什么选 cc-code？
+## Why cc-code?
 
-| 对比项 | 其他终端 Agent | cc-code |
-|--------|---------------|------|
-| 运行时 | Node.js / Bun，动辄吃 1GB 内存 | Rust 原生，启动快，~50MB 内存 |
-| 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM |
-| Prompt 缓存 | 每轮重算，token 白烧 | 冻结 system prompt，95-99% 缓存命中率 |
-| 工具加载 | 全量塞进每轮请求 | 核心工具常驻，其余 Tool Search 按需懒加载 |
-| IDE 集成 | 只有终端 | ACP 协议，Zed 等 IDE 直连 |
-| Claude Code 生态 | 不兼容 | 直接用 `.claude/` 配置、agents、skills、hooks、MCP |
-
----
-
-## 核心能力
-
-| 能力 | 说明 |
-|------|------|
-| **Rust 原生** | 快启动、低内存、零运行时开销 |
-| **Context 优化** | system prompt 冻结 + 动态内容隔离，token 不浪费 |
-| **多 LLM 支持** | Anthropic / OpenAI 兼容 API，DeepSeek、GLM 随便切 |
-| **Claude Code 兼容** | `.claude/` 配置、agents、skills、hooks、MCP、子 agent 直接复用 |
-| **流式 Markdown** | 代码块、表格、diff 实时渲染 |
-| **ACP 协议** | 接入 Zed 等 IDE，也支持自建 "Cloud Code" 平台 |
-| **Auto Compact** | 长会话自动压缩，保持响应快且省 token |
-| **Sub-Agent 并发** | 后台子 agent 并行执行，支持 fork 和 background 模式 |
-| **HITL 审批** | 敏感操作自动拦截，支持 auto-classifier 和 shared-mode |
-| **Nobody Coding** | 99% 代码由 DeepSeek、Mimo、GLM 产出 — 人决定做什么，AI 想怎么做 |
-
-### v0.6.x 新增功能
-
-| 功能 | 版本 | 说明 |
-|------|------|------|
-| **Ctrl+B 后台 Shell** | v0.6.29 | Shell 命令支持 Ctrl+B 转为后台运行 |
-| **/commit 命令** | v0.6.29 | 一键 git commit，自动生成 commit message |
-| **/review 命令** | v0.6.29 | PR 代码审查 |
-| **/export 命令** | v0.6.29 | 对话导出为 Markdown |
-| **全局屏幕选区** | v0.6.29 | 基于渲染 Buffer 的全局选区，松开鼠标自动复制 |
-| **Windows Git Bash** | v0.6.21 | cmd 失败自动 fallback 到 Git Bash |
-| **Grep 对齐上游** | v0.6.15 | 对齐 Claude Code 的 files_with_matches 模式 |
-| **i18n 支持** | v0.6.17 | 中英文切换 `/lang en` 或 `/lang zh-CN` |
-| **Rewind 回滚** | v0.6.0 | 双击 ESC 弹窗选择回滚点 |
-| **/gc 命令** | v0.6.0 | 手动内存回收 + RSS/jemalloc 诊断 |
+| Comparison | Other Terminal Agents | cc-code |
+|------------|----------------------|------|
+| Runtime | Node.js / Bun, easily eats 1GB RAM | Rust native, fast startup, ~50MB memory |
+| Model Lock-in | Locked to one LLM | Switch freely: Anthropic, OpenAI-compatible, DeepSeek, GLM |
+| Prompt Cache | Recompute every turn, wasting tokens | Frozen system prompt, 95-99% cache hit rate |
+| Tool Loading | All tools stuffed into every request | Core tools resident, rest lazy-loaded via Tool Search |
+| IDE Integration | Terminal only | ACP protocol, Zed and other IDEs connect directly |
+| Claude Code Ecosystem | Incompatible | Use `.claude/` config, agents, skills, hooks, MCP directly |
 
 ---
 
-## 安装
+## Core Capabilities
 
-支持 macOS (x86_64 / Apple Silicon)、Linux (x86_64 / aarch64 / riscv64)、Windows (x86_64)。
+| Capability | Description |
+|------------|-------------|
+| **Rust Native** | Fast startup, low memory, zero runtime overhead |
+| **Context Optimized** | System prompt frozen + dynamic content isolated, no token waste |
+| **Multi-LLM Support** | Anthropic / OpenAI-compatible APIs, DeepSeek, GLM — switch freely |
+| **Claude Code Compatible** | `.claude/` config, agents, skills, hooks, MCP, sub-agents all reusable |
+| **Streaming Markdown** | Code blocks, tables, diffs rendered in real-time |
+| **ACP Protocol** | Connect to Zed and other IDEs, or build your own "Cloud Code" platform |
+| **Auto Compact** | Long sessions auto-compressed, stays fast and cheap |
+| **Sub-Agent Concurrency** | Background sub-agents run in parallel with fork and background modes |
+| **HITL Approval** | Sensitive operations auto-intercepted with auto-classifier and shared-mode |
+| **Nobody Coding** | 99% of code produced by DeepSeek, Mimo, and GLM — humans decide what, AI figures out how |
 
-### npm（推荐）
+### v0.6.x New Features
+
+| Feature | Version | Description |
+|---------|---------|-------------|
+| **Ctrl+B Background Shell** | v0.6.29 | Shell commands can run in background with Ctrl+B |
+| **/commit Command** | v0.6.29 | One-click git commit with auto-generated message |
+| **/review Command** | v0.6.29 | PR code review |
+| **/export Command** | v0.6.29 | Export conversation to Markdown |
+| **Global Screen Selection** | v0.6.29 | Buffer-based selection across all UI regions, auto-copy on release |
+| **Windows Git Bash** | v0.6.21 | Auto fallback to Git Bash when cmd fails |
+| **Grep Upstream Alignment** | v0.6.15 | Aligned with Claude Code's files_with_matches mode |
+| **i18n Support** | v0.6.17 | Switch language with `/lang en` or `/lang zh-CN` |
+| **Rewind** | v0.6.0 | Double-click ESC to select rollback point |
+| **/gc Command** | v0.6.0 | Manual memory reclaim + RSS/jemalloc diagnostics |
+
+---
+
+## Install
+
+Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64 / riscv64), and Windows (x86_64).
+
+### npm (Recommended)
 
 ```bash
 npm install -g @cc-claw/code
 ```
 
-### 升级
+### Upgrade
 
 ```bash
 npm update -g @cc-claw/code
 ```
 
-### macOS / Linux（脚本安装）
+### macOS / Linux (Script)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh | bash
@@ -126,72 +126,74 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 
 ---
 
-## 我们怎么用 Nobody Coding 造 cc-code
+## How We Built cc-code with Nobody Coding
 
-**Nobody Coding** 字面意思：没有人类写过一行 cc-code 代码 — 架构、TUI、harness tuning 全是 AI 干的。人决定 *做什么*，AI 想 *怎么做*。你不是在结对编程，你是在管一个不睡觉的工程师。cc-code 99% 的代码都是这么来的。
+**Nobody Coding** means exactly what it sounds like. No human wrote a single line of cc-code — not the architecture, not the TUI, not the harness tuning that makes open-source models reliable in an Agent loop. Humans decide *what*. AI figures out *how*. You're not pair programming — you're product managing an engineer that never sleeps. 99% of cc-code was built this way.
 
-> 最近的 commit 几乎全是 DeepSeek、Mimo 和 GLM 的产出。Claude 只在最初参与过。
+> Recent commits are almost entirely DeepSeek, Mimo, and GLM. Claude was just there in the beginning.
 
-### 典型工作流
+### Typical Workflow
 
-| 你要做的事 | 流水线 |
-|-----------|--------|
-| 发现 bug 或技术债 | `issue-create` → `systematic-debugging` → `writing-plans` → `subagent-driven-development` → `issue-archive` → 改进 CLAUDE.md |
-| 开新功能 | `grill-me` → `writing-plans` → `subagent-driven-development` |
-| 代码库变乱了 | `slop-cleaner` → `improve-codebase-architecture` → `writing-plans` → `subagent-driven-development` |
-| 需要理解架构 | `teacher` → 分配任务 → `teacher` |
+| When you... | Pipeline kicks off |
+|---|---|
+| **Find a bug or piece of tech debt** | `issue-create` → `systematic-debugging` → `writing-plans` → `subagent-driven-development` → `issue-archive` → improve CLAUDE.md |
+| **Want to build a new feature** | `grill-me` → `writing-plans` → `subagent-driven-development` |
+| **Notice the codebase getting messy** | `slop-cleaner` → `improve-codebase-architecture` → `writing-plans` → `subagent-driven-development` |
+| **Need someone to grok the architecture** | `teacher` → assign a task → `teacher` |
 
 ---
 
-## 仓库结构
+## Repository Structure
 
 ```text
 cc-code/
-├── peri-agent/                # 核心：Agent loop、工具系统、持久化、遥测
-│   └── README.md              # Agent 框架使用指南
-├── peri-middlewares/           # 中间件：文件系统、终端、MCP、Hooks 等
-│   ├── README.md              # 中间件概览
-│   └── CLAUDE.md              # 开发指南和陷阱记录
-├── peri-tui/                  # TUI 应用 (Ratatui)
-│   ├── README.md              # TUI 使用指南
-│   └── CLAUDE.md              # 开发指南和陷阱记录
-├── peri-acp/                  # ACP 服务层：桥接 TUI/IDE 与 Agent
-│   └── README.md              # ACP 架构和数据流
-├── peri-widgets/              # Widget 组件库
-│   └── README.md              # 组件列表和使用示例
-├── peri-lsp/                  # LSP 客户端库
-│   └── README.md              # LSP 操作和配置
-├── langfuse-client/           # Langfuse 遥测客户端
-│   └── README.md              # 遥测配置和使用
-├── npm/                       # npm 包：postinstall 脚本 + shell wrapper
-│   └── README.md              # npm 包说明
+├── peri-agent/                # Core: Agent loop, tool system, persistence, telemetry
+│   └── README.md              # Agent framework guide
+├── peri-middlewares/           # Middleware: filesystem, terminal, MCP, Hooks, etc.
+│   ├── README.md              # Middleware overview
+│   └── CLAUDE.md              # Development guide and traps
+├── peri-tui/                  # TUI application (Ratatui)
+│   ├── README.md              # TUI usage guide
+│   └── CLAUDE.md              # Development guide and traps
+├── peri-acp/                  # ACP service layer: bridges TUI/IDE with Agent
+│   └── README.md              # ACP architecture and data flow
+├── peri-widgets/              # Widget component library
+│   └── README.md              # Component list and examples
+├── peri-lsp/                  # LSP client library
+│   └── README.md              # LSP operations and config
+├── langfuse-client/           # Langfuse telemetry client
+│   └── README.md              # Telemetry config and usage
+├── npm/                       # npm package: postinstall script + shell wrapper
+│   └── README.md              # npm package docs
 ├── scripts/
-│   ├── install.sh             # macOS / Linux 安装器
-│   └── install.ps1            # Windows 安装器
-├── side-projects/             # 实验性项目（gig、llm-gateway 等）
-├── spec/                      # 设计文档与规范
-│   ├── global/                # 全局架构文档
-│   ├── issues/                # Issue 分析文档
-│   └── prd/                   # 产品需求文档
-├── CLAUDE.md                  # 项目开发指南
-├── CHANGELOG.md               # 版本变更记录
+│   ├── install.sh             # macOS / Linux installer
+│   └── install.ps1            # Windows installer
+├── side-projects/             # Experimental projects (gig, llm-gateway, etc.)
+├── spec/                      # Design docs and specs
+│   ├── global/                # Global architecture docs
+│   ├── issues/                # Issue analysis docs
+│   └── prd/                   # Product requirement docs
+├── CLAUDE.md                  # Project development guide
+├── CHANGELOG.md               # Version changelog
+├── CONTRIBUTING.md            # Contribution guide
 ├── README.md
+├── README_ZH.md
 └── LICENSE                    # Apache 2.0
 ```
 
 ---
 
-## 致谢
+## Acknowledgments
 
-| 项目 | 说明 |
-|------|------|
-| [Peri (KonghaYao)](https://github.com/KonghaYao/peri) | 本项目 fork 自 Peri，基于 Apache 2.0 协议分发，感谢原作者的开创性工作 |
-| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | 驱动 cc-code AI 工程工作流的 skill 套件 |
-| [ACP](https://agentclientprotocol.com/) | Agent-IDE 通信开放协议 |
-| [rmcp](https://github.com/anthropics/rmcp) | Rust MCP 客户端库 |
-| [Ratatui](https://ratatui.rs) & [Tokio](https://tokio.rs) | TUI 框架和异步运行时 |
-| [Langfuse](https://langfuse.com) | LLM 可观测性 |
-| [Zed](https://zed.dev) | 第一个 ACP 兼容 IDE，验证了协议可行性 |
+| Project | Description |
+|---------|-------------|
+| [Peri (KonghaYao)](https://github.com/KonghaYao/peri) | This project is forked from Peri, distributed under Apache 2.0. Credit to the original author. |
+| [Superpowers](https://github.com/obra/superpowers) & [Matt Pocock's Skills](https://github.com/mattpocock/skills) | Skill suites driving cc-code's AI engineering workflow |
+| [ACP](https://agentclientprotocol.com/) | Open protocol for agent-IDE communication |
+| [rmcp](https://github.com/anthropics/rmcp) | Rust MCP client library |
+| [Ratatui](https://ratatui.rs) & [Tokio](https://tokio.rs) | TUI framework and async runtime |
+| [Langfuse](https://langfuse.com) | LLM observability |
+| [Zed](https://zed.dev) | First ACP-compatible IDE, proved the protocol works |
 
 ---
 
@@ -201,6 +203,6 @@ cc-code/
 
 ---
 
-## 许可证
+## License
 
-[Apache License 2.0](LICENSE) — 可自由使用、修改、分发，包括商业用途。
+[Apache License 2.0](LICENSE) — free to use, modify, and distribute, including commercial use.
