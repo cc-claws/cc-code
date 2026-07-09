@@ -26,6 +26,7 @@ impl App {
             s.agent.pending_hitl_items = None;
             s.agent.pending_ask_user = None;
             s.agent.active_tool = None;
+            s.agent.running_tools.clear();
 
             // Record task duration
             if let Some(start) = s.agent.task_start_time {
@@ -158,6 +159,8 @@ impl App {
 
     pub(super) fn handle_interrupted(&mut self) -> (bool, bool, bool) {
         self.session_mgr.current_mut().agent.cancel_sent_at = None;
+        self.session_mgr.current_mut().agent.active_tool = None;
+        self.session_mgr.current_mut().agent.running_tools.clear();
         // When parent agent is interrupted while executing a sync SubAgent,
         // pipeline.in_subagent() returns true because the SubAgent UI state is active.
         // Previously this was silently ignored, leaving the UI stuck in loading forever

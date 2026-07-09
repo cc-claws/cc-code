@@ -1,235 +1,294 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
     Frame,
 };
 
-use crate::{app::{tool_display, App}, ui::theme};
+use crate::{
+    app::{tool_display, App},
+    ui::theme,
+};
+
+const CONTEXT_WARNING_PCT: f64 = 70.0;
+const CONTEXT_CRITICAL_PCT: f64 = 85.0;
+const TOOLS_MAX_VISIBLE: usize = 4;
+const RUNNING_TOOLS_MAX_VISIBLE: usize = 2;
+const TOOL_TARGET_MAX_LEN: usize = 20;
+
+pub(crate) fn status_bar_height(app: &App) -> u16 {
+    if has_hud_activity(app) { 3 } else { 2 }
+}
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
+    let show_activity = has_hud_activity(app);
+    let constraints = if show_activity {
+        vec![
+            Constraint::Length(1), // 第一行：模型 + context + project + stats
+            Constraint::Length(1), // 第二行：工具 / Agent / Todo activity
+            Constraint::Length(1), // 第三行：权限/瞬时状态 + CPU/MEM + 快捷键
+        ]
+    } else {
+        vec![
+            Constraint::Length(1), // 第一行：模型 + context + project + stats
+            Constraint::Length(1), // 第二行折叠，直接显示 Peri 状态行
+        ]
+    };
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // 第一行：模型 + 进度条 + git + 会话 + token
-            Constraint::Length(1), // 第二行：执行中工具 + 工具历史
-            Constraint::Length(1), // 第三行：权限/瞬时状态 + CPU/MEM + 快捷键
-        ])
+        .constraints(constraints)
         .split(area);
 
     render_first_row(f, app, rows[0]);
-    render_second_row(f, app, rows[1]);
-    render_third_row(f, app, rows[2]);
+    if show_activity {
+        render_second_row(f, app, rows[1]);
+        render_third_row(f, app, rows[2]);
+    } else {
+        render_third_row(f, app, rows[1]);
+    }
 }
 
-/// 第一行：[model] progress | dir git:(branch) | session name | ⏱️ duration tok:detail
+fn has_hud_activity(app: &App) -> bool {
+    let session = app.session_mgr.current();
+    let agent = &session.agent;
+    !agent.running_tools.is_empty()
+        || !agent.session_tool_stats.is_empty()
+        || !session.background_agents.is_empty()
+        || !session.todo_items.is_empty()
+}
+
+/// 第一行（codebuddy-hud compact）：[model] context | project git:(branch*) | stats
 fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span> = Vec::new();
 
-    // 模型名（方括号）— 对齐 Claude Hub CYAN
-    {
-        let is_highlight = app
-            .global_ui
-            .model_highlight_until
-            .is_some_and(|until| std::time::Instant::now() < until);
-        let mut style = Style::default().fg(theme::CYAN);
-        if is_highlight {
-            style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
-        }
-        spans.push(Span::styled(format!(" [{}]", app.services.model_name), style));
-    }
+    spans.push(Span::styled(" ", plain_style()));
 
-    // 上下文进度条
+    // Model + context bar 是一个 segment，中间用空格，不插入 ` | `。
+    let is_highlight = app
+        .global_ui
+        .model_highlight_until
+        .is_some_and(|until| std::time::Instant::now() < until);
+    let mut model_style = ansi_style(Color::Cyan);
+    if is_highlight {
+        model_style = model_style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
+    }
+    spans.push(Span::styled(
+        format!("[{}]", app.services.model_name),
+        model_style,
+    ));
+
     {
         let agent = &app.session_mgr.current().agent;
         let tracker = &agent.session_token_tracker;
-        if let Some(pct) = tracker.context_usage_percent(agent.context_window) {
-            let total = agent.context_window;
-            let color = if pct >= 85.0 {
-                theme::ERROR
-            } else if pct >= 70.0 {
-                theme::WARNING
-            } else {
-                theme::SAGE
-            };
-            spans.push(Span::styled(" ", Style::default()));
-            spans.extend(render_context_bar(pct, total, color));
-        }
+        let pct = tracker
+            .context_usage_percent(agent.context_window)
+            .unwrap_or(0.0);
+        let color = context_usage_color(pct);
+        spans.push(Span::styled(" ", plain_style()));
+        spans.extend(render_context_bar(pct, color));
     }
 
-    // 分隔符 + 工作目录
-    spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
+    spans.push(status_separator());
+    append_project_segment(&mut spans, app);
+
+    let stats = render_stats_segments(app);
+    if !stats.is_empty() {
+        spans.push(status_separator());
+        spans.extend(stats);
+    }
+
+    render_truncated_line(f, spans, Vec::new(), area);
+}
+
+/// 第二行（codebuddy-hud activity）：running tools | completed tools | agents | tasks
+fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
+    let mut left_spans: Vec<Span> = Vec::new();
+
+    let agent = &app.session_mgr.current().agent;
+    let running_start = agent
+        .running_tools
+        .len()
+        .saturating_sub(RUNNING_TOOLS_MAX_VISIBLE);
+    for active in &agent.running_tools[running_start..] {
+        append_activity_segment(&mut left_spans, render_running_tool_segment(active));
+    }
+
+    for segment in render_completed_tool_segments(agent) {
+        append_activity_segment(&mut left_spans, segment);
+    }
+
+    if let Some(segment) = render_agents_segment(app) {
+        append_activity_segment(&mut left_spans, segment);
+    }
+
+    if let Some(segment) = render_tasks_segment(app) {
+        append_activity_segment(&mut left_spans, segment);
+    }
+
+    render_truncated_line(f, left_spans, Vec::new(), area);
+}
+
+fn append_project_segment(spans: &mut Vec<Span<'_>>, app: &App) {
     let cwd_short = std::path::Path::new(&app.services.cwd)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&app.services.cwd);
     spans.push(Span::styled(
         cwd_short.to_string(),
-        Style::default().fg(theme::WARNING),
+        ansi_style(Color::Yellow),
     ));
 
-    // Git 分支 — 对齐 Claude Hub: git:( MAGENTA + branch CYAN + ) MAGENTA
-    // loading 期间跳过子进程刷新，避免 `git rev-parse` 阻塞渲染线程导致抖动
-    {
-        let loading = app.session_mgr.current().ui.loading;
-        let mut cache = app.services.git_branch_cache.lock();
-        if loading {
-            // 仅返回缓存值，不触发子进程
-            if let Some(branch) = cache.get_cached() {
-                spans.push(Span::styled(" git:(", Style::default().fg(theme::MAGENTA)));
-                spans.push(Span::styled(
-                    branch.to_string(),
-                    Style::default().fg(theme::CYAN),
-                ));
-                spans.push(Span::styled(")", Style::default().fg(theme::MAGENTA)));
-            }
-        } else if let Some(branch) = cache.get_or_refresh(&app.services.cwd) {
-            spans.push(Span::styled(" git:(", Style::default().fg(theme::MAGENTA)));
-            spans.push(Span::styled(
-                branch.to_string(),
-                Style::default().fg(theme::CYAN),
-            ));
-            spans.push(Span::styled(")", Style::default().fg(theme::MAGENTA)));
+    // loading 期间跳过子进程刷新，避免 `git rev-parse` 阻塞渲染线程导致抖动。
+    let loading = app.session_mgr.current().ui.loading;
+    let mut cache = app.services.git_branch_cache.lock();
+    if loading {
+        if let Some(status) = cache.get_cached() {
+            append_git_status(spans, status);
         }
+    } else if let Some(status) = cache.get_or_refresh(&app.services.cwd) {
+        append_git_status(spans, status);
     }
-
-    // 分隔符 + ⏱️ 会话时长 + token 明细
-    {
-        let agent = &app.session_mgr.current().agent;
-        let tracker = &agent.session_token_tracker;
-        let has_duration = agent.session_start_time.is_some();
-        let total_tokens = tracker.total_input_tokens + tracker.total_output_tokens;
-        if has_duration || total_tokens > 0 {
-            spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
-        }
-
-        // 会话时长
-        if let Some(start) = agent.session_start_time {
-            let s = start.elapsed().as_secs();
-            let text = if s >= 3600 {
-                format!("{}h{}m", s / 3600, (s % 3600) / 60)
-            } else if s >= 60 {
-                format!("{}m", s / 60)
-            } else {
-                format!("{}s", s)
-            };
-            spans.push(Span::styled(
-                format!("⏱  {} ", text),
-                Style::default().fg(theme::DIM),
-            ));
-        }
-
-        // Token 明细
-        if total_tokens > 0 {
-            spans.push(Span::styled(
-                "tok:".to_string(),
-                Style::default().fg(theme::DIM),
-            ));
-            spans.push(Span::styled(
-                format_tokens_compact(total_tokens),
-                Style::default().fg(theme::DIM),
-            ));
-            spans.push(Span::styled(
-                " (in:".to_string(),
-                Style::default().fg(theme::DIM),
-            ));
-            spans.push(Span::styled(
-                format_tokens_compact(tracker.total_input_tokens),
-                Style::default().fg(theme::DIM),
-            ));
-            spans.push(Span::styled(
-                ", out:".to_string(),
-                Style::default().fg(theme::DIM),
-            ));
-            spans.push(Span::styled(
-                format_tokens_compact(tracker.total_output_tokens),
-                Style::default().fg(theme::DIM),
-            ));
-            let cache_rate = tracker.cache_hit_rate();
-            spans.push(Span::styled(
-                ", cached:".to_string(),
-                Style::default().fg(theme::DIM),
-            ));
-            spans.push(Span::styled(
-                format!("{:.0}%", cache_rate * 100.0),
-                Style::default().fg(theme::SAGE),
-            ));
-            spans.push(Span::styled(
-                ")".to_string(),
-                Style::default().fg(theme::DIM),
-            ));
-        }
-    }
-
-    render_truncated_line(f, spans, Vec::new(), area);
 }
 
-/// 第二行：◐ active tool | ✓ tool history
-fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
-    let mut left_spans: Vec<Span> = Vec::new();
-    let mut has_content = false;
+fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let agent = &app.session_mgr.current().agent;
+    let tracker = &agent.session_token_tracker;
 
-    // 执行中工具指示器 — 对齐 Claude Hub: ◐ YELLOW + name CYAN + args DIM
-    {
-        let agent = &app.session_mgr.current().agent;
-        if let Some(ref active) = agent.active_tool {
-            left_spans.push(Span::styled(" ◐ ", Style::default().fg(theme::YELLOW)));
-            left_spans.push(Span::styled(
-                active.display.clone(),
-                Style::default().fg(theme::CYAN),
-            ));
-            if active.args_summary.is_empty() {
-                left_spans.push(Span::styled("…", Style::default().fg(theme::DIM)));
-            } else {
-                left_spans.push(Span::styled(
-                    format!(":{}", active.args_summary),
-                    Style::default().fg(theme::DIM),
-                ));
-            }
-            has_content = true;
-        } else if agent.session_tool_stats.is_empty() {
-            // 默认占位：还没有执行过工具时显示
-            left_spans.push(Span::styled(" ◐ Tool", Style::default().fg(theme::DIM)));
-        } else {
-            // 工具全部执行完后不显示灰色 ◐ 占位，只保留右侧工具历史计数
-        }
+    if tracker.total_input_tokens > 0 || tracker.total_output_tokens > 0 {
+        spans.push(Span::styled(
+            format!(
+                "tok: {} (in: {}, out: {})",
+                format_token_count(tracker.total_input_tokens),
+                format_token_count(
+                    tracker
+                        .last_usage
+                        .as_ref()
+                        .map(|usage| usage.input_tokens as u64)
+                        .unwrap_or(0)
+                ),
+                format_token_count(
+                    tracker
+                        .last_usage
+                        .as_ref()
+                        .map(|usage| usage.output_tokens as u64)
+                        .unwrap_or(0)
+                )
+            ),
+            dim_style(),
+        ));
     }
 
-    // 工具历史计数（按次数降序，最多 5 个）
-    {
-        let agent = &app.session_mgr.current().agent;
-        if !agent.session_tool_stats.is_empty() {
-            if has_content {
-                left_spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
-            } else {
-                left_spans.push(Span::styled(" ", Style::default()));
-            }
-            let mut entries: Vec<_> = agent.session_tool_stats.iter().collect();
-            entries.sort_by(|a, b| b.1.cmp(a.1));
-            let total = entries.len();
-            for (i, (name, count)) in entries.iter().take(5).enumerate() {
-                if i > 0 {
-                    left_spans.push(Span::styled(" | ", Style::default().fg(theme::DIM)));
-                }
-                let display = tool_display::format_tool_name(name);
-                left_spans.push(Span::styled("✓", Style::default().fg(theme::SAGE)));
-                left_spans.push(Span::styled(format!(" {}", display), Style::default()));
-                left_spans.push(Span::styled(
-                    format!(" ×{}", count),
-                    Style::default().fg(theme::DIM),
-                ));
-            }
-            if total > 5 {
-                left_spans.push(Span::styled(
-                    format!(" | +{} more", total - 5),
-                    Style::default().fg(theme::DIM),
-                ));
-            }
+    if let Some(start) = agent.session_start_time {
+        if !spans.is_empty() {
+            spans.push(status_separator());
         }
+        spans.push(Span::styled(
+            format!("⏱️  {}", format_duration_display(start.elapsed())),
+            dim_style(),
+        ));
     }
 
-    render_truncated_line(f, left_spans, Vec::new(), area);
+    spans
+}
+
+fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>>) {
+    if spans.is_empty() {
+        spans.push(Span::styled(" ", plain_style()));
+    } else {
+        spans.push(status_separator());
+    }
+    spans.extend(segment);
+}
+
+fn render_running_tool_segment(active: &crate::app::ActiveToolInfo) -> Vec<Span<'static>> {
+    let mut spans = vec![
+        Span::styled("◐", ansi_style(Color::Yellow)),
+        Span::styled(" ", plain_style()),
+        Span::styled(active.display.clone(), ansi_style(Color::Cyan)),
+    ];
+    if !active.args_summary.is_empty() {
+        spans.push(Span::styled(
+            format!(
+                " : {}",
+                truncate_tool_target(&active.args_summary, TOOL_TARGET_MAX_LEN)
+            ),
+            dim_style(),
+        ));
+    }
+    spans
+}
+
+fn render_completed_tool_segments(agent: &crate::app::AgentComm) -> Vec<Vec<Span<'static>>> {
+    if agent.session_tool_stats.is_empty() {
+        return Vec::new();
+    }
+
+    let mut entries: Vec<_> = agent.session_tool_stats.iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+
+    let total = entries.len();
+    let mut segments = Vec::new();
+    for (name, count) in entries.into_iter().take(TOOLS_MAX_VISIBLE) {
+        let display = tool_display::format_tool_name(name);
+        segments.push(vec![
+            Span::styled("✓", ansi_style(Color::Green)),
+            Span::styled(format!(" {}", display), plain_style()),
+            Span::styled(format!(" ×{}", count), dim_style()),
+        ]);
+    }
+
+    if total > TOOLS_MAX_VISIBLE {
+        segments.push(vec![Span::styled(
+            format!("+{} more", total - TOOLS_MAX_VISIBLE),
+            dim_style(),
+        )]);
+    }
+
+    segments
+}
+
+fn render_agents_segment(app: &App) -> Option<Vec<Span<'static>>> {
+    let agents = &app.session_mgr.current().background_agents;
+    if agents.is_empty() {
+        return None;
+    }
+    let labels = agents
+        .iter()
+        .map(|agent| format!("{}(run)", agent.agent_name))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(vec![Span::styled(
+        format!("🤖 {}", labels),
+        plain_style(),
+    )])
+}
+
+fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
+    let todos = &app.session_mgr.current().todo_items;
+    if todos.is_empty() {
+        return None;
+    }
+    let total = todos.len();
+    let completed = todos
+        .iter()
+        .filter(|todo| {
+            matches!(
+                todo.status,
+                peri_middlewares::prelude::TodoStatus::Completed
+            )
+        })
+        .count();
+    let filled = (((completed as f64 / total as f64) * 5.0).round() as usize).min(5);
+    let bar = "#".repeat(filled) + &"-".repeat(5 - filled);
+    Some(vec![Span::styled(
+        format!(
+        "📋 [{}] {}/{}",
+        bar, completed, total
+        ),
+        plain_style(),
+    )])
 }
 
 /// 第三行：权限/瞬时状态 + CPU/MEM + 快捷键提示
@@ -575,37 +634,112 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 }
 
 /// 上下文进度条渲染
-fn render_context_bar(pct: f64, total: u32, color: ratatui::style::Color) -> Vec<Span<'static>> {
+fn render_context_bar(pct: f64, color: Color) -> Vec<Span<'static>> {
     const BAR_WIDTH: usize = 10;
     let filled = ((pct / 100.0) * BAR_WIDTH as f64).round() as usize;
     let filled = filled.min(BAR_WIDTH);
     let empty = BAR_WIDTH - filled;
 
     let bar: String = "█".repeat(filled) + &"░".repeat(empty);
-    let total_display = if total >= 1_000_000 {
-        format!("{:.0}M", total as f64 / 1_000_000.0)
-    } else {
-        format!("{:.0}k", total as f64 / 1000.0)
-    };
 
     vec![
-        Span::styled(bar, Style::default().fg(color)),
-        Span::styled(
-            format!(" {:.0}% {}", pct, total_display),
-            Style::default().fg(color),
-        ),
+        Span::styled(bar, ansi_style(color)),
+        Span::styled(format!(" {}%", pct.round() as u64), ansi_style(color)),
     ]
 }
 
-/// Token 数量简写
-fn format_tokens_compact(n: u64) -> String {
+fn append_git_status(spans: &mut Vec<Span<'_>>, status: &crate::app::GitBranchStatus) {
+    let prefix_style = ansi_style(Color::Magenta);
+    let branch_style = ansi_style(Color::Cyan);
+    spans.push(Span::styled(" git:(", prefix_style));
+    spans.push(Span::styled(status.branch.clone(), branch_style));
+    if status.dirty {
+        spans.push(Span::styled("*", prefix_style));
+    }
+    spans.push(Span::styled(")", prefix_style));
+}
+
+fn context_usage_color(pct: f64) -> Color {
+    if pct >= CONTEXT_CRITICAL_PCT {
+        Color::Red
+    } else if pct >= CONTEXT_WARNING_PCT {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
+}
+
+fn format_token_count(n: u64) -> String {
     if n >= 1_000_000 {
-        format!("{:.0}M", n as f64 / 1_000_000.0)
+        let major = n / 1_000_000;
+        let remainder = n % 1_000_000;
+        if remainder == 0 {
+            format!("{}M", major)
+        } else {
+            format!("{:.1}M", n as f64 / 1_000_000.0)
+        }
     } else if n >= 1_000 {
-        format!("{:.0}k", n as f64 / 1_000.0)
+        let major = n / 1_000;
+        let remainder = n % 1_000;
+        if remainder == 0 {
+            format!("{}k", major)
+        } else {
+            format!("{:.1}k", n as f64 / 1_000.0)
+        }
     } else {
         n.to_string()
     }
+}
+
+fn format_duration_display(duration: std::time::Duration) -> String {
+    let total_sec = duration.as_secs();
+    if total_sec < 60 {
+        format!("{}s", total_sec)
+    } else if total_sec < 3_600 {
+        let minutes = total_sec / 60;
+        let seconds = total_sec % 60;
+        format!("{}m{}s", minutes, seconds)
+    } else {
+        let hours = total_sec / 3_600;
+        let minutes = (total_sec % 3_600) / 60;
+        format!("{}h {}m", hours, minutes)
+    }
+}
+
+fn truncate_tool_target(target: &str, max_len: usize) -> String {
+    let normalized = target.replace('\\', "/");
+    if normalized.chars().count() <= max_len {
+        return normalized;
+    }
+
+    let file_name = normalized.rsplit('/').next().unwrap_or(&normalized);
+    if file_name.chars().count() >= max_len {
+        return format!(
+            "{}...",
+            file_name
+                .chars()
+                .take(max_len.saturating_sub(3))
+                .collect::<String>()
+        );
+    }
+
+    format!(".../{}", file_name)
+}
+
+fn ansi_style(color: Color) -> Style {
+    plain_style().fg(color)
+}
+
+fn plain_style() -> Style {
+    Style::default().fg(Color::Reset).bg(Color::Reset)
+}
+
+fn dim_style() -> Style {
+    plain_style().add_modifier(Modifier::DIM)
+}
+
+fn status_separator() -> Span<'static> {
+    Span::styled(" | ", plain_style())
 }
 
 /// 将 (key, desc) 对列表格式化为 Span 列表
@@ -639,7 +773,7 @@ fn render_truncated_line(f: &mut Frame, left_spans: Vec<Span>, right_spans: Vec<
     };
 
     let mut all_spans = left_spans;
-    all_spans.push(Span::raw(padding));
+    all_spans.push(Span::styled(padding, plain_style()));
     all_spans.extend(right_spans);
 
     f.render_widget(Paragraph::new(Line::from(all_spans)), area);
@@ -669,5 +803,110 @@ fn simplify_mcp_error(msg: &str) -> String {
         format!("{}...", truncated)
     } else {
         truncated
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_context_usage_color_matches_design_thresholds() {
+        assert_eq!(context_usage_color(69.9), Color::Green);
+        assert_eq!(context_usage_color(70.0), Color::Yellow);
+        assert_eq!(context_usage_color(84.9), Color::Yellow);
+        assert_eq!(context_usage_color(85.0), Color::Red);
+    }
+
+    #[test]
+    fn test_render_context_bar_uses_fixed_width_and_percent_only() {
+        let spans = render_context_bar(45.4, Color::Green);
+        assert_eq!(spans[0].content.as_ref(), "█████░░░░░");
+        assert_eq!(spans[1].content.as_ref(), " 45%");
+        assert_eq!(spans[0].style.fg, Some(Color::Green));
+        assert_eq!(spans[1].style.fg, Some(Color::Green));
+    }
+
+    #[test]
+    fn test_format_token_count_matches_codebuddy_hud() {
+        assert_eq!(format_token_count(0), "0");
+        assert_eq!(format_token_count(656), "656");
+        assert_eq!(format_token_count(1_000), "1k");
+        assert_eq!(format_token_count(60_324), "60.3k");
+        assert_eq!(format_token_count(1_000_000), "1M");
+        assert_eq!(format_token_count(2_010_866), "2.0M");
+    }
+
+    #[test]
+    fn test_format_duration_display_matches_codebuddy_hud() {
+        assert_eq!(
+            format_duration_display(std::time::Duration::from_millis(532)),
+            "0s"
+        );
+        assert_eq!(
+            format_duration_display(std::time::Duration::from_secs(14)),
+            "14s"
+        );
+        assert_eq!(
+            format_duration_display(std::time::Duration::from_secs(14 * 60 + 7)),
+            "14m7s"
+        );
+        assert_eq!(
+            format_duration_display(std::time::Duration::from_secs(14 * 3600 + 43 * 60)),
+            "14h 43m"
+        );
+    }
+
+    #[test]
+    fn test_truncate_tool_target_matches_codebuddy_hud() {
+        assert_eq!(truncate_tool_target("src/main.rs", 20), "src/main.rs");
+        assert_eq!(
+            truncate_tool_target("src/deep/nested/component.tsx", 20),
+            ".../component.tsx"
+        );
+        assert_eq!(
+            truncate_tool_target("very-long-file-name-for-test.rs", 20),
+            "very-long-file-na..."
+        );
+        assert_eq!(
+            truncate_tool_target(r"src\windows\path.rs", 20),
+            "src/windows/path.rs"
+        );
+    }
+
+    #[test]
+    fn test_render_running_tool_segment_matches_codebuddy_hud() {
+        let segment = render_running_tool_segment(&crate::app::ActiveToolInfo {
+            tool_call_id: "tc1".to_string(),
+            name: "Read".to_string(),
+            display: "Read".to_string(),
+            args_summary: "src/deep/file.rs".to_string(),
+        });
+        assert_eq!(spans_to_plain(&segment), "◐ Read : src/deep/file.rs");
+        assert_eq!(segment[0].style.fg, Some(Color::Yellow));
+        assert_eq!(segment[2].style.fg, Some(Color::Cyan));
+        assert!(segment[3].style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn test_render_completed_tool_segments_limits_top_four() {
+        let mut agent = crate::app::AgentComm::default();
+        agent.session_tool_stats.insert("Read".to_string(), 10);
+        agent.session_tool_stats.insert("Bash".to_string(), 8);
+        agent.session_tool_stats.insert("Edit".to_string(), 6);
+        agent.session_tool_stats.insert("Write".to_string(), 4);
+        agent.session_tool_stats.insert("Grep".to_string(), 2);
+
+        let segments = render_completed_tool_segments(&agent);
+        assert_eq!(segments.len(), 5);
+        assert_eq!(spans_to_plain(&segments[0]), "✓ Read ×10");
+        assert_eq!(spans_to_plain(segments.last().unwrap()), "+1 more");
+    }
+
+    fn spans_to_plain(spans: &[Span<'_>]) -> String {
+        spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
     }
 }
