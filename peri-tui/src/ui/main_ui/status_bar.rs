@@ -758,6 +758,54 @@ fn format_hints(
     spans
 }
 
+/// 渲染一行 spans，左侧左对齐，右侧右对齐，中间填充空格
+fn render_truncated_line(f: &mut Frame, left_spans: Vec<Span>, right_spans: Vec<Span>, area: Rect) {
+    f.render_widget(Clear, area);
+
+    let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
+    let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
+
+    let total_content_width = left_width + right_width;
+    let padding = if total_content_width < area.width as usize {
+        " ".repeat(area.width as usize - total_content_width)
+    } else {
+        " ".to_string()
+    };
+
+    let mut all_spans = left_spans;
+    all_spans.push(Span::styled(padding, plain_style()));
+    all_spans.extend(right_spans);
+
+    f.render_widget(Paragraph::new(Line::from(all_spans)), area);
+}
+
+/// 简化 MCP 错误信息，移除内部技术细节
+///
+/// 输入示例: "sentry: Send message error Transport [rmcp::transport::worker::WorkerTransport<rmcp::transport::streamable_http_client::StreamableHttpClientWorker<reqwest::...>>]"
+/// 输出示例: "sentry: Send message error"
+fn simplify_mcp_error(msg: &str) -> String {
+    // 截断过长的错误信息
+    let max_len = 80;
+    let truncated: String = msg.chars().take(max_len).collect();
+
+    // 移除方括号内的技术细节（如 [rmcp::transport::worker::...]）
+    if let Some(bracket_start) = truncated.find('[') {
+        let prefix = &truncated[..bracket_start];
+        // 移除尾部的空格和标点
+        let simplified = prefix.trim_end().trim_end_matches([':', '-']);
+        if !simplified.is_empty() {
+            return simplified.to_string();
+        }
+    }
+
+    // 如果没有方括号，直接返回截断后的信息
+    if truncated.len() < msg.len() {
+        format!("{}...", truncated)
+    } else {
+        truncated
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -860,53 +908,5 @@ mod tests {
             .iter()
             .map(|span| span.content.as_ref())
             .collect::<String>()
-    }
-}
-
-/// 渲染一行 spans，左侧左对齐，右侧右对齐，中间填充空格
-fn render_truncated_line(f: &mut Frame, left_spans: Vec<Span>, right_spans: Vec<Span>, area: Rect) {
-    f.render_widget(Clear, area);
-
-    let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
-    let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
-
-    let total_content_width = left_width + right_width;
-    let padding = if total_content_width < area.width as usize {
-        " ".repeat(area.width as usize - total_content_width)
-    } else {
-        " ".to_string()
-    };
-
-    let mut all_spans = left_spans;
-    all_spans.push(Span::styled(padding, plain_style()));
-    all_spans.extend(right_spans);
-
-    f.render_widget(Paragraph::new(Line::from(all_spans)), area);
-}
-
-/// 简化 MCP 错误信息，移除内部技术细节
-///
-/// 输入示例: "sentry: Send message error Transport [rmcp::transport::worker::WorkerTransport<rmcp::transport::streamable_http_client::StreamableHttpClientWorker<reqwest::...>>]"
-/// 输出示例: "sentry: Send message error"
-fn simplify_mcp_error(msg: &str) -> String {
-    // 截断过长的错误信息
-    let max_len = 80;
-    let truncated: String = msg.chars().take(max_len).collect();
-
-    // 移除方括号内的技术细节（如 [rmcp::transport::worker::...]）
-    if let Some(bracket_start) = truncated.find('[') {
-        let prefix = &truncated[..bracket_start];
-        // 移除尾部的空格和标点
-        let simplified = prefix.trim_end().trim_end_matches([':', '-']);
-        if !simplified.is_empty() {
-            return simplified.to_string();
-        }
-    }
-
-    // 如果没有方括号，直接返回截断后的信息
-    if truncated.len() < msg.len() {
-        format!("{}...", truncated)
-    } else {
-        truncated
     }
 }
