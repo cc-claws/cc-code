@@ -91,6 +91,8 @@ pub struct AgentShellSlot {
     pub ended: bool,
     /// 退出码（退出后设置）。
     pub exit_code: Option<i32>,
+    /// 结束时间点（结束后冻结 elapsed）。
+    pub ended_at: Option<std::time::Instant>,
     /// stall watchdog task（后台化时启动）。
     pub stall_watchdog: Option<tokio::task::JoinHandle<()>>,
 }
@@ -112,6 +114,7 @@ impl AgentShellSlot {
             is_backgrounded,
             ended: false,
             exit_code: None,
+            ended_at: None,
             stall_watchdog: None,
         }
     }
@@ -121,9 +124,12 @@ impl AgentShellSlot {
         !self.ended && !self.is_backgrounded
     }
 
-    /// 已运行时长。
+    /// 已运行时长（结束后冻结为 ended_at - started_instant）。
     pub fn elapsed(&self) -> std::time::Duration {
-        self.started_instant.elapsed()
+        match self.ended_at {
+            Some(end) => end.saturating_duration_since(self.started_instant),
+            None => self.started_instant.elapsed(),
+        }
     }
 
     /// 标记后台化：发送 background 信号 + 置标志。
@@ -163,6 +169,7 @@ impl AgentShellSlot {
     pub fn mark_ended(&mut self, exit_code: Option<i32>) {
         self.ended = true;
         self.exit_code = exit_code;
+        self.ended_at = Some(std::time::Instant::now());
         self.auto_background_rx = None;
         // 终止 stall watchdog
         if let Some(w) = self.stall_watchdog.take() {
@@ -385,6 +392,21 @@ mod tests {
         slot.mark_ended(Some(42));
         assert!(slot.ended);
         assert_eq!(slot.exit_code, Some(42));
+    }
+
+    #[tokio::test]
+    async fn test_slot_elapsed_freezes_after_ended() {
+        let (reg, _rx) = make_reg(false);
+        let mut slot = AgentShellSlot::from_registration(reg);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        slot.mark_ended(Some(0));
+        let elapsed_after_end = slot.elapsed();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let elapsed_later = slot.elapsed();
+        assert_eq!(
+            elapsed_after_end, elapsed_later,
+            "mark_ended 后 elapsed 应冻结，不再增长"
+        );
     }
 
     #[test]
