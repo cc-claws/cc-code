@@ -89,7 +89,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         })
         .unwrap_or(0);
 
-    let status_bar_height: u16 = 3;
+    let status_bar_height = status_bar::status_bar_height(app);
 
     let bg_bar_height_val = bg_agent_bar::bg_bar_height(app);
 
