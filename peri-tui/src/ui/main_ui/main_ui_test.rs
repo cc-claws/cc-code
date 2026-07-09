@@ -154,3 +154,92 @@ async fn test_status_bar_tool_history_aligns_with_other_rows() {
         status_rows.join("\n")
     );
 }
+
+#[tokio::test]
+async fn test_status_bar_first_row_uses_codebuddy_compact_shape() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let height = super::status_bar::status_bar_height(&app) as usize;
+    let status_rows = &snapshot[snapshot.len() - height..];
+    let first_row = &status_rows[0];
+    assert!(
+        first_row.contains('[') && first_row.contains(']'),
+        "第一行应显示 codebuddy-hud 风格的 [model]，实际:\n{}",
+        status_rows.join("\n")
+    );
+    assert!(
+        first_row.contains("░░░░░░░░░░ 0%"),
+        "无上下文数据时应显示 0% context bar，实际:\n{}",
+        status_rows.join("\n")
+    );
+    let model_end = first_row.find(']').unwrap();
+    let context_pos = first_row.find("0%").unwrap();
+    let separator_pos = first_row.find(" | ").unwrap();
+    assert!(
+        model_end < context_pos && context_pos < separator_pos,
+        "第一行应按 [model] context | project 排列，实际:\n{}",
+        status_rows.join("\n")
+    );
+}
+
+#[tokio::test]
+async fn test_status_bar_activity_shows_last_two_running_tools() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
+    for (id, name, args) in [
+        ("tc1", "Read", "src/first.rs"),
+        ("tc2", "Bash", "cargo test"),
+        ("tc3", "Grep", "needle"),
+    ] {
+        app.push_agent_event(crate::app::AgentEvent::ToolStart {
+            tool_call_id: id.to_string(),
+            name: name.to_string(),
+            display: name.to_string(),
+            args: args.to_string(),
+            input: serde_json::json!({}),
+            source_agent_id: None,
+        });
+    }
+    app.process_pending_events();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let status_rows = &snapshot[snapshot.len() - 3..];
+    let activity = &status_rows[1];
+    assert!(
+        !activity.contains("first.rs"),
+        "activity 行最多显示最后两个 running tools，实际:\n{}",
+        status_rows.join("\n")
+    );
+    assert!(
+        activity.contains("◐ Bash : cargo test") && activity.contains("◐ Grep : needle"),
+        "activity 行应显示最后两个 running tools，实际:\n{}",
+        status_rows.join("\n")
+    );
+
+    app.push_agent_event(crate::app::AgentEvent::ToolEnd {
+        tool_call_id: "tc2".to_string(),
+        name: "Bash".to_string(),
+        output: "ok".to_string(),
+        is_error: false,
+        source_agent_id: None,
+    });
+    app.process_pending_events();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let status_rows = &snapshot[snapshot.len() - 3..];
+    let activity = &status_rows[1];
+    assert!(
+        activity.contains("◐ Grep : needle") && activity.contains("✓ Bash ×1"),
+        "tool end 后应保留仍在 running 的工具并增加完成计数，实际:\n{}",
+        status_rows.join("\n")
+    );
+}
