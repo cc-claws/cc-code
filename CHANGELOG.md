@@ -4,6 +4,19 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.46 — 2026-07-09
+
+### Bug Fixes
+
+- **npm install 配置迁移字段格式修复**：`migrateFromClaudeCode` 输出改为 Rust 配置期望的 camelCase 字段（`type`、`apiKey`、`baseUrl`），修复新用户从 Claude Code 迁移后配置无法识别的问题
+- **AgentShellSlot 计时器冻结**：任务结束后 `elapsed()` 不再持续增长，行为对齐 `BackgroundShell`
+
+### Docs
+
+- **README 默认英文**：`README.md` 切换为英文，`README_ZH.md` 保留中文版
+
+---
+
 ## v0.6.45 — 2026-07-09
 
 ### Refactor
