@@ -133,7 +133,7 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
             if keep_count > 0 && last_stable_boundary < effective_prefix_len {
                 // 需要重新计算：从 boundary 开始全量重解析
                 let full_new = parse_markdown(&text_to_render[last_stable_boundary..], max_width);
-                rendered.lines.truncate(0);
+                rendered.lines.clear();
                 for line in full_new.lines {
                     rendered.lines.push(line);
                 }
