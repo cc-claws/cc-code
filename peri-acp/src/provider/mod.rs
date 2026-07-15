@@ -127,14 +127,14 @@ impl LlmProvider {
             .get_model(alias)
             .filter(|m| !m.is_empty())
             .map(|m| m.to_string())
-            .unwrap_or_else(|| match provider.provider_type.as_str() {
+            .unwrap_or_else(|| match provider.provider_type.to_lowercase().as_str() {
                 "anthropic" => "claude-sonnet-4-6".to_string(),
                 _ => "gpt-4o".to_string(),
             });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);
 
-        match provider.provider_type.as_str() {
+        match provider.provider_type.to_lowercase().as_str() {
             "anthropic" => Some(Self::Anthropic {
                 api_key: provider.api_key.clone(),
                 model,
@@ -176,14 +176,14 @@ impl LlmProvider {
             .get_model(alias)
             .filter(|m| !m.is_empty())
             .map(|m| m.to_string())
-            .unwrap_or_else(|| match provider.provider_type.as_str() {
+            .unwrap_or_else(|| match provider.provider_type.to_lowercase().as_str() {
                 "anthropic" => "claude-sonnet-4-6".to_string(),
                 _ => "gpt-4o".to_string(),
             });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);
 
-        match provider.provider_type.as_str() {
+        match provider.provider_type.to_lowercase().as_str() {
             "anthropic" => Some(Self::Anthropic {
                 api_key: provider.api_key.clone(),
                 model,

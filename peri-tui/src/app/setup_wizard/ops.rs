@@ -15,7 +15,7 @@ pub fn needs_setup(config: &crate::config::AppConfig) -> bool {
             return true;
         }
         if provider.api_key.is_empty() {
-            let key_env = match provider.provider_type.as_str() {
+            let key_env = match provider.provider_type.to_lowercase().as_str() {
                 "anthropic" => "ANTHROPIC_API_KEY",
                 _ => "OPENAI_API_KEY",
             };
