@@ -113,13 +113,8 @@ impl App {
                 .pre_done_bg_results
                 .is_empty()
             {
-                let results: Vec<_> = self
-                    .session_mgr
-                    .current_mut()
-                    .agent
-                    .pre_done_bg_results
-                    .drain(..)
-                    .collect();
+                let results =
+                    std::mem::take(&mut self.session_mgr.current_mut().agent.pre_done_bg_results);
                 tracing::info!(
                     count = results.len(),
                     "Done: processing pre-done background task completions, setting continuation"
@@ -335,13 +330,8 @@ impl App {
                 .pre_done_bg_results
                 .is_empty()
             {
-                let results: Vec<_> = self
-                    .session_mgr
-                    .current_mut()
-                    .agent
-                    .pre_done_bg_results
-                    .drain(..)
-                    .collect();
+                let results =
+                    std::mem::take(&mut self.session_mgr.current_mut().agent.pre_done_bg_results);
                 tracing::info!(
                     count = results.len(),
                     "Error: processing pre-done background task completions, setting continuation"
