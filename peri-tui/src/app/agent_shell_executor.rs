@@ -444,7 +444,9 @@ mod tests {
 
     fn slow_command() -> &'static str {
         if cfg!(windows) {
-            "powershell -NoProfile -Command \"Start-Sleep -Milliseconds 500; Write-Output done\""
+            // 用 ping 模拟 sleep：powershell 冷启动在 CI 机器上可能耗时数秒，
+            // 导致「长前台命令」测试的结果等待超时（Elapsed）
+            "ping -n 2 127.0.0.1 >nul & echo done"
         } else {
             "sleep 0.5; printf done"
         }
@@ -498,7 +500,8 @@ mod tests {
             !registration.direct_background,
             "延迟注册的前台命令不应标记为直接后台"
         );
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle.result_rx)
+        // CI 慢机器（尤其 Windows）上命令总耗时可能超过 5 秒，放宽等待
+        let result = tokio::time::timeout(std::time::Duration::from_secs(15), handle.result_rx)
             .await
             .unwrap()
             .unwrap()
