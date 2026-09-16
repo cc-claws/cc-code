@@ -27,15 +27,11 @@ impl CheckboxState {
     }
 
     pub fn select_all(&mut self) {
-        for c in &mut self.checked {
-            *c = true;
-        }
+        self.checked.fill(true);
     }
 
     pub fn select_none(&mut self) {
-        for c in &mut self.checked {
-            *c = false;
-        }
+        self.checked.fill(false);
     }
 
     pub fn move_cursor(&mut self, delta: i32) {
