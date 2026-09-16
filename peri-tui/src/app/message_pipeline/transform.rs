@@ -35,6 +35,7 @@ impl MessagePipeline {
                 dirty: false,
                 rendered_prefix_len: self.current_ai_text.len(),
                 rendered_prefix_lines,
+                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
                 holdback_scanner: scanner,
             });
         }
