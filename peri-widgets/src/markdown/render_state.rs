@@ -99,14 +99,14 @@ impl TableBuilder {
         wrapped_rows
     }
 
-    /// 计算每列的最小宽度（基于最短内容）
+    /// 计算每列的最小宽度（基于最宽内容，上限 10 显示列）
     fn calculate_min_col_widths(&self, num_cols: usize) -> Vec<usize> {
         let mut min_widths = vec![0usize; num_cols];
         for row in &self.rows {
             for (i, cell) in row.iter().enumerate() {
                 if i < num_cols {
                     let w: usize = cell.iter().map(|s| s.content.width()).sum();
-                    min_widths[i] = min_widths[i].max(w.min(10)); // 最小宽度至少为10
+                    min_widths[i] = min_widths[i].max(w.min(10)); // 每列最小宽度上限 10
                 }
             }
         }
@@ -132,6 +132,9 @@ impl TableBuilder {
     /// 每列先拿到最小宽度（`calculate_min_col_widths` 的值，上限 10），
     /// 剩余空间按 `ideal - min` 的比例分配。这保证 CJK 列至少
     /// 有 ~4-10 显示列宽，不会出现每行仅 1-2 个中文字的情况。
+    ///
+    /// 空列（ideal=0）不参与剩余空间分配，防止尾部空列吞掉全部余量
+    /// 导致内容列被挤压。
     fn distribute_col_widths(
         &self,
         min_widths: &[usize],
@@ -146,13 +149,19 @@ impl TableBuilder {
             return min_widths
                 .iter()
                 .map(|&m| {
-                    let scaled = (m as f64 * available_width as f64 / min_sum as f64) as usize;
-                    scaled.max(2) // 至少保证 2 列宽，防零宽列
+                    if m == 0 {
+                        // 空列保持 0 宽，不挤占其他列
+                        0
+                    } else {
+                        let scaled =
+                            (m as f64 * available_width as f64 / min_sum as f64) as usize;
+                        scaled.max(2) // 至少保证 2 列宽，防零宽列
+                    }
                 })
                 .collect();
         }
 
-        let mut remaining = available_width - min_sum;
+        let remaining = available_width - min_sum;
 
         // 计算各列需要的额外宽度：ideal - min（理想超过最小的部分）
         let extras: Vec<usize> = ideal_widths
@@ -162,16 +171,25 @@ impl TableBuilder {
             .collect();
         let total_extra: usize = extras.iter().sum();
 
-        let mut widths = Vec::with_capacity(n);
-        for (i, (&min, &extra)) in min_widths.iter().zip(extras.iter()).enumerate() {
-            if i == n - 1 {
-                // 最后一列取剩余
-                widths.push(min + remaining);
-            } else {
-                let extra_share = (extra * remaining).checked_div(total_extra).unwrap_or(0);
-                widths.push(min + extra_share);
-                remaining = remaining.saturating_sub(extra_share);
-            }
+        let mut widths = min_widths.to_vec();
+
+        // 防御：extras 全 0 时理论上不可达（此时 min_sum == total_ideal，
+        // 要么走压缩路径要么直接用 ideal 宽度），直接返回 min 宽度。
+        if total_extra == 0 {
+            return widths;
+        }
+
+        // 累积比例分配：按 extras 累计值切分 remaining，保证精确分完且
+        // 整数除法不丢余数；extra=0（含空列）分不到剩余空间。
+        // 旧算法「最后一列取剩余」会让尾部空列吞掉全部整数截断余数，
+        // 挤压真正有内容的列。
+        let mut cum = 0usize;
+        let mut cum_extra = 0usize;
+        for i in 0..n {
+            cum_extra += extras[i];
+            let target = remaining * cum_extra / total_extra;
+            widths[i] += target - cum;
+            cum = target;
         }
 
         widths
@@ -715,7 +733,8 @@ impl<'a> RenderState<'a> {
             }
             Event::End(TagEnd::TableHead) => {
                 if let Some(tb) = self.table.as_mut() {
-                    tb.push_cell();
+                    // 每个 TableCell End 已 push_cell，这里不能再 push，
+                    // 否则行尾会多出一个空 cell（表现为多余空列）
                     tb.push_row();
                     tb.in_head = false;
                 }
@@ -723,7 +742,7 @@ impl<'a> RenderState<'a> {
             Event::Start(Tag::TableRow) => {}
             Event::End(TagEnd::TableRow) => {
                 if let Some(tb) = self.table.as_mut() {
-                    tb.push_cell();
+                    // 同 TableHead：cell 已在 TableCell End 时 push，只 push_row
                     tb.push_row();
                 }
             }
