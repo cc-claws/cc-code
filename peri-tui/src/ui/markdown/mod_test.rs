@@ -99,6 +99,7 @@ fn test_ensure_rendered_incremental_basic() {
         dirty: false,
         rendered_prefix_len: "hello".len(),
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: Default::default(),
     };
     // 先全量渲染建立基线
@@ -123,6 +124,7 @@ fn test_ensure_rendered_incremental_full_fallback() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: Default::default(),
     };
     ensure_rendered_incremental(&mut block, 80);
@@ -140,6 +142,7 @@ fn test_ensure_rendered_incremental_not_dirty() {
         dirty: false,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: Default::default(),
     };
     let lines_before = rendered_line_count(&block);
@@ -160,6 +163,7 @@ fn test_ensure_rendered_incremental_no_new_content() {
         dirty: false,
         rendered_prefix_len: "hello".len(),
         rendered_prefix_lines: 1,
+        rendered_width: 80,
         holdback_scanner: Default::default(),
     };
     let lines_before = rendered_line_count(&block);
@@ -180,6 +184,7 @@ fn test_ensure_rendered_incremental_code_block_recovery() {
         dirty: false,
         rendered_prefix_len: "intro\n\n```\ncode\n```".len(),
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: Default::default(),
     };
     // 先全量渲染
@@ -509,6 +514,7 @@ fn test_ensure_rendered_incremental_table_holdback_incomplete() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: streaming_scanner(),
     };
     ensure_rendered_incremental(&mut block, 80);
@@ -532,6 +538,7 @@ fn test_ensure_rendered_incremental_table_complete() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: streaming_scanner(),
     };
     ensure_rendered_incremental(&mut block, 80);
@@ -551,6 +558,7 @@ fn test_ensure_rendered_incremental_table_streaming_then_complete() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: streaming_scanner(),
     };
     ensure_rendered_incremental(&mut block, 80);
@@ -581,6 +589,7 @@ fn test_ensure_rendered_incremental_non_table_no_holdback() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: streaming_scanner(),
     };
     ensure_rendered_incremental(&mut block, 80);
@@ -600,6 +609,7 @@ fn test_ensure_rendered_incremental_table_flush_on_non_streaming() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: {
             let mut s = TableHoldbackScanner::new();
             s.set_streaming(false);
@@ -623,6 +633,7 @@ fn test_ensure_rendered_flush_releases_holdback() {
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
+        rendered_width: 80,
         holdback_scanner: streaming_scanner(),
     };
     ensure_rendered_incremental(&mut block, 80);
@@ -636,4 +647,87 @@ fn test_ensure_rendered_flush_releases_holdback() {
         "| A | B |\n|---|---|\n| 1".len(),
         "flush 应提交所有 holdback 内容"
     );
+}
+
+/// 复现：历史 AI 消息初始以 80 宽渲染，宽终端下永不重解析，
+/// 表格被压成每行 2-3 个中文字且右侧留白。
+#[test]
+fn test_ensure_rendered_incremental_width_change_forces_reparse() {
+    // Arrange: 模拟 from_base_message 路径——80 宽渲染完毕，dirty=false，前缀完整
+    // 标题列内容足够长，使 80 宽下触发挤压换行、120 宽下宽松
+    let table = "| 需求编号 | 需求标题 |\n| --- | --- |\n| T57057 | 【订单需求】shopee平台马来站点新增速运单识别订单系统支持对Allegro平台订单从接口获取买家支付运费 |";
+    let mut block = ContentBlockView::Text {
+        raw: table.to_string(),
+        rendered: parse_markdown(table, 80),
+        dirty: false,
+        rendered_prefix_len: table.len(),
+        rendered_prefix_lines: 5,
+        rendered_width: 80,
+        holdback_scanner: Default::default(),
+    };
+    let narrow_max_line = max_line_width(&block);
+
+    // Act: 以实际终端宽度 120 重新渲染（dirty=false 也必须触发）
+    ensure_rendered_incremental(&mut block, 120);
+
+    // Assert: 已按新宽度全量重解析
+    let (prefix_len, rendered_width, lines) = match &block {
+        ContentBlockView::Text {
+            rendered_prefix_len,
+            rendered_width,
+            rendered,
+            ..
+        } => (*rendered_prefix_len, *rendered_width, rendered.lines.len()),
+        _ => unreachable!(),
+    };
+    assert_eq!(prefix_len, table.len(), "应全量渲染完整内容");
+    assert_eq!(rendered_width, 120, "应记录新渲染宽度");
+    assert!(lines > 0, "应有渲染输出");
+    assert!(
+        max_line_width(&block) > narrow_max_line,
+        "宽终端下表格应更宽：80宽={narrow_max_line}, 120宽={}",
+        max_line_width(&block)
+    );
+}
+
+/// 宽度未变化时不应触发全量重解析（回归保护）
+#[test]
+fn test_ensure_rendered_incremental_same_width_no_reparse() {
+    let text = "hello world";
+    let mut block = ContentBlockView::Text {
+        raw: text.to_string(),
+        rendered: parse_markdown(text, 80),
+        dirty: false,
+        rendered_prefix_len: text.len(),
+        rendered_prefix_lines: 1,
+        rendered_width: 80,
+        holdback_scanner: Default::default(),
+    };
+    let lines_before = rendered_line_count(&block);
+    ensure_rendered_incremental(&mut block, 80);
+    assert_eq!(
+        rendered_line_count(&block),
+        lines_before,
+        "宽度相同且无新内容时不应重渲染"
+    );
+}
+
+/// 辅助：计算 block rendered 中最宽行的视觉宽度
+fn max_line_width(block: &ContentBlockView) -> usize {
+    use unicode_width::UnicodeWidthStr;
+    if let ContentBlockView::Text { rendered, .. } = block {
+        rendered
+            .lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.width())
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    }
 }

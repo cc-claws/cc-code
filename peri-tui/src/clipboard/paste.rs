@@ -140,7 +140,7 @@ fn decode_png_file(path: &std::path::Path) -> Result<(Vec<u8>, u32, u32), PasteI
         (png::ColorType::Rgb, png::BitDepth::Eight) => {
             // RGB → RGBA
             let mut rgba = Vec::with_capacity(buf.len() / 3 * 4);
-            for chunk in buf.chunks_exact(3) {
+            for chunk in buf.as_chunks::<3>().0 {
                 rgba.extend_from_slice(chunk);
                 rgba.push(255);
             }
