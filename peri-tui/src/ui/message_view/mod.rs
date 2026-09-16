@@ -461,6 +461,9 @@ pub enum ContentBlockView {
         rendered_prefix_len: usize,
         /// `rendered` 中对应前缀的行数（避免重解析计数）
         rendered_prefix_lines: usize,
+        /// `rendered` 解析时使用的宽度。与实际宽度不一致时强制全量重解析，
+        /// 修复初始 80 宽渲染在宽终端下表格挤压/右侧留白的问题。
+        rendered_width: usize,
         /// 流式表格 holdback 扫描器
         holdback_scanner: crate::ui::markdown::TableHoldbackScanner,
     },
@@ -604,6 +607,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: text.len(),
                                 rendered_prefix_lines,
+                                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
                                 holdback_scanner: Default::default(),
                             }
                         }
@@ -619,6 +623,7 @@ impl MessageViewModel {
                             dirty: false,
                             rendered_prefix_len: 7,
                             rendered_prefix_lines: 1,
+                            rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
                             holdback_scanner: Default::default(),
                         },
                         ContentBlock::Document { title, .. } => {
@@ -631,6 +636,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
+                                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
                                 holdback_scanner: Default::default(),
                             }
                         }
@@ -645,6 +651,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
+                                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
                                 holdback_scanner: Default::default(),
                             }
                         }
@@ -655,6 +662,7 @@ impl MessageViewModel {
                             dirty: false,
                             rendered_prefix_len: 0,
                             rendered_prefix_lines: 0,
+                            rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
                             holdback_scanner: Default::default(),
                         },
                     })
@@ -811,6 +819,7 @@ impl MessageViewModel {
                 dirty: true,
                 rendered_prefix_len: 0,
                 rendered_prefix_lines: 0,
+                rendered_width: 0,
                 holdback_scanner: Default::default(),
             });
             self.recompute_hash();

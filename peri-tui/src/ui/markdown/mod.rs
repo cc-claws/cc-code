@@ -9,6 +9,11 @@ pub use table_holdback::{HoldbackDecision, TableHoldbackScanner};
 
 static THEME: DefaultMarkdownTheme = DefaultMarkdownTheme;
 
+/// 初始 ViewModel 构建时使用的默认 markdown 渲染宽度。
+/// 此时还不知道真实终端宽度，渲染线程首次渲染时会通过
+/// `rendered_width` 检测宽度不一致并全量重解析。
+pub const DEFAULT_MARKDOWN_WIDTH: usize = 80;
+
 /// 解析 markdown 文本为 ratatui Text
 pub fn parse_markdown(input: &str, max_width: usize) -> Text<'static> {
     peri_widgets::markdown::parse_markdown(input, &THEME, max_width)
@@ -16,7 +21,7 @@ pub fn parse_markdown(input: &str, max_width: usize) -> Text<'static> {
 
 /// 解析 markdown 文本为 ratatui Text（使用默认宽度 80）
 pub fn parse_markdown_default(input: &str) -> Text<'static> {
-    parse_markdown(input, 80)
+    parse_markdown(input, DEFAULT_MARKDOWN_WIDTH)
 }
 
 /// 从 `text` 的 `[0..prefix_len]` 范围内找到最后一个块级边界。
@@ -80,9 +85,17 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
         dirty,
         rendered_prefix_len,
         rendered_prefix_lines,
+        rendered_width,
         holdback_scanner,
     } = block
     {
+        // 宽度变化（初始 80 宽 → 实际终端宽，或 resize）→ 强制全量重解析。
+        // 清空已渲染前缀，使下方走路径 3（全量重解析）。
+        if *rendered_width != max_width {
+            *dirty = true;
+            *rendered_prefix_len = 0;
+            *rendered_prefix_lines = 0;
+        }
         if !*dirty || raw.len() == *rendered_prefix_len {
             return;
         }
@@ -149,6 +162,7 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
 
         *rendered_prefix_len = effective_end;
         *rendered_prefix_lines = rendered.lines.len();
+        *rendered_width = max_width;
 
         // FlushAll 时重置 scanner（流结束）
         if matches!(decision, HoldbackDecision::FlushAll) {

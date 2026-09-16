@@ -251,6 +251,74 @@ fn parse_table_cjk_first_column_too_narrow() {
     }
 }
 
+/// 复现：表格含尾部空列时，旧算法「最后一列取剩余」让空列吞掉
+/// 整数截断余量，挤压真正有内容的列。
+///
+/// 空列（ideal=0）不应分到任何剩余宽度。
+#[test]
+fn parse_table_trailing_empty_column_not_hoarding() {
+    // 3 个内容列（ideal 均 > min=10，触发按比例分配剩余空间）+ 1 个尾部空列
+    // max_width=45 → available=32，min_sum=30，remaining=2
+    // 旧算法截断余数滚给空列；新算法累积分配给 extra 最大的列
+    let md = "| 长标题列内容示例 | 中等内容列xx | 短内容x |  |\n\
+              | --- | --- | --- | --- |\n\
+              | 长标题列内容示例数据更长一些些 | 中等内容列xx数据 | 短内容x |  |";
+    let text = parse_markdown(md, &default_theme(), 45);
+    let border: String = text
+        .lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains('┌')))
+        .expect("应有表格顶边框")
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+
+    // 顶边框形如 ┌─...─┬─...─┬─...─┬┐，按 ┬ 分段，段内 fill 数 = 列宽 + 2
+    let segments: Vec<&str> = border.split('┬').collect();
+    assert_eq!(segments.len(), 4, "应有 4 列，边框: {border}");
+    // 段内 fill 数 = 列宽 + 2（左右各一个空格位）；旧算法会吞掉截断余量使空列变宽
+    let last_col_fill = segments[3].chars().filter(|c| *c == '─').count();
+    assert_eq!(
+        last_col_fill, 2,
+        "尾部空列宽度应为 0（fill=2），边框: {border}"
+    );
+}
+
+/// 多内容列按 extras 累积比例分配剩余宽度，整数除法不把余数
+/// 滚给最后一列——extra 最大的列应拿到完整份额。
+#[test]
+fn parse_table_extra_share_not_truncated_to_last() {
+    // 列宽（ideal/min/extra）: col1=20/10/10, col2=15/10/5, col3=12/10/2, col4空=0/0/0
+    // max_width=45 → available=32, min_sum=30, remaining=2
+    // 新算法: col3 应拿到 2*17/17 - 2*15/17 = 1 → 宽 11（旧算法 col3 只有 10，余数给空列）
+    let md = "| AaaaaaaaaaBbbbbbbbbb | CccccccccDdddd | EeeeeeeFfff |  |\n\
+              | --- | --- | --- | --- |\n\
+              | AaaaaaaaaaBbbbbbbbbbX | CccccccccDddddY | EeeeeeeFfffZ |  |";
+    let text = parse_markdown(md, &default_theme(), 45);
+    let border: String = text
+        .lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains('┌')))
+        .expect("应有表格顶边框")
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+
+    let segments: Vec<&str> = border.split('┬').collect();
+    assert_eq!(segments.len(), 4, "应有 4 列，边框: {border}");
+    let widths: Vec<usize> = segments
+        .iter()
+        .map(|s| s.chars().filter(|c| *c == '─').count().saturating_sub(2))
+        .collect();
+    assert_eq!(
+        widths,
+        vec![11, 10, 11, 0],
+        "剩余空间应按累积比例分给内容列，空列为 0，边框: {border}"
+    );
+}
+
 #[test]
 fn parse_code_block_with_language() {
     let text = parse_markdown("```rust\nfn main() {}\n```", &default_theme(), 80);
