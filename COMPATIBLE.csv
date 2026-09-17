@@ -39,7 +39,7 @@ Cron 定时任务能力,/loop 启动支持,/loop 启动支持,✅
 LSP 支持,LSPTool,peri-lsp 独立包支持,✅
 TodoWrite,TodoWriteTool,TodoWrite,✅
 ToolSearch 能力,只有 Anthropic 官方才支持,SearchExtraTool+ ExecuteExtraTool,✅
-文件系统工具,FileRead/Write/Edit + Glob/Grep,FileRead/Write/Edit + Glob/Grep + folder_operations 独立,✅
+文件系统工具,FileRead/Write/Edit + Glob/Grep,FileRead/Write/Edit + Glob/Grep,✅
 Config,ConfigTool,--,⚠️
 Shell工具,BashTool + PowerShellTool,Bash（缺 PowerShell）,⚠️
 SkillTool,SkillTool+DiscoverSkillsTool,--,⚠️
