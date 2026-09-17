@@ -7,7 +7,6 @@ tools:
     - Read
 disallowedTools:
     - Edit
-    - folder_operations
     - Glob
     - Grep
 maxTurns: 40

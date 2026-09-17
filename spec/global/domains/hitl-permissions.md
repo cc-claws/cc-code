@@ -43,7 +43,7 @@ HITL 权限领域负责工具调用的审批策略管理，支持 5 级权限模
 - 定义 5 种 PermissionMode：Default / AcceptEdits / Auto / BypassPermissions / DontAsk
 - 使用 Arc<AtomicU8> 无锁原子共享当前模式，TUI 与 Agent task 间零锁竞争
 - Auto 模式通过 LLM 分类器（AutoClassifier trait）判断工具调用放行/拒绝/Unsure
-- acceptEdits 模式自动放行 write_*/edit_*/folder_operations，bash/launch_agent 仍弹窗
+- acceptEdits 模式自动放行 write_*/edit_*，bash/launch_agent 仍弹窗
 - ask_user_question 不受权限模式影响，始终弹窗问答
 - 保留 YOLO_MODE 环境变量兼容性，仅决定初始模式
 **归档:** [链接](../../archive/feature_20260427_F002_permission-mode/)
