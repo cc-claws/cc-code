@@ -4,6 +4,19 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.48 — 2026-09-17
+
+### Bug Fixes
+
+- **Markdown 表格渲染挤压与空列**：宽终端下 AI 消息中的表格按固定 80 列渲染导致列被压成每行 2-3 个中文字、右侧留白，且表格尾部多出空白列
+  - 表格渲染宽度改为跟随真实终端宽度，resize 时自动重解析
+  - 修复 TableBuilder 行尾重复 push_cell 导致的多余空列
+  - 列宽分配改为累积比例，空列不再吞掉剩余宽度
+- **Clippy 兼容 Rust 1.98**：修复 `manual_slice_fill`、`drain_collect`、`chunks_exact_to_as_chunks` 三类新 lint
+- **Windows CI 测试稳定性**：长前台命令测试改用 ping 模拟 sleep，消除 PowerShell 冷启动超时
+
+---
+
 ## v0.6.47 — 2026-07-15
 
 ### Bug Fixes
