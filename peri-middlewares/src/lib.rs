@@ -106,9 +106,8 @@ pub mod prelude {
         skills::{SkillMetadata, SkillsMiddleware},
         subagent::{SkillPreloadMiddleware, SubAgentMiddleware, SubAgentTool},
         tools::{
-            ArcToolWrapper, AskUserTool, BoxToolWrapper, EditFileTool, FolderOperationsTool,
-            GlobFilesTool, GrepTool, ReadFileTool, TodoItem, TodoStatus, TodoWriteTool,
-            WriteFileTool,
+            ArcToolWrapper, AskUserTool, BoxToolWrapper, EditFileTool, GlobFilesTool, GrepTool,
+            ReadFileTool, TodoItem, TodoStatus, TodoWriteTool, WriteFileTool,
         },
     };
     // 重导出 peri-agent 核心类型

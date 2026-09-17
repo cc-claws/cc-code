@@ -10,7 +10,7 @@
 3.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
 4.  SkillPreloadMiddleware   ← #skill-name 全文注入
 5.  AtMentionMiddleware      ← @path 解析，注入 Read 工具调用
-6.  FilesystemMiddleware     ← 6 个文件系统工具
+6.  FilesystemMiddleware     ← 5 个文件系统工具
 7.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
 8.  TerminalMiddleware       ← Bash
 9.  WebMiddleware            ← WebFetch/WebSearch
@@ -77,4 +77,4 @@
 
 ## HITL 审批
 
-默认需审批：`Bash`、`FolderOperations`、`Agent`、`Write`、`Edit`、`delete_*`、`rm_*`、`mcp__*`、`WebFetch`、`WebSearch`。
+默认需审批：`Bash`、`Agent`、`Write`、`Edit`、`delete_*`、`rm_*`、`mcp__*`、`WebFetch`、`WebSearch`。

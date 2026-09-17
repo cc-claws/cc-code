@@ -105,13 +105,12 @@ src/
 ├── claude_agent_parser.rs — .claude/agents/*.md 文件解析器（YAML frontmatter 提取）
 ├── ask_user/             — parse_ask_user() 工具输出解析
 └── tools/
-    ├── filesystem/       — 6 个文件系统工具各自独立文件
+    ├── filesystem/       — 5 个文件系统工具各自独立文件
     │   ├── read.rs       — ReadFileTool
     │   ├── write.rs      — WriteFileTool
     │   ├── edit.rs       — EditFileTool
     │   ├── glob.rs       — GlobFilesTool
-    │   ├── grep.rs       — GrepTool（进程内搜索，grep+grep-regex crate）
-    │   └── folder.rs     — FolderOperationsTool
+    │   └── grep.rs       — GrepTool（进程内搜索，grep+grep-regex crate）
     ├── ask_user_tool.rs  — AskUserTool（oneshot channel 挂起等待用户输入）
     ├── todo.rs           — TodoWriteTool + TodoItem / TodoStatus
     └── mod.rs            — BoxToolWrapper / ArcToolWrapper 适配器

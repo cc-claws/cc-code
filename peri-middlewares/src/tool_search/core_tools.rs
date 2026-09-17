@@ -21,16 +21,15 @@ pub const TOOL_EDIT: &str = "Edit";
 pub const TOOL_READ: &str = "Read";
 pub const TOOL_GLOB: &str = "Glob";
 pub const TOOL_GREP: &str = "Grep";
-pub const TOOL_FOLDER_OPS: &str = "FolderOperations";
 pub const TOOL_AGENT: &str = "Agent";
 pub const TOOL_WEBFETCH: &str = "WebFetch";
 pub const TOOL_WEBSEARCH: &str = "WebSearch";
 pub const TOOL_ASK_USER: &str = "AskUserQuestion";
 pub const TOOL_TODO: &str = "TodoWrite";
 
-/// 核心工具白名单（始终发送给 LLM，共 12 个）
+/// 核心工具白名单（始终发送给 LLM，共 11 个）
 ///
-/// - 文件操作 (6): Read, Write, Edit, Glob, Grep, folder_operations
+/// - 文件操作 (5): Read, Write, Edit, Glob, Grep
 /// - 执行 (1): Bash
 /// - Web (2): WebFetch, WebSearch
 /// - 交互 (2): Agent, AskUserQuestion
@@ -43,7 +42,6 @@ pub static CORE_TOOLS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         TOOL_EDIT,
         TOOL_GLOB,
         TOOL_GREP,
-        TOOL_FOLDER_OPS,
         // 执行
         TOOL_BASH,
         // Web
