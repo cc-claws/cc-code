@@ -118,7 +118,7 @@ pub fn truncate_shell_output(output: &str) -> String {
 }
 
 /// 通用工具输出截断：行数或字节数任一超阈触发 head/tail + 字节兜底。
-/// 任何工具（Grep/Glob/FolderOperations 等）在返回前都应调用此函数做兜底，
+/// 任何工具（Grep/Glob 等）在返回前都应调用此函数做兜底，
 /// 防止单条 tool_result 撑爆 LLM context window（issue #47）。
 pub fn truncate_tool_output(output: &str) -> String {
     let lines: Vec<&str> = output.split('\n').collect();
