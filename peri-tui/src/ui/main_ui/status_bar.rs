@@ -185,7 +185,7 @@ fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
             spans.push(status_separator());
         }
         spans.push(Span::styled(
-            format!("⏱️  {}", format_duration_display(start.elapsed())),
+            format!("⏱  {}", format_duration_display(start.elapsed())),
             dim_style(),
         ));
     }
@@ -698,11 +698,11 @@ fn format_duration_display(duration: std::time::Duration) -> String {
     } else if total_sec < 3_600 {
         let minutes = total_sec / 60;
         let seconds = total_sec % 60;
-        format!("{}m{}s", minutes, seconds)
+        format!("{}m{:02}s", minutes, seconds)
     } else {
         let hours = total_sec / 3_600;
         let minutes = (total_sec % 3_600) / 60;
-        format!("{}h {}m", hours, minutes)
+        format!("{}h {:02}m", hours, minutes)
     }
 }
 
@@ -849,11 +849,15 @@ mod tests {
         );
         assert_eq!(
             format_duration_display(std::time::Duration::from_secs(14 * 60 + 7)),
-            "14m7s"
+            "14m07s"
         );
         assert_eq!(
             format_duration_display(std::time::Duration::from_secs(14 * 3600 + 43 * 60)),
             "14h 43m"
+        );
+        assert_eq!(
+            format_duration_display(std::time::Duration::from_secs(14 * 3600 + 5 * 60)),
+            "14h 05m"
         );
     }
 
