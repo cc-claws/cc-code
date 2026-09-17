@@ -4,6 +4,18 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.49 — 2026-09-17
+
+### Refactor
+
+- **移除 FolderOperation 工具**：
+  - 彻底移除 `FolderOperationsTool` 及其全部单元测试，将文件系统工具集收敛为标准的 5 个工具（`Read`, `Write`, `Edit`, `Glob`, `Grep`）
+  - 核心工具白名单（Core Tools）由 12 个收敛为 11 个
+  - 清理 HITL 审批白名单、ACP 协议映射（`infer_tool_kind`）与 TUI 展示层中的冗余映射逻辑
+  - 同步更新系统提示词和相关架构规范文档
+
+---
+
 ## v0.6.48 — 2026-09-17
 
 ### Bug Fixes
