@@ -17,9 +17,9 @@
 
 ## 中间件（peri-middlewares）
 
-- **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep`、`FolderOperations` 六个工具；只读工具无需 HITL
+- **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个工具；只读工具无需 HITL
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
-- **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm/folder），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
+- **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
 - **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
 - **AgentsMdMiddleware:** `before_agent` 自动读取 `CLAUDE.md` / `AGENTS.md`，prepend System prompt
