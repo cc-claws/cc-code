@@ -872,7 +872,21 @@ pub fn render_view_model(
                     Style::default().fg(theme::DIM),
                 ));
             }
-            let mut lines = vec![Line::from(header_spans)];
+            // 手动折行：续行加 8 列缩进对齐工具名下方，避免 Paragraph 自动换行后续行顶格
+            let mut lines: Vec<Line<'static>> = Vec::new();
+            let header_line = Line::from(header_spans);
+            let indent_width = 8usize;
+            let wrap_width = width.saturating_sub(indent_width).max(20);
+            let wrapped = wrap_line_spans(header_line, wrap_width);
+            for (j, wline) in wrapped.into_iter().enumerate() {
+                if j == 0 {
+                    lines.push(wline);
+                } else {
+                    let mut spans = vec![Span::raw(" ".repeat(indent_width))];
+                    spans.extend(wline.spans);
+                    lines.push(Line::from(spans));
+                }
+            }
             let result_lines: Vec<&str> = if content.is_empty() {
                 Vec::new()
             } else {
