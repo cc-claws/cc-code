@@ -690,6 +690,51 @@ fn test_ensure_rendered_incremental_width_change_forces_reparse() {
     );
 }
 
+/// 复现：宽度变化时 Path 1 增量追加导致整段内容重复渲染。
+///
+/// 根因：rendered_prefix_len=0 使 find_last_block_boundary 返回 0，
+/// 与 effective_prefix_len(0) 相等走 Path 1，新解析结果 push 到
+/// 已有 rendered.lines 尾部 → 内容翻倍。
+#[test]
+fn test_ensure_rendered_incremental_width_change_no_duplicate() {
+    let text = "主要有两个原因：\n\n1. 第一条\n2. 第二条";
+    let mut block = ContentBlockView::Text {
+        raw: text.to_string(),
+        rendered: parse_markdown(text, 80),
+        dirty: false,
+        rendered_prefix_len: text.len(),
+        rendered_prefix_lines: 5,
+        rendered_width: 80,
+        holdback_scanner: Default::default(),
+    };
+    let lines_before = rendered_line_count(&block);
+
+    // Act: 宽度变化触发重解析
+    ensure_rendered_incremental(&mut block, 120);
+
+    // Assert: 行数不应翻倍（重复渲染的核心特征）
+    let lines_after = rendered_line_count(&block);
+    assert!(
+        lines_after <= lines_before * 2,
+        "宽度变化后行数不应超过 2 倍：before={lines_before}, after={lines_after}"
+    );
+    // 关键：内容不应出现两次
+    let all_text: String = match &block {
+        ContentBlockView::Text { rendered, .. } => rendered
+            .lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => unreachable!(),
+    };
+    let count = all_text.matches("主要有两个原因").count();
+    assert_eq!(
+        count, 1,
+        "内容不应重复渲染，出现 {count} 次：\n{all_text}"
+    );
+}
+
 /// 宽度未变化时不应触发全量重解析（回归保护）
 #[test]
 fn test_ensure_rendered_incremental_same_width_no_reparse() {
