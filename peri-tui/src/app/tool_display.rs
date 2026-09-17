@@ -23,7 +23,6 @@ pub fn format_tool_name(tool: &str) -> String {
         "Edit" => "Edit",
         "Glob" => "Glob",
         "Grep" => "Grep",
-        "FolderOperations" => "Folder",
         "TodoWrite" => "Todo",
         "AskUserQuestion" => "Ask",
         "Agent" => "Agent",
@@ -67,11 +66,6 @@ pub fn format_tool_args(
         }
         "Glob" => input["pattern"].as_str().map(|p| truncate(p, 200)),
         "Grep" => input["pattern"].as_str().map(|s| truncate(s, 200)),
-        "FolderOperations" => {
-            let op = sanitize_display_text(input["operation"].as_str().unwrap_or("?"));
-            let path = input["folder_path"].as_str().unwrap_or("?");
-            Some(format!("{} {}", op, strip_cwd(path, cwd)))
-        }
         "WebSearch" => input["query"].as_str().map(|s| truncate(s, 60)),
         "WebFetch" => input["url"].as_str().map(|s| truncate(s, 60)),
         "ExecuteExtraTool" => input["tool_name"].as_str().map(|s| truncate(s, 40)),
