@@ -11,6 +11,9 @@ impl App {
     /// Ends the Langfuse trace, sets loading=false, clears interaction state,
     /// and records task duration. Callers handle bg task channel logic separately.
     pub(super) fn cleanup_agent_state(&mut self, langfuse_error: Option<&str>) {
+        let is_abnormal = langfuse_error.is_some()
+            || self.session_mgr.current().agent.reconcile_already_done
+            || self.session_mgr.current().agent.cancel_sent_at.is_some();
         {
             let s = &mut self.session_mgr.current_mut();
 
@@ -34,6 +37,10 @@ impl App {
             }
         }
         self.set_loading(false);
+        // 异常终止（报错、中断、取消超时）清空总结行，避免失败/中断任务显示成功文案
+        if is_abnormal || self.session_mgr.current().agent.reconcile_already_done {
+            self.session_mgr.current_mut().spinner_state.clear_summary();
+        }
     }
 
     pub(super) fn handle_done(&mut self) -> (bool, bool, bool) {
@@ -156,6 +163,7 @@ impl App {
         self.session_mgr.current_mut().agent.cancel_sent_at = None;
         self.session_mgr.current_mut().agent.active_tool = None;
         self.session_mgr.current_mut().agent.running_tools.clear();
+        self.session_mgr.current_mut().spinner_state.clear_summary();
         // When parent agent is interrupted while executing a sync SubAgent,
         // pipeline.in_subagent() returns true because the SubAgent UI state is active.
         // Previously this was silently ignored, leaving the UI stuck in loading forever
@@ -283,6 +291,8 @@ impl App {
         }
         // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖通知消息
         self.session_mgr.current_mut().agent.reconcile_already_done = true;
+        // 中断路径清空完成态总结行，避免显示成功文案
+        self.session_mgr.current_mut().spinner_state.clear_summary();
         (true, false, false)
     }
 
@@ -347,6 +357,8 @@ impl App {
         }
         let err_label = format!("ERROR: {}", error_msg);
         self.cleanup_agent_state(Some(&err_label));
+        // 报错路径清空完成态总结行，避免显示成功文案
+        self.session_mgr.current_mut().spinner_state.clear_summary();
         // 检查缓冲消息，合并发送
         if !self
             .session_mgr
