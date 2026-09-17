@@ -90,11 +90,14 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
     } = block
     {
         // 宽度变化（初始 80 宽 → 实际终端宽，或 resize）→ 强制全量重解析。
-        // 清空已渲染前缀，使下方走路径 3（全量重解析）。
+        // 必须同时清空 rendered.lines：否则 rendered_prefix_len=0 使
+        // find_last_block_boundary 返回 0，与 effective_prefix_len(0) 相等
+        // 走 Path 1 增量追加，新内容叠加在旧内容上导致整段重复渲染。
         if *rendered_width != max_width {
             *dirty = true;
             *rendered_prefix_len = 0;
             *rendered_prefix_lines = 0;
+            rendered.lines.clear();
         }
         if !*dirty || raw.len() == *rendered_prefix_len {
             return;
