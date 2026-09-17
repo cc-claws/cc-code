@@ -12,7 +12,7 @@ use peri_agent::{
 };
 
 use crate::tool_search::core_tools::{
-    TOOL_AGENT, TOOL_BASH, TOOL_EDIT, TOOL_FOLDER_OPS, TOOL_WEBFETCH, TOOL_WEBSEARCH, TOOL_WRITE,
+    TOOL_AGENT, TOOL_BASH, TOOL_EDIT, TOOL_WEBFETCH, TOOL_WEBSEARCH, TOOL_WRITE,
 };
 
 pub mod auto_classifier;
@@ -41,11 +41,9 @@ pub fn is_yolo_mode() -> bool {
 /// - `bash`：所有 bash 命令
 /// - `Write`：文件写入
 /// - `Edit`：文件编辑
-/// - `folder_operations`：目录操作
 /// - `launch_agent`：子 Agent 委派（子 Agent 不含 HITL，可传递绕过审批）
 pub fn default_requires_approval(tool_name: &str) -> bool {
     tool_name == TOOL_BASH
-        || tool_name == TOOL_FOLDER_OPS
         || tool_name == TOOL_AGENT
         || tool_name == TOOL_WRITE
         || tool_name == TOOL_EDIT
@@ -58,10 +56,10 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
 
 /// 判断工具是否为文件编辑类工具（AcceptEdits 模式使用）
 ///
-/// `Write`、`Edit`、`folder_operations` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
+/// `Write`、`Edit` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
 /// `Bash`、`Agent`、`delete_*`、`rm_*` 不属于编辑工具，仍需审批。
 pub fn is_edit_tool(tool_name: &str) -> bool {
-    tool_name == TOOL_WRITE || tool_name == TOOL_EDIT || tool_name == TOOL_FOLDER_OPS
+    tool_name == TOOL_WRITE || tool_name == TOOL_EDIT
 }
 
 // ─── ExecuteExtraTool 权限透传 ─────────────────────────────────────────────
