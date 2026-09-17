@@ -4,6 +4,17 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.51 — 2026-09-17
+
+### Bug Fixes
+
+- **Anthropic 适配器支持自适应解析 SSE 流式响应**：修复非流式请求（如后台 SubAgent 任务）收到反向代理网关强制返回的 SSE 流时，因直接调用 `serde_json::from_str` 导致反序列化崩溃的问题
+  - 在非流式请求体构建中显式声明 `"stream": false`
+  - 在 `handle_anthropic_response` 中自适应捕获 SSE 文本，复用 `SseParser` 还原为标准的 Anthropic 消息 JSON 结构，无损向下兼容各种代理/网关环境
+  - 增加针对文本、工具调用（tool_use）、错误事件的 3 组完整回归测试用例
+
+---
+
 ## v0.6.50 — 2026-09-17
 
 ### Bug Fixes
