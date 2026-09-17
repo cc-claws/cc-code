@@ -992,3 +992,96 @@ fn test_system_blocks_single_cached_block_no_duplicate() {
         "Single already-cached block should keep cache_control"
     );
 }
+
+// ── parse_anthropic_sse_to_json 测试 ───────────────────────────────────
+
+/// 验证非流式接口收到代理网关强制返回的 SSE 文本响应时，能够聚合还原为标准 Anthropic 消息
+#[test]
+fn test_parse_anthropic_sse_to_json_text_response() {
+    let sse_text = r#"event: message_start
+data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"stop_reason":null,"usage":{"input_tokens":15,"output_tokens":1}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"你好，"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"我是测试助手。"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":12}}
+
+event: message_stop
+data: {"type":"message_stop"}
+"#;
+
+    let res = ChatAnthropic::parse_anthropic_sse_to_json(sse_text).expect("SSE 响应解析应成功");
+    assert_eq!(res["id"], "msg_123");
+    assert_eq!(res["role"], "assistant");
+    assert_eq!(res["stop_reason"], "end_turn");
+    assert_eq!(res["usage"]["input_tokens"], 15);
+    assert_eq!(res["usage"]["output_tokens"], 12);
+
+    let content = res["content"].as_array().expect("content 应为数组");
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[0]["text"], "你好，我是测试助手。");
+}
+
+/// 验证真实报错场景：中转代理强制返回含 tool_use 和 input_json_delta 的 SSE 数据流
+#[test]
+fn test_parse_anthropic_sse_to_json_tool_use_response() {
+    let sse_text = r#"event: message_start
+data: {"type":"message_start","message":{"id":"eL6rar22KoaW9MoP5MqPuAI","type":"message","role":"assistant","model":"gemini-3.8-flash","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_519428","name":"Bash","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"description\":\"等待 60 秒\",\"command\":\"powershell -NoProfile -Command \\\"Start-Sleep -Seconds 60\\\"\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":24501,"output_tokens":226}}
+
+event: message_stop
+data: {"type":"message_stop"}
+"#;
+
+    let res = ChatAnthropic::parse_anthropic_sse_to_json(sse_text).expect("SSE 响应解析应成功");
+    assert_eq!(res["id"], "eL6rar22KoaW9MoP5MqPuAI");
+    assert_eq!(res["stop_reason"], "tool_use");
+    assert_eq!(res["usage"]["input_tokens"], 24501);
+    assert_eq!(res["usage"]["output_tokens"], 226);
+
+    let content = res["content"].as_array().expect("content 应为数组");
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0]["type"], "tool_use");
+    assert_eq!(content[0]["id"], "call_519428");
+    assert_eq!(content[0]["name"], "Bash");
+    assert_eq!(content[0]["input"]["description"], "等待 60 秒");
+    assert_eq!(
+        content[0]["input"]["command"],
+        "powershell -NoProfile -Command \"Start-Sleep -Seconds 60\""
+    );
+}
+
+/// 验证包含 error 事件的 SSE 响应能正确还原为错误 JSON
+#[test]
+fn test_parse_anthropic_sse_to_json_error_event() {
+    let sse_text = r#"event: error
+data: {"type":"error","error":{"type":"invalid_request_error","message":"rate limit exceeded"}}
+"#;
+
+    let res = ChatAnthropic::parse_anthropic_sse_to_json(sse_text).expect("错误事件解析应成功");
+    assert_eq!(res["type"], "error");
+    assert_eq!(res["error"]["type"], "invalid_request_error");
+    assert_eq!(res["error"]["message"], "rate limit exceeded");
+}
