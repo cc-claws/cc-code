@@ -7,7 +7,10 @@ use super::{
 };
 use crate::{
     error::{AgentError, AgentResult},
-    llm::types::{LlmRequest, LlmResponse, StopReason, StreamingContext},
+    llm::{
+        sse::SseParser,
+        types::{LlmRequest, LlmResponse, StopReason, StreamingContext},
+    },
     messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest},
 };
 
@@ -350,6 +353,8 @@ pub(super) fn build_request_body(
 
     if streaming {
         body["stream"] = json!(true);
+    } else {
+        body["stream"] = json!(false);
     }
 
     if adapter.enable_cache {
@@ -418,19 +423,52 @@ async fn handle_anthropic_response(
         );
         AgentError::LlmError(format!("读取响应体失败: {e}"))
     })?;
-    let resp_json: Value = serde_json::from_str(&resp_text).map_err(|e| {
-        tracing::error!(
-            provider = "anthropic",
-            model = %model,
-            status = %status,
-            elapsed_ms = start.elapsed().as_millis() as u64,
-            error = %e,
-            "LLM 响应解析失败"
-        );
-        AgentError::LlmError(format!(
-            "解析响应失败: {e}\n原始响应({status}): {resp_text}"
-        ))
-    })?;
+    let resp_json: Value = match serde_json::from_str(&resp_text) {
+        Ok(v) => v,
+        Err(e) => {
+            // 自适应容错：部分代理网关（如反向代理或格式转换器）在非流式请求下仍强制返回 SSE 流
+            if resp_text.contains("event:") || resp_text.contains("data:") {
+                match parse_anthropic_sse_to_json(&resp_text) {
+                    Ok(sse_val) => {
+                        tracing::info!(
+                            provider = "anthropic",
+                            model = %model,
+                            status = %status,
+                            elapsed_ms = start.elapsed().as_millis() as u64,
+                            "非流式请求收到 SSE 流式响应，已自动聚合还原为标准 JSON"
+                        );
+                        sse_val
+                    }
+                    Err(sse_err) => {
+                        tracing::error!(
+                            provider = "anthropic",
+                            model = %model,
+                            status = %status,
+                            elapsed_ms = start.elapsed().as_millis() as u64,
+                            json_err = %e,
+                            sse_err = %sse_err,
+                            "LLM 响应解析失败（JSON 与 SSE 解析均失败）"
+                        );
+                        return Err(AgentError::LlmError(format!(
+                            "解析响应失败: {e} (SSE fallback: {sse_err})\n原始响应({status}): {resp_text}"
+                        )));
+                    }
+                }
+            } else {
+                tracing::error!(
+                    provider = "anthropic",
+                    model = %model,
+                    status = %status,
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    error = %e,
+                    "LLM 响应解析失败"
+                );
+                return Err(AgentError::LlmError(format!(
+                    "解析响应失败: {e}\n原始响应({status}): {resp_text}"
+                )));
+            }
+        }
+    };
 
     let request_id = header_request_id.or_else(|| resp_json["id"].as_str().map(|s| s.to_string()));
 
@@ -617,4 +655,260 @@ impl BaseModel for super::ChatAnthropic {
     ) -> AgentResult<LlmResponse> {
         super::stream::do_invoke_streaming(self, request, ctx).await
     }
+}
+
+/// 解析可能被中转代理强制返回为 SSE 流的响应体，聚合还原为标准的 Anthropic 消息 JSON
+pub(crate) fn parse_anthropic_sse_to_json(sse_text: &str) -> Result<Value, String> {
+    let mut parser = SseParser::new();
+    let mut input_bytes = sse_text.as_bytes().to_vec();
+    if !input_bytes.ends_with(b"\n\n") {
+        input_bytes.extend_from_slice(b"\n\n");
+    }
+
+    let mut message_id: Option<String> = None;
+    let mut model_name: Option<String> = None;
+    let mut stop_reason_str = "end_turn".to_string();
+    let mut input_tokens: u32 = 0;
+    let mut output_tokens: u32 = 0;
+    let mut cache_creation_input_tokens: u32 = 0;
+    let mut cache_read_input_tokens: u32 = 0;
+
+    let mut accumulated_blocks: Vec<Value> = Vec::new();
+    let mut current_block_type: Option<String> = None;
+    let mut text_content = String::new();
+    let mut reasoning_content = String::new();
+    let mut thinking_signature: Option<String> = None;
+    let mut tool_use_id: Option<String> = None;
+    let mut tool_use_name: Option<String> = None;
+    let mut tool_input_fragments = String::new();
+
+    let events = parser.push(&input_bytes);
+    if events.is_empty() {
+        return Err("未解析到有效的 SSE 事件".to_string());
+    }
+
+    let mut has_recognized_event = false;
+
+    for (event_type, data) in events {
+        let event = event_type.as_deref().unwrap_or("");
+        let parsed: Value = match serde_json::from_str(&data) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        match event {
+            "message_start" => {
+                has_recognized_event = true;
+                if let Some(msg) = parsed.get("message") {
+                    message_id = msg["id"].as_str().map(|s| s.to_string());
+                    model_name = msg["model"].as_str().map(|s| s.to_string());
+                    let usage_obj = if msg["usage"].is_object() {
+                        &msg["usage"]
+                    } else if parsed["usage"].is_object() {
+                        &parsed["usage"]
+                    } else {
+                        &serde_json::Value::Null
+                    };
+                    input_tokens = usage_obj["input_tokens"].as_u64().unwrap_or(0) as u32;
+                    cache_creation_input_tokens = usage_obj["cache_creation_input_tokens"]
+                        .as_u64()
+                        .unwrap_or(0) as u32;
+                    cache_read_input_tokens =
+                        usage_obj["cache_read_input_tokens"].as_u64().unwrap_or(0) as u32;
+                }
+            }
+            "content_block_start" => {
+                has_recognized_event = true;
+                let cb = &parsed["content_block"];
+                let cb_type = cb["type"].as_str().unwrap_or("");
+                current_block_type = Some(cb_type.to_string());
+
+                match cb_type {
+                    "thinking" => {
+                        reasoning_content.clear();
+                        thinking_signature = cb["signature"].as_str().map(|s| s.to_string());
+                    }
+                    "text" => {
+                        text_content.clear();
+                        if let Some(t) = cb["text"].as_str() {
+                            text_content.push_str(t);
+                        }
+                    }
+                    "tool_use" => {
+                        tool_use_id = cb["id"].as_str().map(|s| s.to_string());
+                        tool_use_name = cb["name"].as_str().map(|s| s.to_string());
+                        tool_input_fragments.clear();
+                    }
+                    _ => {}
+                }
+            }
+            "content_block_delta" => {
+                has_recognized_event = true;
+                let delta = &parsed["delta"];
+                match delta["type"].as_str().unwrap_or("") {
+                    "thinking_delta" => {
+                        if let Some(t) = delta["thinking"].as_str() {
+                            reasoning_content.push_str(t);
+                        }
+                    }
+                    "text_delta" => {
+                        if let Some(t) = delta["text"].as_str() {
+                            text_content.push_str(t);
+                        }
+                    }
+                    "input_json_delta" => {
+                        if let Some(json_part) = delta["partial_json"].as_str() {
+                            tool_input_fragments.push_str(json_part);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            "content_block_stop" => {
+                has_recognized_event = true;
+                match current_block_type.as_deref() {
+                    Some("thinking") => {
+                        let mut block = json!({
+                            "type": "thinking",
+                            "thinking": &reasoning_content
+                        });
+                        if let Some(ref sig) = thinking_signature {
+                            block["signature"] = json!(sig);
+                        }
+                        accumulated_blocks.push(block);
+                    }
+                    Some("text") => {
+                        accumulated_blocks.push(json!({
+                            "type": "text",
+                            "text": &text_content
+                        }));
+                    }
+                    Some("tool_use") => {
+                        let input: Value =
+                            serde_json::from_str(&tool_input_fragments).unwrap_or_else(|_| {
+                                if tool_input_fragments.is_empty() {
+                                    json!({})
+                                } else {
+                                    Value::Null
+                                }
+                            });
+                        accumulated_blocks.push(json!({
+                            "type": "tool_use",
+                            "id": tool_use_id,
+                            "name": tool_use_name,
+                            "input": input
+                        }));
+                    }
+                    _ => {}
+                }
+                current_block_type = None;
+            }
+            "message_delta" => {
+                has_recognized_event = true;
+                if let Some(stop) = parsed["delta"]["stop_reason"].as_str() {
+                    stop_reason_str = stop.to_string();
+                }
+                if let Some(tokens) = parsed["usage"]["output_tokens"].as_u64() {
+                    output_tokens = tokens as u32;
+                }
+                if input_tokens == 0 {
+                    if let Some(tokens) = parsed["usage"]["input_tokens"].as_u64() {
+                        input_tokens = tokens as u32;
+                    }
+                }
+                let delta_cache_creation = parsed["usage"]["cache_creation_input_tokens"]
+                    .as_u64()
+                    .unwrap_or(0) as u32;
+                let delta_cache_read = parsed["usage"]["cache_read_input_tokens"]
+                    .as_u64()
+                    .unwrap_or(0) as u32;
+                if delta_cache_creation > 0 {
+                    cache_creation_input_tokens = delta_cache_creation;
+                }
+                if delta_cache_read > 0 {
+                    cache_read_input_tokens = delta_cache_read;
+                }
+            }
+            "message_stop" => {
+                has_recognized_event = true;
+                if input_tokens == 0 {
+                    if let Some(tokens) = parsed["usage"]["input_tokens"].as_u64() {
+                        input_tokens = tokens as u32;
+                    }
+                    cache_creation_input_tokens = parsed["usage"]["cache_creation_input_tokens"]
+                        .as_u64()
+                        .unwrap_or(0) as u32;
+                    cache_read_input_tokens = parsed["usage"]["cache_read_input_tokens"]
+                        .as_u64()
+                        .unwrap_or(0) as u32;
+                }
+            }
+            "error" => {
+                has_recognized_event = true;
+                if let Some(err_obj) = parsed.get("error") {
+                    return Ok(json!({
+                        "type": "error",
+                        "error": err_obj
+                    }));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !has_recognized_event {
+        return Err("未包含可识别的 Anthropic SSE 事件".to_string());
+    }
+
+    if let Some(ref cb_type) = current_block_type {
+        match cb_type.as_str() {
+            "thinking" => {
+                let mut block = json!({
+                    "type": "thinking",
+                    "thinking": &reasoning_content
+                });
+                if let Some(ref sig) = thinking_signature {
+                    block["signature"] = json!(sig);
+                }
+                accumulated_blocks.push(block);
+            }
+            "text" => {
+                accumulated_blocks.push(json!({
+                    "type": "text",
+                    "text": &text_content
+                }));
+            }
+            "tool_use" => {
+                let input: Value = serde_json::from_str(&tool_input_fragments).unwrap_or_else(|_| {
+                    if tool_input_fragments.is_empty() {
+                        json!({})
+                    } else {
+                        Value::Null
+                    }
+                });
+                accumulated_blocks.push(json!({
+                    "type": "tool_use",
+                    "id": tool_use_id,
+                    "name": tool_use_name,
+                    "input": input
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(json!({
+        "id": message_id,
+        "type": "message",
+        "role": "assistant",
+        "model": model_name,
+        "content": accumulated_blocks,
+        "stop_reason": stop_reason_str,
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_creation_input_tokens": cache_creation_input_tokens,
+            "cache_read_input_tokens": cache_read_input_tokens
+        }
+    }))
 }
