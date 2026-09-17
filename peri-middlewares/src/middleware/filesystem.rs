@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 use peri_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
 
-use crate::tools::{
-    EditFileTool, FolderOperationsTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool,
-};
+use crate::tools::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool};
 
 pub struct FilesystemMiddleware;
 
@@ -19,12 +17,11 @@ impl FilesystemMiddleware {
             Box::new(EditFileTool::new(cwd)),
             Box::new(GlobFilesTool::new(cwd)),
             Box::new(GrepTool::new(cwd)),
-            Box::new(FolderOperationsTool::new(cwd)),
         ]
     }
 
     pub fn tool_names() -> Vec<&'static str> {
-        vec!["Read", "Write", "Edit", "Glob", "Grep", "FolderOperations"]
+        vec!["Read", "Write", "Edit", "Glob", "Grep"]
     }
 }
 
