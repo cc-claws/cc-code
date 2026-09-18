@@ -89,8 +89,13 @@ impl ToolCall {
 pub struct ToolResult {
     pub tool_call_id: String,
     pub tool_name: String,
+    /// 纯文本输出（用于 TUI 事件展示、日志、遥测）
     pub output: String,
     pub is_error: bool,
+    /// 结构化内容（用于写入 state 发送给 LLM），None 时回退到 output 纯文本。
+    /// 支持多模态返回（如图片 ContentBlock::Image）。
+    #[serde(skip)]
+    pub content: Option<crate::messages::MessageContent>,
 }
 
 impl ToolResult {
@@ -104,6 +109,23 @@ impl ToolResult {
             tool_name: tool_name.into(),
             output: output.into(),
             is_error: false,
+            content: None,
+        }
+    }
+
+    /// 成功结果，携带结构化多模态内容
+    pub fn success_rich(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        output: impl Into<String>,
+        content: crate::messages::MessageContent,
+    ) -> Self {
+        Self {
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+            output: output.into(),
+            is_error: false,
+            content: Some(content),
         }
     }
 
@@ -117,6 +139,7 @@ impl ToolResult {
             tool_name: tool_name.into(),
             output: message.into(),
             is_error: true,
+            content: None,
         }
     }
 }

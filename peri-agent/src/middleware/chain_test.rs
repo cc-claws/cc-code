@@ -187,6 +187,7 @@
             tool_name: "tool".to_string(),
             output: "ok".to_string(),
             is_error: false,
+            content: None,
         };
         chain
             .run_after_tool(&mut state, &call, &result)
