@@ -19,13 +19,13 @@ use unicode_segmentation::UnicodeSegmentation;
 /// 正常运行时队列深度通常 < 5。
 const RENDER_CHANNEL_CAPACITY: usize = 128;
 
+#[cfg(test)]
+use super::message_render::CONTROL_B_BACKGROUND_HINT;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
     message_render::render_view_model,
     message_view::MessageViewModel,
 };
-#[cfg(test)]
-use super::message_render::CONTROL_B_BACKGROUND_HINT;
 
 const TOOL_INDICATOR_TICK_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -468,38 +468,53 @@ impl RenderTask {
         })
     }
 
-    fn running_bash_needs_control_b_hint_rebuild(&self) -> bool {
-        self.last_messages.iter().any(|vm| {
-            let MessageViewModel::ToolBlock {
-                tool_name,
-                content,
-                is_error,
-                started_at,
-                ..
-            } = vm
-            else {
-                return false;
-            };
-
-            // running Bash 超过 2 秒时每 tick 重建（更新已运行时间显示）
-            tool_name == "Bash"
-                && content.is_empty()
-                && !*is_error
-                && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
-        })
+    /// 判断 running Bash 是否已超过 2 秒（需要显示 Running…/ctrl+b hint）
+    fn is_running_bash_past_threshold(vm: &MessageViewModel) -> bool {
+        let MessageViewModel::ToolBlock {
+            tool_name,
+            content,
+            is_error,
+            started_at,
+            ..
+        } = vm
+        else {
+            return false;
+        };
+        tool_name == "Bash"
+            && content.is_empty()
+            && !*is_error
+            && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
     }
 
     fn refresh_running_tool_indicators(&mut self, tick: u64) -> bool {
         if !self.has_running_tool_blocks() {
             return false;
         }
-        if self.running_bash_needs_control_b_hint_rebuild() {
-            self.message_hashes.clear();
+
+        // 场景 A：有 Bash 首次跨越 2 秒阈值，但缓存仍是 1 行（未渲染 hint 行）。
+        // 行数变化无法增量更新，需要重建——但只失效该条消息的 hash，
+        // 保留前缀缓存（prefix_stable_len），避免清空全部 hash 导致全量重绘。
+        let mut needs_rebuild = false;
+        for (idx, vm) in self.last_messages.iter().enumerate() {
+            if Self::is_running_bash_past_threshold(vm) {
+                let cached_line_count = self.message_lines.get(idx).map(|l| l.len()).unwrap_or(0);
+                // 跨越阈值后应有 3 行（header + Running… + ctrl+b hint），缓存 < 3 行说明未渲染
+                if cached_line_count < 3 {
+                    needs_rebuild = true;
+                    // 只失效该条消息的 hash，触发 rebuild 从该处增量重建
+                    if let Some(h) = self.message_hashes.get_mut(idx) {
+                        *h = h.wrapping_add(1);
+                    }
+                }
+            }
+        }
+        if needs_rebuild {
             let messages = self.last_messages.clone();
             self.rebuild_safe(messages);
             return true;
         }
 
+        // 场景 B：行数不变的增量更新（indicator 动画 + Bash 秒数）
         let (indicator, indicator_color) = peri_widgets::tool_call::display::format_indicator(
             peri_widgets::ToolCallStatus::Running,
             tick,
@@ -508,42 +523,70 @@ impl RenderTask {
         let mut cache = self.cache.write();
 
         for (idx, vm) in self.last_messages.iter().enumerate() {
-            let is_running_tool = matches!(
-                vm,
-                MessageViewModel::ToolBlock {
-                    tool_name,
-                    content,
-                    is_error,
-                    ..
-                } if tool_name != "AskUserQuestion" && content.is_empty() && !*is_error
-            );
-            if !is_running_tool {
+            let MessageViewModel::ToolBlock {
+                tool_name,
+                content,
+                is_error,
+                started_at,
+                ..
+            } = vm
+            else {
+                continue;
+            };
+            if *tool_name == "AskUserQuestion" || !content.is_empty() || *is_error {
                 continue;
             }
 
             let Some(lines) = self.message_lines.get_mut(idx) else {
                 continue;
             };
-            let Some(header) = lines.first_mut() else {
-                continue;
-            };
-            let Some(indicator_span) = header.spans.first_mut() else {
-                continue;
-            };
+            let mut msg_changed = false;
 
-            if indicator_span.content.as_ref() == indicator {
-                continue;
-            }
-
-            indicator_span.content = indicator.to_string().into();
-            indicator_span.style = Style::default().fg(indicator_color);
-
-            if let Some(cache_idx) = cache.message_offsets.get(idx).copied() {
-                if let Some(cache_line) = cache.lines.get_mut(cache_idx) {
-                    *cache_line = header.clone();
+            // 更新 header 的 indicator 动画帧
+            if let Some(header) = lines.first_mut() {
+                if let Some(indicator_span) = header.spans.first_mut() {
+                    if indicator_span.content.as_ref() != indicator {
+                        indicator_span.content = indicator.to_string().into();
+                        indicator_span.style = Style::default().fg(indicator_color);
+                        msg_changed = true;
+                    }
                 }
             }
-            changed = true;
+
+            // Bash 已超 2 秒：增量更新 Running… (Xs) 秒数行（lines[1]）
+            if *tool_name == "Bash"
+                && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
+            {
+                let elapsed = started_at.unwrap().elapsed();
+                let secs = elapsed.as_secs();
+                let elapsed_str = if secs >= 60 {
+                    format!("({}m {:02}s)", secs / 60, secs % 60)
+                } else {
+                    format!("({}s)", secs)
+                };
+                let new_running_text = format!("Running… {}", elapsed_str);
+
+                if let Some(running_line) = lines.get_mut(1) {
+                    if running_line.spans.len() >= 2
+                        && running_line.spans[1].content.as_ref() != new_running_text
+                    {
+                        running_line.spans[1].content = new_running_text.into();
+                        msg_changed = true;
+                    }
+                }
+            }
+
+            if msg_changed {
+                changed = true;
+                // 同步更新缓存中该消息的所有行
+                if let Some(cache_idx) = cache.message_offsets.get(idx).copied() {
+                    for (offset, line) in lines.iter().enumerate() {
+                        if let Some(cache_line) = cache.lines.get_mut(cache_idx + offset) {
+                            *cache_line = line.clone();
+                        }
+                    }
+                }
+            }
         }
 
         if changed {
