@@ -2,6 +2,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{
     message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory},
@@ -181,13 +182,41 @@ fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
         .collect()
 }
 
-fn tool_args_header(tool_name: &str, args: &str) -> String {
+/// 按显示列宽（unicode-width）截断字符串。
+/// 若超出 max_width，则截断并追加 '…'（占 1 列宽），确保结果总显示列宽不超过 max_width。
+fn truncate_to_display_width(s: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    let total_width: usize = s.chars().map(|c| c.width().unwrap_or(0)).sum();
+    if total_width <= max_width {
+        return s.to_string();
+    }
+
+    let target_width = max_width.saturating_sub(1);
+    let mut cur_width = 0;
+    let mut result = String::new();
+    for c in s.chars() {
+        let cw = c.width().unwrap_or(0);
+        if cur_width + cw > target_width {
+            break;
+        }
+        cur_width += cw;
+        result.push(c);
+    }
+    result.push('…');
+    result
+}
+
+fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
     let sanitized_args = sanitize_display_text(args);
-    let summary = peri_widgets::tool_call::display::format_args_summary(&sanitized_args, 400);
     if tool_name == "Glob" {
+        // "pattern: \"...\"" 占 11 列固定前缀/后缀宽度
+        let inner_max = max_width.saturating_sub(11);
+        let summary = truncate_to_display_width(&sanitized_args, inner_max);
         format!("pattern: \"{}\"", summary)
     } else {
-        summary
+        truncate_to_display_width(&sanitized_args, max_width)
     }
 }
 
@@ -866,27 +895,18 @@ pub fn render_view_model(
                 Span::styled(state.tool_name.clone(), name_style),
             ];
             if !state.args_summary.is_empty() {
-                let summary = tool_args_header(tool_name, &state.args_summary);
+                let prefix_width = UnicodeWidthStr::width(indicator)
+                    + 1
+                    + UnicodeWidthStr::width(state.tool_name.as_str())
+                    + 2;
+                let max_args_width = width.saturating_sub(prefix_width + 2).min(400);
+                let summary = tool_args_header(tool_name, &state.args_summary, max_args_width);
                 header_spans.push(Span::styled(
                     format!("({})", summary),
                     Style::default().fg(theme::DIM),
                 ));
             }
-            // 手动折行：续行加 8 列缩进对齐工具名下方，避免 Paragraph 自动换行后续行顶格
-            let mut lines: Vec<Line<'static>> = Vec::new();
-            let header_line = Line::from(header_spans);
-            let indent_width = 8usize;
-            let wrap_width = width.saturating_sub(indent_width).max(20);
-            let wrapped = wrap_line_spans(header_line, wrap_width);
-            for (j, wline) in wrapped.into_iter().enumerate() {
-                if j == 0 {
-                    lines.push(wline);
-                } else {
-                    let mut spans = vec![Span::raw(" ".repeat(indent_width))];
-                    spans.extend(wline.spans);
-                    lines.push(Line::from(spans));
-                }
-            }
+            let mut lines = vec![Line::from(header_spans)];
             let result_lines: Vec<&str> = if content.is_empty() {
                 Vec::new()
             } else {
@@ -1299,7 +1319,12 @@ pub fn render_view_model(
                     ]));
                     if let Some(args) = &entry.args_display {
                         if !args.is_empty() {
-                            let summary = tool_args_header(&entry.tool_name, args);
+                            let prefix_width = UnicodeWidthStr::width(indicator)
+                                + 1
+                                + UnicodeWidthStr::width(entry.display_name.as_str())
+                                + 2;
+                            let max_args_width = width.saturating_sub(prefix_width + 2).min(400);
+                            let summary = tool_args_header(&entry.tool_name, args, max_args_width);
                             if let Some(last_line) = lines.last_mut() {
                                 last_line.spans.push(Span::styled(
                                     format!("({})", summary),
