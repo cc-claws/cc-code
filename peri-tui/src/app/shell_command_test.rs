@@ -219,8 +219,8 @@ async fn test_poll_agent_shells_前台结束不注入后台通知() {
 
     assert!(changed, "前台 shell 退出也应产生状态变化用于重绘");
     assert!(
-        app.session_mgr.current().ui.force_terminal_clear_redraw,
-        "agent Bash 退出后应请求下一帧清理终端残影"
+        !app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 退出后不再请求物理清屏，依赖 Ratatui 单元格 Diff 平滑重绘"
     );
     assert!(
         app.session_mgr.current().agent_shells[0].ended,
@@ -250,26 +250,26 @@ async fn test_poll_agent_shells_超时自动后台化继续运行() {
         "收到自动后台化信号后，前台 agent Bash 应切为后台继续运行"
     );
     assert!(
-        app.session_mgr.current().ui.force_terminal_clear_redraw,
-        "自动后台化后应请求下一帧清理终端残影"
+        !app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "自动后台化后不再请求物理清屏，依赖 Ratatui 单元格 Diff 平滑重绘"
     );
 }
 
 #[tokio::test]
-async fn test_register_agent_shell_请求清理终端残影重绘() {
+async fn test_register_agent_shell_不再请求物理清屏() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     let (reg, _exit_signal) = make_agent_shell_registration(false, "sleep 3");
 
     app.register_agent_shell(reg);
 
     assert!(
-        app.session_mgr.current().ui.force_terminal_clear_redraw,
-        "agent Bash 注册到状态栏后应强制下一帧全量重绘"
+        !app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 注册到状态栏后不再请求物理清屏，依赖 Ratatui 单元格 Diff 平滑重绘"
     );
 }
 
 #[tokio::test]
-async fn test_background_agent_foreground_请求清理终端残影重绘() {
+async fn test_background_agent_foreground_不再请求物理清屏() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     let (slot, _exit_signal) = make_agent_shell_slot(false, "sleep 60");
     app.session_mgr.current_mut().agent_shells.push(slot);
@@ -279,8 +279,8 @@ async fn test_background_agent_foreground_请求清理终端残影重绘() {
         "应能将前台 agent Bash 转入后台"
     );
     assert!(
-        app.session_mgr.current().ui.force_terminal_clear_redraw,
-        "agent Bash 后台化后应请求下一帧清理终端残影"
+        !app.session_mgr.current().ui.force_terminal_clear_redraw,
+        "agent Bash 后台化后不再请求物理清屏，依赖 Ratatui 单元格 Diff 平滑重绘"
     );
 }
 
