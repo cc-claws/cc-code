@@ -161,6 +161,9 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
 
         let tool_msg = if result.is_error {
             BaseMessage::tool_error(&result.tool_call_id, result.output.as_str())
+        } else if let Some(ref content) = result.content {
+            // 多模态内容（如图片）：直接使用结构化 MessageContent
+            BaseMessage::tool_result(&result.tool_call_id, content.clone())
         } else {
             BaseMessage::tool_result(&result.tool_call_id, result.output.as_str())
         };
@@ -292,7 +295,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     // 阶段二：所有工具并发执行。
     // SubAgent 通过 child_handler_factory 的独立 event handler 避免
     // 共享 Langfuse Mutex 的锁竞争，LLM 流式支持取消令牌中断。
-    let tool_results: Vec<Result<String, AgentError>> = {
+    let tool_results: Vec<Result<crate::tools::ToolContent, AgentError>> = {
         let futures: Vec<_> = ready_calls
             .iter()
             .map(|call| {
@@ -312,7 +315,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                     let invoke_fut =
                         async {
                             match tool {
-                                Some(t) => t.invoke(input).await.map_err(|e| {
+                                Some(t) => t.invoke_content(input).await.map_err(|e| {
                                     AgentError::ToolExecutionFailed {
                                         tool: tool_name.clone(),
                                         reason: e.to_string(),
@@ -348,7 +351,22 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
 
     for (modified_call, tool_result) in ready_calls.into_iter().zip(tool_results) {
         let result = match tool_result {
-            Ok(output) => ToolResult::success(&modified_call.id, &modified_call.name, output),
+            Ok(tool_content) => {
+                if let Some(content) = tool_content.content {
+                    ToolResult::success_rich(
+                        &modified_call.id,
+                        &modified_call.name,
+                        tool_content.output,
+                        content,
+                    )
+                } else {
+                    ToolResult::success(
+                        &modified_call.id,
+                        &modified_call.name,
+                        tool_content.output,
+                    )
+                }
+            }
             Err(AgentError::ToolNotFound(ref name)) => {
                 tracing::warn!(tool.name = %name, "工具未找到，作为错误结果返回");
                 ToolResult::error(

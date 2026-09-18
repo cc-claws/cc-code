@@ -41,6 +41,7 @@ tar = "0.4"
 
 shellexpand = "3"
 ipnet = "2.10"
+base64 = { version = "0.22", features = ["alloc"] }
 peri-lsp = { path = "../peri-lsp" }
 lsp-types.workspace = true
 
