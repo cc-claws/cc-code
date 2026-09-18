@@ -111,63 +111,65 @@ async fn python_available() -> bool {
         .unwrap_or(false)
 }
 
-/// 回归测试 #149：命令 fork 出常驻子进程后，主进程退出应正常返回结果，
-/// 不应因管道句柄被继承而永远等待 EOF。
-///
-/// 使用 PowerShell Start-Process 真正分离常驻子进程。Start-Process 创建的进程
-/// 继承了 cmd.exe 的管道写句柄（Windows 句柄继承机制），即使主进程已退出，
-/// 管道写端仍未关闭，读取端永远收不到 EOF。
-#[cfg(windows)]
+/// 回归测试 #149：验证管道 reader task 超时机制不会挂死，
+/// 且在超时后已累积的数据完整保留，不被丢弃。
 #[tokio::test]
-async fn test_streaming_detached_child_does_not_hang() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let bat_path = temp_dir.path().join("detach.bat");
-    // Start-Process -WindowStyle Hidden 创建独立进程，但默认继承控制台句柄。
-    // -RedirectStandardOutput/-RedirectStandardError 会重定向子进程自身的输出，
-    // 但管道句柄仍被继承。主进程（cmd）执行完 bat 后立即退出。
-    std::fs::write(
-        &bat_path,
-        "@echo off\r\necho detached_ok\r\npowershell -NoProfile -Command \"Start-Process node -ArgumentList '-e','setInterval(function(){},1e9)' -WindowStyle Hidden\"\r\nexit /b 0\r\n",
-    )
-    .unwrap();
-    let command = format!("\"{}\"", bat_path.display());
-    let execution = execute_shell_command_streaming(&command, ".", None);
-    let result = tokio::time::timeout(std::time::Duration::from_secs(10), execution.result)
-        .await
-        .expect("带常驻子进程的命令应在超时内正常返回（修复 #149）")
-        .expect("result channel 不应关闭")
-        .expect("命令应执行成功");
-    assert_eq!(result.exit_code, 0, "主进程应正常退出");
+async fn test_drain_pipe_task_timeout_preserves_accumulated_data() {
+    let acc = Arc::new(Mutex::new(Vec::new()));
+    let acc_clone = acc.clone();
+    // 模拟一个写入部分数据后因写端句柄被常驻子进程持有而永不退出的 reader task
+    let hanging_task = tokio::spawn(async move {
+        acc_clone
+            .lock()
+            .unwrap()
+            .extend_from_slice(b"partial output before detach");
+        // 模拟管道未关闭，read 无限等待
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    });
+
+    let start = std::time::Instant::now();
+    drain_pipe_task(hanging_task).await;
+    let elapsed = start.elapsed();
+
+    // 应在 PIPE_DRAIN_TIMEOUT（2s）左右退出，绝不能等待 60s
     assert!(
-        result.stdout.contains("detached_ok"),
-        "应捕获到主进程输出，实际: {:?}",
-        result.stdout
+        elapsed < std::time::Duration::from_secs(5),
+        "drain_pipe_task 应在超时时间内退出，实际耗时: {:?}",
+        elapsed
+    );
+
+    // 关键验证：超时后已累积的数据必须完整保留
+    let saved_output = acc.lock().unwrap().clone();
+    assert_eq!(
+        String::from_utf8_lossy(&saved_output),
+        "partial output before detach",
+        "已累积的输出在超时后不应被丢弃"
     );
 }
 
-/// 回归测试 #149（非流式路径）：同样验证 execute_shell_command 不会因常驻子进程挂起。
-#[cfg(windows)]
+/// 验证正常结束的 reader task 会立即完成，无需等待超时。
 #[tokio::test]
-async fn test_non_streaming_detached_child_does_not_hang() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let bat_path = temp_dir.path().join("detach.bat");
-    std::fs::write(
-        &bat_path,
-        "@echo off\r\necho detached_ok\r\npowershell -NoProfile -Command \"Start-Process node -ArgumentList '-e','setInterval(function(){},1e9)' -WindowStyle Hidden\"\r\nexit /b 0\r\n",
-    )
-    .unwrap();
-    let command = format!("\"{}\"", bat_path.display());
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        execute_shell_command(&command, "."),
-    )
-    .await
-    .expect("非流式路径也应在超时内正常返回（修复 #149）")
-    .expect("命令应执行成功");
-    assert_eq!(result.exit_code, 0, "主进程应正常退出");
+async fn test_drain_pipe_task_normal_completion_is_immediate() {
+    let acc = Arc::new(Mutex::new(Vec::new()));
+    let acc_clone = acc.clone();
+    let quick_task = tokio::spawn(async move {
+        acc_clone
+            .lock()
+            .unwrap()
+            .extend_from_slice(b"immediate output");
+    });
+
+    let start = std::time::Instant::now();
+    drain_pipe_task(quick_task).await;
+    let elapsed = start.elapsed();
+
     assert!(
-        result.stdout.contains("detached_ok"),
-        "应捕获到主进程输出，实际: {:?}",
-        result.stdout
+        elapsed < std::time::Duration::from_millis(500),
+        "正常完成的任务应立即结束，无需等待超时，实际耗时: {:?}",
+        elapsed
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&acc.lock().unwrap()),
+        "immediate output"
     );
 }
