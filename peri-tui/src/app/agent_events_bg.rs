@@ -337,9 +337,8 @@ impl App {
             tracing::info!("all background tasks completed, auto-submitting continuation");
             self.session_mgr.current_mut().agent.agent_done_pending_bg = false;
             // 使用结构化结果（而非显示文本）驱动 continuation
-            let all_results = std::mem::take(
-                &mut self.session_mgr.current_mut().agent.pre_done_bg_results,
-            );
+            let all_results =
+                std::mem::take(&mut self.session_mgr.current_mut().agent.pre_done_bg_results);
             self.session_mgr.current_mut().agent.pending_bg_continuation = Some(all_results);
 
             return (true, false, true);

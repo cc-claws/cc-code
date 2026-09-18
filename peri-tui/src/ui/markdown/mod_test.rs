@@ -723,16 +723,18 @@ fn test_ensure_rendered_incremental_width_change_no_duplicate() {
         ContentBlockView::Text { rendered, .. } => rendered
             .lines
             .iter()
-            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n"),
         _ => unreachable!(),
     };
     let count = all_text.matches("主要有两个原因").count();
-    assert_eq!(
-        count, 1,
-        "内容不应重复渲染，出现 {count} 次：\n{all_text}"
-    );
+    assert_eq!(count, 1, "内容不应重复渲染，出现 {count} 次：\n{all_text}");
 }
 
 /// 宽度未变化时不应触发全量重解析（回归保护）
@@ -764,12 +766,7 @@ fn max_line_width(block: &ContentBlockView) -> usize {
         rendered
             .lines
             .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.width())
-                    .sum::<usize>()
-            })
+            .map(|l| l.spans.iter().map(|s| s.content.width()).sum::<usize>())
             .max()
             .unwrap_or(0)
     } else {

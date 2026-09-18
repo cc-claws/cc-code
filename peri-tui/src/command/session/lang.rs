@@ -50,7 +50,10 @@ impl Command for LangCommand {
                 }
                 // 同步当前 session 的 spinner 动词列表
                 let verb_list = peri_widgets::spinner::verb::verbs_for_lang(lang);
-                app.session_mgr.current_mut().spinner_state.set_verb_list(verb_list);
+                app.session_mgr
+                    .current_mut()
+                    .spinner_state
+                    .set_verb_list(verb_list);
                 app.request_rebuild();
                 let msg = app
                     .services
