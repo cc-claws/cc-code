@@ -177,3 +177,193 @@
         assert!(result.contains("1\tline1"), "应包含 line1: {result}");
         assert!(result.contains("2\tline2"), "应包含 line2: {result}");
     }
+
+    // ─── 图片多模态读取测试 ──────────────────────────────────────────────
+
+    /// 最小合法 PNG 文件（1x1 透明像素）
+    fn minimal_png() -> Vec<u8> {
+        vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, // RGBA
+            0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, // IDAT chunk
+            0x78, 0x9C, 0x62, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE5,
+            0x27, 0xDE, 0xFC,
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND
+            0xAE, 0x42, 0x60, 0x82,
+        ]
+    }
+
+    #[tokio::test]
+    async fn test_invoke_content_image_png() {
+        // invoke_content 读取 PNG 图片应返回包含 Image block 的 ToolContent
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("test.png");
+        std::fs::write(&img_path, minimal_png()).unwrap();
+
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+
+        assert!(
+            result.output.contains("image/png"),
+            "output 摘要应包含 media type: {}",
+            result.output
+        );
+        assert!(
+            result.content.is_some(),
+            "图片文件应返回结构化 content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invoke_content_image_jpg() {
+        // invoke_content 读取 JPEG 图片应返回包含 Image block 的 ToolContent
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("photo.jpg");
+        // 最小合法 JPEG（SOI + EOI markers）
+        std::fs::write(&img_path, [0xFF, 0xD8, 0xFF, 0xD9]).unwrap();
+
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+
+        assert!(
+            result.output.contains("image/jpeg"),
+            "output 摘要应包含 image/jpeg: {}",
+            result.output
+        );
+        assert!(result.content.is_some(), "JPEG 应返回结构化 content");
+    }
+
+    #[tokio::test]
+    async fn test_invoke_content_text_file_no_content() {
+        // invoke_content 读取文本文件应返回 content=None（纯文本路径）
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
+
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": "hello.txt"}))
+            .await
+            .unwrap();
+
+        assert!(
+            result.content.is_none(),
+            "文本文件不应返回结构化 content"
+        );
+        assert!(
+            result.output.contains("hello world"),
+            "文本文件的 output 应包含文件内容: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invoke_image_fallback_binary_detected() {
+        // invoke（非 invoke_content）读取图片仍返回 BINARY FILE DETECTED
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("test.png");
+        std::fs::write(&img_path, minimal_png()).unwrap();
+
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+
+        assert!(
+            result.contains("BINARY FILE DETECTED"),
+            "invoke 读取图片应回退为 BINARY FILE DETECTED: {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invoke_content_image_not_found() {
+        // invoke_content 读取不存在的图片应返回 File not found
+        let dir = tempfile::tempdir().unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": "nonexistent.png"}))
+            .await
+            .unwrap();
+
+        assert!(
+            result.output.contains("File not found"),
+            "不存在的图片文件应返回 File not found: {}",
+            result.output
+        );
+        assert!(
+            result.content.is_none(),
+            "不存在的图片不应有结构化 content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invoke_content_image_too_large() {
+        // 超过 MAX_IMAGE_SIZE 的图片应返回错误
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("huge.png");
+        let f = std::fs::File::create(&img_path).unwrap();
+        f.set_len(MAX_IMAGE_SIZE + 1).unwrap();
+        drop(f);
+
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+
+        assert!(
+            result.output.contains("Image too large"),
+            "超大图片应返回 Image too large: {}",
+            result.output
+        );
+        assert!(
+            result.content.is_none(),
+            "超大图片不应有结构化 content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invoke_content_webp_image() {
+        // invoke_content 支持 WebP 图片
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("test.webp");
+        // 最小 WebP 头：RIFF + WEBP
+        std::fs::write(&img_path, b"RIFF\x00\x00\x00\x00WEBP").unwrap();
+
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+
+        assert!(
+            result.output.contains("image/webp"),
+            "WebP 图片的 output 应包含 image/webp: {}",
+            result.output
+        );
+        assert!(result.content.is_some(), "WebP 应返回结构化 content");
+    }
+
+    #[tokio::test]
+    async fn test_ico_tiff_still_binary() {
+        // ico 和 tiff 不在多模态支持范围内，仍走二进制检测
+        let tool = ReadFileTool::new("/tmp");
+        for ext in &["ico", "tiff"] {
+            let result = tool
+                .invoke(serde_json::json!({"file_path": format!("test.{ext}")}))
+                .await
+                .unwrap();
+            assert!(
+                result.contains("BINARY FILE DETECTED"),
+                "{ext} 文件应返回 BINARY FILE DETECTED: {result}"
+            );
+        }
+    }
