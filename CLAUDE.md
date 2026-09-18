@@ -57,7 +57,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 **消息类型**：`BaseMessage`（Human/Ai/System/Tool），`ContentBlock`（Text/Image/Document/ToolUse/ToolResult/Reasoning/Unknown）。
 
-**LLM 适配层**：`BaseModel` trait（OpenAI/Anthropic）→ `BaseModelReactLLM` → `ReactLLM`。`RetryableLLM<L>` 指数退避重试。
+**LLM 适配层**：`BaseModel` trait（OpenAI/Anthropic）→ `BaseModelReactLLM` → `ReactLLM`。`RetryableLLM<L>` 指数退避重试。Anthropic 适配器非流式调用支持 SSE 自动聚合容错（`parse_anthropic_sse_to_json`），自适应还原消息结构以兼容强制 SSE 的反向代理网关。
 
 **[TRAP]** `Interrupted`/`Error` + `Done` 互斥：`Interrupted`/`Error` 先 `request_rebuild()` + 添加通知，设 `reconcile_already_done=true`，后续 `Done` 跳过 `request_rebuild()` 防止覆盖通知。（详见 spec/global/domains/agent.md#issue_2026-05-25-interrupt-undo-last-user-message）**[TRAP]** Cancel 后历史不应无条件截断：ACP server 在 `result.ok==false` 时无条件 truncate history 会丢失 agent 已写入 state 的消息。应检查 `result.messages.len()` 判断是否有进展，有则保留。（详见 spec/global/domains/agent.md#issue_2026-05-26-ctrl-c-interrupt-causes-agent-amnesia）
 
@@ -107,7 +107,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 ## 中间件链执行顺序
 
-详见 `peri-middlewares/CLAUDE.md`。17 个中间件按固定顺序组成链，末尾 `[ReActAgent.with_system_prompt()]` prepend。
+详见 `peri-middlewares/CLAUDE.md`。17 个中间件按固定顺序组成链（加上条件注册的 CompactMiddleware 共 18 个），末尾 `[ReActAgent.with_system_prompt()]` prepend。
 
 ## ACP/TUI 分层架构
 
@@ -241,6 +241,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - 禁止 `ℹ`（U+2139）符号和 `[i]` 前缀
 - **字符串截断必须用字符级操作**：`s.chars().take(N).collect()` 或 `s.char_indices().nth(N)`，`&s[..N]` 对 CJK 会 panic
 - 终端列宽用 `unicode-width` crate（CJK 占 2 列）
+- **UI 工具行/Header 截断**：长参数与长路径根据终端列宽必须使用 `truncate_to_display_width` 做单行省略截断（并以 `…` 闭合），禁止多行折行破坏单行信息流节奏
 - **终端 UI 鼠标坐标转换**：鼠标事件坐标是显示列（unicode-width），光标位置是字符索引，需逐字符累加转换。（详见 spec/global/domains/tui.md#issue_2026-05-12-textarea-mouse-click-cursor-misposition-cjk）
 - **快捷键设计**：禁止 `Shift+字母`（编辑态等同大写输入）。全局用 `Ctrl+字母`，面板用方向键/Space/Enter/Esc。
 - **快捷键跨平台兼容 [TRAP]**：`Alt+Enter`/`Alt+M` 在 Windows 终端被截获，新增快捷键必须优先用 `Ctrl+字母`，避免 `Alt` 修饰键。

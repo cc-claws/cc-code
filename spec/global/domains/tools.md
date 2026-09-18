@@ -2,17 +2,27 @@
 
 ## 领域综述
 
-工具输出截断、持久化和通用工具基础设施。
+工具三层架构（Core/Meta/Deferred）、工具输出截断持久化与 UI 展示规范。
 
 ## 核心流程
 
-（后续填充）
+1. **三层工具过滤与加载**：
+   - **Core 工具（11 个）**：`Read`、`Write`、`Edit`、`Glob`、`Grep`、`Bash`、`WebFetch`、`WebSearch`、`Agent`、`AskUserQuestion`、`TodoWrite` 常驻 System Prompt。
+   - **Meta 工具（2 个）**：`SearchExtraTools`、`ExecuteExtraTool` 负责动态检索和分发 Deferred 工具。
+   - **Deferred 工具**：`Cron*`、`LspTool`、`mcp__*` 按需加载，减少 Prompt token 开销。
+2. **输出截断持久化**：
+   - 超过大小限制的输出通过 `persist_truncated_output` 写入本地临时文件，并在返回中附带文件路径提示供 LLM 通过 `Read` 查看。
+3. **展示层渲染与截断**：
+   - 工具调用 Header 采用严格单行展示，终端宽度受限时通过 `truncate_to_display_width`（基于 `unicode-width`）动态单行截断并以 `…` 闭合，避免换行挤占视口。
 
 ## 技术方案总结
 
 | 维度 | 选型 |
 |------|------|
-（后续填充）
+| 核心文件系统工具 | 5 个（`Read`, `Write`, `Edit`, `Glob`, `Grep`），已移除 `FolderOperation` |
+| 工具分层实现 | `CORE_TOOLS` 白名单 + `ToolSearchMiddleware` 代理 |
+| 输出持久化 | `peri-middlewares/src/tools/output_persist.rs` 统一截断写入磁盘 |
+| Header 截断算法 | `truncate_to_display_width`（按 CJK 2 列宽与 ASCII 1 列宽动态匹配） |
 
 ---
 
