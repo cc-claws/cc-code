@@ -1,3 +1,4 @@
+use chrono::{DateTime, Local};
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -60,7 +61,7 @@ pub(crate) fn render_messages(
         };
         let gray = Style::default().fg(theme::MUTED);
         let mut parts = vec![
-            Span::styled(format!(" {} {}", frame, verb), accent),
+            Span::styled(format!("{} {}", frame, verb), accent),
             Span::styled(format!(" ({elapsed}"), gray),
         ];
         if tokens > 0 {
@@ -76,14 +77,24 @@ pub(crate) fn render_messages(
         .last_summary_elapsed_ms()
         > 0
     {
+        let session = app.session_mgr.current();
         let elapsed = peri_widgets::spinner::animation::format_elapsed(
-            app.session_mgr
-                .current()
-                .spinner_state
-                .last_summary_elapsed_ms(),
+            session.spinner_state.last_summary_elapsed_ms(),
         );
+        let verb = {
+            let v = session.spinner_state.last_summary_verb();
+            if v.is_empty() { "Brewed" } else { v }.to_string()
+        };
+        let done_str = session
+            .spinner_state
+            .last_summary_done_at()
+            .map(|t| {
+                let dt: DateTime<Local> = t.into();
+                format!(" · done {}", dt.format("%H:%M"))
+            })
+            .unwrap_or_default();
         Some(Line::from(Span::styled(
-            format!("✻  Brewed for {elapsed}"),
+            format!("✻ {verb} for {elapsed}{done_str}"),
             Style::default().fg(theme::MUTED),
         )))
     } else {
@@ -317,52 +328,51 @@ fn viewport_clip(
                     Span::styled("  ⎿  Tip: ", Style::default().fg(theme::MUTED)),
                     Span::styled(tip, Style::default().fg(theme::MUTED)),
                 ]));
-                lines.push(Line::from(""));
-                for item in &app.session_mgr.current().todo_items {
-                    let (icon, icon_style, text_style) = match item.status {
-                        TodoStatus::InProgress => (
-                            "  ◼  ",
-                            Style::default()
-                                .fg(theme::ACCENT)
-                                .add_modifier(Modifier::BOLD),
-                            Style::default().fg(theme::TEXT),
-                        ),
-                        TodoStatus::Completed => (
-                            "  ✔  ",
-                            Style::default().fg(theme::SAGE),
-                            Style::default()
-                                .fg(theme::MUTED)
-                                .add_modifier(Modifier::CROSSED_OUT),
-                        ),
-                        TodoStatus::Pending => (
-                            "  ◻  ",
-                            Style::default().fg(theme::MUTED),
-                            Style::default().fg(theme::MUTED),
-                        ),
-                    };
-                    let hint = match item.status {
-                        TodoStatus::Pending => Some("可开始"),
-                        _ => None,
-                    };
-                    let mut spans = vec![
-                        Span::styled(icon, icon_style),
-                        Span::styled(item.content.clone(), text_style),
-                    ];
-                    if let Some(hint) = hint {
-                        spans.push(Span::styled(
-                            format!(" ({hint})"),
-                            Style::default().fg(theme::MUTED),
-                        ));
+                if !app.session_mgr.current().todo_items.is_empty() {
+                    lines.push(Line::from(""));
+                    for item in &app.session_mgr.current().todo_items {
+                        let (icon, icon_style, text_style) = match item.status {
+                            TodoStatus::InProgress => (
+                                "  ◼  ",
+                                Style::default()
+                                    .fg(theme::ACCENT)
+                                    .add_modifier(Modifier::BOLD),
+                                Style::default().fg(theme::TEXT),
+                            ),
+                            TodoStatus::Completed => (
+                                "  ✔  ",
+                                Style::default().fg(theme::SAGE),
+                                Style::default()
+                                    .fg(theme::MUTED)
+                                    .add_modifier(Modifier::CROSSED_OUT),
+                            ),
+                            TodoStatus::Pending => (
+                                "  ◻  ",
+                                Style::default().fg(theme::MUTED),
+                                Style::default().fg(theme::MUTED),
+                            ),
+                        };
+                        let hint = match item.status {
+                            TodoStatus::Pending => Some("可开始"),
+                            _ => None,
+                        };
+                        let mut spans = vec![
+                            Span::styled(icon, icon_style),
+                            Span::styled(item.content.clone(), text_style),
+                        ];
+                        if let Some(hint) = hint {
+                            spans.push(Span::styled(
+                                format!(" ({hint})"),
+                                Style::default().fg(theme::MUTED),
+                            ));
+                        }
+                        lines.push(Line::from(spans));
                     }
-                    lines.push(Line::from(spans));
                 }
-                for _ in 0..3 {
-                    lines.push(Line::from(""));
-                }
+                lines.push(Line::from(""));
             } else {
-                for _ in 0..3 {
-                    lines.push(Line::from(""));
-                }
+                // 非 loading（Brewed/Cogitated 总结行）：1 个 trailing 空行作为呼吸空间
+                lines.push(Line::from(""));
             }
         }
     }
@@ -427,12 +437,17 @@ fn viewport_clip(
 /// 计算 spinner 区域的额外逻辑行数
 fn spinner_extra_count(app: &App) -> u16 {
     if app.session_mgr.current().ui.loading {
-        // 空行(1) + spinner(1) + tip(1) + 空行(1) + todo_items(N) + trailing(3) = 7 + N
-        let base = 7u16;
-        base + app.session_mgr.current().todo_items.len() as u16
+        // 空行(1) + spinner(1) + tip(1) + trailing(1) = 4
+        // 有 todo 时额外 + 分隔空行(1) + todo_items(N) → 5+N
+        let n = app.session_mgr.current().todo_items.len() as u16;
+        if n > 0 {
+            5 + n
+        } else {
+            4
+        }
     } else {
-        // 空行(1) + spinner(1) + trailing(3) = 5
-        5
+        // 空行(1) + spinner(1) + trailing(1) = 3
+        3
     }
 }
 

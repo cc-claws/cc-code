@@ -31,6 +31,10 @@ pub struct SpinnerState {
     raw_tick: u64,
     /// 最后一次从非 Idle 切换到 Idle 时捕获的耗时（ms），0 表示无记录
     last_summary_elapsed_ms: u64,
+    /// 完成态总结行动词（随机过去式英文，如 "Cogitated"）
+    last_summary_verb: String,
+    /// 完成时刻（wall-clock），None 表示无记录
+    last_summary_done_at: Option<std::time::SystemTime>,
     /// 随机动词列表（按语言选择）
     verb_list: &'static [&'static str],
 }
@@ -47,6 +51,8 @@ impl SpinnerState {
             tick: 0,
             raw_tick: 0,
             last_summary_elapsed_ms: 0,
+            last_summary_verb: String::new(),
+            last_summary_done_at: None,
             verb_list,
         }
     }
@@ -68,14 +74,18 @@ impl SpinnerState {
             (SpinnerMode::Responding, None) => "正在生成回复…".to_string(),
             (SpinnerMode::Idle, _) => String::new(),
         };
-        // 从活跃状态切换到 Idle 时，记录耗时用于总结行
+        // 从活跃状态切换到 Idle 时，记录耗时、随机完成动词和完成时刻
         if was_active && self.mode == SpinnerMode::Idle {
             self.last_summary_elapsed_ms = self.elapsed_ms();
+            self.last_summary_verb = verb::pick_summary_verb();
+            self.last_summary_done_at = Some(std::time::SystemTime::now());
         }
         // 从 Idle 切换到活跃状态时，重置计时器和总结记录
         if !was_active && self.mode != SpinnerMode::Idle {
             self.start_time = Instant::now();
             self.last_summary_elapsed_ms = 0;
+            self.last_summary_verb = String::new();
+            self.last_summary_done_at = None;
         }
     }
 
@@ -131,6 +141,21 @@ impl SpinnerState {
         self.last_summary_elapsed_ms
     }
 
+    pub fn last_summary_verb(&self) -> &str {
+        &self.last_summary_verb
+    }
+
+    pub fn last_summary_done_at(&self) -> Option<std::time::SystemTime> {
+        self.last_summary_done_at
+    }
+
+    /// 清空完成态总结行（用于 error/interrupt 路径，避免失败任务显示成功文案）
+    pub fn clear_summary(&mut self) {
+        self.last_summary_elapsed_ms = 0;
+        self.last_summary_verb = String::new();
+        self.last_summary_done_at = None;
+    }
+
     pub fn displayed_tokens(&self) -> usize {
         self.displayed_tokens
     }
@@ -145,6 +170,8 @@ impl SpinnerState {
         self.tick = 0;
         self.raw_tick = 0;
         self.last_summary_elapsed_ms = 0;
+        self.last_summary_verb = String::new();
+        self.last_summary_done_at = None;
     }
 }
 
@@ -234,5 +261,30 @@ impl WidgetRef for SpinnerWidget<'_> {
 impl Widget for SpinnerWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_spinner_summary_lifecycle_and_clear() {
+        let mut state = SpinnerState::new(SpinnerMode::Idle);
+        assert_eq!(state.last_summary_elapsed_ms(), 0);
+        assert!(state.last_summary_verb().is_empty());
+        assert!(state.last_summary_done_at().is_none());
+
+        state.set_mode(SpinnerMode::Responding);
+        assert_eq!(state.last_summary_elapsed_ms(), 0);
+
+        state.set_mode(SpinnerMode::Idle);
+        assert!(!state.last_summary_verb().is_empty());
+        assert!(state.last_summary_done_at().is_some());
+
+        state.clear_summary();
+        assert_eq!(state.last_summary_elapsed_ms(), 0);
+        assert!(state.last_summary_verb().is_empty());
+        assert!(state.last_summary_done_at().is_none());
     }
 }
