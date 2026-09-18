@@ -110,3 +110,66 @@ async fn python_available() -> bool {
         .map(|output| output.exit_code == 0)
         .unwrap_or(false)
 }
+
+/// 回归测试 #149：验证管道 reader task 超时机制不会挂死，
+/// 且在超时后已累积的数据完整保留，不被丢弃。
+#[tokio::test]
+async fn test_drain_pipe_task_timeout_preserves_accumulated_data() {
+    let acc = Arc::new(Mutex::new(Vec::new()));
+    let acc_clone = acc.clone();
+    // 模拟一个写入部分数据后因写端句柄被常驻子进程持有而永不退出的 reader task
+    let hanging_task = tokio::spawn(async move {
+        acc_clone
+            .lock()
+            .unwrap()
+            .extend_from_slice(b"partial output before detach");
+        // 模拟管道未关闭，read 无限等待
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    });
+
+    let start = std::time::Instant::now();
+    drain_pipe_task(hanging_task).await;
+    let elapsed = start.elapsed();
+
+    // 应在 PIPE_DRAIN_TIMEOUT（2s）左右退出，绝不能等待 60s
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "drain_pipe_task 应在超时时间内退出，实际耗时: {:?}",
+        elapsed
+    );
+
+    // 关键验证：超时后已累积的数据必须完整保留
+    let saved_output = acc.lock().unwrap().clone();
+    assert_eq!(
+        String::from_utf8_lossy(&saved_output),
+        "partial output before detach",
+        "已累积的输出在超时后不应被丢弃"
+    );
+}
+
+/// 验证正常结束的 reader task 会立即完成，无需等待超时。
+#[tokio::test]
+async fn test_drain_pipe_task_normal_completion_is_immediate() {
+    let acc = Arc::new(Mutex::new(Vec::new()));
+    let acc_clone = acc.clone();
+    let quick_task = tokio::spawn(async move {
+        acc_clone
+            .lock()
+            .unwrap()
+            .extend_from_slice(b"immediate output");
+    });
+
+    let start = std::time::Instant::now();
+    drain_pipe_task(quick_task).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "正常完成的任务应立即结束，无需等待超时，实际耗时: {:?}",
+        elapsed
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&acc.lock().unwrap()),
+        "immediate output"
+    );
+}
