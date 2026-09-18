@@ -110,3 +110,64 @@ async fn python_available() -> bool {
         .map(|output| output.exit_code == 0)
         .unwrap_or(false)
 }
+
+/// 回归测试 #149：命令 fork 出常驻子进程后，主进程退出应正常返回结果，
+/// 不应因管道句柄被继承而永远等待 EOF。
+///
+/// 使用 PowerShell Start-Process 真正分离常驻子进程。Start-Process 创建的进程
+/// 继承了 cmd.exe 的管道写句柄（Windows 句柄继承机制），即使主进程已退出，
+/// 管道写端仍未关闭，读取端永远收不到 EOF。
+#[cfg(windows)]
+#[tokio::test]
+async fn test_streaming_detached_child_does_not_hang() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let bat_path = temp_dir.path().join("detach.bat");
+    // Start-Process -WindowStyle Hidden 创建独立进程，但默认继承控制台句柄。
+    // -RedirectStandardOutput/-RedirectStandardError 会重定向子进程自身的输出，
+    // 但管道句柄仍被继承。主进程（cmd）执行完 bat 后立即退出。
+    std::fs::write(
+        &bat_path,
+        "@echo off\r\necho detached_ok\r\npowershell -NoProfile -Command \"Start-Process node -ArgumentList '-e','setInterval(function(){},1e9)' -WindowStyle Hidden\"\r\nexit /b 0\r\n",
+    )
+    .unwrap();
+    let command = format!("\"{}\"", bat_path.display());
+    let execution = execute_shell_command_streaming(&command, ".", None);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), execution.result)
+        .await
+        .expect("带常驻子进程的命令应在超时内正常返回（修复 #149）")
+        .expect("result channel 不应关闭")
+        .expect("命令应执行成功");
+    assert_eq!(result.exit_code, 0, "主进程应正常退出");
+    assert!(
+        result.stdout.contains("detached_ok"),
+        "应捕获到主进程输出，实际: {:?}",
+        result.stdout
+    );
+}
+
+/// 回归测试 #149（非流式路径）：同样验证 execute_shell_command 不会因常驻子进程挂起。
+#[cfg(windows)]
+#[tokio::test]
+async fn test_non_streaming_detached_child_does_not_hang() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let bat_path = temp_dir.path().join("detach.bat");
+    std::fs::write(
+        &bat_path,
+        "@echo off\r\necho detached_ok\r\npowershell -NoProfile -Command \"Start-Process node -ArgumentList '-e','setInterval(function(){},1e9)' -WindowStyle Hidden\"\r\nexit /b 0\r\n",
+    )
+    .unwrap();
+    let command = format!("\"{}\"", bat_path.display());
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        execute_shell_command(&command, "."),
+    )
+    .await
+    .expect("非流式路径也应在超时内正常返回（修复 #149）")
+    .expect("命令应执行成功");
+    assert_eq!(result.exit_code, 0, "主进程应正常退出");
+    assert!(
+        result.stdout.contains("detached_ok"),
+        "应捕获到主进程输出，实际: {:?}",
+        result.stdout
+    );
+}

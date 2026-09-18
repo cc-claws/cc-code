@@ -1,4 +1,4 @@
-use std::{process::Stdio, time::Instant};
+use std::{process::Stdio, time::Duration, time::Instant};
 
 use anyhow::{Context, Result};
 use peri_agent::encoding::decode_output_bytes;
@@ -9,6 +9,13 @@ use tokio::sync::{mpsc, oneshot};
 /// 流式执行累积 stdout/stderr 的最大字节数（超出截断，防止大输出命令 OOM）。
 /// 完整输出仍写入磁盘（DiskOutput），acc 截断仅影响 result CommandOutput（用于 shell history）。
 const MAX_ACCUMULATED_BYTES: usize = 8 * 1024 * 1024;
+
+/// 主进程退出后等待 stdout/stderr 管道 EOF 的超时时间。
+///
+/// Windows 上通过 `Start-Process` 等方式 fork 出的常驻子进程会继承父进程的管道写句柄，
+/// 即使主进程已退出，写端仍然打开，读取端永远收不到 EOF。超时后中止读取任务，
+/// 使用已累积的数据返回结果，避免后台任务永远停留在 running 状态。
+const PIPE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Captured shell command output.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,16 +85,22 @@ pub async fn execute_shell_command_with_stdin(
 
     let stdout_task = tokio::spawn(async move {
         let mut buf = Vec::new();
-        stdout.read_to_end(&mut buf).await.map(|_| buf)
+        if let Err(e) = stdout.read_to_end(&mut buf).await {
+            tracing::warn!(error = %e, "stdout read_to_end 失败");
+        }
+        buf
     });
     let stderr_task = tokio::spawn(async move {
         let mut buf = Vec::new();
-        stderr.read_to_end(&mut buf).await.map(|_| buf)
+        if let Err(e) = stderr.read_to_end(&mut buf).await {
+            tracing::warn!(error = %e, "stderr read_to_end 失败");
+        }
+        buf
     });
 
     let status = child.wait().await?;
-    let stdout_bytes = stdout_task.await.context("stdout read task failed")??;
-    let stderr_bytes = stderr_task.await.context("stderr read task failed")??;
+    let stdout_bytes = drain_pipe_task(stdout_task).await;
+    let stderr_bytes = drain_pipe_task(stderr_task).await;
 
     Ok(CommandOutput {
         stdout: decode_output_bytes(&stdout_bytes),
@@ -271,20 +284,12 @@ async fn run_streaming_child(
     drop(output_tx);
 
     let status = child.wait().await?;
-    let stdout_bytes = match stdout_task.await {
-        Ok(acc) => acc,
-        Err(e) => {
-            tracing::warn!(error = %e, "stdout reader task failed");
-            Vec::new()
-        }
-    };
-    let stderr_bytes = match stderr_task.await {
-        Ok(acc) => acc,
-        Err(e) => {
-            tracing::warn!(error = %e, "stderr reader task failed");
-            Vec::new()
-        }
-    };
+
+    // 主进程已退出，带超时等待管道 reader task 结束。
+    // Windows 上常驻子进程可能继承管道写句柄导致 EOF 永远不到达，
+    // 超时后 abort reader task，使用已累积的数据。
+    let stdout_bytes = drain_pipe_task(stdout_task).await;
+    let stderr_bytes = drain_pipe_task(stderr_task).await;
 
     Ok(CommandOutput {
         stdout: decode_output_bytes(&stdout_bytes),
@@ -327,6 +332,29 @@ fn command_name_matches(program: &str, name: &str) -> bool {
     let file_name = unquoted.rsplit(['\\', '/']).next().unwrap_or(unquoted);
     let stem = file_name.strip_suffix(".exe").unwrap_or(file_name);
     stem.eq_ignore_ascii_case(name)
+}
+
+/// 带超时等待管道 reader task：主进程退出后最多等 [`PIPE_DRAIN_TIMEOUT`]，
+/// 超时则 abort task 并返回空数据。
+///
+/// Windows 上 `Start-Process` / `cmd /C start` 等方式 fork 的常驻子进程会继承
+/// 父进程的 stdout/stderr 管道写句柄。主进程退出后写端仍未关闭，`read()` 永远
+/// 等不到 EOF，导致 reader task 无限挂起。超时机制确保后台任务能正常完成。
+async fn drain_pipe_task(task: tokio::task::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    match tokio::time::timeout(PIPE_DRAIN_TIMEOUT, task).await {
+        Ok(Ok(acc)) => acc,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "管道 reader task 失败");
+            Vec::new()
+        }
+        Err(_) => {
+            tracing::debug!(
+                "主进程退出后管道 reader 超时（{}s），可能存在继承管道句柄的常驻子进程",
+                PIPE_DRAIN_TIMEOUT.as_secs()
+            );
+            Vec::new()
+        }
+    }
 }
 
 #[cfg(test)]
