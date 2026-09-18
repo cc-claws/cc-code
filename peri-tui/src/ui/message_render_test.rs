@@ -1014,3 +1014,81 @@ fn test_dim_markdown_lines_内容不变() {
     assert_eq!(result[0].spans[0].content.as_ref(), "hello ");
     assert_eq!(result[0].spans[1].content.as_ref(), "world");
 }
+
+#[test]
+fn test_tool_block_header_long_args_single_line_and_truncated() {
+    use crate::app::MessageViewModel;
+    use unicode_width::UnicodeWidthStr;
+
+    let long_cmd = "git log --graph --oneline --decorate --all --stat --pretty=format:'%C(yellow)%h%Creset -%C(red)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' -n 20";
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_bash_long".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some(long_cmd.to_string()),
+        content: String::new(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::SAGE,
+        diff_input: None,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let width = 80;
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+
+    assert_eq!(lines.len(), 1, "超长参数的 ToolBlock Header 应该始终只有单行，不换行");
+
+    let header_line = &lines[0];
+    let header_text: String = header_line.spans.iter().map(|s| s.content.clone()).collect();
+
+    assert!(header_text.contains('…'), "超长命令应该包含截断省略号: {header_text}");
+    assert!(header_text.ends_with(')'), "Header 应该保持以右括号闭合: {header_text}");
+
+    let total_width: usize = header_line
+        .spans
+        .iter()
+        .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+        .sum();
+    assert!(
+        total_width <= width,
+        "Header 视觉列宽 ({total_width}) 不应超过终端宽度 ({width})"
+    );
+}
+
+#[test]
+fn test_tool_block_header_cjk_truncation_width_aligned() {
+    use crate::app::MessageViewModel;
+    use unicode_width::UnicodeWidthStr;
+
+    let long_cmd = "git commit -m \"这是一个非常长非常长的中文提交信息说明用于测试终端视觉宽度截断是否对齐\"";
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_bash_cjk".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some(long_cmd.to_string()),
+        content: String::new(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::SAGE,
+        diff_input: None,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let width = 50;
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    assert_eq!(lines.len(), 1, "中文超长参数同样应该只有单行 Header");
+
+    let header_line = &lines[0];
+    let total_width: usize = header_line
+        .spans
+        .iter()
+        .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+        .sum();
+    assert!(
+        total_width <= width,
+        "中文截断后的 Header 视觉列宽 ({total_width}) 不应超过终端宽度 ({width})"
+    );
+}
