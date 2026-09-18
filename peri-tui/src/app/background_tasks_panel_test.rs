@@ -3,9 +3,9 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::oneshot;
 
+use super::{BackgroundTaskView, BackgroundTasksPanel};
 use crate::app::panel_manager::PanelState;
 use crate::app::{App, BackgroundShell};
-use super::{BackgroundTasksPanel, BackgroundTaskView};
 use crate::shell_exec::CommandOutput;
 use peri_agent::shell::ShellAbortHandle;
 
@@ -21,10 +21,7 @@ fn inject_bg_shell(app: &mut App, id: &str, output_path: PathBuf) {
         ShellAbortHandle::noop(),
         Instant::now(),
     );
-    app.session_mgr
-        .current_mut()
-        .background_shells
-        .push(bg);
+    app.session_mgr.current_mut().background_shells.push(bg);
 }
 
 /// helper：打开 BackgroundTasks 面板并直接进入 Detail 视图
@@ -133,11 +130,7 @@ async fn test_detail_output_小终端按可用高度截断() {
         "80x15 终端不应显示全部 30 行，实际显示 {} 行",
         count
     );
-    assert!(
-        count > 0,
-        "应至少显示 1 行输出，实际显示 {} 行",
-        count
-    );
+    assert!(count > 0, "应至少显示 1 行输出，实际显示 {} 行", count);
 }
 
 #[tokio::test]
