@@ -18,7 +18,11 @@ const RUNNING_TOOLS_MAX_VISIBLE: usize = 2;
 const TOOL_TARGET_MAX_LEN: usize = 20;
 
 pub(crate) fn status_bar_height(app: &App) -> u16 {
-    if has_hud_activity(app) { 3 } else { 2 }
+    if has_hud_activity(app) {
+        3
+    } else {
+        2
+    }
 }
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
@@ -259,10 +263,7 @@ fn render_agents_segment(app: &App) -> Option<Vec<Span<'static>>> {
         .map(|agent| format!("{}(run)", agent.agent_name))
         .collect::<Vec<_>>()
         .join(" ");
-    Some(vec![Span::styled(
-        format!("🤖 {}", labels),
-        plain_style(),
-    )])
+    Some(vec![Span::styled(format!("🤖 {}", labels), plain_style())])
 }
 
 fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
@@ -283,10 +284,7 @@ fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
     let filled = (((completed as f64 / total as f64) * 5.0).round() as usize).min(5);
     let bar = "#".repeat(filled) + &"-".repeat(5 - filled);
     Some(vec![Span::styled(
-        format!(
-        "📋 [{}] {}/{}",
-        bar, completed, total
-        ),
+        format!("📋 [{}] {}/{}", bar, completed, total),
         plain_style(),
     )])
 }

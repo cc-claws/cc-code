@@ -23,7 +23,12 @@ impl Command for ModelCommand {
                 .providers
                 .iter()
                 .find(|p| p.id == active_provider_id)
-                .map(|p| p.models.get_model(&alias).filter(|m| !m.is_empty()).is_some())
+                .map(|p| {
+                    p.models
+                        .get_model(&alias)
+                        .filter(|m| !m.is_empty())
+                        .is_some()
+                })
                 .unwrap_or(false)
         } else {
             false
@@ -31,8 +36,7 @@ impl Command for ModelCommand {
         if !alias.is_empty() && is_valid_alias {
             if let Some(cfg) = app.services.peri_config.as_mut() {
                 cfg.config.active_alias = alias.clone();
-                if let Err(e) =
-                    App::save_config(cfg, app.services.config_path_override.as_deref())
+                if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref())
                 {
                     app.session_mgr
                         .current_mut()
