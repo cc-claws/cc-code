@@ -4,6 +4,17 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.55 — 2026-09-18
+
+### Bug Fixes
+
+- **修复常驻子进程导致后台 shell 任务无限停留 running 的缺陷（#149, #150）**：
+  - 为 `run_streaming_child` 和 `execute_shell_command_with_stdin` 引入管道超时保护机制（`PIPE_DRAIN_TIMEOUT = 2s`），在主进程退出后若常驻子进程（如 `Start-Process` 或脚本脱离启动的常驻服务）继承了管道写端句柄，超时后自动中止读取等待，彻底解决 reader task 永远等不到 EOF 导致后台任务永久停留在 `running` 状态且无法派发完成通知的问题；
+  - 累积输出移入线程安全的共享缓冲区，即使触发管道超时，主进程退出前产生的所有标准输出和错误日志仍 100% 完整保留，杜绝输出丢失；
+  - 使用 `tokio::join!` 并发等待 stdout 与 stderr 读取任务，保证最差等待耗时严格控制在 2 秒以内。
+
+---
+
 ## v0.6.54 — 2026-09-18
 
 ### Bug Fixes
