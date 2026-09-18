@@ -225,7 +225,7 @@
         let dir = tempfile::tempdir().unwrap();
         let img_path = dir.path().join("photo.jpg");
         // 最小合法 JPEG（SOI + EOI markers）
-        std::fs::write(&img_path, &[0xFF, 0xD8, 0xFF, 0xD9]).unwrap();
+        std::fs::write(&img_path, [0xFF, 0xD8, 0xFF, 0xD9]).unwrap();
 
         let tool = ReadFileTool::new(dir.path().to_str().unwrap());
         let result = tool
