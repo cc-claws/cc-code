@@ -4,6 +4,24 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.53 — 2026-09-18
+
+### Features & Improvements
+
+- **工具行 Header 超长改为单行省略号截断（#141）**：
+  - 移除此前工具调用 Header 的多行折行与 8 列缩进，恢复并保证严格单行展示，不再挤占视口垂直高度；
+  - 新增 `truncate_to_display_width`，结合 `unicode-width` 按显示列宽动态计算与截断，并在末尾优雅追加 `…` 闭合括号；
+  - 支持中英文长参数与长路径自适应截断，聚合工具组同步对齐，彻底杜绝换行。
+
+### Bug Fixes
+
+- **对齐 Spinner 完成态总结行与生命周期修复（#139）**：
+  - 对齐 Claude Code 风格的过去式总结行动词与时刻展示（`✻ {verb} for {elapsed} · done {HH:MM}`）；
+  - 移除 loading 态多余前导空格对齐 column 0，消除任务完成瞬间的水平抖动；
+  - 重构中断（Ctrl+C）与报错生命周期清理，防止异常状态误展示成功动词。
+
+---
+
 ## v0.6.52 — 2026-09-17
 
 ### Bug Fixes
