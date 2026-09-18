@@ -40,6 +40,31 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | macOS | x86_64 (Intel), aarch64 (Apple Silicon) |
 | Windows | x86_64 |
 
+## 常用快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Shift+Tab` | 快速轮转权限模式（bypass / default / dont-ask / accept-edit / auto-mode） |
+| `Ctrl+T` | 动态切换模型 alias |
+| `Ctrl+P` | 打开命令面板（Provider / Model / Effort 配置） |
+| `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |
+| `Ctrl+O` | 切换详细模式（Verbose） |
+| `Ctrl+U` / `Ctrl+D` | 消息列表快速半页滚动（输入框为空时） |
+| `双击 Esc` | 打开 Rewind 会话历史回滚选择器 |
+| `Ctrl+C` | 中断执行（执行中）/ 双击退出（空闲时） |
+
+## 常用 Slash 命令
+
+| 命令 | 说明 |
+|------|------|
+| `/model` | 浏览并选择 Provider/模型，或直接切换 |
+| `/commit` | 基于当前代码改动一键生成 commit 并提交 |
+| `/review` | 针对当前 PR 或分支代码发起代码审查 |
+| `/export` | 将当前会话导出为干净的 Markdown 文档 |
+| `/gc` | 手动释放内存并输出内存占用诊断信息 |
+| `/lang <lang>` | 切换系统提示与界面语言（en / zh-CN） |
+| `/clear` | 清空屏幕开启新会话 |
+
 ## 为什么选 cc-code？
 
 | 对比项 | 其他终端 Agent | cc-code |

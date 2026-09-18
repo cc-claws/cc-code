@@ -43,6 +43,10 @@
 - [推理渲染](../spec/prd/reasoning-markdown-rendering.md)
 - [Web 搜索增强](../spec/prd/web-search-enhance.md)
 - [屏幕选区](../spec/features/screen-selection-prd.md)
+- [工具状态颜色对齐](../spec/features/tool-status-color-alignment-prd.md)
+- [Cron 调度对齐 Claude Code](../spec/features/20260630_F001_cron-alignment-claude-code/spec-prd.md)
+- [项目初始化 init 命令](prd/init-command.md)
+- [TUI 栏位色彩设计规范](designs/2026-07-09-tui-bar-color-design-spec.md)
 
 ## Issue 文档
 

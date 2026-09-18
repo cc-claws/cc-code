@@ -83,14 +83,25 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
-| **Ctrl+B 后台 Shell** | v0.6.29 | Shell 命令支持 Ctrl+B 转为后台运行 |
+| **工具行超长单行优雅截断** | v0.6.53 | 工具行 Header 超长根据终端列宽动态截断并以 `…` 闭合，杜绝折行挤占视口 |
+| **Spinner 总结行动词与时刻** | v0.6.53 | 对齐 Claude Code 风格 `✻ {verb} for {elapsed} · done {HH:MM}`，规范生命周期 |
+| **状态栏运行耗时秒数补零** | v0.6.52 | 耗时统一补零（如 `31m06s`），消除字符抖动；统一标准单字符 Emoji 避免错位 |
+| **Anthropic 适配器 SSE 容错** | v0.6.51 | 非流式请求遭遇反向代理网关强制返回 SSE 时自适应解析还原，无损向下兼容 |
+| **终端宽度变化防重复渲染** | v0.6.50 | 窗口 resize 重绘时重置旧行缓存，消除增量追加触发的 Markdown 内容翻倍渲染 |
+| **文件系统工具精简收敛** | v0.6.49 | 核心工具精简收敛为 5 个（Read/Write/Edit/Glob/Grep），大幅减轻上下文负担 |
+| **自适应终端宽度 Markdown 表格** | v0.6.48 | 表格列宽根据终端宽度动态分配，彻底解决宽屏下挤压截断与末尾多余空白列问题 |
+| **Provider 类型大小写不敏感** | v0.6.47 | 配置中 `type` 字段大小写均可精准识别，避免误 fallback 到 OpenAI |
+| **Bash 运行状态与计时优化** | v0.6.43 | 修正 Ctrl+B 后台计时冻结，缩小长输出预览窗口防止上下文被撑爆 |
+| **跨 Provider 模型热切换** | v0.6.40 | 模型选择携带 Provider 上下文，无缝在 OpenAI / Anthropic / DeepSeek / GLM 间切换 |
+| **Shift+Tab 权限模式轮切** | v0.6.40 | 状态栏提示与快捷轮切（bypass / default / dont-ask / accept-edit / auto-mode） |
+| **Ctrl+B 后台 Shell** | v0.6.29 | Shell 命令支持 Ctrl+B 转为后台运行，并持续显示耗时与状态 |
 | **/commit 命令** | v0.6.29 | 一键 git commit，自动生成 commit message |
 | **/review 命令** | v0.6.29 | PR 代码审查 |
 | **/export 命令** | v0.6.29 | 对话导出为 Markdown |
 | **全局屏幕选区** | v0.6.29 | 基于渲染 Buffer 的全局选区，松开鼠标自动复制 |
 | **Windows Git Bash** | v0.6.21 | cmd 失败自动 fallback 到 Git Bash |
-| **Grep 对齐上游** | v0.6.15 | 对齐 Claude Code 的 files_with_matches 模式 |
 | **i18n 支持** | v0.6.17 | 中英文切换 `/lang en` 或 `/lang zh-CN` |
+| **Grep 对齐上游** | v0.6.15 | 对齐 Claude Code 的 files_with_matches 模式 |
 | **Rewind 回滚** | v0.6.0 | 双击 ESC 弹窗选择回滚点 |
 | **/gc 命令** | v0.6.0 | 手动内存回收 + RSS/jemalloc 诊断 |
 
