@@ -8,7 +8,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 
 - 双线程渲染：独立渲染线程计算 Markdown 解析（pulldown-cmark）和行包装，UI 线程只从 `RenderCache` 读取可见行，按需重绘
 - 事件处理：crossterm 输入拦截、命令解析（`/` 前缀）、弹窗状态管理
-- 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`；Command trait 支持 alias 机制
+- 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
 - 多会话管理：SQLite 持久化，`/history` 面板按 cwd 过滤当前工作区对话
 - 弹窗系统：HITL 审批弹窗、AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
 - SubAgent 层级展示：SubAgentGroup 可折叠块，滑动窗口显示最近 4 步，显示格式 `Agent(type) #hash`，颜色区分状态（前台绿色、后台运行中黄色、错误红色）
@@ -119,7 +119,7 @@ submit_message(text)
 | Sticky Header | 最后一条 Human 消息 1-3 行截断固定在聊天区顶部 |
 | 历史过滤 | /history 面板按 cwd 过滤 ThreadMeta，标题含工作区路径 |
 | 定时任务面板 | /loop 注册（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用） |
-| /compact 迁移 | 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头 |
+| /compact 迁移 | 执行后创建新 Thread 保留旧历史，新 Thread 必须以摘要 Human(summary + continuation) 消息开头（禁止使用 System 开头避免 400 错误） |
 | AskUser 高度 | wrapped_line_count 动态换行计算，visible_height 替代硬编码滚动区域 |
 | 弹窗滚动 | `scroll_offset: u16`，`ensure_cursor_visible(visible_height)`，Tab 切换重置 scroll_offset |
 | 消息区滚动 | `scroll_offset: usize` + `scrollbar_min/max_offset: usize`，`usize::MAX` 哨兵 + `clamp(min, max)` 收敛，follow-bottom / `scroll_anchor` / manual offset 三级优先级链 |

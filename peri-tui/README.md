@@ -44,7 +44,7 @@ cargo run -p peri-tui -- -r <session-id>
 ├─────────────────────────────────────────────┤
 │ Input Area (输入框，3-40% 高度)             │
 ├─────────────────────────────────────────────┤
-│ Status Bar (状态栏，3行)                     │
+│ Status Bar (状态栏，2~3行动态自适应)         │
 ├─────────────────────────────────────────────┤
 │ BG Agent Bar (后台 Agent 列表)               │
 └─────────────────────────────────────────────┘
@@ -60,13 +60,14 @@ cargo run -p peri-tui -- -r <session-id>
 | `Shift+Enter` / `Alt+Enter` | 插入换行 |
 | `Esc` | 取消/关闭（双击打开 Rewind 选择器） |
 | `Ctrl+C` | 中断 Agent（loading）/ 双击退出（idle） |
-| `Ctrl+T` | 切换模型 alias |
-| `Ctrl+P` | 命令面板（Provider/Model/Effort） |
-| `Ctrl+B` | 后台运行 Shell 命令 |
-| `Ctrl+O` | 切换详细模式 |
+| `Ctrl+T` | 动态切换模型 alias |
+| `Ctrl+P` | 命令面板（Provider/Model/Effort 完整配置） |
+| `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |
+| `Ctrl+O` | 切换详细模式（Verbose） |
 | `Ctrl+V` | 粘贴剪贴板（优先图片，回退文字） |
-| `Shift+Tab` | 循环切换权限模式 |
-| `Up/Down` | 消息区滚动 |
+| `Shift+Tab` | 循环切换权限模式（bypass/default/dont-ask/accept-edit/auto-mode） |
+| `Up/Down` | 消息区逐行滚动 |
+| `Ctrl+U` / `Ctrl+D` | 消息区半页滚动（textarea 空时） |
 | `PageUp/PageDown` | 半页滚动（textarea 空时） |
 | `Home/End` | 滚动到顶/底（textarea 空时） |
 | `Del` | 删除最后一个待发送附件 |

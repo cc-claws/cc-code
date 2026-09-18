@@ -83,14 +83,25 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Single-Line Tool Truncation** | v0.6.53 | Long tool headers truncated gracefully with `…` on a single line, preventing vertical viewport clutter |
+| **Claude Code Style Spinner Summary** | v0.6.53 | Aligned summary verb & completion time (`✻ {verb} for {elapsed} · done {HH:MM}`) with cleaner loading alignment |
+| **Status Bar Duration Padding** | v0.6.52 | `{:02}` zero-padded seconds eliminate text jitter; standard single-char emoji prevents offset misalignment |
+| **Anthropic Adapter SSE Fallback** | v0.6.51 | Non-streaming calls automatically handle SSE responses from reverse proxies without deserialization crashes |
+| **Resize Markdown Duplicate Fix** | v0.6.50 | Properly resets line caches upon terminal resize to prevent duplicate content rendering |
+| **Filesystem Tools Convergence** | v0.6.49 | Removed FolderOperation; converged filesystem tools into 5 essentials (Read, Write, Edit, Glob, Grep) |
+| **Terminal-Adaptive Markdown Tables** | v0.6.48 | Tables dynamically scale to actual terminal width, resolving column squeeze and empty trailing columns |
+| **Case-Insensitive Provider Type** | v0.6.47 | Accurately parses provider `type` regardless of case, preventing unintended fallback to OpenAI |
+| **Bash Background Status & Timing** | v0.6.43 | Freeze timer on task completion, display elapsed time, and compact preview windows to protect context |
+| **Cross-Provider Model Switching** | v0.6.40 | Model selection carries provider context, enabling seamless hot-switching across OpenAI, Anthropic, DeepSeek, GLM |
+| **Shift+Tab Permission Mode Switch** | v0.6.40 | Cycle through bypass, default, dont-ask, accept-edit, and auto-mode with status bar hints |
 | **Ctrl+B Background Shell** | v0.6.29 | Shell commands can run in background with Ctrl+B |
 | **/commit Command** | v0.6.29 | One-click git commit with auto-generated message |
 | **/review Command** | v0.6.29 | PR code review |
 | **/export Command** | v0.6.29 | Export conversation to Markdown |
 | **Global Screen Selection** | v0.6.29 | Buffer-based selection across all UI regions, auto-copy on release |
 | **Windows Git Bash** | v0.6.21 | Auto fallback to Git Bash when cmd fails |
-| **Grep Upstream Alignment** | v0.6.15 | Aligned with Claude Code's files_with_matches mode |
 | **i18n Support** | v0.6.17 | Switch language with `/lang en` or `/lang zh-CN` |
+| **Grep Upstream Alignment** | v0.6.15 | Aligned with Claude Code's files_with_matches mode |
 | **Rewind** | v0.6.0 | Double-click ESC to select rollback point |
 | **/gc Command** | v0.6.0 | Manual memory reclaim + RSS/jemalloc diagnostics |
 

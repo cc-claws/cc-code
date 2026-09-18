@@ -58,7 +58,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ## 主布局
 
-单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。高度优先级：Status Bar 固定 3 行 → Input 动态（3~40% 屏幕）→ 面板（60-75% 屏幕）→ 其余分配给消息区。
+单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。高度优先级：Status Bar 动态 2~3 行（有活动时 3 行，空闲时折叠为 2 行）→ Input 动态（3~40% 屏幕）→ 面板（60-75% 屏幕）→ 其余分配给消息区。
 
 ### 界面组件
 
@@ -90,15 +90,16 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ### Status Bar
 
-双行布局（`ui/main_ui/status_bar.rs`）：
-- **第一行**：权限模式 → 工作目录 → 模型名 → CPU% → MEM → 上下文使用率
-- **第二行**：左侧瞬时状态（复制提示/后台 agent/LLM 重试/MCP/LSP）→ 右侧快捷键 hints
+2~3 行动态折叠布局（`ui/main_ui/status_bar.rs`，`has_hud_activity` 时展开第 2 行，否则折叠）：
+- **第一行**（HUD Compact）：`[model] context | project git:(branch*) | stats`
+- **第二行**（活动时展开）：运行中工具 / Agent / Todo activity
+- **底行**（无活动时为第 2 行，有活动时为第 3 行）：权限模式（含 Shift+Tab 切换提示）与瞬时状态提示 → 右侧快捷键 hints 与 CPU/MEM 监控
 
 瞬时提示用 `Instant` + Duration 控制消失；颜色分级用 `theme::ERROR`/`WARNING`/`SAGE`；面板 hints 通过 `PanelComponent::status_bar_hints()` trait 注入。
 
 ### 消息区
 
-Welcome Card 或消息列表 + 滚动条 + spinner。视口裁剪渲染（`viewport_clip`）。`MessageViewModel` 7 种变体：`UserBubble` / `AssistantBubble`（含 Text/Reasoning/ToolUse） / `ToolBlock` / `SystemNote` / `CacheWarning` / `ToolCallGroup` / `SubAgentGroup`。
+Welcome Card 或消息列表 + 滚动条 + spinner。视口裁剪渲染（`viewport_clip`）。`MessageViewModel` 8 种变体：`UserBubble` / `AssistantBubble`（含 Text/Reasoning/ToolUse） / `ToolBlock` / `ShellCommand`（TUI 本地执行与后台化） / `SystemNote` / `CacheWarning` / `ToolCallGroup` / `SubAgentGroup`。
 
 ## i18n
 

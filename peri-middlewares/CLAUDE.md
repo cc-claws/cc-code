@@ -1,6 +1,6 @@
 # peri-middlewares
 
-中间件实现 crate，依赖 `peri-agent` 和 `peri-lsp`。17 个中间件按固定顺序组成链。
+中间件实现 crate，依赖 `peri-agent` 和 `peri-lsp`。18 个中间件按固定顺序组成链（含条件注册中间件）。
 
 ## 中间件链执行顺序
 
@@ -22,6 +22,7 @@
 15. McpMiddleware            ← MCP 工具和资源（pool 成功时注册）
 16. ToolSearchMiddleware     ← SearchExtraTools/ExecuteExtraTool 代理
 17. LspMiddleware            ← LSP 工具 + after_tool 文件变更同步
+18. CompactMiddleware        ← before_model 钩子触发上下文压缩（条件注册）
 [ReActAgent.with_system_prompt()] ← prepend
 ```
 
