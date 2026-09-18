@@ -257,6 +257,83 @@ pub const EN_VERBS: &[&str] = &[
     "Testing",
 ];
 
+/// 英文完成态过去式动词，用于 loading 结束后的总结行（对齐 Claude Code）。
+pub const EN_SUMMARY_VERBS: &[&str] = &[
+    "Cogitated",
+    "Brewed",
+    "Pondered",
+    "Contemplated",
+    "Deliberated",
+    "Reflected",
+    "Meditated",
+    "Mulled",
+    "Weighed",
+    "Considered",
+    "Cooked",
+    "Baked",
+    "Simmered",
+    "Stewed",
+    "Seasoned",
+    "Marinated",
+    "Conjured",
+    "Transformed",
+    "Transmuted",
+    "Summoned",
+    "Charged",
+    "Forged",
+    "Polished",
+    "Crafted",
+    "Built",
+    "Created",
+    "Designed",
+    "Sketched",
+    "Painted",
+    "Composed",
+    "Carved",
+    "Woven",
+    "Condensed",
+    "Sublimated",
+    "Precipitated",
+    "Crystallized",
+    "Aggregated",
+    "Calibrated",
+    "Synced",
+    "Processed",
+    "Searched",
+    "Retrieved",
+    "Scanned",
+    "Verified",
+    "Compiled",
+    "Merged",
+    "Converted",
+    "Parsed",
+    "Executed",
+    "Ran",
+    "Gathered",
+    "Organized",
+    "Explored",
+    "Patrolled",
+    "Monitored",
+    "Experimented",
+    "Inspected",
+    "Tested",
+    "Tinkered",
+    "Fidgeted",
+    "Fussed",
+    "Played",
+    "Loitered",
+    "Slacked",
+    "Daydreamed",
+    "Puzzled",
+    "Napped",
+];
+
+/// 从完成态动词列表中随机选取一个过去式动词。
+pub fn pick_summary_verb() -> String {
+    let mut rng = rand::rng();
+    EN_SUMMARY_VERBS[rng.random_range(0..EN_SUMMARY_VERBS.len())].to_string()
+}
+
 /// 根据语言标识选择动词列表。
 pub fn verbs_for_lang(lang: &str) -> &'static [&'static str] {
     if lang.starts_with("zh") {
@@ -317,5 +394,15 @@ mod tests {
         assert_eq!(verbs_for_lang("zh"), ZH_VERBS);
         // 未知语言回退英文
         assert_eq!(verbs_for_lang("fr"), EN_VERBS);
+    }
+
+    #[test]
+    fn test_pick_summary_verb() {
+        let verb = pick_summary_verb();
+        assert!(!verb.is_empty(), "summary verb 不应为空");
+        assert!(
+            EN_SUMMARY_VERBS.contains(&verb.as_str()),
+            "生成的 summary verb 应在 EN_SUMMARY_VERBS 列表中"
+        );
     }
 }
