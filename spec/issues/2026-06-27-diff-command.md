@@ -1,5 +1,7 @@
 # `/diff` 命令 — 查看未提交变更与每轮 Diff
 
+- **GitHub Issue**：#176 (https://github.com/cc-claws/cc-code/issues/176)
+
 ## Status
 - [ ] Phase 1: 实现 DiffCommand（TUI Command，打开 DiffPanel）
 - [ ] Phase 2: 实现 GitWorkingTreeDiff 数据源
