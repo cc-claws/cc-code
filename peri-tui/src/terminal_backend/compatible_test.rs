@@ -207,3 +207,39 @@ fn test_width_safe_backend_refresh_invalidates_changed_widths() {
     assert_eq!(backend.inner.buffer()[(0, 0)].symbol(), "●");
     assert_eq!(state.borrow().calls.len(), 2, "能力变化必须清除旧宽度缓存");
 }
+
+#[test]
+fn test_width_safe_backend_box_drawing_and_status_glyphs_fallback() {
+    // 制表符、勾叉、进度条在异常列宽终端中降级为 ASCII，不应回退为问号。
+    let (probe, _) = make_probe(&[
+        ("┌", 2),
+        ("┼", 2),
+        ("┘", 2),
+        ("✓", 2),
+        ("█", 2),
+        ("░", 2),
+        ("⏱", 2),
+    ]);
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
+    let symbols = ["┌", "┼", "┘", "✓", "█", "░", "⏱"];
+    let cells: Vec<Cell> = symbols.iter().map(|s| Cell::new(*s)).collect();
+    assert!(backend
+        .draw(
+            cells
+                .iter()
+                .enumerate()
+                .map(|(x, cell)| (x as u16, 0, cell))
+        )
+        .is_ok());
+    let expected = ["+", "+", "+", "v", "#", "-", "t"];
+    for (x, exp) in expected.iter().enumerate() {
+        assert_eq!(
+            backend.inner.buffer()[(x as u16, 0)].symbol(),
+            *exp,
+            "符号 {} 应降级为 {}",
+            symbols[x],
+            exp
+        );
+    }
+}
+

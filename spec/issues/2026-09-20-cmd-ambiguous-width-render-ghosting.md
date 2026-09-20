@@ -4,7 +4,7 @@
 - **创建日期**：2026-09-20
 - **优先级**：高
 - **模块**：TUI / Windows 终端兼容
-- **GitHub Issue**：未创建；本文为本地调查记录，后续准备 PR 时需创建并关联 Issue。
+- **GitHub Issue**：#158 (https://github.com/cc-claws/cc-code/issues/158)
 
 ## 问题现象
 

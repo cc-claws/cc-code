@@ -1,8 +1,9 @@
 # PermissionRequest 钩子在 bypass 模式下不应触发
 
-**状态**：Fixed
-**优先级**：中
-**创建日期**：2026-06-01
+**状态**：Fixed  
+**优先级**：中  
+**创建日期**：2026-06-01  
+**GitHub Issue**：#160 (https://github.com/cc-claws/cc-code/issues/160)
 
 ## 问题描述
 
