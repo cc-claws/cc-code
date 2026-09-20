@@ -9,7 +9,7 @@ use ratatui::{
         },
         execute,
         terminal::{
-            disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle,
+            disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
         },
     },
     prelude::*,
@@ -540,8 +540,8 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // tracking. enable_mouse_tracking() toggles the MOUSE bit to force ConPTY's
         // notify, with ANSI + ?1007h as defense-in-depth.
         conpty::enable_mouse_tracking()?;
-        // 设置终端标题
-        let _ = execute!(stdout, SetTitle("✻ CC Code"));
+        // 保存宿主终端原有标题到栈中（XTerm Title Stack: \x1b[22;0t）
+        let _ = execute!(stdout, ratatui::crossterm::style::Print("\x1b[22;0t"));
         let backend = TuiBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -558,6 +558,13 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         ) {
             tracing::warn!(error = %e, "Disable 鼠标/粘贴/焦点 失败");
         }
+        // 恢复宿主终端原有的窗口标题（XTerm Title Stack: \x1b[23;0t）
+        let _ = execute!(
+            terminal.backend_mut(),
+            ratatui::crossterm::style::Print("\x1b[23;0t")
+        );
+        // 防御性清空终端标题，确保不支持 title stack 的终端不残留 CC Code 状态
+        peri_tui::terminal_title::clear_terminal_title();
         if let Err(e) = execute!(terminal.backend_mut(), LeaveAlternateScreen) {
             tracing::warn!(error = %e, "LeaveAlternateScreen 失败");
         }
@@ -673,6 +680,24 @@ async fn run_app(
         } else {
             tracing::info!("-c: 当前目录无历史会话，创建新会话");
         }
+    }
+
+    // CLI --name 参数设置初始会话名称
+    if let Some(ref name) = tui_opts.session_name {
+        tracing::info!(session_name = %name, "CLI --name: 设置会话标题");
+        let meta = &mut app.session_mgr.current_mut().metadata;
+        meta.thread_title = Some(name.clone());
+        meta.user_renamed = true;
+        meta.title_generation_attempted = true;
+        if let Some(ref tid) = app.session_mgr.current().current_thread_id {
+            let store = app.services.thread_store.clone();
+            let tid = tid.clone();
+            let name_clone = name.clone();
+            tokio::spawn(async move {
+                let _ = store.update_title(&tid, &name_clone).await;
+            });
+        }
+        app.refresh_terminal_title();
     }
 
     // 检测是否需要 Setup 向导
@@ -853,6 +878,8 @@ async fn run_app(
     if let Err(e) = draw_app(terminal, &mut app) {
         tracing::error!(error = %e, "初始绘制失败");
     }
+    // 初始写出一次终端标题（Idle / Ready 状态）
+    app.refresh_terminal_title();
     let mut last_render = Instant::now();
     // ConPTY 鼠标追踪定期刷新：Windows Terminal / ConPTY 偶发丢失 ?1000h 模式，
     // 导致鼠标事件"断流"（RENDER 正常但 Down/Drag 全无）。每 5 秒检查一次，
@@ -865,23 +892,16 @@ async fn run_app(
     /// 仅在 loading=true 且无用户事件的 poll 超时路径生效，
     /// 用户交互（键盘/鼠标/resize）始终立即渲染。
     const TARGET_FRAME_INTERVAL: Duration = Duration::from_millis(33);
-    /// 终端标题刷新间隔（~200ms，避免 stdout 写入过频）
-    const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(200);
+    /// 终端标题刷新间隔（100ms，对齐 Codex: TERMINAL_TITLE_SPINNER_INTERVAL）
+    const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
     let mut last_title_refresh = Instant::now();
 
     'event_loop: loop {
         // 推进 Spinner 动画帧
         app.session_mgr.current_mut().spinner_state.advance_tick();
-        // 刷新终端标题（跟随 spinner frame 动画）
+        // 刷新终端标题（跟随状态机与 spinner frame 动画，内部自带清洗与内容去重）
         if last_title_refresh.elapsed() >= TITLE_REFRESH_INTERVAL {
-            let frame = app.session_mgr.current_mut().spinner_state.title_frame();
-            let mode = app.session_mgr.current_mut().spinner_state.mode().clone();
-            if mode != peri_widgets::SpinnerMode::Idle {
-                let _ = ratatui::crossterm::execute!(
-                    std::io::stdout(),
-                    ratatui::crossterm::terminal::SetTitle(format!("{} CC Code — Running", frame))
-                );
-            }
+            app.refresh_terminal_title();
             last_title_refresh = Instant::now();
         }
         // 推进光标闪烁（返回 true 表示可见性切换，需要重绘）

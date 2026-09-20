@@ -170,4 +170,10 @@ pub enum AgentEvent {
         warnings: usize,
         files_with_errors: usize,
     },
+    /// 异步大模型生成的会话主题已完成（对齐 Codex: ThreadMetadataGenerationService）
+    ThreadTitleGenerated {
+        session_id: uuid::Uuid,
+        thread_id: Option<String>,
+        title: String,
+    },
 }

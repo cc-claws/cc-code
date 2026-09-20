@@ -17,6 +17,14 @@ impl App {
                 if self.session_mgr.current().current_thread_id.is_none() && !session_id.is_empty()
                 {
                     self.session_mgr.current_mut().current_thread_id = Some(session_id.clone());
+                    if let Some(ref title) = self.session_mgr.current().metadata.thread_title {
+                        let store = self.services.thread_store.clone();
+                        let tid = session_id.clone();
+                        let title_clone = title.clone();
+                        tokio::spawn(async move {
+                            let _ = store.update_title(&tid, &title_clone).await;
+                        });
+                    }
                 }
                 // Convert peri-agent ExecutorEvent → TUI AgentEvent via map_executor_event
                 if let Some(agent_event) =
