@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.57 — 2026-09-20
+
+### Bug Fixes
+
+- **修复工具包装器丢失多模态图片内容导致 Read 识图失败的缺陷（#157）**：
+  - `ToolWrapper`、`ArcToolWrapper` 及 `peri-middlewares` 中的 Arc 包装器三个 `BaseTool` 包装器补齐 `invoke_content` 透传委托，此前包装器未转发该方法，结构化多模态内容（图片 Base64）在包装层被丢弃，图片无法进入模型上下文；
+  - 新增 `read_multimodal_test.rs` 回归测试（8 项），覆盖图片内容经包装器完整传递的链路。
+
+---
+
 ## v0.6.56 — 2026-09-20
 
 ### Features & Improvements
