@@ -3,7 +3,7 @@
 
 use super::super::*;
 
-use crate::app::{message_pipeline::PipelineAction, App};
+use crate::app::App;
 
 impl App {
     pub(super) fn handle_token_usage_update(
@@ -62,20 +62,8 @@ impl App {
                 rate_pct = rate * 100.0,
                 "prompt cache hit rate below threshold"
             );
-            let percentage = (rate * 100.0) as u32;
-            let req_id = tracker.last_request_id.as_deref().unwrap_or("-");
-            let msg = format!(
-                "⚠ {}",
-                self.services.lc.tr_args(
-                    "app-prompt-cache-low",
-                    &[
-                        ("rate".into(), (percentage as i64).into()),
-                        ("req".into(), req_id.to_string().into()),
-                    ]
-                )
-            );
-            let vm = MessageViewModel::system(msg);
-            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+            // 状态栏已常驻显示 Cache 百分比（低于 80% 时显示为黄色警告色），
+            // 不再向消息区注入冗余的系统气泡打扰用户。
         }
         // 更新 spinner 的 token 显示（仅当次调用的 token，不累计）
         let current_tokens = usage.input_tokens as usize + usage.output_tokens as usize;
