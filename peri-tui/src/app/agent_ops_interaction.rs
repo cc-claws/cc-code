@@ -45,6 +45,7 @@ impl App {
         let prompt = HitlBatchPrompt::new(batch_items, bridge_tx);
         self.session_mgr.current_mut().agent.interaction_prompt =
             Some(InteractionPrompt::Approval(prompt));
+        self.refresh_terminal_title();
 
         (true, true, false) // pause event consumption, wait for user confirmation
     }
@@ -142,6 +143,7 @@ impl App {
         self.session_mgr.current_mut().agent.interaction_prompt = Some(
             InteractionPrompt::Questions(AskUserBatchPrompt::from_request(batch_req_bridged)),
         );
+        self.refresh_terminal_title();
 
         (true, true, false) // pause event consumption, wait for user input
     }
@@ -191,6 +193,7 @@ impl App {
                 self.session_mgr.current_mut().agent.interaction_prompt = Some(
                     InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)),
                 );
+                self.refresh_terminal_title();
                 (true, true, false) // 暂停消费，等待用户确认
             }
             InteractionContext::Questions { requests } => {
@@ -237,6 +240,7 @@ impl App {
                     Some(InteractionPrompt::Questions(
                         AskUserBatchPrompt::from_request(batch_req_bridged),
                     ));
+                self.refresh_terminal_title();
                 (true, true, false) // 暂停消费，等待用户输入
             }
         }

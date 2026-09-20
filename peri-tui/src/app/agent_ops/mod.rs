@@ -416,6 +416,36 @@ impl App {
                 self.session_mgr.current_mut().agent.lsp_files_with_errors = files_with_errors;
                 (true, false, false)
             }
+            AgentEvent::ThreadTitleGenerated {
+                session_id,
+                thread_id,
+                title,
+            } => {
+                let is_current = self.session_mgr.current().metadata.session_id == session_id;
+                let user_renamed = is_current && self.session_mgr.current().metadata.user_renamed;
+                // 校验 1（防切换会话串台）：只有处于同一个 session 且未被用户手动改名才更新内存标题
+                if is_current && !user_renamed {
+                    self.session_mgr.current_mut().metadata.thread_title = Some(title.clone());
+                    self.refresh_terminal_title();
+                }
+                // 持久化：只有在用户未手动命名时才写入数据库，避免覆盖用户指定名称
+                if !user_renamed {
+                    let target_tid = thread_id.or_else(|| {
+                        if is_current {
+                            self.session_mgr.current().current_thread_id.clone()
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(tid) = target_tid {
+                        let store = self.services.thread_store.clone();
+                        tokio::spawn(async move {
+                            let _ = store.update_title(&tid, &title).await;
+                        });
+                    }
+                }
+                (true, false, false)
+            }
         }
     }
 

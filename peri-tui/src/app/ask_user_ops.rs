@@ -211,6 +211,7 @@ impl App {
                 }
 
                 p.confirm();
+                self.refresh_terminal_title();
             }
         }
     }
