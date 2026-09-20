@@ -1,10 +1,12 @@
 pub mod ask_user_tool;
 pub mod filesystem;
+pub mod output_filter;
 pub mod output_persist;
 pub mod todo;
 
 pub use ask_user_tool::AskUserTool;
 pub use filesystem::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool};
+pub use output_filter::{filter_command_output, strip_ansi};
 pub use todo::{TodoItem, TodoStatus, TodoWriteTool};
 
 use async_trait::async_trait;
