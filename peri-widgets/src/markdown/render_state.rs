@@ -57,6 +57,7 @@ impl TableBuilder {
     }
 
     /// 包装单元格文本以适应最大宽度，返回 (各列分配宽度, 包装后数据行)
+    #[allow(clippy::type_complexity)]
     fn wrap_cells(
         &self,
         max_width: usize,

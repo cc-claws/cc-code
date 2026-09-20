@@ -222,7 +222,7 @@ fn test_width_safe_backend_box_drawing_and_status_glyphs_fallback() {
     ]);
     let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
     let symbols = ["┌", "┼", "┘", "✓", "█", "░", "⏱"];
-    let cells: Vec<Cell> = symbols.iter().map(|s| Cell::new(*s)).collect();
+    let cells: Vec<Cell> = symbols.iter().map(|s| Cell::new(s)).collect();
     assert!(backend
         .draw(
             cells

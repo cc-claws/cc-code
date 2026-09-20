@@ -586,12 +586,17 @@ async fn test_async_hook_receives_correct_event_name() {
         )
         .await;
 
-    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-
-    assert!(
-        std::path::Path::new(marker_path).exists(),
-        "Async hook should have created marker file"
-    );
+    // 轮询等待异步 hook 写入文件，最多等待 5 秒，避免 CI runner 高负载时超时
+    let marker_file = std::path::Path::new(marker_path);
+    let mut found = false;
+    for _ in 0..50 {
+        if marker_file.exists() {
+            found = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(found, "Async hook should have created marker file");
     let content = std::fs::read_to_string(marker_path).unwrap_or_default();
     assert_eq!(
         content, "PermissionRequest",
