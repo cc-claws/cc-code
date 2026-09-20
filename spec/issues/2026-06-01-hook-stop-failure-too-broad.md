@@ -1,8 +1,9 @@
 # StopFailure 钩子触发范围过宽
 
-**状态**：Fixed
-**优先级**：低
-**创建日期**：2026-06-01
+**状态**：Fixed  
+**优先级**：低  
+**创建日期**：2026-06-01  
+**GitHub Issue**：#161 (https://github.com/cc-claws/cc-code/issues/161)
 
 ## 问题描述
 

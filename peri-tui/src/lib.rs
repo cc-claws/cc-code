@@ -25,6 +25,7 @@ pub mod i18n;
 pub mod shell_exec;
 pub mod shell_history;
 pub mod sync;
+pub mod terminal_backend;
 pub mod thread;
 pub mod ui;
 pub mod update;
