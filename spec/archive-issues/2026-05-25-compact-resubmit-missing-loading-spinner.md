@@ -2,9 +2,10 @@
 
 # Compact 后 Resubmit 缺少 Loading Spinner
 
-**状态**：Closed
+**状态**：Fixed (已归档)
 **优先级**：中
 **创建日期**：2026-05-25
+**Reopen 日期**：2026-05-30
 
 ## 问题描述
 
@@ -37,3 +38,16 @@
 - `peri-tui/src/app/agent_compact.rs` —— compact 生命周期处理（`handle_compact_started`/`handle_compact_completed`），compact 完成时调用 `set_loading(false)`
 - `peri-tui/src/app/agent_ops/lifecycle.rs` —— agent 生命周期处理，cleanup 时 `set_loading(false)`
 - `peri-acp/src/session/executor.rs` —— auto-compact 循环：执行后检查阈值 → compact → resubmit
+
+## 现象 2（Reopen 2026-05-30）
+
+用户确认该问题为回归——之前已修复，近期又出现。症状与原始报告完全一致：
+
+- 触发条件：自动 compact（非手动 `/compact`）
+- 表现：compact 后 resubmit 期间 status bar spinner 消失，agent 输出正常可见
+- 复现频率：必现
+- 之前修复状态：已归档（Closed），本次 Reopen
+
+## 关联 Issue
+
+- `spec/archive-issues/2026-05-26-manual-compact-long-loading-skeleton.md` — 手动 compact 的相反问题（loading 不消失），涉及相同的 loading 状态管理逻辑

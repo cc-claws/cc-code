@@ -146,3 +146,14 @@ MCP HTTP 请求 → 401 + WWW-Authenticate
 
 - → [agent.md](./agent.md) — MCP 工具通过 BaseTool trait 注册到 ReAct 循环
 - → [tui.md](./tui.md) — /mcp 面板 UI、OAuth 授权引导界面
+
+### issue_2026-06-26-security-mcp-oauth-callback-state-not-validated
+
+**摘要:** MCP OAuth 回调服务器 state 参数未校验
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 本地临时 HTTP 回调服务器在接收 OAuth code 时将 state 校验置为空操作
+**通用模式:** 本地短期存活的 OAuth 回调端点同样必须严格执行 CSRF 防护，防止恶意网页诱导重定向注入恶意凭证
+**技术决策:** 在授权请求前生成加密随机 token 并暂存，回调到达时强校验 state 一致性
+**涉及文件:** spec/archive-issues/2026-06-26-security-mcp-oauth-callback-state-not-validated.md
+**CLAUDE.md 链接:** false

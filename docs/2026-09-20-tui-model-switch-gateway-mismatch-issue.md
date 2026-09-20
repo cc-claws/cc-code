@@ -3,6 +3,7 @@
 **状态**：Open  
 **创建日期**：2026-09-20  
 **优先级**：High (P0 - 影响核心功能体验与模型计费/回答效果)  
+**GitHub Issue**：#169 (https://github.com/cc-claws/cc-code/issues/169)
 **标签**：`tui`, `acp`, `model-switch`, `session-lifecycle`
 
 ---

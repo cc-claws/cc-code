@@ -196,3 +196,25 @@ load_merged_config()
 - → [mcp.md](./mcp.md) — MCP 中间件，插件 MCP 环境变量展开
 - → [tui.md](./tui.md) — TUI 界面，/plugin 面板管理
 - → [hitl-permissions.md](./hitl-permissions.md) — HITL 权限，Hook if 条件复用 permission rule 语法
+
+### issue_2026-06-01-hook-permission-request-fires-in-bypass
+
+**摘要:** PermissionRequest 钩子在 bypass 模式下错误触发
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** before_tool 中触发 PermissionRequest 时未检查权限模式，导致免审批模式下误发事件引发副作用
+**通用模式:** Hook 事件的设计初衷与触发条件必须与核心交互严格同步，跳过用户交互的场景也必须同步跳过对应的交互前后钩子
+**技术决策:** 增加 permission_mode 门控：仅在权限对话框即将展示给用户时才触发 PermissionRequest 钩子
+**涉及文件:** spec/archive-issues/2026-06-01-hook-permission-request-fires-in-bypass.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-01-hook-stop-failure-too-broad
+
+**摘要:** StopFailure 钩子触发范围过宽
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 在 on_error 回调中无条件触发 StopFailure，将用户主动中断（Ctrl+C）或正常迭代上限误判为失败
+**通用模式:** 错误生命周期事件必须精确区分「系统故障/API 异常」与「用户主动中断/预期业务结束」，避免外部监控产生假警报
+**技术决策:** 增加 is_api_error 门控，仅在 API/LLM 故障时触发 StopFailure，其他情况跳过
+**涉及文件:** spec/archive-issues/2026-06-01-hook-stop-failure-too-broad.md
+**CLAUDE.md 链接:** false
