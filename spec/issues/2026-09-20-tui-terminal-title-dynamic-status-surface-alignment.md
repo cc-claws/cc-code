@@ -1,8 +1,9 @@
 # 对齐 OpenAI Codex 规范的动态终端标题（Status Surface）体系
 
-**状态**：Open  
+**状态**：Fixed  
 **优先级**：中  
 **创建日期**：2026-09-20  
+**解决日期**：2026-09-20  
 **模块**：TUI / 终端交互 / 会话管理  
 **GitHub Issue**：#162 (https://github.com/cc-claws/cc-code/issues/162)  
 
@@ -92,7 +93,22 @@
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-09-20 | — | Open | agent | 参照 OpenAI Codex (codex-rs) 规范创建动态终端标题需求 Issue |
+| 2026-09-20 | Open | Fixed | agent | 完成动态终端标题（Status Surface）体系实现与单测验证 |
 
 ## 修复记录
 
-（由 fix-issue 或 issue-verify skill 追加，创建时留空）
+- 新增 `peri-tui/src/terminal_title.rs` 模块及单元测试，抽象 `TerminalTitleItem` 与 `TerminalTitleStatusKind` 状态机。
+- 深度对齐终端实践与用户感知习惯：
+  - 彻底去除 `| project` 冗余后缀以及 `— Running`、`— Thinking`、`— Done` 等机械词汇。
+  - 运行时纯净展示：`⠋ <主题>`（未命名时为 `⠋ <项目名>`）。
+  - 完成响应时醒目展示：保留橙色菊花标志 `✴ <主题>`（未命名时为 `✴ <项目名>`），清晰指示 Agent 刚刚回复完成。
+  - 空闲时纯净展示：`<主题>`（未命名时为 `<项目名>`）。
+  - 交互阻塞时展示呼吸动画：`[ ! ] Action Required  <主题>`（`[ ! ]` 与 `[ . ]` 每秒交替呼吸闪烁）。
+- 实现 `sanitize_title` 对齐 Codex 官方防御性清洗逻辑：空白符折叠（whitespace collapsing）、Trojan Source 完整 Bidi 过滤、240 字符硬截断。
+- 引入 Graphemes 字形簇截断（项目名 24 字符、会话名 48 字符）。
+- 实现 `extract_thread_title`，支持从用户首轮 Prompt 智能提炼会话短标题，并过滤 URL、Markdown 标记、代码块与 `<system-reminder>` 标签。
+- 在 `SessionMetadata` 中增加 `thread_title` 字段，并在首轮发送、ACP 会话回填、`/rename`、历史会话切换及新建会话时实时同步。
+- 在 `GlobalUiState` 中维护 `last_terminal_title` 缓存，仅在标题内容变动时发射 OSC 0 转义序列，彻底消除 Idle 态 I/O 抖动。
+- 刷新间隔优化为 100ms（完全对齐 Codex `TERMINAL_TITLE_SPINNER_INTERVAL = 100ms`）。
+- 在 TUI 退出清理（`LeaveAlternateScreen`）前显式调用 `clear_terminal_title` 清空还原标题栏。
+
