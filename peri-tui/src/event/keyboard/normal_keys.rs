@@ -79,10 +79,20 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // Ctrl+V: try pasting clipboard image first, fallback to text paste
+        // Ctrl+V / Alt+V: try pasting clipboard image first, fallback to text paste
+        // Alt+V 用于规避现代终端（如 Windows Terminal / VS Code）对 Ctrl+V 的宿主拦截
         Input {
-            key: Key::Char('v'),
+            key: Key::Char('v') | Key::Char('V'),
             ctrl: true,
+            ..
+        }
+        | Input {
+            key: Key::Char('v') | Key::Char('V'),
+            alt: true,
+            ..
+        }
+        | Input {
+            key: Key::Char('√'), // macOS Option+V compose char
             ..
         } if !app.session_mgr.current_mut().ui.loading => handle_ctrl_v(app),
 
@@ -612,8 +622,7 @@ fn handle_ctrl_v(app: &mut App) {
             let _guard = crate::clipboard::SuppressStderr::new();
             if let Ok(mut clipboard) = arboard::Clipboard::new() {
                 if let Ok(text) = clipboard.get_text() {
-                    let text = text.replace('\r', "\n");
-                    app.session_mgr.current_mut().ui.textarea.insert_str(&text);
+                    app.paste_text_into_textarea(&text);
                 }
             }
         }
