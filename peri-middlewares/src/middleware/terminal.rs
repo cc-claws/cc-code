@@ -240,8 +240,7 @@ Platform behavior:
 - On Unix, child processes run in their own process group; timeout kills the entire process tree
 
 Output handling:
-- Output exceeding 50 lines is returned as a compact head/tail preview; the full output is saved to a temp file
-- Output exceeding 20000 bytes is returned as a compact head/tail preview; the full output is saved to a temp file
+- Output exceeding 50000 bytes is returned as a compact head/tail preview; the full output is saved to a temp file
 - If omitted output is needed, use the Read tool on the saved file path rather than rerunning the command
 - Non-zero exit codes are reported
 - Both stdout and stderr are captured"#;
@@ -408,14 +407,23 @@ impl BaseTool for BashTool {
         let _description = input["description"].as_str();
         let run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
+        // 轨一：尝试使用 RTK 重写命令（对齐 Claude Code / Codex 代理模式）
+        let (command, is_rtk_rewritten) =
+            if let Some(rewritten) = crate::process::rtk_rewrite_command(command).await {
+                (rewritten, true)
+            } else {
+                (command.to_string(), false)
+            };
+        let user_command = command.clone();
+
         // Windows fallback 用原始命令（rewrite 前的），因为 bash 引号语义正常
         #[cfg(windows)]
-        let original_command = command.to_string();
+        let original_command = user_command.clone();
 
         // Windows: 重写 git commit -m 为 git commit -F，绕开 cmd.exe 引号问题
         #[cfg(windows)]
         let (command, temp_msg_files) = {
-            let (cmd, infos) = rewrite_git_commit_for_windows(command);
+            let (cmd, infos) = rewrite_git_commit_for_windows(&command);
             let mut files = Vec::new();
             for (ref path, ref content) in &infos {
                 let _ = std::fs::write(path, content);
@@ -521,6 +529,16 @@ impl BaseTool for BashTool {
                 }
 
                 let output = format_command_output(&stdout, &stderr, exit_code);
+                // 轨二：若未被 RTK 重写，走 Peri 内置轻量语义压缩
+                let output = if !is_rtk_rewritten {
+                    crate::tools::output_filter::filter_command_output(
+                        &user_command,
+                        &output,
+                        exit_code,
+                    )
+                } else {
+                    output
+                };
                 Ok(truncate_output(&output))
             }
         }
@@ -561,6 +579,11 @@ impl BashTool {
 
                 let mut output = format_command_output(&stdout, &stderr, exit_code);
                 output.push_str("\n[Retried with Git Bash]");
+                let output = crate::tools::output_filter::filter_command_output(
+                    command,
+                    &output,
+                    exit_code,
+                );
 
                 // format_command_output 在无输出时返回 "[Command completed ...]"，
                 // 仅追加标记即可，无需再特判空输出。

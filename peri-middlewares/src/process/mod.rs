@@ -248,5 +248,131 @@ pub fn git_bash_command(bash_exe: &Path, command: &str, args: &[&str]) -> tokio:
     cmd
 }
 
+/// 检测 RTK (Rust Token Killer) 可执行文件路径。
+///
+/// 检测顺序：
+/// 1. 环境变量 `RTK_PATH`
+/// 2. `where rtk` (Windows) 或 `which rtk` (Unix)
+///
+/// 结果用 `OnceLock` 缓存，整个进程只检测一次。
+pub fn rtk_path() -> Option<PathBuf> {
+    static CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+    CACHE.get_or_init(detect_rtk_path).clone()
+}
+
+fn detect_rtk_path() -> Option<PathBuf> {
+    if let Ok(env_path) = std::env::var("RTK_PATH") {
+        let p = PathBuf::from(&env_path);
+        if p.exists() && verify_rtk_executable(&p) {
+            return Some(p);
+        }
+    }
+
+    let which_cmd = if cfg!(windows) { "where" } else { "which" };
+    let output = std::process::Command::new(which_cmd)
+        .arg("rtk")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first = stdout.lines().next()?;
+    let trimmed = first.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let p = Path::new(trimmed);
+    if p.exists() && verify_rtk_executable(p) {
+        Some(p.to_path_buf())
+    } else {
+        None
+    }
+}
+
+fn verify_rtk_executable(path: &Path) -> bool {
+    std::process::Command::new(path)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// 快速判断命令是否属于 RTK 可能支持的工具，避免对 echo/cd/rm 等命令产生额外的进程探测开销。
+pub fn is_potential_rtk_command(command: &str) -> bool {
+    let trimmed = command.trim_start();
+    let first_word = trimmed.split_whitespace().next().unwrap_or("");
+    // 跳过环境变量前缀（如 `FOO=bar git status`）
+    let cmd = if first_word.contains('=') {
+        trimmed.split_whitespace().find(|w| !w.contains('=')).unwrap_or("")
+    } else {
+        first_word
+    };
+    matches!(
+        cmd,
+        "git"
+            | "cargo"
+            | "npm"
+            | "pnpm"
+            | "npx"
+            | "yarn"
+            | "bun"
+            | "bunx"
+            | "docker"
+            | "kubectl"
+            | "pytest"
+            | "python"
+            | "php"
+            | "go"
+            | "dotnet"
+            | "tsc"
+            | "eslint"
+            | "gh"
+            | "find"
+            | "grep"
+            | "rg"
+            | "ls"
+            | "tree"
+            | "cat"
+            | "diff"
+            | "curl"
+            | "wget"
+    )
+}
+
+/// 尝试使用 `rtk rewrite "<command>"` 重写命令。
+///
+/// 如果系统中存在 `rtk`，且 `rtk rewrite` 执行成功（exit_code == 0 且 stdout 非空），
+/// 则返回重写后的命令（例如 "rtk git status"）。
+/// 否则返回 None。
+pub async fn rtk_rewrite_command(command: &str) -> Option<String> {
+    if !is_potential_rtk_command(command) {
+        return None;
+    }
+    let rtk_exe = rtk_path()?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        tokio::process::Command::new(rtk_exe)
+            .arg("rewrite")
+            .arg(command)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+
+    if output.status.success() {
+        let rewritten = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !rewritten.is_empty() && rewritten != command {
+            return Some(rewritten);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod process_test;
