@@ -469,3 +469,27 @@ fn parse_markdown_empty_not_cached() {
         "空字符串应返回空结果"
     );
 }
+
+/// 回归测试：包含超长无空格路径和多列的复杂表格在各种视口宽度下绝对不溢出 max_width
+#[test]
+fn parse_table_long_path_never_overflows_max_width() {
+    let md = r#"| # | 本地文件路径 | 拟定 GitHub Issue 标题 | 状态 / 优先级 | 核心要点 |
+|---|---|---|---|---|
+| 1 | spec/issues/2026-09-20-tui-terminal-title-dynamic-status-surface-alignment.md | feat(tui): 对齐 OpenAI Codex 规范的动态终端标题 (Status Surface) 体系 | Open / 中 | 解决当前写死 CC Code - Running 导致的多 Tab 无法辨识、缺少 Action Required 审批阻塞提醒、OSC 写入未去重问题；对齐 Codex codex-rs 状态表面架构。 |
+| 2 | spec/issues/2026-09-20-cmd-status-bar-glyph-ghosting-and-visual-adaptation.md | fix(tui): Windows 传统控制台 (CMD) 底部状态栏字符残影与跨平台视觉自适应 | 已立项 / 高 | 解决 Windows CMD (新宋体 CP936) 下状态栏 █░进度条、? Emoji、✓、· 歧义宽度导致的列宽偏移、文字撕裂与无法擦除的幽灵残影。 |"#;
+
+    for max_width in [60, 80, 100, 120, 150] {
+        let text = parse_markdown(md, &default_theme(), max_width);
+        for (idx, line) in text.lines.iter().enumerate() {
+            let line_w: usize = line.spans.iter().map(|s| s.content.width()).sum();
+            assert!(
+                line_w <= max_width,
+                "在 max_width={} 下，第 {} 行宽度 {} 超出限制: {:?}",
+                max_width,
+                idx,
+                line_w,
+                line.spans.iter().map(|s| s.content.as_ref()).collect::<String>()
+            );
+        }
+    }
+}
