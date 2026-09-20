@@ -50,3 +50,58 @@
 **通用模式:** 外部依赖（搜索引擎）应通过统一 API 封装，避免直接解析 HTML；API 迁移时需完整移除旧实现防止代码残留
 **涉及文件:** peri-middlewares/src/middleware/web_search.rs, peri-middlewares/src/middleware/web_fetch.rs, peri-middlewares/src/middleware/web_common.rs
 **CLAUDE.md 链接:** false
+
+### issue_2026-06-27-ctrl-b-background-shell
+
+**摘要:** Ctrl+B Background Shell 交互机制
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 长耗时前台命令会阻塞整个 Agent 回合与 TUI 交互
+**通用模式:** 长时任务应具备随时解耦前台阻塞的能力，通过异步状态机与文件落盘保证进程生命周期可观测
+**技术决策:** 实现后台进程管理与 Ctrl+B 交互，将输出重定向至磁盘并释放前台交互
+**涉及文件:** spec/archive-issues/2026-06-27-ctrl-b-background-shell.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-25-grep-default-mode-and-pagination
+
+**摘要:** Grep 工具优化与分页机制
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 默认输出整段匹配内容易迅速打满上下文，且缺少按条数分页机制
+**通用模式:** 搜索类工具必须采用「先概括后深入」的层级设计，默认输出高 token 效率的路径列表，按需分页深入
+**技术决策:** 对齐 Claude Code：默认采用 files_with_matches 模式，并在 content 模式下支持 head_limit / offset 分页
+**涉及文件:** spec/archive-issues/2026-06-25-grep-default-mode-and-pagination.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-03-edit-tool-tab-indent-mismatch
+
+**摘要:** Edit 工具无法编辑 Tab 缩进文件
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 字符串精确匹配算法未对 Tab 和空格做等价归一化或在提取时强行展开了 Tab
+**通用模式:** 文本替换工具在保留原格式的同时，必须在诊断阶段对看不见的空白字符（Tab vs 空格、CRLF vs LF）给出高精度提示
+**技术决策:** 保留文件原有缩进格式并在匹配失败时提供更清晰的诊断提示
+**涉及文件:** spec/archive-issues/2026-06-03-edit-tool-tab-indent-mismatch.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-01-tool-output-truncation-bypass
+
+**摘要:** 工具输出截断机制被绕过
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 部分新加工具或管道直接构造 ToolResult 消息未经过公共输出截断过滤器
+**通用模式:** 安全与限制类机制（如输出截断）必须收敛至统一的中间件或公共管道出口，禁止各工具自行实现甚至跳过
+**技术决策:** 统一所有工具输出通过 output_persist 公共实现执行截断与落盘
+**涉及文件:** spec/archive-issues/2026-06-01-tool-output-truncation-bypass.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-25-at-mention-directory-read-semantics
+
+**摘要:** @ 目录引用误调用 Read 工具
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 解析 @ 引用时未区分文件与目录，导致将目录路径当作普通文本文件喂给 Read 工具报错
+**通用模式:** 用户输入引用的实体在进入工具调用或提示词前必须进行语义类型判定，文件与目录应路由至不同的处理逻辑
+**技术决策:** 检查文件属性，若为目录则转换为目录文件列表或提示信息以 System 消息注入
+**涉及文件:** spec/archive-issues/2026-05-25-at-mention-directory-read-semantics.md
+**CLAUDE.md 链接:** false

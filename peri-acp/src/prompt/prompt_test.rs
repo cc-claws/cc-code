@@ -489,3 +489,26 @@ fn test_language_custom_code_passthrough() {
         "未知语言代码应原样保留"
     );
 }
+
+#[test]
+fn test_git_bash_status_placeholder_replaced() {
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None, None);
+    assert!(
+        !result.contains("{{git_bash_status}}"),
+        "git_bash_status 占位符必须被替换"
+    );
+    assert!(
+        result.contains("Git Bash:"),
+        "07_env 段落应包含 Git Bash 状态信息"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn test_windows_shell_syntax_instructions_included() {
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None, None);
+    assert!(
+        result.contains("NEVER use PowerShell syntax or cmdlets"),
+        "Windows 平台下应包含禁止 PowerShell 语法的指示"
+    );
+}

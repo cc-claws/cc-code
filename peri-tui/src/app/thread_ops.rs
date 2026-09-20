@@ -209,6 +209,18 @@ impl App {
         self.session_mgr.current_mut().todo_items.clear();
 
         self.reset_agent_session();
+        // 恢复会话主题短标题并刷新终端标题
+        let thread_meta = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(store.load_meta(&tid))
+                .ok()
+        });
+        self.session_mgr.current_mut().metadata.thread_title = thread_meta.and_then(|m| m.title);
+        if !base_msgs.is_empty() {
+            self.session_mgr.current_mut().metadata.title_generation_attempted = true;
+        }
+        self.refresh_terminal_title();
+
         // 回收释放的内存给 OS
         crate::alloc_config::alloc_collect();
 
@@ -323,6 +335,11 @@ impl App {
         self.session_mgr.current_mut().metadata.pre_submit_state_len = 0;
 
         self.reset_agent_session();
+        let meta = &mut self.session_mgr.current_mut().metadata;
+        meta.thread_title = None;
+        meta.user_renamed = false;
+        meta.title_generation_attempted = false;
+        self.refresh_terminal_title();
 
         // 通过 ACP 协议创建新 session，清空 server 端 history
         if let Some(ref acp_client) = self.acp_client {

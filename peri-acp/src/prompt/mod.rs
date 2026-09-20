@@ -49,6 +49,7 @@ pub struct PromptEnv {
     pub os_version: String,
     pub date: String,
     pub python_version: String,
+    pub git_bash_available: bool,
 }
 
 impl PromptEnv {
@@ -58,6 +59,7 @@ impl PromptEnv {
         let os_version = os_version_string();
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
         let python_version = detect_python_version();
+        let git_bash_available = detect_git_bash_available();
         Self {
             cwd: cwd.to_string(),
             is_git_repo,
@@ -65,6 +67,7 @@ impl PromptEnv {
             os_version,
             date,
             python_version,
+            git_bash_available,
         }
     }
 
@@ -75,6 +78,7 @@ impl PromptEnv {
         let platform = std::env::consts::OS.to_string();
         let os_version = os_version_string();
         let python_version = detect_python_version();
+        let git_bash_available = detect_git_bash_available();
         Self {
             cwd: cwd.to_string(),
             is_git_repo,
@@ -82,6 +86,7 @@ impl PromptEnv {
             os_version,
             date: frozen_date.to_string(),
             python_version,
+            git_bash_available,
         }
     }
 }
@@ -247,6 +252,18 @@ pub fn build_system_prompt(
         .replace("{{python_version}}", &env.python_version)
         .replace("{{date}}", &env.date)
         .replace(
+            "{{git_bash_status}}",
+            if env.platform == "windows" {
+                if env.git_bash_available {
+                    "available"
+                } else {
+                    "not available"
+                }
+            } else {
+                "not applicable (native bash)"
+            },
+        )
+        .replace(
             "{{available_agents}}",
             &format_available_agents(&env.cwd, extra_agent_dirs),
         )
@@ -344,6 +361,11 @@ fn map_language_to_instruction(lang: &str) -> &str {
         "ko" => "Korean",
         _ => lang,
     }
+}
+
+/// 检测 Git Bash 是否可用（主要用于 Windows 平台）。
+fn detect_git_bash_available() -> bool {
+    peri_middlewares::process::git_bash_path().is_some()
 }
 
 #[cfg(test)]
