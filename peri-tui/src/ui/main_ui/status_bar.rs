@@ -494,21 +494,28 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // CPU/MEM（右侧快捷键前面）
+    // Cache/MEM（右侧快捷键前面）
     {
+        let tracker = &app.session_mgr.current().agent.session_token_tracker;
+        let (cache_str, cache_color) = if tracker.last_usage.is_some() {
+            let rate_pct = tracker.cache_hit_rate() * 100.0;
+            let color = if rate_pct >= 80.0 {
+                theme::SAGE
+            } else if rate_pct > 0.0 {
+                theme::WARNING
+            } else {
+                theme::MUTED
+            };
+            (format!("Cache {:.0}%", rate_pct), color)
+        } else {
+            ("Cache -".to_string(), theme::MUTED)
+        };
+
         let mut monitor = app.services.resource_monitor.lock();
         monitor.refresh_if_needed();
         let mem = monitor.memory_mb();
-        let cpu = monitor.cpu_percent();
         drop(monitor);
 
-        let cpu_color = if cpu > 70.0 {
-            theme::ERROR
-        } else if cpu > 30.0 {
-            theme::WARNING
-        } else {
-            theme::SAGE
-        };
         let mem_color = if mem > 1024 {
             theme::ERROR
         } else if mem > 512 {
@@ -519,8 +526,8 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
         left_spans.push(Span::styled("  ", Style::default()));
         left_spans.push(Span::styled(
-            format!("CPU {:.0}%", cpu),
-            Style::default().fg(cpu_color),
+            cache_str,
+            Style::default().fg(cache_color),
         ));
         left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
