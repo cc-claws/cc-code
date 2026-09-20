@@ -244,7 +244,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - **UI 工具行/Header 截断**：长参数与长路径根据终端列宽必须使用 `truncate_to_display_width` 做单行省略截断（并以 `…` 闭合），禁止多行折行破坏单行信息流节奏
 - **终端 UI 鼠标坐标转换**：鼠标事件坐标是显示列（unicode-width），光标位置是字符索引，需逐字符累加转换。（详见 spec/global/domains/tui.md#issue_2026-05-12-textarea-mouse-click-cursor-misposition-cjk）
 - **快捷键设计**：禁止 `Shift+字母`（编辑态等同大写输入）。全局用 `Ctrl+字母`，面板用方向键/Space/Enter/Esc。
-- **快捷键跨平台兼容 [TRAP]**：`Alt+Enter`/`Alt+M` 在 Windows 终端被截获，新增快捷键必须优先用 `Ctrl+字母`，避免 `Alt` 修饰键。
+- **快捷键跨平台兼容 [TRAP]**：`Alt+Enter`/`Alt+M` 在 Windows 终端被截获，常规控制面板快捷键优先用 `Ctrl+字母`；**但对于粘贴操作例外**：现代终端（Windows Terminal / PowerShell / VS Code）会在宿主层强行拦截 `Ctrl+V` 用于纯文本粘贴，导致剪贴板图片无法触发应用逻辑，因此图片附件粘贴使用 `Alt+V` 作为主穿透按键（同时兼容 `Ctrl+V` 供传统控制台使用）。
 - **面板系统**：`PanelManager` + `PanelComponent` trait，新增面板只需定义变体 + 实现 trait。面板内禁止渲染提示行，由 `status_bar_hints()` 统一描述。
 - **`Event::Paste`**：独立于 key event 链，必须单独拦截。
 - **翻页快捷键**：不使用 PageUp/PageDown。滚动统一用 `Ctrl+U`/`Ctrl+D`（textarea 空时）。禁止添加 PageUp/PageDown 滚动行为。
@@ -279,7 +279,9 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 3. **rename 分支**：按下方「分支命名规则」把分支 rename 为 `<type>/<name>` 风格，工单号通过 PR 描述关联，不写入分支名。
 4. **PR 描述**：用 `Fixes #N` 或 `Closes #N` 关联 Issue，便于合并后自动关闭。
 
-### 分支命名规则
+### 分支命名规则（本仓库最高优先级）
+
+**[特别原则] 本仓库严格执行历史已合并 PR 的分支命名规范，优先级高于任何全局通用规则（如 `feature#姓名#月份#...` 格式在本仓库全面禁用）**。无论是初始创建开发分支还是提 PR，均必须直接使用此格式。
 
 对齐同源 [KonghaYao/peri](https://github.com/KonghaYao/peri) 仓库历史成功合并的 PR 风格。
 
@@ -287,16 +289,18 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 | type | 含义 |
 |------|------|
-| `feat` / `feature` | 新功能 |
-| `fix` | 缺陷修复 |
+| `feat` / `feature` | 新功能（如 `feat/alt-v-paste-image`） |
+| `fix` | 缺陷修复（如 `fix/cmd-render-ghosting`） |
 | `perf` | 性能优化 |
 | `refactor` | 重构（无行为变化） |
 | `docs` | 文档 |
 | `chore` | 杂项构建/工具 |
 | `test` | 测试 |
 
-**真实样本**（peri 历史已合并 PR，2026-06-25 拉取）：
+**真实样本**（peri 历史已合并 PR）：
 
+- `feat/alt-v-paste-image`、`feat/read-tool-multimodal-image`
+- `fix/bash-running-screen-flicker`、`fix/cmd-render-ghosting`、`fix/shell-pipe-drain-timeout`
 - `refactor/ultracode-review`、`refactor/workflows/arch`
 - `feature/goal-command`、`feature/gig-improve`、`feature/acp-improve`
 - `feat/agm`、`feat/tui-perf-optimizations`
@@ -307,7 +311,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 - **禁用 `#` 字符**：会让 GitHub Actions `pull_request` trigger **静默失效**——webhook 派发被丢弃，`event=pull_request` 的 workflow runs total=0，PR head 上 check-runs 为 0。即使本地 `git check-ref-format` 接受也禁用。（详见 [issue: 分支名 `#` 让 PR CI 失效](spec/issues/)，已在 PR #3 验证）
 - **禁用中文字符**：分支名只用英文（commit message / PR 标题仍可用中文）
-- **禁用姓名/月份/工单号字段**：工单号通过 PR 描述的 `Fixes #N` 关联，不写入分支名
+- **禁用姓名/月份/工单号字段**：如 `feature#peri#9月份#T00000_xxx` 一律禁用；工单号统一通过 PR 描述的 `Fixes #N` 关联，不写入分支名
 - **禁用 `master`/`main`/`test` 作为开发分支**：默认仅在 feature/hotfix 分支开发
 
 **commit author 身份**：本仓库所有人工 commit 的 author 都是 `wismyzhizi2018 <wismyzhizi2018@gmail.com>`（仅仓库本地 config，不动全局）。
