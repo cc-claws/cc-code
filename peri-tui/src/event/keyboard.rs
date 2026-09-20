@@ -273,4 +273,26 @@ mod tests {
             "第二次 Ctrl+C 应返回 Quit"
         );
     }
+
+    #[tokio::test]
+    async fn test_alt_v_intercepted_by_paste_handler() {
+        // 验证 Alt+V / Option+V 不会被 textarea 作为普通字面值字符输入，
+        // 而是被粘贴处理逻辑拦截（即便剪贴板无内容也不会把 '√' 等字面值打入 textarea）。
+        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
+
+        for key in [
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::ALT),
+            KeyEvent::new(KeyCode::Char('V'), KeyModifiers::ALT),
+            KeyEvent::new(KeyCode::Char('√'), KeyModifiers::NONE),
+        ] {
+            let res = handle_key_event(&mut app, key).unwrap();
+            assert!(matches!(res, Some(Action::Redraw)));
+            let text = app.session_mgr.current().ui.textarea.lines().join("");
+            assert!(
+                !text.contains('√'),
+                "按键 {:?} 应被粘贴逻辑拦截，不应把字面字符 '√' 打入 textarea，实际为: {text}",
+                key
+            );
+        }
+    }
 }
