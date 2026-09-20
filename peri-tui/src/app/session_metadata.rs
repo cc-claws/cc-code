@@ -9,6 +9,12 @@ pub struct SessionMetadata {
     /// 下一个分配给 textarea 占位符 `[Image #N]` 的稳定 ID。
     /// 单调递增，不随附件增删回退——避免 textarea 中残留文本与附件错位。
     pub next_image_id: usize,
+    /// 当前会话主题短标题（由首轮 Prompt 提炼或 /rename 显式设定）
+    pub thread_title: Option<String>,
+    /// 是否由用户手动命名（若为 true，后续异步 LLM 标题生成绝不覆盖）
+    pub user_renamed: bool,
+    /// 是否已尝试过标题提炼（确保每个会话仅在首轮尝试一次）
+    pub title_generation_attempted: bool,
 }
 
 impl SessionMetadata {
@@ -19,6 +25,9 @@ impl SessionMetadata {
             last_human_message: None,
             pre_submit_state_len: 0,
             next_image_id: 1,
+            thread_title: None,
+            user_renamed: false,
+            title_generation_attempted: false,
         }
     }
 

@@ -90,6 +90,7 @@ pub use session_metadata::SessionMetadata;
 mod langfuse_state;
 mod oauth_prompt;
 pub use oauth_prompt::OAuthPrompt;
+mod terminal_title_ops;
 mod thread_ops;
 
 // ── Other Modules ─────────────────────────────────────────────────────────────
@@ -558,19 +559,11 @@ impl App {
                 peri_widgets::SpinnerMode::Responding,
                 Some(responding_label),
             );
-            // 更新终端标题
-            let _ = ratatui::crossterm::execute!(
-                std::io::stdout(),
-                ratatui::crossterm::terminal::SetTitle("✻ CC Code — Running")
-            );
+            self.refresh_terminal_title();
         } else {
             s.spinner_state.set_mode(peri_widgets::SpinnerMode::Idle);
             s.agent.cancel_token = None;
-            // 更新终端标题
-            let _ = ratatui::crossterm::execute!(
-                std::io::stdout(),
-                ratatui::crossterm::terminal::SetTitle("✴ CC Code — Done")
-            );
+            self.refresh_terminal_title();
         }
     }
 

@@ -46,6 +46,7 @@ impl App {
             let approved = p.approved.clone();
             p.confirm();
             self.send_acp_hitl_response(&approved);
+            self.refresh_terminal_title();
         }
     }
 
@@ -64,6 +65,7 @@ impl App {
             let approved = p.approved.clone();
             p.confirm();
             self.send_acp_hitl_response(&approved);
+            self.refresh_terminal_title();
         }
     }
 
@@ -81,6 +83,7 @@ impl App {
             let approved = p.approved.clone();
             p.confirm();
             self.send_acp_hitl_response(&approved);
+            self.refresh_terminal_title();
         }
     }
 

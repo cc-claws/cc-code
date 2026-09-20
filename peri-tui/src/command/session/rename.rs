@@ -51,6 +51,11 @@ impl Command for RenameCommand {
             });
             match result {
                 Ok(()) => {
+                    let meta = &mut app.session_mgr.current_mut().metadata;
+                    meta.thread_title = Some(name.to_string());
+                    meta.user_renamed = true;
+                    meta.title_generation_attempted = true;
+                    app.refresh_terminal_title();
                     let vm = MessageViewModel::system(format!("会话标题已更新为: {}", name));
                     app.session_mgr
                         .current_mut()
