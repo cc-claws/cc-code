@@ -1106,3 +1106,102 @@ submit_message(text)
 - → [model-config.md](./model-config.md) — /login 面板 Provider CRUD
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一消息管线
 - → [compact.md](./compact.md) — Micro/Full Compact 策略增强
+
+### issue_2026-09-20-cmd-ambiguous-width-render-ghosting
+
+**摘要:** Windows 传统控制台（CMD）下歧义字符双列渲染导致残影
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** CMD 代码页 CP936 + 新宋体下，East Asian Ambiguous 字符被字体驱动渲染为 2 列宽度，而 ratatui/unicode-width 假定为 1 列，导致回退擦除不彻底留下字符碎片
+**通用模式:** Windows 传统终端字符物理显示宽度强依赖当前代码页和点阵字体设定，不能单纯依赖标准 unicode-width 库的静态假设，终端 UI 必须具备控制台环境探测与宽度降级自适应策略
+**技术决策:** 在传统控制台环境下，对歧义字符（如特定标点、符号）做显式宽度补偿与空间留白，保证擦除帧能完整覆盖物理像素列
+**涉及文件:** spec/archive-issues/2026-09-20-cmd-ambiguous-width-render-ghosting.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-09-20-cmd-markdown-table-wrap-misalignment
+
+**摘要:** CMD 控制台下 Markdown 表格列宽错位、单元格断裂与物理溢出
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 宽表格自动换行时按纯字符长度切分导致 CJK 字符截断撕裂，加之边框字符在控制台双宽渲染引发整行溢出
+**通用模式:** 表格渲染必须以终端物理可用列宽为硬边界进行弹性缩放，长内容必须遵循单行截断原则，禁止意外折行破坏视觉网格
+**技术决策:** 按 unicode 显示列宽动态收缩列空间，截断时严格以字符为边界并闭合省略号，防止换行破坏表格结构
+**涉及文件:** spec/archive-issues/2026-09-20-cmd-markdown-table-wrap-misalignment.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-09-18-bash-running-ctrl-b-hint-screen-flicker
+
+**摘要:** Bash 运行提示与生命周期切换时的终端清屏闪烁
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** ToolStart/ToolEnd 状态转换时粗暴调用 Clear 清屏并重构 ViewBuffer，高频触发终端全量擦除
+**通用模式:** 终端刷新率与重绘开销呈正比，任何工具执行生命周期中应避免全屏 Clear，依赖 Ratatui 的 buffer diff 机制做平滑局部刷新
+**技术决策:** 将全量清屏重绘改为增量局部渲染，仅在终端尺寸变化等必要时才执行全量刷新
+**涉及文件:** spec/archive-issues/2026-09-18-bash-running-ctrl-b-hint-screen-flicker.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-07-02-ctrl-b-hint-timer-start-point
+
+**摘要:** Bash Ctrl+B 提示计时起点错误
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 已运行时间起点 recorded_at 被绑定在 ToolStart 事件接收时刻，包含了排队和协议序列化延迟而非进程启动时刻
+**通用模式:** 展示给用户的耗时状态必须对应底层真实的资源占用生命周期，避免在异步通道排队阶段提前启动运行时钟
+**技术决策:** 从子进程实际 spawn 成功返回的时刻开始计时
+**涉及文件:** spec/archive-issues/2026-07-02-ctrl-b-hint-timer-start-point.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-27-mouse-escape-sequence-leaks-into-input
+
+**摘要:** ConPTY 下鼠标移动转义序列泄漏为输入框乱码
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 启用了 ?1003h（Any Event Tracking），鼠标微小移动产生天量序列，超出 ConPTY 处理缓冲并被回退解释为键盘字符输入
+**通用模式:** 在 Windows ConPTY 环境下，绝不应开启全量鼠标移动追踪（?1003h），事件洪水会迅速撑爆宿主缓冲区并导致 VT 序列解码破裂
+**技术决策:** 降级为 ?1000h + ?1002h（仅点击和拖拽），关闭多余的移动悬浮追踪
+**涉及文件:** spec/archive-issues/2026-06-27-mouse-escape-sequence-leaks-into-input.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-27-ctrl-c-double-exit-windows
+
+**摘要:** Windows Terminal 下 Ctrl+C 偶发直接退出
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 原生控制台 CtrlHandler 与 crossterm 键盘事件通道重复派发，短时间内产生两次 Ctrl+C 击中 quit-pending 逻辑
+**通用模式:** 多输入源/跨通道事件合并必须具备防抖机制，不能假设操作系统控制台事件与标准输入流严格互斥
+**技术决策:** 在 CtrlHandler 与按键事件循环间增加时间戳去重与状态防抖锁
+**涉及文件:** spec/archive-issues/2026-06-27-ctrl-c-double-exit-windows.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-26-model-switch-shortcuts-overlap
+
+**摘要:** 模型切换快捷键冗余重叠且盲切空槽位
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 多组快捷键同时绑定模型切换，且未校验别名配置有效性，导致切到未配置模型的空别名
+**通用模式:** 快捷键设计需定期收敛，轮巡类状态机切换必须对底层数据有效性做前置防御，跳过无效或空槽位
+**技术决策:** 统一快捷键为 Ctrl+P（命令面板）和 Ctrl+T（有效别名轮巡），严格过滤未配置模型的空别名
+**涉及文件:** spec/archive-issues/2026-06-26-model-switch-shortcuts-overlap.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-24-detail-mode-diff-render-cache-layer
+
+**摘要:** detail_mode diff 渲染缓存层级不清导致性能抖动
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 高频重绘时未在 View 层对高开销的 diff 语法高亮与行分块做 LRU 缓存，依赖底层重复解析
+**通用模式:** 高计算开销（如语法高亮、diff 计算）应在数据到达 UI 渲染层前完成缓存，避免阻塞主绘制循环
+**技术决策:** 建立统一的 DiffRenderCache 层，以 hash 为 key 缓存分块渲染结果
+**涉及文件:** spec/archive-issues/2026-06-24-detail-mode-diff-render-cache-layer.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-26-ask-user-popup-height-miscalculation
+
+**摘要:** AskUser 弹窗高度计算不准确导致内容截断
+**状态:** Fixed
+**归档日期:** 2026-09-20
+**问题本质:** 计算弹窗所需高度时未考虑多行选项说明（description）的折行高度和边框内边距
+**通用模式:** 动态弹窗高度必须模拟实际渲染宽度下的折行行数累加，而不能根据换行符 `\n` 简单计数
+**技术决策:** 根据可用宽度动态计算每项文本换行后的总行数，并附加内边距与最大视口高度约束
+**涉及文件:** spec/archive-issues/2026-05-26-ask-user-popup-height-miscalculation.md
+**CLAUDE.md 链接:** false

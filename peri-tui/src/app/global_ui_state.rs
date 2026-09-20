@@ -30,6 +30,8 @@ pub struct GlobalUiState {
     /// 否则 TUI 退出后内容就消失。每次复制都更新这个 lease，让最新内容存活到
     /// TUI 退出。其他平台（macOS/Windows）lease 为 None。
     pub clipboard_lease: Option<ClipboardLease>,
+    /// 上次写出到终端标题栏的已清洗字符串（用于 OSC 0 写出去重）
+    pub last_terminal_title: Option<String>,
 }
 
 impl Default for GlobalUiState {
@@ -51,6 +53,7 @@ impl GlobalUiState {
             rewind_busy_hint_until: None,
             quit_requested: false,
             clipboard_lease: None,
+            last_terminal_title: None,
         }
     }
 }

@@ -4,6 +4,7 @@
 - **创建日期**：2026-09-20
 - **优先级**：高
 - **模块**：TUI / 状态栏渲染 (Status Bar) / Windows 控制台兼容
+- **GitHub Issue**：#168 (https://github.com/cc-claws/cc-code/issues/168)
 - **关联分支**：`fix/cmd-render-ghosting`
 - **问题截图凭证**：`C:/Users/adim/AppData/Local/Temp/04f6b874fc9844b68f2a02e7b3f1ac5d.png`
 

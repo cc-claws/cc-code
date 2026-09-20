@@ -30,8 +30,26 @@ impl App {
         self.session_mgr.current_mut().metadata.pre_submit_state_len =
             self.session_mgr.current_mut().agent.origin_messages.len();
 
+        let is_first_prompt = !self.session_mgr.current().metadata.title_generation_attempted
+            && self.session_mgr.current().agent.origin_messages.is_empty();
+
         if shell_notification_display.is_none() {
             self.push_input_history(expanded_input.clone());
+            // 首轮有效用户 Prompt：若尚未命名则先进行轨 1（本地确定性保底提取，0ms 即时反馈）
+            if is_first_prompt {
+                self.session_mgr.current_mut().metadata.title_generation_attempted = true;
+                if let Some(title) = crate::terminal_title::extract_thread_title(&display_input) {
+                    self.session_mgr.current_mut().metadata.thread_title = Some(title.clone());
+                    if let Some(ref tid) = self.session_mgr.current().current_thread_id {
+                        let store = self.services.thread_store.clone();
+                        let tid = tid.clone();
+                        let title_clone = title;
+                        tokio::spawn(async move {
+                            let _ = store.update_title(&tid, &title_clone).await;
+                        });
+                    }
+                }
+            }
         }
 
         // 消费待发送附件
@@ -149,6 +167,33 @@ impl App {
                 return;
             }
         };
+
+        // 轨 2（对齐 Codex: ThreadMetadataGenerationService）：首轮异步调用 LLM 精炼生成更智能的会话短标题
+        let title_gen_disabled = std::env::var("PERI_DISABLE_TITLE_GENERATION")
+            .or_else(|_| std::env::var("CODEX_DISABLE_TITLE_GENERATION"))
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+        if shell_notification_display.is_none() && is_first_prompt && !title_gen_disabled {
+            let bg_tx = self.services.bg_event_tx.clone();
+            let provider_clone = provider.clone();
+            let prompt_text = display_input.clone();
+            let session_id = self.session_mgr.current().metadata.session_id;
+            let thread_id = self.session_mgr.current().current_thread_id.clone();
+            tokio::spawn(async move {
+                if let Some(llm_title) =
+                    crate::terminal_title::generate_thread_title_llm(provider_clone, &prompt_text).await
+                {
+                    let _ = bg_tx
+                        .send(AgentEvent::ThreadTitleGenerated {
+                            session_id,
+                            thread_id,
+                            title: llm_title,
+                        })
+                        .await;
+                }
+            });
+        }
 
         // 从 Provider 模型获取正确的 context_window（解决第三方 Provider 默认 200k 不准确问题）
         // 若启用 1M 上下文模式，则覆盖为 1,000,000
