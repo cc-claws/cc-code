@@ -12,7 +12,7 @@ pub fn strip_ansi(input: &str) -> String {
     let mut normalized_lines = Vec::new();
     for line in stripped.lines() {
         if line.contains('\r') {
-            if let Some(last) = line.split('\r').filter(|s| !s.is_empty()).last() {
+            if let Some(last) = line.split('\r').rfind(|s| !s.is_empty()) {
                 normalized_lines.push(last);
             }
         } else {
