@@ -1,6 +1,6 @@
 use std::{mem::ManuallyDrop, sync::Arc};
 
-use crate::tools::BaseTool;
+use crate::tools::{BaseTool, ToolContent};
 
 /// 将 Box<dyn BaseTool> 转换为 Arc<dyn BaseTool>
 ///
@@ -26,6 +26,12 @@ pub(crate) fn box_to_arc(tool: Box<dyn BaseTool>) -> Arc<dyn BaseTool> {
             input: serde_json::Value,
         ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
             self.0.invoke(input).await
+        }
+        async fn invoke_content(
+            &self,
+            input: serde_json::Value,
+        ) -> Result<ToolContent, Box<dyn std::error::Error + Send + Sync>> {
+            self.0.invoke_content(input).await
         }
     }
 
