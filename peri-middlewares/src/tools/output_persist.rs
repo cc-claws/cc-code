@@ -29,9 +29,8 @@ pub fn persist_truncated_output(full_content: &str) -> String {
 pub const MAX_OUTPUT_CHARS: usize = 100_000;
 pub const MAX_OUTPUT_LINES: usize = 2_000;
 
-/// Bash 输出给模型的预览上限。完整输出仍会落盘供 Read 按需查看。
-pub const MAX_SHELL_OUTPUT_CHARS: usize = 20_000;
-pub const MAX_SHELL_OUTPUT_LINES: usize = 50;
+/// Bash 输出给模型的预览上限（50KB）。完整输出仍会落盘供 Read 按需查看。
+pub const MAX_SHELL_OUTPUT_CHARS: usize = 50_000;
 
 /// 字节级截断，钳位到字符边界，避免切割 UTF-8 多字节字符。
 pub fn truncate_bytes(s: &str, max_bytes: usize) -> String {
@@ -73,39 +72,9 @@ fn truncate_bytes_head_tail(s: &str, max_bytes: usize) -> String {
     format!("{head}{marker}{tail}")
 }
 
-/// Bash 输出截断：只给模型小预览，完整日志写入临时文件供 Read 按需读取。
+/// Bash 输出截断：仅在输出超过 20KB (MAX_SHELL_OUTPUT_CHARS) 时进行字节级兜底截断，
+/// 完整日志写入临时文件供 Read 按需读取。不设行数限制，避免短行多行触发误截断。
 pub fn truncate_shell_output(output: &str) -> String {
-    let lines: Vec<&str> = output.split('\n').collect();
-    if lines.len() > MAX_SHELL_OUTPUT_LINES {
-        let total_lines = lines.len();
-        let persist_hint = persist_truncated_output(output);
-        let head_count = MAX_SHELL_OUTPUT_LINES / 2;
-        let tail_count = MAX_SHELL_OUTPUT_LINES - head_count;
-        let head: Vec<&str> = lines.iter().take(head_count).copied().collect();
-        let tail: Vec<&str> = lines
-            .iter()
-            .skip(total_lines - tail_count)
-            .copied()
-            .collect();
-        let mut result = head.join("\n");
-        result.push_str(&format!(
-            "\n\n... [{} lines truncated from preview, showing first {} and last {} of {} total lines] ...\n\n",
-            total_lines - MAX_SHELL_OUTPUT_LINES,
-            head_count,
-            tail_count,
-            total_lines
-        ));
-        result.push_str(&tail.join("\n"));
-        if result.len() > MAX_SHELL_OUTPUT_CHARS {
-            result = truncate_bytes_head_tail(&result, MAX_SHELL_OUTPUT_CHARS);
-            result.push_str(&format!(
-                "\n\n[Output truncated: preview exceeded {} byte limit]",
-                MAX_SHELL_OUTPUT_CHARS
-            ));
-        }
-        result.push_str(&persist_hint);
-        return result;
-    }
     if output.len() > MAX_SHELL_OUTPUT_CHARS {
         let persist_hint = persist_truncated_output(output);
         let truncated = truncate_bytes_head_tail(output, MAX_SHELL_OUTPUT_CHARS);
