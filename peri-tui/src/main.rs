@@ -23,7 +23,9 @@ use peri_tui::{
     acp_client::AcpTuiClient,
     acp_server::{run_acp_server, AcpServerConfig},
     app::{AgentShellExecutor, AgentShellRegistration, App},
-    conpty, event, ui,
+    conpty, event,
+    terminal_backend::TuiBackend,
+    ui,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -540,7 +542,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         conpty::enable_mouse_tracking()?;
         // 设置终端标题
         let _ = execute!(stdout, SetTitle("✻ CC Code"));
-        let backend = CrosstermBackend::new(stdout);
+        let backend = TuiBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
         // 运行应用
@@ -596,7 +598,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
 }
 
 async fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    terminal: &mut Terminal<TuiBackend<io::Stdout>>,
     tui_opts: &TuiOptions,
     panic_notify_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
 ) -> Result<Option<String>> {
@@ -1089,7 +1091,15 @@ async fn run_app(
     Ok(exit_msg)
 }
 
-fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+    #[cfg(windows)]
+    if terminal.backend_mut().refresh_widths() {
+        // A font/code-page change invalidates physical glyph widths, not just logical cells.
+        app.session_mgr
+            .current_mut()
+            .ui
+            .request_terminal_clear_redraw();
+    }
     if app
         .session_mgr
         .current_mut()

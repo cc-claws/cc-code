@@ -56,15 +56,16 @@ impl TableBuilder {
         }
     }
 
-    /// 包装单元格文本以适应最大宽度
+    /// 包装单元格文本以适应最大宽度，返回 (各列分配宽度, 包装后数据行)
+    #[allow(clippy::type_complexity)]
     fn wrap_cells(
         &self,
         max_width: usize,
         _theme: &dyn MarkdownTheme,
-    ) -> Vec<Vec<Vec<Vec<Span<'static>>>>> {
+    ) -> (Vec<usize>, Vec<Vec<Vec<Vec<Span<'static>>>>>) {
         let num_cols = self.rows.first().map(|r| r.len()).unwrap_or(0);
         if num_cols == 0 {
-            return vec![];
+            return (vec![], vec![]);
         }
 
         // 计算可用宽度（减去边框和间距）
@@ -96,7 +97,7 @@ impl TableBuilder {
             wrapped_rows.push(wrapped_row);
         }
 
-        wrapped_rows
+        (col_widths, wrapped_rows)
     }
 
     /// 计算每列的最小宽度（基于最宽内容，上限 10 显示列）
@@ -146,7 +147,7 @@ impl TableBuilder {
 
         // 如果最小宽度之和已超可用宽度，按比例从最小值压缩
         if min_sum >= available_width {
-            return min_widths
+            let mut widths: Vec<usize> = min_widths
                 .iter()
                 .map(|&m| {
                     if m == 0 {
@@ -155,10 +156,21 @@ impl TableBuilder {
                     } else {
                         let scaled =
                             (m as f64 * available_width as f64 / min_sum as f64) as usize;
-                        scaled.max(2) // 至少保证 2 列宽，防零宽列
+                        scaled.max(1)
                     }
                 })
                 .collect();
+            // 防御：若 max(1) 累计超过 available_width，从最宽列逐一剔除，确保绝对不超视口
+            let mut sum: usize = widths.iter().sum();
+            while sum > available_width && sum > 0 {
+                if let Some(w) = widths.iter_mut().filter(|w| **w > 1).max() {
+                    *w -= 1;
+                    sum -= 1;
+                } else {
+                    break;
+                }
+            }
+            return widths;
         }
 
         let remaining = available_width - min_sum;
@@ -197,12 +209,12 @@ impl TableBuilder {
 
     /// 渲染表格，支持自动换行
     fn render_with_wrap(self, max_width: usize, theme: &dyn MarkdownTheme) -> Vec<Line<'static>> {
-        let wrapped_rows = self.wrap_cells(max_width, theme);
+        let (allocated_widths, wrapped_rows) = self.wrap_cells(max_width, theme);
         if wrapped_rows.is_empty() {
             return vec![];
         }
 
-        // 计算每列的最大宽度（考虑换行后的每行）
+        // 计算每列的最大宽度（考虑换行后的每行，且不得超出分配预算）
         let num_cols = wrapped_rows[0].len();
         let mut col_widths = vec![0usize; num_cols];
 
@@ -214,6 +226,12 @@ impl TableBuilder {
                         col_widths[col_idx] = col_widths[col_idx].max(line_width);
                     }
                 }
+            }
+        }
+        // 严格受限于分配列宽，保证总宽度 <= max_width
+        for (i, w) in col_widths.iter_mut().enumerate() {
+            if let Some(&alloc_w) = allocated_widths.get(i) {
+                *w = (*w).min(alloc_w);
             }
         }
 
@@ -369,10 +387,21 @@ impl TableBuilder {
 
             // 从 content_end 往回找最后一个空格，优先在单词边界断行
             let mut break_at = content_end;
+            let mut found_space = false;
             for (i, c) in text[byte_pos..content_end].char_indices().rev() {
                 if c.is_whitespace() {
                     break_at = byte_pos + i;
+                    found_space = true;
                     break;
+                }
+            }
+            // 若无空格且未到末尾，优先在路径/文件名分隔符 ('/', '\\', '-', '_') 处断行
+            if !found_space && content_end < text.len() {
+                for (i, c) in text[byte_pos..content_end].char_indices().rev() {
+                    if (c == '/' || c == '\\' || c == '-' || c == '_') && i > 0 {
+                        break_at = byte_pos + i + c.len_utf8();
+                        break;
+                    }
                 }
             }
 

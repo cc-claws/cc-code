@@ -251,6 +251,10 @@ impl RenderTask {
         detail_mode: bool,
     ) -> Vec<Line<'static>> {
         let tick = current_tool_indicator_tick();
+        // 减去气泡前缀缩进（UserBubble "❯ " / "  "，AssistantBubble "● " / "  " 均占 2 字符），
+        // 保证 Markdown 渲染宽度 + 前缀不超过视口宽度，避免 Paragraph.wrap() 二次硬折行
+        let content_width = width.saturating_sub(2).max(20);
+
         // 处理 dirty blocks（使用增量解析）
         if let MessageViewModel::AssistantBubble {
             blocks,
@@ -260,18 +264,18 @@ impl RenderTask {
         {
             for block in blocks.iter_mut() {
                 if *is_streaming {
-                    ensure_rendered_incremental(block, width);
+                    ensure_rendered_incremental(block, content_width);
                 } else {
-                    ensure_rendered_flush(block, width);
+                    ensure_rendered_flush(block, content_width);
                 }
             }
         }
-        // 用实际终端宽度重新解析用户消息的 markdown（初始创建时用默认宽度 80）
+        // 用实际终端内容宽度重新解析用户消息的 markdown（初始创建时用默认宽度 80）
         if let MessageViewModel::UserBubble {
             content, rendered, ..
         } = vm
         {
-            *rendered = super::markdown::parse_markdown(content, width);
+            *rendered = super::markdown::parse_markdown(content, content_width);
         }
 
         // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
