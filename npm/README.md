@@ -48,6 +48,7 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | `Ctrl+T` | 动态切换模型 alias |
 | `Ctrl+P` | 打开命令面板（Provider / Model / Effort 配置） |
 | `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |
+| `Alt+V` / `Ctrl+V` | 从剪贴板粘贴图片附件（`Alt+V` 专用于穿透 Windows Terminal 等现代终端对 `Ctrl+V` 的拦截） |
 | `Ctrl+O` | 切换详细模式（Verbose） |
 | `Ctrl+U` / `Ctrl+D` | 消息列表快速半页滚动（输入框为空时） |
 | `双击 Esc` | 打开 Rewind 会话历史回滚选择器 |

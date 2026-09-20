@@ -4,6 +4,17 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.59 — 2026-09-20
+
+### Features & Improvements
+
+- **支持 Alt+V 快捷键粘贴图片附件并对齐分支规范（#165, #166）**：
+  - 针对 Windows Terminal / PowerShell / VS Code 等现代终端在宿主层拦截 `Ctrl+V` 用于纯文本粘贴、导致系统剪贴板中的图片无法传入 TUI 的问题，新增 `Alt+V` 专用快捷键（兼容大写 `V` 及 macOS `Option+V` 字符 `√`），实现稳定穿透终端宿主触发剪贴板图片提取并挂载为待发送附件；
+  - 文本粘贴回退统一走 `paste_text_into_textarea` 管道，保障文件路径归一化与多行文本折叠占位符行为一致；
+  - `CLAUDE.md` 明确本仓库分支规范为最高优先级，禁用 `#` 命名以保护 GitHub Actions PR CI 链路，并补充现代终端粘贴快捷键实战避坑指南。
+
+---
+
 ## v0.6.58 — 2026-09-20
 
 ### Bug Fixes
