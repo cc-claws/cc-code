@@ -4,13 +4,11 @@ pub mod output_persist;
 pub mod todo;
 
 pub use ask_user_tool::AskUserTool;
-pub use filesystem::{
-    EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool,
-};
+pub use filesystem::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool};
 pub use todo::{TodoItem, TodoStatus, TodoWriteTool};
 
 use async_trait::async_trait;
-use peri_agent::tools::BaseTool;
+use peri_agent::tools::{BaseTool, ToolContent};
 use std::sync::Arc;
 
 /// ArcToolWrapper - 将 Arc<dyn BaseTool> 包装为 Box<dyn BaseTool> 可用的形式
@@ -45,6 +43,13 @@ impl BaseTool for BoxToolWrapper {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         self.0.invoke(input).await
     }
+
+    async fn invoke_content(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<ToolContent, Box<dyn std::error::Error + Send + Sync>> {
+        self.0.invoke_content(input).await
+    }
 }
 
 #[async_trait]
@@ -66,5 +71,12 @@ impl BaseTool for ArcToolWrapper {
         input: serde_json::Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         self.0.invoke(input).await
+    }
+
+    async fn invoke_content(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<ToolContent, Box<dyn std::error::Error + Send + Sync>> {
+        self.0.invoke_content(input).await
     }
 }
