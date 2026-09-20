@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.62 — 2026-09-20
+
+### Features & Improvements
+
+- **状态栏新增 Prompt Cache 命中率指标**：以常驻百分比替换瞬时 CPU 指标，并根据命中率分级显示颜色，继续保留 MEM 指标。
+- **移除消息区冗余的低命中率警告气泡**：低于 80% 时仅保留 tracing 告警，缓存状态统一由状态栏展示，避免打断正常阅读。
+
+---
+
 ## v0.6.60 — 2026-09-20
 
 ### Features & Improvements
