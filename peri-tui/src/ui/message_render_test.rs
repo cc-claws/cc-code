@@ -153,7 +153,8 @@
             .collect::<Vec<_>>()
             .join("");
 
-        assert!(full_text.contains("> !git status"), "应显示带 ! 前缀的命令");
+        assert!(full_text.contains("! git status"), "应显示命令块标题");
+        assert!(!full_text.contains("exit code"), "命令块标题不应显示 exit code");
         assert!(
             full_text.contains("Ctrl+O for details"),
             "超长输出应显示 Ctrl+O 详细模式提示"
@@ -231,8 +232,76 @@
             !text.contains("bad title"),
             "OSC 标题序列内容不应进入输出: {text:?}"
         );
-        assert!(text.contains("!echo control"), "命令标题普通文本应保留: {text:?}");
+        assert!(text.contains("! echo control"), "命令标题普通文本应保留: {text:?}");
         assert!(text.contains("red done"), "普通文本应保留: {text:?}");
+    }
+
+    #[test]
+    fn test_shell_command_render_uses_command_block_layout() {
+        let mut vm = MessageViewModel::ShellCommand {
+            id: "shell-block".to_string(),
+            command: "restart-9router.cmd".to_string(),
+            cwd: r"D:\code\9router".to_string(),
+            stdin: Vec::new(),
+            stdout: "[9router] Stopping old instance on 20130...\n[9router] Starting http://localhost:20130\n[9router] Startup timed out, check .9router-err.log".to_string(),
+            stderr: String::new(),
+            exit_code: Some(1),
+            collapsed: true,
+            content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
+        };
+        vm.recompute_hash();
+
+        let lines = render_view_model(&vm, None, 80, false, 0);
+        let rendered_lines: Vec<String> = lines
+            .iter()
+            .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect())
+            .collect();
+
+        assert_eq!(rendered_lines[0].trim_end(), "! restart-9router.cmd");
+        assert_eq!(rendered_lines[1], "  └ [9router] Stopping old instance on 20130...");
+        assert_eq!(rendered_lines[2], "    [9router] Starting http://localhost:20130");
+        assert_eq!(
+            rendered_lines[3],
+            "    [9router] Startup timed out, check .9router-err.log"
+        );
+        assert!(
+            rendered_lines.iter().all(|line| !line.contains("exit 1") && !line.contains("D:\\code\\9router")),
+            "命令块不应显示 exit code 或 cwd: {rendered_lines:?}"
+        );
+
+        let header = &lines[0];
+        assert_eq!(header.spans[0].style.fg, Some(crate::ui::theme::BASH_BORDER));
+        assert_eq!(header.spans[0].style.bg, Some(crate::ui::theme::USER_BG));
+        assert_eq!(
+            header.spans.last().unwrap().style.bg,
+            Some(crate::ui::theme::USER_BG)
+        );
+    }
+
+    #[test]
+    fn test_shell_command_render_no_output_uses_command_block_placeholder() {
+        let mut vm = MessageViewModel::ShellCommand {
+            id: "shell-empty".to_string(),
+            command: "sleep 30 && gh pr checks 18".to_string(),
+            cwd: ".".to_string(),
+            stdin: Vec::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: Some(0),
+            collapsed: true,
+            content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
+        };
+        vm.recompute_hash();
+
+        let lines = render_view_model(&vm, None, 80, false, 0);
+        let text = rendered_text(&lines);
+        assert!(text.contains("! sleep 30 && gh pr checks 18"));
+        assert!(text.contains("  └ (No output)"));
+        assert!(!text.contains("(no output)"));
     }
 
     #[test]

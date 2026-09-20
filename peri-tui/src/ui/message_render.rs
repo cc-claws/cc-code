@@ -509,64 +509,38 @@ fn shell_output_line(prefix: &'static str, text: &str, default_style: Style) -> 
     Line::from(spans)
 }
 
+/// 渲染用户 `!` 本机命令的标题行。
+///
+/// 标题行使用整行背景和粉色 `!` 标记，保持与 Claude Code 的本地命令块一致。
+fn shell_command_header(command: &str, width: usize) -> Line<'static> {
+    let command =
+        truncate_to_display_width(&sanitize_display_text(command), width.saturating_sub(2));
+    let header_bg = Style::default().bg(theme::USER_BG);
+    let mut spans = vec![
+        Span::styled("! ", header_bg.fg(theme::BASH_BORDER)),
+        Span::styled(command.clone(), header_bg.fg(theme::TEXT)),
+    ];
+    let used_width = 2 + UnicodeWidthStr::width(command.as_str());
+    if used_width < width {
+        spans.push(Span::styled(" ".repeat(width - used_width), header_bg));
+    }
+    Line::from(spans)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_shell_command(
     command: &str,
-    cwd: &str,
     stdin: &[String],
     stdout: &str,
     stderr: &str,
     exit_code: Option<i32>,
     detail_mode: bool,
-    tick: u64,
+    width: usize,
     started_at: Option<std::time::Instant>,
     moved_to_background: bool,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    let command = sanitize_display_text(command);
-    // moved 时用 MUTED 淡色（对齐效果图场景 5 opacity 0.4，提示"已转后台"）；否则按 exit_code 语义着色
-    let status_style = if moved_to_background {
-        Style::default().fg(theme::MUTED)
-    } else {
-        match exit_code {
-            None => Style::default().fg(theme::YELLOW),
-            Some(0) => Style::default().fg(theme::SAGE),
-            Some(_) => Style::default().fg(theme::ERROR),
-        }
-    };
-    // 复用 widget 层指示器：统一 ● 圆点 + 颜色语义化
-    let indicator_status = match exit_code {
-        None => peri_widgets::ToolCallStatus::Running,
-        Some(0) => peri_widgets::ToolCallStatus::Completed,
-        Some(_) => peri_widgets::ToolCallStatus::Failed,
-    };
-    let (indicator_ch, indicator_color) =
-        peri_widgets::tool_call::display::format_indicator(indicator_status, tick);
-    let status = if moved_to_background {
-        " (moved to background)".to_string()
-    } else {
-        match exit_code {
-            None => " running".to_string(),
-            Some(code) => format!(" exit {}", code),
-        }
-    };
-    let cwd_label: String = sanitize_display_text(cwd).chars().take(80).collect();
-    lines.push(Line::from(vec![
-        Span::styled(
-            indicator_ch.to_string(),
-            Style::default().fg(indicator_color),
-        ),
-        Span::raw(" "),
-        Span::styled("> ", Style::default().fg(theme::DIM)),
-        Span::styled(
-            format!("!{}", command),
-            Style::default()
-                .fg(theme::TEXT)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(status, status_style),
-        Span::styled(format!(" · {}", cwd_label), Style::default().fg(theme::DIM)),
-    ]));
+    lines.push(shell_command_header(command, width));
 
     let mut output_lines: Vec<(String, bool)> = Vec::new();
     for input in stdin {
@@ -583,10 +557,10 @@ fn render_shell_command(
         let text = if exit_code.is_none() {
             "running..."
         } else {
-            "(no output)"
+            "(No output)"
         };
         lines.push(shell_output_line(
-            "  │ ",
+            "  └ ",
             text,
             Style::default().fg(theme::DIM),
         ));
@@ -611,7 +585,7 @@ fn render_shell_command(
                     )
                 };
                 lines.push(shell_output_line(
-                    "  │ ",
+                    "    ",
                     &hint,
                     Style::default().fg(theme::DIM),
                 ));
@@ -622,7 +596,8 @@ fn render_shell_command(
             } else {
                 Style::default().fg(theme::MUTED)
             };
-            lines.push(shell_output_line("  │ ", line, default_style));
+            let prefix = if idx == 0 { "  └ " } else { "    " };
+            lines.push(shell_output_line(prefix, line, default_style));
         }
     }
 
@@ -639,27 +614,14 @@ fn render_shell_command(
             format!("({}s)", secs)
         };
         lines.push(shell_output_line(
-            "  │ ",
+            "    ",
             &elapsed_str,
             Style::default().fg(theme::MUTED),
         ));
         lines.push(shell_output_line(
-            "  │ ",
+            "    ",
             CONTROL_B_BACKGROUND_HINT,
             Style::default().fg(theme::MUTED),
-        ));
-    }
-
-    if let Some(code) = exit_code {
-        let footer_style = if code == 0 {
-            Style::default().fg(theme::SAGE)
-        } else {
-            Style::default().fg(theme::ERROR)
-        };
-        lines.push(shell_output_line(
-            "  └ ",
-            &format!("exit code {}", code),
-            footer_style,
         ));
     }
     lines
@@ -1023,7 +985,6 @@ pub fn render_view_model(
         }
         MessageViewModel::ShellCommand {
             command,
-            cwd,
             stdin,
             stdout,
             stderr,
@@ -1033,13 +994,12 @@ pub fn render_view_model(
             ..
         } => render_shell_command(
             command,
-            cwd,
             stdin,
             stdout,
             stderr,
             *exit_code,
             detail_mode,
-            tick,
+            width,
             *started_at,
             *moved_to_background,
         ),
