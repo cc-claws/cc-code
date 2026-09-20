@@ -189,30 +189,37 @@ async fn test_bash_stderr_captured() {
 }
 
 #[test]
-fn test_truncate_output_line_count_accurate() {
-    // 生成不含末尾换行的多行文本，避免 split('\n') 产生额外空行
+fn test_truncate_output_no_truncation_under_50k_even_with_many_lines() {
+    // 3000 行短文本，总长度约 31KB（小于 50KB）
     let lines: Vec<String> = (0..3000).map(|i| format!("line {}", i)).collect();
     let input = lines.join("\n");
-    assert_eq!(input.split('\n').count(), 3000);
+    assert!(input.len() < 50_000);
+    let result = truncate_output(&input);
+    // 不应发生截断，因为小于 50KB
+    assert_eq!(result, input);
+}
+
+#[test]
+fn test_truncate_output_byte_limit_head_tail() {
+    // 6000 行文本，总长度约 66KB（超过 50KB 上限）
+    let lines: Vec<String> = (0..6000).map(|i| format!("line {}", i)).collect();
+    let input = lines.join("\n");
+    assert!(input.len() > 50_000);
     let result = truncate_output(&input);
     assert!(
-        result.contains("3000 total lines"),
-        "应显示正确的总行数: {result}"
+        result.contains("byte preview limit"),
+        "应显示字节截断信息: {result}"
     );
     assert!(
-        result.contains("showing first 25 and last 25"),
-        "Bash 输出应只给 50 行 head/tail 预览: {result}"
+        result.contains("bytes omitted, showing head and tail"),
+        "应保留 head/tail 标记: {result}"
     );
     // 应保留头部和尾部
     assert!(result.contains("line 0"), "应保留第一行: {result}");
-    assert!(result.contains("line 2999"), "应保留最后一行: {result}");
+    assert!(result.contains("line 5999"), "应保留最后一行: {result}");
     assert!(
-        !result.contains("line 1000"),
+        !result.contains("line 3000"),
         "中间输出不应进入模型预览，应通过 Read 查看完整文件: {result}"
-    );
-    assert!(
-        result.contains("lines truncated"),
-        "应显示截断信息: {result}"
     );
 }
 
@@ -231,7 +238,7 @@ fn test_truncate_output_char_limit() {
         "应截断超长输出: {result}"
     );
     assert!(
-        result.len() < 25_000,
+        result.len() < 55_000,
         "Bash 字节截断后不应继续返回 100KB 级内容，实际长度: {}",
         result.len()
     );
@@ -239,8 +246,8 @@ fn test_truncate_output_char_limit() {
 
 #[test]
 fn test_truncate_output_preserves_tail() {
-    // 3000 行，尾部包含关键信息
-    let mut lines: Vec<String> = (0..2999).map(|i| format!("line {}", i)).collect();
+    // 6000 行，尾部包含关键信息
+    let mut lines: Vec<String> = (0..5999).map(|i| format!("line {}", i)).collect();
     lines.push("CRITICAL ERROR: test failed".to_string());
     let input = lines.join("\n");
     let result = truncate_output(&input);
@@ -380,8 +387,8 @@ fn test_truncate_bytes_zero_max() {
 }
 
 #[test]
-fn test_truncate_output_persists_full_content_on_lines_truncation() {
-    let lines: Vec<String> = (0..3000).map(|i| format!("line {}", i)).collect();
+fn test_truncate_output_persists_full_content_when_exceeding_50k() {
+    let lines: Vec<String> = (0..6000).map(|i| format!("line {}", i)).collect();
     let input = lines.join("\n");
     let result = truncate_output(&input);
     assert!(

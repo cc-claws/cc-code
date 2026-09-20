@@ -1,6 +1,6 @@
 use crate::process::{
-    git_bash_command, git_bash_path, is_unrecognized_command_error, shell_command,
-    shell_command_with_shell, should_fallback_to_bash,
+    git_bash_command, git_bash_path, is_potential_rtk_command, is_unrecognized_command_error,
+    shell_command, shell_command_with_shell, should_fallback_to_bash,
 };
 use std::path::Path;
 
@@ -307,6 +307,18 @@ fn test_should_fallback_empty_stderr() {
         "空 stderr 不应触发兜底 fallback"
     );
 }
+
+#[test]
+fn test_is_potential_rtk_command() {
+    assert!(is_potential_rtk_command("git status"));
+    assert!(is_potential_rtk_command("cargo test --lib"));
+    assert!(is_potential_rtk_command("npm install"));
+    assert!(is_potential_rtk_command("RUST_LOG=info cargo check"));
+    assert!(!is_potential_rtk_command("echo hello"));
+    assert!(!is_potential_rtk_command("cd /foo"));
+    assert!(!is_potential_rtk_command("mkdir bar"));
+}
+
 
 // ── MSYS_NO_PATHCONV 测试 ────────────────────────────────────────
 
