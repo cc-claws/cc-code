@@ -4,6 +4,19 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.66 — 2026-09-21
+
+### Features & Improvements
+
+- **执行中消息队列与按轮次 steering**：Agent 执行期间输入的消息进入待发队列，按轮次以增量 StateSnapshot 注入执行循环，不再打断当前执行或丢失历史。
+- **粘贴本机图片路径自动转为附件**：粘贴 `file://` URL 或引号包裹的绝对路径时直接识别为图片附件，避免把路径文字当图片发送。
+
+### Fixes
+
+- **修正 headless 多轮消息快照回归测试（#201, #202）**：按增量 steering 协议补齐 `begin_round` 并发送第二轮增量消息，仅修正测试建模，不改变生产逻辑。
+
+---
+
 ## v0.6.64 — 2026-09-21
 
 ### Features & Improvements
