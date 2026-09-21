@@ -22,9 +22,18 @@ const TOOL_ALIASES: &[(&str, &str)] = &[("task", "Agent"), ("shell", "Bash"), ("
 /// 主要解决 Read/Write/Edit（file_path）与 Glob/Grep（path）之间的 LLM 参数名混淆。
 const PARAM_ALIASES: &[(&str, &str)] = &[("path", "file_path")];
 
+/// 仅对这些工具执行 `path` → `file_path` 别名转换。
+/// Glob/Grep 的参数名本来就是 `path`，不能被篡改。
+const FILE_PATH_TOOLS: &[&str] = &["Read", "Write", "Edit"];
+
 /// 将 LLM 有时会误用的参数名归一化为标准名。
-/// 仅在有别名键且无目标键时才替换（不覆盖已有正确值）。
-fn normalize_params(input: serde_json::Value) -> serde_json::Value {
+/// 仅对有别名键且无目标键时才替换（不覆盖已有正确值）。
+/// 仅对 `FILE_PATH_TOOLS` 列表中的工具生效，避免篡改 Grep/Glob 的 `path` 参数。
+fn normalize_params(tool_name: &str, input: serde_json::Value) -> serde_json::Value {
+    if !FILE_PATH_TOOLS.contains(&tool_name) {
+        return input;
+    }
+
     let mut obj = match input {
         serde_json::Value::Object(map) => map,
         _ => return input,
@@ -37,6 +46,7 @@ fn normalize_params(input: serde_json::Value) -> serde_json::Value {
             tracing::warn!(
                 alias = %alias,
                 resolved = %real,
+                tool = %tool_name,
                 "参数名别名归一化：LLM 使用了非标准参数名"
             );
         }
@@ -302,7 +312,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 let tool_name = call.name.clone();
                 let call_id = call.id.clone();
                 let input = call.input.clone();
-                let input = normalize_params(input); // 新增：参数名归一化
+                let input = normalize_params(&tool_name, input);
                 let tool = resolve_tool(&call.name, all_tools);
                 let cancel = cancel.clone();
                 async move {
