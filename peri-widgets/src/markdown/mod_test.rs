@@ -493,3 +493,182 @@ fn parse_table_long_path_never_overflows_max_width() {
         }
     }
 }
+
+/// Demo 1：无序列表长内容折行后续行应与首行文字左边缘对齐（悬挂缩进）
+#[test]
+fn test_unordered_list_hanging_indent() {
+    // bullet "• " 占 2 列（• U+2022 宽度 1 + 空格 1）
+    // max_width=30，文本需要超过 28 列才会折行
+    let md = "- 结论摘要非系统问题历史绑定正常命中订单与日志证据齐全";
+    let text = parse_markdown(md, &default_theme(), 30);
+
+    // 应该产生多行（因为内容超宽）
+    assert!(
+        text.lines.len() >= 2,
+        "长列表项应折成多行，实际 {} 行: {:?}",
+        text.lines.len(),
+        text.lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect::<Vec<_>>()
+    );
+
+    // 首行应有 bullet "•"
+    let first_line: String = text.lines[0]
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert!(
+        first_line.contains('•'),
+        "首行应包含 bullet，实际: {:?}",
+        first_line
+    );
+
+    // 续行应以空格开头（悬挂缩进），宽度 = bullet 显示宽度
+    for i in 1..text.lines.len() {
+        let line: String = text.lines[i]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        if line.is_empty() {
+            continue; // 跳过空行
+        }
+        let leading_spaces: usize = line.chars().take_while(|c| *c == ' ').count();
+        assert!(
+            leading_spaces >= 2,
+            "续行 {} 应有 ≥2 列空格缩进（悬挂缩进），实际开头: {:?}",
+            i,
+            &line[..line.len().min(10)]
+        );
+    }
+}
+
+/// Demo 2：有序列表长内容折行后续行缩进应与序号后文字对齐
+#[test]
+fn test_ordered_list_hanging_indent() {
+    // "1. " 占 3 列，max_width=30，文本需要超过 27 列
+    let md = "1. 第一步打开配置文件并检查所有环境变量确保配置正确后重启";
+    let text = parse_markdown(md, &default_theme(), 30);
+
+    assert!(
+        text.lines.len() >= 2,
+        "长有序列表项应折成多行，实际 {} 行",
+        text.lines.len()
+    );
+
+    // 首行应有序号 "1."
+    let first_line: String = text.lines[0]
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert!(first_line.contains("1."), "首行应包含序号 '1.'");
+
+    // 续行缩进 = "1. " 的宽度 = 3
+    for i in 1..text.lines.len() {
+        let line: String = text.lines[i]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        if line.is_empty() {
+            continue;
+        }
+        let leading_spaces: usize = line.chars().take_while(|c| *c == ' ').count();
+        assert!(
+            leading_spaces >= 3,
+            "有序列表续行 {} 应有 ≥3 列空格缩进，实际开头: {:?}",
+            i,
+            &line[..line.len().min(10)]
+        );
+    }
+}
+
+/// Demo 3：嵌套列表各级悬挂缩进逐层叠加
+#[test]
+fn test_nested_list_hanging_indent() {
+    // 嵌套列表：父项 "• " 2列，子项 "  • " 4列
+    let md = "- 父项\n  - 子项内容非常长需要折行的文字这里继续写更多内容以确保超出宽度";
+    let text = parse_markdown(md, &default_theme(), 30);
+
+    // 找到子项的行（以 "  •" 开头的行）
+    let mut child_first_line_idx = None;
+    for (i, line) in text.lines.iter().enumerate() {
+        let line_str: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        if line_str.contains("  •") && line_str.contains("子项") {
+            child_first_line_idx = Some(i);
+            break;
+        }
+    }
+    let child_idx = child_first_line_idx.expect("应有子项行");
+
+    // 子项续行的缩进应 ≥ 4 列（"  " 层级缩进 + "• " bullet 宽度）
+    if child_idx + 1 < text.lines.len() {
+        let next_line: String = text.lines[child_idx + 1]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        if !next_line.is_empty() && !next_line.contains('•') {
+            let leading_spaces: usize = next_line.chars().take_while(|c| *c == ' ').count();
+            assert!(
+                leading_spaces >= 4,
+                "嵌套子项续行应有 ≥4 列缩进，实际 {} 列，行内容: {:?}",
+                leading_spaces,
+                next_line
+            );
+        }
+    }
+}
+
+/// Demo 4：引用块长内容折行后续行应有引用前缀对齐
+#[test]
+fn test_blockquote_hanging_indent() {
+    let md = "> 引用内容非常长需要折行的文字这里继续写更多内容以确保超出指定宽度限制";
+    let text = parse_markdown(md, &default_theme(), 30);
+
+    assert!(
+        text.lines.len() >= 2,
+        "长引用块应折成多行，实际 {} 行",
+        text.lines.len()
+    );
+
+    // 所有非空行都应有引用前缀 "▍"
+    for (i, line) in text.lines.iter().enumerate() {
+        let line_str: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        if line_str.is_empty() {
+            continue;
+        }
+        assert!(
+            line_str.contains('▍'),
+            "引用块第 {} 行应包含引用前缀 '▍'，实际: {:?}",
+            i,
+            line_str
+        );
+    }
+}
+
+/// 验证每行宽度不超过 max_width
+#[test]
+fn test_hanging_indent_respects_max_width() {
+    let md = "- 这是一个非常长的列表项内容需要在指定宽度内折行并保持悬挂缩进对齐效果";
+    for max_width in [20, 30, 40, 50, 60] {
+        let text = parse_markdown(md, &default_theme(), max_width);
+        for (idx, line) in text.lines.iter().enumerate() {
+            let line_w: usize = line.spans.iter().map(|s| s.content.width()).sum();
+            assert!(
+                line_w <= max_width,
+                "在 max_width={} 下，第 {} 行宽度 {} 超出限制: {:?}",
+                max_width,
+                idx,
+                line_w,
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            );
+        }
+    }
+}
