@@ -45,7 +45,7 @@ Usage:
 - Use max_depth to limit search directory depth
 
 Output modes:
-- "files_with_matches": lists only file paths that contain matches (default — token-efficient)
+- "files_with_matches": lists only file paths without lines (default — token-efficient)
 - "content": shows matching lines with line numbers
 - "count": shows match counts per file
 - "files_without_matches": lists only file paths that do NOT contain matches
@@ -472,7 +472,7 @@ impl BaseTool for GrepTool {
                 "output_mode": {
                     "type": "string",
                     "enum": ["content", "files_with_matches", "count", "files_without_matches"],
-                    "description": "Output mode: \"files_with_matches\" lists only file paths (default, token-efficient), \"content\" shows matching lines with line numbers, \"count\" shows match counts per file, \"files_without_matches\" lists file paths without matches"
+                    "description": "\"content\" shows matching lines + line numbers; \"files_with_matches\" (default) lists only paths without lines; \"count\" shows counts; \"files_without_matches\" lists unmatched paths"
                 },
                 "-i": {
                     "type": "boolean",
