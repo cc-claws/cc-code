@@ -546,7 +546,7 @@ impl BaseTool for BashTool {
 }
 
 impl BashTool {
-    /// Windows-only：用 Git Bash 重试原始命令，输出末尾追加 `[Retried with Git Bash]` 标记。
+    /// Windows-only：用 Git Bash 重试原始命令，不向输出追加重试标记（issue #209：机制性元信息不应进入 tool_result）。
     /// 复用 truncate_output，保持与首次执行一致的截断行为。
     #[cfg(windows)]
     async fn invoke_with_git_bash(
@@ -578,13 +578,9 @@ impl BashTool {
                 let stderr = crate::tools::output_filter::clean_rtk_stderr_noise(&stderr);
                 let exit_code = out.status.code().unwrap_or(-1);
 
-                let mut output = format_command_output(&stdout, &stderr, exit_code);
-                output.push_str("\n[Retried with Git Bash]");
+                let output = format_command_output(&stdout, &stderr, exit_code);
                 let output =
                     crate::tools::output_filter::filter_command_output(command, &output, exit_code);
-
-                // format_command_output 在无输出时返回 "[Command completed ...]"，
-                // 仅追加标记即可，无需再特判空输出。
                 Ok(truncate_output(&output))
             }
         }
