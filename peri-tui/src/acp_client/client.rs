@@ -393,6 +393,25 @@ impl AcpTuiClient {
         Ok(())
     }
 
+    /// 补充本轮用户信息，返回成功时内容已写入 Agent 历史及状态快照。
+    pub async fn steer(
+        &self,
+        session_id: String,
+        content: peri_agent::messages::MessageContent,
+    ) -> Result<(), String> {
+        self.transport
+            .send_request(
+                "peri/session/steer",
+                json!({
+                    "sessionId": session_id,
+                    "message": { "content": content },
+                }),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
     /// Cancel the currently running prompt.
     pub async fn cancel(&self) -> Result<(), String> {
         let session_id = self

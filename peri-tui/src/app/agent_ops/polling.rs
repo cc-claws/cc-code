@@ -5,6 +5,7 @@ use crate::app::App;
 
 impl App {
     pub fn poll_agent(&mut self) -> bool {
+        let steering_updated = self.poll_steering_results();
         // Cancel 超时安全网：5 秒后仍未收到 Interrupted/Done，强制清理
         if let Some(cancel_at) = self.session_mgr.current_mut().agent.cancel_sent_at {
             if cancel_at.elapsed() > std::time::Duration::from_secs(5)
@@ -44,10 +45,10 @@ impl App {
             .is_some();
 
         if !has_acp {
-            return false;
+            return steering_updated;
         }
 
-        let mut updated = false;
+        let mut updated = steering_updated;
 
         // 节流检查（每帧开始时，确保上一批 chunk 的尾部也被显示）
         {
@@ -133,7 +134,7 @@ impl App {
                     &mut self.session_mgr.current_mut().messages.pending_messages;
                 if pending_messages.len() < MAX_PENDING {
                     tracing::debug!(source = %notif.source, "channel 消息排队（agent 运行中）");
-                    pending_messages.push(xml);
+                    pending_messages.push(xml.into());
                 } else {
                     tracing::warn!(
                         "pending_messages 已达上限 {}，丢弃 channel 消息",
@@ -240,7 +241,7 @@ impl App {
                         .current_mut()
                         .messages
                         .pending_messages
-                        .push(trigger.prompt);
+                        .push(trigger.prompt.into());
                 } else {
                     tracing::warn!("pending_messages 已达上限 {}，丢弃 cron 触发", MAX_PENDING);
                 }

@@ -3,6 +3,7 @@ pub(crate) mod bg_agent_bar;
 pub(crate) mod message_area;
 pub(crate) mod panels;
 mod popups;
+mod queued_messages;
 mod status_bar;
 mod sticky_header;
 
@@ -28,6 +29,9 @@ enum TextareaShellMode {
 }
 
 pub fn render(f: &mut Frame, app: &mut App) {
+    let ui = &mut app.session_mgr.current_mut().ui;
+    ui.queued_message_actions.clear();
+    ui.queued_messages_area = None;
     // Setup 向导：全屏覆盖，优先于所有正常界面
     if app.global_ui.setup_wizard.is_some() {
         popups::setup_wizard::render_setup_wizard(f, app);
@@ -46,18 +50,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     let line_count = app.session_mgr.current_mut().ui.textarea.lines().len() as u16;
     let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
 
-    // 缓冲消息高度（loading 时在输入框上方显示待发送消息）
-    let pending_count = app
-        .session_mgr
-        .current_mut()
-        .messages
-        .pending_messages
-        .len();
-    let queued_height: u16 = if pending_count > 0 && app.session_mgr.current_mut().ui.loading {
-        (pending_count as u16).min(3)
-    } else {
-        0
-    };
+    let queued_height = queued_messages::height(app);
 
     // 附件栏高度
     let attachment_height: u16 = if app
@@ -205,46 +198,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         ui.panel_selection.clear();
     }
 
-    // 缓冲消息预览（loading 时在输入框上方显示待发送消息）
-    if queued_height > 0 {
-        let queued_area = chunks[4];
-        let msgs = &app.session_mgr.current_mut().messages.pending_messages;
-        let visible_count = (pending_count).min(queued_height as usize);
-        let pending_style = Style::default().fg(theme::MUTED).bg(theme::USER_BG);
-        for (i, msg) in msgs.iter().take(visible_count).enumerate() {
-            let line_area = Rect {
-                x: queued_area.x + 2,
-                y: queued_area.y + i as u16,
-                width: queued_area.width.saturating_sub(2),
-                height: 1,
-            };
-            // 截断到可用宽度（字符级安全）
-            let max_chars = line_area.width as usize;
-            let display: String = msg.chars().take(max_chars.saturating_sub(3)).collect();
-            let suffix = if msg.chars().count() > max_chars.saturating_sub(3) {
-                "…"
-            } else {
-                ""
-            };
-            f.render_widget(
-                Paragraph::new(format!("{}{}", display, suffix)).style(pending_style),
-                line_area,
-            );
-        }
-        if pending_count > visible_count {
-            let more_area = Rect {
-                x: queued_area.x + 2,
-                y: queued_area.y + visible_count as u16,
-                width: queued_area.width.saturating_sub(2),
-                height: 1,
-            };
-            f.render_widget(
-                Paragraph::new(format!("… +{} more", pending_count - visible_count))
-                    .style(pending_style),
-                more_area,
-            );
-        }
-    }
+    queued_messages::render(f, app, chunks[4]);
 
     // 输入框样式：Bar 焦点变暗 / 聚焦只读模式 / 正常模式
     let bar_focused = {

@@ -68,12 +68,15 @@ pub(crate) async fn execute_prompt(
 
     // Create cancel token and register in sessions.
     let cancel = AgentCancellationToken::new();
+    let steering = peri_agent::agent::steering::SteeringQueue::default();
+    let _steering_guard = steering.close_on_drop();
     {
         let mut sessions = sessions.lock().await;
         let state = sessions
             .get_mut(&session_id)
             .ok_or_else(|| AcpError::new(-32602, "session not found"))?;
         state.cancel_token = Some(cancel.clone());
+        state.steering = Some(steering.clone());
     }
 
     // Read session data under lock, then release immediately.
@@ -137,6 +140,7 @@ pub(crate) async fn execute_prompt(
         Some(thread_id.clone()),
         None, // session_manager（TUI 使用 SharedSessions，不走 SessionManager）
         bg_results,
+        Some(steering),
     )
     .await;
 
@@ -214,6 +218,7 @@ pub(crate) async fn execute_prompt(
             }
             state.recall_items = result.recall_items;
             state.cancel_token = None;
+            state.steering = None;
         }
     }
 

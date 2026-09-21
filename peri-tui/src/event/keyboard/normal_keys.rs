@@ -94,7 +94,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         | Input {
             key: Key::Char('√'), // macOS Option+V compose char
             ..
-        } if !app.session_mgr.current_mut().ui.loading => handle_ctrl_v(app),
+        } => handle_ctrl_v(app),
 
         // Tab: @ 提及补全 > hint overlay candidate navigation and completion
         Input {
@@ -157,14 +157,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             let text = raw_text.trim().to_string();
             if !text.is_empty() {
                 if app.session_mgr.current_mut().ui.loading {
-                    // Loading state: buffer message
-                    app.session_mgr
-                        .current_mut()
-                        .messages
-                        .pending_messages
-                        .push(text);
-                    app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
-                    app.update_textarea_hint();
+                    app.queue_user_message(text);
                 } else if let Some(command) = text.strip_prefix('!') {
                     let command = command.trim().to_string();
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
