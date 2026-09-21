@@ -58,6 +58,7 @@ where
     pub(crate) shared_tools: Option<Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>>,
     /// micro_compact 配置（None = 不在循环内自动压缩）
     pub(crate) compact_config: Option<crate::agent::compact::CompactConfig>,
+    pub(crate) steering: Option<crate::agent::steering::SteeringQueue>,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -74,11 +75,17 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             tool_filter: None,
             shared_tools: None,
             compact_config: None,
+            steering: None,
         }
     }
 
     pub fn max_iterations(mut self, n: usize) -> Self {
         self.max_iterations = n;
+        self
+    }
+
+    pub fn with_steering(mut self, queue: crate::agent::steering::SteeringQueue) -> Self {
+        self.steering = Some(queue);
         self
     }
 
@@ -207,6 +214,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     ) -> AgentResult<AgentOutput> {
         // 若未提供 token，创建一个永不触发的占位符，简化后续逻辑
         let cancel = cancel.unwrap_or_default();
+        let _steering_guard = self.steering.as_ref().map(|queue| queue.close_on_drop());
 
         let human_msg = BaseMessage::human(input.content);
         let mut snapshot_anchor: MessageId = human_msg.id();
@@ -293,6 +301,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
         for step in 0..self.max_iterations {
             state.set_current_step(step);
+            if let Some(queue) = &self.steering {
+                self.consume_steering(state, queue.drain(), &mut snapshot_anchor);
+            }
 
             // 钩子: before_model — LLM 调用前（compact 检查点）
             self.chain.run_before_model(state).await?;
@@ -336,6 +347,20 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
                 // compact 已由 CompactMiddleware（before_model 钩子）在 call_llm 前处理
             } else {
+                // 先完成当前 AI 消息，再加入补充信息；不打断 LLM/工具，也不破坏工具配对。
+                if let Some(queue) = &self.steering {
+                    let pending = if step + 1 < self.max_iterations {
+                        queue.drain_or_close()
+                    } else {
+                        queue.close();
+                        Vec::new()
+                    };
+                    if !pending.is_empty() {
+                        self::final_answer::record_answer(self, state, &reasoning);
+                        self.consume_steering(state, pending, &mut snapshot_anchor);
+                        continue;
+                    }
+                }
                 // 最终回答（clone all_tool_calls 避免移动，MaxIterationsExceeded 路径仍需借用）
                 let output = self::final_answer::handle_final_answer(
                     self,
@@ -387,6 +412,33 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 "ReAct 循环达到最大迭代次数"
             );
             return Err(AgentError::MaxIterationsExceeded(self.max_iterations));
+        }
+    }
+
+    fn consume_steering(
+        &self,
+        state: &mut S,
+        pending: Vec<crate::agent::steering::PendingSteering>,
+        snapshot_anchor: &mut MessageId,
+    ) {
+        if pending.is_empty() {
+            return;
+        }
+        let mut receipts = Vec::with_capacity(pending.len());
+        for item in pending {
+            state.add_message(BaseMessage::human(item.content));
+            receipts.push(item.consumed);
+        }
+        let start = self::final_answer::index_after_id(state.messages(), *snapshot_anchor);
+        let messages = state.messages()[start..]
+            .iter()
+            .filter(|message| !message.is_system())
+            .cloned()
+            .collect();
+        self.emit(AgentEvent::StateSnapshot(messages));
+        *snapshot_anchor = state.messages().last().expect("messages non-empty").id();
+        for receipt in receipts {
+            let _ = receipt.send(());
         }
     }
 
@@ -474,3 +526,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 #[cfg(test)]
 #[path = "mod_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "steering_test.rs"]
+mod steering_tests;

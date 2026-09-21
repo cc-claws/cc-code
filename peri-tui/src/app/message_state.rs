@@ -10,6 +10,56 @@ use crate::ui::{
 };
 
 use super::message_pipeline::MessagePipeline;
+use super::PendingAttachment;
+
+/// 每条排队消息独立持有已经展开的文字和图片，避免读取后续草稿的附件。
+pub struct QueuedMessage {
+    pub id: uuid::Uuid,
+    pub text: String,
+    pub attachments: Vec<PendingAttachment>,
+    pub sending: bool,
+}
+
+impl QueuedMessage {
+    pub fn new(text: String, attachments: Vec<PendingAttachment>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            text,
+            attachments,
+            sending: false,
+        }
+    }
+
+    pub(crate) fn content(&self) -> peri_agent::messages::MessageContent {
+        use peri_agent::messages::{ContentBlock, MessageContent};
+        if self.attachments.is_empty() {
+            return MessageContent::text(self.text.clone());
+        }
+        let mut blocks = vec![ContentBlock::text(self.text.clone())];
+        blocks.extend(
+            self.attachments
+                .iter()
+                .map(|image| ContentBlock::image_base64(&image.media_type, &image.base64_data)),
+        );
+        MessageContent::Blocks(blocks)
+    }
+}
+
+impl From<String> for QueuedMessage {
+    fn from(text: String) -> Self {
+        Self::new(text, Vec::new())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueuedMessageAction {
+    Steer(uuid::Uuid),
+    Delete(uuid::Uuid),
+    PreviousPage,
+    NextPage,
+}
+
+pub(crate) type SteeringResult = (uuid::Uuid, Result<(), String>);
 
 /// 消息状态：会话级的消息管线、渲染通道、消息列表。
 pub struct MessageState {
@@ -20,7 +70,9 @@ pub struct MessageState {
     pub render_cache: Arc<RwLock<RenderCache>>,
     pub render_notify: Arc<Notify>,
     pub last_render_version: u64,
-    pub pending_messages: Vec<String>,
+    pub pending_messages: Vec<QueuedMessage>,
+    pub(crate) steering_result_tx: mpsc::UnboundedSender<SteeringResult>,
+    pub(crate) steering_result_rx: mpsc::UnboundedReceiver<SteeringResult>,
     /// 最近一次提交的用户文本（用于 Ctrl+C 中断时恢复到输入框）
     pub last_submitted_text: Option<String>,
     /// 临时系统通知（不在 BaseMessage[] 中），记录 (锚点索引, VM)。
@@ -39,6 +91,7 @@ impl MessageState {
         render_cache: Arc<RwLock<RenderCache>>,
         render_notify: Arc<Notify>,
     ) -> Self {
+        let (steering_result_tx, steering_result_rx) = mpsc::unbounded_channel();
         Self {
             view_messages: Vec::new(),
             round_start_vm_idx: 0,
@@ -48,6 +101,8 @@ impl MessageState {
             render_notify,
             last_render_version: 0,
             pending_messages: Vec::new(),
+            steering_result_tx,
+            steering_result_rx,
             last_submitted_text: None,
             ephemeral_notes: Vec::new(),
             last_resize_width: None,
