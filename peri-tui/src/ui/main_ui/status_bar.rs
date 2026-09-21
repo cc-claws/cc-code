@@ -525,10 +525,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         };
 
         left_spans.push(Span::styled("  ", Style::default()));
-        left_spans.push(Span::styled(
-            cache_str,
-            Style::default().fg(cache_color),
-        ));
+        left_spans.push(Span::styled(cache_str, Style::default().fg(cache_color)));
         left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
             format!("MEM {}MB", mem),

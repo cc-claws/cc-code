@@ -9,6 +9,33 @@ fn base64_encode(bytes: &[u8]) -> String {
     STANDARD.encode(bytes)
 }
 
+/// 图片格式魔数（Magic Bytes）嗅探：返回文件头签名实际匹配的图片格式
+///
+/// 返回规范化的格式名（png/jpg/gif/webp/bmp）。比较时 `.jpeg` 扩展名需先归一化为 `jpg`
+fn sniff_image_format(bytes: &[u8]) -> Option<&'static str> {
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if bytes.len() >= 8 && bytes[..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+        return Some("png");
+    }
+    // JPEG: FF D8 FF
+    if bytes.len() >= 3 && bytes[..3] == [0xFF, 0xD8, 0xFF] {
+        return Some("jpg");
+    }
+    // GIF: GIF87a / GIF89a
+    if bytes.len() >= 6 && (&bytes[..6] == b"GIF87a" || &bytes[..6] == b"GIF89a") {
+        return Some("gif");
+    }
+    // WebP: RIFF....WEBP（偏移 8~12）
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+    // BMP: 42 4D (BM)
+    if bytes.len() >= 2 && bytes[..2] == [0x42, 0x4D] {
+        return Some("bmp");
+    }
+    None
+}
+
 /// Read tool - 与 TypeScript read_tool 对齐
 pub struct ReadFileTool {
     pub cwd: String,
@@ -69,7 +96,8 @@ fn is_binary_extension(ext: &str) -> bool {
     matches!(
         ext,
         // 不可视的图片格式（ico/tiff 不在多模态支持范围内）
-        "ico" | "tiff"
+        "ico"
+            | "tiff"
             | "pdf"
             | "doc"
             | "docx"
@@ -266,8 +294,43 @@ impl ReadFileTool {
             )));
         }
 
-        // 读取字节 → Base64
         let bytes = std::fs::read(resolved)?;
+
+        // [TRAP] 魔数校验：扩展名声明的格式必须与文件头签名一致。
+        // 防御伪图片（HTML 错误页 / JSON 报错 / Git LFS 指针写入图片后缀文件）
+        // 被盲目 base64 后发给模型触发 API 400（详见 issue #186）
+        let expected = if ext.eq_ignore_ascii_case("jpeg") {
+            "jpg"
+        } else {
+            ext
+        };
+        if sniff_image_format(&bytes) != Some(expected) {
+            // 空文件：显式报错
+            if bytes.is_empty() {
+                return Ok(ToolContent::text(format!(
+                    "Error: File '{file_path}' is empty, does not match the expected .{ext} image signature."
+                )));
+            }
+            // 可解码为文本（如 HTML 错误页/JSON 报错/Git LFS 指针）→ 降级为文本展示 + 格式告警
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                if !text.trim().is_empty() {
+                    let mut output = format!(
+                        "[IMAGE CONTENT MISMATCH] File '{file_path}' has .{ext} extension but does not contain valid {ext} image data.\n\
+The content appears to be plain text (possibly a failed download or error page):\n"
+                    );
+                    for (i, line) in text.lines().take(50).enumerate() {
+                        output.push_str(&format!("{:>6}\t{}\n", i + 1, line));
+                    }
+                    return Ok(ToolContent::text(output));
+                }
+            }
+            // 非文本且非有效图片：显式报错，绝不向模型回传脏 Base64
+            return Ok(ToolContent::text(format!(
+                "Error: File '{file_path}' does not match the expected image signature for .{ext} (corrupted or unrecognized format)."
+            )));
+        }
+
+        // 魔数校验通过 → Base64 编码返回多模态内容
         let base64_data = base64_encode(&bytes);
         let media_type = image_media_type(ext);
         let size_kb = meta.len() / 1024;

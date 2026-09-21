@@ -23,9 +23,8 @@ pub fn default_log_path(service_name: &str) -> std::path::PathBuf {
 /// Windows 下日志文件为空时写入 UTF-8 BOM，避免 PowerShell Get-Content 乱码
 #[cfg(target_os = "windows")]
 fn ensure_utf8_bom(path: &str) {
-    let meta = std::fs::metadata(path).unwrap_or_else(|_| {
-        std::fs::metadata(path).expect("cannot read log file metadata")
-    });
+    let meta = std::fs::metadata(path)
+        .unwrap_or_else(|_| std::fs::metadata(path).expect("cannot read log file metadata"));
     if meta.len() == 0 {
         use std::io::Write;
         let mut f = std::fs::OpenOptions::new()
@@ -82,12 +81,14 @@ pub fn init_tracing(service_name: &str) -> TracingGuard {
         let subscriber = Registry::default()
             .with(filter)
             .with(fmt::layer().json().with_writer(file));
-        tracing::subscriber::set_global_default(subscriber).expect("Unable to set global subscriber");
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("Unable to set global subscriber");
     } else {
         let subscriber = Registry::default()
             .with(filter)
             .with(fmt::layer().with_writer(file).with_ansi(false));
-        tracing::subscriber::set_global_default(subscriber).expect("Unable to set global subscriber");
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("Unable to set global subscriber");
     }
 
     TracingGuard
