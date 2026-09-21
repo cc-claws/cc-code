@@ -79,23 +79,7 @@ pub(crate) async fn handle_final_answer<L: ReactLLM, S: State>(
         );
     }
 
-    // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
-    let ai_msg = reasoning
-        .source_message
-        .clone()
-        .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
-    let ai_msg_id = ai_msg.id(); // 捕获 message_id（Copy，供 TextChunk 使用）
-    let ai_msg_clone = ai_msg.clone();
-    state.add_message(ai_msg);
-    agent.emit(AgentEvent::MessageAdded(ai_msg_clone));
-
-    if !reasoning.streamed {
-        agent.emit(AgentEvent::TextChunk {
-            message_id: ai_msg_id,
-            chunk: answer.clone(),
-            source_agent_id: None,
-        });
-    }
+    record_answer(agent, state, reasoning);
 
     let start = index_after_id(state.messages(), *snapshot_anchor);
     let msgs_since_last: Vec<BaseMessage> = state.messages()[start..]
@@ -151,5 +135,31 @@ pub(crate) async fn handle_final_answer<L: ReactLLM, S: State>(
             agent.chain.run_on_error(state, &e).await?;
             Err(e)
         }
+    }
+}
+
+/// 保存一次完整回答；用户刚补充信息时暂不执行 after_agent，继续下一轮模型调用。
+pub(super) fn record_answer<L: ReactLLM, S: State>(
+    agent: &ReActAgent<L, S>,
+    state: &mut S,
+    reasoning: &Reasoning,
+) {
+    let answer = reasoning
+        .final_answer
+        .as_ref()
+        .unwrap_or(&reasoning.thought);
+    let message = reasoning
+        .source_message
+        .clone()
+        .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
+    let message_id = message.id();
+    state.add_message(message.clone());
+    agent.emit(AgentEvent::MessageAdded(message));
+    if !reasoning.streamed {
+        agent.emit(AgentEvent::TextChunk {
+            message_id,
+            chunk: answer.clone(),
+            source_agent_id: None,
+        });
     }
 }
