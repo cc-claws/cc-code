@@ -509,6 +509,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             Some(thread_id.clone()),
                             None, // session_manager（stdio 使用自定义 SessionInfo，不走 SessionManager）
                             vec![], // bg_results（stdio 无后台任务）
+                            None, // steering（自定义 TUI 扩展，标准 ACP 暂不提供）
                         )
                         .await;
 

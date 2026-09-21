@@ -1,5 +1,3 @@
-use peri_agent::messages::BaseMessage;
-
 use crate::{
     app::tool_display,
     ui::{
@@ -182,28 +180,21 @@ impl MessagePipeline {
     /// 从 pipeline 规范状态构建尾部 VMs。
     ///
     /// 两种情况：
-    /// - has_snapshot_this_round == true：从 completed[last_human..] reconcile + streaming + pending tools
+    /// - has_snapshot_this_round == true：从本轮起点 reconcile + streaming + pending tools
     /// - has_snapshot_this_round == false（Case 1）：跳过 reconcile，只输出 streaming + pending tools
     pub(crate) fn build_tail_vms(&self) -> Vec<MessageViewModel> {
         let mut tail_vms = Vec::new();
 
         if self.has_snapshot_this_round {
             let start = self.completed_len_at_round_start.min(self.completed.len());
-            let round_completed = &self.completed[start..];
-            let last_human_offset = round_completed
-                .iter()
-                .rposition(|msg| matches!(msg, BaseMessage::Human { .. }))
-                .map(|idx| idx + start)
-                .unwrap_or(start);
-            tail_vms =
-                Self::messages_to_view_models(&self.completed[last_human_offset..], &self.cwd);
+            // 本轮可能包含用户主动补充的 Human 消息，不能用最后一条 Human 截掉之前的执行过程。
+            tail_vms = Self::messages_to_view_models(&self.completed[start..], &self.cwd);
             let reconcile_subagent_count =
                 tail_vms.iter().filter(|vm| vm.is_subagent_group()).count();
             tracing::debug!(
                 has_snapshot = true,
                 completed_len = self.completed.len(),
                 start_offset = start,
-                last_human_offset,
                 reconcile_total = tail_vms.len(),
                 reconcile_subagent_count,
                 frozen_count = self.frozen_subagent_vms.len(),

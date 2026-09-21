@@ -40,10 +40,11 @@ impl Command for ChannelCommand {
             return;
         }
 
-        app.active_mut()
-            .messages
-            .pending_messages
-            .push("用法: /channel open <source> | /channel close | /channel status".to_string());
+        app.active_mut().messages.pending_messages.push(
+            "用法: /channel open <source> | /channel close | /channel status"
+                .to_string()
+                .into(),
+        );
     }
 }
 
@@ -140,7 +141,7 @@ impl ChannelCommand {
         app.active_mut()
             .messages
             .pending_messages
-            .push(msg.to_string());
+            .push(msg.to_string().into());
     }
 }
 

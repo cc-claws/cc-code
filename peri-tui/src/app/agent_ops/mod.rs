@@ -329,6 +329,12 @@ impl App {
                 if self.session_mgr.current_mut().agent.subagent_depth > 0 {
                     return (true, false, false);
                 }
+                if msgs.iter().any(|message| {
+                    matches!(message, peri_agent::messages::BaseMessage::Human { .. })
+                }) {
+                    // 执行中的补充消息已经进入历史，中断时不能撤回本轮开头的输入。
+                    self.session_mgr.current_mut().messages.last_submitted_text = None;
+                }
                 self.session_mgr
                     .current_mut()
                     .agent

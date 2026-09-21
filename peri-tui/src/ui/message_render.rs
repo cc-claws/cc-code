@@ -184,7 +184,7 @@ fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
 
 /// 按显示列宽（unicode-width）截断字符串。
 /// 若超出 max_width，则截断并追加 '…'（占 1 列宽），确保结果总显示列宽不超过 max_width。
-fn truncate_to_display_width(s: &str, max_width: usize) -> String {
+pub(crate) fn truncate_to_display_width(s: &str, max_width: usize) -> String {
     if max_width == 0 {
         return String::new();
     }
