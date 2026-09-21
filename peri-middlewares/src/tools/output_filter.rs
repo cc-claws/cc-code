@@ -114,6 +114,20 @@ pub fn filter_cargo_build_or_check(output: &str, exit_code: i32) -> String {
     }
 }
 
+/// 过滤 RTK 自身向 stderr 输出的外部宿主提示噪音（如未安装 Hook 或 Hook 过期的提示），
+/// 避免污染 stderr 并被 `format_command_output` 误标为 `[stderr]` 从而误导 Agent。
+pub fn clean_rtk_stderr_noise(stderr: &str) -> String {
+    if !stderr.contains("[rtk] /!\\") {
+        return stderr.to_string();
+    }
+    let cleaned = stderr
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("[rtk] /!\\"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    cleaned.trim().to_string()
+}
+
 /// 对命令输出进行语义级轻量压缩。
 ///
 /// 1. 首先剥离 ANSI 转义字符和回车覆盖。
