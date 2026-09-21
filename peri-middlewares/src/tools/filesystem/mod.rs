@@ -4,6 +4,7 @@ pub mod grep;
 pub(crate) mod grep_args;
 pub(crate) mod grep_format;
 pub mod read;
+pub(crate) mod rg_engine;
 pub mod write;
 
 pub use edit::EditFileTool;
