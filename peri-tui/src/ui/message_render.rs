@@ -667,28 +667,34 @@ pub fn render_view_model(
 
             // 普通 UserBubble — 原有渲染逻辑不变
             let user_bg: Color = theme::USER_BG;
+            // [TRAP] 同 AssistantBubble Text 路径：markdown 普通段落不预折行，
+            // 需先按 content_width 预折行，防止 Paragraph::wrap 二次硬折行后续行丢掉 "  " 悬挂缩进
+            let content_width = width.saturating_sub(2).max(20);
             let mut lines = Vec::with_capacity(effective_rendered.lines.len() + 1);
             for (i, line) in effective_rendered.lines.iter().enumerate() {
-                if i == 0 {
-                    // 第一行：用户消息用 ❯ 前缀，带底色
-                    let mut spans = vec![Span::styled(
-                        "❯ ",
-                        Style::default()
-                            .fg(theme::ACCENT)
-                            .add_modifier(Modifier::BOLD)
-                            .bg(user_bg),
-                    )];
-                    for span in &line.spans {
-                        spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
+                let wrapped = wrap_line_spans(line.clone(), content_width);
+                for (j, wline) in wrapped.into_iter().enumerate() {
+                    if i == 0 && j == 0 {
+                        // 第一行：用户消息用 ❯ 前缀，带底色
+                        let mut spans = vec![Span::styled(
+                            "❯ ",
+                            Style::default()
+                                .fg(theme::ACCENT)
+                                .add_modifier(Modifier::BOLD)
+                                .bg(user_bg),
+                        )];
+                        for span in &wline.spans {
+                            spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
+                        }
+                        lines.push(Line::from(spans));
+                    } else {
+                        // 后续行（含预折行产生的续行）：2 空格悬挂缩进，带底色
+                        let mut spans = vec![Span::styled("  ", Style::default().bg(user_bg))];
+                        for span in &wline.spans {
+                            spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
+                        }
+                        lines.push(Line::from(spans));
                     }
-                    lines.push(Line::from(spans));
-                } else {
-                    // 后续行：填充 + 原始 spans，带底色
-                    let mut spans = vec![Span::styled("  ", Style::default().bg(user_bg))];
-                    for span in &line.spans {
-                        spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
-                    }
-                    lines.push(Line::from(spans));
                 }
             }
             lines
@@ -710,17 +716,30 @@ pub fn render_view_model(
                                 lines.push(Line::from(diff_spans));
                             }
                         } else {
-                            // AI 回复内容：与 Codex 对齐，第一行用 "• " 前缀，后续行用 "  " 缩进
+                            // AI 回复内容：与 Codex 对齐，第一行用 "● " 前缀，后续行用 "  " 缩进
                             // 注意：不能用 lines.is_empty() 判断，因为 Reasoning block 可能已先填充了 lines
                             // 用独立的 text_line_count 追踪 Text block 自身的行数
+                            // [TRAP] markdown 层普通段落不预折行（flush_line 仅列表/引用走悬挂缩进），
+                            // 超宽 Line 加前缀后会触发 Paragraph::wrap 二次硬折行，续行丢掉 "  " 缩进。
+                            // 与 Reasoning 路径一致：先按 content_width 预折行再加前缀
+                            let content_width = width.saturating_sub(2).max(20);
                             for (text_line_count, line) in rendered.lines.iter().enumerate() {
-                                let prefix = if text_line_count == 0 { "● " } else { "  " };
-                                let mut spans =
-                                    vec![Span::styled(prefix, Style::default().fg(Color::White))];
-                                for span in &line.spans {
-                                    spans.push(span.clone());
+                                let wrapped = wrap_line_spans(line.clone(), content_width);
+                                for (j, wline) in wrapped.into_iter().enumerate() {
+                                    let prefix = if text_line_count == 0 && j == 0 {
+                                        "● "
+                                    } else {
+                                        "  "
+                                    };
+                                    let mut spans = vec![Span::styled(
+                                        prefix,
+                                        Style::default().fg(Color::White),
+                                    )];
+                                    for span in &wline.spans {
+                                        spans.push(span.clone());
+                                    }
+                                    lines.push(Line::from(spans));
                                 }
-                                lines.push(Line::from(spans));
                             }
                         }
                     }

@@ -1161,3 +1161,82 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
         "中文截断后的 Header 视觉列宽 ({total_width}) 不应超过终端宽度 ({width})"
     );
 }
+
+#[test]
+fn test_render_user_bubble_长段落续行悬挂缩进() {
+    let long_text = "这是一条很长的用户消息用于验证普通段落超宽折行后续行是否悬挂缩进对齐首行文字起始位置内容持续填充直到必然超过四十列终端宽度限制为止";
+    let vm = MessageViewModel::user(long_text.to_string());
+    let width = 40;
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    assert!(lines.len() > 1, "超长段落应折成多行，实际 {} 行", lines.len());
+    let first: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+    assert!(
+        first.starts_with("❯ "),
+        "首行应以 ❯ 前缀开头，实际 {:?}",
+        first.chars().take(10).collect::<String>()
+    );
+    for (idx, line) in lines.iter().enumerate() {
+        let text: String = line.spans.iter().map(|s| s.content.clone()).collect();
+        let row_w: usize = line.spans.iter().map(|s| s.content.width()).sum();
+        assert!(
+            row_w <= width,
+            "第 {} 行显示宽度 {} 超过终端宽度 {}",
+            idx + 1,
+            row_w,
+            width
+        );
+        if idx > 0 {
+            assert!(
+                text.starts_with("  "),
+                "第 {} 行应以 2 空格悬挂缩进对齐首行文字，实际 {:?}",
+                idx + 1,
+                text.chars().take(10).collect::<String>()
+            );
+        }
+    }
+}
+
+#[test]
+fn test_render_assistant_text_长段落续行悬挂缩进() {
+    let long_text = "**结论先行**：这是一段很长的AI回复内容用于验证普通段落超宽折行后续行是否悬挂缩进对齐首行文字起始位置内容持续填充直到必然超过四十列终端宽度限制为止";
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Text {
+            raw: long_text.to_string(),
+            rendered: crate::ui::markdown::parse_markdown(long_text, 38),
+            dirty: false,
+            rendered_prefix_len: long_text.len(),
+            rendered_prefix_lines: 1,
+            rendered_width: 38,
+            holdback_scanner: crate::ui::markdown::TableHoldbackScanner::new(),
+        });
+    }
+    let width = 40;
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    assert!(lines.len() > 1, "超长段落应折成多行，实际 {} 行", lines.len());
+    let first: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+    assert!(
+        first.starts_with("● "),
+        "首行应以 ● 前缀开头，实际 {:?}",
+        first.chars().take(10).collect::<String>()
+    );
+    for (idx, line) in lines.iter().enumerate() {
+        let text: String = line.spans.iter().map(|s| s.content.clone()).collect();
+        let row_w: usize = line.spans.iter().map(|s| s.content.width()).sum();
+        assert!(
+            row_w <= width,
+            "第 {} 行显示宽度 {} 超过终端宽度 {}",
+            idx + 1,
+            row_w,
+            width
+        );
+        if idx > 0 {
+            assert!(
+                text.starts_with("  "),
+                "第 {} 行应以 2 空格悬挂缩进对齐首行文字，实际 {:?}",
+                idx + 1,
+                text.chars().take(10).collect::<String>()
+            );
+        }
+    }
+}
