@@ -100,6 +100,33 @@ warning: unused variable: `x`
 }
 
 #[test]
+fn test_clean_rtk_stderr_noise_only_warning() {
+    let raw = "[rtk] /!\\ No hook installed — run `rtk init -g` for automatic token savings";
+    assert_eq!(clean_rtk_stderr_noise(raw), "");
+}
+
+#[test]
+fn test_clean_rtk_stderr_noise_outdated_warning() {
+    let raw = "[rtk] /!\\ Hook outdated — run `rtk init -g` to update";
+    assert_eq!(clean_rtk_stderr_noise(raw), "");
+}
+
+#[test]
+fn test_clean_rtk_stderr_noise_mixed_with_real_error() {
+    let raw = "[rtk] /!\\ No hook installed — run `rtk init -g` for automatic token savings\nfatal: not a git repository (or any of the parent directories): .git\n";
+    assert_eq!(
+        clean_rtk_stderr_noise(raw),
+        "fatal: not a git repository (or any of the parent directories): .git"
+    );
+}
+
+#[test]
+fn test_clean_rtk_stderr_noise_no_warning() {
+    let raw = "some regular stderr message\nanother error line";
+    assert_eq!(clean_rtk_stderr_noise(raw), raw);
+}
+
+#[test]
 fn test_filter_command_output_dispatch() {
     let git_raw = "On branch main\n  (use \"git add\"...)\nmodified: a.rs";
     let filtered = filter_command_output("git status", git_raw, 0);

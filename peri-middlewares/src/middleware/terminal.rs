@@ -509,7 +509,7 @@ impl BaseTool for BashTool {
             ShellWaitResult::Completed(Ok(Ok(output))) => {
                 cleanup_temp_msg_files(&temp_msg_files).await;
                 let stdout = output.stdout;
-                let stderr = output.stderr;
+                let stderr = crate::tools::output_filter::clean_rtk_stderr_noise(&output.stderr);
                 let exit_code = output.exit_code;
 
                 // Windows fallback：cmd 不识别命令时用 Git Bash 重试原始命令。
@@ -575,6 +575,7 @@ impl BashTool {
             Ok(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let stderr = crate::tools::output_filter::clean_rtk_stderr_noise(&stderr);
                 let exit_code = out.status.code().unwrap_or(-1);
 
                 let mut output = format_command_output(&stdout, &stderr, exit_code);

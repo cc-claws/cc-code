@@ -361,6 +361,20 @@ fn test_truncate_bytes_within_limit() {
 }
 
 #[test]
+fn test_format_command_output_with_rtk_stderr_cleaned() {
+    let stdout = "total 0\n-rw-r--r-- 1 user staff 0 Sep 21 10:00 file.txt";
+    let raw_stderr = "[rtk] /!\\ No hook installed — run `rtk init -g` for automatic token savings\n";
+    let cleaned_stderr = crate::tools::output_filter::clean_rtk_stderr_noise(raw_stderr);
+    let output = format_command_output(stdout, &cleaned_stderr, 0);
+
+    assert_eq!(output, stdout);
+    assert!(
+        !output.contains("[stderr]"),
+        "RTK 外部宿主警告被清洗为空后不应产生 [stderr] 块误导 Agent: {output}"
+    );
+}
+
+#[test]
 fn test_truncate_bytes_utf8_safe() {
     // 中文字符每个占 3 字节，在字节 7 处截断（是字符边界）
     let s = "你好世界";
