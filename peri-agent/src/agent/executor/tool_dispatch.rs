@@ -58,6 +58,254 @@ fn normalize_params(tool_name: &str, input: serde_json::Value) -> serde_json::Va
 /// 连续失败检测阈值
 const CONSECUTIVE_FAILURE_THRESHOLD: usize = 5;
 
+/// 连续相同动作签名检测阈值
+const CONSECUTIVE_ACTION_THRESHOLD: usize = 3;
+
+/// 动作签名循环检测器：检测连续相同工具动作（无论成功与否），防止无效重复动作。
+#[derive(Debug, Default)]
+pub(crate) struct ActionLoopDetector {
+    last_signature: Option<String>,
+    repeat_count: usize,
+}
+
+impl ActionLoopDetector {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 记录当前步的动作签名，返回 (当前连续次数, 是否达到循环阈值)
+    pub fn record(&mut self, signature: &str) -> (usize, bool) {
+        if let Some(ref last) = self.last_signature {
+            if last == signature {
+                self.repeat_count += 1;
+            } else {
+                self.last_signature = Some(signature.to_string());
+                self.repeat_count = 1;
+            }
+        } else {
+            self.last_signature = Some(signature.to_string());
+            self.repeat_count = 1;
+        }
+
+        let is_loop = self.repeat_count >= CONSECUTIVE_ACTION_THRESHOLD;
+        (self.repeat_count, is_loop)
+    }
+}
+
+/// 将 JSON 对象的键递归排序，生成规范化的键序无关 JSON。
+fn canonicalize_json(val: &serde_json::Value) -> serde_json::Value {
+    match val {
+        serde_json::Value::Object(map) => {
+            let mut sorted: std::collections::BTreeMap<String, serde_json::Value> =
+                std::collections::BTreeMap::new();
+            for (k, v) in map {
+                sorted.insert(k.clone(), canonicalize_json(v));
+            }
+            serde_json::to_value(sorted).unwrap_or_else(|_| val.clone())
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(canonicalize_json).collect())
+        }
+        _ => val.clone(),
+    }
+}
+
+/// 计算当前步的动作签名（工具名 + 键序无关的参数序列化，排除 thinking/reasoning）。
+pub(crate) fn compute_step_action_signature(tool_calls: &[ToolCall]) -> String {
+    if tool_calls.is_empty() {
+        return String::new();
+    }
+    let mut parts = Vec::with_capacity(tool_calls.len());
+    for tc in tool_calls {
+        let canon_input = canonicalize_json(&tc.input);
+        let input_str = serde_json::to_string(&canon_input).unwrap_or_default();
+        parts.push(format!("{}:{}", tc.name, input_str));
+    }
+    parts.join(";")
+}
+
+/// 返回 JSON 值的类型名称（用于错误提示）
+fn json_type_name(val: &serde_json::Value) -> &'static str {
+    match val {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                "integer"
+            } else {
+                "number"
+            }
+        }
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+/// 从属性 schema 中提取人类可读的期望类型描述
+fn get_expected_type_from_schema(prop_schema: &serde_json::Value) -> String {
+    if let Some(t) = prop_schema.get("type") {
+        if let Some(s) = t.as_str() {
+            return s.to_string();
+        }
+        if let Some(arr) = t.as_array() {
+            let types: Vec<_> = arr.iter().filter_map(|v| v.as_str()).collect();
+            if !types.is_empty() {
+                return types.join(" | ");
+            }
+        }
+    }
+    if let Some(enum_vals) = prop_schema.get("enum").and_then(|e| e.as_array()) {
+        let vals: Vec<_> = enum_vals.iter().map(|v| v.to_string()).collect();
+        return format!("one of [{}]", vals.join(", "));
+    }
+    "any".to_string()
+}
+
+/// 检查单个类型是否匹配
+fn matches_single_type(val: &serde_json::Value, expected: &str) -> bool {
+    match expected {
+        "string" => val.is_string(),
+        "integer" => {
+            if let Some(n) = val.as_number() {
+                n.is_i64() || n.is_u64()
+            } else {
+                false
+            }
+        }
+        "number" => val.is_number(),
+        "boolean" => val.is_boolean(),
+        "array" => val.is_array(),
+        "object" => val.is_object(),
+        "null" => val.is_null(),
+        _ => true,
+    }
+}
+
+/// 校验单个字段值的类型与枚举
+fn validate_value_type(
+    val: &serde_json::Value,
+    prop_schema: &serde_json::Value,
+    field_name: &str,
+) -> Result<(), String> {
+    // 检查 enum
+    if let Some(enum_vals) = prop_schema.get("enum").and_then(|e| e.as_array()) {
+        if !enum_vals.contains(val) {
+            let vals: Vec<_> = enum_vals.iter().map(|v| v.to_string()).collect();
+            return Err(format!(
+                "field '{field_name}' value {val} is not one of [{}]",
+                vals.join(", ")
+            ));
+        }
+    }
+
+    // 检查 type
+    if let Some(type_val) = prop_schema.get("type") {
+        let matched = match type_val {
+            serde_json::Value::String(s) => matches_single_type(val, s),
+            serde_json::Value::Array(arr) => arr.iter().any(|item| {
+                if let Some(s) = item.as_str() {
+                    matches_single_type(val, s)
+                } else {
+                    false
+                }
+            }),
+            _ => true,
+        };
+
+        if !matched {
+            let expected = get_expected_type_from_schema(prop_schema);
+            return Err(format!(
+                "field '{field_name}' has invalid type: expected {expected}, got {}",
+                json_type_name(val)
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// 基于 JSON Schema 预校验工具入参。
+///
+/// 校验：
+/// 1. 顶层是否期望为 Object
+/// 2. 必填字段（required）是否存在且非 null（除非明确允许 null）
+/// 3. 已传属性的类型是否符合 properties 定义
+pub(crate) fn validate_against_schema(
+    input: &serde_json::Value,
+    schema: &serde_json::Value,
+) -> Result<(), String> {
+    let schema_obj = match schema.as_object() {
+        Some(obj) if !obj.is_empty() => obj,
+        _ => return Ok(()),
+    };
+
+    let expects_object = schema_obj.get("type").and_then(|t| t.as_str()) == Some("object")
+        || schema_obj.contains_key("properties")
+        || schema_obj.contains_key("required");
+
+    if expects_object && !input.is_object() {
+        return Err(format!(
+            "expected an object for arguments, got {}",
+            json_type_name(input)
+        ));
+    }
+
+    let input_map = match input.as_object() {
+        Some(map) => map,
+        None => return Ok(()),
+    };
+
+    let props = schema_obj.get("properties").and_then(|p| p.as_object());
+
+    // 1. 检查必填字段
+    if let Some(required) = schema_obj.get("required").and_then(|r| r.as_array()) {
+        for item in required {
+            if let Some(field) = item.as_str() {
+                let val = input_map.get(field);
+                let is_missing = match val {
+                    None => true,
+                    Some(serde_json::Value::Null) => {
+                        let allows_null = props
+                            .and_then(|p| p.get(field))
+                            .and_then(|p_schema| p_schema.get("type"))
+                            .map_or(false, |t| match t {
+                                serde_json::Value::String(s) => s == "null",
+                                serde_json::Value::Array(arr) => {
+                                    arr.iter().any(|v| v.as_str() == Some("null"))
+                                }
+                                _ => false,
+                            });
+                        !allows_null
+                    }
+                    _ => false,
+                };
+
+                if is_missing {
+                    let expected_type = props
+                        .and_then(|p| p.get(field))
+                        .map(get_expected_type_from_schema)
+                        .unwrap_or_else(|| "any".to_string());
+                    return Err(format!(
+                        "missing required field '{field}' (expected {expected_type})"
+                    ));
+                }
+            }
+        }
+    }
+
+    // 2. 检查属性类型
+    if let Some(props_map) = props {
+        for (key, val) in input_map {
+            if let Some(prop_schema) = props_map.get(key) {
+                validate_value_type(val, prop_schema, key)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// 工具名解析：精确匹配 → 大小写无关匹配 → 语义别名。
 fn resolve_tool<'a>(
     name: &str,
@@ -93,6 +341,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     all_tools: &HashMap<String, &dyn BaseTool>,
     cancel: &CancellationToken,
     consecutive_failures: &mut HashMap<String, usize>,
+    action_loop_detector: &mut ActionLoopDetector,
 ) -> AgentResult<Vec<(ToolCall, ToolResult)>> {
     let tc_reqs: Vec<ToolCallRequest> = reasoning
         .tool_calls
@@ -180,6 +429,27 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
         let tool_msg_clone = tool_msg.clone();
         state.add_message(tool_msg);
         agent.emit(AgentEvent::MessageAdded(tool_msg_clone));
+    }
+
+    // 动作签名循环检测：连续相同动作（即使成功但无效）注入纠正提示
+    let step_sig = compute_step_action_signature(&reasoning.tool_calls);
+    if !step_sig.is_empty() {
+        let (count, is_loop) = action_loop_detector.record(&step_sig);
+        if is_loop {
+            tracing::warn!(
+                signature = %step_sig,
+                count = count,
+                threshold = CONSECUTIVE_ACTION_THRESHOLD,
+                "连续 {} 次执行相同工具动作签名，注入纠正消息",
+                count
+            );
+            state.add_message(BaseMessage::system(format!(
+                "Warning: You have executed the exact same tool call(s) {} consecutive times with identical parameters. \
+                 Stop repeating this action. Analyze why the previous attempts did not produce new progress or achieve the goal. \
+                 Try a completely different approach, use different tools, or ask the user for guidance.",
+                count
+            )));
+        }
     }
 
     // 写入完成后再返回错误
@@ -324,12 +594,32 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                     let _enter = span.enter();
                     let invoke_fut = async {
                         match tool {
-                            Some(t) => t.invoke_content(input).await.map_err(|e| {
-                                AgentError::ToolExecutionFailed {
-                                    tool: tool_name.clone(),
-                                    reason: e.to_string(),
+                            Some(t) => {
+                                let schema = t.parameters();
+                                if let Err(msg) = validate_against_schema(&input, &schema) {
+                                    let keys: Vec<String> = match &input {
+                                        serde_json::Value::Object(map) => {
+                                            let mut k: Vec<_> = map.keys().cloned().collect();
+                                            k.sort();
+                                            k
+                                        }
+                                        _ => Vec::new(),
+                                    };
+                                    return Err(AgentError::ToolExecutionFailed {
+                                        tool: tool_name.clone(),
+                                        reason: format!(
+                                            "Invalid arguments for tool {tool_name}: {msg}\n\
+                                             Received keys: {keys:?}. Rewrite the call to satisfy the schema and retry."
+                                        ),
+                                    });
                                 }
-                            }),
+                                t.invoke_content(input).await.map_err(|e| {
+                                    AgentError::ToolExecutionFailed {
+                                        tool: tool_name.clone(),
+                                        reason: e.to_string(),
+                                    }
+                                })
+                            }
                             None => Err(AgentError::ToolNotFound(tool_name.clone())),
                         }
                     };
