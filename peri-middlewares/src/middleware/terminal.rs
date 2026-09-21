@@ -546,7 +546,7 @@ impl BaseTool for BashTool {
 }
 
 impl BashTool {
-    /// Windows-only：用 Git Bash 重试原始命令，输出末尾追加 `[Retried with Git Bash]` 标记。
+    /// Windows-only：用 Git Bash 重试原始命令，不向输出追加重试标记（issue #209：机制性元信息不应进入 tool_result）。
     /// 复用 truncate_output，保持与首次执行一致的截断行为。
     #[cfg(windows)]
     async fn invoke_with_git_bash(
