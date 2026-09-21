@@ -685,8 +685,8 @@ fn test_normalize_params_path_to_file_path() {
     // Arrange: input has "path" but no "file_path"
     let input = serde_json::json!({"path": "/tmp/test.rs", "offset": 10});
 
-    // Act
-    let normalized = super::normalize_params(input);
+    // Act: 对 Read 工具执行归一化
+    let normalized = super::normalize_params("Read", input);
 
     // Assert: "path" → "file_path", "offset" unchanged
     assert_eq!(normalized["file_path"], "/tmp/test.rs");
@@ -700,7 +700,7 @@ fn test_normalize_params_file_path_already_exists() {
     let input = serde_json::json!({"path": "/tmp/wrong.rs", "file_path": "/tmp/right.rs"});
 
     // Act
-    let normalized = super::normalize_params(input);
+    let normalized = super::normalize_params("Read", input);
 
     // Assert: "file_path" unchanged, "path" 不清除（保守策略，不丢数据）
     assert_eq!(normalized["file_path"], "/tmp/right.rs");
@@ -714,7 +714,7 @@ fn test_normalize_params_no_alias_present() {
     let input = serde_json::json!({"file_path": "/tmp/test.rs"});
 
     // Act
-    let normalized = super::normalize_params(input);
+    let normalized = super::normalize_params("Read", input);
 
     // Assert: no change
     assert_eq!(normalized["file_path"], "/tmp/test.rs");
@@ -726,8 +726,48 @@ fn test_normalize_params_non_object_input() {
     let input = serde_json::Value::String("hello".to_string());
 
     // Act
-    let normalized = super::normalize_params(input);
+    let normalized = super::normalize_params("Read", input);
 
     // Assert: returned as-is
     assert_eq!(normalized, serde_json::Value::String("hello".to_string()));
+}
+
+#[test]
+fn test_normalize_params_grep_path_not_renamed() {
+    // Arrange: Grep 传入 path 参数
+    let input = serde_json::json!({"pattern": "needle", "path": "spec/"});
+
+    // Act: 对 Grep 工具执行归一化
+    let normalized = super::normalize_params("Grep", input);
+
+    // Assert: path 不应被改名为 file_path
+    assert_eq!(normalized["path"], "spec/");
+    assert!(normalized.get("file_path").is_none());
+    assert_eq!(normalized["pattern"], "needle");
+}
+
+#[test]
+fn test_normalize_params_glob_path_not_renamed() {
+    // Arrange: Glob 传入 path 参数
+    let input = serde_json::json!({"pattern": "**/*.rs", "path": "src/"});
+
+    // Act: 对 Glob 工具执行归一化
+    let normalized = super::normalize_params("Glob", input);
+
+    // Assert: path 不应被改名为 file_path
+    assert_eq!(normalized["path"], "src/");
+    assert!(normalized.get("file_path").is_none());
+    assert_eq!(normalized["pattern"], "**/*.rs");
+}
+
+#[test]
+fn test_normalize_params_bash_not_affected() {
+    // Arrange: Bash 传入 command 参数（无 path/file_path 混淆场景）
+    let input = serde_json::json!({"command": "ls -la"});
+
+    // Act
+    let normalized = super::normalize_params("Bash", input);
+
+    // Assert: 无变化
+    assert_eq!(normalized["command"], "ls -la");
 }

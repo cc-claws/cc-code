@@ -45,7 +45,7 @@ Usage:
 - Use max_depth to limit search directory depth
 
 Output modes:
-- "files_with_matches": lists only file paths that contain matches (default — token-efficient)
+- "files_with_matches": lists only file paths without lines (default — token-efficient)
 - "content": shows matching lines with line numbers
 - "count": shows match counts per file
 - "files_without_matches": lists only file paths that do NOT contain matches
@@ -100,10 +100,14 @@ fn execute_search(
         return Err(format!("Search path does not exist: {}", search_path.display()).into());
     }
 
-    // 构建 RegexMatcher
+    // 构建 RegexMatcher —— smart-case：模式全小写时自动忽略大小写，含大写时严格匹配
+    let smart_case = !parsed.case_insensitive
+        && parsed.pattern.chars().all(|c| !c.is_uppercase());
+    let case_insensitive = parsed.case_insensitive || smart_case;
+
     let mut matcher_builder = RegexMatcherBuilder::new();
     matcher_builder
-        .case_insensitive(parsed.case_insensitive)
+        .case_insensitive(case_insensitive)
         .word(parsed.whole_word);
     if parsed.multiline {
         matcher_builder.multi_line(true).dot_matches_new_line(true);
@@ -124,6 +128,27 @@ fn execute_search(
         .threads(num_cpus::get());
     if let Some(depth) = parsed.max_depth {
         builder.max_depth(Some(depth));
+    }
+    // 排除 .claude/worktrees 目录，防止 worktree 副本污染搜索结果
+    builder.filter_entry(|entry| {
+        if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+            let name = entry.file_name().to_string_lossy();
+            if name == ".claude" || name == ".worktrees" {
+                return false;
+            }
+        }
+        true
+    });
+
+    // 语言类型过滤：使用 ripgrep 官方 TypesBuilder（100+ 种语言）
+    if let Some(ref type_name) = parsed.type_filter {
+        let mut types_builder = ignore::types::TypesBuilder::new();
+        types_builder.add_defaults();
+        types_builder.select(type_name);
+        let types = types_builder
+            .build()
+            .map_err(|e| format!("Invalid type filter '{type_name}': {e}"))?;
+        builder.types(types);
     }
 
     // 预编译 glob 过滤器
@@ -447,7 +472,7 @@ impl BaseTool for GrepTool {
                 "output_mode": {
                     "type": "string",
                     "enum": ["content", "files_with_matches", "count", "files_without_matches"],
-                    "description": "Output mode: \"files_with_matches\" lists only file paths (default, token-efficient), \"content\" shows matching lines with line numbers, \"count\" shows match counts per file, \"files_without_matches\" lists file paths without matches"
+                    "description": "\"content\" shows matching lines + line numbers; \"files_with_matches\" (default) lists only paths without lines; \"count\" shows counts; \"files_without_matches\" lists unmatched paths"
                 },
                 "-i": {
                     "type": "boolean",
@@ -571,8 +596,21 @@ impl BaseTool for GrepTool {
 
         let head_limit = grep_input.head_limit;
         let offset = grep_input.offset.unwrap_or(0);
-
         let cwd = self.cwd.clone();
+
+        // 优先尝试 rg CLI 引擎
+        if let Some(rg_path) = super::rg_engine::resolve_rg() {
+            if let Some(output) = super::rg_engine::execute_rg_grep(
+                rg_path, &parsed, &cwd, head_limit, offset,
+            )
+            .await
+            {
+                return Ok(crate::tools::output_persist::truncate_tool_output(&output));
+            }
+            tracing::debug!("rg engine returned None, falling back to Rust engine");
+        }
+
+        // Fallback: 纯 Rust 引擎
         let result = timeout(
             Duration::from_secs(15),
             tokio::task::spawn_blocking(move || execute_search(&parsed, &cwd, head_limit, offset)),

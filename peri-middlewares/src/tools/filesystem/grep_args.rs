@@ -3,7 +3,7 @@ pub(crate) struct ParsedArgs {
     pub(crate) pattern: String,
     pub(crate) path: Option<String>,        // 搜索路径，None 表示 cwd
     pub(crate) glob_filters: Vec<String>,   // -g 参数
-    pub(crate) _type_filters: Vec<String>,  // -t 参数（暂不实现）
+    pub(crate) type_filter: Option<String>, // -t 参数（语言类型过滤）
     pub(crate) _type_excludes: Vec<String>, // -T 参数（暂不实现）
     pub(crate) output_mode: OutputMode,     // 默认/文件名/计数/无匹配文件
     pub(crate) before_context: usize,       // -B 参数
@@ -46,32 +46,6 @@ pub(crate) struct GrepInput {
     pub(crate) max_depth: Option<usize>,    // 搜索深度限制
 }
 
-/// 将 type 参数（如 "rust"、"js"）映射为 glob 模式列表
-pub(crate) fn type_to_glob(type_name: &str) -> Vec<&'static str> {
-    match type_name {
-        "rust" => vec!["*.rs"],
-        "js" => vec!["*.js", "*.mjs"],
-        "py" => vec!["*.py"],
-        "go" => vec!["*.go"],
-        "java" => vec!["*.java"],
-        "ts" => vec!["*.ts", "*.tsx"],
-        "c" => vec!["*.c", "*.h"],
-        "cpp" => vec!["*.cpp", "*.hpp", "*.cc", "*.cxx"],
-        "ruby" | "rb" => vec!["*.rb"],
-        "swift" => vec!["*.swift"],
-        "kotlin" | "kt" => vec!["*.kt", "*.kts"],
-        "scala" => vec!["*.scala"],
-        "html" => vec!["*.html", "*.htm"],
-        "css" => vec!["*.css", "*.scss", "*.sass", "*.less"],
-        "json" => vec!["*.json"],
-        "yaml" | "yml" => vec!["*.yaml", "*.yml"],
-        "markdown" | "md" => vec!["*.md", "*.mdx"],
-        "sql" => vec!["*.sql"],
-        "shell" | "sh" => vec!["*.sh", "*.bash", "*.zsh"],
-        _ => vec![],
-    }
-}
-
 impl GrepInput {
     /// 将结构化参数转译为搜索引擎所需的 ParsedArgs
     pub(crate) fn to_parsed_args(&self) -> Result<ParsedArgs, String> {
@@ -90,17 +64,10 @@ impl GrepInput {
             }
         };
 
-        // 组装 glob 过滤器：用户提供的 glob + type 映射
+        // 组装 glob 过滤器：仅用户提供的 glob（type 改用 TypesBuilder）
         let mut glob_filters = Vec::new();
         if let Some(ref glob) = self.glob {
-            // 支持多 glob 模式，如 "*.{ts,tsx}" 或 "*.rs"
             glob_filters.push(glob.clone());
-        }
-        if let Some(ref type_name) = self.type_filter {
-            let type_globs = type_to_glob(type_name);
-            for g in type_globs {
-                glob_filters.push(g.to_string());
-            }
         }
 
         // -C 作为对称上下文的简写，-A/-B 优先
@@ -118,7 +85,7 @@ impl GrepInput {
             pattern: self.pattern.clone(),
             path: self.path.clone(),
             glob_filters,
-            _type_filters: vec![],
+            type_filter: self.type_filter.clone(),
             _type_excludes: vec![],
             output_mode,
             before_context: before,
