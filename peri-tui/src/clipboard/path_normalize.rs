@@ -25,13 +25,16 @@ pub fn normalize_pasted_path(pasted: &str) -> Option<PathBuf> {
         return None;
     }
 
-    // 始终拒绝 shell 元字符：避免把 `$VAR`、`;rm`、`|cat` 这类命令当路径
-    if contains_shell_metacharacters(stripped) {
-        return None;
-    }
-
+    // file:// URL 是结构化 URL，优先由专用解析器处理，不受 shell 元字符规则影响
     if let Some(path) = parse_file_url(stripped) {
         return Some(path);
+    }
+
+    // 始终拒绝 shell 元字符：避免把 `$VAR`、`;rm`、`|cat` 这类命令当路径。
+    // ~ 仅在位于字符串开头（如 ~/ 或 ~user/）时才可能构成 shell 展开，
+    // 路径中间的 ~（如 Windows 8.3 短文件名 RUNNER~1）属于合法路径字符。
+    if stripped.starts_with('~') || contains_shell_metacharacters(stripped) {
+        return None;
     }
 
     // `\\` 开头的字符串：UNC 路径或拒绝，不当作 shell 转义处理
@@ -202,7 +205,6 @@ fn contains_shell_metacharacters(s: &str) -> bool {
                 | '{'
                 | '}'
                 | '!'
-                | '~'
         )
     })
 }
@@ -210,6 +212,33 @@ fn contains_shell_metacharacters(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_url_包含波浪号短路径_解析为本地路径() {
+        let p = normalize_pasted_path(
+            "file:///C:/Users/RUNNER~1/AppData/Local/Temp/.tmpF3Zdrv/%E6%9C%AC%E6%9C%BA%20%E5%9B%BE%E7%89%87.JPG",
+        );
+        assert!(p.is_some());
+        let path = p.unwrap();
+        assert!(path.to_string_lossy().contains("RUNNER~1"));
+        assert!(path.to_string_lossy().contains("本机 图片.JPG"));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn windows_8_3_短文件名_包含波浪号_保留() {
+        assert_eq!(
+            normalize_pasted_path(r"C:\Users\RUNNER~1\AppData\Local\Temp\foo.png"),
+            Some(PathBuf::from(
+                r"C:\Users\RUNNER~1\AppData\Local\Temp\foo.png"
+            ))
+        );
+    }
+
+    #[test]
+    fn 开头为波浪号_返回_none() {
+        assert_eq!(normalize_pasted_path("~/foo.png"), None);
+    }
 
     #[test]
     fn file_url_解析为本地路径() {

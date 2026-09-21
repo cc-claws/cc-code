@@ -1338,20 +1338,20 @@ async fn test_messages_accumulate_across_turns() {
     tokio::task::yield_now().await;
 
     // 第二轮：用户 → AI
-    // 模拟 submit_message：先开始 pipeline 新轮次，再记录 round_start_vm_idx，最后 push Human VM
+    // 模拟 submit_message：先开始 pipeline 新轮次，push Human VM，再记录 round_start_vm_idx
     app.session_mgr
         .current_mut()
         .messages
         .pipeline
         .begin_round();
-    app.session_mgr.current_mut().messages.round_start_vm_idx =
-        app.session_mgr.current_mut().messages.view_messages.len();
     let user2 = MessageViewModel::user("turn2".into());
     app.session_mgr
         .current_mut()
         .messages
         .view_messages
         .push(user2);
+    app.session_mgr.current_mut().messages.round_start_vm_idx =
+        app.session_mgr.current_mut().messages.view_messages.len();
     app.render_rebuild();
 
     app.push_agent_event(AgentEvent::AssistantChunk {
