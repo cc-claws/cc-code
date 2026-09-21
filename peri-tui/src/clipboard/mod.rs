@@ -11,6 +11,7 @@
 //! NSPasteboard 初始化 stderr 污染。
 
 pub mod copy;
+pub(crate) mod image_file;
 pub mod image_placeholder;
 pub mod paste;
 pub mod path_normalize;
