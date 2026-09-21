@@ -1338,7 +1338,12 @@ async fn test_messages_accumulate_across_turns() {
     tokio::task::yield_now().await;
 
     // 第二轮：用户 → AI
-    // 模拟 submit_message：先记录 round_start_vm_idx，再 push Human VM
+    // 模拟 submit_message：先开始 pipeline 新轮次，再记录 round_start_vm_idx，最后 push Human VM
+    app.session_mgr
+        .current_mut()
+        .messages
+        .pipeline
+        .begin_round();
     app.session_mgr.current_mut().messages.round_start_vm_idx =
         app.session_mgr.current_mut().messages.view_messages.len();
     let user2 = MessageViewModel::user("turn2".into());
@@ -1354,8 +1359,6 @@ async fn test_messages_accumulate_across_turns() {
         source_agent_id: None,
     });
     app.push_agent_event(AgentEvent::StateSnapshot(vec![
-        BaseMessage::human("turn1"),
-        BaseMessage::ai("answer1"),
         BaseMessage::human("turn2"),
         BaseMessage::ai("answer2"),
     ]));
