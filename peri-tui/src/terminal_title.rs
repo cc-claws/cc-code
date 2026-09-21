@@ -66,7 +66,11 @@ impl<'a> TerminalTitleItem<'a> {
             Some(title) => title,
             None => {
                 let project = self.project_name.trim();
-                let project_str = if project.is_empty() { "cc-code" } else { project };
+                let project_str = if project.is_empty() {
+                    "cc-code"
+                } else {
+                    project
+                };
                 truncate_terminal_title_part(project_str, 24)
             }
         };
@@ -228,7 +232,10 @@ pub fn extract_thread_title(prompt: &str) -> Option<String> {
         s = s[1..].trim_start();
     }
     // 去除类似 "1. " 或 "1、" 的有序列表前缀
-    if let Some((pos, ch)) = s.char_indices().find(|(_, c)| *c == '.' || *c == '、' || *c == '．') {
+    if let Some((pos, ch)) = s
+        .char_indices()
+        .find(|(_, c)| *c == '.' || *c == '、' || *c == '．')
+    {
         let prefix = &s[..pos];
         if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit()) {
             s = s[pos + ch.len_utf8()..].trim_start();
@@ -237,7 +244,10 @@ pub fn extract_thread_title(prompt: &str) -> Option<String> {
 
     // 去除 URL（如 https://... 或 http://...）
     let mut processed_line = s.to_string();
-    if let Some(url_start) = processed_line.find("http://").or_else(|| processed_line.find("https://")) {
+    if let Some(url_start) = processed_line
+        .find("http://")
+        .or_else(|| processed_line.find("https://"))
+    {
         let url_end = processed_line[url_start..]
             .char_indices()
             .find(|(_, c)| c.is_whitespace() || *c == '，' || *c == '。' || *c == ',')
@@ -282,7 +292,16 @@ pub fn extract_thread_title(prompt: &str) -> Option<String> {
 
     if has_cjk {
         let mut text = s;
-        for prefix in &["请帮我", "请问", "帮我", "请", "想问下", "我想", "麻烦帮我", "麻烦"] {
+        for prefix in &[
+            "请帮我",
+            "请问",
+            "帮我",
+            "请",
+            "想问下",
+            "我想",
+            "麻烦帮我",
+            "麻烦",
+        ] {
             if let Some(stripped) = text.strip_prefix(prefix) {
                 text = stripped.trim_start();
             }
@@ -290,7 +309,12 @@ pub fn extract_thread_title(prompt: &str) -> Option<String> {
         // 按常见句子截断标点（逗号、句号、分号、问号、感叹号）
         let end_idx = text
             .char_indices()
-            .find(|(_, c)| matches!(c, '，' | '。' | '！' | '？' | ',' | '.' | '!' | '?' | ';' | '；'))
+            .find(|(_, c)| {
+                matches!(
+                    c,
+                    '，' | '。' | '！' | '？' | ',' | '.' | '!' | '?' | ';' | '；'
+                )
+            })
             .map(|(idx, _)| idx)
             .unwrap_or(text.len());
         let phrase = text[..end_idx].trim();
@@ -361,21 +385,24 @@ pub async fn generate_thread_title_llm(
     let system_instruction = "你是一个会话主题生成工具。请根据用户首轮输入，概括提炼出最精准、简明的话题短标题（3~6个中文汉字或3~5个英文单词）。\
 严格要求：只输出标题本身，严禁任何标点符号、引号、冒号、换行或解释性文字。";
 
-    let request = peri_agent::llm::types::LlmRequest::new(vec![
-        peri_agent::messages::BaseMessage::human(format!("用户任务输入：\n{truncated_input}"))
-    ])
-    .with_system(system_instruction)
-    .with_max_tokens(30);
+    let request =
+        peri_agent::llm::types::LlmRequest::new(vec![peri_agent::messages::BaseMessage::human(
+            format!("用户任务输入：\n{truncated_input}"),
+        )])
+        .with_system(system_instruction)
+        .with_max_tokens(30);
 
     // 8 秒硬超时，超时或失败自动返回 None（回退本地保底标题）
-    let result = tokio::time::timeout(std::time::Duration::from_secs(8), model.invoke(request)).await;
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(8), model.invoke(request)).await;
 
     match result {
         Ok(Ok(response)) => {
             let raw = response.message.content();
             let mut cleaned = raw.trim();
             // 剥离大模型可能输出的包裹符号
-            cleaned = cleaned.trim_matches(['"', '\'', '`', '“', '”', '《', '》', '：', ':', '.', '。']);
+            cleaned =
+                cleaned.trim_matches(['"', '\'', '`', '“', '”', '《', '》', '：', ':', '.', '。']);
             let sanitized = sanitize_title(cleaned);
             if sanitized.is_empty() {
                 None

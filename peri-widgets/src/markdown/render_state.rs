@@ -154,8 +154,7 @@ impl TableBuilder {
                         // 空列保持 0 宽，不挤占其他列
                         0
                     } else {
-                        let scaled =
-                            (m as f64 * available_width as f64 / min_sum as f64) as usize;
+                        let scaled = (m as f64 * available_width as f64 / min_sum as f64) as usize;
                         scaled.max(1)
                     }
                 })
@@ -627,10 +626,7 @@ impl<'a> RenderState<'a> {
             let mut buf_style: Option<Style> = None;
             for &(ch, style) in &chars_with_style[line_start..break_idx] {
                 if buf_style.is_some() && buf_style != Some(style) {
-                    line_spans.push(Span::styled(
-                        std::mem::take(&mut buf),
-                        buf_style.unwrap(),
-                    ));
+                    line_spans.push(Span::styled(std::mem::take(&mut buf), buf_style.unwrap()));
                     buf_style = Some(style);
                 } else if buf_style.is_none() {
                     buf_style = Some(style);

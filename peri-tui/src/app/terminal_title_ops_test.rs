@@ -104,6 +104,12 @@ fn test_app_terminal_title_animates_with_rotating_chrysanthemum() {
     app.refresh_terminal_title();
     let frame2 = app.global_ui.last_terminal_title.clone().unwrap();
 
-    assert_ne!(frame1, frame2, "运行中推进动画帧后，标题中的菊花动画必须动态旋转变化");
-    assert!(frame1.ends_with("task") && frame2.ends_with("task"), "标题应始终包含任务名");
+    assert_ne!(
+        frame1, frame2,
+        "运行中推进动画帧后，标题中的菊花动画必须动态旋转变化"
+    );
+    assert!(
+        frame1.ends_with("task") && frame2.ends_with("task"),
+        "标题应始终包含任务名"
+    );
 }

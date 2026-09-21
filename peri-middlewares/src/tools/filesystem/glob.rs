@@ -110,7 +110,10 @@ fn collect_files(base: &Path, pattern: &str) -> (Vec<String>, usize) {
     // 从堆中提取并按 mtime 降序排列
     let mut results: Vec<_> = heap.into_iter().collect();
     results.sort_unstable_by_key(|b| Reverse(b.0 .0));
-    (results.into_iter().map(|(_, path)| path).collect(), total_matched)
+    (
+        results.into_iter().map(|(_, path)| path).collect(),
+        total_matched,
+    )
 }
 
 #[async_trait::async_trait]
@@ -161,7 +164,11 @@ impl BaseTool for GlobFilesTool {
         // 优先尝试 rg CLI 引擎
         if let Some(rg_path) = super::rg_engine::resolve_rg() {
             if let Some(output) = super::rg_engine::execute_rg_glob(
-                rg_path, pattern, &search_root, &self.cwd, MAX_RESULTS,
+                rg_path,
+                pattern,
+                &search_root,
+                &self.cwd,
+                MAX_RESULTS,
             )
             .await
             {

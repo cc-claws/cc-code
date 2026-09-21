@@ -784,8 +784,8 @@ pub(crate) fn parse_anthropic_sse_to_json(sse_text: &str) -> Result<Value, Strin
                         }));
                     }
                     Some("tool_use") => {
-                        let input: Value =
-                            serde_json::from_str(&tool_input_fragments).unwrap_or_else(|_| {
+                        let input: Value = serde_json::from_str(&tool_input_fragments)
+                            .unwrap_or_else(|_| {
                                 if tool_input_fragments.is_empty() {
                                     json!({})
                                 } else {
@@ -879,13 +879,14 @@ pub(crate) fn parse_anthropic_sse_to_json(sse_text: &str) -> Result<Value, Strin
                 }));
             }
             "tool_use" => {
-                let input: Value = serde_json::from_str(&tool_input_fragments).unwrap_or_else(|_| {
-                    if tool_input_fragments.is_empty() {
-                        json!({})
-                    } else {
-                        Value::Null
-                    }
-                });
+                let input: Value =
+                    serde_json::from_str(&tool_input_fragments).unwrap_or_else(|_| {
+                        if tool_input_fragments.is_empty() {
+                            json!({})
+                        } else {
+                            Value::Null
+                        }
+                    });
                 accumulated_blocks.push(json!({
                     "type": "tool_use",
                     "id": tool_use_id,

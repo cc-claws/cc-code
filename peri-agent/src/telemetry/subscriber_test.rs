@@ -8,7 +8,10 @@ fn test_default_log_path_uses_cc_code_logs_dir() {
     let path = default_log_path("agent-tui");
     // Assert: 路径结构为 ~/.cc-code/logs/{service_name}.log
     let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-    assert_eq!(file_name, "agent-tui.log", "日志文件名应为 <service_name>.log");
+    assert_eq!(
+        file_name, "agent-tui.log",
+        "日志文件名应为 <service_name>.log"
+    );
     let logs_dir = path.parent().unwrap();
     assert_eq!(
         logs_dir.file_name().unwrap().to_string_lossy(),
@@ -32,7 +35,10 @@ fn test_default_log_path_varies_by_service_name() {
     // Assert: 三种运行模式的日志路径互不相同
     assert_ne!(tui, print, "不同 service_name 的日志路径应不同");
     assert_ne!(print, acp, "不同 service_name 的日志路径应不同");
-    assert_eq!(print.file_name().unwrap().to_string_lossy(), "peri-print.log");
+    assert_eq!(
+        print.file_name().unwrap().to_string_lossy(),
+        "peri-print.log"
+    );
     assert_eq!(acp.file_name().unwrap().to_string_lossy(), "peri-acp.log");
 }
 

@@ -8,9 +8,7 @@ use ratatui::{
             EnableFocusChange, EnableMouseCapture,
         },
         execute,
-        terminal::{
-            disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-        },
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
     prelude::*,
 };

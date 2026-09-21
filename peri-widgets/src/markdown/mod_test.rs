@@ -488,7 +488,10 @@ fn parse_table_long_path_never_overflows_max_width() {
                 max_width,
                 idx,
                 line_w,
-                line.spans.iter().map(|s| s.content.as_ref()).collect::<String>()
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
             );
         }
     }
@@ -509,7 +512,11 @@ fn test_unordered_list_hanging_indent() {
         text.lines.len(),
         text.lines
             .iter()
-            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .map(|l| l
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>())
             .collect::<Vec<_>>()
     );
 

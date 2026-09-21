@@ -101,8 +101,7 @@ fn execute_search(
     }
 
     // 构建 RegexMatcher —— smart-case：模式全小写时自动忽略大小写，含大写时严格匹配
-    let smart_case = !parsed.case_insensitive
-        && parsed.pattern.chars().all(|c| !c.is_uppercase());
+    let smart_case = !parsed.case_insensitive && parsed.pattern.chars().all(|c| !c.is_uppercase());
     let case_insensitive = parsed.case_insensitive || smart_case;
 
     let mut matcher_builder = RegexMatcherBuilder::new();
@@ -600,10 +599,8 @@ impl BaseTool for GrepTool {
 
         // 优先尝试 rg CLI 引擎
         if let Some(rg_path) = super::rg_engine::resolve_rg() {
-            if let Some(output) = super::rg_engine::execute_rg_grep(
-                rg_path, &parsed, &cwd, head_limit, offset,
-            )
-            .await
+            if let Some(output) =
+                super::rg_engine::execute_rg_grep(rg_path, &parsed, &cwd, head_limit, offset).await
             {
                 return Ok(crate::tools::output_persist::truncate_tool_output(&output));
             }
