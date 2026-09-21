@@ -363,7 +363,8 @@ fn test_truncate_bytes_within_limit() {
 #[test]
 fn test_format_command_output_with_rtk_stderr_cleaned() {
     let stdout = "total 0\n-rw-r--r-- 1 user staff 0 Sep 21 10:00 file.txt";
-    let raw_stderr = "[rtk] /!\\ No hook installed — run `rtk init -g` for automatic token savings\n";
+    let raw_stderr =
+        "[rtk] /!\\ No hook installed — run `rtk init -g` for automatic token savings\n";
     let cleaned_stderr = crate::tools::output_filter::clean_rtk_stderr_noise(raw_stderr);
     let output = format_command_output(stdout, &cleaned_stderr, 0);
 

@@ -381,7 +381,10 @@ fn command_name_matches(program: &str, name: &str) -> bool {
 /// 父进程的 stdout/stderr 管道写句柄。主进程退出后写端仍未关闭，`read()` 永远
 /// 等不到 EOF，导致 reader task 无限挂起。超时机制确保后台任务能正常完成。
 async fn drain_pipe_task<T>(task: tokio::task::JoinHandle<T>) {
-    if tokio::time::timeout(PIPE_DRAIN_TIMEOUT, task).await.is_err() {
+    if tokio::time::timeout(PIPE_DRAIN_TIMEOUT, task)
+        .await
+        .is_err()
+    {
         tracing::debug!(
             "主进程退出后管道 reader 超时（{}s），可能存在继承管道句柄的常驻子进程",
             PIPE_DRAIN_TIMEOUT.as_secs()

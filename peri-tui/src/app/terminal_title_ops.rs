@@ -7,7 +7,12 @@ impl App {
     /// 计算当前会话的终端标题生命周期状态
     pub fn current_title_status(&self) -> TerminalTitleStatusKind {
         // 优先级 1：等待用户操作（HITL 审批、AskUser 问答、OAuth、Rewind 确认）
-        if self.session_mgr.current().agent.interaction_prompt.is_some()
+        if self
+            .session_mgr
+            .current()
+            .agent
+            .interaction_prompt
+            .is_some()
             || self.global_ui.oauth_prompt.is_some()
         {
             return TerminalTitleStatusKind::ActionRequired;
@@ -26,7 +31,13 @@ impl App {
             }
         } else {
             // 优先级 3：非运行态，检查是否为已完成任务状态
-            if self.session_mgr.current().agent.last_task_duration.is_some() {
+            if self
+                .session_mgr
+                .current()
+                .agent
+                .last_task_duration
+                .is_some()
+            {
                 TerminalTitleStatusKind::Done
             } else {
                 TerminalTitleStatusKind::Idle
@@ -93,4 +104,3 @@ impl App {
 #[cfg(test)]
 #[path = "terminal_title_ops_test.rs"]
 mod terminal_title_ops_test;
-

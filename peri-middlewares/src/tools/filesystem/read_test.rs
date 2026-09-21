@@ -367,3 +367,132 @@
             );
         }
     }
+
+    #[test]
+    fn test_sniff_image_format_各格式魔数识别与未知输入() {
+        assert_eq!(sniff_image_format(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), Some("png"));
+        assert_eq!(sniff_image_format(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpg"));
+        assert_eq!(sniff_image_format(b"GIF89a"), Some("gif"));
+        assert_eq!(sniff_image_format(b"GIF87a"), Some("gif"));
+        assert_eq!(sniff_image_format(b"RIFF\x00\x00\x00\x00WEBP"), Some("webp"));
+        assert_eq!(sniff_image_format(&[0x42, 0x4D, 0x00]), Some("bmp"));
+        assert_eq!(sniff_image_format(b"<html><body>403</body></html>"), None);
+        assert_eq!(sniff_image_format(&[]), None);
+    }
+
+    #[tokio::test]
+    async fn test_read_image_伪图片html内容_降级为文本展示() {
+        // 伪图片：HTML 错误页写入 .png 文件，应降级为文本并附带格式告警，绝不发送 Base64
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("avatar.png");
+        std::fs::write(&img_path, "<html>\n<head><title>403 Forbidden</title></head>\n<body>403 Forbidden</body>\n</html>").unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(result.content.is_none(), "伪图片不得返回结构化图片 content，实际 output: {}", result.output);
+        assert!(result.output.contains("[IMAGE CONTENT MISMATCH]"), "降级输出应包含格式告警标记: {}", result.output);
+        assert!(result.output.contains("403 Forbidden"), "降级输出应包含 HTML 原文内容: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn test_read_image_空图片文件_返回显式报错() {
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("empty.png");
+        std::fs::write(&img_path, b"").unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(result.content.is_none(), "空文件不得返回结构化图片 content");
+        assert!(result.output.contains("Error:"), "空图片文件应返回显式报错: {}", result.output);
+        assert!(result.output.contains("image signature"), "报错应说明签名不匹配: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn test_read_image_未知损坏二进制_返回显式报错() {
+        // 非任何图片魔数且非 UTF-8 文本的二进制数据，应报错而非发送脏 Base64
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("corrupted.png");
+        std::fs::write(&img_path, [0x00, 0x01, 0x02, 0xFF, 0xFE, 0x00, 0x7F]).unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(result.content.is_none(), "损坏文件不得返回结构化图片 content");
+        assert!(result.output.contains("Error:"), "损坏文件应返回显式报错: {}", result.output);
+        assert!(result.output.contains("does not match the expected image signature"), "报错应说明签名不匹配: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn test_read_image_jpg魔数配png扩展名_格式错配报错() {
+        // 文件头是 JPEG 魔数但扩展名是 .png：魔数与声明不符且字节非 UTF-8 文本 → 显式报错
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("mismatch.png");
+        std::fs::write(&img_path, [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0xFF]).unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(result.content.is_none(), "格式错配不得返回结构化图片 content");
+        assert!(result.output.contains("Error:"), "格式错配应返回显式报错: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn test_read_image_gif与bmp合法魔数_正常返回图片() {
+        // 魔数校验正向路径：GIF/BMP 合法签名应正常返回结构化图片 content
+        let dir = tempfile::tempdir().unwrap();
+        let gif_path = dir.path().join("anim.gif");
+        std::fs::write(&gif_path, b"GIF89a\x01\x00\x01\x00\x00\x00\x00;").unwrap();
+        let bmp_path = dir.path().join("pic.bmp");
+        std::fs::write(&bmp_path, [0x42, 0x4D, 0x00, 0x00, 0x00, 0x00]).unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let gif_result = tool
+            .invoke_content(serde_json::json!({"file_path": gif_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(gif_result.content.is_some(), "合法 GIF 应返回结构化 content，实际 output: {}", gif_result.output);
+        assert!(gif_result.output.contains("image/gif"), "GIF 摘要应包含 image/gif: {}", gif_result.output);
+        let bmp_result = tool
+            .invoke_content(serde_json::json!({"file_path": bmp_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(bmp_result.content.is_some(), "合法 BMP 应返回结构化 content，实际 output: {}", bmp_result.output);
+        assert!(bmp_result.output.contains("image/bmp"), "BMP 摘要应包含 image/bmp: {}", bmp_result.output);
+    }
+
+    #[tokio::test]
+    async fn test_read_image_jpeg扩展名与jpg魔数_正常返回图片() {
+        // .jpeg 扩展名归一化为 jpg 比较，JPEG 魔数应校验通过
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("photo.jpeg");
+        std::fs::write(&img_path, [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46]).unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(result.content.is_some(), ".jpeg 合法魔数应返回结构化 content，实际 output: {}", result.output);
+        assert!(result.output.contains("image/jpeg"), "摘要应包含 image/jpeg: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn test_read_image_伪图片超长文本_降级展示限制50行() {
+        // 降级文本展示应截断在 50 行，防止超长错误页刷屏
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("huge_error.png");
+        let long_text: String = (1..=200).map(|i| format!("error line {i}\n")).collect();
+        std::fs::write(&img_path, long_text).unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke_content(serde_json::json!({"file_path": img_path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(result.content.is_none(), "伪图片不得返回结构化 content");
+        assert!(result.output.contains("   50\terror line 50"), "降级展示应包含第 50 行: {}", &result.output[..result.output.len().min(200)]);
+        assert!(!result.output.contains("   51\terror line 51"), "降级展示不应包含第 51 行");
+    }

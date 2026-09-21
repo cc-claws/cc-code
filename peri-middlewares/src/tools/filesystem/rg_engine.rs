@@ -98,8 +98,7 @@ fn build_grep_args(parsed: &ParsedArgs, search_path: &Path, _cwd: &str) -> Vec<S
     args.push("!.worktrees".to_string());
 
     // smart-case：全小写模式自动忽略大小写
-    let smart_case = !parsed.case_insensitive
-        && parsed.pattern.chars().all(|c| !c.is_uppercase());
+    let smart_case = !parsed.case_insensitive && parsed.pattern.chars().all(|c| !c.is_uppercase());
     if parsed.case_insensitive || smart_case {
         args.push("-i".to_string());
     }
@@ -175,9 +174,24 @@ fn build_glob_args(pattern: &str, search_root: &Path) -> Vec<String> {
 
     // 排除目录（与 should_skip_dir 对齐）
     let skip_dirs = [
-        ".git", ".claude", ".worktrees", "node_modules", "dist", "build",
-        ".next", ".turbo", "coverage", ".nyc_output", "temp", ".cache",
-        "vendor", "venv", "__pycache__", "target", "out", ".output",
+        ".git",
+        ".claude",
+        ".worktrees",
+        "node_modules",
+        "dist",
+        "build",
+        ".next",
+        ".turbo",
+        "coverage",
+        ".nyc_output",
+        "temp",
+        ".cache",
+        "vendor",
+        "venv",
+        "__pycache__",
+        "target",
+        "out",
+        ".output",
     ];
     for dir in &skip_dirs {
         args.push("-g".to_string());
@@ -210,7 +224,8 @@ pub async fn execute_rg_grep(
                 p.to_path_buf()
             } else {
                 // 清理相对路径中的 ./ 或 .\ 前缀，避免 rg 输出 ./xxx 格式
-                let cleaned = p.to_string_lossy()
+                let cleaned = p
+                    .to_string_lossy()
                     .trim_start_matches("./")
                     .trim_start_matches(".\\")
                     .to_string();
@@ -238,7 +253,11 @@ pub async fn execute_rg_grep(
             .strip_prefix(cwd_path)
             .map(|rel| {
                 let s = rel.to_string_lossy().replace('\\', "/");
-                if s.is_empty() { ".".to_string() } else { s }
+                if s.is_empty() {
+                    ".".to_string()
+                } else {
+                    s
+                }
             })
             .unwrap_or_else(|_| search_path.display().to_string())
     };
@@ -326,7 +345,14 @@ pub async fn execute_rg_grep(
     let items: Vec<String> = converted[slice_start..slice_end].to_vec();
 
     // 格式化输出（与 Rust 引擎对齐）
-    let output_str = format_grep_output(parsed.output_mode, &items, total, head_limit, offset, was_truncated);
+    let output_str = format_grep_output(
+        parsed.output_mode,
+        &items,
+        total,
+        head_limit,
+        offset,
+        was_truncated,
+    );
     Some(output_str)
 }
 
@@ -388,12 +414,8 @@ pub async fn execute_rg_glob(
 
     // 按 mtime 排序（与 Rust 引擎对齐）
     results.sort_by(|a, b| {
-        let ta = std::fs::metadata(a)
-            .and_then(|m| m.modified())
-            .ok();
-        let tb = std::fs::metadata(b)
-            .and_then(|m| m.modified())
-            .ok();
+        let ta = std::fs::metadata(a).and_then(|m| m.modified()).ok();
+        let tb = std::fs::metadata(b).and_then(|m| m.modified()).ok();
         tb.cmp(&ta)
     });
 
@@ -488,10 +510,7 @@ fn find_path_end(line: &str) -> usize {
         0
     };
     // 从 start 之后找第一个 ':'
-    line[start..]
-        .find(':')
-        .map(|i| start + i)
-        .unwrap_or(0)
+    line[start..].find(':').map(|i| start + i).unwrap_or(0)
 }
 
 /// 格式化 Grep 输出（与 Rust 引擎的输出格式对齐）
@@ -569,7 +588,11 @@ fn format_grep_output(
             } else {
                 items.join("\n")
             };
-            let occ_plural = if total_matches == 1 { "occurrence" } else { "occurrences" };
+            let occ_plural = if total_matches == 1 {
+                "occurrence"
+            } else {
+                "occurrences"
+            };
             let file_plural = if file_count == 1 { "file" } else { "files" };
             let limit_info = pagination_info();
             let mut s = format!(

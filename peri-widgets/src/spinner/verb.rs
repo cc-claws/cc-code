@@ -383,7 +383,11 @@ mod tests {
     #[test]
     fn test_en_verbs_not_empty() {
         assert!(!EN_VERBS.is_empty(), "EN_VERBS should not be empty");
-        assert_eq!(EN_VERBS.len(), ZH_VERBS.len(), "EN_VERBS and ZH_VERBS should have the same length");
+        assert_eq!(
+            EN_VERBS.len(),
+            ZH_VERBS.len(),
+            "EN_VERBS and ZH_VERBS should have the same length"
+        );
     }
 
     #[test]
