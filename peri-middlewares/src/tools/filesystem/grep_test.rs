@@ -999,3 +999,136 @@ async fn test_grep_unlimited_with_offset() {
         "head_limit=0 不截断不应显示分页提示: {result}"
     );
 }
+
+// === Smart-case 智能大小写测试 ===
+
+/// smart-case：模式全小写时自动忽略大小写
+#[tokio::test]
+async fn test_grep_smart_case_lowercase_pattern_matches_uppercase() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.txt"), "NEEDLE\nneedle\nNeedle").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    // 全小写模式 "needle" 应触发 smart-case，匹配所有大小写变体
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("NEEDLE"),
+        "smart-case: 全小写模式应匹配大写: {result}"
+    );
+    assert!(
+        result.contains("needle"),
+        "smart-case: 全小写模式应匹配小写: {result}"
+    );
+    assert!(
+        result.contains("Needle"),
+        "smart-case: 全小写模式应匹配混合大小写: {result}"
+    );
+}
+
+/// smart-case：模式含大写时严格匹配
+#[tokio::test]
+async fn test_grep_smart_case_uppercase_pattern_strict() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.txt"), "NEEDLE\nneedle\nNeedle").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    // 含大写模式 "Needle" 应严格匹配，不匹配 "NEEDLE" 或 "needle"
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "Needle",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("Needle"),
+        "smart-case: 含大写模式应匹配精确大小写: {result}"
+    );
+    // 检查匹配行中不包含纯大写和纯小写变体（排除行号和路径前缀后比较）
+    let lines: Vec<&str> = result.lines().collect();
+    for line in &lines {
+        let content_part = line.split(": ").nth(1).unwrap_or("");
+        assert!(
+            !content_part.starts_with("NEEDLE"),
+            "smart-case: 含大写模式不应匹配全大写: {line}"
+        );
+    }
+}
+
+/// smart-case：显式 -i 仍然生效
+#[tokio::test]
+async fn test_grep_smart_case_explicit_i_still_works() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.txt"), "NEEDLE\nneedle").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "Needle",
+            "-i": true,
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("NEEDLE"),
+        "显式 -i 应匹配所有大小写: {result}"
+    );
+}
+
+// === Worktree 目录排除测试 ===
+
+/// Grep 不应搜索 .claude 目录下的文件
+#[tokio::test]
+async fn test_grep_skips_claude_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("real.txt"), "needle here").unwrap();
+    // 模拟 .claude/worktrees 结构
+    let claude_dir = dir.path().join(".claude").join("worktrees").join("branch");
+    std::fs::create_dir_all(&claude_dir).unwrap();
+    std::fs::write(claude_dir.join("copy.txt"), "needle copy").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "files_with_matches",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(result.contains("real.txt"), "应找到真实文件: {result}");
+    assert!(
+        !result.contains("copy.txt"),
+        ".claude 目录下的文件不应出现在结果中: {result}"
+    );
+}
+
+/// Grep 不应搜索 .worktrees 目录下的文件
+#[tokio::test]
+async fn test_grep_skips_worktrees_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("real.txt"), "needle here").unwrap();
+    let wt_dir = dir.path().join(".worktrees").join("branch-x");
+    std::fs::create_dir_all(&wt_dir).unwrap();
+    std::fs::write(wt_dir.join("copy.txt"), "needle copy").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "files_with_matches",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(result.contains("real.txt"), "应找到真实文件: {result}");
+    assert!(
+        !result.contains("copy.txt"),
+        ".worktrees 目录下的文件不应出现在结果中: {result}"
+    );
+}

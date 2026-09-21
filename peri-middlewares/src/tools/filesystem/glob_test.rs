@@ -96,3 +96,42 @@
             "应包含文件路径: {result}"
         );
     }
+
+    #[tokio::test]
+    async fn test_glob_skips_claude_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("real.rs"), "").unwrap();
+        // 模拟 .claude/worktrees 结构
+        let claude_dir = dir.path().join(".claude").join("worktrees").join("some-branch");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        std::fs::write(claude_dir.join("fake_copy.rs"), "").unwrap();
+        let tool = GlobFilesTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"pattern": "**/*.rs"}))
+            .await
+            .unwrap();
+        assert!(result.contains("real.rs"), "应找到真实文件: {result}");
+        assert!(
+            !result.contains("fake_copy.rs"),
+            ".claude 目录下的文件不应出现在结果中: {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_glob_skips_worktrees_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("real.rs"), "").unwrap();
+        let wt_dir = dir.path().join(".worktrees").join("branch-x");
+        std::fs::create_dir_all(&wt_dir).unwrap();
+        std::fs::write(wt_dir.join("copy.rs"), "").unwrap();
+        let tool = GlobFilesTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"pattern": "**/*.rs"}))
+            .await
+            .unwrap();
+        assert!(result.contains("real.rs"), "应找到真实文件: {result}");
+        assert!(
+            !result.contains("copy.rs"),
+            ".worktrees 目录下的文件不应出现在结果中: {result}"
+        );
+    }

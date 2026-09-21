@@ -100,10 +100,14 @@ fn execute_search(
         return Err(format!("Search path does not exist: {}", search_path.display()).into());
     }
 
-    // 构建 RegexMatcher
+    // 构建 RegexMatcher —— smart-case：模式全小写时自动忽略大小写，含大写时严格匹配
+    let smart_case = !parsed.case_insensitive
+        && parsed.pattern.chars().all(|c| !c.is_uppercase());
+    let case_insensitive = parsed.case_insensitive || smart_case;
+
     let mut matcher_builder = RegexMatcherBuilder::new();
     matcher_builder
-        .case_insensitive(parsed.case_insensitive)
+        .case_insensitive(case_insensitive)
         .word(parsed.whole_word);
     if parsed.multiline {
         matcher_builder.multi_line(true).dot_matches_new_line(true);
@@ -125,6 +129,16 @@ fn execute_search(
     if let Some(depth) = parsed.max_depth {
         builder.max_depth(Some(depth));
     }
+    // 排除 .claude/worktrees 目录，防止 worktree 副本污染搜索结果
+    builder.filter_entry(|entry| {
+        if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+            let name = entry.file_name().to_string_lossy();
+            if name == ".claude" || name == ".worktrees" {
+                return false;
+            }
+        }
+        true
+    });
 
     // 预编译 glob 过滤器
     let glob_filters: Vec<glob::Pattern> = parsed
