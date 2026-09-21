@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.64 — 2026-09-21
+
+### Features & Improvements
+
+- **清洗 RTK 外部宿主 stderr 提示噪音（#184, #185）**：过滤 RTK 外部宿主写入 stderr 的提示噪音，避免误导 Agent 判断。
+
+---
+
 ## v0.6.63 — 2026-09-20
 
 ### Features & Improvements
