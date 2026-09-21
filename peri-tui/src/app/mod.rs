@@ -43,7 +43,8 @@ pub(crate) mod at_mention;
 pub use at_mention::AtMentionState;
 
 mod message_state;
-pub use message_state::MessageState;
+pub use message_state::{MessageState, QueuedMessage, QueuedMessageAction};
+mod queued_messages;
 
 // ── Agent Communication ──────────────────────────────────────────────────────
 mod agent_comm;
@@ -521,14 +522,19 @@ impl App {
                     .messages
                     .pipeline
                     .restore_completed(restored);
-                let mut ta = build_textarea(false);
-                ta.insert_str(text.clone());
-                self.session_mgr.current_mut().ui.textarea = ta;
-                self.session_mgr
-                    .current_mut()
-                    .messages
-                    .pending_messages
-                    .clear();
+                let session = self.session_mgr.current_mut();
+                if session
+                    .ui
+                    .textarea
+                    .lines()
+                    .iter()
+                    .all(|line| line.is_empty())
+                    && session.metadata.pending_attachments.is_empty()
+                {
+                    let mut ta = build_textarea(false);
+                    ta.insert_str(text.clone());
+                    session.ui.textarea = ta;
+                }
                 self.session_mgr.current_mut().metadata.last_human_message = None;
                 self.push_system_note(format!(
                     "⚠ {}",

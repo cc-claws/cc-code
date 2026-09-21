@@ -263,16 +263,20 @@ impl App {
                 .agent
                 .origin_messages
                 .truncate(pre_len);
-            // 恢复文本到输入框
-            let mut ta = crate::app::build_textarea(false);
-            ta.insert_str(text.clone());
-            self.session_mgr.current_mut().ui.textarea = ta;
-            // 清除 pending 缓冲
-            self.session_mgr
-                .current_mut()
-                .messages
-                .pending_messages
-                .clear();
+            // 执行期间允许编辑草稿和排队图片；中断不能覆盖新草稿或丢弃队列。
+            let session = self.session_mgr.current_mut();
+            if session
+                .ui
+                .textarea
+                .lines()
+                .iter()
+                .all(|line| line.is_empty())
+                && session.metadata.pending_attachments.is_empty()
+            {
+                let mut ta = crate::app::build_textarea(false);
+                ta.insert_str(text.clone());
+                session.ui.textarea = ta;
+            }
             // 清除 sticky header
             self.session_mgr.current_mut().metadata.last_human_message = None;
             // 清除 pipeline 状态

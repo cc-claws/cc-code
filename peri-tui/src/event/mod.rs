@@ -336,7 +336,7 @@ fn set_message_scroll_offset(app: &mut App, offset: usize) {
 
 /// Core event-handling logic (extracted from `next_event` to avoid duplicating
 /// the probe and normal paths).
-async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
+pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
     match ev {
         Event::FocusGained => {
             app.focused = true;
@@ -416,6 +416,20 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
         }
         Event::Mouse(mouse) => {
             record_mouse_event();
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                let action = app
+                    .session_mgr
+                    .current()
+                    .ui
+                    .queued_message_actions
+                    .iter()
+                    .find(|(area, _)| mouse::mouse_in_rect(&mouse, *area))
+                    .map(|(_, action)| *action);
+                if let Some(action) = action {
+                    app.handle_queued_message_action(action);
+                    return Ok(Some(Action::Redraw));
+                }
+            }
             match mouse.kind {
                 // ── AskUser 弹窗鼠标交互（优先于面板/消息区） ────────────────────────
                 MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {

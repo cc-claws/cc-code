@@ -30,14 +30,21 @@ impl App {
         self.session_mgr.current_mut().metadata.pre_submit_state_len =
             self.session_mgr.current_mut().agent.origin_messages.len();
 
-        let is_first_prompt = !self.session_mgr.current().metadata.title_generation_attempted
+        let is_first_prompt = !self
+            .session_mgr
+            .current()
+            .metadata
+            .title_generation_attempted
             && self.session_mgr.current().agent.origin_messages.is_empty();
 
         if shell_notification_display.is_none() {
             self.push_input_history(expanded_input.clone());
             // 首轮有效用户 Prompt：若尚未命名则先进行轨 1（本地确定性保底提取，0ms 即时反馈）
             if is_first_prompt {
-                self.session_mgr.current_mut().metadata.title_generation_attempted = true;
+                self.session_mgr
+                    .current_mut()
+                    .metadata
+                    .title_generation_attempted = true;
                 if let Some(title) = crate::terminal_title::extract_thread_title(&display_input) {
                     self.session_mgr.current_mut().metadata.thread_title = Some(title.clone());
                     if let Some(ref tid) = self.session_mgr.current().current_thread_id {
@@ -182,7 +189,8 @@ impl App {
             let thread_id = self.session_mgr.current().current_thread_id.clone();
             tokio::spawn(async move {
                 if let Some(llm_title) =
-                    crate::terminal_title::generate_thread_title_llm(provider_clone, &prompt_text).await
+                    crate::terminal_title::generate_thread_title_llm(provider_clone, &prompt_text)
+                        .await
                 {
                     let _ = bg_tx
                         .send(AgentEvent::ThreadTitleGenerated {
@@ -300,24 +308,19 @@ impl App {
         }
     }
 
-    /// 发送缓冲的 cron 消息（每次只发一条，其余留待后续 Done 周期发送）
-    /// 多条独立 cron 任务不应合并为一个 LLM 消息，避免语义混淆
+    /// 每次发送一条排队消息；正在等待插入确认时先保留队列，避免重复提交。
     pub(crate) fn flush_pending_messages(&mut self) {
-        if let Some(msg) = self
+        let messages = &self.session_mgr.current().messages.pending_messages;
+        if messages.is_empty() || messages.iter().any(|message| message.sending) {
+            return;
+        }
+        let message = self
             .session_mgr
             .current_mut()
             .messages
             .pending_messages
-            .first()
-            .cloned()
-        {
-            self.session_mgr
-                .current_mut()
-                .messages
-                .pending_messages
-                .remove(0);
-            self.submit_message(msg);
-        }
+            .remove(0);
+        self.submit_queued_message(message);
     }
 
     /// 提交后台任务 continuation（使用合成 AgentResult tool_use + tool_result 消息）
