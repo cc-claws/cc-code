@@ -45,7 +45,8 @@ fn glob_match(pattern: &str, path: &str) -> bool {
 /// 使用 ignore::WalkBuilder 收集匹配文件，原生支持 .gitignore + 隐藏文件过滤。
 ///
 /// 使用 Top-K 最小堆就地维护最新的 MAX_RESULTS 个文件，避免全量收集后二次 metadata 调用。
-fn collect_files(base: &Path, pattern: &str) -> Vec<String> {
+/// 返回 (results, total_matched)：results 为最新的 MAX_RESULTS 个文件，total_matched 为总匹配数。
+fn collect_files(base: &Path, pattern: &str) -> (Vec<String>, usize) {
     let mut builder = ignore::WalkBuilder::new(base);
     builder
         .hidden(true) // 搜索隐藏文件
@@ -73,6 +74,8 @@ fn collect_files(base: &Path, pattern: &str) -> Vec<String> {
     let mut heap: BinaryHeap<(Reverse<std::time::SystemTime>, String)> =
         BinaryHeap::with_capacity(MAX_RESULTS + 1);
 
+    let mut total_matched: usize = 0;
+
     for entry in walker {
         let e = match entry {
             Ok(e) => e,
@@ -90,6 +93,7 @@ fn collect_files(base: &Path, pattern: &str) -> Vec<String> {
         if let Ok(rel) = e.path().strip_prefix(base) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
             if glob_match(pattern, &rel_str) {
+                total_matched += 1;
                 let mtime = e
                     .metadata()
                     .ok()
@@ -106,7 +110,7 @@ fn collect_files(base: &Path, pattern: &str) -> Vec<String> {
     // 从堆中提取并按 mtime 降序排列
     let mut results: Vec<_> = heap.into_iter().collect();
     results.sort_by(|a, b| b.0 .0.cmp(&a.0 .0));
-    results.into_iter().map(|(_, path)| path).collect()
+    (results.into_iter().map(|(_, path)| path).collect(), total_matched)
 }
 
 #[async_trait::async_trait]
@@ -167,19 +171,17 @@ impl BaseTool for GlobFilesTool {
         }
 
         // Fallback: 纯 Rust 引擎（ignore::WalkBuilder + Top-K 堆排序）
-        let results = collect_files(&search_root, pattern);
+        let (results, total_matched) = collect_files(&search_root, pattern);
 
         if results.is_empty() {
             Ok("No files found.".to_string())
-        } else if results.len() > MAX_RESULTS {
-            let full = results.join("\n");
-            let truncated = &results[..MAX_RESULTS];
-            let persist_hint = persist_truncated_output(&full);
+        } else if total_matched > MAX_RESULTS {
+            let persist_hint = persist_truncated_output(&results.join("\n"));
             Ok(crate::tools::output_persist::truncate_tool_output(
                 &format!(
                     "{}\n\n[Output truncated: {} files total, showing first {}]{}",
-                    truncated.join("\n"),
-                    results.len(),
+                    results.join("\n"),
+                    total_matched,
                     MAX_RESULTS,
                     persist_hint
                 ),
