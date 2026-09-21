@@ -55,22 +55,16 @@ pub fn resolve_rg() -> Option<&'static PathBuf> {
                 }
             }
 
-            // 3. 系统 PATH
-            let rg_name = if cfg!(windows) { "rg.exe" } else { "rg" };
-            if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
-                .arg(rg_name)
+            // 3. 系统 PATH：直接执行 rg --version 探测，避免依赖 which/where
+            //    （极简容器如 Alpine/Debian-slim 可能无 which 命令）
+            if let Ok(output) = std::process::Command::new("rg")
+                .arg("--version")
                 .output()
             {
                 if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    // where/which 可能返回多行，取第一行
-                    if let Some(first_line) = stdout.lines().next() {
-                        let path = PathBuf::from(first_line.trim());
-                        if path.exists() {
-                            tracing::debug!(path = %path.display(), "rg resolved from PATH");
-                            return Some(path);
-                        }
-                    }
+                    tracing::debug!("rg resolved from PATH (via --version probe)");
+                    // 返回 "rg" 让 OS 在 PATH 中查找，无需绝对路径
+                    return Some(PathBuf::from("rg"));
                 }
             }
 
@@ -86,6 +80,8 @@ fn build_grep_args(parsed: &ParsedArgs, search_path: &Path, _cwd: &str) -> Vec<S
 
     // 基础参数
     args.push("--no-heading".to_string());
+    // 强制始终输出文件名，防止单文件搜索时 rg 省略文件名导致行号被误认为路径
+    args.push("-H".to_string());
     if parsed.line_number {
         args.push("--line-number".to_string());
     } else {
@@ -191,14 +187,6 @@ fn build_glob_args(pattern: &str, search_root: &Path) -> Vec<String> {
     args
 }
 
-/// 将 rg 输出的绝对路径转为相对于 cwd 的显示路径
-fn to_display_path(rg_output_path: &str, cwd: &str) -> String {
-    let path = Path::new(rg_output_path);
-    path.strip_prefix(cwd)
-        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| rg_output_path.to_string())
-}
-
 /// 使用 rg 执行 Grep 搜索。
 ///
 /// 成功返回格式化输出，失败（超时/进程错误）返回 None 触发 Fallback。
@@ -215,8 +203,11 @@ pub async fn execute_rg_grep(
             if p.is_absolute() {
                 p.to_path_buf()
             } else {
-                // 清理相对路径中的 ./ 前缀，避免 rg 输出 ./xxx 格式
-                let cleaned = p.to_string_lossy().trim_start_matches("./").to_string();
+                // 清理相对路径中的 ./ 或 .\ 前缀，避免 rg 输出 ./xxx 格式
+                let cleaned = p.to_string_lossy()
+                    .trim_start_matches("./")
+                    .trim_start_matches(".\\")
+                    .to_string();
                 if cleaned.is_empty() {
                     PathBuf::from(cwd)
                 } else {
@@ -376,17 +367,25 @@ pub async fn execute_rg_glob(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    // Glob 返回绝对路径（与 Rust 引擎对齐：collect_files 返回绝对路径）
     let mut results: Vec<String> = stdout
         .lines()
-        .map(|line| to_display_path(line, cwd))
+        .map(|line| {
+            let p = Path::new(line);
+            if p.is_absolute() {
+                line.to_string()
+            } else {
+                Path::new(cwd).join(line).display().to_string()
+            }
+        })
         .collect();
 
     // 按 mtime 排序（与 Rust 引擎对齐）
     results.sort_by(|a, b| {
-        let ta = std::fs::metadata(Path::new(cwd).join(a))
+        let ta = std::fs::metadata(a)
             .and_then(|m| m.modified())
             .ok();
-        let tb = std::fs::metadata(Path::new(cwd).join(b))
+        let tb = std::fs::metadata(b)
             .and_then(|m| m.modified())
             .ok();
         tb.cmp(&ta)

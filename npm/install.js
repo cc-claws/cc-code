@@ -9,7 +9,7 @@ const { homedir } = require("os");
 const VERSION = require("./package.json").version;
 const REPO = "cc-claws/cc-code";
 const BASE_URL = `https://github.com/${REPO}/releases/download/npm-v${VERSION}`;
-const RG_VERSION = "14.1.1";
+const RG_VERSION = "15.0.1";
 const RG_BASE_URL = `https://github.com/microsoft/ripgrep-prebuilt/releases/download/v${RG_VERSION}`;
 
 const PLATFORMS = {
@@ -224,7 +224,7 @@ async function downloadRipgrep(platform, binDir) {
 
   try {
     const rgExt = platform.os === "win32" ? "zip" : "tar.gz";
-    const rgFileName = `ripgrep-${RG_VERSION}-${platform.rgSuffix}.${rgExt}`;
+    const rgFileName = `ripgrep-v${RG_VERSION}-${platform.rgSuffix}.${rgExt}`;
     const rgUrl = `${RG_BASE_URL}/${rgFileName}`;
 
     console.log(`  Downloading ripgrep ${RG_VERSION}...`);
@@ -235,7 +235,7 @@ async function downloadRipgrep(platform, binDir) {
       const tmpFile = join(binDir, "rg-download.tar.gz");
       writeFileSync(tmpFile, rgBuffer);
       // ripgrep tar.gz 内含目录 ripgrep-x.y.z-suffix/rg
-      execSync(`tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 --wildcards "*/rg" 2>/dev/null || tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 "ripgrep-${RG_VERSION}-${platform.rgSuffix}/rg"`, { stdio: "ignore" });
+      execSync(`tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 --wildcards "*/rg" 2>/dev/null || tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 "ripgrep-v${RG_VERSION}-${platform.rgSuffix}/rg"`, { stdio: "ignore" });
       unlinkSync(tmpFile);
     } else {
       const AdmZip = require("adm-zip");
