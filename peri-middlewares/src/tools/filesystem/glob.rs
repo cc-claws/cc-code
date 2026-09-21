@@ -39,6 +39,8 @@ fn should_skip_dir(name: &str) -> bool {
         name,
         "node_modules"
             | ".git"
+            | ".claude"
+            | ".worktrees"
             | "dist"
             | "build"
             | ".next"
