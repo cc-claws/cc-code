@@ -109,7 +109,7 @@ fn collect_files(base: &Path, pattern: &str) -> (Vec<String>, usize) {
 
     // 从堆中提取并按 mtime 降序排列
     let mut results: Vec<_> = heap.into_iter().collect();
-    results.sort_by(|a, b| b.0 .0.cmp(&a.0 .0));
+    results.sort_unstable_by_key(|b| Reverse(b.0 .0));
     (results.into_iter().map(|(_, path)| path).collect(), total_matched)
 }
 
