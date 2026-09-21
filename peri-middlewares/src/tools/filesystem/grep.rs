@@ -585,8 +585,21 @@ impl BaseTool for GrepTool {
 
         let head_limit = grep_input.head_limit;
         let offset = grep_input.offset.unwrap_or(0);
-
         let cwd = self.cwd.clone();
+
+        // 优先尝试 rg CLI 引擎
+        if let Some(rg_path) = super::rg_engine::resolve_rg() {
+            if let Some(output) = super::rg_engine::execute_rg_grep(
+                rg_path, &parsed, &cwd, head_limit, offset,
+            )
+            .await
+            {
+                return Ok(crate::tools::output_persist::truncate_tool_output(&output));
+            }
+            tracing::debug!("rg engine returned None, falling back to Rust engine");
+        }
+
+        // Fallback: 纯 Rust 引擎
         let result = timeout(
             Duration::from_secs(15),
             tokio::task::spawn_blocking(move || execute_search(&parsed, &cwd, head_limit, offset)),

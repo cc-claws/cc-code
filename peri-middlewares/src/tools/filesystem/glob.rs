@@ -142,6 +142,19 @@ impl BaseTool for GlobFilesTool {
             return Err(format!("Error: Directory not found: {}", search_root.display()).into());
         }
 
+        // 优先尝试 rg CLI 引擎
+        if let Some(rg_path) = super::rg_engine::resolve_rg() {
+            if let Some(output) = super::rg_engine::execute_rg_glob(
+                rg_path, pattern, &search_root, &self.cwd, MAX_RESULTS,
+            )
+            .await
+            {
+                return Ok(crate::tools::output_persist::truncate_tool_output(&output));
+            }
+            tracing::debug!("rg glob returned None, falling back to Rust engine");
+        }
+
+        // Fallback: 纯 Rust 引擎
         let mut results = Vec::new();
         collect_files(&search_root, pattern, &mut results);
 
