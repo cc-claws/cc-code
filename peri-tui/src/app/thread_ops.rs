@@ -217,7 +217,10 @@ impl App {
         });
         self.session_mgr.current_mut().metadata.thread_title = thread_meta.and_then(|m| m.title);
         if !base_msgs.is_empty() {
-            self.session_mgr.current_mut().metadata.title_generation_attempted = true;
+            self.session_mgr
+                .current_mut()
+                .metadata
+                .title_generation_attempted = true;
         }
         self.refresh_terminal_title();
 

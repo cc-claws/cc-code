@@ -242,4 +242,3 @@ fn test_width_safe_backend_box_drawing_and_status_glyphs_fallback() {
         );
     }
 }
-

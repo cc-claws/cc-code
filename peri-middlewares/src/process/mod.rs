@@ -306,7 +306,10 @@ pub fn is_potential_rtk_command(command: &str) -> bool {
     let first_word = trimmed.split_whitespace().next().unwrap_or("");
     // 跳过环境变量前缀（如 `FOO=bar git status`）
     let cmd = if first_word.contains('=') {
-        trimmed.split_whitespace().find(|w| !w.contains('=')).unwrap_or("")
+        trimmed
+            .split_whitespace()
+            .find(|w| !w.contains('='))
+            .unwrap_or("")
     } else {
         first_word
     };

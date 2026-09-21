@@ -580,11 +580,8 @@ impl BashTool {
 
                 let mut output = format_command_output(&stdout, &stderr, exit_code);
                 output.push_str("\n[Retried with Git Bash]");
-                let output = crate::tools::output_filter::filter_command_output(
-                    command,
-                    &output,
-                    exit_code,
-                );
+                let output =
+                    crate::tools::output_filter::filter_command_output(command, &output, exit_code);
 
                 // format_command_output 在无输出时返回 "[Command completed ...]"，
                 // 仅追加标记即可，无需再特判空输出。

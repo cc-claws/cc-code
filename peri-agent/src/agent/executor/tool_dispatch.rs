@@ -322,18 +322,17 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                         tool.call_id = %call_id,
                     );
                     let _enter = span.enter();
-                    let invoke_fut =
-                        async {
-                            match tool {
-                                Some(t) => t.invoke_content(input).await.map_err(|e| {
-                                    AgentError::ToolExecutionFailed {
-                                        tool: tool_name.clone(),
-                                        reason: e.to_string(),
-                                    }
-                                }),
-                                None => Err(AgentError::ToolNotFound(tool_name.clone())),
-                            }
-                        };
+                    let invoke_fut = async {
+                        match tool {
+                            Some(t) => t.invoke_content(input).await.map_err(|e| {
+                                AgentError::ToolExecutionFailed {
+                                    tool: tool_name.clone(),
+                                    reason: e.to_string(),
+                                }
+                            }),
+                            None => Err(AgentError::ToolNotFound(tool_name.clone())),
+                        }
+                    };
                     tokio::select! {
                         biased;
                         _ = cancel.cancelled() => {
@@ -370,11 +369,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                         content,
                     )
                 } else {
-                    ToolResult::success(
-                        &modified_call.id,
-                        &modified_call.name,
-                        tool_content.output,
-                    )
+                    ToolResult::success(&modified_call.id, &modified_call.name, tool_content.output)
                 }
             }
             Err(AgentError::ToolNotFound(ref name)) => {
