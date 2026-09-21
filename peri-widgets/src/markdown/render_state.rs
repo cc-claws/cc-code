@@ -468,6 +468,8 @@ pub(super) struct RenderState<'a> {
     table: Option<TableBuilder>,
     theme: &'a dyn MarkdownTheme,
     max_width: usize,
+    /// 当前列表项/引用块的悬挂缩进列数（续行前缀的显示宽度）
+    hanging_indent: usize,
 }
 
 impl<'a> RenderState<'a> {
@@ -484,6 +486,7 @@ impl<'a> RenderState<'a> {
             table: None,
             theme,
             max_width: 80, // 默认宽度
+            hanging_indent: 0,
         }
     }
 
@@ -505,9 +508,148 @@ impl<'a> RenderState<'a> {
 
         if spans.is_empty() {
             self.lines.push(Line::default());
+            return;
+        }
+
+        // 计算实际的悬挂缩进（列表项或引用块内）
+        let indent = if self.hanging_indent > 0 {
+            self.hanging_indent
+        } else if self.quote_depth > 0 {
+            // 引用块：缩进 = 引用前缀的显示宽度
+            "▍ ".repeat(self.quote_depth as usize).width()
+        } else {
+            0
+        };
+
+        if indent > 0 && self.max_width > indent {
+            let wrapped = self.wrap_spans_with_hanging_indent(&spans, indent);
+            self.lines.extend(wrapped);
         } else {
             self.lines.push(Line::from(spans));
         }
+    }
+
+    /// 将 spans 按 max_width 预折行，续行加悬挂缩进
+    ///
+    /// 首行直接使用原始 spans（bullet/引用前缀已在其中），
+    /// 续行前面插入与首行文字起始位置等宽的空格。
+    fn wrap_spans_with_hanging_indent(
+        &self,
+        spans: &[Span<'static>],
+        indent: usize,
+    ) -> Vec<Line<'static>> {
+        // 先计算首行总显示宽度
+        let total_width: usize = spans.iter().map(|s| s.content.width()).sum();
+        if total_width <= self.max_width {
+            // 不需要折行
+            return vec![Line::from(spans.to_vec())];
+        }
+
+        let max_w = self.max_width;
+
+        // 将所有 spans 展平为 (char, Style) 序列
+        let mut chars_with_style: Vec<(char, Style)> = Vec::new();
+        for span in spans {
+            for ch in span.content.chars() {
+                chars_with_style.push((ch, span.style));
+            }
+        }
+
+        let mut result_lines: Vec<Line<'static>> = Vec::new();
+        let mut idx = 0;
+        let total_chars = chars_with_style.len();
+        let mut is_first_line = true;
+
+        while idx < total_chars {
+            let line_start = idx;
+            let line_prefix_w = if is_first_line { 0 } else { indent };
+            let content_max = max_w.saturating_sub(line_prefix_w);
+
+            // 累加字符宽度，找到折行点
+            let mut width_acc: usize = 0;
+            let mut break_idx = idx; // 在这个索引处断行
+            let mut last_space_idx: Option<usize> = None;
+
+            while break_idx < total_chars {
+                let (ch, _) = chars_with_style[break_idx];
+                let ch_w = ch.width().unwrap_or(0);
+
+                if width_acc + ch_w > content_max && break_idx > line_start {
+                    // 超出宽度，需要断行
+                    // 优先在最近的空格后断行，但确保断行后行内至少有 1/3 宽度的内容
+                    if let Some(space_idx) = last_space_idx {
+                        let width_before: usize = chars_with_style[line_start..space_idx]
+                            .iter()
+                            .map(|(c, _)| c.width().unwrap_or(0))
+                            .sum();
+                        if space_idx > line_start && width_before >= content_max / 3 {
+                            break_idx = space_idx + 1;
+                            break;
+                        }
+                    }
+                    // 没有合适的空格断行点，在当前位置强制断行（CJK 可以任意断行）
+                    break;
+                }
+
+                if ch == ' ' || ch == '\u{3000}' {
+                    last_space_idx = Some(break_idx);
+                }
+
+                width_acc += ch_w;
+                break_idx += 1;
+            }
+
+            // 确保至少消费一个字符（防止死循环）
+            if break_idx == line_start && break_idx < total_chars {
+                break_idx = line_start + 1;
+            }
+
+            // 构建本行的 spans：相邻同 style 的字符合并为一个 span
+            let mut line_spans: Vec<Span<'static>> = Vec::new();
+
+            // 续行加缩进 padding
+            if !is_first_line {
+                if self.quote_depth > 0 && self.hanging_indent == 0 {
+                    // 引用块续行：重新添加引用前缀
+                    let prefix = "▍ ".repeat(self.quote_depth as usize);
+                    line_spans.push(Span::styled(
+                        prefix,
+                        Style::default().fg(self.theme.quote_prefix()),
+                    ));
+                } else {
+                    let padding = " ".repeat(indent);
+                    line_spans.push(Span::styled(padding, Style::default()));
+                }
+            }
+
+            // 合并同 style 字符为 span
+            let mut buf = String::new();
+            let mut buf_style: Option<Style> = None;
+            for &(ch, style) in &chars_with_style[line_start..break_idx] {
+                if buf_style.is_some() && buf_style != Some(style) {
+                    line_spans.push(Span::styled(
+                        std::mem::take(&mut buf),
+                        buf_style.unwrap(),
+                    ));
+                    buf_style = Some(style);
+                } else if buf_style.is_none() {
+                    buf_style = Some(style);
+                }
+                buf.push(ch);
+            }
+            if !buf.is_empty() {
+                line_spans.push(Span::styled(buf, buf_style.unwrap_or_default()));
+            }
+
+            if !line_spans.is_empty() {
+                result_lines.push(Line::from(line_spans));
+            }
+
+            idx = break_idx;
+            is_first_line = false;
+        }
+
+        result_lines
     }
 
     /// 确保与上一个输出行之间有一个空行（去重：如果上一行已是空行则跳过）
@@ -646,13 +788,18 @@ impl<'a> RenderState<'a> {
                 } else {
                     format!("{}• ", indent)
                 };
+                // 计算悬挂缩进宽度 = bullet 前缀的显示宽度
+                self.hanging_indent = bullet.width();
                 self.current_spans.push(Span::styled(
                     bullet,
                     Style::default().fg(self.theme.list_bullet()),
                 ));
             }
-            Event::End(TagEnd::Item) if !self.current_spans.is_empty() => {
-                self.flush_line();
+            Event::End(TagEnd::Item) => {
+                if !self.current_spans.is_empty() {
+                    self.flush_line();
+                }
+                self.hanging_indent = 0;
             }
 
             // ── 引用块 ────────────────────────────────────────────────────────
