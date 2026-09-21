@@ -9,13 +9,15 @@ const { homedir } = require("os");
 const VERSION = require("./package.json").version;
 const REPO = "cc-claws/cc-code";
 const BASE_URL = `https://github.com/${REPO}/releases/download/npm-v${VERSION}`;
+const RG_VERSION = "14.1.1";
+const RG_BASE_URL = `https://github.com/microsoft/ripgrep-prebuilt/releases/download/v${RG_VERSION}`;
 
 const PLATFORMS = {
-  "linux-x64": { os: "linux", arch: "x64", suffix: "linux-x86_64", ext: "tar.gz" },
-  "linux-arm64": { os: "linux", arch: "arm64", suffix: "linux-aarch64", ext: "tar.gz" },
-  "darwin-x64": { os: "darwin", arch: "x64", suffix: "macos-x86_64", ext: "tar.gz" },
-  "darwin-arm64": { os: "darwin", arch: "arm64", suffix: "macos-aarch64", ext: "tar.gz" },
-  "win32-x64": { os: "win32", arch: "x64", suffix: "windows-x86_64", ext: "zip" },
+  "linux-x64": { os: "linux", arch: "x64", suffix: "linux-x86_64", ext: "tar.gz", rgSuffix: "x86_64-unknown-linux-musl" },
+  "linux-arm64": { os: "linux", arch: "arm64", suffix: "linux-aarch64", ext: "tar.gz", rgSuffix: "aarch64-unknown-linux-gnu" },
+  "darwin-x64": { os: "darwin", arch: "x64", suffix: "macos-x86_64", ext: "tar.gz", rgSuffix: "x86_64-apple-darwin" },
+  "darwin-arm64": { os: "darwin", arch: "arm64", suffix: "macos-aarch64", ext: "tar.gz", rgSuffix: "aarch64-apple-darwin" },
+  "win32-x64": { os: "win32", arch: "x64", suffix: "windows-x86_64", ext: "zip", rgSuffix: "x86_64-pc-windows-msvc" },
 };
 
 function getPlatformKey() {
@@ -210,6 +212,56 @@ function migrateFromClaudeCode(home = homedir()) {
   return true;
 }
 
+async function downloadRipgrep(platform, binDir) {
+  const rgName = platform.os === "win32" ? "rg.exe" : "rg";
+  const rgPath = join(binDir, rgName);
+
+  // 已存在则跳过
+  if (existsSync(rgPath)) {
+    console.log("  ripgrep already installed.");
+    return;
+  }
+
+  try {
+    const rgExt = platform.os === "win32" ? "zip" : "tar.gz";
+    const rgFileName = `ripgrep-${RG_VERSION}-${platform.rgSuffix}.${rgExt}`;
+    const rgUrl = `${RG_BASE_URL}/${rgFileName}`;
+
+    console.log(`  Downloading ripgrep ${RG_VERSION}...`);
+    const rgBuffer = await download(rgUrl);
+
+    // 解压 rg 二进制到 binDir
+    if (rgExt === "tar.gz") {
+      const tmpFile = join(binDir, "rg-download.tar.gz");
+      writeFileSync(tmpFile, rgBuffer);
+      // ripgrep tar.gz 内含目录 ripgrep-x.y.z-suffix/rg
+      execSync(`tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 --wildcards "*/rg" 2>/dev/null || tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 "ripgrep-${RG_VERSION}-${platform.rgSuffix}/rg"`, { stdio: "ignore" });
+      unlinkSync(tmpFile);
+    } else {
+      const AdmZip = require("adm-zip");
+      const zip = new AdmZip(rgBuffer);
+      // Windows zip 内含 rg.exe 在根目录或子目录
+      const entries = zip.getEntries();
+      for (const entry of entries) {
+        if (entry.entryName.endsWith("rg.exe")) {
+          writeFileSync(rgPath, entry.getData());
+          break;
+        }
+      }
+    }
+
+    if (existsSync(rgPath)) {
+      if (platform.os !== "win32") chmodSync(rgPath, 0o755);
+      console.log("  ripgrep installed (enhances Grep/Glob performance).");
+    } else {
+      console.log("  ripgrep extraction skipped (Grep/Glob will use built-in engine).");
+    }
+  } catch (err) {
+    // rg 下载失败不阻塞安装，Rust 内置引擎作为 fallback
+    console.log(`  ripgrep download skipped: ${err.message} (Grep/Glob will use built-in engine).`);
+  }
+}
+
 async function main() {
   const key = getPlatformKey();
   const platform = PLATFORMS[key];
@@ -256,6 +308,9 @@ async function main() {
   }
 
   console.log(`cc-code ${VERSION} installed successfully.`);
+
+  // 下载 ripgrep 预编译二进制（增强 Grep/Glob 性能，失败不阻塞安装）
+  await downloadRipgrep(platform, binDir);
 
   const migrated = migrateFromClaudeCode();
 
