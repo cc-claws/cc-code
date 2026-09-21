@@ -14,6 +14,7 @@
 #[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
+use super::image_file::decode_image_file;
 use anyhow::Result;
 use base64::Engine as _;
 
@@ -70,7 +71,7 @@ pub fn paste_image_as_png_base64() -> Result<(String, usize, u32, u32), PasteIma
     encode_base64(&png_bytes, w, h)
 }
 
-fn encode_base64(
+pub(super) fn encode_base64(
     png_bytes: &[u8],
     w: u32,
     h: u32,
@@ -91,7 +92,7 @@ fn try_file_list_or_image_data() -> Result<(Vec<u8>, u32, u32), PasteImageError>
     // 路径 1：file_list（Finder 等文件复制场景，剪贴板里是文件路径）
     if let Ok(files) = cb.get().file_list() {
         for f in files.into_iter() {
-            if let Ok((bytes, w, h)) = decode_png_file(&f) {
+            if let Ok((bytes, w, h)) = decode_image_file(&f) {
                 return Ok((bytes, w, h));
             }
         }
@@ -114,53 +115,7 @@ fn try_file_list_or_image_data() -> Result<(Vec<u8>, u32, u32), PasteImageError>
     ))
 }
 
-/// 用 png crate 解码文件，再重编码为标准化 PNG。
-fn decode_png_file(path: &std::path::Path) -> Result<(Vec<u8>, u32, u32), PasteImageError> {
-    let file = std::fs::File::open(path)
-        .map_err(|e| PasteImageError::IoError(format!("open {}: {e}", path.display())))?;
-    let reader = std::io::BufReader::new(file);
-    let decoder = png::Decoder::new(reader);
-    let mut reader = decoder.read_info().map_err(|e| {
-        PasteImageError::DecodeFailed(format!("png decode {}: {e}", path.display()))
-    })?;
-
-    let (w, h) = (reader.info().width, reader.info().height);
-    // Allocate buffer based on output buffer size hint
-    let mut buf = vec![0u8; reader.output_buffer_size().unwrap_or(0)];
-    reader
-        .next_frame(&mut buf)
-        .map_err(|e| PasteImageError::DecodeFailed(format!("png read frame: {e}")))?;
-
-    // 用标准化 RGBA 重编码
-    let info = reader.info();
-    let color_type = info.color_type;
-    let bit_depth = info.bit_depth;
-    let rgba = match (color_type, bit_depth) {
-        (png::ColorType::Rgba, png::BitDepth::Eight) => buf,
-        (png::ColorType::Rgb, png::BitDepth::Eight) => {
-            // RGB → RGBA
-            let mut rgba = Vec::with_capacity(buf.len() / 3 * 4);
-            for chunk in buf.as_chunks::<3>().0 {
-                rgba.extend_from_slice(chunk);
-                rgba.push(255);
-            }
-            rgba
-        }
-        _ => {
-            return Err(PasteImageError::DecodeFailed(format!(
-                "unsupported png color/depth in {}: {:?}/{:?}",
-                path.display(),
-                color_type,
-                bit_depth
-            )));
-        }
-    };
-
-    let png_bytes = encode_rgba_to_png(w, h, &rgba)?;
-    Ok((png_bytes, w, h))
-}
-
-fn encode_rgba_to_png(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>, PasteImageError> {
+pub(super) fn encode_rgba_to_png(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>, PasteImageError> {
     let mut png_bytes: Vec<u8> = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut png_bytes, w, h);
@@ -195,7 +150,7 @@ fn try_wsl_clipboard_fallback(
         return Ok(None);
     };
 
-    match decode_png_file(&mapped_path) {
+    match decode_image_file(&mapped_path) {
         Ok(tuple) => Ok(Some(tuple)),
         Err(_) => Ok(None),
     }
