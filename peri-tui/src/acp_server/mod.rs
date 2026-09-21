@@ -38,6 +38,7 @@ pub(crate) struct SessionState {
     cwd: String,
     history: Vec<BaseMessage>,
     cancel_token: Option<AgentCancellationToken>,
+    steering: Option<peri_agent::agent::steering::SteeringQueue>,
     // ── Frozen session data (populated at creation, immutable thereafter) ──
     pub(crate) frozen: Option<peri_acp::session::executor::FrozenSessionData>,
     /// Recall items from previous turn (injected as <system-reminder> in next user message).
@@ -178,6 +179,21 @@ pub async fn run_acp_server(
                         if !prompt_session_id.is_empty() {
                             send_session_info_update(transport.as_ref(), &prompt_session_id).await;
                         }
+                    });
+                } else if method == "peri/session/steer" {
+                    // 等待消费确认不能持有 sessions 锁或阻塞取消/审批请求。
+                    let receipt = {
+                        let sessions = sessions.lock().await;
+                        let session_id = extract_session_id(&params, "");
+                        let queue = sessions
+                            .get(session_id)
+                            .and_then(|state| state.steering.as_ref());
+                        peri_acp::session::steering::enqueue(queue, &params)
+                    };
+                    let transport = Arc::clone(&transport);
+                    tokio::spawn(async move {
+                        let result = peri_acp::session::steering::confirm(receipt).await;
+                        let _ = transport.send_response(id, result).await;
                     });
                 } else {
                     let mut sessions = sessions.lock().await;

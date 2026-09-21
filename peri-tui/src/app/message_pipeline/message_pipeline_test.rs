@@ -588,7 +588,7 @@ fn test_build_tail_vms_with_snapshot() {
         BaseMessage::ai("a2"),
     ];
     pipeline.has_snapshot_this_round = true;
-    pipeline.completed_len_at_round_start = 0;
+    pipeline.completed_len_at_round_start = 2;
 
     let tail_vms = pipeline.build_tail_vms();
     let expected =
@@ -816,18 +816,13 @@ fn test_build_tail_vms_consistency() {
         BaseMessage::ai("a2"),
     ]);
     pipeline.has_snapshot_this_round = true;
-    pipeline.completed_len_at_round_start = 0;
+    pipeline.completed_len_at_round_start = 2;
 
     let tail_vms = pipeline.build_tail_vms();
 
-    // tail_vms 应等于从最后一条 Human 消息开始重建的 VMs
-    let last_human_idx = pipeline
-        .completed_messages()
-        .iter()
-        .rposition(|msg| matches!(msg, BaseMessage::Human { .. }))
-        .unwrap_or(0);
+    // 尾部重建应从本轮起点开始，上一轮消息属于不变前缀。
     let expected_tail = MessagePipeline::messages_to_view_models(
-        &pipeline.completed_messages()[last_human_idx..],
+        &pipeline.completed_messages()[pipeline.completed_len_at_round_start..],
         &pipeline.cwd,
     );
 
@@ -2049,4 +2044,28 @@ fn test_done_flushes_block_buffer() {
     pipeline.done();
     // done() calls finalize_current_ai() which clears current_ai_text, but block_buffer was flushed
     assert!(pipeline.block_buffer.is_empty());
+}
+
+#[test]
+fn test_steering_snapshot_preserves_entire_current_round() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.restore_completed(vec![
+        BaseMessage::human("历史"),
+        BaseMessage::ai("历史答复"),
+    ]);
+    pipeline.begin_round();
+    pipeline.set_completed(vec![BaseMessage::ai("补充前已完成的工作")]);
+    pipeline.set_completed(vec![
+        BaseMessage::human("新截图"),
+        BaseMessage::ai("结合截图继续"),
+    ]);
+    let actual = pipeline.build_tail_vms();
+    let expected =
+        MessagePipeline::messages_to_view_models(&pipeline.completed[2..], &pipeline.cwd);
+    assert_eq!(
+        format!("{actual:?}"),
+        format!("{expected:?}"),
+        "补充信息不能截掉同一轮之前的回答或工具"
+    );
+    assert_eq!(actual.len(), 3);
 }

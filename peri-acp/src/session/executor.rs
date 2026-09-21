@@ -135,7 +135,9 @@ pub async fn execute_prompt(
     thread_id: Option<String>,
     session_manager: Option<SessionManager>,
     bg_results: Vec<peri_agent::agent::events::BackgroundTaskResult>,
+    steering: Option<peri_agent::agent::steering::SteeringQueue>,
 ) -> PromptResult {
+    let _steering_guard = steering.as_ref().map(|queue| queue.close_on_drop());
     // Inject synthetic AgentResult tool_use + tool_result messages when bg_results present
     let (history, mut content) = if !bg_results.is_empty() {
         inject_bg_result_messages(history, content, &bg_results)
@@ -584,11 +586,14 @@ pub async fn execute_prompt(
 
     // Execute agent
     let mut agent_state = AgentState::with_messages(cwd.to_string(), history);
-    let result = agent_output
-        .executor
+    let agent_executor = match steering {
+        Some(queue) => agent_output.executor.with_steering(queue),
+        None => agent_output.executor,
+    };
+    let result = agent_executor
         .execute(agent_input.clone(), &mut agent_state, Some(cancel.clone()))
         .await;
-    drop(agent_output.executor);
+    drop(agent_executor);
 
     let ok = result.is_ok();
     if let Err(e) = &result {
