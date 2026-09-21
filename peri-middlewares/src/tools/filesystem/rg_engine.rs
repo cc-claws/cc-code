@@ -118,6 +118,12 @@ fn build_grep_args(parsed: &ParsedArgs, search_path: &Path, _cwd: &str) -> Vec<S
         args.push(g.clone());
     }
 
+    // 语言类型过滤（rg 原生支持 100+ 种语言）
+    if let Some(ref type_name) = parsed.type_filter {
+        args.push("-t".to_string());
+        args.push(type_name.clone());
+    }
+
     // 上下文
     if parsed.before_context > 0 && parsed.after_context > 0 {
         args.push("-C".to_string());

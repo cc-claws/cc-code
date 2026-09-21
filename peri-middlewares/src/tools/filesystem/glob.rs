@@ -1,5 +1,7 @@
 use peri_agent::tools::BaseTool;
 use serde_json::Value;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::path::Path;
 
 use super::resolve_path;
@@ -34,67 +36,77 @@ When to use:
 - Use Grep when searching for content within files (e.g., find where a function is defined)
 - For open-ended searches requiring multiple rounds, consider using a sub-agent via Agent"#;
 
-fn should_skip_dir(name: &str) -> bool {
-    matches!(
-        name,
-        "node_modules"
-            | ".git"
-            | ".claude"
-            | ".worktrees"
-            | "dist"
-            | "build"
-            | ".next"
-            | ".turbo"
-            | "coverage"
-            | ".nyc_output"
-            | "temp"
-            | ".cache"
-            | "vendor"
-            | "venv"
-            | "__pycache__"
-            | "target"
-            | "out"
-            | ".output"
-    )
-}
-
 fn glob_match(pattern: &str, path: &str) -> bool {
     glob::Pattern::new(pattern)
         .map(|p| p.matches(path))
         .unwrap_or(false)
 }
 
-fn collect_files(base: &Path, pattern: &str, results: &mut Vec<String>) {
-    let walker = walkdir::WalkDir::new(base)
-        .follow_links(true)
-        .into_iter()
-        .filter_entry(|e| {
-            if e.file_type().is_dir() {
-                let name = e.file_name().to_string_lossy();
-                !should_skip_dir(&name)
-            } else {
-                true
+/// 使用 ignore::WalkBuilder 收集匹配文件，原生支持 .gitignore + 隐藏文件过滤。
+///
+/// 使用 Top-K 最小堆就地维护最新的 MAX_RESULTS 个文件，避免全量收集后二次 metadata 调用。
+fn collect_files(base: &Path, pattern: &str) -> Vec<String> {
+    let mut builder = ignore::WalkBuilder::new(base);
+    builder
+        .hidden(true) // 搜索隐藏文件
+        .git_ignore(true)
+        .git_exclude(true)
+        .ignore(true)
+        .parents(true)
+        .follow_links(true);
+
+    // 排除 .claude/.worktrees 等衍生目录（不在 .gitignore 中的也需要排除）
+    builder.filter_entry(|entry| {
+        if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+            let name = entry.file_name().to_string_lossy();
+            if name == ".claude" || name == ".worktrees" {
+                return false;
             }
-        });
+        }
+        true
+    });
+
+    let walker = builder.build();
+
+    // Top-K 最小堆：保留最新的 MAX_RESULTS 个文件
+    // (Reverse(mtime), abs_path) — Reverse 使堆顶为最旧文件，方便弹出
+    let mut heap: BinaryHeap<(Reverse<std::time::SystemTime>, String)> =
+        BinaryHeap::with_capacity(MAX_RESULTS + 1);
 
     for entry in walker {
-        match entry {
-            Ok(e) => {
-                if e.file_type().is_file() {
-                    let abs_path = e.path().to_string_lossy().to_string();
-                    if let Ok(rel) = e.path().strip_prefix(base) {
-                        let rel_str = rel.to_string_lossy().replace('\\', "/");
-                        if glob_match(pattern, &rel_str) {
-                            results.push(abs_path);
-                        }
-                    }
-                }
+        let e = match entry {
+            Ok(e) => e,
+            Err(err) => {
+                tracing::debug!(error = %err, "glob walk error (skipped)");
+                continue;
             }
-            Err(e) => {
-                tracing::debug!(error = %e, "glob walk error (skipped)");
+        };
+
+        if !e.file_type().is_some_and(|ft| ft.is_file()) {
+            continue;
+        }
+
+        let abs_path = e.path().to_string_lossy().to_string();
+        if let Ok(rel) = e.path().strip_prefix(base) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if glob_match(pattern, &rel_str) {
+                let mtime = e
+                    .metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                heap.push((Reverse(mtime), abs_path));
+                if heap.len() > MAX_RESULTS {
+                    heap.pop(); // 弹出最旧的
+                }
             }
         }
     }
+
+    // 从堆中提取并按 mtime 降序排列
+    let mut results: Vec<_> = heap.into_iter().collect();
+    results.sort_by(|a, b| b.0 .0.cmp(&a.0 .0));
+    results.into_iter().map(|(_, path)| path).collect()
 }
 
 #[async_trait::async_trait]
@@ -154,15 +166,8 @@ impl BaseTool for GlobFilesTool {
             tracing::debug!("rg glob returned None, falling back to Rust engine");
         }
 
-        // Fallback: 纯 Rust 引擎
-        let mut results = Vec::new();
-        collect_files(&search_root, pattern, &mut results);
-
-        results.sort_by(|a, b| {
-            let ta = std::fs::metadata(a).and_then(|m| m.modified()).ok();
-            let tb = std::fs::metadata(b).and_then(|m| m.modified()).ok();
-            tb.cmp(&ta)
-        });
+        // Fallback: 纯 Rust 引擎（ignore::WalkBuilder + Top-K 堆排序）
+        let results = collect_files(&search_root, pattern);
 
         if results.is_empty() {
             Ok("No files found.".to_string())

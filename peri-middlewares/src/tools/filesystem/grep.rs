@@ -140,6 +140,17 @@ fn execute_search(
         true
     });
 
+    // 语言类型过滤：使用 ripgrep 官方 TypesBuilder（100+ 种语言）
+    if let Some(ref type_name) = parsed.type_filter {
+        let mut types_builder = ignore::types::TypesBuilder::new();
+        types_builder.add_defaults();
+        types_builder.select(type_name);
+        let types = types_builder
+            .build()
+            .map_err(|e| format!("Invalid type filter '{type_name}': {e}"))?;
+        builder.types(types);
+    }
+
     // 预编译 glob 过滤器
     let glob_filters: Vec<glob::Pattern> = parsed
         .glob_filters
