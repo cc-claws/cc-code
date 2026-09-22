@@ -269,7 +269,7 @@ pub(crate) fn validate_against_schema(
                         let allows_null = props
                             .and_then(|p| p.get(field))
                             .and_then(|p_schema| p_schema.get("type"))
-                            .map_or(false, |t| match t {
+                            .is_some_and(|t| match t {
                                 serde_json::Value::String(s) => s == "null",
                                 serde_json::Value::Array(arr) => {
                                     arr.iter().any(|v| v.as_str() == Some("null"))

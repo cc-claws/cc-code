@@ -137,3 +137,158 @@ fn test_filter_command_output_dispatch() {
     let not_filtered = filter_command_output("echo hello", other_raw, 0);
     assert_eq!(not_filtered, "Hello World\nLine 2");
 }
+
+// ── fold_repeated_lines 测试 ────────────────────────────────────────
+
+#[test]
+fn test_fold_repeated_lines_below_threshold() {
+    // 连续相同行 < 3 次不折叠
+    let input = "AAA\nAAA\nBBB";
+    assert_eq!(fold_repeated_lines(input), "AAA\nAAA\nBBB");
+}
+
+#[test]
+fn test_fold_repeated_lines_at_threshold() {
+    // 连续相同行 = 3 次触发折叠：保留前 2 行 + 摘要
+    let input = "WARNING: foo\nWARNING: foo\nWARNING: foo";
+    let result = fold_repeated_lines(input);
+    assert!(
+        result.contains("WARNING: foo"),
+        "应保留样例行，实际：{result}"
+    );
+    assert!(
+        result.contains("... (+1 more identical lines)"),
+        "应有折叠摘要，实际：{result}"
+    );
+    // 只出现 2 次 WARNING 行（不含摘要行中的）
+    assert_eq!(
+        result.lines().filter(|l| *l == "WARNING: foo").count(),
+        2,
+        "应保留 2 个样例，实际：{result}"
+    );
+}
+
+#[test]
+fn test_fold_repeated_lines_many_duplicates() {
+    // 10 个相同行 → 保留 2 + 折叠 8
+    let lines: Vec<&str> = std::iter::repeat("same line").take(10).collect();
+    let input = lines.join("\n");
+    let result = fold_repeated_lines(&input);
+    assert!(
+        result.contains("... (+8 more identical lines)"),
+        "应折叠 8 行，实际：{result}"
+    );
+    assert_eq!(
+        result.lines().count(),
+        3,
+        "总行数应为 3（2 样例 + 1 摘要），实际：{result}"
+    );
+}
+
+#[test]
+fn test_fold_repeated_lines_preserves_unique_lines() {
+    // 不相同的行不受影响
+    let input = "A\nB\nC\nD";
+    assert_eq!(fold_repeated_lines(input), input);
+}
+
+#[test]
+fn test_fold_repeated_lines_mixed() {
+    // 混合场景：唯一行 + 重复行
+    let input = "header\nX\nX\nX\nX\nX\nfooter";
+    let result = fold_repeated_lines(input);
+    assert!(result.starts_with("header"), "header 应保留");
+    assert!(result.ends_with("footer"), "footer 应保留");
+    assert!(
+        result.contains("... (+3 more identical lines)"),
+        "应折叠 3 行，实际：{result}"
+    );
+}
+
+// ── fold_repeated_blocks 测试 ───────────────────────────────────────
+
+#[test]
+fn test_fold_repeated_blocks_warning_pattern() {
+    // 模拟 Next.js 构建输出：3 个相同首行的 warning 块
+    let input = "\
+Warning: Dynamic filesystem access
+  ./file1.js:10:5
+  import trace #1
+Warning: Dynamic filesystem access
+  ./file2.js:20:3
+  import trace #2
+Warning: Dynamic filesystem access
+  ./file3.js:30:7
+  import trace #3";
+    let result = fold_repeated_blocks(input);
+    // 应保留前 2 个完整块
+    assert!(
+        result.contains("./file1.js"),
+        "第 1 个块应保留，实际：{result}"
+    );
+    assert!(
+        result.contains("./file2.js"),
+        "第 2 个块应保留，实际：{result}"
+    );
+    // 第 3 个块应被折叠
+    assert!(
+        !result.contains("./file3.js"),
+        "第 3 个块应被折叠，实际：{result}"
+    );
+    assert!(
+        result.contains("... (+1 more similar blocks"),
+        "应有块折叠摘要，实际：{result}"
+    );
+}
+
+#[test]
+fn test_fold_repeated_blocks_below_threshold() {
+    // 同类块 < 3 次不折叠
+    let input = "\
+Warning: foo
+  detail 1
+Warning: foo
+  detail 2";
+    let result = fold_repeated_blocks(input);
+    assert_eq!(result, input, "2 个同类块不应折叠");
+}
+
+#[test]
+fn test_fold_repeated_blocks_preserves_different_blocks() {
+    // 不同首行的块各自独立，不应被折叠
+    let input = "\
+Error: compile failed
+  at main.rs:10
+Warning: unused var
+  at lib.rs:20
+Info: build complete
+  in 2.34s";
+    let result = fold_repeated_blocks(input);
+    assert_eq!(result, input, "不同首行的块不应折叠");
+}
+
+#[test]
+fn test_filter_command_output_folds_repeated_generic_output() {
+    // 通过 filter_command_output 入口验证通用折叠生效
+    let mut lines = Vec::new();
+    for _ in 0..5 {
+        lines.push("WARN: deprecated API call");
+    }
+    lines.push("Build completed successfully");
+    let input = lines.join("\n");
+    let result = filter_command_output("npm run build", &input, 0);
+    // 块级或行级折叠均可触发——只要重复内容被压缩
+    assert!(
+        result.contains("more similar blocks") || result.contains("more identical lines"),
+        "npm 命令输出应触发通用折叠，实际：{result}"
+    );
+    assert!(
+        result.contains("Build completed successfully"),
+        "非重复行应保留，实际：{result}"
+    );
+    // 验证压缩效果：输出行数应明显少于原始 6 行
+    assert!(
+        result.lines().count() < 6,
+        "折叠后行数应减少，实际：{result}"
+    );
+}
