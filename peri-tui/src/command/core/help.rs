@@ -43,8 +43,8 @@ impl Command for HelpCommand {
         lines.push("".to_string());
         lines.push(
             format!(
-                "快捷键：Shift+Tab 切换权限模式 │ {} 切换模型 │ Shift+Enter 换行 │ Esc 退出 │ Ctrl+C 中断",
-                crate::event::keyboard::cycle_model_label()
+                "快捷键：Shift+Tab 切换权限模式 │ {} 命令面板（选择模型/Provider） │ Shift+Enter 换行 │ Esc 退出 │ Ctrl+C 中断",
+                crate::event::keyboard::command_palette_label()
             ),
         );
 
