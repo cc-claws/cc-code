@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.70 — 2026-09-23
+
+### Fixes
+
+- **TUI 状态栏模型已切换但网关请求仍用旧模型（#169, #215）**：解除 ACP Client 在无会话时对配置同步的静默丢弃，`session/new` 与 `session/load` 消费 `model` 参数，修复发送首条消息前切换模型 100% 不生效的缺陷；`/history` 恢复历史会话传参规范化并加服务端全名反查兜底，防止恢复后回退默认模型。
+- **快捷键调整与 Tips/文档收口（#169, #215）**：废弃 `Ctrl+T`/`Alt+M` 模型循环快捷键（模型切换统一走命令面板），新增 `Alt+P` 等价打开命令面板（`Ctrl+P`/`Alt+P`）；纠正 tips 中"长按 Ctrl+V"、"Ctrl+N/P 切换 Session"等与代码不符的描述，补齐 PageUp/Down 等快捷键的触发条件；同步清理 CLAUDE.md、README、注释中的 `Ctrl+T` 残留并修正"禁止 PageUp/PageDown"的过时规范。
+
+---
+
 ## v0.6.69 — 2026-09-23
 
 ### Fixes
