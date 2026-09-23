@@ -16,7 +16,7 @@ pub(crate) fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let block = Block::default()
         .title(Span::styled(
-            " 待发送附件 ",
+            format!(" {} ", app.services.lc.tr("attachment-title")),
             Style::default()
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
@@ -44,10 +44,14 @@ pub(crate) fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
     let lines = vec![
         Line::from(Span::styled(tags, Style::default().fg(theme::TEXT))),
         Line::from(Span::styled(
-            "Del: 删除最后一张",
+            app.services.lc.tr("attachment-del-hint"),
             Style::default().fg(theme::MUTED),
         )),
     ];
 
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
+
+#[cfg(test)]
+#[path = "attachment_test.rs"]
+mod attachment_test;
