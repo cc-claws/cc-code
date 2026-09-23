@@ -8,6 +8,11 @@
 pub mod keyboard;
 mod macros;
 pub mod mouse;
+mod mouse_batch;
+
+#[cfg(test)]
+#[path = "scrollbar_test.rs"]
+mod scrollbar_test;
 
 use crate::{with_global_panels, with_session_panels};
 
@@ -54,7 +59,12 @@ pub enum Action {
 
 // ── Event loop ──────────────────────────────────────────────────────────────
 
-pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
+#[derive(Default)]
+pub struct EventReader {
+    pending: Option<Event>,
+}
+
+pub async fn next_event(app: &mut App, reader: &mut EventReader) -> Result<Option<Action>> {
     // Quit-pending state auto-expires after 2s; trigger redraw so the shortcut bar
     // returns to normal.  Must match the window used by handle_ctrl_c().
     if let Some(since) = app.global_ui.quit_pending_since {
@@ -65,74 +75,36 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     }
 
     // 全屏 alternate screen + EnableMouseCapture 后鼠标必然可用，无需探测。
-    if !event::poll(Duration::from_millis(50))? {
+    if reader.pending.is_none() && !event::poll(Duration::from_millis(50))? {
         return Ok(None);
     }
 
-    let ev = event::read()?;
-
-    // Drag event coalescing: keep scrollbar/text-selection dragging responsive
-    // without discarding mouse wheel distance.
-    let ev = coalesce_drag_events(ev);
-
-    // Simulated-paste detection: on terminals without bracketed paste support
-    // (Windows), multi-line paste arrives as a rapid burst of key events.
-    // Detect this pattern and convert to Event::Paste so the normal paste
-    // handler inserts the full text into the textarea.
-    let ev = detect_simulated_paste(ev);
-
-    handle_event(app, ev).await
+    let ev = match reader.pending.take() {
+        Some(ev) => ev,
+        None => event::read()?,
+    };
+    let events = mouse_batch::collect_mouse_batch(ev, &mut reader.pending, || {
+        if event::poll(Duration::ZERO)? {
+            event::read().map(Some)
+        } else {
+            Ok(None)
+        }
+    })?;
+    handle_event_batch(app, events).await
 }
 
-// ── Mouse drag coalescing ────────────────────────────────────────────────
-
-/// Coalesces rapid-fire left-drag events from the crossterm queue.
-///
-/// Mouse wheel events intentionally bypass this path: a crossterm
-/// `ScrollUp`/`ScrollDown` event does not carry a repeat count, so draining
-/// several wheel events into one event makes fast scrolling move only one
-/// three-line step.
-fn coalesce_drag_events(ev: Event) -> Event {
-    // Only activate coalescing for left-drag mouse events.
-    match &ev {
-        Event::Mouse(m) => match m.kind {
-            MouseEventKind::Drag(MouseButton::Left) => {}
-            _ => return ev,
-        },
-        _ => return ev,
-    }
-
-    let mut last_ev = ev;
-
-    // Drain all queued drag events, keeping only the last one.
-    // Non-drag events terminate the drain and become the result
-    // so they are not lost.
-    while event::poll(Duration::ZERO).unwrap_or(false) {
-        let next = match event::read() {
-            Ok(e) => e,
-            Err(_) => break,
-        };
-        match &next {
-            Event::Mouse(m) => match m.kind {
-                MouseEventKind::Drag(MouseButton::Left) => {
-                    last_ev = next;
-                }
-                // Other mouse events (click, release, move): stop draining,
-                // return this event instead so it's handled normally.
-                _ => {
-                    last_ev = next;
-                    break;
-                }
-            },
-            // Non-mouse events: stop draining, return this event
-            _ => {
-                last_ev = next;
-                break;
-            }
+async fn handle_event_batch(app: &mut App, events: Vec<Event>) -> Result<Option<Action>> {
+    let mut redraw = None;
+    for ev in events {
+        // 非鼠标批次仍沿用既有的模拟粘贴检测。
+        let ev = detect_simulated_paste(ev);
+        match handle_event(app, ev).await? {
+            Some(Action::Redraw) => redraw = Some(Action::Redraw),
+            Some(action) => return Ok(Some(action)),
+            None => {}
         }
     }
-
-    last_ev
+    Ok(redraw)
 }
 
 // ── Simulated-paste detection (Windows) ───────────────────────────────
@@ -287,9 +259,19 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
     }
 
     if point_in_hit_bar(column, row, metrics.bar_area) && metrics.max_offset > 0 {
-        let new_offset = message_scrollbar_offset_for_row(metrics, row);
-        set_message_scroll_offset(app, new_offset);
-        app.session_mgr.current_mut().ui.message_scrollbar_dragging = true;
+        // 抓住已有滑块时保留精确偏移；只有点击轨道空白处才跳转。
+        if row < metrics.thumb_area.y || row >= metrics.thumb_area.bottom() {
+            let new_offset = message_scrollbar_offset_for_row(metrics, row);
+            set_message_scroll_offset(app, new_offset);
+        }
+        let ui = &mut app.session_mgr.current_mut().ui;
+        ui.message_scrollbar_dragging = true;
+        let travel = metrics
+            .bar_area
+            .height
+            .saturating_sub(metrics.thumb_area.height)
+            .max(1);
+        ui.message_scrollbar_drag_origin = Some((row, ui.scroll_offset, travel));
         return true;
     }
 
@@ -304,23 +286,43 @@ fn handle_message_scrollbar_drag(app: &mut App, row: u16) -> bool {
 
     let Some(metrics) = app.session_mgr.current().ui.message_scrollbar_metrics else {
         app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
+        app.session_mgr
+            .current_mut()
+            .ui
+            .message_scrollbar_drag_origin = None;
         return true;
     };
 
-    let new_offset = message_scrollbar_offset_for_row(metrics, row);
+    let Some((start_row, start_offset, travel)) =
+        app.session_mgr.current().ui.message_scrollbar_drag_origin
+    else {
+        return true;
+    };
+    let distance = (u128::from(row.abs_diff(start_row)) * metrics.max_offset as u128
+        / u128::from(travel))
+    .min(usize::MAX as u128) as usize;
+    let new_offset = if row == start_row {
+        start_offset
+    } else if row <= metrics.bar_area.y {
+        0
+    } else if row >= metrics.bar_area.bottom().saturating_sub(1) {
+        metrics.max_offset
+    } else if row < start_row {
+        start_offset.saturating_sub(distance)
+    } else {
+        start_offset.saturating_add(distance)
+    };
     set_message_scroll_offset(app, new_offset);
     true
 }
 
 fn message_scrollbar_offset_for_row(metrics: MessageScrollbarMetrics, row: u16) -> usize {
-    let bar_inner_height = metrics.bar_area.height.saturating_sub(2);
+    let bar_inner_height = metrics.bar_area.height.saturating_sub(1);
     if bar_inner_height == 0 || metrics.max_offset == 0 {
         return 0;
     }
 
-    let rel_y = row
-        .saturating_sub(metrics.bar_area.y.saturating_add(1))
-        .min(bar_inner_height);
+    let rel_y = row.saturating_sub(metrics.bar_area.y).min(bar_inner_height);
     ((metrics.max_offset as u128 * rel_y as u128) / bar_inner_height as u128)
         .min(usize::MAX as u128) as usize
 }
@@ -347,6 +349,11 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
             return Ok(Some(Action::Redraw));
         }
         Event::Resize(_, _) => {
+            app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
+            app.session_mgr
+                .current_mut()
+                .ui
+                .message_scrollbar_drag_origin = None;
             // Width sync is now driven by render_messages (compares cache.width vs text_area.width)
             app.session_mgr.current_mut().ui.text_selection.clear();
             app.session_mgr.current_mut().ui.screen_selection.clear();
@@ -907,6 +914,10 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                     // End panel scrollbar drag
                     app.session_mgr.current_mut().ui.panel_scrollbar_dragging = false;
                     app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
+                    app.session_mgr
+                        .current_mut()
+                        .ui
+                        .message_scrollbar_drag_origin = None;
                     // 消息区域 TextSelection released：从 wrap_map 提取纯文本（跨视口）并复制；若为单点且命中超链接则打开浏览器
                     if app.session_mgr.current_mut().ui.text_selection.dragging {
                         app.session_mgr.current_mut().ui.text_selection.end_drag();
@@ -1153,21 +1164,23 @@ mod tests {
     #[test]
     fn test_message_scrollbar_offset_for_row_maps_track_to_range() {
         let metrics = MessageScrollbarMetrics {
-            bar_area: Rect::new(79, 5, 1, 12),
+            bar_area: Rect::new(79, 5, 1, 11),
+            thumb_area: Rect::new(79, 5, 1, 1),
             max_offset: 100,
-            up_btn_area: Some(Rect::new(79, 5, 1, 1)),
-            down_btn_area: Some(Rect::new(79, 16, 1, 1)),
+            up_btn_area: None,
+            down_btn_area: None,
         };
 
-        assert_eq!(message_scrollbar_offset_for_row(metrics, 6), 0);
-        assert_eq!(message_scrollbar_offset_for_row(metrics, 11), 50);
-        assert_eq!(message_scrollbar_offset_for_row(metrics, 16), 100);
+        assert_eq!(message_scrollbar_offset_for_row(metrics, 5), 0);
+        assert_eq!(message_scrollbar_offset_for_row(metrics, 10), 50);
+        assert_eq!(message_scrollbar_offset_for_row(metrics, 15), 100);
     }
 
     #[test]
     fn test_message_scrollbar_offset_for_row_handles_large_offsets() {
         let metrics = MessageScrollbarMetrics {
             bar_area: Rect::new(10, 0, 1, 22),
+            thumb_area: Rect::new(10, 0, 1, 1),
             max_offset: usize::MAX - 10,
             up_btn_area: None,
             down_btn_area: None,
@@ -1176,106 +1189,6 @@ mod tests {
         assert_eq!(
             message_scrollbar_offset_for_row(metrics, 21),
             usize::MAX - 10
-        );
-    }
-
-    /// 运行时证据：用当前 ratatui（0.30）真实渲染 thumb，读出 thumb 实际占据的行，
-    /// 然后用我们的点击映射 `message_scrollbar_offset_for_row` 去「点」thumb 中点，
-    /// 再用算出的 offset 重新渲染 —— 断言 thumb 会跑离鼠标点击的行。
-    ///
-    /// 若该测试通过（漂移非空），即 100% 证明：当前代码下点击可见的滑块，offset 必然
-    /// 跳变、滑块必然从鼠标下跑走，与「点滑块抓不住 / 拖动乱跳」现象一致。
-    /// oracle 是 ratatui 自己的渲染结果，不依赖任何手工公式复刻。
-    #[test]
-    fn thumb_click_drift_runtime_proof() {
-        use peri_widgets::unified_vertical_scrollbar;
-        use ratatui::{
-            buffer::Buffer,
-            layout::{Position, Rect},
-            prelude::StatefulWidget,
-            widgets::ScrollbarState,
-        };
-
-        let h: u16 = 20;
-        // 复刻 message_area.rs 渲染滚动条时的 area（整个消息区内层，高 h）
-        let area = Rect::new(0, 0, 1, h);
-
-        // 多个内容长度 × 多个位置采样，统计「点击 thumb 中点后滑块漂移」的情况
-        let mut total_drifted = 0usize;
-        let mut total_sampled = 0usize;
-        let mut global_max_drift = 0i32;
-        eprintln!("=== thumb 点击漂移运行时证据（H={h}，oracle = ratatui 真实渲染）===");
-        eprintln!("  max_scroll | 漂移采样/总数 | 最大漂移(行)");
-        for &max_scroll in &[50usize, 100, 200, 500, 1000, 2000] {
-            let mut drifted_in_case = 0usize;
-            let mut sampled = 0usize;
-            let mut case_max_drift = 0i32;
-            for &pct in &[10usize, 30, 50, 70, 90] {
-                let orig_offset = max_scroll * pct / 100;
-                sampled += 1;
-
-                // 1. ratatui 真实渲染 thumb
-                let mut buf = Buffer::empty(area);
-                let mut state = ScrollbarState::new(max_scroll).position(orig_offset);
-                unified_vertical_scrollbar().render(area, &mut buf, &mut state);
-
-                // 2. 读出 thumb 实际占据的行（thumb symbol = block::FULL = "█"）
-                let thumb_rows: Vec<u16> = (0..h)
-                    .filter(|&r| {
-                        buf.cell(Position::new(0, r))
-                            .is_some_and(|c| c.symbol() == "█")
-                    })
-                    .collect();
-                assert!(
-                    !thumb_rows.is_empty(),
-                    "max_scroll={max_scroll} offset={orig_offset} 未渲染出 thumb，测试前提不成立"
-                );
-                let thumb_mid = thumb_rows[thumb_rows.len() / 2];
-
-                // 3. 用我们的点击映射算「点 thumb 中点」得到的 offset
-                let metrics = MessageScrollbarMetrics {
-                    bar_area: Rect::new(0, 0, 1, h),
-                    max_offset: max_scroll,
-                    up_btn_area: None,
-                    down_btn_area: None,
-                };
-                let clicked_offset = message_scrollbar_offset_for_row(metrics, thumb_mid);
-
-                // 4. 用 clicked_offset 重新渲染，看 thumb 跑到哪
-                let mut buf2 = Buffer::empty(area);
-                let mut state2 = ScrollbarState::new(max_scroll).position(clicked_offset);
-                unified_vertical_scrollbar().render(area, &mut buf2, &mut state2);
-                let new_thumb_rows: Vec<u16> = (0..h)
-                    .filter(|&r| {
-                        buf2.cell(Position::new(0, r))
-                            .is_some_and(|c| c.symbol() == "█")
-                    })
-                    .collect();
-                let new_mid = new_thumb_rows[new_thumb_rows.len() / 2];
-
-                let drift = (thumb_mid as i32 - new_mid as i32).abs();
-                if drift > 0 {
-                    drifted_in_case += 1;
-                    case_max_drift = case_max_drift.max(drift);
-                }
-            }
-            total_drifted += drifted_in_case;
-            total_sampled += sampled;
-            global_max_drift = global_max_drift.max(case_max_drift);
-            eprintln!(
-                "  {max_scroll:>10} |   {drifted_in_case}/{sampled}      |   {case_max_drift}"
-            );
-        }
-
-        assert!(
-            total_drifted > 0,
-            "所有 {total_sampled} 个采样点点击 thumb 都未漂移 —— bug 不成立"
-        );
-        eprintln!(
-            "\n  合计：{total_drifted}/{total_sampled} 个采样点点击 thumb 后滑块跑离鼠标，最大漂移 {global_max_drift} 行"
-        );
-        eprintln!(
-            "  结论：点击可见滑块时 offset 间歇性跳变 —— 即「点滑块抓不住 / 拖动乱跳」必然发生。"
         );
     }
 
