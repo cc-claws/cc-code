@@ -9,7 +9,7 @@ fn test_terminal_title_format_idle_unnamed() {
 #[test]
 fn test_terminal_title_format_idle_named() {
     let item = TerminalTitleItem::new(TerminalTitleStatusKind::Idle, "peri", Some("fix-bug"), None);
-    assert_eq!(item.format_title(), "fix-bug", "已命名时 Idle 直接展示主题");
+    assert_eq!(item.format_title(), "fix-bug | peri", "已命名时 Idle 展示 主题 | 项目");
 }
 
 #[test]
@@ -32,8 +32,8 @@ fn test_terminal_title_format_working_named() {
     );
     assert_eq!(
         item.format_title(),
-        "⠙ fix-bug",
-        "已命名时 Working 为 ⠙ thread"
+        "⠙ fix-bug | peri",
+        "已命名时 Working 为 ⠙ thread | project"
     );
 }
 
@@ -57,8 +57,8 @@ fn test_terminal_title_format_thinking_named() {
     );
     assert_eq!(
         item.format_title(),
-        "⠋ fix-bug",
-        "已命名时 Thinking 为 ⠋ thread"
+        "⠋ fix-bug | peri",
+        "已命名时 Thinking 为 ⠋ thread | project"
     );
 }
 
@@ -82,8 +82,8 @@ fn test_terminal_title_format_action_required_named() {
     );
     assert_eq!(
         item.format_title(),
-        "[ ! ] Action Required  fix-bug",
-        "已命名时 ActionRequired 为 [ ! ] Action Required  thread"
+        "[ ! ] Action Required  fix-bug | peri",
+        "已命名时 ActionRequired 为 [ ! ] Action Required  thread | project"
     );
 }
 
@@ -102,8 +102,8 @@ fn test_terminal_title_format_done_named() {
     let item = TerminalTitleItem::new(TerminalTitleStatusKind::Done, "peri", Some("fix-bug"), None);
     assert_eq!(
         item.format_title(),
-        "✴ fix-bug",
-        "已命名完成态带菊花 ✴ thread"
+        "✴ fix-bug | peri",
+        "已命名完成态带菊花 ✴ thread | project"
     );
 }
 

@@ -54,7 +54,7 @@ impl<'a> TerminalTitleItem<'a> {
         }
     }
 
-    /// 格式化终端标题：有会话主题时直接展示主题；未命名时回退展示项目名
+    /// 格式化终端标题：有会话主题时展示「主题 | 项目」；未命名时展示项目名
     pub fn format_title(&self) -> String {
         let thread_truncated = self
             .thread_title
@@ -62,17 +62,17 @@ impl<'a> TerminalTitleItem<'a> {
             .filter(|t| !t.is_empty())
             .map(|t| truncate_terminal_title_part(t, 48));
 
+        let project = self.project_name.trim();
+        let project_str = if project.is_empty() {
+            "cc-code"
+        } else {
+            project
+        };
+        let project_part = truncate_terminal_title_part(project_str, 24);
+
         let main_title = match thread_truncated {
-            Some(title) => title,
-            None => {
-                let project = self.project_name.trim();
-                let project_str = if project.is_empty() {
-                    "cc-code"
-                } else {
-                    project
-                };
-                truncate_terminal_title_part(project_str, 24)
-            }
+            Some(title) => format!("{title} | {project_part}"),
+            None => project_part,
         };
 
         match self.status {

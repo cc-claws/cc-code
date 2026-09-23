@@ -108,8 +108,13 @@ fn test_app_terminal_title_animates_with_rotating_chrysanthemum() {
         frame1, frame2,
         "运行中推进动画帧后，标题中的菊花动画必须动态旋转变化"
     );
+    let project = app.project_name().to_string();
     assert!(
-        frame1.ends_with("task") && frame2.ends_with("task"),
-        "标题应始终包含任务名"
+        frame1.contains("task") && frame1.ends_with(&project),
+        "标题应包含任务名并以项目名结尾"
+    );
+    assert!(
+        frame2.contains("task") && frame2.ends_with(&project),
+        "标题应包含任务名并以项目名结尾"
     );
 }
