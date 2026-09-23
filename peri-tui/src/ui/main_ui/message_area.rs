@@ -36,6 +36,7 @@ pub(crate) fn render_messages(
         ui.messages_area = None;
         ui.message_scrollbar_metrics = None;
         ui.message_scrollbar_dragging = false;
+        ui.message_scrollbar_drag_origin = None;
         welcome::render_welcome(f, app, messages_area);
         return;
     }
@@ -212,6 +213,7 @@ pub(crate) fn render_messages(
     ui.message_scrollbar_metrics = metrics;
     if metrics.is_none() {
         ui.message_scrollbar_dragging = false;
+        ui.message_scrollbar_drag_origin = None;
     }
 }
 
@@ -234,15 +236,26 @@ fn render_message_scrollbar(
     };
     let offset = offset.min(max_scroll);
     let style = Style::default().fg(theme::DIM);
-    let mut scrollbar_state = ScrollbarState::new(max_scroll).position(offset);
+    let mut scrollbar_state = ScrollbarState::new(max_scroll.saturating_add(1)).position(offset);
     f.render_stateful_widget(
         unified_vertical_scrollbar().style(style),
         area,
         &mut scrollbar_state,
     );
 
+    // 从本帧真实绘制的滑块获取命中区，避免复制 ratatui 的私有舍入公式。
+    let mut thumb_area = Rect::new(bar_area.x, bar_area.y, 1, 0);
+    for row in bar_area.y..bar_area.bottom() {
+        if f.buffer_mut()[(bar_area.x, row)].symbol() == "█" {
+            if thumb_area.height == 0 {
+                thumb_area.y = row;
+            }
+            thumb_area.height += 1;
+        }
+    }
     Some(MessageScrollbarMetrics {
         bar_area,
+        thumb_area,
         max_offset: max_scroll,
         up_btn_area: None,
         down_btn_area: None,
