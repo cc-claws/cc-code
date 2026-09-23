@@ -52,16 +52,17 @@ pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-/// 根据终端宽度估算消息占用的视觉行数（用于 Layout 高度计算）
-pub(super) fn estimate_header_lines(msg: &str, width: u16) -> usize {
-    if width == 0 {
-        return 1;
-    }
-    let width = width as usize;
-    let char_count = msg.chars().count();
-    let lines = char_count.div_ceil(width);
-    lines.clamp(1, 3)
-}
+// 【已禁用】sticky header 功能已注释，此函数暂无引用，一并注释消除 dead_code 警告
+// /// 根据终端宽度估算消息占用的视觉行数（用于 Layout 高度计算）
+// pub(super) fn estimate_header_lines(msg: &str, width: u16) -> usize {
+//     if width == 0 {
+//         return 1;
+//     }
+//     let width = width as usize;
+//     let char_count = msg.chars().count();
+//     let lines = char_count.div_ceil(width);
+//     lines.clamp(1, 3)
+// }
 
 /// 将消息文本按宽度分多行（用于渲染）
 fn wrap_message(msg: &str, width: usize, max_lines: usize) -> Vec<String> {
