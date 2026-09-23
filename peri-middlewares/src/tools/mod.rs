@@ -6,7 +6,7 @@ pub mod todo;
 
 pub use ask_user_tool::AskUserTool;
 pub use filesystem::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool};
-pub use output_filter::{filter_command_output, strip_ansi};
+pub use output_filter::{filter_command_output, filter_git_status, strip_ansi};
 pub use todo::{TodoItem, TodoStatus, TodoWriteTool};
 
 use async_trait::async_trait;
