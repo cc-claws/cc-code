@@ -44,7 +44,7 @@ help-available-commands = Available commands:
 help-alias-prefix = (aliases: /{ $aliases })
 help-skills-count = Skills ({ $count } available): type # prefix to view
 help-skills-empty = Skills: place .md files in .claude/skills/ directory to add
-help-shortcuts = Shortcuts: Shift+Tab toggle permission mode | Ctrl+T switch model | Shift+Enter newline | Esc quit | Ctrl+C interrupt
+help-shortcuts = Shortcuts: Shift+Tab toggle permission mode | Ctrl+P / Alt+P command palette (select Model / Provider) | Shift+Enter newline | Esc quit | Ctrl+C interrupt
 
 # compact command
 compact-agent-running = Agent is running, cannot compact
@@ -155,12 +155,12 @@ welcome-skills-available = { $count } skills available
 
 tip-0 = Type / to enter commands, Tab to autocomplete
 tip-1 = Ctrl+C interrupts Agent, Shift+Tab toggles permission mode
-tip-2 = Ctrl+P opens command palette (Provider / Model / Effort), Ctrl+T cycles available models in current provider
+tip-2 = Ctrl+P / Alt+P opens command palette (Provider / Model / Effort)
 tip-3 = Shift+Enter for newline in input box
-tip-4 = Drag files or images to terminal to auto-attach to message
-tip-5 = Long press Ctrl+V to paste clipboard image
-tip-6 = PageUp/Down scroll messages, Home/End jump to top/bottom, Ctrl+Up/Down browse input history
-tip-7 = Ctrl+N/P switch Session, Ctrl+W close
+tip-4 = Drag images to attach, drag files to insert path
+tip-5 = Alt+V / Ctrl+V pastes clipboard image (Alt+V avoids terminal intercept)
+tip-6 = PageUp/Down scrolls messages (when input empty), Home/End jumps top/bottom, Ctrl+Up/Down browses history at boundary
+tip-7 = Ctrl+B backgrounds running task, /history browses and switches sessions
 tip-8 = Esc closes popup or panel, Enter confirms selection
 tip-9 = /compact compresses context to save tokens
 tip-10 = /clear clears current conversation

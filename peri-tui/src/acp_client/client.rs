@@ -357,13 +357,15 @@ impl AcpTuiClient {
     }
 
     /// Set a config option (mode/model/thought_level) via the unified config API.
-    /// Silently returns Ok if no session exists yet — ACP Server will load
-    /// the latest config from disk when a session is eventually created.
+    /// If no session exists yet, sessionId is empty — ACP Server will update its
+    /// active in-memory provider and persist the config.
     pub async fn set_config_option(&self, config_id: &str, value: &str) -> Result<(), String> {
-        let session_id = match self.current_session_id.lock().unwrap().clone() {
-            Some(id) => id,
-            None => return Ok(()),
-        };
+        let session_id = self
+            .current_session_id
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_default();
         let params = json!({ "sessionId": session_id, "configId": config_id, "value": value });
         let _ = self
             .transport
@@ -374,13 +376,15 @@ impl AcpTuiClient {
     }
 
     /// Update the full PeriConfig on the ACP server (for Login panel CRUD).
-    /// Silently returns Ok if no session exists yet — ACP Server will load
-    /// the latest config from disk when a session is eventually created.
+    /// If no session exists yet, sessionId is empty — ACP Server will update its
+    /// active in-memory provider and persist the config.
     pub async fn update_config(&self, config: &crate::config::PeriConfig) -> Result<(), String> {
-        let session_id = match self.current_session_id.lock().unwrap().clone() {
-            Some(id) => id,
-            None => return Ok(()),
-        };
+        let session_id = self
+            .current_session_id
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_default();
         let params = json!({
             "sessionId": session_id,
             "config": config,
