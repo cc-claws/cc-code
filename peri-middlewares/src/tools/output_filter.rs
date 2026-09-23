@@ -215,8 +215,7 @@ pub fn fold_repeated_blocks(output: &str) -> String {
     let mut current_block: Vec<&str> = Vec::new();
 
     for line in &lines {
-        let is_continuation =
-            !line.is_empty() && (line.starts_with(' ') || line.starts_with('\t'));
+        let is_continuation = !line.is_empty() && (line.starts_with(' ') || line.starts_with('\t'));
         if is_continuation && !current_block.is_empty() {
             current_block.push(line);
         } else {
@@ -250,8 +249,7 @@ pub fn fold_repeated_blocks(output: &str) -> String {
     }
 
     let mut result_lines: Vec<String> = Vec::new();
-    let mut seen_counts: std::collections::HashMap<&str, usize> =
-        std::collections::HashMap::new();
+    let mut seen_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
 
     for block in &blocks {
         let first = block.first().copied().unwrap_or("");
@@ -268,9 +266,7 @@ pub fn fold_repeated_blocks(output: &str) -> String {
             } else if *seen == 3 {
                 // 第 3 次出现时插入折叠摘要
                 let remaining = total - 2;
-                result_lines.push(format!(
-                    "... (+{remaining} more similar blocks: {first})"
-                ));
+                result_lines.push(format!("... (+{remaining} more similar blocks: {first})"));
             }
             // 第 4+ 次静默跳过
         } else {
