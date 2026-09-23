@@ -179,7 +179,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled("  ", Style::default().fg(theme::DIM)),
         Span::styled(
-            crate::event::keyboard::cycle_model_label(),
+            crate::event::keyboard::command_palette_label(),
             Style::default().fg(theme::DIM),
         ),
         Span::styled(

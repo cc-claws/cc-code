@@ -36,18 +36,46 @@ fn apply_model_selection(cfg: &AcpServerConfig, model_id: &str) -> Option<LlmPro
     let (provider_id, alias) = parse_model_selection_value(model_id);
     {
         let mut c = cfg.peri_config.write();
-        if let Some(provider_id) = provider_id {
-            if c.config.providers.iter().any(|p| p.id == provider_id) {
-                c.config.active_provider_id = provider_id.to_string();
+        let mut final_provider_id = provider_id.map(|s| s.to_string());
+        let mut final_alias = alias.to_string();
+
+        let is_standard_alias =
+            matches!(alias.to_lowercase().as_str(), "opus" | "sonnet" | "haiku");
+        if !is_standard_alias {
+            // 防御兜底：若传入的是具体模型全名而非 alias，在各 provider 中按模型名反查匹配的 (provider_id, alias)
+            let matched = c.config.providers.iter().find_map(|p| {
+                if let Some(ref target_pid) = final_provider_id {
+                    if &p.id != target_pid {
+                        return None;
+                    }
+                }
+                for a in ["opus", "sonnet", "haiku"] {
+                    if let Some(m) = p.models.get_model(a) {
+                        if m.eq_ignore_ascii_case(alias) {
+                            return Some((p.id.clone(), a.to_string()));
+                        }
+                    }
+                }
+                None
+            });
+            if let Some((pid, a)) = matched {
+                final_provider_id = Some(pid);
+                final_alias = a;
+            }
+        }
+
+        if let Some(ref pid) = final_provider_id {
+            if c.config.providers.iter().any(|p| &p.id == pid) {
+                c.config.active_provider_id = pid.clone();
             } else {
                 tracing::warn!(
-                    provider_id = %provider_id,
+                    provider_id = %pid,
                     model_id = %model_id,
                     "Model selection provider not found"
                 );
             }
         }
-        c.config.active_alias = alias.to_string();
+        c.config.active_alias = final_alias;
     }
 
     let c = cfg.peri_config.read();
@@ -89,6 +117,16 @@ pub(crate) async fn handle_request(
                 .and_then(|v| v.as_str())
                 .unwrap_or(".")
                 .to_string();
+            if let Some(model_val) = params
+                .get("model")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if let Some(new_provider) = apply_model_selection(cfg, model_val) {
+                    *cfg.provider.write() = new_provider;
+                    persist_config(cfg);
+                }
+            }
             let meta = ThreadMeta::new(&cwd);
             let thread_id = cfg
                 .thread_store
@@ -247,6 +285,16 @@ pub(crate) async fn handle_request(
                 .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
             validate_session_id(req_session_id)?;
             let cwd = params.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
+            if let Some(model_val) = params
+                .get("model")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if let Some(new_provider) = apply_model_selection(cfg, model_val) {
+                    *cfg.provider.write() = new_provider;
+                    persist_config(cfg);
+                }
+            }
 
             // 所有权校验超出本次修复范围（需 DB schema 变更，见 issue #70 方案 3）。
             // 这里至少做存在性校验，避免对未知 sessionId 静默插入空 SessionState。
