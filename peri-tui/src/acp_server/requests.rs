@@ -89,6 +89,16 @@ pub(crate) async fn handle_request(
                 .and_then(|v| v.as_str())
                 .unwrap_or(".")
                 .to_string();
+            if let Some(model_val) = params
+                .get("model")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if let Some(new_provider) = apply_model_selection(cfg, model_val) {
+                    *cfg.provider.write() = new_provider;
+                    persist_config(cfg);
+                }
+            }
             let meta = ThreadMeta::new(&cwd);
             let thread_id = cfg
                 .thread_store
@@ -247,6 +257,16 @@ pub(crate) async fn handle_request(
                 .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
             validate_session_id(req_session_id)?;
             let cwd = params.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
+            if let Some(model_val) = params
+                .get("model")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if let Some(new_provider) = apply_model_selection(cfg, model_val) {
+                    *cfg.provider.write() = new_provider;
+                    persist_config(cfg);
+                }
+            }
 
             // 所有权校验超出本次修复范围（需 DB schema 变更，见 issue #70 方案 3）。
             // 这里至少做存在性校验，避免对未知 sessionId 静默插入空 SessionState。

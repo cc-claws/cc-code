@@ -348,10 +348,15 @@ impl App {
         if let Some(ref acp_client) = self.acp_client {
             let client = acp_client.clone();
             let cwd = self.services.cwd.clone();
-            let model = self.services.model_name.clone();
+            let model = self.services.peri_config.as_ref().map(|c| {
+                peri_acp::provider::format_model_selection_value(
+                    &c.config.active_provider_id,
+                    &c.config.active_alias,
+                )
+            });
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    match client.new_session(&cwd, Some(&model)).await {
+                    match client.new_session(&cwd, model.as_deref()).await {
                         Ok(sid) => tracing::info!(session_id = %sid, "new_thread: ACP new_session succeeded"),
                         Err(e) => tracing::warn!(error = %e, "new_thread: ACP new_session failed"),
                     }
