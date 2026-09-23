@@ -107,6 +107,10 @@ impl ConsoleWidthProbe {
 #[path = "windows_test.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "shell_console_test.rs"]
+mod shell_console_test;
+
 impl WidthProbe for ConsoleWidthProbe {
     fn width(&mut self, symbol: &str) -> Option<usize> {
         let buffer = self.buffer.as_ref()?;

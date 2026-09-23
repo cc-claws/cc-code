@@ -893,6 +893,7 @@ async fn run_app(
     /// 终端标题刷新间隔（100ms，对齐 Codex: TERMINAL_TITLE_SPINNER_INTERVAL）
     const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
     let mut last_title_refresh = Instant::now();
+    let mut event_reader = event::EventReader::default();
 
     'event_loop: loop {
         // 推进 Spinner 动画帧
@@ -923,7 +924,7 @@ async fn run_app(
         app.poll_cron_triggers();
 
         // NOTE: 不对 next_event/draw_app 使用 ?，避免 terminal 错误导致跳过 session ID 打印
-        let next = match event::next_event(&mut app).await {
+        let next = match event::next_event(&mut app, &mut event_reader).await {
             Ok(ev) => ev,
             Err(e) => {
                 tracing::error!(error = %e, "event loop: next_event 错误，退出循环");
