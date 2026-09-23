@@ -771,3 +771,311 @@ fn test_normalize_params_bash_not_affected() {
     // Assert: 无变化
     assert_eq!(normalized["command"], "ls -la");
 }
+
+#[test]
+fn test_validate_against_schema_missing_required() {
+    // Arrange: Glob 缺少必填字段 pattern
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pattern": { "type": "string" },
+            "path": { "type": "string" }
+        },
+        "required": ["pattern"]
+    });
+    let input = serde_json::json!({ "path": "src/" });
+    // Act
+    let result = super::validate_against_schema(&input, &schema);
+    // Assert
+    assert!(result.is_err(), "缺少必填字段应报错");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("missing required field 'pattern' (expected string)"),
+        "错误信息应包含缺失字段与期望类型，实际: {err}"
+    );
+}
+
+#[test]
+fn test_validate_against_schema_invalid_type() {
+    // Arrange: pattern 期望 string，传入了 integer
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pattern": { "type": "string" }
+        },
+        "required": ["pattern"]
+    });
+    let input = serde_json::json!({ "pattern": 12345 });
+    // Act
+    let result = super::validate_against_schema(&input, &schema);
+    // Assert
+    assert!(result.is_err(), "类型不匹配应报错");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("field 'pattern' has invalid type: expected string, got integer"),
+        "错误信息应包含字段名、期望类型与实际类型，实际: {err}"
+    );
+}
+
+#[test]
+fn test_validate_against_schema_success() {
+    // Arrange: 传入合法参数
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pattern": { "type": "string" },
+            "path": { "type": "string" }
+        },
+        "required": ["pattern"]
+    });
+    let input = serde_json::json!({ "pattern": "**/*.rs", "path": "src" });
+    // Act
+    let result = super::validate_against_schema(&input, &schema);
+    // Assert
+    assert!(result.is_ok(), "合法参数应通过校验");
+}
+
+#[test]
+fn test_validate_against_schema_non_object() {
+    // Arrange: schema 期望 object，输入为 string
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "command": { "type": "string" }
+        },
+        "required": ["command"]
+    });
+    let input = serde_json::json!("git status");
+    // Act
+    let result = super::validate_against_schema(&input, &schema);
+    // Assert
+    assert!(result.is_err(), "非 object 输入应报错");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("expected an object for arguments, got string"),
+        "应提示期望 object，实际: {err}"
+    );
+}
+
+#[test]
+fn test_validate_against_schema_enum_mismatch() {
+    // Arrange: effort 字段有 enum 限制
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "effort": {
+                "type": "string",
+                "enum": ["low", "medium", "high"]
+            }
+        }
+    });
+    let input = serde_json::json!({ "effort": "extreme" });
+    // Act
+    let result = super::validate_against_schema(&input, &schema);
+    // Assert
+    assert!(result.is_err(), "枚举不匹配应报错");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("not one of"),
+        "错误信息应指出不在枚举中，实际: {err}"
+    );
+}
+
+#[test]
+fn test_step_action_signature_canonical() {
+    // Arrange: 两个输入键序不同的工具调用
+    let tc1 = ToolCall::new(
+        "id1",
+        "Grep",
+        serde_json::json!({ "path": "src/", "pattern": "fn main" }),
+    );
+    let tc2 = ToolCall::new(
+        "id1",
+        "Grep",
+        serde_json::json!({ "pattern": "fn main", "path": "src/" }),
+    );
+    // Act
+    let sig1 = super::compute_step_action_signature(&[tc1]);
+    let sig2 = super::compute_step_action_signature(&[tc2]);
+    // Assert
+    assert_eq!(sig1, sig2, "键序不同的相同参数应产生一致的动作签名");
+}
+
+#[test]
+fn test_action_loop_detector() {
+    // Arrange
+    let mut detector = super::ActionLoopDetector::new();
+    let sig_a = "Bash:{\"command\":\"ls\"}";
+    let sig_b = "Bash:{\"command\":\"pwd\"}";
+    // Act & Assert: 第 1 次
+    let (count, is_loop) = detector.record(sig_a);
+    assert_eq!(count, 1);
+    assert!(!is_loop, "第 1 次不应判定为循环");
+    // 第 2 次
+    let (count, is_loop) = detector.record(sig_a);
+    assert_eq!(count, 2);
+    assert!(!is_loop, "第 2 次不应判定为循环");
+    // 第 3 次达到阈值
+    let (count, is_loop) = detector.record(sig_a);
+    assert_eq!(count, 3);
+    assert!(is_loop, "第 3 次连续相同动作应判定为循环");
+    // 切换动作后重置
+    let (count, is_loop) = detector.record(sig_b);
+    assert_eq!(count, 1);
+    assert!(!is_loop, "切换动作后计数应重置为 1");
+}
+
+/// 连续 3 次相同成功动作签名后注入系统纠正消息
+#[tokio::test]
+async fn test_consecutive_action_injects_correction() {
+    struct AlwaysSucceedTool;
+    #[async_trait::async_trait]
+    impl BaseTool for AlwaysSucceedTool {
+        fn name(&self) -> &str {
+            "EchoTool"
+        }
+        fn description(&self) -> &str {
+            "echo"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "msg": { "type": "string" } },
+                "required": ["msg"]
+            })
+        }
+        async fn invoke(
+            &self,
+            input: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok(input["msg"].as_str().unwrap_or("ok").to_string())
+        }
+    }
+
+    struct LoopActionLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for LoopActionLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_loop_warning = messages.iter().any(|m| {
+                matches!(m, BaseMessage::System { content, .. }
+                    if content.text_content().contains("3 consecutive times with identical parameters"))
+            });
+            if has_loop_warning {
+                return Ok(Reasoning::with_answer("done", "I noticed the loop and will stop."));
+            }
+            Ok(Reasoning::with_tools(
+                "calling echo again",
+                vec![ToolCall::new(
+                    format!("id_{}", messages.len()),
+                    "EchoTool",
+                    serde_json::json!({ "msg": "same_action" }),
+                )],
+            ))
+        }
+    }
+
+    let agent = ReActAgent::new(LoopActionLLM)
+        .max_iterations(10)
+        .register_tool(Box::new(AlwaysSucceedTool));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("run"), &mut state, None)
+        .await;
+
+    assert!(result.is_ok(), "Agent 应正常完成，实际: {:?}", result);
+    let has_loop_warning = state.messages().iter().any(|m| {
+        matches!(m, BaseMessage::System { content, .. }
+            if content.text_content().contains("3 consecutive times with identical parameters"))
+    });
+    assert!(has_loop_warning, "应注入连续相同动作纠正消息");
+}
+
+/// 验证工具入参违反 schema 时，返回字段级错误提示且包含 Received keys
+#[tokio::test]
+async fn test_tool_execution_schema_validation_error_message() {
+    struct StrictTool;
+    #[async_trait::async_trait]
+    impl BaseTool for StrictTool {
+        fn name(&self) -> &str {
+            "StrictTool"
+        }
+        fn description(&self) -> &str {
+            "strict"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string" }
+                },
+                "required": ["pattern"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct InvalidParamLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for InvalidParamLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_tool_result = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+            if !has_tool_result {
+                // 错误地传入了 command 字段，缺失 pattern
+                Ok(Reasoning::with_tools(
+                    "calling with wrong param",
+                    vec![ToolCall::new(
+                        "id_err",
+                        "StrictTool",
+                        serde_json::json!({ "command": "ls" }),
+                    )],
+                ))
+            } else {
+                Ok(Reasoning::with_answer("done", "got error"))
+            }
+        }
+    }
+
+    let agent = ReActAgent::new(InvalidParamLLM)
+        .max_iterations(5)
+        .register_tool(Box::new(StrictTool));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("run"), &mut state, None)
+        .await;
+
+    assert!(result.is_ok(), "Agent 应正常处理错误结果并完成");
+    let error_msg = state
+        .messages()
+        .iter()
+        .find_map(|m| match m {
+            BaseMessage::Tool { content, is_error: true, .. } => Some(content.text_content()),
+            _ => None,
+        })
+        .expect("应包含 Tool 错误消息");
+
+    assert!(
+        error_msg.contains("Invalid arguments for tool StrictTool: missing required field 'pattern' (expected string)"),
+        "错误信息应包含缺失字段与期望类型，实际: {error_msg}"
+    );
+    assert!(
+        error_msg.contains("Received keys: [\"command\"]"),
+        "错误信息应包含实际收到的 keys，实际: {error_msg}"
+    );
+}

@@ -343,6 +343,71 @@ async fn test_git_bash_command_sets_msys_no_pathconv() {
 
 // ── shell_command_with_shell 测试 ──────────────────────────────────
 
+// ── shell_command_with_shell 测试 ──────────────────────────────────
+
+#[cfg(windows)]
+#[test]
+fn test_shell_command_multiline_uses_git_bash_on_windows() {
+    // Issue #212：含字面换行符的多行命令应走 Git Bash（bash -c），
+    // 而非 cmd /C（只执行第一行）
+    let multiline = "echo A\necho B";
+    let cmd = shell_command(multiline, &[]);
+    let formatted = format!("{cmd:?}");
+    // 如果 Git Bash 可用，应走 bash -c 而非 cmd /C
+    if git_bash_path().is_some() {
+        assert!(
+            formatted.to_lowercase().contains("bash"),
+            "多行命令应走 Git Bash，实际：{formatted}"
+        );
+        assert!(
+            formatted.contains("-c"),
+            "多行命令应走 bash -c，实际：{formatted}"
+        );
+    } else {
+        // Git Bash 不可用时回退 cmd（不能 panic）
+        assert!(
+            formatted.contains("cmd"),
+            "Git Bash 不可用时应回退 cmd，实际：{formatted}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_shell_command_single_line_still_uses_cmd_on_windows() {
+    // 确保非多行命令仍走 cmd /C（不破坏现有行为）
+    let single = "echo hello && echo world";
+    let cmd = shell_command(single, &[]);
+    let formatted = format!("{cmd:?}");
+    assert!(
+        formatted.contains("cmd"),
+        "单行命令应走 cmd /C，实际：{formatted}"
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn test_shell_command_multiline_produces_complete_output() {
+    // Issue #212 回归测试：多行命令的所有行 stdout 都应被捕获
+    if git_bash_path().is_none() {
+        return; // Git Bash 不可用，跳过
+    }
+    let multiline = "echo AAA\necho BBB";
+    let output = shell_command(multiline, &[])
+        .output()
+        .await
+        .expect("多行命令应能启动");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("AAA"),
+        "应包含第一行输出 AAA，实际：{stdout}"
+    );
+    assert!(
+        stdout.contains("BBB"),
+        "应包含第二行输出 BBB，实际：{stdout}"
+    );
+}
+
 #[test]
 fn test_shell_command_with_shell_powershell() {
     // PowerShell: 应使用 powershell -NoProfile -NonInteractive -Command
