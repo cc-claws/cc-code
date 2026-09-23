@@ -69,39 +69,67 @@ fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
 const SHELL_OUTPUT_COLLAPSED_LINES: usize = 6;
 const SHELL_OUTPUT_DETAIL_LINES: usize = 40;
 
+/// 折行输出段：line 为渲染行，其余字段用于链接命中区映射
+struct WrappedLineSeg {
+    line: Line<'static>,
+    /// 输入行 plain_text 的 grapheme 范围 [in_g_start, in_g_end)
+    in_g_start: usize,
+    in_g_end: usize,
+    /// in_g_start 映射到输出行 plain_text 的 grapheme 起点
+    out_g_offset: usize,
+}
+
 /// 将含多 span 的 Line 按视觉宽度折行，保留各 span 样式。
 ///
 /// 算法：flatten → 贪心宽度折行（单词边界优先）→ reassemble。
 /// 用于 reasoning 渲染：每行宽度 ≤ max_width 时不会触发 Paragraph::wrap 二次折行，
-/// 避免续行丢失 4 列前缀缩进。CJK 无空格场景按字符硬断。
-fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
-    use unicode_width::UnicodeWidthChar;
+/// 避免续行丢失 4 列前缀缩进。CJK 无空格场景按 grapheme 硬断。
+/// 以 grapheme 为切分单位，返回段级 g 映射用于链接命中区。
+fn wrap_line_spans_rich(line: Line<'static>, max_width: usize) -> Vec<WrappedLineSeg> {
+    use unicode_segmentation::UnicodeSegmentation;
 
     if max_width == 0 || line.spans.is_empty() {
-        return vec![line];
+        let g_len = line
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref().graphemes(true).count())
+            .sum();
+        return vec![WrappedLineSeg {
+            line,
+            in_g_start: 0,
+            in_g_end: g_len,
+            out_g_offset: 0,
+        }];
     }
 
-    // flatten：spans → Vec<(char, Style)>，消除 span 边界以便任意位置断行
-    let flat: Vec<(char, Style)> = line
+    // flatten：spans → Vec<(grapheme, Style)>，消除 span 边界以便任意位置断行
+    let flat: Vec<(&str, Style)> = line
         .spans
         .iter()
-        .flat_map(|s| s.content.chars().map(move |c| (c, s.style)))
+        .flat_map(|s| s.content.graphemes(true).map(move |g| (g, s.style)))
         .collect();
 
     // 快速路径：总宽度不超过 max_width 时原样返回
-    let total_width: usize = flat.iter().map(|(c, _)| c.width().unwrap_or(0)).sum();
+    let total_width: usize = flat.iter().map(|(g, _)| g.width()).sum();
+    let total_len = flat.len();
     if total_width <= max_width {
-        return vec![line];
+        drop(flat);
+        return vec![WrappedLineSeg {
+            line,
+            in_g_start: 0,
+            in_g_end: total_len,
+            out_g_offset: 0,
+        }];
     }
 
-    let mut result: Vec<Line<'static>> = Vec::new();
+    let mut result: Vec<WrappedLineSeg> = Vec::new();
     let mut pos = 0;
     while pos < flat.len() {
-        // 贪心：从 pos 起尽可能多地装入字符
+        // 贪心：从 pos 起尽可能多地装入 grapheme
         let mut cur_width = 0usize;
         let mut content_end = pos;
         for i in pos..flat.len() {
-            let cw = flat[i].0.width().unwrap_or(0);
+            let cw = flat[i].0.width();
             if content_end > pos && cur_width + cw > max_width {
                 break;
             }
@@ -112,7 +140,7 @@ fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> 
         // 单词边界优先：从 content_end 往回找最后一个 whitespace
         let mut break_at = content_end;
         for i in (pos..content_end).rev() {
-            if flat[i].0.is_whitespace() {
+            if flat[i].0.chars().all(char::is_whitespace) {
                 break_at = i;
                 break;
             }
@@ -120,46 +148,96 @@ fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> 
 
         // trim 行首行尾空白
         let mut seg_start = pos;
-        while seg_start < break_at && flat[seg_start].0.is_whitespace() {
+        while seg_start < break_at && flat[seg_start].0.chars().all(char::is_whitespace) {
             seg_start += 1;
         }
         let mut seg_end = break_at;
-        while seg_end > seg_start && flat[seg_end - 1].0.is_whitespace() {
+        while seg_end > seg_start && flat[seg_end - 1].0.chars().all(char::is_whitespace) {
             seg_end -= 1;
         }
 
-        // reassemble：相邻同 Style 字符合并为一个 Span
+        // reassemble：相邻同 Style grapheme 合并为一个 Span
         if seg_start < seg_end {
             let mut spans: Vec<Span<'static>> = Vec::new();
             let mut cur_text = String::new();
             let mut cur_style = flat[seg_start].1;
-            for &(ch, st) in &flat[seg_start..seg_end] {
+            for &(g, st) in &flat[seg_start..seg_end] {
                 if st == cur_style {
-                    cur_text.push(ch);
+                    cur_text.push_str(g);
                 } else {
                     spans.push(Span::styled(std::mem::take(&mut cur_text), cur_style));
-                    cur_text = ch.to_string();
+                    cur_text = g.to_string();
                     cur_style = st;
                 }
             }
             if !cur_text.is_empty() {
                 spans.push(Span::styled(cur_text, cur_style));
             }
-            result.push(Line::from(spans));
+            result.push(WrappedLineSeg {
+                line: Line::from(spans),
+                in_g_start: seg_start,
+                in_g_end: seg_end,
+                out_g_offset: 0,
+            });
         }
 
         // 推进 pos，跳过断行点后的连续空白
         pos = break_at;
-        while pos < flat.len() && flat[pos].0.is_whitespace() {
+        while pos < flat.len() && flat[pos].0.chars().all(char::is_whitespace) {
             pos += 1;
         }
     }
 
     if result.is_empty() {
-        vec![Line::default()]
+        vec![WrappedLineSeg {
+            line: Line::default(),
+            in_g_start: 0,
+            in_g_end: 0,
+            out_g_offset: 0,
+        }]
     } else {
         result
     }
+}
+
+/// 兼容包装：只取折行结果
+fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
+    wrap_line_spans_rich(line, max_width)
+        .into_iter()
+        .map(|seg| seg.line)
+        .collect()
+}
+
+/// 把逻辑行上的链接命中区映射到折行后的输出段，累加前缀宽度后推入 out
+fn push_link_hits_for_wrapped(
+    out: &mut Vec<peri_widgets::markdown::LinkHit>,
+    base_line: usize,
+    line_links: &[peri_widgets::markdown::LinkHit],
+    wrapped: &[WrappedLineSeg],
+    prefix_g: usize,
+) {
+    for hit in line_links {
+        for (i, seg) in wrapped.iter().enumerate() {
+            let is = hit.g_start.max(seg.in_g_start);
+            let ie = hit.g_end.min(seg.in_g_end);
+            if is < ie {
+                out.push(peri_widgets::markdown::LinkHit {
+                    line: base_line + i,
+                    g_start: prefix_g + seg.out_g_offset + (is - seg.in_g_start),
+                    g_end: prefix_g + seg.out_g_offset + (ie - seg.in_g_start),
+                    url: hit.url.clone(),
+                });
+            }
+        }
+    }
+}
+
+/// 取 rendered_links 中属于第 line_idx 个逻辑行的命中区
+fn links_on_line(
+    links: &[peri_widgets::markdown::LinkHit],
+    line_idx: usize,
+) -> impl Iterator<Item = &peri_widgets::markdown::LinkHit> {
+    links.iter().filter(move |h| h.line == line_idx)
 }
 
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
@@ -630,14 +708,27 @@ fn render_shell_command(
 /// 将单个 ViewModel 渲染为 Vec<Line>
 pub fn render_view_model(
     vm: &MessageViewModel,
-    _index: Option<usize>,
+    index: Option<usize>,
     width: usize,
     detail_mode: bool,
     tick: u64,
 ) -> Vec<Line<'static>> {
+    render_view_model_with_links(vm, index, width, detail_mode, tick).0
+}
+
+/// 将单个 ViewModel 渲染为 Vec<Line>，并收集超链接命中区（行号与输出 lines 对齐）
+pub fn render_view_model_with_links(
+    vm: &MessageViewModel,
+    _index: Option<usize>,
+    width: usize,
+    detail_mode: bool,
+    tick: u64,
+) -> (Vec<Line<'static>>, Vec<peri_widgets::markdown::LinkHit>) {
+    let mut link_hits: Vec<peri_widgets::markdown::LinkHit> = Vec::new();
     match vm {
         MessageViewModel::UserBubble {
             rendered,
+            rendered_links,
             system_reminder,
             expanded_content,
             ..
@@ -650,19 +741,20 @@ pub fn render_view_model(
                         .fg(theme::DIM)
                         .add_modifier(Modifier::ITALIC),
                 );
-                return vec![Line::from(hint)];
+                return (vec![Line::from(hint)], link_hits);
             }
 
             // 详细模式且有展开内容时，显示完整的粘贴文本
-            let effective_rendered = if detail_mode {
+            let (effective_rendered, effective_links) = if detail_mode {
                 if let Some(expanded) = expanded_content {
                     // 使用展开后的内容重新解析 markdown
-                    super::markdown::parse_markdown_default(expanded)
+                    let doc = super::markdown::parse_markdown_default_rich(expanded);
+                    (doc.text, doc.links)
                 } else {
-                    rendered.clone()
+                    (rendered.clone(), rendered_links.clone())
                 }
             } else {
-                rendered.clone()
+                (rendered.clone(), rendered_links.clone())
             };
 
             // 普通 UserBubble — 原有渲染逻辑不变
@@ -672,9 +764,13 @@ pub fn render_view_model(
             let content_width = width.saturating_sub(2).max(20);
             let mut lines = Vec::with_capacity(effective_rendered.lines.len() + 1);
             for (i, line) in effective_rendered.lines.iter().enumerate() {
-                let wrapped = wrap_line_spans(line.clone(), content_width);
-                for (j, wline) in wrapped.into_iter().enumerate() {
-                    if i == 0 && j == 0 {
+                let wrapped = wrap_line_spans_rich(line.clone(), content_width);
+                // 前缀 "❯ " / "  " 均为 2 grapheme
+                let line_links: Vec<peri_widgets::markdown::LinkHit> =
+                    links_on_line(&effective_links, i).cloned().collect();
+                push_link_hits_for_wrapped(&mut link_hits, lines.len(), &line_links, &wrapped, 2);
+                for wline in wrapped.into_iter().map(|seg| seg.line) {
+                    if i == 0 && lines.is_empty() {
                         // 第一行：用户消息用 ❯ 前缀，带底色
                         let mut spans = vec![Span::styled(
                             "❯ ",
@@ -697,14 +793,19 @@ pub fn render_view_model(
                     }
                 }
             }
-            lines
+            (lines, link_hits)
         }
         MessageViewModel::AssistantBubble { blocks, .. } => {
             let mut lines = Vec::new();
 
             for block in blocks {
                 match block {
-                    ContentBlockView::Text { rendered, raw, .. } => {
+                    ContentBlockView::Text {
+                        rendered,
+                        rendered_links,
+                        raw,
+                        ..
+                    } => {
                         let is_diff = peri_widgets::message_block::highlight::is_diff_content(raw);
                         if is_diff {
                             for l in raw.lines() {
@@ -724,8 +825,21 @@ pub fn render_view_model(
                             // 与 Reasoning 路径一致：先按 content_width 预折行再加前缀
                             let content_width = width.saturating_sub(2).max(20);
                             for (text_line_count, line) in rendered.lines.iter().enumerate() {
-                                let wrapped = wrap_line_spans(line.clone(), content_width);
-                                for (j, wline) in wrapped.into_iter().enumerate() {
+                                let wrapped = wrap_line_spans_rich(line.clone(), content_width);
+                                // 前缀 "● " / "  " 均为 2 grapheme
+                                let line_links: Vec<peri_widgets::markdown::LinkHit> =
+                                    links_on_line(rendered_links, text_line_count)
+                                        .cloned()
+                                        .collect();
+                                push_link_hits_for_wrapped(
+                                    &mut link_hits,
+                                    lines.len(),
+                                    &line_links,
+                                    &wrapped,
+                                    2,
+                                );
+                                for (j, seg) in wrapped.into_iter().enumerate() {
+                                    let wline = seg.line;
                                     let prefix = if text_line_count == 0 && j == 0 {
                                         "● "
                                     } else {
@@ -801,7 +915,7 @@ pub fn render_view_model(
                 }
             }
 
-            lines
+            (lines, link_hits)
         }
         MessageViewModel::ToolBlock {
             collapsed,
@@ -817,7 +931,7 @@ pub fn render_view_model(
         } => {
             // AskUserQuestion 专用渲染路径
             if tool_name == "AskUserQuestion" {
-                return render_ask_user_block(content, *is_error);
+                return (render_ask_user_block(content, *is_error), link_hits);
             }
 
             let is_running = content.is_empty() && !*is_error;
@@ -1000,7 +1114,7 @@ pub fn render_view_model(
                     }
                 }
             }
-            lines
+            (lines, link_hits)
         }
         MessageViewModel::ShellCommand {
             command,
@@ -1011,22 +1125,25 @@ pub fn render_view_model(
             started_at,
             moved_to_background,
             ..
-        } => render_shell_command(
-            command,
-            stdin,
-            stdout,
-            stderr,
-            *exit_code,
-            detail_mode,
-            width,
-            *started_at,
-            *moved_to_background,
+        } => (
+            render_shell_command(
+                command,
+                stdin,
+                stdout,
+                stderr,
+                *exit_code,
+                detail_mode,
+                width,
+                *started_at,
+                *moved_to_background,
+            ),
+            link_hits,
         ),
         MessageViewModel::SubAgentGroup {
             batch_agents,
             collapsed,
             ..
-        } if !batch_agents.is_empty() => render_batch_summary(batch_agents, collapsed),
+        } if !batch_agents.is_empty() => (render_batch_summary(batch_agents, collapsed), link_hits),
         MessageViewModel::SubAgentGroup {
             agent_id,
             task_preview,
@@ -1178,7 +1295,7 @@ pub fn render_view_model(
                 }
             }
 
-            lines
+            (lines, link_hits)
         }
         MessageViewModel::SystemNote { content, .. } => {
             let mut lines = Vec::new();
@@ -1210,14 +1327,15 @@ pub fn render_view_model(
                     ]));
                 }
             }
-            lines
+            (lines, link_hits)
         }
-        MessageViewModel::CacheWarning { content, .. } => {
+        MessageViewModel::CacheWarning { content, .. } => (
             vec![Line::from(Span::styled(
                 content.clone(),
                 Style::default().fg(theme::WARNING),
-            ))]
-        }
+            ))],
+            link_hits,
+        ),
         MessageViewModel::ToolCallGroup {
             category,
             tools,
@@ -1361,7 +1479,7 @@ pub fn render_view_model(
                 }
             }
 
-            lines
+            (lines, link_hits)
         }
     }
 }

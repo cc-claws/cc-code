@@ -3,7 +3,7 @@ use peri_agent::messages::BaseMessage;
 use crate::{
     app::tool_display,
     ui::{
-        markdown::parse_markdown_default,
+        markdown::parse_markdown_default_rich,
         message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
     },
 };
@@ -25,13 +25,14 @@ impl MessagePipeline {
             });
         }
         if !self.current_ai_text.trim().is_empty() {
-            let rendered = parse_markdown_default(&self.current_ai_text);
-            let rendered_prefix_lines = rendered.lines.len();
+            let doc = parse_markdown_default_rich(&self.current_ai_text);
+            let rendered_prefix_lines = doc.text.lines.len();
             let mut scanner = crate::ui::markdown::TableHoldbackScanner::new();
             scanner.set_streaming(true);
             blocks.push(ContentBlockView::Text {
                 raw: self.current_ai_text.clone(),
-                rendered,
+                rendered: doc.text,
+                rendered_links: doc.links,
                 dirty: false,
                 rendered_prefix_len: self.current_ai_text.len(),
                 rendered_prefix_lines,
