@@ -171,8 +171,7 @@ fn test_fold_repeated_lines_at_threshold() {
 #[test]
 fn test_fold_repeated_lines_many_duplicates() {
     // 10 个相同行 → 保留 2 + 折叠 8
-    let lines: Vec<&str> = std::iter::repeat("same line").take(10).collect();
-    let input = lines.join("\n");
+    let input = ["same line"; 10].join("\n");
     let result = fold_repeated_lines(&input);
     assert!(
         result.contains("... (+8 more identical lines)"),
@@ -270,10 +269,7 @@ Info: build complete
 #[test]
 fn test_filter_command_output_folds_repeated_generic_output() {
     // 通过 filter_command_output 入口验证通用折叠生效
-    let mut lines = Vec::new();
-    for _ in 0..5 {
-        lines.push("WARN: deprecated API call");
-    }
+    let mut lines = vec!["WARN: deprecated API call"; 5];
     lines.push("Build completed successfully");
     let input = lines.join("\n");
     let result = filter_command_output("npm run build", &input, 0);
