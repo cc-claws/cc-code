@@ -68,19 +68,20 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     // 底部展开区高度
     let panel_height = active_panel_height(app, area.height, area.width);
 
-    // Sticky header 高度
-    let sticky_header_height: u16 = app
-        .session_mgr
-        .current()
-        .metadata
-        .last_human_message
-        .as_ref()
-        .map(|msg| {
-            let width = area.width.saturating_sub(2).max(1);
-            let lines = sticky_header::estimate_header_lines(msg, width);
-            lines as u16
-        })
-        .unwrap_or(0);
+    // Sticky header 高度（已注释禁用：鸡肋功能，高度固定为 0 不渲染）
+    let sticky_header_height: u16 = 0;
+    // let sticky_header_height: u16 = app
+    //     .session_mgr
+    //     .current()
+    //     .metadata
+    //     .last_human_message
+    //     .as_ref()
+    //     .map(|msg| {
+    //         let width = area.width.saturating_sub(2).max(1);
+    //         let lines = sticky_header::estimate_header_lines(msg, width);
+    //         lines as u16
+    //     })
+    //     .unwrap_or(0);
 
     let status_bar_height = status_bar::status_bar_height(app);
 
