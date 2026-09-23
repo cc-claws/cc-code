@@ -559,6 +559,7 @@ async fn test_welcome_card_shows_login_guide_when_no_provider() {
 // ── Sticky Human Message Header ────────────────────────────────────────────
 
 #[tokio::test]
+#[ignore = "sticky header 功能已禁用，恢复功能时删除此标记"]
 async fn test_sticky_header_hidden_when_no_messages() {
     // 无消息时 sticky header 应完全隐藏
     let (mut app, mut handle) = App::new_headless(80, 24).await;
@@ -584,6 +585,7 @@ async fn test_sticky_header_hidden_when_no_messages() {
 }
 
 #[tokio::test]
+#[ignore = "sticky header 功能已禁用，恢复功能时删除此标记"]
 async fn test_sticky_header_shows_after_submit() {
     // 模拟 submit_message 后 sticky header 显示
     // 需要足够多的消息使内容超过可视区域（max_scroll > 0）
@@ -657,6 +659,7 @@ async fn test_message_area_renders_scrollbar_metrics_when_overflowing() {
 }
 
 #[tokio::test]
+#[ignore = "sticky header 功能已禁用，恢复功能时删除此标记"]
 async fn test_sticky_header_hidden_after_clear() {
     // /clear 后 sticky header 应消失
     let (mut app, mut handle) = App::new_headless(80, 24).await;
@@ -700,6 +703,7 @@ async fn test_sticky_header_hidden_after_clear() {
 }
 
 #[tokio::test]
+#[ignore = "sticky header 功能已禁用，恢复功能时删除此标记"]
 async fn test_sticky_header_shows_last_message_not_first() {
     // 连续发送多条消息，header 应显示最后一条
     let (mut app, mut handle) = App::new_headless(80, 24).await;
@@ -742,6 +746,7 @@ async fn test_sticky_header_shows_last_message_not_first() {
 }
 
 #[tokio::test]
+#[ignore = "sticky header 功能已禁用，恢复功能时删除此标记"]
 async fn test_sticky_header_truncation_long_message() {
     // 超长消息应在达到行数上限后截断并加 …
     let (mut app, mut handle) = App::new_headless(40, 24).await; // 窄屏 40 列
