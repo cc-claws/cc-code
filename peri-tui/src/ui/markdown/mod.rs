@@ -2,6 +2,7 @@ mod table_holdback;
 
 use ratatui::text::Text;
 
+use peri_widgets::markdown::{LinkHit, MarkdownDoc};
 use peri_widgets::DefaultMarkdownTheme;
 
 use super::message_view::ContentBlockView;
@@ -19,9 +20,19 @@ pub fn parse_markdown(input: &str, max_width: usize) -> Text<'static> {
     peri_widgets::markdown::parse_markdown(input, &THEME, max_width)
 }
 
+/// 解析 markdown 文本（含超链接命中区）
+pub fn parse_markdown_rich(input: &str, max_width: usize) -> MarkdownDoc {
+    peri_widgets::markdown::parse_markdown_with_links(input, &THEME, max_width)
+}
+
 /// 解析 markdown 文本为 ratatui Text（使用默认宽度 80）
 pub fn parse_markdown_default(input: &str) -> Text<'static> {
     parse_markdown(input, DEFAULT_MARKDOWN_WIDTH)
+}
+
+/// 解析 markdown 文本（默认宽度 80，含超链接命中区）
+pub fn parse_markdown_default_rich(input: &str) -> MarkdownDoc {
+    parse_markdown_rich(input, DEFAULT_MARKDOWN_WIDTH)
 }
 
 /// 从 `text` 的 `[0..prefix_len]` 范围内找到最后一个块级边界。
@@ -82,6 +93,7 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
     if let ContentBlockView::Text {
         raw,
         rendered,
+        rendered_links,
         dirty,
         rendered_prefix_len,
         rendered_prefix_lines,
@@ -98,6 +110,7 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
             *rendered_prefix_len = 0;
             *rendered_prefix_lines = 0;
             rendered.lines.clear();
+            rendered_links.clear();
         }
         if !*dirty || raw.len() == *rendered_prefix_len {
             return;
@@ -134,33 +147,52 @@ pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usiz
             // 路径 1：前文稳定，只解析新增部分
             let new_text = &text_to_render[effective_prefix_len..];
             if !new_text.is_empty() {
-                let new_lines = parse_markdown(new_text, max_width);
-                // 追加新行到已有渲染结果
-                for line in new_lines.lines {
+                let new_doc = parse_markdown_rich(new_text, max_width);
+                // 追加新行到已有渲染结果，链接行号平移到追加起点
+                let base_lines = rendered.lines.len();
+                for line in new_doc.text.lines {
                     rendered.lines.push(line);
+                }
+                for hit in new_doc.links {
+                    rendered_links.push(LinkHit {
+                        line: hit.line + base_lines,
+                        ..hit
+                    });
                 }
             }
         } else if last_stable_boundary > 0 {
             // 路径 2：有不稳定块，保留前缀，重解析 boundary 之后
             let keep_count = *rendered_prefix_lines;
             let reparse_text = &text_to_render[last_stable_boundary..];
-            let new_lines = parse_markdown(reparse_text, max_width);
+            let new_doc = parse_markdown_rich(reparse_text, max_width);
             rendered.lines.truncate(keep_count);
+            rendered_links.retain(|hit| hit.line < keep_count);
             if keep_count > 0 && last_stable_boundary < effective_prefix_len {
                 // 需要重新计算：从 boundary 开始全量重解析
-                let full_new = parse_markdown(&text_to_render[last_stable_boundary..], max_width);
+                let full_doc =
+                    parse_markdown_rich(&text_to_render[last_stable_boundary..], max_width);
                 rendered.lines.clear();
-                for line in full_new.lines {
+                rendered_links.clear();
+                for line in full_doc.text.lines {
                     rendered.lines.push(line);
                 }
+                rendered_links.extend(full_doc.links);
             } else {
-                for line in new_lines.lines {
+                for line in new_doc.text.lines {
                     rendered.lines.push(line);
+                }
+                for hit in new_doc.links {
+                    rendered_links.push(LinkHit {
+                        line: hit.line + keep_count,
+                        ..hit
+                    });
                 }
             }
         } else {
             // 路径 3：全量重解析
-            *rendered = parse_markdown(text_to_render, max_width);
+            let doc = parse_markdown_rich(text_to_render, max_width);
+            *rendered = doc.text;
+            *rendered_links = doc.links;
         }
 
         *rendered_prefix_len = effective_end;

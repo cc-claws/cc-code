@@ -907,7 +907,7 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                     // End panel scrollbar drag
                     app.session_mgr.current_mut().ui.panel_scrollbar_dragging = false;
                     app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
-                    // 消息区域 TextSelection released：从 wrap_map 提取纯文本（跨视口）并复制
+                    // 消息区域 TextSelection released：从 wrap_map 提取纯文本（跨视口）并复制；若为单点且命中超链接则打开浏览器
                     if app.session_mgr.current_mut().ui.text_selection.dragging {
                         app.session_mgr.current_mut().ui.text_selection.end_drag();
                         let ts = &app.session_mgr.current_mut().ui.text_selection;
@@ -920,20 +920,58 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 .map(|a| a.width)
                                 .unwrap_or(0);
                             let cache = app.session_mgr.current_mut().messages.render_cache.read();
-                            let text = crate::app::text_selection::extract_selected_text(
-                                start,
-                                end,
-                                &cache.wrap_map,
-                                usable_width,
-                            );
-                            drop(cache);
-                            app.session_mgr
-                                .current_mut()
-                                .ui
-                                .text_selection
-                                .set_selected_text(text);
+
+                            // ── 检查是否为原地/同链接点击并命中 Markdown 超链接 ──
+                            let clicked_url = {
+                                let hit_start = find_clicked_link(
+                                    start,
+                                    &cache.wrap_map,
+                                    &cache.links,
+                                    usable_width,
+                                );
+                                if start == end {
+                                    hit_start
+                                } else {
+                                    let hit_end = find_clicked_link(
+                                        end,
+                                        &cache.wrap_map,
+                                        &cache.links,
+                                        usable_width,
+                                    );
+                                    if let (Some(ref u1), Some(ref u2)) =
+                                        (hit_start.as_ref(), hit_end.as_ref())
+                                    {
+                                        if u1 == u2 {
+                                            hit_start
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
+
+                            if let Some(url) = clicked_url {
+                                drop(cache);
+                                app.session_mgr.current_mut().ui.text_selection.clear();
+                                open_browser_url(&url);
+                            } else {
+                                let text = crate::app::text_selection::extract_selected_text(
+                                    start,
+                                    end,
+                                    &cache.wrap_map,
+                                    usable_width,
+                                );
+                                drop(cache);
+                                app.session_mgr
+                                    .current_mut()
+                                    .ui
+                                    .text_selection
+                                    .set_selected_text(text);
+                                mouse::copy_selection_to_clipboard(app);
+                            }
                         }
-                        mouse::copy_selection_to_clipboard(app);
                     }
                     // ScreenSelection released：从 Buffer 快照提取文本并复制（所见即所得）
                     if app.session_mgr.current_mut().ui.screen_selection.dragging {
@@ -1012,12 +1050,7 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
             ..
         } => {
             let url = prompt.authorization_url.clone();
-            #[cfg(unix)]
-            let _ = std::process::Command::new("open").arg(&url).spawn();
-            #[cfg(windows)]
-            let _ = std::process::Command::new("cmd")
-                .args(["/C", "start", &url])
-                .spawn();
+            open_browser_url(&url);
         }
         Input { key: Key::Esc, .. } => {
             app.global_ui.oauth_prompt = None;
@@ -1034,6 +1067,61 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
             handle_edit_key(&mut prompt.input, &mut prompt.cursor, input);
         }
     }
+}
+
+/// 打开系统默认浏览器访问指定 URL
+///
+/// 统一使用 `Stdio::null()` 隔离句柄，避免子进程继承 TUI 持有的终端管道
+/// 污染画面或阻塞退出（Windows 下 `cmd /C start` 尤其明显）。
+pub(crate) fn open_browser_url(url: &str) {
+    use std::process::Stdio;
+
+    #[cfg(target_os = "windows")]
+    {
+        // `start` 首个带引号的参数会被当作窗口标题，显式传空标题，
+        // 避免含空格/& 的 URL 被 cmd 解析为多段命令。
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+}
+
+/// 在 render_cache 的超链接命中区中查找被点击的 URL
+pub(crate) fn find_clicked_link(
+    pos: (usize, u16),
+    wrap_map: &[crate::ui::render_thread::WrappedLineInfo],
+    links: &[peri_widgets::markdown::LinkHit],
+    usable_width: u16,
+) -> Option<String> {
+    crate::app::text_selection::visual_to_logical(pos.0, pos.1, wrap_map, usable_width).and_then(
+        |(line_idx, g_offset)| {
+            links
+                .iter()
+                .find(|h| h.line == line_idx && g_offset >= h.g_start && g_offset < h.g_end)
+                .map(|h| h.url.clone())
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1189,5 +1277,45 @@ mod tests {
         eprintln!(
             "  结论：点击可见滑块时 offset 间歇性跳变 —— 即「点滑块抓不住 / 拖动乱跳」必然发生。"
         );
+    }
+
+    #[test]
+    fn test_find_clicked_link_hit_and_miss() {
+        use crate::ui::render_thread::WrappedLineInfo;
+        use peri_widgets::markdown::LinkHit;
+        use unicode_segmentation::UnicodeSegmentation;
+        use unicode_width::UnicodeWidthStr;
+
+        let line_text = "● 查看 #222 了解更多";
+        // 宽度从 plain_text 实际计算，保证与 grapheme 序列一一对应（避免手写错位）
+        let char_widths: Vec<u8> = line_text.graphemes(true).map(|g| g.width() as u8).collect();
+        let wrap_map = vec![WrappedLineInfo {
+            line_idx: 0,
+            visual_row_start: 0,
+            visual_row_end: 1,
+            plain_text: line_text.to_string(),
+            char_widths,
+        }];
+        // 校验前提：#222 必须位于 grapheme [5, 9)
+        let label: String = line_text.graphemes(true).skip(5).take(4).collect();
+        assert_eq!(label, "#222", "测试前提：链接标签应位于 [5,9)");
+        let links = vec![LinkHit {
+            line: 0,
+            g_start: 5,
+            g_end: 9,
+            url: "https://github.com/cc-claws/cc-code/pull/222".to_string(),
+        }];
+
+        // 视觉列 = 前缀宽度累计到 "#222" 内部（● =1 空格=1 查看=4 → 第 7 列落在 "#" 后第一个 "2"）
+        let hit = find_clicked_link((0, 7), &wrap_map, &links, 80);
+        assert_eq!(
+            hit.as_deref(),
+            Some("https://github.com/cc-claws/cc-code/pull/222"),
+            "点击在链接区域内应精准匹配出目标 URL"
+        );
+
+        // 点击在链接外部（行首 "●"）
+        let miss = find_clicked_link((0, 0), &wrap_map, &links, 80);
+        assert!(miss.is_none(), "点击在链接外部不应命中 URL");
     }
 }

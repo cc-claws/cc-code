@@ -6,10 +6,10 @@
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
 
+use super::MarkdownDoc;
 use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use ratatui::text::Text;
 
 /// 缓存容量上限
 const CACHE_CAPACITY: usize = 1024;
@@ -20,9 +20,9 @@ static MARKDOWN_CACHE: Lazy<MarkdownCache> = Lazy::new(MarkdownCache::new);
 /// Markdown 解析结果 LRU 缓存
 ///
 /// key = (内容哈希, 渲染宽度 u16)
-/// value = Text<'static>（已解析的渲染结果）
+/// value = MarkdownDoc（已解析的渲染结果 + 链接命中区）
 pub struct MarkdownCache {
-    cache: Mutex<LruCache<CacheKey, Text<'static>>>,
+    cache: Mutex<LruCache<CacheKey, MarkdownDoc>>,
 }
 
 /// 缓存 key：内容哈希 + 渲染宽度
@@ -46,18 +46,18 @@ impl MarkdownCache {
         &MARKDOWN_CACHE
     }
 
-    /// 查询缓存，命中返回克隆的 Text
-    pub fn get(&self, content: &str, max_width: u16) -> Option<Text<'static>> {
+    /// 查询缓存，命中返回克隆的 MarkdownDoc
+    pub fn get(&self, content: &str, max_width: u16) -> Option<MarkdownDoc> {
         let key = self.make_key(content, max_width);
         let mut guard = self.cache.lock();
         guard.get(&key).cloned()
     }
 
     /// 插入解析结果到缓存
-    pub fn put(&self, content: &str, max_width: u16, text: Text<'static>) {
+    pub fn put(&self, content: &str, max_width: u16, doc: MarkdownDoc) {
         let key = self.make_key(content, max_width);
         let mut guard = self.cache.lock();
-        guard.put(key, text);
+        guard.put(key, doc);
     }
 
     /// 生成缓存 key

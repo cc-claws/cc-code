@@ -23,9 +23,10 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 use super::message_render::CONTROL_B_BACKGROUND_HINT;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
-    message_render::render_view_model,
+    message_render::render_view_model_with_links,
     message_view::MessageViewModel,
 };
+use peri_widgets::markdown::LinkHit;
 
 const TOOL_INDICATOR_TICK_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -60,6 +61,8 @@ pub struct RenderCache {
     /// 版本号，UI 线程比较是否有变化以决定是否重绘
     pub version: u64,
     pub wrap_map: Vec<WrappedLineInfo>,
+    /// 超链接命中区（行号对应 cache.lines 下标，g 坐标对应 plain_text grapheme）
+    pub links: Vec<LinkHit>,
     /// 当前渲染使用的文本区域宽度
     pub width: u16,
     /// RebuildAll 后的滚动锚点（视觉行号），UI 线程读取后清除
@@ -80,6 +83,7 @@ impl RenderCache {
             total_lines: 0,
             version: 0,
             wrap_map: Vec::new(),
+            links: Vec::new(),
             width: 0,
             scroll_anchor: None,
         }
@@ -117,6 +121,8 @@ struct RenderTask {
     last_messages: Vec<MessageViewModel>,
     /// 每条消息的渲染行缓存
     message_lines: Vec<Vec<Line<'static>>>,
+    /// 每条消息的链接命中区（行号基于该消息 message_lines 下标）
+    message_links: Vec<Vec<LinkHit>>,
     /// 每条消息的语义 hash（用于 diff 判断）
     message_hashes: Vec<u64>,
     cache: Arc<RwLock<RenderCache>>,
@@ -249,7 +255,7 @@ impl RenderTask {
         width: usize,
         diff_visible: bool,
         detail_mode: bool,
-    ) -> Vec<Line<'static>> {
+    ) -> (Vec<Line<'static>>, Vec<LinkHit>) {
         let tick = current_tool_indicator_tick();
         // 减去气泡前缀缩进（UserBubble "❯ " / "  "，AssistantBubble "● " / "  " 均占 2 字符），
         // 保证 Markdown 渲染宽度 + 前缀不超过视口宽度，避免 Paragraph.wrap() 二次硬折行
@@ -272,20 +278,26 @@ impl RenderTask {
         }
         // 用实际终端内容宽度重新解析用户消息的 markdown（初始创建时用默认宽度 80）
         if let MessageViewModel::UserBubble {
-            content, rendered, ..
+            content,
+            rendered,
+            rendered_links,
+            ..
         } = vm
         {
-            *rendered = super::markdown::parse_markdown(content, content_width);
+            let doc = super::markdown::parse_markdown_rich(content, content_width);
+            *rendered = doc.text;
+            *rendered_links = doc.links;
         }
 
         // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
         // diff_visible 控制 Write/Edit 工具的 diff 显示
         // 两者独立，取并集：任一为 true 时展开对应内容
         let expand_mode = detail_mode || diff_visible;
-        let mut lines = render_view_model(vm, Some(index), width, expand_mode, tick);
+        let (mut lines, links) =
+            render_view_model_with_links(vm, Some(index), width, expand_mode, tick);
         // 每条消息后追加空行分隔符（包括空内容消息，确保间距一致）
         lines.push(Line::from(""));
-        lines
+        (lines, links)
     }
 
     /// 计算单个 MessageViewModel 的语义 hash（legacy，应使用 vm.content_hash()）
@@ -388,14 +400,17 @@ impl RenderTask {
 
         // 保存旧的 message_lines（用于 cosmetic change 复用）
         let mut old_message_lines = std::mem::take(&mut self.message_lines);
+        let mut old_message_links = std::mem::take(&mut self.message_links);
 
         // 调整 message_lines 容量
         self.message_lines.resize(new_len, Vec::new());
+        self.message_links.resize(new_len, Vec::new());
 
         // 复用前缀的缓存行
         for i in 0..prefix_stable_len {
             if i < old_message_lines.len() {
                 self.message_lines[i] = std::mem::take(&mut old_message_lines[i]);
+                self.message_links[i] = std::mem::take(&mut old_message_links[i]);
             }
         }
         // 复用 prefix_stable_len 之前、未被复用的旧行（这些 hash 未变但之前渲染过）
@@ -413,38 +428,57 @@ impl RenderTask {
                 && Self::is_cosmetic_change(&old_messages[i], &vm)
             {
                 self.message_lines[i] = std::mem::take(&mut old_message_lines[i]);
+                self.message_links[i] = std::mem::take(&mut old_message_links[i]);
                 continue;
             }
-            self.message_lines[i] =
+            let (lines, links) =
                 Self::render_one(&mut vm, i + 1, width, self.diff_visible, self.detail_mode);
+            self.message_lines[i] = lines;
+            self.message_links[i] = links;
         }
 
         self.message_hashes = new_hashes;
 
         // 拼接所有消息行，同时做全局 dedup（消除连续空行），
-        // 并在 deduped 索引空间构建 message_offsets。
+        // 并在 deduped 索引空间构建 message_offsets 与全局超链接映射。
         // 修复：旧代码先构建 offsets（基于 all_lines），再做 dedup 生成 deduped，
         // 导致 offsets 和 wrap_map 处于不同索引空间。
         let mut deduped: Vec<Line<'static>> = Vec::new();
         let mut offsets: Vec<usize> = Vec::new();
+        let mut global_links: Vec<LinkHit> = Vec::new();
         let mut prev_empty = false;
-        for lines in &self.message_lines {
+        for (mi, lines) in self.message_lines.iter().enumerate() {
             offsets.push(deduped.len());
+            let mut line_map: Vec<Option<usize>> = Vec::with_capacity(lines.len());
             for line in lines {
                 let is_empty = line.spans.is_empty()
                     || (line.spans.len() == 1 && line.spans[0].content.is_empty());
                 if is_empty && prev_empty {
+                    line_map.push(None);
                     continue;
                 }
                 prev_empty = is_empty;
+                line_map.push(Some(deduped.len()));
                 deduped.push(line.clone());
+            }
+            if let Some(msg_links) = self.message_links.get(mi) {
+                for hit in msg_links {
+                    if let Some(Some(new_line)) = line_map.get(hit.line) {
+                        global_links.push(LinkHit {
+                            line: *new_line,
+                            ..hit.clone()
+                        });
+                    }
+                }
             }
         }
         // 移除末尾多余空行
         while deduped.last().is_some_and(|l| {
             l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.is_empty())
         }) {
+            let dropped = deduped.len() - 1;
             deduped.pop();
+            global_links.retain(|hit| hit.line != dropped);
         }
 
         let (total_lines, wrap_map) =
@@ -454,6 +488,7 @@ impl RenderTask {
         cache.message_offsets = offsets;
         cache.total_lines = total_lines;
         cache.wrap_map = wrap_map;
+        cache.links = global_links;
         cache.width = self.width;
         cache.version += 1;
     }
@@ -755,6 +790,7 @@ pub fn spawn_render_thread(
     let task = RenderTask {
         last_messages: Vec::new(),
         message_lines: Vec::new(),
+        message_links: Vec::new(),
         message_hashes: Vec::new(),
         cache: Arc::clone(&cache),
         notify: Arc::clone(&notify),

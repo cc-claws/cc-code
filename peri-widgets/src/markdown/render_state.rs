@@ -5,7 +5,8 @@ use ratatui::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::MarkdownTheme;
+use super::{LinkHit, MarkdownTheme};
+use unicode_segmentation::UnicodeSegmentation;
 
 #[cfg(feature = "markdown-highlight")]
 use super::highlight::highlight_code_block;
@@ -469,6 +470,37 @@ pub(super) struct RenderState<'a> {
     max_width: usize,
     /// 当前列表项/引用块的悬挂缩进列数（续行前缀的显示宽度）
     hanging_indent: usize,
+    /// 当前打开的链接（Start 已见、End 未见），可跨 flush_line
+    open_link: Option<OpenLink>,
+    /// 当前逻辑行（current_spans grapheme 空间）内已闭合的链接段 (g_start, g_end, url)
+    line_link_ranges: Vec<(usize, usize, String)>,
+    /// 全部链接命中区（输出）
+    pub links: Vec<LinkHit>,
+}
+
+/// 打开中的超链接（可能跨越 SoftBreak/flush_line）
+struct OpenLink {
+    url: String,
+    /// 在 current_spans grapheme 空间中的起点；None = 从本行行首延续
+    g_start: Option<usize>,
+}
+
+/// 统计 spans 的 grapheme 总数
+fn spans_g_len(spans: &[Span<'static>]) -> usize {
+    spans
+        .iter()
+        .map(|s| s.content.as_ref().graphemes(true).count())
+        .sum()
+}
+
+/// 预折行输出段：line 为渲染行，其余字段用于链接命中区映射
+struct WrappedSeg {
+    line: Line<'static>,
+    /// 输入 spans 的 grapheme 范围 [in_g_start, in_g_end)
+    in_g_start: usize,
+    in_g_end: usize,
+    /// 输入 in_g_start 映射到输出行 plain_text 的 grapheme 起点（含续行缩进）
+    out_g_offset: usize,
 }
 
 impl<'a> RenderState<'a> {
@@ -486,6 +518,9 @@ impl<'a> RenderState<'a> {
             theme,
             max_width: 80, // 默认宽度
             hanging_indent: 0,
+            open_link: None,
+            line_link_ranges: Vec::new(),
+            links: Vec::new(),
         }
     }
 
@@ -497,8 +532,26 @@ impl<'a> RenderState<'a> {
     pub fn flush_line(&mut self) {
         let mut spans = std::mem::take(&mut self.current_spans);
 
+        // 跨行未闭合的链接：本行先收一段，下一行从行首续
+        if let Some(link) = &mut self.open_link {
+            let g_end = spans_g_len(&spans);
+            let g_start = link.g_start.unwrap_or(0);
+            if g_end > g_start {
+                self.line_link_ranges
+                    .push((g_start, g_end, link.url.clone()));
+            }
+            link.g_start = None;
+        }
+        let mut link_ranges = std::mem::take(&mut self.line_link_ranges);
+
+        // quote 前缀插入后整体 g 坐标右移
         if self.quote_depth > 0 && !spans.is_empty() {
             let prefix = "▍ ".repeat(self.quote_depth as usize);
+            let prefix_g = prefix.graphemes(true).count();
+            for r in &mut link_ranges {
+                r.0 += prefix_g;
+                r.1 += prefix_g;
+            }
             spans.insert(
                 0,
                 Span::styled(prefix, Style::default().fg(self.theme.quote_prefix())),
@@ -520,10 +573,33 @@ impl<'a> RenderState<'a> {
             0
         };
 
+        let base_line = self.lines.len();
         if indent > 0 && self.max_width > indent {
             let wrapped = self.wrap_spans_with_hanging_indent(&spans, indent);
-            self.lines.extend(wrapped);
+            for (i, seg) in wrapped.into_iter().enumerate() {
+                for (gs, ge, url) in &link_ranges {
+                    let is = (*gs).max(seg.in_g_start);
+                    let ie = (*ge).min(seg.in_g_end);
+                    if is < ie {
+                        self.links.push(LinkHit {
+                            line: base_line + i,
+                            g_start: seg.out_g_offset + (is - seg.in_g_start),
+                            g_end: seg.out_g_offset + (ie - seg.in_g_start),
+                            url: url.clone(),
+                        });
+                    }
+                }
+                self.lines.push(seg.line);
+            }
         } else {
+            for (gs, ge, url) in &link_ranges {
+                self.links.push(LinkHit {
+                    line: base_line,
+                    g_start: *gs,
+                    g_end: *ge,
+                    url: url.clone(),
+                });
+            }
             self.lines.push(Line::from(spans));
         }
     }
@@ -532,54 +608,61 @@ impl<'a> RenderState<'a> {
     ///
     /// 首行直接使用原始 spans（bullet/引用前缀已在其中），
     /// 续行前面插入与首行文字起始位置等宽的空格。
+    /// 以 grapheme 为切分单位，返回段级 g 映射用于链接命中区。
     fn wrap_spans_with_hanging_indent(
         &self,
         spans: &[Span<'static>],
         indent: usize,
-    ) -> Vec<Line<'static>> {
+    ) -> Vec<WrappedSeg> {
         // 先计算首行总显示宽度
         let total_width: usize = spans.iter().map(|s| s.content.width()).sum();
+        let total_g = spans_g_len(spans);
         if total_width <= self.max_width {
             // 不需要折行
-            return vec![Line::from(spans.to_vec())];
+            return vec![WrappedSeg {
+                line: Line::from(spans.to_vec()),
+                in_g_start: 0,
+                in_g_end: total_g,
+                out_g_offset: 0,
+            }];
         }
 
         let max_w = self.max_width;
 
-        // 将所有 spans 展平为 (char, Style) 序列
-        let mut chars_with_style: Vec<(char, Style)> = Vec::new();
+        // 将所有 spans 展平为 (grapheme, Style) 序列
+        let mut g_with_style: Vec<(&str, Style)> = Vec::new();
         for span in spans {
-            for ch in span.content.chars() {
-                chars_with_style.push((ch, span.style));
+            for g in span.content.graphemes(true) {
+                g_with_style.push((g, span.style));
             }
         }
 
-        let mut result_lines: Vec<Line<'static>> = Vec::new();
+        let mut result: Vec<WrappedSeg> = Vec::new();
         let mut idx = 0;
-        let total_chars = chars_with_style.len();
+        let total_gs = g_with_style.len();
         let mut is_first_line = true;
 
-        while idx < total_chars {
+        while idx < total_gs {
             let line_start = idx;
             let line_prefix_w = if is_first_line { 0 } else { indent };
             let content_max = max_w.saturating_sub(line_prefix_w);
 
-            // 累加字符宽度，找到折行点
+            // 累加 grapheme 宽度，找到折行点
             let mut width_acc: usize = 0;
             let mut break_idx = idx; // 在这个索引处断行
             let mut last_space_idx: Option<usize> = None;
 
-            while break_idx < total_chars {
-                let (ch, _) = chars_with_style[break_idx];
-                let ch_w = ch.width().unwrap_or(0);
+            while break_idx < total_gs {
+                let (g, _) = g_with_style[break_idx];
+                let g_w = g.width();
 
-                if width_acc + ch_w > content_max && break_idx > line_start {
+                if width_acc + g_w > content_max && break_idx > line_start {
                     // 超出宽度，需要断行
                     // 优先在最近的空格后断行，但确保断行后行内至少有 1/3 宽度的内容
                     if let Some(space_idx) = last_space_idx {
-                        let width_before: usize = chars_with_style[line_start..space_idx]
+                        let width_before: usize = g_with_style[line_start..space_idx]
                             .iter()
-                            .map(|(c, _)| c.width().unwrap_or(0))
+                            .map(|(g, _)| g.width())
                             .sum();
                         if space_idx > line_start && width_before >= content_max / 3 {
                             break_idx = space_idx + 1;
@@ -590,62 +673,70 @@ impl<'a> RenderState<'a> {
                     break;
                 }
 
-                if ch == ' ' || ch == '\u{3000}' {
+                if g == " " || g == "\u{3000}" {
                     last_space_idx = Some(break_idx);
                 }
 
-                width_acc += ch_w;
+                width_acc += g_w;
                 break_idx += 1;
             }
 
-            // 确保至少消费一个字符（防止死循环）
-            if break_idx == line_start && break_idx < total_chars {
+            // 确保至少消费一个 grapheme（防止死循环）
+            if break_idx == line_start && break_idx < total_gs {
                 break_idx = line_start + 1;
             }
 
-            // 构建本行的 spans：相邻同 style 的字符合并为一个 span
+            // 构建本行的 spans：相邻同 style 的 grapheme 合并为一个 span
             let mut line_spans: Vec<Span<'static>> = Vec::new();
 
-            // 续行加缩进 padding
+            // 续行加缩进 padding（记录到 out_g_offset）
+            let mut out_g_offset = 0usize;
             if !is_first_line {
                 if self.quote_depth > 0 && self.hanging_indent == 0 {
                     // 引用块续行：重新添加引用前缀
-                    let prefix = "▍ ".repeat(self.quote_depth as usize);
+                    let prefix = "\u{258D} ".repeat(self.quote_depth as usize);
+                    out_g_offset = prefix.graphemes(true).count();
                     line_spans.push(Span::styled(
                         prefix,
                         Style::default().fg(self.theme.quote_prefix()),
                     ));
                 } else {
                     let padding = " ".repeat(indent);
+                    out_g_offset = indent;
                     line_spans.push(Span::styled(padding, Style::default()));
                 }
             }
 
-            // 合并同 style 字符为 span
+            // 合并同 style grapheme 为 span
             let mut buf = String::new();
             let mut buf_style: Option<Style> = None;
-            for &(ch, style) in &chars_with_style[line_start..break_idx] {
+            for &(g, style) in &g_with_style[line_start..break_idx] {
                 if buf_style.is_some() && buf_style != Some(style) {
                     line_spans.push(Span::styled(std::mem::take(&mut buf), buf_style.unwrap()));
                     buf_style = Some(style);
                 } else if buf_style.is_none() {
                     buf_style = Some(style);
                 }
-                buf.push(ch);
+                buf.push_str(g);
             }
             if !buf.is_empty() {
                 line_spans.push(Span::styled(buf, buf_style.unwrap_or_default()));
             }
 
             if !line_spans.is_empty() {
-                result_lines.push(Line::from(line_spans));
+                result.push(WrappedSeg {
+                    line: Line::from(line_spans),
+                    in_g_start: line_start,
+                    in_g_end: break_idx,
+                    out_g_offset,
+                });
             }
 
             idx = break_idx;
             is_first_line = false;
         }
 
-        result_lines
+        result
     }
 
     /// 确保与上一个输出行之间有一个空行（去重：如果上一行已是空行则跳过）
@@ -878,14 +969,25 @@ impl<'a> RenderState<'a> {
             }
 
             // ── 链接 ─────────────────────────────────────────────────────────
-            Event::Start(Tag::Link { .. }) => {
+            Event::Start(Tag::Link { dest_url, .. }) => {
                 self.inline_style = self
                     .inline_style
                     .fg(self.theme.link())
                     .add_modifier(Modifier::UNDERLINED);
+                self.open_link = Some(OpenLink {
+                    url: dest_url.into_string(),
+                    g_start: Some(spans_g_len(&self.current_spans)),
+                });
             }
             Event::End(TagEnd::Link) => {
                 self.inline_style = Style::default();
+                if let Some(link) = self.open_link.take() {
+                    let g_end = spans_g_len(&self.current_spans);
+                    let g_start = link.g_start.unwrap_or(0);
+                    if g_end > g_start {
+                        self.line_link_ranges.push((g_start, g_end, link.url));
+                    }
+                }
             }
 
             // ── 表格 ─────────────────────────────────────────────────────────

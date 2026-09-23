@@ -136,7 +136,7 @@ fn measure_markdown_cache_full_1024_entries() {
         );
         // 渲染并放入 cache
         let text = parse_markdown(&markdown, &theme, 120);
-        cache.put(&markdown, 120, text);
+        cache.put(&markdown, 120, text.into());
     }
 
     let after_fill = current_rss_kb();
