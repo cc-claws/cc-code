@@ -529,15 +529,23 @@ impl BaseTool for BashTool {
                 }
 
                 let output = format_command_output(&stdout, &stderr, exit_code);
-                // 轨二：若未被 RTK 重写，走 Peri 内置轻量语义压缩
-                let output = if !is_rtk_rewritten {
+                // RTK 重写后：仅对 git status 做针对性噪音剔除（filter_git_status
+                // 只删噪音行+折叠空行，对 RTK 已压缩输出安全），不做通用折叠
+                // 避免对 RTK 已压缩内容二次折叠导致信息丢失。（issue #207）
+                // 未重写路径：走 Peri 内置完整语义压缩。
+                let output = if is_rtk_rewritten {
+                    let cmd_lower = user_command.to_lowercase();
+                    if cmd_lower.contains("git status") {
+                        crate::tools::output_filter::filter_git_status(&output)
+                    } else {
+                        output
+                    }
+                } else {
                     crate::tools::output_filter::filter_command_output(
                         &user_command,
                         &output,
                         exit_code,
                     )
-                } else {
-                    output
                 };
                 Ok(truncate_output(&output))
             }
