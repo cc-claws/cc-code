@@ -9,6 +9,7 @@ use crate::app::text_selection::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MessageScrollbarMetrics {
     pub bar_area: ratatui::layout::Rect,
+    pub thumb_area: ratatui::layout::Rect,
     pub max_offset: usize,
     pub up_btn_area: Option<ratatui::layout::Rect>,
     pub down_btn_area: Option<ratatui::layout::Rect>,
@@ -45,6 +46,8 @@ pub struct UiState {
     pub messages_area: Option<ratatui::layout::Rect>,
     pub message_scrollbar_metrics: Option<MessageScrollbarMetrics>,
     pub message_scrollbar_dragging: bool,
+    /// 按下时的鼠标行、内容偏移和滑块可移动行数，避免量化误差累积。
+    pub message_scrollbar_drag_origin: Option<(u16, usize, u16)>,
     pub textarea_area: Option<ratatui::layout::Rect>,
     /// 输入框上方待发消息的分页起点和鼠标命中区域。
     pub queued_messages_offset: usize,
@@ -116,6 +119,7 @@ impl UiState {
             messages_area: None,
             message_scrollbar_metrics: None,
             message_scrollbar_dragging: false,
+            message_scrollbar_drag_origin: None,
             textarea_area: None,
             queued_messages_offset: 0,
             queued_messages_area: None,

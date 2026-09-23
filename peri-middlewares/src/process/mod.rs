@@ -10,6 +10,16 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+/// 后台/管道 shell 不能共享 TUI 控制台，否则 PHP 等程序会修改其代码页或模式。
+/// stdin/stdout/stderr 仍由调用方配置；不用于需要真实终端的交互式 PTY。
+fn background_shell(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
 /// Build a `tokio::process::Command` that executes the given command through the
 /// platform shell.
 ///
@@ -40,7 +50,7 @@ pub fn shell_command_with_shell(
     match shell_lower.as_deref() {
         Some("powershell" | "pwsh") => {
             // PowerShell: powershell -Command "..."
-            let mut cmd = tokio::process::Command::new("powershell");
+            let mut cmd = background_shell("powershell");
             cmd.arg("-NoProfile").arg("-NonInteractive").arg("-Command");
             // PowerShell -Command 需要整个命令作为单个参数
             let full_command = if args.is_empty() {
@@ -120,7 +130,7 @@ pub fn shell_command_with_shell(
 
 /// Helper: build a `cmd /C` command on Windows
 fn shell_command_cmd(command: &str, args: &[&str]) -> tokio::process::Command {
-    let mut cmd = tokio::process::Command::new("cmd");
+    let mut cmd = background_shell("cmd");
     cmd.arg("/C");
     push_cmd_raw_command(&mut cmd, command);
     for arg in args {
@@ -250,7 +260,7 @@ pub fn git_bash_command(bash_exe: &Path, command: &str, args: &[&str]) -> tokio:
         }
     }
     let shell_cmd = parts.join(" ");
-    let mut cmd = tokio::process::Command::new(bash_exe);
+    let mut cmd = background_shell(bash_exe);
     cmd.arg("-c").arg(&shell_cmd);
     // 禁用 MSYS2/MinGW 的自动路径转换，防止 /pattern 等参数被转为 Windows 路径
     cmd.env("MSYS_NO_PATHCONV", "1");
