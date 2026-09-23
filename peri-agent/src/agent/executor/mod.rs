@@ -295,6 +295,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         let mut all_tool_calls: Vec<(ToolCall, ToolResult)> = Vec::new();
         let mut final_result: Option<AgentOutput> = None;
         let mut consecutive_failures: HashMap<String, usize> = HashMap::new();
+        let mut action_loop_detector = self::tool_dispatch::ActionLoopDetector::new();
 
         // 卡住检测：跟踪最近若干轮 thinking 指纹，检测循环模式
         let mut recent_fingerprints: VecDeque<String> = VecDeque::with_capacity(STUCK_WINDOW_SIZE);
@@ -333,6 +334,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     &all_tools,
                     &cancel,
                     &mut consecutive_failures,
+                    &mut action_loop_detector,
                 )
                 .await?;
                 all_tool_calls.extend(step_calls);
