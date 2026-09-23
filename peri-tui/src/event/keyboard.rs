@@ -110,7 +110,7 @@ pub fn handle_key_event(
         return Ok(Some(action));
     }
 
-    // Stage 3-6: Shortcuts (BackTab, Ctrl+B, Ctrl+P, Ctrl+T)
+    // Stage 3-6: Shortcuts (BackTab, Ctrl+B, Ctrl+P, Alt+P, Ctrl+O)
     if let Some(action) = shortcuts::handle_shortcuts(app, &key_event) {
         return Ok(Some(action));
     }

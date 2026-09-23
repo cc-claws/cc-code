@@ -228,7 +228,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 **`-p` 模式架构**：复用 ACP executor，通过 `PrintEventSink` 收集事件并输出。不启动 TUI、不维持 session。`PrintBroker` 自动批准所有交互。
 
-运行时 `Shift+Tab` 切换权限模式，`Ctrl+T` 切换模型 alias，`Ctrl+P` 打开命令面板（Provider/Model/Effort 完整选择）。
+运行时 `Shift+Tab` 切换权限模式，`Ctrl+P` / `Alt+P` 打开命令面板（Provider/Model/Effort 完整选择）。
 
 ## 编码规范
 
@@ -247,7 +247,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - **快捷键跨平台兼容 [TRAP]**：`Alt+Enter`/`Alt+M` 在 Windows 终端被截获，常规控制面板快捷键优先用 `Ctrl+字母`；**但对于粘贴操作例外**：现代终端（Windows Terminal / PowerShell / VS Code）会在宿主层强行拦截 `Ctrl+V` 用于纯文本粘贴，导致剪贴板图片无法触发应用逻辑，因此图片附件粘贴使用 `Alt+V` 作为主穿透按键（同时兼容 `Ctrl+V` 供传统控制台使用）。
 - **面板系统**：`PanelManager` + `PanelComponent` trait，新增面板只需定义变体 + 实现 trait。面板内禁止渲染提示行，由 `status_bar_hints()` 统一描述。
 - **`Event::Paste`**：独立于 key event 链，必须单独拦截。
-- **翻页快捷键**：不使用 PageUp/PageDown。滚动统一用 `Ctrl+U`/`Ctrl+D`（textarea 空时）。禁止添加 PageUp/PageDown 滚动行为。
+- **翻页与滚动快捷键**：输入框（textarea）为空时支持 `PageUp`/`PageDown` 半页滚动，`Home`/`End` 滚动到顶/底；输入框有内容时光标在输入框内移动优先。历史命令浏览通过 `Ctrl+↑`/`Ctrl+↓` 触发。
 - **鼠标事件合并**：`coalesce_mouse_events()` 对连续 Scroll/Drag 事件做非阻塞 drain 合并，只保留最后一个。
 
 ## 测试编写风格
