@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.72 — 2026-09-23
+
+### Features
+
+- **消息区 Markdown 超链接点击打开默认浏览器（#225, #228）**：解决此前渲染层丢弃 `dest_url` 导致 Markdown 超链接 `[text](url)` 无法点击、终端无法探测的问题；在 `peri-widgets` 和 `peri-tui` 链路保留链接目标与字符级命中区，消息区单次点击链接即可跨平台唤起系统默认浏览器（Windows / macOS / Linux），并与文本选区、多行折行、引用块、列表项完整对齐。
+
+---
+
 ## v0.6.71 — 2026-09-23
 
 ### Changes
