@@ -746,8 +746,9 @@ async fn test_max_iterations_exceeded() {
         .await;
 
     assert!(matches!(result, Err(AgentError::MaxIterationsExceeded(3))));
-    // 1 human + 3*(ai + tool_result)
-    assert_eq!(state.messages().len(), 7);
+    // 1 human + 3*(ai + tool_result) + 1 action-loop 注入的 system 纠正消息
+    // （3 轮相同工具动作达到 CONSECUTIVE_ACTION_THRESHOLD，ActionLoopDetector 注入）
+    assert_eq!(state.messages().len(), 8);
 }
 
 /// 验证 thinking 循环模式（A→B→C→A→B→C...）能被检测并注入换策略提示。
