@@ -78,6 +78,56 @@ fn rendered_line_count(block: &ContentBlockView) -> usize {
     }
 }
 
+#[test]
+fn test_ensure_rendered_incremental_tracks_link_line_numbers() {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    // Arrange：先渲染无链接的首段
+    let mut block = ContentBlockView::Text {
+        raw: "第一段内容".to_string(),
+        rendered: parse_markdown("第一段内容", 80),
+        rendered_links: Vec::new(),
+        dirty: false,
+        rendered_prefix_len: "第一段内容".len(),
+        rendered_prefix_lines: 0,
+        rendered_width: 80,
+        holdback_scanner: Default::default(),
+    };
+    set_dirty(&mut block, true);
+    ensure_rendered_incremental(&mut block, 80);
+
+    // Act：增量追加一个含超链接的新段落（走 Path 1 追加分支）
+    append_to_block(&mut block, "\n\n见 [#1](https://example.com/1) 说明");
+    ensure_rendered_incremental(&mut block, 80);
+
+    // Assert：链接命中区的行号需平移到追加后的全局行，列范围精确指向 "#1"
+    let (links, rendered) = match &block {
+        ContentBlockView::Text {
+            rendered_links,
+            rendered,
+            ..
+        } => (rendered_links, rendered),
+        _ => panic!("应为 Text block"),
+    };
+    assert_eq!(links.len(), 1, "增量追加后应捕获到 1 个链接");
+    let hit = &links[0];
+    assert_eq!(hit.url, "https://example.com/1");
+    let plain: String = rendered.lines[hit.line]
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    let label: String = plain
+        .graphemes(true)
+        .skip(hit.g_start)
+        .take(hit.g_end - hit.g_start)
+        .collect();
+    assert_eq!(
+        label, "#1",
+        "增量解析后链接行号与列范围应正确，实际行: {plain:?}"
+    );
+}
+
 /// 辅助：获取 rendered_prefix_len
 fn get_prefix_len(block: &ContentBlockView) -> usize {
     if let ContentBlockView::Text {
@@ -96,6 +146,7 @@ fn test_ensure_rendered_incremental_basic() {
     let mut block = ContentBlockView::Text {
         raw: "hello".to_string(),
         rendered: parse_markdown("hello", 80),
+        rendered_links: Vec::new(),
         dirty: false,
         rendered_prefix_len: "hello".len(),
         rendered_prefix_lines: 0,
@@ -121,6 +172,7 @@ fn test_ensure_rendered_incremental_full_fallback() {
     let mut block = ContentBlockView::Text {
         raw: "no boundary".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -139,6 +191,7 @@ fn test_ensure_rendered_incremental_not_dirty() {
     let mut block = ContentBlockView::Text {
         raw: "unchanged".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: false,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -160,6 +213,7 @@ fn test_ensure_rendered_incremental_no_new_content() {
     let mut block = ContentBlockView::Text {
         raw: "hello".to_string(),
         rendered: parse_markdown("hello", 80),
+        rendered_links: Vec::new(),
         dirty: false,
         rendered_prefix_len: "hello".len(),
         rendered_prefix_lines: 1,
@@ -181,6 +235,7 @@ fn test_ensure_rendered_incremental_code_block_recovery() {
     let mut block = ContentBlockView::Text {
         raw: "intro\n\n```\ncode\n```".to_string(),
         rendered: parse_markdown("intro\n\n```\ncode\n```", 80),
+        rendered_links: Vec::new(),
         dirty: false,
         rendered_prefix_len: "intro\n\n```\ncode\n```".len(),
         rendered_prefix_lines: 0,
@@ -511,6 +566,7 @@ fn test_ensure_rendered_incremental_table_holdback_incomplete() {
     let mut block = ContentBlockView::Text {
         raw: "| A | B |\n|---|---|\n| 1".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -535,6 +591,7 @@ fn test_ensure_rendered_incremental_table_complete() {
     let mut block = ContentBlockView::Text {
         raw: "| A | B |\n|---|---|\n| 1 | 2 |\n".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -555,6 +612,7 @@ fn test_ensure_rendered_incremental_table_streaming_then_complete() {
     let mut block = ContentBlockView::Text {
         raw: "| H1 | H2 |\n|----|----|\n| da".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -586,6 +644,7 @@ fn test_ensure_rendered_incremental_non_table_no_holdback() {
     let mut block = ContentBlockView::Text {
         raw: "Just some text without tables\nSecond line\n".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -606,6 +665,7 @@ fn test_ensure_rendered_incremental_table_flush_on_non_streaming() {
     let mut block = ContentBlockView::Text {
         raw: "| A | B |\n|---|---|\n| 1".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -630,6 +690,7 @@ fn test_ensure_rendered_flush_releases_holdback() {
     let mut block = ContentBlockView::Text {
         raw: "| A | B |\n|---|---|\n| 1".to_string(),
         rendered: Text::raw(""),
+        rendered_links: Vec::new(),
         dirty: true,
         rendered_prefix_len: 0,
         rendered_prefix_lines: 0,
@@ -659,6 +720,7 @@ fn test_ensure_rendered_incremental_width_change_forces_reparse() {
     let mut block = ContentBlockView::Text {
         raw: table.to_string(),
         rendered: parse_markdown(table, 80),
+        rendered_links: Vec::new(),
         dirty: false,
         rendered_prefix_len: table.len(),
         rendered_prefix_lines: 5,
@@ -701,6 +763,7 @@ fn test_ensure_rendered_incremental_width_change_no_duplicate() {
     let mut block = ContentBlockView::Text {
         raw: text.to_string(),
         rendered: parse_markdown(text, 80),
+        rendered_links: Vec::new(),
         dirty: false,
         rendered_prefix_len: text.len(),
         rendered_prefix_lines: 5,
@@ -744,6 +807,7 @@ fn test_ensure_rendered_incremental_same_width_no_reparse() {
     let mut block = ContentBlockView::Text {
         raw: text.to_string(),
         rendered: parse_markdown(text, 80),
+        rendered_links: Vec::new(),
         dirty: false,
         rendered_prefix_len: text.len(),
         rendered_prefix_lines: 1,

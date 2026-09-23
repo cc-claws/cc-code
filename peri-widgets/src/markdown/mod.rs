@@ -110,13 +110,53 @@ impl MarkdownTheme for DefaultMarkdownTheme {
     } // MUTED #999999
 }
 
+/// Markdown 超链接命中区（grapheme 索引，与 TUI `visual_to_logical` 对齐）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkHit {
+    /// 输出 `Text.lines` 中的行下标
+    pub line: usize,
+    /// 该行 plain_text 中的 grapheme 起点（含）
+    pub g_start: usize,
+    /// 该行 plain_text 中的 grapheme 终点（不含）
+    pub g_end: usize,
+    pub url: String,
+}
+
+/// Markdown 解析产物：渲染文本 + 链接命中区（两者行下标对齐）
+#[derive(Debug, Clone)]
+pub struct MarkdownDoc {
+    pub text: Text<'static>,
+    pub links: Vec<LinkHit>,
+}
+
+impl From<Text<'static>> for MarkdownDoc {
+    fn from(text: Text<'static>) -> Self {
+        Self {
+            text,
+            links: Vec::new(),
+        }
+    }
+}
+
 /// 解析 markdown 文本为 ratatui Text（带 LRU 缓存）
 ///
 /// 缓存 key = (content_hash, max_width)，全局单例共享。
 /// 命中时直接返回克隆的 Text<'static>，跳过完整解析。
 pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) -> Text<'static> {
+    parse_markdown_with_links(input, theme, max_width).text
+}
+
+/// 解析 markdown 文本，同时保留超链接命中区（供点击打开浏览器）
+pub fn parse_markdown_with_links(
+    input: &str,
+    theme: &dyn MarkdownTheme,
+    max_width: usize,
+) -> MarkdownDoc {
     if input.is_empty() {
-        return Text::raw("");
+        return MarkdownDoc {
+            text: Text::raw(""),
+            links: Vec::new(),
+        };
     }
 
     // 检查缓存
@@ -140,7 +180,10 @@ pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) 
     while state.lines.last().is_some_and(|l| l.spans.is_empty()) {
         state.lines.pop();
     }
-    let result = Text::from(state.lines);
+    let result = MarkdownDoc {
+        text: Text::from(state.lines),
+        links: state.links,
+    };
 
     // 写入缓存
     cache.put(input, width_u16, result.clone());

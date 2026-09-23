@@ -4,7 +4,7 @@ use crate::ui::theme;
 use peri_agent::messages::{BaseMessage, ContentBlock};
 use ratatui::{style::Color, text::Text};
 
-use super::markdown::parse_markdown_default;
+use super::markdown::parse_markdown_default_rich;
 use crate::shell_history::ShellCommandRecord;
 
 mod aggregate;
@@ -75,6 +75,8 @@ pub enum MessageViewModel {
         #[allow(dead_code)]
         content: String,
         rendered: Text<'static>,
+        /// 渲染结果中的超链接命中区（行下标与 rendered.lines 对齐）
+        rendered_links: Vec<peri_widgets::markdown::LinkHit>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
         /// 是否为 <system-reminder> 包裹的系统提醒消息（compact summary 等）
@@ -456,6 +458,8 @@ pub enum ContentBlockView {
     Text {
         raw: String,
         rendered: Text<'static>,
+        /// 渲染结果中的超链接命中区（行下标与 rendered.lines 对齐）
+        rendered_links: Vec<peri_widgets::markdown::LinkHit>,
         dirty: bool,
         /// 已渲染到 `raw` 的字节偏移（增量解析用）
         rendered_prefix_len: usize,
@@ -577,10 +581,11 @@ impl MessageViewModel {
                 } else {
                     (raw, false)
                 };
-                let rendered = parse_markdown_default(&display_text);
+                let doc = parse_markdown_default_rich(&display_text);
                 let mut vm = MessageViewModel::UserBubble {
                     content: display_text,
-                    rendered,
+                    rendered: doc.text,
+                    rendered_links: doc.links,
                     content_hash: 0,
                     system_reminder,
                     expanded_content: None,
@@ -599,11 +604,12 @@ impl MessageViewModel {
                     .into_iter()
                     .map(|block| match block {
                         ContentBlock::Text { text } => {
-                            let rendered = parse_markdown_default(&text);
-                            let rendered_prefix_lines = rendered.lines.len();
+                            let doc = parse_markdown_default_rich(&text);
+                            let rendered_prefix_lines = doc.text.lines.len();
                             ContentBlockView::Text {
                                 raw: text.to_string(),
-                                rendered,
+                                rendered: doc.text,
+                                rendered_links: doc.links,
                                 dirty: false,
                                 rendered_prefix_len: text.len(),
                                 rendered_prefix_lines,
@@ -620,6 +626,7 @@ impl MessageViewModel {
                         ContentBlock::Image { .. } => ContentBlockView::Text {
                             raw: "[Image]".to_string(),
                             rendered: Text::raw("[Image]"),
+                            rendered_links: Vec::new(),
                             dirty: false,
                             rendered_prefix_len: 7,
                             rendered_prefix_lines: 1,
@@ -633,6 +640,7 @@ impl MessageViewModel {
                             ContentBlockView::Text {
                                 raw,
                                 rendered: Text::raw(format!("[Document: {}]", label)),
+                                rendered_links: Vec::new(),
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
@@ -648,6 +656,7 @@ impl MessageViewModel {
                             ContentBlockView::Text {
                                 raw,
                                 rendered: Text::raw(format!("[{}]", type_name)),
+                                rendered_links: Vec::new(),
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
@@ -659,6 +668,7 @@ impl MessageViewModel {
                         _ => ContentBlockView::Text {
                             raw: String::new(),
                             rendered: Text::raw(""),
+                            rendered_links: Vec::new(),
                             dirty: false,
                             rendered_prefix_len: 0,
                             rendered_prefix_lines: 0,
@@ -816,6 +826,7 @@ impl MessageViewModel {
             blocks.push(ContentBlockView::Text {
                 raw,
                 rendered: Text::raw(""),
+                rendered_links: Vec::new(),
                 dirty: true,
                 rendered_prefix_len: 0,
                 rendered_prefix_lines: 0,
@@ -868,10 +879,11 @@ impl MessageViewModel {
         if let Some(display) = crate::app::shell_notification_display_text(&content) {
             return Self::system(display);
         }
-        let rendered = parse_markdown_default(&content);
+        let doc = parse_markdown_default_rich(&content);
         let mut vm = MessageViewModel::UserBubble {
             content,
-            rendered,
+            rendered: doc.text,
+            rendered_links: doc.links,
             content_hash: 0,
             system_reminder: false,
             expanded_content: None,
@@ -885,10 +897,11 @@ impl MessageViewModel {
         if let Some(display) = crate::app::shell_notification_display_text(&content) {
             return Self::system(display);
         }
-        let rendered = parse_markdown_default(&content);
+        let doc = parse_markdown_default_rich(&content);
         let mut vm = MessageViewModel::UserBubble {
             content,
-            rendered,
+            rendered: doc.text,
+            rendered_links: doc.links,
             content_hash: 0,
             system_reminder: false,
             expanded_content: Some(expanded),

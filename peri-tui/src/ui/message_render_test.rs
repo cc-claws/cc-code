@@ -877,6 +877,89 @@
     }
 
     #[test]
+    fn test_render_user_bubble_link_hit_aligns_with_prefixed_line() {
+        // 端到端验证：markdown → ViewModel → render_view_model_with_links 后，
+        // 链接命中区的行号与 grapheme 范围必须精确指向输出行中的链接标签（含 "❯ " 前缀偏移）
+        use crate::ui::markdown::parse_markdown_rich;
+        use unicode_segmentation::UnicodeSegmentation;
+
+        let text = "请看 [#222](https://github.com/cc-claws/cc-code/pull/222) 的修复";
+        let doc = parse_markdown_rich(text, 80);
+        let vm = MessageViewModel::UserBubble {
+            content: text.to_string(),
+            rendered: doc.text,
+            rendered_links: doc.links,
+            content_hash: 0,
+            system_reminder: false,
+            expanded_content: None,
+        };
+
+        let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+        assert_eq!(links.len(), 1, "应保留 1 个链接命中区");
+        assert_eq!(
+            links[0].url, "https://github.com/cc-claws/cc-code/pull/222",
+            "URL 必须完整保留"
+        );
+
+        let plain: String = lines[links[0].line]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        let label: String = plain
+            .graphemes(true)
+            .skip(links[0].g_start)
+            .take(links[0].g_end - links[0].g_start)
+            .collect();
+        assert_eq!(
+            label, "#222",
+            "命中区应精确指向链接标签（含前缀偏移），实际行: {plain:?}"
+        );
+    }
+
+    #[test]
+    fn test_render_assistant_bubble_link_hit_aligns_with_bullet_prefix() {
+        use crate::ui::markdown::parse_markdown_rich;
+        use unicode_segmentation::UnicodeSegmentation;
+
+        let text = "已修复 [#222](https://github.com/cc-claws/cc-code/pull/222) 的问题";
+        let doc = parse_markdown_rich(text, 78);
+        let mut vm = MessageViewModel::assistant();
+        if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+            blocks.push(ContentBlockView::Text {
+                raw: text.to_string(),
+                rendered: doc.text,
+                rendered_links: doc.links,
+                dirty: false,
+                rendered_prefix_len: text.len(),
+                rendered_prefix_lines: 1,
+                rendered_width: 78,
+                holdback_scanner: crate::ui::markdown::TableHoldbackScanner::new(),
+            });
+        }
+
+        let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+        assert_eq!(links.len(), 1, "应保留 1 个链接命中区");
+        assert_eq!(
+            links[0].url, "https://github.com/cc-claws/cc-code/pull/222",
+            "URL 必须完整保留"
+        );
+
+        let plain: String = lines[links[0].line]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(plain.starts_with("● "), "AI 回复首行应有 ● 前缀，实际: {plain:?}");
+        let label: String = plain
+            .graphemes(true)
+            .skip(links[0].g_start)
+            .take(links[0].g_end - links[0].g_start)
+            .collect();
+        assert_eq!(label, "#222", "命中区应精确指向链接标签，实际行: {plain:?}");
+    }
+
+    #[test]
     fn test_parse_exit_code_非零退出码() {
         assert_eq!(parse_exit_code("[Exit code: 1]"), Some(1));
         assert_eq!(parse_exit_code("[Exit code: 42]"), Some(42));
@@ -1204,6 +1287,7 @@ fn test_render_assistant_text_长段落续行悬挂缩进() {
         blocks.push(ContentBlockView::Text {
             raw: long_text.to_string(),
             rendered: crate::ui::markdown::parse_markdown(long_text, 38),
+            rendered_links: Vec::new(),
             dirty: false,
             rendered_prefix_len: long_text.len(),
             rendered_prefix_lines: 1,
@@ -1238,5 +1322,106 @@ fn test_render_assistant_text_长段落续行悬挂缩进() {
                 text.chars().take(10).collect::<String>()
             );
         }
+    }
+}
+
+#[test]
+fn test_render_user_bubble_wrapped_link_hit_across_segments() {
+    use crate::ui::markdown::parse_markdown_rich;
+    use unicode_segmentation::UnicodeSegmentation;
+
+    // 窄宽度下链接标签必然折行，命中区应覆盖折行产生的多段且都落在标签文本内
+    let text = "见 [verylonglinklabel](https://example.com/very/long/path) 结束";
+    let width = 24usize;
+    let content_width = width - 2;
+    let doc = parse_markdown_rich(text, content_width);
+    let vm = MessageViewModel::UserBubble {
+        content: text.to_string(),
+        rendered: doc.text,
+        rendered_links: doc.links,
+        content_hash: 0,
+        system_reminder: false,
+        expanded_content: None,
+    };
+
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), width, false, 0);
+    assert!(!links.is_empty(), "折行后应至少有一个链接命中区");
+    for hit in &links {
+        assert_eq!(hit.url, "https://example.com/very/long/path");
+        assert!(hit.line < lines.len(), "命中区行号应在输出范围内");
+        assert!(hit.g_start <= hit.g_end, "命中区 g 范围不应逆序");
+        let plain: String = lines[hit.line]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        let label: String = plain
+            .graphemes(true)
+            .skip(hit.g_start)
+            .take(hit.g_end - hit.g_start)
+            .collect();
+        assert!(
+            !label.is_empty() && "verylonglinklabel".contains(&label),
+            "命中区应精确落在链接标签内，实际提取 {label:?}（整行 {plain:?}）"
+        );
+    }
+}
+
+#[test]
+fn test_render_two_wrapped_links_do_not_cross_lines() {
+    use crate::ui::markdown::parse_markdown_rich;
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let text = "[firstlink](https://a.example/1) 与 [secondlink](https://b.example/2)";
+    let width = 22usize;
+    let content_width = width - 2;
+    let doc = parse_markdown_rich(text, content_width);
+    let vm = MessageViewModel::UserBubble {
+        content: text.to_string(),
+        rendered: doc.text,
+        rendered_links: doc.links,
+        content_hash: 0,
+        system_reminder: false,
+        expanded_content: None,
+    };
+
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), width, false, 0);
+    // 每个命中区提取的文本必须只属于它自己的标签，不能串到另一个链接
+    for hit in &links {
+        let plain: String = lines[hit.line]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        let label: String = plain
+            .graphemes(true)
+            .skip(hit.g_start)
+            .take(hit.g_end - hit.g_start)
+            .collect();
+        if hit.url.contains("a.example") {
+            assert!(
+                "firstlink".contains(&label),
+                "第一个链接的命中区不应串到第二段，实际 {label:?}"
+            );
+        } else {
+            assert!(
+                "secondlink".contains(&label),
+                "第二个链接的命中区不应串到第一段，实际 {label:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_render_view_model_wrapper_matches_with_links_lines() {
+    // 回归：render_view_model 是 render_view_model_with_links 的薄包装，行内容必须完全一致
+    let vm = MessageViewModel::user("含 [链接](https://e.com) 的消息".to_string());
+    let plain = render_view_model(&vm, Some(1), 80, false, 0);
+    let (rich, _) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    assert_eq!(plain.len(), rich.len(), "薄包装不应改变行数");
+    for (a, b) in plain.iter().zip(rich.iter()) {
+        let ta: String = a.spans.iter().map(|s| s.content.as_ref()).collect();
+        let tb: String = b.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(ta, tb, "薄包装不应改变行内容");
     }
 }
