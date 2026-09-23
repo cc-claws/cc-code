@@ -577,3 +577,74 @@ async fn test_set_config_option_空sessionid依然生效() {
     let stored = cfg.peri_config.read();
     assert_eq!(stored.config.active_provider_id, "b");
 }
+
+/// 验证 apply_model_selection 传入具体模型名称（非标准别名）时按名称反查 (防回归兜底)
+#[tokio::test]
+async fn test_apply_model_selection_具体模型名称反查() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+
+    // 传入具体模型名 "claude-sonnet-4-6" 而非别名 "sonnet"
+    let provider = apply_model_selection(&cfg, "claude-sonnet-4-6");
+    assert!(provider.is_some(), "反查具体模型名应返回 Provider");
+    let provider = provider.unwrap();
+    assert_eq!(provider.display_name(), "Anthropic");
+    assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+    assert_eq!(stored.config.active_alias, "sonnet");
+}
+
+/// 验证 session/load (如 /history 恢复) 即使传入具体模型全名也能正确识别，不回退到默认模型
+#[tokio::test]
+async fn test_session_load_恢复历史会话模型正确识别() {
+    use peri_agent::thread::ThreadMeta;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // 先在 thread_store 中建立一个 session
+    let meta = ThreadMeta::new("/tmp");
+    let thread_id = cfg.thread_store.create_thread(meta).await.unwrap();
+
+    // 恢复时即便传入的是具体模型名称 "claude-sonnet-4-6"
+    let params = json!({
+        "sessionId": thread_id,
+        "cwd": "/tmp",
+        "model": "claude-sonnet-4-6",
+    });
+
+    let result = handle_request("session/load", &params, &cfg, &mut sessions, &transport)
+        .await
+        .unwrap();
+
+    assert!(result.get("models").is_some());
+    let provider = cfg.provider.read();
+    assert_eq!(
+        provider.display_name(),
+        "Anthropic",
+        "恢复历史会话后 provider 应反查切换为 Anthropic，绝不能回退到默认模型"
+    );
+    assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+}
