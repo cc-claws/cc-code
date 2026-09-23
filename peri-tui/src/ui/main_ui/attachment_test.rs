@@ -11,6 +11,11 @@ fn make_attachment() -> PendingAttachment {
     }
 }
 
+/// 归一化渲染文本：CJK 宽字符在 buffer 中带填充空格（"待 发"），断言前移除全部空格
+fn squashed(text: &str) -> String {
+    text.chars().filter(|c| *c != ' ').collect()
+}
+
 #[tokio::test]
 async fn test_render_attachment_bar_title_follows_language() {
     // Arrange：英文 locale（默认）挂载一个附件
@@ -25,14 +30,14 @@ async fn test_render_attachment_bar_title_follows_language() {
         .terminal
         .draw(|f| super::render_attachment_bar(f, &app, Rect::new(0, 0, 80, 6)))
         .is_ok());
-    let snapshot = handle.snapshot().join("\n");
+    let snapshot = squashed(&handle.snapshot().join("\n"));
     // Assert：英文 locale 标题与 Del 提示必须为英文，不得出现中文
     assert!(
-        snapshot.contains("Pending Attachments"),
+        snapshot.contains("PendingAttachments"),
         "英文 locale 标题应为英文，实际渲染: {snapshot}"
     );
     assert!(
-        snapshot.contains("Del: remove last one"),
+        snapshot.contains("Del:removelastone"),
         "英文 locale Del 提示应为英文，实际渲染: {snapshot}"
     );
     assert!(
@@ -60,14 +65,14 @@ async fn test_render_attachment_bar_title_chinese_locale() {
         .terminal
         .draw(|f| super::render_attachment_bar(f, &app, Rect::new(0, 0, 80, 6)))
         .is_ok());
-    let snapshot = handle.snapshot().join("\n");
+    let snapshot = squashed(&handle.snapshot().join("\n"));
     // Assert：中文 locale 标题与 Del 提示必须为中文
     assert!(
         snapshot.contains("待发送附件"),
         "中文 locale 标题应为中文，实际渲染: {snapshot}"
     );
     assert!(
-        snapshot.contains("Del: 删除最后一张"),
+        snapshot.contains("Del:删除最后一张"),
         "中文 locale Del 提示应为中文，实际渲染: {snapshot}"
     );
 }
