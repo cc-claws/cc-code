@@ -254,7 +254,12 @@ impl App {
         if let Some(ref acp_client) = self.acp_client {
             // Clone what we need for the async task
             let acp_client_clone = acp_client.clone();
-            let model_clone = self.services.model_name.clone();
+            let model_clone = self.services.peri_config.as_ref().map(|c| {
+                peri_acp::provider::format_model_selection_value(
+                    &c.config.active_provider_id,
+                    &c.config.active_alias,
+                )
+            });
             let message_content_clone = message_content.clone();
             let cwd_clone = cwd.clone();
             // 恢复的历史 thread_id：存在时用 load_session 加载历史上下文
@@ -268,7 +273,7 @@ impl App {
                     if let Some(ref tid) = existing_thread_id {
                         tracing::info!(thread_id = %tid, "ACP submit: loading existing session...");
                         match client
-                            .load_session(tid, &cwd_clone, Some(&model_clone))
+                            .load_session(tid, &cwd_clone, model_clone.as_deref())
                             .await
                         {
                             Ok(sid) => {
@@ -281,7 +286,7 @@ impl App {
                         }
                     } else {
                         tracing::info!("ACP submit: no session, calling new_session...");
-                        match client.new_session(&cwd_clone, Some(&model_clone)).await {
+                        match client.new_session(&cwd_clone, model_clone.as_deref()).await {
                             Ok(sid) => {
                                 tracing::info!(session_id = %sid, "ACP submit: new_session succeeded")
                             }

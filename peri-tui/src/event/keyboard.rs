@@ -64,22 +64,6 @@ impl KeyBinding {
 
 /// Central shortcut registry.  Add new shortcuts here — the `matches()` call
 /// in each handler block is the only site that needs updating.
-pub(super) static SHORTCUT_CYCLE_MODE: KeyBinding = KeyBinding {
-    label: "Alt+M",
-    macos_char: Some('µ'),
-    modifiers: KeyModifiers::ALT,
-    key: KeyCode::Char('m'),
-};
-
-// Ctrl+T: cross-platform model alias cycling.
-// Ctrl combos have no macOS composition issue, so macos_char is None.
-pub(super) static SHORTCUT_CTRL_CYCLE_MODE: KeyBinding = KeyBinding {
-    label: "Ctrl+T",
-    macos_char: None,
-    modifiers: KeyModifiers::CONTROL,
-    key: KeyCode::Char('t'),
-};
-
 pub(super) static SHORTCUT_BG_BAR: KeyBinding = KeyBinding {
     label: "Ctrl+B",
     macos_char: None,
@@ -94,9 +78,16 @@ pub(super) static SHORTCUT_COMMAND_PALETTE: KeyBinding = KeyBinding {
     key: KeyCode::Char('p'),
 };
 
-/// Returns the platform-appropriate label for the model-cycling shortcut.
-pub fn cycle_model_label() -> &'static str {
-    "Ctrl+T"
+pub(super) static SHORTCUT_COMMAND_PALETTE_ALT: KeyBinding = KeyBinding {
+    label: "Alt+P",
+    macos_char: Some('π'),
+    modifiers: KeyModifiers::ALT,
+    key: KeyCode::Char('p'),
+};
+
+/// Returns the label for the command palette shortcut.
+pub fn command_palette_label() -> &'static str {
+    "Ctrl+P / Alt+P"
 }
 
 /// Handles a single key event, dispatching to panels, prompts, textarea, or

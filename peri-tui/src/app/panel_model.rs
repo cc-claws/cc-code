@@ -78,14 +78,6 @@ impl App {
             .close_if(PanelKind::Model);
 
         // 通过 ACP 协议同步模型和思考度设置到 Server
-        if let Some(ref acp_client) = self.acp_client {
-            let acp = acp_client.clone();
-            let alias = alias_label.clone().to_lowercase();
-            let effort_val = effort.clone();
-            tokio::spawn(async move {
-                let _ = acp.set_config_option("model", &alias).await;
-                let _ = acp.set_config_option("thinking_effort", &effort_val).await;
-            });
-        }
+        self.sync_acp_config();
     }
 }

@@ -478,3 +478,102 @@ async fn test_validate_session_id_format_拒绝非法id() {
         "合法 UUID v7 应通过",
     );
 }
+
+/// 验证 session/new 携带 model 参数时，服务端立即切换 cfg.provider (Issue #169)
+#[tokio::test]
+async fn test_session_new_携带model参数立即切换provider() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let model_target = format_model_selection_value("b", "sonnet");
+    let params = json!({
+        "cwd": tmp.path().to_str().unwrap(),
+        "model": model_target,
+    });
+
+    let result = handle_request("session/new", &params, &cfg, &mut sessions, &transport)
+        .await
+        .unwrap();
+
+    assert!(
+        result.get("sessionId").is_some(),
+        "session/new 应返回 sessionId"
+    );
+
+    let provider = cfg.provider.read();
+    assert_eq!(
+        provider.display_name(),
+        "Anthropic",
+        "session/new 后 provider 应立即切换为 Anthropic"
+    );
+    assert_eq!(
+        provider.model_name(),
+        "claude-sonnet-4-6",
+        "session/new 后 model 应为 claude-sonnet-4-6"
+    );
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+    assert_eq!(stored.config.active_alias, "sonnet");
+}
+
+/// 验证 session/set_config_option 在 sessionId 为空时（发消息前客户端无 session）依然能更新全局 provider (Issue #169)
+#[tokio::test]
+async fn test_set_config_option_空sessionid依然生效() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let model_target = format_model_selection_value("b", "sonnet");
+    let params = json!({
+        "sessionId": "",
+        "configId": "model",
+        "value": model_target,
+    });
+
+    let result = handle_request(
+        "session/set_config_option",
+        &params,
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.get("configOptions").is_some(),
+        "响应应包含 configOptions"
+    );
+
+    let provider = cfg.provider.read();
+    assert_eq!(
+        provider.display_name(),
+        "Anthropic",
+        "空 sessionId 下修改 model 应成功更新内存 provider"
+    );
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+}
