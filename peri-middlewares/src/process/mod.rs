@@ -86,6 +86,15 @@ pub fn shell_command_with_shell(
         _ => {
             // Default: platform shell (cmd on Windows, bash on Unix)
             if cfg!(target_os = "windows") {
+                // cmd /C 无法正确处理含字面换行符的多行命令——只执行第一行，
+                // 后续行的 stdout 全部丢失（Issue #212）。检测到换行时直接走
+                // Git Bash，bash -c 能正确处理多行命令。
+                if command.contains('\n') {
+                    if let Some(bash_exe) = git_bash_path() {
+                        return git_bash_command(&bash_exe, command, args);
+                    }
+                    // Git Bash 不可用时回退 cmd（行为不变，至少不会 panic）
+                }
                 shell_command_cmd(command, args)
             } else {
                 let mut parts = vec![command.to_string()];
