@@ -337,6 +337,39 @@ fn parse_code_block_with_language() {
 }
 
 #[test]
+fn test_parse_markdown_with_links_retains_url() {
+    let md = "请查看 [#222](https://github.com/cc-claws/cc-code/pull/222) 详情";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert_eq!(doc.links.len(), 1, "应正确提取出 1 个超链接");
+    let link = &doc.links[0];
+    assert_eq!(
+        link.url, "https://github.com/cc-claws/cc-code/pull/222",
+        "链接 URL 必须完整保留，不能被丢弃"
+    );
+    let line = &doc.text.lines[link.line];
+    let plain: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    use unicode_segmentation::UnicodeSegmentation;
+    let label: String = plain
+        .graphemes(true)
+        .skip(link.g_start)
+        .take(link.g_end - link.g_start)
+        .collect();
+    assert_eq!(
+        label, "#222",
+        "链接命中区标签文本应与 Markdown 锚文本精确一致"
+    );
+}
+
+#[test]
+fn test_parse_markdown_multiple_links() {
+    let md = "链接1: [Doc](https://example.com/doc) 以及链接2: [Repo](https://github.com)";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert_eq!(doc.links.len(), 2, "应提取出 2 个超链接");
+    assert_eq!(doc.links[0].url, "https://example.com/doc");
+    assert_eq!(doc.links[1].url, "https://github.com");
+}
+
+#[test]
 fn parse_markdown_respects_width() {
     // 测试不同宽度的渲染
     let text_wide = parse_markdown(
@@ -678,4 +711,129 @@ fn test_hanging_indent_respects_max_width() {
             );
         }
     }
+}
+
+// ── 超链接命中区：结构与边界场景 ──────────────────────────────
+
+/// 辅助：按链接命中区从渲染结果中提取标签文本
+fn extract_link_label(doc: &MarkdownDoc, hit: &LinkHit) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    let plain: String = doc.text.lines[hit.line]
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    plain
+        .graphemes(true)
+        .skip(hit.g_start)
+        .take(hit.g_end - hit.g_start)
+        .collect()
+}
+
+#[test]
+fn test_link_hit_in_list_item() {
+    let doc = parse_markdown_with_links(
+        "- 见 [#1](https://example.com/1) 说明",
+        &default_theme(),
+        80,
+    );
+    assert_eq!(doc.links.len(), 1, "列表项内链接应被提取");
+    assert_eq!(doc.links[0].url, "https://example.com/1");
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "#1",
+        "项目符号偏移后命中区应仍精确"
+    );
+}
+
+#[test]
+fn test_link_hit_in_blockquote() {
+    let doc = parse_markdown_with_links("> 见 [#1](https://example.com/1)", &default_theme(), 80);
+    assert_eq!(doc.links.len(), 1, "引用块内链接应被提取");
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "#1",
+        "引用前缀偏移后命中区应仍精确"
+    );
+}
+
+#[test]
+fn test_link_hit_multiple_same_line() {
+    let doc = parse_markdown_with_links(
+        "[A](https://a.com) 和 [B](https://b.com)",
+        &default_theme(),
+        80,
+    );
+    assert_eq!(doc.links.len(), 2);
+    assert_eq!(extract_link_label(&doc, &doc.links[0]), "A");
+    assert_eq!(doc.links[0].url, "https://a.com");
+    assert_eq!(extract_link_label(&doc, &doc.links[1]), "B");
+    assert_eq!(doc.links[1].url, "https://b.com");
+}
+
+#[test]
+fn test_link_hit_adjacent_no_separator() {
+    let doc =
+        parse_markdown_with_links("[A](https://a.com)[B](https://b.com)", &default_theme(), 80);
+    assert_eq!(doc.links.len(), 2, "紧邻的两个链接应分别提取");
+    assert_eq!(extract_link_label(&doc, &doc.links[0]), "A");
+    assert_eq!(extract_link_label(&doc, &doc.links[1]), "B");
+}
+
+#[test]
+fn test_link_hit_bold_inside() {
+    let doc = parse_markdown_with_links("**[#1](https://example.com/1)**", &default_theme(), 80);
+    assert_eq!(doc.links.len(), 1);
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "#1",
+        "加粗包裹的链接命中区应精确"
+    );
+}
+
+#[test]
+fn test_link_hit_cjk_label() {
+    let doc = parse_markdown_with_links("[中文链接](https://example.com)", &default_theme(), 80);
+    assert_eq!(doc.links.len(), 1);
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "中文链接",
+        "CJK 标签的 grapheme 范围应正确"
+    );
+}
+
+#[test]
+fn test_link_hit_autolink() {
+    let doc = parse_markdown_with_links("见 <https://example.com/x> 说明", &default_theme(), 80);
+    assert_eq!(doc.links.len(), 1, "自动链接应被提取");
+    assert_eq!(doc.links[0].url, "https://example.com/x");
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "https://example.com/x"
+    );
+}
+
+#[test]
+fn test_link_hit_wrapped_across_lines_all_share_url() {
+    // 窄宽度下列表项内的长链接标签必然折行，拆出的多段命中区都要指向同一 URL
+    let md = "- [verylonglinklabeltextthatwillcertainlywrap](https://example.com/x) tail";
+    for max_width in [20, 30, 40] {
+        let doc = parse_markdown_with_links(md, &default_theme(), max_width);
+        assert!(
+            !doc.links.is_empty(),
+            "max_width={max_width} 应至少提取一个命中区"
+        );
+        for hit in &doc.links {
+            assert_eq!(
+                hit.url, "https://example.com/x",
+                "折行拆分的命中区应共享同一 URL"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_link_hit_plain_text_has_no_links() {
+    let doc = parse_markdown_with_links("没有任何链接的普通文本", &default_theme(), 80);
+    assert!(doc.links.is_empty(), "纯文本不应产生链接命中区");
 }

@@ -369,7 +369,7 @@ async fn test_resize_coalesce_under_pressure() {
 fn full_wrap(vms: &[MessageViewModel], width: u16) -> (usize, Vec<super::WrappedLineInfo>) {
     let mut all_lines: Vec<Line<'static>> = Vec::new();
     for vm in vms {
-        let mut lines =
+        let (mut lines, _) =
             super::RenderTask::render_one(&mut vm.clone(), 0, width as usize, false, false);
         all_lines.append(&mut lines);
     }
@@ -847,6 +847,7 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
     let mut task = RenderTask {
         last_messages: Vec::new(),
         message_lines: Vec::new(),
+        message_links: Vec::new(),
         message_hashes: Vec::new(),
         cache: std::sync::Arc::clone(&cache),
         notify: std::sync::Arc::new(tokio::sync::Notify::new()),
@@ -904,6 +905,7 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
     let mut task = RenderTask {
         last_messages: Vec::new(),
         message_lines: Vec::new(),
+        message_links: Vec::new(),
         message_hashes: Vec::new(),
         cache: std::sync::Arc::clone(&cache),
         notify: std::sync::Arc::new(tokio::sync::Notify::new()),
