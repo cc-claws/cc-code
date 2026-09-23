@@ -966,7 +966,10 @@ async fn test_consecutive_action_injects_correction() {
                     if content.text_content().contains("3 consecutive times with identical parameters"))
             });
             if has_loop_warning {
-                return Ok(Reasoning::with_answer("done", "I noticed the loop and will stop."));
+                return Ok(Reasoning::with_answer(
+                    "done",
+                    "I noticed the loop and will stop.",
+                ));
             }
             Ok(Reasoning::with_tools(
                 "calling echo again",
@@ -1034,7 +1037,9 @@ async fn test_tool_execution_schema_validation_error_message() {
             _tools: &[&dyn BaseTool],
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> AgentResult<Reasoning> {
-            let has_tool_result = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+            let has_tool_result = messages
+                .iter()
+                .any(|m| matches!(m, BaseMessage::Tool { .. }));
             if !has_tool_result {
                 // 错误地传入了 command 字段，缺失 pattern
                 Ok(Reasoning::with_tools(
@@ -1065,7 +1070,11 @@ async fn test_tool_execution_schema_validation_error_message() {
         .messages()
         .iter()
         .find_map(|m| match m {
-            BaseMessage::Tool { content, is_error: true, .. } => Some(content.text_content()),
+            BaseMessage::Tool {
+                content,
+                is_error: true,
+                ..
+            } => Some(content.text_content()),
             _ => None,
         })
         .expect("应包含 Tool 错误消息");

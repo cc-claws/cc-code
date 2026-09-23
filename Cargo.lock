@@ -3324,6 +3324,7 @@ dependencies = [
  "ratatui",
  "similar",
  "syntect",
+ "unicode-segmentation",
  "unicode-width",
 ]
 
