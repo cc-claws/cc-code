@@ -54,6 +54,7 @@ mod agent_events_oauth;
 mod agent_events_plugin;
 mod agent_ops;
 mod agent_ops_interaction;
+mod agent_recap;
 mod agent_render;
 mod agent_submit;
 mod ask_user_ops;
@@ -68,6 +69,7 @@ mod hitl_ops;
 mod hitl_prompt;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
 mod paste_ops;
+mod recap_auto;
 mod rewind_prompt;
 pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};
 mod background_shell;
@@ -159,6 +161,8 @@ pub struct App {
     pub global_panels: panel_manager::PanelManager,
     /// 应用焦点状态（true=聚焦，false=失焦）
     pub focused: bool,
+    /// 自动 recap 调度状态
+    pub auto_recap: recap_auto::AutoRecapState,
     /// ACP client — communicates with the ACP server via in-memory transport.
     /// Initialized after App construction in run_app(); None until `set_acp_client` is called.
     /// Added in Step 6-a; fully integrated in Steps 6-c..6-h.
@@ -305,6 +309,7 @@ impl App {
             global_ui: GlobalUiState::new(),
             global_panels: panel_manager::PanelManager::new(),
             focused: true,
+            auto_recap: recap_auto::AutoRecapState::new(true),
             acp_client: None,
             agent_shell_registrations_rx: None,
         }

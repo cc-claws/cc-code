@@ -40,6 +40,8 @@ pub struct ChatSession {
     pub agent_shells: Vec<AgentShellSlot>,
     /// agent 推理期间到达的后台 shell 完成通知，待 Done 后注入对话流
     pub pending_bg_shell_notifications: VecDeque<String>,
+    /// 当前最新会话回顾文本（在上一轮任务总结行下方展示，新一轮开始时清空）
+    pub latest_recap: Option<String>,
 }
 
 impl ChatSession {
@@ -86,6 +88,7 @@ impl ChatSession {
             background_shells: Vec::new(),
             agent_shells: Vec::new(),
             pending_bg_shell_notifications: VecDeque::new(),
+            latest_recap: None,
         }
     }
 }

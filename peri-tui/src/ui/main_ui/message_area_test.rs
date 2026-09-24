@@ -1,9 +1,31 @@
 use super::*;
 use crate::ui::theme;
 
+fn make_app() -> App {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(App::new())
+}
+
 /// 检查 span 是否有选区背景色
 fn has_selection_bg(style: Style) -> bool {
     matches!(style.bg, Some(theme::SELECTION_BG))
+}
+
+#[test]
+fn test_spinner_extra_count_reserves_blank_line_before_recap() {
+    let mut app = make_app();
+    // 无 recap：空行(1) + 总结行(1) + trailing(1)
+    assert_eq!(spinner_extra_count(&app), 3, "无 recap 时总是 3 行");
+    // 有 recap：额外多出分隔空行(1) + recap 行(1)
+    app.session_mgr.current_mut().latest_recap = Some("测试摘要".to_string());
+    assert_eq!(
+        spinner_extra_count(&app),
+        5,
+        "recap 与总结行间应保留分隔空行"
+    );
 }
 
 #[test]

@@ -140,6 +140,7 @@ impl App {
         self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
         self.session_mgr.current_mut().ui.scroll_follow = true;
         self.session_mgr.current_mut().todo_items.clear();
+        self.session_mgr.current_mut().latest_recap = None;
 
         // 开始计时新任务——清理上一个 prompt 可能残留的 cancel 状态。
         // 不清理会导致 poll_agent() 5s 超时兜底误触发 cleanup_agent_state()，
