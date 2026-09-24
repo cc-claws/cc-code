@@ -524,6 +524,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // 初始化终端：进入 alternate screen + 启用鼠标捕获，禁用终端原生 scrollback，
         // 滚动完全由 TUI 自渲染滚动条接管（跨平台一致）。
         enable_raw_mode()?;
+        let mut event_reader = event::EventReader::start()?;
         let mut stdout = io::stdout();
         execute!(
             stdout,
@@ -544,7 +545,8 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         let mut terminal = Terminal::new(backend)?;
 
         // 运行应用
-        let result = run_app(&mut terminal, &opts, panic_notify_rx).await;
+        let result = run_app(&mut terminal, &opts, panic_notify_rx, &mut event_reader).await;
+        event_reader.stop();
 
         // 恢复终端（不用 ? —— 恢复失败不应阻止 session ID 打印）
         let _ = conpty::disable_mouse_tracking();
@@ -606,6 +608,7 @@ async fn run_app(
     terminal: &mut Terminal<TuiBackend<io::Stdout>>,
     tui_opts: &TuiOptions,
     panic_notify_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
+    event_reader: &mut event::EventReader,
 ) -> Result<Option<String>> {
     let mut app = App::new().await;
 
@@ -893,7 +896,6 @@ async fn run_app(
     /// 终端标题刷新间隔（100ms，对齐 Codex: TERMINAL_TITLE_SPINNER_INTERVAL）
     const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
     let mut last_title_refresh = Instant::now();
-    let mut event_reader = event::EventReader::default();
 
     'event_loop: loop {
         // 推进 Spinner 动画帧
@@ -924,7 +926,7 @@ async fn run_app(
         app.poll_cron_triggers();
 
         // NOTE: 不对 next_event/draw_app 使用 ?，避免 terminal 错误导致跳过 session ID 打印
-        let next = match event::next_event(&mut app, &mut event_reader).await {
+        let next = match event::next_event(&mut app, event_reader).await {
             Ok(ev) => ev,
             Err(e) => {
                 tracing::error!(error = %e, "event loop: next_event 错误，退出循环");
@@ -1023,6 +1025,8 @@ async fn run_app(
         }
     }
 
+    // 用户已退出，耗时清理期间不得继续读走给 shell 的预输入。
+    event_reader.stop();
     // Fire SessionEnd hooks before shutdown
     {
         let mut hooks = app
