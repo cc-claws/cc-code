@@ -12,6 +12,9 @@ fn test_build_available_commands_includes_builtins() {
     assert!(names.contains(&"help"), "help 命令应存在");
     assert!(names.contains(&"clear"), "clear 命令应存在");
     assert!(names.contains(&"compact"), "compact 命令应存在");
+    assert!(names.contains(&"recap"), "recap 命令应存在");
+    assert!(names.contains(&"away"), "away 别名应存在");
+    assert!(names.contains(&"catchup"), "catchup 别名应存在");
     assert!(names.contains(&"model"), "model 命令应存在");
     // 回归：commit/review 必须暴露给 TUI 的 Hints/补全
     // 历史 bug：available_commands 列表遗漏 commit/review，
