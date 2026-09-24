@@ -4,6 +4,26 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.75 — 2026-09-24
+
+### Features
+
+- **工具参数 Schema 校验可读性优化与启发式诊断（#234, #235）**：重构 `validate_against_schema`，对齐 Claude Code `formatZodValidationError` 风格，结构化分项输出缺失参数、意外未定义参数与类型不符；基于参数特征指纹对 `WebFetch`（误传 `url`+`prompt`）、`Bash`（误传 `command`）、`Agent`（缺失子 agent 类型且未设 `fork`）提供启发式纠偏建议；新增同一工具连续 2 次参数校验失败熔断拦截（Circuit Breaker），防止模型陷入盲目重试死循环。
+
+### Fixes
+
+- **引入独立输入泵以安全启用鼠标悬停并修复消息区滚动条交互（#232, #236）**：通过独立后台输入泵（`InputPump`）隔离 Windows 控制台下的重入与阻塞风险，安全消费 `MouseEventKind::Moved` 鼠标悬停事件；精确计算消息区滚动条滑块交互范围与相对拖拽位移，消除滚动条点击漂移与量化跳跃。
+
+---
+
+## v0.6.74 — 2026-09-23
+
+### Fixes
+
+- **RTK git status 噪音过滤与移除毒性通用折叠（#207, #214, #233）**：针对 RTK 格式的 `clean — nothing to commit` 增加专门匹配清洗；移除通用多行重复块折叠（避免代码上下文被意外吞并），恢复兜底分支原始输出。
+
+---
+
 ## v0.6.73 — 2026-09-23
 
 ### Fixes
