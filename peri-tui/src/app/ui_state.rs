@@ -45,6 +45,8 @@ pub struct UiState {
     pub pending_screen_start: Option<(u16, u16)>,
     pub messages_area: Option<ratatui::layout::Rect>,
     pub message_scrollbar_metrics: Option<MessageScrollbarMetrics>,
+    /// 隐藏时仍保留最右侧轨道的位置，用于悬停唤出。
+    pub message_scrollbar_area: Option<ratatui::layout::Rect>,
     pub message_scrollbar_dragging: bool,
     /// 按下时的鼠标行、内容偏移和滑块可移动行数，避免量化误差累积。
     pub message_scrollbar_drag_origin: Option<(u16, usize, u16)>,
@@ -118,6 +120,7 @@ impl UiState {
             pending_screen_start: None,
             messages_area: None,
             message_scrollbar_metrics: None,
+            message_scrollbar_area: None,
             message_scrollbar_dragging: false,
             message_scrollbar_drag_origin: None,
             textarea_area: None,
