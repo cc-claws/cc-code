@@ -1085,3 +1085,47 @@ data: {"type":"error","error":{"type":"invalid_request_error","message":"rate li
     assert_eq!(res["error"]["type"], "invalid_request_error");
     assert_eq!(res["error"]["message"], "rate limit exceeded");
 }
+
+/// 验证非流式接口收到反向代理返回的 OpenAI 兼容格式 JSON 响应时，能够自适应解析成功
+#[test]
+fn test_parse_anthropic_json_response_openai_format() {
+    let openai_json = json!({
+        "id": "chatcmpl-test123",
+        "object": "chat.completion",
+        "created": 1790222869,
+        "model": "gemini-3.8-flash",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "reasoning_content": "正在回顾之前会话的目标和进展...",
+                    "content": "用户讨论了架构设计，下一步准备实现代码。"
+                },
+                "finish_reason": "stop"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 150,
+            "completion_tokens": 30,
+            "total_tokens": 180
+        }
+    });
+
+    let res = crate::llm::anthropic::invoke::parse_anthropic_json_response(
+        &openai_json,
+        "gemini-3.8-flash",
+        reqwest::StatusCode::OK,
+        None,
+    )
+    .expect("OpenAI 格式响应自适应解析应成功");
+
+    assert_eq!(
+        res.message.message_content().text_content(),
+        "用户讨论了架构设计，下一步准备实现代码。"
+    );
+    assert_eq!(res.stop_reason, crate::llm::types::StopReason::EndTurn);
+    let usage = res.usage.expect("应包含 usage");
+    assert_eq!(usage.input_tokens, 150);
+    assert_eq!(usage.output_tokens, 30);
+}

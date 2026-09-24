@@ -11,6 +11,7 @@ fn test_config_panel_from_config_defaults() {
     assert_eq!(panel.cursor, ROW_AUTOCOMPACT);
     assert!(panel.buf_autocompact);
     assert_eq!(panel.buf_threshold, "85");
+    assert!(panel.buf_recap);
     assert!(panel.buf_language.is_empty());
     assert_eq!(panel.buf_proactiveness, "medium");
 }
@@ -22,6 +23,8 @@ fn test_config_panel_cursor_navigation() {
 
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_THRESHOLD);
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_RECAP);
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_LANGUAGE);
     panel.cursor_down();
@@ -50,6 +53,8 @@ fn test_config_panel_cursor_navigation() {
     assert_eq!(panel.cursor, ROW_DIFF);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_LANGUAGE);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_RECAP);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_THRESHOLD);
     panel.cursor_up();
@@ -207,4 +212,24 @@ fn test_config_panel_apply_edit_diff_enabled() {
     panel.buf_diff = true;
     panel.apply_edit(&mut cfg, &lc).unwrap();
     assert!(cfg.config.diff_enabled);
+}
+
+#[test]
+fn test_config_panel_cycle_recap() {
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    assert!(panel.buf_recap);
+    panel.cycle_recap();
+    assert!(!panel.buf_recap);
+    panel.cycle_recap();
+    assert!(panel.buf_recap);
+}
+
+#[test]
+fn test_config_panel_apply_edit_auto_recap() {
+    let lc = make_lc();
+    let mut cfg = PeriConfig::default();
+    let mut panel = ConfigPanel::from_config(&cfg);
+    panel.buf_recap = false;
+    panel.apply_edit(&mut cfg, &lc).unwrap();
+    assert_eq!(cfg.config.auto_recap, Some(false));
 }

@@ -9,7 +9,11 @@ fn test_terminal_title_format_idle_unnamed() {
 #[test]
 fn test_terminal_title_format_idle_named() {
     let item = TerminalTitleItem::new(TerminalTitleStatusKind::Idle, "peri", Some("fix-bug"), None);
-    assert_eq!(item.format_title(), "fix-bug | peri", "已命名时 Idle 展示 主题 | 项目");
+    assert_eq!(
+        item.format_title(),
+        "fix-bug | peri",
+        "已命名时 Idle 展示 主题 | 项目"
+    );
 }
 
 #[test]

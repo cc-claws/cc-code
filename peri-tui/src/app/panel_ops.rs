@@ -106,6 +106,7 @@ impl App {
             background_shells: Vec::new(),
             agent_shells: Vec::new(),
             pending_bg_shell_notifications: std::collections::VecDeque::new(),
+            latest_recap: None,
         };
 
         let app = App {
@@ -144,6 +145,7 @@ impl App {
             global_panels: PanelManager::new(),
             global_ui: super::GlobalUiState::new(),
             focused: true,
+            auto_recap: super::recap_auto::AutoRecapState::new(false),
             acp_client: None,
             agent_shell_registrations_rx: None,
         };
