@@ -66,6 +66,12 @@ pub enum AgentEvent {
         summary: String,
         messages: Vec<peri_agent::messages::BaseMessage>,
     },
+    /// 会话回顾生成完成（/recap 命令），携带 ≤60 字摘要文本
+    RecapCompleted {
+        text: String,
+    },
+    /// 会话回顾生成失败，携带错误信息
+    RecapError(String),
     /// SubAgent 生命周期事件（中间件发出，用于 UI 状态同步）
     ///
     /// 在 SubAgent 实际开始/停止执行时由 SubAgentMiddleware 发出。

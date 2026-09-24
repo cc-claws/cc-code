@@ -397,15 +397,19 @@ fn set_message_scroll_offset(app: &mut App, offset: usize) {
 pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
     match ev {
         Event::FocusGained => {
+            tracing::info!("event: 收到 FocusGained");
             app.focused = true;
+            app.auto_recap.on_focus_gained();
             return Ok(Some(Action::Redraw));
         }
         Event::FocusLost => {
+            tracing::info!("event: 收到 FocusLost");
             app.focused = false;
             let ui = &mut app.session_mgr.current_mut().ui;
             ui.scrollbar_hover = false;
             ui.message_scrollbar_dragging = false;
             ui.message_scrollbar_drag_origin = None;
+            app.auto_recap.on_focus_lost();
             return Ok(Some(Action::Redraw));
         }
         Event::Resize(_, _) => {

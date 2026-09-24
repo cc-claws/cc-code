@@ -711,6 +711,17 @@ async fn run_app(
         app.global_ui.setup_wizard = Some(peri_tui::app::SetupWizardPanel::new());
     }
 
+    // 自动 recap：从配置读取开关（默认 true）
+    if let Some(ref cfg) = app.services.peri_config {
+        app.auto_recap.enabled = cfg.config.auto_recap.unwrap_or(true);
+    }
+    tracing::info!(
+        enabled = app.auto_recap.enabled,
+        delay_secs = app.auto_recap.recap_delay_secs(),
+        min_turns = app.auto_recap.recap_min_turns(),
+        "auto_recap: 初始化"
+    );
+
     // 后台初始化 MCP 连接池（不阻塞 UI）
     app.spawn_mcp_init();
 
@@ -990,6 +1001,16 @@ async fn run_app(
                         }
                         last_render = now;
                     }
+                }
+
+                // 自动 recap：同步最新配置并检查是否满足触发条件
+                if let Some(ref cfg) = app.services.peri_config {
+                    app.auto_recap.enabled = cfg.config.auto_recap.unwrap_or(true);
+                }
+                if let Some(revision) = app.auto_recap.maybe_trigger() {
+                    app.trigger_auto_recap(revision);
+                } else {
+                    app.auto_recap.log_blocked();
                 }
             }
         }

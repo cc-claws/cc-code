@@ -136,6 +136,8 @@ impl App {
                 .clear();
         }
         self.cleanup_agent_state(None);
+        // 自动 recap：记录轮次完成
+        self.auto_recap.on_turn_finished();
         // 检查缓冲消息，合并发送
         // 注入待处理消息：优先 pending_messages（用户输入排队），否则一个 pending_bg 通知
         // （剩余 pending_bg 下次 Done 处理，避免连续 submit_message 触发多次 begin_round 覆盖）

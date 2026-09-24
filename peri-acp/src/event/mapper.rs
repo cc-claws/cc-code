@@ -213,6 +213,8 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
         | ExecutorEvent::CompactCompleted { .. }
         | ExecutorEvent::CompactError { .. }
         | ExecutorEvent::RewindCompleted { .. }
+        | ExecutorEvent::RecapCompleted { .. }
+        | ExecutorEvent::RecapError { .. }
         | ExecutorEvent::BackgroundTaskCompleted(_)
         | ExecutorEvent::LspDiagnostics { .. }
         | ExecutorEvent::AgentExecutionFailed { .. } => {

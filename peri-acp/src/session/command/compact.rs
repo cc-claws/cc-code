@@ -245,6 +245,7 @@ mod tests {
             cwd: "/tmp".to_string(),
             peri_config: Arc::new(Default::default()),
             compact_model: None,
+            aux_model: None,
             event_sink: sink,
             args: String::new(),
             cancel_token: peri_agent::agent::AgentCancellationToken::new(),
