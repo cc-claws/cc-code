@@ -225,6 +225,7 @@ config-field-persona = Persona
 config-field-tone = Tone
 config-field-proactiveness = Proactiveness
 config-field-diff = Inline Diff
+config-field-recap = Auto Recap
 config-value-on = ON
 config-value-off = OFF
 config-saved = Configuration saved
@@ -236,6 +237,7 @@ config-group-prompt-overrides = Prompt Overrides
 # Config field descriptions
 config-desc-autocompact = (ON/OFF — auto-compact context when full)
 config-desc-threshold = 50-99% — trigger threshold for auto-compact
+config-desc-recap = (ON/OFF — auto-generate recap after terminal unfocused for 60s)
 config-desc-language = en, zh-CN, or leave empty for auto
 config-desc-persona = Override system prompt persona (empty = default)
 config-desc-tone = Override system prompt tone (empty = default)
@@ -298,6 +300,8 @@ app-compact-done = Context compressed
 app-compact-failed = Compact failed: { $error }
 app-compact-auto-cleared = Auto cleanup: freed { $count } tool call results
 app-compact-limit-reached = Context still exceeds limit after compression. Use /compact to manually compress or /clear to clear history.
+app-recap-hint = (disable recaps in /config)
+app-recap-failed = Recap failed: { $error }
 app-model-switched = Model switched to: { $alias } ({ $effort } effort)
 app-1m-context-enabled = 1M context mode enabled (context window: 1,000,000 tokens)
 app-prompt-cache-low = Prompt cache hit rate { $rate }% < 80% (req: { $req })

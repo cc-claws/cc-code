@@ -163,6 +163,13 @@ pub enum AgentEvent {
     },
     /// 上下文压缩失败
     CompactError { message: String },
+    /// 会话回顾生成完成（/recap 命令，输出 ≤40/60 字的单句摘要）
+    RecapCompleted {
+        /// 摘要文本（plain text，无 markdown）
+        text: String,
+    },
+    /// 会话回顾生成失败
+    RecapError { message: String },
     /// Todo 列表更新
     TodoUpdate(Vec<TodoEntry>),
     /// LSP 诊断更新

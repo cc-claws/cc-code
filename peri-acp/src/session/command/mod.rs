@@ -7,6 +7,7 @@ pub mod clear;
 pub mod commit;
 pub mod compact;
 pub mod init;
+pub mod recap;
 pub mod review;
 pub mod rewind;
 
@@ -39,7 +40,12 @@ pub struct CommandContext {
     pub cwd: String,
     pub peri_config: Arc<PeriConfig>,
     /// 用于 compact 等需要 LLM 调用的命令。由 executor 从 provider 构造后传入。
+    /// 注意：当 compact 被禁用（DISABLE_COMPACT / 关闭自动压缩）时为 None，
+    /// 语义是「compact 不可用」，非「无可用模型」。
     pub compact_model: Option<Arc<dyn BaseModel>>,
+    /// 通用辅助 LLM 模型（不受 compact 开关影响），供 recap 等非 compact 命令使用。
+    /// 由 executor 从 provider 独立构造，始终可用（provider 有效时）。
+    pub aux_model: Option<Arc<dyn BaseModel>>,
     pub event_sink: Arc<dyn EventSink>,
     /// 命令参数（命令名之后的文本）。
     pub args: String,
@@ -140,6 +146,7 @@ pub fn default_command_registry() -> CommandRegistry {
     reg.register(Box::new(clear::ClearCommand));
     reg.register(Box::new(rewind::RewindCommand));
     reg.register(Box::new(init::InitCommand));
+    reg.register(Box::new(recap::RecapCommand));
     reg.register(Box::new(commit::CommitCommand));
     reg.register(Box::new(review::ReviewCommand));
     reg

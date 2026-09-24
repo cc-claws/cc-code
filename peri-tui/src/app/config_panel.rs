@@ -16,20 +16,22 @@ use super::{
 pub const ROW_GENERAL_HEADER: usize = 0;
 pub const ROW_AUTOCOMPACT: usize = 1;
 pub const ROW_THRESHOLD: usize = 2;
-pub const ROW_LANGUAGE: usize = 3;
-pub const ROW_DIFF: usize = 4;
-pub const ROW_STREAMING: usize = 5;
-pub const ROW_PROACTIVENESS: usize = 6;
-pub const ROW_SEPARATOR: usize = 7;
-pub const ROW_OVERRIDES_HEADER: usize = 8;
-pub const ROW_PERSONA: usize = 9;
-pub const ROW_TONE: usize = 10;
-pub const ROW_COUNT: usize = 11;
+pub const ROW_RECAP: usize = 3;
+pub const ROW_LANGUAGE: usize = 4;
+pub const ROW_DIFF: usize = 5;
+pub const ROW_STREAMING: usize = 6;
+pub const ROW_PROACTIVENESS: usize = 7;
+pub const ROW_SEPARATOR: usize = 8;
+pub const ROW_OVERRIDES_HEADER: usize = 9;
+pub const ROW_PERSONA: usize = 10;
+pub const ROW_TONE: usize = 11;
+pub const ROW_COUNT: usize = 12;
 
 fn next_editable_row(current: usize, reverse: bool) -> usize {
     let editable: &[usize] = &[
         ROW_AUTOCOMPACT,
         ROW_THRESHOLD,
+        ROW_RECAP,
         ROW_LANGUAGE,
         ROW_DIFF,
         ROW_STREAMING,
@@ -65,20 +67,22 @@ const SCREEN_LAYOUT: &[usize] = &[
     ROW_AUTOCOMPACT,      // screen 2: desc
     ROW_THRESHOLD,        // screen 3: value
     ROW_THRESHOLD,        // screen 4: desc
-    ROW_LANGUAGE,         // screen 5: value
-    ROW_LANGUAGE,         // screen 6: desc
-    ROW_DIFF,             // screen 7: value
-    ROW_DIFF,             // screen 8: desc
-    ROW_STREAMING,        // screen 9: value
-    ROW_STREAMING,        // screen 10: desc
-    ROW_PROACTIVENESS,    // screen 11: value
-    ROW_PROACTIVENESS,    // screen 12: desc
-    ROW_SEPARATOR,        // screen 13
-    ROW_OVERRIDES_HEADER, // screen 14
-    ROW_PERSONA,          // screen 15: value
-    ROW_PERSONA,          // screen 16: desc
-    ROW_TONE,             // screen 17: value
-    ROW_TONE,             // screen 18: desc
+    ROW_RECAP,            // screen 5: value
+    ROW_RECAP,            // screen 6: desc
+    ROW_LANGUAGE,         // screen 7: value
+    ROW_LANGUAGE,         // screen 8: desc
+    ROW_DIFF,             // screen 9: value
+    ROW_DIFF,             // screen 10: desc
+    ROW_STREAMING,        // screen 11: value
+    ROW_STREAMING,        // screen 12: desc
+    ROW_PROACTIVENESS,    // screen 13: value
+    ROW_PROACTIVENESS,    // screen 14: desc
+    ROW_SEPARATOR,        // screen 15
+    ROW_OVERRIDES_HEADER, // screen 16
+    ROW_PERSONA,          // screen 17: value
+    ROW_PERSONA,          // screen 18: desc
+    ROW_TONE,             // screen 19: value
+    ROW_TONE,             // screen 20: desc
 ];
 
 fn screen_to_logical_row(screen_line: usize) -> Option<usize> {
@@ -106,6 +110,7 @@ pub struct ConfigPanel {
     pub buf_autocompact: bool,
     pub buf_threshold: String,
     pub cur_threshold: usize,
+    pub buf_recap: bool,
     pub buf_language: String, // "" = auto, "en", "zh-CN"
     pub buf_persona: String,
     pub cur_persona: usize,
@@ -125,6 +130,7 @@ impl ConfigPanel {
         let threshold = compact_config
             .map(|c| format!("{}", (c.auto_compact_threshold * 100.0) as u8))
             .unwrap_or_else(|| "85".to_string());
+        let auto_recap = cfg.config.auto_recap.unwrap_or(true);
         let proactiveness = cfg
             .config
             .proactiveness
@@ -137,6 +143,7 @@ impl ConfigPanel {
             buf_autocompact: autocompact,
             buf_threshold: threshold,
             cur_threshold: 0,
+            buf_recap: auto_recap,
             buf_language: cfg.config.language.clone().unwrap_or_default(),
             buf_persona: cfg.config.persona.clone().unwrap_or_default(),
             cur_persona: 0,
@@ -162,6 +169,10 @@ impl ConfigPanel {
 
     pub fn cycle_autocompact(&mut self) {
         self.buf_autocompact = !self.buf_autocompact;
+    }
+
+    pub fn cycle_recap(&mut self) {
+        self.buf_recap = !self.buf_recap;
     }
 
     pub fn cycle_proactiveness(&mut self) {
@@ -286,6 +297,9 @@ impl ConfigPanel {
         compact.auto_compact_enabled = self.buf_autocompact;
         let threshold_val: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(50, 99);
         compact.auto_compact_threshold = threshold_val as f64 / 100.0;
+
+        // auto recap
+        cfg.config.auto_recap = Some(self.buf_recap);
 
         // language: value is always valid (selected from LANGUAGE_OPTIONS)
         cfg.config.language = if self.buf_language.is_empty() {
@@ -423,10 +437,11 @@ impl PanelComponent for ConfigPanel {
                 ..
             } => {
                 match self.cursor {
-                    ROW_AUTOCOMPACT | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
+                    ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                            ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
@@ -445,10 +460,11 @@ impl PanelComponent for ConfigPanel {
                 ..
             } => {
                 match self.cursor {
-                    ROW_AUTOCOMPACT | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
+                    ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                            ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(true),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
@@ -469,10 +485,11 @@ impl PanelComponent for ConfigPanel {
                 ..
             } => {
                 match self.cursor {
-                    ROW_AUTOCOMPACT | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
+                    ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                            ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
@@ -521,6 +538,7 @@ impl PanelComponent for ConfigPanel {
                         clicked,
                         ROW_AUTOCOMPACT
                             | ROW_THRESHOLD
+                            | ROW_RECAP
                             | ROW_LANGUAGE
                             | ROW_DIFF
                             | ROW_STREAMING

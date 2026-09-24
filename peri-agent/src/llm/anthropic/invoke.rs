@@ -521,14 +521,98 @@ async fn handle_anthropic_response(
         "LLM invoke completed"
     );
 
-    let stop_reason =
-        StopReason::from_display(resp_json["stop_reason"].as_str().unwrap_or("end_turn"));
+    parse_anthropic_json_response(&resp_json, model, status, request_id)
+}
 
-    let raw_blocks = resp_json["content"]
-        .as_array()
-        .ok_or_else(|| AgentError::LlmError("响应缺少 content 字段".to_string()))?;
+/// 解析 Anthropic JSON 响应体（支持原生 Anthropic 与反向代理 OpenAI 兼容格式）
+pub(crate) fn parse_anthropic_json_response(
+    resp_json: &Value,
+    model: &str,
+    status: reqwest::StatusCode,
+    request_id: Option<String>,
+) -> AgentResult<LlmResponse> {
+    let (raw_blocks, fallback_stop_reason, fallback_usage): (
+        Vec<Value>,
+        Option<StopReason>,
+        Option<crate::llm::types::TokenUsage>,
+    ) = match resp_json["content"].as_array() {
+        Some(arr) => (arr.clone(), None, None),
+        None => {
+            // 自适应容错：部分代理网关（如反向代理或格式转换层）在非流式请求下返回 OpenAI 格式
+            if let Some(choices) = resp_json["choices"].as_array() {
+                if let Some(choice) = choices.first() {
+                    let msg = &choice["message"];
+                    let mut synth_blocks = Vec::new();
+                    if let Some(reasoning) = msg["reasoning_content"]
+                        .as_str()
+                        .or_else(|| msg["reasoning"].as_str())
+                    {
+                        if !reasoning.is_empty() {
+                            synth_blocks.push(json!({
+                                "type": "thinking",
+                                "thinking": reasoning,
+                            }));
+                        }
+                    }
+                    if let Some(text) = msg["content"].as_str() {
+                        if !text.is_empty() {
+                            synth_blocks.push(json!({
+                                "type": "text",
+                                "text": text,
+                            }));
+                        }
+                    }
+                    if let Some(tool_calls) = msg["tool_calls"].as_array() {
+                        for tc in tool_calls {
+                            let id = tc["id"].as_str().unwrap_or("");
+                            let name = tc["function"]["name"].as_str().unwrap_or("");
+                            let args_str = tc["function"]["arguments"].as_str().unwrap_or("{}");
+                            let input: Value = serde_json::from_str(args_str).unwrap_or(json!({}));
+                            synth_blocks.push(json!({
+                                "type": "tool_use",
+                                "id": id,
+                                "name": name,
+                                "input": input,
+                            }));
+                        }
+                    }
+                    tracing::info!(
+                        provider = "anthropic",
+                        model = %model,
+                        status = %status,
+                        "非流式请求收到 OpenAI 格式响应，已自动兼容解析"
+                    );
+                    let stop_reason = choice["finish_reason"]
+                        .as_str()
+                        .map(StopReason::from_openai);
+                    let usage = resp_json.get("usage").and_then(|u| {
+                        let prompt_tokens = u["prompt_tokens"].as_u64()? as u32;
+                        let completion_tokens = u["completion_tokens"].as_u64()? as u32;
+                        Some(crate::llm::types::TokenUsage {
+                            input_tokens: prompt_tokens,
+                            output_tokens: completion_tokens,
+                            cache_creation_input_tokens: None,
+                            cache_read_input_tokens: None,
+                            request_id: request_id.clone(),
+                        })
+                    });
+                    (synth_blocks, stop_reason, usage)
+                } else {
+                    return Err(AgentError::LlmError("响应 choices 为空".to_string()));
+                }
+            } else {
+                return Err(AgentError::LlmError("响应缺少 content 字段".to_string()));
+            }
+        }
+    };
 
-    let (blocks, tool_calls) = parse_content_blocks(raw_blocks);
+    let stop_reason = resp_json["stop_reason"]
+        .as_str()
+        .map(StopReason::from_display)
+        .or(fallback_stop_reason)
+        .unwrap_or(StopReason::EndTurn);
+
+    let (blocks, tool_calls) = parse_content_blocks(&raw_blocks);
 
     let message = if !tool_calls.is_empty() {
         let content = if let [single] = blocks.as_slice() {
@@ -579,7 +663,8 @@ async fn handle_anthropic_response(
             }),
             _ => None,
         }
-    };
+    }
+    .or(fallback_usage);
     Ok(LlmResponse {
         message,
         stop_reason,

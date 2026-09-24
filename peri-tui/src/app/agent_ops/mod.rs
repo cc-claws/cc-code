@@ -364,6 +364,8 @@ impl App {
             AgentEvent::RewindCompleted { summary, messages } => {
                 self.handle_rewind_completed(summary, messages)
             }
+            AgentEvent::RecapCompleted { text } => self.handle_recap_completed(text),
+            AgentEvent::RecapError(msg) => self.handle_recap_error(msg),
             AgentEvent::LlmRetrying {
                 attempt,
                 max_attempts,

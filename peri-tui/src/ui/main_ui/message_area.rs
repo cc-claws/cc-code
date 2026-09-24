@@ -104,11 +104,12 @@ pub(crate) fn render_messages(
         None
     };
 
-    let spinner_extra: u16 = if spinner_line.is_some() {
-        spinner_extra_count(app)
-    } else {
-        0
-    };
+    let spinner_extra: u16 =
+        if spinner_line.is_some() || app.session_mgr.current().latest_recap.is_some() {
+            spinner_extra_count(app)
+        } else {
+            0
+        };
     let visual_total = {
         let cache = app.session_mgr.current().messages.render_cache.read();
         cache.total_lines.saturating_add(spinner_extra as usize)
@@ -393,10 +394,20 @@ fn viewport_clip(
                 }
                 lines.push(Line::from(""));
             } else {
-                // 非 loading（Brewed/Cogitated 总结行）：1 个 trailing 空行作为呼吸空间
+                // 非 loading（Brewed/Cogitated 总结行）：
+                // 空行分隔后展示 recap 行，避免与总结行贴死
+                if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
+                    lines.push(Line::from(""));
+                    lines.push(render_recap_line(recap_text, &app.services.lc));
+                }
+                // 1 个 trailing 空行作为呼吸空间
                 lines.push(Line::from(""));
             }
         }
+    } else if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
+        lines.push(Line::from(""));
+        lines.push(render_recap_line(recap_text, &app.services.lc));
+        lines.push(Line::from(""));
     }
 
     // ── 阶段 3：字符级选区高亮（需要再次读 cache 获取 wrap_map） ──
@@ -458,6 +469,9 @@ fn viewport_clip(
 
 /// 计算 spinner 区域的额外逻辑行数
 fn spinner_extra_count(app: &App) -> u16 {
+    let has_recap = app.session_mgr.current().latest_recap.is_some();
+    // recap 与总结行之间有一个分隔空行，故占 2 行
+    let recap_extra: u16 = if has_recap { 2 } else { 0 };
     if app.session_mgr.current().ui.loading {
         // 空行(1) + spinner(1) + tip(1) + trailing(1) = 4
         // 有 todo 时额外 + 分隔空行(1) + todo_items(N) → 5+N
@@ -468,9 +482,38 @@ fn spinner_extra_count(app: &App) -> u16 {
             4
         }
     } else {
-        // 空行(1) + spinner(1) + trailing(1) = 3
-        3
+        // 空行(1) + spinner(1) + [分隔空行(1) + recap(1)] + trailing(1) = 3 + recap_extra
+        3 + recap_extra
     }
+}
+
+pub(crate) fn render_recap_line(text: &str, lc: &crate::i18n::LcRegistry) -> Line<'static> {
+    // 提示文本由 i18n 提供（不再从 LLM 摘要中 rfind，摘要本身不含该后缀）
+    let hint = lc.tr("app-recap-hint");
+    let mut spans = vec![
+        Span::styled("※ ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            "recap:",
+            Style::default()
+                .fg(theme::MUTED)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            crate::app::tool_display::sanitize_display_text(text.trim()),
+            Style::default()
+                .fg(theme::MUTED)
+                .add_modifier(Modifier::ITALIC),
+        ),
+    ];
+    // key 缺失时 format_key 会回退为 key 本身，此时不展示
+    if !hint.is_empty() && hint != "app-recap-hint" {
+        spans.push(Span::styled(
+            format!("  {hint}"),
+            Style::default().fg(theme::DIM),
+        ));
+    }
+    Line::from(spans)
 }
 
 /// 对一行的 spans 做字符级选区高亮。

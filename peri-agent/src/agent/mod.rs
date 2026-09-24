@@ -2,6 +2,7 @@ pub mod compact;
 pub mod events;
 pub mod executor;
 pub mod react;
+pub mod recap;
 pub mod state;
 pub mod steering;
 pub mod token;
@@ -13,5 +14,6 @@ pub use compact::{
 pub use events::{AgentEvent, AgentEventHandler, BackgroundTaskResult, FnEventHandler};
 pub use executor::{AgentCancellationToken, ReActAgent};
 pub use react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult};
+pub use recap::{generate_recap, RecapResult};
 pub use state::{AgentState, State};
 pub use token::{ContextBudget, TokenTracker};

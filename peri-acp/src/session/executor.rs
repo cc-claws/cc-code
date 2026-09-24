@@ -169,6 +169,13 @@ pub async fn execute_prompt(
             .map(|c| c.compact_model.clone())
             .or_else(|| Some(provider.clone().into_model().into()))
     };
+    // Aux model — 非 compact 的辅助 LLM 命令（如 /recap）使用，不受 compact 开关影响。
+    let aux_model: Option<Arc<dyn peri_agent::llm::BaseModel>> = Some(
+        cached_llm
+            .as_ref()
+            .map(|c| c.compact_model.clone())
+            .unwrap_or_else(|| provider.clone().into_model().into()),
+    );
 
     // Command interception — check if content is a slash command before building agent.
     if let Some(text) = content.text_content().strip_prefix('/') {
@@ -187,6 +194,7 @@ pub async fn execute_prompt(
                         cwd: cwd.to_string(),
                         peri_config: Arc::new(peri_config.as_ref().clone()),
                         compact_model: compact_model.clone(),
+                        aux_model: aux_model.clone(),
                         event_sink: event_sink.clone(),
                         args: args.to_string(),
                         cancel_token: cancel.clone(),
@@ -225,6 +233,7 @@ pub async fn execute_prompt(
                         cwd: cwd.to_string(),
                         peri_config: Arc::new(peri_config.as_ref().clone()),
                         compact_model: compact_model.clone(),
+                        aux_model: aux_model.clone(),
                         event_sink: event_sink.clone(),
                         args: args.to_string(),
                         cancel_token: cancel.clone(),

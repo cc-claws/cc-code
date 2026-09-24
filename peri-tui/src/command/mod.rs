@@ -35,6 +35,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(session::init::InitCommand));
     r.register(Box::new(session::commit::CommitCommand));
     r.register(Box::new(session::review::ReviewCommand));
+    r.register(Box::new(session::recap::RecapCommand));
     r.register(Box::new(core::export_cmd::ExportCommand));
     r
 }
