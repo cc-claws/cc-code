@@ -434,6 +434,7 @@ fn resolve_tool<'a>(
 }
 
 /// 工具审批 → 并发执行 → 结果收集（不写 state）→ 统一写入
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     agent: &ReActAgent<L, S>,
     state: &mut S,
