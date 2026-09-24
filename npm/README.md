@@ -63,6 +63,7 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | `/export` | 将当前会话导出为干净的 Markdown 文档 |
 | `/gc` | 手动释放内存并输出内存占用诊断信息 |
 | `/lang <lang>` | 切换系统提示与界面语言（en / zh-CN） |
+| `/recap` | 生成一句话会话回顾（目标 + 当前任务 + 下一步），别名 `/away`、`/catchup` |
 | `/clear` | 清空屏幕开启新会话 |
 
 ## 为什么选 cc-code？

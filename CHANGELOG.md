@@ -4,6 +4,18 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.76 — 2026-09-24
+
+### Features
+
+- **新增 `/recap` 会话回顾命令与终端失焦自动回顾（#237, #238）**：`/recap`（别名 `/away`、`/catchup`）生成一句话回顾——「高层目标 + 当前任务 → 下一步」，单轮禁用工具、不写 history、支持 Ctrl+C 取消；TUI 新增 `AutoRecapState` 调度状态机，终端失焦 + 已完成轮次 ≥3 + 60s 静默后自动触发（两次回顾间至少新增 2 轮，聚焦取消、失败 30s 重试、in-flight 结果按 revision 失效）；`/config` 新增「会话回顾」开关（`config.auto_recap`，默认开），环境变量 `PERI_AUTO_RECAP_DELAY`、`PERI_AUTO_RECAP_MIN_TURNS` 可覆盖。
+- **非流式 Anthropic 响应自适应兼容反向代理 OpenAI 格式（#238）**：部分代理网关在非流式请求下返回 OpenAI 格式 JSON（`choices`/`message`/`tool_calls`/`usage.prompt_tokens`），新增 `parse_anthropic_json_response` 统一解析入口，缺少 `content` 字段时回退解析 OpenAI 结构并合成 Anthropic block。
+
+### Fixes
+
+- **recap 模型来源与 compact 解耦（#237, #238）**：原实现复用 `compact_model`，用户关闭「自动压缩」（或设 `DISABLE_COMPACT` / `DISABLE_AUTO_COMPACT`）后 `/recap` 与自动回顾会永久失效；改为独立 `aux_model`，不受 compact 开关影响。
+- **recap 渲染接入 i18n 并移除死代码（#238）**：后缀提示原本从 LLM 摘要文本 `rfind`（摘要本身不含该后缀，生产环境永不显示）且硬编码英文，改为 i18n key `app-recap-hint`；删除无任何代码路径触发的 `※ recap:` 特殊渲染分支。
+
 ## v0.6.75 — 2026-09-24
 
 ### Features
