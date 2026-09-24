@@ -225,12 +225,52 @@ fn validate_value_type(
     Ok(())
 }
 
-/// 基于 JSON Schema 预校验工具入参。
+/// 工具特征参数 → 建议工具名映射表，用于启发式工具错配诊断。
+/// 每项 (特征参数集, 建议工具名)：当输入恰好包含全部特征参数时，提示可能错选了工具。
+const TOOL_SIGNATURE_HINTS: &[(&[&str], &str)] = &[
+    (&["url", "prompt"], "WebFetch"),
+    (&["command"], "Bash"),
+    (&["pattern"], "Grep"),
+    (&["file_path"], "Read"),
+    (&["prompt", "description"], "Agent"),
+];
+
+/// Schema 校验连续失败阈值：相同工具 Schema 校验连续失败 ≥ 此次数时注入强提示。
+const SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD: usize = 2;
+
+/// Schema 校验连续失败追踪器：检测相同工具的 Schema 校验连续失败，注入强提示阻断循环。
+#[derive(Debug, Default)]
+pub(crate) struct SchemaFailureTracker {
+    /// 工具名 → 连续 Schema 校验失败次数
+    counts: HashMap<String, usize>,
+}
+
+impl SchemaFailureTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 记录一次 Schema 校验失败，返回 (当前连续次数, 是否达到熔断阈值)
+    pub fn record_failure(&mut self, tool_name: &str) -> (usize, bool) {
+        let count = self.counts.entry(tool_name.to_string()).or_insert(0);
+        *count += 1;
+        let breaker = *count >= SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD;
+        (*count, breaker)
+    }
+
+    /// 工具调用成功时重置该工具的计数
+    pub fn reset(&mut self, tool_name: &str) {
+        self.counts.remove(tool_name);
+    }
+}
+
+/// 基于 JSON Schema 预校验工具入参（结构化错误消息版本）。
 ///
-/// 校验：
+/// 校验（汇总所有错误，不再 early return）：
 /// 1. 顶层是否期望为 Object
 /// 2. 必填字段（required）是否存在且非 null（除非明确允许 null）
-/// 3. 已传属性的类型是否符合 properties 定义
+/// 3. 未定义的意外字段（Unexpected parameters）
+/// 4. 已传属性的类型是否符合 properties 定义
 pub(crate) fn validate_against_schema(
     input: &serde_json::Value,
     schema: &serde_json::Value,
@@ -257,8 +297,9 @@ pub(crate) fn validate_against_schema(
     };
 
     let props = schema_obj.get("properties").and_then(|p| p.as_object());
+    let mut errors: Vec<String> = Vec::new();
 
-    // 1. 检查必填字段
+    // 1. 检查必填字段（汇总所有缺失项）
     if let Some(required) = schema_obj.get("required").and_then(|r| r.as_array()) {
         for item in required {
             if let Some(field) = item.as_str() {
@@ -286,24 +327,83 @@ pub(crate) fn validate_against_schema(
                         .and_then(|p| p.get(field))
                         .map(get_expected_type_from_schema)
                         .unwrap_or_else(|| "any".to_string());
-                    return Err(format!(
-                        "missing required field '{field}' (expected {expected_type})"
+                    errors.push(format!(
+                        "The required parameter '{field}' is missing (expected {expected_type})"
                     ));
                 }
             }
         }
     }
 
-    // 2. 检查属性类型
+    // 2. 检查未定义的意外字段
     if let Some(props_map) = props {
-        for (key, val) in input_map {
-            if let Some(prop_schema) = props_map.get(key) {
-                validate_value_type(val, prop_schema, key)?;
+        let mut allowed: Vec<&str> = props_map.keys().map(|k| k.as_str()).collect();
+        allowed.sort();
+        for key in input_map.keys() {
+            if !props_map.contains_key(key) {
+                errors.push(format!(
+                    "Unexpected parameter '{key}' was provided (allowed parameters: {allowed:?})"
+                ));
             }
         }
     }
 
-    Ok(())
+    // 3. 检查属性类型（汇总所有类型错误）
+    if let Some(props_map) = props {
+        for (key, val) in input_map {
+            if let Some(prop_schema) = props_map.get(key) {
+                if let Err(msg) = validate_value_type(val, prop_schema, key) {
+                    // 转换为 Issue 要求的格式
+                    let expected = get_expected_type_from_schema(prop_schema);
+                    let actual = json_type_name(val);
+                    errors.push(format!(
+                        "The parameter '{key}' type is expected as {expected}, but received {actual}"
+                    ));
+                    // 同时保留 enum 不匹配的原始信息（如果是 enum 错误而非类型错误）
+                    if msg.contains("not one of") {
+                        // 替换最后一条为更精确的 enum 信息
+                        errors.pop();
+                        errors.push(msg);
+                    }
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+/// 工具错配启发式诊断：检测输入参数特征并建议可能的正确工具。
+///
+/// 当 `tool_name` 不匹配特征参数表中某项的目标工具、但输入恰好包含该项全部特征参数时，
+/// 返回 `💡 Did you mean to use '<suggested>'?` 提示。
+pub(crate) fn suggest_tool_mismatch(
+    tool_name: &str,
+    input: &serde_json::Value,
+) -> Option<String> {
+    let input_map = input.as_object()?;
+    let input_keys: Vec<&str> = input_map.keys().map(|k| k.as_str()).collect();
+
+    for (signature_keys, suggested_tool) in TOOL_SIGNATURE_HINTS {
+        // 仅当调用的不是建议工具本身时才提示
+        if tool_name.eq_ignore_ascii_case(suggested_tool) {
+            continue;
+        }
+        // 检查输入是否包含全部特征参数
+        let all_present = signature_keys
+            .iter()
+            .all(|sig_key| input_keys.contains(sig_key));
+        if all_present {
+            return Some(format!(
+                "💡 Did you mean to use '{suggested_tool}'? The parameters {signature_keys:?} are characteristic of the {suggested_tool} tool."
+            ));
+        }
+    }
+    None
 }
 
 /// 工具名解析：精确匹配 → 大小写无关匹配 → 语义别名。
@@ -342,6 +442,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     cancel: &CancellationToken,
     consecutive_failures: &mut HashMap<String, usize>,
     action_loop_detector: &mut ActionLoopDetector,
+    schema_failure_tracker: &mut SchemaFailureTracker,
 ) -> AgentResult<Vec<(ToolCall, ToolResult)>> {
     let tc_reqs: Vec<ToolCallRequest> = reasoning
         .tool_calls
@@ -413,9 +514,31 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                     result.tool_name, count
                 )));
             }
+
+            // Schema 校验连续失败熔断：更低的阈值（2次），快速阻断参数错误循环
+            if result.output.contains("Invalid arguments for tool") {
+                let (schema_count, breaker) =
+                    schema_failure_tracker.record_failure(&result.tool_name);
+                if breaker {
+                    tracing::warn!(
+                        tool = %result.tool_name,
+                        schema_fail_count = schema_count,
+                        "Schema 校验连续失败 {} 次，注入熔断提示",
+                        schema_count
+                    );
+                    state.add_message(BaseMessage::system(format!(
+                        "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Tool '{}' has failed schema validation {} \
+                         consecutive times. You are passing wrong parameters repeatedly. \
+                         STOP and carefully re-read the tool's parameter schema before your next attempt. \
+                         Do NOT retry with the same parameters.",
+                        result.tool_name, schema_count
+                    )));
+                }
+            }
         } else {
             // 成功则重置该工具的所有失败计数
             consecutive_failures.retain(|k, _| !k.starts_with(&format!("{}:", result.tool_name)));
+            schema_failure_tracker.reset(&result.tool_name);
         }
 
         let tool_msg = if result.is_error {
@@ -605,11 +728,15 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                         }
                                         _ => Vec::new(),
                                     };
+                                    // 启发式工具错配诊断
+                                    let hint = suggest_tool_mismatch(&tool_name, &input)
+                                        .map(|h| format!("\n{h}"))
+                                        .unwrap_or_default();
                                     return Err(AgentError::ToolExecutionFailed {
                                         tool: tool_name.clone(),
                                         reason: format!(
-                                            "Invalid arguments for tool {tool_name}: {msg}\n\
-                                             Received keys: {keys:?}. Rewrite the call to satisfy the schema and retry."
+                                            "Invalid arguments for tool {tool_name}:\n{msg}\n\
+                                             Received keys: {keys:?}. Rewrite the call to satisfy the schema and retry.{hint}"
                                         ),
                                     });
                                 }

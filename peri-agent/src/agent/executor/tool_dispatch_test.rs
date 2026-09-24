@@ -790,7 +790,7 @@ fn test_validate_against_schema_missing_required() {
     assert!(result.is_err(), "缺少必填字段应报错");
     let err = result.unwrap_err();
     assert!(
-        err.contains("missing required field 'pattern' (expected string)"),
+        err.contains("The required parameter 'pattern' is missing (expected string)"),
         "错误信息应包含缺失字段与期望类型，实际: {err}"
     );
 }
@@ -812,7 +812,7 @@ fn test_validate_against_schema_invalid_type() {
     assert!(result.is_err(), "类型不匹配应报错");
     let err = result.unwrap_err();
     assert!(
-        err.contains("field 'pattern' has invalid type: expected string, got integer"),
+        err.contains("The parameter 'pattern' type is expected as string, but received integer"),
         "错误信息应包含字段名、期望类型与实际类型，实际: {err}"
     );
 }
@@ -1080,11 +1080,364 @@ async fn test_tool_execution_schema_validation_error_message() {
         .expect("应包含 Tool 错误消息");
 
     assert!(
-        error_msg.contains("Invalid arguments for tool StrictTool: missing required field 'pattern' (expected string)"),
+        error_msg.contains("Invalid arguments for tool StrictTool:"),
+        "错误信息应包含工具名前缀，实际: {error_msg}"
+    );
+    assert!(
+        error_msg.contains("The required parameter 'pattern' is missing (expected string)"),
         "错误信息应包含缺失字段与期望类型，实际: {error_msg}"
+    );
+    assert!(
+        error_msg.contains("Unexpected parameter 'command' was provided"),
+        "错误信息应包含意外字段提示，实际: {error_msg}"
     );
     assert!(
         error_msg.contains("Received keys: [\"command\"]"),
         "错误信息应包含实际收到的 keys，实际: {error_msg}"
+    );
+}
+
+// ========== P0: 结构化错误消息 - 新增测试 ==========
+
+#[test]
+fn test_validate_against_schema_multiple_errors_aggregated() {
+    // Arrange: 同时缺少必填字段 + 传入意外字段 + 类型错误
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pattern": { "type": "string" },
+            "path": { "type": "string" }
+        },
+        "required": ["pattern"]
+    });
+    let input = serde_json::json!({ "url": "https://example.com", "path": 12345 });
+    // Act
+    let result = super::validate_against_schema(&input, &schema);
+    // Assert: 应汇总所有错误而非 early return
+    assert!(result.is_err(), "多项校验错误应报错");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("The required parameter 'pattern' is missing"),
+        "应包含缺失必填字段错误，实际: {err}"
+    );
+    assert!(
+        err.contains("Unexpected parameter 'url' was provided"),
+        "应包含意外字段错误，实际: {err}"
+    );
+    assert!(
+        err.contains("The parameter 'path' type is expected as string, but received integer"),
+        "应包含类型不匹配错误，实际: {err}"
+    );
+}
+
+#[test]
+fn test_validate_against_schema_unexpected_params_with_allowed_list() {
+    // Arrange: 传入 schema 未定义的字段
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pattern": { "type": "string" },
+            "path": { "type": "string" }
+        },
+        "required": ["pattern"]
+    });
+    let input = serde_json::json!({ "pattern": "test", "command": "ls", "url": "http://x" });
+    // Act
+    let result = super::validate_against_schema(&input, &schema);
+    // Assert
+    assert!(result.is_err(), "含意外字段应报错");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("Unexpected parameter 'command' was provided"),
+        "应检测到意外字段 command，实际: {err}"
+    );
+    assert!(
+        err.contains("Unexpected parameter 'url' was provided"),
+        "应检测到意外字段 url，实际: {err}"
+    );
+    assert!(
+        err.contains("allowed parameters:"),
+        "应列出允许的参数列表，实际: {err}"
+    );
+}
+
+// ========== P1: 工具错配启发式诊断 - 新增测试 ==========
+
+#[test]
+fn test_suggest_tool_mismatch_webfetch_hint() {
+    // Arrange: 非 WebFetch 工具收到 url + prompt
+    let input = serde_json::json!({ "url": "https://example.com", "prompt": "提取内容" });
+    // Act
+    let hint = super::suggest_tool_mismatch("Grep", &input);
+    // Assert
+    assert!(hint.is_some(), "应检测到 WebFetch 特征参数");
+    let hint = hint.unwrap();
+    assert!(
+        hint.contains("WebFetch"),
+        "应建议使用 WebFetch，实际: {hint}"
+    );
+    assert!(
+        hint.contains("💡"),
+        "应包含 💡 emoji 前缀，实际: {hint}"
+    );
+}
+
+#[test]
+fn test_suggest_tool_mismatch_bash_hint() {
+    // Arrange: 非 Bash 工具收到 command
+    let input = serde_json::json!({ "command": "ls -la" });
+    // Act
+    let hint = super::suggest_tool_mismatch("Grep", &input);
+    // Assert
+    assert!(hint.is_some(), "应检测到 Bash 特征参数");
+    let hint = hint.unwrap();
+    assert!(
+        hint.contains("Bash"),
+        "应建议使用 Bash，实际: {hint}"
+    );
+}
+
+#[test]
+fn test_suggest_tool_mismatch_no_hint_for_correct_tool() {
+    // Arrange: Bash 工具收到 command（正确匹配，不应提示）
+    let input = serde_json::json!({ "command": "ls -la" });
+    // Act
+    let hint = super::suggest_tool_mismatch("Bash", &input);
+    // Assert
+    assert!(hint.is_none(), "正确工具不应产生错配提示");
+}
+
+#[test]
+fn test_suggest_tool_mismatch_no_hint_for_unrecognized_params() {
+    // Arrange: 传入无特征的参数
+    let input = serde_json::json!({ "foo": "bar", "baz": 42 });
+    // Act
+    let hint = super::suggest_tool_mismatch("Grep", &input);
+    // Assert
+    assert!(hint.is_none(), "无特征参数不应产生错配提示");
+}
+
+#[test]
+fn test_suggest_tool_mismatch_case_insensitive() {
+    // Arrange: 工具名大小写不同
+    let input = serde_json::json!({ "command": "pwd" });
+    // Act: 小写 "bash" 不应产生提示（因为它就是 Bash）
+    let hint = super::suggest_tool_mismatch("bash", &input);
+    // Assert
+    assert!(hint.is_none(), "大小写无关时正确工具不应产生错配提示");
+}
+
+// ========== P1: Schema 连续失败熔断 - 新增测试 ==========
+
+#[test]
+fn test_schema_failure_tracker_basic() {
+    // Arrange
+    let mut tracker = super::SchemaFailureTracker::new();
+    // Act & Assert: 第 1 次失败
+    let (count, breaker) = tracker.record_failure("Grep");
+    assert_eq!(count, 1, "第 1 次失败计数应为 1");
+    assert!(!breaker, "第 1 次不应触发熔断");
+    // 第 2 次失败达到阈值
+    let (count, breaker) = tracker.record_failure("Grep");
+    assert_eq!(count, 2, "第 2 次失败计数应为 2");
+    assert!(breaker, "第 2 次连续失败应触发熔断");
+    // 第 3 次继续计数
+    let (count, breaker) = tracker.record_failure("Grep");
+    assert_eq!(count, 3, "第 3 次失败计数应为 3");
+    assert!(breaker, "第 3 次仍应触发熔断");
+}
+
+#[test]
+fn test_schema_failure_tracker_reset_on_success() {
+    // Arrange
+    let mut tracker = super::SchemaFailureTracker::new();
+    tracker.record_failure("Grep");
+    // Act: 成功后重置
+    tracker.reset("Grep");
+    let (count, breaker) = tracker.record_failure("Grep");
+    // Assert
+    assert_eq!(count, 1, "重置后计数应为 1");
+    assert!(!breaker, "重置后第 1 次不应触发熔断");
+}
+
+#[test]
+fn test_schema_failure_tracker_independent_tools() {
+    // Arrange: 不同工具的计数独立
+    let mut tracker = super::SchemaFailureTracker::new();
+    tracker.record_failure("Grep");
+    tracker.record_failure("Read");
+    // Act
+    let (grep_count, grep_breaker) = tracker.record_failure("Grep");
+    let (read_count, read_breaker) = tracker.record_failure("Read");
+    // Assert
+    assert_eq!(grep_count, 2, "Grep 计数应为 2");
+    assert!(grep_breaker, "Grep 应触发熔断");
+    assert_eq!(read_count, 2, "Read 计数应为 2");
+    assert!(read_breaker, "Read 应触发熔断");
+}
+
+/// 验证 Schema 校验连续失败 2 次后注入熔断提示消息
+#[tokio::test]
+async fn test_schema_failure_circuit_breaker_injects_warning() {
+    struct StrictTool;
+    #[async_trait::async_trait]
+    impl BaseTool for StrictTool {
+        fn name(&self) -> &str {
+            "StrictTool"
+        }
+        fn description(&self) -> &str {
+            "strict"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string" }
+                },
+                "required": ["pattern"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct StubbornSchemaLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for StubbornSchemaLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            // 检测到熔断提示后停止
+            let has_circuit_breaker = messages.iter().any(|m| {
+                matches!(m, BaseMessage::System { content, .. }
+                    if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
+            });
+            if has_circuit_breaker {
+                return Ok(Reasoning::with_answer(
+                    "done",
+                    "I noticed the circuit breaker and will fix my parameters.",
+                ));
+            }
+            // 持续传入错误参数
+            Ok(Reasoning::with_tools(
+                "retrying with wrong params",
+                vec![ToolCall::new(
+                    format!("id_{}", messages.len()),
+                    "StrictTool",
+                    serde_json::json!({ "command": "ls" }),
+                )],
+            ))
+        }
+    }
+
+    let agent = ReActAgent::new(StubbornSchemaLLM)
+        .max_iterations(10)
+        .register_tool(Box::new(StrictTool));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("run"), &mut state, None)
+        .await;
+
+    assert!(result.is_ok(), "Agent 应在熔断提示后正常完成，实际: {:?}", result);
+    let has_circuit_breaker = state.messages().iter().any(|m| {
+        matches!(m, BaseMessage::System { content, .. }
+            if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
+    });
+    assert!(has_circuit_breaker, "应注入 Schema 校验熔断提示消息");
+}
+
+/// 验证工具错配启发式诊断在集成场景下工作：
+/// 向 Grep 传入 Bash 的 command 参数时，错误信息应包含 💡 建议
+#[tokio::test]
+async fn test_tool_mismatch_hint_in_integration() {
+    struct GrepTool;
+    #[async_trait::async_trait]
+    impl BaseTool for GrepTool {
+        fn name(&self) -> &str {
+            "Grep"
+        }
+        fn description(&self) -> &str {
+            "search"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string" },
+                    "path": { "type": "string" }
+                },
+                "required": ["pattern"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("found".to_string())
+        }
+    }
+
+    struct MismatchLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for MismatchLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_tool_result = messages
+                .iter()
+                .any(|m| matches!(m, BaseMessage::Tool { .. }));
+            if !has_tool_result {
+                // 错误地向 Grep 传入 Bash 的 command 参数
+                Ok(Reasoning::with_tools(
+                    "calling grep with wrong params",
+                    vec![ToolCall::new(
+                        "id_mismatch",
+                        "Grep",
+                        serde_json::json!({ "command": "ls -la" }),
+                    )],
+                ))
+            } else {
+                Ok(Reasoning::with_answer("done", "got error"))
+            }
+        }
+    }
+
+    let agent = ReActAgent::new(MismatchLLM)
+        .max_iterations(5)
+        .register_tool(Box::new(GrepTool));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("run"), &mut state, None)
+        .await;
+
+    assert!(result.is_ok(), "Agent 应正常处理错误结果并完成");
+    let error_msg = state
+        .messages()
+        .iter()
+        .find_map(|m| match m {
+            BaseMessage::Tool {
+                content,
+                is_error: true,
+                ..
+            } => Some(content.text_content()),
+            _ => None,
+        })
+        .expect("应包含 Tool 错误消息");
+
+    assert!(
+        error_msg.contains("💡 Did you mean to use 'Bash'?"),
+        "错误信息应包含工具错配提示，实际: {error_msg}"
     );
 }
