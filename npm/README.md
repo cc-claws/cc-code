@@ -45,8 +45,7 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | 快捷键 | 功能 |
 |--------|------|
 | `Shift+Tab` | 快速轮转权限模式（bypass / default / dont-ask / accept-edit / auto-mode） |
-| `Ctrl+T` | 动态切换模型 alias |
-| `Ctrl+P` | 打开命令面板（Provider / Model / Effort 配置） |
+| `Ctrl+P` / `Alt+P` | 打开命令面板（Provider / Model / Effort 配置） |
 | `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |
 | `Alt+V` / `Ctrl+V` | 从剪贴板粘贴图片附件（`Alt+V` 专用于穿透 Windows Terminal 等现代终端对 `Ctrl+V` 的拦截） |
 | `Ctrl+O` | 切换详细模式（Verbose） |
