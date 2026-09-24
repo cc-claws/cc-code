@@ -34,16 +34,34 @@
 
 ## 涉及文件
 
-- `peri-tui/src/event/mod.rs` —— 鼠标事件接收与处理入口（`coalesce_drag_events` 绕过了滚轮事件合并，导致每个滚轮事件均直接触发重绘）
+- `peri-tui/src/event/mod.rs` —— 鼠标事件接收与处理入口（原记录指向 `coalesce_drag_events`，该函数已随事件管线重构移除；当前对应实现为 `event/mouse_batch.rs` 的 `collect_mouse_batch` 与 `EventReader`，见「2026-09-23 复核」）
 - `peri-tui/src/ui/main_ui/message_area.rs` —— 消息区域渲染与视口裁剪（每帧重绘独占抢占 `render_cache.write()` 锁，且通过 Paragraph 二次 wrap）
 - `peri-tui/src/app/thread_ops.rs` —— 滚动步长控制（`scroll_up` / `scroll_down` 步长固定为 3 行，缺乏动态加速度）
 - `peri-tui/src/main.rs` —— 主事件循环（`event::Action::Redraw` 缺乏帧率上限与垂直同步限制）
+
+## 2026-09-23 复核
+
+对「涉及文件」逐条核对当前代码：
+
+| 条目 | 复核结果 |
+|------|----------|
+| `event/mod.rs` 的 `coalesce_drag_events` | ❌ 该函数在当前代码中**已不存在**（全仓库 grep 无命中）。事件管线已重构为 `event/input_pump.rs`（`InputPump`：独立读线程 + 相邻 `Moved` 合并）与 `event/mouse_batch.rs`（`collect_mouse_batch`：`MAX_MOUSE_BATCH = 128`，连续滚轮/拖拽合并） |
+| `message_area.rs` 的 `render_cache.write()` 独占锁 + Paragraph 二次 wrap | ✅ 仍成立 |
+| `thread_ops.rs` 的 `scroll_up` / `scroll_down` 步长固定 3 行 | ✅ 仍成立（`thread_ops.rs:13,26`） |
+| `main.rs` 的 `Action::Redraw` 缺帧率上限与垂直同步 | ✅ 仍成立（未见帧率/垂直同步控制） |
+
+## 关联
+
+- 症状 3「滚动条拖拽跳跃」的交互层缺陷（点击跳转与拖拽换算分母不一致、滑块缩为 1 格、hover 无轨道等）已单独建档：`spec/issues/2026-09-23-tui-scrollbar-drag-and-hover-defects.md`，与本 issue 的滚轮路径分开跟踪。
+- 「涉及文件」第 1 条归因（`coalesce_drag_events`）已失效，滚轮重绘路径需按新的 `InputPump` / `collect_mouse_batch` 重新定位。
+- 本复核内容已同步为 #230 的评论（https://github.com/cc-claws/cc-code/issues/230）。
 
 ## 状态变更记录
 
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-09-23 | — | Open | agent | 创建 issue |
+| 2026-09-23 | Open | Open | agent | 复核「涉及文件」：`coalesce_drag_events` 已不存在，其余 3 条仍成立；关联新建的滚动条交互缺陷 issue |
 
 ## 修复记录
 
