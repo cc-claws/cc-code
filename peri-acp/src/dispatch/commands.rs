@@ -19,6 +19,12 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
             "compact",
             "Compress the conversation history to save context",
         ),
+        AvailableCommand::new("recap", "Generate a 1-2 sentence recap of the conversation"),
+        AvailableCommand::new("away", "Generate a conversation recap (alias for /recap)"),
+        AvailableCommand::new(
+            "catchup",
+            "Generate a conversation recap (alias for /recap)",
+        ),
         AvailableCommand::new("context", "Display context usage / token statistics"),
         AvailableCommand::new("cost", "Show token usage and estimated cost"),
         AvailableCommand::new("model", "Switch the current LLM model"),

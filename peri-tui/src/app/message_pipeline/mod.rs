@@ -568,6 +568,8 @@ impl MessagePipeline {
             | AgentEvent::CompactCompleted { .. }
             | AgentEvent::CompactError(_)
             | AgentEvent::RewindCompleted { .. }
+            | AgentEvent::RecapCompleted { .. }
+            | AgentEvent::RecapError(_)
             | AgentEvent::TokenUsageUpdate { .. }
             | AgentEvent::LlmRetrying { .. }
             | AgentEvent::ContextWarning { .. }

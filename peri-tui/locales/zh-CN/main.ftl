@@ -224,6 +224,7 @@ config-field-persona = Persona
 config-field-tone = Tone
 config-field-proactiveness = Proactiveness
 config-field-diff = 内联 Diff
+config-field-recap = 会话回顾
 config-value-on = 开
 config-value-off = 关
 config-saved = 配置已保存
@@ -235,6 +236,7 @@ config-group-prompt-overrides = 提示词覆盖
 # Config field descriptions
 config-desc-autocompact = （开/关 — 上下文满时自动压缩）
 config-desc-threshold = 50-99% — 自动压缩触发阈值
+config-desc-recap = （开/关 — 终端失焦60秒后自动生成会话回顾）
 config-desc-language = en, zh-CN，或留空为自动
 config-desc-persona = 覆盖系统提示词 persona（留空=默认）
 config-desc-tone = 覆盖系统提示词 tone（留空=默认）
@@ -297,6 +299,8 @@ app-compact-done = 上下文已压缩
 app-compact-failed = 压缩失败: { $error }
 app-compact-auto-cleared = 自动清理：释放了 { $count } 个工具调用结果
 app-compact-limit-reached = 上下文压缩后仍超出限制，已停止自动继续。请使用 /compact 手动压缩或 /clear 清空历史。
+app-recap-hint = （可在 /config 中关闭会话回顾）
+app-recap-failed = 回顾生成失败: { $error }
 app-model-switched = 模型已切换为: { $alias } ({ $effort } effort)
 app-1m-context-enabled = 已启用 1M 上下文模式（context window: 1,000,000 tokens）
 app-prompt-cache-low = Prompt cache 命中率 { $rate }% < 80% (req: { $req })

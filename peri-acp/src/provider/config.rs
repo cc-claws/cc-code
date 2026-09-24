@@ -157,6 +157,9 @@ pub struct AppConfig {
     /// 是否启用 1M 上下文模式
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_1m: Option<bool>,
+    /// 是否在终端失焦时自动生成会话回顾（默认 true）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_recap: Option<bool>,
     /// Write/Edit 工具结果内联 diff 默认是否可见
     #[serde(default)]
     pub diff_enabled: bool,
@@ -213,6 +216,9 @@ impl AppConfig {
         }
         if workspace.context_1m.is_some() {
             self.context_1m = workspace.context_1m;
+        }
+        if workspace.auto_recap.is_some() {
+            self.auto_recap = workspace.auto_recap;
         }
         // diff_enabled: bool 直接覆盖（无法区分"未写 false"和"写了 false"）
         self.diff_enabled = workspace.diff_enabled;

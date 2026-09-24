@@ -289,10 +289,11 @@
         let r = crate::command::default_registry();
         let list = r.list(&make_lc());
         let names: Vec<&str> = list.iter().map(|(n, _, _)| n.as_str()).collect();
-        // init / commit / review 均为 Passthrough，TUI 必须注册才能透传给 ACP
+        // init / commit / review 均为 Passthrough，TUI 必须注册才能透传给 ACP；recap 为 Immediate
         assert!(names.contains(&"init"), "default_registry 应包含 init");
         assert!(names.contains(&"commit"), "default_registry 应包含 commit");
         assert!(names.contains(&"review"), "default_registry 应包含 review");
+        assert!(names.contains(&"recap"), "default_registry 应包含 recap");
         // 别名也必须暴露给补全/Hints
         let commit_entry = list.iter().find(|(n, _, _)| *n == "commit").unwrap();
         assert!(
@@ -303,5 +304,14 @@
         assert!(
             review_entry.2.iter().any(|a| a == "pr"),
             "review 应含 pr 别名"
+        );
+        let recap_entry = list.iter().find(|(n, _, _)| *n == "recap").unwrap();
+        assert!(
+            recap_entry.2.iter().any(|a| a == "away"),
+            "recap 应含 away 别名"
+        );
+        assert!(
+            recap_entry.2.iter().any(|a| a == "catchup"),
+            "recap 应含 catchup 别名"
         );
     }

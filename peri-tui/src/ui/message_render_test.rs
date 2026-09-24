@@ -1425,3 +1425,51 @@ fn test_render_view_model_wrapper_matches_with_links_lines() {
         assert_eq!(ta, tb, "薄包装不应改变行内容");
     }
 }
+
+#[test]
+fn test_render_view_model_recap_prefix_is_plain_text() {
+    // 无任何代码路径生成 "※ recap:" 开头的 System 消息，该前缀按普通文本渲染
+    let content = "※ recap: 测试摘要";
+    let vm = MessageViewModel::system(content.to_string());
+    let lines = render_view_model(&vm, None, 120, false, 0);
+
+    assert_eq!(lines.len(), 1, "应渲染为一行");
+    let plain: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_eq!(plain, "· ※ recap: 测试摘要", "应作为普通系统消息渲染（前缀 · ），不做 recap 特殊着色");
+}
+
+#[test]
+fn test_render_recap_line_color_hierarchy() {
+    use crate::ui::main_ui::message_area::render_recap_line;
+
+    // 正文不含后缀，后缀由 i18n 追加
+    let text = "当前正在进行连续加法计算，已完成至6+6=12。请继续输入下一道算式。";
+    let lc = crate::i18n::LcRegistry::new(Some("zh-CN"));
+    let line = render_recap_line(text, &lc);
+
+    assert_eq!(line.spans.len(), 5, "应包含 5 个 span（※、recap:、空格、正文、i18n 后缀）");
+
+    // Span 0: "※ "（暗色 MUTED）
+    assert_eq!(line.spans[0].content, "※ ");
+    assert_eq!(line.spans[0].style.fg, Some(theme::MUTED));
+
+    // Span 1: "recap:"（暗色粗体 MUTED）
+    assert_eq!(line.spans[1].content, "recap:");
+    assert_eq!(line.spans[1].style.fg, Some(theme::MUTED));
+    assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
+
+    // Span 2: 空格
+    assert_eq!(line.spans[2].content, " ");
+
+    // Span 3: 正文（暗色斜体 MUTED）
+    assert_eq!(line.spans[3].content, text);
+    assert_eq!(line.spans[3].style.fg, Some(theme::MUTED));
+    assert!(line.spans[3].style.add_modifier.contains(Modifier::ITALIC));
+
+    // Span 4: i18n 后缀（暗灰弱化 DIM）
+    assert_eq!(
+        line.spans[4].content,
+        format!("  {}", lc.tr("app-recap-hint"))
+    );
+    assert_eq!(line.spans[4].style.fg, Some(theme::DIM));
+}

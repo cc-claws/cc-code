@@ -12,8 +12,8 @@ use crate::{
     app::{
         config_panel::{
             ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_DIFF, ROW_GENERAL_HEADER, ROW_LANGUAGE,
-            ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_SEPARATOR, ROW_STREAMING,
-            ROW_THRESHOLD, ROW_TONE,
+            ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_RECAP, ROW_SEPARATOR,
+            ROW_STREAMING, ROW_THRESHOLD, ROW_TONE,
         },
         App,
     },
@@ -25,6 +25,7 @@ fn field_label_key(row: usize) -> &'static str {
     match row {
         ROW_AUTOCOMPACT => "config-field-autocompact",
         ROW_THRESHOLD => "config-field-compact-threshold",
+        ROW_RECAP => "config-field-recap",
         ROW_LANGUAGE => "config-field-language",
         ROW_DIFF => "config-field-diff",
         ROW_STREAMING => "config-field-streaming",
@@ -113,6 +114,38 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 ]));
                 lines.push(Line::from(Span::styled(
                     format!("      {}", lc.tr("config-desc-autocompact")),
+                    desc_style,
+                )));
+            }
+            ROW_RECAP => {
+                let is_active = panel.cursor == row;
+                let label_style = active_or_text(is_active);
+                let active_style = Style::default()
+                    .fg(theme::THINKING)
+                    .add_modifier(Modifier::BOLD);
+                let inactive_style = Style::default().fg(theme::MUTED);
+                let desc_style = Style::default().fg(theme::MUTED);
+
+                let on_span = if panel.buf_recap {
+                    Span::styled(format!("[{}]", lc.tr("config-value-on")), active_style)
+                } else {
+                    Span::styled(lc.tr("config-value-on"), inactive_style)
+                };
+                let off_span = if panel.buf_recap {
+                    Span::styled(lc.tr("config-value-off"), inactive_style)
+                } else {
+                    Span::styled(format!("[{}]", lc.tr("config-value-off")), active_style)
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                    on_span,
+                    Span::styled("  ", Style::default()),
+                    off_span,
+                ]));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-recap")),
                     desc_style,
                 )));
             }
