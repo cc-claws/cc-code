@@ -45,6 +45,7 @@ impl App {
 
         // 挂起 TUI: 关闭鼠标捕获 + 离开 alternate screen + 恢复 raw mode，
         // 让外部编辑器独占终端。
+        let _input_pause = crate::event::pause_input();
         let _ = crate::conpty::disable_mouse_tracking();
         ratatui::crossterm::execute!(
             std::io::stdout(),
