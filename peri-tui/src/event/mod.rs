@@ -5,23 +5,44 @@
 //   macros.rs  — panel dispatch macros (with_global_panels!, with_session_panels!)
 //   mod.rs     — Action, event loop, dispatcher, OAuth handling
 
+mod input_pump;
 pub mod keyboard;
 mod macros;
 pub mod mouse;
 mod mouse_batch;
+pub use input_pump::pause_input;
 
 #[cfg(test)]
 #[path = "scrollbar_test.rs"]
 mod scrollbar_test;
 
+#[cfg(test)]
+#[path = "scrollbar_audit_test.rs"]
+mod scrollbar_audit_test;
+
+#[cfg(test)]
+#[path = "paste_boundary_test.rs"]
+mod paste_boundary_test;
+
+#[cfg(test)]
+#[path = "hover_test.rs"]
+mod hover_test;
+
+#[cfg(all(test, windows))]
+#[path = "hover_console_test.rs"]
+mod hover_console_test;
+
 use crate::{with_global_panels, with_session_panels};
 
 use anyhow::Result;
 use ratatui::crossterm::event::{
-    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+    Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 use tui_textarea::{Input, Key};
 
 use crate::app::{
@@ -59,9 +80,22 @@ pub enum Action {
 
 // ── Event loop ──────────────────────────────────────────────────────────────
 
-#[derive(Default)]
 pub struct EventReader {
-    pending: Option<Event>,
+    pending: VecDeque<Event>,
+    pump: input_pump::InputPump,
+}
+
+impl EventReader {
+    pub fn stop(&mut self) {
+        self.pump.stop();
+    }
+
+    pub fn start() -> std::io::Result<Self> {
+        Ok(Self {
+            pending: VecDeque::new(),
+            pump: input_pump::InputPump::start()?,
+        })
+    }
 }
 
 pub async fn next_event(app: &mut App, reader: &mut EventReader) -> Result<Option<Action>> {
@@ -74,30 +108,24 @@ pub async fn next_event(app: &mut App, reader: &mut EventReader) -> Result<Optio
         }
     }
 
-    // 全屏 alternate screen + EnableMouseCapture 后鼠标必然可用，无需探测。
-    if reader.pending.is_none() && !event::poll(Duration::from_millis(50))? {
-        return Ok(None);
-    }
-
-    let ev = match reader.pending.take() {
+    let ev = match reader.pending.pop_front() {
         Some(ev) => ev,
-        None => event::read()?,
+        None => match reader.pump.next(Duration::from_millis(50))? {
+            Some(ev) => ev,
+            None => return Ok(None),
+        },
     };
-    let events = mouse_batch::collect_mouse_batch(ev, &mut reader.pending, || {
-        if event::poll(Duration::ZERO)? {
-            event::read().map(Some)
-        } else {
-            Ok(None)
-        }
-    })?;
+    let ev = detect_simulated_paste(ev, &mut reader.pending, |timeout| reader.pump.next(timeout))?;
+    let mut boundary = None;
+    let events =
+        mouse_batch::collect_mouse_batch(ev, &mut boundary, || reader.pump.next(Duration::ZERO))?;
+    reader.pending.extend(boundary);
     handle_event_batch(app, events).await
 }
 
 async fn handle_event_batch(app: &mut App, events: Vec<Event>) -> Result<Option<Action>> {
     let mut redraw = None;
     for ev in events {
-        // 非鼠标批次仍沿用既有的模拟粘贴检测。
-        let ev = detect_simulated_paste(ev);
         match handle_event(app, ev).await? {
             Some(Action::Redraw) => redraw = Some(Action::Redraw),
             Some(action) => return Ok(Some(action)),
@@ -122,40 +150,68 @@ async fn handle_event_batch(app: &mut App, events: Vec<Event>) -> Result<Option<
 /// A 1 ms start window is too short for human typing to trigger in practice.
 /// Once a burst is detected, a small idle window lets slower Windows terminals
 /// deliver the rest of the paste without fragmenting it at every newline.
-fn detect_simulated_paste(ev: Event) -> Event {
+fn detect_simulated_paste(
+    ev: Event,
+    pending: &mut VecDeque<Event>,
+    mut next: impl FnMut(Duration) -> std::io::Result<Option<Event>>,
+) -> std::io::Result<Event> {
     const START_WINDOW: Duration = Duration::from_millis(1);
     const IDLE_WINDOW: Duration = Duration::from_millis(15);
 
     if !is_simulated_paste_start(&ev) {
-        return ev;
+        return Ok(ev);
     }
 
     // Quick probe: any queued event within 1 ms?
-    if !event::poll(START_WINDOW).unwrap_or(false) {
-        return ev; // No queued events → manual typing / manual Enter
-    }
+    let Some(first) = next(START_WINDOW)? else {
+        return Ok(ev);
+    };
 
     let original_ev = ev.clone();
     let mut text = String::new();
     let _ = key_event_to_text(ev, &mut text);
     let mut meaningful_after_first = false;
 
-    while event::poll(IDLE_WINDOW).unwrap_or(false) {
-        match event::read() {
-            Ok(next) => {
-                meaningful_after_first |= key_event_to_text(next, &mut text);
+    let mut queued = Some(first);
+    let mut last_text = Instant::now();
+    // 完整粘贴以空闲或非文本事件为边界；不能按字符数截断，让末尾 Enter 误触提交。
+    while let Some(event) = queued.take() {
+        if matches!(&event, Event::Mouse(mouse) if mouse.kind == MouseEventKind::Moved) {
+            // 悬停不打断文本粘贴，否则尾部 Enter 会落回提交分支。
+            // 只延后被动悬停，保留最终位置；点击和快捷键仍是有序边界。
+            if matches!(pending.back(), Some(Event::Mouse(mouse)) if mouse.kind == MouseEventKind::Moved)
+            {
+                pending.pop_back();
             }
-            Err(_) => break,
+            pending.push_back(event);
+            let remaining = IDLE_WINDOW.saturating_sub(last_text.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+            queued = next(remaining)?;
+            continue;
         }
+        let release = matches!(&event, Event::Key(key) if key.kind == KeyEventKind::Release);
+        let text_event = is_simulated_paste_start(&event)
+            || matches!(&event, Event::Paste(_))
+            || matches!(&event, Event::Key(key) if key.code == KeyCode::Backspace && key.modifiers == KeyModifiers::NONE);
+        if !release && !text_event {
+            // 鼠标/快捷键/resize 是边界，必须留给下一轮，不能在粘贴检测中吞掉。
+            pending.push_back(event);
+            break;
+        }
+        meaningful_after_first |= key_event_to_text(event, &mut text);
+        last_text = Instant::now();
+        queued = next(IDLE_WINDOW)?;
     }
 
     // A key release queued behind the press is not a paste. It is safe that the
     // release event was consumed because the TUI only acts on key presses.
     if !meaningful_after_first {
-        return original_ev;
+        return Ok(original_ev);
     }
 
-    Event::Paste(text)
+    Ok(Event::Paste(text))
 }
 
 fn is_simulated_paste_start(ev: &Event) -> bool {
@@ -229,7 +285,7 @@ fn point_in_rect(column: u16, row: u16, area: ratatui::layout::Rect) -> bool {
 /// 宽屏终端下极难精确点中（280 列里只占 1 列），导致"有时能拖、有时不能"。
 /// 向左扩展若干列作为点击命中区——视觉仍是 1 列细线，仅放大可点击范围。
 /// 消息区文字为只读 Paragraph、无点击交互，让出几列不影响其他功能。
-const MESSAGE_SCROLLBAR_HIT_PAD: u16 = 6;
+const MESSAGE_SCROLLBAR_HIT_PAD: u16 = 2;
 
 fn point_in_hit_bar(column: u16, row: u16, bar_area: ratatui::layout::Rect) -> bool {
     let hit_x_start = bar_area.x.saturating_sub(MESSAGE_SCROLLBAR_HIT_PAD);
@@ -346,9 +402,15 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
         }
         Event::FocusLost => {
             app.focused = false;
+            let ui = &mut app.session_mgr.current_mut().ui;
+            ui.scrollbar_hover = false;
+            ui.message_scrollbar_dragging = false;
+            ui.message_scrollbar_drag_origin = None;
             return Ok(Some(Action::Redraw));
         }
         Event::Resize(_, _) => {
+            app.session_mgr.current_mut().ui.scrollbar_hover = false;
+            app.session_mgr.current_mut().ui.message_scrollbar_area = None;
             app.session_mgr.current_mut().ui.message_scrollbar_dragging = false;
             app.session_mgr
                 .current_mut()
@@ -423,6 +485,17 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
         }
         Event::Mouse(mouse) => {
             record_mouse_event();
+            let popup_active = app.is_interaction_popup_active();
+            let ui = &mut app.session_mgr.current_mut().ui;
+            let was_visible = ui.scrollbar_hover || ui.message_scrollbar_dragging;
+            ui.scrollbar_hover = !popup_active
+                && ui
+                    .message_scrollbar_area
+                    .is_some_and(|area| point_in_hit_bar(mouse.column, mouse.row, area));
+            if mouse.kind == MouseEventKind::Moved {
+                let visible = ui.scrollbar_hover || ui.message_scrollbar_dragging;
+                return Ok((was_visible != visible).then_some(Action::Redraw));
+            }
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 let action = app
                     .session_mgr
@@ -519,6 +592,12 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                     }
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
+                    // 滑块优先于双击选中文字，且不穿透弹窗。
+                    if !app.is_interaction_popup_active()
+                        && handle_message_scrollbar_down(app, mouse.row, mouse.column)
+                    {
+                        return Ok(Some(Action::Redraw));
+                    }
                     // ── 双击检测：与上次左键 Down 间隔 < 400ms 且同位置 → 双击选整行 ──
                     // 消息区用 TextSelection（内容锚定纯文本），其他非 textarea 区域用
                     // ScreenSelection（Buffer 整行，end_col 设 u16::MAX-1 由 extract/highlight 钳位）。
@@ -633,9 +712,6 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 }
                             }
                         }
-                    }
-                    if handle_message_scrollbar_down(app, mouse.row, mouse.column) {
-                        return Ok(Some(Action::Redraw));
                     }
 
                     // Panel scrollbar: ▲/▼ buttons and bar click/drag
@@ -1020,16 +1096,6 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                     }
                     // textarea selection on mouse up: no extra handling; tui_textarea maintains
                     // its own selection state
-                }
-                MouseEventKind::Moved => {
-                    // 鼠标悬停在消息区域时显示滚动条
-                    let messages_area = app.session_mgr.current().ui.messages_area;
-                    if let Some(area) = messages_area {
-                        app.session_mgr.current_mut().ui.scrollbar_hover =
-                            mouse::mouse_in_rect(&mouse, area);
-                    } else {
-                        app.session_mgr.current_mut().ui.scrollbar_hover = false;
-                    }
                 }
                 _ => {}
             }

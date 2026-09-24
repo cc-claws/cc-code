@@ -153,6 +153,7 @@ claude-blog
 claude-blog-cn
 
 *.py
+!scripts/test-hover-conpty.py
 build
 .tmp
 target

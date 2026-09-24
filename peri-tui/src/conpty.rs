@@ -32,17 +32,38 @@
 use anyhow::Result;
 #[cfg(windows)]
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(windows)]
+#[path = "conpty_host.rs"]
+mod host;
+
+static HOVER_AVAILABLE: AtomicBool = AtomicBool::new(true);
+
+pub fn hover_available() -> bool {
+    HOVER_AVAILABLE.load(Ordering::Relaxed)
+}
+
+#[cfg(windows)]
+fn tracking_sequence() -> &'static str {
+    if hover_available() {
+        ENABLE_MOUSE_TRACKING_SEQUENCE
+    } else {
+        ENABLE_LEGACY_MOUSE_TRACKING_SEQUENCE
+    }
+}
 
 /// Enable mouse tracking under ConPTY. Must be called *after*
 /// `EnterAlternateScreen` and `EnableMouseCapture` on Windows. No-op elsewhere.
 pub fn enable_mouse_tracking() -> Result<()> {
     #[cfg(windows)]
     {
+        HOVER_AVAILABLE.store(host::supports_hover(), Ordering::Relaxed);
         // 主修复：toggle MOUSE bit，强制 ConPTY 经 WriteSGR1006 通知前端。
         force_conpty_mouse_notify();
         // ANSI mouse tracking 序列（?1000/?1002/?1003/?1006）：开启点击/拖拽/悬停报告。
         enable_vt_processing()?;
-        write_console_sequence(ENABLE_MOUSE_TRACKING_SEQUENCE)?;
+        write_console_sequence(tracking_sequence())?;
         // 启用 alternate scroll (?1007h)：实测 ConPTY 下它让滚轮作为
         // Mouse(ScrollUp/ScrollDown) 事件报告（而非被吞），滚轮经 mouse arm 正常
         // 路由到消息区/面板滚动。?1007l 则滚轮 0 事件。
@@ -67,7 +88,7 @@ pub fn refresh_mouse_tracking() -> Result<()> {
         force_conpty_mouse_notify();
         // Re-send ANSI mouse tracking sequences (idempotent).
         let _ = enable_vt_processing();
-        write_console_sequence(ENABLE_MOUSE_TRACKING_SEQUENCE)?;
+        write_console_sequence(tracking_sequence())?;
         write_console_sequence(ENABLE_ALTERNATE_SCROLL_SEQUENCE)?;
     }
     Ok(())
@@ -81,7 +102,7 @@ pub fn refresh_mouse_tracking_sequences_only() -> Result<()> {
     #[cfg(windows)]
     {
         let _ = enable_vt_processing();
-        write_console_sequence(ENABLE_MOUSE_TRACKING_SEQUENCE)?;
+        write_console_sequence(tracking_sequence())?;
         write_console_sequence(ENABLE_ALTERNATE_SCROLL_SEQUENCE)?;
     }
     Ok(())
@@ -105,18 +126,25 @@ pub const ENABLE_MOUSE_TRACKING_SEQUENCE: &str = concat!(
     "\x1b[?1000h",
     // Button-event tracking: drag events.
     "\x1b[?1002h",
-    // NOTE: ?1003h (any-event tracking / hover) intentionally omitted.
-    // It causes a mouse-event flood during agent execution pauses, overflowing
-    // the ConPTY input buffer and leaking raw SGR bytes as Key(Char) events
-    // into the textarea. ?1002h already covers drag; hover is unused by the TUI.
+    // Hover: 必须在独立 InputPump 启动后启用；读取线程持续排空控制台，
+    // 队列仅保留相邻移动的最后位置，避免渲染暂停造成输入积压。
+    "\x1b[?1003h",
     // RXVT coordinate mode.
     "\x1b[?1015h",
     // SGR coordinate mode.
     "\x1b[?1006h",
 );
 
-pub const DISABLE_MOUSE_TRACKING_SEQUENCE: &str =
-    concat!("\x1b[?1006l", "\x1b[?1015l", "\x1b[?1002l", "\x1b[?1000l",);
+pub const ENABLE_LEGACY_MOUSE_TRACKING_SEQUENCE: &str =
+    "\x1b[?1003l\x1b[?1000h\x1b[?1002h\x1b[?1015h\x1b[?1006h";
+
+pub const DISABLE_MOUSE_TRACKING_SEQUENCE: &str = concat!(
+    "\x1b[?1006l",
+    "\x1b[?1015l",
+    "\x1b[?1003l",
+    "\x1b[?1002l",
+    "\x1b[?1000l",
+);
 
 /// Disable alternate-scroll mode so the wheel is never turned into arrow keys.
 pub const DISABLE_ALTERNATE_SCROLL_SEQUENCE: &str = "\x1b[?1007l";
@@ -223,7 +251,7 @@ mod tests {
     fn enable_sequence_enables_mouse_modes() {
         assert_eq!(
             ENABLE_MOUSE_TRACKING_SEQUENCE,
-            "\x1b[?1000h\x1b[?1002h\x1b[?1015h\x1b[?1006h"
+            "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h"
         );
     }
 
@@ -231,7 +259,7 @@ mod tests {
     fn disable_sequence_reverses_mouse_modes() {
         assert_eq!(
             DISABLE_MOUSE_TRACKING_SEQUENCE,
-            "\x1b[?1006l\x1b[?1015l\x1b[?1002l\x1b[?1000l"
+            "\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l"
         );
     }
 

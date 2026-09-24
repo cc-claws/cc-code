@@ -35,6 +35,8 @@ pub(crate) fn render_messages(
         let ui = &mut app.session_mgr.current_mut().ui;
         ui.messages_area = None;
         ui.message_scrollbar_metrics = None;
+        ui.message_scrollbar_area = None;
+        ui.scrollbar_hover = false;
         ui.message_scrollbar_dragging = false;
         ui.message_scrollbar_drag_origin = None;
         welcome::render_welcome(f, app, messages_area);
@@ -206,8 +208,15 @@ pub(crate) fn render_messages(
         .wrap(Wrap { trim: false });
     f.render_widget(paragraph, text_area);
 
-    // 滚动条：鼠标悬停在消息区域时显示，离开后隐藏
-    let scrollbar_active = app.session_mgr.current().ui.scrollbar_hover;
+    // 只在最右侧热区或拖拽中显示；显隐不改变正文宽度。
+    let popup_active = app.is_interaction_popup_active();
+    let ui = &mut app.session_mgr.current_mut().ui;
+    ui.message_scrollbar_area = needs_scrollbar
+        .then(|| Rect::new(inner.right().saturating_sub(1), inner.y, 1, inner.height));
+    let scrollbar_active = !popup_active
+        && (ui.scrollbar_hover
+            || ui.message_scrollbar_dragging
+            || !crate::conpty::hover_available());
     let metrics = render_message_scrollbar(f, inner, max_scroll, offset, scrollbar_active);
     let ui = &mut app.session_mgr.current_mut().ui;
     ui.message_scrollbar_metrics = metrics;
