@@ -108,6 +108,34 @@ impl AgentsMdMiddleware {
         (main_content, local_content)
     }
 
+    /// 读取**用户全局** CLAUDE.md（`~/.claude/CLAUDE.md`，缺失则回退 `~/.claude/AGENTS.md`）。
+    ///
+    /// 与 [`Self::read_frozen_content`] 的项目级读取相互独立：那是"项目上下文"，
+    /// 这是"个人规则"。供需要跨项目生效的消费者使用（如 HITL 的 Jev 语义门策略）。
+    /// 同样解析 `@import`；空文件视为不存在。
+    pub fn read_global_content() -> Option<String> {
+        let claude_dir = dirs_next::home_dir()?.join(".claude");
+        for name in ["CLAUDE.md", "AGENTS.md"] {
+            let path = claude_dir.join(name);
+            if !path.is_file() {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if content.trim().is_empty() {
+                continue;
+            }
+            let dir = path.parent().unwrap_or(Path::new("."));
+            let mut visited = HashSet::new();
+            if let Ok(canonical) = path.canonicalize() {
+                visited.insert(canonical);
+            }
+            return Some(resolve_imports(&content, dir, 3, &mut visited));
+        }
+        None
+    }
+
     /// 根据 cwd 构建候选路径列表（含默认路径 + 额外路径）
     fn candidate_paths(&self, cwd: &str) -> Vec<PathBuf> {
         let cwd = Path::new(cwd);

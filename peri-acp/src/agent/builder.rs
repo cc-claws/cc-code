@@ -58,6 +58,9 @@ pub struct AcpAgentConfig {
     pub frozen_claude_md: Option<String>,
     /// Frozen CLAUDE.local.md content.
     pub frozen_claude_local_md: Option<String>,
+    /// Session-scoped lazy Jev rule loader (distils CLAUDE.md rules on first gate use).
+    /// None = 门不携带 CLAUDE.md 策略。
+    pub jev_rule_loader: Option<Arc<peri_middlewares::hitl::jev::JevRuleLoader>>,
     /// Frozen skills summary (None = scan each turn).
     pub frozen_skill_summary: Option<String>,
     /// Frozen session date in YYYY-MM-DD (None = compute fresh each turn).
@@ -136,6 +139,7 @@ pub fn build_agent(
         system_prompt,
         frozen_claude_md,
         frozen_claude_local_md,
+        jev_rule_loader,
         frozen_skill_summary,
         frozen_date,
         event_handler,
@@ -232,11 +236,53 @@ pub fn build_agent(
         _ => permission_broker.clone(),
     };
 
+    // Jev 语义门（Auto 模式首选）。仅在**配置了 API key** 时启用；否则返回 None，
+    // Auto 模式回退到 LLM 分类器（兜底）。端点不可达不影响构造——判定时 fail-closed。
+    // Jev 语义门（Auto 模式的判定内核）。
+    //
+    // **无论有没有 API key 都要构造**：门里同时承载**确定性层**（硬黑名单、
+    // 人写的规则、只读白名单）。若因为"没配 key"就不构造门，Auto 模式会连
+    // 确定性防护一起丢掉——那是零成本的、与判定服务无关的防线。
+    // 语义层则由 `has_judge()` 单独把关：没有凭据时不发请求，落到分类器兜底。
+    // 优先级（门内保证）：人写下的配置 > CLAUDE.md 提炼。
+    let jev_config = peri_middlewares::hitl::jev::config::JevConfig::from_env();
+    let jev_gate: Option<std::sync::Arc<peri_middlewares::hitl::JevGate>> =
+        match peri_middlewares::hitl::JevGate::with_loader(jev_config.clone(), jev_rule_loader) {
+            Ok(gate) => {
+                let has_key = jev_config.api_key().is_some();
+                tracing::info!(
+                    endpoint = %jev_config.endpoint,
+                    model = %jev_config.model,
+                    scope = ?jev_config.gate_scope,
+                    judge_enabled = has_key,
+                    "Jev 门已启用（确定性层始终生效；语义层{}）",
+                    if has_key {
+                        "已启用"
+                    } else {
+                        "无凭据，将回退分类器"
+                    }
+                );
+                if !has_key {
+                    tracing::warn!(
+                        env = %jev_config.api_key_env,
+                        "未配置 Jev API key（{}）：确定性层仍生效，语义判定回退到 LLM 分类器",
+                        jev_config.api_key_env
+                    );
+                }
+                Some(gate)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Jev 门初始化失败，Auto 模式回退到 LLM 分类器");
+                None
+            }
+        };
+
     let hitl = HumanInTheLoopMiddleware::with_shared_mode(
         effective_broker.clone(),
         default_requires_approval,
         permission_mode.clone(),
         auto_classifier,
+        jev_gate,
     );
 
     // AskUser 工具：使用原始 TUI broker（permission_broker），不使用 MultiplexBroker。

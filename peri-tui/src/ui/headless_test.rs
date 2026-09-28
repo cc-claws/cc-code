@@ -930,13 +930,8 @@ async fn test_app_default_permission_mode_is_bypass() {
 async fn test_permission_mode_store_and_load() {
     let (app, _handle) = App::new_headless(80, 24).await;
     use peri_middlewares::prelude::PermissionMode;
-    for mode in [
-        PermissionMode::Default,
-        PermissionMode::DontAsk,
-        PermissionMode::AcceptEdit,
-        PermissionMode::AutoMode,
-        PermissionMode::Bypass,
-    ] {
+    // 权限模式只剩两档
+    for mode in [PermissionMode::AutoMode, PermissionMode::Bypass] {
         app.services.permission_mode.store(mode);
         assert_eq!(
             app.services.permission_mode.load(),
@@ -951,18 +946,20 @@ async fn test_permission_mode_store_and_load() {
 async fn test_permission_mode_cycle() {
     let (app, _handle) = App::new_headless(80, 24).await;
     use peri_middlewares::prelude::PermissionMode;
-    // cycle 从 Bypass 开始 → Default
-    let next = app.services.permission_mode.cycle();
-    assert_eq!(next, PermissionMode::Default);
-    // 继续循环 → AcceptEdit（DontAsk 已从循环中跳过）
-    let next2 = app.services.permission_mode.cycle();
-    assert_eq!(next2, PermissionMode::AcceptEdit);
+    // 从 Auto 开始 → Bypass → Auto（只剩两档）
+    app.services.permission_mode.store(PermissionMode::AutoMode);
+    assert_eq!(app.services.permission_mode.cycle(), PermissionMode::Bypass);
+    assert_eq!(
+        app.services.permission_mode.cycle(),
+        PermissionMode::AutoMode
+    );
 }
 
 #[tokio::test]
 async fn test_status_bar_shows_permission_mode() {
+    use peri_middlewares::prelude::PermissionMode;
     let (mut app, mut handle) = App::new_headless(120, 24).await;
-    // 默认 Bypass → 应显示 "Bypass"
+    app.services.permission_mode.store(PermissionMode::Bypass);
     handle
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
@@ -978,41 +975,28 @@ async fn test_status_bar_shows_permission_mode() {
 async fn test_status_bar_updates_after_mode_switch() {
     use peri_middlewares::prelude::PermissionMode;
     let (mut app, mut handle) = App::new_headless(120, 24).await;
-    // 切换到 Default - 不显示标签
-    app.services.permission_mode.store(PermissionMode::Default);
-    handle
-        .terminal
-        .draw(|f| crate::ui::main_ui::render(f, &mut app))
-        .unwrap();
-    assert!(
-        !handle.contains("DEFAULT"),
-        "Default 模式不应显示标签，实际:\n{}",
-        handle.snapshot().join("\n")
-    );
 
-    // 切换到 AcceptEdit
-    app.services
-        .permission_mode
-        .store(PermissionMode::AcceptEdit);
-    handle
-        .terminal
-        .draw(|f| crate::ui::main_ui::render(f, &mut app))
-        .unwrap();
-    assert!(
-        handle.contains("Accept Edit"),
-        "切换后状态栏应显示 Accept Edit，实际:\n{}",
-        handle.snapshot().join("\n")
-    );
-
-    // 切换到 AutoMode
+    // Auto
     app.services.permission_mode.store(PermissionMode::AutoMode);
     handle
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
     assert!(
-        handle.contains("Auto Mode"),
-        "切换后状态栏应显示 Auto Mode，实际:\n{}",
+        handle.contains("Auto"),
+        "状态栏应显示 Auto，实际:\n{}",
+        handle.snapshot().join("\n")
+    );
+
+    // Bypass
+    app.services.permission_mode.store(PermissionMode::Bypass);
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        handle.contains("Bypass"),
+        "切换后状态栏应显示 Bypass，实际:\n{}",
         handle.snapshot().join("\n")
     );
 }
@@ -1021,17 +1005,13 @@ async fn test_status_bar_updates_after_mode_switch() {
 async fn test_shift_tab_cycles_permission_mode() {
     use peri_middlewares::prelude::PermissionMode;
     let (app, _handle) = App::new_headless(120, 24).await;
-    // 初始 Bypass
-    assert_eq!(app.services.permission_mode.load(), PermissionMode::Bypass);
-    // 模拟 Shift+Tab 按键效果（直接调用 cycle）
+    app.services.permission_mode.store(PermissionMode::AutoMode);
+    // 模拟 Shift+Tab（直接调用 cycle）：Auto → Bypass → Auto
     let next = app.services.permission_mode.cycle();
-    assert_eq!(next, PermissionMode::Default, "Bypass 之后应为 Default");
-    assert_eq!(app.services.permission_mode.load(), PermissionMode::Default);
-    // 继续循环 3 次回到 Bypass（DontAsk 已从循环跳过）
-    app.services.permission_mode.cycle(); // AcceptEdit
-    app.services.permission_mode.cycle(); // AutoMode
-    let final_mode = app.services.permission_mode.cycle(); // Bypass
-    assert_eq!(final_mode, PermissionMode::Bypass, "循环 4 次回到起点");
+    assert_eq!(next, PermissionMode::Bypass, "Auto 之后应为 Bypass");
+    assert_eq!(app.services.permission_mode.load(), PermissionMode::Bypass);
+    let back = app.services.permission_mode.cycle();
+    assert_eq!(back, PermissionMode::AutoMode, "循环两次回到起点");
 }
 
 #[tokio::test]

@@ -18,13 +18,13 @@ pub use agent_client_protocol_schema::{
 };
 
 /// Parse a mode ID string into a `PermissionMode`.
+///
+/// 只剩两档；**未知取值一律回退 `AutoMode`**（默认档），
+/// 避免一个陈旧/异常的值意外滑进 `Bypass`。
 pub fn parse_permission_mode(mode_id: &str) -> PermissionMode {
     match mode_id {
-        "dont_ask" => PermissionMode::DontAsk,
-        "accept_edit" => PermissionMode::AcceptEdit,
-        "auto" => PermissionMode::AutoMode,
         "bypass" => PermissionMode::Bypass,
-        _ => PermissionMode::Default,
+        _ => PermissionMode::AutoMode,
     }
 }
 
@@ -45,21 +45,12 @@ pub fn apply_thinking_effort(peri_config: &RwLock<PeriConfig>, effort: &str) {
 pub fn build_mode_state(pm: &SharedPermissionMode) -> SessionModeState {
     let current = pm.load();
     let current_id = match current {
-        PermissionMode::Default => "default",
-        PermissionMode::DontAsk => "dont_ask",
-        PermissionMode::AcceptEdit => "accept_edit",
         PermissionMode::AutoMode => "auto",
         PermissionMode::Bypass => "bypass",
     };
     let all_modes = vec![
-        SessionMode::new(SessionModeId::new("default"), "Default")
-            .description("All sensitive tools require approval"),
-        SessionMode::new(SessionModeId::new("dont_ask"), "Don't Ask")
-            .description("Default deny all bash"),
-        SessionMode::new(SessionModeId::new("accept_edit"), "Accept Edit")
-            .description("Allow filesystem edits"),
-        SessionMode::new(SessionModeId::new("auto"), "Auto Mode")
-            .description("LLM decides approval"),
+        SessionMode::new(SessionModeId::new("auto"), "Auto")
+            .description("Semantic gate decides per call; asks only when unsure"),
         SessionMode::new(SessionModeId::new("bypass"), "Bypass").description("Allow everything"),
     ];
     SessionModeState::new(SessionModeId::new(current_id), all_modes)
@@ -92,17 +83,11 @@ pub fn build_config_options(
 
     // ── Mode (category: mode) ──
     let current_mode_id = match current_mode {
-        PermissionMode::Default => "default",
-        PermissionMode::DontAsk => "dont_ask",
-        PermissionMode::AcceptEdit => "accept_edit",
         PermissionMode::AutoMode => "auto",
         PermissionMode::Bypass => "bypass",
     };
     let mode_options = vec![
-        SessionConfigSelectOption::new(SessionConfigValueId::new("default"), "Default"),
-        SessionConfigSelectOption::new(SessionConfigValueId::new("dont_ask"), "Don't Ask"),
-        SessionConfigSelectOption::new(SessionConfigValueId::new("accept_edit"), "Accept Edit"),
-        SessionConfigSelectOption::new(SessionConfigValueId::new("auto"), "Auto Mode"),
+        SessionConfigSelectOption::new(SessionConfigValueId::new("auto"), "Auto"),
         SessionConfigSelectOption::new(SessionConfigValueId::new("bypass"), "Bypass"),
     ];
     options.push(

@@ -72,6 +72,9 @@ pub struct FrozenSessionData {
     pub claude_md: Option<String>,
     /// Frozen content of CLAUDE.local.md, None if no file.
     pub claude_local_md: Option<String>,
+    /// Frozen Jev rules loader, which lazily distils safety rules from CLAUDE.md.
+    /// 惰性：只有门第一次真的判定时才调用模型。
+    pub jev_rule_loader: Option<Arc<peri_middlewares::hitl::jev::JevRuleLoader>>,
     /// Frozen skills summary string, None if no skills.
     pub skill_summary: Option<String>,
     /// Session creation date in YYYY-MM-DD format.
@@ -435,6 +438,7 @@ pub async fn execute_prompt(
         frozen_claude_local_md,
         frozen_skill_summary,
         frozen_date,
+        frozen_jev_rules,
     ) = if let Some(ref f) = frozen {
         // 使用 session 创建时冻结的数据，跳过重建
         (
@@ -443,6 +447,7 @@ pub async fn execute_prompt(
             f.claude_local_md.clone(),
             f.skill_summary.clone(),
             Some(f.date.clone()),
+            f.jev_rule_loader.clone(),
         )
     } else {
         // Legacy: per-turn rebuild（子 Agent 等场景未提供 frozen 数据时使用）
@@ -455,7 +460,7 @@ pub async fn execute_prompt(
             None,
             language.as_deref(),
         );
-        (sp, None, None, None, None)
+        (sp, None, None, None, None, None)
     };
 
     // Build register/deregister closures for SubAgentMiddleware
@@ -496,6 +501,7 @@ pub async fn execute_prompt(
             frozen_claude_local_md,
             frozen_skill_summary,
             frozen_date,
+            jev_rule_loader: frozen_jev_rules,
             event_handler,
             cancel: cancel.clone(),
             permission_mode: permission_mode.clone(),

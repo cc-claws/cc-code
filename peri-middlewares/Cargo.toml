@@ -49,3 +49,5 @@ lsp-types.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 filetime = "0.2"
+# 端到端探针需要看到 tracing 输出（否则 warn! 会被静默丢弃，无从排查）
+tracing-subscriber.workspace = true

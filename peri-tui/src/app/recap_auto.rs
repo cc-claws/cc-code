@@ -200,7 +200,7 @@ impl AutoRecapState {
 
     /// 终端重新聚焦：取消未触发的定时，in-flight 结果按 revision 丢弃
     pub fn on_focus_gained(&mut self) {
-        tracing::info!("auto_recap: 终端聚焦，取消待触发");
+        tracing::debug!("auto_recap: 终端聚焦，取消待触发");
         self.unfocused_since = None;
         self.scheduled = false;
         self.retry_at = None;
@@ -213,7 +213,7 @@ impl AutoRecapState {
         if self.unfocused_since.is_none() {
             self.unfocused_since = Some(self.now());
         }
-        tracing::info!(
+        tracing::debug!(
             enabled = self.enabled,
             completed_turns = self.completed_turns,
             delay_secs = configured_recap_delay().as_secs(),
