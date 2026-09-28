@@ -266,7 +266,74 @@ fn push_wrapped_line(
     }
 }
 
-/// 便捷包装：单一样式的纯文本行（先做终端转义清理）预折行，续行固定 4 列悬挂缩进。
+/// 剥离 Line 的前导空白，返回 (前导空白字符串, 首个非空白 span 的样式, 剩余 Line)。
+///
+/// 前导空白无内容语义，但需保留其样式（如 `!` 命令块的整行背景色），故一并返回。
+fn take_leading_blank(line: Line<'static>) -> (String, Style, Line<'static>) {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let mut lead = String::new();
+    let mut lead_style = Style::default();
+    let mut lead_style_set = false;
+    let mut rest: Vec<Span<'static>> = Vec::new();
+    let mut leading = true;
+    for span in line.spans {
+        if !leading {
+            rest.push(span);
+            continue;
+        }
+        let mut kept = String::new();
+        for g in span.content.graphemes(true) {
+            if leading && g.chars().all(char::is_whitespace) {
+                if !lead_style_set {
+                    lead_style = span.style;
+                    lead_style_set = true;
+                }
+                lead.push_str(g);
+            } else {
+                leading = false;
+                kept.push_str(g);
+            }
+        }
+        if !kept.is_empty() {
+            rest.push(Span::styled(kept, span.style));
+        }
+    }
+    (lead, lead_style, Line::from(rest))
+}
+
+/// 同 [`push_wrapped_line`]，但保留原行的前导空白缩进层级。
+///
+/// `wrap_line_spans_rich` 会 trim 每段行首空白，导致带缩进的长行（美化 JSON / YAML /
+/// 缩进代码）折行后丢失缩进、与同级别相邻行错位。此变体先剥离前导空白，按扣除其
+/// 宽度后的可用宽度折行，再把缩进拼回每个输出行的前缀之后，保持层级一致。
+fn push_wrapped_line_keep_lead(
+    out: &mut Vec<Line<'static>>,
+    line: Line<'static>,
+    first_prefix: &str,
+    cont_prefix: &str,
+    prefix_style: Style,
+    content_width: usize,
+) {
+    let (lead, lead_style, rest) = take_leading_blank(line);
+    let lead_width = UnicodeWidthStr::width(lead.as_str());
+    let inner = content_width.saturating_sub(lead_width).max(1);
+    for (j, wline) in wrap_line_spans(rest, inner).into_iter().enumerate() {
+        let prefix = if j == 0 { first_prefix } else { cont_prefix };
+        let mut spans = Vec::with_capacity(wline.spans.len() + 2);
+        if !prefix.is_empty() {
+            spans.push(Span::styled(prefix.to_string(), prefix_style));
+        }
+        if !lead.is_empty() {
+            spans.push(Span::styled(lead.clone(), lead_style));
+        }
+        spans.extend(wline.spans);
+        out.push(Line::from(spans));
+    }
+}
+
+/// 便捷包装：单一样式的纯文本行（先做终端转义清理）预折行，续行固定 4 列悬挂缩进，
+/// 并保留原行的前导空白缩进。
 fn push_prefixed_text(
     out: &mut Vec<Line<'static>>,
     text: &str,
@@ -276,7 +343,7 @@ fn push_prefixed_text(
     content_width: usize,
 ) {
     let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
-    push_wrapped_line(out, line, first_prefix, "    ", prefix_style, content_width);
+    push_wrapped_line_keep_lead(out, line, first_prefix, "    ", prefix_style, content_width);
 }
 
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
@@ -449,7 +516,7 @@ fn render_batch_summary(
             // final_result 行（首行前缀 "     ⎿ " = 7 列，续行对齐 7 列）
             if let Some(ref result) = agent.final_result {
                 if !result.is_empty() {
-                    push_wrapped_line(
+                    push_wrapped_line_keep_lead(
                         &mut lines,
                         Line::from(Span::styled(
                             sanitize_display_text(result),
@@ -507,7 +574,7 @@ fn render_ask_user_block(content: &str, is_error: bool, width: usize) -> Vec<Lin
         if text.is_empty() {
             continue;
         }
-        push_wrapped_line(
+        push_wrapped_line_keep_lead(
             &mut lines,
             Line::from(Span::styled(
                 text,
@@ -657,7 +724,7 @@ fn shell_output_lines(
         .into_iter()
         .map(|span| span.patch_style(bg_style))
         .collect();
-    push_wrapped_line(
+    push_wrapped_line_keep_lead(
         out,
         Line::from(content),
         prefix,
@@ -1408,7 +1475,7 @@ pub fn render_view_model_with_links(
                         sanitize_display_text(line),
                         Style::default().fg(theme::DIM),
                     ));
-                    push_wrapped_line(
+                    push_wrapped_line_keep_lead(
                         &mut lines,
                         l,
                         "",
@@ -1421,7 +1488,7 @@ pub fn render_view_model_with_links(
                         sanitize_display_text(line),
                         Style::default().fg(theme::MUTED),
                     ));
-                    push_wrapped_line(
+                    push_wrapped_line_keep_lead(
                         &mut lines,
                         l,
                         "",
@@ -1459,7 +1526,7 @@ pub fn render_view_model_with_links(
                     sanitize_display_text(line),
                     Style::default().fg(theme::WARNING),
                 ));
-                push_wrapped_line(
+                push_wrapped_line_keep_lead(
                     &mut lines,
                     l,
                     "",
@@ -1522,7 +1589,7 @@ pub fn render_view_model_with_links(
                         if text.is_empty() {
                             continue;
                         }
-                        push_wrapped_line(
+                        push_wrapped_line_keep_lead(
                             &mut lines,
                             Line::from(Span::styled(text, Style::default().fg(entry_color))),
                             "  ⎿ ",
