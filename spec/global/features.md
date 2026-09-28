@@ -14,6 +14,10 @@
 - **系统提示词段落化:** 12 个 .md 段落文件（8 静态+4 feature-gated），PromptFeatures 条件注入，include_str! 编译时嵌入
 - **消息管线统一:** MessagePipeline 唯一入口，PipelineAction 枚举，ToolStart+ToolEnd 事件拆分
 - **尾部重建:** reconcile_tail() 方法，Done/Interrupted 时触发，RebuildAll 只替换尾部
+- **工具参数 Schema 预校验:** 对齐 Claude Code `formatZodValidationError` 风格，结构化分项输出缺失参数 / 意外参数 / 类型不符；`suggest_tool_mismatch` 启发式诊断（基于参数特征指纹对 WebFetch/Bash/Grep/Read/Agent 给出纠偏建议）；`SchemaFailureTracker` 熔断器（同一工具连续 2 次校验失败即拦截，防盲目重试循环）
+- **工具动作签名循环检测:** 连续 3 轮相同工具动作时注入纠正消息，打断重复循环
+- **Anthropic 适配器（自适应兼容）:** 非流式响应自适应解析反向代理返回的 OpenAI 格式（`choices` / `message` / `tool_calls`），缺 `content` 时回退解析；SSE 流式自适应解析
+- **/recap 会话回顾:** 独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history、支持 Ctrl+C 取消
 
 ## 中间件（peri-middlewares）
 
@@ -29,17 +33,21 @@
 - **Micro-compact:** 零 API 调用轻量压缩，可压缩工具白名单 + 时间衰减清除，图片/文档替换
 - **Full Compact:** 9 段结构化摘要模板，工具对完整性保护，PTL 降级重试
 - **LLM 重试:** RetryableLLM<L> 装饰器，指数退避+25%随机抖动，LlmRetrying 事件通知
-- **进程内文件搜索:** grep+grep-regex crate 替代外部 rg 进程，WalkParallel 多线程并行，15 秒超时
+- **rg CLI 双引擎文件搜索:** 优先外部 ripgrep 二进制，按 `PERI_RG_PATH` → exe 同级 `bin/rg(.exe)` → 系统 `PATH`（直接执行 `rg --version` 探测，不依赖 which/where）顺序解析，缓存到进程级 `OnceLock`；探测失败回退纯 Rust 引擎（grep + grep-regex crate，WalkParallel 多线程并行，15 秒超时）。npm install.js 自动下载 rg 预编译二进制；Grep/Glob 双引擎输出格式对齐
 - **MCP 中间件:** McpMiddleware 作为 MCP Client 连接外部服务器（stdio/HTTP），`mcp__{server}__{tool}` 动态工具注册，`mcp_read_resource` 资源读取工具，双层配置合并（全局 settings.json + 项目 .mcp.json），${VAR} 环境变量展开
 - **MCP 运行时管理:** /mcp 面板（Browse/Tools/Resources 三视图），后台连接池初始化不阻塞 TUI，重连/删除服务器
 - **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.peri/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴），回调服务器注入并严格校验 rmcp 生成的 state 参数（CSRF 纵深防御）
 - **工具名称对齐 Claude Code:** 10 个内置工具名称完全对齐（Read/Write/Edit/Glob/Grep/Agent 等），Grep 重构为结构化接口，HITL 默认审批清单同步更新
+- **RTK 代理双轨制:** 探测外部 `rtk` 二进制（where/which），对 git/cargo/npm/pnpm/npx/yarn/bun/docker/kubectl/pytest/python/php/go/dotnet/tsc/eslint/gh/find/grep/rg/ls/tree/cat/diff/curl/wget 等 23 类命令执行 `rtk rewrite` 重写以降低输出 Token；失败回退原始命令；过滤 RTK 宿主 stderr 噪音
+- **output_filter 噪音清洗:** RTK git status 噪音清洗（`clean — nothing to commit`）；移除毒性通用折叠（避免吞并代码上下文），仅对 git status 做针对性剔除
+- **Read 多模态读取:** 图片读取 + 魔数校验（Magic Bytes）防伪造图片；工具包装器透传 invoke_content 保证多模态内容不丢失
+- **Bash 跨平台健壮性:** 多行命令（含字面换行）在 Windows 改走 Git Bash 避免 `cmd /C` 截断；管道超时保留已累积输出；后台 shell 任务在 fork 常驻子进程后不再永久挂起；移除 Git Bash fallback 重试标记（`[Retried with Git Bash]`）混入上下文
 
 ## TUI 界面（peri-tui）
 
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
-- **模型别名映射:** Opus/Sonnet/Haiku 三级别名，`/model` 三 Tab 面板，`/model <alias>` 快捷切换
-- **TUI 命令:** `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩、`/config` 全局配置、`/cost` 费用统计、`/context` 上下文使用率、`/memory` 编辑 CLAUDE.md、`/mcp` MCP 管理面板；Command trait 支持 alias 机制
+- **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
+- **TUI 命令:** 共 30 个 TUI 命令 + 7 个 ACP 命令；含 `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩、`/config` 全局配置、`/cost` 费用统计、`/context` 上下文使用率、`/memory` 编辑 CLAUDE.md、`/mcp` MCP 管理面板、`/recap`(别名 away/catchup) 会话回顾、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/tasks`、`/agent`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/agents`、`/exit`(quit)、`/model`、`/history`(resume)；Command trait 支持 alias 机制
 - **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
 - **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
 - **AskUser 弹窗:** `AskUserBatch` 事件触发问答弹窗，支持批量问题，单选/多选
@@ -62,7 +70,7 @@
 - **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头
 - **App 结构体拆分:** App 拆分为 AppCore/AgentComm/LangfuseState 三个子结构体（共 37 字段），对外 API 通过转发方法保持不变
 - **Widget 独立 crate:** peri-widgets 提供 11 个通用组件（BorderedPanel、ScrollableArea、SelectableList、InputField、TabBar、RadioGroup、CheckboxGroup、FormState、MarkdownRenderer、Spinner、ToolCall），零内部依赖
-- **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示
+- **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示；完成态对齐 Claude Code 风格（`✻ {verb} for {elapsed} · done {HH:MM}`）
 - **智能折叠策略:** 只读工具默认折叠、写操作默认展开，SubAgent 步数超过 4 自动折叠
 - **syntect 代码高亮:** markdown-highlight feature flag 控制，base16-ocean.dark 主题，单行代码块不高亮
 - **鼠标文字选区:** TextSelection 模块管理拖拽状态，WrappedLineInfo 换行映射，Ctrl+C 优先级链（选区复制>中断>退出），REVERSED 反色高亮
@@ -70,6 +78,19 @@
 - **Skills / 触发:** Skills 触发键从 # 统一到 / 前缀，提示浮层合并命令组+Skills 组，命令优先
 - **5 级权限模式:** Default/AcceptEdits/Auto/BypassPermissions/DontAsk，Shift+Tab 循环切换，Arc<AtomicU8> 无锁共享，状态栏实时显示
 - **Background Agent:** Agent 工具 `run_in_background` 参数触发后台执行，最多 3 并发，`mpsc::unbounded_channel` 通知，完成后 Human 消息注入，主 agent Done 后自动 continuation，ToolBlock 样式显示，状态栏 `[BG: N]` 指示器
+- **输入泵（InputPump）:** 独立后台输入泵隔离 Windows 控制台重入/阻塞风险，安全启用鼠标悬停（`MouseEventKind::Moved`）；有界事件批处理（EventReader）合并高频滚轮事件防掉帧；滚动条滑块相对拖拽消除点击漂移
+- **执行中消息队列 + 按轮次 steering:** agent 执行期间输入的消息进入待发队列，按轮次以增量 StateSnapshot 注入执行循环，不打断当前执行
+- **粘贴本机图片路径:** 含 `file://` URL 或引号包裹绝对路径自动转附件；Alt+V 快捷键粘贴图片；Windows 8.3 短文件名波浪号不再误拦截
+- **Markdown 超链接点击:** 点击超链接打开默认浏览器（保留 dest_url + 字符级命中区，跨平台）
+- **悬挂缩进（hanging indent）:** 列表项/引用块/长消息气泡续行对齐；工具行超长折行续行缩进；消息区长行折行悬挂缩进
+- **动态终端标题（Status Surface）:** 对齐 OpenAI Codex 规范，按生命周期状态（Working/Thinking/ActionRequired/Idle）更新终端标题，获取会话主题后追加项目名
+- **状态栏 Prompt Cache 命中率:** 替代瞬时 CPU 指标（分级配色），保留 MEM
+- **终端宽度变化 Markdown 不重复渲染:** 传统控制台歧义字符双列残影修复
+- **Windows 子进程控制台隔离:** `CREATE_NO_WINDOW` 消除 PHP 等子进程代码页切换触发的全屏闪屏
+- **i18n 补全:** 附件栏标题与 Del 提示接入 i18n
+- **Sticky Header 已禁用:** v0.6.71 起高度固定 0（保留实现，不再展示）
+- **权限模式循环:** Default → AcceptEdit → AutoMode → Bypass（DontAsk 跳过）
+- **PageUp/PageDown 半页滚动:** 20 行（输入框为空时生效）
 
 ## ACP 服务层（peri-acp）
 
@@ -91,9 +112,12 @@
 ## 基础设施
 
 - **SQLite 线程持久化:** sqlx SqlitePool(max=5) 原生异步连接池，WAL 模式，`append_messages` 事务保证 crash-safe，`StateSnapshot` 事件驱动增量写入，数据库文件 + WAL/SHM 应用 0o600 权限（Unix），grandparent 目录权限校验
+- **会话回顾/总结持久化:** ThreadMeta 新增 `latest_recap` 与 `last_task_summary`（TaskSummary { verb, elapsed_ms, done_at }）字段并落库，`-c`/`-r` 恢复会话时 recap 与任务完成总结行不再丢失；SQLite 幂等 ALTER TABLE 迁移；ThreadStore 提供 update_latest_recap / update_last_task_summary 单列 UPDATE（避免重写 ~1MB cached_context）
 - **OpenTelemetry 追踪:** 内置 OTLP HTTP 导出，`OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量控制开关，tracing-opentelemetry 桥接，兼容 Jaeger
 - **结构化日志:** `RUST_LOG` 级别控制，`RUST_LOG_FORMAT=json` 切换 JSON 格式
 - **配置持久化:** `~/.peri/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
+- **日志路径迁移:** 日志默认写入 `~/.cc-code/logs`
+- **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）
 
 ---
-*最后更新: 2026-06-28 — 补充全局屏幕选区、Windows Git Bash fallback、文件权限加固、MCP OAuth state 校验*
+*最后更新: 2026-09-28 — 补齐至 v0.6.80：新增 rg 双引擎搜索、工具 Schema 预校验与循环检测、RTK 代理双轨制、输入泵/消息队列 steering、悬挂缩进、动态终端标题、/recap 会话回顾与持久化；修正四档模型别名与 30 个 TUI 命令清单*

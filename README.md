@@ -77,12 +77,34 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **Auto Compact** | Long sessions auto-compressed, stays fast and cheap |
 | **Sub-Agent Concurrency** | Background sub-agents run in parallel with fork and background modes |
 | **HITL Approval** | Sensitive operations auto-intercepted with auto-classifier and shared-mode |
+| **Dual-Engine File Search** | Grep/Glob prefer the external ripgrep binary, falling back to the built-in Rust engine |
 | **Nobody Coding** | 99% of code produced by DeepSeek, Mimo, and GLM — humans decide what, AI figures out how |
 
 ### v0.6.x New Features
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Session Recap Persistence** | v0.6.80 | Recap and task-summary lines persist to `ThreadMeta` (`latest_recap`/`last_task_summary`), no longer lost on restart |
+| **/recap Command & Auto Recap** | v0.6.76 | `/recap` (`/away` `/catchup`) summarizes goal→tasks→next step via aux_model; auto-recap on terminal blur + ≥3 turns + 60s idle (`/config` toggle, `PERI_AUTO_RECAP_*` env); non-streaming Anthropic responses adapt to reverse-proxy OpenAI format |
+| **Tool Schema Validation & Input Pump** | v0.6.75 | Human-readable schema errors aligned with Claude Code's `formatZodValidationError` + tool-mismatch heuristics (`suggest_tool_mismatch`) + failure circuit breaker; dedicated InputPump safely enables mouse hover and fixes scrollbar drag |
+| **RTK Output Filtering** | v0.6.74 | Filters noisy RTK git status (`clean — nothing to commit`) and drops toxic generic folding that swallowed code context |
+| **Windows Console Isolation & Scroll Debounce** | v0.6.73 | `CREATE_NO_WINDOW` isolates child consoles, eliminating full-screen flicker from PHP etc.; wheel debounce and smooth scrollbar thumb drag on long content |
+| **Clickable Markdown Links** | v0.6.72 | Markdown hyperlinks in the message area open the default browser cross-platform |
+| **UI Polish** | v0.6.71 | Removed sticky header pinning of top messages; attachment bar title and Del hint localized via i18n |
+| **Model Switch Fix & Palette Unification** | v0.6.70 | Fixed model switch before first message not taking effect; deprecated `Ctrl+T`/`Alt+M` cycling, unified on command palette (`Ctrl+P`/`Alt+P`) |
+| **Tool Call Reliability** | v0.6.69 | Boundary prompts + field-level param validation + action-loop detection; Windows multiline commands via Git Bash; generic duplicate line/block collapsing |
+| **Image Magic-Byte Validation** | v0.6.68 | Read validates image magic bytes against fake images; hanging indent for long paragraph continuations; Windows 8.3 short-name tildes no longer mis-flagged |
+| **Queued Messages & Steering** | v0.6.66 | Messages typed during execution queue and inject per-turn (steering, non-interrupting); pasted local image paths auto-convert to attachments |
+| **RTK Stderr Cleanup** | v0.6.64 | Cleans noisy stderr from the RTK external host |
+| **Local Command Block Styling** | v0.6.63 | Aligned local command block rendering |
+| **Prompt Cache Hit Rate** | v0.6.62 | Status bar shows prompt cache hit rate (replacing instantaneous CPU); removed redundant low-hit warning bubble |
+| **Dynamic Terminal Title** | v0.6.60 | Dynamic terminal title (Status Surface) aligned with OpenAI Codex spec |
+| **Alt+V Image Paste** | v0.6.59 | `Alt+V` shortcut pastes image attachments |
+| **Windows Console Artifact Fix** | v0.6.58 | Fixed double-column ghosting from ambiguous-width chars in legacy Windows console + Markdown table viewport overflow |
+| **Multimodal Tool Wrapper Fix** | v0.6.57 | Fixed tool wrapper dropping multimodal image content, restoring Read image recognition |
+| **Multimodal Image Read** | v0.6.56 | Read tool supports multimodal image reading |
+| **Background Shell Fix** | v0.6.55 | Fixed resident subprocess causing background shell tasks to run forever |
+| **Flicker-Free Lifecycle** | v0.6.54 | Eliminated terminal clear-screen flicker on agent Bash prompts and lifecycle transitions |
 | **Single-Line Tool Truncation** | v0.6.53 | Long tool headers truncated gracefully with `…` on a single line, preventing vertical viewport clutter |
 | **Claude Code Style Spinner Summary** | v0.6.53 | Aligned summary verb & completion time (`✻ {verb} for {elapsed} · done {HH:MM}`) with cleaner loading alignment |
 | **Status Bar Duration Padding** | v0.6.52 | `{:02}` zero-padded seconds eliminate text jitter; standard single-char emoji prevents offset misalignment |

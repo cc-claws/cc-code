@@ -1,4 +1,4 @@
-# Perihelion Devlog — March 20 – May 20, 2026
+# Perihelion Devlog — March 20 – May 20, 2026（附 cc-code 时代番外）
 
 ## March 20 · Hello World
 
@@ -358,3 +358,40 @@ Compact 从 agent 内嵌逻辑迁移到 CompactMiddleware（before_model hook）
 **总计：730 个 commit，60 天，9 周。**
 
 从 ReAct 循环的第一行代码到 Anthropic 缓存 98.5%，从 Relay Server 的远程控制到插件商店的开张，从 peri-widgets 组件库的诞生到 acpx-g 的 22+ 轮设计评审，从 ACP 协议骨架到 TUI/IDE 平权的完整服务层，从硬编码主题到可插拔的 ThemeMarkdownAdapter，从粗糙的 Setup 向导到带语言选择和真实连接验证的 onboard 流程。**这不是一个 sprint——这是一段旅程。Perihelion 从 0 到 1，再到 1.0。**
+
+---
+
+## 番外 · cc-code 时代（2026 年 6 月 – 9 月）
+
+九周缩影之后，项目换了个名字重新出发——**cc-code**。6 月 25 日仓库以「Initial commit: cc-code」重置，npm 包从 `v0.6.13` 起跳。此后三个月，约 260 次提交把项目从「作者的玩具」推向「别人能装、能用、能在 Windows 上跑一整天」。
+
+### 六月 · 装进 npm，走向世界
+
+关键一跃是**分发形态的改变**：从源码编译安装转为 `npm install -g cc-code`，`install.js` 自动下载对应平台的预编译二进制。伴随而来的是 Windows 生态的持续填坑（`cmd /C` 引号语义、Git Bash fallback、控制台代码页、流式输出编码）与 **i18n 落地**——中英双语 `/lang` 切换，面板文案统一接入 `lc.tr()`。
+
+命令行也迎来一波扩充：`/commit` 一键提交、`/review` PR 审查、`/export` 导出对话、**Ctrl+B 前台 shell 后台化**、`/gc` 手动内存回收。6 月 27 日还做了一轮安全加固（sqlite/配置目录权限、MCP OAuth 回调 state 校验、ACP session 归属检查）。
+
+### 七月 · 模型自由与界面的骨架
+
+主题是**多 Provider 平权**。`v0.6.39` 起模型选择值改用 `provider_id::alias` 格式，切换模型携带 Provider 上下文，OpenAI / Anthropic / DeepSeek / GLM 之间热切换不再串味；`/model` 命令改为从当前 Provider **动态收集非空 alias**，不再硬编码三选一。权限模式循环也定下最终语义——`Default → AcceptEdit → AutoMode → Bypass`，**跳过 DontAsk**，状态栏给出 `(Shift+Tab to cycle)` 提示。
+
+状态栏本身重构为 **codebuddy-hud 风格**的动态 2-3 行布局，支持多工具并行展示。后台 shell 补齐「人机感」：超时自动后台化、Ctrl+B 先聚焦入口再打开面板、面板内显示已运行时长。
+
+### 八月 · 静默期
+
+没有提交。像一次深呼吸。
+
+### 九月 · 十四个版本的大爆发
+
+从 `v0.6.48` 到 `v0.6.80`，一个月连发十余版，是继 5 月之后最密集的冲刺。几条主线：
+
+- **工具系统换引擎**：Grep/Glob 引入 **rg CLI 双引擎**（外部 ripgrep 优先，回退进程内 Rust 引擎），npm 安装时自动捎带 rg 二进制；`normalize_params` 感知工具名，防止篡改 path 参数。
+- **输出压缩双轨制**：接入 **RTK 代理**，对 git/cargo/npm/docker 等 23 类命令执行 `rtk rewrite` 降低 Token；`output_filter` 增加 RTK git status 噪音清洗，同时移除会吞并代码上下文的「毒性通用折叠」。
+- **多模态与识图**：Read 工具支持图片读取并加 **魔数（Magic Bytes）校验**防伪图，工具包装器补齐 `invoke_content` 透传。
+- **TUI 输入与渲染打磨**：引入**独立输入泵 InputPump** 隔离 Windows 控制台重入风险，安全启用鼠标悬停；有界事件批处理合并高频滚轮；滚动条滑块相对拖拽；悬挂缩进（列表/引用块/长气泡续行）；Markdown 超链接点击唤起浏览器；动态终端标题 Status Surface；状态栏 CPU 指标换成 **Prompt Cache 命中率**。
+- **执行中消息队列**：Agent 跑着时的输入不再打断或丢失，而是按轮次以增量 StateSnapshot steering 注入。
+- **/recap 会话回顾**：一句话「目标 + 任务 → 下一步」，独立 `aux_model` 与 compact 解耦；终端失焦 + 足够轮次 + 静默后**自动回顾**；`-c`/`-r` 恢复会话时 recap 与任务完成总结行也一并持久化。
+- **工具调用可靠性**：参数 Schema 预校验（对齐 Claude Code `formatZodValidationError`）+ 工具错选启发式诊断 + 连续失败熔断；动作签名循环检测，连续 3 轮相同动作即注入纠正。
+- **模型四档**：`fable` 作为第四档别名加入（opus / sonnet / haiku / fable），配置迁移自动回填。
+
+**三个月，约 260 个 commit，从 `v0.6.13` 到 `v0.6.80`。** 如果说前九周是把 Perihelion 从 0 造到 1，那 cc-code 时代就是把它从「作者的玩具」变成「别人能装、能用、能在 Windows 上不闪屏地跑一整天」的工具。名字变了，内核还是那个 ReAct 循环——只是现在它装进了 npm，说起了两种语言，认得出 ripgrep，也学会了在跑长任务时顺手做一次 recap。

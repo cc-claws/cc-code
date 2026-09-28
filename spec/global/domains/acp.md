@@ -9,6 +9,7 @@ ACP（Agent Client Protocol）领域负责通过 stdio 传输为 IDE（如 Curso
 - Session 生命周期：initialize、new、load、resume、cancel、logout、close
 - 请求处理：RequestPermission（HITL 桥接）、$/cancel_request（单请求取消）
 - 更新推送：AvailableCommandsUpdate、SessionNotification 事件流
+- 命令注册表：ACP 层命令由 `peri-acp/src/session/command/mod.rs` 统一注册，当前 7 个：`compact`/`clear`/`rewind`/`init`/`recap`/`commit`/`review`
 - Agent 构建复用：与 TUI 共享 build_bare_agent() 入口
 
 ## 核心流程
@@ -30,6 +31,7 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 | 权限桥接 | AcpInteractionBroker 实现 UserInteractionBroker trait |
 | Pending Request | DashMap<RequestId, PendingRequestEntry> + oneshot::Sender |
 | 命令推送 | AvailableCommandsUpdate，在 session/new/load/resume 三个入口统一发送 |
+| 命令注册 | `session/command/mod.rs` 注册 7 个命令（compact/clear/rewind/init/recap/commit/review），`/recap` 由 `session/command/recap.rs` 拦截（Immediate 类型，直接执行不构建 agent） |
 
 ## Issue 经验附录
 

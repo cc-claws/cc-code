@@ -138,7 +138,14 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - 整个中间件链、AgentState、Cancel Token、Langfuse Tracer：每轮全新构造
 - **[TRAP]** `PromptFeatures::detect()` 仍每轮重新读取 `YOLO_MODE`，`is_git_repo` 也每轮重新检查——两者未随 frozen 数据传递，可能导致 SubAgent 与 Main Agent 行为不一致。（详见 spec/global/domains/system-prompt.md#issue_2026-05-27-language-injection-subagent-drift-cache-isolation）
 
-**ACP Slash Commands**（符合 agentclientprotocol.com）：
+**ACP Slash Commands**（符合 agentclientprotocol.com）：`peri-acp/src/session/command/mod.rs` 的 `default_command_registry()` 注册 7 个命令：
+- `/compact`（别名 `compress`）：压缩对话历史释放上下文（`Immediate`）
+- `/clear`（别名 `cls`/`reset`）：清空当前会话对话历史（`Immediate`）
+- `/rewind`（别名 `undo`）：回滚对话到指定消息，可选逆向恢复文件（`Immediate`）
+- `/init`（别名 `setup`）：生成或优化项目 `CLAUDE.md` 知识库
+- `/recap`（别名 `away`/`catchup`）：生成当前会话的一句话回顾（目标 + 当前任务 + 下一步）。单轮 fork、**禁用工具调用**、**不写 history**，使用独立 `aux_model`（与 `compact_model` 解耦，不受 `DISABLE_COMPACT` 影响）。结果经 `AgentEvent::RecapCompleted`/`RecapError` 推送到 TUI 渲染
+- `/commit`（别名 `ci`）：创建 git commit
+- `/review`（别名 `pr`）：PR Code Review（`Passthrough`，注入 review prompt 由 AI 调用 `gh` CLI）
 - `CommandKind`（`Immediate`/`Passthrough`/`Transform`）分类执行
 - **[TRAP]** Immediate 命令路径绕过 agent event pump，必须手动调用 `sink.push_done()`。（详见 spec/global/domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done）
 - `/clear` 保留为 UICommand（`app.new_thread()` 创建新 session），不走 ACP
@@ -161,6 +168,8 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `peri-agent/src/agent/compact/` | `full_compact()`/`micro_compact_enhanced()`/`re_inject()`/`config`/`invariant` |
 | `peri-middlewares/src/compact_middleware.rs` | `CompactMiddleware`：`before_model` 钩子 |
 | `peri-acp/src/session/command/compact.rs` | `/compact` Slash Command（`CommandKind::Immediate`） |
+| `peri-acp/src/session/command/recap.rs` | `/recap` Slash Command（`Immediate`，使用独立 `aux_model`） |
+| `peri-agent/src/agent/recap/` | `generate_recap()`：单轮 fork、禁用工具、不写 history |
 
 **[TRAP]** compact 后消息结构必须以 `BaseMessage::human(summary + continuation)` 开头。禁止将摘要放在 `BaseMessage::system()` 中。compact 后的完整结构：`[Human(摘要+续接指令), System(文件)..., System(Skills)...]`。（详见 spec/global/domains/compact.md#issue_2026-05-20-auto-compact-empty-messages-400）
 
@@ -211,7 +220,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `--bare` | 极简模式：跳过 hooks/LSP/插件/MCP 初始化（配合 `-p`） | print only |
 | `--permission-mode` | 权限模式：bypass / default / dont-ask / accept-edit / auto-mode | both |
 | `--dangerously-skip-permissions` | 绕过所有权限检查（等同 permission-mode bypass） | both |
-| `--model` | 指定模型（别名如 sonnet 或全名） | both |
+| `--model` | 指定模型（四档别名 opus/sonnet/haiku/fable 或全名） | both |
 | `--effort` | 推理强度：low / medium / high / max | both |
 | `-c/--continue` | 继续当前目录最近的对话 | TUI |
 | `-r/--resume [ID]` | 按 session ID 恢复对话 | TUI |
@@ -244,10 +253,10 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - **UI 工具行/Header 截断**：长参数与长路径根据终端列宽必须使用 `truncate_to_display_width` 做单行省略截断（并以 `…` 闭合），禁止多行折行破坏单行信息流节奏
 - **终端 UI 鼠标坐标转换**：鼠标事件坐标是显示列（unicode-width），光标位置是字符索引，需逐字符累加转换。（详见 spec/global/domains/tui.md#issue_2026-05-12-textarea-mouse-click-cursor-misposition-cjk）
 - **快捷键设计**：禁止 `Shift+字母`（编辑态等同大写输入）。全局用 `Ctrl+字母`，面板用方向键/Space/Enter/Esc。
-- **快捷键跨平台兼容 [TRAP]**：`Alt+Enter`/`Alt+M` 在 Windows 终端被截获，常规控制面板快捷键优先用 `Ctrl+字母`；**但对于粘贴操作例外**：现代终端（Windows Terminal / PowerShell / VS Code）会在宿主层强行拦截 `Ctrl+V` 用于纯文本粘贴，导致剪贴板图片无法触发应用逻辑，因此图片附件粘贴使用 `Alt+V` 作为主穿透按键（同时兼容 `Ctrl+V` 供传统控制台使用）。
+- **快捷键跨平台兼容 [TRAP]**：`Alt+Enter` 等在 Windows 终端被截获，常规控制面板快捷键优先用 `Ctrl+字母`；**但对于粘贴操作例外**：现代终端（Windows Terminal / PowerShell / VS Code）会在宿主层强行拦截 `Ctrl+V` 用于纯文本粘贴，导致剪贴板图片无法触发应用逻辑，因此图片附件粘贴使用 `Alt+V` 作为主穿透按键（同时兼容 `Ctrl+V` 供传统控制台使用）。v0.6.70 起废弃 `Ctrl+T`/`Alt+M` 模型循环快捷键，模型切换统一走命令面板（`Ctrl+P`/`Alt+P`）。
 - **面板系统**：`PanelManager` + `PanelComponent` trait，新增面板只需定义变体 + 实现 trait。面板内禁止渲染提示行，由 `status_bar_hints()` 统一描述。
 - **`Event::Paste`**：独立于 key event 链，必须单独拦截。
-- **翻页与滚动快捷键**：输入框（textarea）为空时支持 `PageUp`/`PageDown` 半页滚动，`Home`/`End` 滚动到顶/底；输入框有内容时光标在输入框内移动优先。历史命令浏览通过 `Ctrl+↑`/`Ctrl+↓` 触发。
+- **翻页与滚动快捷键**：输入框（textarea）为空时支持 `PageUp`/`PageDown` 半页滚动（20 行），`Home`/`End` 滚动到顶/底；输入框有内容时光标在输入框内移动优先。历史命令浏览通过 `Ctrl+↑`/`Ctrl+↓` 触发。
 - **鼠标事件合并**：`coalesce_mouse_events()` 对连续 Scroll/Drag 事件做非阻塞 drain 合并，只保留最后一个。
 
 ## 测试编写风格

@@ -704,7 +704,7 @@ Setup Wizard、OAuth Prompt、Interaction Prompts（AskUser/HITL）不在 `Panel
 
 ```rust
 // next_event 中的处理顺序：
-// 1. 全局按键（Shift+Tab/Alt+M/Ctrl+C 复制选区）— 不需要 PanelManager
+// 1. 全局按键（Shift+Tab/Ctrl+P/Ctrl+O/Ctrl+C 复制选区）— 不需要 PanelManager
 // 2. Setup Wizard — 全屏覆盖，完全独立处理
 // 3. Interaction Prompts — 来自 agent，优先级最高
 // 4. OAuth Prompt — 来自 MCP auth flow
@@ -972,7 +972,7 @@ impl PanelComponent for ModelPanel {
 pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     // 1. quit_pending 过期检查（不变）
     // 2. event::poll（不变）
-    // 3. 全局按键拦截（Shift+Tab/Alt+M/Cmd+C/Ctrl+C 复制）
+    // 3. 全局按键拦截（Shift+Tab/Ctrl+P/Ctrl+O/Cmd+C/Ctrl+C 复制）
     // 4. Setup Wizard（特殊处理，不变）
     // 5. Interaction Prompts（特殊处理，不变）
     // 6. OAuth Prompt（特殊处理，不变）
