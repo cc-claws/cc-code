@@ -381,10 +381,7 @@ pub(crate) fn validate_against_schema(
 ///
 /// 当 `tool_name` 不匹配特征参数表中某项的目标工具、但输入恰好包含该项全部特征参数时，
 /// 返回 `💡 Did you mean to use '<suggested>'?` 提示。
-pub(crate) fn suggest_tool_mismatch(
-    tool_name: &str,
-    input: &serde_json::Value,
-) -> Option<String> {
+pub(crate) fn suggest_tool_mismatch(tool_name: &str, input: &serde_json::Value) -> Option<String> {
     let input_map = input.as_object()?;
     let input_keys: Vec<&str> = input_map.keys().map(|k| k.as_str()).collect();
 

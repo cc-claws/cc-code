@@ -240,24 +240,63 @@ fn links_on_line(
     links.iter().filter(move |h| h.line == line_idx)
 }
 
+/// 将一行（可含多 span，如 ANSI 着色）按可用宽度预折行后追加到 `out`。
+///
+/// 首行使用 `first_prefix`，所有续行使用 `cont_prefix`（应与 `first_prefix` 等宽，
+/// 通常为等宽空格，形成悬挂缩进）。预折行保证行宽不超过视口，避免 `Paragraph::wrap`
+/// 二次硬折行导致续行顶格、丢失悬挂缩进（尤其是长 JSON / 长 URL 等无空格内容）。
+/// `content_width` 为扣除前缀后的可用内容宽度。折行后保留各 span 原有样式。
+fn push_wrapped_line(
+    out: &mut Vec<Line<'static>>,
+    line: Line<'static>,
+    first_prefix: &str,
+    cont_prefix: &str,
+    prefix_style: Style,
+    content_width: usize,
+) {
+    for (j, wline) in wrap_line_spans(line, content_width).into_iter().enumerate() {
+        let prefix = if j == 0 { first_prefix } else { cont_prefix };
+        let mut spans = Vec::with_capacity(wline.spans.len() + 1);
+        // 空前缀（无缩进样式的行）不插入额外 span，保持与非折行路径完全一致的输出
+        if !prefix.is_empty() {
+            spans.push(Span::styled(prefix.to_string(), prefix_style));
+        }
+        spans.extend(wline.spans);
+        out.push(Line::from(spans));
+    }
+}
+
+/// 便捷包装：单一样式的纯文本行（先做终端转义清理）预折行，续行固定 4 列悬挂缩进。
+fn push_prefixed_text(
+    out: &mut Vec<Line<'static>>,
+    text: &str,
+    first_prefix: &str,
+    prefix_style: Style,
+    text_style: Style,
+    content_width: usize,
+) {
+    let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
+    push_wrapped_line(out, line, first_prefix, "    ", prefix_style, content_width);
+}
+
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
 /// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).
-fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
+fn error_summary_lines(content: &str, width: usize) -> Vec<Line<'static>> {
     let truncated: String = content.chars().take(400).collect();
-    truncated
-        .lines()
-        .enumerate()
-        .map(|(i, line)| {
-            let prefix = if i == 0 { "  ⎿ " } else { "    " };
-            Line::from(vec![
-                Span::styled(prefix, Style::default().fg(theme::DIM)),
-                Span::styled(
-                    sanitize_display_text(line),
-                    Style::default().fg(theme::ERROR),
-                ),
-            ])
-        })
-        .collect()
+    let content_width = width.saturating_sub(4).max(20);
+    let mut out = Vec::new();
+    for (i, line) in truncated.lines().enumerate() {
+        let first_prefix = if i == 0 { "  ⎿ " } else { "    " };
+        push_prefixed_text(
+            &mut out,
+            line,
+            first_prefix,
+            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::ERROR),
+            content_width,
+        );
+    }
+    out
 }
 
 /// 按显示列宽（unicode-width）截断字符串。
@@ -322,7 +361,11 @@ fn glob_summary(content: &str) -> Option<String> {
 }
 
 /// 批次汇总树形渲染：折叠态显示 header + 每行摘要，展开态显示各 agent 详情。
-fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'static>> {
+fn render_batch_summary(
+    agents: &[AgentSummary],
+    collapsed: &bool,
+    width: usize,
+) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let total = agents.len();
     let failed_count = agents.iter().filter(|a| a.is_error).count();
@@ -373,7 +416,14 @@ fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'
                 Style::default().fg(status.1),
             ));
 
-            lines.push(Line::from(spans));
+            push_wrapped_line(
+                &mut lines,
+                Line::from(spans),
+                "",
+                "      ",
+                Style::default().fg(theme::DIM),
+                width.saturating_sub(6).max(20),
+            );
         }
     } else {
         // 展开态：每个 agent 显示 task_preview + final_result
@@ -381,22 +431,35 @@ fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'
             let is_last = idx == total - 1;
             let connector = if is_last { "└─" } else { "├─" };
 
-            // task_preview 行
-            lines.push(Line::from(vec![
-                Span::raw("   "),
-                Span::styled(connector.to_string(), Style::default().fg(theme::DIM)),
-                Span::raw(" "),
-                Span::styled(agent.task_preview.clone(), Style::default().fg(theme::TEXT)),
-            ]));
+            // task_preview 行（首行前缀 "   " + connector(2) + " " = 6 列）
+            push_wrapped_line(
+                &mut lines,
+                Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(connector.to_string(), Style::default().fg(theme::DIM)),
+                    Span::raw(" "),
+                    Span::styled(agent.task_preview.clone(), Style::default().fg(theme::TEXT)),
+                ]),
+                "",
+                "      ",
+                Style::default().fg(theme::DIM),
+                width.saturating_sub(6).max(20),
+            );
 
-            // final_result 行（如果有）
+            // final_result 行（首行前缀 "     ⎿ " = 7 列，续行对齐 7 列）
             if let Some(ref result) = agent.final_result {
                 if !result.is_empty() {
-                    lines.push(Line::from(vec![
-                        Span::raw("     "),
-                        Span::styled("⎿ ", Style::default().fg(theme::DIM)),
-                        Span::styled(result.clone(), Style::default().fg(theme::MUTED)),
-                    ]));
+                    push_wrapped_line(
+                        &mut lines,
+                        Line::from(Span::styled(
+                            sanitize_display_text(result),
+                            Style::default().fg(theme::MUTED),
+                        )),
+                        "     ⎿ ",
+                        "       ",
+                        Style::default().fg(theme::DIM),
+                        width.saturating_sub(7).max(20),
+                    );
                 }
             }
         }
@@ -406,7 +469,7 @@ fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'
 }
 
 /// AskUserQuestion 专用渲染：`● User answered CC Code's questions:` + `⎿ · H → V`
-fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
+fn render_ask_user_block(content: &str, is_error: bool, width: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let color = if is_error { theme::ERROR } else { theme::SAGE };
     lines.push(Line::from(vec![
@@ -444,13 +507,17 @@ fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
         if text.is_empty() {
             continue;
         }
-        lines.push(Line::from(vec![
-            Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
-            Span::styled(
+        push_wrapped_line(
+            &mut lines,
+            Line::from(Span::styled(
                 text,
                 Style::default().fg(if is_error { theme::ERROR } else { theme::MUTED }),
-            ),
-        ]));
+            )),
+            "  ⎿ ",
+            "    ",
+            Style::default().fg(theme::DIM),
+            width.saturating_sub(4).max(20),
+        );
     }
 
     lines
@@ -573,18 +640,31 @@ fn ansi_spans(line: &str, default_style: Style) -> Vec<Span<'static>> {
     spans
 }
 
-fn shell_output_line(prefix: &'static str, text: &str, default_style: Style) -> Line<'static> {
+/// 渲染一行 `!` 命令输出（保留 ANSI 着色）并按视口宽度预折行。
+///
+/// 首行用 `prefix`、续行用 4 列空格，形成悬挂缩进；整行带 SHELL_BG 背景。
+/// 预折行避免 `Paragraph::wrap` 二次硬折行使长输出续行顶格。
+fn shell_output_lines(
+    out: &mut Vec<Line<'static>>,
+    prefix: &'static str,
+    text: &str,
+    default_style: Style,
+    width: usize,
+) {
     let bg_style = Style::default().bg(theme::SHELL_BG);
-    let mut spans = vec![Span::styled(
+    let prefix_style = Style::default().fg(theme::SHELL_BORDER).bg(theme::SHELL_BG);
+    let content: Vec<Span<'static>> = ansi_spans(text, default_style)
+        .into_iter()
+        .map(|span| span.patch_style(bg_style))
+        .collect();
+    push_wrapped_line(
+        out,
+        Line::from(content),
         prefix,
-        Style::default().fg(theme::SHELL_BORDER).bg(theme::SHELL_BG),
-    )];
-    spans.extend(
-        ansi_spans(text, default_style)
-            .into_iter()
-            .map(|span| span.patch_style(bg_style)),
+        "    ",
+        prefix_style,
+        width.saturating_sub(4).max(20),
     );
-    Line::from(spans)
 }
 
 /// 渲染用户 `!` 本机命令的标题行。
@@ -637,11 +717,13 @@ fn render_shell_command(
         } else {
             "(No output)"
         };
-        lines.push(shell_output_line(
+        shell_output_lines(
+            &mut lines,
             "  └ ",
             text,
             Style::default().fg(theme::DIM),
-        ));
+            width,
+        );
     } else {
         let max_lines = if detail_mode {
             SHELL_OUTPUT_DETAIL_LINES
@@ -662,11 +744,13 @@ fn render_shell_command(
                         output_lines.len() - max_lines
                     )
                 };
-                lines.push(shell_output_line(
+                shell_output_lines(
+                    &mut lines,
                     "    ",
                     &hint,
                     Style::default().fg(theme::DIM),
-                ));
+                    width,
+                );
                 break;
             }
             let default_style = if *is_error && exit_code != Some(0) {
@@ -675,7 +759,7 @@ fn render_shell_command(
                 Style::default().fg(theme::MUTED)
             };
             let prefix = if idx == 0 { "  └ " } else { "    " };
-            lines.push(shell_output_line(prefix, line, default_style));
+            shell_output_lines(&mut lines, prefix, line, default_style, width);
         }
     }
 
@@ -691,16 +775,20 @@ fn render_shell_command(
         } else {
             format!("({}s)", secs)
         };
-        lines.push(shell_output_line(
+        shell_output_lines(
+            &mut lines,
             "    ",
             &elapsed_str,
             Style::default().fg(theme::MUTED),
-        ));
-        lines.push(shell_output_line(
+            width,
+        );
+        shell_output_lines(
+            &mut lines,
             "    ",
             CONTROL_B_BACKGROUND_HINT,
             Style::default().fg(theme::MUTED),
-        ));
+            width,
+        );
     }
     lines
 }
@@ -931,7 +1019,7 @@ pub fn render_view_model_with_links(
         } => {
             // AskUserQuestion 专用渲染路径
             if tool_name == "AskUserQuestion" {
-                return (render_ask_user_block(content, *is_error), link_hits);
+                return (render_ask_user_block(content, *is_error, width), link_hits);
             }
 
             let is_running = content.is_empty() && !*is_error;
@@ -1035,21 +1123,22 @@ pub fn render_view_model_with_links(
                         ]));
                         break;
                     }
-                    let prefix = if i == 0 && tool_name != "Glob" {
+                    let first_prefix = if i == 0 && tool_name != "Glob" {
                         "  ⎿ "
                     } else {
                         "    "
                     };
-                    lines.push(Line::from(vec![
-                        Span::styled(prefix, Style::default().fg(border_color)),
-                        Span::styled(
-                            sanitize_display_text(line),
-                            Style::default().fg(result_color),
-                        ),
-                    ]));
+                    push_prefixed_text(
+                        &mut lines,
+                        line,
+                        first_prefix,
+                        Style::default().fg(border_color),
+                        Style::default().fg(result_color),
+                        width.saturating_sub(4).max(20),
+                    );
                 }
             } else if *is_error && !content.is_empty() {
-                lines.extend(error_summary_lines(content));
+                lines.extend(error_summary_lines(content, width));
             }
             // Read 工具折叠态：显示行数摘要
             if state.collapsed && tool_name == "Read" && !result_lines.is_empty() {
@@ -1143,7 +1232,10 @@ pub fn render_view_model_with_links(
             batch_agents,
             collapsed,
             ..
-        } if !batch_agents.is_empty() => (render_batch_summary(batch_agents, collapsed), link_hits),
+        } if !batch_agents.is_empty() => (
+            render_batch_summary(batch_agents, collapsed, width),
+            link_hits,
+        ),
         MessageViewModel::SubAgentGroup {
             agent_id,
             task_preview,
@@ -1209,7 +1301,7 @@ pub fn render_view_model_with_links(
                 if *is_error {
                     if let Some(ref result) = final_result {
                         if !result.is_empty() {
-                            lines.extend(error_summary_lines(result));
+                            lines.extend(error_summary_lines(result, width));
                         }
                     }
                 }
@@ -1263,7 +1355,15 @@ pub fn render_view_model_with_links(
                     if matches!(inner_vm, MessageViewModel::AssistantBubble { .. }) {
                         continue;
                     }
-                    let inner_lines = render_view_model(inner_vm, None, width, detail_mode, tick);
+                    // 外层会再补 2 列缩进，这里传入扣除 2 列后的宽度，
+                    // 保证嵌套渲染的行宽（含外层缩进）不超过视口
+                    let inner_lines = render_view_model(
+                        inner_vm,
+                        None,
+                        width.saturating_sub(2),
+                        detail_mode,
+                        tick,
+                    );
                     if inner_lines.is_empty() {
                         continue;
                     }
@@ -1279,16 +1379,19 @@ pub fn render_view_model_with_links(
                     lines.pop();
                 }
 
-                // 子 agent 完成后，渲染 final_result 摘要（仅第一行）
+                // 子 agent 完成后，渲染 final_result 摘要（仅第一行）。按显示宽度截断
                 if let Some(ref result) = final_result {
                     if !result.is_empty() {
                         if let Some(first_line) = result.lines().next() {
                             if !first_line.is_empty() {
-                                let text: String = first_line.chars().take(80).collect();
-                                lines.push(Line::from(vec![
-                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
-                                    Span::styled(text, Style::default().fg(theme::MUTED)),
-                                ]));
+                                push_prefixed_text(
+                                    &mut lines,
+                                    first_line,
+                                    "  ⎿ ",
+                                    Style::default().fg(theme::DIM),
+                                    Style::default().fg(theme::MUTED),
+                                    width.saturating_sub(4).max(20),
+                                );
                             }
                         }
                     }
@@ -1301,15 +1404,31 @@ pub fn render_view_model_with_links(
             let mut lines = Vec::new();
             for line in content.lines() {
                 if line.starts_with('✻') {
-                    lines.push(Line::from(Span::styled(
+                    let l = Line::from(Span::styled(
                         sanitize_display_text(line),
                         Style::default().fg(theme::DIM),
-                    )));
+                    ));
+                    push_wrapped_line(
+                        &mut lines,
+                        l,
+                        "",
+                        "  ",
+                        Style::default().fg(theme::DIM),
+                        width.saturating_sub(2).max(20),
+                    );
                 } else if line.starts_with('⎿') {
-                    lines.push(Line::from(Span::styled(
+                    let l = Line::from(Span::styled(
                         sanitize_display_text(line),
                         Style::default().fg(theme::MUTED),
-                    )));
+                    ));
+                    push_wrapped_line(
+                        &mut lines,
+                        l,
+                        "",
+                        "  ",
+                        Style::default().fg(theme::MUTED),
+                        width.saturating_sub(2).max(20),
+                    );
                 } else {
                     let is_error =
                         line.contains("❌") || line.contains("失败") || line.contains("错误");
@@ -1321,21 +1440,36 @@ pub fn render_view_model_with_links(
                     } else {
                         theme::MUTED
                     };
-                    lines.push(Line::from(vec![
-                        Span::styled("· ", Style::default().fg(theme::DIM)),
-                        Span::styled(sanitize_display_text(line), Style::default().fg(text_color)),
-                    ]));
+                    push_prefixed_text(
+                        &mut lines,
+                        line,
+                        "· ",
+                        Style::default().fg(theme::DIM),
+                        Style::default().fg(text_color),
+                        width.saturating_sub(4).max(20),
+                    );
                 }
             }
             (lines, link_hits)
         }
-        MessageViewModel::CacheWarning { content, .. } => (
-            vec![Line::from(Span::styled(
-                content.clone(),
-                Style::default().fg(theme::WARNING),
-            ))],
-            link_hits,
-        ),
+        MessageViewModel::CacheWarning { content, .. } => {
+            let mut lines = Vec::new();
+            for line in content.lines() {
+                let l = Line::from(Span::styled(
+                    sanitize_display_text(line),
+                    Style::default().fg(theme::WARNING),
+                ));
+                push_wrapped_line(
+                    &mut lines,
+                    l,
+                    "",
+                    "  ",
+                    Style::default().fg(theme::WARNING),
+                    width.saturating_sub(2).max(20),
+                );
+            }
+            (lines, link_hits)
+        }
         MessageViewModel::ToolCallGroup {
             category,
             tools,
@@ -1388,10 +1522,14 @@ pub fn render_view_model_with_links(
                         if text.is_empty() {
                             continue;
                         }
-                        lines.push(Line::from(vec![
-                            Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
-                            Span::styled(text, Style::default().fg(entry_color)),
-                        ]));
+                        push_wrapped_line(
+                            &mut lines,
+                            Line::from(Span::styled(text, Style::default().fg(entry_color))),
+                            "  ⎿ ",
+                            "    ",
+                            Style::default().fg(theme::DIM),
+                            width.saturating_sub(4).max(20),
+                        );
                     }
                 }
             } else if detail_mode {
@@ -1449,24 +1587,26 @@ pub fn render_view_model_with_links(
                             ]));
                         }
                         for line in entry.content.lines() {
-                            lines.push(Line::from(vec![
-                                Span::styled("    ", Style::default().fg(theme::DIM)),
-                                Span::styled(
-                                    sanitize_display_text(line),
-                                    Style::default().fg(theme::MUTED),
-                                ),
-                            ]));
+                            push_prefixed_text(
+                                &mut lines,
+                                line,
+                                "    ",
+                                Style::default().fg(theme::DIM),
+                                Style::default().fg(theme::MUTED),
+                                width.saturating_sub(4).max(20),
+                            );
                         }
                     } else if !entry.content.is_empty() {
                         for (i, line) in entry.content.lines().enumerate() {
-                            let prefix = if i == 0 { "  ⎿ " } else { "    " };
-                            lines.push(Line::from(vec![
-                                Span::styled(prefix, Style::default().fg(theme::DIM)),
-                                Span::styled(
-                                    sanitize_display_text(line),
-                                    Style::default().fg(theme::MUTED),
-                                ),
-                            ]));
+                            let first_prefix = if i == 0 { "  ⎿ " } else { "    " };
+                            push_prefixed_text(
+                                &mut lines,
+                                line,
+                                first_prefix,
+                                Style::default().fg(theme::DIM),
+                                Style::default().fg(theme::MUTED),
+                                width.saturating_sub(4).max(20),
+                            );
                         }
                     }
                 }
@@ -1474,7 +1614,7 @@ pub fn render_view_model_with_links(
                 // 折叠态：仅显示出错工具的错误摘要（正常工具由工具栏展示，无需汇总行）
                 for entry in tools {
                     if entry.is_error && !entry.content.is_empty() {
-                        lines.extend(error_summary_lines(&entry.content));
+                        lines.extend(error_summary_lines(&entry.content, width));
                     }
                 }
             }
