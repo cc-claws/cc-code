@@ -1176,10 +1176,7 @@ fn test_suggest_tool_mismatch_webfetch_hint() {
         hint.contains("WebFetch"),
         "应建议使用 WebFetch，实际: {hint}"
     );
-    assert!(
-        hint.contains("💡"),
-        "应包含 💡 emoji 前缀，实际: {hint}"
-    );
+    assert!(hint.contains("💡"), "应包含 💡 emoji 前缀，实际: {hint}");
 }
 
 #[test]
@@ -1191,10 +1188,7 @@ fn test_suggest_tool_mismatch_bash_hint() {
     // Assert
     assert!(hint.is_some(), "应检测到 Bash 特征参数");
     let hint = hint.unwrap();
-    assert!(
-        hint.contains("Bash"),
-        "应建议使用 Bash，实际: {hint}"
-    );
+    assert!(hint.contains("Bash"), "应建议使用 Bash，实际: {hint}");
 }
 
 #[test]
@@ -1346,7 +1340,11 @@ async fn test_schema_failure_circuit_breaker_injects_warning() {
         .execute(AgentInput::text("run"), &mut state, None)
         .await;
 
-    assert!(result.is_ok(), "Agent 应在熔断提示后正常完成，实际: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Agent 应在熔断提示后正常完成，实际: {:?}",
+        result
+    );
     let has_circuit_breaker = state.messages().iter().any(|m| {
         matches!(m, BaseMessage::System { content, .. }
             if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
