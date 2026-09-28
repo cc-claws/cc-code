@@ -1682,3 +1682,62 @@ fn test_render_recap_line_color_hierarchy() {
             "CacheWarning 长行应预折行"
         );
     }
+
+    /// 回归：带缩进的长行（美化 JSON / YAML / 缩进代码）折行后必须保留原前导缩进，
+    /// 不能因 wrap_line_spans_rich 的 trim 丢失缩进而与同级别相邻行错位。
+    #[test]
+    fn test_wrapped_indented_line_keeps_leading_indent() {
+        let blob = "jdoaPV4srHutyzpLXE0TSu7b0xNrI3aGj1eLKxrHutyzpLXE0ru2zsTayrI3aGj1eLKx7rcs6S1xXE0ru2zsTayN2ho9XiyLKx7rcs6S1xNK7ts7E2";
+        let content = format!(
+            "{{\n  \"args\": {{}},\n  \"data\": \"data:application/octet-stream;base64,{blob}\",\n  \"files\": {{}}\n}}"
+        );
+        let width = 48usize;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "indent".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: None,
+            content,
+            is_error: false,
+            collapsed: false,
+            color: theme::SAGE,
+            diff_input: None,
+            started_at: None,
+            content_hash: 0,
+        };
+        let text_lines: Vec<String> = render_view_model(&vm, Some(1), width, false, 0)
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect();
+        // 同一缩进层级的 "args" / "data" / "files" 三行，内容起点必须一致（均为 6 空格）
+        let args_line = text_lines
+            .iter()
+            .find(|l| l.contains("\"args\""))
+            .expect("应有 args 行");
+        let data_line = text_lines
+            .iter()
+            .find(|l| l.contains("\"data\":"))
+            .expect("应有 data 行");
+        let files_line = text_lines
+            .iter()
+            .find(|l| l.contains("\"files\""))
+            .expect("应有 files 行");
+        let lead = |s: &str| s.len() - s.trim_start().len();
+        assert_eq!(
+            lead(data_line),
+            lead(args_line),
+            "data 行缩进应与 args 行一致: {data_line:?} vs {args_line:?}"
+        );
+        assert_eq!(
+            lead(files_line),
+            lead(args_line),
+            "files 行缩进应与 args 行一致: {files_line:?} vs {args_line:?}"
+        );
+        // data 行折行后的续行也必须保留同一缩进
+        let data_pos = text_lines.iter().position(|l| l.contains("\"data\":")).unwrap();
+        let cont = &text_lines[data_pos + 1];
+        assert!(
+            cont.starts_with(&" ".repeat(lead(data_line))),
+            "data 续行应保留等宽缩进: {cont:?}"
+        );
+    }
