@@ -9,19 +9,43 @@ use std::path::PathBuf;
 
 use crate::{
     messages::BaseMessage,
-    thread::{ThreadId, ThreadMeta, ThreadStore},
+    thread::{TaskSummary, ThreadId, ThreadMeta, ThreadStore},
 };
 
 /// SELECT 所有 thread 列的统一常量（含 cached_context，仅 load_context 等需要完整数据的场景使用）
 const THREAD_COLUMNS: &str = "t.id, t.title, t.cwd, t.created_at, t.updated_at, t.message_count,
     (SELECT COALESCE(SUM(LENGTH(m.content)), 0) FROM messages m WHERE m.thread_id = t.id) as content_size,
-    t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy, t.config, t.cached_context, t.agent_status";
+    t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy, t.config, t.cached_context, t.agent_status,
+    t.latest_recap, t.last_task_summary";
 
 /// SELECT thread 元数据列（不含 cached_context），用于 list_threads 等列表场景。
 /// cached_context 包含完整消息历史 JSON，加载所有线程时会占用大量内存（~1MB/线程）。
 const THREAD_META_COLUMNS: &str = "t.id, t.title, t.cwd, t.created_at, t.updated_at, t.message_count,
     (SELECT COALESCE(SUM(LENGTH(m.content)), 0) FROM messages m WHERE m.thread_id = t.id) as content_size,
-    t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy, t.config, NULL as cached_context, t.agent_status";
+    t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy, t.config, NULL as cached_context, t.agent_status,
+    t.latest_recap, t.last_task_summary";
+
+/// `THREAD_COLUMNS` / `THREAD_META_COLUMNS` 查询结果的统一行类型（列顺序严格对应）。
+///
+/// 第 12 位 `cached_context` 在 `THREAD_META_COLUMNS` 中是 `NULL as cached_context`。
+type ThreadMetaRow = (
+    String,
+    Option<String>,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    Option<String>,
+    Option<String>,
+    bool,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+);
 
 /// Unix：把给定路径权限收回到 owner-only（文件 0o600、目录 0o700）。
 /// Windows / 其它平台无对应语义，函数为 no-op。
@@ -127,7 +151,9 @@ impl SqliteThreadStore {
                 cwd         TEXT NOT NULL DEFAULT '',
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL,
-                message_count INTEGER NOT NULL DEFAULT 0
+                message_count INTEGER NOT NULL DEFAULT 0,
+                latest_recap TEXT,
+                last_task_summary TEXT
             )",
         )
         .execute(&self.pool)
@@ -160,6 +186,8 @@ impl SqliteThreadStore {
             "ALTER TABLE threads ADD COLUMN config TEXT",
             "ALTER TABLE threads ADD COLUMN cached_context TEXT",
             "ALTER TABLE threads ADD COLUMN agent_status TEXT NOT NULL DEFAULT 'active'",
+            "ALTER TABLE threads ADD COLUMN latest_recap TEXT",
+            "ALTER TABLE threads ADD COLUMN last_task_summary TEXT",
         ];
         for sql in &alter_columns {
             // SQLite 返回 "duplicate column name" 时忽略
@@ -275,7 +303,20 @@ fn meta_from_row(
     config: Option<String>,
     cached_context: Option<String>,
     agent_status: String,
+    latest_recap: Option<String>,
+    last_task_summary: Option<String>,
 ) -> Result<ThreadMeta> {
+    // last_task_summary 以 JSON 文本落库；解析失败时降级为 None，不阻断整个 thread 加载
+    let last_task_summary = match last_task_summary {
+        Some(raw) => match serde_json::from_str::<TaskSummary>(&raw) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(error = %e, "threads.last_task_summary JSON 解析失败，忽略该字段");
+                None
+            }
+        },
+        None => None,
+    };
     Ok(ThreadMeta {
         id,
         title,
@@ -291,6 +332,8 @@ fn meta_from_row(
         config,
         cached_context,
         agent_status,
+        latest_recap,
+        last_task_summary,
     })
 }
 
@@ -329,10 +372,15 @@ fn extract_title(msgs: &[BaseMessage]) -> Option<String> {
 impl ThreadStore for SqliteThreadStore {
     async fn create_thread(&self, meta: ThreadMeta) -> Result<ThreadId> {
         let id = meta.id.clone();
+        let last_task_summary = match &meta.last_task_summary {
+            Some(s) => Some(serde_json::to_string(s)?),
+            None => None,
+        };
         sqlx::query(
             "INSERT INTO threads (id, title, cwd, created_at, updated_at, message_count,
-                parent_thread_id, snapshot_at_message_id, hidden, cancel_policy, config, cached_context, agent_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                parent_thread_id, snapshot_at_message_id, hidden, cancel_policy, config, cached_context, agent_status,
+                latest_recap, last_task_summary)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         )
         .bind(&meta.id)
         .bind(&meta.title)
@@ -347,6 +395,8 @@ impl ThreadStore for SqliteThreadStore {
         .bind(&meta.config)
         .bind(&meta.cached_context)
         .bind(&meta.agent_status)
+        .bind(&meta.latest_recap)
+        .bind(&last_task_summary)
         .execute(&self.pool)
         .await?;
         Ok(id)
@@ -407,22 +457,7 @@ impl ThreadStore for SqliteThreadStore {
     }
 
     async fn load_meta(&self, id: &ThreadId) -> Result<ThreadMeta> {
-        let row: (
-            String,
-            Option<String>,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            Option<String>,
-            Option<String>,
-            bool,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-        ) = sqlx::query_as(&format!(
+        let row: ThreadMetaRow = sqlx::query_as(&format!(
             "SELECT {THREAD_COLUMNS} FROM threads t WHERE t.id = ?1"
         ))
         .bind(id.as_str())
@@ -431,16 +466,21 @@ impl ThreadStore for SqliteThreadStore {
 
         meta_from_row(
             row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11,
-            row.12, row.13,
+            row.12, row.13, row.14, row.15,
         )
     }
 
     async fn update_meta(&self, id: &ThreadId, meta: ThreadMeta) -> Result<()> {
+        let last_task_summary = match &meta.last_task_summary {
+            Some(s) => Some(serde_json::to_string(s)?),
+            None => None,
+        };
         sqlx::query(
             "UPDATE threads SET title = ?1, cwd = ?2, updated_at = ?3, message_count = ?4,
                 parent_thread_id = ?5, snapshot_at_message_id = ?6, hidden = ?7,
-                cancel_policy = ?8, config = ?9, cached_context = ?10, agent_status = ?11
-             WHERE id = ?12",
+                cancel_policy = ?8, config = ?9, cached_context = ?10, agent_status = ?11,
+                latest_recap = ?12, last_task_summary = ?13
+             WHERE id = ?14",
         )
         .bind(&meta.title)
         .bind(&meta.cwd)
@@ -453,6 +493,8 @@ impl ThreadStore for SqliteThreadStore {
         .bind(&meta.config)
         .bind(&meta.cached_context)
         .bind(&meta.agent_status)
+        .bind(&meta.latest_recap)
+        .bind(&last_task_summary)
         .bind(id.as_str())
         .execute(&self.pool)
         .await?;
@@ -460,22 +502,7 @@ impl ThreadStore for SqliteThreadStore {
     }
 
     async fn list_threads(&self) -> Result<Vec<ThreadMeta>> {
-        let rows: Vec<(
-            String,
-            Option<String>,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            Option<String>,
-            Option<String>,
-            bool,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-        )> = sqlx::query_as(&format!(
+        let rows: Vec<ThreadMetaRow> = sqlx::query_as(&format!(
             "SELECT {THREAD_META_COLUMNS} FROM threads t WHERE t.hidden = 0 ORDER BY t.updated_at DESC"
         ))
         .fetch_all(&self.pool)
@@ -485,7 +512,7 @@ impl ThreadStore for SqliteThreadStore {
             .map(|row| {
                 meta_from_row(
                     row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10,
-                    row.11, row.12, row.13,
+                    row.11, row.12, row.13, row.14, row.15,
                 )
             })
             .collect()
@@ -579,8 +606,7 @@ impl ThreadStore for SqliteThreadStore {
     }
 
     async fn list_child_threads(&self, parent_id: &ThreadId) -> Result<Vec<ThreadMeta>> {
-        let rows: Vec<(String, Option<String>, String, String, String, i64, i64,
-                       Option<String>, Option<String>, bool, String, Option<String>, Option<String>, String)> =
+        let rows: Vec<ThreadMetaRow> =
             sqlx::query_as(&format!(
                 "SELECT {THREAD_COLUMNS} FROM threads t WHERE t.parent_thread_id = ?1 ORDER BY t.created_at ASC"
             ))
@@ -592,29 +618,14 @@ impl ThreadStore for SqliteThreadStore {
             .map(|row| {
                 meta_from_row(
                     row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10,
-                    row.11, row.12, row.13,
+                    row.11, row.12, row.13, row.14, row.15,
                 )
             })
             .collect()
     }
 
     async fn list_session_threads(&self, root_id: &ThreadId) -> Result<Vec<ThreadMeta>> {
-        let rows: Vec<(
-            String,
-            Option<String>,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            Option<String>,
-            Option<String>,
-            bool,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-        )> = sqlx::query_as(&format!(
+        let rows: Vec<ThreadMetaRow> = sqlx::query_as(&format!(
             "WITH RECURSIVE session_tree AS (
                     SELECT * FROM threads WHERE id = ?1
                     UNION ALL
@@ -631,7 +642,7 @@ impl ThreadStore for SqliteThreadStore {
             .map(|row| {
                 meta_from_row(
                     row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10,
-                    row.11, row.12, row.13,
+                    row.11, row.12, row.13, row.14, row.15,
                 )
             })
             .collect()
@@ -651,6 +662,35 @@ impl ThreadStore for SqliteThreadStore {
     async fn invalidate_context_cache(&self, thread_id: &ThreadId) -> Result<()> {
         sqlx::query("UPDATE threads SET cached_context = NULL WHERE id = ?1")
             .bind(thread_id.as_str())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 窄更新：只写 latest_recap 单列，避免 load_meta + update_meta 往返触碰
+    /// cached_context（~1MB）等大字段。
+    async fn update_latest_recap(&self, id: &ThreadId, recap: Option<String>) -> Result<()> {
+        sqlx::query("UPDATE threads SET latest_recap = ?1 WHERE id = ?2")
+            .bind(&recap)
+            .bind(id.as_str())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 窄更新：只写 last_task_summary 单列（JSON 文本），避免触碰 cached_context 等大字段。
+    async fn update_last_task_summary(
+        &self,
+        id: &ThreadId,
+        summary: Option<TaskSummary>,
+    ) -> Result<()> {
+        let raw = match &summary {
+            Some(s) => Some(serde_json::to_string(s)?),
+            None => None,
+        };
+        sqlx::query("UPDATE threads SET last_task_summary = ?1 WHERE id = ?2")
+            .bind(&raw)
+            .bind(id.as_str())
             .execute(&self.pool)
             .await?;
         Ok(())

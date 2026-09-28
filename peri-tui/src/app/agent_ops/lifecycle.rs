@@ -41,6 +41,9 @@ impl App {
         if is_abnormal || self.session_mgr.current().agent.reconcile_already_done {
             self.session_mgr.current_mut().spinner_state.clear_summary();
         }
+        // 持久化完成态总结行（须在 set_loading(false) 捕获 summary 之后），
+        // 支持 `-c`/`-r` 恢复会话时重现 `✻ ... for Ns · done HH:MM` 行。
+        self.persist_last_task_summary();
     }
 
     pub(super) fn handle_done(&mut self) -> (bool, bool, bool) {

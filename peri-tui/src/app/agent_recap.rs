@@ -9,7 +9,9 @@ impl App {
     pub(crate) fn handle_recap_completed(&mut self, text: String) -> (bool, bool, bool) {
         self.set_loading(false);
         self.auto_recap.on_recap_done();
-        self.session_mgr.current_mut().latest_recap = Some(text);
+        self.session_mgr.current_mut().latest_recap = Some(text.clone());
+        // 持久化以支持 `-c`/`-r` 恢复（recap 不进 message history，无法从历史重建）
+        self.persist_latest_recap(Some(text));
         self.request_rebuild();
         (true, false, false)
     }

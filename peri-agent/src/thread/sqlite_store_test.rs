@@ -432,3 +432,75 @@
             wal_via_with_extension
         );
     }
+
+    #[tokio::test]
+    async fn test_latest_recap_and_last_task_summary_roundtrip() {
+        // Arrange：带 recap + 完成态总结创建 thread
+        let (store, _dir) = make_store().await;
+        let mut meta = ThreadMeta::new("/tmp");
+        meta.latest_recap = Some("查清了 Shopify173 店订单定向拉取问题".to_string());
+        let done_at = Utc::now();
+        meta.last_task_summary = Some(TaskSummary {
+            verb: "Cooked".to_string(),
+            elapsed_ms: 25_000,
+            done_at,
+        });
+        let id = store.create_thread(meta).await.unwrap();
+
+        // Act
+        let loaded = store.load_meta(&id).await.unwrap();
+
+        // Assert：两字段完整往返（含 last_task_summary 的 JSON 解析）
+        assert_eq!(
+            loaded.latest_recap.as_deref(),
+            Some("查清了 Shopify173 店订单定向拉取问题")
+        );
+        let summary = loaded.last_task_summary.expect("last_task_summary 应恢复");
+        assert_eq!(summary.verb, "Cooked");
+        assert_eq!(summary.elapsed_ms, 25_000);
+        assert_eq!(summary.done_at, done_at);
+    }
+
+    #[tokio::test]
+    async fn test_update_latest_recap_and_last_task_summary_narrow_update() {
+        // Arrange：先建空 thread，再走窄更新接口（模拟 TUI 写回路径）
+        let (store, _dir) = make_store().await;
+        let meta = ThreadMeta::new("/tmp");
+        let id = store.create_thread(meta).await.unwrap();
+        assert_eq!(store.load_meta(&id).await.unwrap().latest_recap, None);
+
+        // Act
+        store
+            .update_latest_recap(&id, Some("回顾文本".to_string()))
+            .await
+            .unwrap();
+        let done_at = Utc::now();
+        store
+            .update_last_task_summary(
+                &id,
+                Some(TaskSummary {
+                    verb: "Brewed".to_string(),
+                    elapsed_ms: 3000,
+                    done_at,
+                }),
+            )
+            .await
+            .unwrap();
+
+        // Assert
+        let loaded = store.load_meta(&id).await.unwrap();
+        assert_eq!(loaded.latest_recap.as_deref(), Some("回顾文本"));
+        let summary = loaded.last_task_summary.expect("last_task_summary 应写入");
+        assert_eq!(summary.verb, "Brewed");
+        assert_eq!(summary.elapsed_ms, 3000);
+        assert_eq!(summary.done_at, done_at);
+
+        // Act：清空两字段（新一轮开始 / 异常终止路径）
+        store.update_latest_recap(&id, None).await.unwrap();
+        store.update_last_task_summary(&id, None).await.unwrap();
+
+        // Assert
+        let cleared = store.load_meta(&id).await.unwrap();
+        assert_eq!(cleared.latest_recap, None);
+        assert_eq!(cleared.last_task_summary, None);
+    }
