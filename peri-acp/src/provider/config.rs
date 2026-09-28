@@ -15,7 +15,7 @@ pub struct PeriConfig {
     pub config: AppConfig,
 }
 
-/// Provider 内的三级别模型名映射
+/// Provider 内的四级别模型名映射
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderModels {
     #[serde(default)]
@@ -24,9 +24,14 @@ pub struct ProviderModels {
     pub sonnet: String,
     #[serde(default)]
     pub haiku: String,
+    #[serde(default)]
+    pub fable: String,
 }
 
 impl ProviderModels {
+    /// 所有模型别名（供 UI / ACP 遍历）。顺序即展示顺序。
+    pub const ALL_ALIASES: [&'static str; 4] = ["opus", "sonnet", "haiku", "fable"];
+
     /// 按 alias 名（大小写不敏感）获取对应模型名。
     /// 自动过滤 `[...]` 后缀（如 `[1M]`），仅返回纯模型名。
     pub fn get_model(&self, alias: &str) -> Option<&str> {
@@ -34,6 +39,7 @@ impl ProviderModels {
             "opus" => &self.opus,
             "sonnet" => &self.sonnet,
             "haiku" => &self.haiku,
+            "fable" => &self.fable,
             _ => return None,
         };
         if raw.is_empty() {
@@ -49,6 +55,7 @@ impl ProviderModels {
             "opus" => Some(&self.opus),
             "sonnet" => Some(&self.sonnet),
             "haiku" => Some(&self.haiku),
+            "fable" => Some(&self.fable),
             _ => None,
         }
     }
@@ -119,7 +126,7 @@ impl ThinkingConfig {
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
-    /// 当前激活的模型别名（"opus" | "sonnet" | "haiku"）
+    /// 当前激活的模型别名（"opus" | "sonnet" | "haiku" | "fable"）
     #[serde(default = "default_alias")]
     pub active_alias: String,
     /// 当前激活的 provider ID

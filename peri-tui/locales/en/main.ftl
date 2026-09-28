@@ -197,6 +197,7 @@ setup-field-api-key = API Key
 setup-field-opus = Opus
 setup-field-sonnet = Sonnet
 setup-field-haiku = Haiku
+setup-field-fable = Fable
 setup-model-label = Model
 setup-label-key = Key:
 setup-provider-anthropic = Anthropic

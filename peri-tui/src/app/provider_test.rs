@@ -25,6 +25,11 @@ fn make_config(alias: &str, provider_id: &str, model_id: &str, provider_type: &s
             } else {
                 String::new()
             },
+            fable: if alias == "fable" {
+                model_id.to_string()
+            } else {
+                String::new()
+            },
         },
         ..Default::default()
     });

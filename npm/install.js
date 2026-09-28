@@ -155,6 +155,7 @@ function migrateFromClaudeCode(home = homedir()) {
     if (env.ANTHROPIC_DEFAULT_OPUS_MODEL) models.opus = env.ANTHROPIC_DEFAULT_OPUS_MODEL;
     if (env.ANTHROPIC_DEFAULT_SONNET_MODEL) models.sonnet = env.ANTHROPIC_DEFAULT_SONNET_MODEL;
     if (env.ANTHROPIC_DEFAULT_HAIKU_MODEL) models.haiku = env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    if (env.ANTHROPIC_DEFAULT_FABLE_MODEL) models.fable = env.ANTHROPIC_DEFAULT_FABLE_MODEL;
     const p = {
       id: "anthropic",
       type: "anthropic",

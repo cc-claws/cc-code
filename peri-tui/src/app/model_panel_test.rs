@@ -52,12 +52,16 @@ fn test_move_cursor_clamp() {
     panel.cursor += 1;
     assert_eq!(panel.cursor(), ROW_HAIKU);
     panel.cursor += 1;
+    assert_eq!(panel.cursor(), ROW_FABLE);
+    panel.cursor += 1;
     assert_eq!(panel.cursor(), ROW_MAX_TOKENS);
     panel.cursor += 1;
     assert_eq!(panel.cursor(), ROW_EFFORT);
-    // 光标可遍历全部 5 行
+    // 光标可遍历全部 6 个模型/配置行
     panel.cursor -= 1;
     assert_eq!(panel.cursor(), ROW_MAX_TOKENS);
+    panel.cursor -= 1;
+    assert_eq!(panel.cursor(), ROW_FABLE);
     panel.cursor -= 1;
     assert_eq!(panel.cursor(), ROW_HAIKU);
     panel.cursor -= 1;

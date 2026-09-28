@@ -155,11 +155,12 @@ fn test_migrate_auth_token_fallback() {
 #[test]
 fn test_form_field_navigation() {
     assert_eq!(FormField::ProviderType.next(), FormField::ProviderId);
-    assert_eq!(FormField::HaikuModel.next(), FormField::Confirm);
+    assert_eq!(FormField::HaikuModel.next(), FormField::FableModel);
+    assert_eq!(FormField::FableModel.next(), FormField::Confirm);
     assert_eq!(FormField::Confirm.next(), FormField::ProviderType);
 
     assert_eq!(FormField::ProviderType.prev(), FormField::Confirm);
-    assert_eq!(FormField::Confirm.prev(), FormField::HaikuModel);
+    assert_eq!(FormField::Confirm.prev(), FormField::FableModel);
     assert_eq!(FormField::ProviderId.prev(), FormField::ProviderType);
 
     // TestConnectivity 插入在 BaseUrl 之后、ApiKey 之前

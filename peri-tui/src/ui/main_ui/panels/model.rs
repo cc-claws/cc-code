@@ -11,8 +11,8 @@ use peri_widgets::BorderedPanel;
 use crate::{
     app::{
         model_panel::{
-            AliasTab, ModelPanel, ROW_1M_CONTEXT, ROW_EFFORT, ROW_HAIKU, ROW_MAX_TOKENS, ROW_OPUS,
-            ROW_SONNET,
+            AliasTab, ModelPanel, ROW_1M_CONTEXT, ROW_EFFORT, ROW_FABLE, ROW_HAIKU, ROW_MAX_TOKENS,
+            ROW_OPUS, ROW_SONNET,
         },
         App,
     },
@@ -59,11 +59,12 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
     )));
     lines.push(Line::from(""));
 
-    // Model rows: Opus / Sonnet / Haiku
-    let rows: [(usize, &AliasTab, &str, &str); 3] = [
+    // Model rows: Opus / Sonnet / Haiku / Fable
+    let rows: [(usize, &AliasTab, &str, &str); 4] = [
         (ROW_OPUS, &AliasTab::Opus, "Opus", "1"),
         (ROW_SONNET, &AliasTab::Sonnet, "Sonnet", "2"),
         (ROW_HAIKU, &AliasTab::Haiku, "Haiku", "3"),
+        (ROW_FABLE, &AliasTab::Fable, "Fable", "4"),
     ];
 
     for (row_idx, alias, label, num) in &rows {

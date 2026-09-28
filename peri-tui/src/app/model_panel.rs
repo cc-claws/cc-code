@@ -22,6 +22,7 @@ pub enum AliasTab {
     Opus,
     Sonnet,
     Haiku,
+    Fable,
 }
 
 impl AliasTab {
@@ -30,6 +31,7 @@ impl AliasTab {
             Self::Opus => "Opus",
             Self::Sonnet => "Sonnet",
             Self::Haiku => "Haiku",
+            Self::Fable => "Fable",
         }
     }
 
@@ -38,6 +40,7 @@ impl AliasTab {
             Self::Opus => "opus",
             Self::Sonnet => "sonnet",
             Self::Haiku => "haiku",
+            Self::Fable => "fable",
         }
     }
 
@@ -46,6 +49,7 @@ impl AliasTab {
             Self::Opus => "Most capable for complex work",
             Self::Sonnet => "Balanced performance and speed",
             Self::Haiku => "Fastest for quick answers",
+            Self::Fable => "Gateway-mapped model tier",
         }
     }
 }
@@ -55,10 +59,11 @@ impl AliasTab {
 pub const ROW_OPUS: usize = 0;
 pub const ROW_SONNET: usize = 1;
 pub const ROW_HAIKU: usize = 2;
-pub const ROW_MAX_TOKENS: usize = 3;
-pub const ROW_EFFORT: usize = 4;
-pub const ROW_1M_CONTEXT: usize = 5;
-pub const ROW_COUNT: usize = 6;
+pub const ROW_FABLE: usize = 3;
+pub const ROW_MAX_TOKENS: usize = 4;
+pub const ROW_EFFORT: usize = 5;
+pub const ROW_1M_CONTEXT: usize = 6;
+pub const ROW_COUNT: usize = 7;
 
 // ─── ModelPanel ─────────────────────────────────────────────────────────────────
 
@@ -83,6 +88,7 @@ impl ModelPanel {
         let active_tab = match cfg.config.active_alias.as_str() {
             "sonnet" => AliasTab::Sonnet,
             "haiku" => AliasTab::Haiku,
+            "fable" => AliasTab::Fable,
             _ => AliasTab::Opus,
         };
 
@@ -98,6 +104,7 @@ impl ModelPanel {
             AliasTab::Opus => ROW_OPUS,
             AliasTab::Sonnet => ROW_SONNET,
             AliasTab::Haiku => ROW_HAIKU,
+            AliasTab::Fable => ROW_FABLE,
         };
 
         let effort = cfg
@@ -237,6 +244,11 @@ impl PanelComponent for ModelPanel {
                     Self::apply_and_close(self, ctx);
                     EventResult::ClosePanel
                 }
+                ROW_FABLE => {
+                    self.active_tab = AliasTab::Fable;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
+                }
                 ROW_EFFORT => {
                     self.cycle_effort(false);
                     EventResult::Consumed
@@ -326,7 +338,7 @@ impl PanelComponent for ModelPanel {
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
-        13
+        14
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
