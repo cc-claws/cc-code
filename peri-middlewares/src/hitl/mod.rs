@@ -274,32 +274,55 @@ impl HumanInTheLoopMiddleware {
         match mode.load() {
             PermissionMode::Bypass => Ok(tool_call.clone()),
             PermissionMode::AutoMode => {
-                // 优先：Jev 语义门（三层判定）
                 if let Some(call) = self.build_gate_call(state, tool_call) {
                     if let Some(gate) = &self.jev_gate {
-                        return match gate.evaluate(&call).await {
-                            GateDecision::Allow { rationale } => {
-                                tracing::debug!(tool = %tool_call.name, %rationale, "Jev 放行");
-                                Ok(tool_call.clone())
-                            }
-                            GateDecision::Block { rationale } => Err(AgentError::ToolRejected {
-                                tool: tool_call.name.clone(),
-                                // rationale 已是面向人和 agent 的中文说明（含原因、依据规则、下一步）
-                                reason: rationale,
-                            }),
-                            GateDecision::Ask { rationale } => match &self.broker {
-                                Some(broker) => self.broker_approve(broker, tool_call).await,
-                                None => Err(AgentError::ToolRejected {
-                                    tool: tool_call.name.clone(),
-                                    reason: format!("{rationale}\n（当前没有可用的确认通道，因此默认拒绝）"),
-                                }),
-                            },
-                        };
+                        // 确定性层**先跑，且不依赖判定凭据**。
+                        // 硬黑名单 / 人写的规则 / 只读白名单是零成本、确定性的，
+                        // 绝不该因为"没配 key"或"判定服务挂了"就一起失效。
+                        gate.ensure_rules_loaded().await;
+                        if let Some(decision) = gate.deterministic(&call) {
+                            return self.apply_gate_decision(decision, tool_call).await;
+                        }
+                        // 语义层：只有配置了凭据才发请求；否则落到下面的旧分类器兜底
+                        if gate.has_judge() {
+                            let decision = gate.evaluate_semantic(&call).await;
+                            return self.apply_gate_decision(decision, tool_call).await;
+                        }
+                        tracing::debug!(
+                            tool = %tool_call.name,
+                            "未配置语义判定凭据：已跑确定性层，交由兜底分类器"
+                        );
                     }
                 }
                 // 兜底：旧 LLM 分类器
                 self.auto_mode_fallback(tool_call).await
             }
+        }
+    }
+
+    /// 把门的判决落到工具调用上（Allow/Block/Ask 的统一处理）。
+    async fn apply_gate_decision(
+        &self,
+        decision: GateDecision,
+        tool_call: &ToolCall,
+    ) -> AgentResult<ToolCall> {
+        match decision {
+            GateDecision::Allow { rationale } => {
+                tracing::debug!(tool = %tool_call.name, %rationale, "Jev 放行");
+                Ok(tool_call.clone())
+            }
+            GateDecision::Block { rationale } => Err(AgentError::ToolRejected {
+                tool: tool_call.name.clone(),
+                // rationale 已是面向人和 agent 的中文说明（含原因、依据规则、下一步）
+                reason: rationale,
+            }),
+            GateDecision::Ask { rationale } => match &self.broker {
+                Some(broker) => self.broker_approve(broker, tool_call).await,
+                None => Err(AgentError::ToolRejected {
+                    tool: tool_call.name.clone(),
+                    reason: format!("{rationale}\n（当前没有可用的确认通道，因此默认拒绝）"),
+                }),
+            },
         }
     }
 
