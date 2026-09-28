@@ -94,38 +94,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **模型切换修复与命令面板统一** | v0.6.70 | 修复会话首条消息前切换模型不生效；废弃 `Ctrl+T`/`Alt+M` 循环快捷键，模型切换统一走命令面板（`Ctrl+P`/`Alt+P`） |
 | **工具调用可靠性** | v0.6.69 | 边界提示词 + 字段级参数校验 + 动作循环检测；Windows 多行命令走 Git Bash 避免 cmd 截断；命令输出通用重复行/块折叠 |
 | **图片魔数校验** | v0.6.68 | Read 工具校验图片魔数（Magic Bytes）防伪图片；长段落续行悬挂缩进；Windows 8.3 短文件名波浪号不再误拦截 |
-| **消息队列与 Steering** | v0.6.66 | 执行期间输入的消息按轮排队增量注入（steering 不打断）；粘贴本机图片路径自动转附件 |
-| **RTK stderr 清洗** | v0.6.64 | 清洗 RTK 外部宿主 stderr 噪音 |
-| **本地命令块样式对齐** | v0.6.63 | 对齐本地命令块渲染样式 |
-| **Prompt Cache 命中率** | v0.6.62 | 状态栏显示 Prompt Cache 命中率（替代瞬时 CPU）；移除消息区冗余低命中率警告气泡 |
-| **动态终端标题** | v0.6.60 | 动态终端标题（Status Surface）对齐 OpenAI Codex 规范 |
-| **Alt+V 粘贴图片** | v0.6.59 | 支持 `Alt+V` 快捷键粘贴图片附件 |
-| **Windows 控制台残影修复** | v0.6.58 | 修复 Windows 传统控制台歧义字符双列残影 + Markdown 表格视口溢出 |
-| **多模态工具包装器修复** | v0.6.57 | 修复工具包装器丢失多模态图片内容导致 Read 识图失败 |
-| **多模态图片读取** | v0.6.56 | Read 工具支持多模态图片读取 |
-| **后台 Shell 修复** | v0.6.55 | 修复常驻子进程导致后台 shell 任务无限 running |
-| **生命周期无闪屏** | v0.6.54 | 消除 agent Bash 运行提示与生命周期切换时的终端清屏闪烁 |
-| **工具行超长单行优雅截断** | v0.6.53 | 工具行 Header 超长根据终端列宽动态截断并以 `…` 闭合，杜绝折行挤占视口 |
-| **Spinner 总结行动词与时刻** | v0.6.53 | 对齐 Claude Code 风格 `✻ {verb} for {elapsed} · done {HH:MM}`，规范生命周期 |
-| **状态栏运行耗时秒数补零** | v0.6.52 | 耗时统一补零（如 `31m06s`），消除字符抖动；统一标准单字符 Emoji 避免错位 |
-| **Anthropic 适配器 SSE 容错** | v0.6.51 | 非流式请求遭遇反向代理网关强制返回 SSE 时自适应解析还原，无损向下兼容 |
-| **终端宽度变化防重复渲染** | v0.6.50 | 窗口 resize 重绘时重置旧行缓存，消除增量追加触发的 Markdown 内容翻倍渲染 |
-| **文件系统工具精简收敛** | v0.6.49 | 核心工具精简收敛为 5 个（Read/Write/Edit/Glob/Grep），大幅减轻上下文负担 |
-| **自适应终端宽度 Markdown 表格** | v0.6.48 | 表格列宽根据终端宽度动态分配，彻底解决宽屏下挤压截断与末尾多余空白列问题 |
-| **Provider 类型大小写不敏感** | v0.6.47 | 配置中 `type` 字段大小写均可精准识别，避免误 fallback 到 OpenAI |
-| **Bash 运行状态与计时优化** | v0.6.43 | 修正 Ctrl+B 后台计时冻结，缩小长输出预览窗口防止上下文被撑爆 |
-| **跨 Provider 模型热切换** | v0.6.40 | 模型选择携带 Provider 上下文，无缝在 OpenAI / Anthropic / DeepSeek / GLM 间切换 |
-| **Shift+Tab 权限模式轮切** | v0.6.40 | 状态栏提示与快捷轮切（bypass / default / dont-ask / accept-edit / auto-mode） |
-| **Ctrl+B 后台 Shell** | v0.6.29 | Shell 命令支持 Ctrl+B 转为后台运行，并持续显示耗时与状态 |
-| **/commit 命令** | v0.6.29 | 一键 git commit，自动生成 commit message |
-| **/review 命令** | v0.6.29 | PR 代码审查 |
-| **/export 命令** | v0.6.29 | 对话导出为 Markdown |
-| **全局屏幕选区** | v0.6.29 | 基于渲染 Buffer 的全局选区，松开鼠标自动复制 |
-| **Windows Git Bash** | v0.6.21 | cmd 失败自动 fallback 到 Git Bash |
-| **i18n 支持** | v0.6.17 | 中英文切换 `/lang en` 或 `/lang zh-CN` |
-| **Grep 对齐上游** | v0.6.15 | 对齐 Claude Code 的 files_with_matches 模式 |
-| **Rewind 回滚** | v0.6.0 | 双击 ESC 弹窗选择回滚点 |
-| **/gc 命令** | v0.6.0 | 手动内存回收 + RSS/jemalloc 诊断 |
+
+> 更早版本（v0.6.0 – v0.6.66）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
