@@ -94,38 +94,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **Model Switch Fix & Palette Unification** | v0.6.70 | Fixed model switch before first message not taking effect; deprecated `Ctrl+T`/`Alt+M` cycling, unified on command palette (`Ctrl+P`/`Alt+P`) |
 | **Tool Call Reliability** | v0.6.69 | Boundary prompts + field-level param validation + action-loop detection; Windows multiline commands via Git Bash; generic duplicate line/block collapsing |
 | **Image Magic-Byte Validation** | v0.6.68 | Read validates image magic bytes against fake images; hanging indent for long paragraph continuations; Windows 8.3 short-name tildes no longer mis-flagged |
-| **Queued Messages & Steering** | v0.6.66 | Messages typed during execution queue and inject per-turn (steering, non-interrupting); pasted local image paths auto-convert to attachments |
-| **RTK Stderr Cleanup** | v0.6.64 | Cleans noisy stderr from the RTK external host |
-| **Local Command Block Styling** | v0.6.63 | Aligned local command block rendering |
-| **Prompt Cache Hit Rate** | v0.6.62 | Status bar shows prompt cache hit rate (replacing instantaneous CPU); removed redundant low-hit warning bubble |
-| **Dynamic Terminal Title** | v0.6.60 | Dynamic terminal title (Status Surface) aligned with OpenAI Codex spec |
-| **Alt+V Image Paste** | v0.6.59 | `Alt+V` shortcut pastes image attachments |
-| **Windows Console Artifact Fix** | v0.6.58 | Fixed double-column ghosting from ambiguous-width chars in legacy Windows console + Markdown table viewport overflow |
-| **Multimodal Tool Wrapper Fix** | v0.6.57 | Fixed tool wrapper dropping multimodal image content, restoring Read image recognition |
-| **Multimodal Image Read** | v0.6.56 | Read tool supports multimodal image reading |
-| **Background Shell Fix** | v0.6.55 | Fixed resident subprocess causing background shell tasks to run forever |
-| **Flicker-Free Lifecycle** | v0.6.54 | Eliminated terminal clear-screen flicker on agent Bash prompts and lifecycle transitions |
-| **Single-Line Tool Truncation** | v0.6.53 | Long tool headers truncated gracefully with `…` on a single line, preventing vertical viewport clutter |
-| **Claude Code Style Spinner Summary** | v0.6.53 | Aligned summary verb & completion time (`✻ {verb} for {elapsed} · done {HH:MM}`) with cleaner loading alignment |
-| **Status Bar Duration Padding** | v0.6.52 | `{:02}` zero-padded seconds eliminate text jitter; standard single-char emoji prevents offset misalignment |
-| **Anthropic Adapter SSE Fallback** | v0.6.51 | Non-streaming calls automatically handle SSE responses from reverse proxies without deserialization crashes |
-| **Resize Markdown Duplicate Fix** | v0.6.50 | Properly resets line caches upon terminal resize to prevent duplicate content rendering |
-| **Filesystem Tools Convergence** | v0.6.49 | Removed FolderOperation; converged filesystem tools into 5 essentials (Read, Write, Edit, Glob, Grep) |
-| **Terminal-Adaptive Markdown Tables** | v0.6.48 | Tables dynamically scale to actual terminal width, resolving column squeeze and empty trailing columns |
-| **Case-Insensitive Provider Type** | v0.6.47 | Accurately parses provider `type` regardless of case, preventing unintended fallback to OpenAI |
-| **Bash Background Status & Timing** | v0.6.43 | Freeze timer on task completion, display elapsed time, and compact preview windows to protect context |
-| **Cross-Provider Model Switching** | v0.6.40 | Model selection carries provider context, enabling seamless hot-switching across OpenAI, Anthropic, DeepSeek, GLM |
-| **Shift+Tab Permission Mode Switch** | v0.6.40 | Cycle through bypass, default, dont-ask, accept-edit, and auto-mode with status bar hints |
-| **Ctrl+B Background Shell** | v0.6.29 | Shell commands can run in background with Ctrl+B |
-| **/commit Command** | v0.6.29 | One-click git commit with auto-generated message |
-| **/review Command** | v0.6.29 | PR code review |
-| **/export Command** | v0.6.29 | Export conversation to Markdown |
-| **Global Screen Selection** | v0.6.29 | Buffer-based selection across all UI regions, auto-copy on release |
-| **Windows Git Bash** | v0.6.21 | Auto fallback to Git Bash when cmd fails |
-| **i18n Support** | v0.6.17 | Switch language with `/lang en` or `/lang zh-CN` |
-| **Grep Upstream Alignment** | v0.6.15 | Aligned with Claude Code's files_with_matches mode |
-| **Rewind** | v0.6.0 | Double-click ESC to select rollback point |
-| **/gc Command** | v0.6.0 | Manual memory reclaim + RSS/jemalloc diagnostics |
+
+> Older releases (v0.6.0 – v0.6.66) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
