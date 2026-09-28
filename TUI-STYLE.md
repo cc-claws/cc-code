@@ -1,5 +1,8 @@
 # TUI Style Guide
 
+> **最后更新：2026-09-28**（对应 v0.6.80）
+> 本次更新：命令系统重写为 30 个 TUI 命令并分组（删除幽灵命令 `/status`）；全局快捷键表按 v0.6.70+ 实际行为修正（删除 `Alt+M`/`Ctrl+T`/`Ctrl+N`/`Ctrl+W` 等已废弃项）；模型别名由三档扩为四档（新增 `fable`）；权限模式循环顺序修正（`DontAsk` 跳过）；Sticky Header 标注为已禁用（v0.6.71）。
+
 ## 设计哲学
 
 中性灰层级 + Claude 暖橙品牌色。背景透明（弹窗光标行和用户消息区除外）。信息层级用亮度区分（TEXT/MUTED/DIM），颜色表达状态语义。
@@ -51,8 +54,8 @@
 | 名称 | 色值 | 用途 |
 |------|------|------|
 | BORDER | `#505050` | 中性灰空闲边框、标准面板边框 |
-| BORDER_ACTIVE | `= ACCENT` | 激活边框：输入框/panel focus 状态、多 session 活跃列 |
-| BORDER_DIM | `#2A2A30` | 非活跃 session 分隔线 |
+| BORDER_ACTIVE | `= ACCENT` | 激活边框：输入框/panel focus 状态 |
+| BORDER_DIM | `#2A2A30` | 非活跃分隔线 |
 
 ### Diff 高亮色（diff 内容自动检测时）
 
@@ -201,7 +204,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ```
 ┌─────────────────────────────────────┐
-│ Sticky Header (动态高度)            │  ← 最后一条用户消息摘要
 │ Messages Area (Min(1))              │  ← 消息列表 + 滚动条 + Spinner
 │ Attachment Bar (0/3 行)             │  ← 有附件时 3 行
 │ Panel / Popup (0~60% 屏幕高度)      │  ← 面板/弹窗区
@@ -210,6 +212,8 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 │ Status Bar (3 行固定)               │  ← 状态信息
 └─────────────────────────────────────┘
 ```
+
+> **Sticky Header 已禁用（v0.6.71）**：`peri-tui/src/ui/main_ui/mod.rs` 中 `let sticky_header_height: u16 = 0;`（注释「鸡肋功能，高度固定为 0 不渲染」）。原顶部固定消息条（显示最后一条用户消息摘要、动态高度）当前不渲染，关联 headless 测试已标 `#[ignore]`。保留 `USER_BG` 与 sticky header 一致的配色约定即可。
 
 ### 面板高度
 
@@ -229,7 +233,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 | 元素 | 样式 | 条件 |
 |------|------|------|
-| 权限模式标签 | 按模式变色，切换后 3 秒 BOLD + SLOW_BLINK | 非 Default 时显示 |
+| 权限模式标签 | 按模式变色，切换后 1500ms BOLD + SLOW_BLINK | 非 Default 时显示 |
 | ` │ ` 分隔符 | MUTED | 始终 |
 | `📁 cwd` | MUTED | 始终 |
 | 模型名 | MODEL_INFO，切换后 3 秒 BOLD + SLOW_BLINK | 始终 |
@@ -248,12 +252,13 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | 上下文 | 快捷键 |
 |--------|--------|
 | 面板打开 | 面板自提供 `status_bar_hints()` |
-| 多 Session | `/` 命令 + `Ctrl+N/P` 切换 + `Ctrl+W` 关闭 |
 | OAuth 弹窗 | `Ctrl+O` 打开浏览器 + `Enter` 提交 + `Esc` 取消 |
 | Approval 弹窗 | `↑↓` 移动 + `Space` 切换 + `Enter` 确认 |
 | Questions 弹窗 | `Tab` 切换 + `↑↓` 移动 + `Space` 选择 + `Enter` 确认 |
+| Rewind 回滚选择器 | `↑↓` 移动 + `Tab` 切换回退文件 + `Enter` 确认 + `Esc` 取消 |
 | 退出确认 | `Ctrl+C` 关闭 + 其他键取消 |
-| 默认 | `/` 命令 + `Alt+Enter` 换行 |
+| 详细模式 | `Ctrl+O` 退出详细模式 |
+| 默认 | `Ctrl+O` 详细模式 + `Ctrl+P` 设置（Provider & Model） |
 
 按键 MUTED + BOLD，说明 MUTED。右侧右对齐，超宽时截断右侧。
 
@@ -278,10 +283,10 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | `/memory` | MemoryPanel | Session | BORDER |
 | `/hooks` | HooksPanel | Session | BORDER |
 | `/mcp` | McpPanel | Session | BORDER |
-| `/status` | StatusPanel | Session | BORDER |
 | `/plugin` | PluginPanel | Global | BORDER |
 | `/cost` | StatusPanel (Cost tab) | Session | BORDER |
 | `/context` | StatusPanel (Context tab) | Session | BORDER |
+| `/tasks` | TasksPanel | Session | BORDER |
 
 ### 选中行样式
 
@@ -315,6 +320,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
   ❯ 1. Opus  ✔   claude-opus-4-7
     2. Sonnet      claude-sonnet-4-6
     3. Haiku       claude-haiku-4-5
+    4. Fable       <gateway-mapped tier>
 
     ● High effort ← → to adjust
 
@@ -427,21 +433,24 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ### 全局快捷键
 
+源码：`peri-tui/src/event/keyboard/shortcuts.rs`、`keyboard.rs`、`normal_keys.rs`。
+
 | 按键 | 行为 | 说明 |
 |------|------|------|
 | `Ctrl+C` | 中断 Agent（loading 时）/ 退出（idle 时） | |
 | `Esc` | 退出程序（idle 时） | |
+| 双击 `Esc` | 空闲时触发 rewind 回滚选择器 | |
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
 | `Alt+Enter` | 插入换行 | |
-| `Shift+Tab` | 循环切换权限模式 | Default → DontAsk → AcceptEdit → AutoMode → Bypass |
-| `Alt+M` | 循环切换模型 | opus → sonnet → haiku |
-| `Ctrl+N` / `Ctrl+P` | 切换 Session（多 session 时） | |
-| `Ctrl+W` | 关闭当前 Session（多 session 时） | |
+| `Shift+Tab` | 循环切换权限模式 | Default → AcceptEdit → AutoMode → Bypass → Default（DontAsk 跳过） |
+| `Ctrl+P` / `Alt+P` | 开关命令面板（Provider & Model 选择） | **模型切换统一走此入口** |
+| `Ctrl+O` | 切换详细模式（detail mode） | OAuth 弹窗激活时不响应 |
+| `Ctrl+B` | 后台化前台 shell / 聚焦底部后台任务入口 | |
+| `Alt+V`（或 `Ctrl+V`） | 粘贴剪贴板图片附件 | 优先图片，回退文字；Alt+V 为现代终端穿透主键 |
 | `↑` | 浮层导航 / 历史恢复 | 浮层激活时导航候选，否则恢复上一条输入 |
 | `↓` | 浮层导航 / 历史恢复 | 浮层激活时导航候选，否则恢复下一条输入 |
 | `Tab` | 命令/Skills 提示浮层导航 | 选中后 Enter 补全 |
-| `Ctrl+V` | 粘贴剪贴板（优先图片，回退文字） | |
-| `PageUp/PageDown` | 消息区上下翻页（每次 10 行） | |
+| `PageUp/PageDown` | 消息区半页滚动（每次 20 行） | 仅当输入框为空时生效；输入框有内容时光标在输入框内移动 |
 | `Del` | 删除最后一个待发送附件 | |
 | `MouseScrollUp/Down` | 消息区滚动 | |
 
@@ -481,33 +490,68 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## 命令系统
 
-源码：`peri-tui/src/command/mod.rs`。
+源码：`peri-tui/src/command/mod.rs`。TUI 命令注册表共 **30 个命令**。
 
 ### 命令列表
 
+#### 会话类
+
 | 命令 | 说明 |
 |------|------|
-| `/login` | Provider 配置管理（新建/编辑/删除） |
-| `/model` | 打开模型选择面板 |
-| `/model <alias>` | 直接切换活跃模型（`opus` / `sonnet` / `haiku`） |
-| `/history` | 历史对话浏览 |
-| `/agents` | SubAgent 定义管理 |
-| `/compact` | 触发上下文压缩 |
-| `/clear` | 清空当前消息列表 |
-| `/cron` | 定时任务管理面板 |
-| `/mcp` | MCP 服务器管理面板 |
-| `/memory` | Memory 文件管理面板 |
-| `/hooks` | Hooks 配置查看（只读） |
-| `/config` | 查看/编辑运行时配置 |
-| `/plugin` | 插件市场/管理面板 |
-| `/cost` | Token 用量和成本面板（StatusPanel Cost tab） |
-| `/context` | 上下文窗口使用情况面板（StatusPanel Context tab） |
-| `/status` | 状态面板（含 Cost/Context 两个 tab） |
-| `/loop` | 循环执行 |
-| `/doctor` | 诊断配置完整性 |
-| `/effort <level>` | 查看或设置推理力度（low/medium/high/xhigh/max） |
+| `/clear` | 清空消息列表（别名 `reset`、`new`） |
+| `/commit` | 一键 git commit，自动生成提交信息（别名 `ci`） |
+| `/context` | 查看上下文使用率和会话统计 |
+| `/cost` | 查看当前会话费用和 token 消耗 |
+| `/exit` | 退出应用（别名 `quit`） |
+| `/export` | 导出对话到文件或剪贴板（别名 `save`） |
+| `/history` | 打开历史对话浏览面板（别名 `resume`） |
+| `/recap` | 生成 1-2 句会话回顾：高层目标 + 当前任务 → 下一步（别名 `away`、`catchup`） |
 | `/rename [name]` | 查看或修改当前会话标题 |
-| `/help` | 列出所有命令 |
+| `/review` | PR 代码审查（别名 `pr`） |
+| `/gc` | 手动触发内存回收，显示 RSS 变化与数据结构诊断 |
+
+#### 面板 / 交互类
+
+| 命令 | 说明 |
+|------|------|
+| `/agent` | 设置 Agent 定义，切换不同的 Agent 角色 |
+| `/agents` | 打开 Agent 选择面板 |
+| `/help` | 列出所有可用命令 |
+| `/model` | 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名 |
+| `/plugin` | 管理插件（浏览、安装、卸载） |
+| `/setup` | 打开配置向导，设置 Provider |
+
+#### 配置类
+
+| 命令 | 说明 |
+|------|------|
+| `/channel` | 管理 MCP 频道连接：`open <source>` / `close` / `status`（别名 `ch`） |
+| `/config` | 全局配置（autocompact、语言、系统提示词覆盖）（别名 `settings`） |
+| `/doctor` | 诊断配置完整性 |
+| `/effort <level>` | 查看或设置推理力度（`low`/`medium`/`high`/`xhigh`/`max`） |
+| `/init` | 生成或优化项目 CLAUDE.md 知识库 |
+| `/lang` | 切换界面语言（如 `/lang zh-CN`） |
+| `/login` | 管理 Provider 配置（新建/编辑/删除） |
+| `/memory` | 编辑用户/项目级 CLAUDE.md 记忆文件 |
+| `/mcp` | 管理 MCP 服务器连接 |
+
+#### 任务 / 工具类
+
+| 命令 | 说明 |
+|------|------|
+| `/cron` | 查看和管理定时任务 |
+| `/hooks` | 查看 Hook 配置 |
+| `/loop` | 注册定时循环任务（自然语言描述，如 `/loop 每隔5分钟提醒我喝水`） |
+| `/tasks` | 查看 agent 线程和定时任务 |
+
+### ACP 层命令
+
+`/compact` 走 ACP 层而非 TUI registry。`peri-acp/src/session/command/` 注册了 7 个命令：`compact`、`clear`、`rewind`、`init`、`recap`、`commit`、`review`。其中 `/clear`、`/recap`、`/commit`、`/review`、`/init` 两侧均有，由 ACP 拦截处理。
+
+### `/recap` 特别说明
+
+- 生成 1-2 句会话回顾（高层目标 + 当前任务 → 下一步）
+- 单轮执行，**禁用工具**、**不写入 history**，支持 `Ctrl+C` 取消
 
 ### 命令匹配
 
@@ -522,14 +566,16 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 源码：`peri-middlewares/src/hitl/shared_mode.rs`。
 
-通过 `Shift+Tab` 循环切换，状态栏首列实时显示：
+通过 `Shift+Tab` 循环切换，状态栏首列实时显示。枚举序为 Default(0) / DontAsk(1) / AcceptEdit(2) / AutoMode(3) / Bypass(4)，共 5 级模式；其中 `DontAsk` 可用但不进入 `Shift+Tab` 循环。
+
+**循环顺序**：Default → AcceptEdit → AutoMode → Bypass → Default（**DontAsk 跳过**）。
 
 | 模式 | 标签 | 颜色 | 说明 |
 |------|------|------|------|
 | Default | (不显示) | TEXT | 默认：所有敏感工具需审批 |
-| DontAsk | Don't Ask | WARNING | 不主动提问 |
+| DontAsk | Don't Ask | WARNING | 不主动提问（不在循环内，可单独设置） |
 | AcceptEdit | Accept Edit | THINKING | 允许文件系统的编辑 |
 | AutoMode | Auto Mode | WARNING | 大模型自动判断 |
 | Bypass | Bypass | ERROR | 所有都允许 |
 
-模式切换后标签 3 秒 BOLD + SLOW_BLINK 高亮。
+模式切换后标签 1500ms BOLD + SLOW_BLINK 高亮。

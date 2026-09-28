@@ -5,7 +5,7 @@
 | 组件 | 类型 | 职责 |
 |------|------|------|
 | `peri-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
-| `peri-middlewares` | 中间件库 | 文件系统、终端、HITL（含 SharedPermissionMode/Auto 分类器）、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、CronMiddleware、MCP（Client 连接池、OAuth 2.0、工具桥接）、grep 进程内搜索 等具体实现 |
+| `peri-middlewares` | 中间件库 | 文件系统、终端（RTK 输出压缩代理）、HITL（含 SharedPermissionMode/Auto 分类器）、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、CronMiddleware、MCP（Client 连接池、OAuth 2.0、工具桥接）、rg 双引擎文件搜索 等具体实现 |
 | `peri-acp` | ACP 服务层 | Agent Client Protocol 实现：Session 管理、Agent 构建（Middleware Chain 组装）、事件映射（ExecutorEvent→SessionNotification）、HITL/AskUser 桥接（AcpTransportBroker）、Langfuse 追踪、Hooks、LSP、系统提示词、Provider/Model 解析、上下文压缩执行 |
 | `peri-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，通过 ACP 协议与 Agent 通信（AcpTuiClient），MessagePipeline 消费 SessionNotification，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板 |
 | `peri-widgets` | Widget 库 | 独立 UI 组件库，仅依赖 ratatui + pulldown-cmark |
@@ -110,7 +110,7 @@ src/
     │   ├── write.rs      — WriteFileTool
     │   ├── edit.rs       — EditFileTool
     │   ├── glob.rs       — GlobFilesTool
-    │   └── grep.rs       — GrepTool（进程内搜索，grep+grep-regex crate）
+    │   └── grep.rs       — GrepTool（rg 双引擎：优先外部 ripgrep 二进制，回退 grep+grep-regex crate）
     ├── ask_user_tool.rs  — AskUserTool（oneshot channel 挂起等待用户输入）
     ├── todo.rs           — TodoWriteTool + TodoItem / TodoStatus
     └── mod.rs            — BoxToolWrapper / ArcToolWrapper 适配器

@@ -77,12 +77,34 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Auto Compact** | 长会话自动压缩，保持响应快且省 token |
 | **Sub-Agent 并发** | 后台子 agent 并行执行，支持 fork 和 background 模式 |
 | **HITL 审批** | 敏感操作自动拦截，支持 auto-classifier 和 shared-mode |
+| **双引擎文件搜索** | Grep/Glob 优先使用外部 ripgrep 二进制，回退到内置 Rust 引擎 |
 | **Nobody Coding** | 99% 代码由 DeepSeek、Mimo、GLM 产出 — 人决定做什么，AI 想怎么做 |
 
 ### v0.6.x 新增功能
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **会话恢复 Recap 持久化** | v0.6.80 | Recap 与任务完成总结行落库到 `ThreadMeta`（`latest_recap`/`last_task_summary`），`-c`/`-r` 恢复后不再丢失 |
+| **/recap 命令与自动回顾** | v0.6.76 | `/recap`（别名 `/away` `/catchup`）用 aux_model 输出「目标→任务→下一步」；终端失焦+≥3 完成轮+60s 静默自动触发回顾（`/config` 开关，`PERI_AUTO_RECAP_*` 环境变量）；非流式 Anthropic 响应自适应兼容反向代理 OpenAI 格式 |
+| **工具参数校验与输入泵** | v0.6.75 | Schema 校验错误对齐 Claude Code `formatZodValidationError` 可读化 + 工具错选启发式诊断（`suggest_tool_mismatch`）+ 连续失败熔断；引入独立 InputPump 安全启用鼠标悬停并修复滚动条拖拽 |
+| **RTK 输出过滤** | v0.6.74 | 过滤 RTK git status 噪音（`clean — nothing to commit`），移除会吞并代码上下文的毒性通用折叠 |
+| **Windows 控制台隔离与滚轮防抖** | v0.6.73 | `CREATE_NO_WINDOW` 隔离子进程控制台，消除 PHP 等触发的全屏闪屏；长内容下滚轮防抖批处理 + 滚动条滑块平滑拖拽 |
+| **可点击 Markdown 超链接** | v0.6.72 | 消息区 Markdown 超链接跨平台点击打开默认浏览器 |
+| **UI 细节打磨** | v0.6.71 | 禁用 sticky header 顶部固定消息条；附件栏标题与 Del 提示接入 i18n |
+| **模型切换修复与命令面板统一** | v0.6.70 | 修复会话首条消息前切换模型不生效；废弃 `Ctrl+T`/`Alt+M` 循环快捷键，模型切换统一走命令面板（`Ctrl+P`/`Alt+P`） |
+| **工具调用可靠性** | v0.6.69 | 边界提示词 + 字段级参数校验 + 动作循环检测；Windows 多行命令走 Git Bash 避免 cmd 截断；命令输出通用重复行/块折叠 |
+| **图片魔数校验** | v0.6.68 | Read 工具校验图片魔数（Magic Bytes）防伪图片；长段落续行悬挂缩进；Windows 8.3 短文件名波浪号不再误拦截 |
+| **消息队列与 Steering** | v0.6.66 | 执行期间输入的消息按轮排队增量注入（steering 不打断）；粘贴本机图片路径自动转附件 |
+| **RTK stderr 清洗** | v0.6.64 | 清洗 RTK 外部宿主 stderr 噪音 |
+| **本地命令块样式对齐** | v0.6.63 | 对齐本地命令块渲染样式 |
+| **Prompt Cache 命中率** | v0.6.62 | 状态栏显示 Prompt Cache 命中率（替代瞬时 CPU）；移除消息区冗余低命中率警告气泡 |
+| **动态终端标题** | v0.6.60 | 动态终端标题（Status Surface）对齐 OpenAI Codex 规范 |
+| **Alt+V 粘贴图片** | v0.6.59 | 支持 `Alt+V` 快捷键粘贴图片附件 |
+| **Windows 控制台残影修复** | v0.6.58 | 修复 Windows 传统控制台歧义字符双列残影 + Markdown 表格视口溢出 |
+| **多模态工具包装器修复** | v0.6.57 | 修复工具包装器丢失多模态图片内容导致 Read 识图失败 |
+| **多模态图片读取** | v0.6.56 | Read 工具支持多模态图片读取 |
+| **后台 Shell 修复** | v0.6.55 | 修复常驻子进程导致后台 shell 任务无限 running |
+| **生命周期无闪屏** | v0.6.54 | 消除 agent Bash 运行提示与生命周期切换时的终端清屏闪烁 |
 | **工具行超长单行优雅截断** | v0.6.53 | 工具行 Header 超长根据终端列宽动态截断并以 `…` 闭合，杜绝折行挤占视口 |
 | **Spinner 总结行动词与时刻** | v0.6.53 | 对齐 Claude Code 风格 `✻ {verb} for {elapsed} · done {HH:MM}`，规范生命周期 |
 | **状态栏运行耗时秒数补零** | v0.6.52 | 耗时统一补零（如 `31m06s`），消除字符抖动；统一标准单字符 Emoji 避免错位 |

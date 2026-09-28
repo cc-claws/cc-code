@@ -39,7 +39,7 @@
 - **LLM 重试装饰器:** RetryableLLM<L> 装饰器模式，对 executor 零改动，指数退避+25%随机抖动
 - **消息管线统一:** MessagePipeline 成为消息状态管理唯一入口，PipelineAction 枚举统一描述所有 UI 变更
 - **系统提示词段落化:** include_str! 编译时嵌入 sections/ 目录下的 12 个 .md 段落，PromptFeatures 条件注入
-- **进程内搜索:** 使用 grep+grep-regex crate 替代外部 rg 进程，WalkParallel 多线程并行
+- **文件搜索:** rg CLI 双引擎，优先外部 ripgrep 二进制（`PERI_RG_PATH` → exe 同级 `bin/rg(.exe)` → 系统 PATH 探测），失败回退 grep+grep-regex crate（WalkParallel 多线程并行）
 
 ## API 风格
 

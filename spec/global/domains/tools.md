@@ -2,7 +2,7 @@
 
 ## 领域综述
 
-工具三层架构（Core/Meta/Deferred）、工具输出截断持久化与 UI 展示规范。
+工具三层架构（Core/Meta/Deferred）、工具输出截断持久化、RTK 输出压缩代理、工具参数 Schema 预校验与 UI 展示规范。
 
 ## 核心流程
 
@@ -14,6 +14,13 @@
    - 超过大小限制的输出通过 `persist_truncated_output` 写入本地临时文件，并在返回中附带文件路径提示供 LLM 通过 `Read` 查看。
 3. **展示层渲染与截断**：
    - 工具调用 Header 采用严格单行展示，终端宽度受限时通过 `truncate_to_display_width`（基于 `unicode-width`）动态单行截断并以 `…` 闭合，避免换行挤占视口。
+4. **RTK 输出压缩代理（双轨制）**：
+   - 探测外部 `rtk` 二进制（`where`/`which`）；命中且命令属潜在可重写类别时执行 `rtk rewrite "<command>"` 重写命令以降低输出 Token，失败则回退执行原命令。
+   - 覆盖 git/cargo/npm/docker/kubectl/python/php/go/grep/find/ls/cat/diff/curl/wget 等约 23 类命令；过滤 RTK 宿主注入的 stderr 噪音。
+5. **工具参数 Schema 预校验**：
+   - 对齐 Claude Code `formatZodValidationError`，结构化汇总输出「缺失参数 / 意外参数 / 类型错误」；`Unexpected parameter` 时列出允许的参数清单。
+   - `suggest_tool_mismatch` 启发式诊断：依据 `TOOL_SIGNATURE_HINTS` 特征表在工具错配时建议正确工具（WebFetch/Bash/Grep/Read/Agent）。
+   - `SchemaFailureTracker` 熔断：同一工具 Schema 校验连续失败 ≥2 次时注入强提示，阻断盲目重试循环。
 
 ## 技术方案总结
 
@@ -23,6 +30,8 @@
 | 工具分层实现 | `CORE_TOOLS` 白名单 + `ToolSearchMiddleware` 代理 |
 | 输出持久化 | `peri-middlewares/src/tools/output_persist.rs` 统一截断写入磁盘 |
 | Header 截断算法 | `truncate_to_display_width`（按 CJK 2 列宽与 ASCII 1 列宽动态匹配） |
+| RTK 输出压缩 | 外部 `rtk` 二进制探测 + `rtk rewrite` 命令重写，失败回退原命令（`peri-middlewares/src/process/mod.rs`） |
+| Schema 预校验 | `validate_against_schema` 结构化错误汇总 + `suggest_tool_mismatch` 启发式 + `SchemaFailureTracker` 连续 2 次熔断（`peri-agent/src/agent/executor/tool_dispatch.rs`） |
 
 ---
 

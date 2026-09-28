@@ -8,7 +8,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 
 - 双线程渲染：独立渲染线程计算 Markdown 解析（pulldown-cmark）和行包装，UI 线程只从 `RenderCache` 读取可见行，按需重绘
 - 事件处理：crossterm 输入拦截、命令解析（`/` 前缀）、弹窗状态管理
-- 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
+- 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/recap`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
 - 多会话管理：SQLite 持久化，`/history` 面板按 cwd 过滤当前工作区对话
 - 弹窗系统：HITL 审批弹窗、AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
 - SubAgent 层级展示：SubAgentGroup 可折叠块，滑动窗口显示最近 4 步，显示格式 `Agent(type) #hash`，颜色区分状态（前台绿色、后台运行中黄色、错误红色）
@@ -45,6 +45,8 @@ Event::Key → 命令前缀匹配（/）
            → Ctrl+V（剪贴板图片）
            → Del（删除最后一张附件）
            → Enter（loading 缓冲，非 loading 提交）
+           → Ctrl+P / Alt+P（命令面板：Provider & Model 选择）
+           → PageUp / PageDown（textarea 为空时半页滚动，20 行）
            → Tab/Shift+Tab/方向键（面板导航）
 
 poll_agent() → AgentEvent → handle_agent_event → view_messages + render_tx
@@ -101,7 +103,7 @@ submit_message(text)
 | 剪贴板 | `arboard` crate，跨平台，macOS/Linux/Windows |
 | 图片编码 | `png` crate（RGBA→PNG）+ `base64` crate |
 | 命令解析 | 前缀唯一匹配（`/` 开头），`default_registry()` 注册 |
-| 模型别名 | Opus/Sonnet/Haiku 三档，`ModelAliasMap` 独立绑定 Provider+Model |
+| 模型别名 | 四档 Opus/Sonnet/Haiku/Fable，`ProviderConfig.models`（ProviderModels）内聚绑定 Provider+模型名 |
 | 输入缓冲 | `pending_messages: Vec<String>`，Done/Error 时合并发送 |
 | 弹窗滚动 | `scroll_offset: u16`，`ensure_cursor_visible()`，80% 高度上限 |
 | SubAgent 展示 | SubAgentGroup ViewModel；滑动窗口 4 条；RenderEvent::UpdateLastMessage 原地更新 |
@@ -112,7 +114,7 @@ submit_message(text)
 | 面板组件化 | PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，双实例（session/global），PanelContext 解耦借用 |
 | SubAgent 显示 | 格式 `Agent(type) #hash`，颜色映射（ERROR/WARNING/SAGE），is_background + bg_hash 字段 |
 | 配置系统 | CLAUDE.local.md 支持、`@import` 外部引用（深度上限 3）、claudeMdExcludes glob 过滤、`$schema` passthrough |
-| TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查 |
+| TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查、`/recap` 会话回顾（recap_auto.rs 支持终端失焦自动触发） |
 | 配色方案 | v1.1 降噪：橙色仅用于输入框，工具名 bash=ACCENT/写操作=WARNING/只读=MUTED，面板边框 MUTED |
 | Setup Wizard | 三步引导（Provider → API Key → Model Alias），save_setup() 原子写回 settings.json |
 | Welcome Card | 空消息时 ASCII Art Logo + 功能亮点，窄屏降级为文字标题 |
@@ -213,6 +215,7 @@ submit_message(text)
 - 向后兼容迁移: 检测旧 provider_id 字段，自动填充 opus 别名
 - 空 model_id fallback: anthropic→claude-sonnet-4-6, 其他→gpt-4o
 - /model <alias> 命令: 直接切换 active_alias，无需打开面板
+**后续演进:** 该三档 `ModelAliasMap` 设计已被 `feature_20260427_F003_model-config-refactor` 取代——改为 Provider 自包含四档模型名（opus/sonnet/haiku/fable），本条目仅作归档记录保留
 **归档:** [链接](../../archive/feature_20260323_F001_model-alias-provider-mapping/)
 **归档日期:** 2026-03-24
 
@@ -539,6 +542,18 @@ submit_message(text)
 - 消除 28 处 unwrap()，15 层 if-else 链简化为单次调用
 **归档:** [链接](../../archive/feature_20260508_F001_panel-component-architecture/)
 **归档日期:** 2026-05-13
+
+### feature_20260924_F005_tui-recap-command
+
+**摘要:** TUI 侧 `/recap` 会话回顾命令与终端失焦自动回顾
+**关键决策:**
+
+- `peri-tui/src/command/session/recap.rs` 注册 `/recap` 命令，转发至 `peri-agent` 的 `generate_recap`
+- `peri-tui/src/app/agent_recap.rs` 处理回顾结果回显
+- `peri-tui/src/app/recap_auto.rs` 实现终端失焦（FocusLost）自动触发回顾
+- 回顾结果落库 ThreadMeta.latest_recap，`-c`/`-r` 恢复会话时回显
+
+**归档日期:** 2026-09-28
 
 ---
 

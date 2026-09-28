@@ -62,6 +62,17 @@ launch_agent 工具调用
   → 执行 → 返回工具调用摘要 + 最终回答
 ```
 
+### /recap 会话回顾流程
+
+```
+/recap 命令（或终端失焦自动触发）
+  → generate_recap(messages, aux_model)
+  → preprocess_messages：压缩历史为轻量文本（保留工具名/摘要，截断长内容）
+  → 单轮 LLM 调用：禁用工具（LlmRequest 不带 tools）
+  → 不写 history，仅返回 RecapResult
+  → 结果落库 ThreadMeta.latest_recap（恢复会话时回显）
+```
+
 ## 技术方案总结
 
 | 维度 | 选型 |
@@ -86,6 +97,9 @@ launch_agent 工具调用
 | 工具延迟加载 | 核心工具（12 个）直接加载，非核心工具通过 SearchExtraTools 按需发现、ExecuteExtraTool 代理执行；Prompt 缓存会话级 |
 | Web 工具 | WebMiddleware 注入 WebFetch（HTML→Markdown）和 WebSearch（Tavily API），支持域名过滤和实时抓取 |
 | trait 清理 | ReactLLM trait 移除废弃方法（generate_reasoning），统一为 generate()；废弃 trait 标记 #[deprecated] |
+| 会话回顾 /recap | `peri-agent/src/agent/recap/mod.rs`：独立 `aux_model`（与 compact_model 解耦，不受 compact 开关影响），单轮生成、禁用工具、不写 history；input token 远小于完整 history |
+| 动作签名循环检测 | `ActionLoopDetector`（`tool_dispatch.rs`）：按步骤动作签名去重，连续 3 轮（CONSECUTIVE_ACTION_THRESHOLD）相同工具动作注入纠正消息 |
+| ThreadMeta 恢复字段 | `latest_recap`（Option<String>）与 `last_task_summary`（Option<TaskSummary>）落库；`TaskSummary { verb, elapsed_ms, done_at }`，使 `-c`/`-r` 恢复会话时 recap 与任务完成总结行不丢失 |
 
 ## Feature 附录
 
@@ -309,6 +323,18 @@ launch_agent 工具调用
 - 支持搜索结果过滤（允许/阻止域名）和实时抓取模式
 **归档:** [链接](../../archive/feature_20260505_F001_web-tools/)
 **归档日期:** 2026-05-13
+
+### feature_20260924_F004_recap-and-action-loop-detection
+
+**摘要:** 新增 /recap 会话回顾、工具动作签名循环检测与 ThreadMeta 恢复字段
+**关键决策:**
+
+- `/recap`：`peri-agent/src/agent/recap/mod.rs` 提供 `generate_recap`，使用独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history
+- 动作签名循环检测：`ActionLoopDetector` 按 `compute_step_action_signature` 去重，连续 3 轮相同工具动作注入纠正消息，防无效重复
+- ThreadMeta 新增 `latest_recap` 与 `last_task_summary`（`TaskSummary { verb, elapsed_ms, done_at }`）字段落库，`-c`/`-r` 恢复会话时 recap 与任务完成总结行不丢失
+- 涉及文件：`peri-agent/src/agent/recap/mod.rs`、`peri-agent/src/agent/executor/tool_dispatch.rs`、`peri-agent/src/thread/{types,sqlite_store}.rs`
+
+**归档日期:** 2026-09-28
 
 ---
 
@@ -808,7 +834,7 @@ launch_agent 工具调用
 - → [hitl-permissions.md](./hitl-permissions.md) — 5 级权限模式 HITL middleware 集成
 - → [llm-retry.md](./llm-retry.md) — RetryableLLM 装饰器包装 ReactLLM
 - → [system-prompt.md](./system-prompt.md) — 系统提示词段落化 PromptFeatures 条件注入
-- → [file-search.md](./file-search.md) — grep crate 进程内文件搜索
+- → [file-search.md](./file-search.md) — rg CLI 双引擎文件搜索
 - → [token-tracking.md](./token-tracking.md) — TokenTracker Token 累积追踪
 - → [compact.md](./compact.md) — Micro/Full Compact 核心层消息操作
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一管线

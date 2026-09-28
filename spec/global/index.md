@@ -117,7 +117,7 @@
 - [plugin](./domains/plugin.md) — 插件系统（Claude Code 插件生态兼容、Hooks 系统、MCP env 展开）— 3 features
 - [relay-server](./domains/relay-server.md) — Relay Server（WebSocket 中继、远程控制）— 12 features
 - [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）— 8 features
-- [model-config](./domains/model-config.md) — 模型配置（Provider 自包含模型名、/login 与 /model 分离）— 1 feature
+- [model-config](./domains/model-config.md) — 模型配置（Provider 自包含四档模型名 opus/sonnet/haiku/fable、/login 与 /model 分离）— 1 feature
 - [token-tracking](./domains/token-tracking.md) — Token 追踪与压缩（累积追踪、上下文窗口感知、自动压缩）— 1 feature
 - [llm-retry](./domains/llm-retry.md) — LLM 重试（暂时性错误自动重试、指数退避）— 1 feature
 - [message-pipeline](./domains/message-pipeline.md) — 消息管线（统一流式与历史恢复、PipelineAction）— 2 features
@@ -125,7 +125,7 @@
 - [code-highlight](./domains/code-highlight.md) — 代码高亮（syntect 语法高亮）— 1 feature
 - [mouse-selection](./domains/mouse-selection.md) — 鼠标选区（拖拽选中文本、剪贴板复制）— 1 feature
 - [system-prompt](./domains/system-prompt.md) — 系统提示词（段落化、Feature 条件注入）— 1 feature
-- [file-search](./domains/file-search.md) — 文件搜索（grep crate 进程内搜索）— 1 feature
+- [file-search](./domains/file-search.md) — 文件搜索（rg CLI 双引擎：外部 ripgrep 优先，回退 Rust 引擎）— 1 feature
 - [hitl-permissions](./domains/hitl-permissions.md) — HITL 权限（5 级权限模式）— 1 feature
 - [tui-widgets](./domains/tui-widgets.md) — TUI 组件（Spinner/ToolCall/MessageBlock widget + widget 库抽取）— 2 features
 - [compact](./domains/compact.md) — 上下文压缩增强（Micro/Full Compact 策略）— 1 feature
@@ -133,7 +133,7 @@
 - [lsp](./domains/lsp.md) — LSP 集成（客户端库、transport 错误处理、自动重连）— 0 features
 - [cli](./domains/cli.md) — CLI 工具链（update、版本管理、远程脚本协作）— 0 features
 - [acp](./domains/acp.md) — IDE Agent 服务端（stdio），session 管理 — 0 features
-- [tools](./domains/tools.md) — 工具系统（输出截断持久化、通用工具基础设施）— 0 features
+- [tools](./domains/tools.md) — 工具系统（输出截断持久化、RTK 输出压缩代理、Schema 校验、通用工具基础设施）— 0 features
 
 ---
-*最后更新: 2026-07-01 — 文档同步：新增各 crate README.md，完善项目文档结构*
+*最后更新: 2026-09-28 — 同步 v0.6.80：fable 第四档别名、rg 双引擎、RTK 输出压缩、/recap 会话回顾*
