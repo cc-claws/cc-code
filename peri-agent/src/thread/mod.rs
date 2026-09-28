@@ -6,4 +6,4 @@ mod types;
 pub use filesystem::FilesystemThreadStore;
 pub use sqlite_store::SqliteThreadStore;
 pub use store::ThreadStore;
-pub use types::{ThreadId, ThreadMeta};
+pub use types::{TaskSummary, ThreadId, ThreadMeta};

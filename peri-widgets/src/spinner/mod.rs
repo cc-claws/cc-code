@@ -156,6 +156,20 @@ impl SpinnerState {
         self.last_summary_done_at = None;
     }
 
+    /// 从持久化数据恢复完成态总结行（`-c`/`-r` 恢复会话时使用）。
+    ///
+    /// 与 [`Self::set_mode`] 的 Idle 切换逻辑产出的状态一致：verb + 耗时 + 完成时刻。
+    pub fn restore_summary(
+        &mut self,
+        verb: String,
+        elapsed_ms: u64,
+        done_at: std::time::SystemTime,
+    ) {
+        self.last_summary_elapsed_ms = elapsed_ms;
+        self.last_summary_verb = verb;
+        self.last_summary_done_at = Some(done_at);
+    }
+
     pub fn displayed_tokens(&self) -> usize {
         self.displayed_tokens
     }
@@ -286,5 +300,22 @@ mod tests {
         assert_eq!(state.last_summary_elapsed_ms(), 0);
         assert!(state.last_summary_verb().is_empty());
         assert!(state.last_summary_done_at().is_none());
+    }
+
+    #[test]
+    fn test_restore_summary_reproduces_completed_line() {
+        // Arrange：重置后（模拟 open_thread 的 reset_agent_session）应无总结行
+        let mut state = SpinnerState::new(SpinnerMode::Idle);
+        state.reset();
+        assert_eq!(state.last_summary_elapsed_ms(), 0);
+
+        // Act：从持久化数据恢复
+        let done_at = std::time::SystemTime::now();
+        state.restore_summary("Cooked".to_string(), 25_000, done_at);
+
+        // Assert：三个字段均恢复
+        assert_eq!(state.last_summary_elapsed_ms(), 25_000);
+        assert_eq!(state.last_summary_verb(), "Cooked");
+        assert_eq!(state.last_summary_done_at(), Some(done_at));
     }
 }

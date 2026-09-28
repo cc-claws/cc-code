@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
-use super::types::{ThreadId, ThreadMeta};
+use super::types::{TaskSummary, ThreadId, ThreadMeta};
 use crate::messages::BaseMessage;
 
 #[async_trait]
@@ -36,6 +36,28 @@ pub trait ThreadStore: Send + Sync {
     async fn update_title(&self, id: &ThreadId, title: &str) -> Result<()> {
         let mut meta = self.load_meta(id).await?;
         meta.title = Some(title.to_string());
+        self.update_meta(id, meta).await
+    }
+
+    /// 仅更新 latest_recap 字段（窄更新，避免触碰 cached_context 等大字段）。
+    ///
+    /// 默认实现走 load_meta + update_meta；存储后端应优先 override 为单列 UPDATE。
+    async fn update_latest_recap(&self, id: &ThreadId, recap: Option<String>) -> Result<()> {
+        let mut meta = self.load_meta(id).await?;
+        meta.latest_recap = recap;
+        self.update_meta(id, meta).await
+    }
+
+    /// 仅更新 last_task_summary 字段（窄更新，避免触碰 cached_context 等大字段）。
+    ///
+    /// 默认实现走 load_meta + update_meta；存储后端应优先 override 为单列 UPDATE。
+    async fn update_last_task_summary(
+        &self,
+        id: &ThreadId,
+        summary: Option<TaskSummary>,
+    ) -> Result<()> {
+        let mut meta = self.load_meta(id).await?;
+        meta.last_task_summary = summary;
         self.update_meta(id, meta).await
     }
 
