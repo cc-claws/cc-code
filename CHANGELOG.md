@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.80 — 2026-09-28
+
+### Fixes
+
+- **`-c`/`-r` 恢复会话时丢失 recap 与任务完成总结行（#244, #245）**：`✻ Cooked for 25s · done 14:26` 与 `※ recap: ...` 两行原为纯内存展示态、不进 message history 也未持久化，重启恢复即消失。`ThreadMeta` 新增 `latest_recap` 与 `last_task_summary`（`TaskSummary { verb, elapsed_ms, done_at }`）字段并落库（SQLite `threads` 表幂等 `ALTER TABLE` 迁移，旧 `meta.json` 靠 `#[serde(default)]` 兼容）；`ThreadStore` 新增 `update_latest_recap` / `update_last_task_summary` 窄更新接口，SQLite override 为单列 `UPDATE`，避免每轮重写 ~1MB 的 `cached_context`。`handle_recap_completed` 与 `cleanup_agent_state` 分别写回两字段，`open_thread()` 读 meta 回填并无条件覆盖，顺带修复切换 thread 时 recap 残留串台。
+
+---
+
 ## v0.6.76 — 2026-09-24
 
 ### Features
