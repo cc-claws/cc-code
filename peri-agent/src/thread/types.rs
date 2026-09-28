@@ -4,6 +4,21 @@ use serde::{Deserialize, Serialize};
 /// Thread 唯一标识符（UUID v7，按时间排序）
 pub type ThreadId = String;
 
+/// 上一轮任务完成态总结（对应 UI 的 `✻ Cooked for 25s · done 14:26` 行）。
+///
+/// 属于纯展示态、不进 message history，但也需要随 thread 持久化，
+/// 否则 `-c`/`-r` 恢复会话时该行会丢失。命名对齐 [`AgentComm::last_task_duration`]
+/// 所在的任务完成信息域（`last_task_*`），避免与 compact 域的 summary 混淆。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskSummary {
+    /// 完成态动词（随机过去式英文，如 "Cooked"）
+    pub verb: String,
+    /// 本轮耗时（毫秒）
+    pub elapsed_ms: u64,
+    /// 完成时刻（wall-clock）
+    pub done_at: DateTime<Utc>,
+}
+
 /// Thread 元数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadMeta {
@@ -39,6 +54,12 @@ pub struct ThreadMeta {
     /// active / done / cancelled / error
     #[serde(default = "default_agent_status")]
     pub agent_status: String,
+    /// 最新会话回顾文本（`/recap` 生成，持久化以支持 `-c`/`-r` 恢复）
+    #[serde(default)]
+    pub latest_recap: Option<String>,
+    /// 上一轮任务完成态总结（spinner 完成行，持久化以支持 `-c`/`-r` 恢复）
+    #[serde(default)]
+    pub last_task_summary: Option<TaskSummary>,
 }
 
 fn default_cancel_policy() -> String {
@@ -67,6 +88,8 @@ impl ThreadMeta {
             config: None,
             cached_context: None,
             agent_status: default_agent_status(),
+            latest_recap: None,
+            last_task_summary: None,
         }
     }
 
@@ -92,6 +115,8 @@ impl ThreadMeta {
             config: None,
             cached_context: None,
             agent_status: default_agent_status(),
+            latest_recap: None,
+            last_task_summary: None,
         }
     }
 }
@@ -111,6 +136,8 @@ mod tests {
         assert_eq!(meta.config, None);
         assert_eq!(meta.cached_context, None);
         assert_eq!(meta.agent_status, "active");
+        assert_eq!(meta.latest_recap, None);
+        assert_eq!(meta.last_task_summary, None);
         assert!(meta.is_root());
     }
 
@@ -137,5 +164,24 @@ mod tests {
         assert_eq!(meta.config, None);
         assert_eq!(meta.cached_context, None);
         assert_eq!(meta.agent_status, "active");
+        assert_eq!(meta.latest_recap, None);
+        assert_eq!(meta.last_task_summary, None);
+    }
+
+    #[test]
+    fn test_task_summary_roundtrip() {
+        // Arrange
+        let summary = TaskSummary {
+            verb: "Cooked".to_string(),
+            elapsed_ms: 25_000,
+            done_at: Utc::now(),
+        };
+
+        // Act
+        let json = serde_json::to_string(&summary).unwrap();
+        let back: TaskSummary = serde_json::from_str(&json).unwrap();
+
+        // Assert
+        assert_eq!(back, summary);
     }
 }

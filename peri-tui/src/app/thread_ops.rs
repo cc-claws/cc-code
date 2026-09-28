@@ -101,6 +101,48 @@ impl App {
 
     // ─── Thread 操作 ──────────────────────────────────────────────────────────
 
+    /// 将 `latest_recap` 窄更新写回 thread 元数据（用于 `-c`/`-r` 恢复）。
+    ///
+    /// 无 current_thread_id 时静默跳过（首轮发送前 thread 尚未创建）。
+    pub(crate) fn persist_latest_recap(&self, recap: Option<String>) {
+        let Some(tid) = self.session_mgr.current().current_thread_id.clone() else {
+            return;
+        };
+        let store = self.services.thread_store.clone();
+        tokio::spawn(async move {
+            if let Err(e) = store.update_latest_recap(&tid, recap).await {
+                tracing::warn!(error = %e, thread_id = %tid, "persist latest_recap 失败");
+            }
+        });
+    }
+
+    /// 将完成态总结行窄更新写回 thread 元数据（用于 `-c`/`-r` 恢复）。
+    ///
+    /// 从 `spinner_state` 读取当前值；无记录时写入 `None`（清除旧值）。
+    pub(crate) fn persist_last_task_summary(&self) {
+        let Some(tid) = self.session_mgr.current().current_thread_id.clone() else {
+            return;
+        };
+        let spinner = &self.session_mgr.current().spinner_state;
+        let summary = if spinner.last_summary_elapsed_ms() > 0 {
+            spinner
+                .last_summary_done_at()
+                .map(|done_at| peri_agent::thread::TaskSummary {
+                    verb: spinner.last_summary_verb().to_string(),
+                    elapsed_ms: spinner.last_summary_elapsed_ms(),
+                    done_at: done_at.into(),
+                })
+        } else {
+            None
+        };
+        let store = self.services.thread_store.clone();
+        tokio::spawn(async move {
+            if let Err(e) = store.update_last_task_summary(&tid, summary).await {
+                tracing::warn!(error = %e, thread_id = %tid, "persist last_task_summary 失败");
+            }
+        });
+    }
+
     /// 重置 AgentComm 会话状态（token tracker、重试、subagent 等）
     /// 在 open_thread / new_thread 时调用，确保切换 thread 后上下文干净
     fn reset_agent_session(&mut self) {
@@ -214,12 +256,29 @@ impl App {
         self.session_mgr.current_mut().todo_items.clear();
 
         self.reset_agent_session();
-        // 恢复会话主题短标题并刷新终端标题
+        // 恢复会话主题短标题 + 持久化的提示行（recap / 完成态总结），并刷新终端标题
         let thread_meta = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(store.load_meta(&tid))
                 .ok()
         });
+        // recap 行与完成态总结行是纯展示态、不进 message history，需从 meta 回填。
+        // 无条件覆盖（Some/None 都写），顺带修复切换 thread 时 recap 残留串台问题。
+        self.session_mgr.current_mut().latest_recap =
+            thread_meta.as_ref().and_then(|m| m.latest_recap.clone());
+        if let Some(summary) = thread_meta
+            .as_ref()
+            .and_then(|m| m.last_task_summary.as_ref())
+        {
+            self.session_mgr
+                .current_mut()
+                .spinner_state
+                .restore_summary(
+                    summary.verb.clone(),
+                    summary.elapsed_ms,
+                    summary.done_at.into(),
+                );
+        }
         self.session_mgr.current_mut().metadata.thread_title = thread_meta.and_then(|m| m.title);
         if !base_msgs.is_empty() {
             self.session_mgr
@@ -341,6 +400,8 @@ impl App {
         self.session_mgr.current_mut().metadata.last_human_message = None;
         self.session_mgr.current_mut().messages.last_submitted_text = None;
         self.session_mgr.current_mut().metadata.pre_submit_state_len = 0;
+        // 清空上一会话的 recap 展示态（新一轮 /clear 后不应残留旧回顾行）
+        self.session_mgr.current_mut().latest_recap = None;
 
         self.reset_agent_session();
         let meta = &mut self.session_mgr.current_mut().metadata;
