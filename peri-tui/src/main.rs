@@ -1246,7 +1246,10 @@ mod tests {
         .unwrap();
         let env = read_config_env(&path).unwrap();
         assert_eq!(env.get("JEV_API_KEY").map(String::as_str), Some("k1"));
-        assert_eq!(env.get("JEV_ENDPOINT").map(String::as_str), Some("http://x"));
+        assert_eq!(
+            env.get("JEV_ENDPOINT").map(String::as_str),
+            Some("http://x")
+        );
     }
 
     #[test]

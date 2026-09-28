@@ -42,7 +42,10 @@ fn test_collect_hook_rules_captures_blocked_messages() {
          \x20 exit 2\nfi\n",
     );
     let out = collect_hook_rules(&dir.path().to_string_lossy()).unwrap();
-    assert!(out.contains("禁止任何情况下自动 git push"), "应采集到规则文本: {out}");
+    assert!(
+        out.contains("禁止任何情况下自动 git push"),
+        "应采集到规则文本: {out}"
+    );
 }
 
 #[test]

@@ -15,12 +15,17 @@ use regex::Regex;
 /// Shell 控制语法。允许 pattern **绝不能**匹配穿过这些字符的命令，
 /// 否则 `ls*` 会放行 `ls && rm -rf /`。
 fn has_shell_control(cmd: &str) -> bool {
-    cmd.chars()
-        .any(|c| matches!(c, '\r' | '\n' | ';' | '&' | '|' | '<' | '>' | '$' | '`' | '(' | ')' | '\\'))
+    cmd.chars().any(|c| {
+        matches!(
+            c,
+            '\r' | '\n' | ';' | '&' | '|' | '<' | '>' | '$' | '`' | '(' | ')' | '\\'
+        )
+    })
 }
 
 fn has_path_glob(s: &str) -> bool {
-    s.chars().any(|c| matches!(c, '*' | '?' | '[' | ']' | '{' | '}'))
+    s.chars()
+        .any(|c| matches!(c, '*' | '?' | '[' | ']' | '{' | '}'))
 }
 
 /// 把 shell 风格 `*` / `?` 通配符编译为正则（大小写不敏感）。
@@ -124,7 +129,10 @@ static HARD_DENY: LazyLock<Vec<HardDeny>> = LazyLock::new(|| {
             r"(?i)\b(?:mkfs(?:\.[a-z0-9_+-]+)?|wipefs)\b",
         ),
         // dd 写裸设备
-        mk("disk device overwrite", r#"(?i)\bdd\b[^\n;&|]*\bof\s*=\s*["']?/dev/"#),
+        mk(
+            "disk device overwrite",
+            r#"(?i)\bdd\b[^\n;&|]*\bof\s*=\s*["']?/dev/"#,
+        ),
         // macOS 磁盘擦除/分区
         mk(
             "macOS disk erase or partition",
@@ -175,62 +183,143 @@ static DANGEROUS: LazyLock<Vec<Dangerous>> = LazyLock::new(|| {
             "recursive/forced rm",
             r"(?i)\brm\b[^\n;&|]*(?:\s-[^\s;&|]*[rR][^\s;&|]*[fF]|\s-[^\s;&|]*[fF][^\s;&|]*[rR]|\s-[^\s;&|]*[rR]\b|\s--recursive\b)",
         ),
-        mk("remove Git metadata", r#"(?i)\brm\b[^\n;&|]*\s(?:\.git|\.git/|['"]\.git['"])"#),
+        mk(
+            "remove Git metadata",
+            r#"(?i)\brm\b[^\n;&|]*\s(?:\.git|\.git/|['"]\.git['"])"#,
+        ),
         mk("find delete", r"(?i)\bfind\b[^\n;&|]*\s-delete\b"),
-        mk("find exec", r"(?i)\bfind\b[^\n;&|]*\s-(?:exec|execdir|ok|okdir)\b"),
+        mk(
+            "find exec",
+            r"(?i)\bfind\b[^\n;&|]*\s-(?:exec|execdir|ok|okdir)\b",
+        ),
         mk("xargs rm", r"(?i)\bxargs\b[^\n;&|]*\brm\b"),
         // 包执行/发布（可运行第三方代码或改动远端状态）
         mk(
             "package execution or publish",
             r"(?i)\b(?:npm|pnpm|yarn|bun|pip|pip3|uv|poetry|cargo|gem|go|brew|apt(?:-get)?|dnf|pacman)\b[^\n;&|]*\b(?:exec|run|dlx|publish)\b",
         ),
-        mk("package runner", r"(?i)\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|pipx|uvx)\b"),
+        mk(
+            "package runner",
+            r"(?i)\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|pipx|uvx)\b",
+        ),
         // 提权 / 权限与归属
         mk("sudo", r"(?i)\bsudo\b"),
-        mk("world-writable permissions", r"(?i)\bchmod\b[^\n;&|]*\b777\b"),
-        mk("recursive chmod/chown", r"(?i)\b(?:chmod|chown)\b[^\n;&|]*\s(?:-R|--recursive)\b"),
+        mk(
+            "world-writable permissions",
+            r"(?i)\bchmod\b[^\n;&|]*\b777\b",
+        ),
+        mk(
+            "recursive chmod/chown",
+            r"(?i)\b(?:chmod|chown)\b[^\n;&|]*\s(?:-R|--recursive)\b",
+        ),
         // 磁盘 / 分区 / 文件系统
         mk("format filesystem", r"(?i)\bmkfs(?:\.[a-z0-9_+-]+)?\b"),
         mk("wipe filesystem signatures", r"(?i)\bwipefs\b"),
         mk("disk shred/wipe", r"(?i)\b(?:shred|srm)\b"),
-        mk("partition editor", r"(?i)\b(?:fdisk|parted|gparted|sfdisk|cfdisk)\b"),
-        mk("macOS disk erase", r"(?i)\bdiskutil\b[^\n;&|]*\b(?:erase|partition|apfs\s+delete|apfs\s+erase)\b"),
+        mk(
+            "partition editor",
+            r"(?i)\b(?:fdisk|parted|gparted|sfdisk|cfdisk)\b",
+        ),
+        mk(
+            "macOS disk erase",
+            r"(?i)\bdiskutil\b[^\n;&|]*\b(?:erase|partition|apfs\s+delete|apfs\s+erase)\b",
+        ),
         mk("dd writes to disk device", r"(?i)\bdd\b[^\n;&|]*\bof=/dev/"),
         // Git 工作树 / 仓库 / 历史破坏
-        mk("git reset hard", r"(?i)\bgit\b[^\n;&|]*\breset\b[^\n;&|]*\s--hard\b"),
-        mk("git clean forced", r"(?i)\bgit\b[^\n;&|]*\bclean\b[^\n;&|]*\s-[^\s;&|]*f[^\s;&|]*"),
-        mk("git force push", r"(?i)\bgit\b[^\n;&|]*\bpush\b[^\n;&|]*\s--(?:force|force-with-lease|mirror)\b"),
-        mk("git force push", r"(?i)\bgit\b[^\n;&|]*\bpush\b[^\n;&|]*\s-[^\s;&|]*f[^\s;&|]*\b"),
-        mk("git branch force-delete", r"(?i)\bgit\b[^\n;&|]*\bbranch\b[^\n;&|]*\s-D\b"),
-        mk("git tag delete", r"(?i)\bgit\b[^\n;&|]*\btag\b[^\n;&|]*\s-d\b"),
+        mk(
+            "git reset hard",
+            r"(?i)\bgit\b[^\n;&|]*\breset\b[^\n;&|]*\s--hard\b",
+        ),
+        mk(
+            "git clean forced",
+            r"(?i)\bgit\b[^\n;&|]*\bclean\b[^\n;&|]*\s-[^\s;&|]*f[^\s;&|]*",
+        ),
+        mk(
+            "git force push",
+            r"(?i)\bgit\b[^\n;&|]*\bpush\b[^\n;&|]*\s--(?:force|force-with-lease|mirror)\b",
+        ),
+        mk(
+            "git force push",
+            r"(?i)\bgit\b[^\n;&|]*\bpush\b[^\n;&|]*\s-[^\s;&|]*f[^\s;&|]*\b",
+        ),
+        mk(
+            "git branch force-delete",
+            r"(?i)\bgit\b[^\n;&|]*\bbranch\b[^\n;&|]*\s-D\b",
+        ),
+        mk(
+            "git tag delete",
+            r"(?i)\bgit\b[^\n;&|]*\btag\b[^\n;&|]*\s-d\b",
+        ),
         mk("git remove files", r"(?i)\bgit\b[^\n;&|]*\brm\b"),
-        mk("git checkout all files", r"(?i)\bgit\b[^\n;&|]*\bcheckout\b[^\n;&|]*\s--\s+(?:\.|\*)\b"),
-        mk("git restore all files", r"(?i)\bgit\b[^\n;&|]*\brestore\b[^\n;&|]*(?:\s\.\b|\s:/\b|\s--source\b)"),
-        mk("git reflog expiry", r"(?i)\bgit\b[^\n;&|]*\breflog\b[^\n;&|]*\bexpire\b"),
-        mk("git aggressive prune/gc", r"(?i)\bgit\b[^\n;&|]*\b(?:gc|prune)\b[^\n;&|]*(?:--prune=(?:now|all)|--expire\s+now|--expire=now)"),
+        mk(
+            "git checkout all files",
+            r"(?i)\bgit\b[^\n;&|]*\bcheckout\b[^\n;&|]*\s--\s+(?:\.|\*)\b",
+        ),
+        mk(
+            "git restore all files",
+            r"(?i)\bgit\b[^\n;&|]*\brestore\b[^\n;&|]*(?:\s\.\b|\s:/\b|\s--source\b)",
+        ),
+        mk(
+            "git reflog expiry",
+            r"(?i)\bgit\b[^\n;&|]*\breflog\b[^\n;&|]*\bexpire\b",
+        ),
+        mk(
+            "git aggressive prune/gc",
+            r"(?i)\bgit\b[^\n;&|]*\b(?:gc|prune)\b[^\n;&|]*(?:--prune=(?:now|all)|--expire\s+now|--expire=now)",
+        ),
         // 容器 / 卷
-        mk("docker prune/remove volumes", r"(?i)\bdocker\b[^\n;&|]*\b(?:system\s+prune|volume\s+(?:rm|prune)|container\s+prune|image\s+prune)\b"),
-        mk("docker compose remove volumes", r"(?i)\bdocker\s+compose\b[^\n;&|]*\bdown\b[^\n;&|]*(?:\s-v\b|\s--volumes\b)"),
+        mk(
+            "docker prune/remove volumes",
+            r"(?i)\bdocker\b[^\n;&|]*\b(?:system\s+prune|volume\s+(?:rm|prune)|container\s+prune|image\s+prune)\b",
+        ),
+        mk(
+            "docker compose remove volumes",
+            r"(?i)\bdocker\s+compose\b[^\n;&|]*\bdown\b[^\n;&|]*(?:\s-v\b|\s--volumes\b)",
+        ),
         // 运行远端脚本 = 把当前用户权限交给脚本作者
-        mk("downloaded script execution", r"(?i)\b(?:curl|wget)\b[^\n;&|]*(?:\|\s*(?:sh|bash|zsh)\b|\b(?:sh|bash|zsh)\s*<\s*\()"),
+        mk(
+            "downloaded script execution",
+            r"(?i)\b(?:curl|wget)\b[^\n;&|]*(?:\|\s*(?:sh|bash|zsh)\b|\b(?:sh|bash|zsh)\s*<\s*\()",
+        ),
         // 外发本地数据
-        mk("network upload of local data", r"(?i)\b(?:curl|wget)\b[^\n;&|]*(?:\s-d\s*@|\s--data(?:-binary|-raw|-urlencode)?\s*@|\s-T\s|\s--upload-file\b|\s-F\s[^\s;&|]*=@|\s--form\s[^\s;&|]*=@)"),
-        mk("file transfer to a remote host", r"(?i)\b(?:scp|rsync|sftp)\b"),
-        mk("raw network connection", r"(?i)\b(?:nc|ncat|netcat|telnet)\b"),
+        mk(
+            "network upload of local data",
+            r"(?i)\b(?:curl|wget)\b[^\n;&|]*(?:\s-d\s*@|\s--data(?:-binary|-raw|-urlencode)?\s*@|\s-T\s|\s--upload-file\b|\s-F\s[^\s;&|]*=@|\s--form\s[^\s;&|]*=@)",
+        ),
+        mk(
+            "file transfer to a remote host",
+            r"(?i)\b(?:scp|rsync|sftp)\b",
+        ),
+        mk(
+            "raw network connection",
+            r"(?i)\b(?:nc|ncat|netcat|telnet)\b",
+        ),
         // 读凭据进上下文（无副作用，但私钥进了对话就是长期泄漏）
         mk(
             "reads a credential file",
             r"(?i)\b(?:cat|bat|less|more|head|tail|xxd|base64|grep|rg)\b[^\n;&|]*(?:\.ssh/|id_rsa|id_ed25519|id_ecdsa|\.aws/|\.gnupg|\.npmrc|credentials|\.env\b)",
         ),
         // ── Windows 破坏性命令（宿主为 Windows，Bash 走 cmd /C / PowerShell）──
-        mk("windows recursive delete", r"(?i)\b(?:del|erase)\b[^\n;&|]*/[a-z]*(?:s|q)[a-z]*\b"),
-        mk("windows remove directory tree", r"(?i)\b(?:rd|rmdir)\b[^\n;&|]*/[a-z]*s[a-z]*\b"),
+        mk(
+            "windows recursive delete",
+            r"(?i)\b(?:del|erase)\b[^\n;&|]*/[a-z]*(?:s|q)[a-z]*\b",
+        ),
+        mk(
+            "windows remove directory tree",
+            r"(?i)\b(?:rd|rmdir)\b[^\n;&|]*/[a-z]*s[a-z]*\b",
+        ),
         mk("windows format drive", r"(?i)\bformat\b\s+[a-z]:"),
         mk("windows diskpart", r"(?i)\bdiskpart\b"),
         mk("windows registry delete", r"(?i)\breg\b[^\n;&|]*\bdelete\b"),
-        mk("powershell recursive force delete", r"(?i)\bRemove-Item\b[^\n;&|]*-[^\n;&|]*(?:Recurse|Force)\b"),
+        mk(
+            "powershell recursive force delete",
+            r"(?i)\bRemove-Item\b[^\n;&|]*-[^\n;&|]*(?:Recurse|Force)\b",
+        ),
         mk("powershell clear disk", r"(?i)\bClear-Disk\b"),
-        mk("windows ownership/permission takeover", r"(?i)\b(?:takeown|icacls)\b"),
+        mk(
+            "windows ownership/permission takeover",
+            r"(?i)\b(?:takeown|icacls)\b",
+        ),
         mk("windows mirror copy", r"(?i)\brobocopy\b[^\n;&|]*\s/mir\b"),
     ]
 });
@@ -255,9 +344,17 @@ pub fn dangerous_reasons(command: &str) -> Vec<&'static str> {
 /// 按 token 逐个判断：只要有一个 `.env`（无模板后缀）或真实凭据路径，就不能豁免。
 /// 原实现只要命令里**出现**模板名就整体豁免，导致 `cat .env.example .env` 放行。
 fn only_template_credentials(command: &str) -> bool {
-    const TEMPLATE_SUFFIXES: &[&str] = &[".env.example", ".env.sample", ".env.template", ".env.dist"];
+    const TEMPLATE_SUFFIXES: &[&str] =
+        &[".env.example", ".env.sample", ".env.template", ".env.dist"];
     const REAL_FRAGMENTS: &[&str] = &[
-        ".ssh/", "id_rsa", "id_ed25519", "id_ecdsa", ".aws/", ".gnupg", ".npmrc", "credentials",
+        ".ssh/",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+        ".aws/",
+        ".gnupg",
+        ".npmrc",
+        "credentials",
     ];
     let mut saw_env = false;
     for raw in command.split_whitespace() {
@@ -365,7 +462,10 @@ pub fn is_scoped_rm(command: &str, cwd: &Path) -> bool {
         }
         targets.push(tok);
     }
-    !targets.is_empty() && targets.iter().all(|t| is_safe_relative_target(t, cwd, false))
+    !targets.is_empty()
+        && targets
+            .iter()
+            .all(|t| is_safe_relative_target(t, cwd, false))
 }
 
 /// `find <相对路径> ... -delete`（不含 -exec）。
@@ -380,24 +480,46 @@ pub fn is_scoped_find_delete(command: &str, cwd: &Path) -> bool {
     if tokens.iter().any(|t| *t == "-exec" || *t == "-execdir") {
         return false;
     }
-    if !tokens.iter().any(|t| *t == "-delete") {
+    if !tokens.contains(&"-delete") {
         return false;
     }
     let expr_start = tokens
         .iter()
         .position(|t| t.starts_with('-') || *t == "!" || *t == "(" || *t == ")");
-    let Some(start) = expr_start else { return false };
+    let Some(start) = expr_start else {
+        return false;
+    };
     if start == 0 {
         return false;
     }
     let roots = &tokens[1..start];
     const NARROWING: &[&str] = &[
-        "-atime", "-ctime", "-empty", "-group", "-iname", "-ipath", "-iregex", "-links",
-        "-maxdepth", "-mindepth", "-mtime", "-name", "-newer", "-newermt", "-path", "-perm",
-        "-regex", "-size", "-type", "-user",
+        "-atime",
+        "-ctime",
+        "-empty",
+        "-group",
+        "-iname",
+        "-ipath",
+        "-iregex",
+        "-links",
+        "-maxdepth",
+        "-mindepth",
+        "-mtime",
+        "-name",
+        "-newer",
+        "-newermt",
+        "-path",
+        "-perm",
+        "-regex",
+        "-size",
+        "-type",
+        "-user",
     ];
     let has_narrowing = tokens.iter().any(|t| NARROWING.contains(t));
-    !roots.is_empty() && roots.iter().all(|r| is_safe_relative_target(r, cwd, has_narrowing))
+    !roots.is_empty()
+        && roots
+            .iter()
+            .all(|r| is_safe_relative_target(r, cwd, has_narrowing))
 }
 
 /// 命中范围化本地删除则从危险原因中剔除。
@@ -447,20 +569,69 @@ pub fn dangerous_reasons_scoped(command: &str, cwd: &Path) -> Vec<&'static str> 
 /// [`is_read_only_command`] 剔除（见 [`find_has_dangerous_predicate`]）。
 pub static SAFE_COMMANDS: &[&str] = &[
     // shell 状态与导航
-    "pwd", "cd*", "ls*", "tree*", "whoami", "hostname", "uname*", "date",
+    "pwd",
+    "cd*",
+    "ls*",
+    "tree*",
+    "whoami",
+    "hostname",
+    "uname*",
+    "date",
     // 读文件与 stdin
-    "cat*", "bat*", "head*", "tail*", "less*", "wc*", "file*", "stat*", "realpath*",
-    "readlink*", "basename*", "dirname*", "du*", "df*", "find*",
+    "cat*",
+    "bat*",
+    "head*",
+    "tail*",
+    "less*",
+    "wc*",
+    "file*",
+    "stat*",
+    "realpath*",
+    "readlink*",
+    "basename*",
+    "dirname*",
+    "du*",
+    "df*",
+    "find*",
     // 文本搜索与转换（不写文件）
-    "grep*", "rg*", "ag*", "jq*", "diff*", "cmp*", "sort*", "uniq*", "cut*", "column*",
-    "nl*", "xxd*",
+    "grep*",
+    "rg*",
+    "ag*",
+    "jq*",
+    "diff*",
+    "cmp*",
+    "sort*",
+    "uniq*",
+    "cut*",
+    "column*",
+    "nl*",
+    "xxd*",
     // 版本探测
-    "node --version*", "npm --version*", "python --version*", "python3 --version*",
-    "uv --version*", "go version*", "cargo --version*", "gh --version*",
+    "node --version*",
+    "npm --version*",
+    "python --version*",
+    "python3 --version*",
+    "uv --version*",
+    "go version*",
+    "cargo --version*",
+    "gh --version*",
     // git 只读子命令
-    "git status*", "git diff*", "git log*", "git show*", "git branch", "git remote",
-    "git remote -v", "git blame*", "git shortlog*", "git describe*", "git rev-parse*",
-    "git ls-files*", "git ls-tree*", "git worktree list*", "git stash list*", "git tag",
+    "git status*",
+    "git diff*",
+    "git log*",
+    "git show*",
+    "git branch",
+    "git remote",
+    "git remote -v",
+    "git blame*",
+    "git shortlog*",
+    "git describe*",
+    "git rev-parse*",
+    "git ls-files*",
+    "git ls-tree*",
+    "git worktree list*",
+    "git stash list*",
+    "git tag",
 ];
 
 static SAFE_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
@@ -488,10 +659,10 @@ pub fn is_read_only_command(command: &str) -> bool {
     }
     let c = command.trim();
     // `find` 带执行谓词（-exec/-delete/...）时不是只读——否则会绕过硬黑名单与 Jev。
-    if c == "find" || c.starts_with("find ") || c.starts_with("find\t") {
-        if find_has_dangerous_predicate(c) {
-            return false;
-        }
+    if (c == "find" || c.starts_with("find ") || c.starts_with("find\t"))
+        && find_has_dangerous_predicate(c)
+    {
+        return false;
     }
     SAFE_REGEXES.iter().any(|re| re.is_match(c))
 }
@@ -623,7 +794,10 @@ pub fn protected_path_reason(path: &Path, extra: &[String]) -> Option<String> {
     let lowered = normalized.to_lowercase();
     let segments: Vec<&str> = lowered.split('/').filter(|s| !s.is_empty()).collect();
     let base = segments.last().copied().unwrap_or("");
-    let base_original = normalized.split('/').filter(|s| !s.is_empty()).next_back().unwrap_or("");
+    let base_original = normalized
+        .split('/')
+        .rfind(|s| !s.is_empty())
+        .unwrap_or("");
 
     for entry in extra {
         let e = entry.trim();
@@ -643,7 +817,10 @@ pub fn protected_path_reason(path: &Path, extra: &[String]) -> Option<String> {
     if let Some(seg) = segments.iter().find(|s| PROTECTED_DIR_SEGMENTS.contains(s)) {
         return Some(format!("protected directory `{seg}`"));
     }
-    if let Some(frag) = PROTECTED_PATH_FRAGMENTS.iter().find(|f| lowered.contains(**f)) {
+    if let Some(frag) = PROTECTED_PATH_FRAGMENTS
+        .iter()
+        .find(|f| lowered.contains(**f))
+    {
         return Some(format!("protected path `{frag}`"));
     }
     // `.env.example` 等模板文件属于仓库，不算凭据存储
@@ -661,7 +838,9 @@ pub fn protected_path_reason(path: &Path, extra: &[String]) -> Option<String> {
 fn is_template_file(base_lower: &str) -> bool {
     const SUFFIXES: &[&str] = &[".example", ".sample", ".template", ".dist"];
     base_lower == ".env.example"
-        || SUFFIXES.iter().any(|s| base_lower.starts_with(".env") && base_lower.ends_with(s))
+        || SUFFIXES
+            .iter()
+            .any(|s| base_lower.starts_with(".env") && base_lower.ends_with(s))
 }
 
 #[cfg(test)]

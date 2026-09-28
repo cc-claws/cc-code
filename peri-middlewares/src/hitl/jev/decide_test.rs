@@ -77,10 +77,7 @@ fn test_hazard_rejection_is_block_even_with_good_others() {
 
 #[test]
 fn test_all_clear_allows() {
-    let observations = vec![
-        obs("no_secret_egress", 0.98),
-        obs("local_scope", 0.95),
-    ];
+    let observations = vec![obs("no_secret_egress", 0.98), obs("local_scope", 0.95)];
     assert!(matches!(combine(&observations), Decision::Allow { .. }));
 }
 
@@ -132,13 +129,10 @@ fn test_missing_answer_is_unknown_review() {
 #[test]
 fn test_clear_violation_blocks_even_if_another_is_unknown() {
     // 有一条**明确违规**就该拦，哪怕另一条没答上来
-    let ids = vec![
-        "no_secret_egress".to_string(),
-        "local_scope".to_string(),
-    ];
+    let ids = vec!["no_secret_egress".to_string(), "local_scope".to_string()];
     let mut answers = Probabilities::new();
     answers.insert("no_secret_egress".to_string(), 0.01); // 明确违规
-    // local_scope 缺失 → unknown
+                                                          // local_scope 缺失 → unknown
     let observations = observe(&ids, &answers);
     match combine(&observations) {
         Decision::Block { rule, .. } => assert_eq!(rule, "no_secret_egress"),

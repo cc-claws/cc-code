@@ -64,10 +64,7 @@ fn test_hard_deny_still_fires_on_root_glob() {
         "rm -rf $HOME/*",
         "rm -rf /etc/*",
     ] {
-        assert!(
-            !hard_deny_reasons(cmd).is_empty(),
-            "{cmd} 必须进硬黑名单"
-        );
+        assert!(!hard_deny_reasons(cmd).is_empty(), "{cmd} 必须进硬黑名单");
     }
 }
 
@@ -81,10 +78,7 @@ fn test_hard_deny_still_fires_on_unresolved_targets() {
         "rm -rf `pwd`/sub",
         "rm -rf ~otheruser",
     ] {
-        assert!(
-            !hard_deny_reasons(cmd).is_empty(),
-            "{cmd} 必须进硬黑名单"
-        );
+        assert!(!hard_deny_reasons(cmd).is_empty(), "{cmd} 必须进硬黑名单");
     }
 }
 
@@ -262,7 +256,12 @@ fn test_pipe_pattern_preserved_across_split() {
 fn test_split_command_chain() {
     assert_eq!(
         split_command_chain("a && b; c || d"),
-        vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string()
+        ]
     );
     // 单个 `|` 不拆
     assert_eq!(

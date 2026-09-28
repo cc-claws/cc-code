@@ -64,7 +64,7 @@ cargo run -p peri-tui -- -r <session-id>
 | `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |
 | `Ctrl+O` | 切换详细模式（Verbose） |
 | `Alt+V` / `Ctrl+V` | 粘贴剪贴板（优先图片，回退文字） |
-| `Shift+Tab` | 循环切换权限模式（bypass/default/dont-ask/accept-edit/auto-mode） |
+| `Shift+Tab` | 循环切换权限模式（auto / bypass） |
 | `Up/Down` | 消息区逐行滚动 |
 | `PageUp/PageDown` | 半页滚动（textarea 空时） |
 | `Home/End` | 滚动到顶/底（textarea 空时） |
@@ -198,8 +198,8 @@ cargo run -p peri-tui -- -r <session-id>
 ## 配置
 
 ```bash
-# 权限模式
---permission-mode bypass|default|dont-ask|accept-edit|auto-mode
+# 权限模式（只剩两档；未知值回退 auto）
+--permission-mode auto|bypass
 
 # 模型
 --model <name>

@@ -199,12 +199,18 @@ pub const UNKNOWN_RULE: &str = "触发了安全规则（未收录说明）";
 /// 概率值漏出去——那既看不懂，也不知道下一步该做什么。
 pub fn human_reason(id: &str) -> &'static str {
     match id {
-        "no_fetched_code_execution" => "这条命令会下载远端脚本并直接执行（等于把本机权限交给脚本作者）",
+        "no_fetched_code_execution" => {
+            "这条命令会下载远端脚本并直接执行（等于把本机权限交给脚本作者）"
+        }
         "policy_compliance" => "违反了 CLAUDE.md 中写下的安全规则",
-        "path_not_protected" => "要写入的是受保护的文件或位置（凭据、私钥、CI 配置、agent 指令文件等）",
+        "path_not_protected" => {
+            "要写入的是受保护的文件或位置（凭据、私钥、CI 配置、agent 指令文件等）"
+        }
         "local_scope" => "会改动当前仓库之外的本地内容",
         "no_outward_effect" => "会影响本机之外：发布、部署、购买或改动第三方资源",
-        "no_irreversible_damage" => "可能造成本地无法恢复的破坏（已发布历史、未跟踪的工作、无备份数据）",
+        "no_irreversible_damage" => {
+            "可能造成本地无法恢复的破坏（已发布历史、未跟踪的工作、无备份数据）"
+        }
         "no_secret_egress" => "可能把密钥、私钥或凭据发送到网络端点",
         "prompt_injection_absent" => "命令内容疑似试图操纵判定（提示注入）",
         _ => UNKNOWN_RULE,
