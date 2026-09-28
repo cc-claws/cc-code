@@ -27,7 +27,7 @@
             make_agent("agent-2", "task two", 5, false),
             make_agent("agent-3", "task three", 0, false),
         ];
-        let lines = render_batch_summary(&agents, &true);
+        let lines = render_batch_summary(&agents, &true, 80);
         // Header + 3 行 agent 摘要 = 4 行
         assert_eq!(lines.len(), 4, "折叠态应有 header + 3 行摘要");
         // Header 应包含 "3 agents finished"
@@ -45,7 +45,7 @@
             make_agent("agent-1", "task one", 3, false),
             make_agent("agent-2", "task two", 5, false),
         ];
-        let lines = render_batch_summary(&agents, &false);
+        let lines = render_batch_summary(&agents, &false, 80);
         // Header + 2 * (task_preview + final_result) = 5 行
         assert_eq!(lines.len(), 5, "展开态应有 header + 2*(task+result)");
     }
@@ -57,7 +57,7 @@
             make_agent("agent-2", "task two", 1, true),
             make_agent("agent-3", "task three", 2, true),
         ];
-        let lines = render_batch_summary(&agents, &true);
+        let lines = render_batch_summary(&agents, &true, 80);
         let header_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
         assert!(
             header_text.contains("2 failed"),
@@ -73,7 +73,7 @@
             make_agent("agent-2", "task two", 5, false),
             make_agent("agent-3", "task three", 0, false),
         ];
-        let lines = render_batch_summary(&agents, &true);
+        let lines = render_batch_summary(&agents, &true, 80);
         // 第一个 agent 应使用 ├─
         let line1_text: String = lines[1].spans.iter().map(|s| s.content.clone()).collect();
         assert!(
@@ -95,7 +95,7 @@
         // batch_agents 为空时走现有渲染路径，不经过 render_batch_summary
         // 此测试验证 render_batch_summary 对空 agents 列表的边界行为
         let agents: Vec<AgentSummary> = vec![];
-        let lines = render_batch_summary(&agents, &true);
+        let lines = render_batch_summary(&agents, &true, 80);
         assert_eq!(lines.len(), 1, "空 agents 应只有 header");
         let header_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
         assert!(
@@ -727,7 +727,8 @@
     fn test_tool_call_group_detail_mode_shows_full_content() {
         use crate::app::MessageViewModel;
         use crate::ui::message_view::{ToolCategory, ToolEntry};
-        let long_content = format!("{}tail-marker", "a".repeat(220));
+        // 可断行的长内容：渲染层预折行后仍应完整保留尾部标记（无空白长串会被硬断，不适合本断言）
+        let long_content = format!("{}tail-marker", "word ".repeat(60));
         let vm = MessageViewModel::ToolCallGroup {
             category: ToolCategory::Search,
             tools: vec![ToolEntry {
@@ -1473,3 +1474,211 @@ fn test_render_recap_line_color_hierarchy() {
     );
     assert_eq!(line.spans[4].style.fg, Some(theme::DIM));
 }
+
+    fn line_plain_text(line: &Line<'static>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    /// 工具输出正文必须在渲染层预折行：任何一行的显示宽度都不超过视口宽度，
+    /// 否则会触发 Paragraph::wrap 二次硬折行，续行顶格丢失 4 列悬挂缩进（图2 场景）。
+    #[test]
+    fn test_tool_block_long_json_wraps_with_hanging_indent() {
+        let json = "{\"code\":0,\"msg\":\"success\",\"data\":{\"rmb_fee\":172.85,\"fee\":19.16,\"currency_code\":\"GBP\",\"info\":[{\"temp_name\":\"超尺寸附加费\",\"rule_name\":\"超重附加费\",\"fee_price\":12.1}]}}";
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_json".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: None,
+            content: json.to_string(),
+            is_error: false,
+            collapsed: false,
+            color: theme::SAGE,
+            diff_input: None,
+            started_at: None,
+            content_hash: 0,
+        };
+        let width = 80usize;
+        let text_lines: Vec<String> = render_view_model(&vm, Some(1), width, false, 0)
+            .iter()
+            .map(line_plain_text)
+            .collect();
+        for l in &text_lines {
+            let w = unicode_width::UnicodeWidthStr::width(l.as_str());
+            assert!(w <= width, "工具输出行宽应 ≤ {width}，实际 {w}: {l:?}");
+        }
+        // 首行前缀应与内容同行，不被超长无空格内容挤成独立空行
+        assert!(
+            text_lines[1].starts_with("  ⎿ ") && text_lines[1].len() > "  ⎿ ".len(),
+            "首行前缀应与内容同行: {:?}",
+            text_lines[1]
+        );
+        // 续行必须保留 4 列悬挂缩进，不能顶格
+        assert!(
+            text_lines
+                .iter()
+                .skip(2)
+                .any(|l| l.starts_with("    ") && !l.trim().is_empty()),
+            "长 JSON 续行应保留 4 列悬挂缩进: {text_lines:?}"
+        );
+    }
+
+    /// 错误摘要长行同样必须预折行，续行保持 4 列悬挂缩进（图1 场景）。
+    #[test]
+    fn test_error_summary_long_line_wraps_with_hanging_indent() {
+        let content = "Tool execution failed: Grep - Invalid arguments for tool Grep:\nUnexpected parameter 'command' was provided (allowed parameters: [\"-A\", \"-B\", \"-C\", \"-i\", \"-n\", \"fixed_strings\", \"glob\", \"output_mode\", \"path\", \"pattern\", \"type\", \"whole_word\"])";
+        let width = 80usize;
+        let text_lines: Vec<String> = error_summary_lines(content, width)
+            .iter()
+            .map(line_plain_text)
+            .collect();
+        for l in &text_lines {
+            let w = unicode_width::UnicodeWidthStr::width(l.as_str());
+            assert!(w <= width, "错误摘要行宽应 ≤ {width}，实际 {w}: {l:?}");
+        }
+        assert!(
+            text_lines[0].starts_with("  ⎿ "),
+            "错误摘要首行应带 ⎿ 前缀: {:?}",
+            text_lines[0]
+        );
+        // 超长 allowed parameters 行折行后的续行应保留 4 列缩进
+        assert!(
+            text_lines
+                .iter()
+                .skip(2)
+                .any(|l| l.starts_with("    ") && !l.trim().is_empty()),
+            "错误摘要续行应保留 4 列悬挂缩进: {text_lines:?}"
+        );
+    }
+
+    /// 返回 lines 中最长一行的显示宽度
+    fn max_line_width(lines: &[Line<'static>]) -> usize {
+        lines
+            .iter()
+            .map(|l| {
+                unicode_width::UnicodeWidthStr::width(
+                    l.spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect::<String>()
+                        .as_str(),
+                )
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// 回归：同类渲染路径（ShellCommand / SystemNote / SubAgentGroup / 批次汇总 /
+    /// AskUser / CacheWarning）的长行都必须预折行，任何一行显示宽度都不超过视口宽度。
+    /// 若回退修复，这些路径会重新溢出并触发 Paragraph 二次硬折行导致续行顶格。
+    #[test]
+    fn test_all_paths_preserve_width_no_overflow() {
+        use crate::ui::message_view::{ToolCategory, ToolEntry};
+        let width = 80usize;
+        let long_json = "{\"code\":0,\"msg\":\"success\",\"data\":{\"rmb_fee\":172.85,\"fee\":19.16,\"currency_code\":\"GBP\",\"info\":[{\"temp_name\":\"超尺寸附加费\",\"rule_name\":\"超重附加费\",\"fee_price\":12.1}]}}";
+        let long_cjk = "这是一段很长的中文说明文字用来测试折行行为是否可以在没有空格的情况下正确断开并且保持缩进对齐效果需要超过八十列宽度才可以".repeat(2);
+        let long_wordy = format!("{}tail", "word ".repeat(40));
+
+        // ShellCommand（! 本机命令）长 JSON 输出
+        let vm = MessageViewModel::ShellCommand {
+            id: "s".into(),
+            command: "curl ...".into(),
+            cwd: ".".into(),
+            stdin: vec![],
+            stdout: long_json.into(),
+            stderr: String::new(),
+            exit_code: Some(0),
+            collapsed: true,
+            content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
+        };
+        assert!(
+            max_line_width(&render_view_model(&vm, None, width, true, 0)) <= width,
+            "ShellCommand 长输出应预折行"
+        );
+
+        // SystemNote 长行
+        let vm = MessageViewModel::SystemNote {
+            content: long_cjk.clone(),
+            content_hash: 0,
+        };
+        assert!(
+            max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
+            "SystemNote 长行应预折行"
+        );
+
+        // SubAgentGroup 展开态（嵌套 ToolBlock + final_result）
+        let nested = MessageViewModel::ToolBlock {
+            tool_name: "Bash".into(),
+            tool_call_id: "n".into(),
+            display_name: "Bash".into(),
+            args_display: None,
+            content: long_json.into(),
+            is_error: false,
+            collapsed: false,
+            color: theme::SAGE,
+            diff_input: None,
+            started_at: None,
+            content_hash: 0,
+        };
+        let vm = MessageViewModel::SubAgentGroup {
+            agent_id: "a".into(),
+            task_preview: long_wordy.clone(),
+            total_steps: 1,
+            recent_messages: vec![nested],
+            is_running: false,
+            collapsed: false,
+            final_result: Some(long_cjk.clone()),
+            is_error: false,
+            is_background: false,
+            bg_hash: None,
+            batch_agents: vec![],
+            instance_id: None,
+            content_hash: 0,
+        };
+        assert!(
+            max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
+            "SubAgentGroup 展开态应预折行（含嵌套 + final_result）"
+        );
+
+        // 批次汇总 展开态
+        let agent = AgentSummary {
+            agent_id: "a".into(),
+            task_preview: long_wordy.clone(),
+            tool_count: 3,
+            is_error: false,
+            final_result: Some(long_cjk.clone()),
+        };
+        assert!(
+            max_line_width(&render_batch_summary(&[agent], &false, width)) <= width,
+            "批次汇总展开态应预折行"
+        );
+
+        // ToolCallGroup AskUser 长回答
+        let vm = MessageViewModel::ToolCallGroup {
+            category: ToolCategory::AskUser,
+            tools: vec![ToolEntry {
+                tool_name: "AskUserQuestion".into(),
+                display_name: "Ask".into(),
+                args_display: None,
+                content: format!("[问: {}]\n回答: {}", long_cjk, long_cjk),
+                is_error: false,
+            }],
+            collapsed: true,
+            content_hash: 0,
+        };
+        assert!(
+            max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
+            "AskUser 长回答应预折行"
+        );
+
+        // CacheWarning 长行
+        let vm = MessageViewModel::CacheWarning {
+            content: long_cjk.clone(),
+            content_hash: 0,
+        };
+        assert!(
+            max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
+            "CacheWarning 长行应预折行"
+        );
+    }
