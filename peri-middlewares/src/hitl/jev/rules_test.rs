@@ -133,9 +133,13 @@ async fn test_extract_rules_parses_and_is_not_empty() {
     let model = MockRulesModel::new(
         r#"{"rules":[{"text":"禁止改 Cargo.lock","source":"project"}],"protected_paths":["Cargo.lock"]}"#,
     );
-    let rules = extract_rules(&model, "独特文本 A: 禁止改 Cargo.lock", Duration::from_secs(5))
-        .await
-        .expect("应提炼出规则");
+    let rules = extract_rules(
+        &model,
+        "独特文本 A: 禁止改 Cargo.lock",
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("应提炼出规则");
     assert_eq!(rules.rules[0].text, "禁止改 Cargo.lock");
     assert_eq!(rules.rules[0].source, "project");
     assert_eq!(rules.protected_paths, vec!["Cargo.lock".to_string()]);
@@ -145,9 +149,14 @@ async fn test_extract_rules_parses_and_is_not_empty() {
 #[tokio::test]
 async fn test_extract_rules_cache_hit_skips_llm() {
     let source = "独特文本 B: 不要 push --force";
-    let model = MockRulesModel::new(r#"{"rules":[{"text":"不要 push --force","source":"project"}]}"#);
-    let first = extract_rules(&model, source, Duration::from_secs(5)).await.unwrap();
-    let second = extract_rules(&model, source, Duration::from_secs(5)).await.unwrap();
+    let model =
+        MockRulesModel::new(r#"{"rules":[{"text":"不要 push --force","source":"project"}]}"#);
+    let first = extract_rules(&model, source, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let second = extract_rules(&model, source, Duration::from_secs(5))
+        .await
+        .unwrap();
     assert_eq!(model.calls(), 1, "同内容第二次应命中缓存");
     assert_eq!(first.rules, second.rules);
     // 缓存是进程级共享的，断言只针对本用例独有的 source，避免与其他测试互相干扰
@@ -157,20 +166,26 @@ async fn test_extract_rules_cache_hit_skips_llm() {
 #[tokio::test]
 async fn test_extract_rules_empty_source_returns_none() {
     let model = MockRulesModel::new(r#"{"rules":[{"text":"x","source":"project"}]}"#);
-    assert!(extract_rules(&model, "   \n ", Duration::from_secs(5)).await.is_none());
+    assert!(extract_rules(&model, "   \n ", Duration::from_secs(5))
+        .await
+        .is_none());
     assert_eq!(model.calls(), 0, "空输入不应调用 LLM");
 }
 
 #[tokio::test]
 async fn test_extract_rules_empty_result_returns_none() {
     let model = MockRulesModel::new("{}");
-    assert!(extract_rules(&model, "独特文本 C", Duration::from_secs(5)).await.is_none());
+    assert!(extract_rules(&model, "独特文本 C", Duration::from_secs(5))
+        .await
+        .is_none());
 }
 
 #[tokio::test]
 async fn test_extract_rules_malformed_response_returns_none() {
     let model = MockRulesModel::new("完全不是 JSON");
-    assert!(extract_rules(&model, "独特文本 D", Duration::from_secs(5)).await.is_none());
+    assert!(extract_rules(&model, "独特文本 D", Duration::from_secs(5))
+        .await
+        .is_none());
 }
 
 // ─── 分块提炼：规则来源超长时不得静默丢规则 ──────────────────────────────────
@@ -265,7 +280,11 @@ async fn test_extract_rules_chunked_respects_max_chunks() {
     let model = MockRulesModel::new(r#"{"rules":[{"text":"块规则","source":"project"}]}"#);
     let long = vec!["甲".repeat(300); 10].join("\n\n"); // 远超 max_chunks × chunk_len
     let _ = extract_rules_chunked(&model, &long, 400, 2, std::time::Duration::from_secs(5)).await;
-    assert!(model.calls() <= 2, "不得超过 max_chunks, 实际 {}", model.calls());
+    assert!(
+        model.calls() <= 2,
+        "不得超过 max_chunks, 实际 {}",
+        model.calls()
+    );
 }
 
 #[tokio::test]
@@ -286,9 +305,11 @@ async fn test_truncated_response_salvaged_but_not_cached() {
 #[tokio::test]
 async fn test_empty_content_returns_none() {
     let model = MockRulesModel::new("");
-    assert!(extract_rules(&model, "空回复测试源", Duration::from_secs(5))
-        .await
-        .is_none());
+    assert!(
+        extract_rules(&model, "空回复测试源", Duration::from_secs(5))
+            .await
+            .is_none()
+    );
 }
 
 #[tokio::test]

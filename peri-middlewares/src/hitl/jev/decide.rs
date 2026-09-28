@@ -89,14 +89,8 @@ pub fn observe(rule_ids: &[String], answers: &Probabilities) -> Vec<Observation>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
     Allow { rationale: String },
-    Block {
-        rule: String,
-        rationale: String,
-    },
-    Uncertain {
-        rule: String,
-        rationale: String,
-    },
+    Block { rule: String, rationale: String },
+    Uncertain { rule: String, rationale: String },
 }
 
 fn severity_of(rule_id: &str) -> Severity {
@@ -139,7 +133,10 @@ pub fn combine(observations: &[Observation]) -> Decision {
     {
         return Decision::Block {
             rule: first.rule_id.clone(),
-            rationale: format!("A safety condition was clearly violated. {}", describe(first)),
+            rationale: format!(
+                "A safety condition was clearly violated. {}",
+                describe(first)
+            ),
         };
     }
 
@@ -173,14 +170,19 @@ pub fn combine(observations: &[Observation]) -> Decision {
     {
         return Decision::Uncertain {
             rule: first.rule_id.clone(),
-            rationale: format!("A safety condition could not be decided. {}", describe(first)),
+            rationale: format!(
+                "A safety condition could not be decided. {}",
+                describe(first)
+            ),
         };
     }
 
     // 5. allow
-    let lowest = observations
-        .iter()
-        .min_by(|a, b| a.probability.partial_cmp(&b.probability).unwrap_or(std::cmp::Ordering::Equal));
+    let lowest = observations.iter().min_by(|a, b| {
+        a.probability
+            .partial_cmp(&b.probability)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Decision::Allow {
         rationale: match lowest {
             Some(l) => format!(

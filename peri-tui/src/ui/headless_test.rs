@@ -949,7 +949,10 @@ async fn test_permission_mode_cycle() {
     // 从 Auto 开始 → Bypass → Auto（只剩两档）
     app.services.permission_mode.store(PermissionMode::AutoMode);
     assert_eq!(app.services.permission_mode.cycle(), PermissionMode::Bypass);
-    assert_eq!(app.services.permission_mode.cycle(), PermissionMode::AutoMode);
+    assert_eq!(
+        app.services.permission_mode.cycle(),
+        PermissionMode::AutoMode
+    );
 }
 
 #[tokio::test]

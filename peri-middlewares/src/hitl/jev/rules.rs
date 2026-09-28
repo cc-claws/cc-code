@@ -167,8 +167,7 @@ impl JevRuleLoader {
         {
             Some(rules) => *self.slot.write() = Some(rules),
             None => {
-                self.failed
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                self.failed.store(true, std::sync::atomic::Ordering::SeqCst);
                 tracing::warn!(
                     source_chars = self.source.chars().count(),
                     "Jev 规则提炼失败：**CLAUDE.md 里的规则当前没有被执行**（来源非空但未产出规则）。\

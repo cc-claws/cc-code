@@ -122,7 +122,10 @@ impl JevClient {
                     // 4xx（除 429）不可通过重试修复 → 立即失败
                     if status.is_client_error() && status.as_u16() != 429 {
                         let text = resp.text().await.unwrap_or_default();
-                        return Err(JevError::Http(format!("{status}: {}", text.chars().take(200).collect::<String>())));
+                        return Err(JevError::Http(format!(
+                            "{status}: {}",
+                            text.chars().take(200).collect::<String>()
+                        )));
                     }
                     // 5xx / 429 → 可重试
                     last_err = JevError::Http(format!("{status}"));

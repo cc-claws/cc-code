@@ -15,13 +15,13 @@ fn gate() -> Arc<JevGate> {
     .unwrap()
 }
 
-fn bash_call(cmd: &str, cwd: &PathBuf) -> GateCall {
+fn bash_call(cmd: &str, cwd: &std::path::Path) -> GateCall {
     GateCall {
         tool_name: "Bash".to_string(),
         command: Some(cmd.to_string()),
         path: None,
         branch: None,
-        cwd: cwd.clone(),
+        cwd: cwd.to_path_buf(),
     }
 }
 
@@ -40,7 +40,10 @@ fn test_read_only_allows_without_jev() {
     let g = gate();
     let cwd = PathBuf::from(CWD);
     let call = bash_call("git status", &cwd);
-    assert!(matches!(g.deterministic(&call), Some(GateDecision::Allow { .. })));
+    assert!(matches!(
+        g.deterministic(&call),
+        Some(GateDecision::Allow { .. })
+    ));
 }
 
 #[test]
@@ -53,7 +56,10 @@ fn test_user_allow_rule() {
     })
     .unwrap();
     let call = bash_call("cargo build", &cwd);
-    assert!(matches!(g.deterministic(&call), Some(GateDecision::Allow { .. })));
+    assert!(matches!(
+        g.deterministic(&call),
+        Some(GateDecision::Allow { .. })
+    ));
 }
 
 #[test]
@@ -66,7 +72,10 @@ fn test_user_deny_rule() {
     })
     .unwrap();
     let call = bash_call("kubectl delete pod x", &cwd);
-    assert!(matches!(g.deterministic(&call), Some(GateDecision::Block { .. })));
+    assert!(matches!(
+        g.deterministic(&call),
+        Some(GateDecision::Block { .. })
+    ));
 }
 
 #[test]
@@ -106,7 +115,10 @@ fn test_safe_write_allows() {
         branch: None,
         cwd: cwd.clone(),
     };
-    assert!(matches!(g.deterministic(&call), Some(GateDecision::Allow { .. })));
+    assert!(matches!(
+        g.deterministic(&call),
+        Some(GateDecision::Allow { .. })
+    ));
 }
 
 #[test]
@@ -173,11 +185,16 @@ fn test_execute_extra_tool_params_unwrapped() {
         "params": { "command": "rm -rf /" }
     });
     let params = effective_params("ExecuteExtraTool", &input);
-    assert_eq!(params.get("command").and_then(|v| v.as_str()), Some("rm -rf /"));
+    assert_eq!(
+        params.get("command").and_then(|v| v.as_str()),
+        Some("rm -rf /")
+    );
     // 普通工具不解包
     let plain = serde_json::json!({ "command": "ls" });
     assert_eq!(
-        effective_params("Bash", &plain).get("command").and_then(|v| v.as_str()),
+        effective_params("Bash", &plain)
+            .get("command")
+            .and_then(|v| v.as_str()),
         Some("ls")
     );
     // 解包后的命令确实会被硬黑名单拦截
@@ -196,7 +213,11 @@ fn test_compose_policy_labels_and_order() {
     let out = compose_policy(
         &[
             ("personal", "Priority 1 — personal", Some("不要动生产库")),
-            ("project", "Priority 2 — project", Some("禁止 git push --force")),
+            (
+                "project",
+                "Priority 2 — project",
+                Some("禁止 git push --force"),
+            ),
             ("global", "Priority 3 — global", Some("总是用中文回答")),
         ],
         10_000,
@@ -255,7 +276,10 @@ fn test_compose_policy_truncates_tail() {
     let long_a = "甲".repeat(50);
     let long_b = "乙".repeat(5000);
     let out = compose_policy(
-        &[("head", "Head", Some(&long_a)), ("tail", "Tail", Some(&long_b))],
+        &[
+            ("head", "Head", Some(&long_a)),
+            ("tail", "Tail", Some(&long_b)),
+        ],
         200,
     );
     assert!(out.starts_with("## Head"), "out: {out}");
@@ -315,7 +339,10 @@ fn test_block_message_shows_rule_text_not_internal_id() {
         ..Default::default()
     });
     let (user, _agent) = g.block_messages("policy_compliance");
-    assert!(user.contains("禁止泄露真实的 Windows 硬件地址"), "user: {user}");
+    assert!(
+        user.contains("禁止泄露真实的 Windows 硬件地址"),
+        "user: {user}"
+    );
     assert!(user.contains("不得查询"), "user: {user}");
     assert!(
         !user.contains("policy_compliance"),
@@ -332,7 +359,10 @@ fn test_user_message_has_no_internal_ids_but_agent_message_does() {
     });
     let (user, agent) = g.block_messages("policy_compliance");
 
-    assert!(user.contains("禁止泄露真实的 Windows 硬件地址"), "user: {user}");
+    assert!(
+        user.contains("禁止泄露真实的 Windows 硬件地址"),
+        "user: {user}"
+    );
     assert!(
         !user.contains("policy_compliance"),
         "用户文案不应出现内部规则 id: {user}"
@@ -388,7 +418,10 @@ fn test_block_message_groups_rules_by_source_file() {
     let (user, _agent) = g.block_messages("policy_compliance");
     assert!(user.contains("项目规则 CLAUDE.md"), "user: {user}");
     assert!(user.contains("个人规则 CLAUDE.local.md"), "user: {user}");
-    assert!(user.contains("禁止泄露真实的 Windows 硬件地址"), "user: {user}");
+    assert!(
+        user.contains("禁止泄露真实的 Windows 硬件地址"),
+        "user: {user}"
+    );
     assert!(user.contains("不要动生产库"), "user: {user}");
     assert!(
         !user.contains("policy_compliance"),
@@ -459,5 +492,9 @@ fn test_block_message_truncates_huge_policy() {
         ..Default::default()
     });
     let msg = g.block_message("policy_compliance");
-    assert!(msg.chars().count() < 1500, "msg 过长: {}", msg.chars().count());
+    assert!(
+        msg.chars().count() < 1500,
+        "msg 过长: {}",
+        msg.chars().count()
+    );
 }

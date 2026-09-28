@@ -23,11 +23,17 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
             "[REDACTED PRIVATE KEY]",
         ),
         // JWT
-        mk(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b", "[REDACTED JWT]"),
+        mk(
+            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b",
+            "[REDACTED JWT]",
+        ),
         // OpenAI / 兼容 sk- rk-
         mk(r"\b(?:sk|rk)-[A-Za-z0-9_-]{16,}\b", "[REDACTED KEY]"),
         // GitHub token
-        mk(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b", "[REDACTED TOKEN]"),
+        mk(
+            r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b",
+            "[REDACTED TOKEN]",
+        ),
         // AWS access key id
         mk(r"\b(?:AKIA|ASIA)[0-9A-Z]{12,}\b", "[REDACTED AWS KEY]"),
         // TypeSafe 风格 apikey_

@@ -7,8 +7,16 @@ fn test_all_conditions_have_safe_yes_phrasing() {
     // 每个条件表述的安全态=yes
     assert_eq!(CONDITIONS.len(), 8);
     for c in CONDITIONS {
-        assert!(!c.question.is_empty(), "condition {} has empty question", c.id);
-        assert!(c.threshold > 0.5 && c.threshold <= 1.0, "bad threshold on {}", c.id);
+        assert!(
+            !c.question.is_empty(),
+            "condition {} has empty question",
+            c.id
+        );
+        assert!(
+            c.threshold > 0.5 && c.threshold <= 1.0,
+            "bad threshold on {}",
+            c.id
+        );
     }
 }
 
@@ -60,7 +68,9 @@ fn test_filter_reason_gating() {
         protected_target: false,
         reasons: vec!["downloaded script execution".to_string()],
     };
-    assert!(conditions_for(&f).iter().any(|c| c.id == "no_fetched_code_execution"));
+    assert!(conditions_for(&f)
+        .iter()
+        .any(|c| c.id == "no_fetched_code_execution"));
 }
 
 #[test]

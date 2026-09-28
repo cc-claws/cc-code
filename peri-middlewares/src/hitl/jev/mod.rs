@@ -32,16 +32,23 @@ use client::{JevClient, JevError};
 use config::{GateScope, JevConfig, UncertainPolicy};
 
 pub use rules::{
-    empty_slot, extract_rules, extract_rules_chunked, JevRule, JevRuleLoader, JevRules, JevRulesSlot,
+    empty_slot, extract_rules, extract_rules_chunked, JevRule, JevRuleLoader, JevRules,
+    JevRulesSlot,
 };
 
 /// 门对一次调用的判决。
 #[derive(Debug, Clone)]
 pub enum GateDecision {
-    Allow { rationale: String },
-    Block { rationale: String },
+    Allow {
+        rationale: String,
+    },
+    Block {
+        rationale: String,
+    },
     /// 交由上层弹窗确认（仅当语义层说 uncertain 且配置为 ask）。
-    Ask { rationale: String },
+    Ask {
+        rationale: String,
+    },
 }
 
 /// 受门管控的调用形态（持有自身数据，便于跨函数传递）。
@@ -123,7 +130,9 @@ impl JevGate {
                  如果规则写错了，请修改上面标出的那个文件；如果确实需要这一步，请在终端手动执行。",
             );
         } else {
-            msg.push_str("\n\n如果这确实是你想做的，可以先告诉我理由；我仍无法放行时，请在终端手动执行。");
+            msg.push_str(
+                "\n\n如果这确实是你想做的，可以先告诉我理由；我仍无法放行时，请在终端手动执行。",
+            );
         }
         msg
     }
@@ -362,7 +371,8 @@ impl JevGate {
             }
             // ── 层1c：人显式声明的安全命令 ──
             let reasons = policy::dangerous_reasons_scoped(cmd, &call.cwd);
-            if policy::is_user_declared_safe(cmd, &self.config.safe_commands) && reasons.is_empty() {
+            if policy::is_user_declared_safe(cmd, &self.config.safe_commands) && reasons.is_empty()
+            {
                 return Some(GateDecision::Allow {
                     rationale: "确定性层：用户声明的安全命令".to_string(),
                 });
@@ -555,9 +565,7 @@ impl JevGate {
 /// `ExecuteExtraTool` 把目标工具的参数包在 `params` 字段里；不解包会看到空参数，
 /// 使确定性层（硬黑名单/危险 pattern/只读白名单）全部失效。
 pub fn effective_params<'a>(tool_name: &str, input: &'a Value) -> &'a Value {
-    use crate::tool_search::core_tools::{
-        EXECUTE_EXTRA_TOOL_NAME, EXTRA_TOOL_PARAMS_FIELD,
-    };
+    use crate::tool_search::core_tools::{EXECUTE_EXTRA_TOOL_NAME, EXTRA_TOOL_PARAMS_FIELD};
     if tool_name == EXECUTE_EXTRA_TOOL_NAME {
         input.get(EXTRA_TOOL_PARAMS_FIELD).unwrap_or(input)
     } else {

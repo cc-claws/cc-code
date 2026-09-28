@@ -218,7 +218,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `--output-format` | 输出格式：text / json / stream-json（配合 `-p`） | print only |
 | `--max-turns` | 最大 agentic 轮数（配合 `-p`） | print only |
 | `--bare` | 极简模式：跳过 hooks/LSP/插件/MCP 初始化（配合 `-p`） | print only |
-| `--permission-mode` | 权限模式：bypass / default / dont-ask / accept-edit / auto-mode | both |
+| `--permission-mode` | 权限模式：auto（默认）/ bypass（只有两档，未知值回退 auto） | both |
 | `--dangerously-skip-permissions` | 绕过所有权限检查（等同 permission-mode bypass） | both |
 | `--model` | 指定模型（四档别名 opus/sonnet/haiku/fable 或全名） | both |
 | `--effort` | 推理强度：low / medium / high / max | both |
@@ -230,7 +230,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `--allowedTools` | 允许的工具列表 | both |
 | `--disallowedTools` | 禁止的工具列表 | both |
 | `--settings` | 加载额外 settings 文件或 JSON 字符串 | both |
-| `-a/--approve` | 启用 HITL 审批模式（等同 --permission-mode default） | TUI |
+| `-a/--approve` | 启用语义门审批（等同 `--permission-mode auto`） | TUI |
 | `-y/--yolo` | 向后兼容，无操作（YOLO 已是默认行为） | TUI |
 
 **子命令**：`plugin list [--json]` / `plugin install <name@marketplace> [--scope user/project/local]` / `plugin uninstall <id>`。`acp`/`update`/`sync` 子命令保持不变。

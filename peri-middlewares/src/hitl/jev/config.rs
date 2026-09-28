@@ -150,7 +150,9 @@ impl Default for JevConfig {
 impl JevConfig {
     /// 从环境变量读取 API key。
     pub fn api_key(&self) -> Option<String> {
-        std::env::var(&self.api_key_env).ok().filter(|k| !k.is_empty())
+        std::env::var(&self.api_key_env)
+            .ok()
+            .filter(|k| !k.is_empty())
     }
 
     /// 从环境变量覆盖默认配置。
