@@ -168,7 +168,8 @@ fn estimate_cost(app: &App) -> f64 {
     let (input_price, output_price) = match alias {
         "opus" => (15.0, 75.0),
         "haiku" => (0.80, 4.0),
-        _ => (3.0, 15.0), // sonnet default
+        "fable" => (3.0, 15.0), // fable: gateway-mapped, 按 sonnet 档估
+        _ => (3.0, 15.0),       // sonnet default
     };
 
     let input_cost = (tracker.total_input_tokens as f64 / 1_000_000.0) * input_price;

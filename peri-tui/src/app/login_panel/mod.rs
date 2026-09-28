@@ -4,15 +4,22 @@ use super::{panel_list::PanelList, App};
 
 // ─── 默认模型名常量表 ─────────────────────────────────────────────────────────
 
-/// (provider_type, opus, sonnet, haiku)
-const DEFAULT_MODELS: &[(&str, &str, &str, &str)] = &[
+/// (provider_type, opus, sonnet, haiku, fable)
+const DEFAULT_MODELS: &[(&str, &str, &str, &str, &str)] = &[
     (
         "anthropic",
         "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
+        "claude-fable-5",
     ),
-    ("openai", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"),
+    (
+        "openai",
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-3.5-turbo",
+        "gpt-4o",
+    ),
 ];
 
 /// provider_type 循环切换列表
@@ -37,6 +44,7 @@ pub enum LoginEditField {
     OpusModel,
     SonnetModel,
     HaikuModel,
+    FableModel,
 }
 
 impl LoginEditField {
@@ -48,19 +56,21 @@ impl LoginEditField {
             Self::ApiKey => Self::OpusModel,
             Self::OpusModel => Self::SonnetModel,
             Self::SonnetModel => Self::HaikuModel,
-            Self::HaikuModel => Self::Name,
+            Self::HaikuModel => Self::FableModel,
+            Self::FableModel => Self::Name,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            Self::Name => Self::HaikuModel,
+            Self::Name => Self::FableModel,
             Self::Type => Self::Name,
             Self::BaseUrl => Self::Type,
             Self::ApiKey => Self::BaseUrl,
             Self::OpusModel => Self::ApiKey,
             Self::SonnetModel => Self::OpusModel,
             Self::HaikuModel => Self::SonnetModel,
+            Self::FableModel => Self::HaikuModel,
         }
     }
 
@@ -73,6 +83,7 @@ impl LoginEditField {
             Self::OpusModel => "Opus Model  ",
             Self::SonnetModel => "Sonnet Model",
             Self::HaikuModel => "Haiku Model ",
+            Self::FableModel => "Fable Model ",
         }
     }
 }
@@ -97,6 +108,7 @@ pub struct LoginPanel {
     pub buf_opus_model: String,
     pub buf_sonnet_model: String,
     pub buf_haiku_model: String,
+    pub buf_fable_model: String,
     /// 各字段的编辑光标（char-based index）
     pub cur_name: usize,
     pub cur_base_url: usize,
@@ -104,6 +116,7 @@ pub struct LoginPanel {
     pub cur_opus_model: usize,
     pub cur_sonnet_model: usize,
     pub cur_haiku_model: usize,
+    pub cur_fable_model: usize,
 }
 
 impl LoginPanel {
@@ -129,12 +142,14 @@ impl LoginPanel {
             buf_opus_model: String::new(),
             buf_sonnet_model: String::new(),
             buf_haiku_model: String::new(),
+            buf_fable_model: String::new(),
             cur_name: 0,
             cur_base_url: 0,
             cur_api_key: 0,
             cur_opus_model: 0,
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
+            cur_fable_model: 0,
         }
     }
 
@@ -160,12 +175,14 @@ impl LoginPanel {
             self.buf_opus_model = p.models.opus.clone();
             self.buf_sonnet_model = p.models.sonnet.clone();
             self.buf_haiku_model = p.models.haiku.clone();
+            self.buf_fable_model = p.models.fable.clone();
             self.cur_name = self.buf_name.chars().count();
             self.cur_base_url = self.buf_base_url.chars().count();
             self.cur_api_key = self.buf_api_key.chars().count();
             self.cur_opus_model = self.buf_opus_model.chars().count();
             self.cur_sonnet_model = self.buf_sonnet_model.chars().count();
             self.cur_haiku_model = self.buf_haiku_model.chars().count();
+            self.cur_fable_model = self.buf_fable_model.chars().count();
             self.edit_field = LoginEditField::Name;
             self.mode = LoginPanelMode::Edit;
         }
@@ -180,6 +197,7 @@ impl LoginPanel {
         self.buf_opus_model = String::new();
         self.buf_sonnet_model = String::new();
         self.buf_haiku_model = String::new();
+        self.buf_fable_model = String::new();
         self.auto_fill_models_for_type();
         self.edit_field = LoginEditField::Name;
         self.mode = LoginPanelMode::New;
@@ -243,6 +261,9 @@ impl LoginPanel {
             LoginEditField::HaikuModel => {
                 Some((&mut self.buf_haiku_model, &mut self.cur_haiku_model))
             }
+            LoginEditField::FableModel => {
+                Some((&mut self.buf_fable_model, &mut self.cur_fable_model))
+            }
         }
     }
 
@@ -271,16 +292,21 @@ impl LoginPanel {
     pub fn auto_fill_models_for_type(&mut self) {
         let new_defaults = DEFAULT_MODELS
             .iter()
-            .find(|(t, _, _, _)| *t == self.buf_type);
-        let (opus_default, sonnet_default, haiku_default) = match new_defaults {
-            Some((_, o, s, h)) => (o.to_string(), s.to_string(), h.to_string()),
+            .find(|(t, _, _, _, _)| *t == self.buf_type);
+        let (opus_default, sonnet_default, haiku_default, fable_default) = match new_defaults {
+            Some((_, o, s, h, f)) => (
+                o.to_string(),
+                s.to_string(),
+                h.to_string(),
+                f.to_string(),
+            ),
             None => return, // 未知 provider_type，不自动填充
         };
 
         // 收集所有 provider_type 的默认值作为"旧默认值"候选
-        let all_defaults: Vec<(String, String, String)> = DEFAULT_MODELS
+        let all_defaults: Vec<(String, String, String, String)> = DEFAULT_MODELS
             .iter()
-            .map(|(_, o, s, h)| (o.to_string(), s.to_string(), h.to_string()))
+            .map(|(_, o, s, h, f)| (o.to_string(), s.to_string(), h.to_string(), f.to_string()))
             .collect();
 
         let is_default_or_empty = |val: &str| -> bool {
@@ -289,7 +315,7 @@ impl LoginPanel {
             }
             all_defaults
                 .iter()
-                .any(|(o, s, h)| val == o || val == s || val == h)
+                .any(|(o, s, h, f)| val == o || val == s || val == h || val == f)
         };
 
         if is_default_or_empty(&self.buf_opus_model) {
@@ -300,6 +326,9 @@ impl LoginPanel {
         }
         if is_default_or_empty(&self.buf_haiku_model) {
             self.buf_haiku_model = haiku_default;
+        }
+        if is_default_or_empty(&self.buf_fable_model) {
+            self.buf_fable_model = fable_default;
         }
     }
 
@@ -340,6 +369,7 @@ impl LoginPanel {
                 opus: self.buf_opus_model.clone(),
                 sonnet: self.buf_sonnet_model.clone(),
                 haiku: self.buf_haiku_model.clone(),
+                fable: self.buf_fable_model.clone(),
             },
             thinking: None,
             extra: Default::default(),
