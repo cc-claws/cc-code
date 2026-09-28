@@ -332,6 +332,42 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - 仅文档/配置类的小改动（如规则记录）也可走 commit，不必强建 Issue——但若走 PR 仍需补 Issue。
 - 诊断「PR 没有 CI」时，**先看分支名是否含 `#` / 中文**，再看 workflow 配置；GitHub UI 出现 "head ref may contain hidden characters" 警告即为本规则触发的信号。
 
+## 文档维护规则
+
+**[核心原则] 文档是功能的投影，不是功能的副本。** 每份文档只保留"该读者当场需要"的信息，全量细节统一收敛到 CHANGELOG，避免同一内容在多处重复维护导致滞后。
+
+### 文档地图（改功能时对照更新）
+
+| 文档 | 定位 | 更新时机 |
+|------|------|---------|
+| `CHANGELOG.md` | **全量权威记录**（每个版本逐条） | 每次发版**必改**，唯一全量来源 |
+| `README.md` / `README_ZH.md` | 对外门面，**特性表仅保留最新 10 条** | 新增用户可见功能时；两版**必须同步** |
+| `TUI-STYLE.md` | 命令 / 快捷键 / 交互参考 | 增删命令、改快捷键、改权限模式时 |
+| `spec/global/features.md` | 全量功能清单（按 crate 分组） | 新增功能时追加；末尾更新"最后更新"日期 |
+| `spec/global/domains/*.md` | 各领域设计文档 | 改动对应领域时；更新末尾"最后更新"日期 |
+| `DEVLOG.md` | 叙事性开发日志（里程碑） | 阶段性补充，非逐条 |
+
+### README 特性表规则
+
+- **只保留最新 10 条**（表按版本倒序，最新在上）。读到第 10 条为止即止，不要无限增长。
+- 超出 10 条的更早版本**不删除信息**，改为在表尾加一行指向 CHANGELOG：
+  - 英文：`> Older releases (…) are listed in the [CHANGELOG](./CHANGELOG.md).`
+  - 中文：`> 更早版本（…）见 [CHANGELOG](./CHANGELOG.md)。`
+- **中英两版条目必须一一对应**（改一版必改另一版），版本号与顺序完全一致。
+
+### 过时表述清理（高频踩坑）
+
+- **模型别名是四档**：`opus` / `sonnet` / `haiku` / `fable`（见 `peri-acp/src/provider/config.rs` 的 `ALL_ALIASES: [&str; 4]`）。文档中凡出现"三级别名/三档/三 Tab"均为过时，需改为四档。
+- **废弃快捷键**：`Alt+M` / `Ctrl+T`（模型循环）、`Ctrl+N` / `Ctrl+W`（多 session）已移除，模型切换统一走命令面板 `Ctrl+P` / `Alt+P`。文档（尤其中文注释、tips、示例）里若有残留，一律清理。
+- **命令清单以代码为准**：TUI 命令见 `peri-tui/src/command/`，ACP 命令见 `peri-acp/src/session/command/mod.rs`。文档化前先核对 registry，**防止文档出现代码中不存在的"幽灵命令"**（如曾经的 `/status`）。
+- **测试代码位置**：`spec/archive*`、`spec/issues/`、`docs/superpowers/plans|specs/`、`CHANGELOG.md` 中的旧表述是**历史快照**，按记录当时状态保留，不必回改（可在条目旁加"后续演进"注记）。
+
+### 提交纪律 [TRAP]
+
+- **禁止无脑 `git add -A`**：仓库曾有 `.mimocode/plans/`（mimocode 工具本地草稿）在 Initial commit 被 `git add -A` 误纳入的先例。
+- 工具本地工作目录（`.mimocode/`、`.claude/worktrees/` 等）已在 `.gitignore`，提交前 `git status` 复核，确认暂存区**只有 `.md`（或预期文件）**。
+- 提交前自查：`git diff --cached --name-only | grep -vE '\.md$'` 应无输出（纯文档提交时）。
+
 ## npm 发版流程
 
 npm 包（`@cc-claw/code`）通过 GitHub Actions 发版，触发方式：推送 `npm-v*` tag 或手动 workflow_dispatch。
