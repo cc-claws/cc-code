@@ -58,6 +58,9 @@ pub struct AcpAgentConfig {
     pub frozen_claude_md: Option<String>,
     /// Frozen CLAUDE.local.md content.
     pub frozen_claude_local_md: Option<String>,
+    /// Session-scoped lazy Jev rule loader (distils CLAUDE.md rules on first gate use).
+    /// None = 门不携带 CLAUDE.md 策略。
+    pub jev_rule_loader: Option<Arc<peri_middlewares::hitl::jev::JevRuleLoader>>,
     /// Frozen skills summary (None = scan each turn).
     pub frozen_skill_summary: Option<String>,
     /// Frozen session date in YYYY-MM-DD (None = compute fresh each turn).
@@ -136,6 +139,7 @@ pub fn build_agent(
         system_prompt,
         frozen_claude_md,
         frozen_claude_local_md,
+        jev_rule_loader,
         frozen_skill_summary,
         frozen_date,
         event_handler,
@@ -232,11 +236,47 @@ pub fn build_agent(
         _ => permission_broker.clone(),
     };
 
+    // Jev 语义门（Auto 模式首选）。仅在**配置了 API key** 时启用；否则返回 None，
+    // Auto 模式回退到 LLM 分类器（兜底）。端点不可达不影响构造——判定时 fail-closed。
+    // Jev 语义门（Auto 模式首选）。仅在**配置了 API key** 时启用；否则返回 None，
+    // Auto 模式回退到 LLM 分类器（兜底）。端点不可达不影响构造——判定时 fail-closed。
+    //
+    // CLAUDE.md 规则**不在这里合并**：它们由 `jev_rule_loader` 惰性提炼，门在
+    // `evaluate()` 里自行读取。这样"不需要门控"的会话一次模型调用都不会发生。
+    // 优先级（门内保证）：人写下的配置 > CLAUDE.md 提炼。
+    let jev_config = peri_middlewares::hitl::jev::config::JevConfig::from_env();
+    let jev_gate: Option<std::sync::Arc<peri_middlewares::hitl::JevGate>> =
+        if jev_config.api_key().is_some() {
+            match peri_middlewares::hitl::JevGate::with_loader(jev_config.clone(), jev_rule_loader) {
+                Ok(gate) => {
+                    tracing::info!(
+                        endpoint = %jev_config.endpoint,
+                        model = %jev_config.model,
+                        scope = ?jev_config.gate_scope,
+                        "Jev 语义门已启用（Auto 模式的判定内核）"
+                    );
+                    Some(gate)
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Jev 门初始化失败，Auto 模式回退到 LLM 分类器");
+                    None
+                }
+            }
+        } else {
+            tracing::warn!(
+                env = %jev_config.api_key_env,
+                "未配置 Jev API key（{}），Auto 模式回退到 LLM 分类器",
+                jev_config.api_key_env
+            );
+            None
+        };
+
     let hitl = HumanInTheLoopMiddleware::with_shared_mode(
         effective_broker.clone(),
         default_requires_approval,
         permission_mode.clone(),
         auto_classifier,
+        jev_gate,
     );
 
     // AskUser 工具：使用原始 TUI broker（permission_broker），不使用 MultiplexBroker。

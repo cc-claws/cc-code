@@ -44,7 +44,7 @@ fn make_middleware_with_mode(hooks: Vec<RegisteredHook>, mode: PermissionMode) -
 }
 
 fn make_middleware_hitl(hooks: Vec<RegisteredHook>) -> HookMiddleware {
-    make_middleware_with_mode(hooks, PermissionMode::Default)
+    make_middleware_with_mode(hooks, PermissionMode::AutoMode)
 }
 
 #[tokio::test]

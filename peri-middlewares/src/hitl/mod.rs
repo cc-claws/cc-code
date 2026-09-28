@@ -16,9 +16,11 @@ use crate::tool_search::core_tools::{
 };
 
 pub mod auto_classifier;
+pub mod jev;
 pub mod shared_mode;
 
 pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
+pub use jev::{GateDecision, JevGate, JevRules};
 pub use peri_agent::hitl::{BatchItem, HitlDecision};
 pub use shared_mode::{PermissionMode, SharedPermissionMode};
 
@@ -84,8 +86,10 @@ pub struct HumanInTheLoopMiddleware {
     requires_approval: fn(&str) -> bool,
     /// 共享权限模式（动态切换），None 时走原有 Some/None broker 逻辑（向后兼容）
     mode: Option<Arc<SharedPermissionMode>>,
-    /// Auto 模式的 LLM 分类器，仅在 mode=Auto 时使用
+    /// Auto 模式的 LLM 分类器（旧实现，作为无 Jev 时的兜底）
     auto_classifier: Option<Arc<dyn AutoClassifier>>,
+    /// Auto 模式的 Jev 语义门（优先使用；不可用时回退 auto_classifier）
+    jev_gate: Option<Arc<JevGate>>,
 }
 
 impl HumanInTheLoopMiddleware {
@@ -99,6 +103,7 @@ impl HumanInTheLoopMiddleware {
             requires_approval,
             mode: None,
             auto_classifier: None,
+            jev_gate: None,
         }
     }
 
@@ -109,6 +114,7 @@ impl HumanInTheLoopMiddleware {
             requires_approval: default_requires_approval,
             mode: None,
             auto_classifier: None,
+            jev_gate: None,
         }
     }
 
@@ -130,13 +136,43 @@ impl HumanInTheLoopMiddleware {
         requires_approval: fn(&str) -> bool,
         mode: Arc<SharedPermissionMode>,
         auto_classifier: Option<Arc<dyn AutoClassifier>>,
+        jev_gate: Option<Arc<JevGate>>,
     ) -> Self {
         Self {
             broker: Some(broker),
             requires_approval,
             mode: Some(mode),
             auto_classifier,
+            jev_gate,
         }
+    }
+
+    /// 构建一次调用的 `GateCall`（提取 cwd、命令/路径）。
+    ///
+    /// 刻意**不读 `state.messages()`**：用户对话不参与判定（见 `GateCall` 文档），
+    /// 这也让本中间件符合"链上中间件在 before_tool 阶段不读消息历史"的不变量。
+    fn build_gate_call<S: State>(&self, state: &S, tool_call: &ToolCall) -> Option<jev::GateCall> {
+        // 没有门就不构建（调用方据此跳过判定）
+        self.jev_gate.as_ref()?;
+        let effective = effective_tool_name(&tool_call.name, &tool_call.input);
+        // ExecuteExtraTool 把真实参数包在 `params` 里，必须解包才能看到 command/path
+        let params = jev::effective_params(&tool_call.name, &tool_call.input);
+        Some(jev::GateCall {
+            tool_name: effective,
+            command: params
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            path: params
+                .get("file_path")
+                .or_else(|| params.get("path"))
+                .and_then(|v| v.as_str())
+                .map(std::path::PathBuf::from),
+            // 仓库现场：读 `.git/HEAD`，零成本。规则常带条件（"不要在 main 上提交"），
+            // 缺了它 judge 只能匹配命令里出现的分支名。
+            branch: jev::policy::git_branch(std::path::Path::new(state.cwd())),
+            cwd: std::path::PathBuf::from(state.cwd()),
+        })
     }
 }
 
@@ -162,7 +198,11 @@ fn apply_decision(call: &ToolCall, decision: ApprovalDecision) -> AgentResult<To
 
 impl HumanInTheLoopMiddleware {
     /// 批量处理一批工具调用：收集所有需要审批的项，一次性弹窗，返回每个 call 的处理结果
-    pub async fn process_batch(&self, calls: &[ToolCall]) -> Vec<AgentResult<ToolCall>> {
+    pub async fn process_batch<S: State>(
+        &self,
+        state: &S,
+        calls: &[ToolCall],
+    ) -> Vec<AgentResult<ToolCall>> {
         let mut results: Vec<AgentResult<ToolCall>> = Vec::with_capacity(calls.len());
 
         // 快照当前 mode，确保整个批处理内评估一致（避免迭代过程中 mode 被外部修改）
@@ -178,7 +218,7 @@ impl HumanInTheLoopMiddleware {
 
             // 有 mode → 使用快照模式决策
             if let Some(mode) = &mode_snapshot {
-                results.push(self.decide_by_mode(mode, call).await);
+                results.push(self.decide_by_mode(state, mode, call).await);
                 continue;
             }
 
@@ -225,59 +265,70 @@ impl HumanInTheLoopMiddleware {
     }
 
     /// 根据共享权限模式决策单个工具调用
-    async fn decide_by_mode(
+    async fn decide_by_mode<S: State>(
         &self,
+        state: &S,
         mode: &Arc<SharedPermissionMode>,
         tool_call: &ToolCall,
     ) -> AgentResult<ToolCall> {
         match mode.load() {
             PermissionMode::Bypass => Ok(tool_call.clone()),
-            PermissionMode::DontAsk => Err(AgentError::ToolRejected {
-                tool: tool_call.name.clone(),
-                reason: "Don't Ask 模式：自动拒绝".to_string(),
-            }),
-            PermissionMode::AcceptEdit => {
-                if is_edit_tool(&tool_call.name) {
-                    Ok(tool_call.clone())
-                } else {
-                    match &self.broker {
-                        Some(broker) => self.broker_approve(broker, tool_call).await,
-                        None => Ok(tool_call.clone()),
+            PermissionMode::AutoMode => {
+                // 优先：Jev 语义门（三层判定）
+                if let Some(call) = self.build_gate_call(state, tool_call) {
+                    if let Some(gate) = &self.jev_gate {
+                        return match gate.evaluate(&call).await {
+                            GateDecision::Allow { rationale } => {
+                                tracing::debug!(tool = %tool_call.name, %rationale, "Jev 放行");
+                                Ok(tool_call.clone())
+                            }
+                            GateDecision::Block { rationale } => Err(AgentError::ToolRejected {
+                                tool: tool_call.name.clone(),
+                                // rationale 已是面向人和 agent 的中文说明（含原因、依据规则、下一步）
+                                reason: rationale,
+                            }),
+                            GateDecision::Ask { rationale } => match &self.broker {
+                                Some(broker) => self.broker_approve(broker, tool_call).await,
+                                None => Err(AgentError::ToolRejected {
+                                    tool: tool_call.name.clone(),
+                                    reason: format!("{rationale}\n（当前没有可用的确认通道，因此默认拒绝）"),
+                                }),
+                            },
+                        };
                     }
+                }
+                // 兜底：旧 LLM 分类器
+                self.auto_mode_fallback(tool_call).await
+            }
+        }
+    }
+
+    /// Auto 模式兜底：无 Jev 门或 Jev 不可用时的旧 LLM 分类器路径。
+    async fn auto_mode_fallback(&self, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+        match &self.auto_classifier {
+            Some(classifier) => {
+                let result = classifier.classify(&tool_call.name, &tool_call.input).await;
+                match result {
+                    Classification::Allow => Ok(tool_call.clone()),
+                    Classification::Deny => Err(AgentError::ToolRejected {
+                        tool: tool_call.name.clone(),
+                        reason: "Auto 模式：分类器拒绝".to_string(),
+                    }),
+                    Classification::Unsure => match &self.broker {
+                        Some(broker) => self.broker_approve(broker, tool_call).await,
+                        None => Err(AgentError::ToolRejected {
+                            tool: tool_call.name.clone(),
+                            reason: "Auto 模式：分类器不确定且无 broker".to_string(),
+                        }),
+                    },
                 }
             }
-            PermissionMode::AutoMode => match &self.auto_classifier {
-                Some(classifier) => {
-                    let result = classifier.classify(&tool_call.name, &tool_call.input).await;
-                    match result {
-                        Classification::Allow => Ok(tool_call.clone()),
-                        Classification::Deny => Err(AgentError::ToolRejected {
-                            tool: tool_call.name.clone(),
-                            reason: "Auto 模式：分类器拒绝".to_string(),
-                        }),
-                        Classification::Unsure => match &self.broker {
-                            Some(broker) => self.broker_approve(broker, tool_call).await,
-                            None => Err(AgentError::ToolRejected {
-                                tool: tool_call.name.clone(),
-                                reason: "Auto 模式：分类器不确定且无 broker".to_string(),
-                            }),
-                        },
-                    }
-                }
-                None => match &self.broker {
-                    Some(broker) => self.broker_approve(broker, tool_call).await,
-                    None => Err(AgentError::ToolRejected {
-                        tool: tool_call.name.clone(),
-                        reason: "Auto 模式：无分类器且无 broker".to_string(),
-                    }),
-                },
-            },
-            PermissionMode::Default => match &self.broker {
+            None => match &self.broker {
                 Some(broker) => self.broker_approve(broker, tool_call).await,
-                None => {
-                    tracing::warn!("HITL Default 模式但无 broker，拒绝工具调用");
-                    Err(anyhow::anyhow!("HITL 审批不可用：未配置 broker").into())
-                }
+                None => Err(AgentError::ToolRejected {
+                    tool: tool_call.name.clone(),
+                    reason: "Auto 模式：无分类器且无 broker".to_string(),
+                }),
             },
         }
     }
@@ -355,13 +406,13 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
     /// 通过 broker 弹出一个 [多工具审批] 弹窗，避免逐个弹窗打断用户。
     async fn before_tools_batch(
         &self,
-        _state: &mut S,
+        state: &mut S,
         calls: &[ToolCall],
     ) -> Vec<AgentResult<ToolCall>> {
-        self.process_batch(calls).await
+        self.process_batch(state, calls).await
     }
 
-    async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+    async fn before_tool(&self, state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
         // 1. 非敏感工具 → 所有模式都放行
         if !(self.requires_approval)(&effective_tool_name(&tool_call.name, &tool_call.input)) {
             return Ok(tool_call.clone());
@@ -369,7 +420,7 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
 
         // 2. 有 mode → 按权限模式决策
         if let Some(mode) = &self.mode {
-            return self.decide_by_mode(mode, tool_call).await;
+            return self.decide_by_mode(state, mode, tool_call).await;
         }
 
         // 3. 无 mode 且无 broker → 放行（disabled() 路径）
