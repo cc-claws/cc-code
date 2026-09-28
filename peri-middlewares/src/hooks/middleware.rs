@@ -113,18 +113,13 @@ impl HookMiddleware {
     ///
     /// 对齐 Claude Code：PermissionRequest 仅在权限对话框即将展示时触发。
     fn needs_permission_dialog(&self, tool_name: &str) -> bool {
+        let _ = tool_name;
         match self.permission_mode.load() {
             // Bypass: 所有工具直接放行，无对话框
             PermissionMode::Bypass => false,
-            // DontAsk: 直接拒绝敏感工具，无对话框
-            PermissionMode::DontAsk => false,
-            // AcceptEdit: 编辑工具放行，其他弹窗
-            PermissionMode::AcceptEdit => !crate::hitl::is_edit_tool(tool_name),
-            // AutoMode: 分类器决定；简化处理——当无分类器或 Unsure 时弹窗
-            // 为避免 hook 系统依赖分类器，AutoMode 下始终触发 PermissionRequest
+            // AutoMode: 由语义门判定；这里保守地认为"可能弹窗"，
+            // 以免 hook 系统依赖分类器/门的具体结论。
             PermissionMode::AutoMode => true,
-            // Default: 敏感工具始终弹窗
-            PermissionMode::Default => true,
         }
     }
 

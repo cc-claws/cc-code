@@ -160,6 +160,7 @@ pub(crate) async fn handle_request(
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
+                peri_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
 
             let state = sessions.get_mut(&session_id).unwrap();
@@ -339,6 +340,7 @@ pub(crate) async fn handle_request(
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
+                peri_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
             if let Some(s) = sessions.get_mut(req_session_id) {
                 s.frozen = Some(frozen_data);
@@ -457,6 +459,7 @@ pub(crate) async fn handle_request(
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
+                peri_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
             if let Some(s) = sessions.get_mut(req_session_id) {
                 s.frozen = Some(frozen_data);
@@ -511,6 +514,7 @@ pub(crate) async fn handle_request(
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
+                peri_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
             if let Some(s) = sessions.get_mut(&new_session_id) {
                 s.frozen = Some(frozen_data);
