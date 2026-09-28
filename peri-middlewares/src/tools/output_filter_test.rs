@@ -145,8 +145,14 @@ fn test_filter_git_status_rtk_clean_output() {
     // RTK `rtk git status` 在干净工作区输出 `clean — nothing to commit`（em dash）
     let rtk_clean = "* main\nclean — nothing to commit";
     let filtered = filter_git_status(rtk_clean);
-    assert!(!filtered.contains("clean — nothing to commit"), "RTK 干净工作区噪音应被过滤，实际：{filtered}");
-    assert!(filtered.contains("* main"), "分支信息应保留，实际：{filtered}");
+    assert!(
+        !filtered.contains("clean — nothing to commit"),
+        "RTK 干净工作区噪音应被过滤，实际：{filtered}"
+    );
+    assert!(
+        filtered.contains("* main"),
+        "分支信息应保留，实际：{filtered}"
+    );
 }
 
 #[test]
@@ -154,6 +160,12 @@ fn test_filter_command_output_rtk_git_status_clean() {
     // 经过 filter_command_output 入口，RTK 重写的 git status 干净输出应被过滤
     let rtk_output = "* feature/my-branch\nclean — nothing to commit";
     let filtered = filter_command_output("git status", rtk_output, 0);
-    assert!(!filtered.contains("nothing to commit"), "RTK 格式的 git status 噪音应经 filter_command_output 被过滤，实际：{filtered}");
-    assert!(filtered.contains("* feature/my-branch"), "分支信息应保留，实际：{filtered}");
+    assert!(
+        !filtered.contains("nothing to commit"),
+        "RTK 格式的 git status 噪音应经 filter_command_output 被过滤，实际：{filtered}"
+    );
+    assert!(
+        filtered.contains("* feature/my-branch"),
+        "分支信息应保留，实际：{filtered}"
+    );
 }
