@@ -306,6 +306,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
+                        peri_acp::session::frozen::rule_model_from(&ctx.provider.read()),
                     );
 
                     // Scan skills for AvailableCommands
@@ -729,6 +730,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
+                        peri_acp::session::frozen::rule_model_from(&ctx.provider.read()),
                     );
                     let mut sessions = ctx.sessions.write();
                     if !sessions.contains_key(&sid) {
@@ -772,6 +774,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
+                        peri_acp::session::frozen::rule_model_from(&ctx.provider.read()),
                     );
 
                     // Load history from ThreadStore via dispatch function
@@ -892,6 +895,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
+                        peri_acp::session::frozen::rule_model_from(&ctx.provider.read()),
                     );
                     {
                         let mut sessions = ctx.sessions.write();

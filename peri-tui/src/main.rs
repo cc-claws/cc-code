@@ -97,7 +97,7 @@ struct Cli {
     /// 向后兼容，无操作（YOLO 已是默认行为）
     #[arg(short = 'y', long = "yolo")]
     yolo: bool,
-    /// 启用 HITL 审批模式（等同 --permission-mode default）
+    /// 启用语义门审批（等同 --permission-mode auto；权限模式现只有 auto / bypass 两档）
     #[arg(short = 'a', long = "approve")]
     approve: bool,
 
@@ -233,43 +233,43 @@ enum PluginAction {
 // ─── 环境变量注入 ──────────────────────────────────────────────────────────
 
 /// 从 settings.json 读取 env 字段并注入进程环境变量
-/// 仅在进程环境变量不存在时设置（进程环境优先）
+///
+/// 优先级：**进程环境变量 > `~/.cc-code/settings.json` > `~/.peri/settings.json`**（兼容旧版）。
+/// 主配置路径为 `~/.cc-code/settings.json`（与 [`peri_acp::provider::config_path`] 一致）；
+/// `~/.peri/settings.json` 仅作向后兼容回退。
 fn inject_env_from_settings() {
-    let path = dirs_next::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".peri")
-        .join("settings.json");
-
-    if !path.exists() {
-        return;
-    }
-
-    // 读取并解析 JSON
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return;
-    };
-
-    // 提取 config.env 字段
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return;
-    };
-
-    let Some(env_obj) = json.get("config").and_then(|c| c.get("env")) else {
-        return;
-    };
-
-    let Some(env_map) = env_obj.as_object() else {
-        return;
-    };
-
-    // 遍历键值对，仅在进程环境变量不存在时设置
-    for (key, value) in env_map {
-        if let Some(value_str) = value.as_str() {
-            if std::env::var(key).is_err() {
-                std::env::set_var(key, value_str);
-            }
+    let home = dirs_next::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    // 先读旧路径、再读新路径，后者覆盖前者
+    let mut merged: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for path in [
+        home.join(".peri").join("settings.json"),
+        home.join(".cc-code").join("settings.json"),
+    ] {
+        if let Some(env) = read_config_env(&path) {
+            merged.extend(env);
         }
     }
+    // 仅在进程环境变量不存在时设置（进程环境优先）
+    for (key, value) in merged {
+        if std::env::var(&key).is_err() {
+            std::env::set_var(key, value);
+        }
+    }
+}
+
+/// 读取某个 settings.json 的 `config.env` 字段；文件不存在或结构不符时返回 None。
+fn read_config_env(path: &std::path::Path) -> Option<std::collections::HashMap<String, String>> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let json = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+    let env_obj = json.get("config").and_then(|c| c.get("env"))?;
+    let map = env_obj.as_object()?;
+    let mut out = std::collections::HashMap::new();
+    for (key, value) in map {
+        if let Some(value_str) = value.as_str() {
+            out.insert(key.clone(), value_str.to_string());
+        }
+    }
+    Some(out)
 }
 
 /// 从指定路径或 JSON 字符串加载额外 settings 并合并到环境变量
@@ -623,30 +623,19 @@ async fn run_app(
         } else if let Some(ref mode_str) = tui_opts.permission_mode {
             match mode_str.as_str() {
                 "bypass" => PermissionMode::Bypass,
-                "default" => PermissionMode::Default,
-                "dont-ask" => PermissionMode::DontAsk,
-                "accept-edit" => PermissionMode::AcceptEdit,
-                "auto-mode" => PermissionMode::AutoMode,
-                _ => {
-                    if std::env::var("YOLO_MODE")
-                        .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
-                        .unwrap_or(true)
-                    {
-                        PermissionMode::Bypass
-                    } else {
-                        PermissionMode::Default
-                    }
-                }
+                // 只剩两档；未知取值一律回退 Auto（默认档），避免意外滑进 Bypass
+                _ => PermissionMode::AutoMode,
             }
         } else if tui_opts.approve {
-            PermissionMode::Default
+            // `-a` 现在等同于"用语义门"（Auto 是唯一会做判定的档）
+            PermissionMode::AutoMode
         } else if std::env::var("YOLO_MODE")
             .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
             .unwrap_or(true)
         {
             PermissionMode::Bypass
         } else {
-            PermissionMode::Default
+            PermissionMode::AutoMode
         };
         app.services.permission_mode.store(initial_mode);
     }
@@ -1244,6 +1233,35 @@ mod tests {
 
         // 清理
         std::env::remove_var("TEST_ENV_PRIORITY_VAR");
+    }
+
+    #[test]
+    fn test_read_config_env_extracts_env_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"config":{"env":{"JEV_API_KEY":"k1","JEV_ENDPOINT":"http://x"}}}"#,
+        )
+        .unwrap();
+        let env = read_config_env(&path).unwrap();
+        assert_eq!(env.get("JEV_API_KEY").map(String::as_str), Some("k1"));
+        assert_eq!(
+            env.get("JEV_ENDPOINT").map(String::as_str),
+            Some("http://x")
+        );
+    }
+
+    #[test]
+    fn test_read_config_env_missing_or_malformed() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_config_env(&dir.path().join("nope.json")).is_none());
+        let p1 = dir.path().join("a.json");
+        std::fs::write(&p1, r#"{"config":{}}"#).unwrap();
+        assert!(read_config_env(&p1).is_none());
+        let p2 = dir.path().join("b.json");
+        std::fs::write(&p2, "not json").unwrap();
+        assert!(read_config_env(&p2).is_none());
     }
 
     #[test]

@@ -111,9 +111,12 @@ impl LlmAutoClassifier {
             serde_json::to_string(tool_input).unwrap_or_default(),
         );
 
+        // **刻意不设 max_tokens**：继承 provider 配置（默认 32000）。
+        // 早前这里写 32 是个坑——推理模型的**思考也吃 max_tokens**，
+        // 预算被思考吃光后 content 为空 → 分类静默退化成 Unsure（每次都弹窗/拒绝）。
+        // max_tokens 是上限而非预留，不设不会额外花钱。
         let request = LlmRequest::new(vec![BaseMessage::human(prompt)])
-            .with_system("你是一个工具调用安全分类器。只回答 ALLOW、DENY 或 UNSURE 中的一个词。")
-            .with_max_tokens(32);
+            .with_system("你是一个工具调用安全分类器。只回答 ALLOW、DENY 或 UNSURE 中的一个词。");
 
         let response = {
             let model = self.model.lock().await;
@@ -123,6 +126,16 @@ impl LlmAutoClassifier {
         match response {
             Ok(resp) => {
                 let text = resp.message.content().trim().to_uppercase();
+                if text.is_empty() {
+                    // 空回复既不是解析错误也不是网络错误，静默返回 Unsure 会让人无从排查
+                    tracing::warn!(
+                        stop_reason = ?resp.stop_reason,
+                        usage = ?resp.usage,
+                        tool = %tool_name,
+                        "Auto 分类器：模型返回空内容，退化为 Unsure"
+                    );
+                    return Classification::Unsure;
+                }
                 // 提取所有纯字母单词
                 let words: Vec<&str> = text
                     .split(|c: char| !c.is_alphabetic())

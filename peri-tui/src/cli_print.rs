@@ -93,17 +93,14 @@ pub async fn run_print(
         "print mode starting"
     );
 
-    // 权限模式（-p 默认 bypass）
+    // 权限模式（-p 默认 bypass：非交互场景没有人工确认通道）
     let permission_mode = if skip_permissions {
         peri_middlewares::prelude::PermissionMode::Bypass
     } else if let Some(ref mode_str) = permission_mode_str {
         match mode_str.as_str() {
             "bypass" => peri_middlewares::prelude::PermissionMode::Bypass,
-            "default" => peri_middlewares::prelude::PermissionMode::Default,
-            "dont-ask" => peri_middlewares::prelude::PermissionMode::DontAsk,
-            "accept-edit" => peri_middlewares::prelude::PermissionMode::AcceptEdit,
-            "auto-mode" => peri_middlewares::prelude::PermissionMode::AutoMode,
-            _ => peri_middlewares::prelude::PermissionMode::Bypass,
+            // 只剩两档；未知取值一律回退 Auto（默认档），避免意外滑进 Bypass
+            _ => peri_middlewares::prelude::PermissionMode::AutoMode,
         }
     } else {
         peri_middlewares::prelude::PermissionMode::Bypass

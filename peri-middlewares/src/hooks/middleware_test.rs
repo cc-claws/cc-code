@@ -44,7 +44,7 @@ fn make_middleware_with_mode(hooks: Vec<RegisteredHook>, mode: PermissionMode) -
 }
 
 fn make_middleware_hitl(hooks: Vec<RegisteredHook>) -> HookMiddleware {
-    make_middleware_with_mode(hooks, PermissionMode::Default)
+    make_middleware_with_mode(hooks, PermissionMode::AutoMode)
 }
 
 #[tokio::test]
@@ -532,10 +532,13 @@ async fn test_permission_request_skipped_in_bypass_mode() {
     );
 }
 
-/// Default 模式下 PermissionRequest 应触发
+/// Auto 模式下 PermissionRequest 应触发
+///
+/// 注：原为 `Default` 模式。权限模式已收敛为 auto/bypass 两档后，
+/// 由自动判定那一档（Auto）承担"可能弹窗"的语义。
 #[cfg(unix)]
 #[tokio::test]
-async fn test_permission_request_fires_in_default_mode() {
+async fn test_permission_request_fires_in_auto_mode() {
     let hook: HookType = serde_json::from_value(serde_json::json!({
         "type": "command",
         "command": "exit 2"
@@ -543,7 +546,7 @@ async fn test_permission_request_fires_in_default_mode() {
     .unwrap();
 
     let registered = make_registered(HookEvent::PermissionRequest, hook);
-    let mw = make_middleware_with_mode(vec![registered], PermissionMode::Default);
+    let mw = make_middleware_with_mode(vec![registered], PermissionMode::AutoMode);
 
     let tool_call = ToolCall::new("c1", "Write", serde_json::json!({"path": "/tmp/test"}));
     let result = mw
