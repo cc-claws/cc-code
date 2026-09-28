@@ -319,6 +319,7 @@ fn provider_field_buf(
         FormField::OpusModel => Some((&mut mp.aliases[0].model_id, &mut mp.aliases[0].cursor)),
         FormField::SonnetModel => Some((&mut mp.aliases[1].model_id, &mut mp.aliases[1].cursor)),
         FormField::HaikuModel => Some((&mut mp.aliases[2].model_id, &mut mp.aliases[2].cursor)),
+        FormField::FableModel => Some((&mut mp.aliases[3].model_id, &mut mp.aliases[3].cursor)),
         _ => None,
     }
 }
@@ -360,6 +361,7 @@ pub fn build_wizard_config(wizard: &SetupWizardPanel) -> crate::config::PeriConf
                 opus: mp.aliases[0].model_id.clone(),
                 sonnet: mp.aliases[1].model_id.clone(),
                 haiku: mp.aliases[2].model_id.clone(),
+                fable: mp.aliases[3].model_id.clone(),
             },
             ..Default::default()
         };

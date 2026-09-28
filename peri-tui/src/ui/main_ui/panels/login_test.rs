@@ -10,6 +10,7 @@
                     opus: "opus-model".to_string(),
                     sonnet: "sonnet-model".to_string(),
                     haiku: "haiku-model".to_string(),
+                    fable: "fable-model".to_string(),
                 },
                 ..Default::default()
             }],
@@ -23,12 +24,14 @@
             buf_opus_model: String::new(),
             buf_sonnet_model: String::new(),
             buf_haiku_model: String::new(),
+            buf_fable_model: String::new(),
             cur_name: 0,
             cur_base_url: 0,
             cur_api_key: 0,
             cur_opus_model: 0,
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
+            cur_fable_model: 0,
         };
         panel.browse_list.set_items(vec![(); 1]);
         app.session_mgr.current_mut()
@@ -74,12 +77,14 @@
             buf_opus_model: String::new(),
             buf_sonnet_model: String::new(),
             buf_haiku_model: String::new(),
+            buf_fable_model: String::new(),
             cur_name: 0,
             cur_base_url: 0,
             cur_api_key: 0,
             cur_opus_model: 0,
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
+            cur_fable_model: 0,
         };
         app.session_mgr.current_mut()
             .session_panels

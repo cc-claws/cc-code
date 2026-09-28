@@ -84,14 +84,15 @@ impl ProviderType {
         }
     }
 
-    pub fn default_model_ids(&self) -> [&str; 3] {
+    pub fn default_model_ids(&self) -> [&str; 4] {
         match self {
             Self::Anthropic => [
                 "claude-opus-4-6",
                 "claude-sonnet-4-6",
                 "claude-haiku-4-5-20251001",
+                "claude-fable-5",
             ],
-            Self::OpenAiCompatible => ["gpt-5.5", "gpt-4o", "gpt-4o-mini"],
+            Self::OpenAiCompatible => ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "gpt-4o"],
         }
     }
 }
@@ -113,7 +114,7 @@ pub struct MigratedProvider {
     pub cur_base_url: usize,
     pub api_key: String,
     pub cur_api_key: usize,
-    pub aliases: [AliasConfig; 3],
+    pub aliases: [AliasConfig; 4],
     /// 勾选框状态：是否包含在最终保存中
     pub selected: bool,
 }
@@ -180,6 +181,7 @@ pub enum FormField {
     OpusModel,
     SonnetModel,
     HaikuModel,
+    FableModel,
     Confirm,
 }
 
@@ -193,7 +195,8 @@ impl FormField {
             Self::ApiKey => Self::OpusModel,
             Self::OpusModel => Self::SonnetModel,
             Self::SonnetModel => Self::HaikuModel,
-            Self::HaikuModel => Self::Confirm,
+            Self::HaikuModel => Self::FableModel,
+            Self::FableModel => Self::Confirm,
             Self::Confirm => Self::ProviderType,
         }
     }
@@ -208,7 +211,8 @@ impl FormField {
             Self::OpusModel => Self::ApiKey,
             Self::SonnetModel => Self::OpusModel,
             Self::HaikuModel => Self::SonnetModel,
-            Self::Confirm => Self::HaikuModel,
+            Self::FableModel => Self::HaikuModel,
+            Self::Confirm => Self::FableModel,
         }
     }
 
@@ -222,6 +226,7 @@ impl FormField {
                 | Self::OpusModel
                 | Self::SonnetModel
                 | Self::HaikuModel
+                | Self::FableModel
         )
     }
 }
@@ -315,6 +320,9 @@ impl SetupWizardPanel {
             FormField::HaikuModel => {
                 insert_at_cursor(&mut mp.aliases[2].model_id, &mut mp.aliases[2].cursor, text);
             }
+            FormField::FableModel => {
+                insert_at_cursor(&mut mp.aliases[3].model_id, &mut mp.aliases[3].cursor, text);
+            }
             _ => {}
         }
     }
@@ -384,6 +392,7 @@ impl SetupWizardPanel {
             let opus = env_get(env, &format!("{}_DEFAULT_OPUS_MODEL", prefix));
             let sonnet = env_get(env, &format!("{}_DEFAULT_SONNET_MODEL", prefix));
             let haiku = env_get(env, &format!("{}_DEFAULT_HAIKU_MODEL", prefix));
+            let fable = env_get(env, &format!("{}_DEFAULT_FABLE_MODEL", prefix));
 
             // 至少有 API key 或 base_url 才生成条目
             if api_key.is_empty() && base_url.is_empty() {
@@ -427,6 +436,13 @@ impl SetupWizardPanel {
                     cursor: 0,
                 };
                 mp.aliases[2].cursor = mp.aliases[2].model_id.chars().count();
+            }
+            if !fable.is_empty() {
+                mp.aliases[3] = AliasConfig {
+                    model_id: fable,
+                    cursor: 0,
+                };
+                mp.aliases[3].cursor = mp.aliases[3].model_id.chars().count();
             }
 
             detected.push(mp);

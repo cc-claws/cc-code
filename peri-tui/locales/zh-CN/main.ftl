@@ -196,6 +196,7 @@ setup-field-api-key = API密钥
 setup-field-opus = 旗舰
 setup-field-sonnet = 标准
 setup-field-haiku = 极速
+setup-field-fable = Fable
 setup-model-label = Model
 setup-label-key = 密钥：
 setup-provider-anthropic = Anthropic
