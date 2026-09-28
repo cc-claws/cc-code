@@ -273,6 +273,10 @@ impl JevGate {
     }
 
     /// 对一次调用判定。所有内部失败都返回 `Block`（fail-closed）。
+    ///
+    /// 便捷入口（确定性 → 语义）。**注意**：调用方若需要"无语义判定时仍保留
+    /// 确定性防护"，应分别调用 [`Self::deterministic`] 与 [`Self::evaluate_semantic`]，
+    /// 而不是依赖本函数——理由见 `has_judge`。
     pub async fn evaluate(&self, call: &GateCall) -> GateDecision {
         // 惰性提炼：门第一次真的要用规则时才提炼 CLAUDE.md。
         // 放在最前面，因为确定性层的路径判定也依赖提炼出的受保护路径。
@@ -287,12 +291,40 @@ impl JevGate {
         self.semantic(call).await
     }
 
+    /// 是否配置了判定凭据。
+    ///
+    /// **确定性层与语义层共用同一个 `JevGate`，但绝不该共用同一个开关**：
+    /// 没有凭据/端点不可用时，硬黑名单、人写的规则、只读白名单**照常应当生效**。
+    /// 所以 Auto 模式必须"先确定性、后语义"，且后者不可用时不能把前者一起跳过。
+    pub fn has_judge(&self) -> bool {
+        self.config.api_key().is_some()
+    }
+
+    /// 仅跑语义层（不含确定性层）。调用方须自行先跑 [`Self::deterministic`]。
+    pub async fn evaluate_semantic(&self, call: &GateCall) -> GateDecision {
+        if let Some(loader) = &self.rule_loader {
+            loader.ensure_loaded().await;
+        }
+        self.semantic(call).await
+    }
+
+    /// 惰性触发规则提炼（语义层需要）。确定性层若依赖提炼出的受保护路径，
+    /// 也应由调用方在跑确定性层之前触发一次。
+    pub async fn ensure_rules_loaded(&self) {
+        if let Some(loader) = &self.rule_loader {
+            loader.ensure_loaded().await;
+        }
+    }
+
     /// 确定性层。返回 `Some` 表示已判决（无需 Jev）。
     ///
     /// 这一层只用**人显式写下的规则**（env / settings）和**内置形状判定**。
     /// 从 CLAUDE.md 提炼出的规则不在这里判决——提炼会出错，而这里是硬 Block、
     /// 无申诉路径。提炼结果一律进 `policy` 由 Jev 语义判定，错的提炼在那能被纠正。
-    fn deterministic(&self, call: &GateCall) -> Option<GateDecision> {
+    ///
+    /// **与语义层解耦**：该层不依赖 API key、也不发网络请求，
+    /// 因此"判定服务不可用"绝不该让它一起失效（见 [`Self::has_judge`]）。
+    pub fn deterministic(&self, call: &GateCall) -> Option<GateDecision> {
         // 只处理 bash / write / edit
         let is_bash = call.command.is_some();
         let is_write = call.path.is_some();
