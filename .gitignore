@@ -191,6 +191,9 @@ dist
 settings.json
 .claude/worktrees/
 
+# mimocode 工具的本地工作产物（计划草稿/流程测试文件），非项目文档
+.mimocode/
+
 # Local test files (not for commit)
 CLAUDE.local.md
 .mcp.json
