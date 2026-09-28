@@ -84,6 +84,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **语义门加固与权限模式收敛** | v0.6.81 | HITL 语义门按上游 Jev 语义重做：补上 `curl\|bash` 与解释器家族绕过、写路径穿越不再能跳过门、判定不可用改为回到人工确认而非堵死整个会话；权限模式收敛为 `auto`/`bypass`（默认 auto），确定性防线不再与语义判定共用开关 |
 | **会话恢复 Recap 持久化** | v0.6.80 | Recap 与任务完成总结行落库到 `ThreadMeta`（`latest_recap`/`last_task_summary`），`-c`/`-r` 恢复后不再丢失 |
 | **/recap 命令与自动回顾** | v0.6.76 | `/recap`（别名 `/away` `/catchup`）用 aux_model 输出「目标→任务→下一步」；终端失焦+≥3 完成轮+60s 静默自动触发回顾（`/config` 开关，`PERI_AUTO_RECAP_*` 环境变量）；非流式 Anthropic 响应自适应兼容反向代理 OpenAI 格式 |
 | **工具参数校验与输入泵** | v0.6.75 | Schema 校验错误对齐 Claude Code `formatZodValidationError` 可读化 + 工具错选启发式诊断（`suggest_tool_mismatch`）+ 连续失败熔断；引入独立 InputPump 安全启用鼠标悬停并修复滚动条拖拽 |
@@ -93,9 +94,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **UI 细节打磨** | v0.6.71 | 禁用 sticky header 顶部固定消息条；附件栏标题与 Del 提示接入 i18n |
 | **模型切换修复与命令面板统一** | v0.6.70 | 修复会话首条消息前切换模型不生效；废弃 `Ctrl+T`/`Alt+M` 循环快捷键，模型切换统一走命令面板（`Ctrl+P`/`Alt+P`） |
 | **工具调用可靠性** | v0.6.69 | 边界提示词 + 字段级参数校验 + 动作循环检测；Windows 多行命令走 Git Bash 避免 cmd 截断；命令输出通用重复行/块折叠 |
-| **图片魔数校验** | v0.6.68 | Read 工具校验图片魔数（Magic Bytes）防伪图片；长段落续行悬挂缩进；Windows 8.3 短文件名波浪号不再误拦截 |
 
-> 更早版本（v0.6.0 – v0.6.66）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.68）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

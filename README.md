@@ -84,6 +84,7 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Semantic Gate Hardening & Two Permission Modes** | v0.6.81 | HITL gate rebuilt on upstream Jev semantics: `curl\|bash` and interpreter-family bypasses are now hard-denied, write path traversal can no longer skip the gate, and judge unavailability returns to human confirmation instead of blocking the whole session; permission modes collapsed to `auto`/`bypass` (default auto), with the deterministic layer no longer sharing a switch with the semantic judge |
 | **Session Recap Persistence** | v0.6.80 | Recap and task-summary lines persist to `ThreadMeta` (`latest_recap`/`last_task_summary`), no longer lost on restart |
 | **/recap Command & Auto Recap** | v0.6.76 | `/recap` (`/away` `/catchup`) summarizes goal→tasks→next step via aux_model; auto-recap on terminal blur + ≥3 turns + 60s idle (`/config` toggle, `PERI_AUTO_RECAP_*` env); non-streaming Anthropic responses adapt to reverse-proxy OpenAI format |
 | **Tool Schema Validation & Input Pump** | v0.6.75 | Human-readable schema errors aligned with Claude Code's `formatZodValidationError` + tool-mismatch heuristics (`suggest_tool_mismatch`) + failure circuit breaker; dedicated InputPump safely enables mouse hover and fixes scrollbar drag |
@@ -93,9 +94,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **UI Polish** | v0.6.71 | Removed sticky header pinning of top messages; attachment bar title and Del hint localized via i18n |
 | **Model Switch Fix & Palette Unification** | v0.6.70 | Fixed model switch before first message not taking effect; deprecated `Ctrl+T`/`Alt+M` cycling, unified on command palette (`Ctrl+P`/`Alt+P`) |
 | **Tool Call Reliability** | v0.6.69 | Boundary prompts + field-level param validation + action-loop detection; Windows multiline commands via Git Bash; generic duplicate line/block collapsing |
-| **Image Magic-Byte Validation** | v0.6.68 | Read validates image magic bytes against fake images; hanging indent for long paragraph continuations; Windows 8.3 short-name tildes no longer mis-flagged |
 
-> Older releases (v0.6.0 – v0.6.66) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.68) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 

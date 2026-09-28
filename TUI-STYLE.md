@@ -1,7 +1,7 @@
 # TUI Style Guide
 
-> **最后更新：2026-09-28**（对应 v0.6.80）
-> 本次更新：命令系统重写为 30 个 TUI 命令并分组（删除幽灵命令 `/status`）；全局快捷键表按 v0.6.70+ 实际行为修正（删除 `Alt+M`/`Ctrl+T`/`Ctrl+N`/`Ctrl+W` 等已废弃项）；模型别名由三档扩为四档（新增 `fable`）；权限模式循环顺序修正（`DontAsk` 跳过）；Sticky Header 标注为已禁用（v0.6.71）。
+> **最后更新：2026-09-28**（对应 v0.6.81）
+> 本次更新：命令系统重写为 30 个 TUI 命令并分组（删除幽灵命令 `/status`）；全局快捷键表按 v0.6.70+ 实际行为修正（删除 `Alt+M`/`Ctrl+T`/`Ctrl+N`/`Ctrl+W` 等已废弃项）；模型别名由三档扩为四档（新增 `fable`）；**权限模式收敛为 `auto` / `bypass` 两档并设 Auto 为默认**（原 Default/DontAsk/AcceptEdit 已移除）；Sticky Header 标注为已禁用（v0.6.71）。
 
 ## 设计哲学
 
@@ -233,7 +233,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 | 元素 | 样式 | 条件 |
 |------|------|------|
-| 权限模式标签 | 按模式变色，切换后 1500ms BOLD + SLOW_BLINK | 非 Default 时显示 |
+| 权限模式标签 | 按模式变色，切换后 1500ms BOLD + SLOW_BLINK | 两档均有标签（Auto / Bypass） |
 | ` │ ` 分隔符 | MUTED | 始终 |
 | `📁 cwd` | MUTED | 始终 |
 | 模型名 | MODEL_INFO，切换后 3 秒 BOLD + SLOW_BLINK | 始终 |
@@ -442,7 +442,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | 双击 `Esc` | 空闲时触发 rewind 回滚选择器 | |
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
 | `Alt+Enter` | 插入换行 | |
-| `Shift+Tab` | 循环切换权限模式 | Default → AcceptEdit → AutoMode → Bypass → Default（DontAsk 跳过） |
+| `Shift+Tab` | 循环切换权限模式 | Auto → Bypass → Auto（只剩两档） |
 | `Ctrl+P` / `Alt+P` | 开关命令面板（Provider & Model 选择） | **模型切换统一走此入口** |
 | `Ctrl+O` | 切换详细模式（detail mode） | OAuth 弹窗激活时不响应 |
 | `Ctrl+B` | 后台化前台 shell / 聚焦底部后台任务入口 | |
@@ -566,16 +566,18 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 源码：`peri-middlewares/src/hitl/shared_mode.rs`。
 
-通过 `Shift+Tab` 循环切换，状态栏首列实时显示。枚举序为 Default(0) / DontAsk(1) / AcceptEdit(2) / AutoMode(3) / Bypass(4)，共 5 级模式；其中 `DontAsk` 可用但不进入 `Shift+Tab` 循环。
+通过 `Shift+Tab` 循环切换，状态栏首列实时显示。**只剩两档**：`AutoMode(0)` / `Bypass(1)`。
 
-**循环顺序**：Default → AcceptEdit → AutoMode → Bypass → Default（**DontAsk 跳过**）。
+原 `Default` / `DontAsk` / `AcceptEdit` 已移除——实测用户不愿"天天确认"，
+非 Auto 档要么每次弹窗、要么半自动，体验差且不智能。
+
+**循环顺序**：Auto → Bypass → Auto。
 
 | 模式 | 标签 | 颜色 | 说明 |
 |------|------|------|------|
-| Default | (不显示) | TEXT | 默认：所有敏感工具需审批 |
-| DontAsk | Don't Ask | WARNING | 不主动提问（不在循环内，可单独设置） |
-| AcceptEdit | Accept Edit | THINKING | 允许文件系统的编辑 |
-| AutoMode | Auto Mode | WARNING | 大模型自动判断 |
-| Bypass | Bypass | ERROR | 所有都允许 |
+| AutoMode（默认） | Auto | WARNING | 语义门按调用逐个判定，**只有判不准时才弹窗** |
+| Bypass | Bypass | ERROR | 所有都允许（危险） |
 
-模式切换后标签 1500ms BOLD + SLOW_BLINK 高亮。
+`u8` → 模式的映射中，**未知取值一律回退 `AutoMode`**，绝不因陈旧/异常值意外滑进 Bypass。
+
+模式切换后标签 1500ms BOLD + SLOW_BLINK 高亮。状态栏首列始终显示（两档都有标签）。
