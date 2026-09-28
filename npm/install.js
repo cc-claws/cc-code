@@ -122,29 +122,8 @@ function extractZip(buffer, dest) {
   zip.extractAllTo(dest, true);
 }
 
-function migrateFromClaudeCode(home = homedir()) {
-  const claudeSettingsPath = join(home, ".claude", "settings.json");
-  const ccCodeDir = join(home, ".cc-code");
-  const ccCodeSettingsPath = join(ccCodeDir, "settings.json");
-
-  // 已有 cc-code 配置，跳过
-  if (existsSync(ccCodeSettingsPath)) {
-    return true;
-  }
-
-  // 无 Claude Code 配置
-  if (!existsSync(claudeSettingsPath)) {
-    return false;
-  }
-
-  let claudeSettings;
-  try {
-    claudeSettings = JSON.parse(require("fs").readFileSync(claudeSettingsPath, "utf-8"));
-  } catch {
-    return false;
-  }
-
-  const env = claudeSettings.env || {};
+// 从 Claude Code env 推导应迁移的 provider 列表（含各档模型别名）
+function detectProvidersFromEnv(env) {
   const providers = [];
 
   // 检测 Anthropic
@@ -182,8 +161,80 @@ function migrateFromClaudeCode(home = homedir()) {
     providers.push(p);
   }
 
+  return providers;
+}
+
+// 已有 ~/.cc-code/settings.json 时，按 provider id 增量补齐缺失的模型别名。
+// 只补空缺（undefined / null / 空串），绝不覆盖用户已有值，也不新增 provider。
+// 这样新版本新增的别名（如 fable）能自动补进老配置，而用户的改动（key、baseUrl、
+// thinking 等）与已填别名一律保持原样。
+function backfillModels(ccCodeSettingsPath, detected) {
+  let existing;
+  try {
+    existing = JSON.parse(require("fs").readFileSync(ccCodeSettingsPath, "utf-8"));
+  } catch {
+    return true; // 读不动就保持原样，不破坏用户配置
+  }
+
+  const providers = existing && existing.config && existing.config.providers;
+  if (!Array.isArray(providers)) {
+    return true;
+  }
+
+  let changed = false;
+  for (const det of detected) {
+    if (!det.models) continue;
+    const target = providers.find((p) => p && p.id === det.id);
+    if (!target) continue; // 找不到同 id provider → 不动（不新增）
+    if (!target.models || typeof target.models !== "object") {
+      target.models = {};
+    }
+    for (const alias of Object.keys(det.models)) {
+      const cur = target.models[alias];
+      if (cur === undefined || cur === null || cur === "") {
+        target.models[alias] = det.models[alias];
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    writeFileSync(ccCodeSettingsPath, JSON.stringify(existing, null, 2) + "\n");
+    console.log("");
+    console.log("  Backfilled new model aliases into ~/.cc-code/settings.json");
+  }
+  return true;
+}
+
+function migrateFromClaudeCode(home = homedir()) {
+  const claudeSettingsPath = join(home, ".claude", "settings.json");
+  const ccCodeDir = join(home, ".cc-code");
+  const ccCodeSettingsPath = join(ccCodeDir, "settings.json");
+
+  const hasCcCode = existsSync(ccCodeSettingsPath);
+
+  // 无 Claude Code 配置：已有 cc-code 视为成功（无需 Quick Start），否则失败
+  if (!existsSync(claudeSettingsPath)) {
+    return hasCcCode;
+  }
+
+  let claudeSettings;
+  try {
+    claudeSettings = JSON.parse(require("fs").readFileSync(claudeSettingsPath, "utf-8"));
+  } catch {
+    return hasCcCode;
+  }
+
+  const env = claudeSettings.env || {};
+  const providers = detectProvidersFromEnv(env);
+
   if (providers.length === 0) {
-    return false;
+    return hasCcCode;
+  }
+
+  // 已有 cc-code 配置 → 增量补齐缺失别名（不覆盖、不新增 provider）
+  if (hasCcCode) {
+    return backfillModels(ccCodeSettingsPath, providers);
   }
 
   if (!existsSync(ccCodeDir)) {
