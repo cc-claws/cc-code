@@ -39,8 +39,9 @@ fn apply_model_selection(cfg: &AcpServerConfig, model_id: &str) -> Option<LlmPro
         let mut final_provider_id = provider_id.map(|s| s.to_string());
         let mut final_alias = alias.to_string();
 
-        let is_standard_alias =
-            matches!(alias.to_lowercase().as_str(), "opus" | "sonnet" | "haiku");
+        let is_standard_alias = peri_acp::provider::ProviderModels::ALL_ALIASES
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(alias));
         if !is_standard_alias {
             // 防御兜底：若传入的是具体模型全名而非 alias，在各 provider 中按模型名反查匹配的 (provider_id, alias)
             let matched = c.config.providers.iter().find_map(|p| {
@@ -49,7 +50,7 @@ fn apply_model_selection(cfg: &AcpServerConfig, model_id: &str) -> Option<LlmPro
                         return None;
                     }
                 }
-                for a in ["opus", "sonnet", "haiku"] {
+                for a in peri_acp::provider::ProviderModels::ALL_ALIASES {
                     if let Some(m) = p.models.get_model(a) {
                         if m.eq_ignore_ascii_case(alias) {
                             return Some((p.id.clone(), a.to_string()));

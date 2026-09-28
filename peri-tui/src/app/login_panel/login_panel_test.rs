@@ -13,6 +13,7 @@ fn make_test_config() -> PeriConfig {
             opus: "claude-opus-4-7".to_string(),
             sonnet: "claude-sonnet-4-6".to_string(),
             haiku: "claude-haiku-4-5".to_string(),
+            fable: "claude-fable-5".to_string(),
         },
         thinking: None,
         extra: Default::default(),
@@ -27,6 +28,7 @@ fn make_test_config() -> PeriConfig {
             opus: "gpt-4o".to_string(),
             sonnet: "gpt-4o-mini".to_string(),
             haiku: "gpt-3.5-turbo".to_string(),
+            fable: "gpt-4o".to_string(),
         },
         thinking: None,
         extra: Default::default(),
@@ -126,9 +128,11 @@ fn test_login_panel_field_navigation() {
     panel.field_next();
     assert_eq!(panel.edit_field, LoginEditField::HaikuModel);
     panel.field_next();
+    assert_eq!(panel.edit_field, LoginEditField::FableModel);
+    panel.field_next();
     assert_eq!(panel.edit_field, LoginEditField::Name);
     panel.field_prev();
-    assert_eq!(panel.edit_field, LoginEditField::HaikuModel);
+    assert_eq!(panel.edit_field, LoginEditField::FableModel);
 }
 
 #[test]

@@ -43,17 +43,68 @@ test("migrateFromClaudeCode returns false when no claude settings exist", (home)
   if (result !== false) throw new Error("expected false");
 });
 
-test("migrateFromClaudeCode skips when cc-code settings already exist", (home) => {
+test("migrateFromClaudeCode backfills missing aliases when cc-code settings already exist", (home) => {
+  const ccCodeDir = join(home, ".cc-code");
+  fs.mkdirSync(ccCodeDir, { recursive: true });
+  // 已有配置：anthropic provider，缺少 fable 别名，且 opus 是用户手改过的值
+  const existing = {
+    config: {
+      active_alias: "haiku",
+      providers: [
+        {
+          id: "anthropic",
+          type: "anthropic",
+          apiKey: "sk-user-own-key",
+          models: { opus: "claude-opus-user-custom", sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5" },
+        },
+      ],
+    },
+  };
+  fs.writeFileSync(join(ccCodeDir, "settings.json"), JSON.stringify(existing, null, 2));
+  writeClaudeSettings(home, {
+    env: {
+      ANTHROPIC_API_KEY: "sk-ant",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-7",
+      ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5",
+    },
+  });
+  const result = migrateFromClaudeCode(home);
+  if (result !== true) throw new Error("expected true");
+  const cfg = readCcCodeSettings(home);
+  const p = cfg.config.providers[0];
+  // 缺失的 fable 被补上
+  if (p.models.fable !== "claude-fable-5") throw new Error("expected fable backfilled");
+  // 用户已有的 opus 值不被覆盖
+  if (p.models.opus !== "claude-opus-user-custom") throw new Error("must not overwrite existing opus");
+  // 用户已有值不被 env 覆盖
+  if (p.apiKey !== "sk-user-own-key") throw new Error("must not overwrite user apiKey");
+  // active_alias 保持原样
+  if (cfg.config.active_alias !== "haiku") throw new Error("must not change active_alias");
+});
+
+test("migrateFromClaudeCode backfill leaves unknown provider ids untouched", (home) => {
+  const ccCodeDir = join(home, ".cc-code");
+  fs.mkdirSync(ccCodeDir, { recursive: true });
+  const existing = {
+    config: {
+      providers: [{ id: "my-custom-id", type: "anthropic", apiKey: "sk-x", models: {} }],
+    },
+  };
+  fs.writeFileSync(join(ccCodeDir, "settings.json"), JSON.stringify(existing));
+  writeClaudeSettings(home, { env: { ANTHROPIC_API_KEY: "sk-ant", ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5" } });
+  const result = migrateFromClaudeCode(home);
+  if (result !== true) throw new Error("expected true");
+  const cfg = readCcCodeSettings(home);
+  if (cfg.config.providers.length !== 1) throw new Error("must not add providers");
+  if (cfg.config.providers[0].models.fable !== undefined) throw new Error("must not touch unknown provider id");
+});
+
+test("migrateFromClaudeCode returns true when cc-code exists but no claude settings", (home) => {
   const ccCodeDir = join(home, ".cc-code");
   fs.mkdirSync(ccCodeDir, { recursive: true });
   fs.writeFileSync(join(ccCodeDir, "settings.json"), JSON.stringify({ config: {} }));
-  writeClaudeSettings(home, { env: { ANTHROPIC_API_KEY: "sk-ant" } });
   const result = migrateFromClaudeCode(home);
-  if (result !== true) throw new Error("expected true");
-  const content = fs.readFileSync(join(ccCodeDir, "settings.json"), "utf-8");
-  if (content !== JSON.stringify({ config: {} })) {
-    throw new Error("should not overwrite existing settings");
-  }
+  if (result !== true) throw new Error("expected true (has cc-code, no quick start)");
 });
 
 test("migrateFromClaudeCode produces camelCase provider config for Anthropic", (home) => {

@@ -159,10 +159,12 @@ fn test_provider_models_get_model_known_aliases() {
         opus: "o".to_string(),
         sonnet: "s".to_string(),
         haiku: "h".to_string(),
+        fable: "f".to_string(),
     };
     assert_eq!(models.get_model("opus"), Some("o"));
     assert_eq!(models.get_model("sonnet"), Some("s"));
     assert_eq!(models.get_model("haiku"), Some("h"));
+    assert_eq!(models.get_model("fable"), Some("f"));
 }
 
 #[test]
@@ -171,10 +173,12 @@ fn test_provider_models_get_model_case_insensitive() {
         opus: "o".to_string(),
         sonnet: "s".to_string(),
         haiku: "h".to_string(),
+        fable: "f".to_string(),
     };
     assert_eq!(models.get_model("Opus"), Some("o"));
     assert_eq!(models.get_model("SONNET"), Some("s"));
     assert_eq!(models.get_model("Haiku"), Some("h"));
+    assert_eq!(models.get_model("FaBlE"), Some("f"));
 }
 
 #[test]
@@ -183,6 +187,7 @@ fn test_provider_models_get_model_unknown_returns_none() {
         opus: "o".to_string(),
         sonnet: "s".to_string(),
         haiku: "h".to_string(),
+        fable: "f".to_string(),
     };
     assert_eq!(models.get_model("turbo"), None);
 }
@@ -193,6 +198,7 @@ fn test_provider_models_default() {
     assert!(models.opus.is_empty());
     assert!(models.sonnet.is_empty());
     assert!(models.haiku.is_empty());
+    assert!(models.fable.is_empty());
 }
 
 #[test]
@@ -207,6 +213,7 @@ fn test_provider_config_models_serde_roundtrip() {
             opus: "claude-opus-4-7".to_string(),
             sonnet: "claude-sonnet-4-6".to_string(),
             haiku: "claude-haiku-4-5".to_string(),
+            fable: "claude-fable-5".to_string(),
         },
         thinking: None,
         extra: Default::default(),
@@ -216,6 +223,7 @@ fn test_provider_config_models_serde_roundtrip() {
     assert_eq!(back.models.opus, "claude-opus-4-7");
     assert_eq!(back.models.sonnet, "claude-sonnet-4-6");
     assert_eq!(back.models.haiku, "claude-haiku-4-5");
+    assert_eq!(back.models.fable, "claude-fable-5");
 }
 
 #[test]

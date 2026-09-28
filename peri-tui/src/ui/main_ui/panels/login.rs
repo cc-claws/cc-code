@@ -110,6 +110,13 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(fmt_model(&m.haiku), Style::default().fg(theme::MUTED)),
+                    Span::styled(
+                        "  Fable ",
+                        Style::default()
+                            .fg(theme::MUTED)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(fmt_model(&m.fable), Style::default().fg(theme::MUTED)),
                 ]));
             }
             if panel.providers.is_empty() {
@@ -161,6 +168,12 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                     "Haiku Model ",
                     &panel.buf_haiku_model,
                     panel.cur_haiku_model,
+                ),
+                (
+                    LoginEditField::FableModel,
+                    "Fable Model ",
+                    &panel.buf_fable_model,
+                    panel.cur_fable_model,
                 ),
             ];
 

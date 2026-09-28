@@ -68,7 +68,7 @@ impl CommandPalettePanel {
         let mut entries = Vec::new();
         for provider in &cfg.config.providers {
             let p_name = provider.display_name().to_string();
-            for alias in &["opus", "sonnet", "haiku"] {
+            for alias in &crate::config::ProviderModels::ALL_ALIASES {
                 if let Some(model) = provider.models.get_model(alias) {
                     if !model.is_empty() {
                         entries.push(ProviderModelEntry {

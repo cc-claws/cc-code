@@ -7,7 +7,8 @@ use parking_lot::RwLock;
 use peri_middlewares::prelude::{PermissionMode, SharedPermissionMode};
 
 use crate::provider::{
-    format_model_selection_value, LlmProvider, PeriConfig, ProviderConfig, ThinkingConfig,
+    format_model_selection_value, LlmProvider, PeriConfig, ProviderConfig, ProviderModels,
+    ThinkingConfig,
 };
 
 pub use agent_client_protocol_schema::{
@@ -171,7 +172,7 @@ fn build_model_infos(providers: &[ProviderConfig]) -> Vec<ModelInfo> {
     providers
         .iter()
         .flat_map(|provider| {
-            ["opus", "sonnet", "haiku"]
+            ProviderModels::ALL_ALIASES
                 .into_iter()
                 .filter_map(move |alias| model_entry(provider, alias))
         })
@@ -188,7 +189,7 @@ fn build_model_config_options(providers: &[ProviderConfig]) -> Vec<SessionConfig
     providers
         .iter()
         .flat_map(|provider| {
-            ["opus", "sonnet", "haiku"]
+            ProviderModels::ALL_ALIASES
                 .into_iter()
                 .filter_map(move |alias| model_entry(provider, alias))
         })

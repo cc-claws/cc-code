@@ -89,7 +89,7 @@ impl Command for DoctorCommand {
                     .find(|p| p.id == cfg.config.active_provider_id);
                 match p {
                     Some(p) => {
-                        let aliases: Vec<String> = ["opus", "sonnet", "haiku"]
+                        let aliases: Vec<String> = peri_acp::provider::ProviderModels::ALL_ALIASES
                             .iter()
                             .filter(|a| !p.models.get_model(a).unwrap_or("").is_empty())
                             .map(|a| a.to_string())

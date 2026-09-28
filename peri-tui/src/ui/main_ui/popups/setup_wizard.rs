@@ -407,6 +407,7 @@ fn render_form_edit(
         (lc.tr("setup-field-opus"), FormField::OpusModel, 0),
         (lc.tr("setup-field-sonnet"), FormField::SonnetModel, 1),
         (lc.tr("setup-field-haiku"), FormField::HaikuModel, 2),
+        (lc.tr("setup-field-fable"), FormField::FableModel, 3),
     ];
     for (label, field, ai) in alias_labels {
         let model_display = edit_display(
@@ -544,6 +545,7 @@ fn render_step_done(
             lc.tr("setup-field-opus"),
             lc.tr("setup-field-sonnet"),
             lc.tr("setup-field-haiku"),
+            lc.tr("setup-field-fable"),
         ];
         for (i, label) in alias_labels.iter().enumerate() {
             lines.push(Line::from(vec![
