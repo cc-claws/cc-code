@@ -20,7 +20,7 @@ fn make_hook_input() -> HookInput {
     HookInput::session_start(
         "sess-1",
         "/tmp/transcript.json",
-        "/project",
+        env!("CARGO_MANIFEST_DIR"),
         "startup",
         "opus",
     )

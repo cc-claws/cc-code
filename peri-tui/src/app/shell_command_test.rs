@@ -2,10 +2,117 @@ use super::*;
 use std::{path::PathBuf, sync::Arc};
 
 use peri_agent::messages::BaseMessage;
-use peri_agent::shell::{ExitSignal, ShellAbortHandle};
-use tokio::sync::oneshot;
+use peri_agent::shell::{ExitSignal, ShellAbortHandle, ShellHandoff};
 
 use crate::app::{AgentShellRegistration, AgentShellSlot};
+
+#[tokio::test]
+async fn test_ctrl_b_multiple_shells_selects_only_one_through_keyboard_dispatch() {
+    use crate::app::panel_manager::PanelKind;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    for _ in 0..2 {
+        let (slot, _) = make_agent_shell_slot(false, "same command");
+        app.session_mgr.current_mut().agent_shells.push(slot);
+    }
+    let ctrl_b = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+    crate::event::keyboard::handle_key_event(&mut app, ctrl_b).expect("按键处理应成功");
+    assert!(app.global_panels.is_active(PanelKind::BackgroundTasks));
+    assert!(
+        app.session_mgr
+            .current()
+            .agent_shells
+            .iter()
+            .all(|s| !s.is_backgrounded()),
+        "首次只打开选择面板"
+    );
+    crate::event::keyboard::handle_key_event(
+        &mut app,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .expect("选择第二项");
+    crate::event::keyboard::handle_key_event(&mut app, ctrl_b).expect("选中命令转后台");
+    let slots = &app.session_mgr.current().agent_shells;
+    assert!(!slots[0].is_backgrounded(), "不能批量后台化或重置为第一项");
+    assert!(slots[1].is_backgrounded(), "面板必须只移交选中的任务");
+}
+
+#[tokio::test]
+async fn test_ctrl_b_rejected_handoff_does_not_create_background_notification() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.set_loading(true);
+    // 模拟命令已退出但工具尚未收口：不能再承诺 Ctrl+B。
+    let (slot, exit_signal) = make_agent_shell_slot(false, "sleep 30");
+    slot.handoff.settle_foreground();
+    exit_signal.finish(peri_agent::shell::ShellOutcome::Exited(0));
+    app.session_mgr.current_mut().agent_shells.push(slot);
+    assert!(
+        !app.background_agent_foreground(),
+        "关闭的交接入口必须拒绝后台化"
+    );
+    let slot = &app.session_mgr.current().agent_shells[0];
+    assert!(!slot.is_backgrounded(), "不能留下幽灵后台任务");
+    assert!(slot.stall_watchdog.is_none(), "失败不得启动 watchdog");
+    assert!(app.poll_agent_shells());
+    assert!(
+        app.session_mgr
+            .current()
+            .pending_bg_shell_notifications
+            .is_empty(),
+        "前台完成不能再生成后台通知"
+    );
+}
+
+#[tokio::test]
+async fn test_poll_agent_shells_reports_real_outcomes_once_even_after_early_exit() {
+    use peri_agent::shell::ShellOutcome;
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    app.set_loading(true);
+    for (index, (outcome, expected)) in [
+        (ShellOutcome::Exited(0), "completed (exit 0)"),
+        (ShellOutcome::Exited(7), "failed (exit 7)"),
+        (ShellOutcome::TimedOut, "timed out"),
+        (ShellOutcome::Cancelled, "cancelled"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let slot = make_auto_background_agent_shell_slot("same command");
+        // 命令在 UI 首次 poll 之前结束，但已成功向工具返回后台句柄。
+        slot.exit_signal.finish(outcome);
+        app.session_mgr.current_mut().agent_shells.push(slot);
+        assert!(app.poll_agent_shells());
+        let notifications = &mut app.session_mgr.current_mut().pending_bg_shell_notifications;
+        assert_eq!(notifications.len(), 1, "每个后台任务恰好一次通知");
+        let notification = notifications.pop_front().expect("完成通知");
+        assert!(
+            notification.content.contains(expected),
+            "不能丢失真实退出原因: {}",
+            notification.content
+        );
+        let display =
+            super::background_shell::shell_notification_display_text(&notification.content)
+                .expect("用户可读通知");
+        if expected == "timed out" || expected == "cancelled" {
+            assert!(!display.contains("已完成"), "超时或取消不能显示成功");
+        }
+        let changed = app.poll_agent_shells();
+        assert!(
+            !changed,
+            "不能重复注入通知: iteration={index}, pending={}, slots={:?}",
+            app.session_mgr
+                .current()
+                .pending_bg_shell_notifications
+                .len(),
+            app.session_mgr
+                .current()
+                .agent_shells
+                .iter()
+                .map(|slot| (slot.ended, slot.completion_notified, slot.is_backgrounded()))
+                .collect::<Vec<_>>()
+        );
+    }
+}
 
 fn make_record(
     thread_id: &str,
@@ -40,21 +147,18 @@ fn make_agent_shell_registration(
     direct_background: bool,
     command: &str,
 ) -> (AgentShellRegistration, Arc<ExitSignal>) {
-    let (bg_tx, _bg_rx) = oneshot::channel();
-    let (_auto_tx, auto_rx) = oneshot::channel();
     let exit_signal = Arc::new(ExitSignal::new());
     let reg = AgentShellRegistration {
         task_id: uuid::Uuid::now_v7().to_string(),
+        owner_session_id: None,
+        tool_call_id: Some("test-call".into()),
+        source_agent_id: None,
+        execution_timeout_ms: 600_000,
         command: command.to_string(),
         cwd: ".".to_string(),
         output_path: PathBuf::from("/tmp/peri-agent-shell.output"),
         exit_signal: Arc::clone(&exit_signal),
-        background_tx: if direct_background { None } else { Some(bg_tx) },
-        auto_background_rx: if direct_background {
-            None
-        } else {
-            Some(auto_rx)
-        },
+        handoff: Arc::new(ShellHandoff::new(true, direct_background)),
         kill: ShellAbortHandle::noop(),
         started_instant: std::time::Instant::now(),
         direct_background,
@@ -62,28 +166,17 @@ fn make_agent_shell_registration(
     (reg, exit_signal)
 }
 
-fn make_auto_background_agent_shell_slot(command: &str) -> (AgentShellSlot, oneshot::Sender<()>) {
-    let (bg_tx, _bg_rx) = oneshot::channel();
-    let (auto_tx, auto_rx) = oneshot::channel();
-    let reg = AgentShellRegistration {
-        task_id: uuid::Uuid::now_v7().to_string(),
-        command: command.to_string(),
-        cwd: ".".to_string(),
-        output_path: PathBuf::from("/tmp/peri-agent-shell.output"),
-        exit_signal: Arc::new(ExitSignal::new()),
-        background_tx: Some(bg_tx),
-        auto_background_rx: Some(auto_rx),
-        kill: ShellAbortHandle::noop(),
-        started_instant: std::time::Instant::now(),
-        direct_background: false,
-    };
-    (AgentShellSlot::from_registration(reg), auto_tx)
+fn make_auto_background_agent_shell_slot(command: &str) -> AgentShellSlot {
+    let (slot, _) = make_agent_shell_slot(false, command);
+    assert!(slot.handoff.background(), "自动后台必须经共享归属状态提交");
+    slot
 }
 
 #[test]
 fn test_set_pending_bash_tool_started_at_in_view() {
     let command = "echo hello";
-    let mut view_messages = vec![MessageViewModel::tool_block(
+    let mut view_messages = vec![MessageViewModel::tool_block_with_id(
+        "test-call".into(),
         "Bash".to_string(),
         "Bash".to_string(),
         Some(command.to_string()),
@@ -91,8 +184,10 @@ fn test_set_pending_bash_tool_started_at_in_view() {
     )];
     let spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(3);
 
+    let mut pipeline = crate::app::message_pipeline::MessagePipeline::new(".".into());
+    pipeline.register_shell_runtime(None, "test-call", spawned_at, 600_000);
     assert!(
-        set_pending_bash_tool_started_at_in_view(&mut view_messages, command, spawned_at),
+        pipeline.apply_shell_runtime(&mut view_messages),
         "应能回填当前 view 中的 pending Bash ToolBlock"
     );
 
@@ -105,6 +200,89 @@ fn test_set_pending_bash_tool_started_at_in_view() {
             .is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)),
         "回填后 Ctrl+B 提示应按真实 spawn 时间计时"
     );
+}
+
+#[tokio::test]
+async fn test_ctrl_b_background_state_reaches_pending_bash_view_immediately() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    app.session_mgr.current_mut().messages.view_messages =
+        vec![MessageViewModel::tool_block_with_id(
+            "test-call".into(),
+            "Bash".to_string(),
+            "Bash".to_string(),
+            Some("sleep 30".to_string()),
+            false,
+        )];
+    let (registration, _) = make_agent_shell_registration(false, "sleep 30");
+    app.register_agent_shell(registration);
+    assert!(
+        matches!(
+            app.session_mgr.current().messages.view_messages.first(),
+            Some(MessageViewModel::ToolBlock {
+                shell_backgrounded: false,
+                started_at: Some(_),
+                ..
+            })
+        ),
+        "前台注册应关联 Bash 消息的启动时间"
+    );
+
+    assert!(app.background_agent_foreground(), "Ctrl+B 应成功移交任务");
+    assert!(
+        matches!(
+            app.session_mgr.current().messages.view_messages.first(),
+            Some(MessageViewModel::ToolBlock {
+                shell_backgrounded: true,
+                execution_timeout_ms: Some(600_000),
+                ..
+            })
+        ),
+        "Ctrl+B 必须立即把后台状态传到原始 Bash 调用"
+    );
+    if let Some(watchdog) = app.session_mgr.current_mut().agent_shells[0]
+        .stall_watchdog
+        .take()
+    {
+        watchdog.abort();
+    }
+}
+
+#[tokio::test]
+async fn test_poll_agent_shells_syncs_panel_handoff_into_bash_view() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    app.session_mgr.current_mut().messages.view_messages =
+        vec![MessageViewModel::tool_block_with_id(
+            "test-call".into(),
+            "Bash".to_string(),
+            "Bash".to_string(),
+            Some("sleep 30".to_string()),
+            false,
+        )];
+    let (registration, _) = make_agent_shell_registration(false, "sleep 30");
+    app.register_agent_shell(registration);
+    let transitioned = {
+        let slot = &mut app.session_mgr.current_mut().agent_shells[0];
+        super::background_agent_slot(slot, app.services.bg_event_tx.clone())
+    };
+    assert!(transitioned, "任务面板的 Ctrl+B 应完成后台移交");
+    assert!(app.poll_agent_shells(), "主循环轮询应同步 UI 后台状态");
+    assert!(
+        matches!(
+            app.session_mgr.current().messages.view_messages.first(),
+            Some(MessageViewModel::ToolBlock {
+                shell_backgrounded: true,
+                execution_timeout_ms: Some(600_000),
+                ..
+            })
+        ),
+        "任务面板移交也必须更新原 Bash 行"
+    );
+    if let Some(watchdog) = app.session_mgr.current_mut().agent_shells[0]
+        .stall_watchdog
+        .take()
+    {
+        watchdog.abort();
+    }
 }
 
 #[tokio::test]
@@ -212,6 +390,7 @@ async fn test_poll_agent_shells_skips_background_notification_when_foreground_fi
     let (mut app, _handle) = App::new_headless(80, 24).await;
     app.set_loading(true);
     let (slot, exit_signal) = make_agent_shell_slot(false, "echo hi");
+    slot.handoff.settle_foreground();
     app.session_mgr.current_mut().agent_shells.push(slot);
 
     exit_signal.fire();
@@ -238,16 +417,14 @@ async fn test_poll_agent_shells_skips_background_notification_when_foreground_fi
 #[tokio::test]
 async fn test_poll_agent_shells_auto_backgrounds_and_keeps_running_on_timeout() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
-    let (slot, auto_tx) = make_auto_background_agent_shell_slot("python long.py");
+    let slot = make_auto_background_agent_shell_slot("python long.py");
     app.session_mgr.current_mut().agent_shells.push(slot);
-
-    auto_tx.send(()).expect("应能发送自动后台化信号");
     let changed = app.poll_agent_shells();
 
     assert!(changed, "自动后台化应产生状态变化");
     assert!(
-        app.session_mgr.current().agent_shells[0].is_backgrounded,
-        "收到自动后台化信号后，前台 agent Bash 应切为后台继续运行"
+        app.session_mgr.current().agent_shells[0].is_backgrounded(),
+        "自动后台化应通过共享归属状态切到后台继续运行"
     );
     assert!(
         !app.session_mgr.current().ui.force_terminal_clear_redraw,
@@ -299,14 +476,16 @@ async fn test_poll_agent_shells_injects_notification_only_after_backgrounded_she
     assert_eq!(pending.len(), 1, "后台 shell 完成应注入一条通知");
     let notification = pending.front().expect("应有后台完成通知");
     assert!(
-        notification.contains("<background-task-completed>"),
+        notification.content.contains("<background-task-completed>"),
         "通知应保留 agent 可解析的 XML: {}",
-        notification
+        notification.content
     );
     assert!(
-        notification.contains("<command>cargo test</command>"),
-        "通知应包含命令: {}",
         notification
+            .content
+            .contains("<command>cargo test</command>"),
+        "通知应包含命令: {}",
+        notification.content
     );
 }
 

@@ -47,7 +47,8 @@ impl super::SubAgentTool {
             AgentState::new(cwd).with_persistence(Arc::clone(store), child_thread_id.clone())
         } else {
             AgentState::new(cwd)
-        };
+        }
+        .with_context("source_agent_id", child_thread_id.clone());
         // For immediate execution, inject parent messages into state
         for msg in parent_msgs {
             fork_state.add_message(msg);

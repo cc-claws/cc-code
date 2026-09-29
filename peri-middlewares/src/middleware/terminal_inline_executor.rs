@@ -1,100 +1,77 @@
-//! 内联 Shell 执行器：默认 [`ShellExecutor`] 实现，保留 BashTool 原同步行为。
+//! 无后台宿主的 ShellExecutor：确定解释器后执行一次，并发捕获输出。
 //!
-//! peri-tui 会注入真正的实现（接入 shell 池 + Ctrl+B 后台化）。本实现用于：
-//! - 测试 / 非 TUI 场景
-//! - CLI 等不需要后台化的宿主
-//!
-//! 行为：spawn 子进程 → 读 stdout/stderr → wait 退出 → 通过 oneshot 发回
-//! [`ShellCommandOutput`] + fire [`ExitSignal`]。
-//!
-//! # 子进程生命周期（超时/取消清理）
-//!
-//! 子进程由独立 tokio task 持有（`child` 作为 task 栈帧的局部变量）。
-//! `child` 设了 `kill_on_drop(true)`：当 task 被 `AbortHandle::abort()` 取消
-//! 时，task future 被 drop → `child` 被 drop → 进程被 kill。
-//! [`BashTool::invoke`] 在 `result_rx` 超时后会丢弃 [`AgentShellHandle`]，
-//! 其 `Drop` 会 abort 该 task，确保子进程被清理，不泄漏。
+//! 命令任务的 kill 句柄由前台等待者持有；超时显式 abort。
+//! 本执行器没有后台任务服务，必须在 spawn 前拒绝直接后台请求。
 
-use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use peri_agent::shell::{
-    AgentShellHandle, ExitSignal, ShellAbortHandle, ShellCommandOutput, ShellExecutor, ShellRequest,
+    AgentShellHandle, ExitSignal, ShellAbortHandle, ShellCommandOutput, ShellExecutor,
+    ShellHandoff, ShellOutcome, ShellRequest,
 };
-use tokio::io::AsyncReadExt;
 
-/// 默认 ShellExecutor：直接 spawn 子进程并等待，保持 BashTool 原 cmd.output() 行为。
 pub struct InlineShellExecutor;
+
+struct FinishCancelledOnDrop(Arc<ExitSignal>);
+
+impl Drop for FinishCancelledOnDrop {
+    fn drop(&mut self) {
+        self.0.finish(ShellOutcome::Cancelled);
+    }
+}
 
 #[async_trait]
 impl ShellExecutor for InlineShellExecutor {
     async fn execute(&self, req: ShellRequest) -> anyhow::Result<AgentShellHandle> {
-        let ShellRequest { command, cwd, .. } = req;
-
+        anyhow::ensure!(
+            !req.run_in_background,
+            "This host does not support background commands. Run in the foreground; no command was executed."
+        );
+        let mut command = crate::process::managed_shell_command(&req.command, req.shell)?;
+        command.current_dir(&req.cwd);
+        #[cfg(unix)]
+        command.process_group(0);
         let task_id = uuid::Uuid::now_v7().to_string();
-        // 内联执行器不写磁盘，output_path 仅作占位（宿主真正实现时写 DiskOutput）。
+        // 前台结果直接返回；无后台服务，不向调用者承诺此占位路径已落盘。
         let output_path = std::env::temp_dir().join(format!("peri-tool-output-{task_id}"));
-
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         let exit_signal = Arc::new(ExitSignal::new());
         let exit_signal_clone = Arc::clone(&exit_signal);
-        // background_tx / background_rx：内联执行器无后台 UI，receiver 留给 BashTool select。
-        let (background_tx, background_rx) = tokio::sync::oneshot::channel::<()>();
-
+        // 在 spawn 外创建，任务尚未首次 poll 就取消时也能报告终态。
+        let cancel_guard = FinishCancelledOnDrop(Arc::clone(&exit_signal));
         let join = tokio::spawn(async move {
-            let mut cmd = crate::process::shell_command(&command, &[]);
-            cmd.current_dir(&cwd)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true);
-            #[cfg(unix)]
-            cmd.process_group(0);
-
-            let mut child = match cmd.spawn() {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = result_tx.send(Err(anyhow::anyhow!("Error executing command: {e}")));
-                    exit_signal_clone.fire();
-                    return;
-                }
+            let _cancel_guard = cancel_guard;
+            let result = crate::process::output_with_input_timeout(
+                command,
+                &[],
+                std::time::Duration::from_millis(req.execution_timeout_ms),
+            )
+            .await;
+            let timed_out = result
+                .as_ref()
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::TimedOut);
+            let result = result
+                .map_err(anyhow::Error::from)
+                .map(|output| ShellCommandOutput {
+                    stdout: peri_agent::encoding::decode_output_bytes(&output.stdout),
+                    stderr: peri_agent::encoding::decode_output_bytes(&output.stderr),
+                    exit_code: output.status.code().unwrap_or(-1),
+                });
+            let outcome = match &result {
+                Ok(output) => ShellOutcome::Exited(output.exit_code),
+                Err(_) if timed_out => ShellOutcome::TimedOut,
+                Err(error) => ShellOutcome::Failed(error.to_string()),
             };
-
-            // 读 stdout/stderr（拿管道所有权），再 wait。
-            let mut stdout_buf = Vec::new();
-            let mut stderr_buf = Vec::new();
-            if let Some(mut stdout) = child.stdout.take() {
-                let _ = stdout.read_to_end(&mut stdout_buf).await;
-            }
-            if let Some(mut stderr) = child.stderr.take() {
-                let _ = stderr.read_to_end(&mut stderr_buf).await;
-            }
-            // child 此时仍持有进程句柄（kill_on_drop 生效）；wait 拿退出码。
-            let status = child.wait().await;
-
-            let result = match status {
-                Err(e) => Err(anyhow::anyhow!("Error executing command: {e}")),
-                Ok(status) => Ok(ShellCommandOutput {
-                    stdout: String::from_utf8_lossy(&stdout_buf).to_string(),
-                    stderr: String::from_utf8_lossy(&stderr_buf).to_string(),
-                    exit_code: status.code().unwrap_or(-1),
-                }),
-            };
+            exit_signal_clone.finish(outcome);
             let _ = result_tx.send(result);
-            exit_signal_clone.fire();
-            // 若调用方已超时返回，result_tx 会 Err（recv 端 drop）——子进程仍正常退出，
-            // child 被 drop 时若已退出则 kill_on_drop 无操作。
         });
-
         Ok(AgentShellHandle {
             task_id,
-            output_path: PathBuf::from(output_path),
+            output_path,
             result_rx,
             exit_signal,
-            background_rx: Some(background_rx),
-            auto_background_tx: None,
-            background_tx: Some(background_tx),
+            handoff: Arc::new(ShellHandoff::new(false, false)),
             kill: ShellAbortHandle::from_tokio_abort(join.abort_handle()),
         })
     }

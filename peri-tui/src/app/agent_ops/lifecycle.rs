@@ -152,14 +152,27 @@ impl App {
             .is_empty()
         {
             self.flush_pending_messages();
-        } else if let Some(notif) = self
-            .session_mgr
-            .current_mut()
-            .pending_bg_shell_notifications
-            .pop_front()
-        {
+        } else if let Some(notif) = {
+            let owner = self
+                .session_mgr
+                .current()
+                .current_thread_id
+                .as_ref()
+                .map(ToString::to_string);
+            let pending = &mut self
+                .session_mgr
+                .current_mut()
+                .pending_bg_shell_notifications;
+            let index = pending.iter().position(|notification| {
+                notification
+                    .owner_session_id
+                    .as_deref()
+                    .is_none_or(|notification_owner| owner.as_deref() == Some(notification_owner))
+            });
+            index.and_then(|index| pending.remove(index))
+        } {
             tracing::info!("Done: injecting pending background shell notification");
-            self.submit_message(notif);
+            self.submit_message(notif.content);
         }
         (true, false, true)
     }
@@ -235,7 +248,7 @@ impl App {
         if has_tool_calls {
             // 已有工具调用：只中断，保留对话历史
             let vm = MessageViewModel::system(self.services.lc.tr("app-interrupt-done"));
-            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+            self.apply_pipeline_action(PipelineAction::add_message(vm));
             // 标记 reconcile 已完成，防止后续 Done 事件覆盖通知消息
             self.session_mgr.current_mut().agent.reconcile_already_done = true;
             return (true, false, false);
@@ -293,10 +306,10 @@ impl App {
                 .pipeline
                 .restore_completed(restored);
             let vm = MessageViewModel::system(self.services.lc.tr("app-interrupted-resumed"));
-            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+            self.apply_pipeline_action(PipelineAction::add_message(vm));
         } else {
             let vm = MessageViewModel::system(self.services.lc.tr("app-interrupt-done"));
-            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+            self.apply_pipeline_action(PipelineAction::add_message(vm));
         }
         // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖通知消息
         self.session_mgr.current_mut().agent.reconcile_already_done = true;
@@ -335,7 +348,7 @@ impl App {
             *collapsed = false;
             vm.recompute_hash();
         }
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::add_message(vm));
         // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖错误消息
         self.session_mgr.current_mut().agent.reconcile_already_done = true;
         // 后台任务：保持通道存活

@@ -32,7 +32,7 @@ impl App {
             "mcp-oauth-completed",
             &[("server".into(), server_name.into())],
         ));
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::add_message(vm));
         (true, false, false)
     }
 
@@ -58,7 +58,7 @@ impl App {
                 ("error".into(), error.into()),
             ],
         ));
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::add_message(vm));
         (true, false, false)
     }
 
@@ -95,7 +95,7 @@ impl App {
             ),
         };
         let vm = MessageViewModel::system(msg);
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::add_message(vm));
         (true, false, false)
     }
 }

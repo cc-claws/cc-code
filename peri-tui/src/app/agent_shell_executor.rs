@@ -3,18 +3,18 @@
 //! 把 agent 的 Bash 工具命令接入流式执行 + 磁盘输出，使其可被 Ctrl+B 后台化。
 //! 设计对齐 Claude Code（参见 docs/ctrl-b-background-shell.html）：
 //! - 命令始终经 shell 执行，stdout/stderr 写入磁盘（`DiskOutput`）
-//! - [`BashTool::invoke`] 通过 `result_rx` await 到进程退出拿完整 stdout（后台化不抢占）
+//! - `BashTool::invoke` 前台等待结果；后台移交后返回同一任务句柄，进程继续运行
 //! - UI 主循环通过 [`AgentShellRegistration`] channel 接收注册事件，把命令登记到
-//!   `agent_foreground_shells` 槽位以响应 Ctrl+B（后台化只切 UI 状态，进程不中断）
+//!   `agent_shells` 槽位以响应 Ctrl+B（后台化不重新启动进程，也不重置硬期限）
 //! - 退出检测走独立的 [`ExitSignal`]（invoke 独占 result_rx，UI poll 查 exit_signal）
 //!
 //! # oneshot 单消费者矛盾的解法
 //!
-//! [`BashTool::invoke`] 与 UI poll 都需"进程退出"信号，但 `tokio::oneshot` 单消费者。
+//! `BashTool::invoke` 与 UI poll 都需"进程退出"信号，但 `tokio::oneshot` 单消费者。
 //! 解法：invoke 独占 `result_rx`（拿完整 [`ShellCommandOutput`]）；一个 wrapper task
 //! `await` 真正的 `execution.result`，解析后同时：
-//! 1. `result_tx.send(output)` → 唤醒 invoke
-//! 2. `exit_signal.fire()` → 唤醒 UI poll
+//! 1. 等输出写盘，`exit_signal.finish(outcome)` → 向 UI 发布真实终态
+//! 2. `result_tx.send(output)` → 唤醒仍在等待的 invoke
 //!
 //! UI 不碰 `result_rx`，后台化时也不 take 它，避免与 invoke 的 await 冲突。
 
@@ -23,40 +23,34 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use peri_agent::shell::{
-    AgentShellHandle, ExitSignal, ShellAbortHandle, ShellCommandOutput, ShellExecutor, ShellRequest,
+    AgentShellHandle, ExitSignal, ShellAbortHandle, ShellCommandOutput, ShellExecutor,
+    ShellHandoff, ShellOutcome, ShellRequest,
 };
 use tokio::sync::{mpsc, oneshot};
 
-use crate::shell_exec::execute_shell_command_streaming;
-
-#[cfg(not(test))]
-const FOREGROUND_REGISTRATION_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
-#[cfg(test)]
-const FOREGROUND_REGISTRATION_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
+use crate::shell_exec::{execute_shell_command_streaming_with_timeout, ShellExecutionTimedOut};
 
 /// agent 前台 shell 注册信息：由 [`AgentShellExecutor::execute`] 通过 channel
-/// 发送给 App 主循环，用于登记到 `agent_foreground_shells` 槽位以响应 Ctrl+B。
+/// 发送给 App 主循环，用于登记到 `agent_shells` 槽位以响应 Ctrl+B。
 ///
 /// 注意：`result_rx` 不在此处（它由 invoke 独占 await）；这里只含 UI 控制所需的
-/// 副本（exit_signal 是 Arc 可共享，background_tx 是 oneshot 仅 UI 持有）。
+/// 副本（exit_signal 与 handoff 均为 Arc 共享状态）。
 pub struct AgentShellRegistration {
     pub task_id: String,
+    pub owner_session_id: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub source_agent_id: Option<String>,
+    pub execution_timeout_ms: u64,
     pub command: String,
     pub cwd: String,
     pub output_path: PathBuf,
     /// UI poll 查退出（独立于 invoke 的 result_rx）
     pub exit_signal: Arc<ExitSignal>,
-    /// Ctrl+B 时 UI 发送此信号请求后台化；spawn 进程 task 收到后无需动作
-    /// （输出已全程写磁盘，后台化只切 UI 状态 + 启动 stall watchdog）
-    /// None 表示该任务直接以后台模式启动（run_in_background=true），无需 Ctrl+B。
-    pub background_tx: Option<oneshot::Sender<()>>,
-    /// BashTool 前台等待超时后发送此信号，请求 UI 自动把任务标记为后台继续运行。
-    pub auto_background_rx: Option<oneshot::Receiver<()>>,
+    pub handoff: Arc<ShellHandoff>,
     /// 杀进程（UI 详情面板 `x` 键）
     pub kill: ShellAbortHandle,
     pub started_instant: std::time::Instant,
-    /// true = 直接后台启动（LLM 传 run_in_background）；登记到 background_shells。
-    /// false = 前台启动（可 Ctrl+B）；登记到 agent_foreground_shells。
+    /// true = 直接后台启动；false = 前台启动（可 Ctrl+B），都登记到 agent_shells。
     pub direct_background: bool,
 }
 
@@ -65,7 +59,7 @@ pub struct AgentShellRegistration {
 /// 由 [`AgentShellRegistration`] 转换而来。区别于用户 `!command` 路径的
 /// [`super::ShellCommandPool`] / [`super::BackgroundShell`]：agent 路径下
 /// `result_rx` 由 `BashTool::invoke` 独占 await（拿完整 stdout），UI 只用
-/// [`ExitSignal`] 检测退出 + [`Self::background_tx`] 响应 Ctrl+B。
+/// [`ExitSignal`] 检测退出 + [`ShellHandoff`] 仲裁 Ctrl+B 与取消。
 ///
 /// 生命周期：
 /// 1. 前台注册（direct_background=false）→ push 到 `agent_shells`，is_backgrounded=false
@@ -73,22 +67,25 @@ pub struct AgentShellRegistration {
 /// 3. 进程退出（exit_signal 触发）→ mark_ended + 注入完成通知
 pub struct AgentShellSlot {
     pub task_id: String,
+    pub owner_session_id: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub source_agent_id: Option<String>,
+    pub execution_timeout_ms: u64,
     pub command: String,
     pub cwd: PathBuf,
     pub output_path: PathBuf,
     /// 退出检测信号（poll 用，独立于 invoke 的 result_rx）。
     pub exit_signal: Arc<ExitSignal>,
-    /// Ctrl+B 后台化信号（前台时存在；后台化或退出后 None）。
-    pub background_tx: Option<oneshot::Sender<()>>,
-    /// invoke timeout 后自动后台化信号（前台时存在；后台化或退出后 None）。
-    pub auto_background_rx: Option<oneshot::Receiver<()>>,
+    pub handoff: Arc<ShellHandoff>,
     /// 杀进程句柄（详情面板 `x` 键）。
     pub kill: ShellAbortHandle,
     pub started_instant: std::time::Instant,
-    /// 是否已后台化（true = 不再占前台、显示在后台面板；false = 前台运行中可被 Ctrl+B）。
-    pub is_backgrounded: bool,
     /// 是否已退出完成（避免重复通知）。
     pub ended: bool,
+    /// 完成通知只交付给原会话一次；切换会话不丢弃进程归属。
+    pub completion_notified: bool,
+    /// 完整终态持久保留，即使工具 receiver 已关闭也可供 UI/通知消费。
+    pub outcome: Option<ShellOutcome>,
     /// 退出码（退出后设置）。
     pub exit_code: Option<i32>,
     /// 结束时间点（结束后冻结 elapsed）。
@@ -100,19 +97,22 @@ pub struct AgentShellSlot {
 impl AgentShellSlot {
     /// 由注册信息构造前台槽位。
     pub fn from_registration(reg: AgentShellRegistration) -> Self {
-        let is_backgrounded = reg.direct_background;
         Self {
             task_id: reg.task_id,
+            owner_session_id: reg.owner_session_id,
+            tool_call_id: reg.tool_call_id,
+            source_agent_id: reg.source_agent_id,
+            execution_timeout_ms: reg.execution_timeout_ms,
             command: reg.command,
             cwd: PathBuf::from(reg.cwd),
             output_path: reg.output_path,
             exit_signal: reg.exit_signal,
-            background_tx: reg.background_tx,
-            auto_background_rx: reg.auto_background_rx,
+            handoff: reg.handoff,
             kill: reg.kill,
             started_instant: reg.started_instant,
-            is_backgrounded,
             ended: false,
+            completion_notified: false,
+            outcome: None,
             exit_code: None,
             ended_at: None,
             stall_watchdog: None,
@@ -121,7 +121,17 @@ impl AgentShellSlot {
 
     /// 是否仍在前台运行（可被 Ctrl+B 后台化）。
     pub fn is_foreground_running(&self) -> bool {
-        !self.ended && !self.is_backgrounded
+        !self.ended && self.handoff.is_foreground_pending() && !self.exit_signal.is_exited()
+    }
+
+    pub fn is_backgrounded(&self) -> bool {
+        self.handoff.is_backgrounded()
+    }
+
+    pub fn belongs_to(&self, session_id: Option<&str>) -> bool {
+        self.owner_session_id
+            .as_deref()
+            .is_none_or(|owner| Some(owner) == session_id)
     }
 
     /// 已运行时长（结束后冻结为 ended_at - started_instant）。
@@ -132,45 +142,23 @@ impl AgentShellSlot {
         }
     }
 
-    /// 标记后台化：发送 background 信号 + 置标志。
-    /// 返回是否成功（已后台化或已退出返回 false）。
+    /// 共享归属先完成移交，再唤醒等待者；取消与移交只能一个获得前台权。
     pub fn mark_backgrounded(&mut self) -> bool {
-        if self.is_backgrounded || self.ended {
+        if !self.is_foreground_running() {
             return false;
         }
-        self.is_backgrounded = true;
-        self.auto_background_rx = None;
-        // 发送后台信号（进程 task 收到后无动作；输出已全程写磁盘）
-        if let Some(tx) = self.background_tx.take() {
-            let _ = tx.send(());
-        }
-        true
-    }
-
-    /// 消费 BashTool 超时触发的自动后台化请求。
-    pub fn take_auto_background_requested(&mut self) -> bool {
-        let Some(rx) = self.auto_background_rx.as_mut() else {
-            return false;
-        };
-        match rx.try_recv() {
-            Ok(()) => {
-                self.auto_background_rx = None;
-                true
-            }
-            Err(oneshot::error::TryRecvError::Empty) => false,
-            Err(oneshot::error::TryRecvError::Closed) => {
-                self.auto_background_rx = None;
-                false
-            }
-        }
+        self.handoff.background()
     }
 
     /// 标记结束（poll 检测到 exit_signal 后调用）。
-    pub fn mark_ended(&mut self, exit_code: Option<i32>) {
+    pub fn mark_ended(&mut self, outcome: ShellOutcome) {
         self.ended = true;
-        self.exit_code = exit_code;
+        self.exit_code = match &outcome {
+            ShellOutcome::Exited(code) => Some(*code),
+            _ => None,
+        };
+        self.outcome = Some(outcome);
         self.ended_at = Some(std::time::Instant::now());
-        self.auto_background_rx = None;
         // 终止 stall watchdog
         if let Some(w) = self.stall_watchdog.take() {
             w.abort();
@@ -207,24 +195,45 @@ impl AgentShellExecutor {
 #[async_trait]
 impl ShellExecutor for AgentShellExecutor {
     async fn execute(&self, req: ShellRequest) -> anyhow::Result<AgentShellHandle> {
+        anyhow::ensure!(
+            !self.registration_tx.is_closed(),
+            "Background command host is no longer available; no command was executed"
+        );
         let ShellRequest {
+            owner_session_id,
+            invocation,
             command,
+            original_command,
+            shell,
             cwd,
             run_in_background,
+            execution_timeout_ms,
             ..
         } = req;
 
         let task_id = uuid::Uuid::now_v7().to_string();
         let cwd_path = PathBuf::from(&cwd);
-        let output_path =
-            peri_agent::task_output::task_output_path(&task_id, &cwd_path, &self.session_id);
+        let output_path = peri_agent::task_output::task_output_path(
+            &task_id,
+            &cwd_path,
+            owner_session_id.as_deref().unwrap_or(&self.session_id),
+        );
 
         // 流式执行：stdout/stderr 合并推送 output_rx，进程退出 result 在 execution.result。
-        let execution = execute_shell_command_streaming(&command, &cwd, None);
+        let execution = execute_shell_command_streaming_with_timeout(
+            &command,
+            &cwd,
+            None,
+            shell,
+            std::time::Duration::from_millis(execution_timeout_ms),
+        )?;
 
         // output_rx 全程写磁盘（agent 路径不显示在 UI 输出流，仅写磁盘供详情面板 / 通知读取）。
         // 与 !command 路径不同：那条路径 output_rx 由 App drain 丢弃；本路径交给 DiskOutput。
-        peri_agent::task_output::DiskOutput::spawn_writer(output_path.clone(), execution.output_rx);
+        let output_writer = peri_agent::task_output::DiskOutput::spawn_writer(
+            output_path.clone(),
+            execution.output_rx,
+        );
         let started_instant = execution.started_instant;
         let process_abort = execution.abort.clone();
 
@@ -234,67 +243,64 @@ impl ShellExecutor for AgentShellExecutor {
         let (result_tx, result_rx) = oneshot::channel::<anyhow::Result<ShellCommandOutput>>();
         let exit_signal = Arc::new(ExitSignal::new());
         let exit_signal_clone = Arc::clone(&exit_signal);
-        let (background_tx, background_rx) = oneshot::channel::<()>();
-        let (auto_background_tx, auto_background_rx) = oneshot::channel::<()>();
+        let handoff = Arc::new(ShellHandoff::new(true, run_in_background));
 
-        let mut real_result = execution.result;
+        let real_result = execution.result;
         tokio::spawn(async move {
-            let real = (&mut real_result).await;
-            let converted = match real {
-                Ok(Ok(out)) => Ok(ShellCommandOutput {
-                    stdout: out.stdout,
-                    stderr: out.stderr,
-                    exit_code: out.exit_code,
-                }),
-                Ok(Err(e)) => Err(e), // anyhow::Error
-                Err(_) => Err(anyhow::anyhow!(
-                    "Command executor closed unexpectedly (process task dropped)"
-                )),
+            let real = real_result.await;
+            let (converted, outcome) = match real {
+                Ok(Ok(out)) => {
+                    let outcome = ShellOutcome::Exited(out.exit_code);
+                    (
+                        Ok(ShellCommandOutput {
+                            stdout: out.stdout,
+                            stderr: out.stderr,
+                            exit_code: out.exit_code,
+                        }),
+                        outcome,
+                    )
+                }
+                Ok(Err(e)) => {
+                    let outcome = if e.downcast_ref::<ShellExecutionTimedOut>().is_some() {
+                        ShellOutcome::TimedOut
+                    } else {
+                        ShellOutcome::Failed(e.to_string())
+                    };
+                    (Err(e), outcome)
+                }
+                Err(_) => (
+                    Err(anyhow::anyhow!("Command was cancelled")),
+                    ShellOutcome::Cancelled,
+                ),
             };
-            // 进程已退出：唤醒 invoke（拿完整输出）+ UI poll（知退出）。
+            // 完成通知可立即读盘；必须先等输出写入结束。
+            let _ = output_writer.await;
+            exit_signal_clone.finish(outcome);
             let _ = result_tx.send(converted);
-            exit_signal_clone.fire();
         });
 
         // 注册到 App 主循环。
         // - run_in_background=true：立即注册为后台任务。
-        // - 普通前台命令：只有运行超过阈值后才注册，避免短命 Bash 也刷新 UI/污染底部状态区。
+        // - 普通前台命令同样立即注册，2 秒仅控制 UI 提示，不控制任务所有权。
         let registration = AgentShellRegistration {
             task_id: task_id.clone(),
-            command: command.clone(),
+            owner_session_id,
+            tool_call_id: invocation.as_ref().map(|ctx| ctx.tool_call_id.clone()),
+            source_agent_id: invocation.and_then(|ctx| ctx.source_agent_id),
+            execution_timeout_ms,
+            command: original_command,
             cwd: cwd.clone(),
             output_path: output_path.clone(),
             exit_signal: Arc::clone(&exit_signal),
-            background_tx: if run_in_background {
-                None
-            } else {
-                Some(background_tx)
-            },
-            auto_background_rx: if run_in_background {
-                None
-            } else {
-                Some(auto_background_rx)
-            },
+            handoff: Arc::clone(&handoff),
             kill: process_abort.clone(),
             started_instant,
             direct_background: run_in_background,
         };
-        if run_in_background {
-            // channel 发送失败（App 已退出）不影响命令执行本身——仅 UI 不显示。
-            let _ = self.registration_tx.send(registration);
-        } else {
-            let registration_tx = self.registration_tx.clone();
-            let exit_signal_for_registration = Arc::clone(&exit_signal);
-            tokio::spawn(async move {
-                tokio::select! {
-                    _ = tokio::time::sleep(FOREGROUND_REGISTRATION_DELAY) => {
-                        if !exit_signal_for_registration.is_exited() {
-                            let _ = registration_tx.send(registration);
-                        }
-                    }
-                    _ = exit_signal_for_registration.wait() => {}
-                }
-            });
+        if self.registration_tx.send(registration).is_err() {
+            process_abort.abort();
+            exit_signal.wait().await;
+            anyhow::bail!("Background command host is no longer available; command stopped");
         }
 
         Ok(AgentShellHandle {
@@ -302,104 +308,97 @@ impl ShellExecutor for AgentShellExecutor {
             output_path,
             result_rx,
             exit_signal,
-            background_rx: if run_in_background {
-                None
-            } else {
-                Some(background_rx)
-            },
-            auto_background_tx: if run_in_background {
-                None
-            } else {
-                Some(auto_background_tx)
-            },
-            background_tx: None, // 发送端已在 registration 里交给 UI；handle 持有接收端
+            handoff,
             kill: process_abort,
         })
     }
 }
 
 #[cfg(test)]
+#[path = "agent_shell_contract_test.rs"]
+mod contract_tests;
+
+#[cfg(test)]
+#[path = "agent_shell_lifecycle_test.rs"]
+mod lifecycle_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 构造一个用于测试的 AgentShellRegistration（前台、含 background_tx）。
-    fn make_reg(direct_background: bool) -> (AgentShellRegistration, oneshot::Receiver<()>) {
-        let (bg_tx, bg_rx) = oneshot::channel();
-        let (_auto_tx, auto_rx) = oneshot::channel();
-        let reg = AgentShellRegistration {
+    /// 构造一个用于测试的 AgentShellRegistration。
+    fn make_reg(direct_background: bool) -> AgentShellRegistration {
+        let handoff = Arc::new(ShellHandoff::new(true, direct_background));
+        AgentShellRegistration {
             task_id: "test-task".to_string(),
+            owner_session_id: None,
+            tool_call_id: None,
+            source_agent_id: None,
+            execution_timeout_ms: 600_000,
             command: "echo hi".to_string(),
             cwd: "/tmp".to_string(),
             output_path: PathBuf::from("/tmp/out.log"),
             exit_signal: Arc::new(ExitSignal::new()),
-            background_tx: if direct_background { None } else { Some(bg_tx) },
-            auto_background_rx: if direct_background {
-                None
-            } else {
-                Some(auto_rx)
-            },
+            handoff,
             kill: ShellAbortHandle::noop(),
             started_instant: std::time::Instant::now(),
             direct_background,
-        };
-        (reg, bg_rx)
+        }
     }
 
     #[tokio::test]
     async fn test_slot_foreground_running_initially() {
-        let (reg, _rx) = make_reg(false);
+        let reg = make_reg(false);
         let slot = AgentShellSlot::from_registration(reg);
         assert!(slot.is_foreground_running(), "前台注册后应处于前台运行中");
-        assert!(!slot.is_backgrounded);
+        assert!(!slot.is_backgrounded());
         assert!(!slot.ended);
     }
 
     #[tokio::test]
     async fn test_slot_direct_background_not_foreground() {
-        let (reg, _rx) = make_reg(true);
+        let reg = make_reg(true);
         let slot = AgentShellSlot::from_registration(reg);
         assert!(
             !slot.is_foreground_running(),
             "direct_background 的槽位不应处于前台"
         );
-        assert!(slot.is_backgrounded, "direct_background 应标记为已后台化");
+        assert!(slot.is_backgrounded(), "direct_background 应标记为已后台化");
     }
 
     #[tokio::test]
-    async fn test_slot_mark_backgrounded_sends_signal() {
-        let (reg, mut bg_rx) = make_reg(false);
+    async fn test_slot_mark_backgrounded_updates_shared_ownership() {
+        let reg = make_reg(false);
         let mut slot = AgentShellSlot::from_registration(reg);
         assert!(slot.mark_backgrounded(), "首次后台化应成功");
-        assert!(slot.is_backgrounded);
-        // background_tx 应被消费，bg_rx 收到信号
-        assert!(bg_rx.try_recv().is_ok(), "后台化应发送 background 信号");
+        assert!(slot.is_backgrounded());
         // 重复后台化返回 false
         assert!(!slot.mark_backgrounded(), "已后台化的重复调用应返回 false");
     }
 
     #[tokio::test]
     async fn test_slot_mark_backgrounded_after_ended_fails() {
-        let (reg, _rx) = make_reg(false);
+        let reg = make_reg(false);
         let mut slot = AgentShellSlot::from_registration(reg);
-        slot.mark_ended(Some(0));
+        slot.mark_ended(ShellOutcome::Exited(0));
         assert!(!slot.mark_backgrounded(), "已退出的槽位后台化应返回 false");
     }
 
     #[tokio::test]
     async fn test_slot_mark_ended_sets_exit_code() {
-        let (reg, _rx) = make_reg(false);
+        let reg = make_reg(false);
         let mut slot = AgentShellSlot::from_registration(reg);
-        slot.mark_ended(Some(42));
+        slot.mark_ended(ShellOutcome::Exited(42));
         assert!(slot.ended);
         assert_eq!(slot.exit_code, Some(42));
     }
 
     #[tokio::test]
     async fn test_slot_elapsed_freezes_after_ended() {
-        let (reg, _rx) = make_reg(false);
+        let reg = make_reg(false);
         let mut slot = AgentShellSlot::from_registration(reg);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        slot.mark_ended(Some(0));
+        slot.mark_ended(ShellOutcome::Exited(0));
         let elapsed_after_end = slot.elapsed();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let elapsed_later = slot.elapsed();
@@ -453,14 +452,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_executor_short_lived_foreground_command_not_registered_to_ui() {
+    async fn test_executor_short_lived_foreground_command_registers_immediately() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let executor = AgentShellExecutor::new(tx, test_cwd(), "test-session".to_string());
         let handle = executor
             .execute(ShellRequest {
+                owner_session_id: None,
+                invocation: None,
                 command: quick_command().to_string(),
+                original_command: quick_command().to_string(),
+                shell: peri_agent::shell::ShellDialect::PlatformDefault,
                 cwd: test_cwd(),
                 timeout_ms: 5_000,
+                execution_timeout_ms: 600_000,
                 run_in_background: false,
             })
             .await
@@ -471,34 +475,35 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(result.exit_code, 0, "短命命令应正常退出");
-        tokio::time::sleep(FOREGROUND_REGISTRATION_DELAY * 2).await;
-        assert!(
-            rx.try_recv().is_err(),
-            "短命前台命令不应注册到 UI，避免无意义刷新底部状态区"
+        let registration = rx.try_recv().expect("短命令也必须登记，显示门槛由 UI 决定");
+        assert_eq!(
+            registration.exit_signal.outcome(),
+            Some(ShellOutcome::Exited(0))
         );
     }
 
     #[tokio::test]
-    async fn test_executor_long_foreground_command_registers_to_ui_after_delay() {
+    async fn test_executor_long_foreground_command_registers_before_completion() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let executor = AgentShellExecutor::new(tx, test_cwd(), "test-session".to_string());
         let handle = executor
             .execute(ShellRequest {
+                owner_session_id: None,
+                invocation: None,
                 command: slow_command().to_string(),
+                original_command: slow_command().to_string(),
+                shell: peri_agent::shell::ShellDialect::PlatformDefault,
                 cwd: test_cwd(),
                 timeout_ms: 5_000,
+                execution_timeout_ms: 600_000,
                 run_in_background: false,
             })
             .await
             .unwrap();
-        tokio::time::sleep(FOREGROUND_REGISTRATION_DELAY + std::time::Duration::from_millis(250))
-            .await;
-        let registration = rx
-            .try_recv()
-            .expect("超过阈值仍在运行的前台命令应注册到 UI");
+        let registration = rx.try_recv().expect("返回句柄前必须登记长命令");
         assert!(
             !registration.direct_background,
-            "延迟注册的前台命令不应标记为直接后台"
+            "前台命令不应标记为直接后台"
         );
         // CI 慢机器（尤其 Windows）上命令总耗时可能超过 5 秒，放宽等待
         let result = tokio::time::timeout(std::time::Duration::from_secs(15), handle.result_rx)

@@ -36,13 +36,19 @@ pub(super) fn handle_shortcuts(
     // Ctrl+B: 有前台 shell 时先后台化（进程不中断），然后聚焦底部 shell 入口；
     // 已有后台 shell 时也只聚焦入口，Enter 再打开面板；否则聚焦 bg agent bar。
     if SHORTCUT_BG_BAR.matches(key_event) {
+        // 面板内交给选中项处理，不能再次走全局分支重置选择。
+        if app.global_panels.is_active(PanelKind::BackgroundTasks) {
+            return None;
+        }
         let has_foreground = app.session_mgr.current().shell_pool.is_running();
         if has_foreground {
             if app.background_foreground() {
                 focus_background_tasks_bar(app);
             }
         } else if app.background_agent_foreground() {
-            focus_background_tasks_bar(app);
+            if !app.global_panels.is_active(PanelKind::BackgroundTasks) {
+                focus_background_tasks_bar(app);
+            }
         } else if app.has_running_background_shell_tasks() {
             focus_background_tasks_bar(app);
         } else if !app.session_mgr.current().background_agents.is_empty() {
