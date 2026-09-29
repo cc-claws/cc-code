@@ -23,7 +23,7 @@ fn make_dir(name: &str, children: Vec<FileNode>, expanded: bool) -> FileNode {
 }
 
 #[test]
-fn test_flatten_展开目录显示子节点() {
+fn test_flatten_expanded_directory_shows_children() {
     // Arrange: 展开的目录包含 2 个文件
     let dir = make_dir("src", vec![make_file("main.rs"), make_file("lib.rs")], true);
     let mut state = FileTreeState::new();
@@ -40,7 +40,7 @@ fn test_flatten_展开目录显示子节点() {
 }
 
 #[test]
-fn test_flatten_折叠目录跳过子节点() {
+fn test_flatten_collapsed_directory_skips_children() {
     // Arrange: 折叠的目录包含 2 个文件
     let dir = make_dir(
         "src",
@@ -57,7 +57,7 @@ fn test_flatten_折叠目录跳过子节点() {
 }
 
 #[test]
-fn test_flatten_空根节点() {
+fn test_flatten_empty_root_returns_empty_state() {
     // Arrange: 空根节点列表
     let mut state = FileTreeState::new();
     // Act
@@ -69,7 +69,7 @@ fn test_flatten_空根节点() {
 }
 
 #[test]
-fn test_set_root_重建扁平列表() {
+fn test_set_root_rebuilds_flattened_list() {
     // Arrange: 先设置 3 个根节点
     let mut state = FileTreeState::new();
     state.set_root(vec![make_file("a"), make_file("b"), make_file("c")]);
@@ -82,7 +82,7 @@ fn test_set_root_重建扁平列表() {
 }
 
 #[test]
-fn test_clamp_cursor_缩短列表后光标归位() {
+fn test_clamp_cursor_after_shrinking_list_resets_cursor() {
     // Arrange: 光标在第 4 个位置
     let mut state = FileTreeState::new();
     state.set_root(vec![
@@ -101,7 +101,7 @@ fn test_clamp_cursor_缩短列表后光标归位() {
 }
 
 #[test]
-fn test_flatten_嵌套展开目录() {
+fn test_flatten_nested_expanded_directories() {
     // Arrange: src(展开) > lib(展开) > mod.rs
     let inner = make_dir("lib", vec![make_file("mod.rs")], true);
     let root = make_dir("src", vec![inner], true);
@@ -116,7 +116,7 @@ fn test_flatten_嵌套展开目录() {
 }
 
 #[test]
-fn test_move_cursor_clamp到边界() {
+fn test_move_cursor_clamps_at_boundaries() {
     // Arrange: 5 个文件
     let mut state = FileTreeState::new();
     state.set_root(vec![
@@ -140,7 +140,7 @@ fn test_move_cursor_clamp到边界() {
 }
 
 #[test]
-fn test_move_cursor_空列表不panic() {
+fn test_move_cursor_on_empty_list_does_not_panic() {
     let mut state = FileTreeState::new();
     state.set_root(vec![]);
     // 不 panic
@@ -150,7 +150,7 @@ fn test_move_cursor_空列表不panic() {
 }
 
 #[test]
-fn test_click_返回flat索引并移动cursor() {
+fn test_click_returns_flat_index_and_moves_cursor() {
     let mut state = FileTreeState::new();
     state.set_root(vec![make_file("a"), make_file("b"), make_file("c")]);
     // scroll offset 为 0，点击第 2 行
@@ -161,7 +161,7 @@ fn test_click_返回flat索引并移动cursor() {
 }
 
 #[test]
-fn test_click_越界返回none() {
+fn test_click_out_of_bounds_returns_none() {
     let mut state = FileTreeState::new();
     state.set_root(vec![make_file("a")]);
     // cursor 初始为 0
@@ -173,7 +173,7 @@ fn test_click_越界返回none() {
 }
 
 #[test]
-fn test_selected_返回当前节点() {
+fn test_selected_returns_current_node() {
     let mut state = FileTreeState::new();
     state.set_root(vec![make_file("a"), make_file("b"), make_file("c")]);
     state.move_cursor(2);
@@ -183,7 +183,7 @@ fn test_selected_返回当前节点() {
 }
 
 #[test]
-fn test_flatten_tree_path正确索引() {
+fn test_flatten_assigns_correct_tree_path_indices() {
     // Arrange: 多个根节点，第一个有子节点
     let dir = make_dir("src", vec![make_file("a.rs"), make_file("b.rs")], true);
     let file = make_file("Cargo.toml");
@@ -197,7 +197,7 @@ fn test_flatten_tree_path正确索引() {
 }
 
 #[test]
-fn test_toggle_展开已加载目录() {
+fn test_toggle_expands_loaded_directory() {
     // Arrange: 折叠目录包含 2 个子节点
     let dir = make_dir("src", vec![make_file("a.rs"), make_file("b.rs")], false);
     let mut state = FileTreeState::new();
@@ -212,7 +212,7 @@ fn test_toggle_展开已加载目录() {
 }
 
 #[test]
-fn test_toggle_折叠已展开目录() {
+fn test_toggle_collapses_expanded_directory() {
     // Arrange: 展开的目录
     let dir = make_dir("src", vec![make_file("a.rs"), make_file("b.rs")], true);
     let mut state = FileTreeState::new();
@@ -227,7 +227,7 @@ fn test_toggle_折叠已展开目录() {
 }
 
 #[test]
-fn test_toggle_未加载目录返回needs_load() {
+fn test_toggle_unloaded_directory_returns_needs_load() {
     // Arrange: 未加载目录
     let dir = FileNode {
         name: "src".to_string(),
@@ -250,7 +250,7 @@ fn test_toggle_未加载目录返回needs_load() {
 }
 
 #[test]
-fn test_set_children_填充后toggle展开() {
+fn test_set_children_then_toggle_expands_directory() {
     // Arrange: 未加载目录
     let dir = FileNode {
         name: "src".to_string(),
@@ -275,14 +275,14 @@ fn test_set_children_填充后toggle展开() {
 }
 
 #[test]
-fn test_toggle_文件返回none() {
+fn test_toggle_on_file_returns_none() {
     let mut state = FileTreeState::new();
     state.set_root(vec![make_file("main.rs")]);
     assert!(state.toggle(0).is_none());
 }
 
 #[test]
-fn test_toggle_空已加载目录不可展开() {
+fn test_toggle_empty_loaded_directory_returns_none() {
     let dir = make_dir("empty", vec![], false);
     let mut state = FileTreeState::new();
     state.set_root(vec![dir]);
@@ -290,7 +290,7 @@ fn test_toggle_空已加载目录不可展开() {
 }
 
 #[test]
-fn test_sort_目录优先加字母序() {
+fn test_sort_directories_first_then_alphabetical() {
     // Arrange: 混合文件和目录，乱序
     let mut state = FileTreeState::new();
     state.set_root(vec![
@@ -308,7 +308,7 @@ fn test_sort_目录优先加字母序() {
 }
 
 #[test]
-fn test_sort_递归排序子目录() {
+fn test_sort_recursively_sorts_subdirectories() {
     // Arrange: 展开的目录中子节点乱序
     let inner = make_dir(
         "sub",

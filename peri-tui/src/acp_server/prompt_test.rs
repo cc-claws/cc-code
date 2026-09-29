@@ -2,7 +2,7 @@ use super::*;
 
 /// 测试 strip_leaked_prepends：有原始历史时，通过 ID 匹配定位并剥离 leaked system prepends
 #[test]
-fn test_strip_leaked_prepends_有历史时剥离头部system消息() {
+fn test_strip_leaked_prepends_strips_leading_system_messages_with_history() {
     // Arrange: 原始历史 [Human("hello"), Ai("hi")]
     let history = [BaseMessage::human("hello"), BaseMessage::ai("hi")];
     // 模拟 execute() 错误路径返回的 messages:
@@ -31,7 +31,7 @@ fn test_strip_leaked_prepends_有历史时剥离头部system消息() {
 
 /// 测试 strip_leaked_prepends：原始历史为空时，剥离所有头部 system 消息
 #[test]
-fn test_strip_leaked_prepends_空历史时剥离头部system() {
+fn test_strip_leaked_prepends_strips_leading_system_with_empty_history() {
     // Arrange: 空历史
     let history: Vec<BaseMessage> = vec![];
     let result_messages = vec![
@@ -49,7 +49,7 @@ fn test_strip_leaked_prepends_空历史时剥离头部system() {
 
 /// 测试 strip_leaked_prepends：原始历史在 result 中找不到（compact 替换场景）
 #[test]
-fn test_strip_leaked_prepends_历史id找不到时原样返回() {
+fn test_strip_leaked_prepends_returns_unchanged_when_history_id_not_found() {
     // Arrange: 原始历史有一条消息
     let history = [BaseMessage::human("hello")];
     // result_messages 中不包含原始历史的消息（compact 替换了所有消息）
@@ -66,7 +66,7 @@ fn test_strip_leaked_prepends_历史id找不到时原样返回() {
 
 /// 测试 strip_leaked_prepends：没有 leaked prepends 时正常返回
 #[test]
-fn test_strip_leaked_prepends_无leaked时正常返回() {
+fn test_strip_leaked_prepends_returns_unchanged_when_no_leaked_prepends() {
     let history = [BaseMessage::human("hello"), BaseMessage::ai("hi")];
     // 没有 leaked system，直接是原始历史 + 新消息
     let result_messages = vec![

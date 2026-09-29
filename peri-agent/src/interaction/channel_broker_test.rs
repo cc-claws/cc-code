@@ -53,7 +53,7 @@ fn make_approval_item(name: &str) -> ApprovalItem {
 // ─── ChannelState 同步测试 ───────────────────────────────────────────────────
 
 #[test]
-fn test_channel_state_authorize_添加授权() {
+fn test_channel_state_authorize_adds_authorization() {
     // Arrange
     let state = ChannelState::new();
 
@@ -69,7 +69,7 @@ fn test_channel_state_authorize_添加授权() {
 }
 
 #[test]
-fn test_channel_state_authorize_覆盖旧授权() {
+fn test_channel_state_authorize_overrides_existing_authorization() {
     // Arrange
     let state = ChannelState::new();
     state.authorize("my-server", "old_source".to_string());
@@ -84,7 +84,7 @@ fn test_channel_state_authorize_覆盖旧授权() {
 }
 
 #[test]
-fn test_channel_state_revoke_移除授权() {
+fn test_channel_state_revoke_removes_authorization() {
     // Arrange
     let state = ChannelState::new();
     state.authorize("my-server", "server:my-server".to_string());
@@ -98,7 +98,7 @@ fn test_channel_state_revoke_移除授权() {
 }
 
 #[test]
-fn test_channel_state_revoke_不存在的server无异常() {
+fn test_channel_state_revoke_unknown_server_does_not_panic() {
     // Arrange
     let state = ChannelState::new();
 
@@ -108,7 +108,7 @@ fn test_channel_state_revoke_不存在的server无异常() {
 }
 
 #[test]
-fn test_channel_state_close_all_清空所有授权() {
+fn test_channel_state_close_all_clears_all_authorizations() {
     // Arrange
     let state = ChannelState::new();
     state.authorize("server-a", "source:a".to_string());
@@ -150,7 +150,7 @@ fn test_channel_state_unregister_session() {
 }
 
 #[test]
-fn test_channel_state_unregister_不存在的session无异常() {
+fn test_channel_state_unregister_unknown_session_does_not_panic() {
     // Arrange
     let state = ChannelState::new();
 
@@ -162,7 +162,7 @@ fn test_channel_state_unregister_不存在的session无异常() {
 // ─── ChannelBroker 异步测试 ──────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_channel_broker_无授权server全部reject() {
+async fn test_channel_broker_rejects_when_no_authorized_server() {
     // Arrange
     let state = ChannelState::new();
     let sender = Arc::new(MockNotificationSender::new());
@@ -192,7 +192,7 @@ async fn test_channel_broker_无授权server全部reject() {
 }
 
 #[tokio::test]
-async fn test_channel_broker_有授权server发送通知() {
+async fn test_channel_broker_sends_notification_with_authorized_server() {
     // Arrange
     let state = ChannelState::new();
     state.authorize("wechat-server", "server:wechat".to_string());
@@ -219,7 +219,7 @@ async fn test_channel_broker_有授权server发送通知() {
 }
 
 #[tokio::test]
-async fn test_channel_broker_questions返回空answers() {
+async fn test_channel_broker_questions_returns_empty_answers() {
     // Arrange
     let state = ChannelState::new();
     let sender = Arc::new(MockNotificationSender::new());
@@ -239,7 +239,7 @@ async fn test_channel_broker_questions返回空answers() {
 }
 
 #[tokio::test]
-async fn test_channel_broker_授权后响应approve() {
+async fn test_channel_broker_approves_after_authorized_response() {
     // Arrange
     let state = ChannelState::new();
     state.authorize("test-server", "server:test".to_string());
@@ -287,7 +287,7 @@ async fn test_channel_broker_授权后响应approve() {
 }
 
 #[tokio::test]
-async fn test_channel_broker_授权后响应reject() {
+async fn test_channel_broker_rejects_after_authorized_response() {
     // Arrange
     let state = ChannelState::new();
     state.authorize("test-server", "server:test".to_string());

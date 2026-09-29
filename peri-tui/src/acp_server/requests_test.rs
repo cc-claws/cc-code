@@ -90,7 +90,7 @@ fn make_server_config(
 
 /// 验证 session/update_config 切换 active_provider_id 后 cfg.provider 正确更新
 #[tokio::test]
-async fn test_update_config_切换provider后cfg_provider更新() {
+async fn test_update_config_updates_cfg_provider_after_switching_provider() {
     // Arrange: 构造两个 provider（a=openai, b=anthropic），初始 active_provider_id = "a"
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
@@ -154,7 +154,7 @@ async fn test_update_config_切换provider后cfg_provider更新() {
 
 /// 验证 model 配置值携带 provider 后，同名 alias 能正确跨 provider 切换。
 #[tokio::test]
-async fn test_set_config_option_model_携带provider后切换provider() {
+async fn test_set_config_option_model_switches_provider_when_provider_specified() {
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
     let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
@@ -210,7 +210,7 @@ async fn test_set_config_option_model_携带provider后切换provider() {
 
 /// 验证 session/update_config 空 providers 时返回错误
 #[tokio::test]
-async fn test_update_config_空providers返回错误() {
+async fn test_update_config_returns_error_when_providers_empty() {
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
 
@@ -252,7 +252,7 @@ async fn test_update_config_空providers返回错误() {
 
 /// 验证 session/update_config 不存在的 active_provider_id 返回错误
 #[tokio::test]
-async fn test_update_config_不存在的provider_id返回错误() {
+async fn test_update_config_returns_error_for_unknown_provider_id() {
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
 
@@ -314,7 +314,7 @@ fn make_minimal_cfg() -> (tempfile::TempDir, AcpServerConfig) {
 
 /// session/load 传入非 UUID（含路径穿越片段）应被 -32602 拒绝
 #[tokio::test]
-async fn test_session_load_非uuid_sessionid返回错误() {
+async fn test_session_load_returns_error_for_non_uuid_session_id() {
     let (_tmp, cfg) = make_minimal_cfg();
     let mut sessions = HashMap::new();
     let transport = MockTransport;
@@ -342,7 +342,7 @@ async fn test_session_load_非uuid_sessionid返回错误() {
 /// session/load 传入合法 UUID 但 thread 不存在 应返回 -32001 session_not_found，
 /// 而非静默插入新 SessionState（issue #70 修复点）
 #[tokio::test]
-async fn test_session_load_不存在uuid_返回session_not_found() {
+async fn test_session_load_returns_session_not_found_for_missing_uuid() {
     let (_tmp, cfg) = make_minimal_cfg();
     let mut sessions = HashMap::new();
     let transport = MockTransport;
@@ -374,7 +374,7 @@ async fn test_session_load_不存在uuid_返回session_not_found() {
 
 /// session/load 传入已存在 thread 的合法 UUID 应正常加载
 #[tokio::test]
-async fn test_session_load_存在thread_正常加载() {
+async fn test_session_load_succeeds_when_thread_exists() {
     use peri_agent::thread::ThreadMeta;
 
     let (_tmp, cfg) = make_minimal_cfg();
@@ -404,7 +404,7 @@ async fn test_session_load_存在thread_正常加载() {
 
 /// session/resume 传入非 UUID 应被 -32602 拒绝（resume 仍允许新建，但 ID 必须合法）
 #[tokio::test]
-async fn test_session_resume_非uuid_sessionid返回错误() {
+async fn test_session_resume_returns_error_for_non_uuid_session_id() {
     let (_tmp, cfg) = make_minimal_cfg();
     let mut sessions = HashMap::new();
     let transport = MockTransport;
@@ -425,7 +425,7 @@ async fn test_session_resume_非uuid_sessionid返回错误() {
 
 /// session/resume 传入合法 UUID 应允许恢复（若 sessions 中无则新建空 entry）
 #[tokio::test]
-async fn test_session_resume_合法uuid_允许恢复() {
+async fn test_session_resume_allowed_for_valid_uuid() {
     let (_tmp, cfg) = make_minimal_cfg();
     let mut sessions = HashMap::new();
     let transport = MockTransport;
@@ -449,7 +449,7 @@ async fn test_session_resume_合法uuid_允许恢复() {
 
 /// validate_session_id_format 单元测试：覆盖合法/非法输入
 #[tokio::test]
-async fn test_validate_session_id_format_拒绝非法id() {
+async fn test_validate_session_id_format_rejects_invalid_id() {
     use peri_acp::session::validate_session_id_format;
 
     // 非法:路径穿越
@@ -481,7 +481,7 @@ async fn test_validate_session_id_format_拒绝非法id() {
 
 /// 验证 session/new 携带 model 参数时，服务端立即切换 cfg.provider (Issue #169)
 #[tokio::test]
-async fn test_session_new_携带model参数立即切换provider() {
+async fn test_session_new_switches_provider_immediately_with_model_parameter() {
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
     let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
@@ -530,7 +530,7 @@ async fn test_session_new_携带model参数立即切换provider() {
 
 /// 验证 session/set_config_option 在 sessionId 为空时（发消息前客户端无 session）依然能更新全局 provider (Issue #169)
 #[tokio::test]
-async fn test_set_config_option_空sessionid依然生效() {
+async fn test_set_config_option_applies_with_empty_session_id() {
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
     let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
@@ -580,7 +580,7 @@ async fn test_set_config_option_空sessionid依然生效() {
 
 /// 验证 apply_model_selection 传入具体模型名称（非标准别名）时按名称反查 (防回归兜底)
 #[tokio::test]
-async fn test_apply_model_selection_具体模型名称反查() {
+async fn test_apply_model_selection_reverse_looks_up_specific_model_name() {
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
     let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
@@ -607,7 +607,7 @@ async fn test_apply_model_selection_具体模型名称反查() {
 
 /// 验证 session/load (如 /history 恢复) 即使传入具体模型全名也能正确识别，不回退到默认模型
 #[tokio::test]
-async fn test_session_load_恢复历史会话模型正确识别() {
+async fn test_session_load_identifies_model_correctly_when_restoring_history_session() {
     use peri_agent::thread::ThreadMeta;
 
     let tmp = tempfile::TempDir::new().unwrap();
