@@ -23,13 +23,14 @@ use std::collections::{HashMap, VecDeque};
 
 pub use tokio_util::sync::CancellationToken as AgentCancellationToken;
 
-/// 卡住检测：滑动窗口大小（轮）。覆盖约 2 个完整循环周期（典型循环 3-4 轮），
-/// 太小会误杀正常的"读→改→读"探索，太大则检测过慢浪费 token。
+/// 卡住检测：滑动窗口大小（轮）。窗口需能容纳两个完整的三轮循环周期
+/// （A→B→C→A→B→C→A 到第 7 轮达到阈值），太小会误杀正常的"读→改→读"探索，
+/// 太大则检测过慢浪费 token。
 const STUCK_WINDOW_SIZE: usize = 8;
 
 /// 卡住检测：窗口内同一 thinking 指纹重复出现次数阈值。
-/// 达到此值判定为循环（如 A→B→C→D→A→B→C→D 中 A 在 8 轮内出现 2 次，
-/// 但配合其他指纹的交叉重复，整体频率足以判定循环）。
+/// 语义是"窗口内累计出现"而非"连续出现"，因此 4 轮以上周期的循环
+/// （A→B→C→D→…）在 8 轮窗口内凑不满 3 次，不会被检测到。
 const STUCK_REPEAT_THRESHOLD: usize = 3;
 
 #[allow(clippy::type_complexity)]
@@ -462,6 +463,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 改用滑动窗口（最近 STUCK_WINDOW_SIZE 轮）+ 频率检测
     /// （同一指纹累计出现 STUCK_REPEAT_THRESHOLD 次）。
     ///
+    /// 指纹按 trim 后判空：无 thinking 的模型常在工具调用轮返回 `"\n"`/`" "`，
+    /// 按原样入窗会因逐轮完全相同而被误判为思考循环。
+    ///
     /// 检测到循环时注入换策略 Human 消息，并返回 true 让主循环跳过
     /// 本轮工具执行，强制 agent 带着新提示重新思考，而非继续转圈。
     /// 注入后清空窗口，避免连续误触发。
@@ -472,12 +476,13 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         step: usize,
     ) -> bool {
         let fp = Self::thinking_fingerprint(reasoning);
+        let fp = fp.trim().to_string();
         if fp.is_empty() {
             return false;
         }
 
         // 统计当前指纹在窗口内已出现次数（不计本次）
-        let repeats = recent.iter().filter(|f| *f == &fp).count();
+        let repeats = recent.iter().filter(|f| f.as_str() == fp.as_str()).count();
 
         // 维护滑动窗口：超出容量则弹出最旧
         recent.push_back(fp);
