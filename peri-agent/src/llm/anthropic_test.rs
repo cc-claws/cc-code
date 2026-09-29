@@ -669,7 +669,9 @@ fn test_parse_and_reserialize_thinking_with_tool_use() {
 
     // 第一个 block 应是 Reasoning
     match &blocks[0] {
-        ContentBlock::Reasoning { text, signature } => {
+        ContentBlock::Reasoning {
+            text, signature, ..
+        } => {
             assert_eq!(text, "I need to check the file first");
             assert_eq!(signature.as_deref(), Some("sig_12345"));
         }
@@ -1128,4 +1130,104 @@ fn test_parse_anthropic_json_response_openai_format() {
     let usage = res.usage.expect("应包含 usage");
     assert_eq!(usage.input_tokens, 150);
     assert_eq!(usage.output_tokens, 30);
+}
+
+/// 【抓包验证·有区分度】Anthropic 请求体中 thinking 块**字段集合精确**。
+///
+/// Anthropic 侧同样走**手工构造 JSON**（`invoke.rs` 的 `ContentBlock::Reasoning`
+/// 分支构造 `{"type":"thinking","thinking":...}`），非 `ContentBlock::Serialize`。
+/// 断言精确字段集，确保 duration_ms 永不泄漏。
+#[test]
+fn test_thinking_field_set_exact_in_anthropic_request() {
+    // Arrange
+    let msg = BaseMessage::ai(MessageContent::blocks(vec![
+        ContentBlock::reasoning_with_duration("思考内容", 4200),
+    ]));
+    let adapter = ChatAnthropic::new("key", "model").with_extended_thinking(5000, "high");
+    let request = crate::llm::types::LlmRequest::new(vec![msg]);
+
+    // Act：构造真实请求体
+    let body = super::invoke::build_request_body(&adapter, &request, false);
+
+    // Assert：定位 thinking 块，断言精确字段集
+    let msgs = body["messages"].as_array().expect("应有 messages");
+    let thinking_block = msgs
+        .iter()
+        .flat_map(|m| m["content"].as_array().into_iter().flatten())
+        .find(|b| b["type"] == "thinking")
+        .expect("应存在 thinking 块");
+    let obj = thinking_block.as_object().unwrap();
+    let mut keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+    keys.sort_unstable();
+    // signature 在本构造中为 None，故字段集为 {thinking, type}
+    assert_eq!(
+        keys,
+        vec!["thinking", "type"],
+        "thinking 字段集合必须精确: {obj:?}"
+    );
+    assert!(
+        !obj.contains_key("duration_ms"),
+        "duration_ms 不得泄漏: {obj:?}"
+    );
+
+    // 全量序列化兜底
+    let serialized = serde_json::to_string(&body).unwrap();
+    assert!(
+        !serialized.contains("duration_ms"),
+        "整体请求不得含 duration_ms"
+    );
+    assert!(
+        serialized.contains("思考内容"),
+        "thinking 内容应在（确认路径有效）"
+    );
+}
+
+/// 【N3 正向回归】`parse_content_blocks` 必须**保留** thinking block 的 `duration_ms`。
+///
+/// 背景：流式层（`stream.rs`）把耗时写入中间 JSON，解析层（`parse_content_blocks`）
+/// 若只取 `thinking`/`signature` 会丢弃它 → Anthropic 下 `Thought for Ns` 永远退化为 chars。
+/// 本测试锁死该链路：喂含 duration_ms 的 raw block，断言解析后保留。
+#[test]
+fn test_parse_content_blocks_keeps_thinking_duration() {
+    let raw = vec![serde_json::json!({
+        "type": "thinking",
+        "thinking": "思考内容",
+        "signature": "sig_x",
+        "duration_ms": 4200
+    })];
+
+    let (blocks, _tool_calls) = super::invoke::parse_content_blocks(&raw);
+
+    let reasoning = blocks
+        .iter()
+        .find_map(|b| match b {
+            crate::messages::ContentBlock::Reasoning {
+                text, duration_ms, ..
+            } => Some((text.clone(), *duration_ms)),
+            _ => None,
+        })
+        .expect("应解析出 Reasoning block");
+    assert_eq!(reasoning.0, "思考内容");
+    assert_eq!(
+        reasoning.1,
+        Some(4200),
+        "duration_ms 必须被保留（否则 Thought for Ns 链路断裂）"
+    );
+}
+
+/// 兼容：无 `duration_ms` 字段的旧 thinking block → None（不 panic）。
+#[test]
+fn test_parse_content_blocks_missing_duration_is_none() {
+    let raw = vec![serde_json::json!({
+        "type": "thinking",
+        "thinking": "旧数据",
+        "signature": ""
+    })];
+
+    let (blocks, _) = super::invoke::parse_content_blocks(&raw);
+    let dur = blocks.iter().find_map(|b| match b {
+        crate::messages::ContentBlock::Reasoning { duration_ms, .. } => Some(*duration_ms),
+        _ => None,
+    });
+    assert_eq!(dur, Some(None), "旧数据应解析为 None");
 }

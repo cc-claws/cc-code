@@ -79,6 +79,8 @@ pub(super) async fn do_invoke_streaming(
     let mut stream = resp.bytes_stream();
     let mut parser = SseParser::new();
     let mut reasoning_text = String::new();
+    // 首条 reasoning chunk 到达时刻（用于计算 duration_ms）
+    let mut reasoning_started_at: Option<std::time::Instant> = None;
     let mut content_text = String::new();
     let mut repetition_detector = RepetitionDetector::new();
     let mut repetition_detected = false;
@@ -144,6 +146,10 @@ pub(super) async fn do_invoke_streaming(
                 .or_else(|| delta["reasoning"].as_str())
             {
                 if !r.is_empty() {
+                    // 首条 reasoning chunk：记起点
+                    if reasoning_started_at.is_none() {
+                        reasoning_started_at = Some(std::time::Instant::now());
+                    }
                     ctx.event_handler
                         .on_event(AgentEvent::AiReasoning(r.to_string()));
                     reasoning_text.push_str(r);
@@ -231,6 +237,7 @@ pub(super) async fn do_invoke_streaming(
 
     Ok(build_stream_response(
         &reasoning_text,
+        reasoning_started_at.map(|t| t.elapsed().as_millis() as u64),
         &content_text,
         tool_call_requests,
         stop_reason,
@@ -245,6 +252,7 @@ pub(super) async fn do_invoke_streaming(
 /// 差异仅在 content 和 message 类型上。
 fn build_stream_response(
     reasoning_text: &str,
+    reasoning_duration_ms: Option<u64>,
     content_text: &str,
     tool_call_requests: Vec<crate::messages::ToolCallRequest>,
     stop_reason: crate::llm::types::StopReason,
@@ -258,7 +266,10 @@ fn build_stream_response(
 
     let mut blocks: Vec<ContentBlock> = Vec::new();
     if !reasoning_text.is_empty() {
-        blocks.push(ContentBlock::reasoning(reasoning_text));
+        blocks.push(match reasoning_duration_ms {
+            Some(ms) => ContentBlock::reasoning_with_duration(reasoning_text, ms),
+            None => ContentBlock::reasoning(reasoning_text),
+        });
     }
 
     if stop_reason == StopReason::ToolUse {

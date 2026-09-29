@@ -243,9 +243,9 @@ fn estimate_content_block_heap(b: &ContentBlock) -> usize {
                     .map(estimate_content_block_heap)
                     .sum::<usize>()
         }
-        ContentBlock::Reasoning { text, signature } => {
-            text.len() + signature.as_ref().map_or(0, |s| s.len())
-        }
+        ContentBlock::Reasoning {
+            text, signature, ..
+        } => text.len() + signature.as_ref().map_or(0, |s| s.len()),
         ContentBlock::Unknown(v) => estimate_json_heap(v),
     }
 }

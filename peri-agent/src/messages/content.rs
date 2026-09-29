@@ -67,6 +67,9 @@ pub enum ContentBlock {
         text: String,
         /// Anthropic extended thinking 签名（用于缓存校验）
         signature: Option<String>,
+        /// 该段推理的耗时（ms）。`None` = 未知（历史旧数据或非流式来源）。
+        /// **仅用于 UI 展示**（`Thought for Ns`），不参与发往 LLM 的请求。
+        duration_ms: Option<u64>,
     },
 
     /// Provider 原生 block（透传，不做解析）
@@ -130,12 +133,20 @@ impl Serialize for ContentBlock {
                 m.serialize_entry("is_error", is_error)?;
                 m.end()
             }
-            Self::Reasoning { text, signature } => {
+            Self::Reasoning {
+                text,
+                signature,
+                duration_ms,
+            } => {
                 let mut m = s.serialize_map(None)?;
                 m.serialize_entry("type", "reasoning")?;
                 m.serialize_entry("text", text)?;
                 if let Some(sig) = signature {
                     m.serialize_entry("signature", sig)?;
+                }
+                // duration_ms 仅用于本地 UI 展示与持久化；LLM 适配器手工构造请求，不会带上它
+                if let Some(ms) = duration_ms {
+                    m.serialize_entry("duration_ms", ms)?;
                 }
                 m.end()
             }
@@ -226,7 +237,13 @@ impl<'de> Deserialize<'de> for ContentBlock {
                     .get("signature")
                     .and_then(|v| v.as_str())
                     .map(String::from);
-                Ok(Self::Reasoning { text, signature })
+                // 旧数据无此字段 → None（向后兼容）
+                let duration_ms = value.get("duration_ms").and_then(|v| v.as_u64());
+                Ok(Self::Reasoning {
+                    text,
+                    signature,
+                    duration_ms,
+                })
             }
             _ => Ok(Self::Unknown(value)),
         }
@@ -282,6 +299,7 @@ impl ContentBlock {
         Self::Reasoning {
             text: text.into(),
             signature: None,
+            duration_ms: None,
         }
     }
 
@@ -289,6 +307,16 @@ impl ContentBlock {
         Self::Reasoning {
             text: text.into(),
             signature: Some(signature.into()),
+            duration_ms: None,
+        }
+    }
+
+    /// 带耗时的 reasoning block（仅供 UI 展示 `Thought for Ns` 用）。
+    pub fn reasoning_with_duration(text: impl Into<String>, duration_ms: u64) -> Self {
+        Self::Reasoning {
+            text: text.into(),
+            signature: None,
+            duration_ms: Some(duration_ms),
         }
     }
 

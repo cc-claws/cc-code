@@ -61,6 +61,7 @@ pub fn aggregate_tail_tool_groups(messages: &mut Vec<MessageViewModel>, from_idx
                     category: cat,
                     tools: entries,
                     collapsed: true,
+                    standalone_action: None,
                     content_hash: 0,
                 };
                 vm.recompute_hash();

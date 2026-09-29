@@ -12,6 +12,9 @@ use crate::app::tool_display::sanitize_display_text;
 
 pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
 
+/// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
+const ERROR_SUMMARY_MAX_LINES: usize = 3;
+
 /// 从 Bash 工具输出中解析 exit code。
 ///
 /// 匹配格式：`[Exit code: N]` 或 `[Command completed with exit code N]`
@@ -348,11 +351,24 @@ fn push_prefixed_text(
 
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
 /// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).
-fn error_summary_lines(content: &str, width: usize) -> Vec<Line<'static>> {
+/// 错误摘要渲染。
+///
+/// `max_lines` 控制**显示行数上限**（非详细模式传小值避免污染页面；传入 `usize::MAX` 显示完整）。
+/// 超出时追加 `... (N more lines)` 提示。字符级截断兜底防止超长单行。
+fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Line<'static>> {
     let truncated: String = content.chars().take(400).collect();
     let content_width = width.saturating_sub(4).max(20);
+    let all: Vec<&str> = truncated.lines().collect();
     let mut out = Vec::new();
-    for (i, line) in truncated.lines().enumerate() {
+    for (i, line) in all.iter().enumerate() {
+        if i >= max_lines {
+            let hidden = all.len() - max_lines;
+            out.push(Line::from(Span::styled(
+                format!("    ... ({hidden} more lines)"),
+                Style::default().fg(theme::DIM),
+            )));
+            break;
+        }
         let first_prefix = if i == 0 { "  ⎿ " } else { "    " };
         push_prefixed_text(
             &mut out,
@@ -1014,6 +1030,8 @@ pub fn render_view_model_with_links(
                     }
                     ContentBlockView::Reasoning {
                         char_count,
+                        duration_ms,
+                        action_summary,
                         tail_lines,
                         text,
                         ..
@@ -1024,13 +1042,22 @@ pub fn render_view_model_with_links(
                         } else {
                             " (ctrl+o to expand)"
                         };
-                        lines.push(Line::from(vec![
-                            Span::styled("∴ ", Style::default().fg(theme::DIM)),
-                            Span::styled(
-                                format!("Thought for {} chars{}", char_count, hint),
-                                Style::default().fg(theme::DIM),
-                            ),
-                        ]));
+                        // 有耗时 → `Thought for Ns`；无耗时（流式中/历史旧数据）→ 回退字数
+                        let timing = match duration_ms {
+                            Some(ms) => format!("Thought for {}s", ms.div_ceil(1000).max(1)),
+                            None => format!("Thought for {char_count} chars"),
+                        };
+                        // 紧随的只读工具计数（如 `read 1 file, listed 1 directory`）
+                        let actions = action_summary
+                            .as_deref()
+                            .map(|s| format!(", {s}"))
+                            .unwrap_or_default();
+                        let title = format!("  {timing}{actions}{hint}");
+                        lines.push(Line::from(vec![Span::styled(
+                            title,
+                            // 与回合结束总结行（✻ … · done HH:MM）同色 MUTED
+                            Style::default().fg(theme::MUTED),
+                        )]));
                         // detail_mode 显示完整 reasoning，否则只显示 tail_lines
                         // 两者都走 markdown 解析 + DIM overlay，代码块获得语法高亮
                         let content = if detail_mode {
@@ -1106,10 +1133,15 @@ pub fn render_view_model_with_links(
             };
 
             // 详细模式：强制展开所有工具；否则 Write/Edit 完成后默认展开
+            // 非详细模式：已完成且无错的 Bash 也「展开」（仅显示前 3 行摘要，见下方 max_lines）
             let effective_collapsed = if detail_mode {
                 // Read 始终折叠：内容是文件原文，无需在 detail mode 展开
                 tool_name == "Read"
             } else if !is_running && (tool_name == "Write" || tool_name == "Edit") {
+                false
+            } else if tool_name == "Bash" && !is_running && !content.is_empty() {
+                // 非详细 Bash：有输出即展开为摘要（前 3 行，见下方 max_lines）；
+                // 单行输出同样要显示（P2-6：原 `content.contains('\n')` 会吞掉单行结果）
                 false
             } else {
                 *collapsed
@@ -1132,11 +1164,11 @@ pub fn render_view_model_with_links(
                     .fg(theme::CYAN)
                     .add_modifier(Modifier::BOLD)
             } else if is_running {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(theme::TEXT_SOFT)
             } else if *is_error {
                 Style::default().fg(theme::ERROR)
             } else {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(theme::TEXT_SOFT)
             };
 
             let mut header_spans = vec![
@@ -1153,7 +1185,7 @@ pub fn render_view_model_with_links(
                 let summary = tool_args_header(tool_name, &state.args_summary, max_args_width);
                 header_spans.push(Span::styled(
                     format!("({})", summary),
-                    Style::default().fg(theme::DIM),
+                    Style::default().fg(theme::TEXT_SOFT),
                 ));
             }
             let mut lines = vec![Line::from(header_spans)];
@@ -1166,11 +1198,17 @@ pub fn render_view_model_with_links(
                 let result_color = if *is_error {
                     theme::ERROR
                 } else {
-                    theme::MUTED
+                    theme::TEXT_SOFT
                 };
                 let border_color = if *is_error { theme::ERROR } else { theme::DIM };
-                // 详细模式显示完整内容，否则截断
-                let max_lines = if detail_mode { usize::MAX } else { 20 };
+                // 详细模式显示完整内容；非详细模式：Bash 只显示前 3 行摘要（PRD §2.4），其余工具 20 行
+                let max_lines = if detail_mode {
+                    usize::MAX
+                } else if tool_name == "Bash" {
+                    3
+                } else {
+                    20
+                };
                 if tool_name == "Glob" && !*is_error {
                     if let Some(summary) = glob_summary(content) {
                         lines.push(Line::from(vec![
@@ -1181,13 +1219,17 @@ pub fn render_view_model_with_links(
                 }
                 for (i, line) in result_lines.iter().enumerate() {
                     if i >= max_lines {
-                        lines.push(Line::from(vec![
-                            Span::styled("    ", Style::default().fg(border_color)),
-                            Span::styled(
-                                format!("... ({} more lines)", result_lines.len() - max_lines),
-                                Style::default().fg(theme::DIM),
-                            ),
-                        ]));
+                        // 仅当确有剩余行时显示截断提示（避免 `... (0 more lines)`）
+                        let remaining = result_lines.len().saturating_sub(max_lines);
+                        if remaining > 0 {
+                            lines.push(Line::from(vec![
+                                Span::styled("    ", Style::default().fg(border_color)),
+                                Span::styled(
+                                    format!("... ({remaining} more lines)"),
+                                    Style::default().fg(theme::DIM),
+                                ),
+                            ]));
+                        }
                         break;
                     }
                     let first_prefix = if i == 0 && tool_name != "Glob" {
@@ -1205,7 +1247,11 @@ pub fn render_view_model_with_links(
                     );
                 }
             } else if *is_error && !content.is_empty() {
-                lines.extend(error_summary_lines(content, width));
+                lines.extend(error_summary_lines(
+                    content,
+                    width,
+                    if detail_mode { usize::MAX } else { ERROR_SUMMARY_MAX_LINES },
+                ));
             }
             // Read 工具折叠态：显示行数摘要
             if state.collapsed && tool_name == "Read" && !result_lines.is_empty() {
@@ -1368,7 +1414,11 @@ pub fn render_view_model_with_links(
                 if *is_error {
                     if let Some(ref result) = final_result {
                         if !result.is_empty() {
-                            lines.extend(error_summary_lines(result, width));
+                            lines.extend(error_summary_lines(
+                                result,
+                                width,
+                                if detail_mode { usize::MAX } else { ERROR_SUMMARY_MAX_LINES },
+                            ));
                         }
                     }
                 }
@@ -1541,6 +1591,7 @@ pub fn render_view_model_with_links(
             category,
             tools,
             collapsed: _collapsed,
+            standalone_action,
             ..
         } => {
             let mut lines = Vec::new();
@@ -1630,7 +1681,7 @@ pub fn render_view_model_with_links(
                             if let Some(last_line) = lines.last_mut() {
                                 last_line.spans.push(Span::styled(
                                     format!("({})", summary),
-                                    Style::default().fg(theme::DIM),
+                                    Style::default().fg(theme::TEXT_SOFT),
                                 ));
                             }
                         }
@@ -1678,10 +1729,21 @@ pub fn render_view_model_with_links(
                     }
                 }
             } else {
-                // 折叠态：仅显示出错工具的错误摘要（正常工具由工具栏展示，无需汇总行）
+                // 折叠态：显示**纯动作行**（PRD §2.3，仅前面无 thinking bubble 的独立只读组）
+                // 以及出错工具的错误摘要。
+                if let Some(summary) = standalone_action {
+                    lines.push(Line::from(Span::styled(
+                        format!("  {summary}"),
+                        Style::default().fg(theme::MUTED),
+                    )));
+                }
                 for entry in tools {
                     if entry.is_error && !entry.content.is_empty() {
-                        lines.extend(error_summary_lines(&entry.content, width));
+                        lines.extend(error_summary_lines(
+                            &entry.content,
+                            width,
+                            if detail_mode { usize::MAX } else { ERROR_SUMMARY_MAX_LINES },
+                        ));
                     }
                 }
             }

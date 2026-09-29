@@ -586,3 +586,40 @@ fn test_non_thinking_still_has_reasoning_content() {
         "无 reasoning 内容时应为空字符串"
     );
 }
+
+/// 【抓包验证·有区分度】reasoning 转 OpenAI 请求后**字段集合精确**。
+///
+/// `content_to_openai` 走**手工构造 JSON**（不经 `ContentBlock::Serialize`）；
+/// 本测试断言其输出的**精确字段集**——若有人把 duration_ms 加进去，必失败。
+/// （注：仅断言"不含 duration_ms"无区分度，故断言精确集合。）
+#[test]
+fn test_reasoning_field_set_exact_in_openai_request() {
+    // Arrange：带 duration_ms 的 reasoning
+    let mc = MessageContent::blocks(vec![ContentBlock::reasoning_with_duration(
+        "思考内容",
+        4200,
+    )]);
+
+    // Act：支持 thinking 的 provider（返回数组）
+    let out = ChatOpenAI::content_to_openai(&mc, true);
+    let arr = out.as_array().expect("支持时应返回数组");
+
+    // Assert：恰一个元素，字段集合精确 {type, thinking}
+    assert_eq!(arr.len(), 1, "应恰有一个块");
+    let obj = arr[0].as_object().expect("应为对象");
+    let mut keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["thinking", "type"], "字段集合必须精确: {obj:?}");
+    assert_eq!(obj["thinking"], "思考内容");
+    assert!(
+        !obj.contains_key("duration_ms"),
+        "duration_ms 不得泄漏: {obj:?}"
+    );
+
+    // 不支持 thinking 的 provider：应被过滤为空
+    let out2 = ChatOpenAI::content_to_openai(&mc, false);
+    assert!(
+        out2.as_array().map(|a| a.is_empty()).unwrap_or(true),
+        "不支持的 provider 应过滤 reasoning，实际: {out2:?}"
+    );
+}

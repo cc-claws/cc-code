@@ -2069,3 +2069,125 @@ fn test_steering_snapshot_preserves_entire_current_round() {
     );
     assert_eq!(actual.len(), 3);
 }
+
+// ── 改动 B：消息区「思考 + 只读工具计数」 ──────────────────────────
+
+/// 构造带 reasoning 的 assistant 消息 + 其后跟若干工具结果
+fn make_ai_with_tools(tools: &[(&str, &str)]) -> Vec<BaseMessage> {
+    let mut tool_calls = Vec::new();
+    for (i, &(name, arg)) in tools.iter().enumerate() {
+        tool_calls.push(ToolCallRequest {
+            id: format!("tc{i}"),
+            name: name.to_string(),
+            arguments: if name == "Bash" {
+                json!({ "command": arg })
+            } else if name == "Glob" || name == "Grep" {
+                json!({ "pattern": arg })
+            } else {
+                json!({ "file_path": arg })
+            },
+        });
+    }
+    let mut msgs = vec![
+        BaseMessage::human("查一下"),
+        BaseMessage::Ai {
+            id: peri_agent::messages::MessageId::new(),
+            content: MessageContent::blocks(vec![ContentBlock::Reasoning {
+                text: "先看看文件".to_string(),
+                signature: None,
+                duration_ms: Some(4000),
+            }]),
+            tool_calls: tool_calls.clone(),
+        },
+    ];
+    for tc in &tool_calls {
+        msgs.push(BaseMessage::Tool {
+            id: peri_agent::messages::MessageId::new(),
+            tool_call_id: tc.id.clone(),
+            content: MessageContent::text("结果"),
+            is_error: false,
+        });
+    }
+    msgs
+}
+
+/// 提取首个 Reasoning block 的 action_summary
+fn first_action_summary(vms: &[MessageViewModel]) -> Option<String> {
+    for vm in vms {
+        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+            for b in blocks {
+                if let ContentBlockView::Reasoning { action_summary, .. } = b {
+                    return action_summary.clone();
+                }
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn test_action_summary_injected_for_read_and_grep() {
+    // Arrange：一个 Read + 一个 Grep（均只读）
+    let msgs = make_ai_with_tools(&[("Read", "/a.rs"), ("Grep", "todo")]);
+
+    // Act
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
+
+    // Assert
+    assert_eq!(
+        first_action_summary(&vms).as_deref(),
+        Some("read 1 file, searched for 1 pattern"),
+        "应注入 Read/Grep 计数"
+    );
+}
+
+#[test]
+fn test_action_summary_plural_and_glob() {
+    // Arrange：两个 Read + 两个 Glob
+    let msgs = make_ai_with_tools(&[
+        ("Read", "/a.rs"),
+        ("Read", "/b.rs"),
+        ("Glob", "*.rs"),
+        ("Glob", "*.md"),
+    ]);
+
+    // Act
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
+
+    // Assert
+    assert_eq!(
+        first_action_summary(&vms).as_deref(),
+        Some("read 2 files, listed 2 directories"),
+        "复数形式应正确"
+    );
+}
+
+#[test]
+fn test_bash_not_counted_as_readonly() {
+    // Arrange：只有 Bash（不属只读工具）
+    let msgs = make_ai_with_tools(&[("Bash", "ls")]);
+
+    // Act
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
+
+    // Assert：无只读工具 → 不注入
+    assert_eq!(first_action_summary(&vms), None, "Bash 不应产生计数");
+}
+
+#[test]
+fn test_readonly_action_summary_pure_fn() {
+    use super::transform::readonly_action_summary;
+    assert_eq!(readonly_action_summary(0, 0, 0), None);
+    assert_eq!(
+        readonly_action_summary(1, 0, 0).as_deref(),
+        Some("read 1 file")
+    );
+    assert_eq!(
+        readonly_action_summary(0, 1, 0).as_deref(),
+        Some("listed 1 directory")
+    );
+    assert_eq!(
+        readonly_action_summary(0, 0, 2).as_deref(),
+        Some("searched for 2 patterns")
+    );
+}

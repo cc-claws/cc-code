@@ -262,6 +262,11 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 ## 测试编写风格
 
 - 注释、断言消息用中文；命名 `test_<被测对象>_<场景>`
+- ⚠️ **测试函数/测试 helper 命名必须全英文 `snake_case`，禁止任何中文字符**（含中英混排，如 `test_bash不参与只读计数`、`test_begin_thinking_幂等_…` 一律禁止）。`<被测对象>` 与 `<场景>` 均用英文短语，词间 `_` 分隔
+- **命名风格基准**（定死，禁止缩写、禁止中文场景词）：
+  - `test_parse_and_reserialize_thinking_with_tool_use`
+  - `test_reasoning_deserialize_legacy_data_without_duration`
+  - `make_ai_with_tools`（Mock/helper 用 `make_` 英文前缀）
 - Arrange-Act-Assert，无空行分隔
 - 断言优先 `assert_eq!`/`assert!`，`.unwrap()` 仅用于构造测试数据
 - Mock 命名 `make_` 前缀（函数），`Mock` 前缀（结构体），不跨文件共享

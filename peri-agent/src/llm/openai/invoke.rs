@@ -23,7 +23,9 @@ fn block_to_openai_part(block: &ContentBlock, supports_thinking_content: bool) -
         // ToolUse / ToolResult 在 assistant / tool 角色消息中处理，此处跳过
         ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. } => None,
         // Reasoning: 仅在 provider 支持 thinking content type 时回传
-        ContentBlock::Reasoning { text, signature } if supports_thinking_content => {
+        ContentBlock::Reasoning {
+            text, signature, ..
+        } if supports_thinking_content => {
             let mut obj = json!({ "type": "thinking", "thinking": text });
             if let Some(sig) = signature {
                 obj["signature"] = json!(sig);

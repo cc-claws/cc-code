@@ -557,7 +557,6 @@ impl App {
     }
 
     pub fn set_loading(&mut self, loading: bool) {
-        let responding_label = self.services.lc.tr("spinner-responding");
         // 同步当前 session 的动词列表（覆盖 setup wizard 等非 /lang 路径的语言变更）
         let verb_list =
             peri_widgets::spinner::verb::verbs_for_lang(self.services.lc.current_lang());
@@ -566,10 +565,11 @@ impl App {
         s.ui.loading = loading;
         if loading {
             s.ui.textarea = build_textarea(true);
-            s.spinner_state.set_mode_with_label(
-                peri_widgets::SpinnerMode::Responding,
-                Some(responding_label),
-            );
+            // 方案 A：回合开始，随机选定一个动词，整轮固定
+            s.spinner_state.reset_thinking_tracking();
+            s.spinner_state.pick_round_verb();
+            s.spinner_state
+                .set_mode_keep_verb(peri_widgets::SpinnerMode::Responding);
             self.refresh_terminal_title();
         } else {
             s.spinner_state.set_mode(peri_widgets::SpinnerMode::Idle);
