@@ -2,6 +2,14 @@
 
 use std::sync::Arc;
 
+// ─── ACP 协议类型（别名与 peri 内部同名类型区分）─────────────────────────
+use agent_client_protocol::schema::{
+    ContentBlock as AcpBlock, ContentChunk, SessionId as AcpSessionId, SessionNotification,
+    SessionUpdate, TextContent, ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+};
+use agent_client_protocol::{Client, ConnectionTo};
+use peri_agent::messages::{BaseMessage, ContentBlock as PeriContentBlock, MessageContent};
+
 // ─── ACP Stdio 类型 ──────────────────────────────────────────────────────
 
 struct SessionInfo {
@@ -261,10 +269,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
             },
         },
     };
-    use peri_agent::{
-        agent::AgentCancellationToken,
-        messages::{ContentBlock as PeriContentBlock, MessageContent},
-    };
+    use peri_agent::agent::AgentCancellationToken;
 
     let ctx_clone = ctx.clone();
 
@@ -290,7 +295,12 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         Ok(id) => id,
                         Err(e) => {
                             tracing::error!(error = %e, "Thread creation failed");
-                            let _ = responder.respond(NewSessionResponse::new(SessionId::new("error")));
+                            // 协议要求以 JSON-RPC 错误结束请求；返回伪造的 sessionId 会让
+                            // 客户端把无效会话当成合法会话继续使用。
+                            let _ = responder.respond_with_error(
+                                agent_client_protocol::Error::internal_error()
+                                    .data(format!("Thread creation failed: {e}")),
+                            );
                             return Ok(());
                         }
                     };
@@ -394,25 +404,16 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 let ctx = ctx_clone.clone();
                 async move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
                     let sid = req.session_id.0.to_string();
-                    // Convert ACP SDK ContentBlocks to peri-agent MessageContent
-                    let content = if req.prompt.is_empty() {
-                        MessageContent::text("")
-                    } else {
-                        let blocks: Vec<PeriContentBlock> = req.prompt.iter().filter_map(|b| {
-                            match b {
-                                agent_client_protocol::schema::ContentBlock::Text(t) => {
-                                    Some(PeriContentBlock::text(t.text.as_str()))
-                                }
-                                agent_client_protocol::schema::ContentBlock::Image(img) => {
-                                    Some(PeriContentBlock::image_base64(&img.mime_type, &img.data))
-                                }
-                                _ => None, // Audio/ResourceLink/Resource not supported yet
-                            }
-                        }).collect();
-                        if blocks.is_empty() {
-                            MessageContent::text("")
-                        } else {
-                            MessageContent::Blocks(blocks)
+                    // Convert ACP SDK ContentBlocks to peri-agent MessageContent.
+                    // Text / Image / ResourceLink / Resource 均有映射；未声明能力的类型
+                    // 直接报错，避免「整条 prompt 被过滤成空消息」。
+                    let content = match prompt_content_from_acp(&req.prompt) {
+                        Ok(content) => content,
+                        Err(e) => {
+                            let _ = responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(e),
+                            );
+                            return Ok(());
                         }
                     };
 
@@ -428,7 +429,11 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 s.frozen.clone(),
                             ),
                             None => {
-                                let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
+                                // 未知会话必须报错，返回 EndTurn 会让客户端以为「已回复」。
+                                let _ = responder.respond_with_error(
+                                    agent_client_protocol::Error::invalid_params()
+                                        .data(format!("session not found: {sid}")),
+                                );
                                 return Ok(());
                             }
                         }
@@ -732,6 +737,9 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         &frozen_date,
                         peri_acp::session::frozen::rule_model_from(&ctx.provider.read()),
                     );
+                    // 与 session/load 的区别：resume 必须恢复会话上下文但**不回放**历史。
+                    // 读取必须先于加锁（parking_lot guard 不能跨 await 持有）。
+                    let history = dispatch::load_session_messages(ctx.thread_store.as_ref(), &sid).await;
                     let mut sessions = ctx.sessions.write();
                     if !sessions.contains_key(&sid) {
                         sessions.insert(
@@ -740,14 +748,17 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 session_id: sid.clone(),
                                 thread_id: sid.clone(),
                                 cwd,
-                                history: Vec::new(),
+                                history,
                                 cancel_token: None,
                                 frozen: Some(frozen_data),
                                 agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
                         tracing::info!(session_id = %sid, "Session resumed (new)");
-                    } else {
+                    } else if let Some(s) = sessions.get_mut(&sid) {
+                        if s.history.is_empty() {
+                            s.history = history;
+                        }
                         tracing::info!(session_id = %sid, "Session resumed (existing)");
                     }
                     let _ = responder.respond(ResumeSessionResponse::new());
@@ -782,6 +793,10 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         ctx.thread_store.as_ref(),
                         &sid,
                     ).await;
+
+                    // 规范要求：Agent 必须在响应 session/load 之前，用 session/update
+                    // 通知把整个会话回放给 Client。顺序不能颠倒。
+                    replay_history(&cx, &req.session_id, &history);
 
                     // Insert into sessions if not already present
                     {
@@ -859,13 +874,19 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         Ok(h) => h,
                         Err(e) => {
                             tracing::warn!(session_id = %source_id, error = %e, "session/fork: source session not found");
-                            let _ = responder.respond(ForkSessionResponse::new(SessionId::new("error")));
+                            let _ = responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params()
+                                    .data(format!("source session not found: {source_id}")),
+                            );
                             return Ok(());
                         }
                     };
 
                     if source_history.is_empty() {
-                        let _ = responder.respond(ForkSessionResponse::new(SessionId::new("error")));
+                        let _ = responder.respond_with_error(
+                            agent_client_protocol::Error::invalid_params()
+                                .data(format!("source session has no history: {source_id}")),
+                        );
                         return Ok(());
                     }
 
@@ -879,7 +900,10 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         Ok((id, msgs)) => (id, msgs),
                         Err(e) => {
                             tracing::error!(error = %e, "session/fork: fork failed");
-                            let _ = responder.respond(ForkSessionResponse::new(SessionId::new("error")));
+                            let _ = responder.respond_with_error(
+                                agent_client_protocol::Error::internal_error()
+                                    .data(format!("fork failed: {e}")),
+                            );
                             return Ok(());
                         }
                     };
@@ -1011,3 +1035,174 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("ACP error: {e}"))
 }
+
+// ─── ACP 内容转换 / 历史回放辅助函数 ────────────────────────────────────────
+
+/// 将 ACP `session/prompt` 的内容块转换为 peri 内部消息内容。
+///
+/// 规范基线要求 Agent 至少支持 `Text` 与 `ResourceLink`；`Image` 由
+/// `promptCapabilities.image` 声明。未声明能力的类型返回错误而不是静默丢弃——
+/// 静默丢弃会让「只带一个 resource link 的 prompt」退化成空消息。
+fn prompt_content_from_acp(blocks: &[AcpBlock]) -> Result<MessageContent, String> {
+    if blocks.is_empty() {
+        return Ok(MessageContent::text(""));
+    }
+
+    let mut converted = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        match block {
+            AcpBlock::Text(t) => converted.push(PeriContentBlock::text(t.text.as_str())),
+            AcpBlock::Image(img) => {
+                converted.push(PeriContentBlock::image_base64(&img.mime_type, &img.data))
+            }
+            AcpBlock::ResourceLink(link) => {
+                converted.push(PeriContentBlock::text(render_resource_link(link)))
+            }
+            AcpBlock::Resource(res) => {
+                converted.push(PeriContentBlock::text(render_embedded_resource(res)))
+            }
+            AcpBlock::Audio(_) => {
+                return Err(
+                    "audio content block is not supported (promptCapabilities.audio is false)"
+                        .to_string(),
+                )
+            }
+            // ContentBlock 是 #[non_exhaustive]，未来新增类型同样显式报错
+            other => return Err(format!("unsupported content block: {other:?}")),
+        }
+    }
+    Ok(MessageContent::Blocks(converted))
+}
+
+/// 把 `ResourceLink` 渲染成引用文本，交由 agent 用 Read 工具自行取内容。
+fn render_resource_link(link: &agent_client_protocol::schema::ResourceLink) -> String {
+    let label = link.title.as_deref().unwrap_or(link.name.as_str());
+    match link.mime_type.as_deref() {
+        Some(mime) => format!("@{label} ({mime}, {})", link.uri),
+        None => format!("@{label} ({})", link.uri),
+    }
+}
+
+/// 把内嵌资源渲染成文本：文本资源直接内联，二进制资源只保留引用与类型说明。
+fn render_embedded_resource(res: &agent_client_protocol::schema::EmbeddedResource) -> String {
+    use agent_client_protocol::schema::EmbeddedResourceResource as Res;
+    match &res.resource {
+        Res::TextResourceContents(t) => format!("@{} (embedded)\n{}", t.uri, t.text),
+        Res::BlobResourceContents(b) => {
+            format!(
+                "@{} (embedded binary omitted, base64 {} chars)",
+                b.uri,
+                b.blob.len()
+            )
+        }
+        // EmbeddedResourceResource 是 #[non_exhaustive]
+        other => format!("[embedded resource omitted: {other:?}]"),
+    }
+}
+
+/// 把 ThreadStore 中的历史消息回放为 `session/update` 通知。
+///
+/// 规范要求 `session/load` 在响应之前把整个会话回放给 Client
+/// （`/protocol/v1/session-setup#loading-a-session`）。
+fn replay_history(cx: &ConnectionTo<Client>, session_id: &AcpSessionId, history: &[BaseMessage]) {
+    for message in history {
+        for update in history_message_updates(message) {
+            let notif = SessionNotification::new(session_id.clone(), update);
+            if let Err(e) = cx.send_notification(notif) {
+                tracing::warn!(error = %e, "session/load: aborted history replay");
+                return;
+            }
+        }
+    }
+}
+
+/// 单条历史消息 → `session/update` 列表。
+///
+/// System 消息是内部提示词状态，不回放；图片/文档块不回放（文本足以恢复上下文语义）。
+fn history_message_updates(message: &BaseMessage) -> Vec<SessionUpdate> {
+    let mut updates: Vec<SessionUpdate> = Vec::new();
+    match message {
+        BaseMessage::Human { .. } => {
+            for block in message.content_blocks() {
+                if let PeriContentBlock::Text { text } = block {
+                    if text.is_empty() {
+                        continue;
+                    }
+                    updates.push(SessionUpdate::UserMessageChunk(ContentChunk::new(
+                        AcpBlock::Text(TextContent::new(text.to_string())),
+                    )));
+                }
+            }
+        }
+        BaseMessage::Ai { tool_calls, .. } => {
+            // content 里的 ToolUse block 与 tool_calls 字段可能指向同一次调用，
+            // 用 id 去重，避免回放出重复的工具卡片。
+            let mut seen: Vec<String> = Vec::new();
+            for block in message.content_blocks() {
+                match block {
+                    PeriContentBlock::Text { text } => {
+                        if text.is_empty() {
+                            continue;
+                        }
+                        updates.push(SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                            AcpBlock::Text(TextContent::new(text.to_string())),
+                        )));
+                    }
+                    PeriContentBlock::Reasoning { text, .. } => {
+                        updates.push(SessionUpdate::AgentThoughtChunk(ContentChunk::new(
+                            AcpBlock::Text(TextContent::new(text)),
+                        )));
+                    }
+                    PeriContentBlock::ToolUse { id, name, input } => {
+                        seen.push(id.clone());
+                        updates.push(SessionUpdate::ToolCall(history_tool_call(
+                            &id, &name, &input,
+                        )));
+                    }
+                    _ => {}
+                }
+            }
+            for call in tool_calls {
+                if seen.contains(&call.id) {
+                    continue;
+                }
+                updates.push(SessionUpdate::ToolCall(history_tool_call(
+                    &call.id,
+                    &call.name,
+                    &call.arguments,
+                )));
+            }
+        }
+        BaseMessage::Tool {
+            tool_call_id,
+            content,
+            is_error,
+            ..
+        } => {
+            updates.push(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                tool_call_id.clone(),
+                ToolCallUpdateFields::new()
+                    .status(if *is_error {
+                        ToolCallStatus::Failed
+                    } else {
+                        ToolCallStatus::Completed
+                    })
+                    .raw_output(Some(serde_json::Value::String(content.text_content()))),
+            )));
+        }
+        BaseMessage::System { .. } => {}
+    }
+    updates
+}
+
+/// 历史工具调用 → `ToolCall`。回放的一定是已结束的调用，故状态取 `Completed`
+/// （`kind` 留空，由 Client 按标题推断）。
+fn history_tool_call(id: &str, name: &str, input: &serde_json::Value) -> ToolCall {
+    ToolCall::new(id.to_string(), name.to_string())
+        .status(ToolCallStatus::Completed)
+        .raw_input(Some(input.clone()))
+}
+
+#[cfg(test)]
+#[path = "acp_stdio_test.rs"]
+mod tests;
