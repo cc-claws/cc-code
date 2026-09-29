@@ -1202,7 +1202,11 @@ pub fn render_view_model_with_links(
                 } else {
                     theme::TEXT_SOFT
                 };
-                let border_color = if state.is_error { theme::ERROR } else { theme::DIM };
+                let border_color = if state.is_error {
+                    theme::ERROR
+                } else {
+                    theme::DIM
+                };
                 // 详细模式显示完整内容；非详细模式：Bash 只显示前 3 行摘要（PRD §2.4），其余工具 20 行
                 let max_lines = if detail_mode {
                     usize::MAX
@@ -1227,9 +1231,7 @@ pub fn render_view_model_with_links(
                             lines.push(Line::from(vec![
                                 Span::styled("    ", Style::default().fg(border_color)),
                                 Span::styled(
-                                    format!(
-                                        "... ({remaining} more lines) (ctrl+o to expand)"
-                                    ),
+                                    format!("... ({remaining} more lines) (ctrl+o to expand)"),
                                     Style::default().fg(theme::DIM),
                                 ),
                             ]));
@@ -1254,7 +1256,11 @@ pub fn render_view_model_with_links(
                 lines.extend(error_summary_lines(
                     content,
                     width,
-                    if detail_mode { usize::MAX } else { ERROR_SUMMARY_MAX_LINES },
+                    if detail_mode {
+                        usize::MAX
+                    } else {
+                        ERROR_SUMMARY_MAX_LINES
+                    },
                 ));
             }
             // Read 工具折叠态：显示行数摘要
@@ -1421,7 +1427,11 @@ pub fn render_view_model_with_links(
                             lines.extend(error_summary_lines(
                                 result,
                                 width,
-                                if detail_mode { usize::MAX } else { ERROR_SUMMARY_MAX_LINES },
+                                if detail_mode {
+                                    usize::MAX
+                                } else {
+                                    ERROR_SUMMARY_MAX_LINES
+                                },
                             ));
                         }
                     }
@@ -1746,7 +1756,11 @@ pub fn render_view_model_with_links(
                         lines.extend(error_summary_lines(
                             &entry.content,
                             width,
-                            if detail_mode { usize::MAX } else { ERROR_SUMMARY_MAX_LINES },
+                            if detail_mode {
+                                usize::MAX
+                            } else {
+                                ERROR_SUMMARY_MAX_LINES
+                            },
                         ));
                     }
                 }

@@ -43,9 +43,9 @@ impl App {
             p.approve_all();
             self.session_mgr.current_mut().agent.pending_hitl_items =
                 Some(p.items.iter().map(|item| item.tool_name.clone()).collect());
-            let approved = p.approved.clone();
+            let choices = p.choices.clone();
             p.confirm();
-            self.send_acp_hitl_response(&approved);
+            self.send_acp_hitl_response(&choices);
             self.refresh_terminal_title();
         }
     }
@@ -62,9 +62,9 @@ impl App {
             p.reject_all();
             self.session_mgr.current_mut().agent.pending_hitl_items =
                 Some(p.items.iter().map(|item| item.tool_name.clone()).collect());
-            let approved = p.approved.clone();
+            let choices = p.choices.clone();
             p.confirm();
-            self.send_acp_hitl_response(&approved);
+            self.send_acp_hitl_response(&choices);
             self.refresh_terminal_title();
         }
     }
@@ -80,9 +80,9 @@ impl App {
         {
             self.session_mgr.current_mut().agent.pending_hitl_items =
                 Some(p.items.iter().map(|item| item.tool_name.clone()).collect());
-            let approved = p.approved.clone();
+            let choices = p.choices.clone();
             p.confirm();
-            self.send_acp_hitl_response(&approved);
+            self.send_acp_hitl_response(&choices);
             self.refresh_terminal_title();
         }
     }
@@ -91,7 +91,7 @@ impl App {
     ///
     /// ACP sends one `RequestPermission` per approval item sequentially,
     /// so there's exactly one pending request id and one decision.
-    fn send_acp_hitl_response(&mut self, approved: &[bool]) {
+    fn send_acp_hitl_response(&mut self, choices: &[ApprovalChoice]) {
         let acp_client = match self.acp_client {
             Some(ref c) => c.clone(),
             None => return,
@@ -107,13 +107,14 @@ impl App {
             None => return,
         };
         // ACP broker sends one item per RequestPermission, so index 0 is the decision.
-        let is_approved = approved.first().copied().unwrap_or(false);
-        let response = if is_approved {
-            RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
-                SelectedPermissionOutcome::new("allow_once"),
-            ))
-        } else {
+        let choice = choices.first().copied().unwrap_or(ApprovalChoice::Reject);
+        let response = if let ApprovalChoice::Reject = choice {
             RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled)
+        } else {
+            // 三态映射到 ACP option id：allow_once / allow_always
+            RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
+                SelectedPermissionOutcome::new(choice.option_id()),
+            ))
         };
         let response_value = serde_json::to_value(&response).unwrap_or_else(|e| {
             tracing::error!(error = %e, "Failed to serialize RequestPermissionResponse");

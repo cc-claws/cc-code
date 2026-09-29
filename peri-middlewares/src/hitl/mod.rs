@@ -15,10 +15,12 @@ use crate::tool_search::core_tools::{
     TOOL_AGENT, TOOL_BASH, TOOL_EDIT, TOOL_WEBFETCH, TOOL_WEBSEARCH, TOOL_WRITE,
 };
 
+pub mod approval_memory;
 pub mod auto_classifier;
 pub mod jev;
 pub mod shared_mode;
 
+pub use approval_memory::ApprovalMemory;
 pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
 pub use jev::{GateDecision, JevGate, JevRules};
 pub use peri_agent::hitl::{BatchItem, HitlDecision};
@@ -90,6 +92,9 @@ pub struct HumanInTheLoopMiddleware {
     auto_classifier: Option<Arc<dyn AutoClassifier>>,
     /// Auto 模式的 Jev 语义门（优先使用；不可用时回退 auto_classifier）
     jev_gate: Option<Arc<JevGate>>,
+    /// 审批记忆（路径级，会话作用域）。同 `(工具, 路径)` 一经批准即免问，
+    /// 规避语义门对绝对路径反复弹窗的抖动。`None` 时不启用记忆。
+    approval_memory: Option<Arc<ApprovalMemory>>,
 }
 
 impl HumanInTheLoopMiddleware {
@@ -104,6 +109,7 @@ impl HumanInTheLoopMiddleware {
             mode: None,
             auto_classifier: None,
             jev_gate: None,
+            approval_memory: None,
         }
     }
 
@@ -115,6 +121,7 @@ impl HumanInTheLoopMiddleware {
             mode: None,
             auto_classifier: None,
             jev_gate: None,
+            approval_memory: None,
         }
     }
 
@@ -144,6 +151,29 @@ impl HumanInTheLoopMiddleware {
             mode: Some(mode),
             auto_classifier,
             jev_gate,
+            approval_memory: None,
+        }
+    }
+
+    /// 创建带共享权限模式 + 审批记忆的 HITL 中间件。
+    ///
+    /// `approval_memory` 由 session 层持有（middleware 每次 prompt 重建，
+    /// 记忆必须跨 prompt 存活）。命中记忆的 `(工具, 路径)` 直接放行，跳过语义判定。
+    pub fn with_shared_mode_and_memory(
+        broker: Arc<dyn UserInteractionBroker>,
+        requires_approval: fn(&str) -> bool,
+        mode: Arc<SharedPermissionMode>,
+        auto_classifier: Option<Arc<dyn AutoClassifier>>,
+        jev_gate: Option<Arc<JevGate>>,
+        approval_memory: Arc<ApprovalMemory>,
+    ) -> Self {
+        Self {
+            broker: Some(broker),
+            requires_approval,
+            mode: Some(mode),
+            auto_classifier,
+            jev_gate,
+            approval_memory: Some(approval_memory),
         }
     }
 
@@ -230,18 +260,28 @@ impl HumanInTheLoopMiddleware {
 
             // 无 mode 但有 broker → 收集后批量弹窗
             return self
-                .batch_broker_approve(broker, calls, i, &mut results)
+                .batch_broker_approve(
+                    broker,
+                    calls,
+                    i,
+                    &mut results,
+                    std::path::Path::new(state.cwd()),
+                )
                 .await;
         }
 
         results
     }
 
-    /// 通过 broker 请求用户审批单个工具调用
+    /// 通过 broker 请求用户审批单个工具调用。
+    ///
+    /// 用户**批准**后，把 `(工具, 路径)` 记入审批记忆，后续同类调用免问
+    /// （仅 `Approve` 记录；`Edit`/`Reject` 不记录）。
     async fn broker_approve(
         &self,
         broker: &Arc<dyn UserInteractionBroker>,
         tool_call: &ToolCall,
+        cwd: &std::path::Path,
     ) -> AgentResult<ToolCall> {
         let ctx = InteractionContext::Approval {
             items: vec![ApprovalItem {
@@ -261,6 +301,26 @@ impl HumanInTheLoopMiddleware {
                 source: None,
             },
         };
+        // 仅「本次会话同意」才记忆：`source == "session"` 表示用户在弹窗选了会话级放行。
+        // `once`（默认）不记忆——保持逐次批准语义；Reject/Edit/Respond 亦不记忆。
+        if let ApprovalDecision::Approve { source } = &decision {
+            if source.as_deref() == Some("session") {
+                if let Some(memory) = &self.approval_memory {
+                    if let Some(fp) = ApprovalMemory::fingerprint(
+                        &effective_tool_name(&tool_call.name, &tool_call.input),
+                        tool_call
+                            .input
+                            .get("file_path")
+                            .or_else(|| tool_call.input.get("path"))
+                            .and_then(|v| v.as_str())
+                            .map(std::path::Path::new),
+                        cwd,
+                    ) {
+                        memory.record(fp);
+                    }
+                }
+            }
+        }
         apply_decision(tool_call, decision)
     }
 
@@ -274,6 +334,28 @@ impl HumanInTheLoopMiddleware {
         match mode.load() {
             PermissionMode::Bypass => Ok(tool_call.clone()),
             PermissionMode::AutoMode => {
+                // 审批记忆：同 `(工具, 路径)` 一经批准即免问（路径级、会话作用域）。
+                // 放在语义判定之前短路，规避模型对绝对路径打分的抖动导致的反复弹窗。
+                if let Some(memory) = &self.approval_memory {
+                    if let Some(fp) = ApprovalMemory::fingerprint(
+                        &effective_tool_name(&tool_call.name, &tool_call.input),
+                        tool_call
+                            .input
+                            .get("file_path")
+                            .or_else(|| tool_call.input.get("path"))
+                            .and_then(|v| v.as_str())
+                            .map(std::path::Path::new),
+                        std::path::Path::new(state.cwd()),
+                    ) {
+                        if memory.is_approved(&fp) {
+                            tracing::debug!(
+                                tool = %tool_call.name,
+                                "命中审批记忆，跳过判定直接放行"
+                            );
+                            return Ok(tool_call.clone());
+                        }
+                    }
+                }
                 if let Some(call) = self.build_gate_call(state, tool_call) {
                     if let Some(gate) = &self.jev_gate {
                         // 确定性层**先跑，且不依赖判定凭据**。
@@ -281,12 +363,24 @@ impl HumanInTheLoopMiddleware {
                         // 绝不该因为"没配 key"或"判定服务挂了"就一起失效。
                         gate.ensure_rules_loaded().await;
                         if let Some(decision) = gate.deterministic(&call) {
-                            return self.apply_gate_decision(decision, tool_call).await;
+                            return self
+                                .apply_gate_decision(
+                                    decision,
+                                    tool_call,
+                                    std::path::Path::new(state.cwd()),
+                                )
+                                .await;
                         }
                         // 语义层：只有配置了凭据才发请求；否则落到下面的旧分类器兜底
                         if gate.has_judge() {
                             let decision = gate.evaluate_semantic(&call).await;
-                            return self.apply_gate_decision(decision, tool_call).await;
+                            return self
+                                .apply_gate_decision(
+                                    decision,
+                                    tool_call,
+                                    std::path::Path::new(state.cwd()),
+                                )
+                                .await;
                         }
                         tracing::debug!(
                             tool = %tool_call.name,
@@ -295,7 +389,8 @@ impl HumanInTheLoopMiddleware {
                     }
                 }
                 // 兜底：旧 LLM 分类器
-                self.auto_mode_fallback(tool_call).await
+                self.auto_mode_fallback(tool_call, std::path::Path::new(state.cwd()))
+                    .await
             }
         }
     }
@@ -305,6 +400,7 @@ impl HumanInTheLoopMiddleware {
         &self,
         decision: GateDecision,
         tool_call: &ToolCall,
+        cwd: &std::path::Path,
     ) -> AgentResult<ToolCall> {
         match decision {
             GateDecision::Allow { rationale } => {
@@ -317,7 +413,7 @@ impl HumanInTheLoopMiddleware {
                 reason: rationale,
             }),
             GateDecision::Ask { rationale } => match &self.broker {
-                Some(broker) => self.broker_approve(broker, tool_call).await,
+                Some(broker) => self.broker_approve(broker, tool_call, cwd).await,
                 None => Err(AgentError::ToolRejected {
                     tool: tool_call.name.clone(),
                     reason: format!("{rationale}\n（当前没有可用的确认通道，因此默认拒绝）"),
@@ -327,7 +423,11 @@ impl HumanInTheLoopMiddleware {
     }
 
     /// Auto 模式兜底：无 Jev 门或 Jev 不可用时的旧 LLM 分类器路径。
-    async fn auto_mode_fallback(&self, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+    async fn auto_mode_fallback(
+        &self,
+        tool_call: &ToolCall,
+        cwd: &std::path::Path,
+    ) -> AgentResult<ToolCall> {
         match &self.auto_classifier {
             Some(classifier) => {
                 let result = classifier.classify(&tool_call.name, &tool_call.input).await;
@@ -338,7 +438,7 @@ impl HumanInTheLoopMiddleware {
                         reason: "Auto 模式：分类器拒绝".to_string(),
                     }),
                     Classification::Unsure => match &self.broker {
-                        Some(broker) => self.broker_approve(broker, tool_call).await,
+                        Some(broker) => self.broker_approve(broker, tool_call, cwd).await,
                         None => Err(AgentError::ToolRejected {
                             tool: tool_call.name.clone(),
                             reason: "Auto 模式：分类器不确定且无 broker".to_string(),
@@ -347,7 +447,7 @@ impl HumanInTheLoopMiddleware {
                 }
             }
             None => match &self.broker {
-                Some(broker) => self.broker_approve(broker, tool_call).await,
+                Some(broker) => self.broker_approve(broker, tool_call, cwd).await,
                 None => Err(AgentError::ToolRejected {
                     tool: tool_call.name.clone(),
                     reason: "Auto 模式：无分类器且无 broker".to_string(),
@@ -363,6 +463,7 @@ impl HumanInTheLoopMiddleware {
         calls: &[ToolCall],
         start_idx: usize,
         initial_results: &mut Vec<AgentResult<ToolCall>>,
+        cwd: &std::path::Path,
     ) -> Vec<AgentResult<ToolCall>> {
         let mut results: Vec<AgentResult<ToolCall>> = std::mem::take(initial_results);
 
@@ -409,6 +510,24 @@ impl HumanInTheLoopMiddleware {
                     reason: "用户拒绝".to_string(),
                     source: None,
                 });
+                // 与单次路径一致：仅「本次会话同意」写入审批记忆
+                if let ApprovalDecision::Approve { source } = &decision {
+                    if source.as_deref() == Some("session") {
+                        if let Some(memory) = &self.approval_memory {
+                            if let Some(fp) = ApprovalMemory::fingerprint(
+                                &effective_tool_name(&call.name, &call.input),
+                                call.input
+                                    .get("file_path")
+                                    .or_else(|| call.input.get("path"))
+                                    .and_then(|v| v.as_str())
+                                    .map(std::path::Path::new),
+                                cwd,
+                            ) {
+                                memory.record(fp);
+                            }
+                        }
+                    }
+                }
                 results.push(apply_decision(call, decision));
             } else {
                 results.push(Ok(call.clone()));
@@ -452,7 +571,8 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
         };
 
         // 4. 无 mode 但有 broker → 原有弹窗审批逻辑
-        self.broker_approve(broker, tool_call).await
+        self.broker_approve(broker, tool_call, std::path::Path::new(state.cwd()))
+            .await
     }
 }
 

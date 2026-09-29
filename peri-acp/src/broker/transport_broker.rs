@@ -61,6 +61,11 @@ impl AcpTransportBroker {
 
             let options = vec![
                 PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
+                PermissionOption::new(
+                    "allow_always",
+                    "Allow for this session",
+                    PermissionOptionKind::AllowAlways,
+                ),
                 PermissionOption::new("reject_once", "Reject", PermissionOptionKind::RejectOnce),
             ];
 
@@ -189,7 +194,14 @@ fn map_permission_response(resp: RequestPermissionResponse) -> ApprovalDecision 
         RequestPermissionOutcome::Selected(selected) => {
             let SelectedPermissionOutcome { option_id, .. } = selected;
             match option_id.0.as_ref() {
-                "allow_once" | "allow_always" => ApprovalDecision::Approve { source: None },
+                // `source` 携带放行作用域：`once` 逐次批准、`session` 本会话免问。
+                // 中间件据此决定是否写入 ApprovalMemory。
+                "allow_once" => ApprovalDecision::Approve {
+                    source: Some("once".to_string()),
+                },
+                "allow_always" => ApprovalDecision::Approve {
+                    source: Some("session".to_string()),
+                },
                 _ => ApprovalDecision::Reject {
                     reason: format!("User selected {option_id}"),
                     source: None,
