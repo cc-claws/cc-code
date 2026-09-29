@@ -336,3 +336,60 @@ fn test_message_content_text_content_from_raw() {
     ]);
     assert_eq!(mc.text_content(), "hello world");
 }
+
+// ── duration_ms 字段（PRD：消息区 Thought for Ns）──────────────────
+
+/// 真实历史数据回归：旧 reasoning block **无 duration_ms** 字段，
+/// 反序列化必须成功且 `duration_ms == None`（不 panic、优雅降级）。
+///
+/// 夹具取自真实 threads.db（`{"type":"reasoning","text":...,"signature":""}`）。
+#[test]
+fn test_reasoning_deserialize_legacy_data_without_duration() {
+    let raw = r#"{"type":"reasoning","text":"The user just typed \"1\".","signature":""}"#;
+    let block: ContentBlock = serde_json::from_str(raw).expect("旧数据必须能反序列化");
+    match block {
+        ContentBlock::Reasoning {
+            text, duration_ms, ..
+        } => {
+            assert_eq!(text, "The user just typed \"1\".", "text 不应丢失");
+            assert_eq!(duration_ms, None, "缺失字段应降级为 None");
+        }
+        other => panic!("应解析为 Reasoning，实际: {other:?}"),
+    }
+}
+
+/// 新数据：带 duration_ms 的 round-trip（写入 → 读出保持一致）。
+#[test]
+fn test_reasoning_serde_roundtrip_with_duration() {
+    // Arrange
+    let block = ContentBlock::reasoning_with_duration("思考内容", 4200);
+
+    // Act
+    let json = serde_json::to_string(&block).expect("序列化");
+    let back: ContentBlock = serde_json::from_str(&json).expect("反序列化");
+
+    // Assert：往返一致 + 字段存在
+    assert!(
+        json.contains("\"duration_ms\":4200"),
+        "序列化应包含 duration_ms，实际: {json}"
+    );
+    match back {
+        ContentBlock::Reasoning {
+            text, duration_ms, ..
+        } => {
+            assert_eq!(text, "思考内容");
+            assert_eq!(duration_ms, Some(4200));
+        }
+        other => panic!("应解析为 Reasoning，实际: {other:?}"),
+    }
+}
+
+/// 无耗时的 reasoning（`reasoning()` 构造器）序列化时**不应**出现 duration_ms 字段。
+#[test]
+fn test_reasoning_serialize_omits_duration_when_none() {
+    let json = serde_json::to_string(&ContentBlock::reasoning("x")).expect("序列化");
+    assert!(
+        !json.contains("duration_ms"),
+        "None 时不应输出该字段，实际: {json}"
+    );
+}

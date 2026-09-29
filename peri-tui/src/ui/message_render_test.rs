@@ -638,11 +638,12 @@
             .map(|idx| format!("line {idx:02}"))
             .collect::<Vec<_>>()
             .join("\n");
+        // 用非 Bash 工具验证通用截断行为（20 行）；Bash 另有 3 行摘要规则，见下一个测试
         let vm = MessageViewModel::ToolBlock {
-            tool_name: "Bash".to_string(),
+            tool_name: "Grep".to_string(),
             tool_call_id: "tc_long".to_string(),
-            display_name: "Bash".to_string(),
-            args_display: Some("printf long output".to_string()),
+            display_name: "Grep".to_string(),
+            args_display: Some("pattern".to_string()),
             content,
             is_error: false,
             collapsed: false,
@@ -680,6 +681,53 @@
     }
 
     #[test]
+    fn test_bash_non_detail_mode_shows_first_three_lines() {
+        use crate::app::MessageViewModel;
+        // Arrange：Bash 输出 10 行，非详细模式
+        let content = (0..10)
+            .map(|idx| format!("line {idx:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "bash3".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("cmd".to_string()),
+            content,
+            is_error: false,
+            collapsed: false,
+            color: crate::ui::theme::SAGE,
+            diff_input: None,
+            started_at: None,
+            content_hash: 0,
+        };
+
+        // Act
+        let normal_text = render_view_model(&vm, Some(1), 80, false, 0)
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        let detail_text = render_view_model(&vm, Some(1), 80, true, 0)
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Assert：非详细模式仅前 3 行 + 提示；详细模式完整
+        assert!(normal_text.contains("line 02"), "非详细模式应显示前 3 行");
+        assert!(
+            !normal_text.contains("line 03"),
+            "非详细模式应截断第 4 行起，实际: {normal_text}"
+        );
+        assert!(
+            normal_text.contains("... (7 more lines)"),
+            "应显示剩余行数提示，实际: {normal_text}"
+        );
+        assert!(detail_text.contains("line 09"), "详细模式应显示完整输出");
+    }
+
+    #[test]
     fn test_tool_call_group_error_visible_when_collapsed() {
         use crate::app::MessageViewModel;
         use crate::ui::message_view::{ToolCategory, ToolEntry};
@@ -704,6 +752,7 @@
             ],
             collapsed: true,
             content_hash: 0,
+            standalone_action: None,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
         let text: String = lines
@@ -740,6 +789,7 @@
             }],
             collapsed: true,
             content_hash: 0,
+            standalone_action: None,
         };
 
         let detail_text = render_view_model(&vm, Some(1), 80, true, 0)
@@ -769,6 +819,7 @@
             }],
             collapsed: true,
             content_hash: 0,
+            standalone_action: None,
         };
 
         let detail_text = rendered_text(&render_view_model(&vm, Some(1), 80, true, 0));
@@ -798,6 +849,7 @@
             }],
             collapsed: true,
             content_hash: 0,
+            standalone_action: None,
         };
 
         let detail_text = rendered_text(&render_view_model(&vm, Some(1), 80, true, 0));
@@ -961,7 +1013,7 @@
     }
 
     #[test]
-    fn test_parse_exit_code_非零退出码() {
+    fn test_parse_exit_code_nonzero_exit_code() {
         assert_eq!(parse_exit_code("[Exit code: 1]"), Some(1));
         assert_eq!(parse_exit_code("[Exit code: 42]"), Some(42));
         assert_eq!(parse_exit_code("[Exit code: 127]"), Some(127));
@@ -969,12 +1021,12 @@
     }
 
     #[test]
-    fn test_parse_exit_code_零退出码() {
+    fn test_parse_exit_code_zero_exit_code() {
         assert_eq!(parse_exit_code("[Exit code: 0]"), Some(0));
     }
 
     #[test]
-    fn test_parse_exit_code_空输出格式() {
+    fn test_parse_exit_code_empty_output_format() {
         assert_eq!(
             parse_exit_code("[Command completed with exit code 1]"),
             Some(1)
@@ -986,13 +1038,13 @@
     }
 
     #[test]
-    fn test_parse_exit_code_混合内容() {
+    fn test_parse_exit_code_mixed_content() {
         let content = "hello world\n[stderr]\nsome error\n[Exit code: 1]";
         assert_eq!(parse_exit_code(content), Some(1));
     }
 
     #[test]
-    fn test_parse_exit_code_无退出码() {
+    fn test_parse_exit_code_no_exit_code() {
         assert_eq!(parse_exit_code("just some output"), None);
         assert_eq!(parse_exit_code(""), None);
     }
@@ -1053,7 +1105,7 @@
     }
 
     #[test]
-    fn test_non_bash_tool_不受exit_code影响() {
+    fn test_non_bash_tool_exit_code() {
         use crate::app::MessageViewModel;
         // Read 工具内容碰巧包含 "[Exit code: 1]"，不应被误判
         let vm = MessageViewModel::ToolBlock {
@@ -1092,7 +1144,7 @@ fn make_colored_span(content: &str, fg: Color) -> Span<'static> {
 }
 
 #[test]
-fn test_dim_markdown_lines_空文本() {
+fn test_dim_markdown_lines_empty_text() {
     let input = Text::raw("");
     let result = dim_markdown_lines(input);
     assert_eq!(result.len(), 1);
@@ -1100,7 +1152,7 @@ fn test_dim_markdown_lines_空文本() {
 }
 
 #[test]
-fn test_dim_markdown_lines_无前景色span设为dim() {
+fn test_dim_markdown_lines_no_fg_span_set_dim() {
     let input = Text::from(vec![Line::from(vec![
         Span::raw("hello"),
         Span::raw(" world"),
@@ -1113,7 +1165,7 @@ fn test_dim_markdown_lines_无前景色span设为dim() {
 }
 
 #[test]
-fn test_dim_markdown_lines_有前景色span加dim修饰() {
+fn test_dim_markdown_lines_with_fg_span_add_dim() {
     let input = Text::from(vec![Line::from(vec![
         make_colored_span("keyword", Color::Red),
         make_colored_span("string", Color::Green),
@@ -1127,7 +1179,7 @@ fn test_dim_markdown_lines_有前景色span加dim修饰() {
 }
 
 #[test]
-fn test_dim_markdown_lines_多行保留结构() {
+fn test_dim_markdown_lines_multiline_keeps_structure() {
     let input = Text::from(vec![
         Line::from(vec![Span::raw("line1")]),
         Line::from(vec![Span::raw("line2")]),
@@ -1142,7 +1194,7 @@ fn test_dim_markdown_lines_多行保留结构() {
 }
 
 #[test]
-fn test_dim_markdown_lines_混合有色无色span() {
+fn test_dim_markdown_lines_span() {
     let input = Text::from(vec![Line::from(vec![
         Span::raw("plain"),
         make_colored_span("colored", Color::Yellow),
@@ -1158,7 +1210,7 @@ fn test_dim_markdown_lines_混合有色无色span() {
 }
 
 #[test]
-fn test_dim_markdown_lines_内容不变() {
+fn test_dim_markdown_lines_content_unchanged() {
     let input = Text::from(vec![Line::from(vec![
         Span::raw("hello "),
         make_colored_span("world", Color::Cyan),
@@ -1247,7 +1299,7 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
 }
 
 #[test]
-fn test_render_user_bubble_长段落续行悬挂缩进() {
+fn test_render_user_bubble_long_paragraph_hanging_indent() {
     let long_text = "这是一条很长的用户消息用于验证普通段落超宽折行后续行是否悬挂缩进对齐首行文字起始位置内容持续填充直到必然超过四十列终端宽度限制为止";
     let vm = MessageViewModel::user(long_text.to_string());
     let width = 40;
@@ -1281,7 +1333,7 @@ fn test_render_user_bubble_长段落续行悬挂缩进() {
 }
 
 #[test]
-fn test_render_assistant_text_长段落续行悬挂缩进() {
+fn test_render_assistant_text_long_paragraph_hanging_indent() {
     let long_text = "**结论先行**：这是一段很长的AI回复内容用于验证普通段落超宽折行后续行是否悬挂缩进对齐首行文字起始位置内容持续填充直到必然超过四十列终端宽度限制为止";
     let mut vm = MessageViewModel::assistant();
     if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
@@ -1527,7 +1579,7 @@ fn test_render_recap_line_color_hierarchy() {
     fn test_error_summary_long_line_wraps_with_hanging_indent() {
         let content = "Tool execution failed: Grep - Invalid arguments for tool Grep:\nUnexpected parameter 'command' was provided (allowed parameters: [\"-A\", \"-B\", \"-C\", \"-i\", \"-n\", \"fixed_strings\", \"glob\", \"output_mode\", \"path\", \"pattern\", \"type\", \"whole_word\"])";
         let width = 80usize;
-        let text_lines: Vec<String> = error_summary_lines(content, width)
+        let text_lines: Vec<String> = error_summary_lines(content, width, usize::MAX)
             .iter()
             .map(line_plain_text)
             .collect();
@@ -1666,6 +1718,7 @@ fn test_render_recap_line_color_hierarchy() {
             }],
             collapsed: true,
             content_hash: 0,
+            standalone_action: None,
         };
         assert!(
             max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -1692,10 +1745,12 @@ fn test_render_recap_line_color_hierarchy() {
             "{{\n  \"args\": {{}},\n  \"data\": \"data:application/octet-stream;base64,{blob}\",\n  \"files\": {{}}\n}}"
         );
         let width = 48usize;
+        // 用非 Bash 工具：本测试验证缩进保留（通用渲染逻辑），
+        // Bash 另有「非详细模式仅前 3 行」规则会截断本用例
         let vm = MessageViewModel::ToolBlock {
-            tool_name: "Bash".to_string(),
+            tool_name: "Grep".to_string(),
             tool_call_id: "indent".to_string(),
-            display_name: "Bash".to_string(),
+            display_name: "Grep".to_string(),
             args_display: None,
             content,
             is_error: false,
@@ -1741,3 +1796,42 @@ fn test_render_recap_line_color_hierarchy() {
             "data 续行应保留等宽缩进: {cont:?}"
         );
     }
+
+/// 非详细模式下，超长错误摘要须限制行数（避免污染页面）。
+#[test]
+fn test_error_summary_limited_in_normal_mode() {
+    // Arrange：10 行错误
+    let content: String = (0..10)
+        .map(|i| format!("error line {i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let width = 80usize;
+
+    // Act：非详细模式（上限 3）
+    let normal: Vec<String> = error_summary_lines(&content, width, 3)
+        .iter()
+        .map(line_plain_text)
+        .collect();
+
+    // Assert：最多 3 行 + 1 行提示
+    assert!(
+        normal.len() <= 4,
+        "非详细错误摘要应限行（≤3 行 + 提示），实际 {} 行: {normal:?}",
+        normal.len()
+    );
+    assert!(
+        normal.iter().any(|l| l.contains("more lines")),
+        "应显示剩余行提示，实际: {normal:?}"
+    );
+    assert!(
+        !normal.iter().any(|l| l.contains("error line 09")),
+        "不应显示第 10 行，实际: {normal:?}"
+    );
+
+    // 详细模式（usize::MAX）：完整
+    let detail: Vec<String> = error_summary_lines(&content, width, usize::MAX)
+        .iter()
+        .map(line_plain_text)
+        .collect();
+    assert_eq!(detail.len(), 10, "详细模式应显示全部 10 行");
+}

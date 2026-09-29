@@ -51,30 +51,21 @@ impl App {
                 is_background,
             } => self.handle_subagent_start(agent_id, instance_id, task_preview, is_background),
             AgentEvent::SubagentLifecycle {
-                agent_name,
+                agent_name: _,
                 started,
             } => {
                 if started {
-                    // SubAgent 实际开始执行：更新 spinner 为工具使用模式
-                    let verb = format!("Agent: {}", agent_name);
+                    // SubAgent 实际开始执行：切换为工具使用模式（方案 A：verb 保持整轮固定）
                     self.session_mgr
                         .current_mut()
                         .spinner_state
-                        .set_mode(peri_widgets::SpinnerMode::ToolUse);
-                    self.session_mgr
-                        .current_mut()
-                        .spinner_state
-                        .set_verb(Some(&verb));
+                        .set_mode_keep_verb(peri_widgets::SpinnerMode::ToolUse);
                 } else {
-                    // SubAgent 执行结束：恢复 spinner 为响应模式
-                    let thinking_label = self.services.lc.tr("spinner-thinking");
+                    // SubAgent 执行结束：恢复 spinner 为响应模式（verb 不变）
                     self.session_mgr
                         .current_mut()
                         .spinner_state
-                        .set_mode_with_label(
-                            peri_widgets::SpinnerMode::Responding,
-                            Some(thinking_label),
-                        );
+                        .set_mode_keep_verb(peri_widgets::SpinnerMode::Responding);
                 }
                 // 触发 rebuild 刷新 SubAgentGroup 卡片显示
                 self.request_rebuild();
@@ -94,14 +85,11 @@ impl App {
                     .saturating_sub(1);
                 // 如果所有 SubAgent 已完成，恢复 spinner 到思考模式
                 if self.session_mgr.current_mut().agent.subagent_depth == 0 {
-                    let thinking_label = self.services.lc.tr("spinner-thinking");
+                    // 所有 SubAgent 完成：恢复为响应模式（方案 A：verb 不变）
                     self.session_mgr
                         .current_mut()
                         .spinner_state
-                        .set_mode_with_label(
-                            peri_widgets::SpinnerMode::Responding,
-                            Some(thinking_label),
-                        );
+                        .set_mode_keep_verb(peri_widgets::SpinnerMode::Responding);
                 }
                 // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
                 let actions = self
@@ -196,24 +184,13 @@ impl App {
                     agent.running_tools.push(active.clone());
                     agent.active_tool = Some(active);
                 }
-                // 跨切面：spinner
+                // 跨切面：spinner —— 思考段结束，进入工具执行
+                // 方案 A（verb 整轮固定）：keep_verb，保持一次性选定的动词
+                self.session_mgr.current_mut().spinner_state.end_thinking();
                 self.session_mgr
                     .current_mut()
                     .spinner_state
-                    .set_mode(peri_widgets::SpinnerMode::ToolUse);
-                let verb_text = if !args.is_empty() {
-                    let summary: String = super::tool_display::sanitize_display_text(&args)
-                        .chars()
-                        .take(40)
-                        .collect();
-                    format!("{} {}", display, summary)
-                } else {
-                    format!("{}…", display)
-                };
-                self.session_mgr
-                    .current_mut()
-                    .spinner_state
-                    .set_verb(Some(&verb_text));
+                    .set_mode_keep_verb(peri_widgets::SpinnerMode::ToolUse);
                 // Pipeline：创建 ToolBlock / 路由进 SubAgentGroup
                 let actions = self
                     .session_mgr
@@ -290,14 +267,13 @@ impl App {
                 self.session_mgr.current_mut().agent.retry_status = None;
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 // 跨切面：spinner
-                let responding_label = self.services.lc.tr("spinner-responding");
+                // 跨切面：spinner —— 思考段结束（开始输出文本）
+                // 方案 A：verb 整轮固定，此处只切模式不改词
+                self.session_mgr.current_mut().spinner_state.end_thinking();
                 self.session_mgr
                     .current_mut()
                     .spinner_state
-                    .set_mode_with_label(
-                        peri_widgets::SpinnerMode::Responding,
-                        Some(responding_label),
-                    );
+                    .set_mode_keep_verb(peri_widgets::SpinnerMode::Responding);
                 // Pipeline：路由到 SubAgentGroup 或父 Agent AssistantBubble
                 let actions = self
                     .session_mgr
@@ -386,6 +362,16 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::AiReasoning(text) => {
+                // 跨切面：进入思考段（幂等；重复 reasoning chunk 不重置起点）
+                // 方案 A：verb 保持整轮固定，仅切 mode 到 Thinking
+                self.session_mgr
+                    .current_mut()
+                    .spinner_state
+                    .begin_thinking();
+                self.session_mgr
+                    .current_mut()
+                    .spinner_state
+                    .set_mode_keep_verb(peri_widgets::SpinnerMode::Thinking);
                 let actions = self
                     .session_mgr
                     .current_mut()

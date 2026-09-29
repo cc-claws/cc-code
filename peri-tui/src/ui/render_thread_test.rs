@@ -644,6 +644,7 @@ async fn test_toggle_detail_reconcile_path_preserves_content() {
         ContentBlock::Reasoning {
             text: "这是思考过程的内容，比较长的一段 reasoning 文本。".to_string(),
             signature: None,
+            duration_ms: None,
         },
     ]));
 

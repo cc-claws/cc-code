@@ -37,6 +37,12 @@ pub struct SpinnerState {
     last_summary_done_at: Option<std::time::SystemTime>,
     /// 随机动词列表（按语言选择）
     verb_list: &'static [&'static str],
+    /// 当前思考段起点。None = 不在思考段中
+    thinking_started_at: Option<Instant>,
+    /// 上一段思考耗时（ms）。0 = 本回合尚无已结束的思考段
+    last_thought_ms: u64,
+    /// 本回合第几段思考（从 1 开始计）。用于 `thinking more` 判定
+    thinking_round: u32,
 }
 
 impl SpinnerState {
@@ -54,6 +60,9 @@ impl SpinnerState {
             last_summary_verb: String::new(),
             last_summary_done_at: None,
             verb_list,
+            thinking_started_at: None,
+            last_thought_ms: 0,
+            thinking_round: 0,
         }
     }
 
@@ -93,6 +102,23 @@ impl SpinnerState {
         self.verb = verb::pick_verb_from(active_form, self.verb_list);
     }
 
+    /// 方案 A：回合开始时随机选定一个动词，整轮固定。
+    pub fn pick_round_verb(&mut self) {
+        self.verb = verb::pick_round_verb(self.verb_list);
+    }
+
+    /// 切换模式但**保留当前 verb**（方案 A 用：工具/回复/思考切换时不换词）。
+    /// 进入 `Idle` 时不保留（Idle 无 verb）；其余模式恢复选中词。
+    pub fn set_mode_keep_verb(&mut self, mode: SpinnerMode) {
+        if mode == SpinnerMode::Idle {
+            self.set_mode_with_label(SpinnerMode::Idle, None);
+            return;
+        }
+        let saved_verb = self.verb.clone();
+        self.set_mode_with_label(mode, None);
+        self.verb = saved_verb;
+    }
+
     /// 设置随机动词列表（按语言切换时调用）
     pub fn set_verb_list(&mut self, verb_list: &'static [&'static str]) {
         self.verb_list = verb_list;
@@ -114,6 +140,58 @@ impl SpinnerState {
 
     pub fn elapsed_ms(&self) -> u64 {
         self.start_time.elapsed().as_millis() as u64
+    }
+
+    // ── 思考段追踪（Thinking 状态行用）──────────────────────────────
+
+    /// 进入一段新的思考。重复调用（已在思考中）**不重置起点**，
+    /// 避免流式 reasoning chunk 反复到达时把计时清零。
+    /// 仅当从「非思考」切换到「思考」时，递增 `thinking_round`。
+    pub fn begin_thinking(&mut self) {
+        if self.thinking_started_at.is_none() {
+            self.thinking_started_at = Some(Instant::now());
+            self.thinking_round += 1;
+        }
+    }
+
+    /// 结束当前思考段，把耗时记入 `last_thought_ms`。
+    /// 若不在思考中则无操作（幂等）。
+    pub fn end_thinking(&mut self) {
+        if let Some(start) = self.thinking_started_at.take() {
+            self.last_thought_ms = start.elapsed().as_millis() as u64;
+        }
+    }
+
+    /// 是否正处于思考段中
+    pub fn is_thinking(&self) -> bool {
+        self.thinking_started_at.is_some()
+    }
+
+    /// 当前思考段已持续毫秒数。不在思考中返回 0。
+    pub fn thinking_elapsed_ms(&self) -> u64 {
+        self.thinking_started_at
+            .map(|t| t.elapsed().as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    /// 上一段已结束的思考耗时（ms）。0 = 本回合尚无已结束的思考段。
+    pub fn last_thought_ms(&self) -> u64 {
+        self.last_thought_ms
+    }
+
+    /// 本回合第几段思考（从 1 开始）。0 = 尚未开始任何思考段。
+    /// `>= 2` 表示「本轮已产出过、再次思考」。
+    pub fn thinking_round(&self) -> u32 {
+        self.thinking_round
+    }
+
+    /// 重置思考追踪（回合开始时调用）：清空轮次与上一段耗时。
+    /// 注意：`reset()` 会做同样的事，但它同时清空 verb/mode；
+    /// 本方法只清思考追踪，不影响 verb（方案 A 的回合词）。
+    pub fn reset_thinking_tracking(&mut self) {
+        self.thinking_started_at = None;
+        self.last_thought_ms = 0;
+        self.thinking_round = 0;
     }
 
     pub fn tick(&self) -> u64 {
@@ -186,6 +264,9 @@ impl SpinnerState {
         self.last_summary_elapsed_ms = 0;
         self.last_summary_verb = String::new();
         self.last_summary_done_at = None;
+        self.thinking_started_at = None;
+        self.last_thought_ms = 0;
+        self.thinking_round = 0;
     }
 }
 
@@ -317,5 +398,102 @@ mod tests {
         assert_eq!(state.last_summary_elapsed_ms(), 25_000);
         assert_eq!(state.last_summary_verb(), "Cooked");
         assert_eq!(state.last_summary_done_at(), Some(done_at));
+    }
+
+    #[test]
+    fn test_begin_thinking_is_idempotent() {
+        // Arrange
+        let mut state = SpinnerState::new(SpinnerMode::Idle);
+        assert!(!state.is_thinking(), "初始不应在思考中");
+        assert_eq!(state.thinking_round(), 0);
+
+        // Act：连续三次 begin（模拟流式 reasoning chunk 反复到达）
+        state.begin_thinking();
+        let first_start = state.thinking_started_at;
+        state.begin_thinking();
+        state.begin_thinking();
+
+        // Assert：起点不变、轮次只加一次
+        assert!(state.is_thinking());
+        assert_eq!(state.thinking_round(), 1, "重复 begin 不应重复计数");
+        assert_eq!(
+            state.thinking_started_at, first_start,
+            "重复 begin 不应重置计时起点"
+        );
+    }
+
+    #[test]
+    fn test_end_thinking_records_duration_and_multiple_rounds() {
+        // Arrange
+        let mut state = SpinnerState::new(SpinnerMode::Responding);
+        assert_eq!(state.last_thought_ms(), 0);
+
+        // Act：第一段思考
+        state.begin_thinking();
+        std::thread::sleep(std::time::Duration::from_millis(12));
+        state.end_thinking();
+
+        // Assert：耗时被记录，轮次为 1，退出思考态
+        assert!(!state.is_thinking(), "end 后应退出思考态");
+        assert!(state.last_thought_ms() >= 10, "应记录第一段耗时");
+        assert_eq!(state.thinking_round(), 1);
+
+        // Act：第二段思考（模拟被打断后再次思考）
+        state.begin_thinking();
+
+        // Assert：轮次递增到 2（供 `thinking more` 判定）
+        assert_eq!(state.thinking_round(), 2, "第二段思考轮次应为 2");
+    }
+
+    #[test]
+    fn test_end_thinking_without_begin_is_noop() {
+        // Arrange：不在思考中
+        let mut state = SpinnerState::new(SpinnerMode::Idle);
+
+        // Act：直接 end（未 begin）
+        state.end_thinking();
+
+        // Assert：无副作用
+        assert_eq!(state.last_thought_ms(), 0);
+        assert_eq!(state.thinking_round(), 0);
+        assert!(!state.is_thinking());
+    }
+
+    #[test]
+    fn test_reset_clears_thinking_tracking() {
+        // Arrange：进入思考两轮
+        let mut state = SpinnerState::new(SpinnerMode::Responding);
+        state.begin_thinking();
+        state.end_thinking();
+        state.begin_thinking();
+        assert_eq!(state.thinking_round(), 2);
+
+        // Act
+        state.reset();
+
+        // Assert
+        assert_eq!(state.thinking_round(), 0);
+        assert_eq!(state.last_thought_ms(), 0);
+        assert!(!state.is_thinking());
+    }
+
+    #[test]
+    fn test_thinking_elapsed_ms_returns_zero_when_not_thinking() {
+        // Arrange
+        let mut state = SpinnerState::new(SpinnerMode::Idle);
+        assert_eq!(state.thinking_elapsed_ms(), 0);
+
+        // Act
+        state.begin_thinking();
+        std::thread::sleep(std::time::Duration::from_millis(12));
+
+        // Assert：思考中返回实际耗时
+        assert!(state.thinking_elapsed_ms() >= 10);
+
+        // Act：结束思考后
+        state.end_thinking();
+
+        // Assert：回到 0
+        assert_eq!(state.thinking_elapsed_ms(), 0);
     }
 }
