@@ -794,10 +794,7 @@ pub fn protected_path_reason(path: &Path, extra: &[String]) -> Option<String> {
     let lowered = normalized.to_lowercase();
     let segments: Vec<&str> = lowered.split('/').filter(|s| !s.is_empty()).collect();
     let base = segments.last().copied().unwrap_or("");
-    let base_original = normalized
-        .split('/')
-        .rfind(|s| !s.is_empty())
-        .unwrap_or("");
+    let base_original = normalized.split('/').rfind(|s| !s.is_empty()).unwrap_or("");
 
     for entry in extra {
         let e = entry.trim();

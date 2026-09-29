@@ -9,7 +9,7 @@ use ratatui::{
 use peri_widgets::BorderedPanel;
 
 use crate::{
-    app::{tool_display::sanitize_display_text, App},
+    app::{tool_display::sanitize_display_text, App, ApprovalChoice},
     ui::theme,
 };
 
@@ -44,23 +44,18 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
         let max_width = inner.width as usize;
 
         let mut lines: Vec<Line> = Vec::new();
-        for (i, (item, &approved)) in prompt.items.iter().zip(prompt.approved.iter()).enumerate() {
+        for (i, (item, &choice)) in prompt.items.iter().zip(prompt.choices.iter()).enumerate() {
             let is_cursor = i == prompt.cursor;
-            let (status_icon, status_color) = if approved {
-                ("✓", theme::SAGE)
-            } else {
-                ("✗", theme::ERROR)
+            let (status_icon, status_color, choice_label) = match choice {
+                ApprovalChoice::Once => ("✓", theme::SAGE, lc.tr("hitl-choice-once")),
+                ApprovalChoice::Session => ("✓✓", theme::SAGE, lc.tr("hitl-choice-session")),
+                ApprovalChoice::Reject => ("✗", theme::ERROR, lc.tr("hitl-choice-reject")),
             };
             let cursor_indicator = if is_cursor { "❯ " } else { "  " };
-            let approved_label = if approved {
-                lc.tr("hitl-approved")
-            } else {
-                lc.tr("hitl-rejected")
-            };
             lines.push(Line::styled(
                 format!(
                     "{}{} {}  {}",
-                    cursor_indicator, status_icon, item.tool_name, approved_label
+                    cursor_indicator, status_icon, item.tool_name, choice_label
                 ),
                 if is_cursor {
                     Style::default()
@@ -77,8 +72,8 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
             ]));
         }
         if item_count > 1 {
-            let approved_count = prompt.approved.iter().filter(|&&v| v).count() as i64;
-            let rejected_count = prompt.approved.iter().filter(|&&v| !v).count() as i64;
+            let approved_count = prompt.choices.iter().filter(|c| c.is_approved()).count() as i64;
+            let rejected_count = prompt.choices.len() as i64 - approved_count;
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 lc.tr_args(
@@ -91,6 +86,11 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
                 Style::default().fg(theme::MUTED),
             )));
         }
+        // 按键提示：Space 循环三态（一次性同意 / 本次会话同意 / 拒绝），Enter 提交
+        lines.push(Line::from(Span::styled(
+            lc.tr("hitl-key-hint"),
+            Style::default().fg(theme::DIM),
+        )));
         (prompt.scroll_offset, lines, inner, inner_height)
     };
 

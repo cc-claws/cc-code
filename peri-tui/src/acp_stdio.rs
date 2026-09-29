@@ -490,6 +490,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             vec![], // incoming_recalls
                             is_empty_history,
                             ctx_for_task.permission_mode.clone(),
+                            peri_middlewares::hitl::ApprovalMemory::new(),
                             event_sink,
                             cancel,
                             broker,

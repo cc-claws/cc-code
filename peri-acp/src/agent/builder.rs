@@ -68,6 +68,8 @@ pub struct AcpAgentConfig {
     pub event_handler: Arc<dyn AgentEventHandler>,
     pub cancel: AgentCancellationToken,
     pub permission_mode: Arc<SharedPermissionMode>,
+    /// 会话级审批记忆（路径级）：用户在弹窗选「本次会话同意」后免问。
+    pub approval_memory: Arc<peri_middlewares::hitl::ApprovalMemory>,
     pub peri_config: Arc<PeriConfig>,
     pub cron_scheduler: Option<Arc<parking_lot::Mutex<CronScheduler>>>,
     pub agent_overrides: Option<peri_middlewares::agent_define::AgentOverrides>,
@@ -145,6 +147,7 @@ pub fn build_agent(
         event_handler,
         cancel,
         permission_mode,
+        approval_memory,
         peri_config,
         cron_scheduler,
         agent_overrides,
@@ -277,12 +280,13 @@ pub fn build_agent(
             }
         };
 
-    let hitl = HumanInTheLoopMiddleware::with_shared_mode(
+    let hitl = HumanInTheLoopMiddleware::with_shared_mode_and_memory(
         effective_broker.clone(),
         default_requires_approval,
         permission_mode.clone(),
         auto_classifier,
         jev_gate,
+        approval_memory.clone(),
     );
 
     // AskUser 工具：使用原始 TUI broker（permission_broker），不使用 MultiplexBroker。

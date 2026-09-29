@@ -45,6 +45,9 @@ pub(crate) struct SessionState {
     pub(crate) recall_items: Vec<String>,
     /// Session-scoped agent component pool for reusing heavy objects across prompts.
     pub(crate) agent_pool: peri_acp::session::agent_pool::AgentPool,
+    /// 会话级审批记忆（路径级）：用户在弹窗选「本次会话同意」后，
+    /// 同一 (工具, 路径) 后续免问。随会话销毁自动丢弃。
+    pub(crate) approval_memory: Arc<peri_middlewares::hitl::ApprovalMemory>,
 }
 
 // ── Server config ────────────────────────────────────────────────────────────
