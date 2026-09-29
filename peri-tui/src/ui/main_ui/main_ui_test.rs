@@ -299,3 +299,34 @@ fn test_thinking_heat_color_four_levels() {
     // 终黄后不再变（超大耗时仍是 WARNING）
     assert_eq!(thinking_heat_color(999_000), theme::WARNING);
 }
+
+/// PRD §2.7：仅 `thinking` / `still thinking` / `thinking more` 随热度变色；
+/// `thought for Ns`（已完成态）始终 MUTED，不随热度。
+#[test]
+fn test_thinking_status_style_color_scope() {
+    use super::message_area::thinking_status_style;
+    let hot = theme::WARNING;
+    // 三个思考态词：随热度色
+    assert_eq!(
+        thinking_status_style("thinking", hot, false).fg,
+        Some(hot)
+    );
+    assert_eq!(
+        thinking_status_style("still thinking", hot, false).fg,
+        Some(hot)
+    );
+    assert_eq!(
+        thinking_status_style("thinking more", hot, false).fg,
+        Some(hot)
+    );
+    // 已完成态：始终 MUTED，与热度无关
+    assert_eq!(
+        thinking_status_style("thought for 4s", hot, false).fg,
+        Some(theme::MUTED)
+    );
+    // compact 特例：整体紫色，优先于 thought-for 判定
+    assert_eq!(
+        thinking_status_style("thought for 4s", hot, true).fg,
+        Some(theme::THINKING)
+    );
+}
