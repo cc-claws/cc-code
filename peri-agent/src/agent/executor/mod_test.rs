@@ -817,7 +817,7 @@ async fn test_stuck_cycling_thought_detected() {
     // 循环检测触发后应注入换策略提示 Human 消息
     let has_hint = state.messages().iter().any(|m| {
         if let BaseMessage::Human { content, .. } = m {
-            content.text_content().contains("重复的思考循环")
+            content.text_content().contains(STUCK_HINT)
         } else {
             false
         }
@@ -1529,4 +1529,71 @@ async fn test_set_notification_rx() {
         .await
         .unwrap();
     assert_eq!(output.text, "ok");
+}
+
+/// 空白 thinking（无 thinking 的模型在工具调用轮常返回 "\n"）不应被当作有效指纹，
+/// 否则逐轮相同的空白会被误判为思考循环
+#[tokio::test]
+async fn test_stuck_detection_skips_whitespace_only_thinking() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct WhitespaceThinkingLLM {
+        count: AtomicUsize,
+    }
+    #[async_trait::async_trait]
+    impl ReactLLM for WhitespaceThinkingLLM {
+        async fn generate_reasoning(
+            &self,
+            _messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> crate::error::AgentResult<Reasoning> {
+            let n = self.count.fetch_add(1, Ordering::SeqCst);
+            Ok(Reasoning::with_tools(
+                "\n",
+                vec![ToolCall::new(
+                    format!("id{n}"),
+                    "echo_tool",
+                    serde_json::json!({ "n": n }),
+                )],
+            ))
+        }
+    }
+
+    struct EchoTool;
+    #[async_trait::async_trait]
+    impl BaseTool for EchoTool {
+        fn name(&self) -> &str {
+            "echo_tool"
+        }
+        fn description(&self) -> &str {
+            "echoes"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({ "type": "object" })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("echo".to_string())
+        }
+    }
+
+    let agent = ReActAgent::new(WhitespaceThinkingLLM {
+        count: AtomicUsize::new(0),
+    })
+    .max_iterations(6)
+    .register_tool(Box::new(EchoTool));
+
+    let mut state = AgentState::new("/tmp");
+    let _ = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await;
+
+    let has_hint = state.messages().iter().any(|m| {
+        matches!(m, BaseMessage::Human { content, .. }
+            if content.text_content().contains(STUCK_HINT))
+    });
+    assert!(!has_hint, "空白 thinking 不应触发卡住检测");
 }

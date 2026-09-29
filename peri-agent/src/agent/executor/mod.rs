@@ -23,14 +23,24 @@ use std::collections::{HashMap, VecDeque};
 
 pub use tokio_util::sync::CancellationToken as AgentCancellationToken;
 
-/// 卡住检测：滑动窗口大小（轮）。覆盖约 2 个完整循环周期（典型循环 3-4 轮），
-/// 太小会误杀正常的"读→改→读"探索，太大则检测过慢浪费 token。
+/// 卡住检测：滑动窗口大小（轮）。窗口需能容纳两个完整的三轮循环周期
+/// （A→B→C→A→B→C→A 到第 7 轮达到阈值），太小会误杀正常的"读→改→读"探索，
+/// 太大则检测过慢浪费 token。
 const STUCK_WINDOW_SIZE: usize = 8;
 
 /// 卡住检测：窗口内同一 thinking 指纹重复出现次数阈值。
-/// 达到此值判定为循环（如 A→B→C→D→A→B→C→D 中 A 在 8 轮内出现 2 次，
-/// 但配合其他指纹的交叉重复，整体频率足以判定循环）。
+/// 语义是"窗口内累计出现"而非"连续出现"，因此 4 轮以上周期的循环
+/// （A→B→C→D→…）在 8 轮窗口内凑不满 3 次，不会被检测到。
 const STUCK_REPEAT_THRESHOLD: usize = 3;
+
+/// 卡住检测注入的换策略提示。
+///
+/// 用英文：agent 层没有 i18n（Fluent 在 peri-tui，分层上不可反向依赖），
+/// 且同文件 `tool_dispatch.rs` 的连续失败/schema 熔断/动作循环三条注入提示
+/// 均为英文；用户侧语言由 system prompt 的 "Respond in X" 段落保证。
+const STUCK_HINT: &str = "You seem stuck in a repetitive thinking loop. Stop the current approach \
+     and try a completely different strategy: use different tools, look at the problem from a \
+     different angle, or ask the user for more information.";
 
 #[allow(clippy::type_complexity)]
 /// Agent 执行器 - 管理 ReAct 循环
@@ -462,6 +472,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 改用滑动窗口（最近 STUCK_WINDOW_SIZE 轮）+ 频率检测
     /// （同一指纹累计出现 STUCK_REPEAT_THRESHOLD 次）。
     ///
+    /// 指纹按 trim 后判空：无 thinking 的模型常在工具调用轮返回 `"\n"`/`" "`，
+    /// 按原样入窗会因逐轮完全相同而被误判为思考循环。
+    ///
     /// 检测到循环时注入换策略 Human 消息，并返回 true 让主循环跳过
     /// 本轮工具执行，强制 agent 带着新提示重新思考，而非继续转圈。
     /// 注入后清空窗口，避免连续误触发。
@@ -472,12 +485,13 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         step: usize,
     ) -> bool {
         let fp = Self::thinking_fingerprint(reasoning);
+        let fp = fp.trim().to_string();
         if fp.is_empty() {
             return false;
         }
 
         // 统计当前指纹在窗口内已出现次数（不计本次）
-        let repeats = recent.iter().filter(|f| *f == &fp).count();
+        let repeats = recent.iter().filter(|f| f.as_str() == fp.as_str()).count();
 
         // 维护滑动窗口：超出容量则弹出最旧
         recent.push_back(fp);
@@ -493,10 +507,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 window = STUCK_WINDOW_SIZE,
                 "Agent 思考陷入循环模式，跳过本轮工具执行并注入换策略提示"
             );
-            state.add_message(BaseMessage::human(
-                "你似乎陷入了重复的思考循环。请停止当前方法，尝试完全不同的策略——\
-                 使用不同的工具、换一个分析角度、或向用户请求更多信息。",
-            ));
+            state.add_message(BaseMessage::human(STUCK_HINT));
             // 清空窗口，避免下一轮因残留指纹再次触发
             recent.clear();
             return true;
