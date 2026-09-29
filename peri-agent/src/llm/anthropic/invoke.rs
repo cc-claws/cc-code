@@ -68,7 +68,9 @@ fn block_to_anthropic(block: &ContentBlock) -> Option<Value> {
             }))
         }
         // thinking block 在 assistant 消息中由 Anthropic 生成，发送时透传
-        ContentBlock::Reasoning { text, signature } => {
+        ContentBlock::Reasoning {
+            text, signature, ..
+        } => {
             let mut obj = json!({ "type": "thinking", "thinking": text });
             if let Some(sig) = signature {
                 obj["signature"] = json!(sig);
@@ -247,11 +249,13 @@ pub(super) fn parse_content_blocks(
             Some("thinking") => {
                 let text = b["thinking"].as_str().unwrap_or("").to_string();
                 let signature = b["signature"].as_str().map(|s| s.to_string());
-                if let Some(sig) = signature {
-                    blocks.push(ContentBlock::reasoning_with_signature(text, sig));
-                } else {
-                    blocks.push(ContentBlock::reasoning(text));
-                }
+                // 流式阶段写入的 duration_ms（UI 展示用），非流式请求无此字段 → None
+                let duration_ms = b["duration_ms"].as_u64();
+                blocks.push(ContentBlock::Reasoning {
+                    text,
+                    signature,
+                    duration_ms,
+                });
             }
             Some("tool_use") => {
                 if let (Some(id), Some(name)) = (b["id"].as_str(), b["name"].as_str()) {

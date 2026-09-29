@@ -355,6 +355,15 @@ pub fn pick_verb_from(active_form: Option<&str>, verbs: &[&str]) -> String {
     })
 }
 
+/// 随机选取一个「进行式」动词并附省略号（如 `Thinking…`）。
+///
+/// 用于方案 A：回合开始时选定一个动词，整轮固定不变。
+/// 与 [`pick_verb_from`] 的 `None` 分支区别：此处**总是**加省略号。
+pub fn pick_round_verb(verbs: &[&str]) -> String {
+    let mut rng = rand::rng();
+    format!("{}…", verbs[rng.random_range(0..verbs.len())])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,6 +17,61 @@ use peri_middlewares::prelude::TodoStatus;
 
 use super::sticky_header;
 
+/// `still thinking` 触发阈值：同一段思考未中断且超过此秒数（见 PRD §2.2）
+pub(crate) const STILL_THINKING_SECS: u64 = 10;
+
+/// 配色档②（亮橙）触发秒数（见 PRD §2.7）
+pub(crate) const HEAT_LV2_SECS: u64 = 5;
+/// 配色档③（浅黄）触发秒数（见 PRD §2.7）
+pub(crate) const HEAT_LV3_SECS: u64 = 15;
+/// 配色档④（终黄）触发秒数（见 PRD §2.7）
+pub(crate) const HEAT_LV4_SECS: u64 = 30;
+
+/// spinner 第三字段（状态词）文案。空白表示不显示。
+///
+/// - `thinking`：正在思考且当前段未超阈
+/// - `still thinking`：正在思考且当前段超 [`STILL_THINKING_SECS`]（优先级最高）
+/// - `thinking more`：本轮已产出过、再次思考（`round >= 2`）
+/// - 空：不在思考段（工具执行 / 出文本）
+pub(crate) fn thinking_status_word(
+    is_thinking: bool,
+    thinking_elapsed_ms: u64,
+    round: u32,
+    last_thought_ms: u64,
+) -> String {
+    if !is_thinking {
+        // 状态②：思考段已结束（工具执行/出文本期间），定格显示上一段耗时
+        return if last_thought_ms > 0 {
+            format!("thought for {}s", (last_thought_ms / 1000).max(1))
+        } else {
+            String::new()
+        };
+    }
+    let word = if thinking_elapsed_ms / 1000 >= STILL_THINKING_SECS {
+        "still thinking"
+    } else if round >= 2 {
+        "thinking more"
+    } else {
+        "thinking"
+    };
+    word.to_string()
+}
+
+/// 按「当前思考段耗时」返回 verb / 状态词的热度色（四档，见 PRD §2.7）。
+/// 非思考段（工具执行）由调用方沿用上一档，此函数只按传入耗时计算。
+pub(crate) fn thinking_heat_color(thinking_elapsed_ms: u64) -> ratatui::style::Color {
+    let secs = thinking_elapsed_ms / 1000;
+    if secs >= HEAT_LV4_SECS {
+        theme::WARNING
+    } else if secs >= HEAT_LV3_SECS {
+        theme::SPINNER_HEAT_LV3
+    } else if secs >= HEAT_LV2_SECS {
+        theme::SPINNER_HEAT_LV2
+    } else {
+        theme::ACCENT
+    }
+}
+
 /// 视口裁剪结果
 struct ViewportClip {
     /// 裁剪后的可见行（含 spinner 和选区高亮）
@@ -57,10 +112,30 @@ pub(crate) fn render_messages(
         let tokens = session.spinner_state.displayed_tokens();
 
         let is_compact = verb.starts_with("压缩上下文");
+        // 第三字段：状态词（thinking / thinking more / still thinking / thought for Ns）
+        let status_word = thinking_status_word(
+            session.spinner_state.is_thinking(),
+            session.spinner_state.thinking_elapsed_ms(),
+            session.spinner_state.thinking_round(),
+            session.spinner_state.last_thought_ms(),
+        );
+        // 热度色：思考中用当前段耗时；工具/回复段沿用上一段（避免颜色回跳，见 PRD §2.7）
+        let heat_ms = if session.spinner_state.is_thinking() {
+            session.spinner_state.thinking_elapsed_ms()
+        } else {
+            session.spinner_state.last_thought_ms()
+        };
+        let heat = thinking_heat_color(heat_ms);
+        // verb 与状态词同色（热度）；compact 特例仍用紫色
         let accent = if is_compact {
             Style::default().fg(theme::THINKING)
         } else {
-            Style::default().fg(theme::ACCENT)
+            Style::default().fg(heat)
+        };
+        let status_style = if is_compact {
+            Style::default().fg(theme::THINKING)
+        } else {
+            Style::default().fg(heat)
         };
         let gray = Style::default().fg(theme::MUTED);
         let mut parts = vec![
@@ -70,6 +145,10 @@ pub(crate) fn render_messages(
         if tokens > 0 {
             let tokens_fmt = peri_widgets::spinner::animation::format_tokens(tokens);
             parts.push(Span::styled(format!(" · ↓ {tokens_fmt} tokens"), gray));
+        }
+        // 第三字段（状态词）紧随 tokens 之后，与 verb 同热度色
+        if !status_word.is_empty() {
+            parts.push(Span::styled(format!(" · {status_word}"), status_style));
         }
         parts.push(Span::styled(")", gray));
         Some(Line::from(parts))

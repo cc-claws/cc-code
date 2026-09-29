@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cc-code — 会话回放：Thinking 状态行 + 工具汇总（方案 A）</title>
+<style>
+  :root {
+    /* 色值对齐 peri-tui/src/ui/theme.rs（真实定义） */
+    --bg:#1e1e2e; --bg-surface:#242434; --bg-surface-2:#2a2a3a; --bg-surface-3:#333344;
+    --accent:#D77757;   /* peri ACCENT 暖橙 */
+    --sage:#4EBA65;     /* peri SAGE 绿（工具名） */
+    --error:#FF6B80;    /* peri ERROR 红 */
+    --warning:#FFC107;  /* peri WARNING 琥珀 */
+    --thinking:#A2A9E4; /* peri THINKING 紫（CoT） */
+    --text:#FFFFFF;     /* peri TEXT 纯白 */
+    --muted:#999999;    /* peri MUTED 浅灰（括号内容/辅助信息） */
+    --dim:#505050;      /* peri DIM 深灰（已完成/分隔） */
+    --border:#45475a;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Cascadia Code','Fira Code','JetBrains Mono','SF Mono',monospace;
+         background:var(--bg); color:var(--text); line-height:1.5; padding:32px 20px; }
+  .container { max-width:1000px; margin:0 auto; }
+  h1 { font-size:21px; color:var(--accent); margin-bottom:6px; font-weight:600; }
+  .subtitle { color:var(--muted); font-size:12.5px; margin-bottom:24px;
+              border-bottom:1px solid var(--border); padding-bottom:12px; }
+  .controls { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  button { background:var(--bg-surface-3); color:var(--text); border:1px solid var(--border);
+           padding:6px 13px; border-radius:6px; cursor:pointer; font-family:inherit; font-size:12.5px; }
+  button:hover { background:var(--border); }
+  button.active { background:var(--accent); color:#1e1e2e; border-color:var(--accent); font-weight:700; }
+  .clock { color:var(--muted); font-size:12.5px; margin-left:auto; }
+  .clock b { color:var(--warning); }
+  .speed { display:flex; gap:4px; align-items:center; color:var(--muted); font-size:12px; }
+  .badge { font-size:10.5px; padding:1px 6px; border-radius:4px; }
+  .badge.real { background:#2a3a2a; color:var(--sage); }
+  .badge.mock { background:#3a352a; color:var(--warning); }
+  .badge.tbd  { background:#3a2a2a; color:var(--error); }
+
+  .screen { background:#181825; border:1px solid var(--border); border-radius:8px;
+            overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.4); }
+  .screen-bar { background:var(--bg-surface-2); padding:7px 14px; font-size:11px;
+                color:var(--muted); border-bottom:1px solid var(--border);
+                display:flex; justify-content:space-between; }
+  .screen-body { padding:14px 18px; font-size:13.5px; line-height:1.72;
+                 height:440px; overflow:hidden; display:flex; flex-direction:column; }
+  .scroll { flex:1; overflow-y:auto; scrollbar-width:thin; }
+  .scroll::-webkit-scrollbar { width:8px; }
+  .scroll::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+
+  .msg { margin-bottom:10px; opacity:0; transform:translateY(4px); animation:pop .22s ease forwards; }
+  @keyframes pop { to { opacity:1; transform:none; } }
+  .user-line { color:var(--accent); }
+  .user-line .prompt { color:var(--sage); font-weight:700; }
+  .thought { color:var(--muted); font-style:italic; }
+  .toolhead .dot { color:var(--sage); }
+  .toolhead .name { color:var(--text); font-weight:600; }
+  .toolhead .cmd { color:var(--muted); }
+  .res { color:var(--dim); }
+  .dep { color:var(--muted); }
+  .err { color:var(--error); }
+
+  .spinner-row { display:flex; align-items:baseline; gap:2px; margin-top:8px;
+                 padding-top:8px; border-top:1px dashed var(--border); font-size:14px; min-height:26px;
+                 white-space:nowrap; overflow:hidden; }
+  /* 颜色规则（用户确认）：只有 verb 和「状态词」随时间变色；
+     elapsed / tokens / thought for Ns 始终 MUTED 灰。
+     ① 默认   → ACCENT 橙 #D77757
+     ② > 5s   → 亮橙 #EB9F7F
+     ③ > ?    → 浅黄
+     ④ > ?    → 最终黄 #FFC107（不再变）  阈值/色值部分为推测 */
+  .spinner-verb { color:var(--accent); transition:color .3s; }
+  .spinner-verb.lv-2 { color:#EB9F7F; }
+  .spinner-verb.lv-3 { color:#FFD966; }
+  .spinner-verb.lv-4 { color:#FFC107; }
+  .spinner-status.statword { color:var(--accent); transition:color .3s; }
+  .spinner-status.statword.lv-2 { color:#EB9F7F; }
+  .spinner-status.statword.lv-3 { color:#FFD966; }
+  .spinner-status.statword.lv-4 { color:#FFC107; }
+  .spinner-meta, .spinner-status { color:var(--muted); }
+  .spinner-frame { color:inherit; font-weight:700; width:1.4em; display:inline-block; }
+
+  h2 { font-size:14px; color:var(--accent); margin:28px 0 10px; font-weight:600; }
+  .note { color:var(--muted); font-size:12px; margin-bottom:10px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:12px; }
+  th,td { border:1px solid var(--border); padding:6px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--bg-surface-2); color:var(--accent); font-weight:600; }
+  td code { color:var(--sage); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>会话回放 — Thinking 状态行 + 工具汇总（方案 A）</h1>
+  <div class="subtitle">
+    真实数据来源：peri thread「订单解析报错」（<code>01a0ead8-…</code>）· 真实帧序列：<code>animation.rs BRAILLE_FRAMES</code><br>
+    <span class="badge real">真实</span> 命令/输出/行数取自数据库 ·
+    <span class="badge mock">模拟</span> 秒数与播放节奏 ·
+    <span class="badge tbd">待校准</span> still thinking 阈值（默认 10s）
+  </div>
+
+  <div class="controls">
+    <button id="playBtn" class="active">⏸ 暂停</button>
+    <button id="resetBtn">↺ 重播</button>
+    <div class="speed">速度
+      <button class="sp" data-mult="1">1×</button>
+      <button class="sp active" data-mult="2">2×</button>
+      <button class="sp" data-mult="4">4×</button>
+      <button class="sp" data-mult="8">8×</button>
+    </div>
+    <button id="skipReal">⏭ 跳到长思考段</button>
+    <span class="clock">t = <b id="clock">0.0s</b></span>
+  </div>
+  <div id="selfcheck" style="font-size:12px;color:#6c7086;margin-bottom:10px">自检：初始化中…</div>
+
+  <div class="screen">
+    <div class="screen-bar">
+      <span>◆ peri tui — 回放（非详细模式 · 改造后效果 · 方案 A：verb 整轮固定）</span>
+      <span id="prog">0 / 16 轮</span>
+    </div>
+    <div class="screen-body">
+      <div class="scroll" id="scroll"></div>
+      <div class="spinner-row" id="spinnerRow">
+        <span class="spinner-frame" id="frame">✵</span>
+        <span class="spinner-verb" id="verb">Thinking…</span>
+        <span class="spinner-meta" id="meta"> (0s</span>
+        <span class="spinner-meta" id="metaTokens"></span>
+        <span class="spinner-status" id="status"></span>
+        <span class="spinner-meta">)</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>verb 配色：时间驱动四档（请确认）</h2>
+  <div class="note">你的观察：颜色由<b>时间</b>驱动——默认系统色 → 约 5s 变色 → 黄色有<b>两档</b>（先浅后深）→ 最终黄不再变。peri 无此机制（已搜证），故为新增。映射如下：</div>
+  <table>
+    <tr><th>阶段</th><th>思考耗时</th><th>色值</th><th>预览</th><th>说明</th></tr>
+    <tr><td>① 默认</td><td>&lt; 5s</td><td><code>#D77757</code></td>
+        <td><span style="color:#D77757;font-weight:700">✵ Thinking…</span></td>
+        <td>peri ACCENT（系统橙）</td></tr>
+    <tr><td>② 变亮</td><td>5s ~ 15s</td><td><code>#EB9F7F</code></td>
+        <td><span style="color:#EB9F7F;font-weight:700">✵ Thinking…</span></td>
+        <td>你给的 235,159,127</td></tr>
+    <tr><td>③ 浅黄</td><td>15s ~ 30s</td><td><code>#FFD966</code></td>
+        <td><span style="color:#FFD966;font-weight:700">✵ Thinking…</span></td>
+        <td>浅黄（色值待定）</td></tr>
+    <tr><td>④ 最终黄</td><td>&gt; 30s</td><td><code>#FFC107</code></td>
+        <td><span style="color:#FFC107;font-weight:700">✵ Thinking…</span></td>
+        <td>peri WARNING；不再变</td></tr>
+  </table>
+  <div class="note">⚠️ 待确认：① <b>10s / 15s / 30s 这三个临界值都是我的推测</b>（只知首个约 5s）；② 浅黄的色值是我编的；③ 是否真的就这四档。</div>
+
+  <h2>这个回放演示了什么</h2>
+  <table>
+    <tr><th>元素</th><th>行为</th></tr>
+    <tr><td>verb</td><td><b>整轮固定</b> <code>Thinking…</code>（方案 A），思考/工具/输出全程不变</td></tr>
+    <tr><td>尾字段</td><td>随阶段变：<code>thinking</code> → <code>thought for Ns</code> → <code>thinking more</code> → <code>still thinking</code>（固定英文）</td></tr>
+    <tr><td>消息区思考行</td><td><code>Thought for Ns[, 只读工具计数]</code>（秒数替代 chars）</td></tr>
+    <tr><td>Bash</td><td>显示命令 + 输出前 3 行 + <code>... (N more lines)</code></td></tr>
+    <tr><td>只读工具</td><td>折叠为 <code>read N files</code> / <code>listed N directories</code></td></tr>
+  </table>
+  <div class="note">尾字段与消息区文案固定英文，不随界面语言切换。verb 走 i18n（en 显示 <code>Thinking…</code>）。</div>
+</div>
+
+<script>
+// ── 真实数据（取自 threads.db，命令/输出行数/思考字符数均为真实）──
+const DATA = [
+  {
+    "user": "有的用户写js 有的写java 有的用来维护服务器 等等最终还是的看用户的claude"
+  },
+  {
+    "reason": 4547,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "cd /d/code/cc-code && echo \"查看可用的 LLM 适配器与其构造方式\" && grep -n \"pub use\\|pub fn new\\|pub fn from_env\" peri-agent/src/llm/mod.rs | head -20 && echo \"=== openai 适配器构造 ===\" && grep -rn \"impl ChatOpenAI\" -A 20 peri-agent/src/llm/*.rs | grep -E \"fn new|fn from_env|provider_name|model_id\" | head -10",
+        "out_lines": 8,
+        "head": [
+          "查看可用的 LLM 适配器与其构造方式",
+          "12:pub use self::react_adapter::BaseModelReactLLM;",
+          "13:pub use self::retry::{RetryConfig, RetryableLLM};"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 0,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "cd /d/code/cc-code && echo \"ChatOpenAI 的构造入口\" && grep -n \"impl ChatOpenAI\" -A 40 peri-agent/src/llm/openai.rs | grep -E \"pub fn \" | head -12",
+        "out_lines": 4,
+        "head": [
+          "ChatOpenAI 的构造入口",
+          "",
+          "[stderr]"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 0,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "cd /d/code/cc-code && echo \"定位 openai 适配器文件并列出构造入口\" && find peri-agent/src/llm -name \"*.rs\" | head -20 && echo \"=== 构造入口 ===\" && grep -rn \"impl ChatOpenAI\" -A 45 peri-agent/src/llm/openai/ 2>/dev/null | grep -E \"pub fn \" | head -12",
+        "out_lines": 27,
+        "head": [
+          "定位 openai 适配器文件并列出构造入口",
+          "peri-agent/src/llm/adapter.rs",
+          "peri-agent/src/llm/adapter_test.rs"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 841,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "cd /d/code/cc-code && for v in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_MODEL OPENAI_API_KEY OPENAI_API_BASE OPENAI_MODEL MODEL_PROVIDER; do eval \"val=\\$$v\"; if [ -n \"$val\" ]; then echo \"$v = 已设置\"; else echo \"$v = 未设置\"; fi; done",
+        "out_lines": 7,
+        "head": [
+          "ANTHROPIC_API_KEY = 未设置",
+          "ANTHROPIC_BASE_URL = 未设置",
+          "ANTHROPIC_MODEL = 未设置"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 1881,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "cd /d/code/cc-code && echo \"settings.json 里配置了哪些 env 键(只看键名, 不显示值)\" && grep -oE '\"[A-Za-z_]+\"[[:space:]]*:' /c/Users/adim/.cc-code/settings.json | sort -u | head -40",
+        "out_lines": 40,
+        "head": [
+          "settings.json 里配置了哪些 env 键(只看键名, 不显示值)",
+          "\"JEV_API_KEY\":",
+          "\"JEV_ENDPOINT\":"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 2003,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "echo \"=== 各 CLAUDE.md 的字符数（提炼输入上限是 40000）===\" && for f in /d/code/nt_order/CLAUDE.md /d/code/nt_order/AGENTS.md /d/code/cc-code/CLAUDE.md; do if [ -f \"$f\" ]; then printf \"%-40s %s 字符\\n\" \"$f\" \"$(wc -m < \"$f\")\"; fi; done && echo \"=== nt_order hooks 合计 ===\" && cat /d/code/nt_order/.claude/hooks/*.sh | wc -m",
+        "out_lines": 6,
+        "head": [
+          "=== 各 CLAUDE.md 的字符数（提炼输入上限是 40000）===",
+          "/d/code/nt_order/CLAUDE.md               21603 字符",
+          "/d/code/nt_order/AGENTS.md               21603 字符"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 2439,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "echo \"=== cc-code 的全部规则来源（按优先级拼接，看是否超过 40000）===\" && for f in /d/code/cc-code/CLAUDE.local.md /d/code/cc-code/CLAUDE.md /d/code/cc-code/AGENTS.md /c/Users/adim/.claude/CLAUDE.md; do if [ -f \"$f\" ]; then printf \"%-45s %s 字符\\n\" \"$f\" \"$(wc -m < \"$f\")\"; else printf \"%-45s (不存在)\\n\" \"$f\"; fi; done && echo \"=== cc-code hooks ===\" && ls /d/code/cc-code/.claude/hooks/ 2>&1 | head -5 && cat /d/code/cc-code/.claude/hooks/*.sh 2>/dev/null | wc -m",
+        "out_lines": 8,
+        "head": [
+          "=== cc-code 的全部规则来源（按优先级拼接，看是否超过 40000）===",
+          "/d/code/cc-code/CLAUDE.local.md               (不存在)",
+          "/d/code/cc-code/CLAUDE.md                     32006 字符"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 7947,
+    "tools": [
+      {
+        "name": "Edit",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\rules.rs",
+        "out_lines": 1,
+        "head": [
+          "Replaced text (same line count) to \\\\?\\D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\rules.rs"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 0,
+    "tools": [
+      {
+        "name": "Edit",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\rules.rs",
+        "out_lines": 1,
+        "head": [
+          "Added 132 lines to \\\\?\\D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\rules.rs"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "user": "no 你还是得上JVE claude.md 提炼的有时候也不对"
+  },
+  {
+    "reason": 7064,
+    "tools": [
+      {
+        "name": "Read",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs",
+        "out_lines": 65,
+        "head": [
+          "    56\t    /// 后者是模型推断的。显式的 `allowed_commands` / `safe_commands` 必须能压过它，",
+          "    57\t    /// 否则推断出的规则会掀翻人写下的规则。",
+          "    58\t    #[serde(default)]"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 0,
+    "tools": [
+      {
+        "name": "Edit",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs",
+        "out_lines": 1,
+        "head": [
+          "Removed 12 lines to \\\\?\\D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 752,
+    "tools": [
+      {
+        "name": "Edit",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs",
+        "out_lines": 1,
+        "head": [
+          "Removed 8 lines to \\\\?\\D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 0,
+    "tools": [
+      {
+        "name": "Bash",
+        "arg": "cd /d/code/cc-code && grep -n \"intent\\|extracted_disallowed\\|extracted_denied\" peri-middlewares/src/hitl/jev/config.rs",
+        "out_lines": 11,
+        "head": [
+          "94:fn default_intent_messages() -> usize {",
+          "97:fn default_intent_msg_chars() -> usize {",
+          "100:fn default_intent_total_chars() -> usize {"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 0,
+    "tools": [
+      {
+        "name": "Read",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs",
+        "out_lines": 40,
+        "head": [
+          "    93\t}",
+          "    94\tfn default_intent_messages() -> usize {",
+          "    95\t    4"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 0,
+    "tools": [
+      {
+        "name": "Edit",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs",
+        "out_lines": 1,
+        "head": [
+          "Removed 6 lines to \\\\?\\D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs"
+        ],
+        "err": false
+      }
+    ]
+  },
+  {
+    "reason": 544,
+    "tools": [
+      {
+        "name": "Read",
+        "arg": "D:\\code\\cc-code\\peri-middlewares\\src\\hitl\\jev\\config.rs",
+        "out_lines": 30,
+        "head": [
+          "    79\tfn default_timeout_ms() -> u64 {",
+          "    80\t    2000",
+          "    81\t}"
+        ],
+        "err": false
+      }
+    ]
+  }
+];
+
+const FRAMES = ['✵','✶','✷','✸','✹','✺','✻','✼','❃','❊','✼','✻','✺','✸','✹','✷'];
+// 方案 A：整轮固定一个动词（真实实现从 EN_VERBS 随机选，此处固定演示）
+const ROUND_VERB = 'Thinking';
+// still thinking 阈值（默认 10s，可调常量；未证实，见设计文档 §2.2）
+const STILL_THRESHOLD_S = 10;
+// verb 变色阈值（时间驱动；**部分推测，待用户/实测确认**）
+const VERB_BRIGHT_AT_S = 5;    // 用户观察：约 5s 变亮橙
+const VERB_LIGHT_Y_AT_S = 15;  // 浅黄（推测）
+const VERB_YELLOW_AT_S = 30;   // 最终黄（推测）
+let lastThinkElapsed = 0;
+
+const scroll = document.getElementById('scroll');
+const elFrame = document.getElementById('frame');
+const elVerb = document.getElementById('verb');
+const elRow = document.getElementById('spinnerRow');
+const elMeta = document.getElementById('meta');
+const elMetaTokens = document.getElementById('metaTokens');
+const elStatus = document.getElementById('status');
+const elClock = document.getElementById('clock');
+const elProg = document.getElementById('prog');
+const playBtn = document.getElementById('playBtn');
+
+// ── 生成时间轴事件 ──
+// DATA 项两类：{user:"..."} 或 {reason:N, tools:[...]}
+let events = [];
+let tcur = 0;
+const TURN_IDX = [];   // 记录每个 turn 在 DATA 中的下标（用于反查）
+DATA.forEach((item, di) => {
+  if (item.user !== undefined) {
+    events.push({ t: tcur, type: 'user', di, dur: 0.5 });
+    tcur += 0.5;
+    TURN_IDX.push(di);
+    return;
+  }
+  // turn
+  TURN_IDX.push(di);
+  const thinkDur = Math.max(0.6, Math.min(item.reason / 200, 12));   // 字符数→秒（上限 12s，避免过长）
+  events.push({ t: tcur, type: 'reason', di, dur: thinkDur });
+  tcur += thinkDur;
+  events.push({ t: tcur, type: 'reason_end', di, dur: thinkDur });
+  item.tools.forEach((tool, k) => {
+    events.push({ t: tcur, type: 'tool_start', di, tool, toolIdx: k });
+    tcur += 0.6;
+    events.push({ t: tcur, type: 'tool_end', di, tool, toolIdx: k });
+    tcur += 0.2;
+  });
+});
+// 追加长思考演示段（真实轮次思考都只有几秒，到不了阈值）
+const DEMO_DI = -1;
+const DEMO_ROUND = 99;
+const demoStart = tcur;
+events.push({ t: tcur, type: 'reason', di: DEMO_DI, dur: 45 });
+tcur += 45;
+events.push({ t: tcur, type: 'reason_end', di: DEMO_DI, dur: 45 });
+const TOTAL = tcur;
+const REAL_END = demoStart;
+
+function fmtElapsed(sec) {
+  const s = Math.floor(sec);
+  if (s >= 60) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
+  return `${s}s`;
+}
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+const isReadonly = n => ['Read', 'Glob', 'Grep'].includes(n);
+
+// 只读工具计数文案
+function countText(item) {
+  const tools = item.tools;
+  const parts = [];
+  const reads = tools.filter(x => x.name === 'Read').length;
+  const globs = tools.filter(x => x.name === 'Glob').length;
+  const greps = tools.filter(x => x.name === 'Grep').length;
+  if (reads) parts.push(`read ${reads} file${reads > 1 ? 's' : ''}`);
+  if (globs) parts.push(`listed ${globs} director${globs > 1 ? 'ies' : 'y'}`);
+  if (greps) parts.push(`searched for ${greps} pattern${greps > 1 ? 's' : ''}`);
+  return parts.join(', ');
+}
+
+// ── 预计算显示项 ──
+const ITEMS = [];
+let turnOrd = 0;   // 第几个工具轮（用于 thinking more 判定）
+DATA.forEach((item, di) => {
+  const ev = events.filter(e => e.di === di);
+  if (item.user !== undefined) {
+    ITEMS.push({ t: ev[0].t, html: `<div class="user-line"><span class="prompt">❯</span> ${esc(item.user)}</div>` });
+    return;
+  }
+  const rStart = ev.find(e => e.type === 'reason').t;
+  const thinkSec = Math.max(1, Math.round(item.reason / 200));
+  const cnt = countText(item);
+  ITEMS.push({ t: rStart, html: `<div class="thought">Thought for ${thinkSec}s${cnt ? ', ' + cnt : ''} (ctrl+o to expand)</div>` });
+
+  item.tools.forEach((tool, k) => {
+    const ts = ev.find(e => e.type === 'tool_start' && e.toolIdx === k);
+    const te = ev.find(e => e.type === 'tool_end' && e.toolIdx === k);
+    if (!isReadonly(tool.name) && ts) {
+      ITEMS.push({ t: ts.t, html:
+        `<div class="toolhead"><span class="dot">●</span> <span class="name">${tool.name}</span>(<span class="cmd">${esc(tool.arg)}</span>)</div>` });
+    }
+    // 只读工具折叠为计数、不显示内容；仅 is_error=true 时显示错误行
+    if (isReadonly(tool.name)) {
+      if (te && tool.err) {
+        ITEMS.push({ t: te.t, html: `<div class="err">${esc('  ⎿ ' + tool.head[0])}</div>` });
+      }
+      return;
+    }
+    if (te) {
+      const head = tool.head.slice(0, 3);
+      const more = tool.outLines - head.length;
+      let res = '';
+      head.forEach((l, i) => {
+        res += `<div class="${tool.err ? 'err' : 'res'}">${esc((i === 0 ? '  ⎿ ' : '    ') + l)}</div>`;
+      });
+      if (more > 0) res += `<div class="dep">    ... (${more} more lines)</div>`;
+      ITEMS.push({ t: te.t, html: res });
+    }
+  });
+});
+
+let renderedCount = 0;
+
+function resetScroll() { scroll.innerHTML = ''; renderedCount = 0; }
+
+function renderAt(time) {
+  const visible = [];
+  for (const it of ITEMS) { if (time >= it.t) visible.push(it); else break; }
+  if (visible.length < renderedCount) resetScroll();
+  if (visible.length > renderedCount) {
+    let add = '';
+    for (let i = renderedCount; i < visible.length; i++) add += `<div class="msg">${visible[i].html}</div>`;
+    scroll.insertAdjacentHTML('beforeend', add);
+    renderedCount = visible.length;
+    scroll.scrollTop = scroll.scrollHeight;
+  }
+  let done = 0;
+  DATA.forEach((item, di) => {
+    if (item.user !== undefined) return;
+    const ends = events.filter(e => e.type === 'tool_end' && e.di === di).map(e => e.t);
+    if (ends.length && time >= Math.max(...ends)) done++;
+  });
+  elProg.textContent = `${done} / ${DATA.filter(x => x.tools).length} 轮`;
+}
+
+// 当前阶段
+function phaseAt(time) {
+  for (const e of events) {
+    if (e.type === 'reason' && time >= e.t && time < e.t + e.dur) {
+      return { kind: 'think', di: e.di, elapsed: time - e.t };
+    }
+  }
+  let lastTool = null;
+  for (const e of events) if (e.type === 'tool_start' && time >= e.t) lastTool = e;
+  if (lastTool) return { kind: 'tool', di: lastTool.di };
+  return null;
+}
+
+function renderSpinner(time) {
+  elFrame.textContent = FRAMES[Math.floor(time * 8) % FRAMES.length];
+  elMeta.textContent = ` (${fmtElapsed(time)}`;
+
+  const ph = phaseAt(time);
+  elVerb.textContent = ROUND_VERB + '…';   // 方案 A：全程固定
+
+  let statWord = '', metaTail = '';
+  if (!ph) { elStatus.textContent = ''; elMetaTokens.textContent = ''; elRow.className = 'spinner-row'; return; }
+  if (ph.kind === 'think') {
+    const roundNo = toolTurnIndex(ph.di);   // 该 turn 是第几个工具轮
+    if (ph.elapsed >= STILL_THRESHOLD_S) statWord = 'still thinking';
+    else if (roundNo >= 2) statWord = 'thinking more';
+    else statWord = 'thinking';
+  } else {
+    // 工具执行段：tokens + thought for 都是 MUTED 灰，无变色状态词
+    const item = DATA[ph.di];
+    const thinkSec = Math.max(1, Math.round(item.reason / 200));
+    metaTail = ` · ↓ 2.6k tokens · thought for ${thinkSec}s`;
+  }
+  // 变色档位「时间驱动」：仅作用于 verb 与状态词；elapsed/tokens 保持灰
+  const thinkElapsed = ph.kind === 'think' ? ph.elapsed : (lastThinkElapsed || 0);
+  if (ph.kind === 'think') lastThinkElapsed = ph.elapsed;
+  let lv = '';
+  if (thinkElapsed >= VERB_YELLOW_AT_S) lv = ' lv-4';
+  else if (thinkElapsed >= VERB_LIGHT_Y_AT_S) lv = ' lv-3';
+  else if (thinkElapsed >= VERB_BRIGHT_AT_S) lv = ' lv-2';
+  elVerb.className = 'spinner-verb' + lv;
+  elVerb.textContent = ROUND_VERB + '…';
+  // 状态词（变色）
+  elStatus.className = 'spinner-status' + (statWord ? ' statword' + lv : '');
+  elStatus.textContent = statWord ? ' · ' + statWord : '';
+  // tokens / thought for Ns（始终灰）
+  elMetaTokens.textContent = metaTail;
+}
+
+// 该 DATA 项是第几个「工具轮」（1-based；user 项不计）
+function toolTurnIndex(di) {
+  if (di === DEMO_DI) return DEMO_ROUND;   // 演示段视为第 2+ 轮
+  let n = 0;
+  for (let i = 0; i <= di && i < DATA.length; i++) {
+    if (DATA[i].tools) n++;
+  }
+  return n;
+}
+
+function tick(ts) {
+  if (!tick.last) tick.last = ts;
+  const dt = (ts - tick.last)/1000; tick.last = ts;
+  if (running) { clockT += dt*mult; if (clockT >= TOTAL+0.4) { clockT = TOTAL+0.4; running=false; playBtn.textContent='▶ 播放'; playBtn.classList.remove('active'); } }
+  const t = Math.min(clockT, TOTAL);
+  elClock.textContent = t.toFixed(1)+'s';
+  renderAt(t);
+  renderSpinner(t);
+  requestAnimationFrame(tick);
+}
+
+let clockT = 0, running = true, mult = 2;
+
+playBtn.onclick = () => {
+  running = !running;
+  playBtn.textContent = running ? '⏸ 暂停' : '▶ 播放';
+  playBtn.classList.toggle('active', running);
+  if (running && clockT >= TOTAL) { clockT = 0; tick.last = null; }
+};
+document.getElementById('skipReal').onclick = () => { clockT = REAL_END + 1; tick.last = null; running = true; playBtn.textContent='⏸ 暂停'; playBtn.classList.add('active'); };
+document.getElementById('resetBtn').onclick = () => { clockT = 0; tick.last=null; running=true; resetScroll(); playBtn.textContent='⏸ 暂停'; playBtn.classList.add('active'); };
+document.querySelectorAll('.sp').forEach(b => b.onclick = () => {
+  mult = +b.dataset.mult;
+  document.querySelectorAll('.sp').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+});
+
+document.getElementById('selfcheck').textContent =
+  `自检：✅ 脚本已执行 · 真实轮次 ${DATA.length} · 显示项 ${ITEMS.length} · 总时长 ${TOTAL.toFixed(0)}s（still 阈值 ${STILL_THRESHOLD_S}s）`;
+
+resetScroll();
+renderAt(0);
+renderSpinner(0);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -18,6 +18,14 @@ pub const SAGE: Color = Color::Rgb(78, 186, 101);
 /// 明亮琥珀 — 次要强调/警告 #FFC107
 pub const WARNING: Color = Color::Rgb(255, 193, 7);
 
+// ── spinner 时间热度（thinking 越久颜色越暖，四档）────────────────────────────
+
+/// 档②亮橙 — 思考超 5s #EB9F7F
+pub const SPINNER_HEAT_LV2: Color = Color::Rgb(235, 159, 127);
+
+/// 档③浅黄 — 思考超 15s #FFD966
+pub const SPINNER_HEAT_LV3: Color = Color::Rgb(255, 217, 102);
+
 /// 明亮红 — 错误/拒绝 #FF6B80
 pub const ERROR: Color = Color::Rgb(255, 107, 128);
 
@@ -37,6 +45,9 @@ pub const MAGENTA: Color = Color::Rgb(200, 100, 200);
 
 /// 纯白 — 主文字 #FFFFFF
 pub const TEXT: Color = Color::Rgb(255, 255, 255);
+
+/// 柔白 — 工具行/结果正文（深色背景不刺眼）#D0D0D0
+pub const TEXT_SOFT: Color = Color::Rgb(208, 208, 208);
 
 /// 浅灰 — 标签/路径/辅助信息 #999999
 pub const MUTED: Color = Color::Rgb(153, 153, 153);

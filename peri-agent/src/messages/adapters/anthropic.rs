@@ -61,7 +61,9 @@ impl AnthropicAdapter {
                     "is_error": is_error
                 }))
             }
-            ContentBlock::Reasoning { text, signature } => {
+            ContentBlock::Reasoning {
+                text, signature, ..
+            } => {
                 let mut obj = json!({ "type": "thinking", "thinking": text });
                 if let Some(sig) = signature {
                     obj["signature"] = json!(sig);

@@ -243,3 +243,59 @@ async fn test_status_bar_activity_shows_last_two_running_tools() {
         status_rows.join("\n")
     );
 }
+
+// ── thinking 状态行：第三字段与热度色 ──────────────────────────────
+
+#[test]
+fn test_thinking_status_word_four_states() {
+    use super::message_area::{thinking_status_word, STILL_THINKING_SECS};
+    // 非思考段且本回合无已结束思考 → 空
+    assert_eq!(thinking_status_word(false, 0, 0, 0), "");
+    assert_eq!(
+        thinking_status_word(false, 99_000, 5, 0),
+        "",
+        "非思考段忽略当前耗时/轮次"
+    );
+    // 状态②：非思考段但有已结束思考 → thought for Ns
+    assert_eq!(
+        thinking_status_word(false, 0, 1, 4_200),
+        "thought for 4s",
+        "思考段结束应定格显示耗时"
+    );
+    // 首段思考 → thinking
+    assert_eq!(thinking_status_word(true, 2_000, 1, 0), "thinking");
+    // 再次思考（round>=2）→ thinking more
+    assert_eq!(thinking_status_word(true, 2_000, 2, 0), "thinking more");
+    // 单段超阈 → still thinking（优先级高于 more）
+    let over = STILL_THINKING_SECS * 1000;
+    assert_eq!(thinking_status_word(true, over, 1, 0), "still thinking");
+    assert_eq!(
+        thinking_status_word(true, over, 3, 0),
+        "still thinking",
+        "超阈时优先级应高于 thinking more"
+    );
+}
+
+#[test]
+fn test_thinking_heat_color_four_levels() {
+    use super::message_area::{thinking_heat_color, HEAT_LV2_SECS, HEAT_LV3_SECS, HEAT_LV4_SECS};
+    use crate::ui::theme;
+    // 默认档
+    assert_eq!(thinking_heat_color(0), theme::ACCENT);
+    assert_eq!(
+        thinking_heat_color((HEAT_LV2_SECS - 1) * 1000),
+        theme::ACCENT
+    );
+    // 逐档升温
+    assert_eq!(
+        thinking_heat_color(HEAT_LV2_SECS * 1000),
+        theme::SPINNER_HEAT_LV2
+    );
+    assert_eq!(
+        thinking_heat_color(HEAT_LV3_SECS * 1000),
+        theme::SPINNER_HEAT_LV3
+    );
+    assert_eq!(thinking_heat_color(HEAT_LV4_SECS * 1000), theme::WARNING);
+    // 终黄后不再变（超大耗时仍是 WARNING）
+    assert_eq!(thinking_heat_color(999_000), theme::WARNING);
+}
