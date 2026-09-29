@@ -1,14 +1,17 @@
 //! Cross-platform shell command spawning.
 //!
 //! On Unix, wraps commands in `bash -c "<command> <args...>"`.
-//! On Windows, wraps commands in `cmd /C <command> <args...>`. When `cmd` fails
-//! with the classic "is not recognized as an internal or external command" error
-//! (e.g. the Agent tried to run `grep`/`ls`/`find`), callers can fall back to
-//! Git Bash via [`git_bash_path`] + [`git_bash_command`]. Use
-//! [`should_fallback_to_bash`] for multi-language matching and fallback logic.
+//! Legacy platform defaults use CMD on Windows, with pre-execution routing for
+//! multiline commands and leading bash/sh invocations. Managed Bash requests
+//! explicitly select Git Bash via [`managed_shell_command`].
+//! 用户命令启动前选定解释器；执行后不自动切换 shell 或重放。
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+
+mod capture;
+pub(crate) use capture::output_with_input_timeout;
+pub use capture::ManagedChild;
 
 /// 后台/管道 shell 不能共享 TUI 控制台，否则 PHP 等程序会修改其代码页或模式。
 /// stdin/stdout/stderr 仍由调用方配置；不用于需要真实终端的交互式 PTY。
@@ -32,12 +35,82 @@ pub fn shell_command(command: &str, args: &[&str]) -> tokio::process::Command {
     shell_command_with_shell(command, args, None)
 }
 
+/// 受管理的命令执行器共用入口，不根据执行结果重放命令。
+/// BashTool 在 Windows 上要求 Git Bash；缺失时不能退回 CMD 或 WSL。
+pub fn managed_shell_command(
+    command: &str,
+    shell: peri_agent::shell::ShellDialect,
+) -> std::io::Result<tokio::process::Command> {
+    use peri_agent::shell::ShellDialect;
+    match shell {
+        ShellDialect::PlatformDefault => Ok(shell_command(command, &[])),
+        ShellDialect::Bash => {
+            #[cfg(windows)]
+            {
+                selected_git_bash_command(command, git_bash_path().as_deref())
+            }
+            #[cfg(not(windows))]
+            {
+                Ok(shell_command_with_shell(command, &[], Some("bash")))
+            }
+        }
+    }
+}
+
+fn selected_git_bash_command(
+    command: &str,
+    bash: Option<&Path>,
+) -> std::io::Result<tokio::process::Command> {
+    selected_git_bash_shell_command("bash", command, bash)
+}
+
+fn selected_git_bash_shell_command(
+    shell: &str,
+    command: &str,
+    bash: Option<&Path>,
+) -> std::io::Result<tokio::process::Command> {
+    let bash = bash.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Bash requires Git Bash on Windows. Install Git for Windows or set GIT_BASH_PATH, then restart. No command was executed; CMD fallback is disabled.",
+        )
+    })?;
+    // PATH 可能解析到 System32/bash.exe（WSL）。它与当前 Windows cwd/进程域
+    // 不兼容；只接受原生 Git/MSYS Bash 布局，不通过执行用户命令来试错。
+    if !has_msys_runtime(bash) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Bash requires a native Git Bash/MSYS installation on Windows, not WSL. Set GIT_BASH_PATH to its bash.exe and restart. No command was executed.",
+        ));
+    }
+    let executable = if shell == "sh" {
+        bash.with_file_name("sh.exe")
+    } else {
+        bash.to_path_buf()
+    };
+    if !executable.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "Git Bash interpreter '{}' is missing; no command was executed",
+                executable.display()
+            ),
+        ));
+    }
+    Ok(git_bash_command(&executable, command, &[]))
+}
+
 /// Build a `tokio::process::Command` that executes the given command through the
 /// specified shell or platform default.
 ///
-/// - **shell = Some("powershell") / Some("pwsh")**: `powershell -Command "<command> <args...>"`
-/// - **shell = Some("bash")**: Git Bash fallback on Windows, `bash -c` on Unix
-/// - **shell = None**: Platform default (`cmd /C` on Windows, `bash -c` on Unix)
+/// - **shell = Some("powershell") / Some("pwsh")**: the selected PowerShell executable
+/// - **shell = Some("bash") / Some("sh")**: the selected POSIX shell (Git on Windows)
+/// - **shell = Some("cmd")**: CMD, without automatic Bash routing
+/// - **shell = None**: platform default; Windows routes multiline commands and
+///   explicit bash/sh invocations through Git Bash when available
+/// - Other explicit shells are executable names/paths accepting `-c`.
+///
+/// Explicit shells never fall back to a different interpreter on spawn failure.
 ///
 /// Returns the `Command` object so callers can add custom configuration.
 pub fn shell_command_with_shell(
@@ -45,12 +118,26 @@ pub fn shell_command_with_shell(
     args: &[&str],
     shell: Option<&str>,
 ) -> tokio::process::Command {
+    try_shell_command_with_shell(command, args, shell).unwrap_or_else(|_| {
+        let name = match shell.map(str::to_ascii_lowercase).as_deref() {
+            Some("sh") => "sh",
+            _ => "bash",
+        };
+        unavailable_posix_shell_command(name, command, args)
+    })
+}
+
+/// Build a shell command while surfacing missing explicit interpreters before spawn.
+pub fn try_shell_command_with_shell(
+    command: &str,
+    args: &[&str],
+    shell: Option<&str>,
+) -> std::io::Result<tokio::process::Command> {
     let shell_lower = shell.map(|s| s.to_lowercase());
 
     match shell_lower.as_deref() {
-        Some("powershell" | "pwsh") => {
-            // PowerShell: powershell -Command "..."
-            let mut cmd = background_shell("powershell");
+        Some(name @ ("powershell" | "pwsh")) => {
+            let mut cmd = background_shell(name);
             cmd.arg("-NoProfile").arg("-NonInteractive").arg("-Command");
             // PowerShell -Command 需要整个命令作为单个参数
             let full_command = if args.is_empty() {
@@ -59,73 +146,85 @@ pub fn shell_command_with_shell(
                 format!("{} {}", command, args.join(" "))
             };
             cmd.arg(full_command);
-            cmd
+            Ok(cmd)
         }
-        Some("bash") => {
-            // Explicit bash: use Git Bash on Windows, bash on Unix
+        Some(name @ ("bash" | "sh")) => {
             if cfg!(target_os = "windows") {
-                if let Some(bash_exe) = git_bash_path() {
-                    git_bash_command(&bash_exe, command, args)
-                } else {
-                    // Fallback to cmd if no bash available
-                    tracing::warn!(
-                        "bash shell requested but Git Bash not found, falling back to cmd"
-                    );
-                    shell_command_cmd(command, args)
-                }
-            } else {
-                // Unix: direct bash
-                let mut parts = vec![command.to_string()];
-                for arg in args {
-                    if arg.contains(' ')
-                        || arg.contains('"')
-                        || arg.contains('\'')
-                        || arg.contains('\\')
-                    {
-                        parts.push(format!("'{}'", arg.replace('\'', "'\\''")));
-                    } else {
-                        parts.push(arg.to_string());
-                    }
-                }
-                let shell_cmd = parts.join(" ");
-                let mut cmd = tokio::process::Command::new("bash");
-                cmd.arg("-c").arg(&shell_cmd);
-                cmd
+                return selected_git_bash_shell_command(name, command, git_bash_path().as_deref());
             }
+            // Let spawn report a missing interpreter; CMD cannot interpret POSIX syntax.
+            Ok(posix_shell_command(Path::new(name), command, args))
         }
-        _ => {
+        Some("cmd") => Ok(shell_command_cmd(command, args)),
+        Some(_) => Ok(posix_shell_command(
+            Path::new(shell.unwrap_or_default()),
+            command,
+            args,
+        )),
+        None => {
             // Default: platform shell (cmd on Windows, bash on Unix)
             if cfg!(target_os = "windows") {
                 // cmd /C 无法正确处理含字面换行符的多行命令——只执行第一行，
                 // 后续行的 stdout 全部丢失（Issue #212）。检测到换行时直接走
                 // Git Bash，bash -c 能正确处理多行命令。
-                if command.contains('\n') {
-                    if let Some(bash_exe) = git_bash_path() {
-                        return git_bash_command(&bash_exe, command, args);
-                    }
-                    // Git Bash 不可用时回退 cmd（行为不变，至少不会 panic）
+                if let Some(bash_exe) = auto_git_bash_path(command) {
+                    return Ok(git_bash_command(&bash_exe, command, args));
                 }
-                shell_command_cmd(command, args)
+                if starts_with_posix_shell(command) {
+                    return selected_git_bash_command(command, None);
+                }
+                Ok(shell_command_cmd(command, args))
             } else {
-                let mut parts = vec![command.to_string()];
-                for arg in args {
-                    if arg.contains(' ')
-                        || arg.contains('"')
-                        || arg.contains('\'')
-                        || arg.contains('\\')
-                    {
-                        parts.push(format!("'{}'", arg.replace('\'', "'\\''")));
-                    } else {
-                        parts.push(arg.to_string());
-                    }
-                }
-                let shell_cmd = parts.join(" ");
-                let mut cmd = tokio::process::Command::new("bash");
-                cmd.arg("-c").arg(&shell_cmd);
-                cmd
+                Ok(posix_shell_command(Path::new("bash"), command, args))
             }
         }
     }
+}
+
+/// Legacy platform-default routing for hooks and native user commands.
+fn auto_git_bash_path(command: &str) -> Option<PathBuf> {
+    if cfg!(windows) && (command.contains('\n') || starts_with_posix_shell(command)) {
+        git_bash_path()
+    } else {
+        None
+    }
+}
+
+/// An explicit POSIX interpreter request must not fall through to CMD's PATH,
+/// where `bash.exe` may be the WSL launcher rather than Git Bash.
+fn unavailable_posix_shell_command(
+    shell: &str,
+    command: &str,
+    args: &[&str],
+) -> tokio::process::Command {
+    let missing =
+        std::env::temp_dir().join(format!("peri-missing-{shell}-{}.exe", uuid::Uuid::new_v4()));
+    posix_shell_command(&missing, command, args)
+}
+
+/// Only recognize a complete leading interpreter name, not arbitrary shell syntax.
+/// Keep the original command intact, including quotes, flags and redirections.
+fn starts_with_posix_shell(command: &str) -> bool {
+    let command = command.trim_start();
+    let boundary = |c: char| c.is_ascii_whitespace() || matches!(c, '&' | '|' | ';' | '<' | '>');
+    let name = if let Some(quote @ ('\'' | '"')) = command.chars().next() {
+        let rest = &command[quote.len_utf8()..];
+        let Some(end) = rest.find(quote) else {
+            return false;
+        };
+        if !rest[end + quote.len_utf8()..].starts_with(boundary)
+            && rest.len() != end + quote.len_utf8()
+        {
+            return false;
+        }
+        &rest[..end]
+    } else {
+        command.split(boundary).next().unwrap_or_default()
+    };
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "bash" | "bash.exe" | "sh" | "sh.exe"
+    )
 }
 
 /// Helper: build a `cmd /C` command on Windows
@@ -168,7 +267,7 @@ fn detect_git_bash_path() -> Option<PathBuf> {
     // 环境变量优先级最高：用户显式指定
     if let Ok(env_path) = std::env::var("GIT_BASH_PATH") {
         let p = PathBuf::from(&env_path);
-        if p.exists() && verify_bash_executable(&p) {
+        if p.exists() && has_msys_runtime(&p) && verify_bash_executable(&p) {
             return Some(p);
         }
     }
@@ -179,7 +278,7 @@ fn detect_git_bash_path() -> Option<PathBuf> {
     ];
     for path in candidates {
         let p = Path::new(path);
-        if p.exists() && verify_bash_executable(p) {
+        if p.exists() && has_msys_runtime(p) && verify_bash_executable(p) {
             return Some(p.to_path_buf());
         }
     }
@@ -191,17 +290,26 @@ fn detect_git_bash_path() -> Option<PathBuf> {
         return None;
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let first = stdout.lines().next()?;
-    let trimmed = first.trim();
-    if trimmed.is_empty() {
-        return None;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let p = Path::new(trimmed);
+        if p.exists() && has_msys_runtime(p) && verify_bash_executable(p) {
+            return Some(p.to_path_buf());
+        }
     }
-    let p = Path::new(trimmed);
-    if p.exists() && verify_bash_executable(p) {
-        Some(p.to_path_buf())
-    } else {
-        None
-    }
+    None
+}
+
+fn has_msys_runtime(bash: &Path) -> bool {
+    bash.parent().is_some_and(|bin| {
+        bin.join("msys-2.0.dll").is_file()
+            || bin
+                .parent()
+                .is_some_and(|root| root.join("usr/bin/msys-2.0.dll").is_file())
+    })
 }
 
 /// 验证 bash 可执行文件是否能正常运行（`--version` 检查）。
@@ -215,42 +323,18 @@ fn verify_bash_executable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// 判断 stderr 是否包含 Windows `cmd /C` 在命令找不到时输出的特征字符串。
-///
-/// 支持多语言 Windows：
-/// - English: `is not recognized as an internal or external command`
-/// - 中文: `不是内部或外部命令`
-/// - 法语: `n'est pas reconnu`
-/// - 德语: `nicht als Befehl erkannt`
-pub fn is_unrecognized_command_error(stderr: &str) -> bool {
-    stderr.contains("is not recognized as an internal or external command")
-        || stderr.contains("不是内部或外部命令")
-        || stderr.contains("n'est pas reconnu")
-        || stderr.contains("nicht als Befehl erkannt")
-}
-
-/// 综合判断是否应 fallback 到 Git Bash。
-///
-/// 两种触发条件（满足任一即可）：
-/// 1. stderr 匹配任一语言的"命令未识别"关键词
-/// 2. 兜底：exit_code ≠ 0 且 stdout 为空且 stderr 长度 < 200 bytes
-///    （排除真正的脚本错误——那些通常有较长的 stderr 输出）
-pub fn should_fallback_to_bash(exit_code: i32, stdout: &str, stderr: &str) -> bool {
-    if exit_code == 0 {
-        return false;
-    }
-    if is_unrecognized_command_error(stderr) {
-        return true;
-    }
-    // 兜底：短 stderr + 无 stdout → 大概率是命令找不到（未知语言 Windows）
-    stdout.is_empty() && !stderr.is_empty() && stderr.len() < 200
-}
-
 /// 用显式指定的 bash 可执行文件构造 `bash -c "<command> <args...>"`。
 ///
 /// 与 [`shell_command`] 的 Unix 分支语义一致，但允许调用方指定 Git Bash 路径，
-/// 用于 Windows fallback 场景。
+/// 用于显式选择 Git Bash 的执行请求。
 pub fn git_bash_command(bash_exe: &Path, command: &str, args: &[&str]) -> tokio::process::Command {
+    let mut cmd = posix_shell_command(bash_exe, command, args);
+    // 禁用 MSYS2/MinGW 的自动路径转换，防止 /pattern 等参数被转为 Windows 路径
+    cmd.env("MSYS_NO_PATHCONV", "1");
+    cmd
+}
+
+fn posix_shell_command(shell: &Path, command: &str, args: &[&str]) -> tokio::process::Command {
     let mut parts = vec![command.to_string()];
     for arg in args {
         if arg.contains(' ') || arg.contains('"') || arg.contains('\'') || arg.contains('\\') {
@@ -260,10 +344,8 @@ pub fn git_bash_command(bash_exe: &Path, command: &str, args: &[&str]) -> tokio:
         }
     }
     let shell_cmd = parts.join(" ");
-    let mut cmd = background_shell(bash_exe);
+    let mut cmd = background_shell(shell);
     cmd.arg("-c").arg(&shell_cmd);
-    // 禁用 MSYS2/MinGW 的自动路径转换，防止 /pattern 等参数被转为 Windows 路径
-    cmd.env("MSYS_NO_PATHCONV", "1");
     cmd
 }
 

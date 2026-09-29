@@ -13,7 +13,7 @@ impl App {
         // 显示 loading 状态（spinner + 禁用输入）
         self.set_loading(true);
         let vm = MessageViewModel::system(self.services.lc.tr("app-compact-started"));
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::add_message(vm));
         (true, false, false)
     }
 
@@ -32,7 +32,7 @@ impl App {
                 "app-compact-auto-cleared",
                 &[("count".into(), (micro_cleared as i64).into())],
             ));
-            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+            self.apply_pipeline_action(PipelineAction::add_message(vm));
             return (true, false, false);
         }
 
@@ -92,7 +92,7 @@ impl App {
                 .lc
                 .tr_args("app-compact-failed", &[("error".into(), msg.into())]),
         );
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::add_message(vm));
 
         (true, false, false)
     }

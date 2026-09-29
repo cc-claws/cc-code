@@ -30,6 +30,7 @@ use crate::ui::message_view::MessageViewModel;
 use crate::ui::message_view::{instance_hash, parse_bg_hash};
 
 mod reconcile;
+mod shell_runtime;
 mod transform;
 
 pub use crate::ui::message_view::aggregate_batch_groups;
@@ -265,6 +266,8 @@ pub struct MessagePipeline {
     current_ai_finalized: bool,
     /// 已开始但未结束的工具调用
     pending_tools: HashMap<String, PendingTool>,
+    /// 真实 spawn 注册可能先于 ToolStart；按调用身份保存，禁止命令文本匹配。
+    shell_runtimes: HashMap<(Option<String>, String), shell_runtime::ShellRuntime>,
     /// ToolEnd 后、StateSnapshot 前的工具结果（在 reconcile gap 期间显示）
     completed_tools: Vec<CompletedTool>,
     /// SubAgent 栈
@@ -305,6 +308,7 @@ impl MessagePipeline {
             current_ai_tool_calls: Vec::new(),
             current_ai_finalized: false,
             pending_tools: HashMap::new(),
+            shell_runtimes: HashMap::new(),
             completed_tools: Vec::new(),
             subagent_stack: Vec::new(),
             frozen_subagent_vms: Vec::new(),
@@ -322,23 +326,6 @@ impl MessagePipeline {
 
     pub fn cwd(&self) -> &str {
         &self.cwd
-    }
-
-    pub(crate) fn set_bash_tool_started_at(&mut self, command: &str, started_at: Instant) -> bool {
-        for pending in self.pending_tools.values_mut() {
-            if pending.name != "Bash" || pending.started_at.is_some() {
-                continue;
-            }
-            let Some(pending_command) = pending.input.get("command").and_then(|v| v.as_str())
-            else {
-                continue;
-            };
-            if pending_command == command {
-                pending.started_at = Some(started_at);
-                return true;
-            }
-        }
-        false
     }
 
     /// 获取当前流式渲染模式
@@ -933,6 +920,7 @@ impl MessagePipeline {
 
     /// 清空所有状态
     pub fn clear(&mut self) {
+        self.shell_runtimes.clear();
         self.completed.clear();
         self.current_ai_text.clear();
         self.current_ai_reasoning.clear();

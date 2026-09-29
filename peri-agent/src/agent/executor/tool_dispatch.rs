@@ -706,6 +706,10 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 let input = normalize_params(&tool_name, input);
                 let tool = resolve_tool(&call.name, all_tools);
                 let cancel = cancel.clone();
+                let invocation = crate::tools::ToolInvocationContext {
+                    tool_call_id: call_id.clone(),
+                    source_agent_id: state.get_context("source_agent_id").map(str::to_string),
+                };
                 async move {
                     let span = tracing::info_span!(
                         "agent.tool_call",
@@ -738,7 +742,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                         ),
                                     });
                                 }
-                                t.invoke_content(input).await.map_err(|e| {
+                                invocation.scope(t.invoke_content(input)).await.map_err(|e| {
                                     AgentError::ToolExecutionFailed {
                                         tool: tool_name.clone(),
                                         reason: e.to_string(),
@@ -852,3 +856,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
 #[cfg(test)]
 #[path = "tool_dispatch_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tool_dispatch_identity_test.rs"]
+mod identity_tests;

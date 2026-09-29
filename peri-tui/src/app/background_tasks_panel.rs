@@ -28,7 +28,9 @@ const OUTPUT_REFRESH_INTERVAL: Duration = Duration::from_millis(1000);
 /// 后台任务面板：List/Detail 双视图。
 pub struct BackgroundTasksPanel {
     pub view: BackgroundTaskView,
-    pub selected_index: usize,
+    selected_item: Option<BackgroundTaskItem>,
+    /// 最近显示的任务顺序仅用于导航；执行操作始终按稳定 ID 查找。
+    visible_items: Vec<BackgroundTaskItem>,
     /// Detail 视图 output 缓存（避免每帧读磁盘）
     pub output_cache: String,
     pub output_cache_id: Option<String>,
@@ -37,6 +39,12 @@ pub struct BackgroundTasksPanel {
     pub output_rx: Option<mpsc::Receiver<String>>,
     /// 后台 read_tail task handle（切换 task / 关闭时 abort）
     pub output_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BackgroundTaskItem {
+    Shell(String),
+    Agent(String),
 }
 
 /// 面板视图状态
@@ -52,7 +60,8 @@ impl BackgroundTasksPanel {
     pub fn new() -> Self {
         Self {
             view: BackgroundTaskView::List,
-            selected_index: 0,
+            selected_item: None,
+            visible_items: Vec::new(),
             output_cache: String::new(),
             output_cache_id: None,
             output_refresh_at: None,
@@ -61,23 +70,51 @@ impl BackgroundTasksPanel {
         }
     }
 
-    /// 当前选中/查看的任务 id（List 用 selected_index，Detail 用 item_id）。
+    pub fn select_shell(&mut self, task_id: String) {
+        self.selected_item = Some(BackgroundTaskItem::Shell(task_id));
+    }
+
+    fn refresh_items(&mut self, items: Vec<BackgroundTaskItem>) {
+        // 仅首次选择默认项。选中目标消失后保持原 ID，禁止悄悄改选相邻任务。
+        if self.selected_item.is_none() {
+            self.selected_item = items.first().cloned();
+        }
+        self.visible_items = items;
+    }
+
+    fn selected_index(&self) -> Option<usize> {
+        self.visible_items
+            .iter()
+            .position(|item| Some(item) == self.selected_item.as_ref())
+    }
+
+    fn move_selection(&mut self, down: bool) {
+        if self.visible_items.is_empty() {
+            return;
+        }
+        let index = match (self.selected_index(), down) {
+            (Some(index), true) => (index + 1).min(self.visible_items.len() - 1),
+            (Some(index), false) => index.saturating_sub(1),
+            (None, true) => 0,
+            (None, false) => self.visible_items.len() - 1,
+        };
+        self.selected_item = self.visible_items.get(index).cloned();
+    }
+
+    /// 取稳定选中 ID，并检查它仍存在；列表变化不得让操作落到另一条任务。
     fn current_item_id(&self, ctx: &PanelContext<'_>) -> Option<String> {
         match &self.view {
             BackgroundTaskView::List => {
+                let BackgroundTaskItem::Shell(id) = self.selected_item.as_ref()? else {
+                    return None;
+                };
                 let session = ctx.session_mgr.current();
-                if let Some(bg) = session.background_shells.get(self.selected_index) {
-                    return Some(bg.id.clone());
-                }
-                session
-                    .agent_shells
-                    .iter()
-                    .filter(|slot| slot.is_backgrounded)
-                    .nth(
-                        self.selected_index
-                            .saturating_sub(session.background_shells.len()),
-                    )
-                    .map(|slot| slot.task_id.clone())
+                let exists = session.background_shells.iter().any(|bg| bg.id == *id)
+                    || session.agent_shells.iter().any(|slot| {
+                        slot.task_id == *id
+                            && (slot.is_backgrounded() || slot.is_foreground_running())
+                    });
+                exists.then(|| id.clone())
             }
             BackgroundTaskView::Detail { item_id } => Some(item_id.clone()),
         }
@@ -115,27 +152,32 @@ impl PanelComponent for BackgroundTasksPanel {
 
     fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
         use tui_textarea::Key;
-        let count = {
-            let session = ctx.session_mgr.current();
-            session.background_shells.len()
-                + session
-                    .agent_shells
-                    .iter()
-                    .filter(|slot| slot.is_backgrounded)
-                    .count()
-                + session.background_agents.len()
-        };
         match input {
-            Input { key: Key::Up, .. } if self.view == BackgroundTaskView::List => {
-                if self.selected_index > 0 {
-                    self.selected_index -= 1;
+            Input {
+                key: Key::Char('b'),
+                ctrl: true,
+                ..
+            } => {
+                if let Some(id) = self.current_item_id(ctx) {
+                    let bg_event_tx = ctx.services.bg_event_tx.clone();
+                    if let Some(slot) = ctx
+                        .session_mgr
+                        .current_mut()
+                        .agent_shells
+                        .iter_mut()
+                        .find(|slot| slot.task_id == id)
+                    {
+                        super::shell_command::background_agent_slot(slot, bg_event_tx);
+                    }
                 }
                 EventResult::Consumed
             }
+            Input { key: Key::Up, .. } if self.view == BackgroundTaskView::List => {
+                self.move_selection(false);
+                EventResult::Consumed
+            }
             Input { key: Key::Down, .. } if self.view == BackgroundTaskView::List => {
-                if self.selected_index + 1 < count {
-                    self.selected_index += 1;
-                }
+                self.move_selection(true);
                 EventResult::Consumed
             }
             Input {
@@ -214,11 +256,13 @@ impl PanelComponent for BackgroundTasksPanel {
             BackgroundTaskView::List => vec![
                 ("↑↓".to_string(), "选择".to_string()),
                 ("Enter".to_string(), "详情".to_string()),
+                ("Ctrl+B".to_string(), "选中命令转后台".to_string()),
                 ("x".to_string(), "停止".to_string()),
                 ("Esc".to_string(), "关闭".to_string()),
             ],
             BackgroundTaskView::Detail { .. } => vec![
                 ("←".to_string(), "返回".to_string()),
+                ("Ctrl+B".to_string(), "选中命令转后台".to_string()),
                 ("x".to_string(), "停止".to_string()),
                 ("Esc".to_string(), "关闭".to_string()),
             ],
@@ -239,10 +283,32 @@ struct AgentRow {
     elapsed: Duration,
 }
 
+fn task_items(session: &super::ChatSession) -> Vec<BackgroundTaskItem> {
+    session
+        .background_shells
+        .iter()
+        .map(|shell| BackgroundTaskItem::Shell(shell.id.clone()))
+        .chain(
+            session
+                .agent_shells
+                .iter()
+                .filter(|slot| slot.is_backgrounded() || slot.is_foreground_running())
+                .map(|slot| BackgroundTaskItem::Shell(slot.task_id.clone())),
+        )
+        .chain(
+            session
+                .background_agents
+                .iter()
+                .map(|agent| BackgroundTaskItem::Agent(agent.instance_id.clone())),
+        )
+        .collect()
+}
+
 fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super::App, area: Rect) {
     // 一次性收集数据，释放 app 借用
     let (shells, agents): (Vec<ShellRow>, Vec<AgentRow>) = {
         let session = app.session_mgr.current();
+        panel.refresh_items(task_items(session));
         let shells = session
             .background_shells
             .iter()
@@ -255,9 +321,13 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                 session
                     .agent_shells
                     .iter()
-                    .filter(|slot| slot.is_backgrounded)
+                    .filter(|slot| slot.is_backgrounded() || slot.is_foreground_running())
                     .map(|slot| ShellRow {
-                        command: slot.command.clone(),
+                        command: if slot.is_foreground_running() {
+                            format!("[前台] {}", slot.command)
+                        } else {
+                            slot.command.clone()
+                        },
                         status: agent_shell_status(slot),
                         elapsed: slot.elapsed(),
                     }),
@@ -274,11 +344,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
         (shells, agents)
     };
 
-    // 钳位 selected_index（cleanup 删除任务后避免选中越界/错位）
-    let total = shells.len() + agents.len();
-    if total > 0 && panel.selected_index >= total {
-        panel.selected_index = total - 1;
-    }
+    let selected_index = panel.selected_index();
 
     let mut lines: Vec<Line> = Vec::new();
     // 副标题：汇总（对齐效果图场景 3 "1 active shell · 1 completed agent · ..."）
@@ -328,7 +394,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
             for (i, row) in shells.iter().enumerate() {
                 lines.push(render_task_row(
                     i,
-                    panel.selected_index,
+                    selected_index,
                     row.command.clone(),
                     row.status,
                     row.elapsed,
@@ -350,7 +416,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                 // agent 选中索引延续 shells 编号
                 lines.push(render_task_row(
                     shells.len() + i,
-                    panel.selected_index,
+                    selected_index,
                     row.label.clone(),
                     ShellStatus::Running,
                     row.elapsed,
@@ -365,12 +431,12 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
 /// 渲染单个任务行（marker + label + badge + elapsed，选中项整行高亮）。
 fn render_task_row(
     idx: usize,
-    selected_index: usize,
+    selected_index: Option<usize>,
     label: String,
     status: ShellStatus,
     elapsed: Duration,
 ) -> Line<'static> {
-    let selected = idx == selected_index;
+    let selected = Some(idx) == selected_index;
     let marker = if selected { "▸ " } else { "  " };
     let badge_text = format!(" {} ", status.badge());
     let mut spans = vec![
@@ -392,10 +458,12 @@ fn render_task_row(
 fn agent_shell_status(slot: &super::AgentShellSlot) -> ShellStatus {
     if !slot.ended {
         ShellStatus::Running
-    } else if slot.exit_code == Some(0) || slot.exit_code.is_none() {
-        ShellStatus::Completed
     } else {
-        ShellStatus::Failed
+        match slot.exit_signal.outcome() {
+            Some(peri_agent::shell::ShellOutcome::Exited(0)) => ShellStatus::Completed,
+            Some(peri_agent::shell::ShellOutcome::Cancelled) => ShellStatus::Killed,
+            _ => ShellStatus::Failed,
+        }
     }
 }
 
@@ -587,7 +655,7 @@ fn kill_background_shell(ctx: &mut PanelContext<'_>, id: &str) {
         if let Some(watchdog) = slot.stall_watchdog.take() {
             watchdog.abort();
         }
-        slot.mark_ended(Some(-1));
+        // 等执行器报告真实取消结果后由 poll_agent_shells 收口并通知 Agent。
     }
 }
 
@@ -598,9 +666,9 @@ impl super::App {
             .current_mut()
             .ui
             .background_tasks_bar_focused = false;
-        self.open_panel(super::panel_manager::PanelState::BackgroundTasks(
-            BackgroundTasksPanel::new(),
-        ));
+        let mut panel = BackgroundTasksPanel::new();
+        panel.refresh_items(task_items(self.session_mgr.current()));
+        self.open_panel(super::panel_manager::PanelState::BackgroundTasks(panel));
     }
 }
 

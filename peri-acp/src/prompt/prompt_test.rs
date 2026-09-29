@@ -511,4 +511,12 @@ fn test_windows_shell_syntax_instructions_included() {
         result.contains("NEVER use PowerShell syntax or cmdlets"),
         "Windows 平台下应包含禁止 PowerShell 语法的指示"
     );
+    assert!(
+        result.contains("uses Git Bash directly"),
+        "提示词必须与 Bash 执行器语义一致"
+    );
+    assert!(
+        !result.contains("cmd /C with automatic Git Bash fallback"),
+        "不得再提示执行后换 shell 重试"
+    );
 }

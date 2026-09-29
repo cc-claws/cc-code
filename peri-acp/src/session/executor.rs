@@ -513,7 +513,12 @@ pub async fn execute_prompt(
             preload_skills: Vec::new(),
             session_id: Some(session_id.clone()),
             broker: broker.clone(),
-            shell_executor: shell_executor.clone(),
+            shell_executor: shell_executor.as_ref().map(|executor| {
+                Arc::new(peri_agent::shell::SessionShellExecutor::new(
+                    Arc::clone(executor),
+                    session_id.clone(),
+                )) as Arc<dyn peri_agent::shell::ShellExecutor>
+            }),
             plugin_skill_dirs: plugin_skill_dirs.clone(),
             plugin_agent_dirs: plugin_agent_dirs.clone(),
             hook_groups: hook_groups.clone(),

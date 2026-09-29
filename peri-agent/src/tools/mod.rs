@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::messages::{ContentBlock, MessageContent};
 
+mod invocation;
+pub use invocation::ToolInvocationContext;
+
 /// 工具定义（JSON Schema 格式参数描述）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {

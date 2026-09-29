@@ -150,7 +150,8 @@ impl super::SubAgentTool {
                 .with_persistence(Arc::clone(store), child_thread_id.clone())
         } else {
             AgentState::new(cwd.to_string())
-        };
+        }
+        .with_context("source_agent_id", child_thread_id.clone());
 
         // 12-13. Cancel token (cascade → child_token, independent → new)
         let cancel_token = match cancel_policy {

@@ -204,7 +204,7 @@ fn optimized(data: &[u8]) -> Option<usize> {{
         for action in actions {
             match action {
                 PipelineAction::AddMessage(vm) => {
-                    view_messages.push(vm);
+                    view_messages.push(*vm);
                 }
                 PipelineAction::RebuildAll {
                     prefix_len,

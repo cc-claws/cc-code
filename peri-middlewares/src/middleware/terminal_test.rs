@@ -1,23 +1,233 @@
 use super::*;
 use crate::tools::output_persist::truncate_bytes;
+use peri_agent::shell::ShellHandoff;
 use peri_agent::tools::BaseTool;
 use std::time::Instant;
 
 struct MockShellExecutor {
     handle: tokio::sync::Mutex<Option<peri_agent::shell::AgentShellHandle>>,
+    requests: tokio::sync::Mutex<Vec<peri_agent::shell::ShellRequest>>,
+}
+
+#[tokio::test]
+async fn test_shell_wait_accepted_background_wins_over_ready_completion() {
+    let (result_tx, result_rx) = oneshot::channel();
+    let handoff = ShellHandoff::new(true, false);
+    assert!(handoff.background(), "模拟 UI 已成功移交后台");
+    result_tx
+        .send(Ok(peri_agent::shell::ShellCommandOutput {
+            stdout: "done".into(),
+            stderr: String::new(),
+            exit_code: 0,
+        }))
+        .expect("结果同时就绪");
+    let result = wait_for_shell_result(result_rx, &handoff, 5000).await;
+    assert!(
+        matches!(result, ShellWaitResult::Backgrounded),
+        "已接受的后台移交不能又返回前台结果"
+    );
+}
+
+#[tokio::test]
+async fn test_shell_wait_completed_result_closes_background_requests() {
+    let (result_tx, result_rx) = oneshot::channel();
+    let handoff = ShellHandoff::new(true, false);
+    result_tx
+        .send(Ok(peri_agent::shell::ShellCommandOutput {
+            stdout: "done".into(),
+            stderr: String::new(),
+            exit_code: 0,
+        }))
+        .expect("完成结果就绪");
+    let result = wait_for_shell_result(result_rx, &handoff, 5000).await;
+    assert!(
+        matches!(result, ShellWaitResult::Completed(Ok(Ok(_)))),
+        "没有移交时保留前台结果"
+    );
+    assert!(!handoff.background(), "返回前台结果后不能再接受后台请求");
+}
+
+#[tokio::test]
+async fn test_shell_wait_timeout_transfers_once_and_rejects_duplicate_background_requests() {
+    let (_result_tx, result_rx) = oneshot::channel();
+    let handoff = ShellHandoff::new(true, false);
+    let result = wait_for_shell_result(result_rx, &handoff, 0).await;
+    assert!(
+        matches!(result, ShellWaitResult::Backgrounded),
+        "前台等待超时时应原子移交后台，不应留下单独的请求消费窗口"
+    );
+    assert!(handoff.is_backgrounded(), "后台结果与实际归属必须一致");
+    assert!(!handoff.background(), "自动后台化后不能重复接受手动移交");
+}
+
+#[tokio::test]
+async fn test_shell_wait_timeout_without_background_support_preserves_foreground_ownership() {
+    let (_result_tx, result_rx) = oneshot::channel();
+    let handoff = ShellHandoff::new(false, false);
+    let result = wait_for_shell_result(result_rx, &handoff, 0).await;
+    assert!(matches!(result, ShellWaitResult::TimedOut));
+    assert!(!handoff.background(), "无后台宿主不能接受移交");
+    assert!(handoff.settle_foreground(), "前台守卫仍须负责取消命令");
+}
+
+#[tokio::test]
+async fn test_shell_wait_concurrent_completion_and_background_have_one_owner() {
+    for _ in 0..128 {
+        let (result_tx, result_rx) = oneshot::channel();
+        let handoff = Arc::new(ShellHandoff::new(true, false));
+        result_tx
+            .send(Ok(peri_agent::shell::ShellCommandOutput {
+                stdout: "done".into(),
+                stderr: String::new(),
+                exit_code: 0,
+            }))
+            .expect("完成结果就绪");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let sender_barrier = barrier.clone();
+        let sender_handoff = handoff.clone();
+        let sender = std::thread::spawn(move || {
+            sender_barrier.wait();
+            sender_handoff.background()
+        });
+        barrier.wait();
+        let result = wait_for_shell_result(result_rx, &handoff, 5000).await;
+        let accepted = sender.join().expect("发送线程应正常退出");
+        assert_eq!(
+            matches!(result, ShellWaitResult::Backgrounded),
+            accepted,
+            "成功移交与后台结果必须一致，不能同时拥有前台结果和后台通知"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_bash_execution_timeout_rejects_invalid_values_before_execution() {
+    let executor = make_completed_executor("", "", 0);
+    let tool = BashTool::with_executor(".", executor.clone());
+    for invalid in [
+        serde_json::json!(0),
+        serde_json::json!(-1),
+        serde_json::json!(600001),
+        serde_json::json!(1.5),
+        serde_json::json!("100"),
+        serde_json::Value::Null,
+    ] {
+        let result = tool
+            .invoke(serde_json::json!({
+                "command": "printf must-not-run",
+                "execution_timeout": invalid
+            }))
+            .await;
+        assert!(
+            result
+                .expect_err("非法硬期限必须拒绝")
+                .to_string()
+                .contains("execution_timeout"),
+            "应明确指出参数错误"
+        );
+    }
+    assert!(
+        executor.requests.lock().await.is_empty(),
+        "拒绝时不得提交命令"
+    );
+}
+
+#[tokio::test]
+async fn test_bash_execution_timeout_is_independent_of_foreground_wait() {
+    for hard_limit in [None, Some(1), Some(300000), Some(600000)] {
+        let executor = make_completed_executor("", "", 0);
+        let tool = BashTool::with_executor(".", executor.clone());
+        let mut input = serde_json::json!({"command": "printf done", "timeout": 100});
+        if let Some(hard_limit) = hard_limit {
+            input["execution_timeout"] = serde_json::json!(hard_limit);
+        }
+        tool.invoke(input).await.expect("合法硬期限应透传");
+        let requests = executor.requests.lock().await;
+        assert_eq!(requests.len(), 1, "命令只执行一次");
+        assert_eq!(requests[0].timeout_ms, 100, "硬期限不能覆盖前台等待时间");
+        assert_eq!(
+            requests[0].execution_timeout_ms,
+            hard_limit.unwrap_or(600000)
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_inline_shell_hard_timeout_preserves_terminal_reason() {
+    use peri_agent::shell::{ShellDialect, ShellOutcome, ShellRequest};
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    let handle = InlineShellExecutor
+        .execute(ShellRequest {
+            owner_session_id: None,
+            invocation: None,
+            command: "sleep 30; printf unexpected > late-output".into(),
+            original_command: "sleep 30; printf unexpected > late-output".into(),
+            shell: ShellDialect::Bash,
+            cwd: dir.path().to_string_lossy().into_owned(),
+            timeout_ms: 5000,
+            execution_timeout_ms: 100,
+            run_in_background: false,
+        })
+        .await
+        .expect("应创建前台句柄");
+    tokio::time::timeout(Duration::from_secs(5), handle.exit_signal.wait())
+        .await
+        .expect("硬期限应及时终止命令");
+    assert_eq!(handle.exit_signal.outcome(), Some(ShellOutcome::TimedOut));
+    assert!(handle.result_rx.await.expect("终态应有结果").is_err());
+    assert_eq!(
+        handle.exit_signal.outcome(),
+        Some(ShellOutcome::TimedOut),
+        "取消守卫不能覆盖真实超时"
+    );
+    assert!(
+        !dir.path().join("late-output").exists(),
+        "超时后不能执行后续副作用"
+    );
+}
+
+#[tokio::test]
+async fn test_inline_shell_cancellation_publishes_terminal_outcome() {
+    use peri_agent::shell::{ShellDialect, ShellOutcome, ShellRequest};
+    let handle = InlineShellExecutor
+        .execute(ShellRequest {
+            owner_session_id: None,
+            invocation: None,
+            command: "sleep 30".into(),
+            original_command: "sleep 30".into(),
+            shell: ShellDialect::Bash,
+            cwd: std::env::temp_dir().to_string_lossy().into_owned(),
+            timeout_ms: 5000,
+            execution_timeout_ms: 600_000,
+            run_in_background: false,
+        })
+        .await
+        .expect("应创建前台执行句柄");
+    handle.kill.abort();
+    tokio::time::timeout(Duration::from_secs(5), handle.exit_signal.wait())
+        .await
+        .expect("取消必须有终态");
+    assert_eq!(handle.exit_signal.outcome(), Some(ShellOutcome::Cancelled));
 }
 
 #[async_trait::async_trait]
 impl peri_agent::shell::ShellExecutor for MockShellExecutor {
     async fn execute(
         &self,
-        _req: peri_agent::shell::ShellRequest,
+        req: peri_agent::shell::ShellRequest,
     ) -> anyhow::Result<peri_agent::shell::AgentShellHandle> {
-        self.handle
+        let backgrounded = req.run_in_background;
+        self.requests.lock().await.push(req);
+        let handle = self
+            .handle
             .lock()
             .await
             .take()
-            .ok_or_else(|| anyhow::anyhow!("mock handle already consumed"))
+            .ok_or_else(|| anyhow::anyhow!("mock handle already consumed"))?;
+        if backgrounded && !handle.handoff.background() {
+            anyhow::bail!("mock executor does not support background");
+        }
+        Ok(handle)
     }
 }
 
@@ -41,11 +251,34 @@ async fn test_bash_nonzero_exit_code() {
     assert!(result.contains("42"), "应包含退出码: {result}");
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn test_bash_routed_command_is_not_replayed() {
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    std::fs::write(
+        dir.path().join("once.sh"),
+        "printf x >> count\nprintf denied >&2\nexit 2\n",
+    )
+    .expect("创建只执行一次的脚本");
+    let tool = BashTool::new(dir.path().to_str().expect("测试路径为 UTF-8"));
+    let output = tool
+        .invoke(serde_json::json!({"command": "bash once.sh", "timeout": 5000}))
+        .await
+        .expect("应返回脚本执行结果");
+    assert!(output.contains("denied"), "应保留脚本错误信息：{output}");
+    assert!(output.contains("Exit code: 2"), "应保留退出码：{output}");
+    assert_eq!(
+        std::fs::read(dir.path().join("count")).expect("读取执行次数"),
+        b"x",
+        "已路由到 Bash 的命令不得再次触发 CMD fallback"
+    );
+}
+
 #[tokio::test]
 async fn test_bash_ctrl_b_background_returns_task_without_killing() {
     let (_result_tx, result_rx) =
         tokio::sync::oneshot::channel::<anyhow::Result<peri_agent::shell::ShellCommandOutput>>();
-    let (background_tx, background_rx) = tokio::sync::oneshot::channel();
+    let handoff = Arc::new(ShellHandoff::new(true, false));
     let killed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let killed_for_abort = std::sync::Arc::clone(&killed);
     let handle = peri_agent::shell::AgentShellHandle {
@@ -53,9 +286,7 @@ async fn test_bash_ctrl_b_background_returns_task_without_killing() {
         output_path: std::env::temp_dir().join("peri-manual-bg.output"),
         result_rx,
         exit_signal: std::sync::Arc::new(peri_agent::shell::ExitSignal::new()),
-        background_rx: Some(background_rx),
-        auto_background_tx: None,
-        background_tx: None,
+        handoff: handoff.clone(),
         kill: peri_agent::shell::ShellAbortHandle::new(move || {
             killed_for_abort.store(true, std::sync::atomic::Ordering::SeqCst);
         }),
@@ -64,6 +295,7 @@ async fn test_bash_ctrl_b_background_returns_task_without_killing() {
         std::env::temp_dir().to_string_lossy().to_string(),
         std::sync::Arc::new(MockShellExecutor {
             handle: tokio::sync::Mutex::new(Some(handle)),
+            requests: tokio::sync::Mutex::new(Vec::new()),
         }),
     );
 
@@ -75,7 +307,7 @@ async fn test_bash_ctrl_b_background_returns_task_without_killing() {
         .await
     });
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    background_tx.send(()).expect("应能发送 Ctrl+B 后台化信号");
+    assert!(handoff.background(), "应能通过 Ctrl+B 原子移交后台归属");
     let result = tokio::time::timeout(std::time::Duration::from_secs(1), invoke)
         .await
         .expect("Ctrl+B 后 BashTool 应快速返回")
@@ -100,7 +332,7 @@ async fn test_bash_ctrl_b_background_returns_task_without_killing() {
 async fn test_bash_timeout_auto_background_returns_task_without_killing() {
     let (_result_tx, result_rx) =
         tokio::sync::oneshot::channel::<anyhow::Result<peri_agent::shell::ShellCommandOutput>>();
-    let (auto_background_tx, mut auto_background_rx) = tokio::sync::oneshot::channel();
+    let handoff = Arc::new(ShellHandoff::new(true, false));
     let killed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let killed_for_abort = std::sync::Arc::clone(&killed);
     let handle = peri_agent::shell::AgentShellHandle {
@@ -108,9 +340,7 @@ async fn test_bash_timeout_auto_background_returns_task_without_killing() {
         output_path: std::env::temp_dir().join("peri-auto-bg.output"),
         result_rx,
         exit_signal: std::sync::Arc::new(peri_agent::shell::ExitSignal::new()),
-        background_rx: None,
-        auto_background_tx: Some(auto_background_tx),
-        background_tx: None,
+        handoff: handoff.clone(),
         kill: peri_agent::shell::ShellAbortHandle::new(move || {
             killed_for_abort.store(true, std::sync::atomic::Ordering::SeqCst);
         }),
@@ -119,6 +349,7 @@ async fn test_bash_timeout_auto_background_returns_task_without_killing() {
         std::env::temp_dir().to_string_lossy().to_string(),
         std::sync::Arc::new(MockShellExecutor {
             handle: tokio::sync::Mutex::new(Some(handle)),
+            requests: tokio::sync::Mutex::new(Vec::new()),
         }),
     );
 
@@ -135,8 +366,8 @@ async fn test_bash_timeout_auto_background_returns_task_without_killing() {
         "超时自动后台化应返回后台任务占位串: {result}"
     );
     assert!(
-        auto_background_rx.try_recv().is_ok(),
-        "超时应通知 TUI 自动后台化"
+        handoff.is_backgrounded(),
+        "前台超时返回时 TUI 观察的共享状态必须已经移交后台"
     );
     assert!(
         !killed.load(std::sync::atomic::Ordering::SeqCst),
@@ -270,29 +501,25 @@ fn test_bash_description_extended() {
     );
     assert!(desc.contains("timeout"), "description 应提及超时");
     assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
+    assert!(desc.contains("Failed commands are never automatically rerun"));
+    assert!(
+        !desc.contains("working directory persists"),
+        "不能宣称不存在的跨调用 cwd 状态"
+    );
 }
 
-/// 零超时应被 clamp 到至少 1 毫秒。timeout=0 → 1ms 太短，echo 大概率超时返回 Err。
-/// 这里验证 timeout=100ms（clamp 后足够执行 echo），命令正常完成。
+/// clamp 的契约不依赖 Git Bash 冷启动是否能在 100ms 内结束。
 #[tokio::test]
 async fn test_bash_timeout_clamped_to_minimum() {
-    let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
-    let start = Instant::now();
-    // timeout = 100 → clamp 不生效，echo quick 应在 100ms 内正常完成
+    let executor = make_completed_executor("", "", 0);
+    let tool = BashTool::with_executor(".", executor.clone());
     let result = tool
-        .invoke(serde_json::json!({
-            "command": "echo quick",
-            "timeout": 100
-        }))
-        .await
-        .unwrap();
-    let elapsed = start.elapsed();
-    assert!(result.contains("quick"), "echo quick 应正常输出: {result}");
-    assert!(
-        elapsed.as_millis() < 500,
-        "应快速完成，实际耗时 {:?}",
-        elapsed
-    );
+        .invoke(serde_json::json!({"command": "echo quick", "timeout": 0}))
+        .await;
+    assert!(result.is_ok(), "已有结果应成功返回");
+    let requests = executor.requests.lock().await;
+    assert_eq!(requests.len(), 1, "只提交一次命令");
+    assert_eq!(requests[0].timeout_ms, 1, "零超时应 clamp 为 1 毫秒");
 }
 
 /// 显式超时 600000 毫秒应被允许（上限）
@@ -328,24 +555,25 @@ async fn test_bash_default_timeout_is_120_seconds() {
 }
 
 #[tokio::test]
-async fn test_bash_description_and_run_in_background_parsed() {
-    let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
-    // run_in_background=true 时 invoke 立即返回 task 启动占位串（对齐 Claude Code）。
-    // 真实输出靠宿主的通知机制注入下一轮对话；InlineShellExecutor 无通知系统，
-    // 仅验证占位串结构。
+async fn test_bash_inline_background_rejected_before_spawn() {
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    let tool = BashTool::new(dir.path().to_string_lossy());
     let result = tool
         .invoke(serde_json::json!({
-            "command": "echo ok",
+            "command": "printf unexpected > side-effect",
             "description": "test description",
             "run_in_background": true
         }))
-        .await
-        .unwrap();
+        .await;
+    let error = result.expect_err("无后台服务时必须拒绝").to_string();
     assert!(
-        result.contains("<background-task-started>"),
-        "run_in_background 应返回 task 启动占位串: {result}"
+        error.contains("does not support background"),
+        "应解释宿主能力：{error}"
     );
-    assert!(result.contains("echo ok"), "占位串应含命令: {result}");
+    assert!(
+        !dir.path().join("side-effect").exists(),
+        "拒绝请求不能产生副作用"
+    );
 }
 
 #[test]
@@ -427,178 +655,115 @@ fn test_truncate_output_persists_full_content_on_byte_truncation() {
     );
 }
 
-// ── extract_quoted_message 测试 ──────────────────────────────────────
+fn make_completed_executor(stdout: &str, stderr: &str, exit_code: i32) -> Arc<MockShellExecutor> {
+    use peri_agent::shell::{AgentShellHandle, ExitSignal, ShellAbortHandle, ShellCommandOutput};
+    let (tx, result_rx) = tokio::sync::oneshot::channel();
+    tx.send(Ok(ShellCommandOutput {
+        stdout: stdout.into(),
+        stderr: stderr.into(),
+        exit_code,
+    }))
+    .expect("测试结果通道应打开");
+    Arc::new(MockShellExecutor {
+        requests: tokio::sync::Mutex::new(Vec::new()),
+        handle: tokio::sync::Mutex::new(Some(AgentShellHandle {
+            task_id: "contract-task".into(),
+            output_path: std::env::temp_dir().join("contract-task.output"),
+            result_rx,
+            exit_signal: Arc::new(ExitSignal::new()),
+            handoff: Arc::new(ShellHandoff::new(true, false)),
+            kill: ShellAbortHandle::noop(),
+        })),
+    })
+}
 
-#[test]
-fn test_extract_quoted_message_double_quotes() {
-    let (msg, rest) =
-        extract_quoted_message(r#""feat(tui): display version number on welcome page""#);
-    assert_eq!(
-        msg.as_deref(),
-        Some("feat(tui): display version number on welcome page")
+#[tokio::test]
+async fn test_bash_failed_output_does_not_bypass_injected_executor() {
+    let executor = make_completed_executor("", "short failure", 2);
+    let tool = BashTool::with_executor(".", executor.clone());
+    let output = tool
+        .invoke(serde_json::json!({"command": "printf unexpected"}))
+        .await
+        .expect("应保留执行结果");
+    assert!(
+        output.contains("short failure"),
+        "失败不能转去直接 spawn：{output}"
     );
-    assert_eq!(rest, "");
+    assert!(output.contains("Exit code: 2"), "保留退出码：{output}");
+    let requests = executor.requests.lock().await;
+    assert_eq!(requests.len(), 1, "一个调用只能提交一次执行");
+    assert_eq!(requests[0].shell, peri_agent::shell::ShellDialect::Bash);
+    assert_eq!(requests[0].original_command, "printf unexpected");
 }
 
-#[test]
-fn test_extract_quoted_message_with_remaining() {
-    let (msg, rest) = extract_quoted_message(r#""my message" --no-verify"#);
-    assert_eq!(msg.as_deref(), Some("my message"));
-    assert_eq!(rest, " --no-verify");
+#[tokio::test]
+async fn test_bash_direct_background_submits_same_shell_contract() {
+    let executor = make_completed_executor("", "", 0);
+    let tool = BashTool::with_executor(".", executor.clone());
+    let output = tool
+        .invoke(serde_json::json!({"command": "printf pending", "run_in_background": true}))
+        .await
+        .expect("支持后台的宿主应返回句柄");
+    let requests = executor.requests.lock().await;
+    assert_eq!(requests.len(), 1, "直接后台也只提交一次");
+    assert!(requests[0].run_in_background);
+    assert_eq!(requests[0].shell, peri_agent::shell::ShellDialect::Bash);
+    assert!(
+        output.contains("<task-id>contract-task</task-id>"),
+        "返回同一个任务：{output}"
+    );
 }
 
-#[test]
-fn test_extract_quoted_message_single_quotes() {
-    let (msg, _) = extract_quoted_message("'hello world'");
-    assert_eq!(msg.as_deref(), Some("hello world"));
+#[tokio::test]
+async fn test_bash_single_line_failure_preserves_side_effect_once() {
+    for exit_code in [2, 127] {
+        let dir = tempfile::tempdir().expect("创建隔离目录");
+        let tool = BashTool::new(dir.path().to_string_lossy());
+        let command = format!("printf x >> count; printf denied >&2; exit {exit_code}");
+        let output = tool
+            .invoke(serde_json::json!({"command": command, "timeout": 5000}))
+            .await
+            .expect("应返回真实错误");
+        assert_eq!(
+            std::fs::read(dir.path().join("count")).expect("读取执行次数"),
+            b"x",
+            "不允许重放副作用"
+        );
+        assert!(
+            output.contains(&format!("Exit code: {exit_code}")),
+            "应保留退出码：{output}"
+        );
+    }
 }
 
-#[test]
-fn test_extract_quoted_message_escaped_quote() {
-    let (msg, _) = extract_quoted_message(r#""say \"hello\"""#);
-    assert_eq!(msg.as_deref(), Some(r#"say "hello""#));
+#[tokio::test]
+async fn test_bash_preserves_native_git_message_quoting() {
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    let cwd = dir.path().join("中文 with spaces");
+    std::fs::create_dir(&cwd).expect("创建带空格工作目录");
+    let tool = BashTool::new(cwd.to_string_lossy());
+    // 用同名函数检查真实 shell argv，不创建提交，也不读取用户 git 配置。
+    let command = r#"git() { printf '<%s>\n' "$@"; }; note='中文 && | 引号'; git commit -m "$note" -m 'body $HOME'"#;
+    let output = tool
+        .invoke(serde_json::json!({"command": command, "timeout": 5000}))
+        .await
+        .expect("Bash 应原生处理引用");
+    assert!(
+        output.contains("<commit>\n<-m>\n<中文 && | 引号>\n<-m>\n<body $HOME>"),
+        "不应改写成 CMD 临时文件或破坏参数：{output}"
+    );
 }
 
-#[test]
-fn test_extract_quoted_message_no_quote() {
-    let (msg, rest) = extract_quoted_message("no-quotes here");
-    assert!(msg.is_none());
-    assert_eq!(rest, "no-quotes here");
-}
-
-#[test]
-fn test_extract_quoted_message_empty() {
-    let (msg, rest) = extract_quoted_message("");
-    assert!(msg.is_none());
-    assert_eq!(rest, "");
-}
-
-#[test]
-fn test_extract_quoted_message_unclosed() {
-    let (msg, _) = extract_quoted_message(r#""unclosed message"#);
-    assert!(msg.is_none());
-}
-
-#[test]
-fn test_extract_quoted_message_chinese() {
-    let (msg, _) = extract_quoted_message(r#""feat(tui): 显示版本号""#);
-    assert_eq!(msg.as_deref(), Some("feat(tui): 显示版本号"));
-}
-
-// ── rewrite_git_commit_for_windows 测试（仅 Windows）───────────────
-
-#[cfg(windows)]
-mod windows_git_rewrite {
-    use super::*;
-
-    #[test]
-    fn test_rewrite_simple_commit() {
-        let (cmd, infos) =
-            rewrite_git_commit_for_windows(r#"git commit -m "feat(tui): display version""#);
-        assert!(cmd.contains("git commit -F"), "应改写为 -F: {cmd}");
-        assert!(!infos.is_empty(), "应返回临时文件信息");
-        let (path, content) = &infos[0];
-        assert!(path.ends_with(".txt"), "临时文件应为 .txt: {path}");
-        assert_eq!(content, "feat(tui): display version");
-    }
-
-    #[test]
-    fn test_rewrite_long_flag() {
-        let (cmd, infos) = rewrite_git_commit_for_windows(r#"git commit --message "hello world""#);
-        assert!(cmd.contains("git commit -F"), "应改写 --message: {cmd}");
-        assert_eq!(infos[0].1, "hello world");
-    }
-
-    #[test]
-    fn test_rewrite_preserves_extra_flags() {
-        let (cmd, _) = rewrite_git_commit_for_windows(r#"git commit -m "msg" --no-verify"#);
-        assert!(cmd.contains("--no-verify"), "应保留额外标志: {cmd}");
-        assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
-    }
-
-    #[test]
-    fn test_no_rewrite_without_quotes() {
-        let (cmd, infos) = rewrite_git_commit_for_windows("git commit -m msg");
-        assert!(infos.is_empty(), "无引号时不应重写");
-        assert_eq!(cmd, "git commit -m msg");
-    }
-
-    #[test]
-    fn test_rewrite_chained_command() {
-        let input = r#"git add . && git commit -m "msg""#;
-        let (cmd, infos) = rewrite_git_commit_for_windows(input);
-        assert!(!infos.is_empty(), "链式命令应重写 commit 段");
-        assert!(cmd.contains("git add ."), "应保留 git add: {cmd}");
-        assert!(cmd.contains("git commit -F"), "应改写 commit: {cmd}");
-        assert!(cmd.contains("&&"), "应保留 && 分隔符: {cmd}");
-        assert_eq!(infos[0].1, "msg");
-    }
-
-    #[test]
-    fn test_no_rewrite_non_commit() {
-        let input = "git status";
-        let (cmd, infos) = rewrite_git_commit_for_windows(input);
-        assert!(infos.is_empty());
-        assert_eq!(cmd, input);
-    }
-
-    #[test]
-    fn test_rewrite_pipe() {
-        let input = r#"git commit -m "msg" | cat"#;
-        let (cmd, infos) = rewrite_git_commit_for_windows(input);
-        assert!(!infos.is_empty(), "管道命令应重写 commit 段");
-        assert!(cmd.contains("git commit -F"), "应改写: {cmd}");
-        assert!(cmd.contains("| cat"), "应保留管道: {cmd}");
-    }
-
-    #[test]
-    fn test_rewrite_multiple_m_flags() {
-        let (cmd, infos) =
-            rewrite_git_commit_for_windows(r#"git commit -m "subject" -m "body paragraph""#);
-        assert!(cmd.contains("git commit -F"), "应改写为 -F: {cmd}");
-        assert!(!cmd.contains(" -m "), "不应残留 -m: {cmd}");
-        let (path, content) = &infos[0];
-        assert!(path.ends_with(".txt"));
-        // git 语义：多个 -m 以双换行拼接
-        assert_eq!(content, "subject\n\nbody paragraph");
-    }
-
-    #[test]
-    fn test_rewrite_three_m_flags() {
-        let (cmd, infos) =
-            rewrite_git_commit_for_windows(r#"git commit -m "first" -m "second" -m "third""#);
-        assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
-        assert_eq!(infos[0].1, "first\n\nsecond\n\nthird");
-    }
-
-    #[test]
-    fn test_rewrite_mixed_m_and_other_flags() {
-        let (cmd, infos) =
-            rewrite_git_commit_for_windows(r#"git commit --no-verify -m "msg" --amend"#);
-        assert!(cmd.contains("-F"), "应改写为 -F: {cmd}");
-        assert!(cmd.contains("--no-verify"), "应保留 --no-verify: {cmd}");
-        assert!(cmd.contains("--amend"), "应保留 --amend: {cmd}");
-        assert!(!cmd.contains(" -m "), "不应残留 -m: {cmd}");
-        assert_eq!(infos[0].1, "msg");
-    }
-
-    #[test]
-    fn test_rewrite_chained_with_quote_containing_separator() {
-        let input = r#"git add . && git commit -m "fix: a && b""#;
-        let (cmd, infos) = rewrite_git_commit_for_windows(input);
-        assert!(!infos.is_empty(), "应正确处理引号内的 &&");
-        assert_eq!(infos[0].1, "fix: a && b");
-        assert!(cmd.contains("git commit -F"), "应改写: {cmd}");
-    }
-
-    #[test]
-    fn test_rewrite_triple_chained() {
-        let input = r#"git add -A && git status && git commit -m "done""#;
-        let (cmd, infos) = rewrite_git_commit_for_windows(input);
-        assert!(!infos.is_empty(), "三段链式应重写 commit 段");
-        assert!(cmd.contains("git add -A"), "应保留第一段: {cmd}");
-        assert!(cmd.contains("git status"), "应保留第二段: {cmd}");
-        assert!(cmd.contains("git commit -F"), "应改写第三段: {cmd}");
-        assert_eq!(infos[0].1, "done");
-    }
+#[tokio::test]
+async fn test_bash_drains_stderr_before_stdout_without_deadlock() {
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    let tool = BashTool::new(dir.path().to_string_lossy());
+    let output = tool.invoke(serde_json::json!({
+        "command": "for ((i=0;i<8192;i++)); do printf 'stderr-padding-1234567890\\n' >&2; done; printf drained",
+        "timeout": 10000
+    })).await.expect("stderr 超过管道缓冲后仍应完成");
+    assert!(
+        output.contains("drained"),
+        "应读到 stderr 之后的 stdout：{output}"
+    );
 }

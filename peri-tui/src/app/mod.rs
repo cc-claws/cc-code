@@ -85,6 +85,7 @@ mod chat_session;
 mod command_system;
 mod session_metadata;
 pub use chat_session::ChatSession;
+pub(crate) use chat_session::PendingBgShellNotification;
 #[cfg(test)]
 pub(crate) use chat_session::RunningBgAgent;
 pub use command_system::CommandSystem;

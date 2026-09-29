@@ -33,12 +33,40 @@ impl App {
                     &command,
                     &last_output,
                 );
+                let owner_session_id = self
+                    .session_mgr
+                    .current()
+                    .agent_shells
+                    .iter()
+                    .find(|slot| slot.task_id == task_id)
+                    .and_then(|slot| slot.owner_session_id.clone())
+                    .or_else(|| {
+                        self.session_mgr
+                            .current()
+                            .background_shells
+                            .iter()
+                            .find(|shell| shell.id == task_id)
+                            .and_then(|shell| shell.owner_session_id.clone())
+                    });
                 let loading = self.session_mgr.current().ui.loading;
-                if loading {
+                let current_owner = self
+                    .session_mgr
+                    .current()
+                    .current_thread_id
+                    .as_ref()
+                    .map(ToString::to_string);
+                if loading
+                    || owner_session_id
+                        .as_deref()
+                        .is_some_and(|owner| current_owner.as_deref() != Some(owner))
+                {
                     self.session_mgr
                         .current_mut()
                         .pending_bg_shell_notifications
-                        .push_back(notif);
+                        .push_back(super::PendingBgShellNotification {
+                            owner_session_id,
+                            content: notif,
+                        });
                 } else {
                     self.submit_message(notif);
                 }

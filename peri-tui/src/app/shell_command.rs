@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Utc;
 use peri_agent::shell::ShellAbortHandle;
 use tokio::sync::{mpsc, oneshot};
 
 use super::*;
+
 use crate::shell_exec::CommandOutput;
 use crate::shell_history::ShellCommandRecord;
 use crate::thread::{ThreadId, ThreadMeta, ThreadStore};
@@ -72,48 +73,21 @@ impl ShellCommandPool {
     }
 }
 
-fn set_pending_bash_tool_started_at_in_view(
-    view_messages: &mut [MessageViewModel],
-    command: &str,
-    started_at: std::time::Instant,
+/// UI 与面板共用同一个后台化入口，操作单个任务且只在成功后启动 watchdog。
+pub(crate) fn background_agent_slot(
+    slot: &mut super::AgentShellSlot,
+    bg_event_tx: mpsc::Sender<AgentEvent>,
 ) -> bool {
-    for vm in view_messages.iter_mut().rev() {
-        let matched = match vm {
-            MessageViewModel::ToolBlock {
-                tool_name,
-                args_display,
-                content,
-                is_error,
-                started_at: vm_started_at,
-                ..
-            } => {
-                tool_name == "Bash"
-                    && content.is_empty()
-                    && !*is_error
-                    && vm_started_at.is_none()
-                    && args_display
-                        .as_deref()
-                        .is_some_and(|args| bash_args_display_matches_command(args, command))
-            }
-            _ => false,
-        };
-        if matched {
-            if let MessageViewModel::ToolBlock {
-                started_at: vm_started_at,
-                ..
-            } = vm
-            {
-                *vm_started_at = Some(started_at);
-            }
-            vm.recompute_hash();
-            return true;
-        }
+    if !slot.mark_backgrounded() {
+        return false;
     }
-    false
-}
-
-fn bash_args_display_matches_command(args_display: &str, command: &str) -> bool {
-    args_display == command || args_display == super::tool_display::truncate(command, 400)
+    slot.stall_watchdog = Some(super::background_shell::spawn_stall_watchdog(
+        slot.task_id.clone(),
+        slot.command.clone(),
+        slot.output_path.clone(),
+        bg_event_tx,
+    ));
+    true
 }
 
 impl App {
@@ -127,7 +101,7 @@ impl App {
             + session
                 .agent_shells
                 .iter()
-                .filter(|slot| slot.is_backgrounded && !slot.ended)
+                .filter(|slot| slot.is_backgrounded() && !slot.ended)
                 .count()
     }
 
@@ -302,7 +276,7 @@ impl App {
     ///   `pending_bg_shell_notifications`，Done 后由 lifecycle 消费
     pub fn poll_background_shell_events(&mut self) -> bool {
         // 阶段1：检测完成，收集通知（&mut session）
-        let notifications: Vec<String> = {
+        let notifications: Vec<super::PendingBgShellNotification> = {
             let session = self.session_mgr.current_mut();
             let mut notifs = Vec::new();
             for bg in session.background_shells.iter_mut() {
@@ -345,7 +319,10 @@ impl App {
                         bg.exit_code,
                         &bg.output_path,
                     );
-                    notifs.push(n);
+                    notifs.push(super::PendingBgShellNotification {
+                        owner_session_id: bg.owner_session_id.clone(),
+                        content: n,
+                    });
                 }
             }
             notifs
@@ -359,15 +336,32 @@ impl App {
         // 由 handle_done 逐个 flush，避免连续 submit_message 触发多次 begin_round 互相覆盖）
         let loading = self.session_mgr.current().ui.loading;
         let mut first_injected = false;
-        for n in notifications {
+        let current_owner = self
+            .session_mgr
+            .current()
+            .current_thread_id
+            .as_ref()
+            .map(ToString::to_string);
+        for notification in notifications {
+            let matches_owner = notification
+                .owner_session_id
+                .as_deref()
+                .is_none_or(|owner| current_owner.as_deref() == Some(owner));
+            if !matches_owner {
+                self.session_mgr
+                    .current_mut()
+                    .pending_bg_shell_notifications
+                    .push_back(notification);
+                continue;
+            }
             if !loading && !first_injected {
-                self.submit_message(n);
+                self.submit_message(notification.content);
                 first_injected = true;
             } else {
                 self.session_mgr
                     .current_mut()
                     .pending_bg_shell_notifications
-                    .push_back(n);
+                    .push_back(notification);
             }
         }
         // 清理已完成任务（防 background_shells 无限增长 + 回收磁盘 output 文件）
@@ -474,6 +468,7 @@ impl App {
             abort_handle,
             started_instant,
         );
+        bg.owner_session_id = runtime.thread_id.as_ref().map(ToString::to_string);
         bg.stall_watchdog = Some(watchdog);
 
         // 阶段3：push 到 background_shells + 标记前台 VM moved + set_loading(false)
@@ -537,9 +532,6 @@ impl App {
     pub fn register_agent_shell(&mut self, reg: super::AgentShellRegistration) {
         let direct_background = reg.direct_background;
         let mut slot = super::AgentShellSlot::from_registration(reg);
-        if !direct_background {
-            self.set_agent_bash_tool_started_at(&slot.command, slot.started_instant);
-        }
         // 直接后台命令启动 stall watchdog（检测卡在等待输入）
         if direct_background {
             let watchdog = super::background_shell::spawn_stall_watchdog(
@@ -551,82 +543,54 @@ impl App {
             slot.stall_watchdog = Some(watchdog);
         }
         self.session_mgr.current_mut().agent_shells.push(slot);
+        self.sync_agent_shell_runtime_states();
         // 依赖 Ratatui 原生单元格 Diff 平滑重绘，无需物理清屏
         self.render_rebuild();
     }
 
-    fn set_agent_bash_tool_started_at(
-        &mut self,
-        command: &str,
-        started_at: std::time::Instant,
-    ) -> bool {
-        let session = self.session_mgr.current_mut();
-        let pipeline_changed = session
-            .messages
-            .pipeline
-            .set_bash_tool_started_at(command, started_at);
-        let view_changed = set_pending_bash_tool_started_at_in_view(
-            &mut session.messages.view_messages,
-            command,
-            started_at,
-        );
-        pipeline_changed || view_changed
-    }
-
-    /// 把当前会话中所有前台 agent shell 后台化（Ctrl+B 触发）。
+    /// 单个前台任务直接后台化；多个任务先打开选择面板，禁止批量后台化。
     ///
     /// 与 [`Self::background_foreground`]（!command 路径）协同：Ctrl+B 时先尝试
     /// !command 前台，再尝试 agent 前台。返回是否有任何 agent shell 被后台化。
     pub fn background_agent_foreground(&mut self) -> bool {
-        // 先消费待处理的 agent shell 注册，避免 Ctrl+B 竞态：
-        // AgentShellExecutor 延迟 2s 发送注册到 channel，Ctrl+B 提示也在 2s
-        // 出现（message_render）。如果 Ctrl+B 按键事件在本帧 poll 之前到达，
-        // agent_shells 仍为空 → 找不到前台 shell 来后台化。
-        let pending: Vec<super::AgentShellRegistration> =
-            match self.agent_shell_registrations_rx.as_mut() {
-                Some(rx) => {
-                    let mut v = Vec::new();
-                    while let Ok(reg) = rx.try_recv() {
-                        v.push(reg);
-                    }
-                    v
+        self.poll_agent_shell_registrations();
+        let foreground: Vec<usize> = self
+            .session_mgr
+            .current()
+            .agent_shells
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.is_foreground_running() && !slot.exit_signal.is_exited())
+            .map(|(index, _)| index)
+            .collect();
+        match foreground.as_slice() {
+            [] => false,
+            [index] => {
+                let backgrounded = {
+                    let slot = &mut self.session_mgr.current_mut().agent_shells[*index];
+                    background_agent_slot(slot, self.services.bg_event_tx.clone())
+                };
+                if backgrounded {
+                    self.sync_agent_shell_runtime_states();
+                    true
+                } else {
+                    false
                 }
-                None => Vec::new(),
-            };
-        for reg in pending {
-            self.register_agent_shell(reg);
-        }
-
-        let mut any = false;
-        let cwd_path = std::path::PathBuf::from(
-            self.session_mgr
-                .current()
-                .shell_pool
-                .foreground
-                .runtime
-                .cwd
-                .clone(),
-        );
-        let session_id = self.session_mgr.current().metadata.session_id.to_string();
-        for slot in self.session_mgr.current_mut().agent_shells.iter_mut() {
-            if !slot.is_foreground_running() {
-                continue;
             }
-            // 后台化：启动 stall watchdog（输出已全程写磁盘，无需切 output 目标）
-            let watchdog = super::background_shell::spawn_stall_watchdog(
-                slot.task_id.clone(),
-                slot.command.clone(),
-                slot.output_path.clone(),
-                self.services.bg_event_tx.clone(),
-            );
-            slot.stall_watchdog = Some(watchdog);
-            slot.mark_backgrounded();
-            any = true;
+            [first, ..] => {
+                let selected_task_id = self.session_mgr.current().agent_shells[*first]
+                    .task_id
+                    .clone();
+                self.open_background_tasks_panel();
+                if let Some(panel) =
+                    self.global_panels
+                        .get_mut::<super::background_tasks_panel::BackgroundTasksPanel>()
+                {
+                    panel.select_shell(selected_task_id);
+                }
+                true
+            }
         }
-        // 抑制未使用变量（cwd_path/session_id 预留后续 VM 标记用）
-        let _ = (&cwd_path, &session_id);
-        // 依赖 Ratatui 原生单元格 Diff 平滑重绘，无需物理清屏
-        any
     }
 
     /// 轮询 agent shell 退出状态：检测 ExitSignal，退出则标记。
@@ -638,16 +602,13 @@ impl App {
     /// 返回是否有任何状态变化（用于触发重绘）。
     pub fn poll_agent_shells(&mut self) -> bool {
         // 阶段1：收集完成通知（&mut session）
-        let (changed, notifications): (bool, Vec<String>) = {
+        let (mut changed, notifications): (bool, Vec<super::PendingBgShellNotification>) = {
             let bg_event_tx = self.services.bg_event_tx.clone();
             let session = self.session_mgr.current_mut();
             let mut changed = false;
             let mut notifs = Vec::new();
             for slot in session.agent_shells.iter_mut() {
-                if slot.ended {
-                    continue;
-                }
-                if slot.take_auto_background_requested() {
+                if slot.is_backgrounded() && slot.stall_watchdog.is_none() && !slot.ended {
                     let watchdog = super::background_shell::spawn_stall_watchdog(
                         slot.task_id.clone(),
                         slot.command.clone(),
@@ -655,30 +616,42 @@ impl App {
                         bg_event_tx.clone(),
                     );
                     slot.stall_watchdog = Some(watchdog);
-                    slot.mark_backgrounded();
                     changed = true;
                 }
-                if !slot.exit_signal.is_exited() {
+                if !slot.ended {
+                    let Some(outcome) = slot.exit_signal.outcome() else {
+                        continue;
+                    };
+                    // 退出信号可能先于工具消费结果到达；仅由工具或 Ctrl+B 仲裁后的
+                    // 归属决定通知方式，不能把尚未收口的前台任务提前标记结束。
+                    if slot.handoff.is_foreground_pending() {
+                        continue;
+                    }
+                    slot.mark_ended(outcome);
+                    changed = true;
+                }
+                if !slot.is_backgrounded() || slot.completion_notified {
                     continue;
                 }
-                // 退出：exit_code 未知（ExitSignal 不携带），用 -1 兜底。
-                // 更精确的 exit_code 由 BashTool::invoke 经 result_rx 拿到，通知里不影响 agent 判断。
-                let was_backgrounded = slot.is_backgrounded;
-                slot.mark_ended(None);
-                changed = true;
-                if !was_backgrounded {
+                let Some(outcome) = slot.outcome.as_ref() else {
                     continue;
-                }
-                let n = super::background_shell::shell_completion_notification(
+                };
+                let n = super::background_shell::agent_shell_completion_notification(
                     &slot.task_id,
                     &slot.command,
-                    slot.exit_code,
+                    outcome,
                     &slot.output_path,
                 );
-                notifs.push(n);
+                slot.completion_notified = true;
+                notifs.push(super::PendingBgShellNotification {
+                    owner_session_id: slot.owner_session_id.clone(),
+                    content: n,
+                });
             }
             (changed, notifs)
         };
+
+        changed |= self.sync_agent_shell_runtime_states();
 
         if notifications.is_empty() {
             if changed {
@@ -690,20 +663,108 @@ impl App {
         // 阶段2：注入通知（复用 !command 路径的注入机制：idle 注入首个触发新轮次，其余入 pending）
         let loading = self.session_mgr.current().ui.loading;
         let mut first_injected = false;
-        for n in notifications {
+        let current_owner = self
+            .session_mgr
+            .current()
+            .current_thread_id
+            .as_ref()
+            .map(ToString::to_string);
+        for notification in notifications {
+            let matches_owner = notification
+                .owner_session_id
+                .as_deref()
+                .is_none_or(|owner| current_owner.as_deref() == Some(owner));
+            if !matches_owner {
+                self.session_mgr
+                    .current_mut()
+                    .pending_bg_shell_notifications
+                    .push_back(notification);
+                continue;
+            }
             if !loading && !first_injected {
-                self.submit_message(n);
+                self.submit_message(notification.content);
                 first_injected = true;
             } else {
                 self.session_mgr
                     .current_mut()
                     .pending_bg_shell_notifications
-                    .push_back(n);
+                    .push_back(notification);
             }
         }
         // 清理已完成的 agent shell（与 background_shells 一致的容量管理）
         self.cleanup_finished_agent_shells();
         true
+    }
+
+    fn sync_agent_shell_runtime_states(&mut self) -> bool {
+        let current_owner = self
+            .session_mgr
+            .current()
+            .current_thread_id
+            .as_ref()
+            .map(ToString::to_string);
+        // Pipeline 的 runtime key 是 (source_agent_id, tool_call_id)。同一 key
+        // 若因 provider 重用 call id 或恢复历史而对应多个任务槽，只同步最新槽，
+        // 避免每帧在旧/新任务的 started_at 之间来回覆盖。
+        let mut latest_by_key = HashMap::new();
+        for slot in self
+            .session_mgr
+            .current()
+            .agent_shells
+            .iter()
+            .filter(|slot| slot.belongs_to(current_owner.as_deref()))
+        {
+            if let Some(tool_call_id) = slot.tool_call_id.clone() {
+                latest_by_key.insert(
+                    (slot.source_agent_id.clone(), tool_call_id),
+                    (
+                        slot.started_instant,
+                        slot.execution_timeout_ms,
+                        slot.is_backgrounded() && !slot.ended,
+                    ),
+                );
+            }
+        }
+        let updates = latest_by_key
+            .into_iter()
+            .map(
+                |((source_agent_id, tool_call_id), (started_at, timeout_ms, backgrounded))| {
+                    (
+                        source_agent_id,
+                        tool_call_id,
+                        started_at,
+                        timeout_ms,
+                        backgrounded,
+                    )
+                },
+            )
+            .collect::<Vec<_>>();
+        if updates.is_empty() {
+            return false;
+        }
+        let changed = {
+            let messages = &mut self.session_mgr.current_mut().messages;
+            let mut changed = false;
+            for (source_agent_id, tool_call_id, started_at, timeout_ms, backgrounded) in updates {
+                changed |= messages.pipeline.sync_shell_runtime(
+                    source_agent_id.as_deref(),
+                    &tool_call_id,
+                    started_at,
+                    timeout_ms,
+                    backgrounded,
+                );
+            }
+            if changed {
+                changed |= messages
+                    .pipeline
+                    .apply_shell_runtime(&mut messages.view_messages);
+            }
+            changed
+        };
+        if changed {
+            self.render_rebuild();
+        }
+        changed
     }
 
     /// 清理已完成的 agent shell（防无限增长）。
@@ -721,6 +782,18 @@ impl App {
             .take(session.agent_shells.len().saturating_sub(MAX_AGENT_SHELLS))
             .map(|s| s.task_id.clone())
             .collect::<Vec<_>>();
+        for slot in session
+            .agent_shells
+            .iter()
+            .filter(|s| to_remove.contains(&s.task_id))
+        {
+            if let Some(tool_call_id) = slot.tool_call_id.as_deref() {
+                session
+                    .messages
+                    .pipeline
+                    .remove_shell_runtime(slot.source_agent_id.as_deref(), tool_call_id);
+            }
+        }
         session
             .agent_shells
             .retain(|s| !to_remove.contains(&s.task_id));
