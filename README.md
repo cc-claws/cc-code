@@ -84,6 +84,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Spinner Color & Stuck Detection Fixes** | v0.6.83 | `thought for Ns` state word now always muted (only in-progress states warm up with time); stuck-detection no longer misfires on blank `thinking` fingerprints; stuck-detection switch-strategy hint switched to English for consistency |
+| **Thinking Status Line & Tool Summary** | v0.6.82 | Spinner third field 4-state machine (`thinking` / `thought for Ns` / `still thinking` / `thinking more`); message-area thought line → `Thought for Ns, <action counts>`; consecutive thinking+read-only-tool rounds merged into one line; Bash non-verbose output summary with `... (N more lines) (ctrl+o to expand)` |
 | **Semantic Gate Hardening & Two Permission Modes** | v0.6.81 | HITL gate rebuilt on upstream Jev semantics: `curl\|bash` and interpreter-family bypasses are now hard-denied, write path traversal can no longer skip the gate, and judge unavailability returns to human confirmation instead of blocking the whole session; permission modes collapsed to `auto`/`bypass` (default auto), with the deterministic layer no longer sharing a switch with the semantic judge |
 | **Session Recap Persistence** | v0.6.80 | Recap and task-summary lines persist to `ThreadMeta` (`latest_recap`/`last_task_summary`), no longer lost on restart |
 | **/recap Command & Auto Recap** | v0.6.76 | `/recap` (`/away` `/catchup`) summarizes goal→tasks→next step via aux_model; auto-recap on terminal blur + ≥3 turns + 60s idle (`/config` toggle, `PERI_AUTO_RECAP_*` env); non-streaming Anthropic responses adapt to reverse-proxy OpenAI format |
@@ -92,10 +94,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **Windows Console Isolation & Scroll Debounce** | v0.6.73 | `CREATE_NO_WINDOW` isolates child consoles, eliminating full-screen flicker from PHP etc.; wheel debounce and smooth scrollbar thumb drag on long content |
 | **Clickable Markdown Links** | v0.6.72 | Markdown hyperlinks in the message area open the default browser cross-platform |
 | **UI Polish** | v0.6.71 | Removed sticky header pinning of top messages; attachment bar title and Del hint localized via i18n |
-| **Model Switch Fix & Palette Unification** | v0.6.70 | Fixed model switch before first message not taking effect; deprecated `Ctrl+T`/`Alt+M` cycling, unified on command palette (`Ctrl+P`/`Alt+P`) |
-| **Tool Call Reliability** | v0.6.69 | Boundary prompts + field-level param validation + action-loop detection; Windows multiline commands via Git Bash; generic duplicate line/block collapsing |
 
-> Older releases (v0.6.0 – v0.6.68) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.70) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 

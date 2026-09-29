@@ -1,7 +1,7 @@
 # TUI Style Guide
 
-> **最后更新：2026-09-28**（对应 v0.6.81）
-> 本次更新：命令系统重写为 30 个 TUI 命令并分组（删除幽灵命令 `/status`）；全局快捷键表按 v0.6.70+ 实际行为修正（删除 `Alt+M`/`Ctrl+T`/`Ctrl+N`/`Ctrl+W` 等已废弃项）；模型别名由三档扩为四档（新增 `fable`）；**权限模式收敛为 `auto` / `bypass` 两档并设 Auto 为默认**（原 Default/DontAsk/AcceptEdit 已移除）；Sticky Header 标注为已禁用（v0.6.71）。
+> **最后更新：2026-09-29**（对应 v0.6.83）
+> 本次更新：spinner 行新增第三字段「思考状态词」四态机（`thinking` / `thought for Ns` / `still thinking` / `thinking more`），verb 与状态词随时间四档升温（仅此二者变色，v0.6.82）；消息区思考行改为 `Thought for Ns, <动作计数>`；`thought for Ns` 配色回归灰色（v0.6.83）。
 
 ## 设计哲学
 
@@ -181,8 +181,19 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 | 模式 | 显示格式 | 颜色 |
 |------|---------|------|
-| Loading | `✻ verb (Xm Xs · ↓ X.Xk tokens)` | ACCENT（compact 时 THINKING） |
+| Loading | `✻ verb (Xm Xs · ↓ X.Xk tokens · <状态词>)` | ACCENT（compact 时 THINKING） |
 | 完成 | `✻ Brewed for Xm Xs` | MUTED |
+
+第三字段（v0.6.82+，思考状态词，英文固定输出）：
+
+| 状态词 | 触发 | 颜色 |
+|--------|------|------|
+| `thinking` | 进入思考段 | 随热度（verb 同色） |
+| `thought for Ns` | 思考段结束 | 始终 MUTED |
+| `still thinking` | 同一段思考超阈（10s 可调，优先级最高） | 随热度 |
+| `thinking more` | 本轮被打断后再次思考 | 随热度 |
+
+verb 与状态词随时间四档升温（5s / 15s / 30s，仅这两者变色，`elapsed` / `tokens` / `thought for Ns` 恒 MUTED）。
 
 动画帧：16 个 Unicode 符号循环（`✳✴✵✶✷✸✹✺✻✼❃❊…`），每 200ms 推进一帧。
 Verb 列表：128 个中文烹饪/动作动词随机选择。

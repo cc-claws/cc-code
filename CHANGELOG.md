@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.83 — 2026-09-29
+
+### Fixes
+
+- **卡住检测误判空白 thinking（#256）**：`check_stuck` 的指纹判空仅挡字节空串，模型在工具调用轮常返回 `"\n"` / `" "`，被当作有效指纹入窗后逐轮完全相同，第 3 轮即误报「重复的思考循环」。改为 **trim 后判空**，空白指纹直接跳过检测。
+- **卡住检测换策略提示改用英文（#256）**：agent 层无 i18n（`LcRegistry` 在 peri-tui，不可反向依赖），且同文件其余注入提示（连续失败 / schema 熔断 / 动作循环）均为英文，本条硬编码中文是唯一异类。文案提为 `STUCK_HINT` 常量，用户侧语言由 system prompt 保证。
+- **spinner 状态词 `· thought for Ns` 配色修正（#252, #254）**：该字段属思考完成态，原随耗时升温变色；按设计应始终 MUTED 灰——仅 `thinking` / `still thinking` / `thinking more` 三个进行中状态词随热度变色。
+
+---
+
 ## v0.6.82 — 2026-09-29
 
 ### Features
