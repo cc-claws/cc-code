@@ -84,6 +84,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **工具审批三选** | v0.6.84 | HITL 审批弹窗改为三选：一次性同意 / 本次会话同意 / 拒绝；选「本次会话同意」后同 `(工具, 路径)` 本次会话内免问（路径级、会话作用域审批记忆） |
 | **spinner 配色与卡住检测修复** | v0.6.83 | `thought for Ns` 状态词改为始终灰色（仅进行中状态词随耗时升温）；卡住检测不再把空白 `thinking` 误判为循环；卡住检测换策略提示改用英文保持一致 |
 | **Thinking 状态行与工具动作汇总** | v0.6.82 | spinner 行第三字段四态状态机（`thinking` / `thought for Ns` / `still thinking` / `thinking more`）；消息区思考行改为 `Thought for Ns, <动作计数>`；连续「思考+只读工具」轮合并为一行；Bash 非详细模式展示输出摘要 + `... (N more lines) (ctrl+o to expand)` |
 | **语义门加固与权限模式收敛** | v0.6.81 | HITL 语义门按上游 Jev 语义重做：补上 `curl\|bash` 与解释器家族绕过、写路径穿越不再能跳过门、判定不可用改为回到人工确认而非堵死整个会话；权限模式收敛为 `auto`/`bypass`（默认 auto），确定性防线不再与语义判定共用开关 |
@@ -93,9 +94,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **RTK 输出过滤** | v0.6.74 | 过滤 RTK git status 噪音（`clean — nothing to commit`），移除会吞并代码上下文的毒性通用折叠 |
 | **Windows 控制台隔离与滚轮防抖** | v0.6.73 | `CREATE_NO_WINDOW` 隔离子进程控制台，消除 PHP 等触发的全屏闪屏；长内容下滚轮防抖批处理 + 滚动条滑块平滑拖拽 |
 | **可点击 Markdown 超链接** | v0.6.72 | 消息区 Markdown 超链接跨平台点击打开默认浏览器 |
-| **UI 细节打磨** | v0.6.71 | 禁用 sticky header 顶部固定消息条；附件栏标题与 Del 提示接入 i18n |
 
-> 更早版本（v0.6.0 – v0.6.70）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.71）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
