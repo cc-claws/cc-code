@@ -817,7 +817,7 @@ async fn test_stuck_cycling_thought_detected() {
     // 循环检测触发后应注入换策略提示 Human 消息
     let has_hint = state.messages().iter().any(|m| {
         if let BaseMessage::Human { content, .. } = m {
-            content.text_content().contains("重复的思考循环")
+            content.text_content().contains(STUCK_HINT)
         } else {
             false
         }
@@ -1593,7 +1593,7 @@ async fn test_stuck_detection_skips_whitespace_only_thinking() {
 
     let has_hint = state.messages().iter().any(|m| {
         matches!(m, BaseMessage::Human { content, .. }
-            if content.text_content().contains("重复的思考循环"))
+            if content.text_content().contains(STUCK_HINT))
     });
     assert!(!has_hint, "空白 thinking 不应触发卡住检测");
 }

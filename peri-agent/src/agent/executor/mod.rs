@@ -33,6 +33,15 @@ const STUCK_WINDOW_SIZE: usize = 8;
 /// （A→B→C→D→…）在 8 轮窗口内凑不满 3 次，不会被检测到。
 const STUCK_REPEAT_THRESHOLD: usize = 3;
 
+/// 卡住检测注入的换策略提示。
+///
+/// 用英文：agent 层没有 i18n（Fluent 在 peri-tui，分层上不可反向依赖），
+/// 且同文件 `tool_dispatch.rs` 的连续失败/schema 熔断/动作循环三条注入提示
+/// 均为英文；用户侧语言由 system prompt 的 "Respond in X" 段落保证。
+const STUCK_HINT: &str = "You seem stuck in a repetitive thinking loop. Stop the current approach \
+     and try a completely different strategy: use different tools, look at the problem from a \
+     different angle, or ask the user for more information.";
+
 #[allow(clippy::type_complexity)]
 /// Agent 执行器 - 管理 ReAct 循环
 pub struct ReActAgent<L, S>
@@ -498,10 +507,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 window = STUCK_WINDOW_SIZE,
                 "Agent 思考陷入循环模式，跳过本轮工具执行并注入换策略提示"
             );
-            state.add_message(BaseMessage::human(
-                "你似乎陷入了重复的思考循环。请停止当前方法，尝试完全不同的策略——\
-                 使用不同的工具、换一个分析角度、或向用户请求更多信息。",
-            ));
+            state.add_message(BaseMessage::human(STUCK_HINT));
             // 清空窗口，避免下一轮因残留指纹再次触发
             recent.clear();
             return true;
