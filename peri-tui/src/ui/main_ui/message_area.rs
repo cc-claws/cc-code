@@ -72,6 +72,23 @@ pub(crate) fn thinking_heat_color(thinking_elapsed_ms: u64) -> ratatui::style::C
     }
 }
 
+/// 状态词配色（PRD §2.7）：`thinking` / `still thinking` / `thinking more`
+/// 与 verb 同热度色；`thought for Ns` 属已完成态，始终 MUTED 灰。
+/// `compact`（压缩上下文）特例整体用紫色。
+pub(crate) fn thinking_status_style(
+    status_word: &str,
+    heat: ratatui::style::Color,
+    is_compact: bool,
+) -> ratatui::style::Style {
+    if is_compact {
+        Style::default().fg(theme::THINKING)
+    } else if status_word.starts_with("thought for") {
+        Style::default().fg(theme::MUTED)
+    } else {
+        Style::default().fg(heat)
+    }
+}
+
 /// 视口裁剪结果
 struct ViewportClip {
     /// 裁剪后的可见行（含 spinner 和选区高亮）
@@ -132,11 +149,9 @@ pub(crate) fn render_messages(
         } else {
             Style::default().fg(heat)
         };
-        let status_style = if is_compact {
-            Style::default().fg(theme::THINKING)
-        } else {
-            Style::default().fg(heat)
-        };
+        // 状态词配色（PRD §2.7）：`thinking` / `still thinking` / `thinking more`
+        // 与 verb 同热度色；`thought for Ns` 属已完成态，始终 MUTED 灰。
+        let status_style = thinking_status_style(&status_word, heat, is_compact);
         let gray = Style::default().fg(theme::MUTED);
         let mut parts = vec![
             Span::styled(format!("{} {}", frame, verb), accent),
