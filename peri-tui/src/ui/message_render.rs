@@ -354,7 +354,7 @@ fn push_prefixed_text(
 /// 错误摘要渲染。
 ///
 /// `max_lines` 控制**显示行数上限**（非详细模式传小值避免污染页面；传入 `usize::MAX` 显示完整）。
-/// 超出时追加 `... (N more lines)` 提示。字符级截断兜底防止超长单行。
+/// 超出时追加 `... (N more lines) (ctrl+o to expand)` 提示。字符级截断兜底防止超长单行。
 fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Line<'static>> {
     let truncated: String = content.chars().take(400).collect();
     let content_width = width.saturating_sub(4).max(20);
@@ -364,7 +364,7 @@ fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Lin
         if i >= max_lines {
             let hidden = all.len() - max_lines;
             out.push(Line::from(Span::styled(
-                format!("    ... ({hidden} more lines)"),
+                format!("    ... ({hidden} more lines) (ctrl+o to expand)"),
                 Style::default().fg(theme::DIM),
             )));
             break;
@@ -1225,7 +1225,9 @@ pub fn render_view_model_with_links(
                             lines.push(Line::from(vec![
                                 Span::styled("    ", Style::default().fg(border_color)),
                                 Span::styled(
-                                    format!("... ({remaining} more lines)"),
+                                    format!(
+                                        "... ({remaining} more lines) (ctrl+o to expand)"
+                                    ),
                                     Style::default().fg(theme::DIM),
                                 ),
                             ]));
