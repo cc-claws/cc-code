@@ -110,7 +110,7 @@ Claude Code 的**工具明细展示分三层**，并非全部折叠成计数：
 > - **peri 非详细模式不展示 Bash 结果**（工具完成后 `collapsed=true`，`message_render.rs:1165` 的 `if !state.collapsed` 直接跳过输出；且折叠摘要仅 `Read` 有，`:1211`）。
 > - Claude Code **展示**输出摘要 + 截断提示 `... +N lines (ctrl+o to expand)`。
 > - 因此 **Bash 输出展示是新的 gap**，而非已对齐项。
-> ⚠️ **修正 3**：peri 的截断措辞是 `... (N more lines)`（`message_render.rs:1187`），Claude Code 是 `... +N lines (ctrl+o to expand)`，**措辞不一致**。
+> ⚠️ **修正 3**：peri 的截断措辞是 `... (N more lines)`（`message_render.rs:1187`），Claude Code 是 `... +N lines (ctrl+o to expand)`，**措辞不一致**。→ **已裁决（2026-09-29）**：保留 peri 措辞，追加 `(ctrl+o to expand)` 引导语。
 
 ### 2.5 第四态 `thinking more` 的实锤与重新解释
 
@@ -135,7 +135,7 @@ Claude Code 的**工具明细展示分三层**，并非全部折叠成计数：
 | 改动 B（消息区汇总） | **一起做** |
 | `still thinking` 阈值 | **默认 10s，做成可调常量**（用户实测观察约 10s 出现；证据不足未定死，见 §2.2 证据表） |
 | 模式适用范围 | **两模式共用**——不改 `detail_mode` 分支。spinner 第三字段与消息区计数行在详细/非详细模式下**均生效**（对齐 Claude Code：其 spinner 亦不分模式） |
-| Bash 输出摘要 | **纳入本次实现**（用户确认）。非详细模式展示输出**前 3 行**；截断提示**保留 peri 现有措辞** `... (N more lines)`（不照搬 Claude 的 `... +N lines (ctrl+o to expand)`） |
+| Bash 输出摘要 | **纳入本次实现**（用户确认）。非详细模式展示输出**前 3 行**；截断提示**保留 peri 现有措辞** `... (N more lines)`，**其后追加** `(ctrl+o to expand)` 引导语（最终：`... (N more lines) (ctrl+o to expand)`，2026-09-29 用户二次裁决） |
 | spinner verb 行为 | **方案 A：整轮固定一个动词**（用户选定，理由：符合人类视觉习惯）。agent 开始回复时选定一个动词（如 `Thinking`），思考/工具/输出全程不变；工具信息只在消息区展示。原 peri 行为（每步切 verb 为工具名）**改为固定**。 |
 | spinner 配色 | 见 §2.7（颜色随时间四档变化；仅 verb + 状态词变色，其余 MUTED 灰） |
 
@@ -462,7 +462,7 @@ Reading 1 file… (ctrl+o to expand)             ← 进行时态
 | 6 | 只读工具进行时态 | `Reading 1 file…` | 无 | B |
 | 7 | 纯动作行（无思考） | `Listed 1 directory` | 无（Bash/Read 各自成行） | B |
 | 8 | **Bash 输出展示** | **显示输出前几行 + 截断提示** | **不显示**（折叠态仅 header） | B（新增） |
-| 9 | 截断提示措辞 | `... +N lines (ctrl+o to expand)` | `... (N more lines)` | B |
+| 9 | 截断提示措辞 | `... +N lines (ctrl+o to expand)` | `... (N more lines)` → 已改为 `... (N more lines) (ctrl+o to expand)` | B（已裁决） |
 | 10 | Write/Edit 展示 | 路径 + diff 预览行数 | **一致**（也有 diff） | 已对齐 |
 | 11 | 回合结束行 | `✻ {verb} for {elapsed} · done HH:MM` | **已有**（`message_area.rs:100`） | 已对齐 |
 
@@ -524,7 +524,7 @@ peri 与 Claude Code 在 Bash 上的差异（**修正后**）：
 5. **restore 后的秒数**：历史恢复时无 thinking 计时数据，`Thought for Ns` 退化为 `chars` 还是隐藏？（Claude 行为未知。）
 6. **verb 是否语义化**：是否把 `Glob/Grep/Read/Bash` 映射到 `Searching…/Reading…` 等语义 verb？（本次决策未覆盖。）
 7. **进行时态范围**：`Reading 1 file…` 这类进行中形态，是否所有只读工具都要？（本次暂不纳入，待定。）
-8. ~~**Bash 输出摘要策略**~~ —— **已定**：显示前 3 行，保留 peri 措辞 `... (N more lines)`。
+8. ~~**Bash 输出摘要策略**~~ —— **已定**：显示前 3 行，保留 peri 措辞 `... (N more lines)` 并追加 `(ctrl+o to expand)` 引导语（2026-09-29 二次裁决）。
 9. **配色阈值校准**：5s 有实测依据，15s / 30s 为产品推导；实现为可调常量，实测后校准。
 10. **两套时间阈值是否应联动**：状态词切换（10s）与配色（5/15/30s）当前独立。若实测发现 Claude 二者联动，需合并（见 §2.2 末）。
 11. **浅黄色值**：`#FFD966` 为暂定，未对照 Claude 实测。
