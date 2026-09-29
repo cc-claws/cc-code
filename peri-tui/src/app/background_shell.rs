@@ -58,6 +58,8 @@ impl ShellStatus {
 pub struct BackgroundShell {
     /// 任务 id（uuid7）
     pub id: String,
+    /// 发起任务的 thread；完成通知必须回到该对话。
+    pub owner_session_id: Option<String>,
     /// 命令文本
     pub command: String,
     /// 工作目录
@@ -97,6 +99,7 @@ impl BackgroundShell {
     ) -> Self {
         Self {
             id,
+            owner_session_id: None,
             command,
             cwd,
             status: ShellStatus::Running,
@@ -257,6 +260,27 @@ pub fn shell_completion_notification(
     )
 }
 
+/// Agent 路径保留真实结果，超时和用户停止不能冒充未知退出码或成功。
+pub fn agent_shell_completion_notification(
+    id: &str,
+    command: &str,
+    outcome: &peri_agent::shell::ShellOutcome,
+    output_path: &Path,
+) -> String {
+    use peri_agent::shell::ShellOutcome;
+    let status = match outcome {
+        ShellOutcome::Exited(0) => "completed (exit 0)".to_owned(),
+        ShellOutcome::Exited(code) => format!("failed (exit {code})"),
+        ShellOutcome::TimedOut => "timed out (execution deadline exceeded)".to_owned(),
+        ShellOutcome::Cancelled => "cancelled (stopped by user or session)".to_owned(),
+        ShellOutcome::Failed(error) => format!("failed ({error})"),
+    };
+    format!(
+        "<background-task-completed>\n<task-id>{}</task-id>\n<command>{}</command>\n<status>{}</status>\n<output>{}</output>\n</background-task-completed>",
+        xml_escape(id), xml_escape(command), xml_escape(&status), xml_escape(&output_path.display().to_string())
+    )
+}
+
 /// 生成后台 shell stall（等待输入）警告通知文本（注入 agent 对话流，对齐效果图场景 6）。
 ///
 /// watchdog 检测到命令无输出且末行匹配 prompt pattern 时调用。
@@ -285,6 +309,10 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
             .unwrap_or_else(|| "completed".to_string());
         let verb = if status.starts_with("failed") {
             "后台 shell 失败"
+        } else if status.starts_with("timed out") {
+            "后台 shell 已超时终止"
+        } else if status.starts_with("cancelled") {
+            "后台 shell 已取消"
         } else if status == "terminated" {
             "后台 shell 已终止"
         } else {

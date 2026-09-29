@@ -265,8 +265,8 @@ async fn test_extract_rules_chunked_covers_long_source() {
 
     let long = format!(
         "{}\n\n{}",
-        "甲".repeat(300), // 第一块
-        "乙".repeat(300)  // 第二块
+        "丙".repeat(300), // 第一块（避免与 max_chunks 用例共享全局提炼缓存）
+        "丁".repeat(300)  // 第二块
     );
     let out = extract_rules_chunked(&model, &long, 400, 6, std::time::Duration::from_secs(5))
         .await

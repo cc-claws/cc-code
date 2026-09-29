@@ -1074,6 +1074,8 @@ async fn test_tool_call_widget_renders_completed() {
         is_error: false,
         collapsed: false,
         diff_input: None,
+        execution_timeout_ms: None,
+        shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
     };
@@ -2507,7 +2509,7 @@ async fn test_diagnostic_bg_subagent_group_disappears() {
         .messages
         .pipeline
         .begin_round();
-    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user(
         "run background agent".into(),
     )));
     app.session_mgr.current_mut().messages.round_start_vm_idx =
@@ -2637,7 +2639,7 @@ async fn test_diagnostic_bg_subagent_group_disappears() {
         .pipeline
         .begin_round();
     // 模拟 submit_message 的 AddMessage(UserBubble)
-    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user(
         "[bg continuation] process result".into(),
     )));
     app.session_mgr.current_mut().messages.round_start_vm_idx =
@@ -2705,7 +2707,7 @@ async fn test_diagnostic_fork_plus_background_subagent_group() {
         .messages
         .pipeline
         .begin_round();
-    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user(
         "run fork in background".into(),
     )));
     app.session_mgr.current_mut().messages.round_start_vm_idx =
@@ -2809,7 +2811,7 @@ async fn test_diagnostic_fork_plus_background_subagent_group() {
         .messages
         .pipeline
         .begin_round();
-    app.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::user(
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user(
         "next message".into(),
     )));
     app.session_mgr.current_mut().messages.round_start_vm_idx =

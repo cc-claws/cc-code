@@ -267,7 +267,7 @@ impl App {
                 *collapsed = true; // 始终折叠，摘要已在 header 中
                 vm.recompute_hash();
             }
-            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+            self.apply_pipeline_action(PipelineAction::add_message(vm));
         }
 
         // 诊断日志：记录 BackgroundTaskCompleted 处理后的 view_messages 中 SubAgentGroup 数量

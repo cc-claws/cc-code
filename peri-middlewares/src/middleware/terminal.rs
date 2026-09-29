@@ -4,225 +4,17 @@ use peri_agent::{
 };
 use serde_json::Value;
 use std::path::Path;
-#[cfg(windows)]
-use std::process::Stdio;
 use std::sync::Arc;
-#[cfg(windows)]
-use std::time::Instant;
 use tokio::sync::oneshot;
-#[cfg(windows)]
-use tokio::time::timeout;
 use tokio::time::Duration;
 
 use crate::tools::output_persist::truncate_shell_output;
 
-/// Windows `cmd /C` 会吞掉引号，导致 `git commit -m "msg with spaces"` 中的
-/// message 被空格拆成多个 pathspec。检测到此模式时，将 message 写入临时文件，
-/// 改写为 `git commit -F tempfile`，彻底绕开 cmd.exe 引号解析。
-///
-/// 支持多个 `-m` 标志，按 git 语义以 `\n\n` 拼接。
-/// 支持 `&&`、`||`、`|` 链式命令——逐段扫描，仅改写含 `git commit -m` 的段。
-/// 返回 `(rewritten_command, Vec<(temp_file_path, message_content)>)`，
-/// 调用方负责写入文件并执行后清理。
-#[cfg(windows)]
-fn rewrite_git_commit_for_windows(command: &str) -> (String, Vec<(String, String)>) {
-    // 按 shell 连接符拆分为多段，分别处理
-    let segments = split_shell_segments(command);
-    let mut rewritten_parts: Vec<String> = Vec::new();
-    let mut all_infos: Vec<(String, String)> = Vec::new();
-
-    for (seg, sep) in &segments {
-        let seg_trimmed = seg.trim();
-        if let Some((new_seg, info)) = rewrite_single_git_commit(seg_trimmed) {
-            rewritten_parts.push(new_seg);
-            all_infos.push(info);
-        } else {
-            rewritten_parts.push(seg.to_string());
-        }
-        if let Some(s) = sep {
-            rewritten_parts.push(s.to_string());
-        }
-    }
-
-    (rewritten_parts.join(""), all_infos)
-}
-
-/// 按 shell 连接符（`&&`、`||`、`|`）拆分命令字符串，跳过引号内的内容。
-/// 返回 `Vec<(segment, Option<separator>)>`。
-#[cfg(windows)]
-fn split_shell_segments(command: &str) -> Vec<(String, Option<String>)> {
-    let mut segments = Vec::new();
-    let mut current = String::new();
-    let mut chars = command.chars().peekable();
-    let mut in_quote: Option<char> = None;
-
-    while let Some(c) = chars.next() {
-        // 处理引号内字符（转义引号跳过）
-        if let Some(q) = in_quote {
-            current.push(c);
-            if c == '\\' {
-                // 转义：吃掉下一个字符
-                if let Some(next) = chars.next() {
-                    current.push(next);
-                }
-            } else if c == q {
-                in_quote = None;
-            }
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            in_quote = Some(c);
-            current.push(c);
-            continue;
-        }
-
-        // 检测连接符（需要前后有空格，避免误拆 "foo&&bar"）
-        if c == '&' && chars.peek() == Some(&'&') {
-            chars.next(); // 消费第二个 &
-                          // 检查前后是否合理（简单判断：当前段非空）
-            if !current.trim().is_empty() {
-                let sep = "&&".to_string();
-                segments.push((current.clone(), Some(sep)));
-                current.clear();
-                // 跳过分隔符后的空格已由下轮处理
-                continue;
-            }
-        }
-        if c == '|' && chars.peek() == Some(&'|') {
-            chars.next(); // 消费第二个 |
-            if !current.trim().is_empty() {
-                let sep = "||".to_string();
-                segments.push((current.clone(), Some(sep)));
-                current.clear();
-                continue;
-            }
-        }
-        if c == '|' {
-            // 单独的 |（管道），排除 || 的情况（已在上面处理）
-            if !current.trim().is_empty() {
-                let sep = "|".to_string();
-                segments.push((current.clone(), Some(sep)));
-                current.clear();
-                continue;
-            }
-        }
-
-        current.push(c);
-    }
-    if !current.is_empty() || segments.is_empty() {
-        segments.push((current, None));
-    }
-    segments
-}
-
-/// 尝试将单个命令段中的 `git commit -m "msg"` 改写为 `git commit -F tempfile`。
-/// 返回 `Some((rewritten_cmd, (temp_path, msg)))` 或 `None`。
-#[cfg(windows)]
-fn rewrite_single_git_commit(trimmed: &str) -> Option<(String, (String, String))> {
-    let commit_pos = trimmed.find("commit").or_else(|| trimmed.find("COMMIT"))?;
-    let pos = commit_pos;
-    let prefix = &trimmed[..pos];
-    if !prefix.contains("git") && !prefix.ends_with(' ') {
-        return None;
-    }
-
-    let commit_prefix = &trimmed[..pos + 6]; // 到 "commit" 为止
-    let after_commit = trimmed[pos + 6..].trim_start();
-
-    let mut remaining = after_commit;
-    let mut messages: Vec<String> = Vec::new();
-    let mut other_args: Vec<&str> = Vec::new();
-
-    while !remaining.is_empty() {
-        if remaining.starts_with("--message ") {
-            let rest = remaining[10..].trim_start();
-            if let (Some(msg), after) = extract_quoted_message(rest) {
-                messages.push(msg);
-                remaining = after.trim_start();
-                continue;
-            }
-        } else if remaining.starts_with("-m ") {
-            let rest = remaining[3..].trim_start();
-            if let (Some(msg), after) = extract_quoted_message(rest) {
-                messages.push(msg);
-                remaining = after.trim_start();
-                continue;
-            }
-        }
-
-        let end = remaining.find(' ').unwrap_or(remaining.len());
-        other_args.push(&remaining[..end]);
-        remaining = remaining[end..].trim_start();
-    }
-
-    if messages.is_empty() {
-        return None;
-    }
-
-    let combined_msg = messages.join("\n\n");
-
-    let temp_dir = std::env::temp_dir();
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let temp_path = temp_dir.join(format!("peri-commit-msg-{timestamp}.txt"));
-    let temp_path_str = temp_path.to_string_lossy().replace('\\', "/");
-
-    let mut new_cmd = format!("{commit_prefix} -F {temp_path_str}");
-    for arg in &other_args {
-        new_cmd.push(' ');
-        new_cmd.push_str(arg);
-    }
-
-    Some((
-        new_cmd,
-        (temp_path.to_string_lossy().to_string(), combined_msg),
-    ))
-}
-
-/// 从命令字符串中提取引号包裹的 message 内容。
-/// 返回 `(Some(message), remaining_after_quote)` 或 `(None, _)`。
-/// 仅在 Windows 上由 `rewrite_git_commit_for_windows` 调用，
-/// 非 Windows 编译保留以供单元测试覆盖。
-#[cfg_attr(not(windows), allow(dead_code))]
-fn extract_quoted_message(s: &str) -> (Option<String>, &str) {
-    let mut chars = s.chars();
-    let quote_char = match chars.next() {
-        Some(c @ '"') | Some(c @ '\'') => c,
-        _ => return (None, s),
-    };
-    let q_len = quote_char.len_utf8();
-    let rest = &s[q_len..];
-    let mut msg = String::new();
-    let mut char_indices = rest.char_indices().peekable();
-    while let Some((i, c)) = char_indices.next() {
-        if c == '\\' {
-            // 转义引号
-            if let Some(&(_, next_c)) = char_indices.peek() {
-                if next_c == quote_char {
-                    msg.push(quote_char);
-                    char_indices.next(); // consume escaped char
-                    continue;
-                }
-            }
-            msg.push(c);
-        } else if c == quote_char {
-            // 结束引号
-            return (Some(msg), &rest[i + c.len_utf8()..]);
-        } else {
-            msg.push(c);
-        }
-    }
-    // 未找到结束引号
-    (None, s)
-}
-
 /// BashTool - 终端命令执行工具，与 TypeScript TerminalMiddleware 对齐
-const BASH_DESCRIPTION: &str = r#"Executes a given shell command and returns its output.
+const BASH_DESCRIPTION: &str = r#"Executes one command using Bash (Git Bash on Windows) and returns its output.
 
 Usage:
-- The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh)
+- Each invocation starts in the configured working directory. Changes made with cd, environment assignments, and shell state do not persist across calls. Commands use bash -c, not a login shell
 - IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, or echo commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task
 - Instead, use the appropriate dedicated tool which will provide a much better experience for the user:
   - File search: Use Glob (NOT find or ls)
@@ -232,12 +24,16 @@ Usage:
   - Write files: Use Write (NOT echo/cat with redirect)
 - You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). Default is 120000ms (2 minutes)
 - When issuing multiple commands, use && to chain them together rather than using separate tool calls if the commands depend on each other
-- For long running commands, consider using a timeout to avoid waiting indefinitely
+- In hosts with background support, timeout limits foreground waiting and the command continues in the background; without background support, timeout cancels the command
+- execution_timeout is a separate hard runtime limit in milliseconds (default and maximum 600000). It applies from process start, including after manual or automatic backgrounding
+- run_in_background requires host support. When a task handle is returned, reuse that task/output path and await its completion notification; do not rerun the command to retrieve output
 
 Platform behavior:
-- Windows: uses cmd /C to execute commands
+- Windows: requires Git Bash; a missing interpreter is reported before execution
 - Unix/macOS: uses bash -c to execute commands
-- On Unix, child processes run in their own process group; timeout kills the entire process tree
+- The interpreter is selected before execution. Failed commands are never automatically rerun in another shell
+- Use an explicit interpreter for native CMD or PowerShell scripts; do not mix their syntax into Bash
+- Pipelines return the last command status by default. Use set -o pipefail when an earlier failure must fail the whole pipeline
 
 Output handling:
 - Output exceeding 50000 bytes is returned as a compact head/tail preview; the full output is saved to a temp file
@@ -247,13 +43,13 @@ Output handling:
 pub struct BashTool {
     pub cwd: String,
     /// Shell 执行器：把命令委托给应用层（peri-tui shell 池）以支持 Ctrl+B 后台化。
-    /// 默认为 [`InlineShellExecutor`]（直接 `cmd.output()`，保持原同步行为），
+    /// 默认为 [`InlineShellExecutor`]（仅前台，并发捕获 stdout/stderr），
     /// peri-tui 会注入真正的实现。
     pub executor: Arc<dyn ShellExecutor>,
 }
 
 impl BashTool {
-    /// 创建使用默认 [`InlineShellExecutor`] 的 BashTool（保持原 `cmd.output()` 同步行为）。
+    /// 创建使用默认 [`InlineShellExecutor`] 的仅前台 BashTool。
     ///
     /// 供测试 / 非 TUI 场景使用。TUI 场景应改用 [`BashTool::with_executor`]。
     pub fn new(cwd: impl Into<String>) -> Self {
@@ -276,7 +72,7 @@ fn truncate_output(output: &str) -> String {
 
 /// 把 stdout/stderr/exit_code 拼装为给 LLM 的工具结果字符串。
 ///
-/// 抽取为独立函数便于 invoke 主路径与 Windows git-bash fallback 共用一致的格式化逻辑。
+/// 保留 stdout、stderr 和真实退出码，不对失败命令重新执行。
 fn format_command_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
     let mut output = String::new();
     if !stdout.is_empty() {
@@ -314,9 +110,16 @@ fn format_background_task_started(task_id: &str, command: &str, output_path: &Pa
     )
 }
 
-async fn cleanup_temp_msg_files(paths: &[String]) {
-    for path in paths {
-        let _ = tokio::fs::remove_file(path).await;
+struct ForegroundCommandGuard {
+    kill: peri_agent::shell::ShellAbortHandle,
+    handoff: Arc<peri_agent::shell::ShellHandoff>,
+}
+
+impl Drop for ForegroundCommandGuard {
+    fn drop(&mut self) {
+        if self.handoff.settle_foreground() {
+            self.kill.abort();
+        }
     }
 }
 
@@ -330,28 +133,28 @@ enum ShellWaitResult {
 
 async fn wait_for_shell_result(
     mut result_rx: oneshot::Receiver<anyhow::Result<peri_agent::shell::ShellCommandOutput>>,
-    mut background_rx: Option<oneshot::Receiver<()>>,
+    handoff: &peri_agent::shell::ShellHandoff,
     timeout_ms: u64,
 ) -> ShellWaitResult {
     let timeout_sleep = tokio::time::sleep(Duration::from_millis(timeout_ms));
     tokio::pin!(timeout_sleep);
 
-    loop {
-        if let Some(rx) = background_rx.as_mut() {
-            tokio::select! {
-                result = &mut result_rx => return ShellWaitResult::Completed(result),
-                background = rx => {
-                    background_rx = None;
-                    if background.is_ok() {
-                        return ShellWaitResult::Backgrounded;
-                    }
-                }
-                _ = &mut timeout_sleep => return ShellWaitResult::TimedOut,
+    tokio::select! {
+        biased;
+        result = &mut result_rx => {
+            // UI 移交与前台结果竞争同一把归属锁，不能同时承诺两种结果。
+            if handoff.settle_foreground() || !handoff.is_backgrounded() {
+                ShellWaitResult::Completed(result)
+            } else {
+                ShellWaitResult::Backgrounded
             }
-        } else {
-            tokio::select! {
-                result = &mut result_rx => return ShellWaitResult::Completed(result),
-                _ = &mut timeout_sleep => return ShellWaitResult::TimedOut,
+        }
+        _ = handoff.wait_for_background() => ShellWaitResult::Backgrounded,
+        _ = &mut timeout_sleep => {
+            if handoff.background() || handoff.is_backgrounded() {
+                ShellWaitResult::Backgrounded
+            } else {
+                ShellWaitResult::TimedOut
             }
         }
     }
@@ -379,6 +182,12 @@ impl BaseTool for BashTool {
                     "type": "number",
                     "description": "Optional timeout in milliseconds (default 120000, max 600000). In the TUI host, foreground commands that exceed this continue in the background; in hosts without background support they are killed and a timeout error is returned"
                 },
+                "execution_timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 600000,
+                    "description": "Hard execution limit in milliseconds (default 600000, max 600000). Starts when the process starts and never resets after backgrounding. The process is terminated at this deadline"
+                },
                 "description": {
                     "type": "string",
                     "description": "A clear, concise description of what this command does in active voice. Never use words like 'complex' or 'risk' in the description — just describe what it does"
@@ -405,8 +214,16 @@ impl BaseTool for BashTool {
             .unwrap_or(120_000)
             .clamp(1, 600_000);
         let _description = input["description"].as_str();
+        let execution_timeout_ms = match input.get("execution_timeout") {
+            None => 600_000,
+            Some(value) => value
+                .as_u64()
+                .filter(|ms| (1..=600_000).contains(ms))
+                .ok_or("execution_timeout must be an integer between 1 and 600000 milliseconds")?,
+        };
         let run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
+        let user_command = command.to_string();
         // 轨一：尝试使用 RTK 重写命令（对齐 Claude Code / Codex 代理模式）
         let (command, is_rtk_rewritten) =
             if let Some(rewritten) = crate::process::rtk_rewrite_command(command).await {
@@ -414,36 +231,17 @@ impl BaseTool for BashTool {
             } else {
                 (command.to_string(), false)
             };
-        let user_command = command.clone();
-
-        // Windows fallback 用原始命令（rewrite 前的），因为 bash 引号语义正常
-        #[cfg(windows)]
-        let original_command = user_command.clone();
-
-        // Windows: 重写 git commit -m 为 git commit -F，绕开 cmd.exe 引号问题
-        #[cfg(windows)]
-        let (command, temp_msg_files) = {
-            let (cmd, infos) = rewrite_git_commit_for_windows(&command);
-            let mut files = Vec::new();
-            for (ref path, ref content) in &infos {
-                let _ = std::fs::write(path, content);
-                files.push(path.clone());
-            }
-            (cmd, files)
-        };
-        #[cfg(not(windows))]
-        let temp_msg_files: Vec<String> = Vec::new();
-
-        // 记录 cmd 开始时间，用于计算 fallback 剩余超时（仅 Windows fallback 需要）
-        #[cfg(windows)]
-        let cmd_start = Instant::now();
-
         // 委托给 ShellExecutor：peri-tui 注入的实现会把命令接入 shell 池，
-        // 支持 Ctrl+B 后台化；默认 InlineShellExecutor 保持原 cmd.output() 行为。
+        // 支持 Ctrl+B 后台化；默认 InlineShellExecutor 仅支持前台执行。
         let req = peri_agent::shell::ShellRequest {
+            owner_session_id: None,
+            invocation: peri_agent::tools::ToolInvocationContext::current(),
             command: command.to_string(),
+            original_command: user_command.clone(),
+            shell: peri_agent::shell::ShellDialect::Bash,
             cwd: self.cwd.clone(),
             timeout_ms,
+            execution_timeout_ms,
             run_in_background,
         };
         let handle = self.executor.execute(req).await?;
@@ -451,45 +249,34 @@ impl BaseTool for BashTool {
         // run_in_background=true：立即转后台，返回 task_id 占位串。
         // 真实输出靠后续 <background-task-completed> 通知注入下一轮对话。
         if run_in_background {
-            // 后台进程可能稍后才读取 Windows git commit -F 临时文件，不能在这里提前删除。
-            if let Some(tx) = handle.background_tx {
-                let _ = tx.send(());
-            }
             #[allow(clippy::needless_borrow)]
             return Ok(format_background_task_started(
                 &handle.task_id,
-                &command,
+                &user_command,
                 &handle.output_path,
             ));
         }
 
         // 前台执行：等待进程退出、用户手动后台化或宿主支持的自动后台化超时。
         let kill = handle.kill;
+        // 工具 future 因 Agent 取消而被丢弃时，也要停止尚未移交后台的命令。
+        let _foreground = ForegroundCommandGuard {
+            kill: kill.clone(),
+            handoff: handle.handoff.clone(),
+        };
         let task_id = handle.task_id;
         let output_path = handle.output_path;
-        let auto_background_tx = handle.auto_background_tx;
-        let result =
-            wait_for_shell_result(handle.result_rx, handle.background_rx, timeout_ms).await;
+        let result = wait_for_shell_result(handle.result_rx, &handle.handoff, timeout_ms).await;
 
         match result {
             #[allow(clippy::needless_borrow)]
             ShellWaitResult::Backgrounded => Ok(format_background_task_started(
                 &task_id,
-                &command,
+                &user_command,
                 &output_path,
             )),
             ShellWaitResult::TimedOut => {
-                if let Some(tx) = auto_background_tx {
-                    let _ = tx.send(());
-                    #[allow(clippy::needless_borrow)]
-                    return Ok(format_background_task_started(
-                        &task_id,
-                        &command,
-                        &output_path,
-                    ));
-                }
-                kill.abort();
-                cleanup_temp_msg_files(&temp_msg_files).await;
+                // 无后台宿主，guard 负责终止仍归前台的命令。
                 Err(format!(
                     "Error: Command timed out after {} seconds.\nCommand: {command}",
                     timeout_ms as f64 / 1000.0
@@ -498,35 +285,16 @@ impl BaseTool for BashTool {
             }
             // oneshot channel 关闭（executor task 异常退出未 send）
             ShellWaitResult::Completed(Err(_)) => {
-                cleanup_temp_msg_files(&temp_msg_files).await;
                 Err("Error: command executor closed unexpectedly".into())
             }
             // executor 返回错误（spawn 失败等）
             ShellWaitResult::Completed(Ok(Err(e))) => {
-                cleanup_temp_msg_files(&temp_msg_files).await;
                 Err(format!("Error executing command: {e}").into())
             }
             ShellWaitResult::Completed(Ok(Ok(output))) => {
-                cleanup_temp_msg_files(&temp_msg_files).await;
                 let stdout = output.stdout;
                 let stderr = crate::tools::output_filter::clean_rtk_stderr_noise(&output.stderr);
                 let exit_code = output.exit_code;
-
-                // Windows fallback：cmd 不识别命令时用 Git Bash 重试原始命令。
-                // 剩余超时 = 总超时 - cmd 耗时（至少 10s）
-                #[cfg(windows)]
-                {
-                    if crate::process::should_fallback_to_bash(exit_code, &stdout, &stderr) {
-                        if let Some(bash) = crate::process::git_bash_path() {
-                            let cmd_elapsed_ms = cmd_start.elapsed().as_millis() as u64;
-                            let remaining_ms =
-                                timeout_ms.saturating_sub(cmd_elapsed_ms).max(10_000);
-                            return self
-                                .invoke_with_git_bash(&bash, &original_command, remaining_ms)
-                                .await;
-                        }
-                    }
-                }
 
                 let output = format_command_output(&stdout, &stderr, exit_code);
                 // RTK 重写后：仅对 git status 做针对性噪音剔除（filter_git_status
@@ -553,52 +321,10 @@ impl BaseTool for BashTool {
     }
 }
 
-impl BashTool {
-    /// Windows-only：用 Git Bash 重试原始命令，不向输出追加重试标记（issue #209：机制性元信息不应进入 tool_result）。
-    /// 复用 truncate_output，保持与首次执行一致的截断行为。
-    #[cfg(windows)]
-    async fn invoke_with_git_bash(
-        &self,
-        bash_exe: &std::path::Path,
-        command: &str,
-        timeout_ms: u64,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let result = timeout(Duration::from_millis(timeout_ms), {
-            let mut cmd = crate::process::git_bash_command(bash_exe, command, &[]);
-            cmd.current_dir(&self.cwd)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true);
-            cmd.output()
-        })
-        .await;
-
-        match result {
-            Err(_) => Err(format!(
-                "Error: Command timed out after {} seconds.\nCommand: {command}",
-                timeout_ms as f64 / 1000.0
-            )
-            .into()),
-            Ok(Err(e)) => Err(format!("Error executing command: {e}").into()),
-            Ok(Ok(out)) => {
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                let stderr = crate::tools::output_filter::clean_rtk_stderr_noise(&stderr);
-                let exit_code = out.status.code().unwrap_or(-1);
-
-                let output = format_command_output(&stdout, &stderr, exit_code);
-                let output =
-                    crate::tools::output_filter::filter_command_output(command, &output, exit_code);
-                Ok(truncate_output(&output))
-            }
-        }
-    }
-}
-
 /// TerminalMiddleware - 与 TypeScript TerminalMiddleware 对齐
 pub struct TerminalMiddleware {
     /// Shell 执行器，注入到 BashTool 以支持 Ctrl+B 后台化。
-    /// None 时使用默认 [`InlineShellExecutor`]（保持原 cmd.output() 行为）。
+    /// None 时使用默认 [`InlineShellExecutor`]（仅前台执行）。
     executor: Option<Arc<dyn ShellExecutor>>,
 }
 

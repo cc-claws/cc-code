@@ -21,6 +21,7 @@
 
 ### 全局架构
 
+- [统一命令运行时、计时与 Ctrl+B 设计及实施计划](designs/2026-09-24-unified-command-runtime-and-ctrl-b-plan.md)
 - [概述](../spec/global/overview.md) — 项目整体架构
 - [索引](../spec/global/index.md) — 文档索引
 - [功能列表](../spec/global/features.md) — 功能特性

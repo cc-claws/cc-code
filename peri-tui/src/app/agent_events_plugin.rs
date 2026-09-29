@@ -128,7 +128,7 @@ impl App {
             }
         };
         let vm = MessageViewModel::system(msg);
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::add_message(vm));
         (true, false, false)
     }
 }

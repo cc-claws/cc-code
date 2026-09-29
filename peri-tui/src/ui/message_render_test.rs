@@ -373,6 +373,8 @@
             collapsed: true,
             color: crate::ui::theme::ERROR,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -407,6 +409,8 @@
             collapsed: false,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -439,6 +443,8 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(39)),
             content_hash: 0,
         };
@@ -494,6 +500,8 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: Some(std::time::Instant::now()),
             content_hash: 0,
         };
@@ -502,6 +510,88 @@
         assert!(
             !text.contains(crate::ui::message_render::CONTROL_B_BACKGROUND_HINT),
             "未超过 2 秒的 Bash ToolBlock 不应显示 Ctrl+B 提示: {text:?}"
+        );
+    }
+
+    #[test]
+    fn test_backgrounded_bash_shows_manage_status_and_timeout_not_ctrl_b_hint() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_backgrounded".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("cargo test -p peri-agent".to_string()),
+            content: String::new(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::SAGE,
+            diff_input: None,
+            execution_timeout_ms: Some(600_000),
+            shell_backgrounded: true,
+            started_at: Some(std::time::Instant::now()),
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 100, false, 0);
+        let rendered_lines: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+        assert!(
+            rendered_lines
+                .iter()
+                .any(|line| line == "  ⎿ Running in the background (↓ to manage)"),
+            "后台化后应显示可管理状态: {rendered_lines:?}"
+        );
+        assert!(
+            rendered_lines
+                .iter()
+                .any(|line| line == "    (timeout 10m)"),
+            "应保留真实执行期限: {rendered_lines:?}"
+        );
+        assert!(
+            !rendered_lines
+                .iter()
+                .any(|line| line.contains("ctrl+b to run in background")),
+            "已后台化的 Bash 不应继续提示再次按 Ctrl+B: {rendered_lines:?}"
+        );
+    }
+
+    #[test]
+    fn test_backgrounded_bash_result_marker_keeps_running_status_until_exit() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_background_result".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("sleep 30".to_string()),
+            content: "<background-task-started><task-id>abc-123</task-id><command>sleep 30</command><output>C:/tmp/abc-123.log</output></background-task-started>".to_string(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::SAGE,
+            diff_input: None,
+            execution_timeout_ms: Some(600_000),
+            shell_backgrounded: true,
+            started_at: Some(std::time::Instant::now()),
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 100, false, 0);
+        let text = rendered_text(&lines);
+        assert!(
+            text.contains("Running in the background (↓ to manage)"),
+            "工具已返回后台任务句柄时仍要显示运行状态: {text:?}"
+        );
+        assert!(
+            text.contains("(timeout 10m)"),
+            "后台状态应显示执行期限: {text:?}"
+        );
+        assert!(
+            !text.contains("ctrl+b to run in background"),
+            "后台化后不能再提示 Ctrl+B: {text:?}"
         );
     }
 
@@ -518,6 +608,8 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -547,6 +639,8 @@
                 is_deleted_file: false,
                 is_binary: false,
             }),
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -601,6 +695,8 @@
                 is_deleted_file: false,
                 is_binary: false,
             }),
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -649,6 +745,8 @@
             collapsed: false,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -698,6 +796,8 @@
             collapsed: false,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1064,6 +1164,8 @@
             collapsed: true,
             color: crate::ui::theme::BASH_BORDER,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1091,6 +1193,8 @@
             collapsed: true,
             color: crate::ui::theme::BASH_BORDER,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1119,6 +1223,8 @@
             collapsed: true,
             color: crate::ui::theme::BASH_BORDER,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1150,6 +1256,8 @@
             collapsed: true,
             color: crate::ui::theme::BASH_BORDER,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1181,6 +1289,8 @@
             collapsed: true,
             color: crate::ui::theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1299,6 +1409,8 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
         collapsed: true,
         color: crate::ui::theme::SAGE,
         diff_input: None,
+        execution_timeout_ms: None,
+        shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
     };
@@ -1341,6 +1453,8 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
         collapsed: true,
         color: crate::ui::theme::SAGE,
         diff_input: None,
+        execution_timeout_ms: None,
+        shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
     };
@@ -1609,6 +1723,8 @@ fn test_render_recap_line_color_hierarchy() {
             collapsed: false,
             color: theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1733,6 +1849,8 @@ fn test_render_recap_line_color_hierarchy() {
             collapsed: false,
             color: theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };
@@ -1820,6 +1938,8 @@ fn test_render_recap_line_color_hierarchy() {
             collapsed: false,
             color: theme::SAGE,
             diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
             started_at: None,
             content_hash: 0,
         };

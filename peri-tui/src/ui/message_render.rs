@@ -5,12 +5,44 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{
-    message_view::{AgentSummary, ContentBlockView, MessageViewModel, ToolCategory},
+    message_view::{
+        AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
+    },
     theme,
 };
 use crate::app::tool_display::sanitize_display_text;
 
 pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
+const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manage)";
+
+fn shell_timeout_text(timeout_ms: Option<u64>) -> Option<String> {
+    timeout_ms.map(|ms| {
+        let limit = if ms.is_multiple_of(60_000) {
+            format!("{}m", ms / 60_000)
+        } else if ms.is_multiple_of(1_000) {
+            format!("{}s", ms / 1_000)
+        } else {
+            format!("{ms}ms")
+        };
+        format!("(timeout {limit})")
+    })
+}
+
+pub(crate) fn shell_running_text(
+    started_at: std::time::Instant,
+    timeout_ms: Option<u64>,
+) -> String {
+    let secs = started_at.elapsed().as_secs();
+    let elapsed = if secs >= 60 {
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    } else {
+        format!("{secs}s")
+    };
+    let timeout = shell_timeout_text(timeout_ms)
+        .map(|text| format!("    {text}"))
+        .unwrap_or_default();
+    format!("Running… ({elapsed}){timeout}")
+}
 
 /// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
 const ERROR_SUMMARY_MAX_LINES: usize = 3;
@@ -1109,6 +1141,8 @@ pub fn render_view_model_with_links(
             tool_name,
             diff_input,
             started_at,
+            execution_timeout_ms,
+            shell_backgrounded,
             ..
         } => {
             // AskUserQuestion 专用渲染路径
@@ -1117,10 +1151,16 @@ pub fn render_view_model_with_links(
             }
 
             let is_running = content.is_empty() && !*is_error;
+            let background_task = if tool_name == "Bash" && !*is_error {
+                BackgroundTaskStarted::parse(content)
+            } else {
+                None
+            };
 
             // 构建状态（仅用于 header/collapse 管理）
             // Bash 工具：从输出中解析 exit code，非零则标记为 Failed
             let bash_failed = tool_name == "Bash"
+                && background_task.is_none()
                 && !*is_error
                 && !is_running
                 && parse_exit_code(content).is_some_and(|c| c != 0);
@@ -1157,6 +1197,12 @@ pub fn render_view_model_with_links(
             // 复用 widget 层指示器：统一 ● 圆点 + 颜色语义化
             let (indicator, indicator_color) =
                 peri_widgets::tool_call::display::format_indicator(status, tick);
+            // 工具调用已交回，但进程结果未知；不要用成功绿色暗示命令已完成。
+            let indicator_color = if background_task.is_some() {
+                theme::CYAN
+            } else {
+                indicator_color
+            };
 
             // 工具名颜色：Running=青色 bold（Bash 除外，保持白色），Completed=白色，Error=红色
             let name_style = if is_running && tool_name != "Bash" {
@@ -1189,6 +1235,41 @@ pub fn render_view_model_with_links(
                 ));
             }
             let mut lines = vec![Line::from(header_spans)];
+            if let Some(task) = background_task {
+                let summary = if *shell_backgrounded {
+                    BACKGROUND_RUNNING_STATUS.to_string()
+                } else {
+                    format!("已转入后台（任务 {}）", task.task_id)
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                    Span::styled(
+                        truncate_to_display_width(&summary, width.saturating_sub(4)),
+                        Style::default().fg(theme::MUTED),
+                    ),
+                ]));
+                if *shell_backgrounded {
+                    if let Some(timeout) = shell_timeout_text(*execution_timeout_ms) {
+                        lines.push(Line::from(vec![
+                            Span::raw("    "),
+                            Span::styled(timeout, Style::default().fg(theme::MUTED)),
+                        ]));
+                    }
+                }
+                if detail_mode {
+                    let output = format!("输出文件：{}", sanitize_display_text(task.output));
+                    lines.push(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(
+                            truncate_to_display_width(&output, width.saturating_sub(4)),
+                            Style::default().fg(theme::DIM),
+                        ),
+                    ]));
+                }
+                // 实时、历史重建和子 Agent 展开都共用此渲染入口。
+                // 不改 content，因此模型仍能使用完整的任务 ID 和输出路径。
+                return (lines, link_hits);
+            }
             let result_lines: Vec<&str> = if content.is_empty() {
                 Vec::new()
             } else {
@@ -1272,21 +1353,25 @@ pub fn render_view_model_with_links(
                     ]));
                 }
             }
-            if tool_name == "Bash"
+            if tool_name == "Bash" && *shell_backgrounded && started_at.is_some() {
+                lines.push(Line::from(vec![
+                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                    Span::styled(BACKGROUND_RUNNING_STATUS, Style::default().fg(theme::MUTED)),
+                ]));
+                if let Some(timeout) = shell_timeout_text(*execution_timeout_ms) {
+                    lines.push(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(timeout, Style::default().fg(theme::MUTED)),
+                    ]));
+                }
+            } else if tool_name == "Bash"
                 && is_running
                 && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
             {
-                let elapsed = started_at.unwrap().elapsed();
-                let secs = elapsed.as_secs();
-                let elapsed_str = if secs >= 60 {
-                    format!("({}m {:02}s)", secs / 60, secs % 60)
-                } else {
-                    format!("({}s)", secs)
-                };
                 lines.push(Line::from(vec![
                     Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                     Span::styled(
-                        format!("Running… {}", elapsed_str),
+                        shell_running_text(started_at.unwrap(), *execution_timeout_ms),
                         Style::default().fg(theme::MUTED),
                     ),
                 ]));
@@ -1770,6 +1855,10 @@ pub fn render_view_model_with_links(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "background_task_render_test.rs"]
+mod background_task_tests;
 
 #[cfg(test)]
 mod tests {

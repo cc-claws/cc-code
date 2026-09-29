@@ -1,8 +1,62 @@
 use crate::process::{
-    git_bash_command, git_bash_path, is_potential_rtk_command, is_unrecognized_command_error,
-    shell_command, shell_command_with_shell, should_fallback_to_bash,
+    git_bash_command, git_bash_path, is_potential_rtk_command, shell_command,
+    shell_command_with_shell,
 };
 use std::path::Path;
+
+#[cfg(windows)]
+#[test]
+fn test_managed_bash_missing_interpreter_is_error_not_cmd() {
+    let error = super::selected_git_bash_command("echo must-not-run", None)
+        .expect_err("缺失 Git Bash 不能改用 CMD 或 PATH 中的 WSL");
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert!(error.to_string().contains("No command was executed"));
+}
+
+#[cfg(windows)]
+#[test]
+fn test_managed_bash_rejects_non_msys_path_without_running_it() {
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    let bash = dir.path().join("bash.exe");
+    std::fs::write(&bash, b"not an executable").expect("创建探测文件");
+    assert!(
+        !super::has_msys_runtime(&bash),
+        "WSL/普通 bash 不含 MSYS runtime"
+    );
+    let error = super::selected_git_bash_command("echo must-not-run", Some(&bash))
+        .expect_err("非 MSYS Bash 不能被接受");
+    assert!(error.to_string().contains("not WSL"));
+    std::fs::write(dir.path().join("msys-2.0.dll"), b"layout marker").expect("创建布局标记");
+    let command = super::selected_git_bash_command("echo test", Some(&bash))
+        .expect("只验证构造，不执行伪造文件");
+    assert_eq!(command.as_std().get_program(), bash.as_os_str());
+}
+
+#[cfg(windows)]
+#[test]
+fn test_explicit_bash_never_resolves_to_path_bash_or_wsl() {
+    let explicit = shell_command_with_shell("echo must-not-run", &[], Some("bash"));
+    let default = shell_command("bash hook.sh", &[]);
+    for command in [explicit, default] {
+        let program = command.as_std().get_program();
+        assert_ne!(program, "bash", "不得经 PATH 解析到 WSL launcher");
+        assert_ne!(program, "cmd", "显式 POSIX 命令不得退回 CMD");
+    }
+}
+
+#[test]
+fn test_managed_bash_uses_explicit_interpreter_for_single_line() {
+    let command = "printf once; exit 2";
+    let cmd = super::managed_shell_command(command, peri_agent::shell::ShellDialect::Bash)
+        .expect("测试环境必须安装 Bash/Git Bash");
+    let args: Vec<_> = cmd
+        .as_std()
+        .get_args()
+        .map(|arg| arg.to_string_lossy())
+        .collect();
+    assert_eq!(args, ["-c", command], "单行也必须直接使用 Bash");
+    assert_ne!(cmd.as_std().get_program(), "cmd", "不能通过 CMD 套壳");
+}
 
 #[test]
 fn test_shell_command_unix_bash_c() {
@@ -120,192 +174,6 @@ async fn test_shell_command_windows_keeps_cmd_operators() {
         "stdout 应包含第一段输出: {stdout}"
     );
     assert!(stdout.contains("beta"), "stdout 应包含第二段输出: {stdout}");
-}
-
-#[test]
-fn test_is_unrecognized_command_error_matches_classic_pattern() {
-    // 英文版典型 stderr（Windows cmd 默认 locale）
-    let stderr = "'grep' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n";
-    assert!(
-        is_unrecognized_command_error(stderr),
-        "应命中 cmd 'not recognized' 特征"
-    );
-}
-
-#[test]
-fn test_is_unrecognized_command_error_matches_minimal_substring() {
-    // 只要有特征子串就命中，不要求完整句式
-    assert!(is_unrecognized_command_error(
-        "foo: 'ls' is not recognized as an internal or external command"
-    ));
-}
-
-#[test]
-fn test_is_unrecognized_command_error_rejects_unrelated_stderr() {
-    // 普通错误输出（exit≠0 但不是命令找不到）不应触发 fallback
-    assert!(!is_unrecognized_command_error("Permission denied"));
-    assert!(!is_unrecognized_command_error(
-        "grep: no such file or directory"
-    ));
-    assert!(!is_unrecognized_command_error(""));
-}
-
-#[test]
-fn test_git_bash_command_constructs_bash_c_with_args() {
-    // 跨平台纯构造：Debug 输出应包含 bash 路径、-c flag 和原始命令
-    let bash_path = Path::new("/custom/bash");
-    let cmd = git_bash_command(bash_path, "grep", &["-r", "foo"]);
-    let formatted = format!("{cmd:?}");
-    assert!(
-        formatted.to_lowercase().contains("bash"),
-        "expected bash exe in command, got: {formatted}"
-    );
-    assert!(
-        formatted.contains("-c"),
-        "expected -c flag, got: {formatted}"
-    );
-    assert!(
-        formatted.contains("grep"),
-        "expected command retained, got: {formatted}"
-    );
-}
-
-#[test]
-fn test_git_bash_command_quotes_args_with_special_chars() {
-    // 含空格的参数应被单引号包裹，避免 bash word splitting
-    let bash_path = Path::new("bash");
-    let cmd = git_bash_command(bash_path, "echo", &["hello world"]);
-    let formatted = format!("{cmd:?}");
-    assert!(
-        formatted.contains("hello world"),
-        "expected arg content retained, got: {formatted}"
-    );
-}
-
-#[test]
-fn test_git_bash_command_no_args() {
-    let bash_path = Path::new("bash");
-    let cmd = git_bash_command(bash_path, "ls", &[]);
-    let formatted = format!("{cmd:?}");
-    assert!(
-        formatted.contains("-c"),
-        "expected -c flag, got: {formatted}"
-    );
-    assert!(formatted.contains("ls"), "expected 'ls', got: {formatted}");
-}
-
-#[test]
-fn test_git_bash_path_returns_none_on_non_windows_or_missing() {
-    // 仅 Windows 上有 Git Bash；非 Windows 必然 None。
-    // Windows 上若未装 Git Bash 也应 None，不 panic。
-    let path = git_bash_path();
-    #[cfg(not(windows))]
-    {
-        assert!(
-            path.is_none(),
-            "非 Windows 上 git_bash_path 必须返回 None，实际：{path:?}"
-        );
-    }
-    // Windows 上不强制断言存在性（取决于机器是否装了 Git），
-    // 但必须不 panic、且多次调用返回同一结果（OnceLock 缓存）。
-    let path2 = git_bash_path();
-    assert_eq!(path, path2, "OnceLock 缓存失效，两次结果不一致");
-}
-
-// ── 多语言 is_unrecognized_command_error 测试 ──────────────────────
-
-#[test]
-fn test_is_unrecognized_command_error_chinese() {
-    assert!(
-        is_unrecognized_command_error(
-            "'grep' 不是内部或外部命令，也不是可运行的程序\r\n或批处理文件。"
-        ),
-        "应命中中文 Windows stderr"
-    );
-}
-
-#[test]
-fn test_is_unrecognized_command_error_french() {
-    assert!(
-        is_unrecognized_command_error("'grep' n'est pas reconnu en tant que commande interne"),
-        "应命中法语 Windows stderr"
-    );
-}
-
-#[test]
-fn test_is_unrecognized_command_error_german() {
-    assert!(
-        is_unrecognized_command_error("'grep' nicht als Befehl erkannt"),
-        "应命中德语 Windows stderr"
-    );
-}
-
-// ── should_fallback_to_bash 测试 ──────────────────────────────────
-
-#[test]
-fn test_should_fallback_exit_code_zero_never_fallback() {
-    // exit code = 0 时不触发 fallback，即使 stderr 有特征字符串
-    assert!(
-        !should_fallback_to_bash(0, "output", "is not recognized"),
-        "exit code 0 不应 fallback"
-    );
-}
-
-#[test]
-fn test_should_fallback_keyword_match() {
-    // exit ≠ 0 + stderr 匹配关键词 → fallback
-    assert!(should_fallback_to_bash(
-        1,
-        "",
-        "'grep' is not recognized as an internal or external command"
-    ));
-    assert!(should_fallback_to_bash(
-        1,
-        "some output",
-        "'grep' 不是内部或外部命令，也不是可运行的程序"
-    ));
-}
-
-#[test]
-fn test_should_fallback_fallback_pattern() {
-    // 兜底：exit ≠ 0 + 无 stdout + 短 stderr（未知语言 Windows）
-    assert!(
-        should_fallback_to_bash(1, "", "some short error"),
-        "应触发兜底 fallback"
-    );
-}
-
-#[test]
-fn test_should_fallback_no_fallback_real_script_error() {
-    // 真正的脚本错误：有 stdout 或 stderr 太长 → 不 fallback
-    assert!(
-        !should_fallback_to_bash(1, "some output", "some short error"),
-        "有 stdout 时不应兜底 fallback"
-    );
-    let long_stderr = "x".repeat(200);
-    assert!(
-        !should_fallback_to_bash(1, "", &long_stderr),
-        "stderr ≥ 200 bytes 时不应兜底 fallback"
-    );
-}
-
-#[test]
-fn test_should_fallback_no_fallback_normal_error() {
-    // 普通错误（如 Permission denied）：有 stdout + 长 stderr → 不 fallback
-    assert!(!should_fallback_to_bash(
-        1,
-        "some output",
-        "Permission denied"
-    ));
-}
-
-#[test]
-fn test_should_fallback_empty_stderr() {
-    // exit ≠ 0 但 stderr 为空 → 不 fallback（兜底要求 stderr 非空）
-    assert!(
-        !should_fallback_to_bash(1, "", ""),
-        "空 stderr 不应触发兜底 fallback"
-    );
 }
 
 #[test]
@@ -428,13 +296,13 @@ fn test_shell_command_with_shell_powershell() {
 }
 
 #[test]
-fn test_shell_command_with_shell_pwsh_alias() {
-    // pwsh 别名应等同于 powershell
+fn test_shell_command_with_shell_pwsh_executable() {
+    // 显式选择 PowerShell 7，不能替换为 Windows PowerShell。
     let cmd = shell_command_with_shell("echo test", &[], Some("pwsh"));
     let formatted = format!("{cmd:?}");
     assert!(
-        formatted.contains("powershell"),
-        "expected powershell for pwsh alias, got: {formatted}"
+        formatted.contains("pwsh"),
+        "显式 pwsh 应保留解释器，实际：{formatted}"
     );
 }
 
@@ -486,5 +354,96 @@ fn test_shell_command_with_shell_bash_explicit() {
             "expected -c flag, got: {formatted}"
         );
     }
-    // Windows 上可能回退到 cmd（如果没有 Git Bash）
+    #[cfg(windows)]
+    assert!(
+        _cmd.as_std()
+            .get_program()
+            .to_string_lossy()
+            .ends_with("bash.exe")
+            || _cmd.as_std().get_program() == "bash",
+        "显式 bash 不得回退到 cmd"
+    );
+}
+
+#[test]
+fn test_starts_with_posix_shell_command_boundaries() {
+    for command in [
+        "bash",
+        " sh\tfile.sh",
+        "bash.exe -c 'echo ok'",
+        "\"bash\" script.sh",
+        "'sh' < input",
+        "BASH test.sh",
+        "bash<input",
+    ] {
+        assert!(
+            super::starts_with_posix_shell(command),
+            "应识别完整解释器：{command}"
+        );
+    }
+    for command in [
+        "",
+        "bashful script",
+        "shell script",
+        "echo bash",
+        "\"bash\"suffix",
+        "'bash",
+        "python bash.py",
+        "\"C:/Program Files/Git/bin/bash.exe\" script.sh",
+    ] {
+        assert!(
+            !super::starts_with_posix_shell(command),
+            "不得误识别：{command}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_shell_command_explicit_cmd_overrides_auto_routing() {
+    for command in ["bash test.sh", "echo one\necho two"] {
+        let cmd = shell_command_with_shell(command, &[], Some("cmd"));
+        assert_eq!(cmd.as_std().get_program(), "cmd", "显式 cmd 必须优先");
+    }
+}
+
+#[tokio::test]
+async fn test_shell_command_missing_explicit_shell_does_not_execute() {
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    let missing = dir.path().join("missing-shell");
+    let result = shell_command_with_shell("echo unexpected", &[], missing.to_str())
+        .output()
+        .await;
+    assert!(
+        matches!(result, Err(ref error) if error.kind() == std::io::ErrorKind::NotFound),
+        "缺失解释器应返回启动错误，不能改用系统 shell：{result:?}"
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn test_shell_command_bash_prefix_without_bash_on_path() {
+    let bash = git_bash_path().expect("Windows 回归测试需要安装 Git Bash");
+    for command in [
+        "bash -c 'printf routed'",
+        "sh -c 'printf routed'",
+        "bash.exe\t-c 'printf routed'",
+        "\"bash\" -c 'printf routed'",
+    ] {
+        let mut cmd = shell_command(command, &[]);
+        assert_eq!(
+            cmd.as_std().get_program(),
+            bash.as_os_str(),
+            "应在启动前选择 Git Bash"
+        );
+        // 只修改子进程 PATH，不污染并行测试或用户环境。
+        cmd.env("PATH", "C:\\Windows\\System32");
+        let output = cmd.output().await.expect("启动 Git Bash");
+        assert!(
+            output.status.success(),
+            "路由后应执行成功：{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"routed", "原始引号和参数应完整保留");
+    }
 }

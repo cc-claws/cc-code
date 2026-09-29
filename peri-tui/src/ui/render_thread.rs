@@ -23,12 +23,16 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 use super::message_render::CONTROL_B_BACKGROUND_HINT;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
-    message_render::render_view_model_with_links,
+    message_render::{render_view_model_with_links, shell_running_text},
     message_view::MessageViewModel,
 };
 use peri_widgets::markdown::LinkHit;
 
 const TOOL_INDICATOR_TICK_INTERVAL: Duration = Duration::from_millis(200);
+
+#[cfg(test)]
+#[path = "shell_runtime_render_test.rs"]
+mod shell_runtime_tests;
 
 fn current_tool_indicator_tick() -> u64 {
     static STARTUP: OnceLock<Instant> = OnceLock::new();
@@ -425,6 +429,7 @@ impl RenderTask {
             // 对 hash 不同但属于 cosmetic change 的消息复用旧缓存
             if i < old_message_lines.len()
                 && i < old_len
+                && !old_message_lines[i].is_empty()
                 && Self::is_cosmetic_change(&old_messages[i], &vm)
             {
                 self.message_lines[i] = std::mem::take(&mut old_message_lines[i]);
@@ -493,18 +498,39 @@ impl RenderTask {
         cache.version += 1;
     }
 
+    /// 与 SubAgentGroup 渲染规则一致；折叠/批次摘要/被 final_result 替代的条目不计时刷新。
+    fn visible_subagent_messages(vm: &MessageViewModel) -> &[MessageViewModel] {
+        match vm {
+            MessageViewModel::SubAgentGroup {
+                recent_messages,
+                collapsed: false,
+                batch_agents,
+                final_result,
+                ..
+            } if batch_agents.is_empty() => {
+                let skip_last = final_result.as_ref().is_some_and(|r| !r.is_empty())
+                    && recent_messages.len() > 1;
+                &recent_messages[..recent_messages.len() - usize::from(skip_last)]
+            }
+            _ => &[],
+        }
+    }
+
     fn has_running_tool_blocks(&self) -> bool {
-        self.last_messages.iter().any(|vm| {
-            matches!(
-                vm,
+        fn running(vm: &MessageViewModel) -> bool {
+            match vm {
                 MessageViewModel::ToolBlock {
                     tool_name,
                     content,
                     is_error,
                     ..
-                } if tool_name != "AskUserQuestion" && content.is_empty() && !*is_error
-            )
-        })
+                } => tool_name != "AskUserQuestion" && content.is_empty() && !*is_error,
+                _ => RenderTask::visible_subagent_messages(vm)
+                    .iter()
+                    .any(running),
+            }
+        }
+        self.last_messages.iter().any(running)
     }
 
     /// 判断 running Bash 是否已超过 2 秒（需要显示 Running…/ctrl+b hint）
@@ -535,6 +561,51 @@ impl RenderTask {
         // 保留前缀缓存（prefix_stable_len），避免清空全部 hash 导致全量重绘。
         let mut needs_rebuild = false;
         for (idx, vm) in self.last_messages.iter().enumerate() {
+            // 子 Agent 工具不是顶层行，不能用 lines[1] 更新；只在秒数变化时
+            // 失效该组的缓存，同时覆盖首次越过 2 秒且没有新输出的情况。
+            let children = Self::visible_subagent_messages(vm);
+            if !children.is_empty() {
+                fn needs_refresh(vm: &MessageViewModel, lines: &[Line<'_>]) -> bool {
+                    match vm {
+                        MessageViewModel::ToolBlock {
+                            tool_name,
+                            content,
+                            is_error,
+                            started_at: Some(start),
+                            execution_timeout_ms,
+                            ..
+                        } if tool_name == "Bash"
+                            && content.is_empty()
+                            && !is_error
+                            && start.elapsed() >= Duration::from_secs(2) =>
+                        {
+                            let expected = shell_running_text(*start, *execution_timeout_ms);
+                            !lines
+                                .iter()
+                                .flat_map(|line| &line.spans)
+                                .any(|span| span.content == expected)
+                        }
+                        _ => RenderTask::visible_subagent_messages(vm)
+                            .iter()
+                            .any(|child| needs_refresh(child, lines)),
+                    }
+                }
+                let lines = self
+                    .message_lines
+                    .get(idx)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                if children.iter().any(|child| needs_refresh(child, lines)) {
+                    needs_rebuild = true;
+                    if let Some(hash) = self.message_hashes.get_mut(idx) {
+                        *hash = hash.wrapping_add(1);
+                    }
+                    // 时间变化不改变 VM 内容，必须同时禁用 cosmetic-change 缓存复用。
+                    if let Some(lines) = self.message_lines.get_mut(idx) {
+                        lines.clear();
+                    }
+                }
+            }
             if Self::is_running_bash_past_threshold(vm) {
                 let cached_line_count = self.message_lines.get(idx).map(|l| l.len()).unwrap_or(0);
                 // 跨越阈值后应有 3 行（header + Running… + ctrl+b hint），缓存 < 3 行说明未渲染
@@ -567,6 +638,7 @@ impl RenderTask {
                 content,
                 is_error,
                 started_at,
+                execution_timeout_ms,
                 ..
             } = vm
             else {
@@ -596,14 +668,8 @@ impl RenderTask {
             if *tool_name == "Bash"
                 && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
             {
-                let elapsed = started_at.unwrap().elapsed();
-                let secs = elapsed.as_secs();
-                let elapsed_str = if secs >= 60 {
-                    format!("({}m {:02}s)", secs / 60, secs % 60)
-                } else {
-                    format!("({}s)", secs)
-                };
-                let new_running_text = format!("Running… {}", elapsed_str);
+                let new_running_text =
+                    shell_running_text(started_at.unwrap(), *execution_timeout_ms);
 
                 if let Some(running_line) = lines.get_mut(1) {
                     if running_line.spans.len() >= 2

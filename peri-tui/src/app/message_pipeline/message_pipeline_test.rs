@@ -273,10 +273,7 @@ fn test_bash_tool_start_uses_spawn_started_at() {
     );
 
     let spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(3);
-    assert!(
-        pipeline.set_bash_tool_started_at("sleep 10", spawned_at),
-        "应能按 Bash command 回填真实启动时间"
-    );
+    pipeline.register_shell_runtime(None, "bash1", spawned_at, 600_000);
     let tail_vms = pipeline.build_tail_vms();
     let Some(MessageViewModel::ToolBlock { started_at, .. }) = tail_vms.last() else {
         panic!("Bash ToolStart 应仍生成 pending ToolBlock");

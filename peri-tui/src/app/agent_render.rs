@@ -95,6 +95,7 @@ impl App {
         match action {
             PipelineAction::None => {}
             PipelineAction::AddMessage(vm) => {
+                let vm = *vm;
                 let session = self.session_mgr.current_mut();
                 let anchor = session.messages.view_messages.len();
                 session.messages.ephemeral_notes.push((anchor, vm.clone()));
