@@ -4,6 +4,25 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.82 — 2026-09-29
+
+### Features
+
+- **Thinking 状态行 + 工具动作汇总，对齐 Claude Code 非详细模式（#248, #249）**：运行中 spinner 行新增第三字段四态状态机——`· thinking` / `· thought for Ns` / `· still thinking` / `· thinking more`（英文固定输出，`still thinking` 优先于 `thinking more`，10s 阈值可调）；verb 整轮固定不再随工具逐段换词；配色随时间四档升温（5s/15s/30s，仅 verb + 状态词变色，其余 MUTED）。
+- **消息区思考行改为秒数 + 动作计数（#248, #249）**：`∴ Thought for N chars` → `Thought for Ns[, read N files] (ctrl+o to expand)`。秒数在 LLM 流式层计时并随消息持久化（`ContentBlock::Reasoning.duration_ms`），历史恢复后仍可用；连续多轮「思考 + 只读工具」合并为一行（秒数/计数累加，跨 Bash 不断开仅不计数）；只读工具折叠为计数文案（含单复数）；纯动作行（无 reasoning 的只读工具组）折叠显示。
+- **Bash 非详细模式展示输出摘要（#248, #249）**：显示输出前 3 行 + 截断提示 `... (N more lines) (ctrl+o to expand)`，失败必显（判定依据 `is_error` 标记而非内容前缀）。
+
+### Fixes
+
+- **失败 Bash 输出行颜色口径统一（#250, #251）**：非零退出（`bash_failed`）时圆点/状态已标红 Failed，但输出行与 `⎿` 前缀仍灰白——`result_color`/`border_color` 用 `*is_error` 判定漏了 bash_failed 场景。改为 `state.is_error`，与 header 指示器一致，附 2 个回归测试。
+
+### 说明
+
+- **测试命名规范定死并清理 98 处风格债（#250, #251）**：`CLAUDE.md` 明确测试函数/helper 命名必须全英文 `test_<被测对象>_<场景>` snake_case（禁止中英混排），14 个文件 98 处存量中文命名一次性改为英文，注释与断言消息保持中文不变。
+- 设计文档、四轮代码审计记录与渲染效果稿见 `docs/designs/2026-09-29-*`。
+
+---
+
 ## v0.6.81 — 2026-09-28
 
 ### Features
