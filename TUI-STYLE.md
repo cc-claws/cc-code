@@ -1,7 +1,7 @@
 # TUI Style Guide
 
-> **最后更新：2026-09-29**（对应 v0.6.83）
-> 本次更新：spinner 行新增第三字段「思考状态词」四态机（`thinking` / `thought for Ns` / `still thinking` / `thinking more`），verb 与状态词随时间四档升温（仅此二者变色，v0.6.82）；消息区思考行改为 `Thought for Ns, <动作计数>`；`thought for Ns` 配色回归灰色（v0.6.83）。
+> **最后更新：2026-09-29**（对应 v0.6.84）
+> 本次更新：HITL 审批弹窗改为三选（一次性同意 / 本次会话同意 / 拒绝，Space 循环切换，v0.6.84）；spinner 行第三字段「思考状态词」四态机与时间驱动配色、消息区思考行秒数+动作计数（v0.6.82）；`thought for Ns` 配色回归灰、卡住检测空白指纹修复（v0.6.83）。
 
 ## 设计哲学
 
@@ -387,8 +387,9 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 - 边框 WARNING 色
 - 标题 `⚠ Approval Required`（WARNING + BOLD）
-- 选项：`✓` Approved(SAGE) / `✗` Rejected(ERROR) / `○` Pending(MUTED)
+- 三选（`Space` 循环切换）：`✓` 一次性同意(once) / `✓✓` 本次会话同意(session) / `✗` 拒绝 —— 均为 SAGE / SAGE / ERROR
 - 光标行 `❯`（THINKING 色）
+- 底部按键提示：`↑↓ 移动 · Space 循环切换 · Enter 确认 · Esc 全部拒绝`（DIM）
 
 ### AskUser 批量问答弹窗
 
