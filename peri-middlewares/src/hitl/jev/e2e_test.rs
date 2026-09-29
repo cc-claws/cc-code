@@ -216,10 +216,10 @@ fn e2e_vs_user_hooks_with_empty_policy() {
 /// 模拟一次"好的提炼"。
 #[test]
 #[ignore]
-fn e2e_nt_order_domain_rules_interception() {
+fn e2e_acme_order_domain_rules_interception() {
     let g = JevGate::new(JevConfig {
         policy: "1. 严禁对无索引字段裸查：account_ref_number（销售记录号）、merchant_name、item 等无索引；\
-                 查单必须走 txn_code 或 merchant_order_ref，必要时带 merchant_id / created_at 收敛。\n\
+                 查单必须走 txn_code 或 merchaacme_order_ref，必要时带 merchant_id / created_at 收敛。\n\
                  2. orders 等千万级大表严禁 `LIKE '%xxx%'` 前置通配符裸查，严禁多列 orWhere（破坏复合索引，触发全表扫描）。\n\
                  3. 严禁跨库混淆连接：订单日志分表 order_audit_history_* 物理存放在 analytics_log 库，\
                  不得在 analytics_db（acme_order 库）直接查询。\n\

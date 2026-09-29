@@ -329,7 +329,7 @@ Reading 1 file… (ctrl+o to expand)
 **peri 现状**——**用户提供的真实 peri 日志**（非合成）。判定依据：`∴ Thought for N chars`（`chars` + `∴` 前缀）是 peri 独有格式，Claude Code 用秒 + 动作计数，两者不会混淆。
 
 ```text
-❯ SF20260000000001 这单解析是解析item绑定还是catalog呀  为啥报错了啊
+❯ SF20260000000001 排查一下这个 repo 里请求重试逻辑写在哪
 
 ∴ Thought for 341 chars (ctrl+o to expand)
 
@@ -367,11 +367,11 @@ Reading 1 file… (ctrl+o to expand)
 
 ● Bash(cd /d/code/acme_order && which mysql php 2>&1; php -v 2>&1 | head -3)
 
-● Write(D:\code\acme_order\storage\probes\tmp_sf20260924983025.php)
+● Write(D:\code\acme_order\storage\probes\tmp_demo_order.php)
 
 ∴ Thought for 323 chars (ctrl+o to expand)
 
-● Bash(cd /d/code/acme_order && php storage/probes/tmp_sf20260924983025.php 2>&1 | head -80)
+● Bash(cd /d/code/acme_order && php storage/probes/tmp_demo_order.php 2>&1 | head -80)
 
   ...（持续数十轮 Bash / Read / Write，每轮 Thought 与工具各自成行）...
 ```
@@ -384,7 +384,7 @@ Reading 1 file… (ctrl+o to expand)
 **peri 改后**——思考与只读工具各自收成一行，Bash 仍显示命令（对齐 Claude Code）：
 
 ```text
-❯ SF20260000000001 这单解析是解析item绑定还是catalog呀  为啥报错了啊
+❯ SF20260000000001 排查一下这个 repo 里请求重试逻辑写在哪
 
   Thought for 4s (ctrl+o to expand)
 ● Bash(pwd && ls -la)
@@ -394,9 +394,9 @@ Reading 1 file… (ctrl+o to expand)
   Thought for 5s, read 1 file (ctrl+o to expand)
 ● Bash(cd /d/code/acme_order && ls app/Http/Controllers/Logic/ | grep -i "ParseItem\|ItemMap")
 ● Bash(cd /d/code/acme_order && grep -n "DB_HOST\|DB_PORT..." .env | head -40)
-● Write(D:\code\acme_order\storage\probes\tmp_sf20260924983025.php)
+● Write(D:\code\acme_order\storage\probes\tmp_demo_order.php)
   Thought for 6s, read 1 file (ctrl+o to expand)
-● Bash(cd /d/code/acme_order && php storage/probes/tmp_sf20260924983025.php 2>&1 | head -80)
+● Bash(cd /d/code/acme_order && php storage/probes/tmp_demo_order.php 2>&1 | head -80)
 
 ● 我先给你结论：这单走的是「绑定item管理」，不是 catalog。
 
