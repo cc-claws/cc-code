@@ -307,10 +307,7 @@ fn test_thinking_status_style_color_scope() {
     use super::message_area::thinking_status_style;
     let hot = theme::WARNING;
     // 三个思考态词：随热度色
-    assert_eq!(
-        thinking_status_style("thinking", hot, false).fg,
-        Some(hot)
-    );
+    assert_eq!(thinking_status_style("thinking", hot, false).fg, Some(hot));
     assert_eq!(
         thinking_status_style("still thinking", hot, false).fg,
         Some(hot)

@@ -200,6 +200,7 @@ pub async fn run_print(
         vec![], // incoming_recalls
         true,
         shared_permission,
+        peri_middlewares::hitl::ApprovalMemory::new(),
         event_sink,
         cancel,
         broker,

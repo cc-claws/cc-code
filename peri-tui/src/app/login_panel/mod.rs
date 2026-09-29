@@ -13,13 +13,7 @@ const DEFAULT_MODELS: &[(&str, &str, &str, &str, &str)] = &[
         "claude-haiku-4-5",
         "claude-fable-5",
     ),
-    (
-        "openai",
-        "gpt-4o",
-        "gpt-4o-mini",
-        "gpt-3.5-turbo",
-        "gpt-4o",
-    ),
+    ("openai", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o"),
 ];
 
 /// provider_type 循环切换列表
@@ -294,12 +288,7 @@ impl LoginPanel {
             .iter()
             .find(|(t, _, _, _, _)| *t == self.buf_type);
         let (opus_default, sonnet_default, haiku_default, fable_default) = match new_defaults {
-            Some((_, o, s, h, f)) => (
-                o.to_string(),
-                s.to_string(),
-                h.to_string(),
-                f.to_string(),
-            ),
+            Some((_, o, s, h, f)) => (o.to_string(), s.to_string(), h.to_string(), f.to_string()),
             None => return, // 未知 provider_type，不自动填充
         };
 

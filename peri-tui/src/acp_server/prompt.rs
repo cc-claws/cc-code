@@ -80,7 +80,7 @@ pub(crate) async fn execute_prompt(
     }
 
     // Read session data under lock, then release immediately.
-    let (cwd, history, is_empty, thread_id, frozen, incoming_recalls) = {
+    let (cwd, history, is_empty, thread_id, frozen, incoming_recalls, approval_memory) = {
         let mut sessions = sessions.lock().await;
         let state = sessions
             .get_mut(&session_id)
@@ -92,6 +92,7 @@ pub(crate) async fn execute_prompt(
             state.thread_id.clone(),
             state.frozen.clone(),
             std::mem::take(&mut state.recall_items),
+            Arc::clone(&state.approval_memory),
         )
     };
     let history_len = history.len();
@@ -120,6 +121,7 @@ pub(crate) async fn execute_prompt(
         incoming_recalls,
         is_empty,
         permission_mode.clone(),
+        approval_memory,
         event_sink,
         cancel,
         broker,
