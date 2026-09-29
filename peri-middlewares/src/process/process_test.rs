@@ -1,6 +1,7 @@
+#[cfg(windows)]
+use crate::process::git_bash_path;
 use crate::process::{
-    git_bash_command, git_bash_path, is_potential_rtk_command, shell_command,
-    shell_command_with_shell,
+    git_bash_command, is_potential_rtk_command, shell_command, shell_command_with_shell,
 };
 use std::path::Path;
 
