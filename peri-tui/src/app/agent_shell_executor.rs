@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_executor_短命前台命令不注册到_ui() {
+    async fn test_executor_short_lived_foreground_command_not_registered_to_ui() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let executor = AgentShellExecutor::new(tx, test_cwd(), "test-session".to_string());
         let handle = executor
@@ -479,7 +479,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_executor_长前台命令延迟注册到_ui() {
+    async fn test_executor_long_foreground_command_registers_to_ui_after_delay() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let executor = AgentShellExecutor::new(tx, test_cwd(), "test-session".to_string());
         let handle = executor

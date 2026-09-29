@@ -208,7 +208,7 @@ async fn test_cancel_shell_command_aborts_task_and_replaces_pending_vm() {
 }
 
 #[tokio::test]
-async fn test_poll_agent_shells_前台结束不注入后台通知() {
+async fn test_poll_agent_shells_skips_background_notification_when_foreground_finishes() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     app.set_loading(true);
     let (slot, exit_signal) = make_agent_shell_slot(false, "echo hi");
@@ -236,7 +236,7 @@ async fn test_poll_agent_shells_前台结束不注入后台通知() {
 }
 
 #[tokio::test]
-async fn test_poll_agent_shells_超时自动后台化继续运行() {
+async fn test_poll_agent_shells_auto_backgrounds_and_keeps_running_on_timeout() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     let (slot, auto_tx) = make_auto_background_agent_shell_slot("python long.py");
     app.session_mgr.current_mut().agent_shells.push(slot);
@@ -256,7 +256,7 @@ async fn test_poll_agent_shells_超时自动后台化继续运行() {
 }
 
 #[tokio::test]
-async fn test_register_agent_shell_不再请求物理清屏() {
+async fn test_register_agent_shell_no_longer_requests_physical_clear() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     let (reg, _exit_signal) = make_agent_shell_registration(false, "sleep 3");
 
@@ -269,7 +269,7 @@ async fn test_register_agent_shell_不再请求物理清屏() {
 }
 
 #[tokio::test]
-async fn test_background_agent_foreground_不再请求物理清屏() {
+async fn test_background_agent_foreground_no_longer_requests_physical_clear() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     let (slot, _exit_signal) = make_agent_shell_slot(false, "sleep 60");
     app.session_mgr.current_mut().agent_shells.push(slot);
@@ -285,7 +285,7 @@ async fn test_background_agent_foreground_不再请求物理清屏() {
 }
 
 #[tokio::test]
-async fn test_poll_agent_shells_后台化结束才注入通知() {
+async fn test_poll_agent_shells_injects_notification_only_after_backgrounded_shell_finishes() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     app.set_loading(true);
     let (slot, exit_signal) = make_agent_shell_slot(true, "cargo test");
@@ -311,7 +311,7 @@ async fn test_poll_agent_shells_后台化结束才注入通知() {
 }
 
 #[tokio::test]
-async fn test_cleanup_finished_background_shells_超量移除最旧已完成() {
+async fn test_cleanup_finished_background_shells_removes_oldest_finished_when_over_limit() {
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
     use tokio::sync::oneshot;
@@ -373,7 +373,7 @@ async fn test_cleanup_finished_background_shells_超量移除最旧已完成() {
 }
 
 #[tokio::test]
-async fn test_cleanup_finished_background_shells_未超量不移除() {
+async fn test_cleanup_finished_background_shells_keeps_all_when_under_limit() {
     use std::path::PathBuf;
     use tokio::sync::oneshot;
 

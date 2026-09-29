@@ -2,7 +2,7 @@ use super::*;
 use std::time::Duration;
 
 #[tokio::test]
-async fn test_spawn_stall_watchdog_检测stall并通知() {
+async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
     // Arrange：output 文件末行匹配 prompt pattern，且不增长（模拟命令等待输入）
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("out.output");
@@ -40,7 +40,7 @@ async fn test_spawn_stall_watchdog_检测stall并通知() {
 }
 
 #[tokio::test]
-async fn test_spawn_stall_watchdog_末行不匹配时不通知() {
+async fn test_spawn_stall_watchdog_skips_notification_when_last_line_does_not_match() {
     // Arrange：output 文件无增长，但末行不匹配 prompt pattern（普通输出）
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("out.output");
@@ -63,7 +63,7 @@ async fn test_spawn_stall_watchdog_末行不匹配时不通知() {
 }
 
 #[test]
-fn test_shell_completion_notification_完成格式() {
+fn test_shell_completion_notification_completed_format() {
     // Arrange
     let path = Path::new("/tmp/peri-1000/app/sess/tasks/abc.output");
     // Act
@@ -89,7 +89,7 @@ fn test_shell_completion_notification_完成格式() {
 }
 
 #[test]
-fn test_shell_notification_display_text_完成提示不泄露_xml() {
+fn test_shell_notification_display_text_completion_does_not_leak_xml() {
     // Arrange
     let path = Path::new("/tmp/peri/tasks/abc.output");
     let msg = shell_completion_notification("abc", "npm test", Some(0), path);
@@ -110,7 +110,7 @@ fn test_shell_notification_display_text_完成提示不泄露_xml() {
 }
 
 #[test]
-fn test_shell_notification_display_text_支持_system_reminder_包裹() {
+fn test_shell_notification_display_text_supports_system_reminder_wrapper() {
     // Arrange
     let path = Path::new("/tmp/peri/tasks/abc.output");
     let msg = shell_completion_notification("abc", "cargo test", Some(0), path);
@@ -136,7 +136,7 @@ fn test_shell_notification_display_text_支持_system_reminder_包裹() {
 }
 
 #[test]
-fn test_shell_notification_display_text_清理终端控制序列() {
+fn test_shell_notification_display_text_strips_terminal_control_sequences() {
     // Arrange
     let path = Path::new("/tmp/peri/tasks/abc.output");
     let msg = shell_completion_notification(
@@ -166,7 +166,7 @@ fn test_shell_notification_display_text_清理终端控制序列() {
 }
 
 #[test]
-fn test_shell_notification_display_text_等待输入提示() {
+fn test_shell_notification_display_text_waits_for_input_prompt() {
     // Arrange
     let msg = shell_stalled_notification("t1", "npm publish", "continue?");
     // Act
@@ -185,7 +185,7 @@ fn test_shell_notification_display_text_等待输入提示() {
 }
 
 #[test]
-fn test_shell_completion_notification_失败状态() {
+fn test_shell_completion_notification_failure_status() {
     // Arrange
     let path = Path::new("/tmp/x.output");
     // Act
@@ -199,7 +199,7 @@ fn test_shell_completion_notification_失败状态() {
 }
 
 #[test]
-fn test_shell_completion_notification_terminated状态() {
+fn test_shell_completion_notification_terminated_status() {
     // Arrange
     let path = Path::new("/tmp/y.output");
     // Act
@@ -213,7 +213,7 @@ fn test_shell_completion_notification_terminated状态() {
 }
 
 #[test]
-fn test_shell_completion_notification_转义特殊字符() {
+fn test_shell_completion_notification_escapes_special_characters() {
     // Arrange：command 含 XML 特殊字符（> < &，如 shell 重定向/链式命令）
     let path = Path::new("/tmp/x.output");
     // Act

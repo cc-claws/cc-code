@@ -64,7 +64,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_agent_commands_过滤重复的_skill_名和本地命令名() {
+    fn test_update_agent_commands_filters_duplicate_skill_and_local_command_names() {
         // skills 列表已有 caveman
         let skills = vec![make_metadata("caveman", "desc")];
         let mut cs = CommandSystem::new(
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_agent_commands_无_skills_时不过滤() {
+    fn test_update_agent_commands_skips_filtering_without_skills() {
         let mut cs = CommandSystem::new(
             crate::command::default_registry(),
             vec![],

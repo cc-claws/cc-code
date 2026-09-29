@@ -5,7 +5,7 @@ fn make_path(dir: &Path, id: &str) -> PathBuf {
 }
 
 #[tokio::test]
-async fn test_spawn_writer_多chunk合并写入并读取尾部() {
+async fn test_spawn_writer_merges_multiple_chunks_and_reads_tail() {
     // Arrange
     let tmp = tempfile::tempdir().unwrap();
     let path = make_path(tmp.path(), "t1");
@@ -23,7 +23,7 @@ async fn test_spawn_writer_多chunk合并写入并读取尾部() {
 }
 
 #[tokio::test]
-async fn test_read_tail_只读末尾n字节() {
+async fn test_read_tail_reads_only_last_n_bytes() {
     // Arrange
     let tmp = tempfile::tempdir().unwrap();
     let path = make_path(tmp.path(), "t2");
@@ -39,7 +39,7 @@ async fn test_read_tail_只读末尾n字节() {
 }
 
 #[tokio::test]
-async fn test_read_delta_从offset读取新字节() {
+async fn test_read_delta_reads_new_bytes_from_offset() {
     // Arrange
     let tmp = tempfile::tempdir().unwrap();
     let path = make_path(tmp.path(), "t3");
@@ -58,7 +58,7 @@ async fn test_read_delta_从offset读取新字节() {
 }
 
 #[tokio::test]
-async fn test_cleanup_删除文件且幂等() {
+async fn test_cleanup_deletes_file_and_is_idempotent() {
     // Arrange
     let tmp = tempfile::tempdir().unwrap();
     let path = make_path(tmp.path(), "t4");
@@ -77,7 +77,7 @@ async fn test_cleanup_删除文件且幂等() {
 }
 
 #[tokio::test]
-async fn test_spawn_writer_自动创建多层父目录() {
+async fn test_spawn_writer_creates_nested_parent_directories() {
     // Arrange
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("a/b/c/t5.output");
@@ -93,7 +93,7 @@ async fn test_spawn_writer_自动创建多层父目录() {
 }
 
 #[test]
-fn test_sanitize_path_segment_替换非法字符() {
+fn test_sanitize_path_segment_replaces_invalid_characters() {
     // Act
     let seg = sanitize_path_segment(Path::new("C:\\Work\\peri"));
     // Assert
@@ -104,7 +104,7 @@ fn test_sanitize_path_segment_替换非法字符() {
 }
 
 #[test]
-fn test_sanitize_path_segment_空路径回退root() {
+fn test_sanitize_path_segment_empty_path_falls_back_to_root() {
     // Act
     let seg = sanitize_path_segment(Path::new(""));
     // Assert
@@ -112,7 +112,7 @@ fn test_sanitize_path_segment_空路径回退root() {
 }
 
 #[test]
-fn test_task_output_path_包含完整层级() {
+fn test_task_output_path_contains_full_hierarchy() {
     // Act
     let path = task_output_path("abc123", Path::new("/work/app"), "sess-1");
     let s = path.to_string_lossy().to_string();

@@ -957,7 +957,7 @@ async fn test_fork_directive_includes_rules() {
 use super::{build_subagent_middlewares, SubAgentMiddlewareConfig};
 
 #[test]
-fn test_build_middleware_fork_config_无_skill_preload() {
+fn test_build_middleware_fork_config_without_skill_preload() {
     let middlewares = build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork("/tmp"));
     assert_eq!(middlewares.len(), 3);
     let names: Vec<&str> = middlewares.iter().map(|m| m.name()).collect();
@@ -968,7 +968,7 @@ fn test_build_middleware_fork_config_无_skill_preload() {
 }
 
 #[test]
-fn test_build_middleware_agent_def_空技能_无_skill_preload() {
+fn test_build_middleware_agent_def_with_empty_skills_skips_skill_preload() {
     let middlewares =
         build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(vec![], "/tmp"));
     assert_eq!(middlewares.len(), 3);
@@ -978,7 +978,7 @@ fn test_build_middleware_agent_def_空技能_无_skill_preload() {
 }
 
 #[test]
-fn test_build_middleware_agent_def_有技能_包含_skill_preload() {
+fn test_build_middleware_agent_def_with_skills_includes_skill_preload() {
     let middlewares = build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(
         vec!["test-skill".to_string()],
         "/tmp",
@@ -997,7 +997,7 @@ fn test_build_middleware_agent_def_有技能_包含_skill_preload() {
 }
 
 #[test]
-fn test_build_middleware_顺序固定() {
+fn test_build_middleware_order_is_fixed() {
     // 有 skills 时验证完整顺序
     let middlewares = build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(
         vec!["a".to_string()],
