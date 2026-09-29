@@ -81,6 +81,8 @@ pub(super) async fn do_invoke_streaming(
     // Accumulators
     let mut text_content = String::new();
     let mut reasoning_content = String::new();
+    // 当前 thinking 段起点（用于计算 duration_ms）
+    let mut thinking_started_at: Option<std::time::Instant> = None;
     let mut repetition_detector = RepetitionDetector::new();
     let mut repetition_detected = false;
     let mut thinking_signature: Option<String> = None;
@@ -152,6 +154,8 @@ pub(super) async fn do_invoke_streaming(
                             if let Some(sig) = cb["signature"].as_str() {
                                 thinking_signature = Some(sig.to_string());
                             }
+                            // 记录本段 thinking 起点（用于 duration_ms）
+                            thinking_started_at = Some(std::time::Instant::now());
                         }
                         "tool_use" => {
                             tool_use_id = cb["id"].as_str().map(|s| s.to_string());
@@ -213,6 +217,10 @@ pub(super) async fn do_invoke_streaming(
                             });
                             if let Some(ref sig) = thinking_signature {
                                 block["signature"] = json!(sig);
+                            }
+                            // 记录本段 thinking 耗时（仅 UI 展示用）
+                            if let Some(started) = thinking_started_at.take() {
+                                block["duration_ms"] = json!(started.elapsed().as_millis() as u64);
                             }
                             accumulated_blocks.push(block);
                         }

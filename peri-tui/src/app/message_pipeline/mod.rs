@@ -1095,3 +1095,11 @@ impl MessagePipeline {
 #[cfg(test)]
 #[path = "message_pipeline_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "real_session_replay_test.rs"]
+mod real_session_replay_test;
+
+#[cfg(test)]
+#[path = "real_session_full_test.rs"]
+mod real_session_full_test;

@@ -146,6 +146,10 @@ pub enum MessageViewModel {
         category: ToolCategory,
         tools: Vec<ToolEntry>,
         collapsed: bool,
+        /// 纯动作行文案（PRD §2.3）：**前面无 thinking bubble** 的独立只读工具组，
+        /// 其折叠态显示此摘要（如 `read 1 file, listed 1 directory`）。
+        /// None = 已由前置 Thinking 行汇总（避免重复显示）。
+        standalone_action: Option<String>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
     },
@@ -276,14 +280,16 @@ impl PartialEq for MessageViewModel {
                 MessageViewModel::ToolCallGroup {
                     category: a,
                     tools: a_tools,
+                    standalone_action: a_sa,
                     ..
                 },
                 MessageViewModel::ToolCallGroup {
                     category: b,
                     tools: b_tools,
+                    standalone_action: b_sa,
                     ..
                 },
-            ) => a == b && a_tools == b_tools,
+            ) => a == b && a_tools == b_tools && a_sa == b_sa,
             (
                 MessageViewModel::SubAgentGroup {
                     agent_id: a_id,
@@ -411,12 +417,14 @@ impl Hash for MessageViewModel {
                 category,
                 tools,
                 collapsed,
+                standalone_action,
                 ..
             } => {
                 5u8.hash(state);
                 category.hash(state);
                 tools.hash(state);
                 collapsed.hash(state);
+                standalone_action.hash(state);
             }
             MessageViewModel::SubAgentGroup {
                 agent_id,
@@ -471,9 +479,14 @@ pub enum ContentBlockView {
         /// 流式表格 holdback 扫描器
         holdback_scanner: crate::ui::markdown::TableHoldbackScanner,
     },
-    /// 推理/思考过程（仅显示字数摘要，尾部预览可选）
+    /// 推理/思考过程（显示耗时摘要 `Thought for Ns`；无耗时时回退字数）
     Reasoning {
         char_count: usize,
+        /// 该段推理耗时（ms）。None = 未知（历史旧数据/非流式）
+        duration_ms: Option<u64>,
+        /// 紧随其后的只读工具动作计数文案（如 `read 1 file, listed 1 directory`）。
+        /// 由 pipeline 后处理注入；None = 无（纯思考或未注入）
+        action_summary: Option<String>,
         /// 原始推理全文（仅用于提取尾部预览，不参与哈希/比较）
         text: String,
         /// 尾部行预览：符合条件时由后处理设置。
@@ -502,9 +515,19 @@ impl PartialEq for ContentBlockView {
                 },
             ) => a_raw == b_raw && a_dirty == b_dirty,
             (
-                ContentBlockView::Reasoning { char_count: a, .. },
-                ContentBlockView::Reasoning { char_count: b, .. },
-            ) => a == b,
+                ContentBlockView::Reasoning {
+                    char_count: a,
+                    duration_ms: a_dur,
+                    action_summary: a_act,
+                    ..
+                },
+                ContentBlockView::Reasoning {
+                    char_count: b,
+                    duration_ms: b_dur,
+                    action_summary: b_act,
+                    ..
+                },
+            ) => a == b && a_dur == b_dur && a_act == b_act,
             (ContentBlockView::ToolUse { name: a }, ContentBlockView::ToolUse { name: b }) => {
                 a == b
             }
@@ -525,11 +548,15 @@ impl Hash for ContentBlockView {
             }
             ContentBlockView::Reasoning {
                 char_count,
+                duration_ms,
+                action_summary,
                 tail_lines,
                 ..
             } => {
                 1u8.hash(state);
                 char_count.hash(state);
+                duration_ms.hash(state);
+                action_summary.hash(state);
                 tail_lines.hash(state);
             }
             ContentBlockView::ToolUse { name } => {
@@ -617,8 +644,12 @@ impl MessageViewModel {
                                 holdback_scanner: Default::default(),
                             }
                         }
-                        ContentBlock::Reasoning { text, .. } => ContentBlockView::Reasoning {
+                        ContentBlock::Reasoning {
+                            text, duration_ms, ..
+                        } => ContentBlockView::Reasoning {
                             char_count: text.chars().count(),
+                            duration_ms,
+                            action_summary: None,
                             text: text.clone(),
                             tail_lines: None,
                         },
