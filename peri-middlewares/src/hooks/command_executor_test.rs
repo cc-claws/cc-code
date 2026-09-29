@@ -214,7 +214,7 @@ async fn test_command_hook_native_cmd_and_powershell_still_work() {
     for (shell, command) in [
         (None, "echo cmd-ok> native.txt & exit /b 2"),
         (
-            Some("powershell"),
+            Some("pwsh"),
             "[Console]::Out.Write('powershell-ok'); exit 2",
         ),
     ] {
@@ -222,7 +222,7 @@ async fn test_command_hook_native_cmd_and_powershell_still_work() {
         let action = execute_command_hook(&hook, &input, &registered).await;
         assert!(
             matches!(action, HookAction::Block { .. }),
-            "原生 shell 必须实际执行并拦截：{action:?}"
+            "原生 shell 必须实际执行并拦截：shell={shell:?}, command={command:?}, action={action:?}"
         );
     }
     assert_eq!(
