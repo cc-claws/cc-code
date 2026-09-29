@@ -78,6 +78,12 @@ impl ApprovalMemory {
     pub fn len(&self) -> usize {
         self.approved.lock().map(|s| s.len()).unwrap_or(0)
     }
+
+    /// 是否为空（与 `len` 配对，满足 clippy::len_without_is_empty）
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// 词法规范化：折叠 `..` / `.` / 重复分隔符，不触碰文件系统。
