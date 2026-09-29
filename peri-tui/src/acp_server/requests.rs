@@ -147,6 +147,7 @@ pub(crate) async fn handle_request(
                     frozen: None,
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
+                    approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
                 },
             );
 
@@ -327,6 +328,7 @@ pub(crate) async fn handle_request(
                         frozen: None,
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
+                        approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
                     },
                 );
             }
@@ -443,6 +445,7 @@ pub(crate) async fn handle_request(
                         frozen: None,
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
+                        approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
                     },
                 );
                 info!(session_id = %req_session_id, "Session resumed (new)");
@@ -502,6 +505,7 @@ pub(crate) async fn handle_request(
                     frozen: None,
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
+                    approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
                 },
             );
 

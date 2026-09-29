@@ -19,12 +19,51 @@ pub struct PendingAttachment {
 
 // ─── HitlBatchPrompt ──────────────────────────────────────────────────────────
 
-/// 批量 HITL 弹窗状态：每项独立的批准/拒绝选择
+/// 单项审批选择（三态）：一次性同意 / 本次会话同意 / 拒绝。
+///
+/// 对齐 ACP `PermissionOption`：`allow_once` / `allow_always` / `reject_once`。
+/// 「本次会话同意」会写入会话级审批记忆，同 `(工具, 路径)` 后续免问。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalChoice {
+    /// 一次性同意（仅本次调用）
+    Once,
+    /// 本次会话同意（写入审批记忆，同工具+路径后续免问）
+    Session,
+    /// 拒绝
+    Reject,
+}
+
+impl ApprovalChoice {
+    /// Space 键循环：Once → Session → Reject → Once
+    pub fn next(self) -> Self {
+        match self {
+            Self::Once => Self::Session,
+            Self::Session => Self::Reject,
+            Self::Reject => Self::Once,
+        }
+    }
+
+    /// ACP `PermissionOption` id
+    pub fn option_id(self) -> &'static str {
+        match self {
+            Self::Once => "allow_once",
+            Self::Session => "allow_always",
+            Self::Reject => "reject_once",
+        }
+    }
+
+    /// 是否放行
+    pub fn is_approved(self) -> bool {
+        !matches!(self, Self::Reject)
+    }
+}
+
+/// 批量 HITL 弹窗状态：每项独立的审批选择
 pub struct HitlBatchPrompt {
     /// 待审批的工具调用列表
     pub items: Vec<BatchItem>,
-    /// 每项的当前决策（true=批准，false=拒绝）
-    pub approved: Vec<bool>,
+    /// 每项的当前选择（三态）
+    pub choices: Vec<ApprovalChoice>,
     /// 当前光标所在的行（工具索引）
     pub cursor: usize,
     /// 渲染时记录的内容区可见行数（hitl_move 据此判断是否滚动）
@@ -43,7 +82,8 @@ impl HitlBatchPrompt {
         let len = items.len();
         Self {
             items,
-            approved: vec![true; len], // 默认全部批准
+            // 默认一次性同意（最保守的放行档）
+            choices: vec![ApprovalChoice::Once; len],
             cursor: 0,
             last_visible_height: 0,
             scroll_offset: 0,
@@ -79,30 +119,37 @@ impl HitlBatchPrompt {
         }
     }
 
-    /// 切换当前项的批准/拒绝状态
+    /// 循环切换当前项的三态选择（Once → Session → Reject → Once）
     pub fn toggle_current(&mut self) {
-        if let Some(v) = self.approved.get_mut(self.cursor) {
-            *v = !*v;
+        if let Some(v) = self.choices.get_mut(self.cursor) {
+            *v = v.next();
         }
     }
 
-    /// 全部批准
+    /// 全部设为一次性同意
     pub fn approve_all(&mut self) {
-        self.approved.iter_mut().for_each(|v| *v = true);
+        self.choices
+            .iter_mut()
+            .for_each(|v| *v = ApprovalChoice::Once);
     }
 
     /// 全部拒绝
     pub fn reject_all(&mut self) {
-        self.approved.iter_mut().for_each(|v| *v = false);
+        self.choices
+            .iter_mut()
+            .for_each(|v| *v = ApprovalChoice::Reject);
     }
 
-    /// 确认并发送决策
+    /// 确认并发送决策。
+    ///
+    /// 三态 → `HitlDecision` 的映射：`Once`/`Session` 都是 `Approve`（scope 差异在 ACP
+    /// 应答层用 `option_id` 表达，不经由此通道）；`Reject` → `Reject`。
     pub fn confirm(self) {
         let decisions: Vec<HitlDecision> = self
-            .approved
+            .choices
             .iter()
-            .map(|&ok| {
-                if ok {
+            .map(|&c| {
+                if c.is_approved() {
                     HitlDecision::Approve
                 } else {
                     HitlDecision::Reject
