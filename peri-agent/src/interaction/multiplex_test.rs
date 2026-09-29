@@ -50,7 +50,7 @@ fn make_approval_context() -> InteractionContext {
 // ─── MultiplexBroker 测试 ────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_multiplex_空broker列表返回空decisions() {
+async fn test_multiplex_empty_broker_list_returns_empty_decisions() {
     // Arrange
     let multiplex = MultiplexBroker::new(vec![]);
 
@@ -67,7 +67,7 @@ async fn test_multiplex_空broker列表返回空decisions() {
 }
 
 #[tokio::test]
-async fn test_multiplex_单broker直接调用() {
+async fn test_multiplex_single_broker_delegates_directly() {
     // Arrange
     let expected = InteractionResponse::Decisions(vec![ApprovalDecision::Approve {
         source: Some("mock".to_string()),
@@ -97,7 +97,7 @@ async fn test_multiplex_单broker直接调用() {
 }
 
 #[tokio::test]
-async fn test_multiplex_多broker竞速先到先得() {
+async fn test_multiplex_multiple_brokers_race_first_response_wins() {
     // Arrange — 两个 mock broker，第一个快速响应 Approve，第二个缓慢响应 Reject
     let fast_response =
         InteractionResponse::Decisions(vec![ApprovalDecision::Approve { source: None }]);

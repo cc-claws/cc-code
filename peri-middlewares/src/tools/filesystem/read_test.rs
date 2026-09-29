@@ -369,7 +369,7 @@
     }
 
     #[test]
-    fn test_sniff_image_format_各格式魔数识别与未知输入() {
+    fn test_sniff_image_format_detects_each_magic_and_rejects_unknown() {
         assert_eq!(sniff_image_format(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), Some("png"));
         assert_eq!(sniff_image_format(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpg"));
         assert_eq!(sniff_image_format(b"GIF89a"), Some("gif"));
@@ -381,7 +381,7 @@
     }
 
     #[tokio::test]
-    async fn test_read_image_伪图片html内容_降级为文本展示() {
+    async fn test_read_image_fake_image_html_falls_back_to_text() {
         // 伪图片：HTML 错误页写入 .png 文件，应降级为文本并附带格式告警，绝不发送 Base64
         let dir = tempfile::tempdir().unwrap();
         let img_path = dir.path().join("avatar.png");
@@ -397,7 +397,7 @@
     }
 
     #[tokio::test]
-    async fn test_read_image_空图片文件_返回显式报错() {
+    async fn test_read_image_empty_file_returns_explicit_error() {
         let dir = tempfile::tempdir().unwrap();
         let img_path = dir.path().join("empty.png");
         std::fs::write(&img_path, b"").unwrap();
@@ -412,7 +412,7 @@
     }
 
     #[tokio::test]
-    async fn test_read_image_未知损坏二进制_返回显式报错() {
+    async fn test_read_image_unknown_corrupted_binary_returns_explicit_error() {
         // 非任何图片魔数且非 UTF-8 文本的二进制数据，应报错而非发送脏 Base64
         let dir = tempfile::tempdir().unwrap();
         let img_path = dir.path().join("corrupted.png");
@@ -428,7 +428,7 @@
     }
 
     #[tokio::test]
-    async fn test_read_image_jpg魔数配png扩展名_格式错配报错() {
+    async fn test_read_image_jpg_magic_with_png_extension_reports_mismatch() {
         // 文件头是 JPEG 魔数但扩展名是 .png：魔数与声明不符且字节非 UTF-8 文本 → 显式报错
         let dir = tempfile::tempdir().unwrap();
         let img_path = dir.path().join("mismatch.png");
@@ -443,7 +443,7 @@
     }
 
     #[tokio::test]
-    async fn test_read_image_gif与bmp合法魔数_正常返回图片() {
+    async fn test_read_image_gif_and_bmp_valid_magic_return_image() {
         // 魔数校验正向路径：GIF/BMP 合法签名应正常返回结构化图片 content
         let dir = tempfile::tempdir().unwrap();
         let gif_path = dir.path().join("anim.gif");
@@ -466,7 +466,7 @@
     }
 
     #[tokio::test]
-    async fn test_read_image_jpeg扩展名与jpg魔数_正常返回图片() {
+    async fn test_read_image_jpeg_extension_with_jpg_magic_returns_image() {
         // .jpeg 扩展名归一化为 jpg 比较，JPEG 魔数应校验通过
         let dir = tempfile::tempdir().unwrap();
         let img_path = dir.path().join("photo.jpeg");
@@ -481,7 +481,7 @@
     }
 
     #[tokio::test]
-    async fn test_read_image_伪图片超长文本_降级展示限制50行() {
+    async fn test_read_image_fake_image_long_text_fallback_capped_at_50_lines() {
         // 降级文本展示应截断在 50 行，防止超长错误页刷屏
         let dir = tempfile::tempdir().unwrap();
         let img_path = dir.path().join("huge_error.png");

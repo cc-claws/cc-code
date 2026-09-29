@@ -45,7 +45,7 @@ fn make_output_lines(n: usize) -> String {
 }
 
 #[tokio::test]
-async fn test_detail_output_大终端显示全部行() {
+async fn test_detail_output_shows_all_lines_in_large_terminal() {
     // Arrange：20 行输出 + 80x40 终端（output inner 约 28 行，远超旧常量 10）
     let tmp = tempfile::tempdir().unwrap();
     let output_path = tmp.path().join("out.output");
@@ -89,7 +89,7 @@ async fn test_detail_output_大终端显示全部行() {
 }
 
 #[tokio::test]
-async fn test_detail_output_小终端按可用高度截断() {
+async fn test_detail_output_truncates_to_available_height_in_small_terminal() {
     // Arrange：30 行输出 + 80x15 终端（output inner 约 5 行，远少于 30）
     let tmp = tempfile::tempdir().unwrap();
     let output_path = tmp.path().join("out.output");
@@ -134,7 +134,7 @@ async fn test_detail_output_小终端按可用高度截断() {
 }
 
 #[tokio::test]
-async fn test_detail_output_空输出显示0行() {
+async fn test_detail_output_shows_zero_lines_for_empty_output() {
     // Arrange：空输出文件
     let tmp = tempfile::tempdir().unwrap();
     let output_path = tmp.path().join("out.output");

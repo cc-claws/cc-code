@@ -12,7 +12,7 @@ fn make_key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 }
 
 #[tokio::test]
-async fn test_shortcuts_ctrl_p_与_alt_p_均触发命令面板() {
+async fn test_shortcuts_ctrl_p_and_alt_p_both_trigger_command_panel() {
     let mut app = App::new().await;
 
     // Arrange: 确保命令面板未打开
@@ -70,7 +70,7 @@ async fn test_shortcuts_ctrl_p_与_alt_p_均触发命令面板() {
 }
 
 #[tokio::test]
-async fn test_shortcuts_ctrl_t_已被完全移除() {
+async fn test_shortcuts_ctrl_t_completely_removed() {
     let mut app = App::new().await;
 
     // Ctrl+T 按键

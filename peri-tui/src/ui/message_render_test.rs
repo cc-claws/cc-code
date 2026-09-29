@@ -1105,6 +1105,69 @@
     }
 
     #[test]
+    fn test_bash_nonzero_exit_result_lines_use_error_color() {
+        use crate::app::MessageViewModel;
+        // Bash 非零 exit code：输出行与 ⎿ 前缀须与圆点/状态口径一致，使用 ERROR 红
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_bash_fail_color".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("git add missing.txt".to_string()),
+            content: "[stderr]\nfatal: pathspec 'missing.txt' did not match any files\n[Exit code: 128]"
+                .to_string(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::BASH_BORDER,
+            diff_input: None,
+            started_at: None,
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        let first_result = &lines[1];
+        assert_eq!(
+            first_result.spans[0].style.fg,
+            Some(crate::ui::theme::ERROR),
+            "非零 exit code 的 Bash ⎿ 前缀应为红色"
+        );
+        assert_eq!(
+            first_result.spans[1].style.fg,
+            Some(crate::ui::theme::ERROR),
+            "非零 exit code 的 Bash 输出行应为红色"
+        );
+    }
+
+    #[test]
+    fn test_bash_zero_exit_result_lines_use_soft_color() {
+        use crate::app::MessageViewModel;
+        // 零 exit code 的 Bash：输出行保持 TEXT_SOFT，不得被误标红
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_bash_ok_color".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("echo hello".to_string()),
+            content: "hello".to_string(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::BASH_BORDER,
+            diff_input: None,
+            started_at: None,
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        let first_result = &lines[1];
+        assert_eq!(
+            first_result.spans[0].style.fg,
+            Some(crate::ui::theme::DIM),
+            "零 exit code 的 Bash ⎿ 前缀应保持 DIM"
+        );
+        assert_eq!(
+            first_result.spans[1].style.fg,
+            Some(crate::ui::theme::TEXT_SOFT),
+            "零 exit code 的 Bash 输出行应保持 TEXT_SOFT"
+        );
+    }
+
+    #[test]
     fn test_non_bash_tool_exit_code() {
         use crate::app::MessageViewModel;
         // Read 工具内容碰巧包含 "[Exit code: 1]"，不应被误判

@@ -1195,12 +1195,14 @@ pub fn render_view_model_with_links(
                 content.split('\n').collect()
             };
             if !state.collapsed && !result_lines.is_empty() {
-                let result_color = if *is_error {
+                // 口径统一：使用 state.is_error（含 Bash 非零 exit code 的 bash_failed），
+                // 与 header 指示器/状态保持一致；仅用 *is_error 会让失败 Bash 的输出行仍为灰白。
+                let result_color = if state.is_error {
                     theme::ERROR
                 } else {
                     theme::TEXT_SOFT
                 };
-                let border_color = if *is_error { theme::ERROR } else { theme::DIM };
+                let border_color = if state.is_error { theme::ERROR } else { theme::DIM };
                 // 详细模式显示完整内容；非详细模式：Bash 只显示前 3 行摘要（PRD §2.4），其余工具 20 行
                 let max_lines = if detail_mode {
                     usize::MAX
