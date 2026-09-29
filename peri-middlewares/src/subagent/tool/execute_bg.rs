@@ -123,7 +123,8 @@ impl super::SubAgentTool {
                     .with_persistence(Arc::clone(store), spawn_child_thread_id.clone())
             } else {
                 AgentState::new(&cwd)
-            };
+            }
+            .with_context("source_agent_id", spawn_child_thread_id.clone());
             let start = std::time::Instant::now();
 
             let result = match agent_builder
@@ -332,7 +333,8 @@ impl super::SubAgentTool {
                     .with_persistence(Arc::clone(store), spawn_child_thread_id.clone())
             } else {
                 AgentState::new(&cwd)
-            };
+            }
+            .with_context("source_agent_id", spawn_child_thread_id.clone());
             // Inject parent messages for immediate execution
             for msg in parent_msgs {
                 fork_state.add_message(msg);

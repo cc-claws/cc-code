@@ -31,7 +31,7 @@ impl App {
                 .lc
                 .tr_args("app-recap-failed", &[("error".into(), msg.into())]),
         );
-        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        self.apply_pipeline_action(PipelineAction::AddMessage(Box::new(vm)));
         (true, false, false)
     }
 

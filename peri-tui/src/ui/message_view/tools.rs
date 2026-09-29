@@ -1,6 +1,46 @@
 use crate::ui::theme;
 use ratatui::style::Color;
 
+/// 旧版 Bash 后台句柄的展示投影；原始 tool_result 保留给模型和历史。
+/// 只识别完整 envelope，不删除普通输出里提到的标签或错误文本。
+pub(crate) struct BackgroundTaskStarted<'a> {
+    pub task_id: &'a str,
+    pub output: &'a str,
+}
+
+impl<'a> BackgroundTaskStarted<'a> {
+    pub fn parse(content: &'a str) -> Option<Self> {
+        let body = content
+            .trim()
+            .strip_prefix("<background-task-started>")?
+            .strip_suffix("</background-task-started>")?;
+        let (task_id, rest) = body
+            .trim_start()
+            .strip_prefix("<task-id>")?
+            .split_once("</task-id>")?;
+        if task_id.is_empty()
+            || task_id.len() > 128
+            || !task_id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+        {
+            return None;
+        }
+        let (command, rest) = rest
+            .trim_start()
+            .strip_prefix("<command>")?
+            .split_once("</command>")?;
+        let output = rest
+            .trim()
+            .strip_prefix("<output>")?
+            .strip_suffix("</output>")?;
+        if command.is_empty() || output.is_empty() {
+            return None;
+        }
+        Some(Self { task_id, output })
+    }
+}
+
 /// 只读工具分类，用于折叠聚合
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ToolCategory {

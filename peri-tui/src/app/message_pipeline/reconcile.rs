@@ -69,12 +69,19 @@ pub enum PipelineAction {
     /// 无 UI 变化
     None,
     /// 新增消息（外部通知 + 用户消息）
-    AddMessage(MessageViewModel),
+    AddMessage(Box<MessageViewModel>),
     /// 尾部重建（prefix_len 标记不变前缀长度，tail_vms 存储重建尾部）
     RebuildAll {
         prefix_len: usize,
         tail_vms: Vec<MessageViewModel>,
     },
+}
+
+impl PipelineAction {
+    /// 工具运行元数据增大 VM 后，以间接存储避免所有管线动作都携带完整 VM 大小。
+    pub fn add_message(vm: MessageViewModel) -> Self {
+        Self::AddMessage(Box::new(vm))
+    }
 }
 
 /// 合并冻结的 SubAgentGroup VM 到 reconcile 重建后的新 VMs 中，防止 Done 后 SubAgent 显示退化。
@@ -245,6 +252,8 @@ impl MessagePipeline {
                 },
                 diff_input,
                 started_at: None,
+                execution_timeout_ms: None,
+                shell_backgrounded: false,
                 content_hash: 0,
             };
             vm.recompute_hash();
@@ -309,6 +318,7 @@ impl MessagePipeline {
             }
         }
 
+        self.apply_shell_runtime(&mut tail_vms);
         aggregate_tool_groups(&mut tail_vms);
 
         if !self.has_streaming_content() && self.current_ai_tool_calls.is_empty() {

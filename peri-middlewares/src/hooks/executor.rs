@@ -1,6 +1,4 @@
-use std::{collections::HashSet, process::Stdio, sync::Arc, time::Duration};
-
-use tokio::io::AsyncWriteExt;
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use crate::hooks::{
     output_parser::{parse_command_hook_output, parse_http_hook_response},
@@ -20,7 +18,7 @@ use peri_agent::{
 
 /// Execute a command hook (shell script).
 ///
-/// - shell default "bash", timeout default 600s
+/// - shell: platform default with Git Bash routing on Windows; timeout default 600s
 /// - stdin: serialized HookInput JSON
 /// - exit code 0 → parse stdout, 1 → Allow(warn), 2 → Block(reason)
 /// - timeout → Allow(warn)
@@ -61,40 +59,35 @@ pub async fn execute_command_hook(
     let plugin_data_str = registered.plugin_data_dir.to_string_lossy().to_string();
     let hook_event_str = format!("{:?}", input.hook_event_name);
 
-    let result = tokio::time::timeout(Duration::from_secs(timeout_secs), async {
-        let mut cmd = crate::process::shell_command_with_shell(&command, &[], shell.as_deref());
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .env("CLAUDE_PROJECT_DIR", &input.cwd)
-            .env("CLAUDE_PLUGIN_ROOT", &plugin_root_str)
-            .env("CLAUDE_PLUGIN_DATA", &plugin_data_str)
-            .env("CLAUDE_HOOK_EVENT_NAME", &hook_event_str)
-            .kill_on_drop(true);
-
-        // Inject CLAUDE_PLUGIN_OPTION_* env vars
-        for (key, value) in &registered.plugin_options {
-            let env_key = format!("CLAUDE_PLUGIN_OPTION_{}", key.to_uppercase());
-            cmd.env(env_key, value.to_string());
-        }
-
-        let mut child = cmd.spawn()?;
-
-        // Write input JSON to stdin
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Err(e) = stdin.write_all(input_json.as_bytes()).await {
-                tracing::warn!("Failed to write to hook stdin: {}", e);
+    let mut cmd =
+        match crate::process::try_shell_command_with_shell(&command, &[], shell.as_deref()) {
+            Ok(command) => command,
+            Err(error) => {
+                tracing::warn!("Command hook execution failed: {}", error);
+                return HookAction::Allow;
             }
-            drop(stdin);
-        }
+        };
+    cmd.current_dir(&input.cwd)
+        .env("CLAUDE_PROJECT_DIR", &input.cwd)
+        .env("CLAUDE_PLUGIN_ROOT", &plugin_root_str)
+        .env("CLAUDE_PLUGIN_DATA", &plugin_data_str)
+        .env("CLAUDE_HOOK_EVENT_NAME", &hook_event_str);
 
-        let output = child.wait_with_output().await?;
-        Ok::<_, std::io::Error>(output)
-    })
+    // Inject CLAUDE_PLUGIN_OPTION_* env vars
+    for (key, value) in &registered.plugin_options {
+        let env_key = format!("CLAUDE_PLUGIN_OPTION_{}", key.to_uppercase());
+        cmd.env(env_key, value.to_string());
+    }
+
+    let result = crate::process::output_with_input_timeout(
+        cmd,
+        input_json.as_bytes(),
+        Duration::from_secs(timeout_secs),
+    )
     .await;
 
     match result {
-        Ok(Ok(output)) => {
+        Ok(output) => {
             let stdout = decode_output_bytes(&output.stdout);
             let stderr = decode_output_bytes(&output.stderr);
 
@@ -135,17 +128,17 @@ pub async fn execute_command_hook(
                 }
             }
         }
-        Ok(Err(e)) => {
-            tracing::warn!("Command hook execution failed: {}", e);
-            HookAction::Allow
-        }
-        Err(_) => {
+        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
             // Timeout
             tracing::warn!(
                 "Command hook timed out after {}s: {}",
                 timeout_secs,
                 command
             );
+            HookAction::Allow
+        }
+        Err(e) => {
+            tracing::warn!("Command hook execution failed: {}", e);
             HookAction::Allow
         }
     }
@@ -429,3 +422,7 @@ fn extract_structured_output(messages: &[BaseMessage]) -> HookAction {
 #[cfg(test)]
 #[path = "executor_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "command_executor_test.rs"]
+mod command_executor_test;

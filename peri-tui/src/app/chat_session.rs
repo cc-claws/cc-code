@@ -17,6 +17,13 @@ pub struct RunningBgAgent {
     pub started_at: Instant,
 }
 
+/// 后台任务完成/等待提示与发起它的 thread 绑定，切换对话时不会串入当前消息流。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingBgShellNotification {
+    pub owner_session_id: Option<String>,
+    pub content: String,
+}
+
 /// 独立聊天会话：封装一个对话的完整 UI 状态、Agent 通信状态和持久化上下文。
 pub struct ChatSession {
     pub ui: UiState,
@@ -39,7 +46,7 @@ pub struct ChatSession {
     /// result_rx 由 invoke 独占，UI 仅用 ExitSignal 检测退出。
     pub agent_shells: Vec<AgentShellSlot>,
     /// agent 推理期间到达的后台 shell 完成通知，待 Done 后注入对话流
-    pub pending_bg_shell_notifications: VecDeque<String>,
+    pub pending_bg_shell_notifications: VecDeque<PendingBgShellNotification>,
     /// 当前最新会话回顾文本（在上一轮任务总结行下方展示，新一轮开始时清空）
     pub latest_recap: Option<String>,
 }

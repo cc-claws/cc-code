@@ -3238,6 +3238,7 @@ dependencies = [
  "parking_lot",
  "peri-agent",
  "peri-lsp",
+ "process-wrap",
  "regex",
  "reqwest",
  "rmcp",
@@ -3254,6 +3255,7 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+ "windows 0.62.2",
 ]
 
 [[package]]

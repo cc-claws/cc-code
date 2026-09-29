@@ -3,11 +3,169 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::oneshot;
 
-use super::{BackgroundTaskView, BackgroundTasksPanel};
-use crate::app::panel_manager::PanelState;
+use super::{task_items, BackgroundTaskItem, BackgroundTaskView, BackgroundTasksPanel};
+use crate::app::panel_component::PanelComponent;
+use crate::app::panel_manager::{PanelContext, PanelState};
 use crate::app::{App, BackgroundShell};
 use crate::shell_exec::CommandOutput;
 use peri_agent::shell::ShellAbortHandle;
+use tui_textarea::{Input, Key};
+
+fn make_shell_item(id: &str) -> BackgroundTaskItem {
+    BackgroundTaskItem::Shell(id.to_string())
+}
+
+fn make_panel_input(key: Key, ctrl: bool) -> Input {
+    Input {
+        key,
+        ctrl,
+        alt: false,
+        shift: false,
+    }
+}
+
+#[test]
+fn test_background_tasks_selection_tracks_id_after_preceding_row_disappears() {
+    let mut panel = BackgroundTasksPanel::new();
+    panel.refresh_items(vec![
+        make_shell_item("a"),
+        make_shell_item("b"),
+        make_shell_item("c"),
+    ]);
+    panel.select_shell("b".to_string());
+    panel.refresh_items(vec![make_shell_item("b"), make_shell_item("c")]);
+    assert_eq!(
+        panel.selected_item,
+        Some(make_shell_item("b")),
+        "选中项不能跟随旧索引漂移"
+    );
+    assert_eq!(panel.selected_index(), Some(0), "高亮随同一任务移动");
+}
+
+#[test]
+fn test_background_tasks_selection_disappearing_requires_explicit_navigation() {
+    let mut panel = BackgroundTasksPanel::new();
+    panel.refresh_items(vec![
+        make_shell_item("a"),
+        make_shell_item("b"),
+        make_shell_item("c"),
+    ]);
+    panel.select_shell("b".to_string());
+    panel.refresh_items(vec![make_shell_item("a"), make_shell_item("c")]);
+    assert_eq!(
+        panel.selected_item,
+        Some(make_shell_item("b")),
+        "保留消失目标而非偷偷替换"
+    );
+    assert_eq!(panel.selected_index(), None, "不能高亮其他任务");
+    panel.move_selection(true);
+    assert_eq!(
+        panel.selected_item,
+        Some(make_shell_item("a")),
+        "显式向下才重新选择首项"
+    );
+    panel.move_selection(true);
+    assert_eq!(panel.selected_item, Some(make_shell_item("c")));
+    panel.move_selection(true);
+    assert_eq!(
+        panel.selected_item,
+        Some(make_shell_item("c")),
+        "下移不越界"
+    );
+    panel.move_selection(false);
+    assert_eq!(panel.selected_item, Some(make_shell_item("a")));
+}
+
+#[tokio::test]
+async fn test_background_tasks_stop_keeps_target_before_next_render() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    for id in ["a", "b", "c"] {
+        inject_bg_shell(&mut app, id, PathBuf::from("unused.output"));
+    }
+    let mut panel = BackgroundTasksPanel::new();
+    panel.refresh_items(task_items(app.session_mgr.current()));
+    panel.select_shell("b".to_string());
+    app.session_mgr.current_mut().background_shells.remove(0);
+    let mut ctx = PanelContext {
+        services: &mut app.services,
+        session_mgr: &mut app.session_mgr,
+        acp_client: None,
+    };
+    panel.handle_key(make_panel_input(Key::Char('x'), false), &mut ctx);
+    let shells = &ctx.session_mgr.current().background_shells;
+    assert_eq!(shells[0].id, "b");
+    assert_eq!(
+        shells[0].status,
+        crate::app::ShellStatus::Killed,
+        "仍然停止原选中的 b"
+    );
+    assert_eq!(
+        shells[1].status,
+        crate::app::ShellStatus::Running,
+        "旧索引上的 c 不受影响"
+    );
+}
+
+#[tokio::test]
+async fn test_background_tasks_missing_target_does_not_apply_actions_to_replacement() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    for id in ["a", "b", "c"] {
+        inject_bg_shell(&mut app, id, PathBuf::from("unused.output"));
+    }
+    let mut panel = BackgroundTasksPanel::new();
+    panel.refresh_items(task_items(app.session_mgr.current()));
+    panel.select_shell("b".to_string());
+    app.session_mgr.current_mut().background_shells.remove(1);
+    let mut ctx = PanelContext {
+        services: &mut app.services,
+        session_mgr: &mut app.session_mgr,
+        acp_client: None,
+    };
+    for refresh in [false, true] {
+        if refresh {
+            panel.refresh_items(task_items(ctx.session_mgr.current()));
+        }
+        panel.handle_key(make_panel_input(Key::Char('x'), false), &mut ctx);
+        panel.handle_key(make_panel_input(Key::Char('b'), true), &mut ctx);
+        panel.handle_key(make_panel_input(Key::Enter, false), &mut ctx);
+        assert_eq!(
+            panel.view,
+            BackgroundTaskView::List,
+            "目标消失时不能打开替补行详情"
+        );
+        assert!(
+            ctx.session_mgr
+                .current()
+                .background_shells
+                .iter()
+                .all(|shell| { shell.status == crate::app::ShellStatus::Running }),
+            "重绘前后都不能停止其他任务"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_background_tasks_agent_selection_cannot_operate_on_same_named_shell() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    inject_bg_shell(&mut app, "shared-id", PathBuf::from("unused.output"));
+    let mut panel = BackgroundTasksPanel::new();
+    panel.refresh_items(vec![
+        make_shell_item("shared-id"),
+        BackgroundTaskItem::Agent("shared-id".to_string()),
+    ]);
+    panel.move_selection(true);
+    let mut ctx = PanelContext {
+        services: &mut app.services,
+        session_mgr: &mut app.session_mgr,
+        acp_client: None,
+    };
+    panel.handle_key(make_panel_input(Key::Char('x'), false), &mut ctx);
+    assert_eq!(
+        ctx.session_mgr.current().background_shells[0].status,
+        crate::app::ShellStatus::Running,
+        "Agent 行不允许命中同名 shell"
+    );
+}
 
 /// helper：构造后台 shell 并注入 app
 fn inject_bg_shell(app: &mut App, id: &str, output_path: PathBuf) {
@@ -30,10 +188,24 @@ fn open_detail_panel(app: &mut App, item_id: &str) {
     panel.view = BackgroundTaskView::Detail {
         item_id: item_id.to_string(),
     };
-    app.session_mgr
-        .current_mut()
-        .session_panels
-        .open(PanelState::BackgroundTasks(panel));
+    app.open_panel(PanelState::BackgroundTasks(panel));
+}
+
+/// 等真实 read_tail 推送就绪，再由下一次 render 消费，避免依赖磁盘在 100ms 内完成。
+async fn wait_for_detail_output(app: &mut App) {
+    let panel = app
+        .global_panels
+        .get_mut::<BackgroundTasksPanel>()
+        .expect("后台任务面板应位于 global scope");
+    let rx = panel.output_rx.as_ref().expect("首次渲染应启动输出读取");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while rx.is_empty() {
+            assert!(!rx.is_closed(), "输出通道不能在首次推送前关闭");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("应收到磁盘输出，不以固定 sleep 代替就绪信号");
 }
 
 /// helper：生成 N 行带编号的输出文本
@@ -62,8 +234,7 @@ async fn test_detail_output_shows_all_lines_in_large_terminal() {
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
-    tokio::task::yield_now().await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_detail_output(&mut app).await;
     handle
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
@@ -106,8 +277,7 @@ async fn test_detail_output_truncates_to_available_height_in_small_terminal() {
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
-    tokio::task::yield_now().await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_detail_output(&mut app).await;
     handle
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
@@ -149,8 +319,7 @@ async fn test_detail_output_shows_zero_lines_for_empty_output() {
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
-    tokio::task::yield_now().await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_detail_output(&mut app).await;
     handle
         .terminal
         .draw(|f| crate::ui::main_ui::render(f, &mut app))

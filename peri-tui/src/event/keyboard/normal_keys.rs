@@ -636,7 +636,7 @@ mod tests {
     };
     use crate::event::Action;
     use crate::shell_exec::CommandOutput;
-    use peri_agent::shell::{ExitSignal, ShellAbortHandle};
+    use peri_agent::shell::{ExitSignal, ShellAbortHandle, ShellHandoff};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::oneshot;
@@ -664,33 +664,39 @@ mod tests {
     fn make_backgrounded_agent_shell() -> AgentShellSlot {
         AgentShellSlot::from_registration(AgentShellRegistration {
             task_id: "agent-bg-test".to_string(),
+            owner_session_id: None,
+            tool_call_id: None,
+            source_agent_id: None,
+            execution_timeout_ms: 600_000,
             command: "python wuhan_weather.py".to_string(),
             cwd: ".".to_string(),
             output_path: PathBuf::from("target/peri-test-agent-bg.output"),
             exit_signal: Arc::new(ExitSignal::new()),
-            background_tx: None,
-            auto_background_rx: None,
+            handoff: Arc::new(ShellHandoff::new(true, true)),
             kill: ShellAbortHandle::noop(),
             started_instant: std::time::Instant::now(),
             direct_background: true,
         })
     }
 
-    fn make_foreground_agent_shell() -> AgentShellSlot {
-        let (background_tx, _background_rx) = oneshot::channel();
-        let (_auto_background_tx, auto_background_rx) = oneshot::channel();
-        AgentShellSlot::from_registration(AgentShellRegistration {
+    fn make_foreground_agent_shell() -> (AgentShellSlot, Arc<ShellHandoff>) {
+        let handoff = Arc::new(ShellHandoff::new(true, false));
+        let slot = AgentShellSlot::from_registration(AgentShellRegistration {
             task_id: "agent-fg-test".to_string(),
+            owner_session_id: None,
+            tool_call_id: None,
+            source_agent_id: None,
+            execution_timeout_ms: 600_000,
             command: "python wuhan_weather.py".to_string(),
             cwd: ".".to_string(),
             output_path: PathBuf::from("target/peri-test-agent-fg.output"),
             exit_signal: Arc::new(ExitSignal::new()),
-            background_tx: Some(background_tx),
-            auto_background_rx: Some(auto_background_rx),
+            handoff: handoff.clone(),
             kill: ShellAbortHandle::noop(),
             started_instant: std::time::Instant::now(),
             direct_background: false,
-        })
+        });
+        (slot, handoff)
     }
 
     #[tokio::test]
@@ -986,10 +992,8 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let mut app = make_app().await;
-        app.session_mgr
-            .current_mut()
-            .agent_shells
-            .push(make_foreground_agent_shell());
+        let (slot, handoff) = make_foreground_agent_shell();
+        app.session_mgr.current_mut().agent_shells.push(slot);
 
         let result = crate::event::keyboard::handle_key_event(
             &mut app,
@@ -998,8 +1002,9 @@ mod tests {
         .unwrap();
 
         assert!(matches!(result, Some(Action::Redraw)));
+        assert!(handoff.is_backgrounded(), "后台化必须已提交到共享归属状态");
         assert!(
-            app.session_mgr.current().agent_shells[0].is_backgrounded,
+            app.session_mgr.current().agent_shells[0].is_backgrounded(),
             "Ctrl+B 应先把前台 agent Bash 切到后台"
         );
         assert!(

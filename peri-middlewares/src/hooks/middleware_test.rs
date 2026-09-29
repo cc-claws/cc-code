@@ -2,6 +2,8 @@ use super::*;
 use crate::hitl::{PermissionMode, SharedPermissionMode};
 use std::path::PathBuf;
 
+const TEST_CWD: &str = env!("CARGO_MANIFEST_DIR");
+
 fn make_registered(event: HookEvent, hook: HookType) -> RegisteredHook {
     RegisteredHook {
         hook,
@@ -23,7 +25,7 @@ fn make_middleware(hooks: Vec<RegisteredHook>) -> HookMiddleware {
     HookMiddleware::new(
         hooks,
         make_llm_factory(),
-        "/test-cwd",
+        TEST_CWD,
         "test-session",
         "/test/transcript.json",
         SharedPermissionMode::new(PermissionMode::Bypass),
@@ -35,7 +37,7 @@ fn make_middleware_with_mode(hooks: Vec<RegisteredHook>, mode: PermissionMode) -
     HookMiddleware::new(
         hooks,
         make_llm_factory(),
-        "/test-cwd",
+        TEST_CWD,
         "test-session",
         "/test/transcript.json",
         SharedPermissionMode::new(mode),
@@ -50,7 +52,7 @@ fn make_middleware_hitl(hooks: Vec<RegisteredHook>) -> HookMiddleware {
 #[tokio::test]
 async fn test_fire_event_no_hooks() {
     let mw = make_middleware(vec![]);
-    let input = HookInput::session_start("s", "/t", "/c", "startup", "opus");
+    let input = HookInput::session_start("s", "/t", TEST_CWD, "startup", "opus");
     let action = mw
         .fire_event(HookEvent::SessionStart, &input, None, None)
         .await;
@@ -74,7 +76,7 @@ async fn test_fire_event_once_semantic() {
     let input = HookInput::tool_call(
         "s",
         "/t",
-        "/c",
+        TEST_CWD,
         "yolo",
         "Bash",
         &serde_json::json!({"command": "ls"}),
@@ -119,7 +121,7 @@ async fn test_fire_event_matcher_filter() {
     let input = HookInput::tool_call(
         "s",
         "/t",
-        "/c",
+        TEST_CWD,
         "yolo",
         "Bash",
         &serde_json::json!({"command": "ls"}),
@@ -159,7 +161,7 @@ async fn test_fire_event_block_short_circuit() {
     let input = HookInput::tool_call(
         "s",
         "/t",
-        "/c",
+        TEST_CWD,
         "yolo",
         "Bash",
         &serde_json::json!({"command": "ls"}),
@@ -252,7 +254,7 @@ async fn test_fire_event_preserves_permission_override() {
     let input = HookInput::tool_call(
         "s",
         "/t",
-        "/c",
+        TEST_CWD,
         "default",
         "Bash",
         &serde_json::json!({"command": "rm -rf /"}),
@@ -312,7 +314,7 @@ async fn test_before_agent_session_start_controlled_by_flag() {
     let mw = HookMiddleware::with_session_start(
         vec![registered.clone()],
         make_llm_factory(),
-        "/test-cwd",
+        TEST_CWD,
         "test-session",
         "/test/transcript.json",
         SharedPermissionMode::new(PermissionMode::Bypass),
@@ -328,7 +330,7 @@ async fn test_before_agent_session_start_controlled_by_flag() {
     let mw2 = HookMiddleware::with_session_start(
         vec![registered],
         make_llm_factory(),
-        "/test-cwd",
+        TEST_CWD,
         "test-session",
         "/test/transcript.json",
         SharedPermissionMode::new(PermissionMode::Bypass),

@@ -121,7 +121,7 @@ impl App {
         } else {
             MessageViewModel::user(display.clone())
         };
-        self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
+        self.apply_pipeline_action(PipelineAction::add_message(user_vm));
         // round_start_vm_idx 在 UserBubble 推入之后设置，
         // 确保 RebuildAll 不会截掉当前轮次的用户消息
         self.session_mgr.current_mut().messages.round_start_vm_idx =
@@ -168,7 +168,7 @@ impl App {
         {
             Some(p) => p,
             None => {
-                self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+                self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
                     self.services.lc.tr("app-no-provider-submit"),
                 )));
                 self.set_loading(false);
@@ -307,7 +307,7 @@ impl App {
         } else {
             // Fallback: ACP client not available, show error
             tracing::error!("ACP client not initialized, cannot submit agent");
-            self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+            self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
                 self.services.lc.tr("app-no-provider-submit"),
             )));
             self.set_loading(false);
@@ -358,7 +358,7 @@ impl App {
             .pipeline
             .begin_round();
         let user_vm = MessageViewModel::user(display.clone());
-        self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
+        self.apply_pipeline_action(PipelineAction::add_message(user_vm));
         self.session_mgr.current_mut().messages.round_start_vm_idx =
             self.session_mgr.current_mut().messages.view_messages.len();
         self.session_mgr.current_mut().metadata.last_human_message = Some(display);
@@ -408,7 +408,7 @@ impl App {
             });
         } else {
             tracing::error!("ACP client not initialized, cannot submit bg continuation");
-            self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+            self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
                 self.services.lc.tr("app-no-provider-submit"),
             )));
             self.set_loading(false);
@@ -436,7 +436,7 @@ impl App {
                     "当前渲染模式：{}（可选：streaming / block / none）",
                     mode_str
                 );
-                self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+                self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
                     msg,
                 )));
                 return;
@@ -445,7 +445,7 @@ impl App {
             "block" => (StreamingMode::Block, "Block"),
             "none" => (StreamingMode::None, "None"),
             _ => {
-                self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+                self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
                     "用法：/streaming [streaming|block|none]".to_string(),
                 )));
                 return;
@@ -479,6 +479,6 @@ impl App {
         }
 
         let msg = format!("渲染模式已切换为：{}", label);
-        self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(msg)));
+        self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(msg)));
     }
 }
