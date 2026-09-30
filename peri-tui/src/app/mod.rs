@@ -183,8 +183,15 @@ impl App {
             .to_string_lossy()
             .to_string();
 
-        // 优先从 ~/.peri/settings.json 加载配置，失败时 fallback 到环境变量
-        let peri_config = crate::config::load().ok();
+        // 优先从 ~/.cc-code/settings.json 加载配置；解析失败时打日志并用默认配置启动，
+        // 避免静默丢弃用户配置导致"配置不生效"却无从排查
+        let peri_config = match crate::config::load() {
+            Ok(c) => Some(c),
+            Err(e) => {
+                tracing::warn!("配置文件解析失败，将使用默认配置启动: {e}");
+                None
+            }
+        };
 
         let lc = crate::i18n::LcRegistry::new(
             peri_config

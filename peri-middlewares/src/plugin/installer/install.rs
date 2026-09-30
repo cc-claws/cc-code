@@ -7,7 +7,7 @@ use crate::plugin::{
 
 use super::{
     copy_dir_recursive, generate_synthetic_manifest, get_marketplace_manifest, match_project_path,
-    update_enabled_plugins, InstallerError,
+    update_enabled_plugins, validate_path_segment, InstallerError,
 };
 
 pub async fn install_plugin(
@@ -18,6 +18,9 @@ pub async fn install_plugin(
     claude_dir: &Path,
     project_dir: Option<&Path>,
 ) -> Result<InstalledPlugin, InstallerError> {
+    // name / marketplace 会被直接拼进安装目录并可能触发 remove_dir_all，先拦路径遍历
+    validate_path_segment(name)?;
+    validate_path_segment(marketplace)?;
     let plugins_path = claude_dir.join("plugins").join("installed_plugins.json");
     let mut installed = load_installed_plugins(Some(&plugins_path))?;
 
@@ -181,6 +184,8 @@ pub async fn update_plugin(
     project_dir: Option<&Path>,
 ) -> Result<InstalledPlugin, InstallerError> {
     let (name, marketplace) = plugin_id.split_once('@').unwrap_or((plugin_id, ""));
+    validate_path_segment(name)?;
+    validate_path_segment(marketplace)?;
 
     let plugins_path = claude_dir.join("plugins").join("installed_plugins.json");
     let installed = load_installed_plugins(Some(&plugins_path))?;

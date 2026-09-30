@@ -488,6 +488,27 @@ fn test_sanitize_plugin_id_empty() {
     assert_eq!(sanitize_plugin_id(""), "");
 }
 
+// ── validate_path_segment tests ──
+
+#[test]
+fn test_validate_path_segment_legit() {
+    assert!(validate_path_segment("my-plugin_v2").is_ok());
+    assert!(validate_path_segment("anthropics").is_ok());
+    assert!(validate_path_segment("plugin.v2").is_ok());
+    // update 时无 @ 后缀的空 marketplace：join 后是 no-op，放行
+    assert!(validate_path_segment("").is_ok());
+}
+
+#[test]
+fn test_validate_path_segment_traversal_rejected() {
+    assert!(validate_path_segment("../../../etc").is_err());
+    assert!(validate_path_segment("..").is_err());
+    assert!(validate_path_segment("a/b").is_err());
+    assert!(validate_path_segment("a\\b").is_err());
+    assert!(validate_path_segment("/abs/path").is_err());
+    assert!(validate_path_segment("x$(id)").is_ok()); // 无路径含义，放行（由别处处理）
+}
+
 // ── match_project_path tests ──
 
 #[test]

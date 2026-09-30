@@ -303,6 +303,7 @@ app-agent-reset = Agent reset (no agent_id set)
 app-agent-switched = Agent switched to: { $name } ({ $id })
 app-agent-disconnected = Agent connection lost, please retry sending
 app-compact-no-context = No compressible context (history is empty)
+app-compact-started = Compacting context…
 app-compact-no-provider = Compact failed: No LLM Provider configured (set ANTHROPIC_API_KEY or OPENAI_API_KEY)
 app-compact-compressing = Compressing context
 app-compact-done = Context compressed

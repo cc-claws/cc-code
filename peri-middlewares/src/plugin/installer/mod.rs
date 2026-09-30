@@ -30,6 +30,8 @@ pub enum InstallerError {
     ConfigError(#[from] PluginConfigError),
     #[error("Settings 错误: {0}")]
     SettingsError(String),
+    #[error("非法的插件名称或 marketplace（不能包含路径分隔符）: {0}")]
+    InvalidId(String),
     #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -270,6 +272,21 @@ pub(crate) fn sanitize_plugin_id(plugin_id: &str) -> String {
             }
         })
         .collect()
+}
+
+/// 校验 name / marketplace 可安全拼进目录路径。
+/// 这两个值会被直接 join 进 target_dir / 缓存目录并可能触发 remove_dir_all，
+/// 因此拒绝路径分隔符与父目录引用（fail-closed）。
+/// 合法输入（字母数字、`-`、`_`、`.`）原样通过，对现有行为零影响；
+/// 空 marketplace（update 时无 @ 后缀）join 后是 no-op，同样放行。
+pub(crate) fn validate_path_segment(value: &str) -> Result<(), InstallerError> {
+    let mut comps = std::path::Path::new(value).components();
+    let single_normal = matches!(comps.next(), Some(std::path::Component::Normal(_)))
+        && comps.next().is_none();
+    if value.contains(['/', '\\']) || !(value.is_empty() || single_normal) {
+        return Err(InstallerError::InvalidId(value.to_string()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
