@@ -207,6 +207,52 @@ impl App {
         updated
     }
 
+    /// Git 分支异步刷新：按 TTL 触发后台探测，**子进程不占用渲染线程**。
+    ///
+    /// 背景（issue #277）：旧实现为「避免 `git` 子进程阻塞渲染」而在 `ui.loading`
+    /// 期间完全冻结缓存，导致 Agent 工作期间状态栏分支名长期陈旧。本实现改为
+    /// 异步探测（对齐 Codex 的 `WorkspaceCommandExecutor` 做法），阻塞问题从根上
+    /// 消除，因此不再需要 loading 冻结。
+    pub fn request_git_branch_refresh_if_due(&mut self) {
+        let tx = {
+            let poller = self.services.git_branch_poller.get_mut();
+            if !poller.due() {
+                return;
+            }
+            poller.begin()
+        };
+        let cwd = self.services.cwd.clone();
+        tokio::spawn(async move {
+            // `detect_status` 会 spawn `git` 子进程（阻塞），放 blocking 池执行
+            let status = tokio::task::spawn_blocking(move || {
+                crate::app::service_registry::GitBranchCache::detect_status(&cwd)
+            })
+            .await
+            .ok()
+            .flatten();
+            let _ = tx.send(status);
+        });
+    }
+
+    /// 收取 git 分支异步探测结果；返回 true 表示缓存有变化（需要重绘）。
+    pub fn poll_git_branch_refresh(&mut self) -> bool {
+        let Some(result) = self.services.git_branch_poller.get_mut().drain() else {
+            return false;
+        };
+        let mut cache = self.services.git_branch_cache.lock();
+        let changed = cache.get_cached() != result.as_ref();
+        cache.set_status(result);
+        changed
+    }
+
+    /// 使 git 分支缓存立即失效，下一轮事件循环会重新探测。
+    ///
+    /// 用于「轮末」等需要尽快反映分支变化的时机（对齐 Codex 在
+    /// `turn_runtime` 中每轮结束调用 `request_status_line_branch_refresh`）。
+    pub fn invalidate_git_branch_cache(&mut self) {
+        self.services.git_branch_poller.get_mut().invalidate();
+    }
+
     /// 每帧调用：检查 cron 触发事件，空闲时自动提交 prompt
     pub fn poll_cron_triggers(&mut self) {
         let cron_triggers: Vec<_> = self

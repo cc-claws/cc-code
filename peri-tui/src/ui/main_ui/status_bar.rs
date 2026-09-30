@@ -143,14 +143,10 @@ fn append_project_segment(spans: &mut Vec<Span<'_>>, app: &App) {
         ansi_style(Color::Yellow),
     ));
 
-    // loading 期间跳过子进程刷新，避免 `git rev-parse` 阻塞渲染线程导致抖动。
-    let loading = app.session_mgr.current().ui.loading;
-    let mut cache = app.services.git_branch_cache.lock();
-    if loading {
-        if let Some(status) = cache.get_cached() {
-            append_git_status(spans, status);
-        }
-    } else if let Some(status) = cache.get_or_refresh(&app.services.cwd) {
+    // 分支状态只读缓存：探测由 `App::request_git_branch_refresh_if_due` 在事件循环中
+    // 异步触发（子进程不占用渲染线程），故此处**无需**按 loading 区分快慢路径，
+    // 也不会出现「Agent 工作期间分支名长期陈旧」（issue #277）。
+    if let Some(status) = app.services.git_branch_cache.lock().get_cached() {
         append_git_status(spans, status);
     }
 }
