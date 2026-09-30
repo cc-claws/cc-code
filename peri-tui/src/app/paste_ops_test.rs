@@ -9,7 +9,7 @@ async fn test_paste_text_into_textarea_multiline_appends_placeholder() {
         .textarea
         .insert_str("测试输入1+1");
     let pasted = "bulky_follow/list 接口正常返回数据了，code: 0，返回了多条记录。\n\
-这个 token 对应的用户是 叶炜朋（staff_id: 124727592321575781）。\n\
+该 token 对应的账号已脱敏，仅保留占位信息用于测试。\n\
 follow 场景本来就没问题，因为 $skipPermission = true 已经跳过了权限过滤。\n\
 之前看不到数据的是 selection 场景，已经修复并提交了。\n\
 部署测试环境后，selection 列表也应该能正常看到数据了。\n\
