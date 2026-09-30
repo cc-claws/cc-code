@@ -190,11 +190,29 @@ pub fn spawn_stall_watchdog(
         let mut interval = tokio::time::interval(Duration::from_millis(STALL_CHECK_INTERVAL_MS));
         let mut last_size: u64 = 0;
         let mut stall_since: Option<Instant> = None;
+        // #320 Windows CI：文件持续不可访问（PermissionDenied）时不能无限空转，
+        // 连续错误超限则退出并打 warn 日志。
+        let mut consecutive_errors: u32 = 0;
+        const MAX_CONSECUTIVE_ERRORS: u32 = 10;
         loop {
             interval.tick().await;
             let size = match tokio::fs::metadata(&output_path).await {
-                Ok(m) => m.len(),
-                Err(_) => continue,
+                Ok(m) => {
+                    consecutive_errors = 0;
+                    m.len()
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                        tracing::warn!(
+                            task_id,
+                            error = %e,
+                            "stall watchdog: output 文件持续不可访问，退出监控"
+                        );
+                        break;
+                    }
+                    continue;
+                }
             };
             if size > last_size {
                 last_size = size;
@@ -212,8 +230,22 @@ pub fn spawn_stall_watchdog(
             }
             // stall >= 阈值：tail + 匹配 prompt pattern
             let tail = match DiskOutput::read_tail(&output_path, STALL_TAIL_BYTES).await {
-                Ok(b) => b,
-                Err(_) => continue,
+                Ok(b) => {
+                    consecutive_errors = 0;
+                    b
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                        tracing::warn!(
+                            task_id,
+                            error = %e,
+                            "stall watchdog: output 文件持续不可读，退出监控"
+                        );
+                        break;
+                    }
+                    continue;
+                }
             };
             let tail_str = String::from_utf8_lossy(&tail);
             let last_line = tail_str.lines().last().unwrap_or("");

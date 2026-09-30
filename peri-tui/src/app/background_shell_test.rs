@@ -11,7 +11,6 @@ async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
         .unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(8);
-    let path_dbg = path.clone();
     let handle = spawn_stall_watchdog(
         "task-1".to_string(),
         "rm -i node_modules".to_string(),
@@ -22,32 +21,11 @@ async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
     // Act：等待 stall 通知（cfg(test) 下 STALL_CHECK_INTERVAL_MS=200、STALL_THRESHOLD_MS=500，约 0.8-1s 触发）
     let event = tokio::time::timeout(Duration::from_secs(4), rx.recv()).await;
 
-    // Assert（超时时带诊断信息：watchdog 是否存活/是否 panic、文件状态，便于定位 CI 失败）
-    if event.is_err() {
-        let meta = std::fs::metadata(&path_dbg).map(|m| m.len());
-        let content = std::fs::read(&path_dbg).map(|b| String::from_utf8_lossy(&b).into_owned());
-        // watchdog one-shot：正常情况发送后即退出；若已退出但未发送，必为 panic，把 payload 打出来
-        let watchdog_outcome = if handle.is_finished() {
-            match handle.await {
-                Ok(()) => "已退出但未发送通知（逻辑未覆盖到）".to_string(),
-                Err(e) => {
-                    let p = e.into_panic();
-                    if let Some(s) = p.downcast_ref::<String>() {
-                        format!("已 panic: {s}")
-                    } else if let Some(s) = p.downcast_ref::<&str>() {
-                        format!("已 panic: {s}")
-                    } else {
-                        "已 panic（未知 payload）".to_string()
-                    }
-                }
-            }
-        } else {
-            "仍在运行（tick 未触发，或 metadata/read_tail 持续失败）".to_string()
-        };
-        panic!(
-            "应在 stall 阈值后收到 BackgroundShellStalled 通知；诊断: watchdog {watchdog_outcome}, 文件大小={meta:?}, 文件内容={content:?}"
-        );
-    }
+    // Assert
+    assert!(
+        event.is_ok(),
+        "应在 stall 阈值后收到 BackgroundShellStalled 通知"
+    );
     let event = event.unwrap().unwrap();
     assert!(
         matches!(
