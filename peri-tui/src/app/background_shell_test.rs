@@ -36,7 +36,8 @@ async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
     );
 
     // Act：等待 stall 通知（cfg(test) 下 STALL_CHECK_INTERVAL_MS=200、STALL_THRESHOLD_MS=500，约 0.8-1s 触发）
-    let event = tokio::time::timeout(Duration::from_secs(4), rx.recv()).await;
+    // Windows 文件锁可能让 watchdog 在错误重试中消耗数秒；10s 覆盖 6s 错误预算 + stall 阈值
+    let event = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await;
 
     // Assert
     assert!(
