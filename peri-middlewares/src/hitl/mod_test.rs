@@ -410,3 +410,72 @@ async fn test_process_batch_auto_mode_mixed() {
     );
     assert!(results[2].is_ok(), "read_file 应放行");
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 安全加固：YOLO 默认值（fail-closed）
+// ─────────────────────────────────────────────────────────────────────────
+
+/// 未显式开启 → 非 YOLO（默认走审批）。
+#[test]
+fn test_yolo_default_is_disabled() {
+    assert!(!yolo_from_env_value(None), "未设置 YOLO_MODE 必须为非 YOLO");
+    assert!(!yolo_from_env_value(Some("false")));
+    assert!(!yolo_from_env_value(Some("FALSE")));
+    assert!(!yolo_from_env_value(Some("0")));
+}
+
+/// 仅显式真值才开启免审批。
+#[test]
+fn test_yolo_enabled_only_by_explicit_truthy_value() {
+    assert!(yolo_from_env_value(Some("true")));
+    assert!(yolo_from_env_value(Some("TRUE")));
+    assert!(yolo_from_env_value(Some("1")));
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 安全加固：门控评估的必须是「实际将执行的命令」（RTK 改写）
+// ─────────────────────────────────────────────────────────────────────────
+
+fn make_gate_bash_call(id: &str, command: &str) -> ToolCall {
+    ToolCall::new(id, "Bash", serde_json::json!({ "command": command }))
+}
+
+/// 有改写结果 → 调用被替换为改写后的命令（门控评估 == 实际执行）。
+#[test]
+fn test_apply_command_rewrite_replaces_command() {
+    let call = make_gate_bash_call("t1", "git status");
+    let effective = apply_command_rewrite(&call, Some("rtk git status".to_string()));
+    assert_eq!(
+        effective.input["command"].as_str(),
+        Some("rtk git status"),
+        "应替换为改写后的命令"
+    );
+    // 原调用不被就地修改
+    assert_eq!(
+        call.input["command"].as_str(),
+        Some("git status"),
+        "原 ToolCall 不应被修改"
+    );
+}
+
+/// 无改写结果（rtk 不可用 / 不适配）→ 原样返回。
+#[test]
+fn test_apply_command_rewrite_no_rewrite_keeps_original() {
+    let call = make_gate_bash_call("t2", "ls -la");
+    let effective = apply_command_rewrite(&call, None);
+    assert_eq!(effective.input["command"].as_str(), Some("ls -la"));
+}
+
+/// 幂等性前提：改写结果 `rtk ...` 不会再被判定为可改写命令，
+/// 因此下游 BashTool 不会二次改写（无双重前缀）。
+#[test]
+fn test_rewritten_command_is_not_rewritable_again() {
+    assert!(
+        !crate::process::is_potential_rtk_command("rtk git status"),
+        "`rtk ...` 不应再次进入改写，否则会双重前缀"
+    );
+    assert!(
+        crate::process::is_potential_rtk_command("git status"),
+        "原始 git 命令应可改写（对照）"
+    );
+}

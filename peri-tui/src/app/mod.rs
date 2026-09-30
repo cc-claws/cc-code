@@ -276,8 +276,10 @@ impl App {
 
         let session_mgr = SessionManager::new(initial_session);
 
+        // 默认档为 Auto（启用语义门/审批）；`main.rs` 会依据 CLI/env 覆盖为 Bypass。
+        // 此处不能用 Bypass 作占位值——未走 CLI 初始化的路径（如 headless）会保留它。
         let permission_mode = peri_middlewares::prelude::SharedPermissionMode::new(
-            peri_middlewares::prelude::PermissionMode::Bypass,
+            peri_middlewares::prelude::PermissionMode::AutoMode,
         );
         let channel_state = peri_agent::interaction::ChannelState::new();
         let services = ServiceRegistry {

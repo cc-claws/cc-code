@@ -116,6 +116,8 @@ impl App {
                 cwd: "/tmp".to_string(),
                 provider_name: "test".to_string(),
                 model_name: "test-model".to_string(),
+                // 测试夹具：headless App 不接真实 HITL 链路，显式用 Bypass 避免测试被审批阻塞。
+                // 注意：这**不是**面向用户的默认档 —— 用户默认档在 main.rs 为 Auto（见安全加固）。
                 permission_mode: peri_middlewares::prelude::SharedPermissionMode::new(
                     peri_middlewares::prelude::PermissionMode::Bypass,
                 ),

@@ -31,6 +31,9 @@ pub(crate) async fn fetch_git(
                     "clone",
                     "--depth",
                     "1",
+                    // `--` 终止选项解析：url 来自未签名 manifest，以 `-` 开头会被
+                    // git 当选项消费（参数注入）
+                    "--",
                     url,
                     &cache_dir.display().to_string(),
                 ])

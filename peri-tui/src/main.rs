@@ -94,7 +94,7 @@ pub fn init_panic_notify() -> tokio::sync::mpsc::UnboundedReceiver<String> {
 #[command(name = "cc-code", version, about = "CC Code AI Agent")]
 struct Cli {
     // ── 向后兼容 ──
-    /// 向后兼容，无操作（YOLO 已是默认行为）
+    /// 免审批模式（YOLO）。默认**不开**：不传此参且未设 `YOLO_MODE` 时走 Auto（语义门/审批）
     #[arg(short = 'y', long = "yolo")]
     yolo: bool,
     /// 启用语义门审批（等同 --permission-mode auto；权限模式现只有 auto / bypass 两档）
@@ -341,6 +341,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         None => run_tui(TuiOptions {
+            yolo: cli.yolo,
             approve: cli.approve,
             permission_mode: cli.permission_mode,
             skip_permissions: cli.skip_permissions,
@@ -427,6 +428,7 @@ fn main() -> Result<()> {
 /// TUI 模式启动选项
 #[allow(dead_code)] // 部分 CLI 桥接字段尚未接入
 struct TuiOptions {
+    yolo: bool,
     approve: bool,
     permission_mode: Option<String>,
     skip_permissions: bool,
@@ -439,6 +441,42 @@ struct TuiOptions {
     settings: Option<String>,
     allowed_tools: Vec<String>,
     disallowed_tools: Vec<String>,
+}
+
+/// 解析初始权限模式（纯函数，便于单测）。
+///
+/// 优先级：`--dangerously-skip-permissions` > `--permission-mode` > `-a/--approve`
+/// > 显式 YOLO（`-y/--yolo` 或 `YOLO_MODE` 真值）> **默认 Auto**。
+///
+/// **安全加固**：默认档为 [`PermissionMode::AutoMode`]（启用语义门/审批）。
+/// 历史行为为「未设置 `YOLO_MODE` 即视为 YOLO」，属 fail-open，已修正为
+/// 「必须显式开启免审批」（fail-closed）。
+fn resolve_initial_permission_mode(
+    skip_permissions: bool,
+    permission_mode: Option<&str>,
+    approve: bool,
+    yolo_flag: bool,
+    yolo_env: bool,
+) -> peri_middlewares::prelude::PermissionMode {
+    use peri_middlewares::prelude::PermissionMode;
+    if skip_permissions {
+        return PermissionMode::Bypass;
+    }
+    if let Some(mode_str) = permission_mode {
+        return match mode_str {
+            "bypass" => PermissionMode::Bypass,
+            // 只剩两档；未知取值一律回退 Auto（默认档），避免意外滑进 Bypass
+            _ => PermissionMode::AutoMode,
+        };
+    }
+    if approve {
+        // `-a` 等同"用语义门"（Auto 是唯一会做判定的档）
+        return PermissionMode::AutoMode;
+    }
+    if yolo_flag || yolo_env {
+        return PermissionMode::Bypass;
+    }
+    PermissionMode::AutoMode
 }
 
 fn run_tui(opts: TuiOptions) -> Result<()> {
@@ -617,26 +655,13 @@ async fn run_app(
 
     // 根据环境变量/CLI 参数设置初始权限模式
     {
-        use peri_middlewares::prelude::PermissionMode;
-        let initial_mode = if tui_opts.skip_permissions {
-            PermissionMode::Bypass
-        } else if let Some(ref mode_str) = tui_opts.permission_mode {
-            match mode_str.as_str() {
-                "bypass" => PermissionMode::Bypass,
-                // 只剩两档；未知取值一律回退 Auto（默认档），避免意外滑进 Bypass
-                _ => PermissionMode::AutoMode,
-            }
-        } else if tui_opts.approve {
-            // `-a` 现在等同于"用语义门"（Auto 是唯一会做判定的档）
-            PermissionMode::AutoMode
-        } else if std::env::var("YOLO_MODE")
-            .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
-            .unwrap_or(true)
-        {
-            PermissionMode::Bypass
-        } else {
-            PermissionMode::AutoMode
-        };
+        let initial_mode = resolve_initial_permission_mode(
+            tui_opts.skip_permissions,
+            tui_opts.permission_mode.as_deref(),
+            tui_opts.approve,
+            tui_opts.yolo,
+            peri_middlewares::hitl::is_yolo_mode(),
+        );
         app.services.permission_mode.store(initial_mode);
     }
 
@@ -1220,6 +1245,59 @@ mod cli_integration_test;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── 安全加固：默认权限模式为 Auto（fail-closed） ──
+
+    #[test]
+    fn test_default_permission_mode_is_auto() {
+        use peri_middlewares::prelude::PermissionMode;
+        // 无任何参数、无 YOLO 环境变量 → Auto（启用审批）
+        assert_eq!(
+            resolve_initial_permission_mode(false, None, false, false, false),
+            PermissionMode::AutoMode,
+            "默认必须走 Auto（审批），不得默认为 Bypass"
+        );
+    }
+
+    #[test]
+    fn test_explicit_yolo_enables_bypass() {
+        use peri_middlewares::prelude::PermissionMode;
+        // 显式 -y/--yolo
+        assert_eq!(
+            resolve_initial_permission_mode(false, None, false, true, false),
+            PermissionMode::Bypass
+        );
+        // 显式 YOLO_MODE=真值
+        assert_eq!(
+            resolve_initial_permission_mode(false, None, false, false, true),
+            PermissionMode::Bypass
+        );
+    }
+
+    #[test]
+    fn test_permission_mode_priority() {
+        use peri_middlewares::prelude::PermissionMode;
+        // --dangerously-skip-permissions 优先级最高
+        assert_eq!(
+            resolve_initial_permission_mode(true, Some("auto"), false, false, false),
+            PermissionMode::Bypass
+        );
+        // --permission-mode bypass 高于 -y
+        assert_eq!(
+            resolve_initial_permission_mode(false, Some("bypass"), false, false, false),
+            PermissionMode::Bypass
+        );
+        // 未知取值回退 Auto（不意外滑进 Bypass）
+        assert_eq!(
+            resolve_initial_permission_mode(false, Some("whatever"), false, true, true),
+            PermissionMode::AutoMode
+        );
+        // -a/--approve 显式选择 Auto
+        assert_eq!(
+            resolve_initial_permission_mode(false, None, true, false, true),
+            PermissionMode::AutoMode
+        );
+    }
 
     #[test]
     fn test_env_priority_process_over_settings() {

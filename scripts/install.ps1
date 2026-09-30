@@ -1,16 +1,16 @@
 # cc-code Agent Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 | iex
 #
 # Options:
-#   $env:PERI_INSTALL_VERSION   Specific version tag (e.g. agent-v1.17), empty = latest
-#   $env:PERI_INSTALL_DIR       Install directory (default: $env:USERPROFILE\.peri)
+#   $env:CC_CODE_INSTALL_VERSION   Specific version tag (e.g. npm-v0.6.89), empty = latest
+#   $env:CC_CODE_INSTALL_DIR       Install directory (default: $env:USERPROFILE\.cc-code)
 #   $env:GITHUB_PROXY           GitHub download proxy prefix (replaces https://github.com)
 #   $env:GITHUB_TOKEN           GitHub personal access token (bypasses API rate limiting)
-#   $env:PERI_NO_PATH_HINT      Set to 1 to skip PATH hint
-#   $env:PERI_INSTALL_PLATFORM  Override platform detection (e.g. windows-x86_64)
+#   $env:CC_CODE_NO_PATH_HINT      Set to 1 to skip PATH hint
+#   $env:CC_CODE_INSTALL_PLATFORM  Override platform detection (e.g. windows-x86_64)
 #
 # Example:
-#   $env:PERI_INSTALL_VERSION="agent-v1.17"; irm ... | iex
+#   $env:CC_CODE_INSTALL_VERSION="npm-v0.6.89"; irm ... | iex
 #   $env:GITHUB_PROXY="https://ghproxy.com/https://github.com"; irm ... | iex
 
 $ErrorActionPreference = "Stop"
@@ -24,14 +24,14 @@ function step  { Write-Host "[STEP]  $args" -ForegroundColor Cyan }
 
 # --- Platform Detection ---
 function Detect-Platform {
-    if ($env:PERI_INSTALL_PLATFORM) {
-        if ($env:PERI_INSTALL_PLATFORM -notmatch '^(macos|linux|windows)-(x86_64|aarch64|riscv64)$') {
-            error "Invalid PERI_INSTALL_PLATFORM: $env:PERI_INSTALL_PLATFORM"
+    if ($env:CC_CODE_INSTALL_PLATFORM) {
+        if ($env:CC_CODE_INSTALL_PLATFORM -notmatch '^(macos|linux|windows)-(x86_64|aarch64|riscv64)$') {
+            error "Invalid CC_CODE_INSTALL_PLATFORM: $env:CC_CODE_INSTALL_PLATFORM"
             Write-Host "  Expected: macos-x86_64 | macos-aarch64 | linux-x86_64 | linux-aarch64 | linux-riscv64 | windows-x86_64"
             exit 1
         }
-        info "Platform (manual): $env:PERI_INSTALL_PLATFORM"
-        return $env:PERI_INSTALL_PLATFORM
+        info "Platform (manual): $env:CC_CODE_INSTALL_PLATFORM"
+        return $env:CC_CODE_INSTALL_PLATFORM
     }
 
     $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
@@ -126,8 +126,8 @@ function Main {
     $ExeName = "cc-code.exe"
 
     # Fetch release info
-    if ($env:PERI_INSTALL_VERSION) {
-        $VersionTag = $env:PERI_INSTALL_VERSION
+    if ($env:CC_CODE_INSTALL_VERSION) {
+        $VersionTag = $env:CC_CODE_INSTALL_VERSION
         step "Fetching release: $VersionTag..."
         try {
             $Release = Invoke-GitHubApi "$GitHubApi/releases/tags/$VersionTag"
@@ -204,7 +204,7 @@ function Main {
     }
     Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
 
-    # Zip contains peri-<platform>.exe (e.g. peri-windows-x86_64.exe), find and rename to peri.exe
+    # Zip contains cc-code-<platform>.exe (e.g. cc-code-windows-x86_64.exe), find and rename to cc-code.exe
     $SourceExe = Get-ChildItem -Path $VersionDir -Recurse -Filter "*.exe" | Where-Object { $_.Name -notlike "unins*" } | Select-Object -First 1
     if (-not $SourceExe) {
         error "No .exe found in extracted archive."
@@ -228,7 +228,7 @@ function Main {
     $VersionTag | Out-File -FilePath $VersionFile -Encoding ascii -NoNewline
 
     # --- PATH Setup ---
-    if ($env:PERI_NO_PATH_HINT -ne "1") {
+    if ($env:CC_CODE_NO_PATH_HINT -ne "1") {
         $currentPath = [Environment]::GetEnvironmentVariable("Path", "User") -split ";"
         $installPathNormalized = (Resolve-Path $InstallDir).Path.TrimEnd("\")
 
@@ -256,7 +256,7 @@ function Main {
     Write-Host ""
     info "Installation complete! Version: $VersionTag"
     Write-Host ""
-    info "Open a new terminal and run 'peri' to start."
+    info "Open a new terminal and run 'cc-code' to start."
     Write-Host ""
 }
 
