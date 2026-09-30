@@ -2118,3 +2118,27 @@ fn test_error_summary_limited_in_normal_mode() {
         .collect();
     assert_eq!(detail.len(), 10, "详细模式应显示全部 10 行");
 }
+
+/// 回归：末段可整体容纳时不得被多拆一刀（此前会产生「PR」孤儿行）。
+#[test]
+fn test_wrap_line_spans_rich_tail_segment_split_unnecessarily() {
+    let text = "本地 6 个分支中，只有 fix/windows-hook-shell-routing-latest-main 在提交层面确认是 origin/main 的祖先。其余 4 个的远程分支已 gone，但因仓库历史被重写（squash/新历史），无法用 --merged 判定。先查一下它们的 PR 状态再决定。";
+    let segs = wrap_line_spans_rich(Line::from(Span::raw(text)), 60);
+    let plains: Vec<String> = segs
+        .iter()
+        .map(|s| {
+            s.line
+                .spans
+                .iter()
+                .map(|sp| sp.content.as_ref())
+                .collect::<String>()
+        })
+        .collect();
+    // 期望：末段「判定。先查一下它们的 PR 状态再决定。」整体容纳（宽度 36 ≤ 60），
+    // 不应被拆成 "…它们的 PR" + "状态再决定。"
+    assert_eq!(
+        plains.last().map(String::as_str),
+        Some("判定。先查一下它们的 PR 状态再决定。"),
+        "末段被多余拆行，实际: {plains:?}"
+    );
+}

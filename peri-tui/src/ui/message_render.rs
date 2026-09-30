@@ -196,11 +196,15 @@ fn wrap_line_spans_rich(line: Line<'static>, max_width: usize) -> Vec<WrappedLin
         }
 
         // 单词边界优先：从 content_end 往回找最后一个 whitespace
+        // [TRAP] 仅当还有内容需要带到下一行时才回退：否则末段本可整段容纳，
+        // 仍回退会命中段内最后一个空白，把完整末段多拆一刀（如 "PR" 孤儿行）。
         let mut break_at = content_end;
-        for i in (pos..content_end).rev() {
-            if flat[i].0.chars().all(char::is_whitespace) {
-                break_at = i;
-                break;
+        if content_end < flat.len() {
+            for i in (pos..content_end).rev() {
+                if flat[i].0.chars().all(char::is_whitespace) {
+                    break_at = i;
+                    break;
+                }
             }
         }
 
