@@ -1,4 +1,9 @@
-use ratatui::{layout::Rect, style::Style, widgets::Paragraph, Frame};
+use ratatui::{
+    layout::Rect,
+    style::{Modifier, Style},
+    widgets::Paragraph,
+    Frame,
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
@@ -38,6 +43,13 @@ pub(super) fn render(f: &mut Frame, app: &mut App, area: Rect) {
     let actions = &mut session.ui.queued_message_actions;
     let pending_style = Style::default().fg(theme::MUTED).bg(theme::USER_BG);
     let active_style = Style::default().fg(theme::ACCENT).bg(theme::USER_BG);
+    let tip_style = Style::default()
+        .fg(theme::MUTED)
+        .bg(theme::USER_BG)
+        .add_modifier(Modifier::DIM);
+    // 键盘提示只挂在最后一条可见消息行上；窄屏空间不足时整条省略。
+    let tip = lc.tr("queue-keys-tip");
+    let tip_width = UnicodeWidthStr::width(tip.as_str()) as u16;
     let queue_label = lc.tr("queue-label");
     for (row, message) in messages.iter().skip(offset).take(visible_count).enumerate() {
         let row_area = Rect::new(area.x, area.y + row as u16, area.width, 1);
@@ -115,14 +127,31 @@ pub(super) fn render(f: &mut Frame, app: &mut App, area: Rect) {
             steer_area.x.saturating_sub(row_area.x + left_padding + 1),
             1,
         );
+        // 键盘提示只挂在最后一条可见消息行上；窄屏空间不足时整条省略。
+        let show_tip = row + 1 == visible_count && preview_area.width > tip_width + 2;
+        let preview_width = if show_tip {
+            preview_area.width - tip_width - 1
+        } else {
+            preview_area.width
+        };
         f.render_widget(
-            Paragraph::new(truncate_to_display_width(
-                &preview,
-                preview_area.width as usize,
-            ))
-            .style(pending_style),
-            preview_area,
+            Paragraph::new(truncate_to_display_width(&preview, preview_width as usize))
+                .style(pending_style),
+            Rect::new(preview_area.x, preview_area.y, preview_width, 1),
         );
+        // 键盘提示：队列最下一行行内尾部灰字，给不用鼠标的用户暴露快捷键入口。
+        // 空间不足时整体省略，避免挤压消息预览。
+        if show_tip {
+            f.render_widget(
+                Paragraph::new(tip.as_str()).style(tip_style),
+                Rect::new(
+                    preview_area.right() - tip_width,
+                    preview_area.y,
+                    tip_width,
+                    1,
+                ),
+            );
+        }
     }
     if paginated {
         let row = Rect::new(area.x, area.bottom() - 1, area.width, 1);

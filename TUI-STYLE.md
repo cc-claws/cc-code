@@ -322,6 +322,8 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 所有面板的快捷键提示统一放在列表/表单**底部**，状态栏第二行右侧通过 `status_bar_hints()` 自描述。
 
+**例外**：Queued Messages 区不是面板、也不进 `status_bar_hints()`，它的 `Ctrl+S` / `Ctrl+X` 提示以 DIM 灰字行内尾部形式渲染在**队列最下一条可见消息行**右侧（`queue-keys-tip`，见 `peri-tui/src/ui/main_ui/queued_messages.rs`）。空间不足时整条省略，不挤压消息预览。
+
 ### /model 面板样式
 
 ```
@@ -453,6 +455,8 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | `Esc` | 退出程序（idle 时） | |
 | 双击 `Esc` | 空闲时触发 rewind 回滚选择器 | |
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
+| `Ctrl+S` | 立即补充队首排队消息 | 等价点击 `[Send now]`；队列为空时不拦截该按键 |
+| `Ctrl+X` | 删除队首排队消息 | 等价点击 `[×]`；队列为空时不拦截该按键 |
 | `Alt+Enter` | 插入换行 | |
 | `Shift+Tab` | 循环切换权限模式 | Auto → Bypass → Auto（只剩两档） |
 | `Ctrl+P` / `Alt+P` | 开关命令面板（Provider & Model 选择） | **模型切换统一走此入口** |

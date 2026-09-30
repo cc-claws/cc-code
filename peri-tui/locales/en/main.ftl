@@ -482,6 +482,7 @@ spinner-thinking-header = 💭 Thinking ({ $count } chars)
 # Messages queued during execution
 queue-label = Queued
 queue-steer = Send now
+queue-keys-tip = Ctrl+S send now · Ctrl+X delete
 queue-sending = Sending…
 queue-attachments = { $count } images
 queue-unavailable = This execution cannot accept updates yet. Your message remains queued.
