@@ -3,6 +3,7 @@
 const { createWriteStream, mkdirSync, chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } = require("fs");
 const { join } = require("path");
 const { execSync } = require("child_process");
+const crypto = require("crypto");
 
 const { homedir } = require("os");
 
@@ -120,6 +121,34 @@ function extractZip(buffer, dest) {
   const AdmZip = require("adm-zip");
   const zip = new AdmZip(buffer);
   zip.extractAllTo(dest, true);
+}
+
+// 校验下载的二进制包（#290）：release 流程会发布 checksums.txt（sha256sum 格式），
+// 此处下载并校验；缺失或不匹配时直接失败（fail-closed），拒绝安装可疑二进制。
+async function verifyChecksum(buffer, fileName) {
+  console.log("  Verifying checksum...");
+  let body;
+  try {
+    body = (await download(`${BASE_URL}/checksums.txt`)).toString("utf-8");
+  } catch (e) {
+    throw new Error(`无法下载 checksums.txt，拒绝安装（fail-closed）：${e.message}`);
+  }
+  let expected = null;
+  for (const line of body.split("\n")) {
+    const m = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/);
+    if (m && m[2].trim() === fileName) {
+      expected = m[1].toLowerCase();
+      break;
+    }
+  }
+  if (!expected) {
+    throw new Error(`checksums.txt 中未找到 ${fileName}，拒绝安装（fail-closed）`);
+  }
+  const actual = crypto.createHash("sha256").update(buffer).digest("hex");
+  if (actual !== expected) {
+    throw new Error(`checksum 不匹配：${fileName} 可能被篡改，拒绝安装`);
+  }
+  console.log("  Checksum OK.");
 }
 
 // 从 Claude Code env 推导应迁移的 provider 列表（含各档模型别名）
@@ -267,6 +296,59 @@ function migrateFromClaudeCode(home = homedir()) {
   return true;
 }
 
+// 仅当迁移会创建新 settings.json 并写入 API 密钥时返回 true。
+// （已有 ~/.cc-code/settings.json 时只做别名 backfill，不碰密钥，无需确认。）
+function wouldCopyKeys(home = homedir()) {
+  if (existsSync(join(home, ".cc-code", "settings.json"))) return false;
+  const claudeSettingsPath = join(home, ".claude", "settings.json");
+  if (!existsSync(claudeSettingsPath)) return false;
+  try {
+    const claudeSettings = JSON.parse(require("fs").readFileSync(claudeSettingsPath, "utf-8"));
+    return detectProvidersFromEnv(claudeSettings.env || {}).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function promptYesNo(question) {
+  const readline = require("readline");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(/^(y|yes)$/i.test(answer.trim()));
+    });
+  });
+}
+
+// 密钥迁移需要显式确认（#290）：postinstall 不再静默复制 API 密钥。
+// - CC_CODE_NO_MIGRATE=1 或 --no-migrate：跳过
+// - 非 TTY（如 CI/脚本）：跳过并提示手动迁移（安全默认值）
+// - TTY：询问用户，默认 No
+async function maybeMigrateFromClaudeCode(home = homedir()) {
+  if (!wouldCopyKeys(home)) {
+    // 无需复制密钥（仅 backfill 别名或无 Claude 配置）：保持原行为
+    return migrateFromClaudeCode(home);
+  }
+  if (process.env.CC_CODE_NO_MIGRATE === "1" || process.argv.includes("--no-migrate")) {
+    console.log("  已跳过 Claude Code 密钥迁移 (CC_CODE_NO_MIGRATE=1 / --no-migrate)。");
+    return false;
+  }
+  if (!process.stdin.isTTY) {
+    console.log("");
+    console.log("  检测到 ~/.claude/settings.json，但当前为非交互环境，不会自动复制 API 密钥。");
+    console.log("  如需迁移，请在终端中重新运行安装，或手动复制配置到 ~/.cc-code/settings.json。");
+    return false;
+  }
+  console.log("");
+  const ok = await promptYesNo("  检测到 Claude Code 配置，是否将 API 密钥迁移到 ~/.cc-code/settings.json？[y/N] ");
+  if (!ok) {
+    console.log("  已跳过密钥迁移。");
+    return false;
+  }
+  return migrateFromClaudeCode(home);
+}
+
 async function downloadRipgrep(platform, binDir) {
   const rgName = platform.os === "win32" ? "rg.exe" : "rg";
   const rgPath = join(binDir, rgName);
@@ -333,6 +415,9 @@ async function main() {
 
   const buffer = await download(url);
 
+  // #290：校验二进制完整性（fail-closed：缺失/不匹配则拒绝安装）
+  await verifyChecksum(buffer, fileName);
+
   if (platform.ext === "tar.gz") {
     extractTarGz(buffer, binDir);
   } else {
@@ -367,7 +452,8 @@ async function main() {
   // 下载 ripgrep 预编译二进制（增强 Grep/Glob 性能，失败不阻塞安装）
   await downloadRipgrep(platform, binDir);
 
-  const migrated = migrateFromClaudeCode();
+  // #290：密钥迁移需显式确认，不再静默复制
+  const migrated = await maybeMigrateFromClaudeCode();
 
   if (!migrated) {
     console.log("");
@@ -415,4 +501,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { migrateFromClaudeCode };
+module.exports = { migrateFromClaudeCode, maybeMigrateFromClaudeCode, wouldCopyKeys, verifyChecksum };
