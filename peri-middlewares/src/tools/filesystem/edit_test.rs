@@ -139,10 +139,10 @@
             .unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("前 5 行匹配到文件第 1-5 行"),
+            msg.contains("match lines 1-5 of the file"),
             "应报告前缀匹配位置: {msg}"
         );
-        assert!(msg.contains("建议先 Read"), "应建议重新 Read: {msg}");
+        assert!(msg.contains("Re-read the file"), "应建议重新 Read: {msg}");
     }
 
     #[tokio::test]
@@ -165,7 +165,7 @@
             .unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("建议先 Read") || msg.contains("最接近的匹配"),
+            msg.contains("Re-read the file") || msg.contains("Closest match"),
             "应提供匹配提示: {msg}"
         );
     }
@@ -188,8 +188,14 @@
             .await
             .unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("建议先 Read"), "超长 old_string 应只给建议: {msg}");
-        assert!(!msg.contains("匹配到文件"), "超长 old_string 不应做模糊匹配: {msg}");
+        assert!(
+            msg.contains("Re-read the file"),
+            "超长 old_string 应只给建议: {msg}"
+        );
+        assert!(
+            !msg.contains("match lines"),
+            "超长 old_string 不应做模糊匹配: {msg}"
+        );
     }
 
     #[tokio::test]
@@ -206,9 +212,9 @@
             .await
             .unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("第 2 行"), "应报告第一个匹配行号: {msg}");
-        assert!(msg.contains("第 4 行"), "应报告第二个匹配行号: {msg}");
-        assert!(msg.contains("匹配位置"), "应包含匹配位置标签: {msg}");
+        assert!(msg.contains("line 2"), "应报告第一个匹配行号: {msg}");
+        assert!(msg.contains("line 4"), "应报告第二个匹配行号: {msg}");
+        assert!(msg.contains("Matches at"), "应包含匹配位置标签: {msg}");
     }
 
     #[tokio::test]
