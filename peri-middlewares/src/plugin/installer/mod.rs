@@ -182,7 +182,16 @@ pub(crate) fn update_enabled_plugins(
         serde_json::Value::Object(serde_json::Map::new())
     };
 
-    let obj = value.as_object_mut().unwrap();
+    // #317: settings.json 为合法非对象 JSON（如 []/"oops"/42）时，
+    // as_object_mut() 返回 None，unwrap() 会 panic。此时按空对象处理并告警。
+    if !value.is_object() {
+        tracing::warn!(
+            "settings.json at {} is valid JSON but not an object; treating as empty object",
+            settings_path.display()
+        );
+        value = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let obj = value.as_object_mut().expect("value is object after #317 guard");
     let enabled = obj
         .entry("enabledPlugins")
         .or_insert(serde_json::Value::Object(serde_json::Map::new()));

@@ -205,13 +205,27 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
     let thread_store: Arc<dyn peri_agent::thread::ThreadStore> =
         match peri_tui::thread::SqliteThreadStore::default_path().await {
             Ok(store) => Arc::new(store),
-            Err(_) => Arc::new(
-                peri_tui::thread::SqliteThreadStore::new(
+            // #318: 双路径都失败时降级为内存模式，而非 panic
+            Err(_) => {
+                match peri_tui::thread::SqliteThreadStore::new(
                     std::env::temp_dir().join("zen-threads.db"),
                 )
                 .await
-                .expect("无法创建临时 SQLite 数据库"),
-            ),
+                {
+                    Ok(store) => Arc::new(store),
+                    Err(e) => {
+                        tracing::warn!(
+                            "SQLite 持久化不可用（{}），降级为内存模式运行",
+                            e
+                        );
+                        Arc::new(
+                            peri_tui::thread::SqliteThreadStore::new(":memory:")
+                                .await
+                                .expect("内存 SQLite 初始化不应失败"),
+                        )
+                    }
+                }
+            }
         };
 
     // 初始化 Langfuse
