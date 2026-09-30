@@ -4,13 +4,25 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased
+## v0.6.93 — 2026-10-01
 
 ### Security Fixes
 
 - **HITL 预审批不再执行 rtk 二进制（#288）**：`gate_effective_call()` 为判断改写效果会在审批前执行外部 `rtk`（`verify_rtk_executable` 只校验 `--version` 退出码，PATH/RTK_PATH 劫持可致审批前代码执行）。现以纯字符串预测 `process::predict_rtk_rewrite()` 替代，零子进程；存在性检查 `rtk_rewrite_likely()` 替代 `--version` 探测；审批后的真实执行路径不变。另 `YOLO_MODE=""` 视同未设置。
 - **配置目录统一到 `~/.cc-code`（#289）**：新增 `peri-agent::app_home`，新目录优先、仅旧目录存在时回退 `~/.peri`、全新安装用 `~/.cc-code`；迁移 MCP 全局配置、OAuth、threads、skills、历史、sync 共 10 处调用点；Jev `PROTECTED_DIR_SEGMENTS` 补上 `.cc-code`，新配置目录保持写保护。
 - **npm 安装包校验 + 迁移确认（#290）**：`verifyChecksum()` 对下载的 tarball 做 sha256 校验（对照 release `checksums.txt`），缺失/不匹配直接失败；Claude Code 迁移改为确认制：`CC_CODE_NO_MIGRATE=1` / `--no-migrate` 跳过，非 TTY 跳过并提示手动迁移，TTY 下 `[y/N]` 默认否。
+- **项目 hooks 需显式信任（#18）**：`.claude/settings.local.json` 的 hooks 不再自动加载执行（防 clone 即 RCE，PoC 已验证可利用）。需 `CC_CODE_TRUST_PROJECT_HOOKS=1` 或项目列入 `~/.cc-code/trusted_projects`。
+- **插件 hooks 需信任（#17）**：未信任插件的 hooks 被过滤，不再自动执行。
+- **Sync KDF 改用随机 salt（#21）**：`derive_key(pair_code, salt)`，salt 经协议传输，防预计算攻击。
+- **Sync relay 警告（#22）**：sender 显示警告，提示 relay 可解密同步内容（含 API keys）。
+- **自更新脚本 SHA256 校验（#19）**：下载后验 hash 才执行，防篡改。
+
+### Fixes
+
+- **内存 Arc 循环引用修复（#306）**：tracer.rs 内存占用从 2.00x 降至 1.00x（100% 确认压测）。
+- **消息硬上限 10 万（#307）**：`MAX_MESSAGES = 100_000`，超限 degraded_prune，稳定 500MB 左右。
+- **跨平台修复（#308-#311）**：Windows 密钥文件 DACL、多行命令 hard-error、Unix 杀进程组、SIGTERM 恢复终端。
+- **Robustness 修复（#317-#319）**：settings.json 非对象 JSON 不再 panic、双 SQLite 失败降级内存模式、配置面板保存失败 UI 报错。
 
 ---
 
