@@ -1418,7 +1418,7 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
     let width = 80;
     let lines = render_view_model(&vm, Some(1), width, false, 0);
 
-    assert_eq!(lines.len(), 1, "超长参数的 ToolBlock Header 应该始终只有单行，不换行");
+    assert_eq!(lines.len(), 1, "非详细模式超长参数的 ToolBlock Header 应保持单行");
 
     let header_line = &lines[0];
     let header_text: String = header_line.spans.iter().map(|s| s.content.clone()).collect();
@@ -1435,6 +1435,106 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
         total_width <= width,
         "Header 视觉列宽 ({total_width}) 不应超过终端宽度 ({width})"
     );
+    // 非详细模式：命令宽度被限制在可用宽度的一半左右，不应顶到消息区最右侧
+    assert!(
+        total_width < width,
+        "非详细模式 Header 不应占满整行顶到最右 ({total_width} vs {width})"
+    );
+}
+
+#[test]
+fn test_tool_block_header_detail_mode_wraps_full_command_aligned() {
+    use crate::app::MessageViewModel;
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+    let long_cmd = "git log --graph --oneline --decorate --all --stat --pretty=format:'%h %s' -n 20 --since='1 week ago' --author=someone --grep=fix";
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_bash_detail_wrap".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some(long_cmd.to_string()),
+        content: String::new(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::SAGE,
+        diff_input: None,
+        execution_timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let width = 60;
+    let lines = render_view_model(&vm, Some(1), width, true, 0);
+    let rendered: Vec<String> = lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.clone()).collect::<String>())
+        .collect();
+
+    assert!(
+        rendered.len() > 1,
+        "详细模式超长命令应折成多行，实际 {} 行: {:?}",
+        rendered.len(),
+        rendered
+    );
+    // 完整命令不被截断
+    let joined: String = rendered.join("");
+    assert!(
+        !joined.contains('…'),
+        "详细模式命令不应被截断，实际: {joined}"
+    );
+    assert!(
+        joined.contains("--grep=fix"),
+        "详细模式应展示完整命令尾部，实际: {joined}"
+    );
+    // 续行与首行命令起始列对齐（悬挂缩进）
+    let cmd_col = UnicodeWidthStr::width("● Bash") + 1;
+    for (idx, line) in rendered.iter().enumerate() {
+        let w: usize = line.chars().map(|c| c.width().unwrap_or(0)).sum();
+        assert!(w <= width, "第 {} 行超宽 {}: {:?}", idx + 1, w, line);
+    }
+    for (idx, line) in rendered.iter().enumerate().skip(1) {
+        let cont_indent: usize = line.chars().take_while(|c| *c == ' ').count();
+        assert_eq!(
+            cont_indent, cmd_col,
+            "第 {} 行缩进 ({cont_indent}) 应与首行命令起始列 ({cmd_col}) 对齐: {rendered:?}",
+            idx + 1
+        );
+    }
+}
+
+#[test]
+fn test_tool_block_header_detail_mode_short_command_stays_single_line() {
+    use crate::app::MessageViewModel;
+
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_bash_detail_short".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("echo hello".to_string()),
+        content: String::new(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::SAGE,
+        diff_input: None,
+        execution_timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let lines = render_view_model(&vm, Some(1), 80, true, 0);
+    assert_eq!(
+        lines.len(),
+        1,
+        "详细模式下短命令仍应与 header 同行，不拆行: {:?}",
+        lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.clone()).collect::<String>())
+            .collect::<Vec<_>>()
+    );
+    let text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+    assert!(text.contains("Bash(echo hello)"), "实际: {text}");
 }
 
 #[test]
