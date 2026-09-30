@@ -60,14 +60,10 @@ pub fn save_to(cfg: &PeriConfig, path: &Path) -> Result<()> {
 
     let content = serde_json::to_string_pretty(cfg)?;
 
-    // atomic write（0600：配置含 providers[].apiKey，不能落盘成 0644）
+    // atomic write（owner-only：配置含 providers[].apiKey，不能落盘成 0644）
     let tmp_path = path.with_extension("json.tmp");
     std::fs::write(&tmp_path, content)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let _ = peri_agent::fs::restrict_to_owner(&tmp_path);
     std::fs::rename(&tmp_path, path)?;
 
     Ok(())

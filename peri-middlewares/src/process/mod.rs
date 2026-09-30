@@ -173,6 +173,14 @@ pub fn try_shell_command_with_shell(
                 if starts_with_posix_shell(command) {
                     return selected_git_bash_command(command, None);
                 }
+                // 无 Git Bash 时多行命令不能退回 cmd /C：静默截断只跑第一行
+                // 且报成功。直接 hard-error，一个字符都不执行（#309）。
+                if command.contains('\n') {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "多行命令在 Windows 上需要 Git Bash（cmd /C 只会执行第一行且静默丢失后续输出）。请安装 Git for Windows 或设置 GIT_BASH_PATH 后重试。未执行任何命令。",
+                    ));
+                }
                 Ok(shell_command_cmd(command, args))
             } else {
                 Ok(posix_shell_command(Path::new("bash"), command, args))

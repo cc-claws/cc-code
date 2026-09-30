@@ -13,22 +13,39 @@ const PIPE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 持有受管理的进程；Windows 上同时持有 Job，drop 时终止全部后代。
 /// 调用方取走管道后，应在根进程退出时 drop 本对象，再等待管道 EOF。
-/// Unix 保持 tokio 的直接子进程 kill-on-drop 行为。
+/// Unix 上每个被管理的子进程都是独立进程组组长（`process_group(0)`），
+/// drop 时 kill 整个进程组，不留孤儿孙进程（#310）。
 pub struct ManagedChild {
     #[cfg(windows)]
     child: windows_job::JobChild,
     #[cfg(not(windows))]
     child: tokio::process::Child,
+    /// spawn 时记录的直接子进程 pid（= 进程组 pgid）。
+    /// `Child::id()` 在 wait 后返回 None，这里存一份，保证 Drop 时总能 killpg。
+    #[cfg(not(windows))]
+    pid: u32,
 }
 
 impl ManagedChild {
     pub fn spawn(mut command: Command) -> io::Result<Self> {
         command.kill_on_drop(true);
+        #[cfg(not(windows))]
+        {
+            // 独立进程组：后续 killpg 杀整棵进程树时不会误伤父进程自己。
+            // （tokio::process::Command 自带 process_group 方法，无需 CommandExt。）
+            command.process_group(0);
+        }
         #[cfg(windows)]
         let child = windows_job::spawn(command)?;
         #[cfg(not(windows))]
         let child = command.spawn()?;
-        Ok(Self { child })
+        #[cfg(not(windows))]
+        let pid = child.id().expect("刚 spawn 的子进程一定有 pid");
+        Ok(Self {
+            child,
+            #[cfg(not(windows))]
+            pid,
+        })
     }
 
     pub fn take_stdin(&mut self) -> Option<ChildStdin> {
@@ -76,10 +93,23 @@ impl ManagedChild {
     }
 }
 
+#[cfg(not(windows))]
+impl Drop for ManagedChild {
+    fn drop(&mut self) {
+        // 子进程是独立进程组组长（spawn 时 process_group(0)），pgid == pid，
+        // killpg 不会误伤父进程。超时/取消后孙进程（如 sleep、后台任务）
+        // 否则变孤儿（#310）。目标已退出时 killpg 返回 ESRCH，无害。
+        unsafe {
+            libc::killpg(self.pid as libc::pid_t, libc::SIGKILL);
+        }
+        // 之后 tokio 的 kill_on_drop 再补刀直接子进程（已死则为 no-op）。
+    }
+}
+
 /// Execute once, feeding stdin while draining both output pipes.
 /// The execution timeout covers the root process, independently of bounded pipe
-/// draining. Dropping this future kills the direct child, and on Windows the
-/// entire job (including Git Bash's launcher child).
+/// draining. Dropping this future kills the whole process group on Unix
+/// (via `ManagedChild`'s Drop → killpg) and the entire job on Windows.
 /// This deliberately does not retry failed commands, which may have side effects.
 pub(crate) async fn output_with_input_timeout(
     mut command: Command,

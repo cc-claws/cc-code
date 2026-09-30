@@ -1,5 +1,7 @@
 #[cfg(windows)]
 use crate::process::git_bash_path;
+#[cfg(windows)]
+use crate::process::try_shell_command_with_shell;
 use crate::process::{
     git_bash_command, is_potential_rtk_command, shell_command, shell_command_with_shell,
 };
@@ -233,10 +235,16 @@ fn test_shell_command_multiline_uses_git_bash_on_windows() {
             "多行命令应走 bash -c，实际：{formatted}"
         );
     } else {
-        // Git Bash 不可用时回退 cmd（不能 panic）
+        // Git Bash 不可用时多行命令必须 hard-error，不能回退 cmd /C
+        // （cmd 只执行第一行且静默报成功，#309）。
+        // shell_command（infallible 版）会把错误转成必然 spawn 失败的占位命令，
+        // 这里直接测 try_ 版本断言错误本身。
+        let err = try_shell_command_with_shell(multiline, &[], None)
+            .expect_err("无 Git Bash 时多行命令应 hard-error，而非静默截断");
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
         assert!(
-            formatted.contains("cmd"),
-            "Git Bash 不可用时应回退 cmd，实际：{formatted}"
+            err.to_string().contains("Git Bash"),
+            "错误信息应提示需要 Git Bash，实际：{err}"
         );
     }
 }

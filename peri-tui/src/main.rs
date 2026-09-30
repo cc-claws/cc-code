@@ -565,6 +565,37 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         .build()?;
 
     let result = rt.block_on(async {
+        // Unix: 捕获 SIGTERM / SIGINT，先恢复终端再退出。
+        // 否则 `kill <pid>` 会让终端卡死在 raw mode + alternate screen（#311）。
+        // Windows 已有 SetConsoleCtrlHandler（见本函数开头）。
+        // 注意：raw mode 下 Ctrl+C 走按键事件不产生 SIGINT，这里只处理外部信号。
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let sigterm = signal(SignalKind::terminate());
+            let sigint = signal(SignalKind::interrupt());
+            if let (Ok(mut sigterm), Ok(mut sigint)) = (sigterm, sigint) {
+                tokio::spawn(async move {
+                    let exit_code = tokio::select! {
+                        _ = sigterm.recv() => 143, // 128 + SIGTERM(15)
+                        _ = sigint.recv() => 130, // 128 + SIGINT(2)
+                    };
+                    // 进程级终端状态恢复（不依赖 Terminal 对象，哪里被打断都能执行）。
+                    let _ = execute!(
+                        io::stdout(),
+                        LeaveAlternateScreen,
+                        DisableMouseCapture,
+                        DisableBracketedPaste,
+                        DisableFocusChange
+                    );
+                    let _ = disable_raw_mode();
+                    std::process::exit(exit_code);
+                });
+            } else {
+                tracing::warn!("SIGTERM/SIGINT 监听器安装失败：被信号终止时终端可能无法恢复");
+            }
+        }
+
         // 初始化终端：进入 alternate screen + 启用鼠标捕获，禁用终端原生 scrollback，
         // 滚动完全由 TUI 自渲染滚动条接管（跨平台一致）。
         enable_raw_mode()?;
