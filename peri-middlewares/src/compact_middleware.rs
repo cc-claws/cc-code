@@ -131,6 +131,8 @@ impl CompactMiddleware {
                 self.send_event(ExecutorEvent::CompactError {
                     message: "模型不可用，跳过压缩".to_string(),
                 });
+                // #307：跳过时也尝试降级修剪，避免 model 持续为 None 导致无界增长
+                self.degraded_prune(state);
                 return Ok(());
             }
         };

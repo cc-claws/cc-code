@@ -51,8 +51,8 @@ fn live_bytes() -> usize {
 
 #[test]
 fn stress_307_message_history_grows_without_bound() {
-    const NUM_MSGS: usize = 20_000;
-    const BYTES_PER_MSG: usize = 5 * 1024; // 5KB（模拟 tool result 文本）
+    const NUM_MSGS: usize = 110_000;
+    const BYTES_PER_MSG: usize = 1024; // 1KB（cap 测试用小消息，避免分配过大）
 
     let mut state = AgentState::new("/tmp/stress-307");
 
@@ -78,8 +78,8 @@ fn stress_307_message_history_grows_without_bound() {
         peri_agent::agent::state::MAX_MESSAGES,
     );
 
-    // 断言（#307 修复后）：硬上限生效，20000 条被截断到 MAX_MESSAGES，
-    // 内存有界（≤ MAX_MESSAGES * 单条大小 + 余量），不再无界增长。
+    // 断言（#307 修复后）：硬上限 100000 生效，110000 条被截断，
+    // 内存有界，不再无界增长。100000 为 emergency 防线，正常长会话不受影响。
     assert_eq!(
         msg_count,
         peri_agent::agent::state::MAX_MESSAGES,
@@ -87,7 +87,7 @@ fn stress_307_message_history_grows_without_bound() {
         peri_agent::agent::state::MAX_MESSAGES,
     );
 
-    // 内存上界：10000 条 * 5KB = ~50MB，留 20% 余量
+    // 内存上界：100000 条 * 1KB = ~100MB，留 20% 余量
     let max_expected = peri_agent::agent::state::MAX_MESSAGES * BYTES_PER_MSG * 12 / 10;
     assert!(
         grown <= max_expected,

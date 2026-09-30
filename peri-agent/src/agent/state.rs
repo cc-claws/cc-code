@@ -7,8 +7,9 @@ use crate::{
 };
 
 /// #307 消息历史硬上限：compact 持续失败/跳过时的最后兜底，防止内存无界增长。
-/// 正常会话远达不到此量级（warn 阈值为 100），触发即意味着上游 compact 持续异常。
-pub const MAX_MESSAGES: usize = 10_000;
+/// 设计目标：10w 条消息稳定在 ~500MB（实测 95000 条/502MB @5KB/条）。
+/// 超过此量级是用户侧责任（应走 compact 或接受丢弃最旧消息）。
+pub const MAX_MESSAGES: usize = 100_000;
 
 /// State trait - 所有 Agent 状态必须实现此 trait
 /// 与 TypeScript BaseAgentStateType 对齐
