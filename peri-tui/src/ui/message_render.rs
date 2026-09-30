@@ -1233,18 +1233,10 @@ pub fn render_view_model_with_links(
                 indicator_color
             };
 
-            // 工具名颜色：Running=青色 bold（Bash 除外，保持白色），Completed=白色，Error=红色
-            let name_style = if is_running && tool_name != "Bash" {
-                Style::default()
-                    .fg(theme::CYAN)
-                    .add_modifier(Modifier::BOLD)
-            } else if is_running {
-                Style::default().fg(theme::TEXT_SOFT)
-            } else if *is_error {
-                Style::default().fg(theme::ERROR)
-            } else {
-                Style::default().fg(theme::TEXT_SOFT)
-            };
+            // 工具名配色统一为中性色：成败与运行状态语义全部由 ● 指示器承载，
+            // 工具名字母不随状态变色（此前 Bash 恒定灰、其他工具运行中青、报错红，
+            // 规则不一致且同一行出现多种颜色，易误读）。
+            let name_style = Style::default().fg(theme::TEXT_SOFT);
 
             let mut header_spans = vec![
                 Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),

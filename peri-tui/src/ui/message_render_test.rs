@@ -1208,6 +1208,71 @@
         );
     }
 
+    /// 统一规则：工具名恒为中性色，报错也不变色（状态只由 ● 表达）。
+    #[test]
+    fn test_bash_toolblock_error_keeps_name_neutral_color() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_bash_error_name".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("false".to_string()),
+            content: "boom".to_string(),
+            is_error: true,
+            collapsed: true,
+            color: crate::ui::theme::BASH_BORDER,
+            diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
+            started_at: None,
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        let header = &lines[0];
+        assert_eq!(
+            header.spans.first().and_then(|s| s.style.fg),
+            Some(crate::ui::theme::ERROR),
+            "报错时 ● 应为红色（状态由指示器表达）"
+        );
+        assert_eq!(
+            header.spans.get(2).and_then(|s| s.style.fg),
+            Some(crate::ui::theme::TEXT_SOFT),
+            "报错时工具名字母应保持中性灰，不得变红"
+        );
+    }
+
+    /// 非 Bash 工具同样遵循统一规则：报错时名字也不变色。
+    #[test]
+    fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Read".to_string(),
+            tool_call_id: "tc_read_error_name".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("/tmp/x".to_string()),
+            content: "boom".to_string(),
+            is_error: true,
+            collapsed: true,
+            color: crate::ui::theme::TEXT,
+            diff_input: None,
+            execution_timeout_ms: None,
+            shell_backgrounded: false,
+            started_at: None,
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        assert_eq!(
+            lines[0].spans.first().and_then(|s| s.style.fg),
+            Some(crate::ui::theme::ERROR),
+            "报错时 ● 应为红色"
+        );
+        assert_eq!(
+            lines[0].spans.get(2).and_then(|s| s.style.fg),
+            Some(crate::ui::theme::TEXT_SOFT),
+            "非 Bash 工具报错时名字也应保持中性灰"
+        );
+    }
+
     #[test]
     fn test_bash_nonzero_exit_result_lines_use_error_color() {
         use crate::app::MessageViewModel;
