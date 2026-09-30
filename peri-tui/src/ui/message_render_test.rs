@@ -1559,6 +1559,51 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
     );
 }
 
+/// 回归：详细模式下命令**以超长无空格 token 开头**时，header 不应被拆散。
+///
+/// `wrap_line_spans_rich` 的词边界回退只在「断点后的词能放进一整行」时才应生效；
+/// 若该词本身比视口还宽（反正要硬断），回退会把整个长词推走、首行只剩 "●"，
+/// 呈现为 `●` 孤立一行 + `Bash(AAAA…)` 顶到下一行。
+#[test]
+fn test_tool_block_header_detail_mode_long_token_no_space_keeps_header() {
+    use crate::app::MessageViewModel;
+
+    // 超长无空格 token（命令以它开头，前面没有短词可供回退）
+    let cmd = "A".repeat(300);
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_long_token".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some(cmd),
+        content: String::new(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::SAGE,
+        diff_input: None,
+        execution_timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    for width in [40usize, 60, 80, 100] {
+        let rendered: Vec<String> = render_view_model(&vm, Some(1), width, true, 0)
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect();
+        assert!(
+            rendered[0].contains("Bash("),
+            "width={width}: header 首行应保留 ● Bash(，不能只剩孤立指示器: {:?}",
+            &rendered[..rendered.len().min(3)]
+        );
+        assert!(
+            !rendered[0].trim().eq("●"),
+            "width={width}: 指示器不应孤立成行: {:?}",
+            &rendered[..rendered.len().min(3)]
+        );
+    }
+}
+
 #[test]
 fn test_tool_block_header_detail_mode_wraps_full_command_aligned() {
     use crate::app::MessageViewModel;
