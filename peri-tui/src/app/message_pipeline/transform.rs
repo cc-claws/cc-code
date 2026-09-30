@@ -219,13 +219,15 @@ pub fn readonly_action_summary(reads: usize, globs: usize, greps: usize) -> Opti
 /// - 用户消息、非「thinking bubble / 只读工具组」的 VM
 ///
 /// **非只读工具**（Bash/Write/Edit）不参与计数，但**不打断**合并段。
-fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
+pub(super) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
+    // 计数摘要由 VM 序列派生；合并已归一化前缀与实时尾部时需要重新计算。
+    clear_action_summaries(vms);
+
     let mut out: Vec<MessageViewModel> = Vec::with_capacity(vms.len());
     let mut i = 0;
     while i < vms.len() {
         if !is_thinking_bubble(&vms[i]) {
-            // 纯动作行（PRD §2.3）：只读工具组**前一个不是 thinking bubble** 时，
-            // 折叠态需自显示计数（否则纯工具轮完全不可见）。
+            // 暂存独立动作摘要。若后续同一连续段出现 Thought，会把摘要转移到 Thought 行。
             let mut vm = vms[i].clone();
             if let MessageViewModel::ToolCallGroup {
                 tools,
@@ -233,7 +235,11 @@ fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
                 ..
             } = &mut vm
             {
-                let prev_is_thinking = out.last().is_some_and(is_thinking_bubble_with_summary);
+                let prev_is_thinking = out
+                    .iter()
+                    .rev()
+                    .find(|previous| !is_tool_vm(previous))
+                    .is_some_and(is_thinking_bubble_with_summary);
                 if !prev_is_thinking {
                     let reads = tools.iter().filter(|t| t.tool_name == "Read").count();
                     let globs = tools.iter().filter(|t| t.tool_name == "Glob").count();
@@ -249,7 +255,9 @@ fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
 
         // 收集段：bubble 与其后连续工具交替，直到边界
         let (mut tot_ms, mut missing_ms) = (0u64, false);
-        let (mut reads, mut globs, mut greps) = (0usize, 0usize, 0usize);
+        // 工具也可能先于 Thought 出现。吸收 out 尾部尚未归属的独立只读计数，
+        // 并清掉工具组摘要，避免同一计数显示两次。
+        let (mut reads, mut globs, mut greps) = absorb_preceding_tool_summaries(&mut out);
         let mut merged_text = String::new();
         let mut j = i;
 
@@ -388,6 +396,83 @@ fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
         i = seg_end.max(i + 1);
     }
     *vms = out;
+}
+
+/// 清除归并器生成的派生摘要，以便对已归一化前缀和新增尾部再次归一化。
+fn clear_action_summaries(vms: &mut [MessageViewModel]) {
+    for vm in vms {
+        let mut changed = false;
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                for block in blocks {
+                    if let ContentBlockView::Reasoning { action_summary, .. } = block {
+                        if action_summary.take().is_some() {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            MessageViewModel::ToolCallGroup {
+                standalone_action, ..
+            } => {
+                if standalone_action.take().is_some() {
+                    changed = true;
+                }
+            }
+            _ => {}
+        }
+        if changed {
+            vm.recompute_hash();
+        }
+    }
+}
+
+/// 将尚未归属的独立只读动作摘要从紧邻 Thought 之前的工具段转移到 Thought。
+fn absorb_preceding_tool_summaries(out: &mut [MessageViewModel]) -> (usize, usize, usize) {
+    let mut reads = 0;
+    let mut globs = 0;
+    let mut greps = 0;
+    let mut start = out.len();
+
+    while start > 0 && is_tool_vm(&out[start - 1]) {
+        start -= 1;
+    }
+
+    for vm in &mut out[start..] {
+        let mut changed = false;
+        if let MessageViewModel::ToolCallGroup {
+            tools,
+            standalone_action,
+            ..
+        } = vm
+        {
+            // None 表示该工具组已由更早的 Thought 行统计，不能重复吸收。
+            if standalone_action.is_some() {
+                for tool in tools {
+                    match tool.tool_name.as_str() {
+                        "Read" => reads += 1,
+                        "Glob" => globs += 1,
+                        "Grep" => greps += 1,
+                        _ => {}
+                    }
+                }
+                *standalone_action = None;
+                changed = true;
+            }
+        }
+        if changed {
+            vm.recompute_hash();
+        }
+    }
+
+    (reads, globs, greps)
+}
+
+fn is_tool_vm(vm: &MessageViewModel) -> bool {
+    matches!(
+        vm,
+        MessageViewModel::ToolCallGroup { .. } | MessageViewModel::ToolBlock { .. }
+    )
 }
 
 /// 该 VM 是否为「含 Reasoning 的 AssistantBubble」

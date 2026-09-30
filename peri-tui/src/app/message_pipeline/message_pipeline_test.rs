@@ -2108,6 +2108,44 @@ fn make_ai_with_tools(tools: &[(&str, &str)]) -> Vec<BaseMessage> {
     msgs
 }
 
+/// 构造 Read 结果在前、Reasoning + 后续工具调用在后的消息序列。
+fn make_read_then_reasoning_messages() -> Vec<BaseMessage> {
+    let read_call = ToolCallRequest {
+        id: "read-1".to_string(),
+        name: "Read".to_string(),
+        arguments: json!({ "file_path": "/a.rs" }),
+    };
+    let next_call = ToolCallRequest {
+        id: "bash-1".to_string(),
+        name: "Bash".to_string(),
+        arguments: json!({ "command": "cargo check" }),
+    };
+
+    vec![
+        BaseMessage::human("检查文件"),
+        BaseMessage::Ai {
+            id: peri_agent::messages::MessageId::new(),
+            content: MessageContent::blocks(Vec::new()),
+            tool_calls: vec![read_call.clone()],
+        },
+        BaseMessage::Tool {
+            id: peri_agent::messages::MessageId::new(),
+            tool_call_id: read_call.id,
+            content: MessageContent::text("文件内容"),
+            is_error: false,
+        },
+        BaseMessage::Ai {
+            id: peri_agent::messages::MessageId::new(),
+            content: MessageContent::blocks(vec![ContentBlock::Reasoning {
+                text: "根据文件内容继续检查".to_string(),
+                signature: None,
+                duration_ms: Some(1200),
+            }]),
+            tool_calls: vec![next_call],
+        },
+    ]
+}
+
 /// 提取首个 Reasoning block 的 action_summary
 fn first_action_summary(vms: &[MessageViewModel]) -> Option<String> {
     for vm in vms {
@@ -2135,6 +2173,59 @@ fn test_action_summary_injected_for_read_and_grep() {
         first_action_summary(&vms).as_deref(),
         Some("read 1 file, searched for 1 pattern"),
         "应注入 Read/Grep 计数"
+    );
+}
+
+fn read_group_standalone_action(vms: &[MessageViewModel]) -> Option<Option<String>> {
+    vms.iter().find_map(|vm| match vm {
+        MessageViewModel::ToolCallGroup {
+            tools,
+            standalone_action,
+            ..
+        } if tools.iter().any(|tool| tool.tool_name == "Read") => Some(standalone_action.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn test_action_summary_absorbs_read_group_before_thought() {
+    let msgs = make_read_then_reasoning_messages();
+
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
+
+    assert_eq!(
+        first_action_summary(&vms).as_deref(),
+        Some("read 1 file"),
+        "Thought 应吸收前置 Read 计数"
+    );
+    assert_eq!(
+        read_group_standalone_action(&vms),
+        Some(None),
+        "计数归属 Thought 后，工具组不能重复显示独立动作行"
+    );
+}
+
+#[test]
+fn test_build_tail_merges_completed_read_with_streaming_thought() {
+    let mut completed = make_read_then_reasoning_messages();
+    completed.pop(); // 当前 Reasoning 仍在流式状态，尚未进入 completed。
+
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.completed = completed;
+    pipeline.has_snapshot_this_round = true;
+    pipeline.current_ai_reasoning = "根据文件内容继续检查".to_string();
+
+    let tail_vms = pipeline.build_tail_vms();
+
+    assert_eq!(
+        first_action_summary(&tail_vms).as_deref(),
+        Some("read 1 file"),
+        "实时流式 Thought 应吸收 completed 前缀中的 Read 计数"
+    );
+    assert_eq!(
+        read_group_standalone_action(&tail_vms),
+        Some(None),
+        "实时归并后工具组不能重复显示独立动作行"
     );
 }
 

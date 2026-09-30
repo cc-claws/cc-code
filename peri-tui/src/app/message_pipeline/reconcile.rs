@@ -8,6 +8,7 @@ use crate::{
 
 pub use crate::ui::message_view::aggregate_batch_groups;
 
+use super::transform::merge_consecutive_thinking;
 use super::MessagePipeline;
 
 /// 从工具名和入参构造 DiffInput（仅 Write/Edit 工具）。
@@ -320,6 +321,9 @@ impl MessagePipeline {
 
         self.apply_shell_runtime(&mut tail_vms);
         aggregate_tool_groups(&mut tail_vms);
+        // Re-run after appending streaming/pending tools so a completed tool group
+        // can be merged into the reasoning bubble currently being streamed.
+        merge_consecutive_thinking(&mut tail_vms);
 
         if !self.has_streaming_content() && self.current_ai_tool_calls.is_empty() {
             aggregate_batch_groups(&mut tail_vms);
