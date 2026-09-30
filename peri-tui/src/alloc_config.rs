@@ -1,39 +1,52 @@
 //! Allocator tuning for high-churn workloads.
 //!
-//! Using jemalloc with aggressive decay for better fragmentation handling on macOS.
+//! - macOS/Linux：jemalloc（aggressive decay），配置 `MALLOC_CONF`
+//! - Windows：mimalloc（`MIMALLOC_DECOMMIT` 归还策略），jemalloc 无法在 MSVC 工具链编译
 //!
 //! Public API:
 //! - `init_alloc_conf()` — set env vars before allocator init
 //! - `alloc_collect()` — force aggressive memory reclamation
-//! - `query_stats()` — get allocator stats (RSS + jemalloc allocated)
-//! - `query_breakdown()` — jemalloc allocated/active/resident/metadata/mapped/retained
-//! - `dump_stats()` — print detailed allocator stats to stderr
+//! - `query_stats()` — get allocator stats (RSS + allocator allocated)
+//! - `query_breakdown()` — allocated/active/resident/metadata/mapped/retained
+//! - `dump_stats()` — print detailed allocator stats to tracing
 //! - `os_rss_mb()` — OS-level RSS via sysinfo (MB)
 
-/// Allocator stats (RSS from sysinfo + jemalloc allocated).
+/// Allocator stats (RSS from sysinfo + allocator allocated).
 #[derive(Debug, Clone, Copy)]
 pub struct AllocStats {
     /// OS 级 RSS（sysinfo 报告，含所有内存，字节）
     pub current_rss: usize,
-    /// jemalloc stats.allocated（应用实际分配字节数，不含碎片/元数据）
+    /// 分配器 stats.allocated（应用实际分配字节数，不含碎片/元数据；Windows 上由 mimalloc 提供）
     pub current_allocated: usize,
 }
 
-/// jemalloc 详细统计（需要 advance epoch 才准确）。
+/// 分配器详细统计（需要 advance epoch / stats 快照才准确）。
+///
+/// 字段语义平台无关；底层分别来自 jemalloc mallctl（非 Windows）
+/// 与 mimalloc stats JSON（Windows）。
 #[derive(Debug, Clone, Copy)]
-pub struct JemallocBreakdown {
+pub struct AllocBreakdown {
     /// 应用实际分配的字节
     pub allocated: usize,
     /// 活跃页中的字节（页对齐，>= allocated）
     pub active: usize,
-    /// 物理驻留字节（含脏页、元数据，>= active）
+    /// 物理驻留字节（含脏页、元数据，>= active；Windows 上是 WorkingSet，换出页不计入）
     pub resident: usize,
-    /// jemalloc 元数据开销
+    /// 分配器元数据开销
     pub metadata: usize,
-    /// 映射的字节
+    /// 映射/保留的字节
     pub mapped: usize,
     /// 保留未归还 OS 的字节
     pub retained: usize,
+}
+
+/// 当前平台的全局分配器名（用于 /gc 等诊断输出）。
+pub fn allocator_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "mimalloc"
+    } else {
+        "jemalloc"
+    }
 }
 
 /// Set allocator environment variables before initialization.
@@ -48,9 +61,17 @@ pub fn init_alloc_conf() {
     }
 }
 
+/// 设置 mimalloc 环境变量（须在首次分配前调用）。
+///
+/// `MIMALLOC_DECOMMIT=1`：空闲页 decommit 归还 OS，对齐非 Windows 的
+/// `dirty_decay_ms:0` 策略，缓解长会话 RSS 只增不减。
 #[cfg(target_os = "windows")]
 #[allow(dead_code)]
-pub fn init_alloc_conf() {}
+pub fn init_alloc_conf() {
+    if std::env::var("MIMALLOC_DECOMMIT").is_err() {
+        std::env::set_var("MIMALLOC_DECOMMIT", "1");
+    }
+}
 
 /// Force jemalloc to aggressively reclaim freed memory.
 #[cfg(not(target_os = "windows"))]
@@ -76,8 +97,12 @@ pub fn alloc_collect() {
     let _ = tikv_jemalloc_ctl::epoch::advance();
 }
 
+/// 强制 mimalloc 归还空闲内存（purge + decommit）。
 #[cfg(target_os = "windows")]
-pub fn alloc_collect() {}
+pub fn alloc_collect() {
+    // Safety: mi_collect 是线程安全的 C API，参数仅 force 标志
+    unsafe { libmimalloc_sys::mi_collect(true) };
+}
 
 /// Advance jemalloc epoch to refresh cached stats.
 #[cfg(not(target_os = "windows"))]
@@ -102,11 +127,11 @@ pub fn query_stats() -> Option<AllocStats> {
     })
 }
 
-/// Query jemalloc detailed breakdown.
+/// Query allocator detailed breakdown.
 #[cfg(not(target_os = "windows"))]
-pub fn query_breakdown() -> Option<JemallocBreakdown> {
+pub fn query_breakdown() -> Option<AllocBreakdown> {
     advance_epoch();
-    Some(JemallocBreakdown {
+    Some(AllocBreakdown {
         allocated: tikv_jemalloc_ctl::stats::allocated::read().ok()?,
         active: tikv_jemalloc_ctl::stats::active::read().ok()?,
         resident: tikv_jemalloc_ctl::stats::resident::read().ok()?,
@@ -139,53 +164,84 @@ pub fn os_rss_mb() -> Option<u64> {
     sys.process(pid).map(|p| p.memory() / (1024 * 1024)) // bytes → MB
 }
 
-// ── Windows stubs ──────────────────────────────────────────────────────────
+// ── Windows (mimalloc) ─────────────────────────────────────────────────────
 
+/// 读取 mimalloc stats JSON（buf=NULL 时由 mi_malloc 分配，须 mi_free 释放）。
+#[cfg(target_os = "windows")]
+fn mimalloc_stats_json() -> Option<String> {
+    // Safety: 传 NULL buf 让 mimalloc 自分配；返回指针用 mi_free 归还
+    unsafe {
+        let ptr = libmimalloc_sys::mi_stats_get_json(0, std::ptr::null_mut());
+        if ptr.is_null() {
+            return None;
+        }
+        let s = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
+        libmimalloc_sys::mi_free(ptr as *mut std::ffi::c_void);
+        Some(s)
+    }
+}
+
+/// 从 stats JSON 的 `mi_stat_count` 对象读 current 字段。
+#[cfg(target_os = "windows")]
+fn json_current(v: &serde_json::Value, name: &str) -> usize {
+    v[name]["current"].as_i64().unwrap_or(0).max(0) as usize
+}
+
+/// Query RSS + allocator allocated bytes.
 #[cfg(target_os = "windows")]
 pub fn query_stats() -> Option<AllocStats> {
-    // sysinfo works on Windows, just no jemalloc allocated
     use sysinfo::{ProcessesToUpdate, System};
     let mut sys = System::new();
     let pid = sysinfo::get_current_pid().ok()?;
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let proc = sys.process(pid)?;
     let current_rss = proc.memory() as usize; // sysinfo returns bytes
+    // stats 不可读时回退 0，不用 RSS 冒充 allocated（否则差异诊断失真）
+    let current_allocated = mimalloc_stats_json()
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+        .map(|v| json_current(&v, "malloc_normal") + json_current(&v, "malloc_huge"))
+        .unwrap_or(0);
     Some(AllocStats {
         current_rss,
-        current_allocated: 0, // no jemalloc on Windows
+        current_allocated,
     })
 }
 
+/// Query allocator detailed breakdown via mimalloc stats JSON.
+///
+/// 字段映射：
+/// - allocated = malloc_normal + malloc_huge（应用在用字节）
+/// - active = page_committed（页内已提交）
+/// - resident = process.rss_current（WorkingSet，Windows 精确值）
+/// - metadata = committed - page_committed（页外提交，近似元数据/段开销）
+/// - mapped = reserved（累计向 OS 保留的虚拟地址空间）
+/// - retained = reserved - committed（保留未提交）
 #[cfg(target_os = "windows")]
-pub fn query_breakdown() -> Option<JemallocBreakdown> {
-    // No jemalloc on Windows, but report OS-level memory info via GetProcessMemoryInfo
-    use windows_sys::Win32::System::ProcessStatus::{
-        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
-    };
-    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
-    let handle = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcess() };
-    let ok = unsafe {
-        GetProcessMemoryInfo(
-            handle,
-            &mut counters as *mut _ as *mut _,
-            std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
-        )
-    };
-    if ok == 0 {
-        return None;
+pub fn query_breakdown() -> Option<AllocBreakdown> {
+    let json = mimalloc_stats_json()?;
+    let v: serde_json::Value = serde_json::from_str(&json).ok()?;
+    let allocated = json_current(&v, "malloc_normal") + json_current(&v, "malloc_huge");
+    let active = json_current(&v, "page_committed");
+    let committed = json_current(&v, "committed");
+    let reserved = json_current(&v, "reserved");
+    let resident = v["process"]["rss_current"].as_i64().unwrap_or(0).max(0) as usize;
+    Some(AllocBreakdown {
+        allocated,
+        active,
+        resident,
+        metadata: committed.saturating_sub(active),
+        mapped: reserved,
+        retained: reserved.saturating_sub(committed),
+    })
+}
+
+/// 打印 mimalloc 完整 stats（JSON）到 tracing。
+#[cfg(target_os = "windows")]
+pub fn dump_stats() {
+    if let Some(json) = mimalloc_stats_json() {
+        tracing::info!("mimalloc stats: {json}");
     }
-    Some(JemallocBreakdown {
-        allocated: 0, // no jemalloc
-        active: 0,
-        resident: counters.WorkingSetSize as usize,
-        metadata: 0,
-        mapped: counters.PagefileUsage as usize,
-        retained: 0,
-    })
 }
-
-#[cfg(target_os = "windows")]
-pub fn dump_stats() {}
 
 #[cfg(target_os = "windows")]
 pub fn os_rss_mb() -> Option<u64> {
