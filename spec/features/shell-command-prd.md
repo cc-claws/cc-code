@@ -36,25 +36,56 @@
 |------|----------|----------|
 | 执行者 | 用户 shell（cmd/bash） | Agent (LLM) |
 | 输出 | stdout/stderr 原始输出 | Agent 流式回复 |
-| 历史 | 记录在聊天流，不进入 Agent history | 进入 Agent history |
+| 历史 | 记录在聊天流；**摘要片段回流至 Agent history**（见 §3.1.1） | 进入 Agent history |
 | 耗时 | 即时 | 取决于 LLM 响应 |
+
+> **2026-09-30 修订**：原表述为「记录在聊天流，**不进入** Agent history」。
+> 经产品决策调整 —— `!` 命令结果需让模型在后续轮次可见（对齐 Codex CLI 与 claude-code-best 行为），
+> 故新增「上下文回流」机制，详见 §3.1.1。安全前提：回流内容**必须先经脱敏**（§4.3）。
 
 ## 3. 技术方案
 
 ### 3.1 架构决策：TUI 层拦截
 
-**选择**: 在 TUI 层拦截 `!` 命令，不发送到 ACP Server。
+**选择**: 在 TUI 层拦截 `!` 命令的执行本身，**不将命令发送给 Agent 去执行**。
 
 **理由**:
-1. 系统命令是用户 shell 操作，与 Agent 无关
-2. 避免污染 Agent 的消息历史
-3. 执行速度更快（无 Agent 构建开销）
-4. 参考 Codex 的 `AppCommand::RunUserShellCommand` 设计
+1. 系统命令是用户 shell 操作，执行由 TUI 直接完成（无 Agent 构建开销）
+2. 执行速度快
+3. 参考 Codex 的 `AppCommand::RunUserShellCommand` 设计
 
 **对比 `/slash` 命令**:
 - `/clear` 等 UI 命令在 TUI 层拦截（操作 App 状态）
 - `/compact` 等 Agent 命令在 ACP 层拦截（操作 Agent history）
-- `!` 命令在 TUI 层拦截（执行系统命令，结果展示在 UI）
+- `!` 命令在 TUI 层**执行**；执行结果另经 §3.1.1 的回流通道进入 Agent history
+
+> **2026-09-30 修订**：原决策为「`!` 命令不发送到 ACP Server」，理由含「避免污染 Agent 的消息历史」。
+> 该理由已不再成立 —— 现明确要求结果回流以便模型感知（§3.1.1）。
+> **执行的拦截位置不变**（仍在 TUI 层），变化的只是「结果是否进入 Agent 上下文」。
+
+#### 3.1.1 上下文回流（新增）
+
+`!` 命令执行完成后，TUI 构造以下片段经 `session/append_history` 写入会话 history：
+
+```
+<local-command-caveat>Caveat: …DO NOT respond to these messages…</local-command-caveat>
+<bash-input>{命令}</bash-input>
+<bash-stdout>{stdout + 退出码}</bash-stdout><bash-stderr>{stderr}</bash-stderr>
+```
+
+**设计要点**：
+
+| 要点 | 说明 |
+|------|------|
+| 不触发推理轮次 | 仅写 history，由**下一次** `session/prompt` 携带给模型；不产生额外 Agent 回复 |
+| role = user | 与 Codex / claude-code-best 一致，模型归因为「用户执行」而非「自己执行」 |
+| caveat 前置 | 阻止模型把命令回放误当需要响应的用户请求 |
+| 不重复展示 | 片段在展示层跳过（`message_pipeline::transform`）；UI 展示仍由 `ShellCommand` VM 负责 |
+| 输出格式 | 复用 agent 自身执行 Bash 的 `format_command_output`，保持模型侧表示一致 |
+| 超长输出 | 复用 `truncate_shell_output` 截断 + 落盘 |
+| 并发 | 与 `session/prompt` 共用 `prompt_locks` 串行，避免 prompt 回写时覆盖 |
+
+> **未纳入回流**：Ctrl+B 后台化的 `!` 命令走既有后台通知链路（会额外起一轮），行为与前台不同。
 
 ### 3.2 数据流
 
@@ -89,6 +120,27 @@ TUI 渲染: exec_result 组件
   ├─ 输出内容: stdout/stderr
   └─ 状态码: exit code (非0 红色高亮)
 ```
+
+**2026-09-30 新增（§3.1.1 上下文回流）**：`push_command_result` 之后追加一条支路 ——
+
+```
+       └─ app.push_command_result(output)   // 发回 TUI（展示）
+                │
+                ▼
+        inject_shell_context(record)
+          ├─ shell_context_messages()        // caveat + bash-input + bash-stdout/stderr
+          │    └─ redact_secrets()           // ★ 脱敏（离开本机前）
+          │    └─ truncate_shell_output()    // 超长截断 + 落盘
+          └─ AcpTuiClient::append_history(session_id, messages)
+                   │  （session/append_history，不触发推理）
+                   ▼
+        ACP Server: state.history.extend(...) + thread_store.append_messages(...)
+                   │
+                   ▼
+        下一次 session/prompt 时随 history 送入模型
+```
+
+> 注意：该支路**不改变**上方主链路的展示行为 —— UI 仍由 `ShellCommand` VM 渲染。
 
 ### 3.3 核心组件
 
@@ -191,6 +243,31 @@ pub struct ShellCommandRecord {
 }
 ```
 
+> **2026-09-30 修订**：现有实现为**双持久化**，职责不同：
+> 1. `ShellCommandRecord` → `shell-commands.jsonl`（`ShellCommandStore`）：供 **UI 恢复展示**（§3.4 原文所述目的）
+> 2. `BaseMessage` 片段 → ThreadStore（SQLite）`messages` 表：供 **模型上下文恢复**（§3.1.1 回流）
+>
+> 二者数据源独立，故 `merge_shell_records_into_view` 的锚点计数必须与展示层跳过口径一致，
+> 否则恢复会话时 shell 卡片位置漂移。
+
+### 3.4.1 安全：回流内容必须脱敏（新增）
+
+`!` 命令输出进入会话 history 后，会随每一次 `session/prompt` 发送至 **LLM 提供方 API（离开本机）**。
+这改变了原有的数据边界 —— 此前 `!` 输出只写入本地文件。
+
+**要求**：
+
+- 所有回流字段（命令文本、stdout、stderr）在**入库与入 history 之前**经
+  `peri_middlewares::hitl::jev::redact::redact_secrets` 处理
+- 脱敏须**先于**截断，避免凭据被截断规则切成半截而漏过模式匹配
+- 与审批弹窗（HITL）保持同一安全口径 —— 该函数的设计目标即「在状态离开本机之前替换明显凭据」
+
+**已知局限**（不阻塞，但需知悉）：
+
+- 脱敏为**模式匹配**（正则），无法覆盖所有凭据形态（如自研格式、base64 编码后的密钥）
+- 命令输出以 role=user 进入上下文，理论上存在**提示注入**面（如 `!curl <恶意地址>` 的回显）；
+  `<local-command-caveat>` 只提供软约束，非隔离机制
+
 ### 3.5 工作目录
 
 命令在 App 的当前工作目录（`app.cwd`）下执行，与 Agent 工具执行保持一致。
@@ -208,6 +285,20 @@ pub struct ShellCommandRecord {
 - 不做命令黑名单（太难维护且容易绕过）
 - 依赖用户的常识和操作系统的权限控制
 - 在文档中提示用户注意安全
+
+### 4.3 数据外发（新增，2026-09-30）
+
+`!` 命令的输出**不再只留在本机** —— 经 §3.1.1 回流后会随会话 history 发送至 LLM 提供方 API。
+
+| 项 | 说明 |
+|----|------|
+| 外发内容 | 命令文本 + stdout + stderr（脱敏后） |
+| 外发时机 | 下一次 `session/prompt` 时 |
+| 强制措施 | 所有回流字段经 `redact_secrets`（§3.4.1） |
+| 用户预期管理 | 用户应知悉：`!` 输出可能被模型看到，等同「把该输出贴进对话」 |
+
+**与 §4.1 的关系**：`!` 命令**执行**仍不经 HITL 审批；但**结果外发**这一新增行为需在文档/CHANGELOG 中明示，
+避免用户误以为 `!` 输出始终不出本机。
 
 ## 5. 实现步骤
 
@@ -275,3 +366,16 @@ async fn test_shell_command_strip_prefix() {
 | 修改 | `peri-tui/src/event/keyboard/normal_keys.rs` | 输入拦截逻辑 |
 | 修改 | `peri-tui/src/main.rs` 或 `app/mod.rs` | Action handler |
 | 修改 | `peri-tui/src/widgets/mod.rs` | 导出新组件 |
+
+**2026-09-30 新增（§3.1.1 上下文回流）**：
+
+| 操作 | 文件 | 说明 |
+|------|------|------|
+| 修改 | `peri-tui/src/app/shell_command.rs` | `shell_context_messages()`、`inject_shell_context()`、`is_shell_context_fragment()`、`SHELL_CAVEAT` |
+| 修改 | `peri-tui/src/app/message_pipeline/transform.rs` | 展示层跳过回流片段 |
+| 修改 | `peri-tui/src/acp_client/client.rs` | `append_history()` |
+| 修改 | `peri-tui/src/acp_server/mod.rs` | `session/append_history` 拦截 + `append_history_to_session()` |
+| 修改 | `peri-middlewares/src/middleware/terminal.rs` / `mod.rs` | `format_command_output` 提 `pub` 复用 |
+| 修改 | `peri-tui/src/app/background_shell.rs` | `xml_escape` 提 `pub(crate)` |
+| 复用 | `peri-middlewares/src/hitl/jev/redact.rs` | `redact_secrets()` —— 脱敏（§3.4.1） |
+| 复用 | `peri-middlewares/src/tools/output_persist.rs` | `truncate_shell_output()` —— 超长截断 |

@@ -73,7 +73,10 @@ fn truncate_output(output: &str) -> String {
 /// 把 stdout/stderr/exit_code 拼装为给 LLM 的工具结果字符串。
 ///
 /// 保留 stdout、stderr 和真实退出码，不对失败命令重新执行。
-fn format_command_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
+///
+/// 公开供 TUI 复用：前台 `!` 命令回流 Agent 上下文时（`shell_context_messages`），
+/// 需与 agent 自身执行 Bash 保持同一输出格式。
+pub fn format_command_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
     let mut output = String::new();
     if !stdout.is_empty() {
         output.push_str(stdout);

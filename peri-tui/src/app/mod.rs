@@ -76,6 +76,7 @@ mod background_shell;
 pub(crate) use background_shell::{shell_notification_display_text, BackgroundShell, ShellStatus};
 mod background_tasks_panel;
 mod shell_command;
+pub(crate) use shell_command::is_shell_context_fragment;
 pub(crate) use shell_command::ShellCommandPool;
 mod agent_shell_executor;
 pub use agent_shell_executor::{AgentShellExecutor, AgentShellRegistration, AgentShellSlot};

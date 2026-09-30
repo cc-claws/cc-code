@@ -8,6 +8,7 @@ use peri_acp::transport::{
     types::{AcpError, IncomingMessage, RequestId},
     AcpTransport,
 };
+use peri_agent::messages::BaseMessage;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -317,6 +318,27 @@ impl AcpTuiClient {
         });
         self.transport
             .send_request("session/prompt", params)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// 静默追加合成消息到会话 history（不触发推理轮次）。
+    ///
+    /// 用于前台 `!` 命令结果回流：由 `shell_context_messages` 构造 caveat + 片段，
+    /// 服务端存入 history，下一次 prompt 时模型可见。与 `prompt_with_bg_results`
+    /// 不同，本方法**不会**引发 agent 响应。
+    ///
+    /// `session_id` 由调用方显式传入（而非取 `current_session_id`），
+    /// 避免用户在命令完成后切换会话导致片段注入到错误的 session。
+    pub async fn append_history(
+        &self,
+        session_id: String,
+        messages: Vec<BaseMessage>,
+    ) -> Result<(), String> {
+        let params = json!({ "sessionId": session_id, "messages": messages });
+        self.transport
+            .send_request("session/append_history", params)
             .await
             .map(|_| ())
             .map_err(|e| e.to_string())

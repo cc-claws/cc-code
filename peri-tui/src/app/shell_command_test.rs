@@ -581,3 +581,155 @@ async fn test_cleanup_finished_background_shells_keeps_all_when_under_limit() {
         "未超量时不应移除"
     );
 }
+
+// ── 前台 `!` 命令回流 Agent 上下文（shell_context_messages） ──────────────
+
+fn make_context_record(
+    command: &str,
+    stdout: &str,
+    stderr: &str,
+    exit_code: i32,
+) -> ShellCommandRecord {
+    ShellCommandRecord {
+        id: "01a0-test-record".to_string(),
+        thread_id: ThreadId::from("test-thread".to_string()),
+        command: command.to_string(),
+        cwd: "/tmp".to_string(),
+        stdin: Vec::new(),
+        stdout: stdout.to_string(),
+        stderr: stderr.to_string(),
+        exit_code,
+        started_at: Utc::now(),
+        completed_at: Utc::now(),
+        anchor_message_id: None,
+    }
+}
+
+fn text_of(msg: &BaseMessage) -> String {
+    msg.message_content().text_content()
+}
+
+#[test]
+fn test_shell_context_messages_shape() {
+    let record = make_context_record("deploy --prod", "done\n", "", 0);
+    let msgs = shell_context_messages(&record);
+
+    assert_eq!(msgs.len(), 3, "应为 caveat + input + output 三条");
+    assert!(
+        text_of(&msgs[0]).starts_with("<local-command-caveat>"),
+        "首条应为 caveat，实际: {}",
+        text_of(&msgs[0])
+    );
+    assert_eq!(text_of(&msgs[1]), "<bash-input>deploy --prod</bash-input>");
+    let out = text_of(&msgs[2]);
+    assert!(out.starts_with("<bash-stdout>"), "实际: {out}");
+    assert!(out.contains("done"), "应含 stdout，实际: {out}");
+    assert!(out.contains("<bash-stderr></bash-stderr>"), "实际: {out}");
+}
+
+#[test]
+fn test_shell_context_messages_nonzero_exit_embeds_code() {
+    let record = make_context_record("false", "", "boom\n", 1);
+    let msgs = shell_context_messages(&record);
+    let out = text_of(&msgs[2]);
+    assert!(
+        out.contains("[Exit code: 1]"),
+        "非零退出码应内嵌于 stdout 段，实际: {out}"
+    );
+    assert!(
+        out.contains("boom"),
+        "stderr 应出现在独立标签内，实际: {out}"
+    );
+}
+
+#[test]
+fn test_shell_context_messages_xml_escaped() {
+    // 命令与输出含 XML 特殊字符时应转义，避免破坏标签结构
+    let record = make_context_record("echo '<a> & \"b\"'", "x < y && z > w\n", "", 0);
+    let msgs = shell_context_messages(&record);
+    let input = text_of(&msgs[1]);
+    assert!(input.contains("&lt;a&gt;"), "命令应转义，实际: {input}");
+    let out = text_of(&msgs[2]);
+    assert!(out.contains("&lt;"), "输出应转义，实际: {out}");
+    assert!(!out.contains("x < y"), "不应残留未转义的 `<`，实际: {out}");
+}
+
+/// 回归：`!` 回流片段被展示层跳过（不产生 VM），锚点计数必须采用同一口径，
+/// 否则 shell 卡片位置会随 `!` 命令数量系统性右移。
+#[tokio::test]
+async fn test_merge_shell_records_anchor_not_drifted_by_context_fragments() {
+    let (app, _handle) = App::new_headless(100, 30).await;
+
+    let h1 = BaseMessage::human("第一轮");
+    let a1 = BaseMessage::ai("回复一");
+    let h2 = BaseMessage::human("第二轮");
+    let a2 = BaseMessage::ai("回复二");
+    let anchor_id = a2.id().as_uuid().to_string();
+    let h3 = BaseMessage::human("第三轮");
+    let a3 = BaseMessage::ai("回复三");
+    let h4 = BaseMessage::human("第四轮");
+    let a4 = BaseMessage::ai("回复四");
+
+    let base_msgs = vec![
+        h1,
+        a1,
+        // 三条回流片段：展示层跳过，不产生 VM
+        BaseMessage::human("<local-command-caveat>Caveat: ...</local-command-caveat>"),
+        BaseMessage::human("<bash-input>deploy</bash-input>"),
+        BaseMessage::human("<bash-stdout>done</bash-stdout><bash-stderr></bash-stderr>"),
+        h2,
+        a2,
+        h3,
+        a3,
+        h4,
+        a4,
+    ];
+
+    let view_msgs =
+        crate::app::message_pipeline::MessagePipeline::messages_to_view_models(&base_msgs, "/tmp");
+    assert_eq!(view_msgs.len(), 8, "4 轮 × 2 条可见消息，片段不应产生 VM");
+
+    let mut record = make_context_record("deploy", "done", "", 0);
+    record.anchor_message_id = Some(anchor_id);
+
+    let merged = app.merge_shell_records_into_view(view_msgs, &base_msgs, vec![record]);
+
+    // a2 是第 4 条可见消息（VM index 3），卡片应紧随其后插入 index 4。
+    // 若锚点把片段也计入，插入位置会右移到 index 7。
+    assert!(
+        matches!(merged[4], MessageViewModel::ShellCommand { .. }),
+        "shell 卡片应插在 a2 之后（index 4），实际 index 4 是其它类型；总长 {}",
+        merged.len()
+    );
+    assert_eq!(merged.len(), 9, "原有 8 条 + 插入 1 条");
+}
+
+/// 安全：`!` 输出会随 history 外发给模型，故凭据必须先脱敏。
+#[test]
+fn test_shell_context_messages_redacts_secrets() {
+    let record = make_context_record(
+        "curl -H 'Authorization: token ghp_abcdefghijklmnopqrstuvwxyz'",
+        "api_key = supersecretvalue123\n正常输出",
+        "password: hunter2hunter2",
+        0,
+    );
+    let msgs = shell_context_messages(&record);
+    let input = text_of(&msgs[1]);
+    let out = text_of(&msgs[2]);
+
+    // 命令前缀本身可读，但内嵌凭据必须被打码
+    assert!(input.contains("<bash-input>"), "应仍是命令片段: {input}");
+    assert!(
+        !input.contains("ghp_abcdefghijklmnopqrstuvwxyz"),
+        "命令中的 token 应脱敏: {input}"
+    );
+    assert!(
+        !out.contains("supersecretvalue123"),
+        "stdout 中的 key 应脱敏: {out}"
+    );
+    assert!(
+        !out.contains("hunter2hunter2"),
+        "stderr 中的 password 应脱敏: {out}"
+    );
+    assert!(out.contains("正常输出"), "非敏感内容应保留: {out}");
+}
