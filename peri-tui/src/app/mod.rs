@@ -223,14 +223,24 @@ impl App {
                 ),
             };
 
-        // 初始化 thread 存储（失败时 fallback 到临时目录）
+        // 初始化 thread 存储（失败时 fallback 到临时目录，再失败则降级为内存模式 #318）
         let thread_store: Arc<dyn ThreadStore> = match SqliteThreadStore::default_path().await {
             Ok(store) => Arc::new(store),
-            Err(_) => Arc::new(
-                SqliteThreadStore::new(std::env::temp_dir().join("zen-threads.db"))
-                    .await
-                    .expect("无法创建临时 SQLite 数据库"),
-            ),
+            Err(_) => match SqliteThreadStore::new(std::env::temp_dir().join("zen-threads.db")).await
+            {
+                Ok(store) => Arc::new(store),
+                Err(e) => {
+                    tracing::warn!(
+                        "SQLite 持久化不可用（{}），降级为内存模式运行，历史记录不会持久化",
+                        e
+                    );
+                    Arc::new(
+                        SqliteThreadStore::new(":memory:")
+                            .await
+                            .expect("内存 SQLite 初始化不应失败"),
+                    )
+                }
+            },
         };
         let shell_command_store = Arc::new(
             crate::shell_history::ShellCommandStore::default_path().unwrap_or_else(|_| {

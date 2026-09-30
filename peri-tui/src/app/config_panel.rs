@@ -97,7 +97,17 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
         if let Some(ref lang) = cfg.config.language {
             let _ = ctx.services.lc.switch(lang);
         }
-        let _ = App::save_config(cfg, ctx.services.config_path_override.as_deref());
+        // #319: 保存失败时记录错误用于 UI 展示，而非静默忽略
+        match App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
+            Ok(()) => {
+                panel.save_error = None;
+            }
+            Err(e) => {
+                let msg = format!("配置保存失败: {}", e);
+                tracing::error!("{}", msg);
+                panel.save_error = Some(msg);
+            }
+        }
     }
 }
 
@@ -119,6 +129,8 @@ pub struct ConfigPanel {
     pub buf_proactiveness: String, // "low" / "medium" / "high"
     pub buf_diff: bool,
     pub buf_streaming: String, // "streaming" / "block" / "none"
+    /// #319: 上次保存失败时的错误信息，用于 UI 展示
+    pub save_error: Option<String>,
 }
 
 impl ConfigPanel {
@@ -156,6 +168,7 @@ impl ConfigPanel {
                 .streaming_mode
                 .clone()
                 .unwrap_or_else(|| "streaming".to_string()),
+            save_error: None,
         }
     }
 
