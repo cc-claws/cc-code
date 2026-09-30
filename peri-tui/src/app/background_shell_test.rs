@@ -1,6 +1,22 @@
 use super::*;
 use std::time::Duration;
 
+/// #320 Windows 根治：Defender/杀毒软件会对新文件短暂加锁扫描，
+/// write 返回后文件可能暂时不可读。轮询等待文件稳定可读再继续，
+/// 避免 watchdog 启动即遇到 PermissionDenied。
+async fn wait_until_readable(path: &std::path::Path) {
+    for _ in 0..50 {
+        if tokio::fs::metadata(path).await.is_ok() {
+            // 再确认能实际读出内容
+            if tokio::fs::read(path).await.is_ok() {
+                return;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("测试文件在 5s 内始终不可读，Windows 文件锁异常");
+}
+
 #[tokio::test]
 async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
     // Arrange：output 文件末行匹配 prompt pattern，且不增长（模拟命令等待输入）
@@ -9,6 +25,7 @@ async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
     tokio::fs::write(&path, "running...\nContinue? (y/n)")
         .await
         .unwrap();
+    wait_until_readable(&path).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(8);
     let handle = spawn_stall_watchdog(
@@ -47,6 +64,7 @@ async fn test_spawn_stall_watchdog_skips_notification_when_last_line_does_not_ma
     tokio::fs::write(&path, "compiling...\nfinished step 42")
         .await
         .unwrap();
+    wait_until_readable(&path).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(8);
     let handle = spawn_stall_watchdog("task-2".to_string(), "build".to_string(), path, tx);

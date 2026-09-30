@@ -193,7 +193,9 @@ pub fn spawn_stall_watchdog(
         // #320 Windows CI：文件持续不可访问（PermissionDenied）时不能无限空转，
         // 连续错误超限则退出并打 warn 日志。
         let mut consecutive_errors: u32 = 0;
-        const MAX_CONSECUTIVE_ERRORS: u32 = 10;
+        // Windows Defender 瞬时锁文件通常 <2s；30 次 * 200ms = 6s，足够覆盖，
+        // 超过则视为永久性故障（如文件被删），退出避免无限空转。
+        const MAX_CONSECUTIVE_ERRORS: u32 = 30;
         loop {
             interval.tick().await;
             let size = match tokio::fs::metadata(&output_path).await {
@@ -211,6 +213,8 @@ pub fn spawn_stall_watchdog(
                         );
                         break;
                     }
+                    // 瞬时错误（Windows 文件锁）backoff，避免忙循环
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                     continue;
                 }
             };
@@ -244,6 +248,7 @@ pub fn spawn_stall_watchdog(
                         );
                         break;
                     }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                     continue;
                 }
             };
