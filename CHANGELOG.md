@@ -4,6 +4,100 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## Unreleased
+
+### Security Fixes
+
+- **HITL 预审批不再执行 rtk 二进制（#288）**：`gate_effective_call()` 为判断改写效果会在审批前执行外部 `rtk`（`verify_rtk_executable` 只校验 `--version` 退出码，PATH/RTK_PATH 劫持可致审批前代码执行）。现以纯字符串预测 `process::predict_rtk_rewrite()` 替代，零子进程；存在性检查 `rtk_rewrite_likely()` 替代 `--version` 探测；审批后的真实执行路径不变。另 `YOLO_MODE=""` 视同未设置。
+- **配置目录统一到 `~/.cc-code`（#289）**：新增 `peri-agent::app_home`，新目录优先、仅旧目录存在时回退 `~/.peri`、全新安装用 `~/.cc-code`；迁移 MCP 全局配置、OAuth、threads、skills、历史、sync 共 10 处调用点；Jev `PROTECTED_DIR_SEGMENTS` 补上 `.cc-code`，新配置目录保持写保护。
+- **npm 安装包校验 + 迁移确认（#290）**：`verifyChecksum()` 对下载的 tarball 做 sha256 校验（对照 release `checksums.txt`），缺失/不匹配直接失败；Claude Code 迁移改为确认制：`CC_CODE_NO_MIGRATE=1` / `--no-migrate` 跳过，非 TTY 跳过并提示手动迁移，TTY 下 `[y/N]` 默认否。
+
+---
+
+## v0.6.92 — 2026-09-30
+
+### Fixes
+
+- **详细模式超长无空格命令的头行折行不再孤立 `●`（#287）**
+
+---
+
+## v0.6.91 — 2026-09-30
+
+### Features
+
+- **Windows 启用 mimalloc 全局分配器（#285）**：`peri-tui` 在 Windows 下启用 mimalloc，顺带修复 `/gc` 诊断。
+
+---
+
+## v0.6.90 — 2026-09-30
+
+### Security Fixes
+
+- **默认启用审批、门控评估实际执行命令（#284）**：`YOLO_MODE` 未设置不再默认免审批（fail-closed），`-y/--yolo` 正确接线；HITL 门控评估 rtk 改写后的实际执行命令；`git clone` 加 `--` 防参数注入；`scripts/install.sh/ps1` 修正改名后的仓库地址与二进制名。
+
+### Features
+
+- **排队消息支持 Ctrl+S / Ctrl+X（#282）**：不用鼠标也能补充/删除排队消息。
+
+### Fixes
+
+- **Thought 归并吸收前置只读计数（#280）**：消除重复或断层的动作摘要。
+
+---
+
+## v0.6.89 — 2026-09-30
+
+### Fixes
+
+- **git 分支探测异步化（#278）**：Agent 工作期间状态栏分支名不再陈旧。
+
+---
+
+## v0.6.88 — 2026-09-30
+
+### Fixes
+
+- **markdown 水平线按可用宽度渲染（#273）**：替代硬编码 60 字符。
+- **Edit 工具报错文案改英文（#272）**：消除中英混排。
+
+---
+
+## v0.6.87 — 2026-09-30
+
+### Features
+
+- **前台 `!` 命令结果回流 Agent 上下文（#270）**
+
+### Fixes
+
+- **后台任务面板长命令截断 + 补齐 i18n（#271）**
+
+---
+
+## v0.6.86 — 2026-09-30
+
+### Fixes
+
+- **工具名配色统一（#269）**：状态语义只由 `●` 表达。
+- **折行末段可整体容纳时不再多拆一刀（#267）**
+- **非详细模式 Bash 命令宽度比例调整为 16/19（#265）**
+- **Bash 命令超长改为限制宽度截断（#264）**：详细模式完整折行对齐。
+
+---
+
+## v0.6.85 — 2026-09-29
+
+### Features
+
+- **ACP 协议一致性批次 1（#259）**：补齐错误响应、历史回放、ResourceLink、图片能力。
+
+### Fixes
+
+- **跨平台 Hook 命令路由统一（#263）**：命令路由与后台任务生命周期统一，稳定跨平台 Hook 命令测试，修复跨平台 Clippy 导入。
+
+---
+
 ## v0.6.84 — 2026-09-29
 
 ### Features

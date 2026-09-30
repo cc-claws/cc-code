@@ -84,6 +84,7 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Fail-Closed Permissions** | v0.6.90 | Approval is now on by default: unset `YOLO_MODE` no longer bypasses HITL (explicit `-y/--yolo` or `YOLO_MODE=true` to skip); HITL gate evaluates the post-rewrite command; `git clone` hardened against option injection |
 | **Three-Choice Tool Approval** | v0.6.84 | HITL approval dialog now offers allow-once / allow-for-session / reject; choose "session" to stop repeated prompts for the same `(tool, path)` within the session (path-level, session-scoped approval memory) |
 | **Spinner Color & Stuck Detection Fixes** | v0.6.83 | `thought for Ns` state word now always muted (only in-progress states warm up with time); stuck-detection no longer misfires on blank `thinking` fingerprints; stuck-detection switch-strategy hint switched to English for consistency |
 | **Thinking Status Line & Tool Summary** | v0.6.82 | Spinner third field 4-state machine (`thinking` / `thought for Ns` / `still thinking` / `thinking more`); message-area thought line → `Thought for Ns, <action counts>`; consecutive thinking+read-only-tool rounds merged into one line; Bash non-verbose output summary with `... (N more lines) (ctrl+o to expand)` |

@@ -120,7 +120,7 @@ if output.len() > MAX_OUTPUT_LENGTH {
 兼容 Claude Code 插件生态：
 
 ```json
-// ~/.peri/settings.json
+// ~/.cc-code/settings.json
 {
   "enabledPlugins": {
     "plugin-id": true

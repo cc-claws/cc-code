@@ -84,6 +84,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **默认启用审批** | v0.6.90 | 审批默认开启：`YOLO_MODE` 未设置不再跳过 HITL（需显式 `-y/--yolo` 或 `YOLO_MODE=true` 才免审批）；HITL 门控评估改写后的实际执行命令；`git clone` 防参数注入 |
 | **工具审批三选** | v0.6.84 | HITL 审批弹窗改为三选：一次性同意 / 本次会话同意 / 拒绝；选「本次会话同意」后同 `(工具, 路径)` 本次会话内免问（路径级、会话作用域审批记忆） |
 | **spinner 配色与卡住检测修复** | v0.6.83 | `thought for Ns` 状态词改为始终灰色（仅进行中状态词随耗时升温）；卡住检测不再把空白 `thinking` 误判为循环；卡住检测换策略提示改用英文保持一致 |
 | **Thinking 状态行与工具动作汇总** | v0.6.82 | spinner 行第三字段四态状态机（`thinking` / `thought for Ns` / `still thinking` / `thinking more`）；消息区思考行改为 `Thought for Ns, <动作计数>`；连续「思考+只读工具」轮合并为一行；Bash 非详细模式展示输出摘要 + `... (N more lines) (ctrl+o to expand)` |
