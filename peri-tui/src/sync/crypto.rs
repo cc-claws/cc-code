@@ -21,16 +21,25 @@ pub const CHUNK_SIZE: usize = 65536;
 ///
 /// 使用 PBKDF2-SHA256，salt 为配对码本身，迭代 100000 次。
 /// 相同的配对码始终产���相同的密钥，用于 sender 和 receiver 之间的端到端加密。
-pub fn derive_key(pair_code: &str) -> [u8; AES_KEY_LEN] {
+pub fn derive_key(pair_code: &str, salt: &[u8]) -> [u8; AES_KEY_LEN] {
     let mut key = [0u8; AES_KEY_LEN];
     pbkdf2::derive(
         PBKDF2_HMAC_SHA256,
         NonZeroU32::new(PBKDF2_ITERATIONS).expect("100000 > 0"),
-        pair_code.as_bytes(),
+        salt,
         pair_code.as_bytes(),
         &mut key,
     );
     key
+}
+
+/// Generate random 16-byte salt for #21 fix
+pub fn generate_salt() -> [u8; 16] {
+    use ring::rand::{SecureRandom, SystemRandom};
+    let rng = SystemRandom::new();
+    let mut salt = [0u8; 16];
+    rng.fill(&mut salt).expect("RNG failure");
+    salt
 }
 
 /// AES-256-GCM 加密

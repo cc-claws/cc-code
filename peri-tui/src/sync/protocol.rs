@@ -29,12 +29,15 @@ pub enum WsMessage {
     // ── Server → Client ──
     /// 返回配对码给 sender
     #[serde(rename = "pair_created")]
-    PairCreated { pair_code: String },
+    PairCreated { pair_code: String, salt: Vec<u8> },
     /// 通知双方配对成功
     #[serde(rename = "pair_joined")]
     PairJoined {
         #[serde(default)]
         peer_info: Option<PeerInfo>,
+        /// #21: 随机 salt，用于 KDF（relay 生成，双方共享）
+        #[serde(default)]
+        salt: Vec<u8>,
     },
     /// 错误消息
     #[serde(rename = "error")]

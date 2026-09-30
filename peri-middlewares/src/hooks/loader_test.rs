@@ -104,6 +104,7 @@ fn test_empty_hooks_returns_empty_hashmap() {
 
 #[test]
 fn test_load_settings_local_hooks_basic() {
+    std::env::set_var("CC_CODE_TRUST_PROJECT_HOOKS", "1");
     let dir = tempdir().unwrap();
     let claude_dir = dir.path().join(".claude");
     std::fs::create_dir_all(&claude_dir).unwrap();
@@ -170,6 +171,7 @@ fn test_load_settings_local_hooks_no_hooks_field() {
 
 #[test]
 fn test_load_settings_local_hooks_with_matcher() {
+    std::env::set_var("CC_CODE_TRUST_PROJECT_HOOKS", "1");
     let dir = tempdir().unwrap();
     let claude_dir = dir.path().join(".claude");
     std::fs::create_dir_all(&claude_dir).unwrap();

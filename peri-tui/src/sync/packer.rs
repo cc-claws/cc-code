@@ -29,13 +29,13 @@ impl SyncPackage {
 /// 打包并加密 SyncPackage
 ///
 /// 流程：MessagePack 序列化 → AES-256-GCM 加密 → 64KB 分片
-pub fn pack(sync_pkg: &SyncPackage, pair_code: &str) -> Result<PackedData> {
+pub fn pack(sync_pkg: &SyncPackage, pair_code: &str, salt: &[u8]) -> Result<PackedData> {
     // Step 1: MessagePack 序列化
     let msgpack_bytes = sync_pkg.to_msgpack()?;
     tracing::debug!("序列化包大小: {} 字节", msgpack_bytes.len());
 
     // Step 2: 密钥派生
-    let key = crypto::derive_key(pair_code);
+    let key = crypto::derive_key(pair_code, salt);
 
     // Step 3: AES-256-GCM 加密
     let encrypted = crypto::encrypt(&msgpack_bytes, &key);

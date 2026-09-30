@@ -6,21 +6,21 @@ mod tests {
 
     #[test]
     fn test_derive_key_deterministic() {
-        let key1 = crypto::derive_key("123456");
-        let key2 = crypto::derive_key("123456");
+        let key1 = crypto::derive_key("123456", b"testsalt12345678");
+        let key2 = crypto::derive_key("123456", b"testsalt12345678");
         assert_eq!(key1, key2, "相同配对码应产生相同密钥");
     }
 
     #[test]
     fn test_derive_key_different_codes() {
-        let key1 = crypto::derive_key("111111");
-        let key2 = crypto::derive_key("222222");
+        let key1 = crypto::derive_key("111111", b"testsalt12345678");
+        let key2 = crypto::derive_key("222222", b"testsalt12345678");
         assert_ne!(key1, key2, "不同配对码应产生不同密钥");
     }
 
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
-        let key = crypto::derive_key("482917");
+        let key = crypto::derive_key("482917", b"testsalt12345678");
         let plaintext = b"Hello, world! This is a test message.";
         let encrypted = crypto::encrypt(plaintext, &key);
         assert_eq!(
@@ -34,8 +34,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_wrong_key_fails() {
-        let key1 = crypto::derive_key("111111");
-        let key2 = crypto::derive_key("222222");
+        let key1 = crypto::derive_key("111111", b"testsalt12345678");
+        let key2 = crypto::derive_key("222222", b"testsalt12345678");
         let encrypted = crypto::encrypt(b"secret", &key1);
         let result = crypto::decrypt(&encrypted, &key2);
         assert!(result.is_err(), "错误密钥解密应失败");
@@ -43,7 +43,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_truncated_data_fails() {
-        let key = crypto::derive_key("123456");
+        let key = crypto::derive_key("123456", b"testsalt12345678");
         let truncated = vec![0u8; 5]; // 小于 IV_LEN (12)
         let result = crypto::decrypt(&truncated, &key);
         assert!(result.is_err(), "密文过短应返回错误");
