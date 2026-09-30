@@ -47,23 +47,25 @@ pub(crate) fn shell_running_text(
 /// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
 const ERROR_SUMMARY_MAX_LINES: usize = 3;
 
-/// 非详细模式下工具 Header 命令摘要占可用宽度的比例（百分比分子）。
+/// 非详细模式下工具 Header 命令摘要占可用宽度的比例（16:19 ≈ 84%）。
 /// 命令不再一路顶到消息区最右侧才截断，避免用户需要在屏幕最右边缘阅读
 /// （issue #258）。详细模式不受此限制，改为完整折行展示。
-const HEADER_ARGS_WIDTH_PERCENT: usize = 60;
+const HEADER_ARGS_WIDTH_NUM: usize = 16;
+const HEADER_ARGS_WIDTH_DEN: usize = 19;
 
 /// 计算工具 Header 参数摘要的可用显示宽度。
 ///
 /// 非详细模式：在扣除指示器/工具名前缀后，进一步把可用宽度收缩到
-/// `HEADER_ARGS_WIDTH_PERCENT`%，并保留一个最小宽度，避免窄终端下被压得过短。
+/// `HEADER_ARGS_WIDTH_NUM / HEADER_ARGS_WIDTH_DEN`，并保留一个最小宽度，
+/// 避免窄终端下被压得过短。
 /// 详细模式：返回整段剩余宽度（上限 400），供调用方折行展示完整命令使用。
 fn header_args_width(width: usize, prefix_width: usize, detail_mode: bool) -> usize {
     let avail = width.saturating_sub(prefix_width + 2);
     if detail_mode {
         avail.clamp(1, 400)
     } else {
-        // 收缩到可用宽度的 HEADER_ARGS_WIDTH_PERCENT%，同时不低于 32 列、不超过 avail
-        (avail * HEADER_ARGS_WIDTH_PERCENT / 100)
+        // 收缩到 avail 的 16/19，同时不低于 32 列、不超过 avail
+        (avail * HEADER_ARGS_WIDTH_NUM / HEADER_ARGS_WIDTH_DEN)
             .max(32)
             .min(avail)
             .max(1)
