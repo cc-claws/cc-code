@@ -18,6 +18,11 @@ fn make_tracer() -> LangfuseTracer {
     LangfuseTracer::new(session, "test-session".to_string())
 }
 
+/// #306 之后 on_llm_start 接收 Arc（共享，不拷贝），测试用空 Arc 占位
+fn empty_msgs() -> Arc<Vec<BaseMessage>> {
+    Arc::new(Vec::new())
+}
+
 fn agent_tool_input(subagent_type: &str, prompt: &str) -> serde_json::Value {
     serde_json::json!({
         "subagent_type": subagent_type,
@@ -96,7 +101,7 @@ async fn test_subagent_internal_events_use_subagent_context() {
     assert_ne!(subagent_obs_id, main_agent_id);
 
     // SubAgent 内部 LLM 调用：parent 应为 subagent obs
-    tracer.on_llm_start(0, &[], &[]);
+    tracer.on_llm_start(0, &empty_msgs(), &[]);
     assert_eq!(tracer.current_agent_id(), subagent_obs_id);
 
     // SubAgent 内部工具调用：使用 subagent 的 tools context
@@ -129,7 +134,7 @@ async fn test_nested_subagent_stack_depth() {
     let explorer_obs_id = tracer.current_agent_id();
     assert_ne!(explorer_obs_id, planner_obs_id);
 
-    tracer.on_llm_start(0, &[], &[]);
+    tracer.on_llm_start(0, &empty_msgs(), &[]);
     assert_eq!(tracer.current_agent_id(), explorer_obs_id);
 
     tracer.on_tool_end("tc-b", "found files", false);
@@ -250,14 +255,14 @@ async fn test_llm_retry_accumulates_to_metadata() {
     let mut tracer = make_tracer();
 
     // 第一轮 LLM 调用，无重试
-    tracer.on_llm_start(0, &[], &[]);
+    tracer.on_llm_start(0, &empty_msgs(), &[]);
     assert!(tracer.retry_attempts.is_empty());
     tracer.on_llm_end(0, "gpt-4o", "OpenAI", "result", None);
     assert!(tracer.retry_attempts.is_empty());
     assert!(tracer.active_step.is_none());
 
     // 第二轮 LLM 调用，有 2 次重试
-    tracer.on_llm_start(1, &[], &[]);
+    tracer.on_llm_start(1, &empty_msgs(), &[]);
     assert_eq!(tracer.active_step, Some(1));
     assert!(tracer.retry_attempts.is_empty());
 
@@ -278,12 +283,12 @@ async fn test_llm_retry_accumulates_to_metadata() {
 async fn test_llm_start_clears_retry_attempts() {
     let mut tracer = make_tracer();
 
-    tracer.on_llm_start(0, &[], &[]);
+    tracer.on_llm_start(0, &empty_msgs(), &[]);
     tracer.on_llm_retrying(1, 3, 100, "error");
     assert_eq!(tracer.retry_attempts.len(), 1);
 
     // 新一轮 LLM 调用清空 retry_attempts
-    tracer.on_llm_start(1, &[], &[]);
+    tracer.on_llm_start(1, &empty_msgs(), &[]);
     assert!(tracer.retry_attempts.is_empty());
     assert_eq!(tracer.active_step, Some(1));
 }

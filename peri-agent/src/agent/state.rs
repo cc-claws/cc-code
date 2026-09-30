@@ -6,6 +6,10 @@ use crate::{
     thread::{ThreadId, ThreadStore},
 };
 
+/// #307 消息历史硬上限：compact 持续失败/跳过时的最后兜底，防止内存无界增长。
+/// 正常会话远达不到此量级（warn 阈值为 100），触发即意味着上游 compact 持续异常。
+pub const MAX_MESSAGES: usize = 10_000;
+
 /// State trait - 所有 Agent 状态必须实现此 trait
 /// 与 TypeScript BaseAgentStateType 对齐
 pub trait State: Send + Sync + Clone + 'static {
@@ -214,6 +218,33 @@ impl State for AgentState {
             }
         }
         self.messages.push(message);
+
+        // #307 硬上限兜底：compact 持续失败/跳过时，消息历史不再无界增长。
+        // 超出后从最旧的非 System 消息开始丢弃（System 提示词保留），并打 error 日志。
+        // 这是最后防线——正常情况下 compact 早该介入，此处触发意味着上游持续异常。
+        if self.messages.len() > MAX_MESSAGES {
+            let excess = self.messages.len() - MAX_MESSAGES;
+            let start = self
+                .messages
+                .iter()
+                .position(|m| !matches!(m, BaseMessage::System { .. }))
+                .unwrap_or(0);
+            let end = (start + excess).min(self.messages.len());
+            if end > start {
+                let drained = end - start;
+                self.messages.drain(start..end);
+                // 祖先边界前移：被丢弃的前缀中若包含祖先消息，同步收缩 ancestor_len
+                let ancestor_drained =
+                    (end.min(self.ancestor_len)).saturating_sub(start.min(self.ancestor_len));
+                self.ancestor_len = self.ancestor_len.saturating_sub(ancestor_drained);
+                tracing::error!(
+                    drained,
+                    total = self.messages.len(),
+                    "AgentState: 消息历史超过硬上限({MAX_MESSAGES})，已丢弃最旧的 {drained} 条非 System 消息"
+                );
+            }
+        }
+
         // 消息数量超过阈值时发出警告，提示使用 /compact 压缩上下文以降低内存占用
         let count = self.messages.len();
         if count > 100 && count.is_multiple_of(100) {

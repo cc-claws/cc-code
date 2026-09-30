@@ -162,6 +162,8 @@ impl CompactMiddleware {
                 self.fire_hooks(hooks::types::HookEvent::PostCompact, msg_count).await;
                 // RESTORE: compact 被取消，own_messages 丢弃前放回 state
                 state.messages_mut().extend(own_messages);
+                // #307 降级修剪：取消后若消息堆积，清理过期 tool 结果，避免无界增长
+                self.degraded_prune(state);
                 return Ok(());
             }
             result = full_compact(&own_messages, model.as_ref(), &self.config, "") => {
@@ -175,6 +177,8 @@ impl CompactMiddleware {
                         self.fire_hooks(hooks::types::HookEvent::PostCompact, msg_count).await;
                         // RESTORE: full_compact 失败，own_messages 丢弃前放回 state
                         state.messages_mut().extend(own_messages);
+                        // #307 降级修剪：失败后若消息堆积，清理过期 tool 结果，避免无界增长
+                        self.degraded_prune(state);
                         return Ok(());
                     }
                 }
@@ -273,6 +277,34 @@ impl CompactMiddleware {
                 skills: vec![],
                 micro_cleared: cleared,
                 messages: messages.to_vec(),
+            });
+        }
+    }
+
+    /// #307 降级修剪：full compact 失败/取消后的兜底。
+    /// 消息恢复后若数量仍超阈值，用 micro-compact 逻辑清理过期 tool 结果与图片，
+    /// 避免 compact 持续失败导致内存无界增长。最终防线是 `AgentState::add_message`
+    /// 的 `MAX_MESSAGES` 硬上限。
+    fn degraded_prune(&self, state: &mut impl State) {
+        // 阈值取硬上限的一半：正常会话到不了这里，到这里说明 compact 已连续失败
+        const DEGRADED_THRESHOLD: usize = peri_agent::agent::state::MAX_MESSAGES / 2;
+        if state.messages().len() <= DEGRADED_THRESHOLD {
+            return;
+        }
+        let ancestor_len = state.ancestor_len();
+        let cleared = micro_compact_enhanced(&self.config, state.messages_mut(), ancestor_len);
+        if cleared > 0 {
+            warn!(
+                cleared,
+                total = state.messages().len(),
+                "CompactMiddleware: full compact 失败，已降级清理 {cleared} 条过期消息"
+            );
+            self.send_event(ExecutorEvent::CompactCompleted {
+                summary: String::new(),
+                files: vec![],
+                skills: vec![],
+                micro_cleared: cleared,
+                messages: state.messages().to_vec(),
             });
         }
     }
