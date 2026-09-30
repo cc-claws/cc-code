@@ -908,7 +908,13 @@ impl<'a> RenderState<'a> {
             // ── 水平线 ────────────────────────────────────────────────────────
             Event::Rule => {
                 self.ensure_blank_line();
-                let rule = "─".repeat(60);
+                // 水平线按可用宽度铺满（此前硬编码 60：宽终端下只占一半、窄终端下溢出被裁）。
+                let width = if self.max_width > 0 {
+                    self.max_width
+                } else {
+                    60
+                };
+                let rule = "─".repeat(width);
                 self.current_spans.push(Span::styled(
                     rule,
                     Style::default().fg(self.theme.separator()),

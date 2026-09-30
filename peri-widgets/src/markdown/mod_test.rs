@@ -837,3 +837,27 @@ fn test_link_hit_plain_text_has_no_links() {
     let doc = parse_markdown_with_links("没有任何链接的普通文本", &default_theme(), 80);
     assert!(doc.links.is_empty(), "纯文本不应产生链接命中区");
 }
+
+/// 回归：`---` 水平线应按可用宽度铺满，而非固定 60 字符。
+/// （此前硬编码 60：宽终端下只占一半，窄终端下溢出被裁）
+#[test]
+fn test_horizontal_rule_fills_available_width() {
+    for width in [30usize, 40, 80, 120, 200] {
+        let doc = parse_markdown("上文\n\n---\n\n下文", &default_theme(), width);
+        let rule_line = doc
+            .lines
+            .iter()
+            .find(|l| {
+                let t: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+                !t.is_empty() && t.chars().all(|c| c == '─')
+            })
+            .unwrap_or_else(|| panic!("宽度 {width} 下应产生水平线"));
+        let text: String = rule_line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(
+            text.width(),
+            width,
+            "水平线宽度应等于可用宽度（width={width}），实际 {}",
+            text.width()
+        );
+    }
+}
