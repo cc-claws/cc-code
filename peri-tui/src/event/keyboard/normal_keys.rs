@@ -96,6 +96,24 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             ..
         } => handle_ctrl_v(app),
 
+        // Ctrl+S / Ctrl+X：排队消息键盘操作，等价鼠标 [Send now] / [×]。
+        // 仅在存在可操作的队首消息时拦截，否则放行给 textarea。
+        Input {
+            key: Key::Char('s') | Key::Char('S'),
+            ctrl: true,
+            ..
+        } if app.first_actionable_queued_id().is_some() => {
+            app.steer_first_queued_message();
+        }
+
+        Input {
+            key: Key::Char('x') | Key::Char('X'),
+            ctrl: true,
+            ..
+        } if app.first_actionable_queued_id().is_some() => {
+            app.delete_first_queued_message();
+        }
+
         // Tab: @ 提及补全 > hint overlay candidate navigation and completion
         Input {
             key: Key::Tab,
@@ -1055,6 +1073,62 @@ mod tests {
         assert!(
             !app.session_mgr.current().ui.background_tasks_bar_focused,
             "BackgroundTasksPanel 关闭后不应保留 status bar 入口聚焦态"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_x_deletes_head_queued_message() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr.current_mut().messages.pending_messages =
+            vec!["第一条".to_string().into(), "第二条".to_string().into()];
+
+        let result = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+
+        assert!(matches!(result, Some(Action::Redraw)));
+        let messages = &app.session_mgr.current().messages.pending_messages;
+        assert_eq!(messages.len(), 1, "Ctrl+X 一次只删除队首一条");
+        assert_eq!(messages[0].text, "第二条");
+        assert_eq!(
+            app.session_mgr.current().ui.textarea.lines().join(""),
+            "",
+            "队首删除按键不能作为字面字符写入输入框"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_s_is_consumed_by_queued_message_shortcut() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr.current_mut().ui.loading = true;
+        app.session_mgr
+            .current_mut()
+            .messages
+            .pending_messages
+            .push("补充信息".to_string().into());
+
+        let result = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+
+        assert!(matches!(result, Some(Action::Redraw)));
+        assert_eq!(
+            app.session_mgr.current().ui.textarea.lines().join(""),
+            "",
+            "队首发送按键不能作为字面字符写入输入框"
+        );
+        assert_eq!(
+            app.session_mgr.current().messages.pending_messages.len(),
+            1,
+            "无 ACP 客户端时消息必须留在队列中"
         );
     }
 

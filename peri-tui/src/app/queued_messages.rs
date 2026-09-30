@@ -34,6 +34,34 @@ impl App {
         session.metadata.pending_attachments = draft_images;
     }
 
+    /// 队首「可操作」的排队消息 id（跳过正在插入中的消息）。
+    ///
+    /// 键盘快捷键与鼠标按钮共用同一套语义：一次只处理队首一条，
+    /// 因此正在 `sending` 的消息不能重复发送或删除。
+    pub(crate) fn first_actionable_queued_id(&self) -> Option<uuid::Uuid> {
+        self.session_mgr
+            .current()
+            .messages
+            .pending_messages
+            .iter()
+            .find(|message| !message.sending)
+            .map(|message| message.id)
+    }
+
+    /// Ctrl+S：立即补充队首排队消息（等价点击 `[Send now]`）。
+    pub(crate) fn steer_first_queued_message(&mut self) {
+        if let Some(id) = self.first_actionable_queued_id() {
+            self.handle_queued_message_action(QueuedMessageAction::Steer(id));
+        }
+    }
+
+    /// Ctrl+X：删除队首排队消息（等价点击 `[×]`）。
+    pub(crate) fn delete_first_queued_message(&mut self) {
+        if let Some(id) = self.first_actionable_queued_id() {
+            self.handle_queued_message_action(QueuedMessageAction::Delete(id));
+        }
+    }
+
     pub(crate) fn handle_queued_message_action(&mut self, action: QueuedMessageAction) {
         match action {
             QueuedMessageAction::Steer(id) => self.steer_queued_message(id),

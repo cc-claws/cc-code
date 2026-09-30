@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::PendingAttachment;
+use crate::ui::message_view::MessageViewModel;
 use peri_agent::messages::ContentBlock;
 
 fn make_image(id: usize) -> PendingAttachment {
@@ -162,6 +163,67 @@ async fn test_queued_message_flush_preserves_current_draft() {
     assert_eq!(
         app.expand_pasted_text(&draft),
         "草稿第一行\n第二行 [Image #2]"
+    );
+}
+
+#[tokio::test]
+async fn test_queued_keyboard_delete_removes_first_actionable_message() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let mut sending = QueuedMessage::new("插入中".into(), vec![]);
+    sending.sending = true;
+    let sending_id = sending.id;
+    let deleting = QueuedMessage::new("待删除".into(), vec![]);
+    let deleting_id = deleting.id;
+    app.session_mgr.current_mut().messages.pending_messages =
+        vec![sending, deleting, "保留".to_string().into()];
+    app.delete_first_queued_message();
+    let remaining = &app.session_mgr.current().messages.pending_messages;
+    assert_eq!(remaining.len(), 2, "一次按键只处理队首一条消息");
+    assert!(
+        remaining.iter().all(|message| message.id != deleting_id),
+        "应删除队首可操作消息"
+    );
+    assert_eq!(
+        remaining[0].id, sending_id,
+        "插入中的消息不能被键盘跳过删除"
+    );
+}
+
+#[tokio::test]
+async fn test_queued_keyboard_steer_head_without_client_keeps_queue() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.session_mgr.current_mut().ui.loading = true;
+    app.session_mgr.current_mut().messages.pending_messages =
+        vec!["第一条".to_string().into(), "第二条".to_string().into()];
+    app.steer_first_queued_message();
+    let messages = &app.session_mgr.current().messages.pending_messages;
+    assert_eq!(messages.len(), 2, "无 ACP 客户端时消息必须留在队列中");
+    assert!(
+        messages.iter().all(|message| !message.sending),
+        "失败后必须复位 sending，允许再次尝试"
+    );
+    let expected = app.services.lc.tr("queue-unavailable");
+    assert!(
+        app.session_mgr.current().messages.view_messages.iter().any(
+            |vm| matches!(vm, MessageViewModel::SystemNote { content, .. } if content == &expected)
+        ),
+        "无 ACP 客户端时应提示队列不可用"
+    );
+}
+
+#[tokio::test]
+async fn test_queued_keyboard_shortcuts_noop_on_empty_queue() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    assert!(app.first_actionable_queued_id().is_none());
+    app.steer_first_queued_message();
+    app.delete_first_queued_message();
+    assert!(
+        app.session_mgr
+            .current()
+            .messages
+            .pending_messages
+            .is_empty(),
+        "空队列下快捷键必须是 no-op"
     );
 }
 

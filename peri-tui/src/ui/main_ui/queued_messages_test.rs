@@ -142,6 +142,38 @@ async fn test_queued_messages_cjk_multiline_preview_keeps_controls_visible() {
 }
 
 #[tokio::test]
+async fn test_queued_messages_render_keyboard_tip_on_last_visible_row() {
+    let (mut app, mut handle) = App::new_headless(80, 24).await;
+    app.session_mgr.current_mut().messages.pending_messages =
+        vec![make_message("第一条待发送"), make_message("第二条待发送")];
+    assert!(handle
+        .terminal
+        .draw(|f| render(f, &mut app, Rect::new(0, 0, 80, 2)))
+        .is_ok());
+    let tip = app.services.lc.tr("queue-keys-tip");
+    let lines = handle.snapshot();
+    assert!(!lines[0].contains(&tip), "键盘提示只挂在最后一条可见消息行");
+    assert!(lines[1].contains(&tip), "键盘提示应贴在队列最下一行尾部");
+    assert!(lines[1].contains("[×]"), "键盘提示不能覆盖尾部按钮");
+}
+
+#[tokio::test]
+async fn test_queued_messages_render_omits_keyboard_tip_when_narrow() {
+    let (mut app, mut handle) = App::new_headless(40, 24).await;
+    app.session_mgr
+        .current_mut()
+        .messages
+        .pending_messages
+        .push(make_message("窄屏消息"));
+    assert!(handle
+        .terminal
+        .draw(|f| render(f, &mut app, Rect::new(2, 2, 36, 1)))
+        .is_ok());
+    let tip = app.services.lc.tr("queue-keys-tip");
+    assert!(!handle.contains(&tip), "空间不足时必须整体省略键盘提示");
+}
+
+#[tokio::test]
 async fn test_queued_messages_small_area_clamps_hit_regions() {
     let (mut app, mut handle) = App::new_headless(40, 24).await;
     app.session_mgr.current_mut().messages.pending_messages =
