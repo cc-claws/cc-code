@@ -25,7 +25,7 @@ mod tests {
             timestamp: 0,
             items: SyncItems::default(),
         };
-        let result = packer::pack(&pkg, "test123");
+        let result = packer::pack(&pkg, "test123", b"testsalt12345678");
         assert!(result.is_ok());
         let packed = result.unwrap();
         assert!(!packed.chunks.is_empty(), "至少应有 1 个分片");
@@ -41,8 +41,8 @@ mod tests {
             timestamp: 0,
             items: SyncItems::default(),
         };
-        let result1 = packer::pack(&pkg, "samecode").expect("第一次打包");
-        let result2 = packer::pack(&pkg, "samecode").expect("第二次打包");
+        let result1 = packer::pack(&pkg, "samecode", b"testsalt12345678").expect("第一次打包");
+        let result2 = packer::pack(&pkg, "samecode", b"testsalt12345678").expect("第二次打包");
 
         // 相同 pair_code 应产生不同密文（因随机 IV）
         assert_ne!(

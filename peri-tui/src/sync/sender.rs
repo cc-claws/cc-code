@@ -23,12 +23,12 @@ pub async fn run_sync_sender(server_url: &str) -> Result<()> {
     let msg = serde_json::to_string(&WsMessage::RequestPair)?;
     ws.send(Message::Text(msg)).await?;
 
-    let pair_code = loop {
+    let (pair_code, salt) = loop {
         match ws.next().await {
             Some(Ok(Message::Text(text))) => {
                 let msg: WsMessage = serde_json::from_str(&text)?;
                 match msg {
-                    WsMessage::PairCreated { pair_code } => break pair_code,
+                    WsMessage::PairCreated { pair_code, salt } => break (pair_code, salt),
                     WsMessage::Error { code, message } => {
                         anyhow::bail!("Pair error [{code}]: {message}")
                     }
@@ -44,6 +44,11 @@ pub async fn run_sync_sender(server_url: &str) -> Result<()> {
     };
 
     println!("Pair code: {pair_code}");
+    // #22: Warn that the relay server can decrypt sync content.
+    // The relay generates the pair_code, so it can derive the encryption key.
+    // Only use trusted relay servers for sensitive data.
+    println!("WARNING: The sync relay server can decrypt your synced data (including API keys).");
+    println!("         Only sync over relays you trust. (#22)");
     println!("Waiting for receiver...");
 
     loop {
@@ -87,7 +92,7 @@ pub async fn run_sync_sender(server_url: &str) -> Result<()> {
     let PackedData {
         chunks,
         encrypted_size,
-    } = packer::pack(&sync_pkg, &pair_code)?;
+    } = packer::pack(&sync_pkg, &pair_code, &salt)?;
 
     let total = chunks.len() as u64;
     println_overwrite(&format!(

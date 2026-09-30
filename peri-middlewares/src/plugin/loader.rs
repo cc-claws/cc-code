@@ -588,6 +588,16 @@ pub fn load_enabled_plugins_aggregated(claude_dir: &Path) -> PluginLoadResult {
     let all_hooks: Vec<RegisteredHook> = plugins
         .iter()
         .filter_map(|plugin| {
+            // #17 fix: Only load hooks from trusted plugins.
+            // Plugin install path must be in trusted_projects or CC_CODE_TRUST_PROJECT_HOOKS=1.
+            let install_path = plugin.install_path.to_string_lossy().to_string();
+            if !crate::hooks::loader::is_project_trusted(&install_path) {
+                tracing::warn!(
+                    "Skipping hooks from untrusted plugin '{}' at {}.                      To allow, trust the plugin directory.",
+                    plugin.name, install_path
+                );
+                return None;
+            }
             let config = plugin.hooks_config.as_ref()?;
             let mut hooks = Vec::new();
             for (event, matchers) in config {

@@ -37,14 +37,14 @@ pub async fn run_sync_receiver(server_url: &str) -> Result<()> {
     };
     ws.send(Message::Text(serde_json::to_string(&msg)?)).await?;
 
-    loop {
+    let salt = loop {
         match ws.next().await {
             Some(Ok(Message::Text(text))) => {
                 let msg: WsMessage = serde_json::from_str(&text)?;
                 match msg {
-                    WsMessage::PairJoined { .. } => {
+                    WsMessage::PairJoined { salt, .. } => {
                         println_overwrite("Connected! Select items to sync:");
-                        break;
+                        break salt;
                     }
                     WsMessage::Error { code, message } => {
                         anyhow::bail!("Join error [{code}]: {message}");
@@ -58,7 +58,7 @@ pub async fn run_sync_receiver(server_url: &str) -> Result<()> {
             None => anyhow::bail!("Connection closed"),
             _ => {}
         }
-    }
+    };
 
     let mut items = build_default_items();
     let selected = select_sync_items(&mut items)?;
@@ -106,7 +106,7 @@ pub async fn run_sync_receiver(server_url: &str) -> Result<()> {
     chunks.sort_by_key(|(seq, _)| *seq);
     let encrypted: Vec<u8> = chunks.into_iter().flat_map(|(_, data)| data).collect();
 
-    let key = crypto::derive_key(&pair_code);
+    let key = crypto::derive_key(&pair_code, &salt);
     let decrypted =
         crypto::decrypt(&encrypted, &key).context("Decryption failed — pair code may not match")?;
     let package: crate::sync::protocol::SyncPackage =

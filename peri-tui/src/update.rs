@@ -15,6 +15,10 @@ use tokio::{
 
 const SCRIPT_URL_SH: &str =
     "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh";
+/// #19 fix: Expected SHA256 of the install script.
+/// UPDATE THIS when scripts/install.sh changes, or the update will be blocked.
+const SCRIPT_SHA256_SH: &str =
+    "2916bdb81b4bc6a21ff6c1e36e226f565ea4325c5539dc88c6030f96418d629a";
 const SCRIPT_URL_PS1: &str =
     "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1";
 
@@ -32,17 +36,46 @@ pub async fn run_update() -> Result<String> {
 }
 
 async fn run_update_unix() -> Result<String> {
-    println!("  Running remote install script...");
-
-    let mut child = Command::new("bash")
-        .arg("-c")
-        .arg(format!("curl -fsSL {SCRIPT_URL_SH} | bash"))
+    println!("  Downloading install script...");
+    // #19 fix: Download to temp file and verify SHA256 before executing.
+    // Prevents execution of tampered scripts (MITM or compromised source).
+    let tmp = std::env::temp_dir().join(format!("cc-code-install-{}.sh", std::process::id()));
+    let download = Command::new("curl")
+        .args(["-fsSL", SCRIPT_URL_SH, "-o", tmp.to_str().unwrap()])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to spawn update process. Is bash/curl available?")?;
+        .context("Failed to spawn curl. Is curl available?")?;
+    let out = download.wait_with_output().await?;
+    if !out.status.success() {
+        anyhow::bail!("Failed to download install script");
+    }
+    // Verify SHA256
+    let content = std::fs::read(&tmp).context("Failed to read downloaded script")?;
+    let hash = {
+        use ring::digest;
+        let d = digest::digest(&digest::SHA256, &content);
+        d.as_ref().iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    };
+    if hash != SCRIPT_SHA256_SH {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::bail!(
+            "Install script SHA256 mismatch! Expected {}, got {}.              The script may have been tampered with. Update aborted for safety.",
+            SCRIPT_SHA256_SH, hash
+        );
+    }
+    println!("  Script verified (SHA256 OK). Running...");
 
-    stream_output(&mut child).await?;
+    let mut child = Command::new("bash")
+        .arg(tmp.to_str().unwrap())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn update process. Is bash available?")?;
+
+    let result = stream_output(&mut child).await;
+    let _ = std::fs::remove_file(&tmp);
+    result?;
     read_installed_version()
 }
 
