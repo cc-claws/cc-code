@@ -2188,3 +2188,66 @@ fn test_readonly_action_summary_pure_fn() {
         Some("searched for 2 patterns")
     );
 }
+
+/// 前台 `!` 回流的上下文片段在展示层应被跳过（否则与 ShellCommand VM 重复）。
+#[test]
+fn test_bash_context_fragments_skipped_in_view() {
+    let msgs = vec![
+        BaseMessage::human("<local-command-caveat>Caveat: ...</local-command-caveat>"),
+        BaseMessage::human("<bash-input>deploy --prod</bash-input>"),
+        BaseMessage::human("<bash-stdout>done</bash-stdout><bash-stderr></bash-stderr>"),
+    ];
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    assert!(
+        vms.is_empty(),
+        "三类上下文片段都不应渲染，实际产生 {} 个 VM: {:?}",
+        vms.len(),
+        vms
+    );
+}
+
+/// 反例：正常用户消息不得被误跳过（含以 `<` 开头的边角输入）。
+#[test]
+fn test_normal_user_messages_not_skipped() {
+    let msgs = vec![
+        BaseMessage::human("bash-input is a tag"),
+        BaseMessage::human("<bash-input>"),
+        BaseMessage::human("<b>粗体</b>"),
+        BaseMessage::human("<local-command-caveat"),
+    ];
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    assert_eq!(
+        vms.len(),
+        msgs.len(),
+        "正常用户消息不应被跳过（仅完整前缀匹配才跳过），实际: {:?}",
+        vms
+    );
+}
+
+/// 回答「退出 TUI 后恢复会话，之前 `!` 命令能否正常渲染」：
+/// 片段在展示层被跳过，真实展示由 ShellCommand VM 从 shell-commands.jsonl 提供。
+#[test]
+fn test_resumed_session_shows_shell_command_once() {
+    // 模拟 resume 时的 base_msgs：正常对话 + 落盘的 ! 回流片段
+    let base_msgs = vec![
+        BaseMessage::human("帮我部署"),
+        BaseMessage::ai("好的"),
+        BaseMessage::human("<local-command-caveat>Caveat: ...</local-command-caveat>"),
+        BaseMessage::human("<bash-input>deploy --prod</bash-input>"),
+        BaseMessage::human("<bash-stdout>done</bash-stdout><bash-stderr></bash-stderr>"),
+    ];
+    let vms = MessagePipeline::messages_to_view_models(&base_msgs, "/tmp");
+
+    // 只有正常对话渲染；三条片段全部跳过（否则会与 ShellCommand VM 重复）
+    assert_eq!(vms.len(), 2, "应仅渲染 2 条正常消息，实际: {vms:?}");
+    assert!(
+        !vms.iter()
+            .any(|vm| format!("{vm:?}").contains("bash-input")),
+        "片段不应出现在视图中"
+    );
+    assert!(
+        !vms.iter()
+            .any(|vm| format!("{vm:?}").contains("local-command-caveat")),
+        "caveat 不应出现在视图中"
+    );
+}

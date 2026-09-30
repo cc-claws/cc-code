@@ -15,9 +15,10 @@ pub use peri_acp::session::state_builders::{
     apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
     parse_permission_mode,
 };
-use peri_acp::transport::types::IncomingMessage;
+use peri_acp::transport::types::{AcpError, IncomingMessage};
 use peri_agent::{agent::AgentCancellationToken, interaction::ChannelState, messages::BaseMessage};
 use peri_middlewares::prelude::*;
+use serde_json::json;
 
 use crate::{app::agent::LlmProvider, config::PeriConfig};
 
@@ -198,6 +199,35 @@ pub async fn run_acp_server(
                         let result = peri_acp::session::steering::confirm(receipt).await;
                         let _ = transport.send_response(id, result).await;
                     });
+                } else if method == "session/append_history" {
+                    // 静默追加合成消息到会话 history（不触发推理轮次）。
+                    // 用于前台 `!` 命令结果回流：TUI 侧 fire-and-forget 调用，
+                    // 服务端存入 history 供下一次 prompt 使用。
+                    //
+                    // 与 session/prompt 共用 prompt_locks 串行：prompt 结束时以整体赋值
+                    // 回写 history（prompt.rs:187），若并发写入会被覆盖丢失。
+                    let sid = extract_session_id(&params, "").to_string();
+                    let lock = {
+                        let mut locks = prompt_locks.lock().await;
+                        locks
+                            .entry(sid.clone())
+                            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                            .clone()
+                    };
+                    let sessions = Arc::clone(&sessions);
+                    let transport = Arc::clone(&transport);
+                    let thread_store = cfg.thread_store.clone();
+                    tokio::spawn(async move {
+                        let _guard = lock.lock().await;
+                        let result = append_history_to_session(
+                            &sid,
+                            &params,
+                            &sessions,
+                            thread_store.as_ref(),
+                        )
+                        .await;
+                        let _ = transport.send_response(id, result).await;
+                    });
                 } else {
                     let mut sessions = sessions.lock().await;
                     let result =
@@ -215,4 +245,40 @@ pub async fn run_acp_server(
             }
         }
     }
+}
+
+/// 处理 `session/append_history`：把合成消息追加到目标会话的 history。
+///
+/// 用于前台 `!` 命令结果回流（`shell_context_messages` 产出 caveat + 片段），
+/// **不触发推理轮次** —— 仅写入 history，下一次 `session/prompt` 时模型可见。
+///
+/// 调用方须持有该 session 的 `prompt_lock`，与 `session/prompt` 串行（见调用点注释）。
+async fn append_history_to_session(
+    session_id: &str,
+    params: &serde_json::Value,
+    sessions: &SharedSessions,
+    thread_store: &dyn peri_agent::thread::ThreadStore,
+) -> Result<serde_json::Value, AcpError> {
+    let messages: Vec<BaseMessage> = params
+        .get("messages")
+        .map(|v| serde_json::from_value(v.clone()).unwrap_or_default())
+        .unwrap_or_default();
+
+    if messages.is_empty() {
+        return Err(AcpError::new(-32602, "missing messages"));
+    }
+
+    let mut guard = sessions.lock().await;
+    // session 不存在（可能已关闭）→ 静默忽略，避免 TUI 侧产生噪音错误
+    if let Some(state) = guard.get_mut(session_id) {
+        state.history.extend(messages.iter().cloned());
+        let tid = peri_agent::thread::ThreadId::from(state.thread_id.clone());
+        if let Err(e) = thread_store.append_messages(&tid, &messages).await {
+            tracing::warn!(error = %e, "append_history: 落盘失败（内存已更新）");
+        }
+    } else {
+        tracing::debug!(session_id, "append_history: session 不存在，忽略");
+    }
+
+    Ok(json!({ "accepted": true }))
 }

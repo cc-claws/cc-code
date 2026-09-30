@@ -73,6 +73,18 @@ impl MessagePipeline {
                 continue;
             }
 
+            // 前台 `!` 命令回流的上下文片段：仅用于喂给模型，展示由 ShellCommand VM 负责。
+            // 若不跳过，resume/实时重建时会出现与 ShellCommand VM 重复的气泡。
+            // caveat 同理（peri 无 isMeta 字段，只能靠前缀识别）。
+            //
+            // 判定要求「前缀 + 闭合标签」双重匹配：仅靠 starts_with 会误伤用户手输的
+            // 裸标签（如单输 `<bash-input>`），且这是唯一可用的识别手段（无 isMeta）。
+            if let BaseMessage::Human { content, .. } = msg {
+                if crate::app::is_shell_context_fragment(&content.text_content()) {
+                    continue;
+                }
+            }
+
             if let BaseMessage::Ai { tool_calls, .. } = msg {
                 prev_ai_tool_calls = tool_calls
                     .iter()

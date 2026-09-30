@@ -356,7 +356,9 @@ fn extract_xml_tag<'a>(raw: &'a str, tag: &str) -> Option<&'a str> {
 }
 
 /// XML 转义（command/last_output 可能含 `<` `>` `&`，如 shell 重定向、错误信息）。
-fn xml_escape(s: &str) -> String {
+///
+/// `pub(crate)` 供 `shell_command.rs` 构造 `!` 命令上下文片段时复用。
+pub(crate) fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

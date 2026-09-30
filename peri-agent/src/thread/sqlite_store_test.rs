@@ -504,3 +504,49 @@
         assert_eq!(cleared.latest_recap, None);
         assert_eq!(cleared.last_task_summary, None);
     }
+
+/// 端到端验证：`!` 命令回流片段经 append_messages 落盘后，
+/// `load_context`（resume 路径）能读回 —— 覆盖 cached_context 缓存场景。
+#[tokio::test]
+async fn test_append_then_load_context_returns_shell_fragments() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteThreadStore::new(dir.path().join("t.db")).await.unwrap();
+    let tid = store
+        .create_thread(ThreadMeta::new("/tmp"))
+        .await
+        .unwrap();
+
+    // 先写入正常对话，使 load_context 产生 cached_context
+    let base = vec![
+        BaseMessage::human("hello"),
+        BaseMessage::ai("world"),
+    ];
+    store.append_messages(&tid, &base).await.unwrap();
+    let after_base = store.load_context(&tid).await.unwrap();
+    assert_eq!(after_base.len(), 2);
+
+    // 再追加 ! 命令回流片段（模拟 inject_shell_context → append_history）
+    let fragments = vec![
+        BaseMessage::human("<local-command-caveat>Caveat: ...</local-command-caveat>"),
+        BaseMessage::human("<bash-input>deploy --prod</bash-input>"),
+        BaseMessage::human("<bash-stdout>done</bash-stdout><bash-stderr></bash-stderr>"),
+    ];
+    store.append_messages(&tid, &fragments).await.unwrap();
+
+    // resume：load_context 应能读回全部 5 条（含缓存之后的增量）
+    let loaded = store.load_context(&tid).await.unwrap();
+    let texts: Vec<String> = loaded.iter().map(|m| m.message_content().text_content()).collect();
+    assert_eq!(loaded.len(), 5, "resume 应读回 5 条，实际: {texts:?}");
+    assert!(
+        texts.iter().any(|t| t.starts_with("<bash-input>deploy --prod")),
+        "应读回 bash-input 片段，实际: {texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t.starts_with("<bash-stdout>done")),
+        "应读回 bash-stdout 片段，实际: {texts:?}"
+    );
+
+    // 二次 load（此时缓存已包含片段）应保持幂等
+    let again = store.load_context(&tid).await.unwrap();
+    assert_eq!(again.len(), 5, "二次 load 不应重复或丢消息");
+}
