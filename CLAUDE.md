@@ -193,7 +193,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `OPENAI_BASE_URL` | API Base URL（fallback） |
 | `OPENAI_MODEL` | 模型名称（默认 gpt-4o） |
 | `MODEL_PROVIDER` | Provider 选择提示（auto-detect） |
-| `YOLO_MODE=true/false` | 跳过/启用 HITL 审批 |
+| `YOLO_MODE=true/false` | 免审批开关。**仅显式设为 `true` 才生效**；未设置或 `false`/`0` 时启用 HITL 审批（fail-closed） |
 | `RUST_LOG` | 日志级别（默认 info） |
 | `RUST_LOG_FORMAT` | `"json"` 时输出 JSON 格式日志 |
 | `RUST_LOG_FILE` | 日志文件路径 |
@@ -231,7 +231,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `--disallowedTools` | 禁止的工具列表 | both |
 | `--settings` | 加载额外 settings 文件或 JSON 字符串 | both |
 | `-a/--approve` | 启用语义门审批（等同 `--permission-mode auto`） | TUI |
-| `-y/--yolo` | 向后兼容，无操作（YOLO 已是默认行为） | TUI |
+| `-y/--yolo` | 免审批模式（YOLO）。**默认不开** —— 不传此参且未设 `YOLO_MODE` 时走 Auto（语义门/审批） | TUI |
 
 **子命令**：`plugin list [--json]` / `plugin install <name@marketplace> [--scope user/project/local]` / `plugin uninstall <id>`。`acp`/`update`/`sync` 子命令保持不变。
 

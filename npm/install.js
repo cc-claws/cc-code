@@ -259,8 +259,11 @@ function migrateFromClaudeCode(home = homedir()) {
   };
   writeFileSync(ccCodeSettingsPath, JSON.stringify(ccCodeSettings, null, 2) + "\n");
   console.log("");
+  console.log("  Detected Claude Code configuration (compatible with cc-code).");
   console.log("  Migrated ~/.claude/settings.json -> ~/.cc-code/settings.json");
   console.log(`  Found ${providers.length} provider(s): ${providers.map(p => p.type).join(", ")}`);
+  console.log("  NOTE: API keys were copied into ~/.cc-code/settings.json (plain text).");
+  console.log("        Review it if you do not want credentials duplicated there.");
   return true;
 }
 

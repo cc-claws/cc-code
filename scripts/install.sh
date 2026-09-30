@@ -3,18 +3,18 @@ set -euo pipefail
 export LC_ALL=C
 
 # cc-code Install Script
-# Usage: curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh | bash
 #
 # Options:
-#   PERI_INSTALL_VERSION   Specific version tag (e.g. agent-v1.17), empty = latest
-#   PERI_INSTALL_DIR       Install directory (default: $HOME/.peri)
+#   CC_CODE_INSTALL_VERSION   Specific version tag (e.g. npm-v0.6.89), empty = latest
+#   CC_CODE_INSTALL_DIR       Install directory (default: $HOME/.cc-code)
 #   GITHUB_PROXY           GitHub download proxy prefix (replaces https://github.com in download URL)
 #   GITHUB_TOKEN           GitHub personal access token (bypasses API rate limiting)
-#   PERI_NO_PATH_HINT      Set to 1 to skip PATH hint
-#   PERI_INSTALL_PLATFORM  Override platform detection (e.g. linux-x86_64, macos-aarch64)
+#   CC_CODE_NO_PATH_HINT      Set to 1 to skip PATH hint
+#   CC_CODE_INSTALL_PLATFORM  Override platform detection (e.g. linux-x86_64, macos-aarch64)
 #
 # Example:
-#   PERI_INSTALL_VERSION=agent-v1.17 bash install.sh
+#   CC_CODE_INSTALL_VERSION=npm-v0.6.89 bash install.sh
 #   GITHUB_PROXY=https://ghproxy.com/https://github.com curl ... | bash
 #   GITHUB_TOKEN=ghp_xxx curl ... | bash
 
@@ -34,15 +34,15 @@ detect_platform() {
     local os arch platform
 
     # Allow manual override
-    if [[ -n "${PERI_INSTALL_PLATFORM:-}" ]]; then
+    if [[ -n "${CC_CODE_INSTALL_PLATFORM:-}" ]]; then
         # Validate format: os-arch
-        if [[ ! "${PERI_INSTALL_PLATFORM}" =~ ^(macos|linux|windows)-(x86_64|aarch64|riscv64)$ ]]; then
-            error "Invalid PERI_INSTALL_PLATFORM: ${PERI_INSTALL_PLATFORM}"
+        if [[ ! "${CC_CODE_INSTALL_PLATFORM}" =~ ^(macos|linux|windows)-(x86_64|aarch64|riscv64)$ ]]; then
+            error "Invalid CC_CODE_INSTALL_PLATFORM: ${CC_CODE_INSTALL_PLATFORM}"
             echo "  Expected: macos-x86_64 | macos-aarch64 | linux-x86_64 | linux-aarch64 | linux-riscv64 | windows-x86_64"
             exit 1
         fi
-        info "Platform (manual): ${PERI_INSTALL_PLATFORM}" >&2
-        echo "${PERI_INSTALL_PLATFORM}"
+        info "Platform (manual): ${CC_CODE_INSTALL_PLATFORM}" >&2
+        echo "${CC_CODE_INSTALL_PLATFORM}"
         return
     fi
 
@@ -156,8 +156,8 @@ main() {
     ASSET_NAME="cc-code-${PLATFORM}.tar.gz"
 
     # Fetch release info
-    if [[ -n "${PERI_INSTALL_VERSION:-}" ]]; then
-        VERSION_TAG="${PERI_INSTALL_VERSION}"
+    if [[ -n "${CC_CODE_INSTALL_VERSION:-}" ]]; then
+        VERSION_TAG="${CC_CODE_INSTALL_VERSION}"
         step "Fetching release: ${VERSION_TAG}..."
         RELEASE_JSON=$(github_api "${GITHUB_API}/releases/tags/${VERSION_TAG}") || {
             error "Failed to fetch release '${VERSION_TAG}'. Does this tag exist?"
@@ -202,7 +202,7 @@ main() {
     VERSION_DIR="${INSTALL_DIR}/${VERSION_TAG}"
     mkdir -p "${VERSION_DIR}"
 
-    TARGET="${VERSION_DIR}/peri"
+    TARGET="${VERSION_DIR}/cc-code"
     TARBALL="${VERSION_DIR}/${ASSET_NAME}"
 
     # Download tarball
@@ -225,9 +225,9 @@ main() {
     }
     rm -f "${TARBALL}"
 
-    # Tarball contains peri-<platform> (e.g., peri-macos-aarch64), rename to peri
+    # Tarball contains cc-code-<platform> (e.g., cc-code-macos-aarch64), rename to cc-code
     if [[ ! -f "${TARGET}" ]]; then
-        EXTRACTED=$(ls "${VERSION_DIR}"/peri-* 2>/dev/null | head -1)
+        EXTRACTED=$(ls "${VERSION_DIR}"/cc-code-* 2>/dev/null | head -1)
         if [[ -f "${EXTRACTED}" ]]; then
             mv "${EXTRACTED}" "${TARGET}"
         else
@@ -242,7 +242,7 @@ main() {
     info "Installed to: ${TARGET}"
 
     # Create symlink for convenience
-    LINK="${INSTALL_DIR}/peri"
+    LINK="${INSTALL_DIR}/cc-code"
     rm -f "${LINK}"
     ln -sf "${TARGET}" "${LINK}"
 
@@ -250,8 +250,8 @@ main() {
     echo "${VERSION_TAG}" > "${INSTALL_DIR}/current-version.txt"
 
     # --- PATH Setup ---
-    if [[ "${PERI_NO_PATH_HINT:-}" != "1" ]]; then
-        BIN_LINK="${INSTALL_DIR}/peri"
+    if [[ "${CC_CODE_NO_PATH_HINT:-}" != "1" ]]; then
+        BIN_LINK="${INSTALL_DIR}/cc-code"
         SHELL_PROFILE=""
         case "${SHELL:-}" in
             */zsh)  SHELL_PROFILE="${HOME}/.zshrc" ;;
@@ -260,7 +260,7 @@ main() {
         esac
 
         if [[ -n "${SHELL_PROFILE}" ]]; then
-            # Check for exact PATH entry (not substring: avoid .peri matching .perihelion)
+            # Check for exact PATH entry (not substring: avoid .cc-code matching .cc-code-extra)
             INSTALL_DIR_ESC="${INSTALL_DIR//\./\\.}"
             if ! grep -qE "(^|[:\" ])${INSTALL_DIR_ESC}([:\"\$ ]|$)" "${SHELL_PROFILE}" 2>/dev/null; then
                 if [[ "${SHELL}" == */fish ]]; then
@@ -286,7 +286,7 @@ main() {
     echo ""
 
     if command -v "${BIN_LINK}" &>/dev/null || [[ -x "${BIN_LINK}" ]]; then
-        info "Run 'peri' to start."
+        info "Run 'cc-code' to start."
     else
         info "Run: ${BIN_LINK}"
     fi

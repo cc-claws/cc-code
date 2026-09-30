@@ -215,7 +215,7 @@ cargo run -p peri-tui -- -r <session-id>
 | `ANTHROPIC_API_KEY` | Anthropic API Key |
 | `OPENAI_API_KEY` | OpenAI API Key |
 | `OPENAI_MODEL` | 默认模型 |
-| `YOLO_MODE` | 跳过 HITL |
+| `YOLO_MODE` | 免审批开关：**仅显式设为 `true` 才跳过 HITL 审批**（默认启用审批） |
 | `RUST_LOG` | 日志级别 |
 
 ## 依赖关系

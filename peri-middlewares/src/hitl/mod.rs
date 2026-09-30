@@ -28,14 +28,26 @@ pub use shared_mode::{PermissionMode, SharedPermissionMode};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
 
-/// 检测是否处于 YOLO 模式（默认启用）
+/// 由 `YOLO_MODE` 的取值判断是否开启免审批（纯函数，便于单测）。
 ///
-/// - `YOLO_MODE` 未设置或为 `true`/`1` → YOLO（跳过审批）
-/// - `YOLO_MODE=false`/`0` → 启用 HITL 审批
-pub fn is_yolo_mode() -> bool {
-    std::env::var("YOLO_MODE")
+/// - 未设置（`None`）→ `false`（fail-closed，走审批）
+/// - `false`/`0`（大小写不敏感）→ `false`
+/// - 其它任意值 → `true`（显式开启免审批）
+fn yolo_from_env_value(value: Option<&str>) -> bool {
+    value
         .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
-        .unwrap_or(true)
+        .unwrap_or(false)
+}
+
+/// 检测是否处于 YOLO（免审批）模式。
+///
+/// **默认 `false`**（fail-closed）：不显式开启时必须走 HITL 审批。
+/// 仅当 `YOLO_MODE` 显式设为真值（非 `false`/`0`）时才视为开启。
+///
+/// 历史行为为「未设置即视为 YOLO」（fail-open），已在安全加固中修正 ——
+/// 详见 `CHANGELOG.md` 与 CLI `-y/--yolo` 说明。
+pub fn is_yolo_mode() -> bool {
+    yolo_from_env_value(std::env::var("YOLO_MODE").ok().as_deref())
 }
 
 // ─── 默认规则 ──────────────────────────────────────────────────────────────────
@@ -239,16 +251,18 @@ impl HumanInTheLoopMiddleware {
         let mode_snapshot = self.mode.clone();
 
         for (i, call) in calls.iter().enumerate() {
+            // 对「实际将执行的命令」评估（Bash 经 RTK 改写，见 gate_effective_call）
+            let effective = gate_effective_call(call).await;
             // 非敏感工具 → 直接放行（ExecuteExtraTool 透传目标工具名）
-            let effective_name = effective_tool_name(&call.name, &call.input);
+            let effective_name = effective_tool_name(&effective.name, &effective.input);
             if !(self.requires_approval)(&effective_name) {
                 results.push(Ok(call.clone()));
                 continue;
             }
 
-            // 有 mode → 使用快照模式决策
+            // 有 mode → 使用快照模式决策（评估与展示都用有效调用）
             if let Some(mode) = &mode_snapshot {
-                results.push(self.decide_by_mode(state, mode, call).await);
+                results.push(self.decide_by_mode(state, mode, &effective).await);
                 continue;
             }
 
@@ -555,14 +569,18 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
     }
 
     async fn before_tool(&self, state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+        // 对「实际将执行的命令」评估（Bash 经 RTK 改写，见 gate_effective_call）——
+        // 否则会出现「批准 X、实际执行 X′」且审批展示 X 的语义漏洞。
+        let effective = gate_effective_call(tool_call).await;
+
         // 1. 非敏感工具 → 所有模式都放行
-        if !(self.requires_approval)(&effective_tool_name(&tool_call.name, &tool_call.input)) {
+        if !(self.requires_approval)(&effective_tool_name(&effective.name, &effective.input)) {
             return Ok(tool_call.clone());
         }
 
-        // 2. 有 mode → 按权限模式决策
+        // 2. 有 mode → 按权限模式决策（评估与展示都用有效调用）
         if let Some(mode) = &self.mode {
-            return self.decide_by_mode(state, mode, tool_call).await;
+            return self.decide_by_mode(state, mode, &effective).await;
         }
 
         // 3. 无 mode 且无 broker → 放行（disabled() 路径）
@@ -570,10 +588,49 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
             return Ok(tool_call.clone());
         };
 
-        // 4. 无 mode 但有 broker → 原有弹窗审批逻辑
-        self.broker_approve(broker, tool_call, std::path::Path::new(state.cwd()))
+        // 4. 无 mode 但有 broker → 原有弹窗审批逻辑（展示有效调用）
+        self.broker_approve(broker, &effective, std::path::Path::new(state.cwd()))
             .await
     }
+}
+
+/// 把 RTK 改写结果应用到工具调用上（**纯函数**，便于单测）。
+///
+/// `rewritten` 为 `None`（无改写 / rtk 不可用）时原样返回。
+fn apply_command_rewrite(call: &ToolCall, rewritten: Option<String>) -> ToolCall {
+    let Some(rewritten) = rewritten else {
+        return call.clone();
+    };
+    let mut effective = call.clone();
+    if let Some(obj) = effective.input.as_object_mut() {
+        obj.insert("command".to_string(), serde_json::Value::String(rewritten));
+    }
+    effective
+}
+
+/// 计算门控应当评估的「有效工具调用」。
+///
+/// **修复的语义漏洞**：Bash 工具会先经 RTK 改写再执行（见
+/// `middleware/terminal.rs` 的 `rtk_rewrite_command`：X → `rtk X`），
+/// 而门控此前评估的是**改写前**的命令 —— 造成「批准 X、实际执行 X′」，
+/// 且审批弹窗与审计日志展示的仍是 X。
+///
+/// 此处对 Bash 调用预先应用同一改写，使 **门控评估 == 审批展示 == 实际执行**。
+///
+/// **幂等性**：改写结果形如 `rtk <cmd>`，其首词 `rtk` 不在
+/// [`crate::process::is_potential_rtk_command`] 的白名单内，故下游 BashTool
+/// 不会二次改写（无双重前缀风险）。
+///
+/// 非 Bash 调用原样返回（零开销，不 spawn 任何子进程）。
+async fn gate_effective_call(call: &ToolCall) -> ToolCall {
+    if effective_tool_name(&call.name, &call.input) != "Bash" {
+        return call.clone();
+    }
+    let Some(command) = call.input.get("command").and_then(|v| v.as_str()) else {
+        return call.clone();
+    };
+    let rewritten = crate::process::rtk_rewrite_command(command).await;
+    apply_command_rewrite(call, rewritten)
 }
 
 #[cfg(test)]

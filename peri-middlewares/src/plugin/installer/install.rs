@@ -47,8 +47,17 @@ pub async fn install_plugin(
                         let cache_dir = external_cache.clone();
                         move || {
                             let _ = std::fs::create_dir_all(&cache_dir);
+                            // `--` 终止选项解析：url 来自未签名的 marketplace manifest，
+                            // 若以 `-` 开头会被 git 误当选项消费（参数注入）。
                             let output = std::process::Command::new("git")
-                                .args(["clone", "--depth", "1", &url, cache_dir.to_str().unwrap()])
+                                .args([
+                                    "clone",
+                                    "--depth",
+                                    "1",
+                                    "--",
+                                    &url,
+                                    cache_dir.to_str().unwrap(),
+                                ])
                                 .output();
                             match output {
                                 Ok(o) if o.status.success() => Ok(()),
