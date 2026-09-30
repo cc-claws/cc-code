@@ -62,6 +62,10 @@ impl App {
         if in_sub {
             return (false, false, false);
         }
+        // 轮末使 git 分支缓存失效：下一轮事件循环会立即重新探测，使本轮内发生的
+        // 分支切换（如 Agent 执行了 `git checkout`）尽快反映到状态栏。
+        // 对齐 Codex 在 `turn_runtime` 中每轮结束调用 `request_status_line_branch_refresh`。
+        self.invalidate_git_branch_cache();
         self.session_mgr.current_mut().agent.retry_status = None;
         // Pipeline：finalize 当前 AI 消息
         let actions = self

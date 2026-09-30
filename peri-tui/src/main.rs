@@ -924,6 +924,10 @@ async fn run_app(
         let panic_updated = app.poll_panic_notifications();
         // 检查 cron 定时触发
         app.poll_cron_triggers();
+        // Git 分支：按 TTL 发起异步探测（子进程不占用渲染线程，issue #277），
+        // 并收取上一次探测的结果
+        app.request_git_branch_refresh_if_due();
+        let git_branch_updated = app.poll_git_branch_refresh();
 
         // NOTE: 不对 next_event/draw_app 使用 ?，避免 terminal 错误导致跳过 session ID 打印
         let next = match event::next_event(&mut app, event_reader).await {
@@ -978,6 +982,7 @@ async fn run_app(
                     || bg_shell_updated
                     || agent_shell_updated
                     || panic_updated
+                    || git_branch_updated
                     || loading
                     || cursor_blinked;
                 if should_render {

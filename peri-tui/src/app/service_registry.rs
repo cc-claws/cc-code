@@ -81,54 +81,54 @@ pub struct ServiceRegistry {
     pub lc: crate::i18n::LcRegistry,
     /// Channel 共享状态（MCP handler ↔ TUI/broker 桥接）
     pub channel_state: Option<Arc<ChannelState>>,
-    /// Git 分支缓存（5s 刷新）
+    /// Git 分支缓存（渲染只读；异步刷新见 `git_branch_poller`）
     pub git_branch_cache: parking_lot::Mutex<GitBranchCache>,
+    /// Git 分支异步刷新器（子进程不占用渲染线程，issue #277）
+    pub git_branch_poller: parking_lot::Mutex<GitBranchPoller>,
     /// panic hook 通知 receiver（TUI 模式专用，由 main.rs init_panic_notify 初始化）
     pub panic_notify_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
 }
 
 /// Git 分支状态缓存，避免每帧都 spawn 子进程
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GitBranchStatus {
     pub branch: String,
     pub dirty: bool,
 }
 
+/// Git 分支状态缓存容器。
+///
+/// **渲染路径只读**（`get_cached`），写入由后台任务完成（`set_status`）——
+/// 因此渲染线程**永远不会**因 `git` 子进程而阻塞。
+///
+/// 对齐 Codex 的做法（`codex-rs/tui/src/branch_summary.rs` 模块文档）：
+/// 分支查询只走异步 executor，「status line can render whichever pieces are
+/// available **without blocking the rest of the UI**」。
+#[derive(Default)]
 pub struct GitBranchCache {
     status: Option<GitBranchStatus>,
-    last_check: Option<std::time::Instant>,
 }
 
 impl GitBranchCache {
     pub fn new() -> Self {
-        Self {
-            status: None,
-            last_check: None,
-        }
+        Self { status: None }
     }
 
-    /// 获取缓存的分支状态，超过 5 秒则刷新
-    pub fn get_or_refresh(&mut self, cwd: &str) -> Option<&GitBranchStatus> {
-        let should_refresh = self
-            .last_check
-            .map(|t| t.elapsed() >= std::time::Duration::from_secs(5))
-            .unwrap_or(true);
-
-        if should_refresh {
-            self.status = Self::detect_status(cwd);
-            self.last_check = Some(std::time::Instant::now());
-        }
-
-        self.get_cached()
-    }
-
-    /// 获取缓存的分支状态，不触发子进程刷新。
-    /// loading 期间调用，避免 `git rev-parse` 子进程阻塞渲染线程导致抖动。
+    /// 读取缓存。渲染路径专用，绝不 spawn 子进程。
     pub fn get_cached(&self) -> Option<&GitBranchStatus> {
         self.status.as_ref()
     }
 
-    fn detect_status(cwd: &str) -> Option<GitBranchStatus> {
+    /// 由后台刷新任务写回。
+    pub fn set_status(&mut self, status: Option<GitBranchStatus>) {
+        self.status = status;
+    }
+
+    /// 同步探测分支状态（**阻塞**：会 spawn `git` 子进程）。
+    ///
+    /// 只能在后台线程/任务中调用（见 `GitBranchPoller`），
+    /// **禁止**从渲染路径调用。
+    pub(crate) fn detect_status(cwd: &str) -> Option<GitBranchStatus> {
         use std::process::Command;
         let output = Command::new("git")
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -153,3 +153,86 @@ impl GitBranchCache {
         Some(GitBranchStatus { branch, dirty })
     }
 }
+
+/// Git 分支异步刷新器。
+///
+/// 把 `detect_status` 的子进程开销移出渲染线程：事件循环按 TTL 触发异步探测，
+/// 结果经 channel 回传并写回 [`GitBranchCache`]。
+///
+/// 为什么需要它（原实现的缺陷）：旧逻辑为「避免子进程阻塞渲染」而在
+/// `ui.loading` 期间**完全冻结**缓存，导致 Agent 工作期间状态栏分支名长期陈旧
+/// （issue #277）。异步化后阻塞问题从根上消失，loading 期间亦可正常刷新。
+pub struct GitBranchPoller {
+    tx: tokio::sync::mpsc::UnboundedSender<Option<GitBranchStatus>>,
+    rx: Option<tokio::sync::mpsc::UnboundedReceiver<Option<GitBranchStatus>>>,
+    /// 是否有探测在途（避免重复 spawn）
+    pending: bool,
+    last_request: Option<std::time::Instant>,
+}
+
+impl GitBranchPoller {
+    /// 刷新间隔。沿用旧值 5s；区别在于**loading 期间同样生效**。
+    const TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+    pub fn new() -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        Self {
+            tx,
+            rx: Some(rx),
+            pending: false,
+            last_request: None,
+        }
+    }
+
+    /// 是否该发起一次探测（未在途中、且距上次超过 TTL）。
+    pub fn due(&self) -> bool {
+        self.rx.is_some()
+            && !self.pending
+            && self
+                .last_request
+                .map(|t| t.elapsed() >= Self::TTL)
+                .unwrap_or(true)
+    }
+
+    /// 标记已发起探测，返回用于 spawn 的 sender 副本。
+    pub fn begin(&mut self) -> tokio::sync::mpsc::UnboundedSender<Option<GitBranchStatus>> {
+        self.pending = true;
+        self.last_request = Some(std::time::Instant::now());
+        self.tx.clone()
+    }
+
+    /// 强制下次 [`due`] 返回 true（用于轮末等需要立即刷新的时机）。
+    pub fn invalidate(&mut self) {
+        self.last_request = None;
+    }
+
+    /// 收取所有已完成探测的结果，返回最后一次结果（None 表示探测失败）。
+    pub fn drain(&mut self) -> Option<Option<GitBranchStatus>> {
+        let rx = self.rx.as_mut()?;
+        let mut last: Option<Option<GitBranchStatus>> = None;
+        loop {
+            match rx.try_recv() {
+                Ok(status) => {
+                    self.pending = false;
+                    last = Some(status);
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    self.rx = None;
+                    break;
+                }
+            }
+        }
+        last
+    }
+}
+
+impl Default for GitBranchPoller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+#[path = "service_registry_test.rs"]
+mod tests;
