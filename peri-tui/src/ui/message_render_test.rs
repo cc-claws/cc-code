@@ -1435,10 +1435,15 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
         total_width <= width,
         "Header 视觉列宽 ({total_width}) 不应超过终端宽度 ({width})"
     );
-    // 非详细模式：命令宽度被限制在可用宽度的一半左右，不应顶到消息区最右侧
+    // 非详细模式：命令宽度被限制在可用宽度的 16/19（≈84%），既比原先更宽松
+    // （旧实现几乎占满整行），也仍与消息区最右侧保持距离，不贴右边缘截断。
     assert!(
         total_width < width,
         "非详细模式 Header 不应占满整行顶到最右 ({total_width} vs {width})"
+    );
+    assert!(
+        total_width * 100 >= width * 70,
+        "非详细模式 Header 宽度应接近可用宽度的 84%，不应被压得过窄 ({total_width} vs {width})"
     );
 }
 
