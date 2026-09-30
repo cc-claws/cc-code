@@ -9,12 +9,10 @@ use peri_agent::{
     agent::state::State, error::AgentResult, messages::BaseMessage, middleware::r#trait::Middleware,
 };
 
-/// 全局配置文件路径：~/.peri/settings.json
+/// 全局配置文件路径（经 [`peri_agent::app_home::global_settings_path`] 解析：
+/// `~/.cc-code/settings.json` 优先，旧版 `~/.peri/settings.json` 仅回退）
 pub fn global_config_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".peri")
-        .join("settings.json")
+    peri_agent::app_home::global_settings_path()
 }
 
 /// 从全局配置中加载 skills_dir 路径

@@ -14,8 +14,8 @@ impl Command for DoctorCommand {
     fn execute(&self, app: &mut App, _args: &str) {
         let mut lines = vec!["Doctor 检查结果：".to_string(), "".to_string()];
 
-        // 1. Settings 文件
-        let settings_path = dirs_next::home_dir().map(|h| h.join(".peri").join("settings.json"));
+        // 1. Settings 文件（#289：经 app_home 解析，新版 ~/.cc-code 优先）
+        let settings_path = Some(peri_agent::app_home::global_settings_path());
         let settings_status = match &settings_path {
             Some(p) if p.is_file() => format!("OK  {}", p.display()),
             Some(p) => format!("Missing  {}", p.display()),

@@ -137,9 +137,9 @@ mod tests {
 
         writer::write_sync_items(home_p, cwd_p, &items).expect("全部写入应成功");
 
-        // settings
+        // settings（#289：home 为空时新写入走 ~/.cc-code）
         assert_eq!(
-            fs::read_to_string(home_p.join(".peri/settings.json")).unwrap(),
+            fs::read_to_string(home_p.join(".cc-code/settings.json")).unwrap(),
             r#"{"model":"sonnet"}"#
         );
         // skills
