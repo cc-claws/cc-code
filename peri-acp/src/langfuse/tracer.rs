@@ -17,6 +17,10 @@ pub(crate) struct PendingTool {
     parent_span_id: String,
 }
 
+/// 单轮 LLM 调用的追踪数据：(generation_id, input_messages, tools, start_time_rfc3339)
+/// input_messages 为 Arc 共享（与 LlmCallStart 事件同一份），不做深拷贝（#306）
+type GenerationData = (String, Arc<Vec<BaseMessage>>, Vec<ToolDefinition>, String);
+
 /// Langfuse 单轮追踪器（per-turn）
 ///
 /// 持有对 LangfuseSession 的引用，复用 client/batcher。
@@ -32,8 +36,9 @@ pub struct LangfuseTracer {
     trace_id: String,
     /// 主 Agent Observation 的 ID
     pub(crate) agent_observation_id: String,
-    /// step → (generation_id, input_messages, tools, start_time_rfc3339)
-    generation_data: HashMap<usize, (String, Vec<BaseMessage>, Vec<ToolDefinition>, String)>,
+    /// step → GenerationData
+    /// input_messages 为 Arc 共享（与 LlmCallStart 事件同一份），不做深拷贝
+    generation_data: HashMap<usize, GenerationData>,
     /// 工具调用缓冲数据：tool_call_id → PendingTool
     pending_tools: HashMap<String, PendingTool>,
     /// 当前批次工具组 Span ID
@@ -336,10 +341,14 @@ impl LangfuseTracer {
     }
 
     /// LLM 调用开始：提交上一轮工具批次 Span，缓存本轮 input
+    ///
+    /// `messages` 为 `LlmCallStart` 事件携带的 `Arc`（`llm_step.rs` 已做一次快照拷贝），
+    /// 此处仅 `Arc::clone`（引用计数 +1），**不**再 `to_vec()` 深拷贝。
+    /// 这是 #306 的修复：此前每次 LLM 调用把整个消息历史（含 base64 图片）深拷贝两次。
     pub fn on_llm_start(
         &mut self,
         step: usize,
-        messages: &[BaseMessage],
+        messages: &Arc<Vec<BaseMessage>>,
         tools: &[ToolDefinition],
     ) {
         self.flush_tools_batch();
@@ -347,7 +356,7 @@ impl LangfuseTracer {
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         self.generation_data.insert(
             step,
-            (gen_id, messages.to_vec(), tools.to_vec(), start_time),
+            (gen_id, Arc::clone(messages), tools.to_vec(), start_time),
         );
         self.active_step = Some(step);
         self.retry_attempts.clear();
