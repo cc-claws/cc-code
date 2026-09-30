@@ -31,12 +31,17 @@ pub use shared_mode::{PermissionMode, SharedPermissionMode};
 /// 由 `YOLO_MODE` 的取值判断是否开启免审批（纯函数，便于单测）。
 ///
 /// - 未设置（`None`）→ `false`（fail-closed，走审批）
+/// - 空字符串 / 纯空白 → `false`（视为未设置，#288）
 /// - `false`/`0`（大小写不敏感）→ `false`
 /// - 其它任意值 → `true`（显式开启免审批）
 fn yolo_from_env_value(value: Option<&str>) -> bool {
-    value
-        .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
-        .unwrap_or(false)
+    match value {
+        None => false,
+        Some(v) => {
+            let v = v.trim();
+            !v.is_empty() && !v.eq_ignore_ascii_case("false") && v != "0"
+        }
+    }
 }
 
 /// 检测是否处于 YOLO（免审批）模式。
@@ -252,7 +257,7 @@ impl HumanInTheLoopMiddleware {
 
         for (i, call) in calls.iter().enumerate() {
             // 对「实际将执行的命令」评估（Bash 经 RTK 改写，见 gate_effective_call）
-            let effective = gate_effective_call(call).await;
+            let effective = gate_effective_call(call);
             // 非敏感工具 → 直接放行（ExecuteExtraTool 透传目标工具名）
             let effective_name = effective_tool_name(&effective.name, &effective.input);
             if !(self.requires_approval)(&effective_name) {
@@ -571,7 +576,7 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
     async fn before_tool(&self, state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
         // 对「实际将执行的命令」评估（Bash 经 RTK 改写，见 gate_effective_call）——
         // 否则会出现「批准 X、实际执行 X′」且审批展示 X 的语义漏洞。
-        let effective = gate_effective_call(tool_call).await;
+        let effective = gate_effective_call(tool_call);
 
         // 1. 非敏感工具 → 所有模式都放行
         if !(self.requires_approval)(&effective_tool_name(&effective.name, &effective.input)) {
@@ -617,19 +622,25 @@ fn apply_command_rewrite(call: &ToolCall, rewritten: Option<String>) -> ToolCall
 ///
 /// 此处对 Bash 调用预先应用同一改写，使 **门控评估 == 审批展示 == 实际执行**。
 ///
+/// **安全约束（#288）**：此处必须使用 [`crate::process::predict_rtk_rewrite`]
+/// 做纯字符串预测，**禁止**调用 `rtk_rewrite_command` —— 后者会实际执行
+/// `PATH`/`RTK_PATH` 上的外部二进制，而门控运行在审批弹窗出现**之前**，
+/// 等价于给不可信代码一次审批前执行机会（`verify_rtk_executable` 仅检查
+/// `--version` 退出码，可被任意恶意二进制冒充）。
+///
 /// **幂等性**：改写结果形如 `rtk <cmd>`，其首词 `rtk` 不在
 /// [`crate::process::is_potential_rtk_command`] 的白名单内，故下游 BashTool
 /// 不会二次改写（无双重前缀风险）。
 ///
 /// 非 Bash 调用原样返回（零开销，不 spawn 任何子进程）。
-async fn gate_effective_call(call: &ToolCall) -> ToolCall {
+fn gate_effective_call(call: &ToolCall) -> ToolCall {
     if effective_tool_name(&call.name, &call.input) != "Bash" {
         return call.clone();
     }
     let Some(command) = call.input.get("command").and_then(|v| v.as_str()) else {
         return call.clone();
     };
-    let rewritten = crate::process::rtk_rewrite_command(command).await;
+    let rewritten = crate::process::predict_rtk_rewrite(command);
     apply_command_rewrite(call, rewritten)
 }
 

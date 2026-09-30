@@ -479,3 +479,36 @@ fn test_rewritten_command_is_not_rewritable_again() {
         "原始 git 命令应可改写（对照）"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// #288：YOLO 空字符串视为未设置；门控只做纯预测、不执行外部进程
+// ─────────────────────────────────────────────────────────────────────────
+
+/// 空字符串 / 纯空白 → 视为未设置（fail-closed），而非开启 YOLO。
+#[test]
+fn test_yolo_empty_string_is_disabled() {
+    assert!(!yolo_from_env_value(Some("")), "空字符串应视为未设置");
+    assert!(!yolo_from_env_value(Some("   ")), "纯空白应视为未设置");
+}
+
+/// 门控对 Bash 调用只做纯字符串预测：非白名单命令原样通过，
+/// 且整个过程不执行任何外部二进制（#288：审批前零子进程）。
+#[test]
+fn test_gate_effective_call_never_spawns_process() {
+    // 非白名单命令：无论 rtk 是否存在，门控都不改写（纯函数，无子进程）
+    let call = make_gate_bash_call("g1", "echo hello");
+    let effective = gate_effective_call(&call);
+    assert_eq!(
+        effective.input["command"].as_str(),
+        Some("echo hello"),
+        "非白名单命令应原样通过门控"
+    );
+    // 非 Bash 调用原样返回
+    let read = ToolCall::new("g2", "Read", serde_json::json!({ "path": "/tmp/x" }));
+    let effective = gate_effective_call(&read);
+    assert_eq!(effective.input["path"].as_str(), Some("/tmp/x"));
+    // 缺少 command 字段的 Bash 调用不 panic、原样返回
+    let broken = ToolCall::new("g3", "Bash", serde_json::json!({}));
+    let effective = gate_effective_call(&broken);
+    assert!(effective.input.get("command").is_none());
+}

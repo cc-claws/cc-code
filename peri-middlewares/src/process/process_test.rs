@@ -448,3 +448,67 @@ async fn test_shell_command_bash_prefix_without_bash_on_path() {
         assert_eq!(output.stdout, b"routed", "原始引号和参数应完整保留");
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// #288：门控 rtk 预测必须是纯函数 —— 审批前绝不执行外部二进制
+// ─────────────────────────────────────────────────────────────────────────
+
+/// 纯预测内核：白名单命令 → `rtk <cmd>`；非白名单 / 改写不可能 → None。
+#[test]
+fn test_predict_rtk_rewrite_inner_is_pure() {
+    use crate::process::predict_rtk_rewrite_inner;
+    assert_eq!(
+        predict_rtk_rewrite_inner("git status", true).as_deref(),
+        Some("rtk git status")
+    );
+    assert_eq!(
+        predict_rtk_rewrite_inner("cargo build --release", true).as_deref(),
+        Some("rtk cargo build --release")
+    );
+    // 非白名单命令永不预测（与 rtk 是否存在无关）
+    assert_eq!(predict_rtk_rewrite_inner("echo hi", true), None);
+    assert_eq!(predict_rtk_rewrite_inner("rm -rf /tmp/x", true), None);
+    // 改写不可能发生时不预测
+    assert_eq!(predict_rtk_rewrite_inner("git status", false), None);
+}
+
+/// #288 回归：即使 RTK_PATH 指向恶意二进制，门控预测也不得执行它。
+///
+/// 旧代码在此处调用 `rtk_rewrite_command`（`--version` 探测 + `rewrite` 调用），
+/// 会在审批弹窗出现前执行 PATH/RTK_PATH 上的不可信代码。
+#[test]
+fn test_predict_rtk_rewrite_never_executes_rtk_binary() {
+    let dir = tempfile::tempdir().expect("创建隔离目录");
+    let marker = dir.path().join("executed.marker");
+    let fake_rtk = dir.path().join("fake-rtk");
+    // 恶意 rtk：一旦被执行（无论 --version 探测还是 rewrite 调用）就留下标记
+    std::fs::write(
+        &fake_rtk,
+        format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+    )
+    .expect("写入伪造 rtk");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_rtk, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod +x");
+    }
+
+    let saved = std::env::var("RTK_PATH").ok();
+    std::env::set_var("RTK_PATH", &fake_rtk);
+    let predicted = crate::process::predict_rtk_rewrite("git status");
+    match saved {
+        Some(v) => std::env::set_var("RTK_PATH", v),
+        None => std::env::remove_var("RTK_PATH"),
+    }
+
+    assert_eq!(
+        predicted.as_deref(),
+        Some("rtk git status"),
+        "应给出纯字符串预测"
+    );
+    assert!(
+        !marker.exists(),
+        "#288 回归失败：门控预测执行了 RTK_PATH 指向的二进制！"
+    );
+}
