@@ -22,17 +22,30 @@ function readCcCodeSettings(home) {
   return JSON.parse(fs.readFileSync(join(home, ".cc-code", "settings.json"), "utf-8"));
 }
 
+const __tests = [];
 function test(name, fn) {
-  const home = makeTempDir();
-  try {
-    fn(home);
-    console.log(`  ✓ ${name}`);
-  } catch (e) {
-    console.error(`  ✗ ${name}`);
-    console.error(e.message);
-    process.exitCode = 1;
-  } finally {
-    cleanup(home);
+  __tests.push([name, fn]);
+}
+
+async function runTests() {
+  for (const [name, fn] of __tests) {
+    const home = makeTempDir();
+    try {
+      await fn(home);
+      console.log(`  ✓ ${name}`);
+    } catch (e) {
+      console.error(`  ✗ ${name}`);
+      console.error(e.message);
+      process.exitCode = 1;
+    } finally {
+      cleanup(home);
+    }
+  }
+  console.log("");
+  if (process.exitCode) {
+    console.log("Some tests failed.");
+  } else {
+    console.log("All tests passed.");
   }
 }
 
@@ -168,9 +181,61 @@ test("migrateFromClaudeCode supports CODEX_API_KEY fallback", (home) => {
   if (cfg.config.providers[0].apiKey !== "sk-codex-xxx") throw new Error("expected CODEX_API_KEY to be used");
 });
 
-console.log("");
-if (process.exitCode) {
-  console.log("Some tests failed.");
-} else {
-  console.log("All tests passed.");
-}
+// ─────────────────────────────────────────────
+// #290：checksum 校验 + 密钥迁移确认制
+// ─────────────────────────────────────────────
+const { maybeMigrateFromClaudeCode, wouldCopyKeys } = require("./install");
+
+test("wouldCopyKeys is false when cc-code settings already exist", (home) => {
+  const ccCodeDir = join(home, ".cc-code");
+  fs.mkdirSync(ccCodeDir, { recursive: true });
+  fs.writeFileSync(join(ccCodeDir, "settings.json"), JSON.stringify({ config: {} }));
+  writeClaudeSettings(home, { env: { ANTHROPIC_API_KEY: "sk-ant" } });
+  if (wouldCopyKeys(home) !== false) throw new Error("expected false (backfill only)");
+});
+
+test("wouldCopyKeys is true on fresh install with claude keys", (home) => {
+  writeClaudeSettings(home, { env: { ANTHROPIC_API_KEY: "sk-ant" } });
+  if (wouldCopyKeys(home) !== true) throw new Error("expected true");
+});
+
+test("wouldCopyKeys is false without claude settings", (home) => {
+  if (wouldCopyKeys(home) !== false) throw new Error("expected false");
+});
+
+test("maybeMigrateFromClaudeCode skips key copy in non-TTY without prompt", async (home) => {
+  writeClaudeSettings(home, { env: { ANTHROPIC_API_KEY: "sk-ant-must-not-copy" } });
+  const result = await maybeMigrateFromClaudeCode(home);
+  if (result !== false) throw new Error("expected false (skipped)");
+  if (fs.existsSync(join(home, ".cc-code", "settings.json"))) {
+    throw new Error("must not create settings.json without consent");
+  }
+});
+
+test("maybeMigrateFromClaudeCode honors CC_CODE_NO_MIGRATE=1", async (home) => {
+  writeClaudeSettings(home, { env: { ANTHROPIC_API_KEY: "sk-ant" } });
+  process.env.CC_CODE_NO_MIGRATE = "1";
+  try {
+    const result = await maybeMigrateFromClaudeCode(home);
+    if (result !== false) throw new Error("expected false (skipped by env)");
+  } finally {
+    delete process.env.CC_CODE_NO_MIGRATE;
+  }
+});
+
+test("maybeMigrateFromClaudeCode still backfills without consent", async (home) => {
+  const ccCodeDir = join(home, ".cc-code");
+  fs.mkdirSync(ccCodeDir, { recursive: true });
+  fs.writeFileSync(
+    join(ccCodeDir, "settings.json"),
+    JSON.stringify({ config: { providers: [{ id: "anthropic", type: "anthropic", apiKey: "sk-x", models: {} }] } })
+  );
+  writeClaudeSettings(home, { env: { ANTHROPIC_API_KEY: "sk-ant", ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5" } });
+  const result = await maybeMigrateFromClaudeCode(home);
+  if (result !== true) throw new Error("expected true (backfill needs no consent)");
+  const cfg = readCcCodeSettings(home);
+  if (cfg.config.providers[0].models.fable !== "claude-fable-5") throw new Error("expected fable backfilled");
+});
+
+// 由 runTests() 顺序执行（支持 async 用例）
+runTests();
