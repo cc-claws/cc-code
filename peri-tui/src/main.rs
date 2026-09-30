@@ -30,6 +30,12 @@ use peri_tui::{
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+/// Windows 上 jemalloc 无法在 MSVC 工具链编译（autotools 需 MinGW），
+/// 改用 mimalloc（原生支持 MSVC，可 mi_collect 主动归还）。
+#[cfg(target_os = "windows")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod acp_stdio;
 mod cli_args;
 mod cli_plugin;
@@ -307,8 +313,8 @@ fn inject_settings_override(source: &str) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
-    // Set jemalloc MALLOC_CONF env vars BEFORE any allocation.
-    // Must be the very first line — jemalloc reads these during init.
+    // Set allocator env vars BEFORE any allocation（jemalloc 的 MALLOC_CONF / mimalloc 的 MIMALLOC_*）。
+    // Must be the very first line — allocator reads these during init.
     peri_tui::alloc_config::init_alloc_conf();
 
     // 最先注入环境变量（进程环境变量优先）

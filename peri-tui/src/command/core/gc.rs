@@ -20,6 +20,7 @@ impl Command for GcCommand {
     fn execute(&self, app: &mut App, _args: &str) {
         let stats_before = crate::alloc_config::query_stats();
         let os_rss_before = crate::alloc_config::os_rss_mb();
+        let alloc_name = crate::alloc_config::allocator_name();
 
         // ── 诊断：各数据结构大小 ──
         let active = app.active();
@@ -53,13 +54,13 @@ impl Command for GcCommand {
                 let alloc_delta = after.current_allocated as isize - after.current_rss as isize;
                 if alloc_delta != 0 {
                     lines.push(format!(
-                        "jemalloc allocated: {} (与 RSS 差 {})",
+                        "{alloc_name} allocated: {} (与 RSS 差 {})",
                         fmt_bytes(after.current_allocated),
                         fmt_bytes(alloc_delta.unsigned_abs()),
                     ));
                 }
             }
-            _ => lines.push("RSS: 不可用（Windows 不支持）".to_string()),
+            _ => lines.push("RSS: 不可用（分配器 stats 读取失败）".to_string()),
         }
 
         if let (Some(before), Some(after)) = (os_rss_before, os_rss_after) {
@@ -106,10 +107,10 @@ impl Command for GcCommand {
         lines.push("── 渲染缓存 ──".to_string());
         lines.push(format!("markdown_cache: {md_cache_len}/{md_cache_cap} 条"));
 
-        // ── jemalloc breakdown（关键：allocated vs active vs resident）──
+        // ── 分配器 breakdown（关键：allocated vs active vs resident）──
         if let Some(bd) = crate::alloc_config::query_breakdown() {
             lines.push(String::new());
-            lines.push("── jemalloc 明细 ──".to_string());
+            lines.push(format!("── {alloc_name} 明细 ──"));
             lines.push(format!(
                 "allocated: {} (应用实际分配)",
                 fmt_bytes(bd.allocated)
@@ -117,7 +118,7 @@ impl Command for GcCommand {
             lines.push(format!("active:    {} (活跃页)", fmt_bytes(bd.active)));
             lines.push(format!("resident:  {} (物理驻留)", fmt_bytes(bd.resident)));
             lines.push(format!(
-                "metadata:  {} (jemalloc 元数据)",
+                "metadata:  {} (分配器元数据)",
                 fmt_bytes(bd.metadata)
             ));
             lines.push(format!("mapped:    {} (映射)", fmt_bytes(bd.mapped)));
@@ -133,11 +134,11 @@ impl Command for GcCommand {
                 fmt_bytes(frag),
                 fmt_bytes(waste),
             ));
-            // OS RSS vs jemalloc resident
+            // OS RSS vs allocator resident
             if let Some(ref s) = stats_after {
                 let os_gap = s.current_rss.saturating_sub(bd.resident);
                 lines.push(format!(
-                    "OS RSS({}) - jemalloc resident({}) = {}",
+                    "OS RSS({}) - {alloc_name} resident({}) = {}",
                     fmt_bytes(s.current_rss),
                     fmt_bytes(bd.resident),
                     fmt_bytes(os_gap),
@@ -145,13 +146,13 @@ impl Command for GcCommand {
             }
         }
 
-        // ── jemalloc 全量 stats → tracing ──
-        if cfg!(not(target_os = "windows")) {
+        // ── 分配器全量 stats → tracing ──
+        {
             lines.push(String::new());
-            lines.push("── jemalloc 全量统计（见日志）──".to_string());
-            tracing::info!("=== /gc jemalloc full stats dump ===");
+            lines.push(format!("── {alloc_name} 全量统计（见日志）──"));
+            tracing::info!("=== /gc {alloc_name} full stats dump ===");
             crate::alloc_config::dump_stats();
-            tracing::info!("=== /gc jemalloc full stats end ===");
+            tracing::info!("=== /gc {alloc_name} full stats end ===");
         }
 
         // ── 已知 vs 未识别 ──
