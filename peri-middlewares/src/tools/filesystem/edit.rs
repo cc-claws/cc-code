@@ -31,6 +31,12 @@ impl EditFileTool {
     }
 }
 
+/// Hint appended to the "old_string not found" error.
+///
+/// agent 层不参与本地化（`LcRegistry` 位于 peri-tui，不可反向依赖），
+/// 故此处文案统一为英文，与 `STUCK_HINT` 等同层提示保持一致。
+const HINT_REREAD: &str = "Re-read the file to get its current content, then retry.";
+
 /// 为 old_string not found 错误构建模糊匹配提示。
 ///
 /// 策略 1：取 old_string 前 5 行做前缀匹配，报告匹配到的行号范围。
@@ -39,7 +45,7 @@ impl EditFileTool {
 fn build_not_found_hint(content: &str, old_string: &str) -> String {
     const MAX_FUZZY_LEN: usize = 5000;
     if old_string.len() > MAX_FUZZY_LEN {
-        return "建议先 Read 此文件获取最新内容再重试。".to_string();
+        return HINT_REREAD.to_string();
     }
 
     // 策略 1：前缀匹配
@@ -50,11 +56,12 @@ fn build_not_found_hint(content: &str, old_string: &str) -> String {
             let line_start = content[..byte_offset].lines().count() + 1;
             let line_end = line_start + prefix_lines.len() - 1;
             return format!(
-                "old_string 前 {} 行匹配到文件第 {}-{} 行，但整体不匹配。\
-                 文件可能已被修改。建议先 Read 此文件获取最新内容再重试。",
+                "The first {} line(s) of old_string match lines {}-{} of the file, \
+                 but the full old_string does not. The file may have changed. {}",
                 prefix_lines.len(),
                 line_start,
-                line_end
+                line_end,
+                HINT_REREAD
             );
         }
     }
@@ -86,14 +93,14 @@ fn build_not_found_hint(content: &str, old_string: &str) -> String {
             let line_end = best_pos + window_len;
             let diff_count = window_len - best_common;
             return format!(
-                "最接近的匹配在文件第 {}-{} 行（{} 行中有 {} 行不同）。\
-                 建议先 Read 此文件获取最新内容再重试。",
-                line_start, line_end, window_len, diff_count
+                "Closest match is at lines {}-{} of the file \
+                 ({} of {} lines differ). {}",
+                line_start, line_end, diff_count, window_len, HINT_REREAD
             );
         }
     }
 
-    "建议先 Read 此文件获取最新内容再重试。".to_string()
+    HINT_REREAD.to_string()
 }
 
 /// 把字符串中每行行首的连续 4-空格组转换为 1 个 tab。
@@ -307,25 +314,25 @@ impl BaseTool for EditFileTool {
                         let line = content[..offset].lines().count() + 1;
                         let end_line = line + old_eff.lines().count().saturating_sub(1);
                         if end_line > line {
-                            format!("第 {}-{} 行", line, end_line)
+                            format!("lines {}-{}", line, end_line)
                         } else {
-                            format!("第 {} 行", line)
+                            format!("line {}", line)
                         }
                     })
                     .collect();
                 let location_text = if occurrences > 10 {
                     format!(
-                        "{}（共 {} 处，仅显示前 10 处）",
-                        locations.join("、"),
+                        "{} (showing first 10 of {} occurrences)",
+                        locations.join(", "),
                         occurrences
                     )
                 } else {
-                    locations.join("、")
+                    locations.join(", ")
                 };
                 return Err(format!(
                     "Error: old_string is not unique in {} (found {} occurrences).\n\
-                     匹配位置：{location_text}。\n\
-                     请提供更多上下文使其唯一，或设置 replace_all=true。",
+                     Matches at: {location_text}.\n\
+                     Provide more surrounding context to make it unique, or set replace_all=true.",
                     resolved.display(),
                     occurrences
                 )
