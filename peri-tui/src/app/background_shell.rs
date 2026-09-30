@@ -192,24 +192,18 @@ pub fn spawn_stall_watchdog(
         let mut stall_since: Option<Instant> = None;
         // #320 Windows CI：文件持续不可访问（PermissionDenied）时不能无限空转，
         // 连续错误超限则退出并打 warn 日志。
-        let mut consecutive_errors: u32 = 0;
-        // Windows Defender 瞬时锁文件通常 <2s；30 次 * 200ms = 6s，足够覆盖，
-        // 超过则视为永久性故障（如文件被删），退出避免无限空转。
-        const MAX_CONSECUTIVE_ERRORS: u32 = 30;
         loop {
             interval.tick().await;
             let size = match tokio::fs::metadata(&output_path).await {
-                Ok(m) => {
-                    consecutive_errors = 0;
-                    m.len()
-                }
+                Ok(m) => m.len(),
                 Err(e) => {
-                    consecutive_errors += 1;
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                    // #320 Windows 根治：只在文件不存在时退出（任务清理了输出文件）；
+                    // PermissionDenied 等瞬时错误（Defender 文件锁）无限重试，
+                    // 避免因过早退出导致测试收不到通知（tx 被 drop → rx.recv() 返回 None）。
+                    if e.kind() == std::io::ErrorKind::NotFound {
                         tracing::warn!(
                             task_id,
-                            error = %e,
-                            "stall watchdog: output 文件持续不可访问，退出监控"
+                            "stall watchdog: output 文件不存在，退出监控"
                         );
                         break;
                     }
@@ -234,17 +228,16 @@ pub fn spawn_stall_watchdog(
             }
             // stall >= 阈值：tail + 匹配 prompt pattern
             let tail = match DiskOutput::read_tail(&output_path, STALL_TAIL_BYTES).await {
-                Ok(b) => {
-                    consecutive_errors = 0;
-                    b
-                }
+                Ok(b) => b,
                 Err(e) => {
-                    consecutive_errors += 1;
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                    // anyhow 链中找 io::Error::NotFound
+                    let is_not_found = e
+                        .chain()
+                        .any(|c| c.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound));
+                    if is_not_found {
                         tracing::warn!(
                             task_id,
-                            error = %e,
-                            "stall watchdog: output 文件持续不可读，退出监控"
+                            "stall watchdog: output 文件不存在，退出监控"
                         );
                         break;
                     }
