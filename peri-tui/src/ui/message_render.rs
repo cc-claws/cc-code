@@ -200,11 +200,28 @@ fn wrap_line_spans_rich(line: Line<'static>, max_width: usize) -> Vec<WrappedLin
         // 单词边界优先：从 content_end 往回找最后一个 whitespace
         // [TRAP] 仅当还有内容需要带到下一行时才回退：否则末段本可整段容纳，
         // 仍回退会命中段内最后一个空白，把完整末段多拆一刀（如 "PR" 孤儿行）。
+        // [TRAP] 仅当断点后的词本身能放进一整行时才回退：若该词比 max_width 还长，
+        // 它反正要被硬断，此时回退会把整个长词推走、留下近乎空的行
+        // （如 header 首行只剩 "●"，而 "Bash(AAAA…" 被整体挤到下一行）。
         let mut break_at = content_end;
         if content_end < flat.len() {
             for i in (pos..content_end).rev() {
                 if flat[i].0.chars().all(char::is_whitespace) {
-                    break_at = i;
+                    // 量出断点后那个词（到下一个空白为止）的完整显示宽度
+                    let mut word_start = i;
+                    while word_start < flat.len()
+                        && flat[word_start].0.chars().all(char::is_whitespace)
+                    {
+                        word_start += 1;
+                    }
+                    let word_width: usize = flat[word_start..]
+                        .iter()
+                        .take_while(|(g, _)| !g.chars().all(char::is_whitespace))
+                        .map(|(g, _)| g.width())
+                        .sum();
+                    if word_width <= max_width {
+                        break_at = i;
+                    }
                     break;
                 }
             }
