@@ -764,7 +764,7 @@ pub fn git_branch(cwd: &Path) -> Option<String> {
 
 // ─── 受保护路径（Write/Edit）────────────────────────────────────────────────
 const PROTECTED_DIR_SEGMENTS: &[&str] = &[
-    ".git", ".ssh", ".aws", ".gnupg", ".husky", ".peri", ".claude", ".codex",
+    ".git", ".ssh", ".aws", ".gnupg", ".husky", ".peri", ".cc-code", ".claude", ".codex",
 ];
 
 const PROTECTED_PATH_FRAGMENTS: &[&str] = &["/.github/workflows/", "/.config/gh/"];

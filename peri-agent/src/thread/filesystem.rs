@@ -30,12 +30,9 @@ impl FilesystemThreadStore {
         }
     }
 
-    /// 使用默认路径 `~/.peri/threads/` 创建
+    /// 使用默认路径创建（`~/.cc-code/threads/`，旧版 `~/.peri/threads/` 仅回退，见 #289）
     pub fn default_path() -> Result<Self> {
-        let dir = dirs_next::home_dir()
-            .context("Failed to get home directory")?
-            .join(".peri")
-            .join("threads");
+        let dir = crate::app_home::app_data_dir("threads");
         Ok(Self::new(dir))
     }
 

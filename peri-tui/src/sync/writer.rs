@@ -114,15 +114,16 @@ pub fn write_file_entry(base_dir: &Path, entry: &FileEntry) -> Result<(), WriteE
 /// 将同步项写入本地文件系统
 ///
 /// 路径映射：
-/// - settings → {home_dir}/.peri/settings.json（先备份为 .bak）
+/// - settings → 经 [`peri_agent::app_home::global_settings_path_in`] 解析
+///  （新版 `~/.cc-code/settings.json`，先备份为 .bak；不再写入旧版 `~/.peri/`）
 /// - skills   → {home_dir}/.claude/skills/{relative_path}
 /// - mcp      → {home_dir}/.mcp.json + {cwd}/.mcp.json（如有）
 /// - plugins  → {home_dir}/.claude/plugins/cache/{relative_path}
 pub fn write_sync_items(home_dir: &Path, cwd: &Path, items: &SyncItems) -> Result<(), WriteError> {
     // 1. 写入 settings.json（原子写入 + 备份）
     if let Some(ref settings) = items.settings {
-        let settings_path = home_dir.join(".peri").join("settings.json");
-        let bak_path = home_dir.join(".peri").join("settings.json.bak");
+        let settings_path = peri_agent::app_home::global_settings_path_in(home_dir);
+        let bak_path = settings_path.with_extension("json.bak");
 
         // 备份现有文件（如存在）
         if settings_path.exists() {

@@ -7,7 +7,13 @@
     #[test]
     fn test_new_creates_default_path() {
         let store = FileCredentialStore::new();
-        assert!(store.path().to_string_lossy().contains(".peri"));
+        let p = store.path().to_string_lossy().into_owned();
+        assert!(p.ends_with("oauth_tokens.json"));
+        // #289：新版走 ~/.cc-code，旧版 ~/.peri 仅回退
+        assert!(
+            p.contains(".cc-code") || p.contains(".peri"),
+            "应解析到应用主目录，实际：{p}"
+        );
     }
 
     #[tokio::test]

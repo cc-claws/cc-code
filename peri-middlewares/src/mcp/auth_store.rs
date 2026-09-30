@@ -41,10 +41,8 @@ impl Default for FileCredentialStore {
 
 impl FileCredentialStore {
     pub fn new() -> Self {
-        let path = dirs_next::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".peri")
-            .join("oauth_tokens.json");
+        // #289：经 app_home 解析（~/.cc-code 优先，~/.peri 仅回退）
+        let path = peri_agent::app_home::app_data_path("oauth_tokens.json");
         Self {
             path,
             mutex: Mutex::new(()),

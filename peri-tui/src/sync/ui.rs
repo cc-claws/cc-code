@@ -27,7 +27,7 @@ pub fn build_default_items() -> Vec<SelectableItem> {
         SelectableItem {
             key: "settings",
             label: "Settings",
-            detail: ".peri/settings.json + .claude/settings.json".into(),
+            detail: ".cc-code/settings.json + .claude/settings.json".into(),
             selected: true,
         },
         SelectableItem {
@@ -141,7 +141,7 @@ pub fn confirm_sync(items: &SyncItems) -> Result<bool> {
 
     if items.settings.is_some() {
         count += 1;
-        details.push("  Settings (.peri/settings.json + .claude/settings.json)");
+        details.push("  Settings (.cc-code/settings.json + .claude/settings.json)");
     }
     if items.skills.is_some() {
         count += 1;

@@ -1,6 +1,6 @@
 //! 输入历史持久化：JSON 文件存储在用户家目录下。
 //!
-//! 路径：`~/.peri/input-history.json`
+//! 路径：`~/.cc-code/input-history.json`（旧版 `~/.peri/` 仅回退，见 #289）
 //! 格式：JSON 数组，最新在前。
 
 use std::path::PathBuf;
@@ -9,11 +9,11 @@ const HISTORY_FILE: &str = "input-history.json";
 const HISTORY_TMP: &str = "input-history.json.tmp";
 
 fn history_path() -> Option<PathBuf> {
-    dirs_next::home_dir().map(|h| h.join(".peri").join(HISTORY_FILE))
+    Some(peri_agent::app_home::app_data_path(HISTORY_FILE))
 }
 
 fn history_tmp() -> Option<PathBuf> {
-    dirs_next::home_dir().map(|h| h.join(".peri").join(HISTORY_TMP))
+    Some(peri_agent::app_home::app_data_path(HISTORY_TMP))
 }
 
 /// 从磁盘加载输入历史（最新在前）。文件不存在或解析失败返回空 Vec。

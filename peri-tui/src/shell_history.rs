@@ -41,11 +41,8 @@ impl ShellCommandStore {
     }
 
     pub fn default_path() -> Result<Self> {
-        let path = dirs_next::home_dir()
-            .context("无法获取 home 目录")?
-            .join(".peri")
-            .join("threads")
-            .join(SHELL_HISTORY_FILE);
+        // #289：经 app_home 解析（~/.cc-code/threads 优先，~/.peri/threads 仅回退）
+        let path = peri_agent::app_home::app_data_dir("threads").join(SHELL_HISTORY_FILE);
         Ok(Self::new(path))
     }
 

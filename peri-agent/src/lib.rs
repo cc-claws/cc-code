@@ -4,6 +4,7 @@
 //! Aligned with `@langgraph-js/standard-agent` (TypeScript).
 
 pub mod agent;
+pub mod app_home;
 pub mod ask_user;
 pub mod encoding;
 pub mod error;

@@ -43,9 +43,11 @@ fn scan_dir_recursive(base: &Path, dir: &Path, files: &mut Vec<FileEntry>) {
 
 /// 扫描 settings.json
 ///
-/// 路径：`{home_dir}/.peri/settings.json` + `{home_dir}/.claude/settings.json`
+/// 路径：经 [`peri_agent::app_home::global_settings_path_in`] 解析
+///（`~/.cc-code/settings.json` 优先，旧版 `~/.peri/settings.json` 仅回退）
+/// + `{home_dir}/.claude/settings.json`
 pub fn scan_settings(home_dir: &Path) -> Option<SettingsItem> {
-    let path = home_dir.join(".peri").join("settings.json");
+    let path = peri_agent::app_home::global_settings_path_in(home_dir);
     let claude_path = home_dir.join(".claude").join("settings.json");
 
     let content = match fs::read_to_string(&path) {
