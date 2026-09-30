@@ -10,10 +10,11 @@ use std::time::{Duration, Instant};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 use tokio::sync::mpsc;
 use tui_textarea::Input;
+use unicode_width::UnicodeWidthStr;
 
 use super::panel_component::PanelComponent;
 use super::panel_manager::{EventResult, PanelContext, PanelKind};
@@ -251,20 +252,20 @@ impl PanelComponent for BackgroundTasksPanel {
         self
     }
 
-    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
+    fn status_bar_hints(&self, lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         match self.view {
             BackgroundTaskView::List => vec![
-                ("↑↓".to_string(), "选择".to_string()),
-                ("Enter".to_string(), "详情".to_string()),
-                ("Ctrl+B".to_string(), "选中命令转后台".to_string()),
-                ("x".to_string(), "停止".to_string()),
-                ("Esc".to_string(), "关闭".to_string()),
+                ("↑↓".to_string(), lc.tr("key-move")),
+                ("Enter".to_string(), lc.tr("key-detail")),
+                ("Ctrl+B".to_string(), lc.tr("key-bg-command")),
+                ("x".to_string(), lc.tr("key-kill")),
+                ("Esc".to_string(), lc.tr("key-close")),
             ],
             BackgroundTaskView::Detail { .. } => vec![
-                ("←".to_string(), "返回".to_string()),
-                ("Ctrl+B".to_string(), "选中命令转后台".to_string()),
-                ("x".to_string(), "停止".to_string()),
-                ("Esc".to_string(), "关闭".to_string()),
+                ("←".to_string(), lc.tr("key-back")),
+                ("Ctrl+B".to_string(), lc.tr("key-bg-command")),
+                ("x".to_string(), lc.tr("key-kill")),
+                ("Esc".to_string(), lc.tr("key-close")),
             ],
         }
     }
@@ -305,6 +306,7 @@ fn task_items(session: &super::ChatSession) -> Vec<BackgroundTaskItem> {
 }
 
 fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super::App, area: Rect) {
+    let lc = &app.services.lc;
     // 一次性收集数据，释放 app 借用
     let (shells, agents): (Vec<ShellRow>, Vec<AgentRow>) = {
         let session = app.session_mgr.current();
@@ -324,7 +326,10 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                     .filter(|slot| slot.is_backgrounded() || slot.is_foreground_running())
                     .map(|slot| ShellRow {
                         command: if slot.is_foreground_running() {
-                            format!("[前台] {}", slot.command)
+                            lc.tr_args(
+                                "app-bg-foreground-tag",
+                                &[("command".to_string(), slot.command.clone().into())],
+                            )
                         } else {
                             slot.command.clone()
                         },
@@ -379,7 +384,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
 
     if shells.is_empty() && agents.is_empty() {
         lines.push(Line::from(Span::styled(
-            "暂无后台任务（前台命令运行时 Ctrl+B 可转入后台）".to_string(),
+            lc.tr("app-bg-empty"),
             Style::default().fg(theme::MUTED),
         )));
     } else {
@@ -398,6 +403,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                     row.command.clone(),
                     row.status,
                     row.elapsed,
+                    area.width as usize,
                 ));
             }
             if !agents.is_empty() {
@@ -420,6 +426,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                     row.label.clone(),
                     ShellStatus::Running,
                     row.elapsed,
+                    area.width as usize,
                 ));
             }
         }
@@ -429,23 +436,39 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
 }
 
 /// 渲染单个任务行（marker + label + badge + elapsed，选中项整行高亮）。
+///
+/// `avail_width` 为列表可用列宽：命令 label 按「预留 badge + 耗时后」的剩余宽度
+/// 单行截断，保证状态徽标与耗时始终可见（长命令不再挤掉它们）。
+/// 完整命令请在详情视图查看（Enter 进入，那里折行展开）。
 fn render_task_row(
     idx: usize,
     selected_index: Option<usize>,
     label: String,
     status: ShellStatus,
     elapsed: Duration,
+    avail_width: usize,
 ) -> Line<'static> {
     let selected = Some(idx) == selected_index;
     let marker = if selected { "▸ " } else { "  " };
     let badge_text = format!(" {} ", status.badge());
+    let elapsed_text = format_elapsed(elapsed);
+
+    // 预留：marker + 空格 + badge + 空格 + elapsed
+    let suffix_width = UnicodeWidthStr::width(marker)
+        + 1
+        + UnicodeWidthStr::width(badge_text.as_str())
+        + 1
+        + UnicodeWidthStr::width(elapsed_text.as_str());
+    let label_budget = avail_width.saturating_sub(suffix_width);
+    let label = super::super::ui::message_render::truncate_to_display_width(&label, label_budget);
+
     let mut spans = vec![
         Span::raw(marker.to_string()),
         Span::styled(label, Style::default().fg(theme::SELECTED_FG)),
         Span::raw(" "),
         Span::styled(badge_text, status_badge_style(status)),
         Span::raw(" "),
-        Span::styled(format_elapsed(elapsed), Style::default().fg(theme::MUTED)),
+        Span::styled(elapsed_text, Style::default().fg(theme::MUTED)),
     ];
     if selected {
         for s in &mut spans {
@@ -512,7 +535,7 @@ fn render_detail(
         panel.output_cache_id = None;
         panel.view = BackgroundTaskView::List;
         f.render_widget(
-            Paragraph::new("任务不存在").alignment(Alignment::Center),
+            Paragraph::new(app.services.lc.tr("app-bg-task-missing")).alignment(Alignment::Center),
             area,
         );
         return;
@@ -557,10 +580,25 @@ fn render_detail(
         }
     }
 
-    // 布局：上半信息行 + 下半 Output 框
+    // 布局：上半信息行（高度按命令折行行数自适应）+ 下半 Output 框
+    //
+    // 信息区含 3 行固定字段（Status / Runtime / Command）+ 命令折行后的续行。
+    // 命令可能很长（如带循环的 shell 脚本），故不能再用固定 Length(4)，
+    // 否则折行内容会被裁掉 —— 这里按 `command` 的展示宽度预先算出所需行数。
+    let info_inner_width = area.width.saturating_sub(2).max(1) as usize; // 减去边框
+    let command_prefix_width = UnicodeWidthStr::width("Command: ");
+    let command_width = UnicodeWidthStr::width(command.as_str());
+    let command_rows = if info_inner_width > command_prefix_width {
+        let usable = info_inner_width - command_prefix_width;
+        command_width.div_ceil(usable.max(1)).max(1)
+    } else {
+        1
+    };
+    let max_info_height = (area.height as usize).saturating_sub(8).max(1);
+    let info_height = (2 + command_rows).min(max_info_height).max(3) as u16;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(8)])
+        .constraints([Constraint::Length(info_height), Constraint::Min(8)])
         .split(area);
 
     let info_lines = vec![
@@ -577,7 +615,11 @@ fn render_detail(
             Span::styled(command, Style::default().fg(theme::SELECTED_FG)),
         ]),
     ];
-    f.render_widget(Paragraph::new(info_lines), chunks[0]);
+    // 启用折行：长命令在详情页完整展开（列表页则截断，见 render_task_row）
+    f.render_widget(
+        Paragraph::new(info_lines).wrap(Wrap { trim: false }),
+        chunks[0],
+    );
 
     // Output 框（圆角边框，对齐效果图场景 4）
     let output_block = Block::default()

@@ -134,6 +134,10 @@ key-switch-model = :Switch Model
 key-command-palette = :Command Palette
 key-tab-mode = :Switch Mode
 key-settings = :Settings
+key-nav = :Navigate
+key-edit = :Edit
+key-kill = :Stop
+key-bg-command = :Background command
 
 # ---- Welcome Page ----
 
@@ -322,6 +326,9 @@ app-bg-task-done-with-result = [Background task { $id } completed] Agent: { $age
 app-bg-task-failed = [Background task { $id } failed] Agent: { $agent } | { $error }
 app-bg-task-failed-with-error = [Background task { $id } failed] Agent: { $agent }\nError:\n{ $error }
 app-bg-continuation = Reviewing { $count } background agent result(s)...
+app-bg-empty = No background tasks (press Ctrl+B while a foreground command runs to background it)
+app-bg-foreground-tag = [FG] { $command }
+app-bg-task-missing = Task not found
 
 # ---- Panel Status Bar Hints ----
 

@@ -74,10 +74,10 @@ impl PanelComponent for StatusPanel {
         self
     }
 
-    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
+    fn status_bar_hints(&self, lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         vec![
-            ("\u{2190}\u{2192}".to_string(), _lc.tr("key-tab")),
-            ("Esc".to_string(), "\u{5173}\u{95ed}".to_string()),
+            ("\u{2190}\u{2192}".to_string(), lc.tr("key-tab")),
+            ("Esc".to_string(), lc.tr("key-close")),
         ]
     }
 }

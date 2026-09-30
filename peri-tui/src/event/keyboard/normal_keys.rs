@@ -1094,9 +1094,11 @@ mod tests {
             "BackgroundTasksPanel 详情页按 ← 应返回列表，不应真实关闭面板"
         );
         let hints = app.global_panels.status_bar_hints(&app.services.lc);
+        // 断言回到「列表视图」：列表视图含 Enter/详情 提示，详情视图含 ←/返回。
+        // 不硬编码文案 —— 走 lc 解析，避免语言环境不同导致断言失败。
         assert!(
-            hints.contains(&("Enter".to_string(), "详情".to_string())),
-            "BackgroundTasksPanel 详情页按 ← 应回到列表视图"
+            hints.contains(&("Enter".to_string(), app.services.lc.tr("key-detail"))),
+            "BackgroundTasksPanel 详情页按 ← 应回到列表视图，实际 hints: {hints:?}"
         );
     }
 

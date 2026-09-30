@@ -133,6 +133,10 @@ key-switch-model = :切换模型
 key-command-palette = :命令面板
 key-tab-mode = :切换模式
 key-settings = :设置
+key-nav = :导航
+key-edit = :编辑
+key-kill = :停止
+key-bg-command = :选中命令转后台
 
 # ---- Welcome Page ----
 
@@ -321,6 +325,9 @@ app-bg-task-done-with-result = [后台任务 { $id } 已完成] Agent: { $agent 
 app-bg-task-failed = [后台任务 { $id } 执行失败] Agent: { $agent } | { $error }
 app-bg-task-failed-with-error = [后台任务 { $id } 执行失败] Agent: { $agent }\n错误:\n{ $error }
 app-bg-continuation = 正在回顾 { $count } 个后台 Agent 结果...
+app-bg-empty = 暂无后台任务（前台命令运行时 Ctrl+B 可转入后台）
+app-bg-foreground-tag = [前台] { $command }
+app-bg-task-missing = 任务不存在
 
 # ---- Panel Status Bar Hints ----
 
