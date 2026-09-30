@@ -47,6 +47,29 @@ pub(crate) fn shell_running_text(
 /// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
 const ERROR_SUMMARY_MAX_LINES: usize = 3;
 
+/// 非详细模式下工具 Header 命令摘要占可用宽度的比例（百分比分子）。
+/// 命令不再一路顶到消息区最右侧才截断，避免用户需要在屏幕最右边缘阅读
+/// （issue #258）。详细模式不受此限制，改为完整折行展示。
+const HEADER_ARGS_WIDTH_PERCENT: usize = 60;
+
+/// 计算工具 Header 参数摘要的可用显示宽度。
+///
+/// 非详细模式：在扣除指示器/工具名前缀后，进一步把可用宽度收缩到
+/// `HEADER_ARGS_WIDTH_PERCENT`%，并保留一个最小宽度，避免窄终端下被压得过短。
+/// 详细模式：返回整段剩余宽度（上限 400），供调用方折行展示完整命令使用。
+fn header_args_width(width: usize, prefix_width: usize, detail_mode: bool) -> usize {
+    let avail = width.saturating_sub(prefix_width + 2);
+    if detail_mode {
+        avail.clamp(1, 400)
+    } else {
+        // 收缩到可用宽度的 HEADER_ARGS_WIDTH_PERCENT%，同时不低于 32 列、不超过 avail
+        (avail * HEADER_ARGS_WIDTH_PERCENT / 100)
+            .max(32)
+            .min(avail)
+            .max(1)
+    }
+}
+
 /// 从 Bash 工具输出中解析 exit code。
 ///
 /// 匹配格式：`[Exit code: N]` 或 `[Command completed with exit code N]`
@@ -1222,19 +1245,42 @@ pub fn render_view_model_with_links(
                 Span::raw(" "),
                 Span::styled(state.tool_name.clone(), name_style),
             ];
-            if !state.args_summary.is_empty() {
-                let prefix_width = UnicodeWidthStr::width(indicator)
+            let args = &state.args_summary;
+            let mut lines = Vec::new();
+            if !args.is_empty() {
+                let name_width = UnicodeWidthStr::width(indicator)
                     + 1
-                    + UnicodeWidthStr::width(state.tool_name.as_str())
-                    + 2;
-                let max_args_width = width.saturating_sub(prefix_width + 2).min(400);
-                let summary = tool_args_header(tool_name, &state.args_summary, max_args_width);
-                header_spans.push(Span::styled(
-                    format!("({})", summary),
-                    Style::default().fg(theme::TEXT_SOFT),
-                ));
+                    + UnicodeWidthStr::width(state.tool_name.as_str());
+                let args_color = Style::default().fg(theme::TEXT_SOFT);
+                // 详细模式且非 Glob：完整展示命令摘要，能放下则与 header 同行，
+                // 超出时折行且续行缩进到首行命令起始列（issue #258）；
+                // Glob 保留带 "pattern:" 前缀的单行摘要路径。
+                let wrap_full = detail_mode && tool_name != "Glob";
+                if wrap_full {
+                    let full = sanitize_display_text(args);
+                    let indent = " ".repeat(name_width + 1);
+                    let mut spans = header_spans.clone();
+                    spans.push(Span::raw("("));
+                    spans.push(Span::styled(full, args_color));
+                    spans.push(Span::raw(")"));
+                    let content_width = width.saturating_sub(name_width + 1).max(20);
+                    push_wrapped_line(
+                        &mut lines,
+                        Line::from(spans),
+                        "",
+                        &indent,
+                        Style::default(),
+                        content_width,
+                    );
+                } else {
+                    let max_args_width = header_args_width(width, name_width + 2, detail_mode);
+                    let summary = tool_args_header(tool_name, args, max_args_width);
+                    header_spans.push(Span::styled(format!("({})", summary), args_color));
+                    lines.push(Line::from(header_spans));
+                }
+            } else {
+                lines.push(Line::from(header_spans));
             }
-            let mut lines = vec![Line::from(header_spans)];
             if let Some(task) = background_task {
                 let summary = if *shell_backgrounded {
                     BACKGROUND_RUNNING_STATUS.to_string()
@@ -1775,7 +1821,8 @@ pub fn render_view_model_with_links(
                                 + 1
                                 + UnicodeWidthStr::width(entry.display_name.as_str())
                                 + 2;
-                            let max_args_width = width.saturating_sub(prefix_width + 2).min(400);
+                            let max_args_width =
+                                header_args_width(width, prefix_width + 2, detail_mode);
                             let summary = tool_args_header(&entry.tool_name, args, max_args_width);
                             if let Some(last_line) = lines.last_mut() {
                                 last_line.spans.push(Span::styled(

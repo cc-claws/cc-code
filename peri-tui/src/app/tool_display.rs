@@ -32,6 +32,12 @@ pub fn format_tool_name(tool: &str) -> String {
     .to_string()
 }
 
+/// Bash 命令摘要的字符硬上限，仅作为防御极端超长命令的兜底。
+///
+/// 不能用较小值：详细模式（Ctrl+O）下 Bash 命令需要完整折行展示，若在此处
+/// 提前硬截断，下游 `tool_args_header` 将无法还原完整命令（issue #258）。
+const BASH_COMMAND_MAX_CHARS: usize = 4000;
+
 /// 返回参数摘要（含路径缩短逻辑）
 pub fn format_tool_args(
     tool: &str,
@@ -39,7 +45,9 @@ pub fn format_tool_args(
     cwd: Option<&str>,
 ) -> Option<String> {
     match tool {
-        "Bash" => input["command"].as_str().map(|s| truncate(s, 400)),
+        "Bash" => input["command"]
+            .as_str()
+            .map(|s| truncate(s, BASH_COMMAND_MAX_CHARS)),
         "Read" => {
             let path = input["file_path"]
                 .as_str()

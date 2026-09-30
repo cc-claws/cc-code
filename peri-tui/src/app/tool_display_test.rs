@@ -86,17 +86,27 @@ fn test_read_write_edit_file_path_not_truncated() {
 }
 
 #[test]
-fn test_bash_truncates_at_400() {
-    let cmd = "a".repeat(500);
+fn test_bash_truncates_at_max_chars() {
+    // Bash 命令仅保留一个防御性上限（详细模式需完整展示命令，故上限远大于旧值）
+    let cmd = "a".repeat(BASH_COMMAND_MAX_CHARS + 100);
     let input = serde_json::json!({"command": cmd});
     let result = format_tool_args("Bash", &input, None).unwrap();
     assert_eq!(
         result.chars().count(),
-        401,
-        "Bash 命令应截断到 400 字符 + …"
+        BASH_COMMAND_MAX_CHARS + 1,
+        "超长 Bash 命令应截断到上限字符 + …"
     );
     assert!(result.ends_with('…'), "超长 Bash 命令应以 … 结尾");
-    assert!(result.starts_with('a'), "Bash 命令应保留前 400 字符");
+    assert!(result.starts_with('a'), "Bash 命令应保留前缀内容");
+}
+
+#[test]
+fn test_bash_command_under_max_chars_not_truncated() {
+    // 数十 KB 以内的命令不应被截断，保证详细模式可完整折行展示
+    let cmd = "git log --graph --oneline ".repeat(50);
+    let input = serde_json::json!({"command": cmd.clone()});
+    let result = format_tool_args("Bash", &input, None).unwrap();
+    assert_eq!(result, cmd, "未超过上限的 Bash 命令应完整保留");
 }
 
 #[test]
