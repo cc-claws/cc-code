@@ -1273,6 +1273,53 @@
         );
     }
 
+    /// 聚合组展开态与主路径统一：成功/失败都用 ●，工具名恒为中性灰，不再用 ✗ / 白色粗体。
+    #[test]
+    fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
+        use crate::app::MessageViewModel;
+        use crate::ui::message_view::{ToolCategory, ToolEntry};
+        let make_entry = |name: &str, args: &str, is_error: bool| ToolEntry {
+            tool_name: name.to_string(),
+            display_name: name.to_string(),
+            args_display: Some(args.to_string()),
+            content: "Read 1 lines".to_string(),
+            is_error,
+        };
+        let vm = MessageViewModel::ToolCallGroup {
+            category: ToolCategory::Read,
+            tools: vec![
+                make_entry("Read", "/tmp/ok.rs", false),
+                make_entry("Read", "/tmp/bad.rs", true),
+            ],
+            collapsed: true,
+            standalone_action: None,
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 80, true, 0);
+        let ok_header = &lines[0];
+        assert_eq!(ok_header.spans[0].content.as_ref(), "●", "成功条目应用 ●");
+        assert_eq!(ok_header.spans[0].style.fg, Some(crate::ui::theme::SAGE));
+        assert_eq!(
+            ok_header.spans[2].style.fg,
+            Some(crate::ui::theme::TEXT_SOFT),
+            "工具名应为中性灰"
+        );
+        let failed_header = lines
+            .iter()
+            .find(|l| l.spans[0].style.fg == Some(crate::ui::theme::ERROR))
+            .expect("应存在失败条目");
+        assert_eq!(
+            failed_header.spans[0].content.as_ref(),
+            "●",
+            "失败条目也应用 ● 而非 ✗"
+        );
+        assert_eq!(
+            failed_header.spans[2].style.fg,
+            Some(crate::ui::theme::TEXT_SOFT),
+            "失败条目工具名也应为中性灰"
+        );
+    }
+
     #[test]
     fn test_bash_nonzero_exit_result_lines_use_error_color() {
         use crate::app::MessageViewModel;

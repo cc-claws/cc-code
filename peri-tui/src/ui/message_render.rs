@@ -1802,15 +1802,15 @@ pub fn render_view_model_with_links(
                     } else {
                         theme::SAGE
                     };
-                    let indicator = if entry.is_error { "✗" } else { "●" };
+                    // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为中性色
+                    // （此前失败用 ✗、名字为白色粗体，与主路径两套体系）
+                    let indicator = "●";
                     lines.push(Line::from(vec![
                         Span::styled(indicator.to_string(), Style::default().fg(entry_color)),
                         Span::raw(" "),
                         Span::styled(
                             entry.display_name.clone(),
-                            Style::default()
-                                .fg(theme::TEXT)
-                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(theme::TEXT_SOFT),
                         ),
                     ]));
                     if let Some(args) = &entry.args_display {
