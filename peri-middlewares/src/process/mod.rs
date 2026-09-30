@@ -451,6 +451,11 @@ pub fn is_potential_rtk_command(command: &str) -> bool {
 /// 如果系统中存在 `rtk`，且 `rtk rewrite` 执行成功（exit_code == 0 且 stdout 非空），
 /// 则返回重写后的命令（例如 "rtk git status"）。
 /// 否则返回 None。
+///
+/// **注意**：此函数会实际执行外部 `rtk` 二进制 —— 仅允许在**审批之后**的
+/// 执行阶段调用（见 `middleware/terminal.rs`）。门控/审批前阶段必须使用
+/// [`predict_rtk_rewrite`]（纯字符串预测，零子进程），否则审批弹窗出现前
+/// 就会执行 `PATH`/`RTK_PATH` 上的不可信代码（#288）。
 pub async fn rtk_rewrite_command(command: &str) -> Option<String> {
     if !is_potential_rtk_command(command) {
         return None;
@@ -476,6 +481,47 @@ pub async fn rtk_rewrite_command(command: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// 判断 rtk 改写是否**可能**发生 —— 门控专用，不执行任何外部二进制。
+///
+/// 只做存在性查找：`RTK_PATH` 指向的文件存在，或 `PATH` 上能找到 `rtk`
+///（`which`/`where` 自身是可信系统工具，不运行候选二进制）。
+/// 刻意跳过 [`verify_rtk_executable`] 的 `--version` 探测：它会在审批前
+/// 执行不可信代码，而其检查（仅看退出码）安全价值本就有限。
+/// 真正的可用性校验仍由执行阶段的 [`rtk_rewrite_command`] 完成。
+pub fn rtk_rewrite_likely() -> bool {
+    if let Ok(env_path) = std::env::var("RTK_PATH") {
+        if !env_path.trim().is_empty() && Path::new(&env_path).exists() {
+            return true;
+        }
+    }
+    let which_cmd = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(which_cmd)
+        .arg("rtk")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// 纯字符串预测 rtk 改写结果，不 spawn 任何子进程。
+///
+/// rtk rewrite 的文档化语义是前缀包装（`X` → `rtk X`，见
+/// [`is_potential_rtk_command`] 白名单与改写示例）；门控在审批前调用此函数
+/// 而非 [`rtk_rewrite_command`]，从而保证审批弹窗出现前不执行外部代码。
+/// 执行阶段仍以 `rtk_rewrite_command` 的实际结果为准。
+pub fn predict_rtk_rewrite(command: &str) -> Option<String> {
+    predict_rtk_rewrite_inner(command, rtk_rewrite_likely())
+}
+
+/// [`predict_rtk_rewrite`] 的纯函数内核：`likely` 由调用方注入，便于单测。
+fn predict_rtk_rewrite_inner(command: &str, likely: bool) -> Option<String> {
+    if !likely || !is_potential_rtk_command(command) {
+        return None;
+    }
+    Some(format!("rtk {command}"))
 }
 
 #[cfg(test)]
