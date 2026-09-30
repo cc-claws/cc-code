@@ -96,8 +96,9 @@ impl OAuthCallbackServer {
         let callback_result = parse_callback_url(url_path, &self.state_param);
 
         let response = match &callback_result {
-            Ok((code, _)) => {
-                info!(code = %code, "OAuth 回调成功");
+            Ok((_code, _)) => {
+                // 注意：授权码是单次有效凭证，绝不能打进日志
+                info!("OAuth 回调成功");
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body><h1>OAuth 授权成功</h1><p>您可以关闭此窗口并返回终端。</p></body></html>"
             }
             Err(e) => {

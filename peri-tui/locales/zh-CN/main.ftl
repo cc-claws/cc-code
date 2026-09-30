@@ -302,6 +302,7 @@ app-agent-reset = Agent 已重置（未设置 agent_id）
 app-agent-switched = Agent 已切换为: { $name } ({ $id })
 app-agent-disconnected = Agent 连接异常断开，请重试发送消息
 app-compact-no-context = 无可压缩的上下文（历史消息为空）
+app-compact-started = 正在压缩上下文…
 app-compact-no-provider = 压缩失败: 未配置 LLM Provider（请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY）
 app-compact-compressing = 压缩上下文
 app-compact-done = 上下文已压缩

@@ -142,9 +142,20 @@ pub(crate) fn load_global_config(
         .or_else(|| v.get("mcpServers"))
         .cloned()
         .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-    let config = McpConfigFile {
-        mcp_servers: serde_json::from_value(mcp_servers).unwrap_or_default(),
-    };
+    // 逐条解析 server 条目：单个条目写错只跳过该条并打日志，
+    // 避免一个手误静默清空全部 MCP 服务器
+    let raw_map: HashMap<String, serde_json::Value> =
+        serde_json::from_value(mcp_servers).unwrap_or_default();
+    let mut mcp_servers = HashMap::with_capacity(raw_map.len());
+    for (name, entry) in raw_map {
+        match serde_json::from_value::<McpServerConfig>(entry) {
+            Ok(cfg) => {
+                mcp_servers.insert(name, cfg);
+            }
+            Err(e) => tracing::warn!("MCP 服务器 '{name}' 配置无效，已跳过: {e}"),
+        }
+    }
+    let config = McpConfigFile { mcp_servers };
     Ok(config)
 }
 
