@@ -190,11 +190,27 @@ pub fn spawn_stall_watchdog(
         let mut interval = tokio::time::interval(Duration::from_millis(STALL_CHECK_INTERVAL_MS));
         let mut last_size: u64 = 0;
         let mut stall_since: Option<Instant> = None;
+        // #320 Windows CI：文件持续不可访问（PermissionDenied）时不能无限空转，
+        // 连续错误超限则退出并打 warn 日志。
         loop {
             interval.tick().await;
             let size = match tokio::fs::metadata(&output_path).await {
                 Ok(m) => m.len(),
-                Err(_) => continue,
+                Err(e) => {
+                    // #320 Windows 根治：只在文件不存在时退出（任务清理了输出文件）；
+                    // PermissionDenied 等瞬时错误（Defender 文件锁）无限重试，
+                    // 避免因过早退出导致测试收不到通知（tx 被 drop → rx.recv() 返回 None）。
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        tracing::warn!(
+                            task_id,
+                            "stall watchdog: output 文件不存在，退出监控"
+                        );
+                        break;
+                    }
+                    // 瞬时错误（Windows 文件锁）backoff，避免忙循环
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
             };
             if size > last_size {
                 last_size = size;
@@ -213,7 +229,21 @@ pub fn spawn_stall_watchdog(
             // stall >= 阈值：tail + 匹配 prompt pattern
             let tail = match DiskOutput::read_tail(&output_path, STALL_TAIL_BYTES).await {
                 Ok(b) => b,
-                Err(_) => continue,
+                Err(e) => {
+                    // anyhow 链中找 io::Error::NotFound
+                    let is_not_found = e
+                        .chain()
+                        .any(|c| c.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound));
+                    if is_not_found {
+                        tracing::warn!(
+                            task_id,
+                            "stall watchdog: output 文件不存在，退出监控"
+                        );
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
             };
             let tail_str = String::from_utf8_lossy(&tail);
             let last_line = tail_str.lines().last().unwrap_or("");

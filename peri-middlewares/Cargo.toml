@@ -49,6 +49,9 @@ lsp-types.workspace = true
 process-wrap = { version = "9.1", default-features = false, features = ["tokio1", "job-object"] }
 windows = { version = "0.62", features = ["Win32_System_Threading"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 
 [dev-dependencies]
 tempfile.workspace = true

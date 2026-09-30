@@ -42,9 +42,9 @@ pub fn save_input_history(history: &[String]) {
     // Ensure directory exists
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
-        // 父目录设为 0o700：input-history.json 包含用户原始提示词，
+        // 父目录设为 owner-only：input-history.json 包含用户原始提示词，
         // 可能内联 API key / 调试命令 / 粘贴的密钥，禁止同机其它账户读取（#15）
-        restrict_to_owner_unix(parent);
+        restrict_to_owner(parent);
     }
 
     // Serialize
@@ -57,34 +57,23 @@ pub fn save_input_history(history: &[String]) {
     if std::fs::write(&tmp_path, json).is_err() {
         return;
     }
-    // 文件本身设为 0o600（同 #15 根因）：rename 之前设好权限，避免短暂窗口期暴露
-    restrict_to_owner_unix(&tmp_path);
+    // 文件本身设为 owner-only（同 #15 根因）：rename 之前设好权限，避免短暂窗口期暴露
+    restrict_to_owner(&tmp_path);
     let _ = std::fs::rename(&tmp_path, &path);
-    restrict_to_owner_unix(&path);
+    restrict_to_owner(&path);
 }
 
-/// Unix：把给定路径权限收回到 owner-only（文件 0o600、目录 0o700）。
-/// Windows / 其它平台无对应语义，函数为 no-op。
-#[cfg(unix)]
-fn restrict_to_owner_unix(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let target_mode = if path.is_dir() { 0o700 } else { 0o600 };
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(target_mode));
+/// 密钥/历史类路径收紧为 owner-only（Unix 0o600/0o700，Windows owner-only DACL）。
+fn restrict_to_owner(path: &std::path::Path) {
+    let _ = peri_agent::fs::restrict_to_owner(path);
 }
-
-#[cfg(not(unix))]
-fn restrict_to_owner_unix(_path: &std::path::Path) {}
 
 #[cfg(test)]
 mod tests {
-    // 注意：这里不放 `use super::*;`。
-    // Windows 下 restrict_to_owner_unix 是 #[cfg(not(unix))] 的空实现，
-    // 整个 mod tests 在 Windows 下没有任何使用 super::* 内容的代码，
-    // clippy -D unused-imports 会把 super::* 当作未使用 import 报错。
 
     #[cfg(unix)]
     #[test]
-    fn test_restrict_to_owner_unix_file_gets_0600() {
+    fn test_restrict_to_owner_file_gets_0600() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir();
         let file = dir.join(format!(
@@ -95,7 +84,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::write(&file, b"x").unwrap();
-        super::restrict_to_owner_unix(&file);
+        super::restrict_to_owner(&file);
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "文件权限应为 0o600，实际 0o{:o}", mode);
         let _ = std::fs::remove_file(&file);
@@ -103,7 +92,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_restrict_to_owner_unix_dir_gets_0700() {
+    fn test_restrict_to_owner_dir_gets_0700() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!(
             "peri-history-perm-dir-test-{}",
@@ -113,7 +102,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir(&dir).unwrap();
-        super::restrict_to_owner_unix(&dir);
+        super::restrict_to_owner(&dir);
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "目录权限应为 0o700，实际 0o{:o}", mode);
         let _ = std::fs::remove_dir_all(&dir);

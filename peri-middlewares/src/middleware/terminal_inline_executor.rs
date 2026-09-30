@@ -30,8 +30,7 @@ impl ShellExecutor for InlineShellExecutor {
         );
         let mut command = crate::process::managed_shell_command(&req.command, req.shell)?;
         command.current_dir(&req.cwd);
-        #[cfg(unix)]
-        command.process_group(0);
+        // 注：ManagedChild::spawn 内已统一设置 process_group(0)，此处无需重复。
         let task_id = uuid::Uuid::now_v7().to_string();
         // 前台结果直接返回；无后台服务，不向调用者承诺此占位路径已落盘。
         let output_path = std::env::temp_dir().join(format!("peri-tool-output-{task_id}"));

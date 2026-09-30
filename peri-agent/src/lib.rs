@@ -8,6 +8,7 @@ pub mod app_home;
 pub mod ask_user;
 pub mod encoding;
 pub mod error;
+pub mod fs;
 pub mod hitl;
 pub mod interaction;
 pub mod llm;
