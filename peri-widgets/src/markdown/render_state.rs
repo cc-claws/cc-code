@@ -909,19 +909,12 @@ impl<'a> RenderState<'a> {
             Event::Rule => {
                 self.ensure_blank_line();
                 // 水平线按可用宽度铺满（此前硬编码 60：宽终端下只占一半、窄终端下溢出被裁）。
-                //
-                // [诊断标记] 头部打一个 `**`，用于肉眼确认「界面上那段横线」是否就是
-                // 本处 Markdown `---` 的渲染结果。若屏幕上的线起始处没有 `**`，
-                // 则说明它来自别处（非本函数），避免误判。标记确认后应当移除。
-                const HR_MARK: &str = "**";
-                let mark_width = HR_MARK.width();
                 let width = if self.max_width > 0 {
                     self.max_width
                 } else {
                     60
                 };
-                let body = "─".repeat(width.saturating_sub(mark_width));
-                let rule = format!("{HR_MARK}{body}");
+                let rule = "─".repeat(width);
                 self.current_spans.push(Span::styled(
                     rule,
                     Style::default().fg(self.theme.separator()),

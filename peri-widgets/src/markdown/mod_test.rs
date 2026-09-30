@@ -849,7 +849,7 @@ fn test_horizontal_rule_fills_available_width() {
             .iter()
             .find(|l| {
                 let t: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
-                t.contains("**") && t.contains('─')
+                !t.is_empty() && t.chars().all(|c| c == '─')
             })
             .unwrap_or_else(|| panic!("宽度 {width} 下应产生水平线"));
         let text: String = rule_line.spans.iter().map(|s| s.content.as_ref()).collect();
