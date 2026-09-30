@@ -115,7 +115,7 @@ pub fn write_file_entry(base_dir: &Path, entry: &FileEntry) -> Result<(), WriteE
 ///
 /// 路径映射：
 /// - settings → 经 [`peri_agent::app_home::global_settings_path_in`] 解析
-///  （新版 `~/.cc-code/settings.json`，先备份为 .bak；不再写入旧版 `~/.peri/`）
+///   （新版 `~/.cc-code/settings.json`，先备份为 .bak；不再写入旧版 `~/.peri/`）
 /// - skills   → {home_dir}/.claude/skills/{relative_path}
 /// - mcp      → {home_dir}/.mcp.json + {cwd}/.mcp.json（如有）
 /// - plugins  → {home_dir}/.claude/plugins/cache/{relative_path}
