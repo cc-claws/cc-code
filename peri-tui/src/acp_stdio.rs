@@ -4,8 +4,10 @@ use std::sync::Arc;
 
 // ─── ACP 协议类型（别名与 peri 内部同名类型区分）─────────────────────────
 use agent_client_protocol::schema::{
-    ContentBlock as AcpBlock, ContentChunk, SessionId as AcpSessionId, SessionNotification,
-    SessionUpdate, TextContent, ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+    ContentBlock as AcpBlock, ContentChunk, PermissionOption, PermissionOptionKind,
+    RequestPermissionOutcome, RequestPermissionRequest, SessionId as AcpSessionId,
+    SessionNotification, SessionUpdate, TextContent, ToolCall, ToolCallStatus, ToolCallUpdate,
+    ToolCallUpdateFields,
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use peri_agent::messages::{BaseMessage, ContentBlock as PeriContentBlock, MessageContent};
@@ -72,37 +74,180 @@ fn apply_stdio_model_selection(
     peri_tui::app::agent::LlmProvider::from_config(&cfg)
 }
 
-/// Stdio 模式下的简化 Broker：直接 approve 所有权限请求，questions 返回空答案。
-struct StdioBroker;
+/// ACP stdio 模式的权限 broker：把工具审批请求转发给 IDE 客户端
+/// （`session/request_permission`），由用户在编辑器里点允许/拒绝。
+///
+/// 替代之前的 `StdioBroker`（直接放行所有请求）：fail-open 的默认行为让
+/// ACP 客户端永远收不到审批请求，HITL 名存实亡。
+struct AcpPermissionBroker {
+    /// 到 IDE 客户端的连接（发 `session/request_permission` 用）
+    cx: ConnectionTo<Client>,
+    /// 当前 ACP 会话 id
+    session_id: AcpSessionId,
+}
 
-impl StdioBroker {
-    fn new() -> Self {
-        Self
+impl AcpPermissionBroker {
+    /// 审批选项 id（对外稳定：客户端回传时按此匹配）
+    const ALLOW_ONCE: &'static str = "allow-once";
+    const ALLOW_ALWAYS: &'static str = "allow-always";
+    const REJECT_ONCE: &'static str = "reject-once";
+    const REJECT_ALWAYS: &'static str = "reject-always";
+
+    fn new(cx: ConnectionTo<Client>, session_id: AcpSessionId) -> Self {
+        Self { cx, session_id }
+    }
+
+    /// 发给客户端的四个标准选项
+    fn permission_options() -> Vec<PermissionOption> {
+        vec![
+            PermissionOption::new(Self::ALLOW_ONCE, "Allow once", PermissionOptionKind::AllowOnce),
+            PermissionOption::new(
+                Self::ALLOW_ALWAYS,
+                "Always allow",
+                PermissionOptionKind::AllowAlways,
+            ),
+            PermissionOption::new(
+                Self::REJECT_ONCE,
+                "Reject once",
+                PermissionOptionKind::RejectOnce,
+            ),
+            PermissionOption::new(
+                Self::REJECT_ALWAYS,
+                "Always reject",
+                PermissionOptionKind::RejectAlways,
+            ),
+        ]
+    }
+
+    /// 向客户端发一次 `session/request_permission`，等用户决策。
+    ///
+    /// 在 prompt 的后台任务里调用（非连接事件循环），`block_task()` 不会死锁。
+    /// 任何失败（客户端未实现该方法、传输中断）一律按拒绝处理（fail-closed）。
+    async fn ask_client(
+        &self,
+        item: &peri_agent::interaction::ApprovalItem,
+    ) -> peri_agent::interaction::ApprovalDecision {
+        use peri_agent::interaction::ApprovalDecision;
+
+        let tool_call = ToolCallUpdate::new(
+            item.tool_call_id.clone(),
+            ToolCallUpdateFields::new()
+                .status(ToolCallStatus::Pending)
+                .title(permission_title(&item.tool_name, &item.tool_input))
+                .raw_input(Some(item.tool_input.clone())),
+        );
+        let req = RequestPermissionRequest::new(
+            self.session_id.clone(),
+            tool_call,
+            Self::permission_options(),
+        );
+        let resp = match self.cx.send_request(req).block_task().await {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    tool = %item.tool_name,
+                    "session/request_permission 调用失败，按拒绝处理"
+                );
+                return ApprovalDecision::Reject {
+                    reason: format!(
+                        "无法向客户端请求审批（{e}），已默认拒绝；无人值守场景可用 session/set_mode 切换到 bypass"
+                    ),
+                    source: None,
+                };
+            }
+        };
+        decision_from_outcome(&resp.outcome)
+    }
+}
+
+/// 把客户端的 `session/request_permission` 回复映射为内部审批决策（纯函数，便于单测）。
+///
+/// 映射规则（fail-closed：任何含糊的情况都按拒绝处理）：
+/// - allow-once → 本次放行（不记忆）
+/// - allow-always → 本次放行且记为会话级（`source: "session"`，复用审批记忆）
+/// - reject-* / cancelled / 未知选项 → 拒绝
+fn decision_from_outcome(
+    outcome: &RequestPermissionOutcome,
+) -> peri_agent::interaction::ApprovalDecision {
+    use peri_agent::interaction::ApprovalDecision;
+    match outcome {
+        RequestPermissionOutcome::Cancelled => ApprovalDecision::Reject {
+            reason: "用户取消了审批".to_string(),
+            source: None,
+        },
+        RequestPermissionOutcome::Selected(sel) => match sel.option_id.to_string().as_str() {
+            AcpPermissionBroker::ALLOW_ONCE => ApprovalDecision::Approve { source: None },
+            AcpPermissionBroker::ALLOW_ALWAYS => ApprovalDecision::Approve {
+                source: Some("session".to_string()),
+            },
+            AcpPermissionBroker::REJECT_ONCE | AcpPermissionBroker::REJECT_ALWAYS => {
+                ApprovalDecision::Reject {
+                    reason: "用户拒绝".to_string(),
+                    source: None,
+                }
+            }
+            other => {
+                tracing::warn!(
+                    option_id = %other,
+                    "session/request_permission 返回了未知选项，按拒绝处理"
+                );
+                ApprovalDecision::Reject {
+                    reason: format!("未知的审批选项：{other}，已按拒绝处理"),
+                    source: None,
+                }
+            }
+        },
+        // `RequestPermissionOutcome` 是 `#[non_exhaustive]`：协议未来新增 outcome 时保持 fail-closed
+        _ => ApprovalDecision::Reject {
+            reason: "未知的审批结果，已按拒绝处理".to_string(),
+            source: None,
+        },
+    }
+}
+
+/// 审批请求里展示的标题：`工具名: 关键参数`，一眼能看懂在干什么。
+fn permission_title(tool_name: &str, input: &serde_json::Value) -> String {
+    let detail = match tool_name {
+        "Bash" => input.get("command").and_then(|v| v.as_str()),
+        _ => input
+            .get("file_path")
+            .or_else(|| input.get("path"))
+            .and_then(|v| v.as_str()),
+    };
+    match detail {
+        Some(d) => {
+            let short: String = d.chars().take(80).collect();
+            let short = short.replace(['\n', '\r'], " ");
+            let ellipsis = if d.chars().count() > 80 { "…" } else { "" };
+            format!("{tool_name}: {short}{ellipsis}")
+        }
+        None => tool_name.to_string(),
     }
 }
 
 #[async_trait::async_trait]
-impl peri_agent::interaction::UserInteractionBroker for StdioBroker {
+impl peri_agent::interaction::UserInteractionBroker for AcpPermissionBroker {
     async fn request(
         &self,
         context: peri_agent::interaction::InteractionContext,
     ) -> peri_agent::interaction::InteractionResponse {
+        use peri_agent::interaction::{InteractionContext, InteractionResponse, QuestionAnswer};
         match context {
-            peri_agent::interaction::InteractionContext::Approval { items } => {
-                peri_agent::interaction::InteractionResponse::Decisions(
-                    items
-                        .into_iter()
-                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve {
-                            source: None,
-                        })
-                        .collect(),
-                )
+            InteractionContext::Approval { items } => {
+                // ACP 的 request_permission 是单工具调用粒度的，逐项询问客户端
+                let mut decisions = Vec::with_capacity(items.len());
+                for item in &items {
+                    decisions.push(self.ask_client(item).await);
+                }
+                InteractionResponse::Decisions(decisions)
             }
-            peri_agent::interaction::InteractionContext::Questions { requests } => {
-                peri_agent::interaction::InteractionResponse::Answers(
+            InteractionContext::Questions { requests } => {
+                // stdio 下暂无向用户提问的通道，保持原有行为：返回空答案
+                InteractionResponse::Answers(
                     requests
                         .into_iter()
-                        .map(|q| peri_agent::interaction::QuestionAnswer {
+                        .map(|q| QuestionAnswer {
                             id: q.id,
                             selected: vec![],
                             text: Some(String::new()),
@@ -195,8 +340,12 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         hook_groups.push(local_hooks);
     }
 
+    // ACP stdio 模式默认 AutoMode：敏感工具调用先过 Jev 门/分类器判定，
+    // 不确定的经 AcpPermissionBroker 以 session/request_permission 交给 IDE
+    // 客户端审批。之前默认 Bypass 等价于全放行，HITL 形同虚设；无人值守
+    // 场景仍可用 session/set_mode 显式切换到 bypass。
     let permission_mode = peri_middlewares::prelude::SharedPermissionMode::new(
-        peri_middlewares::prelude::PermissionMode::Bypass,
+        peri_middlewares::prelude::PermissionMode::AutoMode,
     );
     let tool_search_index = Arc::new(peri_middlewares::tool_search::ToolSearchIndex::new());
     let shared_tools = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
@@ -487,7 +636,10 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     // when execution completes (or is cancelled).
                     tokio::spawn(async move {
                         let broker: Arc<dyn peri_agent::interaction::UserInteractionBroker> =
-                            Arc::new(StdioBroker::new());
+                            Arc::new(AcpPermissionBroker::new(
+                                cx_for_task.clone(),
+                                session_id.clone(),
+                            ));
 
                         let event_sink = Arc::new(StdioEventSink::new(
                             cx_for_task.clone(),

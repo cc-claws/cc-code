@@ -172,3 +172,94 @@ fn test_history_message_updates_skips_system_message() {
 
     assert!(updates.is_empty(), "System 消息不应回放");
 }
+
+// ── permission_title ────────────────────────────────────────────────────────
+
+#[test]
+fn test_permission_title_bash_shows_command() {
+    let input = serde_json::json!({"command": "npm test"});
+    assert_eq!(permission_title("Bash", &input), "Bash: npm test");
+}
+
+#[test]
+fn test_permission_title_edit_shows_file_path() {
+    let input = serde_json::json!({"file_path": "/proj/src/main.rs"});
+    assert_eq!(
+        permission_title("Edit", &input),
+        "Edit: /proj/src/main.rs"
+    );
+}
+
+#[test]
+fn test_permission_title_truncates_long_command() {
+    let long: String = "x".repeat(200);
+    let input = serde_json::json!({"command": long});
+    let title = permission_title("Bash", &input);
+    assert!(title.starts_with("Bash: "), "标题应带工具名前缀：{title}");
+    assert!(title.ends_with('…'), "超长命令应截断并加省略号：{title}");
+    assert!(title.chars().count() < 200, "标题应明显短于原命令");
+}
+
+#[test]
+fn test_permission_title_falls_back_to_tool_name() {
+    let input = serde_json::json!({});
+    assert_eq!(permission_title("Glob", &input), "Glob");
+}
+
+// ── decision_from_outcome ───────────────────────────────────────────────────
+
+use agent_client_protocol::schema::SelectedPermissionOutcome;
+
+fn selected_outcome(option_id: &'static str) -> RequestPermissionOutcome {
+    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
+}
+
+#[test]
+fn test_decision_from_outcome_allow_once_approves_without_memory() {
+    match decision_from_outcome(&selected_outcome("allow-once")) {
+        peri_agent::interaction::ApprovalDecision::Approve { source } => {
+            assert_eq!(source, None, "allow-once 不应记入审批记忆");
+        }
+        other => panic!("allow-once 应放行，实际 {other:?}"),
+    }
+}
+
+#[test]
+fn test_decision_from_outcome_allow_always_approves_with_session_memory() {
+    match decision_from_outcome(&selected_outcome("allow-always")) {
+        peri_agent::interaction::ApprovalDecision::Approve { source } => {
+            assert_eq!(
+                source.as_deref(),
+                Some("session"),
+                "allow-always 应记为会话级放行，复用审批记忆"
+            );
+        }
+        other => panic!("allow-always 应放行，实际 {other:?}"),
+    }
+}
+
+#[test]
+fn test_decision_from_outcome_reject_options_reject() {
+    for id in ["reject-once", "reject-always"] {
+        match decision_from_outcome(&selected_outcome(id)) {
+            peri_agent::interaction::ApprovalDecision::Reject { .. } => {}
+            other => panic!("{id} 应拒绝，实际 {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn test_decision_from_outcome_cancelled_and_unknown_reject() {
+    // 用户取消
+    match decision_from_outcome(&RequestPermissionOutcome::Cancelled) {
+        peri_agent::interaction::ApprovalDecision::Reject { .. } => {}
+        other => panic!("cancelled 应拒绝，实际 {other:?}"),
+    }
+    // 未知选项 id：fail-closed
+    match decision_from_outcome(&selected_outcome("maybe-later")) {
+        peri_agent::interaction::ApprovalDecision::Reject { reason, .. } => {
+            assert!(reason.contains("maybe-later"), "拒绝原因应带上未知选项：{reason}");
+        }
+        other => panic!("未知选项应拒绝，实际 {other:?}"),
+    }
+}
