@@ -12,11 +12,22 @@ use super::super::Action;
 
 /// PanelManager 分发：先处理 session panels，再处理 global panels
 pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
-    // Ctrl+C 是全局退出/中断快捷键，优先于任何面板的按键处理，直接穿透到
-    // 后续 Stage（normal_keys → handle_ctrl_c）。多数面板用 `_ => Consumed`
-    // 兜底吞掉未识别按键，若不在此拦截，Ctrl+C 永远到不了 handle_ctrl_c。
-    // （详见 spec/issues/2026-06-24-panel-swallow-ctrl-c.md）
+    // Ctrl+C：agent 运行中 → 穿透中断（紧急操作优先，行为不变）；
+    // 空闲 + 有面板打开 → 先关闭顶层面板并消费掉，不触发退出；
+    // 空闲 + 无面板 → 穿透到后续 Stage（normal_keys → handle_ctrl_c）走双击退出。
+    // （2026-10-01 修：此前无条件穿透，面板开着时双击/长按 Ctrl+C 会直接退出整个
+    // TUI，而用户预期是先关面板。详见 spec/archive-issues/2026-06-24-panel-swallow-ctrl-c.md
+    // 的反方向问题。）
     if input.ctrl && matches!(input.key, Key::Char('c')) {
+        if app.session_mgr.current().ui.loading {
+            return None;
+        }
+        if close_top_panel(app) {
+            // 关面板这次不计入双击退出：清掉可能已有的 quit-pending，
+            // 避免"关面板"被误认为双击退出的第一次按键。
+            app.global_ui.quit_pending_since = None;
+            return Some(Action::Redraw);
+        }
         return None;
     }
 
@@ -116,6 +127,24 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
     None
 }
 
+/// 关闭顶层打开的面板（session panels 优先于 global panels，与分发顺序一致）。
+/// 返回 true 表示确实关了一个面板。清理逻辑与各面板 ClosePanel 分支保持一致。
+fn close_top_panel(app: &mut App) -> bool {
+    if app.session_mgr.current().session_panels.is_any_open() {
+        app.session_mgr.current_mut().session_panels.close();
+    } else if app.global_panels.is_any_open() {
+        app.global_panels.close();
+    } else {
+        return false;
+    }
+    let ui = &mut app.session_mgr.current_mut().ui;
+    ui.screen_selection.clear();
+    ui.text_selection.clear();
+    ui.background_tasks_bar_focused = false;
+    ui.panel_area = None;
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::handle_panels;
@@ -125,10 +154,9 @@ mod tests {
     use tui_textarea::{Input, Key};
 
     #[tokio::test]
-    async fn test_ctrl_c_passes_through_when_panel_open() {
-        // ModelPanel 用 `_ => Consumed` 兜底吞掉未识别按键（含 Ctrl+C），
-        // 是验证「Ctrl+C 穿透」最严格的用例：即使面板本身会吞，Ctrl+C 也必须穿透
-        // 到 normal_keys（handle_ctrl_c），否则面板打开时无法退出/中断。
+    async fn test_ctrl_c_closes_session_panel_when_idle() {
+        // 面板打开 + 空闲时，Ctrl+C 应关闭面板并消费掉，不再穿透到退出逻辑。
+        // （2026-10-01 改：此前无条件穿透，面板开着时双击/长按 Ctrl+C 会直接退出 TUI）
         let (mut app, _handle) = App::new_headless(80, 24).await;
         app.open_model_panel();
         assert!(
@@ -148,8 +176,69 @@ mod tests {
         let result = handle_panels(&mut app, &ctrl_c);
 
         assert!(
-            result.is_none(),
-            "面板打开时 Ctrl+C 必须穿透到 normal_keys，不得被拦截"
+            matches!(result, Some(Action::Redraw)),
+            "关面板应消费按键并返回 Redraw，不穿透"
+        );
+        assert!(
+            !app.session_mgr.current().session_panels.is_any_open(),
+            "面板应已关闭"
+        );
+        assert!(
+            app.global_ui.quit_pending_since.is_none(),
+            "关面板这次不应计入双击退出"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_closes_global_panel_when_idle() {
+        // Global 面板同样：空闲时 Ctrl+C 关面板，不退出。
+        let (mut app, _handle) = App::new_headless(80, 24).await;
+        app.open_status_panel(0);
+        assert!(
+            app.global_panels.is_active(PanelKind::Status),
+            "前置条件：StatusPanel 应已打开"
+        );
+
+        let ctrl_c = Input {
+            key: Key::Char('c'),
+            ctrl: true,
+            alt: false,
+            shift: false,
+        };
+        let result = handle_panels(&mut app, &ctrl_c);
+
+        assert!(
+            matches!(result, Some(Action::Redraw)),
+            "关面板应消费按键并返回 Redraw，不穿透"
+        );
+        assert!(
+            !app.global_panels.is_any_open(),
+            "Global 面板应已关闭"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_passes_through_when_loading() {
+        // agent 运行中 + 面板打开：Ctrl+C 仍穿透（中断优先），不关面板。
+        let (mut app, _handle) = App::new_headless(80, 24).await;
+        app.open_model_panel();
+        app.session_mgr.current_mut().ui.loading = true;
+
+        let ctrl_c = Input {
+            key: Key::Char('c'),
+            ctrl: true,
+            alt: false,
+            shift: false,
+        };
+        let result = handle_panels(&mut app, &ctrl_c);
+
+        assert!(result.is_none(), "运行中 Ctrl+C 应穿透以中断 agent");
+        assert!(
+            app.session_mgr
+                .current()
+                .session_panels
+                .is_active(PanelKind::Model),
+            "中断优先时面板不应被关闭"
         );
     }
 
