@@ -112,6 +112,112 @@ pub(crate) async fn handle_request(
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
 
+        // ── v1 `authenticate` / v2 `auth/login` (#24) ──
+        // cc-code 的认证由自有配置（API key / OAuth）完成，此处仅做协议握手：
+        // 校验 method_id 为 initialize 广播的 "cc-code"，通过即返回成功。
+        "authenticate" | "auth/login" => {
+            let method_id = params
+                .get("methodId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if method_id != "cc-code" {
+                return Err(AcpError::new(
+                    -32602,
+                    format!("unsupported auth method: {method_id}"),
+                ));
+            }
+            info!("ACP authenticate (method: cc-code)");
+            // AuthenticateResponse 无字段，返回空对象
+            Ok(serde_json::json!({}))
+        }
+
+        // ── v1 `logout` / v2 `auth/logout` (#24) ──
+        // 无服务端持久化凭证，清理由调用方持有；此处仅协议应答。
+        "logout" | "auth/logout" => {
+            info!("ACP logout");
+            Ok(serde_json::json!({}))
+        }
+
+        // ── MCP-over-ACP (unstable, #25) ──
+        // 数据流与 McpMiddleware 相反：MCP 服务器由客户端（IDE）托管，
+        // Agent 经 ACP 通道收发 MCP JSON-RPC 消息。
+        //
+        // `mcp/connect`: 客户端声明其托管的 MCP 服务器列表。
+        // params: { sessionId, servers: [{ name, version?, ... }] }
+        "mcp/connect" => {
+            let req_session_id = params
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
+            let state = sessions
+                .get_mut(req_session_id)
+                .ok_or_else(|| AcpError::new(-32602, "unknown sessionId"))?;
+            let servers = params
+                .get("servers")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| AcpError::new(-32602, "missing servers"))?;
+            let mut connected = Vec::new();
+            for srv in servers {
+                if let Some(name) = srv.get("name").and_then(|v| v.as_str()) {
+                    state.mcp_over_acp_servers.insert(name.to_string(), srv.clone());
+                    connected.push(name.to_string());
+                }
+            }
+            info!(session_id = %req_session_id, connected = ?connected, "MCP-over-ACP connected");
+            Ok(serde_json::json!({ "connected": connected }))
+        }
+
+        // `mcp/message` (Client → Agent)：客户端中继 MCP 服务器发来的
+        // JSON-RPC 消息（通知或对 Agent 之前请求的响应）。
+        // params: { sessionId, serverName, message: <JSON-RPC> }
+        // 当前实现记录并确认接收；完整双向路由由 Agent 侧按需经
+        // transport.send_request("mcp/message", …) 发起。
+        "mcp/message" => {
+            let req_session_id = params
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
+            let server_name = params
+                .get("serverName")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AcpError::new(-32602, "missing serverName"))?;
+            let state = sessions
+                .get(req_session_id)
+                .ok_or_else(|| AcpError::new(-32602, "unknown sessionId"))?;
+            if !state.mcp_over_acp_servers.contains_key(server_name) {
+                return Err(AcpError::new(-32602, "unknown serverName"));
+            }
+            let message = params.get("message").cloned().unwrap_or(Value::Null);
+            debug!(
+                session_id = %req_session_id,
+                server = %server_name,
+                "MCP-over-ACP message received"
+            );
+            // JSON-RPC 响应（有 id）在这里仅确认通道畅通；
+            // 实际请求/响应配对由发起方（Agent 经 send_request）持有。
+            let _ = message;
+            Ok(serde_json::json!({}))
+        }
+
+        // `mcp/disconnect`：客户端断开指定的 MCP 服务器。
+        // params: { sessionId, serverName }
+        "mcp/disconnect" => {
+            let req_session_id = params
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
+            let server_name = params
+                .get("serverName")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AcpError::new(-32602, "missing serverName"))?;
+            let state = sessions
+                .get_mut(req_session_id)
+                .ok_or_else(|| AcpError::new(-32602, "unknown sessionId"))?;
+            state.mcp_over_acp_servers.remove(server_name);
+            info!(session_id = %req_session_id, server = %server_name, "MCP-over-ACP disconnected");
+            Ok(serde_json::json!({}))
+        }
+
         "session/new" => {
             let cwd = params
                 .get("cwd")
@@ -148,6 +254,7 @@ pub(crate) async fn handle_request(
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
+                    mcp_over_acp_servers: HashMap::new(),
                 },
             );
 
@@ -329,6 +436,7 @@ pub(crate) async fn handle_request(
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                         approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
+                    mcp_over_acp_servers: HashMap::new(),
                     },
                 );
             }
@@ -446,6 +554,7 @@ pub(crate) async fn handle_request(
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                         approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
+                    mcp_over_acp_servers: HashMap::new(),
                     },
                 );
                 info!(session_id = %req_session_id, "Session resumed (new)");
@@ -506,6 +615,7 @@ pub(crate) async fn handle_request(
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     approval_memory: peri_middlewares::hitl::ApprovalMemory::new(),
+                    mcp_over_acp_servers: HashMap::new(),
                 },
             );
 
