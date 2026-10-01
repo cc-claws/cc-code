@@ -17,13 +17,13 @@
 cargo build
 
 # 构建指定 crate
-cargo build -p peri-tui
+cargo build -p cc-tui
 
 # 运行 TUI
-cargo run -p peri-tui
+cargo run -p cc-tui
 
 # HITL 审批模式
-cargo run -p peri-tui -- -a
+cargo run -p cc-tui -- -a
 ```
 
 ### 测试
@@ -33,10 +33,10 @@ cargo run -p peri-tui -- -a
 cargo test
 
 # 单个 crate 测试
-cargo test -p peri-agent
+cargo test -p cc-agent
 
 # 单个测试
-cargo test -p peri-agent --lib -- test_name
+cargo test -p cc-agent --lib -- test_name
 ```
 
 ### 代码检查
@@ -53,12 +53,12 @@ lefthook run pre-commit
 
 ```
 cc-code/
-├── peri-agent/        # 核心 Agent 框架
-├── peri-middlewares/   # 中间件实现
-├── peri-tui/          # TUI 应用
-├── peri-acp/          # ACP 服务层
-├── peri-widgets/      # Widget 组件库
-├── peri-lsp/          # LSP 客户端
+├── cc-agent/        # 核心 Agent 框架
+├── cc-middlewares/   # 中间件实现
+├── cc-tui/          # TUI 应用
+├── cc-acp/          # ACP 服务层
+├── cc-widgets/      # Widget 组件库
+├── cc-lsp/          # LSP 客户端
 ├── langfuse-client/   # 遥测客户端
 └── spec/              # 设计文档
 ```
@@ -138,8 +138,8 @@ feat(acp): add /commit command for one-click git commit
 实现一键 git commit 功能，自动生成 commit message。
 
 修改内容：
-- peri-acp/src/dispatch/commit.rs 新增 CommitCommand
-- peri-tui/src/app/commands.rs 注册 /commit 命令
+- cc-acp/src/dispatch/commit.rs 新增 CommitCommand
+- cc-tui/src/app/commands.rs 注册 /commit 命令
 
 特性/影响：
 - 支持 conventional commits 格式

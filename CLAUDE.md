@@ -2,40 +2,40 @@
 
 ## 项目概述
 
-Rust Agent 框架，7 个 Workspace Crate + `side-projects/git-graph`。
+Rust Agent 框架，7 个 Workspace Crate。
 
 | Crate | 职责 |
 |-------|------|
-| `peri-agent` | 核心：ReAct 循环、Middleware trait、LLM 适配器、工具系统、持久化（SQLite）、遥测 |
-| `peri-middlewares` | 中间件：文件系统、终端、HITL、SubAgent、Skills、Todo、Cron、MCP、Hooks、Plugin、LSP |
-| `peri-widgets` | Widget 组件库，仅依赖 ratatui + pulldown-cmark |
-| `peri-acp` | **ACP 服务层**：Agent Client Protocol 实现，通过 MpscTransport/StdioTransport 桥接 TUI/IDE 与 Agent |
-| `peri-tui` | TUI 应用，依赖 peri-acp（通过 ACP 协议与 Agent 通信）+ peri-widgets |
+| `cc-agent` | 核心：ReAct 循环、Middleware trait、LLM 适配器、工具系统、持久化（SQLite）、遥测 |
+| `cc-middlewares` | 中间件：文件系统、终端、HITL、SubAgent、Skills、Todo、Cron、MCP、Hooks、Plugin、LSP |
+| `cc-widgets` | Widget 组件库，仅依赖 ratatui + pulldown-cmark |
+| `cc-acp` | **ACP 服务层**：Agent Client Protocol 实现，通过 MpscTransport/StdioTransport 桥接 TUI/IDE 与 Agent |
+| `cc-tui` | TUI 应用，依赖 cc-acp（通过 ACP 协议与 Agent 通信）+ cc-widgets |
 | `langfuse-client` | Langfuse 遥测客户端（独立） |
-| `peri-lsp` | LSP 客户端库（独立，被 middlewares 使用） |
+| `cc-lsp` | LSP 客户端库（独立，被 middlewares 使用） |
 
 `rmcp` crate（v1.7）直接引用，不再需要本地 patch。
 
-**其他目录**：`scripts/`（启动脚本）、`side-projects/`（实验性项目，其中 `git-graph` 已纳入 workspace）。
+**其他目录**：`scripts/`（启动脚本）、`side-projects/`（实验性项目）。
 
 ## 依赖关系
 
 依赖关系（A → B 表示 A 依赖 B）：
 
-- `peri-widgets`、`peri-lsp`、`langfuse-client` → 无 workspace 内部依赖（独立基础库）
-- `peri-middlewares` → `peri-agent`、`peri-lsp`
-- `peri-acp` → `peri-agent`、`peri-middlewares`、`peri-lsp`、`langfuse-client`
-- `peri-tui` → `peri-acp`（运行时通信）+ `peri-agent`、`peri-middlewares`、`peri-lsp`、`langfuse-client`、`peri-widgets`（类型依赖，用于 UI 渲染的类型如 `BaseMessage`/`ContentBlock`）
+- `cc-widgets`、`cc-lsp`、`langfuse-client` → 无 workspace 内部依赖（独立基础库）
+- `cc-middlewares` → `cc-agent`、`cc-lsp`
+- `cc-acp` → `cc-agent`、`cc-middlewares`、`cc-lsp`、`langfuse-client`
+- `cc-tui` → `cc-acp`（运行时通信）+ `cc-agent`、`cc-middlewares`、`cc-lsp`、`langfuse-client`、`cc-widgets`（类型依赖，用于 UI 渲染的类型如 `BaseMessage`/`ContentBlock`）
 
-**TUI→ACP 通信**: TUI 运行时仅通过 `peri-acp` 的 `MpscTransport`（in-memory channel pair）与 ACP Server 通信。ACP Server 持有 Agent 构建和执行逻辑，TUI 作为纯 ACP client 前端消费 `AcpNotification` 事件。
+**TUI→ACP 通信**: TUI 运行时仅通过 `cc-acp` 的 `MpscTransport`（in-memory channel pair）与 ACP Server 通信。ACP Server 持有 Agent 构建和执行逻辑，TUI 作为纯 ACP client 前端消费 `AcpNotification` 事件。
 
 ## 开发命令
 
 ```bash
 cargo build                          # 构建所有 crate
 cargo build -p <crate>               # 构建指定 crate
-cargo run -p peri-tui          # 运行 TUI
-cargo run -p peri-tui -- -a    # HITL 审批模式
+cargo run -p cc-tui          # 运行 TUI
+cargo run -p cc-tui -- -a    # HITL 审批模式
 cargo test                           # 全量测试
 cargo test -p <crate> --lib -- <test_name>  # 单个测试
 lefthook install                     # 安装 git hooks
@@ -45,7 +45,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 ## 架构要点
 
-**ReAct 循环**（`peri-agent`）：AgentInput → collect_tools → before_agent → loop(500) { before_model → LLM → after_model → [工具调用] before_tool → 并发执行 → after_tool → emit | [回答] → emit TextChunk + StateSnapshot → after_agent }。TUI 覆盖 `max_iterations(500)`（核心默认 10）。
+**ReAct 循环**（`cc-agent`）：AgentInput → collect_tools → before_agent → loop(500) { before_model → LLM → after_model → [工具调用] before_tool → 并发执行 → after_tool → emit | [回答] → emit TextChunk + StateSnapshot → after_agent }。TUI 覆盖 `max_iterations(500)`（核心默认 10）。
 
 **[TRAP]** `tool_dispatch.rs` 延迟写入：`collect_tool_results` 执行 before_tool + 并发调用 + 收集结果，**不写 state**；`dispatch_tools` 最后统一写入 AI 消息 + 所有 tool_result。禁止在 `collect_tool_results` 中调用 `state.add_message`。错误路径：before_tool 错误/Cancel 返回 `Err`（state 未修改）；执行阶段 Cancel/deferred_error 返回 `Ok((.., true, ..))`，`dispatch_tools` 写入 state 后再返回 `Err`。链上 17 个中间件的 `before_tool`/`after_tool`/`on_error` 均不读 `state.messages()`，新增中间件必须遵守。`ExecutorEvent::MessageAdded` 被 TUI 丢弃，TUI 通过 `StateSnapshot` + 流式事件维护状态。（详见 spec/global/domains/agent.md#issue_2026-05-15-orphaned-tool-use-after-concurrent-tool-error）
 
@@ -61,7 +61,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 **[TRAP]** `Interrupted`/`Error` + `Done` 互斥：`Interrupted`/`Error` 先 `request_rebuild()` + 添加通知，设 `reconcile_already_done=true`，后续 `Done` 跳过 `request_rebuild()` 防止覆盖通知。（详见 spec/global/domains/agent.md#issue_2026-05-25-interrupt-undo-last-user-message）**[TRAP]** Cancel 后历史不应无条件截断：ACP server 在 `result.ok==false` 时无条件 truncate history 会丢失 agent 已写入 state 的消息。应检查 `result.messages.len()` 判断是否有进展，有则保留。（详见 spec/global/domains/agent.md#issue_2026-05-26-ctrl-c-interrupt-causes-agent-amnesia）
 
-**系统提示词**：`build_system_prompt()` 在 `session/new` 时调用一次，产出 `frozen_system_prompt` 存入 `SessionState`，后续轮次直接复用。段落文件位于 `peri-tui/prompts/sections/`（01-06 静态 + 07+10-13 动态，共 11 个），通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前可缓存，标记后不影响前缀缓存。`PromptFeatures` 控制条件段落注入。Agent 构建在 system prompt 末尾追加 Git Attribution 段落（动态区域内不影响缓存前缀）。
+**系统提示词**：`build_system_prompt()` 在 `session/new` 时调用一次，产出 `frozen_system_prompt` 存入 `SessionState`，后续轮次直接复用。段落文件位于 `cc-tui/prompts/sections/`（01-06 静态 + 07+10-13 动态，共 11 个），通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前可缓存，标记后不影响前缀缓存。`PromptFeatures` 控制条件段落注入。Agent 构建在 system prompt 末尾追加 Git Attribution 段落（动态区域内不影响缓存前缀）。
 
 ## Thinking/推理模式
 
@@ -107,13 +107,13 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 ## 中间件链执行顺序
 
-详见 `peri-middlewares/CLAUDE.md`。17 个中间件按固定顺序组成链（加上条件注册的 CompactMiddleware 共 18 个），末尾 `[ReActAgent.with_system_prompt()]` prepend。
+详见 `cc-middlewares/CLAUDE.md`。17 个中间件按固定顺序组成链（加上条件注册的 CompactMiddleware 共 18 个），末尾 `[ReActAgent.with_system_prompt()]` prepend。
 
 ## ACP/TUI 分层架构
 
-**概述**：`peri-acp` 是独立的 ACP 服务层 crate。`peri-tui` 为纯 ACP client 前端，通过 `MpscTransport` 与 `peri-acp` 通信。详见 `peri-tui/CLAUDE.md`。
+**概述**：`cc-acp` 是独立的 ACP 服务层 crate。`cc-tui` 为纯 ACP client 前端，通过 `MpscTransport` 与 `cc-acp` 通信。详见 `cc-tui/CLAUDE.md`。
 
-**数据流**（详见 `peri-tui/CLAUDE.md`）：
+**数据流**（详见 `cc-tui/CLAUDE.md`）：
 - TUI 路径：TUI 输入 → AcpTuiClient → MpscTransport → ACP Server → executor → ExecutorEvent → TransportEventSink → TUI UI 更新
 - Stdio 路径：SDK → executor + StdioEventSink → stdout JSON-RPC
 
@@ -138,7 +138,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 - 整个中间件链、AgentState、Cancel Token、Langfuse Tracer：每轮全新构造
 - **[TRAP]** `PromptFeatures::detect()` 仍每轮重新读取 `YOLO_MODE`，`is_git_repo` 也每轮重新检查——两者未随 frozen 数据传递，可能导致 SubAgent 与 Main Agent 行为不一致。（详见 spec/global/domains/system-prompt.md#issue_2026-05-27-language-injection-subagent-drift-cache-isolation）
 
-**ACP Slash Commands**（符合 agentclientprotocol.com）：`peri-acp/src/session/command/mod.rs` 的 `default_command_registry()` 注册 7 个命令：
+**ACP Slash Commands**（符合 agentclientprotocol.com）：`cc-acp/src/session/command/mod.rs` 的 `default_command_registry()` 注册 7 个命令：
 - `/compact`（别名 `compress`）：压缩对话历史释放上下文（`Immediate`）
 - `/clear`（别名 `cls`/`reset`）：清空当前会话对话历史（`Immediate`）
 - `/rewind`（别名 `undo`）：回滚对话到指定消息，可选逆向恢复文件（`Immediate`）
@@ -165,11 +165,11 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 **核心文件**：
 | 文件 | 职责 |
 |------|------|
-| `peri-agent/src/agent/compact/` | `full_compact()`/`micro_compact_enhanced()`/`re_inject()`/`config`/`invariant` |
-| `peri-middlewares/src/compact_middleware.rs` | `CompactMiddleware`：`before_model` 钩子 |
-| `peri-acp/src/session/command/compact.rs` | `/compact` Slash Command（`CommandKind::Immediate`） |
-| `peri-acp/src/session/command/recap.rs` | `/recap` Slash Command（`Immediate`，使用独立 `aux_model`） |
-| `peri-agent/src/agent/recap/` | `generate_recap()`：单轮 fork、禁用工具、不写 history |
+| `cc-agent/src/agent/compact/` | `full_compact()`/`micro_compact_enhanced()`/`re_inject()`/`config`/`invariant` |
+| `cc-middlewares/src/compact_middleware.rs` | `CompactMiddleware`：`before_model` 钩子 |
+| `cc-acp/src/session/command/compact.rs` | `/compact` Slash Command（`CommandKind::Immediate`） |
+| `cc-acp/src/session/command/recap.rs` | `/recap` Slash Command（`Immediate`，使用独立 `aux_model`） |
+| `cc-agent/src/agent/recap/` | `generate_recap()`：单轮 fork、禁用工具、不写 history |
 
 **[TRAP]** compact 后消息结构必须以 `BaseMessage::human(summary + continuation)` 开头。禁止将摘要放在 `BaseMessage::system()` 中。compact 后的完整结构：`[Human(摘要+续接指令), System(文件)..., System(Skills)...]`。（详见 spec/global/domains/compact.md#issue_2026-05-20-auto-compact-empty-messages-400）
 
@@ -362,9 +362,9 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 ### 过时表述清理（高频踩坑）
 
-- **模型别名是四档**：`opus` / `sonnet` / `haiku` / `fable`（见 `peri-acp/src/provider/config.rs` 的 `ALL_ALIASES: [&str; 4]`）。文档中凡出现"三级别名/三档/三 Tab"均为过时，需改为四档。
+- **模型别名是四档**：`opus` / `sonnet` / `haiku` / `fable`（见 `cc-acp/src/provider/config.rs` 的 `ALL_ALIASES: [&str; 4]`）。文档中凡出现"三级别名/三档/三 Tab"均为过时，需改为四档。
 - **废弃快捷键**：`Alt+M` / `Ctrl+T`（模型循环）、`Ctrl+N` / `Ctrl+W`（多 session）已移除，模型切换统一走命令面板 `Ctrl+P` / `Alt+P`。文档（尤其中文注释、tips、示例）里若有残留，一律清理。
-- **命令清单以代码为准**：TUI 命令见 `peri-tui/src/command/`，ACP 命令见 `peri-acp/src/session/command/mod.rs`。文档化前先核对 registry，**防止文档出现代码中不存在的"幽灵命令"**（如曾经的 `/status`）。
+- **命令清单以代码为准**：TUI 命令见 `cc-tui/src/command/`，ACP 命令见 `cc-acp/src/session/command/mod.rs`。文档化前先核对 registry，**防止文档出现代码中不存在的"幽灵命令"**（如曾经的 `/status`）。
 - **测试代码位置**：`spec/archive*`、`spec/issues/`、`docs/superpowers/plans|specs/`、`CHANGELOG.md` 中的旧表述是**历史快照**，按记录当时状态保留，不必回改（可在条目旁加"后续演进"注记）。
 
 ### 提交纪律 [TRAP]

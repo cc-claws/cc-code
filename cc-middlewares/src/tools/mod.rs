@@ -1,0 +1,84 @@
+pub mod ask_user_tool;
+pub mod filesystem;
+pub mod output_filter;
+pub mod output_persist;
+pub mod todo;
+
+pub use ask_user_tool::AskUserTool;
+pub use filesystem::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool};
+pub use output_filter::{filter_command_output, filter_git_status, strip_ansi};
+pub use todo::{TodoItem, TodoStatus, TodoWriteTool};
+
+use async_trait::async_trait;
+use cc_agent::tools::{BaseTool, ToolContent};
+use std::sync::Arc;
+
+/// ArcToolWrapper - 将 Arc<dyn BaseTool> 包装为 Box<dyn BaseTool> 可用的形式
+///
+/// 用于子 agent 注册父 agent 的工具集时，避免所有权转移：
+/// 父工具集存为 Arc<Vec<Arc<dyn BaseTool>>>，子 agent 注册时用 ArcToolWrapper 包一层。
+pub struct ArcToolWrapper(pub Arc<dyn BaseTool>);
+
+/// BoxToolWrapper - 将 Box<dyn BaseTool> 包装为 Arc<dyn BaseTool> 可用的形式
+///
+/// 用于将 Middleware::collect_tools() 返回的 Box<dyn BaseTool> 转换为
+/// SubAgentMiddleware 所需的 Arc<dyn BaseTool>，以便共享父工具集。
+pub struct BoxToolWrapper(pub Box<dyn BaseTool + Send + Sync>);
+
+#[async_trait]
+impl BaseTool for BoxToolWrapper {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+
+    fn description(&self) -> &str {
+        self.0.description()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        self.0.parameters()
+    }
+
+    async fn invoke(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        self.0.invoke(input).await
+    }
+
+    async fn invoke_content(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<ToolContent, Box<dyn std::error::Error + Send + Sync>> {
+        self.0.invoke_content(input).await
+    }
+}
+
+#[async_trait]
+impl BaseTool for ArcToolWrapper {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+
+    fn description(&self) -> &str {
+        self.0.description()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        self.0.parameters()
+    }
+
+    async fn invoke(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        self.0.invoke(input).await
+    }
+
+    async fn invoke_content(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<ToolContent, Box<dyn std::error::Error + Send + Sync>> {
+        self.0.invoke_content(input).await
+    }
+}

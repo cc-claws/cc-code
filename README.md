@@ -152,19 +152,19 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 
 ```text
 cc-code/
-├── peri-agent/                # Core: Agent loop, tool system, persistence, telemetry
+├── cc-agent/                # Core: Agent loop, tool system, persistence, telemetry
 │   └── README.md              # Agent framework guide
-├── peri-middlewares/           # Middleware: filesystem, terminal, MCP, Hooks, etc.
+├── cc-middlewares/           # Middleware: filesystem, terminal, MCP, Hooks, etc.
 │   ├── README.md              # Middleware overview
 │   └── CLAUDE.md              # Development guide and traps
-├── peri-tui/                  # TUI application (Ratatui)
+├── cc-tui/                  # TUI application (Ratatui)
 │   ├── README.md              # TUI usage guide
 │   └── CLAUDE.md              # Development guide and traps
-├── peri-acp/                  # ACP service layer: bridges TUI/IDE with Agent
+├── cc-acp/                  # ACP service layer: bridges TUI/IDE with Agent
 │   └── README.md              # ACP architecture and data flow
-├── peri-widgets/              # Widget component library
+├── cc-widgets/              # Widget component library
 │   └── README.md              # Component list and examples
-├── peri-lsp/                  # LSP client library
+├── cc-lsp/                  # LSP client library
 │   └── README.md              # LSP operations and config
 ├── langfuse-client/           # Langfuse telemetry client
 │   └── README.md              # Telemetry config and usage
@@ -173,7 +173,7 @@ cc-code/
 ├── scripts/
 │   ├── install.sh             # macOS / Linux installer
 │   └── install.ps1            # Windows installer
-├── side-projects/             # Experimental projects (gig, llm-gateway, etc.)
+├── side-projects/             # Experimental projects (llm-gateway, etc.)
 ├── spec/                      # Design docs and specs
 │   ├── global/                # Global architecture docs
 │   ├── issues/                # Issue analysis docs

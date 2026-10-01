@@ -8,9 +8,9 @@
 
 | Crate | 估计测试数 | 主要覆盖 |
 |-------|-----------|---------|
-| `peri-agent` | ~52 | 消息系统、ReAct 执行器、集成测试 |
-| `peri-middlewares` | ~65 | HITL、SubAgent、Skill 加载 |
-| `peri-tui` | ~80 | Headless UI 渲染 |
+| `cc-agent` | ~52 | 消息系统、ReAct 执行器、集成测试 |
+| `cc-middlewares` | ~65 | HITL、SubAgent、Skill 加载 |
+| `cc-tui` | ~80 | Headless UI 渲染 |
 | `rust-relay-server` | ~14 | 协议序列化 |
 
 ---
@@ -28,7 +28,7 @@
 
 ### 1. 中间件链执行逻辑
 
-`peri-agent/middleware/chain.rs`、`base.rs`、`trait.rs` — 核心机制无直接单元测试，仅靠集成测试间接验证。
+`cc-agent/middleware/chain.rs`、`base.rs`、`trait.rs` — 核心机制无直接单元测试，仅靠集成测试间接验证。
 
 ### 2. 文件系统工具（逐个工具）
 
@@ -36,7 +36,7 @@
 
 ### 3. `ask_user` 工具
 
-跨 `peri-agent` 和 `peri-middlewares` 两个 crate，完全无测试。
+跨 `cc-agent` 和 `cc-middlewares` 两个 crate，完全无测试。
 
 ### 4. Relay Server 核心
 

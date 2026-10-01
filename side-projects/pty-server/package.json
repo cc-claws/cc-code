@@ -1,8 +1,0 @@
-{
-  "name": "pty-server",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "bun run server.ts"
-  }
-}

@@ -87,11 +87,11 @@ jobs:
 
             - name: Build agent-tui (Linux)
               if: runner.os == 'Linux'
-              run: cross build -p peri-tui --release --target ${{ matrix.target }}
+              run: cross build -p cc-tui --release --target ${{ matrix.target }}
 
             - name: Build agent-tui (non-Linux)
               if: runner.os != 'Linux'
-              run: cargo build -p peri-tui --release --target ${{ matrix.target }}
+              run: cargo build -p cc-tui --release --target ${{ matrix.target }}
 
             - name: Package binaries (Unix)
               if: matrix.ext == ''

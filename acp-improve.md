@@ -2,17 +2,17 @@
 
 ## 一、已共享的部分 ✓
 
-以下组件已妥善共享在 `peri-acp` crate 中：
+以下组件已妥善共享在 `cc-acp` crate 中：
 
 | 组件 | 位置 | 共享方式 |
 |------|------|----------|
-| `execute_prompt()` | `peri-acp/src/session/executor.rs` | 纯函数，两条路径都调用 |
-| `build_agent()` | `peri-acp/src/agent/builder.rs` | 同上 |
-| `build_system_prompt()` | `peri-acp/src/prompt/mod.rs` | 同上 |
-| `dispatch::*` 四个纯函数 | `peri-acp/src/dispatch/` | init / list / load / fork |
-| `build_config_options()` / `build_mode_state()` / `build_model_state()` | `peri-acp/src/session/state_builders.rs` | 同上 |
-| `event::mapper::map_event()` | `peri-acp/src/event/mapper.rs` | ExecutorEvent→SessionUpdate |
-| Command 系统 | `peri-acp/src/session/command/` | compact/clear |
+| `execute_prompt()` | `cc-acp/src/session/executor.rs` | 纯函数，两条路径都调用 |
+| `build_agent()` | `cc-acp/src/agent/builder.rs` | 同上 |
+| `build_system_prompt()` | `cc-acp/src/prompt/mod.rs` | 同上 |
+| `dispatch::*` 四个纯函数 | `cc-acp/src/dispatch/` | init / list / load / fork |
+| `build_config_options()` / `build_mode_state()` / `build_model_state()` | `cc-acp/src/session/state_builders.rs` | 同上 |
+| `event::mapper::map_event()` | `cc-acp/src/event/mapper.rs` | ExecutorEvent→SessionUpdate |
+| Command 系统 | `cc-acp/src/session/command/` | compact/clear |
 
 ---
 
@@ -36,7 +36,7 @@
 | agent_pool | ✓ | ✓ |
 | recall_items | ✗ | ✓ (TUI 专属) |
 
-**差异只有 `recall_items`**。应提取到 `peri-acp` 作为共享结构体。
+**差异只有 `recall_items`**。应提取到 `cc-acp` 作为共享结构体。
 
 ### 2. `session/new` —— 冻结数据创建逻辑完全重复
 
@@ -142,7 +142,7 @@ stdio 用 `dispatch::list_sessions_as_info()`，TUI 把相同逻辑 inline 了�
 
 ### 方案 A（推荐，轻量）：扩展 dispatch 模块
 
-在 `peri-acp/src/dispatch/` 下新增一组纯函数，封装每个 ACP 方法的 session 操作逻辑：
+在 `cc-acp/src/dispatch/` 下新增一组纯函数，封装每个 ACP 方法的 session 操作逻辑：
 
 ```
 dispatch/
@@ -179,7 +179,7 @@ trait SessionHandler {
 }
 ```
 
-将 8 个 handler 逻辑统一到 `peri-acp` crate。两条路径只提供 trait 实现。
+将 8 个 handler 逻辑统一到 `cc-acp` crate。两条路径只提供 trait 实现。
 
 **优点**：完全消除 handler 重复
 **缺点**：需要抽象 stdio SDK 的 `responder`/`ConnectionTo` != TUI 的 `AcpTransport`，有一定设计复杂度

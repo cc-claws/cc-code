@@ -1,0 +1,353 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use cc_agent::tools::{BaseTool, ToolContent};
+use serde_json::Value;
+
+use super::resolve_path;
+
+/// Base64 编码辅助函数
+fn base64_encode(bytes: &[u8]) -> String {
+    STANDARD.encode(bytes)
+}
+
+/// 图片格式魔数（Magic Bytes）嗅探：返回文件头签名实际匹配的图片格式
+///
+/// 返回规范化的格式名（png/jpg/gif/webp/bmp）。比较时 `.jpeg` 扩展名需先归一化为 `jpg`
+fn sniff_image_format(bytes: &[u8]) -> Option<&'static str> {
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if bytes.len() >= 8 && bytes[..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+        return Some("png");
+    }
+    // JPEG: FF D8 FF
+    if bytes.len() >= 3 && bytes[..3] == [0xFF, 0xD8, 0xFF] {
+        return Some("jpg");
+    }
+    // GIF: GIF87a / GIF89a
+    if bytes.len() >= 6 && (&bytes[..6] == b"GIF87a" || &bytes[..6] == b"GIF89a") {
+        return Some("gif");
+    }
+    // WebP: RIFF....WEBP（偏移 8~12）
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+    // BMP: 42 4D (BM)
+    if bytes.len() >= 2 && bytes[..2] == [0x42, 0x4D] {
+        return Some("bmp");
+    }
+    None
+}
+
+/// Read tool - 与 TypeScript read_tool 对齐
+pub struct ReadFileTool {
+    pub cwd: String,
+}
+
+impl ReadFileTool {
+    pub fn new(cwd: impl Into<String>) -> Self {
+        Self { cwd: cwd.into() }
+    }
+}
+
+const MAX_LINES: usize = 2000;
+/// 最大允许读取的文件大小（32 MB）
+const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
+/// 最大允许读取的图片文件大小（20 MB）
+const MAX_IMAGE_SIZE: u64 = 20 * 1024 * 1024;
+
+const READ_FILE_DESCRIPTION: &str = r#"Reads a file from the local filesystem. You can access any file directly by using this tool.
+Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+
+Usage:
+- The file_path parameter must be an absolute path, not a relative path
+- By default, it reads up to 2000 lines starting from the beginning of the file
+- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- Any lines longer than 65536 characters will be truncated
+- Results are returned using cat -n format, with line numbers starting at 1
+- This tool reads files from the local filesystem; it cannot handle URLs
+- You can call multiple tools in a single response. It is always better to speculatively read multiple files before making edits
+- You should prefer using the Read tool over the Bash tool with commands like cat, head, tail, or sed to read files. This provides better output formatting and filtering
+- For open-ended searches that may require multiple rounds of globbing and grepping, use the Agent tool instead
+- Reads images (PNG, JPG, JPEG, GIF, WebP, BMP) and presents them visually for multimodal analysis
+
+Error handling:
+- File not found: returns an error message indicating the path does not exist
+- Binary files: detected by extension and returns a message indicating the file cannot be displayed as text
+- Files exceeding 32 MB: returns an error suggesting use of offset/limit parameters
+- Images exceeding 20 MB: returns an error indicating the image is too large
+- Offset exceeds file length: returns an error indicating the line range is invalid"#;
+
+/// 可通过多模态视觉读取的图片扩展名
+fn is_image_extension(ext: &str) -> bool {
+    matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp")
+}
+
+/// 图片扩展名 → MIME media type
+fn image_media_type(ext: &str) -> &'static str {
+    match ext {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        _ => "application/octet-stream",
+    }
+}
+
+fn is_binary_extension(ext: &str) -> bool {
+    matches!(
+        ext,
+        // 不可视的图片格式（ico/tiff 不在多模态支持范围内）
+        "ico"
+            | "tiff"
+            | "pdf"
+            | "doc"
+            | "docx"
+            | "xls"
+            | "xlsx"
+            | "ppt"
+            | "pptx"
+            | "zip"
+            | "rar"
+            | "7z"
+            | "tar"
+            | "gz"
+            | "mp3"
+            | "wav"
+            | "ogg"
+            | "flac"
+            | "mp4"
+            | "avi"
+            | "mkv"
+            | "mov"
+            | "exe"
+            | "dll"
+            | "so"
+            | "dylib"
+            | "bin"
+            | "class"
+    )
+}
+
+#[async_trait::async_trait]
+impl BaseTool for ReadFileTool {
+    fn name(&self) -> &str {
+        "Read"
+    }
+
+    fn description(&self) -> &str {
+        READ_FILE_DESCRIPTION
+    }
+
+    fn parameters(&self) -> Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "The absolute path to the file to read"
+                },
+                "offset": {
+                    "type": "number",
+                    "description": "The line number to start reading from. Only provide if the file is too large to read in a single call. Not providing this parameter reads the whole file (recommended)"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "The number of lines to read. Only provide if the file is too large to read in a single call. Not providing this parameter reads the whole file (recommended)"
+                },
+                "pages": {
+                    "type": "string",
+                    "description": "For PDF files, the page range to read, e.g. '1-5', '3', '10-20'. Only applies to PDF files"
+                }
+            },
+            "required": ["file_path"]
+        })
+    }
+
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let file_path = input["file_path"]
+            .as_str()
+            .ok_or("The 'file_path' parameter is required for the Read tool. Provide the absolute path to the file.")?;
+
+        let offset = input["offset"].as_u64().unwrap_or(0) as usize;
+        let limit = input["limit"].as_u64().unwrap_or(MAX_LINES as u64) as usize;
+
+        let resolved = resolve_path(&self.cwd, file_path);
+
+        let pages = input["pages"].as_str().map(|s| s.to_string());
+
+        // PDF + pages: 返回占位提示
+        if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
+            if ext.eq_ignore_ascii_case("pdf") && pages.is_some() {
+                return Ok(format!(
+                        "[PDF READING NOT YET SUPPORTED]\n\nFile path: {}\nPDF reading with page selection is not yet implemented. Use the Bash tool with a PDF reader command as a workaround.",
+                        resolved.display()
+                    ));
+            }
+            // PDF 但未提供 pages → 继续走到下面的二进制检测，返回 BINARY FILE DETECTED
+        }
+
+        if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
+            let ext_lower = ext.to_lowercase();
+            if is_image_extension(&ext_lower) || is_binary_extension(&ext_lower) {
+                return Ok(format!(
+                    "[BINARY FILE DETECTED]\n\nFile type: .{ext}\nFile path: {}\n\nThis is a binary file and cannot be displayed as text.",
+                    resolved.display()
+                ));
+            }
+        }
+
+        let content = match std::fs::metadata(&resolved) {
+            Ok(meta) if meta.len() > MAX_FILE_SIZE => {
+                return Ok(format!(
+                    "Error: File too large ({} bytes, max {} bytes). Use offset/limit to read portions.",
+                    meta.len(),
+                    MAX_FILE_SIZE
+                ));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(format!("Error: File not found at {file_path}"));
+            }
+            Err(e) => return Err(e.into()),
+            _ => match std::fs::read_to_string(&resolved) {
+                Ok(c) => c,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(format!("Error: File not found at {file_path}"));
+                }
+                Err(e) => return Err(e.into()),
+            },
+        };
+
+        let lines: Vec<&str> = content
+            .split('\n')
+            .map(|l| l.strip_suffix('\r').unwrap_or(l))
+            .collect();
+        if offset >= lines.len() {
+            return Ok(format!(
+                "Error: offset {} exceeds file length ({} lines)",
+                offset,
+                lines.len()
+            ));
+        }
+        let start = offset;
+        let end = (start + limit).min(lines.len());
+        let selected = &lines[start..end];
+
+        let numbered: Vec<String> = selected
+            .iter()
+            .enumerate()
+            .map(|(i, line)| format!("{:>6}\t{}", start + i + 1, line))
+            .collect();
+
+        Ok(numbered.join("\n"))
+    }
+
+    async fn invoke_content(
+        &self,
+        input: Value,
+    ) -> Result<ToolContent, Box<dyn std::error::Error + Send + Sync>> {
+        let file_path = input["file_path"]
+            .as_str()
+            .ok_or("The 'file_path' parameter is required for the Read tool. Provide the absolute path to the file.")?;
+
+        let resolved = resolve_path(&self.cwd, file_path);
+
+        // 图片文件：读取字节 → Base64 编码 → 返回多模态 ToolContent
+        if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
+            let ext_lower = ext.to_lowercase();
+            if is_image_extension(&ext_lower) {
+                return self.read_image(&resolved, &ext_lower, file_path);
+            }
+        }
+
+        // 非图片文件：委托给 invoke() 返回纯文本
+        self.invoke(input).await.map(ToolContent::text)
+    }
+}
+
+impl ReadFileTool {
+    /// 读取图片文件并返回多模态 ToolContent
+    fn read_image(
+        &self,
+        resolved: &std::path::Path,
+        ext: &str,
+        file_path: &str,
+    ) -> Result<ToolContent, Box<dyn std::error::Error + Send + Sync>> {
+        // 文件存在性检查
+        let meta = match std::fs::metadata(resolved) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(ToolContent::text(format!(
+                    "Error: File not found at {file_path}"
+                )));
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        // 图片大小保护
+        if meta.len() > MAX_IMAGE_SIZE {
+            return Ok(ToolContent::text(format!(
+                "Error: Image too large ({} bytes, max {} bytes).",
+                meta.len(),
+                MAX_IMAGE_SIZE
+            )));
+        }
+
+        let bytes = std::fs::read(resolved)?;
+
+        // [TRAP] 魔数校验：扩展名声明的格式必须与文件头签名一致。
+        // 防御伪图片（HTML 错误页 / JSON 报错 / Git LFS 指针写入图片后缀文件）
+        // 被盲目 base64 后发给模型触发 API 400（详见 issue #186）
+        let expected = if ext.eq_ignore_ascii_case("jpeg") {
+            "jpg"
+        } else {
+            ext
+        };
+        if sniff_image_format(&bytes) != Some(expected) {
+            // 空文件：显式报错
+            if bytes.is_empty() {
+                return Ok(ToolContent::text(format!(
+                    "Error: File '{file_path}' is empty, does not match the expected .{ext} image signature."
+                )));
+            }
+            // 可解码为文本（如 HTML 错误页/JSON 报错/Git LFS 指针）→ 降级为文本展示 + 格式告警
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                if !text.trim().is_empty() {
+                    let mut output = format!(
+                        "[IMAGE CONTENT MISMATCH] File '{file_path}' has .{ext} extension but does not contain valid {ext} image data.\n\
+The content appears to be plain text (possibly a failed download or error page):\n"
+                    );
+                    for (i, line) in text.lines().take(50).enumerate() {
+                        output.push_str(&format!("{:>6}\t{}\n", i + 1, line));
+                    }
+                    return Ok(ToolContent::text(output));
+                }
+            }
+            // 非文本且非有效图片：显式报错，绝不向模型回传脏 Base64
+            return Ok(ToolContent::text(format!(
+                "Error: File '{file_path}' does not match the expected image signature for .{ext} (corrupted or unrecognized format)."
+            )));
+        }
+
+        // 魔数校验通过 → Base64 编码返回多模态内容
+        let base64_data = base64_encode(&bytes);
+        let media_type = image_media_type(ext);
+        let size_kb = meta.len() / 1024;
+
+        let summary = format!(
+            "[Image: {}, {}KB] {}",
+            media_type,
+            size_kb,
+            resolved.display()
+        );
+
+        Ok(ToolContent::image(media_type, base64_data, summary))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    include!("read_test.rs");
+}

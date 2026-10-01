@@ -88,11 +88,11 @@ jobs:
 
       - name: Build cc-code (Linux)
         if: runner.os == 'Linux'
-        run: cross build -p peri-tui --release --target ${{ matrix.target }}
+        run: cross build -p cc-tui --release --target ${{ matrix.target }}
 
       - name: Build cc-code (non-Linux)
         if: runner.os != 'Linux'
-        run: cargo build -p peri-tui --release --target ${{ matrix.target }}
+        run: cargo build -p cc-tui --release --target ${{ matrix.target }}
 
       - name: Package binaries (Unix)
         if: matrix.ext == ''

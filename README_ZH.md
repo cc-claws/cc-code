@@ -151,19 +151,19 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 
 ```text
 cc-code/
-├── peri-agent/                # 核心：Agent loop、工具系统、持久化、遥测
+├── cc-agent/                # 核心：Agent loop、工具系统、持久化、遥测
 │   └── README.md              # Agent 框架使用指南
-├── peri-middlewares/           # 中间件：文件系统、终端、MCP、Hooks 等
+├── cc-middlewares/           # 中间件：文件系统、终端、MCP、Hooks 等
 │   ├── README.md              # 中间件概览
 │   └── CLAUDE.md              # 开发指南和陷阱记录
-├── peri-tui/                  # TUI 应用 (Ratatui)
+├── cc-tui/                  # TUI 应用 (Ratatui)
 │   ├── README.md              # TUI 使用指南
 │   └── CLAUDE.md              # 开发指南和陷阱记录
-├── peri-acp/                  # ACP 服务层：桥接 TUI/IDE 与 Agent
+├── cc-acp/                  # ACP 服务层：桥接 TUI/IDE 与 Agent
 │   └── README.md              # ACP 架构和数据流
-├── peri-widgets/              # Widget 组件库
+├── cc-widgets/              # Widget 组件库
 │   └── README.md              # 组件列表和使用示例
-├── peri-lsp/                  # LSP 客户端库
+├── cc-lsp/                  # LSP 客户端库
 │   └── README.md              # LSP 操作和配置
 ├── langfuse-client/           # Langfuse 遥测客户端
 │   └── README.md              # 遥测配置和使用
@@ -172,7 +172,7 @@ cc-code/
 ├── scripts/
 │   ├── install.sh             # macOS / Linux 安装器
 │   └── install.ps1            # Windows 安装器
-├── side-projects/             # 实验性项目（gig、llm-gateway 等）
+├── side-projects/             # 实验性项目（llm-gateway 等）
 ├── spec/                      # 设计文档与规范
 │   ├── global/                # 全局架构文档
 │   ├── issues/                # Issue 分析文档

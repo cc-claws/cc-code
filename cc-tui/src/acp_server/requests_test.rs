@@ -1,0 +1,767 @@
+use std::{collections::HashMap, sync::Arc};
+
+use async_trait::async_trait;
+use cc_acp::provider::{
+    format_model_selection_value, PeriConfig, ProviderConfig, ProviderModels,
+};
+use cc_acp::transport::types::{AcpError, IncomingMessage, RequestId};
+use cc_agent::thread::FilesystemThreadStore;
+use cc_middlewares::hitl::shared_mode::{PermissionMode, SharedPermissionMode};
+use serde_json::{json, Value};
+
+use crate::app::agent::LlmProvider;
+
+use super::*;
+
+// ── Mock AcpTransport ─────────────────────────────────────────────────────────
+
+/// 丢弃所有发送操作的 mock transport
+struct MockTransport;
+
+#[async_trait]
+impl cc_acp::transport::AcpTransport for MockTransport {
+    async fn send_request(&self, _method: &str, _params: Value) -> Result<Value, AcpError> {
+        Ok(json!({}))
+    }
+    async fn send_notification(&self, _method: &str, _params: Value) -> Result<(), AcpError> {
+        Ok(())
+    }
+    async fn recv(&self) -> Option<IncomingMessage> {
+        None
+    }
+    async fn send_response(
+        &self,
+        _id: RequestId,
+        _result: Result<Value, AcpError>,
+    ) -> Result<(), AcpError> {
+        Ok(())
+    }
+}
+
+// ── 辅助函数 ──────────────────────────────────────────────────────────────────
+
+fn make_provider_config(
+    id: &str,
+    provider_type: &str,
+    api_key: &str,
+    model: &str,
+) -> ProviderConfig {
+    ProviderConfig {
+        id: id.to_string(),
+        provider_type: provider_type.to_string(),
+        api_key: api_key.to_string(),
+        // 将模型名填入 sonnet 别名（默认 alias）
+        models: ProviderModels {
+            sonnet: model.to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn make_server_config(
+    peri_config: PeriConfig,
+    provider: LlmProvider,
+    tmp: &tempfile::TempDir,
+) -> AcpServerConfig {
+    let thread_store = FilesystemThreadStore::new(tmp.path().join("threads"));
+    AcpServerConfig {
+        provider: Arc::new(parking_lot::RwLock::new(provider)),
+        peri_config: Arc::new(parking_lot::RwLock::new(peri_config)),
+        permission_mode: SharedPermissionMode::new(PermissionMode::Bypass),
+        cron_scheduler: None,
+        mcp_pool: None,
+        channel_state: None,
+        plugin_skill_dirs: Vec::new(),
+        plugin_agent_dirs: Vec::new(),
+        plugin_hooks: Vec::new(),
+        hook_groups: Vec::new(),
+        plugin_lsp_servers: Vec::new(),
+        tool_search_index: Arc::new(cc_middlewares::tool_search::ToolSearchIndex::new()),
+        shared_tools: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+        thread_store: Arc::new(thread_store),
+        langfuse_session: None,
+        config_path: tmp.path().join("test_config.json"),
+        shell_executor: None,
+    }
+}
+
+// ── 测试 ──────────────────────────────────────────────────────────────────────
+
+/// 验证 session/update_config 切换 active_provider_id 后 cfg.provider 正确更新
+#[tokio::test]
+async fn test_update_config_updates_cfg_provider_after_switching_provider() {
+    // Arrange: 构造两个 provider（a=openai, b=anthropic），初始 active_provider_id = "a"
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a.clone(), provider_b.clone()];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    assert!(
+        matches!(initial_provider, LlmProvider::OpenAi { .. }),
+        "初始 provider 应为 OpenAI"
+    );
+
+    let cfg = make_server_config(peri_config.clone(), initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // 构造 update_config 参数：active_provider_id 改为 "b"
+    let mut updated_config = peri_config.clone();
+    updated_config.config.active_provider_id = "b".to_string();
+
+    let params = json!({
+        "sessionId": "test-session",
+        "config": updated_config,
+    });
+
+    // Act: 调用 handle_request
+    let result = handle_request(
+        "session/update_config",
+        &params,
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+
+    // Assert: cfg.provider 应切换到 anthropic
+    let provider = cfg.provider.read();
+    assert!(
+        matches!(&*provider, LlmProvider::Anthropic { model, .. } if model == "claude-sonnet-4-6"),
+        "切换后 provider 应为 Anthropic claude-sonnet-4-6，实际: display={} model={}",
+        provider.display_name(),
+        provider.model_name(),
+    );
+    assert_eq!(
+        provider.display_name(),
+        "Anthropic",
+        "display_name 应为 Anthropic"
+    );
+
+    // 验证返回值包含 configOptions
+    assert!(
+        result.get("configOptions").is_some(),
+        "响应应包含 configOptions"
+    );
+}
+
+/// 验证 model 配置值携带 provider 后，同名 alias 能正确跨 provider 切换。
+#[tokio::test]
+async fn test_set_config_option_model_switches_provider_when_provider_specified() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+    let value = format_model_selection_value("b", "sonnet");
+    let params = json!({
+        "sessionId": "test-session",
+        "configId": "model",
+        "value": value,
+    });
+
+    let result = handle_request(
+        "session/set_config_option",
+        &params,
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+    let result_json = result.to_string();
+    assert!(
+        result_json.contains(&format_model_selection_value("a", "sonnet")),
+        "模型选项应保留 OpenAI provider 的 sonnet value，实际响应: {result_json}",
+    );
+    assert!(
+        result_json.contains(&format_model_selection_value("b", "sonnet")),
+        "模型选项应包含 Anthropic provider 的 sonnet value，实际响应: {result_json}",
+    );
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+    assert_eq!(stored.config.active_alias, "sonnet");
+    drop(stored);
+
+    let provider = cfg.provider.read();
+    assert!(
+        matches!(&*provider, LlmProvider::Anthropic { model, .. } if model == "claude-sonnet-4-6"),
+        "选择 b::sonnet 后应切到 Anthropic，实际: display={} model={}",
+        provider.display_name(),
+        provider.model_name(),
+    );
+}
+
+/// 验证 session/update_config 空 providers 时返回错误
+#[tokio::test]
+async fn test_update_config_returns_error_when_providers_empty() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.providers = vec![provider_a];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config.clone(), initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // 空 providers
+    let mut bad_config = PeriConfig::default();
+    bad_config.config.providers = vec![];
+
+    let params = json!({
+        "sessionId": "test-session",
+        "config": bad_config,
+    });
+
+    let result = handle_request(
+        "session/update_config",
+        &params,
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
+
+    assert!(result.is_err(), "空 providers 应返回错误");
+    let err = result.unwrap_err();
+    assert!(
+        err.message.contains("providers cannot be empty"),
+        "错误消息应提及 providers 为空，实际: {}",
+        err.message,
+    );
+}
+
+/// 验证 session/update_config 不存在的 active_provider_id 返回错误
+#[tokio::test]
+async fn test_update_config_returns_error_for_unknown_provider_id() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.providers = vec![provider_a];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config.clone(), initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // active_provider_id 指向不存在的 provider
+    let mut bad_config = peri_config.clone();
+    bad_config.config.active_provider_id = "nonexistent".to_string();
+    bad_config.config.providers = vec![make_provider_config(
+        "a",
+        "openai",
+        "sk-openai-test",
+        "gpt-4o",
+    )];
+
+    let params = json!({
+        "sessionId": "test-session",
+        "config": bad_config,
+    });
+
+    let result = handle_request(
+        "session/update_config",
+        &params,
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
+
+    assert!(result.is_err(), "不存在的 provider_id 应返回错误");
+    let err = result.unwrap_err();
+    assert!(
+        err.message.contains("not found"),
+        "错误消息应提及 not found，实际: {}",
+        err.message,
+    );
+}
+
+// ── sessionId 校验测试（issue #70） ─────────────────────────────────────────
+
+/// 构造一个最小的可运行 server config，复用 update_config 测试的 fixture 逻辑
+fn make_minimal_cfg() -> (tempfile::TempDir, AcpServerConfig) {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.providers = vec![provider_a];
+    let provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, provider, &tmp);
+    (tmp, cfg)
+}
+
+/// session/load 传入非 UUID（含路径穿越片段）应被 -32602 拒绝
+#[tokio::test]
+async fn test_session_load_returns_error_for_non_uuid_session_id() {
+    let (_tmp, cfg) = make_minimal_cfg();
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let params = json!({ "sessionId": "../../etc/passwd" });
+
+    let result = handle_request("session/load", &params, &cfg, &mut sessions, &transport).await;
+
+    assert!(result.is_err(), "非 UUID sessionId 应返回错误");
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.code, -32602,
+        "非 UUID 应返回 invalid params (-32602)，实际: {}",
+        err.code,
+    );
+    assert!(
+        err.message.contains("UUID"),
+        "错误消息应提及 UUID，实际: {}",
+        err.message,
+    );
+    // 路径穿越尝试不应触发任何 thread_store 查询，sessions map 也不应被污染
+    assert!(sessions.is_empty(), "校验失败时不应静默插入 SessionState",);
+}
+
+/// session/load 传入合法 UUID 但 thread 不存在 应返回 -32001 session_not_found，
+/// 而非静默插入新 SessionState（issue #70 修复点）
+#[tokio::test]
+async fn test_session_load_returns_session_not_found_for_missing_uuid() {
+    let (_tmp, cfg) = make_minimal_cfg();
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // 任意合法 UUID v4，thread_store 为空目录，必定不存在
+    let ghost_id = "00000000-0000-4000-8000-000000000000";
+    let params = json!({ "sessionId": ghost_id });
+
+    let result = handle_request("session/load", &params, &cfg, &mut sessions, &transport).await;
+
+    assert!(result.is_err(), "不存在的 thread 应返回错误");
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.code, -32001,
+        "不存在 thread 应返回 -32001 session_not_found，实际: {}",
+        err.code,
+    );
+    assert!(
+        err.message.contains("session not found"),
+        "错误消息应包含 session not found，实际: {}",
+        err.message,
+    );
+    // 不应静默插入空 SessionState
+    assert!(
+        sessions.is_empty(),
+        "thread 不存在时不应静默插入 SessionState",
+    );
+}
+
+/// session/load 传入已存在 thread 的合法 UUID 应正常加载
+#[tokio::test]
+async fn test_session_load_succeeds_when_thread_exists() {
+    use cc_agent::thread::ThreadMeta;
+
+    let (_tmp, cfg) = make_minimal_cfg();
+
+    // Arrange: 先在 thread_store 中创建一个 thread
+    let meta = ThreadMeta::new("/tmp");
+    let thread_id = cfg.thread_store.create_thread(meta).await.unwrap();
+
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+    let params = json!({ "sessionId": thread_id, "cwd": "/tmp" });
+
+    let result = handle_request("session/load", &params, &cfg, &mut sessions, &transport).await;
+
+    assert!(
+        result.is_ok(),
+        "存在 thread 应正常加载，错误: {:?}",
+        result.err(),
+    );
+    // 加载后 sessions 应被填充（非静默插入空状态，而是合法恢复）
+    assert_eq!(
+        sessions.len(),
+        1,
+        "session/load 成功后 sessions 应包含 1 个 entry",
+    );
+}
+
+/// session/resume 传入非 UUID 应被 -32602 拒绝（resume 仍允许新建，但 ID 必须合法）
+#[tokio::test]
+async fn test_session_resume_returns_error_for_non_uuid_session_id() {
+    let (_tmp, cfg) = make_minimal_cfg();
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let params = json!({ "sessionId": "not-a-uuid-at-all" });
+
+    let result = handle_request("session/resume", &params, &cfg, &mut sessions, &transport).await;
+
+    assert!(result.is_err(), "非 UUID sessionId 应返回错误");
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.code, -32602,
+        "非 UUID 应返回 invalid params (-32602)，实际: {}",
+        err.code,
+    );
+    assert!(sessions.is_empty(), "校验失败时不应静默插入 SessionState",);
+}
+
+/// session/resume 传入合法 UUID 应允许恢复（若 sessions 中无则新建空 entry）
+#[tokio::test]
+async fn test_session_resume_allowed_for_valid_uuid() {
+    let (_tmp, cfg) = make_minimal_cfg();
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let valid_id = "11111111-2222-4333-8444-555555555555";
+    let params = json!({ "sessionId": valid_id, "cwd": "/tmp" });
+
+    let result = handle_request("session/resume", &params, &cfg, &mut sessions, &transport).await;
+
+    assert!(
+        result.is_ok(),
+        "合法 UUID 应允许 resume，错误: {:?}",
+        result.err(),
+    );
+    assert_eq!(
+        sessions.len(),
+        1,
+        "resume 成功后 sessions 应包含 1 个 entry",
+    );
+}
+
+/// validate_session_id_format 单元测试：覆盖合法/非法输入
+#[tokio::test]
+async fn test_validate_session_id_format_rejects_invalid_id() {
+    use cc_acp::session::validate_session_id_format;
+
+    // 非法:路径穿越
+    assert!(
+        validate_session_id_format("../../etc/passwd").is_err(),
+        "路径穿越应被拒绝",
+    );
+    // 非法:中文字符
+    assert!(
+        validate_session_id_format("你好").is_err(),
+        "非 ASCII 应被拒绝",
+    );
+    // 非法:普通字符串
+    assert!(
+        validate_session_id_format("test-session").is_err(),
+        "普通字符串应被拒绝",
+    );
+    // 合法:UUID v4
+    assert!(
+        validate_session_id_format("00000000-0000-4000-8000-000000000000").is_ok(),
+        "合法 UUID v4 应通过",
+    );
+    // 合法:UUID v7
+    assert!(
+        validate_session_id_format("017f22e2-79b0-7cc3-98c4-dc0c0c07398f").is_ok(),
+        "合法 UUID v7 应通过",
+    );
+}
+
+/// 验证 session/new 携带 model 参数时，服务端立即切换 cfg.provider (Issue #169)
+#[tokio::test]
+async fn test_session_new_switches_provider_immediately_with_model_parameter() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let model_target = format_model_selection_value("b", "sonnet");
+    let params = json!({
+        "cwd": tmp.path().to_str().unwrap(),
+        "model": model_target,
+    });
+
+    let result = handle_request("session/new", &params, &cfg, &mut sessions, &transport)
+        .await
+        .unwrap();
+
+    assert!(
+        result.get("sessionId").is_some(),
+        "session/new 应返回 sessionId"
+    );
+
+    let provider = cfg.provider.read();
+    assert_eq!(
+        provider.display_name(),
+        "Anthropic",
+        "session/new 后 provider 应立即切换为 Anthropic"
+    );
+    assert_eq!(
+        provider.model_name(),
+        "claude-sonnet-4-6",
+        "session/new 后 model 应为 claude-sonnet-4-6"
+    );
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+    assert_eq!(stored.config.active_alias, "sonnet");
+}
+
+/// 验证 session/set_config_option 在 sessionId 为空时（发消息前客户端无 session）依然能更新全局 provider (Issue #169)
+#[tokio::test]
+async fn test_set_config_option_applies_with_empty_session_id() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let model_target = format_model_selection_value("b", "sonnet");
+    let params = json!({
+        "sessionId": "",
+        "configId": "model",
+        "value": model_target,
+    });
+
+    let result = handle_request(
+        "session/set_config_option",
+        &params,
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.get("configOptions").is_some(),
+        "响应应包含 configOptions"
+    );
+
+    let provider = cfg.provider.read();
+    assert_eq!(
+        provider.display_name(),
+        "Anthropic",
+        "空 sessionId 下修改 model 应成功更新内存 provider"
+    );
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+}
+
+/// 验证 apply_model_selection 传入具体模型名称（非标准别名）时按名称反查 (防回归兜底)
+#[tokio::test]
+async fn test_apply_model_selection_reverse_looks_up_specific_model_name() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+
+    // 传入具体模型名 "claude-sonnet-4-6" 而非别名 "sonnet"
+    let provider = apply_model_selection(&cfg, "claude-sonnet-4-6");
+    assert!(provider.is_some(), "反查具体模型名应返回 Provider");
+    let provider = provider.unwrap();
+    assert_eq!(provider.display_name(), "Anthropic");
+    assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+
+    let stored = cfg.peri_config.read();
+    assert_eq!(stored.config.active_provider_id, "b");
+    assert_eq!(stored.config.active_alias, "sonnet");
+}
+
+/// 验证 session/load (如 /history 恢复) 即使传入具体模型全名也能正确识别，不回退到默认模型
+#[tokio::test]
+async fn test_session_load_identifies_model_correctly_when_restoring_history_session() {
+    use cc_agent::thread::ThreadMeta;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
+    let provider_b = make_provider_config("b", "anthropic", "sk-ant-test", "claude-sonnet-4-6");
+
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.active_provider_id = "a".to_string();
+    peri_config.config.active_alias = "sonnet".to_string();
+    peri_config.config.providers = vec![provider_a, provider_b];
+
+    let initial_provider = LlmProvider::from_config(&peri_config).unwrap();
+    let cfg = make_server_config(peri_config, initial_provider, &tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // 先在 thread_store 中建立一个 session
+    let meta = ThreadMeta::new("/tmp");
+    let thread_id = cfg.thread_store.create_thread(meta).await.unwrap();
+
+    // 恢复时即便传入的是具体模型名称 "claude-sonnet-4-6"
+    let params = json!({
+        "sessionId": thread_id,
+        "cwd": "/tmp",
+        "model": "claude-sonnet-4-6",
+    });
+
+    let result = handle_request("session/load", &params, &cfg, &mut sessions, &transport)
+        .await
+        .unwrap();
+
+    assert!(result.get("models").is_some());
+    let provider = cfg.provider.read();
+    assert_eq!(
+        provider.display_name(),
+        "Anthropic",
+        "恢复历史会话后 provider 应反查切换为 Anthropic，绝不能回退到默认模型"
+    );
+    assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+}
+
+// ── ACP 协议兼容实测（#24 #25） ──────────────────────────────────────────────
+
+/// 实测 initialize 广播 auth_methods
+#[tokio::test]
+async fn test_initialize_advertises_auth_methods() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let cfg = make_minimal_config(&tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    let result = handle_request("initialize", &json!({"protocolVersion": 1}), &cfg, &mut sessions, &transport)
+        .await
+        .unwrap();
+
+    let auth_methods = result.get("authMethods").expect("应有 authMethods").as_array().unwrap();
+    assert!(!auth_methods.is_empty(), "authMethods 不应为空");
+    let ids: Vec<&str> = auth_methods.iter().filter_map(|m| m.get("id").and_then(|v| v.as_str())).collect();
+    assert!(ids.contains(&"cc-code"), "应广播 cc-code 认证方法");
+}
+
+/// 实测 authenticate：合法 method_id 通过，非法拒绝
+#[tokio::test]
+async fn test_authenticate_accepts_cc_code_rejects_unknown() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let cfg = make_minimal_config(&tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // 合法
+    let ok = handle_request("authenticate", &json!({"methodId": "cc-code"}), &cfg, &mut sessions, &transport).await;
+    assert!(ok.is_ok(), "cc-code 应认证通过");
+
+    // 非法
+    let err = handle_request("authenticate", &json!({"methodId": "evil"}), &cfg, &mut sessions, &transport).await;
+    assert!(err.is_err(), "未知 method 应拒绝");
+
+    // v2 别名
+    let v2 = handle_request("auth/login", &json!({"methodId": "cc-code"}), &cfg, &mut sessions, &transport).await;
+    assert!(v2.is_ok(), "v2 auth/login 应兼容");
+}
+
+/// 实测 logout 及其 v2 别名
+#[tokio::test]
+async fn test_logout_and_v2_alias() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let cfg = make_minimal_config(&tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    assert!(handle_request("logout", &json!({}), &cfg, &mut sessions, &transport).await.is_ok());
+    assert!(handle_request("auth/logout", &json!({}), &cfg, &mut sessions, &transport).await.is_ok());
+}
+
+/// 实测 MCP-over-ACP 完整流程：connect → message → disconnect
+#[tokio::test]
+async fn test_mcp_over_acp_full_flow() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let cfg = make_minimal_config(&tmp);
+    let mut sessions = HashMap::new();
+    let transport = MockTransport;
+
+    // 先建 session
+    let new_result = handle_request("session/new", &json!({"cwd": "/tmp"}), &cfg, &mut sessions, &transport)
+        .await
+        .unwrap();
+    let session_id = new_result.get("sessionId").and_then(|v| v.as_str()).unwrap().to_string();
+
+    // connect
+    let conn = handle_request(
+        "mcp/connect",
+        &json!({"sessionId": session_id, "servers": [{"name": "test-srv", "version": "1.0"}]}),
+        &cfg, &mut sessions, &transport,
+    ).await.unwrap();
+    let connected = conn.get("connected").unwrap().as_array().unwrap();
+    assert_eq!(connected.len(), 1);
+
+    // message 到已注册服务器
+    let msg_ok = handle_request(
+        "mcp/message",
+        &json!({"sessionId": session_id, "serverName": "test-srv", "message": {"jsonrpc": "2.0", "id": 1, "method": "ping"}}),
+        &cfg, &mut sessions, &transport,
+    ).await;
+    assert!(msg_ok.is_ok(), "已注册服务器的 message 应通过");
+
+    // message 到未注册服务器应拒绝
+    let msg_bad = handle_request(
+        "mcp/message",
+        &json!({"sessionId": session_id, "serverName": "nope", "message": {}}),
+        &cfg, &mut sessions, &transport,
+    ).await;
+    assert!(msg_bad.is_err(), "未注册服务器应拒绝");
+
+    // disconnect
+    let disc = handle_request(
+        "mcp/disconnect",
+        &json!({"sessionId": session_id, "serverName": "test-srv"}),
+        &cfg, &mut sessions, &transport,
+    ).await;
+    assert!(disc.is_ok());
+
+    // 断开后 message 应拒绝
+    let msg_after = handle_request(
+        "mcp/message",
+        &json!({"sessionId": session_id, "serverName": "test-srv", "message": {}}),
+        &cfg, &mut sessions, &transport,
+    ).await;
+    assert!(msg_after.is_err(), "断开后应拒绝");
+}
+
+fn make_minimal_config(tmp: &tempfile::TempDir) -> AcpServerConfig {
+    let mut peri_config = PeriConfig::default();
+    peri_config.config.providers = vec![make_provider_config("a", "openai", "sk-test", "gpt-4o")];
+    peri_config.config.active_provider_id = "a".to_string();
+    let provider = LlmProvider::from_config(&peri_config).unwrap();
+    make_server_config(peri_config, provider, tmp)
+}

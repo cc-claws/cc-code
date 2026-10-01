@@ -1,0 +1,876 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::{Arc, OnceLock},
+    time::{Duration, Instant},
+};
+
+use parking_lot::RwLock;
+use ratatui::{
+    style::Style,
+    text::Line,
+    widgets::{Paragraph, Wrap},
+};
+use tokio::sync::{mpsc, Notify};
+use unicode_segmentation::UnicodeSegmentation;
+
+/// 渲染事件通道容量。
+/// 128 足以缓冲大量事件（resize 风暴 + 流式 Rebuild），同时防止内存无限膨胀。
+/// 正常运行时队列深度通常 < 5。
+const RENDER_CHANNEL_CAPACITY: usize = 128;
+
+#[cfg(test)]
+use super::message_render::CONTROL_B_BACKGROUND_HINT;
+use super::{
+    markdown::{ensure_rendered_flush, ensure_rendered_incremental},
+    message_render::{render_view_model_with_links, shell_running_text},
+    message_view::MessageViewModel,
+};
+use cc_widgets::markdown::LinkHit;
+
+const TOOL_INDICATOR_TICK_INTERVAL: Duration = Duration::from_millis(200);
+
+#[cfg(test)]
+#[path = "shell_runtime_render_test.rs"]
+mod shell_runtime_tests;
+
+fn current_tool_indicator_tick() -> u64 {
+    static STARTUP: OnceLock<Instant> = OnceLock::new();
+    STARTUP.get_or_init(Instant::now).elapsed().as_millis() as u64 / 200
+}
+
+/// 单个逻辑行的换行映射信息
+#[derive(Debug, Clone)]
+pub struct WrappedLineInfo {
+    /// 该行在 cache.lines 中的索引
+    pub line_idx: usize,
+    /// 该逻辑行渲染后的起始视觉行号（基于 0）
+    pub visual_row_start: usize,
+    /// 该逻辑行渲染后的结束视觉行号（不含）
+    pub visual_row_end: usize,
+    /// 该逻辑行的纯文本内容（去样式，用于复制）
+    pub plain_text: String,
+    /// 每个字符的显示宽度序列（ASCII=1, CJK=2）
+    pub char_widths: Vec<u8>,
+}
+
+/// 渲染缓存，由渲染线程写入、UI 线程读取
+pub struct RenderCache {
+    /// 所有消息渲染后的行
+    pub lines: Vec<Line<'static>>,
+    /// 每条消息在 lines 中的起始行索引（用于定位）
+    pub message_offsets: Vec<usize>,
+    /// 总行数（已考虑 wrap 换行后的真实视觉行数）
+    pub total_lines: usize,
+    /// 版本号，UI 线程比较是否有变化以决定是否重绘
+    pub version: u64,
+    pub wrap_map: Vec<WrappedLineInfo>,
+    /// 超链接命中区（行号对应 cache.lines 下标，g 坐标对应 plain_text grapheme）
+    pub links: Vec<LinkHit>,
+    /// 当前渲染使用的文本区域宽度
+    pub width: u16,
+    /// RebuildAll 后的滚动锚点（视觉行号），UI 线程读取后清除
+    pub scroll_anchor: Option<usize>,
+}
+
+impl Default for RenderCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RenderCache {
+    pub fn new() -> Self {
+        Self {
+            lines: Vec::new(),
+            message_offsets: Vec::new(),
+            total_lines: 0,
+            version: 0,
+            wrap_map: Vec::new(),
+            links: Vec::new(),
+            width: 0,
+            scroll_anchor: None,
+        }
+    }
+}
+
+/// 渲染线程接收的事件
+pub enum RenderEvent {
+    /// 全量重建消息列表（通过 hash diff 优化渲染）
+    Rebuild(Vec<MessageViewModel>),
+    /// 全量重建并设置滚动锚点（RebuildAll 后保持滚动位置）
+    RebuildWithAnchor {
+        messages: Vec<MessageViewModel>,
+        /// 锚点对应的消息在旧 view_messages 中的索引
+        anchor_message_idx: usize,
+    },
+    /// 终端宽度变化，渲染线程自动用 last_messages 重建
+    Resize(u16),
+    /// 清空所有消息
+    Clear,
+    /// 切换工具调用消息的显示状态
+    ToggleToolMessages(bool),
+    /// 切换内联 diff 显示状态（强制全量重渲染）
+    ToggleDiff(bool),
+    /// 切换详细模式（shell 输出、粘贴内容、reasoning 展开/折叠）
+    ToggleDetail(bool),
+}
+
+/// 渲染线程，在后台执行渲染计算
+///
+/// 消息状态由 App 持有（view_messages），渲染线程通过 Rebuild 事件接收完整快照，
+/// 通过 hash diff 只重新渲染发生变化的消息，避免不必要的 markdown 解析。
+struct RenderTask {
+    /// 上一次 Rebuild 收到的消息（Resize 时用于全量重建）
+    last_messages: Vec<MessageViewModel>,
+    /// 每条消息的渲染行缓存
+    message_lines: Vec<Vec<Line<'static>>>,
+    /// 每条消息的链接命中区（行号基于该消息 message_lines 下标）
+    message_links: Vec<Vec<LinkHit>>,
+    /// 每条消息的语义 hash（用于 diff 判断）
+    message_hashes: Vec<u64>,
+    cache: Arc<RwLock<RenderCache>>,
+    notify: Arc<Notify>,
+    width: u16,
+    show_tool_messages: bool,
+    diff_visible: bool,
+    detail_mode: bool,
+}
+
+impl RenderTask {
+    /// 根据 cache.lines 和当前宽度计算 wrap_map。
+    /// 对每个逻辑行使用 ratatui 的 Paragraph::line_count 精确计算视觉行数，
+    /// 与实际渲染的 WordWrapper 算法完全一致。
+    /// char_widths 使用 grapheme 级别（与 ratatui 一致）。
+    fn build_wrap_map(lines: &[Line<'static>], width: u16) -> (usize, Vec<WrappedLineInfo>) {
+        if width == 0 || lines.is_empty() {
+            return (0, Vec::new());
+        }
+        let mut wrap_map = Vec::with_capacity(lines.len());
+        let mut visual_row: usize = 0;
+
+        for (idx, line) in lines.iter().enumerate() {
+            let plain_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            // 使用 grapheme 级别（与 ratatui WordWrapper 一致）
+            let char_widths: Vec<u8> = plain_text
+                .graphemes(true)
+                .map(|g| unicode_width::UnicodeWidthStr::width(g) as u8)
+                .collect();
+
+            // 使用 ratatui 的 Paragraph::line_count 精确计算该行的视觉行数
+            let visual_count = if plain_text.is_empty() {
+                1
+            } else {
+                let text = ratatui::text::Text::from(line.clone());
+                let count = Paragraph::new(text)
+                    .wrap(Wrap { trim: false })
+                    .line_count(width);
+                count.max(1)
+            };
+
+            wrap_map.push(WrappedLineInfo {
+                line_idx: idx,
+                visual_row_start: visual_row,
+                visual_row_end: visual_row + visual_count,
+                plain_text,
+                char_widths,
+            });
+            visual_row += visual_count;
+        }
+        (visual_row, wrap_map)
+    }
+
+    /// 增量构建 wrap_map：复用旧 cache 中稳定前缀的 wrap_map，
+    /// 只对 prefix_stable_len 之后的变化部分调用 build_wrap_map。
+    ///
+    /// 前提：deduped 和 offsets 必须在同一索引空间（由 rebuild() 保证）。
+    fn build_wrap_map_incremental(
+        &self,
+        deduped: &[Line<'static>],
+        offsets: &[usize],
+        prefix_stable_len: usize,
+    ) -> (usize, Vec<WrappedLineInfo>) {
+        // 快速路径：无稳定前缀 → 全量计算
+        if prefix_stable_len == 0 || offsets.is_empty() {
+            return Self::build_wrap_map(deduped, self.width);
+        }
+
+        // 稳定区在 deduped 中的行边界
+        let stable_line_end = if prefix_stable_len < offsets.len() {
+            offsets[prefix_stable_len]
+        } else {
+            deduped.len()
+        };
+
+        let old_cache = self.cache.read();
+        let can_reuse = old_cache.width == self.width
+            && !old_cache.wrap_map.is_empty()
+            && old_cache.wrap_map.len() >= stable_line_end;
+
+        if !can_reuse {
+            drop(old_cache);
+            return Self::build_wrap_map(deduped, self.width);
+        }
+
+        // 完全稳定：所有 VM 未变 → 直接复用整个 wrap_map
+        if stable_line_end == deduped.len() && old_cache.wrap_map.len() == deduped.len() {
+            let total = old_cache.total_lines;
+            let wrap = old_cache.wrap_map.clone();
+            drop(old_cache);
+            return (total, wrap);
+        }
+
+        // 部分稳定：复用前缀 wrap_map，只重算变化部分
+        let base_visual = if stable_line_end > 0 {
+            old_cache.wrap_map[stable_line_end - 1].visual_row_end
+        } else {
+            0
+        };
+
+        // 只对变化部分计算 wrap
+        let (delta_total, mut delta_wrap) =
+            Self::build_wrap_map(&deduped[stable_line_end..], self.width);
+
+        // 修正 delta_wrap 的偏移
+        for info in &mut delta_wrap {
+            info.visual_row_start += base_visual;
+            info.visual_row_end += base_visual;
+            info.line_idx += stable_line_end;
+        }
+
+        // 拼接：clone 前缀 + extend delta
+        // clone 开销：~3000 个 WrappedLineInfo ≈ 240-480KB，约 200-500μs
+        // 相比全量 build_wrap_map 的 ~2-6ms，仍节省 60-80%
+        let mut wrap_map = old_cache.wrap_map[..stable_line_end].to_vec();
+        drop(old_cache);
+
+        let total_lines = base_visual + delta_total;
+        wrap_map.append(&mut delta_wrap);
+        (total_lines, wrap_map)
+    }
+
+    /// 渲染单条消息为 lines（含前后空行分隔）
+    ///
+    /// 注意：此函数修改的 rendered/dirty/rendered_prefix_len 等字段不参与 Hash 计算，
+    /// 因此不会使 content_hash 失效。
+    fn render_one(
+        vm: &mut MessageViewModel,
+        index: usize,
+        width: usize,
+        diff_visible: bool,
+        detail_mode: bool,
+    ) -> (Vec<Line<'static>>, Vec<LinkHit>) {
+        let tick = current_tool_indicator_tick();
+        // 减去气泡前缀缩进（UserBubble "❯ " / "  "，AssistantBubble "● " / "  " 均占 2 字符），
+        // 保证 Markdown 渲染宽度 + 前缀不超过视口宽度，避免 Paragraph.wrap() 二次硬折行
+        let content_width = width.saturating_sub(2).max(20);
+
+        // 处理 dirty blocks（使用增量解析）
+        if let MessageViewModel::AssistantBubble {
+            blocks,
+            is_streaming,
+            ..
+        } = vm
+        {
+            for block in blocks.iter_mut() {
+                if *is_streaming {
+                    ensure_rendered_incremental(block, content_width);
+                } else {
+                    ensure_rendered_flush(block, content_width);
+                }
+            }
+        }
+        // 用实际终端内容宽度重新解析用户消息的 markdown（初始创建时用默认宽度 80）
+        if let MessageViewModel::UserBubble {
+            content,
+            rendered,
+            rendered_links,
+            ..
+        } = vm
+        {
+            let doc = super::markdown::parse_markdown_rich(content, content_width);
+            *rendered = doc.text;
+            *rendered_links = doc.links;
+        }
+
+        // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
+        // diff_visible 控制 Write/Edit 工具的 diff 显示
+        // 两者独立，取并集：任一为 true 时展开对应内容
+        let expand_mode = detail_mode || diff_visible;
+        let (mut lines, links) =
+            render_view_model_with_links(vm, Some(index), width, expand_mode, tick);
+        // 每条消息后追加空行分隔符（包括空内容消息，确保间距一致）
+        lines.push(Line::from(""));
+        (lines, links)
+    }
+
+    /// 计算单个 MessageViewModel 的语义 hash（legacy，应使用 vm.content_hash()）
+    #[allow(dead_code)]
+    fn compute_hash(vm: &MessageViewModel) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        vm.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// 判断两个消息是否仅存在"外观"差异（不影响渲染输出）。
+    ///
+    /// cosmetic change 的消息可以安全复用旧的渲染缓存，避免不必要的重渲染。
+    fn is_cosmetic_change(old: &MessageViewModel, new: &MessageViewModel) -> bool {
+        match (old, new) {
+            // AssistantBubble: blocks 内容相同，仅 is_streaming 变化
+            (
+                MessageViewModel::AssistantBubble {
+                    blocks: old_blocks,
+                    collapsed: old_collapsed,
+                    ..
+                },
+                MessageViewModel::AssistantBubble {
+                    blocks: new_blocks,
+                    collapsed: new_collapsed,
+                    ..
+                },
+            ) => old_blocks == new_blocks && old_collapsed == new_collapsed,
+
+            // SubAgentGroup: recent_messages + final_result 相同，仅 is_running 变化
+            (
+                MessageViewModel::SubAgentGroup {
+                    agent_id: old_id,
+                    task_preview: old_preview,
+                    total_steps: old_steps,
+                    recent_messages: old_msgs,
+                    final_result: old_result,
+                    is_error: old_err,
+                    is_background: old_bg,
+                    bg_hash: old_hash,
+                    collapsed: old_collapsed,
+                    batch_agents: old_batch,
+                    ..
+                },
+                MessageViewModel::SubAgentGroup {
+                    agent_id: new_id,
+                    task_preview: new_preview,
+                    total_steps: new_steps,
+                    recent_messages: new_msgs,
+                    final_result: new_result,
+                    is_error: new_err,
+                    is_background: new_bg,
+                    bg_hash: new_hash,
+                    collapsed: new_collapsed,
+                    batch_agents: new_batch,
+                    ..
+                },
+            ) => {
+                old_id == new_id
+                    && old_preview == new_preview
+                    && old_steps == new_steps
+                    && old_msgs == new_msgs
+                    && old_result == new_result
+                    && old_err == new_err
+                    && old_bg == new_bg
+                    && old_hash == new_hash
+                    && old_collapsed == new_collapsed
+                    && old_batch == new_batch
+            }
+
+            // 其他类型变化都不是 cosmetic
+            _ => false,
+        }
+    }
+
+    /// 全量重建：接收完整消息列表，通过 prefix_stable_len 优化渲染
+    ///
+    /// 优化策略：
+    /// 1. 计算前缀稳定长度（连续 hash 未变的消息数量）
+    /// 2. 前缀消息直接复用 message_lines 缓存，跳过渲染
+    /// 3. 只从变化点开始重新渲染后续消息
+    /// 4. 对 hash 不同但属于 cosmetic change 的消息也复用缓存
+    fn rebuild(&mut self, messages: Vec<MessageViewModel>) {
+        let width = self.width as usize;
+        let new_len = messages.len();
+
+        // 保留一份用于 Resize（Resize 时没有新的 Rebuild 事件）
+        let old_messages = std::mem::replace(&mut self.last_messages, messages.clone());
+
+        // 直接读取预计算的 content_hash，无需重算
+        let new_hashes: Vec<u64> = messages.iter().map(|vm| vm.content_hash()).collect();
+
+        // 计算 prefix_stable_len：前缀中连续 hash 未变的消息数量
+        let old_len = self.message_hashes.len();
+        let prefix_stable_len = new_hashes
+            .iter()
+            .zip(self.message_hashes.iter())
+            .position(|(new_h, old_h)| new_h != old_h)
+            .unwrap_or_else(|| old_len.min(new_len));
+
+        // 保存旧的 message_lines（用于 cosmetic change 复用）
+        let mut old_message_lines = std::mem::take(&mut self.message_lines);
+        let mut old_message_links = std::mem::take(&mut self.message_links);
+
+        // 调整 message_lines 容量
+        self.message_lines.resize(new_len, Vec::new());
+        self.message_links.resize(new_len, Vec::new());
+
+        // 复用前缀的缓存行
+        for i in 0..prefix_stable_len {
+            if i < old_message_lines.len() {
+                self.message_lines[i] = std::mem::take(&mut old_message_lines[i]);
+                self.message_links[i] = std::mem::take(&mut old_message_links[i]);
+            }
+        }
+        // 复用 prefix_stable_len 之前、未被复用的旧行（这些 hash 未变但之前渲染过）
+        // 这些已经通过上面的循环处理了
+
+        // 从 prefix_stable_len 开始渲染变化的消息
+        for (i, mut vm) in messages.into_iter().enumerate() {
+            if i < prefix_stable_len {
+                // 前缀稳定区，已复用缓存
+                continue;
+            }
+            // 对 hash 不同但属于 cosmetic change 的消息复用旧缓存
+            if i < old_message_lines.len()
+                && i < old_len
+                && !old_message_lines[i].is_empty()
+                && Self::is_cosmetic_change(&old_messages[i], &vm)
+            {
+                self.message_lines[i] = std::mem::take(&mut old_message_lines[i]);
+                self.message_links[i] = std::mem::take(&mut old_message_links[i]);
+                continue;
+            }
+            let (lines, links) =
+                Self::render_one(&mut vm, i + 1, width, self.diff_visible, self.detail_mode);
+            self.message_lines[i] = lines;
+            self.message_links[i] = links;
+        }
+
+        self.message_hashes = new_hashes;
+
+        // 拼接所有消息行，同时做全局 dedup（消除连续空行），
+        // 并在 deduped 索引空间构建 message_offsets 与全局超链接映射。
+        // 修复：旧代码先构建 offsets（基于 all_lines），再做 dedup 生成 deduped，
+        // 导致 offsets 和 wrap_map 处于不同索引空间。
+        let mut deduped: Vec<Line<'static>> = Vec::new();
+        let mut offsets: Vec<usize> = Vec::new();
+        let mut global_links: Vec<LinkHit> = Vec::new();
+        let mut prev_empty = false;
+        for (mi, lines) in self.message_lines.iter().enumerate() {
+            offsets.push(deduped.len());
+            let mut line_map: Vec<Option<usize>> = Vec::with_capacity(lines.len());
+            for line in lines {
+                let is_empty = line.spans.is_empty()
+                    || (line.spans.len() == 1 && line.spans[0].content.is_empty());
+                if is_empty && prev_empty {
+                    line_map.push(None);
+                    continue;
+                }
+                prev_empty = is_empty;
+                line_map.push(Some(deduped.len()));
+                deduped.push(line.clone());
+            }
+            if let Some(msg_links) = self.message_links.get(mi) {
+                for hit in msg_links {
+                    if let Some(Some(new_line)) = line_map.get(hit.line) {
+                        global_links.push(LinkHit {
+                            line: *new_line,
+                            ..hit.clone()
+                        });
+                    }
+                }
+            }
+        }
+        // 移除末尾多余空行
+        while deduped.last().is_some_and(|l| {
+            l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.is_empty())
+        }) {
+            let dropped = deduped.len() - 1;
+            deduped.pop();
+            global_links.retain(|hit| hit.line != dropped);
+        }
+
+        let (total_lines, wrap_map) =
+            self.build_wrap_map_incremental(&deduped, &offsets, prefix_stable_len);
+        let mut cache = self.cache.write();
+        cache.lines = deduped;
+        cache.message_offsets = offsets;
+        cache.total_lines = total_lines;
+        cache.wrap_map = wrap_map;
+        cache.links = global_links;
+        cache.width = self.width;
+        cache.version += 1;
+    }
+
+    /// 与 SubAgentGroup 渲染规则一致；折叠/批次摘要/被 final_result 替代的条目不计时刷新。
+    fn visible_subagent_messages(vm: &MessageViewModel) -> &[MessageViewModel] {
+        match vm {
+            MessageViewModel::SubAgentGroup {
+                recent_messages,
+                collapsed: false,
+                batch_agents,
+                final_result,
+                ..
+            } if batch_agents.is_empty() => {
+                let skip_last = final_result.as_ref().is_some_and(|r| !r.is_empty())
+                    && recent_messages.len() > 1;
+                &recent_messages[..recent_messages.len() - usize::from(skip_last)]
+            }
+            _ => &[],
+        }
+    }
+
+    fn has_running_tool_blocks(&self) -> bool {
+        fn running(vm: &MessageViewModel) -> bool {
+            match vm {
+                MessageViewModel::ToolBlock {
+                    tool_name,
+                    content,
+                    is_error,
+                    ..
+                } => tool_name != "AskUserQuestion" && content.is_empty() && !*is_error,
+                _ => RenderTask::visible_subagent_messages(vm)
+                    .iter()
+                    .any(running),
+            }
+        }
+        self.last_messages.iter().any(running)
+    }
+
+    /// 判断 running Bash 是否已超过 2 秒（需要显示 Running…/ctrl+b hint）
+    fn is_running_bash_past_threshold(vm: &MessageViewModel) -> bool {
+        let MessageViewModel::ToolBlock {
+            tool_name,
+            content,
+            is_error,
+            started_at,
+            ..
+        } = vm
+        else {
+            return false;
+        };
+        tool_name == "Bash"
+            && content.is_empty()
+            && !*is_error
+            && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
+    }
+
+    fn refresh_running_tool_indicators(&mut self, tick: u64) -> bool {
+        if !self.has_running_tool_blocks() {
+            return false;
+        }
+
+        // 场景 A：有 Bash 首次跨越 2 秒阈值，但缓存仍是 1 行（未渲染 hint 行）。
+        // 行数变化无法增量更新，需要重建——但只失效该条消息的 hash，
+        // 保留前缀缓存（prefix_stable_len），避免清空全部 hash 导致全量重绘。
+        let mut needs_rebuild = false;
+        for (idx, vm) in self.last_messages.iter().enumerate() {
+            // 子 Agent 工具不是顶层行，不能用 lines[1] 更新；只在秒数变化时
+            // 失效该组的缓存，同时覆盖首次越过 2 秒且没有新输出的情况。
+            let children = Self::visible_subagent_messages(vm);
+            if !children.is_empty() {
+                fn needs_refresh(vm: &MessageViewModel, lines: &[Line<'_>]) -> bool {
+                    match vm {
+                        MessageViewModel::ToolBlock {
+                            tool_name,
+                            content,
+                            is_error,
+                            started_at: Some(start),
+                            execution_timeout_ms,
+                            ..
+                        } if tool_name == "Bash"
+                            && content.is_empty()
+                            && !is_error
+                            && start.elapsed() >= Duration::from_secs(2) =>
+                        {
+                            let expected = shell_running_text(*start, *execution_timeout_ms);
+                            !lines
+                                .iter()
+                                .flat_map(|line| &line.spans)
+                                .any(|span| span.content == expected)
+                        }
+                        _ => RenderTask::visible_subagent_messages(vm)
+                            .iter()
+                            .any(|child| needs_refresh(child, lines)),
+                    }
+                }
+                let lines = self
+                    .message_lines
+                    .get(idx)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                if children.iter().any(|child| needs_refresh(child, lines)) {
+                    needs_rebuild = true;
+                    if let Some(hash) = self.message_hashes.get_mut(idx) {
+                        *hash = hash.wrapping_add(1);
+                    }
+                    // 时间变化不改变 VM 内容，必须同时禁用 cosmetic-change 缓存复用。
+                    if let Some(lines) = self.message_lines.get_mut(idx) {
+                        lines.clear();
+                    }
+                }
+            }
+            if Self::is_running_bash_past_threshold(vm) {
+                let cached_line_count = self.message_lines.get(idx).map(|l| l.len()).unwrap_or(0);
+                // 跨越阈值后应有 3 行（header + Running… + ctrl+b hint），缓存 < 3 行说明未渲染
+                if cached_line_count < 3 {
+                    needs_rebuild = true;
+                    // 只失效该条消息的 hash，触发 rebuild 从该处增量重建
+                    if let Some(h) = self.message_hashes.get_mut(idx) {
+                        *h = h.wrapping_add(1);
+                    }
+                }
+            }
+        }
+        if needs_rebuild {
+            let messages = self.last_messages.clone();
+            self.rebuild_safe(messages);
+            return true;
+        }
+
+        // 场景 B：行数不变的增量更新（indicator 动画 + Bash 秒数）
+        let (indicator, indicator_color) = cc_widgets::tool_call::display::format_indicator(
+            cc_widgets::ToolCallStatus::Running,
+            tick,
+        );
+        let mut changed = false;
+        let mut cache = self.cache.write();
+
+        for (idx, vm) in self.last_messages.iter().enumerate() {
+            let MessageViewModel::ToolBlock {
+                tool_name,
+                content,
+                is_error,
+                started_at,
+                execution_timeout_ms,
+                ..
+            } = vm
+            else {
+                continue;
+            };
+            if *tool_name == "AskUserQuestion" || !content.is_empty() || *is_error {
+                continue;
+            }
+
+            let Some(lines) = self.message_lines.get_mut(idx) else {
+                continue;
+            };
+            let mut msg_changed = false;
+
+            // 更新 header 的 indicator 动画帧
+            if let Some(header) = lines.first_mut() {
+                if let Some(indicator_span) = header.spans.first_mut() {
+                    if indicator_span.content.as_ref() != indicator {
+                        indicator_span.content = indicator.to_string().into();
+                        indicator_span.style = Style::default().fg(indicator_color);
+                        msg_changed = true;
+                    }
+                }
+            }
+
+            // Bash 已超 2 秒：增量更新 Running… (Xs) 秒数行（lines[1]）
+            if *tool_name == "Bash"
+                && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
+            {
+                let new_running_text =
+                    shell_running_text(started_at.unwrap(), *execution_timeout_ms);
+
+                if let Some(running_line) = lines.get_mut(1) {
+                    if running_line.spans.len() >= 2
+                        && running_line.spans[1].content.as_ref() != new_running_text
+                    {
+                        running_line.spans[1].content = new_running_text.into();
+                        msg_changed = true;
+                    }
+                }
+            }
+
+            if msg_changed {
+                changed = true;
+                // 同步更新缓存中该消息的所有行
+                if let Some(cache_idx) = cache.message_offsets.get(idx).copied() {
+                    for (offset, line) in lines.iter().enumerate() {
+                        if let Some(cache_line) = cache.lines.get_mut(cache_idx + offset) {
+                            *cache_line = line.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        if changed {
+            cache.version += 1;
+        }
+        changed
+    }
+
+    fn handle_event(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
+        match event {
+            RenderEvent::Rebuild(messages) => {
+                self.rebuild_safe(messages);
+            }
+            RenderEvent::RebuildWithAnchor {
+                messages,
+                anchor_message_idx,
+            } => {
+                self.rebuild_safe(messages);
+                // 计算锚点消息在新布局中的视觉行起始位置
+                let anchor_visual_row =
+                    if anchor_message_idx < self.cache.read().message_offsets.len() {
+                        let cache = self.cache.read();
+                        let line_idx = cache.message_offsets[anchor_message_idx];
+                        if line_idx < cache.wrap_map.len() {
+                            Some(cache.wrap_map[line_idx].visual_row_start)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                if let Some(row) = anchor_visual_row {
+                    self.cache.write().scroll_anchor = Some(row);
+                }
+            }
+            RenderEvent::Resize(new_width) => {
+                self.width = new_width;
+                // Drain coalesce：拖动 resize 时可能积压多个 Resize 事件，
+                // 合并为一个最终宽度，避免连续多次全量重建导致 CPU 暴涨
+                while let Ok(RenderEvent::Resize(w)) = rx.try_recv() {
+                    self.width = w;
+                }
+                // 清空 hash 缓存，强制全量重渲染
+                self.message_hashes.clear();
+                // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild_safe(messages);
+                }
+            }
+            RenderEvent::Clear => {
+                self.message_lines.clear();
+                self.message_lines.shrink_to_fit();
+                self.message_hashes.clear();
+                self.message_hashes.shrink_to_fit();
+                self.last_messages.clear();
+                self.last_messages.shrink_to_fit();
+                let mut cache = self.cache.write();
+                cache.lines.clear();
+                cache.lines.shrink_to_fit();
+                cache.message_offsets.clear();
+                cache.message_offsets.shrink_to_fit();
+                cache.total_lines = 0;
+                cache.wrap_map = Vec::new();
+                cache.version += 1;
+            }
+            RenderEvent::ToggleToolMessages(show) => {
+                self.show_tool_messages = show;
+                // collapsed 状态是 hash 的一部分，ToggleToolMessages 会改变消息的 hash
+                // 但如果 App 端没有修改 view_messages 中的 collapsed 状态，
+                // 需要 App 发送新的 Rebuild 事件来反映变化
+                // 这里只更新标志位，实际渲染由后续 Rebuild 驱动
+            }
+            RenderEvent::ToggleDiff(show) => {
+                self.diff_visible = show;
+                // diff_visible 不影响消息的语义 hash，必须清空 hash 缓存
+                // 强制后续 Rebuild 全量重渲染
+                self.message_hashes.clear();
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild_safe(messages);
+                }
+            }
+            RenderEvent::ToggleDetail(show) => {
+                self.detail_mode = show;
+                // detail_mode 不影响消息的语义 hash，必须清空 hash 缓存
+                // 强制后续 Rebuild 全量重渲染
+                self.message_hashes.clear();
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild_safe(messages);
+                }
+            }
+        }
+    }
+
+    /// 主事件循环
+    async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
+        loop {
+            if self.has_running_tool_blocks() {
+                tokio::select! {
+                    event = rx.recv() => {
+                        let Some(event) = event else {
+                            break;
+                        };
+                        self.handle_event(event, &mut rx);
+                        self.notify.notify_one();
+                    }
+                    _ = tokio::time::sleep(TOOL_INDICATOR_TICK_INTERVAL) => {
+                        if self.refresh_running_tool_indicators(current_tool_indicator_tick()) {
+                            self.notify.notify_one();
+                        }
+                    }
+                }
+            } else {
+                let Some(event) = rx.recv().await else {
+                    break;
+                };
+                self.handle_event(event, &mut rx);
+                self.notify.notify_one();
+            }
+        }
+    }
+
+    /// rebuild 的安全包装：捕获 panic 防止渲染线程死亡。
+    /// panic 信息通过全局 panic hook（main.rs）记录到日志并通知 TUI。
+    fn rebuild_safe(&mut self, messages: Vec<MessageViewModel>) {
+        use std::panic::AssertUnwindSafe;
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            self.rebuild(messages);
+        }));
+        if let Err(panic_payload) = result {
+            // panic hook 已处理日志和通知，这里只需确保渲染线程存活
+            tracing::error!(
+                "render task rebuild panicked: {:?}",
+                panic_payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .unwrap_or_else(|| "unknown panic".to_string())
+            );
+        }
+    }
+}
+
+/// 启动渲染线程，返回事件发送端、共享缓存和通知
+///
+/// 使用有界 channel（容量 128）：正常使用远达不到上限，极端场景下通过背压限速防止内存膨胀。
+/// - 所有事件使用 `try_send()`，通道满时静默丢弃（128 容量在实践中不会达到上限）
+/// - Resize 丢弃更安全（下一帧 resize 会补偿，渲染线程有 drain 合并逻辑）
+/// - Rebuild 丢弃可接受（下一个 Rebuild 携带完整快照，丢失的是中间状态）
+pub fn spawn_render_thread(
+    width: u16,
+) -> (
+    mpsc::Sender<RenderEvent>,
+    Arc<RwLock<RenderCache>>,
+    Arc<Notify>,
+) {
+    let (tx, rx) = mpsc::channel(RENDER_CHANNEL_CAPACITY);
+    let cache = Arc::new(RwLock::new(RenderCache::new()));
+    let notify = Arc::new(Notify::new());
+
+    let task = RenderTask {
+        last_messages: Vec::new(),
+        message_lines: Vec::new(),
+        message_links: Vec::new(),
+        message_hashes: Vec::new(),
+        cache: Arc::clone(&cache),
+        notify: Arc::clone(&notify),
+        width,
+        show_tool_messages: false,
+        diff_visible: false,
+        detail_mode: false,
+    };
+
+    tokio::spawn(task.run(rx));
+
+    (tx, cache, notify)
+}
+
+#[cfg(test)]
+#[path = "render_thread_test.rs"]
+mod tests;
