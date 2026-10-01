@@ -435,6 +435,8 @@ RequestPermissionOutcome::Cancelled
 
 **PermissionOptionKind**：`allow_once` / `allow_always` / `reject_once` / `reject_always`
 
+**服务端行为（`cc-code acp`，v0.6.94+）**：stdio 传输的权限请求不再自动放行，而是以 `session/request_permission` 转发给客户端审批（选项 allow-once / allow-always / reject-once / reject-always；allow-always 复用会话级审批记忆）。客户端不支持该方法、调用失败或返回未知选项时，一律按拒绝处理（fail-closed）。stdio 默认权限模式为 `AutoMode`（此前为 `Bypass`）；无人值守场景可用 `session/set_mode` 显式切换到 bypass。
+
 ---
 
 ## 8. 能力扩展（MetaCapability）
