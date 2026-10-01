@@ -231,12 +231,14 @@ pub fn build_system_prompt(
         result.push_str("\n\n");
         result.push_str(section);
     }
-    // Language instruction (dynamic, after boundary to preserve cache prefix)
+    // Language instruction (dynamic, after boundary to preserve cache prefix).
+    // 默认语言而非强制：对话中的明确要求、项目指引（CLAUDE.md）声明优先于此默认值。
+    // （2026-10-01 改：此前 "Always respond in ..." 绝对化措辞会压过 CLAUDE.md 的语言声明）
     if let Some(lang) = language {
         let lang_name = map_language_to_instruction(lang);
         result.push_str("\n\n# Language\n\n");
         result.push_str(&format!(
-            "Always respond in {}. Use {} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.",
+            "Default response language: {}. Use {} for all explanations, comments, and communications with the user, unless the user explicitly requests another language or project instructions (e.g. CLAUDE.md) specify otherwise. Technical terms and code identifiers should remain in their original form.",
             lang_name, lang_name
         ));
     }
