@@ -18,7 +18,7 @@ pub use peri_acp::session::state_builders::{
 use peri_acp::transport::types::{AcpError, IncomingMessage};
 use peri_agent::{agent::AgentCancellationToken, interaction::ChannelState, messages::BaseMessage};
 use peri_middlewares::prelude::*;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::{app::agent::LlmProvider, config::PeriConfig};
 
@@ -29,6 +29,28 @@ mod requests;
 pub(crate) use notify::{extract_session_id, handle_notification, send_session_info_update};
 pub(crate) use prompt::execute_prompt;
 pub(crate) use requests::handle_request;
+
+/// MCP-over-ACP (unstable, #25)：Agent → Client 方向。
+/// Agent 需调用客户端托管的 MCP 服务器时，经 ACP 通道把 JSON-RPC 消息
+/// 发给客户端，由客户端中继给实际的 MCP 服务器并返回响应。
+#[allow(dead_code)] // 预留给 Agent 侧 MCP 工具调用集成
+pub(crate) async fn send_mcp_message(
+    transport: &dyn peri_acp::transport::AcpTransport,
+    session_id: &str,
+    server_name: &str,
+    message: Value,
+) -> Result<Value, peri_acp::transport::types::AcpError> {
+    transport
+        .send_request(
+            "mcp/message",
+            json!({
+                "sessionId": session_id,
+                "serverName": server_name,
+                "message": message,
+            }),
+        )
+        .await
+}
 
 // ── Session state ────────────────────────────────────────────────────────────
 
@@ -49,6 +71,9 @@ pub(crate) struct SessionState {
     /// 会话级审批记忆（路径级）：用户在弹窗选「本次会话同意」后，
     /// 同一 (工具, 路径) 后续免问。随会话销毁自动丢弃。
     pub(crate) approval_memory: Arc<peri_middlewares::hitl::ApprovalMemory>,
+    /// MCP-over-ACP：客户端（IDE）托管的 MCP 服务器列表（#25）。
+    /// key 为 server name，value 为 connect 时客户端声明的描述信息。
+    pub(crate) mcp_over_acp_servers: HashMap<String, Value>,
 }
 
 // ── Server config ────────────────────────────────────────────────────────────
