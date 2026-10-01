@@ -102,6 +102,17 @@ pub fn handle_key_event(
         return Ok(Some(Action::Redraw));
     }
 
+    // 按住 Ctrl+C 产生的键盘重复事件不计为新的按键：一次物理按下只触发一次
+    // handle_ctrl_c，否则长按会被误判为"双击退出"直接退出 TUI。
+    // （Release 已在上面过滤；100ms 防抖只覆盖 ConPTY 0-1ms 的重复下发，
+    // 挡不住真正的按键重复。2026-10-01 修）
+    if key_event.kind == KeyEventKind::Repeat
+        && key_event.code == KeyCode::Char('c')
+        && key_event.modifiers.contains(KeyModifiers::CONTROL)
+    {
+        return Ok(Some(Action::Redraw));
+    }
+
     // Stage 1-2: Bar focus / focused-only mode
     if let Some(action) = bar_focus::handle_bar_focus(app, &key_event) {
         return Ok(Some(action));
@@ -231,10 +242,11 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
     #[tokio::test]
-    async fn test_ctrl_c_quits_from_open_panel_end_to_end() {
-        // 端到端验证完整链路：ModelPanel 打开时 Ctrl+C 双击应真正退出。
-        // 覆盖 handle_key_event 全 Stage 分发（bar_focus → shortcuts → panels 拦截
-        // → normal_keys → handle_ctrl_c），证明 Ctrl+C 能穿透面板到达退出逻辑。
+    async fn test_ctrl_c_closes_panel_first_then_double_tap_quits() {
+        // 端到端验证新链路：ModelPanel 打开时第一次 Ctrl+C 只关面板
+        // （不退出、不进入 quit-pending）；面板关闭后，双击 Ctrl+C 才真正退出。
+        // 覆盖 handle_key_event 全 Stage 分发。
+        // （2026-10-01 改：此前面板开着时双击/长按 Ctrl+C 直接退出整个 TUI）
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
         app.open_model_panel();
         assert!(
@@ -247,21 +259,49 @@ mod tests {
 
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
 
-        // 第一次 Ctrl+C → 进入 quit-pending，不退出
+        // 第一次 Ctrl+C（面板开着）→ 只关面板，不 Quit，不 arm
         let r1 = handle_key_event(&mut app, ctrl_c).unwrap();
         assert!(
-            app.global_ui.quit_pending_since.is_some(),
-            "第一次 Ctrl+C 应进入 quit-pending"
+            !app.session_mgr.current().session_panels.is_any_open(),
+            "第一次 Ctrl+C 应关闭面板"
         );
-        assert!(!matches!(r1, Some(Action::Quit)), "第一次不应 Quit");
+        assert!(!matches!(r1, Some(Action::Quit)), "关面板时不应 Quit");
+        assert!(
+            app.global_ui.quit_pending_since.is_none(),
+            "关面板这次不应计入双击退出"
+        );
+
+        // 面板已关：再按一次 → 进入 quit-pending，不退出
+        let r2 = handle_key_event(&mut app, ctrl_c).unwrap();
+        assert!(
+            app.global_ui.quit_pending_since.is_some(),
+            "面板关闭后 Ctrl+C 应进入 quit-pending"
+        );
+        assert!(!matches!(r2, Some(Action::Quit)), "第一次不应 Quit");
 
         // 等待超过防抖窗口（100ms），模拟真实双击
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        // 第二次 Ctrl+C（2 秒内）→ 真正退出
-        let r2 = handle_key_event(&mut app, ctrl_c).unwrap();
+        // 2 秒内第二次 → 真正退出
+        let r3 = handle_key_event(&mut app, ctrl_c).unwrap();
         assert!(
-            matches!(r2, Some(Action::Quit)),
-            "第二次 Ctrl+C 应返回 Quit"
+            matches!(r3, Some(Action::Quit)),
+            "双击 Ctrl+C 应返回 Quit"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_repeat_kind_does_not_arm_or_quit() {
+        // 按住 Ctrl+C 的键盘重复事件不应被计为新的按键：不 arm、不退出。
+        let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
+        let repeat = KeyEvent {
+            kind: KeyEventKind::Repeat,
+            ..KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
+        };
+        let r = handle_key_event(&mut app, repeat).unwrap();
+        assert!(!matches!(r, Some(Action::Quit)), "Repeat 不应 Quit");
+        assert!(
+            app.global_ui.quit_pending_since.is_none(),
+            "Repeat 不应进入 quit-pending"
         );
     }
 
