@@ -43,6 +43,16 @@ jobs:
               with:
                   key: ${{ matrix.target }}
 
+            # #323: Windows runner 的 Defender 实时扫描会导致文件锁/IO 延迟，
+            # 造成测试 flaky。排除 cargo 相关目录的标准做法。
+            - name: Exclude Defender scanning (Windows)
+              if: matrix.os == 'windows-latest'
+              run: |
+                  Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
+                  Add-MpPreference -ExclusionPath "${{ github.workspace }}\target"
+                  Add-MpPreference -ExclusionPath "$env:TEMP"
+              shell: powershell
+
             - name: Build
               run: cargo build --workspace --all-targets
 
