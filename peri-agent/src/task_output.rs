@@ -95,22 +95,49 @@ impl DiskOutput {
     /// 返回 JoinHandle，调用方可用于等待写入完成或 abort。
     pub fn spawn_writer(path: PathBuf, mut rx: mpsc::Receiver<Vec<u8>>) -> JoinHandle<()> {
         tokio::spawn(async move {
-            if let Some(parent) = path.parent() {
-                if tokio::fs::create_dir_all(parent).await.is_err() {
-                    // 排空 rx 避免 sender 阻塞
-                    while rx.recv().await.is_some() {}
-                    return;
+            // Windows CI runner 文件系统偶发瞬时失败（建目录/建文件返回瞬时错误，
+            // 与 #323 同一家族问题）：重试几次再放弃。否则 writer 静默退出、
+            // 文件不存在，而 exit_signal 照常触发，读盘侧撞上 NotFound flake。
+            let mut file = None;
+            for attempt in 0..5u32 {
+                let opened = async {
+                    if let Some(parent) = path.parent() {
+                        tokio::fs::create_dir_all(parent).await?;
+                    }
+                    tokio::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                        .await
+                }
+                .await;
+                match opened {
+                    Ok(f) => {
+                        file = Some(f);
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            error = %e, path = %path.display(), attempt,
+                            "创建后台任务输出文件失败，重试"
+                        );
+                        if attempt < 4 {
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                100 * (attempt + 1) as u64,
+                            ))
+                            .await;
+                        }
+                    }
                 }
             }
-            let mut file = match tokio::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .await
-            {
-                Ok(f) => f,
-                Err(e) => {
-                    tracing::warn!(error = %e, path = %path.display(), "打开后台任务输出文件失败");
+            let mut file = match file {
+                Some(f) => f,
+                None => {
+                    tracing::warn!(
+                        path = %path.display(),
+                        "多次重试后仍无法创建后台任务输出文件"
+                    );
+                    // 排空 rx 避免 sender 阻塞
                     while rx.recv().await.is_some() {}
                     return;
                 }
