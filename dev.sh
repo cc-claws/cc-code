@@ -10,4 +10,4 @@ set -a; source .env; set +a
 mkdir -p "$(dirname "$RUST_LOG_FILE")"
 
 # 启动 TUI
-cargo run -p peri-tui -- "$@"
+cargo run -p cc-tui -- "$@"

@@ -130,7 +130,7 @@ description: >
 **问题本质:** HashMap 迭代顺序不确定（Rust 默认 RandomState），跨进程重启时 API 请求前缀变化
 **通用模式:** 所有需要跨进程复用的序列化内容（system prompt、tools 数组）必须保证顺序稳定
 **技术决策:** 工具列表按名称排序；ToolSearchIndex 会话级缓存
-**涉及文件:** peri-middlewares/src/tool_search/tool_index.rs, peri-agent/src/agent/executor/mod.rs
+**涉及文件:** cc-middlewares/src/tool_search/tool_index.rs, cc-agent/src/agent/executor/mod.rs
 **CLAUDE.md 链接:** true
 
 ## agent

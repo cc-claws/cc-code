@@ -9,7 +9,7 @@
 
 ## 色板
 
-源码：`peri-tui/src/ui/theme.rs`（业务常量）、`peri-widgets/src/theme/presets.rs`（DarkTheme trait 实现）。
+源码：`cc-tui/src/ui/theme.rs`（业务常量）、`cc-widgets/src/theme/presets.rs`（DarkTheme trait 实现）。
 
 ### 强调色
 
@@ -67,7 +67,7 @@
 
 ## Markdown 渲染
 
-源码：`peri-widgets/src/markdown/`。通过 `DefaultMarkdownTheme` 参数化：
+源码：`cc-widgets/src/markdown/`。通过 `DefaultMarkdownTheme` 参数化：
 
 | 元素 | 颜色 | 说明 |
 |------|------|------|
@@ -87,7 +87,7 @@
 
 ## 消息流
 
-源码：`peri-tui/src/ui/message_render.rs`。
+源码：`cc-tui/src/ui/message_render.rs`。
 
 ### 消息类型与视觉
 
@@ -160,7 +160,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 ## Welcome Card
 
-源码：`peri-tui/src/ui/welcome.rs`。空消息时垂直+水平居中显示：
+源码：`cc-tui/src/ui/welcome.rs`。空消息时垂直+水平居中显示：
 
 | 区域 | 样式 |
 |------|------|
@@ -177,7 +177,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 ## Spinner
 
-源码：`peri-widgets/src/spinner/`。位于消息区域底部：
+源码：`cc-widgets/src/spinner/`。位于消息区域底部：
 
 | 模式 | 显示格式 | 颜色 |
 |------|---------|------|
@@ -224,7 +224,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 └─────────────────────────────────────┘
 ```
 
-> **Sticky Header 已禁用（v0.6.71）**：`peri-tui/src/ui/main_ui/mod.rs` 中 `let sticky_header_height: u16 = 0;`（注释「鸡肋功能，高度固定为 0 不渲染」）。原顶部固定消息条（显示最后一条用户消息摘要、动态高度）当前不渲染，关联 headless 测试已标 `#[ignore]`。保留 `USER_BG` 与 sticky header 一致的配色约定即可。
+> **Sticky Header 已禁用（v0.6.71）**：`cc-tui/src/ui/main_ui/mod.rs` 中 `let sticky_header_height: u16 = 0;`（注释「鸡肋功能，高度固定为 0 不渲染」）。原顶部固定消息条（显示最后一条用户消息摘要、动态高度）当前不渲染，关联 headless 测试已标 `#[ignore]`。保留 `USER_BG` 与 sticky header 一致的配色约定即可。
 
 ### 面板高度
 
@@ -238,7 +238,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## 状态栏
 
-源码：`peri-tui/src/ui/main_ui/status_bar.rs`。3 行高度。
+源码：`cc-tui/src/ui/main_ui/status_bar.rs`。3 行高度。
 
 ### 第一行（左→右）
 
@@ -279,7 +279,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## 面板系统
 
-源码：`peri-tui/src/ui/main_ui/panels/`。基于 `PanelManager` + `PanelComponent` trait 组件化架构。
+源码：`cc-tui/src/ui/main_ui/panels/`。基于 `PanelManager` + `PanelComponent` trait 组件化架构。
 
 ### 面板列表
 
@@ -322,7 +322,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 所有面板的快捷键提示统一放在列表/表单**底部**，状态栏第二行右侧通过 `status_bar_hints()` 自描述。
 
-**例外**：Queued Messages 区不是面板、也不进 `status_bar_hints()`，它的 `Ctrl+S` / `Ctrl+X` 提示以 DIM 灰字行内尾部形式渲染在**队列最下一条可见消息行**右侧（`queue-keys-tip`，见 `peri-tui/src/ui/main_ui/queued_messages.rs`）。空间不足时整条省略，不挤压消息预览。
+**例外**：Queued Messages 区不是面板、也不进 `status_bar_hints()`，它的 `Ctrl+S` / `Ctrl+X` 提示以 DIM 灰字行内尾部形式渲染在**队列最下一条可见消息行**右侧（`queue-keys-tip`，见 `cc-tui/src/ui/main_ui/queued_messages.rs`）。空间不足时整条省略，不挤压消息预览。
 
 ### /model 面板样式
 
@@ -415,7 +415,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## Widget 库
 
-源码：`peri-widgets/src/`。独立 crate，零内部依赖。
+源码：`cc-widgets/src/`。独立 crate，零内部依赖。
 
 | Widget | 样式要点 |
 |--------|---------|
@@ -447,7 +447,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ### 全局快捷键
 
-源码：`peri-tui/src/event/keyboard/shortcuts.rs`、`keyboard.rs`、`normal_keys.rs`。
+源码：`cc-tui/src/event/keyboard/shortcuts.rs`、`keyboard.rs`、`normal_keys.rs`。
 
 | 按键 | 行为 | 说明 |
 |------|------|------|
@@ -506,7 +506,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## 命令系统
 
-源码：`peri-tui/src/command/mod.rs`。TUI 命令注册表共 **30 个命令**。
+源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **30 个命令**。
 
 ### 命令列表
 
@@ -562,7 +562,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ### ACP 层命令
 
-`/compact` 走 ACP 层而非 TUI registry。`peri-acp/src/session/command/` 注册了 7 个命令：`compact`、`clear`、`rewind`、`init`、`recap`、`commit`、`review`。其中 `/clear`、`/recap`、`/commit`、`/review`、`/init` 两侧均有，由 ACP 拦截处理。
+`/compact` 走 ACP 层而非 TUI registry。`cc-acp/src/session/command/` 注册了 7 个命令：`compact`、`clear`、`rewind`、`init`、`recap`、`commit`、`review`。其中 `/clear`、`/recap`、`/commit`、`/review`、`/init` 两侧均有，由 ACP 拦截处理。
 
 ### `/recap` 特别说明
 
@@ -580,7 +580,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## 权限模式
 
-源码：`peri-middlewares/src/hitl/shared_mode.rs`。
+源码：`cc-middlewares/src/hitl/shared_mode.rs`。
 
 通过 `Shift+Tab` 循环切换，状态栏首列实时显示。**只剩两档**：`AutoMode(0)` / `Bypass(1)`。
 

@@ -1,13 +1,12 @@
 [workspace]
 members = [
-    "peri-agent",
-    "peri-middlewares",
-    "peri-tui",
-    "peri-acp",
+    "cc-agent",
+    "cc-middlewares",
+    "cc-tui",
+    "cc-acp",
     "langfuse-client",
-    "peri-widgets",
-    "peri-lsp",
-    "side-projects/git-graph",
+    "cc-widgets",
+    "cc-lsp",
 ]
 resolver = "2"
 
