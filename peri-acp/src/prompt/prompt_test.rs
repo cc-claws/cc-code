@@ -485,7 +485,7 @@ fn test_language_zh_maps_to_simplified_chinese() {
 fn test_language_custom_code_passthrough() {
     let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None, Some("fr"));
     assert!(
-        result.contains("Always respond in fr"),
+        result.contains("Default response language: fr"),
         "未知语言代码应原样保留"
     );
 }
