@@ -77,6 +77,9 @@ fn truncate_diff(diff: &str, max_bytes: usize) -> &str {
 
 const MAX_DIFF_BYTES: usize = 100_000; // ~100KB
 
+/// 小尾巴：固定归属行，noreply 邮箱关联 GitHub 账号头像，不泄露真实邮箱
+const ATTRIBUTION: &str = "Co-Authored-By: cc-claws <91202691+cc-claws@users.noreply.github.com>";
+
 /// 构建 commit prompt，预执行 git 命令嵌入上下文。
 fn build_commit_prompt(cwd: &str) -> String {
     let status = run_git(cwd, &["status"]);
@@ -84,8 +87,6 @@ fn build_commit_prompt(cwd: &str) -> String {
     let diff = truncate_diff(&diff, MAX_DIFF_BYTES).to_string();
     let branch = run_git(cwd, &["branch", "--show-current"]);
     let log = run_git(cwd, &["log", "--oneline", "-10"]);
-
-    let attribution = "Co-Authored-By: mimo-v2.5-pro <XiaomiMiMo@cc-code>";
 
     format!(
         r#"## Context
@@ -114,6 +115,7 @@ Based on the above changes, create a single git commit:
 
 1. Analyze all staged changes and draft a commit message:
    - Look at the recent commits above to follow this repository's commit message style
+   - Write the commit message in the same language as the recent commits above (the repository's convention takes precedence over the UI language setting)
    - Summarize the nature of the changes (new feature, enhancement, bug fix, refactoring, test, docs, etc.)
    - Ensure the message accurately reflects the changes and their purpose (i.e. "add" means a wholly new feature, "update" means an enhancement to an existing feature, "fix" means a bug fix, etc.)
    - Draft a concise (1-2 sentences) commit message that focuses on the "why" rather than the "what"
@@ -123,10 +125,11 @@ Based on the above changes, create a single git commit:
 git commit -m "$(cat <<'EOF'
 Commit message here.
 
-{attribution}
+{ATTRIBUTION}
 EOF
 )"
 ```
+- Append the "{ATTRIBUTION}" trailer at the end of the commit message, unless the project's CLAUDE.md specifies its own commit trailer or attribution convention — in that case follow CLAUDE.md and do not add this trailer.
 
 You have the capability to call multiple tools in a single response. Stage and create the commit using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls."#
     )
@@ -220,7 +223,19 @@ mod tests {
             content.contains("Recent commits"),
             "应包含 Recent commits 段落"
         );
-        assert!(content.contains("Co-Authored-By"), "应包含归属行");
+        assert!(
+            content.contains("same language as the recent commits"),
+            "commit message 语言应跟随仓库惯例"
+        );
+        assert!(
+            content.contains("Co-Authored-By: cc-claws <91202691+cc-claws@users.noreply.github.com>"),
+            "应包含固定的归属小尾巴"
+        );
+        assert!(!content.contains("mimo"), "不应再出现写死的模型名");
+        assert!(
+            content.contains("unless the project's CLAUDE.md specifies its own commit trailer"),
+            "小尾巴应声明 CLAUDE.md 优先"
+        );
     }
 
     // ── run_git 测试 ──────────────────────────────────────────────────────
