@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- **后台任务输出文件创建加重试**：`DiskOutput::spawn_writer` 建目录/建文件失败时直接静默退出，导致 `exit_signal` 触发后输出文件不存在（Windows CI 偶发 NotFound flake，如 `test_executor_hard_deadline_survives_every_background_mode`；与 #323 同一家族的 runner 文件系统问题）。现改为最多重试 5 次（100ms 递增退避）再放弃；对应测试的读盘断言改为缺失视为无输出（该测试验证的是硬期限行为）。
+
+---
+
 ## v0.6.93 — 2026-10-01
 
 ### Security Fixes
