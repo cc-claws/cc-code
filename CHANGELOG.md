@@ -10,6 +10,10 @@ Perihelion Agent 版本变更记录。
 
 - **后台任务输出文件创建加重试**：`DiskOutput::spawn_writer` 建目录/建文件失败时直接静默退出，导致 `exit_signal` 触发后输出文件不存在（Windows CI 偶发 NotFound flake，如 `test_executor_hard_deadline_survives_every_background_mode`；与 #323 同一家族的 runner 文件系统问题）。现改为最多重试 5 次（100ms 递增退避）再放弃；对应测试的读盘断言改为缺失视为无输出（该测试验证的是硬期限行为）。
 
+### Security Fixes
+
+- **ACP stdio 权限审批转发给客户端**：`cc-code acp` 的 `StdioBroker` 之前直接放行所有工具审批请求（且默认 `PermissionMode::Bypass`），ACP 客户端永远收不到 `session/request_permission`，HITL 名存实亡。现改为 `AcpPermissionBroker`：敏感操作以 `session/request_permission` 交给 IDE 客户端审批（allow-once / allow-always / reject-once / reject-always；allow-always 复用会话级审批记忆），客户端不支持/调用失败/未知选项一律按拒绝处理（fail-closed）；stdio 默认权限模式改为 `AutoMode`，无人值守场景仍可用 `session/set_mode` 显式切到 bypass。
+
 ---
 
 ## v0.6.93 — 2026-10-01
