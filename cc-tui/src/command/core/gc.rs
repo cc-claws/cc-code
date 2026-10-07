@@ -28,6 +28,7 @@ impl Command for GcCommand {
         let origin_bytes = estimate_messages_heap(&active.agent.origin_messages);
         let (completed_count, completed_bytes) = active.messages.pipeline.completed_stats();
         let vm_count = active.messages.view_messages.len();
+        let vm_bytes = estimate_view_messages_heap(&active.messages.view_messages);
 
         // ── Markdown/Diff 缓存诊断 ──
         let md_cache_len = cc_widgets::markdown::cache::MarkdownCache::global().len();
@@ -54,7 +55,7 @@ impl Command for GcCommand {
                 let alloc_delta = after.current_allocated as isize - after.current_rss as isize;
                 if alloc_delta != 0 {
                     lines.push(format!(
-                        "{alloc_name} allocated: {} (与 RSS 差 {})",
+                        "{alloc_name} allocated: {} (与 RSS 差 {}；RSS 更大 = 栈/映射文件等非分配器占用)",
                         fmt_bytes(after.current_allocated),
                         fmt_bytes(alloc_delta.unsigned_abs()),
                     ));
@@ -87,12 +88,16 @@ impl Command for GcCommand {
             completed_count,
             fmt_bytes(completed_bytes),
         ));
-        lines.push(format!("view_messages:     {} 条 VM", vm_count,));
+        lines.push(format!(
+            "view_messages:     {} 条 VM, ~{}",
+            vm_count,
+            fmt_bytes(vm_bytes)
+        ));
 
         // 检查重复
         if origin_count > 0 && completed_count > 0 {
             let overlap = if origin_count == completed_count {
-                "完全相同 ⚠️"
+                "完全相同（设计冗余：origin 为 agent 权威历史，completed 为渲染管线基线，非泄漏）"
             } else {
                 "部分重叠"
             };
@@ -109,31 +114,65 @@ impl Command for GcCommand {
 
         // ── 分配器 breakdown（关键：allocated vs active vs resident）──
         if let Some(bd) = crate::alloc_config::query_breakdown() {
+            // active/mapped/retained 的语义**分平台**：
+            // - jemalloc（macOS/Linux）：active = 真实活跃页；mapped/retained = 虚拟地址配额
+            // - mimalloc（Windows）：active = page_committed（别名 "touched"，历史触及高水位，
+            //   mi_collect 后不减）；mapped/retained = reserved 虚拟地址保留量
+            // 因此 Windows 上 "active" 与由其派生的"碎片"均**不可用于判断当前占用**。
+            let is_mimalloc = alloc_name == "mimalloc";
             lines.push(String::new());
             lines.push(format!("── {alloc_name} 明细 ──"));
             lines.push(format!(
                 "allocated: {} (应用实际分配)",
                 fmt_bytes(bd.allocated)
             ));
-            lines.push(format!("active:    {} (活跃页)", fmt_bytes(bd.active)));
-            lines.push(format!("resident:  {} (物理驻留)", fmt_bytes(bd.resident)));
+            if is_mimalloc {
+                lines.push(format!(
+                    "active:    {} (mimalloc page_committed＝历史触及高水位，非当前占用，勿用于诊断)",
+                    fmt_bytes(bd.active)
+                ));
+            } else {
+                lines.push(format!("active:    {} (活跃页)", fmt_bytes(bd.active)));
+            }
+            lines.push(format!(
+                "resident:  {} (物理驻留，真实占用)",
+                fmt_bytes(bd.resident)
+            ));
             lines.push(format!(
                 "metadata:  {} (分配器元数据)",
                 fmt_bytes(bd.metadata)
             ));
-            lines.push(format!("mapped:    {} (映射)", fmt_bytes(bd.mapped)));
-            lines.push(format!(
-                "retained:  {} (保留未归还 OS)",
-                fmt_bytes(bd.retained)
-            ));
-            // 关键指标
+            if is_mimalloc {
+                lines.push(format!(
+                    "mapped:    {} (reserved 虚拟地址保留量，Windows 上不占物理内存)",
+                    fmt_bytes(bd.mapped)
+                ));
+                lines.push(format!(
+                    "retained:  {} (保留未归还 OS 的虚拟地址，非物理内存)",
+                    fmt_bytes(bd.retained)
+                ));
+            } else {
+                lines.push(format!("mapped:    {} (映射)", fmt_bytes(bd.mapped)));
+                lines.push(format!(
+                    "retained:  {} (保留未归还 OS)",
+                    fmt_bytes(bd.retained)
+                ));
+            }
+            // 关键指标：碎片仅在 active 有意义时（jemalloc）成立
             let frag = bd.active.saturating_sub(bd.allocated);
-            let waste = bd.resident.saturating_sub(bd.active);
-            lines.push(format!(
-                "碎片: active-allocated={} | resident-active={}",
-                fmt_bytes(frag),
-                fmt_bytes(waste),
-            ));
+            if is_mimalloc {
+                lines.push(format!(
+                    "碎片: active-allocated={} （⚠ 基于 mimalloc touched 高水位，非真实碎片，忽略）",
+                    fmt_bytes(frag)
+                ));
+            } else {
+                let waste = bd.resident.saturating_sub(bd.active);
+                lines.push(format!(
+                    "碎片: active-allocated={} | resident-active={}",
+                    fmt_bytes(frag),
+                    fmt_bytes(waste),
+                ));
+            }
             // OS RSS vs allocator resident
             if let Some(ref s) = stats_after {
                 let os_gap = s.current_rss.saturating_sub(bd.resident);
@@ -157,13 +196,21 @@ impl Command for GcCommand {
 
         // ── 已知 vs 未识别 ──
         if let Some(bd) = crate::alloc_config::query_breakdown() {
-            let known_bytes = origin_bytes + completed_bytes;
+            // known = 消息双份存储 + 视图模型（含内嵌 rendered Text）
+            let known_bytes = origin_bytes + completed_bytes + vm_bytes;
             let gap = bd.allocated.saturating_sub(known_bytes);
             lines.push(format!(
-                "消息估算: {} | allocated 内未识别: {}",
+                "已知合计: {} (消息 {} + VM {}) | allocated 内未识别: {}",
                 fmt_bytes(known_bytes),
+                fmt_bytes(origin_bytes + completed_bytes),
+                fmt_bytes(vm_bytes),
                 fmt_bytes(gap),
             ));
+            lines.push(String::new());
+            lines.push(
+                "注：未识别 = markdown 缓存/ACP 缓冲/tokio/tracing 等未纳入估算的部分，非泄漏。"
+                    .to_string(),
+            );
         }
 
         app.push_system_note(lines.join("\n"));
@@ -264,6 +311,172 @@ fn estimate_json_heap(v: &serde_json::Value) -> usize {
         }
         _ => 0,
     }
+}
+
+/// 估算渲染视图模型 `view_messages` 的堆内存占用（字节）。
+///
+/// 覆盖 `MessageViewModel` 各变体，重点包含内嵌的 `Text<'static>`（markdown 渲染结果）、
+/// 工具输出字符串、diff 输入、SubAgent 滑窗子 VM 等。
+/// 这是此前 `estimate_messages_heap` 完全遗漏的部分——`/gc` 报告的
+/// "allocated 内未识别" 主因即在此，纳入后诊断数字才有意义。
+pub fn estimate_view_messages_heap(vms: &[crate::ui::message_view::MessageViewModel]) -> usize {
+    let enum_size = std::mem::size_of::<crate::ui::message_view::MessageViewModel>();
+    vms.capacity() * enum_size + vms.iter().map(estimate_vm_heap).sum::<usize>()
+}
+
+fn estimate_vm_heap(vm: &crate::ui::message_view::MessageViewModel) -> usize {
+    use crate::ui::message_view::MessageViewModel as Vm;
+    let base = std::mem::size_of::<Vm>();
+    match vm {
+        Vm::UserBubble {
+            content,
+            rendered,
+            rendered_links,
+            expanded_content,
+            ..
+        } => {
+            base + content.capacity()
+                + estimate_text_heap(rendered)
+                + estimate_links_heap(rendered_links)
+                + expanded_content.as_ref().map_or(0, |s| s.capacity())
+        }
+        Vm::AssistantBubble { blocks, .. } => {
+            base + blocks.capacity()
+                * std::mem::size_of::<crate::ui::message_view::ContentBlockView>()
+                + blocks.iter().map(estimate_block_heap).sum::<usize>()
+        }
+        Vm::ToolBlock {
+            display_name,
+            args_display,
+            content,
+            diff_input,
+            tool_call_id,
+            tool_name,
+            ..
+        } => {
+            base + tool_name.capacity()
+                + tool_call_id.capacity()
+                + display_name.capacity()
+                + args_display.as_ref().map_or(0, |s| s.capacity())
+                + content.capacity()
+                + diff_input.as_ref().map_or(0, |d| {
+                    d.file_path.capacity()
+                        + d.old_content.capacity()
+                        + d.new_content.capacity()
+                        + std::mem::size_of::<cc_widgets::DiffInput>()
+                })
+        }
+        Vm::ShellCommand {
+            id,
+            command,
+            cwd,
+            stdin,
+            stdout,
+            stderr,
+            ..
+        } => {
+            base + id.capacity()
+                + command.capacity()
+                + cwd.capacity()
+                + stdin.capacity() * std::mem::size_of::<String>()
+                + stdin.iter().map(|s| s.capacity()).sum::<usize>()
+                + stdout.capacity()
+                + stderr.capacity()
+        }
+        Vm::SystemNote { content, .. } | Vm::CacheWarning { content, .. } => {
+            base + content.capacity()
+        }
+        Vm::ToolCallGroup {
+            tools,
+            standalone_action,
+            ..
+        } => {
+            base + tools.capacity() * std::mem::size_of::<crate::ui::message_view::ToolEntry>()
+                + tools
+                    .iter()
+                    .map(|t| {
+                        t.tool_name.capacity()
+                            + t.display_name.capacity()
+                            + t.args_display.as_ref().map_or(0, |s| s.capacity())
+                            + t.content.capacity()
+                    })
+                    .sum::<usize>()
+                + standalone_action.as_ref().map_or(0, |s| s.capacity())
+        }
+        Vm::SubAgentGroup {
+            agent_id,
+            task_preview,
+            recent_messages,
+            final_result,
+            batch_agents,
+            bg_hash,
+            ..
+        } => {
+            base + agent_id.capacity()
+                + task_preview.capacity()
+                + bg_hash.as_ref().map_or(0, |s| s.capacity())
+                + final_result.as_ref().map_or(0, |s| s.capacity())
+                + recent_messages.capacity() * base
+                + recent_messages.iter().map(estimate_vm_heap).sum::<usize>()
+                + batch_agents.capacity()
+                    * std::mem::size_of::<crate::ui::message_view::AgentSummary>()
+                + batch_agents
+                    .iter()
+                    .map(|a| {
+                        a.agent_id.capacity()
+                            + a.task_preview.capacity()
+                            + a.final_result.as_ref().map_or(0, |s| s.capacity())
+                    })
+                    .sum::<usize>()
+        }
+    }
+}
+
+fn estimate_block_heap(b: &crate::ui::message_view::ContentBlockView) -> usize {
+    use crate::ui::message_view::ContentBlockView as B;
+    let base = std::mem::size_of::<B>();
+    match b {
+        B::Text {
+            raw,
+            rendered,
+            rendered_links,
+            ..
+        } => {
+            base + raw.capacity()
+                + estimate_text_heap(rendered)
+                + estimate_links_heap(rendered_links)
+        }
+        B::Reasoning {
+            text,
+            action_summary,
+            ..
+        } => base + text.capacity() + action_summary.as_ref().map_or(0, |s| s.capacity()),
+        B::ToolUse { name } => base + name.capacity(),
+    }
+}
+
+/// 估算 ratatui `Text<'static>` 的堆占用：每行 `Line` 的每个 `Span` 内容字符串。
+///
+/// 注意：`Span.content` 是 `Cow<'a, str>`，无 `capacity()`；对 `Borrowed` 变体
+/// 其字节本就内联在 `Text` 里（不计），对 `Owned` 变体按 `len()` 计其堆分配。
+fn estimate_text_heap(text: &ratatui::text::Text<'static>) -> usize {
+    use ratatui::text::Line;
+    use std::borrow::Cow;
+    let mut total = text.lines.capacity() * std::mem::size_of::<Line<'static>>();
+    for line in &text.lines {
+        total += line.spans.capacity() * std::mem::size_of::<ratatui::text::Span<'static>>();
+        for span in &line.spans {
+            if let Cow::Owned(s) = &span.content {
+                total += s.capacity();
+            }
+        }
+    }
+    total
+}
+
+fn estimate_links_heap(links: &[cc_widgets::markdown::LinkHit]) -> usize {
+    links.capacity() * std::mem::size_of::<cc_widgets::markdown::LinkHit>()
+        + links.iter().map(|l| l.url.capacity()).sum::<usize>()
 }
 
 // ── 格式化 ────────────────────────────────────────────────────────────────────
