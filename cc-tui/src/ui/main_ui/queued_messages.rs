@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     widgets::Paragraph,
     Frame,
 };
@@ -43,10 +43,7 @@ pub(super) fn render(f: &mut Frame, app: &mut App, area: Rect) {
     let actions = &mut session.ui.queued_message_actions;
     let pending_style = Style::default().fg(theme::MUTED).bg(theme::USER_BG);
     let active_style = Style::default().fg(theme::ACCENT).bg(theme::USER_BG);
-    let tip_style = Style::default()
-        .fg(theme::MUTED)
-        .bg(theme::USER_BG)
-        .add_modifier(Modifier::DIM);
+    let tip_style = Style::default().fg(theme::TEXT_SOFT).bg(theme::USER_BG);
     // 键盘提示只挂在最后一条可见消息行上；窄屏空间不足时整条省略。
     let tip = lc.tr("queue-keys-tip");
     let tip_width = UnicodeWidthStr::width(tip.as_str()) as u16;
