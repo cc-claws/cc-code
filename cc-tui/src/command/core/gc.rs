@@ -321,7 +321,8 @@ fn estimate_json_heap(v: &serde_json::Value) -> usize {
 /// "allocated 内未识别" 主因即在此，纳入后诊断数字才有意义。
 pub fn estimate_view_messages_heap(vms: &[crate::ui::message_view::MessageViewModel]) -> usize {
     let enum_size = std::mem::size_of::<crate::ui::message_view::MessageViewModel>();
-    vms.capacity() * enum_size + vms.iter().map(estimate_vm_heap).sum::<usize>()
+    // 入参为切片，拿不到 Vec 的 capacity()，用 len() 估算（略低估 Vec 冗余，诊断可接受）
+    vms.len() * enum_size + vms.iter().map(estimate_vm_heap).sum::<usize>()
 }
 
 fn estimate_vm_heap(vm: &crate::ui::message_view::MessageViewModel) -> usize {
@@ -475,7 +476,7 @@ fn estimate_text_heap(text: &ratatui::text::Text<'static>) -> usize {
 }
 
 fn estimate_links_heap(links: &[cc_widgets::markdown::LinkHit]) -> usize {
-    links.capacity() * std::mem::size_of::<cc_widgets::markdown::LinkHit>()
+    links.len() * std::mem::size_of::<cc_widgets::markdown::LinkHit>()
         + links.iter().map(|l| l.url.capacity()).sum::<usize>()
 }
 
