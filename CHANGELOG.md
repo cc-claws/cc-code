@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.96 — 2026-10-07
+
+### Diagnostics
+
+- **流式 RebuildAll 诊断日志**：`apply_pipeline_action` 的 RebuildAll 分支在 drain+extend 前后打 debug 日志（prefix_len、tail_len、view_len_before/after、round_start_vm_idx、streaming_mode），用于定位流式多 bullet 现象是 tail 膨胀还是 prefix 漂移。`RUST_LOG=debug` 可见，无行为变化。
+
+---
+
 ## v0.6.95 — 2026-10-01
 
 ### Breaking

@@ -111,6 +111,14 @@ impl App {
                 // (如 ToolStart 的 throttle flush) 导致 view_messages 缩短后仍然
                 // 保持旧值，此时 drain 会 panic。
                 let view_len = session.messages.view_messages.len();
+                tracing::debug!(
+                    prefix_len,
+                    tail_len = tail_vms.len(),
+                    view_len_before = view_len,
+                    round_start_vm_idx = session.messages.round_start_vm_idx,
+                    streaming_mode = ?session.messages.pipeline.streaming_mode(),
+                    "RebuildAll diag: before drain+extend"
+                );
                 let prefix_len = if prefix_len > view_len {
                     tracing::error!(
                         prefix_len,
@@ -160,6 +168,11 @@ impl App {
                 }
 
                 session.messages.view_messages.extend(tail_vms);
+                tracing::debug!(
+                    view_len_after = session.messages.view_messages.len(),
+                    saved_notes_len = saved_notes.len(),
+                    "RebuildAll diag: after drain+extend+notes"
+                );
 
                 // 按锚点位置插入 saved_notes，然后重新注册锚点
                 saved_notes.sort_by_key(|(anchor, _)| *anchor);
