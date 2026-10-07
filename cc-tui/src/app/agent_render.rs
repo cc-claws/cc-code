@@ -111,7 +111,7 @@ impl App {
                 // (如 ToolStart 的 throttle flush) 导致 view_messages 缩短后仍然
                 // 保持旧值，此时 drain 会 panic。
                 let view_len = session.messages.view_messages.len();
-                tracing::debug!(
+                tracing::info!(
                     prefix_len,
                     tail_len = tail_vms.len(),
                     view_len_before = view_len,
@@ -168,7 +168,7 @@ impl App {
                 }
 
                 session.messages.view_messages.extend(tail_vms);
-                tracing::debug!(
+                tracing::info!(
                     view_len_after = session.messages.view_messages.len(),
                     saved_notes_len = saved_notes.len(),
                     "RebuildAll diag: after drain+extend+notes"

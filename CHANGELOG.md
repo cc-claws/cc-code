@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.97 — 2026-10-07
+
+### Diagnostics
+
+- **流式 RebuildAll 诊断日志提为 info**：无需 `RUST_LOG=debug`，默认日志即输出 drain+extend 前后的 prefix/tail/view 长度与 streaming_mode，直接复现多 bullet 即可定位。
+
+---
+
 ## v0.6.96 — 2026-10-07
 
 ### Diagnostics
