@@ -198,6 +198,9 @@ impl App {
                 .as_ref()
                 .and_then(|c| c.config.language.as_deref()),
         );
+        // 同步进程级语言注册表：静态消息构造路径（无 App 上下文）读取它做 i18n
+        // （如后台 shell 通知展示文案）。见 `crate::i18n::init_global`。
+        crate::i18n::init_global(lc.clone());
 
         let provider_from_config = peri_config
             .as_ref()

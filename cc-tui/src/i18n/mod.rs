@@ -1,14 +1,59 @@
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use fluent::FluentResource;
-use fluent_bundle::{FluentArgs, FluentBundle, FluentValue};
+// 使用 concurrent（基于 Mutex 的 IntlLangMemoizer）变体，使 `LcRegistry` 满足 `Sync`，
+// 从而可安全存放于进程级全局注册表并跨线程（如渲染线程）读取。
+use fluent_bundle::concurrent::FluentBundle;
+use fluent_bundle::{FluentArgs, FluentValue};
 
 const EN_FTL: &str = include_str!("../../locales/en/main.ftl");
 const ZH_CN_FTL: &str = include_str!("../../locales/zh-CN/main.ftl");
 
+/// 进程级语言注册表。
+///
+/// 供**没有 `App`/`ServiceRegistry` 上下文**的静态构造路径（如
+/// `MessageViewModel::user/system/from_base_message*` 内部把后台 shell 通知
+/// 翻译成可读提示）读取当前语言。启动时由 `App::new` 用真实配置初始化；
+/// `/lang` 切换时同步更新。
+///
+/// 未初始化时回退到默认（`en`），保证测试与早期调用不 panic。
+static GLOBAL: RwLock<Option<Arc<LcRegistry>>> = RwLock::new(None);
+
+/// 初始化/覆盖进程级语言注册表（启动与 `/lang` 切换时调用）。
+pub fn init_global(lc: LcRegistry) {
+    let lc = Arc::new(lc);
+    match GLOBAL.write() {
+        Ok(mut guard) => *guard = Some(lc),
+        Err(poisoned) => *poisoned.into_inner() = Some(lc),
+    }
+}
+
+/// 读取进程级语言注册表的稳定句柄；未初始化时回退默认（`en`）。
+///
+/// 返回 `Arc` 克隆（而非深拷贝）：`FluentBundle` 不实现 `Clone`，且多语言
+/// bundle 只在首次构造时解析一次，后续切换语言仅需换 `current_lang`。
+pub fn global() -> Arc<LcRegistry> {
+    let guard = match GLOBAL.read() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    match guard.as_ref() {
+        Some(lc) => Arc::clone(lc),
+        None => Arc::new(LcRegistry::default()),
+    }
+}
+
 pub struct LcRegistry {
     current_lang: String,
     bundles: HashMap<String, FluentBundle<FluentResource>>,
+}
+
+impl Clone for LcRegistry {
+    fn clone(&self) -> Self {
+        // 重建 bundle（共享同一份 include_str! FTL 源码；解析成本一次性且可接受）。
+        Self::new(Some(&self.current_lang))
+    }
 }
 
 impl LcRegistry {
@@ -39,7 +84,7 @@ impl LcRegistry {
             _ => unic_langid::langid!("en"),
         };
         let resource = FluentResource::try_new(source.to_string()).expect("FTL parse error");
-        let mut bundle = FluentBundle::new(vec![langid]);
+        let mut bundle = FluentBundle::new_concurrent(vec![langid]);
         bundle
             .add_resource(resource)
             .expect("Failed to add FTL resource");

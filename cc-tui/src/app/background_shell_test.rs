@@ -1,6 +1,11 @@
 use super::*;
 use std::time::Duration;
 
+/// 显式中文语言注册表（验证 i18n 中文分支）。
+fn lc_zh() -> crate::i18n::LcRegistry {
+    crate::i18n::LcRegistry::new(Some("zh-CN"))
+}
+
 /// #320 Windows 根治：Defender/杀毒软件会对新文件短暂加锁扫描，
 /// write 返回后文件可能暂时不可读。轮询等待文件稳定可读再继续，
 /// 避免 watchdog 启动即遇到 PermissionDenied。
@@ -124,7 +129,7 @@ fn test_shell_notification_display_text_completion_does_not_leak_xml() {
     let path = Path::new("/tmp/peri/tasks/abc.output");
     let msg = shell_completion_notification("abc", "npm test", Some(0), path);
     // Act
-    let display = shell_notification_display_text(&msg).expect("应识别后台 shell 完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别后台 shell 完成通知");
     // Assert
     assert!(
         display.contains("后台 shell 已完成"),
@@ -146,7 +151,7 @@ fn test_shell_notification_display_text_supports_system_reminder_wrapper() {
     let msg = shell_completion_notification("abc", "cargo test", Some(0), path);
     let wrapped = format!("<system-reminder>\n{}\n</system-reminder>", msg);
     // Act
-    let display = shell_notification_display_text(&wrapped).expect("应识别包裹后的后台 shell 通知");
+    let display = shell_notification_display_text_with(&wrapped, &lc_zh()).expect("应识别包裹后的后台 shell 通知");
     // Assert
     assert!(
         display.contains("后台 shell 已完成"),
@@ -176,7 +181,7 @@ fn test_shell_notification_display_text_strips_terminal_control_sequences() {
         path,
     );
     // Act
-    let display = shell_notification_display_text(&msg).expect("应识别后台 shell 完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别后台 shell 完成通知");
     // Assert
     assert!(
         !display.contains('\u{1b}'),
@@ -200,7 +205,7 @@ fn test_shell_notification_display_text_waits_for_input_prompt() {
     // Arrange
     let msg = shell_stalled_notification("t1", "npm publish", "continue?");
     // Act
-    let display = shell_notification_display_text(&msg).expect("应识别等待输入通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别等待输入通知");
     // Assert
     assert!(
         display.contains("后台 shell 等待输入"),
@@ -256,5 +261,30 @@ fn test_shell_completion_notification_escapes_special_characters() {
         !msg.contains("> log"),
         "原始 > 不应残留（会破坏 XML）: {}",
         msg
+    );
+}
+
+#[test]
+fn test_shell_notification_display_text_english() {
+    // 英文分支：展示文案应跟随传入的 en 语言注册表（不再是硬编码中文）。
+    let lc_en = crate::i18n::LcRegistry::new(Some("en"));
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let msg = shell_completion_notification("abc", "npm test", Some(0), path);
+    let display =
+        shell_notification_display_text_with(&msg, &lc_en).expect("应识别后台 shell 完成通知");
+    assert!(
+        display.contains("Background shell completed"),
+        "英文语言下应显示英文完成提示: {}",
+        display
+    );
+    assert!(display.contains("npm test"), "应保留命令摘要: {}", display);
+
+    let stalled = shell_stalled_notification("t1", "npm publish", "continue?");
+    let display = shell_notification_display_text_with(&stalled, &lc_en)
+        .expect("应识别等待输入通知");
+    assert!(
+        display.contains("Background shell waiting for input"),
+        "英文语言下应显示英文等待输入提示: {}",
+        display
     );
 }

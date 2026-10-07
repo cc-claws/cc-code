@@ -1,7 +1,72 @@
+# ============================================================================
+# .dockerignore — 构建上下文过滤
+# 作用：docker build 时排除不需要发送给 daemon 的文件/目录
+# 说明：仓库当前无 Dockerfile，本文件为将来构建预留
+# ============================================================================
+
+# --- 构建产物（体积极大，且为本地/交叉平台产物，必须排除）---
 target/
-.git/
-.github/
-spec/
-.claude/
-# Exclude compiled artifacts inside each crate
 **/target/
+build/
+
+# --- VCS / CI / 工具配置 ---
+.git/
+.gitignore
+.gitattributes
+.github/
+.cargo/
+
+# --- AI / 本地工具产物（体积极大）---
+.claude/
+.mimocode/
+.mcp.json
+CLAUDE.md
+CLAUDE.local.md
+
+# --- 文档 / 规格（构建不需要）---
+spec/
+docs/
+plans/
+prompts/
+prompts.md
+process.md
+progress.md
+*.md
+!README.md
+!LICENSE
+
+# --- 日志与临时产物 ---
+*.log
+*.txt
+nul
+.tmp/
+.temp/
+*.db
+*.lcov
+coverage/
+
+# --- Python 临时脚本与缓存 ---
+*.py
+!scripts/test-hover-conpty.py
+__pycache__/
+*.pyc
+
+# --- Node / npm 子包 ---
+node_modules/
+**/node_modules/
+npm-debug.log*
+*.tgz
+
+# --- 部署包（体积大，运行时才需要）---
+deploy/peri-arm32-*.tar.gz
+deploy/*/peri
+deploy/*/lib/
+
+# --- 系统垃圾 ---
+.DS_Store
+Thumbs.db
+
+# --- 环境变量 / 密钥（安全）---
+.env
+.env.*
+!.env.example
