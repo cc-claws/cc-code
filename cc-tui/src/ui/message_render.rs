@@ -1110,7 +1110,6 @@ pub fn render_view_model_with_links(
                         char_count,
                         duration_ms,
                         action_summary,
-                        tail_lines,
                         text,
                         ..
                     } => {
@@ -1136,12 +1135,14 @@ pub fn render_view_model_with_links(
                             // 与回合结束总结行（✻ … · done HH:MM）同色 MUTED
                             Style::default().fg(theme::MUTED),
                         )]));
-                        // detail_mode 显示完整 reasoning，否则只显示 tail_lines
-                        // 两者都走 markdown 解析 + DIM overlay，代码块获得语法高亮
+                        // 非详细模式：仅显示摘要行，**不渲染**思考内容预览
+                        // （历史上曾显示 tail_lines 尾部 3 行预览，流式期间每次
+                        //  chunk 都重算重绘、行数跳动，已移除；展开请按 Ctrl+O）
+                        // 详细模式：显示完整 reasoning，走 markdown 解析 + DIM overlay
                         let content = if detail_mode {
                             Some(text.as_str())
                         } else {
-                            tail_lines.as_deref()
+                            None
                         };
                         if let Some(content_text) = content {
                             // 减去前缀宽度（"  ⎿ " 或 "    " = 4 字符）
