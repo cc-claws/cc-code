@@ -1,7 +1,7 @@
 use crate::{
     app::tool_display,
     ui::{
-        message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
+        message_view::{aggregate_tool_groups, tool_color, MessageViewModel},
         theme,
     },
 };
@@ -329,41 +329,6 @@ impl MessagePipeline {
             aggregate_batch_groups(&mut tail_vms);
         }
 
-        add_thinking_tail_snapshot(&mut tail_vms);
-
         tail_vms
-    }
-}
-
-/// 提取文本的最后 `n` 行（按换行符切分，单行不截断）。
-/// 返回换行分隔的字符串。
-pub(crate) fn extract_tail_lines(text: &str, n: usize) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let start = lines.len().saturating_sub(n);
-    lines[start..].join("\n")
-}
-
-/// 扫描 tail_vms 的最后一个 AssistantBubble，
-/// 若满足条件（无 Text block + 最后一个 block 是 Reasoning）则设置 tail_lines。
-fn add_thinking_tail_snapshot(tail_vms: &mut [MessageViewModel]) {
-    for vm in tail_vms.iter_mut().rev() {
-        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
-            let has_text = blocks
-                .iter()
-                .any(|b| matches!(b, ContentBlockView::Text { raw, .. } if !raw.trim().is_empty()));
-            if has_text {
-                return;
-            }
-            if let Some(ContentBlockView::Reasoning {
-                text, tail_lines, ..
-            }) = blocks.last_mut()
-            {
-                let tail = extract_tail_lines(text, 3);
-                if !tail.is_empty() {
-                    *tail_lines = Some(tail);
-                }
-            }
-            return;
-        }
     }
 }

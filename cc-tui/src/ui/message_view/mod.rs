@@ -501,12 +501,8 @@ pub enum ContentBlockView {
         /// 紧随其后的只读工具动作计数文案（如 `read 1 file, listed 1 directory`）。
         /// 由 pipeline 后处理注入；None = 无（纯思考或未注入）
         action_summary: Option<String>,
-        /// 原始推理全文（仅用于提取尾部预览，不参与哈希/比较）
+        /// 原始推理全文（详细模式展开时显示；不参与哈希/比较）
         text: String,
-        /// 尾部行预览：符合条件时由后处理设置。
-        /// 值为最后 3 行原始文本（不含 �� 前缀）。
-        /// None = 不显示尾部预览
-        tail_lines: Option<String>,
     },
     /// 工具使用请求（AI 发起的调用请求）
     ToolUse { name: String },
@@ -564,14 +560,12 @@ impl Hash for ContentBlockView {
                 char_count,
                 duration_ms,
                 action_summary,
-                tail_lines,
                 ..
             } => {
                 1u8.hash(state);
                 char_count.hash(state);
                 duration_ms.hash(state);
                 action_summary.hash(state);
-                tail_lines.hash(state);
             }
             ContentBlockView::ToolUse { name } => {
                 2u8.hash(state);
@@ -665,7 +659,6 @@ impl MessageViewModel {
                             duration_ms,
                             action_summary: None,
                             text: text.clone(),
-                            tail_lines: None,
                         },
                         ContentBlock::ToolUse { name, .. } => ContentBlockView::ToolUse { name },
                         ContentBlock::Image { .. } => ContentBlockView::Text {

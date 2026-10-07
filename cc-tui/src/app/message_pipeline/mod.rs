@@ -36,7 +36,7 @@ mod transform;
 pub use crate::ui::message_view::aggregate_batch_groups;
 pub use reconcile::PipelineAction;
 #[cfg(test)]
-use reconcile::{extract_tail_lines, merge_frozen_subagents};
+use reconcile::merge_frozen_subagents;
 
 // ─── 流式渲染模式 ──────────────────────────────────────────────────────────
 

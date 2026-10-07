@@ -24,7 +24,6 @@ impl MessagePipeline {
                 duration_ms: None,
                 action_summary: None,
                 text: self.current_ai_reasoning.clone(),
-                tail_lines: None,
             });
         }
         if !self.current_ai_text.trim().is_empty() {

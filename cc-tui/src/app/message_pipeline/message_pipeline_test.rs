@@ -1205,30 +1205,6 @@ fn test_build_tail_vms_aggregate_after_all_done() {
     assert_eq!(batch_vms.len(), 1, "reconcile 路径应触发聚合");
 }
 
-/// 测试 extract_tail_lines：基本提取
-#[test]
-fn test_extract_tail_lines_basic() {
-    let text = "line1\nline2\nline3\nline4\nline5\nline6";
-    let result = extract_tail_lines(text, 4);
-    assert_eq!(result, "line3\nline4\nline5\nline6");
-}
-
-/// 测试 extract_tail_lines：不足 N 行返回全部
-#[test]
-fn test_extract_tail_lines_less_than_n() {
-    let text = "line1\nline2";
-    let result = extract_tail_lines(text, 4);
-    assert_eq!(result, "line1\nline2");
-}
-
-/// 测试 extract_tail_lines：单行
-#[test]
-fn test_extract_tail_lines_single_line() {
-    let text = "hello world";
-    let result = extract_tail_lines(text, 4);
-    assert_eq!(result, "hello world");
-}
-
 /// frozen_subagent_vms 跨轮次累积：begin_round() 应清空上一轮冻结的 VMs，
 /// 防止 merge_frozen_subagents 按位置错误匹配到旧轮次的数据。
 #[test]
