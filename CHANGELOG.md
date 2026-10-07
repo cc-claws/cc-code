@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.99 — 2026-10-07
+
+### Fixes
+
+- **后台 shell 通知展示文案接入 i18n（#338）**：`shell_notification_display_text` 把「后台 shell 已完成/超时终止/已取消/已终止/等待输入」硬编码为中文，即使用户语言为英文仍显示中文。根因是该函数处于静态构造路径（`MessageViewModel::user/system/from_base_message*` 内部调用），拿不到 `App`/`ServiceRegistry` 上下文。现新增 6 个 `shell-notify-*` FTL key（en + zh-CN），展示文案改走 `LcRegistry::tr()`；新增进程级语言注册表（`i18n::init_global`/`global`，启动与 `/lang` 切换时同步），供静态构造路径读取当前语言；`FluentBundle` 换用 concurrent 变体使 `LcRegistry` 满足 `Sync`，可跨线程（渲染线程）安全读取。
+
+---
+
 ## v0.6.98 — 2026-10-07
 
 ### Fixes

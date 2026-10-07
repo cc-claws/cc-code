@@ -84,6 +84,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **后台 shell 通知接入 i18n** | v0.6.99 | 后台 shell 完成 / 超时 / 取消 / 终止 / 等待输入通知的展示文案改为走 i18n（此前硬编码中文，英文语言下仍显示中文）；新增进程级语言注册表，供静态 `MessageViewModel` 构造路径解析当前语言，启动与 `/lang` 切换时同步 |
+| **ACP 权限审批转发** | v0.6.94 | `cc-code acp` 改为通过 `session/request_permission` 把工具审批请求转发给 IDE 客户端，不再自动放行（fail-closed：客户端不支持 / 调用失败 / 未知选项一律拒绝）；stdio 默认权限模式由 Bypass 改为 AutoMode（无人值守可用 `session/set_mode` 切到 bypass） |
 | **默认启用审批** | v0.6.90 | 审批默认开启：`YOLO_MODE` 未设置不再跳过 HITL（需显式 `-y/--yolo` 或 `YOLO_MODE=true` 才免审批）；HITL 门控评估改写后的实际执行命令；`git clone` 防参数注入 |
 | **工具审批三选** | v0.6.84 | HITL 审批弹窗改为三选：一次性同意 / 本次会话同意 / 拒绝；选「本次会话同意」后同 `(工具, 路径)` 本次会话内免问（路径级、会话作用域审批记忆） |
 | **spinner 配色与卡住检测修复** | v0.6.83 | `thought for Ns` 状态词改为始终灰色（仅进行中状态词随耗时升温）；卡住检测不再把空白 `thinking` 误判为循环；卡住检测换策略提示改用英文保持一致 |
@@ -92,11 +94,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **会话恢复 Recap 持久化** | v0.6.80 | Recap 与任务完成总结行落库到 `ThreadMeta`（`latest_recap`/`last_task_summary`），`-c`/`-r` 恢复后不再丢失 |
 | **/recap 命令与自动回顾** | v0.6.76 | `/recap`（别名 `/away` `/catchup`）用 aux_model 输出「目标→任务→下一步」；终端失焦+≥3 完成轮+60s 静默自动触发回顾（`/config` 开关，`PERI_AUTO_RECAP_*` 环境变量）；非流式 Anthropic 响应自适应兼容反向代理 OpenAI 格式 |
 | **工具参数校验与输入泵** | v0.6.75 | Schema 校验错误对齐 Claude Code `formatZodValidationError` 可读化 + 工具错选启发式诊断（`suggest_tool_mismatch`）+ 连续失败熔断；引入独立 InputPump 安全启用鼠标悬停并修复滚动条拖拽 |
-| **RTK 输出过滤** | v0.6.74 | 过滤 RTK git status 噪音（`clean — nothing to commit`），移除会吞并代码上下文的毒性通用折叠 |
-| **Windows 控制台隔离与滚轮防抖** | v0.6.73 | `CREATE_NO_WINDOW` 隔离子进程控制台，消除 PHP 等触发的全屏闪屏；长内容下滚轮防抖批处理 + 滚动条滑块平滑拖拽 |
-| **可点击 Markdown 超链接** | v0.6.72 | 消息区 Markdown 超链接跨平台点击打开默认浏览器 |
 
-> 更早版本（v0.6.0 – v0.6.71）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.74）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

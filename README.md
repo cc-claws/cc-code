@@ -84,6 +84,7 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Background Shell Notification i18n** | v0.6.99 | The display text for background-shell completion / timeout / cancelled / terminated / waiting-for-input notices is now localized (previously hardcoded Chinese, shown even in English); adds a process-global language registry so static `MessageViewModel` constructors can resolve the current language, sync'd at startup and on `/lang` |
 | **ACP Permission Forwarding** | v0.6.94 | `cc-code acp` now forwards tool permission requests to the IDE client via `session/request_permission` instead of auto-approving (fail-closed: client unsupported / call failure / unknown option = denied); stdio default permission mode changed from Bypass to AutoMode (use `session/set_mode` for unattended bypass) |
 | **Fail-Closed Permissions** | v0.6.90 | Approval is now on by default: unset `YOLO_MODE` no longer bypasses HITL (explicit `-y/--yolo` or `YOLO_MODE=true` to skip); HITL gate evaluates the post-rewrite command; `git clone` hardened against option injection |
 | **Three-Choice Tool Approval** | v0.6.84 | HITL approval dialog now offers allow-once / allow-for-session / reject; choose "session" to stop repeated prompts for the same `(tool, path)` within the session (path-level, session-scoped approval memory) |
@@ -93,11 +94,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **Session Recap Persistence** | v0.6.80 | Recap and task-summary lines persist to `ThreadMeta` (`latest_recap`/`last_task_summary`), no longer lost on restart |
 | **/recap Command & Auto Recap** | v0.6.76 | `/recap` (`/away` `/catchup`) summarizes goal→tasks→next step via aux_model; auto-recap on terminal blur + ≥3 turns + 60s idle (`/config` toggle, `PERI_AUTO_RECAP_*` env); non-streaming Anthropic responses adapt to reverse-proxy OpenAI format |
 | **Tool Schema Validation & Input Pump** | v0.6.75 | Human-readable schema errors aligned with Claude Code's `formatZodValidationError` + tool-mismatch heuristics (`suggest_tool_mismatch`) + failure circuit breaker; dedicated InputPump safely enables mouse hover and fixes scrollbar drag |
-| **RTK Output Filtering** | v0.6.74 | Filters noisy RTK git status (`clean — nothing to commit`) and drops toxic generic folding that swallowed code context |
-| **Windows Console Isolation & Scroll Debounce** | v0.6.73 | `CREATE_NO_WINDOW` isolates child consoles, eliminating full-screen flicker from PHP etc.; wheel debounce and smooth scrollbar thumb drag on long content |
-| **Clickable Markdown Links** | v0.6.72 | Markdown hyperlinks in the message area open the default browser cross-platform |
 
-> Older releases (v0.6.0 – v0.6.71) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.74) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 

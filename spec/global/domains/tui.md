@@ -20,6 +20,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 配置系统补全：CLAUDE.local.md 支持、`@import` 外部文件引用、claudeMdExcludes glob 过滤、`$schema` passthrough
 - Welcome Card：空消息时显示品牌 ASCII Art Logo + 功能亮点 + 命令提示，发送消息后自动消失
 - Sticky Human Message Header：聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动
+- i18n（Fluent）：`LcRegistry` 按 key 取文案（`/lang` 切 en / zh-CN）；静态构造路径（无 App 上下文，如后台 shell 通知 → `MessageViewModel`）通过**进程级注册表** `i18n::init_global`/`global` 读当前语言，启动与 `/lang` 切换时同步；`FluentBundle` 用 concurrent 变体以满足 `Sync`
 
 ## 核心流程
 
@@ -1219,4 +1220,17 @@ submit_message(text)
 **通用模式:** 动态弹窗高度必须模拟实际渲染宽度下的折行行数累加，而不能根据换行符 `\n` 简单计数
 **技术决策:** 根据可用宽度动态计算每项文本换行后的总行数，并附加内边距与最大视口高度约束
 **涉及文件:** spec/archive-issues/2026-05-26-ask-user-popup-height-miscalculation.md
+**CLAUDE.md 链接:** false
+
+### issue_2026-10-07-background-shell-notification-hardcoded-i18n
+
+**摘要:** 后台 shell 完成/超时/取消/终止/等待输入通知的展示文案硬编码中文，英文语言下仍显示中文
+**状态:** Fixed
+**创建日期:** 2026-10-07
+**关键词:** i18n, hardcoded Chinese, LcRegistry, background shell, 静态构造路径, 进程级注册表, Sync
+**问题本质:** `shell_notification_display_text()` 处于静态构造路径（`MessageViewModel::user/system/from_base_message*` 内部调用），是关联函数、拿不到 App 上下文，因而也拿不到 `LcRegistry`，只能硬编码中文绕过 `tr()`。与 2026-05-16（setup 向导）、2026-05-26（login 面板）同族，但更难——调用点没有语言上下文。
+**通用模式:** 无 `App`/`ServiceRegistry` 上下文的静态构造路径需读语言时，用**进程级语言注册表**（`i18n::init_global`/`global`，启动与 `/lang` 切换时同步）；`FluentBundle` 用 `concurrent` 变体（Mutex memoizer）以满足 `Sync`。断言用户可见文案的测试应显式传入 locale，静态构造用例则做语言无关断言。
+**技术决策:** 不给 `MessageViewModel` 静态构造器增加 `lc` 参数（50+ 处 `system(...)`、40+ 处 `push_system_note(...)` 调用点，签名改动会波及全仓）；改用进程级注册表零改动调用点。
+**涉及文件:** cc-tui/src/i18n/mod.rs, cc-tui/src/app/background_shell.rs, cc-tui/src/app/mod.rs, cc-tui/src/command/session/lang.rs, cc-tui/locales/en/main.ftl, cc-tui/locales/zh-CN/main.ftl, spec/issues/2026-10-07-background-shell-notification-hardcoded-i18n.md
+**PR:** #338
 **CLAUDE.md 链接:** false

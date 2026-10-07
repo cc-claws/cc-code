@@ -88,6 +88,7 @@
 - **终端宽度变化 Markdown 不重复渲染:** 传统控制台歧义字符双列残影修复
 - **Windows 子进程控制台隔离:** `CREATE_NO_WINDOW` 消除 PHP 等子进程代码页切换触发的全屏闪屏
 - **i18n 补全:** 附件栏标题与 Del 提示接入 i18n
+- **后台 shell 通知 i18n + 进程级语言注册表:** 完成/超时/取消/终止/等待输入通知的展示文案改走 `LcRegistry::tr()`；新增 `i18n::init_global`/`global` 进程级注册表（`LcRegistry: Sync`，`FluentBundle` 用 concurrent 变体），供无 App 上下文的静态 `MessageViewModel` 构造路径读取当前语言，启动与 `/lang` 切换时同步
 - **Sticky Header 已禁用:** v0.6.71 起高度固定 0（保留实现，不再展示）
 - **权限模式循环:** Default → AcceptEdit → AutoMode → Bypass（DontAsk 跳过）
 - **PageUp/PageDown 半页滚动:** 20 行（输入框为空时生效）
@@ -120,4 +121,4 @@
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）
 
 ---
-*最后更新: 2026-09-29 — 补齐至 v0.6.84：HITL 审批弹窗三选（一次性 / 本次会话 / 拒绝，路径级会话审批记忆，v0.6.84）；spinner 思考状态词四态机与时间驱动配色、消息区思考行秒数+动作计数汇总、连续思考合并、Bash 非详细输出摘要（v0.6.82）；thought for 配色回归灰、卡住检测空白指纹误判修复（v0.6.83）*
+*最后更新: 2026-10-07 — 后台 shell 通知展示文案接入 i18n（消除硬编码中文）并新增进程级语言注册表，供静态 `MessageViewModel` 构造路径读取当前语言（v0.6.99）；此前补齐至 v0.6.84：HITL 审批弹窗三选（一次性 / 本次会话 / 拒绝，路径级会话审批记忆，v0.6.84）；spinner 思考状态词四态机与时间驱动配色、消息区思考行秒数+动作计数汇总、连续思考合并、Bash 非详细输出摘要（v0.6.82）；thought for 配色回归灰、卡住检测空白指纹误判修复（v0.6.83）*
