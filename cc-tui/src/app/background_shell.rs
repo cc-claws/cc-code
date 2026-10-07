@@ -326,7 +326,20 @@ pub fn shell_stalled_notification(task_id: &str, command: &str, last_output: &st
 /// 将后台 shell 控制通知转换为 TUI 可读的一行提示。
 ///
 /// 原始 XML 仍会发送给 agent；这里仅用于聊天区展示，避免内部标签泄露给用户。
+///
+/// 展示文案走 i18n：从**进程级语言注册表**读取当前语言
+/// （`MessageViewModel::user/system/from_base_message*` 等静态构造路径没有
+/// `App`/`ServiceRegistry` 上下文，只能读全局注册表）。
 pub fn shell_notification_display_text(raw: &str) -> Option<String> {
+    let lc = crate::i18n::global();
+    shell_notification_display_text_with(raw, &lc)
+}
+
+/// 与 [`shell_notification_display_text`] 相同，但显式传入语言注册表（便于测试与显式上下文）。
+pub fn shell_notification_display_text_with(
+    raw: &str,
+    lc: &crate::i18n::LcRegistry,
+) -> Option<String> {
     let notification = unwrap_system_reminder(raw.trim());
     if notification.starts_with("<background-task-completed>") {
         let command = extract_xml_tag(notification, "command")
@@ -338,15 +351,15 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
             .map(|s| super::tool_display::sanitize_display_text(&s))
             .unwrap_or_else(|| "completed".to_string());
         let verb = if status.starts_with("failed") {
-            "后台 shell 失败"
+            lc.tr("shell-notify-failed")
         } else if status.starts_with("timed out") {
-            "后台 shell 已超时终止"
+            lc.tr("shell-notify-timed-out")
         } else if status.starts_with("cancelled") {
-            "后台 shell 已取消"
+            lc.tr("shell-notify-cancelled")
         } else if status == "terminated" {
-            "后台 shell 已终止"
+            lc.tr("shell-notify-terminated")
         } else {
-            "后台 shell 已完成"
+            lc.tr("shell-notify-completed")
         };
         return Some(format!(
             "{}: {} ({})",
@@ -362,7 +375,8 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
             .map(|s| super::tool_display::sanitize_display_text(&s))
             .unwrap_or_else(|| "shell command".to_string());
         return Some(format!(
-            "后台 shell 等待输入: {}",
+            "{}: {}",
+            lc.tr("shell-notify-waiting-input"),
             truncate_chars(&command, 80)
         ));
     }

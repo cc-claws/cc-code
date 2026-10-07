@@ -488,3 +488,11 @@ queue-sending = Sending…
 queue-attachments = { $count } images
 queue-unavailable = This execution cannot accept updates yet. Your message remains queued.
 queue-steer-failed = This turn did not accept the update. Your message remains queued for the next turn.
+
+# ---- Background shell notifications (display text) ----
+shell-notify-failed = Background shell failed
+shell-notify-timed-out = Background shell timed out
+shell-notify-cancelled = Background shell cancelled
+shell-notify-terminated = Background shell terminated
+shell-notify-completed = Background shell completed
+shell-notify-waiting-input = Background shell waiting for input

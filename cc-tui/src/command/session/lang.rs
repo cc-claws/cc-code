@@ -44,6 +44,8 @@ impl Command for LangCommand {
 
         match app.services.lc.switch(lang) {
             Ok(()) => {
+                // 同步进程级注册表，使静态消息构造路径的新文案使用新语言。
+                crate::i18n::init_global(app.services.lc.clone());
                 if let Some(cfg) = app.services.peri_config.as_mut() {
                     cfg.config.language = Some(lang.to_string());
                     let _ = App::save_config(cfg, app.services.config_path_override.as_deref());

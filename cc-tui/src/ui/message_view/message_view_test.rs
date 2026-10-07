@@ -459,7 +459,7 @@ fn test_recompute_hash_idempotent() {
 
 #[test]
 fn test_human_message_with_system_reminder_detection() {
-    let text = "<system-reminder>\n此会话从之前的对话延续。\n## Summary\nDone.\n[上下文已压缩，请根据摘要继续工作]\n</system-reminder>";
+    let text = "<system-reminder>\n此会话从之前的对话延续。\n## Summary\nDone.\n[Context compacted; continue based on the summary]\n</system-reminder>";
     let msg = BaseMessage::human(text);
     let vm = MessageViewModel::from_base_message(&msg, &[]);
     match vm {
@@ -476,7 +476,7 @@ fn test_human_message_with_system_reminder_detection() {
             );
             assert!(!content.contains("</system-reminder>"), "结束标签应被剥离");
             assert!(content.contains("## Summary"), "正文应保留");
-            assert!(content.contains("[上下文已压缩"), "续接指令应保留");
+            assert!(content.contains("[Context compacted"), "续接指令应保留");
         }
         _ => panic!("应为 UserBubble"),
     }
@@ -489,12 +489,14 @@ fn test_human_background_shell_notification_renders_as_system_note() {
     let vm = MessageViewModel::from_base_message(&msg, &[]);
     match vm {
         MessageViewModel::SystemNote { content, .. } => {
+            // 语言无关：具体前缀文案随进程语言（全局注册表）而定，此处只验证
+            // 已转换为可读系统提示（保留命令/状态、不泄露 XML）。
+            assert!(content.contains("npm test"), "应保留命令摘要: {}", content);
             assert!(
-                content.contains("后台 shell 已完成"),
-                "应显示可读系统提示: {}",
+                content.contains("completed (exit 0)"),
+                "应保留状态文本: {}",
                 content
             );
-            assert!(content.contains("npm test"), "应保留命令摘要: {}", content);
             assert!(
                 !content.contains("<background-task-completed>"),
                 "不应泄露 XML 标签: {}",
@@ -515,12 +517,13 @@ fn test_message_view_constructors_convert_background_shell_xml_to_system_note() 
     for vm in cases {
         match vm {
             MessageViewModel::SystemNote { content, .. } => {
+                // 语言无关（见上）：验证已转换为可读提示并保留命令、不泄露 XML。
+                assert!(content.contains("git fetch"), "应保留命令摘要: {}", content);
                 assert!(
-                    content.contains("后台 shell 已完成"),
-                    "应显示可读系统提示: {}",
+                    content.contains("completed (exit 0)"),
+                    "应保留状态文本: {}",
                     content
                 );
-                assert!(content.contains("git fetch"), "应保留命令摘要: {}", content);
                 assert!(
                     !content.contains("<background-task-completed>"),
                     "不应泄露 XML 标签: {}",
