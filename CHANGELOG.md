@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.98 — 2026-10-07
+
+### Fixes
+
+- **排队快捷键提示对比度提升（#335, #336）**：排队消息行尾的 `Ctrl+S send now · Ctrl+X delete` 提示用了 MUTED + DIM，在 USER_BG 背景上几乎看不清。改为 TEXT_SOFT 高亮。
+
+---
+
 ## v0.6.95 — 2026-10-01
 
 ### Breaking
