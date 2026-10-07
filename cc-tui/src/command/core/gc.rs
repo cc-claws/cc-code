@@ -320,9 +320,9 @@ fn estimate_json_heap(v: &serde_json::Value) -> usize {
 /// 这是此前 `estimate_messages_heap` 完全遗漏的部分——`/gc` 报告的
 /// "allocated 内未识别" 主因即在此，纳入后诊断数字才有意义。
 pub fn estimate_view_messages_heap(vms: &[crate::ui::message_view::MessageViewModel]) -> usize {
-    let enum_size = std::mem::size_of::<crate::ui::message_view::MessageViewModel>();
-    // 入参为切片，拿不到 Vec 的 capacity()，用 len() 估算（略低估 Vec 冗余，诊断可接受）
-    vms.len() * enum_size + vms.iter().map(estimate_vm_heap).sum::<usize>()
+    // 入参为切片，拿不到 Vec 的 capacity()，用 len() 估算（略低估 Vec 冗余，诊断可接受）。
+    // 每个 VM 的内联枚举尺寸由 estimate_vm_heap 计入，此处不再重复累加。
+    vms.iter().map(estimate_vm_heap).sum::<usize>()
 }
 
 fn estimate_vm_heap(vm: &crate::ui::message_view::MessageViewModel) -> usize {
@@ -342,9 +342,8 @@ fn estimate_vm_heap(vm: &crate::ui::message_view::MessageViewModel) -> usize {
                 + expanded_content.as_ref().map_or(0, |s| s.capacity())
         }
         Vm::AssistantBubble { blocks, .. } => {
-            base + blocks.capacity()
-                * std::mem::size_of::<crate::ui::message_view::ContentBlockView>()
-                + blocks.iter().map(estimate_block_heap).sum::<usize>()
+            // estimate_block_heap 已含每个 block 的内联尺寸，此处不重复加 capacity*sizeof
+            base + blocks.iter().map(estimate_block_heap).sum::<usize>()
         }
         Vm::ToolBlock {
             display_name,
@@ -417,7 +416,7 @@ fn estimate_vm_heap(vm: &crate::ui::message_view::MessageViewModel) -> usize {
                 + task_preview.capacity()
                 + bg_hash.as_ref().map_or(0, |s| s.capacity())
                 + final_result.as_ref().map_or(0, |s| s.capacity())
-                + recent_messages.capacity() * base
+                // estimate_vm_heap 已含每个子 VM 的内联尺寸，此处不重复累加
                 + recent_messages.iter().map(estimate_vm_heap).sum::<usize>()
                 + batch_agents.capacity()
                     * std::mem::size_of::<crate::ui::message_view::AgentSummary>()
