@@ -174,11 +174,6 @@ progress.md
 *.db
 .claude/hooks
 
-# ARM32 deployment package
-deploy/peri-arm32-v0.1.0/peri
-deploy/peri-arm32-v0.1.0/lib/
-deploy/peri-arm32-*.tar.gz
-
 vendor/
 
 .claude/skills/*-workspace
