@@ -240,20 +240,15 @@ enum PluginAction {
 
 /// 从 settings.json 读取 env 字段并注入进程环境变量
 ///
-/// 优先级：**进程环境变量 > `~/.cc-code/settings.json` > `~/.peri/settings.json`**（兼容旧版）。
+/// 优先级：**进程环境变量 > `~/.cc-code/settings.json`**。
 /// 主配置路径为 `~/.cc-code/settings.json`（与 [`cc_acp::provider::config_path`] 一致）；
-/// `~/.peri/settings.json` 仅作向后兼容回退。
+/// 改名前的旧目录 `~/.peri` 已不再兼容。
 fn inject_env_from_settings() {
     let home = dirs_next::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    // 先读旧路径、再读新路径，后者覆盖前者
     let mut merged: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for path in [
-        home.join(".peri").join("settings.json"),
-        home.join(".cc-code").join("settings.json"),
-    ] {
-        if let Some(env) = read_config_env(&path) {
-            merged.extend(env);
-        }
+    let path = home.join(".cc-code").join("settings.json");
+    if let Some(env) = read_config_env(&path) {
+        merged.extend(env);
     }
     // 仅在进程环境变量不存在时设置（进程环境优先）
     for (key, value) in merged {

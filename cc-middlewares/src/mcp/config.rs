@@ -299,7 +299,7 @@ pub(crate) fn load_merged_config_full(
     let mut plugin_sources: HashMap<String, String> = HashMap::new();
 
     // 1. 加载全局配置
-    // #289：经 app_home 解析（~/.cc-code 优先，~/.peri 仅回退），
+    // 经 app_home 解析（~/.cc-code），
     // 避免新版 settings.json 中的全局 MCP 配置被静默忽略。
     let global_path = cc_agent::app_home::global_settings_path();
     let mut global = load_global_config(&global_path).unwrap_or_else(|e| {
@@ -453,7 +453,7 @@ fn atomic_write_json(path: &Path, value: &serde_json::Value) -> Result<(), McpCo
 /// 从配置文件中删除指定的 MCP 服务器
 /// 优先尝试项目级 .mcp.json，未找到则尝试全局 settings.json
 pub fn remove_server_from_config(cwd: &Path, server_name: &str) -> Result<(), McpConfigError> {
-    // #289：经 app_home 解析（~/.cc-code 优先，~/.peri 仅回退），
+    // 经 app_home 解析（~/.cc-code），
     // 避免新版 settings.json 中的全局 MCP 配置被静默忽略。
     let global_path = cc_agent::app_home::global_settings_path();
     remove_server_from_config_with_paths(cwd, &global_path, server_name)
@@ -544,7 +544,7 @@ pub fn set_server_disabled(
     server_name: &str,
     disabled: bool,
 ) -> Result<(), McpConfigError> {
-    // #289：经 app_home 解析（~/.cc-code 优先，~/.peri 仅回退），
+    // 经 app_home 解析（~/.cc-code），
     // 避免新版 settings.json 中的全局 MCP 配置被静默忽略。
     let global_path = cc_agent::app_home::global_settings_path();
     set_server_disabled_with_paths(cwd, &global_path, server_name, disabled)

@@ -10,7 +10,7 @@ use cc_agent::{
 };
 
 /// 全局配置文件路径（经 [`cc_agent::app_home::global_settings_path`] 解析：
-/// `~/.cc-code/settings.json` 优先，旧版 `~/.peri/settings.json` 仅回退）
+/// `~/.cc-code/settings.json`）
 pub fn global_config_path() -> PathBuf {
     cc_agent::app_home::global_settings_path()
 }
@@ -83,7 +83,7 @@ impl SkillsMiddleware {
         self
     }
 
-    /// 从全局配置加载 skills 目录（默认从 `~/.peri/settings.json` 读取）
+    /// 从全局配置加载 skills 目录（`~/.cc-code/settings.json`）
     pub fn with_global_config(mut self) -> Self {
         if let Some(dir) = load_global_skills_dir() {
             self.global_skills_dir = Some(dir);

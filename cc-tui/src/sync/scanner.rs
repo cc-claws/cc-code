@@ -44,7 +44,7 @@ fn scan_dir_recursive(base: &Path, dir: &Path, files: &mut Vec<FileEntry>) {
 /// 扫描 settings.json
 ///
 /// 路径：经 [`cc_agent::app_home::global_settings_path_in`] 解析
-///（`~/.cc-code/settings.json` 优先，旧版 `~/.peri/settings.json` 仅回退）
+///（`~/.cc-code/settings.json`）
 /// + `{home_dir}/.claude/settings.json`
 pub fn scan_settings(home_dir: &Path) -> Option<SettingsItem> {
     let path = cc_agent::app_home::global_settings_path_in(home_dir);

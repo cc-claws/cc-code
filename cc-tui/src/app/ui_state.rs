@@ -100,7 +100,7 @@ impl UiState {
         detail_enabled: bool,
         diff_enabled: bool,
     ) -> Self {
-        let _ = cwd; // 历史路径已迁移至 ~/.peri/，cwd 保留用于未来扩展
+        let _ = cwd; // 历史路径已迁移至 ~/.cc-code/，cwd 保留用于未来扩展
         let input_history = super::history_persistence::load_input_history();
         Self {
             textarea,

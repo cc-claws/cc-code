@@ -41,7 +41,7 @@ impl Default for FileCredentialStore {
 
 impl FileCredentialStore {
     pub fn new() -> Self {
-        // #289：经 app_home 解析（~/.cc-code 优先，~/.peri 仅回退）
+        // 经 app_home 解析（~/.cc-code）
         let path = cc_agent::app_home::app_data_path("oauth_tokens.json");
         Self {
             path,

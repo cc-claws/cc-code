@@ -87,7 +87,7 @@ pub struct SyncItems {
 /// 单个配置文件内容
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SettingsItem {
-    /// settings.json 在 .peri/ 下的原文
+    /// settings.json 的原文
     pub content: String,
     /// .claude/settings.json 的内容（可选）
     #[serde(default, skip_serializing_if = "Option::is_none")]

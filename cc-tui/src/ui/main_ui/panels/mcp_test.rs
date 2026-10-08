@@ -84,7 +84,7 @@
         )));
         let mut global_srv = make_server("global-srv", ClientStatus::Connected);
         global_srv.source = Some(ConfigSource::Global(std::path::PathBuf::from(
-            "/home/.peri/settings.json",
+            "/home/.cc-code/settings.json",
         )));
 
         let handle = render_mcp_panel(vec![project_srv, global_srv]).await;
