@@ -158,7 +158,35 @@ struct WrappedLineSeg {
 /// 用于 reasoning 渲染：每行宽度 ≤ max_width 时不会触发 Paragraph::wrap 二次折行，
 /// 避免续行丢失 4 列前缀缩进。CJK 无空格场景按 grapheme 硬断。
 /// 以 grapheme 为切分单位，返回段级 g 映射用于链接命中区。
+///
+/// 默认 trim 首段行首空白（见 [`wrap_line_spans_rich_impl`]）。需要保留首段
+/// 行首结构性空白（如工具头指示器）时改用 [`wrap_line_spans_rich_keep_first_lead`]。
 fn wrap_line_spans_rich(line: Line<'static>, max_width: usize) -> Vec<WrappedLineSeg> {
+    wrap_line_spans_rich_impl(line, max_width, true)
+}
+
+/// 同 [`wrap_line_spans_rich`]，但**保留首段的行首空白**。
+///
+/// 工具头（`● Bash(...)`）在运行中指示器闪烁时会以空白帧渲染（`●` → `" "`）。
+/// 详细模式超长命令折行若 trim 首段行首空白，会让整个 header 前缀（指示器 + 分隔
+/// 空格）左移甚至消失，随闪烁抖动（表现为「详细模式看不到工具名前缀」）。
+/// header 的结构性前缀必须原样保留。（issue #342）
+fn wrap_line_spans_rich_keep_first_lead(
+    line: Line<'static>,
+    max_width: usize,
+) -> Vec<WrappedLineSeg> {
+    wrap_line_spans_rich_impl(line, max_width, false)
+}
+
+/// [`wrap_line_spans_rich`] 的底层实现。
+///
+/// `trim_first_lead` 控制**首段**是否 trim 行首空白；续行（非首段）始终不额外
+/// trim——断行点在推进 `pos` 时其后的空白已被跳过。
+fn wrap_line_spans_rich_impl(
+    line: Line<'static>,
+    max_width: usize,
+    trim_first_lead: bool,
+) -> Vec<WrappedLineSeg> {
     use unicode_segmentation::UnicodeSegmentation;
 
     if max_width == 0 || line.spans.is_empty() {
@@ -240,10 +268,15 @@ fn wrap_line_spans_rich(line: Line<'static>, max_width: usize) -> Vec<WrappedLin
             }
         }
 
-        // trim 行首行尾空白
+        // trim 行首行尾空白。
+        // 行首空白仅在没有内容语义时才可丢；首段（本函数首轮循环）若被调用方
+        // 标记为「保留行首空白」（工具头指示器场景），则跳过行首 trim，
+        // 避免闪烁空白帧把 header 前缀整段吃掉。续行不受影响。
         let mut seg_start = pos;
-        while seg_start < break_at && flat[seg_start].0.chars().all(char::is_whitespace) {
-            seg_start += 1;
+        if trim_first_lead || pos > 0 {
+            while seg_start < break_at && flat[seg_start].0.chars().all(char::is_whitespace) {
+                seg_start += 1;
+            }
         }
         let mut seg_end = break_at;
         while seg_end > seg_start && flat[seg_end - 1].0.chars().all(char::is_whitespace) {
@@ -302,6 +335,17 @@ fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> 
         .collect()
 }
 
+/// 同 [`wrap_line_spans`]，但保留首段行首空白（工具头指示器场景）。
+fn wrap_line_spans_keep_first_lead(
+    line: Line<'static>,
+    max_width: usize,
+) -> Vec<Line<'static>> {
+    wrap_line_spans_rich_keep_first_lead(line, max_width)
+        .into_iter()
+        .map(|seg| seg.line)
+        .collect()
+}
+
 /// 把逻辑行上的链接命中区映射到折行后的输出段，累加前缀宽度后推入 out
 fn push_link_hits_for_wrapped(
     out: &mut Vec<cc_widgets::markdown::LinkHit>,
@@ -352,6 +396,32 @@ fn push_wrapped_line(
         let prefix = if j == 0 { first_prefix } else { cont_prefix };
         let mut spans = Vec::with_capacity(wline.spans.len() + 1);
         // 空前缀（无缩进样式的行）不插入额外 span，保持与非折行路径完全一致的输出
+        if !prefix.is_empty() {
+            spans.push(Span::styled(prefix.to_string(), prefix_style));
+        }
+        spans.extend(wline.spans);
+        out.push(Line::from(spans));
+    }
+}
+
+/// 同 [`push_wrapped_line`]，但**保留首段行首空白**（工具头指示器场景）。
+///
+/// 工具头在运行中指示器闪烁时会以空白帧渲染（`●` → `" "`）；详细模式超长命令
+/// 折行若 trim 首段行首空白，会让 `●`/工具名前缀随闪烁左移抖动（issue #342）。
+fn push_wrapped_line_keep_first_lead(
+    out: &mut Vec<Line<'static>>,
+    line: Line<'static>,
+    first_prefix: &str,
+    cont_prefix: &str,
+    prefix_style: Style,
+    content_width: usize,
+) {
+    for (j, wline) in wrap_line_spans_keep_first_lead(line, content_width)
+        .into_iter()
+        .enumerate()
+    {
+        let prefix = if j == 0 { first_prefix } else { cont_prefix };
+        let mut spans = Vec::with_capacity(wline.spans.len() + 1);
         if !prefix.is_empty() {
             spans.push(Span::styled(prefix.to_string(), prefix_style));
         }
@@ -1293,7 +1363,10 @@ pub fn render_view_model_with_links(
                     spans.push(Span::styled(full, args_color));
                     spans.push(Span::raw(")"));
                     let content_width = width.saturating_sub(name_width + 1).max(20);
-                    push_wrapped_line(
+                    // 用 keep_first_lead 变体：运行中指示器闪烁到空白帧时，header 首段
+                    // 的行首空白（指示器占位）不能被 trim，否则整个前缀随闪烁左移抖动
+                    // （issue #342：详细模式看不到 `● Bash(` 前缀）。
+                    push_wrapped_line_keep_first_lead(
                         &mut lines,
                         Line::from(spans),
                         "",

@@ -2304,3 +2304,51 @@ fn test_wrap_line_spans_rich_tail_segment_split_unnecessarily() {
         "末段被多余拆行，实际: {plains:?}"
     );
 }
+
+/// 回归（issue #342）：详细模式下，运行中工具头在**指示器闪烁的空白帧**（`●` → `" "`）
+/// 渲染超长命令折行时，首行前缀不得被 trim 掉而左移。
+///
+/// 根因：`format_indicator` 让运行中指示器在 `●` 与 `" "` 间闪烁；详细模式 header
+/// 折行走 `wrap_line_spans_rich` 的**行首 trim**。熄灭帧首段是空格 → 被 trim →
+/// `● ` 前缀消失、整行左移，随闪烁抖动（表现为「详细模式看不到工具名前缀」）。
+#[test]
+fn test_detail_header_prefix_stable_across_indicator_blink() {
+    use crate::app::MessageViewModel;
+
+    let cmd = r#"powershell -NoProfile -Command "
+Get-ChildItem 'C:\Users\adim' -Force -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+  $s=(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+} | Select-Object -First 12 | Format-Table -Auto""#;
+    let mut vm = MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some(cmd.to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock { started_at, .. } = &mut vm {
+        *started_at = Some(std::time::Instant::now());
+    }
+
+    // tick 0/2 为亮帧（指示器 "●"），tick 4/6 为灭帧（指示器 " "）。
+    for tick in [0u64, 2, 4, 6] {
+        for width in [40usize, 80, 100, 120, 137, 160] {
+            let lines = render_view_model(&vm, Some(1), width, true, tick);
+            let first: String = lines[0]
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            // 首 2 列必须是「指示器 + 分隔空格」的固定占位：亮帧 "● "、灭帧 "  "。
+            // 修复前灭帧会变成 "Ba"（前缀被 trim 左移）。
+            let prefix2: String = first.chars().take(2).collect();
+            assert!(
+                prefix2 == "● " || prefix2 == "  ",
+                "tick={tick} width={width}: header 前缀随闪烁左移: {first:?}"
+            );
+            assert!(
+                first.contains("Bash"),
+                "tick={tick} width={width}: header 首行丢了工具名 Bash: {first:?}"
+            );
+        }
+    }
+}
