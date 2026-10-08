@@ -44,6 +44,19 @@ pub(crate) fn shell_running_text(
     format!("Running… ({elapsed}){timeout}")
 }
 
+/// Bash 运行状态行（`"  ⎿ Running… (Xs)"`）中状态文本的固定前缀。
+pub(crate) const SHELL_RUNNING_TEXT_PREFIX: &str = "Running…";
+
+/// 判断某渲染行是否为 Bash "⎿ Running…" 运行状态行。
+///
+/// 供渲染线程在增量刷新时**按内容定位**状态行。详细模式下超长命令会让 header
+/// 折成多行，状态行下标不再固定为 1（issue：固定写下标 1 会覆盖命令续行）。
+pub(crate) fn is_shell_running_status_line(line: &Line<'static>) -> bool {
+    line.spans.len() >= 2
+        && line.spans[0].content == "  ⎿ "
+        && line.spans[1].content.starts_with(SHELL_RUNNING_TEXT_PREFIX)
+}
+
 /// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
 const ERROR_SUMMARY_MAX_LINES: usize = 3;
 

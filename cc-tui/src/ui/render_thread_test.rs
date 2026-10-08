@@ -967,3 +967,175 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         "Ctrl+B 提示应作为缩进行缓存: {rendered_lines:?}"
     );
 }
+
+/// 构造一个"详细模式 + 超长命令"的运行中 Bash ToolBlock。
+///
+/// 详细模式下 header 会折成多行（#264），状态行下标不再固定为 1。
+fn detail_mode_long_cmd_running_task(
+    width: u16,
+    started_ago: Duration,
+) -> (RenderTask, std::sync::Arc<parking_lot::RwLock<RenderCache>>) {
+    let cache = std::sync::Arc::new(parking_lot::RwLock::new(RenderCache::new()));
+    let mut task = RenderTask {
+        last_messages: Vec::new(),
+        message_lines: Vec::new(),
+        message_links: Vec::new(),
+        message_hashes: Vec::new(),
+        cache: std::sync::Arc::clone(&cache),
+        notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+        width,
+        show_tool_messages: false,
+        diff_visible: false,
+        detail_mode: true,
+    };
+    // 超长命令：详细模式下 header 必然折成多行（≥2 行内容）
+    let cmd = "(cd /d/code/peri/9router && grep -rn \"registry/index|import p0|p0\" \
+               from scripts/*.mjs | head; echo \"===\" ; \
+               grep -rln \"Auto-generated: static imports\" --include=*. 2>/dev/null | \
+               xargs -r -n1 basename 2>/dev/null | sort | uniq -c | sort -rn | head"
+        .to_string();
+    task.rebuild(vec![MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some(cmd),
+        false,
+    )]);
+    if let MessageViewModel::ToolBlock { started_at, .. } = &mut task.last_messages[0] {
+        *started_at = Some(Instant::now() - started_ago);
+    }
+    (task, cache)
+}
+
+fn cache_line_texts(cache: &RenderCache) -> Vec<String> {
+    cache
+        .lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect()
+}
+
+/// 回归：详细模式 + 超长命令（header 折成多行）时，跨 2 秒阈值的 tick
+/// **不得**覆盖 header 续行，且状态行必须出现。
+///
+/// 旧实现把状态行下标写死为 1，多行 header 下会命中命令续行并就地改写，
+/// 同时真正的状态行因不在下标 1 永不刷新。
+#[test]
+fn test_refresh_running_bash_multiline_header_keeps_command_and_status() {
+    let (mut task, cache) = detail_mode_long_cmd_running_task(100, Duration::from_secs(5));
+
+    // 阈值前：无状态行，header 至少 2 行（折行证明）
+    let before = cache_line_texts(&cache.read());
+    assert!(
+        before.len() >= 2,
+        "详细模式超长命令 header 应折成多行: {before:?}"
+    );
+
+    let changed = task.refresh_running_tool_indicators(0);
+    assert!(changed, "跨越阈值后应触发重渲染");
+    // 第二次 tick 才走"行数不变"的增量更新路径（首次 tick 会因缺状态行而整条重建）
+    task.refresh_running_tool_indicators(0);
+
+    let after = cache_line_texts(&cache.read());
+
+    // 1) 命令续行不得被 Running… 覆盖
+    assert!(
+        after
+            .iter()
+            .any(|l| l.contains("grep -rln \"Auto-generated: static imports\"")),
+        "状态刷新不得覆盖 header 命令续行: {after:?}"
+    );
+    // 2) 状态行应恰好出现一次
+    let running_count = after.iter().filter(|l| l.contains("⎿ Running…")).count();
+    assert_eq!(
+        running_count, 1,
+        "状态行应恰好出现一次（多行 header 下不应重复/丢失）: {after:?}"
+    );
+    // 3) 不应出现"命令续行被改成 Running…"产生的残留行
+    assert!(
+        !after.iter().any(|l| l.trim().starts_with("Running…")),
+        "状态文本不应出现在 header 续行位置: {after:?}"
+    );
+}
+
+/// 回归：跨 2 秒阈值后，tick 增量刷新必须持续更新状态行秒数。
+///
+/// 旧实现写死 `lines[1]`，多行 header 下真正的状态行（下标 ≥2）被冻结，
+/// 秒数不再前进，屏幕上出现"两处 Running… 且时间不一致"。
+#[test]
+fn test_refresh_running_bash_multiline_header_updates_elapsed() {
+    let (mut task, cache) = detail_mode_long_cmd_running_task(100, Duration::from_secs(5));
+    task.refresh_running_tool_indicators(0);
+    task.refresh_running_tool_indicators(0);
+
+    let running_line_idx = cache
+        .read()
+        .lines
+        .iter()
+        .position(is_shell_running_status_line)
+        .expect("跨阈值后应存在状态行");
+    let text_before = cache.read().lines[running_line_idx].spans[1]
+        .content
+        .to_string();
+
+    // 模拟又过了 3 秒
+    if let MessageViewModel::ToolBlock { started_at, .. } = &mut task.last_messages[0] {
+        *started_at = Some(Instant::now() - Duration::from_secs(8));
+    }
+    task.refresh_running_tool_indicators(0);
+
+    let text_after = cache.read().lines[running_line_idx].spans[1]
+        .content
+        .to_string();
+    assert_ne!(
+        text_before, text_after,
+        "状态行秒数应随 tick 刷新（旧实现因下标错位被冻结）"
+    );
+    assert!(
+        text_after.contains("8s"),
+        "状态行应反映最新已运行秒数: {text_after:?}"
+    );
+}
+
+/// 回归：多行 header（行数 ≥ 3）刚跨 2 秒阈值、尚未渲染状态行时，
+/// 必须触发重建补上状态行。
+///
+/// 旧实现以固定行数 `cached_line_count < 3` 推断"状态行尚未渲染"，
+/// 在 header ≥2 行时该判定恒为假，状态行永远不会出现。
+#[test]
+fn test_refresh_running_bash_multiline_header_triggers_rebuild_at_threshold() {
+    let (mut task, cache) = detail_mode_long_cmd_running_task(100, Duration::from_secs(5));
+
+    // 前置条件：header 折行后缓存行数已 ≥ 3（旧逻辑据此误判"已渲染"）
+    assert!(
+        task.message_lines[0].len() >= 3,
+        "前置条件：多行 header 下 message_lines 行数应 ≥ 3，实际 {}",
+        task.message_lines[0].len()
+    );
+    assert!(
+        !cache
+            .read()
+            .lines
+            .iter()
+            .any(is_shell_running_status_line),
+        "前置条件：阈值前不应有状态行"
+    );
+
+    let changed = task.refresh_running_tool_indicators(0);
+
+    assert!(changed, "跨阈值且缺状态行时应触发重建");
+    assert!(
+        cache
+            .read()
+            .lines
+            .iter()
+            .any(is_shell_running_status_line),
+        "跨阈值后必须补上状态行（旧固定行数判定会漏掉）: {:?}",
+        cache_line_texts(&cache.read())
+    );
+}
+
