@@ -370,8 +370,11 @@ fn test_user_message_has_no_internal_ids_but_agent_message_does() {
 
     assert!(agent.contains("policy_compliance"), "agent: {agent}");
     assert!(agent.contains("retryable=no"), "agent: {agent}");
-    assert!(agent.contains("不要重试"), "agent: {agent}");
-    assert!(agent.contains("终端手动执行"), "agent: {agent}");
+    assert!(agent.contains("Do not retry"), "agent: {agent}");
+    assert!(
+        agent.contains("execute it manually in their terminal"),
+        "agent: {agent}"
+    );
 }
 
 #[test]

@@ -7,9 +7,11 @@
 ## 核心流程
 
 1. **三层工具过滤与加载**：
-   - **Core 工具（11 个）**：`Read`、`Write`、`Edit`、`Glob`、`Grep`、`Bash`、`WebFetch`、`WebSearch`、`Agent`、`AskUserQuestion`、`TodoWrite` 常驻 System Prompt。
+   - **Core 工具（11 个）**：`Read`、`Write`、`Edit`、`Glob`、`Grep`、`Bash`、`WebFetch`、`WebSearch`、`Agent`、`AskUserQuestion`、`TodoWrite` 始终在模型可见工具数组中。
    - **Meta 工具（2 个）**：`SearchExtraTools`、`ExecuteExtraTool` 负责动态检索和分发 Deferred 工具。
    - **Deferred 工具**：`Cron*`、`LspTool`、`mcp__*` 按需加载，减少 Prompt token 开销。
+   - 非 MCP deferred 能力目录按工具名排序，仅包含描述的首个非空行（最多 160 个 Unicode 字符，超出用 `…`）；MCP 工具不进入该缓存前缀目录。
+   - 完整描述和参数 schema 由 `SearchExtraTools` 按需返回。发现工具不代表授权，也不要求立即调用；需要且已授权时才通过 `ExecuteExtraTool` 执行。
 2. **输出截断持久化**：
    - 超过大小限制的输出通过 `persist_truncated_output` 写入本地临时文件，并在返回中附带文件路径提示供 LLM 通过 `Read` 查看。
 3. **展示层渲染与截断**：
@@ -32,6 +34,14 @@
 | Header 截断算法 | `truncate_to_display_width`（按 CJK 2 列宽与 ASCII 1 列宽动态匹配） |
 | RTK 输出压缩 | 外部 `rtk` 二进制探测 + `rtk rewrite` 命令重写，失败回退原命令（`cc-middlewares/src/process/mod.rs`） |
 | Schema 预校验 | `validate_against_schema` 结构化错误汇总 + `suggest_tool_mismatch` 启发式 + `SchemaFailureTracker` 连续 2 次熔断（`cc-agent/src/agent/executor/tool_dispatch.rs`） |
+
+## 模型可见描述
+
+- 内置描述和参数说明统一英文，以实际实现为准；不改变工具执行、schema 字段或审批链。
+- `Read` 的 offset 是从 0 开始的跳过行数，默认读取 2000 行；32 MiB 文件上限不会被范围参数绕过，PDF 页码读取尚未实现。
+- `Write` 默认完整替换，append=true 追加；`Edit` 做匹配替换。提示要求先检查已有内容，不宣称工具会检查此前是否调用过 Read。
+- `Agent` 区分独立消息上下文与继承会话快照，不承诺完整实时历史或文件隔离；isolation 参数仍是保留项。
+- 工具调用必须遵守既有授权与运行时审批，Meta 包装器不授予新权限。
 
 ---
 
@@ -114,3 +124,5 @@
 **技术决策:** 检查文件属性，若为目录则转换为目录文件列表或提示信息以 System 消息注入
 **涉及文件:** spec/archive-issues/2026-05-25-at-mention-directory-read-semantics.md
 **CLAUDE.md 链接:** false
+
+最后更新：2026-10-08

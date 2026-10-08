@@ -106,7 +106,7 @@ fn test_preprocess_messages_skips_system_and_tool() {
     let result = preprocess_messages(&msgs);
 
     // Assert: 只保留 Human
-    assert!(result.contains("[用户] 用户消息"), "应保留用户消息");
+    assert!(result.contains("[User] 用户消息"), "应保留用户消息");
     assert!(!result.contains("system prompt"), "应跳过 System 消息");
 }
 
@@ -121,11 +121,11 @@ fn test_preprocess_messages_formats_human_and_ai() {
     // Act
     let result = preprocess_messages(&msgs);
 
-    // Assert: 格式化为 [用户]/[助手] 前缀
-    assert!(result.contains("[用户] 你好"), "用户消息应加 [用户] 前缀");
+    // Assert: 格式化为 [User]/[Assistant] 前缀
+    assert!(result.contains("[User] 你好"), "用户消息应加 [User] 前缀");
     assert!(
-        result.contains("[助手] 你好！有什么可以帮你？"),
-        "助手消息应加 [助手] 前缀"
+        result.contains("[Assistant] 你好！有什么可以帮你？"),
+        "助手消息应加 [Assistant] 前缀"
     );
 }
 

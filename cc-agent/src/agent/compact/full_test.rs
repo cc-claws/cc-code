@@ -72,7 +72,7 @@ fn test_preprocess_truncates_long_text() {
     let msgs = vec![BaseMessage::human(long_text)];
     let result = preprocess_messages(&msgs, 2000);
     assert_eq!(result.len(), 1);
-    assert!(result[0].contains("...(已截断)"));
+    assert!(result[0].contains("...(truncated)"));
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn test_preprocess_formats_tool_calls() {
     )];
     let result = preprocess_messages(&msgs, 2000);
     assert_eq!(result.len(), 1);
-    assert!(result[0].contains("（调用了工具: Bash, Read）"));
+    assert!(result[0].contains("(called tools: Bash, Read)"));
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn test_preprocess_formats_tool_result() {
     let msgs = vec![BaseMessage::tool_result("tc1", "output text")];
     let result = preprocess_messages(&msgs, 2000);
     assert_eq!(result.len(), 1);
-    assert!(result[0].contains("[工具结果:tc1]"));
+    assert!(result[0].contains("[Tool result:tc1]"));
     assert!(result[0].contains("output text"));
 }
 
@@ -126,7 +126,7 @@ fn test_postprocess_removes_analysis() {
     let result = postprocess_summary(input);
     assert!(!result.contains("<analysis>"));
     assert!(!result.contains("</analysis>"));
-    assert!(result.contains("此会话从之前的对话延续"));
+    assert!(result.contains("This session continues an earlier conversation"));
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn test_postprocess_extracts_summary_tag() {
 fn test_postprocess_no_tags() {
     let input = "## 摘要\n这是直接输出的摘要文本";
     let result = postprocess_summary(input);
-    assert!(result.contains("此会话从之前的对话延续"));
+    assert!(result.contains("This session continues an earlier conversation"));
     assert!(result.contains("这是直接输出的摘要文本"));
 }
 
@@ -279,7 +279,9 @@ async fn test_full_compact_basic() {
     let model = MockBaseModel::new("## 摘要\n用户请求编写函数");
     let config = CompactConfig::default();
     let result = full_compact(&msgs, &model, &config, "").await.unwrap();
-    assert!(result.summary.contains("此会话从之前的对话延续"));
+    assert!(result
+        .summary
+        .contains("This session continues an earlier conversation"));
     assert_eq!(result.messages_used, 3);
 }
 
@@ -288,7 +290,7 @@ async fn test_full_compact_empty_messages() {
     let model = MockBaseModel::new("summary");
     let config = CompactConfig::default();
     let result = full_compact(&[], &model, &config, "").await.unwrap();
-    assert!(result.summary.contains("无有效对话历史"));
+    assert!(result.summary.contains("No valid conversation history"));
     assert_eq!(result.messages_used, 0);
 }
 
@@ -298,7 +300,7 @@ async fn test_full_compact_system_only() {
     let model = MockBaseModel::new("summary");
     let config = CompactConfig::default();
     let result = full_compact(&msgs, &model, &config, "").await.unwrap();
-    assert!(result.summary.contains("无有效对话历史"));
+    assert!(result.summary.contains("No valid conversation history"));
     assert_eq!(result.messages_used, 1);
 }
 
@@ -310,7 +312,9 @@ async fn test_full_compact_with_instructions() {
     let result = full_compact(&msgs, &model, &config, "请特别关注文件路径信息")
         .await
         .unwrap();
-    assert!(result.summary.contains("此会话从之前的对话延续"));
+    assert!(result
+        .summary
+        .contains("This session continues an earlier conversation"));
 }
 
 #[tokio::test]

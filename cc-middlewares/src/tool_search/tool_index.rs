@@ -270,7 +270,7 @@ impl ToolSearchIndex {
             .collect()
     }
 
-    /// 返回 Markdown 格式的延迟工具列表（按名称排序，保证跨进程稳定）
+    /// 返回延迟工具的简短能力索引（按名称排序，完整描述与 schema 按需搜索）。
     pub fn format_deferred_list(&self) -> String {
         let tools = self.tools.read();
         if tools.is_empty() {
@@ -288,30 +288,18 @@ impl ToolSearchIndex {
         }
 
         let mut lines = String::from("## Deferred Tools\n\n");
-        lines.push_str("The following tools are not in your direct tool list. Use `SearchExtraTools` to search for them, then `ExecuteExtraTool` to invoke.\n\n");
+        lines.push_str("Additional capabilities are listed below. Use `SearchExtraTools` for full descriptions and input schemas; invoke a needed, authorized tool through `ExecuteExtraTool`.\n\n");
         for (name, tool) in entries {
-            lines.push_str(&format!("- {}: {}\n", name, tool.description()));
-            let params = tool.parameters();
-            let props = params.get("properties");
-            if let Some(props) = props.and_then(|p| p.as_object()) {
-                if !props.is_empty() {
-                    lines.push_str("  Parameters:\n");
-                    for (param_name, param_schema) in props {
-                        let desc = param_schema
-                            .get("description")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("");
-                        let param_type = param_schema
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("any");
-                        lines.push_str(&format!(
-                            "    - `{}` ({}): {}\n",
-                            param_name, param_type, desc
-                        ));
-                    }
-                }
-            }
+            let description = tool.description();
+            let first_line = description
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("")
+                .trim();
+            let mut chars = first_line.chars();
+            let summary: String = chars.by_ref().take(160).collect();
+            let suffix = if chars.next().is_some() { "…" } else { "" };
+            lines.push_str(&format!("- {}: {}{}\n", name, summary, suffix));
         }
         lines
     }

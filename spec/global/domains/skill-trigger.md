@@ -25,6 +25,8 @@ Skills 触发领域负责 Skills 的触发机制设计，将触发键从 # 统�
 
 ## 技术方案总结
 
+模型选择 Skill 时，应使用摘要列出的路径通过 `Read` 读取 SKILL.md；全文已提供时无需重复读取。仅在助手回复中提及名称不会加载文件。`SkillPreloadMiddleware` 从最后一条用户消息识别 `/skill-name`，或使用 SubAgent 显式配置的技能列表，将原文作为 Read 工具结果注入。内置目录说明统一英文，Skill 原文保持原语言，且不增加授权。
+
 | 维度 | 选型 |
 |------|------|
 | 触发键 | / 前缀（统一命令和 Skills 命名空间） |
@@ -50,3 +52,5 @@ Skills 触发领域负责 Skills 的触发机制设计，将触发键从 # 统�
 ## 相关 Feature
 - → [tui.md](./tui.md) — TUI 提示浮层渲染
 - → [agent.md](./agent.md) — SkillsMiddleware 和 SkillPreloadMiddleware
+
+最后更新：2026-10-08

@@ -2,11 +2,11 @@
 
 ## 领域综述
 
-上下文压缩增强领域负责 Micro-compact 和 Full Compact 策略的全面增强，包括可压缩工具白名单、9 段结构化摘要模板和压缩后重新注入。
+上下文压缩增强领域负责 Micro-compact 和 Full Compact 策略，包括可压缩工具白名单、任务续接摘要和压缩后重新注入。
 
 核心职责：
 - Micro-compact 可压缩工具白名单 + 时间衰减清除策略
-- Full Compact 9 段结构化摘要模板对齐 Claude Code
+- Full Compact 直接生成任务续接摘要，保留目标、约束、授权、实际进展、证据及后续动作
 - 压缩后重新注入最近读取文件和激活 Skills
 - 工具对完整性保护确保 tool_use + tool_result 不被拆开
 - CompactConfig 通过 settings.json 配置，环境变量可覆盖
@@ -28,11 +28,9 @@
 
 ```
 触发条件: context_usage > 85%
-  → 9 段结构化摘要模板:
-      Primary Request → Technical Concepts → Files → Errors & Fixes →
-      Problem Solving → User Messages → Pending Tasks → Current Work → Next Step
-  → 调用 LLM 生成摘要
-  → 移除 <analysis> 块，保留 <summary>
+  → 英文指令: 保留目标/最新约束/授权、完成工作与验证、未完成工作/阻塞/下一步、必要路径与标识符
+  → 调用 LLM 直接输出 <summary>，摘要语言跟随用户要求或会话
+  → 提取 <summary>；兼容旧响应中 <analysis> 块的清理
   → PTL 降级重试: 按消息步数组逐步删除最旧组，最多重试 3 次
   → re_inject: 提取最近文件路径 + Skills → System 消息重新注入
 ```
@@ -42,10 +40,12 @@
 | 维度 | 选型 |
 |------|------|
 | Micro-compact | 可压缩白名单 + 时间衰减 + 图片/文档替换 + 工具对保护 |
-| Full Compact | 9 段摘要模板 + LLM 调用 + PTL 降级重试 |
+| Full Compact | 任务续接摘要 + LLM 调用 + PTL 降级重试；不要求输出详细分析 |
 | 重新注入 | extract_recent_files() + extract_skills_paths() → System 消息 |
 | 配置 | CompactConfig 支持环境变量覆盖 |
 | 核心层分离 | 纯消息操作在核心层，TUI 层仅触发和展示 |
+
+内置压缩、续接及 recap 指令统一英文；摘要与回顾可使用用户语言。摘要必须区分观察事实、待验证假设与计划，不把引用内容或工具输出当成新的授权。压缩结构、工具对保护、历史截断及重新注入算法保持原实现。
 
 ## Feature 附录
 
@@ -137,3 +137,5 @@
 ## 相关 Feature
 - → [token-tracking.md](./token-tracking.md) — Token 追踪触发压缩
 - → [tui.md](./tui.md) — TUI /compact 命令
+
+最后更新：2026-10-08

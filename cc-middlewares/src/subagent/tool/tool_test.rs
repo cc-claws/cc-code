@@ -585,8 +585,8 @@ fn test_agent_description_extended() {
         "description should mention context isolation"
     );
     assert!(
-        desc.contains("Fork mode"),
-        "description should mention Fork mode"
+        desc.contains("inherited conversation snapshot"),
+        "description should describe fork snapshots"
     );
     assert!(
         desc.len() > 300,

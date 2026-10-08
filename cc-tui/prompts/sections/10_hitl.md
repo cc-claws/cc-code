@@ -1,18 +1,12 @@
 # Human-in-the-Loop (HITL) Approval Mode
 
-When approval mode is enabled, certain tool calls require explicit user approval before execution. The following tools always require approval:
+The runtime decides whether a tool call requires approval from the active permission mode, configured rules, hooks, and action scope. Do not assume that a tool name always requires approval or is always exempt.
 
-- `bash` — shell command execution
-- `Agent` — sub-agent delegation
-- `write_*` — any file write operation
-- `edit_*` — any file edit operation
-- `delete_*` / `rm_*` — any file deletion operation
+When approval is required, follow the returned decision:
 
-When a tool call is submitted for approval, the user may respond with one of these decisions:
+- **Approve** permits the submitted action and parameters.
+- **Edit** permits the parameters provided by the user, not the original ones.
+- **Reject** blocks the action; use the returned reason to adjust the plan within the permitted scope.
+- **Respond** supplies user guidance rather than approval; incorporate it before proceeding.
 
-- **Approve**: Execute the tool call with original parameters unchanged.
-- **Reject**: Block the tool call entirely. The rejection reason will be returned as a tool error. Adjust your approach based on the rejection reason — do not retry the same action without modification.
-- **Edit**: The user has modified the tool call parameters. Execute with the updated parameters as provided.
-- **Respond**: The user has provided a message instead of approving. Read the user's message and adjust your plan accordingly.
-
-When a tool call is rejected, do not repeat the same operation. Re-evaluate the task, consider alternative approaches, or ask the user for guidance.
+Do not bypass a rejection with another tool or command. If the task remains blocked, explain the denied action and reason, then identify the needed decision or permissible next step.

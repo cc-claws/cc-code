@@ -109,7 +109,10 @@
         let tool = WriteFileTool::new("/tmp");
         let desc = tool.description();
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
-        assert!(desc.contains("atomic write"), "description 应提及原子写入");
+        assert!(
+            desc.contains("temporary file and rename"),
+            "description 应说明临时文件与重命名写入"
+        );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 

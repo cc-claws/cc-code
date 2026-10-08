@@ -5,7 +5,7 @@
 系统提示词领域负责 Agent 系统提示词的架构设计，将单体提示词拆分为独立段落文件，支持基于功能的条件注入。
 
 核心职责：
-- 12 个 .md 段落文件按编号排序，8 个静态 + 4 个 feature-gated
+- 14 个 .md 段落文件：6 个静态，8 个位于动态边界之后（按平台和功能条件注入）
 - include_str! 编译时嵌入，零运行时开销
 - PromptFeatures 从环境变量推断功能开关
 - 动态覆盖块从 AgentOverrides 生成
@@ -16,22 +16,34 @@
 
 ```
 build_system_prompt(overrides, cwd, features)
-  → 静态段落（01-08）: 始终 include_str!
-  → Feature-gated 段落（10-13）: PromptFeatures 条件判断
-  → 环境变量替换: {{cwd}}, {{is_git_repo}}, {{platform}}, {{os_version}}, {{date}}
-  → AgentOverrides 覆盖块: persona/tone/proactiveness 注入到最前面
+  → 静态段落（01-06）: 固定缓存前缀
+  → __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__
+  → AgentOverrides 覆盖块 + 环境（07）+ Windows（08，按平台）+ 提醒（14）
+  → Feature-gated 段落（10-13、15）: PromptFeatures 条件判断
+  → 占位符替换及语言段落: 位于动态边界之后
+  → session/new 捕获 frozen_system_prompt；后续轮次复用
 ```
 
 ## 技术方案总结
 
 | 维度 | 选型 |
 |------|------|
-| 段落文件 | prompts/sections/ 目录，12 个 .md 文件按编号排序 |
-| 静态段落 | 01_intro, 02_system, 03_doing_tasks, 04_actions, 05_using_tools, 06_tone_style, 07_communicating, 08_env |
-| Feature-gated | 10_hitl, 11_subagent, 12_cron, 13_skills |
+| 段落文件 | cc-tui/prompts/sections/ 目录，14 个 .md 文件 |
+| 静态段落 | 01_intro, 02_system, 03_doing_tasks, 04_actions, 05_using_tools, 06_tone_style |
+| 动态边界后 | 07_env, 08_windows（Windows）, 14_system_reminder，覆盖块及语言设置 |
+| Feature-gated | 10_hitl, 11_subagent, 12_cron, 13_skills, 15_channel |
 | 编译嵌入 | include_str! 宏，零运行时开销 |
-| 条件注入 | PromptFeatures::detect() 从环境变量推断 |
-| 环境变量 | PromptEnv::detect() 运行时环境检测 |
+| 条件注入 | PromptFeatures::detect()；HITL 使用运行时的 !is_yolo_mode()，默认启用审批说明 |
+| 环境变量 | 会话创建时捕获；07 中日期为 session date，不代表实时日期 |
+
+## 内置指令约定
+
+- 主提示词、内置 Agent、工具描述、命令、压缩/回顾和审批模型指令统一英文；回复和生成文档的语言仍由配置、用户要求及项目约定决定。
+- 用户/项目/Skill 原文、外部 MCP 描述、界面文案及兼容历史的机器解析标签保留原语言。
+- 主提示词定义目标、授权边界、完成标准和验证证据；工具参数以实际 schema 为准，避免重复写入不同版本的参数说明。
+- 对已授权工作持续推进；只有影响范围、正确性或授权的重要歧义需要询问。验证按改动风险选择，区分静态检查、本地测试与真实环境结果。
+- 不要求固定四行、一词回复或编辑后停止汇报；按任务需要提供结论、关键证据和未覆盖范围。
+- 英文模板调整不改变会话内冻结机制。更新模板需重新编译，并在新建会话时捕获；既有会话继续复用冻结提示词。
 
 ## Feature 附录
 
@@ -147,3 +159,5 @@ build_system_prompt(overrides, cwd, features)
 ## 相关 Feature
 - → [agent.md](./agent.md) — ReActAgent.with_system_prompt() 注入
 - → [tui.md](./tui.md) — TUI 层 build_system_prompt() 调用
+
+最后更新：2026-10-08

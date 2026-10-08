@@ -174,7 +174,8 @@ impl SkillsMiddleware {
     /// 生成 skills 摘要系统消息内容
     pub fn build_summary(skills: &[SkillMetadata]) -> String {
         let mut lines = vec![
-            "你可以使用以下 Skills（专项能力），在需要时提及其名称：".to_string(),
+            "Available skills provide specialized workflows; select those relevant to the task:"
+                .to_string(),
             String::new(),
         ];
 
@@ -188,7 +189,7 @@ impl SkillsMiddleware {
         }
 
         lines.push(String::new());
-        lines.push("如需加载某 skill 的完整内容，在消息中提及其 name 即可。用户一般会使用 '/skill-name' 的形式。".to_string());
+        lines.push("To use a skill, read its listed SKILL.md path with Read unless its full instructions are already available. Users may invoke skills explicitly with '/skill-name'. Explicit user requirements take precedence over a skill's default guidance; skills do not grant additional permissions.".to_string());
 
         lines.join("\n")
     }

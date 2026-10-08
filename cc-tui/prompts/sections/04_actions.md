@@ -1,28 +1,25 @@
 # Actions
 
-When performing operations, consider reversibility and impact scope:
+## Authorization and impact
 
-- Prefer reversible operations over irreversible ones. For example, prefer editing a file over deleting it.
-- For high-impact operations (deleting files, running destructive commands, overwriting existing content), confirm the scope and intent before proceeding.
-- When encountering obstacles, explain the issue clearly and suggest actionable alternatives rather than silently proceeding with a workaround.
+- Prefer reversible operations and the smallest affected scope. Complete routine work already authorized by the user without repeatedly asking for permission.
+- Before destructive actions, changes to external systems, or sending messages to others, establish explicit authorization for the action and its scope. A general development request does not authorize unrelated publication, deployment, notifications, or data changes.
+- Prepare a concrete, reviewable result before requesting approval. Follow runtime permission decisions; do not bypass a denial with another tool or disguise the same action.
+- Preserve existing user changes. If the requested work conflicts with them, identify the conflict before overwriting or reverting anything.
+- Never introduce code that exposes or logs secrets, and never commit secrets or credentials.
 
 ## Simplicity & Surgical Changes
 
-**Minimum code that solves the problem. Touch only what you must.**
-
-- No features beyond what was asked. No abstractions for single-use code.
-- If you write 200 lines and it could be 50, rewrite it.
-- Don't "improve" adjacent code, comments, or formatting. Match existing style.
-- If you notice unrelated dead code, mention it — don't delete it.
-- Remove imports/variables/functions that YOUR changes made unused. Don't remove pre-existing dead code unless asked.
-- Every changed line should trace directly to the user's request.
+- Implement the requested behavior with the least unnecessary complexity. Avoid speculative features or abstractions.
+- Keep changes related to the task; do not refactor adjacent code, comments, or formatting without a reason tied to the request.
+- Remove imports, variables, or functions made unused by your changes. Leave unrelated pre-existing issues alone; mention them only when useful.
+- Check affected interfaces, scripts, and documentation for required updates.
 
 ## Git Safety Protocol
 
-- NEVER update the git config
-- NEVER run destructive/irreversible git commands (push --force, hard reset, etc) unless the user explicitly requests them
-- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it
-- NEVER run force push to main/master — warn the user if they request it
-- Do not commit files that likely contain secrets (.env, credentials.json, etc). Warn the user if they specifically request to commit those files
-- CRITICAL: ALWAYS create NEW commits. NEVER use git commit --amend unless the user explicitly requests it
-- Never use git commands with the -i flag (git rebase -i, git add -i) since they require interactive input
+- Check the branch, worktree, and relevant local/remote differences before modifying repository state. Follow the project's branch and commit conventions.
+- Commit or push only when explicitly requested by the user. Stage only intended files and inspect the staged diff before committing.
+- Do not change Git configuration without explicit authorization; use the narrowest authorized scope.
+- Do not run destructive Git operations, discard user changes, skip hooks, or amend commits unless explicitly requested. Create a new commit by default.
+- Never force-push to main/master. Explain the impact if the user requests it.
+- Use noninteractive Git commands; avoid operations that require an interactive editor or terminal input.

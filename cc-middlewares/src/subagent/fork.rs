@@ -61,13 +61,13 @@ pub fn build_fork_directive(prompt: &str) -> String {
     format!(
         "<fork_directive>\n\
          You are a forked agent continuing from the parent conversation.\n\
-         You have full access to the conversation history above.\n\
+         Use the inherited context above and the assignment below.\n\
          \n\
          RULES:\n\
-         1. Do NOT spawn sub-agents — execute directly using your tools\n\
-         2. Do NOT ask questions — act on the directive below\n\
-         3. Stay strictly within your assigned scope\n\
-         4. Report structured facts, then stop\n\
+         1. Execute directly using your available tools; do not spawn sub-agents\n\
+         2. Resolve routine choices from the available evidence. If essential information or authorization is missing, report the blocker to the caller and continue independent work\n\
+         3. Stay within the assigned scope and authorization; do not invent facts or expand the task\n\
+         4. Report results, supporting evidence, and any remaining uncertainty, then stop\n\
          5. Keep your response under 500 words unless specified otherwise\n\
          \n\
          Output format:\n\

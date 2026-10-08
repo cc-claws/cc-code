@@ -45,7 +45,6 @@ Usage:
 - An optional 'prompt' parameter provides guidance for how to use the fetched content
 
 Security:
-- Maximum response size: 10MB
 - Request timeout: 30 seconds"#;
 
 impl WebFetchTool {
@@ -87,11 +86,11 @@ impl BaseTool for WebFetchTool {
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "要抓取的完整 URL（http/https）"
+                    "description": "REQUIRED. Full HTTP or HTTPS URL to fetch"
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "可选。提取内容的指导提示，附在结果前供 LLM 参考"
+                    "description": "Optional reading guidance prepended to the fetched content; no separate extraction model is invoked"
                 }
             },
             "required": ["url"]
@@ -158,7 +157,7 @@ impl BaseTool for WebFetchTool {
         let truncated = truncate_content(raw_content, MAX_CONTENT_LINES);
 
         let result = match prompt {
-            Some(p) => format!("{WEB_CREDIBILITY_WARNING}提示: {p}\n\n{truncated}"),
+            Some(p) => format!("{WEB_CREDIBILITY_WARNING}Reading guidance: {p}\n\n{truncated}"),
             None => format!("{WEB_CREDIBILITY_WARNING}{truncated}"),
         };
 

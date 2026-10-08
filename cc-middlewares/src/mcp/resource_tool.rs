@@ -64,11 +64,11 @@ impl BaseTool for McpResourceTool {
             "properties": {
                 "server_name": {
                     "type": "string",
-                    "description": "MCP 服务器名称（配置中的 key）"
+                    "description": "REQUIRED. MCP server name, matching its configuration key"
                 },
                 "uri": {
                     "type": "string",
-                    "description": "要读取的资源 URI"
+                    "description": "REQUIRED. URI of the resource to read"
                 }
             },
             "required": ["server_name", "uri"]

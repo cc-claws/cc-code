@@ -120,8 +120,8 @@
         let desc = tool.description();
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
         assert!(
-            desc.contains("Error handling:"),
-            "description 应包含 Error handling 段落"
+            desc.contains("invalid ranges return errors"),
+            "description 应说明读取失败的处理"
         );
         assert!(desc.contains("line numbers"), "description 应提及行号格式");
         assert!(

@@ -201,7 +201,7 @@ fn test_build_fork_directive_contains_rules() {
     let directive = build_fork_directive("do the thing");
     assert!(directive.contains("<fork_directive>"));
     assert!(directive.contains("RULES"));
-    assert!(directive.contains("Do NOT spawn sub-agents"));
+    assert!(directive.contains("do not spawn sub-agents"));
     assert!(directive.contains("do the thing"));
     assert!(directive.contains("</fork_directive>"));
 }
