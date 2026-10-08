@@ -475,8 +475,7 @@ fn estimate_text_heap(text: &ratatui::text::Text<'static>) -> usize {
 }
 
 fn estimate_links_heap(links: &[cc_widgets::markdown::LinkHit]) -> usize {
-    links.len() * std::mem::size_of::<cc_widgets::markdown::LinkHit>()
-        + links.iter().map(|l| l.url.capacity()).sum::<usize>()
+    std::mem::size_of_val(links) + links.iter().map(|l| l.url.capacity()).sum::<usize>()
 }
 
 // ── 格式化 ────────────────────────────────────────────────────────────────────
