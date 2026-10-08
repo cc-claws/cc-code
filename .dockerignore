@@ -57,11 +57,6 @@ node_modules/
 npm-debug.log*
 *.tgz
 
-# --- 部署包（体积大，运行时才需要）---
-deploy/peri-arm32-*.tar.gz
-deploy/*/peri
-deploy/*/lib/
-
 # --- 系统垃圾 ---
 .DS_Store
 Thumbs.db
