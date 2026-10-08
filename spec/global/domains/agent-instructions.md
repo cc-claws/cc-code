@@ -284,8 +284,8 @@ render_instruction_set(files, cfg):
 - **顺带改变（影响很小）**：`read_frozen_content`（Jev 的项目级来源）现在对 `AGENTS.md` 也展开 `@import`（旧实现只对 `CLAUDE*` 展开）。
 - 不改变注入机制（仍是单条 System 消息）。
 - **已知限制（登记，不在本期内解决）**：
-  1. `claude_md_excludes` 对**主会话**不生效（走冻结，内容已渲染成字符串，中间件无法再按文件过滤）；
-  2. **子 Agent**（非冻结路径）每轮重读磁盘 → 会话中途改指引文件会使其 prompt 前缀抖动；
+  1. `claude_md_excludes` 对**主会话**不生效（走冻结，内容已渲染成字符串，中间件无法再按文件过滤）→ [#359](https://github.com/cc-claws/cc-code/issues/359)；
+  2. **子 Agent**（非冻结路径）每轮重读磁盘 → 会话中途改指引文件会使其 prompt 前缀抖动 → [#360](https://github.com/cc-claws/cc-code/issues/360)；
   3. `read_frozen_content` 的「空文件遮蔽」旧 bug 仍在（只影响 Jev 来源，不影响注入内容）。
 - 需一并回改的文档漂移：`CLAUDE.md`、`cc-acp/README.md`、`docs/ACP_COMPATIBLE.csv` 里对 `frozen_claude_md` 的旧称。
 - 工程注意：`cargo fmt --all` 会重排本仓库大量历史文件（仓库未按 rustfmt 归一，CI 也不校验 fmt）——只对**动过的文件**格式化，别整仓 fmt。
