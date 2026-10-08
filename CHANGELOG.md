@@ -15,6 +15,7 @@ Perihelion Agent 版本变更记录。
 
 ### Docs
 
+- **修正 README 与代码不符的陈旧描述**：删除 RISC-V 支持声明（`README.md` 头部、安装平台段及 `npm/README.md` 平台表）——发布的 5 个平台均不含 riscv64（唯一构建 riscv64 的 `release-agent.yml` 因 `agent-v*` tag 从未触发）；`side-projects/` 描述由「llm-gateway 等」更正为实际的 `peri-sync`；仓库结构树把不存在的 `spec/prd/` 更正为 `spec/archive/` 并补上实际存在的 `docs/`、`human/`；Typical Workflow 中不存在的 skill `grill-me`/`improve-codebase-architecture` 更正为真实存在的 `brainstorming`；特性表「更早版本」边界由 v0.6.76 修正为 v0.6.79。
 - **维护 v0.6.100 / v0.6.101 文档 + 清理当前状态文档中的 `peri-*` 残留**：CHANGELOG 补 v0.6.100 / v0.6.101 条目；README 中英特性表各 +2 条（一一对应、保持最新 10 条）；`spec/global/domains/tui.md`、`features.md`、`index.md` 同步；新增 `spec/issues/2026-10-08-detail-mode-long-cmd-running-status-overwrites-header.md` 根因分析。另修正 v0.6.95（#333）crate 改名 `peri-*` → `cc-*` 时遗漏的当前状态文档（`spec/global/`、`docs/`、crate 侧 README/CLAUDE.md 等 60 个文件）；历史快照目录（`spec/archive*`、`spec/reviews`、`docs/superpowers/*`、CHANGELOG/DEVLOG 历史条目）按规则保留不改。
 
 ## v0.6.101 — 2026-10-08

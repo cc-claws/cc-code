@@ -6,7 +6,7 @@
 
 **用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
 
-DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移，RISC-V 也能跑。
+DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移。
 
 [![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
 [![GitHub stars](https://img.shields.io/github/stars/cc-claws/cc-code?style=social)](https://github.com/cc-claws/cc-code/stargazers)
@@ -95,13 +95,13 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **语义门加固与权限模式收敛** | v0.6.81 | HITL 语义门按上游 Jev 语义重做：补上 `curl\|bash` 与解释器家族绕过、写路径穿越不再能跳过门、判定不可用改为回到人工确认而非堵死整个会话；权限模式收敛为 `auto`/`bypass`（默认 auto），确定性防线不再与语义判定共用开关 |
 | **会话恢复 Recap 持久化** | v0.6.80 | Recap 与任务完成总结行落库到 `ThreadMeta`（`latest_recap`/`last_task_summary`），`-c`/`-r` 恢复后不再丢失 |
 
-> 更早版本（v0.6.0 – v0.6.76）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.79）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
 ## 安装
 
-支持 macOS (x86_64 / Apple Silicon)、Linux (x86_64 / aarch64 / riscv64)、Windows (x86_64)。
+支持 macOS (x86_64 / Apple Silicon)、Linux (x86_64 / aarch64)、Windows (x86_64)。
 
 ### npm（推荐）
 
@@ -140,8 +140,8 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 | 你要做的事 | 流水线 |
 |-----------|--------|
 | 发现 bug 或技术债 | `issue-create` → `systematic-debugging` → `writing-plans` → `subagent-driven-development` → `issue-archive` → 改进 CLAUDE.md |
-| 开新功能 | `grill-me` → `writing-plans` → `subagent-driven-development` |
-| 代码库变乱了 | `slop-cleaner` → `improve-codebase-architecture` → `writing-plans` → `subagent-driven-development` |
+| 开新功能 | `brainstorming` → `writing-plans` → `subagent-driven-development` |
+| 代码库变乱了 | `slop-cleaner` → `writing-plans` → `subagent-driven-development` |
 | 需要理解架构 | `teacher` → 分配任务 → `teacher` |
 
 ---
@@ -171,11 +171,13 @@ cc-code/
 ├── scripts/
 │   ├── install.sh             # macOS / Linux 安装器
 │   └── install.ps1            # Windows 安装器
-├── side-projects/             # 实验性项目（llm-gateway 等）
+├── side-projects/             # 实验性项目（peri-sync）
 ├── spec/                      # 设计文档与规范
 │   ├── global/                # 全局架构文档
 │   ├── issues/                # Issue 分析文档
-│   └── prd/                   # 产品需求文档
+│   └── archive/               # 已归档的 feature 规范
+├── docs/                      # 长文文档（prd、adr、designs、acp）
+├── human/                     # 人工走查清单
 ├── CLAUDE.md                  # 项目开发指南
 ├── CHANGELOG.md               # 版本变更记录
 ├── CONTRIBUTING.md            # 贡献指南

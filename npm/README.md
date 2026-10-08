@@ -36,7 +36,7 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 
 | 平台 | 架构 |
 |------|------|
-| Linux | x86_64, aarch64, riscv64 |
+| Linux | x86_64, aarch64 |
 | macOS | x86_64 (Intel), aarch64 (Apple Silicon) |
 | Windows | x86_64 |
 

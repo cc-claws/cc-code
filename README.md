@@ -6,7 +6,7 @@
 
 **Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible**
 
-DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` config, runs on RISC-V.
+DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` config.
 
 [![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
 [![GitHub stars](https://img.shields.io/github/stars/cc-claws/cc-code?style=social)](https://github.com/cc-claws/cc-code/stargazers)
@@ -95,13 +95,13 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **Semantic Gate Hardening & Two Permission Modes** | v0.6.81 | HITL gate rebuilt on upstream Jev semantics: `curl\|bash` and interpreter-family bypasses are now hard-denied, write path traversal can no longer skip the gate, and judge unavailability returns to human confirmation instead of blocking the whole session; permission modes collapsed to `auto`/`bypass` (default auto), with the deterministic layer no longer sharing a switch with the semantic judge |
 | **Session Recap Persistence** | v0.6.80 | Recap and task-summary lines persist to `ThreadMeta` (`latest_recap`/`last_task_summary`), no longer lost on restart |
 
-> Older releases (v0.6.0 – v0.6.76) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.79) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
 ## Install
 
-Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64 / riscv64), and Windows (x86_64).
+Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64), and Windows (x86_64).
 
 ### npm (Recommended)
 
@@ -140,8 +140,8 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 | When you... | Pipeline kicks off |
 |---|---|
 | **Find a bug or piece of tech debt** | `issue-create` → `systematic-debugging` → `writing-plans` → `subagent-driven-development` → `issue-archive` → improve CLAUDE.md |
-| **Want to build a new feature** | `grill-me` → `writing-plans` → `subagent-driven-development` |
-| **Notice the codebase getting messy** | `slop-cleaner` → `improve-codebase-architecture` → `writing-plans` → `subagent-driven-development` |
+| **Want to build a new feature** | `brainstorming` → `writing-plans` → `subagent-driven-development` |
+| **Notice the codebase getting messy** | `slop-cleaner` → `writing-plans` → `subagent-driven-development` |
 | **Need someone to grok the architecture** | `teacher` → assign a task → `teacher` |
 
 ---
@@ -171,11 +171,13 @@ cc-code/
 ├── scripts/
 │   ├── install.sh             # macOS / Linux installer
 │   └── install.ps1            # Windows installer
-├── side-projects/             # Experimental projects (llm-gateway, etc.)
+├── side-projects/             # Experimental projects (peri-sync)
 ├── spec/                      # Design docs and specs
 │   ├── global/                # Global architecture docs
 │   ├── issues/                # Issue analysis docs
-│   └── prd/                   # Product requirement docs
+│   └── archive/               # Archived feature specs
+├── docs/                      # Long-form docs (prd, adr, designs, acp)
+├── human/                     # Manual walkthrough checklists
 ├── CLAUDE.md                  # Project development guide
 ├── CHANGELOG.md               # Version changelog
 ├── CONTRIBUTING.md            # Contribution guide
