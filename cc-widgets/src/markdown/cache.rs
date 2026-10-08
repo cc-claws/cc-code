@@ -6,10 +6,11 @@
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
 
-use super::MarkdownDoc;
+use super::{LinkHit, MarkdownDoc};
 use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use ratatui::text::{Line, Span};
 
 /// 缓存容量上限
 const CACHE_CAPACITY: usize = 1024;
@@ -23,6 +24,20 @@ static MARKDOWN_CACHE: Lazy<MarkdownCache> = Lazy::new(MarkdownCache::new);
 /// value = MarkdownDoc（已解析的渲染结果 + 链接命中区）
 pub struct MarkdownCache {
     cache: Mutex<LruCache<CacheKey, MarkdownDoc>>,
+}
+
+/// 同一次加锁读取的缓存快照；字节数按容器和字符串 capacity 估算。
+///
+/// 只统计解析产物拥有的堆分配，不含 LRU 节点、哈希表和分配器开销；
+/// 借用的静态字符串不计入，不能将该估算等同于 RSS 或实际可回收量。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MarkdownCacheStats {
+    pub entries: usize,
+    pub capacity: usize,
+    pub estimated_heap_bytes: usize,
+    pub largest_entry_heap_bytes: usize,
+    pub rendered_lines: usize,
+    pub rendered_spans: usize,
 }
 
 /// 缓存 key：内容哈希 + 渲染宽度
@@ -95,6 +110,39 @@ impl MarkdownCache {
     pub fn capacity(&self) -> usize {
         let guard = self.cache.lock();
         guard.cap().get()
+    }
+
+    /// 按需统计，不复制解析产物、不改变 LRU 顺序，也不增加渲染热路径开销。
+    pub fn stats(&self) -> MarkdownCacheStats {
+        use std::borrow::Cow;
+        let guard = self.cache.lock();
+        let mut stats = MarkdownCacheStats {
+            entries: guard.len(),
+            capacity: guard.cap().get(),
+            ..Default::default()
+        };
+        for (_, doc) in guard.iter() {
+            let mut bytes = doc.text.lines.capacity() * std::mem::size_of::<Line<'static>>()
+                + doc.links.capacity() * std::mem::size_of::<LinkHit>();
+            stats.rendered_lines += doc.text.lines.len();
+            for line in &doc.text.lines {
+                bytes += line.spans.capacity() * std::mem::size_of::<Span<'static>>();
+                stats.rendered_spans += line.spans.len();
+                for span in &line.spans {
+                    if let Cow::Owned(text) = &span.content {
+                        bytes += text.capacity();
+                    }
+                }
+            }
+            bytes += doc
+                .links
+                .iter()
+                .map(|link| link.url.capacity())
+                .sum::<usize>();
+            stats.estimated_heap_bytes += bytes;
+            stats.largest_entry_heap_bytes = stats.largest_entry_heap_bytes.max(bytes);
+        }
+        stats
     }
 
     /// 创建指定容量的缓存实例（测试用）

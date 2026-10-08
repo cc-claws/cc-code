@@ -30,9 +30,8 @@ impl Command for GcCommand {
         let vm_count = active.messages.view_messages.len();
         let vm_bytes = estimate_view_messages_heap(&active.messages.view_messages);
 
-        // ── Markdown/Diff 缓存诊断 ──
-        let md_cache_len = cc_widgets::markdown::cache::MarkdownCache::global().len();
-        let md_cache_cap = cc_widgets::markdown::cache::MarkdownCache::global().capacity();
+        // ── Markdown 缓存诊断：单次加锁快照，不克隆缓存内容 ──
+        let md_cache = cc_widgets::markdown::cache::MarkdownCache::global().stats();
 
         let mut lines = Vec::new();
 
@@ -119,7 +118,36 @@ impl Command for GcCommand {
         // ── 渲染缓存诊断 ──
         lines.push(String::new());
         lines.push("── 渲染缓存 ──".to_string());
-        lines.push(format!("markdown_cache: {md_cache_len}/{md_cache_cap} 条"));
+        lines.push(format!(
+            "markdown_cache: {}/{} 条, 数据堆估算 ~{}",
+            md_cache.entries,
+            md_cache.capacity,
+            fmt_bytes(md_cache.estimated_heap_bytes),
+        ));
+        lines.push(format!(
+            "  平均条目 ~{} | 最大条目 ~{} | {} 行 / {} Span",
+            fmt_bytes(
+                md_cache
+                    .estimated_heap_bytes
+                    .checked_div(md_cache.entries)
+                    .unwrap_or(0)
+            ),
+            fmt_bytes(md_cache.largest_entry_heap_bytes),
+            md_cache.rendered_lines,
+            md_cache.rendered_spans,
+        ));
+        lines.push(
+            "  口径：按容器/自有字符串 capacity 估算，不含 LRU/分配器开销，非 RSS。".to_string(),
+        );
+        tracing::info!(
+            entries = md_cache.entries,
+            capacity = md_cache.capacity,
+            estimated_heap_bytes = md_cache.estimated_heap_bytes,
+            largest_entry_heap_bytes = md_cache.largest_entry_heap_bytes,
+            rendered_lines = md_cache.rendered_lines,
+            rendered_spans = md_cache.rendered_spans,
+            "markdown cache memory snapshot",
+        );
 
         // ── 分配器 breakdown（关键：allocated vs active vs resident）──
         if let Some(bd) = crate::alloc_config::query_breakdown() {
@@ -205,19 +233,21 @@ impl Command for GcCommand {
 
         // ── 已知 vs 未识别 ──
         if let Some(bd) = crate::alloc_config::query_breakdown() {
-            // known = 消息双份存储 + 视图模型（含内嵌 rendered Text）
-            let known_bytes = origin_bytes + completed_bytes + vm_bytes;
+            // Markdown 缓存与 VM 当前持有独立的解析产物副本，可分别计入估算。
+            let known_bytes =
+                origin_bytes + completed_bytes + vm_bytes + md_cache.estimated_heap_bytes;
             let gap = bd.allocated.saturating_sub(known_bytes);
             lines.push(format!(
-                "已知合计: {} (消息 {} + VM {}) | allocated 内未识别: {}",
+                "已知合计估算: {} (消息 {} + VM {} + Markdown 缓存 {}) | allocated 内未识别估算: {}",
                 fmt_bytes(known_bytes),
                 fmt_bytes(origin_bytes + completed_bytes),
                 fmt_bytes(vm_bytes),
+                fmt_bytes(md_cache.estimated_heap_bytes),
                 fmt_bytes(gap),
             ));
             lines.push(String::new());
             lines.push(
-                "注：未识别 = markdown 缓存/ACP 缓冲/tokio/tracing 等未纳入估算的部分，非泄漏。"
+                "注：估算未覆盖后台渲染缓存/Diff 缓存/ACP 缓冲/tokio/tracing 等；余量来源待定位，不能据此判断是否泄漏。"
                     .to_string(),
             );
         }

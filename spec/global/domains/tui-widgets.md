@@ -48,6 +48,17 @@ TUI tick 事件
 | 代码高亮 | syntect default-fancy，feature-gated |
 | diff 着色 | highlight_diff_line 实现添加/删除/hunk 行颜色区分 |
 
+### Markdown 缓存内存诊断
+
+`MarkdownCache::stats()` 在一次加锁中读取条数、容量、解析产物堆占用估算、
+最大条目、渲染行数和 Span 数。统计只在 `/gc` 等显式诊断时执行，
+不克隆解析结果、不更新 LRU 次序，也不改变缓存策略。
+
+字节数按 `Text.lines`、`Line.spans`、链接数组及自有字符串的 `capacity()` 计算，
+静态借用字符串不计入；不包含 LRU 节点、哈希表及分配器开销。
+`/gc` 显示总量、平均/最大条目，并输出原始字节字段到 tracing 日志。
+该估算纳入已知内存合计，但不等于 RSS，也不能据此判断其余内存是否泄漏。
+
 ## Feature 附录
 
 ### feature_20260427_F001_claude-code-info-display
@@ -98,3 +109,5 @@ TUI tick 事件
 
 - → [tui.md](./tui.md) — TUI 集成使用 cc-widgets 组件
 - → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成
+
+最后更新：2026-10-08
