@@ -58,7 +58,10 @@ impl super::SubAgentTool {
         // instance_id 统一使用 child_thread_id（UUID v7，持久化线程标识）
         let instance_id = child_thread_id.clone();
 
-        for mw in build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork(cwd)) {
+        for mw in build_subagent_middlewares(
+            SubAgentMiddlewareConfig::for_fork(cwd)
+                .with_inherited_instructions(self.inherited_instructions.clone()),
+        ) {
             agent_builder = agent_builder.add_middleware(mw);
         }
 

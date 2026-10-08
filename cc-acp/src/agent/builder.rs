@@ -55,7 +55,7 @@ pub struct AcpAgentConfig {
     pub cwd: String,
     pub system_prompt: String,
     /// Frozen **rendered** instruction set (merged + deduped + provenance-tagged,
-    /// produced by `AgentsMdMiddleware::load_frozen_instructions` at session/new).
+    /// produced by `agents_md::load_instructions` at session/new).
     /// None = read from disk each turn (legacy, e.g. sub-agents).
     pub frozen_instructions: Option<String>,
     /// Session-scoped lazy Jev rule loader (distils CLAUDE.md rules on first gate use).
@@ -401,6 +401,11 @@ pub fn build_agent(
         .clone()
         .unwrap_or_default();
 
+    // 子 Agent 与父 Agent 同 cwd，直接继承同一份**冻结**指引：
+    // 既省掉每轮重读磁盘，也避免会话中途改 AGENTS.md/CLAUDE.md 让子 Agent 的
+    // System 消息变化（prompt cache 前缀抖动 + 行为漂移，见 #360）。
+    let inherited_instructions: Option<Arc<str>> = frozen_instructions.as_deref().map(Arc::from);
+
     // SubAgent middleware
     let mut subagent = SubAgentMiddleware::new(
         parent_tools,
@@ -412,7 +417,8 @@ pub fn build_agent(
     .with_parent_messages(parent_messages)
     .with_background_registry(Arc::clone(&background_registry))
     .with_bg_event_sender(bg_event_tx)
-    .with_registered_hooks(vec![]);
+    .with_registered_hooks(vec![])
+    .with_inherited_instructions(inherited_instructions);
     if let Some(ts) = thread_store {
         subagent = subagent.with_thread_store(ts);
     }

@@ -21,6 +21,9 @@ pub(crate) struct SubAgentMiddlewareConfig {
     pub skill_names: Vec<String>,
     /// 工作目录，用于解析 skill 文件路径
     pub cwd: String,
+    /// 父 Agent 已冻结的指引整段（子 Agent 与父同 cwd，直接继承即可）。
+    /// `None` = 现场重读磁盘（旧行为）。
+    pub inherited_instructions: Option<Arc<str>>,
 }
 
 impl SubAgentMiddlewareConfig {
@@ -29,6 +32,7 @@ impl SubAgentMiddlewareConfig {
         Self {
             skill_names: Vec::new(),
             cwd: cwd.to_string(),
+            inherited_instructions: None,
         }
     }
     /// Agent 定义路径配置
@@ -38,7 +42,13 @@ impl SubAgentMiddlewareConfig {
         Self {
             skill_names: skills,
             cwd: cwd.to_string(),
+            inherited_instructions: None,
         }
+    }
+    /// 继承父 Agent 的冻结指引（子 Agent 与父同 cwd，无需重读磁盘）
+    pub fn with_inherited_instructions(mut self, instructions: Option<Arc<str>>) -> Self {
+        self.inherited_instructions = instructions;
+        self
     }
 }
 use std::{
@@ -119,6 +129,9 @@ pub struct SubAgentMiddleware {
     register_runtime: Option<Arc<dyn Fn(String, AgentCancellationToken, String) + Send + Sync>>,
     /// Deregister callback: removes from active_agents map by thread_id
     deregister_runtime: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// 父 Agent 已冻结的指引整段，透传给子 Agent 链（见 `SubAgentMiddlewareConfig`）。
+    /// `None` = 子 Agent 自行读盘（旧行为，会导致会话中途改文件时 prompt 前缀抖动 → #360）。
+    inherited_instructions: Option<Arc<str>>,
 }
 
 impl SubAgentMiddleware {
@@ -147,6 +160,7 @@ impl SubAgentMiddleware {
             parent_thread_id: None,
             register_runtime: None,
             deregister_runtime: None,
+            inherited_instructions: None,
         }
     }
 
@@ -184,6 +198,16 @@ impl SubAgentMiddleware {
         hooks: Vec<crate::hooks::types::RegisteredHook>,
     ) -> Self {
         self.registered_hooks = Arc::new(hooks);
+        self
+    }
+
+    /// 继承父 Agent 的**冻结**指引整段（`session/new` 已渲染好）。
+    ///
+    /// 子 Agent 与父 Agent 同 cwd，直接用父的快照即可：既省掉每轮重读磁盘，
+    /// 也避免会话中途改 `AGENTS.md` / `CLAUDE.md` 导致子 Agent 的 System 消息
+    /// 变化（prompt cache 前缀抖动 + 行为漂移，见 #360）。
+    pub fn with_inherited_instructions(mut self, instructions: Option<Arc<str>>) -> Self {
+        self.inherited_instructions = instructions;
         self
     }
 
@@ -272,6 +296,9 @@ impl SubAgentMiddleware {
         }
         if let Some(ref store) = self.thread_store {
             tool = tool.with_thread_store(Arc::clone(store));
+        }
+        if let Some(ref instructions) = self.inherited_instructions {
+            tool = tool.with_inherited_instructions(Some(Arc::clone(instructions)));
         }
         if let Some(ref id) = self.parent_thread_id {
             tool = tool.with_parent_thread_id(id.clone());

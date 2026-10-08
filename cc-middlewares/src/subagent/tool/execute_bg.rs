@@ -280,7 +280,10 @@ impl super::SubAgentTool {
 
         let llm = (self.llm_factory)(None);
         let mut agent_builder = ReActAgent::new(llm).max_iterations(200);
-        for mw in build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork(&cwd)) {
+        for mw in build_subagent_middlewares(
+            SubAgentMiddlewareConfig::for_fork(&cwd)
+                .with_inherited_instructions(self.inherited_instructions.clone()),
+        ) {
             agent_builder = agent_builder.add_middleware(mw);
         }
 

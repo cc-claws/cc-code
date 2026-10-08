@@ -996,9 +996,48 @@ fn test_build_middleware_agent_def_with_skills_includes_skill_preload() {
     );
 }
 
+#[tokio::test]
+async fn test_subagent_chain_inherits_frozen_instructions() {
+    // cwd 故意选不存在的路径：注入内容只能来自继承的快照，证明**没有**回读磁盘。
+    let cwd = "/nonexistent/for/inherit/test";
+    let middlewares = build_subagent_middlewares(
+        SubAgentMiddlewareConfig::for_fork(cwd)
+            .with_inherited_instructions(Some(Arc::from("INHERITED_RULES"))),
+    );
+    let agents_md = middlewares
+        .iter()
+        .find(|m| m.name() == "AgentsMdMiddleware")
+        .expect("子 Agent 链应含 AgentsMdMiddleware");
+
+    let mut state = cc_agent::agent::state::AgentState::new(cwd);
+    agents_md.before_agent(&mut state).await.unwrap();
+
+    use cc_agent::agent::state::State as _;
+    assert_eq!(state.messages().len(), 1, "应注入单条 System 消息");
+    let content = state.messages()[0].content();
+    assert!(content.contains("INHERITED_RULES"), "{content}");
+}
+
+#[tokio::test]
+async fn test_subagent_chain_without_inheritance_reads_disk() {
+    // 反向对照：不继承 + cwd 无文件 → 不注入任何消息（旧行为保留）
+    let dir = tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    let middlewares =
+        build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork(dir.path().to_str().unwrap()));
+    let agents_md = middlewares
+        .iter()
+        .find(|m| m.name() == "AgentsMdMiddleware")
+        .expect("子 Agent 链应含 AgentsMdMiddleware");
+
+    let mut state = cc_agent::agent::state::AgentState::new(dir.path().to_str().unwrap());
+    agents_md.before_agent(&mut state).await.unwrap();
+    use cc_agent::agent::state::State as _;
+    assert_eq!(state.messages().len(), 0);
+}
+
 #[test]
-fn test_build_middleware_order_is_fixed() {
-    // 有 skills 时验证完整顺序
+fn test_build_middleware_order_is_fixed() {    // 有 skills 时验证完整顺序
     let middlewares = build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(
         vec!["a".to_string()],
         "/tmp",

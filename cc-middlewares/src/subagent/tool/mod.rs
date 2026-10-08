@@ -78,7 +78,12 @@ pub(crate) fn build_subagent_middlewares(
     config: SubAgentMiddlewareConfig,
 ) -> Vec<Box<dyn Middleware<AgentState>>> {
     let mut middlewares: Vec<Box<dyn Middleware<AgentState>>> = Vec::new();
-    middlewares.push(Box::new(AgentsMdMiddleware::new()));
+    // 父 Agent 的冻结指引优先（同一 cwd，直接继承）；未冻结时才让中间件自己读盘。
+    let agents_md = match config.inherited_instructions {
+        Some(instructions) => AgentsMdMiddleware::new().with_frozen_instructions(instructions.to_string()),
+        None => AgentsMdMiddleware::new(),
+    };
+    middlewares.push(Box::new(agents_md));
     middlewares.push(Box::new(SkillsMiddleware::new().with_global_config()));
     if !config.skill_names.is_empty() {
         middlewares.push(Box::new(SkillPreloadMiddleware::new(
