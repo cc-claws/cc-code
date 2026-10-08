@@ -198,18 +198,31 @@ impl HumanInTheLoopMiddleware {
     ///
     /// 刻意**不读 `state.messages()`**：用户对话不参与判定（见 `GateCall` 文档），
     /// 这也让本中间件符合"链上中间件在 before_tool 阶段不读消息历史"的不变量。
-    fn build_gate_call<S: State>(&self, state: &S, tool_call: &ToolCall) -> Option<jev::GateCall> {
+    fn build_gate_call<S: State>(
+        &self,
+        state: &S,
+        tool_call: &ToolCall,
+        original: &ToolCall,
+    ) -> Option<jev::GateCall> {
         // 没有门就不构建（调用方据此跳过判定）
         self.jev_gate.as_ref()?;
         let effective = effective_tool_name(&tool_call.name, &tool_call.input);
         // ExecuteExtraTool 把真实参数包在 `params` 里，必须解包才能看到 command/path
         let params = jev::effective_params(&tool_call.name, &tool_call.input);
+        // 用户原始命令（RTK 改写前）：显式规则与危险形状要同时看它，否则装了 rtk 的机器上
+        // 「用户拒绝规则」会被 `rtk X` 绕过（#358）。
+        let original_command = jev::effective_params(&original.name, &original.input)
+            .get("command")
+            .and_then(|v| v.as_str())
+            .filter(|orig| Some(*orig) != params.get("command").and_then(|v| v.as_str()))
+            .map(String::from);
         Some(jev::GateCall {
             tool_name: effective,
             command: params
                 .get("command")
                 .and_then(|v| v.as_str())
                 .map(String::from),
+            original_command,
             path: params
                 .get("file_path")
                 .or_else(|| params.get("path"))
@@ -267,7 +280,7 @@ impl HumanInTheLoopMiddleware {
 
             // 有 mode → 使用快照模式决策（评估与展示都用有效调用）
             if let Some(mode) = &mode_snapshot {
-                results.push(self.decide_by_mode(state, mode, &effective).await);
+                results.push(self.decide_by_mode(state, mode, &effective, call).await);
                 continue;
             }
 
@@ -344,11 +357,16 @@ impl HumanInTheLoopMiddleware {
     }
 
     /// 根据共享权限模式决策单个工具调用
+    /// 按权限模式决策。
+    ///
+    /// `tool_call` 为 **RTK 改写后的有效调用**（评估与执行都用它），
+    /// `original` 为用户原始调用——显式规则/危险形状需要同时看两者（见 `jev::GateCall`）。
     async fn decide_by_mode<S: State>(
         &self,
         state: &S,
         mode: &Arc<SharedPermissionMode>,
         tool_call: &ToolCall,
+        original: &ToolCall,
     ) -> AgentResult<ToolCall> {
         match mode.load() {
             PermissionMode::Bypass => Ok(tool_call.clone()),
@@ -375,7 +393,7 @@ impl HumanInTheLoopMiddleware {
                         }
                     }
                 }
-                if let Some(call) = self.build_gate_call(state, tool_call) {
+                if let Some(call) = self.build_gate_call(state, tool_call, original) {
                     if let Some(gate) = &self.jev_gate {
                         // 确定性层**先跑，且不依赖判定凭据**。
                         // 硬黑名单 / 人写的规则 / 只读白名单是零成本、确定性的，
@@ -585,7 +603,7 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
 
         // 2. 有 mode → 按权限模式决策（评估与展示都用有效调用）
         if let Some(mode) = &self.mode {
-            return self.decide_by_mode(state, mode, &effective).await;
+            return self.decide_by_mode(state, mode, &effective, tool_call).await;
         }
 
         // 3. 无 mode 且无 broker → 放行（disabled() 路径）

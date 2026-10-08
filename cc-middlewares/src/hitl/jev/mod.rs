@@ -24,6 +24,7 @@ pub mod redact;
 pub mod rules;
 pub mod sources;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -57,14 +58,106 @@ pub enum GateDecision {
 /// 让它参与判定等于把授权建立在不可信输入上。门只看"这次调用本身"。
 pub struct GateCall {
     pub tool_name: String,
-    /// Bash 命令（仅 bash）。
+    /// Bash 命令（仅 bash）。**RTK 改写后**的实际执行命令（无改写时即原命令）。
     pub command: Option<String>,
+    /// 用户**原始**命令（RTK 改写前的 X；无改写 / 非 Bash 时为 `None`）。
+    ///
+    /// 显式规则（`disallowed_commands` / `allowed_commands` / `safe_commands`）与危险形状判定
+    /// **同时**看 `command` 与它：用户写规则时想的是自己敲的那条命令，若只看改写后的
+    /// `rtk kubectl delete pod x`，装了 rtk 的机器上 `kubectl delete*` 这类规则会**静默失效**
+    /// （#358）。反向只看原命令则会重新引入「批准 X、实际执行 X′」(#288)，故取并集。
+    pub original_command: Option<String>,
     /// Write/Edit 目标路径。
     pub path: Option<std::path::PathBuf>,
     /// 当前 git 分支（仓库现场）。规则常带条件（"不要在 main 上提交"），
     /// 没有这个事实 judge 就判不了，只能去匹配命令里出现的分支名。
     pub branch: Option<String>,
     pub cwd: std::path::PathBuf,
+}
+
+/// 门控的**命令集合**：有效命令（RTK 改写后、实际会执行）+ 原始命令（用户敲的）。
+///
+/// 为什么两者都要（见 [`GateCall::original_command`]）：
+/// - 只看有效命令 → 用户写的 `disallowed_commands` 在装了 rtk 的机器上被 `rtk X` 绕过（#358）；
+/// - 只看原始命令 → 重新引入「批准 X、实际执行 X′」（#288）。
+///
+/// 取值方向：
+/// - deny / 硬黑名单 / 危险形状 → **任一**命令命中即命中（fail-closed，方向更严）；
+/// - allow / 用户声明安全 → **任一**命中即生效（用户白名单表达的是"意图"，RTK 改写只是前缀包装；
+///   若只看改写后的 `rtk X`，用户的 allow 规则同样会静默失效）；
+/// - 只读快车道 → 需要**两条都**是只读链（保守：执行的是改写后的命令）。
+struct Commands<'a> {
+    effective: &'a str,
+    original: Option<&'a str>,
+}
+
+impl<'a> Commands<'a> {
+    /// 由 `GateCall` 构造（仅在有 bash 命令时调用）。
+    fn from(call: &'a GateCall) -> Option<Self> {
+        let effective = call.command.as_deref()?;
+        Some(Self {
+            effective,
+            // 与有效命令相同（没发生改写）时不重复评估
+            original: call
+                .original_command
+                .as_deref()
+                .filter(|orig| *orig != effective),
+        })
+    }
+
+    /// 参与评估的全部命令（有效在前，原始在后）。
+    fn all(&self) -> impl Iterator<Item = &'a str> {
+        std::iter::once(self.effective).chain(self.original)
+    }
+
+    /// 任一命令命中硬黑名单即可（原因名去重保序）。
+    fn hard_deny_reasons(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for cmd in self.all() {
+            for name in policy::hard_deny_reasons(cmd) {
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+        }
+        out
+    }
+
+    /// 任一命令命中危险形状即可（原因去重保序）。
+    fn dangerous_reasons(&self, cwd: &Path) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for cmd in self.all() {
+            for name in policy::dangerous_reasons_scoped(cmd, cwd) {
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+        }
+        out
+    }
+
+    /// deny 规则：任一命令命中即算命中（`allow_shell_control = true`，宽松方向即更安全方向）。
+    fn deny_match(&self, patterns: &[String]) -> Option<String> {
+        self.all()
+            .find_map(|cmd| policy::matches_command_pattern(cmd, patterns, true))
+    }
+
+    /// allow 规则：任一命令命中即算命中（用户白名单表达的是"意图"，改写只是前缀包装）。
+    fn allow_match(&self, patterns: &[String]) -> Option<String> {
+        self.all()
+            .find_map(|cmd| policy::matches_command_pattern(cmd, patterns, false))
+    }
+
+    /// 用户声明的安全命令：任一命中即可（与 allow 同源语义）。
+    fn declared_safe(&self, safe_commands: &[String]) -> bool {
+        self.all()
+            .any(|cmd| policy::is_user_declared_safe(cmd, safe_commands))
+    }
+
+    /// 只读白名单：**两条命令都必须是只读链**才算只读（保守方向）。
+    fn read_only(&self) -> bool {
+        self.all().all(policy::is_read_only_chain)
+    }
 }
 
 /// Jev 语义门。
@@ -341,9 +434,10 @@ impl JevGate {
             return None;
         }
 
-        if let Some(cmd) = call.command.as_deref() {
+        if let Some(cmds) = Commands::from(call) {
+
             // ── 层0：硬黑名单 —— 不可覆盖，任何规则都不能放行 ──
-            let hard = policy::hard_deny_reasons(cmd);
+            let hard = cmds.hard_deny_reasons();
             if !hard.is_empty() {
                 return Some(GateDecision::Block {
                     rationale: format!("硬黑名单：{}（禁止执行）", hard.join(", ")),
@@ -353,32 +447,27 @@ impl JevGate {
             // 以下是**显式优先级梯**：人写下的配置 > 内置白名单。
             // 顺序即优先级，改动前先想清楚谁该压过谁。
 
-            // ── 层1a：人显式写下的 deny ──
-            if let Some(pattern) =
-                policy::matches_command_pattern(cmd, &self.config.disallowed_commands, true)
-            {
+            // ── 层1a：人显式写下的 deny（原始/有效命令任一命中即拦）──
+            if let Some(pattern) = cmds.deny_match(&self.config.disallowed_commands) {
                 return Some(GateDecision::Block {
                     rationale: format!("用户拒绝规则命中：{pattern}"),
                 });
             }
             // ── 层1b：人显式写下的 allow（压过危险形状）──
-            if let Some(pattern) =
-                policy::matches_command_pattern(cmd, &self.config.allowed_commands, false)
-            {
+            if let Some(pattern) = cmds.allow_match(&self.config.allowed_commands) {
                 return Some(GateDecision::Allow {
                     rationale: format!("用户允许规则命中：{pattern}"),
                 });
             }
             // ── 层1c：人显式声明的安全命令 ──
-            let reasons = policy::dangerous_reasons_scoped(cmd, &call.cwd);
-            if policy::is_user_declared_safe(cmd, &self.config.safe_commands) && reasons.is_empty()
-            {
+            let reasons = cmds.dangerous_reasons(&call.cwd);
+            if cmds.declared_safe(&self.config.safe_commands) && reasons.is_empty() {
                 return Some(GateDecision::Allow {
                     rationale: "确定性层：用户声明的安全命令".to_string(),
                 });
             }
             // ── 层2：内置只读白名单（最低优先级，可被上面任何一条推翻）──
-            if policy::is_read_only_chain(cmd) && reasons.is_empty() {
+            if cmds.read_only() && reasons.is_empty() {
                 return Some(GateDecision::Allow {
                     rationale: "确定性层：只读命令".to_string(),
                 });

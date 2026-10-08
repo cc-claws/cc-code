@@ -22,6 +22,7 @@ fn bash(cmd: &str, cwd: &std::path::Path) -> GateCall {
     GateCall {
         tool_name: "Bash".to_string(),
         command: Some(cmd.to_string()),
+        original_command: None,
         path: None,
         // 真实仓库现场：读 cwd 的 .git/HEAD
         branch: policy::git_branch(cwd),
@@ -201,6 +202,7 @@ fn e2e_vs_user_hooks_with_empty_policy() {
     let env_write = GateCall {
         tool_name: "Write".to_string(),
         command: None,
+        original_command: None,
         path: Some(cwd.join(".env")),
         branch: policy::git_branch(&cwd),
         cwd: cwd.clone(),
@@ -509,6 +511,7 @@ fn probe_policy_dilution_by_rule_count() {
         let call = GateCall {
             tool_name: "Bash".to_string(),
             command: Some(r#"git commit -m "fix: x""#.to_string()),
+            original_command: None,
             path: None,
             branch: Some("main".to_string()),
             cwd: cwd.clone(),
