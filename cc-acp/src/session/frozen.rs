@@ -141,3 +141,7 @@ fn build_jev_rule_loader(
         slot,
     )))
 }
+
+#[cfg(test)]
+#[path = "frozen_test.rs"]
+mod tests;
