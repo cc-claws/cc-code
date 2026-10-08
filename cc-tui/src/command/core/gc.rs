@@ -44,20 +44,30 @@ impl Command for GcCommand {
         // ── RSS 汇总 ──
         match (stats_before, stats_after) {
             (Some(before), Some(after)) => {
-                let delta = before.current_rss as isize - after.current_rss as isize;
-                let sign = if delta >= 0 { "+" } else { "" };
+                // 方向语义：`after - before`，增加为正。此前误用 `before - after`
+                // 且 `delta >= 0` 才加 `+`，导致内存**下降**时反而显示 `+N`（方向颠倒）。
+                let delta = after.current_rss as isize - before.current_rss as isize;
                 lines.push(format!(
-                    "RSS: {} → {} ({sign}{})",
+                    "RSS: {} → {} ({})",
                     fmt_bytes(before.current_rss),
                     fmt_bytes(after.current_rss),
-                    fmt_bytes(delta.unsigned_abs()),
+                    fmt_signed_delta(delta, fmt_bytes),
                 ));
                 let alloc_delta = after.current_allocated as isize - after.current_rss as isize;
                 if alloc_delta != 0 {
+                    // alloc_delta = allocated - RSS（有向差，带符号输出）：
+                    // - 为正（allocated 更大）：多为两者采样时刻/记账口径差（先读 RSS 后读
+                    //   allocated，其间 /gc 自身仍在分配），不解读为「超出物理内存」。
+                    // - 为负（RSS 更大）：RSS 含非分配器占用（栈、映射文件等）。
+                    let hint = if alloc_delta > 0 {
+                        "allocated 大于当时 RSS（采样时刻/记账口径差，仅供参考）"
+                    } else {
+                        "RSS 更大 = 栈/映射文件等非分配器占用"
+                    };
                     lines.push(format!(
-                        "{alloc_name} allocated: {} (与 RSS 差 {}；RSS 更大 = 栈/映射文件等非分配器占用)",
+                        "{alloc_name} allocated: {} (allocated-RSS = {}；{hint})",
                         fmt_bytes(after.current_allocated),
-                        fmt_bytes(alloc_delta.unsigned_abs()),
+                        fmt_signed_delta(alloc_delta, fmt_bytes),
                     ));
                 }
             }
@@ -65,13 +75,12 @@ impl Command for GcCommand {
         }
 
         if let (Some(before), Some(after)) = (os_rss_before, os_rss_after) {
-            let delta = before as isize - after as isize;
-            let sign = if delta >= 0 { "+" } else { "" };
+            let delta = after as isize - before as isize;
             lines.push(format!(
-                "OS RSS: {} → {} ({sign}{})",
+                "OS RSS: {} → {} ({})",
                 fmt_mb(before),
                 fmt_mb(after),
-                fmt_mb_from_usize(delta.unsigned_abs()),
+                fmt_signed_delta(delta, fmt_mb_from_usize),
             ));
         }
 
@@ -480,6 +489,18 @@ fn estimate_links_heap(links: &[cc_widgets::markdown::LinkHit]) -> usize {
 
 // ── 格式化 ────────────────────────────────────────────────────────────────────
 
+/// 把带符号的变化量格式化为 `+1.3 MB` / `-1.3 MB` / `±0 B`。
+///
+/// `delta` 的符号语义统一为「增加为正」（即 `after - before`）。此前 gc 汇总
+/// 误用 `before - after` 且仅在 `>= 0` 时加 `+`，导致内存下降被显示为 `+N`。
+fn fmt_signed_delta(delta: isize, fmt: impl Fn(usize) -> String) -> String {
+    if delta == 0 {
+        return format!("±{}", fmt(0));
+    }
+    let sign = if delta > 0 { "+" } else { "-" };
+    format!("{sign}{}", fmt(delta.unsigned_abs()))
+}
+
 fn fmt_bytes(bytes: usize) -> String {
     const KB: usize = 1024;
     const MB: usize = 1024 * KB;
@@ -502,4 +523,36 @@ fn fmt_mb(mb: u64) -> String {
 
 fn fmt_mb_from_usize(mb: usize) -> String {
     fmt_mb(mb as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 回归：RSS 变化的方向符号不得颠倒。
+    ///
+    /// 此前 gc 汇总用 `before - after` 计算 delta 且仅在 `>= 0` 时加 `+`，
+    /// 导致内存**下降**（197.9 → 196.6）被显示为 `+1.3 MB`。
+    #[test]
+    fn fmt_signed_delta_direction() {
+        const MB: isize = 1024 * 1024;
+        // 下降 1.3 MB：after - before = -1.3MB → "-1.3 MB"
+        assert_eq!(
+            fmt_signed_delta(-13 * MB / 10, fmt_bytes),
+            "-1.3 MB",
+            "内存下降应显示负号"
+        );
+        // 上升 1.3 MB → "+1.3 MB"
+        assert_eq!(fmt_signed_delta(13 * MB / 10, fmt_bytes), "+1.3 MB");
+        // 无变化 → "±0 B"
+        assert_eq!(fmt_signed_delta(0, fmt_bytes), "±0 B");
+    }
+
+    /// 回归：OS RSS（MB 整数）走同一符号约定。
+    #[test]
+    fn fmt_signed_delta_mb_direction() {
+        assert_eq!(fmt_signed_delta(-1, fmt_mb_from_usize), "-1 MB");
+        assert_eq!(fmt_signed_delta(3, fmt_mb_from_usize), "+3 MB");
+        assert_eq!(fmt_signed_delta(0, fmt_mb_from_usize), "±0 MB");
+    }
 }
