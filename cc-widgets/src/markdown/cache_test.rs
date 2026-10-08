@@ -1,6 +1,6 @@
 use super::cache::MarkdownCache;
 use super::MarkdownDoc;
-use ratatui::text::Text;
+use ratatui::text::{Line, Span, Text};
 
 /// 辅助：创建新的缓存实例（不使用全局单例，测试隔离）
 fn make_cache() -> MarkdownCache {
@@ -111,4 +111,109 @@ fn test_cache_clear() {
     // Assert: 缓存为空
     assert_eq!(cache.len(), 0, "清空后应为 0 条");
     assert!(cache.get("hello", 80).is_none(), "清空后查询应 miss");
+}
+
+#[test]
+fn test_cache_stats_empty_cache() {
+    let cache = make_cache();
+    let stats = cache.stats();
+    assert_eq!(stats.entries, 0, "空缓存不应有条目");
+    assert_eq!(stats.capacity, 1024, "条数上限应保持不变");
+    assert_eq!(
+        stats.estimated_heap_bytes, 0,
+        "空缓存的解析产物堆估算应为零"
+    );
+    assert_eq!(stats.largest_entry_heap_bytes, 0);
+    assert_eq!(stats.rendered_lines, 0);
+    assert_eq!(stats.rendered_spans, 0);
+}
+
+#[test]
+fn test_cache_stats_counts_reserved_capacity_and_owned_content() {
+    let cache = make_cache();
+    let mut owned = String::with_capacity(4096);
+    owned.push_str("中文");
+    let mut url = String::with_capacity(512);
+    url.push_str("https://example.com");
+    let string_bytes = owned.capacity() + url.capacity();
+    let mut spans = Vec::with_capacity(4);
+    spans.push(Span::raw(owned));
+    spans.push(Span::raw("借用的静态文本"));
+    let span_bytes = spans.capacity() * std::mem::size_of::<Span<'static>>();
+    let mut lines = Vec::with_capacity(3);
+    lines.push(Line::from(spans));
+    let mut links = Vec::with_capacity(2);
+    links.push(super::LinkHit {
+        line: 0,
+        g_start: 0,
+        g_end: 2,
+        url,
+    });
+    let expected_bytes = string_bytes
+        + span_bytes
+        + lines.capacity() * std::mem::size_of::<Line<'static>>()
+        + links.capacity() * std::mem::size_of::<super::LinkHit>();
+    let doc = MarkdownDoc {
+        text: Text {
+            lines,
+            ..Default::default()
+        },
+        links,
+    };
+    cache.put("capacity", 80, doc);
+    let stats = cache.stats();
+    assert_eq!(stats.entries, 1);
+    assert_eq!(
+        stats.estimated_heap_bytes, expected_bytes,
+        "应统计预留容量且不计静态借用文本"
+    );
+    assert_eq!(stats.largest_entry_heap_bytes, expected_bytes);
+    assert_eq!(stats.rendered_lines, 1, "行数应按长度而不是容量统计");
+    assert_eq!(stats.rendered_spans, 2, "Span 数应按长度而不是容量统计");
+}
+
+#[test]
+fn test_cache_stats_tracks_replacement_eviction_and_clear() {
+    let cache = MarkdownCache::new_for_test_with_capacity(1);
+    cache.put("large", 80, MarkdownDoc::from(Text::from("x".repeat(4096))));
+    let large = cache.stats();
+    cache.put("large", 80, make_doc("短文本"));
+    let replaced = cache.stats();
+    cache.put("small", 80, make_doc("其他短文本"));
+    let evicted = cache.stats();
+    cache.clear();
+    let cleared = cache.stats();
+    assert!(
+        large.estimated_heap_bytes >= 4096,
+        "大条目应计入其自有字符串"
+    );
+    assert!(
+        replaced.estimated_heap_bytes < large.estimated_heap_bytes,
+        "覆盖后不应残留旧条目统计"
+    );
+    assert_eq!(evicted.entries, 1, "淘汰后只能统计仍存活的条目");
+    assert_eq!(evicted.estimated_heap_bytes, replaced.estimated_heap_bytes);
+    assert_eq!(
+        evicted.largest_entry_heap_bytes,
+        evicted.estimated_heap_bytes
+    );
+    assert_eq!(cleared.entries, 0);
+    assert_eq!(cleared.estimated_heap_bytes, 0);
+    assert_eq!(cleared.largest_entry_heap_bytes, 0);
+}
+
+#[test]
+fn test_cache_stats_preserves_lru_order() {
+    let cache = MarkdownCache::new_for_test_with_capacity(2);
+    cache.put("old", 80, make_doc("旧条目"));
+    cache.put("new", 80, make_doc("新条目"));
+    let stats = cache.stats();
+    cache.put("latest", 80, make_doc("最新条目"));
+    assert_eq!(stats.entries, 2);
+    assert!(
+        cache.get("old", 80).is_none(),
+        "统计不应延长旧条目的缓存寿命"
+    );
+    assert!(cache.get("new", 80).is_some());
+    assert!(cache.get("latest", 80).is_some());
 }
