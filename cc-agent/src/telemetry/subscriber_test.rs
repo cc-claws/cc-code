@@ -57,3 +57,14 @@ fn test_init_tracing_creates_default_log_file() {
     // 清理测试产物
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn test_resolve_log_writer_bad_path_falls_back_without_panic() {
+    // Arrange: 拿一个「目录」当日志文件路径 → 打开必失败（Windows: 拒绝访问 / IsADirectory）
+    let dir = std::env::temp_dir().join("cc-code-log-writer-probe-dir");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Act: 旧实现用 `.expect("cannot open log file")` 在此 panic；修复后应退回 stderr、不崩
+    let _writer = super::resolve_log_writer(&dir.to_string_lossy());
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&dir);
+}
