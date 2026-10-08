@@ -1131,7 +1131,7 @@ submit_message(text)
 - → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成到 Markdown 渲染
 - → [mouse-selection.md](./mouse-selection.md) — 鼠标拖拽文字选区和剪贴板复制
 - → [skill-trigger.md](./skill-trigger.md) — Skills 触发键从 # 统一到 / 前缀
-- → [hitl-permissions.md](./hitl-permissions.md) — 5 级权限模式 Shift+Tab 切换
+- → [hitl-permissions.md](./hitl-permissions.md) — 权限模式 Auto / Bypass 两档，Shift+Tab 切换
 - → [model-config.md](./model-config.md) — /login 面板 Provider CRUD
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一消息管线
 - → [compact.md](./compact.md) — Micro/Full Compact 策略增强

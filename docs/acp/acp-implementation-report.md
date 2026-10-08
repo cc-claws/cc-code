@@ -578,7 +578,7 @@ HITL middleware
 
 ### 6.8 Agent 组装（agent_assembler.rs）
 
-`assemble_agent()` 构建完整的 ReActAgent，包含 15 层中间件链：
+`assemble_agent()` 构建完整的 ReActAgent，包含 17 + 1 层中间件链（完整清单见 `cc-middlewares/CLAUDE.md`；此处只列主干）：
 
 ```
 1.  AgentsMdMiddleware         ← 指引文件注入（同目录合并去重 + 跨目录拼接 + 限额）

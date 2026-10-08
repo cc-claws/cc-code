@@ -103,10 +103,15 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 - 作用范围：**所有主候选文件**（`AGENTS.md` / `CLAUDE.md` / 全局 / `.local`）；dsh 无此能力，属本仓库扩展。
 - 深度上限 **3**，带**环检测**（visited canonical paths，含自身）。
 - **在去重之前**展开（先展开、后按内容去重；因此「同一内容被 import 进两个文件」也会被去重）。
-- **范围限制（默认）**：只能 import **所属项目根内**的文件（文件不在任何项目根下时 = 该文件所在目录）；
-  `../` 穿越与绝对路径越界一律**保留占位符** + `tracing::warn!`。这是安全边界：处理恶意仓库时，
-  其 `AGENTS.md` 不能借 `@import` 把项目外文件（`~/.ssh/id_rsa` 等）读进 System 消息——
-  指引注入发生在 `session/new`，**不经过 HITL**。跨仓库共享规则文件用 `ImportScope::Unrestricted` 显式放开。
+- **范围限制按来源分层（默认）**：项目树内发现的指引文件只能 import **所属项目根内**的文件
+  （不在任何项目根下时 = 该文件所在目录）；`../` 穿越与绝对路径越界一律**保留占位符** + `tracing::warn!`。
+  这是安全边界：处理恶意仓库时，其 `AGENTS.md` 不能借 `@import` 把项目外文件（`~/.ssh/id_rsa` 等）
+  读进 System 消息——指引注入发生在 `session/new`，**不经过 HITL**。
+  - **用户自有文件不受此限**：`~/.cc-code/AGENTS.md`（用户全局层）、`~/.claude/CLAUDE.md`（Jev 来源）
+    按 `Unrestricted` 处理。它们不是攻击者可控输入，而 `<!-- @import ~/rules/x.md -->` 这类跨项目
+    共享是常见做法；若一并收窄，规则会**静默消失**——对门而言是变松，不是变紧。
+  - 受限范围下 `canonicalize` **必须成功**：失败（权限 / 环 / 长路径）时无法确认是否越界 →
+    fail-closed 保留占位符（不受限路径才容忍 `canonicalize` 失败）。
 - 展开失败（文件不存在/不可读/成环/超深/越界）**保留原占位符**并静默跳过，不 panic；
   「存在但不可读」（权限 / 瞬时 IO 错）另发 `tracing::warn!` 留痕。
 - 被 import 进来的内容同样归一 CRLF。
@@ -266,7 +271,7 @@ render_instruction_set(files, cfg):
 
 另含 `test_crlf_normalized_and_deduped`（CRLF 归一）、`test_bom_stripped_and_dedup`（BOM 剥离 + 不破坏去重）、
 `test_import_relative_escape_blocked` / `test_import_absolute_path_outside_blocked` / `test_import_unrestricted_scope_allows_outside` /
-`test_import_inside_root_still_works`（`@import` 范围边界）、`test_frozen_instructions_single_message`（冻结路径产出单条 System 消息）、
+`test_import_inside_root_still_works` / `test_user_global_import_not_scope_limited`（`@import` 范围边界：项目内受限、用户全局不受限）、`test_frozen_instructions_single_message`（冻结路径产出单条 System 消息）、
 `test_import_in_local_and_global_too`（`@import` 对 `.local` / 全局文件同样生效）、
 `test_excludes_*` + `test_excludes_applied_before_dedup`（excludes 生效且先于去重）、
 `test_first_file_truncation_keeps_provenance_header`、`test_ancestor_chain_*`（链退化分支）。
@@ -316,6 +321,9 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
   1. `claude_md_excludes` 贯通冻结路径（#359 已修）：`build_frozen_session_data` 改收 `&AppConfig`，excludes 在渲染前生效；
   2. 子 Agent 继承父的**冻结**指引（#360 已修）：新增 `SubAgentMiddleware::with_inherited_instructions`，
      沿 `SubAgentMiddlewareConfig` / `SubAgentTool` 透传到子链，消除每轮重读造成的 prompt 前缀抖动；
+     继承体是 `InheritedInstructions { cwd, rendered }`——`Agent` 工具的 `cwd` 是 **LLM 可传参**，
+     只有「子 Agent cwd == 渲染该指引时的 cwd」才套用父快照，否则回退读盘（否则会给子 Agent
+     注入**别的项目**的规则，且因冻结短路读不到目标项目自己的指引）；
   3. `@import` 默认限项目根内（#361 已修）：新增 `ImportScope`，越界保留占位符 + `warn!`；
   4. UTF-8 BOM 剥离（`normalize_content`）：BOM 不属 White_Space，`trim()` 去不掉，会污染 prompt 且破坏同目录去重；
   5. **另修一处相邻的既有安全语义漏洞**（不在本领域，见 [hitl-permissions.md](./hitl-permissions.md)）：

@@ -26,7 +26,7 @@
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
 - **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
-- **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**，用户全局层 `~/.cc-code/AGENTS.md` 置于链首；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测）
+- **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**，用户全局层 `~/.cc-code/AGENTS.md` 置于链首；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测；默认限**所属项目根内**，越界保留占位符；用户自有全局文件不受限）
 - **TodoMiddleware:** `after_tool` 解析 `TodoWrite` 结果，推送 Todo 状态到渲染 channel
 - **AskUserTool:** `AskUserQuestion` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
 - **Token 追踪:** TokenTracker 累积追踪 input/output/cache tokens，ContextBudget 上下文窗口预算管理

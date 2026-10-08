@@ -35,7 +35,7 @@
 - **事件驱动 ACP 通信:** Agent 执行与 TUI 渲染通过 ACP JSON-RPC 2.0 协议通信，MpscTransport（内存通道）用于本地 TUI，StdioTransport 用于 IDE 对接，禁止共享可变状态
 - **线程持久化事件驱动:** 持久化由 `StateSnapshot` 事件触发增量写入，不做全量序列化
 - **Widget 独立 crate:** cc-widgets 零内部依赖，仅依赖 ratatui + pulldown-cmark，TUI 通过 feature flag 引入
-- **权限模式系统:** 5 级 PermissionMode（Default/AcceptEdits/Auto/BypassPermissions/DontAsk），Arc<AtomicU8> 无锁共享，HITL middleware 根据 mode 决定放行/拦截
+- **权限模式系统:** 2 档 PermissionMode（`Auto` 默认 / `Bypass`），Arc<AtomicU8> 无锁共享，HITL middleware 按模式决定放行/判定/拦截
 - **LLM 重试装饰器:** RetryableLLM<L> 装饰器模式，对 executor 零改动，指数退避+25%随机抖动
 - **消息管线统一:** MessagePipeline 成为消息状态管理唯一入口，PipelineAction 枚举统一描述所有 UI 变更
 - **系统提示词段落化:** include_str! 编译时嵌入 sections/ 目录下的 12 个 .md 段落，PromptFeatures 条件注入

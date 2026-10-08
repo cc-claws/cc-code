@@ -336,18 +336,25 @@ Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，�
 中间件按注册顺序执行，典型组装顺序：
 
 ```
-主 Agent（cc-tui 组装）：
-1. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
-2. AgentsMdMiddleware         ← 注入指引整段（AGENTS.md/CLAUDE.md 及变体，单条 System 消息）
+主 Agent（cc-acp 的 build_agent 组装；完整 17 + 1 个中间件见 cc-middlewares/CLAUDE.md）：
+1. AgentsMdMiddleware         ← 注入指引整段（AGENTS.md/CLAUDE.md 及变体，单条 System 消息）
+2. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
 3. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
 4. SkillPreloadMiddleware     ← 消息含 #skill-name 时注入 skill 全文（fake tool 序列）
-5. FilesystemMiddleware       ← 提供 6 个文件系统工具
-6. TerminalMiddleware         ← 提供 bash 工具
-7. TodoMiddleware             ← after_tool 解析 TodoWrite 结果
-8. CronMiddleware             ← CronRegister/CronList/CronRemove
-9. HumanInTheLoopMiddleware   ← before_tool 拦截敏感工具
-10. SubAgentMiddleware         ← 提供 Agent 工具（支持 fork/normal/background 三路径）
-11. McpMiddleware             ← MCP 工具和资源注入（仅 pool 初始化成功时注册）
+5. AtMentionMiddleware        ← @path 解析，注入 Read 工具调用
+6. FilesystemMiddleware       ← 提供文件系统工具
+7. GitAttributionMiddleware   ← 追踪 Write/Edit 贡献字符数
+8. TerminalMiddleware         ← 提供 bash 工具
+9. WebMiddleware              ← WebFetch/WebSearch
+10. TodoMiddleware            ← after_tool 解析 TodoWrite 结果
+11. CronMiddleware            ← CronRegister/CronList/CronRemove
+12. HookMiddleware            ← hooks 事件拦截（多组实例）
+13. HumanInTheLoopMiddleware  ← before_tool 拦截敏感工具
+14. SubAgentMiddleware        ← 提供 Agent 工具（支持 fork/normal/background 三路径）
+15. McpMiddleware             ← MCP 工具和资源注入（仅 pool 初始化成功时注册）
+16. ToolSearchMiddleware      ← SearchExtraTools/ExecuteExtraTool 代理
+17. LspMiddleware             ← LSP 工具 + after_tool 文件变更同步
+18. CompactMiddleware         ← before_model 钩子触发上下文压缩（条件注册）
 [ReActAgent.with_system_prompt()] ← system prompt 固定在 run_before_agent 之后 prepend，不依赖中间件顺序
 
 子 Agent（SubAgentTool 内部组装）：

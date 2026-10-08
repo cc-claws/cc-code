@@ -126,7 +126,7 @@
 - [mouse-selection](./domains/mouse-selection.md) — 鼠标选区（拖拽选中文本、剪贴板复制）— 1 feature
 - [system-prompt](./domains/system-prompt.md) — 系统提示词（段落化、Feature 条件注入）— 1 feature
 - [file-search](./domains/file-search.md) — 文件搜索（rg CLI 双引擎：外部 ripgrep 优先，回退 Rust 引擎）— 1 feature
-- [hitl-permissions](./domains/hitl-permissions.md) — HITL 权限（5 级权限模式）— 1 feature
+- [hitl-permissions](./domains/hitl-permissions.md) — HITL 权限（Auto / Bypass 两档 + 语义门）— 1 feature
 - [tui-widgets](./domains/tui-widgets.md) — TUI 组件（Spinner/ToolCall/MessageBlock widget + widget 库抽取）— 2 features
 - [compact](./domains/compact.md) — 上下文压缩增强（Micro/Full Compact 策略）— 1 feature
 - [code-architecture](./domains/code-architecture.md) — 代码架构（Relay 移除等结构性变更）— 1 feature
