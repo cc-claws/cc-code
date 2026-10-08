@@ -5,7 +5,7 @@
 **创建日期**：2026-10-08
 **分支**：`refactor/drop-peri-compat`
 **Issue**：[#348](https://github.com/cc-claws/cc-code/issues/348)
-**PR**：待填
+**PR**：[#349](https://github.com/cc-claws/cc-code/pull/349)
 
 ---
 
