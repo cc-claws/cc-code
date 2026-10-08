@@ -78,10 +78,13 @@ pub(crate) fn build_subagent_middlewares(
     config: SubAgentMiddlewareConfig,
 ) -> Vec<Box<dyn Middleware<AgentState>>> {
     let mut middlewares: Vec<Box<dyn Middleware<AgentState>>> = Vec::new();
-    // 父 Agent 的冻结指引优先（同一 cwd，直接继承）；未冻结时才让中间件自己读盘。
-    let agents_md = match config.inherited_instructions {
-        Some(instructions) => AgentsMdMiddleware::new().with_frozen_instructions(instructions.to_string()),
-        None => AgentsMdMiddleware::new(),
+    // 父的冻结指引只在**子 Agent cwd 与父 cwd 一致**时套用：`Agent` 工具的 cwd 是
+    // LLM 可传参，跨项目时用父的指引会串味，还会因冻结短路让子 Agent 读不到目标项目的指引。
+    let agents_md = match config.inherited_instructions.as_ref() {
+        Some(inh) if inh.cwd.as_ref() == config.cwd => {
+            AgentsMdMiddleware::new().with_frozen_instructions(inh.rendered.to_string())
+        }
+        _ => AgentsMdMiddleware::new(),
     };
     middlewares.push(Box::new(agents_md));
     middlewares.push(Box::new(SkillsMiddleware::new().with_global_config()));

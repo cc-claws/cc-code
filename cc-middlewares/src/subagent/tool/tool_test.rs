@@ -996,26 +996,70 @@ fn test_build_middleware_agent_def_with_skills_includes_skill_preload() {
     );
 }
 
-#[tokio::test]
-async fn test_subagent_chain_inherits_frozen_instructions() {
-    // cwd 故意选不存在的路径：注入内容只能来自继承的快照，证明**没有**回读磁盘。
-    let cwd = "/nonexistent/for/inherit/test";
-    let middlewares = build_subagent_middlewares(
-        SubAgentMiddlewareConfig::for_fork(cwd)
-            .with_inherited_instructions(Some(Arc::from("INHERITED_RULES"))),
-    );
+/// 取子 Agent 链里的 AgentsMdMiddleware 并跑一次注入，返回注入内容（未注入则 None）。
+///
+/// `state_cwd` 要与真实链路一致——非冻结路径是按 `state.cwd()` 读盘的
+/// （`execute_fork` 也是 `AgentState::new(cwd)`）。
+async fn subagent_injected_content(
+    cfg: SubAgentMiddlewareConfig,
+    state_cwd: &str,
+) -> Option<String> {
+    let middlewares = build_subagent_middlewares(cfg);
     let agents_md = middlewares
         .iter()
         .find(|m| m.name() == "AgentsMdMiddleware")
         .expect("子 Agent 链应含 AgentsMdMiddleware");
-
-    let mut state = cc_agent::agent::state::AgentState::new(cwd);
+    let mut state = cc_agent::agent::state::AgentState::new(state_cwd);
     agents_md.before_agent(&mut state).await.unwrap();
-
     use cc_agent::agent::state::State as _;
-    assert_eq!(state.messages().len(), 1, "应注入单条 System 消息");
-    let content = state.messages()[0].content();
+    match state.messages() {
+        [] => None,
+        msgs => Some(msgs[0].content()),
+    }
+}
+
+fn inherited(cwd: &str, rendered: &str) -> crate::subagent::InheritedInstructions {
+    crate::subagent::InheritedInstructions {
+        cwd: Arc::from(cwd),
+        rendered: Arc::from(rendered),
+    }
+}
+
+#[tokio::test]
+async fn test_subagent_chain_inherits_frozen_instructions() {
+    // cwd 故意选不存在的路径：注入内容只能来自继承的快照，证明**没有**回读磁盘。
+    let cwd = "/nonexistent/for/inherit/test";
+    let content = subagent_injected_content(
+        SubAgentMiddlewareConfig::for_fork(cwd)
+            .with_inherited_instructions(Some(inherited(cwd, "INHERITED_RULES"))),
+        cwd,
+    )
+    .await
+    .expect("应注入单条 System 消息");
     assert!(content.contains("INHERITED_RULES"), "{content}");
+}
+
+#[tokio::test]
+async fn test_subagent_other_cwd_falls_back_to_disk() {
+    // `Agent` 工具的 cwd 是 LLM 可传参：子 Agent 跑在别的项目时，
+    // **不能**套用父的指引（否则串味 + 因冻结短路读不到目标项目自己的指引）。
+    let dir = tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(dir.path().join("AGENTS.md"), "CHILD_PROJECT_RULES").unwrap();
+    let child_cwd = dir.path().to_str().unwrap();
+
+    let content = subagent_injected_content(
+        SubAgentMiddlewareConfig::for_fork(child_cwd)
+            .with_inherited_instructions(Some(inherited("/parent/project", "PARENT_RULES"))),
+        child_cwd,
+    )
+    .await
+    .expect("应回退读盘并注入目标项目的指引");
+    assert!(content.contains("CHILD_PROJECT_RULES"), "{content}");
+    assert!(
+        !content.contains("PARENT_RULES"),
+        "父的指引不得串味: {content}"
+    );
 }
 
 #[tokio::test]
@@ -1023,21 +1067,17 @@ async fn test_subagent_chain_without_inheritance_reads_disk() {
     // 反向对照：不继承 + cwd 无文件 → 不注入任何消息（旧行为保留）
     let dir = tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join(".git")).unwrap();
-    let middlewares =
-        build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork(dir.path().to_str().unwrap()));
-    let agents_md = middlewares
-        .iter()
-        .find(|m| m.name() == "AgentsMdMiddleware")
-        .expect("子 Agent 链应含 AgentsMdMiddleware");
-
-    let mut state = cc_agent::agent::state::AgentState::new(dir.path().to_str().unwrap());
-    agents_md.before_agent(&mut state).await.unwrap();
-    use cc_agent::agent::state::State as _;
-    assert_eq!(state.messages().len(), 0);
+    let injected = subagent_injected_content(
+        SubAgentMiddlewareConfig::for_fork(dir.path().to_str().unwrap()),
+        dir.path().to_str().unwrap(),
+    )
+    .await;
+    assert!(injected.is_none(), "无文件不应注入: {injected:?}");
 }
 
 #[test]
-fn test_build_middleware_order_is_fixed() {    // 有 skills 时验证完整顺序
+fn test_build_middleware_order_is_fixed() {
+    // 有 skills 时验证完整顺序
     let middlewares = build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(
         vec!["a".to_string()],
         "/tmp",

@@ -9,6 +9,7 @@ pub use background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatu
 pub use built_in_agents::{get_built_in_agent, list_built_in_agents, BuiltInAgent};
 pub use skill_preload::SkillPreloadMiddleware;
 pub use tool::SubAgentTool;
+// 父→子冻结指引的载体（含父 cwd），cc-acp 构造时需要
 
 use parking_lot::RwLock;
 
@@ -16,14 +17,28 @@ use parking_lot::RwLock;
 ///
 /// 中间件链顺序固定: AgentsMd -> Skills -> [SkillPreload] -> Todo
 /// 仅 `skill_names` 在不同执行路径间变化
+/// 父 Agent 的**冻结指引** + 它渲染时依据的 cwd。
+///
+/// `cwd` 必须一起带上，不能只传字符串：`Agent` 工具的 `cwd` 是 **LLM 可传参**
+/// （默认继承父 cwd），子 Agent 可能跑在另一个项目里——此时父的指引既串味，
+/// 又会因「冻结优先」短路让子 Agent **读不到目标项目自己的** `AGENTS.md` / `CLAUDE.md`。
+/// 把前提编进类型后，`build_subagent_middlewares` 里用 cwd 相等做闸门。
+#[derive(Debug, Clone)]
+pub struct InheritedInstructions {
+    /// 渲染该指引时的 cwd（父 Agent 的 cwd）
+    pub cwd: Arc<str>,
+    /// 已渲染的指引整段
+    pub rendered: Arc<str>,
+}
+
 pub(crate) struct SubAgentMiddlewareConfig {
     /// 需要预加载的 skill 名称列表，为空时跳过 SkillPreloadMiddleware
     pub skill_names: Vec<String>,
     /// 工作目录，用于解析 skill 文件路径
     pub cwd: String,
-    /// 父 Agent 已冻结的指引整段（子 Agent 与父同 cwd，直接继承即可）。
-    /// `None` = 现场重读磁盘（旧行为）。
-    pub inherited_instructions: Option<Arc<str>>,
+    /// 父 Agent 的冻结指引（**含父 cwd**；仅当子 Agent cwd 与之一致时才套用）。
+    /// `None` = 现场重读磁盘。
+    pub inherited_instructions: Option<InheritedInstructions>,
 }
 
 impl SubAgentMiddlewareConfig {
@@ -45,8 +60,11 @@ impl SubAgentMiddlewareConfig {
             inherited_instructions: None,
         }
     }
-    /// 继承父 Agent 的冻结指引（子 Agent 与父同 cwd，无需重读磁盘）
-    pub fn with_inherited_instructions(mut self, instructions: Option<Arc<str>>) -> Self {
+    /// 继承父 Agent 的冻结指引（只在其 cwd 与子 Agent cwd 一致时生效）
+    pub fn with_inherited_instructions(
+        mut self,
+        instructions: Option<InheritedInstructions>,
+    ) -> Self {
         self.inherited_instructions = instructions;
         self
     }
@@ -129,9 +147,9 @@ pub struct SubAgentMiddleware {
     register_runtime: Option<Arc<dyn Fn(String, AgentCancellationToken, String) + Send + Sync>>,
     /// Deregister callback: removes from active_agents map by thread_id
     deregister_runtime: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-    /// 父 Agent 已冻结的指引整段，透传给子 Agent 链（见 `SubAgentMiddlewareConfig`）。
-    /// `None` = 子 Agent 自行读盘（旧行为，会导致会话中途改文件时 prompt 前缀抖动 → #360）。
-    inherited_instructions: Option<Arc<str>>,
+    /// 父 Agent 的冻结指引（含父 cwd），透传给子 Agent 链（见 `SubAgentMiddlewareConfig`）。
+    /// `None` = 子 Agent 自行读盘（会话中途改文件会让其 prompt 前缀抖动 → #360）。
+    inherited_instructions: Option<InheritedInstructions>,
 }
 
 impl SubAgentMiddleware {
@@ -201,12 +219,15 @@ impl SubAgentMiddleware {
         self
     }
 
-    /// 继承父 Agent 的**冻结**指引整段（`session/new` 已渲染好）。
+    /// 继承父 Agent 的**冻结**指引（`session/new` 已渲染好）。
     ///
-    /// 子 Agent 与父 Agent 同 cwd，直接用父的快照即可：既省掉每轮重读磁盘，
-    /// 也避免会话中途改 `AGENTS.md` / `CLAUDE.md` 导致子 Agent 的 System 消息
-    /// 变化（prompt cache 前缀抖动 + 行为漂移，见 #360）。
-    pub fn with_inherited_instructions(mut self, instructions: Option<Arc<str>>) -> Self {
+    /// 既省掉每轮重读磁盘，也避免会话中途改 `AGENTS.md` / `CLAUDE.md` 导致子 Agent 的
+    /// System 消息变化（prompt cache 前缀抖动 + 行为漂移，见 #360）。
+    /// **仅当子 Agent cwd 与指引渲染时的 cwd 一致**才套用（`Agent` 工具的 cwd 可由 LLM 指定）。
+    pub fn with_inherited_instructions(
+        mut self,
+        instructions: Option<InheritedInstructions>,
+    ) -> Self {
         self.inherited_instructions = instructions;
         self
     }
@@ -298,7 +319,7 @@ impl SubAgentMiddleware {
             tool = tool.with_thread_store(Arc::clone(store));
         }
         if let Some(ref instructions) = self.inherited_instructions {
-            tool = tool.with_inherited_instructions(Some(Arc::clone(instructions)));
+            tool = tool.with_inherited_instructions(Some(instructions.clone()));
         }
         if let Some(ref id) = self.parent_thread_id {
             tool = tool.with_parent_thread_id(id.clone());

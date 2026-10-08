@@ -91,8 +91,8 @@ pub struct SubAgentTool {
         Option<Arc<dyn Fn(String, AgentCancellationToken, String) + Send + Sync>>,
     /// Deregister callback: removes from active_agents map by thread_id
     pub(crate) deregister_runtime: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-    /// 父 Agent 已冻结的指引整段，供子 Agent 链继承（避免每轮重读，见 #360）
-    pub(crate) inherited_instructions: Option<Arc<str>>,
+    /// 父 Agent 的冻结指引（含父 cwd），供子 Agent 链继承（避免每轮重读，见 #360）
+    pub(crate) inherited_instructions: Option<super::super::InheritedInstructions>,
 }
 
 impl SubAgentTool {
@@ -193,8 +193,11 @@ impl SubAgentTool {
         self
     }
 
-    /// 继承父 Agent 已冻结的指引整段（子 Agent 与父同 cwd，直接用父的快照）
-    pub fn with_inherited_instructions(mut self, instructions: Option<Arc<str>>) -> Self {
+    /// 继承父 Agent 的冻结指引（仅在子 Agent cwd 与父 cwd 一致时生效）
+    pub fn with_inherited_instructions(
+        mut self,
+        instructions: Option<super::super::InheritedInstructions>,
+    ) -> Self {
         self.inherited_instructions = instructions;
         self
     }

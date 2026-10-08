@@ -205,9 +205,8 @@ pub fn build_agent(
     if let Some(ref sid) = session_id {
         base_llm = base_llm.with_session_id(sid);
     }
-    let model =
-        cc_agent::llm::RetryableLLM::new(base_llm, cc_agent::llm::RetryConfig::default())
-            .with_event_handler(Arc::clone(&event_handler));
+    let model = cc_agent::llm::RetryableLLM::new(base_llm, cc_agent::llm::RetryConfig::default())
+        .with_event_handler(Arc::clone(&event_handler));
 
     // Todo channel
     let (todo_tx, todo_rx) = tokio::sync::mpsc::channel::<Vec<TodoItem>>(8);
@@ -401,10 +400,16 @@ pub fn build_agent(
         .clone()
         .unwrap_or_default();
 
-    // 子 Agent 与父 Agent 同 cwd，直接继承同一份**冻结**指引：
-    // 既省掉每轮重读磁盘，也避免会话中途改 AGENTS.md/CLAUDE.md 让子 Agent 的
-    // System 消息变化（prompt cache 前缀抖动 + 行为漂移，见 #360）。
-    let inherited_instructions: Option<Arc<str>> = frozen_instructions.as_deref().map(Arc::from);
+    // 把父的**冻结**指引（连同它渲染时的 cwd）交给子 Agent 链：既省掉每轮重读磁盘，
+    // 也避免会话中途改 AGENTS.md/CLAUDE.md 让子 Agent 的 System 消息变化
+    // （prompt cache 前缀抖动 + 行为漂移，见 #360）。cwd 一起带上是因为 `Agent` 工具的
+    // cwd 是 LLM 可传参——只有子 Agent cwd 与父一致时才能套用这份指引。
+    let inherited_instructions = frozen_instructions.as_deref().map(|rendered| {
+        cc_middlewares::subagent::InheritedInstructions {
+            cwd: Arc::from(cwd.as_str()),
+            rendered: Arc::from(rendered),
+        }
+    });
 
     // SubAgent middleware
     let mut subagent = SubAgentMiddleware::new(

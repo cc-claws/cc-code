@@ -109,11 +109,8 @@ impl super::SubAgentTool {
 
         // 7. Middlewares
         for mw in build_subagent_middlewares(
-            SubAgentMiddlewareConfig::for_agent_def(
-                agent_def.frontmatter.skills.clone(),
-                cwd,
-            )
-            .with_inherited_instructions(self.inherited_instructions.clone()),
+            SubAgentMiddlewareConfig::for_agent_def(agent_def.frontmatter.skills.clone(), cwd)
+                .with_inherited_instructions(self.inherited_instructions.clone()),
         ) {
             agent_builder = agent_builder.add_middleware(mw);
         }
