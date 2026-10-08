@@ -68,14 +68,12 @@ pub struct PromptResult {
 pub struct FrozenSessionData {
     /// Full system prompt string built at session creation.
     pub system_prompt: String,
-    /// Frozen content of CLAUDE.md (with resolved `@import`), None if no file.
-    /// 仅供 Jev 规则提炼的「项目级」段使用；注入上下文请用 `instructions`。
-    pub claude_md: Option<String>,
-    /// Frozen content of CLAUDE.local.md, None if no file.
-    /// 仅供 Jev 规则提炼的「个人级」段使用。
-    pub claude_local_md: Option<String>,
     /// Frozen **rendered** instruction set injected as a single System message
     /// (merged candidates + dedup + provenance + limits). None = no instructions.
+    /// 这是注入上下文的唯一指引来源。
+    ///
+    /// 注：Jev 规则提炼用的「项目级 / 个人级」两段文本来自 `frozen.rs` 的局部变量
+    /// （`read_frozen_content`），**不**经由本结构体转发，故此处不再冗余保存 CLAUDE.md 原文。
     pub instructions: Option<String>,
     /// Frozen Jev rules loader, which lazily distils safety rules from CLAUDE.md.
     /// 惰性：只有门第一次真的判定时才调用模型。

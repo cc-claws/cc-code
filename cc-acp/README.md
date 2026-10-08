@@ -89,7 +89,7 @@ SDK (JSON-RPC)
 
 - `frozen_system_prompt`：系统提示词
 - `frozen_date`：会话创建日期
-- `frozen_claude_md`：CLAUDE.md 内容
+- `frozen_instructions`：指引文件整段（合并 + 去重 + provenance + 限额；见 spec/global/domains/agent-instructions.md）
 - `frozen_skill_summary`：Skills 摘要
 
 每轮重新计算的数据：

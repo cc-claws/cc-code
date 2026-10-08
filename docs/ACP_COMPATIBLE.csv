@@ -2,7 +2,7 @@
 ,,,,,,
 "# ACP Request 方法（TUI → Server）",,,,,,,
 Request,initialize,TUI → Server,协议握手,支持,,"⚠️ Stdio initialize 响应必须声明与 TUI AcpServerConfig 对齐的 session capabilities",返回 capabilities
-Request,session/new,TUI → Server,创建 session + frozen data + AvailableCommandsUpdate,支持,,"",冻结 system prompt/claude_md/skills/date/language
+Request,session/new,TUI → Server,创建 session + frozen data + AvailableCommandsUpdate,支持,,"",冻结 system prompt/instructions/skills/date/language
 Request,session/prompt,TUI → Server,提交用户输入/Slash Command,支持,,"",executor 拦截 / 前缀命令
 Request,session/load,TUI → Server,加载历史 session,支持,,"",从 ThreadStore 读取 history
 Request,session/list,TUI → Server,列出所有 session,支持,,"",支持 cwd 过滤

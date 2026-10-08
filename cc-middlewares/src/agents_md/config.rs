@@ -26,6 +26,9 @@ pub struct AgentsMdConfig {
     pub max_source_bytes: usize,
     /// 渲染后总量上限；超限停止追加后续文件并加标记。
     pub max_bytes: usize,
+    /// 排除 glob（匹配路径字符串）。**在发现阶段早期生效**（去重之前），
+    /// 因此被排除的候选不会占用去重槽位、也不会挤掉同内容但未排除的候选。
+    pub excludes: Vec<String>,
     /// 用户全局指引文件（链首，最宽）。默认 `{APP_HOME}/AGENTS.md`（`~/.cc-code/AGENTS.md`）。
     pub user_global_file: PathBuf,
 }
@@ -45,6 +48,7 @@ impl Default for AgentsMdConfig {
             ],
             max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
             max_bytes: DEFAULT_MAX_BYTES,
+            excludes: Vec::new(),
             user_global_file: default_user_global_file(),
         }
     }

@@ -35,10 +35,12 @@ pub fn build_frozen_session_data(
     frozen_date: &str,
     rule_model: Option<Arc<dyn BaseModel>>,
 ) -> FrozenSessionData {
-    let (frozen_claude_md, frozen_claude_local_md) =
+    // Jev 规则提炼的「项目级 / 个人级」两段来源（注入内容另走下面的 instructions）。
+    let (jev_project_md, jev_personal_md) =
         cc_middlewares::AgentsMdMiddleware::read_frozen_content(cwd);
 
     // 注入上下文的整段指引：同目录合并 + 去重 + 跨目录 root→cwd 拼接 + provenance + 限额。
+    // （上面那份 `read_frozen_content` 产出只喂给下面的 Jev 规则提炼，两者互不影响。）
     let frozen_instructions =
         cc_middlewares::agents_md::load_frozen_instructions(std::path::Path::new(cwd));
 
@@ -51,12 +53,12 @@ pub fn build_frozen_session_data(
             (
                 "personal",
                 "Priority 1 (highest) — personal rules ({cwd}/CLAUDE.local.md)",
-                frozen_claude_local_md.as_deref(),
+                jev_personal_md.as_deref(),
             ),
             (
                 "project",
                 "Priority 2 — project rules ({cwd}/CLAUDE.md, {cwd}/AGENTS.md)",
-                frozen_claude_md.as_deref(),
+                jev_project_md.as_deref(),
             ),
             (
                 "hooks",
@@ -90,8 +92,6 @@ pub fn build_frozen_session_data(
 
     FrozenSessionData {
         system_prompt: frozen_system_prompt,
-        claude_md: frozen_claude_md,
-        claude_local_md: frozen_claude_local_md,
         instructions: frozen_instructions,
         jev_rule_loader,
         skill_summary: frozen_skill_summary,

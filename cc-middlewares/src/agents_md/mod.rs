@@ -36,7 +36,6 @@ pub use config::{AgentsMdConfig, DEFAULT_MAX_BYTES, DEFAULT_MAX_SOURCE_BYTES};
 /// 未冻结时（子 Agent 等场景）回退到同样的发现 + 渲染逻辑。
 pub struct AgentsMdMiddleware {
     config: AgentsMdConfig,
-    excludes: Vec<String>,
     /// Frozen rendered instruction set (merged, deduped, provenance-tagged).
     /// When set, `before_agent` skips disk I/O entirely.
     frozen: Option<String>,
@@ -60,20 +59,22 @@ impl AgentsMdMiddleware {
     pub fn new() -> Self {
         Self {
             config: AgentsMdConfig::default(),
-            excludes: Vec::new(),
             frozen: None,
         }
     }
 
-    /// 覆盖加载配置（候选名、项目根标记、限额、用户全局文件）。
+    /// 覆盖加载配置（候选名、项目根标记、限额、excludes、用户全局文件）。
     pub fn with_config(mut self, config: AgentsMdConfig) -> Self {
         self.config = config;
         self
     }
 
-    /// 设置指引文件排除 glob 模式（匹配绝对路径）。
+    /// 设置指引文件排除 glob 模式（匹配路径字符串，发现阶段早期生效）。
+    ///
+    /// **仅非冻结路径生效**：冻结内容在 `session/new` 就已渲染好，中间件拿到的
+    /// 是成品字符串，无法再按文件过滤。
     pub fn with_excludes(mut self, patterns: Vec<String>) -> Self {
-        self.excludes = patterns;
+        self.config.excludes = patterns;
         self
     }
 
@@ -83,27 +84,6 @@ impl AgentsMdMiddleware {
     pub fn with_frozen_instructions(mut self, rendered: String) -> Self {
         self.frozen = Some(rendered);
         self
-    }
-
-    fn is_excluded(&self, file: &InstructionFile) -> bool {
-        if self.excludes.is_empty() {
-            return false;
-        }
-        // Windows 下 canonicalize 会带 `\\?\` verbatim 前缀，用户写的绝对 glob 通常没有——
-        // 多种形式都试一遍，避免 exclude 静默失效。
-        let raw = file.source_path.to_string_lossy().to_string();
-        let plain = raw
-            .strip_prefix(r"\\?\")
-            .map(str::to_string)
-            .unwrap_or_else(|| raw.clone());
-        let canonical = file.abs_path.to_string_lossy().to_string();
-        self.excludes.iter().any(|pat| {
-            glob::Pattern::new(pat)
-                .map(|g| {
-                    g.matches(&raw) || g.matches(&plain) || g.matches(&canonical)
-                })
-                .unwrap_or(false)
-        })
     }
 
     /// Read and freeze CLAUDE.md content once (with @import resolution).
@@ -197,13 +177,45 @@ fn ancestor_chain(root: &Path, cwd: &Path) -> Vec<PathBuf> {
     chain
 }
 
+/// 匹配 excludes glob（按「发现路径」+ canonical 两种形式都试）。
+///
+/// 按发现路径匹配是关键：macOS 上 `tempfile` 的 `/var/folders/...` 会被
+/// `canonicalize` 解析成 `/private/var/...`，Windows 上会多出 `\\?\` verbatim 前缀——
+/// 只拿 canonical 串匹配会让用户写的绝对 glob **静默失效**。
+fn is_excluded(source_path: &Path, abs_path: &Path, excludes: &[String]) -> bool {
+    if excludes.is_empty() {
+        return false;
+    }
+    let raw = source_path.to_string_lossy().to_string();
+    let plain = raw
+        .strip_prefix(r"\\?\")
+        .map(str::to_string)
+        .unwrap_or_else(|| raw.clone());
+    let canonical = abs_path.to_string_lossy().to_string();
+    excludes.iter().any(|pat| {
+        glob::Pattern::new(pat)
+            .map(|g| g.matches(&raw) || g.matches(&plain) || g.matches(&canonical))
+            .unwrap_or(false)
+    })
+}
+
+/// 解析出「发现路径 + canonical 路径」并按 exclude 规则判定（不该加载则返回 None）。
+fn canonicalize_unless_excluded(path: &Path, excludes: &[String]) -> Option<PathBuf> {
+    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if is_excluded(path, &abs_path, excludes) {
+        return None;
+    }
+    Some(abs_path)
+}
+
 /// 发现链上所有存在的指引文件（自带 provenance），宽 → 具体有序。
 ///
 /// 规则：
-/// 1. 同目录候选**全部加载**（基础层在前，`.local` 覆盖层在后）；
-/// 2. 同一绝对路径只加载一次（符号链接 / 同名重复）；
-/// 3. **同目录**内 trim 后内容相同的只保留最早的一个；
-/// 4. 空文件（trim 后为空）跳过——不遮蔽同目录的其它候选。
+/// 1. excludes 命中 → **在去重之前**丢弃（被排除的候选不占去重槽位）；
+/// 2. 同目录候选**全部加载**（基础层在前，`.local` 覆盖层在后）；
+/// 3. 同一绝对路径只加载一次（符号链接 / 同名重复）；
+/// 4. **同目录**内 trim 后内容相同的只保留最早的一个；
+/// 5. 空文件（trim 后为空）跳过——不遮蔽同目录的其它候选。
 pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<InstructionFile> {
     let root = find_project_root(cwd, &cfg.project_root_markers);
     let chain = ancestor_chain(&root, cwd);
@@ -212,9 +224,15 @@ pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<Instr
 
     // ① 用户全局层（链首，最宽）
     if cfg.user_global_file.is_file() {
-        let display = cfg.user_global_display();
-        if let Some(file) = load_instruction_file(&cfg.user_global_file, display, &mut seen_abs) {
-            out.push(file);
+        if let Some(abs_path) =
+            canonicalize_unless_excluded(&cfg.user_global_file, &cfg.excludes)
+        {
+            let display = cfg.user_global_display();
+            if let Some(file) =
+                load_instruction_file(&cfg.user_global_file, display, abs_path, &mut seen_abs)
+            {
+                out.push(file);
+            }
         }
     }
 
@@ -226,8 +244,12 @@ pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<Instr
             if !path.is_file() {
                 continue;
             }
-            let display = display_for(&root, &path, cwd);
-            let Some(file) = load_instruction_file(&path, display, &mut seen_abs) else {
+            let Some(abs_path) = canonicalize_unless_excluded(&path, &cfg.excludes) else {
+                tracing::debug!(path = %path.display(), "指引文件命中 excludes，跳过");
+                continue;
+            };
+            let display = display_for(&root, &path);
+            let Some(file) = load_instruction_file(&path, display, abs_path, &mut seen_abs) else {
                 continue;
             };
             if !seen_digest.insert(content_digest(&file.content)) {
@@ -244,14 +266,14 @@ pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<Instr
     out
 }
 
-/// 加载单个指引文件：去重 → 读 UTF-8 → 归一 CRLF → 空文件跳过 → 展开 `@import`。
+/// 加载单个指引文件：读 UTF-8 → 归一 CRLF → 空文件跳过 → 去重槽位 → 展开 `@import`。
 fn load_instruction_file(
     path: &Path,
     display: String,
+    abs_path: PathBuf,
     seen_abs: &mut HashSet<PathBuf>,
 ) -> Option<InstructionFile> {
-    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    if !seen_abs.insert(abs_path.clone()) {
+    if seen_abs.contains(&abs_path) {
         return None;
     }
     let content = match std::fs::read_to_string(path) {
@@ -265,6 +287,8 @@ fn load_instruction_file(
     if content.trim().is_empty() {
         return None;
     }
+    // 只有真正会 emit 的文件才占去重槽位（空文件 / 读失败不占）
+    seen_abs.insert(abs_path.clone());
     let content = read_with_imports(path, &content);
     Some(InstructionFile {
         source_path: path.to_path_buf(),
@@ -301,14 +325,13 @@ fn content_digest(content: &str) -> u64 {
     hasher.finish()
 }
 
-/// provenance 头：优先相对项目根；否则相对 cwd；再否则绝对路径。
-fn display_for(root: &Path, path: &Path, cwd: &Path) -> String {
-    for base in [root, cwd] {
-        if let Ok(rel) = path.strip_prefix(base) {
-            let rel = rel.to_string_lossy().replace('\\', "/");
-            if !rel.is_empty() {
-                return rel;
-            }
+/// provenance 头：优先相对项目根；否则绝对路径（所有路径都由 root 逐级 join 而来，
+/// 所以 `strip_prefix(root)` 必成功；用户全局文件另走 [`AgentsMdConfig::user_global_display`]）。
+fn display_for(root: &Path, path: &Path) -> String {
+    if let Ok(rel) = path.strip_prefix(root) {
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if !rel.is_empty() {
+            return rel;
         }
     }
     path.display().to_string()
@@ -318,41 +341,94 @@ fn display_for(root: &Path, path: &Path, cwd: &Path) -> String {
 ///
 /// 超 `max_bytes` 时停止追加后续文件，并在末尾标注省略了多少个文件
 /// （提示模型用 file 工具读全文）。第一个文件即使单个超限也会保留（硬截断）。
+///
+/// **硬保证**：`out.len() <= cfg.max_bytes` 恒成立——省略标记本身也算在额度内
+/// （先按最长标记预留），放不下就整体按字节切；宁可标记残缺，也不越界。
 pub fn render_instruction_set(files: &[InstructionFile], cfg: &AgentsMdConfig) -> String {
+    if files.is_empty() {
+        return String::new();
+    }
+
+    // 先按单文件限额切好每段（provenance 头 + 正文分开存，便于极端情况下保头）
+    let headers: Vec<String> = files
+        .iter()
+        .map(|file| format!("## {}\n\n", file.display))
+        .collect();
+    let bodies: Vec<String> = files
+        .iter()
+        .map(|file| truncate_per_file(&file.content, cfg.max_source_bytes, &file.display))
+        .collect();
+    let segment_len = |idx: usize| headers[idx].len() + bodies[idx].len();
+
+    // 第 k 段（含段间空行）的累计长度
+    let len_of =
+        |take: usize| -> usize { (0..take).map(segment_len).sum::<usize>() + 2 * take.saturating_sub(1) };
+
+    if len_of(files.len()) <= cfg.max_bytes {
+        return (0..files.len())
+            .map(|i| format!("{}{}", headers[i], bodies[i]))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+    }
+
+    // 需要省略：给「最长省略标记」预留额度（多文件时才有标记）
+    let reserve = if files.len() > 1 {
+        omit_marker(files.len(), files.len(), cfg.max_bytes).len()
+    } else {
+        0
+    };
+    let body_limit = cfg.max_bytes.saturating_sub(reserve);
+
+    let mut take = 0;
+    while take < files.len() && len_of(take + 1) <= body_limit {
+        take += 1;
+    }
+
     let mut out = String::new();
-    let mut omitted = 0usize;
-
-    for (idx, file) in files.iter().enumerate() {
-        let body = truncate_per_file(&file.content, cfg.max_source_bytes, &file.display);
-        let mut segment = format!("## {}\n\n{}", file.display, body);
-
-        let separator = if out.is_empty() { 0 } else { 2 };
-        if out.len() + separator + segment.len() > cfg.max_bytes {
-            if out.is_empty() {
-                // 第一个文件就顶破总量：硬截断，保证不空手
-                segment = truncate_bytes_head_tail(&segment, cfg.max_bytes, &file.display);
-            } else {
-                omitted = files.len() - idx;
-                break;
-            }
+    if take == 0 {
+        // 首个文件自己就顶破总量：硬截断正文，但**尽量保住 provenance 头**（§2.2）
+        take = 1;
+        if headers[0].len() < body_limit {
+            out.push_str(&headers[0]);
+            out.push_str(&truncate_bytes_head_tail(
+                &bodies[0],
+                body_limit - headers[0].len(),
+                &files[0].display,
+            ));
+        } else {
+            // 额度连头都放不下：只能硬切（保留多少算多少）
+            out.push_str(char_boundary_prefix(
+                &format!("{}{}", headers[0], bodies[0]),
+                body_limit,
+            ));
         }
-
-        if !out.is_empty() {
-            out.push_str("\n\n");
-        }
-        out.push_str(&segment);
+    } else {
+        out.push_str(
+            &(0..take)
+                .map(|i| format!("{}{}", headers[i], bodies[i]))
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        );
     }
 
+    let omitted = files.len().saturating_sub(take);
     if omitted > 0 {
-        out.push_str(&format!(
-            "\n\n[...{omitted} of {} instruction files omitted: total limit of {} bytes reached. \
-             Use file tools to read the omitted files.]",
-            files.len(),
-            cfg.max_bytes
-        ));
+        out.push_str(&omit_marker(omitted, files.len(), cfg.max_bytes));
     }
 
+    if out.len() > cfg.max_bytes {
+        // 兜底（上限小到连标记都放不下时）：按 char boundary 硬切到上限
+        return char_boundary_prefix(&out, cfg.max_bytes).to_string();
+    }
     out
+}
+
+/// 总量超限时的省略标记。`omitted` = 被省略的文件数。
+fn omit_marker(omitted: usize, total: usize, max_bytes: usize) -> String {
+    format!(
+        "\n\n[...{omitted} of {total} instruction files omitted: total limit of {max_bytes} bytes \
+         reached. Use file tools to read the omitted files.]"
+    )
 }
 
 /// 发现 + 渲染，得到可直接注入的整段内容（`None` = 没有任何指引）。
@@ -369,7 +445,7 @@ pub fn load_instructions(cwd: &Path, cfg: &AgentsMdConfig) -> Option<String> {
     }
 }
 
-/// 会话创建时调用一次，产物写入 `frozen_claude_md`（默认配置）。
+/// 会话创建时调用一次，产物写入 `FrozenSessionData.instructions`（默认配置）。
 pub fn load_frozen_instructions(cwd: &Path) -> Option<String> {
     load_instructions(cwd, &AgentsMdConfig::default())
 }
@@ -482,12 +558,25 @@ pub(crate) fn resolve_imports(
                     // 循环引用或文件不存在，保留原始占位符
                     result.push_str(&content[abs_pos..abs_pos + 13 + end + 4]);
                 } else {
-                    visited.insert(resolved.clone());
-                    let imported_content = std::fs::read_to_string(&resolved).unwrap_or_default();
-                    let import_dir = resolved.parent().unwrap_or(base_dir);
-                    let resolved_content =
-                        resolve_imports(&imported_content, import_dir, depth - 1, visited);
-                    result.push_str(&resolved_content);
+                    match std::fs::read_to_string(&resolved) {
+                        Ok(imported_content) => {
+                            visited.insert(resolved.clone());
+                            let imported_content = normalize_newlines(&imported_content);
+                            let import_dir = resolved.parent().unwrap_or(base_dir);
+                            let resolved_content =
+                                resolve_imports(&imported_content, import_dir, depth - 1, visited);
+                            result.push_str(&resolved_content);
+                        }
+                        Err(e) => {
+                            // 存在但不可读（权限 / IO 错）：保留占位符 + 留痕，不静默丢内容
+                            tracing::warn!(
+                                path = %resolved.display(),
+                                error = %e,
+                                "@import 目标不可读，保留占位符"
+                            );
+                            result.push_str(&content[abs_pos..abs_pos + 13 + end + 4]);
+                        }
+                    }
                 }
                 pos = abs_pos + 13 + end + 4; // 4 = " -->".len()
             } else {
@@ -521,11 +610,7 @@ impl<S: State> Middleware<S> for AgentsMdMiddleware {
             frozen.clone()
         } else {
             let cwd = state.cwd().to_string();
-            let files: Vec<InstructionFile> =
-                discover_instruction_files(Path::new(&cwd), &self.config)
-                    .into_iter()
-                    .filter(|f| !self.is_excluded(f))
-                    .collect();
+            let files = discover_instruction_files(Path::new(&cwd), &self.config);
             if files.is_empty() {
                 return Ok(());
             }

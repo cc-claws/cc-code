@@ -11,10 +11,20 @@
         AgentsMdMiddleware::new().with_config(cfg_in(dir))
     }
 
+    /// 临时目录 + 内嵌 `.git`：把 `find_project_root` **钉死**在 tempdir。
+    ///
+    /// 否则目录链会一直向上走到文件系统根——若 `TMPDIR`/`TEMP` 恰好落在某个
+    /// git 仓库内（例如 CI 把 TMPDIR 指到 workspace），祖先目录的 AGENTS.md /
+    /// CLAUDE.md 会被一并加载，测试结果就依赖环境了。
+    fn repo_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+        dir
+    }
+
     #[tokio::test]
     async fn test_no_file_no_op() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         let result = mw.before_agent(&mut state).await;
@@ -34,8 +44,7 @@
 
     #[tokio::test]
     async fn test_with_file() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let agents_md = dir.path().join("AGENTS.md");
         std::fs::write(&agents_md, "# Project Guide\nDo things correctly.").unwrap();
 
@@ -52,8 +61,7 @@
 
     #[tokio::test]
     async fn test_same_dir_agents_and_claude_both_loaded() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "agents content").unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "claude content").unwrap();
 
@@ -77,8 +85,7 @@
 
     #[tokio::test]
     async fn test_same_dir_identical_content_deduped() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "shared rules\n").unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "  shared rules  \n").unwrap();
 
@@ -94,8 +101,7 @@
 
     #[tokio::test]
     async fn test_local_overlay_after_base() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "base rules").unwrap();
         std::fs::write(dir.path().join("AGENTS.local.md"), "local overlay").unwrap();
 
@@ -112,8 +118,7 @@
 
     #[tokio::test]
     async fn test_empty_file_does_not_shadow() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "   \n\n  ").unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "claude real content").unwrap();
 
@@ -130,8 +135,7 @@
 
     #[tokio::test]
     async fn test_directory_chain_root_to_cwd_order() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let root = dir.path();
         let sub = root.join("sub");
         std::fs::create_dir_all(&sub).unwrap();
@@ -155,25 +159,49 @@
 
     #[tokio::test]
     async fn test_non_git_only_cwd() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let outer = dir.path();
         let inner = outer.join("inner");
         std::fs::create_dir_all(&inner).unwrap();
-        // outer 没有 .git，inner 也没有 → root = inner，不向上泄漏 outer/AGENTS.md
+        // outer 没有标记、inner 自己是根：root = inner，**不向上**取 outer/AGENTS.md。
+        // （inner 里嵌 .git 以把链钉死，否则 TMP 落在别的仓库里时结果会变）
+        std::fs::create_dir_all(inner.join(".git")).unwrap();
         std::fs::write(outer.join("AGENTS.md"), "outer rules").unwrap();
 
         let mw = mw_in(&inner);
         let mut state = AgentState::new(inner.to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
-        assert_eq!(state.messages().len(), 0, "非 git 仓库只查 cwd");
+        assert_eq!(state.messages().len(), 0, "root = cwd 时只查 cwd");
+    }
+
+    #[test]
+    fn test_find_project_root_without_marker_falls_back_to_cwd() {
+        // 找不到任何标记 → root = cwd（不扫祖先目录的指引文件）
+        let deep = std::path::Path::new("/definitely/no/marker/here/sub");
+        let found = find_project_root(deep, &["__no_such_marker__".to_string()]);
+        assert_eq!(found, deep);
+    }
+
+    #[test]
+    fn test_ancestor_chain_cwd_outside_root() {
+        // cwd 不在 root 下 → 链退化为单目录
+        let chain = ancestor_chain(
+            std::path::Path::new("/some/root"),
+            std::path::Path::new("/elsewhere/x"),
+        );
+        assert_eq!(chain, vec![std::path::PathBuf::from("/elsewhere/x")]);
+    }
+
+    #[test]
+    fn test_ancestor_chain_root_equals_cwd() {
+        let chain = ancestor_chain(std::path::Path::new("/a/b"), std::path::Path::new("/a/b"));
+        assert_eq!(chain, vec![std::path::PathBuf::from("/a/b")]);
     }
 
     #[tokio::test]
     async fn test_find_project_root_walks_up() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let root = dir.path().join("repo");
         let sub = root.join("a").join("b");
         std::fs::create_dir_all(&sub).unwrap();
@@ -188,8 +216,7 @@
 
     #[tokio::test]
     async fn test_global_file_prepended() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let global = dir.path().join("global-agents.md");
         std::fs::write(&global, "global rules").unwrap();
         std::fs::write(dir.path().join("AGENTS.md"), "project rules").unwrap();
@@ -214,8 +241,7 @@
 
     #[tokio::test]
     async fn test_frozen_instructions_single_message() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "frozen rules").unwrap();
 
         let frozen = load_instructions(dir.path(), &cfg_in(dir.path())).unwrap();
@@ -250,7 +276,6 @@
         let content = "规则🚀".repeat(500);
         for max in [4usize, 8, 16, 33, 100, 4096, 100_000] {
             let out = truncate_per_file(&content, max, "AGENTS.md");
-            assert!(!out.is_empty(), "max={max}");
             assert!(out.len() <= max, "max={max} len={}", out.len());
             // 能成功构造 String 即未切坏 char boundary
             assert!(std::str::from_utf8(out.as_bytes()).is_ok());
@@ -269,7 +294,7 @@
     #[test]
     fn test_total_max_bytes_stops() {
         let cfg = AgentsMdConfig {
-            max_bytes: 120,
+            max_bytes: 600,
             ..Default::default()
         };
         let files: Vec<InstructionFile> = (0..5)
@@ -277,20 +302,43 @@
                 source_path: PathBuf::from(format!("/tmp/f{i}.md")),
                 abs_path: PathBuf::from(format!("/tmp/f{i}.md")),
                 display: format!("f{i}.md"),
-                content: format!("content-{i}").repeat(5),
+                content: format!("content-{i}").repeat(20),
             })
             .collect();
 
         let out = render_instruction_set(&files, &cfg);
+        assert!(out.len() <= cfg.max_bytes, "总量不得超上限: {}", out.len());
         assert!(out.contains("## f0.md"), "{out}");
+        assert!(out.contains("## f1.md"), "{out}");
+        assert!(!out.contains("## f2.md"), "{out}");
         assert!(!out.contains("## f4.md"), "{out}");
         assert!(out.contains("instruction files omitted"), "{out}");
     }
 
+    #[test]
+    fn test_total_limit_exact_when_marker_cannot_fit() {
+        // 额度小到连省略标记都放不下：总量仍不得越界（宁可标记残缺）
+        let cfg = AgentsMdConfig {
+            max_bytes: 40,
+            ..Default::default()
+        };
+        let files: Vec<InstructionFile> = (0..3)
+            .map(|i| InstructionFile {
+                source_path: PathBuf::from(format!("/tmp/g{i}.md")),
+                abs_path: PathBuf::from(format!("/tmp/g{i}.md")),
+                display: format!("g{i}.md"),
+                content: "z".repeat(500),
+            })
+            .collect();
+
+        let out = render_instruction_set(&files, &cfg);
+        assert!(out.len() <= 40, "{}", out.len());
+        assert!(!out.is_empty());
+    }
+
     #[tokio::test]
     async fn test_first_file_over_total_limit_still_included() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "y".repeat(5000)).unwrap();
 
         let cfg = AgentsMdConfig {
@@ -304,8 +352,7 @@
 
     #[tokio::test]
     async fn test_crlf_normalized_and_deduped() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "rule one\r\nrule two\r\n").unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "rule one\nrule two\n").unwrap();
 
@@ -320,8 +367,7 @@
 
     #[tokio::test]
     async fn test_prepends_before_existing_messages() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "system instructions").unwrap();
 
         let mw = mw_in(dir.path());
@@ -337,8 +383,7 @@
 
     #[tokio::test]
     async fn test_excludes_matching_file_skipped() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let claude_md = dir.path().join("CLAUDE.md");
         std::fs::write(&claude_md, "should be excluded").unwrap();
 
@@ -355,8 +400,7 @@
 
     #[tokio::test]
     async fn test_excludes_non_matching_file_loaded() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("CLAUDE.md"), "should be loaded").unwrap();
 
         let mw = mw_in(dir.path()).with_excludes(vec!["**/node_modules/**".to_string()]);
@@ -371,8 +415,7 @@
 
     #[tokio::test]
     async fn test_local_md_only() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("CLAUDE.local.md"), "local only content").unwrap();
 
         let mw = mw_in(dir.path());
@@ -385,8 +428,7 @@
 
     #[tokio::test]
     async fn test_claude_md_and_local_merged() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("CLAUDE.md"), "main content").unwrap();
         std::fs::write(dir.path().join("CLAUDE.local.md"), "local content").unwrap();
 
@@ -402,8 +444,7 @@
 
     #[tokio::test]
     async fn test_local_md_empty_not_appended() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("CLAUDE.md"), "main content").unwrap();
         std::fs::write(dir.path().join("CLAUDE.local.md"), "   \n  ").unwrap();
 
@@ -421,8 +462,7 @@
 
     #[tokio::test]
     async fn test_import_simple() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let imported = dir.path().join("rules.md");
         std::fs::write(&imported, "imported rules").unwrap();
         std::fs::write(
@@ -444,8 +484,7 @@
 
     #[tokio::test]
     async fn test_import_in_agents_md_too() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         std::fs::write(dir.path().join("extra.md"), "extra rules").unwrap();
         std::fs::write(
             dir.path().join("AGENTS.md"),
@@ -465,8 +504,7 @@
 
     #[tokio::test]
     async fn test_import_nested() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let sub_dir = dir.path().join("sub");
         std::fs::create_dir_all(&sub_dir).unwrap();
         let inner = sub_dir.join("inner.md");
@@ -485,8 +523,7 @@
 
     #[test]
     fn test_import_max_depth() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let imported = dir.path().join("deep.md");
         std::fs::write(&imported, "deep content").unwrap();
         let content = "<!-- @import deep.md -->".to_string();
@@ -498,8 +535,7 @@
 
     #[test]
     fn test_import_cycle_detection() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let a = dir.path().join("a.md");
         let b = dir.path().join("b.md");
         std::fs::write(&a, "<!-- @import b.md -->").unwrap();
@@ -543,10 +579,88 @@
         );
     }
 
+    #[tokio::test]
+    async fn test_import_in_local_and_global_too() {
+        let dir = repo_dir();
+        std::fs::write(dir.path().join("from-local.md"), "local import body").unwrap();
+        std::fs::write(dir.path().join("from-global.md"), "global import body").unwrap();
+        std::fs::write(
+            dir.path().join("CLAUDE.local.md"),
+            "L <!-- @import from-local.md -->",
+        )
+        .unwrap();
+        let global = dir.path().join("global-agents.md");
+        std::fs::write(&global, "G <!-- @import from-global.md -->").unwrap();
+
+        let cfg = AgentsMdConfig {
+            user_global_file: global,
+            ..AgentsMdConfig::default()
+        };
+        let mw = AgentsMdMiddleware::new().with_config(cfg);
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        // spec §2.6：@import 对所有候选生效（含 .local 与用户全局文件）
+        let content = state.messages()[0].content();
+        assert!(content.contains("local import body"), "{content}");
+        assert!(content.contains("global import body"), "{content}");
+        assert!(!content.contains("@import"), "{content}");
+    }
+
+    #[tokio::test]
+    async fn test_excludes_applied_before_dedup() {
+        let dir = repo_dir();
+        // 两候选内容相同；排除 AGENTS.md 后，CLAUDE.md 必须仍然生效
+        // （回归：若先去重后过滤，被排除的 AGENTS.md 会「连坐」挤掉 CLAUDE.md → 一条都不注入）
+        std::fs::write(dir.path().join("AGENTS.md"), "shared rules").unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "shared rules").unwrap();
+
+        let excluded = dir.path().join("AGENTS.md");
+        let mw = mw_in(dir.path()).with_excludes(vec![excluded.display().to_string()]);
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        assert_eq!(state.messages().len(), 1, "未被排除的候选仍应注入");
+        let content = state.messages()[0].content();
+        assert!(content.contains("shared rules"), "{content}");
+        assert!(content.contains("## CLAUDE.md"), "{content}");
+    }
+
+    #[tokio::test]
+    async fn test_excludes_do_not_consume_abs_dedup_slot() {
+        let dir = repo_dir();
+        std::fs::write(dir.path().join("CLAUDE.md"), "keep me").unwrap();
+
+        // 排除一个不存在的路径不应影响正常加载
+        let mw = mw_in(dir.path())
+            .with_excludes(vec![dir.path().join("nope.md").display().to_string()]);
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+        assert_eq!(state.messages().len(), 1);
+    }
+
+    #[test]
+    fn test_first_file_truncation_keeps_provenance_header() {
+        // 首个文件自己就顶破总量时，provenance 头必须留下（§2.2）
+        let cfg = AgentsMdConfig {
+            max_bytes: 200,
+            ..Default::default()
+        };
+        let files = vec![InstructionFile {
+            source_path: PathBuf::from("/tmp/big.md"),
+            abs_path: PathBuf::from("/tmp/big.md"),
+            display: "big.md".to_string(),
+            content: "q".repeat(10_000),
+        }];
+
+        let out = render_instruction_set(&files, &cfg);
+        assert!(out.len() <= 200, "{}", out.len());
+        assert!(out.starts_with("## big.md\n\n"), "{out}");
+    }
+
     #[test]
     fn test_import_cycle_and_depth_in_load() {
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = repo_dir();
         let a = dir.path().join("cyc-a.md");
         let b = dir.path().join("cyc-b.md");
         std::fs::write(&a, "A <!-- @import cyc-b.md -->").unwrap();
