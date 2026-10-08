@@ -9,15 +9,10 @@ pub use background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatu
 pub use built_in_agents::{get_built_in_agent, list_built_in_agents, BuiltInAgent};
 pub use skill_preload::SkillPreloadMiddleware;
 pub use tool::SubAgentTool;
-// 父→子冻结指引的载体（含父 cwd），cc-acp 构造时需要
 
 use parking_lot::RwLock;
 
-/// SubAgent 中间件链构造配置
-///
-/// 中间件链顺序固定: AgentsMd -> Skills -> [SkillPreload] -> Todo
-/// 仅 `skill_names` 在不同执行路径间变化
-/// 父 Agent 的**冻结指引** + 它渲染时依据的 cwd。
+/// 父 Agent 的**冻结指引** + 它渲染时依据的 cwd（cc-acp 构造后交给子 Agent 链）。
 ///
 /// `cwd` 必须一起带上，不能只传字符串：`Agent` 工具的 `cwd` 是 **LLM 可传参**
 /// （默认继承父 cwd），子 Agent 可能跑在另一个项目里——此时父的指引既串味，
@@ -31,6 +26,10 @@ pub struct InheritedInstructions {
     pub rendered: Arc<str>,
 }
 
+/// SubAgent 中间件链构造配置
+///
+/// 链顺序固定：`AgentsMd -> Skills -> [SkillPreload] -> Todo`；
+/// 仅 `skill_names` / `cwd` / `inherited_instructions` 在不同执行路径间变化。
 pub(crate) struct SubAgentMiddlewareConfig {
     /// 需要预加载的 skill 名称列表，为空时跳过 SkillPreloadMiddleware
     pub skill_names: Vec<String>,
@@ -39,6 +38,11 @@ pub(crate) struct SubAgentMiddlewareConfig {
     /// 父 Agent 的冻结指引（**含父 cwd**；仅当子 Agent cwd 与之一致时才套用）。
     /// `None` = 现场重读磁盘。
     pub inherited_instructions: Option<InheritedInstructions>,
+    /// 指引加载配置覆盖（`None` = [`crate::agents_md::AgentsMdConfig::default`]）。
+    ///
+    /// 非继承路径（子 Agent cwd ≠ 父 cwd）要用它加载指引；宿主可借此钉死用户全局层等，
+    /// 使加载结果不依赖运行环境（测试尤其需要——默认配置会去读 `~/.cc-code/AGENTS.md`）。
+    pub instruction_config: Option<crate::agents_md::AgentsMdConfig>,
 }
 
 impl SubAgentMiddlewareConfig {
@@ -48,6 +52,7 @@ impl SubAgentMiddlewareConfig {
             skill_names: Vec::new(),
             cwd: cwd.to_string(),
             inherited_instructions: None,
+            instruction_config: None,
         }
     }
     /// Agent 定义路径配置
@@ -58,6 +63,7 @@ impl SubAgentMiddlewareConfig {
             skill_names: skills,
             cwd: cwd.to_string(),
             inherited_instructions: None,
+            instruction_config: None,
         }
     }
     /// 继承父 Agent 的冻结指引（只在其 cwd 与子 Agent cwd 一致时生效）

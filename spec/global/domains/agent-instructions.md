@@ -271,7 +271,7 @@ render_instruction_set(files, cfg):
 
 ## 五、测试计划
 
-单测（`cc-middlewares/src/agents_md/agents_md_test.rs`，`tempfile` 建临时目录树；**均已实现**，共 32 个用例）：
+单测（`cc-middlewares/src/agents_md/agents_md_test.rs`，`tempfile` 建临时目录树；**均已实现**，当前 48 启用 + 1 `#[ignore]`（数量随迭代变化，以 `cargo test` 实跑为准））：
 
 1. `test_same_dir_agents_and_claude_both_loaded` —— 同目录两文件内容不同 → **都出现**；
 2. `test_same_dir_identical_content_deduped` —— 两文件 trim 后相同 → **只出现一次**；
@@ -299,8 +299,8 @@ render_instruction_set(files, cfg):
 
 ```bash
 cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --ignored --nocapture
-# 本仓库实测：root = workspace 根；发现 2 个文件（## CLAUDE.md 32581 B、## CLAUDE.local.md 7932 B）；
-# 渲染 40549 B ≤ max_bytes 262144 ✅
+# 本仓库实测：root = workspace 根；发现本仓库的 CLAUDE.md / CLAUDE.local.md；
+# 渲染结果 ≤ max_bytes(262144) ✅（具体字节数随仓库文件变化，跑一次即见）
 ```
 
 集成：`cc-acp/src/session/frozen.rs` 的 `FrozenSessionData.instructions` 由 `load_instructions(cwd, cfg)` 产出（cfg 派生自

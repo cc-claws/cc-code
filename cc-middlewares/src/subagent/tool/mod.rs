@@ -84,7 +84,13 @@ pub(crate) fn build_subagent_middlewares(
         Some(inh) if inh.cwd.as_ref() == config.cwd => {
             AgentsMdMiddleware::new().with_frozen_instructions(inh.rendered.to_string())
         }
-        _ => AgentsMdMiddleware::new(),
+        // 非继承（含跨 cwd）→ 现场加载，用宿主可覆盖的配置
+        _ => AgentsMdMiddleware::new().with_config(
+            config
+                .instruction_config
+                .clone()
+                .unwrap_or_default(),
+        ),
     };
     middlewares.push(Box::new(agents_md));
     middlewares.push(Box::new(SkillsMiddleware::new().with_global_config()));

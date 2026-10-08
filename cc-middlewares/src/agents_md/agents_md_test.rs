@@ -516,6 +516,40 @@
         }
     }
 
+    #[tokio::test]
+    async fn test_same_content_in_different_dirs_not_deduped() {
+        // 同目录 trim 内容去重**不外溢**到子目录：这里两目录同内容，两段都必须保留
+        // （更具体的那段要压过宽的那段）。
+        let dir = repo_dir();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "same rules").unwrap();
+        std::fs::write(sub.join("AGENTS.md"), "same rules").unwrap();
+
+        let out = load_instructions(&sub, &cfg_in(&sub)).unwrap();
+        assert_eq!(out.matches("same rules").count(), 2, "{out}");
+        assert!(out.contains("## AGENTS.md"), "{out}");
+        assert!(out.contains("## sub/AGENTS.md"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn test_dedup_applies_after_import_expansion() {
+        // 先展开、后去重：CLAUDE.md 本身与 AGENTS.md 不同，但展开后与其一致 → 应被去掉。
+        let dir = repo_dir();
+        std::fs::write(dir.path().join("shared.md"), "expanded rules").unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "<!-- @import shared.md -->",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "expanded rules").unwrap();
+
+        let out = load_instructions(dir.path(), &cfg_in(dir.path())).unwrap();
+        assert_eq!(out.matches("expanded rules").count(), 1, "{out}");
+        assert!(out.contains("## AGENTS.md"), "{out}");
+        assert!(!out.contains("## CLAUDE.md"), "展开后同内容应去重: {out}");
+    }
+
     // ── @import 范围（安全）───────────────────────────────────────────────
 
     /// 相对路径向上穿越（`../`）必须被拦下：`git clone` 恶意仓库不能借指引文件读项目外内容。
@@ -690,15 +724,41 @@
     }
 
     #[test]
-    fn test_import_max_depth() {
+    fn test_import_does_not_expand_at_depth_zero() {
         let dir = repo_dir();
-        let imported = dir.path().join("deep.md");
-        std::fs::write(&imported, "deep content").unwrap();
+        std::fs::write(dir.path().join("deep.md"), "deep content").unwrap();
         let content = "<!-- @import deep.md -->".to_string();
         let mut visited = HashSet::new();
-        // depth 0 should return original content
         let result = resolve_imports(&content, dir.path(), 0, &mut visited, None);
-        assert!(result.contains("@import"));
+        // depth=0 必须**原样返回**（不是"恰好还含 @import"的弱断言）
+        assert_eq!(result, content);
+    }
+
+    #[test]
+    fn test_import_depth_limit_stops_at_three() {
+        // 链式 a1→a2→a3→a4→a5：深度上限 3 ⇒ 到 a4 时已用尽额度，
+        // a4 里的 import 必须保留占位符、不被展开。
+        let dir = repo_dir();
+        std::fs::write(dir.path().join("AGENTS.md"), "<!-- @import a1.md -->").unwrap();
+        for i in 1..=4 {
+            std::fs::write(
+                dir.path().join(format!("a{i}.md")),
+                format!("L{i} <!-- @import a{}.md -->", i + 1),
+            )
+            .unwrap();
+        }
+        std::fs::write(dir.path().join("a5.md"), "L5_BODY").unwrap();
+
+        let out = load_instructions(dir.path(), &cfg_in(dir.path())).unwrap();
+        // 深度上限 3 ⇒ 只展开 3 层（a1 → a2 → a3）；第 4 层那条 import 保留占位符。
+        assert!(out.contains("L1 "), "{out}");
+        assert!(out.contains("L2 "), "{out}");
+        assert!(out.contains("L3 "), "{out}");
+        assert!(!out.contains("L4 "), "超深层不得展开: {out}");
+        assert!(
+            out.contains("<!-- @import a4.md -->"),
+            "超深 import 应保留占位符: {out}"
+        );
     }
 
     #[test]
@@ -714,7 +774,6 @@
 
         let mut visited = HashSet::new();
         visited.insert(main.clone());
-        // Should not panic or infinite loop
         let result = resolve_imports(
             &std::fs::read_to_string(&main).unwrap(),
             dir.path(),
@@ -722,8 +781,11 @@
             &mut visited,
             None,
         );
-        // a.md's @import b.md should be resolved, but b.md's @import a.md should be kept as-is (cycle)
-        assert!(!result.is_empty());
+        // a.md 的 import b.md 被展开，而 b.md 回到 a.md 的那条**环回边**必须保留为占位符
+        assert!(
+            result.contains("<!-- @import a.md -->"),
+            "环回边应保留占位符: {result}"
+        );
     }
 
     #[test]

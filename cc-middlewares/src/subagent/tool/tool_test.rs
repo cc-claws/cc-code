@@ -1064,14 +1064,21 @@ async fn test_subagent_other_cwd_falls_back_to_disk() {
 
 #[tokio::test]
 async fn test_subagent_chain_without_inheritance_reads_disk() {
-    // 反向对照：不继承 + cwd 无文件 → 不注入任何消息（旧行为保留）
+    // 反向对照：不继承 + cwd 无文件 → 不注入任何消息（旧行为保留）。
+    // 必须钉死 user_global：默认配置会去读 `~/.cc-code/AGENTS.md`，
+    // 一旦开发机存在该文件，断言就会因环境而变红（本文件其余用例同此约定）。
     let dir = tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join(".git")).unwrap();
-    let injected = subagent_injected_content(
-        SubAgentMiddlewareConfig::for_fork(dir.path().to_str().unwrap()),
-        dir.path().to_str().unwrap(),
-    )
-    .await;
+    let hermetic = crate::agents_md::AgentsMdConfig {
+        user_global_file: dir.path().join("__no_such_global__.md"),
+        ..Default::default()
+    };
+    let config = SubAgentMiddlewareConfig {
+        instruction_config: Some(hermetic),
+        ..SubAgentMiddlewareConfig::for_fork(dir.path().to_str().unwrap())
+    };
+    let injected =
+        subagent_injected_content(config, dir.path().to_str().unwrap()).await;
     assert!(injected.is_none(), "无文件不应注入: {injected:?}");
 }
 

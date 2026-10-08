@@ -164,6 +164,21 @@ impl<'a> Commands<'a> {
         policy::is_read_only_chain(self.read_only_probe())
     }
 
+    /// 命中来自**原始命令**（而非改写后的有效命令）时的补充说明。
+    ///
+    /// 只对 deny 规则用：装了 rtk 时有效命令是 `rtk X`，用户看到"我的规则命中了"却对不上
+    /// 命令文本会困惑；这里明确指出命中的是改写前的那条。
+    fn original_note(&self, patterns: &[String]) -> String {
+        let Some(original) = self.original else {
+            return String::new();
+        };
+        match policy::matches_command_pattern(self.effective, patterns, true) {
+            // 有效命令自己也命中 → 不需要额外说明
+            Some(_) => String::new(),
+            None => format!("（原始命令：{original}）"),
+        }
+    }
+
     /// 只读判定的取用命令（见 [`Self::read_only`]）。
     fn read_only_probe(&self) -> &'a str {
         match self.original {
@@ -176,7 +191,7 @@ impl<'a> Commands<'a> {
 /// `effective` 是否是 `original` 的**透明 rtk 前缀包装**（即 `rtk <original>`）。
 fn is_transparent_rtk_wrap(effective: &str, original: &str) -> bool {
     effective
-        .strip_prefix("rtk ")
+        .strip_prefix(crate::process::RTK_PREFIX)
         .map(|rest| rest.trim() == original.trim())
         .unwrap_or(false)
 }
@@ -470,7 +485,10 @@ impl JevGate {
             // ── 层1a：人显式写下的 deny（原始/有效命令任一命中即拦）──
             if let Some(pattern) = cmds.deny_match(&self.config.disallowed_commands) {
                 return Some(GateDecision::Block {
-                    rationale: format!("用户拒绝规则命中：{pattern}"),
+                    rationale: format!(
+                        "用户拒绝规则命中：{pattern}{}",
+                        cmds.original_note(&self.config.disallowed_commands)
+                    ),
                 });
             }
             // ── 层1b：人显式写下的 allow（压过危险形状）──
@@ -520,12 +538,11 @@ impl JevGate {
 
     /// 语义层（Jev）。任何失败 → Block。
     async fn semantic(&self, call: &GateCall) -> GateDecision {
-        // 构造 state
-        let reasons: Vec<String> = call
-            .command
-            .as_deref()
-            .map(|c| {
-                policy::dangerous_reasons_scoped(c, &call.cwd)
+        // 构造 state。危险形状与确定性层保持同一口径：**原始 + 有效**命令的并集，
+        // 否则 judge 看不到「用户原始命令命中的危险形状」（装了 rtk 时两者可能不同）。
+        let reasons: Vec<String> = Commands::of_call(call)
+            .map(|cmds| {
+                cmds.dangerous_reasons(&call.cwd)
                     .into_iter()
                     .map(|s| s.to_string())
                     .collect()
@@ -578,6 +595,7 @@ impl JevGate {
             cost = answers.cost,
             tool = %call.tool_name,
             command = ?call.command,
+            original_command = ?call.original_command,
             reasons = ?reasons,
             decision = ?decision_short(&decision),
             obs = ?obs.iter().map(|o| (&o.rule_id, o.probability, o.unknown)).collect::<Vec<_>>(),

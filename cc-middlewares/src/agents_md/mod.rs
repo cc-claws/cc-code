@@ -393,11 +393,6 @@ fn display_for(root: &Path, path: &Path) -> String {
     }
 }
 
-/// 合并成单段（去重已在发现阶段完成；这里做限额 + provenance），供注入。
-///
-/// 超 `max_bytes` 时停止追加后续文件，并在末尾标注省略了多少个文件
-/// （提示模型用 file 工具读全文）。第一个文件即使单个超限也会保留（硬截断）。
-///
 /// 渲染单元：provenance 头 + 已按单文件限额截断的正文。
 ///
 /// 头与正文分开存，是为了在「首个文件自己就顶破总量」时**优先保住 provenance 头**。
@@ -527,14 +522,20 @@ pub fn load_instructions(cwd: &Path, cfg: &AgentsMdConfig) -> Option<String> {
     }
 }
 
+/// 头/尾保留比例（%）；差额留给中间标记，故两者之和须 < 100。
+const TRUNCATE_HEAD_PERCENT: usize = 70;
+const TRUNCATE_TAIL_PERCENT: usize = 20;
+/// 标记之外的余量：避免把 head/tail 挤成 0 字节（标记自身也占额度）。
+const TRUNCATE_MARKER_SLACK: usize = 16;
+
 /// 单文件超 `max_source_bytes`：按**字符**（CJK 安全）保留头 70% + 尾 20%，中间插标记。
 fn truncate_per_file(content: &str, max_source_bytes: usize, name: &str) -> String {
     if content.len() <= max_source_bytes {
         return content.to_string();
     }
     let total_chars = content.chars().count();
-    let head_chars = total_chars * 70 / 100;
-    let tail_chars = total_chars * 20 / 100;
+    let head_chars = total_chars * TRUNCATE_HEAD_PERCENT / 100;
+    let tail_chars = total_chars * TRUNCATE_TAIL_PERCENT / 100;
     let head: String = content.chars().take(head_chars).collect();
     let tail: String = content.chars().skip(total_chars - tail_chars).collect();
     let marker = format!(
@@ -562,19 +563,19 @@ fn truncate_bytes_head_tail(content: &str, max_bytes: usize, name: &str) -> Stri
         content.len()
     );
     // 上限太小则退化为短标记；连短标记都放不下就只留头部（char boundary 安全）
-    let (marker, budget) = if full_marker.len() + 16 <= max_bytes {
+    let (marker, budget) = if full_marker.len() + TRUNCATE_MARKER_SLACK <= max_bytes {
         let len = full_marker.len();
         (full_marker, max_bytes - len)
     } else {
         let short = "[...truncated]\n\n";
-        if short.len() + 8 <= max_bytes {
+        if short.len() + TRUNCATE_MARKER_SLACK / 2 <= max_bytes {
             let len = short.len();
             (short.to_string(), max_bytes - len)
         } else {
             return char_boundary_prefix(content, max_bytes).to_string();
         }
     };
-    let head_budget = budget * 70 / 100;
+    let head_budget = budget * TRUNCATE_HEAD_PERCENT / 100;
     let tail_budget = budget - head_budget;
     let head = char_boundary_prefix(content, head_budget);
     let tail = char_boundary_suffix(content, tail_budget);

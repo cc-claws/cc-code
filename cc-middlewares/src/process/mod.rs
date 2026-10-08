@@ -514,6 +514,12 @@ pub fn rtk_rewrite_likely() -> bool {
         .unwrap_or(false)
 }
 
+/// rtk 改写的**唯一**前缀来源（`X` → `rtk X`）。
+///
+/// HITL 门控判定「有效命令是否只是原始命令的透明包装」时也引用它——两处各写一份字面量，
+/// 改一处漏一处会让并集/只读快车道判定**静默失效**。
+pub const RTK_PREFIX: &str = "rtk ";
+
 /// 纯字符串预测 rtk 改写结果，不 spawn 任何子进程。
 ///
 /// rtk rewrite 的文档化语义是前缀包装（`X` → `rtk X`，见
@@ -529,7 +535,7 @@ fn predict_rtk_rewrite_inner(command: &str, likely: bool) -> Option<String> {
     if !likely || !is_potential_rtk_command(command) {
         return None;
     }
-    Some(format!("rtk {command}"))
+    Some(format!("{RTK_PREFIX}{command}"))
 }
 
 #[cfg(test)]

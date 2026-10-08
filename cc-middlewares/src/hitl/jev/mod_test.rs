@@ -391,22 +391,25 @@ fn test_read_only_fast_lane_survives_transparent_rtk_wrap() {
 }
 
 #[test]
-fn test_read_only_fast_lane_rejected_for_opaque_rewrite() {
-    // 反向：包装**不透明**（有效命令 ≠ `rtk <原始>`）时，按有效命令判定 → 不进快车道
+fn test_read_only_probe_ignores_non_transparent_wrap() {
+    // 反向：包装**不透明**（有效命令 ≠ `rtk <原始>`）时，退化为按有效命令判定 → 不进快车道。
+    //
+    // 注：经 `predict_rtk_rewrite` 的真实数据流恒产出 `rtk <原始>`，故该分支是**防御性**的
+    //（预测与真实 `rtk rewrite` 输出理论上可能不一致）。这里直接构造 GateCall 覆盖它，
+    // 且刻意让 original 不触发硬黑名单，确保结论来自「只读判定」而非其它层。
     let g = gate();
     let cwd = PathBuf::from(CWD);
     let call = GateCall {
         tool_name: "Bash".to_string(),
         command: Some("rtk git status".to_string()),
-        original_command: Some("rm -rf /".to_string()),
+        original_command: Some("git log".to_string()),
         path: None,
         branch: None,
         cwd,
     };
-    // 不变量是「**不得**走快车道放行」；此处原始命令命中硬黑名单，故结果是 Block 而非 None
     assert!(
-        !matches!(g.deterministic(&call), Some(GateDecision::Allow { .. })),
-        "不透明改写不得进快车道"
+        g.deterministic(&call).is_none(),
+        "不透明包装不得进只读快车道（应升级到语义层）"
     );
 }
 
