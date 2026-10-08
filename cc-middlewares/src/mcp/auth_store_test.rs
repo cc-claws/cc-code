@@ -9,10 +9,10 @@
         let store = FileCredentialStore::new();
         let p = store.path().to_string_lossy().into_owned();
         assert!(p.ends_with("oauth_tokens.json"));
-        // #289：新版走 ~/.cc-code，旧版 ~/.peri 仅回退
+        // 应用主目录统一为 ~/.cc-code
         assert!(
-            p.contains(".cc-code") || p.contains(".peri"),
-            "应解析到应用主目录，实际：{p}"
+            p.contains(".cc-code"),
+            "应解析到 ~/.cc-code，实际：{p}"
         );
     }
 

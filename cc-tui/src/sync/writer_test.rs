@@ -77,9 +77,9 @@ mod tests {
         let cwd_p = cwd.path();
 
         // 创建预先存在的 settings.json
-        let peri_dir = home_p.join(".peri");
-        fs::create_dir_all(&peri_dir).unwrap();
-        fs::write(peri_dir.join("settings.json"), "old").unwrap();
+        let cc_dir = home_p.join(".cc-code");
+        fs::create_dir_all(&cc_dir).unwrap();
+        fs::write(cc_dir.join("settings.json"), "old").unwrap();
 
         let items = SyncItems {
             settings: Some(SettingsItem {
@@ -95,12 +95,12 @@ mod tests {
 
         // 新文件内容为 "new"
         assert_eq!(
-            fs::read_to_string(home_p.join(".peri/settings.json")).unwrap(),
+            fs::read_to_string(home_p.join(".cc-code/settings.json")).unwrap(),
             "new"
         );
         // 备份文件内容为 "old"
         assert_eq!(
-            fs::read_to_string(home_p.join(".peri/settings.json.bak")).unwrap(),
+            fs::read_to_string(home_p.join(".cc-code/settings.json.bak")).unwrap(),
             "old"
         );
     }

@@ -1,6 +1,6 @@
 //! 输入历史持久化：JSON 文件存储在用户家目录下。
 //!
-//! 路径：`~/.cc-code/input-history.json`（旧版 `~/.peri/` 仅回退，见 #289）
+//! 路径：`~/.cc-code/input-history.json`
 //! 格式：JSON 数组，最新在前。
 
 use std::path::PathBuf;

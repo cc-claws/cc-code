@@ -275,7 +275,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
     let peri_config = cc_tui::config::load().unwrap_or_default();
     let provider = cc_tui::app::agent::LlmProvider::from_config(&peri_config)
         .or_else(cc_tui::app::agent::LlmProvider::from_env)
-        .ok_or_else(|| anyhow::anyhow!("No LLM provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or configure ~/.peri/settings.json"))?;
+        .ok_or_else(|| anyhow::anyhow!("No LLM provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or configure ~/.cc-code/settings.json"))?;
 
     tracing::info!(
         provider = %provider.display_name(),

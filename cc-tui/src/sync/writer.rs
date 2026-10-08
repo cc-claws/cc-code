@@ -115,7 +115,7 @@ pub fn write_file_entry(base_dir: &Path, entry: &FileEntry) -> Result<(), WriteE
 ///
 /// 路径映射：
 /// - settings → 经 [`cc_agent::app_home::global_settings_path_in`] 解析
-///   （新版 `~/.cc-code/settings.json`，先备份为 .bak；不再写入旧版 `~/.peri/`）
+///   （`~/.cc-code/settings.json`，先备份为 .bak）
 /// - skills   → {home_dir}/.claude/skills/{relative_path}
 /// - mcp      → {home_dir}/.mcp.json + {cwd}/.mcp.json（如有）
 /// - plugins  → {home_dir}/.claude/plugins/cache/{relative_path}
@@ -131,7 +131,7 @@ pub fn write_sync_items(home_dir: &Path, cwd: &Path, items: &SyncItems) -> Resul
             tracing::info!("已备份 settings.json → settings.json.bak");
         }
 
-        // 确保 .peri 目录存在
+        // 确保 ~/.cc-code 目录存在
         if let Some(parent) = settings_path.parent() {
             fs::create_dir_all(parent)?;
         }

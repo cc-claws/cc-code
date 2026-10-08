@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-/// 顶层包装（与 ~/.peri/settings.json 的 { "config": {...} } 对应）
+/// 顶层包装（与 ~/.cc-code/settings.json 的 { "config": {...} } 对应）
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PeriConfig {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]

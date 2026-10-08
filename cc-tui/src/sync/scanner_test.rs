@@ -12,9 +12,9 @@ mod tests {
     }
 
     fn prepare_settings(home: &Path, content: &str) {
-        let peri_dir = home.join(".peri");
-        fs::create_dir_all(&peri_dir).expect("创建 .peri 目录");
-        fs::write(peri_dir.join("settings.json"), content).expect("写入 settings.json");
+        let cc_dir = home.join(".cc-code");
+        fs::create_dir_all(&cc_dir).expect("创建 .cc-code 目录");
+        fs::write(cc_dir.join("settings.json"), content).expect("写入 settings.json");
     }
 
     #[test]

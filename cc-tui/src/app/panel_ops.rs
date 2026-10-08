@@ -72,7 +72,7 @@ impl App {
             std::env::temp_dir().join(format!("peri-shell-test-{}.jsonl", uuid::Uuid::now_v7())),
         ));
 
-        // 将配置路径重定向到临时目录，防止测试污染全局 ~/.peri/settings.json
+        // 将配置路径重定向到临时目录，防止测试污染全局 ~/.cc-code/settings.json
         let test_config_path = std::env::temp_dir().join(format!(
             "zen-config-test-{}/settings.json",
             uuid::Uuid::now_v7()

@@ -216,7 +216,7 @@ fn test_remove_server_from_project_config() {
 #[test]
 fn test_remove_server_from_global_config_nested() {
     let dir = tempfile::tempdir().unwrap();
-    let settings_dir = dir.path().join(".peri");
+    let settings_dir = dir.path().join(".cc-code");
     std::fs::create_dir_all(&settings_dir).unwrap();
     let settings_path = settings_dir.join("settings.json");
     std::fs::write(
@@ -241,7 +241,7 @@ fn test_remove_server_from_global_config_nested() {
 #[test]
 fn test_remove_server_from_global_config_top_level() {
     let dir = tempfile::tempdir().unwrap();
-    let settings_dir = dir.path().join(".peri");
+    let settings_dir = dir.path().join(".cc-code");
     std::fs::create_dir_all(&settings_dir).unwrap();
     let settings_path = settings_dir.join("settings.json");
     std::fs::write(
@@ -264,7 +264,7 @@ fn test_remove_server_from_global_config_top_level() {
 fn test_remove_server_nonexistent_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join(".mcp.json"), r#"{"mcpServers":{}}"#).unwrap();
-    let settings_dir = dir.path().join(".peri");
+    let settings_dir = dir.path().join(".cc-code");
     std::fs::create_dir_all(&settings_dir).unwrap();
     std::fs::write(settings_dir.join("settings.json"), r#"{}"#).unwrap();
 
