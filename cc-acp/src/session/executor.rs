@@ -69,9 +69,14 @@ pub struct FrozenSessionData {
     /// Full system prompt string built at session creation.
     pub system_prompt: String,
     /// Frozen content of CLAUDE.md (with resolved `@import`), None if no file.
+    /// 仅供 Jev 规则提炼的「项目级」段使用；注入上下文请用 `instructions`。
     pub claude_md: Option<String>,
     /// Frozen content of CLAUDE.local.md, None if no file.
+    /// 仅供 Jev 规则提炼的「个人级」段使用。
     pub claude_local_md: Option<String>,
+    /// Frozen **rendered** instruction set injected as a single System message
+    /// (merged candidates + dedup + provenance + limits). None = no instructions.
+    pub instructions: Option<String>,
     /// Frozen Jev rules loader, which lazily distils safety rules from CLAUDE.md.
     /// 惰性：只有门第一次真的判定时才调用模型。
     pub jev_rule_loader: Option<Arc<cc_middlewares::hitl::jev::JevRuleLoader>>,
@@ -433,36 +438,29 @@ pub async fn execute_prompt(
         .and_then(|f| f.language.clone())
         .or_else(|| peri_config.config.language.clone());
 
-    let (
-        system_prompt,
-        frozen_claude_md,
-        frozen_claude_local_md,
-        frozen_skill_summary,
-        frozen_date,
-        frozen_jev_rules,
-    ) = if let Some(ref f) = frozen {
-        // 使用 session 创建时冻结的数据，跳过重建
-        (
-            f.system_prompt.clone(),
-            f.claude_md.clone(),
-            f.claude_local_md.clone(),
-            f.skill_summary.clone(),
-            Some(f.date.clone()),
-            f.jev_rule_loader.clone(),
-        )
-    } else {
-        // Legacy: per-turn rebuild（子 Agent 等场景未提供 frozen 数据时使用）
-        let features = PromptFeatures::detect();
-        let sp = build_system_prompt(
-            None,
-            cwd,
-            features,
-            &plugin_agent_dirs,
-            None,
-            language.as_deref(),
-        );
-        (sp, None, None, None, None, None)
-    };
+    let (system_prompt, frozen_instructions, frozen_skill_summary, frozen_date, frozen_jev_rules) =
+        if let Some(ref f) = frozen {
+            // 使用 session 创建时冻结的数据，跳过重建
+            (
+                f.system_prompt.clone(),
+                f.instructions.clone(),
+                f.skill_summary.clone(),
+                Some(f.date.clone()),
+                f.jev_rule_loader.clone(),
+            )
+        } else {
+            // Legacy: per-turn rebuild（子 Agent 等场景未提供 frozen 数据时使用）
+            let features = PromptFeatures::detect();
+            let sp = build_system_prompt(
+                None,
+                cwd,
+                features,
+                &plugin_agent_dirs,
+                None,
+                language.as_deref(),
+            );
+            (sp, None, None, None, None)
+        };
 
     // Build register/deregister closures for SubAgentMiddleware
     let register_runtime = session_manager.clone().map(|sm| {
@@ -498,8 +496,7 @@ pub async fn execute_prompt(
             provider: provider.clone(),
             cwd: cwd.to_string(),
             system_prompt,
-            frozen_claude_md,
-            frozen_claude_local_md,
+            frozen_instructions,
             frozen_skill_summary,
             frozen_date,
             jev_rule_loader: frozen_jev_rules,

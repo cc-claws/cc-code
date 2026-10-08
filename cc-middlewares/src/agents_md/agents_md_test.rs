@@ -1,6 +1,31 @@
+    // 测试辅助：把用户全局文件指向临时目录内不存在的路径，
+    // 避免开发机 `~/.cc-code/AGENTS.md` 污染断言。
+    fn cfg_in(dir: &std::path::Path) -> AgentsMdConfig {
+        AgentsMdConfig {
+            user_global_file: dir.join("__no_such_global__.md"),
+            ..Default::default()
+        }
+    }
+
+    fn mw_in(dir: &std::path::Path) -> AgentsMdMiddleware {
+        AgentsMdMiddleware::new().with_config(cfg_in(dir))
+    }
+
     #[tokio::test]
     async fn test_no_file_no_op() {
-        let mw = AgentsMdMiddleware::new();
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let mw = mw_in(dir.path());
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        let result = mw.before_agent(&mut state).await;
+        assert!(result.is_ok());
+        assert_eq!(state.messages().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_no_file_no_op_nonexistent_path() {
+        let dir = std::path::Path::new("/nonexistent/path");
+        let mw = mw_in(dir);
         let mut state = AgentState::new("/nonexistent/path");
         let result = mw.before_agent(&mut state).await;
         assert!(result.is_ok());
@@ -14,7 +39,7 @@
         let agents_md = dir.path().join("AGENTS.md");
         std::fs::write(&agents_md, "# Project Guide\nDo things correctly.").unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -23,19 +48,273 @@
         assert!(state.messages()[0].content().contains("Project Guide"));
     }
 
+    // ── dsh 加载模型：同目录全加载 + 去重 ──────────────────────────────────
+
     #[tokio::test]
-    async fn test_priority_agents_over_claude() {
+    async fn test_same_dir_agents_and_claude_both_loaded() {
         use tempfile::tempdir;
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("AGENTS.md"), "agents content").unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "claude content").unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
+        // 单条 System 消息，但两个文件的内容都在里面（不再是「先命中者独占」）
         assert_eq!(state.messages().len(), 1);
-        assert!(state.messages()[0].content().contains("agents content"));
+        let content = state.messages()[0].content();
+        assert!(content.contains("agents content"), "{content}");
+        assert!(content.contains("claude content"), "{content}");
+        // AGENTS.md 在前（基础层有序）
+        assert!(
+            content.find("agents content").unwrap() < content.find("claude content").unwrap(),
+            "{content}"
+        );
+        assert!(content.contains("## AGENTS.md"), "{content}");
+        assert!(content.contains("## CLAUDE.md"), "{content}");
+    }
+
+    #[tokio::test]
+    async fn test_same_dir_identical_content_deduped() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "shared rules\n").unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "  shared rules  \n").unwrap();
+
+        let mw = mw_in(dir.path());
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert_eq!(content.matches("shared rules").count(), 1, "{content}");
+        assert!(content.contains("## AGENTS.md"), "{content}");
+        assert!(!content.contains("## CLAUDE.md"), "{content}");
+    }
+
+    #[tokio::test]
+    async fn test_local_overlay_after_base() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "base rules").unwrap();
+        std::fs::write(dir.path().join("AGENTS.local.md"), "local overlay").unwrap();
+
+        let mw = mw_in(dir.path());
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert!(
+            content.find("base rules").unwrap() < content.find("local overlay").unwrap(),
+            "基础层应排在 .local 覆盖层之前: {content}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_empty_file_does_not_shadow() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "   \n\n  ").unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "claude real content").unwrap();
+
+        let mw = mw_in(dir.path());
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        // 回归：空 AGENTS.md 不再遮蔽后续候选
+        assert_eq!(state.messages().len(), 1);
+        assert!(state.messages()[0].content().contains("claude real content"));
+    }
+
+    // ── dsh 加载模型：跨目录拼接 ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_directory_chain_root_to_cwd_order() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+
+        std::fs::write(root.join("AGENTS.md"), "root rules").unwrap();
+        std::fs::write(sub.join("AGENTS.md"), "sub rules").unwrap();
+
+        let mw = mw_in(root);
+        let mut state = AgentState::new(sub.to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert!(content.contains("## AGENTS.md"), "{content}");
+        assert!(content.contains("## sub/AGENTS.md"), "{content}");
+        assert!(
+            content.find("root rules").unwrap() < content.find("sub rules").unwrap(),
+            "越靠后越具体: {content}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_git_only_cwd() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let outer = dir.path();
+        let inner = outer.join("inner");
+        std::fs::create_dir_all(&inner).unwrap();
+        // outer 没有 .git，inner 也没有 → root = inner，不向上泄漏 outer/AGENTS.md
+        std::fs::write(outer.join("AGENTS.md"), "outer rules").unwrap();
+
+        let mw = mw_in(&inner);
+        let mut state = AgentState::new(inner.to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        assert_eq!(state.messages().len(), 0, "非 git 仓库只查 cwd");
+    }
+
+    #[tokio::test]
+    async fn test_find_project_root_walks_up() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("repo");
+        let sub = root.join("a").join("b");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+
+        let found = find_project_root(&sub, &[".git".to_string()]);
+        assert_eq!(
+            std::fs::canonicalize(found).unwrap(),
+            std::fs::canonicalize(&root).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_global_file_prepended() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let global = dir.path().join("global-agents.md");
+        std::fs::write(&global, "global rules").unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "project rules").unwrap();
+
+        let cfg = AgentsMdConfig {
+            user_global_file: global,
+            ..Default::default()
+        };
+        let mw = AgentsMdMiddleware::new().with_config(cfg);
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert!(content.contains("global rules"), "{content}");
+        assert!(
+            content.find("global rules").unwrap() < content.find("project rules").unwrap(),
+            "全局层在最宽处（链首）: {content}"
+        );
+    }
+
+    // ── 冻结路径 ───────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_frozen_instructions_single_message() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "frozen rules").unwrap();
+
+        let frozen = load_instructions(dir.path(), &cfg_in(dir.path())).unwrap();
+        let mw = AgentsMdMiddleware::new().with_frozen_instructions(frozen);
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        state.add_message(BaseMessage::human("hi"));
+        mw.before_agent(&mut state).await.unwrap();
+
+        assert_eq!(state.messages().len(), 2);
+        assert!(state.messages()[0].is_system());
+        assert!(state.messages()[0].content().contains("frozen rules"));
+    }
+
+    // ── 限额与截断 ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_truncation_head_tail() {
+        let max = 4096usize;
+        let content = "A".repeat(20_000);
+        let out = truncate_per_file(&content, max, "AGENTS.md");
+        assert!(out.len() <= max, "{}", out.len());
+        assert!(out.contains("[...truncated AGENTS.md"), "{out}");
+        assert!(out.contains("Use file tools"), "{out}");
+        // 头尾都保留
+        assert!(out.starts_with('A'));
+        assert!(out.ends_with('A'));
+    }
+
+    #[test]
+    fn test_utf8_boundaries_multibyte() {
+        // 中文 + emoji：任意字节级切分都不能 panic，且不超上限
+        let content = "规则🚀".repeat(500);
+        for max in [4usize, 8, 16, 33, 100, 4096, 100_000] {
+            let out = truncate_per_file(&content, max, "AGENTS.md");
+            assert!(!out.is_empty(), "max={max}");
+            assert!(out.len() <= max, "max={max} len={}", out.len());
+            // 能成功构造 String 即未切坏 char boundary
+            assert!(std::str::from_utf8(out.as_bytes()).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_truncation_tiny_budget_degrades() {
+        // 上限小到放不下标记：退化为头部截断，绝不 panic / 绝不超限
+        let content = "abcdefghij".repeat(100);
+        let out = truncate_bytes_head_tail(&content, 8, "AGENTS.md");
+        assert!(out.len() <= 8, "{out}");
+        assert!(out.starts_with("abcdefgh"), "{out}");
+    }
+
+    #[test]
+    fn test_total_max_bytes_stops() {
+        let cfg = AgentsMdConfig {
+            max_bytes: 120,
+            ..Default::default()
+        };
+        let files: Vec<InstructionFile> = (0..5)
+            .map(|i| InstructionFile {
+                abs_path: PathBuf::from(format!("/tmp/f{i}.md")),
+                display: format!("f{i}.md"),
+                content: format!("content-{i}").repeat(5),
+            })
+            .collect();
+
+        let out = render_instruction_set(&files, &cfg);
+        assert!(out.contains("## f0.md"), "{out}");
+        assert!(!out.contains("## f4.md"), "{out}");
+        assert!(out.contains("instruction files omitted"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn test_first_file_over_total_limit_still_included() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "y".repeat(5000)).unwrap();
+
+        let cfg = AgentsMdConfig {
+            max_bytes: 256,
+            ..cfg_in(dir.path())
+        };
+        let out = load_instructions(dir.path(), &cfg).unwrap();
+        assert!(out.len() <= 256, "{}", out.len());
+        assert!(out.contains("## AGENTS.md"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn test_crlf_normalized_and_deduped() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "rule one\r\nrule two\r\n").unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "rule one\nrule two\n").unwrap();
+
+        let mw = mw_in(dir.path());
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert!(!content.contains('\r'), "CRLF 应归一为 LF");
+        assert_eq!(content.matches("rule one").count(), 1, "{content}");
     }
 
     #[tokio::test]
@@ -44,7 +323,7 @@
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("AGENTS.md"), "system instructions").unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         state.add_message(BaseMessage::human("user question"));
         mw.before_agent(&mut state).await.unwrap();
@@ -62,7 +341,7 @@
         let claude_md = dir.path().join("CLAUDE.md");
         std::fs::write(&claude_md, "should be excluded").unwrap();
 
-        let mw = AgentsMdMiddleware::new().with_excludes(vec![format!("{}", claude_md.display())]);
+        let mw = mw_in(dir.path()).with_excludes(vec![format!("{}", claude_md.display())]);
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -79,7 +358,7 @@
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "should be loaded").unwrap();
 
-        let mw = AgentsMdMiddleware::new().with_excludes(vec!["**/node_modules/**".to_string()]);
+        let mw = mw_in(dir.path()).with_excludes(vec!["**/node_modules/**".to_string()]);
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -95,7 +374,7 @@
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("CLAUDE.local.md"), "local only content").unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -110,7 +389,7 @@
         std::fs::write(dir.path().join("CLAUDE.md"), "main content").unwrap();
         std::fs::write(dir.path().join("CLAUDE.local.md"), "local content").unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -127,7 +406,7 @@
         std::fs::write(dir.path().join("CLAUDE.md"), "main content").unwrap();
         std::fs::write(dir.path().join("CLAUDE.local.md"), "   \n  ").unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -151,7 +430,7 @@
         )
         .unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -160,6 +439,27 @@
         assert!(content.contains("imported rules"));
         assert!(content.contains("footer"));
         assert!(!content.contains("@import"));
+    }
+
+    #[tokio::test]
+    async fn test_import_in_agents_md_too() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("extra.md"), "extra rules").unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "top\n<!-- @import extra.md -->\nbottom",
+        )
+        .unwrap();
+
+        let mw = mw_in(dir.path());
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        // AGENTS.md 现在也解析 @import（此前只对 CLAUDE* 生效）
+        let content = state.messages()[0].content();
+        assert!(content.contains("extra rules"), "{content}");
+        assert!(!content.contains("@import"), "{content}");
     }
 
     #[tokio::test]
@@ -174,7 +474,7 @@
         std::fs::write(&outer, "outer <!-- @import sub/inner.md --> end").unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "<!-- @import outer.md -->").unwrap();
 
-        let mw = AgentsMdMiddleware::new();
+        let mw = mw_in(dir.path());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
@@ -240,4 +540,21 @@
             result.contains("@import"),
             "invalid format should preserve original text"
         );
+    }
+
+    #[test]
+    fn test_import_cycle_and_depth_in_load() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let a = dir.path().join("cyc-a.md");
+        let b = dir.path().join("cyc-b.md");
+        std::fs::write(&a, "A <!-- @import cyc-b.md -->").unwrap();
+        std::fs::write(&b, "B <!-- @import cyc-a.md -->").unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "top <!-- @import cyc-a.md -->").unwrap();
+
+        let out = load_instructions(dir.path(), &cfg_in(dir.path())).unwrap();
+        assert!(out.contains("A "), "{out}");
+        assert!(out.contains("B "), "{out}");
+        // 环上的回边保留占位符，不 panic、不死循环
+        assert!(out.contains("@import cyc-a.md"), "{out}");
     }

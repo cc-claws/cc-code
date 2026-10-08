@@ -54,10 +54,10 @@ pub struct AcpAgentConfig {
     pub provider: LlmProvider,
     pub cwd: String,
     pub system_prompt: String,
-    /// Frozen CLAUDE.md content (None = read from disk each turn, legacy).
-    pub frozen_claude_md: Option<String>,
-    /// Frozen CLAUDE.local.md content.
-    pub frozen_claude_local_md: Option<String>,
+    /// Frozen **rendered** instruction set (merged + deduped + provenance-tagged,
+    /// produced by `AgentsMdMiddleware::load_frozen_instructions` at session/new).
+    /// None = read from disk each turn (legacy, e.g. sub-agents).
+    pub frozen_instructions: Option<String>,
     /// Session-scoped lazy Jev rule loader (distils CLAUDE.md rules on first gate use).
     /// None = 门不携带 CLAUDE.md 策略。
     pub jev_rule_loader: Option<Arc<cc_middlewares::hitl::jev::JevRuleLoader>>,
@@ -139,8 +139,7 @@ pub fn build_agent(
         provider,
         cwd,
         system_prompt,
-        frozen_claude_md,
-        frozen_claude_local_md,
+        frozen_instructions,
         jev_rule_loader,
         frozen_skill_summary,
         frozen_date,
@@ -460,8 +459,8 @@ pub fn build_agent(
         .with_shared_tools(Arc::clone(&shared_tools))
         .add_middleware(Box::new({
             let mut mw = AgentsMdMiddleware::new().with_excludes(claude_md_excludes);
-            if let Some(main) = frozen_claude_md {
-                mw = mw.with_frozen_content(main, frozen_claude_local_md);
+            if let Some(rendered) = frozen_instructions {
+                mw = mw.with_frozen_instructions(rendered);
             }
             mw
         }))

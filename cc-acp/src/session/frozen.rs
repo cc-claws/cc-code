@@ -38,6 +38,10 @@ pub fn build_frozen_session_data(
     let (frozen_claude_md, frozen_claude_local_md) =
         cc_middlewares::AgentsMdMiddleware::read_frozen_content(cwd);
 
+    // 注入上下文的整段指引：同目录合并 + 去重 + 跨目录 root→cwd 拼接 + provenance + 限额。
+    let frozen_instructions =
+        cc_middlewares::agents_md::load_frozen_instructions(std::path::Path::new(cwd));
+
     // 个人 → 项目 → hooks → 全局，越靠前越权威（超长时先丢全局）。
     // 优先级数字与 `source=` 写进标题：模型据此按小号覆盖大号，并给每条规则标注来源。
     let global_claude_md = cc_middlewares::AgentsMdMiddleware::read_global_content();
@@ -88,6 +92,7 @@ pub fn build_frozen_session_data(
         system_prompt: frozen_system_prompt,
         claude_md: frozen_claude_md,
         claude_local_md: frozen_claude_local_md,
+        instructions: frozen_instructions,
         jev_rule_loader,
         skill_summary: frozen_skill_summary,
         date: frozen_date.to_string(),
