@@ -96,11 +96,21 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             ..
         } => handle_ctrl_v(app),
 
-        // Ctrl+S / Ctrl+X：排队消息键盘操作，等价鼠标 [Send now] / [×]。
+        // Alt+S / Alt+X：排队消息键盘操作，等价鼠标 [Send now] / [×]。
+        //
+        // 不用 Ctrl+S：Windows 控制台（conhost/ConPTY）把 Ctrl+S 当作暂停键（XOFF）
+        // 在宿主层截走并丢弃，事件根本到不了应用层（Ctrl+X 无此保留，故原先正常）。
+        // 改用 Alt 系规避，与 Alt+V 规避 Ctrl+V 宿主拦截同源。
+        // macOS Option 会组合出特殊字符（⌥S=ß、⌥X=≈，⌥V=√），一并匹配。
+        //
         // 仅在存在可操作的队首消息时拦截，否则放行给 textarea。
         Input {
             key: Key::Char('s') | Key::Char('S'),
-            ctrl: true,
+            alt: true,
+            ..
+        }
+        | Input {
+            key: Key::Char('ß'), // macOS Option+S compose char
             ..
         } if app.first_actionable_queued_id().is_some() => {
             app.steer_first_queued_message();
@@ -108,7 +118,11 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
 
         Input {
             key: Key::Char('x') | Key::Char('X'),
-            ctrl: true,
+            alt: true,
+            ..
+        }
+        | Input {
+            key: Key::Char('≈'), // macOS Option+X compose char
             ..
         } if app.first_actionable_queued_id().is_some() => {
             app.delete_first_queued_message();
@@ -1077,7 +1091,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ctrl_x_deletes_head_queued_message() {
+    async fn test_alt_x_deletes_head_queued_message() {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let mut app = make_app().await;
@@ -1086,13 +1100,13 @@ mod tests {
 
         let result = crate::event::keyboard::handle_key_event(
             &mut app,
-            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT),
         )
         .unwrap();
 
         assert!(matches!(result, Some(Action::Redraw)));
         let messages = &app.session_mgr.current().messages.pending_messages;
-        assert_eq!(messages.len(), 1, "Ctrl+X 一次只删除队首一条");
+        assert_eq!(messages.len(), 1, "Alt+X 一次只删除队首一条");
         assert_eq!(messages[0].text, "第二条");
         assert_eq!(
             app.session_mgr.current().ui.textarea.lines().join(""),
@@ -1102,7 +1116,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ctrl_s_is_consumed_by_queued_message_shortcut() {
+    async fn test_ctrl_x_is_no_longer_bound_after_alt_migration() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr.current_mut().messages.pending_messages =
+            vec!["第一条".to_string().into(), "第二条".to_string().into()];
+
+        let _ = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.session_mgr.current().messages.pending_messages.len(),
+            2,
+            "迁移到 Alt 系后 Ctrl+X 不应再删除队列消息"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_alt_s_is_consumed_by_queued_message_shortcut() {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let mut app = make_app().await;
@@ -1115,7 +1150,7 @@ mod tests {
 
         let result = crate::event::keyboard::handle_key_event(
             &mut app,
-            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT),
         )
         .unwrap();
 
@@ -1129,6 +1164,43 @@ mod tests {
             app.session_mgr.current().messages.pending_messages.len(),
             1,
             "无 ACP 客户端时消息必须留在队列中"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_macos_option_compose_chars_trigger_queue_shortcuts() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = make_app().await;
+        app.session_mgr.current_mut().messages.pending_messages =
+            vec!["第一条".to_string().into(), "第二条".to_string().into()];
+        // ⌥X 组合出 '≈'，无修饰符
+        let _ = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('≈'), KeyModifiers::NONE),
+        )
+        .unwrap();
+        assert_eq!(
+            app.session_mgr.current().messages.pending_messages.len(),
+            1,
+            "macOS Option+X 组合字符 '≈' 应等价 Alt+X 删除队首"
+        );
+        assert_eq!(
+            app.session_mgr.current().ui.textarea.lines().join(""),
+            "",
+            "组合字符不应被当作字面值写入输入框"
+        );
+
+        // ⌥S 组合出 'ß'，无修饰符
+        let _ = crate::event::keyboard::handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('ß'), KeyModifiers::NONE),
+        )
+        .unwrap();
+        assert_eq!(
+            app.session_mgr.current().ui.textarea.lines().join(""),
+            "",
+            "组合字符 'ß' 不应被当作字面值写入输入框"
         );
     }
 
