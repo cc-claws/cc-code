@@ -257,6 +257,14 @@ render_instruction_set(files, cfg):
 > 测试hermeticity：tempdir 用例统一用 `repo_dir()`（内嵌 `.git`）把 `find_project_root` **钉死**在 tempdir，
 > 否则 `TMPDIR` 恰落在某个 git 仓库内时，祖先目录的指引文件会被一并加载，结果就依赖环境了。
 
+另有**真实仓库冒烟**（`#[ignore]`，不进 CI，供人工核查真实大文件上的表现）：
+
+```bash
+cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --ignored --nocapture
+# 本仓库实测：root = workspace 根；发现 2 个文件（## CLAUDE.md 32581 B、## CLAUDE.local.md 7932 B）；
+# 渲染 40549 B ≤ max_bytes 262144 ✅
+```
+
 集成：`cc-acp/src/session/frozen.rs` 的 `FrozenSessionData.instructions` 由 `load_frozen_instructions` 产出，`builder.rs` 经 `with_frozen_instructions` 交给中间件；`before_agent` 注入的 System 消息为**单条**。
 
 ---
@@ -286,7 +294,9 @@ render_instruction_set(files, cfg):
 - **已知限制（登记，不在本期内解决）**：
   1. `claude_md_excludes` 对**主会话**不生效（走冻结，内容已渲染成字符串，中间件无法再按文件过滤）→ [#359](https://github.com/cc-claws/cc-code/issues/359)；
   2. **子 Agent**（非冻结路径）每轮重读磁盘 → 会话中途改指引文件会使其 prompt 前缀抖动 → [#360](https://github.com/cc-claws/cc-code/issues/360)；
-  3. `read_frozen_content` 的「空文件遮蔽」旧 bug 仍在（只影响 Jev 来源，不影响注入内容）。
+  3. `read_frozen_content` 的「空文件遮蔽」旧 bug 仍在（只影响 Jev 来源，不影响注入内容）；
+  4. `@import` 的路径**不限制在项目内**（`<!-- @import ../../x -->` 甚至绝对路径都会读），
+     即恶意仓库的指引文件可把项目外文件内容带进上下文 —— 属既有能力，安全权衡见 [#361](https://github.com/cc-claws/cc-code/issues/361)。
 - 需一并回改的文档漂移：`CLAUDE.md`、`cc-acp/README.md`、`docs/ACP_COMPATIBLE.csv` 里对 `frozen_claude_md` 的旧称。
 - 工程注意：`cargo fmt --all` 会重排本仓库大量历史文件（仓库未按 rustfmt 归一，CI 也不校验 fmt）——只对**动过的文件**格式化，别整仓 fmt。
 

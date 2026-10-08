@@ -458,6 +458,46 @@
         assert!(!content.contains("local"));
     }
 
+    // ── 手动冒烟（不进 CI）─────────────────────────────────────────────────
+
+    /// 对**本仓库**跑一遍真实加载，打印注入结果的规模统计，供人工核查
+    /// 「同目录合并 / 跨目录拼接 / provenance / 限额」在真实大文件上的表现。
+    ///
+    /// 依赖仓库自身文件，故 `#[ignore]`，需要时手动执行：
+    /// `cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --ignored --nocapture`
+    #[test]
+    #[ignore = "依赖本仓库文件的冒烟测试，按需手动运行"]
+    fn test_repo_self_smoke() {
+        let cfg = AgentsMdConfig::default();
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root");
+        let root = find_project_root(repo, &cfg.project_root_markers);
+        let files = discover_instruction_files(repo, &cfg);
+        let rendered = load_instructions(repo, &cfg);
+
+        println!("workspace root = {}", repo.display());
+        println!("project root   = {}", root.display());
+        println!("发现文件 ({} 个):", files.len());
+        for f in &files {
+            println!("  - ## {}  [{} bytes]", f.display, f.content.len());
+        }
+        match rendered {
+            Some(r) => println!(
+                "渲染结果: {} bytes / 段数 {} / max_bytes {} → {}",
+                r.len(),
+                files.len(),
+                cfg.max_bytes,
+                if r.len() <= cfg.max_bytes {
+                    "在限内 ✅"
+                } else {
+                    "越界 ❌"
+                }
+            ),
+            None => println!("渲染结果: None（本仓库没有可注入的指引文件）"),
+        }
+    }
+
     // ── @import tests ──────────────────────────────────────────────────────
 
     #[tokio::test]

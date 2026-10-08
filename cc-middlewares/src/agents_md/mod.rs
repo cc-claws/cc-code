@@ -73,6 +73,8 @@ impl AgentsMdMiddleware {
     ///
     /// **仅非冻结路径生效**：冻结内容在 `session/new` 就已渲染好，中间件拿到的
     /// 是成品字符串，无法再按文件过滤。
+    ///
+    /// 与 [`Self::with_config`] 同时使用时**后调用者覆盖前者**（两者都写 `config.excludes`）。
     pub fn with_excludes(mut self, patterns: Vec<String>) -> Self {
         self.config.excludes = patterns;
         self
@@ -149,8 +151,9 @@ impl AgentsMdMiddleware {
 
 // ── 加载器（dsh 模型）────────────────────────────────────────────────────────
 
-/// 从 cwd 向上找项目根：第一个含 `project_root_markers`（默认 `.git`）的目录。
-/// 找不到则根就是 cwd 本身（**只查 cwd，不向上**——避免 `/tmp`、`$HOME` 的指引泄漏到无关会话）。
+/// 从 cwd **向上**找项目根：第一个含 `project_root_markers`（默认 `.git`）的目录。
+/// 始终未命中标记时，根就是 cwd 本身——此时**目录链退化为 `[cwd]`**，
+/// 不会去扫祖先目录的指引文件（避免 `/tmp`、`$HOME` 的 `AGENTS.md` 泄漏到无关会话）。
 pub fn find_project_root(cwd: &Path, markers: &[String]) -> PathBuf {
     let mut cur: Option<&Path> = Some(cwd);
     while let Some(dir) = cur {

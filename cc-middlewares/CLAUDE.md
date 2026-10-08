@@ -5,7 +5,7 @@
 ## 中间件链执行顺序
 
 ```
-1.  AgentsMdMiddleware       ← CLAUDE.md/AGENTS.md 注入
+1.  AgentsMdMiddleware       ← 指引文件注入（AGENTS.md/CLAUDE.md，同目录合并去重 + 跨目录拼接 + 限额）
 2.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
 3.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
 4.  SkillPreloadMiddleware   ← #skill-name 全文注入
