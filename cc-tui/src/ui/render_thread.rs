@@ -23,7 +23,7 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 use super::message_render::CONTROL_B_BACKGROUND_HINT;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
-    message_render::{render_view_model_with_links, shell_running_text},
+    message_render::{is_shell_running_status_line, render_view_model_with_links, shell_running_text},
     message_view::MessageViewModel,
 };
 use cc_widgets::markdown::LinkHit;
@@ -607,9 +607,15 @@ impl RenderTask {
                 }
             }
             if Self::is_running_bash_past_threshold(vm) {
-                let cached_line_count = self.message_lines.get(idx).map(|l| l.len()).unwrap_or(0);
-                // 跨越阈值后应有 3 行（header + Running… + ctrl+b hint），缓存 < 3 行说明未渲染
-                if cached_line_count < 3 {
+                // 跨越 2 秒阈值后必须已有 Running… 状态行。不能再用固定行数
+                // （旧假设 header 恒 1 行 → 共 3 行）：详细模式下超长命令会让
+                // header 折成多行，行数早已 ≥ 3，固定判定会漏掉首次渲染，
+                // 导致状态行永远不出现。改为按内容定位状态行是否已渲染。
+                let has_running_line = self
+                    .message_lines
+                    .get(idx)
+                    .is_some_and(|lines| lines.iter().any(is_shell_running_status_line));
+                if !has_running_line {
                     needs_rebuild = true;
                     // 只失效该条消息的 hash，触发 rebuild 从该处增量重建
                     if let Some(h) = self.message_hashes.get_mut(idx) {
@@ -664,17 +670,20 @@ impl RenderTask {
                 }
             }
 
-            // Bash 已超 2 秒：增量更新 Running… (Xs) 秒数行（lines[1]）
+            // Bash 已超 2 秒：增量更新 Running… (Xs) 秒数行。
+            // 状态行下标**不固定**（详细模式下超长命令会让 header 折成多行），
+            // 必须按内容定位；旧代码写死 `lines[1]` 会覆盖命令续行，
+            // 同时真正的状态行因不在下标 1 而被冻结（时间不刷新）。
             if *tool_name == "Bash"
                 && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
             {
                 let new_running_text =
                     shell_running_text(started_at.unwrap(), *execution_timeout_ms);
 
-                if let Some(running_line) = lines.get_mut(1) {
-                    if running_line.spans.len() >= 2
-                        && running_line.spans[1].content.as_ref() != new_running_text
-                    {
+                if let Some(running_line) =
+                    lines.iter_mut().find(|l| is_shell_running_status_line(l))
+                {
+                    if running_line.spans[1].content.as_ref() != new_running_text {
                         running_line.spans[1].content = new_running_text.into();
                         msg_changed = true;
                     }
