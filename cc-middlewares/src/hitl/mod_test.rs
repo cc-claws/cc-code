@@ -134,12 +134,6 @@ fn test_mcp_prefix_edge_cases() {
     assert!(default_requires_approval("mcp__x__y__z"));
 }
 
-#[test]
-fn test_is_edit_tool_excludes_mcp() {
-    // MCP 工具不属于编辑工具，在 AcceptEdits 模式下仍需审批
-    assert!(!is_edit_tool("mcp__filesystem__write_file"));
-}
-
 #[tokio::test]
 async fn test_edit_modifies_input() {
     struct EditBroker;
@@ -203,17 +197,6 @@ async fn test_respond_returns_error_with_reason() {
 }
 
 // ─── 多模式测试 ─────────────────────────────────────────────────────────────
-
-#[test]
-fn test_is_edit_tool() {
-    assert!(is_edit_tool("Write"));
-    assert!(is_edit_tool("Edit"));
-    assert!(!is_edit_tool("Bash"));
-    assert!(!is_edit_tool("Agent"));
-    assert!(!is_edit_tool("delete_x"));
-    assert!(!is_edit_tool("rm_x"));
-    assert!(!is_edit_tool("Read"));
-}
 
 /// Mock 自动分类器
 struct MockClassifier {

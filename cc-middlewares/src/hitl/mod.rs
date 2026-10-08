@@ -22,8 +22,8 @@ pub mod shared_mode;
 
 pub use approval_memory::ApprovalMemory;
 pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
-pub use jev::{GateDecision, JevGate, JevRules};
 pub use cc_agent::hitl::{BatchItem, HitlDecision};
+pub use jev::{GateDecision, JevGate, JevRules};
 pub use shared_mode::{PermissionMode, SharedPermissionMode};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
@@ -73,14 +73,6 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
         || tool_name == TOOL_WEBFETCH
         || tool_name == TOOL_WEBSEARCH
         || tool_name.starts_with("mcp__")
-}
-
-/// 判断工具是否为文件编辑类工具（AcceptEdits 模式使用）
-///
-/// `Write`、`Edit` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
-/// `Bash`、`Agent`、`delete_*`、`rm_*` 不属于编辑工具，仍需审批。
-pub fn is_edit_tool(tool_name: &str) -> bool {
-    tool_name == TOOL_WRITE || tool_name == TOOL_EDIT
 }
 
 // ─── ExecuteExtraTool 权限透传 ─────────────────────────────────────────────
@@ -211,10 +203,10 @@ impl HumanInTheLoopMiddleware {
         let params = jev::effective_params(&tool_call.name, &tool_call.input);
         // 用户原始命令（RTK 改写前）：显式规则与危险形状要同时看它，否则装了 rtk 的机器上
         // 「用户拒绝规则」会被 `rtk X` 绕过（#358）。
+        // 只取原始值；「与有效命令相同则忽略」由 `jev::Commands` 统一处理（避免两处过滤）
         let original_command = jev::effective_params(&original.name, &original.input)
             .get("command")
             .and_then(|v| v.as_str())
-            .filter(|orig| Some(*orig) != params.get("command").and_then(|v| v.as_str()))
             .map(String::from);
         Some(jev::GateCall {
             tool_name: effective,
@@ -356,7 +348,6 @@ impl HumanInTheLoopMiddleware {
         apply_decision(tool_call, decision)
     }
 
-    /// 根据共享权限模式决策单个工具调用
     /// 按权限模式决策。
     ///
     /// `tool_call` 为 **RTK 改写后的有效调用**（评估与执行都用它），
@@ -603,7 +594,9 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
 
         // 2. 有 mode → 按权限模式决策（评估与展示都用有效调用）
         if let Some(mode) = &self.mode {
-            return self.decide_by_mode(state, mode, &effective, tool_call).await;
+            return self
+                .decide_by_mode(state, mode, &effective, tool_call)
+                .await;
         }
 
         // 3. 无 mode 且无 broker → 放行（disabled() 路径）

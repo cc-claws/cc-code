@@ -371,10 +371,9 @@ fn test_deny_rule_on_rewritten_command_also_blocks() {
 }
 
 #[test]
-fn test_read_only_needs_both_commands_read_only() {
-    // 保守方向：只读快车道要求「原始 + 改写后」都是只读链。
-    // `rtk git status` 本身不在只读白名单里，于是不进快车道（交给语义层/分类器）——
-    // 宁可多走一步判定，也不拿"看起来无害的原始命令"给改写后的命令背书。
+fn test_read_only_fast_lane_survives_transparent_rtk_wrap() {
+    // rtk 是**输出过滤型透明包装**：`rtk git status` 与 `git status` 的只读性质一致，
+    // 必须仍走零成本快车道——否则装了 rtk 的机器上每条只读命令都要多走一次判定/分类调用。
     let g = gate();
     let cwd = PathBuf::from(CWD);
     let call = GateCall {
@@ -385,7 +384,30 @@ fn test_read_only_needs_both_commands_read_only() {
         branch: None,
         cwd,
     };
-    assert!(g.deterministic(&call).is_none(), "不应走只读快车道");
+    assert!(
+        matches!(g.deterministic(&call), Some(GateDecision::Allow { .. })),
+        "透明包装不得让只读快车道失效"
+    );
+}
+
+#[test]
+fn test_read_only_fast_lane_rejected_for_opaque_rewrite() {
+    // 反向：包装**不透明**（有效命令 ≠ `rtk <原始>`）时，按有效命令判定 → 不进快车道
+    let g = gate();
+    let cwd = PathBuf::from(CWD);
+    let call = GateCall {
+        tool_name: "Bash".to_string(),
+        command: Some("rtk git status".to_string()),
+        original_command: Some("rm -rf /".to_string()),
+        path: None,
+        branch: None,
+        cwd,
+    };
+    // 不变量是「**不得**走快车道放行」；此处原始命令命中硬黑名单，故结果是 Block 而非 None
+    assert!(
+        !matches!(g.deterministic(&call), Some(GateDecision::Allow { .. })),
+        "不透明改写不得进快车道"
+    );
 }
 
 #[test]

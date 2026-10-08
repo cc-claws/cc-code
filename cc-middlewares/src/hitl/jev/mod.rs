@@ -85,15 +85,16 @@ pub struct GateCall {
 /// - deny / 硬黑名单 / 危险形状 → **任一**命令命中即命中（fail-closed，方向更严）；
 /// - allow / 用户声明安全 → **任一**命中即生效（用户白名单表达的是"意图"，RTK 改写只是前缀包装；
 ///   若只看改写后的 `rtk X`，用户的 allow 规则同样会静默失效）；
-/// - 只读快车道 → 需要**两条都**是只读链（保守：执行的是改写后的命令）。
+/// - 只读快车道 → 有效命令若只是原始命令的**透明前缀包装**（`rtk X`）则按原始判定，
+///   否则按有效命令判定（详见 `read_only`）。
 struct Commands<'a> {
     effective: &'a str,
     original: Option<&'a str>,
 }
 
 impl<'a> Commands<'a> {
-    /// 由 `GateCall` 构造（仅在有 bash 命令时调用）。
-    fn from(call: &'a GateCall) -> Option<Self> {
+    /// 由 `GateCall` 构造（仅在有 bash 命令时调用；返回 `None` = 该调用不是 Bash）。
+    fn of_call(call: &'a GateCall) -> Option<Self> {
         let effective = call.command.as_deref()?;
         Some(Self {
             effective,
@@ -123,16 +124,14 @@ impl<'a> Commands<'a> {
         out
     }
 
-    /// 任一命令命中危险形状即可（原因去重保序）。
+    /// 任一命令命中危险形状即可（并集去重后排序，保证判决 payload 稳定可比）。
     fn dangerous_reasons(&self, cwd: &Path) -> Vec<&'static str> {
         let mut out: Vec<&'static str> = Vec::new();
         for cmd in self.all() {
-            for name in policy::dangerous_reasons_scoped(cmd, cwd) {
-                if !out.contains(&name) {
-                    out.push(name);
-                }
-            }
+            out.extend(policy::dangerous_reasons_scoped(cmd, cwd));
         }
+        out.sort_unstable();
+        out.dedup();
         out
     }
 
@@ -154,10 +153,32 @@ impl<'a> Commands<'a> {
             .any(|cmd| policy::is_user_declared_safe(cmd, safe_commands))
     }
 
-    /// 只读白名单：**两条命令都必须是只读链**才算只读（保守方向）。
+    /// 只读白名单（快车道，零成本直接放行）。
+    ///
+    /// `rtk` 是**输出过滤型透明包装**：`rtk git status` 与 `git status` 的只读性质完全一致。
+    /// 若一律按有效命令判定，装了 rtk 的机器上**每条只读命令都会失去快车道**（升级成一次
+    /// Jev 判定甚至一次 LLM 分类调用）——那是假阴性带来的真实延迟/费用代价，不是「更保守」。
+    /// 因此：有效命令若恰好是原始命令的透明包装，就按原始命令判定；
+    /// 包装不透明（或没有原始命令）时按有效命令判定。
     fn read_only(&self) -> bool {
-        self.all().all(policy::is_read_only_chain)
+        policy::is_read_only_chain(self.read_only_probe())
     }
+
+    /// 只读判定的取用命令（见 [`Self::read_only`]）。
+    fn read_only_probe(&self) -> &'a str {
+        match self.original {
+            Some(orig) if is_transparent_rtk_wrap(self.effective, orig) => orig,
+            _ => self.effective,
+        }
+    }
+}
+
+/// `effective` 是否是 `original` 的**透明 rtk 前缀包装**（即 `rtk <original>`）。
+fn is_transparent_rtk_wrap(effective: &str, original: &str) -> bool {
+    effective
+        .strip_prefix("rtk ")
+        .map(|rest| rest.trim() == original.trim())
+        .unwrap_or(false)
 }
 
 /// Jev 语义门。
@@ -434,8 +455,7 @@ impl JevGate {
             return None;
         }
 
-        if let Some(cmds) = Commands::from(call) {
-
+        if let Some(cmds) = Commands::of_call(call) {
             // ── 层0：硬黑名单 —— 不可覆盖，任何规则都不能放行 ──
             let hard = cmds.hard_deny_reasons();
             if !hard.is_empty() {
