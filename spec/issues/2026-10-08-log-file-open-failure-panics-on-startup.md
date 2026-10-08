@@ -5,7 +5,7 @@
 **创建日期**：2026-10-08
 **分支**：`fix/log-open-panic`
 **Issue**：[#353](https://github.com/cc-claws/cc-code/issues/353)
-**PR**：待填
+**PR**：[#354](https://github.com/cc-claws/cc-code/pull/354)
 
 ---
 
