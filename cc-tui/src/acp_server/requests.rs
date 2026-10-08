@@ -263,7 +263,7 @@ pub(crate) async fn handle_request(
 
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 &cwd,
-                &cfg.peri_config.read().config,
+                cfg.peri_config.read().config.clone(),
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
@@ -444,7 +444,7 @@ pub(crate) async fn handle_request(
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
-                &cfg.peri_config.read().config,
+                cfg.peri_config.read().config.clone(),
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
@@ -564,7 +564,7 @@ pub(crate) async fn handle_request(
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
-                &cfg.peri_config.read().config,
+                cfg.peri_config.read().config.clone(),
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
@@ -620,7 +620,7 @@ pub(crate) async fn handle_request(
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
-                &cfg.peri_config.read().config,
+                cfg.peri_config.read().config.clone(),
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,

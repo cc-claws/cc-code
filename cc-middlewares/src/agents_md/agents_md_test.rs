@@ -602,6 +602,30 @@
         assert!(!out.contains("@import"), "{out}");
     }
 
+    /// 用户**自有**的全局文件是可信输入：`@import ../rules/x.md` 这类跨目录共享必须仍生效。
+    /// 若一律按项目范围收窄，规则会**静默消失**——对 Jev 门而言是变松，不是变紧。
+    #[tokio::test]
+    async fn test_user_global_import_not_scope_limited() {
+        let home = tempfile::tempdir().unwrap();
+        let cc_dir = home.path().join(".cc-code");
+        std::fs::create_dir_all(&cc_dir).unwrap();
+        std::fs::create_dir_all(home.path().join("rules")).unwrap();
+        std::fs::write(home.path().join("rules").join("shared.md"), "SHARED_FROM_HOME").unwrap();
+        let global = cc_dir.join("AGENTS.md");
+        std::fs::write(&global, "G
+<!-- @import ../rules/shared.md -->
+").unwrap();
+
+        let dir = repo_dir(); // 与被 import 的文件无关的项目树
+        let cfg = AgentsMdConfig {
+            user_global_file: global,
+            ..cfg_in(dir.path())
+        };
+        let out = load_instructions(dir.path(), &cfg).expect("应注入全局指引");
+        assert!(out.contains("SHARED_FROM_HOME"), "{out}");
+        assert!(!out.contains("@import"), "{out}");
+    }
+
     // ── @import tests ──────────────────────────────────────────────────────
 
     #[tokio::test]

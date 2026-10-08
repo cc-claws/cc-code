@@ -474,7 +474,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
 
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd_str,
-                        &ctx.peri_config.read().config,
+                        ctx.peri_config.read().config.clone(),
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -896,7 +896,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd,
-                        &ctx.peri_config.read().config,
+                        ctx.peri_config.read().config.clone(),
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -945,7 +945,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd,
-                        &ctx.peri_config.read().config,
+                        ctx.peri_config.read().config.clone(),
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -1078,7 +1078,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd_str,
-                        &ctx.peri_config.read().config,
+                        ctx.peri_config.read().config.clone(),
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,

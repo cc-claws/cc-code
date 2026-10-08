@@ -31,7 +31,7 @@ pub fn rule_model_from(provider: &crate::provider::LlmProvider) -> Option<Arc<dy
 /// 传 `None` 则不做提炼，门不携带用户策略。
 pub fn build_frozen_session_data(
     cwd: &str,
-    app_config: &crate::provider::config::AppConfig,
+    app_config: crate::provider::config::AppConfig,
     plugin_skill_dirs: &[PathBuf],
     plugin_agent_dirs: &[PathBuf],
     frozen_date: &str,
@@ -48,10 +48,8 @@ pub fn build_frozen_session_data(
         excludes: app_config.claude_md_excludes.clone().unwrap_or_default(),
         ..Default::default()
     };
-    let frozen_instructions = cc_middlewares::agents_md::load_instructions(
-        std::path::Path::new(cwd),
-        &instruction_cfg,
-    );
+    let frozen_instructions =
+        cc_middlewares::agents_md::load_instructions(std::path::Path::new(cwd), &instruction_cfg);
 
     // 个人 → 项目 → hooks → 全局，越靠前越权威（超长时先丢全局）。
     // 优先级数字与 `source=` 写进标题：模型据此按小号覆盖大号，并给每条规则标注来源。

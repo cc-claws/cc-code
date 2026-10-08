@@ -18,7 +18,8 @@ pub use config::{AgentsMdConfig, ImportScope, DEFAULT_MAX_BYTES, DEFAULT_MAX_SOU
 ///
 /// - **同目录**：候选文件**都加载并合并**（不是「先命中者独占」），trim 后内容相同的去重；
 /// - **跨目录**：从项目根（含 `.git` 的目录）逐级向下到 cwd 拼接，越靠后越具体、优先级越高；
-/// - **用户全局层**：`{APP_HOME}/AGENTS.md`（`~/.cc-code/AGENTS.md`），置于链首（最宽）；
+/// - **用户全局层**：`{APP_HOME}/AGENTS.md`（`~/.cc-code/AGENTS.md`），置于链首（最宽），
+///   且它属**用户自有**文件 → `@import` 不受项目范围限制（项目树内的文件才受限）；
 /// - 每段带 provenance 头 `## <相对路径>`；
 /// - 单文件超 `max_source_bytes` 头 70% + 尾 20% 截断，渲染总量超 `max_bytes` 停止追加并标注。
 ///
@@ -33,7 +34,7 @@ pub use config::{AgentsMdConfig, ImportScope, DEFAULT_MAX_BYTES, DEFAULT_MAX_SOU
 ///
 /// 冻结数据（`session/new` 一次性捕获）优先：`with_frozen_instructions` 设过之后
 /// `before_agent` 完全跳过磁盘 I/O，保 Prompt Cache 前缀稳定。
-/// 未冻结时（子 Agent 等场景）回退到同样的发现 + 渲染逻辑。
+/// 未冻结时（子 Agent 在**跨 cwd** 等无法继承父快照的场景）回退到同样的发现 + 渲染逻辑。
 pub struct AgentsMdMiddleware {
     config: AgentsMdConfig,
     /// Frozen rendered instruction set (merged, deduped, provenance-tagged).
@@ -88,9 +89,12 @@ impl AgentsMdMiddleware {
         self
     }
 
-    /// Read and freeze CLAUDE.md content once (with @import resolution).
+    /// 读一次项目级指引原文（`AGENTS.md` > `CLAUDE.md` > `.claude/AGENTS.md`，各取首个存在的），
+    /// 并展开 `@import`；返回 `(main, local)`，两者都可能为 `None`。
     ///
-    /// Returns `(main_content, local_content)`, either may be `None`.
+    /// **不做冻结、也不写任何状态**：调用方（`session/new`）自己决定何时捕获一次。
+    /// 注意它仍是旧的「先命中者独占」语义，且**空文件会遮蔽后续候选**（未随新加载器修）；
+    /// 它只喂 Jev 规则提炼，与注入上下文的 `load_instructions` 是两条独立路径。
     /// 用于需要「项目级 / 个人级」两段语义的消费者（如 HITL 的 Jev 规则提炼）；
     /// 注入进上下文的整段指引请用 [`load_instructions`]。
     pub fn read_frozen_content(cwd: &str) -> (Option<String>, Option<String>) {
@@ -103,11 +107,17 @@ impl AgentsMdMiddleware {
             .into_iter()
             .find(|p| p.is_file())
             .and_then(|path| {
-                let content = std::fs::read_to_string(&path).ok()?;
+                let content = normalize_content(&std::fs::read_to_string(&path).ok()?);
                 if content.trim().is_empty() {
                     return None;
                 }
-                Some(read_with_imports(&path, &content, &AgentsMdConfig::default()))
+                // 项目树内的文件属**不可信**输入 → `@import` 默认限项目根内。
+                Some(read_with_imports(
+                    &path,
+                    &content,
+                    &AgentsMdConfig::default(),
+                    ImportScope::ProjectRoot,
+                ))
             });
         let local_content = {
             let local_path = Path::new(cwd).join("CLAUDE.local.md");
@@ -140,10 +150,18 @@ impl AgentsMdMiddleware {
             let Ok(content) = std::fs::read_to_string(&path) else {
                 continue;
             };
+            let content = normalize_content(&content);
             if content.trim().is_empty() {
                 continue;
             }
-            return Some(read_with_imports(&path, &content, &AgentsMdConfig::default()));
+            // 用户**自有**的全局规则文件属可信输入：`@import ~/rules/x.md` 这类跨项目
+            // 共享是常见需求，收窄范围会让规则**静默消失**（对门而言是变松，不是变紧）。
+            return Some(read_with_imports(
+                &path,
+                &content,
+                &AgentsMdConfig::default(),
+                ImportScope::Unrestricted,
+            ));
         }
         None
     }
@@ -202,15 +220,6 @@ fn is_excluded(source_path: &Path, abs_path: &Path, excludes: &[String]) -> bool
     })
 }
 
-/// 解析出「发现路径 + canonical 路径」并按 exclude 规则判定（不该加载则返回 None）。
-fn canonicalize_unless_excluded(path: &Path, excludes: &[String]) -> Option<PathBuf> {
-    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    if is_excluded(path, &abs_path, excludes) {
-        return None;
-    }
-    Some(abs_path)
-}
-
 /// 发现链上所有存在的指引文件（自带 provenance），宽 → 具体有序。
 ///
 /// 规则：
@@ -225,12 +234,13 @@ pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<Instr
     let mut out: Vec<InstructionFile> = Vec::new();
     let mut seen_abs: HashSet<PathBuf> = HashSet::new();
 
-    // ① 用户全局层（链首，最宽）
+    // ① 用户全局层（链首，最宽）。用户自有文件 → `@import` 不受项目范围限制。
     if let Some(file) = load_candidate(
         &cfg.user_global_file,
         cfg.user_global_display(),
         &mut seen_abs,
         cfg,
+        ImportScope::Unrestricted,
     ) {
         out.push(file);
     }
@@ -240,9 +250,13 @@ pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<Instr
         let mut seen_digest: HashSet<u64> = HashSet::new();
         for name in cfg.all_candidates() {
             let path = dir.join(name);
-            let Some(file) =
-                load_candidate(&path, display_for(&root, &path), &mut seen_abs, cfg)
-            else {
+            let Some(file) = load_candidate(
+                &path,
+                display_for(&root, &path),
+                &mut seen_abs,
+                cfg,
+                cfg.import_scope,
+            ) else {
                 continue;
             };
             if !seen_digest.insert(content_digest(&file.content)) {
@@ -260,21 +274,28 @@ pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<Instr
 }
 
 /// 单个候选文件的完整加载管线（全局层与逐目录两条路径共用）：
-/// 存在性 → excludes → 绝对路径去重 → 读 UTF-8 → 归一 CRLF → 空文件跳过 → 展开 `@import`。
+/// 存在性 → excludes → 绝对路径去重 → 读 UTF-8 → 归一 BOM/CRLF → 空文件跳过 → 展开 `@import`。
+///
+/// `scope` 为这份文件的 `@import` 范围策略：项目树内发现 → 配置值（默认 `ProjectRoot`），
+/// 用户自有的全局文件 → `Unrestricted`（可信输入，见 `read_global_content` 的说明）。
 fn load_candidate(
     path: &Path,
     display: String,
     seen_abs: &mut HashSet<PathBuf>,
     cfg: &AgentsMdConfig,
+    scope: ImportScope,
 ) -> Option<InstructionFile> {
     // 绝大多数候选不存在，先短路（也避免为缺失文件打 IO 错误日志）
     if !path.is_file() {
         return None;
     }
-    let abs_path = canonicalize_unless_excluded(path, &cfg.excludes).or_else(|| {
+    // canonicalize 失败（权限 / 环 / 长路径）时退回词法路径：这里只用于**去重与 excludes 匹配**，
+    // 不承担安全判定（`@import` 的越界判定另有 canonicalize 必须成功的约束）。
+    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if is_excluded(path, &abs_path, &cfg.excludes) {
         tracing::debug!(path = %path.display(), "指引文件命中 excludes，跳过");
-        None
-    })?;
+        return None;
+    }
     // 同一绝对路径（符号链接 / 同名重复）只加载一次
     if seen_abs.contains(&abs_path) {
         return None;
@@ -292,7 +313,7 @@ fn load_candidate(
     }
     // 只有真正会 emit 的文件才占去重槽位（空文件 / 读失败不占）
     seen_abs.insert(abs_path.clone());
-    let content = read_with_imports(path, &content, cfg);
+    let content = read_with_imports(path, &content, cfg, scope);
     Some(InstructionFile {
         source_path: path.to_path_buf(),
         abs_path,
@@ -302,13 +323,18 @@ fn load_candidate(
 }
 
 /// 展开 `@import`（深度 3 + 环检测 + 范围限制）。
-fn read_with_imports(path: &Path, content: &str, cfg: &AgentsMdConfig) -> String {
+fn read_with_imports(
+    path: &Path,
+    content: &str,
+    cfg: &AgentsMdConfig,
+    scope: ImportScope,
+) -> String {
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut visited = HashSet::new();
     if let Ok(canonical) = path.canonicalize() {
         visited.insert(canonical);
     }
-    let allowed_root = import_allowed_root(path, cfg);
+    let allowed_root = import_allowed_root(path, cfg, scope);
     resolve_imports(
         content,
         dir,
@@ -320,11 +346,11 @@ fn read_with_imports(path: &Path, content: &str, cfg: &AgentsMdConfig) -> String
 
 /// `@import` 允许读取的根（`None` = 不限制）。
 ///
-/// - [`ImportScope::Unrestricted`] → `None`；
+/// - [`ImportScope::Unrestricted`] → `None`（用户自有文件；跨项目共享规则是常见需求）；
 /// - [`ImportScope::ProjectRoot`] → 该指引文件**所属项目根**（找不到标记时 =
 ///   该文件所在目录），并 canonicalize 以便与 canonical 化的 import 目标做前缀比较。
-fn import_allowed_root(file: &Path, cfg: &AgentsMdConfig) -> Option<PathBuf> {
-    match cfg.import_scope {
+fn import_allowed_root(file: &Path, cfg: &AgentsMdConfig, scope: ImportScope) -> Option<PathBuf> {
+    match scope {
         ImportScope::Unrestricted => None,
         ImportScope::ProjectRoot => {
             let dir = file.parent().unwrap_or(Path::new("."));
@@ -357,8 +383,9 @@ fn content_digest(content: &str) -> u64 {
     hasher.finish()
 }
 
-/// provenance 头：优先相对项目根；否则绝对路径（所有路径都由 root 逐级 join 而来，
-/// 所以 `strip_prefix(root)` 必成功；用户全局文件另走 [`AgentsMdConfig::user_global_display`]）。
+/// provenance 头：优先相对项目根（发现路径都由 root 逐级 join 而来，正常必命中），
+/// 命中不了（跨盘符 / 左右大小写不一致等）则退化为绝对路径。
+/// 用户全局文件另走 [`AgentsMdConfig::user_global_display`]。
 fn display_for(root: &Path, path: &Path) -> String {
     match path.strip_prefix(root) {
         Ok(rel) if !rel.as_os_str().is_empty() => config::slash_display(rel),
@@ -371,7 +398,6 @@ fn display_for(root: &Path, path: &Path) -> String {
 /// 超 `max_bytes` 时停止追加后续文件，并在末尾标注省略了多少个文件
 /// （提示模型用 file 工具读全文）。第一个文件即使单个超限也会保留（硬截断）。
 ///
-/// **硬保证**：`out.len() <= cfg.max_bytes` 恒成立——省略标记本身也算在额度内
 /// 渲染单元：provenance 头 + 已按单文件限额截断的正文。
 ///
 /// 头与正文分开存，是为了在「首个文件自己就顶破总量」时**优先保住 provenance 头**。
@@ -579,6 +605,63 @@ fn char_boundary_suffix(s: &str, n: usize) -> &str {
     &s[start..]
 }
 
+/// `@import` 语法前缀 / 结尾（长度即切片偏移，避免手算魔法数）。
+const IMPORT_PREFIX: &str = "<!-- @import ";
+const IMPORT_SUFFIX: &str = " -->";
+
+/// 解析并读取一个 `@import` 目标；返回 `None` 表示**该 import 不生效**（保留占位符）。
+///
+/// 失败即 `None`（调用方统一保留占位符 + 已 warn 留痕）：
+/// 越出允许范围、`canonicalize` 失败（受限范围下无法确认是否越界 → **fail-closed**）、
+/// 成环、不存在、存在但不可读。
+fn read_import_target(
+    import_path: &str,
+    base_dir: &Path,
+    allowed_root: Option<&Path>,
+    visited: &HashSet<PathBuf>,
+) -> Option<(PathBuf, String)> {
+    let joined = base_dir.join(import_path);
+    let resolved = match (joined.canonicalize(), allowed_root) {
+        (Ok(path), _) => path,
+        // 不受限时容忍 canonicalize 失败（保留旧的宽松行为）
+        (Err(_), None) => joined,
+        (Err(e), Some(_)) => {
+            tracing::warn!(
+                path = %joined.display(),
+                error = %e,
+                "@import 目标无法规范化，受限范围下保留占位符"
+            );
+            return None;
+        }
+    };
+    if let Some(root) = allowed_root {
+        if !resolved.starts_with(root) {
+            tracing::warn!(
+                path = %resolved.display(),
+                "@import 目标越出允许范围，保留占位符（ImportScope::ProjectRoot）"
+            );
+            return None;
+        }
+    }
+    if visited.contains(&resolved) {
+        return None; // 成环
+    }
+    if !resolved.is_file() {
+        return None; // 不存在（或非普通文件：目录 / FIFO，不读）
+    }
+    match std::fs::read_to_string(&resolved) {
+        Ok(content) => Some((resolved, content)),
+        Err(e) => {
+            tracing::warn!(
+                path = %resolved.display(),
+                error = %e,
+                "@import 目标不可读，保留占位符"
+            );
+            None
+        }
+    }
+}
+
 /// 递归解析 `<!-- @import path -->` 引用，替换为引用文件内容。
 /// `base_dir` 为包含 @import 的文件所在目录。
 /// `depth` 递归深度上限，`visited` 防循环。
@@ -596,62 +679,37 @@ pub(crate) fn resolve_imports(
     let mut result = String::with_capacity(content.len());
     let mut pos = 0;
     while pos < content.len() {
-        if let Some(offset) = content[pos..].find("<!-- @import ") {
+        if let Some(offset) = content[pos..].find(IMPORT_PREFIX) {
             let abs_pos = pos + offset;
             result.push_str(&content[pos..abs_pos]);
-            let placeholder_end = 13; // "<!-- @import ".len()
             // 提取 path：从 "<!-- @import " 之后到 " -->"
-            let after = &content[abs_pos + placeholder_end..];
-            if let Some(end) = after.find(" -->") {
-                let placeholder = &content[abs_pos..abs_pos + placeholder_end + end + 4];
+            let after = &content[abs_pos + IMPORT_PREFIX.len()..];
+            if let Some(end) = after.find(IMPORT_SUFFIX) {
+                let placeholder =
+                    &content[abs_pos..abs_pos + IMPORT_PREFIX.len() + end + IMPORT_SUFFIX.len()];
                 let import_path = after[..end].trim();
-                let resolved = base_dir
-                    .join(import_path)
-                    .canonicalize()
-                    .unwrap_or_else(|_| base_dir.join(import_path));
-                let outside_scope = allowed_root
-                    .map(|root| !resolved.starts_with(root))
-                    .unwrap_or(false);
-                if outside_scope {
-                    tracing::warn!(
-                        path = %resolved.display(),
-                        "@import 目标越出允许范围，保留占位符（ImportScope::ProjectRoot）"
-                    );
-                    result.push_str(placeholder);
-                } else if visited.contains(&resolved) || !resolved.is_file() {
-                    // 循环引用或文件不存在，保留原始占位符
-                    result.push_str(placeholder);
-                } else {
-                    match std::fs::read_to_string(&resolved) {
-                        Ok(imported_content) => {
-                            visited.insert(resolved.clone());
-                            let imported_content = normalize_content(&imported_content);
-                            let import_dir = resolved.parent().unwrap_or(base_dir);
-                            let resolved_content = resolve_imports(
-                                &imported_content,
-                                import_dir,
-                                depth - 1,
-                                visited,
-                                allowed_root,
-                            );
-                            result.push_str(&resolved_content);
-                        }
-                        Err(e) => {
-                            // 存在但不可读（权限 / IO 错）：保留占位符 + 留痕，不静默丢内容
-                            tracing::warn!(
-                                path = %resolved.display(),
-                                error = %e,
-                                "@import 目标不可读，保留占位符"
-                            );
-                            result.push_str(placeholder);
-                        }
+                let imported = read_import_target(import_path, base_dir, allowed_root, visited);
+                match imported {
+                    Some((resolved, imported_content)) => {
+                        visited.insert(resolved.clone());
+                        let imported_content = normalize_content(&imported_content);
+                        let import_dir = resolved.parent().unwrap_or(base_dir);
+                        result.push_str(&resolve_imports(
+                            &imported_content,
+                            import_dir,
+                            depth - 1,
+                            visited,
+                            allowed_root,
+                        ));
                     }
+                    // 越界 / 不存在 / 成环 / 不可读 → 一律保留占位符（并已 warn 留痕）
+                    None => result.push_str(placeholder),
                 }
-                pos = abs_pos + placeholder_end + end + 4; // 4 = " -->".len()
+                pos = abs_pos + IMPORT_PREFIX.len() + end + IMPORT_SUFFIX.len();
             } else {
                 // 没找到 " -->"，不是有效的 @import，原样保留
-                result.push_str("<!-- @import ");
-                pos = abs_pos + placeholder_end;
+                result.push_str(IMPORT_PREFIX);
+                pos = abs_pos + IMPORT_PREFIX.len();
             }
         } else {
             result.push_str(&content[pos..]);
@@ -673,20 +731,10 @@ impl AgentsMdMiddleware {
     /// 冻结数据优先（`session/new` 已渲染好，跳过全部磁盘 I/O）；未冻结时
     /// （子 Agent 等）按 cwd 现场发现 + 渲染——两条路径共用同一套加载器。
     fn content_for(&self, cwd: &str) -> Option<String> {
-        let content = match self.frozen {
-            Some(ref frozen) => frozen.clone(),
-            None => {
-                let files = discover_instruction_files(Path::new(cwd), &self.config);
-                if files.is_empty() {
-                    return None;
-                }
-                render_instruction_set(&files, &self.config)
-            }
-        };
-        if content.trim().is_empty() {
-            None
-        } else {
-            Some(content)
+        match self.frozen {
+            // 冻结快照理论上非空，仍按同一口径兜底（空串不注入）
+            Some(ref frozen) => (!frozen.trim().is_empty()).then(|| frozen.clone()),
+            None => load_instructions(Path::new(cwd), &self.config),
         }
     }
 }
