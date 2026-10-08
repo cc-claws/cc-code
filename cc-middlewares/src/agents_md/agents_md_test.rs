@@ -274,6 +274,7 @@
         };
         let files: Vec<InstructionFile> = (0..5)
             .map(|i| InstructionFile {
+                source_path: PathBuf::from(format!("/tmp/f{i}.md")),
                 abs_path: PathBuf::from(format!("/tmp/f{i}.md")),
                 display: format!("f{i}.md"),
                 content: format!("content-{i}").repeat(5),

@@ -45,7 +45,10 @@ pub struct AgentsMdMiddleware {
 /// 链上的一个指引文件。
 #[derive(Debug, Clone)]
 pub struct InstructionFile {
-    /// 绝对路径（去重与 excludes 匹配用）。
+    /// 发现路径（未规范化）。excludes glob 按此匹配——与历史行为一致，
+    /// 且 macOS 上 `/var` → `/private/var` 之类的符号链接不会让用户写的绝对 glob 失效。
+    pub source_path: PathBuf,
+    /// 规范化绝对路径（去重用：符号链接 / 重复访问只加载一次）。
     pub abs_path: PathBuf,
     /// provenance 头展示文本（相对项目根、`~/...` 或绝对路径）。
     pub display: String,
@@ -82,20 +85,23 @@ impl AgentsMdMiddleware {
         self
     }
 
-    fn is_excluded(&self, path: &Path) -> bool {
+    fn is_excluded(&self, file: &InstructionFile) -> bool {
         if self.excludes.is_empty() {
             return false;
         }
-        let raw = path.to_string_lossy().to_string();
         // Windows 下 canonicalize 会带 `\\?\` verbatim 前缀，用户写的绝对 glob 通常没有——
-        // 两种形式都试一遍，避免 exclude 静默失效。
+        // 多种形式都试一遍，避免 exclude 静默失效。
+        let raw = file.source_path.to_string_lossy().to_string();
         let plain = raw
             .strip_prefix(r"\\?\")
             .map(str::to_string)
             .unwrap_or_else(|| raw.clone());
+        let canonical = file.abs_path.to_string_lossy().to_string();
         self.excludes.iter().any(|pat| {
             glob::Pattern::new(pat)
-                .map(|g| g.matches(&raw) || g.matches(&plain))
+                .map(|g| {
+                    g.matches(&raw) || g.matches(&plain) || g.matches(&canonical)
+                })
                 .unwrap_or(false)
         })
     }
@@ -261,6 +267,7 @@ fn load_instruction_file(
     }
     let content = read_with_imports(path, &content);
     Some(InstructionFile {
+        source_path: path.to_path_buf(),
         abs_path,
         display,
         content,
@@ -517,7 +524,7 @@ impl<S: State> Middleware<S> for AgentsMdMiddleware {
             let files: Vec<InstructionFile> =
                 discover_instruction_files(Path::new(&cwd), &self.config)
                     .into_iter()
-                    .filter(|f| !self.is_excluded(&f.abs_path))
+                    .filter(|f| !self.is_excluded(f))
                     .collect();
             if files.is_empty() {
                 return Ok(());
