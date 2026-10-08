@@ -4,7 +4,7 @@
 
 #### 执行步骤
 
-- [ ] **Step 4.1**: 修改 `peri-acp/src/dispatch/mod.rs`
+- [ ] **Step 4.1**: 修改 `cc-acp/src/dispatch/mod.rs`
 
 在现有 `list_sessions` 行后追加新模块声明和重导出：
 
@@ -20,7 +20,7 @@ pub use session_fork::fork_session;
 pub use session_load::load_session_messages;
 ```
 
-- [ ] **Step 4.2**: 修改 `peri-tui/src/acp_server/requests.rs`
+- [ ] **Step 4.2**: 修改 `cc-tui/src/acp_server/requests.rs`
 
 **4.2a** — 在文件顶部 import 区域添加 `dispatch::load_session_messages` 和 `dispatch::fork_session` 的引用（注意该文件已有 `use peri_acp::dispatch;`，直接使用 `dispatch::` 前缀即可）：
 
@@ -117,7 +117,7 @@ sessions.insert(
 );
 ```
 
-- [ ] **Step 4.3**: 修改 `peri-tui/src/acp_server/notify.rs`
+- [ ] **Step 4.3**: 修改 `cc-tui/src/acp_server/notify.rs`
 
 删除 `build_available_commands()` 函数定义（行 121-156），替换调用点。
 
@@ -132,7 +132,7 @@ let commands = peri_acp::dispatch::build_available_commands(skills);
 
 **4.3b** — 删除 `build_available_commands()` 函数定义。移除不再需要的 import：`use agent_client_protocol::schema::AvailableCommand;`（确认该类型是否在其他地方使用后决定是否删除）。
 
-- [ ] **Step 4.4**: 修改 `peri-tui/src/acp_stdio.rs`
+- [ ] **Step 4.4**: 修改 `cc-tui/src/acp_stdio.rs`
 
 删除 `build_stdio_available_commands()` 函数定义（行 89-128）。
 
@@ -149,11 +149,11 @@ let cmds = dispatch::build_available_commands(&skills);
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-acp` 编译通过
-- [ ] `cargo build -p peri-tui` 编译通过
-- [ ] `cargo clippy -p peri-acp` 通过
-- [ ] `cargo clippy -p peri-tui` 通过
+- [ ] `cargo build -p cc-acp` 编译通过
+- [ ] `cargo build -p cc-tui` 编译通过
+- [ ] `cargo clippy -p cc-acp` 通过
+- [ ] `cargo clippy -p cc-tui` 通过
 - [ ] 确认 `notify.rs` 和 `acp_stdio.rs` 中没有残留的 `build_available_commands` 或 `build_stdio_available_commands` 定义
-- [ ] `cargo test -p peri-acp --lib` 通过
+- [ ] `cargo test -p cc-acp --lib` 通过
 
 ---

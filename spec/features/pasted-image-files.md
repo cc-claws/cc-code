@@ -21,7 +21,7 @@
 
 2026-09-21 本地测试结果：`image_paste`、`paste_ops`、`queued`、`event::keyboard`、`clipboard::` 合并筛选，共 95 项通过。单任务编译使用 `RUST_MIN_STACK=16777216`，TUI 测试 profile 覆盖 `debug=0`、`codegen-units=8`，未修改系统或项目构建配置。
 
-`cargo check -p peri-tui --bins -j 1`、本次 Rust 文件格式检查及 `git diff --check` 均通过。
+`cargo check -p cc-tui --bins -j 1`、本次 Rust 文件格式检查及 `git diff --check` 均通过。
 
 ## 本机试用构建
 

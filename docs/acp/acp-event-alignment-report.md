@@ -1,6 +1,6 @@
 # ACP 事件对齐审查报告
 
-> 审查对象：`peri-tui/src/acp/` (perihelion ACP Agent)
+> 审查对象：`cc-tui/src/acp/` (perihelion ACP Agent)
 > 审查依据：`agent-client-protocol-schema` v0.13.0 (Zed)
 > 审查日期：2026-05-16
 

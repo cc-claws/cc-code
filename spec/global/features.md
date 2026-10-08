@@ -2,7 +2,7 @@
 
 ![功能模块概览](./images/05-feature-modules.png)
 
-## 核心引擎（peri-agent）
+## 核心引擎（cc-agent）
 
 - **ReAct 循环执行器:** `ReActAgent` 支持最多 50 次迭代，思考 → 工具调用 → 反馈自动推进，parallel 工具调用（同轮多工具同时执行）
 - **MockLLM 测试工具:** `MockLLM::tool_then_answer()` 按脚本回放推理序列，无需真实 API，覆盖单元测试场景
@@ -19,7 +19,7 @@
 - **Anthropic 适配器（自适应兼容）:** 非流式响应自适应解析反向代理返回的 OpenAI 格式（`choices` / `message` / `tool_calls`），缺 `content` 时回退解析；SSE 流式自适应解析
 - **/recap 会话回顾:** 独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history、支持 Ctrl+C 取消
 
-## 中间件（peri-middlewares）
+## 中间件（cc-middlewares）
 
 - **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个工具；只读工具无需 HITL
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
@@ -43,7 +43,7 @@
 - **Read 多模态读取:** 图片读取 + 魔数校验（Magic Bytes）防伪造图片；工具包装器透传 invoke_content 保证多模态内容不丢失
 - **Bash 跨平台健壮性:** 多行命令（含字面换行）在 Windows 改走 Git Bash 避免 `cmd /C` 截断；管道超时保留已累积输出；后台 shell 任务在 fork 常驻子进程后不再永久挂起；移除 Git Bash fallback 重试标记（`[Retried with Git Bash]`）混入上下文
 
-## TUI 界面（peri-tui）
+## TUI 界面（cc-tui）
 
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
@@ -69,7 +69,7 @@
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
 - **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头
 - **App 结构体拆分:** App 拆分为 AppCore/AgentComm/LangfuseState 三个子结构体（共 37 字段），对外 API 通过转发方法保持不变
-- **Widget 独立 crate:** peri-widgets 提供 11 个通用组件（BorderedPanel、ScrollableArea、SelectableList、InputField、TabBar、RadioGroup、CheckboxGroup、FormState、MarkdownRenderer、Spinner、ToolCall），零内部依赖
+- **Widget 独立 crate:** cc-widgets 提供 11 个通用组件（BorderedPanel、ScrollableArea、SelectableList、InputField、TabBar、RadioGroup、CheckboxGroup、FormState、MarkdownRenderer、Spinner、ToolCall），零内部依赖
 - **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示；完成态对齐 Claude Code 风格（`✻ {verb} for {elapsed} · done {HH:MM}`）
 - **智能折叠策略:** 只读工具默认折叠、写操作默认展开，SubAgent 步数超过 4 自动折叠
 - **syntect 代码高亮:** markdown-highlight feature flag 控制，base16-ocean.dark 主题，单行代码块不高亮
@@ -89,11 +89,13 @@
 - **Windows 子进程控制台隔离:** `CREATE_NO_WINDOW` 消除 PHP 等子进程代码页切换触发的全屏闪屏
 - **i18n 补全:** 附件栏标题与 Del 提示接入 i18n
 - **后台 shell 通知 i18n + 进程级语言注册表:** 完成/超时/取消/终止/等待输入通知的展示文案改走 `LcRegistry::tr()`；新增 `i18n::init_global`/`global` 进程级注册表（`LcRegistry: Sync`，`FluentBundle` 用 concurrent 变体），供无 App 上下文的静态 `MessageViewModel` 构造路径读取当前语言，启动与 `/lang` 切换时同步
+- **`/gc` 诊断分平台语义 + view_messages 估算:** `active`/`mapped`/`retained` 按 `alloc_name` 条件化标注（jemalloc 真实活跃页 vs mimalloc `page_committed` 历史高水位/`reserved` 虚拟地址），Windows 不再报虚假碎片；新增 `estimate_view_messages_heap()` 遍历 `MessageViewModel` 全部变体（此前 `origin_messages`+`completed` 漏掉 `view_messages`，是「未识别」大头）
+- **详细模式长命令运行状态刷新修复:** 详细模式超长命令 header 折成多行后，tick 增量刷新改为**按内容定位** `Running…` 状态行（新增 `is_shell_running_status_line`），不再写死 `lines[1]`、不再用固定行数判「状态行未渲染」，消除「命令续行被覆盖 + 秒数冻结 + 两处 Running… 时间不一致」
 - **Sticky Header 已禁用:** v0.6.71 起高度固定 0（保留实现，不再展示）
 - **权限模式循环:** Default → AcceptEdit → AutoMode → Bypass（DontAsk 跳过）
 - **PageUp/PageDown 半页滚动:** 20 行（输入框为空时生效）
 
-## ACP 服务层（peri-acp）
+## ACP 服务层（cc-acp）
 
 - **ACP 传输抽象:** `AcpTransport` trait 统一 MpscTransport（TUI 内存通道）和 StdioTransport（IDE stdio），JSON-RPC 2.0 协议
 - **Session 管理:** SessionManager 管理会话生命周期（new/prompt/compact/set_model/set_mode/cancel）
@@ -121,4 +123,4 @@
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）
 
 ---
-*最后更新: 2026-10-07 — 后台 shell 通知展示文案接入 i18n（消除硬编码中文）并新增进程级语言注册表，供静态 `MessageViewModel` 构造路径读取当前语言（v0.6.99）；此前补齐至 v0.6.84：HITL 审批弹窗三选（一次性 / 本次会话 / 拒绝，路径级会话审批记忆，v0.6.84）；spinner 思考状态词四态机与时间驱动配色、消息区思考行秒数+动作计数汇总、连续思考合并、Bash 非详细输出摘要（v0.6.82）；thought for 配色回归灰、卡住检测空白指纹误判修复（v0.6.83）*
+*最后更新: 2026-10-08 — `/gc` 内存诊断分平台语义 + 纳入 `view_messages` 估算（v0.6.100）、详细模式长命令运行状态刷新按内容定位修复（v0.6.101）；此前 2026-10-07：后台 shell 通知展示文案接入 i18n（消除硬编码中文）并新增进程级语言注册表（v0.6.99）；更早补齐至 v0.6.84*

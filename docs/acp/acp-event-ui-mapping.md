@@ -210,7 +210,7 @@ notifications/peri/<category>/<event>
 
 ## 5.3 实现位置
 
-### 5.3.1 新增映射函数：`peri-acp/src/event/mapper.rs`
+### 5.3.1 新增映射函数：`cc-acp/src/event/mapper.rs`
 
 ```rust
 /// 将 ExecutorEvent 映射为 peri/* 自定义通知列表。
@@ -266,11 +266,11 @@ pub fn map_executor_to_peri_notifications(
 }
 ```
 
-**位置**：`peri-acp/src/event/mapper.rs` 底部，与 `map_executor_to_updates` 同级。
+**位置**：`cc-acp/src/event/mapper.rs` 底部，与 `map_executor_to_updates` 同级。
 
 ---
 
-### 5.3.2 修改通知发送循环：`peri-tui/src/acp_server.rs`
+### 5.3.2 修改通知发送循环：`cc-tui/src/acp_server.rs`
 
 在现有事件泵中，`map_executor_to_updates` 之后追加 `map_executor_to_peri_notifications` 调用：
 
@@ -302,7 +302,7 @@ for (method, mut payload) in peri_notifs {
 
 ### 5.3.3 可选：acp_client 新增 `AcpNotification::Peri` 变体
 
-`peri-tui/src/acp_client/client.rs` 的 pump 中新增匹配分支：
+`cc-tui/src/acp_client/client.rs` 的 pump 中新增匹配分支：
 
 ```rust
 } else if method.starts_with("notifications/peri/") {

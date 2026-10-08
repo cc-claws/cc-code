@@ -4,7 +4,7 @@
 
 #### 执行步骤
 
-- [ ] **Step 1.1**: 创建 `peri-acp/src/dispatch/commands.rs`
+- [ ] **Step 1.1**: 创建 `cc-acp/src/dispatch/commands.rs`
 
 ```rust
 //! Build ACP available commands list, shared by TUI and stdio transports.
@@ -51,7 +51,7 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
 
 **注意：** 此文件内容严格复制自 `notify.rs:121-156` 的 `build_available_commands()`，仅将 `fn` 改为 `pub fn`。
 
-- [ ] **Step 1.2**: 添加单元测试文件 `peri-acp/src/dispatch/commands_test.rs`
+- [ ] **Step 1.2**: 添加单元测试文件 `cc-acp/src/dispatch/commands_test.rs`
 
 ```rust
 use super::commands::build_available_commands;
@@ -92,8 +92,8 @@ fn test_build_available_commands_no_skills_only_builtins() {
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-acp` 编译通过
-- [ ] `cargo test -p peri-acp --lib commands_test` 测试通过
-- [ ] `cargo clippy -p peri-acp` 通过
+- [ ] `cargo build -p cc-acp` 编译通过
+- [ ] `cargo test -p cc-acp --lib commands_test` 测试通过
+- [ ] `cargo clippy -p cc-acp` 通过
 
 ---

@@ -28,10 +28,10 @@ TUI 的 Mpsc ACP 使用 `peri/session/steer`，请求包含 `sessionId` 和 `mes
 
 ### 本地验证记录（2026-09-21）
 
-- `cargo test -p peri-agent --lib steering -j 1`：5 项通过。
-- `cargo test -p peri-acp --lib steering -j 1`：3 项通过。
+- `cargo test -p cc-agent --lib steering -j 1`：5 项通过。
+- `cargo test -p cc-acp --lib steering -j 1`：3 项通过。
 - TUI 的 `queued`、`message_pipeline`、`event::keyboard` 过滤测试：110 项通过。
-- `cargo check -p peri-tui --bins -j 1`：通过。
+- `cargo check -p cc-tui --bins -j 1`：通过。
 - `git diff --check`：通过。
 
-Windows 编译曾遇到 rustc 栈/页面文件资源不足，测试命令设置 `RUST_MIN_STACK=16777216`（Agent 测试为 `33554432`）；TUI 测试同时使用 `-j 1 --config 'profile.test.package.peri-tui.debug=0' --config 'profile.test.package.peri-tui.codegen-units=8'`。未修改系统配置或项目构建配置。以上为局部回归，不代表 workspace 全量测试或真实模型/终端手工验收；未覆盖本机已安装的 cc-code 二进制。
+Windows 编译曾遇到 rustc 栈/页面文件资源不足，测试命令设置 `RUST_MIN_STACK=16777216`（Agent 测试为 `33554432`）；TUI 测试同时使用 `-j 1 --config 'profile.test.package.cc-tui.debug=0' --config 'profile.test.package.cc-tui.codegen-units=8'`。未修改系统配置或项目构建配置。以上为局部回归，不代表 workspace 全量测试或真实模型/终端手工验收；未覆盖本机已安装的 cc-code 二进制。

@@ -485,8 +485,8 @@ agent-client-protocol = { version = "0.11", features = ["unstable"] }
 
 | ACP 概念 | Peri 对应 |
 |----------|----------------|
-| `Client` | `peri-tui`（TUI 应用） |
-| `Agent` | `peri-agent`（ReAct Agent） |
+| `Client` | `cc-tui`（TUI 应用） |
+| `Agent` | `cc-agent`（ReAct Agent） |
 | Session | Thread（SQLite 持久化） |
 | `session/prompt` | `ReActAgent::execute()` |
 | `SessionNotification` | `AgentEvent` 枚举 |

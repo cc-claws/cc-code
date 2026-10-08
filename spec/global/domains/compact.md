@@ -74,7 +74,7 @@
 **问题本质:** last_user_input 在 compact 异步执行期间可能为 None 或被覆盖，导致 handle_compact_done 的 resubmit 被静默跳过，无任何日志或用户提示
 **通用模式:** 跨异步操作的状态依赖（如 compact 后需要原始输入 resubmit）应在操作开始时保存到独立字段，防止异步执行期间被清理。静默跳过关键操作（如 resubmit）是危险的，应至少记录 warn 日志
 **技术决策:** compact 开始时保存 last_user_input 到独立字段，防止异步期间被清理
-**涉及文件:** peri-tui/src/app/agent_compact.rs, peri-tui/src/app/agent_submit.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_comm.rs
+**涉及文件:** cc-tui/src/app/agent_compact.rs, cc-tui/src/app/agent_submit.rs, cc-tui/src/app/agent_ops.rs, cc-tui/src/app/agent_comm.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-compact-auto-continue-scenarios
@@ -84,7 +84,7 @@
 **关键词:** auto-continue, compact 触发来源, resubmit 控制, instructions 参数
 **问题本质:** handle_compact_done 的 resubmit 逻辑不区分 compact 触发来源——手动 /compact 和 Done 后 auto-compact 也被错误地 resubmit。用户手动压缩后期望停下来查看结果，agent 完成任务后 compact 再用原始输入重新执行没有意义。
 **通用模式:** 异步操作的触发来源（auto vs manual）需要作为上下文传递到完成后处理逻辑。用 instructions 参数区分来源，通过独立 flag（compact_should_resubmit）控制后续行为。两个合理的 resubmit 场景（auto-compact 在 agent 执行中、后台任务完成后）和两个不合理的场景（手动 compact、Done 后 compact）需要精确区分。
-**涉及文件:** peri-tui/src/app/agent_compact.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_comm.rs
+**涉及文件:** cc-tui/src/app/agent_compact.rs, cc-tui/src/app/agent_ops.rs, cc-tui/src/app/agent_comm.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-20-compact-command-not-triggering
@@ -96,7 +96,7 @@
 **通用模式:** 所有 TUI 命令必须通过正确的 ACP 协议通道（compact/set_model/set_mode 等）触发操作，不能将命令文本作为普通消息提交；compact 这类异步操作需要完整的 UI 状态管理（loading spinner + 错误反馈）
 **架构影响:** Compact 触发路径统一收敛到 ACP compact 通道（acp_client.compact() → ACP Server → compact_runner），命令处理器和 auto-compact 虽触发点不同但最终汇合
 **技术决策:** TUI 命令 → ACP client → ACP server → compact runner 的分层架构，命令处理器不直接操作 compact 逻辑
-**涉及文件:** peri-tui/src/command/session/compact.rs, peri-tui/src/app/agent_compact.rs, peri-tui/src/app/agent_ops/polling.rs, peri-tui/src/app/agent_comm.rs, peri-tui/src/app/thread_ops.rs
+**涉及文件:** cc-tui/src/command/session/compact.rs, cc-tui/src/app/agent_compact.rs, cc-tui/src/app/agent_ops/polling.rs, cc-tui/src/app/agent_comm.rs, cc-tui/src/app/thread_ops.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-20-auto-compact-empty-messages-400
@@ -108,7 +108,7 @@
 **通用模式:** 发给 LLM API 的 messages 数组必须始终包含至少一条非 System 消息（Human 或 Ai）；任何向消息列表插入的内容如果可能被 LLM 适配器提取到顶层字段（system、tools 等），必须验证剩余 messages 数组非空
 **架构影响:** Compact 架构从「外层 loop + resubmit」改为「CompactMiddleware 作为 before_model 钩子在 ReAct 循环内原地处理」，消除了 compact 后独立 LLM 调用的脆弱性
 **技术决策:** CompactMiddleware 替代 compact_runner 的 before_model 钩子模式，摘要始终使用 BaseMessage::human() 确保 LLM 适配器提取 System 后 messages 数组有效
-**涉及文件:** peri-middlewares/src/compact_middleware.rs, peri-acp/src/session/compact_runner.rs, peri-acp/src/session/executor.rs, peri-tui/src/acp_server/compact.rs
+**涉及文件:** cc-middlewares/src/compact_middleware.rs, cc-acp/src/session/compact_runner.rs, cc-acp/src/session/executor.rs, cc-tui/src/acp_server/compact.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-26-manual-compact-long-loading-skeleton
@@ -118,7 +118,7 @@
 **关键词:** compact loading, set_loading, manual vs auto compact
 **问题本质:** handle_compact_completed() 在 full compact 路径故意不调 set_loading(false)——设计对 auto-compact 正确（executor 循环继续→Done 清除），对手动 compact 错误（独立操作无 Done 事件）
 **通用模式:** 同一处理函数服务于两条执行路径时，必须区分路径语义。auto-compact 嵌套在 ReAct 循环内（有后续 Done/Error），manual compact 是独立操作（需自行清理 loading）。缺少路径标志导致状态泄漏。
-**涉及文件:** peri-tui/src/app/agent_compact.rs, peri-tui/src/acp_server/compact.rs, peri-tui/src/app/agent_comm.rs, peri-tui/src/command/session/compact.rs
+**涉及文件:** cc-tui/src/app/agent_compact.rs, cc-tui/src/acp_server/compact.rs, cc-tui/src/app/agent_comm.rs, cc-tui/src/command/session/compact.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-23-micro-compact-repeated-triggering
@@ -129,7 +129,7 @@
 **问题本质:** CompactMiddleware 缺少 once-per-prompt 守卫。micro compact 压缩量 < 新增量，永远降不到 70% 阈值以下，每轮都重复触发
 **通用模式:** 有副作用的 per-prompt 操作（如 compact、通知）必须加 once-per-prompt 守卫。同一 execute_prompt 内只应触发一次 micro compact，之后由 full compact 接管
 **技术决策:** 用 `AtomicBool` 做守卫——每次 execute_prompt 创建新 CompactMiddleware 实例，标志天然 per-prompt 作用域
-**涉及文件:** peri-middlewares/src/compact_middleware.rs, peri-middlewares/src/compact_middleware_test.rs
+**涉及文件:** cc-middlewares/src/compact_middleware.rs, cc-middlewares/src/compact_middleware_test.rs
 **CLAUDE.md 链接:** true
 
 ---

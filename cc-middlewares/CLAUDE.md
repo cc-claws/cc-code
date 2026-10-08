@@ -1,6 +1,6 @@
-# peri-middlewares
+# cc-middlewares
 
-中间件实现 crate，依赖 `peri-agent` 和 `peri-lsp`。18 个中间件按固定顺序组成链（含条件注册中间件）。
+中间件实现 crate，依赖 `cc-agent` 和 `cc-lsp`。18 个中间件按固定顺序组成链（含条件注册中间件）。
 
 ## 中间件链执行顺序
 
@@ -62,7 +62,7 @@
 
 ## LSP 中间件
 
-`LspMiddleware` + `LspTool` + `peri-lsp` 客户端库。10 种操作（goToDefinition/findReferences/hover 等），`after_tool` 自动同步文件变更（`didChange` + `didSave`）。
+`LspMiddleware` + `LspTool` + `cc-lsp` 客户端库。10 种操作（goToDefinition/findReferences/hover 等），`after_tool` 自动同步文件变更（`didChange` + `didSave`）。
 
 ## SubAgents
 

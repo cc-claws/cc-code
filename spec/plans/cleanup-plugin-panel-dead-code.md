@@ -36,7 +36,7 @@ plugin_panel/mod.rs (828 行)
 
 ### Step 1：删除 44 个死代码方法
 
-**修改文件**：`peri-tui/src/app/plugin_panel/mod.rs`
+**修改文件**：`cc-tui/src/app/plugin_panel/mod.rs`
 
 删除 `mod.rs` 第 354-821 行（整个 `impl App` 块 + 上方的注释分隔线）。
 
@@ -49,7 +49,7 @@ plugin_panel/mod.rs (828 行)
 
 ### Step 2：重写测试
 
-**修改文件**：`peri-tui/src/app/plugin_panel/plugin_panel_test.rs`
+**修改文件**：`cc-tui/src/app/plugin_panel/plugin_panel_test.rs`
 
 当前 7 个测试通过 App 包装方法测试面板行为。删除这些包装方法后需要重写为直接测试 `PluginPanel`：
 
@@ -72,15 +72,15 @@ plugin_panel/mod.rs (828 行)
 ### Step 3：验证构建和测试
 
 ```bash
-cargo build -p peri-tui
-cargo test -p peri-tui --lib
-cargo clippy -p peri-tui -- -D warnings
+cargo build -p cc-tui
+cargo test -p cc-tui --lib
+cargo clippy -p cc-tui -- -D warnings
 ```
 
 ### Step 4：确认无残留引用
 
 ```bash
-grep -rn "plugin_panel_move_up\|plugin_panel_move_down\|plugin_panel_tab\|..." peri-tui/src/
+grep -rn "plugin_panel_move_up\|plugin_panel_move_down\|plugin_panel_tab\|..." cc-tui/src/
 ```
 
 确保 44 个方法名在代码库中完全消失。

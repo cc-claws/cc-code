@@ -76,7 +76,7 @@ context_usage > 85%
 **问题本质:** 两个独立问题：(1) context_window 硬编码 200k 导致用量百分比计算偏差（已通过 model→TUI 同步修复）；(2) 缓存命中率使用累计值而非当次值，早期低命中率持续稀释
 **通用模式:** 累计统计指标（如会话级命中率）会受早期数据持续稀释，不适合作为实时反馈指标。状态栏等需要反映"当前状态"的场景应使用当次值
 **技术决策:** context_window 从模型配置同步到 TUI 层；状态栏缓存率使用当次值
-**涉及文件:** peri-agent/src/agent/token.rs, peri-agent/src/llm/openai.rs, peri-tui/src/ui/main_ui/status_bar.rs
+**涉及文件:** cc-agent/src/agent/token.rs, cc-agent/src/llm/openai.rs, cc-tui/src/ui/main_ui/status_bar.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-cache-percentage-disappears-after-done
@@ -86,7 +86,7 @@ context_usage > 85%
 **关键词:** last_cache_hit_rate, cache_hit_rate, 状态栏持久显示
 **问题本质:** last_cache_hit_rate() 基于最后一次 LLM 调用的 cache_read，中断或 provider 不返回缓存字段时返回 None。cache_hit_rate() 基于累计值，只要会话中有过缓存命中就不会返回 None
 **通用模式:** 需要持久显示的指标应使用累计值（不会因单次异常返回 None），需要反映实时状态的指标应使用当次值。两者各有适用场景，不能一刀切
-**涉及文件:** peri-agent/src/agent/token.rs, peri-tui/src/ui/main_ui/status_bar.rs
+**涉及文件:** cc-agent/src/agent/token.rs, cc-tui/src/ui/main_ui/status_bar.rs
 **CLAUDE.md 链接:** false
 
 ---

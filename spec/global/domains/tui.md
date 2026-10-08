@@ -549,9 +549,9 @@ submit_message(text)
 **摘要:** TUI 侧 `/recap` 会话回顾命令与终端失焦自动回顾
 **关键决策:**
 
-- `peri-tui/src/command/session/recap.rs` 注册 `/recap` 命令，转发至 `peri-agent` 的 `generate_recap`
-- `peri-tui/src/app/agent_recap.rs` 处理回顾结果回显
-- `peri-tui/src/app/recap_auto.rs` 实现终端失焦（FocusLost）自动触发回顾
+- `cc-tui/src/command/session/recap.rs` 注册 `/recap` 命令，转发至 `cc-agent` 的 `generate_recap`
+- `cc-tui/src/app/agent_recap.rs` 处理回顾结果回显
+- `cc-tui/src/app/recap_auto.rs` 实现终端失焦（FocusLost）自动触发回顾
 - 回顾结果落库 ThreadMeta.latest_recap，`-c`/`-r` 恢复会话时回显
 
 **归档日期:** 2026-09-28
@@ -568,7 +568,7 @@ submit_message(text)
 **关键词:** CJK 宽度, unicode-width, 鼠标定位, display_col_to_char_idx
 **问题本质:** 三个偏移叠加：(1) CJK 字符占 2 列宽但 Jump 期望字符索引；(2) Block padding 偏移 2 列未计算 inner area；(3) 水平滚动偏移未考虑
 **通用模式:** 终端 UI 中鼠标坐标是显示列（display column），而光标位置是字符索引（char index）。包含 CJK 字符时两者非线性关系，需要逐字符累加 unicode_width 转换。Block 的 padding/border 和水平滚动也需要纳入偏移计算
-**涉及文件:** peri-tui/src/event.rs, peri-tui/src/app/mod.rs, peri-tui/src/ui/main_ui.rs
+**涉及文件:** cc-tui/src/event.rs, cc-tui/src/app/mod.rs, cc-tui/src/ui/main_ui.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-14-streaming-resize-cpu-spike
@@ -580,7 +580,7 @@ submit_message(text)
 **问题本质:** 拖动 resize 时 crossterm 每帧发送 Resize 事件（60fps = 60次/秒），每个事件触发渲染线程全量重建（message_hashes.clear() + rebuild + build_wrap_map 换行计算）。流式期间叠加 100ms Rebuild 事件，渲染线程饱和。
 **通用模式:** 渲染事件的发送端和接收端都需要节流/合并：发送端用 last_resize_width 去抖（仅在宽度实际变化时发送），接收端用 drain coalescing（合并积压事件）。单端优化不足以解决问题。
 **技术决策:** last_resize_width 字段记录已发送宽度，Resize handler 中 try_recv() drain 合并所有积压事件
-**涉及文件:** peri-tui/src/app/message_state.rs, peri-tui/src/ui/main_ui.rs, peri-tui/src/ui/render_thread.rs
+**涉及文件:** cc-tui/src/app/message_state.rs, cc-tui/src/ui/main_ui.rs, cc-tui/src/ui/render_thread.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-15-concurrent-subagent-display-delay
@@ -593,7 +593,7 @@ submit_message(text)
 **通用模式:** 状态合并函数需同时处理替换和追加两种场景；frozen和running需分别对待
 **架构影响:** SubAgentGroup的显示需要分frozen（已完成）和running（进行中）两条路径
 **技术决策:** 在has_snapshot=true分支中追加subagent_stack中未frozen的运行中SubAgentGroup
-**涉及文件:** peri-tui/src/app/message_pipeline.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent.rs
+**涉及文件:** cc-tui/src/app/message_pipeline.rs, cc-tui/src/app/agent_ops.rs, cc-tui/src/app/agent.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-16-setup-save-destroys-existing-config
@@ -605,7 +605,7 @@ submit_message(text)
 **问题本质:** save-then-load 模式中，先覆盖文件再读取同一文件做 merge，merge 成为空操作，非 provider 字段永久丢失
 **通用模式:** 需要合并已有配置时，必须先读取原始数据，合并后再写入。绝不能先写入再读取同一文件做合并——读到的是自己刚写入的数据
 **架构影响:** IO 顺序错误（写→读同一路径）是静默数据丢失的高危模式，应优先在函数签名层面阻绝（如分离 `build_config` 纯函数和 `save_config` IO 函数）
-**涉及文件:** peri-tui/src/app/setup_wizard.rs
+**涉及文件:** cc-tui/src/app/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-form-edit-labels-hardcoded
@@ -617,7 +617,7 @@ submit_message(text)
 **问题本质:** i18n key 已在 FTL 文件中定义，但渲染函数使用硬编码字符串，ProviderType::label() 不接受 LcRegistry 参数
 **通用模式:** 使用 `_lc` 前缀命名但实际未消费的 i18n 参数是代码坏味道；需要翻译的类型应在签名中要求 `&LcRegistry`
 **技术决策:** 字段标签对齐使用 `unicode-width` crate 的 `pad_display_columns` 辅助函数
-**涉及文件:** peri-tui/src/ui/main_ui/popups/setup_wizard.rs, peri-tui/src/app/setup_wizard.rs, peri-tui/locales/en/main.ftl, peri-tui/locales/zh-CN/main.ftl
+**涉及文件:** cc-tui/src/ui/main_ui/popups/setup_wizard.rs, cc-tui/src/app/setup_wizard.rs, cc-tui/locales/en/main.ftl, cc-tui/locales/zh-CN/main.ftl
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-browse-submit-no-feedback
@@ -628,7 +628,7 @@ submit_message(text)
 **关键词:** 静默失败, 无反馈, 用户体验, 错误提示
 **问题本质:** has_valid=false 时仅返回 Redraw，界面无变化、无错误消息，用户无法理解为何无法提交
 **通用模式:** 每个用户操作必须有可见反馈——成功进入下一状态，失败显示原因。空 Redraw 是反模式
-**涉及文件:** peri-tui/src/app/setup_wizard.rs, peri-tui/src/ui/main_ui/popups/setup_wizard.rs
+**涉及文件:** cc-tui/src/app/setup_wizard.rs, cc-tui/src/ui/main_ui/popups/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-ctrlc-blocked-cannot-exit
@@ -639,7 +639,7 @@ submit_message(text)
 **关键词:** 事件拦截, Ctrl+C 拦截, 全局处理器, 退出流程
 **问题本质:** Wizard 拦截块在 `handle_setup_wizard_key` 返回 None 后无条件返回 Redraw，后续全局 Ctrl+C 处理器永远无法到达
 **通用模式:** 事件拦截块必须在调用业务处理器之前检查全局关键事件（Ctrl+C、quit），或将这些事件作为业务处理器必须处理的基本事件
-**涉及文件:** peri-tui/src/event.rs, peri-tui/src/app/setup_wizard.rs
+**涉及文件:** cc-tui/src/event.rs, cc-tui/src/app/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-api-key-mask-byte-vs-char
@@ -650,7 +650,7 @@ submit_message(text)
 **关键词:** 字节 vs 字符, CJK 显示, chars().count(), len() 陷阱
 **问题本质:** `"•".repeat(s.len())` 使用字节长度，CJK 字符每字符 3 字节导致遮罩数量膨胀
 **通用模式:** 所有面向用户显示的字符串长度计算必须使用 `chars().count()`，仅内部 buffer 管理可用 `len()`
-**涉及文件:** peri-tui/src/ui/main_ui/popups/setup_wizard.rs
+**涉及文件:** cc-tui/src/ui/main_ui/popups/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-active-provider-oob-panic
@@ -661,7 +661,7 @@ submit_message(text)
 **关键词:** 越界检查, 裸索引, .get(), 防御性编程
 **问题本质:** `providers[active_provider]` 裸索引，active_provider 可能因异常状态越界导致 panic
 **通用模式:** 用户管理/异步更新的索引始终用 `.get()` 并处理 None 回退，防御性代码成本极低但收益巨大
-**涉及文件:** peri-tui/src/ui/main_ui/popups/setup_wizard.rs, peri-tui/src/app/setup_wizard.rs
+**涉及文件:** cc-tui/src/ui/main_ui/popups/setup_wizard.rs, cc-tui/src/app/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-provider-type-toggle-resets-data
@@ -672,7 +672,7 @@ submit_message(text)
 **关键词:** 数据丢失, 确认提示, 键过载, 导航键冲突
 **问题本质:** ←/→ 键在 ProviderType 字段上做类型切换+数据重置，但在其他字段是光标移动——同一按键在不同上下文语义完全不同，导致误触即数据丢失
 **通用模式:** 导航键（←/→）不应触发破坏性操作；破坏性状态变更需要确认提示；一个按键在一个表单中应保持语义一致
-**涉及文件:** peri-tui/src/app/setup_wizard.rs
+**涉及文件:** cc-tui/src/app/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-language-step-hardcoded-no-i18n
@@ -683,7 +683,7 @@ submit_message(text)
 **关键词:** i18n 忽略, 硬编码混合文本, _lc 参数, FTL 未使用
 **问题本质:** FTL 已定义完整翻译 key，但渲染函数故意忽略 `_lc` 参数，所有文本硬编码为中英混合
 **通用模式:** `_lc` 前缀命名暗示参数应被消费，实际忽略是代码坏味道。应为所有面向用户的字符串使用 i18n，不留硬编码回退
-**涉及文件:** peri-tui/src/ui/main_ui/popups/setup_wizard.rs, peri-tui/locales/
+**涉及文件:** cc-tui/src/ui/main_ui/popups/setup_wizard.rs, cc-tui/locales/
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-tool-args-display-truncation-too-short
@@ -694,7 +694,7 @@ submit_message(text)
 **关键词:** 多层截断, 显示阈值, format_tool_args, format_args_summary
 **问题本质:** 两条截断链（`format_tool_args` 60→`format_args_summary` 40）叠加，最终截断过短失去可读性
 **通用模式:** 多层格式化管道中，修改一层阈值时必须检查下游是否二次截断；阈值应设在最终消费端而非每层都截
-**涉及文件:** peri-tui/src/app/tool_display.rs, peri-widgets/src/tool_call/mod.rs, peri-widgets/src/message_block/blocks.rs, peri-tui/src/ui/message_render.rs
+**涉及文件:** cc-tui/src/app/tool_display.rs, cc-widgets/src/tool_call/mod.rs, cc-widgets/src/message_block/blocks.rs, cc-tui/src/ui/message_render.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-mod-zero-empty-options
@@ -705,7 +705,7 @@ submit_message(text)
 **关键词:** 取模零除, debug_assert, 防御性编程
 **问题本质:** `(cursor + len - 1) % len` 在 len=0 时 panic，当前 len 为编译期常量无实际风险
 **通用模式:** 取模运算前加 `debug_assert!(!slice.is_empty())` 守卫——debug 构建捕获逻辑错误，release 无开销
-**涉及文件:** peri-tui/src/app/setup_wizard.rs
+**涉及文件:** cc-tui/src/app/setup_wizard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-i18n-language-not-in-setup
@@ -716,7 +716,7 @@ submit_message(text)
 **关键词:** setup wizard, language, i18n, SetupStep
 **问题本质:** Setup 向导只有 Choose/Form/Done 三步，缺少 Language 步骤，导致初次运行时无法选择 zh-CN
 **通用模式:** 首次运行向导应覆盖所有用户偏好（语言、provider、key、model），早期遗漏会在后续补丁中累积复杂度
-**涉及文件:** peri-tui/src/app/setup_wizard.rs, peri-tui/src/ui/main_ui/popups/setup_wizard.rs, peri-tui/src/config/types.rs
+**涉及文件:** cc-tui/src/app/setup_wizard.rs, cc-tui/src/ui/main_ui/popups/setup_wizard.rs, cc-tui/src/config/types.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-model-panel-1m-context-toggle
@@ -728,7 +728,7 @@ submit_message(text)
 **问题本质:** 1M context 模型需要手动开启开关，compact 阈值才能以 1M 而非模型默认值为基准
 **通用模式:** 上下文窗口覆盖需要在三个路径同步：(1) 模型切换时立即反映到 status line；(2) 消息提交前覆盖；(3) Agent 运行时 ContextWarning 计算前覆盖。单路径覆盖不足以保证一致性
 **技术决策:** `agent.context_window` 在 `apply_and_close`、`agent_submit.rs`、`agent_ops.rs` 三处同步覆盖
-**涉及文件:** peri-tui/src/config/types.rs, peri-tui/src/app/model_panel.rs, peri-tui/src/ui/main_ui/panels/model.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/agent_submit.rs
+**涉及文件:** cc-tui/src/config/types.rs, cc-tui/src/app/model_panel.rs, cc-tui/src/ui/main_ui/panels/model.rs, cc-tui/src/app/agent.rs, cc-tui/src/app/agent_submit.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-setup-polish-series
@@ -748,7 +748,7 @@ submit_message(text)
 - `migrate-codex-doc-vs-impl`: CODEX 前缀注释声称支持但实现缺失 → 添加 `("CODEX", ...)` 到 prefixes 数组
 - `needs-setup-incomplete-check`: 仅检查 api_key 为空跳过 setup → 添加 `provider.id.trim().is_empty()` 检查
 **通用模式:** UI 向导的边界情况修复是集中爆发的——初版必然有键盘、粘贴、校验、空状态四类遗漏。用一个 issue 追踪全系列比拆分成 8 个更高效
-**涉及文件:** peri-tui/src/app/setup_wizard.rs, peri-tui/src/ui/main_ui/popups/setup_wizard.rs, peri-tui/src/app/mod.rs
+**涉及文件:** cc-tui/src/app/setup_wizard.rs, cc-tui/src/ui/main_ui/popups/setup_wizard.rs, cc-tui/src/app/mod.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-split-session-command-hint-only-shows-active
@@ -759,7 +759,7 @@ submit_message(text)
 **关键词:** std::mem::take, session index 竞态, 分屏, CommandRegistry, 命令浮层
 **问题本质:** `/split` 命令在 `dispatch` 期间改变了 `app.session_mgr.active`，导致 `std::mem::take` 归还模式将 CommandRegistry 归还到错误的 session。叠加渲染层 `if is_active` 守卫导致非活跃 session 完全不显示命令浮层。
 **通用模式:** 任何在 `dispatch` 期间可能改变 `app.session_mgr.active` 的命令都存在 session index 竞态风险。核心原则：在 take 前保存 index，归还时使用保存值。Hint 类渲染应无条件执行——数据隔离依赖 `render_session_column` 的临时 active 切换，视觉区分依赖 `is_active` 传参处理边框/光标。
-**涉及文件:** peri-tui/src/event.rs, peri-tui/src/ui/main_ui.rs
+**涉及文件:** cc-tui/src/event.rs, cc-tui/src/ui/main_ui.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-18-tui-dot-and-scrollbar-rendering
@@ -770,7 +770,7 @@ submit_message(text)
 **关键词:** 指示符号统一, 滚动条 track, box-drawing 字符, GPU 终端兼容
 **问题本质:** ⏺ (U+23FA) 是录像按钮符号而非纯圆点，与 ● (U+25CF) 视觉不匹配。║ (U+2551) 在部分 GPU 终端的字体渲染中字符高度不足以完全填满字符格，导致滚动条 track 出现行列间空隙。
 **通用模式:** 终端渲染符号选择应优先使用语义精确的字符（纯圆点用 ● 而非构图混合符号），滚动条 track 用 █ (FULL BLOCK) 避免 box-drawing 字符的跨终端间距问题。
-**涉及文件:** peri-tui/src/ui/message_render.rs, peri-widgets/src/scrollable.rs
+**涉及文件:** cc-tui/src/ui/message_render.rs, cc-widgets/src/scrollable.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-17-panel-heavy-files
@@ -780,17 +780,17 @@ submit_message(text)
 **归档日期:** 2026-05-18
 **关键词:** 面板拆分, PanelComponent, state/ops/ui 三层分离
 **问题本质:** 纯代码组织优化，无深度技术认知
-**涉及文件:** peri-tui/src/app/mcp_panel.rs, peri-tui/src/app/setup_wizard.rs, peri-tui/src/app/login_panel.rs
+**涉及文件:** cc-tui/src/app/mcp_panel.rs, cc-tui/src/app/setup_wizard.rs, cc-tui/src/app/login_panel.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-17-main-ui-heavy-file
 
-**摘要:** peri-tui/src/ui/main_ui.rs 主 UI 布局逻辑集中（852 行）
+**摘要:** cc-tui/src/ui/main_ui.rs 主 UI 布局逻辑集中（852 行）
 **状态:** Fixed
 **归档日期:** 2026-05-18
 **关键词:** 主 UI 拆分, layout/event_handler 分离
 **问题本质:** 纯代码组织优化，无深度技术认知
-**涉及文件:** peri-tui/src/ui/main_ui.rs
+**涉及文件:** cc-tui/src/ui/main_ui.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-macos-option-backspace-scrolls-when-content-present
@@ -800,7 +800,7 @@ submit_message(text)
 **关键词:** VS Code 终端, Option+Backspace, PageUp 映射, 词删除, TERM_PROGRAM
 **问题本质:** VS Code 集成终端在 Mac 上将 Option+Backspace 映射为 PageUp 转义序列，crossterm 解释为 PageUp 事件，事件处理层未区分终端环境导致被无条件用于消息区域滚动
 **通用模式:** 终端快捷键映射受终端模拟器环境（TERM_PROGRAM）影响——VS Code、iTerm2、Terminal.app 对相同物理按键可能产生不同转义序列；事件处理需兼顾语义意图（用户想删除词）和终端环境差异
-**涉及文件:** peri-tui/src/event/keyboard.rs
+**涉及文件:** cc-tui/src/event/keyboard.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-23-ask-user-overflow-and-description-missing
@@ -812,7 +812,7 @@ submit_message(text)
 **问题本质:** TUI 弹窗组件（AskUser）的高度计算逻辑与内容实际渲染行数不匹配；ACP Elicitation JSON 中注入的 description 字段被反序列化时丢弃
 **通用模式:** 弹窗/面板高度计算必须考虑动态内容（文本换行、选项描述），不能假设固定行高；跨层数据传递（JSON → struct）时枚举变体可能丢弃未知字段，需要专门的提取逻辑
 **架构影响:** ScrollableArea 组件只有渲染没有交互是设计缺陷，需要 option_row_map 追踪真实渲染行号而非逻辑选项索引
-**涉及文件:** peri-tui/src/ui/main_ui/mod.rs:310-376, peri-tui/src/ui/main_ui/popups/ask_user.rs:176-181, peri-tui/src/app/agent_ops_interaction.rs:86-104, peri-acp/src/broker/transport_broker.rs:258-299
+**涉及文件:** cc-tui/src/ui/main_ui/mod.rs:310-376, cc-tui/src/ui/main_ui/popups/ask_user.rs:176-181, cc-tui/src/app/agent_ops_interaction.rs:86-104, cc-acp/src/broker/transport_broker.rs:258-299
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-21-setup-wizard-settings-not-reloaded
@@ -824,7 +824,7 @@ submit_message(text)
 **问题本质:** App 层与 ACP Server 层持有独立的 Arc<RwLock<Config>>，Setup 只更新了 App 侧的 Arc，ACP Server 侧的 Arc 未同步
 **通用模式:** 多个组件共享配置时，必须共享同一个 Arc 引用而非各自 clone；配置更新时必须遍历所有消费者确保同步
 **架构影响:** 引入 ServiceRegistry 持有 ACP 共享 Arc 的模式，所有配置修改路径（8 条）统一调用 sync_peri_config_to_acp()
-**涉及文件:** peri-tui/src/app/mod.rs:535-542, peri-tui/src/main.rs:601-617, peri-tui/src/event/keyboard.rs:91-98, peri-tui/src/acp_server/mod.rs:96-97
+**涉及文件:** cc-tui/src/app/mod.rs:535-542, cc-tui/src/main.rs:601-617, cc-tui/src/event/keyboard.rs:91-98, cc-tui/src/acp_server/mod.rs:96-97
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-24-cancel-ineffective-during-streaming-and-tool-execution
@@ -835,7 +835,7 @@ submit_message(text)
 **关键词:** Ctrl+C取消, cancel_sent_at, 流式中断, 事件竞态
 **问题本质:** interrupt() 同时执行异步 cancel 和同步 UI 清理两条路径，UI 清理先于 cancel 生效导致用户以为已停止但实际未停止
 **通用模式:** 异步系统中 UI 层中断应延迟到确认事件到达后再清理，不应立即强制清理；需要 timeout fallback 防止事件丢失导致永久 loading
-**涉及文件:** peri-tui/src/app/mod.rs, peri-tui/src/app/agent_comm.rs, peri-tui/src/app/agent_ops/polling.rs, peri-tui/src/app/agent_ops/lifecycle.rs
+**涉及文件:** cc-tui/src/app/mod.rs, cc-tui/src/app/agent_comm.rs, cc-tui/src/app/agent_ops/polling.rs, cc-tui/src/app/agent_ops/lifecycle.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-21-clear-command-doesnt-clear-live-context
@@ -846,7 +846,7 @@ submit_message(text)
 **关键词:** /clear命令, ACP session/clear, 历史消息清理, SessionState
 **问题本质:** TUI 层和 ACP Server 层有独立的会话状态（view_messages vs SessionState.history），/clear 只清了 TUI 侧
 **通用模式:** 跨层状态清理必须通过协议请求（如 session/clear）而非仅清本地；所有层的状态重置必须在同一个请求中完成
-**涉及文件:** peri-tui/src/command/core/clear.rs:19-21, peri-tui/src/app/thread_ops.rs:259-335, peri-tui/src/acp_server/mod.rs:39-52, peri-tui/src/acp_server/prompt.rs:88-155
+**涉及文件:** cc-tui/src/command/core/clear.rs:19-21, cc-tui/src/app/thread_ops.rs:259-335, cc-tui/src/acp_server/mod.rs:39-52, cc-tui/src/acp_server/prompt.rs:88-155
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-20-theme-markdown-color-decoupling
@@ -858,7 +858,7 @@ submit_message(text)
 **问题本质:** 三套独立颜色系统（DarkTheme / MarkdownTheme / 散落硬编码）互不联动，改 DarkTheme 不影响 Markdown 渲染
 **通用模式:** widget 库通过 trait 暴露颜色接口，外部 adapter 桥接到库自身的 MarkdownTheme，消除分散硬编码
 **技术决策:** `ThemeMarkdownAdapter<'a>` 包裹 `&dyn Theme` 实现 `MarkdownTheme` trait——零开销桥接
-**涉及文件:** peri-widgets/src/markdown/mod.rs, peri-widgets/src/theme/mod.rs, peri-widgets/src/message_block/highlight.rs
+**涉及文件:** cc-widgets/src/markdown/mod.rs, cc-widgets/src/theme/mod.rs, cc-widgets/src/message_block/highlight.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-26-login-panel-hardcoded-chinese-no-i18n
@@ -868,7 +868,7 @@ submit_message(text)
 **关键词:** i18n, hardcoded Chinese, LcRegistry, login panel
 **问题本质:** 新增面板/组件时未遵循 i18n 规范，status_bar_hints 和渲染函数直接使用中文字面量，对应 FTL key 已存在但未被引用
 **通用模式:** 新增 UI 文本必须使用 LcRegistry::tr()，禁止硬编码任何自然语言字符串。新增面板/组件的 checklist 应包含 i18n 检查项。
-**涉及文件:** peri-tui/src/app/login_panel/component.rs, peri-tui/src/ui/main_ui/panels/login.rs, peri-tui/locales/en/main.ftl, peri-tui/locales/zh-CN/main.ftl
+**涉及文件:** cc-tui/src/app/login_panel/component.rs, cc-tui/src/ui/main_ui/panels/login.rs, cc-tui/locales/en/main.ftl, cc-tui/locales/zh-CN/main.ftl
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-25-compact-resubmit-missing-loading-spinner
@@ -878,7 +878,7 @@ submit_message(text)
 **关键词:** loading spinner, compact resubmit, agent lifecycle
 **问题本质:** compact 完成处理器调用 set_loading(false) 后，resubmit 阶段没有重新启用 spinner
 **通用模式:** 自动化 resubmit/retry 路径需要与正常 agent 执行路径一致的生命周期状态管理
-**涉及文件:** peri-tui/src/app/agent_compact.rs, peri-tui/src/app/agent_ops/lifecycle.rs
+**涉及文件:** cc-tui/src/app/agent_compact.rs, cc-tui/src/app/agent_ops/lifecycle.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-23-thinking-tail-single-line-layout-jitter
@@ -888,7 +888,7 @@ submit_message(text)
 **关键词:** thinking display, layout jitter, tail_lines, single-line wrap
 **问题本质:** extract_tail_lines(text, 1) 只取最后 1 行，内容增长超出终端宽度时 ratatui 自动换行使渲染高度在 1↔2 行间跳变
 **通用模式:** 流式内容渲染需固定区域高度或使用足够大的 tail_lines 值避免单行换行导致的布局变化
-**涉及文件:** peri-tui/src/app/message_pipeline/reconcile.rs, peri-tui/src/ui/message_render.rs
+**涉及文件:** cc-tui/src/app/message_pipeline/reconcile.rs, cc-tui/src/ui/message_render.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-26-windows-paste-multiline-truncated
@@ -898,7 +898,7 @@ submit_message(text)
 **关键词:** Windows paste, bracketed paste, multiline input, cross-platform
 **问题本质:** Windows 终端不支持 bracketed paste 协议，粘贴的多行内容被终端模拟为 Enter key event 触发 submit
 **通用模式:** 跨平台输入处理必须考虑终端协议差异，`Event::Paste` 与 `Event::Key(Enter)` 是两条完全不同的处理路径
-**涉及文件:** peri-tui/src/event/mod.rs, peri-tui/src/event/keyboard.rs, peri-tui/src/main.rs
+**涉及文件:** cc-tui/src/event/mod.rs, cc-tui/src/event/keyboard.rs, cc-tui/src/main.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-27-message-area-scrollbar-thumb-misaligned
@@ -908,7 +908,7 @@ submit_message(text)
 **关键词:** scrollbar alignment, thumb geometry, mouse drag, ratatui formula
 **问题本质:** 鼠标事件处理器使用简单线性公式，与 ratatui Scrollbar::part_lengths() 的 thumb 定位公式不一致
 **通用模式:** UI 组件的鼠标交互必须复刻组件库自己的坐标计算公式，不能使用简化的线性近似
-**涉及文件:** peri-tui/src/ui/main_ui/message_area.rs, peri-tui/src/event/mod.rs, peri-widgets/src/scrollable.rs
+**涉及文件:** cc-tui/src/ui/main_ui/message_area.rs, cc-tui/src/event/mod.rs, cc-widgets/src/scrollable.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-30-render-event-unbounded-channel
@@ -919,7 +919,7 @@ submit_message(text)
 **关键词:** 有界通道, 背压, 内存膨胀, 渲染线程
 **问题本质:** 无界通道在极端场景（LLM 快速输出 + resize 风暴 + 大量 compact 事件）下事件积压导致内存无界增长
 **通用模式:** 生产者-消费者场景中使用有界通道 + 背压防止内存无界增长；紧急事件可用 try_send + 覆盖策略
-**涉及文件:** peri-tui/src/ui/render_thread.rs, peri-tui/src/app/message_pipeline/mod.rs
+**涉及文件:** cc-tui/src/ui/render_thread.rs, cc-tui/src/app/message_pipeline/mod.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-30-no-explicit-frame-rate-limit
@@ -930,18 +930,18 @@ submit_message(text)
 **关键词:** 帧率限制, CPU 占用, loading 动画, 渲染节流
 **问题本质:** loading 状态为 true 时每次事件循环都触发 terminal.draw()，无时间间隔检查
 **通用模式:** 动画/loading 场景需要显式帧率限制（如 30 FPS），避免 CPU 空转
-**涉及文件:** peri-tui/src/main.rs
+**涉及文件:** cc-tui/src/main.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-30-migrate-widgets-to-widgetref
 
-**摘要:** peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆
+**摘要:** cc-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆
 **状态:** Fixed
 **归档日期:** 2026-05-31
 **关键词:** WidgetRef, 所有权, 克隆, ratatui, 渲染优化
 **问题本质:** 标准 Widget trait 消费所有权，流式输出每 100ms 重绘导致频繁重建和克隆
 **通用模式:** 高频渲染场景使用引用渲染模式（WidgetRef/unstable-widget-ref feature）避免所有权转移
-**涉及文件:** peri-widgets/src/markdown/mod.rs, peri-tui/Cargo.toml
+**涉及文件:** cc-widgets/src/markdown/mod.rs, cc-tui/Cargo.toml
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-31-interaction-popup-textarea-not-disabled
@@ -953,7 +953,7 @@ submit_message(text)
 **问题本质:** Paste 和 Mouse 事件不走弹窗键盘拦截路径，导致输入泄漏到底层 textarea
 **通用模式:** 事件系统中每类事件（Key/Paste/Mouse）都需独立检查弹窗/模态状态；终端 IME 预编辑窗口依赖可见光标作为锚点，不能简单隐藏
 **架构影响:** 终端 IME 兼容性要求光标可见性与输入焦点解耦
-**涉及文件:** peri-tui/src/event/mod.rs, peri-tui/src/ui/main_ui/mod.rs, peri-tui/src/event/keyboard/popups.rs
+**涉及文件:** cc-tui/src/event/mod.rs, cc-tui/src/ui/main_ui/mod.rs, cc-tui/src/event/keyboard/popups.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-30-table-holdback-during-streaming
@@ -964,7 +964,7 @@ submit_message(text)
 **关键词:** 表格, 流式, holdback, Markdown 解析, 列对齐
 **问题本质:** Markdown 表格在流式输出中列数不完整时被提前渲染，导致列错位和视觉闪烁
 **通用模式:** 流式渲染中结构性内容（表格、列表、代码块）需要完整性检测后再提交；不完整行保持 holdback 状态
-**涉及文件:** peri-tui/src/ui/markdown/mod.rs, peri-tui/src/app/message_pipeline/mod.rs
+**涉及文件:** cc-tui/src/ui/markdown/mod.rs, cc-tui/src/app/message_pipeline/mod.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-30-markdown-parse-lru-cache
@@ -975,7 +975,7 @@ submit_message(text)
 **关键词:** LRU 缓存, Markdown 解析, pulldown-cmark, 性能优化
 **问题本质:** Markdown 解析无缓存，resize/RebuildAll 时重复解析相同内容造成 CPU 开销
 **通用模式:** 纯计算 + 输入不变的场景使用缓存（key = content_hash + 上下文参数如 max_width）
-**涉及文件:** peri-widgets/src/markdown/mod.rs, peri-tui/src/ui/render_thread.rs
+**涉及文件:** cc-widgets/src/markdown/mod.rs, cc-tui/src/ui/render_thread.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-29-ctrl-c-priority-chain-clear-input
@@ -986,7 +986,7 @@ submit_message(text)
 **关键词:** Ctrl+C, 优先级链, 中断, 事件处理, 交互设计
 **问题本质:** Ctrl+C 行为缺少优先级层次，输入框有内容时直接中断 Agent 或进入 quit-pending
 **通用模式:** 全局快捷键应设计优先级链（从局部到全局），避免误操作；shell 风格交互中 Ctrl+C 先清空输入行是用户预期
-**涉及文件:** peri-tui/src/event/keyboard/normal_keys.rs, peri-tui/src/app/mod.rs
+**涉及文件:** cc-tui/src/event/keyboard/normal_keys.rs, cc-tui/src/app/mod.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-31-at-mention-blocking-glob-search
@@ -998,7 +998,7 @@ submit_message(text)
 - **问题本质:** glob::glob() 深度优先遍历无法跳过大目录(node_modules/target)，MAX_GLOB_RESULTS 截断导致有效结果丢失；spawn_blocking 占用 tokio 线程池不释放
 - **通用模式:** 文件系统遍历应用 walkdir + should_skip_dir 在目录层级过滤，而非 glob 后截断；CPU/内存密集搜索应放独立线程 + idle 自动退出，不占 tokio 线程池
 - **技术决策:** 从 glob crate 迁移到 walkdir + should_skip_dir（对齐 GlobFilesTool），搜索从 spawn_blocking 改为 std::thread::spawn + mpsc + recv_timeout idle 退出
-- **涉及文件:** peri-tui/src/app/at_mention/file_search.rs, peri-tui/src/app/at_mention/mod.rs, peri-tui/src/event/keyboard.rs
+- **涉及文件:** cc-tui/src/app/at_mention/file_search.rs, cc-tui/src/app/at_mention/mod.rs, cc-tui/src/event/keyboard.rs
 
 ### issue_2026-06-02-rewind-loses-messages-esc-unresponsive
 
@@ -1009,7 +1009,7 @@ submit_message(text)
 - **问题本质:** handle_rewind_completed 只把保留消息放入 pipeline.completed 但未触发 VM 转换，RebuildAll 的 tail_vms 只有 rewind 通知，保留消息永远不渲染；兜底分支无差别重置 rewind_pending_since 导致双击序列被中间事件中断
 - **通用模式:** pipeline 操作后必须确保 completed 消息被渲染（通过 messages_to_view_models 或 StateSnapshot 触发）；双击/连续按键检测不应在兜底分支重置状态，应在明确的用户输入分支处理
 - **架构影响:** rewind 与 compact 共享 pipeline 操作但 rewind 没有后续 agent 执行来触发 StateSnapshot，需自行处理渲染
-- **涉及文件:** peri-tui/src/app/agent_compact.rs, peri-tui/src/event/keyboard/normal_keys.rs
+- **涉及文件:** cc-tui/src/app/agent_compact.rs, cc-tui/src/event/keyboard/normal_keys.rs
 
 ### issue_2026-06-01-remove-split-multi-session
 
@@ -1021,7 +1021,7 @@ submit_message(text)
 - **通用模式:** 低使用率功能的大面积架构复杂度应及时清理；终端应用的多窗口需求应交给终端复用工具而非应用自身
 - **架构影响:** SessionManager 保留但限制 len=1，多列布局改单列，删除 /split 命令和 Ctrl+N/P/W 快捷键
 - **技术决策:** 完全移除 TUI 多 session 并发分屏，保留 ACP 层 SessionStore 的多 session 存储（用于 /history 恢复）
-- **涉及文件:** peri-tui/src/command/session/split.rs, peri-tui/src/app/session_manager.rs, peri-tui/src/ui/main_ui/mod.rs
+- **涉及文件:** cc-tui/src/command/session/split.rs, cc-tui/src/app/session_manager.rs, cc-tui/src/ui/main_ui/mod.rs
 
 ---
 
@@ -1033,7 +1033,7 @@ submit_message(text)
 **问题本质:** 面板交互设计中，模式切换（Browse→Edit）增加认知负担，且同一按键在不同字段类型上行为不一致（Space/Left/Right 在布尔/选择/文本字段含义不同），导致用户无法预测操作结果
 **通用模式:** 面板类 UI 应遵循"即改即走"原则——打开即可修改、修改即生效，避免模式切换。布尔/选择字段 Space 切换后立即写盘，文本字段失焦时自动保存，Esc 仅关闭不撤销已保存改动
 **架构影响:** 提取 `save_config_now()` 辅助函数作为统一保存入口，所有字段变更路径（键盘切换、失焦、鼠标点击）统一调用
-**涉及文件:** peri-tui/src/app/config_panel.rs, peri-tui/src/ui/main_ui/panels/config.rs, peri-tui/src/app/panel_config.rs
+**涉及文件:** cc-tui/src/app/config_panel.rs, cc-tui/src/ui/main_ui/panels/config.rs, cc-tui/src/app/panel_config.rs
 
 ### issue_2026-06-24-panel-swallow-ctrl-c
 **摘要:** 面板打开时 Ctrl+C 无法退出
@@ -1043,7 +1043,7 @@ submit_message(text)
 **问题本质:** 面板层无条件 `return Some(Action::Redraw)` 导致后续 Stage（包括 Ctrl+C）永远无法触发
 **通用模式:** 键盘事件分发链中，每个 Stage 必须检查 `EventResult`：`Consumed` → 返回；`NotConsumed` → 传递给下一 Stage
 **技术决策:** 面板、弹窗等 UI 层的 `dispatch_key` 返回值是分发链是否继续的唯一判据
-**涉及文件:** peri-tui/src/event/keyboard/panels.rs, peri-tui/src/event/keyboard.rs
+**涉及文件:** cc-tui/src/event/keyboard/panels.rs, cc-tui/src/event/keyboard.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-06-23-mouse-wheel-scrolls-textarea-not-messages
@@ -1054,7 +1054,7 @@ submit_message(text)
 **问题本质:** crossterm `EnableMouseCapture` 在 Windows+ConPTY 下不发送 ANSI `?1000h`，导致 WT 不知道 mouse tracking 已开启，滚轮被 alternate scroll 转为方向键
 **通用模式:** ConPTY 下滚轮事件不可靠，用 `?1007h`（alternate scroll）+ 键盘绑定交换绕过
 **技术决策:** `↑`/`↓` 绑定消息区滚动，`Ctrl+↑`/`Ctrl+↓` 绑定 textarea 光标；`force_conpty_mouse_notify()` toggle MOUSE bit 强制触发 WriteSGR1006
-**涉及文件:** peri-tui/src/conpty.rs, peri-tui/src/main.rs, peri-tui/src/event/keyboard/normal_keys.rs
+**涉及文件:** cc-tui/src/conpty.rs, cc-tui/src/main.rs, cc-tui/src/event/keyboard/normal_keys.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-06-14-tui-scroll-overflow-u16-saturation
@@ -1065,7 +1065,7 @@ submit_message(text)
 **问题本质:** 消息区视觉行号和滚动 offset 使用 `u16` 保存，累计超过 65535 后饱和，所有依赖行号的逻辑失效
 **通用模式:** 消息区视觉行号 / scroll offset 必须 `usize`，禁止 `u16`
 **技术决策:** `usize::MAX` + clamp 替代 `u16::MAX` 哨兵值；单行内偏移和面板内容滚动可保留 `u16`
-**涉及文件:** peri-tui/src/ui/render_thread.rs, peri-tui/src/app/ui_state.rs, peri-tui/src/ui/main_ui/message_area.rs
+**涉及文件:** cc-tui/src/ui/render_thread.rs, cc-tui/src/app/ui_state.rs, cc-tui/src/ui/main_ui/message_area.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-06-13-word-diff-old-new-concatenated
@@ -1075,7 +1075,7 @@ submit_message(text)
 **关键词:** word diff, render_word_diff_spans, 段过滤
 **问题本质:** `render_word_diff_spans` 渲染了所有 segments（Added + Removed + Unchanged），未按行类型过滤
 **通用模式:** Remove 行只显示 Removed + Unchanged 段，Add 行只显示 Added + Unchanged 段
-**涉及文件:** peri-widgets/src/diff/renderer.rs
+**涉及文件:** cc-widgets/src/diff/renderer.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-06-13-shell-command-success-stderr-red
@@ -1085,7 +1085,7 @@ submit_message(text)
 **关键词:** stderr, exit code, ERROR 样式, shell 命令
 **问题本质:** stderr 行无条件使用 `theme::ERROR` 红色，不考虑 exit code
 **通用模式:** exit code == 0 时 stderr 用 MUTED 色，仅失败时用 ERROR 红色
-**涉及文件:** peri-tui/src/ui/message_render.rs
+**涉及文件:** cc-tui/src/ui/message_render.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-06-13-message-double-storage-40mb-waste
@@ -1096,7 +1096,7 @@ submit_message(text)
 **问题本质:** 大 ToolResult 经 6 个存储点 deep clone 放大（5MB → +28MB RSS），syntect 首次加载 +7.83MB
 **通用模式:** 大字符串应用 `Arc<str>` 共享；syntect 应用 `SyntaxSetBuilder` 精简语言加载
 **技术决策:** `ContentBlock::ToolResult.text` 改 `Arc<str>` 让 6 个存储点共享同一份堆内存
-**涉及文件:** peri-tui/src/app/agent_ops/mod.rs, peri-tui/src/app/message_pipeline/mod.rs, peri-widgets/src/markdown/highlight.rs
+**涉及文件:** cc-tui/src/app/agent_ops/mod.rs, cc-tui/src/app/message_pipeline/mod.rs, cc-widgets/src/markdown/highlight.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-06-06-npm-peri-windows-bin-sh-not-found
@@ -1109,12 +1109,25 @@ submit_message(text)
 **涉及文件:** package.json, bin/peri
 **CLAUDE.md 链接:** false
 
+### issue_2026-10-08-detail-mode-long-cmd-running-status-overwrites-header
+
+**摘要:** 详细模式下超长命令折行后运行超过 2 秒，tick 增量刷新把命令续行覆盖成 `Running…`，同时冻结真正的状态行（屏幕上两处 `Running…` 且时间不一致）
+**状态:** Fixed
+**创建日期:** 2026-10-08
+**关键词:** 详细模式折行, header 多行, 增量刷新, 固定下标, Running 状态行, tick, ToolBlock
+**问题本质:** 详细模式超长命令让 ToolBlock header 折成多行（#264 引入），但渲染线程 tick 增量刷新仍按「header 恒 1 行」的旧假设：场景 B 写死 `lines.get_mut(1)` 命中的是命令续行（被改写为 `Running…`、残留 `)`），真正的状态行（下标 ≥2）因不在下标 1 而冻结；场景 A 用 `cached_line_count < 3` 判「状态行未渲染」，多行 header 下行数早已 ≥3、判定恒假，首次跨阈值时状态行永不出现。
+**通用模式:** 当渲染产物的**行数契约**变化时（如 header 从单行变多行），所有依赖「固定下标」的增量更新路径都必须同步改为**按内容定位**；固定下标对上游格式变化零防御。判定「某行是否已渲染」应基于行内容而非固定总行数。
+**技术决策:** 新增 `is_shell_running_status_line()`（判定 `spans[0] == "  ⎿ "` 且 `spans[1]` 以 `Running…` 开头），场景 A/B 均改为内容定位，对 header 行数变化天然免疫。溯源注意：本例由 **#264**（详细模式完整折行）引入，**非 #287**——实测 #264 之前 header 恒单行、行为正确。
+**涉及文件:** cc-tui/src/ui/message_render.rs, cc-tui/src/ui/render_thread.rs, cc-tui/src/ui/render_thread_test.rs, spec/issues/2026-10-08-detail-mode-long-cmd-running-status-overwrites-header.md
+**PR:** #341
+**CLAUDE.md 链接:** false
+
 ## 相关 Feature
 
 - → [agent.md#20260322_F001_agent-storage-refactor](./agent.md#20260322_F001_agent-storage-refactor) — SQLite 持久化，TUI 消息渲染依赖此存储
 - → [langfuse.md#feature_20260324_F001_langfuse-tui-monitoring](./langfuse.md#feature_20260324_F001_langfuse-tui-monitoring) — Langfuse 追踪集成在 TUI 的 app/agent.rs
 - → [agent.md#feature_20260328_F001_ask-user-question-align](./agent.md#feature_20260328_F001_ask-user-question-align) — AskUser 弹窗展示更新（header + description），TUI 弹窗同步更新
-- → [tui-widgets.md](./tui-widgets.md) — peri-widgets 独立 widget crate 和 Spinner/ToolCall/MessageBlock 组件
+- → [tui-widgets.md](./tui-widgets.md) — cc-widgets 独立 widget crate 和 Spinner/ToolCall/MessageBlock 组件
 - → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成到 Markdown 渲染
 - → [mouse-selection.md](./mouse-selection.md) — 鼠标拖拽文字选区和剪贴板复制
 - → [skill-trigger.md](./skill-trigger.md) — Skills 触发键从 # 统一到 / 前缀

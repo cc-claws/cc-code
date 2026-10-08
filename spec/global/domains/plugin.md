@@ -149,7 +149,7 @@ load_merged_config()
 **摘要:** Claude Code 插件生态兼容：发现/安装/加载 commands/skills/MCP/agents
 **关键决策:**
 
-- Plugin 模块嵌入 peri-middlewares（仿 MCP 中间件组织方式）
+- Plugin 模块嵌入 cc-middlewares（仿 MCP 中间件组织方式）
 - 兼容 Claude Code `plugin.json` 清单格式（commands/agents/skills/mcp_servers/hooks/lsp_servers/channels/options/settings）
 - Marketplace 来源：GitHub/URL/File/Directory/NPM 四种类型
 - 配置读取优先级：项目级 `.claude/settings.json` > 用户级 `~/.claude/settings.json` > managed-settings.json
@@ -173,7 +173,7 @@ load_merged_config()
 **通用模式:** 懒加载目录结构时，需要在首次访问时主动创建必要子目录并触发初始数据拉取，而不能仅依赖读取路径的 None 容错。用户可见的"空面板"在语义上是误导性的——它暗示"系统正常但无数据"，而实际是"系统尚未初始化"。
 **架构影响:** 打开面板时自动创建 ~/.claude/plugins/ 必要子目录，为 official marketplace 触发首次后台刷新。
 **技术决策:** panel_ops.rs 的 open_plugin_panel() 中在加载缓存前检查并创建目录结构；首次加载时对官方 marketplace 自动触发 refresh。
-**涉及文件:** peri-middlewares/src/plugin/config.rs, peri-tui/src/app/panel_ops.rs, peri-tui/src/ui/main_ui/panels/plugin.rs, peri-middlewares/src/plugin/marketplace/manager.rs
+**涉及文件:** cc-middlewares/src/plugin/config.rs, cc-tui/src/app/panel_ops.rs, cc-tui/src/ui/main_ui/panels/plugin.rs, cc-middlewares/src/plugin/marketplace/manager.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail
@@ -185,7 +185,7 @@ load_merged_config()
 **问题本质:** 插件系统隐式依赖 Claude Code 的目录结构（~/.claude/plugins/marketplaces/），marketplace refresh 的 git clone 在无缓存目录时失败，导致后续安装/卸载连锁失败
 **通用模式:** 外部服务依赖必须显式检测并提供回退方案，不能假设上游目录结构已存在
 **架构影响:** 插件系统应能在独立环境中运行，启动时需自动补建最小目录结构
-**涉及文件:** peri-middlewares/src/plugin/config.rs, peri-middlewares/src/plugin/installer/install.rs, peri-tui/src/app/plugin_panel/handlers/plugin_handlers/persistence.rs
+**涉及文件:** cc-middlewares/src/plugin/config.rs, cc-middlewares/src/plugin/installer/install.rs, cc-tui/src/app/plugin_panel/handlers/plugin_handlers/persistence.rs
 **CLAUDE.md 链接:** false
 
 ---

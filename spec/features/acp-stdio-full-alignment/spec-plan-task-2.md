@@ -6,7 +6,7 @@
 
 #### 执行步骤
 
-- [ ] **Step 2.1**: 创建 `peri-acp/src/dispatch/session_load.rs`
+- [ ] **Step 2.1**: 创建 `cc-acp/src/dispatch/session_load.rs`
 
 ```rust
 //! Load session messages from ThreadStore.
@@ -33,7 +33,7 @@ pub async fn load_session_messages(
 
 **参考：** 逻辑取自 `requests.rs:239-251` 的 match 分支，提取为纯函数。
 
-- [ ] **Step 2.2**: 添加单元测试文件 `peri-acp/src/dispatch/session_load_test.rs`
+- [ ] **Step 2.2**: 添加单元测试文件 `cc-acp/src/dispatch/session_load_test.rs`
 
 ```rust
 use super::session_load::load_session_messages;
@@ -90,8 +90,8 @@ async fn test_load_session_messages_not_found_returns_empty() {
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-acp` 编译通过
-- [ ] `cargo test -p peri-acp --lib session_load_test` 测试通过
-- [ ] `cargo clippy -p peri-acp` 通过
+- [ ] `cargo build -p cc-acp` 编译通过
+- [ ] `cargo test -p cc-acp --lib session_load_test` 测试通过
+- [ ] `cargo clippy -p cc-acp` 通过
 
 ---

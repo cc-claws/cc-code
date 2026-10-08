@@ -1,6 +1,6 @@
 # ACP 协议对接缺口全景报告
 
-> perihelion `peri-tui/src/acp/` vs. `agent-client-protocol-schema` v0.13.0
+> perihelion `cc-tui/src/acp/` vs. `agent-client-protocol-schema` v0.13.0
 > 审查日期：2026-05-16
 
 ---
@@ -165,7 +165,7 @@ Agent → Client (notification):
 
 **当前状态**：从未发送。ACP 客户端不知道该 Agent 支持哪些斜杠命令。
 
-**可用命令**：`/help`、`/clear`、`/compact`、`/cost`、`/doctor` 等（`peri-tui/src/command/` 中定义的命令）。
+**可用命令**：`/help`、`/clear`、`/compact`、`/cost`、`/doctor` 等（`cc-tui/src/command/` 中定义的命令）。
 
 **影响**：低 — IDE 端的命令补全不可用。
 

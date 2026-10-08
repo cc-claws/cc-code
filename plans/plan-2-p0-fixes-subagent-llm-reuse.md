@@ -17,7 +17,7 @@
 
 ## Step 1: `session/update_config`（TUI）补充 `invalidate()`
 
-**文件**：`peri-tui/src/acp_server/requests.rs:455-459`
+**文件**：`cc-tui/src/acp_server/requests.rs:455-459`
 
 ```rust
 // 当前代码：
@@ -47,11 +47,11 @@ if let Some(s) = sessions.get_mut(session_id) {
 - `session_id` 为空字符串时 `sessions.get_mut("")` 找不到 session，不执行 invalidate。与现有 `session/set_model` handler 行为一致。
 - 即使 `LlmProvider::from_config` 返回 None（无法解析新 provider），也应 invalidate（config 已变，旧缓存不可靠）。
 
-→ 验证：`cargo build -p peri-tui`
+→ 验证：`cargo build -p cc-tui`
 
 ## Step 2: Stdio 路径补充 `session/update_config` handler
 
-**文件**：`peri-tui/src/acp_stdio.rs`
+**文件**：`cc-tui/src/acp_stdio.rs`
 
 当前 stdio 路径只处理 `initialize`、`session/new`、`session/prompt`、`session/cancel`、`session/set_config_option`，缺失 `session/update_config`。
 
@@ -92,11 +92,11 @@ if let Some(s) = sessions.get_mut(session_id) {
 
 **注意**：stdio 路径中 `ctx.sessions` 是 `Arc<parking_lot::RwLock<HashMap<...>>>`，持锁方式与 TUI 路径的 `&mut Sessions` 参数不同，需适配。
 
-→ 验证：`cargo build -p peri-tui`
+→ 验证：`cargo build -p cc-tui`
 
 ## Step 3: 补充 AgentPool 验收测试
 
-**文件**：`peri-acp/src/session/agent_pool_test.rs`
+**文件**：`cc-acp/src/session/agent_pool_test.rs`
 
 新增 3 个测试，每个 ≤30 行：
 
@@ -187,7 +187,7 @@ impl AgentPool {
 
 然后 `builder.rs:291-311` 简化为调用此方法。
 
-→ 验证：`cargo test -p peri-acp --lib -- agent_pool`
+→ 验证：`cargo test -p cc-acp --lib -- agent_pool`
 
 ## 影响范围
 

@@ -184,8 +184,8 @@ fn extract_compact_skill_names(messages: &[peri_agent::messages::BaseMessage]) -
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-tui` 编译通过
-- [ ] `cargo clippy -p peri-tui` 通过
+- [ ] `cargo build -p cc-tui` 编译通过
+- [ ] `cargo clippy -p cc-tui` 通过
 - [ ] 确认 compact helper 函数的 import 路径正确（`CompactFileInfo` 来自 `peri_agent::agent::events`）
 
 #### 风险

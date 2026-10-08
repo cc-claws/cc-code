@@ -113,8 +113,8 @@
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-tui` 编译通过
-- [ ] `cargo clippy -p peri-tui` 通过
+- [ ] `cargo build -p cc-tui` 编译通过
+- [ ] `cargo clippy -p cc-tui` 通过
 - [ ] 确认 handler 位置在 builder 链中与其他 handler 不冲突
 
 ---

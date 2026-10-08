@@ -84,6 +84,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Detail-Mode Long-Command Status Fix** | v0.6.101 | In detailed mode (Ctrl+O) an over-long Bash command wraps the tool header across multiple lines (#264), but the tick refresher still assumed a single-line header: it overwrote the command continuation with `Running…` and froze the real status line (resulting in two `Running…` lines with mismatched times). The status line is now located by content instead of a fixed index |
+| **`/gc` Diagnostic Honesty & VM Estimation** | v0.6.100 | `/gc` memory labels are now platform-aware (`active` / `mapped` / `retained` mean different things under jemalloc vs mimalloc, so Windows numbers no longer imply phantom fragmentation); the estimator now also covers `view_messages`, previously the bulk of the "unidentified" allocations |
 | **Background Shell Notification i18n** | v0.6.99 | The display text for background-shell completion / timeout / cancelled / terminated / waiting-for-input notices is now localized (previously hardcoded Chinese, shown even in English); adds a process-global language registry so static `MessageViewModel` constructors can resolve the current language, sync'd at startup and on `/lang` |
 | **ACP Permission Forwarding** | v0.6.94 | `cc-code acp` now forwards tool permission requests to the IDE client via `session/request_permission` instead of auto-approving (fail-closed: client unsupported / call failure / unknown option = denied); stdio default permission mode changed from Bypass to AutoMode (use `session/set_mode` for unattended bypass) |
 | **Fail-Closed Permissions** | v0.6.90 | Approval is now on by default: unset `YOLO_MODE` no longer bypasses HITL (explicit `-y/--yolo` or `YOLO_MODE=true` to skip); HITL gate evaluates the post-rewrite command; `git clone` hardened against option injection |
@@ -92,10 +94,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **Thinking Status Line & Tool Summary** | v0.6.82 | Spinner third field 4-state machine (`thinking` / `thought for Ns` / `still thinking` / `thinking more`); message-area thought line → `Thought for Ns, <action counts>`; consecutive thinking+read-only-tool rounds merged into one line; Bash non-verbose output summary with `... (N more lines) (ctrl+o to expand)` |
 | **Semantic Gate Hardening & Two Permission Modes** | v0.6.81 | HITL gate rebuilt on upstream Jev semantics: `curl\|bash` and interpreter-family bypasses are now hard-denied, write path traversal can no longer skip the gate, and judge unavailability returns to human confirmation instead of blocking the whole session; permission modes collapsed to `auto`/`bypass` (default auto), with the deterministic layer no longer sharing a switch with the semantic judge |
 | **Session Recap Persistence** | v0.6.80 | Recap and task-summary lines persist to `ThreadMeta` (`latest_recap`/`last_task_summary`), no longer lost on restart |
-| **/recap Command & Auto Recap** | v0.6.76 | `/recap` (`/away` `/catchup`) summarizes goal→tasks→next step via aux_model; auto-recap on terminal blur + ≥3 turns + 60s idle (`/config` toggle, `PERI_AUTO_RECAP_*` env); non-streaming Anthropic responses adapt to reverse-proxy OpenAI format |
-| **Tool Schema Validation & Input Pump** | v0.6.75 | Human-readable schema errors aligned with Claude Code's `formatZodValidationError` + tool-mismatch heuristics (`suggest_tool_mismatch`) + failure circuit breaker; dedicated InputPump safely enables mouse hover and fixes scrollbar drag |
 
-> Older releases (v0.6.0 – v0.6.74) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.76) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 

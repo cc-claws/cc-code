@@ -9,12 +9,12 @@
 
 | Crate | README | CLAUDE.md | 说明 |
 |-------|--------|-----------|------|
-| peri-agent | [README](../peri-agent/README.md) | [CLAUDE.md](../CLAUDE.md) | 核心 Agent 框架 |
-| peri-middlewares | [README](../peri-middlewares/README.md) | [CLAUDE.md](../peri-middlewares/CLAUDE.md) | 中间件实现 |
-| peri-tui | [README](../peri-tui/README.md) | [CLAUDE.md](../peri-tui/CLAUDE.md) | TUI 应用 |
-| peri-acp | [README](../peri-acp/README.md) | - | ACP 服务层 |
-| peri-widgets | [README](../peri-widgets/README.md) | - | Widget 组件库 |
-| peri-lsp | [README](../peri-lsp/README.md) | - | LSP 客户端 |
+| cc-agent | [README](../cc-agent/README.md) | [CLAUDE.md](../CLAUDE.md) | 核心 Agent 框架 |
+| cc-middlewares | [README](../cc-middlewares/README.md) | [CLAUDE.md](../cc-middlewares/CLAUDE.md) | 中间件实现 |
+| cc-tui | [README](../cc-tui/README.md) | [CLAUDE.md](../cc-tui/CLAUDE.md) | TUI 应用 |
+| cc-acp | [README](../cc-acp/README.md) | - | ACP 服务层 |
+| cc-widgets | [README](../cc-widgets/README.md) | - | Widget 组件库 |
+| cc-lsp | [README](../cc-lsp/README.md) | - | LSP 客户端 |
 | langfuse-client | [README](../langfuse-client/README.md) | - | 遥测客户端 |
 
 ## 架构文档

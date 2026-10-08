@@ -54,7 +54,7 @@ grep -rn "cancel_request\|CancelRequest\|cancel" /Users/konghayao/.cargo/registr
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-tui` 编译通过
+- [ ] `cargo build -p cc-tui` 编译通过
 - [ ] 确认 `session/set_config_option` (configId="thinking_effort") 已作为 set_thinking 的等效替代
 
 ---

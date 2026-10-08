@@ -82,7 +82,7 @@ reconcile_tail(round_start_vm_idx)
 **通用模式:** 所有需要跨进程复用的序列化内容（system prompt、tools 数组）必须保证顺序稳定。任何参与缓存前缀的数据结构，其迭代顺序必须是确定性的
 **架构影响:** ToolSearchIndex 从 submit 级局部变量提升到 session 级共享 Arc，减少重复构建的同时保证缓存一致性
 **技术决策:** 工具列表按名称排序；ToolSearchIndex 会话级缓存；每轮注入缓存提示词而非重新构建
-**涉及文件:** peri-middlewares/src/tool_search/tool_index.rs, peri-agent/src/agent/executor/mod.rs, peri-tui/src/app/agent_comm.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/agent_submit.rs
+**涉及文件:** cc-middlewares/src/tool_search/tool_index.rs, cc-agent/src/agent/executor/mod.rs, cc-tui/src/app/agent_comm.rs, cc-tui/src/app/agent.rs, cc-tui/src/app/agent_submit.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-12-skill-preload-invalidates-prompt-cache
@@ -93,7 +93,7 @@ reconcile_tail(round_start_vm_idx)
 **问题本质:** SkillPreloadMiddleware 用 prepend_message 将合成消息插入 index 0，改变了第一条 user 消息的位置，Anthropic 的 cache_control 标记落在不稳定的合成消息上，导致首轮 cache miss
 **通用模式:** 向消息数组头部插入内容会改变缓存边界，应优先使用尾部追加（add_message）。缓存控制标记（cache_control）的位置决定了缓存前缀的稳定性
 **技术决策:** prepend_message 改为 add_message，使 preload 工具调用追加在用户消息之后
-**涉及文件:** peri-middlewares/src/subagent/skill_preload.rs, peri-agent/src/agent/compact/re_inject.rs, peri-agent/src/llm/anthropic.rs
+**涉及文件:** cc-middlewares/src/subagent/skill_preload.rs, cc-agent/src/agent/compact/re_inject.rs, cc-agent/src/llm/anthropic.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-12-systemnote-position-drift-on-rebuild
@@ -105,7 +105,7 @@ reconcile_tail(round_start_vm_idx)
 **通用模式:** 纯 UI 层的临时 VM（不在 BaseMessage 中）需要独立的锚点机制来维持位置。RebuildAll 的 drain+重建会破坏所有尾部追加内容的位置
 **架构影响:** 引入 ephemeral_notes 字段记录 (锚点, VM) 对，RebuildAll 时按锚点位置重新插入。这是 message-pipeline 处理纯 UI VM 生命周期的通用模式
 **技术决策:** VM 索引锚点方案——记录创建时 view_messages.len() 作为锚点，RebuildAll 时根据锚点与 prefix_len 的关系决定保留/丢弃/重插入
-**涉及文件:** peri-tui/src/app/agent_render.rs, peri-tui/src/app/message_pipeline.rs
+**涉及文件:** cc-tui/src/app/agent_render.rs, cc-tui/src/app/message_pipeline.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-cache-warning-discarded-by-rebuild
@@ -115,7 +115,7 @@ reconcile_tail(round_start_vm_idx)
 **关键词:** CacheWarning, RebuildAll, saved_notes, ephemeral VM
 **问题本质:** RebuildAll 的 saved_notes 过滤器只保留 SystemNote 变体，不保留 CacheWarning，导致缓存警告一闪而过
 **通用模式:** 新增 ephemeral VM 变体时，必须同步更新 RebuildAll 的 saved_notes 过滤逻辑，否则会被 drain 丢弃
-**涉及文件:** peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_render.rs, peri-tui/src/ui/message_view.rs
+**涉及文件:** cc-tui/src/app/agent_ops.rs, cc-tui/src/app/agent_render.rs, cc-tui/src/ui/message_view.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-compact-ephemeral-notes-not-cleared
@@ -125,7 +125,7 @@ reconcile_tail(round_start_vm_idx)
 **关键词:** ephemeral_notes, compact, RebuildAll, prefix_len: 0
 **问题本质:** Compact 完成后的 RebuildAll { prefix_len: 0 } 保留所有锚点 >= 0 的 ephemeral_notes，包括 compact 前的旧通知
 **通用模式:** 全量重建（prefix_len: 0）时，应先清理过期的 ephemeral_notes，否则所有历史临时通知都会被保留
-**涉及文件:** peri-tui/src/app/agent_compact.rs, peri-tui/src/app/thread_ops.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_render.rs
+**涉及文件:** cc-tui/src/app/agent_compact.rs, cc-tui/src/app/thread_ops.rs, cc-tui/src/app/agent_ops.rs, cc-tui/src/app/agent_render.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-14-cache-breakpoint-structural-inefficiency
@@ -137,7 +137,7 @@ reconcile_tail(round_start_vm_idx)
 **通用模式:** cache_control 断点策略需要回退搜索机制——目标消息不含 text block 时向前搜索最近的含 text 消息。断点覆盖范围之外的完整前缀缓存由 Provider 端管理，不受客户端控制。Provider 端的缓存驱逐是随机事件，客户端只能通过增加断点密度来提高小粒度缓存条目的存活概率。
 **架构影响:** 新增 system[last] cache_control 覆盖整个 system prompt 区域，移除被 msg[first] 隐式覆盖的 tools cache_control 冗余断点
 **技术决策:** apply_cache_to_messages 断点回退搜索；system 序列化时对最后一个 block 标记 cache_control
-**涉及文件:** peri-agent/src/llm/anthropic.rs
+**涉及文件:** cc-agent/src/llm/anthropic.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-15-thinking-tail-preview
@@ -149,7 +149,7 @@ reconcile_tail(round_start_vm_idx)
 **通用模式:** ContentBlockView 的 Hash/PartialEq 设计中，语义身份字段（char_count）参与等价判断，展示辅助字段（text）不参与，触发重渲染的字段（tail_lines）选择性参与。这是一个"身份 ≠ 展示"的解耦模式——同一 semantic identity 可以有多种展示状态。
 **架构影响:** 后处理模式——在 build_tail_vms() 末尾执行 add_thinking_tail_snapshot()，遵循"组装→后处理"的管线阶段分隔
 **技术决策:** text 不参与 Hash（仅 char_count 决定等价性），tail_lines 参与 Hash（变化触发重渲染）
-**涉及文件:** peri-tui/src/ui/message_view.rs, peri-tui/src/app/message_pipeline.rs, peri-tui/src/ui/message_render.rs
+**涉及文件:** cc-tui/src/ui/message_view.rs, cc-tui/src/app/message_pipeline.rs, cc-tui/src/ui/message_render.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-frozen-subagent-vms-cross-round-accumulation-duplication
@@ -161,7 +161,7 @@ reconcile_tail(round_start_vm_idx)
 **问题本质:** frozen_subagent_vms 仅在 clear() 清空，done()/begin_round() 均未清空，导致跨轮次累积。merge_frozen_subagents 按位置而非 agent_id 匹配，新轮次 SubAgentGroup 被旧轮次数据污染
 **通用模式:** 轮次作用域的状态（frozen_vms, ephemeral_notes 等）必须在 begin_round 或 done 时显式清空。基于位置的匹配在跨轮次场景下不可靠——应使用唯一标识（如 agent_id）匹配
 **架构影响:** Pipeline 的状态生命周期必须与轮次边界对齐，clear() 作为全量重置的终极手段不应是唯一清理路径
-**涉及文件:** peri-tui/src/app/message_pipeline.rs, peri-tui/src/app/message_pipeline_test.rs
+**涉及文件:** cc-tui/src/app/message_pipeline.rs, cc-tui/src/app/message_pipeline_test.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-17-pipeline-render-heavy-files
@@ -169,7 +169,7 @@ reconcile_tail(round_start_vm_idx)
 **摘要:** message_pipeline.rs（1067 行）和 message_view.rs（1061 行）拆分为子模块，Pipeline 按 transform/reconcile/view_model 分离，渲染层按 render/layout/scroll 分离
 **状态:** Fixed
 **归档日期:** 2026-05-18
-**涉及文件:** peri-tui/src/app/message_pipeline.rs, peri-tui/src/ui/message_view.rs
+**涉及文件:** cc-tui/src/app/message_pipeline.rs, cc-tui/src/ui/message_view.rs
 **说明:** 纯代码组织优化（注意 TRAP 约束：Ephemeral VM 锚点机制、prefix_len vs round_start_vm_idx 维度区分、RebuildAll 只能在非 Pipeline 层触发），无领域认知提炼。
 
 ### issue_2026-05-18-subagent-duplicate-state-on-completion
@@ -180,7 +180,7 @@ reconcile_tail(round_start_vm_idx)
 **关键词:** SubAgent 重复卡片, ToolStart/SubAgentStart 竞态, 双重创建
 **问题本质:** ToolStart（name="Agent"）和 SubAgentStart 两个事件都调用 tool_start_internal() 创建 SubAgentState。SubAgentEnd 只冻结第一个匹配项，第二个残留为 is_running=true，直到 Done 才清理。
 **通用模式:** 当同一语义实体有多个事件入口点时，必须明确单一创建职责。事件之间不是"累加"关系——应做"去重"判断。修复方案是让 ToolStart 仅注册 tool_call/pending_tool，由 SubAgentStart 独占 SubAgentState 创建职责。
-**涉及文件:** peri-tui/src/app/message_pipeline/mod.rs
+**涉及文件:** cc-tui/src/app/message_pipeline/mod.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-20-session-restore-renders-system-prompt
@@ -192,7 +192,7 @@ reconcile_tail(round_start_vm_idx)
 **问题本质:** `messages_to_view_models()` 是所有恢复路径（`open_thread()` + `reconcile()`）的共享入口，但未过滤 `BaseMessage::System` 变体，导致持久化存储中的 system prompt 和 compact summary 被转换为 `SystemNote` VM 渲染为可见卡片。
 **通用模式:** 所有从持久化到渲染的消息转换路径必须在入口处统一过滤 System 变体，不依赖各调用点自行处理。
 **架构影响:** 强化了 `messages_to_view_models()` 作为"唯一转换入口"的架构定位——内部消息（System）与用户可见消息（Human/Ai/Tool）的边界应在此函数内明确。
-**涉及文件:** peri-tui/src/app/thread_ops.rs, peri-tui/src/app/message_pipeline/transform.rs, peri-tui/src/ui/message_view/mod.rs
+**涉及文件:** cc-tui/src/app/thread_ops.rs, cc-tui/src/app/message_pipeline/transform.rs, cc-tui/src/ui/message_view/mod.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-20-llm-error-message-area-clear-flicker
@@ -204,7 +204,7 @@ reconcile_tail(round_start_vm_idx)
 **通用模式:** LLM 执行失败路径必须始终通知前端（发送 Error 事件），前端 rebuild 逻辑不能假设 round_start_vm_idx 在某状态下安全——必须考虑所有可能的执行失败场景
 **架构影响:** 与 compact 架构改造联动——从「外层 loop + resubmit」改为「CompactMiddleware 作为 before_model 钩子」消除了 compact 后独立 LLM 调用失败的场景
 **技术决策:** Executor 新增 AgentExecutionFailed 事件确保所有错误路径都通知前端
-**涉及文件:** peri-acp/src/session/executor.rs, peri-middlewares/src/compact_middleware.rs, peri-acp/src/session/compact_runner.rs, peri-tui/src/app/agent_compact.rs, peri-tui/src/app/message_pipeline/mod.rs
+**涉及文件:** cc-acp/src/session/executor.rs, cc-middlewares/src/compact_middleware.rs, cc-acp/src/session/compact_runner.rs, cc-tui/src/app/agent_compact.rs, cc-tui/src/app/message_pipeline/mod.rs
 **CLAUDE.md 链接:** true
 
 ---

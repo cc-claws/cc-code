@@ -22,7 +22,7 @@ Claude Code 的 Workflow 工具使用 JavaScript 脚本编排多 Agent 执行。
 |------|----------|
 | 声明式、无脚本 | YAML 定义编排逻辑，Markdown 编写提示词，JSON 定义 Schema |
 | 提示词可独立审查 | 提示词放在独立的 `.md` 文件中，支持 `{{模板变量}}` |
-| 原生 Rust 执行 | 通过 `peri-acp` 的 `build_agent()` 创建和执行 Agent |
+| 原生 Rust 执行 | 通过 `cc-acp` 的 `build_agent()` 创建和执行 Agent |
 | 数据变换统一 JS | 所有数据变换和条件判断通过 `run` 步骤 + JS 脚本（外部 Node/Bun 执行） |
 | 可复现、可追踪 | 确定性步骤执行 + 事件流实时输出进度 |
 
@@ -35,7 +35,7 @@ Claude Code 的 Workflow 工具使用 JavaScript 脚本编排多 Agent 执行。
 | 提示词位置 | 内嵌在 JS 模板字符串中 | 独立 `.md` 文件 |
 | Schema 位置 | JS 对象字面量 | 独立 `.json` 文件 |
 | 数据变换 | JS 表达式 | JS 脚本（`run` 步骤，需 `require` 声明） |
-| Agent 创建 | Workflow Runtime 子进程 | `peri-acp::build_agent()` |
+| Agent 创建 | Workflow Runtime 子进程 | `cc-acp::build_agent()` |
 | 跨平台 | 仅 Claude Code | Perihelion 支持的所有平台 |
 
 ---
@@ -848,7 +848,7 @@ N 个 Agent 独立设计方案，评审 Agent 选出最优。
 
 ```
 peri-workflow/
-  Cargo.toml           # 依赖：peri-agent, serde_yaml, tokio
+  Cargo.toml           # 依赖：cc-agent, serde_yaml, tokio
   src/
     lib.rs              # 公共 API
     types.rs            # YAML 反序列化类型
@@ -863,7 +863,7 @@ peri-workflow/
 
 ```toml
 [dependencies]
-peri-agent = { path = "../peri-agent" }
+cc-agent = { path = "../cc-agent" }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml.workspace = true
 serde_json.workspace = true
@@ -875,12 +875,12 @@ tracing.workspace = true
 ### 9.2 依赖关系
 
 ```
-peri-workflow → peri-agent（Agent 执行）
+peri-workflow → cc-agent（Agent 执行）
              → serde_yaml（YAML 解析）
              → tokio（async runtime）
 ```
 
-`peri-workflow` 不依赖 `peri-acp`。执行器通过 trait 接收 Agent 构建能力，具体实现由集成层（`peri-tui` 或 `peri-acp`）提供。
+`peri-workflow` 不依赖 `cc-acp`。执行器通过 trait 接收 Agent 构建能力，具体实现由集成层（`cc-tui` 或 `cc-acp`）提供。
 
 ### 9.3 执行流程
 
@@ -1017,10 +1017,10 @@ pub struct WorkflowExecutor {
 
 ```bash
 # 执行 workflow
-cargo run -p peri-tui -- workflow .claude/workflows/full-code-review/ --args '{"range": "HEAD~20"}'
+cargo run -p cc-tui -- workflow .claude/workflows/full-code-review/ --args '{"range": "HEAD~20"}'
 
 # -p 模式（输出最终 JSON 到 stdout）
-cargo run -p peri-tui -- -p "review" -- workflow .claude/workflows/full-code-review/
+cargo run -p cc-tui -- -p "review" -- workflow .claude/workflows/full-code-review/
 ```
 
 ### 10.2 ACP Slash Command（后续扩展）

@@ -97,7 +97,7 @@ launch_agent 工具调用
 | 工具延迟加载 | 核心工具（12 个）直接加载，非核心工具通过 SearchExtraTools 按需发现、ExecuteExtraTool 代理执行；Prompt 缓存会话级 |
 | Web 工具 | WebMiddleware 注入 WebFetch（HTML→Markdown）和 WebSearch（Tavily API），支持域名过滤和实时抓取 |
 | trait 清理 | ReactLLM trait 移除废弃方法（generate_reasoning），统一为 generate()；废弃 trait 标记 #[deprecated] |
-| 会话回顾 /recap | `peri-agent/src/agent/recap/mod.rs`：独立 `aux_model`（与 compact_model 解耦，不受 compact 开关影响），单轮生成、禁用工具、不写 history；input token 远小于完整 history |
+| 会话回顾 /recap | `cc-agent/src/agent/recap/mod.rs`：独立 `aux_model`（与 compact_model 解耦，不受 compact 开关影响），单轮生成、禁用工具、不写 history；input token 远小于完整 history |
 | 动作签名循环检测 | `ActionLoopDetector`（`tool_dispatch.rs`）：按步骤动作签名去重，连续 3 轮（CONSECUTIVE_ACTION_THRESHOLD）相同工具动作注入纠正消息 |
 | ThreadMeta 恢复字段 | `latest_recap`（Option<String>）与 `last_task_summary`（Option<TaskSummary>）落库；`TaskSummary { verb, elapsed_ms, done_at }`，使 `-c`/`-r` 恢复会话时 recap 与任务完成总结行不丢失 |
 
@@ -202,7 +202,7 @@ launch_agent 工具调用
 **摘要:** 提取 UserInteractionBroker trait 统一 HITL 和 AskUser 交互机制
 **关键决策:**
 
-- 新建 peri-agent/src/interaction/mod.rs：UserInteractionBroker trait + InteractionContext（Approval/Questions）
+- 新建 cc-agent/src/interaction/mod.rs：UserInteractionBroker trait + InteractionContext（Approval/Questions）
 - HITL 和 AskUser 中间件均通过 broker.request() 等待响应，单 channel 替代两套
 - TUI TuiInteractionBroker 实现；relay 协议从 4 条消息合并为 2 条（InteractionRequest/InteractionResponse）
 - 两阶段迁移：先新增 broker，再删旧实现（此 feature 归档时尚未完全完成）
@@ -329,10 +329,10 @@ launch_agent 工具调用
 **摘要:** 新增 /recap 会话回顾、工具动作签名循环检测与 ThreadMeta 恢复字段
 **关键决策:**
 
-- `/recap`：`peri-agent/src/agent/recap/mod.rs` 提供 `generate_recap`，使用独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history
+- `/recap`：`cc-agent/src/agent/recap/mod.rs` 提供 `generate_recap`，使用独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history
 - 动作签名循环检测：`ActionLoopDetector` 按 `compute_step_action_signature` 去重，连续 3 轮相同工具动作注入纠正消息，防无效重复
 - ThreadMeta 新增 `latest_recap` 与 `last_task_summary`（`TaskSummary { verb, elapsed_ms, done_at }`）字段落库，`-c`/`-r` 恢复会话时 recap 与任务完成总结行不丢失
-- 涉及文件：`peri-agent/src/agent/recap/mod.rs`、`peri-agent/src/agent/executor/tool_dispatch.rs`、`peri-agent/src/thread/{types,sqlite_store}.rs`
+- 涉及文件：`cc-agent/src/agent/recap/mod.rs`、`cc-agent/src/agent/executor/tool_dispatch.rs`、`cc-agent/src/thread/{types,sqlite_store}.rs`
 
 **归档日期:** 2026-09-28
 
@@ -348,7 +348,7 @@ launch_agent 工具调用
 **问题本质:** 工具前文本通过 AiReasoning 事件发射而非 TextChunk，TUI pipeline 将 AiReasoning 映射为 "Thought for N chars" 推理提示，不显示实际文本
 **通用模式:** 核心框架的事件类型决定了 TUI pipeline 的处理路径。新增事件或修改事件语义时，必须同步检查 TUI 侧的事件映射层（agent.rs 的事件映射表）
 **技术决策:** 工具前文本改用 TextChunk 发射，与最终回答走同一路径
-**涉及文件:** peri-agent/src/agent/executor/tool_dispatch.rs, peri-agent/src/agent/executor/final_answer.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/message_pipeline.rs
+**涉及文件:** cc-agent/src/agent/executor/tool_dispatch.rs, cc-agent/src/agent/executor/final_answer.rs, cc-tui/src/app/agent.rs, cc-tui/src/app/message_pipeline.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-background-agent-display-and-continuation-bugs
@@ -359,7 +359,7 @@ launch_agent 工具调用
 **问题本质:** 三个独立根因：(1) fork 检测优先于 background 导致走错路径且 background_task_count 泄漏；(2) frozen_subagent_vms 跨轮次膨胀导致错位替换；(3) pending_bg_continuation.take() 在 loading=true 时丢失
 **通用模式:** 多语义叠加（fork+background）时需要明确的优先级和独立处理路径。跨轮次累积的数据结构（frozen_vms）必须有清理/去重机制。异步 take() + 条件检查应先检查条件再 take()，避免消费后丢弃
 **架构影响:** frozen_subagent_vms 的 drain_subagent_stack() 方法规范了异常残留清理；pending_bg_continuation 的修复模式（先检查条件再 take）可作为异步状态消费的通用范式
-**涉及文件:** peri-middlewares/src/subagent/tool.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/message_pipeline.rs
+**涉及文件:** cc-middlewares/src/subagent/tool.rs, cc-tui/src/app/agent_ops.rs, cc-tui/src/app/message_pipeline.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-11-background-agent-missing-tools
@@ -369,7 +369,7 @@ launch_agent 工具调用
 **关键词:** SubAgent, 工具继承, register_tool, Arc 共享
 **问题本质:** Background agent 的工具完全依赖 parent_tools 通过 register_tool 传递，tokio::spawn 闭包的 Arc 引用在 move 后可能失效
 **通用模式:** Background agent 的 middleware 配置与 Normal 路径一致但工具来源不同（register_tool vs middleware 内部构建）。跨 async 边界的工具传递需要确保 Arc 引用的生命周期
-**涉及文件:** peri-tui/src/app/agent.rs, peri-middlewares/src/subagent/tool.rs, peri-agent/src/agent/executor/mod.rs
+**涉及文件:** cc-tui/src/app/agent.rs, cc-middlewares/src/subagent/tool.rs, cc-agent/src/agent/executor/mod.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-glm-reasoning-field-not-parsed
@@ -380,7 +380,7 @@ launch_agent 工具调用
 **问题本质:** GLM 系列模型使用 `reasoning` 顶层字段而非 `reasoning_content`，代码只检查了后者。附带发现 invariant check 对并行 tool_calls 的合法消息序列产生误报
 **通用模式:** OpenAI 兼容 API 的字段名存在 provider 差异。解析时应同时检查多个可能的字段名（or_else 链式），序列化时应同时回传多个字段以保持兼容。invariant check 应基于消息块而非逐条检查
 **技术决策:** 解析侧 reasoning_content.or(reasoning) 双字段尝试；序列化侧同时设置两个字段；invariant check 改为连续块检查
-**涉及文件:** peri-agent/src/llm/openai.rs, peri-agent/src/messages/adapters/openai.rs
+**涉及文件:** cc-agent/src/llm/openai.rs, cc-agent/src/messages/adapters/openai.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-14-deepseek-anthropic-thinking-block-dropped
@@ -392,7 +392,7 @@ launch_agent 工具调用
 **通用模式:** 手动构造的 assistant 消息必须考虑 provider 的 thinking 回传约束。在序列化层自动检测并注入 redacted_thinking 比在每个构造点修补更健壮——集中处理比分散修补更可靠。
 **架构影响:** 使用 Anthropic 的 redacted_thinking 类型（opaque data 字段）作为"无 thinking 原文但有占位"的通用解决方案
 **技术决策:** messages_to_anthropic() 中检测不含 thinking/redacted_thinking 的 assistant 消息自动注入 redacted_thinking
-**涉及文件:** peri-middlewares/src/subagent/skill_preload.rs, peri-agent/src/llm/anthropic.rs
+**涉及文件:** cc-middlewares/src/subagent/skill_preload.rs, cc-agent/src/llm/anthropic.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-14-orphaned-tool-use-without-tool-result
@@ -404,7 +404,7 @@ launch_agent 工具调用
 **通用模式:** 多工具并发的结果处理必须"尽最大努力收集所有结果，延迟错误传播"（collect-all-before-error 模式）。在循环中收集 deferred_error，循环结束后统一判断是否报错。所有 tool_result 必须始终写入（包括 error tool_result）。
 **架构影响:** deferred_error 模式——将所有错误收集到 Option<AgentError>，循环结束后统一返回。这适用于所有需要"处理所有元素后再决定成败"的并发场景
 **技术决策:** run_on_error/run_after_tool 失败改为 let _ = 吞掉并收集到 deferred_error；state.add_message(tool_msg) 始终执行
-**涉及文件:** peri-agent/src/agent/executor/tool_dispatch.rs
+**涉及文件:** cc-agent/src/agent/executor/tool_dispatch.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-14-grep-tool-capability-gap
@@ -415,7 +415,7 @@ launch_agent 工具调用
 **问题本质:** 工具暴露给 LLM 的 JSON schema 参数（multiline/-n/whole_word）声称可用但实际未实现，导致 LLM 写出正确的跨行正则却得到错误结果。本质是接口契约不匹配——声明与实现不同步。
 **通用模式:** 所有暴露给 LLM 的工具参数必须经过实现验证。工具 schema 是对 LLM 的接口契约，任何声称支持的参数必须有对应的代码路径。新增参数时必须同步实现。
 **技术决策:** output_mode 从必填改为默认 "content"，减少 LLM 调用负担
-**涉及文件:** peri-middlewares/src/tools/filesystem/grep.rs
+**涉及文件:** cc-middlewares/src/tools/filesystem/grep.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-12-thinking-reasoning-dataflow-issues
@@ -427,7 +427,7 @@ launch_agent 工具调用
 **通用模式:** LLM适配器中多模型兼容字段需按provider条件注入，不可凭空伪造；预留接口若长期未使用应清理或显式标记
 **架构影响:** 非流式API下reasoning通过source_message保留而非流式事件，流式路径的预留在当前架构下不必要
 **技术决策:** 删除占位thinking注入逻辑；保留AiReasoning事件定义但明确标记为预留
-**涉及文件:** peri-agent/src/llm/anthropic.rs, peri-agent/src/llm/openai.rs, peri-agent/src/agent/executor/tool_dispatch.rs, peri-agent/src/agent/executor/final_answer.rs, peri-agent/src/agent/events.rs, peri-tui/src/app/message_pipeline.rs, peri-tui/src/ui/message_view.rs
+**涉及文件:** cc-agent/src/llm/anthropic.rs, cc-agent/src/llm/openai.rs, cc-agent/src/agent/executor/tool_dispatch.rs, cc-agent/src/agent/executor/final_answer.rs, cc-agent/src/agent/events.rs, cc-tui/src/app/message_pipeline.rs, cc-tui/src/ui/message_view.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-14-deepseek-multi-turn-tool-result-duplication
@@ -439,7 +439,7 @@ launch_agent 工具调用
 **通用模式:** 任何插入操作后必须补偿依赖索引的偏移量；基于计数的索引不应在插入/删除操作后继续使用
 **架构影响:** StateSnapshot的增量扩展机制对prepend敏感，长期应考虑基于消息ID的标记替代数组索引
 **技术决策:** 在prepend_message后补偿last_message_count += 1
-**涉及文件:** peri-agent/src/agent/executor/mod.rs, peri-agent/src/agent/state.rs, peri-tui/src/app/agent_ops.rs
+**涉及文件:** cc-agent/src/agent/executor/mod.rs, cc-agent/src/agent/state.rs, cc-tui/src/app/agent_ops.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-15-glm-anthropic-tool-result-id-attribute-error
@@ -451,7 +451,7 @@ launch_agent 工具调用
 **通用模式:** 第三方provider的Anthropic兼容端口可能存在属性缺失或额外要求，需客户端兼容策略
 **架构影响:** Anthropic适配器需为不同provider准备兼容字段，不能假设所有provider严格遵循规范
 **技术决策:** 为tool_result添加可选id字段，BaseMessage::Tool路径用MessageId，ContentBlock路径用UUID v7
-**涉及文件:** peri-agent/src/messages/content.rs, peri-agent/src/llm/anthropic/invoke.rs, peri-agent/src/messages/adapters/anthropic.rs
+**涉及文件:** cc-agent/src/messages/content.rs, cc-agent/src/llm/anthropic/invoke.rs, cc-agent/src/messages/adapters/anthropic.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-15-orphaned-tool-use-after-concurrent-tool-error
@@ -463,7 +463,7 @@ launch_agent 工具调用
 **通用模式:** 不能仅信任API元数据字段，必须同时检查实际内容；defense-in-depth通过内容自检兜底
 **架构影响:** 延迟写入重构消除了tool_dispatch中的flush路径脆弱性（4次因此bug修复）
 **技术决策:** generate_reasoning中增加has_tool_calls()内容检查作为stop_reason的兜底
-**涉及文件:** peri-agent/src/llm/anthropic/invoke.rs, peri-agent/src/llm/react_adapter.rs, peri-agent/src/agent/executor/tool_dispatch.rs
+**涉及文件:** cc-agent/src/llm/anthropic/invoke.rs, cc-agent/src/llm/react_adapter.rs, cc-agent/src/agent/executor/tool_dispatch.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-15-tool-execution-error-stops-agent
@@ -475,7 +475,7 @@ launch_agent 工具调用
 **通用模式:** 工具执行层面的错误（参数缺失、执行失败）是正常流程的一部分，应创建error ToolResult让LLM自行修正；只有基础设施错误才应终止
 **架构影响:** deferred_error机制需要细化分类，区分tool-level error（不终止）和middleware error（可能终止）
 **技术决策:** ToolNotFound和ToolExecutionFailed不再设deferred_error；after_tool中间件错误仍设deferred_error（残留问题）
-**涉及文件:** peri-agent/src/agent/executor/tool_dispatch.rs
+**涉及文件:** cc-agent/src/agent/executor/tool_dispatch.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-15-write-tool-missing-filepath-max-tokens
@@ -486,7 +486,7 @@ launch_agent 工具调用
 **问题本质:** max_tokens不足导致流式JSON参数截断，关键字段file_path可能因为字段顺序靠后而缺失
 **通用模式:** 流式JSON生成中max_tokens截断导致字段缺失是不可恢复的错误；工具定义中关键字段需优先输出
 **架构影响:** 工具Schema中字段顺序影响截断时的完整性；超长内容应考虑分块策略
-**涉及文件:** peri-middlewares/src/tools/filesystem/write.rs, peri-agent/src/llm/anthropic/invoke.rs, peri-agent/src/llm/openai/invoke.rs
+**涉及文件:** cc-middlewares/src/tools/filesystem/write.rs, cc-agent/src/llm/anthropic/invoke.rs, cc-agent/src/llm/openai/invoke.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background
@@ -499,7 +499,7 @@ launch_agent 工具调用
 **通用模式:** 事件路由必须使用唯一标识（agent_id）而非位置索引；流式循环必须通过 `tokio::select!` 竞争取消令牌和 stream.next()；事件通道容量应基于 SubAgent 速率而非主 Agent；同名实体匹配需加状态条件（如 `is_running`）
 **架构影响:** `source_agent_id` 字段为所有事件类型添加了精确路由能力，从此 SubAgent 路由不再依赖位置堆栈；`deferred_error` 模式在 tool_dispatch 中成熟
 **技术决策:** Agent 工具改为顺序执行消除并发争用（非 Agent 工具保持并发）；通道容量 256→4096；`SourceAgentIdHandler` 包装器注入子 Agent 事件标记
-**涉及文件:** peri-agent/src/agent/events.rs, peri-agent/src/agent/executor/tool_dispatch.rs, peri-agent/src/agent/executor/llm_step.rs, peri-agent/src/llm/types.rs, peri-agent/src/llm/anthropic/stream.rs, peri-agent/src/llm/openai/stream.rs, peri-middlewares/src/subagent/tool.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_submit.rs, peri-tui/src/app/message_pipeline.rs
+**涉及文件:** cc-agent/src/agent/events.rs, cc-agent/src/agent/executor/tool_dispatch.rs, cc-agent/src/agent/executor/llm_step.rs, cc-agent/src/llm/types.rs, cc-agent/src/llm/anthropic/stream.rs, cc-agent/src/llm/openai/stream.rs, cc-middlewares/src/subagent/tool.rs, cc-tui/src/app/agent.rs, cc-tui/src/app/agent_ops.rs, cc-tui/src/app/agent_submit.rs, cc-tui/src/app/message_pipeline.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-14-llm-adapter-modularization
@@ -511,7 +511,7 @@ launch_agent 工具调用
 **问题本质:** anthropic.rs（1983 行）和 openai.rs（1065 行）承载完整适配器实现：构造器、序列化、缓存策略、API invoke、流式处理、消息转换——职责过重，修改任一环节需阅读整个文件
 **通用模式:** 按职责维度拆分大文件（构造器 + 缓存 + invoke + 流式），保留原文件路径 re-export 向后兼容
 **技术决策:** 统一子模块结构：anthropic/{mod, cache, invoke, stream}、openai/{mod, invoke, stream}，上游直接 import 新路径
-**涉及文件:** peri-agent/src/llm/anthropic.rs, peri-agent/src/llm/openai.rs, peri-agent/src/llm/mod.rs
+**涉及文件:** cc-agent/src/llm/anthropic.rs, cc-agent/src/llm/openai.rs, cc-agent/src/llm/mod.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-13-background-task-completion-race-condition
@@ -523,7 +523,7 @@ launch_agent 工具调用
 **问题本质:** BackgroundTaskCompleted 和 Done 通过同一 channel 传递，存在竞态：如果后台任务在 Done 之前完成，BackgroundTaskCompleted 先被消费，此时 agent_done_pending_bg 尚未设置，导致 continuation 永不触发
 **通用模式:** 依赖时序耦合的双事件模式（先 A 后 B）必须处理乱序到达。解决方案：在"先到"事件中暂存结果，在"后到"事件中检查暂存区——用空间（pre_done_bg_completions 缓冲）换时间鲁棒性
 **技术决策:** 新增 pre_done_bg_completions 字段缓存 Done 前完成的后台任务通知；Done/Error 处理时检查暂存区并设置 pending_bg_continuation
-**涉及文件:** peri-tui/src/app/agent_comm.rs, peri-tui/src/app/agent_events_bg.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_submit.rs, peri-tui/src/app/agent_compact.rs, peri-tui/src/ui/headless_test.rs
+**涉及文件:** cc-tui/src/app/agent_comm.rs, cc-tui/src/app/agent_events_bg.rs, cc-tui/src/app/agent_ops.rs, cc-tui/src/app/agent_submit.rs, cc-tui/src/app/agent_compact.rs, cc-tui/src/ui/headless_test.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-18-agent-tool-calls-execute-serially
@@ -535,7 +535,7 @@ launch_agent 工具调用
 **问题本质:** 为防止并发 SubAgent 死锁而硬编码了 Agent 工具的串行执行循环。但在三个死锁根因（LLM 流式取消 tokio::select!、4096 事件通道缓冲、source_agent_id 精确路由）被独立修复后，串行限制不再必要。
 **通用模式:** 临时安全措施（串行化/锁）应有明确的前置条件检查和回退计划。当安全措施引入性能退化时，应追踪其依赖的前置条件修复进度，条件满足后立即移除。
 **架构影响:** child_handler_factory 模式使每个 SubAgent 获得独立 event handler，消除共享 Mutex 竞争，是实现多 SubAgent 真正并发的关键抽象。tool_dispatch 的统一 join_all 路径避免了对特定工具类型的特殊处理。
-**涉及文件:** peri-agent/src/agent/executor/tool_dispatch.rs, peri-middlewares/src/subagent/tool/define.rs, peri-tui/src/app/agent.rs
+**涉及文件:** cc-agent/src/agent/executor/tool_dispatch.rs, cc-middlewares/src/subagent/tool/define.rs, cc-tui/src/app/agent.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-19-concurrent-subagent-duplicate-id
@@ -547,7 +547,7 @@ launch_agent 工具调用
 **问题本质:** 四级链路中每一层都用 subagent_type（类型名）替代唯一实例 ID——LLM 生成的唯一 tool_call_id 被映射层 `..` 丢弃，SourceAgentIdHandler 用 subagent_type 做 source_agent_id，Pipeline 用 subagent_type 做 routing key 和 pending_tools key。并发两个相同类型的 SubAgent 得到完全相同的标识，所有事件路由到第一个实例。
 **通用模式:** 任何由 LLM 生成的唯一标识（如 tool_call_id）必须在整条事件链路中保持，不能被中间层丢弃或替换为类型名。并发场景下，类型名不能替代实例 ID。事件路由必须用唯一实例 ID 精确匹配，不能用 `find()` 按类型返回第一个匹配项。
 **架构影响:** 四级链路的身份传播失败暴露了事件系统的设计缺陷——每一层都在重新生成或替换标识符，而非透传。修复需将 tool_call_id 贯穿 4 层（define → agent.rs 映射 → events.rs 字段 → Pipeline routing），agent_id 降级为仅用于显示。
-**涉及文件:** peri-middlewares/src/subagent/tool/define.rs, peri-middlewares/src/subagent/tool/mod.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/events.rs, peri-tui/src/app/message_pipeline/mod.rs
+**涉及文件:** cc-middlewares/src/subagent/tool/define.rs, cc-middlewares/src/subagent/tool/mod.rs, cc-tui/src/app/agent.rs, cc-tui/src/app/events.rs, cc-tui/src/app/message_pipeline/mod.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation
@@ -559,7 +559,7 @@ launch_agent 工具调用
 **通用模式:** 高频创建/销毁的重对象（LLM 实例含 reqwest Client + TLS）必须 session 级缓存；用 provider fingerprint 做惰性 invalidation 替代显式 invalidate
 **架构影响:** 引入 AgentPool session 级缓存模式，跨 prompt 复用 LLM 实例；为 stateful middleware 添加 reset() 方法支持跨 turn 复用准备
 **技术决策:** 惰性 invalidation（fingerprint 检测）优于显式 invalidate（需遍历所有修改路径）
-**涉及文件:** peri-acp/src/session/agent_pool.rs, peri-acp/src/session/executor.rs:278, peri-acp/src/agent/builder.rs:94-417, peri-agent/src/agent/executor/mod.rs
+**涉及文件:** cc-acp/src/session/agent_pool.rs, cc-acp/src/session/executor.rs:278, cc-acp/src/agent/builder.rs:94-417, cc-agent/src/agent/executor/mod.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-23-background-agent-card-disappears-no-result
@@ -569,7 +569,7 @@ launch_agent 工具调用
 **关键词:** Background Agent, SubagentStarted, bg_event_sender, 独立通道
 **问题本质:** 三层叠加——SubagentStarted 缺 is_background 字段、事件通道随 executor 生命周期销毁、双路径交付导致 revert 后功能退化
 **通用模式:** Background task 的生命周期必须独立于发起它的 executor；事件通道需要独立于 executor 存活（unbounded channel）；单路径交付消除重复根因
-**涉及文件:** peri-agent/src/agent/events.rs, peri-middlewares/src/subagent/tool/define.rs, peri-acp/src/agent/builder.rs, peri-acp/src/session/executor.rs, peri-tui/src/app/agent.rs
+**涉及文件:** cc-agent/src/agent/events.rs, cc-middlewares/src/subagent/tool/define.rs, cc-acp/src/agent/builder.rs, cc-acp/src/session/executor.rs, cc-tui/src/app/agent.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-25-interrupt-undo-last-user-message
@@ -592,7 +592,7 @@ launch_agent 工具调用
 **关键词:** 并发 background agent, TOCTOU, 事件丢失, 竞态
 **问题本质:** `register()` 的计数检查与 `insert` 分两步执行（TOCTOU 窗口），两个并发 bg agent 可能同时通过检查；`SubagentStarted` 事件在注册前发送，注册失败留下幽灵计数
 **通用模式:** (1) 计数器和 map 插入在**同一持锁临界区**内完成 (2) 事件通知必须在状态变更**成功后**发送，注册失败不发事件 (3) 同名 agent 匹配需两遍查找——优先精确匹配（`final_result.is_none()`），兜底回退
-**涉及文件:** peri-middlewares/src/subagent/tool/define.rs, background.rs, agent_events_bg.rs
+**涉及文件:** cc-middlewares/src/subagent/tool/define.rs, background.rs, agent_events_bg.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-26-sync-subagent-cancel-fix-attempts-log
@@ -603,7 +603,7 @@ launch_agent 工具调用
 **问题本质:** `in_subagent()` 守卫设计意图是忽略子 agent 自身的中断，但错误地捕获了父 agent 在 sync SubAgent 执行期间的 Ctrl+C 中断——信号链路全部正确，问题在末端事件处理层静默丢弃
 **通用模式:** "UI 卡住"不等于"信号没到"。症状和根因可能在不同层级。二分法追踪比深度假设更高效——从信号链中点开始追踪，而非起点或终点。一次到位的完整诊断 > 多轮逐步追踪。
 **架构影响:** in_subagent() 守卫的语义需要区分"子 agent 被取消"和"父 agent 在等待子 agent 时被取消"两种场景。新增事件守卫时必须考虑所有触发路径。
-**涉及文件:** peri-tui/src/app/agent_ops/lifecycle.rs, peri-agent/src/agent/tool_dispatch.rs, peri-tui/src/app/agent.rs
+**涉及文件:** cc-tui/src/app/agent_ops/lifecycle.rs, cc-agent/src/agent/tool_dispatch.rs, cc-tui/src/app/agent.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-25-fake-read-tool-message-anthropic-400
@@ -614,7 +614,7 @@ launch_agent 工具调用
 **问题本质:** middleware 注入 Ai[ToolUse] → Tool[ToolResult] 消息序列时，Anthropic 适配器将 Tool 消息转为 user role 的 tool_result block，如果成为 messages[0] 则违反 Anthropic API 约束
 **通用模式:** Anthropic 和 OpenAI 的 Tool 消息格式差异导致消息注入类 middleware 在两个 API 上的行为不同。所有在消息历史中注入 fake tool 交互的 middleware 必须确保消息不会成为 API messages 数组的第一条。
 **架构影响:** fake Read 消息注入是跨 middleware 的通用模式（AtMention、SkillPreload），Anthropic 适配器需对此做防御性处理。
-**涉及文件:** peri-middlewares/src/at_mention/mod.rs, peri-middlewares/src/subagent/skill_preload.rs, peri-agent/src/llm/anthropic/invoke.rs
+**涉及文件:** cc-middlewares/src/at_mention/mod.rs, cc-middlewares/src/subagent/skill_preload.rs, cc-agent/src/llm/anthropic/invoke.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-25-skill-preload-no-tool-calls-in-history
@@ -624,7 +624,7 @@ launch_agent 工具调用
 **关键词:** SkillPreloadMiddleware, fake Read, preload_skills, middleware self-detection
 **问题本质:** executor 构建主 Agent 时 preload_skills 硬编码 Vec::new()，导致 before_agent early return；SubAgent 路径通过 frontmatter skills 字段正确传递
 **通用模式:** 主 Agent 与 SubAgent 的 middleware 初始化路径可能不同步。主 Agent 特有功能应优先使用 middleware 自检测模式（从消息内容推断），而非依赖外部传参。
-**涉及文件:** peri-acp/src/session/executor.rs, peri-acp/src/agent/builder.rs, peri-middlewares/src/subagent/skill_preload.rs, peri-tui/src/app/agent_submit.rs
+**涉及文件:** cc-acp/src/session/executor.rs, cc-acp/src/agent/builder.rs, cc-middlewares/src/subagent/skill_preload.rs, cc-tui/src/app/agent_submit.rs
 **CLAUDE.md 链接:** false
 
 ---
@@ -636,7 +636,7 @@ launch_agent 工具调用
 **关键词:** prepended_ids, add_message vs prepend_message, Anthropic 400, tool_result orphan
 **问题本质:** `prepended_ids` 用 `len_after - len_before` 计算 prepend 数量，把 `add_message`（尾部追加）也计入，导致 cleanup 误删头部原始配对消息，产生孤儿 tool_result
 **通用模式:** 中间件消息注入有两种语义：`prepend_message`（头部插入 System，需 cleanup）和 `add_message`（尾部追加 Ai/Tool，是正式历史）。cleanup 逻辑必须只追踪 prepend 路径，用 `take_while(|m| m.is_system())` 而非计数差
-**涉及文件:** peri-agent/src/agent/executor/mod.rs, peri-middlewares/src/subagent/skill_preload.rs
+**涉及文件:** cc-agent/src/agent/executor/mod.rs, cc-middlewares/src/subagent/skill_preload.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-26-ctrl-c-interrupt-causes-agent-amnesia
@@ -646,7 +646,7 @@ launch_agent 工具调用
 **关键词:** Ctrl+C interrupt, agent amnesia, history truncation, cancelled state
 **问题本质:** ACP server 在 result.ok==false 时无条件 truncate history，丢弃了 agent 已写入 state 的当前轮次消息。TUI 显示正常但 agent 无上下文
 **通用模式:** 取消操作应保留部分进展——检查 agent 在取消前是否有有效产出，有则保留而非全部回滚。deferred write 模式保证 cancel 后 state 合法性
-**涉及文件:** peri-tui/src/acp_server/prompt.rs
+**涉及文件:** cc-tui/src/acp_server/prompt.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-25-ctrl-c-cannot-interrupt-sync-subagent
@@ -656,7 +656,7 @@ launch_agent 工具调用
 **关键词:** Ctrl+C interrupt, sync SubAgent, cancel propagation, cancel token
 **问题本质:** 父 Agent 的 cancel token 未传播到同步 SubAgent 的执行上下文，SubAgent 独立运行直到完成
 **通用模式:** 所有 agent 执行路径（同步/异步/fork）必须共享同一个 cancel token 树，取消信号必须沿调用链传播
-**涉及文件:** peri-middlewares/src/subagent/tool/define.rs
+**涉及文件:** cc-middlewares/src/subagent/tool/define.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-27-language-injection-subagent-drift-cache-isolation
@@ -667,7 +667,7 @@ launch_agent 工具调用
 **问题本质:** (1) SubAgent 从 peri_config.config.language 实时读取语言（非 frozen），/lang 切换后 SubAgent 语言变化而 Main Agent 不变；(2) Anthropic path 的 `i == last_idx` fallback 给动态 block 错误添加 cache_control；(3) session/load/resume/fork 丢失 frozen_language
 **通用模式:** session/new 时冻结的所有数据必须通过 AcpAgentConfig 传递到 SubAgent 构建路径；缓存标记必须严格限定在静态前缀 block，不能有 fallback 到动态 block
 **架构影响:** frozen data 传播链需显式设计：Main Agent builder → AcpAgentConfig → SubAgent builder，每新增一个 frozen 字段必须检查全链路
-**涉及文件:** peri-agent/src/llm/anthropic/invoke.rs, peri-acp/src/agent/builder.rs, peri-acp/src/session/executor.rs, peri-tui/src/acp_server/requests.rs
+**涉及文件:** cc-agent/src/llm/anthropic/invoke.rs, cc-acp/src/agent/builder.rs, cc-acp/src/session/executor.rs, cc-tui/src/acp_server/requests.rs
 **CLAUDE.md 链接:** true
 
 ---
@@ -680,7 +680,7 @@ launch_agent 工具调用
 **问题本质:** SseParser 将 pending_line 存为 String，新 chunk 通过 from_utf8_lossy 不可逆替换不完整 UTF-8 序列为 U+FFFD，后续 chunk 到达无法恢复
 **通用模式:** 流式协议中跨 chunk 的字节拼接必须在原始字节层完成，仅在行边界处做 UTF-8 解码。from_utf8_lossy 不可逆，不能用于中间状态
 **技术决策:** pending_line: String → pending_bytes: Vec&lt;u8&gt;，字节级拼接 + 行边界整体验码
-**涉及文件:** peri-agent/src/llm/sse.rs, peri-agent/src/llm/sse_test.rs
+**涉及文件:** cc-agent/src/llm/sse.rs, cc-agent/src/llm/sse_test.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-29-immediate-command-missing-push-done
@@ -691,7 +691,7 @@ launch_agent 工具调用
 **问题本质:** ACP 命令系统重构后，Immediate 命令路径直接 return PromptResult 绕过了 event pump 的 push_done() 调用。缺少 AgentDone 事件 → TUI 永久 loading。同时 /clear 不发 StateSnapshot 导致旧视图残留。并发 prompt 竞争也需要 per-session Mutex 串行化。
 **通用模式:** 任何绕过主循环的快捷路径必须手动补全主循环的清理步骤（push_done、StateSnapshot、loading 状态清理）。并发请求到同一 session 必须串行化。
 **架构影响:** executor 中的 Immediate 命令路径、Compact 命令路径、Normal agent 路径需要统一生命周期管理
-**涉及文件:** peri-acp/src/session/executor.rs, peri-acp/src/session/command/clear.rs, peri-acp/src/session/command/compact.rs, peri-tui/src/app/agent_ops/lifecycle.rs
+**涉及文件:** cc-acp/src/session/executor.rs, cc-acp/src/session/command/clear.rs, cc-acp/src/session/command/compact.rs, cc-tui/src/app/agent_ops/lifecycle.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-29-available-commands-update-format-mismatch
@@ -701,7 +701,7 @@ launch_agent 工具调用
 **关键词:** JSON 格式不一致, SessionNotification, notify.rs vs event_sink.rs, agent_commands HashSet
 **问题本质:** 两条 session/update 发送路径（TransportEventSink vs notify.rs）使用不同的 JSON 结构。TUI bridge 统一用 params.get("update") 解析，后者被 warn 丢弃。
 **通用模式:** 多个发送方必须统一输出格式，否则接收方无法正确解析。引入新发送方时必须对照已有路径的序列化格式
-**涉及文件:** peri-tui/src/acp_server/notify.rs, peri-tui/src/app/agent_ops/acp_bridge.rs, peri-acp/src/session/event_sink.rs
+**涉及文件:** cc-tui/src/acp_server/notify.rs, cc-tui/src/app/agent_ops/acp_bridge.rs, cc-acp/src/session/event_sink.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-29-acp-session-update-field-name-mismatch
@@ -711,7 +711,7 @@ launch_agent 工具调用
 **关键词:** serde tag 字段名, sessionUpdate vs type, 事件静默丢失, 流式失效
 **问题本质:** SessionUpdate 枚举的 serde tag 配置为 #[serde(tag = "sessionUpdate")]，序列化后 JSON 结构为 {"sessionUpdate": "agent_thought_chunk"}，但 TUI bridge 使用 update.get("type") 解析——字段名不匹配导致所有流式事件被静默丢弃
 **通用模式:** 枚举序列化的 tag 字段名必须与消费方的解析字段名一致。重构序列化格式时必须同步检查所有消费方
-**涉及文件:** peri-tui/src/app/agent_ops/acp_bridge.rs, peri-acp/src/event/mapper.rs, peri-acp/src/session/event_sink.rs
+**涉及文件:** cc-tui/src/app/agent_ops/acp_bridge.rs, cc-acp/src/event/mapper.rs, cc-acp/src/session/event_sink.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-29-clear-keeps-acp-server-history
@@ -721,7 +721,7 @@ launch_agent 工具调用
 **关键词:** /clear session 泄漏, reset_session, new_thread, ACP session 状态不一致
 **问题本质:** new_thread() 清空 TUI 本地状态但未清除 acp_client.current_session_id，下次 submit 复用旧 session，Agent 看到旧 history
 **通用模式:** TUI 层清空本地状态不等于 ACP Server 端状态同步——必须同时通过 ACP 协议通知 Server 侧
-**涉及文件:** peri-tui/src/acp_client/client.rs, peri-tui/src/app/thread_ops.rs, peri-tui/src/acp_server/mod.rs
+**涉及文件:** cc-tui/src/acp_client/client.rs, cc-tui/src/app/thread_ops.rs, cc-tui/src/acp_server/mod.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-29-unify-token-usage-prompt-complete
@@ -732,7 +732,7 @@ launch_agent 工具调用
 **问题本质:** Token usage 通过两条路径传递（peri/agent_event 完整 + session/update 有损），TUI 和 IDE 各消费不同路径导致数据不一致
 **通用模式:** 同一数据不应通过多条路径传递，应统一为单来源。多路径传递导致数据分叉和维护负担
 **技术决策:** 引入 prompt_complete SessionUpdate 变体统一携带 stopReason + 完整 usage，废弃双路径模式
-**涉及文件:** peri-acp/src/event/mapper.rs, peri-acp/src/session/event_sink.rs, peri-agent/src/agent/events.rs, peri-tui/src/app/agent.rs
+**涉及文件:** cc-acp/src/event/mapper.rs, cc-acp/src/session/event_sink.rs, cc-agent/src/agent/events.rs, cc-tui/src/app/agent.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-29-tool-end-name-lost-in-acp-bridge
@@ -742,7 +742,7 @@ launch_agent 工具调用
 **关键词:** ToolEnd 工具名, ToolCallUpdate title, ACP event mapping, 字段遗漏
 **问题本质:** ToolEnd 映射为 ToolCallUpdate 时缺少 .title(name) 调用，TUI bridge 硬编码 name: String::new()。双重遗漏导致工具名丢失
 **通用模式:** 事件映射（ExecutorEvent → SessionUpdate → AgentEvent）每个环节都必须完整传递所有业务字段。新增映射路径时必须对照源事件的所有字段
-**涉及文件:** peri-acp/src/event/mapper.rs, peri-tui/src/app/agent_ops/acp_bridge.rs, peri-acp/src/event/mapper_test.rs
+**涉及文件:** cc-acp/src/event/mapper.rs, cc-tui/src/app/agent_ops/acp_bridge.rs, cc-acp/src/event/mapper_test.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-29-ask-user-tool-auto-complete
@@ -754,7 +754,7 @@ launch_agent 工具调用
 **问题本质:** MultiplexBroker 中 ChannelBroker 对 Questions 交互立即返回空答案，与 TUI broker 竞速导致空答案被采纳
 **通用模式:** Broker/代理模式需为不同交互类型选择正确的后端；不支持特定交互类型的后端不应参与竞速
 **架构影响:** MultiplexBroker 的设计需要按交互类型路由，而非简单竞速
-**涉及文件:** peri-acp/src/agent/builder.rs, peri-acp/src/broker/transport_broker.rs, peri-tui/src/app/agent_ops_interaction.rs, peri-tui/src/app/ask_user_ops.rs
+**涉及文件:** cc-acp/src/agent/builder.rs, cc-acp/src/broker/transport_broker.rs, cc-tui/src/app/agent_ops_interaction.rs, cc-tui/src/app/ask_user_ops.rs
 **CLAUDE.md 链接:** true
 
 ### issue_2026-05-27-windows-deepseek-skill-inject-thinking-400
@@ -765,7 +765,7 @@ launch_agent 工具调用
 **关键词:** thinking, DeepSeek, SkillPreload, Anthropic 兼容, 400 错误, 假消息
 **问题本质:** SkillPreloadMiddleware 注入的假 Read 工具调用消息在 DeepSeek Anthropic 兼容模式下触发 thinking 回传校验失败
 **通用模式:** LLM 适配层需考虑不同 provider 的协议变体，假消息注入需符合目标 provider 的约束（如 thinking block 回传要求）
-**涉及文件:** peri-middlewares/src/subagent/skill_preload.rs
+**涉及文件:** cc-middlewares/src/subagent/skill_preload.rs
 **CLAUDE.md 链接:** false
 
 ---
@@ -778,7 +778,7 @@ launch_agent 工具调用
 **问题本质:** 工具参数校验失败时用 `Ok("Error: ...")` 返回而非 `Err()`，导致错误对监控系统（is_error、tool_errors 分析器）不可见；同时参数描述不够强调必填，LLM 频繁遗漏 subagent_type
 **通用模式:** 所有工具的参数校验错误必须用 `Err()` 返回，禁止 `Ok("Error: ...")` 反模式。`is_error` 标记和遥测系统依赖 `Err()` 路径。参数描述中对必填字段应显式标注 REQUIRED
 **架构影响:** define.rs + execute_bg.rs + execute_fork.rs 共 7 处 Ok("Error:") → Err()，统一了 SubAgent 工具链的错误返回方式
-**涉及文件:** peri-middlewares/src/subagent/tool/define.rs, peri-middlewares/src/subagent/tool/execute_bg.rs, peri-middlewares/src/subagent/tool/execute_fork.rs
+**涉及文件:** cc-middlewares/src/subagent/tool/define.rs, cc-middlewares/src/subagent/tool/execute_bg.rs, cc-middlewares/src/subagent/tool/execute_fork.rs
 
 ### issue_2026-06-14-hooks-permission-override-reason-dropped
 **摘要:** Hooks PermissionOverride 透传时 reason 字段被丢弃
@@ -788,7 +788,7 @@ launch_agent 工具调用
 **问题本质:** `hook_specific_to_action` 中 `PermissionOverride` 分支硬编码 `reason: None`，丢弃 hook 返回的拒绝理由
 **通用模式:** `hook_specific_to_action` 必须透传所有 hook 返回字段，禁止 hardcode 默认值
 **技术决策:** 用 `pattern { field_name, .. }` 绑定然后透传；Hook 测试 JSON 用 `serde_json::json!` 宏构造
-**涉及文件:** peri-middlewares/src/hooks/output_parser.rs, peri-middlewares/src/hooks/middleware_test.rs
+**涉及文件:** cc-middlewares/src/hooks/output_parser.rs, cc-middlewares/src/hooks/middleware_test.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-06-13-upstream-security-audit-ssrf-ipv6
@@ -799,7 +799,7 @@ launch_agent 工具调用
 **问题本质:** `ssrf_guard.rs` 中 `"::/0"` CIDR 匹配整个 IPv6 地址空间，导致所有公网 IPv6 请求被误拦截
 **通用模式:** 安全规则的 CIDR 匹配需精确，移除过于宽泛的范围
 **技术决策:** 移除 `"::/0"`，保留 `fc00::/7`（ULA）+ `fe80::/10`（link-local），`::` 由 `is_unspecified()` 单独处理
-**涉及文件:** peri-middlewares/src/hooks/ssrf_guard.rs, peri-middlewares/src/hooks/ssrf_guard_test.rs
+**涉及文件:** cc-middlewares/src/hooks/ssrf_guard.rs, cc-middlewares/src/hooks/ssrf_guard_test.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-06-13-deferred-tool-name-mismatch-cron-create
@@ -810,7 +810,7 @@ launch_agent 工具调用
 **问题本质:** 工具名在不同来源格式不一致（snake_case vs CamelCase），LLM 臆造名称时无法找到
 **通用模式:** ExecuteExtraTool 应支持三级模糊匹配：精确 → 大小写不敏感+规范化 → 首词前缀
 **技术决策:** `resolve_tool()` 函数实现三级回退匹配
-**涉及文件:** peri-middlewares/src/tool_search/execute_tool.rs, peri-middlewares/src/tool_search/tool_index.rs
+**涉及文件:** cc-middlewares/src/tool_search/execute_tool.rs, cc-middlewares/src/tool_search/tool_index.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-06-12-large-write-streaming-slow
@@ -821,7 +821,7 @@ launch_agent 工具调用
 **问题本质:** 超大 JSON（tool_use 的 `input` 对象包含完整 `content` 字段）流式生成导致 provider 侧性能劣化
 **通用模式:** Write 工具超时机制引导模型使用 `append=true` 分段写入
 **技术决策:** `tokio::time::timeout(Duration::from_secs(120), ...)` 包裹 invoke，超时返回错误提示
-**涉及文件:** peri-middlewares/src/tools/filesystem/write.rs
+**涉及文件:** cc-middlewares/src/tools/filesystem/write.rs
 **CLAUDE.md 链接:** false
 
 ---

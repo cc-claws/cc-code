@@ -2,7 +2,7 @@
 
 ## 目标
 
-将 ACP stdio 路径缺失的 8 个 session 生命周期方法补齐，并将可复用的业务逻辑提取到 `peri-acp/src/dispatch/` 层，使 TUI 和 stdio 双路径共享同一套 dispatch 函数。
+将 ACP stdio 路径缺失的 8 个 session 生命周期方法补齐，并将可复用的业务逻辑提取到 `cc-acp/src/dispatch/` 层，使 TUI 和 stdio 双路径共享同一套 dispatch 函数。
 
 ## 背景
 
@@ -127,18 +127,18 @@ TUI 路径的 `compact.rs` 使用 `TransportEventSink` 推送 `CompactStarted`/`
 
 | 文件 | 内容 |
 |------|------|
-| `peri-acp/src/dispatch/session_load.rs` | `load_session_messages()` |
-| `peri-acp/src/dispatch/session_fork.rs` | `fork_session()` |
-| `peri-acp/src/dispatch/commands.rs` | `build_available_commands()` |
+| `cc-acp/src/dispatch/session_load.rs` | `load_session_messages()` |
+| `cc-acp/src/dispatch/session_fork.rs` | `fork_session()` |
+| `cc-acp/src/dispatch/commands.rs` | `build_available_commands()` |
 
 ### 修改文件
 
 | 文件 | 变更 |
 |------|------|
-| `peri-acp/src/dispatch/mod.rs` | 注册 3 个新模块 |
-| `peri-tui/src/acp_stdio.rs` | 新增 8 个 handler + 使用 dispatch::build_available_commands |
-| `peri-tui/src/acp_server/requests.rs` | session/load、session/fork 改用 dispatch 函数 |
-| `peri-tui/src/acp_server/notify.rs` | 删除 `build_available_commands()`，改用 dispatch |
+| `cc-acp/src/dispatch/mod.rs` | 注册 3 个新模块 |
+| `cc-tui/src/acp_stdio.rs` | 新增 8 个 handler + 使用 dispatch::build_available_commands |
+| `cc-tui/src/acp_server/requests.rs` | session/load、session/fork 改用 dispatch 函数 |
+| `cc-tui/src/acp_server/notify.rs` | 删除 `build_available_commands()`，改用 dispatch |
 | `docs/ACP_COMPATIBLE.csv` | 更新 stdio 列状态（8 项 NA → ✅） |
 
 ## 风险

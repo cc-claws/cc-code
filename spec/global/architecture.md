@@ -4,29 +4,29 @@
 
 | 组件 | 类型 | 职责 |
 |------|------|------|
-| `peri-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
-| `peri-middlewares` | 中间件库 | 文件系统、终端（RTK 输出压缩代理）、HITL（含 SharedPermissionMode/Auto 分类器）、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、CronMiddleware、MCP（Client 连接池、OAuth 2.0、工具桥接）、rg 双引擎文件搜索 等具体实现 |
-| `peri-acp` | ACP 服务层 | Agent Client Protocol 实现：Session 管理、Agent 构建（Middleware Chain 组装）、事件映射（ExecutorEvent→SessionNotification）、HITL/AskUser 桥接（AcpTransportBroker）、Langfuse 追踪、Hooks、LSP、系统提示词、Provider/Model 解析、上下文压缩执行 |
-| `peri-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，通过 ACP 协议与 Agent 通信（AcpTuiClient），MessagePipeline 消费 SessionNotification，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板 |
-| `peri-widgets` | Widget 库 | 独立 UI 组件库，仅依赖 ratatui + pulldown-cmark |
+| `cc-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
+| `cc-middlewares` | 中间件库 | 文件系统、终端（RTK 输出压缩代理）、HITL（含 SharedPermissionMode/Auto 分类器）、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、CronMiddleware、MCP（Client 连接池、OAuth 2.0、工具桥接）、rg 双引擎文件搜索 等具体实现 |
+| `cc-acp` | ACP 服务层 | Agent Client Protocol 实现：Session 管理、Agent 构建（Middleware Chain 组装）、事件映射（ExecutorEvent→SessionNotification）、HITL/AskUser 桥接（AcpTransportBroker）、Langfuse 追踪、Hooks、LSP、系统提示词、Provider/Model 解析、上下文压缩执行 |
+| `cc-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，通过 ACP 协议与 Agent 通信（AcpTuiClient），MessagePipeline 消费 SessionNotification，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板 |
+| `cc-widgets` | Widget 库 | 独立 UI 组件库，仅依赖 ratatui + pulldown-cmark |
 
 ## Workspace 依赖关系
 
 ```
-peri-agent           ← 零内部依赖，纯核心框架
+cc-agent           ← 零内部依赖，纯核心框架
     ↑
-peri-middlewares      ← 依赖 peri-agent
+cc-middlewares      ← 依赖 cc-agent
     ↑
-peri-acp              ← 依赖 peri-agent + peri-middlewares + peri-lsp + langfuse-client
+cc-acp              ← 依赖 cc-agent + cc-middlewares + cc-lsp + langfuse-client
     ↑
-peri-widgets          ← 零内部依赖，仅依赖 ratatui + pulldown-cmark
+cc-widgets          ← 零内部依赖，仅依赖 ratatui + pulldown-cmark
     ↑
-peri-tui              ← 依赖 peri-widgets + peri-acp
+cc-tui              ← 依赖 cc-widgets + cc-acp
 ```
 
 ## 模块划分
 
-### peri-agent 内部模块
+### cc-agent 内部模块
 
 ```
 src/
@@ -73,7 +73,7 @@ src/
     └── otel.rs           — OpenTelemetry OTLP HTTP 导出，tracing-opentelemetry 桥接
 ```
 
-### peri-middlewares 内部模块
+### cc-middlewares 内部模块
 
 ```
 src/
@@ -116,7 +116,7 @@ src/
     └── mod.rs            — BoxToolWrapper / ArcToolWrapper 适配器
 ```
 
-### peri-acp 内部模块
+### cc-acp 内部模块
 
 ```
 src/
@@ -147,7 +147,7 @@ src/
 └── features.rs           — PromptFeatures + GitAttribution
 ```
 
-### peri-tui 内部模块（更新后）
+### cc-tui 内部模块（更新后）
 
 ```
 src/
@@ -196,7 +196,7 @@ src/
 │   ├── mod.rs            — CommandRegistry
 │   └── ...
 ├── event.rs              — crossterm 事件适配
-└── prompt.rs             — 系统提示词构建（已废弃，迁移到 peri-acp）
+└── prompt.rs             — 系统提示词构建（已废弃，迁移到 cc-acp）
 ```
 
 ## 事件系统
@@ -336,7 +336,7 @@ Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，�
 中间件按注册顺序执行，典型组装顺序：
 
 ```
-主 Agent（peri-tui 组装）：
+主 Agent（cc-tui 组装）：
 1. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
 2. AgentsMdMiddleware         ← 读 CLAUDE.md/AGENTS.md 注入 system
 3. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
@@ -377,7 +377,7 @@ Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，�
 
 ```
 用户终端
-  └─ cargo run -p peri-tui
+  └─ cargo run -p cc-tui
        ├─ 直接调用 Anthropic/OpenAI API（reqwest HTTP）
        ├─ 读写本地文件系统（FilesystemMiddleware）
        ├─ 执行 bash 命令（TerminalMiddleware）
@@ -388,7 +388,7 @@ Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，�
 **可观测性（可选）：**
 
 ```
-peri-agent（tracing spans）
+cc-agent（tracing spans）
   ├─ opentelemetry-otlp HTTP → Jaeger / OTLP Collector
   └─ Langfuse（TUI 层 LangfuseTracer → Langfuse API）
        └─ Trace > Span > Generation 三级层次

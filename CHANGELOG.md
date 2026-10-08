@@ -4,6 +4,24 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.101 — 2026-10-08
+
+### Fixes
+
+- **详细模式超长命令运行时，状态刷新不再覆盖 header 续行（#341）**：详细模式（Ctrl+O）下 Bash 命令超长时，ToolBlock header 会折成多行（#264 引入）。渲染线程的 tick 增量刷新仍按「header 恒 1 行」的旧假设处理状态行，导致两处故障：场景 B 写死 `lines.get_mut(1)` 更新 `Running… (Xs)` 秒数，多行 header 下命中的是命令续行——命令文本被就地改写为 `Running…` 并残留右括号，真正的状态行（下标 ≥2）因不在下标 1 而被冻结、秒数不再前进，屏幕上呈现为「两处 `Running…` 且时间不一致」；场景 A 用固定行数 `cached_line_count < 3` 判断「状态行尚未渲染」，多行 header 下行数早已 ≥ 3，判定恒为假，首次跨越 2 秒阈值时状态行永远不会出现。现改为**按内容定位状态行**（新增 `message_render::is_shell_running_status_line()`，与子 Agent 路径已有的内容定位做法一致），两个场景都不再依赖固定下标 / 固定行数。注：本问题由 #264 引入，与 #287 无关（#287 仅调整折行时的词边界回退，反而让长 token 场景更易折成多行、更易触发）。仅影响「详细模式 + 超长命令折行 + 运行中（>2s）」，非详细/短命令路径行为不变。
+
+## v0.6.100 — 2026-10-08
+
+### Fixes
+
+- **`/gc` 内存诊断修正：消除误导指标 + 纳入 `view_messages` 估算（#339）**：`/gc` 输出的内存诊断存在误导性数字。P0 —— `active`/`mapped`/`retained` 语义**分平台**（jemalloc：真实活跃页 / 映射量 / 保留未归还 OS；mimalloc：`page_committed` 历史触及高水位 / `reserved` 虚拟地址 / 虚拟地址空间），旧代码用统一标签，Windows 上 `active=1392 MB` 与派生的「碎片=1332 MB」完全无用（真实 `resident` 仅 100 MB、无碎片问题）。现按 `alloc_name` 条件化标注，并给「碎片」行加忽略提示。P1 —— `estimate_messages_heap` 只统计 `origin_messages` + `completed`，漏掉 `view_messages`（含每块内嵌 `Text<'static>`），正是「未识别 59 MB」的主因。现新增 `estimate_view_messages_heap()` 遍历 `MessageViewModel` 全部变体，「已知合计」改为「消息 X + VM Y」三元展示，`origin vs completed` 完全相同标注为「设计冗余，非泄漏」，并追加注脚说明「未识别」构成（markdown 缓存 / ACP 缓冲 / tokio / tracing），明确非泄漏。附带修正 `estimate_links_heap` 的 clippy `manual_slice_size_calculation` 告警（改用 `std::mem::size_of_val`），该告警曾致 CI 三平台全红。
+
+### Chores
+
+- **移除 ARM32 部署包与构建链路（#340）**：删除 `deploy/peri-arm32-v0.2.0/` 与 `scripts/build-arm32.sh`——ARM32 未纳入 CI / npm 发布链路，属 peri 时代遗留。
+
+---
+
 ## v0.6.99 — 2026-10-07
 
 ### Fixes

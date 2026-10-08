@@ -1,15 +1,15 @@
-# ACP Dispatch 统一到 peri-acp 层 — 实施计划
+# ACP Dispatch 统一到 cc-acp 层 — 实施计划
 
 ## 目标
 
-将 `acp_server/requests.rs`（TUI）和 `acp_stdio.rs`（stdio）中重复的 ACP 请求处理逻辑提取到 `peri-acp/src/dispatch/`，消除双份实现，同时修复 Zed 客户端 "Loading or resuming sessions is not supported" 错误。
+将 `acp_server/requests.rs`（TUI）和 `acp_stdio.rs`（stdio）中重复的 ACP 请求处理逻辑提取到 `cc-acp/src/dispatch/`，消除双份实现，同时修复 Zed 客户端 "Loading or resuming sessions is not supported" 错误。
 
 ## 当前架构问题
 
 ```
-peri-acp/src/dispatch/mod.rs   ← 只有 TODO 注释，无实现
-peri-tui/src/acp_server/requests.rs  ← TUI 路径：match method 手工分发
-peri-tui/src/acp_stdio.rs        ← stdio 路径：agent_client_protocol builder 分发
+cc-acp/src/dispatch/mod.rs   ← 只有 TODO 注释，无实现
+cc-tui/src/acp_server/requests.rs  ← TUI 路径：match method 手工分发
+cc-tui/src/acp_stdio.rs        ← stdio 路径：agent_client_protocol builder 分发
 ```
 
 两条路径用不同分发框架实现了相同业务逻辑：
@@ -30,10 +30,10 @@ peri-tui/src/acp_stdio.rs        ← stdio 路径：agent_client_protocol builde
 
 ## 统一策略
 
-**业务逻辑下移**：将 session CRUD 和 frozen data 构建等无状态纯逻辑提取到 `peri-acp/src/dispatch/`。**传输适配保留**：JSON-RPC 解析、session HashMap 管理、通知推送留在各自传输层。
+**业务逻辑下移**：将 session CRUD 和 frozen data 构建等无状态纯逻辑提取到 `cc-acp/src/dispatch/`。**传输适配保留**：JSON-RPC 解析、session HashMap 管理、通知推送留在各自传输层。
 
 ```
-peri-acp/src/dispatch/
+cc-acp/src/dispatch/
 ├── mod.rs          ← pub use 导出
 ├── init.rs         ← build_initialize_response()
 ├── new_session.rs  ← build_new_session_data(...)
@@ -42,8 +42,8 @@ peri-acp/src/dispatch/
 ├── fork_session.rs ← fork_session_thread(...)
 └── test.rs         ← 单元测试
 
-peri-tui/src/acp_server/requests.rs  ← 调用 peri_acp::dispatch::*
-peri-tui/src/acp_stdio.rs            ← 调用 peri_acp::dispatch::*
+cc-tui/src/acp_server/requests.rs  ← 调用 peri_acp::dispatch::*
+cc-tui/src/acp_stdio.rs            ← 调用 peri_acp::dispatch::*
 ```
 
 **保留在传输层**（状态管理依赖特定锁类型/通知机制）：
@@ -55,9 +55,9 @@ peri-tui/src/acp_stdio.rs            ← 调用 peri_acp::dispatch::*
 
 ---
 
-## Task 1: `peri-acp/src/dispatch/init.rs` — build_initialize_response
+## Task 1: `cc-acp/src/dispatch/init.rs` — build_initialize_response
 
-**新增文件**：`peri-acp/src/dispatch/init.rs`
+**新增文件**：`cc-acp/src/dispatch/init.rs`
 
 纯函数，无依赖，返回完整的 `InitializeResponse`（对齐当前 TUI 路径的能力声明）。
 
@@ -83,13 +83,13 @@ pub fn build_initialize_response() -> InitializeResponse {
 }
 ```
 
-**验证**：`cargo check -p peri-acp`
+**验证**：`cargo check -p cc-acp`
 
 ---
 
-## Task 2: `peri-acp/src/dispatch/new_session.rs` — build_new_session_data
+## Task 2: `cc-acp/src/dispatch/new_session.rs` — build_new_session_data
 
-**新增文件**：`peri-acp/src/dispatch/new_session.rs`
+**新增文件**：`cc-acp/src/dispatch/new_session.rs`
 
 提取 `session/new` 的核心业务逻辑：创建 thread、构建 frozen data、扫描 skills、构建 modes/models/configOptions。返回 `NewSessionData` 结构体，由调用方存入其 session map 并推送通知。
 
@@ -158,15 +158,15 @@ pub async fn build_new_session_data(
 }
 ```
 
-**注意**：`build_model_state` 当前签名是 `build_model_state(&LlmProvider, &PeriConfig)`，TUI 路径已直接传入。确认两边的 `LlmProvider` 是同类型（peri-acp re-export，peri-tui re-export peri-acp 的）。
+**注意**：`build_model_state` 当前签名是 `build_model_state(&LlmProvider, &PeriConfig)`，TUI 路径已直接传入。确认两边的 `LlmProvider` 是同类型（cc-acp re-export，cc-tui re-export cc-acp 的）。
 
-**验证**：`cargo check -p peri-acp`
+**验证**：`cargo check -p cc-acp`
 
 ---
 
-## Task 3: `peri-acp/src/dispatch/load_session.rs` — load_session_history
+## Task 3: `cc-acp/src/dispatch/load_session.rs` — load_session_history
 
-**新增文件**：`peri-acp/src/dispatch/load_session.rs`
+**新增文件**：`cc-acp/src/dispatch/load_session.rs`
 
 ```rust
 use peri_agent::messages::BaseMessage;
@@ -187,13 +187,13 @@ pub async fn load_session_history(
 }
 ```
 
-**验证**：`cargo check -p peri-acp`
+**验证**：`cargo check -p cc-acp`
 
 ---
 
-## Task 4: `peri-acp/src/dispatch/list_sessions.rs` — list_sessions_as_info
+## Task 4: `cc-acp/src/dispatch/list_sessions.rs` — list_sessions_as_info
 
-**新增文件**：`peri-acp/src/dispatch/list_sessions.rs`
+**新增文件**：`cc-acp/src/dispatch/list_sessions.rs`
 
 ```rust
 use agent_client_protocol::schema::{SessionId, SessionInfo};
@@ -225,13 +225,13 @@ pub async fn list_sessions_as_info(
 }
 ```
 
-**验证**：`cargo check -p peri-acp`
+**验证**：`cargo check -p cc-acp`
 
 ---
 
-## Task 5: `peri-acp/src/dispatch/fork_session.rs` — fork_session_thread
+## Task 5: `cc-acp/src/dispatch/fork_session.rs` — fork_session_thread
 
-**新增文件**：`peri-acp/src/dispatch/fork_session.rs`
+**新增文件**：`cc-acp/src/dispatch/fork_session.rs`
 
 ```rust
 use peri_agent::messages::BaseMessage;
@@ -256,13 +256,13 @@ pub async fn fork_session_thread(
 }
 ```
 
-**验证**：`cargo check -p peri-acp`
+**验证**：`cargo check -p cc-acp`
 
 ---
 
-## Task 6: `peri-acp/src/dispatch/mod.rs` — 注册模块
+## Task 6: `cc-acp/src/dispatch/mod.rs` — 注册模块
 
-**修改文件**：`peri-acp/src/dispatch/mod.rs`
+**修改文件**：`cc-acp/src/dispatch/mod.rs`
 
 ```rust
 //! ACP method dispatch — shared business logic.
@@ -285,13 +285,13 @@ pub use load_session::load_session_history;
 pub use new_session::{build_new_session_data, NewSessionData};
 ```
 
-**验证**：`cargo check -p peri-acp`
+**验证**：`cargo check -p cc-acp`
 
 ---
 
-## Task 7: `peri-tui/src/acp_stdio.rs` — 接入统一 dispatch
+## Task 7: `cc-tui/src/acp_stdio.rs` — 接入统一 dispatch
 
-**修改文件**：`peri-tui/src/acp_stdio.rs`
+**修改文件**：`cc-tui/src/acp_stdio.rs`
 
 ### 7a. 替换 `initialize` handler（行 264-276）
 
@@ -333,13 +333,13 @@ async move |_req: InitializeRequest, responder, _cx| {
 
 调用 `fork_session_thread()` + 自行管理 session HashMap。
 
-**验证**：`cargo check -p peri-tui`
+**验证**：`cargo check -p cc-tui`
 
 ---
 
-## Task 8: `peri-tui/src/acp_server/requests.rs` — 接入统一 dispatch
+## Task 8: `cc-tui/src/acp_server/requests.rs` — 接入统一 dispatch
 
-**修改文件**：`peri-tui/src/acp_server/requests.rs`
+**修改文件**：`cc-tui/src/acp_server/requests.rs`
 
 将 `initialize`、`session/new`、`session/load`、`session/list`、`session/fork` 的 handler 中的业务逻辑替换为 `peri_acp::dispatch::*` 调用。
 
@@ -370,7 +370,7 @@ serde_json::to_value(resp)
 
 替换 thread 创建 + 消息复制为 `fork_session_thread()`。
 
-**验证**：`cargo build -p peri-tui --lib`
+**验证**：`cargo build -p cc-tui --lib`
 
 ---
 
@@ -378,13 +378,13 @@ serde_json::to_value(resp)
 
 两边接入后，移除不再需要的 import 和局部函数。
 
-**验证**：`cargo build -p peri-tui --lib && cargo test -p peri-acp --lib`
+**验证**：`cargo build -p cc-tui --lib && cargo test -p cc-acp --lib`
 
 ---
 
-## Task 10: `peri-acp/src/dispatch/test.rs` — 单元测试
+## Task 10: `cc-acp/src/dispatch/test.rs` — 单元测试
 
-**新增文件**：`peri-acp/src/dispatch/test.rs`
+**新增文件**：`cc-acp/src/dispatch/test.rs`
 
 ### 10a. `test_build_initialize_response_has_all_capabilities`
 
@@ -413,7 +413,7 @@ fn test_build_initialize_response_has_all_capabilities() {
 
 使用 tempfile + mock 验证 frozen data 构建。
 
-**验证**：`cargo test -p peri-acp --lib -- dispatch`
+**验证**：`cargo test -p cc-acp --lib -- dispatch`
 
 ---
 
@@ -440,23 +440,23 @@ T1-T5 完全独立，可并行开发。T7 和 T8 可并行。
 
 | 风险 | 缓解 |
 |------|------|
-| `build_model_state` 的 `LlmProvider` 类型不一致 | 确认 peri-tui 已 re-export peri-acp 的 LlmProvider（CLAUDE.md 记载已统一） |
+| `build_model_state` 的 `LlmProvider` 类型不一致 | 确认 cc-tui 已 re-export cc-acp 的 LlmProvider（CLAUDE.md 记载已统一） |
 | `session/resume` 在 stdio 模式缺少 frozen data | 接受空 frozen data，或后续 prompt 时懒填充 |
 | `ThreadStore` trait 的 async 方法在 `dispatch` 函数签名中 | 使用 `&dyn ThreadStore`（已有 `#[async_trait]`） |
-| `agent_client_protocol_schema` 版本与 peri-tui 一致 | 当前两者均用 workspace 版本管理，Cargo.toml 无冲突 |
+| `agent_client_protocol_schema` 版本与 cc-tui 一致 | 当前两者均用 workspace 版本管理，Cargo.toml 无冲突 |
 
 ## 变更文件
 
 | 文件 | 操作 | 预计行数 |
 |------|------|---------|
-| `peri-acp/src/dispatch/init.rs` | 新增 | ~20 |
-| `peri-acp/src/dispatch/new_session.rs` | 新增 | ~50 |
-| `peri-acp/src/dispatch/load_session.rs` | 新增 | ~15 |
-| `peri-acp/src/dispatch/list_sessions.rs` | 新增 | ~25 |
-| `peri-acp/src/dispatch/fork_session.rs` | 新增 | ~20 |
-| `peri-acp/src/dispatch/mod.rs` | 修改 | ~15（替换 TODO） |
-| `peri-acp/src/dispatch/test.rs` | 新增 | ~60 |
-| `peri-tui/src/acp_stdio.rs` | 修改 | +60 -120（接入 dispatch → 净减 ~60 行） |
-| `peri-tui/src/acp_server/requests.rs` | 修改 | +15 -50（接入 dispatch → 净减 ~35 行） |
+| `cc-acp/src/dispatch/init.rs` | 新增 | ~20 |
+| `cc-acp/src/dispatch/new_session.rs` | 新增 | ~50 |
+| `cc-acp/src/dispatch/load_session.rs` | 新增 | ~15 |
+| `cc-acp/src/dispatch/list_sessions.rs` | 新增 | ~25 |
+| `cc-acp/src/dispatch/fork_session.rs` | 新增 | ~20 |
+| `cc-acp/src/dispatch/mod.rs` | 修改 | ~15（替换 TODO） |
+| `cc-acp/src/dispatch/test.rs` | 新增 | ~60 |
+| `cc-tui/src/acp_stdio.rs` | 修改 | +60 -120（接入 dispatch → 净减 ~60 行） |
+| `cc-tui/src/acp_server/requests.rs` | 修改 | +15 -50（接入 dispatch → 净减 ~35 行） |
 
-**净效果**：`peri-acp` +~205 行，`peri-tui` -~95 行，消除 ~150 行重复逻辑。
+**净效果**：`cc-acp` +~205 行，`cc-tui` -~95 行，消除 ~150 行重复逻辑。

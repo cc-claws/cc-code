@@ -265,12 +265,12 @@ fn draw_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) ->
 
 | 文件 | 改动类型 | 说明 |
 |------|---------|------|
-| `peri-tui/src/app/text_selection.rs` | 修改 | +`ScreenSelection` +`ScreenSnapshot` +`extract_snapshot_text()` |
-| `peri-tui/src/app/ui_state.rs` | 修改 | +`screen_selection` +`screen_snapshot` +`pending_screen_start` |
-| `peri-tui/src/main.rs` | 修改 | `draw_app()` 改造：screen highlight + snapshot |
-| `peri-tui/src/event/mod.rs` | 修改 | MouseDown/Drag/Up 分发：消息区域→TextSelection，其他→ScreenSelection |
-| `peri-tui/src/event/mouse.rs` | 修改 | +`copy_screen_selection_to_clipboard()` |
-| `peri-tui/src/ui/main_ui/message_area.rs` | 不变 | 现有 TextSelection 高亮逻辑保留 |
+| `cc-tui/src/app/text_selection.rs` | 修改 | +`ScreenSelection` +`ScreenSnapshot` +`extract_snapshot_text()` |
+| `cc-tui/src/app/ui_state.rs` | 修改 | +`screen_selection` +`screen_snapshot` +`pending_screen_start` |
+| `cc-tui/src/main.rs` | 修改 | `draw_app()` 改造：screen highlight + snapshot |
+| `cc-tui/src/event/mod.rs` | 修改 | MouseDown/Drag/Up 分发：消息区域→TextSelection，其他→ScreenSelection |
+| `cc-tui/src/event/mouse.rs` | 修改 | +`copy_screen_selection_to_clipboard()` |
+| `cc-tui/src/ui/main_ui/message_area.rs` | 不变 | 现有 TextSelection 高亮逻辑保留 |
 | 各面板渲染文件（7个） | Phase 2 | 移除 panel_selection 高亮代码 |
 
 ## 验收标准
@@ -284,7 +284,7 @@ fn draw_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) ->
 7. ✅ **CJK 支持**：中日韩宽字符选中和复制正确。
 8. ✅ **取消选区**：点击任意位置（非拖拽）取消所有选区高亮。
 9. ✅ **Resize 清除**：终端 resize 时清除所有选区。
-10. ✅ **构建通过**：`cargo build -p peri-tui` 和 `cargo test -p peri-tui` 通过。
+10. ✅ **构建通过**：`cargo build -p cc-tui` 和 `cargo test -p cc-tui` 通过。
 
 ### 增量验收（2026-06-28 commit 79836cc5）
 

@@ -1,7 +1,7 @@
 # 组件化架构重构：面板系统
 
 > **文档状态**: 设计稿
-> **目标范围**: `peri-tui/src/event.rs`、`panel_ops.rs`、`app/mod.rs`、`app/core.rs`、`ui/main_ui.rs`、`ui/main_ui/status_bar.rs`
+> **目标范围**: `cc-tui/src/event.rs`、`panel_ops.rs`、`app/mod.rs`、`app/core.rs`、`ui/main_ui.rs`、`ui/main_ui/status_bar.rs`
 > **策略**: Approach C — 组件化架构，彻底解决根本问题
 
 ---
@@ -795,9 +795,9 @@ impl App {
 
 | 文件 | 操作 |
 |------|------|
-| `peri-tui/src/app/panel_manager.rs` | 新建：定义 `PanelKind`、`PanelState`、`PanelManager`（空壳）、`PanelContext`、`EventResult`、`PanelScope`、`MutexGroup` |
-| `peri-tui/src/app/panel_component.rs` | 新建：定义 `PanelComponent` trait |
-| `peri-tui/src/app/mod.rs` | 修改：添加 `mod panel_manager; mod panel_component;` |
+| `cc-tui/src/app/panel_manager.rs` | 新建：定义 `PanelKind`、`PanelState`、`PanelManager`（空壳）、`PanelContext`、`EventResult`、`PanelScope`、`MutexGroup` |
+| `cc-tui/src/app/panel_component.rs` | 新建：定义 `PanelComponent` trait |
+| `cc-tui/src/app/mod.rs` | 修改：添加 `mod panel_manager; mod panel_component;` |
 
 **关键类型签名**（详见第 2 节）：
 
@@ -813,7 +813,7 @@ pub enum EventResult { Consumed, NotConsumed, ClosePanel, OpenPanel(PanelKind) }
 pub trait PanelComponent: Any { ... }
 ```
 
-**验证**：`cargo build -p peri-tui` 编译通过。所有新类型未使用（`#[allow(dead_code)]`）。
+**验证**：`cargo build -p cc-tui` 编译通过。所有新类型未使用（`#[allow(dead_code)]`）。
 
 **估计时间**：0.5 天
 
@@ -827,9 +827,9 @@ pub trait PanelComponent: Any { ... }
 
 | 文件 | 操作 |
 |------|------|
-| `peri-tui/src/app/core.rs` | 添加 `session_panels: PanelManager` 字段 |
-| `peri-tui/src/app/mod.rs` | 添加 `global_panels: PanelManager` 字段 |
-| `peri-tui/src/app/panel_ops.rs` | 逐步替换 `open_*` 方法体 |
+| `cc-tui/src/app/core.rs` | 添加 `session_panels: PanelManager` 字段 |
+| `cc-tui/src/app/mod.rs` | 添加 `global_panels: PanelManager` 字段 |
+| `cc-tui/src/app/panel_ops.rs` | 逐步替换 `open_*` 方法体 |
 
 **迁移策略**：
 
@@ -883,17 +883,17 @@ pub fn open_model_panel(&mut self) {
 
 | 文件 | 操作 |
 |------|------|
-| `peri-tui/src/event.rs` | 重写 `next_event()`：删除 15 层 if 链，改为 `PanelManager::dispatch_key()` |
-| `peri-tui/src/app/model_panel.rs` | 添加 `impl PanelComponent for ModelPanel` |
-| `peri-tui/src/app/login_panel.rs` | 添加 `impl PanelComponent for LoginPanel` |
-| `peri-tui/src/app/agent_panel.rs` | 添加 `impl PanelComponent for AgentPanel` |
-| `peri-tui/src/app/hooks_panel.rs` | 添加 `impl PanelComponent for HooksPanel` |
-| `peri-tui/src/app/config_panel.rs` | 添加 `impl PanelComponent for ConfigPanel` |
-| `peri-tui/src/app/mcp_panel.rs` | 添加 `impl PanelComponent for McpPanel` |
-| `peri-tui/src/app/plugin_panel.rs` | 添加 `impl PanelComponent for PluginPanel` |
-| `peri-tui/src/app/cron_state.rs` | 添加 `impl PanelComponent for CronPanel` |
-| `peri-tui/src/app/status_panel.rs` | 添加 `impl PanelComponent for StatusPanel` |
-| `peri-tui/src/app/memory_panel.rs` | 添加 `impl PanelComponent for MemoryPanel` |
+| `cc-tui/src/event.rs` | 重写 `next_event()`：删除 15 层 if 链，改为 `PanelManager::dispatch_key()` |
+| `cc-tui/src/app/model_panel.rs` | 添加 `impl PanelComponent for ModelPanel` |
+| `cc-tui/src/app/login_panel.rs` | 添加 `impl PanelComponent for LoginPanel` |
+| `cc-tui/src/app/agent_panel.rs` | 添加 `impl PanelComponent for AgentPanel` |
+| `cc-tui/src/app/hooks_panel.rs` | 添加 `impl PanelComponent for HooksPanel` |
+| `cc-tui/src/app/config_panel.rs` | 添加 `impl PanelComponent for ConfigPanel` |
+| `cc-tui/src/app/mcp_panel.rs` | 添加 `impl PanelComponent for McpPanel` |
+| `cc-tui/src/app/plugin_panel.rs` | 添加 `impl PanelComponent for PluginPanel` |
+| `cc-tui/src/app/cron_state.rs` | 添加 `impl PanelComponent for CronPanel` |
+| `cc-tui/src/app/status_panel.rs` | 添加 `impl PanelComponent for StatusPanel` |
+| `cc-tui/src/app/memory_panel.rs` | 添加 `impl PanelComponent for MemoryPanel` |
 
 **每个面板的 handle_key 实现**：
 
@@ -1072,8 +1072,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
 | 文件 | 操作 |
 |------|------|
-| `peri-tui/src/ui/main_ui.rs` | 重构 `render_session_column` 和 `active_panel_height` |
-| `peri-tui/src/ui/main_ui/status_bar.rs` | 重构 `render_second_row` |
+| `cc-tui/src/ui/main_ui.rs` | 重构 `render_session_column` 和 `active_panel_height` |
+| `cc-tui/src/ui/main_ui/status_bar.rs` | 重构 `render_second_row` |
 
 **渲染迁移**：
 
@@ -1183,11 +1183,11 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
 
 | 文件 | 操作 |
 |------|------|
-| `peri-tui/src/app/core.rs` | 移除 `model_panel`/`login_panel`/`agent_panel`/`hooks_panel`/`config_panel`/`thread_browser` 字段 |
-| `peri-tui/src/app/mod.rs` | 移除 `mcp_panel`/`plugin_panel`/`status_panel`/`memory_panel` 字段 |
-| `peri-tui/src/app/panel_ops.rs` | 删除（功能迁移到各面板的 `PanelComponent` 实现） |
+| `cc-tui/src/app/core.rs` | 移除 `model_panel`/`login_panel`/`agent_panel`/`hooks_panel`/`config_panel`/`thread_browser` 字段 |
+| `cc-tui/src/app/mod.rs` | 移除 `mcp_panel`/`plugin_panel`/`status_panel`/`memory_panel` 字段 |
+| `cc-tui/src/app/panel_ops.rs` | 删除（功能迁移到各面板的 `PanelComponent` 实现） |
 | `CLAUDE.md` | 更新面板系统架构说明 |
-| `peri-tui/src/ui/headless.rs` | 添加面板生命周期测试 |
+| `cc-tui/src/ui/headless.rs` | 添加面板生命周期测试 |
 
 **headless 测试示例**：
 
@@ -1227,8 +1227,8 @@ async fn test_panel_mutex_cross_scope() {
 
 **验证**：
 
-- `cargo test -p peri-tui` 全部通过
-- `cargo clippy -p peri-tui` 无警告
+- `cargo test -p cc-tui` 全部通过
+- `cargo clippy -p cc-tui` 无警告
 - `lefthook run pre-commit` 通过
 
 **估计时间**：1 天

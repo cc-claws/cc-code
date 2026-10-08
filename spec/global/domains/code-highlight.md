@@ -58,4 +58,4 @@ Markdown 解析遇到代码块（```lang）
 ## 相关 Feature
 
 - → [tui.md](./tui.md) — Markdown 渲染集成点
-- → [tui-widgets.md](./tui-widgets.md) — peri-widgets MarkdownRenderer 组件
+- → [tui-widgets.md](./tui-widgets.md) — cc-widgets MarkdownRenderer 组件

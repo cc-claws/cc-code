@@ -126,11 +126,11 @@ enum BackpressurePolicy {
 
 ## 与 Agent 集成
 
-`langfuse-client` 被 `peri-acp` 使用，自动追踪 Agent 的 LLM 调用：
+`langfuse-client` 被 `cc-acp` 使用，自动追踪 Agent 的 LLM 调用：
 
 ```
 Agent LLM 调用
-  → peri-acp/langfuse 模块
+  → cc-acp/langfuse 模块
   → langfuse-client Batcher
   → Langfuse OTLP API
   → 可观测性面板

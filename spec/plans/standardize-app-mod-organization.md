@@ -2,7 +2,7 @@
 
 ## 背景
 
-`peri-tui/src/app/mod.rs` 使用 4 个 `include!` 宏引入 `.inc` 文件来按类别声��子模块：
+`cc-tui/src/app/mod.rs` 使用 4 个 `include!` 宏引入 `.inc` 文件来按类别声��子模块：
 
 ```
 include!("modules_panels.inc");   // 23 个面板模块
@@ -77,7 +77,7 @@ include!("modules_system.inc");   // 6 个系统模块
 
 ### Step 1：内联 .inc 文件内容到 mod.rs
 
-**修改文件**：`peri-tui/src/app/mod.rs`
+**修改文件**：`cc-tui/src/app/mod.rs`
 **删除文件**：`modules_panels.inc`、`modules_state.inc`、`modules_agent.inc`、`modules_system.inc`
 
 将 4 个 `include!` 宏替换为内联的模块声明，保留分类注释分隔符：
@@ -177,8 +177,8 @@ pub mod tool_display;
 ### Step 2：验证构建
 
 ```bash
-cargo build -p peri-tui
-cargo test -p peri-tui --lib
+cargo build -p cc-tui
+cargo test -p cc-tui --lib
 ```
 
 **验证检查点**：
@@ -190,10 +190,10 @@ cargo test -p peri-tui --lib
 
 删除 4 个 `.inc` 文件：
 ```bash
-rm peri-tui/src/app/modules_panels.inc
-rm peri-tui/src/app/modules_state.inc
-rm peri-tui/src/app/modules_agent.inc
-rm peri-tui/src/app/modules_system.inc
+rm cc-tui/src/app/modules_panels.inc
+rm cc-tui/src/app/modules_state.inc
+rm cc-tui/src/app/modules_agent.inc
+rm cc-tui/src/app/modules_system.inc
 ```
 
 ## 风险评估
@@ -206,7 +206,7 @@ rm peri-tui/src/app/modules_system.inc
 
 ## 影响范围
 
-- **修改**：1 个文件（`peri-tui/src/app/mod.rs`）
+- **修改**：1 个文件（`cc-tui/src/app/mod.rs`）
 - **删除**：4 个文件（`.inc` 文件）
 - **移动**：0 个文件
 - **路径变更**：0 条

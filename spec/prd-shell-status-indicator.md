@@ -4,7 +4,7 @@
 
 当前 Shell 命令和工具调用的状态指示存在三个问题：
 
-1. **两套实现不一致**：`peri-widgets` 的 `format_indicator()` 定义了 `●` 系列图标，但 `peri-tui/message_render.rs` 实际使用的是 `◐`/`✓`，widgets 层代码成了死代码
+1. **两套实现不一致**：`cc-widgets` 的 `format_indicator()` 定义了 `●` 系列图标，但 `cc-tui/message_render.rs` 实际使用的是 `◐`/`✓`，widgets 层代码成了死代码
 2. **错误状态语义模糊**：错误工具的指示器是绿色 `✓`（对齐 Claude Hub），但用户直觉上红色 = 失败、绿色 = 成功，当前设计违反直觉
 3. **Shell 命令没有状态点**：`!command` 用文字 `running` / `exit 0` / `exit N` 表示状态，缺少一目了然的视觉锚点
 
@@ -21,7 +21,7 @@
 
 ## 改动范围
 
-### 1. `peri-widgets/src/tool_call/display.rs`
+### 1. `cc-widgets/src/tool_call/display.rs`
 
 **现状**：`format_indicator()` 返回 `&'static str`，无颜色信息
 
@@ -41,7 +41,7 @@ pub fn format_indicator(status: ToolCallStatus, tick: u64) -> (&'static str, Col
 }
 ```
 
-### 2. `peri-tui/src/ui/message_render.rs` — 工具调用指示器
+### 2. `cc-tui/src/ui/message_render.rs` — 工具调用指示器
 
 **现状**（L581-591）：
 ```rust
@@ -72,7 +72,7 @@ let (indicator, indicator_color) = if is_running {
 - 错误颜色：`SAGE` 绿 → `ERROR` 红
 - 工具名颜色：错误时从 `TEXT` 白 → `ERROR` 红（与指示器一致）
 
-### 3. `peri-tui/src/ui/message_render.rs` — Shell 命令指示器
+### 3. `cc-tui/src/ui/message_render.rs` — Shell 命令指示器
 
 **现状**（L271-374）：无圆点指示器，只有文字状态 `running` / `exit N`
 
@@ -110,7 +110,7 @@ let (indicator, indicator_color) = match exit_code {
 
 原有的文字状态 `running` 保留，exit code 也保留，指示器是增量增强，不是替换。
 
-### 4. `peri-widgets/src/tool_call/mod.rs` — Widget 组件渲染
+### 4. `cc-widgets/src/tool_call/mod.rs` — Widget 组件渲染
 
 确保 `ToolCallWidget` 的 `render()` 方法使用新的 `format_indicator()` 返回带颜色的 Span。
 
@@ -135,6 +135,6 @@ let (indicator, indicator_color) = match exit_code {
 
 | 文件 | 改动 |
 |------|------|
-| `peri-widgets/src/tool_call/display.rs` | `format_indicator()` 返回颜色 |
-| `peri-widgets/src/tool_call/mod.rs` | Widget render 使用带颜色指示器 |
-| `peri-tui/src/ui/message_render.rs` | 工具指示器 + Shell 指示器统一 |
+| `cc-widgets/src/tool_call/display.rs` | `format_indicator()` 返回颜色 |
+| `cc-widgets/src/tool_call/mod.rs` | Widget render 使用带颜色指示器 |
+| `cc-tui/src/ui/message_render.rs` | 工具指示器 + Shell 指示器统一 |

@@ -4,7 +4,7 @@
 
 ## 领域综述
 
-Langfuse 领域负责 Agent 执行的全链路可观测性，将每次 LLM 调用、工具调用、对话 Session 结构化上报到 Langfuse 监控平台。所有 Langfuse 依赖和上报逻辑封装在 `peri-tui` 层，不侵入 `peri-agent` 核心框架。
+Langfuse 领域负责 Agent 执行的全链路可观测性，将每次 LLM 调用、工具调用、对话 Session 结构化上报到 Langfuse 监控平台。所有 Langfuse 依赖和上报逻辑封装在 `cc-tui` 层，不侵入 `cc-agent` 核心框架。
 
 核心职责：
 - Trace 管理：每次用户发送消息对应一个 Trace，多轮消息共享同一 Session
@@ -78,10 +78,10 @@ new_thread() / open_thread():
 ### feature_20260324_F001_langfuse-tui-monitoring
 **摘要:** TUI 层接入 Langfuse 全链路追踪
 **关键决策:**
-- 侵入最小化：peri-agent 仅新增 LlmCallStart/LlmCallEnd 两个 AgentEvent 变体
+- 侵入最小化：cc-agent 仅新增 LlmCallStart/LlmCallEnd 两个 AgentEvent 变体
 - Batcher 生命周期：每次 submit_message 创建新 Batcher（Done 后 Drop 触发 flush）
 - 工具调用 pending_span FIFO 匹配（工具串行执行，按顺序关联 ToolStart/End）
-- 依赖隔离：langfuse-ergonomic 只在 peri-tui 的 Cargo.toml 引入
+- 依赖隔离：langfuse-ergonomic 只在 cc-tui 的 Cargo.toml 引入
 **归档:** [链接](../../archive/feature_20260324_F001_langfuse-tui-monitoring/)
 **归档日期:** 2026-03-27
 
@@ -152,7 +152,7 @@ new_thread() / open_thread():
 **问题本质:** do_full_compact() 用 `*state.messages_mut() = new_messages` 整体替换，丢弃了头部的 System 消息（含系统提示词、CLAUDE.md、skills 摘要）
 **通用模式:** 整体替换消息数组前必须提取并保留 System 前缀（`take_while(|m| m.is_system())`），compact 只替换 User/Assistant/Tool 部分
 **架构影响:** BaseModelReactLLM.system 从未设置，系统提示词完全通过 state.messages() 的 System 消息传递
-**涉及文件:** peri-acp/src/langfuse/tracer.rs:206-292, peri-agent/src/agent/executor/llm_step.rs:22-27, peri-agent/src/agent/executor/mod.rs:240-241, peri-middlewares/src/compact_middleware.rs:228-248
+**涉及文件:** cc-acp/src/langfuse/tracer.rs:206-292, cc-agent/src/agent/executor/llm_step.rs:22-27, cc-agent/src/agent/executor/mod.rs:240-241, cc-middlewares/src/compact_middleware.rs:228-248
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-23-langfuse-agent-run-root-missing
@@ -164,7 +164,7 @@ new_thread() / open_thread():
 **问题本质:** Native ingestion API 严格校验 ObservationType（只接受 GENERATION/SPAN/EVENT），Agent/Tool 被拒绝；同时 ObservationUpdate 的 null 字段清空已有数据
 **通用模式:** 外部 API 端点迁移时必须验证所有自定义枚举值的兼容性；Option 字段必须添加 skip_serializing_if 防止序列化为 null 清空已有数据
 **技术决策:** OTLP 端点（宽松校验）优于 native ingestion（严格校验），配合 x-langfuse-ingestion-version header 确保实时可见
-**涉及文件:** langfuse-client/src/batcher.rs, langfuse-client/src/client.rs, langfuse-client/src/types/mod.rs, peri-acp/src/langfuse/tracer.rs
+**涉及文件:** langfuse-client/src/batcher.rs, langfuse-client/src/client.rs, langfuse-client/src/types/mod.rs, cc-acp/src/langfuse/tracer.rs
 **CLAUDE.md 链接:** false
 
 ---

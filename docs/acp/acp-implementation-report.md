@@ -1,7 +1,7 @@
 # ACP（Agent Client Protocol）实现报告
 
 > 分析目标：`/Users/konghayao/code/knowledgebase`（协议文档 + Rust schema crate）
-> + `/Users/konghayao/code/ai/perihelion/peri-tui/src/acp/`（perihelion 的 ACP 服务端实现）
+> + `/Users/konghayao/code/ai/perihelion/cc-tui/src/acp/`（perihelion 的 ACP 服务端实现）
 > 分析日期：2026-05-16
 
 ---
@@ -380,7 +380,7 @@ Rust crate 包含内联测试（`#[cfg(test)]`），覆盖：
 
 ## 6. perihelion 的 ACP 服务端实现
 
-> **路径**：`peri-tui/src/acp/`（9 个文件，~5800 行 Rust）
+> **路径**：`cc-tui/src/acp/`（9 个文件，~5800 行 Rust）
 > **角色**：ACP Agent 端——perihelion 作为 ACP 服务端，通过 stdio 接受 IDE（如 Cursor）连接
 
 ### 6.1 架构全景
@@ -641,7 +641,7 @@ ACP Client 可通过 `session/set_config_option` 配置：
 | 测试 | 内联测试覆盖核心序列化/反序列化路径 |
 | 文档 | 协议源码 + 中文知识笔记 |
 
-### perihelion ACP 服务端（peri-tui/src/acp/）
+### perihelion ACP 服务端（cc-tui/src/acp/）
 
 | 维度 | 评估 |
 |------|------|
@@ -650,7 +650,7 @@ ACP Client 可通过 `session/set_config_option` 配置：
 | 支持方法 | 11 个（initialize + 10 个 session 方法） |
 | 事件推送 | ExecutorEvent → SessionUpdate → SessionNotification（实时流式） |
 | 权限桥接 | HITL UserInteractionBroker ↔ ACP RequestPermission RPC |
-| 中间件链 | 15 层（完整 peri-agent 中间件栈） |
+| 中间件链 | 15 层（完整 cc-agent 中间件栈） |
 | 持久化 | SQLite ThreadStore（跨会话历史） |
 | 多会话 | DashMap + CancellationToken（每会话独立取消） |
 | 配置项 | 3 种（mode / model / thinking_effort） |

@@ -6,7 +6,7 @@
 
 #### 执行步骤
 
-- [ ] **Step 3.1**: 创建 `peri-acp/src/dispatch/session_fork.rs`
+- [ ] **Step 3.1**: 创建 `cc-acp/src/dispatch/session_fork.rs`
 
 ```rust
 //! Fork a session: create a new thread and copy messages from source.
@@ -55,7 +55,7 @@ pub async fn fork_session(
 
 **参考：** 逻辑取自 `requests.rs:389-441`，将 TUI 路径中 `thread_store.create_thread(meta)` + `append_messages()` + sessions map 插入分离为：dispatch 处理前两个，transport 层处理 sessions map 插入。
 
-- [ ] **Step 3.2**: 添加单元测试文件 `peri-acp/src/dispatch/session_fork_test.rs`
+- [ ] **Step 3.2**: 添加单元测试文件 `cc-acp/src/dispatch/session_fork_test.rs`
 
 ```rust
 use super::session_fork::fork_session;
@@ -124,8 +124,8 @@ async fn test_fork_session_empty_source() {
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-acp` 编译通过
-- [ ] `cargo test -p peri-acp --lib session_fork_test` 测试通过
-- [ ] `cargo clippy -p peri-acp` 通过
+- [ ] `cargo build -p cc-acp` 编译通过
+- [ ] `cargo test -p cc-acp --lib session_fork_test` 测试通过
+- [ ] `cargo clippy -p cc-acp` 通过
 
 ---

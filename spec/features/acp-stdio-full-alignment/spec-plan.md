@@ -1,10 +1,10 @@
 # ACP Stdio 全量方法对齐 实施计划
 
-> **Goal:** 将 ACP stdio 路径缺失的 8 个 session 生命周期方法补齐，并将 `build_available_commands()`、`load_session_messages()`、`fork_session()` 等可复用业务逻辑提取到 `peri-acp/src/dispatch/` 层。
+> **Goal:** 将 ACP stdio 路径缺失的 8 个 session 生命周期方法补齐，并将 `build_available_commands()`、`load_session_messages()`、`fork_session()` 等可复用业务逻辑提取到 `cc-acp/src/dispatch/` 层。
 
 **Architecture:** dispatch 层只做纯数据操作（ThreadStore 查询、消息复制、命令列表构建），不依赖 transport 特定的 session map 类型。简单 handler（close/clear/resume/cancel）保持内联。
 
-**Tech Stack:** Rust (2021 edition), `agent_client_protocol` builder 模式, `peri-agent` ThreadStore, tokio async
+**Tech Stack:** Rust (2021 edition), `agent_client_protocol` builder 模式, `cc-agent` ThreadStore, tokio async
 
 **Design Doc:** `spec/features/acp-stdio-full-alignment/spec-design.md`
 

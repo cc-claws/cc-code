@@ -137,7 +137,7 @@ MCP HTTP 请求 → 401 + WWW-Authenticate
 **问题本质:** Windows 不能直接 spawn .cmd 批处理脚本（如 npx），需通过 shell 包裹。项目 3 处 spawn 调用点各自处理，无统一封装
 **通用模式:** 所有子进程 spawn 必须通过平台感知的统一 wrapper：Windows 用 `cmd /C`，Unix 用 `bash -c`。不应让调用者自己处理平台差异
 **技术决策:** 自己封装而非引入第三方 crate，提供 `shell_command()` builder + `spawn_shell()` 快捷函数两层 API
-**涉及文件:** peri-middlewares/src/process/mod.rs, peri-middlewares/src/mcp/client.rs, peri-middlewares/src/middleware/terminal.rs, peri-middlewares/src/hooks/executor.rs
+**涉及文件:** cc-middlewares/src/process/mod.rs, cc-middlewares/src/mcp/client.rs, cc-middlewares/src/middleware/terminal.rs, cc-middlewares/src/hooks/executor.rs
 **CLAUDE.md 链接:** true
 
 ---

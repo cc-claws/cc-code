@@ -6,7 +6,7 @@ TUI 组件领域负责通用 UI 组件的抽取和独立 widget crate 的创建�
 
 核心职责：
 
-- peri-widgets crate 提供 11 个通用组件，零内部依赖
+- cc-widgets crate 提供 11 个通用组件，零内部依赖
 - SpinnerWidget：动词从 TODO activeForm 获取，Token 计数平滑递增动画
 - ToolCallWidget：工具调用状态指示器，智能折叠策略
 - MessageBlockWidget：消息块渲染，代码高亮和 diff 着色
@@ -40,7 +40,7 @@ TUI tick 事件
 
 | 维度 | 选型 |
 |------|------|
-| 独立 crate | peri-widgets，零内部依赖，仅依赖 ratatui + pulldown-cmark |
+| 独立 crate | cc-widgets，零内部依赖，仅依赖 ratatui + pulldown-cmark |
 | 组件数量 | 11 个：BorderedPanel/ScrollableArea/SelectableList/InputField/TabBar/RadioGroup/CheckboxGroup/FormState/MarkdownRenderer/Spinner/ToolCall |
 | API 风格 | ratatui StatefulWidget trait 原生风格 |
 | 泛型设计 | ListState<T> 不要求 T: Clone；FormState<F> 泛型管理字段导航 |
@@ -69,7 +69,7 @@ TUI tick 事件
 **摘要:** 抽取 TUI 重复 UI 代码为独立可复用 ratatui widget crate
 **关键决策:**
 
-- 新增 peri-widgets crate，零内部依赖仅依赖 ratatui + pulldown-cmark
+- 新增 cc-widgets crate，零内部依赖仅依赖 ratatui + pulldown-cmark
 - 全量抽取 11 个通用组件（BorderedPanel、ScrollableArea、SelectableList 等）
 - 所有组件遵循 ratatui StatefulWidget trait 原生 API 风格
 - ListState<T> 泛型设计不要求 T: Clone
@@ -89,12 +89,12 @@ TUI tick 事件
 **关键词:** CJK, 表格渲染, 列宽缩放, 最小宽度
 **问题本质:** scale_col_widths() 纯比例缩放分配列宽，下限 max(1) 对 CJK 字符（宽度 2 个显示列）太低——窄列每行只能放 1-2 个字，显示为不可读的竖排。纯 ASCII（字符宽度 1）在相同缩放下仍可读，问题只影响 CJK。
 **通用模式:** 比例缩放的列宽分配必须考虑最小可读宽度（chunk_width ≥ 6-8 显示列）。终端 UI 中 CJK 字符占 2 列宽度（unicode-width crate），最小宽度阈值必须以显示列而非字符数为单位。
-**涉及文件:** peri-widgets/src/markdown/render_state.rs
+**涉及文件:** cc-widgets/src/markdown/render_state.rs
 **CLAUDE.md 链接:** false
 
 ---
 
 ## 相关 Feature
 
-- → [tui.md](./tui.md) — TUI 集成使用 peri-widgets 组件
+- → [tui.md](./tui.md) — TUI 集成使用 cc-widgets 组件
 - → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成

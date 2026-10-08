@@ -630,7 +630,7 @@
 - [langfuse-client/src/types.rs 所有类型定义集中（1008 行）](domains/langfuse.md#issue_2026-05-17-langfuse-types-monolithic) — langfuse
 
 ### layout/event_handler 分离
-- [peri-tui/src/ui/main_ui.rs 主 UI 布局逻辑集中（852 行）](domains/tui.md#issue_2026-05-17-main-ui-heavy-file) — tui
+- [cc-tui/src/ui/main_ui.rs 主 UI 布局逻辑集中（852 行）](domains/tui.md#issue_2026-05-17-main-ui-heavy-file) — tui
 
 ### marketplace 首次刷新
 - [~/.claude 目录不存在时插件面板 Discover/Marketplaces 视图无法使用](domains/plugin.md#issue_2026-05-18-claude-dir-missing-plugin-panel-empty) — plugin
@@ -682,7 +682,7 @@
 - [~/.claude 目录不存在时插件面板 Discover/Marketplaces 视图无法使用](domains/plugin.md#issue_2026-05-18-claude-dir-missing-plugin-panel-empty) — plugin
 
 ### 主 UI 拆分
-- [peri-tui/src/ui/main_ui.rs 主 UI 布局逻辑集中（852 行）](domains/tui.md#issue_2026-05-17-main-ui-heavy-file) — tui
+- [cc-tui/src/ui/main_ui.rs 主 UI 布局逻辑集中（852 行）](domains/tui.md#issue_2026-05-17-main-ui-heavy-file) — tui
 
 ### 分屏
 - [分屏模式下非活跃 Session 命令浮层显示异常](domains/tui.md#issue_2026-05-12-split-session-command-hint-only-shows-active) — tui
@@ -1267,13 +1267,13 @@
 - [TUI 渲染缺少显式帧率限制，loading 动画期间持续满帧重绘](domains/tui.md#issue_2026-05-30-no-explicit-frame-rate-limit) — tui
 
 ### WidgetRef
-- [peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
+- [cc-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
 
 ### 所有权
-- [peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
+- [cc-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
 
 ### ratatui
-- [peri-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
+- [cc-widgets 组件未使用 WidgetRef，渲染路径存在不必要克隆](domains/tui.md#issue_2026-05-30-migrate-widgets-to-widgetref) — tui
 
 ### 弹窗
 - [交互弹窗激活时底部常驻输入框未失效](domains/tui.md#issue_2026-05-31-interaction-popup-textarea-not-disabled) — tui

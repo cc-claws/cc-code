@@ -18,8 +18,8 @@
   Your branch is up to date with 'origin/main'.
   ...
 
-> !cargo build -p peri-tui
-   Compiling peri-tui v0.1.0
+> !cargo build -p cc-tui
+   Compiling cc-tui v0.1.0
    Finished dev [unoptimized + debuginfo] target(s) in 12.34s
 ```
 
@@ -147,7 +147,7 @@ TUI 渲染: exec_result 组件
 #### 3.3.1 Action 枚举扩展
 
 ```rust
-// peri-tui/src/event/mod.rs
+// cc-tui/src/event/mod.rs
 pub enum Action {
     // ... 现有变体
     RunShellCommand(String),  // 新增
@@ -157,7 +157,7 @@ pub enum Action {
 #### 3.3.2 输入拦截（normal_keys.rs）
 
 ```rust
-// peri-tui/src/event/keyboard/normal_keys.rs
+// cc-tui/src/event/keyboard/normal_keys.rs
 fn handle_enter(app: &mut App, text: String) -> Option<Action> {
     // ... 现有 loading 缓冲逻辑
 
@@ -179,10 +179,10 @@ fn handle_enter(app: &mut App, text: String) -> Option<Action> {
 #### 3.3.3 命令执行器
 
 ```rust
-// peri-tui/src/shell_exec.rs (新文件)
+// cc-tui/src/shell_exec.rs (新文件)
 use std::process::Output;
 use tokio::process::Command;
-use crate::process::shell_command;  // 复用 peri-middlewares
+use crate::process::shell_command;  // 复用 cc-middlewares
 
 pub async fn execute_shell_command(command: &str) -> Result<CommandOutput> {
     let output = shell_command(command, &[])
@@ -206,7 +206,7 @@ pub struct CommandOutput {
 #### 3.3.4 UI 渲染组件
 
 ```rust
-// peri-tui/src/widgets/exec_result.rs (新文件)
+// cc-tui/src/widgets/exec_result.rs (新文件)
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 pub fn render_command_result(f: &mut Frame, area: Rect, cmd: &str, output: &CommandOutput) {
@@ -354,28 +354,28 @@ async fn test_shell_command_strip_prefix() {
 
 - **Codex CLI**: `codex-rs/tui/src/app_command.rs` — `AppCommand::RunUserShellCommand`
 - **Codex CLI**: `codex-rs/tui/src/bottom_pane/chat_composer.rs` — `is_bash_mode` 检测
-- **peri 现有模块**: `peri-middlewares/src/process/mod.rs` — `shell_command()` 跨平台封装
+- **peri 现有模块**: `cc-middlewares/src/process/mod.rs` — `shell_command()` 跨平台封装
 
 ## 8. 文件清单
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 新增 | `peri-tui/src/shell_exec.rs` | 命令执行器 |
-| 新增 | `peri-tui/src/widgets/exec_result.rs` | 结果渲染组件 |
-| 修改 | `peri-tui/src/event/mod.rs` | 添加 `RunShellCommand` Action |
-| 修改 | `peri-tui/src/event/keyboard/normal_keys.rs` | 输入拦截逻辑 |
-| 修改 | `peri-tui/src/main.rs` 或 `app/mod.rs` | Action handler |
-| 修改 | `peri-tui/src/widgets/mod.rs` | 导出新组件 |
+| 新增 | `cc-tui/src/shell_exec.rs` | 命令执行器 |
+| 新增 | `cc-tui/src/widgets/exec_result.rs` | 结果渲染组件 |
+| 修改 | `cc-tui/src/event/mod.rs` | 添加 `RunShellCommand` Action |
+| 修改 | `cc-tui/src/event/keyboard/normal_keys.rs` | 输入拦截逻辑 |
+| 修改 | `cc-tui/src/main.rs` 或 `app/mod.rs` | Action handler |
+| 修改 | `cc-tui/src/widgets/mod.rs` | 导出新组件 |
 
 **2026-09-30 新增（§3.1.1 上下文回流）**：
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 修改 | `peri-tui/src/app/shell_command.rs` | `shell_context_messages()`、`inject_shell_context()`、`is_shell_context_fragment()`、`SHELL_CAVEAT` |
-| 修改 | `peri-tui/src/app/message_pipeline/transform.rs` | 展示层跳过回流片段 |
-| 修改 | `peri-tui/src/acp_client/client.rs` | `append_history()` |
-| 修改 | `peri-tui/src/acp_server/mod.rs` | `session/append_history` 拦截 + `append_history_to_session()` |
-| 修改 | `peri-middlewares/src/middleware/terminal.rs` / `mod.rs` | `format_command_output` 提 `pub` 复用 |
-| 修改 | `peri-tui/src/app/background_shell.rs` | `xml_escape` 提 `pub(crate)` |
-| 复用 | `peri-middlewares/src/hitl/jev/redact.rs` | `redact_secrets()` —— 脱敏（§3.4.1） |
-| 复用 | `peri-middlewares/src/tools/output_persist.rs` | `truncate_shell_output()` —— 超长截断 |
+| 修改 | `cc-tui/src/app/shell_command.rs` | `shell_context_messages()`、`inject_shell_context()`、`is_shell_context_fragment()`、`SHELL_CAVEAT` |
+| 修改 | `cc-tui/src/app/message_pipeline/transform.rs` | 展示层跳过回流片段 |
+| 修改 | `cc-tui/src/acp_client/client.rs` | `append_history()` |
+| 修改 | `cc-tui/src/acp_server/mod.rs` | `session/append_history` 拦截 + `append_history_to_session()` |
+| 修改 | `cc-middlewares/src/middleware/terminal.rs` / `mod.rs` | `format_command_output` 提 `pub` 复用 |
+| 修改 | `cc-tui/src/app/background_shell.rs` | `xml_escape` 提 `pub(crate)` |
+| 复用 | `cc-middlewares/src/hitl/jev/redact.rs` | `redact_secrets()` —— 脱敏（§3.4.1） |
+| 复用 | `cc-middlewares/src/tools/output_persist.rs` | `truncate_shell_output()` —— 超长截断 |

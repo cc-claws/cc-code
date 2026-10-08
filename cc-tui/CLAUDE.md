@@ -1,10 +1,10 @@
-# peri-tui
+# cc-tui
 
-TUI 应用，纯 ACP client 前端。运行时仅通过 `peri-acp` 的 `MpscTransport`（in-memory channel pair）与 ACP Server 通信，不直接依赖 `peri-agent`/`peri-middlewares` 的运行时路径。
+TUI 应用，纯 ACP client 前端。运行时仅通过 `cc-acp` 的 `MpscTransport`（in-memory channel pair）与 ACP Server 通信，不直接依赖 `cc-agent`/`cc-middlewares` 的运行时路径。
 
 ## 依赖说明
 
-`Cargo.toml` 保留 `peri-agent`/`peri-middlewares` 作为**类型依赖**（UI 渲染所需的 `BaseMessage`/`ContentBlock` 等类型），运行时通信仅通过 `peri-acp`。
+`Cargo.toml` 保留 `cc-agent`/`cc-middlewares` 作为**类型依赖**（UI 渲染所需的 `BaseMessage`/`ContentBlock` 等类型），运行时通信仅通过 `cc-acp`。
 
 ## 核心文件
 

@@ -172,8 +172,8 @@
 
 #### 检查步骤
 
-- [ ] `cargo build -p peri-tui` 编译通过
-- [ ] `cargo clippy -p peri-tui` 通过
+- [ ] `cargo build -p cc-tui` 编译通过
+- [ ] `cargo clippy -p cc-tui` 通过
 - [ ] 确认 `dispatch::load_session_messages` 和 `dispatch::fork_session` 正确 import
 
 ---

@@ -40,11 +40,11 @@
 
 **注意**：50 轮数据**仅验证了 compact 未触发阶段**（50 轮 × ~2-3K tokens/轮 ≈ 100-150K tokens，临界 micro_compact 阈值）。**不能线性外推到 500 轮**，因为 §1.1 事实 E 的 compact 行为会在累积达 170K tokens 时把消息替换为 ~1-2KB 摘要，曲线非线性下降。500 轮实际累积**必须靠 Phase 0（§6.5）实测**，不能用 50 轮外推。
 
-**事实 E：compact 行为**——`CompactMiddleware`（`peri-middlewares/src/compact_middleware.rs`）在 `before_model` 钩子检查 `ContextBudget`：
+**事实 E：compact 行为**——`CompactMiddleware`（`cc-middlewares/src/compact_middleware.rs`）在 `before_model` 钩子检查 `ContextBudget`：
 - micro_compact 阈值 0.70（默认 200K context window 下 = 140K tokens）
 - full_compact 阈值 0.85（170K tokens）
-- full_compact 后：`pipeline.clear()` + `restore_completed(messages)` + `RebuildAll { prefix_len: 0 }`，**彻底清掉 TUI 层旧消息**（`peri-tui/src/app/agent_compact.rs:60-82`）
-- `RenderCache.rebuild()` 通过 `std::mem::take` + `resize` 清理 `message_lines`、`last_messages`（`peri-tui/src/ui/render_thread.rs:360-377`）
+- full_compact 后：`pipeline.clear()` + `restore_completed(messages)` + `RebuildAll { prefix_len: 0 }`，**彻底清掉 TUI 层旧消息**（`cc-tui/src/app/agent_compact.rs:60-82`）
+- `RenderCache.rebuild()` 通过 `std::mem::take` + `resize` 清理 `message_lines`、`last_messages`（`cc-tui/src/ui/render_thread.rs:360-377`）
 
 **事实 F：Arc<str> 收益独立 mock 验证**（`mock_arc_bench/`，独立 cargo 项目，未触及 peri 生产代码）——模拟 §1.2 中大字符串引用上限场景：每轮构造 **1 个原始 + 6 个 deep clone = 7 份**大字符串引用。
 
@@ -71,13 +71,13 @@
 
 | # | 存储位置 | 类型 | 性质 | 源码 |
 |---|---------|------|------|------|
-| 1 | `AgentState.messages` 内 BaseMessage | `BaseMessage::Tool { content: MessageContent }` | 原始（非 clone） | `peri-agent/src/agent/state.rs` |
-| 2 | `SessionState.origin_messages` | `Vec<BaseMessage>` | **deep clone**（`msgs.clone()`） | `peri-tui/src/app/agent_ops/mod.rs:287` |
-| 3 | `MessagePipeline.completed` | `Vec<BaseMessage>` | **move 不是 clone**（`extend(msgs)` 消费 Vec） | `peri-tui/src/app/message_pipeline/mod.rs:1039` |
-| 4 | `MessagePipeline.completed_tools.output` | `String`（中间缓存） | deep clone | `peri-tui/src/app/message_pipeline/mod.rs:215` |
-| 5 | `MessageViewModel::ToolBlock.content` | `String` | **deep clone** | `peri-tui/src/ui/message_view/mod.rs:110` |
-| 6 | `ContentBlockView::Text.raw` + `.rendered` | `String` + `Text<'static>` | **deep clone × 2** | `peri-tui/src/ui/message_view/mod.rs:449-450` |
-| 7 | `RenderCache.lines` | `Vec<Line<'static>>` | **deep clone**（ratatui Text<'static> 构造） | `peri-tui/src/ui/render_thread.rs` |
+| 1 | `AgentState.messages` 内 BaseMessage | `BaseMessage::Tool { content: MessageContent }` | 原始（非 clone） | `cc-agent/src/agent/state.rs` |
+| 2 | `SessionState.origin_messages` | `Vec<BaseMessage>` | **deep clone**（`msgs.clone()`） | `cc-tui/src/app/agent_ops/mod.rs:287` |
+| 3 | `MessagePipeline.completed` | `Vec<BaseMessage>` | **move 不是 clone**（`extend(msgs)` 消费 Vec） | `cc-tui/src/app/message_pipeline/mod.rs:1039` |
+| 4 | `MessagePipeline.completed_tools.output` | `String`（中间缓存） | deep clone | `cc-tui/src/app/message_pipeline/mod.rs:215` |
+| 5 | `MessageViewModel::ToolBlock.content` | `String` | **deep clone** | `cc-tui/src/ui/message_view/mod.rs:110` |
+| 6 | `ContentBlockView::Text.raw` + `.rendered` | `String` + `Text<'static>` | **deep clone × 2** | `cc-tui/src/ui/message_view/mod.rs:449-450` |
+| 7 | `RenderCache.lines` | `Vec<Line<'static>>` | **deep clone**（ratatui Text<'static> 构造） | `cc-tui/src/ui/render_thread.rs` |
 
 **字段路径修正**（v1 PRD 在此有事实错误，v3 已修正）：
 
@@ -214,8 +214,8 @@ Phase 0 详见 §6.5。
 
 | 文件 | 字段 | Before | After |
 |------|------|--------|-------|
-| `peri-agent/src/messages/content.rs:37` | `ContentBlock::Text.text` | `String` | `Arc<str>` |
-| `peri-agent/src/messages/content.rs:332` | `MessageContent::Text` 内层 | `String` | `Arc<str>` |
+| `cc-agent/src/messages/content.rs:37` | `ContentBlock::Text.text` | `String` | `Arc<str>` |
+| `cc-agent/src/messages/content.rs:332` | `MessageContent::Text` 内层 | `String` | `Arc<str>` |
 
 **未改字段**（即使也是 String，理由见 §3）：`MessageViewModel::ToolBlock.content`、`ContentBlockView::Text.raw`、`ContentBlockView::Text.rendered`、`CompletedTool.output`、所有 ID/name/title 字段。
 
@@ -233,7 +233,7 @@ Phase 0 详见 §6.5。
 
 - `ContentBlock` derive 了 `PartialEq`（content.rs:34），`Arc<str>: PartialEq` 比较的是字符串值（不是指针），行为正确。
 - `MessageContent` derive 了 `PartialEq`（content.rs:328），同上。
-- `MessageViewModel` 在 `peri-tui/src/ui/message_view/mod.rs:478+` 有手动 `PartialEq`，比较的字段（`ToolBlock.content` / `ContentBlockView::Text.raw` 等）**Phase 1 全部不动**（见 §5.1 未改字段列表）。**该 PartialEq 无需任何改动**。view 层字段改造属于 Phase 2 范围（§4.3），届时再处理。
+- `MessageViewModel` 在 `cc-tui/src/ui/message_view/mod.rs:478+` 有手动 `PartialEq`，比较的字段（`ToolBlock.content` / `ContentBlockView::Text.raw` 等）**Phase 1 全部不动**（见 §5.1 未改字段列表）。**该 PartialEq 无需任何改动**。view 层字段改造属于 Phase 2 范围（§4.3），届时再处理。
 
 #### 5.2.3 现有 API 兼容性
 
@@ -254,8 +254,8 @@ Phase 0 详见 §6.5。
 
 | 文件 | 行号 | 现状 | 修复 |
 |------|------|------|------|
-| `peri-agent/src/thread/sqlite_store.rs` | 249 | `MessageContent::Text(t) => t.clone()` 与同 match 中 `Blocks(...) => ...join(" ")` 类型不一致（旧都 String，新 Arc<str> vs String） | 改为 `t.to_string()` |
-| `peri-agent/src/thread/filesystem.rs` | 261 | 同上（与 sqlite_store 完全相同结构） | 改为 `t.to_string()` |
+| `cc-agent/src/thread/sqlite_store.rs` | 249 | `MessageContent::Text(t) => t.clone()` 与同 match 中 `Blocks(...) => ...join(" ")` 类型不一致（旧都 String，新 Arc<str> vs String） | 改为 `t.to_string()` |
+| `cc-agent/src/thread/filesystem.rs` | 261 | 同上（与 sqlite_store 完全相同结构） | 改为 `t.to_string()` |
 
 **冷路径 trade-off 说明**：这两处是 SQLite / 文件系统持久化路径，每次 `set_completed` 时一次性触发，**不在 hot path**。改 `t.to_string()` 会做一次 Arc<str> → String 的 memcpy（5MB 字符串约 1ms），但相对持久化本身的 IO 开销可忽略。Phase 1 在这两处路径**不保留 Arc 共享收益**，整体收益不受影响（hot path 是 TUI 层 `origin_messages.clone()` 和 `pipeline.completed_tools.output` 写入，仍享 Arc 共享）。
 
@@ -263,12 +263,12 @@ Phase 0 详见 §6.5。
 
 | 文件 | 行号 | 调用 | 原因 |
 |------|------|------|------|
-| `peri-tui/src/command/core/gc.rs` | 197 | `MessageContent::Text(s) => s.len()` | `Arc<str>: Deref<Target=str>`，`.len()` 透明 |
-| `peri-agent/src/messages/adapters/openai.rs` | 13 | `MessageContent::Text(s) => json!(s)` | `Arc<str>: Serialize` 透明 |
-| `peri-agent/src/messages/adapters/anthropic.rs` | 77 | `MessageContent::Text(s) => json!(s)` | 同上 |
-| `peri-agent/src/messages/adapters/anthropic.rs` | 210 | `MessageContent::Text(t) => { if !t.is_empty() {...} }` | `.is_empty()` 通过 Deref |
-| `peri-agent/src/llm/openai/invoke.rs` | 48 | `MessageContent::Text(s) => json!(s)` | Serialize 透明 |
-| `peri-agent/src/llm/anthropic/invoke.rs` | 81, 142 | `MessageContent::Text(s) => json!([{"type": "text", "text": s}])` | Serialize 透明 |
+| `cc-tui/src/command/core/gc.rs` | 197 | `MessageContent::Text(s) => s.len()` | `Arc<str>: Deref<Target=str>`，`.len()` 透明 |
+| `cc-agent/src/messages/adapters/openai.rs` | 13 | `MessageContent::Text(s) => json!(s)` | `Arc<str>: Serialize` 透明 |
+| `cc-agent/src/messages/adapters/anthropic.rs` | 77 | `MessageContent::Text(s) => json!(s)` | 同上 |
+| `cc-agent/src/messages/adapters/anthropic.rs` | 210 | `MessageContent::Text(t) => { if !t.is_empty() {...} }` | `.is_empty()` 通过 Deref |
+| `cc-agent/src/llm/openai/invoke.rs` | 48 | `MessageContent::Text(s) => json!(s)` | Serialize 透明 |
+| `cc-agent/src/llm/anthropic/invoke.rs` | 81, 142 | `MessageContent::Text(s) => json!([{"type": "text", "text": s}])` | Serialize 透明 |
 
 #### 5.2.4 调用方影响范围（grep 实测）
 
@@ -300,7 +300,7 @@ Phase 0 详见 §6.5。
 | #7 RenderCache.lines | +5-10 MB（未动，含 Line/SPAN 渲染开销） | +5-10 MB | 0 |
 | **合计** | **~25-30 MB** | **~15-20 MB** | **~10 MB** |
 
-**关于 #6 不计入**：`ContentBlockView::Text` 是 **AI 文本消息**的 view 层（处理 `ContentBlock::Text { text }` → view），不是 ToolResult 的路径（见 `peri-tui/src/ui/message_view/mod.rs:585` 的转换逻辑）。ToolResult 走 `MessageViewModel::ToolBlock.content` 路径（`reconcile.rs:245-250`），与 #6 互斥。PRD v3 把 #6 算进 5MB ToolResult 是错的，v4 已修正。
+**关于 #6 不计入**：`ContentBlockView::Text` 是 **AI 文本消息**的 view 层（处理 `ContentBlock::Text { text }` → view），不是 ToolResult 的路径（见 `cc-tui/src/ui/message_view/mod.rs:585` 的转换逻辑）。ToolResult 走 `MessageViewModel::ToolBlock.content` 路径（`reconcile.rs:245-250`），与 #6 互斥。PRD v3 把 #6 算进 5MB ToolResult 是错的，v4 已修正。
 
 实测对照：5MB ToolResult 实测 RSS 增长 +28-49 MB（来自 `large_toolresult_path.rs`），与表内估算 ~25-30 MB 的差值来自 jemalloc 碎片 + ratatui 渲染额外开销。
 
@@ -336,13 +336,13 @@ Phase 0 详见 §6.5。
 
 | 测试文件 | 验证目标 | Phase 1 预期 |
 |---------|---------|-------------|
-| `peri-tui/tests/headless_large_toolresult_e2e.rs::large_toolresult_full_e2e_real_app` | 5MB ToolResult 端到端 RSS 涨幅 | **≤ 40 MB（v7 实测 35 MB，达标 ✅）** |
-| `peri-tui/tests/headless_large_toolresult_e2e.rs::multi_round_accumulation_real_app` | **10 轮含 2 次 3MB 大文件累积涨幅（用户场景）** | **≤ 35 MB（v7 实测 33.28 MB，达标 ✅，目标依据见 §6.1.1）** |
-| `peri-tui/tests/large_toolresult_path.rs::large_toolresult_full_path_attribution` | 单次大 ToolResult 各存储点归因 | #2 步从 +5MB → ~0MB，#4 步降到 ~0（**#6 不计入**，见 §5.3） |
-| `peri-tui/tests/double_storage_bytes.rs` | 50 条典型对话双存储 | 不回归（KB 级） |
-| `peri-tui/tests/pipeline_real_rss_growth.rs` | 50 轮累积 RSS | 不回归 |
-| **`peri-tui/tests/pipeline_500_rounds_typical_conversation.rs`**（Phase 0 新增） | **500 轮典型对话累积** | **≤ 50 MB（主目标）** |
-| `peri-agent/src/messages/content_test.rs` | Arc<str> 字段读写、serde round-trip | 通过（v7 已落地 5 个测试） |
+| `cc-tui/tests/headless_large_toolresult_e2e.rs::large_toolresult_full_e2e_real_app` | 5MB ToolResult 端到端 RSS 涨幅 | **≤ 40 MB（v7 实测 35 MB，达标 ✅）** |
+| `cc-tui/tests/headless_large_toolresult_e2e.rs::multi_round_accumulation_real_app` | **10 轮含 2 次 3MB 大文件累积涨幅（用户场景）** | **≤ 35 MB（v7 实测 33.28 MB，达标 ✅，目标依据见 §6.1.1）** |
+| `cc-tui/tests/large_toolresult_path.rs::large_toolresult_full_path_attribution` | 单次大 ToolResult 各存储点归因 | #2 步从 +5MB → ~0MB，#4 步降到 ~0（**#6 不计入**，见 §5.3） |
+| `cc-tui/tests/double_storage_bytes.rs` | 50 条典型对话双存储 | 不回归（KB 级） |
+| `cc-tui/tests/pipeline_real_rss_growth.rs` | 50 轮累积 RSS | 不回归 |
+| **`cc-tui/tests/pipeline_500_rounds_typical_conversation.rs`**（Phase 0 新增） | **500 轮典型对话累积** | **≤ 50 MB（主目标）** |
+| `cc-agent/src/messages/content_test.rs` | Arc<str> 字段读写、serde round-trip | 通过（v7 已落地 5 个测试） |
 
 #### 6.1.1 验收目标依据（2026-06-14 Linux 实测修订）
 
@@ -368,7 +368,7 @@ Phase 0 详见 §6.5。
 
 ### 6.2 新增断言（Phase 1 完成后必须加）
 
-新增 `peri-agent/src/messages/content_arc_test.rs`（或并入现有 `content_test.rs`）：
+新增 `cc-agent/src/messages/content_arc_test.rs`（或并入现有 `content_test.rs`）：
 
 ```rust
 use std::sync::Arc;
@@ -429,14 +429,14 @@ diff before.json after.json  # 必须无差异
 
 ```bash
 # 用复现场景跑真实 TUI
-cargo run -p peri-tui -- -p "读取 src/main.rs 全文并总结" --dangerously-skip-permissions
+cargo run -p cc-tui -- -p "读取 src/main.rs 全文并总结" --dangerously-skip-permissions
 # 在 TUI 内输入 /gc 查看 RSS / heap 分解
 # 期望：单轮涨幅 ≤ 25MB（Phase 1）
 ```
 
 ### 6.5 Phase 0：500 轮基线测量（必须先做）
 
-**新增测试文件**：`peri-tui/tests/pipeline_500_rounds_typical_conversation.rs`
+**新增测试文件**：`cc-tui/tests/pipeline_500_rounds_typical_conversation.rs`
 
 **测试设计**（必须严格按 §2.2 定义的 message mix）：
 
@@ -558,7 +558,7 @@ Phase 1 改动集中在 2 个字段 + 5-10 个读取处，git revert 即可完�
 
 ### Phase 0（必须先做，不动生产代码）
 
-- [ ] 写 `peri-tui/tests/pipeline_500_rounds_typical_conversation.rs`，按 §2.2 定义生成 500 轮 message mix
+- [ ] 写 `cc-tui/tests/pipeline_500_rounds_typical_conversation.rs`，按 §2.2 定义生成 500 轮 message mix
 - [ ] 跑当前基线，记录 RSS 曲线 + 最终累积 + compact 触发次数
 - [ ] **决策点**：基线 ≤ 50MB？
   - 是 → Phase 1 仍做（解决单轮暴涨），但优先级降低
@@ -641,20 +641,20 @@ Phase 1 改动集中在 2 个字段 + 5-10 个读取处，git revert 即可完�
 
 | 文件 | 行号 | 内容 |
 |------|------|------|
-| `peri-agent/src/messages/content.rs` | 37 | `ContentBlock::Text.text` 字段 |
-| `peri-agent/src/messages/content.rs` | 83-233 | 手动 Serialize/Deserialize impl |
-| `peri-agent/src/messages/content.rs` | 295-300 | `as_text()` 读取 |
-| `peri-agent/src/messages/content.rs` | 332 | `MessageContent::Text(String)` 字段 |
-| `peri-agent/src/messages/content.rs` | 356-371 | `text_content()` 读取（含 `s.clone()`） |
-| `peri-agent/src/messages/content.rs` | 378-396 | `content_blocks()` 读取（含 `s.clone()`） |
-| `peri-agent/src/thread/sqlite_store.rs` | 249 | **必须改**：`MessageContent::Text(t) => t.clone()` |
-| `peri-agent/src/thread/filesystem.rs` | 261 | **必须改**：同上 |
-| `peri-tui/src/app/agent_ops/mod.rs` | 287 | `origin_messages.extend(msgs.clone())` |
-| `peri-tui/src/app/message_pipeline/mod.rs` | 215 | `CompletedTool.output: String` |
-| `peri-tui/src/app/message_pipeline/mod.rs` | 1039 | `set_completed` extend（move 不是 clone） |
-| `peri-tui/src/app/agent_compact.rs` | 60-82 | compact 后 pipeline 清理 + RebuildAll |
-| `peri-tui/src/ui/message_view/mod.rs` | 110 | `MessageViewModel::ToolBlock.content` |
-| `peri-tui/src/ui/message_view/mod.rs` | 449-450 | `ContentBlockView::Text { raw, rendered }` |
-| `peri-tui/src/ui/render_thread.rs` | 355-442 | `RenderCache.rebuild` 与 mem::take |
-| `peri-middlewares/src/compact_middleware.rs` | 286-311 | `before_model` 触发 compact |
-| `peri-agent/src/agent/token.rs` | 124-160 | `ContextBudget` 阈值定义 |
+| `cc-agent/src/messages/content.rs` | 37 | `ContentBlock::Text.text` 字段 |
+| `cc-agent/src/messages/content.rs` | 83-233 | 手动 Serialize/Deserialize impl |
+| `cc-agent/src/messages/content.rs` | 295-300 | `as_text()` 读取 |
+| `cc-agent/src/messages/content.rs` | 332 | `MessageContent::Text(String)` 字段 |
+| `cc-agent/src/messages/content.rs` | 356-371 | `text_content()` 读取（含 `s.clone()`） |
+| `cc-agent/src/messages/content.rs` | 378-396 | `content_blocks()` 读取（含 `s.clone()`） |
+| `cc-agent/src/thread/sqlite_store.rs` | 249 | **必须改**：`MessageContent::Text(t) => t.clone()` |
+| `cc-agent/src/thread/filesystem.rs` | 261 | **必须改**：同上 |
+| `cc-tui/src/app/agent_ops/mod.rs` | 287 | `origin_messages.extend(msgs.clone())` |
+| `cc-tui/src/app/message_pipeline/mod.rs` | 215 | `CompletedTool.output: String` |
+| `cc-tui/src/app/message_pipeline/mod.rs` | 1039 | `set_completed` extend（move 不是 clone） |
+| `cc-tui/src/app/agent_compact.rs` | 60-82 | compact 后 pipeline 清理 + RebuildAll |
+| `cc-tui/src/ui/message_view/mod.rs` | 110 | `MessageViewModel::ToolBlock.content` |
+| `cc-tui/src/ui/message_view/mod.rs` | 449-450 | `ContentBlockView::Text { raw, rendered }` |
+| `cc-tui/src/ui/render_thread.rs` | 355-442 | `RenderCache.rebuild` 与 mem::take |
+| `cc-middlewares/src/compact_middleware.rs` | 286-311 | `before_model` 触发 compact |
+| `cc-agent/src/agent/token.rs` | 124-160 | `ContextBudget` 阈值定义 |

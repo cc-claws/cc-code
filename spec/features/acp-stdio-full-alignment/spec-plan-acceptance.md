@@ -11,7 +11,7 @@
 
 ```bash
 cd /Users/konghayao/code/ai/perihelion
-cargo build -p peri-acp -p peri-tui 2>&1
+cargo build -p cc-acp -p cc-tui 2>&1
 ```
 
 预期：编译通过，无编译错误和编译警告。
@@ -19,8 +19,8 @@ cargo build -p peri-acp -p peri-tui 2>&1
 - [ ] **A.2**: 全量测试
 
 ```bash
-cargo test -p peri-acp --lib 2>&1
-cargo test -p peri-tui --lib 2>&1
+cargo test -p cc-acp --lib 2>&1
+cargo test -p cc-tui --lib 2>&1
 ```
 
 预期：所有测试通过（新增的 dispatch 单元测试 + 已有测试）。
@@ -28,7 +28,7 @@ cargo test -p peri-tui --lib 2>&1
 - [ ] **A.3**: Clippy 检查
 
 ```bash
-cargo clippy -p peri-acp -p peri-tui -- -D warnings 2>&1
+cargo clippy -p cc-acp -p cc-tui -- -D warnings 2>&1
 ```
 
 预期：无 clippy 警告。
@@ -36,7 +36,7 @@ cargo clippy -p peri-acp -p peri-tui -- -D warnings 2>&1
 - [ ] **A.4**: 检查 dispatch 模块完整性
 
 ```bash
-grep "^pub mod\|^pub use" /Users/konghayao/code/ai/perihelion/peri-acp/src/dispatch/mod.rs
+grep "^pub mod\|^pub use" /Users/konghayao/code/ai/perihelion/cc-acp/src/dispatch/mod.rs
 ```
 
 预期输出应包含：
@@ -50,7 +50,7 @@ grep "^pub mod\|^pub use" /Users/konghayao/code/ai/perihelion/peri-acp/src/dispa
 - [ ] **A.5**: 检查 stdio handler 注册完整性
 
 ```bash
-grep -c "on_receive_request\|on_receive_notification" /Users/konghayao/code/ai/perihelion/peri-tui/src/acp_stdio.rs
+grep -c "on_receive_request\|on_receive_notification" /Users/konghayao/code/ai/perihelion/cc-tui/src/acp_stdio.rs
 ```
 
 预期：至少 14 个 handler 注册（原有 8 个 + 新增 6-8 个）。
@@ -58,7 +58,7 @@ grep -c "on_receive_request\|on_receive_notification" /Users/konghayao/code/ai/p
 - [ ] **A.6**: 检查重复代码消除
 
 ```bash
-grep -n "fn build_available_commands\|fn build_stdio_available_commands" /Users/konghayao/code/ai/perihelion/peri-tui/src/acp_server/notify.rs /Users/konghayao/code/ai/perihelion/peri-tui/src/acp_stdio.rs
+grep -n "fn build_available_commands\|fn build_stdio_available_commands" /Users/konghayao/code/ai/perihelion/cc-tui/src/acp_server/notify.rs /Users/konghayao/code/ai/perihelion/cc-tui/src/acp_stdio.rs
 ```
 
 预期：无匹配（原有本地定义已删除，统一使用 dispatch 版本）。
@@ -66,7 +66,7 @@ grep -n "fn build_available_commands\|fn build_stdio_available_commands" /Users/
 - [ ] **A.7**: 检查 TUI 路径仍使用 dispatch 函数
 
 ```bash
-grep -n "dispatch::load_session_messages\|dispatch::fork_session\|dispatch::build_available_commands" /Users/konghayao/code/ai/perihelion/peri-tui/src/acp_server/requests.rs
+grep -n "dispatch::load_session_messages\|dispatch::fork_session\|dispatch::build_available_commands" /Users/konghayao/code/ai/perihelion/cc-tui/src/acp_server/requests.rs
 ```
 
 预期：有匹配结果（session/load 和 session/fork handler 使用 dispatch 函数）。
@@ -83,7 +83,7 @@ grep -c "✅" /Users/konghayao/code/ai/perihelion/docs/ACP_COMPATIBLE.csv
 
 ```bash
 # 检查 session/load handler 结构完整
-rg -A30 '"session/load"' /Users/konghayao/code/ai/perihelion/peri-tui/src/acp_server/requests.rs | head -40
+rg -A30 '"session/load"' /Users/konghayao/code/ai/perihelion/cc-tui/src/acp_server/requests.rs | head -40
 ```
 
 预期：handler 使用 `dispatch::load_session_messages()` 而非直接调用 `thread_store.load_messages()`。

@@ -84,6 +84,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **详细模式长命令状态刷新修复** | v0.6.101 | 详细模式（Ctrl+O）下 Bash 命令超长时 header 会折成多行（#264），但 tick 增量刷新仍按「header 恒 1 行」的旧假设处理：把命令续行覆盖成 `Running…`，同时冻结真正的状态行（屏幕上出现两处 `Running…` 且时间不一致）。现改为按内容定位状态行，不再依赖固定下标 / 固定行数 |
+| **`/gc` 诊断去误导 + VM 估算** | v0.6.100 | `/gc` 内存标签改为**分平台**语义（`active` / `mapped` / `retained` 在 jemalloc 与 mimalloc 下含义不同，Windows 数字不再暗示虚假碎片）；估算器纳入 `view_messages`，此前「未识别」的大头正在此处 |
 | **后台 shell 通知接入 i18n** | v0.6.99 | 后台 shell 完成 / 超时 / 取消 / 终止 / 等待输入通知的展示文案改为走 i18n（此前硬编码中文，英文语言下仍显示中文）；新增进程级语言注册表，供静态 `MessageViewModel` 构造路径解析当前语言，启动与 `/lang` 切换时同步 |
 | **ACP 权限审批转发** | v0.6.94 | `cc-code acp` 改为通过 `session/request_permission` 把工具审批请求转发给 IDE 客户端，不再自动放行（fail-closed：客户端不支持 / 调用失败 / 未知选项一律拒绝）；stdio 默认权限模式由 Bypass 改为 AutoMode（无人值守可用 `session/set_mode` 切到 bypass） |
 | **默认启用审批** | v0.6.90 | 审批默认开启：`YOLO_MODE` 未设置不再跳过 HITL（需显式 `-y/--yolo` 或 `YOLO_MODE=true` 才免审批）；HITL 门控评估改写后的实际执行命令；`git clone` 防参数注入 |
@@ -92,10 +94,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Thinking 状态行与工具动作汇总** | v0.6.82 | spinner 行第三字段四态状态机（`thinking` / `thought for Ns` / `still thinking` / `thinking more`）；消息区思考行改为 `Thought for Ns, <动作计数>`；连续「思考+只读工具」轮合并为一行；Bash 非详细模式展示输出摘要 + `... (N more lines) (ctrl+o to expand)` |
 | **语义门加固与权限模式收敛** | v0.6.81 | HITL 语义门按上游 Jev 语义重做：补上 `curl\|bash` 与解释器家族绕过、写路径穿越不再能跳过门、判定不可用改为回到人工确认而非堵死整个会话；权限模式收敛为 `auto`/`bypass`（默认 auto），确定性防线不再与语义判定共用开关 |
 | **会话恢复 Recap 持久化** | v0.6.80 | Recap 与任务完成总结行落库到 `ThreadMeta`（`latest_recap`/`last_task_summary`），`-c`/`-r` 恢复后不再丢失 |
-| **/recap 命令与自动回顾** | v0.6.76 | `/recap`（别名 `/away` `/catchup`）用 aux_model 输出「目标→任务→下一步」；终端失焦+≥3 完成轮+60s 静默自动触发回顾（`/config` 开关，`PERI_AUTO_RECAP_*` 环境变量）；非流式 Anthropic 响应自适应兼容反向代理 OpenAI 格式 |
-| **工具参数校验与输入泵** | v0.6.75 | Schema 校验错误对齐 Claude Code `formatZodValidationError` 可读化 + 工具错选启发式诊断（`suggest_tool_mismatch`）+ 连续失败熔断；引入独立 InputPump 安全启用鼠标悬停并修复滚动条拖拽 |
 
-> 更早版本（v0.6.0 – v0.6.74）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.76）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

@@ -50,7 +50,7 @@ Grep(pattern, path, glob, type, case_insensitive, whole_word, context, head_limi
 | 并行模型 | crossbeam channel + num_cpus 线程 |
 | 异步桥接 | tokio::task::spawn_blocking + 15s timeout |
 | 接口兼容 | 工具名、参数 schema、description、输出格式保持不变 |
-| 关键源码 | `peri-middlewares/src/tools/filesystem/rg_engine.rs`、`grep_args.rs` |
+| 关键源码 | `cc-middlewares/src/tools/filesystem/rg_engine.rs`、`grep_args.rs` |
 
 ## Feature 附录
 

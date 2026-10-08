@@ -26,24 +26,24 @@
 
 | 文件 | 操作 | 职责 |
 |------|------|------|
-| `peri-agent/src/llm/mod.rs` | 修改 | 添加 `build_reqwest_client()` pub(crate) 函数 |
-| `peri-agent/src/llm/openai/mod.rs` | 修改 | 删除 `build_reqwest_client()`，使用上层共享版本 |
-| `peri-agent/src/llm/anthropic/mod.rs` | 修改 | 同上 |
-| `peri-agent/src/llm/openai/invoke.rs` | 修改 | 删除 `impl ReactLLM for ChatOpenAI`；提取 `extract_openai_usage` |
-| `peri-agent/src/llm/openai/stream.rs` | 修改 | 使用共享 `extract_openai_usage`；合并 ToolUse/text 的 `LlmResponse` 构建 |
-| `peri-agent/src/llm/anthropic/invoke.rs` | 修改 | 删除 `impl ReactLLM for ChatAnthropic` |
+| `cc-agent/src/llm/mod.rs` | 修改 | 添加 `build_reqwest_client()` pub(crate) 函数 |
+| `cc-agent/src/llm/openai/mod.rs` | 修改 | 删除 `build_reqwest_client()`，使用上层共享版本 |
+| `cc-agent/src/llm/anthropic/mod.rs` | 修改 | 同上 |
+| `cc-agent/src/llm/openai/invoke.rs` | 修改 | 删除 `impl ReactLLM for ChatOpenAI`；提取 `extract_openai_usage` |
+| `cc-agent/src/llm/openai/stream.rs` | 修改 | 使用共享 `extract_openai_usage`；合并 ToolUse/text 的 `LlmResponse` 构建 |
+| `cc-agent/src/llm/anthropic/invoke.rs` | 修改 | 删除 `impl ReactLLM for ChatAnthropic` |
 
 ---
 
 ### Task 1: 删除冗余 `impl ReactLLM for ChatOpenAI`
 
 **Files:**
-- Modify: `peri-agent/src/llm/openai/invoke.rs:568-664`
-- Test: `peri-agent/src/llm/openai_test.rs`（无需改动——测试不测 `generate_reasoning`）
+- Modify: `cc-agent/src/llm/openai/invoke.rs:568-664`
+- Test: `cc-agent/src/llm/openai_test.rs`（无需改动——测试不测 `generate_reasoning`）
 
 - [ ] **Step 1: 删除 `impl ReactLLM for ChatOpenAI` 块**
 
-删除 `peri-agent/src/llm/openai/invoke.rs` 第 568-664 行的整个 `impl ReactLLM for ChatOpenAI` 块，同时删除不再需要的 imports：
+删除 `cc-agent/src/llm/openai/invoke.rs` 第 568-664 行的整个 `impl ReactLLM for ChatOpenAI` 块，同时删除不再需要的 imports：
 
 ```rust
 // 删除这行（如果 `react_adapter.rs` 和 `mock` 都不从此文件使用）
@@ -74,7 +74,7 @@ use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, To
 - [ ] **Step 2: 验证编译**
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 Expected: 编译成功（生产路径通过 `BaseModelReactLLM`，不直接使用 `ChatOpenAI` 的 `ReactLLM` impl）
@@ -82,7 +82,7 @@ Expected: 编译成功（生产路径通过 `BaseModelReactLLM`，不直接使�
 - [ ] **Step 3: 运行测试确认无回归**
 
 ```bash
-cargo test -p peri-agent --lib -- openai
+cargo test -p cc-agent --lib -- openai
 ```
 
 Expected: 所有测试通过
@@ -92,11 +92,11 @@ Expected: 所有测试通过
 ### Task 2: 删除冗余 `impl ReactLLM for ChatAnthropic`
 
 **Files:**
-- Modify: `peri-agent/src/llm/anthropic/invoke.rs:621-709`
+- Modify: `cc-agent/src/llm/anthropic/invoke.rs:621-709`
 
 - [ ] **Step 1: 删除 `impl ReactLLM for super::ChatAnthropic` 块**
 
-删除 `peri-agent/src/llm/anthropic/invoke.rs` 第 621-709 行的整个 `impl ReactLLM for super::ChatAnthropic` 块。
+删除 `cc-agent/src/llm/anthropic/invoke.rs` 第 621-709 行的整个 `impl ReactLLM for super::ChatAnthropic` 块。
 
 同步清理顶部 imports：
 
@@ -122,13 +122,13 @@ use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, To
 - [ ] **Step 2: 验证编译**
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 - [ ] **Step 3: 运行测试**
 
 ```bash
-cargo test -p peri-agent --lib -- anthropic
+cargo test -p cc-agent --lib -- anthropic
 ```
 
 ---
@@ -136,13 +136,13 @@ cargo test -p peri-agent --lib -- anthropic
 ### Task 3: 提取共享 `build_reqwest_client()`
 
 **Files:**
-- Modify: `peri-agent/src/llm/mod.rs`
-- Modify: `peri-agent/src/llm/openai/mod.rs`
-- Modify: `peri-agent/src/llm/anthropic/mod.rs`
+- Modify: `cc-agent/src/llm/mod.rs`
+- Modify: `cc-agent/src/llm/openai/mod.rs`
+- Modify: `cc-agent/src/llm/anthropic/mod.rs`
 
 - [ ] **Step 1: 在 `llm/mod.rs` 添加共享函数**
 
-在 `peri-agent/src/llm/mod.rs` 中，`pub use retry::{RetryConfig, RetryableLLM};` 之后添加：
+在 `cc-agent/src/llm/mod.rs` 中，`pub use retry::{RetryConfig, RetryableLLM};` 之后添加：
 
 ```rust
 /// Build a reqwest client with connection pool limits to prevent TLS session
@@ -178,7 +178,7 @@ client: super::build_reqwest_client(),
 - [ ] **Step 4: 验证编译**
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 ---
@@ -186,8 +186,8 @@ cargo build -p peri-agent
 ### Task 4: 提取 OpenAI `TokenUsage` 构建为共享函数
 
 **Files:**
-- Modify: `peri-agent/src/llm/openai/invoke.rs`
-- Modify: `peri-agent/src/llm/openai/stream.rs`
+- Modify: `cc-agent/src/llm/openai/invoke.rs`
+- Modify: `cc-agent/src/llm/openai/stream.rs`
 
 - [ ] **Step 1: 在 `invoke.rs` 添加 `extract_openai_usage` 函数**
 
@@ -297,7 +297,7 @@ let usage = final_usage.as_ref().and_then(|u| extract_openai_usage(u, stream_req
 - [ ] **Step 4: 验证编译和测试**
 
 ```bash
-cargo build -p peri-agent && cargo test -p peri-agent --lib -- openai
+cargo build -p cc-agent && cargo test -p cc-agent --lib -- openai
 ```
 
 ---
@@ -305,7 +305,7 @@ cargo build -p peri-agent && cargo test -p peri-agent --lib -- openai
 ### Task 5: 合并 OpenAI stream `LlmResponse` 构建的双分支
 
 **Files:**
-- Modify: `peri-agent/src/llm/openai/stream.rs`
+- Modify: `cc-agent/src/llm/openai/stream.rs`
 
 - [ ] **Step 1: 提取 `build_openai_llm_response` 函数**
 
@@ -399,7 +399,7 @@ fn build_stream_response(
 - [ ] **Step 3: 验证编译和测试**
 
 ```bash
-cargo build -p peri-agent && cargo test -p peri-agent --lib -- openai
+cargo build -p cc-agent && cargo test -p cc-agent --lib -- openai
 ```
 
 ---
@@ -420,7 +420,7 @@ Expected: 所有 workspace crate 编译成功
 - [ ] **Step 2: 全量测试**
 
 ```bash
-cargo test -p peri-agent
+cargo test -p cc-agent
 ```
 
 Expected: 所有测试通过
@@ -428,7 +428,7 @@ Expected: 所有测试通过
 - [ ] **Step 3: Clippy 检查**
 
 ```bash
-cargo clippy -p peri-agent --lib -- -D warnings
+cargo clippy -p cc-agent --lib -- -D warnings
 ```
 
 Expected: 无 warning
