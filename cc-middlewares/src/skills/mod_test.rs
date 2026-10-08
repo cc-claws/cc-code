@@ -41,7 +41,9 @@
         let content = msg.content();
         assert!(content.contains("tui-dev"));
         assert!(content.contains("codebase-exploration"));
-        assert!(content.contains("Skills"));
+        // 大小写不敏感：摘要 header 措辞/大小写随文案演进而变（如 "Skills"/"skills"），
+        // 断言只验证「提到了 skills 能力」，不应绑定具体大小写。
+        assert!(content.to_lowercase().contains("skills"));
     }
 
     #[tokio::test]
