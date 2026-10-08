@@ -10,6 +10,8 @@ Perihelion Agent 版本变更记录。
 
 - **补全版权署名与 Cargo 包元数据**：LICENSE 在上游 `Copyright 2026 KonghaYao` 之下追加本衍生作品署名 `Copyright 2026 cc-claws (modifications to the Derivative Work)`（上游版权行为 Apache-2.0 §4c 强制保留义务，未删改）；`[workspace.package]` 新增 `authors = ["cc-claws"]` 与 `license = "Apache-2.0"` 作为全仓单一数据源；7 个 workspace crate（cc-agent / cc-middlewares / cc-tui / cc-acp / cc-widgets / cc-lsp / langfuse-client）统一改为 `license.workspace` / `authors.workspace` 继承——此前仅 cc-agent / cc-middlewares 硬编码 license，其余 5 个缺 `license`，全部缺 `authors`。
 - **合并 `CORE_VERIFY.md` 到 `human/TESTING.md`**：根目录 8 行的手写冒烟清单（hello 对话 / `/clear` / `/history` / 工具调用完整性 / 多轮失忆 / Ctrl+C 中断 / ask_user）零引用、未收录文档地图，易被忽略。现整理为 `human/TESTING.md` 的「核心功能冒烟清单（发布前人工走查）」段并删除原文件，内容一字未丢。
+- **删除 `prompts.md`**：根目录 4 条 `/loop` 命令自用模板，零引用、未收录文档地图，且模板内容引用了并不存在的 `progress.md`。
+- **`lefthook.yml` 对齐 CI**：pre-commit 的 clippy 由 `cargo clippy --all-targets -- -W clippy::all` 改为与 CI 一致的 `cargo clippy --workspace --all-targets -- -D warnings`（`-W` 只告警不拦截，是「本地 lefthook 通过、CI 变红」的根因，如 PR #339）；`check` 补 `--workspace`；移除永远空转的 `typos` 命令（`typos --ignore-hidden 2>/dev/null || true`，无配置文件且 `|| true` 保证永不失败）。
 
 ### Docs
 

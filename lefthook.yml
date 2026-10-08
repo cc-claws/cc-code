@@ -12,11 +12,11 @@ pre-commit:
 
     check:
       glob: "*.rs"
-      run: cargo check --all-targets
+      run: cargo check --workspace --all-targets
 
     clippy:
       glob: "*.rs"
-      run: cargo clippy --all-targets -- -W clippy::all
-
-    typos:
-      run: typos --ignore-hidden 2>/dev/null || true
+      # 与 CI 保持一致（.github/workflows/ci.yml）：-D warnings 把 lint 升级为
+      # error。旧配置用 `-W clippy::all` 只告警不拦截，会出现「本地 lefthook
+      # 通过、CI 变红」（如 PR #339 的 manual_slice_size_calculation）。
+      run: cargo clippy --workspace --all-targets -- -D warnings
