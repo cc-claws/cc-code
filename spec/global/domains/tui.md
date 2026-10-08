@@ -17,7 +17,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 配色系统 v1.1：橙色仅保留最高优先级交互（命令输入框），工具名三级分层（bash=ACCENT / 写操作=WARNING / 只读=MUTED），配置面板边框 MUTED 降噪
 - App 结构体拆分：App 三字段（ServiceRegistry/SessionManager/PanelManager），ChatSession 六子模块（ui/messages/session_panels/agent/commands/metadata）
 - 面板组件化：PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，新增面板只需实现 trait
-- 配置系统补全：CLAUDE.local.md 支持、`@import` 外部文件引用、claudeMdExcludes glob 过滤、`$schema` passthrough
+- 配置系统补全：CLAUDE.local.md 支持、`@import` 文件引用（默认限项目根内）、claudeMdExcludes glob 过滤、`$schema` passthrough
 - Welcome Card：空消息时显示品牌 ASCII Art Logo + 功能亮点 + 命令提示，发送消息后自动消失
 - Sticky Human Message Header：聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动
 - i18n（Fluent）：`LcRegistry` 按 key 取文案（`/lang` 切 en / zh-CN）；静态构造路径（无 App 上下文，如后台 shell 通知 → `MessageViewModel`）通过**进程级注册表** `i18n::init_global`/`global` 读当前语言，启动与 `/lang` 切换时同步；`FluentBundle` 用 concurrent 变体以满足 `Sync`
@@ -114,7 +114,7 @@ submit_message(text)
 | App 结构体 | App 三字段（ServiceRegistry/SessionManager/PanelManager），ChatSession 六子模块（ui/messages/session_panels/agent/commands/metadata） |
 | 面板组件化 | PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，双实例（session/global），PanelContext 解耦借用 |
 | SubAgent 显示 | 格式 `Agent(type) #hash`，颜色映射（ERROR/WARNING/SAGE），is_background + bg_hash 字段 |
-| 配置系统 | CLAUDE.local.md 支持、`@import` 外部引用（深度上限 3）、claudeMdExcludes glob 过滤、`$schema` passthrough |
+| 配置系统 | CLAUDE.local.md 支持、`@import` 文件引用（深度上限 3，默认限项目根内，越界保留占位符）、claudeMdExcludes glob 过滤、`$schema` passthrough |
 | TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查、`/recap` 会话回顾（recap_auto.rs 支持终端失焦自动触发） |
 | 配色方案 | v1.1 降噪：橙色仅用于输入框，工具名 bash=ACCENT/写操作=WARNING/只读=MUTED，面板边框 MUTED |
 | Setup Wizard | 三步引导（Provider → API Key → Model Alias），save_setup() 原子写回 settings.json |

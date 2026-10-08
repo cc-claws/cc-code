@@ -25,8 +25,27 @@ HITL 权限领域负责工具调用的审批策略管理，支持 5 级权限模
   → ask_user_question: 始终弹窗，不受权限模式影响
 ```
 
-## 技术方案总结
+### Bash 命令的判定口径（RTK 改写 × 显式规则）
 
+Bash 工具在执行前会经 RTK 前缀改写（`X` → `rtk X`，仅对 git/cargo/npm/docker/kubectl… 等白名单命令族），
+因此同一件事有两个命令文本：**原始命令**（用户敲的）与**有效命令**（实际会执行的）。门控的取值口径：
+
+| 判定项 | 看哪些命令 | 方向 |
+|---|---|---|
+| 硬黑名单 / 危险形状 | 原始 **+** 有效 | 任一命中即拦（fail-closed）|
+| 用户 `disallowed_commands` | 原始 **+** 有效 | 任一命中即拦 |
+| 用户 `allowed_commands` / `safe_commands` | 原始 **+** 有效 | 任一命中即生效（白名单表达的是意图，改写只是前缀包装）|
+| 内置只读白名单（快车道） | 原始 **+** 有效 | **两条都**是只读链才进快车道（保守）|
+
+**为什么两边都要看**：
+
+- 只看有效命令（#288 的原始动机：避免「批准 X、实际执行 X′」）→ 用户写的 `kubectl delete*` 在装了 `rtk`
+  的机器上被 `rtk kubectl delete pod x` 绕过，**规则静默失效**（#358，同一份代码在 CI 上还测不出来）；
+- 只看原始命令 → 重新引入 #288 的语义漏洞。
+
+实现见 `cc-middlewares/src/hitl/jev/mod.rs` 的 `Commands`（有效命令 + 原始命令的集合，`GateCall.original_command` 携带原始命令）。
+
+## 技术方案总结
 | 维度 | 选型 |
 |------|------|
 | 模式枚举 | PermissionMode: Default/AcceptEdits/Auto/BypassPermissions/DontAsk |

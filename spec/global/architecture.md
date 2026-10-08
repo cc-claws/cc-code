@@ -100,7 +100,7 @@ src/
 ├── skills/
 │   ├── loader.rs         — 多路径扫描（~/.claude/skills/ → skillsDir → ./.claude/skills/），同名先到先得
 │   └── mod.rs            — SkillsMiddleware（before_agent prepend 摘要到 system prompt）
-├── agents_md.rs          — AgentsMdMiddleware（读 CLAUDE.md / AGENTS.md 注入 system）
+├── agents_md/            — AgentsMdMiddleware（指引文件加载：同目录合并去重 + 跨目录 root→cwd 拼接 + 限额，见 spec/global/domains/agent-instructions.md）
 ├── agent_define.rs       — AgentDefineMiddleware + AgentOverrides（覆盖 model/tone/maxTurns 等）
 ├── claude_agent_parser.rs — .claude/agents/*.md 文件解析器（YAML frontmatter 提取）
 ├── ask_user/             — parse_ask_user() 工具输出解析
@@ -338,7 +338,7 @@ Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，�
 ```
 主 Agent（cc-tui 组装）：
 1. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
-2. AgentsMdMiddleware         ← 读 CLAUDE.md/AGENTS.md 注入 system
+2. AgentsMdMiddleware         ← 注入指引整段（AGENTS.md/CLAUDE.md 及变体，单条 System 消息）
 3. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
 4. SkillPreloadMiddleware     ← 消息含 #skill-name 时注入 skill 全文（fake tool 序列）
 5. FilesystemMiddleware       ← 提供 6 个文件系统工具

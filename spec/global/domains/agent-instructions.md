@@ -103,7 +103,11 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 - 作用范围：**所有主候选文件**（`AGENTS.md` / `CLAUDE.md` / 全局 / `.local`）；dsh 无此能力，属本仓库扩展。
 - 深度上限 **3**，带**环检测**（visited canonical paths，含自身）。
 - **在去重之前**展开（先展开、后按内容去重；因此「同一内容被 import 进两个文件」也会被去重）。
-- 展开失败（文件不存在/不可读/成环/超深）**保留原占位符**并静默跳过，不 panic；
+- **范围限制（默认）**：只能 import **所属项目根内**的文件（文件不在任何项目根下时 = 该文件所在目录）；
+  `../` 穿越与绝对路径越界一律**保留占位符** + `tracing::warn!`。这是安全边界：处理恶意仓库时，
+  其 `AGENTS.md` 不能借 `@import` 把项目外文件（`~/.ssh/id_rsa` 等）读进 System 消息——
+  指引注入发生在 `session/new`，**不经过 HITL**。跨仓库共享规则文件用 `ImportScope::Unrestricted` 显式放开。
+- 展开失败（文件不存在/不可读/成环/超深/越界）**保留原占位符**并静默跳过，不 panic；
   「存在但不可读」（权限 / 瞬时 IO 错）另发 `tracing::warn!` 留痕。
 - 被 import 进来的内容同样归一 CRLF。
 
@@ -132,6 +136,10 @@ pub struct AgentsMdConfig {
     pub max_source_bytes: usize,   // 1 MiB
     /// 渲染后总量上限
     pub max_bytes: usize,          // 256 KiB（可配）
+    /// 排除 glob（按**发现路径**匹配，去重之前生效）
+    pub excludes: Vec<String>,
+    /// `@import` 允许范围：`ProjectRoot`（默认，限项目根内）/ `Unrestricted`（旧行为）
+    pub import_scope: ImportScope,
     /// 用户全局文件（默认 {APP_HOME}/AGENTS.md）
     pub user_global_file: PathBuf,
 }
@@ -162,8 +170,8 @@ pub fn render_instruction_set(files: &[InstructionFile], cfg: &AgentsMdConfig) -
 /// 发现 + 渲染，得到可直接注入的整段内容（None = 没有任何指引）。
 pub fn load_instructions(cwd: &Path, cfg: &AgentsMdConfig) -> Option<String>;
 
-/// 会话 new 时调用一次，产物写入 `FrozenSessionData.instructions`（默认配置）。
-pub fn load_frozen_instructions(cwd: &Path) -> Option<String>;
+// （`load_frozen_instructions` 已删除：会话 new 直接 `load_instructions(cwd, &cfg)`，
+//   其中 cfg 从 `AppConfig` 派生（excludes 等），避免多一个"默认配置"入口。）
 ```
 
 中间件侧：
@@ -175,9 +183,14 @@ AgentsMdMiddleware::new()
     .with_frozen_instructions(rendered); // 冻结整段 → before_agent 跳过全部磁盘 I/O
 ```
 
-**Known limitation**：`with_excludes` 只在**非冻结**路径生效——冻结内容在 `session/new`
-就已渲染成字符串，中间件拿到的是成品，无法再按文件过滤。`claude_md_excludes` 因此
-对主会话（走冻结）不生效，只影响子 Agent 等非冻结路径。
+**excludes 两条路径都生效**（#359 已修）：
+
+- 冻结路径：`session/new` → `build_frozen_session_data(cwd, app_config, …)` 从
+  `AppConfig.claude_md_excludes` 取 excludes，**渲染前**过滤；配置派生项（language / excludes）
+  集中在函数内取，8 个调用点不再各自重复提取；
+- 非冻结路径：`with_excludes` 写进 `cfg.excludes`，`before_agent` 走同一套发现逻辑；
+- 中间件本身无法过滤**冻结成品字符串**，所以 excludes 必须在渲染前生效——这也是把
+  `AppConfig` 直接传进 `build_frozen_session_data` 的原因。
 
 ### 3.3 伪代码
 
@@ -230,6 +243,8 @@ render_instruction_set(files, cfg):
 | 读文件超时/IO 错 | 跳过该文件 + `tracing::warn!` |
 | 文件含 CRLF | 归一为 LF 后处理（去重按归一内容）|
 | 单文件超限且上限小到放不下标记 | 退化为头部截断（`is_char_boundary` 安全），**绝不超上限、绝不 panic** |
+| 文件带 UTF-8 BOM | 读入即剥离（BOM 不属 Unicode White_Space，`trim()` 去不掉；留着既污染 prompt 又破坏同目录去重）|
+| `@import` 越出项目根 | 保留占位符 + `warn!`（默认 `ImportScope::ProjectRoot`，`Unrestricted` 才放行）|
 
 ---
 
@@ -249,7 +264,9 @@ render_instruction_set(files, cfg):
 10. `test_total_max_bytes_stops` / `test_first_file_over_total_limit_still_included` —— 总量超限停止 + 标记（首个文件不空手）；
 11. `test_utf8_boundaries_multibyte` / `test_truncation_tiny_budget_degrades` —— 多字节 / emoji / 极小上限不 panic、不超限。
 
-另含 `test_crlf_normalized_and_deduped`（CRLF 归一）、`test_frozen_instructions_single_message`（冻结路径产出单条 System 消息）、
+另含 `test_crlf_normalized_and_deduped`（CRLF 归一）、`test_bom_stripped_and_dedup`（BOM 剥离 + 不破坏去重）、
+`test_import_relative_escape_blocked` / `test_import_absolute_path_outside_blocked` / `test_import_unrestricted_scope_allows_outside` /
+`test_import_inside_root_still_works`（`@import` 范围边界）、`test_frozen_instructions_single_message`（冻结路径产出单条 System 消息）、
 `test_import_in_local_and_global_too`（`@import` 对 `.local` / 全局文件同样生效）、
 `test_excludes_*` + `test_excludes_applied_before_dedup`（excludes 生效且先于去重）、
 `test_first_file_truncation_keeps_provenance_header`、`test_ancestor_chain_*`（链退化分支）。
@@ -265,7 +282,11 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
 # 渲染 40549 B ≤ max_bytes 262144 ✅
 ```
 
-集成：`cc-acp/src/session/frozen.rs` 的 `FrozenSessionData.instructions` 由 `load_frozen_instructions` 产出，`builder.rs` 经 `with_frozen_instructions` 交给中间件；`before_agent` 注入的 System 消息为**单条**。
+集成：`cc-acp/src/session/frozen.rs` 的 `FrozenSessionData.instructions` 由 `load_instructions(cwd, cfg)` 产出（cfg 派生自
+`AppConfig`：`language` / `claude_md_excludes`），`builder.rs` 经 `with_frozen_instructions` 交给中间件，并**同一份字符串**
+透传给 `SubAgentMiddleware::with_inherited_instructions`（子 Agent 与父同 cwd，不再每轮重读磁盘）；
+`before_agent` 注入的 System 消息为**单条**。子 Agent 侧另有
+`test_subagent_chain_inherits_frozen_instructions` / `test_subagent_chain_without_inheritance_reads_disk` 两条对照用例。
 
 ---
 
@@ -275,7 +296,7 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
 |---|---|---|
 | **一期（本 issue）** | 多候选都加载 + 同目录去重 + 跨目录 root→cwd 拼接 + provenance + 全局层 + 限额/截断 + 空文件跳过（修 bug）+ 保留 `@import` | ✅ 已完成 |
 | **二期（可选）** | **渐进子目录发现**（`descendantDirsBetween`：会话中读子目录文件时按需注入该目录指引，保 prompt cache 稳定）；注入位置评估（System 消息 vs system prompt）| 未做 |
-| **三期（可选）** | 指引文件的 **prompt-injection 扫描**（dsh 有；命中即 block 并标注）| 未做 |
+| **三期（可选）** | 指引文件的 **prompt-injection 扫描**（dsh 有；命中即 block 并标注）| 未做（其中「限制 `@import` 读取范围」已在第一期顺带做掉）|
 
 ---
 
@@ -291,13 +312,19 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
 - **用户全局层迁移**：注入层读 `~/.cc-code/AGENTS.md`（此前非冻结路径读 `~/.claude/AGENTS.md`，冻结路径根本不读全局文件）。HITL 的 Jev 规则仍读 `~/.claude/CLAUDE.md` / `~/.claude/AGENTS.md`（个人规则），两者互不影响。
 - **顺带改变（影响很小）**：`read_frozen_content`（Jev 的项目级来源）现在对 `AGENTS.md` 也展开 `@import`（旧实现只对 `CLAUDE*` 展开）。
 - 不改变注入机制（仍是单条 System 消息）。
-- **已知限制（登记，不在本期内解决）**：
-  1. `claude_md_excludes` 对**主会话**不生效（走冻结，内容已渲染成字符串，中间件无法再按文件过滤）→ [#359](https://github.com/cc-claws/cc-code/issues/359)；
-  2. **子 Agent**（非冻结路径）每轮重读磁盘 → 会话中途改指引文件会使其 prompt 前缀抖动 → [#360](https://github.com/cc-claws/cc-code/issues/360)；
-  3. `read_frozen_content` 的「空文件遮蔽」旧 bug 仍在（只影响 Jev 来源，不影响注入内容）；
-  4. `@import` 的路径**不限制在项目内**（`<!-- @import ../../x -->` 甚至绝对路径都会读），
-     即恶意仓库的指引文件可把项目外文件内容带进上下文 —— 属既有能力，安全权衡见 [#361](https://github.com/cc-claws/cc-code/issues/361)。
-- 需一并回改的文档漂移：`CLAUDE.md`、`cc-acp/README.md`、`docs/ACP_COMPATIBLE.csv` 里对 `frozen_claude_md` 的旧称。
+- **本轮（审计后）追加修复**：
+  1. `claude_md_excludes` 贯通冻结路径（#359 已修）：`build_frozen_session_data` 改收 `&AppConfig`，excludes 在渲染前生效；
+  2. 子 Agent 继承父的**冻结**指引（#360 已修）：新增 `SubAgentMiddleware::with_inherited_instructions`，
+     沿 `SubAgentMiddlewareConfig` / `SubAgentTool` 透传到子链，消除每轮重读造成的 prompt 前缀抖动；
+  3. `@import` 默认限项目根内（#361 已修）：新增 `ImportScope`，越界保留占位符 + `warn!`；
+  4. UTF-8 BOM 剥离（`normalize_content`）：BOM 不属 White_Space，`trim()` 去不掉，会污染 prompt 且破坏同目录去重；
+  5. **另修一处相邻的既有安全语义漏洞**（不在本领域，见 [hitl-permissions.md](./hitl-permissions.md)）：
+     HITL 门控此前只拿 RTK **改写后**的命令匹配用户显式规则，装了 `rtk` 的机器上
+     `disallowed_commands`（如 `kubectl delete*`）会被 `rtk kubectl delete pod x` 绕过 —— 现按
+     「原始 + 改写后」并集判定（#358 已修）。
+- **仍然遗留（登记，不在本 PR 解决）**：
+  - `read_frozen_content` 的「空文件遮蔽」旧 bug 仍在（只影响 Jev 来源，不影响注入内容）；
+  - 三期「prompt-injection 扫描」未做（`@import` 范围限制只堵了其中一条路径）。
 - 工程注意：`cargo fmt --all` 会重排本仓库大量历史文件（仓库未按 rustfmt 归一，CI 也不校验 fmt）——只对**动过的文件**格式化，别整仓 fmt。
 
 ---
@@ -306,4 +333,5 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
 
 - → [system-prompt.md](./system-prompt.md) — 系统提示词稳定性、`frozen_*` 冻结、`@import` 边界
 - → [agent.md](./agent.md) — `AgentsMdMiddleware` 在中间件链的位置（链首）
-- → [acp.md](./acp.md) — `session/new` → `frozen_claude_md` 的冻结路径
+- → [acp.md](./acp.md) — `session/new` → `FrozenSessionData.instructions` 的冻结路径
+- → [hitl-permissions.md](./hitl-permissions.md) — HITL 门控如何评估 Bash 命令（含 RTK 改写 × 显式规则并集）

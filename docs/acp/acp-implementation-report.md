@@ -581,7 +581,7 @@ HITL middleware
 `assemble_agent()` 构建完整的 ReActAgent，包含 15 层中间件链：
 
 ```
-1.  AgentsMdMiddleware         ← CLAUDE.md 注入
+1.  AgentsMdMiddleware         ← 指引文件注入（同目录合并去重 + 跨目录拼接 + 限额）
 2.  AgentDefineMiddleware      ← agent 定义覆盖
 3.  SkillsMiddleware           ← Skills 摘要
 4.  SkillPreloadMiddleware     ← /skill-name 全文

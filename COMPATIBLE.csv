@@ -105,7 +105,7 @@ Context Collapse,contextCollapse（持久化上下文折叠）,--,❌
 项目级配置,.claude/settings.json（可提交 git）,--,❌
 本地配置（gitignore）,.claude/settings.local.json,--,❌
 多源合并,7 层优先级（plugin → user → project → local → policy → flag → inline）,单文件加载,⚠️
-项目上下文,CLAUDE.md + .claude/CLAUDE.md,CLAUDE.md + .claude/CLAUDE.md + AGENTS.md,✅
+项目上下文,CLAUDE.md + .claude/CLAUDE.md,CLAUDE.md/AGENTS.md 及变体（同目录合并去重 + 跨目录 root→cwd 拼接 + 全局层 + 限额）,✅
 ,,,
 ,,,
 ,,,

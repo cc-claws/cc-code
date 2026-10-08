@@ -116,7 +116,7 @@ SDK (JSON-RPC)
 会话级 LLM 实例缓存，避免每轮重建大对象（主要是 `reqwest::Client` 的连接池和 TLS 会话缓存）：
 
 ```rust
-use peri_acp::session::agent_pool::AgentPool;
+use cc_acp::session::agent_pool::AgentPool;
 
 let pool = Arc::new(Mutex::new(AgentPool::new()));
 
@@ -143,8 +143,8 @@ let llm = AgentPool::get_or_create_subagent_llm(
 ### Transport 使用
 
 ```rust
-use peri_acp::transport::mpsc::mpsc_transport_pair;
-use peri_acp::transport::AcpTransport;
+use cc_acp::transport::mpsc::mpsc_transport_pair;
+use cc_acp::transport::AcpTransport;
 
 // 创建 transport（返回 client/server 通道对）
 let (client, server) = mpsc_transport_pair();
@@ -164,13 +164,12 @@ if let Some(msg) = client.recv().await {
 ### 执行 Prompt
 
 ```rust
-use peri_acp::session::executor::{execute_prompt, FrozenSessionData};
+use cc_acp::session::executor::{execute_prompt, FrozenSessionData};
 
 // 构建冻结数据
 let frozen = FrozenSessionData {
     system_prompt: "...".to_string(),
-    claude_md: Some("...".to_string()),
-    claude_local_md: None,
+    instructions: Some("...".to_string()),   // 合并去重后的指引整段
     skill_summary: None,
     date: "2026-07-01".to_string(),
     is_git_repo: true,
