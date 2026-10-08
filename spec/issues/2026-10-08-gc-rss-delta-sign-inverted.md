@@ -5,7 +5,7 @@
 **创建日期**：2026-10-08
 **分支**：`fix/gc-rss-delta-sign`
 **Issue**：[#345](https://github.com/cc-claws/cc-code/issues/345)
-**PR**：待填
+**PR**：[#346](https://github.com/cc-claws/cc-code/pull/346)
 
 ---
 
