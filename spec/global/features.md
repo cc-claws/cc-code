@@ -76,7 +76,7 @@
 - **鼠标文字选区:** TextSelection 模块管理拖拽状态，WrappedLineInfo 换行映射，Ctrl+C 优先级链（选区复制>中断>退出），REVERSED 反色高亮
 - **全局屏幕选区:** ScreenSelection 基于渲染 Buffer 覆盖面板/状态栏/sticky header/bg agent bar/空白区域，与消息区 TextSelection 跨区域衔接；ScreenSnapshot 在 `terminal.draw()` 后克隆 Buffer 作为文本源；双击选整行（消息区用 TextSelection 纯文本，其他区域用 ScreenSelection 整屏行）；松开鼠标自动复制 + "已复制 N 个字符" toast
 - **Skills / 触发:** Skills 触发键从 # 统一到 / 前缀，提示浮层合并命令组+Skills 组，命令优先
-- **5 级权限模式:** Default/AcceptEdits/Auto/BypassPermissions/DontAsk，Shift+Tab 循环切换，Arc<AtomicU8> 无锁共享，状态栏实时显示
+- **两档权限模式:** `auto`（默认）/ `bypass`，Shift+Tab 在 Auto ↔ Bypass 间循环，未知取值回退 auto，状态栏实时显示
 - **Background Agent:** Agent 工具 `run_in_background` 参数触发后台执行，最多 3 并发，`mpsc::unbounded_channel` 通知，完成后 Human 消息注入，主 agent Done 后自动 continuation，ToolBlock 样式显示，状态栏 `[BG: N]` 指示器
 - **输入泵（InputPump）:** 独立后台输入泵隔离 Windows 控制台重入/阻塞风险，安全启用鼠标悬停（`MouseEventKind::Moved`）；有界事件批处理（EventReader）合并高频滚轮事件防掉帧；滚动条滑块相对拖拽消除点击漂移
 - **执行中消息队列 + 按轮次 steering:** agent 执行期间输入的消息进入待发队列，按轮次以增量 StateSnapshot 注入执行循环，不打断当前执行
@@ -91,8 +91,12 @@
 - **后台 shell 通知 i18n + 进程级语言注册表:** 完成/超时/取消/终止/等待输入通知的展示文案改走 `LcRegistry::tr()`；新增 `i18n::init_global`/`global` 进程级注册表（`LcRegistry: Sync`，`FluentBundle` 用 concurrent 变体），供无 App 上下文的静态 `MessageViewModel` 构造路径读取当前语言，启动与 `/lang` 切换时同步
 - **`/gc` 诊断分平台语义 + view_messages 估算:** `active`/`mapped`/`retained` 按 `alloc_name` 条件化标注（jemalloc 真实活跃页 vs mimalloc `page_committed` 历史高水位/`reserved` 虚拟地址），Windows 不再报虚假碎片；新增 `estimate_view_messages_heap()` 遍历 `MessageViewModel` 全部变体（此前 `origin_messages`+`completed` 漏掉 `view_messages`，是「未识别」大头）
 - **详细模式长命令运行状态刷新修复:** 详细模式超长命令 header 折成多行后，tick 增量刷新改为**按内容定位** `Running…` 状态行（新增 `is_shell_running_status_line`），不再写死 `lines[1]`、不再用固定行数判「状态行未渲染」，消除「命令续行被覆盖 + 秒数冻结 + 两处 Running… 时间不一致」
+- **详细模式工具头前缀稳定（#343）:** 运行中指示器在 `●`/空格间闪烁时，详细模式 header 折行不再 trim 首段行首空白（`push_wrapped_line_keep_first_lead`），`● Bash(` 前缀不再随闪烁左移
+- **`/gc` RSS 变化符号修正（#346）:** 方向语义统一为 `after - before`（增加为正），`fmt_signed_delta()` 输出 `+N`/`-N`/`±0`；`allocated - RSS` 带符号并按方向分支文案
+- **`/gc` Markdown 缓存内存统计（#351）:** `MarkdownCache::stats()` 单次加锁快照，按 `capacity()` 估算堆占用（总量 / 平均 / 最大条目、行 / Span 数），纳入「已知合计」并标注「非 RSS」
+- **排队消息快捷键 Alt+S / Alt+X（#347）:** 「立即发送」由 `Ctrl+S` 迁移为 `Alt+S`、删除由 `Ctrl+X` 迁移为 `Alt+X`（Windows conhost 会截走 `Ctrl+S`）
 - **Sticky Header 已禁用:** v0.6.71 起高度固定 0（保留实现，不再展示）
-- **权限模式循环:** Default → AcceptEdit → AutoMode → Bypass（DontAsk 跳过）
+- **权限模式循环:** Auto ↔ Bypass（未知值回退 auto）
 - **PageUp/PageDown 半页滚动:** 20 行（输入框为空时生效）
 
 ## ACP 服务层（cc-acp）
@@ -118,9 +122,10 @@
 - **会话回顾/总结持久化:** ThreadMeta 新增 `latest_recap` 与 `last_task_summary`（TaskSummary { verb, elapsed_ms, done_at }）字段并落库，`-c`/`-r` 恢复会话时 recap 与任务完成总结行不再丢失；SQLite 幂等 ALTER TABLE 迁移；ThreadStore 提供 update_latest_recap / update_last_task_summary 单列 UPDATE（避免重写 ~1MB cached_context）
 - **OpenTelemetry 追踪:** 内置 OTLP HTTP 导出，`OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量控制开关，tracing-opentelemetry 桥接，兼容 Jaeger
 - **结构化日志:** `RUST_LOG` 级别控制，`RUST_LOG_FORMAT=json` 切换 JSON 格式
-- **配置持久化:** `~/.peri/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
+- **配置持久化:** `~/.cc-code/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
 - **日志路径迁移:** 日志默认写入 `~/.cc-code/logs`
+- **应用主目录统一 `~/.cc-code`（#349，破坏性）:** 移除对改名前 `~/.peri` 的逐文件回退，`app_home::app_data_path`/`app_data_dir` 一律返回 `~/.cc-code/...`；仅在 `~/.peri` 存在的数据文件不再被读取（需手动迁移）。`hitl` 敏感目录名单中的 `.peri` 保留（安全用途）
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）
 
 ---
-*最后更新: 2026-10-08 — `/gc` 内存诊断分平台语义 + 纳入 `view_messages` 估算（v0.6.100）、详细模式长命令运行状态刷新按内容定位修复（v0.6.101）；此前 2026-10-07：后台 shell 通知展示文案接入 i18n（消除硬编码中文）并新增进程级语言注册表（v0.6.99）；更早补齐至 v0.6.84*
+*最后更新: 2026-10-08 — v0.6.103/104：详细模式工具头前缀稳定（#343）、`/gc` RSS 变化符号修正（#346）、排队消息快捷键 Alt+S/X（#347）、`/gc` Markdown 缓存内存统计（#351）、移除 `~/.peri` 兼容统一 `~/.cc-code`（#349）；此前：`/gc` 分平台语义 + `view_messages` 估算（v0.6.100）、详细模式长命令状态刷新按内容定位（v0.6.101）、后台 shell 通知 i18n（v0.6.99）*

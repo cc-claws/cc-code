@@ -84,18 +84,18 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **Markdown 缓存内存统计** | v0.6.104 | `/gc` 现显示 Markdown 缓存的堆占用估算（总量 / 平均 / 最大条目、渲染行数与 Span 数），单次加锁读取、不克隆解析产物、不打乱 LRU 次序；估算纳入「已知合计」，并明确标注按 `capacity()` 估算、不含 LRU / 分配器开销、**非 RSS**。「未识别」注解改为更严谨的「余量来源待定位，不能据此判断是否泄漏」 |
+| **移除 `~/.peri` 兼容** | v0.6.104 | 应用数据统一 `~/.cc-code`，删除改名前旧主目录 `~/.peri` 的逐文件回退。**破坏性**：只在 `~/.peri` 存在的数据文件不再被读取（需手动迁移）。`hitl` 敏感目录名单里的 `.peri` 予以保留（属安全而非兼容） |
+| **详细模式工具头前缀稳定** | v0.6.103 | 详细模式（Ctrl+O）下运行中的工具头前缀 `● Bash(` 不再随 spinner 闪烁左移 / 消失——熄灭帧的行首空白曾被折行逻辑 trim，导致整个前缀丢失、整行左移 2 列 |
+| **`/gc` RSS 变化符号修正** | v0.6.103 | `/gc` 此前把 `RSS: 197.9 MB → 196.6 MB` 的**下降**显示成 `+1.3 MB`（delta 用 `before - after` 且仅 `>= 0` 时加号）。现统一为 `after - before`（`+N` / `-N` / `±0`），RSS 与 OS RSS 两行共用 |
+| **排队消息快捷键 → Alt+S / Alt+X** | v0.6.103 | 「立即发送」由 `Ctrl+S` 迁移为 `Alt+S`、删除由 `Ctrl+X` 迁移为 `Alt+X`——Windows conhost 会把 `Ctrl+S` 当终端流控键截走，按键根本到不了应用 |
 | **详细模式长命令状态刷新修复** | v0.6.101 | 详细模式（Ctrl+O）下 Bash 命令超长时 header 会折成多行（#264），但 tick 增量刷新仍按「header 恒 1 行」的旧假设处理：把命令续行覆盖成 `Running…`，同时冻结真正的状态行（屏幕上出现两处 `Running…` 且时间不一致）。现改为按内容定位状态行，不再依赖固定下标 / 固定行数 |
 | **`/gc` 诊断去误导 + VM 估算** | v0.6.100 | `/gc` 内存标签改为**分平台**语义（`active` / `mapped` / `retained` 在 jemalloc 与 mimalloc 下含义不同，Windows 数字不再暗示虚假碎片）；估算器纳入 `view_messages`，此前「未识别」的大头正在此处 |
 | **后台 shell 通知接入 i18n** | v0.6.99 | 后台 shell 完成 / 超时 / 取消 / 终止 / 等待输入通知的展示文案改为走 i18n（此前硬编码中文，英文语言下仍显示中文）；新增进程级语言注册表，供静态 `MessageViewModel` 构造路径解析当前语言，启动与 `/lang` 切换时同步 |
 | **ACP 权限审批转发** | v0.6.94 | `cc-code acp` 改为通过 `session/request_permission` 把工具审批请求转发给 IDE 客户端，不再自动放行（fail-closed：客户端不支持 / 调用失败 / 未知选项一律拒绝）；stdio 默认权限模式由 Bypass 改为 AutoMode（无人值守可用 `session/set_mode` 切到 bypass） |
 | **默认启用审批** | v0.6.90 | 审批默认开启：`YOLO_MODE` 未设置不再跳过 HITL（需显式 `-y/--yolo` 或 `YOLO_MODE=true` 才免审批）；HITL 门控评估改写后的实际执行命令；`git clone` 防参数注入 |
-| **工具审批三选** | v0.6.84 | HITL 审批弹窗改为三选：一次性同意 / 本次会话同意 / 拒绝；选「本次会话同意」后同 `(工具, 路径)` 本次会话内免问（路径级、会话作用域审批记忆） |
-| **spinner 配色与卡住检测修复** | v0.6.83 | `thought for Ns` 状态词改为始终灰色（仅进行中状态词随耗时升温）；卡住检测不再把空白 `thinking` 误判为循环；卡住检测换策略提示改用英文保持一致 |
-| **Thinking 状态行与工具动作汇总** | v0.6.82 | spinner 行第三字段四态状态机（`thinking` / `thought for Ns` / `still thinking` / `thinking more`）；消息区思考行改为 `Thought for Ns, <动作计数>`；连续「思考+只读工具」轮合并为一行；Bash 非详细模式展示输出摘要 + `... (N more lines) (ctrl+o to expand)` |
-| **语义门加固与权限模式收敛** | v0.6.81 | HITL 语义门按上游 Jev 语义重做：补上 `curl\|bash` 与解释器家族绕过、写路径穿越不再能跳过门、判定不可用改为回到人工确认而非堵死整个会话；权限模式收敛为 `auto`/`bypass`（默认 auto），确定性防线不再与语义判定共用开关 |
-| **会话恢复 Recap 持久化** | v0.6.80 | Recap 与任务完成总结行落库到 `ThreadMeta`（`latest_recap`/`last_task_summary`），`-c`/`-r` 恢复后不再丢失 |
 
-> 更早版本（v0.6.0 – v0.6.79）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.89）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

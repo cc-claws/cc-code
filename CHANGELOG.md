@@ -4,6 +4,24 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.104 — 2026-10-08
+
+### Features
+
+- **Markdown 缓存内存统计（#351）**：`/gc` 此前只显示 Markdown 缓存**条数**（`markdown_cache: 1024/1024 条`），无法判断其字节占用，不足以评估内存节省空间。现新增 `MarkdownCache::stats()`（单次加锁快照，**不克隆解析产物、不提升 LRU 次序、不改缓存策略**），按 `Text.lines` / `Line.spans` / 链接数组及**自有字符串 `capacity()`** 估算堆占用，输出总量、平均/最大条目、渲染行数与 Span 数，并把估算纳入 `/gc` 的「已知合计」；口径明确标注「不含 LRU / 分配器开销，非 RSS」。同时把「未识别」注解由「非泄漏」改为更严谨的「**余量来源待定位，不能据此判断是否泄漏**」，并把原始字节字段经 tracing 输出。**注**：本版仅补统计，**未**实施字节预算 / 容量下调（另见 `spec/issues/2026-10-08-markdown-cache-memory-accounting.md`）。
+
+### Refactoring
+
+- **移除 `~/.peri` 兼容，应用数据统一 `~/.cc-code`（#349，破坏性）**：项目已是 cc-code，不再兼容改名前的旧主目录。此前 #289 为「老用户数据不丢失」保留了「新优先、旧回退」的**逐文件**回退，且具粘性——只要某文件只在 `~/.peri` 就一直使用旧路径（实测 `input-history.json` / `oauth_tokens.json` 长期落 `~/.peri`）。现删除 `cc-agent/src/app_home.rs` 的 `legacy_app_home_dir(_in)`，`app_data_path_in` / `app_data_dir_in` 一律返回 `~/.cc-code/...`；`cc-tui/src/main.rs::inject_env_from_settings` 只读 `~/.cc-code/settings.json`；并清理各处陈旧注释与用户可见报错文案（含 `acp_stdio.rs` 的 provider 缺失提示）。**破坏性变更**：只在 `~/.peri` 存在的数据文件不再被读取（用户需自行迁移）；新写入一律走 `~/.cc-code`。`hitl/jev/policy.rs` 敏感目录名单中的 `.peri` 予以保留（若用户机仍存在该目录，继续阻止工具读取，属安全而非兼容）。
+
+## v0.6.103 — 2026-10-08
+
+### Fixes
+
+- **详细模式运行中工具头前缀不再随指示器闪烁左移（#343）**：详细模式（Ctrl+O）下查看运行中的超长命令时，工具头前缀 `● Bash(` 会随运行指示器**闪烁而左右抖动**——亮帧显示 `● Bash(...`，熄灭帧开头 `● ` 消失、整行左移（观感为「看不到工具名前缀」）。根因三处叠加：`format_indicator()` 让运行中指示器在 `●` 与 `" "` 间闪烁；详细模式 header 走 `wrap_full` 折行；`wrap_line_spans_rich()` 会 **trim 每段行首空白**——熄灭帧首段是空格被 trim，`指示器 + 分隔空格` 前缀整体丢失。现为折行核心增加「保留首段行首空白」路径（`trim_first_lead` 仅控制首段，续行行为不变），工具头 `wrap_full` 分支改用 `push_wrapped_line_keep_first_lead`，其它折行路径行为完全不变。
+- **`/gc` RSS 变化符号颠倒 + allocated 差值文案方向修正（#346）**：`/gc` 输出的 `RSS: 197.9 MB → 196.6 MB (+1.3 MB)` 方向是反的——**下降**被显示成 `+`。根因是 `delta = before - after` 却只在 `>= 0` 时加 `+`，使「减少」带上了 `+`（`OS RSS` 同病）；`/gc` 的设计目标正是「消除误导指标」，符号反了等于制造新误导。现统一方向语义为 `after - before`（增加为正），新增 `fmt_signed_delta()` 输出 `+N` / `-N` / `±0` 供两处共用；`allocated - RSS` 改为带符号输出并按方向分支文案。
+- **排队消息快捷键 `Ctrl+S` / `Ctrl+X` 迁移为 `Alt+S` / `Alt+X`（#347）**：Windows conhost 会把 `Ctrl+S` 当作终端**流控键**截走，按键根本到不了应用，导致「立即发送」失效。迁移为 `Alt+S`（立即发送）/ `Alt+X`（删除排队消息）。
+
 ## v0.6.102 — 2026-10-08
 
 ### Chores
