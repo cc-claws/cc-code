@@ -174,7 +174,7 @@ impl SkillsMiddleware {
     /// 生成 skills 摘要系统消息内容
     pub fn build_summary(skills: &[SkillMetadata]) -> String {
         let mut lines = vec![
-            "Available skills provide specialized workflows; select those relevant to the task:"
+            "Available Skills provide specialized workflows; select those relevant to the task:"
                 .to_string(),
             String::new(),
         ];
