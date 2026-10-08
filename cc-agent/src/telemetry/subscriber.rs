@@ -1,5 +1,6 @@
 //! Tracing subscriber 初始化（基础日志输出）
 
+use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter, Registry};
 
 pub struct TracingGuard;
@@ -20,23 +21,47 @@ pub fn default_log_path(service_name: &str) -> std::path::PathBuf {
         .join(format!("{service_name}.log"))
 }
 
-/// Windows 下日志文件为空时写入 UTF-8 BOM，避免 PowerShell Get-Content 乱码
+/// Windows 下日志文件为空时写入 UTF-8 BOM，避免 PowerShell Get-Content 乱码。
+///
+/// 失败静默忽略——BOM 只是显示优化，不应导致启动失败。
 #[cfg(target_os = "windows")]
 fn ensure_utf8_bom(path: &str) {
-    let meta = std::fs::metadata(path)
-        .unwrap_or_else(|_| std::fs::metadata(path).expect("cannot read log file metadata"));
+    use std::io::Write;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
     if meta.len() == 0 {
-        use std::io::Write;
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(path)
-            .expect("cannot open log file for BOM");
-        let _ = f.write_all(b"\xEF\xBB\xBF");
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
+            let _ = f.write_all(b"\xEF\xBB\xBF");
+        }
     }
 }
 
 #[cfg(not(target_os = "windows"))]
 fn ensure_utf8_bom(_path: &str) {}
+
+/// 解析日志输出 writer：优先打开文件（append 模式），失败**退回 stderr 而非 panic**。
+///
+/// 日志不可用（如日志文件 ACL 损坏导致 `PermissionDenied`）时不应阻断程序启动。
+fn resolve_log_writer(log_path: &str) -> BoxMakeWriter {
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
+        Ok(file) => {
+            // Windows: 写入 UTF-8 BOM（文件为空时），避免 PowerShell Get-Content 乱码
+            ensure_utf8_bom(log_path);
+            BoxMakeWriter::new(file)
+        }
+        Err(e) => {
+            eprintln!(
+                "warning: 无法打开日志文件 {log_path}: {e}；日志改输出到 stderr（程序继续运行）"
+            );
+            BoxMakeWriter::new(std::io::stderr)
+        }
+    }
+}
 
 /// 初始化 tracing，输出到日志文件（TUI 模式下避免干扰界面）
 ///
@@ -67,28 +92,32 @@ pub fn init_tracing(service_name: &str) -> TracingGuard {
         }
     };
 
-    // 输出到日志文件（append 模式，多实例/多次运行追加不覆盖）
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .expect("cannot open log file");
+    // 打开日志文件（append 模式，多实例/多次运行追加不覆盖）。
+    //
+    // **打不开不 panic**：日志无法写入不应让整个程序崩溃——例如日志文件 ACL 损坏时，
+    // 新进程追加打开会得到 `PermissionDenied`，旧代码用 `.expect()` 会直接 panic 掉
+    // 整个 TUI（表现为启动即崩、`cc-code` 完全不可用）。失败时退回 stderr，进程继续运行。
+    let writer = resolve_log_writer(&log_path);
 
-    // Windows: 写入 UTF-8 BOM（文件为空时），避免 PowerShell Get-Content 乱码
-    ensure_utf8_bom(&log_path);
-
-    if is_json {
-        let subscriber = Registry::default()
-            .with(filter)
-            .with(fmt::layer().json().with_writer(file));
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("Unable to set global subscriber");
+    // `set_global_default` 在 subscriber 已设置时会返回 Err（如重复初始化）；
+    // 同样不应 panic，降级为提示。
+    let set_err = if is_json {
+        tracing::subscriber::set_global_default(
+            Registry::default()
+                .with(filter)
+                .with(fmt::layer().json().with_writer(writer)),
+        )
+        .err()
     } else {
-        let subscriber = Registry::default()
-            .with(filter)
-            .with(fmt::layer().with_writer(file).with_ansi(false));
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("Unable to set global subscriber");
+        tracing::subscriber::set_global_default(
+            Registry::default()
+                .with(filter)
+                .with(fmt::layer().with_writer(writer).with_ansi(false)),
+        )
+        .err()
+    };
+    if let Some(e) = set_err {
+        eprintln!("warning: 全局 tracing subscriber 已设置，本次文件日志层未生效：{e}");
     }
 
     TracingGuard
