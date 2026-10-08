@@ -3,6 +3,8 @@ name = "cc-lsp"
 version.workspace = true
 edition.workspace = true
 description = "LSP client library for CC Code agent framework"
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 tokio = { workspace = true }

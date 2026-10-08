@@ -3,7 +3,8 @@ name = "cc-middlewares"
 version.workspace = true
 edition.workspace = true
 description = "Rust Agent middleware implementations, aligned with @langgraph-js/agent-middlewares"
-license = "Apache-2.0"
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 cc-agent = { path = "../cc-agent" }

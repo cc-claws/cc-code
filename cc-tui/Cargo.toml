@@ -3,6 +3,8 @@ name = "cc-tui"
 version.workspace = true
 edition.workspace = true
 description = "TUI interface for Rust Agent - interactive terminal playground"
+license.workspace = true
+authors.workspace = true
 
 [lib]
 name = "cc_tui"

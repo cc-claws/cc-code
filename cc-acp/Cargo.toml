@@ -3,6 +3,8 @@ name = "cc-acp"
 version.workspace = true
 edition.workspace = true
 description = "ACP Agent service layer — Session management, Agent construction, Middleware chain, Transport abstraction"
+license.workspace = true
+authors.workspace = true
 
 [lib]
 name = "cc_acp"
