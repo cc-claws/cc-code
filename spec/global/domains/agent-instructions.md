@@ -14,7 +14,15 @@
 
 > 决策背景：Codex / Hermes 是「同层取一个」，只有 dsh 是「同层都加载+去重」。本仓库**最终采用 dsh 方案**（issue #352）。
 >
-> 状态：**一期已实现**（`cc-middlewares/src/agents_md/`）。二期「渐进子目录」、三期「注入扫描」未做。
+> 状态：**一期已实现**（`cc-middlewares/src/agents_md/`）。
+>
+> **对齐范围（逐条对着 dsh `packages/context/agent-instructions/src/` 源码核过）**
+>
+> | 类别 | 内容 |
+> |---|---|
+> | **与 dsh 一致** | 候选与顺序（`AGENTS.md`/`CLAUDE.md` 同级并列、都存在就都加载；`.local` 在其后）、项目根标记 `.git` 向上搜索与「未命中回退 cwd」、目录链 root→cwd（宽→具体）、用户全局层置于链首（`{APP_HOME}/AGENTS.md`）、**同目录** trim 内容去重保留最早、不同目录不去重、绝对路径去重、单文件上限 1 MiB |
+> | **本项目自研扩展**（dsh 无） | `@import`（含范围限制）、`excludes` glob、UTF-8 BOM 剥离、候选里多一个 `.claude/AGENTS.md`（历史兼容） |
+> | **有意偏离**（已知不同，非疏漏） | ① 超 `max_source_bytes` 的文件：dsh **整份忽略**，我们**截头保留** + 标记；② 空文件：dsh 保留「存在但为空」的信号，我们跳过；③ 渲染超预算：dsh **丢宽保具体**，我们**保宽丢具体**（待定，见 §七）；④ 段头：dsh `Instructions from: <path>`，我们 `## <path>`；⑤ dsh 用 `<system-reminder>` 框 + 转义框闭合标签 + 开场白权威声明（dsh 自称这是注入缓解的三件套，见其笔记 `2026-06-24-workspace-context.md`），我们三者皆无；⑥ 注入载体/生命周期：dsh 是**普通 user 消息 + 每步重算/reconcile**，我们是**单条 System 消息 + `session/new` 冻结**（为 Prompt Cache 前缀稳定）；⑦ dsh 有**子目录渐进发现**，我们未做（二期）；⑧ `max_bytes`：dsh 必填无默认（`dsh-base` 用 64 KiB），我们默认 256 KiB |
 
 ---
 
@@ -56,7 +64,8 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 ```
 
 - 越靠后越具体，**后者可覆盖前者**（模型按顺序阅读）。
-- 每段前加 **provenance 头**：`## <相对项目根路径>`（如 `## AGENTS.md`、`## sub/AGENTS.md`）；
+- 每段前加 **provenance 头**：`## <相对项目根路径>`（如 `## AGENTS.md`、`## sub/AGENTS.md`）
+  ——注：dsh 的段头是 `Instructions from: <path>`，格式不同、无功能影响（**有意偏离**）；
   用户全局文件用 `## ~/.cc-code/AGENTS.md`；不在 root 下（理论上不出现）才退化为绝对路径。
   **不产生** `../..` 形式的相对路径。
 
@@ -64,8 +73,9 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 
 1. **同目录内容去重**：同一目录内，若两个候选文件 **trim 后内容完全相同**，**只保留最早的一个**（`AGENTS.md` 先于 `CLAUDE.md`；基础层先于 `.local` 层）。
 2. **绝对路径去重**：同一绝对路径只加载一次（防符号链接/重复访问）。
-3. **excludes 在去重之前生效**：被排除的候选不占去重槽位，也不会「连坐」挤掉同内容但未排除的候选
-   （反例：`AGENTS.md` 与 `CLAUDE.md` 内容相同、只排除前者——若先按内容去重后过滤，最终会一条都不注入）。
+3. **excludes 在去重之前生效**（**本项目扩展**；dsh 无 excludes 功能）：被排除的候选不占去重槽位，
+   也不会「连坐」挤掉同内容但未排除的候选（反例：`AGENTS.md` 与 `CLAUDE.md` 内容相同、只排除前者
+   ——若先按内容去重后过滤，最终会一条都不注入）。
 
 ### 2.4 项目根与目录链
 
@@ -77,13 +87,17 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 
 | 项 | 值 | 说明 |
 |---|---|---|
-| `max_source_bytes` | **1 MiB**（默认）| **单文件** UTF-8 字节上限；超限见 2.5.1 |
-| `max_bytes` | 可配（建议默认 **256 KiB**）| **渲染结果**上限（含 provenance 头、段间空行与末尾省略标记）|
+| `max_source_bytes` | **1 MiB**（默认，与 dsh 同值）| **单文件** UTF-8 字节上限；超限见 2.5.1 |
+| `max_bytes` | 可配（本项目默认 **256 KiB**）| **渲染结果**上限（含段头、段间空行与超限标记）。注：dsh 的 `maxBytes` **必填无默认**，`dsh-base` 用 **64 KiB**——默认值不同属**有意偏离**（数值可配） |
 
 **硬保证**：`render_instruction_set` 的返回值字节数 `<= max_bytes` 恒成立——省略标记先按最长预留；
 上限小到连标记都放不下时整条省略或整体硬切（宁可标记残缺，也不越界）。
 
-#### 2.5.1 单文件超限截断
+#### 2.5.1 单文件超限截断（**本项目策略**；dsh 是整份忽略）
+
+⚠️ **与 dsh 不同**：dsh 对超过 `maxSourceBytes` 的文件**整份忽略**（`files.ts` 的 `readBounded` 返回 `undefined`），
+不留任何内容；我们选择**截断保留头部**并加标记——理由：静默丢掉一份 1 MiB+ 的 `AGENTS.md`
+比留下头部 + 明确标记更糟。dsh 的截断只发生在**渲染超预算**时，且**只留头部**（无尾保留）。
 
 按字符（CJK 安全，字符级操作）**头 70% + 尾 20%** 保留，中间插入标记（10% 额度）：
 
@@ -118,7 +132,9 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 
 ### 2.7 注入方式
 
-- **保持现状**：`before_agent` 里把**合并后的整段**作为**一条 `System` 消息** `prepend_message`。
+- **本项目做法（有意偏离 dsh）**：`before_agent` 里把**合并后的整段**作为**一条 `System` 消息** `prepend_message`。
+  dsh 是把指引作为**普通 user 消息**注入、并在每次 pre-step 重算 + 按 scope reconcile（改文件下一轮即生效）；
+  本项目为保 Prompt Cache 前缀稳定，选择**会话内一次性冻结**。
 - 内容冻结来自 `session/new`（写入 `FrozenSessionData.instructions`，见 [system-prompt.md](./system-prompt.md)）。
 - 说明：不要把多段拆成多条消息（会改变 Prompt Cache 前缀结构）；也不在本期改成写进 system prompt 字符串。
 
@@ -300,8 +316,8 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
 | 期 | 内容 | 状态 |
 |---|---|---|
 | **一期（本 issue）** | 多候选都加载 + 同目录去重 + 跨目录 root→cwd 拼接 + provenance + 全局层 + 限额/截断 + 空文件跳过（修 bug）+ 保留 `@import` | ✅ 已完成 |
-| **二期（可选）** | **渐进子目录发现**（`descendantDirsBetween`：会话中读子目录文件时按需注入该目录指引，保 prompt cache 稳定）；注入位置评估（System 消息 vs system prompt）| 未做 |
-| **三期（可选）** | 指引文件的 **prompt-injection 扫描**（dsh 有；命中即 block 并标注）| 未做（其中「限制 `@import` 读取范围」已在第一期顺带做掉）|
+| **二期（可选）** | **渐进子目录发现**（dsh **已有**：`descendantDirsBetween` + `read/write/edit` 成功后 reconcile；会话中触达子目录时按需注入该目录指引）；注入位置评估（System 消息 vs system prompt）| 未做 |
+| **三期（可选）** | 指引内容的 **prompt-injection 防护**。⚠️ 更正（原先写成「dsh 有注入扫描」是**错的**）：经核 dsh 源码 + 全仓检索（`gh search code`：`prompt injection` / `suspicious` / `sanitize`），**dsh 没有对指引内容做任何扫描/拦截**；它靠三件事降低风险——`<system-reminder>` **框**、**转义**正文里的框闭合标签、以及**开场白的权威声明**。dsh 自己的威胁模型笔记写得很明确（`.agents/notes/archived/feature/2026-06-24-workspace-context.md`）：<br>「Repository text remains untrusted input. Lower-authority user-role framing, explicit precedence language, and delimiter escaping reduce risk but do not eliminate prompt injection.」<br>本项目对应缺口：① 我们注入为**纯 System 文本**、无框、无转义；② 无「更具体优先 / 不覆盖系统与用户指令」的开场白（dsh 有）。**`@import` 读取范围限制**已在第一期做掉 | 未做 |
 
 ---
 
@@ -330,6 +346,12 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
      HITL 门控此前只拿 RTK **改写后**的命令匹配用户显式规则，装了 `rtk` 的机器上
      `disallowed_commands`（如 `kubectl delete*`）会被 `rtk kubectl delete pod x` 绕过 —— 现按
      「原始 + 改写后」并集判定（#358 已修）。
+- **已知偏离 ③（触发条件：渲染超 `max_bytes`）**：超预算时我们**丢最具体、保最宽**
+  （`render_instruction_set` 从链首填满预算即停），而 dsh 是**丢最宽、保最具体**
+  （`render.ts` 先 `files.slice(start)` 丢前缀，再二分截断最具体那段）。
+  **决定：本 PR 不修**——指引的优先级/取舍后续由 **Jev（规则提炼 + 优先级）** 侧统一处理，
+  这里只把行为如实在文档与代码注释里记清，不做半套实现。
+  （修正时若要自洽，注意本 spec §2.2 声明的是「越靠后越具体、后者可覆盖前者」。）
 - **仍然遗留（登记，不在本 PR 解决）**：
   - `read_frozen_content` 的「空文件遮蔽」旧 bug 仍在（只影响 Jev 来源，不影响注入内容）；
   - 三期「prompt-injection 扫描」未做（`@import` 范围限制只堵了其中一条路径）。
