@@ -53,27 +53,15 @@ const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 /// 最大允许读取的图片文件大小（20 MB）
 const MAX_IMAGE_SIZE: u64 = 20 * 1024 * 1024;
 
-const READ_FILE_DESCRIPTION: &str = r#"Reads a file from the local filesystem. You can access any file directly by using this tool.
-Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+const READ_FILE_DESCRIPTION: &str = r#"Read local text files or supported images. Use this to inspect relevant content before editing.
 
 Usage:
-- The file_path parameter must be an absolute path, not a relative path
-- By default, it reads up to 2000 lines starting from the beginning of the file
-- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
-- Any lines longer than 65536 characters will be truncated
-- Results are returned using cat -n format, with line numbers starting at 1
-- This tool reads files from the local filesystem; it cannot handle URLs
-- You can call multiple tools in a single response. It is always better to speculatively read multiple files before making edits
-- You should prefer using the Read tool over the Bash tool with commands like cat, head, tail, or sed to read files. This provides better output formatting and filtering
-- For open-ended searches that may require multiple rounds of globbing and grepping, use the Agent tool instead
-- Reads images (PNG, JPG, JPEG, GIF, WebP, BMP) and presents them visually for multimodal analysis
-
-Error handling:
-- File not found: returns an error message indicating the path does not exist
-- Binary files: detected by extension and returns a message indicating the file cannot be displayed as text
-- Files exceeding 32 MB: returns an error suggesting use of offset/limit parameters
-- Images exceeding 20 MB: returns an error indicating the image is too large
-- Offset exceeds file length: returns an error indicating the line range is invalid"#;
+- Provide file_path; an absolute path is recommended. URLs are not supported.
+- Text output has 1-based line numbers. offset is the 0-based number of lines to skip (default 0); limit is the number to read (default 2000).
+- Choose ranges relevant to the task. Text files over 32 MiB are rejected even when a range is specified.
+- PNG, JPG/JPEG, GIF, WebP, and BMP images up to 20 MiB are returned as visual content when their format is valid.
+- PDF extraction is not implemented; pages is reserved. Other recognized binary formats cannot be displayed as text.
+- Missing files, unsupported content, and invalid ranges return errors. Resolve the cause before retrying."#;
 
 /// 可通过多模态视觉读取的图片扩展名
 fn is_image_extension(ext: &str) -> bool {
@@ -143,19 +131,19 @@ impl BaseTool for ReadFileTool {
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "The absolute path to the file to read"
+                    "description": "REQUIRED. Path to the local file to read; absolute path recommended"
                 },
                 "offset": {
                     "type": "number",
-                    "description": "The line number to start reading from. Only provide if the file is too large to read in a single call. Not providing this parameter reads the whole file (recommended)"
+                    "description": "Number of text lines to skip, 0-based (default 0). Does not bypass the file size limit"
                 },
                 "limit": {
                     "type": "number",
-                    "description": "The number of lines to read. Only provide if the file is too large to read in a single call. Not providing this parameter reads the whole file (recommended)"
+                    "description": "Maximum number of text lines to read (default 2000)"
                 },
                 "pages": {
                     "type": "string",
-                    "description": "For PDF files, the page range to read, e.g. '1-5', '3', '10-20'. Only applies to PDF files"
+                    "description": "Reserved for PDF page ranges; PDF reading is currently unsupported"
                 }
             },
             "required": ["file_path"]

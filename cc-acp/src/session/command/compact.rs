@@ -164,7 +164,7 @@ impl AgentCommand for CompactCommand {
 
         // 摘要作为 Human 消息（与 auto-compact 路径和 Claude Code 实现对齐）
         let summary_content = format!(
-            "{}\n\n[上下文已压缩，请根据摘要继续工作]",
+            "{}\n\n[Context compacted; continue based on the summary]",
             compact_result.summary
         );
         let mut new_messages = vec![BaseMessage::human(summary_content)];

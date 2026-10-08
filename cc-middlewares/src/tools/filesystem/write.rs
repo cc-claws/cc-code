@@ -4,20 +4,14 @@ use std::time::Duration;
 
 use super::resolve_path;
 
-const WRITE_FILE_DESCRIPTION: &str = r#"Writes a file to the local filesystem.
+const WRITE_FILE_DESCRIPTION: &str = r#"Create or overwrite a local file, or append content when append=true.
 
 Usage:
-- This tool will overwrite the existing file if there is one at the provided path
-- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first
-- ALWAYS prefer editing existing files in the codebase. DO NOT create new files unless explicitly required
-- The file_path parameter must be an absolute path, not a relative path
-- Parent directories are created automatically if they do not exist
-
-Notes:
-- Uses atomic write (write to temp file then rename) to prevent data loss on crash
-- NEVER create documentation files (*.md) or README files unless explicitly requested by the User
-- Only use emojis if the User explicitly requests it. Avoid writing emojis to files unless asked
-- For files longer than 200 lines, consider writing in chunks: use Write for the first chunk, then Write with append=true for subsequent chunks. This reduces context window consumption significantly"#;
+- Inspect an existing file before overwriting it; use Edit for targeted changes. Preserve unrelated user changes.
+- Provide file_path and content. Parent directories are created automatically.
+- Default writes replace the full file using a temporary file and rename. append=true adds content directly to the end.
+- Create files, including documentation, when required by the task or project conventions.
+- For deliberate chunked writes, create the first chunk normally, then append subsequent chunks. Check completion before reporting the file as finished."#;
 
 /// Write tool - 与 TypeScript write_tool 对齐
 pub struct WriteFileTool {
@@ -46,15 +40,15 @@ impl BaseTool for WriteFileTool {
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "The absolute path to the file to write (must be absolute, not relative)"
+                    "description": "REQUIRED. Path to the local file to write; absolute path recommended"
                 },
                 "content": {
                     "type": "string",
-                    "description": "The full content to write to the file"
+                    "description": "REQUIRED. Full replacement content, or the content to add when append=true"
                 },
                 "append": {
                     "type": "boolean",
-                    "description": "If true, append content to the end of the file instead of overwriting. Use this for writing large files in chunks: first call Write without append to create the file with the initial content, then call Write with append=true to add more content. This avoids sending the entire file content in a single tool call, saving context window space.",
+                    "description": "Append content instead of replacing the file (default false)",
                     "default": false
                 }
             },

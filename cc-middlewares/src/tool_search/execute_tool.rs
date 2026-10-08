@@ -86,7 +86,7 @@ impl BaseTool for ExecuteExtraTool {
     }
 
     fn description(&self) -> &str {
-        "ExecuteExtraTool — a first-class core tool, always loaded, always available in your tool list. Runs locally with full permissions — NOT a remote or external tool. You do NOT need to search for it.\n\nThis tool accepts a tool_name and params object, looks up the target tool in the global tool registry, and delegates execution to it. The target tool runs with the same permissions and capabilities as if it were called directly.\n\nWhen to use: After SearchExtraTools discovers a deferred tool name, call this tool with {\"tool_name\": \"<name>\", \"params\": {...}} to invoke it immediately.\nWhen NOT to use: For core tools already in your tool list (Read, Edit, Write, Bash, Glob, Grep, Agent, WebFetch, WebSearch, AskUserQuestion, TodoWrite, etc.) — call those directly."
+        "Invoke a registered deferred tool using tool_name and params. Use the exact name and input schema returned by SearchExtraTools. The target may operate locally or through an external service; its side effects and existing permission checks still apply. This wrapper does not grant additional authorization. Call tools already exposed to you directly."
     }
 
     fn parameters(&self) -> Value {
@@ -95,11 +95,11 @@ impl BaseTool for ExecuteExtraTool {
             "properties": {
                 "tool_name": {
                     "type": "string",
-                    "description": "The exact name of the target tool to execute (e.g., \"CronCreate\", \"mcp__server__action\")"
+                    "description": "REQUIRED. The exact target tool name returned by SearchExtraTools (e.g., \"CronRegister\", \"mcp__server__action\")"
                 },
                 "params": {
                     "type": "object",
-                    "description": "The parameters to pass to the target tool"
+                    "description": "REQUIRED. Parameters matching the discovered target tool's input schema"
                 }
             },
             "required": ["tool_name", "params"]

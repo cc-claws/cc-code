@@ -1,23 +1,12 @@
 # Tool usage policy
 
-- Batch independent tool calls in a single response for optimal performance.
-- When doing file search, prefer `Grep` for content search and `Glob` for file name search over bash commands.
-- When reading files, use `Read` instead of bash commands like `cat`.
-- When writing or editing files, use `Write` or `Edit` instead of bash commands.
-- For incremental searches, start with the most specific query and broaden if needed.
-
-## Tool boundaries (do not cross)
-- `Bash` is ONLY for executing commands (git, cargo, npm, scripts). Never pass a
-  shell command to `Glob`/`Grep`; never use `Bash` to do filename/content search
-  that `Glob`/`Grep` already cover.
-- `Glob` takes ONLY a `pattern` (glob string) — it has no `command`/`query` field.
-- `WebSearch` requires `query`. `WebFetch` requires `url` + `prompt`.
-- Before emitting a tool call, check: does this tool's schema actually have the
-  field I'm about to write?
+- Batch independent calls; keep dependent operations and mutations in the required order.
+- Use `Glob` for file names, `Grep` for contents, `Read` for reading, and `Write`/`Edit` for changes when those tools cover the task. Use `Bash` for CLI workflows and scripts.
+- Treat the exposed tool schema and description as the source of truth for names, required fields, supported options, limits, and shell behavior. Do not invent parameters or pass shell commands to file-search tools.
+- Call exposed tools directly. For deferred capabilities, use `SearchExtraTools` to discover the tool and its schema, then invoke it through `ExecuteExtraTool`. Discovery does not grant additional permission.
+- Limit output to what is needed for the next decision; avoid dumping entire files, histories, or large data when a targeted read suffices.
 
 ## On tool argument errors
-- If a tool returns a validation error, read it carefully: it names the offending
-  field and the expected shape. Rewrite the call to match the schema and retry.
-- Never retry the identical failing call. If the same tool failed twice with the
-  same arguments, re-read the tool description instead of guessing again.
 
+- Read validation errors and the schema, correct the argument shape, then retry. Do not repeat an identical invalid call or guess unsupported fields.
+- For execution failures, identify the cause before retrying. Respect permission denials and avoid rerunning an operation that may already have taken effect without first checking its result.

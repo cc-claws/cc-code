@@ -29,7 +29,7 @@ impl BaseTool for SearchExtraTools {
     }
 
     fn description(&self) -> &str {
-        "Search for deferred tools by name or keyword. LOW PRIORITY — only use this tool when no core tool can accomplish the task. Core tools (Read, Edit, Write, Bash, Glob, Grep, Agent, WebFetch, WebSearch, AskUserQuestion, TodoWrite) are always available and should be used directly. This tool is for discovering additional capabilities like MCP tools, cron scheduling, etc.\n\nReturns matching tools with their full JSON schemas.\n\nIMPORTANT: ExecuteExtraTool is always available in your tool list. After this search returns tool names, you MUST call ExecuteExtraTool with {\"tool_name\": \"<returned_name>\", \"params\": {...}} to invoke the deferred tool. This is the ONLY way to execute deferred tools — do not read source code or analyze whether the tool is callable, just use ExecuteExtraTool directly.\n\nQuery forms:\n- \"select:CronCreate,Snip\" — fetch these exact tools by name\n- \"slack send\" — keyword search, best matches returned"
+        "Discover deferred tools when the tools already exposed do not provide the required capability, or when the user requests a specific integration. Returns matching names, descriptions, and full JSON schemas.\n\nUse keyword queries such as \"slack send\", or \"select:CronRegister,CronList\" for exact names. Discovery does not execute or authorize an action. When a returned tool is needed and authorized, invoke it through ExecuteExtraTool using its exact name and schema. Call tools already exposed to you directly."
     }
 
     fn parameters(&self) -> Value {

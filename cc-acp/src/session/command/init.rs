@@ -61,120 +61,37 @@ impl InitCommand {
 }
 
 /// 新项目初始化 Prompt。
-static NEW_CLAUDE_MD_PROMPT: &str = r#"你正在帮助用户初始化项目的 CLAUDE.md 文件。
+static NEW_CLAUDE_MD_PROMPT: &str = r#"Initialize the project's CLAUDE.md as a concise guide for future work in this repository.
 
-## 执行步骤
+## Phase 1: Explore the repository
 
-### Phase 1: 询问配置选项
-使用 AskUserQuestion 工具询问用户：
-1. 初始化范围：项目 CLAUDE.md / 个人 CLAUDE.local.md / 两者都要
-2. 扩展功能：Skills + Hooks / 仅 Skills / 仅 Hooks / 都不需要
+- Read relevant project instructions, manifests, README files, build scripts, CI configuration, and representative source files.
+- Identify the actual architecture, module dependencies, development commands, testing approach, and project-specific conventions.
+- Focus on verified constraints and non-obvious pitfalls. Check existing documentation before asking about undocumented rules that materially affect the guide.
+- Keep the default scope to the project's CLAUDE.md. Do not create personal configuration, skills, hooks, or ignore rules unless the user explicitly requests that additional work.
 
-### Phase 2: 代码库探索
-使用 Read、Glob、Grep 工具分析项目：
-- 读取 manifest 文件（Cargo.toml、package.json、pyproject.toml、go.mod）
-- 读取 README.md、Makefile、CI 配置（.github/workflows/*.yml）
-- 检测项目结构（monorepo、multi-module、单项目）
-- 识别构建/测试/lint 命令（特别关注非标准命令）
-- 查找现有 .cursor/rules/、.cursorrules 等其他 AI 配置
-- 检测语言、框架、包管理器
-- 识别与语言默认不同的代码风格规则
-- 发现非明显的陷阱、必需的环境变量、工作流特殊要求
+## Phase 2: Write the project guide
 
-### Phase 3: 交互式问答
-使用 AskUserQuestion 工具补充代码分析无法获取的信息：
-- 分支命名规范
-- PR/Code Review 流程
-- 测试约定和策略
-- 部署流程
-- 团队协作约定
+- Use the language explicitly requested by the user; otherwise follow the established project documentation language or the conversation language. Keep commands, paths, identifiers, and technical names unchanged.
+- Organize the guide around what a contributor needs: project purpose, important dependencies and boundaries, development commands, architectural constraints, relevant coding and test conventions, and environment requirements.
+- Include only information supported by repository evidence or explicit user guidance. Do not invent commands, branch policies, deployment procedures, or secret values.
+- Favor concise project-specific guidance over generic advice, exhaustive file inventories, or duplicated documentation. Link to detailed project documents when appropriate.
+- Before creating the file, check that CLAUDE.md is still absent. If it already exists, read it and propose incremental changes for confirmation unless those changes are already explicitly authorized.
 
-### Phase 4: 生成 CLAUDE.md
-使用 Write 工具创建 CLAUDE.md，结构如下：
+## Phase 3: Report the result
 
-```markdown
-# CLAUDE.md
-
-## 项目概述
-[1-2 句话描述项目目的和核心功能]
-
-## 依赖关系
-[模块/包之间的依赖图或表格]
-
-## 开发命令
-[构建、测试、lint、格式化等常用命令的快捷参考]
-
-## 架构要点
-[关键架构决策和设计模式]
-**[TRAP]** [重要陷阱和注意事项]
-
-## 编码规范
-[项目特定的编码规范，区别于语言默认]
-
-## 测试编写风格
-[测试约定和最佳实践]
-
-## 环境变量
-[所有必需和可选的环境变量]
-
-## 开发注意事项
-[其他重要注意事项]
-```
-
-内容质量标准：
-- 每一行都必须通过测试："删除这一行会导致 AI 犯错吗？"
-- 不包含显而易见的指令
-- 不列出每个组件或文件结构
-- 不包含通用开发实践
-- 聚焦于非标准、非直觉的信息
-
-### Phase 5: 可选扩展
-根据用户 Phase 1 的选择：
-- 生成 skills 到 .claude/skills/<name>/SKILL.md
-- 配置 hooks 到 .claude/settings.json
-- 生成 CLAUDE.local.md（添加到 .gitignore）
-
-### Phase 6: 总结
-- 展示生成内容摘要
-- 提供后续优化建议
-
-## 重要规则
-1. 生成的内容必须符合项目的 CLAUDE.md 规范
-2. 中文内容必须使用中文标点
-3. 技术术语保持英文（如 crate、trait、async、package、module）
-4. 如果是 monorepo，正确识别多模块结构并展示依赖关系"#;
+State which file was created, the important guidance included, and any unresolved information. Do not claim that documented commands were executed unless they actually ran."#;
 
 /// 已有 CLAUDE.md 优化 Prompt。
-static EXISTING_CLAUDE_MD_PROMPT: &str = r#"你正在帮助用户优化现有的 CLAUDE.md 文件。
+static EXISTING_CLAUDE_MD_PROMPT: &str = r#"Improve the existing CLAUDE.md through evidence-based incremental changes.
 
-## 执行步骤
+1. Read the complete current file and the relevant repository implementation, manifests, scripts, and documentation.
+2. Identify missing project-specific guidance, outdated statements, verified pitfalls, and descriptions that disagree with the code. Preserve user-authored conventions and useful organization.
+3. Present concrete proposed additions, edits, or removals with their reasons. Obtain confirmation before modifying the existing guide, including removing outdated content, unless the user has already explicitly authorized those changes. Continue independent investigation while a required decision is pending.
+4. Apply only the confirmed or previously authorized changes using targeted edits. Do not replace the entire document or expand into personal configuration, skills, or hooks without a separate request.
+5. Report the applied changes, their evidence, and any information that remains unverified.
 
-### Step 1: 读取现有文件
-使用 Read 工具读取 CLAUDE.md 的完整内容。
-
-### Step 2: 分析代码库
-使用 Read、Glob、Grep 工具分析项目，识别：
-- CLAUDE.md 中缺失的重要信息
-- CLAUDE.md 中过时的信息
-- 新发现的陷阱和约束
-- 与实际代码不一致的描述
-
-### Step 3: 提出改进建议
-使用 AskUserQuestion 工具展示建议：
-- 具体的修改内容（说明新增/修改/删除了什么）
-- 每个修改的原因说明
-- 让用户选择接受全部/部分建议
-
-### Step 4: 应用修改
-根据用户确认，使用 Edit 工具应用修改。
-
-## 重要规则
-1. 不要覆盖现有内容，只做增量改进
-2. 保留用户的个人风格和组织结构
-3. 新增内容放在合适的位置
-4. 删除过时内容前必须确认
-5. 中文内容必须使用中文标点
-6. 技术术语保持英文"#;
+Use the user's requested document language; otherwise preserve the existing guide's language and style. Keep commands, paths, identifiers, and technical names unchanged. Do not invent project rules or secret values, and do not claim to have run commands that were only inspected."#;
 
 #[cfg(test)]
 mod tests {
@@ -241,7 +158,7 @@ mod tests {
 
         // Assert: 应该使用新项目 prompt
         assert!(
-            prompt.contains("初始化项目的 CLAUDE.md"),
+            prompt.contains("Initialize the project's CLAUDE.md"),
             "不存在的 CLAUDE.md 应使用新项目 prompt"
         );
         assert!(
@@ -264,10 +181,13 @@ mod tests {
 
         // Assert: 应该使用已有 CLAUDE.md 的优化 prompt
         assert!(
-            prompt.contains("优化现有"),
+            prompt.contains("Improve the existing CLAUDE.md"),
             "存在 CLAUDE.md 时应使用优化 prompt"
         );
-        assert!(prompt.contains("增量改进"), "优化 prompt 应提及增量改进");
+        assert!(
+            prompt.contains("incremental changes"),
+            "优化 prompt 应提及增量改进"
+        );
     }
 
     // ── execute 测试 ──────────────────────────────────────────────────────
@@ -303,7 +223,7 @@ mod tests {
         let content = result.messages[0].content();
         assert!(content.contains("Phase 1"), "新项目 prompt 应包含 Phase 1");
         assert!(
-            content.contains("代码库探索"),
+            content.contains("Explore the repository"),
             "新项目 prompt 应包含代码库探索"
         );
     }

@@ -15,15 +15,9 @@ const BASH_DESCRIPTION: &str = r#"Executes one command using Bash (Git Bash on W
 
 Usage:
 - Each invocation starts in the configured working directory. Changes made with cd, environment assignments, and shell state do not persist across calls. Commands use bash -c, not a login shell
-- IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, or echo commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task
-- Instead, use the appropriate dedicated tool which will provide a much better experience for the user:
-  - File search: Use Glob (NOT find or ls)
-  - Content search: Use Grep (NOT grep or rg)
-  - Read files: Use Read (NOT cat/head/tail)
-  - Edit files: Use Edit (NOT sed/awk)
-  - Write files: Use Write (NOT echo/cat with redirect)
+- Prefer dedicated tools for file search, reading, and editing when they support the task. Use Bash for commands, builds, scripts, and operations that need shell execution.
 - You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). Default is 120000ms (2 minutes)
-- When issuing multiple commands, use && to chain them together rather than using separate tool calls if the commands depend on each other
+- Keep dependent commands ordered; use && when a later command should run only after success. Independent operations may run separately.
 - In hosts with background support, timeout limits foreground waiting and the command continues in the background; without background support, timeout cancels the command
 - execution_timeout is a separate hard runtime limit in milliseconds (default and maximum 600000). It applies from process start, including after manual or automatic backgrounding
 - run_in_background requires host support. When a task handle is returned, reuse that task/output path and await its completion notification; do not rerun the command to retrieve output
@@ -179,7 +173,7 @@ impl BaseTool for BashTool {
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The bash command (and optional arguments) to execute. This can be complex commands that use pipes, &&, or other shell features. For multiple dependent commands, chain them with && rather than making separate calls"
+                    "description": "REQUIRED. Bash command to execute. Quote paths and arguments for Bash; use && for commands that depend on earlier success"
                 },
                 "timeout": {
                     "type": "number",

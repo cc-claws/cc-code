@@ -21,7 +21,7 @@ impl PromptFeatures {
     /// 根据运行时环境推断功能开关
     pub fn detect() -> Self {
         Self {
-            hitl_enabled: std::env::var("YOLO_MODE").as_deref() == Ok("false"),
+            hitl_enabled: !cc_middlewares::hitl::is_yolo_mode(),
             subagent_enabled: true,
             cron_enabled: true,
             skills_enabled: true,
@@ -110,11 +110,11 @@ fn format_available_agents(cwd: &str, extra_agent_dirs: &[std::path::PathBuf]) -
 
 /// 构建系统提示词。
 ///
-/// 从 `prompts/sections/` 目录加载静态段落（01-07），根据 `PromptFeatures`
-/// 条件注入 feature-gated 段落（10-13），将环境占位符替换为运行时值。
+/// 从 `prompts/sections/` 加载静态段落（01-06），在缓存边界后注入环境、
+/// Windows、提醒及 feature-gated 段落，并替换环境占位符。
 ///
 /// `overrides` 存在时，将 agent.md 中定义的角色/风格/主动性拼成一个覆盖块，
-/// 注入到提示词最前面；为 `None` 时覆盖块为空（默认行为已由静态段落覆盖）。
+/// 注入到缓存边界之后；为 `None` 时覆盖块为空（默认行为已由静态段落覆盖）。
 pub fn build_system_prompt(
     overrides: Option<&AgentOverrides>,
     cwd: &str,

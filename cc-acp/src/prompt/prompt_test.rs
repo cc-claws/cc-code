@@ -122,7 +122,7 @@ fn test_features_none_excludes_all_gated_sections() {
         "全关闭时不应包含 Skills 标题段落"
     );
     assert!(
-        !result.contains("Channel 频道消息"),
+        !result.contains("Channel Messages"),
         "全关闭时不应包含 Channel 段落"
     );
 }
@@ -196,7 +196,7 @@ fn test_all_features_enabled_includes_all() {
     );
     assert!(result.contains("Scheduled Tasks"), "应包含 Cron 段落");
     assert!(result.contains("# Skills"), "应包含 Skills 段落标题");
-    assert!(result.contains("Channel 频道消息"), "应包含 Channel 段落");
+    assert!(result.contains("Channel Messages"), "应包含 Channel 段落");
 }
 
 #[test]

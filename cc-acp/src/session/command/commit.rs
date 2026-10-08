@@ -102,36 +102,22 @@ fn build_commit_prompt(cwd: &str) -> String {
 
 ## Git Safety Protocol
 
-- NEVER update the git config
-- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it
-- CRITICAL: ALWAYS create NEW commits. NEVER use git commit --amend, unless the user explicitly requests it
-- Do not commit files that likely contain secrets (.env, credentials.json, etc). Warn the user if they specifically request to commit those files
-- If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit
-- Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported
+- The user's explicit commit request authorizes a commit within the requested scope. Follow runtime approvals; this does not authorize pushing, rewriting history, or discarding unrelated changes.
+- Do not change Git configuration, skip hooks, or discard existing changes without explicit authorization. Use noninteractive commands.
+- Create a new commit by default. NEVER use git commit --amend unless the user explicitly requests it.
+- Never include secrets or credentials. Inspect the intended staged diff and keep unrelated user changes, including pre-existing staged changes, intact.
+- If no relevant changes are available, report that fact without creating an empty commit.
 
 ## Your task
 
-Based on the above changes, create a single git commit:
+Create a single commit for the requested changes:
 
-1. Analyze all staged changes and draft a commit message:
-   - Look at the recent commits above to follow this repository's commit message style
-   - Write the commit message in the same language as the recent commits above (the repository's convention takes precedence over the UI language setting)
-   - Summarize the nature of the changes (new feature, enhancement, bug fix, refactoring, test, docs, etc.)
-   - Ensure the message accurately reflects the changes and their purpose (i.e. "add" means a wholly new feature, "update" means an enhancement to an existing feature, "fix" means a bug fix, etc.)
-   - Draft a concise (1-2 sentences) commit message that focuses on the "why" rather than the "what"
-
-2. Stage relevant files and create the commit using HEREDOC syntax:
-```
-git commit -m "$(cat <<'EOF'
-Commit message here.
-
-{ATTRIBUTION}
-EOF
-)"
-```
-- Append the "{ATTRIBUTION}" trailer at the end of the commit message, unless the project's CLAUDE.md specifies its own commit trailer or attribution convention — in that case follow CLAUDE.md and do not add this trailer.
-
-You have the capability to call multiple tools in a single response. Stage and create the commit using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls."#
+1. Treat the context above as a possibly truncated snapshot. Read applicable project instructions and inspect current status, staged and unstaged diffs, and relevant untracked files before deciding what to include.
+2. Include only task-related changes. Stage specific files or changes; do not stage everything by default. If relevant and unrelated changes are mixed and cannot be separated safely, identify the ambiguity and obtain the needed decision without resetting, stashing, or overwriting user work.
+3. Follow explicit user and repository requirements for message language, format, body, and attribution. Otherwise use the same language as the recent commits and follow their style. Describe the actual changes and their purpose; preserve any required multi-line body rather than forcing a one-line summary.
+4. Append "{ATTRIBUTION}" unless the project's CLAUDE.md specifies its own commit trailer or another applicable user/project instruction defines attribution; in that case use the required attribution without adding a competing trailer.
+5. Inspect the final staged diff, respect required project checks, and create the commit with shell-appropriate quoting. For multi-line or non-ASCII messages, use separate correctly quoted `-m` paragraphs or a UTF-8 file with `git commit -F`; avoid command substitution or pipelines that can alter the message.
+6. Verify the resulting commit and its message, then report the hash, subject, included scope, and relevant verification or remaining limitations. Report a failure accurately and preserve the changes. Do not push unless separately requested by the user."#
     )
 }
 

@@ -157,13 +157,13 @@ impl JevGate {
             "内置安全条件".to_string()
         };
         format!(
-            "【给 agent】\n\
+            "[For the agent]\n\
              decision=block  rule={rule}  source={source}  retryable=no\n\
-             不要重试同一命令，也不要改用等价写法绕过（例如换工具、拆成多条、加管道）。\n\
-             可行路径：\n\
-             1) 改成不违反该规则的做法并继续；\n\
-             2) 向用户说明该操作的具体影响，请其确认后在**终端手动执行**；\n\
-             3) 若规则本身有误，请用户修改对应的 CLAUDE.md 文件。"
+             Do not retry the same command or bypass this decision through an equivalent form, such as switching tools, splitting commands, or adding pipes.\n\
+             Available actions:\n\
+             1) Choose an approach that does not violate this rule and continue.\n\
+             2) Explain the operation's specific effects to the user and ask them to confirm and execute it manually in their terminal.\n\
+             3) If the rule itself is incorrect, ask the user to edit the corresponding CLAUDE.md file."
         )
     }
 

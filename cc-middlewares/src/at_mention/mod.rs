@@ -147,8 +147,8 @@ impl<S: State> Middleware<S> for AtMentionMiddleware {
                 ));
             }
             buf.push_str(
-                "以上为 `@` 提及的目录列表，由 AtMentionMiddleware 在用户提交时展开。\
-                 如需进一步查看子文件，请用 Read/Glob 工具。",
+                "These are directory listings expanded from the user's @mentions at submission time. \
+                 Use Glob to locate relevant files and Read to inspect their contents when needed.",
             );
             state.add_message(BaseMessage::system(buf));
         }

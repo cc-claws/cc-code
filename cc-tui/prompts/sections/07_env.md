@@ -5,5 +5,5 @@ Platform: {{platform}}
 OS Version: {{os_version}}
 Python: {{python_version}}
 Git Bash: {{git_bash_status}}
-Today's date: {{date}}
+Session date (captured at session creation): {{date}}
 </env>

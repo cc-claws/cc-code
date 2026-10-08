@@ -21,20 +21,13 @@ impl GlobFilesTool {
 /// 最多返回的文件数，防止撑爆 LLM context window
 const MAX_RESULTS: usize = 1_000;
 
-const GLOB_FILES_DESCRIPTION: &str = r#"Fast file pattern matching tool that works with any codebase size. Supports glob patterns like "**/*.js" or "src/**/*.ts". Returns matching file paths sorted by modification time.
+const GLOB_FILES_DESCRIPTION: &str = r#"Find local files by name using glob patterns such as "**/*.js" or "src/**/*.rs".
 
 Usage:
-- Use this tool when you need to find files by name patterns
-- Returns file paths sorted by modification time (most recently modified first)
-- Maximum 1000 results returned; results are truncated beyond this limit with a notice
-- Common directories like node_modules, .git, target, dist, build are automatically excluded from results
-- The path parameter is optional; defaults to the current working directory
-- For searching file contents, use Grep instead
-
-When to use:
-- Use Glob when searching for files by name pattern (e.g., find all TypeScript files, find a specific config file)
-- Use Grep when searching for content within files (e.g., find where a function is defined)
-- For open-ended searches requiring multiple rounds, consider using a sub-agent via Agent"#;
+- Provide pattern; path defaults to the working directory and may be absolute or relative to it.
+- Results are sorted by modification time, newest first, with at most 1000 paths returned.
+- Search honors applicable ignore rules; hidden and generated directories may be excluded. A missing result does not establish that a file is absent.
+- Narrow broad patterns when results are truncated. Use Grep to search file contents."#;
 
 fn glob_match(pattern: &str, path: &str) -> bool {
     glob::Pattern::new(pattern)
