@@ -4,6 +4,17 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.102 — 2026-10-08
+
+### Chores
+
+- **补全版权署名与 Cargo 包元数据**：LICENSE 在上游 `Copyright 2026 KonghaYao` 之下追加本衍生作品署名 `Copyright 2026 cc-claws (modifications to the Derivative Work)`（上游版权行为 Apache-2.0 §4c 强制保留义务，未删改）；`[workspace.package]` 新增 `authors = ["cc-claws"]` 与 `license = "Apache-2.0"` 作为全仓单一数据源；7 个 workspace crate（cc-agent / cc-middlewares / cc-tui / cc-acp / cc-widgets / cc-lsp / langfuse-client）统一改为 `license.workspace` / `authors.workspace` 继承——此前仅 cc-agent / cc-middlewares 硬编码 license，其余 5 个缺 `license`，全部缺 `authors`。
+- **合并 `CORE_VERIFY.md` 到 `human/TESTING.md`**：根目录 8 行的手写冒烟清单（hello 对话 / `/clear` / `/history` / 工具调用完整性 / 多轮失忆 / Ctrl+C 中断 / ask_user）零引用、未收录文档地图，易被忽略。现整理为 `human/TESTING.md` 的「核心功能冒烟清单（发布前人工走查）」段并删除原文件，内容一字未丢。
+
+### Docs
+
+- **维护 v0.6.100 / v0.6.101 文档 + 清理当前状态文档中的 `peri-*` 残留**：CHANGELOG 补 v0.6.100 / v0.6.101 条目；README 中英特性表各 +2 条（一一对应、保持最新 10 条）；`spec/global/domains/tui.md`、`features.md`、`index.md` 同步；新增 `spec/issues/2026-10-08-detail-mode-long-cmd-running-status-overwrites-header.md` 根因分析。另修正 v0.6.95（#333）crate 改名 `peri-*` → `cc-*` 时遗漏的当前状态文档（`spec/global/`、`docs/`、crate 侧 README/CLAUDE.md 等 60 个文件）；历史快照目录（`spec/archive*`、`spec/reviews`、`docs/superpowers/*`、CHANGELOG/DEVLOG 历史条目）按规则保留不改。
+
 ## v0.6.101 — 2026-10-08
 
 ### Fixes
