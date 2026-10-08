@@ -260,11 +260,10 @@ pub(crate) async fn handle_request(
 
             // ── Freeze system prompt data at session creation ──
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_language = cfg.peri_config.read().config.language.clone();
 
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 &cwd,
-                frozen_language.as_deref(),
+                &cfg.peri_config.read().config,
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
@@ -443,10 +442,9 @@ pub(crate) async fn handle_request(
 
             // ── Freeze session data at load time ──
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_language = cfg.peri_config.read().config.language.clone();
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
-                frozen_language.as_deref(),
+                &cfg.peri_config.read().config,
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
@@ -564,10 +562,9 @@ pub(crate) async fn handle_request(
 
             // ── Freeze session data at resume time ──
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_language = cfg.peri_config.read().config.language.clone();
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
-                frozen_language.as_deref(),
+                &cfg.peri_config.read().config,
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
@@ -621,10 +618,9 @@ pub(crate) async fn handle_request(
 
             // ── Freeze session data at fork time ──
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_language = cfg.peri_config.read().config.language.clone();
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
-                frozen_language.as_deref(),
+                &cfg.peri_config.read().config,
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,

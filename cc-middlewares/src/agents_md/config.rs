@@ -12,6 +12,21 @@ pub const DEFAULT_MAX_BYTES: usize = 256 * 1024;
 /// 用户全局指引文件名。
 pub const USER_GLOBAL_FILE_NAME: &str = "AGENTS.md";
 
+/// `@import` 允许读取的范围。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImportScope {
+    /// **默认（安全）**：只允许 import 指引文件**所属项目根**内的文件；
+    /// 该文件不在任何项目根下时（如 `~/.cc-code/AGENTS.md`），范围收窄为它**所在目录**。
+    ///
+    /// 目的是阻断 `<!-- @import ../../../../etc/passwd -->` 这类路径穿越：`git clone` 一个
+    /// 恶意仓库后，它的 `AGENTS.md` 就能把项目外文件内容带进 System 消息，且不经过 HITL。
+    #[default]
+    ProjectRoot,
+    /// 不限制范围（旧行为）：相对路径可向上穿越、绝对路径直接生效。
+    /// 需要跨仓库共享规则文件时才用。
+    Unrestricted,
+}
+
 /// 指引文件（`AGENTS.md` / `CLAUDE.md` 及变体）的发现与限额配置。
 #[derive(Debug, Clone)]
 pub struct AgentsMdConfig {
@@ -29,6 +44,8 @@ pub struct AgentsMdConfig {
     /// 排除 glob（匹配路径字符串）。**在发现阶段早期生效**（去重之前），
     /// 因此被排除的候选不会占用去重槽位、也不会挤掉同内容但未排除的候选。
     pub excludes: Vec<String>,
+    /// `@import` 允许读取的范围（默认 [`ImportScope::ProjectRoot`]）。
+    pub import_scope: ImportScope,
     /// 用户全局指引文件（链首，最宽）。默认 `{APP_HOME}/AGENTS.md`（`~/.cc-code/AGENTS.md`）。
     pub user_global_file: PathBuf,
 }
@@ -49,6 +66,7 @@ impl Default for AgentsMdConfig {
             max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
             max_bytes: DEFAULT_MAX_BYTES,
             excludes: Vec::new(),
+            import_scope: ImportScope::default(),
             user_global_file: default_user_global_file(),
         }
     }
@@ -73,16 +91,24 @@ fn default_user_global_file() -> PathBuf {
     cc_agent::app_home::app_home_dir().join(USER_GLOBAL_FILE_NAME)
 }
 
+/// 把路径渲染为 `/` 分隔的展示串。
+///
+/// Windows 上 `\` 会让 provenance 头与 `~/...` 展示变味（也让跨平台断言无法复用），
+/// 故统一归一为 `/`。
+pub(crate) fn slash_display(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 /// 把绝对路径渲染为 `~/...` 形式（不在 home 下则原样返回）。
 pub(crate) fn display_with_home(path: &Path) -> String {
     if let Some(home) = dirs_next::home_dir() {
         if let Ok(rel) = path.strip_prefix(&home) {
-            let rel = rel.to_string_lossy().replace('\\', "/");
+            let rel = slash_display(rel);
             if rel.is_empty() {
                 return "~".to_string();
             }
             return format!("~/{rel}");
         }
     }
-    path.display().to_string()
+    slash_display(path)
 }

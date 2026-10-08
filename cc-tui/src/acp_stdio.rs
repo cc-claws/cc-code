@@ -471,11 +471,10 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     // ── Freeze system prompt data at session creation ──
                     let frozen_date =
                         chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let frozen_language = ctx.peri_config.read().config.language.clone();
 
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd_str,
-                        frozen_language.as_deref(),
+                        &ctx.peri_config.read().config,
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -895,10 +894,9 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let cwd = req.cwd.to_string_lossy().to_string();
                     // Build frozen data for session
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let frozen_language = ctx.peri_config.read().config.language.clone();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd,
-                        frozen_language.as_deref(),
+                        &ctx.peri_config.read().config,
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -945,10 +943,9 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
 
                     // Build frozen data for session
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let frozen_language = ctx.peri_config.read().config.language.clone();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd,
-                        frozen_language.as_deref(),
+                        &ctx.peri_config.read().config,
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -1079,10 +1076,9 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let new_session_id = new_thread_id.clone();
                     // Build frozen data for forked session
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let frozen_language = ctx.peri_config.read().config.language.clone();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd_str,
-                        frozen_language.as_deref(),
+                        &ctx.peri_config.read().config,
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,

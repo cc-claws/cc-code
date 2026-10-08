@@ -366,6 +366,24 @@
     }
 
     #[tokio::test]
+    async fn test_bom_stripped_and_dedup() {
+        let dir = repo_dir();
+        // 带 BOM 的 AGENTS.md 与不带 BOM 的 CLAUDE.md 内容相同：
+        // BOM 若不剥离，既会把不可见字符注入 prompt，也会破坏同目录去重。
+        std::fs::write(dir.path().join("AGENTS.md"), "\u{feff}shared rules\n").unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "shared rules\n").unwrap();
+
+        let mw = mw_in(dir.path());
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert!(!content.contains('\u{feff}'), "BOM 不得进入上下文");
+        assert_eq!(content.matches("shared rules").count(), 1, "{content}");
+        assert!(content.contains("## AGENTS.md"), "{content}");
+    }
+
+    #[tokio::test]
     async fn test_prepends_before_existing_messages() {
         let dir = repo_dir();
         std::fs::write(dir.path().join("AGENTS.md"), "system instructions").unwrap();
@@ -498,6 +516,92 @@
         }
     }
 
+    // ── @import 范围（安全）───────────────────────────────────────────────
+
+    /// 相对路径向上穿越（`../`）必须被拦下：`git clone` 恶意仓库不能借指引文件读项目外内容。
+    #[test]
+    fn test_import_relative_escape_blocked() {
+        let dir = repo_dir();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.md"), "OUTSIDE_SECRET").unwrap();
+        let escaped = format!(
+            "../{}/secret.md",
+            outside.path().file_name().unwrap().to_string_lossy()
+        );
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            format!("top\n<!-- @import {escaped} -->\nbottom"),
+        )
+        .unwrap();
+
+        let out = load_instructions(dir.path(), &cfg_in(dir.path())).unwrap();
+        assert!(out.contains("@import"), "越界 import 应保留占位符: {out}");
+        assert!(!out.contains("OUTSIDE_SECRET"), "项目外内容不得进入上下文: {out}");
+    }
+
+    /// 绝对路径指向项目外同样必须被拦下。
+    #[test]
+    fn test_import_absolute_path_outside_blocked() {
+        let dir = repo_dir();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.md");
+        std::fs::write(&secret, "ABS_SECRET").unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            format!("<!-- @import {} -->", secret.display()),
+        )
+        .unwrap();
+
+        let out = load_instructions(dir.path(), &cfg_in(dir.path())).unwrap();
+        assert!(!out.contains("ABS_SECRET"), "{out}");
+        assert!(out.contains("@import"), "{out}");
+    }
+
+    /// 显式放开（`ImportScope::Unrestricted`）时保留旧行为，便于跨仓库共享规则。
+    #[test]
+    fn test_import_unrestricted_scope_allows_outside() {
+        let dir = repo_dir();
+        let outside = tempfile::tempdir().unwrap();
+        let shared = outside.path().join("shared.md");
+        std::fs::write(&shared, "SHARED_OK").unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            format!("<!-- @import {} -->", shared.display()),
+        )
+        .unwrap();
+
+        let cfg = AgentsMdConfig {
+            import_scope: ImportScope::Unrestricted,
+            ..cfg_in(dir.path())
+        };
+        let out = load_instructions(dir.path(), &cfg).unwrap();
+        assert!(out.contains("SHARED_OK"), "{out}");
+    }
+
+    /// 项目内 import（含子目录、跨目录）不受限制影响——安全边界不能误伤正常用法。
+    #[test]
+    fn test_import_inside_root_still_works() {
+        let dir = repo_dir();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("rules.md"), "SUB_RULES").unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "<!-- @import sub/rules.md -->",
+        )
+        .unwrap();
+        // 子目录文件反向引用根目录文件（同属项目内）
+        std::fs::write(
+            sub.join("CLAUDE.md"),
+            "<!-- @import rules.md -->",
+        )
+        .unwrap();
+
+        let out = load_instructions(&sub, &cfg_in(dir.path())).unwrap();
+        assert!(out.contains("SUB_RULES"), "{out}");
+        assert!(!out.contains("@import"), "{out}");
+    }
+
     // ── @import tests ──────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -569,7 +673,7 @@
         let content = "<!-- @import deep.md -->".to_string();
         let mut visited = HashSet::new();
         // depth 0 should return original content
-        let result = resolve_imports(&content, dir.path(), 0, &mut visited);
+        let result = resolve_imports(&content, dir.path(), 0, &mut visited, None);
         assert!(result.contains("@import"));
     }
 
@@ -592,6 +696,7 @@
             dir.path(),
             3,
             &mut visited,
+            None,
         );
         // a.md's @import b.md should be resolved, but b.md's @import a.md should be kept as-is (cycle)
         assert!(!result.is_empty());
@@ -601,7 +706,7 @@
     fn test_import_nonexistent_file() {
         let content = "<!-- @import nonexistent.md -->";
         let mut visited = HashSet::new();
-        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited);
+        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited, None);
         assert!(
             result.contains("@import"),
             "nonexistent file should keep original placeholder"
@@ -612,7 +717,7 @@
     fn test_import_invalid_format() {
         let content = "<!-- @import no closing tag";
         let mut visited = HashSet::new();
-        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited);
+        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited, None);
         assert!(
             result.contains("@import"),
             "invalid format should preserve original text"

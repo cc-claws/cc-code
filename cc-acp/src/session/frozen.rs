@@ -22,27 +22,36 @@ pub fn rule_model_from(provider: &crate::provider::LlmProvider) -> Option<Arc<dy
 
 /// Build frozen session data from the given parameters.
 ///
-/// Called once at session/new, capturing date/language/CLAUDE.md/skills/system_prompt.
-/// `language` should be the user's configured language (`None` → auto-detect).
+/// Called once at session/new, capturing date/language/instructions/skills/system_prompt.
+///
+/// 配置派生项（`language` / `claude_md_excludes`）**统一从 `app_config` 取**，不再逐个当参数传——
+/// 调用点因此只有「ctx 相关」的实参，未来新增配置派生项也不用动签名与 8 个调用点。
 ///
 /// `rule_model` 用于把 CLAUDE.md 提炼成 Jev 安全规则（一次 LLM 调用，结果进程内缓存）。
 /// 传 `None` 则不做提炼，门不携带用户策略。
 pub fn build_frozen_session_data(
     cwd: &str,
-    language: Option<&str>,
+    app_config: &crate::provider::config::AppConfig,
     plugin_skill_dirs: &[PathBuf],
     plugin_agent_dirs: &[PathBuf],
     frozen_date: &str,
     rule_model: Option<Arc<dyn BaseModel>>,
 ) -> FrozenSessionData {
+    let language = app_config.language.as_deref();
+
     // Jev 规则提炼的「项目级 / 个人级」两段来源（注入内容另走下面的 instructions）。
     let (jev_project_md, jev_personal_md) =
         cc_middlewares::AgentsMdMiddleware::read_frozen_content(cwd);
 
-    // 注入上下文的整段指引：同目录合并 + 去重 + 跨目录 root→cwd 拼接 + provenance + 限额。
-    // （上面那份 `read_frozen_content` 产出只喂给下面的 Jev 规则提炼，两者互不影响。）
-    let frozen_instructions =
-        cc_middlewares::agents_md::load_frozen_instructions(std::path::Path::new(cwd));
+    // 注入上下文的整段指引：同目录合并 + 去重 + 跨目录 root→cwd 拼接 + provenance + 限额 + excludes。
+    let instruction_cfg = cc_middlewares::AgentsMdConfig {
+        excludes: app_config.claude_md_excludes.clone().unwrap_or_default(),
+        ..Default::default()
+    };
+    let frozen_instructions = cc_middlewares::agents_md::load_instructions(
+        std::path::Path::new(cwd),
+        &instruction_cfg,
+    );
 
     // 个人 → 项目 → hooks → 全局，越靠前越权威（超长时先丢全局）。
     // 优先级数字与 `source=` 写进标题：模型据此按小号覆盖大号，并给每条规则标注来源。
