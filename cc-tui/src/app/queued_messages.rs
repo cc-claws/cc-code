@@ -48,14 +48,17 @@ impl App {
             .map(|message| message.id)
     }
 
-    /// Ctrl+S：立即补充队首排队消息（等价点击 `[Send now]`）。
+    /// Alt+S：立即补充队首排队消息（等价点击 `[Send now]`）。
+    ///
+    /// 刻意不用 Ctrl+S：Windows 控制台（conhost/ConPTY）把 Ctrl+S 当作暂停键
+    /// （XOFF）在宿主层截走丢弃，事件到不了应用层。
     pub(crate) fn steer_first_queued_message(&mut self) {
         if let Some(id) = self.first_actionable_queued_id() {
             self.handle_queued_message_action(QueuedMessageAction::Steer(id));
         }
     }
 
-    /// Ctrl+X：删除队首排队消息（等价点击 `[×]`）。
+    /// Alt+X：删除队首排队消息（等价点击 `[×]`）。
     pub(crate) fn delete_first_queued_message(&mut self) {
         if let Some(id) = self.first_actionable_queued_id() {
             self.handle_queued_message_action(QueuedMessageAction::Delete(id));
