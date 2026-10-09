@@ -375,20 +375,34 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 
 ## npm 发版流程
 
-npm 包（`@cc-claw/code`）通过 GitHub Actions 发版，触发方式：推送 `npm-v*` tag 或手动 workflow_dispatch。
+npm 包（`@cc-claw/code`）通过 GitHub Actions 发版，三种触发方式：**auto-release（推荐）** / 推送 `npm-v*` tag / 手动 workflow_dispatch。
 
 **发版前必须完成：**
 1. 更新 `CHANGELOG.md`，记录本次版本变更
 2. 更新 `npm/README.md` 中的更新说明（如有）
-3. 确认 `npm/package.json` 版本号与目标版本一致
+3. 更新 `README.md` / `README_ZH.md` 特性表（保留最新 10 条，中英一一对应）
 
-**触发发版：**
+### 方式一：auto-release（推荐，版本自动 bump）
+
+`auto-release-npm.yml` 全自动完成「bump → 打 tag → 发布」，**不需要手动改 `package.json`、不需要手动打 tag**：
+
 ```bash
-# 方式一：推送 tag
-git tag npm-v<VERSION>
-git push origin npm-v<VERSION>
-
-# 方式二：GitHub Actions 页面手动触发，输入版本号
+gh workflow run auto-release-npm.yml --repo cc-claws/cc-code --ref main
 ```
 
-**CI 流程：** build（5 平台交叉编译）→ release（GitHub Release + 二进制上传）→ publish（npm publish）
+流程：读 `npm/package.json` 当前版本 → bump patch（如 0.6.105 → 0.6.106）→ 提交 `chore: bump npm version to X.Y.Z` → 打 tag `npm-vX.Y.Z` → dispatch `release-npm.yml`。
+
+**[TRAP]** 走这条路径时**禁止手动改 `npm/package.json`**——auto 流程会自己 bump，手动改会导致版本号多跳一位。注意 `GITHUB_TOKEN` 创建的 tag 不触发其他 workflow（防递归），故 `auto-release-npm.yml` 末尾显式 `gh workflow run release-npm.yml`。
+
+### 方式二：推送 tag（版本号已定）
+
+```bash
+git tag npm-v<VERSION>
+git push origin npm-v<VERSION>
+```
+
+### 方式三：手动 dispatch release-npm.yml
+
+GitHub Actions 页面手动触发 `Release npm`，输入版本号（此路径由 `release-npm.yml` 的 `Set npm version` 步骤按输入覆盖 `package.json`）。
+
+**CI 流程：** build（5 平台交叉编译：linux x86_64/aarch64、macos x86_64/aarch64、windows x86_64）→ release（GitHub Release + 二进制上传）→ publish（npm publish）
