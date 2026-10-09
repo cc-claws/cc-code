@@ -156,11 +156,11 @@
         assert!(full_text.contains("! git status"), "应显示命令块标题");
         assert!(!full_text.contains("exit code"), "命令块标题不应显示 exit code");
         assert!(
-            full_text.contains("Ctrl+O for details"),
-            "超长输出应显示 Ctrl+O 详细模式提示"
+            full_text.contains("(57 more lines) (ctrl+o to expand)"),
+            "超长输出应显示与工具行一致的折叠提示: {full_text}"
         );
-        assert!(full_text.contains("line 05"), "普通模式应展示前 6 行");
-        assert!(!full_text.contains("line 06"), "普通模式应截断第 7 行后的输出");
+        assert!(full_text.contains("line 02"), "普通模式应展示前 3 行");
+        assert!(!full_text.contains("line 03"), "普通模式应截断第 4 行后的输出");
 
         let detail_lines = render_view_model(&vm, None, 80, true, 0);
         let detail_text = detail_lines
@@ -168,14 +168,13 @@
             .flat_map(|line| line.spans.iter().map(|span| span.content.clone()))
             .collect::<Vec<_>>()
             .join("");
-        assert!(detail_text.contains("line 39"), "详细模式应显示前 40 行");
         assert!(
-            !detail_text.contains("line 40"),
-            "详细模式也应在 40 行后截断"
+            detail_text.contains("line 59"),
+            "详细模式不截断，应显示最后一行"
         );
         assert!(
-            detail_text.contains("output truncated at 40 lines"),
-            "详细模式截断后应提示硬上限"
+            !detail_text.contains("more lines"),
+            "详细模式不截断，不应出现折叠提示: {detail_text}"
         );
     }
 
@@ -260,7 +259,7 @@
             .collect();
 
         assert_eq!(rendered_lines[0].trim_end(), "! restart-9router.cmd");
-        assert_eq!(rendered_lines[1], "  └ [9router] Stopping old instance on 20130...");
+        assert_eq!(rendered_lines[1], "  ⎿ [9router] Stopping old instance on 20130...");
         assert_eq!(rendered_lines[2], "    [9router] Starting http://localhost:20130");
         assert_eq!(
             rendered_lines[3],
@@ -300,13 +299,13 @@
         let lines = render_view_model(&vm, None, 80, false, 0);
         let text = rendered_text(&lines);
         assert!(text.contains("! sleep 30 && gh pr checks 18"));
-        assert!(text.contains("  └ (No output)"));
+        assert!(text.contains("  ⎿ (No output)"));
         assert!(!text.contains("(no output)"));
     }
 
     #[test]
     fn test_shell_command_stderr_exit0_uses_muted_not_error() {
-        // exit 0 + stderr → MUTED（成功，stderr 不应显示红色）
+        // exit 0 + stderr → TEXT_SOFT（成功，与工具行一致，stderr 不应显示红色）
         let mut vm_ok = MessageViewModel::ShellCommand {
             id: "shell-stderr-ok".to_string(),
             command: "git status".to_string(),
@@ -329,8 +328,8 @@
         assert!(stderr_span_ok.is_some(), "应找到 stderr 内容");
         assert_eq!(
             stderr_span_ok.unwrap().style.fg,
-            Some(crate::ui::theme::MUTED),
-            "exit 0 时 stderr 应为 MUTED 色，非 ERROR 红色"
+            Some(crate::ui::theme::TEXT_SOFT),
+            "exit 0 时输出应为 TEXT_SOFT 色（对齐工具行），非 ERROR 红色"
         );
         // exit 1 + stderr → ERROR（失败，stderr 应显示红色）
         let mut vm_err = MessageViewModel::ShellCommand {
