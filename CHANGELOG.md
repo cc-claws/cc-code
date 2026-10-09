@@ -4,7 +4,29 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## v0.6.104 — 2026-10-08
+## v0.6.106 — 2026-10-09
+
+### Features
+
+- **指引文件分层合并，加载模型对齐 dsh（#357）**：项目同时存在 `AGENTS.md`、`CLAUDE.md` 或多级目录指引时，原实现会**漏载规则**。现按项目根 → 工作目录逐层收集同层候选依次加载，记录 provenance（来源路径），同目录按内容去重，并在 `session/new` 时冻结结果（`frozen_instructions`）。用户全局层由旧的 `~/.claude/AGENTS.md` 迁移至 `~/.cc-code/AGENTS.md`。空文件跳过、换行归一；大文件有界读取（单文件默认 1 MiB、最终注入默认 256 KiB），中文切边安全；递归 `@import` 共享输出预算，缺失/不可读/循环引用保留占位符。审计修复：空指引也保存冻结快照；正确解析含 `..` 的 cwd 并保留发现路径供 excludes 使用；候选先内容去重再登记路径，避免别名挡住后续目录的规则（另见 `spec/global/domains/agent-instructions.md`）。
+- **子 Agent 继承父权限，消除委派绕过审批（#357）**：Auto 模式下，普通、后台与 fork 子 Agent 现在**共享父级权限模式、Jev 门、规则加载器、分类器及会话审批记忆**，修复了「委派给子 Agent 即可绕过工具审批」的问题。父保留允许 / 拒绝 / 询问三态；子只有允许 / 拒绝，不确定或服务失败默认拒绝，规则提炼失败、不完整或取消也可被识别。检查覆盖真实工具名、间接工具目标（`ExecuteExtraTool` 解包）、工具限制及实际执行目录，并禁止递归委派。
+- **HITL 审批界面同时提供三档选择（#357）**：审批弹窗同时显示「同意本次 / 本次会话同意 / 拒绝」，上下键选择、Enter 提交、Tab / Shift+Tab 切换工具、Esc 全部拒绝；滚动保留当前工具的三项选择，参数按终端列宽截断，中英文同步。会话记忆按工具类型细化：本次批准不记忆；文件按工具与路径，Bash 按完整命令 + 执行目录 + 分支，其他工具按完整参数；明确禁止规则优先于记忆。
+
+### Fixes
+
+- **`/export` 导出不再截断工具调用信息（#363）**：导出的 Markdown/PlainText 中，工具调用参数被 `chars().take(200)` 一刀切——真实日志中 210 次 Bash 调用有 **156 次（74%）被切在正好 200 字符**，JSON 未闭合、命令从中间断掉；`Write.content`、`Edit` 的 `old_string`/`new_string` 同样受影响。现去掉截断、完整输出参数 JSON；同时加固 `ContentBlock::ToolResult` 分支（原只写行数统计，改为输出完整正文并标注 `is_error`），并按正文最长连续反引号自适应围栏长度，防止 heredoc 脚本内容破坏 Markdown 结构。（详见 [#362](https://github.com/cc-claws/cc-code/issues/362)）
+
+## v0.6.105 — 2026-10-08
+
+### Fixes
+
+- **日志文件打不开不再 panic，降级到 stderr（#354）**：启动 `cc-code` 时若 `~/.cc-code/logs/{service}.log` 因 ACL 被写坏（空 DACL）而无法打开，`subscriber.rs` 的 `.expect("cannot open log file")` 会**直接 panic 掉整个进程**——日志只是诊断设施，不该是启动硬依赖。现抽 `resolve_log_writer(log_path) -> BoxMakeWriter`：打开失败时 `eprintln!` 警告并退回 `std::io::stderr`（json / 非 json 两条分支共用同一 writer 类型）；`ensure_utf8_bom()` 失败静默忽略（BOM 仅为显示优化）；`set_global_default` 失败降级为提示。修复后日志文件 ACL 坏了也能正常启动。
+
+### Refactoring
+
+- **统一英文内置指令并优化任务执行约束（#356）**：统一 14 个主模板、4 个内置 Agent、核心工具与参数说明、Skills、ACP 命令、压缩/回顾及审批模型的英文指令。清理「四行/一词回复」「编辑后停止」等固定限制，明确授权范围、持续执行、完成结果与验证证据，规定审批与拒绝不得被工具切换绕过。工具说明与实现对齐：Read 默认分页、32 MiB 文件上限、未实现的 PDF 页码；Write/Edit 不再宣称强制先读校验；Bash 使用实际 shell/timeout 契约；Agent 区分独立上下文与继承快照、不承诺 worktree 隔离。Deferred 工具目录按名称排序、每项只保留首个非空描述行（≤160 Unicode 字符），完整描述与 schema 按需经 `SearchExtraTools` 获取。同时修复 HITL 提示段落的开关复用运行时 `is_yolo_mode`（此前默认审批开启却未注入审批说明）。模型可见文本量：核心工具描述 −40.9%、内置 Agent 定义 −31.9%。
+
+
 
 ### Features
 
