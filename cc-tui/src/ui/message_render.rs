@@ -139,8 +139,10 @@ fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
         .collect()
 }
 
-const SHELL_OUTPUT_COLLAPSED_LINES: usize = 6;
-const SHELL_OUTPUT_DETAIL_LINES: usize = 40;
+/// Bash 工具 / `!` 本地命令输出行上限。折叠态 3 行，详细模式不截断。
+/// 两者共用同一口径，避免同一屏上 `!` 块与 Bash 工具行可见行数不一致。
+const SHELL_OUTPUT_COLLAPSED_LINES: usize = 3;
+const SHELL_OUTPUT_DETAIL_LINES: usize = usize::MAX;
 
 /// 折行输出段：line 为渲染行，其余字段用于链接命中区映射
 struct WrappedLineSeg {
@@ -886,21 +888,19 @@ fn ansi_spans(line: &str, default_style: Style) -> Vec<Span<'static>> {
 
 /// 渲染一行 `!` 命令输出（保留 ANSI 着色）并按视口宽度预折行。
 ///
-/// 首行用 `prefix`、续行用 4 列空格，形成悬挂缩进；整行带 SHELL_BG 背景。
+/// 首行用 `prefix`、续行用 4 列空格，形成悬挂缩进；不设背景色，与工具结果行
+/// （`⎿` 前缀 + DIM/ERROR 前景色）保持一致。
 /// 预折行避免 `Paragraph::wrap` 二次硬折行使长输出续行顶格。
 fn shell_output_lines(
     out: &mut Vec<Line<'static>>,
     prefix: &'static str,
     text: &str,
     default_style: Style,
+    prefix_color: Color,
     width: usize,
 ) {
-    let bg_style = Style::default().bg(theme::SHELL_BG);
-    let prefix_style = Style::default().fg(theme::SHELL_BORDER).bg(theme::SHELL_BG);
-    let content: Vec<Span<'static>> = ansi_spans(text, default_style)
-        .into_iter()
-        .map(|span| span.patch_style(bg_style))
-        .collect();
+    let prefix_style = Style::default().fg(prefix_color);
+    let content: Vec<Span<'static>> = ansi_spans(text, default_style);
     push_wrapped_line_keep_lead(
         out,
         Line::from(content),
@@ -963,9 +963,10 @@ fn render_shell_command(
         };
         shell_output_lines(
             &mut lines,
-            "  └ ",
+            "  ⎿ ",
             text,
             Style::default().fg(theme::DIM),
+            theme::DIM,
             width,
         );
     } else {
@@ -976,34 +977,33 @@ fn render_shell_command(
         };
         for (idx, (line, is_error)) in output_lines.iter().enumerate() {
             if idx >= max_lines {
-                let hint = if detail_mode {
-                    format!(
-                        "... output truncated at {} lines ({} more lines hidden)",
-                        max_lines,
-                        output_lines.len() - max_lines
-                    )
-                } else {
-                    format!(
-                        "... {} more lines hidden, Ctrl+O for details",
-                        output_lines.len() - max_lines
-                    )
-                };
+                // 与 Bash 工具结果行的截断提示文案保持一致。
+                let remaining = output_lines.len() - max_lines;
+                let hint = format!("... ({remaining} more lines) (ctrl+o to expand)");
                 shell_output_lines(
                     &mut lines,
                     "    ",
                     &hint,
                     Style::default().fg(theme::DIM),
+                    theme::DIM,
                     width,
                 );
                 break;
             }
+            // 与 Bash 工具结果行口径一致：成功输出用 TEXT_SOFT，非零退出码用 ERROR。
             let default_style = if *is_error && exit_code != Some(0) {
                 Style::default().fg(theme::ERROR)
             } else {
-                Style::default().fg(theme::MUTED)
+                Style::default().fg(theme::TEXT_SOFT)
             };
-            let prefix = if idx == 0 { "  └ " } else { "    " };
-            shell_output_lines(&mut lines, prefix, line, default_style, width);
+            // 与 Bash 工具结果行口径一致：非零退出码时前缀转 ERROR 红。
+            let prefix_color = if *is_error && exit_code != Some(0) {
+                theme::ERROR
+            } else {
+                theme::DIM
+            };
+            let prefix = if idx == 0 { "  ⎿ " } else { "    " };
+            shell_output_lines(&mut lines, prefix, line, default_style, prefix_color, width);
         }
     }
 
@@ -1024,6 +1024,7 @@ fn render_shell_command(
             "    ",
             &elapsed_str,
             Style::default().fg(theme::MUTED),
+            theme::DIM,
             width,
         );
         shell_output_lines(
@@ -1031,6 +1032,7 @@ fn render_shell_command(
             "    ",
             CONTROL_B_BACKGROUND_HINT,
             Style::default().fg(theme::MUTED),
+            theme::DIM,
             width,
         );
     }
