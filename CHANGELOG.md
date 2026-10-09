@@ -4,6 +4,22 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.108 — 2026-10-09
+
+### Performance
+
+- **`LlmCallStart` 载荷按需构造，无订阅者不再全量克隆消息历史（#369）**：`llm_step.rs` 在每轮 LLM 调用前无条件 `state.messages().to_vec()`，把整个消息历史（含工具结果正文、图片 base64）深拷贝一份，仅用于构造 `LlmCallStart` 事件的 `messages` 字段。该克隆发生在 `emit()` 的订阅者判断**之前**——Langfuse 未启用时照常执行，长会话下每轮 MB 级、再乘以 ReAct 迭代次数，为无人读取的数据付 O(轮数 × 历史大小) 的分配成本；#306 只修掉了 tracer 侧的第二次深拷贝。由于 `LlmCallStart.messages/tools` 的唯一真实消费者是 Langfuse tracer（TUI 与 ACP mapper 均丢弃该事件），现按「按需快照」实施：`AgentEventHandler` 新增 `wants_llm_call_payload()`（默认 `false`），executor 据此决定是否构造载荷——`false` 时发空载荷、跳过全量拷贝。`cc-acp` 的 `FnEventHandler` 闭包替换为 `PumpHandler`，以「Langfuse 是否启用」声明需求；`cc-middlewares` 的 `SourceAgentIdHandler`（子 Agent 事件包装器）委托 inner 的声明，避免子 Agent 的 Langfuse 输入快照丢失。
+
+### Fixes
+
+- **用户 `!` 命令块渲染对齐工具结果行（#384）**：TUI 中用户直接执行的 `!` shell 命令块与工具结果行的缩进/前缀风格不一致，现统一对齐，消除同一输出区域的视觉割裂。
+
+## v0.6.107 — 2026-10-09
+
+### Features
+
+- **紧凑审批面板与完整参数展示（#368）**：审批面板此前将 Bash 参数单行截断、批量工具重复展示选项与快捷键，长脚本难以核对。现按内容收紧布局、完整换行展示参数（Bash 保留换行/缩进与中文显示列宽，Edit 展示上下文与增删对比），批量显示当前位置与三类计数，没有内部滚动区、超高内容优先当前工具并明确提示剩余未显示行数，快捷键固定在底部；仅改 UI/文案/测试，权限判定、父子 Agent 限制、会话审批记忆、ACP 返回与键盘处理不变。
+
 ## v0.6.106 — 2026-10-09
 
 ### Features
