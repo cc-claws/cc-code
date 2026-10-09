@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.110 — 2026-10-09
+
+### Fixes
+
+- **Schema 熔断器跨工具聚合与连续失败按错误类型聚合（#379）**：修复模型在不同工具间轮换猜错参数时单工具计数永远达不到阈值（2 次）导致的熔断逃逸缺陷，新增跨工具聚合连续失败追踪（阈值 3 次）与指数退避机制；修复连续失败检测按完整错误文本做 key 导致参数名差异稀释计数的缺陷，引入类型化 `ToolErrorKind` 枚举并将 key 优化为 `(tool_name, error_kind)`；弃用脆弱的字符串嗅探，在参数校验失败点精准抛出 `AgentError::ToolSchemaValidationFailed` 并结构化传递；调整告警写入时序，确保所有 `ToolResult` 紧随 `AiMessage` 写入后再追加 `System` 提示，杜绝孤立工具结果风险。
+
 ## v0.6.109 — 2026-10-09
 
 ### Features
