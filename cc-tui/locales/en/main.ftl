@@ -278,6 +278,23 @@ hitl-approved = [Approved]
 hitl-rejected = [Rejected]
 hitl-key-hint = ↑↓ choose · Tab switch tool · Enter confirm · Esc reject all
 hitl-summary = Selected: { $approved } approved / { $rejected } rejected
+hitl-run-command = Run command
+hitl-edit-file = Edit file
+hitl-read-file = Read file
+hitl-write-file = Write file
+hitl-search = Search
+hitl-call-tool = Call tool
+hitl-working-directory = Working directory
+hitl-description-once = Allow only this invocation
+hitl-description-session-command = Don’t ask again for this command in this session
+hitl-description-session-file = Don’t ask again for this tool on this file this session
+hitl-description-session-tool = Don’t ask again for this tool with these parameters this session
+hitl-description-reject = Block this invocation
+hitl-diff-title = Changes · − Removed · + Added
+hitl-selected-choice = { $choice }
+hitl-selection-target = Deciding tool { $current }/{ $count } · { $tool }
+hitl-summary-three = Once { $once } · Session { $session } · Reject { $rejected }
+hitl-hidden-lines = … { $count } lines not shown · Enlarge terminal
 
 # ---- AskUser Popup ----
 

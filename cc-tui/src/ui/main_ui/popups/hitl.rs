@@ -1,167 +1,106 @@
+use cc_widgets::BorderedPanel;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Clear, Paragraph},
+    text::{Line, Span},
+    widgets::Paragraph,
     Frame,
 };
 
-use cc_widgets::BorderedPanel;
-
 use crate::{
-    app::{tool_display::sanitize_display_text, App, ApprovalChoice},
+    app::{App, InteractionPrompt},
     ui::{message_render::truncate_to_display_width, theme},
 };
 
-/// HITL 批量确认弹窗（底部展开区）
-pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
-    // 边框两行、固定快捷键一行，剩余内容区用于滚动。
-    if let Some(crate::app::InteractionPrompt::Approval(prompt)) =
-        &mut app.session_mgr.current_mut().agent.interaction_prompt
-    {
-        prompt.last_visible_height = area.height.saturating_sub(3);
-        prompt.keep_choice_visible();
+#[path = "hitl_content.rs"]
+mod content;
+
+/// 按完整参数、选项与快捷键的实际显示行数计算面板高度。
+pub(crate) fn hitl_popup_height(app: &App, width: u16, max_height: u16) -> u16 {
+    let Some(model) = content::build_content(app, usize::from(width)) else {
+        return 0;
+    };
+    let content_rows = model.sections.iter().map(Vec::len).sum::<usize>();
+    let fixed_rows = model.summary.len() + model.choices.len() + model.hints.len() + 2;
+    let full_rows = content_rows + fixed_rows;
+    if full_rows <= usize::from(max_height) {
+        return u16::try_from(full_rows).unwrap_or(max_height);
     }
-    let (scroll_offset, lines, inner, hint) = {
-        let Some(crate::app::InteractionPrompt::Approval(prompt)) =
-            &app.session_mgr.current().agent.interaction_prompt
-        else {
-            return;
-        };
-        let lc = &app.services.lc;
-        let item_count = prompt.items.len();
-        let popup_area = area;
-
-        let title = if item_count == 1 {
-            lc.tr("hitl-single-title")
-        } else {
-            lc.tr("hitl-batch-title")
-        };
-
-        let inner = BorderedPanel::new(Span::styled(
-            title,
-            Style::default()
-                .fg(theme::THINKING)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .border_style(Style::default().fg(theme::WARNING))
-        .render(f, popup_area);
-        let max_width = inner.width as usize;
-
-        let mut lines: Vec<Line> = Vec::new();
-        for (i, (item, &choice)) in prompt.items.iter().zip(prompt.choices.iter()).enumerate() {
-            let is_cursor = i == prompt.cursor;
-            let (status_icon, status_color) = if choice.is_approved() {
-                ("✓", theme::SAGE)
-            } else {
-                ("✗", theme::ERROR)
-            };
-            let cursor_indicator = if is_cursor { "❯ " } else { "  " };
-            lines.push(Line::styled(
-                truncate_to_display_width(
-                    &format!("{}{} {}", cursor_indicator, status_icon, item.tool_name),
-                    max_width,
-                ),
-                if is_cursor {
-                    Style::default()
-                        .fg(theme::THINKING)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(status_color)
-                },
-            ));
-            let input_preview = format_input_preview(&item.input, max_width.saturating_sub(6));
-            lines.push(Line::from(vec![
-                Span::raw("     "),
-                Span::styled(input_preview, Style::default().fg(theme::MUTED)),
-            ]));
-            for option in ApprovalChoice::ALL {
-                let selected = choice == option;
-                let marker = if selected { "●" } else { "○" };
-                let indicator = if is_cursor && selected { "❯" } else { " " };
-                let label = lc.tr(match option {
-                    ApprovalChoice::Once => "hitl-choice-once",
-                    ApprovalChoice::Session => "hitl-choice-session",
-                    ApprovalChoice::Reject => "hitl-choice-reject",
-                });
-                lines.push(Line::styled(
-                    truncate_to_display_width(
-                        &format!("  {indicator} {marker} {label}"),
-                        max_width,
-                    ),
-                    if is_cursor && selected {
-                        Style::default()
-                            .fg(theme::THINKING)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(theme::MUTED)
-                    },
-                ));
-            }
-        }
-        if item_count > 1 {
-            let approved_count = prompt.choices.iter().filter(|c| c.is_approved()).count() as i64;
-            let rejected_count = prompt.choices.len() as i64 - approved_count;
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                lc.tr_args(
-                    "hitl-summary",
-                    &[
-                        ("approved".into(), approved_count.into()),
-                        ("rejected".into(), rejected_count.into()),
-                    ],
-                ),
-                Style::default().fg(theme::MUTED),
-            )));
-        }
-        (prompt.scroll_offset, lines, inner, lc.tr("hitl-key-hint"))
+    let cursor = match &app.session_mgr.current().agent.interaction_prompt {
+        Some(InteractionPrompt::Approval(prompt)) => prompt.cursor,
+        _ => 0,
     };
-    let content = Rect {
-        height: inner.height.saturating_sub(1),
-        ..inner
-    };
-    let footer = Rect {
-        y: inner.y.saturating_add(content.height),
-        height: inner.height.min(1),
-        ..inner
-    };
-    let para = Paragraph::new(Text::from(lines)).scroll((scroll_offset, 0));
-    f.render_widget(Clear, inner);
-    f.render_widget(para, content);
-    f.render_widget(
-        Paragraph::new(hint).style(Style::default().fg(theme::DIM)),
-        footer,
-    );
+    let current_rows = model.sections.get(cursor).map(Vec::len).unwrap_or(0);
+    let hidden_rows = content_rows.saturating_sub(current_rows);
+    let notice_rows = content::hidden_notice(app, hidden_rows, usize::from(width)).len();
+    let compact_rows = current_rows + notice_rows + fixed_rows;
+    u16::try_from(compact_rows)
+        .unwrap_or(u16::MAX)
+        .min(max_height)
 }
 
-fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
-    let s = match input {
-        serde_json::Value::Object(map) => {
-            let key = ["command", "file_path", "pattern", "path"]
-                .iter()
-                .find(|k| map.contains_key(**k))
-                .copied()
-                .or_else(|| map.keys().next().map(|k| k.as_str()));
-
-            if let Some(k) = key {
-                if let Some(v) = map.get(k) {
-                    let val = match v {
-                        serde_json::Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    format!("{k}={val}")
-                } else {
-                    input.to_string()
-                }
-            } else {
-                "{}".to_string()
-            }
-        }
-        other => other.to_string(),
+/// HITL 底部审批区：方向键只选择审批项，参数没有独立滚动区。
+pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
+    let Some(InteractionPrompt::Approval(prompt)) =
+        &app.session_mgr.current().agent.interaction_prompt
+    else {
+        return;
     };
-
-    let s = sanitize_display_text(&s);
-    truncate_to_display_width(&s, max_len)
+    let title = app.services.lc.tr(if prompt.items.len() == 1 {
+        "hitl-single-title"
+    } else {
+        "hitl-batch-title"
+    });
+    let cursor = prompt.cursor.min(prompt.items.len().saturating_sub(1));
+    let inner = BorderedPanel::new(Span::styled(
+        truncate_to_display_width(&title, usize::from(area.width)),
+        Style::default()
+            .fg(theme::THINKING)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::WARNING))
+    .render(f, area);
+    let Some(mut model) = content::build_content(app, usize::from(inner.width)) else {
+        return;
+    };
+    let height = usize::from(inner.height);
+    if height == 0 {
+        return;
+    }
+    // 极矮窗口先移除说明与批量摘要，始终优先保留三项选择和操作提示。
+    if model.choices.len() + model.summary.len() + model.hints.len() + 2 > height {
+        model.choices.truncate(3);
+        model.summary.clear();
+    }
+    let fixed_rows = model.summary.len() + model.choices.len() + model.hints.len();
+    let available = height.saturating_sub(fixed_rows);
+    let total_rows = model.sections.iter().map(Vec::len).sum::<usize>();
+    let mut lines = if total_rows <= available {
+        model.sections.into_iter().flatten().collect::<Vec<_>>()
+    } else {
+        // 批量超高时只展示当前工具；不利用旧 scroll_offset 改变参数视口。
+        let section = model.sections.get(cursor).cloned().unwrap_or_default();
+        let mut shown = Vec::new();
+        if available > 0 {
+            let notice = content::hidden_notice(app, total_rows, usize::from(inner.width));
+            let notice_rows = notice.len().min(available);
+            let shown_count = available.saturating_sub(notice_rows).min(section.len());
+            shown.extend(section.into_iter().take(shown_count));
+            let hidden = total_rows.saturating_sub(shown_count);
+            shown.extend(
+                content::hidden_notice(app, hidden, usize::from(inner.width))
+                    .into_iter()
+                    .take(available.saturating_sub(shown.len())),
+            );
+        }
+        shown
+    };
+    lines.resize_with(available, || Line::from(""));
+    lines.extend(model.summary);
+    lines.extend(model.choices);
+    lines.extend(model.hints);
+    // 小于可操作最小尺寸时只裁剪最终行；不进行滚动，也不改变审批状态。
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 #[cfg(test)]

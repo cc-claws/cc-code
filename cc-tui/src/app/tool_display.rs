@@ -105,12 +105,24 @@ pub fn truncate(s: &str, max: usize) -> String {
 }
 
 pub fn sanitize_display_text(s: &str) -> String {
+    sanitize_display_text_inner(s, false)
+}
+
+/// 审批正文保留脚本换行和缩进，同时复用完整控制序列扫描器。
+pub(crate) fn sanitize_display_text_preserving_newlines(s: &str) -> String {
+    sanitize_display_text_inner(s, true)
+}
+
+fn sanitize_display_text_inner(s: &str, preserve_newlines: bool) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(ch) = chars.next() {
         match ch {
             '\x1b' => skip_escape_sequence(&mut chars),
             '\u{009b}' => skip_csi_sequence(&mut chars),
+            '\n' if preserve_newlines => out.push('\n'),
+            '\r' if preserve_newlines => {}
+            '\t' if preserve_newlines => out.push_str("    "),
             '\n' | '\r' | '\t' => out.push(' '),
             ch if ch.is_control() => {}
             ch => out.push(ch),
