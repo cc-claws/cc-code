@@ -34,6 +34,33 @@ pub fn render_messages(messages: &[BaseMessage], format: ExportFormat) -> String
     }
 }
 
+/// 拼接 ToolResult 的所有文本 block 为完整正文（不截断）。
+fn tool_result_body(content: &[ContentBlock]) -> String {
+    content
+        .iter()
+        .filter_map(|b| b.as_text())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 根据正文中连续反引号的最大长度生成安全的 Markdown fenced code block 围栏。
+///
+/// 至少 3 个反引号；正文含 ``` 时递增（如 4 个），保证围栏不被内容破坏
+/// （例如写脚本的 Bash 命令里内嵌 heredoc 反引号）。
+fn code_fence(body: &str) -> String {
+    let mut max_run = 0usize;
+    let mut current = 0usize;
+    for ch in body.chars() {
+        if ch == '`' {
+            current += 1;
+            max_run = max_run.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    "`".repeat((max_run + 1).max(3))
+}
+
 // ── PlainText ────────────────────────────────────────────────────────────────
 
 fn render_plain_text(messages: &[BaseMessage]) -> String {
@@ -54,17 +81,18 @@ fn render_plain_text(messages: &[BaseMessage]) -> String {
         for block in msg.content_blocks() {
             match block {
                 ContentBlock::ToolUse { name, input, .. } => {
-                    let input_str = input.to_string();
-                    let truncated: String = input_str.chars().take(200).collect();
-                    out.push_str(&format!("[Tool: {}] {}\n", name, truncated));
+                    // 完整保留参数 JSON，不做截断（导出用于调试/审计）
+                    out.push_str(&format!("[Tool: {}] {}\n", name, input));
                 }
-                ContentBlock::ToolResult { content, .. } => {
-                    let line_count = content
-                        .iter()
-                        .filter_map(|b| b.as_text())
-                        .map(|t| t.lines().count())
-                        .sum::<usize>();
-                    out.push_str(&format!("[Tool Result] ({} lines)\n", line_count));
+                ContentBlock::ToolResult {
+                    content, is_error, ..
+                } => {
+                    let marker = if is_error { " (error)" } else { "" };
+                    out.push_str(&format!(
+                        "[Tool Result{}]\n{}\n",
+                        marker,
+                        tool_result_body(&content)
+                    ));
                 }
                 ContentBlock::Text { text } => {
                     out.push_str(&text);
@@ -111,20 +139,25 @@ fn render_markdown(messages: &[BaseMessage]) -> String {
         for block in msg.content_blocks() {
             match block {
                 ContentBlock::ToolUse { name, input, .. } => {
+                    // 完整保留参数 JSON（不截断）；围栏长度自适应，防止内嵌
+                    // 反引号（如 heredoc 脚本）破坏 Markdown 结构
                     let input_str = input.to_string();
-                    let truncated: String = input_str.chars().take(200).collect();
+                    let fence = code_fence(&input_str);
                     out.push_str(&format!(
-                        "<details><summary>Tool: {}</summary>\n\n{}\n\n</details>\n\n",
-                        name, truncated
+                        "<details><summary>Tool: {}</summary>\n\n{fence}json\n{}\n{fence}\n\n</details>\n\n",
+                        name, input_str
                     ));
                 }
-                ContentBlock::ToolResult { content, .. } => {
-                    let line_count = content
-                        .iter()
-                        .filter_map(|b| b.as_text())
-                        .map(|t| t.lines().count())
-                        .sum::<usize>();
-                    out.push_str(&format!("_(tool output, {} lines)_\n\n", line_count));
+                ContentBlock::ToolResult {
+                    content, is_error, ..
+                } => {
+                    let marker = if is_error { " (error)" } else { "" };
+                    let body = tool_result_body(&content);
+                    let fence = code_fence(&body);
+                    out.push_str(&format!(
+                        "<details><summary>Tool Result{}</summary>\n\n{fence}\n{}\n{fence}\n\n</details>\n\n",
+                        marker, body
+                    ));
                 }
                 ContentBlock::Text { text } => {
                     out.push_str(&text);
@@ -146,69 +179,5 @@ fn render_json(messages: &[BaseMessage]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_render_plain_text_skips_system_messages() {
-        let messages = vec![
-            BaseMessage::system("You are helpful"),
-            BaseMessage::human("hello"),
-            BaseMessage::ai("hi there"),
-        ];
-        let text = render_messages(&messages, ExportFormat::PlainText);
-        assert!(!text.contains("You are helpful"), "应跳过 System 消息");
-        assert!(text.contains("hello"), "应包含 Human 消息");
-        assert!(text.contains("hi there"), "应包含 Ai 消息");
-    }
-
-    #[test]
-    fn test_render_plain_text_user_assistant_labels() {
-        let messages = vec![BaseMessage::human("question"), BaseMessage::ai("answer")];
-        let text = render_messages(&messages, ExportFormat::PlainText);
-        assert!(text.contains("=== User ==="), "应有 User 标签");
-        assert!(text.contains("=== Assistant ==="), "应有 Assistant 标签");
-    }
-
-    #[test]
-    fn test_render_markdown_contains_frontmatter() {
-        let messages = vec![BaseMessage::human("test")];
-        let md = render_messages(&messages, ExportFormat::Markdown);
-        assert!(md.starts_with("---"), "Markdown 应以 frontmatter 开头");
-        assert!(md.contains("# Conversation Export"), "应有标题");
-        assert!(md.contains("## User"), "应有 User heading");
-    }
-
-    #[test]
-    fn test_render_json_is_valid_json() {
-        let messages = vec![BaseMessage::human("test")];
-        let json = render_messages(&messages, ExportFormat::Json);
-        assert!(
-            serde_json::from_str::<serde_json::Value>(&json).is_ok(),
-            "应为合法 JSON"
-        );
-    }
-
-    #[test]
-    fn test_render_plain_text_contains_content() {
-        let messages = vec![BaseMessage::human("read file")];
-        let text = render_messages(&messages, ExportFormat::PlainText);
-        assert!(text.contains("read file"), "应包含消息内容");
-    }
-
-    #[test]
-    fn test_render_markdown_separates_turns() {
-        let messages = vec![
-            BaseMessage::human("q1"),
-            BaseMessage::ai("a1"),
-            BaseMessage::human("q2"),
-        ];
-        let md = render_messages(&messages, ExportFormat::Markdown);
-        assert!(md.contains("---"), "应有 turn 分隔线");
-    }
-
-    #[test]
-    fn test_export_format_extension() {
-        assert_eq!(ExportFormat::PlainText.extension(), "txt");
-        assert_eq!(ExportFormat::Markdown.extension(), "md");
-        assert_eq!(ExportFormat::Json.extension(), "json");
-    }
+    include!("renderer_test.rs");
 }
