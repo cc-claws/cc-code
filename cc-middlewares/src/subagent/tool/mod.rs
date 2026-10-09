@@ -71,6 +71,13 @@ impl AgentEventHandler for SourceAgentIdHandler {
         };
         self.inner.on_event(tagged);
     }
+
+    /// #369：包装型 handler 委托内部 handler 的载荷需求声明。
+    /// 子 Agent 事件最终汇入同一事件泵（Langfuse 是唯一载荷消费者），
+    /// 不委托会让子 Agent 的 LlmCallStart 丢失 Langfuse 输入快照。
+    fn wants_llm_call_payload(&self) -> bool {
+        self.inner.wants_llm_call_payload()
+    }
 }
 
 /// 构造 SubAgent 标准中间件链

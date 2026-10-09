@@ -1597,3 +1597,152 @@ async fn test_stuck_detection_skips_whitespace_only_thinking() {
     });
     assert!(!has_hint, "空白 thinking 不应触发卡住检测");
 }
+
+// ─── #369：LlmCallStart 载荷按需构造 ────────────────────────────────────────
+
+/// 记录 LlmCallStart 载荷的 handler，wants_llm_call_payload 可配置
+struct PayloadRecordingHandler {
+    events: Arc<std::sync::Mutex<Vec<(usize, usize, usize)>>>, // (step, messages.len, tools.len)
+    wants_payload: bool,
+}
+
+impl AgentEventHandler for PayloadRecordingHandler {
+    fn on_event(&self, event: AgentEvent) {
+        if let AgentEvent::LlmCallStart {
+            step,
+            messages,
+            tools,
+            ..
+        } = event
+        {
+            self.events
+                .lock()
+                .unwrap()
+                .push((step, messages.len(), tools.len()));
+        }
+    }
+
+    fn wants_llm_call_payload(&self) -> bool {
+        self.wants_payload
+    }
+}
+
+/// 立即返回最终答案的 LLM（单轮）
+struct FinalAnswerOnlyLLM;
+
+#[async_trait::async_trait]
+impl ReactLLM for FinalAnswerOnlyLLM {
+    async fn generate_reasoning(
+        &self,
+        _messages: &[BaseMessage],
+        _tools: &[&dyn BaseTool],
+        _streaming: Option<crate::llm::types::StreamingContext>,
+    ) -> crate::error::AgentResult<Reasoning> {
+        Ok(Reasoning::with_answer("", "done"))
+    }
+}
+
+/// #369 回归：handler 声明不需要载荷（默认/显式 false）时，
+/// LlmCallStart.messages 应为空 Vec——不执行消息历史全量深拷贝。
+#[tokio::test]
+async fn test_llm_call_start_payload_skipped_when_not_wanted() {
+    use std::sync::{Arc, Mutex};
+
+    // 预置 5 条消息（含大正文）作为既有历史
+    let mut state = AgentState::new("/tmp");
+    for i in 0..5 {
+        state.add_message(BaseMessage::human(format!(
+            "history-{i}-{}",
+            "x".repeat(1024)
+        )));
+    }
+
+    let events: Arc<Mutex<Vec<(usize, usize, usize)>>> = Arc::new(Mutex::new(vec![]));
+    let agent =
+        ReActAgent::new(FinalAnswerOnlyLLM).with_event_handler(Arc::new(PayloadRecordingHandler {
+            events: events.clone(),
+            wants_payload: false,
+        }));
+
+    let _ = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await
+        .unwrap();
+
+    let recorded = events.lock().unwrap();
+    assert!(!recorded.is_empty(), "至少应发出一次 LlmCallStart");
+    for (step, msg_len, tool_len) in recorded.iter() {
+        assert_eq!(*msg_len, 0, "step {step}: 不需要载荷时 messages 应为空");
+        assert_eq!(*tool_len, 0, "step {step}: 不需要载荷时 tools 应为空");
+    }
+}
+
+/// #369 回归：handler 声明需要载荷（Langfuse 启用路径）时，
+/// LlmCallStart.messages 应携带完整消息历史快照（含本轮 human 输入）。
+#[tokio::test]
+async fn test_llm_call_start_payload_present_when_wanted() {
+    use std::sync::{Arc, Mutex};
+
+    let mut state = AgentState::new("/tmp");
+    for i in 0..5 {
+        state.add_message(BaseMessage::human(format!("history-{i}")));
+    }
+
+    let events: Arc<Mutex<Vec<(usize, usize, usize)>>> = Arc::new(Mutex::new(vec![]));
+    let agent = ReActAgent::new(FinalAnswerOnlyLLM)
+        .register_tool(Box::new(EchoToolForPayload))
+        .with_event_handler(Arc::new(PayloadRecordingHandler {
+            events: events.clone(),
+            wants_payload: true,
+        }));
+
+    let _ = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await
+        .unwrap();
+
+    let recorded = events.lock().unwrap();
+    assert_eq!(recorded.len(), 1, "单轮执行应恰好发出一次 LlmCallStart");
+    let (step, msg_len, tool_len) = recorded[0];
+    assert_eq!(step, 0);
+    // 5 条历史 + 本轮 human 输入 = 6
+    assert_eq!(msg_len, 6, "需要载荷时应携带完整消息历史（含本轮输入）");
+    assert_eq!(tool_len, 1, "需要载荷时应携带已注册工具的定义");
+}
+
+/// 供 #369 载荷测试使用的最小工具
+struct EchoToolForPayload;
+
+#[async_trait::async_trait]
+impl BaseTool for EchoToolForPayload {
+    fn name(&self) -> &str {
+        "echo_for_payload"
+    }
+    fn description(&self) -> &str {
+        "echo for payload test"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({ "type": "object" })
+    }
+    async fn invoke(
+        &self,
+        _: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        Ok("echo".to_string())
+    }
+}
+
+/// #369 回归：无 event_handler 时 emit 静默忽略，
+/// LlmCallStart 构造路径不 panic（载荷为空）。
+#[tokio::test]
+async fn test_llm_call_start_no_handler_no_panic() {
+    let mut state = AgentState::new("/tmp");
+    state.add_message(BaseMessage::human("history".to_string()));
+
+    let agent = ReActAgent::new(FinalAnswerOnlyLLM);
+    let output = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await
+        .unwrap();
+    assert_eq!(output.text, "done");
+}

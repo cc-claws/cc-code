@@ -59,6 +59,29 @@ pub struct PromptResult {
     pub recall_items: Vec<String>,
 }
 
+/// 事件泵 handler：把 executor 事件转发到 pump 通道。
+///
+/// #369：声明 `wants_llm_call_payload` = Langfuse 是否启用。
+/// Langfuse 是 `LlmCallStart.messages`/`tools` 载荷的唯一消费者
+/// （TUI 与 ACP mapper 均丢弃该事件）；Langfuse 未启用时 executor
+/// 跳过每轮 LLM 调用的整个消息历史全量深拷贝。
+struct PumpHandler {
+    tx: Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<ExecutorEvent>>>>,
+    langfuse_enabled: bool,
+}
+
+impl AgentEventHandler for PumpHandler {
+    fn on_event(&self, event: ExecutorEvent) {
+        if let Some(tx) = self.tx.lock().unwrap().as_ref() {
+            let _ = tx.send(event);
+        }
+    }
+
+    fn wants_llm_call_payload(&self) -> bool {
+        self.langfuse_enabled
+    }
+}
+
 /// Session-scoped frozen data that locks system prompt stability.
 ///
 /// Populated at session creation time by `session/new`, passed through to
@@ -299,6 +322,9 @@ pub async fn execute_prompt(
     let langfuse_tracer = langfuse_session
         .as_ref()
         .map(|s| parking_lot::Mutex::new(LangfuseTracer::new(Arc::clone(s), session_id.clone())));
+    // #369：tracer 将被 move 进下方 pump task，先捕获「Langfuse 是否启用」，
+    // 供 event_handler 声明是否需要 LlmCallStart 载荷。
+    let langfuse_enabled = langfuse_tracer.is_some();
     if langfuse_tracer.is_some() {
         debug!(session_id = %session_id, "Langfuse tracer created for turn");
     }
@@ -422,15 +448,11 @@ pub async fn execute_prompt(
     });
 
     // 单次 Agent 执行（compact 由 CompactMiddleware 在循环内处理）
-    let event_handler: Arc<dyn AgentEventHandler> =
-        Arc::new(cc_agent::agent::events::FnEventHandler({
-            let tx = event_tx.clone();
-            move |event: ExecutorEvent| {
-                if let Some(tx) = tx.lock().unwrap().as_ref() {
-                    let _ = tx.send(event);
-                }
-            }
-        }));
+    let event_handler: Arc<dyn AgentEventHandler> = Arc::new(PumpHandler {
+        tx: event_tx.clone(),
+        // #369：仅 Langfuse 启用时需要 LlmCallStart 的 messages/tools 载荷
+        langfuse_enabled,
+    });
 
     let language = frozen
         .as_ref()

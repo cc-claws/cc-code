@@ -188,6 +188,20 @@ pub enum AgentEvent {
 /// 实现者通过 `mpsc::Sender` 等机制将事件转发给 UI 层。
 pub trait AgentEventHandler: Send + Sync {
     fn on_event(&self, event: AgentEvent);
+
+    /// 是否需要 `LlmCallStart.messages`（完整消息历史快照）与 `tools` 载荷。
+    ///
+    /// 该载荷需要把**整个消息历史**（含工具结果正文、图片 base64）深拷贝一份，
+    /// 长会话下每轮 LLM 调用可达 MB 级（#369）。目前唯一的消费者是 Langfuse
+    /// 追踪（TUI 与 ACP mapper 均丢弃该事件）。
+    ///
+    /// 返回 `false` 时，executor 发出的 `LlmCallStart` 携带**空载荷**
+    /// （`Arc::new(Vec::new())` / 空 tools），不执行拷贝。
+    /// 默认 `false`——不关心该事件的 handler 无需感知此方法；
+    /// 包装型 handler 应委托内部 handler 的声明（见 `SourceAgentIdHandler`）。
+    fn wants_llm_call_payload(&self) -> bool {
+        false
+    }
 }
 
 /// 函数闭包适配器 —— 方便快速实现 `AgentEventHandler`

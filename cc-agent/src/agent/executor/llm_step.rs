@@ -24,10 +24,25 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
     cancel: &CancellationToken,
 ) -> AgentResult<Reasoning> {
     // ── LLM 推理（与 cancel 竞争）────────────────────────────────────
+    // #369：messages/tools 载荷按需构造。唯一消费者是 Langfuse 追踪
+    // （TUI/ACP mapper 均丢弃该事件）；handler 声明不需要时跳过全量深拷贝，
+    // 避免每轮 LLM 调用为无人读取的数据付 O(历史大小) 的分配成本。
+    let wants_payload = agent
+        .event_handler
+        .as_ref()
+        .is_some_and(|h| h.wants_llm_call_payload());
     agent.emit(AgentEvent::LlmCallStart {
         step,
-        messages: Arc::new(state.messages().to_vec()),
-        tools: tool_refs.iter().map(|t| t.definition()).collect(),
+        messages: Arc::new(if wants_payload {
+            state.messages().to_vec()
+        } else {
+            Vec::new()
+        }),
+        tools: if wants_payload {
+            tool_refs.iter().map(|t| t.definition()).collect()
+        } else {
+            Vec::new()
+        },
     });
 
     // 构建 StreamingContext：若 agent 有 event_handler 则启用流式
