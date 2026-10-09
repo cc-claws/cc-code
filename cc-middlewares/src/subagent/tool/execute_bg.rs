@@ -15,7 +15,6 @@ use crate::{
         background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus},
         SubAgentMiddlewareConfig,
     },
-    tools::ArcToolWrapper,
 };
 
 use super::{
@@ -281,8 +280,12 @@ impl super::SubAgentTool {
         let llm = (self.llm_factory)(None);
         let mut agent_builder = ReActAgent::new(llm).max_iterations(200);
         for mw in build_subagent_middlewares(
-            SubAgentMiddlewareConfig::for_fork(&cwd)
-                .with_inherited_instructions(self.inherited_instructions.clone()),
+            self.permission_config(
+                SubAgentMiddlewareConfig::for_fork(&cwd)
+                    .with_inherited_instructions(self.inherited_instructions.clone()),
+                &crate::claude_agent_parser::ToolsValue::Empty,
+                &crate::claude_agent_parser::ToolsValue::Empty,
+            ),
         ) {
             agent_builder = agent_builder.add_middleware(mw);
         }
@@ -292,8 +295,11 @@ impl super::SubAgentTool {
             agent_builder = agent_builder.with_system_prompt(system_content);
         }
 
-        for tool in self.parent_tools.iter() {
-            agent_builder = agent_builder.register_tool(Box::new(ArcToolWrapper(Arc::clone(tool))));
+        for tool in self.filter_tools(
+            &crate::claude_agent_parser::ToolsValue::Empty,
+            &crate::claude_agent_parser::ToolsValue::Empty,
+        ) {
+            agent_builder = agent_builder.register_tool(tool);
         }
 
         let spawn_registry = Arc::clone(registry);

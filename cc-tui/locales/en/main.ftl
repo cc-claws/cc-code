@@ -271,12 +271,12 @@ login-confirm-delete = :Confirm delete
 
 hitl-single-title =  ⚠ Tool Approval (1 item)
 hitl-batch-title =  ⚠ Batch Tool Approval
-hitl-choice-once = [Allow once] (preview: Space to cycle)
+hitl-choice-once = [Allow once]
 hitl-choice-session = [Allow for this session]
 hitl-choice-reject = [Reject]
 hitl-approved = [Approved]
 hitl-rejected = [Rejected]
-hitl-key-hint = ↑↓ move · Space cycle (once / session / reject) · Enter confirm · Esc reject all
+hitl-key-hint = ↑↓ choose · Tab switch tool · Enter confirm · Esc reject all
 hitl-summary = Selected: { $approved } approved / { $rejected } rejected
 
 # ---- AskUser Popup ----

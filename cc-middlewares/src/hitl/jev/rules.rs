@@ -11,11 +11,11 @@ use std::{
     time::Duration,
 };
 
-use parking_lot::Mutex;
 use cc_agent::{
     llm::{types::LlmRequest, BaseModel},
     messages::BaseMessage,
 };
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 /// 单条提取出的规则。
@@ -105,6 +105,9 @@ pub struct JevRuleLoader {
     /// 用户会以为规则生效了、实际一条都没进判定。这个标记让上层能观测到、
     /// 并据此告警，而不是让两种"没有规则"混为一谈。
     failed: std::sync::atomic::AtomicBool,
+    /// 提炼未完整覆盖来源：部分失败、分块上限、回复截断或提炼任务被取消。
+    /// 父门可保留已有回退语义；子 Agent 必须据此拒绝不确定的授权。
+    incomplete: std::sync::atomic::AtomicBool,
 }
 
 impl JevRuleLoader {
@@ -126,12 +129,18 @@ impl JevRuleLoader {
             gate: tokio::sync::Mutex::new(()),
             attempted: std::sync::atomic::AtomicBool::new(false),
             failed: std::sync::atomic::AtomicBool::new(false),
+            incomplete: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     /// 提炼是否失败（来源非空但没拿到规则）——即"用户的规则当前没有被执行"。
     pub fn rules_unavailable(&self) -> bool {
         self.failed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// 提炼未完整结束。完整性与全部失败分开报告，避免改变父门的回退行为。
+    pub fn rules_incomplete(&self) -> bool {
+        self.incomplete.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 共享的规则槽（调用方可读当前规则）。
@@ -156,7 +165,11 @@ impl JevRuleLoader {
         {
             return; // 本轮已试过且失败，不再重复烧钱
         }
-        match extract_rules_chunked(
+        // 后台任务可在提炼期间被 abort。先标记未完成，避免取消后仅留下 attempted=true，
+        // 下次调用无法重试却误把没有规则视为安全；正常结束再写入明确的结果状态。
+        self.incomplete
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        match extract_rules_chunked_with_status(
             self.model.as_ref(),
             &self.source,
             self.chunk_len,
@@ -165,9 +178,15 @@ impl JevRuleLoader {
         )
         .await
         {
-            Some(rules) => *self.slot.write() = Some(rules),
+            Some((rules, complete)) => {
+                self.incomplete
+                    .store(!complete, std::sync::atomic::Ordering::SeqCst);
+                *self.slot.write() = Some(rules);
+            }
             None => {
                 self.failed.store(true, std::sync::atomic::Ordering::SeqCst);
+                self.incomplete
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
                 tracing::warn!(
                     source_chars = self.source.chars().count(),
                     "Jev 规则提炼失败：**CLAUDE.md 里的规则当前没有被执行**（来源非空但未产出规则）。\
@@ -207,7 +226,9 @@ pub async fn extract_rules(
     source: &str,
     timeout: Duration,
 ) -> Option<Arc<JevRules>> {
-    extract_one(model, source, timeout).await
+    extract_one(model, source, timeout)
+        .await
+        .map(|(rules, _)| rules)
 }
 
 /// 单块提炼（带缓存）。
@@ -215,13 +236,13 @@ async fn extract_one(
     model: &dyn BaseModel,
     source: &str,
     timeout: Duration,
-) -> Option<Arc<JevRules>> {
+) -> Option<(Arc<JevRules>, bool)> {
     if source.trim().is_empty() {
         return None;
     }
     let key = content_hash(source);
     if let Some(hit) = CACHE.lock().get(&key).cloned() {
-        return Some(hit);
+        return Some((hit, true));
     }
 
     let (rules, complete) = match tokio::time::timeout(timeout, call_llm(model, source)).await {
@@ -252,7 +273,7 @@ async fn extract_one(
             "Jev 规则不完整（回复被截断），本条来源不缓存"
         );
     }
-    Some(arc)
+    Some((arc, complete))
 }
 
 /// 提炼一块；失败就**对半切小重试**，直到能塞进输出预算。
@@ -264,7 +285,7 @@ async fn extract_chunk_adaptive(
     chunk: &str,
     timeout: Duration,
     depth: u32,
-) -> Option<JevRules> {
+) -> Option<LlmOutcome> {
     Box::pin(extract_chunk_adaptive_inner(model, chunk, timeout, depth)).await
 }
 
@@ -273,9 +294,9 @@ async fn extract_chunk_adaptive_inner(
     chunk: &str,
     timeout: Duration,
     depth: u32,
-) -> Option<JevRules> {
-    if let Some(r) = extract_one(model, chunk, timeout).await {
-        return Some((*r).clone());
+) -> Option<LlmOutcome> {
+    if let Some((rules, complete)) = extract_one(model, chunk, timeout).await {
+        return Some(((*rules).clone(), complete));
     }
     if depth == 0 || chunk.chars().count() < 1_000 {
         return None;
@@ -284,8 +305,10 @@ async fn extract_chunk_adaptive_inner(
     let a = extract_chunk_adaptive(model, &head, timeout, depth - 1).await;
     let b = extract_chunk_adaptive(model, &tail, timeout, depth - 1).await;
     match (a, b) {
-        (Some(x), Some(y)) => Some(merge_rules(vec![x, y])),
-        (Some(x), None) | (None, Some(x)) => Some(x),
+        (Some((x, complete_x)), Some((y, complete_y))) => {
+            Some((merge_rules(vec![x, y]), complete_x && complete_y))
+        }
+        (Some((rules, _)), None) | (None, Some((rules, _))) => Some((rules, false)),
         (None, None) => None,
     }
 }
@@ -312,15 +335,29 @@ pub async fn extract_rules_chunked(
     max_chunks: usize,
     timeout: Duration,
 ) -> Option<Arc<JevRules>> {
+    extract_rules_chunked_with_status(model, source, chunk_len, max_chunks, timeout)
+        .await
+        .map(|(rules, _)| rules)
+}
+
+/// 仅完整来源的规则可进入进程缓存；部分结果仍交给父门，但保留失败事实。
+async fn extract_rules_chunked_with_status(
+    model: &dyn BaseModel,
+    source: &str,
+    chunk_len: usize,
+    max_chunks: usize,
+    timeout: Duration,
+) -> Option<(Arc<JevRules>, bool)> {
     if source.trim().is_empty() {
         return None;
     }
     let key = content_hash(source);
     if let Some(hit) = CACHE.lock().get(&key).cloned() {
-        return Some(hit);
+        return Some((hit, true));
     }
 
     let mut chunks = split_chunks(source, chunk_len.max(1));
+    let mut complete = chunks.len() <= max_chunks;
     if chunks.len() > max_chunks {
         let dropped: usize = chunks[max_chunks..].iter().map(|c| c.chars().count()).sum();
         tracing::warn!(
@@ -335,8 +372,14 @@ pub async fn extract_rules_chunked(
     let mut parts = Vec::with_capacity(chunks.len());
     for (i, chunk) in chunks.iter().enumerate() {
         match extract_chunk_adaptive(model, chunk, timeout, MAX_SPLIT_DEPTH).await {
-            Some(r) => parts.push(r),
-            None => tracing::warn!(chunk = i, "规则分块提炼失败，该块规则缺失"),
+            Some((rules, chunk_complete)) => {
+                complete &= chunk_complete;
+                parts.push(rules);
+            }
+            None => {
+                complete = false;
+                tracing::warn!(chunk = i, "规则分块提炼失败，该块规则缺失");
+            }
         }
     }
     if parts.is_empty() {
@@ -348,14 +391,17 @@ pub async fn extract_rules_chunked(
         return None;
     }
     let arc = Arc::new(merged);
-    CACHE.lock().insert(key, arc.clone());
+    if complete {
+        CACHE.lock().insert(key, arc.clone());
+    }
     tracing::info!(
         chunks = chunks.len(),
         rules = arc.rules.len(),
         protected = arc.protected_paths.len(),
-        "Jev 规则已分块提炼并缓存"
+        complete,
+        "Jev 规则已分块提炼，完整结果可缓存"
     );
-    Some(arc)
+    Some((arc, complete))
 }
 
 /// 按段落/行把来源切成 ≤ `chunk_len` 的块。
@@ -651,3 +697,7 @@ fn parse_rules(text: &str) -> Option<JevRules> {
 #[cfg(test)]
 #[path = "rules_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "rules_incomplete_test.rs"]
+mod incomplete_tests;

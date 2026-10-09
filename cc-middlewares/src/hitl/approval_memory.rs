@@ -2,29 +2,17 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// 审批记忆：**路径级、会话作用域**。
+/// 会话级审批记忆，只记录用户明确选择「本次会话同意」的调用，不落盘。
 ///
-/// 背景：Jev 语义门是**无状态**的——每次工具调用独立判定。同一文件反复编辑时，
-/// 模型对 `local_scope` 等条件打分会在阈值附近抖动（观测到 0.07~0.16 区间），
-/// 于是同一操作可能一次 `allow`、一次 `review`，用户被反复弹窗。
-///
-/// 本结构记住「已批准过的 (工具名, 规范化路径)」，命中即免问：
-/// - **粒度**：`(tool_name, normalized_path)`。`Edit(a.md)` 批准后，改 `a.md` 免问；
-///   改 `b.md` 仍会问。不做工具名级（太松）也不做内容指纹级（Edit 内容每次不同，几乎不命中）。
-/// - **作用域**：session 级（随 session 新建/切换清空），不落盘。
-/// - **仅记录 `Approve`**：`Edit`（用户改了参数）与 `Reject` 不记录，避免把「改过的版本」当成放行依据。
-///
-/// 只对**带明确路径**的调用生效（Edit / Write / Read 等）；无路径的命令类工具（Bash）
-/// 不参与记忆——`build_gate_call` 中 `path` 为 `None` 时直接跳过。
+/// Read/Write/Edit 按工具与路径记忆；Bash 按完整命令、执行目录与当前分支记忆，
+/// 不按命令前缀放行。其他工具按真实工具名、完整参数与目录记忆。
+/// ExecuteExtraTool 使用解包后的真实调用，与直接调用共享同一条目。
 #[derive(Default)]
 pub struct ApprovalMemory {
     approved: Mutex<HashSet<Fingerprint>>,
 }
 
-/// 审批记忆的键：`(工具名, 规范化绝对路径)`。
-///
-/// 路径经词法规范化（`..`/`.`/重复分隔符折叠），确保 `a/./b` 与 `a/b` 视为同一目标。
-/// 规范化失败（如相对路径且无法拼出绝对）时退化为原样字符串，宁可少命中不可误命中。
+/// 键：`(真实工具名, 路径或带类型标记的完整调用)`。
 type Fingerprint = (String, String);
 
 impl ApprovalMemory {
@@ -45,10 +33,36 @@ impl ApprovalMemory {
             cwd.join(raw)
         };
         let normalized = normalize_lexical(&abs).unwrap_or(abs);
-        Some((
-            tool_name.to_string(),
-            normalized.to_string_lossy().into_owned(),
-        ))
+        Some((tool_name.to_string(), normalized.to_str()?.to_string()))
+    }
+
+    /// 使用实际执行参数生成会话记忆键，参数不完整时不记录。
+    pub fn call_fingerprint(
+        tool_name: &str,
+        input: &serde_json::Value,
+        cwd: &Path,
+    ) -> Option<Fingerprint> {
+        let target = super::effective_tool_name(tool_name, input);
+        let params = super::jev::effective_params(tool_name, input);
+        if matches!(target.as_str(), "Read" | "Write" | "Edit") {
+            let path = params
+                .get("file_path")
+                .or_else(|| params.get("path"))?
+                .as_str()?;
+            return Self::fingerprint(&target, Some(Path::new(path)), cwd);
+        }
+        let actual_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+        let actual_cwd = normalize_lexical(&actual_cwd).unwrap_or(actual_cwd);
+        let directory = actual_cwd.to_str()?;
+        let key = if target == "Bash" {
+            let command = params.get("command")?.as_str()?;
+            let branch = super::jev::policy::git_branch(cwd);
+            serde_json::to_string(&(directory, command, branch)).ok()?
+        } else {
+            serde_json::to_string(&(directory, params)).ok()?
+        };
+        // NUL 不可能出现在真实文件路径中，避免与路径键碰撞。
+        Some((target, format!("\0call:{key}")))
     }
 
     /// 是否已批准过该指纹
@@ -92,13 +106,13 @@ impl ApprovalMemory {
 fn normalize_lexical(path: &Path) -> Option<PathBuf> {
     use std::path::Component;
     let mut out: Vec<Component> = Vec::new();
-    let mut prefix: Option<std::path::Prefix> = None;
+    let mut prefix = None;
     let mut has_root = false;
 
     for comp in path.components() {
         match comp {
             Component::Prefix(p) => {
-                prefix = Some(p.kind());
+                prefix = Some(p.as_os_str());
             }
             Component::RootDir => {
                 has_root = true;
@@ -123,11 +137,7 @@ fn normalize_lexical(path: &Path) -> Option<PathBuf> {
 
     let mut result = PathBuf::new();
     if let Some(p) = prefix {
-        result.push(match p {
-            std::path::Prefix::Disk(d) => format!("{}:", d as char),
-            std::path::Prefix::VerbatimDisk(d) => format!("{}:", d as char),
-            _ => String::new(),
-        });
+        result.push(p);
     }
     for comp in &out {
         match comp {

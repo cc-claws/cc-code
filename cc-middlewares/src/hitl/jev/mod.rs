@@ -10,7 +10,7 @@
 //!       ├ 任一 hazard 拒绝 → Block
 //!       ├ soft 拒绝 + intent 满足 → Allow
 //!       ├ required 中间带 → 按 config.uncertain（默认 Block）
-//!       └ 任何失败 → Block（fail-closed）
+//!       └ 判定失败 → Ask；父可人工确认，子无审批通道而默认拒绝
 //! ```
 //!
 //! **沉默从不等于同意。**
@@ -410,7 +410,7 @@ impl JevGate {
         paths
     }
 
-    /// 对一次调用判定。所有内部失败都返回 `Block`（fail-closed）。
+    /// 对一次调用判定。判定服务失败返回 `Ask`，由 HITL 决定人工确认或默认拒绝。
     ///
     /// 便捷入口（确定性 → 语义）。**注意**：调用方若需要"无语义判定时仍保留
     /// 确定性防护"，应分别调用 [`Self::deterministic`] 与 [`Self::evaluate_semantic`]，
@@ -444,6 +444,36 @@ impl JevGate {
             loader.ensure_loaded().await;
         }
         self.semantic(call).await
+    }
+
+    /// 子 Agent 对不确定判定一律拒绝，不受父的 uncertain=allow/ask 配置影响。
+    pub async fn evaluate_semantic_for_subagent(&self, call: &GateCall) -> GateDecision {
+        self.semantic_with_policy(call, UncertainPolicy::Deny).await
+    }
+
+    pub fn rules_unavailable(&self) -> bool {
+        self.rule_loader
+            .as_ref()
+            .map(|loader| loader.rules_unavailable())
+            .unwrap_or(false)
+    }
+
+    pub fn rules_incomplete(&self) -> bool {
+        self.rule_loader
+            .as_ref()
+            .map(|loader| loader.rules_incomplete())
+            .unwrap_or(false)
+    }
+
+    /// 人显式写下的 allow 仍可放行；提炼失败不应覆盖用户已给出的授权。
+    pub fn explicitly_allows(&self, call: &GateCall) -> bool {
+        Commands::of_call(call)
+            .map(|commands| {
+                commands
+                    .allow_match(&self.config.allowed_commands)
+                    .is_some()
+            })
+            .unwrap_or(false)
     }
 
     /// 惰性触发规则提炼（语义层需要）。确定性层若依赖提炼出的受保护路径，
@@ -536,8 +566,16 @@ impl JevGate {
         None
     }
 
-    /// 语义层（Jev）。任何失败 → Block。
+    /// 语义层（Jev）。判定服务失败返回 Ask；模型未决按 uncertain 配置处理。
     async fn semantic(&self, call: &GateCall) -> GateDecision {
+        self.semantic_with_policy(call, self.config.uncertain).await
+    }
+
+    async fn semantic_with_policy(
+        &self,
+        call: &GateCall,
+        uncertain: UncertainPolicy,
+    ) -> GateDecision {
         // 构造 state。危险形状与确定性层保持同一口径：**原始 + 有效**命令的并集，
         // 否则 judge 看不到「用户原始命令命中的危险形状」（装了 rtk 时两者可能不同）。
         let reasons: Vec<String> = Commands::of_call(call)
@@ -611,7 +649,7 @@ impl JevGate {
                     rationale: self.block_message(&rule),
                 }
             }
-            decide::Decision::Uncertain { rule, rationale } => match self.config.uncertain {
+            decide::Decision::Uncertain { rule, rationale } => match uncertain {
                 UncertainPolicy::Deny => {
                     tracing::warn!(rule = %rule, judge_detail = %rationale, "Jev 未决，按配置拒绝");
                     GateDecision::Block {

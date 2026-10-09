@@ -752,9 +752,9 @@ async fn test_fork_inherits_parent_messages() {
     );
 }
 
-/// Fork registers all tools including Agent (no hard-coded exclusion)
+/// Fork 继承其他工具，但移除 Agent 以保持禁递归约束。
 #[tokio::test]
-async fn test_fork_registers_all_tools_including_agent() {
+async fn test_fork_registers_inherited_tools_except_agent() {
     let parent_messages: Arc<RwLock<Vec<BaseMessage>>> = Arc::new(RwLock::new(Vec::new()));
 
     let tools_capture: Arc<std::sync::Mutex<Vec<String>>> =
@@ -800,8 +800,8 @@ async fn test_fork_registers_all_tools_including_agent() {
 
     let captured = tools_capture.lock().unwrap();
     assert!(
-        captured.contains(&"Agent".to_string()),
-        "Fork should register Agent tool (no exclusion), got: {:?}",
+        !captured.contains(&"Agent".to_string()),
+        "Fork 不得继承 Agent 工具以绕过禁递归约束，实际工具：{:?}",
         *captured
     );
     assert!(
@@ -959,11 +959,16 @@ use super::{build_subagent_middlewares, SubAgentMiddlewareConfig};
 #[test]
 fn test_build_middleware_fork_config_without_skill_preload() {
     let middlewares = build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork("/tmp"));
-    assert_eq!(middlewares.len(), 3);
+    assert_eq!(middlewares.len(), 4);
     let names: Vec<&str> = middlewares.iter().map(|m| m.name()).collect();
     assert_eq!(
         names,
-        vec!["AgentsMdMiddleware", "SkillsMiddleware", "TodoMiddleware"]
+        vec![
+            "AgentsMdMiddleware",
+            "SkillsMiddleware",
+            "TodoMiddleware",
+            "SubAgentPermissionMiddleware"
+        ]
     );
 }
 
@@ -971,7 +976,7 @@ fn test_build_middleware_fork_config_without_skill_preload() {
 fn test_build_middleware_agent_def_with_empty_skills_skips_skill_preload() {
     let middlewares =
         build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(vec![], "/tmp"));
-    assert_eq!(middlewares.len(), 3);
+    assert_eq!(middlewares.len(), 4);
     assert!(!middlewares
         .iter()
         .any(|m| m.name() == "SkillPreloadMiddleware"));
@@ -983,7 +988,7 @@ fn test_build_middleware_agent_def_with_skills_includes_skill_preload() {
         vec!["test-skill".to_string()],
         "/tmp",
     ));
-    assert_eq!(middlewares.len(), 4);
+    assert_eq!(middlewares.len(), 5);
     let names: Vec<&str> = middlewares.iter().map(|m| m.name()).collect();
     assert_eq!(
         names,
@@ -991,7 +996,8 @@ fn test_build_middleware_agent_def_with_skills_includes_skill_preload() {
             "AgentsMdMiddleware",
             "SkillsMiddleware",
             "SkillPreloadMiddleware",
-            "TodoMiddleware"
+            "TodoMiddleware",
+            "SubAgentPermissionMiddleware"
         ]
     );
 }
@@ -1037,6 +1043,24 @@ async fn test_subagent_chain_inherits_frozen_instructions() {
     .await
     .expect("应注入单条 System 消息");
     assert!(content.contains("INHERITED_RULES"), "{content}");
+}
+
+#[tokio::test]
+async fn test_subagent_empty_frozen_instructions_skip_disk() {
+    let directory = tempdir().unwrap();
+    std::fs::create_dir(directory.path().join(".git")).unwrap();
+    std::fs::write(directory.path().join("AGENTS.md"), "NEW_DISK_RULES").unwrap();
+    let cwd = directory.path().to_str().unwrap();
+    let content = subagent_injected_content(
+        SubAgentMiddlewareConfig::for_fork(cwd)
+            .with_inherited_instructions(Some(inherited(cwd, ""))),
+        cwd,
+    )
+    .await;
+    assert!(
+        content.is_none(),
+        "继承空快照的子 Agent 不得重新加载磁盘规则"
+    );
 }
 
 #[tokio::test]
@@ -1096,7 +1120,8 @@ fn test_build_middleware_order_is_fixed() {
             "AgentsMdMiddleware",
             "SkillsMiddleware",
             "SkillPreloadMiddleware",
-            "TodoMiddleware"
+            "TodoMiddleware",
+            "SubAgentPermissionMiddleware"
         ]
     );
 }

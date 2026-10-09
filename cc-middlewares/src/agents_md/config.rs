@@ -37,7 +37,7 @@ pub struct AgentsMdConfig {
     pub instruction_file_candidates: Vec<String>,
     /// 同目录本地覆盖候选（有序，排在基础层之后，通常被 gitignore）。
     pub local_instruction_file_candidates: Vec<String>,
-    /// 单文件 UTF-8 字节上限；超限按「头 70% + 尾 20%」截断并加标记。
+    /// 单文件读取及导入展开的 UTF-8 字节上限；超限有界读取头尾并加标记。
     pub max_source_bytes: usize,
     /// 渲染后总量上限；超限停止追加后续文件并加标记。
     pub max_bytes: usize,

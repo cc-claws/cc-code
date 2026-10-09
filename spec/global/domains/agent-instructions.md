@@ -87,7 +87,7 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 
 | 项 | 值 | 说明 |
 |---|---|---|
-| `max_source_bytes` | **1 MiB**（默认，与 dsh 同值）| **单文件** UTF-8 字节上限；超限见 2.5.1 |
+| `max_source_bytes` | **1 MiB**（默认，与 dsh 同值）| **单文件读取及导入展开结果**的 UTF-8 字节上限；超限见 2.5.1 |
 | `max_bytes` | 可配（本项目默认 **256 KiB**）| **渲染结果**上限（含段头、段间空行与超限标记）。注：dsh 的 `maxBytes` **必填无默认**，`dsh-base` 用 **64 KiB**——默认值不同属**有意偏离**（数值可配） |
 
 **硬保证**：`render_instruction_set` 的返回值字节数 `<= max_bytes` 恒成立——省略标记先按最长预留；
@@ -99,17 +99,17 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
 不留任何内容；我们选择**截断保留头部**并加标记——理由：静默丢掉一份 1 MiB+ 的 `AGENTS.md`
 比留下头部 + 明确标记更糟。dsh 的截断只发生在**渲染超预算**时，且**只留头部**（无尾保留）。
 
-按字符（CJK 安全，字符级操作）**头 70% + 尾 20%** 保留，中间插入标记（10% 额度）：
+读取时先预留截断标记，再按 **70:20** 分配头尾的字节预算；只读取头尾并 `seek` 跳过中部，不先加载全文。每侧最多额外读取 3 字节验证 UTF-8 切边：
 
 ```text
-[...truncated AGENTS.md: kept <head>+<tail> of <total> chars. Use file tools to read the full file.]
+[...truncated AGENTS.md: kept head+tail of <total> bytes. Use file tools to read the full file.]
 ```
 
-> 实现注意：**必须** 用字符级切分（`chars().take()` / `char_indices()`），禁止 `&s[..n]`（CJK panic）。
-> 字符数与字节数不同量纲（CJK 1 字符 = 3 字节），若字符级结果仍超字节上限，**按字节再切一次**（`is_char_boundary` 回退），
-> 此时标记文案换成 `kept head+tail of <N> bytes`。
+> 实现注意：只在 UTF-8 字符边界切分（`is_char_boundary`），不得直接按任意字节位置截取字符串。选中区域及跨切边字符非法时返回读取错误；未读取的超限中部不验证 UTF-8。
 > 上限小到放不下标记时，退化为「只保留头部」——**任何情况下返回值字节数都不超过上限**。
 > 首个文件自己就顶破 `max_bytes` 时：**正文**硬截断，但尽量保住 `## <display>` provenance 头。
+
+`@import` 的每个目标同样按单文件限额有界读取，展开结果逐段消耗候选文件剩余预算；真正发生增长超限时保留已展开的头部并标记，停止后续引用。恰好满预算后仍允许空文件、仅 BOM 或嵌套空引用等零增长导入。渲染前缀已经超预算时不再复制后续省略段的正文。Jev 的独立指引读取路径也复用有界读取。
 
 ### 2.6 `@import`（cc-code 保留能力）
 
@@ -136,6 +136,7 @@ N) {cwd}/AGENTS.md , {cwd}/CLAUDE.md
   dsh 是把指引作为**普通 user 消息**注入、并在每次 pre-step 重算 + 按 scope reconcile（改文件下一轮即生效）；
   本项目为保 Prompt Cache 前缀稳定，选择**会话内一次性冻结**。
 - 内容冻结来自 `session/new`（写入 `FrozenSessionData.instructions`，见 [system-prompt.md](./system-prompt.md)）。
+- 无有效指引也捕获 `Some("")` 空快照，主 Agent 和同 cwd 子 Agent 均跳过读盘；`None` 仅表示 legacy 调用方没有捕获快照。
 - 说明：不要把多段拆成多条消息（会改变 Prompt Cache 前缀结构）；也不在本期改成写进 system prompt 字符串。
 
 ---
@@ -181,7 +182,7 @@ pub struct InstructionFile {
     pub source_path: PathBuf, // 发现路径（未规范化）→ excludes glob 按它匹配
     pub abs_path: PathBuf,    // canonical → 「同一绝对路径只加载一次」去重
     pub display: String,      // provenance 头用（相对 root；全局文件为 ~/…）
-    pub content: String,      // 原始（未截断），已归一 CRLF、已展开 @import
+    pub content: String,      // 已有界读取、归一 CRLF、展开 @import，不超过单文件限额
 }
 
 /// 合并成单段（去重已在发现阶段完成；这里做限额 + provenance），供注入。
@@ -217,6 +218,7 @@ AgentsMdMiddleware::new()
 
 ```text
 discover_instruction_files(cwd, cfg):
+    cwd = resolve_parent_components(cwd)                     # 含 .. 时解析真实目录；失败跳过项目链
     root = find_project_root(cwd, cfg.project_root_markers)   # 向上找 .git；无则 cwd
     chain = ancestor_chain(root, cwd)                         # root..=cwd，宽→具体
     out = []; seen_abs = set()
@@ -229,7 +231,7 @@ discover_instruction_files(cwd, cfg):
             p = dir / name
             if not exists(p) or excluded(p): continue          # excludes 先于去重
             if canonical(p) in seen_abs: continue
-            content = expand_imports(read_utf8(p), depth=3)     # 空内容/IO 错误 → 跳过
+            content = expand_imports(read_bounded_utf8(p), depth=3, budget=max_source_bytes)
             if digest(trim(content)) in seen_digest: continue
             emit(content, provenance = rel(root, p))
             seen_abs.insert(abs(p)); seen_digest.insert(digest)
@@ -237,7 +239,7 @@ discover_instruction_files(cwd, cfg):
 
 render_instruction_set(files, cfg):
     # 超限时：先按最长省略标记预留额度，保证「总量 <= max_bytes」是硬保证
-    bodies[i]  = truncate_per_file(files[i].content, cfg.max_source_bytes)   # 头70%/尾20% + 标记
+    bodies[i]  = truncate_per_file(files[i].content, cfg.max_source_bytes)   # 有界头尾 + 标记
     headers[i] = "## " + files[i].display + "\n\n"
     if 全部放得下: return join(segments)                                     # 常见路径，不浪费额度
     body_limit = cfg.max_bytes - len(最长省略标记)
@@ -258,7 +260,7 @@ render_instruction_set(files, cfg):
 | 两候选 trim 后内容相同 | 只保留最早（`AGENTS.md`），`CLAUDE.md` 丢弃 |
 | 非 git 仓库 | 标记搜索未命中 → root = cwd，链退化为 `[cwd]`（不扫祖先目录）|
 | cwd 在 git root 之外或 root==cwd | 链退化为单目录 |
-| 单个文件超 `max_source_bytes` | 头 70%/尾 20% 截断 + 标记 |
+| 单个文件超 `max_source_bytes` | 有界读取头尾 + 标记，不保留完整大文件 |
 | 总量超 `max_bytes` | 停止追加 + 末尾标记（提示用 file 工具读被截断的文件）|
 | `@import` 环 / 超深 / 文件缺失 | 保留原占位符，静默跳过该 import（不 panic、不死循环）|
 | 读文件超时/IO 错 | 跳过该文件 + `tracing::warn!` |
@@ -357,6 +359,8 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
   - 三期「prompt-injection 扫描」未做（`@import` 范围限制只堵了其中一条路径）。
 - 工程注意：`cargo fmt --all` 会重排本仓库大量历史文件（仓库未按 rustfmt 归一，CI 也不校验 fmt）——只对**动过的文件**格式化，别整仓 fmt。
 
+2026-10-09 回归覆盖：空快照继承、`..` 不引入无关目录、内容重复候选不占路径槽位、大文件实际读取量、UTF-8 切边、导入预算耗尽均有对应测试（`regression_test.rs`、`bounded_read_test.rs`、ACP frozen 与 SubAgent 测试）。
+
 ---
 
 ## 相关 Feature
@@ -365,3 +369,5 @@ cargo test -p cc-middlewares --lib agents_md::tests::test_repo_self_smoke -- --i
 - → [agent.md](./agent.md) — `AgentsMdMiddleware` 在中间件链的位置（链首）
 - → [acp.md](./acp.md) — `session/new` → `FrozenSessionData.instructions` 的冻结路径
 - → [hitl-permissions.md](./hitl-permissions.md) — HITL 门控如何评估 Bash 命令（含 RTK 改写 × 显式规则并集）
+
+最后更新：2026-10-09

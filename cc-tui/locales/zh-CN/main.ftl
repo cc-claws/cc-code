@@ -270,12 +270,12 @@ login-confirm-delete = :确认删除
 
 hitl-single-title =  ⚠ 工具审批 (1 项)
 hitl-batch-title =  ⚠ 批量工具审批
-hitl-choice-once = [一次性同意]（Space 循环切换）
+hitl-choice-once = [同意本次]
 hitl-choice-session = [本次会话同意]
 hitl-choice-reject = [拒绝]
 hitl-approved = [批准]
 hitl-rejected = [拒绝]
-hitl-key-hint = ↑↓ 移动 · Space 循环切换（一次性 / 本次会话 / 拒绝）· Enter 确认 · Esc 全部拒绝
+hitl-key-hint = ↑↓ 选择 · Tab 切换工具 · Enter 确认 · Esc 全部拒绝
 hitl-summary = 已选: { $approved } 批准 / { $rejected } 拒绝
 
 # ---- AskUser Popup ----

@@ -41,17 +41,54 @@ HITL 权限领域负责工具调用的审批策略：**只有两档模式**（`A
   → Bypass:            全部放行
   → Auto（默认）:
        1) 非审批清单工具（Read/Glob/Grep/TodoWrite/AskUserQuestion…）→ 直接放行
-       2) 审批记忆命中（同「工具 + 路径」本会话已批准）→ 直接放行
-       3) 确定性层（JevGate::deterministic，零成本、不依赖凭据）：
-            硬黑名单 → Block ｜ 用户 deny 规则 → Block ｜ 用户 allow/safe → Allow
+       2) 加载规则；子 Agent 规则失败或不完整且无显式 allow → 拒绝
+       3) 确定性层先拦截硬黑名单 / 用户 deny 规则 → Block
+       4) 审批记忆命中（用户明确选择本次会话同意）→ 放行
+       5) 确定性层其余结果（零成本、不依赖凭据）：用户 allow/safe → Allow
             ｜ 只读命令链 → Allow ｜ gate_scope=matched 且无危险形状 → Allow
-       4) 有判定凭据 → Jev 语义门（LLM 按条件集打分，必要时 Ask → 弹窗）
-       5) 无判定凭据 → 旧 LLM 分类器兜底；仍不确定则弹窗
+       6) 有判定凭据 → Jev 语义门（LLM 按条件集打分，必要时 Ask → 弹窗）
+       7) 无判定凭据 → 旧 LLM 分类器兜底；仍不确定则弹窗
        （Ask 但没有确认通道时 → 默认拒绝）
 ```
 
 审批清单（`default_requires_approval`）：`Bash` / `Agent` / `Write` / `Edit` / `delete_*` / `rm_*` /
 `WebFetch` / `WebSearch` / `mcp__*`。
+
+### 审批交互与会话记忆
+
+审批弹窗同时展示「同意本次 / 本次会话同意 / 拒绝」，用上下键选择、Enter 提交；
+批量审批用 Tab / Shift+Tab 切换工具，Esc 全部拒绝，快捷键提示固定在底部。
+
+只有 `Approve { source: "session" }` 写入记忆，默认的本次批准及拒绝、编辑参数均不记忆。
+Read/Write/Edit 按真实工具名和规范化路径记忆；Bash 按完整命令、实际执行目录和当前分支记忆，
+其他工具按真实工具、完整参数和目录记忆。ExecuteExtraTool 使用解包后的目标与参数。
+不按 Bash 名称或命令前缀扩大批准范围，UNC 路径保留服务器与共享名称；新会话清空记忆。
+确定性禁止规则始终优先于记忆。
+
+### 业务子 Agent 的权限
+
+父 Agent 在 Auto 中保持 Allow / Block / Ask；业务子 Agent 只接受 Allow / Block。
+Jev 判定通过独立 HTTP 请求评分，并不是 Agent 工具启动的子 Agent，也没有审批 broker。
+
+子 Agent 共享父的 `SharedPermissionMode`、Jev 门及规则加载器、兜底分类器和会话审批记忆，
+但派生 HITL 不持有 broker。普通、fork、后台、后台 fork 统一注册 `SubAgentPermissionMiddleware`：
+
+- 用户明确的 allow/deny 规则照常生效；确定性层能明确放行的调用仍可执行。
+- Jev 未决（包括父配置 `JEV_UNCERTAIN=allow`）、判定请求失败、规则提炼失败或不完整、
+  分类器 Unsure 或无可用判定路径均拒绝；子 Agent 不请求用户确认。
+- Bypass/YOLO 保持免审批；模式与父共享同一 Arc，父切回 Auto 后缓存或运行中的子工具立即恢复判定。
+- `tools`/`disallowedTools` 同时约束直接调用、中间件贡献的工具与 `ExecuteExtraTool` 的真实目标；
+  调用必须匹配实际可用的真实工具名称，先规范化大小写再判定，不允许语义/模糊别名、未继承目标
+  或嵌套代理跳过权限。代理调用的 Jev 与分类器均查看解包后的真实工具和参数。
+- 既有禁递归 Agent 约束覆盖普通、fork、后台及代理路径，委派不扩大工具能力。
+- 子 Agent 可指定另一目录读取指引；共享 Bash/文件工具仍在父目录执行，权限判定的 cwd/分支
+  因此固定取继承工具的真实执行目录，子 Agent 的对话状态保持原来的指引目录。
+- 直接构造子 Agent 未传父权限配置时默认 Auto 且无审批通道，敏感工具 fail-closed；
+  宿主可通过 `SubAgentMiddleware::with_permissions` 显式继承父配置。
+
+`-p --permission-mode auto` 也使用同一构建连接，不因非交互或后台运行绕过子权限。
+实现见 `hitl/mod.rs::for_subagent`、`hitl/jev/mod.rs::evaluate_semantic_for_subagent`、
+`subagent/tool/permission.rs` 与 `cc-acp/src/agent/builder.rs`。
 
 ### Bash 命令的判定口径（RTK 改写 × 显式规则）
 
@@ -116,3 +153,5 @@ Bash 工具在执行前会经 RTK 前缀改写（`X` → `rtk X`，仅对 git/ca
 - → [tui.md](./tui.md) — TUI 状态栏权限模式显示
 - → [agent.md](./agent.md) — HITL middleware 集成
 - → [agent-instructions.md](./agent-instructions.md) — 指引注入（`@import` 范围）与门控的 `CLAUDE.md` 提炼来源
+
+最后更新：2026-10-09

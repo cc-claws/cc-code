@@ -28,7 +28,7 @@ pub struct InheritedInstructions {
 
 /// SubAgent 中间件链构造配置
 ///
-/// 链顺序固定：`AgentsMd -> Skills -> [SkillPreload] -> Todo`；
+/// 链顺序固定：`AgentsMd -> Skills -> [SkillPreload] -> Todo -> SubAgentPermission`；
 /// 仅 `skill_names` / `cwd` / `inherited_instructions` 在不同执行路径间变化。
 pub(crate) struct SubAgentMiddlewareConfig {
     /// 需要预加载的 skill 名称列表，为空时跳过 SkillPreloadMiddleware
@@ -43,6 +43,12 @@ pub(crate) struct SubAgentMiddlewareConfig {
     /// 非继承路径（子 Agent cwd ≠ 父 cwd）要用它加载指引；宿主可借此钉死用户全局层等，
     /// 使加载结果不依赖运行环境（测试尤其需要——默认配置会去读 `~/.cc-code/AGENTS.md`）。
     pub instruction_config: Option<crate::agents_md::AgentsMdConfig>,
+    pub permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_tools: Vec<String>,
+    pub available_tools: Vec<String>,
+    /// 继承工具真正执行的目录；与子 Agent 读取指引的 cwd 可以不同。
+    pub execution_cwd: String,
 }
 
 impl SubAgentMiddlewareConfig {
@@ -53,6 +59,11 @@ impl SubAgentMiddlewareConfig {
             cwd: cwd.to_string(),
             inherited_instructions: None,
             instruction_config: None,
+            permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
+            allowed_tools: Vec::new(),
+            disallowed_tools: Vec::new(),
+            available_tools: Vec::new(),
+            execution_cwd: cwd.to_string(),
         }
     }
     /// Agent 定义路径配置
@@ -64,6 +75,11 @@ impl SubAgentMiddlewareConfig {
             cwd: cwd.to_string(),
             inherited_instructions: None,
             instruction_config: None,
+            permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
+            allowed_tools: Vec::new(),
+            disallowed_tools: Vec::new(),
+            available_tools: Vec::new(),
+            execution_cwd: cwd.to_string(),
         }
     }
     /// 继承父 Agent 的冻结指引（只在其 cwd 与子 Agent cwd 一致时生效）
@@ -156,6 +172,7 @@ pub struct SubAgentMiddleware {
     /// 父 Agent 的冻结指引（含父 cwd），透传给子 Agent 链（见 `SubAgentMiddlewareConfig`）。
     /// `None` = 子 Agent 自行读盘（会话中途改文件会让其 prompt 前缀抖动 → #360）。
     inherited_instructions: Option<InheritedInstructions>,
+    permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
 }
 
 impl SubAgentMiddleware {
@@ -185,6 +202,7 @@ impl SubAgentMiddleware {
             register_runtime: None,
             deregister_runtime: None,
             inherited_instructions: None,
+            permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
         }
     }
 
@@ -235,6 +253,12 @@ impl SubAgentMiddleware {
         instructions: Option<InheritedInstructions>,
     ) -> Self {
         self.inherited_instructions = instructions;
+        self
+    }
+
+    /// 子工具共享父权限配置；派生实例不持有用户审批 broker。
+    pub fn with_permissions(mut self, parent: &crate::hitl::HumanInTheLoopMiddleware) -> Self {
+        self.permissions = Arc::new(parent.for_subagent());
         self
     }
 
@@ -300,6 +324,7 @@ impl SubAgentMiddleware {
             Arc::clone(&self.llm_factory),
             cwd.to_string(),
         );
+        tool = tool.with_permissions(Arc::clone(&self.permissions));
         if let Some(ref builder) = self.system_builder {
             tool = tool.with_system_builder(Arc::clone(builder));
         }

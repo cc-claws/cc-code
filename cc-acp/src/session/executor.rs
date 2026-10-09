@@ -69,7 +69,8 @@ pub struct FrozenSessionData {
     /// Full system prompt string built at session creation.
     pub system_prompt: String,
     /// Frozen **rendered** instruction set injected as a single System message
-    /// (merged candidates + dedup + provenance + limits). None = no instructions.
+    /// (merged candidates + dedup + provenance + limits). Some("") = frozen empty snapshot;
+    /// None = legacy caller that has not captured instructions.
     /// 这是注入上下文的唯一指引来源。
     ///
     /// 注：Jev 规则提炼用的「项目级 / 个人级」两段文本来自 `frozen.rs` 的局部变量

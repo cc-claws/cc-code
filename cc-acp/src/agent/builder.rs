@@ -68,7 +68,7 @@ pub struct AcpAgentConfig {
     pub event_handler: Arc<dyn AgentEventHandler>,
     pub cancel: AgentCancellationToken,
     pub permission_mode: Arc<SharedPermissionMode>,
-    /// 会话级审批记忆（路径级）：用户在弹窗选「本次会话同意」后免问。
+    /// 会话级审批记忆：用户选择「本次会话同意」，文件按路径、命令按完整调用复用。
     pub approval_memory: Arc<cc_middlewares::hitl::ApprovalMemory>,
     pub peri_config: Arc<PeriConfig>,
     pub cron_scheduler: Option<Arc<parking_lot::Mutex<CronScheduler>>>,
@@ -423,7 +423,8 @@ pub fn build_agent(
     .with_background_registry(Arc::clone(&background_registry))
     .with_bg_event_sender(bg_event_tx)
     .with_registered_hooks(vec![])
-    .with_inherited_instructions(inherited_instructions);
+    .with_inherited_instructions(inherited_instructions)
+    .with_permissions(&hitl);
     if let Some(ts) = thread_store {
         subagent = subagent.with_thread_store(ts);
     }

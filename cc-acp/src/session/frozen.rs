@@ -48,8 +48,11 @@ pub fn build_frozen_session_data(
         excludes: app_config.claude_md_excludes.clone().unwrap_or_default(),
         ..Default::default()
     };
-    let frozen_instructions =
-        cc_middlewares::agents_md::load_instructions(std::path::Path::new(cwd), &instruction_cfg);
+    // 空结果也是已捕获的快照，不能与 legacy 的「尚未冻结」None 混用。
+    let frozen_instructions = Some(
+        cc_middlewares::agents_md::load_instructions(std::path::Path::new(cwd), &instruction_cfg)
+            .unwrap_or_default(),
+    );
 
     // 个人 → 项目 → hooks → 全局，越靠前越权威（超长时先丢全局）。
     // 优先级数字与 `source=` 写进标题：模型据此按小号覆盖大号，并给每条规则标注来源。

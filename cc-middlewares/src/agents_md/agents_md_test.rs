@@ -729,7 +729,7 @@
         std::fs::write(dir.path().join("deep.md"), "deep content").unwrap();
         let content = "<!-- @import deep.md -->".to_string();
         let mut visited = HashSet::new();
-        let result = resolve_imports(&content, dir.path(), 0, &mut visited, None);
+        let result = resolve_imports(&content, dir.path(), 0, &mut visited, None, DEFAULT_MAX_SOURCE_BYTES);
         // depth=0 必须**原样返回**（不是"恰好还含 @import"的弱断言）
         assert_eq!(result, content);
     }
@@ -780,6 +780,7 @@
             3,
             &mut visited,
             None,
+            DEFAULT_MAX_SOURCE_BYTES,
         );
         // a.md 的 import b.md 被展开，而 b.md 回到 a.md 的那条**环回边**必须保留为占位符
         assert!(
@@ -792,7 +793,7 @@
     fn test_import_nonexistent_file() {
         let content = "<!-- @import nonexistent.md -->";
         let mut visited = HashSet::new();
-        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited, None);
+        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited, None, DEFAULT_MAX_SOURCE_BYTES);
         assert!(
             result.contains("@import"),
             "nonexistent file should keep original placeholder"
@@ -803,7 +804,7 @@
     fn test_import_invalid_format() {
         let content = "<!-- @import no closing tag";
         let mut visited = HashSet::new();
-        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited, None);
+        let result = resolve_imports(content, Path::new("/tmp"), 3, &mut visited, None, DEFAULT_MAX_SOURCE_BYTES);
         assert!(
             result.contains("@import"),
             "invalid format should preserve original text"

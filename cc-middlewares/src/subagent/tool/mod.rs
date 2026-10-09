@@ -85,12 +85,8 @@ pub(crate) fn build_subagent_middlewares(
             AgentsMdMiddleware::new().with_frozen_instructions(inh.rendered.to_string())
         }
         // 非继承（含跨 cwd）→ 现场加载，用宿主可覆盖的配置
-        _ => AgentsMdMiddleware::new().with_config(
-            config
-                .instruction_config
-                .clone()
-                .unwrap_or_default(),
-        ),
+        _ => AgentsMdMiddleware::new()
+            .with_config(config.instruction_config.clone().unwrap_or_default()),
     };
     middlewares.push(Box::new(agents_md));
     middlewares.push(Box::new(SkillsMiddleware::new().with_global_config()));
@@ -104,8 +100,26 @@ pub(crate) fn build_subagent_middlewares(
         let (tx, _rx) = mpsc::channel(8);
         tx
     })));
+    let mut available_tools = config.available_tools;
+    for middleware in &middlewares {
+        available_tools.extend(
+            middleware
+                .collect_tools(&config.cwd)
+                .into_iter()
+                .map(|tool| tool.name().to_string()),
+        );
+    }
+    middlewares.push(Box::new(permission::SubAgentPermissionMiddleware::new(
+        config.permissions,
+        config.allowed_tools,
+        config.disallowed_tools,
+        available_tools,
+        config.execution_cwd,
+    )));
     middlewares
 }
+
+mod permission;
 
 /// 独立（非方法）版本的 SubagentStart/SubagentStop hook 触发逻辑
 async fn fire_subagent_lifecycle_hooks_static(
