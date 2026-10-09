@@ -25,7 +25,9 @@ pub mod prelude {
     pub use crate::{
         agent::{
             events::{AgentEvent, AgentEventHandler, FnEventHandler},
-            react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult},
+            react::{
+                AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolErrorKind, ToolResult,
+            },
             state::{AgentState, State},
             token::{ContextBudget, TokenTracker},
             AgentCancellationToken, ReActAgent,
