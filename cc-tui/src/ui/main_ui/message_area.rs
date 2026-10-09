@@ -17,8 +17,12 @@ use cc_middlewares::prelude::TodoStatus;
 
 use super::sticky_header;
 
-/// `still thinking` 触发阈值：同一段思考未中断且超过此秒数（见 PRD §2.2）
-pub(crate) const STILL_THINKING_SECS: u64 = 10;
+/// `deep in thought` 触发阈值：思考超过 60s（数分钟长思考）
+pub(crate) const DEEP_THOUGHT_SECS: u64 = 60;
+/// `still thinking` 触发阈值：同一段思考未中断且超过此秒数
+pub(crate) const STILL_THINKING_SECS: u64 = 15;
+/// `thinking more` 触发秒数：思考超过 5s 加温
+pub(crate) const THINKING_MORE_SECS: u64 = 5;
 
 /// 配色档②（亮橙）触发秒数（见 PRD §2.7）
 pub(crate) const HEAT_LV2_SECS: u64 = 5;
@@ -27,29 +31,31 @@ pub(crate) const HEAT_LV3_SECS: u64 = 15;
 /// 配色档④（终黄）触发秒数（见 PRD §2.7）
 pub(crate) const HEAT_LV4_SECS: u64 = 30;
 
-/// spinner 第三字段（状态词）文案。空白表示不显示。
+/// spinner 第三字段（状态词）文案，纯按时间流逝阶梯演变。空白表示不显示。
 ///
-/// - `thinking`：正在思考且当前段未超阈
-/// - `still thinking`：正在思考且当前段超 [`STILL_THINKING_SECS`]（优先级最高）
-/// - `thinking more`：本轮已产出过、再次思考（`round >= 2`）
-/// - 空：不在思考段（工具执行 / 出文本）
+/// - `thinking`：0 ~ 5s 初段思考
+/// - `thinking more`：5 ~ 15s 持续思考
+/// - `still thinking`：15 ~ 60s 超时深思
+/// - `deep in thought`：>= 60s 深度沉思（长达数分钟）
+/// - `thought for Ns`：非思考段（工具执行/出文本），定格显示上一段耗时
 pub(crate) fn thinking_status_word(
     is_thinking: bool,
     thinking_elapsed_ms: u64,
-    round: u32,
     last_thought_ms: u64,
 ) -> String {
     if !is_thinking {
-        // 状态②：思考段已结束（工具执行/出文本期间），定格显示上一段耗时
         return if last_thought_ms > 0 {
             format!("thought for {}s", (last_thought_ms / 1000).max(1))
         } else {
             String::new()
         };
     }
-    let word = if thinking_elapsed_ms / 1000 >= STILL_THINKING_SECS {
+    let secs = thinking_elapsed_ms / 1000;
+    let word = if secs >= DEEP_THOUGHT_SECS {
+        "deep in thought"
+    } else if secs >= STILL_THINKING_SECS {
         "still thinking"
-    } else if round >= 2 {
+    } else if secs >= THINKING_MORE_SECS {
         "thinking more"
     } else {
         "thinking"
@@ -57,7 +63,7 @@ pub(crate) fn thinking_status_word(
     word.to_string()
 }
 
-/// 按「当前思考段耗时」返回 verb / 状态词的热度色（四档，见 PRD §2.7）。
+/// 按「当前思考段耗时」返回 verb 的热度色（四档，见 PRD §2.7）。
 /// 非思考段（工具执行）由调用方沿用上一档，此函数只按传入耗时计算。
 pub(crate) fn thinking_heat_color(thinking_elapsed_ms: u64) -> ratatui::style::Color {
     let secs = thinking_elapsed_ms / 1000;
@@ -72,21 +78,40 @@ pub(crate) fn thinking_heat_color(thinking_elapsed_ms: u64) -> ratatui::style::C
     }
 }
 
-/// 状态词配色（PRD §2.7）：`thinking` / `still thinking` / `thinking more`
-/// 与 verb 同热度色；`thought for Ns` 属已完成态，始终 MUTED 灰。
-/// `compact`（压缩上下文）特例整体用紫色。
+/// 状态词专用纯时间升温配色（状态词坚决不闪烁，随时间从冷灰温润升温到金黄）：
+///
+/// - `0.0s ~ 2.5s`：浅灰（`theme::MUTED` #999999，冷色起步）
+/// - `2.5s ~ 5.0s`：柔白中间色（`theme::TEXT_SOFT` #D0D0D0，微温看清）
+/// - `5.0s ~ 15.0s`：亮暖橙（与动词同色）
+/// - `15.0s ~ 60.0s`：浅金黄（`theme::SPINNER_HEAT_LV3` #FFD966）
+/// - `> 60.0s`：深度琥珀金（RGB 255, 152, 0）
+/// - `thought for Ns`：属已完成态，始终 MUTED 浅灰
+/// - `compact`：特例整体用紫色
 pub(crate) fn thinking_status_style(
     status_word: &str,
-    heat: ratatui::style::Color,
+    thinking_elapsed_ms: u64,
+    verb_heat: ratatui::style::Color,
     is_compact: bool,
 ) -> ratatui::style::Style {
     if is_compact {
-        Style::default().fg(theme::THINKING)
-    } else if status_word.starts_with("thought for") {
-        Style::default().fg(theme::MUTED)
-    } else {
-        Style::default().fg(heat)
+        return Style::default().fg(theme::THINKING);
     }
+    if status_word.starts_with("thought for") {
+        return Style::default().fg(theme::MUTED);
+    }
+    let secs = thinking_elapsed_ms / 1000;
+    let color = if secs >= DEEP_THOUGHT_SECS {
+        ratatui::style::Color::Rgb(255, 152, 0) // 琥珀金
+    } else if secs >= STILL_THINKING_SECS {
+        theme::SPINNER_HEAT_LV3 // 浅金黄
+    } else if secs >= THINKING_MORE_SECS {
+        verb_heat // 与动词同色
+    } else if thinking_elapsed_ms >= 2_500 {
+        theme::TEXT_SOFT // 柔白中间色 #D0D0D0
+    } else {
+        theme::MUTED // 浅灰初态 #999999
+    };
+    Style::default().fg(color)
 }
 
 /// 视口裁剪结果
@@ -129,11 +154,10 @@ pub(crate) fn render_messages(
         let tokens = session.spinner_state.displayed_tokens();
 
         let is_compact = verb.starts_with("压缩上下文");
-        // 第三字段：状态词（thinking / thinking more / still thinking / thought for Ns）
+        // 第三字段：状态词（纯时间驱动）
         let status_word = thinking_status_word(
             session.spinner_state.is_thinking(),
             session.spinner_state.thinking_elapsed_ms(),
-            session.spinner_state.thinking_round(),
             session.spinner_state.last_thought_ms(),
         );
         // 热度色：思考中用当前段耗时；工具/回复段沿用上一段（避免颜色回跳，见 PRD §2.7）
@@ -143,25 +167,39 @@ pub(crate) fn render_messages(
             session.spinner_state.last_thought_ms()
         };
         let heat = thinking_heat_color(heat_ms);
-        // verb 与状态词同色（热度）；compact 特例仍用紫色
-        let accent = if is_compact {
-            Style::default().fg(theme::THINKING)
+        let accent_color = if is_compact {
+            theme::THINKING
         } else {
-            Style::default().fg(heat)
+            heat
         };
-        // 状态词配色（PRD §2.7）：`thinking` / `still thinking` / `thinking more`
-        // 与 verb 同热度色；`thought for Ns` 属已完成态，始终 MUTED 灰。
-        let status_style = thinking_status_style(&status_word, heat, is_compact);
+        // 状态词配色：纯时间升温（状态词绝对不闪烁）
+        let status_thinking_ms = if session.spinner_state.is_thinking() {
+            session.spinner_state.thinking_elapsed_ms()
+        } else {
+            session.spinner_state.last_thought_ms()
+        };
+        let status_style =
+            thinking_status_style(&status_word, status_thinking_ms, heat, is_compact);
         let gray = Style::default().fg(theme::MUTED);
-        let mut parts = vec![
-            Span::styled(format!("{} {}", frame, verb), accent),
-            Span::styled(format!(" ({elapsed}"), gray),
-        ];
+
+        // 动词应用舒缓流光
+        let verb_spans = cc_widgets::spinner::animation::shimmer_verb_spans(
+            verb,
+            session.spinner_state.elapsed_ms(),
+            accent_color,
+        );
+
+        let mut parts = vec![Span::styled(
+            format!("{} ", frame),
+            Style::default().fg(accent_color),
+        )];
+        parts.extend(verb_spans);
+        parts.push(Span::styled(format!(" ({elapsed}"), gray));
         if tokens > 0 {
             let tokens_fmt = cc_widgets::spinner::animation::format_tokens(tokens);
             parts.push(Span::styled(format!(" · ↓ {tokens_fmt} tokens"), gray));
         }
-        // 第三字段（状态词）紧随 tokens 之后，与 verb 同热度色
+        // 第三字段（状态词）紧随 tokens 之后
         if !status_word.is_empty() {
             parts.push(Span::styled(format!(" · {status_word}"), status_style));
         }

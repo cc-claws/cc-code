@@ -39,3 +39,39 @@
         assert_eq!(format_tokens(15000), "15k");
         assert_eq!(format_tokens(0), "0");
     }
+
+    #[test]
+    fn test_shimmer_verb_spans_empty_text() {
+        let spans = shimmer_verb_spans("", 100, Color::Rgb(215, 119, 87));
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn test_shimmer_verb_spans_non_rgb_fallback() {
+        let spans = shimmer_verb_spans("Executing…", 500, Color::Yellow);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "Executing…");
+        assert_eq!(spans[0].style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn test_shimmer_verb_spans_quiet_phase() {
+        // At 3000ms (within 5000ms period, after 1600ms sweep), shimmer is quiet.
+        let base = Color::Rgb(215, 119, 87);
+        let spans = shimmer_verb_spans("Thinking…", 3000, base);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "Thinking…");
+        assert_eq!(spans[0].style.fg, Some(base));
+    }
+
+    #[test]
+    fn test_shimmer_verb_spans_shimmering_phase() {
+        // At 800ms (peak center of 1600ms sweep), shimmer produces grapheme spans.
+        let base = Color::Rgb(215, 119, 87);
+        let spans = shimmer_verb_spans("Thinking…", 800, base);
+        assert_eq!(spans.len(), "Thinking…".chars().count());
+        // All spans should have an RGB color.
+        for span in spans {
+            assert!(matches!(span.style.fg, Some(Color::Rgb(..))));
+        }
+    }
