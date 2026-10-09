@@ -5,7 +5,7 @@
 ## 中间件链执行顺序
 
 ```
-1.  AgentsMdMiddleware       ← CLAUDE.md/AGENTS.md 注入
+1.  AgentsMdMiddleware       ← 指引文件注入（AGENTS.md/CLAUDE.md，同目录合并去重 + 跨目录拼接 + 限额）
 2.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
 3.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
 4.  SkillPreloadMiddleware   ← #skill-name 全文注入
@@ -67,6 +67,8 @@
 ## SubAgents
 
 `.claude/agents/` 下定义，支持扁平 `{agent_id}.md` 和嵌套 `{agent_id}/agent.md`。`tools` 为空继承父工具（排除 Agent 防递归），有值仅保留允许列表，`disallowedTools` 额外排除。插件 agent 通过 `scan_agents_with_extra_dirs` 追加搜索路径。内置 agents（explore/general-purpose/plan/verification）编译期嵌入，同名被项目级覆盖。
+
+子 Agent 必须共享父级权限模式与判定规则。Auto 下父级允许/拒绝/询问，子级只允许/拒绝，未决或判定失败默认拒绝，不持有审批 broker。普通、后台、fork 和后台 fork 路径均须接入此检查，间接执行同时校验真实工具目标与允许/禁止集合。
 
 **[TRAP]** Background agent 工具完全依赖 `register_tool` 传递，跨 async 边界需确保 Arc 引用生命周期。多语义叠加（fork+background）需明确优先级，跨轮次累积数据（frozen_vms）必须有清理机制。（详见 spec/global/domains/agent.md#issue_2026-05-12-background-agent-display-and-continuation-bugs）
 

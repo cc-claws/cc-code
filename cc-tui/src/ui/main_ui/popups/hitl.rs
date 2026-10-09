@@ -10,13 +10,19 @@ use cc_widgets::BorderedPanel;
 
 use crate::{
     app::{tool_display::sanitize_display_text, App, ApprovalChoice},
-    ui::theme,
+    ui::{message_render::truncate_to_display_width, theme},
 };
 
 /// HITL 批量确认弹窗（底部展开区）
 pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
-    // 先借不可变引用读完渲染需要的纯数据，drop 借用后再写入 last_visible_height
-    let (scroll_offset, lines, inner, inner_height) = {
+    // 边框两行、固定快捷键一行，剩余内容区用于滚动。
+    if let Some(crate::app::InteractionPrompt::Approval(prompt)) =
+        &mut app.session_mgr.current_mut().agent.interaction_prompt
+    {
+        prompt.last_visible_height = area.height.saturating_sub(3);
+        prompt.keep_choice_visible();
+    }
+    let (scroll_offset, lines, inner, hint) = {
         let Some(crate::app::InteractionPrompt::Approval(prompt)) =
             &app.session_mgr.current().agent.interaction_prompt
         else {
@@ -40,22 +46,21 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
         ))
         .border_style(Style::default().fg(theme::WARNING))
         .render(f, popup_area);
-        let inner_height = inner.height;
         let max_width = inner.width as usize;
 
         let mut lines: Vec<Line> = Vec::new();
         for (i, (item, &choice)) in prompt.items.iter().zip(prompt.choices.iter()).enumerate() {
             let is_cursor = i == prompt.cursor;
-            let (status_icon, status_color, choice_label) = match choice {
-                ApprovalChoice::Once => ("✓", theme::SAGE, lc.tr("hitl-choice-once")),
-                ApprovalChoice::Session => ("✓✓", theme::SAGE, lc.tr("hitl-choice-session")),
-                ApprovalChoice::Reject => ("✗", theme::ERROR, lc.tr("hitl-choice-reject")),
+            let (status_icon, status_color) = if choice.is_approved() {
+                ("✓", theme::SAGE)
+            } else {
+                ("✗", theme::ERROR)
             };
             let cursor_indicator = if is_cursor { "❯ " } else { "  " };
             lines.push(Line::styled(
-                format!(
-                    "{}{} {}  {}",
-                    cursor_indicator, status_icon, item.tool_name, choice_label
+                truncate_to_display_width(
+                    &format!("{}{} {}", cursor_indicator, status_icon, item.tool_name),
+                    max_width,
                 ),
                 if is_cursor {
                     Style::default()
@@ -70,6 +75,29 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::raw("     "),
                 Span::styled(input_preview, Style::default().fg(theme::MUTED)),
             ]));
+            for option in ApprovalChoice::ALL {
+                let selected = choice == option;
+                let marker = if selected { "●" } else { "○" };
+                let indicator = if is_cursor && selected { "❯" } else { " " };
+                let label = lc.tr(match option {
+                    ApprovalChoice::Once => "hitl-choice-once",
+                    ApprovalChoice::Session => "hitl-choice-session",
+                    ApprovalChoice::Reject => "hitl-choice-reject",
+                });
+                lines.push(Line::styled(
+                    truncate_to_display_width(
+                        &format!("  {indicator} {marker} {label}"),
+                        max_width,
+                    ),
+                    if is_cursor && selected {
+                        Style::default()
+                            .fg(theme::THINKING)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(theme::MUTED)
+                    },
+                ));
+            }
         }
         if item_count > 1 {
             let approved_count = prompt.choices.iter().filter(|c| c.is_approved()).count() as i64;
@@ -86,24 +114,24 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
                 Style::default().fg(theme::MUTED),
             )));
         }
-        // 按键提示：Space 循环三态（一次性同意 / 本次会话同意 / 拒绝），Enter 提交
-        lines.push(Line::from(Span::styled(
-            lc.tr("hitl-key-hint"),
-            Style::default().fg(theme::DIM),
-        )));
-        (prompt.scroll_offset, lines, inner, inner_height)
+        (prompt.scroll_offset, lines, inner, lc.tr("hitl-key-hint"))
     };
-
-    // 写入 last_visible_height 供 hitl_move 使用
-    if let Some(crate::app::InteractionPrompt::Approval(p)) =
-        &mut app.session_mgr.current_mut().agent.interaction_prompt
-    {
-        p.last_visible_height = inner_height;
-    }
-
+    let content = Rect {
+        height: inner.height.saturating_sub(1),
+        ..inner
+    };
+    let footer = Rect {
+        y: inner.y.saturating_add(content.height),
+        height: inner.height.min(1),
+        ..inner
+    };
     let para = Paragraph::new(Text::from(lines)).scroll((scroll_offset, 0));
     f.render_widget(Clear, inner);
-    f.render_widget(para, inner);
+    f.render_widget(para, content);
+    f.render_widget(
+        Paragraph::new(hint).style(Style::default().fg(theme::DIM)),
+        footer,
+    );
 }
 
 fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
@@ -133,11 +161,7 @@ fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
     };
 
     let s = sanitize_display_text(&s);
-    if s.chars().count() > max_len && max_len > 1 {
-        format!("{}…", s.chars().take(max_len - 1).collect::<String>())
-    } else {
-        s
-    }
+    truncate_to_display_width(&s, max_len)
 }
 
 #[cfg(test)]

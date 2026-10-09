@@ -108,10 +108,14 @@ impl super::SubAgentTool {
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
 
         // 7. Middlewares
-        for mw in build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(
-            agent_def.frontmatter.skills.clone(),
-            cwd,
-        )) {
+        for mw in build_subagent_middlewares(
+            self.permission_config(
+                SubAgentMiddlewareConfig::for_agent_def(agent_def.frontmatter.skills.clone(), cwd)
+                    .with_inherited_instructions(self.inherited_instructions.clone()),
+                &agent_def.frontmatter.tools,
+                &agent_def.frontmatter.disallowed_tools,
+            ),
+        ) {
             agent_builder = agent_builder.add_middleware(mw);
         }
 

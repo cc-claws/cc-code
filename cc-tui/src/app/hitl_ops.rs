@@ -5,7 +5,7 @@ use agent_client_protocol::schema::{
 };
 
 impl App {
-    /// 上下移动列表光标
+    /// Tab 切换待审批工具
     pub fn hitl_move(&mut self, delta: isize) {
         if let Some(InteractionPrompt::Approval(p)) = self
             .session_mgr
@@ -18,8 +18,8 @@ impl App {
         }
     }
 
-    /// 切换当前项批准/拒绝
-    pub fn hitl_toggle(&mut self) {
+    /// 上下键选择当前工具的审批选项
+    pub fn hitl_move_choice(&mut self, delta: isize) {
         if let Some(InteractionPrompt::Approval(p)) = self
             .session_mgr
             .current_mut()
@@ -27,7 +27,7 @@ impl App {
             .interaction_prompt
             .as_mut()
         {
-            p.toggle_current();
+            p.move_choice(delta);
         }
     }
 

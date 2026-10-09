@@ -19,6 +19,7 @@ fn bash_call(cmd: &str, cwd: &std::path::Path) -> GateCall {
     GateCall {
         tool_name: "Bash".to_string(),
         command: Some(cmd.to_string()),
+        original_command: None,
         path: None,
         branch: None,
         cwd: cwd.to_path_buf(),
@@ -95,6 +96,7 @@ fn test_protected_write_escalates() {
     let call = GateCall {
         tool_name: "Write".to_string(),
         command: None,
+        original_command: None,
         path: Some(path.clone()),
         branch: None,
         cwd: cwd.clone(),
@@ -111,6 +113,7 @@ fn test_safe_write_allows() {
     let call = GateCall {
         tool_name: "Write".to_string(),
         command: None,
+        original_command: None,
         path: Some(path.clone()),
         branch: None,
         cwd: cwd.clone(),
@@ -300,6 +303,117 @@ fn gate_with(config: JevConfig) -> Arc<JevGate> {
 }
 
 #[test]
+fn test_deny_rule_matches_original_command_after_rtk_rewrite() {
+    // #358：Bash 会先经 RTK 前缀改写（X → `rtk X`，见 gate_effective_call）。
+    // 用户写的是 `kubectl delete*`，若只拿改写后的 `rtk kubectl delete pod x` 去匹配，
+    // 规则会**静默失效**——装了 rtk 的机器上审批门形同虚设。
+    let g = gate_with(JevConfig {
+        disallowed_commands: vec!["kubectl delete*".to_string()],
+        ..JevConfig::default()
+    });
+    let cwd = PathBuf::from(CWD);
+    let call = GateCall {
+        tool_name: "Bash".to_string(),
+        command: Some("rtk kubectl delete pod x".to_string()),
+        original_command: Some("kubectl delete pod x".to_string()),
+        path: None,
+        branch: None,
+        cwd,
+    };
+    assert!(
+        matches!(g.deterministic(&call), Some(GateDecision::Block { .. })),
+        "原始命令命中拒绝规则必须拦下"
+    );
+}
+
+#[test]
+fn test_allow_rule_matches_original_command_after_rtk_rewrite() {
+    // 反向对称：用户白名单同样不能被 `rtk ` 前缀弄失效
+    let g = gate_with(JevConfig {
+        allowed_commands: vec!["git push origin*".to_string()],
+        ..JevConfig::default()
+    });
+    let cwd = PathBuf::from(CWD);
+    let call = GateCall {
+        tool_name: "Bash".to_string(),
+        command: Some("rtk git push origin main".to_string()),
+        original_command: Some("git push origin main".to_string()),
+        path: None,
+        branch: None,
+        cwd,
+    };
+    assert!(matches!(
+        g.deterministic(&call),
+        Some(GateDecision::Allow { .. })
+    ));
+}
+
+#[test]
+fn test_deny_rule_on_rewritten_command_also_blocks() {
+    // 另一侧也要成立：规则若只命中**改写后**的命令，同样拦
+    let g = gate_with(JevConfig {
+        disallowed_commands: vec!["rtk kubectl get*".to_string()],
+        ..JevConfig::default()
+    });
+    let cwd = PathBuf::from(CWD);
+    let call = GateCall {
+        tool_name: "Bash".to_string(),
+        command: Some("rtk kubectl get pods".to_string()),
+        original_command: Some("kubectl get pods".to_string()),
+        path: None,
+        branch: None,
+        cwd,
+    };
+    assert!(matches!(
+        g.deterministic(&call),
+        Some(GateDecision::Block { .. })
+    ));
+}
+
+#[test]
+fn test_read_only_fast_lane_survives_transparent_rtk_wrap() {
+    // rtk 是**输出过滤型透明包装**：`rtk git status` 与 `git status` 的只读性质一致，
+    // 必须仍走零成本快车道——否则装了 rtk 的机器上每条只读命令都要多走一次判定/分类调用。
+    let g = gate();
+    let cwd = PathBuf::from(CWD);
+    let call = GateCall {
+        tool_name: "Bash".to_string(),
+        command: Some("rtk git status".to_string()),
+        original_command: Some("git status".to_string()),
+        path: None,
+        branch: None,
+        cwd,
+    };
+    assert!(
+        matches!(g.deterministic(&call), Some(GateDecision::Allow { .. })),
+        "透明包装不得让只读快车道失效"
+    );
+}
+
+#[test]
+fn test_read_only_probe_ignores_non_transparent_wrap() {
+    // 反向：包装**不透明**（有效命令 ≠ `rtk <原始>`）时，退化为按有效命令判定 → 不进快车道。
+    //
+    // 注：经 `predict_rtk_rewrite` 的真实数据流恒产出 `rtk <原始>`，故该分支是**防御性**的
+    //（预测与真实 `rtk rewrite` 输出理论上可能不一致）。这里直接构造 GateCall 覆盖它，
+    // 且刻意让 original 不触发硬黑名单，确保结论来自「只读判定」而非其它层。
+    let g = gate();
+    let cwd = PathBuf::from(CWD);
+    let call = GateCall {
+        tool_name: "Bash".to_string(),
+        command: Some("rtk git status".to_string()),
+        original_command: Some("git log".to_string()),
+        path: None,
+        branch: None,
+        cwd,
+    };
+    assert!(
+        g.deterministic(&call).is_none(),
+        "不透明包装不得进只读快车道（应升级到语义层）"
+    );
+}
+
+#[test]
 fn test_explicit_deny_still_beats_explicit_allow() {
     // 同一信任级内保持 deny 优先
     let g = gate_with(JevConfig {
@@ -443,6 +557,7 @@ fn test_write_path_traversal_must_not_fast_lane() {
     let call = GateCall {
         tool_name: "Write".to_string(),
         command: None,
+        original_command: None,
         path: Some(escaped.clone()),
         branch: None,
         cwd: cwd.clone(),
@@ -462,6 +577,7 @@ fn test_write_inside_project_still_fast_lanes() {
     let call = GateCall {
         tool_name: "Write".to_string(),
         command: None,
+        original_command: None,
         path: Some(cwd.join("src").join("main.rs")),
         branch: None,
         cwd: cwd.clone(),
@@ -480,6 +596,7 @@ fn test_write_outside_project_escalates() {
     let call = GateCall {
         tool_name: "Write".to_string(),
         command: None,
+        original_command: None,
         path: Some(PathBuf::from("/etc/passwd")),
         branch: None,
         cwd: cwd.clone(),

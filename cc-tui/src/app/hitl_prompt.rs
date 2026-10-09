@@ -22,25 +22,25 @@ pub struct PendingAttachment {
 /// 单项审批选择（三态）：一次性同意 / 本次会话同意 / 拒绝。
 ///
 /// 对齐 ACP `PermissionOption`：`allow_once` / `allow_always` / `reject_once`。
-/// 「本次会话同意」会写入会话级审批记忆，同 `(工具, 路径)` 后续免问。
+/// 「本次会话同意」写入会话级审批记忆：文件按工具与路径，命令按完整命令与执行目录。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalChoice {
     /// 一次性同意（仅本次调用）
     Once,
-    /// 本次会话同意（写入审批记忆，同工具+路径后续免问）
+    /// 本次会话同意（写入审批记忆）
     Session,
     /// 拒绝
     Reject,
 }
 
 impl ApprovalChoice {
-    /// Space 键循环：Once → Session → Reject → Once
-    pub fn next(self) -> Self {
-        match self {
-            Self::Once => Self::Session,
-            Self::Session => Self::Reject,
-            Self::Reject => Self::Once,
-        }
+    pub const ALL: [Self; 3] = [Self::Once, Self::Session, Self::Reject];
+
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|choice| *choice == self)
+            .unwrap_or(0)
     }
 
     /// ACP `PermissionOption` id
@@ -97,33 +97,47 @@ impl HitlBatchPrompt {
             return;
         }
         self.cursor = ((self.cursor as isize + delta).rem_euclid(len as isize)) as usize;
-        // 光标跟随：每项渲染 2 行（tool 名 + 参数预览），用 cursor_row = cursor*2
-        // 作为实际行号近似（足够防止光标移出可视区，误差 1-2 行可由 visible_height
-        // 的尾数吸收）。底部统计行 +1 但作为缓冲不纳入计算。
-        let cursor_row = (self.cursor as u16).saturating_mul(2);
+        self.keep_choice_visible();
+    }
+
+    /// 上下键直接选择当前工具的审批选项，到边界后停留。
+    pub fn move_choice(&mut self, delta: isize) {
+        if let Some(choice) = self.choices.get_mut(self.cursor) {
+            let index = (choice.index() as isize + delta).clamp(0, 2) as usize;
+            *choice = ApprovalChoice::ALL[index];
+        }
+        self.keep_choice_visible();
+    }
+
+    /// 每项固定五行：工具、参数、三个选项；滚动跟随实际选项行。
+    pub fn keep_choice_visible(&mut self) {
+        let Some(choice) = self.choices.get(self.cursor) else {
+            return;
+        };
+        let cursor_row = self
+            .cursor
+            .saturating_mul(5)
+            .saturating_add(2 + choice.index());
+        let cursor_row = u16::try_from(cursor_row).unwrap_or(u16::MAX);
         let vis = if self.last_visible_height > 0 {
             self.last_visible_height
         } else {
             10 // fallback：未渲染前用保守值
         };
-        // 钳位到 [vis/3, vis-1] 区间：光标进入上方 1/3 时上滚，
-        // 接近底部（最后一行）时下滚。注释与代码对齐（cc-claws PR #76 review）。
-        let lower = vis / 3;
-        let upper = vis.saturating_sub(1);
-        if cursor_row < self.scroll_offset.saturating_add(lower) {
-            // 光标进入上方缓冲区，往上滚
-            self.scroll_offset = cursor_row.saturating_sub(lower);
-        } else if cursor_row >= self.scroll_offset + upper {
-            // 光标超出底部，往下滚
-            self.scroll_offset = cursor_row.saturating_sub(upper) + 1;
+        // 可容纳一整项时同时保留工具信息和三个选项；极小窗口才只跟随选中行。
+        let item_start = u16::try_from(self.cursor.saturating_mul(5)).unwrap_or(u16::MAX);
+        let (first_row, last_row) = if vis >= 5 {
+            (item_start, item_start.saturating_add(4))
+        } else {
+            (cursor_row, cursor_row)
+        };
+        if first_row < self.scroll_offset {
+            self.scroll_offset = first_row;
+        } else if last_row >= self.scroll_offset.saturating_add(vis) {
+            self.scroll_offset = last_row.saturating_add(1).saturating_sub(vis);
         }
-    }
-
-    /// 循环切换当前项的三态选择（Once → Session → Reject → Once）
-    pub fn toggle_current(&mut self) {
-        if let Some(v) = self.choices.get_mut(self.cursor) {
-            *v = v.next();
-        }
+        let content_height = u16::try_from(self.items.len().saturating_mul(5)).unwrap_or(u16::MAX);
+        self.scroll_offset = self.scroll_offset.min(content_height.saturating_sub(vis));
     }
 
     /// 全部设为一次性同意
@@ -159,3 +173,7 @@ impl HitlBatchPrompt {
         let _ = self.response_tx.send(decisions);
     }
 }
+
+#[cfg(test)]
+#[path = "hitl_prompt_test.rs"]
+mod tests;

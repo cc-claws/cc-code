@@ -533,7 +533,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
     } else if let Some(crate::app::InteractionPrompt::Approval(p)) =
         &app.session_mgr.current().agent.interaction_prompt
     {
-        (p.items.len() as u16 * 2 + 5).max(5)
+        u16::try_from(p.items.len().saturating_mul(5).saturating_add(5)).unwrap_or(u16::MAX)
     } else if app.global_ui.oauth_prompt.is_some() {
         9 // 标题1 + 提示1 + URL1 + 空行1 + 输入框1 + 错误1 + 快捷键1 + 边框2
     } else if let Some(crate::app::InteractionPrompt::Questions(p)) =

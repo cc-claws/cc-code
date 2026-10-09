@@ -91,6 +91,9 @@ pub struct SubAgentTool {
         Option<Arc<dyn Fn(String, AgentCancellationToken, String) + Send + Sync>>,
     /// Deregister callback: removes from active_agents map by thread_id
     pub(crate) deregister_runtime: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// 父 Agent 的冻结指引（含父 cwd），供子 Agent 链继承（避免每轮重读，见 #360）
+    pub(crate) inherited_instructions: Option<super::super::InheritedInstructions>,
+    pub(crate) permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
 }
 
 impl SubAgentTool {
@@ -117,6 +120,8 @@ impl SubAgentTool {
             parent_thread_id: None,
             register_runtime: None,
             deregister_runtime: None,
+            inherited_instructions: None,
+            permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
         }
     }
 
@@ -188,6 +193,41 @@ impl SubAgentTool {
     pub fn with_deregister_runtime(mut self, cb: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
         self.deregister_runtime = Some(cb);
         self
+    }
+
+    /// 继承父 Agent 的冻结指引（仅在子 Agent cwd 与父 cwd 一致时生效）
+    pub fn with_inherited_instructions(
+        mut self,
+        instructions: Option<super::super::InheritedInstructions>,
+    ) -> Self {
+        self.inherited_instructions = instructions;
+        self
+    }
+
+    pub(crate) fn with_permissions(
+        mut self,
+        permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
+    ) -> Self {
+        self.permissions = permissions;
+        self
+    }
+
+    pub(crate) fn permission_config(
+        &self,
+        mut config: crate::subagent::SubAgentMiddlewareConfig,
+        allowed: &ToolsValue,
+        disallowed: &ToolsValue,
+    ) -> crate::subagent::SubAgentMiddlewareConfig {
+        config.permissions = Arc::clone(&self.permissions);
+        config.allowed_tools = allowed.to_vec();
+        config.disallowed_tools = disallowed.to_vec();
+        config.available_tools = self
+            .parent_tools
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect();
+        config.execution_cwd = self.parent_cwd.clone();
+        config
     }
 
     pub(crate) fn load_agent_def(&self, agent_id: &str, cwd: &str) -> Result<ClaudeAgent, String> {

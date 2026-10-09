@@ -49,7 +49,7 @@ Agent 运行中 Token 累积达到阈值（默认 85%）时触发自动压缩：
 
 ### 5. 权限模式
 
-5 级权限模式控制工具调用审批策略：Default（默认放行大部分操作）、AcceptEdits（放行文件编辑）、Auto（LLM 分类器判断）、BypassPermissions（全部放行）、DontAsk（跳过所有交互）。Shift+Tab 循环切换，状态栏实时显示当前模式。
+2 档权限模式控制工具调用审批策略：**Auto**（默认；先跑零成本的确定性层——硬黑名单/人写规则/只读白名单，再走 Jev 语义门，只有判不准时才弹一次窗）与 **Bypass**（全部放行）。Shift+Tab 在两者间循环，状态栏实时显示当前模式；未显式开启免审批时一律为 Auto（fail-closed）。
 
 ### 6. 配置同步（Cross-device Sync）
 

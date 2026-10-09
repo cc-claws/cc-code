@@ -22,21 +22,37 @@ pub fn rule_model_from(provider: &crate::provider::LlmProvider) -> Option<Arc<dy
 
 /// Build frozen session data from the given parameters.
 ///
-/// Called once at session/new, capturing date/language/CLAUDE.md/skills/system_prompt.
-/// `language` should be the user's configured language (`None` → auto-detect).
+/// Called once at session/new, capturing date/language/instructions/skills/system_prompt.
+///
+/// 配置派生项（`language` / `claude_md_excludes`）**统一从 `app_config` 取**，不再逐个当参数传——
+/// 调用点因此只有「ctx 相关」的实参，未来新增配置派生项也不用动签名与 8 个调用点。
 ///
 /// `rule_model` 用于把 CLAUDE.md 提炼成 Jev 安全规则（一次 LLM 调用，结果进程内缓存）。
 /// 传 `None` 则不做提炼，门不携带用户策略。
 pub fn build_frozen_session_data(
     cwd: &str,
-    language: Option<&str>,
+    app_config: crate::provider::config::AppConfig,
     plugin_skill_dirs: &[PathBuf],
     plugin_agent_dirs: &[PathBuf],
     frozen_date: &str,
     rule_model: Option<Arc<dyn BaseModel>>,
 ) -> FrozenSessionData {
-    let (frozen_claude_md, frozen_claude_local_md) =
+    let language = app_config.language.as_deref();
+
+    // Jev 规则提炼的「项目级 / 个人级」两段来源（注入内容另走下面的 instructions）。
+    let (jev_project_md, jev_personal_md) =
         cc_middlewares::AgentsMdMiddleware::read_frozen_content(cwd);
+
+    // 注入上下文的整段指引：同目录合并 + 去重 + 跨目录 root→cwd 拼接 + provenance + 限额 + excludes。
+    let instruction_cfg = cc_middlewares::AgentsMdConfig {
+        excludes: app_config.claude_md_excludes.clone().unwrap_or_default(),
+        ..Default::default()
+    };
+    // 空结果也是已捕获的快照，不能与 legacy 的「尚未冻结」None 混用。
+    let frozen_instructions = Some(
+        cc_middlewares::agents_md::load_instructions(std::path::Path::new(cwd), &instruction_cfg)
+            .unwrap_or_default(),
+    );
 
     // 个人 → 项目 → hooks → 全局，越靠前越权威（超长时先丢全局）。
     // 优先级数字与 `source=` 写进标题：模型据此按小号覆盖大号，并给每条规则标注来源。
@@ -47,12 +63,12 @@ pub fn build_frozen_session_data(
             (
                 "personal",
                 "Priority 1 (highest) — personal rules ({cwd}/CLAUDE.local.md)",
-                frozen_claude_local_md.as_deref(),
+                jev_personal_md.as_deref(),
             ),
             (
                 "project",
                 "Priority 2 — project rules ({cwd}/CLAUDE.md, {cwd}/AGENTS.md)",
-                frozen_claude_md.as_deref(),
+                jev_project_md.as_deref(),
             ),
             (
                 "hooks",
@@ -86,8 +102,7 @@ pub fn build_frozen_session_data(
 
     FrozenSessionData {
         system_prompt: frozen_system_prompt,
-        claude_md: frozen_claude_md,
-        claude_local_md: frozen_claude_local_md,
+        instructions: frozen_instructions,
         jev_rule_loader,
         skill_summary: frozen_skill_summary,
         date: frozen_date.to_string(),
@@ -129,3 +144,7 @@ fn build_jev_rule_loader(
         slot,
     )))
 }
+
+#[cfg(test)]
+#[path = "frozen_test.rs"]
+mod tests;

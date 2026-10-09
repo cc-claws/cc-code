@@ -49,7 +49,7 @@ pub mod tool_search;
 pub mod tools;
 
 pub use agent_define::{AgentDefineMiddleware, AgentOverrides};
-pub use agents_md::AgentsMdMiddleware;
+pub use agents_md::{AgentsMdConfig, AgentsMdMiddleware};
 pub use ask_user::{
     ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserOption,
     AskUserQuestionData,

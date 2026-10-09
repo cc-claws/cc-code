@@ -752,9 +752,9 @@ async fn test_fork_inherits_parent_messages() {
     );
 }
 
-/// Fork registers all tools including Agent (no hard-coded exclusion)
+/// Fork 继承其他工具，但移除 Agent 以保持禁递归约束。
 #[tokio::test]
-async fn test_fork_registers_all_tools_including_agent() {
+async fn test_fork_registers_inherited_tools_except_agent() {
     let parent_messages: Arc<RwLock<Vec<BaseMessage>>> = Arc::new(RwLock::new(Vec::new()));
 
     let tools_capture: Arc<std::sync::Mutex<Vec<String>>> =
@@ -800,8 +800,8 @@ async fn test_fork_registers_all_tools_including_agent() {
 
     let captured = tools_capture.lock().unwrap();
     assert!(
-        captured.contains(&"Agent".to_string()),
-        "Fork should register Agent tool (no exclusion), got: {:?}",
+        !captured.contains(&"Agent".to_string()),
+        "Fork 不得继承 Agent 工具以绕过禁递归约束，实际工具：{:?}",
         *captured
     );
     assert!(
@@ -959,11 +959,16 @@ use super::{build_subagent_middlewares, SubAgentMiddlewareConfig};
 #[test]
 fn test_build_middleware_fork_config_without_skill_preload() {
     let middlewares = build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork("/tmp"));
-    assert_eq!(middlewares.len(), 3);
+    assert_eq!(middlewares.len(), 4);
     let names: Vec<&str> = middlewares.iter().map(|m| m.name()).collect();
     assert_eq!(
         names,
-        vec!["AgentsMdMiddleware", "SkillsMiddleware", "TodoMiddleware"]
+        vec![
+            "AgentsMdMiddleware",
+            "SkillsMiddleware",
+            "TodoMiddleware",
+            "SubAgentPermissionMiddleware"
+        ]
     );
 }
 
@@ -971,7 +976,7 @@ fn test_build_middleware_fork_config_without_skill_preload() {
 fn test_build_middleware_agent_def_with_empty_skills_skips_skill_preload() {
     let middlewares =
         build_subagent_middlewares(SubAgentMiddlewareConfig::for_agent_def(vec![], "/tmp"));
-    assert_eq!(middlewares.len(), 3);
+    assert_eq!(middlewares.len(), 4);
     assert!(!middlewares
         .iter()
         .any(|m| m.name() == "SkillPreloadMiddleware"));
@@ -983,7 +988,7 @@ fn test_build_middleware_agent_def_with_skills_includes_skill_preload() {
         vec!["test-skill".to_string()],
         "/tmp",
     ));
-    assert_eq!(middlewares.len(), 4);
+    assert_eq!(middlewares.len(), 5);
     let names: Vec<&str> = middlewares.iter().map(|m| m.name()).collect();
     assert_eq!(
         names,
@@ -991,9 +996,114 @@ fn test_build_middleware_agent_def_with_skills_includes_skill_preload() {
             "AgentsMdMiddleware",
             "SkillsMiddleware",
             "SkillPreloadMiddleware",
-            "TodoMiddleware"
+            "TodoMiddleware",
+            "SubAgentPermissionMiddleware"
         ]
     );
+}
+
+/// 取子 Agent 链里的 AgentsMdMiddleware 并跑一次注入，返回注入内容（未注入则 None）。
+///
+/// `state_cwd` 要与真实链路一致——非冻结路径是按 `state.cwd()` 读盘的
+/// （`execute_fork` 也是 `AgentState::new(cwd)`）。
+async fn subagent_injected_content(
+    cfg: SubAgentMiddlewareConfig,
+    state_cwd: &str,
+) -> Option<String> {
+    let middlewares = build_subagent_middlewares(cfg);
+    let agents_md = middlewares
+        .iter()
+        .find(|m| m.name() == "AgentsMdMiddleware")
+        .expect("子 Agent 链应含 AgentsMdMiddleware");
+    let mut state = cc_agent::agent::state::AgentState::new(state_cwd);
+    agents_md.before_agent(&mut state).await.unwrap();
+    use cc_agent::agent::state::State as _;
+    match state.messages() {
+        [] => None,
+        msgs => Some(msgs[0].content()),
+    }
+}
+
+fn inherited(cwd: &str, rendered: &str) -> crate::subagent::InheritedInstructions {
+    crate::subagent::InheritedInstructions {
+        cwd: Arc::from(cwd),
+        rendered: Arc::from(rendered),
+    }
+}
+
+#[tokio::test]
+async fn test_subagent_chain_inherits_frozen_instructions() {
+    // cwd 故意选不存在的路径：注入内容只能来自继承的快照，证明**没有**回读磁盘。
+    let cwd = "/nonexistent/for/inherit/test";
+    let content = subagent_injected_content(
+        SubAgentMiddlewareConfig::for_fork(cwd)
+            .with_inherited_instructions(Some(inherited(cwd, "INHERITED_RULES"))),
+        cwd,
+    )
+    .await
+    .expect("应注入单条 System 消息");
+    assert!(content.contains("INHERITED_RULES"), "{content}");
+}
+
+#[tokio::test]
+async fn test_subagent_empty_frozen_instructions_skip_disk() {
+    let directory = tempdir().unwrap();
+    std::fs::create_dir(directory.path().join(".git")).unwrap();
+    std::fs::write(directory.path().join("AGENTS.md"), "NEW_DISK_RULES").unwrap();
+    let cwd = directory.path().to_str().unwrap();
+    let content = subagent_injected_content(
+        SubAgentMiddlewareConfig::for_fork(cwd)
+            .with_inherited_instructions(Some(inherited(cwd, ""))),
+        cwd,
+    )
+    .await;
+    assert!(
+        content.is_none(),
+        "继承空快照的子 Agent 不得重新加载磁盘规则"
+    );
+}
+
+#[tokio::test]
+async fn test_subagent_other_cwd_falls_back_to_disk() {
+    // `Agent` 工具的 cwd 是 LLM 可传参：子 Agent 跑在别的项目时，
+    // **不能**套用父的指引（否则串味 + 因冻结短路读不到目标项目自己的指引）。
+    let dir = tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(dir.path().join("AGENTS.md"), "CHILD_PROJECT_RULES").unwrap();
+    let child_cwd = dir.path().to_str().unwrap();
+
+    let content = subagent_injected_content(
+        SubAgentMiddlewareConfig::for_fork(child_cwd)
+            .with_inherited_instructions(Some(inherited("/parent/project", "PARENT_RULES"))),
+        child_cwd,
+    )
+    .await
+    .expect("应回退读盘并注入目标项目的指引");
+    assert!(content.contains("CHILD_PROJECT_RULES"), "{content}");
+    assert!(
+        !content.contains("PARENT_RULES"),
+        "父的指引不得串味: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_subagent_chain_without_inheritance_reads_disk() {
+    // 反向对照：不继承 + cwd 无文件 → 不注入任何消息（旧行为保留）。
+    // 必须钉死 user_global：默认配置会去读 `~/.cc-code/AGENTS.md`，
+    // 一旦开发机存在该文件，断言就会因环境而变红（本文件其余用例同此约定）。
+    let dir = tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    let hermetic = crate::agents_md::AgentsMdConfig {
+        user_global_file: dir.path().join("__no_such_global__.md"),
+        ..Default::default()
+    };
+    let config = SubAgentMiddlewareConfig {
+        instruction_config: Some(hermetic),
+        ..SubAgentMiddlewareConfig::for_fork(dir.path().to_str().unwrap())
+    };
+    let injected =
+        subagent_injected_content(config, dir.path().to_str().unwrap()).await;
+    assert!(injected.is_none(), "无文件不应注入: {injected:?}");
 }
 
 #[test]
@@ -1010,7 +1120,8 @@ fn test_build_middleware_order_is_fixed() {
             "AgentsMdMiddleware",
             "SkillsMiddleware",
             "SkillPreloadMiddleware",
-            "TodoMiddleware"
+            "TodoMiddleware",
+            "SubAgentPermissionMiddleware"
         ]
     );
 }

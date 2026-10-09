@@ -10,14 +10,14 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 事件处理：crossterm 输入拦截、命令解析（`/` 前缀）、弹窗状态管理
 - 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/recap`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
 - 多会话管理：SQLite 持久化，`/history` 面板按 cwd 过滤当前工作区对话
-- 弹窗系统：HITL 审批弹窗、AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
+- 弹窗系统：HITL 同时展示三项审批选项（↑↓ 选择、Tab 切换工具、Enter 确认），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
 - SubAgent 层级展示：SubAgentGroup 可折叠块，滑动窗口显示最近 4 步，显示格式 `Agent(type) #hash`，颜色区分状态（前台绿色、后台运行中黄色、错误红色）
 - Skill 全文预加载：消息含 `#skill-name` 时通过 SkillPreloadMiddleware 将 skill 全文注入 agent state
 - Setup Wizard：首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），原子写回 settings.json
 - 配色系统 v1.1：橙色仅保留最高优先级交互（命令输入框），工具名三级分层（bash=ACCENT / 写操作=WARNING / 只读=MUTED），配置面板边框 MUTED 降噪
 - App 结构体拆分：App 三字段（ServiceRegistry/SessionManager/PanelManager），ChatSession 六子模块（ui/messages/session_panels/agent/commands/metadata）
 - 面板组件化：PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，新增面板只需实现 trait
-- 配置系统补全：CLAUDE.local.md 支持、`@import` 外部文件引用、claudeMdExcludes glob 过滤、`$schema` passthrough
+- 配置系统补全：CLAUDE.local.md 支持、`@import` 文件引用（默认限项目根内）、claudeMdExcludes glob 过滤、`$schema` passthrough
 - Welcome Card：空消息时显示品牌 ASCII Art Logo + 功能亮点 + 命令提示，发送消息后自动消失
 - Sticky Human Message Header：聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动
 - i18n（Fluent）：`LcRegistry` 按 key 取文案（`/lang` 切 en / zh-CN）；静态构造路径（无 App 上下文，如后台 shell 通知 → `MessageViewModel`）通过**进程级注册表** `i18n::init_global`/`global` 读当前语言，启动与 `/lang` 切换时同步；`FluentBundle` 用 concurrent 变体以满足 `Sync`
@@ -114,7 +114,7 @@ submit_message(text)
 | App 结构体 | App 三字段（ServiceRegistry/SessionManager/PanelManager），ChatSession 六子模块（ui/messages/session_panels/agent/commands/metadata） |
 | 面板组件化 | PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，双实例（session/global），PanelContext 解耦借用 |
 | SubAgent 显示 | 格式 `Agent(type) #hash`，颜色映射（ERROR/WARNING/SAGE），is_background + bg_hash 字段 |
-| 配置系统 | CLAUDE.local.md 支持、`@import` 外部引用（深度上限 3）、claudeMdExcludes glob 过滤、`$schema` passthrough |
+| 配置系统 | CLAUDE.local.md 支持、`@import` 文件引用（深度上限 3，默认限项目根内，越界保留占位符）、claudeMdExcludes glob 过滤、`$schema` passthrough |
 | TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查、`/recap` 会话回顾（recap_auto.rs 支持终端失焦自动触发） |
 | 配色方案 | v1.1 降噪：橙色仅用于输入框，工具名 bash=ACCENT/写操作=WARNING/只读=MUTED，面板边框 MUTED |
 | Setup Wizard | 三步引导（Provider → API Key → Model Alias），save_setup() 原子写回 settings.json |
@@ -1131,7 +1131,7 @@ submit_message(text)
 - → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成到 Markdown 渲染
 - → [mouse-selection.md](./mouse-selection.md) — 鼠标拖拽文字选区和剪贴板复制
 - → [skill-trigger.md](./skill-trigger.md) — Skills 触发键从 # 统一到 / 前缀
-- → [hitl-permissions.md](./hitl-permissions.md) — 5 级权限模式 Shift+Tab 切换
+- → [hitl-permissions.md](./hitl-permissions.md) — 权限模式 Auto / Bypass 两档，Shift+Tab 切换
 - → [model-config.md](./model-config.md) — /login 面板 Provider CRUD
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一消息管线
 - → [compact.md](./compact.md) — Micro/Full Compact 策略增强
@@ -1247,3 +1247,5 @@ submit_message(text)
 **涉及文件:** cc-tui/src/i18n/mod.rs, cc-tui/src/app/background_shell.rs, cc-tui/src/app/mod.rs, cc-tui/src/command/session/lang.rs, cc-tui/locales/en/main.ftl, cc-tui/locales/zh-CN/main.ftl, spec/issues/2026-10-07-background-shell-notification-hardcoded-i18n.md
 **PR:** #338
 **CLAUDE.md 链接:** false
+
+最后更新：2026-10-09

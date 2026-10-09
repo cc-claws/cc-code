@@ -28,8 +28,8 @@
 | history | ✓ | ✓ |
 | cancel_token | ✓ | ✓ |
 | frozen_system_prompt | ✓ | ✓ |
-| frozen_claude_md | ✓ | ✓ |
-| frozen_claude_local_md | ✓ | ✓ |
+| frozen_instructions | ✓ | ✓ |
+| frozen_jev_rule_loader | ✓ | ✓ |
 | frozen_skill_summary | ✓ | ✓ |
 | frozen_date | ✓ | ✓ |
 | frozen_language | ✓ | ✓ |
@@ -47,7 +47,7 @@
 1. `ThreadMeta::new` → `thread_store.create_thread` → thread_id
 2. `chrono::Local::now()` → frozen_date
 3. `peri_config.read().config.language` → frozen_language
-4. `AgentsMdMiddleware::read_frozen_content` → frozen_claude_md / frozen_claude_local_md
+4. `agents_md::load_instructions` → frozen_instructions（`read_frozen_content` 的产出另喂 Jev 规则提炼）
 5. `SkillsMiddleware::build_frozen_summary` → frozen_skill_summary
 6. `build_system_prompt` → frozen_system_prompt
 7. Insert session into map

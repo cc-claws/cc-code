@@ -54,10 +54,10 @@ pub struct AcpAgentConfig {
     pub provider: LlmProvider,
     pub cwd: String,
     pub system_prompt: String,
-    /// Frozen CLAUDE.md content (None = read from disk each turn, legacy).
-    pub frozen_claude_md: Option<String>,
-    /// Frozen CLAUDE.local.md content.
-    pub frozen_claude_local_md: Option<String>,
+    /// Frozen **rendered** instruction set (merged + deduped + provenance-tagged,
+    /// produced by `agents_md::load_instructions` at session/new).
+    /// None = read from disk each turn (legacy, e.g. sub-agents).
+    pub frozen_instructions: Option<String>,
     /// Session-scoped lazy Jev rule loader (distils CLAUDE.md rules on first gate use).
     /// None = 门不携带 CLAUDE.md 策略。
     pub jev_rule_loader: Option<Arc<cc_middlewares::hitl::jev::JevRuleLoader>>,
@@ -68,7 +68,7 @@ pub struct AcpAgentConfig {
     pub event_handler: Arc<dyn AgentEventHandler>,
     pub cancel: AgentCancellationToken,
     pub permission_mode: Arc<SharedPermissionMode>,
-    /// 会话级审批记忆（路径级）：用户在弹窗选「本次会话同意」后免问。
+    /// 会话级审批记忆：用户选择「本次会话同意」，文件按路径、命令按完整调用复用。
     pub approval_memory: Arc<cc_middlewares::hitl::ApprovalMemory>,
     pub peri_config: Arc<PeriConfig>,
     pub cron_scheduler: Option<Arc<parking_lot::Mutex<CronScheduler>>>,
@@ -139,8 +139,7 @@ pub fn build_agent(
         provider,
         cwd,
         system_prompt,
-        frozen_claude_md,
-        frozen_claude_local_md,
+        frozen_instructions,
         jev_rule_loader,
         frozen_skill_summary,
         frozen_date,
@@ -206,9 +205,8 @@ pub fn build_agent(
     if let Some(ref sid) = session_id {
         base_llm = base_llm.with_session_id(sid);
     }
-    let model =
-        cc_agent::llm::RetryableLLM::new(base_llm, cc_agent::llm::RetryConfig::default())
-            .with_event_handler(Arc::clone(&event_handler));
+    let model = cc_agent::llm::RetryableLLM::new(base_llm, cc_agent::llm::RetryConfig::default())
+        .with_event_handler(Arc::clone(&event_handler));
 
     // Todo channel
     let (todo_tx, todo_rx) = tokio::sync::mpsc::channel::<Vec<TodoItem>>(8);
@@ -402,6 +400,17 @@ pub fn build_agent(
         .clone()
         .unwrap_or_default();
 
+    // 把父的**冻结**指引（连同它渲染时的 cwd）交给子 Agent 链：既省掉每轮重读磁盘，
+    // 也避免会话中途改 AGENTS.md/CLAUDE.md 让子 Agent 的 System 消息变化
+    // （prompt cache 前缀抖动 + 行为漂移，见 #360）。cwd 一起带上是因为 `Agent` 工具的
+    // cwd 是 LLM 可传参——只有子 Agent cwd 与父一致时才能套用这份指引。
+    let inherited_instructions = frozen_instructions.as_deref().map(|rendered| {
+        cc_middlewares::subagent::InheritedInstructions {
+            cwd: Arc::from(cwd.as_str()),
+            rendered: Arc::from(rendered),
+        }
+    });
+
     // SubAgent middleware
     let mut subagent = SubAgentMiddleware::new(
         parent_tools,
@@ -413,7 +422,9 @@ pub fn build_agent(
     .with_parent_messages(parent_messages)
     .with_background_registry(Arc::clone(&background_registry))
     .with_bg_event_sender(bg_event_tx)
-    .with_registered_hooks(vec![]);
+    .with_registered_hooks(vec![])
+    .with_inherited_instructions(inherited_instructions)
+    .with_permissions(&hitl);
     if let Some(ts) = thread_store {
         subagent = subagent.with_thread_store(ts);
     }
@@ -460,8 +471,8 @@ pub fn build_agent(
         .with_shared_tools(Arc::clone(&shared_tools))
         .add_middleware(Box::new({
             let mut mw = AgentsMdMiddleware::new().with_excludes(claude_md_excludes);
-            if let Some(main) = frozen_claude_md {
-                mw = mw.with_frozen_content(main, frozen_claude_local_md);
+            if let Some(rendered) = frozen_instructions {
+                mw = mw.with_frozen_instructions(rendered);
             }
             mw
         }))

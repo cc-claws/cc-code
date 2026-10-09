@@ -4,10 +4,9 @@ use cc_agent::{
     agent::{events::AgentEvent, react::AgentInput, state::AgentState, ReActAgent, State as _},
     messages::BaseMessage,
     thread::ThreadMeta,
-    tools::BaseTool,
 };
 
-use crate::{subagent::SubAgentMiddlewareConfig, tools::ArcToolWrapper};
+use crate::subagent::SubAgentMiddlewareConfig;
 
 use super::{build_subagent_middlewares, format_subagent_result, SourceAgentIdHandler};
 
@@ -58,7 +57,14 @@ impl super::SubAgentTool {
         // instance_id 统一使用 child_thread_id（UUID v7，持久化线程标识）
         let instance_id = child_thread_id.clone();
 
-        for mw in build_subagent_middlewares(SubAgentMiddlewareConfig::for_fork(cwd)) {
+        for mw in build_subagent_middlewares(
+            self.permission_config(
+                SubAgentMiddlewareConfig::for_fork(cwd)
+                    .with_inherited_instructions(self.inherited_instructions.clone()),
+                &crate::claude_agent_parser::ToolsValue::Empty,
+                &crate::claude_agent_parser::ToolsValue::Empty,
+            ),
+        ) {
             agent_builder = agent_builder.add_middleware(mw);
         }
 
@@ -67,9 +73,11 @@ impl super::SubAgentTool {
             agent_builder = agent_builder.with_system_prompt(system_content);
         }
 
-        for tool in self.parent_tools.iter() {
-            agent_builder = agent_builder
-                .register_tool(Box::new(ArcToolWrapper(Arc::clone(tool))) as Box<dyn BaseTool>);
+        for tool in self.filter_tools(
+            &crate::claude_agent_parser::ToolsValue::Empty,
+            &crate::claude_agent_parser::ToolsValue::Empty,
+        ) {
+            agent_builder = agent_builder.register_tool(tool);
         }
 
         if let Some(ref factory) = self.child_handler_factory {

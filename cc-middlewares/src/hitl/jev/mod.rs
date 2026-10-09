@@ -10,7 +10,7 @@
 //!       ├ 任一 hazard 拒绝 → Block
 //!       ├ soft 拒绝 + intent 满足 → Allow
 //!       ├ required 中间带 → 按 config.uncertain（默认 Block）
-//!       └ 任何失败 → Block（fail-closed）
+//!       └ 判定失败 → Ask；父可人工确认，子无审批通道而默认拒绝
 //! ```
 //!
 //! **沉默从不等于同意。**
@@ -24,6 +24,7 @@ pub mod redact;
 pub mod rules;
 pub mod sources;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -57,14 +58,142 @@ pub enum GateDecision {
 /// 让它参与判定等于把授权建立在不可信输入上。门只看"这次调用本身"。
 pub struct GateCall {
     pub tool_name: String,
-    /// Bash 命令（仅 bash）。
+    /// Bash 命令（仅 bash）。**RTK 改写后**的实际执行命令（无改写时即原命令）。
     pub command: Option<String>,
+    /// 用户**原始**命令（RTK 改写前的 X；无改写 / 非 Bash 时为 `None`）。
+    ///
+    /// 显式规则（`disallowed_commands` / `allowed_commands` / `safe_commands`）与危险形状判定
+    /// **同时**看 `command` 与它：用户写规则时想的是自己敲的那条命令，若只看改写后的
+    /// `rtk kubectl delete pod x`，装了 rtk 的机器上 `kubectl delete*` 这类规则会**静默失效**
+    /// （#358）。反向只看原命令则会重新引入「批准 X、实际执行 X′」(#288)，故取并集。
+    pub original_command: Option<String>,
     /// Write/Edit 目标路径。
     pub path: Option<std::path::PathBuf>,
     /// 当前 git 分支（仓库现场）。规则常带条件（"不要在 main 上提交"），
     /// 没有这个事实 judge 就判不了，只能去匹配命令里出现的分支名。
     pub branch: Option<String>,
     pub cwd: std::path::PathBuf,
+}
+
+/// 门控的**命令集合**：有效命令（RTK 改写后、实际会执行）+ 原始命令（用户敲的）。
+///
+/// 为什么两者都要（见 [`GateCall::original_command`]）：
+/// - 只看有效命令 → 用户写的 `disallowed_commands` 在装了 rtk 的机器上被 `rtk X` 绕过（#358）；
+/// - 只看原始命令 → 重新引入「批准 X、实际执行 X′」（#288）。
+///
+/// 取值方向：
+/// - deny / 硬黑名单 / 危险形状 → **任一**命令命中即命中（fail-closed，方向更严）；
+/// - allow / 用户声明安全 → **任一**命中即生效（用户白名单表达的是"意图"，RTK 改写只是前缀包装；
+///   若只看改写后的 `rtk X`，用户的 allow 规则同样会静默失效）；
+/// - 只读快车道 → 有效命令若只是原始命令的**透明前缀包装**（`rtk X`）则按原始判定，
+///   否则按有效命令判定（详见 `read_only`）。
+struct Commands<'a> {
+    effective: &'a str,
+    original: Option<&'a str>,
+}
+
+impl<'a> Commands<'a> {
+    /// 由 `GateCall` 构造（仅在有 bash 命令时调用；返回 `None` = 该调用不是 Bash）。
+    fn of_call(call: &'a GateCall) -> Option<Self> {
+        let effective = call.command.as_deref()?;
+        Some(Self {
+            effective,
+            // 与有效命令相同（没发生改写）时不重复评估
+            original: call
+                .original_command
+                .as_deref()
+                .filter(|orig| *orig != effective),
+        })
+    }
+
+    /// 参与评估的全部命令（有效在前，原始在后）。
+    fn all(&self) -> impl Iterator<Item = &'a str> {
+        std::iter::once(self.effective).chain(self.original)
+    }
+
+    /// 任一命令命中硬黑名单即可（原因名去重保序）。
+    fn hard_deny_reasons(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for cmd in self.all() {
+            for name in policy::hard_deny_reasons(cmd) {
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+        }
+        out
+    }
+
+    /// 任一命令命中危险形状即可（并集去重后排序，保证判决 payload 稳定可比）。
+    fn dangerous_reasons(&self, cwd: &Path) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for cmd in self.all() {
+            out.extend(policy::dangerous_reasons_scoped(cmd, cwd));
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// deny 规则：任一命令命中即算命中（`allow_shell_control = true`，宽松方向即更安全方向）。
+    fn deny_match(&self, patterns: &[String]) -> Option<String> {
+        self.all()
+            .find_map(|cmd| policy::matches_command_pattern(cmd, patterns, true))
+    }
+
+    /// allow 规则：任一命令命中即算命中（用户白名单表达的是"意图"，改写只是前缀包装）。
+    fn allow_match(&self, patterns: &[String]) -> Option<String> {
+        self.all()
+            .find_map(|cmd| policy::matches_command_pattern(cmd, patterns, false))
+    }
+
+    /// 用户声明的安全命令：任一命中即可（与 allow 同源语义）。
+    fn declared_safe(&self, safe_commands: &[String]) -> bool {
+        self.all()
+            .any(|cmd| policy::is_user_declared_safe(cmd, safe_commands))
+    }
+
+    /// 只读白名单（快车道，零成本直接放行）。
+    ///
+    /// `rtk` 是**输出过滤型透明包装**：`rtk git status` 与 `git status` 的只读性质完全一致。
+    /// 若一律按有效命令判定，装了 rtk 的机器上**每条只读命令都会失去快车道**（升级成一次
+    /// Jev 判定甚至一次 LLM 分类调用）——那是假阴性带来的真实延迟/费用代价，不是「更保守」。
+    /// 因此：有效命令若恰好是原始命令的透明包装，就按原始命令判定；
+    /// 包装不透明（或没有原始命令）时按有效命令判定。
+    fn read_only(&self) -> bool {
+        policy::is_read_only_chain(self.read_only_probe())
+    }
+
+    /// 命中来自**原始命令**（而非改写后的有效命令）时的补充说明。
+    ///
+    /// 只对 deny 规则用：装了 rtk 时有效命令是 `rtk X`，用户看到"我的规则命中了"却对不上
+    /// 命令文本会困惑；这里明确指出命中的是改写前的那条。
+    fn original_note(&self, patterns: &[String]) -> String {
+        let Some(original) = self.original else {
+            return String::new();
+        };
+        match policy::matches_command_pattern(self.effective, patterns, true) {
+            // 有效命令自己也命中 → 不需要额外说明
+            Some(_) => String::new(),
+            None => format!("（原始命令：{original}）"),
+        }
+    }
+
+    /// 只读判定的取用命令（见 [`Self::read_only`]）。
+    fn read_only_probe(&self) -> &'a str {
+        match self.original {
+            Some(orig) if is_transparent_rtk_wrap(self.effective, orig) => orig,
+            _ => self.effective,
+        }
+    }
+}
+
+/// `effective` 是否是 `original` 的**透明 rtk 前缀包装**（即 `rtk <original>`）。
+fn is_transparent_rtk_wrap(effective: &str, original: &str) -> bool {
+    effective
+        .strip_prefix(crate::process::RTK_PREFIX)
+        .map(|rest| rest.trim() == original.trim())
+        .unwrap_or(false)
 }
 
 /// Jev 语义门。
@@ -281,7 +410,7 @@ impl JevGate {
         paths
     }
 
-    /// 对一次调用判定。所有内部失败都返回 `Block`（fail-closed）。
+    /// 对一次调用判定。判定服务失败返回 `Ask`，由 HITL 决定人工确认或默认拒绝。
     ///
     /// 便捷入口（确定性 → 语义）。**注意**：调用方若需要"无语义判定时仍保留
     /// 确定性防护"，应分别调用 [`Self::deterministic`] 与 [`Self::evaluate_semantic`]，
@@ -317,6 +446,36 @@ impl JevGate {
         self.semantic(call).await
     }
 
+    /// 子 Agent 对不确定判定一律拒绝，不受父的 uncertain=allow/ask 配置影响。
+    pub async fn evaluate_semantic_for_subagent(&self, call: &GateCall) -> GateDecision {
+        self.semantic_with_policy(call, UncertainPolicy::Deny).await
+    }
+
+    pub fn rules_unavailable(&self) -> bool {
+        self.rule_loader
+            .as_ref()
+            .map(|loader| loader.rules_unavailable())
+            .unwrap_or(false)
+    }
+
+    pub fn rules_incomplete(&self) -> bool {
+        self.rule_loader
+            .as_ref()
+            .map(|loader| loader.rules_incomplete())
+            .unwrap_or(false)
+    }
+
+    /// 人显式写下的 allow 仍可放行；提炼失败不应覆盖用户已给出的授权。
+    pub fn explicitly_allows(&self, call: &GateCall) -> bool {
+        Commands::of_call(call)
+            .map(|commands| {
+                commands
+                    .allow_match(&self.config.allowed_commands)
+                    .is_some()
+            })
+            .unwrap_or(false)
+    }
+
     /// 惰性触发规则提炼（语义层需要）。确定性层若依赖提炼出的受保护路径，
     /// 也应由调用方在跑确定性层之前触发一次。
     pub async fn ensure_rules_loaded(&self) {
@@ -341,9 +500,9 @@ impl JevGate {
             return None;
         }
 
-        if let Some(cmd) = call.command.as_deref() {
+        if let Some(cmds) = Commands::of_call(call) {
             // ── 层0：硬黑名单 —— 不可覆盖，任何规则都不能放行 ──
-            let hard = policy::hard_deny_reasons(cmd);
+            let hard = cmds.hard_deny_reasons();
             if !hard.is_empty() {
                 return Some(GateDecision::Block {
                     rationale: format!("硬黑名单：{}（禁止执行）", hard.join(", ")),
@@ -353,32 +512,30 @@ impl JevGate {
             // 以下是**显式优先级梯**：人写下的配置 > 内置白名单。
             // 顺序即优先级，改动前先想清楚谁该压过谁。
 
-            // ── 层1a：人显式写下的 deny ──
-            if let Some(pattern) =
-                policy::matches_command_pattern(cmd, &self.config.disallowed_commands, true)
-            {
+            // ── 层1a：人显式写下的 deny（原始/有效命令任一命中即拦）──
+            if let Some(pattern) = cmds.deny_match(&self.config.disallowed_commands) {
                 return Some(GateDecision::Block {
-                    rationale: format!("用户拒绝规则命中：{pattern}"),
+                    rationale: format!(
+                        "用户拒绝规则命中：{pattern}{}",
+                        cmds.original_note(&self.config.disallowed_commands)
+                    ),
                 });
             }
             // ── 层1b：人显式写下的 allow（压过危险形状）──
-            if let Some(pattern) =
-                policy::matches_command_pattern(cmd, &self.config.allowed_commands, false)
-            {
+            if let Some(pattern) = cmds.allow_match(&self.config.allowed_commands) {
                 return Some(GateDecision::Allow {
                     rationale: format!("用户允许规则命中：{pattern}"),
                 });
             }
             // ── 层1c：人显式声明的安全命令 ──
-            let reasons = policy::dangerous_reasons_scoped(cmd, &call.cwd);
-            if policy::is_user_declared_safe(cmd, &self.config.safe_commands) && reasons.is_empty()
-            {
+            let reasons = cmds.dangerous_reasons(&call.cwd);
+            if cmds.declared_safe(&self.config.safe_commands) && reasons.is_empty() {
                 return Some(GateDecision::Allow {
                     rationale: "确定性层：用户声明的安全命令".to_string(),
                 });
             }
             // ── 层2：内置只读白名单（最低优先级，可被上面任何一条推翻）──
-            if policy::is_read_only_chain(cmd) && reasons.is_empty() {
+            if cmds.read_only() && reasons.is_empty() {
                 return Some(GateDecision::Allow {
                     rationale: "确定性层：只读命令".to_string(),
                 });
@@ -409,14 +566,21 @@ impl JevGate {
         None
     }
 
-    /// 语义层（Jev）。任何失败 → Block。
+    /// 语义层（Jev）。判定服务失败返回 Ask；模型未决按 uncertain 配置处理。
     async fn semantic(&self, call: &GateCall) -> GateDecision {
-        // 构造 state
-        let reasons: Vec<String> = call
-            .command
-            .as_deref()
-            .map(|c| {
-                policy::dangerous_reasons_scoped(c, &call.cwd)
+        self.semantic_with_policy(call, self.config.uncertain).await
+    }
+
+    async fn semantic_with_policy(
+        &self,
+        call: &GateCall,
+        uncertain: UncertainPolicy,
+    ) -> GateDecision {
+        // 构造 state。危险形状与确定性层保持同一口径：**原始 + 有效**命令的并集，
+        // 否则 judge 看不到「用户原始命令命中的危险形状」（装了 rtk 时两者可能不同）。
+        let reasons: Vec<String> = Commands::of_call(call)
+            .map(|cmds| {
+                cmds.dangerous_reasons(&call.cwd)
                     .into_iter()
                     .map(|s| s.to_string())
                     .collect()
@@ -469,6 +633,7 @@ impl JevGate {
             cost = answers.cost,
             tool = %call.tool_name,
             command = ?call.command,
+            original_command = ?call.original_command,
             reasons = ?reasons,
             decision = ?decision_short(&decision),
             obs = ?obs.iter().map(|o| (&o.rule_id, o.probability, o.unknown)).collect::<Vec<_>>(),
@@ -484,7 +649,7 @@ impl JevGate {
                     rationale: self.block_message(&rule),
                 }
             }
-            decide::Decision::Uncertain { rule, rationale } => match self.config.uncertain {
+            decide::Decision::Uncertain { rule, rationale } => match uncertain {
                 UncertainPolicy::Deny => {
                     tracing::warn!(rule = %rule, judge_detail = %rationale, "Jev 未决，按配置拒绝");
                     GateDecision::Block {

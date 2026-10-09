@@ -270,12 +270,7 @@ fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
     let total = todos.len();
     let completed = todos
         .iter()
-        .filter(|todo| {
-            matches!(
-                todo.status,
-                cc_middlewares::prelude::TodoStatus::Completed
-            )
-        })
+        .filter(|todo| matches!(todo.status, cc_middlewares::prelude::TodoStatus::Completed))
         .count();
     let filled = (((completed as f64 / total as f64) * 5.0).round() as usize).min(5);
     let bar = "#".repeat(filled) + &"-".repeat(5 - filled);
@@ -562,9 +557,10 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             let lc = &app.services.lc;
             format_hints(
                 &[
-                    ("↑↓".to_string(), lc.tr("key-move")),
-                    ("Space".to_string(), lc.tr("key-switch")),
+                    ("↑↓".to_string(), lc.tr("key-select")),
+                    ("Tab".to_string(), lc.tr("key-switch")),
                     ("Enter".to_string(), lc.tr("key-confirm")),
+                    ("Esc".to_string(), lc.tr("key-cancel")),
                 ],
                 key_style,
                 desc_style,

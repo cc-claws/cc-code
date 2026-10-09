@@ -22,8 +22,8 @@ pub mod shared_mode;
 
 pub use approval_memory::ApprovalMemory;
 pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
-pub use jev::{GateDecision, JevGate, JevRules};
 pub use cc_agent::hitl::{BatchItem, HitlDecision};
+pub use jev::{GateDecision, JevGate, JevRules};
 pub use shared_mode::{PermissionMode, SharedPermissionMode};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ pub fn is_yolo_mode() -> bool {
 /// - `bash`：所有 bash 命令
 /// - `Write`：文件写入
 /// - `Edit`：文件编辑
-/// - `launch_agent`：子 Agent 委派（子 Agent 不含 HITL，可传递绕过审批）
+/// - `Agent`：委派本身受父权限判定，子 Agent 内部共享权限并只接受允许/拒绝
 pub fn default_requires_approval(tool_name: &str) -> bool {
     tool_name == TOOL_BASH
         || tool_name == TOOL_AGENT
@@ -73,14 +73,6 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
         || tool_name == TOOL_WEBFETCH
         || tool_name == TOOL_WEBSEARCH
         || tool_name.starts_with("mcp__")
-}
-
-/// 判断工具是否为文件编辑类工具（AcceptEdits 模式使用）
-///
-/// `Write`、`Edit` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
-/// `Bash`、`Agent`、`delete_*`、`rm_*` 不属于编辑工具，仍需审批。
-pub fn is_edit_tool(tool_name: &str) -> bool {
-    tool_name == TOOL_WRITE || tool_name == TOOL_EDIT
 }
 
 // ─── ExecuteExtraTool 权限透传 ─────────────────────────────────────────────
@@ -109,9 +101,10 @@ pub struct HumanInTheLoopMiddleware {
     auto_classifier: Option<Arc<dyn AutoClassifier>>,
     /// Auto 模式的 Jev 语义门（优先使用；不可用时回退 auto_classifier）
     jev_gate: Option<Arc<JevGate>>,
-    /// 审批记忆（路径级，会话作用域）。同 `(工具, 路径)` 一经批准即免问，
-    /// 规避语义门对绝对路径反复弹窗的抖动。`None` 时不启用记忆。
+    /// 会话级审批记忆：文件按路径，Bash 按完整命令与执行目录。`None` 时禁用。
     approval_memory: Option<Arc<ApprovalMemory>>,
+    /// 子 Agent 只接受明确的允许/拒绝，不保留交互通道。
+    binary_only: bool,
 }
 
 impl HumanInTheLoopMiddleware {
@@ -127,6 +120,7 @@ impl HumanInTheLoopMiddleware {
             auto_classifier: None,
             jev_gate: None,
             approval_memory: None,
+            binary_only: false,
         }
     }
 
@@ -139,6 +133,7 @@ impl HumanInTheLoopMiddleware {
             auto_classifier: None,
             jev_gate: None,
             approval_memory: None,
+            binary_only: false,
         }
     }
 
@@ -169,13 +164,14 @@ impl HumanInTheLoopMiddleware {
             auto_classifier,
             jev_gate,
             approval_memory: None,
+            binary_only: false,
         }
     }
 
     /// 创建带共享权限模式 + 审批记忆的 HITL 中间件。
     ///
     /// `approval_memory` 由 session 层持有（middleware 每次 prompt 重建，
-    /// 记忆必须跨 prompt 存活）。命中记忆的 `(工具, 路径)` 直接放行，跳过语义判定。
+    /// 记忆必须跨 prompt 存活）。命中后跳过语义判定，仍遵守确定性禁止规则。
     pub fn with_shared_mode_and_memory(
         broker: Arc<dyn UserInteractionBroker>,
         requires_approval: fn(&str) -> bool,
@@ -191,6 +187,40 @@ impl HumanInTheLoopMiddleware {
             auto_classifier,
             jev_gate,
             approval_memory: Some(approval_memory),
+            binary_only: false,
+        }
+    }
+
+    /// 共享父权限模式与判定规则，但子 Agent 不得请求人工审批。
+    /// 未配置 mode 的旧审批实例按 Auto 处理；显式 disabled 实例保持 Bypass。
+    pub fn for_subagent(&self) -> Self {
+        Self {
+            broker: None,
+            requires_approval: self.requires_approval,
+            mode: Some(self.mode.clone().unwrap_or_else(|| {
+                SharedPermissionMode::new(if self.broker.is_none() {
+                    PermissionMode::Bypass
+                } else {
+                    PermissionMode::AutoMode
+                })
+            })),
+            auto_classifier: self.auto_classifier.clone(),
+            jev_gate: self.jev_gate.clone(),
+            approval_memory: self.approval_memory.clone(),
+            binary_only: true,
+        }
+    }
+
+    /// 无宿主配置时 fail-closed，避免独立构造子 Agent 意外绕过 Auto 权限。
+    pub fn subagent_default() -> Self {
+        Self {
+            broker: None,
+            requires_approval: default_requires_approval,
+            mode: Some(SharedPermissionMode::new(PermissionMode::AutoMode)),
+            auto_classifier: None,
+            jev_gate: None,
+            approval_memory: None,
+            binary_only: true,
         }
     }
 
@@ -198,18 +228,31 @@ impl HumanInTheLoopMiddleware {
     ///
     /// 刻意**不读 `state.messages()`**：用户对话不参与判定（见 `GateCall` 文档），
     /// 这也让本中间件符合"链上中间件在 before_tool 阶段不读消息历史"的不变量。
-    fn build_gate_call<S: State>(&self, state: &S, tool_call: &ToolCall) -> Option<jev::GateCall> {
+    fn build_gate_call<S: State>(
+        &self,
+        state: &S,
+        tool_call: &ToolCall,
+        original: &ToolCall,
+    ) -> Option<jev::GateCall> {
         // 没有门就不构建（调用方据此跳过判定）
         self.jev_gate.as_ref()?;
         let effective = effective_tool_name(&tool_call.name, &tool_call.input);
         // ExecuteExtraTool 把真实参数包在 `params` 里，必须解包才能看到 command/path
         let params = jev::effective_params(&tool_call.name, &tool_call.input);
+        // 用户原始命令（RTK 改写前）：显式规则与危险形状要同时看它，否则装了 rtk 的机器上
+        // 「用户拒绝规则」会被 `rtk X` 绕过（#358）。
+        // 只取原始值；「与有效命令相同则忽略」由 `jev::Commands` 统一处理（避免两处过滤）
+        let original_command = jev::effective_params(&original.name, &original.input)
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         Some(jev::GateCall {
             tool_name: effective,
             command: params
                 .get("command")
                 .and_then(|v| v.as_str())
                 .map(String::from),
+            original_command,
             path: params
                 .get("file_path")
                 .or_else(|| params.get("path"))
@@ -267,7 +310,7 @@ impl HumanInTheLoopMiddleware {
 
             // 有 mode → 使用快照模式决策（评估与展示都用有效调用）
             if let Some(mode) = &mode_snapshot {
-                results.push(self.decide_by_mode(state, mode, &effective).await);
+                results.push(self.decide_by_mode(state, mode, &effective, call).await);
                 continue;
             }
 
@@ -294,8 +337,7 @@ impl HumanInTheLoopMiddleware {
 
     /// 通过 broker 请求用户审批单个工具调用。
     ///
-    /// 用户**批准**后，把 `(工具, 路径)` 记入审批记忆，后续同类调用免问
-    /// （仅 `Approve` 记录；`Edit`/`Reject` 不记录）。
+    /// 仅用户选择「本次会话同意」时记录完整调用，`Edit`/`Reject` 不记录。
     async fn broker_approve(
         &self,
         broker: &Arc<dyn UserInteractionBroker>,
@@ -322,66 +364,78 @@ impl HumanInTheLoopMiddleware {
         };
         // 仅「本次会话同意」才记忆：`source == "session"` 表示用户在弹窗选了会话级放行。
         // `once`（默认）不记忆——保持逐次批准语义；Reject/Edit/Respond 亦不记忆。
-        if let ApprovalDecision::Approve { source } = &decision {
+        self.record_session_approval(tool_call, cwd, &decision);
+        apply_decision(tool_call, decision)
+    }
+
+    fn record_session_approval(
+        &self,
+        call: &ToolCall,
+        cwd: &std::path::Path,
+        decision: &ApprovalDecision,
+    ) {
+        if let ApprovalDecision::Approve { source } = decision {
             if source.as_deref() == Some("session") {
                 if let Some(memory) = &self.approval_memory {
-                    if let Some(fp) = ApprovalMemory::fingerprint(
-                        &effective_tool_name(&tool_call.name, &tool_call.input),
-                        tool_call
-                            .input
-                            .get("file_path")
-                            .or_else(|| tool_call.input.get("path"))
-                            .and_then(|v| v.as_str())
-                            .map(std::path::Path::new),
-                        cwd,
-                    ) {
-                        memory.record(fp);
+                    if let Some(key) =
+                        ApprovalMemory::call_fingerprint(&call.name, &call.input, cwd)
+                    {
+                        memory.record(key);
                     }
                 }
             }
         }
-        apply_decision(tool_call, decision)
     }
 
-    /// 根据共享权限模式决策单个工具调用
+    fn is_session_approved(&self, call: &ToolCall, cwd: &std::path::Path) -> bool {
+        self.approval_memory.as_ref().is_some_and(|memory| {
+            ApprovalMemory::call_fingerprint(&call.name, &call.input, cwd)
+                .is_some_and(|key| memory.is_approved(&key))
+        })
+    }
+
+    /// 按权限模式决策。
+    ///
+    /// `tool_call` 为 **RTK 改写后的有效调用**（评估与执行都用它），
+    /// `original` 为用户原始调用——显式规则/危险形状需要同时看两者（见 `jev::GateCall`）。
     async fn decide_by_mode<S: State>(
         &self,
         state: &S,
         mode: &Arc<SharedPermissionMode>,
         tool_call: &ToolCall,
+        original: &ToolCall,
     ) -> AgentResult<ToolCall> {
         match mode.load() {
             PermissionMode::Bypass => Ok(tool_call.clone()),
             PermissionMode::AutoMode => {
-                // 审批记忆：同 `(工具, 路径)` 一经批准即免问（路径级、会话作用域）。
-                // 放在语义判定之前短路，规避模型对绝对路径打分的抖动导致的反复弹窗。
-                if let Some(memory) = &self.approval_memory {
-                    if let Some(fp) = ApprovalMemory::fingerprint(
-                        &effective_tool_name(&tool_call.name, &tool_call.input),
-                        tool_call
-                            .input
-                            .get("file_path")
-                            .or_else(|| tool_call.input.get("path"))
-                            .and_then(|v| v.as_str())
-                            .map(std::path::Path::new),
-                        std::path::Path::new(state.cwd()),
-                    ) {
-                        if memory.is_approved(&fp) {
-                            tracing::debug!(
-                                tool = %tool_call.name,
-                                "命中审批记忆，跳过判定直接放行"
-                            );
-                            return Ok(tool_call.clone());
-                        }
-                    }
-                }
-                if let Some(call) = self.build_gate_call(state, tool_call) {
+                let cwd = std::path::Path::new(state.cwd());
+                if let Some(call) = self.build_gate_call(state, tool_call, original) {
                     if let Some(gate) = &self.jev_gate {
                         // 确定性层**先跑，且不依赖判定凭据**。
                         // 硬黑名单 / 人写的规则 / 只读白名单是零成本、确定性的，
                         // 绝不该因为"没配 key"或"判定服务挂了"就一起失效。
                         gate.ensure_rules_loaded().await;
-                        if let Some(decision) = gate.deterministic(&call) {
+                        if self.binary_only
+                            && (gate.rules_unavailable() || gate.rules_incomplete())
+                            && !gate.explicitly_allows(&call)
+                        {
+                            return Err(AgentError::ToolRejected {
+                                tool: tool_call.name.clone(),
+                                reason: "子 Agent 安全规则提炼失败或不完整，默认拒绝执行"
+                                    .to_string(),
+                            });
+                        }
+                        // 明确禁止优先于会话记忆，避免批准后绕过 deny 或硬黑名单。
+                        let deterministic = match gate.deterministic(&call) {
+                            Some(decision @ GateDecision::Block { .. }) => {
+                                return self.apply_gate_decision(decision, tool_call, cwd).await;
+                            }
+                            other => other,
+                        };
+                        if self.is_session_approved(tool_call, cwd) {
+                            return Ok(tool_call.clone());
+                        }
+                        if let Some(decision) = deterministic {
                             return self
                                 .apply_gate_decision(
                                     decision,
@@ -392,7 +446,11 @@ impl HumanInTheLoopMiddleware {
                         }
                         // 语义层：只有配置了凭据才发请求；否则落到下面的旧分类器兜底
                         if gate.has_judge() {
-                            let decision = gate.evaluate_semantic(&call).await;
+                            let decision = if self.binary_only {
+                                gate.evaluate_semantic_for_subagent(&call).await
+                            } else {
+                                gate.evaluate_semantic(&call).await
+                            };
                             return self
                                 .apply_gate_decision(
                                     decision,
@@ -406,6 +464,9 @@ impl HumanInTheLoopMiddleware {
                             "未配置语义判定凭据：已跑确定性层，交由兜底分类器"
                         );
                     }
+                }
+                if self.jev_gate.is_none() && self.is_session_approved(tool_call, cwd) {
+                    return Ok(tool_call.clone());
                 }
                 // 兜底：旧 LLM 分类器
                 self.auto_mode_fallback(tool_call, std::path::Path::new(state.cwd()))
@@ -449,7 +510,17 @@ impl HumanInTheLoopMiddleware {
     ) -> AgentResult<ToolCall> {
         match &self.auto_classifier {
             Some(classifier) => {
-                let result = classifier.classify(&tool_call.name, &tool_call.input).await;
+                let result = if self.binary_only {
+                    let target = effective_tool_name(&tool_call.name, &tool_call.input);
+                    classifier
+                        .classify(
+                            &target,
+                            jev::effective_params(&tool_call.name, &tool_call.input),
+                        )
+                        .await
+                } else {
+                    classifier.classify(&tool_call.name, &tool_call.input).await
+                };
                 match result {
                     Classification::Allow => Ok(tool_call.clone()),
                     Classification::Deny => Err(AgentError::ToolRejected {
@@ -530,23 +601,7 @@ impl HumanInTheLoopMiddleware {
                     source: None,
                 });
                 // 与单次路径一致：仅「本次会话同意」写入审批记忆
-                if let ApprovalDecision::Approve { source } = &decision {
-                    if source.as_deref() == Some("session") {
-                        if let Some(memory) = &self.approval_memory {
-                            if let Some(fp) = ApprovalMemory::fingerprint(
-                                &effective_tool_name(&call.name, &call.input),
-                                call.input
-                                    .get("file_path")
-                                    .or_else(|| call.input.get("path"))
-                                    .and_then(|v| v.as_str())
-                                    .map(std::path::Path::new),
-                                cwd,
-                            ) {
-                                memory.record(fp);
-                            }
-                        }
-                    }
-                }
+                self.record_session_approval(call, cwd, &decision);
                 results.push(apply_decision(call, decision));
             } else {
                 results.push(Ok(call.clone()));
@@ -585,7 +640,9 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
 
         // 2. 有 mode → 按权限模式决策（评估与展示都用有效调用）
         if let Some(mode) = &self.mode {
-            return self.decide_by_mode(state, mode, &effective).await;
+            return self
+                .decide_by_mode(state, mode, &effective, tool_call)
+                .await;
         }
 
         // 3. 无 mode 且无 broker → 放行（disabled() 路径）
@@ -608,7 +665,16 @@ fn apply_command_rewrite(call: &ToolCall, rewritten: Option<String>) -> ToolCall
     };
     let mut effective = call.clone();
     if let Some(obj) = effective.input.as_object_mut() {
-        obj.insert("command".to_string(), serde_json::Value::String(rewritten));
+        if call.name == crate::tool_search::EXECUTE_EXTRA_TOOL_NAME {
+            if let Some(params) = obj
+                .get_mut(crate::tool_search::EXTRA_TOOL_PARAMS_FIELD)
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                params.insert("command".to_string(), serde_json::Value::String(rewritten));
+            }
+        } else {
+            obj.insert("command".to_string(), serde_json::Value::String(rewritten));
+        }
     }
     effective
 }
@@ -637,7 +703,10 @@ fn gate_effective_call(call: &ToolCall) -> ToolCall {
     if effective_tool_name(&call.name, &call.input) != "Bash" {
         return call.clone();
     }
-    let Some(command) = call.input.get("command").and_then(|v| v.as_str()) else {
+    let Some(command) = jev::effective_params(&call.name, &call.input)
+        .get("command")
+        .and_then(|v| v.as_str())
+    else {
         return call.clone();
     };
     let rewritten = crate::process::predict_rtk_rewrite(command);
@@ -647,3 +716,11 @@ fn gate_effective_call(call: &ToolCall) -> ToolCall {
 #[cfg(test)]
 #[path = "mod_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "subagent_test.rs"]
+mod subagent_tests;
+
+#[cfg(test)]
+#[path = "approval_session_test.rs"]
+mod approval_session_tests;

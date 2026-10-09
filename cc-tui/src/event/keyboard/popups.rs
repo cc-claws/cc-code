@@ -98,15 +98,15 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
                 ..
             } => return Some(Action::Quit),
 
-            // Up/Down move cursor
-            Input { key: Key::Up, .. } => app.hitl_move(-1),
-            Input { key: Key::Down, .. } => app.hitl_move(1),
-
-            // Space: toggle current item
+            // Up/Down choose an approval option; Tab switches tools.
+            Input { key: Key::Up, .. } => app.hitl_move_choice(-1),
+            Input { key: Key::Down, .. } => app.hitl_move_choice(1),
             Input {
-                key: Key::Char(' '),
+                key: Key::Tab,
+                shift: true,
                 ..
-            } => app.hitl_toggle(),
+            } => app.hitl_move(-1),
+            Input { key: Key::Tab, .. } => app.hitl_move(1),
 
             // Enter: confirm based on current selections
             Input {
@@ -123,3 +123,7 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
 
     None
 }
+
+#[cfg(test)]
+#[path = "popups_test.rs"]
+mod tests;

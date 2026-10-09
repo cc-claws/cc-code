@@ -126,7 +126,7 @@
 - [mouse-selection](./domains/mouse-selection.md) — 鼠标选区（拖拽选中文本、剪贴板复制）— 1 feature
 - [system-prompt](./domains/system-prompt.md) — 系统提示词（段落化、Feature 条件注入）— 1 feature
 - [file-search](./domains/file-search.md) — 文件搜索（rg CLI 双引擎：外部 ripgrep 优先，回退 Rust 引擎）— 1 feature
-- [hitl-permissions](./domains/hitl-permissions.md) — HITL 权限（5 级权限模式）— 1 feature
+- [hitl-permissions](./domains/hitl-permissions.md) — HITL 权限（Auto / Bypass 两档 + 语义门）— 1 feature
 - [tui-widgets](./domains/tui-widgets.md) — TUI 组件（Spinner/ToolCall/MessageBlock widget + widget 库抽取）— 2 features
 - [compact](./domains/compact.md) — 上下文压缩增强（Micro/Full Compact 策略）— 1 feature
 - [code-architecture](./domains/code-architecture.md) — 代码架构（Relay 移除等结构性变更）— 1 feature
@@ -134,6 +134,7 @@
 - [cli](./domains/cli.md) — CLI 工具链（update、版本管理、远程脚本协作）— 0 features
 - [acp](./domains/acp.md) — IDE Agent 服务端（stdio），session 管理 — 0 features
 - [tools](./domains/tools.md) — 工具系统（输出截断持久化、RTK 输出压缩代理、Schema 校验、通用工具基础设施）— 0 features
+- [agent-instructions](./domains/agent-instructions.md) — Agent 指引文件（dsh 加载模型：同目录全加载+去重、跨目录 root→cwd 拼接、provenance、限额截断）— 1 feature
 
 ---
-*最后更新: 2026-10-08 — `/gc` 内存诊断分平台语义 + view_messages 估算（v0.6.100）、详细模式长命令运行状态刷新按内容定位修复（v0.6.101）；此前 2026-10-07 后台 shell 通知接入 i18n 并新增进程级语言注册表（v0.6.99）；更早同步 v0.6.84*
+*最后更新: 2026-10-08 — 新增「Agent 指引文件」领域（指引加载对齐 dsh：同目录合并去重 + 跨目录拼接）；此前同日 `/gc` 内存诊断分平台语义 + view_messages 估算（v0.6.100）、详细模式长命令运行状态刷新按内容定位修复（v0.6.101）；更早 2026-10-07 后台 shell 通知接入 i18n 并新增进程级语言注册表（v0.6.99）*

@@ -125,7 +125,7 @@ Stdio 和 TUI 路径共享 `executor::execute_prompt()`。Stdio 当前支持：`
 
 **真正冻结（session/new 一次性捕获，存 SessionState.frozen_*）：**
 ```
-session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
+session/new → frozen_date → frozen_instructions（合并去重后的指引整段）
             → frozen_skill_summary → frozen_system_prompt → SessionState.frozen_*
             → executor::execute_prompt → AcpAgentConfig.frozen_*
 ```

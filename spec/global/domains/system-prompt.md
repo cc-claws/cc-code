@@ -115,9 +115,11 @@ build_system_prompt(overrides, cwd, features)
 **归档日期:** 2026-05-20
 **关键词:** Frozen Session Data, system prompt 膨胀, prepend_message, StateSnapshot, 上下文爆炸
 **问题本质:** 每轮 Agent 执行时重新构建 system prompt（含 MCP 工具注册），prepend_message 向消息头部插入导致 StateSnapshot 快照范围扩大，system prompt 内容跨轮次累积形成倍数膨胀
-**通用模式:** 会话内不可变数据（system prompt、CLAUDE.md、skill summary、frozen_date）必须在 session/new 时构建一次并冻结，后续所有轮次直接使用已冻结值，禁止跨轮次重建
+**通用模式:** 会话内不可变数据（system prompt、**instructions（合并去重后的指引整段，原 `frozen_claude_md`）**、skill summary、frozen_date）必须在 session/new 时构建一次并冻结，后续所有轮次直接使用已冻结值，禁止跨轮次重建
 **架构影响:** FrozenSessionData 模式统一了所有会话内不可变数据的管理，成为系统提示词稳定性的基础设施
 **技术决策:** session/new → 冻结全部不可变数据 → 后续轮次直接注入，消除重建开销和累积风险
+
+无指引文件也是冻结结果：`instructions = Some("")`。不得用 `None` 代表空快照，否则主 Agent 与子 Agent 会回退读盘，让会话中途新增的指引进入上下文。
 **涉及文件:** cc-acp/src/session/executor.rs, cc-tui/src/acp_server/prompt.rs, cc-tui/src/acp_server/requests.rs
 **CLAUDE.md 链接:** true
 
@@ -160,4 +162,4 @@ build_system_prompt(overrides, cwd, features)
 - → [agent.md](./agent.md) — ReActAgent.with_system_prompt() 注入
 - → [tui.md](./tui.md) — TUI 层 build_system_prompt() 调用
 
-最后更新：2026-10-08
+最后更新：2026-10-09
