@@ -277,6 +277,23 @@ hitl-approved = [批准]
 hitl-rejected = [拒绝]
 hitl-key-hint = ↑↓ 选择 · Tab 切换工具 · Enter 确认 · Esc 全部拒绝
 hitl-summary = 已选: { $approved } 批准 / { $rejected } 拒绝
+hitl-run-command = 运行命令
+hitl-edit-file = 编辑文件
+hitl-read-file = 读取文件
+hitl-write-file = 写入文件
+hitl-search = 搜索
+hitl-call-tool = 调用工具
+hitl-working-directory = 执行目录
+hitl-description-once = 仅允许这次调用
+hitl-description-session-command = 本次会话内，相同命令不再询问
+hitl-description-session-file = 本次会话内，此工具操作该文件不再询问
+hitl-description-session-tool = 本次会话内，此工具相同参数不再询问
+hitl-description-reject = 阻止这次调用
+hitl-diff-title = 修改对比 · − 删除 · + 新增
+hitl-selected-choice = { $choice }
+hitl-selection-target = 审批第 { $current }/{ $count } 项 · { $tool }
+hitl-summary-three = 本次同意 { $once } · 会话同意 { $session } · 拒绝 { $rejected }
+hitl-hidden-lines = … 还有 { $count } 行未显示 · 请扩大终端
 
 # ---- AskUser Popup ----
 

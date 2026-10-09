@@ -52,6 +52,32 @@ fn test_sanitize_display_text_strips_osc_sequence() {
 }
 
 #[test]
+fn test_sanitize_display_text_preserving_newlines_keeps_script_indentation() {
+    let script = "if true; then\r\n\t\u{1b}[31mecho 中文\u{1b}[0m\nfi";
+    let result = sanitize_display_text_preserving_newlines(script);
+    assert_eq!(
+        result, "if true; then\n    echo 中文\nfi",
+        "正文应保留脚本换行与缩进，并移除终端颜色控制序列"
+    );
+    assert_eq!(
+        sanitize_display_text(script),
+        "if true; then   echo 中文 fi",
+        "既有单行摘要行为不变"
+    );
+}
+
+#[test]
+fn test_sanitize_display_text_preserving_newlines_removes_multiline_control_sequences() {
+    let result = sanitize_display_text_preserving_newlines(
+        "before\u{1b}]0;hidden\nOSC title\u{7}after\n\u{1b}Ppayload\nmore\u{1b}\\done",
+    );
+    assert_eq!(
+        result, "beforeafter\ndone",
+        "跨行 OSC 和字符串控制序列应整体移除，不能泄漏隐藏载荷"
+    );
+}
+
+#[test]
 fn test_old_tool_names_not_matched() {
     // 验证旧工具名不再被匹配（fallback 到 to_pascal）
     assert_eq!(format_tool_name("bash"), "Bash"); // fallback
@@ -143,7 +169,11 @@ fn test_read_file_path_takes_priority_over_path() {
     // file_path 存在时优先使用 file_path
     let input = serde_json::json!({"file_path": "/a/real.rs", "path": "/b/alias.rs"});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("real.rs"), "file_path 应优先于 path");
+    assert_eq!(
+        result.as_deref(),
+        Some("real.rs"),
+        "file_path 应优先于 path"
+    );
 }
 
 #[test]

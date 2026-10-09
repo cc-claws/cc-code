@@ -530,10 +530,10 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         .dispatch_desired_height(screen_height, screen_width)
     {
         h
-    } else if let Some(crate::app::InteractionPrompt::Approval(p)) =
+    } else if let Some(crate::app::InteractionPrompt::Approval(_)) =
         &app.session_mgr.current().agent.interaction_prompt
     {
-        u16::try_from(p.items.len().saturating_mul(5).saturating_add(5)).unwrap_or(u16::MAX)
+        popups::hitl::hitl_popup_height(app, screen_width, max_h)
     } else if app.global_ui.oauth_prompt.is_some() {
         9 // 标题1 + 提示1 + URL1 + 空行1 + 输入框1 + 错误1 + 快捷键1 + 边框2
     } else if let Some(crate::app::InteractionPrompt::Questions(p)) =

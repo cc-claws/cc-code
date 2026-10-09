@@ -304,10 +304,15 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
         left_spans.push(Span::styled(format!(" {} ", label), style));
-        left_spans.push(Span::styled(
-            lc.tr("statusbar-permission-cycle-hint"),
-            Style::default().fg(theme::MUTED),
-        ));
+        if !matches!(
+            &app.session_mgr.current().agent.interaction_prompt,
+            Some(crate::app::InteractionPrompt::Approval(_))
+        ) {
+            left_spans.push(Span::styled(
+                lc.tr("statusbar-permission-cycle-hint"),
+                Style::default().fg(theme::MUTED),
+            ));
+        }
     }
 
     // 瞬时状态（复制提示已移至消息区右下角浮动显示）
@@ -554,17 +559,8 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             )
         }
         Some(crate::app::InteractionPrompt::Approval(_)) => {
-            let lc = &app.services.lc;
-            format_hints(
-                &[
-                    ("↑↓".to_string(), lc.tr("key-select")),
-                    ("Tab".to_string(), lc.tr("key-switch")),
-                    ("Enter".to_string(), lc.tr("key-confirm")),
-                    ("Esc".to_string(), lc.tr("key-cancel")),
-                ],
-                key_style,
-                desc_style,
-            )
+            // 审批面板固定底部已经展示完整快捷键，状态栏不重复占用宽度。
+            Vec::new()
         }
         Some(crate::app::InteractionPrompt::Rewind(prompt)) => {
             use crate::app::RewindMode;

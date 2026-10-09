@@ -10,7 +10,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 事件处理：crossterm 输入拦截、命令解析（`/` 前缀）、弹窗状态管理
 - 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/recap`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
 - 多会话管理：SQLite 持久化，`/history` 面板按 cwd 过滤当前工作区对话
-- 弹窗系统：HITL 同时展示三项审批选项（↑↓ 选择、Tab 切换工具、Enter 确认），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
+- 弹窗系统：HITL 紧凑审批面板（工具/动作/目录同行、完整命令换行、Edit 对比；当前工具三项选择固定可见，↑↓ 选择、Tab 切换工具、Enter 确认；超高内容提示剩余行数，无内部滚动），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
 - SubAgent 层级展示：SubAgentGroup 可折叠块，滑动窗口显示最近 4 步，显示格式 `Agent(type) #hash`，颜色区分状态（前台绿色、后台运行中黄色、错误红色）
 - Skill 全文预加载：消息含 `#skill-name` 时通过 SkillPreloadMiddleware 将 skill 全文注入 agent state
 - Setup Wizard：首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），原子写回 settings.json
