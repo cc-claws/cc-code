@@ -84,6 +84,19 @@ impl ToolCall {
     }
 }
 
+/// 工具错误类型分类
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ToolErrorKind {
+    /// 入参不符合 JSON Schema（缺失必填参数、未知参数、类型错误等）
+    SchemaValidation,
+    /// 请求的工具不存在
+    ToolNotFound,
+    /// 工具执行失败（进程退出非零、运行时错误、IO 错误等）
+    ExecutionFailed,
+    /// 其他未分类错误（如中间件拦截、超时、解析错误等）
+    Other,
+}
+
 /// 工具调用结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
@@ -96,6 +109,9 @@ pub struct ToolResult {
     /// 支持多模态返回（如图片 ContentBlock::Image）。
     #[serde(skip)]
     pub content: Option<crate::messages::MessageContent>,
+    /// 结构化错误类型，None 表示未分类或成功调用
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<ToolErrorKind>,
 }
 
 impl ToolResult {
@@ -110,6 +126,7 @@ impl ToolResult {
             output: output.into(),
             is_error: false,
             content: None,
+            error_kind: None,
         }
     }
 
@@ -126,6 +143,7 @@ impl ToolResult {
             output: output.into(),
             is_error: false,
             content: Some(content),
+            error_kind: None,
         }
     }
 
@@ -134,12 +152,35 @@ impl ToolResult {
         tool_name: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
+        Self::error_with_kind(tool_call_id, tool_name, message, ToolErrorKind::Other)
+    }
+
+    pub fn error_with_kind(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        message: impl Into<String>,
+        error_kind: ToolErrorKind,
+    ) -> Self {
         Self {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
             output: message.into(),
             is_error: true,
             content: None,
+            error_kind: Some(error_kind),
+        }
+    }
+
+    /// 获取解析后的错误类型（若未显式标记则进行启发式兜底判断）
+    pub fn resolved_error_kind(&self) -> Option<ToolErrorKind> {
+        if !self.is_error {
+            None
+        } else if let Some(kind) = self.error_kind {
+            Some(kind)
+        } else if self.output.contains("Invalid arguments for tool") {
+            Some(ToolErrorKind::SchemaValidation)
+        } else {
+            Some(ToolErrorKind::Other)
         }
     }
 }

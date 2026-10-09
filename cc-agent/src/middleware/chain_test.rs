@@ -182,13 +182,7 @@
 
         let mut state = AgentState::new("/tmp");
         let call = ToolCall::new("id", "tool", serde_json::json!({}));
-        let result = ToolResult {
-            tool_call_id: "id".to_string(),
-            tool_name: "tool".to_string(),
-            output: "ok".to_string(),
-            is_error: false,
-            content: None,
-        };
+        let result = ToolResult::success("id", "tool", "ok");
         chain
             .run_after_tool(&mut state, &call, &result)
             .await

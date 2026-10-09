@@ -13,7 +13,9 @@ pub use compact::{
 };
 pub use events::{AgentEvent, AgentEventHandler, BackgroundTaskResult, FnEventHandler};
 pub use executor::{AgentCancellationToken, ReActAgent};
-pub use react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult};
+pub use react::{
+    AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolErrorKind, ToolResult,
+};
 pub use recap::{generate_recap, RecapResult};
 pub use state::{AgentState, State};
 pub use token::{ContextBudget, TokenTracker};

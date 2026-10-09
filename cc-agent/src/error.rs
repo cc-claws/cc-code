@@ -8,6 +8,9 @@ pub enum AgentError {
     #[error("Tool not found: {0}")]
     ToolNotFound(String),
 
+    #[error("Tool schema validation failed: {tool} - {reason}")]
+    ToolSchemaValidationFailed { tool: String, reason: String },
+
     #[error("Tool execution failed: {tool} - {reason}")]
     ToolExecutionFailed { tool: String, reason: String },
 

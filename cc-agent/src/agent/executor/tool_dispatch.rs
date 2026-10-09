@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     agent::{
         events::AgentEvent,
-        react::{ReactLLM, Reasoning, ToolCall, ToolResult},
+        react::{ReactLLM, Reasoning, ToolCall, ToolErrorKind, ToolResult},
         state::State,
     },
     error::{AgentError, AgentResult},
@@ -55,8 +55,58 @@ fn normalize_params(tool_name: &str, input: serde_json::Value) -> serde_json::Va
     serde_json::Value::Object(obj)
 }
 
-/// 连续失败检测阈值
+/// 连续失败检测阈值：相同工具相同错误类型连续失败 ≥ 此次数时注入纠正提示。
 const CONSECUTIVE_FAILURE_THRESHOLD: usize = 5;
+
+#[derive(Debug, Clone)]
+struct ConsecutiveFailureRecord {
+    count: usize,
+    next_threshold: usize,
+}
+
+/// 连续失败追踪器：按 (tool_name, error_kind) 聚合统计连续错误，支持指数退避避免频繁刷屏。
+#[derive(Debug, Default)]
+pub(crate) struct ConsecutiveFailureTracker {
+    records: HashMap<(String, ToolErrorKind), ConsecutiveFailureRecord>,
+}
+
+impl ConsecutiveFailureTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 记录一次错误，返回 (当前连续次数, 是否达到警告阈值)
+    pub fn record_failure(&mut self, tool_name: &str, kind: ToolErrorKind) -> (usize, bool) {
+        let key = (tool_name.to_string(), kind);
+        let record = self.records.entry(key).or_insert(ConsecutiveFailureRecord {
+            count: 0,
+            next_threshold: CONSECUTIVE_FAILURE_THRESHOLD,
+        });
+        record.count += 1;
+        let count = record.count;
+        let should_warn = if record.count >= record.next_threshold {
+            record.next_threshold *= 2;
+            true
+        } else {
+            false
+        };
+        (count, should_warn)
+    }
+
+    /// 工具调用成功时重置该工具的所有失败记录
+    pub fn reset_tool(&mut self, tool_name: &str) {
+        self.records.retain(|(t, _), _| t != tool_name);
+    }
+
+    /// 获取特定工具和错误类型的连续失败次数
+    #[allow(dead_code)]
+    pub fn failure_count(&self, tool_name: &str, kind: ToolErrorKind) -> usize {
+        self.records
+            .get(&(tool_name.to_string(), kind))
+            .map(|r| r.count)
+            .unwrap_or(0)
+    }
+}
 
 /// 连续相同动作签名检测阈值
 const CONSECUTIVE_ACTION_THRESHOLD: usize = 3;
@@ -235,32 +285,147 @@ const TOOL_SIGNATURE_HINTS: &[(&[&str], &str)] = &[
     (&["prompt", "description"], "Agent"),
 ];
 
-/// Schema 校验连续失败阈值：相同工具 Schema 校验连续失败 ≥ 此次数时注入强提示。
+/// 单工具 Schema 校验连续失败阈值：相同工具 Schema 校验连续失败 ≥ 此次数时注入强提示。
 const SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD: usize = 2;
 
-/// Schema 校验连续失败追踪器：检测相同工具的 Schema 校验连续失败，注入强提示阻断循环。
+/// 跨工具聚合 Schema 校验连续失败阈值：跨工具连续 Schema 校验失败 ≥ 此次数时触发聚合熔断。
+const AGGREGATE_SCHEMA_FAILURE_THRESHOLD: usize = 3;
+
+/// Schema 校验熔断事件
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SchemaBreakerEvent {
+    /// 单工具连续 Schema 校验失败熔断
+    PerTool { tool_name: String, count: usize },
+    /// 跨工具聚合连续 Schema 校验失败熔断
+    Aggregate {
+        failed_tools: Vec<String>,
+        count: usize,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ToolFailureState {
+    count: usize,
+    next_threshold: usize,
+}
+
+/// Schema 校验连续失败追踪器：检测单工具及跨工具的 Schema 校验连续失败，注入强提示阻断循环。
 #[derive(Debug, Default)]
 pub(crate) struct SchemaFailureTracker {
-    /// 工具名 → 连续 Schema 校验失败次数
-    counts: HashMap<String, usize>,
+    /// 工具名 → 单工具连续失败计数与退避阈值
+    tool_states: HashMap<String, ToolFailureState>,
+    /// 跨工具连续 Schema 失败总计数
+    aggregate_count: usize,
+    /// 跨工具聚合下一次触发熔断的阈值
+    aggregate_next_threshold: usize,
+    /// 跨工具聚合窗口内发生失败的工具列表（保序）
+    recent_failed_tools: Vec<String>,
 }
 
 impl SchemaFailureTracker {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            tool_states: HashMap::new(),
+            aggregate_count: 0,
+            aggregate_next_threshold: AGGREGATE_SCHEMA_FAILURE_THRESHOLD,
+            recent_failed_tools: Vec::new(),
+        }
     }
 
-    /// 记录一次 Schema 校验失败，返回 (当前连续次数, 是否达到熔断阈值)
+    /// 记录一次 Schema 校验失败，返回 (单工具连续失败次数, 是否触发熔断)
+    #[allow(dead_code)]
     pub fn record_failure(&mut self, tool_name: &str) -> (usize, bool) {
-        let count = self.counts.entry(tool_name.to_string()).or_insert(0);
-        *count += 1;
-        let breaker = *count >= SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD;
-        (*count, breaker)
+        let (count, event) = self.record_failure_detailed(tool_name);
+        (count, event.is_some())
     }
 
-    /// 工具调用成功时重置该工具的计数
+    /// 详细记录一次 Schema 校验失败，返回 (单工具连续失败次数, 触发的熔断事件)
+    pub fn record_failure_detailed(
+        &mut self,
+        tool_name: &str,
+    ) -> (usize, Option<SchemaBreakerEvent>) {
+        // 1. 更新单工具计数与退避阈值
+        let state = self
+            .tool_states
+            .entry(tool_name.to_string())
+            .or_insert(ToolFailureState {
+                count: 0,
+                next_threshold: SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD,
+            });
+        state.count += 1;
+        let per_tool_count = state.count;
+
+        let per_tool_triggered = if state.count >= state.next_threshold {
+            state.next_threshold *= 2;
+            true
+        } else {
+            false
+        };
+
+        // 2. 更新跨工具聚合计数
+        self.aggregate_count += 1;
+        if !self.recent_failed_tools.iter().any(|t| t == tool_name) {
+            self.recent_failed_tools.push(tool_name.to_string());
+        }
+
+        // 跨工具聚合只有在涉及多于 1 个不同工具时才触发聚合熔断，
+        // 避免单一工具在自身退避期间冒充跨工具聚合
+        let aggregate_triggered = if self.recent_failed_tools.len() > 1
+            && self.aggregate_count >= self.aggregate_next_threshold
+        {
+            if self.aggregate_next_threshold == 0 {
+                self.aggregate_next_threshold = AGGREGATE_SCHEMA_FAILURE_THRESHOLD;
+            }
+            self.aggregate_next_threshold *= 2;
+            true
+        } else {
+            false
+        };
+
+        // 3. 产生熔断事件：优先单工具熔断，次选跨工具聚合熔断
+        let event = if per_tool_triggered {
+            Some(SchemaBreakerEvent::PerTool {
+                tool_name: tool_name.to_string(),
+                count: per_tool_count,
+            })
+        } else if aggregate_triggered {
+            Some(SchemaBreakerEvent::Aggregate {
+                failed_tools: self.recent_failed_tools.clone(),
+                count: self.aggregate_count,
+            })
+        } else {
+            None
+        };
+
+        (per_tool_count, event)
+    }
+
+    /// 工具调用成功时重置该工具的计数，并重置跨工具聚合计数
     pub fn reset(&mut self, tool_name: &str) {
-        self.counts.remove(tool_name);
+        self.tool_states.remove(tool_name);
+        self.reset_aggregate();
+    }
+
+    /// 重置跨工具聚合计数
+    pub fn reset_aggregate(&mut self) {
+        self.aggregate_count = 0;
+        self.aggregate_next_threshold = AGGREGATE_SCHEMA_FAILURE_THRESHOLD;
+        self.recent_failed_tools.clear();
+    }
+
+    /// 获取单工具当前失败次数
+    #[allow(dead_code)]
+    pub fn tool_failure_count(&self, tool_name: &str) -> usize {
+        self.tool_states
+            .get(tool_name)
+            .map(|s| s.count)
+            .unwrap_or(0)
+    }
+
+    /// 获取跨工具聚合当前失败次数
+    #[allow(dead_code)]
+    pub fn aggregate_failure_count(&self) -> usize {
+        self.aggregate_count
     }
 }
 
@@ -438,7 +603,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     reasoning: &Reasoning,
     all_tools: &HashMap<String, &dyn BaseTool>,
     cancel: &CancellationToken,
-    consecutive_failures: &mut HashMap<String, usize>,
+    consecutive_failure_tracker: &mut ConsecutiveFailureTracker,
     action_loop_detector: &mut ActionLoopDetector,
     schema_failure_tracker: &mut SchemaFailureTracker,
 ) -> AgentResult<Vec<(ToolCall, ToolResult)>> {
@@ -492,50 +657,83 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     agent.emit(AgentEvent::MessageAdded(ai_msg.clone()));
     state.add_message(ai_msg);
 
+    let mut warnings_to_inject = Vec::new();
+
     for (_, result) in &results {
-        // 连续失败追踪
-        if result.is_error {
-            let key = format!("{}:{}", result.tool_name, result.output);
-            let count = consecutive_failures.entry(key).or_insert(0);
-            *count += 1;
-            if *count >= CONSECUTIVE_FAILURE_THRESHOLD {
+        let resolved_kind = result.resolved_error_kind();
+        if let Some(kind) = resolved_kind {
+            // 1. 连续失败追踪 (按 tool_name + error_kind)
+            let (consecutive_count, should_warn_consecutive) =
+                consecutive_failure_tracker.record_failure(&result.tool_name, kind);
+            if should_warn_consecutive {
+                let kind_desc = match kind {
+                    ToolErrorKind::SchemaValidation => "schema validation",
+                    ToolErrorKind::ToolNotFound => "tool not found",
+                    ToolErrorKind::ExecutionFailed => "execution",
+                    ToolErrorKind::Other => "unclassified",
+                };
                 tracing::warn!(
                     tool = %result.tool_name,
-                    count = *count,
-                    "连续 {} 次相同错误，注入纠正消息",
-                    count
+                    count = consecutive_count,
+                    kind = ?kind,
+                    "连续 {} 次同类型错误，注入纠正消息",
+                    consecutive_count
                 );
-                state.add_message(BaseMessage::system(format!(
-                    "Warning: Tool '{}' has failed {} consecutive times with the same error. \
+                warnings_to_inject.push(format!(
+                    "Warning: Tool '{}' has failed {} consecutive times with {} error. \
                      Stop retrying and analyze the root cause. Consider using a different approach \
                      or asking the user for guidance.",
-                    result.tool_name, count
-                )));
+                    result.tool_name, consecutive_count, kind_desc
+                ));
             }
 
-            // Schema 校验连续失败熔断：更低的阈值（2次），快速阻断参数错误循环
-            if result.output.contains("Invalid arguments for tool") {
-                let (schema_count, breaker) =
-                    schema_failure_tracker.record_failure(&result.tool_name);
-                if breaker {
-                    tracing::warn!(
-                        tool = %result.tool_name,
-                        schema_fail_count = schema_count,
-                        "Schema 校验连续失败 {} 次，注入熔断提示",
-                        schema_count
-                    );
-                    state.add_message(BaseMessage::system(format!(
-                        "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Tool '{}' has failed schema validation {} \
-                         consecutive times. You are passing wrong parameters repeatedly. \
-                         STOP and carefully re-read the tool's parameter schema before your next attempt. \
-                         Do NOT retry with the same parameters.",
-                        result.tool_name, schema_count
-                    )));
+            // 2. Schema 校验连续失败熔断（支持单工具快速熔断 + 跨工具聚合熔断）
+            if kind == ToolErrorKind::SchemaValidation {
+                let (_schema_count, breaker_event) =
+                    schema_failure_tracker.record_failure_detailed(&result.tool_name);
+                if let Some(event) = breaker_event {
+                    match event {
+                        SchemaBreakerEvent::PerTool { tool_name, count } => {
+                            tracing::warn!(
+                                tool = %tool_name,
+                                schema_fail_count = count,
+                                "Schema 校验连续失败 {} 次，注入单工具熔断提示",
+                                count
+                            );
+                            warnings_to_inject.push(format!(
+                                "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Tool '{}' has failed schema validation {} \
+                                 consecutive times. You are passing wrong parameters repeatedly. \
+                                 STOP and carefully re-read the tool's parameter schema before your next attempt. \
+                                 Do NOT retry with the same parameters.",
+                                tool_name, count
+                            ));
+                        }
+                        SchemaBreakerEvent::Aggregate {
+                            failed_tools,
+                            count,
+                        } => {
+                            let tools_str = failed_tools.join(", ");
+                            tracing::warn!(
+                                tools = %tools_str,
+                                aggregate_count = count,
+                                "跨工具 Schema 校验连续失败 {} 次，注入聚合熔断提示",
+                                count
+                            );
+                            warnings_to_inject.push(format!(
+                                "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Schema validation failed {} \
+                                 consecutive times across different tools ({}). You are repeatedly \
+                                 passing invalid arguments. STOP guessing parameters. Carefully inspect \
+                                 the parameter schema for each tool before invoking it. Do NOT call \
+                                 tools with invented parameters.",
+                                count, tools_str
+                            ));
+                        }
+                    }
                 }
             }
         } else {
-            // 成功则重置该工具的所有失败计数
-            consecutive_failures.retain(|k, _| !k.starts_with(&format!("{}:", result.tool_name)));
+            // 成功则重置该工具的所有失败计数与聚合计数
+            consecutive_failure_tracker.reset_tool(&result.tool_name);
             schema_failure_tracker.reset(&result.tool_name);
         }
 
@@ -550,6 +748,12 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
         let tool_msg_clone = tool_msg.clone();
         state.add_message(tool_msg);
         agent.emit(AgentEvent::MessageAdded(tool_msg_clone));
+    }
+
+    // 统一在所有 ToolResult 写入完成后追加告警消息，保证 ToolUse 与 ToolResult 的紧邻性（去重）
+    warnings_to_inject.dedup();
+    for warning in warnings_to_inject {
+        state.add_message(BaseMessage::system(warning));
     }
 
     // 动作签名循环检测：连续相同动作（即使成功但无效）注入纠正提示
@@ -734,7 +938,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                     let hint = suggest_tool_mismatch(&tool_name, &input)
                                         .map(|h| format!("\n{h}"))
                                         .unwrap_or_default();
-                                    return Err(AgentError::ToolExecutionFailed {
+                                    return Err(AgentError::ToolSchemaValidationFailed {
                                         tool: tool_name.clone(),
                                         reason: format!(
                                             "Invalid arguments for tool {tool_name}:\n{msg}\n\
@@ -793,15 +997,63 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
             }
             Err(AgentError::ToolNotFound(ref name)) => {
                 tracing::warn!(tool.name = %name, "工具未找到，作为错误结果返回");
-                ToolResult::error(
+                ToolResult::error_with_kind(
                     &modified_call.id,
                     &modified_call.name,
                     format!("工具 '{}' 不存在", name),
+                    ToolErrorKind::ToolNotFound,
+                )
+            }
+            Err(AgentError::ToolSchemaValidationFailed {
+                ref tool,
+                ref reason,
+            }) => {
+                let _ = agent
+                    .chain
+                    .run_on_error(
+                        state,
+                        &AgentError::ToolSchemaValidationFailed {
+                            tool: tool.clone(),
+                            reason: reason.clone(),
+                        },
+                    )
+                    .await;
+                ToolResult::error_with_kind(
+                    &modified_call.id,
+                    &modified_call.name,
+                    reason.clone(),
+                    ToolErrorKind::SchemaValidation,
+                )
+            }
+            Err(AgentError::ToolExecutionFailed {
+                ref tool,
+                ref reason,
+            }) => {
+                let _ = agent
+                    .chain
+                    .run_on_error(
+                        state,
+                        &AgentError::ToolExecutionFailed {
+                            tool: tool.clone(),
+                            reason: reason.clone(),
+                        },
+                    )
+                    .await;
+                ToolResult::error_with_kind(
+                    &modified_call.id,
+                    &modified_call.name,
+                    reason.clone(),
+                    ToolErrorKind::ExecutionFailed,
                 )
             }
             Err(ref e) => {
                 let _ = agent.chain.run_on_error(state, e).await;
-                ToolResult::error(&modified_call.id, &modified_call.name, e.to_string())
+                ToolResult::error_with_kind(
+                    &modified_call.id,
+                    &modified_call.name,
+                    e.to_string(),
+                    ToolErrorKind::Other,
+                )
             }
         };
 

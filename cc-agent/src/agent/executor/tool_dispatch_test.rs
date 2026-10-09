@@ -1231,14 +1231,18 @@ fn test_schema_failure_tracker_basic() {
     let (count, breaker) = tracker.record_failure("Grep");
     assert_eq!(count, 1, "第 1 次失败计数应为 1");
     assert!(!breaker, "第 1 次不应触发熔断");
-    // 第 2 次失败达到阈值
+    // 第 2 次失败达到阈值，触发熔断
     let (count, breaker) = tracker.record_failure("Grep");
     assert_eq!(count, 2, "第 2 次失败计数应为 2");
     assert!(breaker, "第 2 次连续失败应触发熔断");
-    // 第 3 次继续计数
+    // 第 3 次处于指数退避期，不重复触发熔断
     let (count, breaker) = tracker.record_failure("Grep");
     assert_eq!(count, 3, "第 3 次失败计数应为 3");
-    assert!(breaker, "第 3 次仍应触发熔断");
+    assert!(!breaker, "第 3 次处于指数退避期，不应重复触发熔断");
+    // 第 4 次达到指数退避阈值，再次触发熔断
+    let (count, breaker) = tracker.record_failure("Grep");
+    assert_eq!(count, 4, "第 4 次失败计数应为 4");
+    assert!(breaker, "第 4 次达到指数退避阈值，应再次触发熔断");
 }
 
 #[test]
@@ -1268,6 +1272,112 @@ fn test_schema_failure_tracker_independent_tools() {
     assert!(grep_breaker, "Grep 应触发熔断");
     assert_eq!(read_count, 2, "Read 计数应为 2");
     assert!(read_breaker, "Read 应触发熔断");
+}
+
+/// 验证跨工具聚合熔断：在不同工具之间轮换猜错参数达到阈值时触发聚合熔断
+#[test]
+fn test_schema_failure_tracker_aggregate_across_different_tools() {
+    // Arrange
+    let mut tracker = super::SchemaFailureTracker::new();
+    // Act & Assert: 轮换不同工具进行调用
+    // 轮次 1: Grep 失败 (count=1, agg=1, 未达标)
+    let (count1, event1) = tracker.record_failure_detailed("Grep");
+    assert_eq!(count1, 1, "第 1 轮 Grep 计数应为 1");
+    assert!(event1.is_none(), "第 1 轮不应触发任何熔断");
+    // 轮次 2: Bash 失败 (count=1, agg=2, 未达标)
+    let (count2, event2) = tracker.record_failure_detailed("Bash");
+    assert_eq!(count2, 1, "第 2 轮 Bash 计数应为 1");
+    assert!(event2.is_none(), "第 2 轮不应触发任何熔断");
+    // 轮次 3: WebSearch 失败 (count=1, agg=3, 跨工具聚合达到阈值 3 触发聚合熔断)
+    let (count3, event3) = tracker.record_failure_detailed("WebSearch");
+    assert_eq!(count3, 1, "第 3 轮 WebSearch 单工具计数应为 1");
+    assert_eq!(
+        event3,
+        Some(super::SchemaBreakerEvent::Aggregate {
+            failed_tools: vec![
+                "Grep".to_string(),
+                "Bash".to_string(),
+                "WebSearch".to_string()
+            ],
+            count: 3,
+        }),
+        "第 3 轮应触发跨工具聚合熔断"
+    );
+    // 轮次 4: Read 失败 (agg=4，在指数退避期 3->6，不重复触发)
+    let (count4, event4) = tracker.record_failure_detailed("Read");
+    assert_eq!(count4, 1, "第 4 轮 Read 单工具计数应为 1");
+    assert!(event4.is_none(), "处于退避期内不应重复触发聚合熔断");
+}
+
+/// 验证任意工具调用成功时重置跨工具聚合计数
+#[test]
+fn test_schema_failure_tracker_aggregate_reset_on_success() {
+    // Arrange
+    let mut tracker = super::SchemaFailureTracker::new();
+    tracker.record_failure("Grep");
+    tracker.record_failure("Bash");
+    assert_eq!(tracker.aggregate_failure_count(), 2);
+    // Act: 某一工具调用成功，重置状态
+    tracker.reset("Bash");
+    // Assert: 聚合计数归零
+    assert_eq!(
+        tracker.aggregate_failure_count(),
+        0,
+        "成功调用后聚合计数应重置为 0"
+    );
+    let (count, event) = tracker.record_failure_detailed("WebSearch");
+    assert_eq!(count, 1);
+    assert!(event.is_none(), "重置后第 1 次失败不应触发聚合熔断");
+}
+
+/// 验证连续失败追踪器按 (tool_name, error_kind) 聚合计数，不受具体错误文本差异影响
+#[test]
+fn test_consecutive_failure_tracker_aggregates_by_kind_not_raw_string() {
+    // Arrange
+    let mut tracker = super::ConsecutiveFailureTracker::new();
+    let kind = ToolErrorKind::ExecutionFailed;
+    // Act & Assert: 前 4 次失败不触发
+    for i in 1..=4 {
+        let (count, warn) = tracker.record_failure("Bash", kind);
+        assert_eq!(count, i);
+        assert!(!warn, "前 4 次不应触发连续失败警告");
+    }
+    // 第 5 次达到阈值触发警告
+    let (count5, warn5) = tracker.record_failure("Bash", kind);
+    assert_eq!(count5, 5);
+    assert!(warn5, "第 5 次达到阈值应触发连续失败警告");
+    // 第 6 次处于退避期，不触发警告
+    let (count6, warn6) = tracker.record_failure("Bash", kind);
+    assert_eq!(count6, 6);
+    assert!(!warn6, "第 6 次处于退避期不应触发警告");
+    // 推进到第 10 次（翻倍阈值）
+    for _ in 7..=9 {
+        let (_, warn) = tracker.record_failure("Bash", kind);
+        assert!(!warn);
+    }
+    let (count10, warn10) = tracker.record_failure("Bash", kind);
+    assert_eq!(count10, 10);
+    assert!(warn10, "第 10 次达到指数退避阈值应再次触发警告");
+}
+
+/// 验证工具成功时清空该工具在连续失败追踪器中的所有错误记录
+#[test]
+fn test_consecutive_failure_tracker_reset_on_success() {
+    // Arrange
+    let mut tracker = super::ConsecutiveFailureTracker::new();
+    tracker.record_failure("Bash", ToolErrorKind::ExecutionFailed);
+    tracker.record_failure("Bash", ToolErrorKind::SchemaValidation);
+    // Act
+    tracker.reset_tool("Bash");
+    // Assert
+    assert_eq!(
+        tracker.failure_count("Bash", ToolErrorKind::ExecutionFailed),
+        0
+    );
+    assert_eq!(
+        tracker.failure_count("Bash", ToolErrorKind::SchemaValidation),
+        0
+    );
 }
 
 /// 验证 Schema 校验连续失败 2 次后注入熔断提示消息
@@ -1350,6 +1460,238 @@ async fn test_schema_failure_circuit_breaker_injects_warning() {
             if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
     });
     assert!(has_circuit_breaker, "应注入 Schema 校验熔断提示消息");
+}
+
+/// 验证跨工具轮换猜错参数时注入聚合熔断提示消息（Issue #379 复现场景验证）
+#[tokio::test]
+async fn test_schema_failure_circuit_breaker_injects_warning_across_different_tools() {
+    struct ToolAlpha;
+    #[async_trait::async_trait]
+    impl BaseTool for ToolAlpha {
+        fn name(&self) -> &str {
+            "ToolAlpha"
+        }
+        fn description(&self) -> &str {
+            "alpha"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "param_alpha": { "type": "string" } },
+                "required": ["param_alpha"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct ToolBeta;
+    #[async_trait::async_trait]
+    impl BaseTool for ToolBeta {
+        fn name(&self) -> &str {
+            "ToolBeta"
+        }
+        fn description(&self) -> &str {
+            "beta"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "param_beta": { "type": "string" } },
+                "required": ["param_beta"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct ToolGamma;
+    #[async_trait::async_trait]
+    impl BaseTool for ToolGamma {
+        fn name(&self) -> &str {
+            "ToolGamma"
+        }
+        fn description(&self) -> &str {
+            "gamma"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "param_gamma": { "type": "string" } },
+                "required": ["param_gamma"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct RotatingToolLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for RotatingToolLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            // 检测到熔断提示后停止
+            let has_circuit_breaker = messages.iter().any(|m| {
+                matches!(m, BaseMessage::System { content, .. }
+                    if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
+            });
+            if has_circuit_breaker {
+                return Ok(Reasoning::with_answer(
+                    "done",
+                    "I noticed the multi-tool circuit breaker and stopped guessing.",
+                ));
+            }
+
+            // 统计已执行的工具调用次数以决定轮换哪一个工具
+            let tool_results_count = messages
+                .iter()
+                .filter(|m| matches!(m, BaseMessage::Tool { .. }))
+                .count();
+
+            let (target_tool, param_name) = match tool_results_count {
+                0 => ("ToolAlpha", "wrong_alpha"),
+                1 => ("ToolBeta", "wrong_beta"),
+                _ => ("ToolGamma", "wrong_gamma"),
+            };
+
+            Ok(Reasoning::with_tools(
+                "calling with incorrect params",
+                vec![ToolCall::new(
+                    format!("id_{}", messages.len()),
+                    target_tool,
+                    serde_json::json!({ param_name: "test" }),
+                )],
+            ))
+        }
+    }
+
+    let agent = ReActAgent::new(RotatingToolLLM)
+        .max_iterations(10)
+        .register_tool(Box::new(ToolAlpha))
+        .register_tool(Box::new(ToolBeta))
+        .register_tool(Box::new(ToolGamma));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("run"), &mut state, None)
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Agent 应在跨工具聚合熔断后正常结束，实际: {:?}",
+        result
+    );
+    let breaker_msg = state.messages().iter().find(|m| {
+        matches!(m, BaseMessage::System { content, .. }
+            if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
+    });
+    assert!(
+        breaker_msg.is_some(),
+        "应注入跨工具聚合 Schema 校验熔断提示消息"
+    );
+    let text = breaker_msg.unwrap().content();
+    assert!(
+        text.contains("across different tools"),
+        "提示文案应指出跨工具聚合失败"
+    );
+}
+
+/// 验证 ToolResult 与熔断 System 消息的严格顺序：ToolResult 必须紧邻 ToolUse，System 提示追加在后
+#[tokio::test]
+async fn test_tool_results_and_circuit_breaker_injection_order() {
+    struct StrictTool;
+    #[async_trait::async_trait]
+    impl BaseTool for StrictTool {
+        fn name(&self) -> &str {
+            "StrictTool"
+        }
+        fn description(&self) -> &str {
+            "strict"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "required_field": { "type": "string" } },
+                "required": ["required_field"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct TwiceFailThenStopLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for TwiceFailThenStopLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_circuit_breaker = messages.iter().any(|m| {
+                matches!(m, BaseMessage::System { content, .. }
+                    if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
+            });
+            if has_circuit_breaker {
+                return Ok(Reasoning::with_answer("done", "finished"));
+            }
+            Ok(Reasoning::with_tools(
+                "failing call",
+                vec![ToolCall::new(
+                    format!("id_{}", messages.len()),
+                    "StrictTool",
+                    serde_json::json!({ "wrong": 123 }),
+                )],
+            ))
+        }
+    }
+
+    let agent = ReActAgent::new(TwiceFailThenStopLLM)
+        .max_iterations(10)
+        .register_tool(Box::new(StrictTool));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("test"), &mut state, None)
+        .await;
+    assert!(result.is_ok());
+
+    let msgs = state.messages();
+    // 寻找熔断消息所在位置
+    let breaker_idx = msgs
+        .iter()
+        .position(|m| {
+            matches!(m, BaseMessage::System { content, .. }
+                if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
+        })
+        .expect("必须找到熔断消息");
+
+    // 熔断消息的前一条必须是 Tool 消息（即 ToolResult），绝不能是 Ai 消息
+    assert!(breaker_idx > 0, "熔断消息不能是第一条消息");
+    assert!(
+        matches!(msgs[breaker_idx - 1], BaseMessage::Tool { .. }),
+        "熔断 System 消息的前一条必须是 ToolResult，以保持 ToolUse 紧跟 ToolResult"
+    );
 }
 
 /// 验证工具错配启发式诊断在集成场景下工作：

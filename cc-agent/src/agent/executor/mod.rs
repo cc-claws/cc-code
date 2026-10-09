@@ -304,7 +304,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
         let mut all_tool_calls: Vec<(ToolCall, ToolResult)> = Vec::new();
         let mut final_result: Option<AgentOutput> = None;
-        let mut consecutive_failures: HashMap<String, usize> = HashMap::new();
+        let mut consecutive_failure_tracker = self::tool_dispatch::ConsecutiveFailureTracker::new();
         let mut action_loop_detector = self::tool_dispatch::ActionLoopDetector::new();
         let mut schema_failure_tracker = self::tool_dispatch::SchemaFailureTracker::new();
 
@@ -344,7 +344,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     &reasoning,
                     &all_tools,
                     &cancel,
-                    &mut consecutive_failures,
+                    &mut consecutive_failure_tracker,
                     &mut action_loop_detector,
                     &mut schema_failure_tracker,
                 )
