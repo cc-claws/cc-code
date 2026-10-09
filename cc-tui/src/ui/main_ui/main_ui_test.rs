@@ -247,32 +247,50 @@ async fn test_status_bar_activity_shows_last_two_running_tools() {
 // ── thinking 状态行：第三字段与热度色 ──────────────────────────────
 
 #[test]
-fn test_thinking_status_word_four_states() {
-    use super::message_area::{thinking_status_word, STILL_THINKING_SECS};
-    // 非思考段且本回合无已结束思考 → 空
-    assert_eq!(thinking_status_word(false, 0, 0, 0), "");
+fn test_thinking_status_word_time_ladder() {
+    use super::message_area::{
+        thinking_status_word, DEEP_THOUGHT_SECS, STILL_THINKING_SECS, THINKING_MORE_SECS,
+    };
+    // Non-thinking phase without prior thought -> empty
+    assert_eq!(thinking_status_word(false, 0, 0), "");
+    assert_eq!(thinking_status_word(false, 99_000, 0), "");
+    // Non-thinking phase with prior thought -> thought for Ns
     assert_eq!(
-        thinking_status_word(false, 99_000, 5, 0),
-        "",
-        "非思考段忽略当前耗时/轮次"
+        thinking_status_word(false, 0, 4_200),
+        "thought for 4s"
     );
-    // 状态②：非思考段但有已结束思考 → thought for Ns
+    // < 5s -> thinking
+    assert_eq!(thinking_status_word(true, 2_000, 0), "thinking");
     assert_eq!(
-        thinking_status_word(false, 0, 1, 4_200),
-        "thought for 4s",
-        "思考段结束应定格显示耗时"
+        thinking_status_word(true, (THINKING_MORE_SECS * 1000) - 1, 0),
+        "thinking"
     );
-    // 首段思考 → thinking
-    assert_eq!(thinking_status_word(true, 2_000, 1, 0), "thinking");
-    // 再次思考（round>=2）→ thinking more
-    assert_eq!(thinking_status_word(true, 2_000, 2, 0), "thinking more");
-    // 单段超阈 → still thinking（优先级高于 more）
-    let over = STILL_THINKING_SECS * 1000;
-    assert_eq!(thinking_status_word(true, over, 1, 0), "still thinking");
+    // 5s ~ 15s -> thinking more
     assert_eq!(
-        thinking_status_word(true, over, 3, 0),
-        "still thinking",
-        "超阈时优先级应高于 thinking more"
+        thinking_status_word(true, THINKING_MORE_SECS * 1000, 0),
+        "thinking more"
+    );
+    assert_eq!(
+        thinking_status_word(true, (STILL_THINKING_SECS * 1000) - 1, 0),
+        "thinking more"
+    );
+    // 15s ~ 60s -> still thinking
+    assert_eq!(
+        thinking_status_word(true, STILL_THINKING_SECS * 1000, 0),
+        "still thinking"
+    );
+    assert_eq!(
+        thinking_status_word(true, (DEEP_THOUGHT_SECS * 1000) - 1, 0),
+        "still thinking"
+    );
+    // >= 60s -> deep in thought
+    assert_eq!(
+        thinking_status_word(true, DEEP_THOUGHT_SECS * 1000, 0),
+        "deep in thought"
+    );
+    assert_eq!(
+        thinking_status_word(true, 143_000, 0),
+        "deep in thought"
     );
 }
 
@@ -280,13 +298,13 @@ fn test_thinking_status_word_four_states() {
 fn test_thinking_heat_color_four_levels() {
     use super::message_area::{thinking_heat_color, HEAT_LV2_SECS, HEAT_LV3_SECS, HEAT_LV4_SECS};
     use crate::ui::theme;
-    // 默认档
+    // Default level
     assert_eq!(thinking_heat_color(0), theme::ACCENT);
     assert_eq!(
         thinking_heat_color((HEAT_LV2_SECS - 1) * 1000),
         theme::ACCENT
     );
-    // 逐档升温
+    // Step-by-step heating
     assert_eq!(
         thinking_heat_color(HEAT_LV2_SECS * 1000),
         theme::SPINNER_HEAT_LV2
@@ -296,34 +314,48 @@ fn test_thinking_heat_color_four_levels() {
         theme::SPINNER_HEAT_LV3
     );
     assert_eq!(thinking_heat_color(HEAT_LV4_SECS * 1000), theme::WARNING);
-    // 终黄后不再变（超大耗时仍是 WARNING）
     assert_eq!(thinking_heat_color(999_000), theme::WARNING);
 }
 
-/// PRD §2.7：仅 `thinking` / `still thinking` / `thinking more` 随热度变色；
-/// `thought for Ns`（已完成态）始终 MUTED，不随热度。
 #[test]
-fn test_thinking_status_style_color_scope() {
+fn test_thinking_status_style_pure_time_temperature() {
     use super::message_area::thinking_status_style;
-    let hot = theme::WARNING;
-    // 三个思考态词：随热度色
-    assert_eq!(thinking_status_style("thinking", hot, false).fg, Some(hot));
+    use ratatui::style::Color;
+    let verb_heat = theme::SPINNER_HEAT_LV2;
+
+    // 0s ~ 2.5s -> muted gray
     assert_eq!(
-        thinking_status_style("still thinking", hot, false).fg,
-        Some(hot)
-    );
-    assert_eq!(
-        thinking_status_style("thinking more", hot, false).fg,
-        Some(hot)
-    );
-    // 已完成态：始终 MUTED，与热度无关
-    assert_eq!(
-        thinking_status_style("thought for 4s", hot, false).fg,
+        thinking_status_style("thinking", 1_000, verb_heat, false).fg,
         Some(theme::MUTED)
     );
-    // compact 特例：整体紫色，优先于 thought-for 判定
+    // 2.5s ~ 5s -> soft white
     assert_eq!(
-        thinking_status_style("thought for 4s", hot, true).fg,
+        thinking_status_style("thinking", 3_500, verb_heat, false).fg,
+        Some(theme::TEXT_SOFT)
+    );
+    // 5s ~ 15s -> verb heat color
+    assert_eq!(
+        thinking_status_style("thinking more", 8_000, verb_heat, false).fg,
+        Some(verb_heat)
+    );
+    // 15s ~ 60s -> heat lv3 light gold
+    assert_eq!(
+        thinking_status_style("still thinking", 20_000, verb_heat, false).fg,
+        Some(theme::SPINNER_HEAT_LV3)
+    );
+    // >= 60s -> deep amber gold
+    assert_eq!(
+        thinking_status_style("deep in thought", 143_000, verb_heat, false).fg,
+        Some(Color::Rgb(255, 152, 0))
+    );
+    // Completed state -> always muted gray
+    assert_eq!(
+        thinking_status_style("thought for 4s", 4_000, verb_heat, false).fg,
+        Some(theme::MUTED)
+    );
+    // Compact mode -> always thinking purple
+    assert_eq!(
+        thinking_status_style("thinking", 1_000, verb_heat, true).fg,
         Some(theme::THINKING)
     );
 }

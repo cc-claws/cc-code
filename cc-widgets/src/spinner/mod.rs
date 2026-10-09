@@ -323,7 +323,12 @@ impl WidgetRef for SpinnerWidget<'_> {
 
         spans.push(Span::styled(format!("{} ", frame), orange));
 
-        spans.push(Span::styled(self.state.verb().to_string(), orange));
+        let verb_spans = animation::shimmer_verb_spans(
+            self.state.verb(),
+            self.state.elapsed_ms(),
+            self.primary_color,
+        );
+        spans.extend(verb_spans);
 
         let elapsed = self.state.elapsed_ms();
         let displayed_tokens = self.state.displayed_tokens();
