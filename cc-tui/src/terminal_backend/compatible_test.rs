@@ -242,3 +242,18 @@ fn test_width_safe_backend_box_drawing_and_status_glyphs_fallback() {
         );
     }
 }
+
+#[test]
+fn test_width_safe_backend_tool_result_prefix_falls_back_to_plus() {
+    // #383：`⎿`（U+23BF）是工具结果行前缀（Bash/Read/Edit/Grep/Glob/AskUserQuestion），
+    // 此前未收录于降级表，异常列宽终端会落到 `_ => '?'`，显示成无语义的问号。
+    let (probe, _) = make_probe(&[("⎿", 2)]);
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
+    let cell = Cell::new("⎿");
+    assert!(backend.draw([(0, 0, &cell)].into_iter()).is_ok());
+    assert_eq!(
+        backend.inner.buffer()[(0, 0)].symbol(),
+        "+",
+        "⎿ 应降级为 +（与 └ 等制表符一致），而非 ?"
+    );
+}
