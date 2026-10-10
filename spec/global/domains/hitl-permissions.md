@@ -65,6 +65,23 @@ Read/Write/Edit 按真实工具名和规范化路径记忆；Bash 按完整命�
 不按 Bash 名称或命令前缀扩大批准范围，UNC 路径保留服务器与共享名称；新会话清空记忆。
 确定性禁止规则始终优先于记忆。
 
+### Jev 规则提炼缓存
+
+规则加载器在首次门控时先查进程缓存，再查 `~/.cc-code/jev/peri-<项目目录 SHA-256>/`。
+`<来源签名>.index.json` 指向 `<规则 JSON SHA-256>.json`；文件通过临时文件原子发布，
+仅保存完整、非空的提炼结果。索引、JSON 或内容校验不通过时重新提炼，读写失败不阻断现有判定。
+界面不展示缓存提示。
+
+来源签名包含实际读取并展开引用的项目/个人/全局规则与 hook 内容（来源总量截断前）、
+规范化项目目录、提炼模型 provider/id、提炼提示词、来源/分块上限与超时。
+这些内容变化后，新会话首次门控会重新提炼；当前会话继续使用建立会话时冻结的来源。
+仍沿用现有 Jev 来源选择顺序：项目优先读取首个存在的 `AGENTS.md`、`CLAUDE.md`、
+`.claude/AGENTS.md`；缓存不改变指引加载规则。截断、部分失败及未完成的提炼不写磁盘。
+
+缓存只复用规则提炼产物；具体工具调用仍执行现有确定性/语义判定流程。
+实现见 `cc-middlewares/src/hitl/jev/rules.rs`、`rules_cache/mod.rs` 与
+`cc-acp/src/session/frozen.rs`，TUI 和 Stdio 共用同一路径。
+
 ### 业务子 Agent 的权限
 
 父 Agent 在 Auto 中保持 Allow / Block / Ask；业务子 Agent 只接受 Allow / Block。
@@ -154,4 +171,4 @@ Bash 工具在执行前会经 RTK 前缀改写（`X` → `rtk X`，仅对 git/ca
 - → [agent.md](./agent.md) — HITL middleware 集成
 - → [agent-instructions.md](./agent-instructions.md) — 指引注入（`@import` 范围）与门控的 `CLAUDE.md` 提炼来源
 
-最后更新：2026-10-09
+最后更新：2026-10-10

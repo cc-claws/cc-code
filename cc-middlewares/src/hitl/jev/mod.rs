@@ -22,6 +22,7 @@ pub mod decide;
 pub mod policy;
 pub mod redact;
 pub mod rules;
+mod rules_cache;
 pub mod sources;
 
 use std::path::Path;
