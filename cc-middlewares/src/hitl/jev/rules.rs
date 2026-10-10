@@ -2,7 +2,7 @@
 //!
 //! CLAUDE.md 是自由文本（架构笔记、TRAP、编码规范混在一起），直接整篇喂给 Jev
 //! 既贵又稀释判定。这里用**一次 LLM 调用**把它压成结构化规则，结果按内容哈希
-//! 缓存在内存里——同一份 CLAUDE.md 整个进程只提炼一次。
+//! 缓存在内存里；生产会话还持久化完整结果，跨进程复用未变化的规则。
 
 use std::{
     collections::{HashMap, HashSet},
@@ -17,6 +17,8 @@ use cc_agent::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+
+use super::rules_cache::RulesCache;
 
 /// 单条提取出的规则。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +97,9 @@ pub struct JevRuleLoader {
     /// 最多提炼多少块。
     max_chunks: usize,
     slot: JevRulesSlot,
+    disk_cache: Option<RulesCache>,
+    /// 来源总量限制发生截断时，提炼结果不能视为完整。
+    source_complete: bool,
     /// 串行化，避免一批工具并发触发时重复提炼。
     gate: tokio::sync::Mutex<()>,
     /// 已尝试过（无论成败）。失败后不重试：避免网络故障演变成每次调用都烧一次。
@@ -126,11 +131,40 @@ impl JevRuleLoader {
             chunk_len,
             max_chunks,
             slot,
+            disk_cache: None,
+            source_complete: true,
             gate: tokio::sync::Mutex::new(()),
             attempted: std::sync::atomic::AtomicBool::new(false),
             failed: std::sync::atomic::AtomicBool::new(false),
             incomplete: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// 启用生产会话的持久化缓存。完整来源参与签名，未截断才允许复用/落盘。
+    /// 默认构造器只使用进程缓存，避免独立调用或测试写入用户配置目录。
+    pub fn with_persistent_cache(
+        mut self,
+        cwd: &std::path::Path,
+        full_source: &str,
+        source_limit: usize,
+    ) -> Self {
+        self.source_complete = full_source == self.source;
+        self.disk_cache = RulesCache::new(
+            cwd,
+            serde_json::json!({
+                "source": full_source,
+                "source_limit": source_limit,
+                "provider": self.model.provider_name(),
+                "model": self.model.model_id(),
+                "system_prompt": SYSTEM_PROMPT,
+                "user_template": USER_TEMPLATE,
+                "chunk_len": self.chunk_len,
+                "max_chunks": self.max_chunks,
+                "split_depth": MAX_SPLIT_DEPTH,
+                "timeout_ms": self.timeout.as_millis(),
+            }),
+        );
+        self
     }
 
     /// 提炼是否失败（来源非空但没拿到规则）——即"用户的规则当前没有被执行"。
@@ -169,19 +203,47 @@ impl JevRuleLoader {
         // 下次调用无法重试却误把没有规则视为安全；正常结束再写入明确的结果状态。
         self.incomplete
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        if self.source_complete {
+            if let Some(cache) = &self.disk_cache {
+                if let Some(hit) = cached_rules_in_namespace(&self.source, Some(cache.signature()))
+                {
+                    self.incomplete
+                        .store(false, std::sync::atomic::Ordering::SeqCst);
+                    *self.slot.write() = Some(hit);
+                    return;
+                }
+                if let Some(hit) = cache.load().await {
+                    cache_rules(
+                        content_hash_in_namespace(&self.source, Some(cache.signature())),
+                        hit.clone(),
+                    );
+                    self.incomplete
+                        .store(false, std::sync::atomic::Ordering::SeqCst);
+                    *self.slot.write() = Some(hit);
+                    return;
+                }
+            }
+        }
         match extract_rules_chunked_with_status(
             self.model.as_ref(),
             &self.source,
             self.chunk_len,
             self.max_chunks,
             self.timeout,
+            self.disk_cache.as_ref().map(RulesCache::signature),
         )
         .await
         {
             Some((rules, complete)) => {
+                let complete = complete && self.source_complete;
                 self.incomplete
                     .store(!complete, std::sync::atomic::Ordering::SeqCst);
-                *self.slot.write() = Some(rules);
+                *self.slot.write() = Some(rules.clone());
+                if complete {
+                    if let Some(cache) = &self.disk_cache {
+                        cache.store(rules).await;
+                    }
+                }
             }
             None => {
                 self.failed.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -202,9 +264,32 @@ static CACHE: LazyLock<Mutex<HashMap<u64, Arc<JevRules>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn content_hash(source: &str) -> u64 {
+    content_hash_in_namespace(source, None)
+}
+
+fn content_hash_in_namespace(source: &str, namespace: Option<&str>) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     source.hash(&mut hasher);
+    if let Some(namespace) = namespace {
+        namespace.hash(&mut hasher);
+    }
     hasher.finish()
+}
+
+fn cached_rules_in_namespace(source: &str, namespace: Option<&str>) -> Option<Arc<JevRules>> {
+    CACHE
+        .lock()
+        .get(&content_hash_in_namespace(source, namespace))
+        .cloned()
+}
+
+fn cache_rules(key: u64, rules: Arc<JevRules>) {
+    let mut cache = CACHE.lock();
+    // 分块与历史规则签名均有上限，避免规则频繁编辑导致内存持续增长。
+    if cache.len() >= 128 {
+        cache.clear();
+    }
+    cache.insert(key, rules);
 }
 
 /// 查询缓存（不触发 LLM）。供测试与调用方判断是否已有现成规则。
@@ -226,7 +311,7 @@ pub async fn extract_rules(
     source: &str,
     timeout: Duration,
 ) -> Option<Arc<JevRules>> {
-    extract_one(model, source, timeout)
+    extract_one(model, source, timeout, None)
         .await
         .map(|(rules, _)| rules)
 }
@@ -236,11 +321,12 @@ async fn extract_one(
     model: &dyn BaseModel,
     source: &str,
     timeout: Duration,
+    namespace: Option<&str>,
 ) -> Option<(Arc<JevRules>, bool)> {
     if source.trim().is_empty() {
         return None;
     }
-    let key = content_hash(source);
+    let key = content_hash_in_namespace(source, namespace);
     if let Some(hit) = CACHE.lock().get(&key).cloned() {
         return Some((hit, true));
     }
@@ -259,7 +345,7 @@ async fn extract_one(
 
     let arc = Arc::new(rules);
     if complete {
-        CACHE.lock().insert(key, arc.clone());
+        cache_rules(key, arc.clone());
         tracing::info!(
             rules = arc.rules.len(),
             protected = arc.protected_paths.len(),
@@ -285,8 +371,12 @@ async fn extract_chunk_adaptive(
     chunk: &str,
     timeout: Duration,
     depth: u32,
+    namespace: Option<&str>,
 ) -> Option<LlmOutcome> {
-    Box::pin(extract_chunk_adaptive_inner(model, chunk, timeout, depth)).await
+    Box::pin(extract_chunk_adaptive_inner(
+        model, chunk, timeout, depth, namespace,
+    ))
+    .await
 }
 
 async fn extract_chunk_adaptive_inner(
@@ -294,16 +384,17 @@ async fn extract_chunk_adaptive_inner(
     chunk: &str,
     timeout: Duration,
     depth: u32,
+    namespace: Option<&str>,
 ) -> Option<LlmOutcome> {
-    if let Some((rules, complete)) = extract_one(model, chunk, timeout).await {
+    if let Some((rules, complete)) = extract_one(model, chunk, timeout, namespace).await {
         return Some(((*rules).clone(), complete));
     }
     if depth == 0 || chunk.chars().count() < 1_000 {
         return None;
     }
     let (head, tail) = split_at_char(chunk, chunk.chars().count() / 2);
-    let a = extract_chunk_adaptive(model, &head, timeout, depth - 1).await;
-    let b = extract_chunk_adaptive(model, &tail, timeout, depth - 1).await;
+    let a = extract_chunk_adaptive(model, &head, timeout, depth - 1, namespace).await;
+    let b = extract_chunk_adaptive(model, &tail, timeout, depth - 1, namespace).await;
     match (a, b) {
         (Some((x, complete_x)), Some((y, complete_y))) => {
             Some((merge_rules(vec![x, y]), complete_x && complete_y))
@@ -335,7 +426,7 @@ pub async fn extract_rules_chunked(
     max_chunks: usize,
     timeout: Duration,
 ) -> Option<Arc<JevRules>> {
-    extract_rules_chunked_with_status(model, source, chunk_len, max_chunks, timeout)
+    extract_rules_chunked_with_status(model, source, chunk_len, max_chunks, timeout, None)
         .await
         .map(|(rules, _)| rules)
 }
@@ -347,11 +438,12 @@ async fn extract_rules_chunked_with_status(
     chunk_len: usize,
     max_chunks: usize,
     timeout: Duration,
+    namespace: Option<&str>,
 ) -> Option<(Arc<JevRules>, bool)> {
     if source.trim().is_empty() {
         return None;
     }
-    let key = content_hash(source);
+    let key = content_hash_in_namespace(source, namespace);
     if let Some(hit) = CACHE.lock().get(&key).cloned() {
         return Some((hit, true));
     }
@@ -371,7 +463,7 @@ async fn extract_rules_chunked_with_status(
 
     let mut parts = Vec::with_capacity(chunks.len());
     for (i, chunk) in chunks.iter().enumerate() {
-        match extract_chunk_adaptive(model, chunk, timeout, MAX_SPLIT_DEPTH).await {
+        match extract_chunk_adaptive(model, chunk, timeout, MAX_SPLIT_DEPTH, namespace).await {
             Some((rules, chunk_complete)) => {
                 complete &= chunk_complete;
                 parts.push(rules);
@@ -392,7 +484,7 @@ async fn extract_rules_chunked_with_status(
     }
     let arc = Arc::new(merged);
     if complete {
-        CACHE.lock().insert(key, arc.clone());
+        cache_rules(key, arc.clone());
     }
     tracing::info!(
         chunks = chunks.len(),

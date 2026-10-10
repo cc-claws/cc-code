@@ -27,7 +27,7 @@ pub fn rule_model_from(provider: &crate::provider::LlmProvider) -> Option<Arc<dy
 /// 配置派生项（`language` / `claude_md_excludes`）**统一从 `app_config` 取**，不再逐个当参数传——
 /// 调用点因此只有「ctx 相关」的实参，未来新增配置派生项也不用动签名与 8 个调用点。
 ///
-/// `rule_model` 用于把 CLAUDE.md 提炼成 Jev 安全规则（一次 LLM 调用，结果进程内缓存）。
+/// `rule_model` 用于把 CLAUDE.md 提炼成 Jev 安全规则（完整结果按来源签名持久化）。
 /// 传 `None` 则不做提炼，门不携带用户策略。
 pub fn build_frozen_session_data(
     cwd: &str,
@@ -59,6 +59,7 @@ pub fn build_frozen_session_data(
     let global_claude_md = cc_middlewares::AgentsMdMiddleware::read_global_content();
     let hook_rules = cc_middlewares::hitl::jev::sources::collect_hook_rules(cwd);
     let jev_rule_loader = build_jev_rule_loader(
+        cwd,
         &[
             (
                 "personal",
@@ -117,32 +118,37 @@ pub fn build_frozen_session_data(
 /// 提炼等于为每个会话白付一次 LLM 调用。真正提炼发生在门第一次判定时
 /// （[`cc_middlewares::hitl::jev::JevRuleLoader::ensure_loaded`]）。
 ///
-/// 提炼结果按内容哈希缓存在进程内：同一份 CLAUDE.md 只提炼一次。
+/// 完整提炼结果按来源、项目、模型与提炼配置签名缓存在内存和磁盘。
 /// CLAUDE.md 保持**语义化自由文本**——用户不需要写任何特定格式，也不做解析。
 fn build_jev_rule_loader(
+    cwd: &str,
     sections: &[(&str, &str, Option<&str>)],
     model: Option<Arc<dyn BaseModel>>,
 ) -> Option<Arc<JevRuleLoader>> {
     let model = model?;
     let config = JevConfig::from_env();
+    let full_source = jev::compose_policy(sections, usize::MAX);
     let source = jev::compose_policy(sections, config.max_rule_source_len);
     if source.trim().is_empty() {
         return None;
     }
-    // 进程缓存已命中 → 直接放进槽，连惰性触发都省了
+    // 缓存由加载器按完整签名惰性读取，不以单独的来源文本提前填槽。
     let slot = rules::empty_slot();
-    if let Some(hit) = rules::cached_rules(&source) {
-        tracing::debug!("Jev 规则命中进程缓存，无需提炼");
-        *slot.write() = Some(hit);
-    }
-    Some(Arc::new(JevRuleLoader::new(
-        source,
-        model,
-        Duration::from_millis(config.rule_timeout_ms),
-        config.rule_chunk_len,
-        config.max_rule_chunks,
-        slot,
-    )))
+    Some(Arc::new(
+        JevRuleLoader::new(
+            source,
+            model,
+            Duration::from_millis(config.rule_timeout_ms),
+            config.rule_chunk_len,
+            config.max_rule_chunks,
+            slot,
+        )
+        .with_persistent_cache(
+            std::path::Path::new(cwd),
+            &full_source,
+            config.max_rule_source_len,
+        ),
+    ))
 }
 
 #[cfg(test)]
