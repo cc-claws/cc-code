@@ -14,8 +14,8 @@ use crate::{
 const CONTEXT_WARNING_PCT: f64 = 70.0;
 const CONTEXT_CRITICAL_PCT: f64 = 85.0;
 const TOOLS_MAX_VISIBLE: usize = 4;
-const RUNNING_TOOLS_MAX_VISIBLE: usize = 2;
-const TOOL_TARGET_MAX_LEN: usize = 20;
+/// 状态栏「最近工具」args 摘要的字符数上限（首版 30，后续按用户反馈调整）
+const TOOL_TARGET_MAX_LEN: usize = 30;
 
 pub(crate) fn status_bar_height(app: &App) -> u16 {
     if has_hud_activity(app) {
@@ -56,7 +56,9 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 fn has_hud_activity(app: &App) -> bool {
     let session = app.session_mgr.current();
     let agent = &session.agent;
+    let now = std::time::Instant::now();
     !agent.running_tools.is_empty()
+        || agent.has_visible_recent_tools(now)
         || !agent.session_tool_stats.is_empty()
         || !session.background_agents.is_empty()
         || !session.todo_items.is_empty()
@@ -105,17 +107,17 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     render_truncated_line(f, spans, Vec::new(), area);
 }
 
-/// 第二行（codebuddy-hud activity）：running tools | completed tools | agents | tasks
+/// 第二行（codebuddy-hud activity）：最近工具 | completed tools | agents | tasks
+///
+/// 「最近工具」组由 [`crate::app::AgentComm::recent_tools`] 驱动：最新在最左、最多 2 条，
+/// 运行中显示 `◐`、结束后转 `✓` 并短暂停留（见 `TOOL_MIN_VISIBLE_MS`）。
 fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     let mut left_spans: Vec<Span> = Vec::new();
 
     let agent = &app.session_mgr.current().agent;
-    let running_start = agent
-        .running_tools
-        .len()
-        .saturating_sub(RUNNING_TOOLS_MAX_VISIBLE);
-    for active in &agent.running_tools[running_start..] {
-        append_activity_segment(&mut left_spans, render_running_tool_segment(active));
+    let now = std::time::Instant::now();
+    for entry in agent.visible_recent_tools(now) {
+        append_activity_segment(&mut left_spans, render_recent_tool_segment(entry));
     }
 
     for segment in render_completed_tool_segments(agent) {
@@ -130,6 +132,8 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         append_activity_segment(&mut left_spans, segment);
     }
 
+    // 第二行强制单行：超宽时按显示列宽截断并以 … 收口（禁止折行）
+    let left_spans = truncate_spans_to_width(left_spans, area.width as usize);
     render_truncated_line(f, left_spans, Vec::new(), area);
 }
 
@@ -202,22 +206,63 @@ fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>
     spans.extend(segment);
 }
 
-fn render_running_tool_segment(active: &crate::app::ActiveToolInfo) -> Vec<Span<'static>> {
+/// 最近工具条目：运行中 `◐`（黄）/ 已完成停留期 `✓`（绿），颜色不跟工具身份色走
+fn render_recent_tool_segment(entry: &crate::app::RecentToolEntry) -> Vec<Span<'static>> {
+    let indicator = if entry.running {
+        Span::styled("◐", ansi_style(Color::Yellow))
+    } else {
+        Span::styled("✓", ansi_style(Color::Green))
+    };
     let mut spans = vec![
-        Span::styled("◐", ansi_style(Color::Yellow)),
+        indicator,
         Span::styled(" ", plain_style()),
-        Span::styled(active.display.clone(), ansi_style(Color::Cyan)),
+        Span::styled(entry.display.clone(), ansi_style(Color::Cyan)),
     ];
-    if !active.args_summary.is_empty() {
+    if !entry.args_summary.is_empty() {
         spans.push(Span::styled(
             format!(
                 " : {}",
-                truncate_tool_target(&active.args_summary, TOOL_TARGET_MAX_LEN)
+                truncate_tool_target(&entry.args_summary, TOOL_TARGET_MAX_LEN)
             ),
             dim_style(),
         ));
     }
     spans
+}
+
+/// 单行截断：按显示列宽（unicode-width）裁掉超出部分并以 `…` 收口
+fn truncate_spans_to_width(spans: Vec<Span<'static>>, max_width: usize) -> Vec<Span<'static>> {
+    use unicode_width::UnicodeWidthChar;
+
+    let total: usize = spans.iter().map(|span| span.width()).sum();
+    if total <= max_width || max_width == 0 {
+        return spans;
+    }
+
+    let limit = max_width.saturating_sub(1);
+    let mut used = 0usize;
+    let mut out: Vec<Span<'static>> = Vec::new();
+    let mut overflowed = false;
+    for span in spans {
+        let mut buf = String::new();
+        for ch in span.content.chars() {
+            let width = ch.width().unwrap_or(0);
+            if used + width > limit {
+                overflowed = true;
+                break;
+            }
+            buf.push(ch);
+            used += width;
+        }
+        if !buf.is_empty() {
+            out.push(Span::styled(buf, span.style));
+        }
+        if overflowed {
+            break;
+        }
+    }
+    out.push(Span::styled("…", dim_style()));
+    out
 }
 
 fn render_completed_tool_segments(agent: &crate::app::AgentComm) -> Vec<Vec<Span<'static>>> {
@@ -796,6 +841,7 @@ fn simplify_mcp_error(msg: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn test_context_usage_color_matches_design_thresholds() {
@@ -866,17 +912,89 @@ mod tests {
     }
 
     #[test]
-    fn test_render_running_tool_segment_matches_codebuddy_hud() {
-        let segment = render_running_tool_segment(&crate::app::ActiveToolInfo {
-            tool_call_id: "tc1".to_string(),
-            name: "Read".to_string(),
-            display: "Read".to_string(),
-            args_summary: "src/deep/file.rs".to_string(),
-        });
+    fn test_render_recent_tool_segment_matches_codebuddy_hud() {
+        let segment =
+            render_recent_tool_segment(&make_recent_entry("Read", "src/deep/file.rs", true));
         assert_eq!(spans_to_plain(&segment), "◐ Read : src/deep/file.rs");
         assert_eq!(segment[0].style.fg, Some(Color::Yellow));
         assert_eq!(segment[2].style.fg, Some(Color::Cyan));
         assert!(segment[3].style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn test_render_recent_tool_segment_uses_completed_glyph_after_finish() {
+        let segment =
+            render_recent_tool_segment(&make_recent_entry("Read", "src/deep/file.rs", false));
+        assert_eq!(spans_to_plain(&segment), "✓ Read : src/deep/file.rs");
+        assert_eq!(segment[0].style.fg, Some(Color::Green));
+    }
+
+    #[test]
+    fn test_render_recent_tool_segment_omits_args_when_empty() {
+        let segment = render_recent_tool_segment(&make_recent_entry("Todo", "", true));
+        assert_eq!(spans_to_plain(&segment), "◐ Todo");
+    }
+
+    #[test]
+    fn test_render_recent_tool_segment_colors_are_uniform_across_tools() {
+        let bash = render_recent_tool_segment(&make_recent_entry("Bash", "sleep 15", true));
+        let read = render_recent_tool_segment(&make_recent_entry("Read", "src/main.rs", true));
+        assert_eq!(bash[0].style.fg, read[0].style.fg);
+        assert_eq!(bash[2].style.fg, read[2].style.fg);
+    }
+
+    #[test]
+    fn test_truncate_tool_target_uses_char_count_cap() {
+        assert_eq!(
+            truncate_tool_target("src/ui/main_ui/status_bar.rs", TOOL_TARGET_MAX_LEN),
+            "src/ui/main_ui/status_bar.rs"
+        );
+        assert_eq!(
+            truncate_tool_target("tool_dispatch_test.rs:1580-1599", TOOL_TARGET_MAX_LEN),
+            "tool_dispatch_test.rs:1580-..."
+        );
+    }
+
+    #[test]
+    fn test_truncate_spans_to_width_adds_ellipsis_when_narrow() {
+        let spans = vec![
+            Span::styled("◐ Bash : sleep 15", plain_style()),
+            Span::styled(" | ", plain_style()),
+            Span::styled("✓ Bash ×21", plain_style()),
+        ];
+        let plain = spans_to_plain(&truncate_spans_to_width(spans, 20));
+        assert_eq!(plain, "◐ Bash : sleep 15 |…");
+        assert_eq!(UnicodeWidthStr::width(plain.as_str()), 20);
+    }
+
+    #[test]
+    fn test_truncate_spans_to_width_keeps_line_when_fits() {
+        let spans = vec![Span::styled("◐ Bash : sleep 15", plain_style())];
+        let plain = spans_to_plain(&truncate_spans_to_width(spans, 40));
+        assert_eq!(plain, "◐ Bash : sleep 15");
+    }
+
+    #[test]
+    fn test_truncate_spans_to_width_counts_cjk_as_two_columns() {
+        let spans = vec![Span::styled("◐ Ask : 选择要修改的渲染层", plain_style())];
+        let plain = spans_to_plain(&truncate_spans_to_width(spans, 18));
+        assert!(UnicodeWidthStr::width(plain.as_str()) <= 18);
+        assert!(plain.ends_with('…'));
+    }
+
+    fn make_recent_entry(
+        display: &str,
+        args_summary: &str,
+        running: bool,
+    ) -> crate::app::RecentToolEntry {
+        crate::app::RecentToolEntry {
+            tool_call_id: "tc1".to_string(),
+            display: display.to_string(),
+            args_summary: args_summary.to_string(),
+            running,
+            started_at: std::time::Instant::now(),
+            visible_until: None,
+        }
     }
 
     #[test]

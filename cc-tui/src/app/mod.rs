@@ -141,7 +141,7 @@ use std::sync::Arc;
 use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
-pub use agent_comm::{ActiveToolInfo, AgentComm, RetryStatus};
+pub use agent_comm::{ActiveToolInfo, AgentComm, RecentToolEntry, RetryStatus};
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};

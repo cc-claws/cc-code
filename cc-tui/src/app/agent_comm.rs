@@ -21,6 +21,25 @@ pub struct ActiveToolInfo {
     pub args_summary: String,
 }
 
+/// 状态栏「最近工具」显示条目：只服务于状态栏第二行渲染
+#[derive(Clone, Debug)]
+pub struct RecentToolEntry {
+    pub tool_call_id: String,
+    pub display: String,
+    pub args_summary: String,
+    /// 是否仍在执行
+    pub running: bool,
+    /// ToolStart 时刻，用于计算最短可见时长
+    pub started_at: std::time::Instant,
+    /// 停留截止时刻（工具结束时设置，= max(结束时刻, started_at + TOOL_MIN_VISIBLE_MS)）
+    pub visible_until: Option<std::time::Instant>,
+}
+
+/// 状态栏「最近工具」同时保留的条数上限（最新的在最前，超出丢最老）
+pub const RECENT_TOOLS_MAX_VISIBLE: usize = 2;
+/// 工具条目最短可见时长：快工具垫到该时长，慢工具执行结束即刻消失
+pub const TOOL_MIN_VISIBLE_MS: u64 = 300;
+
 /// LLM 重试状态（由 AgentEvent::LlmRetrying 更新）
 pub struct RetryStatus {
     pub attempt: usize,
@@ -103,6 +122,8 @@ pub struct AgentComm {
     pub running_tools: Vec<ActiveToolInfo>,
     /// 会话级按工具类型统计已完成调用次数（会话累计，new_thread 时清零）
     pub session_tool_stats: HashMap<String, u32>,
+    /// 状态栏「最近工具」条目（最新在最前，容量 [`RECENT_TOOLS_MAX_VISIBLE`]）
+    pub recent_tools: std::collections::VecDeque<RecentToolEntry>,
 }
 
 impl Default for AgentComm {
@@ -142,6 +163,50 @@ impl Default for AgentComm {
             active_tool: None,
             running_tools: Vec::new(),
             session_tool_stats: HashMap::new(),
+            recent_tools: std::collections::VecDeque::new(),
         }
     }
+}
+
+impl AgentComm {
+    /// 记录一个新开始的工具调用：插到最前，超出容量丢最老
+    pub fn push_recent_tool(&mut self, entry: RecentToolEntry) {
+        self.recent_tools.push_front(entry);
+        self.recent_tools.truncate(RECENT_TOOLS_MAX_VISIBLE);
+    }
+
+    /// 标记工具结束：进入短暂停留（最多再显示 TOOL_MIN_VISIBLE_MS），位置不变
+    pub fn finish_recent_tool(&mut self, tool_call_id: &str, now: std::time::Instant) {
+        if let Some(entry) = self
+            .recent_tools
+            .iter_mut()
+            .find(|entry| entry.tool_call_id == tool_call_id)
+        {
+            entry.running = false;
+            let min_until =
+                entry.started_at + std::time::Duration::from_millis(TOOL_MIN_VISIBLE_MS);
+            entry.visible_until = Some(now.max(min_until));
+        }
+    }
+
+    /// 当前应当显示在状态栏的条目：运行中的，或仍在停留期内的
+    pub fn visible_recent_tools(
+        &self,
+        now: std::time::Instant,
+    ) -> impl Iterator<Item = &RecentToolEntry> {
+        self.recent_tools
+            .iter()
+            .filter(move |entry| entry.running || entry.visible_until.is_some_and(|t| now < t))
+    }
+
+    /// 是否存在需要展示的最近工具条目（状态栏第二行是否要展开）
+    pub fn has_visible_recent_tools(&self, now: std::time::Instant) -> bool {
+        self.visible_recent_tools(now).next().is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    include!("agent_comm_test.rs");
 }

@@ -79,8 +79,34 @@ pub fn format_tool_args(
         "ExecuteExtraTool" => input["tool_name"].as_str().map(|s| truncate(s, 40)),
         "SearchExtraTools" => input["query"].as_str().map(|s| truncate(s, 40)),
         "LSP" => input["operation"].as_str().map(|s| truncate(s, 40)),
-        _ => None,
+        "AskUserQuestion" => ask_user_summary(input),
+        "Agent" => input["description"]
+            .as_str()
+            .or_else(|| input["prompt"].as_str())
+            .map(|s| truncate(s, 40)),
+        "TodoWrite" => input["todos"]
+            .as_array()
+            .map(|todos| format!("{} 项任务", todos.len())),
+        // 兜底：状态栏要求所有工具都有摘要，取第一个非空字符串字段
+        _ => first_string_field(input).map(|s| truncate(s, 40)),
     }
+}
+
+/// AskUserQuestion 摘要：优先取首个问题的正文，取不到再退回标题
+fn ask_user_summary(input: &serde_json::Value) -> Option<String> {
+    let first = input["questions"].as_array()?.first()?;
+    first["question"]
+        .as_str()
+        .or_else(|| first["header"].as_str())
+        .map(|s| truncate(s, 40))
+}
+
+/// 通用兜底摘要：按 key 顺序取 input 里第一个非空字符串值
+fn first_string_field(input: &serde_json::Value) -> Option<&str> {
+    let obj = input.as_object()?;
+    obj.values()
+        .filter_map(|value| value.as_str())
+        .find(|value| !value.trim().is_empty())
 }
 
 pub fn to_pascal(s: &str) -> String {

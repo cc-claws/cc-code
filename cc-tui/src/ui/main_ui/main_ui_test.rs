@@ -108,6 +108,19 @@ async fn test_status_area_clears_long_agent_shell_text_after_tool_finishes() {
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
     assert!(
+        handle.contains(long_marker),
+        "工具结束后条目进入最短可见停留（<=300ms），此期间仍应显示摘要"
+    );
+
+    // 让最短可见停留立即过期，模拟 300ms 之后的状态
+    for entry in app.session_mgr.current_mut().agent.recent_tools.iter_mut() {
+        entry.visible_until = Some(std::time::Instant::now() - std::time::Duration::from_millis(1));
+    }
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
         !handle.contains(long_marker),
         "agent shell 状态消失后，底部状态区不应残留旧命令文本"
     );

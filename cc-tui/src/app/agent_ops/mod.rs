@@ -206,11 +206,20 @@ impl App {
                         tool_call_id: tool_call_id.clone(),
                         name: name.clone(),
                         display: display.clone(),
-                        args_summary,
+                        args_summary: args_summary.clone(),
                     };
                     let agent = &mut self.session_mgr.current_mut().agent;
                     agent.running_tools.push(active.clone());
                     agent.active_tool = Some(active);
+                    // 状态栏「最近工具」：最新在最前，超出容量丢最老
+                    agent.push_recent_tool(super::agent_comm::RecentToolEntry {
+                        tool_call_id: tool_call_id.clone(),
+                        display: display.clone(),
+                        args_summary,
+                        running: true,
+                        started_at: std::time::Instant::now(),
+                        visible_until: None,
+                    });
                 }
                 // 跨切面：spinner —— 思考段结束，进入工具执行
                 // 方案 A（verb 整轮固定）：keep_verb，保持一次性选定的动词
@@ -253,6 +262,8 @@ impl App {
                         .running_tools
                         .retain(|tool| tool.tool_call_id != tool_call_id);
                     agent.active_tool = agent.running_tools.last().cloned();
+                    // 状态栏「最近工具」：标记结束并进入最短可见停留
+                    agent.finish_recent_tool(&tool_call_id, std::time::Instant::now());
                 }
                 if !name.is_empty() {
                     let count = *self

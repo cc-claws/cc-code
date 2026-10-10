@@ -78,12 +78,12 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Sub-Agent 并发** | 后台子 agent 并行执行，支持 fork 和 background 模式 |
 | **HITL 审批** | 敏感操作自动拦截，支持 auto-classifier 和 shared-mode |
 | **双引擎文件搜索** | Grep/Glob 优先使用外部 ripgrep 二进制，回退到内置 Rust 引擎 |
-| **Nobody Coding** | 99% 代码由 DeepSeek、Mimo、GLM 产出 — 人决定做什么，AI 想怎么做 |
 
 ### v0.6.x 新增功能
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **状态栏第二行「最近工具」实时摘要** | v0.6.111 | 第二行的运行中工具段原来只在执行期间存在，而且经常根本看不到：`poll_agent` 每帧把 ACP 通知一次 drain 干净，Read/Glob 这类毫秒级工具的 ToolStart + ToolEnd 落在同一帧，`◐ Read : x.rs` 一帧都没渲染过；摘要来源还只是 11 个工具的白名单（Agent / TodoWrite / AskUserQuestion / MCP 只有裸名字），顺序也是「老在左」。现改为由 `AgentComm.recent_tools` 驱动的一行流水：最新在最左、最多留 2 条（第 3 条挤掉最老），条目显示时长取 `max(实际执行时长, 300ms)`——快工具垫到 300ms 后消失，慢工具执行结束即刻消失，工具结束只让右侧聚合计数 `✓ Name ×N` +1、不再生成带摘要的完成条目。摘要覆盖全部工具（AskUserQuestion → 首个问题，Agent → description，TodoWrite → 任务数，其余 → 第一个非空字符串字段），字符上限 20 → 30，截断仍是路径语义，`◐`/`✓`/工具名/摘要配色统一。第二行强制单行不折行，超宽按显示列宽（unicode-width）在行尾 `…` 收口，不再被 `Paragraph` 静默裁掉 |
 | **跨工具 Schema 聚合熔断与类型化连续失败追踪** | v0.6.110 | Schema 熔断器此前按工具名独立计数，模型在不同工具间轮换猜错参数即可逃逸单工具熔断阈值；连续失败检测按完整错误文本做 key，参数名差异导致计数被稀释。现引入跨工具聚合连续失败追踪（阈值 3 次）并支持指数退避，精准阻断跨工具乱猜参数死循环；连续失败检测改为按 `(tool_name, ToolErrorKind)` 聚合，错误文本动态变化亦能可靠累计；警告提示严格在所有工具结果写入后统一追加，杜绝孤立 `tool_result` 风险（#379） |
 | **动词流光动效与状态词阶梯升温** | v0.6.109 | 参考 Codex CLI 物理余弦衰减模型，动词（`Executing…` / `Thinking…`）引入独立舒缓流光（5.0s 周期，同色系提亮 45% 绝不刺眼），长 Bash 工具执行期间以 8.0s 极低频独立流光充当生命体征心跳；思考状态词与动词动静解耦，状态词完全不闪烁，纯按时间阶梯从浅灰逐步加温至琥珀金（0~2.5s 浅灰 ➔ 2.5~5s 柔白 ➔ 5~15s 动词暖橙 ➔ 15~60s still thinking 浅金 ➔ >=60s deep in thought 琥珀金）。同版本另修：ASCII 降级表补 `⎿`（U+23BF）消除异常列宽终端前缀问号 |
 | **`LlmCallStart` 载荷按需构造** | v0.6.108 | executor 曾在每轮 LLM 调用前无条件 `state.messages().to_vec()`——仅为构造 `LlmCallStart` 事件就深拷贝整个消息历史（含工具结果正文、图片 base64），即使没有任何订阅者；#306 只修掉了 tracer 侧的第二次深拷贝。由于唯一真实消费者是 Langfuse tracer（TUI 与 ACP mapper 均丢弃该事件），`AgentEventHandler` 新增 `wants_llm_call_payload()`（默认 `false`），executor 在 handler 未声明时发空载荷——Langfuse 未启用时完全跳过 O(轮数 × 历史大小) 的分配。同版本另修：用户 `!` shell 命令块现与工具结果行对齐，不再使用独立缩进 / 前缀 |
@@ -93,9 +93,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **HITL 三档审批** | v0.6.106 | 审批弹窗同时提供「同意本次 / 本次会话同意 / 拒绝」：上下键选择、Enter 提交、Tab / Shift+Tab 切换工具、Esc 全部拒绝。会话记忆按工具细化（文件按工具+路径，Bash 按完整命令+执行目录+分支，其他按完整参数），显式禁止规则始终优先于记忆 |
 | **`/export` 不再截断工具调用** | v0.6.106 | 导出的 Markdown/PlainText 此前把工具参数按 `chars().take(200)` 截断——真实日志中 210 次 Bash 调用有 156 次（74%）被切在正好 200 字符，JSON 未闭合、命令从中间断掉；`Write.content`、`Edit` 参数同样受影响。现完整输出参数，工具结果分支输出完整正文并标注错误，代码围栏按连续反引号自适应，heredoc 脚本不再破坏 Markdown 结构 |
 | **日志打不开不再 panic** | v0.6.105 | `~/.cc-code/logs/{service}.log` 无法打开（如 ACL 被写坏成空 DACL）时，`.expect("cannot open log file")` 会**直接 panic 掉整个进程**——日志是诊断设施，不该是启动硬依赖。现改为警告并退回 `std::io::stderr`，`ensure_utf8_bom()` 静默忽略，`set_global_default` 降级为警告 |
-| **统一内置英文指令** | v0.6.105 | 统一 14 个主模板、4 个内置 Agent、工具与参数说明、Skills、ACP 命令、压缩/回顾及审批模型的英文指令：清理「四行 / 一词回复」「编辑后停止」等固定限制，明确授权范围、持续执行与验证证据，工具说明与实现对齐（Read 分页与 32 MiB 上限、Bash shell/timeout 契约）。核心工具描述 −40.9%、内置 Agent 定义 −31.9% |
-
-> 更早版本（v0.6.0 – v0.6.105）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.106）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

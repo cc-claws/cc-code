@@ -78,12 +78,12 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **Sub-Agent Concurrency** | Background sub-agents run in parallel with fork and background modes |
 | **HITL Approval** | Sensitive operations auto-intercepted with auto-classifier and shared-mode |
 | **Dual-Engine File Search** | Grep/Glob prefer the external ripgrep binary, falling back to the built-in Rust engine |
-| **Nobody Coding** | 99% of code produced by DeepSeek, Mimo, and GLM — humans decide what, AI figures out how |
 
 ### v0.6.x New Features
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Status Bar Recent-Tool Feed** | v0.6.111 | The status bar's second row used to show the running tool only while it ran — and often never at all: `poll_agent` drains every ACP notification within one frame, so millisecond tools (Read/Glob) had their ToolStart + ToolEnd handled in the same frame and `◐ Read : x.rs` was never drawn once. Summaries were a whitelist of 11 tools (Agent / TodoWrite / AskUserQuestion / MCP showed a bare name), and ordering kept the oldest entry on the left. The row is now a feed driven by `AgentComm.recent_tools`: newest on the left, at most 2 (a third pushes the oldest out), each entry visible for `max(actual duration, 300ms)` — fast tools linger, slow ones vanish the moment they finish — and finishing a tool now only bumps the aggregate `✓ Name ×N` counter instead of adding a summary entry. Summaries cover every tool (AskUserQuestion → first question, Agent → description, TodoWrite → task count, otherwise the first non-empty string field), the character cap moved 20 → 30, truncation stays path-semantic, and `◐`/`✓`/name/summary colors are uniform. The row never wraps: overflow is cut by display width (unicode-width) with a trailing `…` instead of being silently clipped |
 | **Schema Circuit Breaker & Typed Failure Tracking** | v0.6.110 | Schema validation circuit breaker previously counted failures per tool name independently, allowing the agent to evade the breaker by alternating between different tools; consecutive failure tracking also used full error text as hash keys, fragmenting counts across dynamic parameter names. The breaker now adds an aggregate cross-tool failure tracker (threshold 3) with exponential backoff to immediately arrest multi-tool guessing loops, while consecutive failure tracking groups by typed `(tool_name, ToolErrorKind)` to reliably capture recurring errors regardless of error string variations. Injected warnings are strictly flushed after all tool results to preserve `tool_use` and `tool_result` contiguity (#379) |
 | **Verb Shimmer & Thermal Ladder** | v0.6.109 | Following Codex CLI's cosine wave attenuation physics, verbs (`Executing…` / `Thinking…`) now feature independent gentle shimmer (5.0s period, toned 45% brighter within the same hue, never jarring); long Bash tasks maintain an 8.0s ultra-low frequency shimmer as a visual heartbeat. The thinking status word decouples from verb shimmer, staying 100% static while warming by elapsed time (0~2.5s muted gray ➔ 2.5~5s soft white ➔ 5~15s warm orange ➔ 15~60s still thinking light gold ➔ >=60s deep in thought amber gold). Also in v0.6.109: added `⎿` (U+23BF) to the ASCII fallback map to fix `?` tool prefix on odd column-width terminals |
 | **Lazy `LlmCallStart` Payload** | v0.6.108 | The executor used to run `state.messages().to_vec()` unconditionally before every LLM call — deep-copying the entire message history (tool-result bodies, image base64) just to populate the `LlmCallStart` event, even with no subscriber; #306 only removed the tracer-side second copy. Since Langfuse is the sole real consumer (TUI and the ACP mapper both drop the event), `AgentEventHandler` gained `wants_llm_call_payload()` (default `false`) and the executor now emits an empty payload unless the handler opts in — skipping the O(rounds × history) allocation entirely when Langfuse is off. Also in v0.6.108: user `!` shell-command blocks now align with tool-result rows instead of using a distinct indent/prefix |
@@ -93,9 +93,7 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **HITL Three-Way Approval** | v0.6.106 | The approval popup now offers "approve once / approve for session / deny" together: arrow keys to select, Enter to submit, Tab / Shift+Tab to switch tools, Esc to deny all. Session memory is per-tool (files by tool+path, Bash by full command+dir+branch, others by full args), and explicit deny rules always win over memory |
 | **`/export` No Longer Truncates Tool Calls** | v0.6.106 | Exported Markdown/PlainText used to slice tool-call arguments at `chars().take(200)` — in a real log 156 of 210 Bash calls (74%) were cut at exactly 200 chars, leaving unterminated JSON mid-command; `Write.content` and `Edit` strings suffered too. Arguments are now emitted in full, the tool-result branch prints the whole body and flags errors, and the code fence adapts to backtick runs so heredoc scripts can't break the Markdown |
 | **Log File Failure No Longer Panics** | v0.6.105 | If `~/.cc-code/logs/{service}.log` couldn't be opened (e.g. an ACL corrupted to an empty DACL), `.expect("cannot open log file")` **panicked the whole process** — logging is diagnostics, not a startup dependency. It now warns and falls back to `std::io::stderr`, `ensure_utf8_bom()` fails silently, and `set_global_default` degrades to a warning |
-| **Unified Built-in Instructions** | v0.6.105 | Unified English instructions across 14 main templates, 4 built-in agents, tool/param docs, Skills, ACP commands, compaction/recap and approval models: removed rigid "four-line / one-word reply" and "stop after edit" limits, made authorization scope, sustained execution and verification evidence explicit, and aligned tool docs with the implementation (Read paging & 32 MiB cap, Bash shell/timeout contract). Core tool descriptions −40.9%, built-in agent definitions −31.9% |
-
-> Older releases (v0.6.0 – v0.6.105) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.106) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
@@ -139,10 +137,6 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 
 | When you... | Pipeline kicks off |
 |---|---|
-| **Find a bug or piece of tech debt** | `issue-create` → `systematic-debugging` → `writing-plans` → `subagent-driven-development` → `issue-archive` → improve CLAUDE.md |
-| **Want to build a new feature** | `brainstorming` → `writing-plans` → `subagent-driven-development` |
-| **Notice the codebase getting messy** | `slop-cleaner` → `writing-plans` → `subagent-driven-development` |
-| **Need someone to grok the architecture** | `teacher` → assign a task → `teacher` |
 
 ---
 
