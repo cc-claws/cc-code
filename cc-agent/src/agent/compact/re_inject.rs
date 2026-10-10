@@ -271,6 +271,21 @@ pub fn extract_skill_names(messages: &[BaseMessage]) -> Vec<String> {
     skills
 }
 
+/// 构造 compact 后的消息列表：摘要 Human 消息 + re_inject 注入消息。
+///
+/// 摘要正文必须用 `<system-reminder>` 包裹——TUI 依赖该标签把摘要折叠成一行
+/// 提示（见 `cc-tui/src/ui/message_view/mod.rs`）。手动 `/compact`（`cc-acp`）
+/// 与自动 compact（`cc-middlewares`）**必须共用此函数**，否则两条路径会再次漂移：
+/// 手动路径缺少标签时，摘要会被当作普通用户消息整段铺开。
+pub fn build_compacted_messages(summary: &str, re_injected: Vec<BaseMessage>) -> Vec<BaseMessage> {
+    let summary_content = format!(
+        "<system-reminder>\n{summary}\n\n[Context compacted; continue based on the summary]\n</system-reminder>"
+    );
+    let mut messages = vec![BaseMessage::human(summary_content)];
+    messages.extend(re_injected);
+    messages
+}
+
 #[cfg(test)]
 #[path = "re_inject_test.rs"]
 mod tests;
