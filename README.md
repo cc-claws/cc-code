@@ -176,8 +176,10 @@ cc-code/
 ├── CLAUDE.md                  # Project development guide
 ├── CHANGELOG.md               # Version changelog
 ├── CONTRIBUTING.md            # Contribution guide
+├── DEVLOG.md                  # Development log (milestones)
 ├── README.md
 ├── README_ZH.md
+├── TUI-STYLE.md               # TUI command / shortcut / interaction reference
 └── LICENSE                    # Apache 2.0
 ```
 

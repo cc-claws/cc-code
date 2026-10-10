@@ -519,7 +519,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## 命令系统
 
-源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **30 个命令**。
+源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **29 个命令**。
 
 ### 命令列表
 
@@ -543,7 +543,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 | 命令 | 说明 |
 |------|------|
-| `/agent` | 设置 Agent 定义，切换不同的 Agent 角色 |
 | `/agents` | 打开 Agent 选择面板 |
 | `/help` | 列出所有可用命令 |
 | `/model` | 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名 |

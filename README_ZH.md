@@ -180,8 +180,10 @@ cc-code/
 ├── CLAUDE.md                  # 项目开发指南
 ├── CHANGELOG.md               # 版本变更记录
 ├── CONTRIBUTING.md            # 贡献指南
+├── DEVLOG.md                  # 开发日志（里程碑）
 ├── README.md
 ├── README_ZH.md
+├── TUI-STYLE.md               # TUI 命令 / 快捷键 / 交互参考
 └── LICENSE                    # Apache 2.0
 ```
 

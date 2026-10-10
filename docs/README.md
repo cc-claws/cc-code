@@ -34,20 +34,14 @@
 - [消息管线](../spec/global/domains/message-pipeline.md) — 消息处理流程
 - [系统提示词](../spec/global/domains/system-prompt.md) — 提示词管理
 - [上下文压缩](../spec/global/domains/compact.md) — 压缩机制
-- [同步](../spec/global/domains/sync.md) — 文件同步
 - [工具](../spec/global/domains/tools.md) — 工具系统
 - [TUI Widgets](../spec/global/domains/tui-widgets.md) — Widget 组件
 
 ### 产品需求文档 (PRD)
 
 - [Shell 状态指示器](../spec/prd-shell-status-indicator.md)
-- [推理渲染](../spec/prd/reasoning-markdown-rendering.md)
-- [Web 搜索增强](../spec/prd/web-search-enhance.md)
+- [Shell 命令 PRD](../spec/features/shell-command-prd.md)
 - [屏幕选区](../spec/features/screen-selection-prd.md)
-- [工具状态颜色对齐](../spec/features/tool-status-color-alignment-prd.md)
-- [Cron 调度对齐 Claude Code](../spec/features/20260630_F001_cron-alignment-claude-code/spec-prd.md)
-- [项目初始化 init 命令](prd/init-command.md)
-- [TUI 栏位色彩设计规范](designs/2026-07-09-tui-bar-color-design-spec.md)
 
 ## Issue 文档
 

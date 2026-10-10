@@ -4,17 +4,17 @@
 
 ## 核心引擎（cc-agent）
 
-- **ReAct 循环执行器:** `ReActAgent` 支持最多 50 次迭代，思考 → 工具调用 → 反馈自动推进，parallel 工具调用（同轮多工具同时执行）
+- **ReAct 循环执行器:** `ReActAgent` 核心默认最多 10 次迭代（`cc-acp` 构建时 `max_iterations(500)` 放宽），思考 → 工具调用 → 反馈自动推进，parallel 工具调用（同轮多工具同时执行）
 - **MockLLM 测试工具:** `MockLLM::tool_then_answer()` 按脚本回放推理序列，无需真实 API，覆盖单元测试场景
 - **OpenAI 适配器:** 支持 `message.reasoning_content`（DeepSeek-R1/o 系列），streaming SSE，`type:"function"` 工具格式
 - **Anthropic 适配器:** Prompt Cache（默认开启，最后消息末尾 `cache_control:ephemeral`），Extended Thinking（`budget_tokens`），`system` 字段 blocks 格式
 - **MessageAdapter 双向转换:** `OpenAiAdapter` / `AnthropicAdapter` 实现 `MessageAdapter` trait，`BaseMessage` ↔ Provider 原生 JSON
 - **ContentBlock 完整支持:** Text / Image（Base64 & URL）/ Document / ToolUse / ToolResult / Reasoning / Unknown 透传
 - **Middleware Chain:** `Middleware<S>` trait，`before_agent` / `after_agent` / `before_tool` / `after_tool` / `collect_tools` 五个钩子
-- **系统提示词段落化:** 12 个 .md 段落文件（8 静态+4 feature-gated），PromptFeatures 条件注入，include_str! 编译时嵌入
+- **系统提示词段落化:** 14 个 .md 段落文件（6 静态 + 8 动态，其中若干 feature-gated），`__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔静态/动态（标记前可缓存），PromptFeatures 条件注入，include_str! 编译时嵌入
 - **消息管线统一:** MessagePipeline 唯一入口，PipelineAction 枚举，ToolStart+ToolEnd 事件拆分
 - **尾部重建:** reconcile_tail() 方法，Done/Interrupted 时触发，RebuildAll 只替换尾部
-- **工具参数 Schema 预校验:** 对齐 Claude Code `formatZodValidationError` 风格，结构化分项输出缺失参数 / 意外参数 / 类型不符；`suggest_tool_mismatch` 启发式诊断（基于参数特征指纹对 WebFetch/Bash/Grep/Read/Agent 给出纠偏建议）；`SchemaFailureTracker` 熔断器（同一工具连续 2 次校验失败即拦截，防盲目重试循环）
+- **工具参数 Schema 预校验:** 对齐 Claude Code `formatZodValidationError` 风格，结构化分项输出缺失参数 / 意外参数 / 类型不符；`suggest_tool_mismatch` 启发式诊断（基于参数特征指纹对 WebFetch/Bash/Grep/Read/Agent 给出纠偏建议）；`SchemaFailureTracker` 熔断器（滑动窗口口径，窗口容量 6；单工具阈值 2、跨工具聚合阈值 3，由窗口派生且成功调用同样占位以淘汰旧失败，防盲目重试循环）
 - **工具动作签名循环检测:** 连续 3 轮相同工具动作时注入纠正消息，打断重复循环
 - **Anthropic 适配器（自适应兼容）:** 非流式响应自适应解析反向代理返回的 OpenAI 格式（`choices` / `message` / `tool_calls`），缺 `content` 时回退解析；SSE 流式自适应解析
 - **/recap 会话回顾:** 独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history、支持 Ctrl+C 取消
@@ -28,7 +28,7 @@
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
 - **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测；默认限**所属项目根内**，越界保留占位符；用户自有全局文件不受限）。**用户全局层为有序候选回退**：`~/.cc-code/AGENTS.md` → `~/.cc-code/CLAUDE.md` → `~/.claude/CLAUDE.md` → `~/.claude/AGENTS.md`，取首个存在且非空者；空文件不遮蔽后续候选。全局加载统一复用 `load_user_global_instruction`，与 Jev 安全门的 `read_global_content()` 为同一数据源（#402、#403）。
 - **TodoMiddleware:** `after_tool` 解析 `TodoWrite` 结果，推送 Todo 状态到渲染 channel
-- **Jev 规则提炼缓存:** 完整规则 JSON 按内容 SHA-256 存入 `~/.cc-code/jev/`，来源/项目/模型/提炼配置签名一致时跨进程复用；实际加载的规则变化后在新会话重新提炼，不增加界面提示。提炼走独立低思考档（`effort=low`），单块超时按阶梯重试一次（首试后放宽 2 倍）且不触发对半递归拆分；仅完整成功的结果落盘。具体工具调用仍执行权限判定，详见 [HITL 设计](./domains/hitl-permissions.md#jev-规则提炼缓存)。
+- **Jev 规则提炼缓存:** 完整规则 JSON 按内容 SHA-256 存入 `~/.cc-code/jev/`，来源/项目/模型/提炼配置签名一致时跨进程复用；实际加载的规则变化后在新会话重新提炼，不增加界面提示。提炼走独立低思考档（`effort=low`），单块超时按阶梯重试一次（首试后放宽 2 倍）且不触发对半递归拆分；仅完整成功的结果落盘。具体工具调用仍执行权限判定，详见 [HITL 设计](./domains/hitl-permissions.md#jev-规则提炼缓存)。磁盘缓存以 `to_vec_pretty` 多行 JSON 落盘（规则正文与 `<签名>.index.json` 索引同步美化），内容哈希对落盘字节计算，缓存仍能正常命中。
 - **AskUserTool:** `AskUserQuestion` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
 - **Token 追踪:** TokenTracker 累积追踪 input/output/cache tokens，ContextBudget 上下文窗口预算管理
 - **Micro-compact:** 零 API 调用轻量压缩，可压缩工具白名单 + 时间衰减清除，图片/文档替换
@@ -38,7 +38,7 @@
 - **MCP 中间件:** McpMiddleware 作为 MCP Client 连接外部服务器（stdio/HTTP），`mcp__{server}__{tool}` 动态工具注册，`mcp_read_resource` 资源读取工具，双层配置合并（全局 settings.json + 项目 .mcp.json），${VAR} 环境变量展开
 - **MCP 运行时管理:** /mcp 面板（Browse/Tools/Resources 三视图），后台连接池初始化不阻塞 TUI，重连/删除服务器
 - **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.peri/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴），回调服务器注入并严格校验 rmcp 生成的 state 参数（CSRF 纵深防御）
-- **工具名称对齐 Claude Code:** 10 个内置工具名称完全对齐（Read/Write/Edit/Glob/Grep/Agent 等），Grep 重构为结构化接口，HITL 默认审批清单同步更新
+- **工具名称对齐 Claude Code:** 11 个核心工具名称完全对齐（Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite），Grep 重构为结构化接口，HITL 默认审批清单同步更新
 - **RTK 代理双轨制:** 探测外部 `rtk` 二进制（where/which），对 git/cargo/npm/pnpm/npx/yarn/bun/docker/kubectl/pytest/python/php/go/dotnet/tsc/eslint/gh/find/grep/rg/ls/tree/cat/diff/curl/wget 等 23 类命令执行 `rtk rewrite` 重写以降低输出 Token；失败回退原始命令；过滤 RTK 宿主 stderr 噪音
 - **output_filter 噪音清洗:** RTK git status 噪音清洗（`clean — nothing to commit`）；移除毒性通用折叠（避免吞并代码上下文），仅对 git status 做针对性剔除
 - **Read 多模态读取:** 图片读取 + 魔数校验（Magic Bytes）防伪造图片；工具包装器透传 invoke_content 保证多模态内容不丢失
@@ -48,7 +48,7 @@
 
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
-- **TUI 命令:** 共 30 个 TUI 命令 + 7 个 ACP 命令；含 `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩、`/config` 全局配置、`/cost` 费用统计、`/context` 上下文使用率、`/memory` 编辑 CLAUDE.md、`/mcp` MCP 管理面板、`/recap`(别名 away/catchup) 会话回顾、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/tasks`、`/agent`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/agents`、`/exit`(quit)、`/model`、`/history`(resume)；Command trait 支持 alias 机制
+- **TUI 命令:** 共 29 个 TUI 命令 + 7 个 ACP 命令；含 `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩、`/config` 全局配置、`/cost` 费用统计、`/context` 上下文使用率、`/memory` 编辑 CLAUDE.md、`/mcp` MCP 管理面板、`/recap`(别名 away/catchup) 会话回顾、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/tasks`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/agents`、`/exit`(quit)、`/model`、`/history`(resume)；Command trait 支持 alias 机制
 - **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
 - **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
 - **AskUser 弹窗:** `AskUserBatch` 事件触发问答弹窗，支持批量问题，单选/多选
@@ -70,7 +70,7 @@
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
 - **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头
 - **App 结构体拆分:** App 拆分为 AppCore/AgentComm/LangfuseState 三个子结构体（共 37 字段），对外 API 通过转发方法保持不变
-- **Widget 独立 crate:** cc-widgets 提供 11 个通用组件（BorderedPanel、ScrollableArea、SelectableList、InputField、TabBar、RadioGroup、CheckboxGroup、FormState、MarkdownRenderer、Spinner、ToolCall），零内部依赖
+- **Widget 独立 crate:** cc-widgets 提供 15 个通用组件（BorderedPanel、DiffViewer、FileTree、Form、InputField、List、ListOverlay、MessageBlock、RadioGroup、CheckboxGroup、ScrollableArea、Spinner、TabBar、ToolCallWidget、Markdown），零内部依赖
 - **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示；完成态对齐 Claude Code 风格（`✻ {verb} for {elapsed} · done {HH:MM}`）
 - **智能折叠策略:** 只读工具默认折叠、写操作默认展开，SubAgent 步数超过 4 自动折叠
 - **syntect 代码高亮:** markdown-highlight feature flag 控制，base16-ocean.dark 主题，单行代码块不高亮
@@ -108,7 +108,7 @@
 - **Agent 构建:** `build_agent()` 统一组装 Middleware Chain + LLM + 工具，TUI 和 stdio 共用
 - **事件映射:** `ExecutorEvent` → `SessionNotification` 标准 ACP 通知转换
 - **HITL/AskUser 桥接:** `AcpTransportBroker` 通过 ACP RPC（`RequestPermission` + `elicitation/create`）替代 oneshot channel
-- **上下文压缩:** auto-compact 触发 + micro/full compact 执行 + resubmit 全部在 executor 循环内完成
+- **上下文压缩:** auto-compact 触发 + micro/full compact 执行 + resubmit 全部在 executor 循环内完成；手动 `/compact` 与自动 compact 共用 `build_compacted_messages` 生成摘要消息（`<system-reminder>` 包裹，TUI 折叠为一行提示）
 
 ## 配置同步（Config Sync）
 
@@ -127,7 +127,7 @@
 - **配置持久化:** `~/.cc-code/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
 - **日志路径迁移:** 日志默认写入 `~/.cc-code/logs`
 - **应用主目录统一 `~/.cc-code`（#349，破坏性）:** 移除对改名前 `~/.peri` 的逐文件回退，`app_home::app_data_path`/`app_data_dir` 一律返回 `~/.cc-code/...`；仅在 `~/.peri` 存在的数据文件不再被读取（需手动迁移）。`hitl` 敏感目录名单中的 `.peri` 保留（安全用途）
-- **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）
+- **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）；Windows postinstall 将全局入口改写为直起 `bin/cc-code.exe`（去掉 node 中间层，修复 Ctrl+C 直接退出）
 
 ---
-*最后更新: 2026-10-10 — v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
+*最后更新: 2026-10-10 — v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
