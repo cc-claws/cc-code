@@ -7,6 +7,24 @@
 - **问题截图凭证**：`C:/Users/adim/AppData/Local/Temp/32a4bd4054324888848587907c0acc69.png`
 - **GitHub Issue**：#164 (https://github.com/cc-claws/cc-code/issues/164)
 
+## 2026-10-10 复查与本地修复
+
+用户再次反馈 CMD 下大量 `38;2;...m` 控制码和方块刷屏。以下正文保留 2026-09-20 的诊断快照；当前 `cc-middlewares/src/process/mod.rs` 和 `process/capture/windows_job.rs` 已设置 `CREATE_NO_WINDOW`，不能再把所有后台 shell 当作未隔离。
+
+本次确认的缺口是输出模式恢复：crossterm 0.29.0 只在首次检查时启用 VT，并缓存 ANSI 能力；本项目原先仅在鼠标初始化或周期刷新时恢复 VT。周期刷新要求已经收到鼠标事件，不能覆盖传统 CMD 持续无鼠标事件的场景。尚未确认用户本次运行中最初关闭模式的具体进程。
+
+本地修复：
+
+- `cc-tui/src/conpty.rs`：恢复实际 stdout 的 `ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING`，保留其他输出位；只有缺少必要位时才执行 `SetConsoleMode`。用恢复标记记录标题/鼠标先修复的情况，供下一帧消费。鼠标刷新恢复失败时停止输出 ANSI。
+- `cc-tui/src/main.rs`：进入 alternate screen 前启用 VT；每次清屏/绘制前检查，恢复后清屏并完整重绘，避免 Ratatui 的旧帧 diff 保留泄露内容。正常帧不额外清屏。
+- `cc-tui/src/app/terminal_title_ops.rs`、`terminal_title.rs`：独立标题输出也检查模式；恢复失败时跳过输出。
+- `cc-tui/src/app/panel_memory.rs`：外部编辑器返回后，在重新进入 alternate screen 前恢复 VT，避免编辑器修改模式后进入备用屏幕的控制码泄露。
+- `cc-tui/src/conpty_vt_test.rs`、`scripts/test-cmd-vt.ps1`：独立隐藏控制台先复现控制码明文，再覆盖 CP936/UTF-8 与四种输出模式。读取真实屏幕单元格核对 192 帧，并检查模式保留、恢复标记和重复调用。
+
+验证命令：`scripts/test-cmd-vt.ps1 -TestBinary <cargo test -p cc-tui --lib --no-run 生成的测试程序>`。验证不启动应用、不调用模型接口、不修改用户正在使用的控制台。当前修复尚未发布，也未覆盖用户配置下的完整 Agent/MCP 运行过程。
+
+本轮验证结果：独立隐藏控制台的 8 个模式/代码页场景、192 帧物理屏幕检查全部通过；额外 8 个列宽后端测试和 3 个鼠标序列测试通过。证据文件：`C:/Users/adim/AppData/Local/Temp/cc-code-cmd-vt-evidence-20261010.json`。因 D 盘空间不足及 Windows PDB 链接错误，本轮使用临时 Cargo 配置对 cc-tui 关闭调试信息/增量编译，并在链接命令中追加 `/DEBUG:NONE`；没有修改仓库构建配置。
+
 ---
 
 ## 一、问题现象

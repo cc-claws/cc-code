@@ -39,6 +39,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod host;
 
 static HOVER_AVAILABLE: AtomicBool = AtomicBool::new(true);
+#[cfg(windows)]
+static VT_MODE_RECOVERED: AtomicBool = AtomicBool::new(false);
 
 pub fn hover_available() -> bool {
     HOVER_AVAILABLE.load(Ordering::Relaxed)
@@ -87,7 +89,7 @@ pub fn refresh_mouse_tracking() -> Result<()> {
         // Re-toggle MOUSE bit to force ConPTY WriteSGR1006 notification.
         force_conpty_mouse_notify();
         // Re-send ANSI mouse tracking sequences (idempotent).
-        let _ = enable_vt_processing();
+        enable_vt_processing()?;
         write_console_sequence(tracking_sequence())?;
         write_console_sequence(ENABLE_ALTERNATE_SCROLL_SEQUENCE)?;
     }
@@ -101,7 +103,7 @@ pub fn refresh_mouse_tracking() -> Result<()> {
 pub fn refresh_mouse_tracking_sequences_only() -> Result<()> {
     #[cfg(windows)]
     {
-        let _ = enable_vt_processing();
+        enable_vt_processing()?;
         write_console_sequence(tracking_sequence())?;
         write_console_sequence(ENABLE_ALTERNATE_SCROLL_SEQUENCE)?;
     }
@@ -189,25 +191,37 @@ fn force_conpty_mouse_notify() {
 }
 
 #[cfg(windows)]
-fn enable_vt_processing() -> io::Result<()> {
+/// 确保实际 stdout 缓冲区能够解析控制序列，不依赖 crossterm 缓存的 ANSI 能力。
+pub fn enable_vt_processing() -> io::Result<()> {
     use windows_sys::Win32::System::Console::{
-        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
-        STD_OUTPUT_HANDLE,
+        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_PROCESSED_OUTPUT,
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
     };
 
+    // SAFETY: stdout 是借用的控制台句柄；mode 是有效的输出参数，不接管句柄所有权。
     unsafe {
         let handle = GetStdHandle(STD_OUTPUT_HANDLE);
         let mut mode = 0;
         if GetConsoleMode(handle, &mut mode) == 0 {
             return Err(io::Error::last_os_error());
         }
-        if mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING == 0
-            && SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0
-        {
-            return Err(io::Error::last_os_error());
+        // VT 解析同时要求 PROCESSED_OUTPUT。只补必要位，保留换行等其他设置。
+        let required = ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        if mode & required != required {
+            if SetConsoleMode(handle, mode | required) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // 标题或鼠标刷新也可能先恢复模式；下一帧仍需清除泄露的控制码。
+            VT_MODE_RECOVERED.store(true, Ordering::Relaxed);
         }
     }
     Ok(())
+}
+
+/// 模式恢复后，Ratatui 的上一帧已不再可信，调用方必须清屏并完整重绘。
+#[cfg(windows)]
+pub fn take_vt_mode_recovery() -> bool {
+    VT_MODE_RECOVERED.swap(false, Ordering::Relaxed)
 }
 
 #[cfg(windows)]
@@ -269,3 +283,7 @@ mod tests {
         assert_eq!(ENABLE_ALTERNATE_SCROLL_SEQUENCE, "\x1b[?1007h");
     }
 }
+
+#[cfg(all(windows, test))]
+#[path = "conpty_vt_test.rs"]
+mod vt_tests;

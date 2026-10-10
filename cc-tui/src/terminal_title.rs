@@ -362,6 +362,10 @@ pub fn extract_thread_title(prompt: &str) -> Option<String> {
 
 /// 清空/还原终端标题（TUI 退出时调用）
 pub fn clear_terminal_title() {
+    #[cfg(windows)]
+    if crate::conpty::enable_vt_processing().is_err() {
+        return;
+    }
     let _ = ratatui::crossterm::execute!(
         std::io::stdout(),
         ratatui::crossterm::terminal::SetTitle("")

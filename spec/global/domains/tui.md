@@ -1288,4 +1288,28 @@ submit_message(text)
 
 **涉及文件：** cc-tui/src/event/keyboard/{popups,normal_keys,setup_wizard}.rs、cc-tui/src/app/{mod,agent_ops_interaction}.rs、cc-agent/src/agent/executor/tool_dispatch.rs、TUI-STYLE.md。
 
+### issue_2026-10-10-cmd-vt-mode-recovery
+
+**问题本质：** CMD 下输出 VT 模式丢失后，crossterm 仍使用首次缓存的 ANSI 能力，RGB 颜色和光标控制码直接显示成文本。鼠标恢复要求已有鼠标事件，不能覆盖没有鼠标事件的 CMD。
+
+**修复：** Windows 启动、每帧清屏/绘制及独立标题输出前检查实际 stdout 模式，补齐 `PROCESSED_OUTPUT | VIRTUAL_TERMINAL_PROCESSING`，保留其他位。任何入口恢复后都记录标记，由下一帧消费并完整清屏重绘；正常帧仍按 buffer diff 更新。恢复失败时不继续输出鼠标或标题 ANSI。后台 shell 已有隔离，本次未改变子进程启动方式。
+
+**验证入口：** `scripts/test-cmd-vt.ps1` 在独立隐藏控制台覆盖两种代码页和四种模式，先复现颜色控制码明文，再读取 192 帧真实屏幕单元格核对恢复；不使用模型接口。完整用户会话中的最初模式修改来源尚未确定。
+
+**本轮结果：** 8 个真实控制台场景（192 帧）及 11 个终端局部测试通过；未验证完整联网 Agent/MCP 会话。
+
+**涉及文件：** cc-tui/src/conpty.rs、cc-tui/src/main.rs、cc-tui/src/app/terminal_title_ops.rs、cc-tui/src/app/panel_memory.rs（编辑器返回前恢复 VT）、cc-tui/src/terminal_title.rs、cc-tui/src/conpty_vt_test.rs。
+
+### issue_2026-10-10-cmd-spinner-missing-glyphs
+
+**问题本质：** 原生 CMD 控制台中的新宋体缺少 `✵`～`✼`、`❃`、`❊` 字形，Consolas 也缺少其中大部分。缺字仍占一列，因此仅比较列宽不会触发降级，表现为半框；原有列宽降级又把所有帧变成同一个 `*`，丢失动画。
+
+**修复：** Windows 后端通过控制台窗口的有效客户区识别原生控制台，对星形帧统一使用 `| / - \\` ASCII 替代，完成总结的 `✻` 同样降级。ConPTY 的消息窗口没有有效客户区，保留原有 Unicode 策略。只替换输出副本，逻辑帧、历史及导出原文不变；字体或宿主能力变化后清除缓存并重绘。
+
+**验证入口：** `terminal_backend::compatible::tests` 覆盖缺字但列宽正常、现代宿主保持 Unicode、列宽降级仍有动画；`scripts/test-cmd-rendering.ps1` 增加每种字体/代码页下 16 帧实际控制台输出及完成总结核对。
+
+**本轮结果：** Windows 二进制构建通过；11 个后端局部测试、3 个鼠标控制序列测试通过。4 个真实控制台场景的 64 帧动画及完成总结、8 个 VT 恢复场景的 192 帧输出通过。独立 `CreatePseudoConsole` 进程确认消息窗口不触发原生宿主策略；未验证完整联网会话。
+
+**涉及文件：** cc-tui/src/terminal_backend/{compatible.rs,compatible_test.rs,windows.rs,windows_test.rs}。
+
 最后更新：2026-10-10

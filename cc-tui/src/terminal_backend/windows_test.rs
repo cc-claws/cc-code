@@ -92,6 +92,10 @@ fn test_windows_backend_real_console_ghosting() -> io::Result<()> {
                 terminal.clear()?;
             }
             let mut probe = ConsoleWidthProbe::new();
+            assert!(
+                probe.prefer_ascii_spinner(),
+                "隐藏原生控制台仍应启用 ASCII 动画"
+            );
             let actual = probe.width("∴").expect("测量实际歧义字符列宽");
             let bullet_width = probe.width("●").expect("测量回复前缀实际列宽");
             let fingerprint = ConsoleFingerprint::read().expect("读取实际字体");
@@ -162,12 +166,36 @@ fn test_windows_backend_real_console_ghosting() -> io::Result<()> {
             let changed_width = changed_probe.width("∴").expect("测量新字体");
             let changed_prefix = if changed_width == 1 { "∴" } else { "." };
             assert_eq!(read_row(0)?.trim_end(), format!("{changed_prefix} end"));
+            // 缺字可以仍占一列；逐帧读取真实输出，不能只检查探针列宽。
+            let spinner_frames = [
+                "✵", "✶", "✷", "✸", "✹", "✺", "✻", "✼", "❃", "❊", "✼", "✻", "✺", "✸", "✹", "✷",
+            ];
+            let ascii_frames = [
+                "|", "/", "-", "\\", "|", "/", "-", "\\", "|", "/", "\\", "-", "/", "\\", "|", "-",
+            ];
+            for (symbol, expected) in spinner_frames.into_iter().zip(ascii_frames) {
+                terminal.draw(|f| {
+                    f.render_widget(Paragraph::new(format!("{symbol} Cooking (43s)")), f.area())
+                })?;
+                assert_eq!(
+                    read_row(0)?.trim_end(),
+                    format!("{expected} Cooking (43s)"),
+                    "星形降级后仍应有动画且无残影"
+                );
+            }
+            terminal.draw(|f| f.render_widget(Paragraph::new("✻ Ran for 1m 0s"), f.area()))?;
+            assert_eq!(
+                read_row(0)?.trim_end(),
+                "- Ran for 1m 0s",
+                "完成前缀不能保留缺字"
+            );
             cases.push(serde_json::json!({
                 "requested_font": font, "actual_font": actual_font,
                 "code_page": code_page, "actual_width": actual,
                 "bullet_width": bullet_width,
                 "long_row": long_row, "short_row": short_row,
                 "empty_row": empty_row, "frames": 24, "font_change_verified": true,
+                "spinner_frames": 16, "ascii_spinner_verified": true,
             }));
             std::fs::write(&evidence_path, serde_json::to_string_pretty(&cases)?)?;
         }

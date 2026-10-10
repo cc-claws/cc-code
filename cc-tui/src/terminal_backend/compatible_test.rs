@@ -16,6 +16,7 @@ struct MockProbeState {
     widths: HashMap<String, usize>,
     calls: Vec<String>,
     changed: bool,
+    ascii_spinner: bool,
 }
 
 struct MockProbe {
@@ -23,6 +24,10 @@ struct MockProbe {
 }
 
 impl WidthProbe for MockProbe {
+    fn prefer_ascii_spinner(&self) -> bool {
+        self.state.borrow().ascii_spinner
+    }
+
     fn width(&mut self, symbol: &str) -> Option<usize> {
         let mut state = self.state.borrow_mut();
         state.calls.push(symbol.to_owned());
@@ -37,6 +42,87 @@ impl WidthProbe for MockProbe {
 
     fn refresh(&mut self) -> bool {
         std::mem::take(&mut self.state.borrow_mut().changed)
+    }
+}
+
+#[test]
+fn test_width_safe_backend_native_console_spinner_keeps_animating() {
+    // 缺字仍占一列：必须按宿主策略降级，不能只依靠列宽差异。
+    let (probe, state) = make_probe(&[]);
+    state.borrow_mut().ascii_spinner = true;
+    let backend = WidthSafeBackend::with_probe(TestBackend::new(64, 1), probe);
+    let mut terminal = Terminal::new(backend).expect("构造测试终端");
+    let frames = [
+        "✵", "✶", "✷", "✸", "✹", "✺", "✻", "✼", "❃", "❊", "✼", "✻", "✺", "✸", "✹", "✷",
+    ];
+    let expected = [
+        "|", "/", "-", "\\", "|", "/", "-", "\\", "|", "/", "\\", "-", "/", "\\", "|", "-",
+    ];
+    for (symbol, expected) in frames.into_iter().zip(expected) {
+        assert!(terminal
+            .draw(|frame| {
+                frame.render_widget(
+                    Paragraph::new(format!(
+                        "{symbol} Cooking… (43s · ↓ 15k tokens · still thinking)"
+                    )),
+                    frame.area(),
+                );
+            })
+            .map(|frame| assert_eq!(
+                frame.buffer[(0, 0)].symbol(),
+                symbol,
+                "输出降级不得改变逻辑帧"
+            ))
+            .is_ok());
+        assert_eq!(
+            terminal.backend().inner.buffer()[(0, 0)].symbol(),
+            expected,
+            "降级后动画帧必须不同"
+        );
+        assert_eq!(
+            terminal.backend().inner.buffer()[(2, 0)].symbol(),
+            "C",
+            "动词不能随动画错位"
+        );
+    }
+    assert!(terminal
+        .draw(|frame| frame
+            .render_widget(Paragraph::new("✻ Ran for 1m 0s · done 18:50"), frame.area()))
+        .is_ok());
+    assert_eq!(
+        terminal.backend().inner.buffer()[(0, 0)].symbol(),
+        "-",
+        "完成总结也不能输出缺失字形"
+    );
+}
+
+#[test]
+fn test_width_safe_backend_modern_console_preserves_spinner_glyphs() {
+    let (probe, _) = make_probe(&[]);
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(20, 1), probe);
+    for symbol in ["✵", "✶", "✷", "✸", "✹", "✺", "✻", "✼", "❃", "❊"] {
+        let cell = Cell::new(symbol);
+        assert!(backend.draw([(0, 0, &cell)].into_iter()).is_ok());
+        assert_eq!(
+            backend.inner.buffer()[(0, 0)].symbol(),
+            symbol,
+            "正常宿主保留星形字形"
+        );
+    }
+}
+
+#[test]
+fn test_width_safe_backend_wide_spinner_frames_remain_distinct() {
+    let (probe, _) = make_probe(&[("✵", 2), ("✶", 2), ("✷", 2), ("✸", 2)]);
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(20, 1), probe);
+    for (symbol, expected) in [("✵", "|"), ("✶", "/"), ("✷", "-"), ("✸", "\\")] {
+        let cell = Cell::new(symbol);
+        assert!(backend.draw([(0, 0, &cell)].into_iter()).is_ok());
+        assert_eq!(
+            backend.inner.buffer()[(0, 0)].symbol(),
+            expected,
+            "列宽降级也应保留动画"
+        );
     }
 }
 
