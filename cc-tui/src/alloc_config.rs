@@ -1,15 +1,20 @@
 //! Allocator tuning for high-churn workloads.
 //!
 //! - macOS/Linux：jemalloc（aggressive decay），配置 `MALLOC_CONF`
-//! - Windows：mimalloc（`MIMALLOC_DECOMMIT` 归还策略），jemalloc 无法在 MSVC 工具链编译
+//! - Windows：mimalloc（运行时 purge 策略），jemalloc 无法在 MSVC 工具链编译
 //!
 //! Public API:
-//! - `init_alloc_conf()` — set env vars before allocator init
+//! - `init_alloc_conf()` — configure allocator during application startup
 //! - `alloc_collect()` — reclaim allocator free memory (Windows: current thread heap)
 //! - `query_stats()` — get allocator stats (RSS + allocator allocated)
 //! - `query_breakdown()` — allocated/active/resident/metadata/mapped/retained
 //! - `dump_stats()` — print detailed allocator stats to tracing
 //! - `os_rss_mb()` — OS-level RSS via sysinfo (MB)
+
+#[cfg(target_os = "windows")]
+mod windows_tuning;
+#[cfg(target_os = "windows")]
+pub use windows_tuning::collect_on_thread_park;
 
 /// Allocator stats (RSS from sysinfo + allocator allocated).
 #[derive(Debug, Clone, Copy)]
@@ -61,16 +66,13 @@ pub fn init_alloc_conf() {
     }
 }
 
-/// 设置 mimalloc 环境变量（须在首次分配前调用）。
+/// 在 settings 环境变量注入后、应用工作线程创建前设置 mimalloc 运行时选项。
 ///
-/// `MIMALLOC_DECOMMIT=1`：空闲页 decommit 归还 OS，对齐非 Windows 的
-/// `dirty_decay_ms:0` 策略，缓解长会话 RSS 只增不减。
+/// 默认空闲页 decommit、purge 延迟 1000ms；保留用户有效选项，不依赖首次分配时机。
 #[cfg(target_os = "windows")]
 #[allow(dead_code)]
 pub fn init_alloc_conf() {
-    if std::env::var("MIMALLOC_DECOMMIT").is_err() {
-        std::env::set_var("MIMALLOC_DECOMMIT", "1");
-    }
+    windows_tuning::init();
 }
 
 /// Force jemalloc to aggressively reclaim freed memory.
@@ -97,9 +99,10 @@ pub fn alloc_collect() {
     let _ = tikv_jemalloc_ctl::epoch::advance();
 }
 
-/// 强制收集当前线程默认堆的空闲内存，不会清空应用缓存或释放存活对象。
+/// 当前线程立即回收，并通知 TUI 工作线程在下次空闲时回收；不释放存活对象。
 #[cfg(target_os = "windows")]
 pub fn alloc_collect() {
+    windows_tuning::request_collect();
     // Safety: mi_collect 是线程安全的 C API，参数仅 force 标志
     unsafe { libmimalloc_sys::mi_collect(true) };
 }

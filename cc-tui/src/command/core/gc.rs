@@ -268,7 +268,7 @@ impl Command for GcCommand {
 
         if alloc_name == "mimalloc" {
             lines.push(
-                "回收范围：mi_collect(true) 回收当前线程默认堆的空闲内存，不清空应用缓存或释放仍被持有的对象。"
+                "回收范围：当前线程立即回收；TUI 工作线程在下次空闲时响应请求，不保证本次采样已完成。不会清空应用缓存或释放存活对象。"
                     .to_string(),
             );
         }
