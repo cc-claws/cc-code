@@ -57,11 +57,12 @@ impl Command for GcCommand {
                     // alloc_delta = allocated - RSS（有向差，带符号输出）：
                     // - 为正（allocated 更大）：多为两者采样时刻/记账口径差（先读 RSS 后读
                     //   allocated，其间 /gc 自身仍在分配），不解读为「超出物理内存」。
-                    // - 为负（RSS 更大）：RSS 含非分配器占用（栈、映射文件等）。
+                    // - 为负（RSS 更大）：可能包含分配器空闲驻留页、页舍入，
+                    //   以及栈、映射文件等；仅凭此差值无法归因。
                     let hint = if alloc_delta > 0 {
                         "allocated 大于当时 RSS（采样时刻/记账口径差，仅供参考）"
                     } else {
-                        "RSS 更大 = 栈/映射文件等非分配器占用"
+                        "RSS 差额可能含分配器空闲页/页舍入/原生库分配/栈/映射文件等，不能据此归因"
                     };
                     lines.push(format!(
                         "{alloc_name} allocated: {} (allocated-RSS = {}；{hint})",
@@ -102,12 +103,12 @@ impl Command for GcCommand {
             fmt_bytes(vm_bytes)
         ));
 
-        // 检查重复
+        // 只比较条数，不推断内容相同或是否泄漏。
         if origin_count > 0 && completed_count > 0 {
             let overlap = if origin_count == completed_count {
-                "完全相同（设计冗余：origin 为 agent 权威历史，completed 为渲染管线基线，非泄漏）"
+                "条数相同（未比较内容；origin 为 agent 权威历史，completed 为渲染管线基线）"
             } else {
-                "部分重叠"
+                "条数不同（未比较内容）"
             };
             lines.push(format!(
                 "origin vs completed: {} ({}/{} 条)",
@@ -160,7 +161,7 @@ impl Command for GcCommand {
             lines.push(String::new());
             lines.push(format!("── {alloc_name} 明细 ──"));
             lines.push(format!(
-                "allocated: {} (应用实际分配)",
+                "allocated: {} (分配器跟踪的在用分配，不保证覆盖原生库)",
                 fmt_bytes(bd.allocated)
             ));
             if is_mimalloc {
@@ -171,21 +172,32 @@ impl Command for GcCommand {
             } else {
                 lines.push(format!("active:    {} (活跃页)", fmt_bytes(bd.active)));
             }
-            lines.push(format!(
-                "resident:  {} (物理驻留，真实占用)",
-                fmt_bytes(bd.resident)
-            ));
-            lines.push(format!(
-                "metadata:  {} (分配器元数据)",
-                fmt_bytes(bd.metadata)
-            ));
             if is_mimalloc {
                 lines.push(format!(
-                    "mapped:    {} (reserved 虚拟地址保留量，Windows 上不占物理内存)",
+                    "resident:  {} (全进程 RSS/WorkingSet，非 mimalloc 独占内存)",
+                    fmt_bytes(bd.resident)
+                ));
+                lines.push(
+                    "metadata:  不可用（committed 与 page_committed 口径不同，差值不能估算元数据）"
+                        .to_string(),
+                );
+            } else {
+                lines.push(format!(
+                    "resident:  {} (分配器物理驻留估算)",
+                    fmt_bytes(bd.resident)
+                ));
+                lines.push(format!(
+                    "metadata:  {} (分配器元数据)",
+                    fmt_bytes(bd.metadata)
+                ));
+            }
+            if is_mimalloc {
+                lines.push(format!(
+                    "mapped:    {} (reserved 虚拟地址保留量，非物理驻留量)",
                     fmt_bytes(bd.mapped)
                 ));
                 lines.push(format!(
-                    "retained:  {} (保留未归还 OS 的虚拟地址，非物理内存)",
+                    "retained:  {} (reserved-committed 保留未提交量，非物理驻留量)",
                     fmt_bytes(bd.retained)
                 ));
             } else {
@@ -210,15 +222,17 @@ impl Command for GcCommand {
                     fmt_bytes(waste),
                 ));
             }
-            // OS RSS vs allocator resident
-            if let Some(ref s) = stats_after {
-                let os_gap = s.current_rss.saturating_sub(bd.resident);
-                lines.push(format!(
-                    "OS RSS({}) - {alloc_name} resident({}) = {}",
-                    fmt_bytes(s.current_rss),
-                    fmt_bytes(bd.resident),
-                    fmt_bytes(os_gap),
-                ));
+            // Windows resident 本身就是全进程 RSS，不能相减推断非分配器占用。
+            if !is_mimalloc {
+                if let Some(ref s) = stats_after {
+                    let os_gap = s.current_rss.saturating_sub(bd.resident);
+                    lines.push(format!(
+                        "OS RSS({}) - {alloc_name} resident({}) = {}",
+                        fmt_bytes(s.current_rss),
+                        fmt_bytes(bd.resident),
+                        fmt_bytes(os_gap),
+                    ));
+                }
             }
         }
 
@@ -247,7 +261,14 @@ impl Command for GcCommand {
             ));
             lines.push(String::new());
             lines.push(
-                "注：估算未覆盖后台渲染缓存/Diff 缓存/ACP 缓冲/tokio/tracing 等；余量来源待定位，不能据此判断是否泄漏。"
+                "注：估算未覆盖语法高亮引擎/SyntaxSet 编译正则/后台渲染缓存/Diff 缓存/ACP 缓冲/tokio/tracing 等；余量来源待定位，不能据此判断是否泄漏。"
+                    .to_string(),
+            );
+        }
+
+        if alloc_name == "mimalloc" {
+            lines.push(
+                "回收范围：mi_collect(true) 回收当前线程默认堆的空闲内存，不清空应用缓存或释放仍被持有的对象。"
                     .to_string(),
             );
         }
@@ -356,8 +377,8 @@ fn estimate_json_heap(v: &serde_json::Value) -> usize {
 ///
 /// 覆盖 `MessageViewModel` 各变体，重点包含内嵌的 `Text<'static>`（markdown 渲染结果）、
 /// 工具输出字符串、diff 输入、SubAgent 滑窗子 VM 等。
-/// 这是此前 `estimate_messages_heap` 完全遗漏的部分——`/gc` 报告的
-/// "allocated 内未识别" 主因即在此，纳入后诊断数字才有意义。
+/// 此前 `estimate_messages_heap` 未覆盖这些视图数据；纳入后仍不包含所有堆分配，
+/// 不能将 `allocated` 与已知估算的差值直接解释为某一项或泄漏。
 pub fn estimate_view_messages_heap(vms: &[crate::ui::message_view::MessageViewModel]) -> usize {
     // 入参为切片，拿不到 Vec 的 capacity()，用 len() 估算（略低估 Vec 冗余，诊断可接受）。
     // 每个 VM 的内联枚举尺寸由 estimate_vm_heap 计入，此处不再重复累加。

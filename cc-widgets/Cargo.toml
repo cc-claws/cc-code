@@ -10,7 +10,8 @@ authors.workspace = true
 ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
 pulldown-cmark = { version = "0.13", optional = true }
 syntect = { version = "5", default-features = false, features = [
-    "default-fancy",
+    # PHP 的 Unicode 语法正则在 fancy 引擎下会产生大量常驻分配。
+    "default-onig",
 ], optional = true }
 once_cell = "1"
 unicode-width = "0.2"

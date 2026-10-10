@@ -5,7 +5,7 @@
 //!
 //! Public API:
 //! - `init_alloc_conf()` — set env vars before allocator init
-//! - `alloc_collect()` — force aggressive memory reclamation
+//! - `alloc_collect()` — reclaim allocator free memory (Windows: current thread heap)
 //! - `query_stats()` — get allocator stats (RSS + allocator allocated)
 //! - `query_breakdown()` — allocated/active/resident/metadata/mapped/retained
 //! - `dump_stats()` — print detailed allocator stats to tracing
@@ -14,25 +14,25 @@
 /// Allocator stats (RSS from sysinfo + allocator allocated).
 #[derive(Debug, Clone, Copy)]
 pub struct AllocStats {
-    /// OS 级 RSS（sysinfo 报告，含所有内存，字节）
+    /// 全进程物理驻留内存（sysinfo 报告，字节；不是全部虚拟内存）
     pub current_rss: usize,
-    /// 分配器 stats.allocated（应用实际分配字节数，不含碎片/元数据；Windows 上由 mimalloc 提供）
+    /// 分配器跟踪的在用分配，不含碎片/元数据，也不保证覆盖原生库分配；Windows 由 mimalloc 提供
     pub current_allocated: usize,
 }
 
 /// 分配器详细统计（需要 advance epoch / stats 快照才准确）。
 ///
-/// 字段语义平台无关；底层分别来自 jemalloc mallctl（非 Windows）
-/// 与 mimalloc stats JSON（Windows）。
+/// 底层分别来自 jemalloc mallctl（非 Windows）与 mimalloc stats JSON（Windows）。
+/// 字段口径不同，Windows 的 active/resident/metadata 不可按 jemalloc 语义解释。
 #[derive(Debug, Clone, Copy)]
 pub struct AllocBreakdown {
-    /// 应用实际分配的字节
+    /// 分配器跟踪的在用分配字节，不保证覆盖原生库分配
     pub allocated: usize,
-    /// 活跃页中的字节（页对齐，>= allocated）
+    /// jemalloc：活跃页字节；Windows：page_committed 历史触及量，非当前活跃页
     pub active: usize,
-    /// 物理驻留字节（含脏页、元数据，>= active；Windows 上是 WorkingSet，换出页不计入）
+    /// jemalloc：分配器物理驻留估算；Windows：全进程 WorkingSet（换出页不计入）
     pub resident: usize,
-    /// 分配器元数据开销
+    /// jemalloc：分配器元数据；Windows：committed - page_committed，不能据此估算元数据
     pub metadata: usize,
     /// 映射/保留的字节
     pub mapped: usize,
@@ -97,7 +97,7 @@ pub fn alloc_collect() {
     let _ = tikv_jemalloc_ctl::epoch::advance();
 }
 
-/// 强制 mimalloc 归还空闲内存（purge + decommit）。
+/// 强制收集当前线程默认堆的空闲内存，不会清空应用缓存或释放存活对象。
 #[cfg(target_os = "windows")]
 pub fn alloc_collect() {
     // Safety: mi_collect 是线程安全的 C API，参数仅 force 标志
@@ -195,7 +195,8 @@ pub fn query_stats() -> Option<AllocStats> {
     let pid = sysinfo::get_current_pid().ok()?;
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let proc = sys.process(pid)?;
-    let current_rss = proc.memory() as usize; // sysinfo returns bytes
+    // sysinfo 的字节值是全进程 WorkingSet。
+    let current_rss = proc.memory() as usize;
     // stats 不可读时回退 0，不用 RSS 冒充 allocated（否则差异诊断失真）
     let current_allocated = mimalloc_stats_json()
         .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
@@ -210,10 +211,10 @@ pub fn query_stats() -> Option<AllocStats> {
 /// Query allocator detailed breakdown via mimalloc stats JSON.
 ///
 /// 字段映射：
-/// - allocated = malloc_normal + malloc_huge（应用在用字节）
-/// - active = page_committed（页内已提交）
-/// - resident = process.rss_current（WorkingSet，Windows 精确值）
-/// - metadata = committed - page_committed（页外提交，近似元数据/段开销）
+/// - allocated = malloc_normal + malloc_huge（mimalloc 跟踪的在用分配字节）
+/// - active = page_committed（历史触及量，非当前活跃页）
+/// - resident = process.rss_current（全进程 WorkingSet，非分配器独占）
+/// - metadata = committed - page_committed（不同统计口径的饱和差，不可用于元数据估算）
 /// - mapped = reserved（累计向 OS 保留的虚拟地址空间）
 /// - retained = reserved - committed（保留未提交）
 #[cfg(target_os = "windows")]
