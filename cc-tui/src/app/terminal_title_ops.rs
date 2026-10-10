@@ -93,12 +93,12 @@ impl App {
             return;
         }
 
+        self.global_ui.last_terminal_title = Some(clean_title.clone());
         #[cfg(windows)]
         if let Err(error) = crate::conpty::enable_vt_processing() {
             tracing::warn!(%error, "无法恢复终端 VT 模式，跳过标题输出");
             return;
         }
-        self.global_ui.last_terminal_title = Some(clean_title.clone());
         let _ = ratatui::crossterm::execute!(
             std::io::stdout(),
             ratatui::crossterm::terminal::SetTitle(clean_title)
