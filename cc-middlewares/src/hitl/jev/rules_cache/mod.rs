@@ -99,12 +99,14 @@ impl RulesCache {
         if rules.is_empty() {
             return Err(invalid_data("不缓存空规则"));
         }
-        let bytes = serde_json::to_vec(rules)?;
+        // 人类可读优先：缓存是用户会直接打开查看的产物，落盘用 pretty 而非紧凑单行。
+        // 内容哈希对**落盘字节**计算（见 `digest(&bytes)`），故格式化前后各自自洽。
+        let bytes = serde_json::to_vec_pretty(rules)?;
         if bytes.len() as u64 > MAX_FILE_BYTES {
             return Err(invalid_data("规则缓存超出大小上限"));
         }
         let rules_id = digest(&bytes);
-        let index = serde_json::to_vec(&CacheIndex {
+        let index = serde_json::to_vec_pretty(&CacheIndex {
             version: FORMAT_VERSION,
             signature: self.signature.clone(),
             rules_id: rules_id.clone(),
