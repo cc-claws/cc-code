@@ -1250,12 +1250,12 @@ fn test_schema_failure_tracker_reset_on_success() {
     // Arrange
     let mut tracker = super::SchemaFailureTracker::new();
     tracker.record_failure("Grep");
-    // Act: 成功后重置
+    // Act: 成功后该工具退避状态复位，但已发生的失败仍留在滑动窗口内
     tracker.reset("Grep");
     let (count, breaker) = tracker.record_failure("Grep");
-    // Assert
-    assert_eq!(count, 1, "重置后计数应为 1");
-    assert!(!breaker, "重置后第 1 次不应触发熔断");
+    // Assert: 窗口内 Grep 仍有 2 次失败（成功调用不抹除历史失败），故直接触发熔断
+    assert_eq!(count, 2, "窗口内 Grep 失败计数应为 2");
+    assert!(breaker, "窗口内累计 2 次失败应触发熔断");
 }
 
 #[test]
@@ -1309,25 +1309,28 @@ fn test_schema_failure_tracker_aggregate_across_different_tools() {
     assert!(event4.is_none(), "处于退避期内不应重复触发聚合熔断");
 }
 
-/// 验证任意工具调用成功时重置跨工具聚合计数
+/// 验证成功调用**不**抹除滑动窗口内已发生的失败（#404 回归保护）
 #[test]
-fn test_schema_failure_tracker_aggregate_reset_on_success() {
+fn test_schema_failure_tracker_success_keeps_window_failures() {
     // Arrange
     let mut tracker = super::SchemaFailureTracker::new();
     tracker.record_failure("Grep");
     tracker.record_failure("Bash");
     assert_eq!(tracker.aggregate_failure_count(), 2);
-    // Act: 某一工具调用成功，重置状态
+    // Act: 某一工具调用成功
     tracker.reset("Bash");
-    // Assert: 聚合计数归零
+    // Assert: 窗口内失败数不变（失败之间夹成功不得让聚合计数归零）
     assert_eq!(
         tracker.aggregate_failure_count(),
-        0,
-        "成功调用后聚合计数应重置为 0"
+        2,
+        "成功调用不应抹除窗口内已发生的失败"
     );
-    let (count, event) = tracker.record_failure_detailed("WebSearch");
-    assert_eq!(count, 1);
-    assert!(event.is_none(), "重置后第 1 次失败不应触发聚合熔断");
+    // 第 3 次失败（跨工具、窗口内累计 3 次）应触发聚合熔断
+    let (_count, event) = tracker.record_failure_detailed("WebSearch");
+    assert!(
+        matches!(event, Some(super::SchemaBreakerEvent::Aggregate { .. })),
+        "窗口内跨工具累计 3 次失败应触发聚合熔断，实际: {event:?}"
+    );
 }
 
 /// 验证连续失败追踪器按 (tool_name, error_kind) 聚合计数，不受具体错误文本差异影响
@@ -1779,5 +1782,83 @@ async fn test_tool_mismatch_hint_in_integration() {
     assert!(
         error_msg.contains("💡 Did you mean to use 'Bash'?"),
         "错误信息应包含工具错配提示，实际: {error_msg}"
+    );
+}
+
+// ========== #404: 熔断在「交替错配 + 中间夹成功」序列下不触发 ==========
+
+/// 复刻真实 trace（01a12495521c79319f6812f9bd23adfb）的调用序列：
+/// 在 WebSearch / WebFetch 之间交替把参数打错，且失败之间夹着成功调用。
+/// 期望：3 次 schema 失败应至少触发 1 次熔断。
+#[test]
+fn test_schema_failure_tracker_alternating_mismatch_with_successes() {
+    // Arrange: (工具, 是否 schema 校验失败)
+    let seq: &[(&str, bool)] = &[
+        ("WebSearch", false),
+        ("WebSearch", true),
+        ("WebFetch", false),
+        ("WebFetch", true),
+        ("WebSearch", false),
+        ("WebSearch", true),
+        ("WebSearch", false),
+        ("WebSearch", false),
+    ];
+    let mut tracker = super::SchemaFailureTracker::new();
+    // Act
+    let mut events = 0usize;
+    for (tool, is_fail) in seq {
+        if *is_fail {
+            if tracker.record_failure_detailed(tool).1.is_some() {
+                events += 1;
+            }
+        } else {
+            tracker.reset(tool);
+        }
+    }
+    // Assert
+    assert!(
+        events >= 1,
+        "交替错配 + 夹成功的 3 次 schema 失败应至少触发 1 次熔断，实际 {events} 次"
+    );
+}
+
+/// 同一工具的非连续失败（中间夹成功）也应累计。
+/// 期望：fail/ok 交替 3 次后应至少触发 1 次熔断。
+#[test]
+fn test_schema_failure_tracker_non_consecutive_same_tool() {
+    // Arrange
+    let mut tracker = super::SchemaFailureTracker::new();
+    // Act
+    let mut events = 0usize;
+    for _ in 0..3 {
+        if tracker.record_failure_detailed("WebSearch").1.is_some() {
+            events += 1;
+        }
+        tracker.reset("WebSearch");
+    }
+    // Assert
+    assert!(
+        events >= 1,
+        "同一工具累计 3 次非连续失败应至少触发 1 次熔断，实际 {events} 次"
+    );
+}
+
+/// 把 WebSearch 的特征参数（query / num_results）打给 WebFetch 时，
+/// 应提示「是否想用 WebSearch」——补全此前缺失的反向条目。
+#[test]
+fn test_suggest_tool_mismatch_websearch_params_suggests_websearch() {
+    // Arrange: 真实序列第 4 次（WebFetch 收到 WebSearch 的参数）
+    let input = serde_json::json!({
+        "query": "Langfuse trace detail page export single trace JSON",
+        "num_results": 8
+    });
+    // Act
+    let hint = super::suggest_tool_mismatch("WebFetch", &input);
+    // Assert
+    assert!(hint.is_some(), "应检测到 WebSearch 特征参数");
+    let hint = hint.unwrap();
+    assert!(
+        hint.contains("WebSearch"),
+        "应建议使用 WebSearch，实际: {hint}"
     );
 }
