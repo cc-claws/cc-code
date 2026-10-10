@@ -20,16 +20,7 @@ pub(super) fn handle_setup_wizard(app: &mut App, input: &Input) -> Option<Action
             ..
         }
     ) {
-        if let Some(since) = app.global_ui.quit_pending_since {
-            if since.elapsed() < std::time::Duration::from_secs(2) {
-                return Some(Action::Quit);
-            } else {
-                app.global_ui.quit_pending_since = Some(std::time::Instant::now());
-            }
-        } else {
-            app.global_ui.quit_pending_since = Some(std::time::Instant::now());
-        }
-        return Some(Action::Redraw);
+        return Some(super::normal_keys::handle_ctrl_c(app).unwrap_or(Action::Redraw));
     }
 
     let input_clone = input.clone();

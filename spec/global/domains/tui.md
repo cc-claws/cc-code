@@ -1248,4 +1248,20 @@ submit_message(text)
 **PR:** #338
 **CLAUDE.md 链接:** false
 
-最后更新：2026-10-09
+### issue_2026-10-10-ctrl-c-interaction-exits-tui
+
+**问题本质：** Questions 和 Approval 弹窗在普通按键处理之前直接返回 `Action::Quit`，因此等待提问或工具审批时，单次 Ctrl+C 会退出整个 TUI。配置向导另有一套退出逻辑，缺少普通模式已有的 100ms 防抖。
+
+**修复：**
+
+- 提问、审批弹窗中的 Ctrl+C 调用 `App::interrupt()` 并清空退出确认状态，保留 TUI；空闲模式仍使用 100ms～2s 内双击退出，配置向导复用同一处理入口。
+- 中断时关闭当前交互弹窗、取走 ACP 请求 ID，并在发送 `session/cancel` 后返回标准交互取消回应（审批 `outcome: cancelled`，提问 `action: cancel`），解除 transport 等待；不提交默认答案或批准工具。
+- 取消期间或主轮次已经结束时到达的后续交互请求自动回应取消，不重新安装弹窗。当前后台子 Agent 不持有人工审批 broker，继承工具集也不含 AskUser；未来若允许后台交互，需先引入请求归属信息。
+- Agent 的批量 `before_tool` 等待增加取消优先的 `tokio::select!`，使等待工具审批也能立即响应取消。此阶段未写入 state，保持工具消息延迟写入约束。
+- TUI 状态和历史仍由后续 Interrupted/Done 事件收尾；取消弹窗不代表整轮已经完成。
+
+**范围：** 本次修复明确的弹窗直接退出路径及配置向导防抖遗漏。crossterm 0.29 的 Windows 原生 KeyDown 包括长按重复，均映射为 `Press`；已有 `Repeat` 过滤不能保证阻止所有 Windows 长按。本次没有改变原生输入来源或双击退出协议，真实终端长按行为仍需另行定位。
+
+**涉及文件：** cc-tui/src/event/keyboard/{popups,normal_keys,setup_wizard}.rs、cc-tui/src/app/{mod,agent_ops_interaction}.rs、cc-agent/src/agent/executor/tool_dispatch.rs、TUI-STYLE.md。
+
+最后更新：2026-10-10

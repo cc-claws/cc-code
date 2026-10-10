@@ -826,10 +826,12 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     let mut settled_results: Vec<(ToolCall, ToolResult)> = Vec::new();
 
     // 阶段一：批量 before_tool
-    let before_results = agent
-        .chain
-        .run_before_tools_batch(state, original_calls.clone())
-        .await;
+    let before_results = tokio::select! {
+        biased;
+        // 审批可能一直等待用户回应，取消必须能打断 before_tool；此时尚未写入 state。
+        _ = cancel.cancelled() => return Err(AgentError::Interrupted),
+        results = agent.chain.run_before_tools_batch(state, original_calls.clone()) => results,
+    };
 
     for (tool_call, before_result) in original_calls.iter().zip(before_results) {
         // before_tool 阶段也检查取消
