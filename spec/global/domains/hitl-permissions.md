@@ -82,6 +82,17 @@ Read/Write/Edit 按真实工具名和规范化路径记忆；Bash 按完整命�
 实现见 `cc-middlewares/src/hitl/jev/rules.rs`、`rules_cache/mod.rs` 与
 `cc-acp/src/session/frozen.rs`，TUI 和 Stdio 共用同一路径。
 
+**提炼失败处置（决定缓存能否落盘）**：只有提炼**完整成功**的结果才写磁盘，
+因此提炼的失败/超时策略直接决定缓存是否可用。
+
+- 提炼**不继承会话思考档**：走独立的低思考档（`effort=low`、`budget_tokens=1024`）。
+  继承会话的 `xhigh` 会把单块耗时推到 18–73 秒，远超时限，导致缓存永不落盘。
+- 单块时限走**阶梯**：首试 `rule_timeout_ms`（默认 30s），超时后放宽 2 倍再试**一次**。
+- 失败原因**分两类处理**：超时（`Timeout`）只放宽时限重试，**不进入对半递归**——
+  超时成因是网关慢而非输入过大，切小只会拿同一时限再赌并放大等待次数；
+  对半递归仅保留给「回复不可解析 / 为空」（`Retryable`）这类切小确实有效的失败。
+- 若将来把提炼思考档改为**可配置**，必须将其纳入来源签名，否则改了档位仍会命中旧结果。
+
 ### 业务子 Agent 的权限
 
 父 Agent 在 Auto 中保持 Allow / Block / Ask；业务子 Agent 只接受 Allow / Block。
