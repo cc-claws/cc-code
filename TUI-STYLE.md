@@ -27,7 +27,7 @@
 | THINKING | `#A2A9E4` | 标准紫：面板选中行、面板标题、/model 面板光标、Config 编辑高亮 |
 | LOADING | `#93A5FF` | 浅蓝紫：Loading spinner、Auto Mode 权限标签 |
 | BASH_BORDER | `#FD5DB1` | 粉红：Bash 工具结果边框 |
-| MODEL_INFO | `#A0825F` | 棕金：状态栏模型名（不抢眼） |
+| MODEL_INFO | `#A0825F` | 棕金：常量保留但**当前未被状态栏使用**（状态栏模型名走 ANSI Cyan，见「状态栏」章节） |
 | TOOL_NAME | `= SAGE` | 语义别名：工具名展示色 |
 | SUB_AGENT | `= SAGE` | 语义别名：SubAgent 展示色 |
 
@@ -238,25 +238,37 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 ## 状态栏
 
-源码：`cc-tui/src/ui/main_ui/status_bar.rs`。3 行高度。
+源码：`cc-tui/src/ui/main_ui/status_bar.rs`。高度动态 **2~3 行**：第二行（activity）只在有内容时展开（`has_hud_activity()`：最近工具 / 工具统计 / 后台 Agent / Todo 任一非空），否则折叠为 2 行。
 
 ### 第一行（左→右）
 
 | 元素 | 样式 | 条件 |
 |------|------|------|
-| 权限模式标签 | 按模式变色，切换后 1500ms BOLD + SLOW_BLINK | 两档均有标签（Auto / Bypass） |
-| ` │ ` 分隔符 | MUTED | 始终 |
-| `📁 cwd` | MUTED | 始终 |
-| 模型名 | MODEL_INFO，切换后 3 秒 BOLD + SLOW_BLINK | 始终 |
-| `│ ctx: X% (XK/XK)` | SAGE(<70%) / WARNING(70-85%) / ERROR(>=85%) | 有上下文数据时 |
-| `│ ⟳ 重试 N/M (Xs)` | WARNING | 重试中 |
-| `│ MCP (N/M)...` | MUTED(初始化中) / SAGE(ready, 3秒) / ERROR(failed) | MCP 有配置时 |
-| `│ ⏱ Xm Xs` | MUTED | 仅 loading 时 |
+| `[model]` | ANSI Cyan，切换后 3 秒 BOLD + SLOW_BLINK | 始终 |
+| context 进度条 `████░░░░░░ 62%` | Green(<70%) / Yellow(70~85%) / Red(>=85%) | 始终 |
+| ` cwd` | ANSI Yellow | 始终 |
+| `git:(branch*)` | 前缀 Magenta + 分支 Cyan + dirty `*` | git 仓库且分支缓存命中 |
+| `tok: 1.4M (in: 96.3k, out: 588)` | DIM | 有 token 统计时 |
+| `⏱ 6m53s` | DIM | 有会话开始时间时 |
 
-### 第二行
+### 第二行（activity 行，单行不折行）
 
-- **左侧**：复制成功提示(MUTED) / 后台任务数(WARNING `[BG: N]`) / Agent 名称(MUTED)
-- **右侧**：快捷键提示，上下文感知切换
+左→右四段：**最近工具** │ **工具调用统计** │ **🤖 后台 Agent** │ **📋 Todo 进度**
+
+| 段 | 形态 | 规则 |
+|----|------|------|
+| 最近工具 | `◐ Bash : sleep 15` / `✓ Read : src/main.rs` | 由 `AgentComm.recent_tools` 驱动：**最新在最左**、最多 2 条（第 3 条挤掉最老）。运行中 `◐`（ANSI Yellow）、结束后转 `✓`（ANSI Green），工具名 ANSI Cyan、摘要 DIM。条目显示时长 = `max(实际执行时长, 300ms)`：快工具垫到 300ms 后消失，慢工具执行结束即刻消失 |
+| 工具统计 | `✓ Bash ×22` | 会话累计、按次数倒序，最多 4 条，超出显示 `+N more`。工具结束只让它 +1，不产生带摘要的完成条目 |
+| 后台 Agent | `🤖 name(run) ...` | 存在 `background_agents` 时 |
+| Todo 进度 | `📋 [##---] 2/5` | 存在 todo 时 |
+
+- 摘要字符上限 **30**（`TOOL_TARGET_MAX_LEN`），沿用路径语义截断（`truncate_tool_target`，如 `src/ui/main_ui/status_bar.rs` → `.../status_bar.rs`）。
+- 摘要覆盖全部工具：白名单（Bash / Read / Write / Edit / Glob / Grep / WebSearch / WebFetch / ExecuteExtraTool / SearchExtraTools / LSP）+ 通用兜底（AskUserQuestion → 首个问题、Agent → description、TodoWrite → `N 项任务`、其余 → 第一个非空字符串字段）。
+- 整行超宽时按显示列宽（unicode-width）在行尾 `…` 收口，**禁止折行**。
+
+### 最后一行（HUD 展开时为第三行，折叠时为第二行）
+
+左→右：权限模式标签（Auto / Bypass，切换后 1500ms BOLD + SLOW_BLINK，后接 `(Shift+Tab to cycle)`）→ 后台任务 pill（`1 shell, 1 agent` + `↓ to view`）→ 重试状态 → MCP 初始化进度 → LSP 诊断计数 → `Cache 87% · MEM 74MB`；最右侧为上下文相关的快捷键提示，右对齐、超宽时截断右侧。
 
 右侧快捷键上下文：
 
@@ -264,7 +276,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 |--------|--------|
 | 面板打开 | 面板自提供 `status_bar_hints()` |
 | OAuth 弹窗 | `Ctrl+O` 打开浏览器 + `Enter` 提交 + `Esc` 取消 |
-| Approval 弹窗 | `↑↓` 选择 + `Tab` 切换工具 + `Enter` 确认 |
+| Approval 弹窗 | 状态栏不显示（审批面板底部已展示完整快捷键） |
 | Questions 弹窗 | `Tab` 切换 + `↑↓` 移动 + `Space` 选择 + `Enter` 确认 |
 | Rewind 回滚选择器 | `↑↓` 移动 + `Tab` 切换回退文件 + `Enter` 确认 + `Esc` 取消 |
 | 退出确认 | `Ctrl+C` 关闭 + 其他键取消 |
@@ -272,10 +284,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | 默认 | `Ctrl+O` 详细模式 + `Ctrl+P` 设置（Provider & Model） |
 
 按键 MUTED + BOLD，说明 MUTED。右侧右对齐，超宽时截断右侧。
-
-### 第三行
-
-空行，视觉缓冲。
 
 ## 面板系统
 

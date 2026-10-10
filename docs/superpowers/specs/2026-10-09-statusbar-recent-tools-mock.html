@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态栏第二行「最近工具」 · 静态预览</title>
+<style>
+  :root{
+    --bg:#0b0b0b; --fg:#d0d0d0; --dim:#8a8a8a;
+    --run:#ffcc00; --ok:#4eba65; --name:#5ac8fa; --warn:#ff6b80;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:24px 28px 60px; background:#15161a; color:#e6e6e6;
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; font-size:14px; line-height:1.6;
+  }
+  h1{font-size:19px;margin:0 0 4px}
+  h2{font-size:15px;margin:26px 0 10px;padding-bottom:6px;border-bottom:1px solid #2c2f36}
+  p.sub{margin:0 0 18px;color:#9aa0aa;font-size:13px}
+  .term{
+    background:var(--bg); border:1px solid #2c2f36; border-radius:6px; padding:8px 0;
+    font-family:"Cascadia Mono",Consolas,"DejaVu Sans Mono","Microsoft YaHei",monospace;
+    font-size:13px; line-height:1.5; overflow-x:auto; transition:width .12s ease;
+  }
+  .term .line{white-space:pre; padding:0 2px; overflow:hidden}
+  .plain{color:var(--fg)} .dim{color:var(--dim)} .run{color:var(--run)}
+  .ok{color:var(--ok)} .name{color:var(--name)} .err{color:var(--warn)}
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:12px 0}
+  button{
+    background:#22252c;color:#e6e6e6;border:1px solid #3a3f49;border-radius:4px;
+    padding:5px 12px;font-size:13px;cursor:pointer;
+  }
+  button:hover{background:#2b2f38}
+  input[type=range]{width:220px;vertical-align:middle}
+  .frameLabel{color:#9aa0aa;font-size:13px;margin-top:8px}
+  .frameLabel b{color:#e6e6e6}
+  table{border-collapse:collapse;font-size:13px;margin-top:6px}
+  th,td{border:1px solid #2c2f36;padding:5px 10px;text-align:left;vertical-align:top}
+  th{background:#1d2026;color:#b9bfc9;font-weight:600}
+  code{background:#22252c;padding:1px 5px;border-radius:3px;font-size:12.5px}
+  .allframes .term{margin-bottom:8px}
+  .cap{color:#9aa0aa;font-size:12.5px;margin:2px 0 8px}
+  ul{margin:8px 0 0 18px;padding:0}
+  li{margin:3px 0}
+  .flag{color:var(--warn)}
+</style>
+</head>
+<body>
+
+<h1>状态栏第二行「最近工具」 · 静态预览</h1>
+<p class="sub">纯静态 HTML（无外部依赖、无 CDN），双击即可在浏览器打开。渲染规则全部按 <code>docs/superpowers/specs/2026-10-09-statusbar-recent-tools-design.md</code> 实现。</p>
+
+<h2>0. 本次锁定的规则</h2>
+<table>
+  <tr><th>项</th><th>规则</th></tr>
+  <tr><td>单行</td><td>第二行永远 1 行不折行；整行超宽 → 行尾 <code>…</code> 收口（不做优先级丢弃）</td></tr>
+  <tr><td>条数/顺序</td><td>最近工具组最多 <b>2 条</b>，<b>最新在最左</b>，旧的往右；第 3 条进来挤掉最右</td></tr>
+  <tr><td>摘要宽度</td><td>路径语义截断 <code>truncate_tool_target</code>，上限 <b>30</b>（首版值，后续按反馈调）</td></tr>
+  <tr><td>最短可见</td><td>显示时长 = <code>max(执行时长, 300ms)</code>；慢工具结束立刻消失，无额外停留</td></tr>
+  <tr><td>完成语义</td><td>结束后不产生带摘要的完成条目，右侧 <code>✓ Name ×N</code> 直接 +1</td></tr>
+  <tr><td>颜色</td><td><code>◐</code> 统一黄、<code>✓</code> 统一绿、工具名统一青、摘要灰。<b>不跟工具身份色</b></td></tr>
+</table>
+
+<h2>1. 实时预览</h2>
+<div class="controls">
+  <button id="btnPrev">◀ 上一步</button>
+  <button id="btnPlay">▶ 播放</button>
+  <button id="btnNext">下一步 ▶</button>
+  <span>宽度 <input type="range" id="width" min="30" max="200" value="80"><b id="widthVal">80</b> 列</span>
+  <span>摘要上限 <select id="cap"><option value="20">20 列</option><option value="30" selected>30 列</option><option value="40">40 列</option><option value="0">不限</option></select></span>
+  <span>预设：<button class="preset" data-w="40">40</button><button class="preset" data-w="80">80</button><button class="preset" data-w="120">120</button><button class="preset" data-w="160">160</button></span>
+</div>
+<div class="term" id="termBox">
+  <div class="line plain" id="row1"></div>
+  <div class="line" id="row2"></div>
+  <div class="line dim" id="row3"></div>
+</div>
+<div class="frameLabel" id="frameLabel"></div>
+
+<h2>2. 全部帧（静态对照）</h2>
+<div class="allframes" id="allFrames"></div>
+
+<h2>3. 摘要截断演示（当前上限 + 路径语义，实现与代码一致）</h2>
+<table id="truncTable"></table>
+<p class="cap">规则来自 <code>status_bar.rs</code> 的 <code>truncate_tool_target(s, 20)</code>：长度 ≤20 原样；否则取最后一个 <code>/</code> 之后的片段，该片段 ≥20 就取前 17 字符 + <code>...</code>，<20 则输出 <code>.../片段</code>。</p>
+
+<h2>4. 看的时候请确认这几点</h2>
+<ul>
+  <li><b>顺序</b>：左边是最新开始的工具，右边是较早的。</li>
+  <li><b>容量 2</b>：第 ⑤⑥ 帧里，仍在运行的 Bash 被两个更新的工具挤出了显示（执行不受影响）。</li>
+  <li><b>停留</b>：Read 实际只跑了 8ms，但条目垫到 300ms 才消失；Bash 跑了 15s，结束时立刻消失。</li>
+  <li><b>完成后</b>：只有右边 <code>✓ Bash ×22</code> 的 +1，左侧不留带摘要的条目（第 ⑨ 帧）。</li>
+  <li class="flag"><b>注意第 ③ 帧</b>：停留期内图标是绿色 <code>✓</code>（因为已经执行完）。如果你想保持黄色 <code>◐</code>，说一声。</li>
+  <li class="flag"><b>注意截断 A</b>：<code>tool_dispatch_test.rs:1580-1599</code>（31 字符）>30，末段 ≥30 → 切成 <code>tool_dispatch_test.rs:1580-...</code>（起始行号保住了，结束行号没了）。你之前给的样例里它是完整的——那是消息区的显示（那边按 16/19、下限 32 列算）。</li>
+  <li class="flag"><b>注意截断 B</b>：<code>cd /d/code/peri && cargo test -p cc-tui</code> 的末段是 <code>peri && cargo test -p cc-tui</code>（28）&lt;30 → 走 <code>.../末段</code> 分支，输出 <code>.../peri && cargo test -p cc-tui</code>（31 字符，<b>超过上限</b>——这个分支不受上限约束，是既有怪癖）。之前我说它会变成 <code>.../cc-tui</code> 是错的。</li>
+</ul>
+
+<script>
+const RECENT_MAX = 2;
+const TOOL_TARGET_MAX_LEN = 30;
+
+/* ---------- 与 Rust 实现对齐的工具函数 ---------- */
+
+// status_bar.rs: truncate_tool_target —— 注意用的是「字符数」，不是显示列宽
+// CAP = 摘要上限（0 表示不限），由界面上的下拉框控制
+let CAP = 30;
+function truncateToolTarget(target, maxLen){
+  maxLen = (maxLen === undefined) ? CAP : maxLen;
+  const n = target.replace(/\\/g, '/');
+  if (!maxLen || [...n].length <= maxLen) return n;
+  const parts = n.split('/');
+  const fn = parts[parts.length - 1];
+  if ([...fn].length >= maxLen){
+    return [...fn].slice(0, Math.max(0, maxLen - 3)).join('') + '...';
+  }
+  return '.../' + fn;
+}
+
+// unicode-width 近似：CJK / 全角算 2 列，其余 1 列（◐ ✓ × … · 都算 1）
+function isWide(cp){
+  return (cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0x303E) ||
+         (cp >= 0x3041 && cp <= 0x33FF) || (cp >= 0x3400 && cp <= 0x4DBF) ||
+         (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xA000 && cp <= 0xA4CF) ||
+         (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) ||
+         (cp >= 0xFE30 && cp <= 0xFE6F) || (cp >= 0xFF00 && cp <= 0xFF60) ||
+         (cp >= 0xFFE0 && cp <= 0xFFE6) || (cp >= 0x1F300 && cp <= 0x1FAFF);
+}
+function cw(ch){ return isWide(ch.codePointAt(0)) ? 2 : 1; }
+
+// message_render.rs: truncate_to_display_width —— 超宽时行尾 … 收口
+function truncateSpans(spans, maxWidth){
+  const total = spans.reduce((a, s) => a + [...s.t].reduce((x, ch) => x + cw(ch), 0), 0);
+  if (total <= maxWidth) return spans;
+  const out = []; let used = 0; const limit = Math.max(0, maxWidth - 1);
+  outer:
+  for (const s of spans){
+    let buf = '';
+    for (const ch of s.t){
+      const w = cw(ch);
+      if (used + w > limit) { if (buf) out.push({ t: buf, c: s.c }); break outer; }
+      buf += ch; used += w;
+    }
+    if (buf) out.push({ t: buf, c: s.c });
+  }
+  out.push({ t: '…', c: 'dim' });
+  return out;
+}
+
+/* ---------- 第二行渲染 ---------- */
+
+function seg(t, c){ return { t, c }; }
+
+function buildRow2(frame){
+  // 先按「段」分组：一个段 = 一个工具条目 / 一个统计条目（内部不再插分隔符），
+  // 段与段之间才用 " | " 连接（对齐 Rust 侧 append_activity_segment 的语义）
+  const groups = [];
+
+  frame.recent.slice(0, RECENT_MAX).forEach(e => {
+    const g = [seg(e.running ? '◐' : '✓', e.running ? 'run' : 'ok'),
+               seg(' ' + e.name, 'name')];
+    const args = truncateToolTarget(e.args);
+    if (args) g.push(seg(' : ' + args, 'dim'));
+    groups.push(g);
+  });
+
+  frame.agg.slice(0, 4).forEach(([name, count]) => {
+    groups.push([seg('✓', 'ok'), seg(' ' + name, 'plain'), seg(' ×' + count, 'dim')]);
+  });
+  if (frame.more > 0) groups.push([seg('+' + frame.more + ' more', 'dim')]);
+
+  const spans = [seg(' ', 'plain')];               // 前导空格（#105 左对齐要求）
+  groups.forEach((g, i) => {
+    if (i > 0) spans.push(seg(' | ', 'plain'));
+    spans.push(...g);
+  });
+  return spans;
+}
+
+function renderSpans(el, spans){
+  el.innerHTML = '';
+  for (const s of spans){
+    const sp = document.createElement('span');
+    sp.className = s.c;
+    sp.textContent = s.t;
+    el.appendChild(sp);
+  }
+}
+
+/* ---------- 帧脚本（时间轴见 spec 第三节） ---------- */
+
+const AGG_BASE = [['Bash', 21], ['Read', 12], ['Grep', 2], ['Ask', 2]];
+const AGG_READ13 = [['Bash', 21], ['Read', 13], ['Grep', 2], ['Ask', 2]];
+
+const FRAMES = [
+  { label: '① t=0 · ToolStart Bash（sleep 15）',
+    recent: [{ running: true, name: 'Bash', args: 'sleep 15' }], agg: AGG_BASE, more: 1 },
+  { label: '② t=1.0s · ToolStart Read（新工具插到最左，Bash 右移）',
+    recent: [{ running: true, name: 'Read', args: 'tool_dispatch_test.rs:1580-1599' },
+             { running: true, name: 'Bash', args: 'sleep 15' }], agg: AGG_BASE, more: 1 },
+  { label: '③ t=1.008s · ToolEnd Read（实际只跑 8ms → 垫到 300ms；统计立刻 +1）',
+    recent: [{ running: false, name: 'Read', args: 'tool_dispatch_test.rs:1580-1599' },
+             { running: true, name: 'Bash', args: 'sleep 15' }], agg: AGG_READ13, more: 1 },
+  { label: '④ t=1.3s · 停留到点 → Read 条目消失',
+    recent: [{ running: true, name: 'Bash', args: 'sleep 15' }], agg: AGG_READ13, more: 1 },
+  { label: '⑤ t=1.4s · ToolStart Grep',
+    recent: [{ running: true, name: 'Grep', args: 'BaseMessage::System' },
+             { running: true, name: 'Bash', args: 'sleep 15' }], agg: AGG_READ13, more: 1 },
+  { label: '⑥ t=1.41s · ToolEnd Grep + ToolStart Edit → 容量 2：仍在跑的 Bash 被挤出显示',
+    recent: [{ running: true, name: 'Edit', args: 'tool_dispatch_test.rs' },
+             { running: false, name: 'Grep', args: 'BaseMessage::System' }],
+    agg: [['Bash', 21], ['Read', 13], ['Grep', 3], ['Ask', 2]], more: 1 },
+  { label: '⑦ t=2.0s · ToolStart AskUserQuestion（非白名单 → 兜底摘要）',
+    recent: [{ running: true, name: 'Ask', args: '选择要修改的渲染层' },
+             { running: true, name: 'Edit', args: 'tool_dispatch_test.rs' }],
+    agg: [['Bash', 21], ['Read', 13], ['Grep', 3], ['Ask', 2]], more: 1 },
+  { label: '⑧ t=3.0s · ToolStart Agent（兜底取 description）',
+    recent: [{ running: true, name: 'Agent', args: '探查状态栏渲染链路' },
+             { running: true, name: 'Ask', args: '选择要修改的渲染层' }],
+    agg: [['Bash', 21], ['Read', 13], ['Grep', 3], ['Ask', 2]], more: 1 },
+  { label: '⑨ t=16s · 全部结束 + 停留耗尽 → 只剩聚合统计（这就是你截图最后那行）',
+    recent: [], agg: [['Bash', 22], ['Read', 13], ['Grep', 3], ['Ask', 3]], more: 2 },
+  { label: '⑩ 长命令演示 · Bash 执行 cd /d/code/peri && cargo test -p cc-tui',
+    recent: [{ running: true, name: 'Bash', args: 'cd /d/code/peri && cargo test -p cc-tui' }],
+    agg: [['Bash', 22], ['Read', 13], ['Grep', 3], ['Ask', 3]], more: 2 },
+];
+
+/* ---------- 交互 ---------- */
+
+const row1 = document.getElementById('row1');
+const row2 = document.getElementById('row2');
+const row3 = document.getElementById('row3');
+const termBox = document.getElementById('termBox');
+const label = document.getElementById('frameLabel');
+const allFrames = document.getElementById('allFrames');
+const widthSlider = document.getElementById('width');
+const widthVal = document.getElementById('widthVal');
+const capSel = document.getElementById('cap');
+
+row1.textContent = '[claude-fable-5] ██████░░░░ 62% | peri git:(feat/statusbar-recent-tools*) | tok: 1.4M (in: 96.3k, out: 588) | ⏱ 6m53s';
+row3.textContent = ' Bypass (Shift+Tab to cycle) · 1 shell ↓ to view  Cache 87% · MEM 74MB';
+
+let idx = 0;
+let playing = false;
+let timer = null;
+
+function paint(){
+  const width = parseInt(widthSlider.value, 10);
+  widthVal.textContent = width;
+  CAP = parseInt(capSel.value, 10) || 0;              // 0 = 不限
+
+  const frame = FRAMES[idx];
+  const spans = truncateSpans(buildRow2(frame), width);
+  renderSpans(row2, spans);
+  termBox.style.width = width + 'ch';                 // 终端框跟宽度联动，避免右侧一大片假空白
+  label.innerHTML = '<b>当前帧：</b>' + frame.label;
+
+  // 静态帧列表跟随宽度重算
+  allFrames.innerHTML = '';
+  FRAMES.forEach((f, i) => {
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.textContent = f.label;
+    const term = document.createElement('div');
+    term.className = 'term';
+    term.style.width = width + 'ch';
+    const line = document.createElement('div');
+    line.className = 'line';
+    renderSpans(line, truncateSpans(buildRow2(f), width));
+    term.appendChild(line);
+    if (i === idx){ term.style.borderColor = '#5ac8fa'; }
+    allFrames.appendChild(cap);
+    allFrames.appendChild(term);
+  });
+
+  buildTruncTable();
+}
+
+function go(delta){
+  idx = (idx + delta + FRAMES.length) % FRAMES.length;
+  paint();
+}
+
+document.getElementById('btnPrev').onclick = () => { stop(); go(-1); };
+document.getElementById('btnNext').onclick = () => { stop(); go(1); };
+document.getElementById('btnPlay').onclick = (e) => {
+  if (playing) { stop(); return; }
+  playing = true; e.target.textContent = '⏸ 暂停';
+  timer = setInterval(() => go(1), 1200);
+};
+function stop(){
+  playing = false;
+  document.getElementById('btnPlay').textContent = '▶ 播放';
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+widthSlider.oninput = paint;
+capSel.onchange = paint;
+document.querySelectorAll('.preset').forEach(b => {
+  b.onclick = () => { stop(); widthSlider.value = b.dataset.w; paint(); };
+});
+
+/* ---------- 截断演示表 ---------- */
+
+const SAMPLES = [
+  'sleep 15',
+  'BaseMessage::System',
+  'src/ui/main_ui/status_bar.rs',
+  'tool_dispatch_test.rs:1580-1599',
+  'cd /d/code/peri && cargo test -p cc-tui',
+  'cd /d/code/peri && cargo build -p cc-tui',
+  'very-long-file-name-for-test.rs',
+  'src/deep/nested/component.tsx',
+];
+
+function buildTruncTable(){
+  const t = document.getElementById('truncTable');
+  const capLabel = CAP ? CAP + ' 列' : '不限';
+  t.innerHTML = '<tr><th>工具参数（原样）</th><th>字符数</th><th>摘要（上限 ' + capLabel + '）</th><th>走的分支</th></tr>';
+  SAMPLES.forEach(s => {
+    const out = truncateToolTarget(s);
+    const len = [...s].length;
+    const parts = s.replace(/\\/g, '/').split('/');
+    const fnLen = [...parts[parts.length - 1]].length;
+    const branch = (!CAP || len <= CAP)
+      ? '未超上限，原样'
+      : (fnLen >= CAP
+        ? '末段 ≥' + CAP + ' → 前 ' + (CAP - 3) + ' 字符 + ...'
+        : '末段 <' + CAP + ' → .../末段');
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><code>' + s + '</code></td><td>' + len +
+      '</td><td><code>' + out + '</code></td><td>' + branch + '</td>';
+    t.appendChild(tr);
+  });
+}
+
+paint();
+</script>
+</body>
+</html>

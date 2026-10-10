@@ -30,6 +30,7 @@ impl App {
             s.agent.pending_ask_user = None;
             s.agent.active_tool = None;
             s.agent.running_tools.clear();
+            s.agent.recent_tools.clear();
 
             // Record task duration
             if let Some(start) = s.agent.task_start_time {
@@ -185,6 +186,7 @@ impl App {
         self.session_mgr.current_mut().agent.cancel_sent_at = None;
         self.session_mgr.current_mut().agent.active_tool = None;
         self.session_mgr.current_mut().agent.running_tools.clear();
+        self.session_mgr.current_mut().agent.recent_tools.clear();
         self.session_mgr.current_mut().spinner_state.clear_summary();
         // When parent agent is interrupted while executing a sync SubAgent,
         // pipeline.in_subagent() returns true because the SubAgent UI state is active.

@@ -162,6 +162,7 @@ impl App {
         self.session_mgr.current_mut().agent.cancel_token = None;
         self.session_mgr.current_mut().agent.active_tool = None;
         self.session_mgr.current_mut().agent.running_tools.clear();
+        self.session_mgr.current_mut().agent.recent_tools.clear();
         self.session_mgr
             .current_mut()
             .agent
