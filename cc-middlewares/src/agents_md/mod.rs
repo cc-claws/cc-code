@@ -11,7 +11,10 @@ use cc_agent::{
 
 mod bounded_read;
 mod config;
-pub use config::{AgentsMdConfig, ImportScope, DEFAULT_MAX_BYTES, DEFAULT_MAX_SOURCE_BYTES};
+pub use config::{
+    default_user_global_candidates, user_global_candidates_in, AgentsMdConfig, ImportScope,
+    DEFAULT_MAX_BYTES, DEFAULT_MAX_SOURCE_BYTES,
+};
 
 /// AgentsMdMiddleware - 注入项目指引文件（`AGENTS.md` / `CLAUDE.md` 及变体）
 ///
@@ -139,36 +142,15 @@ impl AgentsMdMiddleware {
         (main_content, local_content)
     }
 
-    /// 读取**用户全局** CLAUDE.md（`~/.claude/CLAUDE.md`，缺失则回退 `~/.claude/AGENTS.md`）。
+    /// 读取**用户全局**指引文件内容（`~/.cc-code` / `~/.claude` 下的 `AGENTS.md` / `CLAUDE.md`）。
     ///
-    /// 与 [`Self::read_frozen_content`] 的项目级读取相互独立：那是"项目上下文"，
-    /// 这是"个人规则"。供需要跨项目生效的消费者使用（如 HITL 的 Jev 语义门策略）。
+    /// 与上下文指引注入链路对齐：统一使用 [`load_user_global_instruction`] 加载，
+    /// 确保 Jev 安全语义门与 System Prompt 指引使用完全一致的全局文件来源。
     /// 同样解析 `@import`；空文件视为不存在。
     pub fn read_global_content() -> Option<String> {
-        let claude_dir = dirs_next::home_dir()?.join(".claude");
-        for name in ["CLAUDE.md", "AGENTS.md"] {
-            let path = claude_dir.join(name);
-            if !path.is_file() {
-                continue;
-            }
-            let Ok(content) = bounded_read::read_bounded_file(&path, DEFAULT_MAX_SOURCE_BYTES)
-            else {
-                continue;
-            };
-            let content = normalize_content(&content);
-            if content.trim().is_empty() {
-                continue;
-            }
-            // 用户**自有**的全局规则文件属可信输入：`@import ~/rules/x.md` 这类跨项目
-            // 共享是常见需求，收窄范围会让规则**静默消失**（对门而言是变松，不是变紧）。
-            return Some(read_with_imports(
-                &path,
-                &content,
-                &AgentsMdConfig::default(),
-                ImportScope::Unrestricted,
-            ));
-        }
-        None
+        let cfg = AgentsMdConfig::default();
+        let seen_abs = HashSet::new();
+        load_user_global_instruction(&cfg, &seen_abs).map(|f| f.content)
     }
 }
 
@@ -262,13 +244,7 @@ pub fn discover_instruction_files(cwd: &Path, cfg: &AgentsMdConfig) -> Vec<Instr
     let mut seen_abs: HashSet<PathBuf> = HashSet::new();
 
     // ① 用户全局层（链首，最宽）。用户自有文件 → `@import` 不受项目范围限制。
-    if let Some(file) = load_candidate(
-        &cfg.user_global_file,
-        cfg.user_global_display(),
-        &seen_abs,
-        cfg,
-        ImportScope::Unrestricted,
-    ) {
+    if let Some(file) = load_user_global_instruction(cfg, &seen_abs) {
         seen_abs.insert(file.abs_path.clone());
         out.push(file);
     }
@@ -342,6 +318,26 @@ fn normalize_parent_components(path: &Path) -> std::io::Result<PathBuf> {
         // verbatim 等特殊路径由系统最终解析结果兜底。
         Ok(resolved)
     }
+}
+
+/// 查找并加载用户全局指引文件（按候选列表有序尝试，首个存在且非空的文件，@import 不受项目范围限制）。
+pub fn load_user_global_instruction(
+    cfg: &AgentsMdConfig,
+    seen_abs: &HashSet<PathBuf>,
+) -> Option<InstructionFile> {
+    for candidate in cfg.user_global_candidates() {
+        let display = config::display_with_home(&candidate);
+        if let Some(file) = load_candidate(
+            &candidate,
+            display,
+            seen_abs,
+            cfg,
+            ImportScope::Unrestricted,
+        ) {
+            return Some(file);
+        }
+    }
+    None
 }
 
 /// 单个候选文件的完整加载管线（全局层与逐目录两条路径共用）：

@@ -789,6 +789,78 @@
         );
     }
 
+    // ── 用户全局指引多候选回退与对齐 ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_user_global_fallback_to_claude_md() {
+        let fake_home = tempfile::tempdir().unwrap();
+        let cc_dir = fake_home.path().join(".cc-code");
+        let claude_dir = fake_home.path().join(".claude");
+        std::fs::create_dir_all(&cc_dir).unwrap();
+        std::fs::create_dir_all(&claude_dir).unwrap();
+
+        // 仅在 ~/.claude/CLAUDE.md 存在
+        std::fs::write(claude_dir.join("CLAUDE.md"), "GLOBAL_FROM_CLAUDE_DIR").unwrap();
+
+        let candidates = user_global_candidates_in(&cc_dir, Some(fake_home.path()));
+        let cfg = AgentsMdConfig {
+            user_global_candidates: Some(candidates),
+            ..Default::default()
+        };
+
+        let dir = repo_dir();
+        let out = load_instructions(dir.path(), &cfg).expect("应成功回退加载全局指引");
+        assert!(out.contains("GLOBAL_FROM_CLAUDE_DIR"), "{out}");
+        assert!(out.contains(".claude/CLAUDE.md"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn test_user_global_priority_cc_code_over_claude() {
+        let fake_home = tempfile::tempdir().unwrap();
+        let cc_dir = fake_home.path().join(".cc-code");
+        let claude_dir = fake_home.path().join(".claude");
+        std::fs::create_dir_all(&cc_dir).unwrap();
+        std::fs::create_dir_all(&claude_dir).unwrap();
+
+        // 两处都存在
+        std::fs::write(cc_dir.join("AGENTS.md"), "PRIORITY_CC_CODE").unwrap();
+        std::fs::write(claude_dir.join("CLAUDE.md"), "SECONDARY_CLAUDE").unwrap();
+
+        let candidates = user_global_candidates_in(&cc_dir, Some(fake_home.path()));
+        let cfg = AgentsMdConfig {
+            user_global_candidates: Some(candidates),
+            ..Default::default()
+        };
+
+        let dir = repo_dir();
+        let out = load_instructions(dir.path(), &cfg).expect("应加载全局指引");
+        assert!(out.contains("PRIORITY_CC_CODE"), "{out}");
+        assert!(!out.contains("SECONDARY_CLAUDE"), "高优先级候选应阻止低优先级: {out}");
+    }
+
+    #[tokio::test]
+    async fn test_user_global_empty_file_does_not_mask_subsequent_candidates() {
+        let fake_home = tempfile::tempdir().unwrap();
+        let cc_dir = fake_home.path().join(".cc-code");
+        let claude_dir = fake_home.path().join(".claude");
+        std::fs::create_dir_all(&cc_dir).unwrap();
+        std::fs::create_dir_all(&claude_dir).unwrap();
+
+        // 高优先级是空文件
+        std::fs::write(cc_dir.join("AGENTS.md"), "   \n\t  ").unwrap();
+        std::fs::write(claude_dir.join("CLAUDE.md"), "FALLBACK_NON_EMPTY").unwrap();
+
+        let candidates = user_global_candidates_in(&cc_dir, Some(fake_home.path()));
+        let cfg = AgentsMdConfig {
+            user_global_candidates: Some(candidates),
+            ..Default::default()
+        };
+
+        let dir = repo_dir();
+        let out = load_instructions(dir.path(), &cfg).expect("空文件不应遮蔽后续候选");
+        assert!(out.contains("FALLBACK_NON_EMPTY"), "{out}");
+    }
+
     #[test]
     fn test_import_nonexistent_file() {
         let content = "<!-- @import nonexistent.md -->";
