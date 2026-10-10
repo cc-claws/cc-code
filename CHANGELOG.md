@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.120 — 2026-10-10
+
+### Fixes
+
+- **Windows 传统 CMD 控制码刷屏与星形缺字修复（#415）**：传统 CMD 控制台（conhost）启动后 stdout 的 VT（虚拟终端）模式可能丢失，导致 crossterm 缓存的 ANSI 能力与实际模式不一致——输出退化为控制码刷屏、星形 spinner 缺字（缺字仍占一列却无法被现有列宽探针识别）。现于输出前补齐 VT 必要位并记录恢复、清屏重绘（保留其他控制台模式），`terminal_title_ops`/`terminal_title`/`panel_memory` 保护标题输出与编辑器返回路径，`terminal_backend` 区分原生控制台与 ConPTY 使用不同 ASCII 动画帧并保持逻辑帧原文。同批修复无控制台/重定向环境（如 CI）下 VT 恢复失败提前返回、导致 `last_terminal_title` 缓存未记录与单元测试断言失败的问题（改为先记录缓存状态再执行平台相关 VT 恢复）。（#415）
+
+### Docs
+
+- **活文档与代码漂移校准（#417）**：对照最新代码校准 TUI 命令数（29）、系统提示词段落文件数（14）、核心工具数（11）、cc-widgets 通用组件数（15）与 ReAct 迭代上限（核心默认 10 / 构建 500）；修复 `docs/README.md` 中 7 处指向不存在文件的断链，并在 README 仓库结构树补齐 `TUI-STYLE.md`、`DEVLOG.md`（中英对齐）。（#417）
+
 ## v0.6.119 — 2026-10-10
 
 ### Fixes
