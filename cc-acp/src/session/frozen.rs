@@ -15,9 +15,12 @@ use crate::session::executor::FrozenSessionData;
 /// 会话内共享的规则槽。惰性提炼，落位后门自动开始携带 CLAUDE.md 策略。
 pub type SessionJevRulesSlot = JevRulesSlot;
 
-/// 用当前 provider 构造规则提炼模型（`session/new` 调用方传入 `build_frozen_session_data`）。
+/// 用当前 provider 构造**提炼专用**模型（`session/new` 调用方传入 `build_frozen_session_data`）。
+///
+/// 刻意走低思考档（见 [`crate::provider::LlmProvider::into_extraction_model`]）：
+/// 提炼继承会话的 `xhigh` 会让单块耗时翻倍并撞超时。
 pub fn rule_model_from(provider: &crate::provider::LlmProvider) -> Option<Arc<dyn BaseModel>> {
-    Some(provider.clone().into_model().into())
+    Some(provider.clone().into_extraction_model().into())
 }
 
 /// Build frozen session data from the given parameters.

@@ -161,6 +161,9 @@ impl JevRuleLoader {
                 "chunk_len": self.chunk_len,
                 "max_chunks": self.max_chunks,
                 "split_depth": MAX_SPLIT_DEPTH,
+                // 注意：提炼用的思考档位是编译期常量（见 provider::into_extraction_model），
+                // 运行期不变，因此不进签名。若将来改成可配置，**必须**加进来，
+                // 否则改了档位还会命中旧档位算出的结果。
                 "timeout_ms": self.timeout.as_millis(),
             }),
         );
@@ -302,6 +305,44 @@ pub fn clear_cache() {
     CACHE.lock().clear();
 }
 
+/// 超时阶梯倍数：`rule_timeout_ms` 是第一次的时限，第二次放宽到它的 2 倍。
+///
+/// 取 2（默认 15s → 30s）：吸收网关冷启动/排队造成的单次抖动。
+/// 关键是**上限可控**——每块最多 2 次尝试，最坏 `2 块 × (15+30)s`；
+/// 而旧实现让超时也走对半递归，一块会放大成 `1+2+4=7` 次等待。
+const TIMEOUT_RETRY_FACTOR: u32 = 2;
+
+/// 单块提炼的时限阶梯：首次 `first`，超时后放宽到 `retry` 再试**一次**。
+#[derive(Debug, Clone, Copy)]
+struct RuleTimeouts {
+    first: Duration,
+    retry: Duration,
+}
+
+impl RuleTimeouts {
+    fn from_base(base: Duration) -> Self {
+        Self {
+            first: base,
+            retry: base.checked_mul(TIMEOUT_RETRY_FACTOR).unwrap_or(base),
+        }
+    }
+}
+
+/// 单块提炼的失败原因。
+///
+/// **必须把超时单独分出来**：两种失败的正确应对是相反的。
+/// 超时是"给的时间不够"，对半切小只会拿同一个时限再赌一次（块变小并不能
+/// 让慢网关变快）；而网络/解析/空回复是"模型没把答案写出来"，块越小越容易
+/// 塞进输出预算。旧实现把两者都压成 `None`，于是超时也被拿去做对半递归。
+enum ChunkError {
+    /// 超出时限未返回。
+    Timeout,
+    /// 网络失败、回复不可解析、回复为空——切小重试可能有效。
+    Retryable,
+    /// 输入本身为空，任何重试都没有意义。
+    Empty,
+}
+
 /// 从 CLAUDE.md 原文提炼规则（单个分块）。
 ///
 /// 同一份内容只调用一次 LLM（进程内缓存）。超时、网络失败、JSON 畸形、
@@ -311,70 +352,89 @@ pub async fn extract_rules(
     source: &str,
     timeout: Duration,
 ) -> Option<Arc<JevRules>> {
-    extract_one(model, source, timeout, None)
+    extract_one(model, source, RuleTimeouts::from_base(timeout), None)
         .await
+        .ok()
         .map(|(rules, _)| rules)
 }
 
 /// 单块提炼（带缓存）。
+///
+/// 超时**独立重试**：首试 `timeouts.first`，超时后放宽到 `timeouts.retry` 再试一次。
+/// 返回 [`ChunkError`] 而不是 `Option`，好让调用方区分"该切小"和"该多等"。
 async fn extract_one(
     model: &dyn BaseModel,
     source: &str,
-    timeout: Duration,
+    timeouts: RuleTimeouts,
     namespace: Option<&str>,
-) -> Option<(Arc<JevRules>, bool)> {
+) -> Result<(Arc<JevRules>, bool), ChunkError> {
     if source.trim().is_empty() {
-        return None;
+        return Err(ChunkError::Empty);
     }
     let key = content_hash_in_namespace(source, namespace);
     if let Some(hit) = CACHE.lock().get(&key).cloned() {
-        return Some((hit, true));
+        return Ok((hit, true));
     }
 
-    let (rules, complete) = match tokio::time::timeout(timeout, call_llm(model, source)).await {
-        Ok(Some(pair)) => pair,
-        Ok(None) => return None,
-        Err(_) => {
-            tracing::warn!("Jev 规则提炼超时，本次不携带用户策略");
-            return None;
+    let mut last_error = ChunkError::Timeout;
+    for (attempt, limit) in [timeouts.first, timeouts.retry].into_iter().enumerate() {
+        match tokio::time::timeout(limit, call_llm(model, source)).await {
+            Ok(Some(pair)) => {
+                let (rules, complete) = pair;
+                if rules.is_empty() {
+                    return Err(ChunkError::Retryable);
+                }
+                let arc = Arc::new(rules);
+                if complete {
+                    cache_rules(key, arc.clone());
+                    tracing::info!(
+                        rules = arc.rules.len(),
+                        protected = arc.protected_paths.len(),
+                        attempt = attempt + 1,
+                        "Jev 规则已从 CLAUDE.md 提炼并缓存"
+                    );
+                } else {
+                    // **不缓存截断抢救出的结果**：它本来就不完整，缓存会让本进程
+                    // 在整个生命周期里一直用这份残缺规则集，而没有办法自愈。
+                    tracing::warn!(
+                        rules = arc.rules.len(),
+                        "Jev 规则不完整（回复被截断），本条来源不缓存"
+                    );
+                }
+                return Ok((arc, complete));
+            }
+            // 模型调用失败/空回复/不可解析：切小重试可能有效，立即返回让上层决定。
+            Ok(None) => return Err(ChunkError::Retryable),
+            Err(_) => {
+                last_error = ChunkError::Timeout;
+                tracing::warn!(
+                    timeout_ms = limit.as_millis() as u64,
+                    attempt = attempt + 1,
+                    "Jev 规则提炼超时"
+                );
+            }
         }
-    };
-    if rules.is_empty() {
-        return None;
     }
-
-    let arc = Arc::new(rules);
-    if complete {
-        cache_rules(key, arc.clone());
-        tracing::info!(
-            rules = arc.rules.len(),
-            protected = arc.protected_paths.len(),
-            "Jev 规则已从 CLAUDE.md 提炼并缓存"
-        );
-    } else {
-        // **不缓存截断抢救出的结果**：它本来就不完整，缓存会让本进程在整个生命周期里
-        // 一直用这份残缺规则集，而没有办法自愈。
-        tracing::warn!(
-            rules = arc.rules.len(),
-            "Jev 规则不完整（回复被截断），本条来源不缓存"
-        );
-    }
-    Some((arc, complete))
+    Err(last_error)
 }
 
-/// 提炼一块；失败就**对半切小重试**，直到能塞进输出预算。
+/// 提炼一块；**只在"模型没写出答案"时**对半切小重试，直到能塞进输出预算。
 ///
 /// 为什么需要：推理模型的思考会吃掉输出预算，块越大越可能"想完了没额度写答案"，
 /// 结果整块规则全丢。切小后每块的答案短得多，就能装进预算。
+///
+/// **为什么超时不切小**：切小是在赌"更小的输入能更快返回"，但超时的成因是网关慢，
+/// 不是输入大——同一份慢网关对半块只会再赌一次，还把一次等待放大成 7 次（1+2+4）。
+/// 超时留给 [`extract_one`] 的时限阶梯处理。
 async fn extract_chunk_adaptive(
     model: &dyn BaseModel,
     chunk: &str,
-    timeout: Duration,
+    timeouts: RuleTimeouts,
     depth: u32,
     namespace: Option<&str>,
 ) -> Option<LlmOutcome> {
     Box::pin(extract_chunk_adaptive_inner(
-        model, chunk, timeout, depth, namespace,
+        model, chunk, timeouts, depth, namespace,
     ))
     .await
 }
@@ -382,19 +442,22 @@ async fn extract_chunk_adaptive(
 async fn extract_chunk_adaptive_inner(
     model: &dyn BaseModel,
     chunk: &str,
-    timeout: Duration,
+    timeouts: RuleTimeouts,
     depth: u32,
     namespace: Option<&str>,
 ) -> Option<LlmOutcome> {
-    if let Some((rules, complete)) = extract_one(model, chunk, timeout, namespace).await {
-        return Some(((*rules).clone(), complete));
+    match extract_one(model, chunk, timeouts, namespace).await {
+        Ok((rules, complete)) => return Some(((*rules).clone(), complete)),
+        // 超时：已经试过放宽时限，再切小只会重复等待。
+        Err(ChunkError::Timeout) | Err(ChunkError::Empty) => return None,
+        Err(ChunkError::Retryable) => {}
     }
     if depth == 0 || chunk.chars().count() < 1_000 {
         return None;
     }
     let (head, tail) = split_at_char(chunk, chunk.chars().count() / 2);
-    let a = extract_chunk_adaptive(model, &head, timeout, depth - 1, namespace).await;
-    let b = extract_chunk_adaptive(model, &tail, timeout, depth - 1, namespace).await;
+    let a = extract_chunk_adaptive(model, &head, timeouts, depth - 1, namespace).await;
+    let b = extract_chunk_adaptive(model, &tail, timeouts, depth - 1, namespace).await;
     match (a, b) {
         (Some((x, complete_x)), Some((y, complete_y))) => {
             Some((merge_rules(vec![x, y]), complete_x && complete_y))
@@ -461,9 +524,10 @@ async fn extract_rules_chunked_with_status(
         chunks.truncate(max_chunks);
     }
 
+    let timeouts = RuleTimeouts::from_base(timeout);
     let mut parts = Vec::with_capacity(chunks.len());
     for (i, chunk) in chunks.iter().enumerate() {
-        match extract_chunk_adaptive(model, chunk, timeout, MAX_SPLIT_DEPTH, namespace).await {
+        match extract_chunk_adaptive(model, chunk, timeouts, MAX_SPLIT_DEPTH, namespace).await {
             Some((rules, chunk_complete)) => {
                 complete &= chunk_complete;
                 parts.push(rules);

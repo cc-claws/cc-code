@@ -332,3 +332,84 @@ async fn test_extract_rules_timeout_returns_none() {
     let out = extract_rules(&SlowModel, "独特文本 E", Duration::from_millis(20)).await;
     assert!(out.is_none(), "超时应返回 None 而不是挂住");
 }
+
+// ─── 超时：只放宽时限重试一次，且绝不触发对半递归 ──────────────────────────────
+//
+// 回归自实测事故：网关单块要 18–73 秒，而超时被当成"块太大"去对半递归，
+// 一块放大成 1+2+4=7 次等待（2 块共 14 次），每次白等一个完整时限。
+
+/// 永远比时限慢的模型；记录被调用次数。
+struct AlwaysSlowModel {
+    delay: Duration,
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl BaseModel for AlwaysSlowModel {
+    async fn invoke(&self, _request: LlmRequest) -> AgentResult<LlmResponse> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        tokio::time::sleep(self.delay).await;
+        Err(AgentError::LlmError("unreachable".into()))
+    }
+    fn provider_name(&self) -> &str {
+        "slow"
+    }
+    fn model_id(&self) -> &str {
+        "always-slow"
+    }
+}
+
+#[tokio::test]
+async fn test_timeout_retries_once_with_widened_deadline_then_stops() {
+    let model = AlwaysSlowModel {
+        delay: Duration::from_millis(500),
+        calls: AtomicUsize::new(0),
+    };
+    // 首试 20ms、重试 40ms，模型要 500ms → 两次都超时。
+    let out = extract_rules(&model, "超时阶梯测试源", Duration::from_millis(20)).await;
+    assert!(out.is_none());
+    assert_eq!(
+        model.calls.load(Ordering::Relaxed),
+        2,
+        "超时应恰好尝试 2 次（首试 + 放宽一次），不能无限重试"
+    );
+}
+
+#[tokio::test]
+async fn test_timeout_does_not_trigger_halving_recursion() {
+    // 长来源会被切块；若超时误入对半递归，一块会变成 1+2+4=7 次调用。
+    // 断言：整块来源（无论切几块）总调用数 == 2 × 块数，且远小于 7 × 块数。
+    let long = format!("{}\n\n{}", "甲".repeat(3000), "乙".repeat(3000));
+    let model = AlwaysSlowModel {
+        delay: Duration::from_millis(500),
+        calls: AtomicUsize::new(0),
+    };
+    let out = extract_rules_chunked(
+        &model,
+        &long,
+        4000, // 不切块（整段 6002 字符 ≤ 4000? 否 → 切成 2 块）
+        4,
+        Duration::from_millis(20),
+    )
+    .await;
+    assert!(out.is_none(), "全部超时不应产出规则");
+    let calls = model.calls.load(Ordering::Relaxed);
+    assert!(
+        calls <= 4,
+        "超时不得对半递归（应 ≤ 2 块 × 2 次 = 4），实际 {calls}"
+    );
+}
+
+#[tokio::test]
+async fn test_malformed_response_still_halves_recursively() {
+    // 反向保证：**解析失败**（非超时）仍应保留对半递归的能力——
+    // 这是为"思考吃光输出预算"设计的，不能因为删超时递归而一起删掉。
+    let long = format!("{}-{}\n\n{}-{}", "丙".repeat(600), uuid::Uuid::new_v4(), "丁".repeat(600), uuid::Uuid::new_v4());
+    let model = MockRulesModel::new("不是 JSON");
+    let _ = extract_rules_chunked(&model, &long, 2000, 4, Duration::from_secs(5)).await;
+    assert!(
+        model.calls() > 2,
+        "解析失败应对半递归（一块 → 多次调用），实际 {}",
+        model.calls()
+    );
+}
