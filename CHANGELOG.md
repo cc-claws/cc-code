@@ -4,6 +4,13 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.113 — 2026-10-10
+
+### Fixes
+
+- **交互弹窗 Ctrl+C 中断保护与审批取消及时响应（#396、#397）**：修复提问（Questions）和工具审批（Approval）弹窗此前单次按下 `Ctrl+C` 直接退出 TUI 的问题，改为向 Agent 发送取消中断（`session/cancel`）并解除 transport 等待，保留 TUI 会话且清空退出确认状态；修复配置向导退出缺少防抖的问题，复用普通模式 100ms~2s 双击退出逻辑；在批量 `before_tool` 工具等待中增加取消优先分支，使长时间工具审批在用户中断时可立即响应，保持工具延迟写入约束；后续或迟到的交互请求自动标记取消，避免二次弹出孤立弹窗。
+- **PHP 语法高亮内存缩减与空闲工作线程堆内存自动回收（#394、#395）**：将 syntect 代码高亮引擎从 `default-fancy` 切换为静态编译的 `default-onig`（Oniguruma），解决 PHP 等语法正则在 fancy 引擎下引发的大量常驻内存开销（独立测试中单段 PHP RSS 从 89.6 MiB 降至 15.6 MiB，整段会话文本从 118.4 MiB 降至 17.5 MiB）；在 Windows 平台通过 `mi_option_set` 注入有效的 mimalloc purge 参数，并在 Tokio runtime 的 `on_thread_park` 回调中接入工作线程空闲堆回收机制（每线程至多 1s 回收一次）；修正 `/gc` 命令与内存诊断在 resident、metadata、RSS 差额及消息数统计上的口径。
+
 ## v0.6.112 — 2026-10-10
 
 ### Features
