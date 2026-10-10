@@ -399,6 +399,39 @@ async function downloadRipgrep(platform, binDir) {
   }
 }
 
+// #410：把 npm 自动生成的全局入口（<prefix>/cc-code.cmd|.ps1）改写为直起 exe。
+// 全局安装时 __dirname = <prefix>/node_modules/@cc-claw/code，故 prefix 根为
+// __dirname/../../..。仅在能定位到 npm 生成的 wrapper 时才覆盖；任何失败都不
+// 阻塞安装（此时 exe 同目录 bin/cc-code.cmd|.ps1 仍可直起）。
+function overwriteNpmGlobalWrapper(binDirPath) {
+  try {
+    const prefixRoot = join(__dirname, "..", "..", "..");
+    const exePath = join(binDirPath, "cc-code.exe");
+    // 全局 cmd 用相对自身的路径引用 exe，避免硬编码绝对路径（prefix 可能含空格）
+    const cmdTarget = join(prefixRoot, "cc-code.cmd");
+    const ps1Target = join(prefixRoot, "cc-code.ps1");
+
+    // 防御：仅当 exe 存在且全局 wrapper 也存在（确是 npm 全局安装布局）时才覆盖
+    if (!existsSync(exePath)) return;
+    if (!existsSync(cmdTarget) && !existsSync(ps1Target)) return;
+
+    // exe 相对 prefix 根的路径：node_modules/@cc-claw/code/bin/cc-code.exe
+    const relExe = join("node_modules", "@cc-claw", "code", "bin", "cc-code.exe");
+
+    writeFileSync(
+      cmdTarget,
+      `@echo off\r\n"%~dp0${relExe.replace(/\//g, "\\")}" %*\r\n`
+    );
+    writeFileSync(
+      ps1Target,
+      `$basedir = Split-Path $MyInvocation.MyCommand.Definition -Parent\r\n& "$basedir\\${relExe.replace(/\//g, "\\")}" @args\r\nexit $LASTEXITCODE\r\n`
+    );
+    console.log("  Rewrote npm global wrapper to launch cc-code.exe directly (Ctrl+C fix).");
+  } catch (err) {
+    console.log(`  global wrapper rewrite skipped: ${err.message}`);
+  }
+}
+
 async function main() {
   const key = getPlatformKey();
   const platform = PLATFORMS[key];
@@ -445,6 +478,14 @@ async function main() {
     const binDirPath = join(__dirname, "bin");
     writeFileSync(join(binDirPath, "cc-code.cmd"), `@echo off\r\n"%~dp0cc-code.exe" %*\r\n`);
     writeFileSync(join(binDirPath, "cc-code.ps1"), `$basedir = Split-Path $MyInvocation.MyCommand.Definition -Parent\r\n& "$basedir\\cc-code.exe" @args\r\nexit $LASTEXITCODE\r\n`);
+
+    // #410：npm 全局入口（<prefix>/cc-code.cmd|.ps1）由 npm 依据 package.json
+    // 的 bin（指向 node 脚本 bin/cc-code）自动生成，会经 node 以 execFileSync
+    // 拉起 exe。Ctrl+C 的 CTRL_C_EVENT 广播给整个控制台进程组时，node 父进程
+    // 无 handler 被终止，连带拖死 cc-code.exe（其 SetConsoleCtrlHandler 拦截
+    // 因此失效），表现为任意状态按 Ctrl+C 直接退出 TUI。这里把全局入口改写为
+    // 直起 exe，去掉 node 中间层，进程组内只剩 cc-code.exe，handler 正常生效。
+    overwriteNpmGlobalWrapper(binDirPath);
   }
 
   console.log(`cc-code ${VERSION} installed successfully.`);
