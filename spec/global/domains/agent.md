@@ -826,6 +826,10 @@ launch_agent 工具调用
 
 ---
 
+### issue_2026-10-10-cancel-pending-before-tool
+
+批量 `before_tool` 钩子包含人工审批等待，直接 `.await` 会推迟取消检查。`collect_tool_results()` 对该等待使用取消优先的 `tokio::select!`，取消时返回 `AgentError::Interrupted`；尚未写入 state，继续保持工具消息延迟写入约束。TUI 同时回应并关闭待处理交互，详见 [Ctrl+C 交互取消](./tui.md#issue_2026-10-10-ctrl-c-interaction-exits-tui)。
+
 ## 相关 Feature
 
 - → [relay-server.md#feature_20260326_F009_relay-message-id-propagation](./relay-server.md) — message_id 透传到 Web 前端
@@ -839,3 +843,5 @@ launch_agent 工具调用
 - → [compact.md](./compact.md) — Micro/Full Compact 核心层消息操作
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一管线
 - → [code-architecture.md](./code-architecture.md) — Relay Server 移除
+
+最后更新：2026-10-10

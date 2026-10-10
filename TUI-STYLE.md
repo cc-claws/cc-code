@@ -465,7 +465,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 | 按键 | 行为 | 说明 |
 |------|------|------|
-| `Ctrl+C` | 中断 Agent（loading 时）/ 退出（idle 时） | |
+| `Ctrl+C` | 中断 Agent（loading 时）/ 双击退出（idle 时） | 提问和审批期间中断当前轮次，保留 TUI；空闲时两次有效按键间隔为 100ms～2s |
 | `Esc` | 退出程序（idle 时） | |
 | 双击 `Esc` | 空闲时触发 rewind 回滚选择器 | |
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
@@ -503,7 +503,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | `Tab` / `Shift+Tab` | 切换待审批工具，保留各项选择 |
 | `Enter` | 按当前选择确认提交 |
 | `Esc` | 全部拒绝并提交 |
-| `Ctrl+C` | 退出程序 |
+| `Ctrl+C` | 中断当前 Agent 轮次，保留 TUI |
 
 ### AskUser 批量问答弹窗
 
@@ -515,7 +515,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | `Enter` | 提交所有答案 |
 | 普通字符 | 自定义文本输入 |
 | `Backspace` | 删除字符 |
-| `Ctrl+C` | 退出程序 |
+| `Ctrl+C` | 中断当前 Agent 轮次，保留 TUI |
 
 ## 命令系统
 

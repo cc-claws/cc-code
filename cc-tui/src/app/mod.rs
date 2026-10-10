@@ -468,6 +468,13 @@ impl App {
             return;
         }
 
+        // 先取消旧路径令牌，再释放本地交互 sender，避免等待者继续执行工具。
+        if let Some(token) = &self.session_mgr.current().agent.cancel_token {
+            token.cancel();
+        }
+        let interaction_response = self.take_interaction_cancel_response();
+        self.refresh_terminal_title();
+
         // Try ACP cancel first (agent runs in ACP server)
         // Spawn cancel async without blocking the UI thread
         if let Some(ref acp_client) = self.acp_client {
@@ -475,6 +482,12 @@ impl App {
             tokio::spawn(async move {
                 if let Err(e) = client.cancel().await {
                     tracing::warn!(error = %e, "ACP cancel failed (session may have ended)");
+                }
+                // 取消通知先发送，随后解除 transport 对交互响应的等待并清除 pending。
+                if let Some((request_id, response)) = interaction_response {
+                    if let Err(error) = client.send_response(request_id, Ok(response)).await {
+                        tracing::warn!(%error, "ACP interaction cancellation response failed");
+                    }
                 }
             });
             // 安全网：记录 cancel 时间，5 秒后如果仍在 loading 则强制清理

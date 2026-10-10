@@ -22,7 +22,10 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
                 key: Key::Char('c'),
                 ctrl: true,
                 ..
-            } => return Some(Action::Quit),
+            } => {
+                app.interrupt();
+                app.global_ui.quit_pending_since = None;
+            }
             // Tab / Shift+Tab cycle questions
             Input {
                 key: Key::Tab,
@@ -96,7 +99,10 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
                 key: Key::Char('c'),
                 ctrl: true,
                 ..
-            } => return Some(Action::Quit),
+            } => {
+                app.interrupt();
+                app.global_ui.quit_pending_since = None;
+            }
 
             // Up/Down choose an approval option; Tab switches tools.
             Input { key: Key::Up, .. } => app.hitl_move_choice(-1),

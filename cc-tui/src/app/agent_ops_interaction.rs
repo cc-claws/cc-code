@@ -1,8 +1,65 @@
 use super::*;
+use agent_client_protocol::schema::{RequestPermissionOutcome, RequestPermissionResponse};
+use agent_client_protocol_schema::{CreateElicitationResponse, ElicitationAction};
 use cc_acp::transport::types::RequestId;
 use cc_middlewares::hitl::BatchItem;
 
 impl App {
+    /// 取走交互请求并生成取消回应，避免只取消任务后遗留 ACP 等待。
+    pub(super) fn take_interaction_cancel_response(
+        &mut self,
+    ) -> Option<(RequestId, serde_json::Value)> {
+        let response = match self.session_mgr.current().agent.interaction_prompt.as_ref() {
+            Some(InteractionPrompt::Approval(_)) => serde_json::to_value(
+                RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
+            ),
+            Some(InteractionPrompt::Questions(_)) => {
+                serde_json::to_value(CreateElicitationResponse::new(ElicitationAction::Cancel))
+            }
+            _ => return None,
+        };
+        let agent = &mut self.session_mgr.current_mut().agent;
+        // 丢弃本地 oneshot sender 也会解除旧路径的交互等待；不提交默认答案或放行。
+        agent.interaction_prompt = None;
+        agent.pending_hitl_items = None;
+        agent.pending_ask_user = None;
+        let request_id = agent.pending_acp_request_id.take()?;
+        match response {
+            Ok(response) => Some((request_id, response)),
+            Err(error) => {
+                tracing::error!(%error, "Failed to serialize interaction cancellation");
+                None
+            }
+        }
+    }
+
+    fn acp_interaction_is_stopped(&self) -> bool {
+        let session = self.session_mgr.current();
+        session.agent.cancel_sent_at.is_some() || !session.ui.loading
+    }
+
+    /// 取消回应可能先于服务端处理取消通知；拒绝排队中的后续或迟到交互。
+    fn respond_to_stopped_interaction(
+        &self,
+        id: RequestId,
+        response: Result<serde_json::Value, serde_json::Error>,
+    ) {
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::error!(%error, "Failed to serialize stopped interaction response");
+                return;
+            }
+        };
+        if let Some(client) = self.acp_client.clone() {
+            tokio::spawn(async move {
+                if let Err(error) = client.send_response(id, Ok(response)).await {
+                    tracing::warn!(%error, "Stopped ACP interaction response failed");
+                }
+            });
+        }
+    }
+
     /// Handle ACP RequestPermission: create HITL approval dialog.
     pub(crate) fn handle_acp_request_permission(
         &mut self,
@@ -11,6 +68,16 @@ impl App {
     ) -> (bool, bool, bool) {
         use agent_client_protocol::schema::RequestPermissionRequest;
         use tokio::sync::oneshot;
+
+        if self.acp_interaction_is_stopped() {
+            self.respond_to_stopped_interaction(
+                id,
+                serde_json::to_value(RequestPermissionResponse::new(
+                    RequestPermissionOutcome::Cancelled,
+                )),
+            );
+            return (false, false, false);
+        }
 
         let req = match serde_json::from_value::<RequestPermissionRequest>(params) {
             Ok(r) => r,
@@ -59,6 +126,14 @@ impl App {
         use agent_client_protocol_schema::{CreateElicitationRequest, ElicitationMode};
         use cc_middlewares::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
         use tokio::sync::oneshot;
+
+        if self.acp_interaction_is_stopped() {
+            self.respond_to_stopped_interaction(
+                id,
+                serde_json::to_value(CreateElicitationResponse::new(ElicitationAction::Cancel)),
+            );
+            return (false, false, false);
+        }
 
         let req = match serde_json::from_value::<CreateElicitationRequest>(params.clone()) {
             Ok(r) => r,

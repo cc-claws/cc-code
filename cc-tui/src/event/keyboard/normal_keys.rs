@@ -445,7 +445,7 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
 
 // ── Per-arm helper functions ──────────────────────────────────────────────
 
-fn handle_ctrl_c(app: &mut App) -> Option<Action> {
+pub(super) fn handle_ctrl_c(app: &mut App) -> Option<Action> {
     // Agent 运行中 → 中断 agent
     if app.session_mgr.current_mut().ui.loading {
         app.interrupt();
