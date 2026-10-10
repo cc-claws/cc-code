@@ -83,6 +83,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **修复 Windows 传统 CMD 控制码刷屏与星形缺字** | v0.6.120 | 传统 CMD 控制台（conhost）启动后 stdout 的 VT（虚拟终端）模式可能丢失，导致 crossterm 缓存的 ANSI 能力与实际模式不一致——输出退化为控制码刷屏、星形 spinner 缺字（缺字仍占一列却无法被现有列宽探针识别）。现于输出前补齐 VT 必要位并记录恢复、清屏重绘（保留其他控制台模式），`terminal_title_ops`/`terminal_title`/`panel_memory` 保护标题输出与编辑器返回路径，`terminal_backend` 区分原生控制台与 ConPTY 使用不同 ASCII 动画帧。同批修复无控制台/重定向环境（如 CI）下 VT 恢复失败提前返回、导致 `last_terminal_title` 缓存未记录与单元测试断言失败（改为先记录缓存再执行 VT 恢复）。（#415） |
 | **手动 `/compact` 摘要补齐 `<system-reminder>` 包裹** | v0.6.119 | 手动 `/compact` 与自动 compact 各自复制了一份摘要格式化逻辑，手动路径漏掉 `<system-reminder>` 包裹；TUI 依赖该标签决定渲染方式——有标签折叠为一行「📋 上下文已压缩」，无标签则把整段摘要当普通用户消息铺在界面上，且消息持久化后 load/resume 也以未折叠形态重现。现将摘要构造抽取为公共函数 `build_compacted_messages`（统一 `<system-reminder>` 包裹 + Human 消息构造 + 拼接 re_inject 消息），自动路径（`cc-middlewares/src/compact_middleware.rs`）与手动路径（`cc-acp/src/session/command/compact.rs`）共用同一实现，消除两条路径的格式漂移，并修正「与 auto-compact 路径对齐」的误导性注释；补测试断言两条路径产出的摘要消息结构一致（#413） |
 | **Jev 规则缓存改为多行 JSON 输出** | v0.6.118 | Jev 安全规则的磁盘持久化缓存（`~/.cc-code/jev/peri-<项目哈希>/<规则哈希>.json`）此前用 `serde_json::to_vec` 落盘为**紧凑单行** JSON，规则正文动辄数千字符全挤在一行，用户直接打开查看规则时几乎无法阅读。现将 `write()` 序列化改为 `serde_json::to_vec_pretty`（2 空格缩进），规则正文文件与 `<签名>.index.json` 索引同步美化为多行。内容哈希对**落盘字节**计算（`digest(&bytes)`），格式化前后各自自洽，缓存仍能正常命中；存量旧缓存因文件名（哈希）与格式化后不一致会 miss 一次并重新提炼，无功能影响。仅影响磁盘落盘格式，内存缓存与 Jev 判定逻辑不变（#412） |
 | **Windows 全局入口直起 exe（修复 Ctrl+C 直接退出）** | v0.6.117 | 修复 Windows Terminal（ConPTY）下经 npm 全局入口启动时按 Ctrl+C 直接退出 TUI 的缺陷：npm 全局 wrapper（`<prefix>/cc-code.cmd|.ps1`）经 node（`execFileSync`）拉起 `cc-code.exe`，Ctrl+C 的 `CTRL_C_EVENT` 广播给整个控制台进程组（node + `cc-code.exe`），`cc-code.exe` 虽用 `SetConsoleCtrlHandler` 拦截了信号，但无 handler 的 node 父进程按默认行为被终止，`execFileSync` 同步等待随之崩断并拖死 exe——表现为 agent 任意状态按 Ctrl+C 都直接退出、日志在 streaming 中戛然而止。现于 Windows postinstall 阶段新增 `overwriteNpmGlobalWrapper()`，把全局入口改写为**直起 `bin/cc-code.exe`**（相对 prefix 根引用，不硬编码绝对路径），去掉 node 中间层后进程组内只剩 `cc-code.exe`，`SetConsoleCtrlHandler` 正常生效，恢复「Ctrl+C 中断 agent / 空闲双击退出」的设计行为。改写为防御性实现：仅在 exe 存在且能定位到 npm 全局 wrapper 时才覆盖，失败不阻塞安装；`bin/cc-code` node 脚本与非 Windows 路径行为不变（#410、#411） |
@@ -92,9 +93,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **交互中断保护与内存调优** | v0.6.113 | 修复提问与审批弹窗单次 Ctrl+C 直接退出 TUI 的缺陷，改为安全中断当前轮次并解开等待；批量工具审批增加取消优先响应；配置向导统一复用双击退出防抖（#396、#397）。高亮引擎改用 Oniguruma 降低 PHP 语法常驻内存，接入 Windows 工作线程空闲 mimalloc 堆回收，修正 `/gc` 内存统计口径（#394、#395） |
 | **Todo 列表折叠保护** | v0.6.112 | 消息区底部 Spinner 关联的 Todo 任务列表引入 `MAX_VISIBLE_TODOS = 5` 上限控制。当存在较多任务（如 8~10 个）时，仅前 5 项展开渲染，超出部分折叠为一行紧凑统计（如 `... +3 pending`），并自适应区分 pending / completed 状态；重构 `spinner_extra_count` 与 `todo_render_line_count`，行数计算精准收敛为最多 6 行（5 任务 + 1 统计行），保障视口裁剪与滚动条位置绝对精准一致（#392、#393） |
 | **状态栏第二行「最近工具」实时摘要** | v0.6.111 | 第二行的运行中工具段原来只在执行期间存在，而且经常根本看不到：`poll_agent` 每帧把 ACP 通知一次 drain 干净，Read/Glob 这类毫秒级工具的 ToolStart + ToolEnd 落在同一帧，`◐ Read : x.rs` 一帧都没渲染过；摘要来源还只是 11 个工具的白名单（Agent / TodoWrite / AskUserQuestion / MCP 只有裸名字），顺序也是「老在左」。现改为由 `AgentComm.recent_tools` 驱动的一行流水：最新在最左、最多留 2 条（第 3 条挤掉最老），条目显示时长取 `max(实际执行时长, 300ms)`——快工具垫到 300ms 后消失，慢工具执行结束即刻消失，工具结束只让右侧聚合计数 `✓ Name ×N` +1、不再生成带摘要的完成条目。摘要覆盖全部工具（AskUserQuestion → 首个问题，Agent → description，TodoWrite → 任务数，其余 → 第一个非空字符串字段），字符上限 20 → 30，截断仍是路径语义，`◐`/`✓`/工具名/摘要配色统一。第二行强制单行不折行，超宽按显示列宽（unicode-width）在行尾 `…` 收口，不再被 `Paragraph` 静默裁掉 |
-| **跨工具 Schema 聚合熔断与类型化连续失败追踪** | v0.6.110 | Schema 熔断器此前按工具名独立计数，模型在不同工具间轮换猜错参数即可逃逸单工具熔断阈值；连续失败检测按完整错误文本做 key，参数名差异导致计数被稀释。现引入跨工具聚合连续失败追踪（阈值 3 次）并支持指数退避，精准阻断跨工具乱猜参数死循环；连续失败检测改为按 `(tool_name, ToolErrorKind)` 聚合，错误文本动态变化亦能可靠累计；警告提示严格在所有工具结果写入后统一追加，杜绝孤立 `tool_result` 风险（#379） |
 
-> 更早版本（v0.6.0 – v0.6.109）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.110）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
