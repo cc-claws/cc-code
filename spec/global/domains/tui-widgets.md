@@ -6,7 +6,7 @@ TUI 组件领域负责通用 UI 组件的抽取和独立 widget crate 的创建�
 
 核心职责：
 
-- cc-widgets crate 提供 11 个通用组件，零内部依赖
+- cc-widgets crate 提供 15 个通用组件，零内部依赖
 - SpinnerWidget：动词从 TODO activeForm 获取，Token 计数平滑递增动画
 - ToolCallWidget：工具调用状态指示器，智能折叠策略
 - MessageBlockWidget：消息块渲染，代码高亮和 diff 着色
