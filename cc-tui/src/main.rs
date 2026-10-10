@@ -605,6 +605,8 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         enable_raw_mode()?;
         let mut event_reader = event::EventReader::start()?;
         let mut stdout = io::stdout();
+        #[cfg(windows)]
+        conpty::enable_vt_processing()?;
         execute!(
             stdout,
             EnterAlternateScreen,
@@ -1197,12 +1199,17 @@ async fn run_app(
 
 fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     #[cfg(windows)]
-    if terminal.backend_mut().refresh_widths() {
-        // A font/code-page change invalidates physical glyph widths, not just logical cells.
-        app.session_mgr
-            .current_mut()
-            .ui
-            .request_terminal_clear_redraw();
+    {
+        // crossterm 缓存 ANSI 能力，不能感知外部进程关闭 VT；清屏/绘制前恢复。
+        conpty::enable_vt_processing()?;
+        let mode_recovered = conpty::take_vt_mode_recovery();
+        let widths_changed = terminal.backend_mut().refresh_widths();
+        if mode_recovered || widths_changed {
+            app.session_mgr
+                .current_mut()
+                .ui
+                .request_terminal_clear_redraw();
+        }
     }
     if app
         .session_mgr

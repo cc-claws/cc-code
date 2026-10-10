@@ -61,6 +61,8 @@ impl App {
 
         // 恢复 TUI: 重新进入 alternate screen + raw mode + 鼠标捕获
         ratatui::crossterm::terminal::enable_raw_mode()?;
+        #[cfg(windows)]
+        crate::conpty::enable_vt_processing()?;
         ratatui::crossterm::execute!(
             std::io::stdout(),
             ratatui::crossterm::terminal::EnterAlternateScreen,

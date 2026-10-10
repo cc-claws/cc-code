@@ -6,13 +6,14 @@ use std::{
 };
 
 use windows_sys::Win32::{
-    Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
+    Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, RECT},
     System::Console::{
         CreateConsoleScreenBuffer, GetConsoleOutputCP, GetConsoleScreenBufferInfo,
-        GetCurrentConsoleFontEx, GetStdHandle, SetConsoleCursorPosition,
+        GetConsoleWindow, GetCurrentConsoleFontEx, GetStdHandle, SetConsoleCursorPosition,
         SetConsoleScreenBufferSize, WriteConsoleW, CONSOLE_FONT_INFOEX, CONSOLE_SCREEN_BUFFER_INFO,
         CONSOLE_TEXTMODE_BUFFER, COORD, STD_OUTPUT_HANDLE,
     },
+    UI::WindowsAndMessaging::GetClientRect,
 };
 
 use super::compatible::WidthProbe;
@@ -24,6 +25,7 @@ struct ConsoleFingerprint {
     family: u32,
     weight: u32,
     code_page: u32,
+    native_window: bool,
 }
 
 impl ConsoleFingerprint {
@@ -41,6 +43,16 @@ impl ConsoleFingerprint {
                 family: font.FontFamily,
                 weight: font.FontWeight,
                 code_page: GetConsoleOutputCP(),
+                native_window: {
+                    // A pseudoconsole has a message-only window, not a drawable client area.
+                    // Hidden native test consoles still have a client area; visibility is irrelevant.
+                    let window = GetConsoleWindow();
+                    let mut rect: RECT = zeroed();
+                    !window.is_null()
+                        && GetClientRect(window, &mut rect) != 0
+                        && rect.right > rect.left
+                        && rect.bottom > rect.top
+                },
             })
         }
     }
@@ -112,6 +124,12 @@ mod tests;
 mod shell_console_test;
 
 impl WidthProbe for ConsoleWidthProbe {
+    fn prefer_ascii_spinner(&self) -> bool {
+        self.fingerprint
+            .as_ref()
+            .is_some_and(|fingerprint| fingerprint.native_window)
+    }
+
     fn width(&mut self, symbol: &str) -> Option<usize> {
         let buffer = self.buffer.as_ref()?;
         let wide: Vec<u16> = symbol.encode_utf16().collect();

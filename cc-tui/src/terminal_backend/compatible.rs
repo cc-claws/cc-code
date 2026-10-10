@@ -9,6 +9,10 @@ use unicode_width::UnicodeWidthStr;
 
 pub trait WidthProbe {
     fn width(&mut self, symbol: &str) -> Option<usize>;
+    /// Native console fonts can lack spinner glyphs even when their width is correct.
+    fn prefer_ascii_spinner(&self) -> bool {
+        false
+    }
     /// Return true when the terminal's width policy may have changed.
     fn refresh(&mut self) -> bool;
 }
@@ -50,11 +54,17 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
                 self.symbols.clear();
             }
             let expected = symbol.width();
-            let replacement = self
+            let spinner = self
                 .probe
-                .width(symbol)
-                .filter(|&actual| actual != expected)
-                .map(|_| fallback_symbol(symbol, expected));
+                .prefer_ascii_spinner()
+                .then(|| spinner_fallback(symbol))
+                .flatten();
+            let replacement = spinner.map(str::to_owned).or_else(|| {
+                self.probe
+                    .width(symbol)
+                    .filter(|&actual| actual != expected)
+                    .map(|_| fallback_symbol(symbol, expected))
+            });
             self.symbols.insert(symbol.to_owned(), replacement);
         }
         match self.symbols.get(symbol).and_then(Option::as_deref) {
@@ -68,9 +78,24 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
     }
 }
 
+fn spinner_fallback(symbol: &str) -> Option<&'static str> {
+    match symbol {
+        "✵" | "✹" | "❃" => Some("|"),
+        "✶" | "✺" | "❊" => Some("/"),
+        "✷" | "✻" => Some("-"),
+        "✸" | "✼" => Some("\\"),
+        _ => None,
+    }
+}
+
 fn fallback_symbol(symbol: &str, width: usize) -> String {
     if width == 0 {
         return String::new();
+    }
+    if let Some(spinner) = spinner_fallback(symbol) {
+        let mut result = spinner.to_owned();
+        result.extend(std::iter::repeat_n(' ', width - 1));
+        return result;
     }
     let first = match symbol {
         "‘" | "’" | "‚" | "‛" => '\'',
@@ -82,7 +107,7 @@ fn fallback_symbol(symbol: &str, width: usize) -> String {
         // `⎿`（U+23BF）为工具结果行前缀（Bash/Read/Edit/Grep/Glob/AskUserQuestion），
         // 归入制表符组降级为 `+`，避免落入 `_ => '?'` 显示成无语义问号（#383）。
         "⎿" => '+',
-        "●" | "•" | "▪" | "✻" | "✦" | "✧" => '*',
+        "●" | "•" | "▪" | "✦" | "✧" => '*',
         "○" | "◯" => 'o',
         "∴" | "·" | "…" => '.',
         "←" => '<',
@@ -95,8 +120,7 @@ fn fallback_symbol(symbol: &str, width: usize) -> String {
         "░" | "▒" | "▓" => '-',
         "⏱" | "⏳" | "⏰" | "⌛" => 't',
         "⚠️" | "⚠" => '!',
-        "⠋" | "⠙" | "⠹" | "⠸" | "⠼" | "⠴" | "⠦" | "⠧" | "⠇" | "⠏" | "✵" | "✶" | "✷" | "✸" | "✹"
-        | "✺" | "✼" | "❃" | "❊" => '*',
+        "⠋" | "⠙" | "⠹" | "⠸" | "⠼" | "⠴" | "⠦" | "⠧" | "⠇" | "⠏" => '*',
         s if s.chars().all(char::is_whitespace) => ' ',
         _ => '?',
     };
