@@ -47,7 +47,11 @@ pub struct AgentsMdConfig {
     /// `@import` 允许读取的范围（默认 [`ImportScope::ProjectRoot`]）。
     pub import_scope: ImportScope,
     /// 用户全局指引文件（链首，最宽）。默认 `{APP_HOME}/AGENTS.md`（`~/.cc-code/AGENTS.md`）。
+    /// 若未被覆盖且未设置 `user_global_candidates`，将自动按多候选回退尝试。
     pub user_global_file: PathBuf,
+    /// 自定义用户全局候选列表（有序尝试，取首个存在的非空文件）。
+    /// 设置后优先于 `user_global_file`。
+    pub user_global_candidates: Option<Vec<PathBuf>>,
 }
 
 impl Default for AgentsMdConfig {
@@ -68,6 +72,7 @@ impl Default for AgentsMdConfig {
             excludes: Vec::new(),
             import_scope: ImportScope::default(),
             user_global_file: default_user_global_file(),
+            user_global_candidates: None,
         }
     }
 }
@@ -82,9 +87,50 @@ impl AgentsMdConfig {
     }
 
     /// 用户全局文件的 provenance 展示文本（形如 `~/.cc-code/AGENTS.md`；不在 home 下则用绝对路径）。
+    #[allow(dead_code)]
     pub(crate) fn user_global_display(&self) -> String {
         display_with_home(&self.user_global_file)
     }
+
+    /// 用户全局文件的候选列表（有序）。
+    /// 1. 若设置了 `user_global_candidates`，优先使用该列表；
+    /// 2. 若 `user_global_file` 被显式修改为非默认值，以其为唯一候选；
+    /// 3. 否则按默认候选列表 [`default_user_global_candidates`] 依次尝试。
+    pub fn user_global_candidates(&self) -> Vec<PathBuf> {
+        if let Some(ref candidates) = self.user_global_candidates {
+            return candidates.clone();
+        }
+        let default_file = default_user_global_file();
+        if self.user_global_file != default_file {
+            return vec![self.user_global_file.clone()];
+        }
+        default_user_global_candidates()
+    }
+}
+
+/// 默认用户全局指引文件候选列表（有序尝试，取首个存在的非空文件）：
+/// 1. `{APP_HOME}/AGENTS.md`（`~/.cc-code/AGENTS.md`）
+/// 2. `{APP_HOME}/CLAUDE.md`（`~/.cc-code/CLAUDE.md`）
+/// 3. `~/.claude/CLAUDE.md`（Claude Code 历史/通用全局配置）
+/// 4. `~/.claude/AGENTS.md`（Claude Code 兼容配置）
+pub fn default_user_global_candidates() -> Vec<PathBuf> {
+    user_global_candidates_in(
+        &cc_agent::app_home::app_home_dir(),
+        dirs_next::home_dir().as_deref(),
+    )
+}
+
+/// 可注入路径的用户全局指引候选列表（用于测试）。
+pub fn user_global_candidates_in(cc_dir: &Path, home_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    candidates.push(cc_dir.join("AGENTS.md"));
+    candidates.push(cc_dir.join("CLAUDE.md"));
+    if let Some(home) = home_dir {
+        let claude_dir = home.join(".claude");
+        candidates.push(claude_dir.join("CLAUDE.md"));
+        candidates.push(claude_dir.join("AGENTS.md"));
+    }
+    candidates
 }
 
 fn default_user_global_file() -> PathBuf {

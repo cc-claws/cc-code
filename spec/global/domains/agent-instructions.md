@@ -47,7 +47,8 @@
 候选（同目录，按序，全部存在的都加载）:
   基础层:  ["AGENTS.md", "CLAUDE.md", ".claude/AGENTS.md"]  // 末项为 cc-code 历史位置，保留兼容（dsh 无）
   本地覆盖层(在基础层之后): ["AGENTS.local.md", "CLAUDE.local.md"]   // 通常 gitignore
-用户全局层(链首，单一): {APP_HOME}/AGENTS.md                          // APP_HOME = ~/.cc-code
+用户全局层(链首，回退尝试首个存在且非空的文件):
+  ["{APP_HOME}/AGENTS.md", "{APP_HOME}/CLAUDE.md", "~/.claude/CLAUDE.md", "~/.claude/AGENTS.md"] // APP_HOME = ~/.cc-code
 项目根标记: [".git"]
 ```
 
