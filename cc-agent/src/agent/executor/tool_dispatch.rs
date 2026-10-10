@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use tokio_util::sync::CancellationToken;
 
@@ -277,112 +277,142 @@ fn validate_value_type(
 
 /// 工具特征参数 → 建议工具名映射表，用于启发式工具错配诊断。
 /// 每项 (特征参数集, 建议工具名)：当输入恰好包含全部特征参数时，提示可能错选了工具。
+///
+/// 表必须**双向完备**：每个可被误选的工具都要有自己的条目，否则模型在一侧收到
+/// 提示、在另一侧收不到，会在两个工具间来回震荡（见 issue #404）。
 const TOOL_SIGNATURE_HINTS: &[(&[&str], &str)] = &[
     (&["url", "prompt"], "WebFetch"),
+    // WebSearch 独有参数：补全反向条目，避免参数打给别的工具时静默无提示
+    (&["query"], "WebSearch"),
+    (&["num_results"], "WebSearch"),
     (&["command"], "Bash"),
     (&["pattern"], "Grep"),
     (&["file_path"], "Read"),
+    (&["old_string", "new_string"], "Edit"),
+    (&["content", "file_path"], "Write"),
     (&["prompt", "description"], "Agent"),
 ];
 
-/// 单工具 Schema 校验连续失败阈值：相同工具 Schema 校验连续失败 ≥ 此次数时注入强提示。
+/// 单工具 Schema 校验失败阈值：滑动窗口内失败 ≥ 此次数时注入强提示。
+///
+/// 注意是**滑动窗口**而非“连续”：模型常在多个工具间交替犯错（配错一次 WebSearch、
+/// 配错一次 WebFetch、再配错一次 WebSearch），若要求连续则计数永远够不到阈值。
 const SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD: usize = 2;
 
-/// 跨工具聚合 Schema 校验连续失败阈值：跨工具连续 Schema 校验失败 ≥ 此次数时触发聚合熔断。
+/// 跨工具聚合 Schema 校验失败阈值：滑动窗口内跨工具失败 ≥ 此次数时触发聚合熔断。
 const AGGREGATE_SCHEMA_FAILURE_THRESHOLD: usize = 3;
+
+/// 滑动窗口容量：保留最近 N 次工具调用的结果（成功或失败），单工具与跨工具计数均由此派生。
+const AGGREGATE_WINDOW_SIZE: usize = 6;
+
+/// 窗口内一次工具调用的结果（成功 / 指定类型的失败）。
+#[derive(Debug, Clone)]
+struct ToolCallOutcome {
+    tool_name: String,
+    is_failure: bool,
+}
 
 /// Schema 校验熔断事件
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SchemaBreakerEvent {
-    /// 单工具连续 Schema 校验失败熔断
+    /// 单工具窗口内 Schema 校验失败熔断
     PerTool { tool_name: String, count: usize },
-    /// 跨工具聚合连续 Schema 校验失败熔断
+    /// 跨工具窗口内 Schema 校验失败熔断
     Aggregate {
         failed_tools: Vec<String>,
         count: usize,
     },
 }
 
+/// 单工具的窗口内失败状态。
 #[derive(Debug, Clone)]
 struct ToolFailureState {
-    count: usize,
+    /// 下一次触发熔断的窗口内失败次数阈值（指数退避，避免同一模式反复刷屏）
     next_threshold: usize,
 }
 
-/// Schema 校验连续失败追踪器：检测单工具及跨工具的 Schema 校验连续失败，注入强提示阻断循环。
-#[derive(Debug, Default)]
+impl Default for ToolFailureState {
+    fn default() -> Self {
+        Self {
+            next_threshold: SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD,
+        }
+    }
+}
+
+/// Schema 校验失败追踪器：在滑动窗口内检测单工具及跨工具的 Schema 校验失败，
+/// 注入强提示阻断循环。
+///
+/// 计数口径是「窗口内失败次数」而非「连续失败次数」：真实失败模式以**交替错配 +
+/// 中间夹成功**为主，连续计数会被成功调用反复清零而永不触发（见 issue #404）。
+#[derive(Debug)]
 pub(crate) struct SchemaFailureTracker {
-    /// 工具名 → 单工具连续失败计数与退避阈值
+    /// 工具名 → 该工具的退避阈值状态
     tool_states: HashMap<String, ToolFailureState>,
-    /// 跨工具连续 Schema 失败总计数
-    aggregate_count: usize,
-    /// 跨工具聚合下一次触发熔断的阈值
+    /// 最近的工具调用结果（成功 / 失败），滑动窗口，成功也参与淘汰
+    call_window: VecDeque<ToolCallOutcome>,
+    /// 跨工具聚合下一次触发熔断的窗口内失败次数阈值（指数退避）
     aggregate_next_threshold: usize,
-    /// 跨工具聚合窗口内发生失败的工具列表（保序）
-    recent_failed_tools: Vec<String>,
+}
+
+impl Default for SchemaFailureTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SchemaFailureTracker {
     pub fn new() -> Self {
         Self {
             tool_states: HashMap::new(),
-            aggregate_count: 0,
+            call_window: VecDeque::new(),
             aggregate_next_threshold: AGGREGATE_SCHEMA_FAILURE_THRESHOLD,
-            recent_failed_tools: Vec::new(),
         }
     }
 
-    /// 记录一次 Schema 校验失败，返回 (单工具连续失败次数, 是否触发熔断)
+    /// 记录一次 Schema 校验失败，返回 (该工具窗口内失败次数, 是否触发熔断)
     #[allow(dead_code)]
     pub fn record_failure(&mut self, tool_name: &str) -> (usize, bool) {
         let (count, event) = self.record_failure_detailed(tool_name);
         (count, event.is_some())
     }
 
-    /// 详细记录一次 Schema 校验失败，返回 (单工具连续失败次数, 触发的熔断事件)
+    /// 详细记录一次 Schema 校验失败，返回 (该工具窗口内失败次数, 触发的熔断事件)
     pub fn record_failure_detailed(
         &mut self,
         tool_name: &str,
     ) -> (usize, Option<SchemaBreakerEvent>) {
-        // 1. 更新单工具计数与退避阈值
-        let state = self
-            .tool_states
-            .entry(tool_name.to_string())
-            .or_insert(ToolFailureState {
-                count: 0,
-                next_threshold: SCHEMA_FAILURE_CIRCUIT_BREAKER_THRESHOLD,
-            });
-        state.count += 1;
-        let per_tool_count = state.count;
+        self.push_outcome(tool_name, true);
 
-        let per_tool_triggered = if state.count >= state.next_threshold {
+        // 单工具：统计该工具在窗口内的失败次数（而非“连续失败”）
+        let per_tool_count = self
+            .call_window
+            .iter()
+            .filter(|o| o.tool_name == tool_name && o.is_failure)
+            .count();
+
+        let state = self.tool_states.entry(tool_name.to_string()).or_default();
+        let per_tool_triggered = if per_tool_count >= state.next_threshold {
             state.next_threshold *= 2;
             true
         } else {
             false
         };
 
-        // 2. 更新跨工具聚合计数
-        self.aggregate_count += 1;
-        if !self.recent_failed_tools.iter().any(|t| t == tool_name) {
-            self.recent_failed_tools.push(tool_name.to_string());
-        }
+        // 跨工具聚合：窗口内涉及多个工具时才计数，避免单工具冒充聚合熔断
+        let window_failures = self.window_failure_count();
+        let distinct_failed = self.distinct_failed_tools();
+        let aggregate_triggered =
+            if distinct_failed.len() > 1 && window_failures >= self.aggregate_next_threshold {
+                if self.aggregate_next_threshold == 0 {
+                    self.aggregate_next_threshold = AGGREGATE_SCHEMA_FAILURE_THRESHOLD;
+                }
+                self.aggregate_next_threshold *= 2;
+                true
+            } else {
+                false
+            };
 
-        // 跨工具聚合只有在涉及多于 1 个不同工具时才触发聚合熔断，
-        // 避免单一工具在自身退避期间冒充跨工具聚合
-        let aggregate_triggered = if self.recent_failed_tools.len() > 1
-            && self.aggregate_count >= self.aggregate_next_threshold
-        {
-            if self.aggregate_next_threshold == 0 {
-                self.aggregate_next_threshold = AGGREGATE_SCHEMA_FAILURE_THRESHOLD;
-            }
-            self.aggregate_next_threshold *= 2;
-            true
-        } else {
-            false
-        };
-
-        // 3. 产生熔断事件：优先单工具熔断，次选跨工具聚合熔断
+        // 优先单工具熔断，次选跨工具聚合熔断
         let event = if per_tool_triggered {
             Some(SchemaBreakerEvent::PerTool {
                 tool_name: tool_name.to_string(),
@@ -390,8 +420,8 @@ impl SchemaFailureTracker {
             })
         } else if aggregate_triggered {
             Some(SchemaBreakerEvent::Aggregate {
-                failed_tools: self.recent_failed_tools.clone(),
-                count: self.aggregate_count,
+                failed_tools: distinct_failed,
+                count: window_failures,
             })
         } else {
             None
@@ -400,32 +430,55 @@ impl SchemaFailureTracker {
         (per_tool_count, event)
     }
 
-    /// 工具调用成功时重置该工具的计数，并重置跨工具聚合计数
+    /// 工具调用成功：复位该工具的退避阈值，并把成功记入窗口参与淘汰。
+    ///
+    /// **不清空窗口**——否则「失败之间夹成功」的真实序列会反复归零窗口，
+    /// 使熔断永不触发（见 issue #404）。成功调用占用窗口位，推动旧失败自然淘汰。
     pub fn reset(&mut self, tool_name: &str) {
         self.tool_states.remove(tool_name);
-        self.reset_aggregate();
+        self.push_outcome(tool_name, false);
     }
 
-    /// 重置跨工具聚合计数
-    pub fn reset_aggregate(&mut self) {
-        self.aggregate_count = 0;
-        self.aggregate_next_threshold = AGGREGATE_SCHEMA_FAILURE_THRESHOLD;
-        self.recent_failed_tools.clear();
+    /// 推入窗口并按容量淘汰过期项。窗口一经淘汰，被淘汰的失败即不再计入任何计数。
+    fn push_outcome(&mut self, tool_name: &str, is_failure: bool) {
+        self.call_window.push_back(ToolCallOutcome {
+            tool_name: tool_name.to_string(),
+            is_failure,
+        });
+        while self.call_window.len() > AGGREGATE_WINDOW_SIZE {
+            self.call_window.pop_front();
+        }
     }
 
-    /// 获取单工具当前失败次数
+    /// 窗口内失败总数
+    fn window_failure_count(&self) -> usize {
+        self.call_window.iter().filter(|o| o.is_failure).count()
+    }
+
+    /// 窗口内失败涉及的（保序去重）工具名
+    fn distinct_failed_tools(&self) -> Vec<String> {
+        let mut seen: Vec<String> = Vec::new();
+        for o in self.call_window.iter().filter(|o| o.is_failure) {
+            if !seen.iter().any(|t| t == &o.tool_name) {
+                seen.push(o.tool_name.clone());
+            }
+        }
+        seen
+    }
+
+    /// 获取单工具当前窗口内失败次数
     #[allow(dead_code)]
     pub fn tool_failure_count(&self, tool_name: &str) -> usize {
-        self.tool_states
-            .get(tool_name)
-            .map(|s| s.count)
-            .unwrap_or(0)
+        self.call_window
+            .iter()
+            .filter(|o| o.tool_name == tool_name && o.is_failure)
+            .count()
     }
 
-    /// 获取跨工具聚合当前失败次数
+    /// 获取跨工具聚合窗口内失败次数
     #[allow(dead_code)]
     pub fn aggregate_failure_count(&self) -> usize {
-        self.aggregate_count
+        self.window_failure_count()
     }
 }
 
@@ -697,12 +750,12 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                             tracing::warn!(
                                 tool = %tool_name,
                                 schema_fail_count = count,
-                                "Schema 校验连续失败 {} 次，注入单工具熔断提示",
+                                "Schema 校验失败 {} 次（滑动窗口内），注入单工具熔断提示",
                                 count
                             );
                             warnings_to_inject.push(format!(
                                 "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Tool '{}' has failed schema validation {} \
-                                 consecutive times. You are passing wrong parameters repeatedly. \
+                                 times within the recent window. You are passing wrong parameters repeatedly. \
                                  STOP and carefully re-read the tool's parameter schema before your next attempt. \
                                  Do NOT retry with the same parameters.",
                                 tool_name, count
@@ -716,14 +769,14 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                             tracing::warn!(
                                 tools = %tools_str,
                                 aggregate_count = count,
-                                "跨工具 Schema 校验连续失败 {} 次，注入聚合熔断提示",
+                                "跨工具 Schema 校验失败 {} 次（滑动窗口内），注入聚合熔断提示",
                                 count
                             );
                             warnings_to_inject.push(format!(
                                 "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Schema validation failed {} \
-                                 consecutive times across different tools ({}). You are repeatedly \
-                                 passing invalid arguments. STOP guessing parameters. Carefully inspect \
-                                 the parameter schema for each tool before invoking it. Do NOT call \
+                                 times across different tools ({}) within the recent window. You are \
+                                 repeatedly passing invalid arguments. STOP guessing parameters. Carefully \
+                                 inspect the parameter schema for each tool before invoking it. Do NOT call \
                                  tools with invented parameters.",
                                 count, tools_str
                             ));
