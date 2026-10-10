@@ -1248,4 +1248,28 @@ submit_message(text)
 **PR:** #338
 **CLAUDE.md 链接:** false
 
-最后更新：2026-10-09
+### issue_2026-10-10_windows-idle-memory-collection
+
+**背景：** #394 的 VMMap 反馈表明高亮修复后仍有较高的 Private Data 驻留。单次快照只能给出内存类别，不能证明全部差额都是空闲页或排除泄漏。
+
+**实现：**
+
+- Windows 启动阶段在 settings 注入后通过 `mi_option_set` 设置有效的 purge 选项，替代未被当前 mimalloc 读取的 `MIMALLOC_DECOMMIT`。TUI 的 `--settings` 注入后重新应用；用户显式选项及旧的 reset 别名优先。
+- 默认保持 decommit 启用及 1000ms 复用窗口，不默认采用立即 purge。绑定缺失的选项编号 5/15 按 libmimalloc-sys 0.1.49 捆绑的 v2/v3 头文件核对，升级依赖时需复核。
+- TUI runtime 的 `on_thread_park` 回调在实际工作线程上回收线程本地堆；自动回收每线程最多每秒一次，显式禁用 purge 时不自动强制回收。渲染是可迁移的 Tokio 任务，不能把任务当作固定 OS 线程。
+- `/gc` 立即收集调用线程并递增请求代次，各工作线程在后续进入空闲时各处理一次；不会主动唤醒已停泊线程，也不保证 `/gc` 当次采样覆盖全部线程。blocking pool 和独立线程不在该回调覆盖范围内。
+- 不使用 `EmptyWorkingSet`，不改变已有的 panic 恢复语义或 release 编译选项。
+
+**独立分配负载测量：** Windows、mimalloc、单 Tokio 工作线程，每轮分配并写入 25,000 个约 2KiB 块，释放后重复 30 轮，工作线程保持存活。旧路径与新路径使用相同的 1000ms purge 延迟；通过 `GetProcessMemoryInfo` 采样。
+
+| 场景 | RSS | Private Bytes |
+|------|------|------|
+| 旧路径负载结束后空闲 300ms（两次连续回放） | 约 98.8 MiB | 约 97.4 MiB |
+| 新路径负载结束后空闲 300ms | 约 7～8 MiB | 约 5.4～5.6 MiB |
+| 新路径继续小分配后 | 约 7～8 MiB | 约 5.5～5.7 MiB |
+
+旧路径在其他回放中也曾自行降低驻留，以上不是必然的固定节省量。100ms 延迟虽降低该负载峰值，但一组交替测量的分配耗时增加约 10%～12%，故未采用。保留 1000ms 后的耗时波动较大，不能宣称吞吐提升。测量不含完整 TUI，不能据此承诺总内存降至 25～35MB。
+
+**涉及文件：** cc-tui/src/alloc_config.rs、cc-tui/src/alloc_config/windows_tuning.rs、cc-tui/src/main.rs、cc-tui/src/command/core/gc.rs。
+
+最后更新：2026-10-10

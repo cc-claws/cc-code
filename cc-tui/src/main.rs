@@ -308,12 +308,15 @@ fn inject_settings_override(source: &str) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
-    // Set allocator env vars BEFORE any allocation（jemalloc 的 MALLOC_CONF / mimalloc 的 MIMALLOC_*）。
-    // Must be the very first line — allocator reads these during init.
+    // jemalloc 保留现有启动配置路径；Windows 使用运行时 API，在读取 settings 后应用。
+    #[cfg(not(target_os = "windows"))]
     cc_tui::alloc_config::init_alloc_conf();
 
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();
+
+    #[cfg(target_os = "windows")]
+    cc_tui::alloc_config::init_alloc_conf();
 
     let cli = Cli::parse();
 
@@ -537,6 +540,9 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         inject_settings_override(settings_path);
     }
 
+    #[cfg(target_os = "windows")]
+    cc_tui::alloc_config::init_alloc_conf();
+
     if opts.approve {
         std::env::set_var("YOLO_MODE", "false");
     }
@@ -553,11 +559,14 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
     // 否则 Rust 默认 panic hook 的 stderr 输出会破坏 TUI 画面。
     let panic_notify_rx = init_panic_notify();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+    runtime_builder
         .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
         .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
-        .enable_all()
-        .build()?;
+        .enable_all();
+    #[cfg(target_os = "windows")]
+    runtime_builder.on_thread_park(cc_tui::alloc_config::collect_on_thread_park);
+    let rt = runtime_builder.build()?;
 
     let result = rt.block_on(async {
         // Unix: 捕获 SIGTERM / SIGINT，先恢复终端再退出。
