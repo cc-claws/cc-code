@@ -28,7 +28,7 @@
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
 - **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测；默认限**所属项目根内**，越界保留占位符；用户自有全局文件不受限）。**用户全局层为有序候选回退**：`~/.cc-code/AGENTS.md` → `~/.cc-code/CLAUDE.md` → `~/.claude/CLAUDE.md` → `~/.claude/AGENTS.md`，取首个存在且非空者；空文件不遮蔽后续候选。全局加载统一复用 `load_user_global_instruction`，与 Jev 安全门的 `read_global_content()` 为同一数据源（#402、#403）。
 - **TodoMiddleware:** `after_tool` 解析 `TodoWrite` 结果，推送 Todo 状态到渲染 channel
-- **Jev 规则提炼缓存:** 完整规则 JSON 按内容 SHA-256 存入 `~/.cc-code/jev/`，来源/项目/模型/提炼配置签名一致时跨进程复用；实际加载的规则变化后在新会话重新提炼，不增加界面提示。具体工具调用仍执行权限判定，详见 [HITL 设计](./domains/hitl-permissions.md#jev-规则提炼缓存)。
+- **Jev 规则提炼缓存:** 完整规则 JSON 按内容 SHA-256 存入 `~/.cc-code/jev/`，来源/项目/模型/提炼配置签名一致时跨进程复用；实际加载的规则变化后在新会话重新提炼，不增加界面提示。提炼走独立低思考档（`effort=low`），单块超时按阶梯重试一次（首试后放宽 2 倍）且不触发对半递归拆分；仅完整成功的结果落盘。具体工具调用仍执行权限判定，详见 [HITL 设计](./domains/hitl-permissions.md#jev-规则提炼缓存)。
 - **AskUserTool:** `AskUserQuestion` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
 - **Token 追踪:** TokenTracker 累积追踪 input/output/cache tokens，ContextBudget 上下文窗口预算管理
 - **Micro-compact:** 零 API 调用轻量压缩，可压缩工具白名单 + 时间衰减清除，图片/文档替换
@@ -130,4 +130,4 @@
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）
 
 ---
-*最后更新: 2026-10-10 — v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
+*最后更新: 2026-10-10 — v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
