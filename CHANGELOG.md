@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.119 — 2026-10-10
+
+### Fixes
+
+- **手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，界面恢复折叠（#413）**：手动 `/compact` 与自动 compact 各自复制了一份摘要格式化逻辑，手动路径漏掉了 `<system-reminder>` 包裹。而 TUI 依赖该标签决定渲染方式——有标签时摘要折叠成一行「📋 上下文已压缩」，无标签时则被当作普通用户消息把整段摘要铺在界面上；该消息持久化后，load/resume 同样以未折叠形态重现。现将摘要构造抽取为公共函数 `build_compacted_messages`（统一负责 `<system-reminder>` 包裹 + Human 消息构造 + 拼接 re_inject 消息），自动路径（`cc-middlewares/src/compact_middleware.rs`）与手动路径（`cc-acp/src/session/command/compact.rs`）共用同一实现，消除两条路径的格式漂移，并修正「与 auto-compact 路径对齐」的误导性注释。补测试断言两条路径产出的摘要消息结构一致。
+
 ## v0.6.118 — 2026-10-10
 
 ### Fixes
