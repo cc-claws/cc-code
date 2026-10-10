@@ -117,7 +117,10 @@ fn default_max_rule_chunks() -> usize {
     4
 }
 fn default_rule_timeout_ms() -> u64 {
-    15000
+    // 3 万：单块（默认 4 万字符上限）在实测网关上耗时 18–73 秒，
+    // 原 15 秒会把**每一次**提炼都变成超时 → 规则静默失效、缓存永不落盘。
+    // 这里给的是首试时限，超时后代码会再放宽 2 倍重试一次。
+    30_000
 }
 fn default_max_command_len() -> usize {
     4000

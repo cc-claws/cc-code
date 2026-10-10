@@ -227,6 +227,28 @@ impl LlmProvider {
     }
 
     pub fn into_model(self) -> Box<dyn BaseModel> {
+        self.build_model(None)
+    }
+
+    /// 构造**提炼专用**模型：走低思考档，不继承会话的 `xhigh`/`max`。
+    ///
+    /// 为什么单独构造：规则提炼是一次"抄写 + 筛选"，不是推理。继承会话的
+    /// `effort=xhigh` 会让单块提炼从实测 ~10s 变成 20–73s，直接撞上超时 →
+    /// 规则静默失效、缓存永不落盘。低档把输出 token 从 6k 级压到 2.5k 级，
+    /// 延迟减半且方差收敛。
+    pub fn into_extraction_model(self) -> Box<dyn BaseModel> {
+        // budget 只给 1024：思考是"顺手想一下"，不该和正式会话抢预算。
+        let effort = ThinkingConfig {
+            enabled: true,
+            budget_tokens: 1_024,
+            effort: "low".to_string(),
+            max_tokens: 32_000,
+        };
+        self.build_model(Some(effort))
+    }
+
+    /// `override_thinking` 为 `None` 时沿用 provider 自带配置（正式会话路径）。
+    fn build_model(self, override_thinking: Option<ThinkingConfig>) -> Box<dyn BaseModel> {
         match self {
             Self::OpenAi {
                 api_key,
@@ -235,6 +257,7 @@ impl LlmProvider {
                 thinking,
             } => {
                 let mut m = ChatOpenAI::new(api_key, model).with_base_url(base_url);
+                let thinking = override_thinking.or(thinking);
                 if let Some(ref t) = thinking {
                     m = m.with_reasoning_effort(t.openai_effort());
                     if t.enabled {
@@ -255,6 +278,7 @@ impl LlmProvider {
                 if let Some(url) = base_url {
                     m = m.with_base_url(url);
                 }
+                let thinking = override_thinking.or(thinking);
                 if let Some(ref t) = thinking {
                     m = m.with_extended_thinking(t.budget_tokens, &t.effort);
                 }
