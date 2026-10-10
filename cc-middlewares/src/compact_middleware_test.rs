@@ -250,16 +250,12 @@ fn test_do_full_compact_preserves_system_prefix() {
 
     // 模拟 compact 产出的 new_messages（不含 system prefix）
     let compact_summary = "此会话讨论了文件列表";
-    let summary_content = format!(
-        "{}\n\n[Context compacted; continue based on the summary]",
-        compact_summary
+    let mut new_messages = build_compacted_messages(
+        compact_summary,
+        vec![BaseMessage::system(
+            "[最近读取的文件: /tmp/test]\nfile content",
+        )],
     );
-    let mut new_messages = vec![BaseMessage::human(vec![ContentBlock::text(
-        summary_content.as_str(),
-    )])];
-    new_messages.push(BaseMessage::system(
-        "[最近读取的文件: /tmp/test]\nfile content",
-    ));
 
     // 模拟修复逻辑：保留头部 System 消息并前置
     let system_prefix: Vec<BaseMessage> = original_messages

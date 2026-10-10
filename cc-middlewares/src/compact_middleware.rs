@@ -15,8 +15,8 @@ use tracing::{info, warn};
 use cc_agent::{
     agent::{
         compact::{
-            config::CompactConfig, extract_file_info, extract_skill_names, full_compact,
-            micro_compact_enhanced, re_inject,
+            build_compacted_messages, config::CompactConfig, extract_file_info,
+            extract_skill_names, full_compact, micro_compact_enhanced, re_inject,
         },
         events::AgentEvent as ExecutorEvent,
         state::State,
@@ -232,12 +232,10 @@ impl CompactMiddleware {
         // 原因：LLM 适配器将 System 消息提取到 system 字段，不进入 messages 数组。
         // 若摘要为 System 类型，compact 后 messages 数组可能只有 system 角色消息，
         // DeepSeek/OpenAI 兼容 API 要求至少一条 user/assistant 消息，否则返回 400。
-        let summary_content = format!(
-            "<system-reminder>\n{}\n\n[Context compacted; continue based on the summary]\n</system-reminder>",
-            compact_result.summary
-        );
-        let mut new_messages = vec![BaseMessage::human(summary_content)];
-        new_messages.extend(re_inject_result.messages.clone());
+        // `<system-reminder>` 包裹由 build_compacted_messages 统一提供，
+        // 与手动 `/compact` 路径共用同一实现，避免格式漂移。
+        let new_messages =
+            build_compacted_messages(&compact_result.summary, re_inject_result.messages.clone());
 
         self.send_event(ExecutorEvent::CompactCompleted {
             summary: compact_result.summary.clone(),

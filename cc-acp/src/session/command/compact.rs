@@ -7,10 +7,12 @@ use std::sync::Arc;
 
 use cc_agent::{
     agent::{
-        compact::{extract_file_info, extract_skill_names, full_compact, re_inject},
+        compact::{
+            build_compacted_messages, extract_file_info, extract_skill_names, full_compact,
+            re_inject,
+        },
         events::AgentEvent as ExecutorEvent,
     },
-    messages::BaseMessage,
 };
 use tracing::{info, warn};
 
@@ -162,13 +164,11 @@ impl AgentCommand for CompactCommand {
         let files = extract_file_info(&re_inject_result.messages);
         let skills = extract_skill_names(&re_inject_result.messages);
 
-        // 摘要作为 Human 消息（与 auto-compact 路径和 Claude Code 实现对齐）
-        let summary_content = format!(
-            "{}\n\n[Context compacted; continue based on the summary]",
-            compact_result.summary
-        );
-        let mut new_messages = vec![BaseMessage::human(summary_content)];
-        new_messages.extend(re_inject_result.messages.clone());
+        // 摘要作为 Human 消息（与 auto-compact 路径和 Claude Code 实现对齐）。
+        // `<system-reminder>` 包裹由 build_compacted_messages 统一提供，TUI 依赖该
+        // 标签把摘要折叠成一行提示；与自动 compact 路径共用同一实现，避免格式漂移。
+        let new_messages =
+            build_compacted_messages(&compact_result.summary, re_inject_result.messages.clone());
 
         // 发送 CompactCompleted 事件
         event_sink
@@ -200,6 +200,7 @@ mod tests {
 
     use async_trait::async_trait;
     use cc_agent::agent::events::AgentEvent as ExecutorEvent;
+    use cc_agent::messages::BaseMessage;
 
     use super::*;
     use crate::session::executor::PromptStopReason;
@@ -466,6 +467,28 @@ mod tests {
             "错误消息应包含 'no model available'，实际: {}",
             events[0].1
         );
+    }
+
+    #[test]
+    fn test_manual_compact_summary_is_wrapped_in_system_reminder() {
+        // Arrange: 模拟 re_inject 注入的消息
+        let re_injected = vec![BaseMessage::system(
+            "[最近读取的文件: /tmp/a.rs]\nfn main() {}",
+        )];
+
+        // Act: 手动 /compact 路径构造 compact 后消息
+        let messages = build_compacted_messages("会话摘要正文", re_injected);
+
+        // Assert: 首条为 Human 且被 <system-reminder> 包裹（TUI 据此折叠为一行提示）
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(messages[0], BaseMessage::Human { .. }));
+        let content = messages[0].content();
+        assert!(
+            content.starts_with("<system-reminder>\n"),
+            "手动 /compact 摘要必须被 <system-reminder> 包裹，否则界面不折叠，实际: {content}"
+        );
+        assert!(content.ends_with("\n</system-reminder>"));
+        assert!(content.contains("会话摘要正文"));
     }
 
     // ── CompactCommand 属性测试 ──────────────────────────────────────────

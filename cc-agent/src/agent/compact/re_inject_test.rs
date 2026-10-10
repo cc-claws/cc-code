@@ -409,3 +409,50 @@ async fn test_re_inject_relative_path_resolution() {
     let result = re_inject(&msgs, &config, dir.path().to_str().unwrap()).await;
     assert!(result.files_injected >= 1);
 }
+
+#[test]
+fn test_build_compacted_messages_wraps_summary_in_system_reminder() {
+    // Arrange
+    let summary = "用户讨论了 compact 修复";
+
+    // Act
+    let messages = build_compacted_messages(summary, vec![]);
+
+    // Assert: 摘要为 Human 消息，且被 <system-reminder> 包裹
+    assert_eq!(messages.len(), 1);
+    assert!(matches!(messages[0], BaseMessage::Human { .. }));
+    let content = messages[0].content();
+    assert!(
+        content.starts_with("<system-reminder>\n"),
+        "摘要应以 <system-reminder> 开头，实际: {content}"
+    );
+    assert!(
+        content.ends_with("\n</system-reminder>"),
+        "摘要应以 </system-reminder> 结尾，实际: {content}"
+    );
+    assert!(content.contains(summary), "应包含摘要正文");
+    assert!(
+        content.contains("[Context compacted; continue based on the summary]"),
+        "应包含续接指令"
+    );
+}
+
+#[test]
+fn test_build_compacted_messages_places_re_injected_after_summary() {
+    // Arrange
+    let re_injected = vec![
+        BaseMessage::system("[最近读取的文件: /tmp/a.rs]\nfn main() {}"),
+        BaseMessage::system("[激活的 Skill 指令: tdd"),
+    ];
+
+    // Act
+    let messages = build_compacted_messages("summary", re_injected);
+
+    // Assert: 摘要 Human 在首位，re_inject 消息紧随其后且顺序不变
+    assert_eq!(messages.len(), 3);
+    assert!(matches!(messages[0], BaseMessage::Human { .. }));
+    assert!(messages[1].is_system());
+    assert!(messages[1].content().contains("/tmp/a.rs"));
+    assert!(messages[2].is_system());
+    assert!(messages[2].content().contains("tdd"));
+}
