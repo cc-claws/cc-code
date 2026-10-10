@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.117 — 2026-10-10
+
+### Fixes
+
+- **Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出 TUI（#410、#411）**：Windows Terminal（ConPTY）下敲 `cc-code`，npm 全局 wrapper（`<prefix>/cc-code.cmd|.ps1`）由 npm 依据 `package.json` 的 bin（指向 node 脚本 `bin/cc-code`）自动生成，再经 node 以 `execFileSync` 拉起真正的 `cc-code.exe`。Ctrl+C 的 `CTRL_C_EVENT` 会广播给整个控制台进程组（node + `cc-code.exe`），`cc-code.exe` 内部虽用 `SetConsoleCtrlHandler` 拦截了信号（返回 1 阻止默认终止，注入 KeyEvent 走应用层中断 / 空闲双击退出），但 node 父进程没有 handler、按默认行为被直接终止，`execFileSync` 的同步等待随之崩断，把 `cc-code.exe` 一并拖死——表现为 agent 任意状态下按 Ctrl+C 都直接退出，日志在 streaming 中戛然而止、无任何清理记录。现于 `install.js` 的 Windows postinstall 阶段新增 `overwriteNpmGlobalWrapper()`，把 npm 全局入口改写为**直起 `bin/cc-code.exe`**（相对 prefix 根引用，避免硬编码绝对路径），去掉 node 中间层后进程组内只剩 `cc-code.exe`，`SetConsoleCtrlHandler` 正常生效。改写为防御性实现：仅在 exe 存在且能定位到 npm 全局 wrapper 时才覆盖，任何失败都不阻塞安装（此时 exe 同目录 `bin/cc-code.cmd|.ps1` 仍可直起）；`bin/cc-code` node 脚本与非 Windows 路径行为不变。已实机验证：全局入口改为直起 exe 后 Ctrl+C 不再直接退出，TUI 恢复「Ctrl+C 中断 agent / 空闲双击退出」的设计行为。
+
 ## v0.6.116 — 2026-10-10
 
 ### Fixes
