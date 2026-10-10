@@ -499,7 +499,7 @@ spinner-thinking-header = 💭 思考 ({ $count } chars)
 # 执行中的消息队列
 queue-label = 排队
 queue-steer = 立即补充
-queue-keys-tip = Alt+S 立即补充 · Alt+X 删除
+queue-keys-tip = Ctrl+Enter 立即补充 · Ctrl+X 删除
 queue-sending = 插入中…
 queue-attachments = { $count } 张图片
 queue-unavailable = 当前执行暂不支持补充，消息仍保留在队列中。
