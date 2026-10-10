@@ -13,9 +13,46 @@ use crate::{
     app::{App, MessageScrollbarMetrics},
     ui::{render_thread::RenderEvent, theme, welcome},
 };
-use cc_middlewares::prelude::TodoStatus;
+use cc_middlewares::prelude::{TodoItem, TodoStatus};
 
 use super::sticky_header;
+
+/// 消息区底部 spinner 关联 todo 列表最多展示的条目数
+pub(crate) const MAX_VISIBLE_TODOS: usize = 5;
+
+/// 计算给定数量 todo items 在 TUI 消息区底部渲染的逻辑行数（含截断行）
+pub(crate) fn todo_render_line_count(total_todos: usize) -> u16 {
+    if total_todos == 0 {
+        0
+    } else if total_todos <= MAX_VISIBLE_TODOS {
+        total_todos as u16
+    } else {
+        (MAX_VISIBLE_TODOS + 1) as u16
+    }
+}
+
+/// 格式化多余 todo items 的折叠汇总文案（如 `    ... +3 pending`）
+pub(crate) fn format_hidden_todos_summary(hidden_items: &[TodoItem]) -> String {
+    let pending_count = hidden_items
+        .iter()
+        .filter(|item| item.status != TodoStatus::Completed)
+        .count();
+    let completed_count = hidden_items
+        .iter()
+        .filter(|item| item.status == TodoStatus::Completed)
+        .count();
+
+    if completed_count == 0 {
+        format!("    ... +{} pending", pending_count)
+    } else if pending_count == 0 {
+        format!("    ... +{} completed", completed_count)
+    } else {
+        format!(
+            "    ... +{} pending, +{} completed",
+            pending_count, completed_count
+        )
+    }
+}
 
 /// `deep in thought` 触发阈值：思考超过 60s（数分钟长思考）
 pub(crate) const DEEP_THOUGHT_SECS: u64 = 60;
@@ -485,7 +522,9 @@ fn viewport_clip(
                 ]));
                 if !app.session_mgr.current().todo_items.is_empty() {
                     lines.push(Line::from(""));
-                    for item in &app.session_mgr.current().todo_items {
+                    let todos = &app.session_mgr.current().todo_items;
+                    let visible_count = todos.len().min(MAX_VISIBLE_TODOS);
+                    for item in &todos[..visible_count] {
                         let (icon, icon_style, text_style) = match item.status {
                             TodoStatus::InProgress => (
                                 "  ◼  ",
@@ -522,6 +561,13 @@ fn viewport_clip(
                             ));
                         }
                         lines.push(Line::from(spans));
+                    }
+                    if todos.len() > MAX_VISIBLE_TODOS {
+                        let summary = format_hidden_todos_summary(&todos[MAX_VISIBLE_TODOS..]);
+                        lines.push(Line::from(Span::styled(
+                            summary,
+                            Style::default().fg(theme::MUTED),
+                        )));
                     }
                 }
                 lines.push(Line::from(""));
@@ -606,10 +652,10 @@ fn spinner_extra_count(app: &App) -> u16 {
     let recap_extra: u16 = if has_recap { 2 } else { 0 };
     if app.session_mgr.current().ui.loading {
         // 空行(1) + spinner(1) + tip(1) + trailing(1) = 4
-        // 有 todo 时额外 + 分隔空行(1) + todo_items(N) → 5+N
-        let n = app.session_mgr.current().todo_items.len() as u16;
-        if n > 0 {
-            5 + n
+        // 有 todo 时额外 + 分隔空行(1) + todo 渲染行数（最多 5 行 + 可选截断统计 1 行）
+        let total_todos = app.session_mgr.current().todo_items.len();
+        if total_todos > 0 {
+            5 + todo_render_line_count(total_todos)
         } else {
             4
         }
