@@ -411,6 +411,17 @@ fn test_subagent_stopped_is_tui_only() {
 }
 
 #[test]
+fn test_subagent_progress_is_tui_only() {
+    assert_tui_only(
+        &ExecutorEvent::SubagentProgress {
+            instance_id: "inst-001".to_string(),
+            total_steps: 3,
+        },
+        "SubagentProgress",
+    );
+}
+
+#[test]
 fn test_compact_started_is_tui_only() {
     assert_tui_only(&ExecutorEvent::CompactStarted, "CompactStarted");
 }

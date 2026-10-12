@@ -103,6 +103,29 @@ fn test_subagent_stopped_serde_roundtrip() {
 }
 
 #[test]
+fn test_subagent_progress_serde_roundtrip() {
+    let ev = AgentEvent::SubagentProgress {
+        instance_id: "sub_test789".to_string(),
+        total_steps: 5,
+    };
+    let json = serde_json::to_string(&ev).unwrap();
+    assert!(json.contains(r#""type":"subagent_progress""#));
+    assert!(json.contains(r#""instance_id":"sub_test789""#));
+    assert!(json.contains(r#""total_steps":5"#));
+    let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+    if let AgentEvent::SubagentProgress {
+        instance_id,
+        total_steps,
+    } = deserialized
+    {
+        assert_eq!(instance_id, "sub_test789");
+        assert_eq!(total_steps, 5);
+    } else {
+        panic!("Deserialized to wrong variant");
+    }
+}
+
+#[test]
 fn test_compact_started_serde() {
     let ev = AgentEvent::CompactStarted;
     let json = serde_json::to_string(&ev).unwrap();

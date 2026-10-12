@@ -15,6 +15,7 @@ pub struct RunningBgAgent {
     pub agent_name: String,
     pub instance_id: String,
     pub started_at: Instant,
+    pub total_steps: usize,
 }
 
 /// 后台任务完成/等待提示与发起它的 thread 绑定，切换对话时不会串入当前消息流。

@@ -96,6 +96,11 @@ pub enum AgentEvent {
         /// 唯一实例标识符
         instance_id: Option<String>,
     },
+    /// 后台子 agent 步数进度更新
+    SubagentProgress {
+        instance_id: String,
+        total_steps: usize,
+    },
     /// Token 使用量更新（从 enriched UsageUpdate _meta 解析而来）
     TokenUsageUpdate {
         usage: cc_agent::llm::types::TokenUsage,

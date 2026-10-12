@@ -36,6 +36,13 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             result,
             is_error,
         },
+        ExecutorEvent::SubagentProgress {
+            instance_id,
+            total_steps,
+        } => AgentEvent::SubagentProgress {
+            instance_id,
+            total_steps,
+        },
         ExecutorEvent::CompactStarted => AgentEvent::CompactStarted,
         ExecutorEvent::CompactCompleted {
             summary,
