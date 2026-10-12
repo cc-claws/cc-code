@@ -1,28 +1,43 @@
 use std::{
     hash::{Hash, Hasher},
-    num::NonZeroUsize,
     sync::Mutex,
 };
 
-use lru::LruCache;
 use once_cell::sync::Lazy;
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
 };
 
-use super::{compute_diff, DiffInput, DiffLine, DiffWordType};
+use super::byte_cache::{estimate_lines_bytes, ByteBudgetCache};
+use super::{compute_diff, CacheStats, DiffInput, DiffLine, DiffWordType};
 use crate::theme::Theme;
 
-/// 渲染缓存���量
+/// 渲染缓存条数上限
 const RENDER_CACHE_CAPACITY: usize = 64;
 
-/// 全局渲染结果缓存（单例）
-static RENDER_CACHE: Lazy<Mutex<LruCache<RenderCacheKey, Vec<Line<'static>>>>> = Lazy::new(|| {
-    Mutex::new(LruCache::new(
-        NonZeroUsize::new(RENDER_CACHE_CAPACITY).unwrap(),
-    ))
-});
+/// 渲染缓存字节预算：8 MB（在条数上限之外追加，防单条大 diff 撑爆）
+const RENDER_CACHE_BUDGET_BYTES: usize = 8 * 1024 * 1024;
+
+/// 全局渲染结果缓存（单例，条数 + 字节双重上限）
+static RENDER_CACHE: Lazy<Mutex<ByteBudgetCache<RenderCacheKey, Vec<Line<'static>>>>> =
+    Lazy::new(|| {
+        Mutex::new(ByteBudgetCache::new(
+            RENDER_CACHE_CAPACITY,
+            RENDER_CACHE_BUDGET_BYTES,
+            |lines: &Vec<Line<'static>>| estimate_lines_bytes(lines),
+        ))
+    });
+
+/// 渲染缓存统计快照（供 `/gc` 诊断）：条数 / 容量 / 估算字节 / 预算。
+pub fn render_cache_stats() -> CacheStats {
+    RENDER_CACHE.lock().map(|c| c.stats()).unwrap_or(CacheStats {
+        entries: 0,
+        capacity: RENDER_CACHE_CAPACITY,
+        bytes: 0,
+        budget: RENDER_CACHE_BUDGET_BYTES,
+    })
+}
 
 /// 渲染缓存 key
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

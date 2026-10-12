@@ -3,25 +3,38 @@ use std::{
     sync::Mutex,
 };
 
-use lru::LruCache;
 use once_cell::sync::Lazy;
 use ratatui::text::Line;
 use similar::{ChangeTag, TextDiff};
 
 use crate::theme::Theme;
 
+use byte_cache::ByteBudgetCache;
+
+mod byte_cache;
 pub mod renderer;
+
+pub use byte_cache::CacheStats;
+pub use renderer::render_cache_stats;
 
 /// diff 输入超过此大小时截断，不计算
 const MAX_DIFF_SIZE_BYTES: usize = 1_000_000; // 1 MB
 
-/// LRU 缓存容量
+/// LRU 条数上限
 const DIFF_CACHE_CAPACITY: usize = 64;
 
-/// 全局 diff 计算缓存（单例）
-static DIFF_CACHE: Lazy<Mutex<LruCache<DiffCacheKey, DiffResult>>> = Lazy::new(|| {
-    Mutex::new(LruCache::new(
-        std::num::NonZeroUsize::new(DIFF_CACHE_CAPACITY).unwrap(),
+/// diff 缓存字节预算：8 MB。
+///
+/// 条数上限防不住单条大 diff（单条输入可达 `MAX_DIFF_SIZE_BYTES`），
+/// 追加字节预算，避免长会话下这些未统计的常驻内存膨胀。
+const DIFF_CACHE_BUDGET_BYTES: usize = 8 * 1024 * 1024;
+
+/// 全局 diff 计算缓存（单例，条数 + 字节双重上限）
+static DIFF_CACHE: Lazy<Mutex<ByteBudgetCache<DiffCacheKey, DiffResult>>> = Lazy::new(|| {
+    Mutex::new(ByteBudgetCache::new(
+        DIFF_CACHE_CAPACITY,
+        DIFF_CACHE_BUDGET_BYTES,
+        diff_result_bytes,
     ))
 });
 
@@ -157,6 +170,43 @@ pub fn compute_diff(input: &DiffInput) -> DiffResult {
     }
 
     result
+}
+
+/// 估算 `DiffResult` 的近似堆占用（字节）。用于字节预算与 `/gc` 诊断。
+fn diff_result_bytes(result: &DiffResult) -> usize {
+    let mut total = std::mem::size_of::<DiffResult>();
+    total += result.hunks.capacity() * std::mem::size_of::<DiffHunk>();
+    for hunk in &result.hunks {
+        total += hunk.lines.capacity() * std::mem::size_of::<DiffLine>();
+        total += hunk.lines.iter().map(diff_line_heap_bytes).sum::<usize>();
+    }
+    total
+}
+
+/// 单行 diff 的自有字符串堆占用（`DiffLine` 内联尺寸已由 Vec capacity 计入）。
+fn diff_line_heap_bytes(line: &DiffLine) -> usize {
+    match line {
+        DiffLine::Context { text, .. } | DiffLine::HunkHeader { text } => text.capacity(),
+        DiffLine::Add { text, word_diff, .. } | DiffLine::Remove { text, word_diff, .. } => {
+            text.capacity() + word_diff.as_ref().map_or(0, diff_word_diff_bytes)
+        }
+    }
+}
+
+fn diff_word_diff_bytes(w: &WordDiff) -> usize {
+    std::mem::size_of::<WordDiff>()
+        + w.segments.capacity() * std::mem::size_of::<(String, DiffWordType)>()
+        + w.segments.iter().map(|(s, _)| s.capacity()).sum::<usize>()
+}
+
+/// diff 缓存统计快照（供 `/gc` 诊断）：条数 / 容量 / 估算字节 / 预算。
+pub fn diff_cache_stats() -> CacheStats {
+    DIFF_CACHE.lock().map(|c| c.stats()).unwrap_or(CacheStats {
+        entries: 0,
+        capacity: DIFF_CACHE_CAPACITY,
+        bytes: 0,
+        budget: DIFF_CACHE_BUDGET_BYTES,
+    })
 }
 
 /// 实际计算逻辑（无缓存）
