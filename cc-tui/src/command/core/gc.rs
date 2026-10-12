@@ -10,8 +10,8 @@ impl Command for GcCommand {
         "gc"
     }
 
-    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
-        "手动触发内存回收并显示 RSS 变化和数据结构诊断".to_string()
+    fn description(&self, lc: &crate::i18n::LcRegistry) -> String {
+        lc.tr("cmd-gc-desc")
     }
 
     fn aliases(&self) -> Vec<&str> {
@@ -19,6 +19,7 @@ impl Command for GcCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
+        let lc = &app.services.lc;
         let stats_before = crate::alloc_config::query_stats();
         let os_rss_before = crate::alloc_config::os_rss_mb();
         let alloc_name = crate::alloc_config::allocator_name();
@@ -59,11 +60,13 @@ impl Command for GcCommand {
                 // 方向语义：`after - before`，增加为正。此前误用 `before - after`
                 // 且 `delta >= 0` 才加 `+`，导致内存**下降**时反而显示 `+N`（方向颠倒）。
                 let delta = after.current_rss as isize - before.current_rss as isize;
-                lines.push(format!(
-                    "RSS: {} → {} ({})",
-                    fmt_bytes(before.current_rss),
-                    fmt_bytes(after.current_rss),
-                    fmt_signed_delta(delta, fmt_bytes),
+                lines.push(lc.tr_args(
+                    "cmd-gc-rss",
+                    &[
+                        ("before".into(), fmt_bytes(before.current_rss).into()),
+                        ("after".into(), fmt_bytes(after.current_rss).into()),
+                        ("delta".into(), fmt_signed_delta(delta, fmt_bytes).into()),
+                    ],
                 ));
                 let alloc_delta = after.current_allocated as isize - after.current_rss as isize;
                 if alloc_delta != 0 {
@@ -73,105 +76,150 @@ impl Command for GcCommand {
                     // - 为负（RSS 更大）：可能包含分配器空闲驻留页、页舍入，
                     //   以及栈、映射文件等；仅凭此差值无法归因。
                     let hint = if alloc_delta > 0 {
-                        "allocated 大于当时 RSS（采样时刻/记账口径差，仅供参考）"
+                        lc.tr("cmd-gc-allocated-rss-hint-positive")
                     } else {
-                        "RSS 差额可能含分配器空闲页/页舍入/原生库分配/栈/映射文件等，不能据此归因"
+                        lc.tr("cmd-gc-allocated-rss-hint-negative")
                     };
-                    lines.push(format!(
-                        "{alloc_name} allocated: {} (allocated-RSS = {}；{hint})",
-                        fmt_bytes(after.current_allocated),
-                        fmt_signed_delta(alloc_delta, fmt_bytes),
+                    lines.push(lc.tr_args(
+                        "cmd-gc-allocated-rss",
+                        &[
+                            (
+                                "allocated".into(),
+                                fmt_bytes(after.current_allocated).into(),
+                            ),
+                            (
+                                "delta".into(),
+                                fmt_signed_delta(alloc_delta, fmt_bytes).into(),
+                            ),
+                            ("allocator".into(), alloc_name.into()),
+                            ("hint".into(), hint.into()),
+                        ],
                     ));
                 }
             }
-            _ => lines.push("RSS: 不可用（分配器 stats 读取失败）".to_string()),
+            _ => lines.push(lc.tr("cmd-gc-rss-unavailable")),
         }
 
         if let (Some(before), Some(after)) = (os_rss_before, os_rss_after) {
             let delta = after as isize - before as isize;
-            lines.push(format!(
-                "OS RSS: {} → {} ({})",
-                fmt_mb(before),
-                fmt_mb(after),
-                fmt_signed_delta(delta, fmt_mb_from_usize),
+            lines.push(lc.tr_args(
+                "cmd-gc-os-rss",
+                &[
+                    ("before".into(), fmt_mb(before).into()),
+                    ("after".into(), fmt_mb(after).into()),
+                    (
+                        "delta".into(),
+                        fmt_signed_delta(delta, fmt_mb_from_usize).into(),
+                    ),
+                ],
             ));
         }
 
         // ── 数据结构诊断 ──
         lines.push(String::new());
-        lines.push("── 数据结构诊断 ──".to_string());
-        lines.push(format!(
-            "origin_messages:  {} 条, ~{}",
-            origin_count,
-            fmt_bytes(origin_bytes),
+        lines.push(lc.tr("cmd-gc-structures-heading"));
+        lines.push(lc.tr_args(
+            "cmd-gc-origin-messages",
+            &[
+                ("count".into(), origin_count.to_string().into()),
+                ("bytes".into(), fmt_bytes(origin_bytes).into()),
+            ],
         ));
-        lines.push(format!(
-            "pipeline.completed: {} 条, ~{}",
-            completed_count,
-            fmt_bytes(completed_bytes),
+        lines.push(lc.tr_args(
+            "cmd-gc-completed-messages",
+            &[
+                ("count".into(), completed_count.to_string().into()),
+                ("bytes".into(), fmt_bytes(completed_bytes).into()),
+            ],
         ));
-        lines.push(format!(
-            "view_messages:     {} 条 VM, ~{}",
-            vm_count,
-            fmt_bytes(vm_bytes)
+        lines.push(lc.tr_args(
+            "cmd-gc-view-messages",
+            &[
+                ("count".into(), vm_count.to_string().into()),
+                ("bytes".into(), fmt_bytes(vm_bytes).into()),
+            ],
         ));
 
         // 只比较条数，不推断内容相同或是否泄漏。
         if origin_count > 0 && completed_count > 0 {
             let overlap = if origin_count == completed_count {
-                "条数相同（未比较内容；origin 为 agent 权威历史，completed 为渲染管线基线）"
+                lc.tr("cmd-gc-message-counts-equal")
             } else {
-                "条数不同（未比较内容）"
+                lc.tr("cmd-gc-message-counts-different")
             };
-            lines.push(format!(
-                "origin vs completed: {} ({}/{} 条)",
-                overlap, origin_count, completed_count,
+            lines.push(lc.tr_args(
+                "cmd-gc-message-comparison",
+                &[
+                    ("overlap".into(), overlap.into()),
+                    ("origin".into(), origin_count.to_string().into()),
+                    ("completed".into(), completed_count.to_string().into()),
+                ],
             ));
         }
 
         // ── 渲染缓存诊断 ──
         lines.push(String::new());
-        lines.push("── 渲染缓存 ──".to_string());
-        lines.push(format!(
-            "markdown_cache: {}/{} 条, 数据堆估算 ~{}",
-            md_cache.entries,
-            md_cache.capacity,
-            fmt_bytes(md_cache.estimated_heap_bytes),
-        ));
-        lines.push(format!(
-            "  平均条目 ~{} | 最大条目 ~{} | {} 行 / {} Span",
-            fmt_bytes(
-                md_cache
-                    .estimated_heap_bytes
-                    .checked_div(md_cache.entries)
-                    .unwrap_or(0)
-            ),
-            fmt_bytes(md_cache.largest_entry_heap_bytes),
-            md_cache.rendered_lines,
-            md_cache.rendered_spans,
+        lines.push(lc.tr("cmd-gc-caches-heading"));
+        lines.push(lc.tr_args(
+            "cmd-gc-markdown-cache",
+            &[
+                ("entries".into(), md_cache.entries.to_string().into()),
+                ("capacity".into(), md_cache.capacity.to_string().into()),
+                (
+                    "bytes".into(),
+                    fmt_bytes(md_cache.estimated_heap_bytes).into(),
+                ),
+            ],
         ));
         lines.push(
-            "  口径：按容器/自有字符串 capacity 估算，不含 LRU/分配器开销，非 RSS。".to_string(),
+            lc.tr_args(
+                "cmd-gc-markdown-cache-details",
+                &[
+                    (
+                        "average".into(),
+                        fmt_bytes(
+                            md_cache
+                                .estimated_heap_bytes
+                                .checked_div(md_cache.entries)
+                                .unwrap_or(0),
+                        )
+                        .into(),
+                    ),
+                    (
+                        "largest".into(),
+                        fmt_bytes(md_cache.largest_entry_heap_bytes).into(),
+                    ),
+                    ("lines".into(), md_cache.rendered_lines.to_string().into()),
+                    ("spans".into(), md_cache.rendered_spans.to_string().into()),
+                ],
+            ),
         );
-        lines.push(format!(
-            "render_cache: {} 行 + {} wrap 映射, 数据堆估算 ~{}（整段对话渲染结果 + 逐行纯文本副本）",
-            render_lines,
-            wrap_entries,
-            fmt_bytes(render_cache_bytes),
+        lines.push(lc.tr("cmd-gc-cache-estimate-note"));
+        lines.push(lc.tr_args(
+            "cmd-gc-render-cache",
+            &[
+                ("lines".into(), render_lines.to_string().into()),
+                ("wraps".into(), wrap_entries.to_string().into()),
+                ("bytes".into(), fmt_bytes(render_cache_bytes).into()),
+            ],
         ));
-        lines.push(format!(
-            "diff_cache:  {}/{} 条, ~{}（字节预算 {}）",
-            diff_stats.entries,
-            diff_stats.capacity,
-            fmt_bytes(diff_stats.bytes),
-            fmt_bytes(diff_stats.budget),
+        lines.push(lc.tr_args(
+            "cmd-gc-diff-cache",
+            &[
+                ("entries".into(), diff_stats.entries.to_string().into()),
+                ("capacity".into(), diff_stats.capacity.to_string().into()),
+                ("bytes".into(), fmt_bytes(diff_stats.bytes).into()),
+                ("budget".into(), fmt_bytes(diff_stats.budget).into()),
+            ],
         ));
-        lines.push(format!(
-            "diff_render_cache: {}/{} 条, ~{}（字节预算 {}）",
-            render_stats.entries,
-            render_stats.capacity,
-            fmt_bytes(render_stats.bytes),
-            fmt_bytes(render_stats.budget),
+        lines.push(lc.tr_args(
+            "cmd-gc-diff-render-cache",
+            &[
+                ("entries".into(), render_stats.entries.to_string().into()),
+                ("capacity".into(), render_stats.capacity.to_string().into()),
+                ("bytes".into(), fmt_bytes(render_stats.bytes).into()),
+                ("budget".into(), fmt_bytes(render_stats.budget).into()),
+            ],
         ));
         tracing::info!(
             entries = md_cache.entries,
@@ -192,78 +240,89 @@ impl Command for GcCommand {
             // 因此 Windows 上 "active" 与由其派生的"碎片"均**不可用于判断当前占用**。
             let is_mimalloc = alloc_name == "mimalloc";
             lines.push(String::new());
-            lines.push(format!("── {alloc_name} 明细 ──"));
-            lines.push(format!(
-                "allocated: {} (分配器跟踪的在用分配，不保证覆盖原生库)",
-                fmt_bytes(bd.allocated)
+            lines.push(lc.tr_args(
+                "cmd-gc-allocator-heading",
+                &[("allocator".into(), alloc_name.into())],
+            ));
+            lines.push(lc.tr_args(
+                "cmd-gc-allocated",
+                &[("bytes".into(), fmt_bytes(bd.allocated).into())],
             ));
             if is_mimalloc {
-                lines.push(format!(
-                    "active:    {} (mimalloc page_committed＝历史触及高水位，非当前占用，勿用于诊断)",
-                    fmt_bytes(bd.active)
+                lines.push(lc.tr_args(
+                    "cmd-gc-active-mimalloc",
+                    &[("bytes".into(), fmt_bytes(bd.active).into())],
                 ));
             } else {
-                lines.push(format!("active:    {} (活跃页)", fmt_bytes(bd.active)));
-            }
-            if is_mimalloc {
-                lines.push(format!(
-                    "resident:  {} (全进程 RSS/WorkingSet，非 mimalloc 独占内存)",
-                    fmt_bytes(bd.resident)
-                ));
-                lines.push(
-                    "metadata:  不可用（committed 与 page_committed 口径不同，差值不能估算元数据）"
-                        .to_string(),
-                );
-            } else {
-                lines.push(format!(
-                    "resident:  {} (分配器物理驻留估算)",
-                    fmt_bytes(bd.resident)
-                ));
-                lines.push(format!(
-                    "metadata:  {} (分配器元数据)",
-                    fmt_bytes(bd.metadata)
+                lines.push(lc.tr_args(
+                    "cmd-gc-active",
+                    &[("bytes".into(), fmt_bytes(bd.active).into())],
                 ));
             }
             if is_mimalloc {
-                lines.push(format!(
-                    "mapped:    {} (reserved 虚拟地址保留量，非物理驻留量)",
-                    fmt_bytes(bd.mapped)
+                lines.push(lc.tr_args(
+                    "cmd-gc-resident-mimalloc",
+                    &[("bytes".into(), fmt_bytes(bd.resident).into())],
                 ));
-                lines.push(format!(
-                    "retained:  {} (reserved-committed 保留未提交量，非物理驻留量)",
-                    fmt_bytes(bd.retained)
+                lines.push(lc.tr("cmd-gc-metadata-mimalloc"));
+            } else {
+                lines.push(lc.tr_args(
+                    "cmd-gc-resident",
+                    &[("bytes".into(), fmt_bytes(bd.resident).into())],
+                ));
+                lines.push(lc.tr_args(
+                    "cmd-gc-metadata",
+                    &[("bytes".into(), fmt_bytes(bd.metadata).into())],
+                ));
+            }
+            if is_mimalloc {
+                lines.push(lc.tr_args(
+                    "cmd-gc-mapped-mimalloc",
+                    &[("bytes".into(), fmt_bytes(bd.mapped).into())],
+                ));
+                lines.push(lc.tr_args(
+                    "cmd-gc-retained-mimalloc",
+                    &[("bytes".into(), fmt_bytes(bd.retained).into())],
                 ));
             } else {
-                lines.push(format!("mapped:    {} (映射)", fmt_bytes(bd.mapped)));
-                lines.push(format!(
-                    "retained:  {} (保留未归还 OS)",
-                    fmt_bytes(bd.retained)
+                lines.push(lc.tr_args(
+                    "cmd-gc-mapped",
+                    &[("bytes".into(), fmt_bytes(bd.mapped).into())],
+                ));
+                lines.push(lc.tr_args(
+                    "cmd-gc-retained",
+                    &[("bytes".into(), fmt_bytes(bd.retained).into())],
                 ));
             }
             // 关键指标：碎片仅在 active 有意义时（jemalloc）成立
             let frag = bd.active.saturating_sub(bd.allocated);
             if is_mimalloc {
-                lines.push(format!(
-                    "碎片: active-allocated={} （⚠ 基于 mimalloc touched 高水位，非真实碎片，忽略）",
-                    fmt_bytes(frag)
+                lines.push(lc.tr_args(
+                    "cmd-gc-fragmentation-mimalloc",
+                    &[("fragmentation".into(), fmt_bytes(frag).into())],
                 ));
             } else {
                 let waste = bd.resident.saturating_sub(bd.active);
-                lines.push(format!(
-                    "碎片: active-allocated={} | resident-active={}",
-                    fmt_bytes(frag),
-                    fmt_bytes(waste),
+                lines.push(lc.tr_args(
+                    "cmd-gc-fragmentation",
+                    &[
+                        ("fragmentation".into(), fmt_bytes(frag).into()),
+                        ("waste".into(), fmt_bytes(waste).into()),
+                    ],
                 ));
             }
             // Windows resident 本身就是全进程 RSS，不能相减推断非分配器占用。
             if !is_mimalloc {
                 if let Some(ref s) = stats_after {
                     let os_gap = s.current_rss.saturating_sub(bd.resident);
-                    lines.push(format!(
-                        "OS RSS({}) - {alloc_name} resident({}) = {}",
-                        fmt_bytes(s.current_rss),
-                        fmt_bytes(bd.resident),
-                        fmt_bytes(os_gap),
+                    lines.push(lc.tr_args(
+                        "cmd-gc-os-gap",
+                        &[
+                            ("rss".into(), fmt_bytes(s.current_rss).into()),
+                            ("resident".into(), fmt_bytes(bd.resident).into()),
+                            ("gap".into(), fmt_bytes(os_gap).into()),
+                            ("allocator".into(), alloc_name.into()),
+                        ],
                     ));
                 }
             }
@@ -272,7 +331,10 @@ impl Command for GcCommand {
         // ── 分配器全量 stats → tracing ──
         {
             lines.push(String::new());
-            lines.push(format!("── {alloc_name} 全量统计（见日志）──"));
+            lines.push(lc.tr_args(
+                "cmd-gc-full-stats-heading",
+                &[("allocator".into(), alloc_name.into())],
+            ));
             tracing::info!("=== /gc {alloc_name} full stats dump ===");
             crate::alloc_config::dump_stats();
             tracing::info!("=== /gc {alloc_name} full stats end ===");
@@ -289,28 +351,33 @@ impl Command for GcCommand {
                 + diff_stats.bytes
                 + render_stats.bytes;
             let gap = bd.allocated.saturating_sub(known_bytes);
-            lines.push(format!(
-                "已知合计估算: {} (消息 {} + VM {} + Markdown 缓存 {} + 渲染缓存 {} + diff 缓存 {}) | allocated 内未识别估算: {}",
-                fmt_bytes(known_bytes),
-                fmt_bytes(origin_bytes + completed_bytes),
-                fmt_bytes(vm_bytes),
-                fmt_bytes(md_cache.estimated_heap_bytes),
-                fmt_bytes(render_cache_bytes),
-                fmt_bytes(diff_stats.bytes + render_stats.bytes),
-                fmt_bytes(gap),
+            lines.push(lc.tr_args(
+                "cmd-gc-known-estimate",
+                &[
+                    ("known".into(), fmt_bytes(known_bytes).into()),
+                    (
+                        "messages".into(),
+                        fmt_bytes(origin_bytes + completed_bytes).into(),
+                    ),
+                    ("views".into(), fmt_bytes(vm_bytes).into()),
+                    (
+                        "markdown".into(),
+                        fmt_bytes(md_cache.estimated_heap_bytes).into(),
+                    ),
+                    ("render".into(), fmt_bytes(render_cache_bytes).into()),
+                    (
+                        "diff".into(),
+                        fmt_bytes(diff_stats.bytes + render_stats.bytes).into(),
+                    ),
+                    ("gap".into(), fmt_bytes(gap).into()),
+                ],
             ));
             lines.push(String::new());
-            lines.push(
-                "注：估算仍未覆盖语法高亮引擎(SyntaxSet/ThemeSet)/编译正则/ACP 缓冲/tokio/tracing/分配器元数据等；余量来源待定位，不能据此判断是否泄漏。"
-                    .to_string(),
-            );
+            lines.push(lc.tr("cmd-gc-estimate-note"));
         }
 
         if alloc_name == "mimalloc" {
-            lines.push(
-                "回收范围：当前线程立即回收；TUI 工作线程在下次空闲时响应请求，不保证本次采样已完成。不会清空应用缓存或释放存活对象。"
-                    .to_string(),
-            );
+            lines.push(lc.tr("cmd-gc-collection-scope"));
         }
 
         app.push_system_note(lines.join("\n"));
@@ -644,32 +711,5 @@ fn fmt_mb_from_usize(mb: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    /// 回归：RSS 变化的方向符号不得颠倒。
-    ///
-    /// 此前 gc 汇总用 `before - after` 计算 delta 且仅在 `>= 0` 时加 `+`，
-    /// 导致内存**下降**（197.9 → 196.6）被显示为 `+1.3 MB`。
-    #[test]
-    fn fmt_signed_delta_direction() {
-        const MB: isize = 1024 * 1024;
-        // 下降 1.3 MB：after - before = -1.3MB → "-1.3 MB"
-        assert_eq!(
-            fmt_signed_delta(-13 * MB / 10, fmt_bytes),
-            "-1.3 MB",
-            "内存下降应显示负号"
-        );
-        // 上升 1.3 MB → "+1.3 MB"
-        assert_eq!(fmt_signed_delta(13 * MB / 10, fmt_bytes), "+1.3 MB");
-        // 无变化 → "±0 B"
-        assert_eq!(fmt_signed_delta(0, fmt_bytes), "±0 B");
-    }
-
-    /// 回归：OS RSS（MB 整数）走同一符号约定。
-    #[test]
-    fn fmt_signed_delta_mb_direction() {
-        assert_eq!(fmt_signed_delta(-1, fmt_mb_from_usize), "-1 MB");
-        assert_eq!(fmt_signed_delta(3, fmt_mb_from_usize), "+3 MB");
-        assert_eq!(fmt_signed_delta(0, fmt_mb_from_usize), "±0 MB");
-    }
+    include!("gc_test.rs");
 }

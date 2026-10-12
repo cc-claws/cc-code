@@ -4,6 +4,111 @@ use crate::{
     ui::main_ui,
 };
 
+fn make_system_note_text(app: &App) -> String {
+    app.session_mgr
+        .current()
+        .messages
+        .view_messages
+        .iter()
+        .filter_map(|message| {
+            if let MessageViewModel::SystemNote { content, .. } = message {
+                Some(content.as_str())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[tokio::test]
+async fn test_help_refreshes_descriptions_after_language_switch() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    let registry = std::mem::take(&mut app.session_mgr.current_mut().commands.command_registry);
+    app.services.lc.switch("zh-CN").expect("中文可用");
+    assert!(registry.dispatch(&mut app, "/help"));
+    let chinese = make_system_note_text(&app);
+    assert!(chinese.contains("可用命令："));
+    assert!(
+        chinese.contains("列出所有可用命令"),
+        "不能使用启动时的英文描述缓存"
+    );
+    app.session_mgr.current_mut().messages.view_messages.clear();
+    app.services.lc.switch("en").expect("英文可用");
+    assert!(registry.dispatch(&mut app, "/help"));
+    let english = make_system_note_text(&app);
+    assert!(english.contains("Available commands:"));
+    assert!(english.contains("List all available commands"));
+    assert!(english.contains(crate::event::keyboard::command_palette_label()));
+    assert!(!english.contains("可用命令"));
+    assert!(!english.contains("$palette"));
+}
+
+#[tokio::test]
+async fn test_command_and_shell_feedback_uses_selected_language() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for (language, unknown, ambiguous, empty) in [
+        (
+            "en",
+            "Unknown command or Skill",
+            "matches multiple commands",
+            "Please enter a shell command",
+        ),
+        ("zh-CN", "未知命令或 Skill", "匹配多个", "请输入 shell 命令"),
+    ] {
+        let (mut app, _handle) = App::new_headless(120, 30).await;
+        app.services.lc.switch(language).expect("测试语言可用");
+        for (input, expected) in [
+            ("/nonexistent-command", unknown),
+            // 前导空格让首行不以 '/' 开头 → hint 候选为空；否则 Enter 会被命令补全
+            // （hint_complete）接管（如 /c → /channel ），永远走不到歧义提示分支。
+            (" /c", ambiguous),
+            ("!", empty),
+        ] {
+            app.session_mgr.current_mut().ui.textarea.insert_str(input);
+            crate::event::keyboard::handle_key_event(
+                &mut app,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            )
+            .expect("按键处理成功");
+            assert!(
+                make_system_note_text(&app).contains(expected),
+                "{language} 的 {input} 反馈应本地化"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_rewind_and_gc_feedback_uses_selected_language() {
+    use crate::command::{core::gc::GcCommand, Command};
+    for (language, rewind, diagnostic) in [
+        (
+            "en",
+            "No conversation turns available to rewind",
+            "Data structure diagnostics",
+        ),
+        ("zh-CN", "没有可回退的对话轮次", "数据结构诊断"),
+    ] {
+        let (mut app, _handle) = App::new_headless(120, 30).await;
+        app.services.lc.switch(language).expect("测试语言可用");
+        app.open_rewind_prompt();
+        GcCommand.execute(&mut app, "");
+        let text = make_system_note_text(&app);
+        assert!(text.contains(rewind));
+        assert!(text.contains(diagnostic));
+        // zh-CN 诊断文案对数值列做了对齐（冒号后补空格，与 en 的单空格不同），
+        // 归并空白后再比较，避免把排版对齐误判为参数未插值。
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            normalized.contains("origin_messages: 0"),
+            "诊断参数应被正常插值"
+        );
+        assert!(!text.contains("cmd-gc-"), "诊断输出不能泄露翻译键");
+        assert!(!text.contains("{ $"), "诊断输出不能泄露 Fluent 变量");
+    }
+}
+
 #[tokio::test]
 async fn test_snapshot_row_count() {
     let (_app, handle) = App::new_headless(80, 24).await;

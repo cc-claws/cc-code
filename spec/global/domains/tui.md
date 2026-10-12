@@ -1312,4 +1312,12 @@ submit_message(text)
 
 **涉及文件：** cc-tui/src/terminal_backend/{compatible.rs,compatible_test.rs,windows.rs,windows_test.rs}。
 
-最后更新：2026-10-10
+### issue_2026-10-12-locale-cli-and-ui-i18n
+
+**摘要:** 修复无配置时不检测 locale，以及 CLI、命令反馈、状态面板和 `/gc` 输出绕过 Fluent 的问题（#314、#315、#316）。
+
+**设计:** 启动路径使用 `LcRegistry::from_environment`，显式保存的语言覆盖环境；环境按 `LC_ALL` → `LANGUAGE` 列表 → `LC_MESSAGES` → `LANG` 解析，`C/POSIX` 消息 locale 禁用 `LANGUAGE`。`new(None)` 保留确定性的英文默认，供测试和未初始化的静态路径使用。CLI 在 clap 解析前读取同一配置并替换短/长帮助。dispatch 先刷新 `/help` 的描述缓存，以支持会话内切换语言。界面语言变化不修改冻结的系统提示词。
+
+**验证:** 语言检测测试注入环境读取函数，避免修改全局环境；界面测试使用 headless App，配置写入临时目录。语言切换测试覆盖帮助描述、命令反馈、状态标签与诊断参数插值。
+
+最后更新：2026-10-12

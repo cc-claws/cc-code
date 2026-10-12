@@ -114,12 +114,12 @@ impl App {
     pub fn run_shell_command(&mut self, command: String) {
         let command = command.trim().to_string();
         if command.is_empty() {
-            self.push_system_note("请输入 shell 命令".to_string());
+            self.push_system_note(self.services.lc.tr("shell-enter-command"));
             self.render_rebuild();
             return;
         }
         if self.session_mgr.current().ui.loading {
-            self.push_system_note("已有任务正在运行，暂不能启动 shell 命令".to_string());
+            self.push_system_note(self.services.lc.tr("shell-task-running"));
             self.render_rebuild();
             return;
         }
@@ -854,7 +854,7 @@ impl App {
             .stdin_tx
             .clone();
         let Some(tx) = tx else {
-            self.push_system_note("shell stdin 已关闭".to_string());
+            self.push_system_note(self.services.lc.tr("shell-stdin-closed"));
             self.render_rebuild();
             return;
         };
@@ -1040,7 +1040,10 @@ impl App {
             }
             Err(e) => {
                 tracing::error!(error = %e, "创建 shell thread 失败");
-                self.push_system_note(format!("创建 shell 会话失败: {e:#}"));
+                self.push_system_note(self.services.lc.tr_args(
+                    "shell-session-failed",
+                    &[("error".into(), format!("{e:#}").into())],
+                ));
                 self.render_rebuild();
                 None
             }

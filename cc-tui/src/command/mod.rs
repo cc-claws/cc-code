@@ -90,6 +90,8 @@ impl CommandRegistry {
     /// 匹配优先级：精确匹配 > 别名精确匹配 > 前缀唯一匹配（支持 /m → /model）
     /// 返回 true 表示找到命令并执行，false 表示未知命令或有歧义。
     pub fn dispatch(&self, app: &mut App, input: &str) -> bool {
+        // dispatch 期间注册表会从 App 中移出，先用当前语言刷新 /help 的描述缓存。
+        app.session_mgr.current_mut().commands.command_help_list = self.list(&app.services.lc);
         let input = input.trim_start_matches('/');
         let (name, args) = match input.split_once(' ') {
             Some((n, a)) => (n.trim(), a.trim()),

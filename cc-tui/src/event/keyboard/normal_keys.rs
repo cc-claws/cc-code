@@ -204,11 +204,9 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                     let command = command.trim().to_string();
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
                     if command.is_empty() {
-                        app.session_mgr
-                            .current_mut()
-                            .messages
-                            .view_messages
-                            .push(MessageViewModel::system("请输入 shell 命令".to_string()));
+                        app.session_mgr.current_mut().messages.view_messages.push(
+                            MessageViewModel::system(app.services.lc.tr("shell-enter-command")),
+                        );
                         app.render_rebuild();
                     } else {
                         return Ok(Some(Action::RunShellCommand(command)));
@@ -269,17 +267,26 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                             let error_msg = if cmd_matches.len() > 1 {
                                 let names: Vec<&str> =
                                     cmd_matches.iter().map(|(n, _)| n.as_str()).collect();
-                                format!(
-                                    "命令 '{}' 匹配多个: {}  （请输入完整命令名）",
-                                    text,
-                                    names
-                                        .iter()
-                                        .map(|n| format!("/{}", n))
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
+                                app.services.lc.tr_args(
+                                    "command-ambiguous",
+                                    &[
+                                        ("command".into(), text.as_str().into()),
+                                        (
+                                            "matches".into(),
+                                            names
+                                                .iter()
+                                                .map(|n| format!("/{}", n))
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                                .into(),
+                                        ),
+                                    ],
                                 )
                             } else {
-                                format!("未知命令或 Skill: {}  （输入 /help 查看可用命令）", text)
+                                app.services.lc.tr_args(
+                                    "command-unknown",
+                                    &[("command".into(), text.as_str().into())],
+                                )
                             };
                             app.session_mgr
                                 .current_mut()

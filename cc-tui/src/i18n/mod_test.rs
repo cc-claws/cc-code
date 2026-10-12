@@ -79,3 +79,92 @@ fn test_lc_registry_cross_lang_fallback() {
     let result = lc.tr("nonexistent-key");
     assert_eq!(result, "nonexistent-key");
 }
+
+fn make_detected_language(saved: Option<&str>, values: &[(&str, &str)]) -> &'static str {
+    resolve_language(saved, |key| {
+        values
+            .iter()
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| value.to_string())
+    })
+}
+
+#[test]
+fn test_locale_detection_saved_language_overrides_environment() {
+    assert_eq!(
+        make_detected_language(Some("en"), &[("LANG", "zh_CN.UTF-8")]),
+        "en"
+    );
+    assert_eq!(
+        make_detected_language(Some("zh-CN"), &[("LC_ALL", "en_US")]),
+        "zh-CN"
+    );
+    assert_eq!(
+        make_detected_language(Some("unsupported"), &[("LANG", "zh_CN")]),
+        "en"
+    );
+}
+
+#[test]
+fn test_locale_detection_normalizes_supported_locales() {
+    for locale in ["zh", "zh_CN.UTF-8", "zh-Hans-CN", "zh_TW@variant", "ZH-cn"] {
+        assert_eq!(make_detected_language(None, &[("LANG", locale)]), "zh-CN");
+    }
+    assert_eq!(
+        make_detected_language(None, &[("LANG", "en_US.UTF-8")]),
+        "en"
+    );
+}
+
+#[test]
+fn test_locale_detection_respects_environment_priority() {
+    assert_eq!(
+        make_detected_language(
+            None,
+            &[("LC_ALL", "en_US"), ("LANGUAGE", "zh"), ("LANG", "zh_CN")]
+        ),
+        "en"
+    );
+    assert_eq!(
+        make_detected_language(
+            None,
+            &[
+                ("LANGUAGE", "zh:en"),
+                ("LC_MESSAGES", "en_US"),
+                ("LANG", "en_US")
+            ]
+        ),
+        "zh-CN"
+    );
+    assert_eq!(
+        make_detected_language(None, &[("LC_MESSAGES", "zh_CN"), ("LANG", "en_US")]),
+        "zh-CN"
+    );
+    assert_eq!(
+        make_detected_language(None, &[("LC_ALL", ""), ("LANGUAGE", "fr:zh_CN:en")]),
+        "zh-CN"
+    );
+}
+
+#[test]
+fn test_locale_detection_posix_and_unknown_fallback() {
+    for locale in ["C", "C.UTF-8", "POSIX"] {
+        assert_eq!(
+            make_detected_language(None, &[("LANGUAGE", "zh"), ("LANG", locale)]),
+            "en"
+        );
+    }
+    assert_eq!(
+        make_detected_language(None, &[("LC_ALL", "fr_FR"), ("LANG", "zh_CN")]),
+        "en"
+    );
+    assert_eq!(
+        make_detected_language(None, &[("LANGUAGE", "fr:de"), ("LANG", "zh_CN")]),
+        "zh-CN"
+    );
+    assert_eq!(
+        make_detected_language(None, &[("LANG", "fr_FR.UTF-8")]),
+        "en"
+    );
+    assert_eq!(make_detected_language(None, &[]), "en");
+}

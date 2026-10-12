@@ -93,6 +93,8 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 ### v0.6.x New Features
 
+**Interface language:** TUI and CLI help support English and Simplified Chinese. Use `/lang en` or `/lang zh-CN` to save your preference. Without a saved language, startup detects `LC_ALL`, `LANGUAGE`, `LC_MESSAGES` and `LANG`; unsupported locales fall back to English. See [CHANGELOG](./CHANGELOG.md) for unreleased changes.
+
 | Feature | Version | Description |
 |---------|---------|-------------|
 | **Windows Running Binary Hot-Replacement on npm Install** | v0.6.124 | On Windows, running `npm install -g @cc-claw/code` while `cc-code` is active failed with `EBUSY`/`EPERM` because the Windows kernel locks running executables against deletion. `install.js` now introduces `replaceBinary`: when standard unlinking fails on busy/permission errors, it falls back to renaming the running executable to `cc-code.exe.old.<timestamp>` to clear the path, enabling hot-replacement in-place. `cleanOldBinaries` also sweeps legacy `.old.*` files once inactive (#430, #431) |

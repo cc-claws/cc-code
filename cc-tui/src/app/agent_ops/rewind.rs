@@ -17,7 +17,7 @@ impl App {
         let origin_messages = &self.session_mgr.current().agent.origin_messages;
 
         if origin_messages.is_empty() {
-            self.push_system_note("没有可回退的对话轮次".to_string());
+            self.push_system_note(self.services.lc.tr("rewind-no-turns"));
             return;
         }
 
@@ -47,7 +47,7 @@ impl App {
         }
 
         if items.is_empty() {
-            self.push_system_note("没有可回退的对话轮次".to_string());
+            self.push_system_note(self.services.lc.tr("rewind-no-turns"));
             return;
         }
 

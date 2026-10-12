@@ -558,7 +558,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | `/doctor` | 诊断配置完整性 |
 | `/effort <level>` | 查看或设置推理力度（`low`/`medium`/`high`/`xhigh`/`max`） |
 | `/init` | 生成或优化项目 CLAUDE.md 知识库 |
-| `/lang` | 切换界面语言（如 `/lang zh-CN`） |
+| `/lang` | 切换并保存界面语言（`en` / `zh-CN`）；未保存时启动检测 locale，CLI 帮助沿用该选择 |
 | `/login` | 管理 Provider 配置（新建/编辑/删除） |
 | `/memory` | 编辑用户/项目级 CLAUDE.md 记忆文件 |
 | `/mcp` | 管理 MCP 服务器连接 |

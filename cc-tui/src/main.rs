@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use ratatui::{
     crossterm::{
         event::{
@@ -38,6 +38,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod acp_stdio;
 mod cli_args;
+mod cli_i18n;
 mod cli_plugin;
 mod cli_print;
 
@@ -279,7 +280,10 @@ fn inject_settings_override(source: &str) {
         match std::fs::read_to_string(source) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("警告: 无法读取 settings 文件 '{}': {e}", source);
+                cli_i18n::write_stderr(&cli_i18n::message(
+                    "cli-settings-read-warning",
+                    &[("path", source), ("error", &e.to_string())],
+                ));
                 return;
             }
         }
@@ -288,7 +292,7 @@ fn inject_settings_override(source: &str) {
     };
 
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) else {
-        eprintln!("警告: --settings 内容不是有效的 JSON");
+        cli_i18n::write_stderr(&cli_i18n::message("cli-settings-json-warning", &[]));
         return;
     };
 
@@ -318,7 +322,15 @@ fn main() -> Result<()> {
     #[cfg(target_os = "windows")]
     cc_tui::alloc_config::init_alloc_conf();
 
-    let cli = Cli::parse();
+    let config = cc_tui::config::load().ok();
+    cc_tui::i18n::init_global(cc_tui::i18n::LcRegistry::from_environment(
+        config
+            .as_ref()
+            .and_then(|config| config.config.language.as_deref()),
+    ));
+    let matches =
+        cli_i18n::localized_command(Cli::command(), &cc_tui::i18n::global()).get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
 
     // -p/--print 模式（优先级高于子命令）
     if cli.print.is_some() {
@@ -379,9 +391,15 @@ fn main() -> Result<()> {
                 .build()?;
             rt.block_on(async {
                 match cc_tui::update::run_update().await {
-                    Ok(tag) => println!("Updated to {tag}"),
+                    Ok(tag) => println!(
+                        "{}",
+                        cli_i18n::message("cli-update-success", &[("tag", &tag)])
+                    ),
                     Err(e) => {
-                        eprintln!("Update failed: {e:#}");
+                        cli_i18n::write_stderr(&cli_i18n::message(
+                            "cli-update-failed",
+                            &[("error", &format!("{e:#}"))],
+                        ));
                         std::process::exit(1);
                     }
                 }
@@ -400,9 +418,12 @@ fn main() -> Result<()> {
                     SyncAction::Receiver => cc_tui::sync::run_sync_receiver(&server).await,
                 }
             })
-            .map(|_| println!("Sync complete"))
+            .map(|_| println!("{}", cli_i18n::message("cli-sync-success", &[])))
             .map_err(|e| {
-                eprintln!("Sync failed: {e:#}");
+                cli_i18n::write_stderr(&cli_i18n::message(
+                    "cli-sync-failed",
+                    &[("error", &format!("{e:#}"))],
+                ));
                 std::process::exit(1);
             })
         }
@@ -664,7 +685,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
             }
             Ok(None) => {
                 tracing::warn!("退出: run_app 返回 Ok(None)，无 session ID 可打印");
-                eprintln!("\n  (no session ID available)");
+                cli_i18n::write_stderr(&cli_i18n::message("cli-no-session-id", &[]));
             }
             Err(e) => {
                 tracing::error!(error = %e, "退出: run_app 返回错误");
@@ -679,7 +700,10 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
     drop(_telemetry);
 
     if let Err(e) = result {
-        eprintln!("Error: {e}");
+        cli_i18n::write_stderr(&cli_i18n::message(
+            "cli-error",
+            &[("error", &e.to_string())],
+        ));
     }
 
     Ok(())

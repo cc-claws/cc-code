@@ -93,6 +93,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 ### v0.6.x 新增功能
 
+**界面语言：** TUI 和 CLI 帮助支持英文与简体中文。使用 `/lang en` 或 `/lang zh-CN` 保存偏好；未保存语言时，启动检测 `LC_ALL`、`LANGUAGE`、`LC_MESSAGES` 和 `LANG`，不支持的 locale 回退英文。未发布改动见 [CHANGELOG](./CHANGELOG.md)。
+
 | 功能 | 版本 | 说明 |
 |------|------|------|
 | **npm 安装支持 Windows 进程运行中热替换二进制** | v0.6.124 | 在 Windows 环境下，当 `cc-code` 处于运行状态时（如在会话内自升级或开启多个终端），内核文件锁导致 npm postinstall 的 `unlinkSync` 抛出 `EBUSY`/`EPERM` 引起安装回滚。现于 `install.js` 引入 `replaceBinary` 文件锁退避机制：常规删除受阻时自动将旧文件重命名为 `cc-code.exe.old.<timestamp>` 腾出路径并热替换新版本，并在安装时顺便尝试清理历史已退出的 `.old.*` 备份文件（#430、#431） |

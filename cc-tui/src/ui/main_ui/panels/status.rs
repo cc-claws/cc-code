@@ -16,7 +16,7 @@ use ratatui::{
 
 pub(crate) fn render_status_panel(f: &mut Frame, panel: &StatusPanel, app: &mut App, area: Rect) {
     let inner = BorderedPanel::new(Span::styled(
-        " Status ",
+        format!(" {} ", app.services.lc.tr("status-title")),
         Style::default()
             .fg(theme::THINKING)
             .add_modifier(Modifier::BOLD),
@@ -42,22 +42,25 @@ pub(crate) fn render_status_panel(f: &mut Frame, panel: &StatusPanel, app: &mut 
     };
 
     // 手动渲染 tab 标签（仿照 plugin 面板风格）
-    let tab_labels: Vec<Span> = ["Cost", "Context"]
-        .iter()
-        .enumerate()
-        .map(|(i, label)| {
-            let is_active = panel.tab.active() == i;
-            let style = if is_active {
-                Style::default()
-                    .fg(theme::TEXT)
-                    .bg(theme::THINKING)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(theme::MUTED)
-            };
-            Span::styled(format!(" {} ", label), style)
-        })
-        .collect();
+    let tab_labels: Vec<Span> = [
+        app.services.lc.tr("status-tab-cost"),
+        app.services.lc.tr("status-tab-context"),
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, label)| {
+        let is_active = panel.tab.active() == i;
+        let style = if is_active {
+            Style::default()
+                .fg(theme::TEXT)
+                .bg(theme::THINKING)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::MUTED)
+        };
+        Span::styled(format!(" {} ", label), style)
+    })
+    .collect();
     f.render_widget(Paragraph::new(Line::from(tab_labels)), tab_area);
 
     match panel.tab.active() {
@@ -90,42 +93,51 @@ fn build_cost_lines(app: &App) -> Vec<Line<'static>> {
         }
         None => "N/A".to_string(),
     };
-    lines.push(label_value("会话时长", &duration_str));
+    lines.push(label_value(
+        &app.services.lc.tr("status-duration"),
+        &duration_str,
+    ));
     lines.push(Line::from(""));
 
     // Token 消耗
     lines.push(label_value(
-        "输入 Tokens",
+        &app.services.lc.tr("status-input-tokens"),
         &format_number(tracker.total_input_tokens),
     ));
     lines.push(label_value(
-        "输出 Tokens",
+        &app.services.lc.tr("status-output-tokens"),
         &format_number(tracker.total_output_tokens),
     ));
     lines.push(label_value(
-        "Cache 创建",
+        &app.services.lc.tr("status-cache-creation"),
         &format_number(tracker.total_cache_creation_tokens),
     ));
     lines.push(label_value(
-        "Cache 读取",
+        &app.services.lc.tr("status-cache-read"),
         &format_number(tracker.total_cache_read_tokens),
     ));
     lines.push(Line::from(""));
 
     // LLM 调用次数
     lines.push(label_value(
-        "LLM 调用次数",
+        &app.services.lc.tr("status-model-calls"),
         &tracker.llm_call_count.to_string(),
     ));
     lines.push(Line::from(""));
 
     // 估算费用
     let cost = estimate_cost(app);
-    lines.push(label_value("估算费用", &format!("${:.4}", cost)));
+    lines.push(label_value(
+        &app.services.lc.tr("status-estimated-cost"),
+        &format!("${:.4}", cost),
+    ));
     lines.push(Line::from(""));
 
     // 当前模型
-    lines.push(label_value("当前模型", &app.services.model_name));
+    lines.push(label_value(
+        &app.services.lc.tr("status-current-model"),
+        &app.services.model_name,
+    ));
 
     lines
 }
@@ -384,28 +396,40 @@ fn build_context_summary(app: &App) -> Line<'static> {
         .unwrap_or_else(|| "N/A".to_string());
 
     Line::from(vec![
-        Span::styled("  上下文: ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            format!("  {}: ", app.services.lc.tr("status-context")),
+            Style::default().fg(theme::MUTED),
+        ),
         Span::styled(
             format_number(context_window as u64),
             Style::default()
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" | 已用: ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            format!(" | {}: ", app.services.lc.tr("status-used")),
+            Style::default().fg(theme::MUTED),
+        ),
         Span::styled(
             format!("{} ({})", format_number(used), pct),
             Style::default()
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" | 消息: ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            format!(" | {}: ", app.services.lc.tr("status-messages")),
+            Style::default().fg(theme::MUTED),
+        ),
         Span::styled(
             msg_count.to_string(),
             Style::default()
                 .fg(theme::TEXT)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" | 工具: ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            format!(" | {}: ", app.services.lc.tr("status-tools")),
+            Style::default().fg(theme::MUTED),
+        ),
         Span::styled(
             tool_count.to_string(),
             Style::default()
@@ -433,7 +457,7 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         let mut lines = vec![build_context_summary(app)];
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  暂无请求数据",
+            format!("  {}", app.services.lc.tr("status-no-requests")),
             Style::default().fg(theme::MUTED),
         )));
         f.render_widget(Paragraph::new(Text::from(lines)), area);
@@ -474,10 +498,22 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         // 图例
         f.render_widget(
             Paragraph::new(Text::from(vec![Line::from(vec![
-                Span::styled("  Input Tokens", Style::default().fg(theme::MUTED)),
-                Span::styled("  █cache_read", Style::default().fg(theme::SAGE)),
-                Span::styled(" █cache_creation", Style::default().fg(theme::WARNING)),
-                Span::styled(" █raw", Style::default().fg(theme::ACCENT)),
+                Span::styled(
+                    format!("  {}", app.services.lc.tr("status-input-tokens")),
+                    Style::default().fg(theme::MUTED),
+                ),
+                Span::styled(
+                    format!("  █{}", app.services.lc.tr("status-cache-read")),
+                    Style::default().fg(theme::SAGE),
+                ),
+                Span::styled(
+                    format!(" █{}", app.services.lc.tr("status-cache-creation")),
+                    Style::default().fg(theme::WARNING),
+                ),
+                Span::styled(
+                    format!(" █{}", app.services.lc.tr("status-uncached")),
+                    Style::default().fg(theme::ACCENT),
+                ),
             ])])),
             Rect {
                 x: area.x,
@@ -525,8 +561,14 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
     // 缓存命中率柱状图标题 + 图例
     f.render_widget(
         Paragraph::new(Text::from(vec![Line::from(vec![
-            Span::styled("  Cache Hit Rate", Style::default().fg(theme::MUTED)),
-            Span::styled("  █hit", Style::default().fg(theme::SAGE)),
+            Span::styled(
+                format!("  {}", app.services.lc.tr("status-cache-hit-rate")),
+                Style::default().fg(theme::MUTED),
+            ),
+            Span::styled(
+                format!("  █{}", app.services.lc.tr("status-hit")),
+                Style::default().fg(theme::SAGE),
+            ),
         ])])),
         Rect {
             x: area.x,
