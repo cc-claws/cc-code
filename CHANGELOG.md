@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.124 — 2026-10-12
+
+### Fixes
+
+- **npm postinstall 支持 Windows 进程运行中热替换二进制与历史备份清理（#430、#431）**：在 Windows 环境下，当 `cc-code` 处于运行中时（如在会话内更新或有其它会话未退出），可执行文件具有内核文件锁，npm 安装时的 `node install.js` 直接调用 `unlinkSync` 会抛出 `EBUSY`/`EPERM`，造成全局安装失败回滚。现引入 `replaceBinary` 文件锁退避策略：常规删除失败时，自动将旧二进制重命名为 `${finalPath}.old.<timestamp>` 腾出路径并放入新解压的二进制，实现平滑热替换；同时新增 `cleanOldBinaries` 在安装时顺便尝试清理历史已退出释放的 `.old.*` 备份文件。
+
+---
+
 ## v0.6.123 — 2026-10-12
 
 ### Fixes
