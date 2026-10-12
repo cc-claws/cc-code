@@ -15,10 +15,30 @@ use crate::app::tool_display::sanitize_display_text;
 pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
 const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manage)";
 
+/// 把秒数格式化为人类可读时长，供 Bash 运行状态行「已运行」与「超时期限」共用。
+///
+/// ≥60s 一律以分钟开头（整分钟省略秒，否则 `m ss`），<60s 直接写秒数。
+/// 统一口径避免同一行出现「已运行 9m 20s、期限却显示 560s」这类两种风格。
+fn humanize_secs(secs: u64) -> String {
+    if secs >= 60 {
+        let (minutes, rest) = (secs / 60, secs % 60);
+        if rest == 0 {
+            format!("{minutes}m")
+        } else {
+            format!("{minutes}m {rest:02}s")
+        }
+    } else {
+        format!("{secs}s")
+    }
+}
+
+/// 模型请求的 `timeout`（毫秒）→ `(timeout 9m 20s)`。
+///
+/// 不足 1 分钟的期限保留原有精度：整千毫秒写 `Ns`，否则写原始毫秒。
 fn shell_timeout_text(timeout_ms: Option<u64>) -> Option<String> {
     timeout_ms.map(|ms| {
-        let limit = if ms.is_multiple_of(60_000) {
-            format!("{}m", ms / 60_000)
+        let limit = if ms >= 60_000 {
+            humanize_secs(ms / 1_000)
         } else if ms.is_multiple_of(1_000) {
             format!("{}s", ms / 1_000)
         } else {
@@ -32,12 +52,7 @@ pub(crate) fn shell_running_text(
     started_at: std::time::Instant,
     timeout_ms: Option<u64>,
 ) -> String {
-    let secs = started_at.elapsed().as_secs();
-    let elapsed = if secs >= 60 {
-        format!("{}m {:02}s", secs / 60, secs % 60)
-    } else {
-        format!("{secs}s")
-    };
+    let elapsed = humanize_secs(started_at.elapsed().as_secs());
     let timeout = shell_timeout_text(timeout_ms)
         .map(|text| format!("    {text}"))
         .unwrap_or_default();
