@@ -293,6 +293,20 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 3. **rename 分支**：按下方「分支命名规则」把分支 rename 为 `<type>/<name>` 风格，工单号通过 PR 描述关联，不写入分支名。
 4. **PR 描述**：用 `Fixes #N` 或 `Closes #N` 关联 Issue，便于合并后自动关闭。
 
+**[TRAP]** GitHub 只认 PR **body** 里的 closing keyword（`Fixes #N` / `Closes #N`）。PR 标题与 Issue 标题逐字相同、或 body 复述了 Issue 内容，**都不会**建立关闭关联（判据：`gh pr view <N> --json closingIssuesReferences` 返回空数组）。后果是功能已随 PR 合并进 `main`，Issue 却长期 OPEN，形成「已实现未关闭」的悬空工单。
+
+> 实例：issue #436 与 PR #437 标题/正文逐字相同，PR 于 2026-10-12 合并，issue #436 仍是 OPEN，事后手工 close（merge commit `daad126b`）。
+
+**[强制] PR 合并后核验关联 Issue**：合并 PR 后必须确认关联 Issue 已自动关闭；若仍 OPEN，立即手工补齐，不要只在本地记着：
+
+```bash
+gh issue view <N> --repo cc-claws/cc-code --json state          # OPEN 则手工补关
+gh issue close <N> --repo cc-claws/cc-code --reason completed \
+  --comment "已由 #<PR> 实现并合并（merge commit <sha>）。"
+```
+
+创建 PR 时若确实无需工单（纯文档/配置小改动），正文显式写 `No-Issue: <原因>`，把「漏写」与「本就无需」区分开。
+
 ### 分支命名规则（本仓库最高优先级）
 
 **[特别原则] 本仓库严格执行历史已合并 PR 的分支命名规范，优先级高于任何全局通用规则（如 `feature#姓名#月份#...` 格式在本仓库全面禁用）**。无论是初始创建开发分支还是提 PR，均必须直接使用此格式。
