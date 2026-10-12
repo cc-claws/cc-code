@@ -89,7 +89,7 @@
 - **终端宽度变化 Markdown 不重复渲染:** 传统控制台歧义字符双列残影修复
 - **Windows 子进程控制台隔离:** `CREATE_NO_WINDOW` 消除 PHP 等子进程代码页切换触发的全屏闪屏
 - **i18n 补全:** 附件栏标题与 Del 提示接入 i18n
-- **启动语言检测与 CLI/TUI 双语补全:** 保存语言优先，未配置时检测 locale；CLI 帮助、命令反馈、状态面板及 `/gc` 诊断使用 Fluent，`/help` 描述随语言切换刷新（#314、#315、#316，未发布）
+- **启动语言检测与 CLI/TUI 双语补全:** 保存语言优先，未配置时检测 locale；CLI 帮助、命令反馈、状态面板及 `/gc` 诊断使用 Fluent，`/help` 描述随语言切换刷新（#314、#315、#316）
 - **后台 shell 通知 i18n + 进程级语言注册表:** 完成/超时/取消/终止/等待输入通知的展示文案改走 `LcRegistry::tr()`；新增 `i18n::init_global`/`global` 进程级注册表（`LcRegistry: Sync`，`FluentBundle` 用 concurrent 变体），供无 App 上下文的静态 `MessageViewModel` 构造路径读取当前语言，启动与 `/lang` 切换时同步
 - **`/gc` 诊断分平台语义 + view_messages 估算:** `active`/`mapped`/`retained` 按 `alloc_name` 条件化标注（jemalloc 真实活跃页 vs mimalloc `page_committed` 历史高水位/`reserved` 虚拟地址），Windows 不再报虚假碎片；新增 `estimate_view_messages_heap()` 遍历 `MessageViewModel` 全部变体（此前 `origin_messages`+`completed` 漏掉 `view_messages`，是「未识别」大头）
 - **详细模式长命令运行状态刷新修复:** 详细模式超长命令 header 折成多行后，tick 增量刷新改为**按内容定位** `Running…` 状态行（新增 `is_shell_running_status_line`），不再写死 `lines[1]`、不再用固定行数判「状态行未渲染」，消除「命令续行被覆盖 + 秒数冻结 + 两处 Running… 时间不一致」
@@ -101,6 +101,7 @@
 - **Sticky Header 已禁用:** v0.6.71 起高度固定 0（保留实现，不再展示）
 - **权限模式循环:** Auto ↔ Bypass（未知值回退 auto）
 - **PageUp/PageDown 半页滚动:** 20 行（输入框为空时生效）
+- **「回到最新」浮层按钮（#448）:** 消息区滚动离开底部且内容溢出时，在消息区最后一行居中显示「↓ 回到最新」浮层按钮；点击按钮或按 `End`（输入框为空）回到底部即消失，离开底部期间有新内容时文案切换为「↓ 有新活动」；覆盖式浮层，复用 `scroll_follow`/`scrollbar_max_offset` 滚动状态，不改变布局与滚动位置，面板/弹窗激活时隐藏且不拦截指针
 
 ## ACP 服务层（cc-acp）
 
@@ -131,4 +132,4 @@
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）；Windows postinstall 将全局入口改写为直起 `bin/cc-code.exe`（去掉 node 中间层，修复 Ctrl+C 直接退出）
 
 ---
-*最后更新: 2026-10-12 — 补齐启动 locale 检测和 CLI/TUI 国际化（#314、#315、#316，未发布）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
+*最后更新: 2026-10-12 — v0.6.127：新增「回到最新」浮层按钮（#448）、补齐启动 locale 检测与 CLI/TUI 国际化（#314、#315、#316）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
