@@ -1,4 +1,5 @@
 use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
+use cc_widgets::diff::{diff_cache_stats, render_cache_stats};
 
 use crate::{app::App, command::Command};
 
@@ -32,6 +33,18 @@ impl Command for GcCommand {
 
         // ── Markdown 缓存诊断：单次加锁快照，不克隆缓存内容 ──
         let md_cache = cc_widgets::markdown::cache::MarkdownCache::global().stats();
+
+        // ── 渲染线程缓存 / diff 缓存（此前未纳入统计，是「未识别」的主要盲区）──
+        let (render_cache_bytes, render_lines, wrap_entries) = {
+            let rc = active.messages.render_cache.read();
+            (
+                estimate_render_cache_heap(&rc),
+                rc.lines.len(),
+                rc.wrap_map.len(),
+            )
+        };
+        let diff_stats = diff_cache_stats();
+        let render_stats = render_cache_stats();
 
         let mut lines = Vec::new();
 
@@ -140,6 +153,26 @@ impl Command for GcCommand {
         lines.push(
             "  口径：按容器/自有字符串 capacity 估算，不含 LRU/分配器开销，非 RSS。".to_string(),
         );
+        lines.push(format!(
+            "render_cache: {} 行 + {} wrap 映射, 数据堆估算 ~{}（整段对话渲染结果 + 逐行纯文本副本）",
+            render_lines,
+            wrap_entries,
+            fmt_bytes(render_cache_bytes),
+        ));
+        lines.push(format!(
+            "diff_cache:  {}/{} 条, ~{}（字节预算 {}）",
+            diff_stats.entries,
+            diff_stats.capacity,
+            fmt_bytes(diff_stats.bytes),
+            fmt_bytes(diff_stats.budget),
+        ));
+        lines.push(format!(
+            "diff_render_cache: {}/{} 条, ~{}（字节预算 {}）",
+            render_stats.entries,
+            render_stats.capacity,
+            fmt_bytes(render_stats.bytes),
+            fmt_bytes(render_stats.budget),
+        ));
         tracing::info!(
             entries = md_cache.entries,
             capacity = md_cache.capacity,
@@ -247,21 +280,28 @@ impl Command for GcCommand {
 
         // ── 已知 vs 未识别 ──
         if let Some(bd) = crate::alloc_config::query_breakdown() {
-            // Markdown 缓存与 VM 当前持有独立的解析产物副本，可分别计入估算。
-            let known_bytes =
-                origin_bytes + completed_bytes + vm_bytes + md_cache.estimated_heap_bytes;
+            // 消息/VM/Markdown/渲染线程缓存/diff 缓存各自持有独立副本，可分别计入估算。
+            let known_bytes = origin_bytes
+                + completed_bytes
+                + vm_bytes
+                + md_cache.estimated_heap_bytes
+                + render_cache_bytes
+                + diff_stats.bytes
+                + render_stats.bytes;
             let gap = bd.allocated.saturating_sub(known_bytes);
             lines.push(format!(
-                "已知合计估算: {} (消息 {} + VM {} + Markdown 缓存 {}) | allocated 内未识别估算: {}",
+                "已知合计估算: {} (消息 {} + VM {} + Markdown 缓存 {} + 渲染缓存 {} + diff 缓存 {}) | allocated 内未识别估算: {}",
                 fmt_bytes(known_bytes),
                 fmt_bytes(origin_bytes + completed_bytes),
                 fmt_bytes(vm_bytes),
                 fmt_bytes(md_cache.estimated_heap_bytes),
+                fmt_bytes(render_cache_bytes),
+                fmt_bytes(diff_stats.bytes + render_stats.bytes),
                 fmt_bytes(gap),
             ));
             lines.push(String::new());
             lines.push(
-                "注：估算未覆盖语法高亮引擎/SyntaxSet 编译正则/后台渲染缓存/Diff 缓存/ACP 缓冲/tokio/tracing 等；余量来源待定位，不能据此判断是否泄漏。"
+                "注：估算仍未覆盖语法高亮引擎(SyntaxSet/ThemeSet)/编译正则/ACP 缓冲/tokio/tracing/分配器元数据等；余量来源待定位，不能据此判断是否泄漏。"
                     .to_string(),
             );
         }
@@ -371,6 +411,32 @@ fn estimate_json_heap(v: &serde_json::Value) -> usize {
         }
         _ => 0,
     }
+}
+
+/// 估算渲染线程 `RenderCache` 的近似堆占用（字节）。
+///
+/// 覆盖整段对话渲染行（`lines`）、逐行换行映射（`wrap_map`，含**纯文本副本**与
+/// 字符宽度序列）、消息偏移与链接命中区。此前 `/gc` 完全未统计该结构，
+/// 是「未识别」内存的主要盲区之一。
+fn estimate_render_cache_heap(rc: &crate::ui::render_thread::RenderCache) -> usize {
+    use std::borrow::Cow;
+    let mut total = rc.lines.capacity() * std::mem::size_of::<ratatui::text::Line<'static>>();
+    for line in &rc.lines {
+        total += line.spans.capacity() * std::mem::size_of::<ratatui::text::Span<'static>>();
+        for span in &line.spans {
+            if let Cow::Owned(s) = &span.content {
+                total += s.capacity();
+            }
+        }
+    }
+    total += rc.message_offsets.capacity() * std::mem::size_of::<usize>();
+    total +=
+        rc.wrap_map.capacity() * std::mem::size_of::<crate::ui::render_thread::WrappedLineInfo>();
+    for w in &rc.wrap_map {
+        total += w.plain_text.capacity() + w.char_widths.capacity();
+    }
+    total += rc.links.capacity() * std::mem::size_of::<cc_widgets::markdown::LinkHit>();
+    total
 }
 
 /// 估算渲染视图模型 `view_messages` 的堆内存占用（字节）。
