@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.123 — 2026-10-12
+
+### Fixes
+
+- **Bash 运行状态行显示模型请求的 `timeout`，而非硬执行上限（#428）**：`Running… (Xs)    (timeout Nm)` 中的 `timeout` 此前取自 `execution_timeout`（硬执行上限，默认 10m），而模型传的是 `timeout` 参数（前台等待期限，默认 2m）——传 `timeout=300000`（5 分钟）时状态行仍显示 `10m`，标签与展示字段不是同一个，容易误判为「参数没生效」。现将 `timeout_ms` 贯通 `AgentShellRegistration`/`AgentShellSlot`，`MessageViewModel::ToolBlock` 与 `ShellRuntime` 的 `execution_timeout_ms` 字段重命名为 `timeout_ms`，状态行改为取模型传入的 `timeout`（按分钟展示 `2m`/`5m`）。执行与超时语义完全不变。
+
+### Docs
+
+- **README 把 JEV 语义门升格为 Auto 模式重点宣传（#426）**：README（中英）对默认 Auto 权限模式原先只有一行泛称 `auto-classifier`，既未出现 JEV 之名，也未说明它是独立的 LLM 判定服务（默认模型 `openrouter/typesafe/jev-1.13`，走独立端点/密钥）。现新增独立小节「Auto Mode: The JEV Semantic Gate」/「Auto 模式：JEV 语义门」并前置到 Core Capabilities 之前，同时在「Why cc-code?」对比表新增「Safety Gate」一行、Core Capabilities 的 HITL 行改写、顶部导航加锚点，中英一一对应。
+
 ## v0.6.121 — 2026-10-12
 
 ### Performance
