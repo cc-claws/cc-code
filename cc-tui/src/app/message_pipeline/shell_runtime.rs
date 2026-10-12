@@ -6,7 +6,7 @@ use super::MessagePipeline;
 
 pub(super) struct ShellRuntime {
     started_at: Instant,
-    execution_timeout_ms: u64,
+    timeout_ms: u64,
     backgrounded: bool,
 }
 
@@ -26,13 +26,13 @@ impl MessagePipeline {
         source_agent_id: Option<&str>,
         tool_call_id: &str,
         started_at: Instant,
-        execution_timeout_ms: u64,
+        timeout_ms: u64,
     ) {
         self.sync_shell_runtime(
             source_agent_id,
             tool_call_id,
             started_at,
-            execution_timeout_ms,
+            timeout_ms,
             false,
         );
     }
@@ -43,17 +43,17 @@ impl MessagePipeline {
         source_agent_id: Option<&str>,
         tool_call_id: &str,
         started_at: Instant,
-        execution_timeout_ms: u64,
+        timeout_ms: u64,
         backgrounded: bool,
     ) -> bool {
         let key = (source_agent_id.map(str::to_owned), tool_call_id.to_owned());
         if let Some(runtime) = self.shell_runtimes.get_mut(&key) {
             let changed = runtime.started_at != started_at
-                || runtime.execution_timeout_ms != execution_timeout_ms
+                || runtime.timeout_ms != timeout_ms
                 || runtime.backgrounded != backgrounded;
             if changed {
                 runtime.started_at = started_at;
-                runtime.execution_timeout_ms = execution_timeout_ms;
+                runtime.timeout_ms = timeout_ms;
                 runtime.backgrounded = backgrounded;
             }
             return changed;
@@ -62,7 +62,7 @@ impl MessagePipeline {
             key,
             ShellRuntime {
                 started_at,
-                execution_timeout_ms,
+                timeout_ms,
                 backgrounded,
             },
         );
@@ -107,7 +107,7 @@ impl MessagePipeline {
                     content,
                     is_error,
                     started_at,
-                    execution_timeout_ms,
+                    timeout_ms,
                     shell_backgrounded,
                     ..
                 } if tool_name == "Bash"
@@ -121,10 +121,10 @@ impl MessagePipeline {
                         .get(&(source_agent_id.map(str::to_owned), tool_call_id.clone()))
                     {
                         let changed = *started_at != Some(runtime.started_at)
-                            || *execution_timeout_ms != Some(runtime.execution_timeout_ms)
+                            || *timeout_ms != Some(runtime.timeout_ms)
                             || *shell_backgrounded != runtime.backgrounded;
                         *started_at = Some(runtime.started_at);
-                        *execution_timeout_ms = Some(runtime.execution_timeout_ms);
+                        *timeout_ms = Some(runtime.timeout_ms);
                         *shell_backgrounded = runtime.backgrounded;
                         changed
                     } else {

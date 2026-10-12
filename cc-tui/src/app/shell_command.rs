@@ -721,7 +721,7 @@ impl App {
                     (slot.source_agent_id.clone(), tool_call_id),
                     (
                         slot.started_instant,
-                        slot.execution_timeout_ms,
+                        slot.timeout_ms,
                         slot.is_backgrounded() && !slot.ended,
                     ),
                 );

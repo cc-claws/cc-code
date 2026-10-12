@@ -109,8 +109,9 @@ pub enum MessageViewModel {
         diff_input: Option<cc_widgets::DiffInput>,
         /// pending Bash 子进程真实启动时间；None 表示尚未收到 shell 注册。
         started_at: Option<std::time::Instant>,
-        /// 执行器实际执行期限；不是前台等待期限。
-        execution_timeout_ms: Option<u64>,
+        /// 模型请求的超时期限（`timeout` 参数，毫秒）；TUI 到期移交后台、inline 宿主到期取消。
+        /// 仅用于运行状态行展示「多久后会移交后台」，不是硬执行上限。
+        timeout_ms: Option<u64>,
         /// Shell 已从前台移交到后台，结果 marker 到达后仍保留运行状态提示。
         shell_backgrounded: bool,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
@@ -218,7 +219,7 @@ impl PartialEq for MessageViewModel {
                     is_error: a_err,
                     diff_input: a_diff,
                     started_at: a_started,
-                    execution_timeout_ms: a_timeout,
+                    timeout_ms: a_timeout,
                     shell_backgrounded: a_backgrounded,
                     ..
                 },
@@ -230,7 +231,7 @@ impl PartialEq for MessageViewModel {
                     is_error: b_err,
                     diff_input: b_diff,
                     started_at: b_started,
-                    execution_timeout_ms: b_timeout,
+                    timeout_ms: b_timeout,
                     shell_backgrounded: b_backgrounded,
                     ..
                 },
@@ -379,7 +380,7 @@ impl Hash for MessageViewModel {
                 collapsed,
                 diff_input,
                 started_at,
-                execution_timeout_ms,
+                timeout_ms,
                 shell_backgrounded,
                 ..
             } => {
@@ -393,7 +394,7 @@ impl Hash for MessageViewModel {
                 collapsed.hash(state);
                 diff_input.hash(state);
                 started_at.is_some().hash(state);
-                execution_timeout_ms.hash(state);
+                timeout_ms.hash(state);
                 shell_backgrounded.hash(state);
             }
             MessageViewModel::ShellCommand {
@@ -826,7 +827,7 @@ impl MessageViewModel {
                     color,
                     diff_input,
                     started_at: None,
-                    execution_timeout_ms: None,
+                    timeout_ms: None,
                     shell_backgrounded: false,
                     content_hash: 0,
                 };
@@ -996,7 +997,7 @@ impl MessageViewModel {
             color,
             diff_input: None,
             started_at: None,
-            execution_timeout_ms: None,
+            timeout_ms: None,
             shell_backgrounded: false,
             content_hash: 0,
         };

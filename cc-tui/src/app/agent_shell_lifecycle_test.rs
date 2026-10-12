@@ -14,6 +14,7 @@ fn make_foreground_slot() -> (AgentShellSlot, Arc<ShellHandoff>) {
         tool_call_id: Some("handoff-call".into()),
         source_agent_id: None,
         execution_timeout_ms: 600_000,
+        timeout_ms: 120_000,
         command: "sleep 30".into(),
         cwd: ".".into(),
         output_path: PathBuf::new(),

@@ -1074,7 +1074,7 @@ async fn test_tool_call_widget_renders_completed() {
         is_error: false,
         collapsed: false,
         diff_input: None,
-        execution_timeout_ms: None,
+        timeout_ms: None,
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,

@@ -572,14 +572,14 @@ impl RenderTask {
                             content,
                             is_error,
                             started_at: Some(start),
-                            execution_timeout_ms,
+                            timeout_ms,
                             ..
                         } if tool_name == "Bash"
                             && content.is_empty()
                             && !is_error
                             && start.elapsed() >= Duration::from_secs(2) =>
                         {
-                            let expected = shell_running_text(*start, *execution_timeout_ms);
+                            let expected = shell_running_text(*start, *timeout_ms);
                             !lines
                                 .iter()
                                 .flat_map(|line| &line.spans)
@@ -644,7 +644,7 @@ impl RenderTask {
                 content,
                 is_error,
                 started_at,
-                execution_timeout_ms,
+                timeout_ms,
                 ..
             } = vm
             else {
@@ -678,7 +678,7 @@ impl RenderTask {
                 && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
             {
                 let new_running_text =
-                    shell_running_text(started_at.unwrap(), *execution_timeout_ms);
+                    shell_running_text(started_at.unwrap(), *timeout_ms);
 
                 if let Some(running_line) =
                     lines.iter_mut().find(|l| is_shell_running_status_line(l))
