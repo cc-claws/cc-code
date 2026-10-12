@@ -18,7 +18,7 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` c
 
 ### 🌐 Official Website: **[cc-claw.com](https://www.cc-claw.com)**
 
-[Why cc-code](#why-cc-code) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-cc-code-with-nobody-coding) · [Acknowledgments](#acknowledgments)
+[Why cc-code](#why-cc-code) · [Auto Mode](#auto-mode-the-jev-semantic-gate) · [Core Capabilities](#core-capabilities) · [Install](#install) · [Nobody Coding](#how-we-built-cc-code-with-nobody-coding) · [Acknowledgments](#acknowledgments)
 
 </div>
 
@@ -61,6 +61,18 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | Tool Loading | All tools stuffed into every request | Core tools resident, rest lazy-loaded via Tool Search |
 | IDE Integration | Terminal only | ACP protocol, Zed and other IDEs connect directly |
 | Claude Code Ecosystem | Incompatible | Use `.claude/` config, agents, skills, hooks, MCP directly |
+| Safety Gate | Prompts you for every risky command | JEV semantic gate — a dedicated LLM judge that only prompts when it isn't sure |
+
+---
+
+## Auto Mode: The JEV Semantic Gate
+
+`Auto` is the default permission mode (fail-closed). Instead of asking you about every call, it decides in two layers:
+
+- **Deterministic layer** — your own rules, the built-in hard-deny list, and a read-only fast lane. Zero cost, no credentials required.
+- **JEV semantic gate** — a dedicated LLM judge (`JEV_MODEL`, default `openrouter/typesafe/jev-1.13`) reached over its own endpoint (`JEV_ENDPOINT`) with its own key (`JEV_API_KEY`). It scores each call against a set of conditions and pops a single confirmation prompt only when the call lands in the uncertain band.
+
+No credentials configured? The deterministic layer still runs and an LLM classifier takes over as fallback; when there is no confirmation channel (sub-agents, `-p`) the call is denied. The session model is never involved — judging is offloaded to JEV, so safety checks don't spend your context tokens. `Shift+Tab` toggles between `Auto` and `Bypass`.
 
 ---
 
@@ -76,7 +88,7 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | **ACP Protocol** | Connect to Zed and other IDEs, or build your own "Cloud Code" platform |
 | **Auto Compact** | Long sessions auto-compressed, stays fast and cheap |
 | **Sub-Agent Concurrency** | Background sub-agents run in parallel with fork and background modes |
-| **HITL Approval** | Sensitive operations auto-intercepted with auto-classifier and shared-mode |
+| **HITL Approval** | Sensitive operations intercepted by the JEV semantic gate — a dedicated LLM judge that only prompts when it isn't sure |
 | **Dual-Engine File Search** | Grep/Glob prefer the external ripgrep binary, falling back to the built-in Rust engine |
 
 ### v0.6.x New Features
