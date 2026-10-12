@@ -104,7 +104,9 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, area: Rect) {
 
         let elapsed = format_elapsed(agent.started_at);
         let name_preview: String = agent.agent_name.chars().take(20).collect();
-        let steps = find_total_steps(view_messages, &agent.instance_id);
+        let steps = agent
+            .total_steps
+            .max(find_total_steps(view_messages, &agent.instance_id));
         let style = if is_selected {
             Style::default().add_modifier(Modifier::REVERSED)
         } else if is_focused {

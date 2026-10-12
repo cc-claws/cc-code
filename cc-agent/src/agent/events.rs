@@ -139,6 +139,13 @@ pub enum AgentEvent {
         /// 唯一实例标识符
         instance_id: String,
     },
+    /// 子 agent 进度增量事件（用于后台 agent 步数同步）
+    SubagentProgress {
+        /// 唯一实例标识符
+        instance_id: String,
+        /// 当前已执行工具步数
+        total_steps: usize,
+    },
     /// 上下文压缩开始
     CompactStarted,
     /// 上下文压缩完成

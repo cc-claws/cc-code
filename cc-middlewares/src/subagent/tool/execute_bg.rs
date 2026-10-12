@@ -1,8 +1,11 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 use cc_agent::{
     agent::{
-        events::AgentEvent, react::AgentInput, state::AgentState, AgentCancellationToken,
+        events::{AgentEvent, AgentEventHandler}, react::AgentInput, state::AgentState, AgentCancellationToken,
         BackgroundTaskResult, ReActAgent, State as _,
     },
     messages::BaseMessage,
@@ -20,6 +23,27 @@ use crate::{
 use super::{
     build_agent::CancelPolicy, build_subagent_middlewares, fire_subagent_lifecycle_hooks_static,
 };
+
+/// 后台子代理轻量步骤进度处理器：
+/// 拦截 ToolStart 事件，通过独立通道发送轻量 SubagentProgress 进度更新，
+/// 供 TUI bg_agent_bar 实时展示 calls 计数，避免混入主视图造成状态栏或文本流污染。
+struct BgProgressHandler {
+    instance_id: String,
+    sender: tokio::sync::mpsc::UnboundedSender<AgentEvent>,
+    step_counter: AtomicUsize,
+}
+
+impl AgentEventHandler for BgProgressHandler {
+    fn on_event(&self, event: AgentEvent) {
+        if matches!(event, AgentEvent::ToolStart { .. }) {
+            let next_step = self.step_counter.fetch_add(1, Ordering::Relaxed) + 1;
+            let _ = self.sender.send(AgentEvent::SubagentProgress {
+                instance_id: self.instance_id.clone(),
+                total_steps: next_step,
+            });
+        }
+    }
+}
 
 impl super::SubAgentTool {
     pub(crate) async fn invoke_background(
@@ -73,7 +97,7 @@ impl super::SubAgentTool {
             )
             .await?;
 
-        let agent_builder = build_result.builder;
+        let mut agent_builder = build_result.builder;
         let agent_name = agent_id.clone();
         let prompt_summary: String = prompt.chars().take(100).collect();
 
@@ -85,6 +109,13 @@ impl super::SubAgentTool {
         let spawn_bg_sender = self.bg_event_sender.clone();
 
         let bg_child_thread_id = build_result.child_thread_id.clone();
+        if let Some(ref sender) = spawn_bg_sender {
+            agent_builder = agent_builder.with_event_handler(Arc::new(BgProgressHandler {
+                instance_id: bg_child_thread_id.clone(),
+                sender: sender.clone(),
+                step_counter: AtomicUsize::new(0),
+            }));
+        }
         let spawn_thread_store = self.thread_store.clone();
         let spawn_child_thread_id = bg_child_thread_id.clone();
         let spawn_deregister_runtime = self.deregister_runtime.clone();
@@ -310,6 +341,13 @@ impl super::SubAgentTool {
         let spawn_prompt_summary = prompt_summary.clone();
         let spawn_thread_store = self.thread_store.clone();
         let spawn_child_thread_id = bg_fork_child_thread_id.clone();
+        if let Some(ref sender) = spawn_bg_sender {
+            agent_builder = agent_builder.with_event_handler(Arc::new(BgProgressHandler {
+                instance_id: bg_fork_child_thread_id.clone(),
+                sender: sender.clone(),
+                step_counter: AtomicUsize::new(0),
+            }));
+        }
         let spawn_deregister_runtime = self.deregister_runtime.clone();
         let has_thread_store = self.thread_store.is_some();
 

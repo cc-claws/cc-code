@@ -2100,6 +2100,7 @@ async fn test_background_task_notification() {
         agent_name: "code-reviewer".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        total_steps: 0,
     }];
 
     let notified = handle.render_notify.notified();
@@ -2167,11 +2168,13 @@ async fn test_background_task_status_bar() {
             agent_name: "reviewer-1".to_string(),
             instance_id: "test-inst-1".to_string(),
             started_at: std::time::Instant::now(),
+            total_steps: 0,
         },
         crate::app::RunningBgAgent {
             agent_name: "reviewer-2".to_string(),
             instance_id: "test-inst-2".to_string(),
             started_at: std::time::Instant::now(),
+            total_steps: 0,
         },
     ];
 
@@ -2568,6 +2571,7 @@ async fn test_diagnostic_bg_subagent_group_disappears() {
         agent_name: "code-reviewer".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        total_steps: 0,
     }];
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
@@ -3030,6 +3034,7 @@ async fn test_bg_completed_before_done_triggers_continuation() {
         agent_name: "code-reviewer".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        total_steps: 0,
     }];
 
     // 竞态：BackgroundTaskCompleted 先于 Done 到达
@@ -3076,11 +3081,13 @@ async fn test_multiple_bg_completed_before_done() {
             agent_name: "reviewer-1".to_string(),
             instance_id: "test-inst-1".to_string(),
             started_at: std::time::Instant::now(),
+            total_steps: 0,
         },
         crate::app::RunningBgAgent {
             agent_name: "reviewer-2".to_string(),
             instance_id: "test-inst-2".to_string(),
             started_at: std::time::Instant::now(),
+            total_steps: 0,
         },
     ];
 
@@ -3137,6 +3144,7 @@ async fn test_bg_completed_after_done_unchanged() {
         agent_name: "worker".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        total_steps: 0,
     }];
 
     // 正常路径：Done 先到
@@ -3316,5 +3324,56 @@ async fn test_background_agents_lifecycle() {
         app.session_mgr.current_mut().focused_instance_id,
         None,
         "聚焦的 agent 完成后应自动退出聚焦"
+    );
+}
+
+#[tokio::test]
+async fn test_bg_agent_subagent_progress_updates_steps() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+
+    // 1. 启动后台子代理
+    app.push_agent_event(AgentEvent::SubAgentStart {
+        agent_id: "web-researcher".into(),
+        instance_id: "inst-bg-123".into(),
+        task_preview: "searching web".into(),
+        is_background: true,
+    });
+    app.process_pending_events();
+
+    assert_eq!(
+        app.session_mgr.current_mut().background_agents.len(),
+        1,
+        "后台代理应已注册"
+    );
+    assert_eq!(
+        app.session_mgr.current_mut().background_agents[0].total_steps,
+        0,
+        "初始步数应为 0calls"
+    );
+
+    // 2. 接收子代理执行工具的进度增量事件 (第 1 步)
+    app.push_agent_event(AgentEvent::SubagentProgress {
+        instance_id: "inst-bg-123".into(),
+        total_steps: 1,
+    });
+    app.process_pending_events();
+
+    assert_eq!(
+        app.session_mgr.current_mut().background_agents[0].total_steps,
+        1,
+        "收到进度事件后步数应更新为 1"
+    );
+
+    // 3. 接收后续进度增量事件 (第 3 步)
+    app.push_agent_event(AgentEvent::SubagentProgress {
+        instance_id: "inst-bg-123".into(),
+        total_steps: 3,
+    });
+    app.process_pending_events();
+
+    assert_eq!(
+        app.session_mgr.current_mut().background_agents[0].total_steps,
+        3,
+        "多次工具调用后步数应更新为 3"
     );
 }

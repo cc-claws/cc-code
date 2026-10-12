@@ -137,6 +137,36 @@ impl App {
                 self.request_rebuild();
                 (true, false, false)
             }
+            AgentEvent::SubagentProgress {
+                instance_id,
+                total_steps,
+            } => {
+                if let Some(agent) = self
+                    .session_mgr
+                    .current_mut()
+                    .background_agents
+                    .iter_mut()
+                    .find(|a| a.instance_id == instance_id)
+                {
+                    agent.total_steps = total_steps;
+                }
+                for vm in &mut self.session_mgr.current_mut().messages.view_messages {
+                    if let crate::ui::message_view::MessageViewModel::SubAgentGroup {
+                        instance_id: Some(ref iid),
+                        total_steps: ref mut steps,
+                        ..
+                    } = vm
+                    {
+                        if iid == &instance_id {
+                            *steps = total_steps;
+                            vm.recompute_hash();
+                            break;
+                        }
+                    }
+                }
+                self.request_rebuild();
+                (true, false, false)
+            }
             AgentEvent::ContextWarning {
                 used_tokens: _,
                 total_tokens,
