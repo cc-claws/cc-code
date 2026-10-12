@@ -15,22 +15,68 @@ use super::rules::JevRules;
 const FORMAT_VERSION: u32 = 1;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// 单个规则来源的脱敏元数据快照。
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceMeta {
+    /// 来源类别（固定为 personal / project / hooks / global）
+    pub source: String,
+    /// 该来源是否存在
+    pub present: bool,
+    /// 字符数（仅在 present 为 true 时记录）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub char_count: Option<usize>,
+    /// 内容 SHA-256 哈希摘要（不记录任何原文内容）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+/// 规则缓存索引的人类可读元数据。
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct CacheMetadata {
+    /// 项目根目录（本地展示路径）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    /// LLM 提供方名称
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// 提炼所用模型 ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// 各来源指纹（仅包含类别与单向摘要）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceMeta>,
+}
+
 #[derive(Clone)]
 pub(super) struct RulesCache {
     directory: PathBuf,
     signature: String,
+    metadata: Option<CacheMetadata>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 struct CacheIndex {
     version: u32,
     signature: String,
     rules_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    project_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sources: Vec<SourceMeta>,
 }
 
 impl RulesCache {
-    pub(super) fn new(cwd: &Path, context: serde_json::Value) -> Option<Self> {
+    pub(super) fn new(
+        cwd: &Path,
+        context: serde_json::Value,
+        metadata: Option<CacheMetadata>,
+    ) -> Option<Self> {
         let cwd = fs::canonicalize(cwd).ok()?;
         let project_id = digest(cwd.to_string_lossy().as_bytes());
         let signature = digest(&serde_json::to_vec(&(FORMAT_VERSION, &project_id, context)).ok()?);
@@ -39,7 +85,21 @@ impl RulesCache {
                 .join("jev")
                 .join(format!("peri-{project_id}")),
             signature,
+            metadata,
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_in(
+        directory: PathBuf,
+        signature: String,
+        metadata: Option<CacheMetadata>,
+    ) -> Self {
+        Self {
+            directory,
+            signature,
+            metadata,
+        }
     }
 
     pub(super) fn signature(&self) -> &str {
@@ -99,28 +159,46 @@ impl RulesCache {
         if rules.is_empty() {
             return Err(invalid_data("不缓存空规则"));
         }
-        // 人类可读优先：缓存是用户会直接打开查看的产物，落盘用 pretty 而非紧凑单行。
-        // 内容哈希对**落盘字节**计算（见 `digest(&bytes)`），故格式化前后各自自洽。
+        // 人类可读优先：落盘使用 pretty 格式便于查阅。
         let bytes = serde_json::to_vec_pretty(rules)?;
         if bytes.len() as u64 > MAX_FILE_BYTES {
             return Err(invalid_data("规则缓存超出大小上限"));
         }
         let rules_id = digest(&bytes);
+        let (project_path, provider, model, sources) = if let Some(m) = &self.metadata {
+            (
+                m.project_path.clone(),
+                m.provider.clone(),
+                m.model.clone(),
+                m.sources.clone(),
+            )
+        } else {
+            (None, None, None, Vec::new())
+        };
+        let created_at = Some(chrono::Local::now().to_rfc3339());
         let index = serde_json::to_vec_pretty(&CacheIndex {
             version: FORMAT_VERSION,
             signature: self.signature.clone(),
             rules_id: rules_id.clone(),
+            created_at,
+            project_path,
+            provider,
+            model,
+            sources,
         })?;
         fs::create_dir_all(&self.directory)?;
         cc_agent::fs::restrict_to_owner(&self.directory)?;
-        // 先完整发布内容，再发布索引；并发写入不会留下半份 JSON。
         write_atomic(&self.directory.join(format!("{rules_id}.json")), &bytes)?;
         write_atomic(&self.index_path(), &index)
     }
 }
 
-fn digest(bytes: &[u8]) -> String {
+pub(super) fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+pub(super) fn digest_str(s: &str) -> String {
+    digest(s.as_bytes())
 }
 
 fn valid_id(value: &str) -> bool {
@@ -153,3 +231,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "rules_cache_test.rs"]
+mod tests;

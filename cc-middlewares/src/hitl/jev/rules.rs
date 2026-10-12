@@ -147,8 +147,39 @@ impl JevRuleLoader {
         cwd: &std::path::Path,
         full_source: &str,
         source_limit: usize,
+        sections: &[(&str, &str, Option<&str>)],
     ) -> Self {
         self.source_complete = full_source == self.source;
+        let sources = sections
+            .iter()
+            .map(|(source, _title, content)| {
+                if let Some(text) = content {
+                    super::rules_cache::SourceMeta {
+                        source: (*source).to_string(),
+                        present: true,
+                        char_count: Some(text.chars().count()),
+                        sha256: Some(super::rules_cache::digest_str(text)),
+                    }
+                } else {
+                    super::rules_cache::SourceMeta {
+                        source: (*source).to_string(),
+                        present: false,
+                        char_count: None,
+                        sha256: None,
+                    }
+                }
+            })
+            .collect();
+        let display_path = {
+            let s = cwd.to_string_lossy();
+            s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+        };
+        let metadata = super::rules_cache::CacheMetadata {
+            project_path: Some(display_path),
+            provider: Some(self.model.provider_name().to_string()),
+            model: Some(self.model.model_id().to_string()),
+            sources,
+        };
         self.disk_cache = RulesCache::new(
             cwd,
             serde_json::json!({
@@ -166,6 +197,7 @@ impl JevRuleLoader {
                 // 否则改了档位还会命中旧档位算出的结果。
                 "timeout_ms": self.timeout.as_millis(),
             }),
+            Some(metadata),
         );
         self
     }
