@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- **补齐语言检测、TUI 与 CLI 国际化（#314、#315、#316）**：已保存的 `config.language` 优先；未保存时按 `LC_ALL` → `LANGUAGE` 偏好列表 → `LC_MESSAGES` → `LANG` 选择支持的 `en` / `zh-CN`，`C/POSIX` 消息 locale 忽略 `LANGUAGE` 并保持英文，未知语言回退英文。`/help` 标题、别名、Skills 与快捷键、命令错误、shell 输入提示、空历史 rewind、状态面板和 `/gc` 诊断输出接入 Fluent；命令 dispatch 时刷新描述缓存，修复语言切换后的旧描述。CLI 根命令及嵌套子命令的短/长帮助、格式/范围解析错误、settings 警告和插件文字输出使用同一套语言资源，JSON 字段与执行行为保持原契约。新增语言优先级、双语 CLI 帮助、界面反馈及语言切换回归测试。
+
 ## v0.6.124 — 2026-10-12
 
 ### Fixes

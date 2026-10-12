@@ -38,7 +38,7 @@ pub async fn run_print(
     };
 
     if prompt_text.is_empty() {
-        anyhow::bail!("无输入 prompt。用法: peri -p \"你的问题\" 或 echo \"问题\" | peri -p");
+        anyhow::bail!(crate::cli_i18n::message("cli-empty-prompt", &[]));
     }
 
     let _telemetry = cc_agent::telemetry::init_tracing("peri-print");
@@ -50,8 +50,12 @@ pub async fn run_print(
             if p.exists() {
                 cc_tui::config::load_from(p)?
             } else {
-                let v: serde_json::Value = serde_json::from_str(path)
-                    .map_err(|e| anyhow::anyhow!("--settings 不是有效文件路径或 JSON: {e}"))?;
+                let v: serde_json::Value = serde_json::from_str(path).map_err(|e| {
+                    anyhow::anyhow!(crate::cli_i18n::message(
+                        "cli-settings-invalid",
+                        &[("error", &e.to_string())]
+                    ))
+                })?;
                 let tmp = std::env::temp_dir().join("peri-settings-override.json");
                 std::fs::write(&tmp, serde_json::to_string_pretty(&v)?)?;
                 cc_tui::config::load_from(&tmp)?
@@ -63,9 +67,7 @@ pub async fn run_print(
     // 构建 provider
     let provider = cc_tui::app::agent::LlmProvider::from_config(&peri_config)
         .or_else(cc_tui::app::agent::LlmProvider::from_env)
-        .ok_or_else(|| {
-            anyhow::anyhow!("未配置 LLM provider。请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY")
-        })?;
+        .ok_or_else(|| anyhow::anyhow!(crate::cli_i18n::message("cli-no-provider", &[])))?;
 
     // --model 覆盖
     let provider = if let Some(ref model_str) = model_override {

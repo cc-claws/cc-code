@@ -193,7 +193,7 @@ impl App {
             }
         };
 
-        let lc = crate::i18n::LcRegistry::new(
+        let lc = crate::i18n::LcRegistry::from_environment(
             peri_config
                 .as_ref()
                 .and_then(|c| c.config.language.as_deref()),

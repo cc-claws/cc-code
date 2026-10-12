@@ -9,6 +9,20 @@
         }
     }
 
+    #[tokio::test]
+    async fn test_status_labels_use_selected_language() {
+        let (mut app, _handle) = App::new_headless(120, 30).await;
+        for (language, cost, context) in [("en", "Estimated cost", "Context"), ("zh-CN", "估算费用", "上下文")] {
+            app.services.lc.switch(language).expect("测试语言可用");
+            let lines = build_cost_lines(&app);
+            let text: String = lines.iter().flat_map(|line| line.spans.iter()).map(|span| span.content.as_ref()).collect();
+            assert!(text.contains(cost));
+            let summary = build_context_summary(&app);
+            let summary_text: String = summary.spans.iter().map(|span| span.content.as_ref()).collect();
+            assert!(summary_text.contains(context));
+        }
+    }
+
     #[test]
     fn test_build_cache_rate_lines_adaptive_y_axis() {
         // 命中率集中在 85-99% 区间，y 轴应自适应而非固定 0-100%

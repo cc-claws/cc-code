@@ -59,12 +59,25 @@ pub fn run_plugin_list(json: bool) -> Result<()> {
             .collect();
         println!("{}", serde_json::to_string_pretty(&json_entries)?);
     } else if entries.is_empty() {
-        println!("未安装任何插件。");
+        println!("{}", crate::cli_i18n::message("cli-plugin-empty", &[]));
     } else {
-        println!("{:<40} {:<10} {:<15} 状态", "ID", "版本", "市场");
+        println!(
+            "{:<40} {:<10} {:<15} {}",
+            "ID",
+            crate::cli_i18n::message("cli-plugin-version", &[]),
+            crate::cli_i18n::message("cli-plugin-marketplace", &[]),
+            crate::cli_i18n::message("cli-plugin-status", &[])
+        );
         println!("{}", "-".repeat(80));
         for e in &entries {
-            let status = if e.enabled { "已启用" } else { "已禁用" };
+            let status = crate::cli_i18n::message(
+                if e.enabled {
+                    "cli-plugin-enabled"
+                } else {
+                    "cli-plugin-disabled"
+                },
+                &[],
+            );
             println!(
                 "{:<40} {:<10} {:<15} {status}",
                 e.id, e.version, e.marketplace,
@@ -94,11 +107,23 @@ pub async fn run_plugin_install(plugin_name: &str, scope_str: &str) -> Result<()
         None,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("安装失败: {e}"))?;
+    .map_err(|e| {
+        anyhow::anyhow!(crate::cli_i18n::message(
+            "cli-plugin-install-failed",
+            &[("error", &e.to_string())]
+        ))
+    })?;
 
     println!(
-        "已安装: {} v{} (scope: {})",
-        result.id, result.version, scope_str
+        "{}",
+        crate::cli_i18n::message(
+            "cli-plugin-installed",
+            &[
+                ("id", &result.id),
+                ("version", &result.version),
+                ("scope", scope_str)
+            ]
+        )
     );
     Ok(())
 }
@@ -110,8 +135,16 @@ pub async fn run_plugin_uninstall(plugin_id: &str, _scope_str: Option<&str>) -> 
 
     cc_middlewares::plugin::uninstall_plugin(plugin_id, &claude_dir, None)
         .await
-        .map_err(|e| anyhow::anyhow!("卸载失败: {e}"))?;
+        .map_err(|e| {
+            anyhow::anyhow!(crate::cli_i18n::message(
+                "cli-plugin-uninstall-failed",
+                &[("error", &e.to_string())]
+            ))
+        })?;
 
-    println!("已卸载: {}", plugin_id);
+    println!(
+        "{}",
+        crate::cli_i18n::message("cli-plugin-uninstalled", &[("id", plugin_id)])
+    );
     Ok(())
 }

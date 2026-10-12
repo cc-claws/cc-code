@@ -15,14 +15,17 @@ impl FromStr for OutputFormat {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_with_language(s, &cc_tui::i18n::global())
+    }
+}
+
+impl OutputFormat {
+    fn parse_with_language(s: &str, lc: &cc_tui::i18n::LcRegistry) -> Result<Self, String> {
         match s {
             "text" => Ok(OutputFormat::Text),
             "json" => Ok(OutputFormat::Json),
             "stream-json" => Ok(OutputFormat::StreamJson),
-            _ => Err(format!(
-                "未知的输出格式: '{}'（可选值: text, json, stream-json）",
-                s
-            )),
+            _ => Err(lc.tr_args("cli-output-format-error", &[("value".into(), s.into())])),
         }
     }
 }
@@ -42,14 +45,17 @@ impl FromStr for PluginScope {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_with_language(s, &cc_tui::i18n::global())
+    }
+}
+
+impl PluginScope {
+    fn parse_with_language(s: &str, lc: &cc_tui::i18n::LcRegistry) -> Result<Self, String> {
         match s {
             "user" => Ok(PluginScope::User),
             "project" => Ok(PluginScope::Project),
             "local" => Ok(PluginScope::Local),
-            _ => Err(format!(
-                "未知的插件范围: '{}'（可选值: user, project, local）",
-                s
-            )),
+            _ => Err(lc.tr_args("cli-plugin-scope-error", &[("value".into(), s.into())])),
         }
     }
 }
@@ -67,48 +73,5 @@ impl From<PluginScope> for cc_middlewares::plugin::InstallScope {
 // ─── 测试 ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_output_format_parse() {
-        // 合法值
-        assert_eq!("text".parse::<OutputFormat>().unwrap(), OutputFormat::Text);
-        assert_eq!("json".parse::<OutputFormat>().unwrap(), OutputFormat::Json);
-        assert_eq!(
-            "stream-json".parse::<OutputFormat>().unwrap(),
-            OutputFormat::StreamJson
-        );
-        // 非法值返回中文错误
-        let err = "xml".parse::<OutputFormat>().unwrap_err();
-        assert!(err.contains("未知的输出格式"), "错误消息应包含中文提示");
-        assert!(err.contains("xml"));
-    }
-
-    #[test]
-    fn test_plugin_scope_parse() {
-        assert_eq!("user".parse::<PluginScope>().unwrap(), PluginScope::User);
-        assert_eq!(
-            "project".parse::<PluginScope>().unwrap(),
-            PluginScope::Project
-        );
-        assert_eq!("local".parse::<PluginScope>().unwrap(), PluginScope::Local);
-        // 非法值
-        let err = "global".parse::<PluginScope>().unwrap_err();
-        assert!(err.contains("未知的插件范围"));
-
-        // From<PluginScope> for InstallScope 转换
-        assert_eq!(
-            cc_middlewares::plugin::InstallScope::from(PluginScope::User),
-            cc_middlewares::plugin::InstallScope::User
-        );
-        assert_eq!(
-            cc_middlewares::plugin::InstallScope::from(PluginScope::Project),
-            cc_middlewares::plugin::InstallScope::Project
-        );
-        assert_eq!(
-            cc_middlewares::plugin::InstallScope::from(PluginScope::Local),
-            cc_middlewares::plugin::InstallScope::Local
-        );
-    }
-}
+#[path = "cli_args_test.rs"]
+mod tests;

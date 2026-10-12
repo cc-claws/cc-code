@@ -15,13 +15,20 @@ impl Command for HelpCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
-        // 使用启动时预计算的列表（command_registry 在 dispatch 时已被 std::mem::take 取出）
-        let mut lines = vec!["可用命令：".to_string()];
+        // 使用 dispatch 时刷新的列表（command_registry 已被 std::mem::take 取出）。
+        let lc = &app.services.lc;
+        let mut lines = vec![lc.tr("help-available-commands")];
         for (name, desc, aliases) in &app.session_mgr.current_mut().commands.command_help_list {
             let alias_str = if aliases.is_empty() {
                 String::new()
             } else {
-                format!(" (别名: /{})", aliases.join(", /"))
+                format!(
+                    " {}",
+                    lc.tr_args(
+                        "help-alias-prefix",
+                        &[("aliases".into(), aliases.join(", /").into())]
+                    )
+                )
             };
             lines.push(format!("  /{:<10} {}{}", name, desc, alias_str));
         }
@@ -30,23 +37,24 @@ impl Command for HelpCommand {
         let skills_count = app.session_mgr.current_mut().commands.skills.len();
         if skills_count > 0 {
             lines.push("".to_string());
-            lines.push(format!(
-                "Skills（{} 个可用）: 输入 # 前缀查看",
-                skills_count
+            lines.push(lc.tr_args(
+                "help-skills-count",
+                &[("count".into(), skills_count.into())],
             ));
         } else {
             lines.push("".to_string());
-            lines.push("Skills: 将 .md 文件放入 .claude/skills/ 目录即可添加".to_string());
+            lines.push(lc.tr("help-skills-empty"));
         }
 
         // 全局快捷键提示
         lines.push("".to_string());
-        lines.push(
-            format!(
-                "快捷键：Shift+Tab 切换权限模式 │ {} 命令面板（选择模型/Provider） │ Shift+Enter 换行 │ Esc 退出 │ Ctrl+C 中断",
-                crate::event::keyboard::command_palette_label()
-            ),
-        );
+        lines.push(lc.tr_args(
+            "help-shortcuts",
+            &[(
+                "palette".into(),
+                crate::event::keyboard::command_palette_label().into(),
+            )],
+        ));
 
         let vm = MessageViewModel::system(lines.join("\n"));
         app.session_mgr

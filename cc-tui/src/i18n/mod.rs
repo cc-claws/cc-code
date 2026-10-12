@@ -57,6 +57,11 @@ impl Clone for LcRegistry {
 }
 
 impl LcRegistry {
+    /// 显式保存的语言优先；未保存时从启动环境选择支持的语言。
+    pub fn from_environment(lang: Option<&str>) -> Self {
+        Self::new(Some(resolve_language(lang, |key| std::env::var(key).ok())))
+    }
+
     pub fn new(lang: Option<&str>) -> Self {
         let mut bundles = HashMap::new();
         bundles.insert("en".to_string(), Self::create_bundle("en", EN_FTL));
@@ -148,6 +153,46 @@ impl LcRegistry {
 
     pub fn current_lang(&self) -> &str {
         self.current_lang.as_str()
+    }
+}
+
+/// 使用注入的环境读取器，避免测试修改进程级环境变量。
+/// LC_ALL 覆盖其他 locale；LANGUAGE 支持按冒号分隔的语言偏好列表。
+fn resolve_language<F>(saved: Option<&str>, mut read_env: F) -> &'static str
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    if let Some(saved) = saved {
+        return normalize_locale(saved).unwrap_or("en");
+    }
+    let mut read_nonempty = |key| read_env(key).filter(|value| !value.trim().is_empty());
+    if let Some(locale) = read_nonempty("LC_ALL") {
+        return normalize_locale(&locale).unwrap_or("en");
+    }
+    let locale = read_nonempty("LC_MESSAGES").or_else(|| read_nonempty("LANG"));
+    // C/POSIX 是显式的不本地化环境，GNU LANGUAGE 在这些 locale 下不生效。
+    if locale.as_deref().is_some_and(is_posix_locale) {
+        return "en";
+    }
+    if let Some(preferences) = read_nonempty("LANGUAGE") {
+        if let Some(lang) = preferences.split(':').find_map(normalize_locale) {
+            return lang;
+        }
+    }
+    locale.as_deref().and_then(normalize_locale).unwrap_or("en")
+}
+
+fn is_posix_locale(locale: &str) -> bool {
+    matches!(locale.trim().split(['.', '@']).next(), Some("C" | "POSIX"))
+}
+
+fn normalize_locale(locale: &str) -> Option<&'static str> {
+    let locale = locale.trim().split(['.', '@']).next()?.replace('_', "-");
+    match locale.split('-').next()?.to_ascii_lowercase().as_str() {
+        "zh" => Some("zh-CN"),
+        "en" => Some("en"),
+        "c" | "posix" => Some("en"),
+        _ => None,
     }
 }
 
