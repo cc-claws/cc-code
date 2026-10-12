@@ -240,10 +240,17 @@ pub fn query_breakdown() -> Option<AllocBreakdown> {
 }
 
 /// 打印 mimalloc 完整 stats（JSON）到 tracing。
+///
+/// `mi_stats_get_json` 返回的 JSON 自带换行与缩进，直接输出会占满日志（仅首行带前缀，
+/// 其余为裸行）。此处重序列化为紧凑单行，保证一条日志一条记录，便于检索与归档。
 #[cfg(target_os = "windows")]
 pub fn dump_stats() {
     if let Some(json) = mimalloc_stats_json() {
-        tracing::info!("mimalloc stats: {json}");
+        let compact = serde_json::from_str::<serde_json::Value>(&json)
+            .ok()
+            .and_then(|v| serde_json::to_string(&v).ok())
+            .unwrap_or(json);
+        tracing::info!("mimalloc stats: {compact}");
     }
 }
 
