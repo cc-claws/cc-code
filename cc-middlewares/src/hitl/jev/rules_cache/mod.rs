@@ -30,7 +30,7 @@ pub struct SourceMeta {
     pub sha256: Option<String>,
 }
 
-/// 规则缓存索引的人类可读元数据。
+/// 规则缓存的人类可读元数据。
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct CacheMetadata {
     /// 项目根目录（本地展示路径）
@@ -47,28 +47,41 @@ pub struct CacheMetadata {
     pub sources: Vec<SourceMeta>,
 }
 
+/// 单文件归一的完整规则缓存（包含元数据与提炼规则正文）。
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct CachedRulesFile {
+    pub version: u32,
+    pub signature: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceMeta>,
+    #[serde(default)]
+    pub rules: Vec<super::rules::JevRule>,
+    #[serde(default)]
+    pub protected_paths: Vec<String>,
+}
+
+impl CachedRulesFile {
+    pub fn to_jev_rules(&self) -> JevRules {
+        JevRules {
+            rules: self.rules.clone(),
+            protected_paths: self.protected_paths.clone(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct RulesCache {
     directory: PathBuf,
     signature: String,
     metadata: Option<CacheMetadata>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-struct CacheIndex {
-    version: u32,
-    signature: String,
-    rules_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    created_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    project_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    provider: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sources: Vec<SourceMeta>,
 }
 
 impl RulesCache {
@@ -80,10 +93,19 @@ impl RulesCache {
         let cwd = fs::canonicalize(cwd).ok()?;
         let project_id = digest(cwd.to_string_lossy().as_bytes());
         let signature = digest(&serde_json::to_vec(&(FORMAT_VERSION, &project_id, context)).ok()?);
+        let jev_root = cc_agent::app_home::app_home_dir_in(&dirs_next::home_dir()?).join("jev");
+
+        // 人性化目录命名：{项目名}-{8位短哈希}
+        let folder_name = cwd
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .map(|s| sanitize_project_name(&s))
+            .unwrap_or_else(|| "project".to_string());
+        let short_hash = &project_id[..8];
+        let directory = jev_root.join(format!("{folder_name}-{short_hash}"));
+
         Some(Self {
-            directory: cc_agent::app_home::app_home_dir_in(&dirs_next::home_dir()?)
-                .join("jev")
-                .join(format!("peri-{project_id}")),
+            directory,
             signature,
             metadata,
         })
@@ -106,9 +128,8 @@ impl RulesCache {
         &self.signature
     }
 
-    fn index_path(&self) -> PathBuf {
-        self.directory
-            .join(format!("{}.index.json", self.signature))
+    fn file_path(&self) -> PathBuf {
+        self.directory.join(format!("{}.json", self.signature))
     }
 
     pub(super) async fn load(&self) -> Option<Arc<JevRules>> {
@@ -127,19 +148,13 @@ impl RulesCache {
     }
 
     fn read(&self) -> io::Result<JevRules> {
-        let index: CacheIndex = serde_json::from_slice(&read_bounded(&self.index_path())?)?;
-        if index.version != FORMAT_VERSION
-            || index.signature != self.signature
-            || !valid_id(&index.rules_id)
-        {
-            return Err(invalid_data("规则缓存索引不匹配"));
+        let target = self.file_path();
+        let bytes = read_bounded(&target)?;
+        let file: CachedRulesFile = serde_json::from_slice(&bytes)?;
+        if file.version != FORMAT_VERSION || file.signature != self.signature {
+            return Err(invalid_data("规则缓存签名或版本不匹配"));
         }
-        // 文件名只接受内部 SHA-256，不将索引里的任意路径拼进目录。
-        let bytes = read_bounded(&self.directory.join(format!("{}.json", index.rules_id)))?;
-        if digest(&bytes) != index.rules_id {
-            return Err(invalid_data("规则缓存内容校验失败"));
-        }
-        let rules: JevRules = serde_json::from_slice(&bytes)?;
+        let rules = file.to_jev_rules();
         if rules.is_empty() {
             return Err(invalid_data("规则缓存为空"));
         }
@@ -159,12 +174,6 @@ impl RulesCache {
         if rules.is_empty() {
             return Err(invalid_data("不缓存空规则"));
         }
-        // 人类可读优先：落盘使用 pretty 格式便于查阅。
-        let bytes = serde_json::to_vec_pretty(rules)?;
-        if bytes.len() as u64 > MAX_FILE_BYTES {
-            return Err(invalid_data("规则缓存超出大小上限"));
-        }
-        let rules_id = digest(&bytes);
         let (project_path, provider, model, sources) = if let Some(m) = &self.metadata {
             (
                 m.project_path.clone(),
@@ -176,20 +185,43 @@ impl RulesCache {
             (None, None, None, Vec::new())
         };
         let created_at = Some(chrono::Local::now().to_rfc3339());
-        let index = serde_json::to_vec_pretty(&CacheIndex {
+        let file_content = CachedRulesFile {
             version: FORMAT_VERSION,
             signature: self.signature.clone(),
-            rules_id: rules_id.clone(),
             created_at,
             project_path,
             provider,
             model,
             sources,
-        })?;
+            rules: rules.rules.clone(),
+            protected_paths: rules.protected_paths.clone(),
+        };
+        let bytes = serde_json::to_vec_pretty(&file_content)?;
+        if bytes.len() as u64 > MAX_FILE_BYTES {
+            return Err(invalid_data("规则缓存超出大小上限"));
+        }
         fs::create_dir_all(&self.directory)?;
         cc_agent::fs::restrict_to_owner(&self.directory)?;
-        write_atomic(&self.directory.join(format!("{rules_id}.json")), &bytes)?;
-        write_atomic(&self.index_path(), &index)
+        write_atomic(&self.file_path(), &bytes)
+    }
+}
+
+pub(super) fn sanitize_project_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches('-');
+    if trimmed.is_empty() {
+        "project".to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -199,10 +231,6 @@ pub(super) fn digest(bytes: &[u8]) -> String {
 
 pub(super) fn digest_str(s: &str) -> String {
     digest(s.as_bytes())
-}
-
-fn valid_id(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn invalid_data(message: &str) -> io::Error {

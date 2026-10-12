@@ -185,17 +185,11 @@ impl JevRuleLoader {
             serde_json::json!({
                 "source": full_source,
                 "source_limit": source_limit,
-                "provider": self.model.provider_name(),
-                "model": self.model.model_id(),
                 "system_prompt": SYSTEM_PROMPT,
                 "user_template": USER_TEMPLATE,
                 "chunk_len": self.chunk_len,
                 "max_chunks": self.max_chunks,
                 "split_depth": MAX_SPLIT_DEPTH,
-                // 注意：提炼用的思考档位是编译期常量（见 provider::into_extraction_model），
-                // 运行期不变，因此不进签名。若将来改成可配置，**必须**加进来，
-                // 否则改了档位还会命中旧档位算出的结果。
-                "timeout_ms": self.timeout.as_millis(),
             }),
             Some(metadata),
         );
