@@ -496,11 +496,26 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                 && ui
                     .message_scrollbar_area
                     .is_some_and(|area| point_in_hit_bar(mouse.column, mouse.row, area));
+            // "回到最新" 按钮 hover 高亮（与滚动条检测相互独立）
+            let was_back_hover = ui.scroll_to_bottom_hover;
+            ui.scroll_to_bottom_hover = !popup_active
+                && ui
+                    .scroll_to_bottom_area
+                    .is_some_and(|area| mouse::mouse_in_rect(&mouse, area));
             if mouse.kind == MouseEventKind::Moved {
                 let visible = ui.scrollbar_hover || ui.message_scrollbar_dragging;
-                return Ok((was_visible != visible).then_some(Action::Redraw));
+                return Ok((was_visible != visible || was_back_hover != ui.scroll_to_bottom_hover)
+                    .then_some(Action::Redraw));
             }
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                // "回到最新" 按钮优先于消息区拖选
+                if let Some(area) = app.session_mgr.current().ui.scroll_to_bottom_area {
+                    if mouse::mouse_in_rect(&mouse, area) {
+                        app.scroll_to_bottom();
+                        app.session_mgr.current_mut().ui.scroll_to_bottom_hover = false;
+                        return Ok(Some(Action::Redraw));
+                    }
+                }
                 let action = app
                     .session_mgr
                     .current()

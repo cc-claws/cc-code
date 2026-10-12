@@ -141,6 +141,8 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    render_back_to_bottom_button(f, app, chunks[1], panel_height);
+
     attachment::render_attachment_bar(f, app, chunks[2]);
 
     // 底部展开区
@@ -501,6 +503,90 @@ fn hide_shell_prefix_for_display(textarea: &mut TextArea<'static>) {
         cursor_col
     };
     textarea.move_cursor(CursorMove::Jump(cursor_row as u16, display_col as u16));
+}
+
+/// 绘制"回到最新"浮层按钮：离开底部且内容溢出时，居中覆盖在消息区最后一行。
+///
+/// 命中区域写入 `ui.scroll_to_bottom_area`，鼠标点击回到底部（`App::scroll_to_bottom`）。
+/// 覆盖式浮层——会遮住该行约 1 行文本，与既有 copy toast 同策略。
+fn render_back_to_bottom_button(f: &mut Frame, app: &mut App, msg_area: Rect, panel_height: u16) {
+    // 基线刷新：跟随底部时持续对齐基线并清除未读；离开底部后内容增长即标记未读。
+    // 对齐 codex unseen_activity 的两条信号：committed 消息数（view_messages.len）
+    // + 内容行数（render_cache.total_lines），任一增长即视为有新活动。
+    let (following, total_lines, msg_len) = {
+        let s = app.session_mgr.current();
+        (
+            s.ui.scroll_follow,
+            s.messages.render_cache.read().total_lines,
+            s.messages.view_messages.len(),
+        )
+    };
+    {
+        let ui = &mut app.session_mgr.current_mut().ui;
+        if following {
+            ui.scroll_baseline_lines = total_lines;
+            ui.scroll_baseline_len = msg_len;
+            ui.scroll_to_bottom_unseen = false;
+        } else if total_lines > ui.scroll_baseline_lines || msg_len > ui.scroll_baseline_len {
+            ui.scroll_to_bottom_unseen = true;
+        }
+    }
+    let (scrolled_away, hover, unseen) = {
+        let s = app.session_mgr.current();
+        (
+            !s.ui.scroll_follow && s.ui.scrollbar_max_offset > 0,
+            s.ui.scroll_to_bottom_hover,
+            s.ui.scroll_to_bottom_unseen,
+        )
+    };
+    // 面板/弹窗激活、消息区不可用时不显示，并清除上一帧登记的热区
+    if !scrolled_away
+        || panel_height > 0
+        || app.is_interaction_popup_active()
+        || msg_area.height == 0
+        || msg_area.width == 0
+    {
+        app.session_mgr.current_mut().ui.scroll_to_bottom_area = None;
+        return;
+    }
+
+    let key = if unseen {
+        "scroll-back-to-bottom-new"
+    } else {
+        "scroll-back-to-bottom"
+    };
+    let text = format!(" {} ", app.services.lc.tr(key));
+    let text_width = unicode_width::UnicodeWidthStr::width(text.as_str());
+    // scrollbar 占据最右 1 列，按钮需左移避让
+    let has_scrollbar = {
+        let cache = app.session_mgr.current().messages.render_cache.read();
+        cache.total_lines > msg_area.height as usize && msg_area.width > 1
+    };
+    let scrollbar_col: u16 = if has_scrollbar { 1 } else { 0 };
+    let avail = msg_area.width.saturating_sub(scrollbar_col);
+    if text_width == 0 || text_width as u16 > avail {
+        app.session_mgr.current_mut().ui.scroll_to_bottom_area = None;
+        return;
+    }
+
+    let width = text_width as u16;
+    let y = msg_area.y + msg_area.height - 1;
+    let x = msg_area.x + (avail - width) / 2;
+    let area = Rect {
+        x,
+        y,
+        width,
+        height: 1,
+    };
+    let style = if hover {
+        Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::ACCENT)
+    };
+    f.render_widget(Paragraph::new(text).style(style), area);
+    app.session_mgr.current_mut().ui.scroll_to_bottom_area = Some(area);
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
