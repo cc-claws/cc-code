@@ -18,7 +18,7 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移。
 
 ### 🌐 官网：**[cc-claw.com](https://www.cc-claw.com)**
 
-[为什么选 cc-code](#为什么选-cc-code) · [核心能力](#核心能力) · [安装](#安装) · [Nobody Coding](#我们怎么用-nobody-coding-造-cc-code) · [致谢](#致谢)
+[为什么选 cc-code](#为什么选-cc-code) · [Auto 模式](#auto-模式jev-语义门) · [核心能力](#核心能力) · [安装](#安装) · [Nobody Coding](#我们怎么用-nobody-coding-造-cc-code) · [致谢](#致谢)
 
 </div>
 
@@ -61,6 +61,18 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | 工具加载 | 全量塞进每轮请求 | 核心工具常驻，其余 Tool Search 按需懒加载 |
 | IDE 集成 | 只有终端 | ACP 协议，Zed 等 IDE 直连 |
 | Claude Code 生态 | 不兼容 | 直接用 `.claude/` 配置、agents、skills、hooks、MCP |
+| 安全判定 | 每条危险命令都要你确认 | JEV 语义门 —— 独立 LLM 判定，只在判不准时才弹窗 |
+
+---
+
+## Auto 模式：JEV 语义门
+
+`Auto` 是默认权限模式（fail-closed）。它不逐条问你，而是分两层决策：
+
+- **确定性层** —— 你自己写的规则、内置硬黑名单、只读快车道。零成本，不依赖任何凭据。
+- **JEV 语义门** —— 独立的 LLM 判定服务（`JEV_MODEL`，默认 `openrouter/typesafe/jev-1.13`），走自己的端点（`JEV_ENDPOINT`）和密钥（`JEV_API_KEY`）。它按条件集给这次调用打分，**只有落进不确定区间时才弹一次确认窗**。
+
+没配判定凭据时，确定性层照常生效，再由 LLM 分类器兜底；没有确认通道时（子 agent、`-p`）一律拒绝。判定全程不占用会话模型 —— 安全校验不花你的上下文 token。`Shift+Tab` 在 `Auto` 与 `Bypass` 间切换。
 
 ---
 
@@ -76,7 +88,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **ACP 协议** | 接入 Zed 等 IDE，也支持自建 "Cloud Code" 平台 |
 | **Auto Compact** | 长会话自动压缩，保持响应快且省 token |
 | **Sub-Agent 并发** | 后台子 agent 并行执行，支持 fork 和 background 模式 |
-| **HITL 审批** | 敏感操作自动拦截，支持 auto-classifier 和 shared-mode |
+| **HITL 审批** | 敏感操作由 JEV 语义门拦截 —— 独立 LLM 判定，只在判不准时才弹窗 |
 | **双引擎文件搜索** | Grep/Glob 优先使用外部 ripgrep 二进制，回退到内置 Rust 引擎 |
 
 ### v0.6.x 新增功能
