@@ -91,6 +91,16 @@ pub struct UiState {
     pub cursor_tick_count: u8,
     /// 鼠标是否悬停在滚动条区域
     pub scrollbar_hover: bool,
+    /// "回到最新" 浮层按钮的命中区域：仅当离开底部且内容溢出时由渲染层登记
+    pub scroll_to_bottom_area: Option<ratatui::layout::Rect>,
+    /// 鼠标是否悬停在"回到最新"按钮上（用于高亮）
+    pub scroll_to_bottom_hover: bool,
+    /// 离开底部时的内容行数基线（跟随底部时持续刷新，用于判断离开后是否新增内容）
+    pub scroll_baseline_lines: usize,
+    /// 离开底部时的已提交消息数基线（与 `scroll_baseline_lines` 组合判断新活动）
+    pub scroll_baseline_len: usize,
+    /// 离开底部后内容有增长（新消息/新输出），按钮文案切换为"有新活动"
+    pub scroll_to_bottom_unseen: bool,
 }
 
 impl UiState {
@@ -148,6 +158,11 @@ impl UiState {
             cursor_visible: true,
             cursor_tick_count: 0,
             scrollbar_hover: false,
+            scroll_to_bottom_area: None,
+            scroll_to_bottom_hover: false,
+            scroll_baseline_lines: 0,
+            scroll_baseline_len: 0,
+            scroll_to_bottom_unseen: false,
         }
     }
 

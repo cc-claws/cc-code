@@ -372,3 +372,93 @@ fn test_thinking_status_style_pure_time_temperature() {
         Some(theme::THINKING)
     );
 }
+
+use crate::ui::render_thread::WrappedLineInfo;
+use ratatui::text::Line;
+
+/// 直接构造可滚动渲染缓存，绕开真实消息管线。
+///
+/// `scrollbar_max_offset` 在真实路径由 `message_area::render_messages` 依据内容行数与
+/// 可见高度算出；而 `view_messages` 为空时该函数会提前返回（渲染 Welcome 页），
+/// 不会写入该字段。这里手动补齐"内容溢出可滚动"这一前置信号，作为按钮显示的基线。
+fn seed_scrollable_cache(app: &mut App, total_lines: usize) {
+    {
+        let mut cache = app.session_mgr.current().messages.render_cache.write();
+        cache.width = 79;
+        cache.total_lines = total_lines;
+        cache.lines = (0..total_lines)
+            .map(|i| Line::from(format!("row {i}")))
+            .collect();
+        cache.wrap_map = (0..total_lines)
+            .map(|i| WrappedLineInfo {
+                line_idx: i,
+                visual_row_start: i,
+                visual_row_end: i + 1,
+                plain_text: format!("row {i}"),
+                char_widths: vec![],
+            })
+            .collect();
+    }
+    // 可见高度取 10：max = total - visible，只要内容多于可见行即为溢出（> 0）。
+    app.session_mgr.current_mut().ui.scrollbar_max_offset = total_lines.saturating_sub(10);
+}
+
+#[tokio::test]
+async fn test_back_to_bottom_button_visible_when_scrolled_away() {
+    let (mut app, mut handle) = crate::app::App::new_headless(80, 20).await;
+    seed_scrollable_cache(&mut app, 100);
+    {
+        let ui = &mut app.session_mgr.current_mut().ui;
+        ui.scroll_follow = false;
+        ui.scroll_offset = 0;
+        ui.scroll_baseline_lines = 100; // 基线==当前内容，无新增
+    }
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        app.session_mgr.current().ui.scroll_to_bottom_area.is_some(),
+        "离开底部且内容溢出时应显示回到最新按钮"
+    );
+    let label = app.services.lc.tr("scroll-back-to-bottom");
+    assert!(handle.contains(&label), "应渲染默认按钮文案: {label}");
+}
+
+#[tokio::test]
+async fn test_back_to_bottom_button_hidden_at_bottom() {
+    let (mut app, mut handle) = crate::app::App::new_headless(80, 20).await;
+    seed_scrollable_cache(&mut app, 100);
+    app.session_mgr.current_mut().ui.scroll_follow = true;
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        app.session_mgr.current().ui.scroll_to_bottom_area.is_none(),
+        "在底部时不显示回到最新按钮"
+    );
+}
+
+#[tokio::test]
+async fn test_back_to_bottom_button_switches_to_new_message_when_content_grows() {
+    let (mut app, mut handle) = crate::app::App::new_headless(80, 20).await;
+    seed_scrollable_cache(&mut app, 100);
+    {
+        let ui = &mut app.session_mgr.current_mut().ui;
+        ui.scroll_follow = false;
+        ui.scroll_offset = 0;
+        ui.scroll_baseline_lines = 100; // 离开底部时基线 100 行
+    }
+    seed_scrollable_cache(&mut app, 140); // 离开后内容增长到 140 行
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    assert!(
+        app.session_mgr.current().ui.scroll_to_bottom_unseen,
+        "离开底部后内容增长应标记未读"
+    );
+    let label = app.services.lc.tr("scroll-back-to-bottom-new");
+    assert!(handle.contains(&label), "文案应切换为有新消息: {label}");
+}
