@@ -150,6 +150,7 @@ fn build_jev_rule_loader(
             std::path::Path::new(cwd),
             &full_source,
             config.max_rule_source_len,
+            sections,
         ),
     ))
 }
