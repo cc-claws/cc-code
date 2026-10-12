@@ -513,6 +513,82 @@
     }
 
     #[test]
+    fn test_humanize_secs_formats_minute_granularity_beyond_one_minute() {
+        assert_eq!(humanize_secs(5), "5s");
+        assert_eq!(humanize_secs(39), "39s");
+        assert_eq!(humanize_secs(60), "1m");
+        assert_eq!(humanize_secs(90), "1m 30s");
+        assert_eq!(humanize_secs(560), "9m 20s");
+        assert_eq!(humanize_secs(600), "10m");
+    }
+
+    #[test]
+    fn test_shell_timeout_text_keeps_minute_granularity_over_one_minute() {
+        assert_eq!(
+            shell_timeout_text(Some(560_000)).as_deref(),
+            Some("(timeout 9m 20s)"),
+            "非整分钟期限应展开为「分 + 秒」，而不是退化成裸秒数"
+        );
+        assert_eq!(
+            shell_timeout_text(Some(90_000)).as_deref(),
+            Some("(timeout 1m 30s)"),
+            "1 分 30 秒应同时展示分与秒"
+        );
+        assert_eq!(
+            shell_timeout_text(Some(120_000)).as_deref(),
+            Some("(timeout 2m)"),
+            "整分钟保留简洁的分钟写法"
+        );
+        assert_eq!(
+            shell_timeout_text(Some(15_000)).as_deref(),
+            Some("(timeout 15s)"),
+            "不足 1 分钟仍用秒"
+        );
+        assert_eq!(
+            shell_timeout_text(Some(1_500)).as_deref(),
+            Some("(timeout 1500ms)"),
+            "不足 1 秒保留原始毫秒"
+        );
+        assert_eq!(shell_timeout_text(None), None);
+    }
+
+    #[test]
+    fn test_backgrounded_bash_renders_timeout_with_minute_and_second() {
+        use crate::app::MessageViewModel;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_timeout_9m20s".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("sleep 500".to_string()),
+            content: String::new(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::SAGE,
+            diff_input: None,
+            started_at: Some(std::time::Instant::now()),
+            timeout_ms: Some(560_000),
+            shell_backgrounded: true,
+            content_hash: 0,
+        };
+        let lines = render_view_model(&vm, Some(1), 100, false, 0);
+        let rendered_lines: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+        assert!(
+            rendered_lines
+                .iter()
+                .any(|line| line == "    (timeout 9m 20s)"),
+            "后台化 Bash 的期限行应为「分 + 秒」写法: {rendered_lines:?}"
+        );
+    }
+
+    #[test]
     fn test_backgrounded_bash_shows_manage_status_and_timeout_not_ctrl_b_hint() {
         use crate::app::MessageViewModel;
         let vm = MessageViewModel::ToolBlock {
