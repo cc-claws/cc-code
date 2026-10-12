@@ -237,5 +237,110 @@ test("maybeMigrateFromClaudeCode still backfills without consent", async (home) 
   if (cfg.config.providers[0].models.fable !== "claude-fable-5") throw new Error("expected fable backfilled");
 });
 
+// ─────────────────────────────────────────────
+// Windows 进程文件锁热替换与旧备份清理
+// ─────────────────────────────────────────────
+const { replaceBinary, cleanOldBinaries } = require("./install");
+
+test("replaceBinary moves extracted file to finalPath when finalPath does not exist", (home) => {
+  const binDir = join(home, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const extracted = join(binDir, "cc-code-new.exe");
+  const finalPath = join(binDir, "cc-code.exe");
+  fs.writeFileSync(extracted, "new-binary-content");
+
+  replaceBinary(extracted, finalPath);
+
+  if (!fs.existsSync(finalPath)) throw new Error("finalPath must exist");
+  if (fs.existsSync(extracted)) throw new Error("extractedPath must have been moved");
+  if (fs.readFileSync(finalPath, "utf-8") !== "new-binary-content") throw new Error("content mismatch");
+});
+
+test("replaceBinary overwrites finalPath normally when not locked", (home) => {
+  const binDir = join(home, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const extracted = join(binDir, "cc-code-new.exe");
+  const finalPath = join(binDir, "cc-code.exe");
+  fs.writeFileSync(finalPath, "old-binary-content");
+  fs.writeFileSync(extracted, "new-binary-content");
+
+  replaceBinary(extracted, finalPath);
+
+  if (!fs.existsSync(finalPath)) throw new Error("finalPath must exist");
+  if (fs.readFileSync(finalPath, "utf-8") !== "new-binary-content") throw new Error("content mismatch");
+  // 正常未锁定删除时，不应产生 .old 备份文件
+  const files = fs.readdirSync(binDir);
+  if (files.some((f) => f.includes(".old."))) throw new Error("should not create .old file when not locked");
+});
+
+test("replaceBinary falls back to renaming old file when finalPath is locked (EBUSY/EPERM)", (home) => {
+  const binDir = join(home, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const extracted = join(binDir, "cc-code-new.exe");
+  const finalPath = join(binDir, "cc-code.exe");
+  fs.writeFileSync(finalPath, "running-binary-content");
+  fs.writeFileSync(extracted, "new-binary-content");
+
+  // 模拟 Windows 运行中 exe 无法 unlinkSync（抛 EPERM/EBUSY，包括重命名后的 .old 文件仍然被进程句柄占用）
+  const originalUnlink = fs.unlinkSync;
+  try {
+    fs.unlinkSync = (target) => {
+      if (target === finalPath || target.includes("cc-code.exe.old.")) {
+        const err = new Error("resource busy or locked");
+        err.code = "EBUSY";
+        throw err;
+      }
+      return originalUnlink(target);
+    };
+
+    replaceBinary(extracted, finalPath);
+  } finally {
+    fs.unlinkSync = originalUnlink;
+  }
+
+  // 验证：新文件成功放至 finalPath
+  if (!fs.existsSync(finalPath)) throw new Error("finalPath must exist");
+  if (fs.readFileSync(finalPath, "utf-8") !== "new-binary-content") throw new Error("new content mismatch");
+
+  // 验证：旧文件被成功重命名为 .old.* 备份
+  const files = fs.readdirSync(binDir);
+  const oldFiles = files.filter((f) => f.startsWith("cc-code.exe.old."));
+  if (oldFiles.length !== 1) throw new Error(`expected 1 old backup file, found ${oldFiles.length}`);
+  if (fs.readFileSync(join(binDir, oldFiles[0]), "utf-8") !== "running-binary-content") {
+    throw new Error("old backup content mismatch");
+  }
+});
+
+test("cleanOldBinaries unlinks released .old files and ignores still-locked ones", (home) => {
+  const binDir = join(home, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const activeOld = join(binDir, "cc-code.exe.old.1001");
+  const inactiveOld = join(binDir, "cc-code.exe.old.1002");
+  const normalFile = join(binDir, "cc-code.exe");
+  fs.writeFileSync(activeOld, "active");
+  fs.writeFileSync(inactiveOld, "inactive");
+  fs.writeFileSync(normalFile, "normal");
+
+  const originalUnlink = fs.unlinkSync;
+  try {
+    fs.unlinkSync = (target) => {
+      if (target === activeOld) {
+        const err = new Error("file is locked");
+        err.code = "EBUSY";
+        throw err;
+      }
+      return originalUnlink(target);
+    };
+
+    cleanOldBinaries(binDir);
+  } finally {
+    fs.unlinkSync = originalUnlink;
+  }
+
+  if (!fs.existsSync(normalFile)) throw new Error("normalFile must not be deleted");
+  if (!fs.existsSync(activeOld)) throw new Error("activeOld should be kept because it is locked");
+  if (fs.existsSync(inactiveOld)) throw new Error("inactiveOld should be unlinked");
+});
+
 // 由 runTests() 顺序执行（支持 async 用例）
 runTests();

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-const { createWriteStream, mkdirSync, chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } = require("fs");
-const { join } = require("path");
+const fs = require("fs");
+const { createWriteStream, mkdirSync, chmodSync, existsSync, renameSync, unlinkSync, writeFileSync, readdirSync } = fs;
+const { join, basename, dirname } = require("path");
 const { execSync } = require("child_process");
 const crypto = require("crypto");
 
@@ -432,6 +433,57 @@ function overwriteNpmGlobalWrapper(binDirPath) {
   }
 }
 
+// 清理历史残留的 .old.* 备份文件（旧进程已退出则删除，仍占用则静默忽略）
+function cleanOldBinaries(binDir) {
+  try {
+    const files = fs.readdirSync(binDir);
+    for (const file of files) {
+      if (file.includes(".old.")) {
+        try {
+          fs.unlinkSync(join(binDir, file));
+        } catch {
+          // 进程可能仍持有文件句柄，忽略
+        }
+      }
+    }
+  } catch {
+    // 忽略目录读取错误
+  }
+}
+
+// 安全替换二进制文件，支持 Windows 进程运行中热替换（文件锁退避）
+function replaceBinary(extractedPath, finalPath) {
+  if (!fs.existsSync(finalPath)) {
+    fs.renameSync(extractedPath, finalPath);
+    return;
+  }
+
+  // 1. 尝试常规删除（未运行或 POSIX 平台）
+  try {
+    fs.unlinkSync(finalPath);
+    fs.renameSync(extractedPath, finalPath);
+    return;
+  } catch (err) {
+    // 若非文件占用错误（EBUSY / EPERM / EACCES），直接抛出
+    if (err.code !== "EBUSY" && err.code !== "EPERM" && err.code !== "EACCES") {
+      throw err;
+    }
+  }
+
+  // 2. Windows 文件锁退避：运行中 exe 无法 unlink，但允许在同目录下重命名
+  const oldPath = `${finalPath}.old.${Date.now()}`;
+  try {
+    fs.renameSync(finalPath, oldPath);
+    fs.renameSync(extractedPath, finalPath);
+    console.log(`  (Note: Replaced running binary, old binary renamed to ${basename(oldPath)})`);
+  } catch (err) {
+    throw new Error(`无法替换正在运行的二进制文件 ${basename(finalPath)}: ${err.message}`);
+  }
+
+  // 3. 尝试清理已释放的历史旧二进制备份
+  cleanOldBinaries(dirname(finalPath));
+}
+
 async function main() {
   const key = getPlatformKey();
   const platform = PLATFORMS[key];
@@ -465,8 +517,7 @@ async function main() {
   const finalPath = join(binDir, finalName);
 
   if (existsSync(extractedPath)) {
-    if (existsSync(finalPath)) unlinkSync(finalPath);
-    renameSync(extractedPath, finalPath);
+    replaceBinary(extractedPath, finalPath);
   }
 
   if (platform.os !== "win32") {
@@ -542,4 +593,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { migrateFromClaudeCode, maybeMigrateFromClaudeCode, wouldCopyKeys, verifyChecksum };
+module.exports = {
+  migrateFromClaudeCode,
+  maybeMigrateFromClaudeCode,
+  wouldCopyKeys,
+  verifyChecksum,
+  replaceBinary,
+  cleanOldBinaries,
+};
