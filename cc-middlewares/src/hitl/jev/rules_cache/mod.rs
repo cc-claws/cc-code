@@ -20,11 +20,10 @@ const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 pub struct SourceMeta {
     /// 来源类别（固定为 personal / project / hooks / global）
     pub source: String,
+    /// 对应规则文件的实际路径或模式
+    pub path: String,
     /// 该来源是否存在
     pub present: bool,
-    /// 字符数（仅在 present 为 true 时记录）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub char_count: Option<usize>,
     /// 内容 SHA-256 哈希摘要（不记录任何原文内容）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,

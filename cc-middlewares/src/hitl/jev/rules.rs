@@ -153,18 +153,47 @@ impl JevRuleLoader {
         let sources = sections
             .iter()
             .map(|(source, _title, content)| {
+                let resolved_path = match *source {
+                    "personal" => {
+                        let p = cwd.join("CLAUDE.local.md");
+                        let s = p.to_string_lossy();
+                        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+                    }
+                    "project" => {
+                        let p = if !cwd.join("CLAUDE.md").exists() && cwd.join("AGENTS.md").exists() {
+                            cwd.join("AGENTS.md")
+                        } else {
+                            cwd.join("CLAUDE.md")
+                        };
+                        let s = p.to_string_lossy();
+                        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+                    }
+                    "hooks" => {
+                        let p = cwd.join(".claude").join("hooks").join("*.sh");
+                        let s = p.to_string_lossy();
+                        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+                    }
+                    "global" => {
+                        let p = dirs_next::home_dir()
+                            .map(|h| h.join(".claude").join("CLAUDE.md"))
+                            .unwrap_or_else(|| std::path::PathBuf::from("~/.claude/CLAUDE.md"));
+                        let s = p.to_string_lossy();
+                        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+                    }
+                    other => other.to_string(),
+                };
                 if let Some(text) = content {
                     super::rules_cache::SourceMeta {
                         source: (*source).to_string(),
+                        path: resolved_path,
                         present: true,
-                        char_count: Some(text.chars().count()),
                         sha256: Some(super::rules_cache::digest_str(text)),
                     }
                 } else {
                     super::rules_cache::SourceMeta {
                         source: (*source).to_string(),
+                        path: resolved_path,
                         present: false,
-                        char_count: None,
                         sha256: None,
                     }
                 }
