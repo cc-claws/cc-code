@@ -60,7 +60,9 @@ async fn test_command_and_shell_feedback_uses_selected_language() {
         app.services.lc.switch(language).expect("测试语言可用");
         for (input, expected) in [
             ("/nonexistent-command", unknown),
-            ("/c", ambiguous),
+            // 前导空格让首行不以 '/' 开头 → hint 候选为空；否则 Enter 会被命令补全
+            // （hint_complete）接管（如 /c → /channel ），永远走不到歧义提示分支。
+            (" /c", ambiguous),
             ("!", empty),
         ] {
             app.session_mgr.current_mut().ui.textarea.insert_str(input);
@@ -95,7 +97,13 @@ async fn test_rewind_and_gc_feedback_uses_selected_language() {
         let text = make_system_note_text(&app);
         assert!(text.contains(rewind));
         assert!(text.contains(diagnostic));
-        assert!(text.contains("origin_messages: 0"), "诊断参数应被正常插值");
+        // zh-CN 诊断文案对数值列做了对齐（冒号后补空格，与 en 的单空格不同），
+        // 归并空白后再比较，避免把排版对齐误判为参数未插值。
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            normalized.contains("origin_messages: 0"),
+            "诊断参数应被正常插值"
+        );
         assert!(!text.contains("cmd-gc-"), "诊断输出不能泄露翻译键");
         assert!(!text.contains("{ $"), "诊断输出不能泄露 Fluent 变量");
     }
