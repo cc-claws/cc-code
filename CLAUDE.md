@@ -406,3 +406,31 @@ git push origin npm-v<VERSION>
 GitHub Actions 页面手动触发 `Release npm`，输入版本号（此路径由 `release-npm.yml` 的 `Set npm version` 步骤按输入覆盖 `package.json`）。
 
 **CI 流程：** build（5 平台交叉编译：linux x86_64/aarch64、macos x86_64/aarch64、windows x86_64）→ release（GitHub Release + 二进制上传）→ publish（npm publish）
+
+## 安装渠道与自动更新
+
+本仓库存在**两条互不相同**的安装渠道，排查"版本没更新"类问题前必须先确认用户走的是哪条：
+
+| | npm 渠道 | 官方脚本渠道（推荐） |
+|---|---|---|
+| 安装命令 | `npm install -g @cc-claw/code` | `cc-code update` 或 `curl install.sh \| bash` / `irm install.ps1 \| iex` |
+| 二进制落点 | `<npm prefix>/node_modules/@cc-claw/code/bin/cc-code.exe` | `~/.cc-code/npm-v<VER>/cc-code.exe`（另有 `~/.cc-code/cc-code.exe` 便捷副本） |
+| 入口 | npm 生成的 `<prefix>/cc-code.cmd\|.ps1`（postinstall 会改写为直起 exe，#410） | `~/.cc-code/cc-code.exe` |
+| PATH | npm prefix（用户 PATH，通常靠后） | 安装脚本把 `~/.cc-code` **前插**到用户 PATH 首位 |
+
+### 为什么官方脚本能"不退出进程就更新"
+
+官方脚本是**并存式更新**：新版解压进独立的 `npm-v<新版本>/` 目录，从不触碰运行中进程锁定的旧 exe，因此无需退出任何会话。安装完成后 `~/.cc-code/cc-code.exe` 副本指向新版本，**新开终端**即生效。
+
+对比之下，`npm install -g` 必须把新版 `copyfile` 覆盖到**同名固定路径**；在 Windows 上该 exe 被运行中的进程占用，会直接 `EBUSY` 报错并回滚（并残留 `@cc-claw/.code-XXXX` 临时目录）。`npm/install.js` 的 `replaceBinary` 退避重命名逻辑只能覆盖 postinstall 场景，救不了 npm 自己那步覆盖复制。
+
+**[TRAP]** `cc-code update` **恒定更新官方渠道**（`~/.cc-code`）。若用户当初用 npm 装的，`update` 会在 `~/.cc-code` 新建一份并把该目录前插到 PATH，从而**静默顶掉 npm 那份**——不是文件损坏，而是渠道切换。表现：当前会话 `cc-code --version` 仍旧版（PATH 是启动时快照），新开终端才变新版。诊断顺序：`which -a cc-code`（看解析到哪份）→ 比对 `~/.cc-code/current-version.txt` 与 npm `package.json` 版本。
+
+### 两条渠道会"打架"吗
+
+- **不会文件冲突**：落点路径完全不同，两份 exe 各自独立存在。
+- **会 PATH 抢跑**：谁在用户 PATH 里更靠前，谁生效。官方脚本前插 `~/.cc-code`，故安装后官方渠道胜出。
+- **数据目录共享**：settings / threads / jev 缓存统一在 `~/.cc-code/`，与二进制渠道无关，可放心升级。
+- **清理建议**：确认官方渠道生效后，npm 那份成为死代码，可删 `<npm prefix>/node_modules/@cc-claw` 及残留 `.code-*` 目录；**不删也不影响使用**。
+
+**[TRAP]** 更新前若 `npm install -g` 报 `EBUSY`/`EPERM`，不要反复重试（占用型文件在会话退出前必然失败），改用 `cc-code update`。
