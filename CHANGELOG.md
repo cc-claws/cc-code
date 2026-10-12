@@ -9,6 +9,7 @@ Perihelion Agent 版本变更记录。
 ### Fixes
 
 - **npm postinstall 支持 Windows 进程运行中热替换二进制与历史备份清理（#430、#431）**：在 Windows 环境下，当 `cc-code` 处于运行中时（如在会话内更新或有其它会话未退出），可执行文件具有内核文件锁，npm 安装时的 `node install.js` 直接调用 `unlinkSync` 会抛出 `EBUSY`/`EPERM`，造成全局安装失败回滚。现引入 `replaceBinary` 文件锁退避策略：常规删除失败时，自动将旧二进制重命名为 `${finalPath}.old.<timestamp>` 腾出路径并放入新解压的二进制，实现平滑热替换；同时新增 `cleanOldBinaries` 在安装时顺便尝试清理历史已退出释放的 `.old.*` 备份文件。
+- **Jev 规则缓存 `index.json` 补充自描述脱敏元数据与向后兼容（#433、#434）**：Jev 规则磁盘缓存此前仅记录哈希标识，缺少项目路径、生成时间、模型及来源文件的元数据，导致无法识别缓存归属且排查困难。现扩充 `index.json` 支持自描述脱敏元数据：记录生成时间 `created_at`、项目本地路径 `project_path`、提炼模型 `provider`/`model` 以及各规则来源（personal/project/hooks/global）的单向 sha256 摘要；同时移除 `deny_unknown_fields` 限制并采用可选字段，实现向后平滑兼容已有历史缓存。
 
 ---
 
