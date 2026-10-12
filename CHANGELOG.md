@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.121 — 2026-10-12
+
+### Performance
+
+- **diff 缓存加字节预算，`/gc` 补统计渲染缓存与 diff 缓存（#420、#421）**：`/gc` 的「已知合计」此前只有 ~5.9 MB，而 `mimalloc allocated` ~50 MB，存在约 44 MB「未识别」。排查发现两处盲区：其一，`DIFF_CACHE`（`cc-widgets/src/diff/mod.rs`）与 `RENDER_CACHE`（`cc-widgets/src/diff/renderer.rs`）只按条数限流（64 条），但单条可携带接近 `MAX_DIFF_SIZE_BYTES`（1 MB）的文本，实际上限不可控（理论 ~64 MB／每缓存），且完全不在 `/gc` 统计内；其二，渲染线程 `RenderCache`（整段对话渲染行 `lines` + `wrap_map` 逐行纯文本副本与字符宽度）同样未被统计。现新增 `ByteBudgetCache`（条数 + 字节双重上限的 LRU），两个 diff 缓存各设 **8 MB 字节预算**，超预算按 LRU 淘汰（未命中重算，行为不变）；`/gc` 新增 `estimate_render_cache_heap` 与 `diff_cache_stats()` / `render_cache_stats()`，把渲染缓存与两个 diff 缓存计入「已知合计」。剩余「未识别」收窄到语法高亮引擎（SyntaxSet/ThemeSet）、tokio、tracing 与分配器元数据。顺带修复 `renderer.rs` 一处既有注释乱码。
+
 ## v0.6.120 — 2026-10-10
 
 ### Fixes
