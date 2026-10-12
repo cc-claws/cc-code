@@ -28,8 +28,8 @@ fn test_cached_rules_file_roundtrip() {
         model: Some("mock-model".to_string()),
         sources: vec![SourceMeta {
             source: "project".to_string(),
+            path: "/mock/project/CLAUDE.md".to_string(),
             present: true,
-            char_count: Some(100),
             sha256: Some(mock_sha256(2)),
         }],
         rules: vec![JevRule {
@@ -57,8 +57,8 @@ fn test_rules_cache_write_and_read() {
         model: Some("mock-model".to_string()),
         sources: vec![SourceMeta {
             source: "project".to_string(),
+            path: "/mock/workspace/CLAUDE.md".to_string(),
             present: true,
-            char_count: Some(50),
             sha256: Some(mock_sha256(20)),
         }],
     };
