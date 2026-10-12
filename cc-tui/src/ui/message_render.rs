@@ -1273,7 +1273,7 @@ pub fn render_view_model_with_links(
             tool_name,
             diff_input,
             started_at,
-            execution_timeout_ms,
+            timeout_ms,
             shell_backgrounded,
             ..
         } => {
@@ -1399,7 +1399,7 @@ pub fn render_view_model_with_links(
                     ),
                 ]));
                 if *shell_backgrounded {
-                    if let Some(timeout) = shell_timeout_text(*execution_timeout_ms) {
+                    if let Some(timeout) = shell_timeout_text(*timeout_ms) {
                         lines.push(Line::from(vec![
                             Span::raw("    "),
                             Span::styled(timeout, Style::default().fg(theme::MUTED)),
@@ -1508,7 +1508,7 @@ pub fn render_view_model_with_links(
                     Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                     Span::styled(BACKGROUND_RUNNING_STATUS, Style::default().fg(theme::MUTED)),
                 ]));
-                if let Some(timeout) = shell_timeout_text(*execution_timeout_ms) {
+                if let Some(timeout) = shell_timeout_text(*timeout_ms) {
                     lines.push(Line::from(vec![
                         Span::raw("    "),
                         Span::styled(timeout, Style::default().fg(theme::MUTED)),
@@ -1521,7 +1521,7 @@ pub fn render_view_model_with_links(
                 lines.push(Line::from(vec![
                     Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                     Span::styled(
-                        shell_running_text(started_at.unwrap(), *execution_timeout_ms),
+                        shell_running_text(started_at.unwrap(), *timeout_ms),
                         Style::default().fg(theme::MUTED),
                     ),
                 ]));

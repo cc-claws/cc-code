@@ -158,7 +158,7 @@ impl MessagePipeline {
             color: tool_color(name),
             diff_input: None,
             started_at,
-            execution_timeout_ms: None,
+            timeout_ms: None,
             shell_backgrounded: false,
             content_hash: 0,
         };

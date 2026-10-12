@@ -154,6 +154,7 @@ fn make_agent_shell_registration(
         tool_call_id: Some("test-call".into()),
         source_agent_id: None,
         execution_timeout_ms: 600_000,
+        timeout_ms: 300_000,
         command: command.to_string(),
         cwd: ".".to_string(),
         output_path: PathBuf::from("/tmp/cc-agent-shell.output"),
@@ -233,7 +234,7 @@ async fn test_ctrl_b_background_state_reaches_pending_bash_view_immediately() {
             app.session_mgr.current().messages.view_messages.first(),
             Some(MessageViewModel::ToolBlock {
                 shell_backgrounded: true,
-                execution_timeout_ms: Some(600_000),
+                timeout_ms: Some(300_000),
                 ..
             })
         ),
@@ -271,7 +272,7 @@ async fn test_poll_agent_shells_syncs_panel_handoff_into_bash_view() {
             app.session_mgr.current().messages.view_messages.first(),
             Some(MessageViewModel::ToolBlock {
                 shell_backgrounded: true,
-                execution_timeout_ms: Some(600_000),
+                timeout_ms: Some(300_000),
                 ..
             })
         ),

@@ -11,7 +11,7 @@ fn make_background_tool(content: &str) -> MessageViewModel {
         collapsed: false,
         color: theme::BASH_BORDER,
         diff_input: None,
-        execution_timeout_ms: None,
+        timeout_ms: None,
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,

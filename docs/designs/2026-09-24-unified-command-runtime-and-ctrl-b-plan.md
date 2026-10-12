@@ -348,7 +348,7 @@ Rust trait 不能禁止同一 crate 中开发者重新写 Command；真正约束
 | --- | --- |
 | `timeout` | 默认 120000 ms，上限 600000 ms；TUI 到期移交后台，inline 宿主到期取消 |
 | `execution_timeout` | 默认 600000 ms，允许整数 1–600000 ms；到期停止任务，不是再后台化 |
-| `Running… (Xs) (timeout 10m)` | 实际已运行时间及硬执行上限；并非审批/Hook 等待时间 |
+| `Running… (Xs) (timeout 2m)` | 实际已运行时间及模型请求的 `timeout` 期限（默认 2m，TUI 到期移交后台）；不是硬执行上限，也不是审批/Hook 等待时间 |
 | Ctrl+B / `run_in_background` | 继续同一次执行，保持任务、输出路径和截止时间 |
 | PowerShell / CMD / git / Git Bash | 从 Bash 工具调用的整条命令统一登记；原生脚本需显式解释器，内部子命令不是独立工具任务 |
 

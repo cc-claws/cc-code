@@ -25,12 +25,12 @@ fn make_bash() -> MessageViewModel {
     );
     if let MessageViewModel::ToolBlock {
         started_at,
-        execution_timeout_ms,
+        timeout_ms,
         ..
     } = &mut vm
     {
         *started_at = Some(Instant::now());
-        *execution_timeout_ms = Some(300_000);
+        *timeout_ms = Some(300_000);
     }
     vm.recompute_hash();
     vm

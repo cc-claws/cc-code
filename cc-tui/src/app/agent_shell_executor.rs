@@ -41,6 +41,8 @@ pub struct AgentShellRegistration {
     pub tool_call_id: Option<String>,
     pub source_agent_id: Option<String>,
     pub execution_timeout_ms: u64,
+    /// 模型请求的超时期限（`timeout` 参数，毫秒）；仅用于运行状态行展示。
+    pub timeout_ms: u64,
     pub command: String,
     pub cwd: String,
     pub output_path: PathBuf,
@@ -71,6 +73,8 @@ pub struct AgentShellSlot {
     pub tool_call_id: Option<String>,
     pub source_agent_id: Option<String>,
     pub execution_timeout_ms: u64,
+    /// 模型请求的超时期限（`timeout` 参数，毫秒）；仅用于运行状态行展示。
+    pub timeout_ms: u64,
     pub command: String,
     pub cwd: PathBuf,
     pub output_path: PathBuf,
@@ -103,6 +107,7 @@ impl AgentShellSlot {
             tool_call_id: reg.tool_call_id,
             source_agent_id: reg.source_agent_id,
             execution_timeout_ms: reg.execution_timeout_ms,
+            timeout_ms: reg.timeout_ms,
             command: reg.command,
             cwd: PathBuf::from(reg.cwd),
             output_path: reg.output_path,
@@ -208,6 +213,7 @@ impl ShellExecutor for AgentShellExecutor {
             cwd,
             run_in_background,
             execution_timeout_ms,
+            timeout_ms,
             ..
         } = req;
 
@@ -288,6 +294,7 @@ impl ShellExecutor for AgentShellExecutor {
             tool_call_id: invocation.as_ref().map(|ctx| ctx.tool_call_id.clone()),
             source_agent_id: invocation.and_then(|ctx| ctx.source_agent_id),
             execution_timeout_ms,
+            timeout_ms,
             command: original_command,
             cwd: cwd.clone(),
             output_path: output_path.clone(),
@@ -335,6 +342,7 @@ mod tests {
             tool_call_id: None,
             source_agent_id: None,
             execution_timeout_ms: 600_000,
+            timeout_ms: 120_000,
             command: "echo hi".to_string(),
             cwd: "/tmp".to_string(),
             output_path: PathBuf::from("/tmp/out.log"),

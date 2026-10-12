@@ -253,7 +253,7 @@ impl MessagePipeline {
                 },
                 diff_input,
                 started_at: None,
-                execution_timeout_ms: None,
+                timeout_ms: None,
                 shell_backgrounded: false,
                 content_hash: 0,
             };
