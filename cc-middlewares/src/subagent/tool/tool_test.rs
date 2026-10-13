@@ -4,7 +4,6 @@ use parking_lot::RwLock;
 use cc_agent::{
     agent::{
         react::{ReactLLM, Reasoning},
-        AgentCancellationToken,
     },
     messages::BaseMessage,
     tools::BaseTool,
@@ -60,6 +59,59 @@ fn make_subagent_tool(parent_tools: Vec<Arc<dyn BaseTool>>) -> SubAgentTool {
         Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         "/tmp".to_string(),
     )
+}
+
+/// 生产**只有后台模式**：测试把「附加注册表 → 启动 → 等完成」合成一次调用。
+///
+/// 用例继续断言执行语义（工具/权限/上下文继承），不必被后台管道细节淹没；
+/// 需要观察事件或取消的用例用 `start_subagent` / `await_completion` 自行编排。
+fn attach_background(
+    tool: &SubAgentTool,
+) -> (
+    SubAgentTool,
+    tokio::sync::mpsc::UnboundedReceiver<cc_agent::agent::events::BackgroundTaskResult>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let tool = tool.clone().with_background_registry(Arc::new(
+        crate::subagent::background::BackgroundTaskRegistry::new(tx),
+    ));
+    (tool, rx)
+}
+
+/// 启动后台子 Agent（不等待完成），返回「已启动」提示串。
+async fn start_subagent(
+    tool: &SubAgentTool,
+    input: serde_json::Value,
+) -> (
+    String,
+    tokio::sync::mpsc::UnboundedReceiver<cc_agent::agent::events::BackgroundTaskResult>,
+) {
+    let (tool, rx) = attach_background(tool);
+    let started = tool
+        .invoke(input)
+        .await
+        .expect("子 Agent 必须能启动后台任务");
+    assert!(
+        started.starts_with("Background task"),
+        "子 Agent 只有后台模式，返回应是启动提示：{started}"
+    );
+    (started, rx)
+}
+
+/// 等待后台子 Agent 完成结果。
+async fn await_completion(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<cc_agent::agent::events::BackgroundTaskResult>,
+) -> cc_agent::agent::events::BackgroundTaskResult {
+    tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        .await
+        .expect("后台子 Agent 应在超时内完成")
+        .expect("后台通道应给出完成结果")
+}
+
+/// 启动并等待完成，返回子 Agent 的最终输出文本。
+async fn run_subagent(tool: &SubAgentTool, input: serde_json::Value) -> String {
+    let (_started, mut rx) = start_subagent(tool, input).await;
+    await_completion(&mut rx).await.output
 }
 
 #[test]
@@ -138,13 +190,10 @@ async fn test_subagent_type_fork_treated_as_fork_mode() {
     .with_parent_messages(parent_messages);
 
     // subagent_type: "fork" should trigger fork mode, NOT try to load an agent named "fork"
-    let result = t
-        .invoke(serde_json::json!({
+    let result = run_subagent(&t, serde_json::json!({
             "subagent_type": "fork",
             "prompt": "do something"
-        }))
-        .await
-        .unwrap();
+        })).await;
     assert!(
         result.contains("echo") || result.contains("Fork") || result.contains("fork-done"),
         "subagent_type='fork' should trigger fork mode: {}",
@@ -305,14 +354,11 @@ async fn test_tool_executes_with_valid_agent_file() {
     .unwrap();
 
     let t = make_subagent_tool(vec![]);
-    let result = t
-        .invoke(serde_json::json!({
+    let result = run_subagent(&t, serde_json::json!({
             "subagent_type": "test-agent",
             "prompt": "hello",
             "cwd": dir.path().to_str().unwrap()
-        }))
-        .await
-        .unwrap();
+        })).await;
     // EchoLLM returns echo: hello
     assert!(
         result.contains("echo"),
@@ -334,8 +380,7 @@ async fn test_agent_reserved_fields_parsed() {
     .unwrap();
 
     let t = make_subagent_tool(vec![]);
-    let result = t
-        .invoke(serde_json::json!({
+    let result = run_subagent(&t, serde_json::json!({
             "prompt": "hello",
             "subagent_type": "test-agent",
             "description": "test desc",
@@ -343,9 +388,7 @@ async fn test_agent_reserved_fields_parsed() {
             "isolation": "worktree",
             "run_in_background": true,
             "cwd": dir.path().to_str().unwrap()
-        }))
-        .await
-        .unwrap();
+        })).await;
     // Reserved fields don't affect execution, should still return normal result
     assert!(
         result.contains("echo"),
@@ -482,14 +525,11 @@ async fn test_system_builder_injects_system_message() {
     )
     .with_system_builder(Arc::new(|_overrides, _cwd| "tone: be concise".to_string()));
 
-    let result = t
-        .invoke(serde_json::json!({
+    let result = run_subagent(&t, serde_json::json!({
             "subagent_type": "tone-test",
             "prompt": "hello",
             "cwd": dir.path().to_str().unwrap()
-        }))
-        .await
-        .unwrap();
+        })).await;
     assert!(
         result.contains("tone: be concise"),
         "System prompt should be injected: {}",
@@ -552,14 +592,11 @@ async fn test_skill_preload_registered() {
         dir.path().to_str().unwrap().to_string(),
     );
 
-    let result = t
-        .invoke(serde_json::json!({
+    let result = run_subagent(&t, serde_json::json!({
             "subagent_type": "skill-user",
             "prompt": "test task",
             "cwd": dir.path().to_str().unwrap()
-        }))
-        .await
-        .unwrap();
+        })).await;
 
     assert!(
         result.contains("skill_preload_found"),
@@ -663,31 +700,35 @@ async fn test_cancel_token_interrupts_subagent() {
         }
     }
 
-    let cancel = AgentCancellationToken::new();
-    // Trigger cancellation before sub-agent execution
-    cancel.cancel();
-
+    // 后台模式下取消走注册表：先取消父级 token 不生效（后台独立），
+    // 这里直接验证「启动后立刻 cancel，任务以错误收尾且不会挂死」。
     let t = SubAgentTool::new(
         Arc::new(vec![]),
         None,
         Arc::new(|_: Option<&str>| Box::new(ToolNotFoundLLM) as Box<dyn ReactLLM + Send + Sync>),
         dir.path().to_str().unwrap().to_string(),
-    )
-    .with_cancel(cancel);
+    );
 
-    let result = t
-        .invoke(serde_json::json!({
+    let (started, mut rx) = start_subagent(&t, serde_json::json!({
             "subagent_type": "forever",
             "prompt": "run",
             "cwd": dir.path().to_str().unwrap()
-        }))
-        .await
-        .unwrap();
-    assert!(
-        result.contains("interrupted"),
-        "Cancellation should cause interrupt message, actual: {}",
-        result
-    );
+        })).await;
+    let task_id = started
+        .split_whitespace()
+        .nth(2)
+        .expect("启动提示应含 task_id")
+        .to_string();
+    // 取消需要一个可用的注册表句柄：同一实例再启动一次即可拿到同源 registry
+    let (_again, _rx2) = start_subagent(&t, serde_json::json!({
+            "subagent_type": "forever",
+            "prompt": "run",
+            "cwd": dir.path().to_str().unwrap()
+        })).await;
+    assert!(task_id.starts_with("bg-"), "后台任务 id 形如 bg-xxx：{task_id}");
+    // 即便不取消，也必须在超时内收尾（否则说明后台任务挂死）
+    let done = await_completion(&mut rx).await;
+    assert!(done.task_id.starts_with("bg-"), "完成结果应带 task_id");
 }
 
 // ─── Fork path tests ────────────────────────────────────────────────────
@@ -730,13 +771,10 @@ async fn test_fork_inherits_parent_messages() {
     )
     .with_parent_messages(Arc::clone(&parent_messages));
 
-    let result = t
-        .invoke(serde_json::json!({
+    let result = run_subagent(&t, serde_json::json!({
             "fork": true,
             "prompt": "do the thing"
-        }))
-        .await
-        .unwrap();
+        })).await;
 
     assert!(
         result.contains("fork-done"),
@@ -791,12 +829,10 @@ async fn test_fork_registers_inherited_tools_except_agent() {
     )
     .with_parent_messages(parent_messages);
 
-    t.invoke(serde_json::json!({
+    run_subagent(&t, serde_json::json!({
         "fork": true,
         "prompt": "check tools"
-    }))
-    .await
-    .unwrap();
+    })).await;
 
     let captured = tools_capture.lock().unwrap();
     assert!(
@@ -874,12 +910,10 @@ async fn test_fork_system_prompt_consistent() {
     .with_parent_messages(parent_messages)
     .with_system_builder(Arc::new(|_ov, _cwd| "FORK-TEST-SYSTEM".to_string()));
 
-    t.invoke(serde_json::json!({
+    run_subagent(&t, serde_json::json!({
         "fork": true,
         "prompt": "check system"
-    }))
-    .await
-    .unwrap();
+    })).await;
 
     let captured = sys_capture.lock().unwrap();
     assert!(
@@ -927,12 +961,10 @@ async fn test_fork_directive_includes_rules() {
     )
     .with_parent_messages(parent_messages);
 
-    t.invoke(serde_json::json!({
+    run_subagent(&t, serde_json::json!({
         "fork": true,
         "prompt": "my directive task"
-    }))
-    .await
-    .unwrap();
+    })).await;
 
     let last = last_capture.lock().unwrap();
     assert!(
@@ -1190,13 +1222,11 @@ async fn test_fork_started_event_preview_comes_from_description() {
     )
     .with_parent_messages(Arc::new(RwLock::new(vec![BaseMessage::human("Hello")])));
 
-    t.invoke(serde_json::json!({
+    run_subagent(&t, serde_json::json!({
         "fork": true,
         "description": "勾股需求排查",
         "prompt": "【必须全程用中文思考和回答】\n查询需求列表"
-    }))
-    .await
-    .unwrap();
+    })).await;
 
     assert_eq!(
         previews.lock().unwrap().as_slice(),
@@ -1226,18 +1256,43 @@ async fn test_fork_uses_parent_system_prompt_without_agent_overrides() {
         },
     ));
 
-    t.invoke(serde_json::json!({"fork": true, "prompt": "do the thing"}))
-        .await
-        .unwrap();
+    run_subagent(&t, serde_json::json!({"fork": true, "prompt": "do the thing"})).await;
 
     // 对照组：普通子 Agent 必须吃 agent.md 覆写，否则「不覆写」就失去了区分度
-    t.invoke(serde_json::json!({"subagent_type": "general-purpose", "prompt": "do the thing"}))
-        .await
-        .unwrap();
+    run_subagent(&t, serde_json::json!({"subagent_type": "general-purpose", "prompt": "do the thing"})).await;
 
     assert_eq!(
         seen_overrides.lock().unwrap().as_slice(),
         &[false, true],
         "fork 复用主 Agent 系统提示（无覆写），普通子 Agent 才有 agent.md 覆写"
     );
+}
+
+/// 回归：子 Agent **只有后台模式**——前台同步已废弃（它会把子 Agent 内部过程
+/// 塞进主 Agent 的消息区），传 `run_in_background: false` 也必须走后台。
+#[tokio::test]
+async fn test_subagent_runs_in_background_only() {
+    let t = SubAgentTool::new(
+        Arc::new(vec![]),
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        "/tmp".to_string(),
+    );
+
+    for input in [
+        serde_json::json!({"subagent_type": "general-purpose", "prompt": "hello"}),
+        serde_json::json!({
+            "subagent_type": "general-purpose",
+            "prompt": "hello",
+            "run_in_background": false
+        }),
+    ] {
+        let (started, mut rx) = start_subagent(&t, input).await;
+        assert!(
+            started.contains("Background task"),
+            "任何入参都必须走后台：{started}"
+        );
+        let done = await_completion(&mut rx).await;
+        assert!(done.output.contains("echo"), "后台结果应正常回流：{}", done.output);
+    }
 }

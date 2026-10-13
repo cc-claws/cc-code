@@ -3,8 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cc_agent::{
     agent::{
-        events::{AgentEvent, AgentEventHandler},
-        react::{AgentInput, ReactLLM},
+        events::AgentEventHandler,
+        react::ReactLLM,
         AgentCancellationToken,
     },
     messages::BaseMessage,
@@ -16,15 +16,10 @@ use crate::tool_search::core_tools::TOOL_AGENT;
 use crate::{
     agent_define::{AgentDefineMiddleware, AgentOverrides},
     claude_agent_parser::{parse_agent_file, ClaudeAgent, ToolsValue},
-    hooks::types::{HookEvent, RegisteredHook},
+    hooks::types::RegisteredHook,
     subagent::{background::BackgroundTaskRegistry, built_in_agents::get_built_in_agent},
 };
 use parking_lot::RwLock;
-
-use super::{
-    build_agent::{AgentBuildOptions, CancelPolicy}, fire_subagent_lifecycle_hooks_static,
-    format_subagent_result, subagent_task_preview,
-};
 
 /// RAII guard that calls deregister on drop (panic-safe cleanup).
 pub(crate) struct DeregisterGuard {
@@ -50,8 +45,10 @@ Usage:
 - Tools derive from the parent's available set with Agent excluded, and may be restricted by the agent definition. Delegation grants no new permissions.
 - Agents share filesystem access and normally inherit cwd. Assign separate write scopes and avoid concurrent edits to the same files. The isolation parameter is reserved and does not create a worktree.
 - Request a concise handoff covering Scope, Result, Key files, Files changed, and verification evidence or blockers. Tool-use summaries may precede the final response.
-- run_in_background=true allows the parent to continue and delivers a completion notification. At most 3 background tasks run concurrently; use this only for work that does not block the parent's next action."#;
+- Sub-agents always run in the background: the bottom drawer tracks each one, your turn continues immediately, and each result is delivered as a completion notification. At most 3 run concurrently.
+- There is no foreground mode: a sub-agent's internals never render into the main conversation."#;
 
+#[derive(Clone)]
 pub struct SubAgentTool {
     /// Parent agent tool set (Arc shared, read-only)
     pub(crate) parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
@@ -265,23 +262,6 @@ impl SubAgentTool {
         crate::subagent::fork::overrides_from_agent_def(system_prompt, tone, proactiveness)
     }
 
-    pub(crate) async fn fire_subagent_lifecycle_hook(
-        &self,
-        event: HookEvent,
-        cwd: &str,
-        subagent_name: &str,
-        result: Option<&str>,
-    ) {
-        fire_subagent_lifecycle_hooks_static(
-            &self.registered_hooks,
-            event,
-            cwd,
-            subagent_name,
-            result,
-        )
-        .await;
-    }
-
     pub(crate) fn filter_tools(
         &self,
         allowed: &ToolsValue,
@@ -326,10 +306,6 @@ impl BaseTool for SubAgentTool {
                     "type": "string",
                     "description": "Reserved for future use; currently does not provide filesystem or worktree isolation"
                 },
-                "run_in_background": {
-                    "type": "boolean",
-                    "description": "Set to true to run the sub-agent in the background. The main agent continues immediately and receives a notification when the background task completes. Maximum 3 concurrent background tasks"
-                },
                 "cwd": {
                     "type": "string",
                     "description": "The working directory for the sub-agent. Defaults to inheriting the parent agent's current working directory if not specified"
@@ -360,10 +336,9 @@ impl BaseTool for SubAgentTool {
             .map(|s| s.to_string());
         let _name = input.get("name").and_then(|v| v.as_str());
         let _isolation = input.get("isolation").and_then(|v| v.as_str());
-        let run_in_background = input
-            .get("run_in_background")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        // 子 Agent 只有后台模式（抽屉是唯一呈现，结果经完成通知回流）。
+        // 前台同步已被移除：它会把子 Agent 内部过程塞进主 Agent 的消息区，
+        // 正是引入抽屉要解决的问题。
         let cwd = input
             .get("cwd")
             .and_then(|v| v.as_str())
@@ -373,151 +348,7 @@ impl BaseTool for SubAgentTool {
             || subagent_type.as_deref() == Some("fork");
         let timeout_secs = input.get("timeout_secs").and_then(|v| v.as_u64());
 
-        if run_in_background && self.background_registry.is_some() {
-            return self
-                .invoke_background(prompt, subagent_type, cwd, is_fork, timeout_secs, description)
-                .await;
-        }
-
-        if is_fork {
-            return self.invoke_fork(&prompt, &cwd, description.as_deref()).await;
-        }
-
-        let agent_id = match &subagent_type {
-            Some(id) => id.clone(),
-            None => {
-                return Err(
-                    "Error: please provide subagent_type parameter to specify the agent type, or use fork: true for fork mode"
-                        .into(),
-                )
-            }
-        };
-
-        let agent_def = match self.load_agent_def(&agent_id, &cwd) {
-            Ok(a) => a,
-            Err(e) => return Err(e.into()),
-        };
-
-        let build_result = self
-            .build_agent_from_def(
-                &agent_def,
-                &agent_id,
-                &cwd,
-                AgentBuildOptions {
-                    cancel_policy: CancelPolicy::Cascade,
-                    skip_events: false,
-                    setup_event_handler: true,
-                    fork: false,
-                    task_preview: subagent_task_preview(description.as_deref(), &prompt),
-                    snapshot_at_message_id: None,
-                },
-            )
-            .await?;
-
-        let agent_builder = build_result.builder;
-        let mut state = build_result.state;
-        let child_thread_id = build_result.child_thread_id;
-        let instance_id = child_thread_id.clone();
-        let child_cancel = build_result.cancel_token.unwrap_or_default();
-
-        // Register AgentRuntime: only when thread_store is present (non-legacy path)
-        // Panic-safe: DeregisterGuard ensures deregister runs on drop (panic or early return)
-        //
-        // child_cancel is linked to parent via child_token(): parent cancel → child_cancel fires.
-        // The same child_cancel is passed to execute(), so cascade cancel works correctly.
-        let _deregister_guard = if self.thread_store.is_some() {
-            if let Some(ref register) = self.register_runtime {
-                register(
-                    child_thread_id.clone(),
-                    child_cancel.clone(),
-                    "cascade".to_string(),
-                );
-            }
-            DeregisterGuard {
-                thread_id: child_thread_id.clone(),
-                deregister: self.deregister_runtime.clone(),
-            }
-        } else {
-            DeregisterGuard {
-                thread_id: child_thread_id.clone(),
-                deregister: None,
-            }
-        };
-
-        tracing::info!(
-            "[DEADLOCK] SubAgentTool: START child execute, agent_id={}, prompt_len={}",
-            agent_id,
-            prompt.len()
-        );
-        let exec_start = std::time::Instant::now();
-        let exec_result = agent_builder
-            .execute(AgentInput::text(prompt), &mut state, Some(child_cancel))
-            .await;
-        tracing::info!(
-            "[DEADLOCK] SubAgentTool: END child execute ({:.1?}), agent_id={}, is_ok={}",
-            exec_start.elapsed(),
-            agent_id,
-            exec_result.is_ok()
-        );
-
-        let (output_summary, stopped_is_error) = match &exec_result {
-            Ok(output) => (output.text.chars().take(500).collect::<String>(), false),
-            Err(e) => (
-                format!("Error: {}", e)
-                    .chars()
-                    .take(500)
-                    .collect::<String>(),
-                true,
-            ),
-        };
-        if let Some(ref handler) = self.event_handler {
-            handler.on_event(AgentEvent::SubagentStopped {
-                agent_name: agent_id.clone(),
-                result: output_summary.clone(),
-                is_error: stopped_is_error,
-                elapsed_ms: 0,
-                instance_id: instance_id.clone(),
-            });
-        }
-        self.fire_subagent_lifecycle_hook(
-            crate::hooks::types::HookEvent::SubagentStop,
-            &cwd,
-            &agent_id,
-            Some(&output_summary),
-        )
-        .await;
-
-        match exec_result {
-            Ok(output) => {
-                if let Some(ref store) = self.thread_store {
-                    let _ = store.update_thread_status(&child_thread_id, "done").await;
-                }
-                let result_text = format_subagent_result(&output);
-                if self.thread_store.is_some() {
-                    Ok(format!(
-                        "child_thread_id: {}
-{}",
-                        child_thread_id, result_text
-                    ))
-                } else {
-                    Ok(result_text)
-                }
-            }
-            Err(cc_agent::error::AgentError::Interrupted) => {
-                if let Some(ref store) = self.thread_store {
-                    let _ = store
-                        .update_thread_status(&child_thread_id, "cancelled")
-                        .await;
-                }
-                Ok("Sub-agent execution was interrupted".to_string())
-            }
-            Err(e) => {
-                if let Some(ref store) = self.thread_store {
-                    let _ = store.update_thread_status(&child_thread_id, "error").await;
-                }
-                let msg = format!("Sub-agent execution failed: {}", e);
-                Err(msg.into())
-            }
-        }
+        self.invoke_background(prompt, subagent_type, cwd, is_fork, timeout_secs, description)
+            .await
     }
 }

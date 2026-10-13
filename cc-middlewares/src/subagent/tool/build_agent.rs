@@ -1,43 +1,24 @@
 use std::sync::Arc;
 
 use cc_agent::{
-    agent::{
-        events::AgentEvent, react::ReactLLM, state::AgentState, AgentCancellationToken, ReActAgent,
-    },
+    agent::{react::ReactLLM, state::AgentState, AgentCancellationToken, ReActAgent},
     thread::ThreadMeta,
 };
 
 use crate::{
-    claude_agent_parser::{ClaudeAgent, ToolsValue}, hooks::types::HookEvent,
-    subagent::SubAgentMiddlewareConfig,
+    claude_agent_parser::{ClaudeAgent, ToolsValue}, subagent::SubAgentMiddlewareConfig,
 };
 
-use super::{build_subagent_middlewares, SourceAgentIdHandler};
+use super::build_subagent_middlewares;
 
-/// Controls how parent cancellation affects child agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CancelPolicy {
-    /// Parent cancel → child cancel (normal sync, fork)
-    Cascade,
-    /// Only session-level cancel_all_agents can stop this (background)
-    Independent,
-}
-
-/// 子 Agent 构建参数。
+/// 子 Agent 构建参数（只有后台模式，故取消策略恒为 independent）。
 ///
-/// **fork 与普通子 Agent 走同一条构建路径**，差异只有 `fork`（复用主 Agent 系统提示 +
-/// 全量继承工具）与 `cancel_policy`；建档、中间件链、持久化、事件、结果处理全部共用，
-/// 避免同一件事写两遍后只改一处导致的漂移。
+/// **fork 与普通子 Agent 走同一条构建路径**，差异只有 `fork`；建档、中间件链、
+/// 持久化、工具过滤全部共用，避免同一件事写两遍后只改一处导致的漂移。
 #[derive(Debug, Clone)]
 pub(crate) struct AgentBuildOptions {
-    pub cancel_policy: CancelPolicy,
-    /// 事件由调用方稍后补发（后台路径在 `tokio::spawn` 里发）
-    pub skip_events: bool,
-    pub setup_event_handler: bool,
     /// fork 模式：系统提示不做 agent.md 覆写、工具全量继承主 Agent
     pub fork: bool,
-    /// `SubagentStarted.task_preview`（启动摘要 / 抽屉行标题）
-    pub task_preview: String,
     /// fork：子线程记录「从父线程哪条消息分叉」，供历史追溯
     pub snapshot_at_message_id: Option<String>,
 }
@@ -57,11 +38,8 @@ pub(crate) struct AgentBuildResult {
 impl super::SubAgentTool {
     /// Build a ReActAgent + AgentState from an agent definition.
     ///
-    /// `options.skip_events`: if true, SubagentStarted/SubagentStart events are NOT emitted here
-    /// (used by background path which emits them later in tokio::spawn).
-    /// `options.setup_event_handler`: if true, sets up child_handler_factory or event_handler
-    /// with the generated child_thread_id as instance_id (normal path). If false (background
-    /// path), no event handler is configured here.
+    /// 只服务后台路径（唯一模式）：事件与 `SubagentStarted` 由 `execute_bg` 在
+    /// `tokio::spawn` 里补发，这里不配事件处理器、不取消级联。
     /// `options.fork`: fork 模式（复用主 Agent 系统提示 + 工具全量继承）。
     pub(crate) async fn build_agent_from_def(
         &self,
@@ -73,18 +51,14 @@ impl super::SubAgentTool {
         // 1. Generate child_thread_id
         let child_thread_id = uuid::Uuid::now_v7().to_string();
 
-        // 2. Thread store setup
+        // 2. Thread store setup（后台子 Agent 的取消由会话级 cancel_all 管，恒为 independent）
         if let Some(ref store) = self.thread_store {
-            let cancel_policy_str = match options.cancel_policy {
-                CancelPolicy::Cascade => "cascade".to_string(),
-                CancelPolicy::Independent => "independent".to_string(),
-            };
             let mut child_meta = ThreadMeta::new(cwd);
             child_meta.id = child_thread_id.clone();
             child_meta.parent_thread_id = self.parent_thread_id.clone();
             child_meta.snapshot_at_message_id = options.snapshot_at_message_id.clone();
             child_meta.hidden = true;
-            child_meta.cancel_policy = cancel_policy_str;
+            child_meta.cancel_policy = "independent".to_string();
             child_meta.title = Some(agent_name.to_string());
             store
                 .create_thread(child_meta)
@@ -167,20 +141,7 @@ impl super::SubAgentTool {
             agent_builder = agent_builder.register_tool(tool);
         }
 
-        // 10. Event handler
-        if options.setup_event_handler {
-            if let Some(ref factory) = self.child_handler_factory {
-                agent_builder = agent_builder.with_event_handler(factory(child_thread_id.clone()));
-            } else if let Some(handler) = &self.event_handler {
-                let tagged = Arc::new(SourceAgentIdHandler::new(
-                    Arc::clone(handler),
-                    child_thread_id.clone(),
-                ));
-                agent_builder = agent_builder.with_event_handler(tagged);
-            }
-        }
-
-        // 11. Agent state
+        // 10. Agent state
         let state = if let Some(ref store) = self.thread_store {
             AgentState::new(cwd.to_string())
                 .with_persistence(Arc::clone(store), child_thread_id.clone())
@@ -189,27 +150,8 @@ impl super::SubAgentTool {
         }
         .with_context("source_agent_id", child_thread_id.clone());
 
-        // 12-13. Cancel token (cascade → child_token, independent → new)
-        let cancel_token = match options.cancel_policy {
-            CancelPolicy::Cascade => self.cancel.as_ref().map(|t| t.child_token()),
-            CancelPolicy::Independent => Some(AgentCancellationToken::new()),
-        };
-
-        // 14. Events (skip if background path)
-        if !options.skip_events {
-            if let Some(ref handler) = self.event_handler {
-                handler.on_event(AgentEvent::SubagentStarted {
-                    agent_name: agent_name.to_string(),
-                    instance_id: child_thread_id.clone(),
-                    is_background: false,
-                    task_preview: options.task_preview.clone(),
-                    timeout_secs: None,
-                    model: None,
-                });
-            }
-            self.fire_subagent_lifecycle_hook(HookEvent::SubagentStart, cwd, agent_name, None)
-                .await;
-        }
+        // 11. Cancel token：后台子 Agent 独立于父级取消，只由会话级 cancel_all 打断
+        let cancel_token = Some(AgentCancellationToken::new());
 
         Ok(AgentBuildResult {
             builder: agent_builder,

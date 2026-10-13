@@ -4,7 +4,7 @@ use cc_agent::{
     messages::BaseMessage,
 };
 use crate::{hooks::types::HookEvent, subagent::background::{BackgroundTask, BackgroundTaskSnapshot, BackgroundTaskStatus}};
-use super::{build_agent::CancelPolicy, fire_subagent_lifecycle_hooks_static};
+use super::fire_subagent_lifecycle_hooks_static;
 
 /// 后台事件使用会话独立通道，主 prompt 退出后仍保留完整子线程输出。
 struct BackgroundEventHandler {
@@ -21,6 +21,12 @@ impl AgentEventHandler for BackgroundEventHandler {
         if let Some(sender) = &self.sender { let _ = sender.send(event); }
         else if let Some(handler) = &self.fallback { handler.on_event(event); }
     }
+
+    /// #369：包装型 handler 必须委托内部 handler 的载荷需求声明，
+    /// 否则子 Agent 的 `LlmCallStart` 会丢掉 Langfuse 输入快照。
+    fn wants_llm_call_payload(&self) -> bool {
+        self.fallback.as_ref().is_some_and(|handler| handler.wants_llm_call_payload())
+    }
 }
 
 impl super::SubAgentTool {
@@ -28,23 +34,27 @@ impl super::SubAgentTool {
         &self, prompt: String, subagent_type: Option<String>, cwd: String, is_fork: bool,
         timeout_secs: Option<u64>, description: Option<String>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let registry = self.background_registry.as_ref().ok_or("Background tasks not available: no registry configured")?;
+        // 先做入参校验，再做运行环境校验：漏参是模型的问题，应给出可操作的错误，
+        // 而不是被「本会话没有后台注册表」这类环境错误盖住。
         let agent_name = if is_fork { "fork".to_string() } else {
-            subagent_type.ok_or("Error: background mode requires subagent_type parameter (or use fork: true)")?
+            subagent_type.ok_or("Error: subagent_type is required (or set fork: true for fork mode)")?
         };
         let parent_messages = if is_fork {
             Some(self.parent_messages.as_ref().ok_or("Error: Fork path requires parent message history, but parent_messages is not set")?.read().clone())
         } else { None };
-        // fork 复用同一构造/持久化/权限路径，仅上下文来源不同。
+        // 入参侧校验全部前置（缺参 / agent 定义不存在），环境侧校验（注册表）放最后，
+        // 否则模型会拿到「没有后台注册表」这种它无法处理的错误。
         let agent_def = self.load_agent_def(if is_fork { "general-purpose" } else { &agent_name }, &cwd)?;
-        let preview = super::subagent_task_preview(description.as_deref(), &prompt);
+        let registry = self.background_registry.as_ref().ok_or(
+            "Error: sub-agents run in the background only, but no background registry is configured in this session",
+        )?;
         let build = self.build_agent_from_def(&agent_def, &agent_name, &cwd, super::build_agent::AgentBuildOptions {
-            cancel_policy: CancelPolicy::Independent,
-            skip_events: true,
-            setup_event_handler: false,
             fork: is_fork,
-            task_preview: preview.clone(),
-            snapshot_at_message_id: None,
+            // 记录分叉点：历史里能看出这条 fork 线程从父线程哪条消息长出来
+            snapshot_at_message_id: parent_messages
+                .as_ref()
+                .and_then(|messages| messages.last())
+                .map(|message| message.id().as_uuid().to_string()),
         }).await?;
         let thread_id = build.child_thread_id;
         let task_id = format!("bg-{}", uuid::Uuid::new_v4());
@@ -74,6 +84,7 @@ impl super::SubAgentTool {
         let spawn_name = agent_name.clone();
         let spawn_preview = preview.clone();
         let spawn_cancel = cancel.clone();
+        let spawn_cwd = cwd.clone();
         let store = self.thread_store.clone();
         let hooks = self.registered_hooks.clone();
         let sender = self.bg_event_sender.clone();
@@ -108,17 +119,19 @@ impl super::SubAgentTool {
                 handler.on_event(stopped);
                 handler.on_event(AgentEvent::BackgroundTaskCompleted(result.clone()));
             }
-            fire_subagent_lifecycle_hooks_static(&hooks, HookEvent::SubagentStop, &cwd, &spawn_name, Some(&result.output)).await;
+            fire_subagent_lifecycle_hooks_static(&hooks, HookEvent::SubagentStop, &spawn_cwd, &spawn_name, Some(&result.output)).await;
         });
         registry.register(BackgroundTask { id: task_id.clone(), agent_name: agent_name.clone(), prompt_summary: preview.clone(),
             status: BackgroundTaskStatus::Running, started_at: std::time::Instant::now(), abort_handle: handle })?;
         registry.attach_runtime(snapshot, cancel.clone(), mailbox);
         if let Some(register) = &self.register_runtime { register(thread_id.clone(), cancel, "independent".into()); }
-        let started = AgentEvent::SubagentStarted { agent_name, instance_id: thread_id.clone(), is_background: true,
+        let started = AgentEvent::SubagentStarted { agent_name: agent_name.clone(), instance_id: thread_id.clone(), is_background: true,
             task_preview: preview, timeout_secs, model };
         // 与过程事件同一发送通道，开始事件必定排在首个增量之前。
         if let Some(sender) = &self.bg_event_sender { let _ = sender.send(started); }
         else if let Some(handler) = &self.event_handler { handler.on_event(started); }
+        // SubagentStart hook：原先只在前台同步路径触发，后台任务漏了（前台已移除）
+        fire_subagent_lifecycle_hooks_static(&self.registered_hooks, HookEvent::SubagentStart, &cwd, &agent_name, None).await;
         let _ = start_tx.send(());
         Ok(format!("Background task {task_id} started (thread: {thread_id}). You will be notified when it completes. Use Agent(action=\"status\" or \"cancel\", task_id=\"{task_id}\") to manage it."))
     }
