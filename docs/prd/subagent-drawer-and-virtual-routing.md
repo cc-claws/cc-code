@@ -394,12 +394,14 @@ impl App {
    * 当前视口圆点：`●`（U+25CF 实心）；非当前视口：`◯`（U+25EF 空心）——**禁用 `○`（U+25CB）**，两者宽度不一致会导致行内错位；
    * 极矮终端折叠态沿用同一套字形。
 2. **配色（每行按 `bright` 分档，只有键盘游标所在行亮白，其余统一灰）**：
-   * 游标 `#38BDF8`（`DRAWER_CURSOR`，加粗）；
-   * 选中行（`bright = true`）三档前景色：类型名 `#FFFFFF`（`DRAWER_TEXT_ACTIVE`，加粗）、预览 `#E2E8F0`（`DRAWER_TEXT`）、右侧指标 `#CBD5E1`（`DRAWER_PREVIEW`）；
-   * 未选中行类型名 / 预览 / 指标**统一** `#64748B`（`DRAWER_MUTED`）；
-   * 实心圆点 `#F1F5F9`（`DRAWER_CIRCLE_ON`），空心圆点走 `DRAWER_MUTED`；
-   * 选中行整行底色 `#1E2436`（`DRAWER_SELECTED_BG`）——**禁止用 `Modifier::REVERSED`** 反色，反色会覆盖上述前景色；
-   * `accent`（`theme::WARNING` / `theme::ERROR`）仅在**待审批 / 失败 / 停止**时覆盖圆点与右侧指标，正常与完成行不得染色。
+   * 游标 `> ` 与游标行正文（类型名 / 预览 / 右侧指标）：纯白 `#FFFFFF`（`DRAWER_TEXT_ACTIVE`，类型名加粗）；
+   * 其余行的类型名 / 预览 / 指标 / 空心圆点：统一灰 `#64748B`（`DRAWER_MUTED`）；
+   * 实心圆点 `●`（当前视口）：近白 `#F1F5F9`（`DRAWER_CIRCLE_ON`）；
+   * 游标行整行底色 `#1E2436`（`DRAWER_SELECTED_BG`）——**禁止用 `Modifier::REVERSED`** 反色，反色会覆盖上述前景色；
+   * **禁用青色、禁用中间灰阶堆叠**：原型 `docs/subagent-mock.html` 里的 `#38BDF8` 青色游标在真机上被否决，`DRAWER_CURSOR` / `DRAWER_TEXT` / `DRAWER_PREVIEW` 三个常量已删除（真机反馈："不要出现青色，只有 MUTED 和亮白，你搞那么多颜色干嘛"）。此条**覆盖原型**；
+   * `accent` 只覆盖**圆点与右侧指标**，正文不染色；取值：待审批 `theme::WARNING`（琥珀）、**已完成 `theme::SAGE`（绿）**、失败/停止 `theme::ERROR`（红）——
+     完成必须转绿，用户要能一眼看出"它结束了，我看完就可以走了"；
+   * 第三行抽屉提示（`Enter to view · x to stop · ctrl+x ctrl+k to stop all agents`）用 `theme::MUTED`，与消息区 `Thought for … (ctrl+o to expand)` 同色——它是辅助说明，不是游标。
 3. **列宽**：游标 `2` 列 + 圆点 `2` 列（合计前缀 `4` 列，极窄终端按 `left_width` 收缩，否则整行越界）+ 类型名 `≤18` 列（`truncate_to_display_width` 补齐）+ 弹性预览 + 右侧指标右对齐；
    * 行总宽 = 终端宽度，指标右对齐停靠在右边框内侧 `1` 列处；
    * 极窄终端下右侧指标宽度不得挤掉 4 列前缀（`right_width` 上限为 `usable - 4`）。
@@ -451,6 +453,10 @@ impl App {
    * 已完成条目在**离开抽屉且不在视口**后，仅保留「轻量归档摘要」入主时间线，`subagent_sessions` 条目可回收；
    * 回收前必须已被用户查看或已被摘要吸收，禁止静默丢弃用户尚未看过的子会话输出；
    * 任何回收都必须同步清理 `background_agents` 对应行、`focused_instance_id`（若指向被回收项则回退 `None`）与 `ui.bg_bar_cursor`，避免出现"抽屉幽灵行"。
+4. **已落地：「用户在看」优先于回收（真机定稿）**：
+   * 子 Agent 结束时，若 `focused_instance_id == 该 instance_id`，**视口与抽屉行原地保留**（行内 `✓ completed`、圆点与完成标记转绿），既不切回 main、也不摘行——结束瞬间抽走视口等于把用户正在读的内容抹掉（真机反馈："我要看啊，不应该等我走了你再清理吗"）；
+   * 用户按 `Esc`（或 `Enter` 切到别的行）真正离开时，`switch_subagent_viewport` 才调用 `reclaim_finished_subagent` 一次性回收该**会话句柄 + 抽屉行**（活跃中的子 Agent 不受影响）；
+   * 聚焦判据必须是「两个 id 都在场」：`child_thread_id` 与 `focused_instance_id` 同时为 `None` 时**不得**判为聚焦，否则无 id 的完成事件会被误判为"用户正在看"，从而留下幽灵行（`agent_events_bg.rs` 的 `was_focused` 用 `match (Some, Some)` 实现）。
 
 ---
 
@@ -565,16 +571,19 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
    * 对 sub1 发送 `cancel`，断言 sub1 状态变为 `Stopped`，sub2 依然保持 `Running` 继续读秒。
 4. **抽屉渲染断言**（`bg_agent_bar_test.rs` / `main_ui_test.rs`）：
    * 列宽：行总宽恒等于终端宽度，最后一列不越界，右侧指标右对齐（100 列断言）；
-   * 字形与配色：只有键盘游标所在行亮白，其余统一灰；圆点为 `●`/`◯`（断言不得出现 `○` U+25CB）；
+   * 字形与配色：只有键盘游标所在行亮白，其余统一灰；圆点为 `●`/`◯`（断言不得出现 `○` U+25CB）；抽屉不得出现青色或中间灰阶；
+   * 完成态：正在查看的子 Agent 结束时视口内容与会话句柄都保留，抽屉行转绿（`theme::SAGE`）；用户离开后才回收会话与行；
    * token 指标：Agent 回复时为 `↓ {output}`、用户提问后翻转为 `↑ {input}`，同一行**不得**同时出现两个箭头或累计值（`test_drawer_metrics_follows_token_flow_with_single_arrow`）。
 5. **通知登记断言**：`peri/subagent_lifecycle` 必须被 `is_peri_notification()` 认作 peri 通知（§5.2.1），否则整条抽屉静默失效。
 6. **游标收敛断言**：后台 Agent 全部结束后 `ui.bg_bar_cursor` 必须为 `None`、第三行不再渲染抽屉导航提示、按键不被 `bar_focus` 吞掉。
 
 ### 7.2 终端人工验收核对单（Checklist）
-- [ ] 空输入框按 `↓` 能精准进入底栏，`>` 箭头随 `↑/↓` 移动，选中行以 `#1E2436` 底色 + 亮白文字高亮（不得出现反色 `REVERSED` 观感）。
+- [ ] 空输入框按 `↓` 能精准进入底栏，`>` 箭头随 `↑/↓` 移动，游标行亮白 + 底色 `#1E2436`（不得出现反色 `REVERSED` 观感）。
+- [ ] 抽屉只有**亮白**与**灰**两档：不出现青色游标，也没有多种灰阶堆叠；第三行提示与消息区 `Thought for … (ctrl+o to expand)` 同色（MUTED）。
 - [ ] 抽屉右侧**只有一个箭头**：子 Agent 产出回复时 `↓ {n}`，向它提问后翻为 `↑ {n}`；无用量数据时只显示耗时。
 - [ ] 抽屉中间列显示子 Agent 的**助手文本**（不是 `Bash(...)` 工具串），工具细节进视口看。
 - [ ] 按 `Enter` 切换进入子任务视口，输入框上边框变亮青色且右侧出现任务标签。
+- [ ] **视口内遇到子 Agent 结束**：画面内容不消失（行内转绿显示 `✓ completed`），继续读没问题；按 `Esc` 返回主会话时该行才收起、会话回收。
 - [ ] 子任务视口内可完整看到其内部的 Thinking（支持 `Ctrl+O` 折叠）、Bash 倒计时和 Spinner，且状态栏第 2 行显示**该子任务专属**的工具计数（非空、非主会话数字）。
 - [ ] 在子任务视口中按 `↑` 选回 `main` 并按 `Enter`，可平滑返回主会话。
 - [ ] 子任务结束时，主会话打印 `• Agent "xxx" finished · 1m 32s`，主模型完成报告输出。
