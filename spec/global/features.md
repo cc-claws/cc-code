@@ -23,7 +23,7 @@
 
 ## 中间件（cc-middlewares）
 
-- **后台任务管理（未发布）：** 会话级任务注册表、下一次模型调用前消费的定向 mailbox、显式超时预算（省略/零无限制）、`Agent(action=spawn/status/cancel)`、独立持久化子线程与并发文件修改冲突检测。
+- **后台任务管理（未发布）：** 子 Agent 恒后台执行（无前台同步模式），会话级任务注册表（并发上限 3）、下一次模型调用前消费的定向 mailbox、显式超时预算 `timeout_secs`（省略/零无限制）、独立持久化子线程；结果经完成通知回流并自动续接。
 
 - **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个工具；只读工具无需 HITL
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
@@ -86,7 +86,7 @@
 - **全局屏幕选区:** ScreenSelection 基于渲染 Buffer 覆盖面板/状态栏/sticky header/bg agent bar/空白区域，与消息区 TextSelection 跨区域衔接；ScreenSnapshot 在 `terminal.draw()` 后克隆 Buffer 作为文本源；双击选整行（消息区用 TextSelection 纯文本，其他区域用 ScreenSelection 整屏行）；松开鼠标自动复制 + "已复制 N 个字符" toast
 - **Skills / 触发:** Skills 触发键从 # 统一到 / 前缀，提示浮层合并命令组+Skills 组，命令优先
 - **两档权限模式:** `auto`（默认）/ `bypass`，Shift+Tab 在 Auto ↔ Bypass 间循环，未知取值回退 auto，状态栏实时显示
-- **Background Agent:** Agent 工具 `run_in_background` 参数触发后台执行，最多 3 并发，`mpsc::unbounded_channel` 通知，完成后 Human 消息注入，主 agent Done 后自动 continuation，ToolBlock 样式显示，状态栏 `[BG: N]` 指示器
+- **Background Agent:** 子 Agent 恒后台执行（`run_in_background` 参数已退场），最多 3 并发，完成经 `peri/subagent_lifecycle` 通知回流、主时间线只留树形启动摘要与完成行并自动 continuation；底栏抽屉管理（游标/视口/单停与全停），不再用 ToolBlock 展示与状态栏 `[BG: N]` 指示器
 - **输入泵（InputPump）:** 独立后台输入泵隔离 Windows 控制台重入/阻塞风险，安全启用鼠标悬停（`MouseEventKind::Moved`）；有界事件批处理（EventReader）合并高频滚轮事件防掉帧；滚动条滑块相对拖拽消除点击漂移
 - **执行中消息队列 + 按轮次 steering:** agent 执行期间输入的消息进入待发队列，按轮次以增量 StateSnapshot 注入执行循环，不打断当前执行
 - **粘贴本机图片路径:** 含 `file://` URL 或引号包裹绝对路径自动转附件；Alt+V 快捷键粘贴图片；Windows 8.3 短文件名波浪号不再误拦截

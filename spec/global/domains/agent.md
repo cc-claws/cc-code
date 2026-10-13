@@ -15,7 +15,7 @@ Agent 领域是整个框架的核心，负责 ReAct 推理循环的执行、消�
 - System Prompt：ReActAgent.with_system_prompt() 固定在 run_before_agent 后 prepend，消除 PrependSystemMiddleware 顺序约束
 - 工具接口：ask_user_question（对齐 Claude AskUserQuestion 规范），questions 数组 + header + options.description
 - 定时任务：CronMiddleware 提供 CronRegister/CronList/CronRemove 工具，croner 2 解析 cron 表达式
-- 后台执行：Agent 工具 `run_in_background` 参数，BackgroundTaskRegistry 最多 3 并发，mpsc unbounded 通道通知，完成后 Human 消息注入，Done 后自动 continuation
+- 后台执行：Agent 工具恒后台执行（`run_in_background` 参数已退场，前台同步路径已删除），BackgroundTaskRegistry 最多 3 并发，完成经生命周期通知回流、Done 后自动 continuation；`timeout_secs` 显式超时预算（省略/0 无限制）
 
 ## 核心流程
 

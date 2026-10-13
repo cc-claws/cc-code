@@ -11,7 +11,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/recap`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
 - 多会话管理：SQLite 持久化，`/history` 面板按 cwd 过滤当前工作区对话
 - 弹窗系统：HITL 紧凑审批面板（工具/动作/目录同行、完整命令换行、Edit 对比；当前工具三项选择固定可见，↑↓ 选择、Tab 切换工具、Enter 确认；超高内容提示剩余行数，无内部滚动），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
-- SubAgent 层级展示：SubAgentGroup 可折叠块，滑动窗口显示最近 4 步，显示格式 `Agent(type) #hash`，颜色区分状态（前台绿色、后台运行中黄色、错误红色）
+- SubAgent 展示：底栏抽屉 + 虚拟视口（子 Agent 恒后台）；抽屉行 `●/◯` 视口标记 + `>` 导航游标，Enter 下钻独立视口；旧会话已落库的 SubAgentGroup 仅作历史渲染兼容，不再产生新分组
 - Skill 全文预加载：消息含 `#skill-name` 时通过 SkillPreloadMiddleware 将 skill 全文注入 agent state
 - Setup Wizard：首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），原子写回 settings.json
 - 配色系统 v1.1：橙色仅保留最高优先级交互（命令输入框），工具名三级分层（bash=ACCENT / 写操作=WARNING / 只读=MUTED），配置面板边框 MUTED 降噪
@@ -72,16 +72,16 @@ Event::Key → PanelManager::dispatch_key(input, ctx)
 ### SubAgent 渲染流程
 
 ```
-SubAgentStart → 创建 SubAgentGroup { is_running: true, is_background: bool, bg_hash: None }
-  → 渲染: Agent(type) 绿色（前台）或黄色（后台）
+peri/subagent_lifecycle started → 创建 BackgroundAgentSession 句柄 + 抽屉行
+  → 主时间线打印树形启动摘要（• N background agents launched + ├──/└── 任务）
 
-SubAgentEnd（后台）→ 保持 is_running=true，解析 bg_hash
-  → 渲染: Agent(type) #hash 黄色
+SubagentEvent（带 source_agent_id 信封）→ 按来源路由到该子会话 pipeline
+  → 子视口独立渲染思考/工具/文本；抽屉行更新活动与指标（单箭头 token 流向）
 
-BackgroundTaskCompleted → 更新 SubAgentGroup { is_running: false, final_result: Some(...) }
-  → 渲染: Agent(type) #hash 绿色
+BackgroundTaskCompleted / stopped → 主时间线完成行（• Agent "x" finished · 时长）
+  → 抽屉行标终态（✓ completed 转 SAGE 绿 / ✗ stopped|failed 红）；用户离开该视口后才回收句柄与行
 
-颜色映射: is_error → ERROR（红）；is_running && is_background → WARNING（黄）；默认 → SAGE（绿）
+历史兼容: 旧会话落库的 SubAgentGroup 仍按原渲染路径显示（仅存量数据）
 ```
 
 ### 多模态消息提交流程
