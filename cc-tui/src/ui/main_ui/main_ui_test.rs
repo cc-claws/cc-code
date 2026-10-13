@@ -462,3 +462,32 @@ async fn test_back_to_bottom_button_switches_to_new_message_when_content_grows()
     let label = app.services.lc.tr("scroll-back-to-bottom-new");
     assert!(handle.contains(&label), "文案应切换为有新消息: {label}");
 }
+
+#[tokio::test]
+async fn test_back_to_bottom_button_is_horizontally_centered() {
+    let (mut app, mut handle) = crate::app::App::new_headless(80, 20).await;
+    seed_scrollable_cache(&mut app, 100);
+    {
+        let ui = &mut app.session_mgr.current_mut().ui;
+        ui.scroll_follow = false;
+        ui.scroll_offset = 0;
+        ui.scroll_baseline_lines = 100;
+    }
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let area = app
+        .session_mgr
+        .current()
+        .ui
+        .scroll_to_bottom_area
+        .expect("离开底部时应显示回到最新按钮");
+    // 终端宽 80：按钮中心 ×2 应落在屏幕中心 ×2（80）附近，误差 ≤1 列
+    // （整数列无法精确到半列，故允许 1 列；旧实现因预留滚动条列会左偏 1 列而超出容差）。
+    let center2 = i32::from(area.x) * 2 + i32::from(area.width);
+    assert!(
+        (center2 - 80).abs() <= 1,
+        "按钮未水平居中：{area:?} center2={center2}"
+    );
+}
