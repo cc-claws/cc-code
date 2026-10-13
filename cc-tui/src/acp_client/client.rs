@@ -90,6 +90,15 @@ impl AcpTuiClient {
 
     // ── Pump ──
 
+    /// peri/* 自定义通知的路由判定。
+    ///
+    /// `peri/agent_event` / `peri/agent_event_done` 有各自的专用分支，不走这里。
+    /// `peri/subagent_lifecycle` 是 TUI 底栏抽屉的唯一数据来源：服务端
+    /// `event_sink` 发送的就是这个不带 `notifications/` 前缀的方法名，必须显式认。
+    fn is_peri_notification(method: &str) -> bool {
+        method == "peri/subagent_lifecycle" || method.starts_with("notifications/peri/")
+    }
+
     /// Background task that polls the transport and dispatches notifications.
     async fn run_pump(
         transport: Arc<MpscClientTransport>,
@@ -171,7 +180,7 @@ impl AcpTuiClient {
                             "ACP client pump: received agent_event_done"
                         );
                         let _ = notification_tx.send(AcpNotification::AgentDone { session_id });
-                    } else if method.starts_with("notifications/peri/") {
+                    } else if Self::is_peri_notification(&method) {
                         let session_id = params
                             .get("sessionId")
                             .and_then(|v| v.as_str())
@@ -501,3 +510,7 @@ impl AcpTuiClient {
             .map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+#[path = "client_test.rs"]
+mod tests;

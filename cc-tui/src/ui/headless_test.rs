@@ -2545,64 +2545,6 @@ fn bg_diag_count_subagent_groups(app: &App) -> usize {
         .count()
 }
 
-/// 打印当前 view_messages 的摘要（诊断用）
-fn bg_diag_print_vms(app: &App, label: &str) {
-    let vms = &app.session_mgr.current().messages.view_messages;
-    eprintln!("\n=== {} (total: {}) ===", label, vms.len());
-    for (i, vm) in vms.iter().enumerate() {
-        match vm {
-            MessageViewModel::UserBubble { content, .. } => {
-                let preview: String = content.chars().take(30).collect();
-                eprintln!("  [{}] UserBubble({})", i, preview);
-            }
-            MessageViewModel::AssistantBubble { is_streaming, .. } => {
-                eprintln!("  [{}] AssistantBubble(streaming={})", i, is_streaming);
-            }
-            MessageViewModel::ToolBlock {
-                tool_name, content, ..
-            } => {
-                let preview: String = content.chars().take(40).collect();
-                eprintln!("  [{}] ToolBlock({}, content={:?})", i, tool_name, preview);
-            }
-            MessageViewModel::ShellCommand {
-                command, exit_code, ..
-            } => {
-                eprintln!("  [{}] ShellCommand(!{}, exit={:?})", i, command, exit_code);
-            }
-            MessageViewModel::SubAgentGroup {
-                agent_id,
-                is_running,
-                final_result,
-                total_steps,
-                ..
-            } => {
-                eprintln!(
-                    "  [{}] SubAgentGroup(id={}, running={}, steps={}, has_result={})",
-                    i,
-                    agent_id,
-                    is_running,
-                    total_steps,
-                    final_result.is_some()
-                );
-            }
-            MessageViewModel::ToolCallGroup { category, .. } => {
-                eprintln!("  [{}] ToolCallGroup({:?})", i, category);
-            }
-            MessageViewModel::SystemNote { content, .. } => {
-                let preview: String = content.chars().take(40).collect();
-                eprintln!("  [{}] SystemNote({})", i, preview);
-            }
-            MessageViewModel::CacheWarning { content, .. } => {
-                let preview: String = content.chars().take(40).collect();
-                eprintln!("  [{}] CacheWarning({})", i, preview);
-            }
-        }
-    }
-    eprintln!(
-        "  SubAgentGroup count: {}",
-        bg_diag_count_subagent_groups(app)
-    );
-}
 
 /// 后台 SubAgent 生命周期：SubAgentStart 进入抽屉会话，BackgroundTaskCompleted 完成清理。
 ///

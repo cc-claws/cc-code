@@ -318,3 +318,7 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "acp_bridge_test.rs"]
+mod tests;
