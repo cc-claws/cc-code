@@ -4,6 +4,13 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.128 — 2026-10-13
+
+### Fixes
+
+- **修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（#453）**：`cc-code` 正在运行时执行 `cc-code update` 会失败并报 `stream did not contain valid UTF-8`，实为两层问题叠加：其一，`scripts/install.ps1` 用 `Copy-Item -Force` 覆盖便捷副本 `~/.cc-code/cc-code.exe`，而该 exe 正在运行时被 Windows 文件锁占用 → `IOException`，配合脚本 `$ErrorActionPreference = "Stop"` 直接中止，导致 `current-version.txt` 与便捷副本都未更新；其二，该失败抛出的是中文本地化错误（GBK 字节），而 `update.rs::stream_output` 用严格 UTF-8 的 `BufReader::lines()` 读取子进程输出 → 解码失败，把真实错误整个盖住。现 `update.rs` 改为容错解码逐行读取（`String::from_utf8_lossy`）并在 Windows 子命令前置强制 `[Console]::OutputEncoding = UTF8`；`install.ps1` 便捷副本更新改为锁安全：先复制，失败则把被占用的旧 exe 重命名到 `*.old.<时间戳>` 再复制（对齐 `npm/install.js` 的 `replaceBinary`），仍失败只告警不中止，保证 `current-version.txt` 正常写入。
+- **「回到最新」浮层按钮改为按输入框白条居中（#458）**：此按钮原先按「消息区宽度减去最右 1 列（滚动条预留）」居中，相对输入框上方那条整宽白条会整体左偏约 1 列，用户反馈「看着不居中」。现改为以输入框矩形（白条整宽）为居中基准，左右留白对称（80 列下 x=28，左右各 28）；仅视觉调整，显隐、命中区与滚动状态不变。
+
 ## v0.6.127 — 2026-10-12
 
 ### Features
