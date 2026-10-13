@@ -518,6 +518,20 @@ fn push_wrapped_line_keep_lead(
 
 /// 便捷包装：单一样式的纯文本行（先做终端转义清理）预折行，续行固定 4 列悬挂缩进，
 /// 并保留原行的前导空白缩进。
+/// 识别「后台子 Agent 启动摘要」的树形行（`  ├ 任务` / `  └ 任务`）。
+///
+/// 返回 (缩进, 分支字形, 正文)；不是树形行时返回 None，由调用方的通用分支处理。
+fn split_tree_row(line: &str) -> Option<(&str, char, &str)> {
+    let trimmed = line.trim_start();
+    let indent = &line[..line.len() - trimmed.len()];
+    let mut chars = trimmed.chars();
+    let glyph = chars.next()?;
+    if glyph != '├' && glyph != '└' {
+        return None;
+    }
+    Some((indent, glyph, chars.as_str().trim_start()))
+}
+
 fn push_prefixed_text(
     out: &mut Vec<Line<'static>>,
     text: &str,
@@ -1821,6 +1835,43 @@ pub fn render_view_model_with_links(
                         "",
                         "  ",
                         Style::default().fg(theme::MUTED),
+                        width.saturating_sub(2).max(20),
+                    );
+                } else if let Some((indent, glyph, text)) = split_tree_row(line) {
+                    // 后台子 Agent 启动摘要的树形行：保留自身缩进、**不再注入 `· ` 前缀**，
+                    // 让 `├`/`└` 与标题文字同列（对齐 docs/subagent-mock.html 的树形块）。
+                    let row = Line::from(vec![
+                        Span::styled(indent.to_string(), Style::default().fg(theme::DIM)),
+                        Span::styled(format!("{glyph} "), Style::default().fg(theme::DIM)),
+                        Span::styled(
+                            sanitize_display_text(text),
+                            Style::default().fg(theme::TEXT_SOFT),
+                        ),
+                    ]);
+                    push_wrapped_line_keep_lead(
+                        &mut lines,
+                        row,
+                        "",
+                        "    ",
+                        Style::default().fg(theme::DIM),
+                        width.saturating_sub(4).max(20),
+                    );
+                } else if let Some(rest) = line.strip_prefix('•') {
+                    // 行内已自带 `•`（启动摘要标题 / 子 Agent 完成行）：直接渲染该标记，
+                    // 否则会出现 `· • …` 双标记，整块缩进也跟着错位。
+                    let row = Line::from(vec![
+                        Span::styled("• ", Style::default().fg(theme::SAGE)),
+                        Span::styled(
+                            sanitize_display_text(rest.trim_start()),
+                            Style::default().fg(theme::TEXT_SOFT),
+                        ),
+                    ]);
+                    push_wrapped_line_keep_lead(
+                        &mut lines,
+                        row,
+                        "",
+                        "  ",
+                        Style::default().fg(theme::DIM),
                         width.saturating_sub(2).max(20),
                     );
                 } else {

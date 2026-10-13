@@ -908,3 +908,45 @@ async fn test_completed_subagent_drawer_row_turns_green() {
     assert_eq!(buffer[(cell_x("●"), row_index)].fg, crate::ui::theme::SAGE, "完成行圆点应转绿");
     assert_eq!(buffer[(cell_x("✓"), row_index)].fg, crate::ui::theme::SAGE, "完成标记应转绿");
 }
+
+/// 回归：后台子 Agent 启动摘要必须是**对齐的树形块**（对齐 docs/subagent-mock.html）。
+///
+/// 真机症状：SystemNote 通用渲染会给每行注入 `· ` 前缀，于是标题变成 `· • …`、
+/// 子任务行变成 `·   ├── …`，整块缩进错位。
+#[tokio::test]
+async fn test_background_launch_summary_renders_as_aligned_tree() {
+    let (mut app, mut handle) = crate::app::App::new_headless(100, 30).await;
+    for (id, preview) in [("c1", "review Guangzhou weather"), ("c2", "review Xiamen weather")] {
+        app.handle_subagent_lifecycle(&serde_json::json!({
+            "event": "started", "instanceId": id, "agentType": "general-purpose",
+            "taskPreview": preview, "isBackground": true,
+        }));
+    }
+    // 消息区来自渲染线程缓存：等它处理完 Rebuild 再断言
+    let notified = handle.render_notify.notified();
+    notified.await;
+    handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+    let rows = handle.snapshot();
+
+    let header = rows.iter().position(|row| row.contains("background agents launched")).expect("应渲染启动摘要标题");
+    assert!(
+        rows[header].starts_with("• "),
+        "标题行应自带 `• ` 项目符号，不得再被注入 `· `：{:?}",
+        rows[header]
+    );
+    assert!(!rows[header].contains("· "), "不得出现 `· •` 双标记：{:?}", rows[header]);
+    // 比较显示列宽（`•` 是 3 字节 1 列，不能用字节下标）
+    let display_col = |text: &str, byte_index: usize| {
+        unicode_width::UnicodeWidthStr::width(&text[..byte_index])
+    };
+    let title_col = display_col(&rows[header], rows[header].find('2').expect("标题应含数量"));
+    for (offset, glyph) in [(1usize, '├'), (2usize, '└')] {
+        let row = &rows[header + offset];
+        assert!(!row.contains("· "), "树形行不得注入 `· ` 前缀：{row:?}");
+        let glyph_col = display_col(row, row.find(glyph).expect("应含分支字形"));
+        assert_eq!(
+            glyph_col, title_col,
+            "分支字形应与标题文字同列（第 {title_col} 列）：{row:?}"
+        );
+    }
+}

@@ -128,7 +128,9 @@ impl App {
         if agents.is_empty() { return; }
         let mut content = format!("• {} background agents launched (↓ to manage)", agents.len());
         for (index, agent) in agents.iter().enumerate() {
-            let branch = if index + 1 == agents.len() { "└──" } else { "├──" };
+            // 树形行只带分支字形（对齐参考原型 `docs/subagent-mock.html` 的 `├ 任务`），
+            // 缩进 2 列 → `├` 与标题文字同列；渲染层识别该形状后不再注入 `· ` 前缀。
+            let branch = if index + 1 == agents.len() { "└" } else { "├" };
             content.push_str(&format!("\n  {branch} {}", agent.task_preview));
         }
         // 摘要属于临时 UI 节点，规范历史仍由 Agent 工具调用及结果持久化。
