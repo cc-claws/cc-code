@@ -7,7 +7,15 @@ use crate::ui::theme;
 pub(crate) fn bg_bar_height(app: &App, terminal_height: u16) -> u16 {
     let count = app.session_mgr.current().background_agents.len();
     let approval_height = u16::from(app.session_mgr.current().approval_source_agent_id.is_some());
-    approval_height + if count == 0 { 0 } else if terminal_height < 18 { 1 } else { (count + 1).min(5) as u16 }
+    // 末尾 +1 为抽屉上方的空行（与状态栏分隔）
+    approval_height
+        + if count == 0 {
+            0
+        } else if terminal_height < 18 {
+            2
+        } else {
+            u16::from((count + 1).min(5) as u16) + 1
+        }
 }
 
 fn fit(text: &str, width: usize) -> String {
@@ -48,7 +56,7 @@ pub(crate) fn drawer_line(
     let cursor_cols = prefix_width.min(2);
     let circle_cols = prefix_width - cursor_cols;
     let cursor_text = truncate(if selected { "> " } else { "  " }, cursor_cols);
-    let circle_text = truncate(&format!("{} ", if active { "●" } else { "○" }), circle_cols);
+    let circle_text = truncate(&format!("{} ", if active { "●" } else { "◯" }), circle_cols);
 
     let circle_color = accent.unwrap_or(if active {
         theme::DRAWER_CIRCLE_ON
@@ -97,25 +105,34 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
     let cursor = session.ui.bg_bar_cursor;
     let current = session.focused_instance_id.as_deref();
     let width = area.width as usize;
-    if area.height == 1 {
+    // 抽屉与状态栏之间保留一个空行（对齐参考实现，避免"贴身"）。
+    let content_height = area.height.saturating_sub(1) as usize;
+    if content_height == 1 {
         let selected = cursor.unwrap_or(0);
         let text = if let Some(agent) = selected.checked_sub(1).and_then(|index| session.background_agents.get(index)) {
             let sub = session.subagent_sessions.get(&agent.instance_id);
-            format!("[{} {}] ↑/↓ · Enter to view · x to stop", if current == Some(&agent.instance_id) { "●" } else { "○" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
+            format!("[{} {}] ↑/↓ · Enter to view · x to stop", if current == Some(&agent.instance_id) { "●" } else { "◯" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
         } else {
-            let mut parts = vec![format!("{} main", if current.is_none() { "●" } else { "○" })];
+            let mut parts = vec![format!("{} main", if current.is_none() { "●" } else { "◯" })];
             parts.extend(session.background_agents.iter().map(|agent| {
                 let sub = session.subagent_sessions.get(&agent.instance_id);
-                format!("{} {}", if current == Some(&agent.instance_id) { "●" } else { "○" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
+                format!("{} {}", if current == Some(&agent.instance_id) { "●" } else { "◯" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
             }));
             format!("[{}] (↓ 展开管理)", parts.join(" | "))
         };
-        f.render_widget(Paragraph::new(fit(&text, width)).style(Style::default().fg(theme::DRAWER_CURSOR)), area);
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(fit(&text, width), Style::default().fg(theme::DRAWER_CURSOR))),
+        ];
+        f.render_widget(Paragraph::new(lines), area);
         return;
     }
-    let mut lines = vec![drawer_line(width, cursor == Some(0), current.is_none(), "main", "", "", None)];
-    let overflow = session.background_agents.len() + 1 > area.height as usize;
-    let capacity = (area.height as usize).saturating_sub(1 + usize::from(overflow));
+    let mut lines = vec![
+        Line::from(""),
+        drawer_line(width, cursor == Some(0), current.is_none(), "main", "", "", None),
+    ];
+    let overflow = session.background_agents.len() + 1 > content_height;
+    let capacity = content_height.saturating_sub(1 + usize::from(overflow));
     let start = cursor.unwrap_or(0).saturating_sub(capacity).min(session.background_agents.len().saturating_sub(capacity));
     for (index, agent) in session.background_agents.iter().enumerate().skip(start).take(capacity) {
         let sub = session.subagent_sessions.get(&agent.instance_id);

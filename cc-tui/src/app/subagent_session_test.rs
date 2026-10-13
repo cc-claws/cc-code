@@ -87,8 +87,9 @@ async fn test_subagent_viewport_keyboard_cursor_and_read_only_completion() {
 async fn test_subagent_drawer_overflow_reaches_every_task_and_caps_height() {
     let (mut app, mut handle) = App::new_headless(80, 24).await;
     for index in 0..8 { make_started(&mut app, &format!("id-{index}"), &format!("任务{index}")); }
-    assert_eq!(crate::ui::main_ui::bg_agent_bar::bg_bar_height(&app, 24), 5);
-    assert_eq!(crate::ui::main_ui::bg_agent_bar::bg_bar_height(&app, 17), 1);
+    // 抽屉高度含顶部 1 行空行（与状态栏分隔）：封顶 5 行内容 → 6；矮终端折叠为 1 行内容 → 2
+    assert_eq!(crate::ui::main_ui::bg_agent_bar::bg_bar_height(&app, 24), 6);
+    assert_eq!(crate::ui::main_ui::bg_agent_bar::bg_bar_height(&app, 17), 2);
     make_key(&mut app, KeyCode::Down, KeyModifiers::NONE);
     for _ in 0..8 { make_key(&mut app, KeyCode::Down, KeyModifiers::NONE); }
     assert_eq!(app.session_mgr.current().ui.bg_bar_cursor, Some(8));
