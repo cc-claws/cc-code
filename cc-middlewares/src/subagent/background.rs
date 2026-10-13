@@ -54,6 +54,9 @@ impl Default for BackgroundTaskRegistry {
     }
 }
 
+/// 终态 runtime 保留上限（会话级 registry 的跨轮累积边界）。
+const TERMINAL_RUNTIME_KEEP: usize = 8;
+
 impl BackgroundTaskRegistry {
     pub fn new(notification_tx: tokio::sync::mpsc::UnboundedSender<BackgroundTaskResult>) -> Self {
         Self {
@@ -82,9 +85,35 @@ impl BackgroundTaskRegistry {
     }
 
     pub(crate) fn attach_runtime(&self, snapshot: BackgroundTaskSnapshot, cancel: AgentCancellationToken, mailbox: SteeringQueue) {
-        self.runtimes.lock().insert(snapshot.task_id.clone(), BackgroundRuntime {
+        let mut runtimes = self.runtimes.lock();
+        runtimes.insert(snapshot.task_id.clone(), BackgroundRuntime {
             snapshot, cancel, mailbox, started_at: std::time::Instant::now(),
         });
+        Self::prune_terminal_runtimes(&mut runtimes, TERMINAL_RUNTIME_KEEP);
+    }
+
+    /// 终态 runtime 只保留最近 `keep` 条。
+    ///
+    /// registry 自本 PR 起是**会话级共享**（不再是每轮重建），而 `complete()` 只改快照、
+    /// 不删条目，且每条都持有完整 `result` 文本——不设界的话长会话会累积几十份完整输出。
+    /// 活跃任务（Running/AwaitingApproval）永不淘汰，保证在途完成通知仍能落到 runtime 上。
+    fn prune_terminal_runtimes(runtimes: &mut HashMap<String, BackgroundRuntime>, keep: usize) {
+        let is_terminal = |r: &BackgroundRuntime| {
+            !matches!(r.snapshot.status, BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval)
+        };
+        let terminal_count = runtimes.values().filter(|r| is_terminal(r)).count();
+        if terminal_count <= keep {
+            return;
+        }
+        let mut finished: Vec<(std::time::Instant, String)> = runtimes
+            .iter()
+            .filter(|(_, r)| is_terminal(r))
+            .map(|(id, r)| (r.started_at, id.clone()))
+            .collect();
+        finished.sort_by_key(|(started_at, _)| *started_at);
+        for (_, id) in finished.into_iter().take(terminal_count - keep) {
+            runtimes.remove(&id);
+        }
     }
 
     pub fn status(&self, id: &str) -> Result<BackgroundTaskSnapshot, String> {

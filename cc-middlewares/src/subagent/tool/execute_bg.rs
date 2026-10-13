@@ -17,15 +17,40 @@ struct BackgroundEventHandler {
 impl AgentEventHandler for BackgroundEventHandler {
     fn on_event(&self, event: AgentEvent) {
         self.registry.record_event(&self.task_id, &event);
+        let progress = self.progress_event(&event);
         let event = AgentEvent::SubagentEvent { source_agent_id: self.instance_id.clone(), event: Box::new(event) };
-        if let Some(sender) = &self.sender { let _ = sender.send(event); }
-        else if let Some(handler) = &self.fallback { handler.on_event(event); }
+        if let Some(sender) = &self.sender {
+            // 进度先于该步事件发出，消费端（TUI 的 total_steps）才能与工具流同步。
+            if let Some(progress) = progress { let _ = sender.send(progress); }
+            let _ = sender.send(event);
+        } else if let Some(handler) = &self.fallback {
+            if let Some(progress) = progress { handler.on_event(progress); }
+            handler.on_event(event);
+        }
     }
 
     /// #369：包装型 handler 必须委托内部 handler 的载荷需求声明，
     /// 否则子 Agent 的 `LlmCallStart` 会丢掉 Langfuse 输入快照。
     fn wants_llm_call_payload(&self) -> bool {
         self.fallback.as_ref().is_some_and(|handler| handler.wants_llm_call_payload())
+    }
+}
+
+impl BackgroundEventHandler {
+    /// ToolStart → 轻量 `SubagentProgress`（步数取自 registry 已累计的快照）。
+    ///
+    /// 基线由独立的 `BgProgressHandler` 发送；本 PR 合并事件处理器时漏掉了这一步，
+    /// 导致 `peri/subagent_lifecycle: progress` 契约与 `RunningBgAgent.total_steps`
+    /// 在生产路径上恒为 0（只有测试还覆盖着）。
+    fn progress_event(&self, event: &AgentEvent) -> Option<AgentEvent> {
+        if !matches!(event, AgentEvent::ToolStart { .. }) {
+            return None;
+        }
+        let total_steps = self.registry.status(&self.task_id).ok()?.total_steps;
+        Some(AgentEvent::SubagentProgress {
+            instance_id: self.instance_id.clone(),
+            total_steps,
+        })
     }
 }
 
@@ -140,8 +165,15 @@ impl super::SubAgentTool {
             }
             fire_subagent_lifecycle_hooks_static(&hooks, HookEvent::SubagentStop, &spawn_cwd, &spawn_name, Some(&result.output)).await;
         });
-        registry.register(BackgroundTask { id: task_id.clone(), agent_name: agent_name.clone(), prompt_summary: preview.clone(),
-            status: BackgroundTaskStatus::Running, started_at: std::time::Instant::now(), abort_handle: handle })?;
+        if let Err(error) = registry.register(BackgroundTask { id: task_id.clone(), agent_name: agent_name.clone(), prompt_summary: preview.clone(),
+            status: BackgroundTaskStatus::Running, started_at: std::time::Instant::now(), abort_handle: handle }) {
+            // 并发闸拒绝：子线程已在上面的构建设档阶段创建，不清理就会在 DB 里留下
+            // 永久 "running" 的隐藏行（既查不到也清不掉）。注册失败即视为该次委派失败。
+            if let Some(store) = &self.thread_store {
+                let _ = store.update_thread_status(&thread_id, "error").await;
+            }
+            return Err(error.into());
+        }
         registry.attach_runtime(snapshot, cancel.clone(), mailbox);
         if let Some(register) = &self.register_runtime { register(thread_id.clone(), cancel, "independent".into()); }
         let started = AgentEvent::SubagentStarted { agent_name: agent_name.clone(), instance_id: thread_id.clone(), is_background: true,

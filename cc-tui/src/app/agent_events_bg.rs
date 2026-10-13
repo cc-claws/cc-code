@@ -94,6 +94,17 @@ impl App {
             _ => false,
         };
 
+        // 下游（完成行标题 / Stopped 判定）需要的信息先取好：非聚焦分支随后会回收会话。
+        let finished_title = child_thread_id
+            .as_deref()
+            .and_then(|id| self.session_mgr.current().subagent_sessions.get(id))
+            .map(|sub| sub.task_preview.clone())
+            .filter(|preview| !preview.is_empty());
+        let finished_stopped = child_thread_id
+            .as_deref()
+            .and_then(|id| self.session_mgr.current().subagent_sessions.get(id))
+            .is_some_and(|sub| sub.status == super::subagent_session::SubagentRunStatus::Stopped);
+
         if was_focused {
             // 用户正在看它：视口与抽屉行都原地保留（就地显示 `✓ completed`），
             // 等他离开视口时再由 `switch_subagent_viewport` 回收。
@@ -101,32 +112,39 @@ impl App {
             self.request_rebuild();
         } else {
             // 优先按 child_thread_id 匹配 background_agents，回退到 agent_name
-            if let Some(ctid) = child_thread_id.as_deref() {
-                if let Some(pos) = self
-                    .session_mgr
+            let removed = if let Some(ctid) = child_thread_id.as_deref() {
+                self.session_mgr
                     .current_mut()
                     .background_agents
                     .iter()
                     .position(|a| a.instance_id == ctid)
-                {
-                    self.session_mgr.current_mut().background_agents.remove(pos);
-                }
-            } else if let Some(pos) = self
-                .session_mgr
-                .current_mut()
-                .background_agents
-                .iter()
-                .position(|a| a.agent_name == agent_name)
-            {
-                self.session_mgr.current_mut().background_agents.remove(pos);
+            } else {
+                self.session_mgr
+                    .current_mut()
+                    .background_agents
+                    .iter()
+                    .position(|a| a.agent_name == agent_name)
+            };
+            let mut removed_id = None;
+            if let Some(pos) = removed {
+                let removed_row = self.session_mgr.current_mut().background_agents.remove(pos);
+                removed_id = Some(removed_row.instance_id.clone());
             }
 
-            // 抽屉已空 → 抽屉行不再渲染，残留的导航游标会让第三行卡在
-            // `↑/↓ to select…` 并继续吞按键，这里一并收敛。
-            if self.session_mgr.current().background_agents.is_empty() {
-                self.session_mgr.current_mut().ui.bg_bar_cursor = None;
-                self.request_rebuild();
+            // 游标必须跟着列表收敛：被移除行在游标之前 → 下标前移一位（仍指向原任务）；
+            // 否则夹到新的末行，避免出现「越界游标 → 没有任何亮白行、Enter/x 落到别的行」。
+            if let Some(cursor) = self.session_mgr.current().ui.bg_bar_cursor {
+                let len = self.session_mgr.current().background_agents.len();
+                let adjusted = if removed.is_some_and(|pos| cursor > pos + 1) { cursor - 1 } else { cursor };
+                self.session_mgr.current_mut().ui.bg_bar_cursor = if len == 0 { None } else { Some(adjusted.min(len)) };
             }
+
+            // 行已被摘掉的子会话再也没有入口（Enter 只能从抽屉行进入）→ 同帧回收，
+            // 否则 `subagent_sessions` 会留下永久不可达的条目（PRD §4.14 的债务）。
+            if let Some(id) = removed_id {
+                self.session_mgr.current_mut().subagent_sessions.remove(&id);
+            }
+            self.request_rebuild();
         }
         // 用于 LLM 上下文的纯文本通知
         let short_id: String = task_id.chars().take(8).collect();
@@ -162,16 +180,12 @@ impl App {
             );
         }
 
-        let title = child_thread_id.as_deref()
-            .and_then(|id| self.session_mgr.current().subagent_sessions.get(id))
-            .map(|sub| sub.task_preview.as_str()).filter(|preview| !preview.is_empty())
-            .unwrap_or(&agent_name);
+        let title = finished_title.as_deref().unwrap_or(&agent_name);
         let status = if success { "finished" } else { "failed" };
         let notification = format!("• Agent \"{title}\" {status} · {}", super::subagent_session::format_duration(std::time::Duration::from_millis(duration_ms)));
         self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(notification)));
         // 停止任务不得触发新的模型轮次，否则全停快捷键会再次唤醒主任务。
-        if child_thread_id.as_deref().and_then(|id| self.session_mgr.current().subagent_sessions.get(id))
-            .is_some_and(|sub| sub.status == super::subagent_session::SubagentRunStatus::Stopped) {
+        if finished_stopped {
             if !self.session_mgr.current().has_running_subagents() {
                 self.session_mgr.current_mut().agent.agent_done_pending_bg = false;
             }

@@ -51,7 +51,8 @@ pub(crate) struct BackgroundAgentSession {
     pub ended_at: Option<Instant>,
     pub notices: Vec<String>,
     pub input_draft: Option<tui_textarea::TextArea<'static>>,
-    /// 是否为后台（run_in_background）任务；前台同步 SubAgent 的事件同时驱动主时间线 SubAgentGroup。
+    /// 是否为后台任务。现在**只有后台模式**，故恒为 true；字段保留用于兼容旧会话回放
+    /// （历史数据里可能存在前台同步子 Agent，其事件同时驱动主时间线 SubAgentGroup）。
     pub is_background: bool,
     /// 累积当前这句助手文本（抽屉「正在做什么」列的来源），ToolEnd 时复位。
     activity_buffer: String,
@@ -86,7 +87,9 @@ impl BackgroundAgentSession {
             ended_at: None,
             notices: Vec::new(),
             input_draft: None,
-            is_background: false,
+            // 只有后台模式：缺省即为后台，避免「事件先到、started 通知后到」时
+            // 被当成前台同步子 Agent，从而触发已废弃的二次投递把子过程灌进主消息区。
+            is_background: true,
             activity_buffer: String::new(),
             last_flow_up: false,
         }

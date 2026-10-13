@@ -2589,14 +2589,15 @@ async fn test_background_subagent_lifecycle_and_cleanup() {
         app.session_mgr.current().background_agents.is_empty(),
         "BackgroundTaskCompleted 应移除已完成的后台 agent"
     );
+    // 抽屉行被摘掉后，该子会话再无入口（Enter 只能从抽屉行进入）→ 必须同帧回收，
+    // 否则 subagent_sessions 会留下永久不可达的条目（无界增长）。
+    assert!(
+        !app.session_mgr.current().subagent_sessions.contains_key("test-inst"),
+        "非聚焦完成后应回收不可达的子会话，避免无界增长"
+    );
     assert_eq!(
-        app.session_mgr
-            .current()
-            .subagent_sessions
-            .get("test-inst")
-            .map(|s| s.status),
-        Some(crate::app::subagent_session::SubagentRunStatus::Completed),
-        "抽屉会话状态应标记为 Completed"
+        app.session_mgr.current().ui.bg_bar_cursor, None,
+        "抽屉空后不得残留导航游标"
     );
 }
 
