@@ -1,6 +1,6 @@
 # PRD: 后台多子 Agent 抽屉式管理与虚拟视口路由系统
 
-> **文档版本**：v2.1 (实现对齐版：补充 §3.1.1 双结构职责边界、§4.11–§4.15 抽屉视觉/指标/同构/回收/前台规则、§5.2.1 通知登记硬约束)  
+> **文档版本**：v2.2 (后台唯一模式：删除前台同步路径、抽屉游标行改用纯前景色、补充 §4.16 fork 同线)  
 > **基线代码**：`origin/main` (`cc-tui`, `cc-acp`, `cc-middlewares`, `cc-agent`)；真机联调基线 `feat/subagent-drawer-routing`
 > **关联原型**：`docs/subagent-mock.html`（已通过浏览器验证并对齐真实终端截图）  
 > **关联历史**：`docs/superpowers/specs/2026-05-26-background-agent-bar-design.md`
@@ -55,7 +55,7 @@
    * 主时间线输出树形节点：`• N background agents launched (↓ to manage)`，用 `├──` / `└──` 列出任务简述。
    * 抽屉栏立即展开显示所有后台 Agent，状态栏提示 `(↓ to manage)`。
 2. **抽屉导航态（Drawer Nav）**：
-   * 在空输入框按 **`↓`**，焦点下移进入抽屉，游标所在行整体高亮：亮白箭头游标 `> ` + 该行底色 `#1E2436`（配色详见 §4.11）。
+   * 在空输入框按 **`↓`**，焦点下移进入抽屉，游标所在行**只通过前景色**变亮白（游标 `> ` + 整行文字白），**不设任何底色**（真机定稿，见 §4.11）。
    * **当前查看的视口**保留实心圆点 `●`，**当前选中的行**带有 `> ` 游标。两者解耦。
    * 快捷键提示行随游标位置切换文案（`drawer_hint()`，唯一判据是「游标所指行是否就是当前查看的视口」）：
      * 游标停在**当前查看的那一行**：`↑/↓ to select · ctrl+x ctrl+k to stop all agents`（此时 `Enter`/`x` 无意义，不提示）；
@@ -272,13 +272,13 @@ impl App {
 **核心设计原则**：**严禁框架底层写死统一的超时硬上限**！超时预算必须作为显式参数**由主 Agent（调度编排者）按任务实际体量灵活下发与决策**，同时配合可视化进度感知与主动叫停接口。
 
 #### 1. 超时预算由主 Agent 显式下发（Caller-Driven Timeout）
-* **参数暴露**：在核心 `Agent` 工具参数中暴露 `timeout_secs: Option<u64>`：
+* **参数暴露**：在核心 `Agent` 工具参数中暴露 `timeout_secs: Option<u64>`（`run_in_background` 已随前台模式一并退场，见 §4.15）：
   ```json
   {
     "subagent_type": "general-purpose",
     "prompt": "执行全仓库 release 构建并运行测试套件",
-    "run_in_background": true,
     "timeout_secs": 3600  // 主 Agent 根据任务规模自主评估下发（例如 1 小时）
+    // 无 run_in_background：子 Agent 恒为后台模式（§4.15）
   }
   ```
 * **参数语义与默认行为**：
@@ -397,7 +397,7 @@ impl App {
    * 游标 `> ` 与游标行正文（类型名 / 预览 / 右侧指标）：纯白 `#FFFFFF`（`DRAWER_TEXT_ACTIVE`，类型名加粗）；
    * 其余行的类型名 / 预览 / 指标 / 空心圆点：统一灰 `#64748B`（`DRAWER_MUTED`）；
    * 实心圆点 `●`（当前视口）：近白 `#F1F5F9`（`DRAWER_CIRCLE_ON`）；
-   * 游标行整行底色 `#1E2436`（`DRAWER_SELECTED_BG`）——**禁止用 `Modifier::REVERSED`** 反色，反色会覆盖上述前景色；
+   * **禁止任何行底色**：游标行只靠亮白前景色 + 加粗表达，`DRAWER_SELECTED_BG` 已删除——真机反馈「↑/↓ 选中有背景色会让人以为已经进这个视口了」（`Enter` 才是进入）；同样**禁止 `Modifier::REVERSED`** 反色；
    * **禁用青色、禁用中间灰阶堆叠**：原型 `docs/subagent-mock.html` 里的 `#38BDF8` 青色游标在真机上被否决，`DRAWER_CURSOR` / `DRAWER_TEXT` / `DRAWER_PREVIEW` 三个常量已删除（真机反馈："不要出现青色，只有 MUTED 和亮白，你搞那么多颜色干嘛"）。此条**覆盖原型**；
      * 作用域**仅限抽屉本身**：子视口输入框那道亮青上边框（`Color::LightCyan`，§4.1/§4.2）**保留**——它是"当前是子 Agent 窗口还是主窗口"的唯一视觉标识（真机决策，明确不改）。
    * `accent` 只覆盖**圆点与右侧指标**，正文不染色；取值：待审批 `theme::WARNING`（琥珀）、**已完成 `theme::SAGE`（绿）**、失败/停止 `theme::ERROR`（红）——
@@ -463,18 +463,26 @@ impl App {
 
 ---
 
-### 4.15 前台同步 SubAgent 的呈现规则（不进抽屉）
+### 4.15 只有后台模式（前台同步已废弃）
 
-`is_background` 是两条呈现路径的**唯一分界**：
+**子 Agent 一律后台执行，这才是唯一产品模式**（客户培训也按这个口径讲）：抽屉是子 Agent 的唯一呈现，主 Agent 的消息区永远不被子 Agent 的内部过程污染。前台同步模式（`run_in_background=false`）已从代码里删除，`run_in_background` 参数也从工具 schema 退场。
 
-| | 后台（`run_in_background = true`） | 前台同步（默认） |
-|---|---|---|
-| 抽屉行 | 进入 `background_agents`，占用抽屉行 | **不进入**抽屉 |
-| 主时间线 | 只留 `• N background agents launched (↓ to manage)` 摘要节点 | 事件**同时**驱动主时间线 `SubAgentGroup`（`ToolStart` / `ToolEnd` / `AssistantChunk`） |
-| 会话句柄 | 同样写入 `subagent_sessions` | 同样写入 `subagent_sessions` |
+1. `SubAgentTool::invoke` 直接走 `invoke_background`，唯一的前置校验顺序是「入参（缺 prompt / 缺 subagent_type / agent 定义不存在 / fork 缺父消息）→ 环境（本会话是否有 `BackgroundTaskRegistry`）」，保证模型拿到的是**它能处理的错误**，而不是「没有后台注册表」这类环境错误。
+2. 结果回流：`BackgroundTaskResult` → `peri/subagent_lifecycle` + `AgentEvent::BackgroundTaskCompleted` → 主时间线完成行 + 自动续接（`pending_bg_continuation`）。
+3. 并发上限 **3**（`BackgroundTaskRegistry::max_concurrent`），超出直接报错让模型自己排队等待。
+4. `subagent_sessions` 条目对每个子 Agent 都存在，`Enter` 下钻与状态栏切换由此驱动；抽屉行只在后台任务存在期间出现。
+5. 历史兼容：旧会话里已落库的内嵌 `SubAgentGroup`（前台同步时代的产物）仍要能正常渲染，渲染路径不得删除；但不再产生新的内嵌分组。
 
-1. `handle_subagent_event` 在清空路由信封前先克隆这三类事件的副本，供前台路径二次投递（见 `cc-tui/src/app/agent_ops/subagent.rs`）；后台路径**不得**二次投递，否则子事件会串进主时间线。
-2. 无论前台/后台，`subagent_sessions` 条目都存在，因此 `Enter` 下钻与状态栏切换对两者行为一致（唯一差别是抽屉里有没有那一行）。
+### 4.16 fork 与普通子 Agent 的关系（必须有且只有一条构建路径）
+
+fork **不是另一种东西**，而是「带主 Agent 上下文的子 Agent」：事件、会话池、抽屉、子视口、时间线分组本来就共用（§4.15），构建/执行也必须共用。
+
+1. **唯一入口**：`cc-middlewares/src/subagent/tool/build_agent.rs` 的 `build_agent_from_def(agent_def, agent_name, cwd, AgentBuildOptions)`。普通子 Agent 与 fork 都走它（`AgentBuildOptions` 只有 `fork` 与 `snapshot_at_message_id` 两个字段，因为取消策略恒为 independent）；**禁止再写第二套内联构建**（`execute_fork.rs` 曾经那份 ~100 行内联实现已删除）。
+2. **fork 真正的特例只有「继承上下文」一条**：注入父级消息到子状态（`parent_messages`）、prompt 包一层 `build_fork_directive()`、子线程记录 `snapshot_at_message_id` 分叉点。
+3. **权限继承不是 fork 专属**：所有子 Agent 都通过 `permission_config()` 复用父级 HITL 权限配置（派生的 `HumanInTheLoopMiddleware` 不持有审批 broker），fork 并不额外多一条权限通道。
+4. **`fork = true` 的推导结果**（因为没有 agent.md 可依）：工具全量继承（`filter_tools(Empty, Empty)`，内部仍剔除 `Agent` 防递归）、系统提示不做覆写（复用主 Agent 人格）、中间件用 `SubAgentMiddlewareConfig::for_fork`（不带 skills）。
+5. **其余一律共用**：子线程建档、`SubagentStarted/Stopped` 事件与 hooks、`task_preview`（§4.13 第 5 条）、max_iterations 与模型（取自 agent_def）、结果格式化、状态流转。
+6. **漂移防御**：任何子 Agent 行为改动只改 fork 或只改普通路径，视为回归。已有用例守住：fork 启动事件的 `task_preview` 来自 `description`；fork 不套 agent.md 覆写、普通子 Agent 套（`tool_test.rs`）。
 
 ---
 
@@ -581,7 +589,7 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
 6. **游标收敛断言**：后台 Agent 全部结束后 `ui.bg_bar_cursor` 必须为 `None`、第三行不再渲染抽屉导航提示、按键不被 `bar_focus` 吞掉。
 
 ### 7.2 终端人工验收核对单（Checklist）
-- [ ] 空输入框按 `↓` 能精准进入底栏，`>` 箭头随 `↑/↓` 移动，游标行亮白 + 底色 `#1E2436`（不得出现反色 `REVERSED` 观感）。
+- [ ] 空输入框按 `↓` 能精准进入底栏，`>` 箭头随 `↑/↓` 移动，游标行**只有白字、没有底色**（也不得有反色观感）——有底色会误以为已经进入视口。
 - [ ] 抽屉只有**亮白**与**灰**两档：不出现青色游标，也没有多种灰阶堆叠；第三行提示与消息区 `Thought for … (ctrl+o to expand)` 同色（MUTED）。
 - [ ] 抽屉右侧**只有一个箭头**：子 Agent 产出回复时 `↓ {n}`，向它提问后翻为 `↑ {n}`；无用量数据时只显示耗时。
 - [ ] 抽屉中间列显示子 Agent 的**助手文本**（不是 `Bash(...)` 工具串），工具细节进视口看。
