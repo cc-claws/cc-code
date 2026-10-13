@@ -48,7 +48,7 @@ pub(crate) fn drawer_line(
     let cursor_cols = prefix_width.min(2);
     let circle_cols = prefix_width - cursor_cols;
     let cursor_text = truncate(if selected { "> " } else { "  " }, cursor_cols);
-    let circle_text = truncate(&format!("{} ", if active { "•" } else { "○" }), circle_cols);
+    let circle_text = truncate(&format!("{} ", if active { "●" } else { "○" }), circle_cols);
 
     let circle_color = accent.unwrap_or(if active {
         theme::DRAWER_CIRCLE_ON
@@ -101,12 +101,12 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
         let selected = cursor.unwrap_or(0);
         let text = if let Some(agent) = selected.checked_sub(1).and_then(|index| session.background_agents.get(index)) {
             let sub = session.subagent_sessions.get(&agent.instance_id);
-            format!("[{} {}] ↑/↓ · Enter to view · x to stop", if current == Some(&agent.instance_id) { "•" } else { "○" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
+            format!("[{} {}] ↑/↓ · Enter to view · x to stop", if current == Some(&agent.instance_id) { "●" } else { "○" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
         } else {
-            let mut parts = vec![format!("{} main", if current.is_none() { "•" } else { "○" })];
+            let mut parts = vec![format!("{} main", if current.is_none() { "●" } else { "○" })];
             parts.extend(session.background_agents.iter().map(|agent| {
                 let sub = session.subagent_sessions.get(&agent.instance_id);
-                format!("{} {}", if current == Some(&agent.instance_id) { "•" } else { "○" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
+                format!("{} {}", if current == Some(&agent.instance_id) { "●" } else { "○" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
             }));
             format!("[{}] (↓ 展开管理)", parts.join(" | "))
         };

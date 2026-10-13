@@ -13,7 +13,7 @@ fn test_drawer_columns_align_with_chinese_and_long_titles() {
     assert!(second.ends_with("32s · ↓ 33 tokens "));
     assert!(second.contains('…'), "长中文标题必须单行省略");
     assert!(first.starts_with("> ○ "));
-    assert!(second.starts_with("  • "), "选中游标和当前视口必须独立");
+    assert!(second.starts_with("  ● "), "选中游标和当前视口必须独立");
 }
 
 #[test]
