@@ -168,7 +168,7 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
     at.ensure_cwd(app.services.cwd.clone());
 
     if let Some((query, start)) = crate::app::AtMentionState::detect(&text, pos) {
-        if at.active && at.query == query {
+        if at.active && at.query == query && at.query_start == start {
             return; // 未变化
         }
         at.activate(query.clone(), start);
@@ -179,12 +179,7 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
             return;
         }
 
-        // 节流：距离上次搜索不到 200ms 时，保留旧结果不搜索
-        if !at.should_search_now() && !at.candidates.is_empty() {
-            return;
-        }
-
-        // 搜索线程处理，不阻塞 UI
+        // 搜索线程合并快速输入，不阻塞 UI，也不丢弃最后一次查询。
         at.start_search(query);
     } else if at.active {
         at.close();
@@ -236,6 +231,10 @@ pub(super) fn inject_at_mention_path(app: &mut App) {
 }
 
 #[cfg(test)]
+#[path = "keyboard/at_mention_test.rs"]
+mod at_mention_test;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::panel_manager::PanelKind;
@@ -283,10 +282,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         // 2 秒内第二次 → 真正退出
         let r3 = handle_key_event(&mut app, ctrl_c).unwrap();
-        assert!(
-            matches!(r3, Some(Action::Quit)),
-            "双击 Ctrl+C 应返回 Quit"
-        );
+        assert!(matches!(r3, Some(Action::Quit)), "双击 Ctrl+C 应返回 Quit");
     }
 
     #[tokio::test]

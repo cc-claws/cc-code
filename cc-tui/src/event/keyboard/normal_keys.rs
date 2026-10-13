@@ -145,18 +145,19 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             ..
         } if !app.session_mgr.current_mut().ui.loading => handle_tab(app),
 
-        // Enter with @ mention active and candidates: inject selected path
+        // @ 搜索尚未完成时不提交输入；有候选时补全选中路径。
         Input {
             key: Key::Enter, ..
         } if !app.session_mgr.current_mut().ui.loading
             && app.session_mgr.current_mut().ui.at_mention.active
-            && !app
-                .session_mgr
-                .current_mut()
-                .ui
-                .at_mention
-                .candidates
-                .is_empty() =>
+            && (app.session_mgr.current().ui.at_mention.searching
+                || !app
+                    .session_mgr
+                    .current_mut()
+                    .ui
+                    .at_mention
+                    .candidates
+                    .is_empty()) =>
         {
             inject_at_mention_path(app);
         }

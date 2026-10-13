@@ -644,3 +644,8 @@ cli-plugin-install-failed = 安装失败：{ $error }
 cli-plugin-installed = 已安装：{ $id } v{ $version }（范围：{ $scope }）
 cli-plugin-uninstall-failed = 卸载失败：{ $error }
 cli-plugin-uninstalled = 已卸载：{ $id }
+
+# 文件提及弹窗
+at-mention-searching = 搜索中…
+at-mention-empty-directory = 当前目录无候选，请输入关键词搜索。
+at-mention-no-matches = 没有匹配的文件。

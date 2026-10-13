@@ -97,6 +97,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **`@` 立即显示有限文件候选** | v0.6.129 | 输入 `@` 即弹面板，默认只列当前目录，目录优先，最多 15 项、10 行可见；面板按终端高度缩小。关键词搜索子目录，200ms 防抖保留最后一次输入，搜索中和空结果有提示；截断候选和进入目录时重新搜索，避免漏匹配（#463） |
 | **修复 Windows 下 cc-code 运行中 `cc-code update` 被误报为 UTF-8 错误** | v0.6.128 | Windows 下 `cc-code` 正在运行时执行 `cc-code update` 会失败并报 `stream did not contain valid UTF-8`，实为两层问题叠加：其一，`install.ps1` 用 `Copy-Item -Force` 覆盖便捷副本 `~/.cc-code/cc-code.exe`，而该 exe 正在运行时被 Windows 文件锁占用 → `IOException`，配合脚本 `$ErrorActionPreference="Stop"` 直接中止，导致 `current-version.txt` 与便捷副本都未更新；其二，该失败抛出的是中文本地化错误（GBK 字节），而 `update.rs::stream_output` 用严格 UTF-8 读取子进程输出 → 解码失败，把真实错误盖住。现 `update.rs` 改为容错解码（`String::from_utf8_lossy`）并前置强制 `[Console]::OutputEncoding=UTF8`；`install.ps1` 便捷副本更新改为锁安全——先复制，失败则把被占用的旧 exe 重命名到 `*.old.<时间戳>` 再复制（对齐 `npm/install.js` 的 `replaceBinary`），仍失败只告警不中止，保证 `current-version.txt` 正常写入（#453） |
 | **「回到最新」按钮按输入框白条居中** | v0.6.128 | 「↓ 回到最新」浮层按钮原先按「消息区宽度减去最右 1 列（滚动条预留）」居中，相对输入框上方整宽白条整体左偏约 1 列，用户反馈「看着不居中」。现改为以输入框矩形（白条整宽）为居中基准，左右留白对称（80 列下 x=28，左右各 28）；仅视觉调整，显隐、命中区与滚动状态不变（#458） |
 | **「回到最新」浮层按钮** | v0.6.127 | 消息区滚动离开底部且内容溢出时，在消息区最后一行居中显示「↓ 回到最新」浮层按钮；点击按钮或按 `End`（输入框为空）回到底部后按钮自动消失，离开底部期间有新内容（新消息或流式输出）时文案切换为「↓ 有新活动」。按钮为覆盖式浮层，复用既有 `scroll_follow` / `scrollbar_max_offset` 滚动状态，不改变消息区布局与滚动位置；面板/弹窗激活时隐藏且不拦截指针（#448） |
@@ -106,9 +107,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **修复 Windows 传统 CMD 控制码刷屏与星形缺字** | v0.6.120 | 传统 CMD 控制台（conhost）启动后 stdout 的 VT（虚拟终端）模式可能丢失，导致 crossterm 缓存的 ANSI 能力与实际模式不一致——输出退化为控制码刷屏、星形 spinner 缺字（缺字仍占一列却无法被现有列宽探针识别）。现于输出前补齐 VT 必要位并记录恢复、清屏重绘（保留其他控制台模式），`terminal_title_ops`/`terminal_title`/`panel_memory` 保护标题输出与编辑器返回路径，`terminal_backend` 区分原生控制台与 ConPTY 使用不同 ASCII 动画帧。同批修复无控制台/重定向环境（如 CI）下 VT 恢复失败提前返回、导致 `last_terminal_title` 缓存未记录与单元测试断言失败（改为先记录缓存再执行 VT 恢复）。（#415） |
 | **手动 `/compact` 摘要补齐 `<system-reminder>` 包裹** | v0.6.119 | 手动 `/compact` 与自动 compact 各自复制了一份摘要格式化逻辑，手动路径漏掉 `<system-reminder>` 包裹；TUI 依赖该标签决定渲染方式——有标签折叠为一行「📋 上下文已压缩」，无标签则把整段摘要当普通用户消息铺在界面上，且消息持久化后 load/resume 也以未折叠形态重现。现将摘要构造抽取为公共函数 `build_compacted_messages`（统一 `<system-reminder>` 包裹 + Human 消息构造 + 拼接 re_inject 消息），自动路径（`cc-middlewares/src/compact_middleware.rs`）与手动路径（`cc-acp/src/session/command/compact.rs`）共用同一实现，消除两条路径的格式漂移，并修正「与 auto-compact 路径对齐」的误导性注释；补测试断言两条路径产出的摘要消息结构一致（#413） |
 | **Jev 规则缓存改为多行 JSON 输出** | v0.6.118 | Jev 安全规则的磁盘持久化缓存（`~/.cc-code/jev/peri-<项目哈希>/<规则哈希>.json`）此前用 `serde_json::to_vec` 落盘为**紧凑单行** JSON，规则正文动辄数千字符全挤在一行，用户直接打开查看规则时几乎无法阅读。现将 `write()` 序列化改为 `serde_json::to_vec_pretty`（2 空格缩进），规则正文文件与 `<签名>.index.json` 索引同步美化为多行。内容哈希对**落盘字节**计算（`digest(&bytes)`），格式化前后各自自洽，缓存仍能正常命中；存量旧缓存因文件名（哈希）与格式化后不一致会 miss 一次并重新提炼，无功能影响。仅影响磁盘落盘格式，内存缓存与 Jev 判定逻辑不变（#412） |
-| **Windows 全局入口直起 exe（修复 Ctrl+C 直接退出）** | v0.6.117 | 修复 Windows Terminal（ConPTY）下经 npm 全局入口启动时按 Ctrl+C 直接退出 TUI 的缺陷：npm 全局 wrapper（`<prefix>/cc-code.cmd|.ps1`）经 node（`execFileSync`）拉起 `cc-code.exe`，Ctrl+C 的 `CTRL_C_EVENT` 广播给整个控制台进程组（node + `cc-code.exe`），`cc-code.exe` 虽用 `SetConsoleCtrlHandler` 拦截了信号，但无 handler 的 node 父进程按默认行为被终止，`execFileSync` 同步等待随之崩断并拖死 exe——表现为 agent 任意状态按 Ctrl+C 都直接退出、日志在 streaming 中戛然而止。现于 Windows postinstall 阶段新增 `overwriteNpmGlobalWrapper()`，把全局入口改写为**直起 `bin/cc-code.exe`**（相对 prefix 根引用，不硬编码绝对路径），去掉 node 中间层后进程组内只剩 `cc-code.exe`，`SetConsoleCtrlHandler` 正常生效，恢复「Ctrl+C 中断 agent / 空闲双击退出」的设计行为。改写为防御性实现：仅在 exe 存在且能定位到 npm 全局 wrapper 时才覆盖，失败不阻塞安装；`bin/cc-code` node 脚本与非 Windows 路径行为不变（#410、#411） |
 
-> 更早版本（v0.6.0 – v0.6.116）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.117）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

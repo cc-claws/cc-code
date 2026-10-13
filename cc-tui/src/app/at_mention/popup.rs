@@ -10,21 +10,37 @@ use unicode_width::UnicodeWidthStr;
 use cc_widgets::BorderedPanel;
 
 use super::AtMentionState;
+use crate::i18n::LcRegistry;
 use crate::ui::theme;
 
 /// 弹窗最大显示行数
 pub const MAX_VIEWPORT: usize = 10;
 
 /// 渲染 @ 提及文件候选弹窗
-pub fn render_at_mention_popup(f: &mut Frame, state: &AtMentionState, input_area: Rect) {
-    if !state.active || state.candidates.is_empty() {
+pub fn render_at_mention_popup(
+    f: &mut Frame,
+    state: &AtMentionState,
+    input_area: Rect,
+    lc: &LcRegistry,
+) {
+    let available_height = input_area.y.saturating_sub(f.area().y);
+    if !state.active || available_height < 3 || input_area.width < 3 {
         return;
     }
 
     let total = state.candidates.len();
-    let viewport = MAX_VIEWPORT.min(total);
-    let scroll_offset = state.scroll_offset;
-    let visible = &state.candidates[scroll_offset..scroll_offset + viewport];
+    let viewport = MAX_VIEWPORT
+        .min(total.max(1))
+        .min(available_height.saturating_sub(2) as usize);
+    // 小终端和缩放后仍保证选中项位于可见范围内。
+    let selected = state.selected.min(total.saturating_sub(1));
+    let scroll_offset = state
+        .scroll_offset
+        .min(selected)
+        .max((selected + 1).saturating_sub(viewport))
+        .min(total.saturating_sub(viewport));
+    let visible_count = viewport.min(total);
+    let visible = &state.candidates[scroll_offset..scroll_offset + visible_count];
 
     let popup_height = viewport as u16 + 2; // 内容 + 边框上下
     let y = input_area.y.saturating_sub(popup_height);
@@ -35,9 +51,35 @@ pub fn render_at_mention_popup(f: &mut Frame, state: &AtMentionState, input_area
         height: popup_height,
     };
 
-    let inner = BorderedPanel::new(Span::styled("", Style::default()))
+    let title = if total > 0 {
+        format!(
+            "@ {}–{}/{}",
+            scroll_offset + 1,
+            scroll_offset + visible_count,
+            total
+        )
+    } else {
+        "@".to_string()
+    };
+    let inner = BorderedPanel::new(Span::styled(title, Style::default().fg(theme::MUTED)))
         .border_style(Style::default().fg(theme::BORDER))
         .render(f, popup_area);
+
+    if total == 0 {
+        let key = if state.searching {
+            "at-mention-searching"
+        } else if state.query.is_empty() {
+            "at-mention-empty-directory"
+        } else {
+            "at-mention-no-matches"
+        };
+        let message = truncate_middle(&lc.tr(key), inner.width as usize);
+        f.render_widget(
+            Paragraph::new(message).style(Style::default().fg(theme::MUTED)),
+            inner,
+        );
+        return;
+    }
 
     let content_width = inner.width as usize;
     // "❯ " 或 "  " 占 2 列 + " " 图标占 1 列 + 空格 1 列 = 4 列前缀
@@ -83,7 +125,7 @@ fn truncate_middle(path: &str, max_width: usize) -> String {
     }
     if max_width < 5 {
         // "..." 占 3 列 + 至少前后各 1 列 = 5
-        return path.chars().take(max_width).collect();
+        return take_width(path, max_width);
     }
 
     let sep = "...";
@@ -131,35 +173,5 @@ fn take_width_rev(s: &str, max_width: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_truncate_short() {
-        // 短于 max_width 不截断
-        assert_eq!(truncate_middle("abc", 10), "abc");
-    }
-
-    #[test]
-    fn test_truncate_long() {
-        let result = truncate_middle("abcdefghijklmnopqrstuvwxyz", 10);
-        let width = UnicodeWidthStr::width(result.as_str());
-        assert_eq!(width, 10, "截断后宽度应等于 max_width");
-        assert!(result.contains("..."), "应包含省略号");
-    }
-
-    #[test]
-    fn test_truncate_cjk() {
-        // 每个汉字占 2 列，CJK 字符不可拆分，实际宽度可能小于 max_width
-        let result = truncate_middle("你好世界测试数据", 10);
-        let width = UnicodeWidthStr::width(result.as_str());
-        assert!(width <= 10, "CJK 截断后宽度不应超过 max_width");
-        assert!(result.contains("..."));
-    }
-
-    #[test]
-    fn test_truncate_exact() {
-        // 刚好等于 max_width
-        assert_eq!(truncate_middle("abcde", 5), "abcde");
-    }
-}
+#[path = "popup_test.rs"]
+mod tests;
