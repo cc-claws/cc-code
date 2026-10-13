@@ -1,7 +1,7 @@
 # PRD: 后台多子 Agent 抽屉式管理与虚拟视口路由系统
 
-> **文档版本**：v2.0 (评审完备版 / Ready for Engineering Review)  
-> **基线代码**：`origin/main` (`cc-tui`, `cc-acp`, `cc-middlewares`, `cc-agent`)  
+> **文档版本**：v2.1 (实现对齐版：补充 §3.1.1 双结构职责边界、§4.11–§4.15 抽屉视觉/指标/同构/回收/前台规则、§5.2.1 通知登记硬约束)  
+> **基线代码**：`origin/main` (`cc-tui`, `cc-acp`, `cc-middlewares`, `cc-agent`)；真机联调基线 `feat/subagent-drawer-routing`
 > **关联原型**：`docs/subagent-mock.html`（已通过浏览器验证并对齐真实终端截图）  
 > **关联历史**：`docs/superpowers/specs/2026-05-26-background-agent-bar-design.md`
 
@@ -40,11 +40,14 @@
 │ [Sonnet 4.6] ▓▓▒░░░░░░░ 6% | peri git:(main*) | tok: 180k              │
 │ Enter to view · x to stop · ctrl+x ctrl+k to stop all agents           │  ← 动态快捷键提示行
 ├────────────────────────────────────────────────────────────────────────┤
-│  ○ main                                                                │
-│  ○ general-purpose   查询武汉天气                   32s · ↓ 49 tokens │
-│> • general-purpose   查询随州天气                   32s · ↓ 33 tokens │  ← 抽屉管理栏 (> 选框, • 当前视口)
+│  ◯ main                                                                │
+│  ◯ general-purpose   查询武汉天气                        32s · ↓ 49   │
+│> ● general-purpose   查询随州天气                        32s · ↓ 33   │  ← 抽屉管理栏 (> 选框, ● 当前视口)
 └────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **指标口径**：抽屉右侧只出现**单个箭头**，方向即 token 流向（`↓` = Agent 回复产出 / `↑` = 用户提问输入），
+> 详见 §4.12；`◯/●` 与 `>` 的字形、配色与列宽规格详见 §4.11。
 
 ### 2.1 状态流转四阶段
 
@@ -53,8 +56,10 @@
    * 抽屉栏立即展开显示所有后台 Agent，状态栏提示 `(↓ to manage)`。
 2. **抽屉导航态（Drawer Nav）**：
    * 在空输入框按 **`↓`**，焦点下移进入抽屉，行首出现高亮青色箭头游标 `> `。
-   * **当前查看的视口**保留实心圆点 `•`，**当前选中的行**带有 `> ` 游标。两者解耦。
-   * 选到非当前视口时，快捷键提示行变为：`Enter to view · x to stop · ctrl+x ctrl+k to stop all agents`。
+   * **当前查看的视口**保留实心圆点 `●`，**当前选中的行**带有 `> ` 游标。两者解耦。
+   * 快捷键提示行随游标位置切换文案（`drawer_hint()`，唯一判据是「游标所指行是否就是当前查看的视口」）：
+     * 游标停在**当前查看的那一行**：`↑/↓ to select · ctrl+x ctrl+k to stop all agents`（此时 `Enter`/`x` 无意义，不提示）；
+     * 游标移到**其他行**：`Enter to view · x to stop · ctrl+x ctrl+k to stop all agents`。
 3. **虚拟视口下钻态（Virtual Viewport Routing）**：
    * 按 **`Enter to view`**，主消息视口立即呈现该子 Agent 的独立消息上下文（含完整的独立思考、工具运行进度 `Bash(sleep 60) └ Running... (25s)`、独立 Spinner）。
    * 输入框顶部分隔线变成**亮青色线条（Glow Line）**，右上角浮现专属标签 `[ 查询随州天气 ]`。
@@ -105,9 +110,29 @@ pub struct ChatSession {
 }
 ```
 
+#### 3.1.1 实现现状：双结构职责边界（`background_agents` / `subagent_sessions`）
+
+落地的数据模型把上面的单池草图拆成**两层**，职责必须严格区分，混用会导致"抽屉有行但点进去空白"或"句柄丢失"：
+
+| 结构 | 类型 | 职责 | 关键约束 |
+|---|---|---|---|
+| `background_agents` | `Vec<RunningBgAgent>`（`agent_name` / `instance_id` / `started_at` / `total_steps`） | **抽屉行**：行顺序、行数、抽屉是否存在的唯一依据 | 只有 `is_background = true` 才写入（§4.15）；去重靠 `instance_id`；抽屉为空时 `bg_bar_height() = 0` |
+| `subagent_sessions` | `HashMap<String, BackgroundAgentSession>` | **会话句柄池**：`pipeline` / `view_messages` / `AgentComm` / `SpinnerState` / `pending_inputs` / `token_metrics` | 前台后台**都**写入；`Enter` 下钻、状态栏切换、`send_subagent_input` 全部读它 |
+
+对照关系（PRD 草图的字段以落地命名为准）：
+
+| 草图 | 落地 |
+|---|---|
+| `bg_agents: Vec<BackgroundAgentSession>` | `background_agents: Vec<RunningBgAgent>` + `subagent_sessions: HashMap<String, BackgroundAgentSession>` |
+| `active_viewport: Option<String>` | `focused_instance_id: Option<String>` |
+| `bg_drawer_cursor: Option<usize>` | `ui.bg_bar_cursor: Option<usize>`（0 = main，1..=N = `background_agents[N-1]`） |
+| `tokens_used: usize` | 由 `AgentComm::session_token_tracker` 派生（`tokens_used()`），抽屉指标另走 `token_metrics()`（§4.12） |
+
+**唯一判据**：抽屉是否处于键盘导航态由 `ChatSession::drawer_nav_active()`（`ui.bg_bar_cursor.is_some() && !background_agents.is_empty()`）决定，用于 `drawer_hint()`、输入框变暗与 `bar_focus` 按键拦截；后台 Agent 全部结束后必须清空 `bg_bar_cursor`，否则第三行会卡在 `↑/↓ to select…` 且继续吞键。
+
 ### 3.2 虚拟视口路由机制（Virtual Viewport Routing）
 
-在渲染层彻底解耦数据源，`render_thread.rs` 统一通过 `active_viewport` 进行视口路由：
+在渲染层彻底解耦数据源，`render_thread.rs` 统一通过视口路由获取消息列表（**落地命名**：`active_viewport` → `focused_instance_id`，`bg_agents` → `subagent_sessions`，见 §3.1.1）：
 
 ```rust
 impl App {
@@ -195,7 +220,7 @@ impl App {
 2. **极矮终端退化（终端总高度 < 18 行）**：
    * 抽屉栏自动折叠为单行紧凑模式：
      ```text
-     [● main | ○ 武汉天气 | ○ 随州天气] (↓ 展开管理)
+     [● main | ◯ 武汉天气 | ◯ 随州天气] (↓ 展开管理)
      ```
 
 ### 4.4 取消与停止语义（`x` 与 `Ctrl+X Ctrl+K`）
@@ -329,18 +354,18 @@ impl App {
 
 ```text
  ┌── 状态列 ──┬── Agent 类型列 ──┬────── 任务行为预览列 (弹性截断) ──────┬────── 右侧指标列 (固定右对齐) ──────┐
- │   > ●     │ general-purpose  │ 查询武汉天气                          │            32s · ↓ 49 tokens │
- │     ○     │ general-purpose  │ 正在等待 60 秒后查天气                 │            32s · ↓ 33 tokens │
+ │   > ●     │ general-purpose  │ 查询武汉天气                          │                      32s · ↓ 49 │
+ │     ◯     │ general-purpose  │ 正在等待 60 秒后查天气                 │                      32s · ↓ 33 │
  └───────────┴──────────────────┴──────────────────────────────────────┴───────────────────────────────┘
 ```
 
 1. **固定宽度列**：
-   * 游标与状态指示：固定占用 `4` 显示列（包含 `>` 游标和 `● / ○` 圆点）；
+   * 游标与状态指示：固定占用 `4` 显示列（包含 `>` 游标和 `● / ◯` 圆点，字形定稿见 §4.11）；
    * Agent 类型名：固定占用 `18` 显示列（按 `truncate_to_display_width` 左对齐补齐空格）；
 2. **弹性中轴截断**：
    * 任务描述根据当前终端宽度弹性伸缩，超出可用宽度时使用字符级单行省略号（`…`）闭合，**绝对禁止换行**；
 3. **右侧指标严格右对齐**：
-   * 右侧的时长与 Token（如 `32s · ↓ 49 tokens`）固定右对齐停靠在终端右边框内侧 1 列处，无论左侧任务文字多大多长，右侧指标始终保持一条垂线垂直对齐。
+   * 右侧的时长与 Token（如 `32s · ↓ 49`，口径见 §4.12）固定右对齐停靠在终端右边框内侧 1 列处，无论左侧任务文字多大多长，右侧指标始终保持一条垂线垂直对齐。
 
 ---
 
@@ -357,6 +382,90 @@ impl App {
    * **在底栏抽屉导航按 `Esc`**：焦点移出抽屉，安全返回当前激活视口的输入框。
 3. **并发文件写冲突防御提示**：
    * 多个子 Agent 共享本地文件系统。当两个子 Agent 在短时间内尝试修改同一个文件时（触发 Write/Edit 冲突或 Git 脏工作区冲突），子任务执行器必须立即返回明确错误，并在其子视口标红展示冲突文件名，禁止静默覆盖。
+
+---
+
+### 4.11 抽屉视觉规格（配色 / 字形 / 列宽 / 空行）
+
+抽屉的观感必须与 `docs/subagent-mock.html` 原型逐项对齐，以下为**定稿规格**（实现见 `cc-tui/src/ui/main_ui/bg_agent_bar.rs` 与 `cc-tui/src/ui/theme.rs`）：
+
+1. **字形（定稿，不得混用同形异码）**：
+   * 游标：`> ` （选中行）/ `  `（两空格，保证所有行左侧等宽）；
+   * 当前视口圆点：`●`（U+25CF 实心）；非当前视口：`◯`（U+25EF 空心）——**禁用 `○`（U+25CB）**，两者宽度不一致会导致行内错位；
+   * 极矮终端折叠态沿用同一套字形。
+2. **配色（每行按 `bright` 分档，只有键盘游标所在行亮白，其余统一灰）**：
+   * 游标 `#38BDF8`（`DRAWER_CURSOR`，加粗）；
+   * 选中行（`bright = true`）三档前景色：类型名 `#FFFFFF`（`DRAWER_TEXT_ACTIVE`，加粗）、预览 `#E2E8F0`（`DRAWER_TEXT`）、右侧指标 `#CBD5E1`（`DRAWER_PREVIEW`）；
+   * 未选中行类型名 / 预览 / 指标**统一** `#64748B`（`DRAWER_MUTED`）；
+   * 实心圆点 `#F1F5F9`（`DRAWER_CIRCLE_ON`），空心圆点走 `DRAWER_MUTED`；
+   * 选中行整行底色 `#1E2436`（`DRAWER_SELECTED_BG`）——**禁止用 `Modifier::REVERSED`** 反色，反色会覆盖上述前景色；
+   * `accent`（`theme::WARNING` / `theme::ERROR`）仅在**待审批 / 失败 / 停止**时覆盖圆点与右侧指标，正常与完成行不得染色。
+3. **列宽**：游标 `2` 列 + 圆点 `2` 列（合计前缀 `4` 列，极窄终端按 `left_width` 收缩，否则整行越界）+ 类型名 `≤18` 列（`truncate_to_display_width` 补齐）+ 弹性预览 + 右侧指标右对齐；
+   * 行总宽 = 终端宽度，指标右对齐停靠在右边框内侧 `1` 列处；
+   * 极窄终端下右侧指标宽度不得挤掉 4 列前缀（`right_width` 上限为 `usable - 4`）。
+4. **空行**：抽屉上方保留 `1` 行空行（与状态栏分隔，避免"贴身"）——`bg_bar_height()` 已在内容行数基础上 `+1`；
+5. **折叠态行数（以 `bg_bar_height()` 为准）**：
+   * 无后台 Agent：`0` 行；
+   * 终端总高 `< 18` 行：`2` 行（空行 + 单行紧凑摘要 `[◯ main | ◯ 任务A …] (↓ 展开管理)`）；
+   * 其他：`(N + 1).min(5) + 1` 行（`N` = 后台 Agent 数，即 main + 最多 4 个 Agent = 最多 5 个内容行，再加 1 行空行）。
+
+---
+
+### 4.12 抽屉右下角 token 指标口径（单箭头，方向随流向）
+
+抽屉右侧指标**只显示一个箭头**，绝不能并列两个方向——同一时刻只有一个方向在发生，并列会把"这一格在告诉你什么"丢掉：
+
+| 状态 | 渲染 | 取值 |
+|---|---|---|
+| 默认（子 Agent 正在产出回复） | `↓ {count}` | 最近一次调用的 `output_tokens` |
+| 用户向该子 Agent 提问后（`send_subagent_input`） | `↑ {count}` | 最近一次调用的 `input_tokens` |
+
+**实现约束**（`cc-tui/src/app/subagent_session.rs`）：
+
+1. `BackgroundAgentSession::token_metrics() -> Option<String>` 是唯一出口；`last_flow_up: bool` 决定方向（`false` = 下行 = 回复产出）。
+2. 翻转时机：`AgentEvent::AssistantChunk`（子 Agent 再次产出回复）→ `last_flow_up = false`；`send_subagent_input`（用户提问）→ `last_flow_up = true`。
+3. 数字缩写**必须复用状态栏的 `format_token_count`**（`k`/`M` 档 + 固定一位小数），抽屉与状态栏第 1 行同一套口径；`bg_agent_bar.rs` 不得再自建包装函数。
+4. 无用量数据（`session_token_tracker.last_usage` 为 `None`）时返回 `None`，该行右侧**只显示耗时**（如 `32s`），不得出现空箭头或 `0`。
+5. 已结束行不显示 token：`✓ completed` / `✗ stopped` / `✗ timeout` / `✗ failed` 优先于指标。
+
+---
+
+### 4.13 子会话与主路径同构维护 `AgentComm`（子视口状态栏一致性）
+
+`BackgroundAgentSession::handle_event()` 必须与主 Agent 路径（`cc-tui/src/app/agent_ops/mod.rs`）**同构**维护 `AgentComm`，否则子视口的状态栏第 2 行为空：
+
+1. `ToolStart` **必须同时**登记三处：`agent.running_tools.push(..)`、`agent.active_tool = Some(..)`、`agent.push_recent_tool(..)`（`running: true`）。只写 `active_tool` 是反例——状态栏第二行读的是 `running_tools` / `visible_recent_tools()`，子视口会呈现空列表。
+2. `ToolEnd` 必须对称回收：`running_tools.retain(..)`、`finish_recent_tool(..)`，并把 `active_tool` 回退为 `running_tools.last()`。
+3. 状态栏工具计数（`session_tool_stats`）按 §4.6 强隔离：只累加该子会话自己的计数，`ToolEnd` 计数必须以「`running_tool_times` 中确实存在该 `tool_call_id`」为前提（防重复计数）。
+4. `current_activity`（抽屉中间列）与 `active_tool`（审批条）职责分离：前者是子 Agent 的**助手文本**（`activity_buffer` 累积 `AssistantChunk`，`ToolEnd` 复位），后者才是工具串；`ToolStart` **不得**用 `display(args)` 覆盖 `current_activity`。
+
+---
+
+### 4.14 子会话生命周期与资源回收边界（`subagent_sessions` 无界增长风险）
+
+这是当前实现的**已知技术债**，必须在排期内明确（否则长会话内存持续上涨）：
+
+1. **现状**：`subagent_sessions: HashMap<String, BackgroundAgentSession>` 只有**写入**（`handle_subagent_start` / `handle_subagent_event` 的 `or_insert_with`）与整表清理（`App::clear_subagent_sessions()`）两条路径。子 Agent `Completed` / `Stopped` / `Failed` **不回收**。
+2. **放大因素**：每个 `BackgroundAgentSession` 持有完整 `MessagePipeline` + `view_messages` + `AgentComm`（含工具历史），单个对象随子任务长度线性增长；`/clear` 之外没有回收时机。
+3. **排期要求**：
+   * 已完成条目在**离开抽屉且不在视口**后，仅保留「轻量归档摘要」入主时间线，`subagent_sessions` 条目可回收；
+   * 回收前必须已被用户查看或已被摘要吸收，禁止静默丢弃用户尚未看过的子会话输出；
+   * 任何回收都必须同步清理 `background_agents` 对应行、`focused_instance_id`（若指向被回收项则回退 `None`）与 `ui.bg_bar_cursor`，避免出现"抽屉幽灵行"。
+
+---
+
+### 4.15 前台同步 SubAgent 的呈现规则（不进抽屉）
+
+`is_background` 是两条呈现路径的**唯一分界**：
+
+| | 后台（`run_in_background = true`） | 前台同步（默认） |
+|---|---|---|
+| 抽屉行 | 进入 `background_agents`，占用抽屉行 | **不进入**抽屉 |
+| 主时间线 | 只留 `• N background agents launched (↓ to manage)` 摘要节点 | 事件**同时**驱动主时间线 `SubAgentGroup`（`ToolStart` / `ToolEnd` / `AssistantChunk`） |
+| 会话句柄 | 同样写入 `subagent_sessions` | 同样写入 `subagent_sessions` |
+
+1. `handle_subagent_event` 在清空路由信封前先克隆这三类事件的副本，供前台路径二次投递（见 `cc-tui/src/app/agent_ops/subagent.rs`）；后台路径**不得**二次投递，否则子事件会串进主时间线。
+2. 无论前台/后台，`subagent_sessions` 条目都存在，因此 `Enter` 下钻与状态栏切换对两者行为一致（唯一差别是抽屉里有没有那一行）。
 
 ---
 
@@ -404,6 +513,15 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
 }
 ```
 
+#### 5.2.1 客户端注册硬约束（漏登记即整条抽屉静默失效）
+
+服务端在 `cc-acp/src/session/event_sink.rs` 里用 `transport.send_notification("peri/subagent_lifecycle", ..)` 发出，**不带 `notifications/` 前缀**；而客户端 `cc-tui/src/acp_client/client.rs` 的默认匹配只认 `notifications/peri/` 前缀，未显式登记的方法会掉进 `AcpNotification::Other` 并被丢弃——表现是「服务端一直在发、TUI 里 `background_agents` 永远为空、底栏无抽屉、状态栏没有 `↓ to view`」。
+
+1. `AcpTuiClient::is_peri_notification(method)` 是唯一登记点，新增任何 `peri/*` 通知**必须**在这里显式列出方法名（现有：`peri/subagent_lifecycle` + `notifications/peri/` 前缀）；
+2. 客户端分发在 `cc-tui/src/app/agent_ops/acp_bridge.rs`：`AcpNotification::Peri { method == "peri/subagent_lifecycle" }` → `handle_subagent_lifecycle(params)` → `handle_subagent_start` / `handle_subagent_stopped`；
+3. 该约束必须有测试兜底（`cc-tui/src/acp_client/client_test.rs` 断言方法名被认作 peri 通知），否则回归时只会表现为"UI 没反应"，极难定位；
+4. 完整字段属两段合成：`started` / `stopped` 直接由 `lifecycle_payload()`（`cc-acp/src/session/subagent_protocol.rs`）从 `AgentEvent` 载荷映射；`currentActivity` / `tokensUsed` / `status` / `timeoutSecs` 由 `enrich_lifecycle()` 从 `BackgroundTaskRegistry` 快照补齐，**仅在后台注册表存在时**才有值。
+
 ### 5.3 停止指定子 Agent：`session/cancel` 扩展
 
 ```json
@@ -445,11 +563,19 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
    * 切换回 `None`，断言立即恢复为主会话内容。
 3. **单任务中断断言**：
    * 对 sub1 发送 `cancel`，断言 sub1 状态变为 `Stopped`，sub2 依然保持 `Running` 继续读秒。
+4. **抽屉渲染断言**（`bg_agent_bar_test.rs` / `main_ui_test.rs`）：
+   * 列宽：行总宽恒等于终端宽度，最后一列不越界，右侧指标右对齐（100 列断言）；
+   * 字形与配色：只有键盘游标所在行亮白，其余统一灰；圆点为 `●`/`◯`（断言不得出现 `○` U+25CB）；
+   * token 指标：Agent 回复时为 `↓ {output}`、用户提问后翻转为 `↑ {input}`，同一行**不得**同时出现两个箭头或累计值（`test_drawer_metrics_follows_token_flow_with_single_arrow`）。
+5. **通知登记断言**：`peri/subagent_lifecycle` 必须被 `is_peri_notification()` 认作 peri 通知（§5.2.1），否则整条抽屉静默失效。
+6. **游标收敛断言**：后台 Agent 全部结束后 `ui.bg_bar_cursor` 必须为 `None`、第三行不再渲染抽屉导航提示、按键不被 `bar_focus` 吞掉。
 
 ### 7.2 终端人工验收核对单（Checklist）
-- [ ] 空输入框按 `↓` 能精准进入底栏，`>` 箭头随 `↑/↓` 移动，选中行反色高亮。
+- [ ] 空输入框按 `↓` 能精准进入底栏，`>` 箭头随 `↑/↓` 移动，选中行以 `#1E2436` 底色 + 亮白文字高亮（不得出现反色 `REVERSED` 观感）。
+- [ ] 抽屉右侧**只有一个箭头**：子 Agent 产出回复时 `↓ {n}`，向它提问后翻为 `↑ {n}`；无用量数据时只显示耗时。
+- [ ] 抽屉中间列显示子 Agent 的**助手文本**（不是 `Bash(...)` 工具串），工具细节进视口看。
 - [ ] 按 `Enter` 切换进入子任务视口，输入框上边框变亮青色且右侧出现任务标签。
-- [ ] 子任务视口内可完整看到其内部的 Thinking（支持 `Ctrl+O` 折叠）、Bash 倒计时和 Spinner。
+- [ ] 子任务视口内可完整看到其内部的 Thinking（支持 `Ctrl+O` 折叠）、Bash 倒计时和 Spinner，且状态栏第 2 行显示**该子任务专属**的工具计数（非空、非主会话数字）。
 - [ ] 在子任务视口中按 `↑` 选回 `main` 并按 `Enter`，可平滑返回主会话。
 - [ ] 子任务结束时，主会话打印 `• Agent "xxx" finished · 1m 32s`，主模型完成报告输出。
-- [ ] 终端窗口缩小时（24 行高度），底栏不超过 5 行，不发生界面崩溃或文字重叠。
+- [ ] 终端窗口缩小时（24 行高度），抽屉为 `6` 行（5 内容行 + 1 空行）；总高 `< 18` 行退化为 `2` 行紧凑态，不发生界面崩溃或文字重叠。
