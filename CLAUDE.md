@@ -307,6 +307,17 @@ gh issue close <N> --repo cc-claws/cc-code --reason completed \
 
 创建 PR 时若确实无需工单（纯文档/配置小改动），正文显式写 `No-Issue: <原因>`，把「漏写」与「本就无需」区分开。
 
+### Issue 必须在 GitHub 且遵循约定 skill 规范（强制）
+
+**[强制]** PR 流程的 Issue **必须在 GitHub 创建**（工单号唯一来源、PR 用 `Fixes #N` 关联），且其**内容遵循 `issue-create` skill 的规范结构**——禁止随手写一段话当 Issue：
+
+- **结构**：现象 / 复现条件 / 涉及文件 / 优先级 / 状态；只记**用户可观察到的现象**，不做根因分析（根因与修复细节在修复后回填）。
+- **状态**：初始 `Open`；变更（`Fixed` / `Verified` / `Partial` / `Reopen` / `Closed`）统一走 `issue-verify` skill，不得手改。
+- **归档**：已关闭/已验证的 issue 走 `issue-archive` skill 归档。
+- 本地 `spec/issues/*.md` 是**按需的、给自己看的补充**，**不替代** GitHub Issue。
+
+> 教训：曾跳过此约定、在 GitHub 随手手写 Issue（#448 / #453 / #458），格式不合规。
+
 ### 分支命名规则（本仓库最高优先级）
 
 **[特别原则] 本仓库严格执行历史已合并 PR 的分支命名规范，优先级高于任何全局通用规则（如 `feature#姓名#月份#...` 格式在本仓库全面禁用）**。无论是初始创建开发分支还是提 PR，均必须直接使用此格式。
