@@ -2,7 +2,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cc_agent::{
-    agent::{react::ToolCall, state::State},
+    agent::{
+        events::{AgentEvent, AgentEventHandler, NoticeLevel},
+        react::ToolCall,
+        state::State,
+    },
     error::{AgentError, AgentResult},
     interaction::{
         ApprovalDecision, ApprovalItem, InteractionContext, InteractionResponse,
@@ -23,7 +27,7 @@ pub mod shared_mode;
 pub use approval_memory::ApprovalMemory;
 pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
 pub use cc_agent::hitl::{BatchItem, HitlDecision};
-pub use jev::{GateDecision, JevGate, JevRules};
+pub use jev::{GateDecision, JevGate, JevRules, SemanticOutcome};
 pub use shared_mode::{PermissionMode, SharedPermissionMode};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
@@ -105,6 +109,11 @@ pub struct HumanInTheLoopMiddleware {
     approval_memory: Option<Arc<ApprovalMemory>>,
     /// 子 Agent 只接受明确的允许/拒绝，不保留交互通道。
     binary_only: bool,
+    /// 系统级提示出口（可选）。
+    ///
+    /// 中间件拿不到 `AgentEventHandler`；这是它把「运行态事实」（如判定服务降级）
+    /// 播报给用户、**又不打断流程**的唯一通道。
+    notice_sink: Option<Arc<dyn AgentEventHandler>>,
 }
 
 impl HumanInTheLoopMiddleware {
@@ -121,6 +130,7 @@ impl HumanInTheLoopMiddleware {
             jev_gate: None,
             approval_memory: None,
             binary_only: false,
+            notice_sink: None,
         }
     }
 
@@ -134,6 +144,7 @@ impl HumanInTheLoopMiddleware {
             jev_gate: None,
             approval_memory: None,
             binary_only: false,
+            notice_sink: None,
         }
     }
 
@@ -165,6 +176,7 @@ impl HumanInTheLoopMiddleware {
             jev_gate,
             approval_memory: None,
             binary_only: false,
+            notice_sink: None,
         }
     }
 
@@ -188,6 +200,7 @@ impl HumanInTheLoopMiddleware {
             jev_gate,
             approval_memory: Some(approval_memory),
             binary_only: false,
+            notice_sink: None,
         }
     }
 
@@ -208,7 +221,17 @@ impl HumanInTheLoopMiddleware {
             jev_gate: self.jev_gate.clone(),
             approval_memory: self.approval_memory.clone(),
             binary_only: true,
+            notice_sink: None,
         }
+    }
+
+    /// 注入系统提示出口（builder 传入该会话的 event handler）。
+    ///
+    /// 用 setter 而不是构造参数：绝大多数构造点（测试、子 Agent）不需要它，
+    /// 而子 Agent 也**不该**把提示泄漏给父会话。
+    pub fn with_notice_sink(mut self, sink: Arc<dyn AgentEventHandler>) -> Self {
+        self.notice_sink = Some(sink);
+        self
     }
 
     /// 无宿主配置时 fail-closed，避免独立构造子 Agent 意外绕过 Auto 权限。
@@ -221,6 +244,7 @@ impl HumanInTheLoopMiddleware {
             jev_gate: None,
             approval_memory: None,
             binary_only: true,
+            notice_sink: None,
         }
     }
 
@@ -444,25 +468,58 @@ impl HumanInTheLoopMiddleware {
                                 )
                                 .await;
                         }
-                        // 语义层：只有配置了凭据才发请求；否则落到下面的旧分类器兜底
-                        if gate.has_judge() {
-                            let decision = if self.binary_only {
+                        // 语义层：配了凭据**且服务可用**才发请求；否则落到下面的旧分类器兜底
+                        if gate.judge_usable() {
+                            let outcome = if self.binary_only {
                                 gate.evaluate_semantic_for_subagent(&call).await
                             } else {
                                 gate.evaluate_semantic(&call).await
                             };
-                            return self
-                                .apply_gate_decision(
-                                    decision,
-                                    tool_call,
-                                    std::path::Path::new(state.cwd()),
-                                )
-                                .await;
+                            match outcome {
+                                SemanticOutcome::Decided(decision) => {
+                                    return self
+                                        .apply_gate_decision(
+                                            decision,
+                                            tool_call,
+                                            std::path::Path::new(state.cwd()),
+                                        )
+                                        .await;
+                                }
+                                // 子 Agent 无人工通道：判定不可用一律拒绝（与旧行为一致）
+                                SemanticOutcome::Unavailable { reason, .. } if self.binary_only => {
+                                    return self
+                                        .apply_gate_decision(
+                                            GateDecision::Ask { rationale: reason },
+                                            tool_call,
+                                            std::path::Path::new(state.cwd()),
+                                        )
+                                        .await;
+                                }
+                                // 主 Agent：判定不可用不 Block，落到下方兜底分类器（#456）
+                                SemanticOutcome::Unavailable { reason, first } => {
+                                    tracing::warn!(
+                                        tool = %tool_call.name,
+                                        %reason,
+                                        "Jev 判定不可用，回退兜底判定"
+                                    );
+                                    // 只在**首次**降级时播报：安全等级下降必须让用户
+                                    // 知道，但不能每条命令刷一次。
+                                    if first {
+                                        self.emit_notice(format!(
+                                            "安全判定服务不可用，已降级到兜底分类器，\
+                                             后续调用不再逐条确认。原因：{reason}"
+                                        ));
+                                    }
+                                }
+                            }
+                        } else {
+                            tracing::debug!(
+                                tool = %tool_call.name,
+                                has_judge = gate.has_judge(),
+                                circuit_open = gate.circuit_open(),
+                                "跳过语义层：已跑确定性层，交由兜底分类器"
+                            );
                         }
-                        tracing::debug!(
-                            tool = %tool_call.name,
-                            "未配置语义判定凭据：已跑确定性层，交由兜底分类器"
-                        );
                     }
                 }
                 if self.jev_gate.is_none() && self.is_session_approved(tool_call, cwd) {
@@ -499,6 +556,16 @@ impl HumanInTheLoopMiddleware {
                     reason: format!("{rationale}\n（当前没有可用的确认通道，因此默认拒绝）"),
                 }),
             },
+        }
+    }
+
+    /// 播报一条系统级提示（warn 级）。没有出口时静默——`tracing::warn!` 仍在。
+    fn emit_notice(&self, message: String) {
+        if let Some(sink) = &self.notice_sink {
+            sink.on_event(AgentEvent::SystemNotice {
+                level: NoticeLevel::Warn,
+                message,
+            });
         }
     }
 

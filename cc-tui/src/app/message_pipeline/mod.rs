@@ -34,9 +34,9 @@ mod shell_runtime;
 mod transform;
 
 pub use crate::ui::message_view::aggregate_batch_groups;
-pub use reconcile::PipelineAction;
 #[cfg(test)]
 use reconcile::merge_frozen_subagents;
+pub use reconcile::PipelineAction;
 
 // ─── 流式渲染模式 ──────────────────────────────────────────────────────────
 
@@ -560,6 +560,7 @@ impl MessagePipeline {
             | AgentEvent::TokenUsageUpdate { .. }
             | AgentEvent::LlmRetrying { .. }
             | AgentEvent::ContextWarning { .. }
+            | AgentEvent::SystemNotice { .. }
             | AgentEvent::OAuthAuthorizationNeeded { .. }
             | AgentEvent::OAuthAuthorizationCompleted { .. }
             | AgentEvent::OAuthAuthorizationFailed { .. }

@@ -110,6 +110,9 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             delay_ms,
             error,
         },
+        ExecutorEvent::SystemNotice { level, message } => {
+            AgentEvent::SystemNotice { level, message }
+        }
 
         // ── 类别① + 已过滤：已由 session/update → handle_session_update_peri() 处理或无需转发 ──
         ExecutorEvent::TextChunk { .. }

@@ -10,7 +10,7 @@
 //!       ├ 任一 hazard 拒绝 → Block
 //!       ├ soft 拒绝 + intent 满足 → Allow
 //!       ├ required 中间带 → 按 config.uncertain（默认 Block）
-//!       └ 判定失败 → Ask；父可人工确认，子无审批通道而默认拒绝
+//!       └ 判定失败 → 不 Block：主 Agent 落兜底分类器，子 Agent 无审批通道而拒绝
 //! ```
 //!
 //! **沉默从不等于同意。**
@@ -19,6 +19,7 @@ pub mod client;
 pub mod conditions;
 pub mod config;
 pub mod decide;
+pub mod health;
 pub mod policy;
 pub mod redact;
 pub mod rules;
@@ -32,6 +33,7 @@ use serde_json::{json, Value};
 
 use client::{JevClient, JevError};
 use config::{GateScope, JevConfig, UncertainPolicy};
+use health::JevHealth;
 
 pub use rules::{
     empty_slot, extract_rules, extract_rules_chunked, JevRule, JevRuleLoader, JevRules,
@@ -50,6 +52,25 @@ pub enum GateDecision {
     /// 交由上层弹窗确认（仅当语义层说 uncertain 且配置为 ask）。
     Ask {
         rationale: String,
+    },
+}
+
+/// 语义层的调用结果。
+///
+/// **必须与 [`GateDecision`] 分开**：判定服务不可用既不是「放行」也不是「拒绝」，
+/// 更不该在门内直接拍成 `Ask`——那会让上层再也无法区分「模型说需要确认」和
+/// 「模型根本没答上来」，从而永远走不到兜底分类器。
+#[derive(Debug, Clone)]
+pub enum SemanticOutcome {
+    /// 拿到判决（allow / block / uncertain 按配置处理）。
+    Decided(GateDecision),
+    /// 判定服务不可用（网络 / 超时 / 配置错误）。**不 Block**，交由调用方兜底：
+    /// 主 Agent 落 LLM 分类器，子 Agent 因无人工通道而拒绝。
+    Unavailable {
+        reason: String,
+        /// 是否**首次**进入熔断窗口。调用方据此决定要不要播报系统提示——
+        /// 每条命令都刷一次会把日志和界面一起淹掉。
+        first: bool,
     },
 }
 
@@ -206,6 +227,11 @@ pub struct JevGate {
     rules_slot: JevRulesSlot,
     /// 惰性提炼触发器。None = 本会话不做提炼（如子 Agent 场景）。
     rule_loader: Option<Arc<JevRuleLoader>>,
+    /// 端点级判定健康状态（熔断）。
+    ///
+    /// 与 `client` / `config` 不同，它**不随 gate 重建而重置**——判定服务的
+    /// 可用性是端点级事实，见 [`health`] 模块说明。
+    health: Arc<JevHealth>,
 }
 
 /// 决策的简短标签（审计日志用）。
@@ -321,9 +347,22 @@ impl JevGate {
     }
 
     /// 带惰性提炼器的构造。
+    ///
+    /// 健康状态按 endpoint 从进程级注册表取——判定服务的可用性是端点级的全局
+    /// 事实，而 `JevGate` 每轮都会重建一份，状态不能挂在实例上。
     pub fn with_loader(
         config: JevConfig,
         rule_loader: Option<Arc<JevRuleLoader>>,
+    ) -> Result<Arc<Self>, JevError> {
+        let health = health::health_for(&config.endpoint);
+        Self::with_loader_and_health(config, rule_loader, health)
+    }
+
+    /// 显式注入健康状态（测试用；避免依赖进程级注册表）。
+    pub fn with_loader_and_health(
+        config: JevConfig,
+        rule_loader: Option<Arc<JevRuleLoader>>,
+        health: Arc<JevHealth>,
     ) -> Result<Arc<Self>, JevError> {
         let rules_slot = rule_loader
             .as_ref()
@@ -334,6 +373,7 @@ impl JevGate {
             config,
             rules_slot,
             rule_loader,
+            health,
         }))
     }
 
@@ -411,11 +451,12 @@ impl JevGate {
         paths
     }
 
-    /// 对一次调用判定。判定服务失败返回 `Ask`，由 HITL 决定人工确认或默认拒绝。
+    /// 对一次调用判定。判定服务不可用时返回 `Ask`。
     ///
     /// 便捷入口（确定性 → 语义）。**注意**：调用方若需要"无语义判定时仍保留
-    /// 确定性防护"，应分别调用 [`Self::deterministic`] 与 [`Self::evaluate_semantic`]，
-    /// 而不是依赖本函数——理由见 `has_judge`。
+    /// 确定性防护"，或需要在判定不可用时走兜底分类器，应分别调用
+    /// [`Self::deterministic`] 与 [`Self::evaluate_semantic`]，而不是依赖本函数
+    /// ——理由见 `has_judge`。
     pub async fn evaluate(&self, call: &GateCall) -> GateDecision {
         // 惰性提炼：门第一次真的要用规则时才提炼 CLAUDE.md。
         // 放在最前面，因为确定性层的路径判定也依赖提炼出的受保护路径。
@@ -427,7 +468,14 @@ impl JevGate {
             return d;
         }
         // ── 层3：Jev ──
-        self.semantic(call).await
+        match self.semantic(call).await {
+            SemanticOutcome::Decided(decision) => decision,
+            // 便捷入口没有「调用方有没有兜底分类器」的上下文，保守退回人工确认；
+            // 需要分类器兜底的调用方走两段式（见上方文档）。
+            SemanticOutcome::Unavailable { reason, .. } => GateDecision::Ask {
+                rationale: format!("安全判定服务当前不可用（{reason}）。"),
+            },
+        }
     }
 
     /// 是否配置了判定凭据。
@@ -439,8 +487,22 @@ impl JevGate {
         self.config.api_key().is_some()
     }
 
+    /// 端点是否处于熔断中（判定连续失败后进入，到期自动放行一次探测）。
+    pub fn circuit_open(&self) -> bool {
+        self.health.is_open()
+    }
+
+    /// 语义层当前是否应当发起请求：**配了凭据 且 未熔断**。
+    ///
+    /// 与 [`Self::has_judge`] 的区别：后者回答「有没有配凭据」，这里回答
+    /// 「现在能不能真的判」。凭据在、但服务刚失败过时，继续逐条发请求只会
+    /// 白等一次超时再弹窗（#456）。
+    pub fn judge_usable(&self) -> bool {
+        self.has_judge() && !self.health.is_open()
+    }
+
     /// 仅跑语义层（不含确定性层）。调用方须自行先跑 [`Self::deterministic`]。
-    pub async fn evaluate_semantic(&self, call: &GateCall) -> GateDecision {
+    pub async fn evaluate_semantic(&self, call: &GateCall) -> SemanticOutcome {
         if let Some(loader) = &self.rule_loader {
             loader.ensure_loaded().await;
         }
@@ -448,7 +510,9 @@ impl JevGate {
     }
 
     /// 子 Agent 对不确定判定一律拒绝，不受父的 uncertain=allow/ask 配置影响。
-    pub async fn evaluate_semantic_for_subagent(&self, call: &GateCall) -> GateDecision {
+    ///
+    /// 判定服务不可用时同样由调用方拒绝——子 Agent 没有人工通道。
+    pub async fn evaluate_semantic_for_subagent(&self, call: &GateCall) -> SemanticOutcome {
         self.semantic_with_policy(call, UncertainPolicy::Deny).await
     }
 
@@ -567,8 +631,9 @@ impl JevGate {
         None
     }
 
-    /// 语义层（Jev）。判定服务失败返回 Ask；模型未决按 uncertain 配置处理。
-    async fn semantic(&self, call: &GateCall) -> GateDecision {
+    /// 语义层（Jev）。判定服务不可用时返回 [`SemanticOutcome::Unavailable`]；
+    /// 模型未决按 uncertain 配置处理。
+    async fn semantic(&self, call: &GateCall) -> SemanticOutcome {
         self.semantic_with_policy(call, self.config.uncertain).await
     }
 
@@ -576,7 +641,7 @@ impl JevGate {
         &self,
         call: &GateCall,
         uncertain: UncertainPolicy,
-    ) -> GateDecision {
+    ) -> SemanticOutcome {
         // 构造 state。危险形状与确定性层保持同一口径：**原始 + 有效**命令的并集，
         // 否则 judge 看不到「用户原始命令命中的危险形状」（装了 rtk 时两者可能不同）。
         let reasons: Vec<String> = Commands::of_call(call)
@@ -601,9 +666,9 @@ impl JevGate {
         let conds = conditions::conditions_for(&filter);
         if conds.is_empty() {
             // 无适用条件属于异常（总有 Always 条件）→ 不可自动放行，交人工
-            return GateDecision::Ask {
+            return SemanticOutcome::Decided(GateDecision::Ask {
                 rationale: "安全条件集为空（异常），无法自动放行，需要你确认。".to_string(),
-            };
+            });
         }
         let questions = conditions::build_questions(&conds);
         let rule_ids: Vec<String> = conds.iter().map(|c| c.id.to_string()).collect();
@@ -611,19 +676,31 @@ impl JevGate {
         let answers = match self.client.judge(&state, &questions).await {
             Ok(a) => a,
             Err(e) => {
-                // **判定不可用不是"违规"**，所以不 Block。
-                // 官方语义：「network failure / timeout / error response / unreadable body
-                // 一律视为 unknown，回到正常的人工确认」——多弹一次窗，而不是
-                // 执行危险命令，也不是把 agent 一棍子打死。
+                // **判定不可用不是"违规"**，所以不 Block。但也**不能在这里拍成 Ask**：
+                // 门内拍成 Ask 会让上层再也分不清「模型要求确认」与「模型根本没答上来」，
+                // 兜底分类器因此永远不可达（#456：实测 402 时逐条弹窗 128 次）。
+                // 官方语义是「network failure / timeout / error response 一律视为
+                // unknown」——unknown 的处置属上层：主 Agent 落分类器，子 Agent 拒绝。
                 // （实测教训：端点 503 时 fail-closed 会把整个会话的工具调用全堵死。）
-                tracing::warn!(error = %e, "Jev 判定不可用，交由人工确认");
-                return GateDecision::Ask {
-                    rationale: format!(
-                        "安全判定服务当前不可用（{e}）。为了避免误拦，这次调用需要你确认是否放行。"
-                    ),
+                // 熔断：到期前不再逐条发注定失败的请求（白等超时 + 重试）。
+                let first = self.health.trip();
+                if first {
+                    tracing::warn!(
+                        error = %e,
+                        endpoint = %self.config.endpoint,
+                        config_error = e.is_permanent_config_error(),
+                        "Jev 判定服务不可用，已熔断并回退兜底判定。\
+                         若为鉴权/配额等配置问题，请检查 JEV_API_KEY、JEV_ENDPOINT 与账户额度"
+                    );
+                }
+                return SemanticOutcome::Unavailable {
+                    reason: e.to_string(),
+                    first,
                 };
             }
         };
+        // 判定成功 → 复位熔断（服务已恢复）。
+        self.health.reset();
 
         let obs = decide::observe(&rule_ids, &answers.probabilities);
         let decision = decide::combine(&obs);
@@ -641,7 +718,7 @@ impl JevGate {
             "Jev 判定完成"
         );
 
-        match decision {
+        SemanticOutcome::Decided(match decision {
             decide::Decision::Allow { rationale } => GateDecision::Allow { rationale },
             decide::Decision::Block { rule, rationale } => {
                 // judge 的原文只进日志；给人和 agent 的是中文、可行动的说明。
@@ -662,7 +739,7 @@ impl JevGate {
                 },
                 UncertainPolicy::Allow => GateDecision::Allow { rationale },
             },
-        }
+        })
     }
 
     fn build_state(&self, call: &GateCall, reasons: &[String]) -> Value {

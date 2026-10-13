@@ -101,6 +101,7 @@ scroll-back-to-bottom-new = ↓ 有新活动 · End
 statusbar-no-agent = 无
 statusbar-bg-indicator = [BG: { $count }]
 statusbar-retrying = 重试 { $attempt }/{ $max } ({ $delay }s): { $error }
+statusbar-notice = 系统提示：{ $message }
 statusbar-mcp-connecting =  MCP ({ $connected }/{ $total })...
 statusbar-mcp-ready =  MCP 就绪 ({ $total } 个服务器)
 statusbar-mcp-failed =  MCP 失败: { $msg }

@@ -429,6 +429,34 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
+    // 系统级提示（判定服务降级等运行态事实）
+    if let Some(ref notice) = app.session_mgr.current().agent.system_notice {
+        if has_content {
+            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+        }
+        let color = match notice.level {
+            cc_agent::agent::events::NoticeLevel::Info => theme::MUTED,
+            cc_agent::agent::events::NoticeLevel::Warn => theme::WARNING,
+            cc_agent::agent::events::NoticeLevel::Error => theme::ERROR,
+        };
+        let msg_preview: String = notice.message.chars().take(120).collect();
+        let msg_display = if notice.message.chars().count() > 120 {
+            format!("{}...", msg_preview)
+        } else {
+            msg_preview
+        };
+        left_spans.push(Span::styled(
+            format!(
+                " {}",
+                lc.tr_args(
+                    "statusbar-notice",
+                    &[("message".into(), msg_display.into())]
+                )
+            ),
+            Style::default().fg(color),
+        ));
+    }
+
     // MCP 初始化进度
     if let Some(ref rx) = app.services.mcp_init_rx {
         let status = rx.borrow().clone();

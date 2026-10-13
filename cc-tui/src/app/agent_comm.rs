@@ -49,6 +49,12 @@ pub struct RetryStatus {
     pub error: String,
 }
 
+/// 系统级运行状态提示（由 AgentEvent::SystemNotice 更新）。
+pub struct SystemNotice {
+    pub level: cc_agent::agent::events::NoticeLevel,
+    pub message: String,
+}
+
 /// 后台任务结构化结果（供 auto-continuation 注入合成 tool_use + tool_result）
 pub type BgTaskResult = cc_agent::agent::events::BackgroundTaskResult;
 
@@ -81,6 +87,8 @@ pub struct AgentComm {
     pub context_window: u32,
     /// LLM 重试状态（重试中时为 Some，收到下一个正常事件时清除）
     pub retry_status: Option<RetryStatus>,
+    /// 系统级提示（收到 SystemNotice 时为 Some，任务结束时清除）
+    pub system_notice: Option<SystemNotice>,
     /// SubAgent 执行深度计数器（>0 表示当前在 SubAgent 内，忽略其 TokenUsageUpdate）
     pub subagent_depth: u32,
     /// 会话开始时间（首次 submit_message 时记录）
@@ -142,6 +150,7 @@ impl Default for AgentComm {
             session_token_tracker: cc_agent::agent::token::TokenTracker::default(),
             context_window: 200_000,
             retry_status: None,
+            system_notice: None,
             subagent_depth: 0,
             session_start_time: None,
             tool_call_count: 0,

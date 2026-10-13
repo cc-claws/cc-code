@@ -206,10 +206,11 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
         // ── Category ③: TUI-only (no SessionUpdate) ──────────────────────────────
         ExecutorEvent::ContextWarning { .. }
         | ExecutorEvent::LlmRetrying { .. }
+        | ExecutorEvent::SystemNotice { .. }
         | ExecutorEvent::StateSnapshot(_)
         | ExecutorEvent::SubagentStarted { .. }
         | ExecutorEvent::SubagentStopped { .. }
-       | ExecutorEvent::SubagentProgress { .. }
+        | ExecutorEvent::SubagentProgress { .. }
         | ExecutorEvent::CompactStarted
         | ExecutorEvent::CompactCompleted { .. }
         | ExecutorEvent::CompactError { .. }

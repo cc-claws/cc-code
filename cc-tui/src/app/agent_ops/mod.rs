@@ -224,6 +224,7 @@ impl App {
                 source_agent_id,
             } => {
                 self.session_mgr.current_mut().agent.retry_status = None;
+                self.session_mgr.current_mut().agent.system_notice = None;
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 self.session_mgr.current_mut().agent.tool_call_count += 1;
                 // 记录当前执行中的工具
@@ -334,6 +335,7 @@ impl App {
                 source_agent_id,
             } => {
                 self.session_mgr.current_mut().agent.retry_status = None;
+                self.session_mgr.current_mut().agent.system_notice = None;
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 // 跨切面：spinner
                 // 跨切面：spinner —— 思考段结束（开始输出文本）
@@ -374,9 +376,10 @@ impl App {
                 if self.session_mgr.current_mut().agent.subagent_depth > 0 {
                     return (true, false, false);
                 }
-                if msgs.iter().any(|message| {
-                    matches!(message, cc_agent::messages::BaseMessage::Human { .. })
-                }) {
+                if msgs
+                    .iter()
+                    .any(|message| matches!(message, cc_agent::messages::BaseMessage::Human { .. }))
+                {
                     // 执行中的补充消息已经进入历史，中断时不能撤回本轮开头的输入。
                     self.session_mgr.current_mut().messages.last_submitted_text = None;
                 }
@@ -428,6 +431,15 @@ impl App {
                         delay_ms,
                         error,
                     });
+                (true, false, false)
+            }
+            AgentEvent::SystemNotice { level, message } => {
+                // 子 Agent 的提示不覆盖父 Agent 展示（与 LlmRetrying 同策略）
+                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
+                    return (true, false, false);
+                }
+                self.session_mgr.current_mut().agent.system_notice =
+                    Some(super::agent_comm::SystemNotice { level, message });
                 (true, false, false)
             }
             AgentEvent::AiReasoning(text) => {
