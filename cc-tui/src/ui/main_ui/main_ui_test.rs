@@ -491,3 +491,119 @@ async fn test_back_to_bottom_button_is_horizontally_centered() {
         "按钮未水平居中：{area:?} center2={center2}"
     );
 }
+
+/// PRD §4.8 状态栏排版规范回归：token 括号内冒号后必须有空格（严防 `in18s` 这类粘连）、
+/// `⏱` 后固定 2 个空格、段落分隔符统一 ` | `、各行首列 1 空格缩进。
+#[tokio::test]
+async fn test_status_bar_typography_spacing_and_alignment() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
+
+    // 覆盖 1.5M / 388.9k / 18 三档数值（含非整千，验证一位小数分支）
+    app.push_agent_event(crate::app::AgentEvent::TokenUsageUpdate {
+        usage: cc_agent::llm::types::TokenUsage {
+            input_tokens: 388_900,
+            output_tokens: 18,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+            request_id: None,
+        },
+        model: "test-model".into(),
+        stop_reason: None,
+    });
+    app.process_pending_events();
+    {
+        let agent = &mut app.session_mgr.current_mut().agent;
+        agent.session_token_tracker.total_input_tokens = 1_500_000;
+        agent.session_token_tracker.total_output_tokens = 8_000;
+        // 无 start_time 时 `⏱` 段整体不渲染，必须显式设置
+        agent.session_start_time = Some(std::time::Instant::now());
+        agent.context_window = 200_000;
+    }
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let height = super::status_bar::status_bar_height(&app) as usize;
+    let rows: Vec<String> = snapshot[snapshot.len() - height..].to_vec();
+    let joined = rows.join("\n");
+    let first = &rows[0];
+
+    // 1) 冒号后必须有空格 —— 直接防范 PRD 点名的 `in18s` / `in:389k,out:18` 粘连
+    assert!(first.contains("tok: "), "缺 `tok: ` 空格：\n{joined}");
+    assert!(first.contains("(in: "), "缺 `(in: ` 空格（即 `in18` 类粘连）：\n{joined}");
+    assert!(first.contains(", out: "), "缺 `, out: ` 空格：\n{joined}");
+    assert!(
+        !first.contains("(in:388") && !first.contains("in18"),
+        "出现粘连的 token 串：\n{joined}"
+    );
+
+    // 2) 时钟 emoji 后固定 2 个半角空格
+    assert!(first.contains("\u{23f1}  "), "`\u{23f1}` 后应为 2 空格：\n{joined}");
+
+    // 3) 段落分隔符统一 ` | `
+    assert!(first.contains(" | "), "第一行缺 ` | ` 分隔符：\n{joined}");
+
+    // 4) 每一行首列均为 1 个空格缩进（三行左边缘对齐）
+    for (index, row) in rows.iter().enumerate() {
+        assert!(
+            row.starts_with(' ') && !row.starts_with("  "),
+            "第 {} 行首列应为 1 空格缩进，实际以 {:?} 开头：\n{joined}",
+            index + 1,
+            row.chars().take(3).collect::<String>()
+        );
+    }
+}
+
+/// 抽屉提示行随游标位置切换：游标停在「正在查看的那一行」时 `Enter to view`/`x to stop`
+/// 无意义，应缩短为 `↑/↓ to select`（对齐参考实现）。
+#[tokio::test]
+async fn test_drawer_hint_shortens_when_cursor_on_active_row() {
+    const SHORT: &str = "\u{2191}/\u{2193} to select \u{b7} ctrl+x ctrl+k to stop all agents";
+    const LONG: &str = "Enter to view \u{b7} x to stop \u{b7} ctrl+x ctrl+k to stop all agents";
+
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "查天气",
+        "isBackground": true,
+    }));
+
+    for (cursor, focus, expected) in [
+        (Some(0usize), None, SHORT),
+        (Some(1usize), Some("child-1"), SHORT),
+        (Some(1usize), None, LONG),
+        (None, None, ""),
+    ] {
+        {
+            let session = app.session_mgr.current_mut();
+            session.ui.bg_bar_cursor = cursor;
+            session.focused_instance_id = focus.map(str::to_string);
+        }
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        let joined = handle.snapshot().join("\n");
+
+        if expected.is_empty() {
+            assert!(
+                !joined.contains(SHORT) && !joined.contains(LONG),
+                "游标不在抽屉时不应出现抽屉提示：\n{joined}"
+            );
+            continue;
+        }
+        assert!(
+            joined.contains(expected),
+            "cursor={cursor:?} focus={focus:?} 应含 {expected:?}，实际:\n{joined}"
+        );
+        let other = if expected == SHORT { LONG } else { SHORT };
+        assert!(
+            !joined.contains(other),
+            "cursor={cursor:?} focus={focus:?} 不应出现另一种提示 {other:?}：\n{joined}"
+        );
+    }
+}

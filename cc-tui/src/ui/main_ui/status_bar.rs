@@ -53,6 +53,25 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+/// 抽屉导航态的第三行提示。
+///
+/// 游标停在「当前已经在查看的那一行」时，`Enter to view` 与 `x to stop` 都无意义
+/// （已经在看它了 / 只有 `x` 有意义），此时缩短为纯导航提示。
+fn drawer_hint(app: &App) -> Option<&'static str> {
+    let session = app.session_mgr.current();
+    let cursor = session.ui.bg_bar_cursor?;
+    // 游标 0 = main 行（对应 focused_instance_id == None）
+    let target_id = cursor
+        .checked_sub(1)
+        .and_then(|index| session.background_agents.get(index))
+        .map(|agent| agent.instance_id.as_str());
+    Some(if target_id == session.focused_instance_id.as_deref() {
+        " ↑/↓ to select · ctrl+x ctrl+k to stop all agents"
+    } else {
+        " Enter to view · x to stop · ctrl+x ctrl+k to stop all agents"
+    })
+}
+
 fn has_hud_activity(app: &App) -> bool {
     let session = app.session_mgr.current();
     let agent = session.viewport_agent();
@@ -330,9 +349,13 @@ fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
 /// 第三行：权限/瞬时状态 + CPU/MEM + 快捷键提示
 fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     let lc = &app.services.lc;
-    if app.session_mgr.current().ui.bg_bar_cursor.is_some() {
-        let text = " Enter to view · x to stop · ctrl+x ctrl+k to stop all agents";
-        render_truncated_line(f, vec![Span::styled(text, Style::default().fg(Color::Cyan))], Vec::new(), area);
+    if let Some(text) = drawer_hint(app) {
+        render_truncated_line(
+            f,
+            vec![Span::styled(text, Style::default().fg(theme::DRAWER_CURSOR))],
+            Vec::new(),
+            area,
+        );
         return;
     }
     let mut left_spans: Vec<Span> = Vec::new();
