@@ -571,3 +571,37 @@ fn test_system_reminder_content_hash_different() {
         "content_hash 应不同"
     );
 }
+
+/// 回归：`Agent` 工具调用的类型标签必须反映**真实**模式。
+///
+/// 真机症状：模型漏传 `subagent_type` 导致调用失败，标题却硬编码成 `Agent(fork)`，
+/// 下面紧跟 `Error: please provide subagent_type parameter`——自相矛盾。
+/// fork 本来就是一种子 Agent，只有真的走 fork 才配得上 "fork" 标签。
+#[test]
+fn test_agent_group_label_reflects_real_mode() {
+    let cases = [
+        (json!({"prompt": "查需求"}), "unknown", "漏参 → 不得冒充 fork"),
+        (json!({"prompt": "查需求", "fork": true}), "fork", "fork: true 才是 fork"),
+        (json!({"prompt": "查需求", "subagent_type": "fork"}), "fork", "subagent_type=fork 等价"),
+        (
+            json!({"prompt": "查需求", "subagent_type": "general-purpose"}),
+            "general-purpose",
+            "显式类型原样展示",
+        ),
+    ];
+    for (index, (input, expected, message)) in cases.into_iter().enumerate() {
+        let tool_call_id = format!("toolu_label_{index}");
+        let prev = vec![(tool_call_id.clone(), "Agent".to_string(), input)];
+        let vm = MessageViewModel::from_base_message(
+            &BaseMessage::tool_error(&tool_call_id, "boom"),
+            &prev,
+        );
+        match vm {
+            MessageViewModel::SubAgentGroup { agent_id, is_error, .. } => {
+                assert_eq!(agent_id, expected, "{message}");
+                assert!(is_error, "工具报错时分组必须标记为失败");
+            }
+            other => panic!("应为 SubAgentGroup: {other:?}"),
+        }
+    }
+}

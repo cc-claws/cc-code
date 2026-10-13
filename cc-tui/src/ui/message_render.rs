@@ -1626,10 +1626,20 @@ pub fn render_view_model_with_links(
         } => {
             let mut lines: Vec<Line<'static>> = Vec::new();
 
-            // 状态指示器颜色（对齐 Claude Hub）
-            let indicator_icon = if *is_running { "◐" } else { "✓" };
+            // 状态指示器颜色（对齐 Claude Hub）。
+            // 完成但报错的子 Agent 必须显示 `✗` + 红色：否则会出现
+            // `✓ Agent(...)` 紧跟 `⎿ Error: …` 的自相矛盾画面（真机症状）。
+            let indicator_icon = if *is_running {
+                "◐"
+            } else if *is_error {
+                "✗"
+            } else {
+                "✓"
+            };
             let indicator_color = if *is_running {
                 theme::YELLOW
+            } else if *is_error {
+                theme::ERROR
             } else {
                 theme::SAGE
             };

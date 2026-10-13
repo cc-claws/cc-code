@@ -665,10 +665,14 @@ impl MessagePipeline {
             .push(ToolCallRequest::new(tool_call_id, name, input.clone()));
 
         if name == "Agent" {
-            let agent_id = input["subagent_type"]
-                .as_str()
-                .unwrap_or("Agent")
-                .to_string();
+            // 与 message_view 的恢复路径共用同一套标签规则，避免重放时名字跳变
+            // （fork 只在真的 fork 时写 "fork"，漏参的失败调用写 "unknown"）。
+            let explicit_type = input["subagent_type"].as_str().filter(|name| !name.is_empty());
+            let is_fork_call = explicit_type == Some("fork")
+                || input["fork"].as_bool().unwrap_or(false);
+            let agent_id = explicit_type
+                .map(str::to_string)
+                .unwrap_or_else(|| if is_fork_call { "fork".into() } else { "unknown".into() });
             let task_preview: String = input["prompt"]
                 .as_str()
                 .unwrap_or("")
