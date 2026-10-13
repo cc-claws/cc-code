@@ -1,6 +1,6 @@
 # PRD: 后台多子 Agent 抽屉式管理与虚拟视口路由系统
 
-> **文档版本**：v2.3 (后台唯一模式：删除前台同步路径、抽屉游标行改用纯前景色、补充 §4.16 fork 同线、§4.14.5 回收键与剔除判据定案)  
+> **文档版本**：v2.4 (§4.14.5 剔除判据改为「活跃轮次尾部产地」并删除 `bg_drawer_seen`；修正 `/rewind` 归档卡片被误删的回归)  
 > **基线代码**：`origin/main` (`cc-tui`, `cc-acp`, `cc-middlewares`, `cc-agent`)；真机联调基线 `feat/subagent-drawer-routing`
 > **关联原型**：`docs/subagent-mock.html`（已通过浏览器验证并对齐真实终端截图）  
 > **关联历史**：`docs/superpowers/specs/2026-05-26-background-agent-bar-design.md`
@@ -463,7 +463,8 @@ impl App {
    * 聚焦判据必须是「两个 id 都在场」：`child_thread_id` 与 `focused_instance_id` 同时为 `None` 时**不得**判为聚焦，否则无 id 的完成事件会被误判为"用户正在看"，从而留下幽灵行（`agent_events_bg.rs` 的 `was_focused` 用 `match (Some, Some)` 实现）。
 5. **已落地：回收判据与「主时间线剔除后台分组」的判据（独立审计发现的漏洞）**：
    * **回收键必须是该子 Agent 的 id，而不是"被摘掉的那一行"**：`poll_agent` 对「已停止且 `ended_at` 超过 3s」的行只摘行、保留会话等待完成事件；此时完成事件找不到行，若回收只挂在行上就会漏掉——正是 §4.14 要堵的不可达条目。回收键取 `removed_row_id.or(child_thread_id)`，并在摘除前要求该会话**已终态**（活跃会话不许摘，避免同名兜底误命中）。
-   * **主时间线剔除后台 `SubAgentGroup` 的判据必须是粘性的会话标志 `bg_drawer_seen`**，不能用 `subagent_sessions.is_empty()` 当代理：最后一个后台任务完成并回收后池子变空，瞬时判据失效，冻结的 `◐ Agent(...)` 卡片会漏回主消息区（而底栏抽屉同时是空的，两处自相矛盾）。标志在首次登记后台子 Agent 时置位、只在 `clear_subagent_sessions()`（新会话 / 切换 thread）复位，从而「历史回放没有运行池、应保留归档卡片」的语义照旧成立。
+   * **剔除后台 `SubAgentGroup` 必须发生在「活跃轮次尾部」的产地**（`MessagePipeline::build_rebuild_all`），**不能**在 `apply_pipeline_action` 里对收到的整条 `tail_vms` 做：那条路径同样会收到「全量时间线替换」（`/rewind` 用 `RebuildAll { prefix_len: 0, 全量历史 }` 表达「替换整条时间线」），在那里剔除会把用户正在看的归档卡片一并删掉，且没有任何后续事件能把它们放回来（v0.6.130 引入的真实回归，v0.6.131 修正）。
+   * **判据必须落在动作语义上，不能依赖会话瞬时状态**：曾用 `subagent_sessions.is_empty()` 当「本会话由抽屉承载」的代理，最后一个后台任务完成并回收后池子归空 → 判据失效 → 冻结的 `◐ Agent(...)` 卡片漏回主消息区（而底栏抽屉同时是空的，两处自相矛盾）；换成的会话级粘性标志 `bg_drawer_seen` 又过度剔除 `/rewind` 的历史重放。二者殊途同归的原因是同一个：**「标志为 true」并不等价于「当前存在由抽屉承载的活跃尾部」**。`bg_drawer_seen` 已随 v0.6.131 删除。
    * **`started` 载荷缺 `isBackground` 时默认按后台处理**（`unwrap_or(true)`）：本模式已无前台路径，误判为前台会重新打开「子过程二次投递进主消息区」。
    * **`BackgroundEventHandler::wants_llm_call_payload()` 只在事件真的会走 `fallback` 时才转述内部 handler 的声明**：`sender` 存在时事件走会话独立通道，`fallback` 收不到，声明 `true` 只会让子 Agent 每次 LLM 调用白拷贝整份历史（下游 mapper / `TransportEventSink` 丢弃 `LlmCallStart`，Langfuse 只从**父**事件泵取样本）。
 
