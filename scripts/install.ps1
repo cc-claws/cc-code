@@ -219,9 +219,23 @@ function Main {
 
     info "Installed to: $TargetExe"
 
-    # Create convenience copy (Windows doesn't support symlinks without admin)
+    # Create convenience copy (Windows doesn't support symlinks without admin).
+    # $LinkPath may be the *running* executable, which Windows locks against
+    # being overwritten; rename it aside first (a running image may be renamed)
+    # and retry, mirroring npm/install.js's replaceBinary strategy.
     $LinkPath = Join-Path $InstallDir $ExeName
-    Copy-Item -Force $TargetExe $LinkPath
+    try {
+        Copy-Item -Force -ErrorAction Stop $TargetExe $LinkPath
+    } catch {
+        $stamp = Get-Date -Format "yyyyMMddHHmmss"
+        try {
+            Move-Item -Force -ErrorAction Stop $LinkPath "$LinkPath.old.$stamp"
+            Copy-Item -Force -ErrorAction Stop $TargetExe $LinkPath
+            warn "Previous $ExeName was in use; replaced (old copy kept as $ExeName.old.$stamp)."
+        } catch {
+            warn "$ExeName is in use and could not be replaced now; the new version is at $VersionDir and will be used after the running instance exits."
+        }
+    }
 
     # Write current version
     $VersionFile = Join-Path $InstallDir "current-version.txt"
