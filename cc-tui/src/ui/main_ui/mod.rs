@@ -208,7 +208,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         let session = app.session_mgr.current();
         let task_bar_focused =
             session.ui.background_tasks_bar_focused && app.has_running_background_shell_tasks();
-        session.ui.bg_bar_cursor.is_some() || task_bar_focused
+        session.drawer_nav_active() || task_bar_focused
     };
     let focused_id = app.session_mgr.current_mut().focused_instance_id.clone();
 

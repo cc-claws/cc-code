@@ -27,8 +27,13 @@ pub(super) fn handle_bar_focus(
             .background_tasks_bar_focused = false;
     }
 
-    let cursor = app.session_mgr.current_mut().ui.bg_bar_cursor;
+    let cursor = app.session_mgr.current().ui.bg_bar_cursor;
     if cursor.is_some() {
+        // 后台 Agent 全部结束后游标可能残留，此时抽屉已收起，不能继续吞按键。
+        if !app.session_mgr.current().drawer_nav_active() {
+            app.session_mgr.current_mut().ui.bg_bar_cursor = None;
+            return None;
+        }
         return Some(handle_bar_key_event(app, *key_event));
     }
     None

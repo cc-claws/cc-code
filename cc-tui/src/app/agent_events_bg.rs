@@ -120,6 +120,11 @@ impl App {
             self.session_mgr.current_mut().focused_instance_id = None;
             self.session_mgr.current_mut().ui.bg_bar_cursor = None;
             self.request_rebuild();
+        } else if self.session_mgr.current().background_agents.is_empty() {
+            // 抽屉已空 → 抽屉行不再渲染，残留的导航游标会让第三行卡在
+            // `↑/↓ to select…` 并继续吞按键，这里一并收敛。
+            self.session_mgr.current_mut().ui.bg_bar_cursor = None;
+            self.request_rebuild();
         }
         // 用于 LLM 上下文的纯文本通知
         let short_id: String = task_id.chars().take(8).collect();

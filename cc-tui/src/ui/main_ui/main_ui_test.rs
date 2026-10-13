@@ -607,3 +607,78 @@ async fn test_drawer_hint_shortens_when_cursor_on_active_row() {
         );
     }
 }
+
+/// 回归：后台 Agent 全部完成后，抽屉收起，第三行必须恢复正常形态。
+///
+/// 症状：子 Agent 都跑完了，人已回到 main，第三行仍卡在
+/// `↑/↓ to select · ctrl+x ctrl+k to stop all agents`。
+/// 根因：`BackgroundTaskCompleted` 只在「被移除的正是当前聚焦 Agent」时才清
+/// `bg_bar_cursor`，游标停在 main 行时会残留。
+#[tokio::test]
+async fn test_drawer_hint_clears_after_all_agents_finish() {
+    const DRAWER_HINT: &str = "ctrl+x ctrl+k to stop all agents";
+
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "查天气",
+        "isBackground": true,
+    }));
+    // 游标停在 main 行（不是聚焦子 Agent）
+    app.session_mgr.current_mut().ui.bg_bar_cursor = Some(0);
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let before = handle.snapshot().join("\n");
+    assert!(
+        before.contains(DRAWER_HINT),
+        "抽屉导航态应先显示提示：\n{before}"
+    );
+
+    app.push_agent_event(crate::app::AgentEvent::BackgroundTaskCompleted {
+        task_id: "bg-1".into(),
+        agent_name: "general-purpose".into(),
+        success: true,
+        output: "LGTM".into(),
+        tool_calls_count: 1,
+        duration_ms: 1_000,
+        child_thread_id: Some("child-1".into()),
+    });
+    app.process_pending_events();
+
+    assert!(
+        app.session_mgr.current().background_agents.is_empty(),
+        "完成后后台列表应清空"
+    );
+    assert_eq!(
+        app.session_mgr.current().ui.bg_bar_cursor,
+        None,
+        "抽屉收起后残留游标必须被清掉"
+    );
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let after = handle.snapshot().join("\n");
+    assert!(
+        !after.contains(DRAWER_HINT),
+        "全部完成后第三行应恢复正常形态：\n{after}"
+    );
+
+    // 防御：即便游标被别处残留（后台列表已空），也不得再进入抽屉导航态
+    app.session_mgr.current_mut().ui.bg_bar_cursor = Some(0);
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let defensive = handle.snapshot().join("\n");
+    assert!(
+        !defensive.contains(DRAWER_HINT),
+        "后台列表为空时不得渲染抽屉导航提示：\n{defensive}"
+    );
+}

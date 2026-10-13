@@ -227,6 +227,15 @@ impl ChatSession {
             self.subagent_sessions.get(&agent.instance_id).is_none_or(|sub| sub.status.is_active())
         })
     }
+
+    /// 抽屉是否处于键盘导航态。
+    ///
+    /// 必须同时满足「还有后台 Agent」+「游标已激活」：后台 Agent 全部结束后
+    /// `bg_bar_cursor` 可能残留，若不收敛会让第三行卡在 `↑/↓ to select…` 且
+    /// `handle_bar_focus` 继续吞掉所有按键。
+    pub(crate) fn drawer_nav_active(&self) -> bool {
+        self.ui.bg_bar_cursor.is_some() && !self.background_agents.is_empty()
+    }
 }
 
 impl super::App {

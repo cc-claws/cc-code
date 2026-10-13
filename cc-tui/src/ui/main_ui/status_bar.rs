@@ -59,6 +59,9 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 /// （已经在看它了 / 只有 `x` 有意义），此时缩短为纯导航提示。
 fn drawer_hint(app: &App) -> Option<&'static str> {
     let session = app.session_mgr.current();
+    if !session.drawer_nav_active() {
+        return None;
+    }
     let cursor = session.ui.bg_bar_cursor?;
     // 游标 0 = main 行（对应 focused_instance_id == None）
     let target_id = cursor
