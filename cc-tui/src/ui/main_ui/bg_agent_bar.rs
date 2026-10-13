@@ -45,11 +45,9 @@ pub(crate) fn drawer_line(
     let type_width = left_width.saturating_sub(4).min(18);
     let preview_width = left_width.saturating_sub(4 + type_width);
 
-    let bg = selected.then_some(theme::DRAWER_SELECTED_BG);
-    let st = move |color: Color| match bg {
-        Some(bg) => Style::default().fg(color).bg(bg),
-        None => Style::default().fg(color),
-    };
+    // 只用前景色区分游标行（真机定稿）：键盘上下移动时**不得**出现整行底色，
+    // 底色会让人以为「已经进这个视口了」，而 Enter 才是进入。
+    let st = move |color: Color| Style::default().fg(color);
 
     // 前缀（游标 + 圆点）固定 4 列，但极窄终端必须按 left_width 收缩，否则整行会越界。
     let truncate = crate::ui::message_render::truncate_to_display_width;
@@ -81,7 +79,7 @@ pub(crate) fn drawer_line(
         Span::styled(fit(preview, preview_width), st(body_color)),
     ];
     if right_width > 0 {
-        spans.push(Span::styled(" ", st(Color::Reset)));
+        spans.push(Span::styled(" ", Style::default()));
         spans.push(Span::styled(
             fit(metrics, right_width),
             st(accent.unwrap_or(body_color)),
@@ -90,7 +88,7 @@ pub(crate) fn drawer_line(
     let used = left_width + if right_width > 0 { 1 + right_width } else { 0 };
     let pad = width.saturating_sub(used);
     if pad > 0 {
-        spans.push(Span::styled(" ".repeat(pad), st(Color::Reset)));
+        spans.push(Span::styled(" ".repeat(pad), Style::default()));
     }
     Line::from(spans)
 }

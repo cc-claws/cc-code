@@ -66,9 +66,6 @@ pub const DRAWER_MUTED: Color = Color::Rgb(100, 116, 139);
 /// 抽屉实心 `●`（当前视口）— 近白 #F1F5F9
 pub const DRAWER_CIRCLE_ON: Color = Color::Rgb(241, 245, 249);
 
-/// 抽屉键盘游标所在行的底色 — 深蓝灰 #1E2436
-pub const DRAWER_SELECTED_BG: Color = Color::Rgb(30, 36, 54);
-
 // ── 边框 ─────────────────────────────────────────────────────────────────────
 
 /// 中性灰 — 空闲边框 #505050

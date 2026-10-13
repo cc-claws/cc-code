@@ -87,18 +87,27 @@ fn test_drawer_palette_is_bright_white_or_muted_only() {
     );
 }
 
-/// 键盘游标行使用参考图底色 #1E2436，而非终端反色。
+/// 键盘游标行只用**前景色**区分，不得出现整行底色。
+///
+/// 真机反馈：按 ↑/↓ 时选中行有背景色，会让人以为「已经进这个视口了」——
+/// Enter 才是进入；游标移动只能靠字体变亮白表达。也禁止终端反色。
 #[test]
-fn test_drawer_selected_row_uses_reference_background() {
-    let line = drawer_line(80, true, false, true, "general-purpose", "查询武汉天气", "32s · ↓ 49 tokens", None);
+fn test_drawer_cursor_row_uses_foreground_color_only() {
+    let line = drawer_line(80, true, false, true, "general-purpose", "查询武汉天气", "32s · ↓ 49", None);
     let has_bg = line
         .spans
         .iter()
-        .any(|span| span.style.bg == Some(theme::DRAWER_SELECTED_BG));
-    assert!(has_bg, "选中行应使用参考图底色");
+        .any(|span| span.style.bg.is_some());
+    assert!(!has_bg, "游标行不得设置任何底色");
     let reversed = line
         .spans
         .iter()
         .any(|span| span.style.add_modifier.contains(Modifier::REVERSED));
-    assert!(!reversed, "选中行不应再使用终端反色");
+    assert!(!reversed, "游标行不得使用终端反色");
+    assert!(
+        line.spans
+            .iter()
+            .any(|span| span.style.fg == Some(theme::DRAWER_TEXT_ACTIVE)),
+        "游标行必须靠亮白前景色表达"
+    );
 }
