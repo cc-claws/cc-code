@@ -22,7 +22,8 @@ use crate::{
 use parking_lot::RwLock;
 
 use super::{
-    build_agent::CancelPolicy, fire_subagent_lifecycle_hooks_static, format_subagent_result,
+    build_agent::{AgentBuildOptions, CancelPolicy}, fire_subagent_lifecycle_hooks_static,
+    format_subagent_result, subagent_task_preview,
 };
 
 /// RAII guard that calls deregister on drop (panic-safe cleanup).
@@ -379,7 +380,7 @@ impl BaseTool for SubAgentTool {
         }
 
         if is_fork {
-            return self.invoke_fork(&prompt, &cwd).await;
+            return self.invoke_fork(&prompt, &cwd, description.as_deref()).await;
         }
 
         let agent_id = match &subagent_type {
@@ -402,9 +403,14 @@ impl BaseTool for SubAgentTool {
                 &agent_def,
                 &agent_id,
                 &cwd,
-                CancelPolicy::Cascade,
-                false,
-                true,
+                AgentBuildOptions {
+                    cancel_policy: CancelPolicy::Cascade,
+                    skip_events: false,
+                    setup_event_handler: true,
+                    fork: false,
+                    task_preview: subagent_task_preview(description.as_deref(), &prompt),
+                    snapshot_at_message_id: None,
+                },
             )
             .await?;
 

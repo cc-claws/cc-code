@@ -37,7 +37,15 @@ impl super::SubAgentTool {
         } else { None };
         // fork 复用同一构造/持久化/权限路径，仅上下文来源不同。
         let agent_def = self.load_agent_def(if is_fork { "general-purpose" } else { &agent_name }, &cwd)?;
-        let build = self.build_agent_from_def(&agent_def, &agent_name, &cwd, CancelPolicy::Independent, true, false).await?;
+        let preview = super::subagent_task_preview(description.as_deref(), &prompt);
+        let build = self.build_agent_from_def(&agent_def, &agent_name, &cwd, super::build_agent::AgentBuildOptions {
+            cancel_policy: CancelPolicy::Independent,
+            skip_events: true,
+            setup_event_handler: false,
+            fork: is_fork,
+            task_preview: preview.clone(),
+            snapshot_at_message_id: None,
+        }).await?;
         let thread_id = build.child_thread_id;
         let task_id = format!("bg-{}", uuid::Uuid::new_v4());
         let cancel = build.cancel_token.unwrap_or_else(AgentCancellationToken::new);

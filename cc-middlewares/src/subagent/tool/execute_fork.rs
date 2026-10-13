@@ -1,20 +1,21 @@
-use std::sync::Arc;
-
 use cc_agent::{
-    agent::{events::AgentEvent, react::AgentInput, state::AgentState, ReActAgent, State as _},
+    agent::{events::AgentEvent, react::AgentInput, State as _},
     messages::BaseMessage,
-    thread::ThreadMeta,
 };
 
-use crate::subagent::SubAgentMiddlewareConfig;
-
-use super::{build_subagent_middlewares, format_subagent_result, SourceAgentIdHandler};
+use super::build_agent::{AgentBuildOptions, CancelPolicy};
+use super::format_subagent_result;
 
 impl super::SubAgentTool {
+    /// fork = 带主 Agent 上下文的续跑，同样是一种子 Agent。
+    ///
+    /// 构建/持久化/中间件/工具/事件全部复用 `build_agent_from_def`（`fork: true`），
+    /// 这里只保留 fork 真正的两个特例：注入父级消息、prompt 包一层 fork 指令。
     pub(crate) async fn invoke_fork(
         &self,
         prompt: &str,
         cwd: &str,
+        description: Option<&str>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let parent_msgs: Vec<BaseMessage> = match &self.parent_messages {
             Some(pm) => pm.read().clone(),
@@ -23,101 +24,46 @@ impl super::SubAgentTool {
                     .into(),
             ),
         };
-
-        // Create child thread for fork mode
-        let child_thread_id = uuid::Uuid::now_v7().to_string();
-        if let Some(ref store) = self.thread_store {
-            let snapshot_id = parent_msgs.last().map(|m| m.id().as_uuid().to_string());
-            let mut child_meta = ThreadMeta::new(cwd);
-            child_meta.id = child_thread_id.clone();
-            child_meta.parent_thread_id = self.parent_thread_id.clone();
-            child_meta.snapshot_at_message_id = snapshot_id;
-            child_meta.hidden = true;
-            child_meta.cancel_policy = "cascade".to_string();
-            child_meta.title = Some("fork".to_string());
-            store
-                .create_thread(child_meta)
-                .await
-                .map_err(|e| format!("Failed to create child thread: {}", e))?;
-        }
-
-        let fork_directive = crate::subagent::fork::build_fork_directive(prompt);
-        let mut fork_state = if let Some(ref store) = self.thread_store {
-            AgentState::new(cwd).with_persistence(Arc::clone(store), child_thread_id.clone())
-        } else {
-            AgentState::new(cwd)
-        }
-        .with_context("source_agent_id", child_thread_id.clone());
-        // For immediate execution, inject parent messages into state
-        for msg in parent_msgs {
-            fork_state.add_message(msg);
-        }
-        let llm = (self.llm_factory)(None);
-        let mut agent_builder = ReActAgent::new(llm).max_iterations(200);
+        // fork 借用 general-purpose 定义承载「无 agent.md 覆写」的默认值，
+        // 实际人格/工具由 `fork: true` 决定（复用主 Agent 系统提示 + 全量继承工具）。
+        let agent_def = self.load_agent_def("general-purpose", cwd)?;
+        let build = self
+            .build_agent_from_def(
+                &agent_def,
+                "fork",
+                cwd,
+                AgentBuildOptions {
+                    cancel_policy: CancelPolicy::Cascade,
+                    skip_events: false,
+                    setup_event_handler: true,
+                    fork: true,
+                    task_preview: super::subagent_task_preview(description, prompt),
+                    // 记录分叉点：历史里能看出这条 fork 线程从父线程哪条消息长出来
+                    snapshot_at_message_id: parent_msgs
+                        .last()
+                        .map(|message| message.id().as_uuid().to_string()),
+                },
+            )
+            .await?;
+        let agent_builder = build.builder;
+        let mut fork_state = build.state;
+        let child_thread_id = build.child_thread_id;
         // instance_id 统一使用 child_thread_id（UUID v7，持久化线程标识）
         let instance_id = child_thread_id.clone();
 
-        for mw in build_subagent_middlewares(
-            self.permission_config(
-                SubAgentMiddlewareConfig::for_fork(cwd)
-                    .with_inherited_instructions(self.inherited_instructions.clone()),
-                &crate::claude_agent_parser::ToolsValue::Empty,
-                &crate::claude_agent_parser::ToolsValue::Empty,
-            ),
-        ) {
-            agent_builder = agent_builder.add_middleware(mw);
+        // fork 特例 1/2：父级消息作为模型上下文注入子状态（不重复写入 child thread）
+        for msg in parent_msgs {
+            fork_state.add_message(msg);
         }
-
-        if let Some(ref builder) = self.system_builder {
-            let system_content = builder(None, cwd);
-            agent_builder = agent_builder.with_system_prompt(system_content);
-        }
-
-        for tool in self.filter_tools(
-            &crate::claude_agent_parser::ToolsValue::Empty,
-            &crate::claude_agent_parser::ToolsValue::Empty,
-        ) {
-            agent_builder = agent_builder.register_tool(tool);
-        }
-
-        if let Some(ref factory) = self.child_handler_factory {
-            agent_builder = agent_builder.with_event_handler(factory(instance_id.clone()));
-        } else if let Some(handler) = &self.event_handler {
-            let tagged = Arc::new(SourceAgentIdHandler::new(
-                Arc::clone(handler),
-                instance_id.clone(),
-            ));
-            agent_builder = agent_builder.with_event_handler(tagged);
-        }
-
-        if let Some(ref handler) = self.event_handler {
-            handler.on_event(AgentEvent::SubagentStarted {
-                agent_name: "fork".to_string(),
-                instance_id: instance_id.clone(),
-                is_background: false,
-                    task_preview: String::new(),
-                    timeout_secs: None,
-                    model: None,
-            });
-        }
-        self.fire_subagent_lifecycle_hook(
-            crate::hooks::types::HookEvent::SubagentStart,
-            cwd,
-            "fork",
-            None,
-        )
-        .await;
+        // fork 特例 2/2：prompt 需要包一层 fork 指令
+        let fork_directive = crate::subagent::fork::build_fork_directive(prompt);
 
         // Register AgentRuntime: only when thread_store is present (non-legacy path)
         // Panic-safe: DeregisterGuard ensures deregister runs on drop (panic or early return)
         //
         // child_cancel is linked to parent via child_token(): parent cancel → child_cancel fires.
         // The same child_cancel is passed to execute(), so cascade cancel works correctly.
-        let child_cancel = self
-            .cancel
-            .as_ref()
-            .map(|t| t.child_token())
-            .unwrap_or_default();
+        let child_cancel = build.cancel_token.unwrap_or_default();
         let _deregister_guard = if self.thread_store.is_some() {
             if let Some(ref register) = self.register_runtime {
                 register(

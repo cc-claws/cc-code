@@ -1160,3 +1160,84 @@ fn test_subagent_task_preview_truncates_to_40_chars() {
     assert_eq!(preview.chars().count(), 40);
     assert_eq!(subagent_task_preview(None, "   \n  "), "", "没有可用的行时返回空串");
 }
+
+/// 回归：fork 与普通子 Agent 共用构建路径，启动事件的 task_preview 必须同源。
+///
+/// 曾经 sync fork 硬编码 `task_preview: String::new()`，运行中的分组标题是空白。
+#[tokio::test]
+async fn test_fork_started_event_preview_comes_from_description() {
+    use cc_agent::agent::events::{AgentEvent, AgentEventHandler};
+
+    struct CaptureStartedHandler {
+        previews: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+    #[async_trait::async_trait]
+    impl AgentEventHandler for CaptureStartedHandler {
+        fn on_event(&self, event: AgentEvent) {
+            if let AgentEvent::SubagentStarted { task_preview, .. } = event {
+                self.previews.lock().unwrap().push(task_preview);
+            }
+        }
+    }
+
+    let previews: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let handler = Arc::new(CaptureStartedHandler { previews: Arc::clone(&previews) });
+    let t = SubAgentTool::new(
+        Arc::new(vec![]),
+        Some(handler),
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        "/tmp".to_string(),
+    )
+    .with_parent_messages(Arc::new(RwLock::new(vec![BaseMessage::human("Hello")])));
+
+    t.invoke(serde_json::json!({
+        "fork": true,
+        "description": "勾股需求排查",
+        "prompt": "【必须全程用中文思考和回答】\n查询需求列表"
+    }))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        previews.lock().unwrap().as_slice(),
+        &["勾股需求排查".to_string()],
+        "fork 的启动事件必须带上 description 预览"
+    );
+}
+
+/// 回归：fork 复用主 Agent 系统提示，不做 agent.md 覆写；普通子 Agent 才吃覆写。
+#[tokio::test]
+async fn test_fork_uses_parent_system_prompt_without_agent_overrides() {
+    use crate::agent_define::AgentOverrides;
+
+    let seen_overrides: Arc<std::sync::Mutex<Vec<bool>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_clone = Arc::clone(&seen_overrides);
+    let t = SubAgentTool::new(
+        Arc::new(vec![]),
+        None,
+        Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        "/tmp".to_string(),
+    )
+    .with_parent_messages(Arc::new(RwLock::new(vec![BaseMessage::human("Hello")])))
+    .with_system_builder(Arc::new(
+        move |overrides: Option<&AgentOverrides>, _cwd: &str| {
+            seen_clone.lock().unwrap().push(overrides.is_some());
+            "system".to_string()
+        },
+    ));
+
+    t.invoke(serde_json::json!({"fork": true, "prompt": "do the thing"}))
+        .await
+        .unwrap();
+
+    // 对照组：普通子 Agent 必须吃 agent.md 覆写，否则「不覆写」就失去了区分度
+    t.invoke(serde_json::json!({"subagent_type": "general-purpose", "prompt": "do the thing"}))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        seen_overrides.lock().unwrap().as_slice(),
+        &[false, true],
+        "fork 复用主 Agent 系统提示（无覆写），普通子 Agent 才有 agent.md 覆写"
+    );
+}
