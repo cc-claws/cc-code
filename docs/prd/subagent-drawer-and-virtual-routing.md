@@ -55,7 +55,7 @@
    * 主时间线输出树形节点：`• N background agents launched (↓ to manage)`，用 `├──` / `└──` 列出任务简述。
    * 抽屉栏立即展开显示所有后台 Agent，状态栏提示 `(↓ to manage)`。
 2. **抽屉导航态（Drawer Nav）**：
-   * 在空输入框按 **`↓`**，焦点下移进入抽屉，行首出现高亮青色箭头游标 `> `。
+   * 在空输入框按 **`↓`**，焦点下移进入抽屉，游标所在行整体高亮：亮白箭头游标 `> ` + 该行底色 `#1E2436`（配色详见 §4.11）。
    * **当前查看的视口**保留实心圆点 `●`，**当前选中的行**带有 `> ` 游标。两者解耦。
    * 快捷键提示行随游标位置切换文案（`drawer_hint()`，唯一判据是「游标所指行是否就是当前查看的视口」）：
      * 游标停在**当前查看的那一行**：`↑/↓ to select · ctrl+x ctrl+k to stop all agents`（此时 `Enter`/`x` 无意义，不提示）；
@@ -399,6 +399,7 @@ impl App {
    * 实心圆点 `●`（当前视口）：近白 `#F1F5F9`（`DRAWER_CIRCLE_ON`）；
    * 游标行整行底色 `#1E2436`（`DRAWER_SELECTED_BG`）——**禁止用 `Modifier::REVERSED`** 反色，反色会覆盖上述前景色；
    * **禁用青色、禁用中间灰阶堆叠**：原型 `docs/subagent-mock.html` 里的 `#38BDF8` 青色游标在真机上被否决，`DRAWER_CURSOR` / `DRAWER_TEXT` / `DRAWER_PREVIEW` 三个常量已删除（真机反馈："不要出现青色，只有 MUTED 和亮白，你搞那么多颜色干嘛"）。此条**覆盖原型**；
+     * 作用域**仅限抽屉本身**：子视口输入框那道亮青上边框（`Color::LightCyan`，§4.1/§4.2）**保留**——它是"当前是子 Agent 窗口还是主窗口"的唯一视觉标识（真机决策，明确不改）。
    * `accent` 只覆盖**圆点与右侧指标**，正文不染色；取值：待审批 `theme::WARNING`（琥珀）、**已完成 `theme::SAGE`（绿）**、失败/停止 `theme::ERROR`（红）——
      完成必须转绿，用户要能一眼看出"它结束了，我看完就可以走了"；
    * 第三行抽屉提示（`Enter to view · x to stop · ctrl+x ctrl+k to stop all agents`）用 `theme::MUTED`，与消息区 `Thought for … (ctrl+o to expand)` 同色——它是辅助说明，不是游标。
