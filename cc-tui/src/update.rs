@@ -8,10 +8,7 @@
 
 use anyhow::{Context, Result};
 use std::process::Stdio;
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    process::Command,
-};
+use tokio::process::Command;
 
 const SCRIPT_URL_SH: &str =
     "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh";
@@ -82,7 +79,11 @@ async fn run_update_unix() -> Result<String> {
 async fn run_update_windows() -> Result<String> {
     println!("  Running remote install script...");
 
-    let ps_command = format!("irm {SCRIPT_URL_PS1} | iex");
+    // 先强制子进程控制台输出为 UTF-8：在非英文 Windows 上默认代码页（如 GBK）
+    // 会把中文（错误信息等）写成非 UTF-8 字节，见 `stream_lines_lossy`。
+    let ps_command = format!(
+        "try {{ [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 }} catch {{}}; irm {SCRIPT_URL_PS1} | iex"
+    );
 
     let mut child = Command::new("powershell")
         .args([
@@ -102,22 +103,11 @@ async fn run_update_windows() -> Result<String> {
 }
 
 async fn stream_output(child: &mut tokio::process::Child) -> Result<()> {
-    // 流式输出 stdout
     if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-        while let Some(line) = lines.next_line().await? {
-            println!("{line}");
-        }
+        stream_lines_lossy(stdout, |line| println!("{line}")).await?;
     }
-
-    // 流式输出 stderr
     if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-        while let Some(line) = lines.next_line().await? {
-            eprintln!("{line}");
-        }
+        stream_lines_lossy(stderr, |line| eprintln!("{line}")).await?;
     }
 
     let status = child.wait().await?;
@@ -126,6 +116,54 @@ async fn stream_output(child: &mut tokio::process::Child) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Stream a child process's output line by line, decoding each line **lossily**.
+///
+/// The install scripts run under `bash` (Unix) or Windows PowerShell. The latter
+/// writes to a redirected pipe using the console code page, which on non-English
+/// Windows (e.g. GBK) is not valid UTF-8 — a strict UTF-8 reader would abort with
+/// "stream did not contain valid UTF-8" and hide the real error message. Decode
+/// lossily so non-ASCII diagnostics never crash the update.
+async fn stream_lines_lossy<R>(mut reader: R, mut emit: impl FnMut(&str)) -> std::io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+
+    let mut pending: Vec<u8> = Vec::with_capacity(8192);
+    let mut chunk = [0u8; 8192];
+    loop {
+        let n = reader.read(&mut chunk).await?;
+        if n == 0 {
+            break;
+        }
+        pending.extend_from_slice(&chunk[..n]);
+        for line in take_complete_lines(&mut pending) {
+            emit(&line);
+        }
+    }
+    if !pending.is_empty() {
+        emit(&String::from_utf8_lossy(&pending));
+    }
+    Ok(())
+}
+
+/// Drain and return every `\n`-terminated line currently in `buf`.
+///
+/// A trailing `\r` (CRLF) is stripped. Bytes that are not valid UTF-8 are
+/// replaced (lossy) rather than rejected.
+fn take_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
+    let mut out = Vec::new();
+    while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+        let mut line: Vec<u8> = buf.drain(..=pos).collect();
+        line.pop(); // 去掉结尾 '\n'
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        out.push(String::from_utf8_lossy(&line).into_owned());
+    }
+    out
 }
 
 fn read_installed_version() -> Result<String> {
@@ -140,3 +178,7 @@ fn read_installed_version() -> Result<String> {
 
     Ok(tag)
 }
+
+#[cfg(test)]
+#[path = "update_test.rs"]
+mod tests;
