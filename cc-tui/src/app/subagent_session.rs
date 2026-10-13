@@ -53,6 +53,8 @@ pub(crate) struct BackgroundAgentSession {
     pub input_draft: Option<tui_textarea::TextArea<'static>>,
     /// 是否为后台（run_in_background）任务；前台同步 SubAgent 的事件同时驱动主时间线 SubAgentGroup。
     pub is_background: bool,
+    /// 累积当前这句助手文本（抽屉「正在做什么」列的来源），ToolEnd 时复位。
+    activity_buffer: String,
 }
 
 impl BackgroundAgentSession {
@@ -82,6 +84,7 @@ impl BackgroundAgentSession {
             notices: Vec::new(),
             input_draft: None,
             is_background: false,
+            activity_buffer: String::new(),
         }
     }
 
@@ -112,6 +115,24 @@ impl BackgroundAgentSession {
         self.view_messages.extend(self.notices.iter().cloned().map(MessageViewModel::system));
     }
 
+    /// 用最新一句助手文本更新抽屉「正在做什么」列。
+    ///
+    /// 取缓冲区最后一个非空行并压缩空白（助手文本常带 markdown 与换行，
+    /// 抽屉是单行展示），空内容不覆盖已有值。
+    fn push_assistant_activity(&mut self, chunk: &str) {
+        self.activity_buffer.push_str(chunk);
+        let line = self
+            .activity_buffer
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "));
+        if let Some(line) = line {
+            self.current_activity = line;
+        }
+    }
+
     pub(crate) fn handle_event(&mut self, event: AgentEvent) {
         let now = Instant::now();
         match &event {
@@ -119,7 +140,8 @@ impl BackgroundAgentSession {
                 if self.running_tool_times.insert(tool_call_id.clone(), now).is_none() {
                     self.agent.tool_call_count += 1;
                 }
-                self.current_activity = format!("{}({})", display, args);
+                // 中间列展示「子 Agent 在说什么」，不写工具串（工具细节用户 Enter 进来看）。
+                // 因此这里刻意不改 current_activity，保留最近一句助手文本；没有文本时才回退任务描述。
                 // 与主 Agent 一致地登记「运行中工具」：状态栏第二行读的是
                 // running_tools / recent_tools，只写 active_tool 的话子视口永远为空。
                 let args_summary: String = crate::app::tool_display::sanitize_display_text(args)
@@ -154,14 +176,17 @@ impl BackgroundAgentSession {
                     .retain(|tool| tool.tool_call_id != *tool_call_id);
                 self.agent.active_tool = self.agent.running_tools.last().cloned();
                 self.agent.finish_recent_tool(tool_call_id, now);
+                // 一句话已说完 → 缓冲区复位，下一句助手文本从头累积。
+                self.activity_buffer.clear();
             }
             AgentEvent::AiReasoning(_) => {
                 self.spinner.begin_thinking();
                 self.spinner.set_mode_keep_verb(cc_widgets::SpinnerMode::Thinking);
             }
-            AgentEvent::AssistantChunk { .. } => {
+            AgentEvent::AssistantChunk { chunk, .. } => {
                 self.spinner.end_thinking();
                 self.spinner.set_mode_keep_verb(cc_widgets::SpinnerMode::Responding);
+                self.push_assistant_activity(chunk);
             }
             AgentEvent::TokenUsageUpdate { usage, model, .. } => {
                 self.agent.session_token_tracker.accumulate(usage);

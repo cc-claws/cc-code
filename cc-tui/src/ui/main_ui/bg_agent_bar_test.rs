@@ -3,8 +3,8 @@ use crate::ui::theme;
 
 #[test]
 fn test_drawer_columns_align_with_chinese_and_long_titles() {
-    let first = drawer_line(100, true, false, "general-purpose", "正在等待六十秒后查询武汉天气", "32s · ↓ 49 tokens", None);
-    let second = drawer_line(100, false, true, "explore", &"长任务名".repeat(100), "32s · ↓ 33 tokens", None);
+    let first = drawer_line(100, true, false, true, "general-purpose", "正在等待六十秒后查询武汉天气", "32s · ↓ 49 tokens", None);
+    let second = drawer_line(100, false, true, false, "explore", &"长任务名".repeat(100), "32s · ↓ 33 tokens", None);
     let first = first.to_string();
     let second = second.to_string();
     assert_eq!(UnicodeWidthStr::width(first.as_str()), 100, "每行必须占相同显示列宽");
@@ -19,7 +19,7 @@ fn test_drawer_columns_align_with_chinese_and_long_titles() {
 #[test]
 fn test_drawer_tiny_width_never_overflows() {
     for width in 0..40 {
-        let line = drawer_line(width, true, true, "general-purpose", "中文说明", "1h · ↓ 12345 tokens", None).to_string();
+        let line = drawer_line(width, true, true, true, "general-purpose", "中文说明", "1h · ↓ 12345 tokens", None).to_string();
         assert!(UnicodeWidthStr::width(line.as_str()) <= width, "极窄终端不能越界");
         assert!(!line.contains('\n'));
     }
@@ -29,20 +29,16 @@ fn test_drawer_tiny_width_never_overflows() {
 /// 而不是整行按状态染色（Running 整行青 / Completed 整行绿）。
 #[test]
 fn test_drawer_uses_reference_palette_not_whole_row_status_color() {
-    let line = drawer_line(80, false, false, "general-purpose", "查询武汉天气", "32s · ↓ 49 tokens", None);
+    let line = drawer_line(80, false, false, false, "general-purpose", "查询武汉天气", "32s · ↓ 49 tokens", None);
     let colors: Vec<Color> = line.spans.iter().filter_map(|span| span.style.fg).collect();
 
     assert!(
-        colors.contains(&theme::DRAWER_TEXT),
-        "类型名应为参考图柔白 {colors:?}"
+        colors.iter().filter(|c| **c == theme::DRAWER_MUTED).count() >= 3,
+        "未选中行的类型名/预览/指标应统一为灰 {colors:?}"
     );
     assert!(
-        colors.contains(&theme::DRAWER_PREVIEW),
-        "任务预览应为参考图浅冷灰 {colors:?}"
-    );
-    assert!(
-        colors.contains(&theme::DRAWER_MUTED),
-        "右侧指标/空心态应为参考图冷灰 {colors:?}"
+        !colors.contains(&theme::DRAWER_TEXT_ACTIVE),
+        "未选中行不应使用亮白 {colors:?}"
     );
     assert!(
         !colors.contains(&Color::Cyan) && !colors.contains(&Color::Green),
@@ -53,20 +49,20 @@ fn test_drawer_uses_reference_palette_not_whole_row_status_color() {
 /// 示警色只落在圆点与右侧指标上，正文仍保持白灰。
 #[test]
 fn test_drawer_accent_only_tints_circle_and_metrics() {
-    let line = drawer_line(80, false, false, "general-purpose", "查询武汉天气", "✗ failed", Some(theme::ERROR));
+    let line = drawer_line(80, false, false, false, "general-purpose", "查询武汉天气", "✗ failed", Some(theme::ERROR));
     let colors: Vec<Color> = line.spans.iter().filter_map(|span| span.style.fg).collect();
 
     assert!(colors.contains(&theme::ERROR), "失败行应有红色示警 {colors:?}");
     assert!(
-        colors.contains(&theme::DRAWER_TEXT) && colors.contains(&theme::DRAWER_PREVIEW),
-        "示警不应把正文整体染红 {colors:?}"
+        colors.contains(&theme::DRAWER_MUTED),
+        "示警不应把正文整体染红，正文应保持灰 {colors:?}"
     );
 }
 
 /// 键盘游标行使用参考图底色 #1E2436，而非终端反色。
 #[test]
 fn test_drawer_selected_row_uses_reference_background() {
-    let line = drawer_line(80, true, false, "general-purpose", "查询武汉天气", "32s · ↓ 49 tokens", None);
+    let line = drawer_line(80, true, false, true, "general-purpose", "查询武汉天气", "32s · ↓ 49 tokens", None);
     let has_bg = line
         .spans
         .iter()

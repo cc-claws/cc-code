@@ -762,7 +762,7 @@ fn context_usage_color(pct: f64) -> Color {
     }
 }
 
-fn format_token_count(n: u64) -> String {
+pub(crate) fn format_token_count(n: u64) -> String {
     if n >= 1_000_000 {
         let major = n / 1_000_000;
         let remainder = n % 1_000_000;

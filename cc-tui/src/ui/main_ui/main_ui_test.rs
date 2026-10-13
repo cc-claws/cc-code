@@ -682,3 +682,119 @@ async fn test_drawer_hint_clears_after_all_agents_finish() {
         "后台列表为空时不得渲染抽屉导航提示：\n{defensive}"
     );
 }
+
+/// 回归：抽屉右侧指标必须把「上行(输出)/下行(输入)」分开显示。
+///
+/// 原先用的是 `↓ {input+output} tokens`——箭头标着单向、数字却是合计，口径对不上。
+#[tokio::test]
+async fn test_drawer_metrics_shows_input_and_output_tokens_separately() {
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "查天气",
+        "isBackground": true,
+    }));
+    app.handle_subagent_event(
+        "child-1",
+        crate::app::AgentEvent::TokenUsageUpdate {
+            usage: cc_agent::llm::types::TokenUsage {
+                input_tokens: 32_700,
+                output_tokens: 259,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+                request_id: None,
+            },
+            model: "m".into(),
+            stop_reason: None,
+        },
+    );
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let joined = handle.snapshot().join("\n");
+
+    assert!(joined.contains("↓ 32.7k"), "应输出下行（输入）token：\n{joined}");
+    assert!(joined.contains("↑ 259"), "应输出上行（输出）token：\n{joined}");
+    assert!(
+        !joined.contains("↓ 33.0k") && !joined.contains("↓ 32959"),
+        "不得再用 in+out 合计冒充单向 token：\n{joined}"
+    );
+}
+
+/// 回归：抽屉中间列展示「子 Agent 在说什么」，不是工具调用串。
+///
+/// 参考实现里这一列是助手的自然语言（"等待 60 秒休眠中"），工具细节留给用户
+/// Enter 进视口查看；之前写的是 `Bash(sleep 90 && echo ...)`。
+#[tokio::test]
+async fn test_drawer_activity_shows_assistant_text_not_tool_call() {
+    use crate::app::AgentEvent;
+
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "原始任务描述",
+        "isBackground": true,
+    }));
+
+    let tool_start = |args: &str| AgentEvent::ToolStart {
+        tool_call_id: "t1".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: args.into(),
+        input: serde_json::json!({ "command": args }),
+        source_agent_id: None,
+    };
+    let chunk = |text: &str| AgentEvent::AssistantChunk {
+        chunk: text.into(),
+        source_agent_id: None,
+    };
+    let render = |app: &mut crate::app::App, handle: &mut crate::ui::headless::HeadlessHandle| {
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, app))
+            .unwrap();
+        handle.snapshot().join("\n")
+    };
+
+    // 只有工具在跑：不得把工具串当正文
+    app.handle_subagent_event("child-1", tool_start("sleep 90 && echo done"));
+    let snap = render(&mut app, &mut handle);
+    assert!(
+        !snap.contains("Bash(sleep 90"),
+        "工具调用串不应出现在抽屉正文：\n{snap}"
+    );
+
+    // 助手开口 → 显示助手文本
+    app.handle_subagent_event("child-1", chunk("First I will sleep 60 seconds, "));
+    app.handle_subagent_event("child-1", chunk("then query Shenzhen weather."));
+    let snap = render(&mut app, &mut handle);
+    assert!(
+        snap.contains("First I will sleep 60 seconds, then query Shenzhen weather."),
+        "应展示助手文本：\n{snap}"
+    );
+
+    // 一句话结束 → 复位；下一句替换掉旧句
+    app.handle_subagent_event(
+        "child-1",
+        AgentEvent::ToolEnd {
+            tool_call_id: "t1".into(),
+            name: "Bash".into(),
+            output: "done".into(),
+            is_error: false,
+            source_agent_id: None,
+        },
+    );
+    app.handle_subagent_event("child-1", chunk("Sleeping for 60 seconds"));
+    let snap = render(&mut app, &mut handle);
+    assert!(snap.contains("Sleeping for 60 seconds"), "应显示最新一句：\n{snap}");
+    assert!(
+        !snap.contains("then query Shenzhen weather."),
+        "旧句应被替换：\n{snap}"
+    );
+}

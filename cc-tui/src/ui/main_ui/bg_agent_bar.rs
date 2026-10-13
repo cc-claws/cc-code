@@ -25,14 +25,20 @@ fn fit(text: &str, width: usize) -> String {
     format!("{text}{}", " ".repeat(padding))
 }
 
+/// token 数缩写统一走状态栏的格式化（k/M 档 + 固定一位小数），避免同一界面两种口径。
+fn format_tokens(count: u64) -> String {
+    super::status_bar::format_token_count(count)
+}
+
 /// 抽屉单行：列宽与参考原型一致（游标 2 列 + 圆点 2 列 + 类型名 ≤18 列 + 弹性预览 + 右对齐指标）。
 ///
-/// 配色取自参考原型 `docs/subagent-mock.html`：正文白灰、游标亮青、圆点区分当前视口；
-/// `accent` 仅在需要示警（待审批/失败/停止）时覆盖圆点与右侧指标的颜色。
+/// 配色：`bright`（键盘游标所在行）用亮白，其余行统一灰，形成"只有选中的那行亮"的层次；
+/// 圆点 `●`/`◯` 单独表达当前视口；`accent` 仅在示警（待审批/失败/停止）时覆盖圆点与右侧指标。
 pub(crate) fn drawer_line(
     width: usize,
     selected: bool,
     active: bool,
+    bright: bool,
     agent_type: &str,
     preview: &str,
     metrics: &str,
@@ -63,24 +69,30 @@ pub(crate) fn drawer_line(
     } else {
         theme::DRAWER_MUTED
     });
+    // 正文三档：选中行亮白 → 未选中统一灰
+    let (type_color, preview_color, metrics_color) = if bright {
+        (theme::DRAWER_TEXT_ACTIVE, theme::DRAWER_TEXT, theme::DRAWER_PREVIEW)
+    } else {
+        (theme::DRAWER_MUTED, theme::DRAWER_MUTED, theme::DRAWER_MUTED)
+    };
     let mut spans = vec![
         Span::styled(cursor_text, st(theme::DRAWER_CURSOR).add_modifier(Modifier::BOLD)),
         Span::styled(circle_text, st(circle_color)),
         Span::styled(
             fit(agent_type, type_width),
-            if active {
-                st(theme::DRAWER_TEXT_ACTIVE).add_modifier(Modifier::BOLD)
+            if bright {
+                st(type_color).add_modifier(Modifier::BOLD)
             } else {
-                st(theme::DRAWER_TEXT)
+                st(type_color)
             },
         ),
-        Span::styled(fit(preview, preview_width), st(theme::DRAWER_PREVIEW)),
+        Span::styled(fit(preview, preview_width), st(preview_color)),
     ];
     if right_width > 0 {
         spans.push(Span::styled(" ", st(Color::Reset)));
         spans.push(Span::styled(
             fit(metrics, right_width),
-            st(accent.unwrap_or(theme::DRAWER_MUTED)),
+            st(accent.unwrap_or(metrics_color)),
         ));
     }
     let used = left_width + if right_width > 0 { 1 + right_width } else { 0 };
@@ -96,7 +108,14 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
     let session = app.session_mgr.current();
     if let Some(sub) = session.approval_source_agent_id.as_ref().and_then(|id| session.subagent_sessions.get(id)) {
         let hint = if matches!(session.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) { "y:同意 / n:拒绝 / Enter:查看详情" } else { "Enter:查看问题" };
-        let text = format!("[审批请求] 子Agent \"{}\": {} [{hint}]", sub.task_preview, sub.current_activity);
+        // 审批条要的是「正在申请执行什么」，用运行中工具；抽屉正文才是助手文本。
+        let action = sub
+            .agent
+            .active_tool
+            .as_ref()
+            .map(|tool| format!("{}({})", tool.display, tool.args_summary))
+            .unwrap_or_else(|| sub.current_activity.clone());
+        let text = format!("[审批请求] 子Agent \"{}\": {} [{hint}]", sub.task_preview, action);
         f.render_widget(Paragraph::new(fit(&text, area.width as usize)).style(Style::default().fg(theme::WARNING)), Rect::new(area.x, area.y, area.width, 1));
         area.y = area.y.saturating_add(1);
         area.height = area.height.saturating_sub(1);
@@ -127,9 +146,23 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
         f.render_widget(Paragraph::new(lines), area);
         return;
     }
+    // 亮白高亮行 = 键盘游标所在行；游标不在抽屉时退回「当前视口」那一行，
+    // 避免整个抽屉全灰、看不出自己在哪。
+    let bright_for = |index: usize, is_active: bool| -> bool {
+        match cursor {
+            Some(cursor) => cursor == index,
+            None => is_active,
+        }
+    };
     let mut lines = vec![
         Line::from(""),
-        drawer_line(width, cursor == Some(0), current.is_none(), "main", "", "", None),
+        drawer_line(
+            width,
+            cursor == Some(0),
+            current.is_none(),
+            bright_for(0, current.is_none()),
+            "main", "", "", None,
+        ),
     ];
     let overflow = session.background_agents.len() + 1 > content_height;
     let capacity = content_height.saturating_sub(1 + usize::from(overflow));
@@ -142,9 +175,15 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
                 SubagentRunStatus::Stopped => "✗ stopped".into(),
                 SubagentRunStatus::Failed if sub.final_result.as_deref().is_some_and(|result| result.contains("timed out")) => "✗ timeout".into(),
                 SubagentRunStatus::Failed => "✗ failed".into(),
-                _ => format!("{} · ↓ {} tokens", format_duration(sub.elapsed()), sub.tokens_used()),
+                // `↓` 下行=输入、`↑` 上行=输出，两个方向分开显示；不再用合计冒充单向。
+                _ => format!(
+                    "{} · ↓ {} · ↑ {}",
+                    format_duration(sub.elapsed()),
+                    format_tokens(sub.agent.session_token_tracker.total_input_tokens),
+                    format_tokens(sub.agent.session_token_tracker.total_output_tokens),
+                ),
             };
-            // 只在需要示警时上色；正常/完成行保持参考图的白灰配色。
+            // 只在需要示警时上色；正常/完成行保持白灰层次。
             let accent = match sub.status {
                 SubagentRunStatus::AwaitingApproval => Some(theme::WARNING),
                 SubagentRunStatus::Failed | SubagentRunStatus::Stopped => Some(theme::ERROR),
@@ -153,7 +192,14 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
             let preview = if sub.current_activity.is_empty() { &sub.task_preview } else { &sub.current_activity };
             (preview.as_str(), metrics, accent)
         } else { ("", format_duration(agent.started_at.elapsed()), None) };
-        lines.push(drawer_line(width, cursor == Some(index + 1), current == Some(&agent.instance_id), &agent.agent_name, preview, &metrics, accent));
+        let is_active = current == Some(&agent.instance_id);
+        lines.push(drawer_line(
+            width,
+            cursor == Some(index + 1),
+            is_active,
+            bright_for(index + 1, is_active),
+            &agent.agent_name, preview, &metrics, accent,
+        ));
     }
     if overflow { lines.push(Line::from(format!("  …+{} more", session.background_agents.len().saturating_sub(capacity)))); }
     f.render_widget(Paragraph::new(lines), area);
