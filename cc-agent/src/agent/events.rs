@@ -59,6 +59,15 @@ pub enum TodoStatus {
     Completed,
 }
 
+/// 系统提示的严重级别（供 UI 决定配色与图标）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeLevel {
+    Info,
+    Warn,
+    Error,
+}
+
 /// Agent 执行过程中的增量事件
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -121,6 +130,16 @@ pub enum AgentEvent {
         delay_ms: u64,
         error: String,
     },
+    /// 系统级运行状态提示（非阻塞）。
+    ///
+    /// 与 [`Self::LlmRetrying`] / [`Self::ContextWarning`] 同类：面向用户的
+    /// **运行态播报**，不进入消息历史（也不该伪装成模型说的），由 UI 决定
+    /// 展示位置（状态栏 / 浮层）。
+    ///
+    /// 存在的理由：中间件层过去只有「弹窗」和「塞 System 消息」两条出口，
+    /// 而 System 消息在 TUI 被过滤——于是"安全判定已降级"这类**必须让用户
+    /// 知道**的事实完全没有展示通道，退化成逐条弹窗。
+    SystemNotice { level: NoticeLevel, message: String },
     /// 后台 agent 任务完成（TUI 使用，用于空闲时通知）
     BackgroundTaskCompleted(BackgroundTaskResult),
     /// 子 agent 开始执行

@@ -237,3 +237,19 @@ fn test_agent_execution_failed_serde_roundtrip() {
         "AgentExecutionFailed serde roundtrip failed"
     );
 }
+
+#[test]
+fn test_system_notice_serde_roundtrip() {
+    let ev = AgentEvent::SystemNotice {
+        level: NoticeLevel::Warn,
+        message: "安全判定服务不可用，已降级到兜底分类器".to_string(),
+    };
+    let json = serde_json::to_string(&ev).unwrap();
+    let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+    if let AgentEvent::SystemNotice { level, message } = deserialized {
+        assert_eq!(level, NoticeLevel::Warn);
+        assert_eq!(message, "安全判定服务不可用，已降级到兜底分类器");
+    } else {
+        panic!("Deserialized to wrong variant");
+    }
+}

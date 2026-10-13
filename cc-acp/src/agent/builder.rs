@@ -285,7 +285,10 @@ pub fn build_agent(
         auto_classifier,
         jev_gate,
         approval_memory.clone(),
-    );
+    )
+    // 中间件拿不到 event_handler；这是它播报「运行态事实」（如判定服务降级）
+    // 给用户的唯一非阻塞通道。
+    .with_notice_sink(Arc::clone(&event_handler));
 
     // AskUser 工具：使用原始 TUI broker（permission_broker），不使用 MultiplexBroker。
     // ChannelBroker 对 Questions 立即返回空答案，MultiplexBroker 竞速时 Channel 总是先返回，

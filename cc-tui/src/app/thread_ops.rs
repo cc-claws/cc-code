@@ -152,6 +152,7 @@ impl App {
             .session_token_tracker
             .reset();
         self.session_mgr.current_mut().agent.retry_status = None;
+        self.session_mgr.current_mut().agent.system_notice = None;
         self.session_mgr.current_mut().agent.subagent_depth = 0;
         self.session_mgr.current_mut().agent.task_start_time = None;
         self.session_mgr.current_mut().agent.last_task_duration = None;

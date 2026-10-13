@@ -115,6 +115,11 @@ pub enum AgentEvent {
         delay_ms: u64,
         error: String,
     },
+    /// 系统级运行状态提示（从核心层 SystemNotice 映射而来）
+    SystemNotice {
+        level: cc_agent::agent::events::NoticeLevel,
+        message: String,
+    },
     /// 上下文使用警告（从核心层 ContextWarning 映射而来）
     ContextWarning {
         used_tokens: u64,

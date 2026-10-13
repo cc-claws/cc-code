@@ -102,6 +102,7 @@ scroll-back-to-bottom-new = ↓ New activity · End
 statusbar-no-agent = None
 statusbar-bg-indicator = [BG: { $count }]
 statusbar-retrying = Retry { $attempt }/{ $max } ({ $delay }s): { $error }
+statusbar-notice = Notice: { $message }
 statusbar-mcp-connecting =  MCP ({ $connected }/{ $total })...
 statusbar-mcp-ready =  MCP ready ({ $total } servers)
 statusbar-mcp-failed =  MCP failed: { $msg }

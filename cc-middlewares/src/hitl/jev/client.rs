@@ -27,10 +27,23 @@ pub enum JevError {
     NoKey,
     #[error("http error: {0}")]
     Http(String),
+    /// 4xx（非 429）：鉴权 / 配额 / 路径等**配置性**错误。
+    ///
+    /// 与 429/5xx/超时不同，这类错误重试与后续请求都不会成功——它标记的是
+    /// 「配置需要人来修」，而不是「网络抖动」。调用方据此决定是否熔断。
+    #[error("config error: {0}")]
+    ConfigError(String),
     #[error("timeout")]
     Timeout,
     #[error("malformed response: {0}")]
     Malformed(String),
+}
+
+impl JevError {
+    /// 是否为「配置性永久失败」：不会自愈，只能靠人改配置。
+    pub fn is_permanent_config_error(&self) -> bool {
+        matches!(self, JevError::NoKey | JevError::ConfigError(_))
+    }
 }
 
 #[derive(Deserialize)]
@@ -119,10 +132,10 @@ impl JevClient {
                             }
                         }
                     }
-                    // 4xx（除 429）不可通过重试修复 → 立即失败
+                    // 4xx（除 429）不可通过重试修复 → 立即失败，并标记为配置性错误
                     if status.is_client_error() && status.as_u16() != 429 {
                         let text = resp.text().await.unwrap_or_default();
-                        return Err(JevError::Http(format!(
+                        return Err(JevError::ConfigError(format!(
                             "{status}: {}",
                             text.chars().take(200).collect::<String>()
                         )));
