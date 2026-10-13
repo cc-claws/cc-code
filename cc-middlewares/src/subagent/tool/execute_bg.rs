@@ -97,12 +97,31 @@ impl super::SubAgentTool {
             let _guard = super::define::DeregisterGuard { thread_id: spawn_thread.clone(), deregister };
             let start = std::time::Instant::now();
             handler.on_event(AgentEvent::StateSnapshot(vec![BaseMessage::human(prompt)]));
-            let result = super::execute_with_timeout(&agent, AgentInput::text(directive), &mut state, spawn_cancel, timeout_secs).await;
-            let success = result.is_ok();
-            let output = match result { Ok(output) => output.text, Err(error) => error.to_string() };
+            // 执行体再包一层 task：子 Agent 内部 panic 会被 JoinError 捕获，从而仍能
+            // 走完「complete → 落库 → 发终态事件 → 触发 hook」。
+            // 不做这层保护的话，panic 会让注册表槽位永久占用（并发额度泄漏）、抽屉行
+            // 卡在 Running、`has_running_subagents()` 恒真导致主 Agent 自动续接被阻塞。
+            let execution = tokio::spawn(async move {
+                let outcome =
+                    super::execute_with_timeout(&agent, AgentInput::text(directive), &mut state, spawn_cancel, timeout_secs).await;
+                (outcome, state)
+            });
+            let (success, output, tool_calls_count) = match execution.await {
+                Ok((Ok(output), state)) => (
+                    true,
+                    output.text,
+                    state.messages.iter().filter(|m| matches!(m, BaseMessage::Tool { .. })).count(),
+                ),
+                Ok((Err(error), state)) => (
+                    false,
+                    error.to_string(),
+                    state.messages.iter().filter(|m| matches!(m, BaseMessage::Tool { .. })).count(),
+                ),
+                Err(join_error) => (false, format!("Sub-agent panicked: {join_error}"), 0),
+            };
             let result = BackgroundTaskResult {
                 task_id: spawn_id.clone(), agent_name: spawn_name.clone(), prompt_summary: spawn_preview,
-                success, output, tool_calls_count: state.messages.iter().filter(|m| matches!(m, BaseMessage::Tool { .. })).count(),
+                success, output, tool_calls_count,
                 duration_ms: start.elapsed().as_millis() as u64, child_thread_id: Some(spawn_thread.clone()),
             };
             spawn_registry.complete(&spawn_id, result.clone());

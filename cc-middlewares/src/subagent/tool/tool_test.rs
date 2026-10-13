@@ -1319,3 +1319,52 @@ fn test_agent_parameters_declare_timeout_and_drop_run_in_background() {
         "timeout_secs 应为整数秒"
     );
 }
+
+/// 回归：子 Agent 内部 panic 时，后台任务仍必须 complete。
+///
+/// 若不为执行体加一层 task 保护，panic 会让 `complete()` 永不执行：注册表并发槽位
+/// 永久占用（达到 3 个后新任务全部报错）、抽屉行卡在 Running、主 Agent 的自动续接
+/// 被 `has_running_subagents()` 永久阻塞。
+#[tokio::test]
+async fn test_panicking_subagent_still_completes_and_releases_slot() {
+    struct PanicLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for PanicLLM {
+        async fn generate_reasoning(
+            &self,
+            _messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<cc_agent::llm::types::StreamingContext>,
+        ) -> cc_agent::error::AgentResult<Reasoning> {
+            panic!("boom from child agent");
+        }
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let registry = Arc::new(crate::subagent::background::BackgroundTaskRegistry::new(tx));
+    let t = SubAgentTool::new(
+        Arc::new(vec![]),
+        None,
+        Arc::new(|_: Option<&str>| Box::new(PanicLLM) as Box<dyn ReactLLM + Send + Sync>),
+        "/tmp".to_string(),
+    )
+    .with_background_registry(Arc::clone(&registry));
+
+    let started = t
+        .invoke(serde_json::json!({"subagent_type": "general-purpose", "prompt": "hello"}))
+        .await
+        .expect("应能启动后台任务");
+    assert!(started.starts_with("Background task"), "{started}");
+
+    let done = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        .await
+        .expect("panic 之后仍须收到完成结果")
+        .expect("后台通道应给出结果");
+    assert!(!done.success, "panic 必须按失败上报");
+    assert!(
+        done.output.contains("panicked"),
+        "输出应说明 panic 原因：{}",
+        done.output
+    );
+    assert_eq!(registry.active_count(), 0, "完成后必须释放并发槽位");
+}
