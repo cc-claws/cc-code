@@ -64,30 +64,27 @@ pub(crate) fn drawer_line(
     } else {
         theme::DRAWER_MUTED
     });
-    // 正文三档：选中行亮白 → 未选中统一灰
-    let (type_color, preview_color, metrics_color) = if bright {
-        (theme::DRAWER_TEXT_ACTIVE, theme::DRAWER_TEXT, theme::DRAWER_PREVIEW)
+    // 正文只有两档：游标所在行亮白、其余统一灰。不要在抽屉里堆中间色（
+    // 不同灰阶叠在一起会看起来「花」，参考实现整块只有 muted + bright）。
+    let (cursor_color, body_color) = if bright {
+        (theme::DRAWER_TEXT_ACTIVE, theme::DRAWER_TEXT_ACTIVE)
     } else {
-        (theme::DRAWER_MUTED, theme::DRAWER_MUTED, theme::DRAWER_MUTED)
+        (theme::DRAWER_MUTED, theme::DRAWER_MUTED)
     };
     let mut spans = vec![
-        Span::styled(cursor_text, st(theme::DRAWER_CURSOR).add_modifier(Modifier::BOLD)),
+        Span::styled(cursor_text, st(cursor_color).add_modifier(Modifier::BOLD)),
         Span::styled(circle_text, st(circle_color)),
         Span::styled(
             fit(agent_type, type_width),
-            if bright {
-                st(type_color).add_modifier(Modifier::BOLD)
-            } else {
-                st(type_color)
-            },
+            if bright { st(body_color).add_modifier(Modifier::BOLD) } else { st(body_color) },
         ),
-        Span::styled(fit(preview, preview_width), st(preview_color)),
+        Span::styled(fit(preview, preview_width), st(body_color)),
     ];
     if right_width > 0 {
         spans.push(Span::styled(" ", st(Color::Reset)));
         spans.push(Span::styled(
             fit(metrics, right_width),
-            st(accent.unwrap_or(metrics_color)),
+            st(accent.unwrap_or(body_color)),
         ));
     }
     let used = left_width + if right_width > 0 { 1 + right_width } else { 0 };
@@ -136,7 +133,7 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
         };
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled(fit(&text, width), Style::default().fg(theme::DRAWER_CURSOR))),
+            Line::from(Span::styled(fit(&text, width), Style::default().fg(theme::DRAWER_TEXT_ACTIVE))),
         ];
         f.render_widget(Paragraph::new(lines), area);
         return;
@@ -176,9 +173,11 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
                     None => format_duration(sub.elapsed()),
                 },
             };
-            // 只在需要示警时上色；正常/完成行保持白灰层次。
+            // 只在需要示警或收尾提示时上色；正常行保持白灰层次。
+            // 已完成必须转绿：用户要能一眼看出「它结束了，我看完就可以走了」（对齐参考实现）。
             let accent = match sub.status {
                 SubagentRunStatus::AwaitingApproval => Some(theme::WARNING),
+                SubagentRunStatus::Completed => Some(theme::SAGE),
                 SubagentRunStatus::Failed | SubagentRunStatus::Stopped => Some(theme::ERROR),
                 _ => None,
             };

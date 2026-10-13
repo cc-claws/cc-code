@@ -3041,7 +3041,8 @@ async fn test_submit_message_clears_pre_done_completions() {
     );
 }
 
-/// 验证后台 agent 生命周期：SubAgentStart(bg) → push，BackgroundTaskCompleted → remove + 自动退出聚焦
+/// 验证后台 agent 生命周期：SubAgentStart(bg) → push，BackgroundTaskCompleted → 收起；
+/// 若用户正在看这个 agent，则保留视口与抽屉行，离开视口时才回收。
 #[tokio::test]
 async fn test_background_agents_lifecycle() {
     let (mut app, _handle) = App::new_headless(120, 30).await;
@@ -3110,10 +3111,10 @@ async fn test_background_agents_lifecycle() {
         "explorer"
     );
 
-    // 设置聚焦到 explorer
+    // 用户按下 Enter 进入 explorer 的视口
     app.session_mgr.current_mut().focused_instance_id = Some("inst-002".into());
 
-    // 完成聚焦的 agent → 自动退出聚焦
+    // 正在查看的 agent 结束 → 视口与抽屉行原地保留（就地显示已完成），等他离开再回收
     app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
         task_id: "bg-test-2".into(),
         agent_name: "explorer".into(),
@@ -3124,14 +3125,36 @@ async fn test_background_agents_lifecycle() {
         child_thread_id: Some("inst-002".into()),
     });
     app.process_pending_events();
-    assert!(
-        app.session_mgr.current_mut().background_agents.is_empty(),
-        "所有 agent 完成后列表应为空"
+    assert_eq!(
+        app.session_mgr.current().focused_instance_id.as_deref(),
+        Some("inst-002"),
+        "正在查看的 agent 结束不得把视口抽走（正在读的内容会凭空消失）"
     );
     assert_eq!(
-        app.session_mgr.current_mut().focused_instance_id,
+        app.session_mgr.current().background_agents.len(),
+        1,
+        "仍在查看的已结束 agent 应保留抽屉行"
+    );
+    assert_eq!(
+        app.session_mgr.current().subagent_sessions["inst-002"].status,
+        crate::app::subagent_session::SubagentRunStatus::Completed,
+        "保留的行应显示为已完成"
+    );
+
+    // 用户按 Esc 离开视口 → 此刻才回收抽屉行与会话句柄
+    app.switch_subagent_viewport(None);
+    assert!(
+        app.session_mgr.current().background_agents.is_empty(),
+        "离开视口后抽屉行应被回收"
+    );
+    assert!(
+        !app.session_mgr.current().subagent_sessions.contains_key("inst-002"),
+        "离开视口后会话句柄应被回收"
+    );
+    assert_eq!(
+        app.session_mgr.current().focused_instance_id,
         None,
-        "聚焦的 agent 完成后应自动退出聚焦"
+        "离开视口后应回到主会话"
     );
 }
 

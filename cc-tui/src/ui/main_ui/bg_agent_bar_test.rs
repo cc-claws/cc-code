@@ -59,6 +59,34 @@ fn test_drawer_accent_only_tints_circle_and_metrics() {
     );
 }
 
+/// 配色收敛：抽屉只有「亮白（游标行）+ 灰（其余）」两档。
+///
+/// 真机反馈：不要青色，也不要一堆中间灰阶（"你搞那么多颜色干嘛"）。
+#[test]
+fn test_drawer_palette_is_bright_white_or_muted_only() {
+    let selected = drawer_line(80, true, true, true, "general-purpose", "查询武汉天气", "32s · ↓ 49", None);
+    let colors: Vec<Color> = selected.spans.iter().filter_map(|span| span.style.fg).collect();
+    assert!(
+        colors.contains(&theme::DRAWER_TEXT_ACTIVE),
+        "游标行正文应亮白 {colors:?}"
+    );
+    assert!(
+        !colors.contains(&Color::Cyan) && !colors.contains(&theme::DRAWER_MUTED),
+        "游标行不得混青色或灰阶 {colors:?}"
+    );
+
+    let plain = drawer_line(80, false, false, false, "general-purpose", "查询武汉天气", "32s · ↓ 49", None);
+    let plain_colors: Vec<Color> = plain.spans.iter().filter_map(|span| span.style.fg).collect();
+    assert!(
+        !plain_colors.contains(&theme::DRAWER_TEXT_ACTIVE) && !plain_colors.contains(&Color::Cyan),
+        "非游标行只能灰，不得亮白或青色 {plain_colors:?}"
+    );
+    assert!(
+        plain_colors.iter().all(|color| *color == theme::DRAWER_MUTED || *color == Color::Reset),
+        "非游标行只允许一种灰 {plain_colors:?}"
+    );
+}
+
 /// 键盘游标行使用参考图底色 #1E2436，而非终端反色。
 #[test]
 fn test_drawer_selected_row_uses_reference_background() {

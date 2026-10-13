@@ -80,6 +80,15 @@ async fn test_subagent_viewport_keyboard_cursor_and_read_only_completion() {
     make_key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
     assert!(app.session_mgr.current().focused_instance_id.is_none());
     assert!(!make_text(app.session_mgr.current().current_view_messages()).contains("独立回复"));
+    // 结束时不得把正在阅读的视口抽走；离开视口这一下才回收它的会话与抽屉行。
+    assert!(
+        !app.session_mgr.current().subagent_sessions.contains_key("one"),
+        "离开已结束视口应回收其会话句柄"
+    );
+    assert!(
+        app.session_mgr.current().background_agents.iter().all(|agent| agent.instance_id != "one"),
+        "离开已结束视口应回收其抽屉行"
+    );
     assert_eq!(app.session_mgr.current().subagent_sessions["two"].status, SubagentRunStatus::Running);
 }
 

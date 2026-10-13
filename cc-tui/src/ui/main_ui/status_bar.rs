@@ -353,9 +353,11 @@ fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
 fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     let lc = &app.services.lc;
     if let Some(text) = drawer_hint(app) {
+        // 提示行属于「辅助说明」，与消息区 `Thought for … (ctrl+o to expand)` 同色（MUTED），
+        // 不用抽屉游标的青色——青色只标记键盘游标本身。
         render_truncated_line(
             f,
-            vec![Span::styled(text, Style::default().fg(theme::DRAWER_CURSOR))],
+            vec![Span::styled(text, Style::default().fg(theme::MUTED))],
             Vec::new(),
             area,
         );

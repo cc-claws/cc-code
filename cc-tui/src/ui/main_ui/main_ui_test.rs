@@ -810,3 +810,101 @@ async fn test_drawer_activity_shows_assistant_text_not_tool_call() {
         "旧句应被替换：\n{snap}"
     );
 }
+
+/// 回归：正在查看的子 Agent 结束时，视口内容不得凭空消失。
+///
+/// 真机反馈：「enter 进入子 agent 看内容，子 agent 结束突然就闪走了」——结束瞬间
+/// 把视口切回 main，等于把用户正在读的内容抽走。契约是：结束时视口与抽屉行原地
+/// 保留（行内显示 `completed`），用户按 Esc 离开时才回收。
+#[tokio::test]
+async fn test_viewed_subagent_completion_keeps_viewport_until_leave() {
+    use crate::app::AgentEvent;
+
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "child task",
+        "isBackground": true,
+    }));
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+    app.handle_subagent_event("child-1", AgentEvent::StateSnapshot(vec![
+        cc_agent::messages::BaseMessage::human("please sleep 60 seconds"),
+    ]));
+    let notified = handle.render_notify.notified();
+    app.handle_subagent_event("child-1", AgentEvent::AssistantChunk {
+        chunk: "Sleeping 60 seconds".into(),
+        source_agent_id: None,
+    });
+    notified.await;
+    let render = |app: &mut crate::app::App, handle: &mut crate::ui::headless::HeadlessHandle| {
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, app)).unwrap();
+        handle.snapshot().join("\n")
+    };
+    // 用只出现在消息区、不出现在抽屉预览里的用户气泡文本判定视口内容
+    assert!(render(&mut app, &mut handle).contains("please sleep 60 seconds"), "进入视口应看到子 Agent 输出");
+
+    let notified = handle.render_notify.notified();
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "stopped",
+        "instanceId": "child-1",
+        "result": "finished ok",
+        "isError": false,
+        "elapsedMs": 32000,
+    }));
+    notified.await;
+    let snap = render(&mut app, &mut handle);
+    assert!(snap.contains("please sleep 60 seconds"), "结束时视口内容不得消失：\n{snap}");
+    assert!(snap.contains("completed"), "仍在查看的已结束行应显示 completed：\n{snap}");
+    assert_eq!(
+        app.session_mgr.current().focused_instance_id.as_deref(),
+        Some("child-1"),
+        "结束时不得把视口切回 main"
+    );
+
+    // 用户按 Esc 离开 → 回到主会话，子会话与抽屉行回收
+    let notified = handle.render_notify.notified();
+    app.switch_subagent_viewport(None);
+    notified.await;
+    let snap = render(&mut app, &mut handle);
+    assert!(!snap.contains("please sleep 60 seconds"), "离开后应回到主会话视图：\n{snap}");
+    assert!(app.session_mgr.current().subagent_sessions.is_empty(), "离开后应回收子会话");
+    assert!(app.session_mgr.current().background_agents.is_empty(), "离开后应回收抽屉行");
+}
+
+/// 回归：子 Agent 完成后，抽屉行的圆点与完成标记必须转绿。
+///
+/// 用户要能一眼看出「哦它完成了，我看完就可以走了」（对齐参考实现），
+/// 而不是在一排白灰行里自己找 `completed` 字样。
+#[tokio::test]
+async fn test_completed_subagent_drawer_row_turns_green() {
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "child task",
+        "isBackground": true,
+    }));
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "stopped",
+        "instanceId": "child-1",
+        "result": "finished ok",
+        "isError": false,
+        "elapsedMs": 32000,
+    }));
+    handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+
+    let rows = handle.snapshot();
+    let row_index = rows.iter().position(|row| row.contains("completed")).expect("抽屉应有已完成行") as u16;
+    let buffer = handle.terminal.backend().buffer();
+    let cell_x = |symbol: &str| {
+        (0..buffer.area.width)
+            .find(|x| buffer[(*x, row_index)].symbol() == symbol)
+            .unwrap_or_else(|| panic!("已完成行应含 {symbol}：{:?}", rows[row_index as usize]))
+    };
+    assert_eq!(buffer[(cell_x("●"), row_index)].fg, crate::ui::theme::SAGE, "完成行圆点应转绿");
+    assert_eq!(buffer[(cell_x("✓"), row_index)].fg, crate::ui::theme::SAGE, "完成标记应转绿");
+}

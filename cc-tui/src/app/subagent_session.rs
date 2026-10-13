@@ -298,6 +298,7 @@ impl super::App {
     }
 
     pub(crate) fn switch_subagent_viewport(&mut self, id: Option<String>) {
+        let leaving = self.session_mgr.current().focused_instance_id.clone();
         let session = self.session_mgr.current_mut();
         let position = (session.ui.scroll_offset, session.ui.scroll_follow);
         let draft = std::mem::replace(&mut session.ui.textarea, super::build_textarea(false));
@@ -316,6 +317,25 @@ impl super::App {
         session.ui.text_selection.clear();
         session.ui.bg_bar_cursor = None;
         self.render_rebuild();
+        // 真正离开了一个已结束的子视口 → 此刻才回收它的会话与抽屉行。
+        // 结束时立即回收会把用户正在阅读的内容抽走，不是回收而是打断。
+        if let Some(leaving) = leaving {
+            if self.session_mgr.current().focused_instance_id.as_deref() != Some(leaving.as_str()) {
+                self.reclaim_finished_subagent(&leaving);
+            }
+        }
+    }
+
+    /// 回收一个已结束、且已不在视口内的子 Agent：清掉抽屉行与其会话句柄。
+    ///
+    /// 只能由「用户离开该视口」触发：子会话里的消息是用户唯一能读到的载体
+    /// （后台任务在主时间线只留启动摘要与完成行），提前回收等于静默丢弃输出。
+    fn reclaim_finished_subagent(&mut self, id: &str) {
+        let session = self.session_mgr.current_mut();
+        if !session.subagent_sessions.get(id).is_some_and(|sub| !sub.status.is_active()) { return; }
+        session.subagent_sessions.remove(id);
+        session.background_agents.retain(|agent| agent.instance_id != id);
+        if session.background_agents.is_empty() { session.ui.bg_bar_cursor = None; }
     }
 
     pub(crate) fn cancel_subagent(&mut self, id: &str) {

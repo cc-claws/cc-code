@@ -83,20 +83,35 @@ impl App {
             }));
         }
 
-        // 优先按 child_thread_id 匹配 background_agents，回退到 agent_name
-        if let Some(ref ctid) = child_thread_id {
-            if let Some(pos) = self
-                .session_mgr
-                .current_mut()
-                .background_agents
-                .iter()
-                .position(|a| a.instance_id == *ctid)
-            {
-                self.session_mgr.current_mut().background_agents.remove(pos);
-            }
+        // 用户是否正在这个子 Agent 的视口里阅读。
+        // 必须两个 id 都在场才算命中：写成 `child_thread_id == focused_instance_id`
+        // 会让「都没有 id」也判成聚焦（None == None），从而误留抽屉行。
+        let was_focused = match (
+            child_thread_id.as_deref(),
+            self.session_mgr.current().focused_instance_id.as_deref(),
+        ) {
+            (Some(child), Some(focused)) => child == focused,
+            _ => false,
+        };
+
+        if was_focused {
+            // 用户正在看它：视口与抽屉行都原地保留（就地显示 `✓ completed`），
+            // 等他离开视口时再由 `switch_subagent_viewport` 回收。
+            // 结束瞬间抽走视口 = 正在读的内容凭空消失，这不是回收而是打断。
+            self.request_rebuild();
         } else {
-            // 回退：按 agent_name 匹配
-            if let Some(pos) = self
+            // 优先按 child_thread_id 匹配 background_agents，回退到 agent_name
+            if let Some(ctid) = child_thread_id.as_deref() {
+                if let Some(pos) = self
+                    .session_mgr
+                    .current_mut()
+                    .background_agents
+                    .iter()
+                    .position(|a| a.instance_id == ctid)
+                {
+                    self.session_mgr.current_mut().background_agents.remove(pos);
+                }
+            } else if let Some(pos) = self
                 .session_mgr
                 .current_mut()
                 .background_agents
@@ -105,26 +120,13 @@ impl App {
             {
                 self.session_mgr.current_mut().background_agents.remove(pos);
             }
-        }
 
-        // 聚焦检查：用 child_thread_id 直接比较 focused_instance_id
-        let was_focused = child_thread_id.as_deref()
-            == self
-                .session_mgr
-                .current_mut()
-                .focused_instance_id
-                .as_deref();
-
-        // 聚焦检查：如果被移除的是当前聚焦的 agent，退出聚焦
-        if was_focused {
-            self.session_mgr.current_mut().focused_instance_id = None;
-            self.session_mgr.current_mut().ui.bg_bar_cursor = None;
-            self.request_rebuild();
-        } else if self.session_mgr.current().background_agents.is_empty() {
             // 抽屉已空 → 抽屉行不再渲染，残留的导航游标会让第三行卡在
             // `↑/↓ to select…` 并继续吞按键，这里一并收敛。
-            self.session_mgr.current_mut().ui.bg_bar_cursor = None;
-            self.request_rebuild();
+            if self.session_mgr.current().background_agents.is_empty() {
+                self.session_mgr.current_mut().ui.bg_bar_cursor = None;
+                self.request_rebuild();
+            }
         }
         // 用于 LLM 上下文的纯文本通知
         let short_id: String = task_id.chars().take(8).collect();
