@@ -154,7 +154,7 @@ impl BackgroundTaskRegistry {
     }
 
     pub fn cancel_all(&self) {
-        for (_, runtime) in self.runtimes.lock().iter() { runtime.cancel.cancel(); }
+        for runtime in self.runtimes.lock().values() { runtime.cancel.cancel(); }
     }
 
     /// 入队立即返回；执行器在工具结束后的安全边界接收，不打断正在运行的工具。

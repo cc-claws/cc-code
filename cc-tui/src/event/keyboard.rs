@@ -117,8 +117,8 @@ pub fn handle_key_event(
     if let Some(action) = bar_focus::handle_subagent_controls(app, &key_event) {
         return Ok(Some(action));
     }
-    if app.session_mgr.current().approval_source_agent_id.is_some() {
-        if key_event.modifiers.is_empty() {
+    if app.session_mgr.current().approval_source_agent_id.is_some() && key_event.modifiers.is_empty() {
+        {
             match key_event.code {
                 KeyCode::Char('y') if matches!(app.session_mgr.current().agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) => { app.hitl_approve_all(); return Ok(Some(Action::Redraw)); }
                 KeyCode::Char('n') if matches!(app.session_mgr.current().agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) => { app.hitl_reject_all(); return Ok(Some(Action::Redraw)); }

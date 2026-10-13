@@ -14,7 +14,7 @@ pub(crate) fn bg_bar_height(app: &App, terminal_height: u16) -> u16 {
         } else if terminal_height < 18 {
             2
         } else {
-            u16::from((count + 1).min(5) as u16) + 1
+            (count + 1).min(5) as u16 + 1
         }
 }
 
@@ -29,6 +29,9 @@ fn fit(text: &str, width: usize) -> String {
 ///
 /// 配色：`bright`（键盘游标所在行）用亮白，其余行统一灰，形成"只有选中的那行亮"的层次；
 /// 圆点 `●`/`◯` 单独表达当前视口；`accent` 仅在示警（待审批/失败/停止）时覆盖圆点与右侧指标。
+// 8 个入参都是抽屉单行的独立显示输入（宽度 / 游标 / 当前视口 / 高亮 / 类型 / 预览 /
+// 指标 / 告警色），拆结构体反而让调用点更绕；此处显式豁免该 lint。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drawer_line(
     width: usize,
     selected: bool,
