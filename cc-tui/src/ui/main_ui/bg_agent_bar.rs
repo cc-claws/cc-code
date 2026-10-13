@@ -25,11 +25,6 @@ fn fit(text: &str, width: usize) -> String {
     format!("{text}{}", " ".repeat(padding))
 }
 
-/// token 数缩写统一走状态栏的格式化（k/M 档 + 固定一位小数），避免同一界面两种口径。
-fn format_tokens(count: u64) -> String {
-    super::status_bar::format_token_count(count)
-}
-
 /// 抽屉单行：列宽与参考原型一致（游标 2 列 + 圆点 2 列 + 类型名 ≤18 列 + 弹性预览 + 右对齐指标）。
 ///
 /// 配色：`bright`（键盘游标所在行）用亮白，其余行统一灰，形成"只有选中的那行亮"的层次；
@@ -175,13 +170,11 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
                 SubagentRunStatus::Stopped => "✗ stopped".into(),
                 SubagentRunStatus::Failed if sub.final_result.as_deref().is_some_and(|result| result.contains("timed out")) => "✗ timeout".into(),
                 SubagentRunStatus::Failed => "✗ failed".into(),
-                // `↓` 下行=输入、`↑` 上行=输出，两个方向分开显示；不再用合计冒充单向。
-                _ => format!(
-                    "{} · ↓ {} · ↑ {}",
-                    format_duration(sub.elapsed()),
-                    format_tokens(sub.agent.session_token_tracker.total_input_tokens),
-                    format_tokens(sub.agent.session_token_tracker.total_output_tokens),
-                ),
+                // 单个箭头 + 最近一次用量：`↓` = Agent 回复产出，`↑` = 用户提问输入。
+                _ => match sub.token_metrics() {
+                    Some(metrics) => format!("{} · {metrics}", format_duration(sub.elapsed())),
+                    None => format_duration(sub.elapsed()),
+                },
             };
             // 只在需要示警时上色；正常/完成行保持白灰层次。
             let accent = match sub.status {

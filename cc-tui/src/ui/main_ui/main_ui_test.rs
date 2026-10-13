@@ -683,11 +683,12 @@ async fn test_drawer_hint_clears_after_all_agents_finish() {
     );
 }
 
-/// 回归：抽屉右侧指标必须把「上行(输出)/下行(输入)」分开显示。
+/// 回归：抽屉右侧是**单个**箭头，方向跟着 token 流向走。
 ///
+/// `↓` = 下行 = Agent 回复（产出，取最近一次调用的 output）；`↑` = 上行 = 用户提问（输入，取 input）。
 /// 原先用的是 `↓ {input+output} tokens`——箭头标着单向、数字却是合计，口径对不上。
 #[tokio::test]
-async fn test_drawer_metrics_shows_input_and_output_tokens_separately() {
+async fn test_drawer_metrics_follows_token_flow_with_single_arrow() {
     let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
     app.handle_subagent_lifecycle(&serde_json::json!({
         "event": "started",
@@ -717,12 +718,23 @@ async fn test_drawer_metrics_shows_input_and_output_tokens_separately() {
         .unwrap();
     let joined = handle.snapshot().join("\n");
 
-    assert!(joined.contains("↓ 32.7k"), "应输出下行（输入）token：\n{joined}");
-    assert!(joined.contains("↑ 259"), "应输出上行（输出）token：\n{joined}");
+    // Agent 产出回复 → 只有下行箭头，取最近一次调用的 output。
+    assert!(joined.contains("↓ 259"), "Agent 回复应显示下行箭头 + output：\n{joined}");
     assert!(
-        !joined.contains("↓ 33.0k") && !joined.contains("↓ 32959"),
-        "不得再用 in+out 合计冒充单向 token：\n{joined}"
+        !joined.contains("↓ 32.7k") && !joined.contains("↑ "),
+        "不得并列显示输入/输出，也不得用累计值冒充单向 token：\n{joined}"
     );
+
+    // 用户向该子 Agent 提问 → 箭头转上行，取最近一次调用的 input。
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+    app.send_subagent_input("再确认一下".into());
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let after_ask = handle.snapshot().join("\n");
+    assert!(after_ask.contains("↑ 32.7k"), "用户提问后应转为上行箭头 + input：\n{after_ask}");
+    assert!(!after_ask.contains("↓ 259"), "提问后不得再留在下行态：\n{after_ask}");
 }
 
 /// 回归：抽屉中间列展示「子 Agent 在说什么」，不是工具调用串。

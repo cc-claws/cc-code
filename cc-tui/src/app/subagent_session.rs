@@ -55,6 +55,9 @@ pub(crate) struct BackgroundAgentSession {
     pub is_background: bool,
     /// 累积当前这句助手文本（抽屉「正在做什么」列的来源），ToolEnd 时复位。
     activity_buffer: String,
+    /// 最近一次 token 流向：true = 上行（用户提问/输入），false = 下行（Agent 回复/产出）。
+    /// 抽屉右侧只显示一个箭头，方向跟着它走。
+    last_flow_up: bool,
 }
 
 impl BackgroundAgentSession {
@@ -85,6 +88,7 @@ impl BackgroundAgentSession {
             input_draft: None,
             is_background: false,
             activity_buffer: String::new(),
+            last_flow_up: false,
         }
     }
 
@@ -95,6 +99,22 @@ impl BackgroundAgentSession {
     pub(crate) fn tokens_used(&self) -> u64 {
         let tracker = &self.agent.session_token_tracker;
         tracker.total_input_tokens + tracker.total_output_tokens
+    }
+
+    /// 抽屉右侧的 token 指标：单个箭头 + 最近一次调用的量。
+    ///
+    /// `↓` = 下行（Agent 回复产出），`↑` = 上行（用户提问输入）。无用量数据时返回 None。
+    pub(crate) fn token_metrics(&self) -> Option<String> {
+        let usage = self.agent.session_token_tracker.last_usage.as_ref()?;
+        let (arrow, count) = if self.last_flow_up {
+            ("↑", usage.input_tokens)
+        } else {
+            ("↓", usage.output_tokens)
+        };
+        Some(format!(
+            "{arrow} {}",
+            super::super::ui::main_ui::format_token_count(count as u64)
+        ))
     }
 
     pub(crate) fn rebuild(&mut self) {
@@ -186,6 +206,7 @@ impl BackgroundAgentSession {
             AgentEvent::AssistantChunk { chunk, .. } => {
                 self.spinner.end_thinking();
                 self.spinner.set_mode_keep_verb(cc_widgets::SpinnerMode::Responding);
+                self.last_flow_up = false;
                 self.push_assistant_activity(chunk);
             }
             AgentEvent::TokenUsageUpdate { usage, model, .. } => {
@@ -339,6 +360,8 @@ impl super::App {
         if !sub.status.is_active() || text.trim().is_empty() { return; }
         let input_id = uuid::Uuid::new_v4();
         sub.pending_inputs.push((input_id, text.clone()));
+        // 用户提问 → 箭头转上行，直到该子 Agent 再次产出回复。
+        sub.last_flow_up = true;
         sub.rebuild();
         self.session_mgr.current_mut().ui.textarea = super::build_textarea(false);
         self.render_rebuild();
