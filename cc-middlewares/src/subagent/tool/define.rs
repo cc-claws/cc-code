@@ -46,7 +46,8 @@ Usage:
 - Agents share filesystem access and normally inherit cwd. Assign separate write scopes and avoid concurrent edits to the same files. The isolation parameter is reserved and does not create a worktree.
 - Request a concise handoff covering Scope, Result, Key files, Files changed, and verification evidence or blockers. Tool-use summaries may precede the final response.
 - Sub-agents always run in the background: the bottom drawer tracks each one, your turn continues immediately, and each result is delivered as a completion notification. At most 3 run concurrently.
-- There is no foreground mode: a sub-agent's internals never render into the main conversation."#;
+- There is no foreground mode: a sub-agent's internals never render into the main conversation.
+- timeout_secs optionally caps how long the sub-agent may run; omit it for long-running work (no timeout by default)."#;
 
 #[derive(Clone)]
 pub struct SubAgentTool {
@@ -309,6 +310,10 @@ impl BaseTool for SubAgentTool {
                 "cwd": {
                     "type": "string",
                     "description": "The working directory for the sub-agent. Defaults to inheriting the parent agent's current working directory if not specified"
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Optional hard timeout in seconds for this background sub-agent. Omit (or pass 0) for long-running work: there is no timeout by default. When it elapses the task is cancelled and reported as timed out"
                 },
                 "fork": {
                     "type": "boolean",

@@ -133,6 +133,10 @@ impl super::SubAgentTool {
         // SubagentStart hook：原先只在前台同步路径触发，后台任务漏了（前台已移除）
         fire_subagent_lifecycle_hooks_static(&self.registered_hooks, HookEvent::SubagentStart, &cwd, &agent_name, None).await;
         let _ = start_tx.send(());
-        Ok(format!("Background task {task_id} started (thread: {thread_id}). You will be notified when it completes. Use Agent(action=\"status\" or \"cancel\", task_id=\"{task_id}\") to manage it."))
+        // 只描述**真实存在**的管理方式：本工具没有 action/task_id 参数（曾经的提示让模型
+        // 去调 `Agent(action="cancel")`，而 schema 里根本没有该参数，模型照做只会报错）。
+        Ok(format!(
+            "Background task {task_id} started (thread: {thread_id}). You will be notified when it completes; keep working on other tasks in the meantime. The task is tracked in the bottom drawer, where the user can stop one (x) or all (ctrl+x ctrl+k)."
+        ))
     }
 }

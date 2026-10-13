@@ -1296,3 +1296,26 @@ async fn test_subagent_runs_in_background_only() {
         assert!(done.output.contains("echo"), "后台结果应正常回流：{}", done.output);
     }
 }
+
+/// 回归：`run_in_background` 已退场，`timeout_secs` 必须显式出现在 schema 中。
+///
+/// 本分支加了 timeout_secs 的读取与执行，却没声明到 schema，模型无从发现该能力。
+#[test]
+fn test_agent_parameters_declare_timeout_and_drop_run_in_background() {
+    let t = make_subagent_tool(vec![]);
+    let params = t.parameters();
+    let props = params["properties"].as_object().expect("properties 应为对象");
+
+    assert!(
+        props.contains_key("timeout_secs"),
+        "timeout_secs 必须在 schema 中声明，否则模型无法发现：{props:?}"
+    );
+    assert!(
+        !props.contains_key("run_in_background"),
+        "run_in_background 已随前台模式退场，不得再出现在 schema"
+    );
+    assert_eq!(
+        props["timeout_secs"]["type"], "integer",
+        "timeout_secs 应为整数秒"
+    );
+}
