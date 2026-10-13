@@ -26,6 +26,19 @@ const PARAM_ALIASES: &[(&str, &str)] = &[("path", "file_path")];
 /// Glob/Grep 的参数名本来就是 `path`，不能被篡改。
 const FILE_PATH_TOOLS: &[&str] = &["Read", "Write", "Edit"];
 
+/// 日志预览用截断：按字符数截断注入正文，避免 CJK 字符边界 panic。
+///
+/// 仅用于 tracing 输出，不改变实际注入内容。
+fn truncate_for_log(text: &str) -> String {
+    const MAX_CHARS: usize = 200;
+    if text.chars().count() > MAX_CHARS {
+        let head: String = text.chars().take(MAX_CHARS).collect();
+        format!("{}...(truncated)", head)
+    } else {
+        text.to_string()
+    }
+}
+
 /// 将 LLM 有时会误用的参数名归一化为标准名。
 /// 仅对有别名键且无目标键时才替换（不覆盖已有正确值）。
 /// 仅对 `FILE_PATH_TOOLS` 列表中的工具生效，避免篡改 Grep/Glob 的 `path` 参数。
@@ -725,19 +738,21 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                     ToolErrorKind::ExecutionFailed => "execution",
                     ToolErrorKind::Other => "unclassified",
                 };
-                tracing::warn!(
-                    tool = %result.tool_name,
-                    count = consecutive_count,
-                    kind = ?kind,
-                    "连续 {} 次同类型错误，注入纠正消息",
-                    consecutive_count
-                );
-                warnings_to_inject.push(format!(
+                let text = format!(
                     "Warning: Tool '{}' has failed {} consecutive times with {} error. \
                      Stop retrying and analyze the root cause. Consider using a different approach \
                      or asking the user for guidance.",
                     result.tool_name, consecutive_count, kind_desc
-                ));
+                );
+                tracing::warn!(
+                    tool = %result.tool_name,
+                    count = consecutive_count,
+                    kind = ?kind,
+                    injected = %truncate_for_log(&text),
+                    "连续 {} 次同类型错误，注入纠正消息",
+                    consecutive_count
+                );
+                warnings_to_inject.push(text);
             }
 
             // 2. Schema 校验连续失败熔断（支持单工具快速熔断 + 跨工具聚合熔断）
@@ -747,39 +762,43 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                 if let Some(event) = breaker_event {
                     match event {
                         SchemaBreakerEvent::PerTool { tool_name, count } => {
-                            tracing::warn!(
-                                tool = %tool_name,
-                                schema_fail_count = count,
-                                "Schema 校验失败 {} 次（滑动窗口内），注入单工具熔断提示",
-                                count
-                            );
-                            warnings_to_inject.push(format!(
+                            let text = format!(
                                 "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Tool '{}' has failed schema validation {} \
                                  times within the recent window. You are passing wrong parameters repeatedly. \
                                  STOP and carefully re-read the tool's parameter schema before your next attempt. \
                                  Do NOT retry with the same parameters.",
                                 tool_name, count
-                            ));
+                            );
+                            tracing::warn!(
+                                tool = %tool_name,
+                                schema_fail_count = count,
+                                injected = %truncate_for_log(&text),
+                                "Schema 校验失败 {} 次（滑动窗口内），注入单工具熔断提示",
+                                count
+                            );
+                            warnings_to_inject.push(text);
                         }
                         SchemaBreakerEvent::Aggregate {
                             failed_tools,
                             count,
                         } => {
                             let tools_str = failed_tools.join(", ");
-                            tracing::warn!(
-                                tools = %tools_str,
-                                aggregate_count = count,
-                                "跨工具 Schema 校验失败 {} 次（滑动窗口内），注入聚合熔断提示",
-                                count
-                            );
-                            warnings_to_inject.push(format!(
+                            let text = format!(
                                 "⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: Schema validation failed {} \
                                  times across different tools ({}) within the recent window. You are \
                                  repeatedly passing invalid arguments. STOP guessing parameters. Carefully \
                                  inspect the parameter schema for each tool before invoking it. Do NOT call \
                                  tools with invented parameters.",
                                 count, tools_str
-                            ));
+                            );
+                            tracing::warn!(
+                                tools = %tools_str,
+                                aggregate_count = count,
+                                injected = %truncate_for_log(&text),
+                                "跨工具 Schema 校验失败 {} 次（滑动窗口内），注入聚合熔断提示",
+                                count
+                            );
+                            warnings_to_inject.push(text);
                         }
                     }
                 }
@@ -814,19 +833,21 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     if !step_sig.is_empty() {
         let (count, is_loop) = action_loop_detector.record(&step_sig);
         if is_loop {
-            tracing::warn!(
-                signature = %step_sig,
-                count = count,
-                threshold = CONSECUTIVE_ACTION_THRESHOLD,
-                "连续 {} 次执行相同工具动作签名，注入纠正消息",
-                count
-            );
-            state.add_message(BaseMessage::system(format!(
+            let text = format!(
                 "Warning: You have executed the exact same tool call(s) {} consecutive times with identical parameters. \
                  Stop repeating this action. Analyze why the previous attempts did not produce new progress or achieve the goal. \
                  Try a completely different approach, use different tools, or ask the user for guidance.",
                 count
-            )));
+            );
+            tracing::warn!(
+                signature = %step_sig,
+                count = count,
+                threshold = CONSECUTIVE_ACTION_THRESHOLD,
+                injected = %truncate_for_log(&text),
+                "连续 {} 次执行相同工具动作签名，注入纠正消息",
+                count
+            );
+            state.add_message(BaseMessage::system(text));
         }
     }
 
@@ -1117,6 +1138,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 tool.name = %result.tool_name,
                 tool.is_error = true,
                 error_len = result.output.len(),
+                error = %truncate_for_log(&result.output),
                 "tool call failed"
             );
         }

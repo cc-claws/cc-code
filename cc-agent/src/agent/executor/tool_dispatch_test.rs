@@ -1862,3 +1862,31 @@ fn test_suggest_tool_mismatch_websearch_params_suggests_websearch() {
         "应建议使用 WebSearch，实际: {hint}"
     );
 }
+
+/// 未超过上限的短文本应原样返回，不追加截断后缀。
+#[test]
+fn test_truncate_for_log_keeps_short_text_unchanged() {
+    // Arrange
+    let text =
+        "Warning: Tool 'WebSearch' has failed 2 consecutive times with schema validation error.";
+    // Act
+    let out = super::truncate_for_log(text);
+    // Assert
+    assert_eq!(out, text);
+}
+
+/// 超过 200 字符的 CJK 文本应按字符级截断并追加后缀，不得 panic。
+#[test]
+fn test_truncate_for_log_truncates_long_cjk_text_without_panic() {
+    // Arrange: 500 个中文字符，远超 200 字符上限
+    let text: String = "错误提示".repeat(125);
+    assert_eq!(text.chars().count(), 500);
+    // Act
+    let out = super::truncate_for_log(&text);
+    // Assert
+    assert!(
+        out.ends_with("...(truncated)"),
+        "超长文本应带截断后缀，实际: {out}"
+    );
+    assert_eq!(out.chars().count(), 200 + "...(truncated)".chars().count());
+}
