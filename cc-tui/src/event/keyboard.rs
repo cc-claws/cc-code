@@ -114,6 +114,30 @@ pub fn handle_key_event(
     }
 
     // Stage 1-2: Bar focus / focused-only mode
+    if let Some(action) = bar_focus::handle_subagent_controls(app, &key_event) {
+        return Ok(Some(action));
+    }
+    if app.session_mgr.current().approval_source_agent_id.is_some() {
+        if key_event.modifiers.is_empty() {
+            match key_event.code {
+                KeyCode::Char('y') if matches!(app.session_mgr.current().agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) => { app.hitl_approve_all(); return Ok(Some(Action::Redraw)); }
+                KeyCode::Char('n') if matches!(app.session_mgr.current().agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) => { app.hitl_reject_all(); return Ok(Some(Action::Redraw)); }
+                KeyCode::Enter => {
+                    let id = app.session_mgr.current().approval_source_agent_id.clone();
+                    if app.session_mgr.current().focused_instance_id != id {
+                        app.switch_subagent_viewport(id);
+                        return Ok(Some(Action::Redraw));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if app.is_interaction_popup_active() {
+        if let Some(action) = popups::handle_popups(app, &Input::from(key_event)) {
+            return Ok(Some(action));
+        }
+    }
     if let Some(action) = bar_focus::handle_bar_focus(app, &key_event) {
         return Ok(Some(action));
     }

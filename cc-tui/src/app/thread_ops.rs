@@ -175,6 +175,7 @@ impl App {
 
     /// 恢复历史 thread：加载消息，关闭 browser
     pub fn open_thread(&mut self, thread_id: ThreadId) {
+        self.clear_subagent_sessions();
         let store = self.services.thread_store.clone();
         let tid = thread_id.clone();
         let base_msgs = tokio::task::block_in_place(|| {
@@ -326,6 +327,7 @@ impl App {
 
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）
     pub fn new_thread(&mut self) {
+        self.clear_subagent_sessions();
         // Fire SessionEnd hooks before clearing session state
         {
             let mut hooks = self

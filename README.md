@@ -95,6 +95,8 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 **Interface language:** TUI and CLI help support English and Simplified Chinese. Use `/lang en` or `/lang zh-CN` to save your preference. Without a saved language, startup detects `LC_ALL`, `LANGUAGE`, `LC_MESSAGES` and `LANG`; unsupported locales fall back to English. See [CHANGELOG](./CHANGELOG.md) for unreleased changes.
 
+**Background agent drawer (unreleased):** Press `↓` in an empty input to manage tasks, then `Enter` to open an independent conversation. Send follow-up instructions to a running task, approve its requests globally, or stop it with `x`. See [TUI controls](./TUI-STYLE.md) and [CHANGELOG](./CHANGELOG.md).
+
 | Feature | Version | Description |
 |---------|---------|-------------|
 | **File Mentions Open Immediately with a Bounded List** | v0.6.129 | Typing `@` immediately opens file candidates: current directory only by default, directories first, at most 15 items and 10 visible rows. The popup adapts to terminal height; keywords search nested files with 200ms debounce, preserve the latest query, and show searching/empty states. Truncated results and directory transitions trigger a fresh search (#463) |

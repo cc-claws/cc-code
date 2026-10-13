@@ -80,7 +80,16 @@ pub(crate) async fn execute_prompt(
     }
 
     // Read session data under lock, then release immediately.
-    let (cwd, history, is_empty, thread_id, frozen, incoming_recalls, approval_memory) = {
+    let (
+        cwd,
+        history,
+        is_empty,
+        thread_id,
+        frozen,
+        incoming_recalls,
+        approval_memory,
+        background_registry,
+    ) = {
         let mut sessions = sessions.lock().await;
         let state = sessions
             .get_mut(&session_id)
@@ -93,17 +102,20 @@ pub(crate) async fn execute_prompt(
             state.frozen.clone(),
             std::mem::take(&mut state.recall_items),
             Arc::clone(&state.approval_memory),
+            Arc::clone(&state.background_registry),
         )
     };
     let history_len = history.len();
     // Save message IDs for compact persistence path (history is moved into execute_prompt below).
-    let history_ids: Vec<cc_agent::messages::MessageId> =
-        history.iter().map(|m| m.id()).collect();
+    let history_ids: Vec<cc_agent::messages::MessageId> = history.iter().map(|m| m.id()).collect();
 
     let broker: Arc<dyn cc_agent::interaction::UserInteractionBroker> = Arc::new(
         AcpTransportBroker::new(Arc::clone(transport), session_id.clone().into()),
     );
-    let event_sink = Arc::new(TransportEventSink::new(Arc::clone(transport)));
+    let event_sink = Arc::new(
+        TransportEventSink::new(Arc::clone(transport))
+            .with_background_registry(Arc::clone(&background_registry)),
+    );
 
     let provider_snapshot = provider.read().clone();
     let peri_config_snapshot = Arc::new(peri_config.read().clone());
@@ -143,6 +155,7 @@ pub(crate) async fn execute_prompt(
         None, // session_manager（TUI 使用 SharedSessions，不走 SessionManager）
         bg_results,
         Some(steering),
+        Some(background_registry),
     )
     .await;
 

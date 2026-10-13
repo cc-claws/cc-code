@@ -5,6 +5,27 @@ use crate::app::App;
 
 impl App {
     pub fn poll_agent(&mut self) -> bool {
+        if self.session_mgr.current().agent.interaction_prompt.is_none() {
+            if let Some((id, params)) = self.session_mgr.current_mut().pending_thread_approvals.pop_front() {
+                if params.get("toolCall").is_some() { self.handle_acp_request_permission(id, params); }
+                else { self.handle_acp_elicitation(id, params); }
+            }
+        }
+        // 停止任务保留短暂反馈；正在查看的归档视口可继续阅读，离开后再收起。
+        let session = self.session_mgr.current_mut();
+        let previous_count = session.background_agents.len();
+        session.background_agents.retain(|agent| {
+            session.focused_instance_id.as_deref() == Some(&agent.instance_id)
+                || session.subagent_sessions.get(&agent.instance_id).is_none_or(|sub| {
+                    sub.status != super::super::subagent_session::SubagentRunStatus::Stopped
+                        || sub.ended_at.is_none_or(|time| time.elapsed().as_secs() < 3)
+                })
+        });
+        let drawer_updated = previous_count != session.background_agents.len();
+        if drawer_updated { session.ui.bg_bar_cursor = None; }
+        for sub in self.session_mgr.current_mut().subagent_sessions.values_mut() {
+            if sub.status.is_active() { sub.spinner.advance_tick(); }
+        }
         let steering_updated = self.poll_steering_results();
         // Cancel 超时安全网：5 秒后仍未收到 Interrupted/Done，强制清理
         if let Some(cancel_at) = self.session_mgr.current_mut().agent.cancel_sent_at {
@@ -45,10 +66,10 @@ impl App {
             .is_some();
 
         if !has_acp {
-            return steering_updated;
+            return steering_updated || drawer_updated;
         }
 
-        let mut updated = steering_updated;
+        let mut updated = steering_updated || drawer_updated;
 
         // 节流检查（每帧开始时，确保上一批 chunk 的尾部也被显示）
         {
@@ -93,7 +114,7 @@ impl App {
         // 当 loading=true 时（如 compact 中），即使没有新事件也返回 true，
         // 确保 spinner 动画持续渲染而非冻结
         let loading = self.session_mgr.current_mut().ui.loading;
-        if loading {
+        if loading || self.session_mgr.current().has_running_subagents() {
             return true;
         }
 

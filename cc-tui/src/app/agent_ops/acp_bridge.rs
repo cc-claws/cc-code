@@ -10,6 +10,18 @@ impl App {
     /// 处理 ACP notification — 将 AcpNotification 转换为相应的 UI 操作。
     /// 返回 `(updated, should_break, should_return)`，与 `handle_agent_event` 相同语义。
     pub(crate) fn handle_acp_notification(&mut self, notif: AcpNotification) -> (bool, bool, bool) {
+        let source_session = match &notif {
+            AcpNotification::AgentEvent { session_id, .. }
+            | AcpNotification::AgentDone { session_id }
+            | AcpNotification::SessionUpdate { session_id, .. }
+            | AcpNotification::Peri { session_id, .. } => Some(session_id.as_str()),
+            _ => None,
+        };
+        if source_session.filter(|id| !id.is_empty()).is_some_and(|id| {
+            self.session_mgr.current().current_thread_id.as_ref().is_some_and(|current| current.as_str() != id)
+        }) {
+            return (false, false, false);
+        }
         match notif {
             AcpNotification::AgentEvent { event, session_id } => {
                 // 首次收到 AgentEvent 时回填 current_thread_id（新会话由 ACP server 创建，
@@ -54,6 +66,9 @@ impl App {
                 self.handle_session_update_peri(&params)
             }
             AcpNotification::Peri { method, params, .. } => {
+                if method == "peri/subagent_lifecycle" {
+                    return self.handle_subagent_lifecycle(&params);
+                }
                 tracing::debug!(%method, "ACP→TUI: peri/* notification (no TUI action)");
                 let _ = params;
                 (false, false, false)
@@ -119,7 +134,10 @@ impl App {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if !text.is_empty() {
-                    self.handle_agent_event(super::super::AgentEvent::AiReasoning(text.to_string()))
+                    let event = super::super::AgentEvent::AiReasoning(text.to_string());
+                    if let Some(id) = source_agent_id {
+                        self.handle_subagent_event(&id, event)
+                    } else { self.handle_agent_event(event) }
                 } else {
                     (false, false, false)
                 }
@@ -173,7 +191,9 @@ impl App {
                     .map(|s| s == "failed")
                     .unwrap_or(false);
 
-                let output = if is_error {
+                let output = if source_agent_id.is_some() {
+                    raw_output.to_string()
+                } else if is_error {
                     format!("✗ {}", super::super::tool_display::truncate(raw_output, 60))
                 } else {
                     super::super::tool_display::truncate(raw_output, 200)
@@ -219,7 +239,9 @@ impl App {
                         });
                     }
                 }
-                self.handle_agent_event(super::super::AgentEvent::TodoUpdate(todos))
+                let event = super::super::AgentEvent::TodoUpdate(todos);
+                if let Some(id) = source_agent_id { self.handle_subagent_event(&id, event) }
+                else { self.handle_agent_event(event) }
             }
             "usage_update" => {
                 // 从 enriched UsageUpdate _meta 中解析完整 token 用量
@@ -258,11 +280,9 @@ impl App {
                     request_id: None,
                 };
 
-                self.handle_agent_event(super::super::AgentEvent::TokenUsageUpdate {
-                    usage,
-                    model,
-                    stop_reason,
-                })
+                let event = super::super::AgentEvent::TokenUsageUpdate { usage, model, stop_reason };
+                if let Some(id) = source_agent_id { self.handle_subagent_event(&id, event) }
+                else { self.handle_agent_event(event) }
             }
             "session_info_update" => (false, false, false),
             "available_commands_update" => {

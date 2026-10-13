@@ -155,9 +155,7 @@ pub async fn execute_prompt(
     channel_state: Option<Arc<ChannelState>>,
     tool_search_index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
     shared_tools: Arc<
-        parking_lot::RwLock<
-            std::collections::HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>,
-        >,
+        parking_lot::RwLock<std::collections::HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>>,
     >,
     lsp_servers: Vec<cc_lsp::config::LspServerConfig>,
     langfuse_session: Option<Arc<LangfuseSession>>,
@@ -167,6 +165,7 @@ pub async fn execute_prompt(
     session_manager: Option<SessionManager>,
     bg_results: Vec<cc_agent::agent::events::BackgroundTaskResult>,
     steering: Option<cc_agent::agent::steering::SteeringQueue>,
+    background_registry: Option<Arc<cc_middlewares::BackgroundTaskRegistry>>,
 ) -> PromptResult {
     let _steering_guard = steering.as_ref().map(|queue| queue.close_on_drop());
     // Inject synthetic AgentResult tool_use + tool_result messages when bg_results present
@@ -559,6 +558,7 @@ pub async fn execute_prompt(
             parent_thread_id: thread_id,
             register_runtime,
             deregister_runtime,
+            background_registry,
         },
         cached_llm.as_ref(),
         &pool,

@@ -224,6 +224,7 @@ pub async fn run_print(
         None,   // session_manager（print 模式不需要 cancel 级联）
         vec![], // bg_results（print 模式无后台任务）
         None,   // steering（单次 print 无后续交互输入）
+        None,   // background_registry（单次 print 不复用会话）
     )
     .await;
     let c = collector.lock().unwrap();

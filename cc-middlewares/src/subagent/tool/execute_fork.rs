@@ -95,6 +95,9 @@ impl super::SubAgentTool {
                 agent_name: "fork".to_string(),
                 instance_id: instance_id.clone(),
                 is_background: false,
+                    task_preview: String::new(),
+                    timeout_secs: None,
+                    model: None,
             });
         }
         self.fire_subagent_lifecycle_hook(
@@ -157,6 +160,7 @@ impl super::SubAgentTool {
                 agent_name: "fork".to_string(),
                 result: output_summary.clone(),
                 is_error: stopped_is_error,
+                elapsed_ms: 0,
                 instance_id: instance_id.clone(),
             });
         }

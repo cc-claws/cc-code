@@ -1,4 +1,4 @@
-use ratatui::crossterm::event::{KeyCode, KeyEventKind};
+use ratatui::crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::app::App;
 
@@ -67,14 +67,24 @@ pub(super) fn handle_focused_only(
     app: &mut App,
     key_event: &ratatui::crossterm::event::KeyEvent,
 ) -> Option<Action> {
-    let focused = app.session_mgr.current_mut().focused_instance_id.is_some();
-    if focused {
+    if let Some(sub) = app.session_mgr.current().active_subagent() {
+        let active = sub.status.is_active();
         if matches!(key_event.code, KeyCode::Esc) {
-            app.session_mgr.current_mut().focused_instance_id = None;
-            app.session_mgr.current_mut().ui.bg_bar_cursor = None;
-            app.request_rebuild();
+            app.switch_subagent_viewport(None);
+            return Some(Action::Redraw);
         }
-        return Some(Action::Redraw);
+        if key_event.code == KeyCode::Enter && !key_event.modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) {
+            if active {
+                let text = app.session_mgr.current().ui.textarea.lines().join("\n");
+                app.send_subagent_input(text);
+            }
+            return Some(Action::Redraw);
+        }
+        // 已结束视口仍允许滚动、思考折叠和抽屉导航，输入保持只读。
+        if !active && !matches!(key_event.code, KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End)
+            && !(key_event.code == KeyCode::Char('o') && key_event.modifiers.contains(KeyModifiers::CONTROL)) {
+            return Some(Action::Redraw);
+        }
     }
     None
 }
@@ -89,7 +99,7 @@ pub(super) fn handle_bar_key_event(
     }
 
     let agents_len = app.session_mgr.current_mut().background_agents.len();
-    let total_items = 1 + agents_len.min(4);
+    let total_items = 1 + agents_len;
 
     let raw_cursor = app.session_mgr.current_mut().ui.bg_bar_cursor.unwrap_or(0);
     // Clamp cursor to valid range (agents may have been removed)
@@ -115,21 +125,60 @@ pub(super) fn handle_bar_key_event(
             Action::Redraw
         }
         KeyCode::Enter => {
-            if cursor == 0 {
-                // 选中 main → 退出聚焦
-                app.session_mgr.current_mut().focused_instance_id = None;
-            } else {
-                // 选中后台 agent → 聚焦
-                let agents = &app.session_mgr.current_mut().background_agents;
-                if let Some(agent) = agents.get(cursor - 1) {
-                    app.session_mgr.current_mut().focused_instance_id =
-                        Some(agent.instance_id.clone());
-                }
+            let id = cursor.checked_sub(1).and_then(|index| app.session_mgr.current().background_agents.get(index)).map(|agent| agent.instance_id.clone());
+            app.switch_subagent_viewport(id);
+            Action::Redraw
+        }
+        KeyCode::Char('x') if key_event.modifiers.is_empty() => {
+            if let Some(id) = cursor.checked_sub(1).and_then(|index| app.session_mgr.current().background_agents.get(index)).map(|agent| agent.instance_id.clone()) {
+                app.cancel_subagent(&id);
             }
-            app.session_mgr.current_mut().ui.bg_bar_cursor = None;
-            app.request_rebuild();
             Action::Redraw
         }
         _ => Action::Redraw,
     }
+}
+
+/// 在抽屉、输入框和审批浮层之前处理任务控制键，避免焦点吞掉中断。
+pub(super) fn handle_subagent_controls(app: &mut App, key: &ratatui::crossterm::event::KeyEvent) -> Option<Action> {
+    if app.session_mgr.current().subagent_sessions.is_empty() { return None; }
+    let now = std::time::Instant::now();
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    if control && key.code == KeyCode::Char('x') {
+        app.session_mgr.current_mut().subagent_control_prefix = Some(now);
+        return Some(Action::Redraw);
+    }
+    if let Some(prefix) = app.session_mgr.current_mut().subagent_control_prefix.take() {
+        if control && key.code == KeyCode::Char('k') && now.duration_since(prefix).as_secs() < 2 {
+            app.cancel_all_subagents();
+            return Some(Action::Redraw);
+        }
+    }
+    if control && key.code == KeyCode::Char('c') {
+        if !app.session_mgr.current().ui.loading && !app.session_mgr.current().has_running_subagents()
+            && app.session_mgr.current().focused_instance_id.is_none() { return None; }
+        let double = app.session_mgr.current().subagent_interrupt_at.is_some_and(|time| now.duration_since(time).as_millis() <= 500);
+        app.session_mgr.current_mut().subagent_interrupt_at = Some(now);
+        if double {
+            app.cancel_all_subagents();
+            app.interrupt();
+        } else if let Some(id) = app.session_mgr.current().focused_instance_id.clone() {
+            app.cancel_subagent(&id);
+        } else if app.session_mgr.current().ui.loading { app.interrupt(); }
+        return Some(Action::Redraw);
+    }
+    if key.code == KeyCode::Down && key.modifiers.is_empty()
+        && app.session_mgr.current().ui.bg_bar_cursor.is_none()
+        && app.session_mgr.current().ui.textarea.lines().iter().all(|line| line.is_empty())
+        && !app.session_mgr.current().background_agents.is_empty()
+        && !app.is_interaction_popup_active()
+        && !app.session_mgr.current().session_panels.is_any_open()
+        && !app.global_panels.is_any_open() {
+        let cursor = app.session_mgr.current().focused_instance_id.as_ref()
+            .and_then(|id| app.session_mgr.current().background_agents.iter().position(|agent| &agent.instance_id == id))
+            .map(|index| index + 1).unwrap_or(0);
+        app.session_mgr.current_mut().ui.bg_bar_cursor = Some(cursor);
+        return Some(Action::Redraw);
+    }
+    None
 }

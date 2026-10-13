@@ -83,6 +83,7 @@ pub use agent_shell_executor::{AgentShellExecutor, AgentShellRegistration, Agent
 
 // ── System Infrastructure ────────────────────────────────────────────────────
 mod chat_session;
+pub(crate) mod subagent_session;
 mod command_system;
 mod session_metadata;
 pub use chat_session::ChatSession;
@@ -472,7 +473,9 @@ impl App {
         if let Some(token) = &self.session_mgr.current().agent.cancel_token {
             token.cancel();
         }
-        let interaction_response = self.take_interaction_cancel_response();
+        let interaction_response = if self.session_mgr.current().approval_source_agent_id.is_none() {
+            self.take_interaction_cancel_response()
+        } else { None };
         self.refresh_terminal_title();
 
         // Try ACP cancel first (agent runs in ACP server)

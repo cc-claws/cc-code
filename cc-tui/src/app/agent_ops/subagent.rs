@@ -11,9 +11,6 @@ impl App {
         usage: cc_agent::llm::types::TokenUsage,
     ) -> (bool, bool, bool) {
         // SubAgent 的 TokenUsageUpdate 不应污染父 agent 的 tracker
-        if self.session_mgr.current_mut().agent.subagent_depth > 0 {
-            return (true, false, false);
-        }
 
         // 累积到会话追踪器
         self.session_mgr
@@ -81,7 +78,16 @@ impl App {
         task_preview: String,
         is_background: bool,
     ) -> (bool, bool, bool) {
-        if is_background {
+        if !self.session_mgr.current().subagent_sessions.contains_key(&instance_id) {
+            let sub = super::super::subagent_session::BackgroundAgentSession::new(
+                instance_id.clone(), agent_id.clone(), task_preview.clone(), self.services.cwd.clone(),
+            );
+            self.session_mgr.current_mut().subagent_sessions.insert(instance_id.clone(), sub);
+        }
+        if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&instance_id) {
+            sub.is_background = is_background;
+        }
+        if is_background && !self.session_mgr.current().background_agents.iter().any(|a| a.instance_id == instance_id) {
             use super::super::chat_session::RunningBgAgent;
             self.session_mgr
                 .current_mut()
@@ -93,23 +99,159 @@ impl App {
                     total_steps: 0,
                 });
         }
-        self.session_mgr.current_mut().agent.subagent_depth += 1;
-        // Pipeline：创建 SubAgentGroup VM
-        let actions = self
-            .session_mgr
-            .current_mut()
-            .messages
-            .pipeline
-            .handle_event(AgentEvent::SubAgentStart {
-                agent_id,
-                instance_id,
-                task_preview,
-                is_background,
+        {
+            let actions = self
+                .session_mgr
+                .current_mut()
+                .messages
+                .pipeline
+                .handle_event(AgentEvent::SubAgentStart {
+                    agent_id: agent_id.clone(),
+                    instance_id: instance_id.clone(),
+                    task_preview: task_preview.clone(),
+                    is_background,
+                });
+            for action in actions {
+                self.apply_pipeline_action(action);
+            }
+        }
+        self.update_subagent_launch_summary();
+        self.request_rebuild();
+        (true, false, false)
+    }
+
+    fn update_subagent_launch_summary(&mut self) {
+        let session = self.session_mgr.current_mut();
+        let agents: Vec<_> = session.background_agents.iter().filter_map(|agent| {
+            session.subagent_sessions.get(&agent.instance_id)
+        }).collect();
+        if agents.is_empty() { return; }
+        let mut content = format!("• {} background agents launched (↓ to manage)", agents.len());
+        for (index, agent) in agents.iter().enumerate() {
+            let branch = if index + 1 == agents.len() { "└──" } else { "├──" };
+            content.push_str(&format!("\n  {branch} {}", agent.task_preview));
+        }
+        // 摘要属于临时 UI 节点，规范历史仍由 Agent 工具调用及结果持久化。
+        session.messages.ephemeral_notes.retain(|(_, vm)| {
+            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
+        });
+        session.messages.view_messages.retain(|vm| {
+            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
+        });
+        session.messages.push_system_note(content);
+    }
+
+    pub(crate) fn handle_subagent_event(&mut self, id: &str, mut event: AgentEvent) -> (bool, bool, bool) {
+        if let AgentEvent::SubagentEvent { source_agent_id, event } = event {
+            return self.handle_subagent_event(&source_agent_id, *event);
+        }
+        // 到达子管线后去掉路由信封；它就是该管线的本地主线程。
+        match &mut event {
+            AgentEvent::ToolStart { source_agent_id, .. }
+            | AgentEvent::ToolEnd { source_agent_id, .. }
+            | AgentEvent::AssistantChunk { source_agent_id, .. } => *source_agent_id = None,
+            _ => {}
+        }
+        // 前台同步 SubAgent 的事件需同时驱动主时间线 SubAgentGroup；在清空路由信封前
+        // 先克隆一份（仅这三类事件需要，避免为整个 AgentEvent 实现 Clone）。
+        let pipeline_clone = match &event {
+            AgentEvent::ToolStart { tool_call_id, name, display, args, input, source_agent_id } => {
+                Some(AgentEvent::ToolStart {
+                    tool_call_id: tool_call_id.clone(), name: name.clone(), display: display.clone(),
+                    args: args.clone(), input: input.clone(), source_agent_id: source_agent_id.clone(),
+                })
+            }
+            AgentEvent::ToolEnd { tool_call_id, name, output, is_error, source_agent_id } => {
+                Some(AgentEvent::ToolEnd {
+                    tool_call_id: tool_call_id.clone(), name: name.clone(), output: output.clone(),
+                    is_error: *is_error, source_agent_id: source_agent_id.clone(),
+                })
+            }
+            AgentEvent::AssistantChunk { chunk, source_agent_id } => Some(AgentEvent::AssistantChunk {
+                chunk: chunk.clone(), source_agent_id: source_agent_id.clone(),
+            }),
+            _ => None,
+        };
+        let cwd = self.services.cwd.clone();
+        let (focused, actions) = {
+            let session = self.session_mgr.current_mut();
+            let sub = session.subagent_sessions.entry(id.to_string()).or_insert_with(|| {
+                super::super::subagent_session::BackgroundAgentSession::new(id.into(), "agent".into(), String::new(), cwd)
             });
+            let is_background = sub.is_background;
+            sub.handle_event(event);
+            // 前台同步 SubAgent：事件同时驱动主时间线 SubAgentGroup，保持与历史渲染一致。
+            let actions = if !is_background {
+                pipeline_clone
+                    .map(|pipeline_event| session.messages.pipeline.handle_event(pipeline_event))
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let focused = session.focused_instance_id.as_deref() == Some(id);
+            (focused, actions)
+        };
         for action in actions {
             self.apply_pipeline_action(action);
         }
-        self.request_rebuild();
+        if focused {
+            self.render_rebuild();
+        }
+        (true, false, false)
+    }
+
+    pub(crate) fn handle_subagent_lifecycle(&mut self, params: &serde_json::Value) -> (bool, bool, bool) {
+        use super::super::subagent_session::SubagentRunStatus;
+        let id = params["instanceId"].as_str().unwrap_or("");
+        if id.is_empty() { return (false, false, false); }
+        match params["event"].as_str().unwrap_or("") {
+            "started" => {
+                self.handle_subagent_start(
+                    params["agentType"].as_str().unwrap_or("agent").into(), id.into(),
+                    params["taskPreview"].as_str().unwrap_or("").into(),
+                    params["isBackground"].as_bool().unwrap_or(false),
+                );
+                if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
+                    sub.timeout_secs = params["timeoutSecs"].as_u64().filter(|value| *value > 0);
+                    sub.model = params["model"].as_str().unwrap_or("").into();
+                    sub.agent_type = params["agentType"].as_str().unwrap_or("agent").into();
+                    sub.task_preview = params["taskPreview"].as_str().unwrap_or("").into();
+                }
+                self.update_subagent_launch_summary();
+            }
+            "progress" => {
+                if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
+                    if let Some(activity) = params["currentActivity"].as_str() {
+                        sub.current_activity = activity.into();
+                    }
+                }
+            }
+            "stopped" => {
+                self.cancel_subagent_approval(id);
+                let result = params["result"].as_str().unwrap_or("").to_string();
+                let is_error = params["isError"].as_bool().unwrap_or(false);
+                if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
+                    sub.elapsed = Some(std::time::Duration::from_millis(params["elapsedMs"].as_u64().unwrap_or(sub.started_at.elapsed().as_millis() as u64)));
+                    sub.status = if params["status"].as_str() == Some("stopped") || sub.status == SubagentRunStatus::Stopped || result.to_lowercase().contains("cancelled") {
+                        SubagentRunStatus::Stopped
+                    } else if is_error { SubagentRunStatus::Failed } else { SubagentRunStatus::Completed };
+                    sub.final_result = Some(result.clone());
+                    sub.ended_at.get_or_insert_with(std::time::Instant::now);
+                    sub.current_activity.clear();
+                    sub.running_tool_times.clear();
+                    sub.agent.active_tool = None;
+                    sub.pipeline.handle_event(AgentEvent::Done);
+                    sub.rebuild();
+                    if sub.view_messages.is_empty() && !result.is_empty() {
+                        let mut vm = MessageViewModel::assistant();
+                        vm.append_chunk(&result);
+                        sub.view_messages.push(vm);
+                    }
+                }
+            }
+            _ => return (false, false, false),
+        }
+        self.render_rebuild();
         (true, false, false)
     }
 }

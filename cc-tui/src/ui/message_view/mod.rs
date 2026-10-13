@@ -761,7 +761,7 @@ impl MessageViewModel {
                     .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
                 let raw_content = content.text_content();
                 // Agent 工具恢复为 SubAgentGroup（完成状态，展开显示 final_result）
-                if tool_name == "Agent" {
+                if tool_name == "Agent" && input["action"].as_str().unwrap_or("spawn") == "spawn" {
                     let agent_id = input
                         .get("subagent_type")
                         .and_then(|v| v.as_str())

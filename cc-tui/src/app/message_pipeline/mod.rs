@@ -569,7 +569,9 @@ impl MessagePipeline {
             | AgentEvent::PluginActionCompleted { .. }
             | AgentEvent::LspDiagnostics { .. }
             | AgentEvent::ThreadTitleGenerated { .. }
-            | AgentEvent::SubagentProgress { .. } => {
+            | AgentEvent::SubagentProgress { .. }
+            | AgentEvent::SubagentEvent { .. }
+            | AgentEvent::SubagentInputResult { .. } => {
                 vec![PipelineAction::None]
             }
         }

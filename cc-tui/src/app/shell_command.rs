@@ -745,21 +745,28 @@ impl App {
             return false;
         }
         let changed = {
-            let messages = &mut self.session_mgr.current_mut().messages;
+            let session = self.session_mgr.current_mut();
             let mut changed = false;
             for (source_agent_id, tool_call_id, started_at, timeout_ms, backgrounded) in updates {
-                changed |= messages.pipeline.sync_shell_runtime(
-                    source_agent_id.as_deref(),
-                    &tool_call_id,
-                    started_at,
-                    timeout_ms,
-                    backgrounded,
-                );
+                if let Some(id) = source_agent_id {
+                    if let Some(sub) = session.subagent_sessions.get_mut(&id) {
+                        // 子视口显示调用方指定的任务预算；未设置不伪造默认上限。
+                        let timeout = sub.timeout_secs.unwrap_or(0).saturating_mul(1000);
+                        let updated = sub.pipeline.sync_shell_runtime(None, &tool_call_id, started_at, timeout, backgrounded);
+                        if updated {
+                            if sub.running_tool_times.contains_key(&tool_call_id) {
+                                sub.running_tool_times.insert(tool_call_id.clone(), started_at);
+                            }
+                            sub.rebuild();
+                        }
+                        changed |= updated;
+                    }
+                } else {
+                    changed |= session.messages.pipeline.sync_shell_runtime(None, &tool_call_id, started_at, timeout_ms, backgrounded);
+                }
             }
             if changed {
-                changed |= messages
-                    .pipeline
-                    .apply_shell_runtime(&mut messages.view_messages);
+                session.messages.pipeline.apply_shell_runtime(&mut session.messages.view_messages);
             }
             changed
         };

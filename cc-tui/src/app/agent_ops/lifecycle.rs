@@ -25,9 +25,11 @@ impl App {
             s.langfuse.langfuse_tracer = None;
 
             // Clear interaction state
-            s.agent.interaction_prompt = None;
-            s.agent.pending_hitl_items = None;
-            s.agent.pending_ask_user = None;
+            if s.approval_source_agent_id.is_none() {
+                s.agent.interaction_prompt = None;
+                s.agent.pending_hitl_items = None;
+                s.agent.pending_ask_user = None;
+            }
             s.agent.active_tool = None;
             s.agent.running_tools.clear();
             s.agent.recent_tools.clear();
@@ -114,7 +116,7 @@ impl App {
             self.render_rebuild();
         }
         // 后台任务：保持通道存活
-        if !self.session_mgr.current_mut().background_agents.is_empty() {
+        if self.session_mgr.current().has_running_subagents() {
             self.session_mgr.current_mut().agent.agent_done_pending_bg = true;
             tracing::info!(
                 count = self.session_mgr.current_mut().background_agents.len(),
@@ -360,7 +362,7 @@ impl App {
         // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖错误消息
         self.session_mgr.current_mut().agent.reconcile_already_done = true;
         // 后台任务：保持通道存活
-        if !self.session_mgr.current_mut().background_agents.is_empty() {
+        if self.session_mgr.current().has_running_subagents() {
             self.session_mgr.current_mut().agent.agent_done_pending_bg = true;
         } else {
             if !self

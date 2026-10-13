@@ -69,7 +69,12 @@ impl App {
         use agent_client_protocol::schema::RequestPermissionRequest;
         use tokio::sync::oneshot;
 
-        if self.acp_interaction_is_stopped() {
+        let source_agent_id = params.get("_peri").and_then(|meta| meta.get("sourceAgentId"))
+            .and_then(|value| value.as_str()).map(str::to_string);
+        let stopped = if let Some(source) = &source_agent_id {
+            self.session_mgr.current().subagent_sessions.get(source).is_none_or(|sub| !sub.status.is_active())
+        } else { self.acp_interaction_is_stopped() };
+        if stopped {
             self.respond_to_stopped_interaction(
                 id,
                 serde_json::to_value(RequestPermissionResponse::new(
@@ -77,6 +82,17 @@ impl App {
                 )),
             );
             return (false, false, false);
+        }
+
+        if let Some(source) = &source_agent_id {
+            if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(source) {
+                sub.status = super::subagent_session::SubagentRunStatus::AwaitingApproval;
+                sub.current_activity = format!("审批挂起: {}", params["toolCall"]["title"].as_str().unwrap_or("tool"));
+            }
+        }
+        if self.session_mgr.current().agent.interaction_prompt.is_some() {
+            self.session_mgr.current_mut().pending_thread_approvals.push_back((id, params));
+            return (true, false, false);
         }
 
         let req = match serde_json::from_value::<RequestPermissionRequest>(params) {
@@ -108,13 +124,14 @@ impl App {
 
         // Store ACP request id for response dispatch in hitl_ops.rs
         self.session_mgr.current_mut().agent.pending_acp_request_id = Some(id);
+        self.session_mgr.current_mut().approval_source_agent_id = source_agent_id;
 
         let prompt = HitlBatchPrompt::new(batch_items, bridge_tx);
         self.session_mgr.current_mut().agent.interaction_prompt =
             Some(InteractionPrompt::Approval(prompt));
         self.refresh_terminal_title();
 
-        (true, true, false) // pause event consumption, wait for user confirmation
+        (true, false, false)
     }
 
     /// Handle ACP elicitation/create: create AskUser dialog.
@@ -127,12 +144,26 @@ impl App {
         use cc_middlewares::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
         use tokio::sync::oneshot;
 
-        if self.acp_interaction_is_stopped() {
+        let source_agent_id = params.get("_peri").and_then(|meta| meta.get("sourceAgentId"))
+            .and_then(|value| value.as_str()).map(str::to_string);
+        let stopped = if let Some(source) = &source_agent_id {
+            self.session_mgr.current().subagent_sessions.get(source).is_none_or(|sub| !sub.status.is_active())
+        } else { self.acp_interaction_is_stopped() };
+        if stopped {
             self.respond_to_stopped_interaction(
                 id,
                 serde_json::to_value(CreateElicitationResponse::new(ElicitationAction::Cancel)),
             );
             return (false, false, false);
+        }
+
+        if let Some(sub) = source_agent_id.as_ref().and_then(|source| self.session_mgr.current_mut().subagent_sessions.get_mut(source)) {
+            sub.status = super::subagent_session::SubagentRunStatus::AwaitingApproval;
+            sub.current_activity = "等待用户回答".into();
+        }
+        if self.session_mgr.current().agent.interaction_prompt.is_some() {
+            self.session_mgr.current_mut().pending_thread_approvals.push_back((id, params));
+            return (true, false, false);
         }
 
         let req = match serde_json::from_value::<CreateElicitationRequest>(params.clone()) {
@@ -209,6 +240,7 @@ impl App {
         // Store ACP request id for response dispatch in ask_user_ops.rs
         self.session_mgr.current_mut().agent.pending_acp_request_id = Some(id);
         self.session_mgr.current_mut().agent.pending_ask_user = Some(false);
+        self.session_mgr.current_mut().approval_source_agent_id = source_agent_id;
 
         let (batch_req, _) = AskUserBatchRequest::new(questions);
         let batch_req_bridged = AskUserBatchRequest {
@@ -220,7 +252,7 @@ impl App {
         );
         self.refresh_terminal_title();
 
-        (true, true, false) // pause event consumption, wait for user input
+        (true, false, false) // 仅挂起提出问题的子线程，其他线程继续消费事件。
     }
 
     /// Handle AgentEvent::InteractionRequest: create Approval or Questions dialog.

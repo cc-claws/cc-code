@@ -13,16 +13,24 @@ use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 /// 已通过 session/update → handle_session_update_peri() 处理，此处返回 None。
 pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<AgentEvent> {
     Some(match event {
+        ExecutorEvent::SubagentEvent { source_agent_id, event } => {
+            AgentEvent::SubagentEvent {
+                source_agent_id,
+                event: Box::new(map_executor_event(*event, _cwd)?),
+            }
+        }
         // ── 类别③：无 SessionUpdate 映射，仍通过 peri/agent_event ──
         ExecutorEvent::StateSnapshot(msgs) => AgentEvent::StateSnapshot(msgs),
         ExecutorEvent::SubagentStarted {
             agent_name,
             instance_id,
             is_background,
+            task_preview,
+            ..
         } => AgentEvent::SubAgentStart {
             agent_id: agent_name.clone(),
             instance_id,
-            task_preview: String::new(),
+            task_preview,
             is_background,
         },
         ExecutorEvent::SubagentStopped {
@@ -30,6 +38,7 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             result,
             is_error,
             instance_id,
+            ..
         } => AgentEvent::SubAgentEnd {
             agent_id: Some(agent_name),
             instance_id: Some(instance_id),

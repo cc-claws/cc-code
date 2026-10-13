@@ -15,7 +15,31 @@ mod subagent;
 
 impl App {
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
+        // 标准 ACP 消息同样经过此守卫；不依赖全局 depth 或最后启动的任务。
+        let source = match &event {
+            AgentEvent::ToolStart { source_agent_id, .. }
+            | AgentEvent::ToolEnd { source_agent_id, .. }
+            | AgentEvent::AssistantChunk { source_agent_id, .. } => source_agent_id.clone(),
+            _ => None,
+        };
+        if let Some(id) = source {
+            return self.handle_subagent_event(&id, event);
+        }
         match event {
+            AgentEvent::SubagentEvent { source_agent_id, event } => {
+                self.handle_subagent_event(&source_agent_id, *event)
+            }
+            AgentEvent::SubagentInputResult { instance_id, input_id, error } => {
+                if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&instance_id) {
+                    if let Some(error) = error {
+                        sub.pending_inputs.retain(|(id, _)| *id != input_id);
+                        sub.notices.push(format!("Message failed: {error}"));
+                        sub.rebuild();
+                    }
+                }
+                self.render_rebuild();
+                (true, false, false)
+            }
             AgentEvent::ShellCommandCompleted(record) => {
                 self.handle_shell_command_completed(record)
             }
@@ -105,21 +129,12 @@ impl App {
                 agent_id,
                 instance_id,
             } => {
-                self.session_mgr.current_mut().agent.subagent_depth = self
-                    .session_mgr
-                    .current_mut()
-                    .agent
-                    .subagent_depth
-                    .saturating_sub(1);
-                // 如果所有 SubAgent 已完成，恢复 spinner 到思考模式
-                if self.session_mgr.current_mut().agent.subagent_depth == 0 {
-                    // 所有 SubAgent 完成：恢复为响应模式（方案 A：verb 不变）
-                    self.session_mgr
-                        .current_mut()
-                        .spinner_state
-                        .set_mode_keep_verb(cc_widgets::SpinnerMode::Responding);
+                if let Some(ref id) = instance_id {
+                    self.handle_subagent_lifecycle(&serde_json::json!({
+                        "event": "stopped", "instanceId": id, "result": result,
+                        "isError": is_error, "agentType": agent_id,
+                    }));
                 }
-                // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
                 let actions = self
                     .session_mgr
                     .current_mut()
@@ -173,9 +188,6 @@ impl App {
                 percentage: _,
             } => {
                 // 子 Agent 的 ContextWarning 不应触发父 Agent 的 auto-compact
-                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
-                    return (true, false, false);
-                }
                 // 从核心层同步 context_window（核心层通过 model.context_window() 获取正确值）
                 let cw = total_tokens as u32;
                 if cw > 0 && self.session_mgr.current_mut().agent.context_window != cw {
@@ -373,9 +385,6 @@ impl App {
             AgentEvent::StateSnapshot(msgs) => {
                 // 子 Agent 的 StateSnapshot 不应污染父 Agent 的 origin_messages，
                 // 否则子 Agent 的全部内部消息会混入父 Agent 的对话历史和持久化。
-                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
-                    return (true, false, false);
-                }
                 if msgs
                     .iter()
                     .any(|message| matches!(message, cc_agent::messages::BaseMessage::Human { .. }))
@@ -421,9 +430,6 @@ impl App {
                 error,
             } => {
                 // 子 Agent 的 LlmRetrying 不应覆盖父 Agent 的 retry_status 显示
-                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
-                    return (true, false, false);
-                }
                 self.session_mgr.current_mut().agent.retry_status =
                     Some(super::agent_comm::RetryStatus {
                         attempt,
@@ -435,9 +441,6 @@ impl App {
             }
             AgentEvent::SystemNotice { level, message } => {
                 // 子 Agent 的提示不覆盖父 Agent 展示（与 LlmRetrying 同策略）
-                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
-                    return (true, false, false);
-                }
                 self.session_mgr.current_mut().agent.system_notice =
                     Some(super::agent_comm::SystemNotice { level, message });
                 (true, false, false)

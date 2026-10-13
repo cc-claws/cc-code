@@ -165,7 +165,7 @@ pub(crate) fn render_messages(
     header_area: Rect,
     messages_area: Rect,
 ) {
-    if app.session_mgr.current().messages.view_messages.is_empty() {
+    if app.session_mgr.current().current_view_messages().is_empty() {
         let ui = &mut app.session_mgr.current_mut().ui;
         ui.messages_area = None;
         ui.message_scrollbar_metrics = None;
@@ -182,26 +182,26 @@ pub(crate) fn render_messages(
 
     // 计算 loading spinner 行（Claude Code 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
     // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
-    let spinner_line: Option<Line<'static>> = if app.session_mgr.current().ui.loading {
+    let spinner_line: Option<Line<'static>> = if app.session_mgr.current().viewport_loading() {
         let session = app.session_mgr.current();
-        let frame = cc_widgets::spinner::animation::tick_to_frame(session.spinner_state.tick());
-        let verb = session.spinner_state.verb();
+        let frame = cc_widgets::spinner::animation::tick_to_frame(session.viewport_spinner().tick());
+        let verb = session.viewport_spinner().verb();
         let elapsed =
-            cc_widgets::spinner::animation::format_elapsed(session.spinner_state.elapsed_ms());
-        let tokens = session.spinner_state.displayed_tokens();
+            cc_widgets::spinner::animation::format_elapsed(session.viewport_spinner().elapsed_ms());
+        let tokens = session.viewport_spinner().displayed_tokens();
 
         let is_compact = verb.starts_with("压缩上下文");
         // 第三字段：状态词（纯时间驱动）
         let status_word = thinking_status_word(
-            session.spinner_state.is_thinking(),
-            session.spinner_state.thinking_elapsed_ms(),
-            session.spinner_state.last_thought_ms(),
+            session.viewport_spinner().is_thinking(),
+            session.viewport_spinner().thinking_elapsed_ms(),
+            session.viewport_spinner().last_thought_ms(),
         );
         // 热度色：思考中用当前段耗时；工具/回复段沿用上一段（避免颜色回跳，见 PRD §2.7）
-        let heat_ms = if session.spinner_state.is_thinking() {
-            session.spinner_state.thinking_elapsed_ms()
+        let heat_ms = if session.viewport_spinner().is_thinking() {
+            session.viewport_spinner().thinking_elapsed_ms()
         } else {
-            session.spinner_state.last_thought_ms()
+            session.viewport_spinner().last_thought_ms()
         };
         let heat = thinking_heat_color(heat_ms);
         let accent_color = if is_compact {
@@ -210,10 +210,10 @@ pub(crate) fn render_messages(
             heat
         };
         // 状态词配色：纯时间升温（状态词绝对不闪烁）
-        let status_thinking_ms = if session.spinner_state.is_thinking() {
-            session.spinner_state.thinking_elapsed_ms()
+        let status_thinking_ms = if session.viewport_spinner().is_thinking() {
+            session.viewport_spinner().thinking_elapsed_ms()
         } else {
-            session.spinner_state.last_thought_ms()
+            session.viewport_spinner().last_thought_ms()
         };
         let status_style =
             thinking_status_style(&status_word, status_thinking_ms, heat, is_compact);
@@ -222,7 +222,7 @@ pub(crate) fn render_messages(
         // 动词应用舒缓流光
         let verb_spans = cc_widgets::spinner::animation::shimmer_verb_spans(
             verb,
-            session.spinner_state.elapsed_ms(),
+            session.viewport_spinner().elapsed_ms(),
             accent_color,
         );
 
@@ -245,20 +245,20 @@ pub(crate) fn render_messages(
     } else if app
         .session_mgr
         .current()
-        .spinner_state
+        .viewport_spinner()
         .last_summary_elapsed_ms()
         > 0
     {
         let session = app.session_mgr.current();
         let elapsed = cc_widgets::spinner::animation::format_elapsed(
-            session.spinner_state.last_summary_elapsed_ms(),
+            session.viewport_spinner().last_summary_elapsed_ms(),
         );
         let verb = {
-            let v = session.spinner_state.last_summary_verb();
+            let v = session.viewport_spinner().last_summary_verb();
             if v.is_empty() { "Brewed" } else { v }.to_string()
         };
         let done_str = session
-            .spinner_state
+            .viewport_spinner()
             .last_summary_done_at()
             .map(|t| {
                 let dt: DateTime<Local> = t.into();
@@ -511,16 +511,16 @@ fn viewport_clip(
             lines.push(Line::from(""));
             lines.push(line.clone());
             // Tip + TODO
-            if app.session_mgr.current().ui.loading {
+            if app.session_mgr.current().viewport_loading() {
                 let tip = crate::ui::tips::pick_tip(
-                    app.session_mgr.current().spinner_state.raw_tick(),
+                    app.session_mgr.current().viewport_spinner().raw_tick(),
                     &app.services.lc,
                 );
                 lines.push(Line::from(vec![
                     Span::styled("  ⎿  Tip: ", Style::default().fg(theme::MUTED)),
                     Span::styled(tip, Style::default().fg(theme::MUTED)),
                 ]));
-                if !app.session_mgr.current().todo_items.is_empty() {
+                if app.session_mgr.current().active_subagent().is_none() && !app.session_mgr.current().todo_items.is_empty() {
                     lines.push(Line::from(""));
                     let todos = &app.session_mgr.current().todo_items;
                     let visible_count = todos.len().min(MAX_VISIBLE_TODOS);
@@ -650,10 +650,10 @@ fn spinner_extra_count(app: &App) -> u16 {
     let has_recap = app.session_mgr.current().latest_recap.is_some();
     // recap 与总结行之间有一个分隔空行，故占 2 行
     let recap_extra: u16 = if has_recap { 2 } else { 0 };
-    if app.session_mgr.current().ui.loading {
+    if app.session_mgr.current().viewport_loading() {
         // 空行(1) + spinner(1) + tip(1) + trailing(1) = 4
         // 有 todo 时额外 + 分隔空行(1) + todo 渲染行数（最多 5 行 + 可选截断统计 1 行）
-        let total_todos = app.session_mgr.current().todo_items.len();
+        let total_todos = if app.session_mgr.current().active_subagent().is_none() { app.session_mgr.current().todo_items.len() } else { 0 };
         if total_todos > 0 {
             5 + todo_render_line_count(total_todos)
         } else {

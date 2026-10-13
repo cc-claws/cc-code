@@ -10,6 +10,16 @@ pub use cc_middlewares::mcp::OAuthCallbackResult;
 
 /// TUI 与后台 Agent 任务之间的通信事件（通过 mpsc channel 传递）
 pub enum AgentEvent {
+    /// 子线程事件在入口处分流，绝不能落入主线程状态更新。
+    SubagentEvent {
+        source_agent_id: String,
+        event: Box<AgentEvent>,
+    },
+    SubagentInputResult {
+        instance_id: String,
+        input_id: uuid::Uuid,
+        error: Option<String>,
+    },
     /// TUI 本地 shell 命令执行完成（不进入 Agent history）
     ShellCommandCompleted(ShellCommandRecord),
     /// 工具调用开始（参数已就绪）

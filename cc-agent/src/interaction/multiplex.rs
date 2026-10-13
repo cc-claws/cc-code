@@ -20,22 +20,28 @@ impl MultiplexBroker {
 #[async_trait]
 impl UserInteractionBroker for MultiplexBroker {
     async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
+        self.request_from(None, ctx).await
+    }
+
+    async fn request_from(&self, source_agent_id: Option<&str>, ctx: InteractionContext) -> InteractionResponse {
         if self.brokers.is_empty() {
             return InteractionResponse::Decisions(vec![]);
         }
         if self.brokers.len() == 1 {
-            return self.brokers[0].1.request(ctx).await;
+            return self.brokers[0].1.request_from(source_agent_id, ctx).await;
         }
 
         // Spawn all brokers in parallel, race via mpsc channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut tasks = tokio::task::JoinSet::new();
         for (name, broker) in &self.brokers {
             let ctx = ctx.clone();
             let broker = broker.clone();
             let name = name.clone();
             let tx = tx.clone();
-            tokio::spawn(async move {
-                let response = broker.request(ctx).await;
+            let source_agent_id = source_agent_id.map(str::to_string);
+            tasks.spawn(async move {
+                let response = broker.request_from(source_agent_id.as_deref(), ctx).await;
                 let _ = tx.send((name, response));
             });
         }

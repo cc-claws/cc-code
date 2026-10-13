@@ -429,6 +429,9 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
             return keyboard::handle_key_event(app, key_event);
         }
         Event::Paste(text) => {
+            if app.session_mgr.current().active_subagent().is_some_and(|sub| !sub.status.is_active()) {
+                return Ok(Some(Action::Redraw));
+            }
             // Paste text handling
             // Some terminals (e.g. VSCode) use \r instead of \n as line separator in bracketed paste
             let text = text.replace('\r', "\n");

@@ -85,7 +85,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
 
     let status_bar_height = status_bar::status_bar_height(app);
 
-    let bg_bar_height_val = bg_agent_bar::bg_bar_height(app);
+    let bg_bar_height_val = bg_agent_bar::bg_bar_height(app, area.height);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -229,30 +229,23 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             .padding(Padding::new(2, 0, 0, 0));
         app.session_mgr.current_mut().ui.textarea.set_block(block);
     } else if let Some(ref id) = focused_id {
-        // 聚焦只读模式：彩色边框 + agent 名称标签 + 暗色文本
-        let agents = &app.session_mgr.current_mut().background_agents;
-        let color_idx = agents.iter().position(|a| a.instance_id == *id);
-        let color = color_idx
-            .map(bg_agent_bar::agent_color)
-            .unwrap_or(ratatui::style::Color::Cyan);
-        let agent_name = agents
-            .iter()
-            .find(|a| a.instance_id == *id)
-            .map(|a| a.agent_name.as_str())
-            .unwrap_or("agent");
-        let title = format!("[{}]", agent_name);
+        let sub = app.session_mgr.current().subagent_sessions.get(id);
+        let title = format!("[ {} ]", sub.map(|sub| sub.task_preview.as_str()).unwrap_or("agent"));
+        let placeholder = match sub {
+            Some(sub) if sub.status.is_active() => format!("Message @{}...", sub.agent_type),
+            _ => "Task ended (read-only)".into(),
+        };
         let block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
-            .border_style(ratatui::style::Style::default().fg(color))
+            .border_style(Style::default().fg(Color::LightCyan))
             .padding(Padding::new(2, 0, 0, 0))
-            .title(title);
-        app.session_mgr.current_mut().ui.textarea.set_block(block);
-        app.session_mgr
-            .current_mut()
-            .ui
-            .textarea
-            .set_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
+            .title_top(ratatui::text::Line::from(title).right_aligned());
+        let textarea = &mut app.session_mgr.current_mut().ui.textarea;
+        textarea.set_block(block);
+        textarea.set_placeholder_text(placeholder);
+        textarea.set_style(Style::default().fg(theme::TEXT));
     } else {
+        app.session_mgr.current_mut().ui.textarea.set_placeholder_text("");
         // 正常模式：恢复与 build_textarea 一致的边框样式
         let border_color = textarea_shell_border_color(shell_mode);
         let mut block = ratatui::widgets::Block::default()

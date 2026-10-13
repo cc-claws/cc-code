@@ -367,10 +367,11 @@ impl BaseTool for SubAgentTool {
             .to_string();
         let is_fork = input.get("fork").and_then(|v| v.as_bool()).unwrap_or(false)
             || subagent_type.as_deref() == Some("fork");
+        let timeout_secs = input.get("timeout_secs").and_then(|v| v.as_u64());
 
         if run_in_background && self.background_registry.is_some() {
             return self
-                .invoke_background(prompt, subagent_type, cwd, is_fork)
+                .invoke_background(prompt, subagent_type, cwd, is_fork, timeout_secs)
                 .await;
         }
 
@@ -465,6 +466,7 @@ impl BaseTool for SubAgentTool {
                 agent_name: agent_id.clone(),
                 result: output_summary.clone(),
                 is_error: stopped_is_error,
+                elapsed_ms: 0,
                 instance_id: instance_id.clone(),
             });
         }

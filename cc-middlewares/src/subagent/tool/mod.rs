@@ -31,43 +31,9 @@ impl SourceAgentIdHandler {
 
 impl AgentEventHandler for SourceAgentIdHandler {
     fn on_event(&self, event: AgentEvent) {
-        let tagged = match event {
-            AgentEvent::ToolStart {
-                message_id,
-                tool_call_id,
-                name,
-                input,
-                ..
-            } => AgentEvent::ToolStart {
-                message_id,
-                tool_call_id,
-                name,
-                input,
-                source_agent_id: Some(self.agent_id.clone()),
-            },
-            AgentEvent::ToolEnd {
-                message_id,
-                tool_call_id,
-                name,
-                output,
-                is_error,
-                ..
-            } => AgentEvent::ToolEnd {
-                message_id,
-                tool_call_id,
-                name,
-                output,
-                is_error,
-                source_agent_id: Some(self.agent_id.clone()),
-            },
-            AgentEvent::TextChunk {
-                message_id, chunk, ..
-            } => AgentEvent::TextChunk {
-                message_id,
-                chunk,
-                source_agent_id: Some(self.agent_id.clone()),
-            },
-            other => other,
+        let tagged = AgentEvent::SubagentEvent {
+            source_agent_id: self.agent_id.clone(),
+            event: Box::new(event),
         };
         self.inner.on_event(tagged);
     }
@@ -209,3 +175,28 @@ pub use define::SubAgentTool;
 #[cfg(test)]
 #[path = "tool_test.rs"]
 mod tests;
+
+/// None/0 永不自动超时；取消时 drop 执行 future，ManagedChild 负责跨平台杀整棵进程树。
+async fn execute_with_timeout(
+    agent: &cc_agent::agent::ReActAgent<Box<dyn cc_agent::agent::react::ReactLLM + Send + Sync>, AgentState>,
+    input: cc_agent::agent::react::AgentInput,
+    state: &mut AgentState,
+    cancel: cc_agent::agent::AgentCancellationToken,
+    timeout_secs: Option<u64>,
+) -> cc_agent::error::AgentResult<cc_agent::agent::react::AgentOutput> {
+    let deadline = async {
+        match timeout_secs.filter(|seconds| *seconds > 0) {
+            Some(seconds) => tokio::time::sleep(std::time::Duration::from_secs(seconds)).await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(cc_agent::error::AgentError::Interrupted),
+        _ = deadline => {
+            cancel.cancel();
+            Err(cc_agent::error::AgentError::Other(anyhow::anyhow!("Task timed out after {}s as configured by caller.", timeout_secs.unwrap_or_default())))
+        }
+        result = agent.execute(input, state, Some(cancel.clone())) => result,
+    }
+}

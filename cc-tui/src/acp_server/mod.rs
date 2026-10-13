@@ -61,13 +61,14 @@ pub(crate) struct SessionState {
     cwd: String,
     history: Vec<BaseMessage>,
     cancel_token: Option<AgentCancellationToken>,
+    background_registry: Arc<cc_middlewares::BackgroundTaskRegistry>,
     steering: Option<cc_agent::agent::steering::SteeringQueue>,
     // ── Frozen session data (populated at creation, immutable thereafter) ──
     pub(crate) frozen: Option<cc_acp::session::executor::FrozenSessionData>,
     /// Recall items from previous turn (injected as <system-reminder> in next user message).
     pub(crate) recall_items: Vec<String>,
     /// Session-scoped agent component pool for reusing heavy objects across prompts.
-    pub(crate) agent_pool: cc_acp::session::agent_pool::AgentPool,
+    pub(crate) agent_pool: Arc<parking_lot::Mutex<cc_acp::session::agent_pool::AgentPool>>,
     /// 会话级审批记忆：文件按工具与路径，命令按完整命令与执行目录。
     /// 仅记录「本次会话同意」，随会话销毁自动丢弃。
     pub(crate) approval_memory: Arc<cc_middlewares::hitl::ApprovalMemory>,
@@ -92,8 +93,7 @@ pub struct AcpServerConfig {
     pub hook_groups: Vec<Vec<cc_middlewares::hooks::RegisteredHook>>,
     pub plugin_lsp_servers: Vec<cc_lsp::config::LspServerConfig>,
     pub tool_search_index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
-    pub shared_tools:
-        Arc<parking_lot::RwLock<HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>>>,
+    pub shared_tools: Arc<parking_lot::RwLock<HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>>>,
     pub thread_store: Arc<dyn cc_agent::thread::ThreadStore>,
     pub langfuse_session: Option<Arc<cc_acp::langfuse::LangfuseSession>>,
     pub config_path: std::path::PathBuf,
@@ -123,7 +123,24 @@ pub async fn run_acp_server(
     while let Some(msg) = transport.recv().await {
         match msg {
             IncomingMessage::Request { id, method, params } => {
-                if method == "session/prompt" {
+                if method == "session/prompt"
+                    && cc_acp::session::subagent_protocol::target_thread_id(&params).is_some()
+                {
+                    // Mailbox delivery must bypass the root prompt lock, including during HITL.
+                    let result = {
+                        let sessions = sessions.lock().await;
+                        sessions
+                            .get(extract_session_id(&params, ""))
+                            .ok_or_else(|| AcpError::new(-32602, "session not found"))
+                            .and_then(|state| {
+                                cc_acp::session::subagent_protocol::enqueue_message(
+                                    &state.background_registry,
+                                    &params,
+                                )
+                            })
+                    };
+                    let _ = transport.send_response(id, result).await;
+                } else if method == "session/prompt" {
                     // Spawn long-running prompt execution so the server loop
                     // continues processing session/cancel notifications.
                     let sessions = sessions.clone();
@@ -145,20 +162,12 @@ pub async fn run_acp_server(
                     let shell_executor = cfg.shell_executor.clone();
                     let langfuse_session = cfg.langfuse_session.clone();
 
-                    // Extract AgentPool from session, wrap in Arc<Mutex> for
-                    // in-place modification inside executor.
                     let pool_arc = {
-                        let mut sessions = sessions.lock().await;
-                        let pool = sessions
-                            .get_mut(&prompt_session_id)
-                            .map(|s| {
-                                std::mem::replace(
-                                    &mut s.agent_pool,
-                                    cc_acp::session::agent_pool::AgentPool::new(),
-                                )
-                            })
-                            .unwrap_or_default();
-                        Arc::new(parking_lot::Mutex::new(pool))
+                        let sessions = sessions.lock().await;
+                        sessions
+                            .get(&prompt_session_id)
+                            .map(|s| Arc::clone(&s.agent_pool))
+                            .unwrap_or_default()
                     };
 
                     let prompt_lock = {
@@ -195,14 +204,6 @@ pub async fn run_acp_server(
                             shell_executor,
                         )
                         .await;
-
-                        // Restore AgentPool back into session
-                        if let Ok(mutex) = Arc::try_unwrap(pool_arc) {
-                            let mut sessions = sessions.lock().await;
-                            if let Some(state) = sessions.get_mut(&prompt_session_id) {
-                                state.agent_pool = mutex.into_inner();
-                            }
-                        }
 
                         let _ = transport.send_response(id, result).await;
                         if !prompt_session_id.is_empty() {

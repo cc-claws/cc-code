@@ -1338,4 +1338,12 @@ submit_message(text)
 **涉及文件:** cc-tui/src/app/at_mention/{mod.rs,file_search.rs,popup.rs}, cc-tui/src/event/keyboard.rs, cc-tui/src/event/keyboard/normal_keys.rs, cc-tui/src/ui/main_ui/mod.rs, cc-tui/locales/{en,zh-CN}/main.ftl
 **CLAUDE.md 链接:** false
 
+### 后台子任务抽屉与视口路由（未发布）
+
+`ChatSession.subagent_sessions` 按实例 ID 管理各自的 `MessagePipeline`、消息、输入草稿、滚动位置及指标。`background_agents` 只保存抽屉顺序，`focused_instance_id` 表示当前视口；`bg_bar_cursor` 单独表示导航游标。事件先按来源路由，再消费状态，主线程不会通过栈顶猜测事件归属。
+
+`session/update` 外层 `_peri.sourceAgentId` 覆盖文本、思考、工具与用量；其他核心事件使用来源信封。生命周期只走 `peri/subagent_lifecycle`。渲染读取独立内存快照，不查询 SQLite。`session/prompt.targetThreadId` 将内容加入子任务邮箱；`session/cancel.targetThreadId` 定向停止任务。全局审批队列避免主线程空闲时拒绝后台请求或阻断其他线程事件。
+
+交互和视觉参考 [TUI-STYLE](../../../TUI-STYLE.md)，验收契约见 [PRD](../../../docs/prd/subagent-drawer-and-virtual-routing.md)。
+
 最后更新：2026-10-13

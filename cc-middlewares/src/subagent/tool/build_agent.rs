@@ -170,6 +170,9 @@ impl super::SubAgentTool {
                     agent_name: agent_name.to_string(),
                     instance_id: child_thread_id.clone(),
                     is_background: false,
+                    task_preview: String::new(),
+                    timeout_secs: None,
+                    model: None,
                 });
             }
             self.fire_subagent_lifecycle_hook(HookEvent::SubagentStart, cwd, agent_name, None)

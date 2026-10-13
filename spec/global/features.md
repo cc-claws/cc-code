@@ -4,6 +4,8 @@
 
 ## 核心引擎（cc-agent）
 
+- **子 Agent 独立事件信封（未发布）：** 以实例 ID 包装完整子事件，覆盖思考、消息快照、工具、指标与诊断；ACP 标准事件仅经 `session/update`，生命周期仅经 `peri/subagent_lifecycle`。
+
 - **ReAct 循环执行器:** `ReActAgent` 核心默认最多 10 次迭代（`cc-acp` 构建时 `max_iterations(500)` 放宽），思考 → 工具调用 → 反馈自动推进，parallel 工具调用（同轮多工具同时执行）
 - **MockLLM 测试工具:** `MockLLM::tool_then_answer()` 按脚本回放推理序列，无需真实 API，覆盖单元测试场景
 - **OpenAI 适配器:** 支持 `message.reasoning_content`（DeepSeek-R1/o 系列），streaming SSE，`type:"function"` 工具格式
@@ -20,6 +22,8 @@
 - **/recap 会话回顾:** 独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history、支持 Ctrl+C 取消
 
 ## 中间件（cc-middlewares）
+
+- **后台任务管理（未发布）：** 会话级任务注册表、下一次模型调用前消费的定向 mailbox、显式超时预算（省略/零无限制）、`Agent(action=spawn/status/cancel)`、独立持久化子线程与并发文件修改冲突检测。
 
 - **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个工具；只读工具无需 HITL
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
@@ -45,6 +49,8 @@
 - **Bash 跨平台健壮性:** 多行命令（含字面换行）在 Windows 改走 Git Bash 避免 `cmd /C` 截断；管道超时保留已累积输出；后台 shell 任务在 fork 常驻子进程后不再永久挂起；移除 Git Bash fallback 重试标记（`[Retried with Git Bash]`）混入上下文
 
 ## TUI 界面（cc-tui）
+
+- **后台子任务抽屉（未发布）：** 独立视口与指标、导航游标和当前任务分离、定向补充消息、全局审批、单任务/全部停止、五行与极矮终端布局；详细交互见 [TUI-STYLE](../../TUI-STYLE.md)。
 
 - **文件提及候选（#463）:** 单独输入 `@` 立即弹面板，默认仅枚举当前目录并限制 15 项；关键词递归模糊搜索 200ms 防抖，保留最后一次输入，截断缓存或进入新目录时重新搜索。视口最多 10 行并适配可用高度，选中项始终可见；搜索中、空目录、无匹配提供双语提示，搜索期间阻止旧候选误补全及 Enter 误提交。
 
