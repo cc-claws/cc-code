@@ -55,6 +55,29 @@ pub const MUTED: Color = Color::Rgb(153, 153, 153);
 /// 深灰 — 占位/已完成项/分隔符 #505050
 pub const DIM: Color = Color::Rgb(80, 80, 80);
 
+// ── 底栏抽屉（色值取自参考原型 docs/subagent-mock.html）──────────────────────
+
+/// 抽屉键盘游标 `> ` — 亮青 #38BDF8
+pub const DRAWER_CURSOR: Color = Color::Rgb(56, 189, 248);
+
+/// 抽屉 Agent 类型名 — 柔白偏冷 #E2E8F0
+pub const DRAWER_TEXT: Color = Color::Rgb(226, 232, 240);
+
+/// 抽屉当前视口行类型名 — 纯白（配 BOLD）#FFFFFF
+pub const DRAWER_TEXT_ACTIVE: Color = Color::Rgb(255, 255, 255);
+
+/// 抽屉任务预览 — 浅冷灰 #CBD5E1
+pub const DRAWER_PREVIEW: Color = Color::Rgb(203, 213, 225);
+
+/// 抽屉次要信息（空心 `○` / 右侧耗时与 token）— 冷灰 #64748B
+pub const DRAWER_MUTED: Color = Color::Rgb(100, 116, 139);
+
+/// 抽屉实心 `●`（当前视口）— 近白 #F1F5F9
+pub const DRAWER_CIRCLE_ON: Color = Color::Rgb(241, 245, 249);
+
+/// 抽屉键盘游标所在行的底色 — 深蓝灰 #1E2436
+pub const DRAWER_SELECTED_BG: Color = Color::Rgb(30, 36, 54);
+
 // ── 边框 ─────────────────────────────────────────────────────────────────────
 
 /// 中性灰 — 空闲边框 #505050
