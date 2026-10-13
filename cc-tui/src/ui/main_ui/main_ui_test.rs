@@ -940,9 +940,13 @@ async fn test_background_launch_summary_renders_as_aligned_tree() {
         unicode_width::UnicodeWidthStr::width(&text[..byte_index])
     };
     let title_col = display_col(&rows[header], rows[header].find('2').expect("标题应含数量"));
-    for (offset, glyph) in [(1usize, '├'), (2usize, '└')] {
+    for (offset, glyph, prefix) in [(1usize, '├', "  ├── "), (2usize, '└', "  └── ")] {
         let row = &rows[header + offset];
         assert!(!row.contains("· "), "树形行不得注入 `· ` 前缀：{row:?}");
+        assert!(
+            row.starts_with(prefix),
+            "树形行应为 `{prefix}任务`（字形 + 虚线 + 一个空格）：{row:?}"
+        );
         let glyph_col = display_col(row, row.find(glyph).expect("应含分支字形"));
         assert_eq!(
             glyph_col, title_col,

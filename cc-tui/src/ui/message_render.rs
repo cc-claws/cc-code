@@ -518,18 +518,21 @@ fn push_wrapped_line_keep_lead(
 
 /// 便捷包装：单一样式的纯文本行（先做终端转义清理）预折行，续行固定 4 列悬挂缩进，
 /// 并保留原行的前导空白缩进。
-/// 识别「后台子 Agent 启动摘要」的树形行（`  ├ 任务` / `  └ 任务`）。
+/// 识别「后台子 Agent 启动摘要」的树形行（`  ├── 任务` / `  └── 任务`）。
 ///
-/// 返回 (缩进, 分支字形, 正文)；不是树形行时返回 None，由调用方的通用分支处理。
-fn split_tree_row(line: &str) -> Option<(&str, char, &str)> {
+/// 返回 (缩进, 分支前缀, 正文)——分支前缀含字形与虚线（如 `├── `），逐段着色；
+/// 不是树形行时返回 None，由调用方的通用分支处理。
+fn split_tree_row(line: &str) -> Option<(&str, &str, &str)> {
     let trimmed = line.trim_start();
     let indent = &line[..line.len() - trimmed.len()];
-    let mut chars = trimmed.chars();
-    let glyph = chars.next()?;
+    let glyph = trimmed.chars().next()?;
     if glyph != '├' && glyph != '└' {
         return None;
     }
-    Some((indent, glyph, chars.as_str().trim_start()))
+    let prefix_len = trimmed
+        .find(|c: char| !matches!(c, '├' | '└' | '─' | ' '))
+        .unwrap_or(trimmed.len());
+    Some((indent, &trimmed[..prefix_len], &trimmed[prefix_len..]))
 }
 
 fn push_prefixed_text(
@@ -1837,12 +1840,12 @@ pub fn render_view_model_with_links(
                         Style::default().fg(theme::MUTED),
                         width.saturating_sub(2).max(20),
                     );
-                } else if let Some((indent, glyph, text)) = split_tree_row(line) {
-                    // 后台子 Agent 启动摘要的树形行：保留自身缩进、**不再注入 `· ` 前缀**，
-                    // 让 `├`/`└` 与标题文字同列（对齐 docs/subagent-mock.html 的树形块）。
+                } else if let Some((indent, branch, text)) = split_tree_row(line) {
+                    // 后台子 Agent 启动摘要的树形行：保留自身缩进与 `├──` 分支、**不再注入
+                    // `· ` 前缀**，让字形与标题文字同列（对齐 docs/subagent-mock.html）。
                     let row = Line::from(vec![
                         Span::styled(indent.to_string(), Style::default().fg(theme::DIM)),
-                        Span::styled(format!("{glyph} "), Style::default().fg(theme::DIM)),
+                        Span::styled(branch.to_string(), Style::default().fg(theme::DIM)),
                         Span::styled(
                             sanitize_display_text(text),
                             Style::default().fg(theme::TEXT_SOFT),
