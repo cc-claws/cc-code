@@ -141,7 +141,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    render_back_to_bottom_button(f, app, chunks[1], panel_height);
+    render_back_to_bottom_button(f, app, chunks[1], chunks[5], panel_height);
 
     attachment::render_attachment_bar(f, app, chunks[2]);
 
@@ -505,11 +505,18 @@ fn hide_shell_prefix_for_display(textarea: &mut TextArea<'static>) {
     textarea.move_cursor(CursorMove::Jump(cursor_row as u16, display_col as u16));
 }
 
-/// 绘制"回到最新"浮层按钮：离开底部且内容溢出时，居中覆盖在消息区最后一行。
+/// 绘制"回到最新"浮层按钮：离开底部且内容溢出时，在**输入框上方白条**的横向
+/// 范围内居中，覆盖在消息区最后一行。
 ///
 /// 命中区域写入 `ui.scroll_to_bottom_area`，鼠标点击回到底部（`App::scroll_to_bottom`）。
 /// 覆盖式浮层——会遮住该行约 1 行文本，与既有 copy toast 同策略。
-fn render_back_to_bottom_button(f: &mut Frame, app: &mut App, msg_area: Rect, panel_height: u16) {
+fn render_back_to_bottom_button(
+    f: &mut Frame,
+    app: &mut App,
+    msg_area: Rect,
+    input_area: Rect,
+    panel_height: u16,
+) {
     // 基线刷新：跟随底部时持续对齐基线并清除未读；离开底部后内容增长即标记未读。
     // 对齐 codex unseen_activity 的两条信号：committed 消息数（view_messages.len）
     // + 内容行数（render_cache.total_lines），任一增长即视为有新活动。
@@ -557,13 +564,10 @@ fn render_back_to_bottom_button(f: &mut Frame, app: &mut App, msg_area: Rect, pa
     };
     let text = format!(" {} ", app.services.lc.tr(key));
     let text_width = unicode_width::UnicodeWidthStr::width(text.as_str());
-    // scrollbar 占据最右 1 列，按钮需左移避让
-    let has_scrollbar = {
-        let cache = app.session_mgr.current().messages.render_cache.read();
-        cache.total_lines > msg_area.height as usize && msg_area.width > 1
-    };
-    let scrollbar_col: u16 = if has_scrollbar { 1 } else { 0 };
-    let avail = msg_area.width.saturating_sub(scrollbar_col);
+    // 居中基准 = 输入框（含其上边框白条）的横向范围。不再按"消息区宽度减去最右
+    // 1 列滚动条"居中——那会让按钮整体左偏 1 列，与白条不齐；居中且较短的按钮
+    // 右缘也永远够不到滚动条列。
+    let avail = input_area.width;
     if text_width == 0 || text_width as u16 > avail {
         app.session_mgr.current_mut().ui.scroll_to_bottom_area = None;
         return;
@@ -571,7 +575,7 @@ fn render_back_to_bottom_button(f: &mut Frame, app: &mut App, msg_area: Rect, pa
 
     let width = text_width as u16;
     let y = msg_area.y + msg_area.height - 1;
-    let x = msg_area.x + (avail - width) / 2;
+    let x = input_area.x + (avail - width) / 2;
     let area = Rect {
         x,
         y,
