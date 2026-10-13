@@ -144,7 +144,11 @@ impl App {
 
                 // 活跃任务的启动结果由树形摘要统一呈现；内部内容只存在于子管线。
                 // 历史恢复没有运行池，仍可保留归档任务的报告卡片。
-                if !session.subagent_sessions.is_empty() {
+                //
+                // 判据必须是粘性的 `bg_drawer_seen`，不能用 `subagent_sessions.is_empty()`：
+                // 最后一个后台任务完成并回收后池子变空，瞬时判据会失效，把冻结的
+                // `◐ Agent(...)` 卡片漏回主时间线（底栏抽屉同时是空的，自相矛盾）。
+                if session.bg_drawer_seen {
                     tail_vms.retain(|vm| !matches!(vm, MessageViewModel::SubAgentGroup { is_background: true, .. }));
                 }
                 session.messages.view_messages.extend(tail_vms);

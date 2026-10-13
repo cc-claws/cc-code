@@ -89,8 +89,11 @@ impl App {
         }
         if is_background && !self.session_mgr.current().background_agents.iter().any(|a| a.instance_id == instance_id) {
             use super::super::chat_session::RunningBgAgent;
-            self.session_mgr
-                .current_mut()
+            let session = self.session_mgr.current_mut();
+            // 粘性标记：本会话从此由抽屉 / 子视口承载后台子 Agent 的呈现，
+            // 主时间线不得再渲染它们的分组卡片（见 `ChatSession::bg_drawer_seen`）。
+            session.bg_drawer_seen = true;
+            session
                 .background_agents
                 .push(RunningBgAgent {
                     agent_name: agent_id.clone(),
@@ -210,7 +213,9 @@ impl App {
                 self.handle_subagent_start(
                     params["agentType"].as_str().unwrap_or("agent").into(), id.into(),
                     params["taskPreview"].as_str().unwrap_or("").into(),
-                    params["isBackground"].as_bool().unwrap_or(false),
+                    // 默认 `true`：本分支已无前台同步模式，缺字段的载荷（旧服务端 /
+                    // 非 ACP 客户端）若被当成前台，会重新打开「子过程二次投递进主消息区」。
+                    params["isBackground"].as_bool().unwrap_or(true),
                 );
                 if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
                     sub.timeout_secs = params["timeoutSecs"].as_u64().filter(|value| *value > 0);

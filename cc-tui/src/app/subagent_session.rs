@@ -294,6 +294,9 @@ impl super::App {
         let session = self.session_mgr.current_mut();
         session.background_agents.clear();
         session.subagent_sessions.clear();
+        // 新会话 / 切换 thread：抽屉承载的历史归零，此后主时间线才重新允许
+        // 显示归档的后台卡片（见 `ChatSession::bg_drawer_seen`）。
+        session.bg_drawer_seen = false;
         session.pending_thread_approvals.clear();
         session.approval_source_agent_id = None;
         session.subagent_interrupt_at = None;

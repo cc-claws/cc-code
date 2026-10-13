@@ -2653,6 +2653,165 @@ async fn test_fork_background_does_not_pollute_main_timeline() {
     );
 }
 
+/// 构造一份「本轮已完成的后台 Agent 调用」快照。
+///
+/// reconcile 会据结果前缀 `Background task` 重建出 `is_background: true` 的分组占位，
+/// 供下方两个方向相反的用例共同使用。
+fn seed_bg_agent_snapshot(app: &mut App) {
+    use cc_agent::messages::{BaseMessage, MessageContent, MessageId, ToolCallRequest};
+
+    app.session_mgr.current_mut().messages.pipeline.set_completed(vec![
+        BaseMessage::ai_with_tool_calls(
+            MessageContent::text("delegating"),
+            vec![ToolCallRequest::new(
+                "call_bg_1",
+                "Agent",
+                serde_json::json!({
+                    "action": "spawn",
+                    "prompt": "look around",
+                    "subagent_type": "general-purpose"
+                }),
+            )],
+        ),
+        BaseMessage::Tool {
+            id: MessageId::new(),
+            tool_call_id: "call_bg_1".to_string(),
+            content: MessageContent::text("Background task bg-01234567-89ab started"),
+            is_error: false,
+        },
+    ]);
+}
+
+/// 回归：最后一个后台任务完成、抽屉行与会话被回收后运行池为**空**，
+/// 主时间线仍不得漏回后台 SubAgentGroup 卡片。
+///
+/// 旧判据用 `!subagent_sessions.is_empty()` 作「本会话由抽屉承载」的代理，
+/// 池子一变空剔除就失效，冻结的 `◐ Agent(...)` 卡片会漏回主消息区，
+/// 而底栏抽屉同时是空的——自相矛盾。现在用粘性的 `bg_drawer_seen`。
+#[tokio::test]
+async fn test_bg_group_stays_suppressed_after_drawer_pool_drained() {
+    use crate::app::message_pipeline::PipelineAction;
+
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.session_mgr.current_mut().messages.pipeline.begin_round();
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user("go".into())));
+    app.session_mgr.current_mut().messages.round_start_vm_idx =
+        app.session_mgr.current_mut().messages.view_messages.len();
+
+    // 后台任务登记进抽屉 → 粘性标记置位
+    app.push_agent_event(AgentEvent::SubAgentStart {
+        agent_id: "general-purpose".into(),
+        instance_id: "inst-drain".into(),
+        task_preview: "look around".into(),
+        is_background: true,
+    });
+    app.process_pending_events();
+    seed_bg_agent_snapshot(&mut app);
+
+    // 完成 → 抽屉行 + 子会话同帧回收，运行池归空
+    app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
+        task_id: "bg-01234567-89ab".into(),
+        agent_name: "general-purpose".into(),
+        success: true,
+        output: "done".into(),
+        tool_calls_count: 2,
+        duration_ms: 900,
+        child_thread_id: Some("inst-drain".into()),
+    });
+    app.process_pending_events();
+
+    assert!(
+        app.session_mgr.current().subagent_sessions.is_empty(),
+        "完成后子会话应被回收（池子归空，正是旧判据失效的时刻）"
+    );
+    assert!(
+        app.session_mgr.current().bg_drawer_seen,
+        "粘性标记必须在回收后保持置位，否则剔除判据会失效"
+    );
+
+    app.request_rebuild();
+    assert_eq!(
+        bg_diag_count_subagent_groups(&app),
+        0,
+        "运行池归空后，后台卡片仍不得漏回主时间线"
+    );
+}
+
+/// 反向对照：本会话从未登记过后台子 Agent（历史回放）时，
+/// 同一份快照里的归档报告卡片**必须**保留在主时间线上。
+///
+/// 与上一个用例共用 `seed_bg_agent_snapshot`，因此
+/// 「0 vs 1」的差异完全来自 `bg_drawer_seen`，证明剔除判据没有被削弱成恒真。
+#[tokio::test]
+async fn test_bg_archived_card_kept_when_no_drawer_history() {
+    use crate::app::message_pipeline::PipelineAction;
+
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.session_mgr.current_mut().messages.pipeline.begin_round();
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user("go".into())));
+    app.session_mgr.current_mut().messages.round_start_vm_idx =
+        app.session_mgr.current_mut().messages.view_messages.len();
+
+    assert!(
+        !app.session_mgr.current().bg_drawer_seen,
+        "新会话不应带抽屉历史"
+    );
+    seed_bg_agent_snapshot(&mut app);
+
+    app.request_rebuild();
+    assert_eq!(
+        bg_diag_count_subagent_groups(&app),
+        1,
+        "历史回放（没有运行池）应保留归档的后台报告卡片"
+    );
+}
+
+/// 回归：抽屉行已被别处先摘掉时，完成事件仍必须回收子会话。
+///
+/// `poll_agent` 对「已停止且 `ended_at` 超过 3s」的行只摘行、保留会话等待完成事件；
+/// 此时完成事件找不到行（`removed` 为 None），回收键必须回退到 `child_thread_id`，
+/// 否则留下的正是这次修复要堵的「永久不可达条目」。
+#[tokio::test]
+async fn test_bg_completion_reclaims_session_whose_row_was_already_dropped() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+
+    app.push_agent_event(AgentEvent::SubAgentStart {
+        agent_id: "code-reviewer".into(),
+        instance_id: "inst-orphan".into(),
+        task_preview: "review".into(),
+        is_background: true,
+    });
+    app.process_pending_events();
+    assert_eq!(app.session_mgr.current().background_agents.len(), 1);
+
+    // 模拟 poll_agent 的清理：行已被摘掉，会话还留着等完成事件。
+    app.session_mgr.current_mut().background_agents.clear();
+
+    app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
+        task_id: "bg-orphan-1".into(),
+        agent_name: "code-reviewer".into(),
+        success: false,
+        output: "cancelled".into(),
+        tool_calls_count: 1,
+        duration_ms: 200,
+        child_thread_id: Some("inst-orphan".into()),
+    });
+    app.process_pending_events();
+
+    assert!(
+        !app
+            .session_mgr
+            .current()
+            .subagent_sessions
+            .contains_key("inst-orphan"),
+        "行已摘掉的子会话也必须被回收（回退到 child_thread_id）"
+    );
+    assert!(
+        app.session_mgr.current().ui.bg_bar_cursor.is_none(),
+        "抽屉无线程时不得残留导航游标"
+    );
+}
+
 /// 回归：Anthropic thinking 模式下，流式阶段 AI message 不可见是预期的（reasoning 被跳过），
 /// 但 Done 后 RebuildAll 不应丢失 user message
 #[tokio::test]

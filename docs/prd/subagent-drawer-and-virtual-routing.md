@@ -1,6 +1,6 @@
 # PRD: 后台多子 Agent 抽屉式管理与虚拟视口路由系统
 
-> **文档版本**：v2.2 (后台唯一模式：删除前台同步路径、抽屉游标行改用纯前景色、补充 §4.16 fork 同线)  
+> **文档版本**：v2.3 (后台唯一模式：删除前台同步路径、抽屉游标行改用纯前景色、补充 §4.16 fork 同线、§4.14.5 回收键与剔除判据定案)  
 > **基线代码**：`origin/main` (`cc-tui`, `cc-acp`, `cc-middlewares`, `cc-agent`)；真机联调基线 `feat/subagent-drawer-routing`
 > **关联原型**：`docs/subagent-mock.html`（已通过浏览器验证并对齐真实终端截图）  
 > **关联历史**：`docs/superpowers/specs/2026-05-26-background-agent-bar-design.md`
@@ -461,6 +461,11 @@ impl App {
    * 子 Agent 结束时，若 `focused_instance_id == 该 instance_id`，**视口与抽屉行原地保留**（行内 `✓ completed`、圆点与完成标记转绿），既不切回 main、也不摘行——结束瞬间抽走视口等于把用户正在读的内容抹掉（真机反馈："我要看啊，不应该等我走了你再清理吗"）；
    * 用户按 `Esc`（或 `Enter` 切到别的行）真正离开时，`switch_subagent_viewport` 才调用 `reclaim_finished_subagent` 一次性回收该**会话句柄 + 抽屉行**（活跃中的子 Agent 不受影响）；
    * 聚焦判据必须是「两个 id 都在场」：`child_thread_id` 与 `focused_instance_id` 同时为 `None` 时**不得**判为聚焦，否则无 id 的完成事件会被误判为"用户正在看"，从而留下幽灵行（`agent_events_bg.rs` 的 `was_focused` 用 `match (Some, Some)` 实现）。
+5. **已落地：回收判据与「主时间线剔除后台分组」的判据（独立审计发现的漏洞）**：
+   * **回收键必须是该子 Agent 的 id，而不是"被摘掉的那一行"**：`poll_agent` 对「已停止且 `ended_at` 超过 3s」的行只摘行、保留会话等待完成事件；此时完成事件找不到行，若回收只挂在行上就会漏掉——正是 §4.14 要堵的不可达条目。回收键取 `removed_row_id.or(child_thread_id)`，并在摘除前要求该会话**已终态**（活跃会话不许摘，避免同名兜底误命中）。
+   * **主时间线剔除后台 `SubAgentGroup` 的判据必须是粘性的会话标志 `bg_drawer_seen`**，不能用 `subagent_sessions.is_empty()` 当代理：最后一个后台任务完成并回收后池子变空，瞬时判据失效，冻结的 `◐ Agent(...)` 卡片会漏回主消息区（而底栏抽屉同时是空的，两处自相矛盾）。标志在首次登记后台子 Agent 时置位、只在 `clear_subagent_sessions()`（新会话 / 切换 thread）复位，从而「历史回放没有运行池、应保留归档卡片」的语义照旧成立。
+   * **`started` 载荷缺 `isBackground` 时默认按后台处理**（`unwrap_or(true)`）：本模式已无前台路径，误判为前台会重新打开「子过程二次投递进主消息区」。
+   * **`BackgroundEventHandler::wants_llm_call_payload()` 只在事件真的会走 `fallback` 时才转述内部 handler 的声明**：`sender` 存在时事件走会话独立通道，`fallback` 收不到，声明 `true` 只会让子 Agent 每次 LLM 调用白拷贝整份历史（下游 mapper / `TransportEventSink` 丢弃 `LlmCallStart`，Langfuse 只从**父**事件泵取样本）。
 
 ---
 

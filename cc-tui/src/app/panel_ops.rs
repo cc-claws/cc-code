@@ -100,6 +100,7 @@ impl App {
             current_thread_id: None,
             todo_items: Vec::new(),
             background_agents: Vec::new(),
+            bg_drawer_seen: false,
             focused_instance_id: None,
             subagent_sessions: std::collections::HashMap::new(),
             subagent_control_prefix: None,

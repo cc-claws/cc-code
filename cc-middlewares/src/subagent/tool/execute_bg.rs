@@ -29,10 +29,15 @@ impl AgentEventHandler for BackgroundEventHandler {
         }
     }
 
-    /// #369：包装型 handler 必须委托内部 handler 的载荷需求声明，
-    /// 否则子 Agent 的 `LlmCallStart` 会丢掉 Langfuse 输入快照。
+    /// 包装型 handler 必须转述内部 handler 的载荷需求声明，但**只在事件真的会走
+    /// 内部 handler 时**才转述：`sender` 存在时事件被投进会话独立通道，
+    /// `fallback` 根本收不到，此时声明 `true` 只会让子执行器为每次 LLM 调用
+    /// 深拷贝整份历史（`cc-agent` 的 `llm_step`）——而下游（ACP mapper /
+    /// TransportEventSink）会丢弃 `LlmCallStart`，Langfuse 也只从**父**事件泵
+    /// 取样本，拿不到子 Agent 的载荷。所以那是一次纯浪费的 O(历史) 分配。
     fn wants_llm_call_payload(&self) -> bool {
-        self.fallback.as_ref().is_some_and(|handler| handler.wants_llm_call_payload())
+        self.sender.is_none()
+            && self.fallback.as_ref().is_some_and(|handler| handler.wants_llm_call_payload())
     }
 }
 

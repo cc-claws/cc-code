@@ -111,7 +111,9 @@ impl App {
             // 结束瞬间抽走视口 = 正在读的内容凭空消失，这不是回收而是打断。
             self.request_rebuild();
         } else {
-            // 优先按 child_thread_id 匹配 background_agents，回退到 agent_name
+            // 抽屉行定位：优先用 child_thread_id 精确匹配 background_agents；
+            // 仅在事件压根没带 child_thread_id 时才按 agent_name 兜底
+            // （同名多任务并存时只有 instance_id 是唯一标识）。
             let removed = if let Some(ctid) = child_thread_id.as_deref() {
                 self.session_mgr
                     .current_mut()
@@ -125,10 +127,10 @@ impl App {
                     .iter()
                     .position(|a| a.agent_name == agent_name)
             };
-            let mut removed_id = None;
+            let mut removed_row_id = None;
             if let Some(pos) = removed {
                 let removed_row = self.session_mgr.current_mut().background_agents.remove(pos);
-                removed_id = Some(removed_row.instance_id.clone());
+                removed_row_id = Some(removed_row.instance_id.clone());
             }
 
             // 游标必须跟着列表收敛：被移除行在游标之前 → 下标前移一位（仍指向原任务）；
@@ -141,8 +143,19 @@ impl App {
 
             // 行已被摘掉的子会话再也没有入口（Enter 只能从抽屉行进入）→ 同帧回收，
             // 否则 `subagent_sessions` 会留下永久不可达的条目（PRD §4.14 的债务）。
-            if let Some(id) = removed_id {
-                self.session_mgr.current_mut().subagent_sessions.remove(&id);
+            // 行可能已被别处先摘掉（`poll_agent` 对已停止且结束超过 3s 的行只摘行、留会话），
+            // 此时 `removed_row_id` 是 None —— 必须回退到 child_thread_id，否则漏掉的
+            // 恰恰是这次修复要堵的不可达条目。仍活跃的会话（同名兜底误命中）不许摘。
+            let reclaim_id = removed_row_id.or_else(|| child_thread_id.clone());
+            if let Some(id) = reclaim_id {
+                let session = self.session_mgr.current_mut();
+                if session
+                    .subagent_sessions
+                    .get(&id)
+                    .is_some_and(|sub| !sub.status.is_active())
+                {
+                    session.subagent_sessions.remove(&id);
+                }
             }
             self.request_rebuild();
         }
