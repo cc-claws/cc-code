@@ -37,7 +37,24 @@ pub struct ChatSession {
     pub langfuse: LangfuseState,
     pub todo_items: Vec<TodoItem>,
     pub background_agents: Vec<RunningBgAgent>,
+    /// 本会话是否已经出现过「由底栏抽屉承载」的后台子 Agent。
+    ///
+    /// 主时间线重建（`RebuildAll`）要剔除后台 `SubAgentGroup`——它们改由抽屉与子视口呈现。
+    /// 这个判据必须是**粘性**的：曾经用 `subagent_sessions.is_empty()` 当代理，于是最后一个
+    /// 后台任务完成并回收（抽屉行 + 会话一起摘掉）后池子变空，剔除就失效，冻结卡片
+    /// （`is_running: true` 的 `◐ Agent(...)`）会漏回主时间线，底栏却是空的。
+    ///
+    /// 只在新会话 / 切换 thread（`clear_subagent_sessions`）时复位：这样「历史回放」
+    /// （没有运行池、只有归档卡片）仍能照常显示报告卡片。
+    pub bg_drawer_seen: bool,
     pub focused_instance_id: Option<String>,
+    pub(crate) subagent_sessions: std::collections::HashMap<String, super::subagent_session::BackgroundAgentSession>,
+    pub subagent_control_prefix: Option<Instant>,
+    pub subagent_interrupt_at: Option<Instant>,
+    pub pending_thread_approvals: VecDeque<(cc_acp::transport::types::RequestId, serde_json::Value)>,
+    pub approval_source_agent_id: Option<String>,
+    pub main_scroll_position: (usize, bool),
+    pub main_input_draft: Option<tui_textarea::TextArea<'static>>,
     pub spinner_state: cc_widgets::SpinnerState,
     pub shell_pool: ShellCommandPool,
     /// Ctrl+B 后台化的 shell 任务列表（多个并发后台命令）
@@ -90,7 +107,15 @@ impl ChatSession {
             langfuse: LangfuseState::default(),
             todo_items: Vec::new(),
             background_agents: Vec::new(),
+            bg_drawer_seen: false,
             focused_instance_id: None,
+            subagent_sessions: std::collections::HashMap::new(),
+            subagent_control_prefix: None,
+            subagent_interrupt_at: None,
+            pending_thread_approvals: VecDeque::new(),
+            approval_source_agent_id: None,
+            main_scroll_position: (usize::MAX, true),
+            main_input_draft: None,
             spinner_state: cc_widgets::SpinnerState::new(cc_widgets::SpinnerMode::Idle),
             shell_pool: ShellCommandPool::default(),
             background_shells: Vec::new(),

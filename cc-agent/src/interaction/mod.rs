@@ -96,6 +96,11 @@ pub enum InteractionResponse {
 pub trait UserInteractionBroker: Send + Sync {
     /// 发起一次人机交互，挂起直到用户响应
     async fn request(&self, ctx: InteractionContext) -> InteractionResponse;
+
+    /// 保留子线程来源，宿主通过来源展示全局审批并准确路由。
+    async fn request_from(&self, _source_agent_id: Option<&str>, ctx: InteractionContext) -> InteractionResponse {
+        self.request(ctx).await
+    }
 }
 
 // ─── ChannelNotificationSender ─────────────────────────────────────────────────

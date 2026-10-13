@@ -11,7 +11,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/recap`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
 - 多会话管理：SQLite 持久化，`/history` 面板按 cwd 过滤当前工作区对话
 - 弹窗系统：HITL 紧凑审批面板（工具/动作/目录同行、完整命令换行、Edit 对比；当前工具三项选择固定可见，↑↓ 选择、Tab 切换工具、Enter 确认；超高内容提示剩余行数，无内部滚动），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
-- SubAgent 层级展示：SubAgentGroup 可折叠块，滑动窗口显示最近 4 步，显示格式 `Agent(type) #hash`，颜色区分状态（前台绿色、后台运行中黄色、错误红色）
+- SubAgent 展示：底栏抽屉 + 虚拟视口（子 Agent 恒后台）；抽屉行 `●/◯` 视口标记 + `>` 导航游标，Enter 下钻独立视口；旧会话已落库的 SubAgentGroup 仅作历史渲染兼容，不再产生新分组
 - Skill 全文预加载：消息含 `#skill-name` 时通过 SkillPreloadMiddleware 将 skill 全文注入 agent state
 - Setup Wizard：首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），原子写回 settings.json
 - 配色系统 v1.1：橙色仅保留最高优先级交互（命令输入框），工具名三级分层（bash=ACCENT / 写操作=WARNING / 只读=MUTED），配置面板边框 MUTED 降噪
@@ -72,16 +72,16 @@ Event::Key → PanelManager::dispatch_key(input, ctx)
 ### SubAgent 渲染流程
 
 ```
-SubAgentStart → 创建 SubAgentGroup { is_running: true, is_background: bool, bg_hash: None }
-  → 渲染: Agent(type) 绿色（前台）或黄色（后台）
+peri/subagent_lifecycle started → 创建 BackgroundAgentSession 句柄 + 抽屉行
+  → 主时间线打印树形启动摘要（• N background agents launched + ├──/└── 任务）
 
-SubAgentEnd（后台）→ 保持 is_running=true，解析 bg_hash
-  → 渲染: Agent(type) #hash 黄色
+SubagentEvent（带 source_agent_id 信封）→ 按来源路由到该子会话 pipeline
+  → 子视口独立渲染思考/工具/文本；抽屉行更新活动与指标（单箭头 token 流向）
 
-BackgroundTaskCompleted → 更新 SubAgentGroup { is_running: false, final_result: Some(...) }
-  → 渲染: Agent(type) #hash 绿色
+BackgroundTaskCompleted / stopped → 主时间线完成行（• Agent "x" finished · 时长）
+  → 抽屉行标终态（✓ completed 转 SAGE 绿 / ✗ stopped|failed 红）；用户离开该视口后才回收句柄与行
 
-颜色映射: is_error → ERROR（红）；is_running && is_background → WARNING（黄）；默认 → SAGE（绿）
+历史兼容: 旧会话落库的 SubAgentGroup 仍按原渲染路径显示（仅存量数据）
 ```
 
 ### 多模态消息提交流程
@@ -1337,5 +1337,13 @@ submit_message(text)
 **技术决策:** 默认候选最多 15 项且不递归，视口最多 10 行并适配输入框上方高度；关键词搜索在独立线程中 200ms 防抖；加载时清空旧候选，阻止误补全和 Enter 误提交；Fluent 双语状态提示。
 **涉及文件:** cc-tui/src/app/at_mention/{mod.rs,file_search.rs,popup.rs}, cc-tui/src/event/keyboard.rs, cc-tui/src/event/keyboard/normal_keys.rs, cc-tui/src/ui/main_ui/mod.rs, cc-tui/locales/{en,zh-CN}/main.ftl
 **CLAUDE.md 链接:** false
+
+### 后台子任务抽屉与视口路由（未发布）
+
+`ChatSession.subagent_sessions` 按实例 ID 管理各自的 `MessagePipeline`、消息、输入草稿、滚动位置及指标。`background_agents` 只保存抽屉顺序，`focused_instance_id` 表示当前视口；`bg_bar_cursor` 单独表示导航游标。事件先按来源路由，再消费状态，主线程不会通过栈顶猜测事件归属。
+
+`session/update` 外层 `_peri.sourceAgentId` 覆盖文本、思考、工具与用量；其他核心事件使用来源信封。生命周期只走 `peri/subagent_lifecycle`。渲染读取独立内存快照，不查询 SQLite。`session/prompt.targetThreadId` 将内容加入子任务邮箱；`session/cancel.targetThreadId` 定向停止任务。全局审批队列避免主线程空闲时拒绝后台请求或阻断其他线程事件。
+
+交互和视觉参考 [TUI-STYLE](../../../TUI-STYLE.md)，验收契约见 [PRD](../../../docs/prd/subagent-drawer-and-virtual-routing.md)。
 
 最后更新：2026-10-13

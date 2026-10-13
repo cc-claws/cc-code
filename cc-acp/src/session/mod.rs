@@ -11,6 +11,7 @@ pub mod executor;
 pub mod frozen;
 pub mod state_builders;
 pub mod steering;
+pub mod subagent_protocol;
 
 use std::{collections::HashMap, sync::Arc};
 

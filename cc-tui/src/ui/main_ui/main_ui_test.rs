@@ -491,3 +491,466 @@ async fn test_back_to_bottom_button_is_horizontally_centered() {
         "按钮未水平居中：{area:?} center2={center2}"
     );
 }
+
+/// PRD §4.8 状态栏排版规范回归：token 括号内冒号后必须有空格（严防 `in18s` 这类粘连）、
+/// `⏱` 后固定 2 个空格、段落分隔符统一 ` | `、各行首列 1 空格缩进。
+#[tokio::test]
+async fn test_status_bar_typography_spacing_and_alignment() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
+
+    // 覆盖 1.5M / 388.9k / 18 三档数值（含非整千，验证一位小数分支）
+    app.push_agent_event(crate::app::AgentEvent::TokenUsageUpdate {
+        usage: cc_agent::llm::types::TokenUsage {
+            input_tokens: 388_900,
+            output_tokens: 18,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+            request_id: None,
+        },
+        model: "test-model".into(),
+        stop_reason: None,
+    });
+    app.process_pending_events();
+    {
+        let agent = &mut app.session_mgr.current_mut().agent;
+        agent.session_token_tracker.total_input_tokens = 1_500_000;
+        agent.session_token_tracker.total_output_tokens = 8_000;
+        // 无 start_time 时 `⏱` 段整体不渲染，必须显式设置
+        agent.session_start_time = Some(std::time::Instant::now());
+        agent.context_window = 200_000;
+    }
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let height = super::status_bar::status_bar_height(&app) as usize;
+    let rows: Vec<String> = snapshot[snapshot.len() - height..].to_vec();
+    let joined = rows.join("\n");
+    let first = &rows[0];
+
+    // 1) 冒号后必须有空格 —— 直接防范 PRD 点名的 `in18s` / `in:389k,out:18` 粘连
+    assert!(first.contains("tok: "), "缺 `tok: ` 空格：\n{joined}");
+    assert!(first.contains("(in: "), "缺 `(in: ` 空格（即 `in18` 类粘连）：\n{joined}");
+    assert!(first.contains(", out: "), "缺 `, out: ` 空格：\n{joined}");
+    assert!(
+        !first.contains("(in:388") && !first.contains("in18"),
+        "出现粘连的 token 串：\n{joined}"
+    );
+
+    // 2) 时钟 emoji 后固定 2 个半角空格
+    assert!(first.contains("\u{23f1}  "), "`\u{23f1}` 后应为 2 空格：\n{joined}");
+
+    // 3) 段落分隔符统一 ` | `
+    assert!(first.contains(" | "), "第一行缺 ` | ` 分隔符：\n{joined}");
+
+    // 4) 每一行首列均为 1 个空格缩进（三行左边缘对齐）
+    for (index, row) in rows.iter().enumerate() {
+        assert!(
+            row.starts_with(' ') && !row.starts_with("  "),
+            "第 {} 行首列应为 1 空格缩进，实际以 {:?} 开头：\n{joined}",
+            index + 1,
+            row.chars().take(3).collect::<String>()
+        );
+    }
+}
+
+/// 抽屉提示行随游标位置切换：游标停在「正在查看的那一行」时 `Enter to view`/`x to stop`
+/// 无意义，应缩短为 `↑/↓ to select`（对齐参考实现）。
+#[tokio::test]
+async fn test_drawer_hint_shortens_when_cursor_on_active_row() {
+    const SHORT: &str = "\u{2191}/\u{2193} to select \u{b7} ctrl+x ctrl+k to stop all agents";
+    const LONG: &str = "Enter to view \u{b7} x to stop \u{b7} ctrl+x ctrl+k to stop all agents";
+
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "查天气",
+        "isBackground": true,
+    }));
+
+    for (cursor, focus, expected) in [
+        (Some(0usize), None, SHORT),
+        (Some(1usize), Some("child-1"), SHORT),
+        (Some(1usize), None, LONG),
+        (None, None, ""),
+    ] {
+        {
+            let session = app.session_mgr.current_mut();
+            session.ui.bg_bar_cursor = cursor;
+            session.focused_instance_id = focus.map(str::to_string);
+        }
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        let joined = handle.snapshot().join("\n");
+
+        if expected.is_empty() {
+            assert!(
+                !joined.contains(SHORT) && !joined.contains(LONG),
+                "游标不在抽屉时不应出现抽屉提示：\n{joined}"
+            );
+            continue;
+        }
+        assert!(
+            joined.contains(expected),
+            "cursor={cursor:?} focus={focus:?} 应含 {expected:?}，实际:\n{joined}"
+        );
+        let other = if expected == SHORT { LONG } else { SHORT };
+        assert!(
+            !joined.contains(other),
+            "cursor={cursor:?} focus={focus:?} 不应出现另一种提示 {other:?}：\n{joined}"
+        );
+    }
+}
+
+/// 回归：后台 Agent 全部完成后，抽屉收起，第三行必须恢复正常形态。
+///
+/// 症状：子 Agent 都跑完了，人已回到 main，第三行仍卡在
+/// `↑/↓ to select · ctrl+x ctrl+k to stop all agents`。
+/// 根因：`BackgroundTaskCompleted` 只在「被移除的正是当前聚焦 Agent」时才清
+/// `bg_bar_cursor`，游标停在 main 行时会残留。
+#[tokio::test]
+async fn test_drawer_hint_clears_after_all_agents_finish() {
+    const DRAWER_HINT: &str = "ctrl+x ctrl+k to stop all agents";
+
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "查天气",
+        "isBackground": true,
+    }));
+    // 游标停在 main 行（不是聚焦子 Agent）
+    app.session_mgr.current_mut().ui.bg_bar_cursor = Some(0);
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let before = handle.snapshot().join("\n");
+    assert!(
+        before.contains(DRAWER_HINT),
+        "抽屉导航态应先显示提示：\n{before}"
+    );
+
+    app.push_agent_event(crate::app::AgentEvent::BackgroundTaskCompleted {
+        task_id: "bg-1".into(),
+        agent_name: "general-purpose".into(),
+        success: true,
+        output: "LGTM".into(),
+        tool_calls_count: 1,
+        duration_ms: 1_000,
+        child_thread_id: Some("child-1".into()),
+    });
+    app.process_pending_events();
+
+    assert!(
+        app.session_mgr.current().background_agents.is_empty(),
+        "完成后后台列表应清空"
+    );
+    assert_eq!(
+        app.session_mgr.current().ui.bg_bar_cursor,
+        None,
+        "抽屉收起后残留游标必须被清掉"
+    );
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let after = handle.snapshot().join("\n");
+    assert!(
+        !after.contains(DRAWER_HINT),
+        "全部完成后第三行应恢复正常形态：\n{after}"
+    );
+
+    // 防御：即便游标被别处残留（后台列表已空），也不得再进入抽屉导航态
+    app.session_mgr.current_mut().ui.bg_bar_cursor = Some(0);
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let defensive = handle.snapshot().join("\n");
+    assert!(
+        !defensive.contains(DRAWER_HINT),
+        "后台列表为空时不得渲染抽屉导航提示：\n{defensive}"
+    );
+}
+
+/// 回归：抽屉右侧是**单个**箭头，方向跟着 token 流向走。
+///
+/// `↓` = 下行 = Agent 回复（产出，取最近一次调用的 output）；`↑` = 上行 = 用户提问（输入，取 input）。
+/// 原先用的是 `↓ {input+output} tokens`——箭头标着单向、数字却是合计，口径对不上。
+#[tokio::test]
+async fn test_drawer_metrics_follows_token_flow_with_single_arrow() {
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "查天气",
+        "isBackground": true,
+    }));
+    app.handle_subagent_event(
+        "child-1",
+        crate::app::AgentEvent::TokenUsageUpdate {
+            usage: cc_agent::llm::types::TokenUsage {
+                input_tokens: 32_700,
+                output_tokens: 259,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+                request_id: None,
+            },
+            model: "m".into(),
+            stop_reason: None,
+        },
+    );
+
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let joined = handle.snapshot().join("\n");
+
+    // Agent 产出回复 → 只有下行箭头，取最近一次调用的 output。
+    assert!(joined.contains("↓ 259"), "Agent 回复应显示下行箭头 + output：\n{joined}");
+    assert!(
+        !joined.contains("↓ 32.7k") && !joined.contains("↑ "),
+        "不得并列显示输入/输出，也不得用累计值冒充单向 token：\n{joined}"
+    );
+
+    // 用户向该子 Agent 提问 → 箭头转上行，取最近一次调用的 input。
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+    app.send_subagent_input("再确认一下".into());
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let after_ask = handle.snapshot().join("\n");
+    assert!(after_ask.contains("↑ 32.7k"), "用户提问后应转为上行箭头 + input：\n{after_ask}");
+    assert!(!after_ask.contains("↓ 259"), "提问后不得再留在下行态：\n{after_ask}");
+}
+
+/// 回归：抽屉中间列展示「子 Agent 在说什么」，不是工具调用串。
+///
+/// 参考实现里这一列是助手的自然语言（"等待 60 秒休眠中"），工具细节留给用户
+/// Enter 进视口查看；之前写的是 `Bash(sleep 90 && echo ...)`。
+#[tokio::test]
+async fn test_drawer_activity_shows_assistant_text_not_tool_call() {
+    use crate::app::AgentEvent;
+
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "原始任务描述",
+        "isBackground": true,
+    }));
+
+    let tool_start = |args: &str| AgentEvent::ToolStart {
+        tool_call_id: "t1".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: args.into(),
+        input: serde_json::json!({ "command": args }),
+        source_agent_id: None,
+    };
+    let chunk = |text: &str| AgentEvent::AssistantChunk {
+        chunk: text.into(),
+        source_agent_id: None,
+    };
+    let render = |app: &mut crate::app::App, handle: &mut crate::ui::headless::HeadlessHandle| {
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, app))
+            .unwrap();
+        handle.snapshot().join("\n")
+    };
+
+    // 只有工具在跑：不得把工具串当正文
+    app.handle_subagent_event("child-1", tool_start("sleep 90 && echo done"));
+    let snap = render(&mut app, &mut handle);
+    assert!(
+        !snap.contains("Bash(sleep 90"),
+        "工具调用串不应出现在抽屉正文：\n{snap}"
+    );
+
+    // 助手开口 → 显示助手文本
+    app.handle_subagent_event("child-1", chunk("First I will sleep 60 seconds, "));
+    app.handle_subagent_event("child-1", chunk("then query Shenzhen weather."));
+    let snap = render(&mut app, &mut handle);
+    assert!(
+        snap.contains("First I will sleep 60 seconds, then query Shenzhen weather."),
+        "应展示助手文本：\n{snap}"
+    );
+
+    // 一句话结束 → 复位；下一句替换掉旧句
+    app.handle_subagent_event(
+        "child-1",
+        AgentEvent::ToolEnd {
+            tool_call_id: "t1".into(),
+            name: "Bash".into(),
+            output: "done".into(),
+            is_error: false,
+            source_agent_id: None,
+        },
+    );
+    app.handle_subagent_event("child-1", chunk("Sleeping for 60 seconds"));
+    let snap = render(&mut app, &mut handle);
+    assert!(snap.contains("Sleeping for 60 seconds"), "应显示最新一句：\n{snap}");
+    assert!(
+        !snap.contains("then query Shenzhen weather."),
+        "旧句应被替换：\n{snap}"
+    );
+}
+
+/// 回归：正在查看的子 Agent 结束时，视口内容不得凭空消失。
+///
+/// 真机反馈：「enter 进入子 agent 看内容，子 agent 结束突然就闪走了」——结束瞬间
+/// 把视口切回 main，等于把用户正在读的内容抽走。契约是：结束时视口与抽屉行原地
+/// 保留（行内显示 `completed`），用户按 Esc 离开时才回收。
+#[tokio::test]
+async fn test_viewed_subagent_completion_keeps_viewport_until_leave() {
+    use crate::app::AgentEvent;
+
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "child task",
+        "isBackground": true,
+    }));
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+    app.handle_subagent_event("child-1", AgentEvent::StateSnapshot(vec![
+        cc_agent::messages::BaseMessage::human("please sleep 60 seconds"),
+    ]));
+    let notified = handle.render_notify.notified();
+    app.handle_subagent_event("child-1", AgentEvent::AssistantChunk {
+        chunk: "Sleeping 60 seconds".into(),
+        source_agent_id: None,
+    });
+    notified.await;
+    let render = |app: &mut crate::app::App, handle: &mut crate::ui::headless::HeadlessHandle| {
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, app)).unwrap();
+        handle.snapshot().join("\n")
+    };
+    // 用只出现在消息区、不出现在抽屉预览里的用户气泡文本判定视口内容
+    assert!(render(&mut app, &mut handle).contains("please sleep 60 seconds"), "进入视口应看到子 Agent 输出");
+
+    let notified = handle.render_notify.notified();
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "stopped",
+        "instanceId": "child-1",
+        "result": "finished ok",
+        "isError": false,
+        "elapsedMs": 32000,
+    }));
+    notified.await;
+    let snap = render(&mut app, &mut handle);
+    assert!(snap.contains("please sleep 60 seconds"), "结束时视口内容不得消失：\n{snap}");
+    assert!(snap.contains("completed"), "仍在查看的已结束行应显示 completed：\n{snap}");
+    assert_eq!(
+        app.session_mgr.current().focused_instance_id.as_deref(),
+        Some("child-1"),
+        "结束时不得把视口切回 main"
+    );
+
+    // 用户按 Esc 离开 → 回到主会话，子会话与抽屉行回收
+    let notified = handle.render_notify.notified();
+    app.switch_subagent_viewport(None);
+    notified.await;
+    let snap = render(&mut app, &mut handle);
+    assert!(!snap.contains("please sleep 60 seconds"), "离开后应回到主会话视图：\n{snap}");
+    assert!(app.session_mgr.current().subagent_sessions.is_empty(), "离开后应回收子会话");
+    assert!(app.session_mgr.current().background_agents.is_empty(), "离开后应回收抽屉行");
+}
+
+/// 回归：子 Agent 完成后，抽屉行的圆点与完成标记必须转绿。
+///
+/// 用户要能一眼看出「哦它完成了，我看完就可以走了」（对齐参考实现），
+/// 而不是在一排白灰行里自己找 `completed` 字样。
+#[tokio::test]
+async fn test_completed_subagent_drawer_row_turns_green() {
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "child task",
+        "isBackground": true,
+    }));
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "stopped",
+        "instanceId": "child-1",
+        "result": "finished ok",
+        "isError": false,
+        "elapsedMs": 32000,
+    }));
+    handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+
+    let rows = handle.snapshot();
+    let row_index = rows.iter().position(|row| row.contains("completed")).expect("抽屉应有已完成行") as u16;
+    let buffer = handle.terminal.backend().buffer();
+    let cell_x = |symbol: &str| {
+        (0..buffer.area.width)
+            .find(|x| buffer[(*x, row_index)].symbol() == symbol)
+            .unwrap_or_else(|| panic!("已完成行应含 {symbol}：{:?}", rows[row_index as usize]))
+    };
+    assert_eq!(buffer[(cell_x("●"), row_index)].fg, crate::ui::theme::SAGE, "完成行圆点应转绿");
+    assert_eq!(buffer[(cell_x("✓"), row_index)].fg, crate::ui::theme::SAGE, "完成标记应转绿");
+}
+
+/// 回归：后台子 Agent 启动摘要必须是**对齐的树形块**（对齐 docs/subagent-mock.html）。
+///
+/// 真机症状：SystemNote 通用渲染会给每行注入 `· ` 前缀，于是标题变成 `· • …`、
+/// 子任务行变成 `·   ├── …`，整块缩进错位。
+#[tokio::test]
+async fn test_background_launch_summary_renders_as_aligned_tree() {
+    let (mut app, mut handle) = crate::app::App::new_headless(100, 30).await;
+    for (id, preview) in [("c1", "review Guangzhou weather"), ("c2", "review Xiamen weather")] {
+        app.handle_subagent_lifecycle(&serde_json::json!({
+            "event": "started", "instanceId": id, "agentType": "general-purpose",
+            "taskPreview": preview, "isBackground": true,
+        }));
+    }
+    // 消息区来自渲染线程缓存：等它处理完 Rebuild 再断言
+    let notified = handle.render_notify.notified();
+    notified.await;
+    handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+    let rows = handle.snapshot();
+
+    let header = rows.iter().position(|row| row.contains("background agents launched")).expect("应渲染启动摘要标题");
+    assert!(
+        rows[header].starts_with("• "),
+        "标题行应自带 `• ` 项目符号，不得再被注入 `· `：{:?}",
+        rows[header]
+    );
+    assert!(!rows[header].contains("· "), "不得出现 `· •` 双标记：{:?}", rows[header]);
+    // 比较显示列宽（`•` 是 3 字节 1 列，不能用字节下标）
+    let display_col = |text: &str, byte_index: usize| {
+        unicode_width::UnicodeWidthStr::width(&text[..byte_index])
+    };
+    let title_col = display_col(&rows[header], rows[header].find('2').expect("标题应含数量"));
+    for (offset, glyph, prefix) in [(1usize, '├', "  ├── "), (2usize, '└', "  └── ")] {
+        let row = &rows[header + offset];
+        assert!(!row.contains("· "), "树形行不得注入 `· ` 前缀：{row:?}");
+        assert!(
+            row.starts_with(prefix),
+            "树形行应为 `{prefix}任务`（字形 + 虚线 + 一个空格）：{row:?}"
+        );
+        let glyph_col = display_col(row, row.find(glyph).expect("应含分支字形"));
+        assert_eq!(
+            glyph_col, title_col,
+            "分支字形应与标题文字同列（第 {title_col} 列）：{row:?}"
+        );
+    }
+}

@@ -392,6 +392,9 @@ fn test_subagent_started_is_tui_only() {
             agent_name: "sub-agent".to_string(),
             instance_id: "inst-001".to_string(),
             is_background: false,
+            task_preview: "test task".into(),
+            timeout_secs: None,
+            model: None,
         },
         "SubagentStarted",
     );
@@ -403,6 +406,7 @@ fn test_subagent_stopped_is_tui_only() {
         &ExecutorEvent::SubagentStopped {
             agent_name: "sub-agent".to_string(),
             result: "done".to_string(),
+            elapsed_ms: 0,
             is_error: false,
             instance_id: "inst-001".to_string(),
         },

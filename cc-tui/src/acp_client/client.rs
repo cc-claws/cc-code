@@ -90,6 +90,15 @@ impl AcpTuiClient {
 
     // ── Pump ──
 
+    /// peri/* 自定义通知的路由判定。
+    ///
+    /// `peri/agent_event` / `peri/agent_event_done` 有各自的专用分支，不走这里。
+    /// `peri/subagent_lifecycle` 是 TUI 底栏抽屉的唯一数据来源：服务端
+    /// `event_sink` 发送的就是这个不带 `notifications/` 前缀的方法名，必须显式认。
+    fn is_peri_notification(method: &str) -> bool {
+        method == "peri/subagent_lifecycle" || method.starts_with("notifications/peri/")
+    }
+
     /// Background task that polls the transport and dispatches notifications.
     async fn run_pump(
         transport: Arc<MpscClientTransport>,
@@ -130,9 +139,7 @@ impl AcpTuiClient {
                                 );
                                 if matches!(
                                     &event,
-                                    cc_agent::agent::events::AgentEvent::BackgroundTaskCompleted(
-                                        _
-                                    )
+                                    cc_agent::agent::events::AgentEvent::BackgroundTaskCompleted(_)
                                 ) {
                                     tracing::info!(
                                         event_count = event_count,
@@ -173,7 +180,7 @@ impl AcpTuiClient {
                             "ACP client pump: received agent_event_done"
                         );
                         let _ = notification_tx.send(AcpNotification::AgentDone { session_id });
-                    } else if method.starts_with("notifications/peri/") {
+                    } else if Self::is_peri_notification(&method) {
                         let session_id = params
                             .get("sessionId")
                             .and_then(|v| v.as_str())
@@ -278,10 +285,7 @@ impl AcpTuiClient {
     /// Submit a user message to the current session.
     /// Note: prompt() is called from the spawned async task that already
     /// has a session via new_session(), so current_session_id is guaranteed Some.
-    pub async fn prompt(
-        &self,
-        content: &cc_agent::messages::MessageContent,
-    ) -> Result<(), String> {
+    pub async fn prompt(&self, content: &cc_agent::messages::MessageContent) -> Result<(), String> {
         let session_id = self
             .current_session_id
             .lock()
@@ -439,6 +443,47 @@ impl AcpTuiClient {
     }
 
     /// Cancel the currently running prompt.
+    pub async fn cancel_subagent(
+        &self,
+        session_id: &str,
+        target_thread_id: &str,
+    ) -> Result<(), String> {
+        self.transport
+            .send_notification(
+                "session/cancel",
+                json!({
+                    "sessionId": session_id, "targetThreadId": target_thread_id,
+                }),
+            )
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    pub async fn cancel_all_subagents(&self, session_id: &str) -> Result<(), String> {
+        self.cancel_subagent(session_id, "*").await
+    }
+
+    pub async fn send_subagent_message(
+        &self,
+        session_id: &str,
+        target_thread_id: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        self.transport
+            .send_request(
+                "session/prompt",
+                json!({
+                    "sessionId": session_id,
+                    "targetThreadId": target_thread_id,
+                    "message": { "role": "user", "content": text },
+                }),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Cancel the currently running root prompt; background agents remain independent.
     pub async fn cancel(&self) -> Result<(), String> {
         let session_id = self
             .current_session_id
@@ -465,3 +510,7 @@ impl AcpTuiClient {
             .map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+#[path = "client_test.rs"]
+mod tests;

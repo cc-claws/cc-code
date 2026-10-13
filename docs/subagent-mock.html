@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peri / Codex 子Agent多线程交互与渲染原型演示</title>
+    <style>
+        :root {
+            --bg-terminal: #0c0d10;
+            --text-main: #d1d5db;
+            --text-muted: #8892b0;
+            --text-dim: #4b5563;
+            --accent-green: #38a169;
+            --accent-bright-green: #48bb78;
+            --accent-cyan: #38bdf8;
+            --accent-orange: #ed8936;
+            --accent-purple: #9f7aea;
+            --accent-yellow: #ecc94b;
+            --accent-blue: #3182ce;
+            --border-dim: #262a35;
+            --font-mono: "Cascadia Code", "JetBrains Mono", "Fira Code", "Menlo", "Consolas", monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #050608;
+            color: var(--text-main);
+            font-family: var(--font-mono);
+            font-size: 14.5px;
+            line-height: 1.55;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px 10px;
+        }
+
+        /* 顶部控制面板（帮助测试与场景跳转） */
+        .scenario-bar {
+            width: 100%;
+            max-width: 980px;
+            background: #161822;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .scenario-title {
+            color: var(--accent-cyan);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .btn {
+            background: #232738;
+            color: #cbd5e1;
+            border: 1px solid #3b4256;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            transition: all 0.15s ease;
+        }
+
+        .btn:hover {
+            background: #2e354d;
+            border-color: var(--accent-cyan);
+            color: #fff;
+        }
+
+        .btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-cyan);
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* 终端外框 */
+        .terminal-container {
+            width: 100%;
+            max-width: 980px;
+            background: var(--bg-terminal);
+            border: 1px solid #1f2430;
+            border-radius: 10px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 720px;
+        }
+
+        /* 终端头部窗口按钮 */
+        .terminal-header {
+            background: #14161f;
+            padding: 8px 14px;
+            border-bottom: 1px solid #1f2430;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+
+        .window-dots {
+            display: flex;
+            gap: 7px;
+        }
+
+        .window-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+        }
+
+        .dot-red { background: #ff5f56; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #27c93f; }
+
+        .terminal-title {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        /* 终端主内容区（滚动视口） */
+        .terminal-body {
+            flex: 1;
+            padding: 16px 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .terminal-body::-webkit-scrollbar {
+            width: 6px;
+        }
+        .terminal-body::-webkit-scrollbar-thumb {
+            background: #262a38;
+            border-radius: 3px;
+        }
+
+        /* 终端元素样式定义 */
+        .user-prompt {
+            color: #f1f5f9;
+            font-weight: 500;
+            display: flex;
+            gap: 8px;
+        }
+        .user-prompt-symbol {
+            color: #94a3b8;
+        }
+
+        .thought-line {
+            color: #64748b;
+            font-size: 13.5px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .thought-line:hover {
+            color: #94a3b8;
+        }
+        .thought-line strong {
+            color: #94a3b8;
+        }
+
+        .thought-content {
+            background: #12141c;
+            border-left: 2px solid #334155;
+            padding: 8px 12px;
+            margin: 4px 0 6px 14px;
+            font-size: 13px;
+            color: #94a3b8;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .thought-content.expanded {
+            display: block;
+        }
+
+        .assistant-message {
+            color: #e2e8f0;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .bullet-dot {
+            color: #94a3b8;
+            flex-shrink: 0;
+        }
+        .bullet-green {
+            color: var(--accent-bright-green);
+        }
+
+        /* 树形子任务展示块 */
+        .agent-tree-container {
+            display: flex;
+            flex-direction: column;
+            margin: 2px 0;
+        }
+        .agent-tree-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #f8fafc;
+        }
+        .agent-tree-header .badge-manage {
+            color: #64748b;
+            font-size: 13px;
+        }
+        .agent-tree-items {
+            margin-left: 14px;
+            border-left: 1px solid #475569;
+            padding-left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-top: 2px;
+        }
+        .tree-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #e2e8f0;
+        }
+        .tree-branch {
+            color: #475569;
+            user-select: none;
+        }
+
+        /* 工具调用树形展示 */
+        .tool-block {
+            margin: 4px 0;
+        }
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #cbd5e1;
+        }
+        .tool-name {
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+        .tool-subline {
+            margin-left: 18px;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13.5px;
+        }
+
+        /* 动态执行/Spinner状态行 */
+        .spinner-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent-orange);
+            font-size: 13.5px;
+            margin: 4px 0;
+        }
+        .spinner-asterisk {
+            font-weight: bold;
+            display: inline-block;
+            animation: spin-pulse 1.8s infinite ease-in-out;
+        }
+        @keyframes spin-pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+        .spinner-subtip {
+            margin-left: 18px;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        /* 天气结果总结卡片 */
+        .report-card {
+            background: #11131a;
+            border: 1px solid #1e2230;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-left: 16px;
+            color: #cbd5e1;
+            font-size: 13.5px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .report-title {
+            color: #38bdf8;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        /* 终端底部交互区（含输入框、状态行、底栏列表） */
+        .terminal-footer {
+            border-top: 1px solid #1f2430;
+            background: #0d0f15;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* 输入框区域 */
+        .input-bar-wrapper {
+            position: relative;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .input-top-line {
+            position: absolute;
+            top: -1px;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #1f2430;
+        }
+        /* 聚焦到子 Agent 时输入框顶边变为青色线条 */
+        .input-bar-wrapper.subagent-focused .input-top-line {
+            background: var(--accent-cyan);
+            box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
+        }
+
+        .input-prompt-char {
+            color: #94a3b8;
+            font-weight: bold;
+        }
+
+        .input-text-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-field {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #f1f5f9;
+            font-family: var(--font-mono);
+            font-size: 14.5px;
+            width: 100%;
+        }
+        .input-field::placeholder {
+            color: #64748b;
+        }
+
+        /* 输入框右侧显示的当前查看的 Agent 标签 */
+        .subagent-active-tag {
+            background: var(--accent-cyan);
+            color: #0b1120;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 1px 7px;
+            border-radius: 3px;
+            position: absolute;
+            right: 16px;
+            top: -10px;
+            letter-spacing: 0.3px;
+            display: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+        }
+        .subagent-active-tag.visible {
+            display: block;
+        }
+
+        /* 状态条（Status Bar） */
+        .status-bar {
+            padding: 4px 16px 2px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #94a3b8;
+            user-select: none;
+        }
+
+        .status-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .model-badge {
+            color: var(--accent-cyan);
+            font-weight: 600;
+        }
+
+        .cache-progress {
+            display: inline-flex;
+            align-items: center;
+            color: var(--accent-green);
+            gap: 4px;
+        }
+        .cache-bar-blocks {
+            letter-spacing: -1px;
+            font-family: monospace;
+        }
+
+        .git-branch {
+            color: var(--accent-yellow);
+        }
+        .git-clean {
+            color: var(--accent-purple);
+        }
+
+        .status-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #64748b;
+            font-size: 12.5px;
+        }
+
+        /* 快捷键操作提示行（Hotkeys Guidance） */
+        .hotkey-hint-bar {
+            padding: 1px 16px 5px 16px;
+            font-size: 12.5px;
+            color: #64748b;
+            user-select: none;
+            transition: color 0.15s ease;
+        }
+        .hotkey-hint-bar.active-nav {
+            color: #94a3b8;
+        }
+
+        /* 底部后台 Agent 管理栏（Bottom Agent Bar） */
+        .bg-agent-bar {
+            padding: 4px 16px 8px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            border-top: 1px solid #181b24;
+            background: #090a0e;
+        }
+
+        .agent-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 3px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.1s ease;
+            font-size: 13.5px;
+        }
+
+        .agent-row:hover {
+            background: #141722;
+        }
+
+        .agent-row.cursor-selected {
+            background: #1e2436;
+        }
+
+        .agent-row-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .cursor-arrow {
+            color: var(--accent-cyan);
+            font-weight: bold;
+            width: 12px;
+            display: inline-block;
+            visibility: hidden;
+        }
+        .agent-row.cursor-selected .cursor-arrow {
+            visibility: visible;
+        }
+
+        .status-circle {
+            font-size: 14px;
+            width: 14px;
+            text-align: center;
+            display: inline-block;
+        }
+        .circle-active {
+            color: #f1f5f9;
+        }
+        .circle-inactive {
+            color: #64748b;
+        }
+
+        .agent-type-name {
+            color: #e2e8f0;
+            font-weight: 500;
+        }
+        .agent-row.current-view .agent-type-name {
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .agent-task-preview {
+            color: #cbd5e1;
+            margin-left: 12px;
+        }
+
+        .agent-row-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        /* 键盘快捷键提示小徽章 */
+        .kbd {
+            background: #1e2230;
+            border: 1px solid #334155;
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 11px;
+            color: #cbd5e1;
+        }
+
+        /* 底部说明卡片 */
+        .info-panel {
+            width: 100%;
+            max-width: 980px;
+            margin-top: 14px;
+            background: #11131a;
+            border: 1px solid #1f2430;
+            border-radius: 8px;
+            padding: 14px 18px;
+            font-size: 13px;
+            color: #94a3b8;
+            line-height: 1.6;
+        }
+        .info-panel h3 {
+            color: #e2e8f0;
+            margin-bottom: 6px;
+            font-size: 14px;
+        }
+        .info-panel ul {
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部场景快速切换条（验证所有截图状态） -->
+    <div class="scenario-bar">
+        <div class="scenario-title">
+            <span>⚡ Peri / Claude Code 子Agent真实效果验证</span>
+        </div>
+        <div class="btn-group">
+            <button class="btn active" onclick="loadScenario(1)">场景 1: 并行启动 (图1)</button>
+            <button class="btn" onclick="loadScenario(2)">场景 2: 键盘下移导航 (图2)</button>
+            <button class="btn" onclick="loadScenario(3)">场景 3: 选定第二Agent (图3)</button>
+            <button class="btn" onclick="loadScenario(4)">场景 4: 切换随州视口 (图4)</button>
+            <button class="btn" onclick="loadScenario(5)">场景 5: 查看武汉视口 (图5)</button>
+            <button class="btn" onclick="loadScenario(6)">场景 6: 完成回流主线程 (图6)</button>
+        </div>
+    </div>
+
+    <!-- 拟真终端视口 -->
+    <div class="terminal-container">
+        <!-- 窗口顶栏 -->
+        <div class="terminal-header">
+            <div class="window-dots">
+                <div class="window-dot dot-red"></div>
+                <div class="window-dot dot-yellow"></div>
+                <div class="window-dot dot-green"></div>
+            </div>
+            <div class="terminal-title">peri — zsh — 112×32</div>
+            <div style="font-size: 11px; color: #475569;">支持键盘 ↑ / ↓ / Enter 操作</div>
+        </div>
+
+        <!-- 终端消息主体 -->
+        <div class="terminal-body" id="terminalBody">
+            <!-- 动态生成渲染区域 -->
+        </div>
+
+        <!-- 终端底部区域（输入框 + 状态栏 + 快捷键 + 后台列表） -->
+        <div class="terminal-footer">
+            
+            <!-- 输入框 -->
+            <div class="input-bar-wrapper" id="inputBarWrapper">
+                <div class="input-top-line"></div>
+                <span class="input-prompt-char">&gt;</span>
+                <div class="input-text-container">
+                    <input type="text" class="input-field" id="mainInput" placeholder="" readonly>
+                </div>
+                <!-- 切换到子 Agent 时浮现的右上角 Tag -->
+                <div class="subagent-active-tag" id="subagentActiveTag">查询武汉天气</div>
+            </div>
+
+            <!-- 状态栏 -->
+            <div class="status-bar">
+                <div class="status-left">
+                    <span class="model-badge">[Sonnet 4.6]</span>
+                    <span class="cache-progress">
+                        <span class="cache-bar-blocks">▓▓▒░░░░░░░</span>
+                        <span>6%</span>
+                    </span>
+                    <span style="color:#4b5563;">|</span>
+                    <span class="git-branch">peri</span>
+                    <span class="git-clean">git:(main*)</span>
+                    <span style="color:#4b5563;">|</span>
+                    <span id="statusBarExtra" style="color:#64748b;">tok: 180k (in: 178k, out: 2k) | ⏱ &lt;1m</span>
+                </div>
+                <div class="status-right" id="statusRightTiming">
+                    <!-- 动态状态信息 -->
+                </div>
+            </div>
+
+            <!-- 快捷键操作提示行 -->
+            <div class="hotkey-hint-bar" id="hotkeyHintBar">
+                ▸▸ bypass permissions on (shift+tab to cycle)
+            </div>
+
+            <!-- 底部后台 Agent 管理栏 -->
+            <div class="bg-agent-bar" id="bgAgentBar">
+                <!-- 动态生成 agent 行 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 交互说明 -->
+    <div class="info-panel">
+        <h3>💡 真实交互机制说明：</h3>
+        <ul>
+            <li><strong>键盘下键进入管理栏</strong>：在主会话中按 <span class="kbd">↓</span> 键，焦点无缝下移进入底部 Agent 管理抽屉，游标变为 <span class="kbd">&gt;</span>。</li>
+            <li><strong>上下移动与回车切换</strong>：在管理栏按 <span class="kbd">↑</span> / <span class="kbd">↓</span> 移动选框。按 <span class="kbd">Enter to view</span> 立即切换进入该子 Agent 的独立会话视口。</li>
+            <li><strong>专属视角与定向指令</strong>：进入子 Agent 后，输入框顶部变为亮青色线条并浮现 <span class="kbd">[ 查询天气 ]</span> 标签，输入框占位符变为 <span class="kbd">&gt; Message @general-purpose...</span>，可以对子 Agent 单独追问。</li>
+            <li><strong>后台完成回流</strong>：子任务完成后自动向主线程上报，主线程展示绿点 <span class="kbd">• Agent "xxx" finished · 1m 32s</span> 并自动综合输出汇总报告。</li>
+        </ul>
+    </div>
+
+    <script>
+        // 全局状态管理
+        const state = {
+            currentScenario: 1,
+            activeView: 'main',        // 'main' | 'sub1' | 'sub2'
+            cursorIndex: 0,            // 0: main, 1: sub1, 2: sub2
+            thoughtExpanded: false,
+            elapsedSeconds: 15,
+            agents: [
+                {
+                    id: 'main',
+                    type: 'main',
+                    preview: '',
+                    statusText: '',
+                    running: true,
+                    tokens: '905 tokens',
+                    elapsed: '11s'
+                },
+                {
+                    id: 'sub1',
+                    type: 'general-purpose',
+                    name: '查询武汉天气',
+                    preview: '查询武汉天气',
+                    statusText: '正在抓取武汉实时天气页面',
+                    running: true,
+                    tokens: '49 tokens',
+                    elapsed: '15s',
+                    bashRunningSecs: 7
+                },
+                {
+                    id: 'sub2',
+                    type: 'general-purpose',
+                    name: '查询随州天气',
+                    preview: '查询随州天气',
+                    statusText: '正在等待 60 秒后查天气',
+                    running: true,
+                    tokens: '33 tokens',
+                    elapsed: '15s',
+                    bashRunningSecs: 7
+                }
+            ]
+        };
+
+        // 渲染主函数
+        function render() {
+            renderMessageBody();
+            renderFooter();
+            renderBgAgentBar();
+        }
+
+        // 1. 渲染消息区视口
+        function renderMessageBody() {
+            const body = document.getElementById('terminalBody');
+            let html = '';
+
+            if (state.activeView === 'main') {
+                if (state.currentScenario < 6) {
+                    // 主线程执行中视图（对应图1）
+                    html += `
+                        <div class="user-prompt">
+                            <span class="user-prompt-symbol">&gt;</span>
+                            <span>启动2个子让他们都sleep 60 秒后 查询武汉天气 和随州天气</span>
+                        </div>
+
+                        <div class="thought-line" onclick="toggleThought()">
+                            Thought for <strong>8s</strong> (ctrl+o to expand)
+                        </div>
+                        <div class="thought-content ${state.thoughtExpanded ? 'expanded' : ''}">
+用户要求并行启动两个独立的子 Agent：
+1. 第一个 Agent：先使用 Bash 工具 sleep 60 秒，随后查询武汉天气；
+2. 第二个 Agent：先使用 Bash 工具 sleep 60 秒，随后查询随州天气。
+任务完全独立，没有共享状态，采用 run_in_background=true 并行分发。
+                        </div>
+
+                        <div class="assistant-message">
+                            <span class="bullet-dot">•</span>
+                            <span>现在并行启动 2 个子 Agent，分别等待 60 秒后查询武汉和随州的天气情况。</span>
+                        </div>
+
+                        <div class="agent-tree-container">
+                            <div class="agent-tree-header">
+                                <span class="bullet-dot bullet-green">•</span>
+                                <span style="font-weight:600;">2 background agents launched</span>
+                                <span class="badge-manage">(↓ to manage)</span>
+                            </div>
+                            <div class="agent-tree-items">
+                                <div class="tree-row">
+                                    <span class="tree-branch">├</span>
+                                    <span>查询武汉天气</span>
+                                </div>
+                                <div class="tree-row">
+                                    <span class="tree-branch">└</span>
+                                    <span>查询随州天气</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="spinner-line">
+                            <span class="spinner-asterisk">✱</span>
+                            <span>Hatching...</span>
+                            <span style="color:#64748b;">(11s · ↓ 905 tokens · thought for 8s)</span>
+                        </div>
+                    `;
+                } else {
+                    // 主线程收尾与报告视图（对应图6）
+                    html += `
+                        <div class="assistant-message">
+                            <span class="bullet-dot">•</span>
+                            <span>现在并行启动 2 个子 Agent，分别等待 60 秒后查询武汉和随州的天气情况。</span>
+                        </div>
+
+                        <div class="agent-tree-container">
+                            <div class="agent-tree-header">
+                                <span class="bullet-dot bullet-green">•</span>
+                                <span style="font-weight:600;">2 background agents launched</span>
+                                <span class="badge-manage">(↓ to manage)</span>
+                            </div>
+                            <div class="agent-tree-items">
+                                <div class="tree-row"><span class="tree-branch">├</span> 查询武汉天气</div>
+                                <div class="tree-row"><span class="tree-branch">└</span> 查询随州天气</div>
+                            </div>
+                        </div>
+
+                        <div class="assistant-message">
+                            <span class="bullet-dot">•</span>
+                            <span>已并行启动 2 个子 Agent，分别将在等待 60 秒后查询武汉和随州的天气情况，完成后会为您汇报。</span>
+                        </div>
+
+                        <div class="spinner-line">
+                            <span class="spinner-asterisk">✱</span>
+                            <span>Waiting for 2 background agents to finish</span>
+                        </div>
+
+                        <div class="assistant-message">
+                            <span class="bullet-dot bullet-green">•</span>
+                            <span style="font-weight:600;">Agent "查询武汉天气" finished · 1m 32s</span>
+                        </div>
+
+                        <div class="thought-line" onclick="toggleThought()">
+                            Thought for <strong>5s</strong> (ctrl+o to expand)
+                        </div>
+                        <div class="thought-content ${state.thoughtExpanded ? 'expanded' : ''}">
+武汉天气查询子任务已顺利返回，随州天气的子任务仍在抓取页面中。
+优先将已完成的武汉最新天气向用户同步。
+                        </div>
+
+                        <div class="assistant-message">
+                            <span class="bullet-dot">•</span>
+                            <span>武汉天气子 Agent 已完成查询，随州天气正在收尾中，先为您同步武汉天气：</span>
+                        </div>
+
+                        <div class="report-card">
+                            <div class="report-title">武汉天气（2026年10月13日）</div>
+                            <div>- 天气状况：多云，夜间转晴（明日有小雨）</div>
+                            <div>- 气温：16℃ ~ 27℃ (当前约 21℃)</div>
+                            <div>- 风向风力：北风，微风 (&lt; 3 级)</div>
+                            <div>- 空气质量：AQI 42，等级「优」</div>
+                            <div>- 生活建议：早晚偏凉注意添衣，明日预计有小雨出门建议备伞。</div>
+                        </div>
+
+                        <div class="assistant-message" style="margin-top:4px;">
+                            <span>随州天气查询完成后将立即为您汇报。</span>
+                        </div>
+
+                        <div class="spinner-line">
+                            <span class="spinner-asterisk">✱</span>
+                            <span>Waiting for 1 background agent to finish</span>
+                        </div>
+                    `;
+                }
+            } else if (state.activeView === 'sub1') {
+                // 子 Agent 1: 查询武汉天气独立会话（对应图2 / 图5）
+                html += `
+                    <div class="user-prompt">
+                        <span class="user-prompt-symbol">&gt;</span>
+                        <span>请严格使用中文回复。请首先使用 Bash 工具执行 sleep 60 等待 60 秒，随后查询当前武汉的最新天气情况（温度、天气状况、风向风速、空气质量等），并整理成简明的中文天气报告。</span>
+                    </div>
+
+                    <div class="thought-line" onclick="toggleThought()">
+                        Thought for <strong>6s</strong> (ctrl+o to expand)
+                    </div>
+                    <div class="thought-content ${state.thoughtExpanded ? 'expanded' : ''}">
+子任务开始执行：先使用 Bash 工具调用 sleep 60。
+执行完成后再通过网络查询获取武汉天气。
+                    </div>
+
+                    <div class="tool-block">
+                        <div class="tool-header">
+                            <span class="bullet-dot">•</span>
+                            <span class="tool-name">Bash(sleep 60)</span>
+                        </div>
+                        <div class="tool-subline">
+                            <span class="tree-branch">└</span>
+                            <span>Running... (${state.agents[1].bashRunningSecs}s · timeout 1m 10s)</span>
+                        </div>
+                    </div>
+
+                    <div class="spinner-line">
+                        <span class="spinner-asterisk">✱</span>
+                        <span>Roosting...</span>
+                        <span style="color:#64748b;">(40s · ↓ 49 tokens)</span>
+                    </div>
+                    <div class="spinner-subtip">
+                        <span class="tree-branch">└</span>
+                        <span>Tip: Use /theme to change the color theme</span>
+                    </div>
+                `;
+            } else if (state.activeView === 'sub2') {
+                // 子 Agent 2: 查询随州天气独立会话（对应图4）
+                html += `
+                    <div class="assistant-message">
+                        <span class="bullet-dot">•</span>
+                        <span>好的，我先等待 60 秒，然后查询随州最新天气。</span>
+                    </div>
+
+                    <div class="tool-block">
+                        <div class="tool-header">
+                            <span class="bullet-dot">•</span>
+                            <span class="tool-name">Bash(sleep 60)</span>
+                        </div>
+                        <div class="tool-subline">
+                            <span class="tree-branch">└</span>
+                            <span>Running... (25s · timeout 1m 30s)</span>
+                        </div>
+                    </div>
+
+                    <div class="spinner-line">
+                        <span class="spinner-asterisk">✱</span>
+                        <span>Mulling...</span>
+                        <span style="color:#64748b;">(32s · ↓ 33 tokens)</span>
+                    </div>
+                    <div class="spinner-subtip">
+                        <span class="tree-branch">└</span>
+                        <span>Tip: Use /theme to change the color theme</span>
+                    </div>
+                `;
+            }
+
+            body.innerHTML = html;
+            body.scrollTop = body.scrollHeight;
+        }
+
+        // 2. 渲染底部与状态行
+        function renderFooter() {
+            const wrapper = document.getElementById('inputBarWrapper');
+            const mainInput = document.getElementById('mainInput');
+            const tag = document.getElementById('subagentActiveTag');
+            const hintBar = document.getElementById('hotkeyHintBar');
+
+            if (state.activeView === 'main') {
+                wrapper.classList.remove('subagent-focused');
+                tag.classList.remove('visible');
+                mainInput.placeholder = '';
+            } else {
+                wrapper.classList.add('subagent-focused');
+                tag.classList.add('visible');
+                const targetAgent = state.agents.find(a => a.id === state.activeView);
+                tag.innerText = targetAgent ? targetAgent.name : '';
+                mainInput.placeholder = 'Message @general-purpose...';
+            }
+
+            // 更新快捷键操作指引文本
+            if (state.cursorIndex === 0) {
+                // 光标在 main 上
+                hintBar.innerText = state.activeView === 'main'
+                    ? '▸▸ bypass permissions on (shift+tab to cycle)'
+                    : '↑/↓ to select · ctrl+x ctrl+k to stop all agents';
+            } else {
+                // 光标在子 Agent 上
+                const targetAgent = state.agents[state.cursorIndex];
+                if (state.activeView === targetAgent.id) {
+                    hintBar.innerText = '↑/↓ to select · ctrl+x ctrl+k to stop all agents';
+                } else {
+                    hintBar.innerText = 'Enter to view · x to stop · ctrl+x ctrl+k to stop all agents';
+                }
+            }
+        }
+
+        // 3. 渲染底栏 Agent 管理抽屉
+        function renderBgAgentBar() {
+            const bar = document.getElementById('bgAgentBar');
+            let html = '';
+
+            state.agents.forEach((agent, idx) => {
+                const isCursor = (state.cursorIndex === idx);
+                const isCurrentView = (state.activeView === agent.id);
+
+                let circleClass = isCurrentView ? 'circle-active' : 'circle-inactive';
+                let circleChar = isCurrentView ? '●' : '○';
+
+                let rightInfo = '';
+                if (agent.id !== 'main') {
+                    rightInfo = `${agent.elapsed} · ↓ ${agent.tokens}`;
+                }
+
+                // 区分主会话和子任务
+                let namePart = '';
+                if (agent.id === 'main') {
+                    namePart = `<span class="agent-type-name">main</span>`;
+                } else {
+                    let dynamicStatus = (state.currentScenario >= 5 && agent.id === 'sub2')
+                        ? agent.statusText
+                        : agent.preview;
+                    if (state.currentScenario === 6 && agent.id === 'sub2') {
+                        dynamicStatus = '正在抓取随州天气页面数据';
+                    }
+
+                    namePart = `
+                        <span class="agent-type-name">${agent.type}</span>
+                        <span class="agent-task-preview">${dynamicStatus}</span>
+                    `;
+                }
+
+                html += `
+                    <div class="agent-row ${isCursor ? 'cursor-selected' : ''} ${isCurrentView ? 'current-view' : ''}" 
+                         onclick="selectAgentByIndex(${idx})">
+                        <div class="agent-row-left">
+                            <span class="cursor-arrow">&gt;</span>
+                            <span class="status-circle ${circleClass}">${circleChar}</span>
+                            ${namePart}
+                        </div>
+                        <div class="agent-row-right">
+                            ${rightInfo}
+                        </div>
+                    </div>
+                `;
+            });
+
+            bar.innerHTML = html;
+        }
+
+        // 点击切换
+        function selectAgentByIndex(idx) {
+            state.cursorIndex = idx;
+            state.activeView = state.agents[idx].id;
+            render();
+        }
+
+        // 折叠/展开思考
+        function toggleThought() {
+            state.thoughtExpanded = !state.thoughtExpanded;
+            render();
+        }
+
+        // 场景快速预设
+        function loadScenario(num) {
+            state.currentScenario = num;
+            document.querySelectorAll('.btn-group .btn').forEach((b, i) => {
+                b.classList.toggle('active', i + 1 === num);
+            });
+
+            switch (num) {
+                case 1: // 图1: 启动并发，主视图，焦点在 main
+                    state.activeView = 'main';
+                    state.cursorIndex = 0;
+                    state.agents[1].bashRunningSecs = 7;
+                    break;
+                case 2: // 图2: 焦点下移到第一个 Agent (武汉)，但未按 Enter 切换视口前进入它
+                    state.activeView = 'sub1';
+                    state.cursorIndex = 1;
+                    state.agents[1].bashRunningSecs = 7;
+                    break;
+                case 3: // 图3: 正在查看武汉(sub1)，光标移动到随州(sub2)，提示 Enter to view
+                    state.activeView = 'sub1';
+                    state.cursorIndex = 2;
+                    state.agents[1].bashRunningSecs = 17;
+                    break;
+                case 4: // 图4: 按下 Enter 切换到随州天气(sub2)视口，右上角出现 Tag
+                    state.activeView = 'sub2';
+                    state.cursorIndex = 2;
+                    break;
+                case 5: // 图5: 切回武汉天气(sub1)，随州天气显示动态状态“正在等待 60 秒后查天气”
+                    state.activeView = 'sub1';
+                    state.cursorIndex = 1;
+                    state.agents[1].bashRunningSecs = 32;
+                    state.agents[1].elapsed = '40s';
+                    state.agents[2].elapsed = '40s';
+                    break;
+                case 6: // 图6: 切回 main，武汉天气已完成报告回流，随州继续等待
+                    state.activeView = 'main';
+                    state.cursorIndex = 0;
+                    // 武汉完成，可能从活动列表中完成或置底
+                    state.agents = [
+                        { id: 'main', type: 'main', preview: '', running: true, tokens: '', elapsed: '' },
+                        { id: 'sub2', type: 'general-purpose', name: '随州天气', preview: '正在抓取随州天气页面数据', statusText: '正在抓取随州天气页面数据', running: true, tokens: '33 tokens', elapsed: '1m 32s', bashRunningSecs: 60 }
+                    ];
+                    break;
+            }
+
+            render();
+        }
+
+        // 键盘监听（完美模拟终端按键）
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (state.cursorIndex < state.agents.length - 1) {
+                    state.cursorIndex++;
+                    render();
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (state.cursorIndex > 0) {
+                    state.cursorIndex--;
+                    render();
+                }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                // Enter to view
+                state.activeView = state.agents[state.cursorIndex].id;
+                render();
+            } else if (e.key === 'o' && e.ctrlKey) {
+                e.preventDefault();
+                toggleThought();
+            } else if (e.key === 'x' && !e.ctrlKey) {
+                // x to stop selected
+                if (state.cursorIndex > 0) {
+                    const agentName = state.agents[state.cursorIndex].name;
+                    alert(`[Mock Action] 已向子 Agent "${agentName}" 发送中断信号 (SIGINT)`);
+                }
+            }
+        });
+
+        // 定时器模拟轻微读秒
+        setInterval(() => {
+            if (state.currentScenario < 6) {
+                state.agents.forEach(a => {
+                    if (a.bashRunningSecs !== undefined) {
+                        a.bashRunningSecs = (a.bashRunningSecs + 1) % 65;
+                    }
+                });
+                render();
+            }
+        }, 3000);
+
+        // 初始渲染
+        render();
+    </script>
+</body>
+</html>

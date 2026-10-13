@@ -53,9 +53,31 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+/// 抽屉导航态的第三行提示。
+///
+/// 游标停在「当前已经在查看的那一行」时，`Enter to view` 与 `x to stop` 都无意义
+/// （已经在看它了 / 只有 `x` 有意义），此时缩短为纯导航提示。
+fn drawer_hint(app: &App) -> Option<&'static str> {
+    let session = app.session_mgr.current();
+    if !session.drawer_nav_active() {
+        return None;
+    }
+    let cursor = session.ui.bg_bar_cursor?;
+    // 游标 0 = main 行（对应 focused_instance_id == None）
+    let target_id = cursor
+        .checked_sub(1)
+        .and_then(|index| session.background_agents.get(index))
+        .map(|agent| agent.instance_id.as_str());
+    Some(if target_id == session.focused_instance_id.as_deref() {
+        " ↑/↓ to select · ctrl+x ctrl+k to stop all agents"
+    } else {
+        " Enter to view · x to stop · ctrl+x ctrl+k to stop all agents"
+    })
+}
+
 fn has_hud_activity(app: &App) -> bool {
     let session = app.session_mgr.current();
-    let agent = &session.agent;
+    let agent = session.viewport_agent();
     let now = std::time::Instant::now();
     !agent.running_tools.is_empty()
         || agent.has_visible_recent_tools(now)
@@ -80,12 +102,12 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         model_style = model_style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
     }
     spans.push(Span::styled(
-        format!("[{}]", app.services.model_name),
+        format!("[{}]", app.session_mgr.current().active_subagent().map(|sub| sub.model.as_str()).filter(|model| !model.is_empty()).unwrap_or(&app.services.model_name)),
         model_style,
     ));
 
     {
-        let agent = &app.session_mgr.current().agent;
+        let agent = app.session_mgr.current().viewport_agent();
         let tracker = &agent.session_token_tracker;
         let pct = tracker
             .context_usage_percent(agent.context_window)
@@ -114,7 +136,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
 fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     let mut left_spans: Vec<Span> = Vec::new();
 
-    let agent = &app.session_mgr.current().agent;
+    let agent = app.session_mgr.current().viewport_agent();
     let now = std::time::Instant::now();
     for entry in agent.visible_recent_tools(now) {
         append_activity_segment(&mut left_spans, render_recent_tool_segment(entry));
@@ -124,6 +146,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         append_activity_segment(&mut left_spans, segment);
     }
 
+    if app.session_mgr.current().active_subagent().is_none() {
     if let Some(segment) = render_agents_segment(app) {
         append_activity_segment(&mut left_spans, segment);
     }
@@ -132,6 +155,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         append_activity_segment(&mut left_spans, segment);
     }
 
+    }
     // 第二行强制单行：超宽时按显示列宽截断并以 … 收口（禁止折行）
     let left_spans = truncate_spans_to_width(left_spans, area.width as usize);
     render_truncated_line(f, left_spans, Vec::new(), area);
@@ -157,14 +181,14 @@ fn append_project_segment(spans: &mut Vec<Span<'_>>, app: &App) {
 
 fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
-    let agent = &app.session_mgr.current().agent;
+    let agent = app.session_mgr.current().viewport_agent();
     let tracker = &agent.session_token_tracker;
 
     if tracker.total_input_tokens > 0 || tracker.total_output_tokens > 0 {
         spans.push(Span::styled(
             format!(
                 "tok: {} (in: {}, out: {})",
-                format_token_count(tracker.total_input_tokens),
+                format_token_count(tracker.total_input_tokens + tracker.total_output_tokens),
                 format_token_count(
                     tracker
                         .last_usage
@@ -189,7 +213,7 @@ fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
             spans.push(status_separator());
         }
         spans.push(Span::styled(
-            format!("⏱  {}", format_duration_display(start.elapsed())),
+            format!("⏱  {}", format_duration_display(app.session_mgr.current().active_subagent().map(|sub| sub.elapsed()).unwrap_or_else(|| start.elapsed()))),
             dim_style(),
         ));
     }
@@ -328,6 +352,17 @@ fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
 /// 第三行：权限/瞬时状态 + CPU/MEM + 快捷键提示
 fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     let lc = &app.services.lc;
+    if let Some(text) = drawer_hint(app) {
+        // 提示行属于「辅助说明」，与消息区 `Thought for … (ctrl+o to expand)` 同色（MUTED），
+        // 不用抽屉游标的青色——青色只标记键盘游标本身。
+        render_truncated_line(
+            f,
+            vec![Span::styled(text, Style::default().fg(theme::MUTED))],
+            Vec::new(),
+            area,
+        );
+        return;
+    }
     let mut left_spans: Vec<Span> = Vec::new();
     let has_content = true;
 
@@ -401,7 +436,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 重试状态
-    if let Some(ref retry) = app.session_mgr.current().agent.retry_status {
+    if let Some(ref retry) = app.session_mgr.current().viewport_agent().retry_status {
         if has_content {
             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         }
@@ -430,7 +465,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 系统级提示（判定服务降级等运行态事实）
-    if let Some(ref notice) = app.session_mgr.current().agent.system_notice {
+    if let Some(ref notice) = app.session_mgr.current().viewport_agent().system_notice {
         if has_content {
             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         }
@@ -532,7 +567,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
     // LSP 诊断计数
     {
-        let agent = &app.session_mgr.current().agent;
+        let agent = app.session_mgr.current().viewport_agent();
         if agent.lsp_errors > 0 || agent.lsp_warnings > 0 {
             if has_content {
                 left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
@@ -562,7 +597,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
     // Cache/MEM（右侧快捷键前面）
     {
-        let tracker = &app.session_mgr.current().agent.session_token_tracker;
+        let tracker = &app.session_mgr.current().viewport_agent().session_token_tracker;
         let (cache_str, cache_color) = if tracker.last_usage.is_some() {
             let rate_pct = tracker.cache_hit_rate() * 100.0;
             let color = if rate_pct >= 80.0 {
@@ -729,7 +764,7 @@ fn context_usage_color(pct: f64) -> Color {
     }
 }
 
-fn format_token_count(n: u64) -> String {
+pub(crate) fn format_token_count(n: u64) -> String {
     if n >= 1_000_000 {
         let major = n / 1_000_000;
         let remainder = n % 1_000_000;

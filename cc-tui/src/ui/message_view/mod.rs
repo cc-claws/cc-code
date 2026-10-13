@@ -761,13 +761,20 @@ impl MessageViewModel {
                     .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
                 let raw_content = content.text_content();
                 // Agent 工具恢复为 SubAgentGroup（完成状态，展开显示 final_result）
-                if tool_name == "Agent" {
-                    let agent_id = input
+                if tool_name == "Agent" && input["action"].as_str().unwrap_or("spawn") == "spawn" {
+                    // fork 也是子 Agent（同样进抽屉、子视口、时间线分组），标签必须反映**真实**模式：
+                    // 只有 `subagent_type == "fork"` 或 `fork: true` 才写 "fork"；什么都没给（模型漏参
+                    // 导致调用失败）写 "unknown"。曾经无脑兜底成 "fork"，标题写着 `Agent(fork)`、
+                    // 下面却报 "please provide subagent_type parameter"（真机症状）。
+                    let explicit_type = input
                         .get("subagent_type")
                         .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or("fork")
-                        .to_string();
+                        .filter(|name| !name.is_empty());
+                    let is_fork_call = explicit_type == Some("fork")
+                        || input.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let agent_id = explicit_type
+                        .map(str::to_string)
+                        .unwrap_or_else(|| if is_fork_call { "fork".into() } else { "unknown".into() });
                     let task_preview = input["prompt"]
                         .as_str()
                         .unwrap_or("")

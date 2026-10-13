@@ -2,6 +2,7 @@
 //! Extracted from original acp_server.rs (2026-05-20 split).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::Value;
 use tracing::{debug, info};
@@ -159,7 +160,9 @@ pub(crate) async fn handle_request(
             let mut connected = Vec::new();
             for srv in servers {
                 if let Some(name) = srv.get("name").and_then(|v| v.as_str()) {
-                    state.mcp_over_acp_servers.insert(name.to_string(), srv.clone());
+                    state
+                        .mcp_over_acp_servers
+                        .insert(name.to_string(), srv.clone());
                     connected.push(name.to_string());
                 }
             }
@@ -249,10 +252,11 @@ pub(crate) async fn handle_request(
                     cwd: cwd.clone(),
                     history: Vec::new(),
                     cancel_token: None,
+                    background_registry: Arc::default(),
                     steering: None,
                     frozen: None,
                     recall_items: Vec::new(),
-                    agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                    agent_pool: Arc::default(),
                     approval_memory: cc_middlewares::hitl::ApprovalMemory::new(),
                     mcp_over_acp_servers: HashMap::new(),
                 },
@@ -289,10 +293,8 @@ pub(crate) async fn handle_request(
                 .models(models)
                 .config_options(config_options);
             // Scan skills for AvailableCommands
-            let skill_dirs = cc_middlewares::SkillsMiddleware::resolve_dirs_static(
-                &cwd,
-                &cfg.plugin_skill_dirs,
-            );
+            let skill_dirs =
+                cc_middlewares::SkillsMiddleware::resolve_dirs_static(&cwd, &cfg.plugin_skill_dirs);
             let skills = cc_middlewares::skills::list_skills(&skill_dirs);
             send_available_commands_update(transport, &session_id, &skills).await;
             serde_json::to_value(resp)
@@ -309,7 +311,7 @@ pub(crate) async fn handle_request(
             }
             // Model switch → invalidate cached LLM instances (Main Agent + SubAgent)
             if let Some(s) = sessions.get_mut(session_id) {
-                s.agent_pool.invalidate();
+                s.agent_pool.lock().invalidate();
             }
             persist_config(cfg);
             let resp = SetSessionModelResponse::new();
@@ -354,7 +356,7 @@ pub(crate) async fn handle_request(
                     }
                     // Model switch → invalidate cached LLM instances
                     if let Some(s) = sessions.get_mut(session_id) {
-                        s.agent_pool.invalidate();
+                        s.agent_pool.lock().invalidate();
                     }
                     persist_config(cfg);
                 }
@@ -430,12 +432,13 @@ pub(crate) async fn handle_request(
                         cwd: cwd.to_string(),
                         history,
                         cancel_token: None,
+                        background_registry: Arc::default(),
                         steering: None,
                         frozen: None,
                         recall_items: Vec::new(),
-                        agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                        agent_pool: Arc::default(),
                         approval_memory: cc_middlewares::hitl::ApprovalMemory::new(),
-                    mcp_over_acp_servers: HashMap::new(),
+                        mcp_over_acp_servers: HashMap::new(),
                     },
                 );
             }
@@ -470,10 +473,8 @@ pub(crate) async fn handle_request(
                 .models(models)
                 .config_options(config_options);
             // Scan skills for AvailableCommands (same as session/new)
-            let skill_dirs = cc_middlewares::SkillsMiddleware::resolve_dirs_static(
-                cwd,
-                &cfg.plugin_skill_dirs,
-            );
+            let skill_dirs =
+                cc_middlewares::SkillsMiddleware::resolve_dirs_static(cwd, &cfg.plugin_skill_dirs);
             let skills = cc_middlewares::skills::list_skills(&skill_dirs);
             send_available_commands_update(transport, req_session_id, &skills).await;
             serde_json::to_value(resp)
@@ -520,6 +521,7 @@ pub(crate) async fn handle_request(
                 .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
 
             if let Some(state) = sessions.remove(req_session_id) {
+                state.background_registry.cancel_all();
                 if let Some(ref token) = state.cancel_token {
                     token.cancel();
                 }
@@ -547,12 +549,13 @@ pub(crate) async fn handle_request(
                         cwd: cwd.to_string(),
                         history: Vec::new(),
                         cancel_token: None,
+                        background_registry: Arc::default(),
                         steering: None,
                         frozen: None,
                         recall_items: Vec::new(),
-                        agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                        agent_pool: Arc::default(),
                         approval_memory: cc_middlewares::hitl::ApprovalMemory::new(),
-                    mcp_over_acp_servers: HashMap::new(),
+                        mcp_over_acp_servers: HashMap::new(),
                     },
                 );
                 info!(session_id = %req_session_id, "Session resumed (new)");
@@ -607,10 +610,11 @@ pub(crate) async fn handle_request(
                     cwd: cwd.to_string(),
                     history: copied_history,
                     cancel_token: None,
+                    background_registry: Arc::default(),
                     steering: None,
                     frozen: None,
                     recall_items: Vec::new(),
-                    agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                    agent_pool: Arc::default(),
                     approval_memory: cc_middlewares::hitl::ApprovalMemory::new(),
                     mcp_over_acp_servers: HashMap::new(),
                 },
@@ -667,7 +671,7 @@ pub(crate) async fn handle_request(
 
             // Model switch → invalidate cached LLM instances (Main Agent + SubAgent)
             if let Some(s) = sessions.get_mut(session_id) {
-                s.agent_pool.invalidate();
+                s.agent_pool.lock().invalidate();
             }
 
             persist_config(cfg);

@@ -80,6 +80,19 @@ impl MappedEvent {
 /// `context_window` 是当前模型的上下文窗口大小（tokens），用于填充 UsageUpdate.size。
 pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent> {
     match event {
+        ExecutorEvent::SubagentEvent {
+            source_agent_id,
+            event,
+        } => {
+            let mut mapped = map_event(event, context_window);
+            for entry in &mut mapped {
+                // Nested agents keep their innermost routing identity.
+                if entry.source_agent_id.is_none() {
+                    entry.source_agent_id = Some(source_agent_id.clone());
+                }
+            }
+            mapped
+        }
         // ── Category ①: Full SessionUpdate ─────────────────────────────────────────
         ExecutorEvent::TextChunk {
             chunk,

@@ -10,7 +10,11 @@ use agent_client_protocol::schema::{
     ToolCallUpdateFields,
 };
 use agent_client_protocol::{Client, ConnectionTo};
+use cc_acp::session::subagent_protocol::{RoutedCancelNotification, RoutedPromptRequest};
 use cc_agent::messages::{BaseMessage, ContentBlock as PeriContentBlock, MessageContent};
+
+#[path = "acp_stdio_subagent.rs"]
+mod subagent;
 
 // ─── ACP Stdio 类型 ──────────────────────────────────────────────────────
 
@@ -21,10 +25,14 @@ struct SessionInfo {
     cwd: String,
     history: Vec<cc_agent::messages::BaseMessage>,
     cancel_token: Option<cc_agent::agent::AgentCancellationToken>,
+    background_registry: Arc<cc_middlewares::BackgroundTaskRegistry>,
     /// Frozen session data (built once at session/new).
     frozen: Option<cc_acp::session::executor::FrozenSessionData>,
     /// Session-scoped agent pool for LLM instance reuse.
-    agent_pool: cc_acp::session::agent_pool::AgentPool,
+    agent_pool: Arc<parking_lot::Mutex<cc_acp::session::agent_pool::AgentPool>>,
+    prompt_lock: Arc<tokio::sync::Mutex<()>>,
+    background_results:
+        Option<tokio::sync::mpsc::UnboundedSender<cc_agent::agent::events::BackgroundTaskResult>>,
 }
 
 struct StdioContext {
@@ -40,9 +48,7 @@ struct StdioContext {
     plugin_lsp_servers: Vec<cc_lsp::config::LspServerConfig>,
     tool_search_index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
     shared_tools: Arc<
-        parking_lot::RwLock<
-            std::collections::HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>,
-        >,
+        parking_lot::RwLock<std::collections::HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>>,
     >,
     sessions: parking_lot::RwLock<std::collections::HashMap<String, SessionInfo>>,
     thread_store: Arc<dyn cc_agent::thread::ThreadStore>,
@@ -100,7 +106,11 @@ impl AcpPermissionBroker {
     /// 发给客户端的四个标准选项
     fn permission_options() -> Vec<PermissionOption> {
         vec![
-            PermissionOption::new(Self::ALLOW_ONCE, "Allow once", PermissionOptionKind::AllowOnce),
+            PermissionOption::new(
+                Self::ALLOW_ONCE,
+                "Allow once",
+                PermissionOptionKind::AllowOnce,
+            ),
             PermissionOption::new(
                 Self::ALLOW_ALWAYS,
                 "Always allow",
@@ -363,10 +373,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 {
                     Ok(store) => Arc::new(store),
                     Err(e) => {
-                        tracing::warn!(
-                            "SQLite 持久化不可用（{}），降级为内存模式运行",
-                            e
-                        );
+                        tracing::warn!("SQLite 持久化不可用（{}），降级为内存模式运行", e);
                         Arc::new(
                             cc_tui::thread::SqliteThreadStore::new(":memory:")
                                 .await
@@ -410,12 +417,11 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
 
     use agent_client_protocol::{
         schema::{
-            AvailableCommandsUpdate, CancelNotification, CloseSessionRequest, CloseSessionResponse,
-            ConfigOptionUpdate, ForkSessionRequest, ForkSessionResponse, InitializeRequest,
-            ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
-            NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
-            ResumeSessionRequest, ResumeSessionResponse, SessionId, SessionInfoUpdate,
-            SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+            AvailableCommandsUpdate, CloseSessionRequest, CloseSessionResponse, ConfigOptionUpdate,
+            ForkSessionRequest, ForkSessionResponse, InitializeRequest, ListSessionsRequest,
+            ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
+            NewSessionResponse, PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
+            SessionId, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
             SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
             SetSessionModelRequest, SetSessionModelResponse, StopReason,
         },
@@ -424,15 +430,10 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
     use agent_client_protocol_tokio::Stdio;
     use cc_acp::{
         dispatch,
-        session::{
-            event_sink::StdioEventSink,
-            executor,
-            state_builders::{
-                apply_thinking_effort, build_mode_state, build_model_state, parse_permission_mode,
-            },
+        session::state_builders::{
+            apply_thinking_effort, build_mode_state, build_model_state, parse_permission_mode,
         },
     };
-    use cc_agent::agent::AgentCancellationToken;
 
     let ctx_clone = ctx.clone();
 
@@ -498,8 +499,11 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd: cwd_str,
                                 history: Vec::new(),
                                 cancel_token: None,
+                                background_registry: Arc::default(),
                                 frozen: Some(frozen_data),
-                                agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                                agent_pool: Arc::default(),
+                                prompt_lock: Arc::default(),
+                                background_results: None,
                             },
                         );
                     }
@@ -564,7 +568,22 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         .on_receive_request(
             {
                 let ctx = ctx_clone.clone();
-                async move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
+                async move |routed: RoutedPromptRequest, responder, cx: ConnectionTo<Client>| {
+                    let params = serde_json::to_value(&routed).unwrap_or_default();
+                    if cc_acp::session::subagent_protocol::target_thread_id(&params).is_some() {
+                        let result = {
+                            let sessions = ctx.sessions.read();
+                            sessions.get(routed.request.session_id.0.as_ref())
+                                .ok_or_else(|| cc_acp::transport::types::AcpError::new(-32602, "session not found"))
+                                .and_then(|session| cc_acp::session::subagent_protocol::enqueue_message(&session.background_registry, &params))
+                        };
+                        match result {
+                            Ok(_) => { let _ = responder.respond(PromptResponse::new(StopReason::EndTurn)); }
+                            Err(error) => { let _ = responder.respond_with_error(agent_client_protocol::Error::invalid_params().data(error.message)); }
+                        }
+                        return Ok(());
+                    }
+                    let req = routed.request;
                     let sid = req.session_id.0.to_string();
                     // Convert ACP SDK ContentBlocks to cc-agent MessageContent.
                     // Text / Image / ResourceLink / Resource 均有映射；未声明能力的类型
@@ -579,147 +598,13 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         }
                     };
 
-                    // --- capture session-scoped data under the read lock ---
-                    let (agent_cwd, history, is_empty_history, thread_id, frozen) = {
-                        let sessions = ctx.sessions.read();
-                        match sessions.get(&sid) {
-                            Some(s) => (
-                                s.cwd.clone(),
-                                s.history.clone(),
-                                s.history.is_empty(),
-                                s.thread_id.clone(),
-                                s.frozen.clone(),
-                            ),
-                            None => {
-                                // 未知会话必须报错，返回 EndTurn 会让客户端以为「已回复」。
-                                let _ = responder.respond_with_error(
-                                    agent_client_protocol::Error::invalid_params()
-                                        .data(format!("session not found: {sid}")),
-                                );
-                                return Ok(());
-                            }
-                        }
-                    };
-                    let history_len = history.len();
-
-                    let cancel = AgentCancellationToken::new();
-                    {
-                        let mut sessions = ctx.sessions.write();
-                        if let Some(s) = sessions.get_mut(&sid) {
-                            s.cancel_token = Some(cancel.clone());
-                        }
-                    }
-
-                    // Extract AgentPool from session for cross-prompt LLM reuse
-                    let pool_arc = {
-                        let mut sessions = ctx.sessions.write();
-                        let pool = sessions
-                            .get_mut(&sid)
-                            .map(|s| {
-                                std::mem::replace(
-                                    &mut s.agent_pool,
-                                    cc_acp::session::agent_pool::AgentPool::new(),
-                                )
-                            })
-                            .unwrap_or_default();
-                        Arc::new(parking_lot::Mutex::new(pool))
-                    };
-
-                    // --- capture everything the background task needs ---
                     let ctx_for_task = Arc::clone(&ctx);
-                    let cx_for_task = cx.clone();
-                    let session_id = req.session_id.clone();
-
-                    // Spawn the heavy work to keep the event loop responsive.
-                    // responder is moved into the task; the response is sent
-                    // when execution completes (or is cancelled).
                     tokio::spawn(async move {
-                        let broker: Arc<dyn cc_agent::interaction::UserInteractionBroker> =
-                            Arc::new(AcpPermissionBroker::new(
-                                cx_for_task.clone(),
-                                session_id.clone(),
-                            ));
-
-                        let event_sink = Arc::new(StdioEventSink::new(
-                            cx_for_task.clone(),
-                            session_id.clone(),
-                        ));
-                        let event_sink_for_notif = Arc::clone(&event_sink);
-
-                        // Snapshot provider / config (release guards before await).
-                        let provider_snapshot = ctx_for_task.provider.read().clone();
-                        let peri_config_snapshot = Arc::new(ctx_for_task.peri_config.read().clone());
-
-                        let result = executor::execute_prompt(
-                            &provider_snapshot,
-                            peri_config_snapshot,
-                            &agent_cwd,
-                            content,
-                            frozen,
-                            history,
-                            vec![], // incoming_recalls
-                            is_empty_history,
-                            ctx_for_task.permission_mode.clone(),
-                            cc_middlewares::hitl::ApprovalMemory::new(),
-                            event_sink,
-                            cancel,
-                            broker,
-                            None, // shell_executor（stdio 无 TUI shell 池，用 InlineShellExecutor）
-                            ctx_for_task.plugin_skill_dirs.clone(),
-                            ctx_for_task.plugin_agent_dirs.clone(),
-                            ctx_for_task.hook_groups.clone(),
-                            Some(ctx_for_task.cron_scheduler.clone()),
-                            sid.clone(),
-                            ctx_for_task.mcp_pool.clone(),
-                            ctx_for_task.channel_state.clone(),
-                            ctx_for_task.tool_search_index.clone(),
-                            ctx_for_task.shared_tools.clone(),
-                            ctx_for_task.plugin_lsp_servers.clone(),
-                            ctx_for_task.langfuse_session.clone(),
-                            pool_arc.clone(),
-                            Some(Arc::clone(&ctx_for_task.thread_store)),
-                            Some(thread_id.clone()),
-                            None, // session_manager（stdio 使用自定义 SessionInfo，不走 SessionManager）
-                            vec![], // bg_results（stdio 无后台任务）
-                            None, // steering（自定义 TUI 扩展，标准 ACP 暂不提供）
-                        )
-                        .await;
-
-                        // Restore AgentPool back into session
-                        if let Ok(mutex) = Arc::try_unwrap(pool_arc) {
-                            let mut sessions = ctx_for_task.sessions.write();
-                            if let Some(s) = sessions.get_mut(&sid) {
-                                s.agent_pool = mutex.into_inner();
-                            }
+                        let result = subagent::execute_turn(&ctx_for_task, cx, &sid, content, vec![]).await;
+                        match result {
+                            Ok(reason) => { let _ = responder.respond(PromptResponse::new(reason)); }
+                            Err(error) => { let _ = responder.respond_with_error(agent_client_protocol::Error::invalid_params().data(error)); }
                         }
-
-                        // Persist new messages to ThreadStore.
-                        if result.ok && history_len < result.messages.len() {
-                            let new_msgs = &result.messages[history_len..];
-                            if let Err(e) = ctx_for_task.thread_store.append_messages(&thread_id, new_msgs).await {
-                                tracing::warn!(error = %e, "Failed to persist messages to ThreadStore");
-                            }
-                        }
-                        // Update in-memory state.
-                        {
-                            let mut sessions = ctx_for_task.sessions.write();
-                            if let Some(s) = sessions.get_mut(&sid) {
-                                s.history = result.messages;
-                                s.cancel_token = None;
-                            }
-                        }
-
-                        let acp_stop_reason = match result.stop_reason {
-                            executor::PromptStopReason::Cancelled => StopReason::Cancelled,
-                            executor::PromptStopReason::MaxTurnRequests => StopReason::MaxTurnRequests,
-                            executor::PromptStopReason::EndTurn => StopReason::EndTurn,
-                        };
-                        let _ = responder.respond(PromptResponse::new(acp_stop_reason));
-
-                        // Send SessionInfoUpdate after prompt completes.
-                        let info = SessionInfoUpdate::new()
-                            .updated_at(chrono::Utc::now().to_rfc3339());
-                        event_sink_for_notif.send_update(SessionUpdate::SessionInfoUpdate(info));
                     });
 
                     // Return immediately — the event loop stays free to
@@ -769,7 +654,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         let sid = req.session_id.0.to_string();
                         let mut sessions = ctx.sessions.write();
                         if let Some(s) = sessions.get_mut(&sid) {
-                            s.agent_pool.invalidate();
+                            s.agent_pool.lock().invalidate();
                         }
                     }
                     let config_options = {
@@ -813,7 +698,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                         let sid = req.session_id.0.to_string();
                                         let mut sessions = ctx.sessions.write();
                                         if let Some(s) = sessions.get_mut(&sid) {
-                                            s.agent_pool.invalidate();
+                                            s.agent_pool.lock().invalidate();
                                         }
                                     }
                                 }
@@ -852,10 +737,17 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         .on_receive_notification(
             {
                 let ctx = ctx_clone.clone();
-                async move |_notif: CancelNotification, _cx| {
-                    let sid: &str = &_notif.session_id.0;
+                async move |notif: RoutedCancelNotification, _cx| {
+                    let params = serde_json::to_value(&notif).unwrap_or_default();
+                    let sid: &str = &notif.notification.session_id.0;
                     let sessions = ctx.sessions.read();
                     if let Some(s) = sessions.get(sid) {
+                        if let Some(target) = cc_acp::session::subagent_protocol::target_thread_id(&params) {
+                            if let Err(error) = cc_acp::session::subagent_protocol::cancel_target(&s.background_registry, target) {
+                                tracing::warn!(%error, target, "Child cancellation failed");
+                            }
+                            return Ok(());
+                        }
                         if let Some(ref token) = s.cancel_token {
                             token.cancel();
                             tracing::info!(session_id = %sid, "Cancel requested");
@@ -874,6 +766,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let sid = req.session_id.0.to_string();
                     let mut sessions = ctx.sessions.write();
                     if let Some(s) = sessions.remove(&sid) {
+                        s.background_registry.cancel_all();
                         if let Some(ref token) = s.cancel_token {
                             token.cancel();
                         }
@@ -915,8 +808,11 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd,
                                 history,
                                 cancel_token: None,
+                                background_registry: Arc::default(),
                                 frozen: Some(frozen_data),
-                                agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                                agent_pool: Arc::default(),
+                                prompt_lock: Arc::default(),
+                                background_results: None,
                             },
                         );
                         tracing::info!(session_id = %sid, "Session resumed (new)");
@@ -978,8 +874,11 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     cwd,
                                     history,
                                     cancel_token: None,
+                                    background_registry: Arc::default(),
                                     frozen: Some(frozen_data),
-                                    agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                                    agent_pool: Arc::default(),
+                                prompt_lock: Arc::default(),
+                                background_results: None,
                                 },
                             );
                         }
@@ -1094,8 +993,11 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 cwd: cwd_str,
                                 history: copied_history,
                                 cancel_token: None,
+                                background_registry: Arc::default(),
                                 frozen: Some(frozen_data),
-                                agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
+                                agent_pool: Arc::default(),
+                                prompt_lock: Arc::default(),
+                                background_results: None,
                             },
                         );
                     }
@@ -1156,7 +1058,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     if !session_id.is_empty() {
                         let mut sessions = ctx.sessions.write();
                         if let Some(s) = sessions.get_mut(&session_id) {
-                            s.agent_pool.invalidate();
+                            s.agent_pool.lock().invalidate();
                         }
                     }
 

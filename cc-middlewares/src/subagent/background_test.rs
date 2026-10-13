@@ -6,6 +6,23 @@
         (BackgroundTaskRegistry::new(tx), rx)
     }
 
+    fn make_snapshot(id: &str, status: BackgroundTaskStatus) -> BackgroundTaskSnapshot {
+        BackgroundTaskSnapshot {
+            task_id: id.to_string(),
+            instance_id: format!("{id}-inst"),
+            agent_name: "test-agent".to_string(),
+            task_preview: "preview".to_string(),
+            status,
+            elapsed_ms: 0,
+            total_steps: 0,
+            tokens_used: 0,
+            current_activity: String::new(),
+            model: None,
+            timeout_secs: None,
+            result: None,
+        }
+    }
+
     fn make_task(id: &str) -> BackgroundTask {
         BackgroundTask {
             id: id.to_string(),
@@ -85,4 +102,51 @@
         // 取消不存在的任务返回 Err
         let result = registry.cancel("nonexistent");
         assert!(result.is_err());
+    }
+
+    /// 回归：会话级 registry 的终态 runtime 必须有界，长会话不得累积完整输出。
+    #[tokio::test]
+    async fn test_terminal_runtimes_are_pruned_and_active_kept() {
+        let (registry, _rx) = make_registry();
+        let active = "bg-active";
+
+        // 先挂一个仍在运行的任务（模拟在途完成通知），再连续完成 40 个任务
+        for index in 0..40 {
+            let id = format!("bg-{index}");
+            registry
+                .attach_runtime(make_snapshot(&id, BackgroundTaskStatus::Running), AgentCancellationToken::new(), SteeringQueue::default());
+            registry.complete(
+                &id,
+                BackgroundTaskResult {
+                    task_id: id.clone(),
+                    agent_name: "test-agent".into(),
+                    prompt_summary: "preview".into(),
+                    success: true,
+                    output: "x".repeat(4096),
+                    tool_calls_count: 0,
+                    duration_ms: 1,
+                    child_thread_id: None,
+                },
+            );
+        }
+        registry.attach_runtime(
+            make_snapshot(active, BackgroundTaskStatus::Running),
+            AgentCancellationToken::new(),
+            SteeringQueue::default(),
+        );
+
+        let runtimes = registry.runtimes.lock();
+        let terminal = runtimes
+            .values()
+            .filter(|r| !matches!(r.snapshot.status, BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval))
+            .count();
+        assert!(
+            terminal <= 8,
+            "终态 runtime 应被裁剪到上限（实际 {terminal}，共 {}）",
+            runtimes.len()
+        );
+        assert!(
+            runtimes.contains_key(active),
+            "活跃任务的 runtime 不得被裁剪"
+        );
     }

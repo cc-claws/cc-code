@@ -22,6 +22,15 @@ pub(crate) fn handle_notification(
     if method == "session/cancel" {
         let session_id = extract_session_id(params, "");
         if let Some(state) = sessions.get(session_id) {
+            if let Some(target) = cc_acp::session::subagent_protocol::target_thread_id(params) {
+                if let Err(error) = cc_acp::session::subagent_protocol::cancel_target(
+                    &state.background_registry,
+                    target,
+                ) {
+                    tracing::warn!(%error, target, "Child cancellation failed");
+                }
+                return;
+            }
             if let Some(ref token) = state.cancel_token {
                 token.cancel();
                 info!(session_id = %session_id, "Cancel requested");

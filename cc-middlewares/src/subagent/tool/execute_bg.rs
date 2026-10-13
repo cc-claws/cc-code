@@ -1,509 +1,198 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
-
+use std::sync::Arc;
 use cc_agent::{
-    agent::{
-        events::{AgentEvent, AgentEventHandler}, react::AgentInput, state::AgentState, AgentCancellationToken,
-        BackgroundTaskResult, ReActAgent, State as _,
-    },
+    agent::{events::{AgentEvent, AgentEventHandler}, react::AgentInput, steering::SteeringQueue, AgentCancellationToken, BackgroundTaskResult},
     messages::BaseMessage,
-    thread::ThreadMeta,
 };
+use crate::{hooks::types::HookEvent, subagent::background::{BackgroundTask, BackgroundTaskSnapshot, BackgroundTaskStatus}};
+use super::fire_subagent_lifecycle_hooks_static;
 
-use crate::{
-    hooks::types::HookEvent,
-    subagent::{
-        background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus},
-        SubAgentMiddlewareConfig,
-    },
-};
-
-use super::{
-    build_agent::CancelPolicy, build_subagent_middlewares, fire_subagent_lifecycle_hooks_static,
-};
-
-/// 后台子代理轻量步骤进度处理器：
-/// 拦截 ToolStart 事件，通过独立通道发送轻量 SubagentProgress 进度更新，
-/// 供 TUI bg_agent_bar 实时展示 calls 计数，避免混入主视图造成状态栏或文本流污染。
-struct BgProgressHandler {
+/// 后台事件使用会话独立通道，主 prompt 退出后仍保留完整子线程输出。
+struct BackgroundEventHandler {
+    task_id: String,
     instance_id: String,
-    sender: tokio::sync::mpsc::UnboundedSender<AgentEvent>,
-    step_counter: AtomicUsize,
+    registry: Arc<crate::subagent::BackgroundTaskRegistry>,
+    sender: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
+    fallback: Option<Arc<dyn AgentEventHandler>>,
+}
+impl AgentEventHandler for BackgroundEventHandler {
+    fn on_event(&self, event: AgentEvent) {
+        self.registry.record_event(&self.task_id, &event);
+        let progress = self.progress_event(&event);
+        let event = AgentEvent::SubagentEvent { source_agent_id: self.instance_id.clone(), event: Box::new(event) };
+        if let Some(sender) = &self.sender {
+            // 进度先于该步事件发出，消费端（TUI 的 total_steps）才能与工具流同步。
+            if let Some(progress) = progress { let _ = sender.send(progress); }
+            let _ = sender.send(event);
+        } else if let Some(handler) = &self.fallback {
+            if let Some(progress) = progress { handler.on_event(progress); }
+            handler.on_event(event);
+        }
+    }
+
+    /// 包装型 handler 必须转述内部 handler 的载荷需求声明，但**只在事件真的会走
+    /// 内部 handler 时**才转述：`sender` 存在时事件被投进会话独立通道，
+    /// `fallback` 根本收不到，此时声明 `true` 只会让子执行器为每次 LLM 调用
+    /// 深拷贝整份历史（`cc-agent` 的 `llm_step`）——而下游（ACP mapper /
+    /// TransportEventSink）会丢弃 `LlmCallStart`，Langfuse 也只从**父**事件泵
+    /// 取样本，拿不到子 Agent 的载荷。所以那是一次纯浪费的 O(历史) 分配。
+    fn wants_llm_call_payload(&self) -> bool {
+        self.sender.is_none()
+            && self.fallback.as_ref().is_some_and(|handler| handler.wants_llm_call_payload())
+    }
 }
 
-impl AgentEventHandler for BgProgressHandler {
-    fn on_event(&self, event: AgentEvent) {
-        if matches!(event, AgentEvent::ToolStart { .. }) {
-            let next_step = self.step_counter.fetch_add(1, Ordering::Relaxed) + 1;
-            let _ = self.sender.send(AgentEvent::SubagentProgress {
-                instance_id: self.instance_id.clone(),
-                total_steps: next_step,
-            });
+impl BackgroundEventHandler {
+    /// ToolStart → 轻量 `SubagentProgress`（步数取自 registry 已累计的快照）。
+    ///
+    /// 基线由独立的 `BgProgressHandler` 发送；本 PR 合并事件处理器时漏掉了这一步，
+    /// 导致 `peri/subagent_lifecycle: progress` 契约与 `RunningBgAgent.total_steps`
+    /// 在生产路径上恒为 0（只有测试还覆盖着）。
+    fn progress_event(&self, event: &AgentEvent) -> Option<AgentEvent> {
+        if !matches!(event, AgentEvent::ToolStart { .. }) {
+            return None;
         }
+        let total_steps = self.registry.status(&self.task_id).ok()?.total_steps;
+        Some(AgentEvent::SubagentProgress {
+            instance_id: self.instance_id.clone(),
+            total_steps,
+        })
     }
 }
 
 impl super::SubAgentTool {
     pub(crate) async fn invoke_background(
-        &self,
-        prompt: String,
-        subagent_type: Option<String>,
-        cwd: String,
-        is_fork: bool,
+        &self, prompt: String, subagent_type: Option<String>, cwd: String, is_fork: bool,
+        timeout_secs: Option<u64>, description: Option<String>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let registry = self
-            .background_registry
-            .as_ref()
-            .ok_or("Background tasks not available: no registry configured")?;
-
-        if registry.active_count() >= 3 {
-            return Err("Error: maximum 3 concurrent background tasks reached. \
-                 Wait for a running task to complete before starting a new one."
-                .into());
-        }
-
+        // 先做入参校验，再做运行环境校验：漏参是模型的问题，应给出可操作的错误，
+        // 而不是被「本会话没有后台注册表」这类环境错误盖住。
+        let agent_name = if is_fork { "fork".to_string() } else {
+            subagent_type.ok_or("Error: subagent_type is required (or set fork: true for fork mode)")?
+        };
+        let parent_messages = if is_fork {
+            Some(self.parent_messages.as_ref().ok_or("Error: Fork path requires parent message history, but parent_messages is not set")?.read().clone())
+        } else { None };
+        // 入参侧校验全部前置（缺参 / agent 定义不存在），环境侧校验（注册表）放最后，
+        // 否则模型会拿到「没有后台注册表」这种它无法处理的错误。
+        let agent_def = self.load_agent_def(if is_fork { "general-purpose" } else { &agent_name }, &cwd)?;
+        let registry = self.background_registry.as_ref().ok_or(
+            "Error: sub-agents run in the background only, but no background registry is configured in this session",
+        )?;
+        let build = self.build_agent_from_def(&agent_def, &agent_name, &cwd, super::build_agent::AgentBuildOptions {
+            fork: is_fork,
+            // 记录分叉点：历史里能看出这条 fork 线程从父线程哪条消息长出来
+            snapshot_at_message_id: parent_messages
+                .as_ref()
+                .and_then(|messages| messages.last())
+                .map(|message| message.id().as_uuid().to_string()),
+        }).await?;
+        let thread_id = build.child_thread_id;
         let task_id = format!("bg-{}", uuid::Uuid::new_v4());
-
-        if is_fork {
-            return self
-                .invoke_background_fork(prompt, cwd, task_id, registry)
-                .await;
+        let cancel = build.cancel_token.unwrap_or_else(AgentCancellationToken::new);
+        let mailbox = SteeringQueue::default();
+        let model = agent_def.frontmatter.model.clone();
+        let preview = super::subagent_task_preview(description.as_deref(), &prompt);
+        let handler = Arc::new(BackgroundEventHandler {
+            task_id: task_id.clone(), instance_id: thread_id.clone(), registry: Arc::clone(registry),
+            sender: self.bg_event_sender.clone(), fallback: self.event_handler.clone(),
+        });
+        let agent = build.builder.with_steering(mailbox.clone()).with_event_handler(handler.clone());
+        let mut state = build.state;
+        if let Some(messages) = parent_messages {
+            // fork 的祖先消息仅作为模型上下文，不重复写入 child thread。
+            state.messages.extend(messages);
         }
-
-        let agent_id =
-            match &subagent_type {
-                Some(id) => id.clone(),
-                None => return Err(
-                    "Error: background mode requires subagent_type parameter (or use fork: true)"
-                        .into(),
+        let directive = if is_fork { crate::subagent::fork::build_fork_directive(&prompt) } else { prompt.clone() };
+        let snapshot = BackgroundTaskSnapshot {
+            task_id: task_id.clone(), instance_id: thread_id.clone(), agent_name: agent_name.clone(),
+            task_preview: preview.clone(), status: BackgroundTaskStatus::Running, elapsed_ms: 0,
+            total_steps: 0, tokens_used: 0, current_activity: preview.clone(), model: model.clone(), timeout_secs, result: None,
+        };
+        let spawn_registry = registry.clone();
+        let spawn_id = task_id.clone();
+        let spawn_thread = thread_id.clone();
+        let spawn_name = agent_name.clone();
+        let spawn_preview = preview.clone();
+        let spawn_cancel = cancel.clone();
+        let spawn_cwd = cwd.clone();
+        let store = self.thread_store.clone();
+        let hooks = self.registered_hooks.clone();
+        let sender = self.bg_event_sender.clone();
+        let fallback = self.event_handler.clone();
+        let deregister = self.deregister_runtime.clone();
+        // 先原子注册，再打开启动闸门；快速完成和并发抢槽不会生成幽灵任务。
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+        let handle = tokio::spawn(async move {
+            if start_rx.await.is_err() { return; }
+            let _guard = super::define::DeregisterGuard { thread_id: spawn_thread.clone(), deregister };
+            let start = std::time::Instant::now();
+            handler.on_event(AgentEvent::StateSnapshot(vec![BaseMessage::human(prompt)]));
+            // 执行体再包一层 task：子 Agent 内部 panic 会被 JoinError 捕获，从而仍能
+            // 走完「complete → 落库 → 发终态事件 → 触发 hook」。
+            // 不做这层保护的话，panic 会让注册表槽位永久占用（并发额度泄漏）、抽屉行
+            // 卡在 Running、`has_running_subagents()` 恒真导致主 Agent 自动续接被阻塞。
+            let execution = tokio::spawn(async move {
+                let outcome =
+                    super::execute_with_timeout(&agent, AgentInput::text(directive), &mut state, spawn_cancel, timeout_secs).await;
+                (outcome, state)
+            });
+            let (success, output, tool_calls_count) = match execution.await {
+                Ok((Ok(output), state)) => (
+                    true,
+                    output.text,
+                    state.messages.iter().filter(|m| matches!(m, BaseMessage::Tool { .. })).count(),
                 ),
+                Ok((Err(error), state)) => (
+                    false,
+                    error.to_string(),
+                    state.messages.iter().filter(|m| matches!(m, BaseMessage::Tool { .. })).count(),
+                ),
+                Err(join_error) => (false, format!("Sub-agent panicked: {join_error}"), 0),
             };
-
-        let agent_def = match self.load_agent_def(&agent_id, &cwd) {
-            Ok(a) => a,
-            Err(e) => return Err(e.into()),
-        };
-
-        let build_result = self
-            .build_agent_from_def(
-                &agent_def,
-                &agent_id,
-                &cwd,
-                CancelPolicy::Independent,
-                true,  // skip_events
-                false, // don't setup event handler
-            )
-            .await?;
-
-        let mut agent_builder = build_result.builder;
-        let agent_name = agent_id.clone();
-        let prompt_summary: String = prompt.chars().take(100).collect();
-
-        let spawn_task_id = task_id.clone();
-        let spawn_agent_name = agent_name.clone();
-        let spawn_prompt_summary = prompt_summary.clone();
-        let spawn_registry = Arc::clone(registry);
-        let spawn_hooks = Arc::clone(&self.registered_hooks);
-        let spawn_bg_sender = self.bg_event_sender.clone();
-
-        let bg_child_thread_id = build_result.child_thread_id.clone();
-        if let Some(ref sender) = spawn_bg_sender {
-            agent_builder = agent_builder.with_event_handler(Arc::new(BgProgressHandler {
-                instance_id: bg_child_thread_id.clone(),
-                sender: sender.clone(),
-                step_counter: AtomicUsize::new(0),
-            }));
-        }
-        let spawn_thread_store = self.thread_store.clone();
-        let spawn_child_thread_id = bg_child_thread_id.clone();
-        let spawn_deregister_runtime = self.deregister_runtime.clone();
-        let has_thread_store = self.thread_store.is_some();
-
-        // Register AgentRuntime before spawning
-        // Independent: child_cancel is NOT linked to parent. Only session-level cancel_all_agents cancels it.
-        // The same child_cancel is passed to execute() so cancel via active_agents map works.
-        let child_cancel = if has_thread_store {
-            if let Some(ref register) = self.register_runtime {
-                let cc = build_result
-                    .cancel_token
-                    .clone()
-                    .unwrap_or_else(AgentCancellationToken::new);
-                register(
-                    bg_child_thread_id.clone(),
-                    cc.clone(),
-                    "independent".to_string(),
-                );
-                Some(cc)
-            } else {
-                build_result.cancel_token.clone()
-            }
-        } else {
-            build_result.cancel_token.clone()
-        };
-        let cancel_token = child_cancel.or(self.cancel.clone());
-
-        self.fire_subagent_lifecycle_hook(HookEvent::SubagentStart, &cwd, &agent_name, None)
-            .await;
-
-        let handle = tokio::spawn(async move {
-            let mut state = if let Some(ref store) = spawn_thread_store {
-                AgentState::new(&cwd)
-                    .with_persistence(Arc::clone(store), spawn_child_thread_id.clone())
-            } else {
-                AgentState::new(&cwd)
-            }
-            .with_context("source_agent_id", spawn_child_thread_id.clone());
-            let start = std::time::Instant::now();
-
-            let result = match agent_builder
-                .execute(AgentInput::text(&prompt), &mut state, cancel_token)
-                .await
-            {
-                Ok(output) => {
-                    let tool_calls_count = state
-                        .messages
-                        .iter()
-                        .filter(|m| matches!(m, BaseMessage::Tool { .. }))
-                        .count();
-                    BackgroundTaskResult {
-                        task_id: spawn_task_id.clone(),
-                        agent_name: spawn_agent_name.clone(),
-                        prompt_summary: spawn_prompt_summary.clone(),
-                        success: true,
-                        output: output.text,
-                        tool_calls_count,
-                        duration_ms: start.elapsed().as_millis() as u64,
-                        child_thread_id: Some(spawn_child_thread_id.clone()),
-                    }
-                }
-                Err(e) => BackgroundTaskResult {
-                    task_id: spawn_task_id.clone(),
-                    agent_name: spawn_agent_name.clone(),
-                    prompt_summary: spawn_prompt_summary.clone(),
-                    success: false,
-                    output: e.to_string(),
-                    tool_calls_count: 0,
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    child_thread_id: Some(spawn_child_thread_id.clone()),
-                },
+            let result = BackgroundTaskResult {
+                task_id: spawn_id.clone(), agent_name: spawn_name.clone(), prompt_summary: spawn_preview,
+                success, output, tool_calls_count,
+                duration_ms: start.elapsed().as_millis() as u64, child_thread_id: Some(spawn_thread.clone()),
             };
-
-            // Update child thread status
-            if let Some(ref store) = spawn_thread_store {
-                let status = if result.success { "done" } else { "error" };
-                let _ = store
-                    .update_thread_status(&spawn_child_thread_id, status)
-                    .await;
+            spawn_registry.complete(&spawn_id, result.clone());
+            if let Some(store) = store {
+                let stopped = spawn_registry.status(&spawn_id).is_ok_and(|s| s.status == BackgroundTaskStatus::Stopped);
+                let _ = store.update_thread_status(&spawn_thread, if success { "done" } else if stopped { "cancelled" } else { "error" }).await;
             }
-
-            spawn_registry.complete(&spawn_task_id, result.clone());
-
-            fire_subagent_lifecycle_hooks_static(
-                &spawn_hooks,
-                HookEvent::SubagentStop,
-                &cwd,
-                &spawn_agent_name,
-                Some(&result.output),
-            )
-            .await;
-
-            // 通过独立通道发送完成事件（不依赖 event_tx，不受 close_channel 影响）
-            if let Some(ref sender) = spawn_bg_sender {
-                tracing::info!(
-                    task_id = %spawn_task_id,
-                    agent_name = %spawn_agent_name,
-                    success = result.success,
-                    "[bg-diag] bg-task sending BackgroundTaskCompleted via bg_event_tx"
-                );
-                let _ = sender.send(AgentEvent::BackgroundTaskCompleted(result));
-            } else {
-                tracing::warn!(
-                    task_id = %spawn_task_id,
-                    agent_name = %spawn_agent_name,
-                    "[bg-diag] bg-task spawn_bg_sender is None — NOT sent"
-                );
+            let stopped = AgentEvent::SubagentStopped { agent_name: spawn_name.clone(), instance_id: spawn_thread,
+                result: result.output.clone(), is_error: !success, elapsed_ms: result.duration_ms };
+            if let Some(sender) = &sender {
+                let _ = sender.send(stopped);
+                let _ = sender.send(AgentEvent::BackgroundTaskCompleted(result.clone()));
+            } else if let Some(handler) = fallback {
+                handler.on_event(stopped);
+                handler.on_event(AgentEvent::BackgroundTaskCompleted(result.clone()));
             }
-
-            // Deregister AgentRuntime after execution completes
-            if let Some(ref deregister) = spawn_deregister_runtime {
-                if has_thread_store {
-                    deregister(&spawn_child_thread_id);
-                }
-            }
+            fire_subagent_lifecycle_hooks_static(&hooks, HookEvent::SubagentStop, &spawn_cwd, &spawn_name, Some(&result.output)).await;
         });
-
-        registry.register(BackgroundTask {
-            id: task_id.clone(),
-            agent_name: agent_name.clone(),
-            prompt_summary: prompt_summary.clone(),
-            status: BackgroundTaskStatus::Running,
-            started_at: std::time::Instant::now(),
-            abort_handle: handle,
-        })?;
-
-        // 通知 TUI background agent 启动（递增 background_task_count）。
-        // 必须在 registry.register() 成功之后发送，防止注册失败留下幽灵计数。
-        tracing::info!(
-            task_id = %task_id,
-            child_thread_id = %bg_child_thread_id,
-            agent_name = %agent_name,
-            "[bg-diag] background agent started"
-        );
-        if let Some(ref handler) = self.event_handler {
-            handler.on_event(AgentEvent::SubagentStarted {
-                agent_name: agent_name.clone(),
-                instance_id: bg_child_thread_id.clone(),
-                is_background: true,
-            });
-        }
-
-        if self.thread_store.is_some() {
-            Ok(format!(
-                "Background task {} started (thread: {}). You will be notified when it completes.                  You can continue with other tasks in the meantime.",
-                task_id, bg_child_thread_id
-            ))
-        } else {
-            Ok(format!(
-                "Background task {} started. You will be notified when it completes.                  You can continue with other tasks in the meantime.",
-                task_id
-            ))
-        }
-    }
-
-    pub(crate) async fn invoke_background_fork(
-        &self,
-        prompt: String,
-        cwd: String,
-        task_id: String,
-        registry: &Arc<BackgroundTaskRegistry>,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let agent_name = "fork".to_string();
-        let prompt_summary: String = prompt.chars().take(100).collect();
-        let fork_directive = crate::subagent::fork::build_fork_directive(&prompt);
-
-        let parent_msgs: Vec<BaseMessage> = match &self.parent_messages {
-            Some(pm) => pm.read().clone(),
-            None => return Err(
-                "Error: Fork path requires parent message history, but parent_messages is not set"
-                    .into(),
-            ),
-        };
-
-        // Create child thread for background fork
-        let bg_fork_child_thread_id = uuid::Uuid::now_v7().to_string();
-        if let Some(ref store) = self.thread_store {
-            let snapshot_id = parent_msgs.last().map(|m| m.id().as_uuid().to_string());
-            let mut child_meta = ThreadMeta::new(&cwd);
-            child_meta.id = bg_fork_child_thread_id.clone();
-            child_meta.parent_thread_id = self.parent_thread_id.clone();
-            child_meta.snapshot_at_message_id = snapshot_id;
-            child_meta.hidden = true;
-            child_meta.cancel_policy = "independent".to_string();
-            child_meta.title = Some(format!("bg-fork-{}", task_id));
-            store
-                .create_thread(child_meta)
-                .await
-                .map_err(|e| format!("Failed to create child thread: {}", e))?;
-        }
-
-        let llm = (self.llm_factory)(None);
-        let mut agent_builder = ReActAgent::new(llm).max_iterations(200);
-        for mw in build_subagent_middlewares(
-            self.permission_config(
-                SubAgentMiddlewareConfig::for_fork(&cwd)
-                    .with_inherited_instructions(self.inherited_instructions.clone()),
-                &crate::claude_agent_parser::ToolsValue::Empty,
-                &crate::claude_agent_parser::ToolsValue::Empty,
-            ),
-        ) {
-            agent_builder = agent_builder.add_middleware(mw);
-        }
-
-        if let Some(ref builder) = self.system_builder {
-            let system_content = builder(None, &cwd);
-            agent_builder = agent_builder.with_system_prompt(system_content);
-        }
-
-        for tool in self.filter_tools(
-            &crate::claude_agent_parser::ToolsValue::Empty,
-            &crate::claude_agent_parser::ToolsValue::Empty,
-        ) {
-            agent_builder = agent_builder.register_tool(tool);
-        }
-
-        let spawn_registry = Arc::clone(registry);
-        let spawn_hooks = Arc::clone(&self.registered_hooks);
-        let spawn_bg_sender = self.bg_event_sender.clone();
-        let spawn_task_id = task_id.clone();
-        let spawn_agent_name = agent_name.clone();
-        let spawn_prompt_summary = prompt_summary.clone();
-        let spawn_thread_store = self.thread_store.clone();
-        let spawn_child_thread_id = bg_fork_child_thread_id.clone();
-        if let Some(ref sender) = spawn_bg_sender {
-            agent_builder = agent_builder.with_event_handler(Arc::new(BgProgressHandler {
-                instance_id: bg_fork_child_thread_id.clone(),
-                sender: sender.clone(),
-                step_counter: AtomicUsize::new(0),
-            }));
-        }
-        let spawn_deregister_runtime = self.deregister_runtime.clone();
-        let has_thread_store = self.thread_store.is_some();
-
-        // Register AgentRuntime before spawning
-        // Independent: child_cancel is NOT linked to parent. Only session-level cancel_all_agents cancels it.
-        // The same child_cancel is passed to execute() so cancel via active_agents map works.
-        let child_cancel = if has_thread_store {
-            if let Some(ref register) = self.register_runtime {
-                let cc = AgentCancellationToken::new();
-                register(
-                    bg_fork_child_thread_id.clone(),
-                    cc.clone(),
-                    "independent".to_string(),
-                );
-                Some(cc)
-            } else {
-                None
+        if let Err(error) = registry.register(BackgroundTask { id: task_id.clone(), agent_name: agent_name.clone(), prompt_summary: preview.clone(),
+            status: BackgroundTaskStatus::Running, started_at: std::time::Instant::now(), abort_handle: handle }) {
+            // 并发闸拒绝：子线程已在上面的构建设档阶段创建，不清理就会在 DB 里留下
+            // 永久 "running" 的隐藏行（既查不到也清不掉）。注册失败即视为该次委派失败。
+            if let Some(store) = &self.thread_store {
+                let _ = store.update_thread_status(&thread_id, "error").await;
             }
-        } else {
-            None
-        };
-        let cancel_token = child_cancel.or(self.cancel.clone());
-
-        self.fire_subagent_lifecycle_hook(HookEvent::SubagentStart, &cwd, &agent_name, None)
-            .await;
-
-        let handle = tokio::spawn(async move {
-            let mut fork_state = if let Some(ref store) = spawn_thread_store {
-                AgentState::new(&cwd)
-                    .with_persistence(Arc::clone(store), spawn_child_thread_id.clone())
-            } else {
-                AgentState::new(&cwd)
-            }
-            .with_context("source_agent_id", spawn_child_thread_id.clone());
-            // Inject parent messages for immediate execution
-            for msg in parent_msgs {
-                fork_state.add_message(msg);
-            }
-            let start = std::time::Instant::now();
-
-            let result = match agent_builder
-                .execute(
-                    AgentInput::text(&fork_directive),
-                    &mut fork_state,
-                    cancel_token,
-                )
-                .await
-            {
-                Ok(output) => {
-                    let tool_calls_count = fork_state
-                        .messages
-                        .iter()
-                        .filter(|m| matches!(m, BaseMessage::Tool { .. }))
-                        .count();
-                    BackgroundTaskResult {
-                        task_id: spawn_task_id.clone(),
-                        agent_name: spawn_agent_name.clone(),
-                        prompt_summary: spawn_prompt_summary.clone(),
-                        success: true,
-                        output: output.text,
-                        tool_calls_count,
-                        duration_ms: start.elapsed().as_millis() as u64,
-                        child_thread_id: Some(spawn_child_thread_id.clone()),
-                    }
-                }
-                Err(e) => BackgroundTaskResult {
-                    task_id: spawn_task_id.clone(),
-                    agent_name: spawn_agent_name.clone(),
-                    prompt_summary: spawn_prompt_summary.clone(),
-                    success: false,
-                    output: e.to_string(),
-                    tool_calls_count: 0,
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    child_thread_id: Some(spawn_child_thread_id.clone()),
-                },
-            };
-
-            // Update child thread status
-            if let Some(ref store) = spawn_thread_store {
-                let status = if result.success { "done" } else { "error" };
-                let _ = store
-                    .update_thread_status(&spawn_child_thread_id, status)
-                    .await;
-            }
-
-            spawn_registry.complete(&spawn_task_id, result.clone());
-
-            fire_subagent_lifecycle_hooks_static(
-                &spawn_hooks,
-                HookEvent::SubagentStop,
-                &cwd,
-                &spawn_agent_name,
-                Some(&result.output),
-            )
-            .await;
-
-            // 通过独立通道发送完成事件（不依赖 event_tx，不受 close_channel 影响）
-            if let Some(ref sender) = spawn_bg_sender {
-                tracing::info!(
-                    task_id = %spawn_task_id,
-                    agent_name = %spawn_agent_name,
-                    success = result.success,
-                    "[bg-diag] bg-task sending BackgroundTaskCompleted via bg_event_tx"
-                );
-                let _ = sender.send(AgentEvent::BackgroundTaskCompleted(result));
-            } else {
-                tracing::warn!(
-                    task_id = %spawn_task_id,
-                    agent_name = %spawn_agent_name,
-                    "[bg-diag] bg-task spawn_bg_sender is None — NOT sent"
-                );
-            }
-
-            // Deregister AgentRuntime after execution completes
-            if let Some(ref deregister) = spawn_deregister_runtime {
-                if has_thread_store {
-                    deregister(&spawn_child_thread_id);
-                }
-            }
-        });
-
-        registry.register(BackgroundTask {
-            id: task_id.clone(),
-            agent_name: agent_name.clone(),
-            prompt_summary: prompt_summary.clone(),
-            status: BackgroundTaskStatus::Running,
-            started_at: std::time::Instant::now(),
-            abort_handle: handle,
-        })?;
-
-        // 通知 TUI background agent 启动（递增 background_task_count）。
-        // 必须在 registry.register() 成功之后发送，防止注册失败留下幽灵计数。
-        tracing::info!(
-            task_id = %task_id,
-            child_thread_id = %bg_fork_child_thread_id,
-            agent_name = %agent_name,
-            "[bg-diag] background agent started"
-        );
-        if let Some(ref handler) = self.event_handler {
-            handler.on_event(AgentEvent::SubagentStarted {
-                agent_name: agent_name.clone(),
-                instance_id: bg_fork_child_thread_id.clone(),
-                is_background: true,
-            });
+            return Err(error.into());
         }
-
-        if self.thread_store.is_some() {
-            Ok(format!(
-                "Background task {} started (thread: {}). You will be notified when it completes.                  You can continue with other tasks in the meantime.",
-                task_id, bg_fork_child_thread_id
-            ))
-        } else {
-            Ok(format!(
-                "Background task {} started. You will be notified when it completes.                  You can continue with other tasks in the meantime.",
-                task_id
-            ))
-        }
+        registry.attach_runtime(snapshot, cancel.clone(), mailbox);
+        if let Some(register) = &self.register_runtime { register(thread_id.clone(), cancel, "independent".into()); }
+        let started = AgentEvent::SubagentStarted { agent_name: agent_name.clone(), instance_id: thread_id.clone(), is_background: true,
+            task_preview: preview, timeout_secs, model };
+        // 与过程事件同一发送通道，开始事件必定排在首个增量之前。
+        if let Some(sender) = &self.bg_event_sender { let _ = sender.send(started); }
+        else if let Some(handler) = &self.event_handler { handler.on_event(started); }
+        // SubagentStart hook：原先只在前台同步路径触发，后台任务漏了（前台已移除）
+        fire_subagent_lifecycle_hooks_static(&self.registered_hooks, HookEvent::SubagentStart, &cwd, &agent_name, None).await;
+        let _ = start_tx.send(());
+        // 只描述**真实存在**的管理方式：本工具没有 action/task_id 参数（曾经的提示让模型
+        // 去调 `Agent(action="cancel")`，而 schema 里根本没有该参数，模型照做只会报错）。
+        Ok(format!(
+            "Background task {task_id} started (thread: {thread_id}). You will be notified when it completes; keep working on other tasks in the meantime. The task is tracked in the bottom drawer, where the user can stop one (x) or all (ctrl+x ctrl+k)."
+        ))
     }
 }

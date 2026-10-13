@@ -72,6 +72,11 @@ pub enum NoticeLevel {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum AgentEvent {
+    /// 子线程事件信封。新增过程事件自动保留来源，不得解包后送进父线程。
+    SubagentEvent {
+        source_agent_id: String,
+        event: Box<AgentEvent>,
+    },
     /// AI 推理内容（reasoning/思考过程）
     AiReasoning(String),
     /// LLM 输出最终文字（非流式，整段答案），携带所属 AI 消息的 message_id
@@ -149,6 +154,12 @@ pub enum AgentEvent {
         instance_id: String,
         /// 是否为后台模式（run_in_background）
         is_background: bool,
+        #[serde(default)]
+        task_preview: String,
+        #[serde(default)]
+        timeout_secs: Option<u64>,
+        #[serde(default)]
+        model: Option<String>,
     },
     /// 子 agent 执行完成
     SubagentStopped {
@@ -157,6 +168,8 @@ pub enum AgentEvent {
         is_error: bool,
         /// 唯一实例标识符
         instance_id: String,
+        #[serde(default)]
+        elapsed_ms: u64,
     },
     /// 子 agent 进度增量事件（用于后台 agent 步数同步）
     SubagentProgress {

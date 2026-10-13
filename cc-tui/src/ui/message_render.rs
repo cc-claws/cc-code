@@ -17,10 +17,13 @@ const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manag
 
 /// 把秒数格式化为人类可读时长，供 Bash 运行状态行「已运行」与「超时期限」共用。
 ///
-/// ≥60s 一律以分钟开头（整分钟省略秒，否则 `m ss`），<60s 直接写秒数。
+/// ≥3600s 显示小时，≥60s 显示分钟，<60s 直接写秒数。
 /// 统一口径避免同一行出现「已运行 9m 20s、期限却显示 560s」这类两种风格。
 fn humanize_secs(secs: u64) -> String {
-    if secs >= 60 {
+    if secs >= 3600 {
+        let (hours, minutes) = (secs / 3600, secs % 3600 / 60);
+        if minutes == 0 { format!("{hours}h") } else { format!("{hours}h {minutes}m") }
+    } else if secs >= 60 {
         let (minutes, rest) = (secs / 60, secs % 60);
         if rest == 0 {
             format!("{minutes}m")
@@ -36,7 +39,7 @@ fn humanize_secs(secs: u64) -> String {
 ///
 /// 不足 1 分钟的期限保留原有精度：整千毫秒写 `Ns`，否则写原始毫秒。
 fn shell_timeout_text(timeout_ms: Option<u64>) -> Option<String> {
-    timeout_ms.map(|ms| {
+    timeout_ms.filter(|ms| *ms > 0).map(|ms| {
         let limit = if ms >= 60_000 {
             humanize_secs(ms / 1_000)
         } else if ms.is_multiple_of(1_000) {
@@ -515,6 +518,23 @@ fn push_wrapped_line_keep_lead(
 
 /// 便捷包装：单一样式的纯文本行（先做终端转义清理）预折行，续行固定 4 列悬挂缩进，
 /// 并保留原行的前导空白缩进。
+/// 识别「后台子 Agent 启动摘要」的树形行（`  ├── 任务` / `  └── 任务`）。
+///
+/// 返回 (缩进, 分支前缀, 正文)——分支前缀含字形与虚线（如 `├── `），逐段着色；
+/// 不是树形行时返回 None，由调用方的通用分支处理。
+fn split_tree_row(line: &str) -> Option<(&str, &str, &str)> {
+    let trimmed = line.trim_start();
+    let indent = &line[..line.len() - trimmed.len()];
+    let glyph = trimmed.chars().next()?;
+    if glyph != '├' && glyph != '└' {
+        return None;
+    }
+    let prefix_len = trimmed
+        .find(|c: char| !matches!(c, '├' | '└' | '─' | ' '))
+        .unwrap_or(trimmed.len());
+    Some((indent, &trimmed[..prefix_len], &trimmed[prefix_len..]))
+}
+
 fn push_prefixed_text(
     out: &mut Vec<Line<'static>>,
     text: &str,
@@ -1623,10 +1643,20 @@ pub fn render_view_model_with_links(
         } => {
             let mut lines: Vec<Line<'static>> = Vec::new();
 
-            // 状态指示器颜色（对齐 Claude Hub）
-            let indicator_icon = if *is_running { "◐" } else { "✓" };
+            // 状态指示器颜色（对齐 Claude Hub）。
+            // 完成但报错的子 Agent 必须显示 `✗` + 红色：否则会出现
+            // `✓ Agent(...)` 紧跟 `⎿ Error: …` 的自相矛盾画面（真机症状）。
+            let indicator_icon = if *is_running {
+                "◐"
+            } else if *is_error {
+                "✗"
+            } else {
+                "✓"
+            };
             let indicator_color = if *is_running {
                 theme::YELLOW
+            } else if *is_error {
+                theme::ERROR
             } else {
                 theme::SAGE
             };
@@ -1808,6 +1838,43 @@ pub fn render_view_model_with_links(
                         "",
                         "  ",
                         Style::default().fg(theme::MUTED),
+                        width.saturating_sub(2).max(20),
+                    );
+                } else if let Some((indent, branch, text)) = split_tree_row(line) {
+                    // 后台子 Agent 启动摘要的树形行：保留自身缩进与 `├──` 分支、**不再注入
+                    // `· ` 前缀**，让字形与标题文字同列（对齐 docs/subagent-mock.html）。
+                    let row = Line::from(vec![
+                        Span::styled(indent.to_string(), Style::default().fg(theme::DIM)),
+                        Span::styled(branch.to_string(), Style::default().fg(theme::DIM)),
+                        Span::styled(
+                            sanitize_display_text(text),
+                            Style::default().fg(theme::TEXT_SOFT),
+                        ),
+                    ]);
+                    push_wrapped_line_keep_lead(
+                        &mut lines,
+                        row,
+                        "",
+                        "    ",
+                        Style::default().fg(theme::DIM),
+                        width.saturating_sub(4).max(20),
+                    );
+                } else if let Some(rest) = line.strip_prefix('•') {
+                    // 行内已自带 `•`（启动摘要标题 / 子 Agent 完成行）：直接渲染该标记，
+                    // 否则会出现 `· • …` 双标记，整块缩进也跟着错位。
+                    let row = Line::from(vec![
+                        Span::styled("• ", Style::default().fg(theme::SAGE)),
+                        Span::styled(
+                            sanitize_display_text(rest.trim_start()),
+                            Style::default().fg(theme::TEXT_SOFT),
+                        ),
+                    ]);
+                    push_wrapped_line_keep_lead(
+                        &mut lines,
+                        row,
+                        "",
+                        "  ",
+                        Style::default().fg(theme::DIM),
                         width.saturating_sub(2).max(20),
                     );
                 } else {

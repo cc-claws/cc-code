@@ -55,6 +55,9 @@ fn test_subagent_started_serde_roundtrip() {
         agent_name: "test-agent".to_string(),
         instance_id: "sub_test123".to_string(),
         is_background: false,
+        task_preview: "preview".to_string(),
+        timeout_secs: None,
+        model: None,
     };
     let json = serde_json::to_string(&ev).unwrap();
     assert!(json.contains(r#""type":"subagent_started""#));
@@ -65,6 +68,7 @@ fn test_subagent_started_serde_roundtrip() {
         agent_name,
         instance_id,
         is_background,
+        ..
     } = deserialized
     {
         assert_eq!(agent_name, "test-agent");
@@ -82,6 +86,7 @@ fn test_subagent_stopped_serde_roundtrip() {
         result: "done".to_string(),
         is_error: false,
         instance_id: "sub_test456".to_string(),
+        elapsed_ms: 1234,
     };
     let json = serde_json::to_string(&ev).unwrap();
     assert!(json.contains(r#""type":"subagent_stopped""#));
@@ -91,12 +96,14 @@ fn test_subagent_stopped_serde_roundtrip() {
         result,
         is_error,
         instance_id,
+        elapsed_ms,
     } = deserialized
     {
         assert_eq!(agent_name, "test-agent");
         assert_eq!(result, "done");
         assert!(!is_error);
         assert_eq!(instance_id, "sub_test456");
+        assert_eq!(elapsed_ms, 1234);
     } else {
         panic!("Deserialized to wrong variant");
     }

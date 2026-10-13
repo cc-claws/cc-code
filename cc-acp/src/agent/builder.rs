@@ -109,6 +109,8 @@ pub struct AcpAgentConfig {
     pub register_runtime: Option<RegisterRuntimeFn>,
     /// Deregister callback: called when a child agent finishes.
     pub deregister_runtime: Option<DeregisterRuntimeFn>,
+    /// Session-owned registry keeps child control available between prompts.
+    pub background_registry: Option<Arc<cc_middlewares::BackgroundTaskRegistry>>,
 }
 
 pub struct AcpAgentOutput {
@@ -172,6 +174,7 @@ pub fn build_agent(
         parent_thread_id,
         register_runtime,
         deregister_runtime,
+        background_registry,
     } = cfg;
 
     // TerminalMiddleware：注入 shell_executor（None = InlineShellExecutor，保持原行为）。
@@ -390,9 +393,8 @@ pub fn build_agent(
 
     // 后台任务通知通道
     let (bg_notification_tx, bg_notification_rx) = tokio::sync::mpsc::unbounded_channel();
-    let background_registry = Arc::new(cc_middlewares::BackgroundTaskRegistry::new(
-        bg_notification_tx,
-    ));
+    let background_registry = background_registry.unwrap_or_default();
+    background_registry.set_notification_sender(bg_notification_tx);
 
     // 后台任务完成事件的独立通道（不随 executor 生命周期销毁）
     let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::unbounded_channel();

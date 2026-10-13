@@ -1062,6 +1062,19 @@
             content_hash: 0,
         };
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
+        // 完成但报错 → 指示器必须是 ✗ + 红色，否则会出现
+        // `✓ Agent(...)` 紧跟 `⎿ Error: …` 的自相矛盾画面（真机症状）。
+        let indicator = lines.first().and_then(|l| l.spans.first());
+        assert_eq!(
+            indicator.map(|s| s.content.as_ref()),
+            Some("✗ "),
+            "报错的子 Agent 分组指示器应为 ✗"
+        );
+        assert_eq!(
+            indicator.and_then(|s| s.style.fg),
+            Some(crate::ui::theme::ERROR),
+            "报错的子 Agent 分组指示器应为红色"
+        );
         let title_color = lines
             .first()
             .and_then(|l| l.spans.get(1).and_then(|s| s.style.fg));

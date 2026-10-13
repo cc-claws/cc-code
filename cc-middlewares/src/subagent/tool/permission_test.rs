@@ -777,9 +777,9 @@ impl ReactLLM for MockToolCallingModel {
     }
 }
 
+/// 生产只有后台模式：这里启动后台子 Agent 并等它完成，返回被授权工具的实际执行次数。
 async fn make_execution_count(
     fork: bool,
-    background: bool,
     permissions: Option<Arc<HumanInTheLoopMiddleware>>,
 ) -> usize {
     let dir = tempfile::tempdir().unwrap();
@@ -807,30 +807,27 @@ async fn make_execution_count(
     if let Some(permissions) = permissions {
         tool = tool.with_permissions(permissions);
     }
-    let result = tool.invoke(json!({"subagent_type":"general-purpose","prompt":"test permissions","fork":fork,"run_in_background":background})).await;
+    let result = tool
+        .invoke(json!({"subagent_type":"general-purpose","prompt":"test permissions","fork":fork}))
+        .await;
+    assert!(result.is_ok(), "路径构造不应失败: fork={fork}: {result:?}");
     assert!(
-        result.is_ok(),
-        "路径构造不应失败: fork={fork}, background={background}: {result:?}"
+        matches!(
+            tokio::time::timeout(Duration::from_secs(5), receiver.recv()).await,
+            Ok(Some(_))
+        ),
+        "后台应完成且不等待审批: fork={fork}"
     );
-    if background {
-        assert!(
-            matches!(
-                tokio::time::timeout(Duration::from_secs(3), receiver.recv()).await,
-                Ok(Some(_))
-            ),
-            "后台应完成且不等待审批"
-        );
-    }
     calls.load(Ordering::Relaxed)
 }
 
 #[tokio::test]
 async fn test_all_child_execution_paths_enforce_default_auto_permissions() {
-    for (fork, background) in [(false, false), (true, false), (false, true), (true, true)] {
+    for fork in [false, true] {
         assert_eq!(
-            make_execution_count(fork, background, None).await,
+            make_execution_count(fork, None).await,
             0,
-            "默认未授权工具不应执行: fork={fork}, background={background}"
+            "默认未授权工具不应执行: fork={fork}"
         );
     }
 }
@@ -839,11 +836,11 @@ async fn test_all_child_execution_paths_enforce_default_auto_permissions() {
 async fn test_all_child_execution_paths_preserve_parent_auto_allow() {
     let (parent, broker, _) = make_parent(Some(Classification::Allow), None);
     let permissions = Arc::new(parent.for_subagent());
-    for (fork, background) in [(false, false), (true, false), (false, true), (true, true)] {
+    for fork in [false, true] {
         assert_eq!(
-            make_execution_count(fork, background, Some(permissions.clone())).await,
+            make_execution_count(fork, Some(permissions.clone())).await,
             1,
-            "父明确允许应传递到真实执行: fork={fork}, background={background}"
+            "父明确允许应传递到真实执行: fork={fork}"
         );
     }
     assert_eq!(
