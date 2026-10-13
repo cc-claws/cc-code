@@ -353,7 +353,10 @@ impl BaseTool for SubAgentTool {
             .get("subagent_type")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        let _description = input.get("description").and_then(|v| v.as_str());
+        let description = input
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         let _name = input.get("name").and_then(|v| v.as_str());
         let _isolation = input.get("isolation").and_then(|v| v.as_str());
         let run_in_background = input
@@ -371,7 +374,7 @@ impl BaseTool for SubAgentTool {
 
         if run_in_background && self.background_registry.is_some() {
             return self
-                .invoke_background(prompt, subagent_type, cwd, is_fork, timeout_secs)
+                .invoke_background(prompt, subagent_type, cwd, is_fork, timeout_secs, description)
                 .await;
         }
 

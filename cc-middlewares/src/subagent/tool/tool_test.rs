@@ -1125,3 +1125,38 @@ fn test_build_middleware_order_is_fixed() {
         ]
     );
 }
+
+/// 回归：抽屉/启动摘要的预览必须用模型给的 `description`，而不是 prompt 首行。
+///
+/// 真机症状：主时间线的 `2 background agents launched` 摘要里，两个子任务标题
+/// 都显示成 `【必须全程用中文思考和回复】`——那是注入给子 Agent 的指令行。
+#[test]
+fn test_subagent_task_preview_prefers_description_over_prompt_first_line() {
+    let preview = subagent_task_preview(
+        Some("武汉 sleep 120"),
+        "【必须全程用中文思考和回复】\n\n在武汉机器上 sleep 120 秒",
+    );
+    assert_eq!(preview, "武汉 sleep 120");
+}
+
+/// 没有 `description` 时退回 prompt，但必须跳过纯指令行。
+#[test]
+fn test_subagent_task_preview_skips_instruction_only_line() {
+    let preview = subagent_task_preview(
+        None,
+        "【必须全程用中文思考和回复】\n\n在武汉机器上 sleep 120 秒",
+    );
+    assert_eq!(preview, "在武汉机器上 sleep 120 秒");
+    assert_eq!(
+        subagent_task_preview(None, "[respond in Chinese]\nquery Shenzhen weather"),
+        "query Shenzhen weather"
+    );
+}
+
+/// 预览最长 40 字符（抽屉列宽另有截断，这里只防超长 payload 灌进状态）。
+#[test]
+fn test_subagent_task_preview_truncates_to_40_chars() {
+    let preview = subagent_task_preview(Some(&"任".repeat(60)), "");
+    assert_eq!(preview.chars().count(), 40);
+    assert_eq!(subagent_task_preview(None, "   \n  "), "", "没有可用的行时返回空串");
+}

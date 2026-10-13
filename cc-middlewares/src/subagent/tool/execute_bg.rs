@@ -26,7 +26,7 @@ impl AgentEventHandler for BackgroundEventHandler {
 impl super::SubAgentTool {
     pub(crate) async fn invoke_background(
         &self, prompt: String, subagent_type: Option<String>, cwd: String, is_fork: bool,
-        timeout_secs: Option<u64>,
+        timeout_secs: Option<u64>, description: Option<String>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let registry = self.background_registry.as_ref().ok_or("Background tasks not available: no registry configured")?;
         let agent_name = if is_fork { "fork".to_string() } else {
@@ -43,7 +43,7 @@ impl super::SubAgentTool {
         let cancel = build.cancel_token.unwrap_or_else(AgentCancellationToken::new);
         let mailbox = SteeringQueue::default();
         let model = agent_def.frontmatter.model.clone();
-        let preview = prompt.lines().next().unwrap_or(&prompt).chars().take(40).collect::<String>();
+        let preview = super::subagent_task_preview(description.as_deref(), &prompt);
         let handler = Arc::new(BackgroundEventHandler {
             task_id: task_id.clone(), instance_id: thread_id.clone(), registry: Arc::clone(registry),
             sender: self.bg_event_sender.clone(), fallback: self.event_handler.clone(),

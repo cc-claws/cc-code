@@ -166,6 +166,31 @@ fn format_subagent_result(output: &cc_agent::agent::react::AgentOutput) -> Strin
     )
 }
 
+/// 子 Agent 的「任务预览」——抽屉行、启动摘要、状态栏都用它代表这个子任务。
+///
+/// 优先用 Agent 工具显式传入的 `description`（schema 里写明 "used for UI display"），
+/// 它才是模型写给用户看的一句话；缺失时才退回 prompt，且必须跳过
+/// `【必须全程用中文思考和回复】` 这类**纯指令行**——否则摘要标题会把注入给子 Agent
+/// 的约束当成任务名（真机症状：两个后台任务都显示成同一句中文指令）。
+pub(crate) fn subagent_task_preview(description: Option<&str>, prompt: &str) -> String {
+    let text = description
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+        .or_else(|| {
+            prompt
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty() && !is_instruction_only(line))
+        })
+        .unwrap_or("");
+    text.chars().take(40).collect()
+}
+
+/// 整行只有一个 `【…】` / `[…]` 包裹的短语 → 是指令，不是任务描述。
+fn is_instruction_only(line: &str) -> bool {
+    (line.starts_with('【') && line.ends_with('】')) || (line.starts_with('[') && line.ends_with(']'))
+}
+
 mod build_agent;
 mod define;
 mod execute_bg;
