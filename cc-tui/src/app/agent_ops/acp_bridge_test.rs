@@ -73,3 +73,218 @@ async fn test_subagent_lifecycle_stopped_clears_drawer_entry() {
         "停止通知应把抽屉会话标记为 Completed"
     );
 }
+
+/// 诊断：子 Agent 视口的工具统计是否独立（不应为空、也不应污染主视图）。
+#[tokio::test]
+async fn test_subagent_viewport_tool_stats_isolation() {
+    use crate::app::AgentEvent;
+
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "started", "instanceId": "child-1",
+            "agentType": "general-purpose", "taskPreview": "查天气", "isBackground": true,
+        }),
+    });
+
+    // 主 Agent 自己的一次工具调用
+    app.push_agent_event(AgentEvent::ToolStart {
+        tool_call_id: "m1".into(), name: "Grep".into(), display: "Grep".into(),
+        args: "x".into(), input: serde_json::json!({}), source_agent_id: None,
+    });
+    app.push_agent_event(AgentEvent::ToolEnd {
+        tool_call_id: "m1".into(), name: "Grep".into(), output: "ok".into(),
+        is_error: false, source_agent_id: None,
+    });
+
+    // 子 Agent 自己的工具调用
+    for i in 0..3 {
+        app.push_agent_event(AgentEvent::ToolStart {
+            tool_call_id: format!("c{i}"), name: "Read".into(), display: "Read".into(),
+            args: "y".into(), input: serde_json::json!({}), source_agent_id: Some("child-1".into()),
+        });
+        app.push_agent_event(AgentEvent::ToolEnd {
+            tool_call_id: format!("c{i}"), name: "Read".into(), output: "ok".into(),
+            is_error: false, source_agent_id: Some("child-1".into()),
+        });
+    }
+    app.process_pending_events();
+
+    let session = app.session_mgr.current();
+    eprintln!("[diag] main stats = {:?}", session.agent.session_tool_stats);
+    eprintln!("[diag] sub  stats = {:?}", session.subagent_sessions.get("child-1").map(|s| &s.agent.session_tool_stats));
+
+    assert_eq!(
+        session.agent.session_tool_stats.get("Grep"), Some(&1),
+        "主视图应只统计主 Agent 自己的工具"
+    );
+    assert_eq!(
+        session.agent.session_tool_stats.get("Read"), None,
+        "子 Agent 的工具不得污染主视图统计"
+    );
+    assert_eq!(
+        session.subagent_sessions.get("child-1").and_then(|s| s.agent.session_tool_stats.get("Read")),
+        Some(&3),
+        "子 Agent 视口应统计自己的工具"
+    );
+}
+
+/// 诊断：进入子 Agent 视口后，状态栏第二行必须渲染「子 Agent 自己的」工具统计。
+#[tokio::test]
+async fn test_subagent_viewport_status_bar_shows_own_stats() {
+    use crate::app::AgentEvent;
+    use crate::ui::main_ui;
+
+    let (mut app, mut handle) = App::new_headless(120, 30).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "started", "instanceId": "child-1",
+            "agentType": "general-purpose", "taskPreview": "查天气", "isBackground": true,
+        }),
+    });
+
+    // 主 Agent 跑很多 Grep
+    for i in 0..5 {
+        app.push_agent_event(AgentEvent::ToolStart {
+            tool_call_id: format!("m{i}"), name: "Grep".into(), display: "Grep".into(),
+            args: "x".into(), input: serde_json::json!({}), source_agent_id: None,
+        });
+        app.push_agent_event(AgentEvent::ToolEnd {
+            tool_call_id: format!("m{i}"), name: "Grep".into(), output: "ok".into(),
+            is_error: false, source_agent_id: None,
+        });
+    }
+    // 子 Agent 跑 2 次 Read
+    for i in 0..2 {
+        app.push_agent_event(AgentEvent::ToolStart {
+            tool_call_id: format!("c{i}"), name: "Read".into(), display: "Read".into(),
+            args: "y".into(), input: serde_json::json!({}), source_agent_id: Some("child-1".into()),
+        });
+        app.push_agent_event(AgentEvent::ToolEnd {
+            tool_call_id: format!("c{i}"), name: "Read".into(), output: "ok".into(),
+            is_error: false, source_agent_id: Some("child-1".into()),
+        });
+    }
+    app.process_pending_events();
+
+    app.switch_subagent_viewport(Some("child-1".into()));
+    app.flush_rebuild();
+    handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+    let snap = handle.snapshot().join("\n");
+    eprintln!("[diag] sub viewport snapshot:\n{snap}");
+
+    assert!(
+        snap.contains("Read ×2"),
+        "子 Agent 视口应显示自己的 Read ×2，实际:\n{snap}"
+    );
+    assert!(
+        !snap.contains("Grep ×5"),
+        "子 Agent 视口不应显示主 Agent 的 Grep ×5，实际:\n{snap}"
+    );
+}
+
+/// 端到端：走真实 `session/update` 通道（带 `_peri.sourceAgentId`），
+/// 后台子 Agent 的工具必须落进子会话，而不是主 Agent。
+#[tokio::test]
+async fn test_session_update_with_peri_source_routes_to_subagent() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "started", "instanceId": "child-1",
+            "agentType": "general-purpose", "taskPreview": "查天气", "isBackground": true,
+        }),
+    });
+
+    let tool_call = |id: &str| {
+        serde_json::json!({
+            "sessionId": "s1",
+            "update": {"sessionUpdate": "tool_call", "toolCallId": id, "title": "Read", "rawInput": {}},
+            "_peri": {"sourceAgentId": "child-1"},
+        })
+    };
+    let tool_done = |id: &str| {
+        serde_json::json!({
+            "sessionId": "s1",
+            "update": {"sessionUpdate": "tool_call_update", "toolCallId": id, "title": "Read", "rawOutput": "ok", "status": "completed"},
+            "_peri": {"sourceAgentId": "child-1"},
+        })
+    };
+
+    for i in 0..2 {
+        app.handle_acp_notification(AcpNotification::SessionUpdate {
+            session_id: "s1".into(),
+            params: tool_call(&format!("c{i}")),
+        });
+        app.handle_acp_notification(AcpNotification::SessionUpdate {
+            session_id: "s1".into(),
+            params: tool_done(&format!("c{i}")),
+        });
+    }
+
+    let session = app.session_mgr.current();
+    eprintln!("[diag] main={:?} sub={:?}", session.agent.session_tool_stats,
+        session.subagent_sessions.get("child-1").map(|s| &s.agent.session_tool_stats));
+    assert_eq!(
+        session.subagent_sessions.get("child-1").and_then(|s| s.agent.session_tool_stats.get("Read")),
+        Some(&2),
+        "带 _peri.sourceAgentId 的工具必须计入子会话"
+    );
+    assert!(
+        session.agent.session_tool_stats.is_empty(),
+        "带来源标识的事件不得污染主 Agent 统计"
+    );
+}
+
+/// 回归：子 Agent 视口第二行必须显示子 Agent **正在运行**的工具。
+///
+/// 症状：Enter 进入子 Agent 后状态栏第二行为空（只有主视图能看到 `◐ Bash : …`）。
+/// 根因：`BackgroundAgentSession::handle_event` 只写 active_tool，不登记
+/// `running_tools` / `recent_tools`，而第二行读的正是 `visible_recent_tools()`。
+#[tokio::test]
+async fn test_subagent_viewport_shows_running_tool() {
+    use crate::app::AgentEvent;
+    use crate::ui::main_ui;
+
+    let (mut app, mut handle) = App::new_headless(120, 30).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "started", "instanceId": "child-1",
+            "agentType": "general-purpose", "taskPreview": "查天气", "isBackground": true,
+        }),
+    });
+
+    // 子 Agent 起了一个仍在运行的工具（没有 ToolEnd）
+    app.push_agent_event(AgentEvent::ToolStart {
+        tool_call_id: "c-sleep".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "sleep 60 && query-weather".into(),
+        input: serde_json::json!({"command": "sleep 60 && query-weather"}),
+        source_agent_id: Some("child-1".into()),
+    });
+    app.process_pending_events();
+
+    app.switch_subagent_viewport(Some("child-1".into()));
+    app.flush_rebuild();
+    handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+    let snap = handle.snapshot().join("\n");
+    eprintln!("[diag] running-tool snapshot:\n{snap}");
+
+    assert!(
+        snap.contains('◐') && snap.contains("query-weather"),
+        "子 Agent 视口应显示其正在运行的工具，实际:\n{snap}"
+    );
+    assert_eq!(
+        app.session_mgr.current().viewport_agent().running_tools.len(),
+        1,
+        "子会话必须登记 running_tools"
+    );
+}

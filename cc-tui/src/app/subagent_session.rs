@@ -120,9 +120,27 @@ impl BackgroundAgentSession {
                     self.agent.tool_call_count += 1;
                 }
                 self.current_activity = format!("{}({})", display, args);
-                self.agent.active_tool = Some(super::agent_comm::ActiveToolInfo {
-                    tool_call_id: tool_call_id.clone(), name: name.clone(),
-                    display: display.clone(), args_summary: args.clone(),
+                // 与主 Agent 一致地登记「运行中工具」：状态栏第二行读的是
+                // running_tools / recent_tools，只写 active_tool 的话子视口永远为空。
+                let args_summary: String = crate::app::tool_display::sanitize_display_text(args)
+                    .chars()
+                    .take(40)
+                    .collect();
+                let active = super::agent_comm::ActiveToolInfo {
+                    tool_call_id: tool_call_id.clone(),
+                    name: name.clone(),
+                    display: display.clone(),
+                    args_summary: args_summary.clone(),
+                };
+                self.agent.running_tools.push(active.clone());
+                self.agent.active_tool = Some(active);
+                self.agent.push_recent_tool(super::agent_comm::RecentToolEntry {
+                    tool_call_id: tool_call_id.clone(),
+                    display: display.clone(),
+                    args_summary,
+                    running: true,
+                    started_at: now,
+                    visible_until: None,
                 });
                 self.spinner.end_thinking();
                 self.spinner.set_mode_keep_verb(cc_widgets::SpinnerMode::ToolUse);
@@ -131,7 +149,11 @@ impl BackgroundAgentSession {
                 if self.running_tool_times.remove(tool_call_id).is_some() {
                     *self.agent.session_tool_stats.entry(name.clone()).or_insert(0) += 1;
                 }
-                self.agent.active_tool = None;
+                self.agent
+                    .running_tools
+                    .retain(|tool| tool.tool_call_id != *tool_call_id);
+                self.agent.active_tool = self.agent.running_tools.last().cloned();
+                self.agent.finish_recent_tool(tool_call_id, now);
             }
             AgentEvent::AiReasoning(_) => {
                 self.spinner.begin_thinking();
