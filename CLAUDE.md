@@ -402,6 +402,8 @@ gh issue close <N> --repo cc-claws/cc-code --reason completed \
 
 npm 包（`@cc-claw/code`）通过 GitHub Actions 发版，三种触发方式：**auto-release（推荐）** / 推送 `npm-v*` tag / 手动 workflow_dispatch。
 
+**[原则] 单纯文档变更不触发发版**：README / README_ZH / CHANGELOG / TUI-STYLE / spec / CLAUDE.md 等**纯文档**改动无需发布 npm，也不必跑 `auto-release-npm.yml`——直接 commit → PR → 合并即可。CHANGELOG/README 的更新是**发版的前置项**，不是发版理由；只有**代码或行为变更**才发版。
+
 **发版前必须完成：**
 1. 更新 `CHANGELOG.md`，记录本次版本变更
 2. 更新 `npm/README.md` 中的更新说明（如有）
