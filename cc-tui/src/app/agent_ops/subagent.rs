@@ -89,11 +89,8 @@ impl App {
         }
         if is_background && !self.session_mgr.current().background_agents.iter().any(|a| a.instance_id == instance_id) {
             use super::super::chat_session::RunningBgAgent;
-            let session = self.session_mgr.current_mut();
-            // 粘性标记：本会话从此由抽屉 / 子视口承载后台子 Agent 的呈现，
-            // 主时间线不得再渲染它们的分组卡片（见 `ChatSession::bg_drawer_seen`）。
-            session.bg_drawer_seen = true;
-            session
+            self.session_mgr
+                .current_mut()
                 .background_agents
                 .push(RunningBgAgent {
                     agent_name: agent_id.clone(),

@@ -143,14 +143,9 @@ impl App {
                 }
 
                 // 活跃任务的启动结果由树形摘要统一呈现；内部内容只存在于子管线。
-                // 历史恢复没有运行池，仍可保留归档任务的报告卡片。
-                //
-                // 判据必须是粘性的 `bg_drawer_seen`，不能用 `subagent_sessions.is_empty()`：
-                // 最后一个后台任务完成并回收后池子变空，瞬时判据会失效，把冻结的
-                // `◐ Agent(...)` 卡片漏回主时间线（底栏抽屉同时是空的，自相矛盾）。
-                if session.bg_drawer_seen {
-                    tail_vms.retain(|vm| !matches!(vm, MessageViewModel::SubAgentGroup { is_background: true, .. }));
-                }
+                // 后台分组卡片已在 `MessagePipeline::build_rebuild_all`（活跃轮次尾部的
+                // 唯一产地）剔除，此处不再重复过滤——否则会连 `/rewind` 这类
+                // 「全量时间线替换」里的归档卡片一起删掉。
                 session.messages.view_messages.extend(tail_vms);
 
                 // 按锚点位置插入 saved_notes，然后重新注册锚点

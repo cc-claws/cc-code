@@ -177,8 +177,21 @@ pub(crate) fn merge_frozen_subagents(
 impl MessagePipeline {
     /// 构建 RebuildAll action（用于外部 agent_ops 显式触发重建）。
     /// 由调用者提供 prefix_len（round_start_vm_idx），pipeline 内部不维护 VM 索引。
+    ///
+    /// 后台子 Agent 的分组卡片（`is_background: true`）在这里被剔除：它们由底栏抽屉与
+    /// 子视口承载，主时间线只保留启动摘要与完成行。
+    ///
+    /// 剔除必须发生在本函数（活跃轮次尾部的唯一产地），**不能**放到
+    /// `apply_pipeline_action` 里对收到的整条 `tail_vms` 做——那条路径同样会收到
+    /// 全量历史重放（`/rewind` 用 `RebuildAll{prefix_len: 0, 全量历史}` 表达「替换整条时间线」），
+    /// 在那里剔除会把用户正在看的归档卡片一并删掉，且没有任何后续事件能把它们放回来。
     pub fn build_rebuild_all(&self, prefix_len: usize) -> PipelineAction {
-        let tail_vms = self.build_tail_vms();
+        let mut tail_vms = self.build_tail_vms();
+        // 曾用「`subagent_sessions` 是否为空」或会话级粘性标志当判据，二者都是
+        // 会话状态代理：最后一个后台任务完成并回收后池子归空，代理立刻失效，
+        // 冻结的 `◐ Agent(...)` 卡片就会漏回主消息区（底栏抽屉同时是空的）。
+        // 判据就该是本函数产出的「活跃轮次尾部」本身。
+        tail_vms.retain(|vm| !matches!(vm, MessageViewModel::SubAgentGroup { is_background: true, .. }));
         PipelineAction::RebuildAll {
             prefix_len,
             tail_vms,

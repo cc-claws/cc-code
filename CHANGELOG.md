@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.131 — 2026-10-13
+
+### Fixes
+
+- **`/rewind`（`/undo`）不再删掉归档的后台子 Agent 卡片（#468）**：v0.6.130 修「后台分组卡片漏回主时间线」时，把剔除逻辑放在 `apply_pipeline_action` 里对收到的整条 `tail_vms` 做，而 `/rewind` 用 `RebuildAll { prefix_len: 0, 全量历史 }` 表达「替换整条时间线」——剔除于是把用户正在看的归档卡片一并删掉，且没有任何后续事件能把它们放回来（底栏抽屉此时是空的，视觉上就是历史凭空少了几块）。现把剔除下移到「活跃轮次尾部」的唯一产地 `MessagePipeline::build_rebuild_all`，判据落在**动作语义**上而不是会话状态代理，v0.6.130 新增的 `ChatSession::bg_drawer_seen` 字段随之删除（它同样会过度剔除 `/rewind` 的历史重放）。回归用例 `test_bg_group_absent_from_live_rebuild_tail_when_pool_drained`（活跃尾部必须剔除）与 `test_rewind_keeps_archived_bg_cards`（全量重放必须保留）互为反面对照。
+
 ## v0.6.130 — 2026-10-13
 
 ### Features
@@ -14,7 +20,7 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
-- **独立审计复核发现的四处缺陷**：（1）抽屉承载的后台分组剔除判据原先用「`subagent_sessions` 是否为空」作代理，最后一个后台任务完成并被回收后池子归空 → 判据失效，冻结的 `◐ Agent(...)` 卡片会漏回主消息区（底栏抽屉同时是空的，自相矛盾），现改为粘性的 `bg_drawer_seen`（首次登记后台子 Agent 时置位、仅新会话/切 thread 复位，历史回放的归档卡片照旧保留）；（2）子会话回收原先挂在「被摘掉的那一行」上，而行可能已被 `poll_agent` 先摘掉（已停止且结束超过 3s 的行只摘行、留会话），导致会话永久不可达，现回收键回退到 `child_thread_id` 并要求会话已终态；（3）`started` 载荷缺 `isBackground` 时原先默认按前台处理，会把子 Agent 内部过程二次投递进主消息区，现默认按后台；（4）`BackgroundEventHandler` 的 `wants_llm_call_payload` 无条件转述父 handler 声明，而事件实际走会话独立通道时父 handler 根本收不到，导致子 Agent 每次 LLM 调用白拷贝整份历史（下游丢弃 `LlmCallStart`），现仅在事件真的会走 `fallback` 时转述。
+- **独立审计复核发现的四处缺陷**：（1）抽屉承载的后台分组剔除判据原先用「`subagent_sessions` 是否为空」作代理，最后一个后台任务完成并被回收后池子归空 → 判据失效，冻结的 `◐ Agent(...)` 卡片会漏回主消息区（底栏抽屉同时是空的，自相矛盾），现改为粘性的 `bg_drawer_seen`（首次登记后台子 Agent 时置位、仅新会话/切 thread 复位，历史回放的归档卡片照旧保留）〔后续演进：该标志本身过度剔除 `/rewind` 的历史重放，已在 v0.6.131 改为在活跃轮次尾部产地剔除并删除此标志〕；（2）子会话回收原先挂在「被摘掉的那一行」上，而行可能已被 `poll_agent` 先摘掉（已停止且结束超过 3s 的行只摘行、留会话），导致会话永久不可达，现回收键回退到 `child_thread_id` 并要求会话已终态；（3）`started` 载荷缺 `isBackground` 时原先默认按前台处理，会把子 Agent 内部过程二次投递进主消息区，现默认按后台；（4）`BackgroundEventHandler` 的 `wants_llm_call_payload` 无条件转述父 handler 声明，而事件实际走会话独立通道时父 handler 根本收不到，导致子 Agent 每次 LLM 调用白拷贝整份历史（下游丢弃 `LlmCallStart`），现仅在事件真的会走 `fallback` 时转述。
 - **正在查看的子 Agent 结束时不再抽走视口**：此前完成事件会无条件清空聚焦并摘掉抽屉行，用户正在阅读的内容会「闪走」。现在若用户正在该视口内，视口与抽屉行原地保留（行内 `✓ completed`、圆点与完成标记转绿），按 `Esc`/`Enter` 离开时才回收会话句柄与抽屉行。同时修掉「两个 id 都为 `None` 被误判为正在查看」的幽灵行隐患。
 - **抽屉与启动摘要排版配色定稿**：抽屉收敛为「亮白（游标行）+ 灰（其余）」两档前景色，**禁止任何行底色**与终端反色（原先 ↑/↓ 选中行带底色，看起来像已进入视口），青色游标下线；抽屉右侧 token 指标改为跟随流向的**单箭头**（`↓` 取最近一次调用的 output、`↑` 取 input），不再用 `↓ {输入+输出}` 合计冒充单向；启动摘要与完成行不再被注入 `· ` 前缀（原先渲染成 `· • 2 background agents launched …`、`·   ├── …`），改为对齐的 `  ├── 任务` / `  └── 任务` 树形块。
 - **`peri/subagent_lifecycle` 通知显式登记**：该通知不带 `notifications/` 前缀，客户端原先按前缀匹配 → 掉进未知通知被丢弃，导致抽屉整块静默失效（服务端一直在发、界面永远为空）。现按方法名显式登记并有回归用例守住。
