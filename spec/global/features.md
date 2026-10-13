@@ -46,6 +46,8 @@
 
 ## TUI 界面（cc-tui）
 
+- **文件提及候选（#463）:** 单独输入 `@` 立即弹面板，默认仅枚举当前目录并限制 15 项；关键词递归模糊搜索 200ms 防抖，保留最后一次输入，截断缓存或进入新目录时重新搜索。视口最多 10 行并适配可用高度，选中项始终可见；搜索中、空目录、无匹配提供双语提示，搜索期间阻止旧候选误补全及 Enter 误提交。
+
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
 - **TUI 命令:** 共 29 个 TUI 命令 + 7 个 ACP 命令；含 `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩、`/config` 全局配置、`/cost` 费用统计、`/context` 上下文使用率、`/memory` 编辑 CLAUDE.md、`/mcp` MCP 管理面板、`/recap`(别名 away/catchup) 会话回顾、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/tasks`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/agents`、`/exit`(quit)、`/model`、`/history`(resume)；Command trait 支持 alias 机制
@@ -132,4 +134,4 @@
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）；Windows postinstall 将全局入口改写为直起 `bin/cc-code.exe`（去掉 node 中间层，修复 Ctrl+C 直接退出）
 
 ---
-*最后更新: 2026-10-13 — v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
+*最后更新: 2026-10-13 — v0.6.129：@ 文件候选立即弹出，默认当前目录上限 15 项/10 行，搜索防抖和缓存边界修复（#463）；此前：v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*

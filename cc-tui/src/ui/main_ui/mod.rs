@@ -305,6 +305,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             f,
             &app.session_mgr.current_mut().ui.at_mention,
             chunks[5],
+            &app.services.lc,
         );
     } else {
         popups::hints::render_unified_hint(f, app, chunks[5]);

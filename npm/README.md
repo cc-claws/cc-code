@@ -5,6 +5,10 @@
 [![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
+## 最近更新
+
+v0.6.129：输入 `@` 即显示文件候选。默认仅列当前目录，最多 15 项；面板最多显示 10 行并适配终端高度，继续输入关键词可搜索更多文件。搜索中、空目录和无匹配结果均有提示。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 ## 安装
 
 [![install](https://img.shields.io/badge/npm_install-g%20@cc--claw%2Fcode-47d147?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cc-claw/code)

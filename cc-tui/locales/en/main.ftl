@@ -645,3 +645,8 @@ cli-plugin-install-failed = Installation failed: { $error }
 cli-plugin-installed = Installed: { $id } v{ $version } (scope: { $scope })
 cli-plugin-uninstall-failed = Uninstall failed: { $error }
 cli-plugin-uninstalled = Uninstalled: { $id }
+
+# File mention popup
+at-mention-searching = Searching…
+at-mention-empty-directory = No files here. Type to search.
+at-mention-no-matches = No matching files.

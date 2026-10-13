@@ -1546,6 +1546,15 @@
 ### append
 - [Write 工具超长内容流式输出时 LLM Provider 响应极慢](domains/agent.md#issue_2026-06-12-large-write-streaming-slow) — agent
 
+### 文件提及
+- [输入 @ 未立即弹出文件候选面板（GitHub #463）](domains/tui.md#issue_2026-10-13-at-mention-popup-requires-query) — tui
+
+### 候选截断
+- [输入 @ 未立即弹出文件候选面板（GitHub #463）](domains/tui.md#issue_2026-10-13-at-mention-popup-requires-query) — tui
+
+### 搜索防抖
+- [输入 @ 未立即弹出文件候选面板（GitHub #463）](domains/tui.md#issue_2026-10-13-at-mention-popup-requires-query) — tui
+
 ## 更新记录
 
 - 2026-06-28: 文档同步——标记 6 月已修复 issue 为 Fixed（mouse escape sequence leak #88、Ctrl+C 双击退出 #86、MCP OAuth state 校验 M3、session UUID 校验 M5、文件权限加固 M4/H3、工具输出截断 #80、Edit tab 缩进、AskUser 高度、at-mention 目录注入）。新增关键词索引待归档到 domains 后补充（ConPTY SGR 泄漏、Windows Ctrl+C 防抖、CSRF state、文件权限 0o600）
@@ -1569,3 +1578,4 @@
 - 2026-05-20: 归档 5 个 issue（compact 2, message-pipeline 1, system-prompt 1, tui 1），新增 24 个关键词索引
 - 2026-05-24: 归档 15 个 issue（tui 4 + agent 2 + langfuse 2 + system-prompt 1 + cli 1 + acp 4 + code-architecture 1），新增 29 个关键词索引
 - 2026-06-06: 归档 2 个 issue（tui 1 + agent 1），新增 9 个关键词索引
+- 2026-10-13: 仅归档本次 1 个 issue（#463，tui），新增 3 个关键词索引（文件提及、候选截断、搜索防抖）

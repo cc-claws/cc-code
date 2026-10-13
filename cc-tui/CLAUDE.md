@@ -69,7 +69,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 | Attachment Bar | `ui/main_ui/attachment.rs` | 图片附件标签列表，Input 正上方 |
 | Input Area | `edit_utils.rs` | `tui_textarea::TextArea` 封装，高度动态 |
 | Hints 浮层 | `ui/main_ui/popups/hints.rs` | `/` 前缀命令匹配，输入框上方 |
-| @提及弹窗 | `app/at_mention/mod.rs` | `@` 触发文件搜索，200ms 节流 |
+| @提及弹窗 | `app/at_mention/mod.rs` | `@` 立即弹出当前目录候选（最多 15 项 / 10 行），关键词搜索 200ms 防抖 |
 | BG Agent Bar | `ui/main_ui/bg_agent_bar.rs` | 后台 Agent 列表，8 色循环 |
 
 ### 弹窗系统
