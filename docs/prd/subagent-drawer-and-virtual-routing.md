@@ -440,6 +440,8 @@ impl App {
 2. `ToolEnd` 必须对称回收：`running_tools.retain(..)`、`finish_recent_tool(..)`，并把 `active_tool` 回退为 `running_tools.last()`。
 3. 状态栏工具计数（`session_tool_stats`）按 §4.6 强隔离：只累加该子会话自己的计数，`ToolEnd` 计数必须以「`running_tool_times` 中确实存在该 `tool_call_id`」为前提（防重复计数）。
 4. `current_activity`（抽屉中间列）与 `active_tool`（审批条）职责分离：前者是子 Agent 的**助手文本**（`activity_buffer` 累积 `AssistantChunk`，`ToolEnd` 复位），后者才是工具串；`ToolStart` **不得**用 `display(args)` 覆盖 `current_activity`。
+5. **任务预览（`task_preview`）的来源**：启动摘要（`• N background agents launched`）、抽屉行的回退标题、状态栏标题都读它，必须优先取 Agent 工具显式传入的 `description`（schema 已声明 "used for UI display"），缺失时才退回 prompt 并**跳过 `【…】` / `[…]` 包裹的纯指令行**，上限 40 字符（`cc-middlewares/src/subagent/tool/mod.rs` 的 `subagent_task_preview()`）。
+   **禁止**直接取 prompt 首行——模型习惯把语言约束写在第一行，会把注入给子 Agent 的指令变成任务标题（真机症状：两个后台子任务标题都显示成 `【必须全程用中文思考和回答】`）。
 
 ---
 
