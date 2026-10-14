@@ -1,6 +1,6 @@
 # Sync relay 是加密 MITM，可解密全部同步内容（含 API keys）
 
-**状态**：Open
+**状态**：Closed（功能已删除，攻击面消失）
 **优先级**：紧急
 **创建日期**：2026-06-26
 **来源**：cc-code 全项目安全审计 2026-06-26（Finding H1，置信度 9/10）
@@ -70,3 +70,4 @@ pub fn derive_key(pair_code: &str) -> [u8; AES_KEY_LEN] {
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-06-26 | — | Open | agent | 创建（安全审计 H1） |
+| 2026-10-14 | Open | Closed | agent | **功能整体下线**：`peri sync` 客户端模块（`cc-tui/src/sync/`）与服务端源码（`side-projects/peri-sync/`）已删除，命令与依赖一并清理。上面的三种修复方案均不再需要——攻击面随功能消失。GitHub 工单 #21 / #22 此前已关闭。 |
