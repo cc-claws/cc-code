@@ -746,9 +746,23 @@ async fn test_max_iterations_exceeded() {
         .await;
 
     assert!(matches!(result, Err(AgentError::MaxIterationsExceeded(3))));
-    // 1 human + 3*(ai + tool_result) + 1 action-loop 注入的 system 纠正消息
-    // （3 轮相同工具动作达到 CONSECUTIVE_ACTION_THRESHOLD，ActionLoopDetector 注入）
-    assert_eq!(state.messages().len(), 8);
+    // 1 human + 3*(ai + tool_result) = 7。
+    // 动作循环纠正提示（3 轮相同工具动作达到 CONSECUTIVE_ACTION_THRESHOLD）自 #495 起
+    // 并入最后一条 ToolResult 正文，不再作为独立 system 消息新增，故总数不含额外消息。
+    assert_eq!(state.messages().len(), 7);
+    let last_tool_body = state
+        .messages()
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            BaseMessage::Tool { content, .. } => Some(content.text_content()),
+            _ => None,
+        })
+        .expect("应存在工具结果");
+    assert!(
+        last_tool_body.contains("3 consecutive times with identical parameters"),
+        "循环纠正提示应并入 ToolResult 正文，实际: {last_tool_body}"
+    );
 }
 
 /// 验证 thinking 循环模式（A→B→C→A→B→C...）能被检测并注入换策略提示。
