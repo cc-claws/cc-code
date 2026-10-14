@@ -639,6 +639,84 @@
             color: #cbd5e1;
         }
 
+        /* ── 子 Agent 取消链路（参考图对照）── */
+
+        /* 用户发出的自然语言指令气泡（灰底整行，对齐参考图 `> 取消厦门的子agent`） */
+        .user-command-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #1e2436;
+            border-radius: 4px;
+            padding: 5px 10px;
+            margin: 4px 0;
+            color: #f1f5f9;
+        }
+        .user-command-bar .arrow {
+            color: #94a3b8;
+            flex-shrink: 0;
+        }
+
+        /* Stop Task 工具卡片：与普通工具调用同构（● + 工具名 + ⎿ 结果行） */
+        .stop-task-block {
+            margin: 4px 0;
+        }
+        .stop-task-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #cbd5e1;
+        }
+        .stop-task-name {
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+        .stop-task-subline {
+            margin-left: 18px;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13.5px;
+        }
+        .stopped-badge {
+            color: var(--accent-orange);
+        }
+
+        /* 等待计数行（✻ Waiting for N background agents to finish） */
+        .waiting-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #64748b;
+            font-size: 13.5px;
+            margin: 4px 0;
+        }
+
+        /* 回合收尾行（✻ Cogitated for ... / ✻ recap: ...） */
+        .thinking-summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #64748b;
+            font-size: 13.5px;
+            margin: 4px 0;
+        }
+
+        /* 停止确认行（`Agent "x" was stopped by main Agent`）：主时间线用橙点 + 白字，
+           与 finished 的绿点区分；抽屉行则用红色 ●（#ff6b80）+ 红色 `stopped by …` 文字 */
+        .stopped-notice {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            color: #e2e8f0;
+            margin: 4px 0;
+        }
+        .stopped-notice .dot {
+            color: var(--accent-orange);
+            flex-shrink: 0;
+        }
+
         /* 底部说明卡片 */
         .info-panel {
             width: 100%;
@@ -676,6 +754,19 @@
             <button class="btn" onclick="loadScenario(4)">场景 4: 切换随州视口 (图4)</button>
             <button class="btn" onclick="loadScenario(5)">场景 5: 查看武汉视口 (图5)</button>
             <button class="btn" onclick="loadScenario(6)">场景 6: 完成回流主线程 (图6)</button>
+        </div>
+    </div>
+
+    <!-- 子 Agent 取消链路（参考图对齐）场景切换条 -->
+    <div class="scenario-bar" style="border-color:#3f4a2e;">
+        <div class="scenario-title" style="color:var(--accent-yellow);">
+            <span>🛑 子 Agent 取消链路（对照参考图）</span>
+        </div>
+        <div class="btn-group">
+            <button class="btn" id="btnCancelA" onclick="loadCancelScenario('A')">A: 主 Agent 用工具取消（Stop Task）</button>
+            <button class="btn" id="btnCancelB" onclick="loadCancelScenario('B')">B: 用户按 x 取消（抽屉）</button>
+            <button class="btn" id="btnCancelC" onclick="loadCancelScenario('C')">C: 取消后 — 剩余任务完成回流</button>
+            <button class="btn" id="btnCancelD" onclick="loadCancelScenario('D')">D: 对比：无取消能力时的现状</button>
         </div>
     </div>
 
@@ -760,6 +851,27 @@
 
     <!-- 交互说明 -->
     <div class="info-panel">
+        <h3>🛑 子 Agent 取消链路（新增原型，对照参考图）</h3>
+        <p style="color:#94a3b8; margin:4px 0 8px;">
+            <strong style="color:#48bb78;">已定方案</strong>：① 文案 <span class="kbd">was stopped by the main Agent</span>；
+            ② <strong>不新增独立工具</strong>，扩展现有 <span class="kbd">Agent</span> 工具的 <span class="kbd">action</span> 参数（<span class="kbd">spawn</span> 默认 / <span class="kbd">stop</span>）；
+            ③ 停止目标用 <span class="kbd">task_id</span> 精确指认（模型从 spawn 结果 <span class="kbd">Background task bg-xxx started…</span> 中已拿到该 ID）。
+        </p>
+        <ul>
+            <li><strong>场景 A — 主 Agent 用 <span class="kbd">Agent(action=stop)</span> 取消（目标形态）</strong>：用户自然语言下达 <span class="kbd">取消厦门的子agent</span>，主 Agent 按 <span class="kbd">task_id</span> 精确停止，
+                时间线渲染为 <span class="kbd">● Agent(action=stop, task_id=bg-3f9a21c8)</span> + <span class="kbd">└ 查询厦门天气 · stopped</span>，随后打印
+                <span class="kbd">• Agent "查询厦门天气" was stopped by the main Agent</span>，并继续等待剩余任务。</li>
+            <li><strong>场景 B — 用户按 x 取消（已实现）</strong>：抽屉里选中目标行按 <span class="kbd">x</span>（或 <span class="kbd">Ctrl+X Ctrl+K</span> 停全部）。停止来源为 <span class="kbd">user</span>，与 A 的 <span class="kbd">by the main Agent</span> 区分，便于判断是谁下的手。</li>
+            <li><strong>场景 C — 取消后回流</strong>：剩余任务完成 → <span class="kbd">• Agent "查询广州天气" finished · 3m 55s</span> → 汇总报告（末尾注明厦门任务已取消、未执行查询）→ <span class="kbd">✻ Cogitated for 4m 14s · done 9:43</span> + <span class="kbd">✻ recap:</span>。</li>
+            <li><strong>场景 D — 现状对比</strong>：当前 <span class="kbd">Agent</span> 工具 schema 无 <span class="kbd">action</span> / <span class="kbd">task_id</span> 参数，主 Agent 无法取消任何子任务，只能回复「请用户自行按 x 停止」。此场景标出全部缺口。</li>
+            <li><strong>实现要点</strong>：① schema 增加 <span class="kbd">action</span>（enum: spawn|stop，默认 spawn）与 <span class="kbd">task_id</span>，<span class="kbd">prompt</span> 的 <span class="kbd">required</span> 随 action 条件化；
+                ② <span class="kbd">BackgroundTaskRegistry</span> 已有 <span class="kbd">abort_handle</span>，按 <span class="kbd">task_id</span> 查表取消；
+                ③ 停止结果需回给模型可读确认，使其能向用户复述；④ <span class="kbd">was stopped by …</span> 独立文案（区别于 finished/failed）；
+                ⑤ 可选：<span class="kbd">✻ Waiting for N background agents to finish</span> 计数行。</li>
+        </ul>
+    </div>
+
+    <div class="info-panel">
         <h3>💡 真实交互机制说明：</h3>
         <ul>
             <li><strong>Prompt 展开模式 (Ctrl+O)</strong>：针对用户在主 Agent 视图下快速查阅 Prompt 的需求，提供了两种设计方案：
@@ -783,6 +895,7 @@
             cursorIndex: 0,            // 0: main, 1: sub1, 2: sub2
             isDetailMode: true,        // 核心：普通模式(false) ↔ 详细模式(true)，由 Ctrl+O 控制反复切换
             detailStyle: 'card_prompt',// 详细模式展开样式：'card_prompt' (方案B, 默认推荐) | 'tree_prompt' (方案A)
+            cancelScenario: null,      // null | 'A' | 'B' | 'C' | 'D' —— 取消链路原型场景
             thoughtExpanded: true,
             elapsedSeconds: 15,
             agents: [
@@ -992,9 +1105,211 @@
         }
 
         // 1. 渲染消息区视口
+        // ── 取消链路场景渲染（对照参考图）──────────────────────────────
+        // A: 主 Agent 用 Stop Task 工具取消  B: 用户按 x 取消
+        // C: 取消后剩余任务完成回流          D: 对比 — 无取消能力的现状
+        function renderCancelScenario() {
+            const launchTree = `
+                <div class="assistant-message">
+                    <span class="bullet-dot">•</span>
+                    <span>已并行启动 2 个子 Agent 执行任务：</span>
+                </div>
+                <div class="agent-tree-container">
+                    <div class="agent-tree-items" style="border-left:none; margin-left:8px;">
+                        <div class="tree-row"><span style="color:#64748b;">- 子 Agent 1: 等待 3 分钟后查询广州当前天气</span></div>
+                        <div class="tree-row"><span style="color:#64748b;">- 子 Agent 2: 等待 2 分钟后查询厦门当前天气</span></div>
+                    </div>
+                </div>
+                <div class="assistant-message">
+                    <span>两个任务均在后台运行中，完成后将自动汇总结果。</span>
+                </div>
+            `;
+
+            const waiting = (n) => `
+                <div class="waiting-line">
+                    <span class="spinner-asterisk">✻</span>
+                    <span>Waiting for ${n} background agent${n > 1 ? 's' : ''} to finish</span>
+                </div>
+            `;
+
+            // 停止调用：走 Agent 工具 action=stop（与 spawn 同一工具，非独立工具）
+            const stopTaskCard = (taskId, taskName, status) => `
+                <div class="stop-task-block">
+                    <div class="stop-task-header">
+                        <span class="bullet-dot" style="color:var(--accent-bright-green);">●</span>
+                        <span class="stop-task-name">Agent</span><span style="color:#e2e8f0;">(action=stop, task_id=${taskId})</span>
+                    </div>
+                    <div class="stop-task-subline">
+                        <span class="tree-branch">└</span>
+                        <span>${taskName} · <span class="stopped-badge">${status}</span></span>
+                    </div>
+                </div>
+            `;
+
+            const stoppedNotice = (taskName) => `
+                <div class="stopped-notice">
+                    <span class="dot">•</span>
+                    <span>Agent "${taskName}" was stopped by the main Agent</span>
+                </div>
+            `;
+
+            function userCommand(text) {
+                return `
+                    <div class="user-command-bar">
+                        <span class="arrow">&gt;</span>
+                        <span>${text}</span>
+                    </div>
+                `;
+            }
+
+            // ── 场景 A：主 Agent 通过 Stop Task 工具取消 ──
+            if (state.cancelScenario === 'A') {
+                return `
+                    <div class="thought-line">Thought for <strong>6s</strong> (ctrl+o to expand)</div>
+                    ${launchTree}
+                    ${waiting(2)}
+
+                    ${userCommand('取消厦门的子agent')}
+
+                    <div class="assistant-message">
+                        <span class="bullet-dot">•</span>
+                        <span>我将停止负责查询厦门天气的子 Agent 任务。</span>
+                    </div>
+
+                    ${stopTaskCard('bg-3f9a21c8', '查询厦门天气', 'stopped')}
+
+                    ${stoppedNotice('查询厦门天气')}
+
+                    <div class="assistant-message">
+                        <span class="bullet-dot">•</span>
+                        <span>已成功取消负责查询厦门天气的子 Agent。</span>
+                    </div>
+                    <div class="assistant-message">
+                        <span style="color:#64748b;">广州天气的子 Agent 仍在后台继续运行中，待其休眠结束并完成查询后会自动汇报结果。</span>
+                    </div>
+
+                    ${waiting(1)}
+                `;
+            }
+
+            // ── 场景 B：用户用抽屉 x 键取消（无主 Agent 参与）──
+            if (state.cancelScenario === 'B') {
+                return `
+                    <div class="thought-line">Thought for <strong>6s</strong> (ctrl+o to expand)</div>
+                    ${launchTree}
+                    ${waiting(2)}
+
+                    <div class="stopped-notice">
+                        <span class="dot">•</span>
+                        <span>Agent "查询厦门天气" was stopped by user</span>
+                    </div>
+
+                    <div class="assistant-message">
+                        <span style="color:#64748b;">（停止由用户在抽屉按 x 触发，主 Agent 未介入；此文案用于区分停止来源）</span>
+                    </div>
+
+                    ${waiting(1)}
+                `;
+            }
+
+            // ── 场景 C：取消后，剩余任务完成并回流 ──
+            if (state.cancelScenario === 'C') {
+                return `
+                    ${launchTree}
+
+                    <div class="stopped-notice">
+                        <span class="dot">•</span>
+                        <span>Agent "查询厦门天气" was stopped by the main Agent</span>
+                    </div>
+
+                    ${waiting(1)}
+
+                    <div class="assistant-message">
+                        <span class="bullet-dot bullet-green">•</span>
+                        <span style="font-weight:600;">Agent "查询广州天气" finished · 3m 55s</span>
+                    </div>
+
+                    <div class="assistant-message">
+                        <span class="bullet-dot">•</span>
+                        <span>负责查询广州天气的子 Agent 已完成任务，查询结果如下：</span>
+                    </div>
+
+                    <div class="report-card">
+                        <div class="report-title">广州当前天气状况</div>
+                        <div>- 天气现象：烟霾（Smoky haze），无降水，能见度约 10 公里</div>
+                        <div>- 气温：29°C（体感约 30°C）</div>
+                        <div>- 风况：东北风，风速约 10~11 km/h（微风）</div>
+                        <div>- 相对湿度：52%</div>
+                        <div>- 气压 / 紫外线：1018 hPa，UV 指数 2</div>
+                    </div>
+
+                    <div class="assistant-message" style="margin-top:4px;">
+                        <span style="color:#64748b;">（注：负责查询厦门天气的子 Agent 此前已按要求取消，未进行查询。）</span>
+                    </div>
+
+                    <div class="thinking-summary">
+                        <span class="spinner-asterisk" style="color:#64748b;">✻</span>
+                        <span style="color:#64748b;">Cogitated for 4m 14s · done 9:43</span>
+                    </div>
+                    <div class="thinking-summary">
+                        <span class="spinner-asterisk" style="color:#64748b;">✻</span>
+                        <span style="color:#64748b;">recap: 已完成广州天气查询，厦门查询任务已按指令取消，请指示下一步操作。</span>
+                        <span style="color:#475569; font-size:12px;">（disable recaps in /config）</span>
+                    </div>
+                `;
+            }
+
+            // ── 场景 D：对比 — 当前无取消能力时的现状 ──
+            if (state.cancelScenario === 'D') {
+                return `
+                    <div class="thought-line">Thought for <strong>6s</strong> (ctrl+o to expand)</div>
+                    ${launchTree}
+                    ${waiting(2)}
+
+                    ${userCommand('取消厦门的子agent')}
+
+                    <div class="assistant-message">
+                        <span class="bullet-dot">•</span>
+                        <span>我没有停止正在运行的子 Agent 的能力。</span>
+                    </div>
+                    <div class="assistant-message">
+                        <span style="color:#ecc94b;">子任务一旦启动便只能在底部抽屉里由你手动停止：空输入框按 ↓ 进入抽屉，用 ↑/↓ 选中目标行，按 x 停止单个；Ctrl+X Ctrl+K 停止全部。</span>
+                    </div>
+
+                    <div class="report-card" style="border-color:#5a4a2e;">
+                        <div class="report-title" style="color:#ecc94b;">⚠️ 当前实现的缺口</div>
+                        <div>- <strong>Agent 工具 schema 无 action / task_id 参数</strong>：只有 prompt / subagent_type / description / name / isolation / cwd / timeout_secs / fork</div>
+                        <div>- <strong>模型无法取消任何子任务</strong>：只能回复「请用户自行按 x 停止」</div>
+                        <div>- <strong>停止确认文案缺失</strong>：无 <code>was stopped by the main Agent</code> 行，停止与失败共用 finished/failed 分支</div>
+                        <div>- <strong>等待计数文案缺失</strong>：无 <code>✻ Waiting for N background agents to finish</code> 行</div>
+                    </div>
+
+                    ${waiting(2)}
+                `;
+            }
+
+            return '';
+        }
+
+        function loadCancelScenario(mode) {
+            state.cancelScenario = mode;
+            ['A', 'B', 'C', 'D'].forEach(function (key) {
+                const el = document.getElementById('btnCancel' + key);
+                if (el) { el.classList.toggle('active', key === mode); }
+            });
+            render();
+        }
+
         function renderMessageBody() {
             const body = document.getElementById('terminalBody');
             let html = '';
+
+            // 取消链路场景（A/B/C/D）优先接管主视口渲染
+            if (state.cancelScenario) {
+                body.innerHTML = renderCancelScenario();
+                body.scrollTop = body.scrollHeight;
+                return;
+            }
 
             if (state.activeView === 'main') {
                 if (state.currentScenario < 6) {
@@ -1198,6 +1513,61 @@
             const bar = document.getElementById('bgAgentBar');
             let html = '';
 
+            // 取消链路场景下用专用抽屉状态（体现「已停止」的行样式）
+            if (state.cancelScenario) {
+                const rows = [
+                    { id: 'main', type: 'main' },
+                    { id: 'sub1', type: 'general-purpose', name: '广州天气查询(先休眠3分钟)', running: true },
+                    {
+                        id: 'sub2', type: 'general-purpose', name: '厦门天气查询(先休眠2分钟)',
+                        // A/C: 主 Agent 停止；B: 用户停止；D: 无取消能力（两个都还在跑）
+                        stopped: (state.cancelScenario === 'A' || state.cancelScenario === 'B' || state.cancelScenario === 'C'),
+                        stoppedBy: state.cancelScenario === 'B' ? 'user' : 'main Agent',
+                    },
+                ];
+                let drawer = '';
+                rows.forEach(function (r) {
+                    if (r.id === 'main') {
+                        drawer += `
+                            <div class="agent-row">
+                                <div class="agent-row-left">
+                                    <span class="cursor-arrow">&gt;</span>
+                                    <span class="status-circle circle-active">●</span>
+                                    <span class="agent-type-name">main</span>
+                                </div>
+                                <div class="agent-row-right"></div>
+                            </div>`;
+                        return;
+                    }
+                    if (r.stopped) {
+                        drawer += `
+                            <div class="agent-row" style="opacity:0.75;">
+                                <div class="agent-row-left">
+                                    <span class="cursor-arrow">&gt;</span>
+                                    <span class="status-circle" style="color:#ff6b80;">●</span>
+                                    <span class="agent-type-name">${r.type}</span>
+                                    <span class="agent-task-preview">${r.name}</span>
+                                    <span style="color:#ff6b80; margin-left:8px; font-size:12px;">stopped by ${r.stoppedBy}</span>
+                                </div>
+                                <div class="agent-row-right">—</div>
+                            </div>`;
+                    } else {
+                        drawer += `
+                            <div class="agent-row">
+                                <div class="agent-row-left">
+                                    <span class="cursor-arrow">&gt;</span>
+                                    <span class="status-circle circle-inactive">○</span>
+                                    <span class="agent-type-name">${r.type}</span>
+                                    <span class="agent-task-preview">${r.name}</span>
+                                </div>
+                                <div class="agent-row-right">42s · ↓ 61</div>
+                            </div>`;
+                    }
+                });
+                bar.innerHTML = drawer;
+                return;
+            }
+
             state.agents.forEach((agent, idx) => {
                 const isCursor = (state.cursorIndex === idx);
                 const isCurrentView = (state.activeView === agent.id);
@@ -1261,6 +1631,12 @@
 
         // 场景快速预设
         function loadScenario(num) {
+            // 退出取消链路场景，回到常规场景
+            state.cancelScenario = null;
+            ['A', 'B', 'C', 'D'].forEach(function (key) {
+                const el = document.getElementById('btnCancel' + key);
+                if (el) { el.classList.remove('active'); }
+            });
             state.currentScenario = num;
             document.querySelectorAll('.btn-group .btn').forEach((b, i) => {
                 b.classList.toggle('active', i + 1 === num);

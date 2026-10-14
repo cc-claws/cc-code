@@ -104,6 +104,12 @@ impl App {
             .as_deref()
             .and_then(|id| self.session_mgr.current().subagent_sessions.get(id))
             .is_some_and(|sub| sub.status == super::subagent_session::SubagentRunStatus::Stopped);
+        // 停止发起方：true = 用户按键，false = 主 Agent 经 Agent(action="stop")。
+        // 仅在确为停止时才有意义（PRD §4.4.1 的 `stopped by user|main Agent` 区分）。
+        let stopped_by_user = child_thread_id
+            .as_deref()
+            .and_then(|id| self.session_mgr.current().subagent_sessions.get(id))
+            .is_some_and(|sub| sub.stopped_by_user);
 
         if was_focused {
             // 用户正在看它：视口与抽屉行都原地保留（就地显示 `✓ completed`），
@@ -194,8 +200,18 @@ impl App {
         }
 
         let title = finished_title.as_deref().unwrap_or(&agent_name);
-        let status = if success { "finished" } else { "failed" };
-        let notification = format!("• Agent \"{title}\" {status} · {}", super::subagent_session::format_duration(std::time::Duration::from_millis(duration_ms)));
+        // 停止与「完成/失败」是不同语义，必须独立成行：用户要能区分「它自己跑完了」
+        // 「它出错了」「它被停了」三种终态（PRD §4.4.1）。停止行还区分发起方。
+        let notification = if finished_stopped {
+            let by = if stopped_by_user { "user" } else { "main Agent" };
+            format!("• Agent \"{title}\" was stopped by {by}")
+        } else {
+            let status = if success { "finished" } else { "failed" };
+            format!(
+                "• Agent \"{title}\" {status} · {}",
+                super::subagent_session::format_duration(std::time::Duration::from_millis(duration_ms))
+            )
+        };
         self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(notification)));
         // 停止任务不得触发新的模型轮次，否则全停快捷键会再次唤醒主任务。
         if finished_stopped {
@@ -235,6 +251,11 @@ impl App {
                 duration_ms,
                 child_thread_id: child_thread_id.clone(),
             });
+
+        // 等待态计数行随活跃数递减（PRD §4.4.2）：一个任务收尾后立刻反映「还差几个」，
+        // 归零时该行被移除（`refresh_bg_waiting_note` 内部处理）。必须放在下面两个
+        // return 分支之前，否则「全部完成」那条路径会带着过期的计数行返回。
+        self.refresh_bg_waiting_note();
 
         // 如果 agent 已完成（Done）且所有后台任务都已完成，关闭通道并自动提交 continuation
         if self.session_mgr.current_mut().agent.agent_done_pending_bg

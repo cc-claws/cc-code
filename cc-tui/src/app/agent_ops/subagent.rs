@@ -5,6 +5,12 @@ use super::super::*;
 
 use crate::app::App;
 
+/// 等待态计数行的识别标记（PRD §4.4.2）。用带前缀与后缀的固定子串而非整行匹配：
+/// 数量会变化（`1`/`N`），但首尾稳定，清理时才能命中上一帧写入的行；同时收窄到
+/// 本功能专属措辞，避免误伤其他含 "Waiting for" 的系统消息。
+const BG_WAITING_MARKER: &str = "✻ Waiting for ";
+const BG_WAITING_SUFFIX: &str = " to finish";
+
 impl App {
     pub(super) fn handle_token_usage_update(
         &mut self,
@@ -174,6 +180,38 @@ impl App {
             !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
         });
         session.messages.push_system_note_with_detail(content, detail_content);
+    }
+
+    /// 刷新主视口的等待态计数行 `✻ Waiting for N background agents to finish`（PRD §4.4.2）。
+    ///
+    /// 与启动摘要同属临时 UI 节点（`ephemeral_notes`），不进入规范历史。活跃数归零时
+    /// **必须移除该行**：残留的「Waiting for 1 …」会让用户以为还有任务在跑。
+    pub(crate) fn refresh_bg_waiting_note(&mut self) {
+        let session = self.session_mgr.current_mut();
+        // 先清旧行，再按当前活跃数决定是否重建：数量变化时不会出现两行并存的中间态。
+        session.messages.ephemeral_notes.retain(|(_, vm)| {
+            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX))
+        });
+        session.messages.view_messages.retain(|vm| {
+            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX))
+        });
+        let running = session
+            .background_agents
+            .iter()
+            .filter(|agent| {
+                session
+                    .subagent_sessions
+                    .get(&agent.instance_id)
+                    .is_none_or(|sub| sub.status.is_active())
+            })
+            .count();
+        if running == 0 {
+            return;
+        }
+        let plural = if running > 1 { "s" } else { "" };
+        session.messages.push_system_note(format!(
+            "✻ Waiting for {running} background agent{plural} to finish"
+        ));
     }
 
     pub(crate) fn handle_subagent_event(&mut self, id: &str, mut event: AgentEvent) -> (bool, bool, bool) {

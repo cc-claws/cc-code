@@ -29,8 +29,8 @@ fn fit(text: &str, width: usize) -> String {
 ///
 /// 配色：`bright`（键盘游标所在行）用亮白，其余行统一灰，形成"只有选中的那行亮"的层次；
 /// 圆点 `●`/`◯` 单独表达当前视口；`accent` 仅在示警（待审批/失败/停止）时覆盖圆点与右侧指标。
-// 8 个入参都是抽屉单行的独立显示输入（宽度 / 游标 / 当前视口 / 高亮 / 类型 / 预览 /
-// 指标 / 告警色），拆结构体反而让调用点更绕；此处显式豁免该 lint。
+// 9 个入参都是抽屉单行的独立显示输入（宽度 / 游标 / 当前视口 / 高亮 / 类型 / 预览 /
+// 指标 / 告警色 / 实心圆点），拆结构体反而让调用点更绕；此处显式豁免该 lint。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drawer_line(
     width: usize,
@@ -41,6 +41,9 @@ pub(crate) fn drawer_line(
     preview: &str,
     metrics: &str,
     accent: Option<Color>,
+    // 强制实心圆点 `●`（覆盖 `active` 的空心 `◯`）。停止态用它配合 `accent=ERROR`
+    // 呈现「红 ● + stopped by …」：红实心比空心情形更醒目，用户一眼确认已停（PRD §4.4）。
+    force_filled: bool,
 ) -> Line<'static> {
     let usable = width.saturating_sub(1);
     let right_width = UnicodeWidthStr::width(metrics).min(usable.saturating_sub(4));
@@ -58,7 +61,10 @@ pub(crate) fn drawer_line(
     let cursor_cols = prefix_width.min(2);
     let circle_cols = prefix_width - cursor_cols;
     let cursor_text = truncate(if selected { "> " } else { "  " }, cursor_cols);
-    let circle_text = truncate(&format!("{} ", if active { "●" } else { "◯" }), circle_cols);
+    let circle_text = truncate(
+        &format!("{} ", if active || force_filled { "●" } else { "◯" }),
+        circle_cols,
+    );
 
     let circle_color = accent.unwrap_or(if active {
         theme::DRAWER_CIRCLE_ON
@@ -155,6 +161,7 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
             current.is_none(),
             bright_for(0, current.is_none()),
             "main", "", "", None,
+            false,
         ),
     ];
     let overflow = session.background_agents.len() + 1 > content_height;
@@ -165,7 +172,12 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
         let (preview, metrics, accent) = if let Some(sub) = sub {
             let metrics = match sub.status {
                 SubagentRunStatus::Completed => "✓ completed".into(),
-                SubagentRunStatus::Stopped => "✗ stopped".into(),
+                // 停止：`stopped by user|main Agent` 区分发起方（PRD §4.4.1），
+                // 与完成/失败/超时三种终态各自的文案并列，用户一眼看出是谁停的。
+                SubagentRunStatus::Stopped => {
+                    let by = if sub.stopped_by_user { "user" } else { "main Agent" };
+                    format!("stopped by {by}")
+                }
                 SubagentRunStatus::Failed if sub.final_result.as_deref().is_some_and(|result| result.contains("timed out")) => "✗ timeout".into(),
                 SubagentRunStatus::Failed => "✗ failed".into(),
                 // 单个箭头 + 最近一次用量：`↓` = Agent 回复产出，`↑` = 用户提问输入。
@@ -192,6 +204,8 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
             is_active,
             bright_for(index + 1, is_active),
             &agent.agent_name, preview, &metrics, accent,
+            // 停止态强制实心 ●，配合 accent=ERROR 呈现红 ●（PRD §4.4）。
+            sub.is_some_and(|sub| sub.status == SubagentRunStatus::Stopped),
         ));
     }
     if overflow { lines.push(Line::from(format!("  …+{} more", session.background_agents.len().saturating_sub(capacity)))); }

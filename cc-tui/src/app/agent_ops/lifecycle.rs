@@ -122,6 +122,9 @@ impl App {
                 count = self.session_mgr.current_mut().background_agents.len(),
                 "agent done but background tasks still running, keeping channel alive"
             );
+            // 等待态计数行（PRD §4.4.2）：让用户明确「还差几个」。活跃数归零时由
+            // `refresh_bg_waiting_note()` 负责移除，避免残留误导。
+            self.refresh_bg_waiting_note();
         } else {
             // 竞态修复：处理暂存的后台任务完成通知
             if !self
