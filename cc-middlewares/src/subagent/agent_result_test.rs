@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn test_agent_result_summary_preserves_complete_call_prohibition() {
+    let tool = AgentResultTool::new();
+    let first_line = tool.description().lines().next().expect("工具描述不为空");
+    let summary: String = first_line.chars().take(160).collect();
+    assert_eq!(summary, first_line, "首行必须能完整放进工具摘要");
+    assert!(
+        summary.starts_with("Do not call"),
+        "禁止调用必须放在描述开头"
+    );
+    assert!(
+        summary.contains("directly or through ExecuteExtraTool."),
+        "直接与间接调用禁令均完整保留"
+    );
+    assert!(
+        summary.contains("automatic background completion"),
+        "明确说明结果自动回流"
+    );
+}
+
+#[test]
 fn test_agent_result_description_matches_notification_only_contract() {
     let tool = AgentResultTool::new();
     let description = tool.description();

@@ -747,3 +747,7 @@ fn inject_bg_result_messages(
 
     (history, user_content)
 }
+
+#[cfg(test)]
+#[path = "executor_test.rs"]
+mod tests;

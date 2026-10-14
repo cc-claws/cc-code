@@ -3,6 +3,125 @@
         desc_str: String,
     }
 
+    #[tokio::test]
+    async fn test_before_agent_excludes_history_marker_from_discovery() {
+        let (index, shared) = build_test_components();
+        shared.write().insert(
+            "AgentResult".into(),
+            Arc::new(crate::subagent::AgentResultTool::new()),
+        );
+        let middleware = ToolSearchMiddleware::new(Arc::clone(&index), Arc::clone(&shared));
+        let mut state = cc_agent::agent::state::AgentState::new("/tmp");
+        middleware
+            .before_agent(&mut state)
+            .await
+            .expect("生成工具发现提示词");
+        let prompt = state.messages()[0].content();
+        assert!(
+            !prompt.contains("AgentResult"),
+            "历史标记不得被推荐为可调用工具"
+        );
+        assert!(prompt.contains("CronRegister"), "正常延迟工具仍须可见");
+        assert_eq!(index.total_count(), 2, "内部标记不计入可发现工具数");
+        let search = SearchExtraTools::new(Arc::clone(&index));
+        for query in ["select:AgentResult", "AgentResult", "background results"] {
+            let output = search
+                .invoke(serde_json::json!({"query": query}))
+                .await
+                .expect("搜索成功");
+            let output: serde_json::Value =
+                serde_json::from_str(&output).expect("搜索返回合法 JSON");
+            assert!(
+                output["results"]
+                    .as_array()
+                    .expect("结果数组")
+                    .iter()
+                    .all(|item| item["name"] != "AgentResult"),
+                "精确与关键词搜索都不能发现内部标记"
+            );
+        }
+        assert_eq!(
+            index
+                .search("select:CronRegister,mcp__slack__send", 5)
+                .len(),
+            2,
+            "正常工具的精确查询不受影响"
+        );
+        let mut next_state = cc_agent::agent::state::AgentState::new("/tmp");
+        middleware
+            .before_agent(&mut next_state)
+            .await
+            .expect("下一轮复用提示词");
+        assert_eq!(
+            next_state.messages()[0].content(),
+            prompt,
+            "跨轮提示词必须稳定"
+        );
+        assert!(
+            shared.read().contains_key("AgentResult"),
+            "兼容标记仍在内部注册表中"
+        );
+        assert!(
+            super::super::core_tools::is_deferred_tool("AgentResult"),
+            "不能因移出发现索引而直接暴露给模型"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_before_agent_with_only_history_marker_has_no_deferred_prompt() {
+        let index = Arc::new(ToolSearchIndex::new());
+        let shared: HashMap<String, Arc<dyn BaseTool>> = HashMap::from([(
+            "AgentResult".into(),
+            Arc::new(crate::subagent::AgentResultTool::new()) as Arc<dyn BaseTool>,
+        )]);
+        let middleware =
+            ToolSearchMiddleware::new(Arc::clone(&index), Arc::new(RwLock::new(shared)));
+        for _ in 0..2 {
+            let mut state = cc_agent::agent::state::AgentState::new("/tmp");
+            middleware
+                .before_agent(&mut state)
+                .await
+                .expect("构建空工具索引");
+            assert!(
+                state.messages().is_empty(),
+                "不能为内部标记注入可调用能力段落"
+            );
+            assert_eq!(index.total_count(), 0);
+            assert!(index.cached_prompt().is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_history_marker_indirect_invocation_still_returns_error() {
+        let (index, shared) = build_test_components();
+        shared.write().insert(
+            "AgentResult".into(),
+            Arc::new(crate::subagent::AgentResultTool::new()),
+        );
+        let middleware = ToolSearchMiddleware::new(index, Arc::clone(&shared));
+        let mut state = cc_agent::agent::state::AgentState::new("/tmp");
+        middleware
+            .before_agent(&mut state)
+            .await
+            .expect("生成工具发现提示词");
+        let executor = ExecuteExtraTool::new(shared);
+        let error = executor
+            .invoke(serde_json::json!({
+                "tool_name": "AgentResult",
+                "params": {"task_id": "legacy-task"}
+            }))
+            .await
+            .expect_err("旧会话误调用仍须明确报错");
+        assert!(error.to_string().contains("Do not retry AgentResult."));
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .expect("保留原始错误类型")
+                .kind(),
+            std::io::ErrorKind::Unsupported
+        );
+    }
+
     impl MockTool {
         fn new(name: &str, desc: &str) -> Self {
             Self {
