@@ -145,7 +145,7 @@ impl App {
         if agents.is_empty() { return; }
 
         // 1. 普通模式：极简树形摘要
-        let mut content = format!("• {} background agents launched (↓ to manage)", agents.len());
+        let mut content = format!("{} {} background agents launched (↓ to manage)", crate::ui::theme::SYMBOL_DOT, agents.len());
         for (index, agent) in agents.iter().enumerate() {
             // 树形行：缩进 2 列 → `├` 与标题文字同列；渲染层识别该形状后不再注入 `· ` 前缀。
             let branch = if index + 1 == agents.len() { "└──" } else { "├──" };

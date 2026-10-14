@@ -662,7 +662,7 @@ fn render_batch_summary(
         format!("{} agents finished", total)
     };
     lines.push(Line::from(vec![
-        Span::styled("● ", Style::default().fg(theme::SAGE)),
+        Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(theme::SAGE)),
         Span::styled(header_text, Style::default().fg(theme::TEXT)),
     ]));
 
@@ -754,7 +754,7 @@ fn render_ask_user_block(content: &str, is_error: bool, width: usize) -> Vec<Lin
     let mut lines = Vec::new();
     let color = if is_error { theme::ERROR } else { theme::SAGE };
     lines.push(Line::from(vec![
-        Span::styled("● ", Style::default().fg(color)),
+        Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(color)),
         Span::styled(
             "User answered CC Code's questions:".to_string(),
             Style::default().fg(theme::TEXT),
@@ -1210,7 +1210,7 @@ pub fn render_view_model_with_links(
                                 for (j, seg) in wrapped.into_iter().enumerate() {
                                     let wline = seg.line;
                                     let prefix = if text_line_count == 0 && j == 0 {
-                                        "● "
+                                        theme::SYMBOL_DOT_SPACED
                                     } else {
                                         "  "
                                     };
@@ -1861,7 +1861,7 @@ pub fn render_view_model_with_links(
                     // 详细模式卡片标题：● Agent(任务预览)（对齐系统 Bash 工具统一 ● 圆点符号）
                     let rest_args = rest.strip_suffix(')').unwrap_or(rest);
                     lines.push(Line::from(vec![
-                        Span::styled("● ", Style::default().fg(theme::SAGE)),
+                        Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(theme::SAGE)),
                         Span::styled(
                             "Agent",
                             Style::default()
@@ -1918,11 +1918,11 @@ pub fn render_view_model_with_links(
                         Style::default().fg(theme::DIM),
                         width.saturating_sub(4).max(20),
                     );
-                } else if let Some(rest) = line.strip_prefix('•') {
-                    // 行内已自带 `•`（启动摘要标题 / 子 Agent 完成行）：直接渲染该标记，
-                    // 否则会出现 `· • …` 双标记，整块缩进也跟着错位。
+                } else if let Some(rest) = line.strip_prefix(theme::SYMBOL_DOT).or_else(|| line.strip_prefix('•')) {
+                    // 行内已自带圆点（启动摘要标题 / 子 Agent 完成行）：直接渲染全局统一圆点 SYMBOL_DOT_SPACED，
+                    // 统一对齐系统 Bash 工具的 ● 字形，杜绝一大一小。
                     let row = Line::from(vec![
-                        Span::styled("• ", Style::default().fg(theme::SAGE)),
+                        Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(theme::SAGE)),
                         Span::styled(
                             sanitize_display_text(rest.trim_start()),
                             Style::default().fg(theme::TEXT_SOFT),
@@ -1991,7 +1991,7 @@ pub fn render_view_model_with_links(
                 let has_error = tools.iter().any(|t| t.is_error);
                 let color = if has_error { theme::ERROR } else { theme::SAGE };
                 lines.push(Line::from(vec![
-                    Span::styled("● ", Style::default().fg(color)),
+                    Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(color)),
                     Span::styled(
                         "User answered CC Code's questions:".to_string(),
                         Style::default().fg(theme::TEXT),
@@ -2051,7 +2051,7 @@ pub fn render_view_model_with_links(
                     };
                     // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为中性色
                     // （此前失败用 ✗、名字为白色粗体，与主路径两套体系）
-                    let indicator = "●";
+                    let indicator = theme::SYMBOL_DOT;
                     lines.push(Line::from(vec![
                         Span::styled(indicator.to_string(), Style::default().fg(entry_color)),
                         Span::raw(" "),

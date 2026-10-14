@@ -119,3 +119,16 @@ pub const SUB_AGENT: Color = SAGE;
 
 /// 模型信息颜色 — 棕金，对应 #A0825F（状态栏模型名，不抢眼）
 pub const MODEL_INFO: Color = Color::Rgb(160, 130, 95);
+
+// ── 全局统一符号契约 ─────────────────────────────────────────────────────────
+
+/// 全局统一行首圆点符号（U+25CF Black Circle，以系统 Bash 工具指示符为唯一基准）
+///
+/// **【核心设计契约】**：
+/// 统一作为 Bash 工具调用、AI 回复第一行前缀、子 Agent 启动/完成行、
+/// AskUser 提示等所有行首状态圆点的【唯一公共常量】。
+/// 严禁使用 U+2022 ('•' BULLET 子弹符) 或其它异形圆点，杜绝终端渲染时一大一小的字形割裂。
+pub const SYMBOL_DOT: &str = "●";
+
+/// 带后置空格的统一圆点前缀（"● "），方便构建 Line/Span
+pub const SYMBOL_DOT_SPACED: &str = "● ";

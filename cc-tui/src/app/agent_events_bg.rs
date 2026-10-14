@@ -204,11 +204,12 @@ impl App {
         // 「它出错了」「它被停了」三种终态（PRD §4.4.1）。停止行还区分发起方。
         let notification = if finished_stopped {
             let by = if stopped_by_user { "user" } else { "main Agent" };
-            format!("• Agent \"{title}\" was stopped by {by}")
+            format!("{} Agent \"{title}\" was stopped by {by}", crate::ui::theme::SYMBOL_DOT)
         } else {
             let status = if success { "finished" } else { "failed" };
             format!(
-                "• Agent \"{title}\" {status} · {}",
+                "{} Agent \"{title}\" {status} · {}",
+                crate::ui::theme::SYMBOL_DOT,
                 super::subagent_session::format_duration(std::time::Duration::from_millis(duration_ms))
             )
         };
