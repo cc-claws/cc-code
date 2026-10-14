@@ -59,6 +59,103 @@ impl Theme for DarkTheme {
     } // BASH_BORDER #FD5DB1
 }
 
+/// 由调用方注入色值的主题：cc-tui 按当前调色板构造，使 widgets 渲染
+/// （markdown / diff / 消息块）随 /theme 切换同步变色。
+#[derive(Debug, Clone, Copy)]
+pub struct CustomTheme {
+    pub accent: Color,
+    pub success: Color,
+    pub warning: Color,
+    pub error: Color,
+    pub thinking: Color,
+    pub text: Color,
+    pub muted: Color,
+    pub dim: Color,
+    pub border: Color,
+    pub border_active: Color,
+    pub popup_bg: Color,
+    pub cursor_bg: Color,
+    pub loading: Color,
+    pub user_bg: Color,
+    pub bash_border: Color,
+    pub diff_add: Color,
+    pub diff_add_bg: Color,
+    pub diff_add_word_bg: Color,
+    pub diff_remove: Color,
+    pub diff_remove_bg: Color,
+    pub diff_remove_word_bg: Color,
+    pub diff_hunk: Color,
+}
+
+impl Theme for CustomTheme {
+    fn accent(&self) -> Color {
+        self.accent
+    }
+    fn success(&self) -> Color {
+        self.success
+    }
+    fn warning(&self) -> Color {
+        self.warning
+    }
+    fn error(&self) -> Color {
+        self.error
+    }
+    fn thinking(&self) -> Color {
+        self.thinking
+    }
+    fn text(&self) -> Color {
+        self.text
+    }
+    fn muted(&self) -> Color {
+        self.muted
+    }
+    fn dim(&self) -> Color {
+        self.dim
+    }
+    fn border(&self) -> Color {
+        self.border
+    }
+    fn border_active(&self) -> Color {
+        self.border_active
+    }
+    fn popup_bg(&self) -> Color {
+        self.popup_bg
+    }
+    fn cursor_bg(&self) -> Color {
+        self.cursor_bg
+    }
+    fn loading(&self) -> Color {
+        self.loading
+    }
+    fn user_bg(&self) -> Color {
+        self.user_bg
+    }
+    fn bash_border(&self) -> Color {
+        self.bash_border
+    }
+    fn diff_add(&self) -> Color {
+        self.diff_add
+    }
+    fn diff_add_bg(&self) -> Color {
+        self.diff_add_bg
+    }
+    fn diff_add_word_bg(&self) -> Color {
+        self.diff_add_word_bg
+    }
+    fn diff_remove(&self) -> Color {
+        self.diff_remove
+    }
+    fn diff_remove_bg(&self) -> Color {
+        self.diff_remove_bg
+    }
+    fn diff_remove_word_bg(&self) -> Color {
+        self.diff_remove_word_bg
+    }
+    fn diff_hunk(&self) -> Color {
+        self.diff_hunk
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

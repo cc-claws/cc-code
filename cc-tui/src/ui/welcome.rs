@@ -38,13 +38,13 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 "CC",
                 Style::default()
-                    .fg(theme::ACCENT)
+                    .fg(theme::cur().claude)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 " Code",
                 Style::default()
-                    .fg(theme::TEXT)
+                    .fg(theme::cur().text)
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
@@ -56,14 +56,14 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(
                     left_part.to_string(),
                     Style::default()
-                        .fg(theme::ACCENT)
+                        .fg(theme::cur().claude)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(" "),
                 Span::styled(
                     code_part.to_string(),
                     Style::default()
-                        .fg(theme::TEXT)
+                        .fg(theme::cur().text)
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
@@ -75,11 +75,11 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(vec![
         Span::styled(
             lc.tr("welcome-title"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ),
         Span::styled(
             format!("  v{}", env!("CARGO_PKG_VERSION")),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ),
     ]));
 
@@ -87,7 +87,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         lc.tr("welcome-divider"),
-        Style::default().fg(theme::DIM),
+        Style::default().fg(theme::cur().subtle),
     )));
 
     // ── 功能亮点 ────────────────────────────────────────────────────────
@@ -101,21 +101,21 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
 
     for feat in &features {
         lines.push(Line::from(vec![
-            Span::styled(" • ", Style::default().fg(theme::ACCENT)),
-            Span::styled(feat.clone(), Style::default().fg(theme::TEXT)),
+            Span::styled(" • ", Style::default().fg(theme::cur().claude)),
+            Span::styled(feat.clone(), Style::default().fg(theme::cur().text)),
         ]));
     }
 
     // ── 命令提示 ────────────────────────────────────────────────────────
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled(" /model", Style::default().fg(theme::WARNING)),
-        Span::styled("  ", Style::default().fg(theme::MUTED)),
-        Span::styled("/history", Style::default().fg(theme::WARNING)),
-        Span::styled("  ", Style::default().fg(theme::MUTED)),
-        Span::styled("/help", Style::default().fg(theme::WARNING)),
-        Span::styled("  ", Style::default().fg(theme::MUTED)),
-        Span::styled("/agents", Style::default().fg(theme::WARNING)),
+        Span::styled(" /model", Style::default().fg(theme::cur().warning)),
+        Span::styled("  ", Style::default().fg(theme::cur().inactive)),
+        Span::styled("/history", Style::default().fg(theme::cur().warning)),
+        Span::styled("  ", Style::default().fg(theme::cur().inactive)),
+        Span::styled("/help", Style::default().fg(theme::cur().warning)),
+        Span::styled("  ", Style::default().fg(theme::cur().inactive)),
+        Span::styled("/agents", Style::default().fg(theme::cur().warning)),
     ]));
 
     // ── 首次使用引导（未配置 Provider 时显示）───────────────────────────
@@ -131,22 +131,22 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 " ▶ ",
                 Style::default()
-                    .fg(theme::WARNING)
+                    .fg(theme::cur().warning)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 lc.tr("welcome-login-hint-1"),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ),
             Span::styled(
                 "/login",
                 Style::default()
-                    .fg(theme::WARNING)
+                    .fg(theme::cur().warning)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 lc.tr("welcome-login-hint-2"),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ),
         ]));
     }
@@ -154,37 +154,37 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     // ── 快捷键提示 ──────────────────────────────────────────────────────
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled(" Esc", Style::default().fg(theme::DIM)),
+        Span::styled(" Esc", Style::default().fg(theme::cur().subtle)),
         Span::styled(
             lc.tr("welcome-shortcut-quit"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ),
-        Span::styled("  ", Style::default().fg(theme::DIM)),
-        Span::styled("Ctrl+C", Style::default().fg(theme::DIM)),
+        Span::styled("  ", Style::default().fg(theme::cur().subtle)),
+        Span::styled("Ctrl+C", Style::default().fg(theme::cur().subtle)),
         Span::styled(
             lc.tr("welcome-shortcut-stop"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ),
-        Span::styled("  ", Style::default().fg(theme::DIM)),
-        Span::styled("Shift+Enter", Style::default().fg(theme::DIM)),
+        Span::styled("  ", Style::default().fg(theme::cur().subtle)),
+        Span::styled("Shift+Enter", Style::default().fg(theme::cur().subtle)),
         Span::styled(
             lc.tr("welcome-shortcut-newline"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ),
-        Span::styled("  ", Style::default().fg(theme::DIM)),
-        Span::styled("Shift+Tab", Style::default().fg(theme::DIM)),
+        Span::styled("  ", Style::default().fg(theme::cur().subtle)),
+        Span::styled("Shift+Tab", Style::default().fg(theme::cur().subtle)),
         Span::styled(
             lc.tr("welcome-shortcut-mode"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ),
-        Span::styled("  ", Style::default().fg(theme::DIM)),
+        Span::styled("  ", Style::default().fg(theme::cur().subtle)),
         Span::styled(
             crate::event::keyboard::command_palette_label(),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ),
         Span::styled(
             lc.tr("welcome-shortcut-model"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ),
     ]));
 
@@ -195,10 +195,10 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     if !provider.is_empty() || !model.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled(" ⚡ ", Style::default().fg(theme::ACCENT)),
+            Span::styled(" ⚡ ", Style::default().fg(theme::cur().claude)),
             Span::styled(
                 format!("{} / {}", provider, model),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ),
         ]));
     }
@@ -206,13 +206,13 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     let skills_count = app.session_mgr.current().commands.skills.len();
     if skills_count > 0 {
         lines.push(Line::from(vec![
-            Span::styled(" #", Style::default().fg(theme::WARNING)),
+            Span::styled(" #", Style::default().fg(theme::cur().warning)),
             Span::styled(
                 lc.tr_args(
                     "welcome-skills-available",
                     &[("count".into(), (skills_count as i64).into())],
                 ),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ),
         ]));
     }

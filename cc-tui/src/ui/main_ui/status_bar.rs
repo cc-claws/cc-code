@@ -357,7 +357,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         // 不用抽屉游标的青色——青色只标记键盘游标本身。
         render_truncated_line(
             f,
-            vec![Span::styled(text, Style::default().fg(theme::MUTED))],
+            vec![Span::styled(text, Style::default().fg(theme::cur().inactive))],
             Vec::new(),
             area,
         );
@@ -371,8 +371,8 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         use cc_middlewares::prelude::PermissionMode;
         let mode = app.services.permission_mode.load();
         let (i18n_key, color) = match mode {
-            PermissionMode::AutoMode => ("statusbar-permission-auto", theme::WARNING),
-            PermissionMode::Bypass => ("statusbar-permission-bypass", theme::ERROR),
+            PermissionMode::AutoMode => ("statusbar-permission-auto", theme::cur().warning),
+            PermissionMode::Bypass => ("statusbar-permission-bypass", theme::cur().error),
         };
         let label = lc.tr(i18n_key);
         let is_highlight = app
@@ -390,7 +390,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         ) {
             left_spans.push(Span::styled(
                 lc.tr("statusbar-permission-cycle-hint"),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ));
         }
     }
@@ -403,7 +403,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let bg_agent_count = app.session_mgr.current().background_agents.len();
         if bg_shell_count + bg_agent_count > 0 {
             if has_content {
-                left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+                left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
             }
             let task_bar_focused =
                 app.session_mgr.current().ui.background_tasks_bar_focused && bg_shell_count > 0;
@@ -424,21 +424,21 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             }
             let pill_style = if task_bar_focused {
                 Style::default()
-                    .bg(theme::SELECTION_BG)
-                    .fg(theme::TEXT)
+                    .bg(theme::cur().selection_bg)
+                    .fg(theme::cur().text)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().bg(theme::CURSOR_BG).fg(theme::WARNING)
+                Style::default().bg(theme::cur().cursor_bg).fg(theme::cur().warning)
             };
             left_spans.push(Span::styled(format!(" {} ", parts.join(", ")), pill_style));
-            left_spans.push(Span::styled("↓ to view", Style::default().fg(theme::MUTED)));
+            left_spans.push(Span::styled("↓ to view", Style::default().fg(theme::cur().inactive)));
         }
     }
 
     // 重试状态
     if let Some(ref retry) = app.session_mgr.current().viewport_agent().retry_status {
         if has_content {
-            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+            left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
         }
         let delay_sec = retry.delay_ms as f64 / 1000.0;
         let err_preview: String = retry.error.chars().take(60).collect();
@@ -460,19 +460,19 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                     ]
                 )
             ),
-            Style::default().fg(theme::WARNING),
+            Style::default().fg(theme::cur().warning),
         ));
     }
 
     // 系统级提示（判定服务降级等运行态事实）
     if let Some(ref notice) = app.session_mgr.current().viewport_agent().system_notice {
         if has_content {
-            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+            left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
         }
         let color = match notice.level {
-            cc_agent::agent::events::NoticeLevel::Info => theme::MUTED,
-            cc_agent::agent::events::NoticeLevel::Warn => theme::WARNING,
-            cc_agent::agent::events::NoticeLevel::Error => theme::ERROR,
+            cc_agent::agent::events::NoticeLevel::Info => theme::cur().inactive,
+            cc_agent::agent::events::NoticeLevel::Warn => theme::cur().warning,
+            cc_agent::agent::events::NoticeLevel::Error => theme::cur().error,
         };
         let msg_preview: String = notice.message.chars().take(120).collect();
         let msg_display = if notice.message.chars().count() > 120 {
@@ -502,7 +502,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         match status {
             McpInitStatus::Initializing { connected, total } => {
                 if has_content {
-                    left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+                    left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
                 }
                 left_spans.push(Span::styled(
                     lc.tr_args(
@@ -512,7 +512,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                             ("total".into(), (total as i64).into()),
                         ],
                     ),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 ));
             }
             McpInitStatus::Ready { total } if total > 0 => {
@@ -524,14 +524,14 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 if let Some(until) = app.global_ui.mcp_ready_shown_until.get() {
                     if std::time::Instant::now() < until {
                         if has_content {
-                            left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+                            left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
                         }
                         left_spans.push(Span::styled(
                             lc.tr_args(
                                 "statusbar-mcp-ready",
                                 &[("total".into(), (total as i64).into())],
                             ),
-                            Style::default().fg(theme::SAGE),
+                            Style::default().fg(theme::cur().success),
                         ));
                     }
                 }
@@ -553,11 +553,11 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 };
                 if should_show {
                     if has_content {
-                        left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+                        left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
                     }
                     left_spans.push(Span::styled(
                         lc.tr_args("statusbar-mcp-failed", &[("msg".into(), simplified.into())]),
-                        Style::default().fg(theme::ERROR),
+                        Style::default().fg(theme::cur().error),
                     ));
                 }
             }
@@ -570,7 +570,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let agent = app.session_mgr.current().viewport_agent();
         if agent.lsp_errors > 0 || agent.lsp_warnings > 0 {
             if has_content {
-                left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+                left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
             }
             left_spans.push(Span::styled(
                 lc.tr_args(
@@ -580,7 +580,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                         ("warnings".into(), (agent.lsp_warnings as i64).into()),
                     ],
                 ),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ));
         }
     }
@@ -590,7 +590,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         if std::time::Instant::now() < until {
             left_spans.push(Span::styled(
                 " Agent 运行中，请等待后再撤销 ",
-                Style::default().fg(theme::WARNING),
+                Style::default().fg(theme::cur().warning),
             ));
         }
     }
@@ -601,15 +601,15 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let (cache_str, cache_color) = if tracker.last_usage.is_some() {
             let rate_pct = tracker.cache_hit_rate() * 100.0;
             let color = if rate_pct >= 80.0 {
-                theme::SAGE
+                theme::cur().success
             } else if rate_pct > 0.0 {
-                theme::WARNING
+                theme::cur().warning
             } else {
-                theme::MUTED
+                theme::cur().inactive
             };
             (format!("Cache {:.0}%", rate_pct), color)
         } else {
-            ("Cache -".to_string(), theme::MUTED)
+            ("Cache -".to_string(), theme::cur().inactive)
         };
 
         let mut monitor = app.services.resource_monitor.lock();
@@ -618,16 +618,16 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         drop(monitor);
 
         let mem_color = if mem > 1024 {
-            theme::ERROR
+            theme::cur().error
         } else if mem > 512 {
-            theme::WARNING
+            theme::cur().warning
         } else {
-            theme::SAGE
+            theme::cur().success
         };
 
         left_spans.push(Span::styled("  ", Style::default()));
         left_spans.push(Span::styled(cache_str, Style::default().fg(cache_color)));
-        left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
+        left_spans.push(Span::styled(" · ", Style::default().fg(theme::cur().inactive)));
         left_spans.push(Span::styled(
             format!("MEM {}MB", mem),
             Style::default().fg(mem_color),
@@ -636,9 +636,9 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
     // 右侧：快捷键提示
     let key_style = Style::default()
-        .fg(theme::MUTED)
+        .fg(theme::cur().inactive)
         .add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(theme::MUTED);
+    let desc_style = Style::default().fg(theme::cur().inactive);
 
     let right_spans: Vec<Span> = match &app.session_mgr.current().agent.interaction_prompt {
         Some(_) if app.global_ui.oauth_prompt.is_some() => {

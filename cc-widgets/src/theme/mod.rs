@@ -1,6 +1,6 @@
 mod presets;
 
-pub use presets::DarkTheme;
+pub use presets::{CustomTheme, DarkTheme};
 
 use ratatui::style::Color;
 

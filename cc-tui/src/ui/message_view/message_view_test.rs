@@ -145,18 +145,18 @@ fn test_tool_category_new_names() {
 #[test]
 fn test_tool_color_new_names() {
     // 读取/搜索 — SAGE
-    assert_eq!(tool_color("Read"), theme::SAGE);
-    assert_eq!(tool_color("Glob"), theme::SAGE);
-    assert_eq!(tool_color("Grep"), theme::SAGE);
+    assert_eq!(tool_color("Read"), theme::cur().success);
+    assert_eq!(tool_color("Glob"), theme::cur().success);
+    assert_eq!(tool_color("Grep"), theme::cur().success);
     // 写入/编辑 — WARNING
-    assert_eq!(tool_color("Write"), theme::WARNING);
-    assert_eq!(tool_color("Edit"), theme::WARNING);
+    assert_eq!(tool_color("Write"), theme::cur().warning);
+    assert_eq!(tool_color("Edit"), theme::cur().warning);
     // 执行 — BASH_BORDER
-    assert_eq!(tool_color("Bash"), theme::BASH_BORDER);
+    assert_eq!(tool_color("Bash"), theme::cur().bash_border);
     // 代理/交互 — THINKING
-    assert_eq!(tool_color("Agent"), theme::THINKING);
-    assert_eq!(tool_color("AskUserQuestion"), theme::THINKING);
-    assert_eq!(tool_color("TodoWrite"), theme::THINKING);
+    assert_eq!(tool_color("Agent"), theme::cur().thinking);
+    assert_eq!(tool_color("AskUserQuestion"), theme::cur().thinking);
+    assert_eq!(tool_color("TodoWrite"), theme::cur().thinking);
 }
 
 // ── aggregate_batch_groups 测试 ──

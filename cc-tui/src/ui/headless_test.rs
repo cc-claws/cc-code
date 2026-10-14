@@ -1178,7 +1178,7 @@ async fn test_tool_call_widget_renders_completed() {
         display_name: "Bash".to_string(),
         args_display: Some("ls -la".to_string()),
         content: "file1.txt\nfile2.txt".to_string(),
-        color: crate::ui::theme::SAGE,
+        color: crate::ui::theme::cur().success,
         is_error: false,
         collapsed: false,
         diff_input: None,

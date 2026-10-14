@@ -26,10 +26,10 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, popup_area);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -40,20 +40,20 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     lines.push(Line::from(vec![
         Span::styled(
             if is_none_cursor { "❯ " } else { "  " },
-            Style::default().fg(theme::THINKING),
+            Style::default().fg(theme::cur().thinking),
         ),
         Span::styled(
             "○ 无 Agent（默认）",
             if is_none_selected {
                 Style::default()
-                    .fg(theme::SAGE)
+                    .fg(theme::cur().success)
                     .add_modifier(Modifier::BOLD)
             } else if is_none_cursor {
                 Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::MUTED)
+                Style::default().fg(theme::cur().inactive)
             },
         ),
     ]));
@@ -70,14 +70,14 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
 
         let name_style = if is_selected {
             Style::default()
-                .fg(theme::SAGE)
+                .fg(theme::cur().success)
                 .add_modifier(Modifier::BOLD)
         } else if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         lines.push(Line::from(vec![
@@ -87,7 +87,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
 
         // 描述行（次要信息）
         if !agent.description.is_empty() {
-            let desc_style = Style::default().fg(theme::MUTED);
+            let desc_style = Style::default().fg(theme::cur().inactive);
             // 截断过长的描述
             let desc: String = agent.description.chars().take(50).collect();
             let desc = if agent.description.chars().count() > 50 {
@@ -109,7 +109,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  在 .claude/agents/ 目录中添加 Agent 定义文件",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     }
 
@@ -162,7 +162,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }
 

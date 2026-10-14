@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## Unreleased
+
+### Features
+
+- **`/theme` 主题命令：7 套可切换配色，6 套与 claude-code-best 逐值一致**：此前 TUI 配色是编译期常量，无法切换。现将全部 UI 颜色抽成统一调色板（69 个与 Claude Code 相同的语义字段 + cc-code 扩展字段），渲染层 900 余处引用改走当前调色板：`default` 即现行配色（升级后默认外观不变）；`dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` / `dark-ansi` 六套的名称与配色与 GitHub 仓库 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**，由一致性测试逐字段断言锁定防漂移。`/theme` 打开选择面板——光标移动实时预览、Enter 确认、Esc 还原，与 Claude Code 的 ThemePicker 行为一致；`/theme <name>` 可直接切换；选择持久化到配置 `theme` 字段，重启自动恢复。cc-widgets 的 markdown / diff 渲染同步注入当前调色板，切主题时代码块与 diff 一并变色。
+
 ## v0.6.139 — 2026-10-14
 
 ### Features

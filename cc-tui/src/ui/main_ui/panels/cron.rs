@@ -18,10 +18,10 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
     let mut lines: Vec<Line> = Vec::new();
 
@@ -51,26 +51,26 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
 
         let style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         let status_style = if task.enabled {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
 
         lines.push(Line::from(vec![
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("[{}] ", status_icon), status_style),
             Span::styled(format!("{} ", task.expression), style),
-            Span::styled(format!("| {} | ", next), Style::default().fg(theme::MUTED)),
+            Span::styled(format!("| {} | ", next), Style::default().fg(theme::cur().inactive)),
             Span::styled(prompt_display, style),
         ]));
     }
@@ -80,7 +80,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  （无定时任务，使用 /loop 命令创建）",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     }
 
@@ -130,7 +130,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
     let mut scroll_state = ScrollState::with_offset(panel.scroll_offset());
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }
 

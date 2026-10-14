@@ -35,11 +35,11 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
             let is_active = panel.view == *v;
             let style = if is_active {
                 Style::default()
-                    .fg(theme::TEXT)
-                    .bg(theme::THINKING)
+                    .fg(theme::cur().text)
+                    .bg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::MUTED)
+                Style::default().fg(theme::cur().inactive)
             };
             Span::styled(format!(" {} ", label), style)
         })
@@ -54,10 +54,10 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
     let inner = BorderedPanel::new(Span::styled(
         title_text,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     let tab_area = Rect {
@@ -92,7 +92,7 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
     if panel.discover_loading && filtered.is_empty() {
         lines.push(Line::from(Span::styled(
             "  Loading marketplace data\u{2026}",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     } else if filtered.is_empty() {
         let msg = if panel.discover_search.value().is_empty() {
@@ -102,7 +102,7 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
         };
         lines.push(Line::from(Span::styled(
             msg.to_string(),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     } else {
         for (i, plugin) in filtered.iter().enumerate() {
@@ -115,10 +115,10 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
 
             let name_style = if is_cursor {
                 Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(theme::cur().text)
             };
 
             let display_name = truncate_display(&plugin.name, max_name_width);
@@ -126,14 +126,14 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
             let mut spans = vec![
                 Span::styled(
                     cursor_char.to_string(),
-                    Style::default().fg(theme::THINKING),
+                    Style::default().fg(theme::cur().thinking),
                 ),
                 Span::styled(
                     format!("{} ", check_char),
                     if is_selected {
-                        Style::default().fg(theme::ACCENT)
+                        Style::default().fg(theme::cur().claude)
                     } else {
-                        Style::default().fg(theme::MUTED)
+                        Style::default().fg(theme::cur().inactive)
                     },
                 ),
                 Span::styled(display_name.clone(), name_style),
@@ -142,7 +142,7 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
             if !plugin.marketplace.is_empty() {
                 spans.push(Span::styled(
                     format!(" \u{00B7} {}", plugin.marketplace),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 ));
             }
 
@@ -155,22 +155,22 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
                         cc_middlewares::plugin::format_install_count(count),
                         "\u{00B7}"
                     ),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 ));
             }
 
             if is_installing {
                 right_parts.push(Span::styled(
                     " installing\u{2026}",
-                    Style::default().fg(theme::WARNING),
+                    Style::default().fg(theme::cur().warning),
                 ));
             } else if is_uninstalling {
                 right_parts.push(Span::styled(
                     " uninstalling\u{2026}",
-                    Style::default().fg(theme::WARNING),
+                    Style::default().fg(theme::cur().warning),
                 ));
             } else if plugin.installed {
-                right_parts.push(Span::styled(" \u{2714}", Style::default().fg(theme::SAGE)));
+                right_parts.push(Span::styled(" \u{2714}", Style::default().fg(theme::cur().success)));
             }
 
             if !right_parts.is_empty() {
@@ -203,7 +203,7 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
             if !desc.is_empty() {
                 lines.push(Line::from(vec![
                     Span::styled("     ", Style::default()),
-                    Span::styled(desc, Style::default().fg(theme::MUTED)),
+                    Span::styled(desc, Style::default().fg(theme::cur().inactive)),
                 ]));
             } else {
                 lines.push(Line::from(""));
@@ -229,6 +229,6 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
 
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, list_area, &mut scroll_state);
 }

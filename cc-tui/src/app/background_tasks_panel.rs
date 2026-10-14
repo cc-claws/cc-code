@@ -8,7 +8,7 @@ use std::any::Any;
 use std::time::{Duration, Instant};
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
@@ -226,11 +226,11 @@ impl PanelComponent for BackgroundTasksPanel {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme::BORDER))
+            .border_style(Style::default().fg(theme::cur().prompt_border))
             .title(Span::styled(
                 " Background tasks ",
                 Style::default()
-                    .fg(theme::ACCENT)
+                    .fg(theme::cur().claude)
                     .add_modifier(Modifier::BOLD),
             ));
         let inner = block.inner(area);
@@ -378,14 +378,14 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
     };
     lines.push(Line::from(Span::styled(
         summary,
-        Style::default().fg(theme::MUTED),
+        Style::default().fg(theme::cur().inactive),
     )));
     lines.push(Line::from(""));
 
     if shells.is_empty() && agents.is_empty() {
         lines.push(Line::from(Span::styled(
             lc.tr("app-bg-empty"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     } else {
         // Shells 分组
@@ -393,7 +393,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
             lines.push(Line::from(Span::styled(
                 format!("SHELLS ({})", shells.len()),
                 Style::default()
-                    .fg(theme::MUTED)
+                    .fg(theme::cur().inactive)
                     .add_modifier(Modifier::BOLD),
             )));
             for (i, row) in shells.iter().enumerate() {
@@ -415,7 +415,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
             lines.push(Line::from(Span::styled(
                 format!("LOCAL AGENTS ({})", agents.len()),
                 Style::default()
-                    .fg(theme::MUTED)
+                    .fg(theme::cur().inactive)
                     .add_modifier(Modifier::BOLD),
             )));
             for (i, row) in agents.iter().enumerate() {
@@ -464,15 +464,15 @@ fn render_task_row(
 
     let mut spans = vec![
         Span::raw(marker.to_string()),
-        Span::styled(label, Style::default().fg(theme::SELECTED_FG)),
+        Span::styled(label, Style::default().fg(theme::cur().selected_fg)),
         Span::raw(" "),
         Span::styled(badge_text, status_badge_style(status)),
         Span::raw(" "),
-        Span::styled(elapsed_text, Style::default().fg(theme::MUTED)),
+        Span::styled(elapsed_text, Style::default().fg(theme::cur().inactive)),
     ];
     if selected {
         for s in &mut spans {
-            s.style = s.style.bg(theme::SELECTION_BG);
+            s.style = s.style.bg(theme::cur().selection_bg);
         }
     }
     Line::from(spans)
@@ -603,16 +603,16 @@ fn render_detail(
 
     let info_lines = vec![
         Line::from(vec![
-            Span::styled("Status:  ", Style::default().fg(theme::MUTED)),
+            Span::styled("Status:  ", Style::default().fg(theme::cur().inactive)),
             Span::styled(format!(" {} ", status.badge()), status_badge_style(status)),
         ]),
         Line::from(vec![
-            Span::styled("Runtime: ", Style::default().fg(theme::MUTED)),
+            Span::styled("Runtime: ", Style::default().fg(theme::cur().inactive)),
             Span::raw(format_elapsed(elapsed)),
         ]),
         Line::from(vec![
-            Span::styled("Command: ", Style::default().fg(theme::MUTED)),
-            Span::styled(command, Style::default().fg(theme::SELECTED_FG)),
+            Span::styled("Command: ", Style::default().fg(theme::cur().inactive)),
+            Span::styled(command, Style::default().fg(theme::cur().selected_fg)),
         ]),
     ];
     // 启用折行：长命令在详情页完整展开（列表页则截断，见 render_task_row）
@@ -625,8 +625,8 @@ fn render_detail(
     let output_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::BORDER))
-        .title(Span::styled("Output", Style::default().fg(theme::MUTED)));
+        .border_style(Style::default().fg(theme::cur().prompt_border))
+        .title(Span::styled("Output", Style::default().fg(theme::cur().inactive)));
     let output_inner = output_block.inner(chunks[1]);
     f.render_widget(output_block, chunks[1]);
 
@@ -648,7 +648,7 @@ fn render_detail(
             showing_lines.len(),
             total_kb
         ),
-        Style::default().fg(theme::MUTED),
+        Style::default().fg(theme::cur().inactive),
     )));
     f.render_widget(Paragraph::new(output_lines), output_inner);
 }
@@ -656,12 +656,12 @@ fn render_detail(
 /// badge 样式：fg + 半透明背景色块（近似效果图 rgba 0.15，用深色 Rgb 近似）。
 fn status_badge_style(status: ShellStatus) -> Style {
     match status {
-        ShellStatus::Running => Style::default().fg(theme::CYAN).bg(Color::Rgb(28, 38, 68)),
-        ShellStatus::Completed => Style::default().fg(theme::SAGE).bg(Color::Rgb(28, 48, 32)),
-        ShellStatus::Failed => Style::default().fg(theme::ERROR).bg(Color::Rgb(58, 30, 38)),
+        ShellStatus::Running => Style::default().fg(theme::cur().cyan).bg(theme::cur().chip_bg_running),
+        ShellStatus::Completed => Style::default().fg(theme::cur().success).bg(theme::cur().chip_bg_completed),
+        ShellStatus::Failed => Style::default().fg(theme::cur().error).bg(theme::cur().chip_bg_failed),
         ShellStatus::Killed => Style::default()
-            .fg(theme::WARNING)
-            .bg(Color::Rgb(52, 46, 26)),
+            .fg(theme::cur().warning)
+            .bg(theme::cur().chip_bg_killed),
     }
 }
 

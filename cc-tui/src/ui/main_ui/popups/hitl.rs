@@ -55,10 +55,10 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = BorderedPanel::new(Span::styled(
         truncate_to_display_width(&title, usize::from(area.width)),
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::WARNING))
+    .border_style(Style::default().fg(theme::cur().warning))
     .render(f, area);
     let Some(mut model) = content::build_content(app, usize::from(inner.width)) else {
         return;

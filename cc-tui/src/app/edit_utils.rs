@@ -181,10 +181,10 @@ fn build_textarea_with_hint(_disabled: bool, hint: &str) -> TextArea<'static> {
     let mut ta = TextArea::default();
 
     // 统一灰色边框
-    let border_color = theme::MUTED;
+    let border_color = theme::cur().inactive;
 
     ta.set_cursor_line_style(Style::default());
-    ta.set_style(Style::default().fg(theme::TEXT));
+    ta.set_style(Style::default().fg(theme::cur().text));
     let mut block = ratatui::widgets::Block::default()
         .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
         .border_style(Style::default().fg(border_color))
@@ -192,7 +192,7 @@ fn build_textarea_with_hint(_disabled: bool, hint: &str) -> TextArea<'static> {
     if !hint.is_empty() {
         block = block.title(Span::styled(
             hint.to_owned(),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ));
     }
     ta.set_block(block);

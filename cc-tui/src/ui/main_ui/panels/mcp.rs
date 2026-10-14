@@ -43,7 +43,7 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
                     &[("count".into(), (count as u64).into())]
                 )
             ),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
         lines.push(Line::from(""));
 
@@ -60,7 +60,7 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
             };
             lines.push(Line::from(Span::styled(
                 format!("  {}", header_text),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
             render_server_group(
                 &mut lines,
@@ -83,7 +83,7 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
             };
             lines.push(Line::from(Span::styled(
                 format!("  {}", header_text),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
             render_server_group(
                 &mut lines,
@@ -99,7 +99,7 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 format!("  {}", lc.tr("mcp-no-servers")),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
         }
 
@@ -110,10 +110,10 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
     let inner = BorderedPanel::new(Span::styled(
         format!(" {} ", lc.tr("mcp-panel-title")),
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     // Phase 3: 写入元数据和渲染内容（可变借用 app）
@@ -129,7 +129,7 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }
 
@@ -148,51 +148,51 @@ fn render_server_group(
         let (icon, icon_style, status_text) = match (&server.status, &server.oauth_status) {
             (ClientStatus::Connected, _) => (
                 "✔",
-                Style::default().fg(theme::SAGE),
+                Style::default().fg(theme::cur().success),
                 lc.tr("mcp-status-connected"),
             ),
             (_, OAuthStatus::NeedsAuthorization) => (
                 "△",
-                Style::default().fg(theme::WARNING),
+                Style::default().fg(theme::cur().warning),
                 lc.tr("mcp-status-needs-auth"),
             ),
             (ClientStatus::Failed(_), _) => (
                 "✗",
-                Style::default().fg(theme::ERROR),
+                Style::default().fg(theme::cur().error),
                 lc.tr("mcp-status-error"),
             ),
             (ClientStatus::Disabled, _) => (
                 "◯",
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
                 lc.tr("mcp-status-disabled"),
             ),
             (ClientStatus::Uninitialized, _) => (
                 "◯",
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
                 lc.tr("mcp-status-uninitialized"),
             ),
             (ClientStatus::Disconnected, _) => (
                 "◯",
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
                 lc.tr("mcp-status-offline"),
             ),
         };
 
         let name_style = if is_cursor {
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         lines.push(Line::from(vec![
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(server.name.clone(), name_style),
-            Span::styled(" · ", Style::default().fg(theme::MUTED)),
+            Span::styled(" · ", Style::default().fg(theme::cur().inactive)),
             Span::styled(icon.to_string(), icon_style),
             Span::styled(format!(" {}", status_text), icon_style),
         ]));
@@ -227,10 +227,10 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
     let inner = BorderedPanel::new(Span::styled(
         format!(" {} ", server_name),
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -243,12 +243,12 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
     // Status 行
     if let Some(info) = server_info {
         let (status_icon, status_style) = match (&info.status, &info.oauth_status) {
-            (ClientStatus::Connected, _) => ("✔", Style::default().fg(theme::SAGE)),
-            (ClientStatus::Disabled, _) => ("⊘", Style::default().fg(theme::MUTED)),
-            (_, OAuthStatus::NeedsAuthorization) => ("△", Style::default().fg(theme::WARNING)),
-            (ClientStatus::Failed(_), _) => ("✗", Style::default().fg(theme::ERROR)),
-            (ClientStatus::Uninitialized, _) => ("◯", Style::default().fg(theme::MUTED)),
-            _ => ("◯", Style::default().fg(theme::MUTED)),
+            (ClientStatus::Connected, _) => ("✔", Style::default().fg(theme::cur().success)),
+            (ClientStatus::Disabled, _) => ("⊘", Style::default().fg(theme::cur().inactive)),
+            (_, OAuthStatus::NeedsAuthorization) => ("△", Style::default().fg(theme::cur().warning)),
+            (ClientStatus::Failed(_), _) => ("✗", Style::default().fg(theme::cur().error)),
+            (ClientStatus::Uninitialized, _) => ("◯", Style::default().fg(theme::cur().inactive)),
+            _ => ("◯", Style::default().fg(theme::cur().inactive)),
         };
         let status_label = match (&info.status, &info.oauth_status) {
             (ClientStatus::Connected, _) => lc.tr("mcp-status-connected"),
@@ -272,17 +272,17 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
             OAuthStatus::Authorized => (
                 "✔",
                 lc.tr("mcp-auth-authenticated"),
-                Style::default().fg(theme::SAGE),
+                Style::default().fg(theme::cur().success),
             ),
             OAuthStatus::NeedsAuthorization => (
                 "△",
                 lc.tr("mcp-status-needs-auth"),
-                Style::default().fg(theme::WARNING),
+                Style::default().fg(theme::cur().warning),
             ),
             OAuthStatus::None => (
                 "—",
                 lc.tr("mcp-auth-none"),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ),
         };
         lines.push(detail_line(
@@ -300,7 +300,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
                 label_width,
                 &lc.tr("mcp-label-url"),
                 url,
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ));
         }
     }
@@ -325,7 +325,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
                 label_width,
                 &lc.tr("mcp-label-config-location"),
                 &path_str,
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ));
         }
     }
@@ -342,7 +342,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
         label_width,
         &lc.tr("mcp-label-capabilities"),
         &capabilities.join(", "),
-        Style::default().fg(theme::TEXT),
+        Style::default().fg(theme::cur().text),
     ));
 
     // Tools 行
@@ -353,7 +353,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
             "mcp-label-tools-count",
             &[("count".into(), (tools.len() as i64).into())],
         ),
-        Style::default().fg(theme::TEXT),
+        Style::default().fg(theme::cur().text),
     ));
 
     // 展开工具列表
@@ -361,7 +361,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
         for (i, tool) in tools.iter().enumerate() {
             lines.push(Line::from(Span::styled(
                 format!("      {}. {}", i + 1, tool.name),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
         }
     }
@@ -389,15 +389,15 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
         };
         let style = if is_cursor {
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
         lines.push(Line::from(vec![
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("{}. {}", num, label), style),
         ]));
@@ -416,7 +416,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }
 
@@ -424,7 +424,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
 fn detail_line<'a>(label_width: usize, label: &str, value: &str, value_style: Style) -> Line<'a> {
     let padded = format!("  {:<width$}", label, width = label_width);
     Line::from(vec![
-        Span::styled(padded, Style::default().fg(theme::MUTED)),
+        Span::styled(padded, Style::default().fg(theme::cur().inactive)),
         Span::styled(value.to_string(), value_style),
     ])
 }

@@ -149,6 +149,10 @@ pub struct AppConfig {
     /// UI 语言
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// UI 颜色主题（"default" | "dark" | "light" | "light-daltonized" |
+    /// "dark-daltonized" | "light-ansi" | "dark-ansi"；缺省 = "default"）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
     /// 系统提示词 persona 覆盖
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona: Option<String>,

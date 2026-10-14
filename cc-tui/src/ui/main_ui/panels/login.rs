@@ -20,10 +20,10 @@ use crate::{
 pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut App, area: Rect) {
     let lc = &app.services.lc;
     let border_color = match panel.mode {
-        LoginPanelMode::Browse => theme::BORDER,
-        LoginPanelMode::Edit => theme::WARNING,
-        LoginPanelMode::New => theme::SAGE,
-        LoginPanelMode::ConfirmDelete => theme::ERROR,
+        LoginPanelMode::Browse => theme::cur().prompt_border,
+        LoginPanelMode::Edit => theme::cur().warning,
+        LoginPanelMode::New => theme::cur().success,
+        LoginPanelMode::ConfirmDelete => theme::cur().error,
     };
 
     let title = match panel.mode {
@@ -36,7 +36,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
     .border_style(Style::default().fg(border_color))
@@ -65,18 +65,18 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                 let name = p.display_name().to_string();
                 let type_tag = format!("({})", p.provider_type);
                 let row_style = if is_active {
-                    Style::default().fg(theme::SAGE)
+                    Style::default().fg(theme::cur().success)
                 } else if is_cursor {
-                    Style::default().fg(theme::THINKING)
+                    Style::default().fg(theme::cur().thinking)
                 } else {
-                    Style::default().fg(theme::TEXT)
+                    Style::default().fg(theme::cur().text)
                 };
-                let cursor_style = Style::default().fg(theme::THINKING);
+                let cursor_style = Style::default().fg(theme::cur().thinking);
                 lines.push(Line::from(vec![
                     Span::styled(format!("{} ", cursor_char), cursor_style),
                     Span::styled(format!("{} ", bullet), row_style),
                     Span::styled(format!("{} ", name), row_style.add_modifier(Modifier::BOLD)),
-                    Span::styled(type_tag, Style::default().fg(theme::MUTED)),
+                    Span::styled(type_tag, Style::default().fg(theme::cur().inactive)),
                 ]));
                 // 模型名子行
                 let m = &p.models;
@@ -88,41 +88,41 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                     }
                 };
                 lines.push(Line::from(vec![
-                    Span::styled("       ", Style::default().fg(theme::MUTED)),
+                    Span::styled("       ", Style::default().fg(theme::cur().inactive)),
                     Span::styled(
                         "Opus ",
                         Style::default()
-                            .fg(theme::MUTED)
+                            .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.opus), Style::default().fg(theme::MUTED)),
+                    Span::styled(fmt_model(&m.opus), Style::default().fg(theme::cur().inactive)),
                     Span::styled(
                         "  Sonnet ",
                         Style::default()
-                            .fg(theme::MUTED)
+                            .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.sonnet), Style::default().fg(theme::MUTED)),
+                    Span::styled(fmt_model(&m.sonnet), Style::default().fg(theme::cur().inactive)),
                     Span::styled(
                         "  Haiku ",
                         Style::default()
-                            .fg(theme::MUTED)
+                            .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.haiku), Style::default().fg(theme::MUTED)),
+                    Span::styled(fmt_model(&m.haiku), Style::default().fg(theme::cur().inactive)),
                     Span::styled(
                         "  Fable ",
                         Style::default()
-                            .fg(theme::MUTED)
+                            .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.fable), Style::default().fg(theme::MUTED)),
+                    Span::styled(fmt_model(&m.fable), Style::default().fg(theme::cur().inactive)),
                 ]));
             }
             if panel.providers.is_empty() {
                 lines.push(Line::from(Span::styled(
                     lc.tr("login-empty-hint"),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 )));
             }
             lines.truncate(inner.height as usize);
@@ -204,14 +204,14 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                 let (label_style, value_style) = if is_active {
                     (
                         Style::default()
-                            .fg(theme::THINKING)
+                            .fg(theme::cur().thinking)
                             .add_modifier(Modifier::BOLD),
-                        Style::default().fg(theme::THINKING),
+                        Style::default().fg(theme::cur().thinking),
                     )
                 } else {
                     (
-                        Style::default().fg(theme::MUTED),
-                        Style::default().fg(theme::TEXT),
+                        Style::default().fg(theme::cur().inactive),
+                        Style::default().fg(theme::cur().text),
                     )
                 };
 
@@ -233,13 +233,13 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                 let bullet = if is_active { "●" } else { "○" };
                 let cursor_char = if is_cursor { "❯" } else { " " };
                 let row_style = if is_active {
-                    Style::default().fg(theme::SAGE)
+                    Style::default().fg(theme::cur().success)
                 } else if is_cursor {
-                    Style::default().fg(theme::THINKING)
+                    Style::default().fg(theme::cur().thinking)
                 } else {
-                    Style::default().fg(theme::TEXT)
+                    Style::default().fg(theme::cur().text)
                 };
-                let cursor_style = Style::default().fg(theme::THINKING);
+                let cursor_style = Style::default().fg(theme::cur().thinking);
                 list_lines.push(Line::from(vec![
                     Span::styled(format!("{} ", cursor_char), cursor_style),
                     Span::styled(format!("{} ", bullet), row_style),
@@ -264,17 +264,17 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                     Line::from(vec![
                         Span::styled(
                             lc.tr("login-confirm-delete-label"),
-                            Style::default().fg(theme::TEXT),
+                            Style::default().fg(theme::cur().text),
                         ),
                         Span::styled(
                             p.display_name().to_string(),
                             Style::default()
-                                .fg(theme::ERROR)
+                                .fg(theme::cur().error)
                                 .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             lc.tr("login-confirm-delete-question"),
-                            Style::default().fg(theme::TEXT),
+                            Style::default().fg(theme::cur().text),
                         ),
                     ]),
                 ];

@@ -12,11 +12,11 @@ pub(crate) fn detail_kv_line<'a>(key: &str, value: &str) -> Line<'a> {
     Line::from(vec![
         Span::styled(
             format!("  {}: ", key),
-            Style::default().fg(crate::ui::theme::MUTED),
+            Style::default().fg(crate::ui::theme::cur().inactive),
         ),
         Span::styled(
             value.to_string(),
-            Style::default().fg(crate::ui::theme::TEXT),
+            Style::default().fg(crate::ui::theme::cur().text),
         ),
     ])
 }

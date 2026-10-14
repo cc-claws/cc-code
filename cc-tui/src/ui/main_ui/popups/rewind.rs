@@ -28,10 +28,10 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
     let inner = BorderedPanel::new(Span::styled(
         "Rewind",
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::ACCENT))
+    .border_style(Style::default().fg(theme::cur().claude))
     .render(f, area);
     let max_width = inner.width as usize;
     let mut lines: Vec<Line> = Vec::new();
@@ -58,7 +58,7 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
                 cursor_indicator,
                 if is_cursor {
                     Style::default()
-                        .fg(theme::ACCENT)
+                        .fg(theme::cur().claude)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
@@ -68,15 +68,15 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
                 summary,
                 if is_cursor {
                     Style::default()
-                        .fg(theme::TEXT)
+                        .fg(theme::cur().text)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme::MUTED)
+                    Style::default().fg(theme::cur().inactive)
                 },
             ),
             Span::styled(
                 format!(" {}", count_label),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ),
         ]));
     }
@@ -92,10 +92,10 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(
             " Tab: ",
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(mode_label, Style::default().fg(theme::ACCENT)),
+        Span::styled(mode_label, Style::default().fg(theme::cur().claude)),
     ]));
 
     // ── 确认阶段：文件列表 ──
@@ -105,7 +105,7 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(Span::styled(
             "将恢复的文件:",
             Style::default()
-                .fg(theme::WARNING)
+                .fg(theme::cur().warning)
                 .add_modifier(Modifier::BOLD),
         )));
         for fc in &selected.file_changes {
@@ -116,18 +116,18 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
             };
             let path_display: String = fc.path.chars().take(max_width.saturating_sub(20)).collect();
             lines.push(Line::from(vec![
-                Span::styled("  • ", Style::default().fg(theme::MUTED)),
-                Span::styled(path_display, Style::default().fg(theme::TEXT)),
+                Span::styled("  • ", Style::default().fg(theme::cur().inactive)),
+                Span::styled(path_display, Style::default().fg(theme::cur().text)),
                 Span::styled(
                     format!(" ({})", op_label),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 ),
             ]));
         }
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "Enter 确认, Esc 取消",
-            Style::default().fg(theme::WARNING),
+            Style::default().fg(theme::cur().warning),
         )));
     }
 

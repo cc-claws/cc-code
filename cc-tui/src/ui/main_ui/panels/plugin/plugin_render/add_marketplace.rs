@@ -26,10 +26,10 @@ pub(crate) fn render_add_marketplace(
     let inner = BorderedPanel::new(Span::styled(
         " Add Marketplace ",
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
@@ -40,12 +40,12 @@ pub(crate) fn render_add_marketplace(
 
     lines.push(Line::from(vec![Span::styled(
         "  Enter marketplace source:",
-        Style::default().fg(theme::TEXT),
+        Style::default().fg(theme::cur().text),
     )]));
 
     lines.push(Line::from(vec![
         Span::styled("  ", Style::default()),
-        Span::styled("Examples:", Style::default().fg(theme::MUTED)),
+        Span::styled("Examples:", Style::default().fg(theme::cur().inactive)),
     ]));
 
     let examples = [
@@ -58,14 +58,14 @@ pub(crate) fn render_add_marketplace(
     for (example, desc) in &examples {
         if desc.is_empty() {
             lines.push(Line::from(vec![
-                Span::styled("   \u{00B7} ", Style::default().fg(theme::MUTED)),
-                Span::styled(*example, Style::default().fg(theme::MUTED)),
+                Span::styled("   \u{00B7} ", Style::default().fg(theme::cur().inactive)),
+                Span::styled(*example, Style::default().fg(theme::cur().inactive)),
             ]));
         } else {
             lines.push(Line::from(vec![
-                Span::styled("   \u{00B7} ", Style::default().fg(theme::MUTED)),
-                Span::styled(*example, Style::default().fg(theme::MUTED)),
-                Span::styled(format!(" ({})", desc), Style::default().fg(theme::MUTED)),
+                Span::styled("   \u{00B7} ", Style::default().fg(theme::cur().inactive)),
+                Span::styled(*example, Style::default().fg(theme::cur().inactive)),
+                Span::styled(format!(" ({})", desc), Style::default().fg(theme::cur().inactive)),
             ]));
         }
     }
@@ -75,13 +75,13 @@ pub(crate) fn render_add_marketplace(
     let input_line = if input_value.is_empty() {
         Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled("\u{2588}", Style::default().fg(theme::TEXT)),
+            Span::styled("\u{2588}", Style::default().fg(theme::cur().text)),
         ])
     } else {
         Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled(display_text, Style::default().fg(theme::TEXT)),
-            Span::styled("\u{2588}", Style::default().fg(theme::TEXT)),
+            Span::styled(display_text, Style::default().fg(theme::cur().text)),
+            Span::styled("\u{2588}", Style::default().fg(theme::cur().text)),
         ])
     };
     lines.push(input_line);
@@ -92,14 +92,14 @@ pub(crate) fn render_add_marketplace(
         Span::styled(
             "Enter to add",
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::ITALIC),
         ),
-        Span::styled(" \u{00B7} ", Style::default().fg(theme::MUTED)),
+        Span::styled(" \u{00B7} ", Style::default().fg(theme::cur().inactive)),
         Span::styled(
             "Esc to cancel",
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::ITALIC),
         ),
     ]));

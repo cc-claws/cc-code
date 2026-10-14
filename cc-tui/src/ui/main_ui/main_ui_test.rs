@@ -25,17 +25,17 @@ fn test_textarea_shell_command_uses_danger_prompt_and_border() {
     assert_eq!(prompt, "!", "shell 命令态左侧提示符应显示 !");
     assert_eq!(
         style.fg,
-        Some(theme::ERROR),
+        Some(theme::cur().error),
         "shell 命令态提示符应使用 danger 颜色"
     );
     assert_eq!(
         textarea_shell_border_color(TextareaShellMode::Command),
-        theme::ERROR,
+        theme::cur().error,
         "shell 命令态边框应使用 danger 颜色"
     );
     assert_eq!(
         textarea_shell_border_color(TextareaShellMode::None),
-        theme::MUTED,
+        theme::cur().inactive,
         "普通输入态边框应恢复默认颜色"
     );
 }
@@ -312,39 +312,39 @@ fn test_thinking_heat_color_four_levels() {
     use super::message_area::{thinking_heat_color, HEAT_LV2_SECS, HEAT_LV3_SECS, HEAT_LV4_SECS};
     use crate::ui::theme;
     // Default level
-    assert_eq!(thinking_heat_color(0), theme::ACCENT);
+    assert_eq!(thinking_heat_color(0), theme::cur().claude);
     assert_eq!(
         thinking_heat_color((HEAT_LV2_SECS - 1) * 1000),
-        theme::ACCENT
+        theme::cur().claude
     );
     // Step-by-step heating
     assert_eq!(
         thinking_heat_color(HEAT_LV2_SECS * 1000),
-        theme::SPINNER_HEAT_LV2
+        theme::cur().spinner_heat_lv2
     );
     assert_eq!(
         thinking_heat_color(HEAT_LV3_SECS * 1000),
-        theme::SPINNER_HEAT_LV3
+        theme::cur().spinner_heat_lv3
     );
-    assert_eq!(thinking_heat_color(HEAT_LV4_SECS * 1000), theme::WARNING);
-    assert_eq!(thinking_heat_color(999_000), theme::WARNING);
+    assert_eq!(thinking_heat_color(HEAT_LV4_SECS * 1000), theme::cur().warning);
+    assert_eq!(thinking_heat_color(999_000), theme::cur().warning);
 }
 
 #[test]
 fn test_thinking_status_style_pure_time_temperature() {
     use super::message_area::thinking_status_style;
     use ratatui::style::Color;
-    let verb_heat = theme::SPINNER_HEAT_LV2;
+    let verb_heat = theme::cur().spinner_heat_lv2;
 
     // 0s ~ 2.5s -> muted gray
     assert_eq!(
         thinking_status_style("thinking", 1_000, verb_heat, false).fg,
-        Some(theme::MUTED)
+        Some(theme::cur().inactive)
     );
     // 2.5s ~ 5s -> soft white
     assert_eq!(
         thinking_status_style("thinking", 3_500, verb_heat, false).fg,
-        Some(theme::TEXT_SOFT)
+        Some(theme::cur().text_soft)
     );
     // 5s ~ 15s -> verb heat color
     assert_eq!(
@@ -354,7 +354,7 @@ fn test_thinking_status_style_pure_time_temperature() {
     // 15s ~ 60s -> heat lv3 light gold
     assert_eq!(
         thinking_status_style("still thinking", 20_000, verb_heat, false).fg,
-        Some(theme::SPINNER_HEAT_LV3)
+        Some(theme::cur().spinner_heat_lv3)
     );
     // >= 60s -> deep amber gold
     assert_eq!(
@@ -364,12 +364,12 @@ fn test_thinking_status_style_pure_time_temperature() {
     // Completed state -> always muted gray
     assert_eq!(
         thinking_status_style("thought for 4s", 4_000, verb_heat, false).fg,
-        Some(theme::MUTED)
+        Some(theme::cur().inactive)
     );
     // Compact mode -> always thinking purple
     assert_eq!(
         thinking_status_style("thinking", 1_000, verb_heat, true).fg,
-        Some(theme::THINKING)
+        Some(theme::cur().thinking)
     );
 }
 
@@ -905,8 +905,8 @@ async fn test_completed_subagent_drawer_row_turns_green() {
             .find(|x| buffer[(*x, row_index)].symbol() == symbol)
             .unwrap_or_else(|| panic!("已完成行应含 {symbol}：{:?}", rows[row_index as usize]))
     };
-    assert_eq!(buffer[(cell_x("●"), row_index)].fg, crate::ui::theme::SAGE, "完成行圆点应转绿");
-    assert_eq!(buffer[(cell_x("✓"), row_index)].fg, crate::ui::theme::SAGE, "完成标记应转绿");
+    assert_eq!(buffer[(cell_x("●"), row_index)].fg, crate::ui::theme::cur().success, "完成行圆点应转绿");
+    assert_eq!(buffer[(cell_x("✓"), row_index)].fg, crate::ui::theme::cur().success, "完成标记应转绿");
 }
 
 /// 回归：后台子 Agent 启动摘要必须是**对齐的树形块**（对齐 docs/subagent-mock.html）。

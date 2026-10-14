@@ -29,10 +29,10 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -42,7 +42,7 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
         lines.push(Line::from(vec![Span::styled(
             format!("{} hooks configured", total_hooks),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         )]));
     }
@@ -50,7 +50,7 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
     // 只读提示
     lines.push(Line::from(vec![Span::styled(
         "This panel is read-only. To add or modify hooks, edit plugin hooks.json.",
-        Style::default().fg(theme::MUTED),
+        Style::default().fg(theme::cur().inactive),
     )]));
     lines.push(Line::from(""));
 
@@ -58,11 +58,11 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
     if entry_count == 0 {
         lines.push(Line::from(vec![Span::styled(
             "  No hooks configured.",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )]));
         lines.push(Line::from(vec![Span::styled(
             "  Hooks can be added via plugin hooks/hooks.json.",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )]));
     } else {
         for (i, entry) in panel.list.items().iter().enumerate() {
@@ -71,10 +71,10 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
 
             let name_style = if is_cursor {
                 Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(theme::cur().text)
             };
 
             // 行号 + 事件名 + hook 数量
@@ -83,11 +83,11 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
                 Span::styled(format!("{} ", entry.display_name), name_style),
                 Span::styled(
                     format!("({})  ", entry.hook_count),
-                    Style::default().fg(theme::ACCENT),
+                    Style::default().fg(theme::cur().claude),
                 ),
                 Span::styled(
                     entry.description.as_str(),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 ),
             ]));
 
@@ -106,10 +106,10 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
                         Span::raw("     "),
                         Span::styled(
                             format!("[{}] ", type_label),
-                            Style::default().fg(theme::ACCENT),
+                            Style::default().fg(theme::cur().claude),
                         ),
-                        Span::styled(summary, Style::default().fg(theme::TEXT)),
-                        Span::styled(once_marker.to_string(), Style::default().fg(theme::WARNING)),
+                        Span::styled(summary, Style::default().fg(theme::cur().text)),
+                        Span::styled(once_marker.to_string(), Style::default().fg(theme::cur().warning)),
                     ]));
 
                     // matcher 行
@@ -118,7 +118,7 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
                             Span::raw("         "),
                             Span::styled(
                                 format!("matcher: {}", matcher),
-                                Style::default().fg(theme::MUTED),
+                                Style::default().fg(theme::cur().inactive),
                             ),
                         ]));
                     }
@@ -128,7 +128,7 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
                         Span::raw("         "),
                         Span::styled(
                             format!("plugin: {}", detail.plugin_name),
-                            Style::default().fg(theme::DIM),
+                            Style::default().fg(theme::cur().subtle),
                         ),
                     ]));
                 }
@@ -149,7 +149,7 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }
 

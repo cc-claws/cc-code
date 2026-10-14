@@ -15,6 +15,7 @@ pub mod plugin_panel;
 pub mod setup_wizard;
 pub mod status_panel;
 pub mod tasks_panel;
+pub mod theme_panel;
 
 // Panel private modules
 mod panel_agent;
@@ -26,6 +27,7 @@ mod panel_memory;
 mod panel_model;
 mod panel_ops;
 mod panel_status;
+mod panel_theme;
 
 // ── State Management ─────────────────────────────────────────────────────────
 mod global_ui_state;
@@ -136,6 +138,7 @@ pub use agent::LlmProvider;
 pub use agent_panel::AgentPanel;
 pub use hooks_panel::HooksPanel;
 pub use model_panel::ModelPanel;
+pub use theme_panel::ThemePanel;
 pub use setup_wizard::SetupWizardPanel;
 use std::sync::Arc;
 
@@ -193,6 +196,15 @@ impl App {
                 None
             }
         };
+
+        // 恢复用户保存的颜色主题（未知值忽略，保持 default）
+        if let Some(name) = peri_config
+            .as_ref()
+            .and_then(|c| c.config.theme.as_deref())
+            .and_then(crate::ui::theme::ThemeName::from_setting)
+        {
+            crate::ui::theme::set_current(name);
+        }
 
         let lc = crate::i18n::LcRegistry::from_environment(
             peri_config

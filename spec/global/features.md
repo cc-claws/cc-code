@@ -56,7 +56,7 @@
 
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
-- **TUI 命令:** 共 29 个 TUI 命令 + 7 个 ACP 命令；含 `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩、`/config` 全局配置、`/cost` 费用统计、`/context` 上下文使用率、`/memory` 编辑 CLAUDE.md、`/mcp` MCP 管理面板、`/recap`(别名 away/catchup) 会话回顾、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/tasks`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/agents`、`/exit`(quit)、`/model`、`/history`(resume)；Command trait 支持 alias 机制
+- **TUI 命令:** 共 30 个 TUI 命令 + 7 个 ACP 命令；含 `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩、`/config` 全局配置、`/cost` 费用统计、`/context` 上下文使用率、`/memory` 编辑 CLAUDE.md、`/mcp` MCP 管理面板、`/recap`(别名 away/catchup) 会话回顾、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/tasks`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/agents`、`/exit`(quit)、`/model`、`/theme`、`/history`(resume)；Command trait 支持 alias 机制
 - **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
 - **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
 - **AskUser 弹窗:** `AskUserBatch` 事件触发问答弹窗，支持批量问题，单选/多选

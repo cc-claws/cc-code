@@ -46,10 +46,10 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
     let inner = BorderedPanel::new(Span::styled(
         " Switch Provider & Model ",
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     let chunks = Layout::default()
@@ -64,12 +64,12 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
     // ── 顶部提示行 ──
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::MUTED)),
+            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::cur().inactive)),
             Span::styled(
                 "  Enter/\u{2192} Effort",
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
-            Span::styled("  Esc Close", Style::default().fg(theme::MUTED)),
+            Span::styled("  Esc Close", Style::default().fg(theme::cur().inactive)),
         ])),
         chunks[0],
     );
@@ -77,7 +77,7 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
     // ── 分隔线 ──
     let sep = "\u{2500}".repeat(chunks[1].width as usize);
     f.render_widget(
-        Paragraph::new(Span::styled(sep, Style::default().fg(theme::DIM))),
+        Paragraph::new(Span::styled(sep, Style::default().fg(theme::cur().subtle))),
         chunks[1],
     );
 
@@ -95,7 +95,7 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
                 lines.push(Line::from(Span::styled(
                     format!("  {}:", name),
                     Style::default()
-                        .fg(theme::MAGENTA)
+                        .fg(theme::cur().magenta)
                         .add_modifier(Modifier::BOLD),
                 )));
             }
@@ -109,30 +109,30 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
 
                 let label_style = if is_active {
                     Style::default()
-                        .fg(theme::SAGE)
+                        .fg(theme::cur().success)
                         .add_modifier(Modifier::BOLD)
                 } else if is_cursor {
                     Style::default()
-                        .fg(theme::THINKING)
+                        .fg(theme::cur().thinking)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme::TEXT)
+                    Style::default().fg(theme::cur().text)
                 };
 
                 let check_style = if is_active {
-                    Style::default().fg(theme::SAGE)
+                    Style::default().fg(theme::cur().success)
                 } else {
-                    Style::default().fg(theme::MUTED)
+                    Style::default().fg(theme::cur().inactive)
                 };
 
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!(" {} ", cursor_char),
-                        Style::default().fg(theme::THINKING),
+                        Style::default().fg(theme::cur().thinking),
                     ),
                     Span::styled(format!("{:<8}", entry.alias.to_uppercase()), label_style),
                     Span::styled(format!(" {} ", check), check_style),
-                    Span::styled(entry.model_name.clone(), Style::default().fg(theme::DIM)),
+                    Span::styled(entry.model_name.clone(), Style::default().fg(theme::cur().subtle)),
                 ]));
             }
         }
@@ -151,7 +151,7 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
         .count();
     lines.push(Line::from(Span::styled(
         format!("  {} models available", total),
-        Style::default().fg(theme::DIM),
+        Style::default().fg(theme::cur().subtle),
     )));
 
     f.render_widget(Paragraph::new(Text::from(lines)), list_area);
@@ -168,10 +168,10 @@ fn render_effort_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mu
     let inner = BorderedPanel::new(Span::styled(
         format!(" Select Effort ({}) ", model_label),
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     let chunks = Layout::default()
@@ -186,10 +186,10 @@ fn render_effort_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mu
     // ── 顶部提示行 ──
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::MUTED)),
-            Span::styled("  1-5 Quick", Style::default().fg(theme::THINKING)),
-            Span::styled("  Enter Confirm", Style::default().fg(theme::MUTED)),
-            Span::styled("  Esc/\u{2190} Back", Style::default().fg(theme::MUTED)),
+            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::cur().inactive)),
+            Span::styled("  1-5 Quick", Style::default().fg(theme::cur().thinking)),
+            Span::styled("  Enter Confirm", Style::default().fg(theme::cur().inactive)),
+            Span::styled("  Esc/\u{2190} Back", Style::default().fg(theme::cur().inactive)),
         ])),
         chunks[0],
     );
@@ -197,7 +197,7 @@ fn render_effort_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mu
     // ── 分隔线 ──
     let sep = "\u{2500}".repeat(chunks[1].width as usize);
     f.render_widget(
-        Paragraph::new(Span::styled(sep, Style::default().fg(theme::DIM))),
+        Paragraph::new(Span::styled(sep, Style::default().fg(theme::cur().subtle))),
         chunks[1],
     );
 
@@ -215,34 +215,34 @@ fn render_effort_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mu
 
         let style = if is_active {
             Style::default()
-                .fg(theme::SAGE)
+                .fg(theme::cur().success)
                 .add_modifier(Modifier::BOLD)
         } else if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         let desc_style = if is_active {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else if is_cursor {
-            Style::default().fg(theme::THINKING)
+            Style::default().fg(theme::cur().thinking)
         } else {
-            Style::default().fg(theme::DIM)
+            Style::default().fg(theme::cur().subtle)
         };
 
         let check_style = if is_active {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
 
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" {} ", cursor_char),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("{:<2} {:<6}", num, key), style),
             Span::styled(format!(" {} ", check), check_style),

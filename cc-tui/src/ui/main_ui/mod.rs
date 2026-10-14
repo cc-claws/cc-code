@@ -135,7 +135,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
                     height: 1,
                 };
                 f.render_widget(
-                    Paragraph::new(text).style(Style::default().fg(Color::Rgb(182, 186, 233))),
+                    Paragraph::new(text).style(Style::default().fg(theme::cur().claude_blue_shimmer_for_system_spinner)),
                     label_area,
                 );
             }
@@ -244,7 +244,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         let textarea = &mut app.session_mgr.current_mut().ui.textarea;
         textarea.set_block(block);
         textarea.set_placeholder_text(placeholder);
-        textarea.set_style(Style::default().fg(theme::TEXT));
+        textarea.set_style(Style::default().fg(theme::cur().text));
     } else {
         app.session_mgr.current_mut().ui.textarea.set_placeholder_text("");
         // 正常模式：恢复与 build_textarea 一致的边框样式
@@ -264,7 +264,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             .current_mut()
             .ui
             .textarea
-            .set_style(ratatui::style::Style::default().fg(theme::TEXT));
+            .set_style(ratatui::style::Style::default().fg(theme::cur().text));
     }
 
     // 输入框渲染
@@ -340,15 +340,15 @@ fn textarea_shell_hint(mode: TextareaShellMode) -> Option<&'static str> {
 
 fn textarea_shell_border_color(mode: TextareaShellMode) -> Color {
     match mode {
-        TextareaShellMode::Command => theme::ERROR,
-        TextareaShellMode::Stdin | TextareaShellMode::None => theme::MUTED,
+        TextareaShellMode::Command => theme::cur().error,
+        TextareaShellMode::Stdin | TextareaShellMode::None => theme::cur().inactive,
     }
 }
 
 fn textarea_shell_hint_color(mode: TextareaShellMode) -> Color {
     match mode {
-        TextareaShellMode::Command => theme::ERROR,
-        TextareaShellMode::Stdin | TextareaShellMode::None => theme::MUTED,
+        TextareaShellMode::Command => theme::cur().error,
+        TextareaShellMode::Stdin | TextareaShellMode::None => theme::cur().inactive,
     }
 }
 
@@ -357,11 +357,11 @@ fn textarea_prompt(mode: TextareaShellMode, _loading: bool) -> (&'static str, St
         TextareaShellMode::Command => (
             "!",
             Style::default()
-                .fg(theme::ERROR)
+                .fg(theme::cur().error)
                 .add_modifier(Modifier::BOLD),
         ),
         TextareaShellMode::Stdin | TextareaShellMode::None => {
-            ("❯", Style::default().fg(theme::MUTED))
+            ("❯", Style::default().fg(theme::cur().inactive))
         }
     }
 }
@@ -381,7 +381,7 @@ fn render_textarea(
     }
 
     // textarea 自带块光标始终设为与文本同色（视觉不可见），由 draw_bar_cursor 画 │
-    display_textarea.set_cursor_style(Style::default().fg(theme::TEXT));
+    display_textarea.set_cursor_style(Style::default().fg(theme::cur().text));
     f.render_widget(&display_textarea, area);
 
     // 聚焦时画细线光标 │。Command 模式下用 display_textarea（! 前缀已移除、
@@ -473,7 +473,7 @@ fn write_cursor_cell(buf: &mut Buffer, x: u16, y: u16, visible: bool) {
     if let Some(cell) = buf.cell_mut((x, y)) {
         if visible {
             cell.set_symbol("│");
-            cell.set_style(Style::default().fg(theme::MUTED));
+            cell.set_style(Style::default().fg(theme::cur().inactive));
         } else {
             cell.set_symbol(" ");
             cell.set_style(Style::default());
@@ -579,10 +579,10 @@ fn render_back_to_bottom_button(
     };
     let style = if hover {
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::ACCENT)
+        Style::default().fg(theme::cur().claude)
     };
     f.render_widget(Paragraph::new(text).style(style), area);
     app.session_mgr.current_mut().ui.scroll_to_bottom_area = Some(area);

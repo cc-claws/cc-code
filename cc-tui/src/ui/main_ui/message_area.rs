@@ -105,22 +105,22 @@ pub(crate) fn thinking_status_word(
 pub(crate) fn thinking_heat_color(thinking_elapsed_ms: u64) -> ratatui::style::Color {
     let secs = thinking_elapsed_ms / 1000;
     if secs >= HEAT_LV4_SECS {
-        theme::WARNING
+        theme::cur().warning
     } else if secs >= HEAT_LV3_SECS {
-        theme::SPINNER_HEAT_LV3
+        theme::cur().spinner_heat_lv3
     } else if secs >= HEAT_LV2_SECS {
-        theme::SPINNER_HEAT_LV2
+        theme::cur().spinner_heat_lv2
     } else {
-        theme::ACCENT
+        theme::cur().claude
     }
 }
 
 /// 状态词专用纯时间升温配色（状态词坚决不闪烁，随时间从冷灰温润升温到金黄）：
 ///
-/// - `0.0s ~ 2.5s`：浅灰（`theme::MUTED` #999999，冷色起步）
-/// - `2.5s ~ 5.0s`：柔白中间色（`theme::TEXT_SOFT` #D0D0D0，微温看清）
+/// - `0.0s ~ 2.5s`：浅灰（`theme::cur().inactive` #999999，冷色起步）
+/// - `2.5s ~ 5.0s`：柔白中间色（`theme::cur().text_soft` #D0D0D0，微温看清）
 /// - `5.0s ~ 15.0s`：亮暖橙（与动词同色）
-/// - `15.0s ~ 60.0s`：浅金黄（`theme::SPINNER_HEAT_LV3` #FFD966）
+/// - `15.0s ~ 60.0s`：浅金黄（`theme::cur().spinner_heat_lv3` #FFD966）
 /// - `> 60.0s`：深度琥珀金（RGB 255, 152, 0）
 /// - `thought for Ns`：属已完成态，始终 MUTED 浅灰
 /// - `compact`：特例整体用紫色
@@ -131,22 +131,22 @@ pub(crate) fn thinking_status_style(
     is_compact: bool,
 ) -> ratatui::style::Style {
     if is_compact {
-        return Style::default().fg(theme::THINKING);
+        return Style::default().fg(theme::cur().thinking);
     }
     if status_word.starts_with("thought for") {
-        return Style::default().fg(theme::MUTED);
+        return Style::default().fg(theme::cur().inactive);
     }
     let secs = thinking_elapsed_ms / 1000;
     let color = if secs >= DEEP_THOUGHT_SECS {
-        ratatui::style::Color::Rgb(255, 152, 0) // 琥珀金
+        theme::cur().spinner_heat_lv4 // 琥珀金（深思考热力最高档）
     } else if secs >= STILL_THINKING_SECS {
-        theme::SPINNER_HEAT_LV3 // 浅金黄
+        theme::cur().spinner_heat_lv3 // 浅金黄
     } else if secs >= THINKING_MORE_SECS {
         verb_heat // 与动词同色
     } else if thinking_elapsed_ms >= 2_500 {
-        theme::TEXT_SOFT // 柔白中间色 #D0D0D0
+        theme::cur().text_soft // 柔白中间色 #D0D0D0
     } else {
-        theme::MUTED // 浅灰初态 #999999
+        theme::cur().inactive // 浅灰初态 #999999
     };
     Style::default().fg(color)
 }
@@ -205,7 +205,7 @@ pub(crate) fn render_messages(
         };
         let heat = thinking_heat_color(heat_ms);
         let accent_color = if is_compact {
-            theme::THINKING
+            theme::cur().thinking
         } else {
             heat
         };
@@ -217,7 +217,7 @@ pub(crate) fn render_messages(
         };
         let status_style =
             thinking_status_style(&status_word, status_thinking_ms, heat, is_compact);
-        let gray = Style::default().fg(theme::MUTED);
+        let gray = Style::default().fg(theme::cur().inactive);
 
         // 动词应用舒缓流光
         let verb_spans = cc_widgets::spinner::animation::shimmer_verb_spans(
@@ -267,7 +267,7 @@ pub(crate) fn render_messages(
             .unwrap_or_default();
         Some(Line::from(Span::styled(
             format!("✻ {verb} for {elapsed}{done_str}"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )))
     } else {
         None
@@ -414,7 +414,7 @@ fn render_message_scrollbar(
         height: area.height,
     };
     let offset = offset.min(max_scroll);
-    let style = Style::default().fg(theme::DIM);
+    let style = Style::default().fg(theme::cur().subtle);
     let mut scrollbar_state = ScrollbarState::new(max_scroll.saturating_add(1)).position(offset);
     f.render_stateful_widget(
         unified_vertical_scrollbar().style(style),
@@ -517,8 +517,8 @@ fn viewport_clip(
                     &app.services.lc,
                 );
                 lines.push(Line::from(vec![
-                    Span::styled("  ⎿  Tip: ", Style::default().fg(theme::MUTED)),
-                    Span::styled(tip, Style::default().fg(theme::MUTED)),
+                    Span::styled("  ⎿  Tip: ", Style::default().fg(theme::cur().inactive)),
+                    Span::styled(tip, Style::default().fg(theme::cur().inactive)),
                 ]));
                 if app.session_mgr.current().active_subagent().is_none() && !app.session_mgr.current().todo_items.is_empty() {
                     lines.push(Line::from(""));
@@ -529,21 +529,21 @@ fn viewport_clip(
                             TodoStatus::InProgress => (
                                 "  ◼  ",
                                 Style::default()
-                                    .fg(theme::ACCENT)
+                                    .fg(theme::cur().claude)
                                     .add_modifier(Modifier::BOLD),
-                                Style::default().fg(theme::TEXT),
+                                Style::default().fg(theme::cur().text),
                             ),
                             TodoStatus::Completed => (
                                 "  ✔  ",
-                                Style::default().fg(theme::SAGE),
+                                Style::default().fg(theme::cur().success),
                                 Style::default()
-                                    .fg(theme::MUTED)
+                                    .fg(theme::cur().inactive)
                                     .add_modifier(Modifier::CROSSED_OUT),
                             ),
                             TodoStatus::Pending => (
                                 "  ◻  ",
-                                Style::default().fg(theme::MUTED),
-                                Style::default().fg(theme::MUTED),
+                                Style::default().fg(theme::cur().inactive),
+                                Style::default().fg(theme::cur().inactive),
                             ),
                         };
                         let hint = match item.status {
@@ -557,7 +557,7 @@ fn viewport_clip(
                         if let Some(hint) = hint {
                             spans.push(Span::styled(
                                 format!(" ({hint})"),
-                                Style::default().fg(theme::MUTED),
+                                Style::default().fg(theme::cur().inactive),
                             ));
                         }
                         lines.push(Line::from(spans));
@@ -566,7 +566,7 @@ fn viewport_clip(
                         let summary = format_hidden_todos_summary(&todos[MAX_VISIBLE_TODOS..]);
                         lines.push(Line::from(Span::styled(
                             summary,
-                            Style::default().fg(theme::MUTED),
+                            Style::default().fg(theme::cur().inactive),
                         )));
                     }
                 }
@@ -669,18 +669,18 @@ pub(crate) fn render_recap_line(text: &str, lc: &crate::i18n::LcRegistry) -> Lin
     // 提示文本由 i18n 提供（不再从 LLM 摘要中 rfind，摘要本身不含该后缀）
     let hint = lc.tr("app-recap-hint");
     let mut spans = vec![
-        Span::styled("※ ", Style::default().fg(theme::MUTED)),
+        Span::styled("※ ", Style::default().fg(theme::cur().inactive)),
         Span::styled(
             "recap:",
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
         Span::styled(
             crate::app::tool_display::sanitize_display_text(text.trim()),
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::ITALIC),
         ),
     ];
@@ -688,7 +688,7 @@ pub(crate) fn render_recap_line(text: &str, lc: &crate::i18n::LcRegistry) -> Lin
     if !hint.is_empty() && hint != "app-recap-hint" {
         spans.push(Span::styled(
             format!("  {hint}"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme::cur().subtle),
         ));
     }
     Line::from(spans)
@@ -719,7 +719,7 @@ pub(crate) fn highlight_line_spans<'a>(
                 span.content,
                 Style {
                     fg: span.style.fg,
-                    bg: Some(theme::SELECTION_BG),
+                    bg: Some(theme::cur().selection_bg),
                     underline_color: span.style.underline_color,
                     add_modifier: span.style.add_modifier,
                     sub_modifier: span.style.sub_modifier,
@@ -760,7 +760,7 @@ pub(crate) fn highlight_line_spans<'a>(
                 span.content[byte_start..byte_end].to_string(),
                 Style {
                     fg: span.style.fg,
-                    bg: Some(theme::SELECTION_BG),
+                    bg: Some(theme::cur().selection_bg),
                     underline_color: span.style.underline_color,
                     add_modifier: span.style.add_modifier,
                     sub_modifier: span.style.sub_modifier,

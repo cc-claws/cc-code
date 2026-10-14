@@ -24,11 +24,11 @@ pub(crate) fn render_tasks_panel(f: &mut Frame, panel: &mut TasksPanel, app: &mu
     let title = Span::styled(
         tab_label,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     );
     let inner = BorderedPanel::new(title)
-        .border_style(Style::default().fg(theme::BORDER))
+        .border_style(Style::default().fg(theme::cur().prompt_border))
         .render(f, area);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -40,19 +40,19 @@ pub(crate) fn render_tasks_panel(f: &mut Frame, panel: &mut TasksPanel, app: &mu
         let cron_label = " Cron Tasks ";
         let agent_style = if panel.tab == TasksTab::AgentThreads {
             Style::default()
-                .fg(theme::ACCENT)
+                .fg(theme::cur().claude)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
         let cron_style = if panel.tab == TasksTab::CronTasks {
             Style::default()
-                .fg(theme::ACCENT)
+                .fg(theme::cur().claude)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
-        let sep_style = Style::default().fg(theme::BORDER);
+        let sep_style = Style::default().fg(theme::cur().prompt_border);
         lines.push(Line::from(vec![
             Span::styled(agent_label, agent_style),
             Span::styled(format!(" {} ", sep), sep_style),
@@ -117,7 +117,7 @@ pub(crate) fn render_tasks_panel(f: &mut Frame, panel: &mut TasksPanel, app: &mu
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }
 
@@ -134,16 +134,16 @@ fn render_agent_threads(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
 
         let style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         let status_style = if entry.is_active {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
 
         let title_display = if entry.title.is_empty() {
@@ -166,16 +166,16 @@ fn render_agent_threads(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
         lines.push(Line::from(vec![
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("{} ", status_icon), status_style),
             Span::styled(format!("{} ", title_display), style),
             Span::styled(format!("[{}] ", entry.status), status_style),
             Span::styled(
                 format!("{}msg ", entry.message_count),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ),
-            Span::styled(id_short, Style::default().fg(theme::MUTED)),
+            Span::styled(id_short, Style::default().fg(theme::cur().inactive)),
         ]));
     }
 
@@ -183,7 +183,7 @@ fn render_agent_threads(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  (No agent threads)",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     }
 }
@@ -195,26 +195,26 @@ fn render_agent_detail(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
         .and_then(|id| panel.agent_list.items().iter().find(|e| e.thread_id == *id))
     {
         let status_style = if entry.is_active {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
         lines.push(Line::from(vec![
-            Span::styled("Thread: ", Style::default().fg(theme::MUTED)),
+            Span::styled("Thread: ", Style::default().fg(theme::cur().inactive)),
             Span::styled(
                 entry.title.clone(),
                 Style::default()
-                    .fg(theme::TEXT)
+                    .fg(theme::cur().text)
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("Status:  ", Style::default().fg(theme::MUTED)),
+            Span::styled("Status:  ", Style::default().fg(theme::cur().inactive)),
             Span::styled(format!("[{}]", entry.status), status_style),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("ID:      ", Style::default().fg(theme::MUTED)),
-            Span::styled(entry.thread_id.clone(), Style::default().fg(theme::TEXT)),
+            Span::styled("ID:      ", Style::default().fg(theme::cur().inactive)),
+            Span::styled(entry.thread_id.clone(), Style::default().fg(theme::cur().text)),
         ]));
         lines.push(Line::from(""));
     }
@@ -222,7 +222,7 @@ fn render_agent_detail(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
     if panel.detail_messages.is_empty() {
         lines.push(Line::from(Span::styled(
             "  (Loading messages...)",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     } else {
         for msg in &panel.detail_messages {
@@ -234,7 +234,7 @@ fn render_agent_detail(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
             };
             lines.push(Line::from(Span::styled(
                 display,
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             )));
         }
     }
@@ -267,26 +267,26 @@ fn render_cron_tasks(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
 
         let style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         let status_style = if task.enabled {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
 
         lines.push(Line::from(vec![
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("[{}] ", status_icon), status_style),
             Span::styled(format!("{} ", task.expression), style),
-            Span::styled(format!("| {} | ", next), Style::default().fg(theme::MUTED)),
+            Span::styled(format!("| {} | ", next), Style::default().fg(theme::cur().inactive)),
             Span::styled(prompt_display, style),
         ]));
     }
@@ -295,7 +295,7 @@ fn render_cron_tasks(panel: &mut TasksPanel, lines: &mut Vec<Line>) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  （无定时任务，使用 /loop 命令创建）",
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
     }
 }

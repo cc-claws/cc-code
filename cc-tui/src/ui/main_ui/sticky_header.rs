@@ -8,9 +8,6 @@ use ratatui::{
 
 use crate::{app::App, ui::theme};
 
-/// 浅色背景色（不影响整体终端背景，只在文字区域可见）
-const HEADER_BG: ratatui::style::Color = theme::USER_BG;
-
 /// 渲染 sticky human message header
 pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
     if area.height == 0 {
@@ -30,13 +27,14 @@ pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
     // 将消息文本按宽度分多行
     let wrapped_lines = wrap_message(msg, width, max_lines);
 
-    // 每行文字都有浅背景，无分隔线
-    let bg_style = Style::default().bg(HEADER_BG);
-    let text_style = Style::default().fg(theme::TEXT).bg(HEADER_BG);
+    // 每行文字都有浅背景，无分隔线（取当前主题的用户消息背景色）
+    let header_bg = theme::cur().user_message_background;
+    let bg_style = Style::default().bg(header_bg);
+    let text_style = Style::default().fg(theme::cur().text).bg(header_bg);
     let label_style = Style::default()
-        .fg(theme::ACCENT)
+        .fg(theme::cur().claude)
         .add_modifier(Modifier::BOLD)
-        .bg(HEADER_BG);
+        .bg(header_bg);
 
     let lines: Vec<Line> = wrapped_lines
         .into_iter()
