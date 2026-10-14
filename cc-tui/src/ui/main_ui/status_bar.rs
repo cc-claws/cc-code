@@ -97,7 +97,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         .global_ui
         .model_highlight_until
         .is_some_and(|until| std::time::Instant::now() < until);
-    let mut model_style = ansi_style(Color::Cyan);
+    let mut model_style = ansi_style(theme::cur().cyan);
     if is_highlight {
         model_style = model_style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
     }
@@ -168,7 +168,7 @@ fn append_project_segment(spans: &mut Vec<Span<'_>>, app: &App) {
         .unwrap_or(&app.services.cwd);
     spans.push(Span::styled(
         cwd_short.to_string(),
-        ansi_style(Color::Yellow),
+        ansi_style(theme::cur().yellow),
     ));
 
     // 分支状态只读缓存：探测由 `App::request_git_branch_refresh_if_due` 在事件循环中
@@ -233,14 +233,14 @@ fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>
 /// 最近工具条目：运行中 `◐`（黄）/ 已完成停留期 `✓`（绿），颜色不跟工具身份色走
 fn render_recent_tool_segment(entry: &crate::app::RecentToolEntry) -> Vec<Span<'static>> {
     let indicator = if entry.running {
-        Span::styled("◐", ansi_style(Color::Yellow))
+        Span::styled("◐", ansi_style(theme::cur().yellow))
     } else {
-        Span::styled("✓", ansi_style(Color::Green))
+        Span::styled("✓", ansi_style(theme::cur().success))
     };
     let mut spans = vec![
         indicator,
         Span::styled(" ", plain_style()),
-        Span::styled(entry.display.clone(), ansi_style(Color::Cyan)),
+        Span::styled(entry.display.clone(), ansi_style(theme::cur().cyan)),
     ];
     if !entry.args_summary.is_empty() {
         spans.push(Span::styled(
@@ -302,7 +302,7 @@ fn render_completed_tool_segments(agent: &crate::app::AgentComm) -> Vec<Vec<Span
     for (name, count) in entries.into_iter().take(TOOLS_MAX_VISIBLE) {
         let display = tool_display::format_tool_name(name);
         segments.push(vec![
-            Span::styled("✓", ansi_style(Color::Green)),
+            Span::styled("✓", ansi_style(theme::cur().success)),
             Span::styled(format!(" {}", display), plain_style()),
             Span::styled(format!(" ×{}", count), dim_style()),
         ]);
@@ -744,8 +744,8 @@ fn render_context_bar(pct: f64, color: Color) -> Vec<Span<'static>> {
 }
 
 fn append_git_status(spans: &mut Vec<Span<'_>>, status: &crate::app::GitBranchStatus) {
-    let prefix_style = ansi_style(Color::Magenta);
-    let branch_style = ansi_style(Color::Cyan);
+    let prefix_style = ansi_style(theme::cur().magenta);
+    let branch_style = ansi_style(theme::cur().cyan);
     spans.push(Span::styled(" git:(", prefix_style));
     spans.push(Span::styled(status.branch.clone(), branch_style));
     if status.dirty {
@@ -756,11 +756,11 @@ fn append_git_status(spans: &mut Vec<Span<'_>>, status: &crate::app::GitBranchSt
 
 fn context_usage_color(pct: f64) -> Color {
     if pct >= CONTEXT_CRITICAL_PCT {
-        Color::Red
+        theme::cur().error
     } else if pct >= CONTEXT_WARNING_PCT {
-        Color::Yellow
+        theme::cur().warning
     } else {
-        Color::Green
+        theme::cur().success
     }
 }
 
@@ -908,10 +908,10 @@ mod tests {
 
     #[test]
     fn test_context_usage_color_matches_design_thresholds() {
-        assert_eq!(context_usage_color(69.9), Color::Green);
-        assert_eq!(context_usage_color(70.0), Color::Yellow);
-        assert_eq!(context_usage_color(84.9), Color::Yellow);
-        assert_eq!(context_usage_color(85.0), Color::Red);
+        assert_eq!(context_usage_color(69.9), theme::cur().success);
+        assert_eq!(context_usage_color(70.0), theme::cur().warning);
+        assert_eq!(context_usage_color(84.9), theme::cur().warning);
+        assert_eq!(context_usage_color(85.0), theme::cur().error);
     }
 
     #[test]
@@ -979,8 +979,8 @@ mod tests {
         let segment =
             render_recent_tool_segment(&make_recent_entry("Read", "src/deep/file.rs", true));
         assert_eq!(spans_to_plain(&segment), "◐ Read : src/deep/file.rs");
-        assert_eq!(segment[0].style.fg, Some(Color::Yellow));
-        assert_eq!(segment[2].style.fg, Some(Color::Cyan));
+        assert_eq!(segment[0].style.fg, Some(theme::cur().yellow));
+        assert_eq!(segment[2].style.fg, Some(theme::cur().cyan));
         assert!(segment[3].style.add_modifier.contains(Modifier::DIM));
     }
 
@@ -989,7 +989,7 @@ mod tests {
         let segment =
             render_recent_tool_segment(&make_recent_entry("Read", "src/deep/file.rs", false));
         assert_eq!(spans_to_plain(&segment), "✓ Read : src/deep/file.rs");
-        assert_eq!(segment[0].style.fg, Some(Color::Green));
+        assert_eq!(segment[0].style.fg, Some(theme::cur().success));
     }
 
     #[test]

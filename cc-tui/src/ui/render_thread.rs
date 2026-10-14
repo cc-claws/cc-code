@@ -21,6 +21,7 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 
 #[cfg(test)]
 use super::message_render::CONTROL_B_BACKGROUND_HINT;
+use super::theme;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
     message_render::{is_shell_running_status_line, render_view_model_with_links, shell_running_text},
@@ -634,6 +635,9 @@ impl RenderTask {
         let (indicator, indicator_color) = cc_widgets::tool_call::display::format_indicator(
             cc_widgets::ToolCallStatus::Running,
             tick,
+            theme::cur().inactive,
+            theme::cur().success,
+            theme::cur().error,
         );
         let mut changed = false;
         let mut cache = self.cache.write();

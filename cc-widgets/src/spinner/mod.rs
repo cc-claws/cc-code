@@ -284,8 +284,8 @@ impl<'a> SpinnerWidget<'a> {
             state,
             show_elapsed: true,
             show_tokens: true,
-            primary_color: Color::Rgb(215, 119, 87), // ACCENT #D77757
-            secondary_color: Color::Rgb(153, 153, 153), // MUTED #999999
+            primary_color: crate::theme::DarkTheme.accent(),
+            secondary_color: crate::theme::DarkTheme.muted(),
         }
     }
 

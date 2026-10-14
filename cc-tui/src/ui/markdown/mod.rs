@@ -3,12 +3,10 @@ mod table_holdback;
 use ratatui::text::Text;
 
 use cc_widgets::markdown::{LinkHit, MarkdownDoc};
-use cc_widgets::DefaultMarkdownTheme;
+use cc_widgets::ThemeMarkdownAdapter;
 
 use super::message_view::ContentBlockView;
 pub use table_holdback::{HoldbackDecision, TableHoldbackScanner};
-
-static THEME: DefaultMarkdownTheme = DefaultMarkdownTheme;
 
 /// 初始 ViewModel 构建时使用的默认 markdown 渲染宽度。
 /// 此时还不知道真实终端宽度，渲染线程首次渲染时会通过
@@ -17,12 +15,16 @@ pub const DEFAULT_MARKDOWN_WIDTH: usize = 80;
 
 /// 解析 markdown 文本为 ratatui Text
 pub fn parse_markdown(input: &str, max_width: usize) -> Text<'static> {
-    cc_widgets::markdown::parse_markdown(input, &THEME, max_width)
+    let widgets = crate::ui::theme::widgets_theme();
+    let theme = ThemeMarkdownAdapter(&widgets);
+    cc_widgets::markdown::parse_markdown(input, &theme, max_width)
 }
 
 /// 解析 markdown 文本（含超链接命中区）
 pub fn parse_markdown_rich(input: &str, max_width: usize) -> MarkdownDoc {
-    cc_widgets::markdown::parse_markdown_with_links(input, &THEME, max_width)
+    let widgets = crate::ui::theme::widgets_theme();
+    let theme = ThemeMarkdownAdapter(&widgets);
+    cc_widgets::markdown::parse_markdown_with_links(input, &theme, max_width)
 }
 
 /// 解析 markdown 文本为 ratatui Text（使用默认宽度 80）

@@ -139,6 +139,12 @@ pub fn widgets_theme() -> cc_widgets::CustomTheme {
         diff_remove_bg: p.diff_removed,
         diff_remove_word_bg: p.diff_removed_word,
         diff_hunk: p.diff_hunk,
+        syntax_theme_name: match current_name() {
+            ThemeName::Light | ThemeName::LightDaltonized | ThemeName::LightAnsi => {
+                "base16-ocean.light"
+            }
+            _ => "base16-ocean.dark",
+        },
     }
 }
 

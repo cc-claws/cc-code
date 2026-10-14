@@ -47,7 +47,7 @@ pub(crate) fn render_oauth_popup(f: &mut Frame, app: &mut App, area: Rect) {
     // URL 行 — 单行，背景高亮
     let url_style = ratatui::style::Style::default()
         .fg(theme::cur().success)
-        .bg(ratatui::style::Color::DarkGray);
+        .bg(theme::cur().subtle);
     lines.push(ratatui::text::Line::from(vec![Span::styled(
         prompt.authorization_url.clone(),
         url_style,

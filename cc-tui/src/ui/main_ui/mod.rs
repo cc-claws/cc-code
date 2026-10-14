@@ -226,7 +226,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         // Bar 焦点模式：输入框变暗
         let block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
-            .border_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray))
+            .border_style(ratatui::style::Style::default().fg(theme::cur().prompt_border))
             .padding(Padding::new(2, 0, 0, 0));
         app.session_mgr.current_mut().ui.textarea.set_block(block);
     } else if let Some(ref id) = focused_id {
@@ -238,7 +238,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         };
         let block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::LightCyan))
+            .border_style(Style::default().fg(theme::cur().background))
             .padding(Padding::new(2, 0, 0, 0))
             .title_top(ratatui::text::Line::from(title).right_aligned());
         let textarea = &mut app.session_mgr.current_mut().ui.textarea;

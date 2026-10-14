@@ -10,10 +10,17 @@ pub static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 
 /// 对多行代码块进行语法高亮，返回着色后的 Line 列表。
 /// 当语言标签未识别时返回 None，调用方应回退到统一颜色渲染。
-pub fn highlight_code_block(lang: &str, lines: &[String]) -> Option<Vec<Line<'static>>> {
+pub fn highlight_code_block(
+    lang: &str,
+    lines: &[String],
+    theme_name: &str,
+) -> Option<Vec<Line<'static>>> {
     let ss = &*SYNTAX_SET;
     let syntax = ss.find_syntax_by_token(lang)?;
-    let theme = &THEME_SET.themes["base16-ocean.dark"];
+    let theme = THEME_SET
+        .themes
+        .get(theme_name)
+        .unwrap_or(&THEME_SET.themes["base16-ocean.dark"]);
     let mut highlighter = HighlightLines::new(syntax, theme);
 
     let mut result = Vec::with_capacity(lines.len());

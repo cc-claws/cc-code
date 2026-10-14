@@ -85,6 +85,7 @@ pub struct CustomTheme {
     pub diff_remove_bg: Color,
     pub diff_remove_word_bg: Color,
     pub diff_hunk: Color,
+    pub syntax_theme_name: &'static str,
 }
 
 impl Theme for CustomTheme {
@@ -153,6 +154,9 @@ impl Theme for CustomTheme {
     }
     fn diff_hunk(&self) -> Color {
         self.diff_hunk
+    }
+    fn syntax_theme_name(&self) -> &'static str {
+        self.syntax_theme_name
     }
 }
 

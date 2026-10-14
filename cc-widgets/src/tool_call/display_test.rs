@@ -1,32 +1,36 @@
 use super::*;
 use ratatui::style::Color;
 
+const PENDING: Color = Color::Rgb(153, 153, 153);
+const DONE: Color = Color::Rgb(78, 186, 101);
+const FAILED: Color = Color::Rgb(255, 107, 128);
+
 #[test]
 fn test_indicator_running_blinks() {
-    let (ch, color) = format_indicator(ToolCallStatus::Running, 0);
+    let (ch, color) = format_indicator(ToolCallStatus::Running, 0, PENDING, DONE, FAILED);
     assert_eq!(ch, "●");
     assert_eq!(color, Color::Rgb(153, 153, 153));
-    let (ch, _) = format_indicator(ToolCallStatus::Running, 4);
+    let (ch, _) = format_indicator(ToolCallStatus::Running, 4, PENDING, DONE, FAILED);
     assert_eq!(ch, " ");
 }
 
 #[test]
 fn test_indicator_pending() {
-    let (ch, color) = format_indicator(ToolCallStatus::Pending, 0);
+    let (ch, color) = format_indicator(ToolCallStatus::Pending, 0, PENDING, DONE, FAILED);
     assert_eq!(ch, "●");
     assert_eq!(color, Color::Rgb(153, 153, 153));
 }
 
 #[test]
 fn test_indicator_completed() {
-    let (ch, color) = format_indicator(ToolCallStatus::Completed, 0);
+    let (ch, color) = format_indicator(ToolCallStatus::Completed, 0, PENDING, DONE, FAILED);
     assert_eq!(ch, "●");
     assert_eq!(color, Color::Rgb(78, 186, 101));
 }
 
 #[test]
 fn test_indicator_failed() {
-    let (ch, color) = format_indicator(ToolCallStatus::Failed, 0);
+    let (ch, color) = format_indicator(ToolCallStatus::Failed, 0, PENDING, DONE, FAILED);
     assert_eq!(ch, "●");
     assert_eq!(color, Color::Rgb(255, 107, 128));
 }

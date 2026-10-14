@@ -1,6 +1,6 @@
 //! Markdown 解析结果的 LRU 缓存
 //!
-//! 缓存 key = (内容哈希, 渲染宽度)，value = Text<'static>。
+//! 缓存 key = (内容哈希, 渲染宽度, 主题指纹)，value = Text<'static>。
 //! 通过全局单例暴露，渲染线程和增量解析共享同一缓存。
 
 use std::hash::{Hash, Hasher};
@@ -20,7 +20,7 @@ static MARKDOWN_CACHE: Lazy<MarkdownCache> = Lazy::new(MarkdownCache::new);
 
 /// Markdown 解析结果 LRU 缓存
 ///
-/// key = (内容哈希, 渲染宽度 u16)
+/// key = (内容哈希, 渲染宽度 u16, 主题指纹 u64)
 /// value = MarkdownDoc（已解析的渲染结果 + 链接命中区）
 pub struct MarkdownCache {
     cache: Mutex<LruCache<CacheKey, MarkdownDoc>>,
@@ -40,11 +40,12 @@ pub struct MarkdownCacheStats {
     pub rendered_spans: usize,
 }
 
-/// 缓存 key：内容哈希 + 渲染宽度
+/// 缓存 key：内容哈希 + 渲染宽度 + 主题指纹
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct CacheKey {
     content_hash: u64,
     max_width: u16,
+    theme_fingerprint: u64,
 }
 
 impl MarkdownCache {
@@ -62,27 +63,33 @@ impl MarkdownCache {
     }
 
     /// 查询缓存，命中返回克隆的 MarkdownDoc
-    pub fn get(&self, content: &str, max_width: u16) -> Option<MarkdownDoc> {
-        let key = self.make_key(content, max_width);
+    pub fn get(
+        &self,
+        content: &str,
+        max_width: u16,
+        theme_fingerprint: u64,
+    ) -> Option<MarkdownDoc> {
+        let key = self.make_key(content, max_width, theme_fingerprint);
         let mut guard = self.cache.lock();
         guard.get(&key).cloned()
     }
 
     /// 插入解析结果到缓存
-    pub fn put(&self, content: &str, max_width: u16, doc: MarkdownDoc) {
-        let key = self.make_key(content, max_width);
+    pub fn put(&self, content: &str, max_width: u16, theme_fingerprint: u64, doc: MarkdownDoc) {
+        let key = self.make_key(content, max_width, theme_fingerprint);
         let mut guard = self.cache.lock();
         guard.put(key, doc);
     }
 
     /// 生成缓存 key
-    fn make_key(&self, content: &str, max_width: u16) -> CacheKey {
+    fn make_key(&self, content: &str, max_width: u16, theme_fingerprint: u64) -> CacheKey {
         use std::collections::hash_map::DefaultHasher;
         let mut hasher = DefaultHasher::new();
         content.hash(&mut hasher);
         CacheKey {
             content_hash: hasher.finish(),
             max_width,
+            theme_fingerprint,
         }
     }
 

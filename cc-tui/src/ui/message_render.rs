@@ -1383,7 +1383,13 @@ pub fn render_view_model_with_links(
 
             // 复用 widget 层指示器：统一 ● 圆点 + 颜色语义化
             let (indicator, indicator_color) =
-                cc_widgets::tool_call::display::format_indicator(status, tick);
+                cc_widgets::tool_call::display::format_indicator(
+                    status,
+                    tick,
+                    theme::cur().inactive,
+                    theme::cur().success,
+                    theme::cur().error,
+                );
             // 工具调用已交回，但进程结果未知；不要用成功绿色暗示命令已完成。
             let indicator_color = if background_task.is_some() {
                 theme::cur().cyan

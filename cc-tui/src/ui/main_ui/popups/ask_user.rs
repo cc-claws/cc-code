@@ -53,7 +53,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     tab_state.set_active(prompt.active_tab);
     let tab_bar = TabBar::new().style(TabStyle {
         active: Style::default()
-            .fg(Color::White)
+            .fg(theme::cur().text)
             .bg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
         completed: Style::default().fg(theme::cur().success),
