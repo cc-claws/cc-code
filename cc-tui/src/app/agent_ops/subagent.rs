@@ -316,6 +316,16 @@ impl App {
                     sub.current_activity.clear();
                     sub.running_tool_times.clear();
                     sub.agent.active_tool = None;
+                    // 结算子 Agent 的 spinner：完成态切到 Idle，触发耗时/动词/完成时刻
+                    // 的捕获（对齐主会话 `set_loading(false)`），使子视口底部能渲染出
+                    // `✻ <verb> for Xs · done HH:MM` 总结行。此前该调用遗漏，导致
+                    // `last_summary_elapsed_ms` 恒为 0，切入子视口后总结行空白。
+                    sub.spinner.set_mode(cc_widgets::SpinnerMode::Idle);
+                    // 停止/失败属异常结束：清空总结行，避免显示成功文案（与主会话
+                    // lifecycle 的 `clear_summary` 对齐）。
+                    if matches!(sub.status, SubagentRunStatus::Stopped | SubagentRunStatus::Failed) {
+                        sub.spinner.clear_summary();
+                    }
                     sub.pipeline.handle_event(AgentEvent::Done);
                     sub.rebuild();
                     if sub.view_messages.is_empty() && !result.is_empty() {

@@ -250,6 +250,12 @@ impl BackgroundAgentSession {
                     }
                 }
             }
+            // 子 Agent 结束时结算 spinner（切 Idle 以捕获耗时），保证任何完成路径
+            // 都能在子视口渲染出完成总结行。正常路径由 `peri/subagent_lifecycle`
+            // 的 "stopped" 分支结算，此处兜底路由到本会话的 Done 事件。
+            AgentEvent::Done => {
+                self.spinner.set_mode(cc_widgets::SpinnerMode::Idle);
+            }
             _ => {}
         }
         self.pipeline.handle_event(event);

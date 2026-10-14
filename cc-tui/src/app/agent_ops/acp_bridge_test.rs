@@ -288,3 +288,103 @@ async fn test_subagent_viewport_shows_running_tool() {
         "子会话必须登记 running_tools"
     );
 }
+
+/// 回归 #485：子 Agent 正常完成后，其专属 spinner 必须结算耗时，
+/// 使切入子视口时底部渲染出 `✻ <verb> for Xs · done HH:MM` 完成总结行。
+///
+/// 此前 `peri/subagent_lifecycle` 的 "stopped" 分支漏调 `set_mode(Idle)`，
+/// 子 spinner 的 `last_summary_elapsed_ms` 恒为 0，渲染层退化为不画任何行。
+#[tokio::test]
+async fn test_subagent_viewport_shows_completion_summary_after_stop() {
+    use crate::ui::main_ui;
+
+    let (mut app, mut handle) = App::new_headless(120, 30).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "started", "instanceId": "child-1",
+            "agentType": "general-purpose", "taskPreview": "查天气", "isBackground": true,
+        }),
+    });
+
+    // 让 spinner 至少经历 1ms，避免结算耗时亚毫秒归零造成断言不稳。
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "stopped", "instanceId": "child-1",
+            "result": "LGTM", "status": "completed",
+        }),
+    });
+
+    let sub_summary = app
+        .session_mgr
+        .current()
+        .subagent_sessions
+        .get("child-1")
+        .expect("抽屉会话应存在")
+        .spinner
+        .last_summary_elapsed_ms();
+    assert!(
+        sub_summary > 0,
+        "子 Agent 完成后 spinner 应结算耗时，实际 {sub_summary}ms"
+    );
+
+    app.switch_subagent_viewport(Some("child-1".into()));
+    app.flush_rebuild();
+    handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+    let snap = handle.snapshot().join("\n");
+    eprintln!("[diag] completion summary snapshot:\n{snap}");
+
+    assert!(
+        !app.session_mgr.current().viewport_loading(),
+        "子 Agent 已完成，视口不应仍处于加载态"
+    );
+    assert!(
+        snap.contains('✻') && snap.contains(" for "),
+        "子 Agent 视口底部应渲染完成总结行（✻ ... for ...），实际:\n{snap}"
+    );
+}
+
+/// 回归 #485（异常路径对照）：被停止的子 Agent 已结算 spinner，
+/// 但应清空总结行，不能显示成功文案。
+#[tokio::test]
+async fn test_subagent_viewport_stopped_has_no_success_summary() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "started", "instanceId": "child-1",
+            "agentType": "general-purpose", "taskPreview": "查天气", "isBackground": true,
+        }),
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "s1".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "sessionId": "s1", "event": "stopped", "instanceId": "child-1",
+            "result": "cancelled", "status": "stopped",
+        }),
+    });
+
+    let sub = app
+        .session_mgr
+        .current()
+        .subagent_sessions
+        .get("child-1")
+        .expect("抽屉会话应存在");
+    assert_eq!(
+        sub.status,
+        crate::app::subagent_session::SubagentRunStatus::Stopped
+    );
+    assert_eq!(
+        sub.spinner.last_summary_elapsed_ms(),
+        0,
+        "被停止的子 Agent 不应残留成功总结行"
+    );
+}
