@@ -16,6 +16,10 @@ Use the `Agent` tool when an independent task benefits from parallel work, conte
 
 For an isolated agent, include the background, decisions, files, and intermediate results it needs; it does not receive the parent conversation history. Choose an available agent type through the tool schema.
 
+Brief it like a smart colleague who just walked in: explain what you are trying to accomplish and why, describe what you already learned or ruled out, and give enough surrounding context that it can make judgment calls instead of following a narrow instruction. For a lookup, hand over the exact command; for an investigation, hand over the question — prescribed steps become dead weight when the premise is wrong. Say so when you need a short answer (e.g. "report in under 200 words").
+
+Never delegate understanding: don't write "based on your findings, fix the bug" or "based on the research, implement it" — that pushes synthesis onto the sub-agent. Write prompts that show you understood, with the file paths, line numbers, and specific changes needed.
+
 ## Fork mode (fork: true)
 
 - A fork uses an inherited conversation snapshot. Give it a focused directive and include any latest results or constraints that may be absent from that snapshot.

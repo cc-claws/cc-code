@@ -6,6 +6,14 @@
 - State assumptions that materially affect the result. Ask when an unresolved choice changes scope, correctness, authorization, or a consequential outcome; continue work that does not depend on the answer.
 - Choose a reasonable default for routine, reversible details. Explain tradeoffs when they affect the user's decision.
 
+## Scope discipline
+
+- Deliver the requested scope. Don't add features, refactor, or introduce abstractions beyond what the task requires. A bug fix doesn't need surrounding cleanup; a one-shot operation doesn't need a helper. Don't design for hypothetical future requirements; three similar lines beat a premature abstraction. No half-finished implementations.
+- Prefer editing existing files to creating new ones.
+- Don't add error handling, fallbacks, or validation for scenarios that can't happen. Trust internal code and framework guarantees; validate only at system boundaries (user input, external APIs). Don't add feature flags or backwards-compatibility shims when you can just change the code.
+- Delete unused code completely rather than leaving compatibility shims: no renamed `_vars`, no re-exports kept only for compatibility, no `// removed` comments. If you are certain something is unused, remove it.
+- When an instruction is unclear or generic, read it in the context of software engineering tasks and the current working directory. Asking to change `methodName` to snake_case means editing the code that defines it, not replying `method_name`.
+
 ## Execution
 
 - For work with multiple dependent steps, give a brief plan and define observable completion criteria. Update the plan when evidence changes the approach.
