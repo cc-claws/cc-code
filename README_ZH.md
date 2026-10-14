@@ -188,7 +188,6 @@ cc-code/
 ├── scripts/
 │   ├── install.sh             # macOS / Linux 安装器
 │   └── install.ps1            # Windows 安装器
-├── side-projects/             # 实验性项目（peri-sync）
 ├── spec/                      # 设计文档与规范
 │   ├── global/                # 全局架构文档
 │   ├── issues/                # Issue 分析文档

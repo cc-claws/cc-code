@@ -184,7 +184,6 @@ cc-code/
 ├── scripts/
 │   ├── install.sh             # macOS / Linux installer
 │   └── install.ps1            # Windows installer
-├── side-projects/             # Experimental projects (peri-sync)
 ├── spec/                      # Design docs and specs
 │   ├── global/                # Global architecture docs
 │   ├── issues/                # Issue analysis docs

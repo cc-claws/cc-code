@@ -11,7 +11,6 @@
 | `cc-agent` | ~52 | 消息系统、ReAct 执行器、集成测试 |
 | `cc-middlewares` | ~65 | HITL、SubAgent、Skill 加载 |
 | `cc-tui` | ~80 | Headless UI 渲染 |
-| `rust-relay-server` | ~14 | 协议序列化 |
 
 ---
 

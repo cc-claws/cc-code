@@ -58,10 +58,7 @@ sysinfo.workspace = true
 fluent = "0.17"
 fluent-bundle = "0.16"
 unic-langid = { version = "0.9", features = ["macros"] }
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
-aes-gcm = "0.10"
 ring = "0.17"
-rmp-serde = "1.3"
 thiserror.workspace = true
 futures-util = "0.3"
 walkdir = "2.5"
