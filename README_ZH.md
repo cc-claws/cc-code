@@ -101,6 +101,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **后台 shell 完成通知按批次合并注入，消除多轮级联唤醒** | v0.6.137 | `Bash(run_in_background=true)` 任务完成后会强制唤醒 agent 开启新 turn；当一轮内积压多条通知时，旧逻辑在每次 `Done` 后**只从 pending 队列弹 1 条**（`pending.remove(index)`），n 条通知 → n 轮 turn 级联雪崩（每轮 `Done` 再触发下一条），现场表现为连续无意义的「收到」。现新增统一注入入口 `App::inject_bg_shell_notifications`：**空闲态**把「本批通知 + 队列中同会话待注入通知」**一次性 drain 拼接为单条**消息提交（n 条压成 1 轮 turn），**推理中**全部入队、`Done` 后一次性 drain 合并；stall 警告与 `!command` / agent shell 两条完成路径统一走该入口，删除三处重复的「首个 submit + 其余入队」分支。合并**仅在消息层拼接**（保留每条 `<background-task-completed>` XML，信息不丢失），其它会话通知仍留在队列。配套把展示解析重构为按文档顺序逐块扫描，支持合并消息含多个块（甚至完成 + 等待输入**混合类型**）不丢行、不串序。新增 6 项回归用例（#491） |
 | **子 Agent 视口补齐完成总结行** | v0.6.136 | 切入刚跑完的后台子 Agent 独立视口时，底部此前空白、缺少主视口那条 `✻ Brewed for 32s · done 16:30` 总结行。根因：`SpinnerState` 仅在「活跃态 → `Idle`」时捕获摘要耗时，而子 Agent 的完成路径（`peri/subagent_lifecycle` 的 `"stopped"` 分支与 `AgentEvent::Done` 兜底）都未调用 `set_mode(Idle)`，摘要耗时恒为 0，渲染层退化为不画任何行。现补齐结算；被停止/失败的子 Agent 则清空总结行、不显示成功文案（#485） |
 | **后台子 Agent 抽屉与独立视口（只有后台模式）** | v0.6.130 | 子 Agent 现在是**只有后台模式**，底栏抽屉是它们的唯一呈现，内部过程不再污染主对话。空输入框按 `↓` 浏览、`↑/↓` 移动游标、`Enter` 进入独立视口（独立滚动位置、输入草稿与 HUD 工具统计）、`x` 停止选中任务、`Ctrl+X Ctrl+K` 停止全部。正在阅读的子 Agent 结束时**留在屏幕上**（该行转绿显示 `✓ completed`），等你离开视口才回收会话。启动摘要渲染为对齐的 `├── / └──` 树形块，抽屉只用亮白/灰两档文字（游标行不设底色），右侧 token 指标为跟随流向的单箭头（`↓` 回复产出、`↑` 你输入）。`fork` 与普通子 Agent 合并为同一条构建路径，子任务标题优先取工具的 `description`，`run_in_background` 参数已退场（#466） |
 | **`@` 立即显示有限文件候选** | v0.6.129 | 输入 `@` 即弹面板，默认只列当前目录，目录优先，最多 15 项、10 行可见；面板按终端高度缩小。关键词搜索子目录，200ms 防抖保留最后一次输入，搜索中和空结果有提示；截断候选和进入目录时重新搜索，避免漏匹配（#463） |
@@ -110,9 +111,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **npm 安装支持 Windows 进程运行中热替换二进制** | v0.6.124 | 在 Windows 环境下，当 `cc-code` 处于运行状态时（如在会话内自升级或开启多个终端），内核文件锁导致 npm postinstall 的 `unlinkSync` 抛出 `EBUSY`/`EPERM` 引起安装回滚。现于 `install.js` 引入 `replaceBinary` 文件锁退避机制：常规删除受阻时自动将旧文件重命名为 `cc-code.exe.old.<timestamp>` 腾出路径并热替换新版本，并在安装时顺便尝试清理历史已退出的 `.old.*` 备份文件（#430、#431） |
 | **Bash 运行状态行显示模型请求的 timeout** | v0.6.123 | Bash 运行状态行（`Running… (Xs)    (timeout Nm)`）此前显示的是 `execution_timeout`（硬执行上限，默认 10m），而非模型传入的 `timeout`（前台等待期限，默认 2m）——传 `timeout=300000`（5 分钟）仍显示 `10m`，看起来像「参数没生效」。现将 `timeout_ms` 贯通注册/槽位，视图字段 `execution_timeout_ms` 重命名为 `timeout_ms`，状态行改为取模型传入的 `timeout`（按分钟展示 `2m`/`5m`）。执行与超时语义不变（#428） |
 | **diff 缓存加字节预算 + `/gc` 补统计渲染/diff 缓存** | v0.6.121 | `/gc` 的「已知合计」此前仅 ~5.9 MB，而 `mimalloc allocated` ~50 MB，存在约 44 MB「未识别」。排查发现两处盲区：其一，`DIFF_CACHE`（`cc-widgets/src/diff/mod.rs`）与 `RENDER_CACHE`（`cc-widgets/src/diff/renderer.rs`）只按条数限流（64 条），但单条可携带接近 `MAX_DIFF_SIZE_BYTES`（1 MB）的文本，上限不可控（理论 ~64 MB／每缓存），且完全不在 `/gc` 统计内；其二，渲染线程 `RenderCache`（整段对话渲染行 `lines` + `wrap_map` 逐行纯文本副本与字符宽度）同样未被统计。现新增 `ByteBudgetCache`（条数 + 字节双重上限的 LRU），两个 diff 缓存各设 **8 MB 字节预算**，超预算按 LRU 淘汰（未命中重算，行为不变）；`/gc` 新增 `render_cache` / `diff_cache` / `diff_render_cache` 统计并计入「已知合计」，剩余「未识别」收窄到语法高亮引擎、tokio、tracing 与分配器元数据；顺带修复 `renderer.rs` 一处既有注释乱码（#420、#421） |
-| **修复 Windows 传统 CMD 控制码刷屏与星形缺字** | v0.6.120 | 传统 CMD 控制台（conhost）启动后 stdout 的 VT（虚拟终端）模式可能丢失，导致 crossterm 缓存的 ANSI 能力与实际模式不一致——输出退化为控制码刷屏、星形 spinner 缺字（缺字仍占一列却无法被现有列宽探针识别）。现于输出前补齐 VT 必要位并记录恢复、清屏重绘（保留其他控制台模式），`terminal_title_ops`/`terminal_title`/`panel_memory` 保护标题输出与编辑器返回路径，`terminal_backend` 区分原生控制台与 ConPTY 使用不同 ASCII 动画帧。同批修复无控制台/重定向环境（如 CI）下 VT 恢复失败提前返回、导致 `last_terminal_title` 缓存未记录与单元测试断言失败（改为先记录缓存再执行 VT 恢复）。（#415） |
 
-> 更早版本（v0.6.0 – v0.6.119）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.120）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

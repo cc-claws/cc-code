@@ -28,6 +28,12 @@ Perihelion Agent 版本变更记录。
 
 - **`AgentResult` 不再被推荐为可调用工具（#470）**：工具发现索引排除仅用于历史兼容的 `AgentResult`，延迟工具提示、关键词搜索与 `select:` 精确查询均不再返回它；描述首行在 160 字摘要内完整保留直接/间接调用禁令与自动通知指引。保留旧会话误调用的明确错误和后台结果的 `tool_use` / `tool_result` 自动回流，不改变通用摘要长度或跨轮提示词缓存机制。
 
+## v0.6.137 — 2026-10-14
+
+### Fixes
+
+- **后台 shell 完成通知按批次合并注入，消除多轮级联唤醒（#491）**：`Bash(run_in_background=true)` 任务完成后会强制唤醒 agent 开启新 turn；当一轮内积压多条通知时，旧逻辑在每次 `Done` 后**只从 pending 队列弹 1 条**（`pending.remove(index)`），导致 n 条通知 → n 轮 turn 级联雪崩（每轮 `Done` 再触发下一条），现场表现为连续无意义的「收到」。现新增统一注入入口 `App::inject_bg_shell_notifications`：**空闲态**把「本批通知 + 队列中同会话待注入通知」**一次性 drain 拼接为单条**消息提交（n 条压成 1 轮 turn），**推理中**全部入队、待 `Done` 后一次性 drain 合并；`agent_ops` 的 stall 警告与 `shell_command` 的 `!command` / agent shell 两条完成路径统一走该入口，删除三处重复的「首个 submit + 其余入队」分支。合并**仅在消息层拼接**（保留每条 `<background-task-completed>` XML，信息不丢失），其它会话（owner 不匹配）通知仍留在队列交由对应会话消费。配套把完成/等待输入通知的展示解析重构为按文档顺序逐块扫描，支持合并消息含多个块（甚至完成 + 等待输入**混合类型**）时不丢行、不串序。新增 6 项回归用例（空闲合并 / 队列 drain / 跨会话隔离 / `Done` 全量 drain；多条完成合并展示 / 混合类型保序）。
+
 ## v0.6.131 — 2026-10-13
 
 ### Fixes
