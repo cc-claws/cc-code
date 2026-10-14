@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.136：一批 TUI 修复在同一版本落地。① 切入刚跑完的后台子 Agent 独立视口时，底部现常驻显示 `✻ Brewed for 32s · done 16:30` 完成总结行（此前完全空白），被停止/失败的子 Agent 不显示成功文案（#485）。② Windows 下默认静音全局分配器 mimalloc 的底层 `stderr` 裸打，避免长时间或高负载会话被 `mimalloc: cannot commit OS memory` 打花撕裂界面（#483）。③ 行首状态圆点统一为公共常量 `●`，消除子 Agent 行比其他工具「小一号」的字形割裂（#487）。④ 修复 auto-compact 被误判为手动 compact、中途提前关闭 loading 而引发的 Tip/spinner 消失、无法中断、回车反转等连锁问题（#481）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.130：子 Agent 统一为**只有后台模式**，底栏抽屉是它们的唯一呈现。空输入框按 `↓` 浏览后台任务，`↑/↓` 移动游标、`Enter` 进入独立视口（独立滚动位置、输入草稿与工具统计）、`x` 停止选中任务、`Ctrl+X Ctrl+K` 停止全部；正在阅读的子 Agent 结束时留在屏幕上（该行转绿显示 `✓ completed`），离开视口才回收。启动摘要改为对齐的 `├── / └──` 树形块，抽屉只用亮白/灰两档文字、游标行不设底色，右侧 token 指标为跟随流向的单箭头。`fork` 与普通子 Agent 合并为同一条构建路径，`run_in_background` 参数退场。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.129：输入 `@` 即显示文件候选。默认仅列当前目录，最多 15 项；面板最多显示 10 行并适配终端高度，继续输入关键词可搜索更多文件。搜索中、空目录和无匹配结果均有提示。
