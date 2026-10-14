@@ -4,10 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased
+## v0.6.139 — 2026-10-14
 
 ### Features
 
+- **自动记忆系统（Auto-Memory）对齐 CC 规范（#507）**：模型获得跨会话持久记忆，**纯文件架构、零专有工具**——系统提示词向模型呈现项目记忆目录，模型用通用的 `Write`/`Edit` 直接维护带四类型 YAML frontmatter 的 Markdown 记忆文件，并在入口索引 `MEMORY.md` 登记单行指针。索引有界（≤200 行且 ≤25KB，超限安全截断并追加 warning），与既有 `~/.claude/projects/`、`~/.cc-code/projects/` 记忆资产**双向兼容**。安全门为自动记忆路径设 carve-out 豁免，模型可自主读写记忆目录而不被受保护目录规则拦截；会话创建时冻结索引快照并置于动态边界之后，保障 Prompt Cache 前缀稳定；记忆路径在 TUI 中脱敏渲染。
+- **系统提示词静态段落对齐 Claude Code 的行为约束（#504）**：`01_intro` 新增「信息足够即行动」与 Corrections（只在会改变用户决策时纠正）；`03_doing_tasks` 新增 **Scope discipline**（不超出请求范围加功能/抽象、优先编辑现有文件、不为不可能场景加错误处理、删除无用代码而非留兼容垫片）；`04_actions` 新增授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方四类需确认，一次授权不跨上下文）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性（声称完成须基于本次会话观察到的结果）。
 - **主 Agent 可按 `task_id` 取消后台子 Agent（`Agent(action="stop")`）**：此前用户下达「取消厦门那个子agent」时，主 Agent 只能回复「我没有停止子 Agent 的能力，请你自己按 x」——把本该由 Agent 完成的协调动作推给了用户。现扩展 `Agent` 工具（**不新增独立工具**）新增 `action`（`spawn` 默认 / `stop`）与 `task_id`：`action=stop` 时按 `task_id` 精确停止，底层复用 `BackgroundTaskRegistry::cancel()`（触发执行器 `CancellationToken`，让执行器正常发终态、落库、清理，不 abort 任务）。**只接受精确 `task_id`，不做任务名/描述模糊匹配**——兄弟任务描述常高度相似（「查询广州天气」/「查询厦门天气」），模糊匹配会停错对象。停止结果回给模型可读确认（`Stopped background task bg-xxx (任务摘要).`），使其能复述「已取消负责查询厦门天气的子 Agent」。
 - **`Agent` 工具 `prompt` 不再硬编码 required**：`action=stop` 时无需 `prompt`，若 schema 强制必填，模型会为通过校验而凭空编造一个 prompt。必填性下沉到 `invoke` 内按 `action` 分支校验（`spawn` 需 `prompt`，`stop` 需 `task_id`）。
 - **停止终态独立成行并区分发起方**：时间线不再把「被停止」混入 `finished`/`failed`，改为 `● Agent "x" was stopped by main Agent`（用户按键停止则 `stopped by user`）。抽屉行同步改为**红色实心 `●`**（`theme::ERROR`）+ 红色 `stopped by user|main Agent`，取代原橙色 `✗ stopped`——红实心比橙 `✗` 更醒目，用户一眼确认已停。

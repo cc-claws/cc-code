@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.139：**自动记忆系统（Auto-Memory）落地**——模型可跨会话记住项目事实：纯文件架构、零专有工具，模型用 `Write`/`Edit` 直接维护 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行 / ≤25KB），与 `~/.claude/projects/`、`~/.cc-code/projects/` 既有记忆资产双向兼容；安全门为记忆路径设豁免，会话创建时冻结索引以保障 Prompt Cache 稳定。同版还有：主 Agent 可用 `Agent(action="stop", task_id=…)` 精确取消后台子 Agent（停止行区分 `by user` / `by main Agent`、等待计数行实时递减）；系统提示词静态段落对齐 CC 行为约束（Scope discipline、授权与影响判定、结果诚实性）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.138：核心工具描述对齐 Claude Code 官方措辞。① Bash/WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`；内容检索用 `Grep` NOT `grep`/`rg`；写用 `Write` NOT `echo>` 等），WebFetch 补「仅远程 http(s)，无点主机名不支持」边界；② 补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句（Grep 禁用 `grep`/`rg`、Read 不能列目录、TodoWrite 单一进行项、AskUserQuestion 决策边界）；③ **`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建。另修复 ReAct 纠正提示（连续失败/Schema 熔断/动作循环）此前以 System 消息注入、被适配器抽到请求顶层导致**模型看不见、导出也丢**，现并入所属 ToolResult 正文（#495）；`-p --output-format stream-json` 的 `tool_use` 事件补齐真实 `input` 参数（此前恒为 `null`）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.137：修复后台 shell 完成通知的**多轮级联唤醒**。通过 `Bash(run_in_background=true)` 启动的任务完成后会唤醒 agent，但旧逻辑在一轮内积压多条通知时每次 `Done` 只消费 1 条，导致 n 条通知触发 n 轮 turn（每轮再触发下一条），表现为连续无意义的「收到」。现按批次**合并注入**：空闲态把本批 + 队列中同会话待注入通知一次性 drain 拼接为**单条消息**（n 条压成 1 轮 turn），推理中统一入队、`Done` 后合并；合并仅在消息层拼接、保留每条通知 XML，信息不丢失（#491）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
