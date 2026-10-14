@@ -73,7 +73,7 @@ Event::Key → PanelManager::dispatch_key(input, ctx)
 
 ```
 peri/subagent_lifecycle started → 创建 BackgroundAgentSession 句柄 + 抽屉行
-  → 主时间线打印树形启动摘要（• N background agents launched + ├──/└── 任务）
+  → 主时间线打印树形启动摘要（● N background agents launched + ├──/└── 任务，圆点统一走 theme::SYMBOL_DOT）
   → 按 Ctrl+O 进入详细模式：摘要切换为方案 B Prompt 卡片（● Agent(任务预览) + └ Backgrounded agent
     + └ Prompt: 指令全文），再次 Ctrl+O 收回；两形态同源同一 SystemNote VM（content / detail_content）
 
@@ -228,6 +228,17 @@ submit_message(text)
 - 向后兼容迁移: 检测旧 provider_id 字段，自动填充 opus 别名
 - 空 model_id fallback: anthropic→claude-sonnet-4-6, 其他→gpt-4o
 - /model <alias> 命令: 直接切换 active_alias，无需打开面板
+
+### 界面状态圆点与指示符统一契约（以 Bash 为唯一基准）
+
+**【核心设计契约】**：
+整个 TUI 界面中的所有行首状态圆点（包括 Bash 工具头、AI 回复第一行前缀、子 Agent 启动与完成通知行、AskUser 问答等）必须统一使用公共常量：
+- `crate::ui::theme::SYMBOL_DOT`（`●` U+25CF Black Circle，以 Bash 工具指示符为唯一样式基准）
+- `crate::ui::theme::SYMBOL_DOT_SPACED`（`● ` 带空格格式）
+
+**硬性红线**：
+1. 严禁任何模块手写或引入 `•`（U+2022 BULLET 子弹符）等异形符号；
+2. 历史数据中的 `•` 仅在渲染解析时作为向后兼容容错，渲染输出时必须统一转换为 `theme::SYMBOL_DOT_SPACED`，彻底杜绝终端展示中字形忽大忽小的视觉割裂。
 **后续演进:** 该三档 `ModelAliasMap` 设计已被 `feature_20260427_F003_model-config-refactor` 取代——改为 Provider 自包含四档模型名（opus/sonnet/haiku/fable），本条目仅作归档记录保留
 **归档:** [链接](../../archive/feature_20260323_F001_model-alias-provider-mapping/)
 **归档日期:** 2026-03-24
