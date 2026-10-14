@@ -187,6 +187,7 @@ fn test_all_features_enabled_includes_all() {
         cron_enabled: true,
         skills_enabled: true,
         channel_enabled: true,
+        memory_enabled: true,
     };
     let result = build_system_prompt(None, "/tmp", features, &[], None, None);
     assert!(result.contains("Human-in-the-Loop"), "应包含 HITL 段落");
@@ -197,6 +198,7 @@ fn test_all_features_enabled_includes_all() {
     assert!(result.contains("Scheduled Tasks"), "应包含 Cron 段落");
     assert!(result.contains("# Skills"), "应包含 Skills 段落标题");
     assert!(result.contains("Channel Messages"), "应包含 Channel 段落");
+    assert!(result.contains("# auto memory"), "应包含 # auto memory 记忆段落");
 }
 
 #[test]
@@ -208,6 +210,7 @@ fn test_detect_default_values() {
     assert!(features.cron_enabled);
     assert!(features.skills_enabled);
     assert!(features.channel_enabled);
+    assert!(features.memory_enabled);
 }
 
 // ─── boundary marker tests ──────────────────────────────────────────────
@@ -245,6 +248,7 @@ fn test_boundary_marker_with_all_features() {
         cron_enabled: true,
         skills_enabled: true,
         channel_enabled: true,
+        memory_enabled: true,
     };
     let result = build_system_prompt(None, "/tmp", features, &[], None, None);
     let boundary_pos = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
@@ -256,6 +260,10 @@ fn test_boundary_marker_with_all_features() {
     assert!(
         result[boundary_pos..].contains("SubAgent Delegation"),
         "SubAgent 段落应在边界标记之后"
+    );
+    assert!(
+        result[boundary_pos..].contains("# auto memory"),
+        "自动记忆段落应在边界标记之后"
     );
 }
 

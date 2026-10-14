@@ -606,8 +606,24 @@ pub(crate) fn truncate_to_display_width(s: &str, max_width: usize) -> String {
     result
 }
 
+fn format_display_path_for_memory(path_str: &str) -> Option<String> {
+    let normalized = path_str.replace('\\', "/");
+    if let Some(pos) = normalized.find("/memory/") {
+        let filename = &normalized[pos + "/memory/".len()..];
+        if !filename.is_empty() {
+            return Some(format!("memory/{filename}"));
+        }
+    }
+    None
+}
+
 fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
     let sanitized_args = sanitize_display_text(args);
+    let sanitized_args = if let Some(mem_path) = format_display_path_for_memory(&sanitized_args) {
+        mem_path
+    } else {
+        sanitized_args
+    };
     if tool_name == "Glob" {
         // "pattern: \"...\"" 占 11 列固定前缀/后缀宽度
         let inner_max = max_width.saturating_sub(11);
@@ -618,7 +634,10 @@ fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
     }
 }
 
-fn read_summary(content: &str) -> Option<String> {
+fn read_summary(content: &str, is_memory: bool) -> Option<String> {
+    if is_memory {
+        return Some("Recalled memory".to_string());
+    }
     if content.is_empty() {
         return None;
     }
@@ -1529,9 +1548,10 @@ pub fn render_view_model_with_links(
                     },
                 ));
             }
-            // Read 工具折叠态：显示行数摘要
+            // Read 工具折叠态：显示行数或记忆召回摘要
             if state.collapsed && tool_name == "Read" && !result_lines.is_empty() {
-                if let Some(summary) = read_summary(content) {
+                let is_mem = format_display_path_for_memory(&state.args_summary).is_some();
+                if let Some(summary) = read_summary(content, is_mem) {
                     lines.push(Line::from(vec![
                         Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                         Span::styled(summary, Style::default().fg(theme::MUTED)),
@@ -2078,8 +2098,13 @@ pub fn render_view_model_with_links(
                         }
                     }
                     if entry.tool_name == "Read" {
-                        // Read 工具：只显示行数摘要
-                        if let Some(summary) = read_summary(&entry.content) {
+                        // Read 工具：显示行数或记忆召回摘要
+                        let is_mem = entry
+                            .args_display
+                            .as_deref()
+                            .and_then(format_display_path_for_memory)
+                            .is_some();
+                        if let Some(summary) = read_summary(&entry.content, is_mem) {
                             lines.push(Line::from(vec![
                                 Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                                 Span::styled(summary, Style::default().fg(theme::MUTED)),

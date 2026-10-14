@@ -36,3 +36,10 @@
 
         let _ = fs::remove_dir(&sub);
     }
+
+    #[test]
+    fn test_resolve_path_tilde_expansion() {
+        let home = dirs_next::home_dir().unwrap();
+        let result = resolve_path("/tmp", "~/test_memory.txt");
+        assert!(result.starts_with(&home) || result.to_string_lossy().contains(&home.to_string_lossy().to_string()));
+    }

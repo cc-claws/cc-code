@@ -811,8 +811,14 @@ pub fn protected_path_reason(path: &Path, extra: &[String]) -> Option<String> {
         }
     }
 
-    if let Some(seg) = segments.iter().find(|s| PROTECTED_DIR_SEGMENTS.contains(s)) {
-        return Some(format!("protected directory `{seg}`"));
+    // 豁免自动记忆目录（对齐 CC write carve-out），允许模型自主读写 memory/ 及 MEMORY.md
+    let is_auto_mem = (lowered.contains("/.claude/projects/") || lowered.contains("/.cc-code/projects/"))
+        && (lowered.contains("/memory/") || lowered.ends_with("/memory") || lowered.ends_with("/memory.md"));
+
+    if !is_auto_mem {
+        if let Some(seg) = segments.iter().find(|s| PROTECTED_DIR_SEGMENTS.contains(s)) {
+            return Some(format!("protected directory `{seg}`"));
+        }
     }
     if let Some(frag) = PROTECTED_PATH_FRAGMENTS
         .iter()
