@@ -47,7 +47,8 @@ Usage:
 - Request a concise handoff covering Scope, Result, Key files, Files changed, and verification evidence or blockers. Tool-use summaries may precede the final response.
 - Sub-agents always run in the background: the bottom drawer tracks each one, your turn continues immediately, and each result is delivered as a completion notification. At most 3 run concurrently.
 - There is no foreground mode: a sub-agent's internals never render into the main conversation.
-- timeout_secs optionally caps how long the sub-agent may run; omit it for long-running work (no timeout by default)."#;
+- timeout_secs optionally caps how long the sub-agent may run; omit it for long-running work (no timeout by default).
+- To cancel a running sub-agent (e.g. the user changes their mind, or you need to free a concurrency slot), call this tool again with action="stop" and the task_id from the spawn result (`Background task bg-<uuid> started ...`). Stop by task_id only — never guess or match by task description, since sibling tasks often read alike. The user can also stop tasks themselves in the bottom drawer (x / ctrl+x ctrl+k)."#;
 
 #[derive(Clone)]
 pub struct SubAgentTool {
@@ -96,6 +97,42 @@ pub struct SubAgentTool {
 }
 
 impl SubAgentTool {
+    /// `action="stop"`：按 `task_id` 精确停止一个正在运行的后台子 Agent。
+    ///
+    /// **只接受精确的 `task_id`（`bg-<uuid>`）**，不支持按任务描述/名称模糊匹配：
+    /// 多个子任务的描述常高度相似（如「查询广州天气」/「查询厦门天气」），模糊匹配
+    /// 会停错对象。宁可让模型多查一次，也不误停。
+    ///
+    /// 底层复用 `BackgroundTaskRegistry::cancel()`：它**不 abort 任务**，而是触发执行器的
+    /// `CancellationToken`，让执行器正常发出终态、完成持久化与清理（另有前台化 shell 的
+    /// 精确中断路径）。工具层不另写终止逻辑。
+    async fn invoke_stop(
+        &self,
+        input: &serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let task_id = match input.get("task_id").and_then(|v| v.as_str()) {
+            Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+            _ => return Err("Error: action=stop requires the `task_id` parameter".into()),
+        };
+        let registry = self.background_registry.as_ref().ok_or(
+            "Error: sub-agents run in the background only, but no background registry is configured in this session",
+        )?;
+        // 先取摘要用于可读回执：停止后快照会转终态，摘要必须先读。取不到不影响停止，
+        // 只是回执里省略摘要（例如已被并发完成）。
+        let preview = registry
+            .status(&task_id)
+            .ok()
+            .map(|snapshot| snapshot.task_preview)
+            .filter(|preview| !preview.is_empty());
+        registry
+            .cancel(&task_id)
+            .map_err(|error| format!("Error: {error}"))?;
+        Ok(match preview {
+            Some(preview) => format!("Stopped background task {task_id} ({preview})."),
+            None => format!("Stopped background task {task_id}."),
+        })
+    }
+
     #[allow(clippy::type_complexity)]
     pub fn new(
         parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
@@ -285,11 +322,22 @@ impl BaseTool for SubAgentTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
-            "required": ["prompt"],
+            // 注意：**不能**把 prompt 写死为 required。action=stop 时无需 prompt，
+            // 若 schema 强制必填，模型会为通过校验而凭空编造一个 prompt。
+            // 必填性在 invoke 内按 action 分支校验（spawn 需 prompt，stop 需 task_id）。
             "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["spawn", "stop"],
+                    "description": "spawn (default) launches a new sub-agent; stop cancels a running one by task_id. Omit for spawn."
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Required when action=stop. The `bg-<uuid>` id returned by the spawn call's result text. Exact match only — task descriptions are not accepted as targets."
+                },
                 "prompt": {
                     "type": "string",
-                    "description": "REQUIRED. Bounded task, context, constraints, allowed write scope, and expected result. For forks, include essential recent facts that may be absent from the inherited snapshot"
+                    "description": "REQUIRED when action=spawn (the default). Bounded task, context, constraints, allowed write scope, and expected result. For forks, include essential recent facts that may be absent from the inherited snapshot. Not needed for action=stop"
                 },
                 "description": {
                     "type": "string",
@@ -327,6 +375,19 @@ impl BaseTool for SubAgentTool {
         &self,
         input: serde_json::Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // action 缺省为 spawn：兼容既有调用方与历史会话，不依赖模型显式传参。
+        let action = input.get("action").and_then(|v| v.as_str()).unwrap_or("spawn");
+        if action == "stop" {
+            return self.invoke_stop(&input).await;
+        }
+        if action != "spawn" {
+            return Err(format!(
+                "Error: unknown action `{action}` (expected `spawn` or `stop`)"
+            )
+            .into());
+        }
+        // spawn 路径必须带 prompt；此处校验而非依赖 schema 的 required，
+        // 因为 required 会同时作用于 action=stop（见 parameters 注释）。
         let prompt = match input.get("prompt").and_then(|v| v.as_str()) {
             Some(p) => p.to_string(),
             None => return Err("Error: missing required parameter prompt".into()),

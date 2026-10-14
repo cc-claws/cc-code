@@ -50,6 +50,10 @@ pub(crate) struct BackgroundAgentSession {
     pub running_tool_times: HashMap<String, Instant>,
     pub completion_received: bool,
     pub ended_at: Option<Instant>,
+    /// 停止发起方：由用户按键（`x` / `Ctrl+X Ctrl+K`）置位为 `true`；否则视为
+    /// 主 Agent 通过 `Agent(action="stop")` 停止。用于渲染 `stopped by user`
+    /// 与 `stopped by main Agent` 两种来源文案（PRD §4.4.1）。
+    pub stopped_by_user: bool,
     pub notices: Vec<String>,
     pub input_draft: Option<tui_textarea::TextArea<'static>>,
     /// 是否为后台任务。现在**只有后台模式**，故恒为 true；字段保留用于兼容旧会话回放
@@ -87,6 +91,7 @@ impl BackgroundAgentSession {
             running_tool_times: HashMap::new(),
             completion_received: false,
             ended_at: None,
+            stopped_by_user: false,
             notices: Vec::new(),
             input_draft: None,
             // 只有后台模式：缺省即为后台，避免「事件先到、started 通知后到」时
@@ -347,6 +352,9 @@ impl super::App {
         if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
             if !sub.status.is_active() { return; }
             sub.current_activity = "Stopping…".into();
+            // 本函数只由用户按键（x / Ctrl+X Ctrl+K）调用；主 Agent 经
+            // `Agent(action="stop")` 停止时不经此处，故据此区分来源文案（PRD §4.4.1）。
+            sub.stopped_by_user = true;
         }
         self.cancel_subagent_approval(id);
         if let (Some(client), Some(session_id)) = (self.acp_client.clone(), self.session_mgr.current().current_thread_id.clone()) {

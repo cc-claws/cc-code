@@ -15,7 +15,7 @@ Agent 领域是整个框架的核心，负责 ReAct 推理循环的执行、消�
 - System Prompt：ReActAgent.with_system_prompt() 固定在 run_before_agent 后 prepend，消除 PrependSystemMiddleware 顺序约束
 - 工具接口：ask_user_question（对齐 Claude AskUserQuestion 规范），questions 数组 + header + options.description
 - 定时任务：CronMiddleware 提供 CronRegister/CronList/CronRemove 工具，croner 2 解析 cron 表达式
-- 后台执行：Agent 工具恒后台执行（`run_in_background` 参数已退场，前台同步路径已删除），BackgroundTaskRegistry 最多 3 并发，完成经生命周期通知回流、Done 后自动 continuation；`timeout_secs` 显式超时预算（省略/0 无限制）；`SubagentStarted` 载荷携带 `task_preview`（摘要）与 `prompt`（指令**全文**，供 TUI 详细模式展开 Prompt 卡片，见 [PRD §4.17](../../../docs/prd/subagent-drawer-and-virtual-routing.md)）
+- 后台执行：Agent 工具恒后台执行（`run_in_background` 参数已退场，前台同步路径已删除），BackgroundTaskRegistry 最多 3 并发，完成经生命周期通知回流、Done 后自动 continuation；`timeout_secs` 显式超时预算（省略/0 无限制）；`SubagentStarted` 载荷携带 `task_preview`（摘要）与 `prompt`（指令**全文**，供 TUI 详细模式展开 Prompt 卡片，见 [PRD §4.17](../../../docs/prd/subagent-drawer-and-virtual-routing.md)）；`Agent` 工具经 `action="stop"` + `task_id` 支持主 Agent 主动取消（复用 `BackgroundTaskRegistry::cancel()`，See [PRD §4.4.1](../../../docs/prd/subagent-drawer-and-virtual-routing.md)）
 
 ## 核心流程
 

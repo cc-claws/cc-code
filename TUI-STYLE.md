@@ -523,6 +523,17 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 
 后台审批在任意视口显示，`y/n` 同意或拒绝，`Enter` 进入提出审批的子视口；普通提问继续使用问答面板。抽屉最多五行（溢出行计入上限），全部任务均可键盘选择；终端总高度低于十八行时仅占一行。停止任务显示三秒后归档，正在阅读的任务保留到离开视口。
 
+**主 Agent 侧的取消**：用户可用自然语言让主 Agent 停止某个子任务，模型走 `Agent(action="stop", task_id="bg-…")`（`task_id` 取自 spawn 回执 `Background task bg-<uuid> started ...`）。**只接受精确 `task_id`**，不做任务名/描述模糊匹配——兄弟任务描述常高度相似（「查询广州天气」/「查询厦门天气」），模糊匹配会停错对象。停止与用户按键走同一条终态链路。
+
+**停止与等待的视觉**：
+
+| 位置 | 形态 |
+|------|------|
+| 时间线停止行 | `• Agent "x" was stopped by main Agent`（用户按键停止则为 `stopped by user`） |
+| 抽屉停止行 | **红色实心 `●`**（`#FF6B80`）+ 红色 `stopped by user\|main Agent`；取代原橙色 `✗ stopped`——红实心比橙 `✗` 更醒目，一眼确认已停 |
+| 等待计数行 | `✻ Waiting for N background agents to finish`（单复数随数量变化；活跃数归零即移除）。样式与 `✻ Cogitated for …` 同族：MUTED 前景 + `✻` 前缀，不加额外强调色 |
+| 抽屉完成态 | `✓ completed`（SAGE 绿），与停止的红 `●` 形成对立语义 |
+
 ### 通用面板按键约定
 
 | 按键 | 行为 |

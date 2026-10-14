@@ -124,11 +124,67 @@ fn test_tool_name() {
 fn test_agent_parameters_required_is_prompt_only() {
     let t = make_subagent_tool(vec![]);
     let params = t.parameters();
-    let required = params["required"].as_array().unwrap();
-    let names: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
-    assert!(names.contains(&"prompt"));
-    assert!(!names.contains(&"agent_id"));
-    assert!(!names.contains(&"task"));
+    // `prompt` **不再**写入 schema 的 required：action=stop 时无需 prompt，
+    // 若强制必填，模型会为通过校验而凭空编造 prompt（PRD §4.4.1）。
+    // 必填性下沉到 invoke 内按 action 分支校验，由下方用例守住。
+    assert!(
+        params.get("required").is_none_or(|r| r.as_array().is_none_or(|a| a.is_empty())),
+        "prompt 不得出现在 required（会波及 action=stop）：{params:?}"
+    );
+    let props = params["properties"].as_object().unwrap();
+    assert!(props.contains_key("prompt"), "prompt 仍应声明在 properties");
+    assert!(
+        props.contains_key("action") && props.contains_key("task_id"),
+        "action / task_id 必须声明，否则模型发现不了停止能力"
+    );
+    assert_eq!(
+        props["action"]["enum"].as_array().unwrap().len(),
+        2,
+        "action 应为 spawn|stop 两值"
+    );
+}
+
+/// `action="stop"` 缺少 `task_id` 必须报错，且错误可读、可操作。
+#[tokio::test]
+async fn test_agent_stop_without_task_id_errors() {
+    let t = make_subagent_tool(vec![]);
+    let err = t
+        .invoke(serde_json::json!({"action": "stop"}))
+        .await
+        .expect_err("action=stop 缺 task_id 必须失败");
+    assert!(
+        err.to_string().contains("task_id"),
+        "错误信息应指明缺少 task_id：{err}"
+    );
+}
+
+/// `action="stop"` 时**不需要** `prompt`：缺失 prompt 不应因 action=spawn 的校验而报错。
+#[tokio::test]
+async fn test_agent_stop_does_not_require_prompt() {
+    let t = make_subagent_tool(vec![]);
+    let err = t
+        .invoke(serde_json::json!({"action": "stop", "task_id": "bg-nonexistent"}))
+        .await
+        .expect_err("无注册表时必须失败");
+    let msg = err.to_string();
+    assert!(
+        !msg.contains("missing required parameter prompt"),
+        "action=stop 不应要求 prompt：{msg}"
+    );
+}
+
+/// 未知 action 必须报错，而不是静默当作 spawn 执行。
+#[tokio::test]
+async fn test_agent_unknown_action_errors() {
+    let t = make_subagent_tool(vec![]);
+    let err = t
+        .invoke(serde_json::json!({"action": "explode", "prompt": "x"}))
+        .await
+        .expect_err("未知 action 必须失败");
+    assert!(
+        err.to_string().contains("unknown action"),
+        "错误信息应指明 action 非法：{err}"
+    );
 }
 
 /// Verify error returned when prompt parameter is missing
@@ -1496,5 +1552,67 @@ async fn test_cap_rejection_marks_child_thread_error() {
         metas.iter().all(|meta| meta.agent_status != "active"),
         "被并发闸拒绝的子线程不得留在 active：{:?}",
         metas.iter().map(|m| &m.agent_status).collect::<Vec<_>>()
+    );
+}
+
+/// 端到端：启动一个真实后台子 Agent，再按回执里的 `task_id` 停止它。
+///
+/// 守住 PRD §4.4.1 的完整链路：spawn 回执必须是模型可提取的 `bg-<uuid>` 形态 →
+/// `action=stop` 能命中该任务 → 返回含任务摘要的可读回执（供模型向用户复述）。
+#[tokio::test]
+async fn test_agent_stop_by_task_id_from_spawn_result() {
+    let dir = tempdir().unwrap();
+    let agents_dir = dir.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&agents_dir).unwrap();
+    std::fs::write(
+        agents_dir.join("slow-agent.md"),
+        "---\nname: slow-agent\ndescription: A slow test agent\n---\n\nYou are a slow test agent.\n",
+    )
+    .unwrap();
+
+    let (tool, _rx) = attach_background(&make_subagent_tool(vec![]));
+    let started = tool
+        .invoke(serde_json::json!({
+            "subagent_type": "slow-agent",
+            "description": "慢任务",
+            "prompt": "do something slow",
+            "cwd": dir.path().to_str().unwrap()
+        }))
+        .await
+        .expect("应能启动后台子 Agent");
+
+    // 回执形如 `Background task bg-<uuid> started (thread: …)`，模型据此提取 task_id。
+    let task_id = started
+        .split_whitespace()
+        .nth(2)
+        .expect("回执应含 task_id")
+        .to_string();
+    assert!(task_id.starts_with("bg-"), "task_id 应为 bg- 前缀：{task_id}");
+
+    let receipt = tool
+        .invoke(serde_json::json!({"action": "stop", "task_id": task_id}))
+        .await
+        .expect("按 task_id 应能停止");
+    assert!(
+        receipt.starts_with("Stopped background task"),
+        "成功回执应以 Stopped 开头：{receipt}"
+    );
+    assert!(
+        receipt.contains("慢任务"),
+        "回执应含任务摘要，供模型向用户复述：{receipt}"
+    );
+}
+
+/// 停止不存在的 task_id 必须报错（不做模糊匹配，避免停错对象）。
+#[tokio::test]
+async fn test_agent_stop_unknown_task_id_errors() {
+    let (tool, _rx) = attach_background(&make_subagent_tool(vec![]));
+    let err = tool
+        .invoke(serde_json::json!({"action": "stop", "task_id": "bg-does-not-exist"}))
+        .await
+        .expect_err("不存在的 task_id 必须失败");
+    assert!(
+        err.to_string().contains("bg-does-not-exist"),
+        "错误应指明目标 id：{err}"
     );
 }

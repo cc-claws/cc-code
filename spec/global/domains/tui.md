@@ -1354,4 +1354,6 @@ submit_message(text)
 
 启动摘要在主视口有**两态**，同源同一 `SystemNote` VM（`content` = 极简树形，`detail_content` = 详细卡片），由 `detail_mode` 单选渲染：普通模式为 `• N background agents launched` + `├──`/`└──` 任务行；按 `Ctrl+O` 进入详细模式切换为方案 B 卡片（`● Agent(任务预览)` + `└ Backgrounded agent` + `└ Prompt:` + 指令全文，6 列悬挂缩进折行）。`SubagentStarted` 事件必须携带 `prompt` 全文字段（仅 `task_preview` 摘要不足以渲染卡片）；卡片标题的 `●` 必须是系统统一的大实心圆点 `U+25CF`（与 `● Bash(...)` 同字形），`SystemNote` 的 `PartialEq`/`Hash` 必须包含 `detail_content`。详见 PRD §4.17。
 
+**取消链路（PRD §4.4 / §4.4.1 / §4.4.2）**：主 Agent 经 `Agent(action="stop", task_id=…)` 取消（`task_id` 精确匹配，拒绝模糊），与用户按键（`x` / `Ctrl+X Ctrl+K`）共用同一终态链路。渲染侧三项契约：① 停止终态独立成行（`• Agent "x" was stopped by main Agent`，用户停止为 `stopped by user`），不得混入 `finished`/`failed`；② 抽屉停止行用**红色实心 `●`**（`theme::ERROR` = `#FF6B80`）+ 红色 `stopped by …`——`drawer_line()` 新增 `force_filled` 参数在非当前视口时也渲染实心圆点（`◯` 仅用于「非当前视口的活跃行」）；③ 等待计数行 `✻ Waiting for N background agents to finish` 作为临时 `SystemNote`（`ephemeral_notes`）随活跃数刷新，**归零必须移除**（残留会让用户误以为还有任务在跑）。`BackgroundAgentSession.stopped_by_user` 记录停止发起方，供上述来源文案区分。
+
 最后更新：2026-10-14

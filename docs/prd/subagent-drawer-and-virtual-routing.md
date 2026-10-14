@@ -1,6 +1,6 @@
 # PRD: 后台多子 Agent 抽屉式管理与虚拟视口路由系统
 
-> **文档版本**：v2.5 (新增 §4.17 详细模式（Ctrl+O）主视口 Prompt 卡片展开，`SubagentStarted` 事件补齐 `prompt` 全文字段)  
+> **文档版本**：v2.6 (新增 §4.4.1 主 Agent 侧取消能力 `Agent(action="stop", task_id=…)` 与 §4.4.2 等待态计数行；§4.4 抽屉停止态改为红色 `●` + `stopped by …`)  
 > **基线代码**：`origin/main` (`cc-tui`, `cc-acp`, `cc-middlewares`, `cc-agent`)；真机联调基线 `feat/subagent-drawer-routing`
 > **关联原型**：`docs/subagent-mock.html`（已通过浏览器验证并对齐真实终端截图）  
 > **关联历史**：`docs/superpowers/specs/2026-05-26-background-agent-bar-design.md`
@@ -229,9 +229,43 @@ impl App {
 1. **单任务中断（`x` 键）**：
    * 仅针对抽屉栏光标选中的子任务，调用其持有的 `CancellationToken.cancel()`。
    * 如果正在运行子进程（Bash），跨平台强制终止进程树（Windows 使用 `taskkill //f //pid`，Unix 使用 `kill -9`）。
-   * 状态标记为 `Stopped`，右侧提示变为 `✗ stopped`，3 秒后淡出或移入历史。
+   * 状态标记为 `Stopped`。抽屉行改为**红色实心圆点 `●`** + 红色 `stopped by user`（取代早期的橙色 `✗ stopped`）：红色比橙黄更醒目，用户一眼即可确认「这个已经停了」。
 2. **全局中断（`Ctrl+X Ctrl+K`）**：
    * 级联取消所有 `bg_agents` 的 Token，立刻恢复系统至完全静止状态。
+
+#### 4.4.1 主 Agent 侧的取消能力（`Agent(action="stop", task_id=…)`）
+
+用户侧（上文 `x` / `Ctrl+X Ctrl+K`）只解决「人主动停止」；用户以自然语言下达「取消厦门那个子agent」时，应由**主 Agent 自己**完成协调收尾。为此扩展 `Agent` 工具，而**不新增独立工具**（保持工具清单稳定、避免与 `Agent` 语义重叠）：
+
+1. **schema 契约**：`Agent` 工具新增两个字段，`prompt` 的必填性随 `action` 条件化。
+   ```json
+   {
+     "action": { "type": "string", "enum": ["spawn", "stop"], "description": "spawn (default) launches a new sub-agent; stop cancels a running one by task_id" },
+     "task_id": { "type": "string", "description": "Required when action=stop. The `bg-<uuid>` id returned by the spawn call's result text" },
+     "prompt": { "description": "REQUIRED when action=spawn (default); not needed for stop" }
+   }
+   ```
+   * **`prompt` 不可写死为 required**：`action=stop` 时无 `prompt`，若 schema 强制必填，模型会凭空编造一个 prompt 以满足校验。校验必须下沉到 `invoke` 内按 `action` 分支（校验失败用 `Err()` 返回，禁止 `Ok("Error: …")` 反模式）。
+   * **`action` 缺省 = `spawn`**：兼容既有调用方与历史会话，不依赖模型显式传参。
+2. **定位契约（`task_id` 精确匹配，不做模糊匹配）**：
+   * 模型从 spawn 的返回文本 `Background task bg-<uuid> started (thread: …)` 中已拿到该 ID，直接回传即可。
+   * **不接受任务名/描述模糊匹配**：多个子任务可能共享相似描述（如「查询广州天气」/「查询厦门天气」），模糊匹配会停错对象；宁可让模型多一次 `list` 也不误停。
+   * `BackgroundTaskRegistry::cancel(id)` 已支持按 `task_id` 或 `instance_id` 匹配（`background.rs`），且**不 abort 任务**——它触发执行器的 `CancellationToken`，让执行器正常发出终态、完成持久化与清理。工具层直接复用，不另写终止路径。
+3. **返回值契约**：停止结果必须回给模型**可读确认**，使其能向用户复述。成功与失败均返回文本（失败返回 `Err`）：
+   * 成功：`Stopped background task bg-<uuid> (<任务摘要>).` —— 含任务摘要，便于模型回答「已取消负责查询厦门天气的子 Agent」。
+   * 未找到：`Error: task bg-<uuid> not found`；已结束：`Error: task bg-<uuid> ended (read-only)`（复用注册表 `cancel()` 的既有错误文案）。
+4. **时间线与抽屉呈现**：
+   * 时间线：该次调用与普通工具调用同构——`● Agent(action=stop, task_id=bg-…)` + `  ⎿ <任务摘要> · stopped`；停止确认行 `• Agent "<任务名>" was stopped by main Agent`（与用户侧的 `stopped by user` 区分来源）。
+   * 抽屉行：与 §4.4 第 1 条一致（红色 `●` + `stopped by main Agent`）。
+   * **停止不得触发新的模型轮次**：沿用既有 `finished_stopped` 分支语义（`agent_events_bg.rs`）——否则「全停」会把主任务重新唤醒。
+
+#### 4.4.2 等待态计数行（`✻ Waiting for N background agents to finish`）
+
+主 Agent 一轮结束后若仍有后台任务在跑，主视口打印一行等待提示，让用户明确「还差几个」：
+
+* 单数/复数随数量变化（`1 background agent` / `N background agents`）。
+* 计数以 `has_running_subagents()` 的活跃数为准，随完成/停止事件刷新；归零时该行消失。
+* 样式与 `✻ Cogitated for … / ✻ recap:` 同族（`MUTED` 前景 + `✻` 前缀），不加额外强调色。
 
 ### 4.5 持久化与会话恢复（Resume 规范）
 
