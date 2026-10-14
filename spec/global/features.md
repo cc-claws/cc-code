@@ -122,14 +122,6 @@
 - **HITL/AskUser 桥接:** `AcpTransportBroker` 通过 ACP RPC（`RequestPermission` + `elicitation/create`）替代 oneshot channel
 - **上下文压缩:** auto-compact 触发 + micro/full compact 执行 + resubmit 全部在 executor 循环内完成；手动 `/compact` 与自动 compact 共用 `build_compacted_messages` 生成摘要消息（`<system-reminder>` 包裹，TUI 折叠为一行提示）
 
-## 配置同步（Config Sync）
-
-- **Relay Server:** Hono.js + Cloudflare Durable Objects，WebSocket 密文透传，配对码管理（6 位/5 分钟/一次性）
-- **E2E 加密:** PBKDF2-SHA256 密钥派生 + AES-256-GCM 加密，Relay 无法解密
-- **同步客户端:** `peri sync sender/receiver` 子命令，crossterm CLI 交互（选择/进度/确认）
-- **选择性同步:** receiver 可勾选 settings/skills/mcp/plugins，Sender 打包 MessagePack 序列化传输
-- **路径安全:** `validate_and_resolve()` 三层校验拒绝绝对路径/ParentDir/解析后前缀不匹配
-
 ## 基础设施
 
 - **SQLite 线程持久化:** sqlx SqlitePool(max=5) 原生异步连接池，WAL 模式，`append_messages` 事务保证 crash-safe，`StateSnapshot` 事件驱动增量写入，数据库文件 + WAL/SHM 应用 0o600 权限（Unix），grandparent 目录权限校验

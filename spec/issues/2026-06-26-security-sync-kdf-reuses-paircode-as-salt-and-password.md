@@ -1,6 +1,6 @@
 # Sync KDF 重用 pair_code 作为 password 和 salt（预计算攻击）
 
-**状态**：Open
+**状态**：Closed（功能已删除，攻击面消失）
 **优先级**：中
 **创建日期**：2026-06-26
 **来源**：cc-code 全项目安全审计 2026-06-26（Finding M2，置信度 8/10）
@@ -71,4 +71,5 @@ PBKDF2 迭代 100,000 次（合理），AES-256-GCM nonce 用 `OsRng`（正确�
 
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
+| 2026-10-14 | Open | Closed | agent | **功能整体下线**：`peri sync` 客户端模块与服务端源码已删除（见 `2026-06-26-security-sync-relay-mitm-can-decrypt-credentials.md`）。KDF 弱点随功能消失，无需再修。GitHub 工单 #21 / #22 此前已关闭。 |
 | 2026-06-26 | — | Open | agent | 创建（安全审计 M2） |

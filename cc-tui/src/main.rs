@@ -188,27 +188,11 @@ enum Commands {
     },
     /// 更新：从 GitHub 下载并安装最新版本
     Update,
-    /// 配置同步：在设备间同步 settings/skills/mcp/plugins
-    Sync {
-        #[command(subcommand)]
-        action: SyncAction,
-        /// Relay server URL
-        #[arg(long, default_value = "wss://peri-sync.claude-code-best.win")]
-        server: String,
-    },
     /// 插件管理
     Plugin {
         #[command(subcommand)]
         action: PluginAction,
     },
-}
-
-#[derive(Subcommand)]
-enum SyncAction {
-    /// 发送本地配置到远端设备
-    Sender,
-    /// 从远端设备接收配置
-    Receiver,
 }
 
 #[derive(Subcommand)]
@@ -404,27 +388,6 @@ fn main() -> Result<()> {
                     }
                 }
                 Ok(())
-            })
-        }
-        Some(Commands::Sync { action, server }) => {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
-                .enable_all()
-                .build()?;
-            rt.block_on(async {
-                match action {
-                    SyncAction::Sender => cc_tui::sync::run_sync_sender(&server).await,
-                    SyncAction::Receiver => cc_tui::sync::run_sync_receiver(&server).await,
-                }
-            })
-            .map(|_| println!("{}", cli_i18n::message("cli-sync-success", &[])))
-            .map_err(|e| {
-                cli_i18n::write_stderr(&cli_i18n::message(
-                    "cli-sync-failed",
-                    &[("error", &format!("{e:#}"))],
-                ));
-                std::process::exit(1);
             })
         }
         Some(Commands::Plugin { action }) => {

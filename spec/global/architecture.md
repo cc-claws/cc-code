@@ -179,16 +179,6 @@ src/
 │   ├── message_render.rs — 消息行渲染
 │   ├── message_view.rs   — MessageViewModel
 │   └── render_thread.rs  — 独立渲染线程
-├── sync/                 — 配置同步模块
-│   ├── mod.rs            — 入口
-│   ├── protocol.rs       — WS 消息协议
-│   ├── crypto.rs         — PBKDF2 + AES-256-GCM
-│   ├── packer.rs         — SyncPackage 序列化
-│   ├── scanner.rs        — 配置扫描
-│   ├── writer.rs         — 文件写入 + 路径防护
-│   ├── sender.rs         — sender 模式
-│   ├── receiver.rs       — receiver 模式
-│   └── ui.rs             — CLI 交互
 ├── config/
 │   ├── store.rs          — PeriConfig
 │   └── types.rs          — 配置类型
@@ -307,30 +297,6 @@ LlmCallEnd 携带 usage
   → re_inject: 重新注入最近文件 + Skills
 ```
 
-### 配置同步流程
-
-```
-Sender                           Relay                          Receiver
-  │                                │                                │
-  │── request_pair ───────────────►│                                │
-  │◄── pair_created("482917") ─────│                                │
-  │   显示: 配对码 482917          │                                │
-  │                                │◄── join_pair("482917") ────────│
-  │◄── pair_joined ────────────────│─── pair_joined ───────────────►│
-  │                                │                                │
-  │   (等待选择)                    │                                │
-  │                                │◄── sync_config({items}) ───────│
-  │◄── sync_config({items}) ───────│   receiver 选择同步项 → confirm │
-  │                                │                                │
-  │   展示传输清单 → 打包加密        │                                │
-  │── data_chunk(encrypted) ──────►│── data_chunk(encrypted) ──────►│
-  │── data_chunk(encrypted) ──────►│── data_chunk(encrypted) ──────►│
-  │── transfer_complete ──────────►│── transfer_complete ──────────►│
-  │   ✅ 传输完成                   │              解密 → 解压 → 写入  │
-```
-
-Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，配对码 6 位数字/5 分钟过期/一次性使用。同步客户端通过 `peri sync sender/receiver` 子命令交互，使用 crossterm CLI 界面。
-
 ## 中间件链执行顺序
 
 中间件按注册顺序执行，典型组装顺序：
@@ -376,7 +342,6 @@ Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，�
 | SQLite | 本地文件 | — | `~/.peri/threads/threads.db` |
 | OpenTelemetry Collector | HTTP OTLP Proto | — | `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Langfuse | HTTPS REST | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | `LANGFUSE_HOST`（默认 cloud） |
-| Relay Server (Sync) | WebSocket | 配对码（PBKDF2 派生 AES 密钥） | `ws://localhost:8080`（可配置） |
 
 ## 部署拓扑
 

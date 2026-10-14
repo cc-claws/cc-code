@@ -177,10 +177,6 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 
 **[TRAP]** 路径穿越防护：`validate_and_resolve()` 是项目标准的路径穿越防护入口。任何需要接收用户侧相对路径并写入 base_dir 的场景都必须复用此函数。新增类似写入功能时禁止自行实现路径校验。
 
-**[TRAP]** `Path::strip_prefix()` + `to_string_lossy()` 在 Windows 上产生 `\` 分隔符，sync 协议要求 `/`。`scan_dir_recursive()` 构造 `FileEntry.path` 时必须 `.replace('\\', "/")`。（详见 spec/global/domains/sync.md#issue_2026-05-20-windows-path-separator-breaks-tests）
-
-`peri sync` 子命令使用标准终端 CLI（crossterm 交互），不经过 TUI 主循环。
-
 ## 环境变量
 
 | 变量 | 说明 |

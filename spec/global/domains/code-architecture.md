@@ -34,7 +34,7 @@
 |------|------|
 | Workspace 结构 | 3 crate → 移除 relay 后维持 3+cc-widgets |
 | 配置兼容 | serde 忽略旧字段，无需主动清理 |
-| 遗留文件 | Dockerfile.relay 保留作历史记录 |
+| 遗留文件 | 已全部清理（`Dockerfile.relay` 等亦已删除，不再保留） |
 
 ## Feature 附录
 

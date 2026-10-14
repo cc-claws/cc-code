@@ -49,10 +49,7 @@ pub fn localized_command(mut command: Command, lc: &LcRegistry) -> Command {
     for name in [
         "acp",
         "update",
-        "sync",
         "plugin",
-        "sender",
-        "receiver",
         "list",
         "install",
         "uninstall",
