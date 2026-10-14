@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use cc_agent::tools::BaseTool;
 use serde_json::json;
 
-const AGENT_RESULT_DESCRIPTION: &str = "Compatibility marker for automatically delivered background agent results. This tool cannot query or poll task status or output, including Bash tasks. Do not call it directly or through ExecuteExtraTool; wait for the background completion notification instead.";
+const AGENT_RESULT_DESCRIPTION: &str = "Do not call AgentResult directly or through ExecuteExtraTool. Wait for automatic background completion notifications; this is an internal history marker.\nThis tool cannot query or poll task status or output, including Bash tasks.";
 
 const AGENT_RESULT_UNSUPPORTED: &str = "AgentResult does not support queries or polling. No task status or output was checked. Background results are delivered automatically on completion; continue other work or wait for that notification. Do not retry AgentResult.";
 

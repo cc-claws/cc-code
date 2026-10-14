@@ -56,6 +56,9 @@ impl<S: State> Middleware<S> for ToolSearchMiddleware {
             .filter(|(name, _)| {
                 !super::core_tools::CORE_TOOLS.contains(name.as_str())
                     && !super::core_tools::META_TOOLS.contains(name.as_str())
+                    // AgentResult 仅兼容后台结果历史，不是可发现的调用能力。
+                    // 保留 shared_tools 注册，供旧会话误调用时返回明确错误。
+                    && name.as_str() != "AgentResult"
             })
             .map(|(_, tool)| Arc::clone(tool))
             .collect();

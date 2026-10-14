@@ -44,6 +44,7 @@ build_system_prompt(overrides, cwd, features)
 - 对已授权工作持续推进；只有影响范围、正确性或授权的重要歧义需要询问。验证按改动风险选择，区分静态检查、本地测试与真实环境结果。
 - 不要求固定四行、一词回复或编辑后停止汇报；按任务需要提供结论、关键证据和未覆盖范围。
 - 英文模板调整不改变会话内冻结机制。更新模板需重新编译，并在新建会话时捕获；既有会话继续复用冻结提示词。
+- 工具发现索引只收录可调用的延迟工具；`AgentResult` 是后台结果历史兼容标记，保留内部注册与自动结果回流，但不进入延迟工具提示或搜索结果。工具描述的关键禁令应放在首行 160 字内，避免摘要截断改变含义（#470）。
 
 ## Feature 附录
 
@@ -162,4 +163,4 @@ build_system_prompt(overrides, cwd, features)
 - → [agent.md](./agent.md) — ReActAgent.with_system_prompt() 注入
 - → [tui.md](./tui.md) — TUI 层 build_system_prompt() 调用
 
-最后更新：2026-10-09
+最后更新：2026-10-14
