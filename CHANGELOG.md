@@ -28,6 +28,17 @@ Perihelion Agent 版本变更记录。
 
 - **`AgentResult` 不再被推荐为可调用工具（#470）**：工具发现索引排除仅用于历史兼容的 `AgentResult`，延迟工具提示、关键词搜索与 `select:` 精确查询均不再返回它；描述首行在 160 字摘要内完整保留直接/间接调用禁令与自动通知指引。保留旧会话误调用的明确错误和后台结果的 `tool_use` / `tool_result` 自动回流，不改变通用摘要长度或跨轮提示词缓存机制。
 
+## v0.6.138 — 2026-10-14
+
+### Features
+
+- **核心工具描述对齐 Claude Code 官方措辞（边界句 / NOT 反向枚举 / Write NEVER 语义）**：参照 Claude Code 官方工具描述（Piebald-AI/claude-code-system-prompts v2.1.299），仅搬运其中**无模板函数、不依赖我方缺失能力**的静态句子。① **Bash / WebFetch 改为 NOT 反向枚举**：Bash 原抽象句「优先用专用工具」展开为 6 条映射（读→`Read` NOT `cat`/`head`/`tail`；改→`Edit` NOT `sed`/`awk`；写→`Write` NOT `echo>`/`<<EOF`；内容检索→`Grep` NOT `grep`/`rg`；文件名检索→`Glob` NOT `find`/`ls`；回复用户→直接输出文本 NOT `echo`/`printf`）；WebFetch 新增「仅用于远程 http(s)，读本地用 `Read`、检索本地用 `Grep`/`Glob`、跑命令用 `Bash`，无点主机名（如 localhost）不支持」边界。② **补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界**：Grep 首行禁令「ALWAYS use Grep for content search. NEVER invoke `grep`/`rg` as a Bash command」（与 Bash 描述双向引导）；Read 补「只读文件不能列目录，列目录用 Glob、搜内容用 Grep」；TodoWrite 补「同一时刻只保留一个 `in_progress`，完成即标记而非批量更新」；AskUserQuestion 补「仅用于答案会改变后续动作的决策；存在约定默认值或可从代码库验证时，选显然项直接推进」。③ **`Write` 改为 CC 的 NEVER 语义**：原「任务或项目约定需要时创建文档」与 CC 方向相反，改为「NEVER create documentation files (\*.md) or README files unless explicitly requested by the user」——**行为语义变更：默认不再主动创建 `.md`/README，仅用户明确要求时创建**（副作用：agent 不再主动落库 spec 文档，属对齐 CC 的预期行为）。仅改描述文本，无代码逻辑变更。
+
+### Fixes
+
+- **ReAct 纠正提示并入 ToolResult 正文，修复熔断提示对模型不可见且导出丢失（#495）**：三类纠正提示（连续失败、Schema 校验熔断、动作循环）此前以独立 `BaseMessage::System` 注入，存在两处致命缺陷——① **模型侧不可见**：Anthropic/OpenAI 适配器把 System 消息抽取到请求顶层 `system` 字段，提示因此脱离对话流末端，自回归解码时看不到，熔断形同虚设（这正解释了实测中模型连续 5 次复读同一错误参数而未被拦截）；② **导出/快照丢失**：`StateSnapshot` 与 `/export` 均以 `!is_system()` 过滤，提示既不进 `origin_messages` 也不出现在导出中。现改为**并入其所属 `ToolResult` 的消息正文**：位置精确（贴着触发它的错误结果）、模型可见（留在对话流末端）、导出可见（`BaseMessage::Tool` 不受 system 过滤）、零 UI 污染（不新增消息/伪用户气泡）、多模态安全（结构化内容仅尾插文本 block）；动作循环提示为整步级信号，附于本轮末条结果，无工具结果时退化为追加人类消息（与 `STUCK_HINT` 既有约定一致）。新增 4 个回归测试（正文并入 / 无提示零侵入 / 多模态保留 / `is_system` 过滤后仍可见）。
+- **`-p --output-format stream-json` 补齐 `tool_use` 真实参数**：该模式下输出工具调用事件时 `input` 字段被硬编码为 `null`，消费方（脚本、eval、CI 断言）只能拿到工具名、拿不到任何参数，无法校验参数正确性。根因是 `ToolStart` 事件本身已携带完整 `input: serde_json::Value`，但 `PrintCollector::handle_event` 的 StreamJson 分支在 match 时用 `..` 丢弃、序列化写死 `null`。现解构并原样序列化 `input`（其余字段与事件形态不变）。仅影响 stream-json 输出；`text` / `json` 格式与 TUI 路径不受影响，且此前 `input` 恒为 `null`、消费方本就无法依赖其值，向后兼容。新增 3 项测试（参数透传 / 空对象参数保持 `{}` / `tool_result` 结构回归）。
+
 ## v0.6.137 — 2026-10-14
 
 ### Fixes
