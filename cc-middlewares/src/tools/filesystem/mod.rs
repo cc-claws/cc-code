@@ -20,10 +20,21 @@ use std::path::{Path, PathBuf};
 /// 通过 `canonicalize` 解析 `..`、`.`、symlinks，使 HITL 审批时显示真实路径，
 /// 防止路径遍历攻击被用户忽略。对于尚不存在的文件，规范化父目录 + 文件名。
 pub fn resolve_path(cwd: &str, file_path: &str) -> PathBuf {
-    let raw = if Path::new(file_path).is_absolute() {
-        Path::new(file_path).to_path_buf()
+    // 自动安全展开波浪号家目录（~ 或 ~/ 或 ~\）
+    let expanded = if file_path == "~" {
+        dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."))
+    } else if let Some(rest) = file_path.strip_prefix("~/").or_else(|| file_path.strip_prefix("~\\")) {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(rest)
     } else {
-        Path::new(cwd).join(file_path)
+        PathBuf::from(file_path)
+    };
+
+    let raw = if expanded.is_absolute() {
+        expanded
+    } else {
+        Path::new(cwd).join(expanded)
     };
     // 路径已存在：完整 canonicalize（解析 symlinks + ..）
     if raw.exists() {

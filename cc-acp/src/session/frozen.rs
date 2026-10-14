@@ -113,9 +113,10 @@ pub fn build_frozen_session_data(
         if let Ok(raw) = std::fs::read_to_string(&entrypoint_path) {
             let truncated = cc_middlewares::memory::truncate_entrypoint_content(&raw);
             if !truncated.content.trim().is_empty() {
+                let display_entrypoint = cc_middlewares::memory::get_auto_memory_display_entrypoint(cwd);
                 Some(format!(
                     "Contents of {} (auto-memory):\n\n{}",
-                    entrypoint_path.display(),
+                    display_entrypoint,
                     truncated.content
                 ))
             } else {

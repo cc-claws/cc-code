@@ -48,7 +48,7 @@ impl<S: State> Middleware<S> for MemoryMiddleware {
                     if !truncated.content.trim().is_empty() {
                         let formatted = format!(
                             "Contents of {} (auto-memory):\n\n{}",
-                            entrypoint.display(),
+                            super::paths::get_auto_memory_display_entrypoint(state.cwd()),
                             truncated.content
                         );
                         state.prepend_message(BaseMessage::system(formatted));

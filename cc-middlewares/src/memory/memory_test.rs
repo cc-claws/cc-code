@@ -59,9 +59,9 @@ fn test_truncate_entrypoint_content_byte_cap() {
 
 #[test]
 fn test_build_auto_memory_prompt_format() {
-    let prompt = build_auto_memory_prompt(r"C:\Users\adim\.claude\projects\D--code-peri\memory\", Some("- [Line 1](file.md) — test hook"));
+    let prompt = build_auto_memory_prompt("~/.cc-code/projects/D--code-peri/memory/", Some("- [Line 1](file.md) — test hook"));
     assert!(prompt.contains("# auto memory"));
-    assert!(prompt.contains(r"`C:\Users\adim\.claude\projects\D--code-peri\memory\`"));
+    assert!(prompt.contains("`~/.cc-code/projects/D--code-peri/memory/`"));
     assert!(prompt.contains("<name>user</name>"));
     assert!(prompt.contains("<name>feedback</name>"));
     assert!(prompt.contains("<name>project</name>"));
@@ -72,6 +72,15 @@ fn test_build_auto_memory_prompt_format() {
     assert!(prompt.contains("## Before recommending from memory"));
     assert!(prompt.contains("## MEMORY.md"));
     assert!(prompt.contains("- [Line 1](file.md) — test hook"));
+}
+
+#[test]
+fn test_get_auto_memory_display_dir() {
+    let cwd = r"D:\code\peri";
+    let display = get_auto_memory_display_dir(cwd);
+    assert_eq!(display, "~/.cc-code/projects/D--code-peri/memory/");
+    assert!(!display.contains("Users"));
+    assert!(!display.contains("adim"));
 }
 
 #[test]

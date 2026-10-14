@@ -167,9 +167,24 @@ impl MessagePipeline {
     }
 }
 
-/// 只读工具动作计数文案（PRD §2.3）：
-/// `read N file(s)` / `listed N director(y|ies)` / `searched for N pattern(s)`
-pub fn readonly_action_summary(reads: usize, globs: usize, greps: usize) -> Option<String> {
+fn is_memory_path(path: Option<&str>) -> bool {
+    if let Some(p) = path {
+        let n = p.replace('\\', "/").to_lowercase();
+        n.contains("/memory/") || n.ends_with("/memory") || n.ends_with("/memory.md")
+    } else {
+        false
+    }
+}
+
+/// 只读与记忆工具动作计数文案（对齐 CC 优雅渲染）：
+/// `read N file(s)` / `listed N director(y|ies)` / `searched for N pattern(s)` / `recalled N memor(y|ies)` / `updated N memor(y|ies)`
+pub fn readonly_action_summary_ext(
+    reads: usize,
+    globs: usize,
+    greps: usize,
+    recalled: usize,
+    updated: usize,
+) -> Option<String> {
     let mut parts = Vec::new();
     if reads > 0 {
         parts.push(format!(
@@ -189,11 +204,27 @@ pub fn readonly_action_summary(reads: usize, globs: usize, greps: usize) -> Opti
             if greps > 1 { "s" } else { "" }
         ));
     }
+    if recalled > 0 {
+        parts.push(format!(
+            "recalled {recalled} memor{}",
+            if recalled > 1 { "ies" } else { "y" }
+        ));
+    }
+    if updated > 0 {
+        parts.push(format!(
+            "updated {updated} memor{}",
+            if updated > 1 { "ies" } else { "y" }
+        ));
+    }
     if parts.is_empty() {
         None
     } else {
         Some(parts.join(", "))
     }
+}
+
+pub fn readonly_action_summary(reads: usize, globs: usize, greps: usize) -> Option<String> {
+    readonly_action_summary_ext(reads, globs, greps, 0, 0)
 }
 
 /// 后处理（PRD §2.8）：**合并同一回合内连续的「思考 + 只读工具」为一行**。
@@ -240,10 +271,24 @@ pub(super) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
                     .find(|previous| !is_tool_vm(previous))
                     .is_some_and(is_thinking_bubble_with_summary);
                 if !prev_is_thinking {
-                    let reads = tools.iter().filter(|t| t.tool_name == "Read").count();
-                    let globs = tools.iter().filter(|t| t.tool_name == "Glob").count();
-                    let greps = tools.iter().filter(|t| t.tool_name == "Grep").count();
-                    *standalone_action = readonly_action_summary(reads, globs, greps);
+                    let mut reads = 0;
+                    let mut globs = 0;
+                    let mut greps = 0;
+                    let mut recalled = 0;
+                    let mut updated = 0;
+                    for t in tools.iter() {
+                        let is_mem = is_memory_path(t.args_display.as_deref());
+                        match t.tool_name.as_str() {
+                            "Read" if is_mem => recalled += 1,
+                            "Read" => reads += 1,
+                            "Glob" => globs += 1,
+                            "Grep" => greps += 1,
+                            "Write" | "Edit" if is_mem => updated += 1,
+                            _ => {}
+                        }
+                    }
+                    *standalone_action =
+                        readonly_action_summary_ext(reads, globs, greps, recalled, updated);
                     vm.recompute_hash();
                 }
             }
@@ -256,7 +301,8 @@ pub(super) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
         let (mut tot_ms, mut missing_ms) = (0u64, false);
         // 工具也可能先于 Thought 出现。吸收 out 尾部尚未归属的独立只读计数，
         // 并清掉工具组摘要，避免同一计数显示两次。
-        let (mut reads, mut globs, mut greps) = absorb_preceding_tool_summaries(&mut out);
+        let (mut reads, mut globs, mut greps, mut recalled, mut updated) =
+            absorb_preceding_tool_summaries(&mut out);
         let mut merged_text = String::new();
         let mut j = i;
 
@@ -297,31 +343,34 @@ pub(super) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
                 match &vms[k] {
                     MessageViewModel::ToolCallGroup { tools, .. } => {
                         for t in tools {
+                            let is_mem = is_memory_path(t.args_display.as_deref());
                             match t.tool_name.as_str() {
+                                "Read" if is_mem => recalled += 1,
                                 "Read" => reads += 1,
                                 "Glob" => globs += 1,
                                 "Grep" => greps += 1,
+                                "Write" | "Edit" if is_mem => updated += 1,
                                 _ => {}
                             }
                         }
                         k += 1;
                     }
-                    MessageViewModel::ToolBlock { tool_name, .. } => match tool_name.as_str() {
-                        "Read" => {
-                            reads += 1;
-                            k += 1;
+                    MessageViewModel::ToolBlock {
+                        tool_name,
+                        args_display,
+                        ..
+                    } => {
+                        let is_mem = is_memory_path(args_display.as_deref());
+                        match tool_name.as_str() {
+                            "Read" if is_mem => recalled += 1,
+                            "Read" => reads += 1,
+                            "Glob" => globs += 1,
+                            "Grep" => greps += 1,
+                            "Write" | "Edit" if is_mem => updated += 1,
+                            _ => {}
                         }
-                        "Glob" => {
-                            globs += 1;
-                            k += 1;
-                        }
-                        "Grep" => {
-                            greps += 1;
-                            k += 1;
-                        }
-                        // 非只读工具（Bash/Write/Edit）：跳过，不打断合并段，不计入
-                        _ => k += 1,
-                    },
+                        k += 1;
+                    }
                     _ => break,
                 }
             }
@@ -342,7 +391,7 @@ pub(super) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
 
         // 写回段首 bubble：累加结果写入**第一个** Reasoning，并**移除其余 Reasoning**
         // （R2：同一 bubble 内多个 Reasoning 时，若不移除会导致渲染文本重复）
-        let summary = readonly_action_summary(reads, globs, greps);
+        let summary = readonly_action_summary_ext(reads, globs, greps, recalled, updated);
         let mut first = vms[i].clone();
         if let MessageViewModel::AssistantBubble { blocks, .. } = &mut first {
             // 定位第一个 Reasoning 的下标
@@ -426,11 +475,15 @@ fn clear_action_summaries(vms: &mut [MessageViewModel]) {
     }
 }
 
-/// 将尚未归属的独立只读动作摘要从紧邻 Thought 之前的工具段转移到 Thought。
-fn absorb_preceding_tool_summaries(out: &mut [MessageViewModel]) -> (usize, usize, usize) {
+/// 将尚未归属的独立只读及记忆动作摘要从紧邻 Thought 之前的工具段转移到 Thought。
+fn absorb_preceding_tool_summaries(
+    out: &mut [MessageViewModel],
+) -> (usize, usize, usize, usize, usize) {
     let mut reads = 0;
     let mut globs = 0;
     let mut greps = 0;
+    let mut recalled = 0;
+    let mut updated = 0;
     let mut start = out.len();
 
     while start > 0 && is_tool_vm(&out[start - 1]) {
@@ -448,10 +501,13 @@ fn absorb_preceding_tool_summaries(out: &mut [MessageViewModel]) -> (usize, usiz
             // None 表示该工具组已由更早的 Thought 行统计，不能重复吸收。
             if standalone_action.is_some() {
                 for tool in tools {
+                    let is_mem = is_memory_path(tool.args_display.as_deref());
                     match tool.tool_name.as_str() {
+                        "Read" if is_mem => recalled += 1,
                         "Read" => reads += 1,
                         "Glob" => globs += 1,
                         "Grep" => greps += 1,
+                        "Write" | "Edit" if is_mem => updated += 1,
                         _ => {}
                     }
                 }
@@ -464,7 +520,7 @@ fn absorb_preceding_tool_summaries(out: &mut [MessageViewModel]) -> (usize, usiz
         }
     }
 
-    (reads, globs, greps)
+    (reads, globs, greps, recalled, updated)
 }
 
 fn is_tool_vm(vm: &MessageViewModel) -> bool {

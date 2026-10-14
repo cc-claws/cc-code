@@ -65,28 +65,39 @@ pub fn find_canonical_project_root(cwd: &Path) -> PathBuf {
     cwd.to_path_buf()
 }
 
-/// 解析自动记忆存储目录（结尾带目录分隔符以符合 Claude Code 契约）。
+/// 解析自动记忆存储目录（结尾带目录分隔符以符合契约）。
 ///
 /// 优先级（100% 互通已有记忆）：
-/// 1. 用户主目录下 `~/.claude/projects/<sanitized>/memory/`（若已存在，或 `~/.claude` 存在则优先在此创建以保证与已有环境完全双向共享）
-/// 2. 备选：`~/.cc-code/projects/<sanitized>/memory/`
+/// 1. 若已有历史记忆（~/.claude/projects/），透明继承复用
+/// 2. 否则统一落盘在 ~/.cc-code/projects/<sanitized>/memory/
 pub fn get_auto_memory_dir(cwd: &str) -> PathBuf {
     let canonical_root = find_canonical_project_root(Path::new(cwd));
     let sanitized = sanitize_project_path(&canonical_root.to_string_lossy());
 
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let claude_project_mem = home.join(".claude").join("projects").join(&sanitized).join("memory");
     let cc_code_project_mem = home.join(".cc-code").join("projects").join(&sanitized).join("memory");
+    let legacy_claude_project_mem = home.join(".claude").join("projects").join(&sanitized).join("memory");
 
-    if claude_project_mem.exists() {
-        claude_project_mem
-    } else if cc_code_project_mem.exists() {
-        cc_code_project_mem
-    } else if home.join(".claude").exists() {
-        claude_project_mem
+    if legacy_claude_project_mem.exists() && !cc_code_project_mem.exists() {
+        legacy_claude_project_mem
     } else {
         cc_code_project_mem
     }
+}
+
+/// 获取自动记忆的脱敏展示目录（用于 System Prompt 呈现，绝不泄露宿主真实用户名和绝对盘符）。
+/// 无论 Windows 还是 Unix，一律呈现为规范的 `~/.cc-code/projects/<sanitized>/memory/`
+pub fn get_auto_memory_display_dir(cwd: &str) -> String {
+    let canonical_root = find_canonical_project_root(Path::new(cwd));
+    let sanitized = sanitize_project_path(&canonical_root.to_string_lossy());
+    format!("~/.cc-code/projects/{}/memory/", sanitized)
+}
+
+/// 获取入口文件的脱敏展示路径
+pub fn get_auto_memory_display_entrypoint(cwd: &str) -> String {
+    let canonical_root = find_canonical_project_root(Path::new(cwd));
+    let sanitized = sanitize_project_path(&canonical_root.to_string_lossy());
+    format!("~/.cc-code/projects/{}/memory/MEMORY.md", sanitized)
 }
 
 /// 获取入口索引文件路径 `.../memory/MEMORY.md`
