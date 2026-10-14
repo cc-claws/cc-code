@@ -490,6 +490,143 @@ async fn test_poll_agent_shells_injects_notification_only_after_backgrounded_she
     );
 }
 
+fn make_pending_notif(owner: Option<&str>, content: &str) -> crate::app::PendingBgShellNotification {
+    crate::app::PendingBgShellNotification {
+        owner_session_id: owner.map(ToString::to_string),
+        content: content.to_string(),
+    }
+}
+
+/// 取所有被 `submit_message` 注入的用户可见消息文本（合并通知走 UserBubble，因内容
+/// 非 `<background-task-completed>` XML 形态）。
+fn injected_bubble_texts(app: &crate::app::App) -> Vec<String> {
+    app.session_mgr
+        .current()
+        .messages
+        .view_messages
+        .iter()
+        .filter_map(|vm| match vm {
+            MessageViewModel::UserBubble { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 空闲态：同一批多条通知必须合并为 1 条消息（1 轮 turn），而不是逐条注入。
+#[tokio::test]
+async fn test_inject_bg_shell_notifications_merges_batch_when_idle() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    assert!(!app.session_mgr.current().ui.loading, "初始应为空闲态");
+    let before = injected_bubble_texts(&app).len();
+
+    app.inject_bg_shell_notifications(vec![
+        make_pending_notif(None, "[notif-t1]"),
+        make_pending_notif(None, "[notif-t2]"),
+    ]);
+
+    let bubbles = injected_bubble_texts(&app);
+    assert_eq!(bubbles.len(), before + 1, "多条通知应合并为 1 条消息（1 轮 turn）");
+    let merged = bubbles.last().expect("应注入合并消息");
+    assert!(
+        merged.contains("[notif-t1]") && merged.contains("[notif-t2]"),
+        "合并消息应保留全部通知内容: {merged}"
+    );
+    assert!(
+        app.session_mgr
+            .current()
+            .pending_bg_shell_notifications
+            .is_empty(),
+        "空闲态合并注入后不应残留待注入队列"
+    );
+}
+
+/// 推理中：通知全部入队；空闲态注入时把同会话队列中更早的通知一并 drain 合并。
+#[tokio::test]
+async fn test_inject_bg_shell_notifications_drains_queued_same_owner_when_idle() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+
+    // 模拟推理期间到达的通知（直接入队）
+    app.session_mgr
+        .current_mut()
+        .pending_bg_shell_notifications
+        .push_back(make_pending_notif(None, "[queued-1]"));
+    app.session_mgr
+        .current_mut()
+        .pending_bg_shell_notifications
+        .push_back(make_pending_notif(None, "[queued-2]"));
+
+    // 空闲态注入新通知：应把队列里排队的两条一并 drain 合并
+    app.inject_bg_shell_notifications(vec![make_pending_notif(None, "[new]")]);
+
+    let merged = injected_bubble_texts(&app)
+        .pop()
+        .expect("应注入合并消息");
+    for token in ["[queued-1]", "[queued-2]", "[new]"] {
+        assert!(merged.contains(token), "合并消息应包含 {token}: {merged}");
+    }
+    assert!(
+        app.session_mgr
+            .current()
+            .pending_bg_shell_notifications
+            .is_empty(),
+        "同会话排队通知应被一次性 drain"
+    );
+}
+
+/// 其它会话的通知不得被当前会话的注入消费（保留在队列）。
+#[tokio::test]
+async fn test_inject_bg_shell_notifications_keeps_other_owner_queued() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.session_mgr.current_mut().current_thread_id = Some("owner-a".to_string());
+
+    app.inject_bg_shell_notifications(vec![
+        make_pending_notif(Some("owner-a"), "[mine]"),
+        make_pending_notif(Some("owner-b"), "[theirs]"),
+    ]);
+
+    let pending = &app.session_mgr.current().pending_bg_shell_notifications;
+    assert_eq!(pending.len(), 1, "其它会话通知应留在队列");
+    assert_eq!(
+        pending.front().map(|n| n.content.as_str()),
+        Some("[theirs]"),
+        "保留的应是其它会话的通知"
+    );
+}
+
+/// Done 后一次性 drain 当前会话全部待注入通知，合并为单条消息（消除 n 轮级联唤醒）。
+#[tokio::test]
+async fn test_handle_done_drains_all_pending_bg_notifications_into_one_turn() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.session_mgr.current_mut().current_thread_id = Some("owner-a".to_string());
+    let before = injected_bubble_texts(&app).len();
+    for id in ["t1", "t2", "t3"] {
+        app.session_mgr
+            .current_mut()
+            .pending_bg_shell_notifications
+            .push_back(make_pending_notif(Some("owner-a"), &format!("[notif-{id}]")));
+    }
+
+    app.handle_agent_event(crate::app::AgentEvent::Done);
+
+    assert!(
+        app.session_mgr
+            .current()
+            .pending_bg_shell_notifications
+            .is_empty(),
+        "Done 后应一次性 drain 全部待注入通知"
+    );
+    let bubbles = injected_bubble_texts(&app);
+    assert_eq!(
+        bubbles.len(),
+        before + 1,
+        "3 条通知应合并为 1 条消息（1 轮 turn）"
+    );
+    let merged = bubbles.last().expect("应注入合并消息");
+    for id in ["t1", "t2", "t3"] {
+        assert!(merged.contains(id), "合并消息应含 {id}: {merged}");
+    }
+}
+
 #[tokio::test]
 async fn test_cleanup_finished_background_shells_removes_oldest_finished_when_over_limit() {
     use std::path::PathBuf;

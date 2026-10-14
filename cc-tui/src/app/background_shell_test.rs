@@ -288,3 +288,52 @@ fn test_shell_notification_display_text_english() {
         display
     );
 }
+
+#[test]
+fn test_shell_notification_display_text_merged_multiple_completed() {
+    let path1 = Path::new("/tmp/peri/tasks/abc1.output");
+    let path2 = Path::new("/tmp/peri/tasks/abc2.output");
+    let msg1 = shell_completion_notification("abc1", "npm test", Some(0), path1);
+    let msg2 = shell_completion_notification("abc2", "cargo check", Some(1), path2);
+    let merged = format!("{}\n\n{}", msg1, msg2);
+
+    let display = shell_notification_display_text_with(&merged, &lc_zh())
+        .expect("应识别合并的后台 shell 完成通知");
+
+    assert!(display.contains("npm test"), "应包含第一条任务命令");
+    assert!(display.contains("cargo check"), "应包含第二条任务命令");
+    assert!(display.contains("failed (exit 1)"), "应包含第二条任务失败状态");
+    assert!(
+        !display.contains("<background-task-completed>"),
+        "不应泄露 XML 标签"
+    );
+    assert_eq!(
+        display.lines().count(),
+        2,
+        "两条任务合并应对应两行展示文本"
+    );
+}
+
+#[test]
+fn test_shell_notification_display_text_merged_mixed_types_preserves_order() {
+    // 合并消息可能混合「完成」与「等待输入」两类块，按文档顺序各产出 1 行。
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let completed = shell_completion_notification("abc", "npm test", Some(0), path);
+    let stalled = shell_stalled_notification("def", "npm publish", "continue? (y/n)");
+    let merged = format!("{}\n\n{}", completed, stalled);
+
+    let display = shell_notification_display_text_with(&merged, &lc_zh())
+        .expect("应识别混合类型的合并通知");
+
+    let lines: Vec<&str> = display.lines().collect();
+    assert_eq!(lines.len(), 2, "两类块各一行: {display}");
+    assert!(lines[0].contains("npm test"), "第一行应是完成通知: {display}");
+    assert!(
+        lines[1].contains("npm publish") && lines[1].contains("等待输入"),
+        "第二行应是等待输入通知: {display}"
+    );
+    assert!(
+        !display.contains("<background-task"),
+        "不应泄露内部标签: {display}"
+    );
+}
