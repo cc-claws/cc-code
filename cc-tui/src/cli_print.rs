@@ -321,13 +321,13 @@ impl PrintCollector {
                     .unwrap(),
                 ),
                 E::ToolStart {
-                    tool_call_id, name, ..
+                    tool_call_id, name, input, ..
                 } => Some(
                     serde_json::to_string(&serde_json::json!({
                         "type": "tool_use",
                         "id": tool_call_id,
                         "name": name,
-                        "input": null
+                        "input": input
                     }))
                     .unwrap(),
                 ),
@@ -371,3 +371,7 @@ impl PrintCollector {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cli_print_test.rs"]
+mod tests;
