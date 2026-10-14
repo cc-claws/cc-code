@@ -91,6 +91,7 @@ async fn test_lifecycle_is_sent_once_with_preview_and_timeout() {
             task_preview: "查询武汉天气".into(),
             timeout_secs: Some(3600),
             model: Some("test-model".into()),
+            prompt: None,
         },
         100_000,
     )
