@@ -9,7 +9,7 @@ use crate::{
         state::State,
     },
     error::{AgentError, AgentResult},
-    messages::{message::MessageId, BaseMessage, ToolCallRequest},
+    messages::{message::MessageId, BaseMessage, ContentBlock, MessageContent, ToolCallRequest},
     tools::BaseTool,
 };
 
@@ -661,6 +661,46 @@ fn resolve_tool<'a>(
     None
 }
 
+/// 构造 ToolResult 对应的 BaseMessage，并把诊断提示并入其结果正文末尾。
+///
+/// 为何并入正文而非新增独立消息（issue #495）：
+/// - 独立 `BaseMessage::System` 会被 Anthropic/OpenAI 适配器抽到顶层 `system` 字段，
+///   脱离对话流末端，模型在自回归解码时看不到该提示，熔断形同虚设；
+/// - 同时会被 `StateSnapshot`/`/export` 的 `!is_system()` 过滤掉，排查时死无对证。
+///
+/// 并入 ToolResult 正文可同时满足：① 留在出错结果旁，位置精确；② 模型上下文末端可见；
+/// ③ 导出可见（`BaseMessage::Tool` 不受 system 过滤影响）；④ 不新增消息，零 UI 污染。
+fn build_tool_msg_with_hints(result: &ToolResult, hints: &[String]) -> BaseMessage {
+    let suffix = hints.join("\n");
+
+    if result.is_error {
+        // 错误结果：正文即纯文本，直接追加
+        let mut body = result.output.clone();
+        if !suffix.is_empty() {
+            body.push('\n');
+            body.push_str(&suffix);
+        }
+        return BaseMessage::tool_error(&result.tool_call_id, body);
+    }
+
+    if let Some(ref content) = result.content {
+        // 结构化内容（如图片）：仅在尾部追加文本，保留原始多模态 block
+        if suffix.is_empty() {
+            return BaseMessage::tool_result(&result.tool_call_id, content.clone());
+        }
+        let mut blocks = content.content_blocks();
+        blocks.push(ContentBlock::text(suffix));
+        return BaseMessage::tool_result(&result.tool_call_id, MessageContent::blocks(blocks));
+    }
+
+    let mut body = result.output.clone();
+    if !suffix.is_empty() {
+        body.push('\n');
+        body.push_str(&suffix);
+    }
+    BaseMessage::tool_result(&result.tool_call_id, body)
+}
+
 /// 工具审批 → 并发执行 → 结果收集（不写 state）→ 统一写入
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
@@ -723,9 +763,42 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     agent.emit(AgentEvent::MessageAdded(ai_msg.clone()));
     state.add_message(ai_msg);
 
-    let mut warnings_to_inject = Vec::new();
+    // 动作签名循环检测：连续相同动作（即使成功但无效）注入纠正提示。
+    // 提示并入 ToolResult 正文（见 append_hints_to_tool_msg），不再新增独立 system 消息：
+    // system 消息会被 Anthropic/OpenAI 适配器抽到顶层 system 字段，脱离对话流末端而失效；
+    // 且会被 StateSnapshot/导出按 is_system() 过滤掉（issue #495）。
+    let step_sig = compute_step_action_signature(&reasoning.tool_calls);
+    let loop_warning: Option<String> = if step_sig.is_empty() {
+        None
+    } else {
+        let (count, is_loop) = action_loop_detector.record(&step_sig);
+        if is_loop {
+            let text = format!(
+                "Warning: You have executed the exact same tool call(s) {} consecutive times with identical parameters. \
+                 Stop repeating this action. Analyze why the previous attempts did not produce new progress or achieve the goal. \
+                 Try a completely different approach, use different tools, or ask the user for guidance.",
+                count
+            );
+            tracing::warn!(
+                signature = %step_sig,
+                count = count,
+                threshold = CONSECUTIVE_ACTION_THRESHOLD,
+                injected = %truncate_for_log(&text),
+                "连续 {} 次执行相同工具动作签名，注入纠正消息",
+                count
+            );
+            Some(text)
+        } else {
+            None
+        }
+    };
 
-    for (_, result) in &results {
+    let result_count = results.len();
+
+    for (idx, (_, result)) in results.iter().enumerate() {
+        // 本工具结果自身的诊断提示（随结果正文下发，留在对话流末端）
+        let mut hints: Vec<String> = Vec::new();
+
         let resolved_kind = result.resolved_error_kind();
         if let Some(kind) = resolved_kind {
             // 1. 连续失败追踪 (按 tool_name + error_kind)
@@ -752,10 +825,9 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                     "连续 {} 次同类型错误，注入纠正消息",
                     consecutive_count
                 );
-                warnings_to_inject.push(text);
+                hints.push(text);
             }
-
-            // 2. Schema 校验连续失败熔断（支持单工具快速熔断 + 跨工具聚合熔断）
+            // 2. Schema 校验失败熔断（支持单工具快速熔断 + 跨工具聚合熔断）
             if kind == ToolErrorKind::SchemaValidation {
                 let (_schema_count, breaker_event) =
                     schema_failure_tracker.record_failure_detailed(&result.tool_name);
@@ -776,7 +848,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                                 "Schema 校验失败 {} 次（滑动窗口内），注入单工具熔断提示",
                                 count
                             );
-                            warnings_to_inject.push(text);
+                            hints.push(text);
                         }
                         SchemaBreakerEvent::Aggregate {
                             failed_tools,
@@ -798,7 +870,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                                 "跨工具 Schema 校验失败 {} 次（滑动窗口内），注入聚合熔断提示",
                                 count
                             );
-                            warnings_to_inject.push(text);
+                            hints.push(text);
                         }
                     }
                 }
@@ -809,45 +881,25 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
             schema_failure_tracker.reset(&result.tool_name);
         }
 
-        let tool_msg = if result.is_error {
-            BaseMessage::tool_error(&result.tool_call_id, result.output.as_str())
-        } else if let Some(ref content) = result.content {
-            // 多模态内容（如图片）：直接使用结构化 MessageContent
-            BaseMessage::tool_result(&result.tool_call_id, content.clone())
-        } else {
-            BaseMessage::tool_result(&result.tool_call_id, result.output.as_str())
-        };
+        // 循环警告（整步级，非单结果级）只承载在最后一条消息上，避免重复注入。
+        // 若存在工具结果则并入其正文；否则（如全部被跳过）退化为追加用户消息。
+        if idx + 1 == result_count {
+            if let Some(warning) = loop_warning.as_ref() {
+                hints.push(warning.clone());
+            }
+        }
+
+        let tool_msg = build_tool_msg_with_hints(result, &hints);
         let tool_msg_clone = tool_msg.clone();
         state.add_message(tool_msg);
         agent.emit(AgentEvent::MessageAdded(tool_msg_clone));
     }
 
-    // 统一在所有 ToolResult 写入完成后追加告警消息，保证 ToolUse 与 ToolResult 的紧邻性（去重）
-    warnings_to_inject.dedup();
-    for warning in warnings_to_inject {
-        state.add_message(BaseMessage::system(warning));
-    }
-
-    // 动作签名循环检测：连续相同动作（即使成功但无效）注入纠正提示
-    let step_sig = compute_step_action_signature(&reasoning.tool_calls);
-    if !step_sig.is_empty() {
-        let (count, is_loop) = action_loop_detector.record(&step_sig);
-        if is_loop {
-            let text = format!(
-                "Warning: You have executed the exact same tool call(s) {} consecutive times with identical parameters. \
-                 Stop repeating this action. Analyze why the previous attempts did not produce new progress or achieve the goal. \
-                 Try a completely different approach, use different tools, or ask the user for guidance.",
-                count
-            );
-            tracing::warn!(
-                signature = %step_sig,
-                count = count,
-                threshold = CONSECUTIVE_ACTION_THRESHOLD,
-                injected = %truncate_for_log(&text),
-                "连续 {} 次执行相同工具动作签名，注入纠正消息",
-                count
-            );
-            state.add_message(BaseMessage::system(text));
+    // 边界：本轮没有任何工具结果（全部被 before_tool 拒绝且未产出结果）时，
+    // 循环警告无 ToolResult 可承载，退化为追加用户消息留在对话流末端。
+    if result_count == 0 {
+        if let Some(warning) = loop_warning {
+            state.add_message(BaseMessage::human(warning));
         }
     }
 

@@ -156,3 +156,44 @@
         );
         assert!(md.contains(script), "脚本内容应完整保留");
     }
+
+    // ── #495 回归：诊断提示并入 ToolResult 正文后，导出必须可见 ────────────────
+
+    /// 熔断/循环诊断提示并入 ToolResult 正文后，
+    /// Markdown 与 PlainText 导出都必须能看到（历史实现用 System 消息，会被过滤丢失）。
+    #[test]
+    fn test_export_shows_diagnostics_merged_into_tool_result() {
+        const BREAKER: &str = "SCHEMA VALIDATION CIRCUIT BREAKER: do NOT retry";
+        // 正文 = 原始错误 + 并入的诊断提示，模拟 build_tool_msg_with_hints 的输出
+        let body = format!("Invalid arguments for tool WebFetch\n{BREAKER}");
+        let messages = vec![
+            BaseMessage::human("go"),
+            make_ai_message_with_tool_use("WebFetch", serde_json::json!({"command": "ls"})),
+            make_tool_message_with_result(&body, true),
+        ];
+
+        let md = render_messages(&messages, ExportFormat::Markdown);
+        assert!(
+            md.contains(BREAKER),
+            "Markdown 导出必须包含诊断提示，实际:\n{md}"
+        );
+        // 提示应落在 Tool 区块内，而非被渲染成用户发言
+        let tool_section = md
+            .split("## Tool")
+            .nth(1)
+            .expect("导出应含 Tool 区块");
+        assert!(
+            tool_section.contains(BREAKER),
+            "诊断提示应位于 Tool 区块内，实际:\n{tool_section}"
+        );
+        assert!(
+            !md.contains(&format!("## User\n\n{BREAKER}")),
+            "诊断提示不得被伪装成用户发言"
+        );
+
+        let txt = render_messages(&messages, ExportFormat::PlainText);
+        assert!(
+            txt.contains(BREAKER),
+            "PlainText 导出必须包含诊断提示，实际:\n{txt}"
+        );
+    }

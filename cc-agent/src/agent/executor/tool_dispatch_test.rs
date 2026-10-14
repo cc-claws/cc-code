@@ -48,6 +48,20 @@ fn assert_no_orphaned_tool_uses(state: &AgentState) {
     }
 }
 
+/// 判断消息列表中是否存在内容包含 `needle` 的消息（角色无关）。
+///
+/// 诊断提示（连续失败/熔断/循环）自 issue #495 起并入 ToolResult 正文，
+/// 不再以独立 System 消息注入；此助手同时覆盖两种承载形式，断言不绑定角色。
+fn messages_contains_hint(messages: &[BaseMessage], needle: &str) -> bool {
+    messages
+        .iter()
+        .any(|m| m.message_content().text_content().contains(needle))
+}
+
+fn state_contains_hint(state: &AgentState, needle: &str) -> bool {
+    messages_contains_hint(state.messages(), needle)
+}
+
 /// 并发工具执行中部分失败：3 个工具并发，tool_b 执行失败。
 /// 验证所有 tool_use 都有配对 tool_result，Agent 继续（不停止）。
 #[tokio::test]
@@ -645,10 +659,7 @@ async fn test_consecutive_failure_injects_correction() {
             _tools: &[&dyn BaseTool],
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> AgentResult<Reasoning> {
-            let has_correction = messages.iter().any(|m| {
-                matches!(m, BaseMessage::System { content, .. }
-                    if content.text_content().contains("5 consecutive times"))
-            });
+            let has_correction = messages_contains_hint(messages, "5 consecutive times");
             if has_correction {
                 return Ok(Reasoning::with_answer("done", "I'll stop retrying"));
             }
@@ -673,10 +684,7 @@ async fn test_consecutive_failure_injects_correction() {
         .await;
 
     assert!(result.is_ok(), "Agent 应正常完成，实际: {:?}", result);
-    let has_correction = state.messages().iter().any(|m| {
-        matches!(m, BaseMessage::System { content, .. }
-            if content.text_content().contains("5 consecutive times"))
-    });
+    let has_correction = state_contains_hint(&state, "5 consecutive times");
     assert!(has_correction, "应注入连续失败纠正消息");
 }
 
@@ -961,10 +969,10 @@ async fn test_consecutive_action_injects_correction() {
             _tools: &[&dyn BaseTool],
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> AgentResult<Reasoning> {
-            let has_loop_warning = messages.iter().any(|m| {
-                matches!(m, BaseMessage::System { content, .. }
-                    if content.text_content().contains("3 consecutive times with identical parameters"))
-            });
+            let has_loop_warning = messages_contains_hint(
+                messages,
+                "3 consecutive times with identical parameters",
+            );
             if has_loop_warning {
                 return Ok(Reasoning::with_answer(
                     "done",
@@ -992,10 +1000,8 @@ async fn test_consecutive_action_injects_correction() {
         .await;
 
     assert!(result.is_ok(), "Agent 应正常完成，实际: {:?}", result);
-    let has_loop_warning = state.messages().iter().any(|m| {
-        matches!(m, BaseMessage::System { content, .. }
-            if content.text_content().contains("3 consecutive times with identical parameters"))
-    });
+    let has_loop_warning =
+        state_contains_hint(&state, "3 consecutive times with identical parameters");
     assert!(has_loop_warning, "应注入连续相同动作纠正消息");
 }
 
@@ -1422,10 +1428,8 @@ async fn test_schema_failure_circuit_breaker_injects_warning() {
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> AgentResult<Reasoning> {
             // 检测到熔断提示后停止
-            let has_circuit_breaker = messages.iter().any(|m| {
-                matches!(m, BaseMessage::System { content, .. }
-                    if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
-            });
+            let has_circuit_breaker =
+                messages_contains_hint(messages, "SCHEMA VALIDATION CIRCUIT BREAKER");
             if has_circuit_breaker {
                 return Ok(Reasoning::with_answer(
                     "done",
@@ -1458,10 +1462,8 @@ async fn test_schema_failure_circuit_breaker_injects_warning() {
         "Agent 应在熔断提示后正常完成，实际: {:?}",
         result
     );
-    let has_circuit_breaker = state.messages().iter().any(|m| {
-        matches!(m, BaseMessage::System { content, .. }
-            if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
-    });
+    let has_circuit_breaker =
+        state_contains_hint(&state, "SCHEMA VALIDATION CIRCUIT BREAKER");
     assert!(has_circuit_breaker, "应注入 Schema 校验熔断提示消息");
 }
 
@@ -1550,10 +1552,8 @@ async fn test_schema_failure_circuit_breaker_injects_warning_across_different_to
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> AgentResult<Reasoning> {
             // 检测到熔断提示后停止
-            let has_circuit_breaker = messages.iter().any(|m| {
-                matches!(m, BaseMessage::System { content, .. }
-                    if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
-            });
+            let has_circuit_breaker =
+                messages_contains_hint(messages, "SCHEMA VALIDATION CIRCUIT BREAKER");
             if has_circuit_breaker {
                 return Ok(Reasoning::with_answer(
                     "done",
@@ -1601,8 +1601,9 @@ async fn test_schema_failure_circuit_breaker_injects_warning_across_different_to
         result
     );
     let breaker_msg = state.messages().iter().find(|m| {
-        matches!(m, BaseMessage::System { content, .. }
-            if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
+        m.message_content()
+            .text_content()
+            .contains("SCHEMA VALIDATION CIRCUIT BREAKER")
     });
     assert!(
         breaker_msg.is_some(),
@@ -1651,10 +1652,8 @@ async fn test_tool_results_and_circuit_breaker_injection_order() {
             _tools: &[&dyn BaseTool],
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> AgentResult<Reasoning> {
-            let has_circuit_breaker = messages.iter().any(|m| {
-                matches!(m, BaseMessage::System { content, .. }
-                    if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
-            });
+            let has_circuit_breaker =
+                messages_contains_hint(messages, "SCHEMA VALIDATION CIRCUIT BREAKER");
             if has_circuit_breaker {
                 return Ok(Reasoning::with_answer("done", "finished"));
             }
@@ -1680,20 +1679,35 @@ async fn test_tool_results_and_circuit_breaker_injection_order() {
     assert!(result.is_ok());
 
     let msgs = state.messages();
-    // 寻找熔断消息所在位置
-    let breaker_idx = msgs
-        .iter()
-        .position(|m| {
-            matches!(m, BaseMessage::System { content, .. }
-                if content.text_content().contains("SCHEMA VALIDATION CIRCUIT BREAKER"))
-        })
-        .expect("必须找到熔断消息");
 
-    // 熔断消息的前一条必须是 Tool 消息（即 ToolResult），绝不能是 Ai 消息
-    assert!(breaker_idx > 0, "熔断消息不能是第一条消息");
+    // 熔断提示自 issue #495 起并入 ToolResult 正文（不再作为独立 System 消息），
+    // 以保证：① 落在出错结果旁（位置精确）；② 模型上下文末端可见；③ 导出可见。
+    let (breaker_idx, breaker_msg) = msgs
+        .iter()
+        .enumerate()
+        .find(|(_, m)| {
+            m.message_content()
+                .text_content()
+                .contains("SCHEMA VALIDATION CIRCUIT BREAKER")
+        })
+        .expect("必须找到熔断提示");
+
+    // 关键回归：提示必须承载在 Tool 消息内，且该 Tool 是错误结果。
+    // 历史缺陷是把它发成独立 System 消息，被适配器抽到顶层 system 字段而彻底失效。
     assert!(
-        matches!(msgs[breaker_idx - 1], BaseMessage::Tool { .. }),
-        "熔断 System 消息的前一条必须是 ToolResult，以保持 ToolUse 紧跟 ToolResult"
+        matches!(breaker_msg, BaseMessage::Tool { is_error: true, .. }),
+        "熔断提示必须并入错误 ToolResult 正文，实际角色: {:?}",
+        breaker_msg
+    );
+    assert!(
+        !matches!(breaker_msg, BaseMessage::System { .. }),
+        "熔断提示不得再以独立 System 消息注入（会被抽到顶层 system 字段而失效）"
+    );
+    // 位置：ToolResult 之后不应再插入新的独立消息，提示与其结果紧邻
+    assert!(breaker_idx > 0, "熔断提示不能是第一条消息");
+    assert!(
+        matches!(msgs[breaker_idx - 1], BaseMessage::Ai { .. }),
+        "承载熔断提示的 ToolResult 之前应是发起它的 Ai 消息"
     );
 }
 
@@ -1889,4 +1903,168 @@ fn test_truncate_for_log_truncates_long_cjk_text_without_panic() {
         "超长文本应带截断后缀，实际: {out}"
     );
     assert_eq!(out.chars().count(), 200 + "...(truncated)".chars().count());
+}
+
+// ========== #495: 诊断提示必须并入 ToolResult 正文，而非独立 System 消息 ==========
+
+/// 单元级：错误 ToolResult 追加提示后仍是错误 Tool 消息，正文含提示。
+#[test]
+fn test_build_tool_msg_with_hints_appends_to_error_result() {
+    let result = ToolResult {
+        tool_call_id: "call_1".to_string(),
+        tool_name: "WebFetch".to_string(),
+        output: "Invalid arguments for tool WebFetch".to_string(),
+        is_error: true,
+        content: None,
+        error_kind: Some(ToolErrorKind::SchemaValidation),
+    };
+    let hints = vec!["⚠️ SCHEMA VALIDATION CIRCUIT BREAKER: do not retry".to_string()];
+
+    let msg = build_tool_msg_with_hints(&result, &hints);
+
+    match msg {
+        BaseMessage::Tool {
+            content, is_error, ..
+        } => {
+            assert!(is_error, "错误结果的 is_error 必须保持 true");
+            let body = content.text_content();
+            assert!(
+                body.contains("Invalid arguments for tool WebFetch"),
+                "原始错误正文必须保留，实际: {body}"
+            );
+            assert!(
+                body.contains("SCHEMA VALIDATION CIRCUIT BREAKER"),
+                "提示必须并入正文，实际: {body}"
+            );
+        }
+        other => panic!("应为错误 Tool 消息，实际: {other:?}"),
+    }
+}
+
+/// 单元级：无提示时不改动正文（零侵入）。
+#[test]
+fn test_build_tool_msg_with_hints_no_hints_is_identity() {
+    let result = ToolResult::success("call_2", "Bash", "ok");
+    let msg = build_tool_msg_with_hints(&result, &[]);
+    match msg {
+        BaseMessage::Tool { content, .. } => {
+            assert_eq!(content.text_content(), "ok");
+        }
+        other => panic!("应为 Tool 消息，实际: {other:?}"),
+    }
+}
+
+/// 单元级：多模态内容（图片）追加提示时保留原始 block，仅尾插文本。
+#[test]
+fn test_build_tool_msg_with_hints_preserves_multimodal_blocks() {
+    let content = MessageContent::blocks(vec![
+        ContentBlock::text("see image"),
+        ContentBlock::image_url("data:image/png;base64,AAAA"),
+    ]);
+    let result = ToolResult {
+        tool_call_id: "call_3".to_string(),
+        tool_name: "Read".to_string(),
+        output: "see image".to_string(),
+        is_error: false,
+        content: Some(content),
+        error_kind: None,
+    };
+
+    let msg = build_tool_msg_with_hints(&result, &["hint-text".to_string()]);
+
+    match msg {
+        BaseMessage::Tool { content, .. } => {
+            let blocks = content.content_blocks();
+            assert!(
+                blocks
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::Image { .. })),
+                "图片 block 必须保留，实际: {blocks:?}"
+            );
+            assert!(
+                content.text_content().contains("hint-text"),
+                "提示文本必须追加，实际: {blocks:?}"
+            );
+        }
+        other => panic!("应为 Tool 消息，实际: {other:?}"),
+    }
+}
+
+/// 集成级：熔断提示落在 ToolResult 正文内，且不被 is_system() 过滤（导出可见）。
+///
+/// 这是 #495 的核心回归：历史实现用独立 System 消息，被适配器抽到顶层 system 字段
+/// 而脱离对话流末端，并被 StateSnapshot / `/export` 的 !is_system() 过滤掉。
+#[tokio::test]
+async fn test_circuit_breaker_hint_survives_system_filter() {
+    struct StrictTool;
+    #[async_trait::async_trait]
+    impl BaseTool for StrictTool {
+        fn name(&self) -> &str {
+            "StrictTool"
+        }
+        fn description(&self) -> &str {
+            "strict"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "required_field": { "type": "string" } },
+                "required": ["required_field"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct StopAfterBreakerLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for StopAfterBreakerLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            if messages_contains_hint(messages, "SCHEMA VALIDATION CIRCUIT BREAKER") {
+                return Ok(Reasoning::with_answer("done", "stopped"));
+            }
+            Ok(Reasoning::with_tools(
+                "bad params",
+                vec![ToolCall::new(
+                    format!("id_{}", messages.len()),
+                    "StrictTool",
+                    serde_json::json!({ "wrong": 1 }),
+                )],
+            ))
+        }
+    }
+
+    let agent = ReActAgent::new(StopAfterBreakerLLM)
+        .max_iterations(10)
+        .register_tool(Box::new(StrictTool));
+    let mut state = AgentState::new("/tmp");
+    agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await
+        .expect("应正常完成");
+
+    // 模拟 StateSnapshot / /export 的过滤口径：丢弃所有 system 消息
+    let non_system: Vec<&BaseMessage> = state
+        .messages()
+        .iter()
+        .filter(|m| !m.is_system())
+        .collect();
+    let survived = non_system.iter().any(|m| {
+        m.message_content()
+            .text_content()
+            .contains("SCHEMA VALIDATION CIRCUIT BREAKER")
+    });
+    assert!(
+        survived,
+        "熔断提示必须在 is_system() 过滤后仍然可见（否则 StateSnapshot 与 /export 都会丢失它）"
+    );
 }
