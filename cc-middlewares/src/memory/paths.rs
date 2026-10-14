@@ -120,16 +120,33 @@ pub fn ensure_memory_dir_exists(memory_dir: &Path) -> std::io::Result<()> {
 /// 模型正常写入记忆时会被误拦截或强弹审批窗。
 pub fn is_auto_mem_path(candidate: &Path, cwd: &str) -> bool {
     let mem_dir = get_auto_memory_dir(cwd);
-    let Ok(cand_canon) = candidate.canonicalize().or_else(|_| {
-        if let Some(parent) = candidate.parent() {
-            parent.canonicalize().map(|p| p.join(candidate.file_name().unwrap_or_default()))
-        } else {
-            Ok(candidate.to_path_buf())
-        }
-    }) else {
-        return false;
+    if candidate.starts_with(&mem_dir) {
+        return true;
+    }
+
+    let cand_str = candidate.to_string_lossy();
+    let cand_norm = if let Some(rest) = cand_str.strip_prefix("~/").or_else(|| cand_str.strip_prefix("~\\")) {
+        dirs_next::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| candidate.to_path_buf())
+    } else {
+        candidate.to_path_buf()
     };
 
-    let mem_dir_canon = mem_dir.canonicalize().unwrap_or(mem_dir);
-    cand_canon.starts_with(&mem_dir_canon)
+    if cand_norm.starts_with(&mem_dir) {
+        return true;
+    }
+
+    // Canonicalize 匹配（若在磁盘已存在，解析符号链接）
+    if let (Ok(cand_canon), Ok(mem_dir_canon)) = (cand_norm.canonicalize(), mem_dir.canonicalize()) {
+        if cand_canon.starts_with(&mem_dir_canon) {
+            return true;
+        }
+    } else if let (Ok(mem_dir_canon), Some(parent)) = (mem_dir.canonicalize(), cand_norm.parent()) {
+        if let Ok(parent_canon) = parent.canonicalize() {
+            if parent_canon.starts_with(&mem_dir_canon) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
