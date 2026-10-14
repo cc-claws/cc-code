@@ -30,6 +30,7 @@ impl GrepTool {
 const GREP_DESCRIPTION: &str = r#"Search local file contents using ripgrep's regex engine. Use fixed_strings=true for literal text.
 
 Usage:
+- ALWAYS use Grep for content search. NEVER invoke `grep` or `rg` as a Bash command; Grep is optimized for correct permissions, ignore rules, and output limits.
 - Provide pattern. path defaults to the working directory; glob and type restrict the files searched.
 - output_mode defaults to "files_with_matches" (paths only). "content" returns matching lines, "count" returns per-file counts, and "files_without_matches" returns unmatched paths.
 - In content mode, line numbers are enabled by default; -C adds surrounding context and -A/-B override each side. Lines over 500 bytes are omitted.

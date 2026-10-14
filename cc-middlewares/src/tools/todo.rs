@@ -37,6 +37,7 @@ Usage:
 - Send the complete list, including unchanged items; omitted items are removed.
 - Use concise, concrete descriptions and update them when the plan changes.
 - "pending" means not started; "in_progress" means actively being worked on; "completed" means finished with the required checks.
+- Keep exactly one item in_progress at a time, and mark it completed as soon as it is done rather than batching updates.
 - Keep blocked or unfinished work pending or in_progress and explain the blocker. Avoid todo overhead for straightforward tasks."#;
 
 /// TodoWrite 工具：全量覆盖 todo 列表，并通过 channel 通知 TUI 侧
