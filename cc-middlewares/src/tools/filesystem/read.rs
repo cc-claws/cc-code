@@ -57,6 +57,7 @@ const READ_FILE_DESCRIPTION: &str = r#"Read local text files or supported images
 
 Usage:
 - Provide file_path; an absolute path is recommended. URLs are not supported.
+- Reads files only, not directories. To list a directory use Glob; to search contents use Grep.
 - Text output has 1-based line numbers. offset is the 0-based number of lines to skip (default 0); limit is the number to read (default 2000).
 - Choose ranges relevant to the task. Text files over 32 MiB are rejected even when a range is specified.
 - PNG, JPG/JPEG, GIF, WebP, and BMP images up to 20 MiB are returned as visual content when their format is valid.
