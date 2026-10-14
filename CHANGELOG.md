@@ -8,6 +8,13 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
+- **主 Agent 可按 `task_id` 取消后台子 Agent（`Agent(action="stop")`）**：此前用户下达「取消厦门那个子agent」时，主 Agent 只能回复「我没有停止子 Agent 的能力，请你自己按 x」——把本该由 Agent 完成的协调动作推给了用户。现扩展 `Agent` 工具（**不新增独立工具**）新增 `action`（`spawn` 默认 / `stop`）与 `task_id`：`action=stop` 时按 `task_id` 精确停止，底层复用 `BackgroundTaskRegistry::cancel()`（触发执行器 `CancellationToken`，让执行器正常发终态、落库、清理，不 abort 任务）。**只接受精确 `task_id`，不做任务名/描述模糊匹配**——兄弟任务描述常高度相似（「查询广州天气」/「查询厦门天气」），模糊匹配会停错对象。停止结果回给模型可读确认（`Stopped background task bg-xxx (任务摘要).`），使其能复述「已取消负责查询厦门天气的子 Agent」。
+- **`Agent` 工具 `prompt` 不再硬编码 required**：`action=stop` 时无需 `prompt`，若 schema 强制必填，模型会为通过校验而凭空编造一个 prompt。必填性下沉到 `invoke` 内按 `action` 分支校验（`spawn` 需 `prompt`，`stop` 需 `task_id`）。
+- **停止终态独立成行并区分发起方**：时间线不再把「被停止」混入 `finished`/`failed`，改为 `• Agent "x" was stopped by main Agent`（用户按键停止则 `stopped by user`）。抽屉行同步改为**红色实心 `●`**（`theme::ERROR`）+ 红色 `stopped by user|main Agent`，取代原橙色 `✗ stopped`——红实心比橙 `✗` 更醒目，用户一眼确认已停。
+- **等待态计数行 `✻ Waiting for N background agents to finish`**：主 Agent 一轮结束后若仍有后台任务在跑，主视口打印该行（单复数随数量变化），让用户明确「还差几个」；活跃数归零时自动移除，避免残留误导。
+
+### Fixes
+
 - **主视口按 `Ctrl+O` 展开子 Agent 的 Prompt 卡片**：后台子任务启动摘要默认仍是极简树形（`• N background agents launched` + `├──`/`└──` 任务行），按 `Ctrl+O` 进入详细模式后切换为经典工具卡片——`● Agent(任务预览)` + `  └ Backgrounded agent` + `  └ Prompt:`（绿色加粗）+ 指令**全文**（6 列悬挂缩进折行），再次 `Ctrl+O` 收回，便于在主会话直接核验下发给各子 Agent 的指令。为此 `AgentEvent::SubagentStarted` 新增 `prompt` 字段携带指令原文（此前只有 `task_preview` 40 字摘要，全文在事件流中被丢弃），`BackgroundAgentSession.prompt` 持久该会话指令，`MessageViewModel::SystemNote` 新增 `detail_content`（参与 `PartialEq`/`Hash`，由 `detail_mode` 单选渲染）。卡片圆点统一为系统大实心圆点 `●`（`U+25CF`，与 `● Bash(...)` 同字形同大小），修复了此前误用小圆点 `•`（`U+2022`）导致「圆点比其他工具小一号」的观感差异；同时修掉逐行解析用字节下标切片（`&line[4..]`）在 `└` 多字节字形上 panic 的缺陷。
 
 ### Fixes

@@ -58,6 +58,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 **[TRAP]** frozen_subagent_vms 按 agent_id + 位置匹配（先 instance_id 精确匹配，失败后按顺序 agent_id 匹配）。`begin_round()` 清空 frozen_vms 和 ephemeral_notes，但 `done()` 不清空 frozen_subagent_vms（允许 Done→下一轮之间消费）。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-16-frozen-subagent-vms-cross-round-accumulation-duplication）
 
+**[TRAP]** 子 Agent 停止态有三处易错：① 停止终态**必须独立成行**（`was stopped by main Agent` / `stopped by user`），不得混入 `finished`/`failed`——否则用户分不清「跑完了」「出错了」「被停了」；来源由 `BackgroundAgentSession.stopped_by_user` 区分（仅用户按键路径置位）。② 抽屉停止行用**红色实心 `●`**（`theme::ERROR`），`drawer_line()` 的 `force_filled` 参数保证非当前视口时也渲染实心（`◯` 只用于「非当前视口的活跃行」）。③ 等待计数行 `✻ Waiting for N … to finish` 是 `ephemeral_notes`，**活跃数归零必须移除**（残留会让用户误以为还有任务在跑）；清理匹配用「固定前缀 + 固定后缀」，不要用裸 `contains("Waiting for")` 以免误伤其他系统消息。
+
 ## 主布局
 
 单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。高度优先级：Status Bar 动态 2~3 行（有活动时 3 行，空闲时折叠为 2 行）→ Input 动态（3~40% 屏幕）→ 面板（60-75% 屏幕）→ 其余分配给消息区。

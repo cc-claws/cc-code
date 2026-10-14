@@ -41,6 +41,7 @@
 - `Read` 的 offset 是从 0 开始的跳过行数，默认读取 2000 行；32 MiB 文件上限不会被范围参数绕过，PDF 页码读取尚未实现。
 - `Write` 默认完整替换，append=true 追加；`Edit` 做匹配替换。提示要求先检查已有内容，不宣称工具会检查此前是否调用过 Read。
 - `Agent` 区分独立消息上下文与继承会话快照，不承诺完整实时历史或文件隔离；isolation 参数仍是保留项。
+- `Agent` 的 `action` 参数（`spawn` 默认 / `stop`）决定行为：`action=stop` 按 `task_id` 精确取消正在运行的后台子 Agent，**只接受精确 `task_id`**（不做任务名/描述模糊匹配，避免停错兄弟任务）。`prompt` **不在 schema 的 required 中**——`action=stop` 无需 prompt，硬编码必填会让模型凭空编造 prompt；必填性在 `invoke` 内按 `action` 分支校验。取消复用 `BackgroundTaskRegistry::cancel()`（触发 `CancellationToken` 让执行器正常终态收尾，不 abort）。详见 `docs/prd/subagent-drawer-and-virtual-routing.md` §4.4.1。
 - 工具调用必须遵守既有授权与运行时审批，Meta 包装器不授予新权限。
 
 ---
