@@ -69,6 +69,23 @@ fn test_map_executor_event_text_chunk_returns_none() {
 }
 
 #[test]
+fn test_map_executor_event_compact_started() {
+    let auto_event = ExecutorEvent::CompactStarted { manual: false };
+    let mapped_auto = map_executor_event(auto_event, "/tmp");
+    assert!(matches!(
+        mapped_auto,
+        Some(AgentEvent::CompactStarted { manual: false })
+    ));
+
+    let manual_event = ExecutorEvent::CompactStarted { manual: true };
+    let mapped_manual = map_executor_event(manual_event, "/tmp");
+    assert!(matches!(
+        mapped_manual,
+        Some(AgentEvent::CompactStarted { manual: true })
+    ));
+}
+
+#[test]
 fn test_map_executor_event_tool_start_returns_none() {
     // ToolStart 属于类别①
     let event = ExecutorEvent::ToolStart {

@@ -100,9 +100,13 @@ impl AgentCommand for CompactCommand {
             }
         };
 
-        // 发送 CompactStarted 事件
+        // 发送 CompactStarted 事件（手动触发）
         event_sink
-            .push_event(&session_id, &ExecutorEvent::CompactStarted, 0)
+            .push_event(
+                &session_id,
+                &ExecutorEvent::CompactStarted { manual: true },
+                0,
+            )
             .await;
 
         // 执行 full_compact（支持 Ctrl+C 取消）

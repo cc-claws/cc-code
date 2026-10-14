@@ -1,6 +1,6 @@
 # auto-compact 被误判为手动 compact，导致回合中途 `loading=false`（Tip 行/spinner 消失，且 Ctrl+C 变退出）
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-10-14
 **GitHub Issue**：#481
@@ -173,3 +173,15 @@ CompactStarted { manual: bool },
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-10-14 | — | Open | wismyzhizi2018 | 创建（仅记录，暂不修复） |
+| 2026-10-14 | Open | Fixed | agent | 修复：CompactStarted 增加 manual 字段，从源头区分 auto 与 manual compact，TUI 精准门控 loading |
+
+## 修复记录
+
+- `cc-agent/src/agent/events.rs`：`CompactStarted` 变体增加 `#[serde(default)] manual: bool` 字段，实现向后兼容的来源携带。
+- `cc-middlewares/src/compact_middleware.rs`：auto-compact 触发时发出 `CompactStarted { manual: false }`。
+- `cc-acp/src/session/command/compact.rs`：手动 `/compact` 命令触发时发出 `CompactStarted { manual: true }`。
+- `cc-acp/src/event/mapper.rs`、`cc-acp/src/session/executor.rs`：适配变体匹配。
+- `cc-tui/src/app/events.rs`、`cc-tui/src/app/agent.rs`、`cc-tui/src/app/agent_ops/mod.rs`：将事件映射为携带 `manual` 的 TUI `AgentEvent::CompactStarted`。
+- `cc-tui/src/app/agent_compact.rs`：`handle_compact_started` 将 `compact_manual` 赋值为 `manual`；`handle_compact_error` 仅在 `is_manual` 为 true 时结束 loading；`handle_compact_completed` 中 auto-compact 保留 loading 态直至 agent 完成。
+- 测试覆盖：新增 `agent_compact_test.rs`（6 个单元测试）及 `headless_test.rs`（2 个端到端生命周期测试），并补充 `mapper_test.rs`、`agent_test.rs` 与 `events_test.rs`。
+

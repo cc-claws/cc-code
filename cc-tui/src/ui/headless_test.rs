@@ -1319,6 +1319,46 @@ async fn test_compact_done_without_re_inject() {
     assert!(!has_re_inject, "无重新注入内容时不应显示文件/skill 详情");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_auto_compact_lifecycle_preserves_loading_until_done() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.push_agent_event(AgentEvent::CompactStarted { manual: false });
+    app.process_pending_events();
+    assert!(
+        app.session_mgr.current().ui.loading,
+        "auto-compact 开始时应进入 loading"
+    );
+    app.push_agent_event(make_compact_done_event("Auto compressed", &[]));
+    app.process_pending_events();
+    assert!(
+        app.session_mgr.current().ui.loading,
+        "auto-compact 完成后必须维持 loading 为 true（agent 仍在继续运行）"
+    );
+    app.push_agent_event(AgentEvent::Done);
+    app.process_pending_events();
+    assert!(
+        !app.session_mgr.current().ui.loading,
+        "收到 Done 事件后正常退出 loading"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_manual_compact_lifecycle_ends_loading_at_compact_done() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.push_agent_event(AgentEvent::CompactStarted { manual: true });
+    app.process_pending_events();
+    assert!(
+        app.session_mgr.current().ui.loading,
+        "手动 /compact 开始时应进入 loading"
+    );
+    app.push_agent_event(make_compact_done_event("Manual compressed", &[]));
+    app.process_pending_events();
+    assert!(
+        !app.session_mgr.current().ui.loading,
+        "手动 /compact 完成后必须立即置 loading 为 false（独立命令无后续 Done）"
+    );
+}
+
 #[tokio::test]
 async fn test_get_compact_config_default() {
     let (app, _handle) = App::new_headless(120, 30).await;

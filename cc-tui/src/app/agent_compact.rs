@@ -2,13 +2,14 @@ use super::{message_pipeline::PipelineAction, *};
 use cc_agent::{agent::events::CompactFileInfo, messages::BaseMessage};
 
 impl App {
-    pub(crate) fn handle_compact_started(&mut self) -> (bool, bool, bool) {
+    pub(crate) fn handle_compact_started(&mut self, manual: bool) -> (bool, bool, bool) {
         // 退出聚焦模式（如有）
         self.session_mgr.current_mut().focused_instance_id = None;
         self.session_mgr.current_mut().ui.bg_bar_cursor = None;
 
-        // 标记手动 compact（/compact 命令），handle_compact_completed 依赖此标志结束 loading
-        self.session_mgr.current_mut().agent.compact_manual = true;
+        // 仅在手动 compact（/compact 命令）时置位，handle_compact_completed 依赖此标志结束 loading。
+        // auto-compact 发生于 ReAct 循环内部，后续仍需继续执行，不能在压缩完成时结束 loading。
+        self.session_mgr.current_mut().agent.compact_manual = manual;
 
         // 显示 loading 状态（spinner + 禁用输入）
         self.set_loading(true);
@@ -85,8 +86,11 @@ impl App {
     }
 
     pub(crate) fn handle_compact_error(&mut self, msg: String) -> (bool, bool, bool) {
-        self.set_loading(false);
-        self.session_mgr.current_mut().agent.compact_manual = false;
+        let is_manual = self.session_mgr.current_mut().agent.compact_manual;
+        if is_manual {
+            self.set_loading(false);
+            self.session_mgr.current_mut().agent.compact_manual = false;
+        }
         let vm = MessageViewModel::system(
             self.services
                 .lc
@@ -137,3 +141,8 @@ impl App {
         (true, false, false)
     }
 }
+
+#[cfg(test)]
+#[path = "agent_compact_test.rs"]
+mod tests;
+
