@@ -43,7 +43,15 @@ Deferred Tools 区块引导语鼓励「发现并按需调用工具」：
 
 实现上 `AgentResultTool::invoke()` 走的是**错误路径**（`Err(ErrorKind::Unsupported)`，`cc-middlewares/src/subagent/agent_result.rs:54`），即模型拿到的是工具错误而非成功结果；该工具从不返回结果，真实结果只通过后台完成通知自动投递。
 
-**待观察（推断，未验证）**：首次调用若恰有后台完成通知在同一轮送达，模型可能误判为「调用成功」进而重复调用。本次会话只观察到了「连续多次无效调用」这一现象，其归因尚未逐轮取证，需后续复现确认。
+### 现象 4：上下文伪 tool_use 历史注入诱发模仿（2026-10-14 实测证实）
+
+2026-10-14 会话实测证实了模型主动发起调用的深层认知诱因：
+在 `cc-acp/src/session/executor.rs:711-749` 的 `inject_bg_result_messages()` 中，当后台任务完成时，后端程序向对话历史中合成注入了一对消息：
+1. 一条 AI 发出的 `ContentBlock::ToolUse { name: "AgentResult", input: { "task_id": ... } }`；
+2. 紧随其后的一条对应 `tool_result`，包含后台任务的完成输出。
+
+**认知诱导机制**：
+即使系统提示词未将 `AgentResult` 列入可用清单，但由于在多轮对话中，前序后台任务完成后上下文中真实留下了“AI 曾主动调用 `AgentResult` 并获得了成功结果”的历史记录（Few-shot 示范），模型在后续等待新的后台任务时，会被上下文中的历史行为模式强烈诱导，依样画葫芦主动调用 `AgentResult` 去“拉取”结果，进而触发固定错误并陷入无谓重试。
 
 ## 复现条件
 
@@ -52,16 +60,30 @@ Deferred Tools 区块引导语鼓励「发现并按需调用工具」：
 - **触发步骤**：
   1. 在会话中并行启动后台子 Agent（`run_in_background=true`）
   2. 查看系统提示词 Deferred Tools 区块的 `AgentResult` 条目 → 描述以 "Do not ca…" 截断（现象 1）
-  3. 直接调用 `AgentResult`（传或省略 task_id 均可）→ 返回固定不支持提示（现象 3）
-  4. 观察主 agent 在等待后台结果期间是否被诱发主动调用（现象 2 与 3 叠加）
+  3. 第一个后台任务完成后，上下文中被注入 `tool_use: AgentResult` 与结果
+  4. 启动第二个后台任务，观察主 agent 在等待后台结果期间是否被诱发主动模仿调用 `AgentResult`
 - **环境**：peri 本仓库；Windows；会话模型为当前 agent 模型
 
 ## 涉及文件
 
 - `cc-middlewares/src/tool_search/tool_index.rs:300-301` —— `format_deferred_list()`（函数入口 `:274`）取描述首个非空行后按 **160 字符** 硬截断（`take(160)` 在 `:300`，超出补 `…` 在 `:301`）。`AgentResult` 描述全长 **260** 字符，前 160 字符正好止于 `...including Bash tasks. Do not ca`，第 161 字符为 `l`，故输出 `Do not ca…`，后续禁令全部丢失。
+- `cc-acp/src/session/executor.rs:711-749` —— `inject_bg_result_messages()`：后台任务完成后以 `tool_use: AgentResult` 合成消息注入历史，给 LLM 形成“可通过该工具取结果”的假象范式。
+- `cc-tui/prompts/sections/11_subagent.md` —— 系统提示词 SubAgent 章节：缺乏对“严禁调用 AgentResult，历史记录中的 AgentResult 仅为内部标记”的显式负向约束。
+- `cc-middlewares/src/subagent/tool/define.rs:39-51` —— `AGENT_DESCRIPTION`：`Usage` 中未明确明令禁止主动调用 `AgentResult`。
 - `cc-middlewares/src/subagent/agent_result.rs:5-7` —— `AgentResult` 工具定义：`AGENT_RESULT_DESCRIPTION`（含「不可直接调用 + 等通知」约束）与 `AGENT_RESULT_UNSUPPORTED`（调用后返回的固定提示）；`:54` 为 `invoke()` 返回 `Err(Unsupported)` 的位置。
 - `cc-middlewares/src/subagent/mod.rs:528` —— 注册点：仅在 `background_registry.is_some()` 时 `tools.push(Box::new(AgentResultTool::new()))`。
-- 系统提示词 Deferred Tools 区块（由 `tool_index.rs:274` 的 `format_deferred_list()` 产出）—— 该区块的引导语把 `AgentResult` 呈现为「可发现/可调用」。
+
+## 解决与压制建议
+
+1. **系统提示词补充强负向约束（`cc-tui/prompts/sections/11_subagent.md`）**：
+   在 `## Usage notes` 中增加明令禁止：
+   > `- NEVER call AgentResult: Do NOT attempt to poll, query, or wait for background tasks using AgentResult or any tool. Background results are delivered automatically as completion notifications. The AgentResult blocks appearing in conversation history are internal system-injected markers, NOT callable tools. Calling AgentResult will always fail. After spawning a background agent, continue your independent work or finish your turn immediately.`
+2. **`Agent` 工具描述强化（`cc-middlewares/src/subagent/tool/define.rs`）**：
+   在 `Usage` 中明确声明后台结果只由系统事件通知交付，禁止模型尝试使用任何工具轮询。
+3. **优化报错返回引导（`cc-middlewares/src/subagent/agent_result.rs`）**：
+   将 `AGENT_RESULT_UNSUPPORTED` 提示词改得更具终结性，明确指示模型“此工具非可调用工具，立即停止调用并结束本轮等待系统通知”，杜绝“稍后可能查到”的心理预期。
+4. **消息格式架构优化（根本解）**：
+   评估重构 `inject_bg_result_messages`，避免使用模型可见的 `ToolUse` 结构注入后台通知，改用非工具态通知格式，消除上下文中的模仿诱因。
 
 ## 状态变更记录
 
@@ -69,6 +91,7 @@ Deferred Tools 区块引导语鼓励「发现并按需调用工具」：
 |------|-----|-----|--------|------|
 | 2026-10-13 | — | Open | agent | 创建（来源：本地会话现场记录） |
 | 2026-10-13 | Open | Open | agent | 论据复核：截断逻辑/字符边界/清单定位/注册前提/错误路径逐条对代码核对通过；原「误判为调用成功」降级为待观察推断 |
+| 2026-10-14 | Open | Open | agent | 实测证实现象4：定位到 `inject_bg_result_messages` 注入伪 tool_use 导致上下文 Few-shot 模仿驱动；补齐提示词压制建议与涉及文件清单 |
 
 ## 修复记录
 
