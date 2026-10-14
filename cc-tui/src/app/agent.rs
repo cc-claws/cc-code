@@ -54,7 +54,7 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             instance_id,
             total_steps,
         },
-        ExecutorEvent::CompactStarted => AgentEvent::CompactStarted,
+        ExecutorEvent::CompactStarted { manual } => AgentEvent::CompactStarted { manual },
         ExecutorEvent::CompactCompleted {
             summary,
             files,

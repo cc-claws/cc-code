@@ -391,7 +391,7 @@ pub async fn execute_prompt(
                             .lock()
                             .on_llm_retrying(*attempt, *max_attempts, *delay_ms, error);
                     }
-                    ExecutorEvent::CompactStarted => {
+                    ExecutorEvent::CompactStarted { .. } => {
                         tracer.lock().on_compact_start();
                     }
                     ExecutorEvent::CompactCompleted {

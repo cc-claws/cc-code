@@ -224,7 +224,7 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
         | ExecutorEvent::SubagentStarted { .. }
         | ExecutorEvent::SubagentStopped { .. }
         | ExecutorEvent::SubagentProgress { .. }
-        | ExecutorEvent::CompactStarted
+        | ExecutorEvent::CompactStarted { .. }
         | ExecutorEvent::CompactCompleted { .. }
         | ExecutorEvent::CompactError { .. }
         | ExecutorEvent::RewindCompleted { .. }

@@ -58,8 +58,8 @@ pub enum AgentEvent {
     TodoUpdate(Vec<TodoItem>),
     /// Agent 执行结束后的消息快照（用于多轮对话续接）
     StateSnapshot(Vec<cc_agent::messages::BaseMessage>),
-    /// Compact 开始（来自 executor 或手动 /compact）
-    CompactStarted,
+    /// Compact 开始（来自 executor 自动压缩或手动 /compact）
+    CompactStarted { manual: bool },
     /// 上下文压缩完成，携带摘要、保留的文件和 skill 信息
     CompactCompleted {
         summary: String,

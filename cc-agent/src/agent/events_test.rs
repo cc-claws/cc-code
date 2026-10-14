@@ -135,11 +135,23 @@ fn test_subagent_progress_serde_roundtrip() {
 
 #[test]
 fn test_compact_started_serde() {
-    let ev = AgentEvent::CompactStarted;
+    let ev = AgentEvent::CompactStarted { manual: true };
     let json = serde_json::to_string(&ev).unwrap();
     assert!(json.contains(r#""type":"compact_started""#));
+    assert!(json.contains(r#""manual":true"#));
     let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
-    assert!(matches!(deserialized, AgentEvent::CompactStarted));
+    assert!(matches!(
+        deserialized,
+        AgentEvent::CompactStarted { manual: true }
+    ));
+
+    let ev_auto = AgentEvent::CompactStarted { manual: false };
+    let json_auto = serde_json::to_string(&ev_auto).unwrap();
+    let deserialized_auto: AgentEvent = serde_json::from_str(&json_auto).unwrap();
+    assert!(matches!(
+        deserialized_auto,
+        AgentEvent::CompactStarted { manual: false }
+    ));
 }
 
 #[test]

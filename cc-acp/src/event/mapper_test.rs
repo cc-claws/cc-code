@@ -428,7 +428,14 @@ fn test_subagent_progress_is_tui_only() {
 
 #[test]
 fn test_compact_started_is_tui_only() {
-    assert_tui_only(&ExecutorEvent::CompactStarted, "CompactStarted");
+    assert_tui_only(
+        &ExecutorEvent::CompactStarted { manual: false },
+        "CompactStarted auto",
+    );
+    assert_tui_only(
+        &ExecutorEvent::CompactStarted { manual: true },
+        "CompactStarted manual",
+    );
 }
 
 #[test]

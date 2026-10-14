@@ -152,7 +152,7 @@ impl CompactMiddleware {
         self.fire_hooks(hooks::types::HookEvent::PreCompact, msg_count)
             .await;
 
-        self.send_event(ExecutorEvent::CompactStarted);
+        self.send_event(ExecutorEvent::CompactStarted { manual: false });
 
         // full_compact with cancellation
         let compact_result = tokio::select! {

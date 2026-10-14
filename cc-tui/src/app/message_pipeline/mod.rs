@@ -553,7 +553,7 @@ impl MessagePipeline {
             | AgentEvent::Error(_)
             | AgentEvent::InteractionRequest { .. }
             | AgentEvent::TodoUpdate(_)
-            | AgentEvent::CompactStarted
+            | AgentEvent::CompactStarted { .. }
             | AgentEvent::CompactCompleted { .. }
             | AgentEvent::CompactError(_)
             | AgentEvent::RewindCompleted { .. }

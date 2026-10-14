@@ -181,7 +181,11 @@ pub enum AgentEvent {
         total_steps: usize,
     },
     /// 上下文压缩开始
-    CompactStarted,
+    CompactStarted {
+        /// 是否为手动触发（/compact 命令为 true，CompactMiddleware 自动触发为 false）
+        #[serde(default)]
+        manual: bool,
+    },
     /// 上下文压缩完成
     CompactCompleted {
         /// 摘要文本（full compact 时非空，micro compact 时为空）
