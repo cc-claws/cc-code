@@ -15,6 +15,7 @@ pub struct PromptFeatures {
     pub cron_enabled: bool,
     pub skills_enabled: bool,
     pub channel_enabled: bool,
+    pub memory_enabled: bool,
 }
 
 impl PromptFeatures {
@@ -26,6 +27,7 @@ impl PromptFeatures {
             cron_enabled: true,
             skills_enabled: true,
             channel_enabled: true,
+            memory_enabled: true,
         }
     }
 
@@ -38,6 +40,7 @@ impl PromptFeatures {
             cron_enabled: false,
             skills_enabled: false,
             channel_enabled: false,
+            memory_enabled: false,
         }
     }
 }
@@ -230,6 +233,19 @@ pub fn build_system_prompt(
     for section in &dynamic_sections {
         result.push_str("\n\n");
         result.push_str(section);
+    }
+    // 自动记忆系统说明与 MEMORY.md 索引（动态段，位于边界之后不破坏缓存前缀）
+    if features.memory_enabled {
+        let mem_dir = cc_middlewares::memory::get_auto_memory_dir(cwd);
+        let _ = cc_middlewares::memory::ensure_memory_dir_exists(&mem_dir);
+        let entrypoint_path = cc_middlewares::memory::get_auto_memory_entrypoint(cwd);
+        let entrypoint_trunc = cc_middlewares::memory::read_and_truncate_entrypoint(&entrypoint_path);
+        let mem_prompt = cc_middlewares::memory::build_auto_memory_prompt(
+            &mem_dir.to_string_lossy(),
+            entrypoint_trunc.as_ref().map(|t| t.content.as_str()),
+        );
+        result.push_str("\n\n");
+        result.push_str(&mem_prompt);
     }
     // Language instruction (dynamic, after boundary to preserve cache prefix).
     // 默认语言而非强制：对话中的明确要求、项目指引（CLAUDE.md）声明优先于此默认值。

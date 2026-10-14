@@ -32,6 +32,7 @@ pub mod hitl;
 pub mod hooks;
 pub mod lsp;
 pub mod mcp;
+pub mod memory;
 pub mod middleware;
 pub mod plugin;
 pub mod process;
@@ -63,6 +64,13 @@ pub use hitl::{
     SharedPermissionMode,
 };
 pub use lsp::{LspMiddleware, LspTool};
+pub use memory::{
+    build_auto_memory_prompt, ensure_memory_dir_exists, find_canonical_project_root,
+    get_auto_memory_dir, get_auto_memory_entrypoint, is_auto_mem_path,
+    read_and_truncate_entrypoint, sanitize_project_path, truncate_entrypoint_content,
+    EntrypointTruncation, MemoryMiddleware, ENTRYPOINT_NAME, MAX_ENTRYPOINT_BYTES,
+    MAX_ENTRYPOINT_LINES,
+};
 pub use skills::{
     list_skills, load_global_skills_dir, load_skill_metadata, SkillMetadata, SkillsMiddleware,
 };

@@ -58,6 +58,8 @@ pub struct AcpAgentConfig {
     /// produced by `agents_md::load_instructions` at session/new).
     /// None = read from disk each turn (legacy, e.g. sub-agents).
     pub frozen_instructions: Option<String>,
+    /// 冻结的 MEMORY.md 自动记忆入口索引（带 provenance 与有界截断）。
+    pub frozen_memory_entrypoint: Option<String>,
     /// Session-scoped lazy Jev rule loader (distils CLAUDE.md rules on first gate use).
     /// None = 门不携带 CLAUDE.md 策略。
     pub jev_rule_loader: Option<Arc<cc_middlewares::hitl::jev::JevRuleLoader>>,
@@ -142,6 +144,7 @@ pub fn build_agent(
         cwd,
         system_prompt,
         frozen_instructions,
+        frozen_memory_entrypoint,
         jev_rule_loader,
         frozen_skill_summary,
         frozen_date,
@@ -481,6 +484,10 @@ pub fn build_agent(
             }
             mw
         }))
+        .add_middleware(Box::new(
+            cc_middlewares::MemoryMiddleware::new()
+                .with_frozen_entrypoint(frozen_memory_entrypoint),
+        ))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new({
             let mut mw = SkillsMiddleware::new().with_extra_dirs(plugin_skill_dirs);

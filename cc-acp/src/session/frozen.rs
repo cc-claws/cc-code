@@ -104,6 +104,30 @@ pub fn build_frozen_session_data(
 
     let is_git_repo = std::path::Path::new(cwd).join(".git").exists();
 
+    // 捕获并预处理自动记忆 (MEMORY.md)
+    let mem_dir = cc_middlewares::memory::get_auto_memory_dir(cwd);
+    let _ = cc_middlewares::memory::ensure_memory_dir_exists(&mem_dir);
+    let entrypoint_path = cc_middlewares::memory::get_auto_memory_entrypoint(cwd);
+
+    let memory_entrypoint = if entrypoint_path.exists() {
+        if let Ok(raw) = std::fs::read_to_string(&entrypoint_path) {
+            let truncated = cc_middlewares::memory::truncate_entrypoint_content(&raw);
+            if !truncated.content.trim().is_empty() {
+                Some(format!(
+                    "Contents of {} (auto-memory):\n\n{}",
+                    entrypoint_path.display(),
+                    truncated.content
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     FrozenSessionData {
         system_prompt: frozen_system_prompt,
         instructions: frozen_instructions,
@@ -112,6 +136,8 @@ pub fn build_frozen_session_data(
         date: frozen_date.to_string(),
         is_git_repo,
         language: language.map(|s| s.to_string()),
+        memory_entrypoint,
+        memory_dir: Some(mem_dir.to_string_lossy().to_string()),
     }
 }
 
