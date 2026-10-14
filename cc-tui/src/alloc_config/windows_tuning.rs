@@ -2,7 +2,8 @@
 
 use std::{
     cell::Cell,
-    os::raw::c_long,
+    ffi::c_void,
+    os::raw::{c_char, c_long},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
@@ -17,7 +18,31 @@ thread_local! {
     static LAST_COLLECT: Cell<(u64, Option<Instant>)> = const { Cell::new((0, None)) };
 }
 
+unsafe extern "C" fn noop_output_callback(_msg: *const c_char, _arg: *mut c_void) {}
+
 pub(super) fn init() {
+    // 压制 stderr 裸打日志，防止底层系统错误（如 1455 提交限制）打花 TUI 备用屏界面（#483）
+    set_option(
+        libmimalloc_sys::mi_option_show_errors,
+        &["MIMALLOC_SHOW_ERRORS"],
+        0,
+    );
+    set_option(
+        libmimalloc_sys::mi_option_verbose,
+        &["MIMALLOC_VERBOSE"],
+        0,
+    );
+
+    // 双重保险：若未显式启用 show_errors/verbose，注册空回调拦截所有潜在向 stderr 打印的旁路调用
+    let show_errors =
+        unsafe { libmimalloc_sys::mi_option_get(libmimalloc_sys::mi_option_show_errors) } != 0;
+    let verbose = unsafe { libmimalloc_sys::mi_option_get(libmimalloc_sys::mi_option_verbose) } != 0;
+    if !show_errors && !verbose {
+        unsafe {
+            libmimalloc_sys::mi_register_output(Some(noop_output_callback), std::ptr::null_mut());
+        }
+    }
+
     set_option(
         OPTION_PURGE_DECOMMITS,
         &["MIMALLOC_PURGE_DECOMMITS", "MIMALLOC_RESET_DECOMMITS"],
@@ -85,3 +110,8 @@ pub fn collect_on_thread_park() {
         state.set((epoch, Some(Instant::now())));
     });
 }
+
+#[cfg(test)]
+#[path = "windows_tuning_test.rs"]
+mod tests;
+
