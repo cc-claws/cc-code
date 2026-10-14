@@ -223,6 +223,7 @@ pub fn readonly_action_summary_ext(
     }
 }
 
+#[allow(dead_code)]
 pub fn readonly_action_summary(reads: usize, globs: usize, greps: usize) -> Option<String> {
     readonly_action_summary_ext(reads, globs, greps, 0, 0)
 }
