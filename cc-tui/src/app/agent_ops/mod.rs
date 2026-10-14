@@ -72,28 +72,11 @@ impl App {
                             .find(|shell| shell.id == task_id)
                             .and_then(|shell| shell.owner_session_id.clone())
                     });
-                let loading = self.session_mgr.current().ui.loading;
-                let current_owner = self
-                    .session_mgr
-                    .current()
-                    .current_thread_id
-                    .as_ref()
-                    .map(ToString::to_string);
-                if loading
-                    || owner_session_id
-                        .as_deref()
-                        .is_some_and(|owner| current_owner.as_deref() != Some(owner))
-                {
-                    self.session_mgr
-                        .current_mut()
-                        .pending_bg_shell_notifications
-                        .push_back(super::PendingBgShellNotification {
-                            owner_session_id,
-                            content: notif,
-                        });
-                } else {
-                    self.submit_message(notif);
-                }
+                // 与完成通知共用合并注入逻辑：idle 合并为 1 轮 turn，推理中入队待 drain
+                self.inject_bg_shell_notifications(vec![super::PendingBgShellNotification {
+                    owner_session_id,
+                    content: notif,
+                }]);
                 (true, false, false)
             }
             AgentEvent::SubAgentStart {

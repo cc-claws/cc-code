@@ -341,47 +341,87 @@ pub fn shell_notification_display_text_with(
     lc: &crate::i18n::LcRegistry,
 ) -> Option<String> {
     let notification = unwrap_system_reminder(raw.trim());
-    if notification.starts_with("<background-task-completed>") {
-        let command = extract_xml_tag(notification, "command")
-            .map(xml_unescape)
-            .map(|s| super::tool_display::sanitize_display_text(&s))
-            .unwrap_or_else(|| "shell command".to_string());
-        let status = extract_xml_tag(notification, "status")
-            .map(xml_unescape)
-            .map(|s| super::tool_display::sanitize_display_text(&s))
-            .unwrap_or_else(|| "completed".to_string());
-        let verb = if status.starts_with("failed") {
-            lc.tr("shell-notify-failed")
-        } else if status.starts_with("timed out") {
-            lc.tr("shell-notify-timed-out")
-        } else if status.starts_with("cancelled") {
-            lc.tr("shell-notify-cancelled")
-        } else if status == "terminated" {
-            lc.tr("shell-notify-terminated")
-        } else {
-            lc.tr("shell-notify-completed")
-        };
-        return Some(format!(
-            "{}: {} ({})",
-            verb,
-            truncate_chars(&command, 80),
-            status
-        ));
+    // 合并注入后单条消息可能包含多个通知块（甚至混合类型），按文档顺序逐块解析。
+    const TAGS: [&str; 2] = [
+        "background-task-completed",
+        "background-task-waiting-for-input",
+    ];
+    let mut lines = Vec::new();
+    let mut cursor = notification;
+    while let Some((tag, body_start, block_end)) = next_notification_block(cursor, &TAGS) {
+        if let Some(line) = render_notification_block(tag, &cursor[body_start..block_end], lc) {
+            lines.push(line);
+        }
+        cursor = &cursor[block_end + format!("</{tag}>").len()..];
     }
 
-    if notification.starts_with("<background-task-waiting-for-input>") {
-        let command = extract_xml_tag(notification, "command")
-            .map(xml_unescape)
-            .map(|s| super::tool_display::sanitize_display_text(&s))
-            .unwrap_or_else(|| "shell command".to_string());
-        return Some(format!(
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+/// 在 `cursor` 中定位最早出现的通知块，返回 `(tag, body_start, body_end)`。
+///
+/// `body_start`/`body_end` 为开标签之后、闭标签之前的正文区间（相对 `cursor`）。
+fn next_notification_block<'a>(
+    cursor: &str,
+    tags: &[&'a str],
+) -> Option<(&'a str, usize, usize)> {
+    tags.iter()
+        .filter_map(|tag| {
+            let open = format!("<{tag}>");
+            let start = cursor.find(&open)?;
+            let body_start = start + open.len();
+            let close = format!("</{tag}>");
+            let body_end = cursor[body_start..].find(&close)? + body_start;
+            Some((*tag, body_start, body_end))
+        })
+        .min_by_key(|(_, body_start, _)| *body_start)
+}
+
+/// 把单个完成/等待输入通知块渲染为一行人类可读文本。
+fn render_notification_block(
+    tag: &str,
+    block: &str,
+    lc: &crate::i18n::LcRegistry,
+) -> Option<String> {
+    let command = extract_xml_tag(block, "command")
+        .map(xml_unescape)
+        .map(|s| super::tool_display::sanitize_display_text(&s))
+        .unwrap_or_else(|| "shell command".to_string());
+    match tag {
+        "background-task-completed" => {
+            let status = extract_xml_tag(block, "status")
+                .map(xml_unescape)
+                .map(|s| super::tool_display::sanitize_display_text(&s))
+                .unwrap_or_else(|| "completed".to_string());
+            let verb = if status.starts_with("failed") {
+                lc.tr("shell-notify-failed")
+            } else if status.starts_with("timed out") {
+                lc.tr("shell-notify-timed-out")
+            } else if status.starts_with("cancelled") {
+                lc.tr("shell-notify-cancelled")
+            } else if status == "terminated" {
+                lc.tr("shell-notify-terminated")
+            } else {
+                lc.tr("shell-notify-completed")
+            };
+            Some(format!(
+                "{}: {} ({})",
+                verb,
+                truncate_chars(&command, 80),
+                status
+            ))
+        }
+        "background-task-waiting-for-input" => Some(format!(
             "{}: {}",
             lc.tr("shell-notify-waiting-input"),
             truncate_chars(&command, 80)
-        ));
+        )),
+        _ => None,
     }
-
-    None
 }
 
 fn unwrap_system_reminder(raw: &str) -> &str {
