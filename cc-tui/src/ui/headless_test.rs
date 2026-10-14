@@ -249,6 +249,7 @@ async fn test_subagent_group_basic() {
         instance_id: "test-instance".into(),
         task_preview: "review the code".into(),
         is_background: false,
+        prompt: None,
     });
     app.push_agent_event(AgentEvent::ToolStart {
         tool_call_id: "t1".into(),
@@ -316,6 +317,7 @@ async fn test_subagent_group_sliding_window() {
         instance_id: "test-instance".into(),
         task_preview: "analyze codebase".into(),
         is_background: false,
+        prompt: None,
     });
     for i in 1..=6 {
         app.push_agent_event(AgentEvent::ToolStart {
@@ -365,6 +367,7 @@ async fn test_subagent_group_assistant_chunk() {
         instance_id: "test-instance".into(),
         task_preview: "write summary".into(),
         is_background: false,
+        prompt: None,
     });
     app.push_agent_event(AgentEvent::AssistantChunk {
         chunk: "summary text here".into(),
@@ -2409,6 +2412,7 @@ async fn test_subagent_group_preserved_after_done_reconcile() {
         instance_id: "test-instance".into(),
         task_preview: "review the code".into(),
         is_background: false,
+        prompt: None,
     });
     app.process_pending_events();
     let _ = n;
@@ -2560,6 +2564,7 @@ async fn test_background_subagent_lifecycle_and_cleanup() {
         instance_id: "test-inst".into(),
         task_preview: "review the code".into(),
         is_background: true,
+        prompt: None,
     });
     app.process_pending_events();
 
@@ -2626,6 +2631,7 @@ async fn test_fork_background_does_not_pollute_main_timeline() {
         instance_id: "test-fork-bg".into(),
         task_preview: "do something in background".into(),
         is_background: true,
+        prompt: None,
     });
     app.process_pending_events();
 
@@ -2703,6 +2709,7 @@ async fn test_bg_group_absent_from_live_rebuild_tail_when_pool_drained() {
         instance_id: "inst-drain".into(),
         task_preview: "look around".into(),
         is_background: true,
+        prompt: None,
     });
     app.process_pending_events();
 
@@ -2763,6 +2770,7 @@ async fn test_bg_completion_reclaims_session_whose_row_was_already_dropped() {
         instance_id: "inst-orphan".into(),
         task_preview: "review".into(),
         is_background: true,
+        prompt: None,
     });
     app.process_pending_events();
     assert_eq!(app.session_mgr.current().background_agents.len(), 1);
@@ -3207,6 +3215,7 @@ async fn test_background_agents_lifecycle() {
         instance_id: "inst-001".into(),
         task_preview: String::new(),
         is_background: true,
+        prompt: None,
     });
     app.process_pending_events();
     assert_eq!(
@@ -3225,6 +3234,7 @@ async fn test_background_agents_lifecycle() {
         instance_id: "inst-002".into(),
         task_preview: String::new(),
         is_background: true,
+        prompt: None,
     });
     app.process_pending_events();
     assert_eq!(
@@ -3311,6 +3321,7 @@ async fn test_bg_agent_subagent_progress_updates_steps() {
         instance_id: "inst-bg-123".into(),
         task_preview: "searching web".into(),
         is_background: true,
+        prompt: None,
     });
     app.process_pending_events();
 

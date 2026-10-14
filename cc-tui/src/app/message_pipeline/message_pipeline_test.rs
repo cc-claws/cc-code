@@ -308,6 +308,7 @@ fn test_subagent_parallel_same_tool_matches_by_call_id() {
         instance_id: "test-instance".into(),
         task_preview: "parallel reads".into(),
         is_background: false,
+        prompt: None,
     });
 
     // SubAgent 内部并行启动两个 read_file（带 source_agent_id）
@@ -389,12 +390,14 @@ fn test_concurrent_subagents_route_by_source_agent_id() {
         instance_id: "inst-a".into(),
         task_preview: "task a".into(),
         is_background: false,
+        prompt: None,
     });
     let _ = pipeline.handle_event(AgentEvent::SubAgentStart {
         agent_id: "agent-b".into(),
         instance_id: "inst-b".into(),
         task_preview: "task b".into(),
         is_background: false,
+        prompt: None,
     });
 
     // Agent A 的 ToolStart → source_agent_id = instance_id
@@ -550,6 +553,7 @@ fn test_subagent_source_agent_id_none_fallback_to_last_mut() {
         instance_id: "test-instance".into(),
         task_preview: "legacy task".into(),
         is_background: false,
+        prompt: None,
     });
     // ToolStart 无 source_agent_id → last_mut() 回退到唯一的 SubAgent
     let _ = pipeline.handle_event(AgentEvent::ToolStart {
@@ -1219,12 +1223,14 @@ fn test_frozen_subagent_vms_cleared_on_begin_round() {
         instance_id: "test-instance".into(),
         task_preview: "task one".into(),
         is_background: false,
+        prompt: None,
     });
     pipeline.handle_event(AgentEvent::SubAgentStart {
         agent_id: "sa2".into(),
         instance_id: "test-instance".into(),
         task_preview: "task two".into(),
         is_background: false,
+        prompt: None,
     });
     pipeline.handle_event(AgentEvent::SubAgentEnd {
         result: "result sa1".into(),
@@ -1271,6 +1277,7 @@ fn test_frozen_subagent_vms_cleared_on_begin_round() {
         instance_id: "test-instance".into(),
         task_preview: "task three".into(),
         is_background: false,
+        prompt: None,
     });
     pipeline.handle_event(AgentEvent::SubAgentEnd {
         result: "result sa3".into(),
@@ -1357,6 +1364,7 @@ fn test_no_duplicate_subagent_state_on_tool_start_plus_subagent_start() {
         instance_id: "test-instance".into(),
         task_preview: "review code".into(),
         is_background: false,
+        prompt: None,
     });
 
     // SubAgentStart 创建唯一一个 SubAgentState

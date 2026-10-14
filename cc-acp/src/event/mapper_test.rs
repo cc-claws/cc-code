@@ -395,6 +395,7 @@ fn test_subagent_started_is_tui_only() {
             task_preview: "test task".into(),
             timeout_secs: None,
             model: None,
+            prompt: None,
         },
         "SubagentStarted",
     );

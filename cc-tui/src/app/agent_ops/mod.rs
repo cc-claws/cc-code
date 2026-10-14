@@ -101,7 +101,8 @@ impl App {
                 instance_id,
                 task_preview,
                 is_background,
-            } => self.handle_subagent_start(agent_id, instance_id, task_preview, is_background),
+                prompt,
+            } => self.handle_subagent_start(agent_id, instance_id, task_preview, is_background, prompt),
             AgentEvent::SubagentLifecycle {
                 agent_name: _,
                 started,

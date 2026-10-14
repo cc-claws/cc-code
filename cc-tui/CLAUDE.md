@@ -54,6 +54,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 **[INFO]** `MessageViewModel` 已不再包含 `message_id` 字段。SubAgentGroup 使用 `instance_id: Option<String>` 标识。
 
+**[TRAP]** `SystemNote` 是双态 VM：`content`（普通模式）与 `detail_content: Option<String>`（详细模式）由 `detail_mode` 单选渲染。`detail_content` **必须**同时参与 `PartialEq` 与 `Hash`，否则 Ctrl+O 切换时 hash diff 判定未变、界面不刷新。子 Agent 启动摘要依赖此机制在极简树形与 Prompt 卡片间切换；解析卡片文本必须用 `str::strip_prefix`，禁止 `&line[4..]` 字节下标切片（`└` 占 3 字节会 panic）。卡片圆点用 `U+25CF`（对齐 `● Bash(...)`），不得用 `U+2022`。（详见 docs/prd/subagent-drawer-and-virtual-routing.md §4.17）
+
 **[TRAP]** frozen_subagent_vms 按 agent_id + 位置匹配（先 instance_id 精确匹配，失败后按顺序 agent_id 匹配）。`begin_round()` 清空 frozen_vms 和 ephemeral_notes，但 `done()` 不清空 frozen_subagent_vms（允许 Done→下一轮之间消费）。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-16-frozen-subagent-vms-cross-round-accumulation-duplication）
 
 ## 主布局

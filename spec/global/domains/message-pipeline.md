@@ -46,8 +46,20 @@ reconcile_tail(round_start_vm_idx)
 | 流式优化 | AppendChunk 直接操作渲染层，finalize 边界 reconcile |
 | 尾部重建 | reconcile_tail() + round_start_vm_idx 记录轮次起始位置 |
 | SubAgent 路由 | 从 agent_ops 迁入 Pipeline，移除 subagent_group_idx |
+| SystemNote 双态 | 新增 `detail_content: Option<String>`（参与 PartialEq/Hash）承载详细模式文本，与 `content` 由 `detail_mode` 单选渲染；子 Agent 启动摘要的极简树形与 Prompt 卡片同源此 VM |
 
 ## Feature 附录
+
+### feature_2026-10-14_subagent-prompt-card-detail-mode
+**摘要:** 详细模式（Ctrl+O）主视口展开子 Agent 的 Prompt 卡片
+**关键决策:**
+- 启动摘要两态同源：`SystemNote.content`（极简树形）与 `detail_content`（方案 B 卡片），由 `detail_mode` 单选渲染，避免维护两份 VM
+- `detail_content` 必须进 `PartialEq`/`Hash`，否则 Ctrl+O 切换不触发重渲染（hash diff 认为未变）
+- 卡片标题 `●` 统一为 `U+25CF` 大实心圆点（对齐 `● Bash(...)`），不得用 `•`（`U+2022`）
+- 逐行解析用 `str::strip_prefix`，禁止 `&line[4..]` 字节下标切片（`└` 占 3 字节会 panic）
+- 数据源：`AgentEvent::SubagentStarted.prompt`（全文）→ `BackgroundAgentSession.prompt`
+**归档:** [PRD §4.17](../../../docs/prd/subagent-drawer-and-virtual-routing.md)
+**归档日期:** 2026-10-14
 
 ### feature_20260428_F002_message-pipeline-unify
 **摘要:** 统一流式与历史恢复的消息显示管线
@@ -212,3 +224,5 @@ reconcile_tail(round_start_vm_idx)
 ## 相关 Feature
 - → [tui.md](./tui.md) — TUI 渲染依赖 MessagePipeline 输出的 view_models
 - → [agent.md](./agent.md) — AgentEvent 事件定义在核心层
+
+最后更新：2026-10-14

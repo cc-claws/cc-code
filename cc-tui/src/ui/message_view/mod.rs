@@ -139,6 +139,8 @@ pub enum MessageViewModel {
         content: String,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
+        /// 详细模式（Ctrl+O）下优先展示的内容（如方案 B 卡片展开）
+        detail_content: Option<String>,
     },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
     CacheWarning {
@@ -280,9 +282,17 @@ impl PartialEq for MessageViewModel {
                     && a_moved == b_moved
             }
             (
-                MessageViewModel::SystemNote { content: a, .. },
-                MessageViewModel::SystemNote { content: b, .. },
-            ) => a == b,
+                MessageViewModel::SystemNote {
+                    content: a,
+                    detail_content: a_det,
+                    ..
+                },
+                MessageViewModel::SystemNote {
+                    content: b,
+                    detail_content: b_det,
+                    ..
+                },
+            ) => a == b && a_det == b_det,
             (
                 MessageViewModel::CacheWarning { content: a, .. },
                 MessageViewModel::CacheWarning { content: b, .. },
@@ -420,9 +430,14 @@ impl Hash for MessageViewModel {
                 collapsed.hash(state);
                 moved_to_background.hash(state);
             }
-            MessageViewModel::SystemNote { content, .. } => {
+            MessageViewModel::SystemNote {
+                content,
+                detail_content,
+                ..
+            } => {
                 3u8.hash(state);
                 content.hash(state);
+                detail_content.hash(state);
             }
             MessageViewModel::CacheWarning { content, .. } => {
                 4u8.hash(state);
@@ -603,6 +618,7 @@ impl MessageViewModel {
                     let mut vm = MessageViewModel::SystemNote {
                         content: display_text,
                         content_hash: 0,
+                        detail_content: None,
                     };
                     vm.recompute_hash();
                     return vm;
@@ -845,6 +861,7 @@ impl MessageViewModel {
                 let mut vm = MessageViewModel::SystemNote {
                     content: content.text_content(),
                     content_hash: 0,
+                    detail_content: None,
                 };
                 vm.recompute_hash();
                 vm
@@ -1056,6 +1073,19 @@ impl MessageViewModel {
         let mut vm = MessageViewModel::SystemNote {
             content,
             content_hash: 0,
+            detail_content: None,
+        };
+        vm.recompute_hash();
+        vm
+    }
+
+    /// 创建带详细模式内容的系统消息（如子 Agent 启动摘要在详细模式下展开显示每个任务的 Prompt）
+    pub fn system_with_detail(content: String, detail_content: String) -> Self {
+        let content = crate::app::shell_notification_display_text(&content).unwrap_or(content);
+        let mut vm = MessageViewModel::SystemNote {
+            content,
+            content_hash: 0,
+            detail_content: Some(detail_content),
         };
         vm.recompute_hash();
         vm

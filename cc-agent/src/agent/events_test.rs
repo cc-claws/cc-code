@@ -58,6 +58,7 @@ fn test_subagent_started_serde_roundtrip() {
         task_preview: "preview".to_string(),
         timeout_secs: None,
         model: None,
+        prompt: None,
     };
     let json = serde_json::to_string(&ev).unwrap();
     assert!(json.contains(r#""type":"subagent_started""#));

@@ -2182,6 +2182,7 @@ fn test_render_recap_line_color_hierarchy() {
         let vm = MessageViewModel::SystemNote {
             content: long_cjk.clone(),
             content_hash: 0,
+            detail_content: None,
         };
         assert!(
             max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -2439,4 +2440,65 @@ Get-ChildItem 'C:\Users\adim' -Force -Directory -ErrorAction SilentlyContinue | 
             );
         }
     }
+}
+
+#[test]
+fn test_subagent_launch_summary_detail_mode_renders_prompt_cards() {
+    let tree_content = "• 2 background agents launched (↓ to manage)\n  ├── 广州天气查询(先休眠3分钟)\n  └── 厦门天气查询(先休眠2分钟)";
+    let detail_cards = "● Agent(广州天气查询(先休眠3分钟))\n  └ Backgrounded agent\n  └ Prompt:\n      请先在终端执行 sleep 180 (休眠 3 分钟)。\n\n● Agent(厦门天气查询(先休眠2分钟))\n  └ Backgrounded agent\n  └ Prompt:\n      请先在终端执行 sleep 120 (休眠 2 分钟)。";
+
+    let vm = MessageViewModel::system_with_detail(
+        tree_content.to_string(),
+        detail_cards.to_string(),
+    );
+
+    // 1. 普通模式 (detail_mode = false)：渲染极简树形，不包含 Prompt 卡片
+    let normal_lines = render_view_model(&vm, None, 100, false, 0);
+    let normal_text: String = normal_lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        normal_text.contains("2 background agents launched"),
+        "普通模式应显示极简树形标题"
+    );
+    assert!(
+        normal_text.contains("├──"),
+        "普通模式应包含树形分支"
+    );
+    assert!(
+        !normal_text.contains("Prompt:"),
+        "普通模式下不应显示 Prompt 卡片"
+    );
+
+    // 2. 详细模式 (detail_mode = true，对应按 Ctrl+O)：展开方案 B 经典卡片
+    let detail_lines = render_view_model(&vm, None, 100, true, 0);
+    let detail_text: String = detail_lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        detail_text.contains("Agent(广州天气查询(先休眠3分钟))"),
+        "详细模式应包含广州 Agent 卡片标题"
+    );
+    assert!(
+        detail_text.contains("Agent(厦门天气查询(先休眠2分钟))"),
+        "详细模式应包含厦门 Agent 卡片标题"
+    );
+    assert!(
+        detail_text.contains("Backgrounded agent"),
+        "详细模式应包含后台标记"
+    );
+    assert!(
+        detail_text.contains("Prompt:"),
+        "详细模式应包含 Prompt 标签"
+    );
+    assert!(
+        detail_text.contains("sleep 180"),
+        "详细模式应包含广州 Prompt 具体正文"
+    );
+    assert!(
+        detail_text.contains("sleep 120"),
+        "详细模式应包含厦门 Prompt 具体正文"
+    );
 }

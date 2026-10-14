@@ -160,6 +160,8 @@ pub enum AgentEvent {
         timeout_secs: Option<u64>,
         #[serde(default)]
         model: Option<String>,
+        #[serde(default)]
+        prompt: Option<String>,
     },
     /// 子 agent 执行完成
     SubagentStopped {

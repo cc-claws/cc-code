@@ -74,6 +74,8 @@ Event::Key → PanelManager::dispatch_key(input, ctx)
 ```
 peri/subagent_lifecycle started → 创建 BackgroundAgentSession 句柄 + 抽屉行
   → 主时间线打印树形启动摘要（• N background agents launched + ├──/└── 任务）
+  → 按 Ctrl+O 进入详细模式：摘要切换为方案 B Prompt 卡片（● Agent(任务预览) + └ Backgrounded agent
+    + └ Prompt: 指令全文），再次 Ctrl+O 收回；两形态同源同一 SystemNote VM（content / detail_content）
 
 SubagentEvent（带 source_agent_id 信封）→ 按来源路由到该子会话 pipeline
   → 子视口独立渲染思考/工具/文本；抽屉行更新活动与指标（单箭头 token 流向）
@@ -83,6 +85,10 @@ BackgroundTaskCompleted / stopped → 主时间线完成行（• Agent "x" fini
 
 历史兼容: 旧会话落库的 SubAgentGroup 仍按原渲染路径显示（仅存量数据）
 ```
+
+> Prompt 卡片细节契约见 `docs/prd/subagent-drawer-and-virtual-routing.md` §4.17：
+> `SubagentStarted.prompt` 必须携带指令**全文**（此前只有 `task_preview` 摘要）；卡片标题的 `●`
+> 必须是系统统一的大实心圆点 `U+25CF`（与 `● Bash(...)` 同字形），不得退化为小圆点 `•`。
 
 ### 多模态消息提交流程
 
@@ -1346,4 +1352,6 @@ submit_message(text)
 
 交互和视觉参考 [TUI-STYLE](../../../TUI-STYLE.md)，验收契约见 [PRD](../../../docs/prd/subagent-drawer-and-virtual-routing.md)。
 
-最后更新：2026-10-13
+启动摘要在主视口有**两态**，同源同一 `SystemNote` VM（`content` = 极简树形，`detail_content` = 详细卡片），由 `detail_mode` 单选渲染：普通模式为 `• N background agents launched` + `├──`/`└──` 任务行；按 `Ctrl+O` 进入详细模式切换为方案 B 卡片（`● Agent(任务预览)` + `└ Backgrounded agent` + `└ Prompt:` + 指令全文，6 列悬挂缩进折行）。`SubagentStarted` 事件必须携带 `prompt` 全文字段（仅 `task_preview` 摘要不足以渲染卡片）；卡片标题的 `●` 必须是系统统一的大实心圆点 `U+25CF`（与 `● Bash(...)` 同字形），`SystemNote` 的 `PartialEq`/`Hash` 必须包含 `detail_content`。详见 PRD §4.17。
+
+最后更新：2026-10-14

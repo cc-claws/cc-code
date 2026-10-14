@@ -119,4 +119,12 @@ impl MessageState {
         self.ephemeral_notes.push((anchor, vm.clone()));
         self.view_messages.push(vm);
     }
+
+    /// 添加带详细模式内容的系统通知并记录锚点位置。
+    pub fn push_system_note_with_detail(&mut self, content: String, detail_content: String) {
+        let anchor = self.view_messages.len();
+        let vm = MessageViewModel::system_with_detail(content, detail_content);
+        self.ephemeral_notes.push((anchor, vm.clone()));
+        self.view_messages.push(vm);
+    }
 }

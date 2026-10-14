@@ -83,6 +83,9 @@ pub fn lifecycle_payload(session_id: &str, event: &AgentEvent) -> Option<Value> 
         ("is_background", "isBackground"),
         ("timeout_secs", "timeoutSecs"),
         ("model", "model"),
+        // 指令全文：TUI 详细模式（Ctrl+O）用它展开 Prompt 卡片。
+        // 漏掉此项时卡片会静默退化为只有 task_preview，且不会有编译期错误。
+        ("prompt", "prompt"),
         ("total_steps", "totalSteps"),
         ("elapsed_ms", "elapsedMs"),
         ("is_error", "isError"),

@@ -247,6 +247,105 @@
             user-select: none;
         }
 
+        /* ── Prompt 展开展示相关样式（方案 A & 方案 B 对齐用户参考图） ── */
+        .prompt-mode-bar {
+            width: 100%;
+            max-width: 980px;
+            background: #121524;
+            border: 1px solid #283149;
+            border-radius: 8px;
+            padding: 8px 16px;
+            margin-bottom: 14px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 13px;
+        }
+        .prompt-mode-label {
+            color: var(--accent-yellow);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* 方案 A：树形展开 Prompt */
+        .tree-prompt-subblock {
+            margin-left: 16px;
+            border-left: 1px solid #334155;
+            padding-left: 12px;
+            margin-top: 2px;
+            margin-bottom: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .tree-prompt-line {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            font-size: 13px;
+            color: #94a3b8;
+        }
+        .prompt-green-label {
+            color: var(--accent-bright-green);
+            font-weight: 600;
+        }
+        .tree-prompt-body {
+            margin-left: 20px;
+            color: #cbd5e1;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            font-size: 13px;
+            background: rgba(15, 23, 42, 0.45);
+            padding: 6px 10px;
+            border-radius: 4px;
+            border-left: 2px solid #22c55e;
+        }
+
+        /* 方案 B：还原用户参考图的经典 Agent 工具卡片 */
+        .agent-card-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin: 6px 0;
+        }
+        .agent-card-block {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .agent-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #f1f5f9;
+        }
+        .agent-card-title {
+            font-weight: 700;
+            color: #ffffff;
+        }
+        .agent-card-args {
+            color: #e2e8f0;
+        }
+        .agent-card-subline {
+            margin-left: 18px;
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            color: #94a3b8;
+            font-size: 13.5px;
+        }
+        .agent-card-prompt-body {
+            margin-left: 32px;
+            color: #cbd5e1;
+            white-space: pre-wrap;
+            line-height: 1.55;
+            font-size: 13.5px;
+        }
+
         /* 工具调用树形展示 */
         .tool-block {
             margin: 4px 0;
@@ -580,6 +679,22 @@
         </div>
     </div>
 
+    <!-- 主视口模式切换条（严格对齐真实终端 Ctrl+O 行为：普通模式 ↔ 详细模式反复切换） -->
+    <div class="prompt-mode-bar">
+        <div class="prompt-mode-label">
+            <span>⚡ 当前模式：<strong id="modeStatusText" style="color:var(--accent-bright-green);">详细模式 (已展开 Prompt)</strong></span>
+        </div>
+        <div class="btn-group">
+            <button class="btn active" id="btnToggleDetail" onclick="toggleDetailMode()" style="background:#0284c7; font-weight:bold; color:#fff;">
+                ⌨️ 按 Ctrl+O 切换 (普通折叠 ↔ 详细展开)
+            </button>
+            <span style="color:#475569; display:flex; align-items:center; margin:0 4px;">|</span>
+            <span style="color:#94a3b8; font-size:12px; display:flex; align-items:center;">展开样式选择：</span>
+            <button class="btn active" id="btnStyleCard" onclick="setDetailStyle('card_prompt')">方案 B: 还原参考图卡片 (推荐)</button>
+            <button class="btn" id="btnStyleTree" onclick="setDetailStyle('tree_prompt')">方案 A: 树形展开</button>
+        </div>
+    </div>
+
     <!-- 拟真终端视口 -->
     <div class="terminal-container">
         <!-- 窗口顶栏 -->
@@ -647,6 +762,12 @@
     <div class="info-panel">
         <h3>💡 真实交互机制说明：</h3>
         <ul>
+            <li><strong>Prompt 展开模式 (Ctrl+O)</strong>：针对用户在主 Agent 视图下快速查阅 Prompt 的需求，提供了两种设计方案：
+                <ul style="margin-top:4px;">
+                    <li><strong style="color:#38bdf8;">方案 A (树形向下展开)</strong>：保留树形缩进结构，分支下方挂载 <span class="kbd">└ Prompt:</span> 和指令正文，视觉层级一致。</li>
+                    <li><strong style="color:#48bb78;">方案 B (参考图经典卡片)</strong>：完全还原您的参考图样式，每个任务独立渲染为 <span class="kbd">• Agent(...)</span>、<span class="kbd">└ Backgrounded agent</span>、<span class="kbd">└ Prompt:</span>，一目了然。</li>
+                </ul>
+            </li>
             <li><strong>键盘下键进入管理栏</strong>：在主会话中按 <span class="kbd">↓</span> 键，焦点无缝下移进入底部 Agent 管理抽屉，游标变为 <span class="kbd">&gt;</span>。</li>
             <li><strong>上下移动与回车切换</strong>：在管理栏按 <span class="kbd">↑</span> / <span class="kbd">↓</span> 移动选框。按 <span class="kbd">Enter to view</span> 立即切换进入该子 Agent 的独立会话视口。</li>
             <li><strong>专属视角与定向指令</strong>：进入子 Agent 后，输入框顶部变为亮青色线条并浮现 <span class="kbd">[ 查询天气 ]</span> 标签，输入框占位符变为 <span class="kbd">&gt; Message @general-purpose...</span>，可以对子 Agent 单独追问。</li>
@@ -660,7 +781,9 @@
             currentScenario: 1,
             activeView: 'main',        // 'main' | 'sub1' | 'sub2'
             cursorIndex: 0,            // 0: main, 1: sub1, 2: sub2
-            thoughtExpanded: false,
+            isDetailMode: true,        // 核心：普通模式(false) ↔ 详细模式(true)，由 Ctrl+O 控制反复切换
+            detailStyle: 'card_prompt',// 详细模式展开样式：'card_prompt' (方案B, 默认推荐) | 'tree_prompt' (方案A)
+            thoughtExpanded: true,
             elapsedSeconds: 15,
             agents: [
                 {
@@ -675,27 +798,191 @@
                 {
                     id: 'sub1',
                     type: 'general-purpose',
-                    name: '查询武汉天气',
-                    preview: '查询武汉天气',
-                    statusText: '正在抓取武汉实时天气页面',
+                    name: '广州天气查询(先休眠3分钟)',
+                    preview: '广州天气查询(先休眠3分钟)',
+                    statusText: '正在休眠并抓取广州实时天气',
                     running: true,
                     tokens: '49 tokens',
                     elapsed: '15s',
-                    bashRunningSecs: 7
+                    bashRunningSecs: 7,
+                    prompt: `请严格按以下步骤执行：\n1. 首先在终端执行 sleep 180 (休眠 3 分钟)。\n2. 休眠结束后，查询中国广州的当前天气情况 (可使用 curl -s "wttr.in/Guangzhou?format=4" 或网络搜索等方式)。\n3. 必须使用中文回答，简洁汇报广州的天气状况 (包含天气现象、温度、风向等关键信息)。不要修改任何本地文件。`
                 },
                 {
                     id: 'sub2',
                     type: 'general-purpose',
-                    name: '查询随州天气',
-                    preview: '查询随州天气',
-                    statusText: '正在等待 60 秒后查天气',
+                    name: '厦门天气查询(先休眠2分钟)',
+                    preview: '厦门天气查询(先休眠2分钟)',
+                    statusText: '正在等待 2 分钟后查天气',
                     running: true,
                     tokens: '33 tokens',
                     elapsed: '15s',
-                    bashRunningSecs: 7
+                    bashRunningSecs: 7,
+                    prompt: `请严格按以下步骤执行：\n1. 首先在终端执行 sleep 120 (休眠 2 分钟)。\n2. 休眠结束后，查询中国厦门的天气情况 (可使用 curl -s "wttr.in/Xiamen?format=4" 或网络搜索等方式)。\n3. 必须使用中文回答，简洁汇报厦门的天气状况 (包含天气现象、温度、风向等关键信息)。不要修改任何本地文件。`
                 }
             ]
         };
+
+        // 按 Ctrl+O：在普通模式(折叠) 与 详细模式(展开) 之间反复切换
+        function toggleDetailMode() {
+            state.isDetailMode = !state.isDetailMode;
+            state.thoughtExpanded = state.isDetailMode;
+            syncModeBarUi();
+            render();
+        }
+
+        // 选择详细模式下的展示样式（方案 B vs 方案 A）
+        function setDetailStyle(style) {
+            state.detailStyle = style;
+            state.isDetailMode = true; // 选定样式时自动切到详细模式预览
+            state.thoughtExpanded = true;
+            syncModeBarUi();
+            render();
+        }
+
+        // 同步顶部模式控制条的文字和按键高亮
+        function syncModeBarUi() {
+            const statusText = document.getElementById('modeStatusText');
+            const btnToggle = document.getElementById('btnToggleDetail');
+            const btnCard = document.getElementById('btnStyleCard');
+            const btnTree = document.getElementById('btnStyleTree');
+
+            if (state.isDetailMode) {
+                const styleName = state.detailStyle === 'card_prompt' ? '方案 B (参考图卡片)' : '方案 A (树形展开)';
+                statusText.innerText = `详细模式 [已展开 Prompt · ${styleName}]`;
+                statusText.style.color = 'var(--accent-bright-green)';
+                btnToggle.innerText = '⌨️ 按 Ctrl+O 切换到 [普通模式 (折叠)]';
+                btnToggle.style.background = '#059669';
+            } else {
+                statusText.innerText = '普通模式 [极简树形已折叠]';
+                statusText.style.color = '#94a3b8';
+                btnToggle.innerText = '⌨️ 按 Ctrl+O 切换到 [详细模式 (展开)]';
+                btnToggle.style.background = '#0284c7';
+            }
+
+            btnCard.classList.toggle('active', state.detailStyle === 'card_prompt');
+            btnTree.classList.toggle('active', state.detailStyle === 'tree_prompt');
+        }
+
+        // HTML 转义辅助
+        function escapeHtml(str) {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // 渲染主视口中的子任务启动区域（严格根据 isDetailMode 决定折叠或展开）
+        function renderSubagentLaunchArea() {
+            const sub1 = state.agents[1];
+            const sub2 = state.agents[2];
+
+            // 1. 普通模式：极简树形折叠态
+            if (!state.isDetailMode) {
+                return `
+                    <div class="agent-tree-container">
+                        <div class="agent-tree-header">
+                            <span class="bullet-dot bullet-green">•</span>
+                            <span style="font-weight:600;">2 background agents launched</span>
+                            <span class="badge-manage">(↓ to manage) <span style="color:#64748b; font-size:12px;">[当前为普通模式 · 按 Ctrl+O 展开详细]</span></span>
+                        </div>
+                        <div class="agent-tree-items">
+                            <div class="tree-row">
+                                <span class="tree-branch">├──</span>
+                                <span>${sub1.name}</span>
+                            </div>
+                            <div class="tree-row">
+                                <span class="tree-branch">└──</span>
+                                <span>${sub2.name}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 2. 详细模式：展开态
+            if (state.detailStyle === 'card_prompt') {
+                // 方案 B：完全还原用户参考图（经典 Agent 工具卡片）
+                return `
+                    <div class="agent-card-group">
+                        <div class="agent-card-block">
+                            <div class="agent-card-header">
+                                <span class="bullet-dot bullet-green" style="font-size:15px; line-height:1;">●</span>
+                                <span class="agent-card-title">Agent</span><span class="agent-card-args">(${sub1.name})</span>
+                            </div>
+                            <div class="agent-card-subline">
+                                <span class="tree-branch">└</span>
+                                <span>Backgrounded agent</span>
+                            </div>
+                            <div class="agent-card-subline">
+                                <span class="tree-branch">└</span>
+                                <span class="prompt-green-label">Prompt:</span>
+                            </div>
+                            <div class="agent-card-prompt-body">${escapeHtml(sub1.prompt)}</div>
+                        </div>
+
+                        <div class="agent-card-block">
+                            <div class="agent-card-header">
+                                <span class="bullet-dot bullet-green" style="font-size:15px; line-height:1;">●</span>
+                                <span class="agent-card-title">Agent</span><span class="agent-card-args">(${sub2.name})</span>
+                            </div>
+                            <div class="agent-card-subline">
+                                <span class="tree-branch">└</span>
+                                <span>Backgrounded agent</span>
+                            </div>
+                            <div class="agent-card-subline">
+                                <span class="tree-branch">└</span>
+                                <span class="prompt-green-label">Prompt:</span>
+                            </div>
+                            <div class="agent-card-prompt-body">${escapeHtml(sub2.prompt)}</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // 方案 A：树形向下内嵌展开 Prompt
+                return `
+                    <div class="agent-tree-container">
+                        <div class="agent-tree-header">
+                            <span class="bullet-dot bullet-green">•</span>
+                            <span style="font-weight:600;">2 background agents launched</span>
+                            <span class="badge-manage">(↓ to manage) <span style="color:#38bdf8; font-size:12px;">[方案 A 树形展开 · 按 Ctrl+O 折叠]</span></span>
+                        </div>
+                        <div class="agent-tree-items">
+                            <div class="tree-row">
+                                <span class="tree-branch">├──</span>
+                                <span style="font-weight:600; color:#f1f5f9;">${sub1.name}</span>
+                            </div>
+                            <div class="tree-prompt-subblock">
+                                <div class="tree-prompt-line">
+                                    <span class="tree-branch">└</span>
+                                    <span>Backgrounded agent</span>
+                                </div>
+                                <div class="tree-prompt-line">
+                                    <span class="tree-branch">└</span>
+                                    <span class="prompt-green-label">Prompt:</span>
+                                </div>
+                                <div class="tree-prompt-body">${escapeHtml(sub1.prompt)}</div>
+                            </div>
+
+                            <div class="tree-row" style="margin-top:6px;">
+                                <span class="tree-branch">└──</span>
+                                <span style="font-weight:600; color:#f1f5f9;">${sub2.name}</span>
+                            </div>
+                            <div class="tree-prompt-subblock">
+                                <div class="tree-prompt-line">
+                                    <span class="tree-branch">└</span>
+                                    <span>Backgrounded agent</span>
+                                </div>
+                                <div class="tree-prompt-line">
+                                    <span class="tree-branch">└</span>
+                                    <span class="prompt-green-label">Prompt:</span>
+                                </div>
+                                <div class="tree-prompt-body">${escapeHtml(sub2.prompt)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
 
         // 渲染主函数
         function render() {
@@ -730,26 +1017,10 @@
 
                         <div class="assistant-message">
                             <span class="bullet-dot">•</span>
-                            <span>现在并行启动 2 个子 Agent，分别等待 60 秒后查询武汉和随州的天气情况。</span>
+                            <span>现在并行启动 2 个子 Agent，分别等待对应时长后查询广州和厦门的天气情况。</span>
                         </div>
 
-                        <div class="agent-tree-container">
-                            <div class="agent-tree-header">
-                                <span class="bullet-dot bullet-green">•</span>
-                                <span style="font-weight:600;">2 background agents launched</span>
-                                <span class="badge-manage">(↓ to manage)</span>
-                            </div>
-                            <div class="agent-tree-items">
-                                <div class="tree-row">
-                                    <span class="tree-branch">├</span>
-                                    <span>查询武汉天气</span>
-                                </div>
-                                <div class="tree-row">
-                                    <span class="tree-branch">└</span>
-                                    <span>查询随州天气</span>
-                                </div>
-                            </div>
-                        </div>
+                        ${renderSubagentLaunchArea()}
 
                         <div class="spinner-line">
                             <span class="spinner-asterisk">✱</span>
@@ -762,20 +1033,10 @@
                     html += `
                         <div class="assistant-message">
                             <span class="bullet-dot">•</span>
-                            <span>现在并行启动 2 个子 Agent，分别等待 60 秒后查询武汉和随州的天气情况。</span>
+                            <span>现在并行启动 2 个子 Agent，分别等待对应时长后查询广州和厦门的天气情况。</span>
                         </div>
 
-                        <div class="agent-tree-container">
-                            <div class="agent-tree-header">
-                                <span class="bullet-dot bullet-green">•</span>
-                                <span style="font-weight:600;">2 background agents launched</span>
-                                <span class="badge-manage">(↓ to manage)</span>
-                            </div>
-                            <div class="agent-tree-items">
-                                <div class="tree-row"><span class="tree-branch">├</span> 查询武汉天气</div>
-                                <div class="tree-row"><span class="tree-branch">└</span> 查询随州天气</div>
-                            </div>
-                        </div>
+                        ${renderSubagentLaunchArea()}
 
                         <div class="assistant-message">
                             <span class="bullet-dot">•</span>
@@ -1065,9 +1326,10 @@
                 // Enter to view
                 state.activeView = state.agents[state.cursorIndex].id;
                 render();
-            } else if (e.key === 'o' && e.ctrlKey) {
+            } else if ((e.key === 'o' || e.key === 'O') && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                toggleThought();
+                // Ctrl+O 真实终端行为：在普通折叠态与详细展开态之间反复切换
+                toggleDetailMode();
             } else if (e.key === 'x' && !e.ctrlKey) {
                 // x to stop selected
                 if (state.cursorIndex > 0) {
@@ -1090,6 +1352,7 @@
         }, 3000);
 
         // 初始渲染
+        syncModeBarUi();
         render();
     </script>
 </body>
