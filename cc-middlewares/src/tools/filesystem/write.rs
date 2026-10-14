@@ -10,7 +10,7 @@ Usage:
 - Inspect an existing file before overwriting it; use Edit for targeted changes. Preserve unrelated user changes.
 - Provide file_path and content. Parent directories are created automatically.
 - Default writes replace the full file using a temporary file and rename. append=true adds content directly to the end.
-- Create files, including documentation, when required by the task or project conventions.
+- NEVER create documentation files (*.md) or README files unless explicitly requested by the user.
 - For deliberate chunked writes, create the first chunk normally, then append subsequent chunks. Check completion before reporting the file as finished."#;
 
 /// Write tool - 与 TypeScript write_tool 对齐
