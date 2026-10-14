@@ -20,11 +20,7 @@ Perihelion Agent 版本变更记录。
 - **Windows 下默认静音 mimalloc 的底层 `stderr` 裸打（#483）**：Windows 长时间多轮会话或高负载子 Agent 期间，全局分配器 `mimalloc` 遇到虚拟内存提交耗尽（OS error 1455 / `ERROR_COMMITMENT_LIMIT`）时，会经 `_mi_warning_message` 直接向操作系统底层 `stderr` 打印 `mimalloc: warning: cannot commit OS memory ...`，**完全绕过 `tracing` 并击穿 Crossterm/Ratatui 的备用屏幕**，把当前渲染行（状态条、Todo 列表）打花撕裂。现于 `alloc_config/windows_tuning.rs` 的 `init()` 阶段用 `set_option` 将 `mi_option_show_errors` 与 `mi_option_verbose` 默认置 0（查证 mimalloc C 源码：两者为 0 时 `_mi_warning_message` 首行即 `return`），并注册 no-op 顶层钩子兜底。
 - **修复 auto-compact 被误判为手动 compact、导致中途提前关闭 loading（#481）**：长会话触发 auto-compact 后底部 Tip 提示行与 spinner 行消失、Bash 卡片仍在运行。真因是 `ExecutorEvent::CompactStarted` 未携带触发来源，手动/自动共用同一事件，TUI 侧 `handle_compact_started` 无条件把 `compact_manual` 置 `true`，压缩结束即 `set_loading(false)`；而 auto-compact 后 agent 在服务端继续 resubmit 且不再 `set_loading(true)`，本回合剩余全程处于 `loading=false`，级联导致：Tip/spinner 行消失、Ctrl+C 与 Esc 无法中断、回车由「排队」反转为「直接并发提交」。现 `CompactStarted` 增加 `#[serde(default)] manual: bool` 从源头带上来源，TUI 按 `is_manual` 门控 `set_loading(false)`，auto-compact 保持 loading 直至 agent 最终结束。
 
-### Fixes
-
 - **主视口按 `Ctrl+O` 展开子 Agent 的 Prompt 卡片**：后台子任务启动摘要默认仍是极简树形（`• N background agents launched` + `├──`/`└──` 任务行），按 `Ctrl+O` 进入详细模式后切换为经典工具卡片——`● Agent(任务预览)` + `  └ Backgrounded agent` + `  └ Prompt:`（绿色加粗）+ 指令**全文**（6 列悬挂缩进折行），再次 `Ctrl+O` 收回，便于在主会话直接核验下发给各子 Agent 的指令。为此 `AgentEvent::SubagentStarted` 新增 `prompt` 字段携带指令原文（此前只有 `task_preview` 40 字摘要，全文在事件流中被丢弃），`BackgroundAgentSession.prompt` 持久该会话指令，`MessageViewModel::SystemNote` 新增 `detail_content`（参与 `PartialEq`/`Hash`，由 `detail_mode` 单选渲染）。卡片圆点统一为系统大实心圆点 `●`（`U+25CF`，与 `● Bash(...)` 同字形同大小），修复了此前误用小圆点 `•`（`U+2022`）导致「圆点比其他工具小一号」的观感差异；同时修掉逐行解析用字节下标切片（`&line[4..]`）在 `└` 多字节字形上 panic 的缺陷。
-
-### Fixes
 
 - **`AgentResult` 不再被推荐为可调用工具（#470）**：工具发现索引排除仅用于历史兼容的 `AgentResult`，延迟工具提示、关键词搜索与 `select:` 精确查询均不再返回它；描述首行在 160 字摘要内完整保留直接/间接调用禁令与自动通知指引。保留旧会话误调用的明确错误和后台结果的 `tool_use` / `tool_result` 自动回流，不改变通用摘要长度或跨轮提示词缓存机制。
 
