@@ -164,6 +164,7 @@ target
 .claude/*.lock
 *.png
 !assets/partners/logos/*.png
+!cc-tui/assets/*.png
 node_modules/
 *.log
 
