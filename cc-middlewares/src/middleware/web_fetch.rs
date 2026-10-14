@@ -40,6 +40,7 @@ const WEB_FETCH_DESCRIPTION: &str = r#"Fetches a web page by URL and returns its
 
 Usage:
 - Only http:// and https:// URLs are allowed
+- For remote http(s) content only. To read a local file use Read; to search local files use Grep/Glob; to run a command use Bash. Hostnames without a dot (e.g. localhost) are not supported
 - Content is returned as clean text extracted from the page
 - Results are truncated at 2000 lines
 - An optional 'prompt' parameter provides guidance for how to use the fetched content
