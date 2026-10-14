@@ -1811,10 +1811,69 @@ pub fn render_view_model_with_links(
 
             (lines, link_hits)
         }
-        MessageViewModel::SystemNote { content, .. } => {
+        MessageViewModel::SystemNote {
+            content,
+            detail_content,
+            ..
+        } => {
+            let active_content = if detail_mode && detail_content.is_some() {
+                detail_content.as_deref().unwrap()
+            } else {
+                content.as_str()
+            };
             let mut lines = Vec::new();
-            for line in content.lines() {
-                if line.starts_with('✻') {
+            for line in active_content.lines() {
+                if line.is_empty() {
+                    lines.push(Line::default());
+                    continue;
+                }
+                if line.starts_with("  └ Prompt:") {
+                    // 详细模式下高亮绿色的 Prompt 标签（对齐用户参考图方案 B）
+                    lines.push(Line::from(vec![
+                        Span::styled("  └ ", Style::default().fg(theme::DIM)),
+                        Span::styled(
+                            "Prompt:",
+                            Style::default()
+                                .fg(theme::SAGE)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                } else if let Some(rest) = line.strip_prefix("  └ ") {
+                    lines.push(Line::from(vec![
+                        Span::styled("  └ ", Style::default().fg(theme::DIM)),
+                        Span::styled(sanitize_display_text(rest), Style::default().fg(theme::MUTED)),
+                    ]));
+                } else if let Some(text) = line.strip_prefix("      ") {
+                    // Prompt 详细正文行（缩进 6 列）
+                    let row = Line::from(Span::styled(
+                        sanitize_display_text(text),
+                        Style::default().fg(theme::TEXT_SOFT),
+                    ));
+                    push_wrapped_line_keep_lead(
+                        &mut lines,
+                        row,
+                        "      ",
+                        "      ",
+                        Style::default().fg(theme::DIM),
+                        width.saturating_sub(6).max(20),
+                    );
+                } else if let Some(rest) = line.strip_prefix("● Agent(").or_else(|| line.strip_prefix("• Agent(")) {
+                    // 详细模式卡片标题：● Agent(任务预览)（对齐系统 Bash 工具统一 ● 圆点符号）
+                    let rest_args = rest.strip_suffix(')').unwrap_or(rest);
+                    lines.push(Line::from(vec![
+                        Span::styled("● ", Style::default().fg(theme::SAGE)),
+                        Span::styled(
+                            "Agent",
+                            Style::default()
+                                .fg(theme::TEXT)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("({})", sanitize_display_text(rest_args)),
+                            Style::default().fg(theme::TEXT_SOFT),
+                        ),
+                    ]));
+                } else if line.starts_with('✻') {
                     let l = Line::from(Span::styled(
                         sanitize_display_text(line),
                         Style::default().fg(theme::DIM),

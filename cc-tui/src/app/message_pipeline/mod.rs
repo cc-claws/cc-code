@@ -481,9 +481,11 @@ impl MessagePipeline {
                 instance_id,
                 task_preview,
                 is_background,
+                prompt,
             } => {
+                let actual_prompt = prompt.as_deref().unwrap_or(&task_preview);
                 let input =
-                    serde_json::json!({"subagent_type": &agent_id, "prompt": &task_preview});
+                    serde_json::json!({"subagent_type": &agent_id, "prompt": actual_prompt});
                 self.tool_start_internal(&instance_id, "Agent", input, is_background);
                 vec![PipelineAction::None]
             }

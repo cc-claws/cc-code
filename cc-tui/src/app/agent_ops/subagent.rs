@@ -77,12 +77,22 @@ impl App {
         instance_id: String,
         task_preview: String,
         is_background: bool,
+        prompt: Option<String>,
     ) -> (bool, bool, bool) {
         if !self.session_mgr.current().subagent_sessions.contains_key(&instance_id) {
-            let sub = super::super::subagent_session::BackgroundAgentSession::new(
+            let mut sub = super::super::subagent_session::BackgroundAgentSession::new(
                 instance_id.clone(), agent_id.clone(), task_preview.clone(), self.services.cwd.clone(),
             );
+            if let Some(ref p) = prompt {
+                sub.prompt = p.clone();
+            }
             self.session_mgr.current_mut().subagent_sessions.insert(instance_id.clone(), sub);
+        } else if let Some(ref p) = prompt {
+            if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&instance_id) {
+                if sub.prompt.is_empty() {
+                    sub.prompt = p.clone();
+                }
+            }
         }
         if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&instance_id) {
             sub.is_background = is_background;
@@ -110,6 +120,7 @@ impl App {
                     instance_id: instance_id.clone(),
                     task_preview: task_preview.clone(),
                     is_background,
+                    prompt,
                 });
             for action in actions {
                 self.apply_pipeline_action(action);
@@ -126,12 +137,35 @@ impl App {
             session.subagent_sessions.get(&agent.instance_id)
         }).collect();
         if agents.is_empty() { return; }
+
+        // 1. 普通模式：极简树形摘要
         let mut content = format!("• {} background agents launched (↓ to manage)", agents.len());
         for (index, agent) in agents.iter().enumerate() {
             // 树形行：缩进 2 列 → `├` 与标题文字同列；渲染层识别该形状后不再注入 `· ` 前缀。
             let branch = if index + 1 == agents.len() { "└──" } else { "├──" };
             content.push_str(&format!("\n  {branch} {}", agent.task_preview));
         }
+
+        // 2. 详细模式（Ctrl+O）：方案 B 经典卡片（完美对齐参考图）
+        let mut detail_content = String::new();
+        for (index, agent) in agents.iter().enumerate() {
+            if index > 0 {
+                detail_content.push_str("\n\n");
+            }
+            detail_content.push_str(&format!(
+                "● Agent({})\n  └ Backgrounded agent\n  └ Prompt:",
+                agent.task_preview
+            ));
+            let prompt_text = if !agent.prompt.is_empty() {
+                &agent.prompt
+            } else {
+                &agent.task_preview
+            };
+            for line in prompt_text.lines() {
+                detail_content.push_str(&format!("\n      {line}"));
+            }
+        }
+
         // 摘要属于临时 UI 节点，规范历史仍由 Agent 工具调用及结果持久化。
         session.messages.ephemeral_notes.retain(|(_, vm)| {
             !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
@@ -139,7 +173,7 @@ impl App {
         session.messages.view_messages.retain(|vm| {
             !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
         });
-        session.messages.push_system_note(content);
+        session.messages.push_system_note_with_detail(content, detail_content);
     }
 
     pub(crate) fn handle_subagent_event(&mut self, id: &str, mut event: AgentEvent) -> (bool, bool, bool) {
@@ -213,6 +247,7 @@ impl App {
                     // 默认 `true`：本分支已无前台同步模式，缺字段的载荷（旧服务端 /
                     // 非 ACP 客户端）若被当成前台，会重新打开「子过程二次投递进主消息区」。
                     params["isBackground"].as_bool().unwrap_or(true),
+                    params["prompt"].as_str().map(String::from),
                 );
                 if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
                     sub.timeout_secs = params["timeoutSecs"].as_u64().filter(|value| *value > 0);

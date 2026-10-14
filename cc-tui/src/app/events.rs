@@ -97,6 +97,7 @@ pub enum AgentEvent {
         instance_id: String,
         task_preview: String,
         is_background: bool,
+        prompt: Option<String>,
     },
     /// SubAgent 执行结束
     SubAgentEnd {

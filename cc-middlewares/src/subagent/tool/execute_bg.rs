@@ -120,13 +120,14 @@ impl super::SubAgentTool {
         let sender = self.bg_event_sender.clone();
         let fallback = self.event_handler.clone();
         let deregister = self.deregister_runtime.clone();
+        let task_prompt = prompt.clone();
         // 先原子注册，再打开启动闸门；快速完成和并发抢槽不会生成幽灵任务。
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let handle = tokio::spawn(async move {
             if start_rx.await.is_err() { return; }
             let _guard = super::define::DeregisterGuard { thread_id: spawn_thread.clone(), deregister };
             let start = std::time::Instant::now();
-            handler.on_event(AgentEvent::StateSnapshot(vec![BaseMessage::human(prompt)]));
+            handler.on_event(AgentEvent::StateSnapshot(vec![BaseMessage::human(task_prompt)]));
             // 执行体再包一层 task：子 Agent 内部 panic 会被 JoinError 捕获，从而仍能
             // 走完「complete → 落库 → 发终态事件 → 触发 hook」。
             // 不做这层保护的话，panic 会让注册表槽位永久占用（并发额度泄漏）、抽屉行
@@ -182,7 +183,7 @@ impl super::SubAgentTool {
         registry.attach_runtime(snapshot, cancel.clone(), mailbox);
         if let Some(register) = &self.register_runtime { register(thread_id.clone(), cancel, "independent".into()); }
         let started = AgentEvent::SubagentStarted { agent_name: agent_name.clone(), instance_id: thread_id.clone(), is_background: true,
-            task_preview: preview, timeout_secs, model };
+            task_preview: preview, timeout_secs, model, prompt: Some(prompt.clone()) };
         // 与过程事件同一发送通道，开始事件必定排在首个增量之前。
         if let Some(sender) = &self.bg_event_sender { let _ = sender.send(started); }
         else if let Some(handler) = &self.event_handler { handler.on_event(started); }

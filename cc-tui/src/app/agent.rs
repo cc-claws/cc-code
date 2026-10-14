@@ -26,12 +26,14 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             instance_id,
             is_background,
             task_preview,
+            prompt,
             ..
         } => AgentEvent::SubAgentStart {
             agent_id: agent_name.clone(),
             instance_id,
             task_preview,
             is_background,
+            prompt,
         },
         ExecutorEvent::SubagentStopped {
             agent_name,
