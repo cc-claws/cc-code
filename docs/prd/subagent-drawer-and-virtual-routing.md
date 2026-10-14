@@ -29,7 +29,7 @@
 │ [主消息视口 (Main Viewport)]                                           │
 │  • 现在并行启动 2 个子 Agent，分别等待 60 秒后查询武汉和随州的天气情况。 │
 │                                                                        │
-│  • 2 background agents launched (↓ to manage)                          │
+│  ● 2 background agents launched (↓ to manage)                          │
 │    ├── 查询武汉天气                                                     │
 │    └── 查询随州天气                                                     │
 │                                                                        │
@@ -476,7 +476,7 @@ impl App {
 2. `ToolEnd` 必须对称回收：`running_tools.retain(..)`、`finish_recent_tool(..)`，并把 `active_tool` 回退为 `running_tools.last()`。
 3. 状态栏工具计数（`session_tool_stats`）按 §4.6 强隔离：只累加该子会话自己的计数，`ToolEnd` 计数必须以「`running_tool_times` 中确实存在该 `tool_call_id`」为前提（防重复计数）。
 4. `current_activity`（抽屉中间列）与 `active_tool`（审批条）职责分离：前者是子 Agent 的**助手文本**（`activity_buffer` 累积 `AssistantChunk`，`ToolEnd` 复位），后者才是工具串；`ToolStart` **不得**用 `display(args)` 覆盖 `current_activity`。
-5. **任务预览（`task_preview`）的来源**：启动摘要（`• N background agents launched`）、抽屉行的回退标题、状态栏标题都读它，必须优先取 Agent 工具显式传入的 `description`（schema 已声明 "used for UI display"），缺失时才退回 prompt 并**跳过 `【…】` / `[…]` 包裹的纯指令行**，上限 40 字符（`cc-middlewares/src/subagent/tool/mod.rs` 的 `subagent_task_preview()`）。
+5. **任务预览（`task_preview`）的来源**：启动摘要（`● N background agents launched`）、抽屉行的回退标题、状态栏标题都读它，必须优先取 Agent 工具显式传入的 `description`（schema 已声明 "used for UI display"），缺失时才退回 prompt 并**跳过 `【…】` / `[…]` 包裹的纯指令行**，上限 40 字符（`cc-middlewares/src/subagent/tool/mod.rs` 的 `subagent_task_preview()`）。
    **禁止**直接取 prompt 首行——模型习惯把语言约束写在第一行，会把注入给子 Agent 的指令变成任务标题（真机症状：两个后台子任务标题都显示成 `【必须全程用中文思考和回答】`）。
 
 ---
@@ -535,7 +535,7 @@ fork **不是另一种东西**，而是「带主 Agent 上下文的子 Agent」�
    * `cc-tui`（`app/events.rs` → `app/agent.rs` → `app/agent_ops/subagent.rs`）：`AgentEvent::SubAgentStart` 同步携带 `prompt`；`BackgroundAgentSession` 新增 `prompt: String` 字段持久该会话的指令全文。ACP 生命周期路径（§5.2）从 `params["prompt"]` 读取，缺字段时为 `None`。
 2. **渲染契约：两种形态由 `detail_mode` 唯一决定，内容同源**。
    * 摘要 VM 为 `MessageViewModel::SystemNote`，新增 `detail_content: Option<String>`：`content` 存折叠树形，`detail_content` 存详细卡片，二者同源于同一批 `subagent_sessions`（`update_subagent_launch_summary()` 单点生成）。`SystemNote` 的 `PartialEq` / `Hash` 必须包含 `detail_content`，否则 Ctrl+O 切换不触发重渲染。
-   * **普通模式**（`detail_mode = false`）：渲染 `content`，即 `• N background agents launched (↓ to manage)` + `├──`/`└──` 任务行（字形规范见 §2.1）。
+   * **普通模式**（`detail_mode = false`）：渲染 `content`，即 `● N background agents launched (↓ to manage)` + `├──`/`└──` 任务行（字形规范见 §2.1）。
    * **详细模式**（`detail_mode = true` 且有 `detail_content`）：渲染 `detail_content`，对齐 `docs/subagent-mock.html` **方案 B**：
      ```
      ● Agent(<任务预览>)
@@ -664,7 +664,7 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
 - [ ] **视口内遇到子 Agent 结束**：画面内容不消失（行内转绿显示 `✓ completed`），继续读没问题；按 `Esc` 返回主会话时该行才收起、会话回收。
 - [ ] 子任务视口内可完整看到其内部的 Thinking（支持 `Ctrl+O` 折叠）、Bash 倒计时和 Spinner，且状态栏第 2 行显示**该子任务专属**的工具计数（非空、非主会话数字）。
 - [ ] 在子任务视口中按 `↑` 选回 `main` 并按 `Enter`，可平滑返回主会话。
-- [ ] 启动摘要为对齐树形块：`• N background agents launched (↓ to manage)` + `  ├── 任务` / `  └── 任务`，**不得**出现 `· •` 双标记或分支错列；子 Agent 完成行同样只带一个 `•`。
+- [ ] 启动摘要为对齐树形块：`● N background agents launched (↓ to manage)` + `  ├── 任务` / `  └── 任务`，**不得**出现 `· ●` 双标记或分支错列；子 Agent 完成行同样只带一个 `●`（统一走 `theme::SYMBOL_DOT`）。
 - [ ] 按 `Ctrl+O` 进入详细模式：启动摘要切换为方案 B 卡片——`● Agent(任务预览)`（**大实心圆点，与 `● Bash(...)` 同字形、同大小**）+ `  └ Backgrounded agent` + `  └ Prompt:`（绿色加粗）+ 指令全文（6 列缩进、长行折行、CJK 不断裂）；再次 `Ctrl+O` 收回极简树形，**不得**出现两种形态混排或圆点变小。
 - [ ] 子任务结束时，主会话打印 `• Agent "xxx" finished · 1m 32s`，主模型完成报告输出。
 - [ ] 终端窗口缩小时（24 行高度），抽屉为 `6` 行（5 内容行 + 1 空行）；总高 `< 18` 行退化为 `2` 行紧凑态，不发生界面崩溃或文字重叠。

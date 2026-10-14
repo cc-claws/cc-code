@@ -141,13 +141,15 @@
 源码：`cc-tui/src/app/agent_ops/subagent.rs`（生成）+ `cc-tui/src/ui/message_render.rs`（渲染）。
 同一 `SystemNote` VM 的两份文本（`content` / `detail_content`），由 `detail_mode` 单选渲染：
 
-**普通模式**：极简树形，标题 `•` 用 SAGE、任务名 `TEXT_SOFT`、分支 `├──`/`└──` 用 DIM，缩进 2 列使**字形**与标题文字同列；该形状由 `split_tree_row()` 识别，**不得**注入 `· ` 前缀。
+**普通模式**：极简树形，标题 `●`（`theme::SYMBOL_DOT`）用 SAGE、任务名 `TEXT_SOFT`、分支 `├──`/`└──` 用 DIM，缩进 2 列使**字形**与标题文字同列；该形状由 `split_tree_row()` 识别，**不得**注入 `· ` 前缀。
 
 ```
-• 2 background agents launched (↓ to manage)
+● 2 background agents launched (↓ to manage)
   ├── 广州天气查询(先休眠3分钟)
   └── 厦门天气查询(先休眠2分钟)
 ```
+
+> **圆点统一契约**：全界面行首状态圆点一律引用 `crate::ui::theme::SYMBOL_DOT`（`●` `U+25CF`，以 `● Bash(...)` 为唯一样式基准），**严禁**使用小圆点 `•`（`U+2022`）等异形符号造成字形一大一小。
 
 **详细模式（`Ctrl+O`）**：每个任务一张卡片，标题 `●` 用 **SAGE + 大实心圆点 `U+25CF`**（与 `● Bash(...)` 同字形，**禁止**用小圆点 `•` `U+2022`），`Agent` 用 TEXT + BOLD、`(任务预览)` 用 TEXT_SOFT；层级前缀 `  └ ` 与 `Backgrounded agent` 用 DIM/MUTED，`Prompt:` 用 SAGE + BOLD；指令正文 6 列悬挂缩进、按显示宽度折行。卡片之间空一行。
 

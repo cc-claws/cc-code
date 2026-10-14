@@ -73,7 +73,7 @@ Event::Key → PanelManager::dispatch_key(input, ctx)
 
 ```
 peri/subagent_lifecycle started → 创建 BackgroundAgentSession 句柄 + 抽屉行
-  → 主时间线打印树形启动摘要（• N background agents launched + ├──/└── 任务）
+  → 主时间线打印树形启动摘要（● N background agents launched + ├──/└── 任务，圆点统一走 theme::SYMBOL_DOT）
   → 按 Ctrl+O 进入详细模式：摘要切换为方案 B Prompt 卡片（● Agent(任务预览) + └ Backgrounded agent
     + └ Prompt: 指令全文），再次 Ctrl+O 收回；两形态同源同一 SystemNote VM（content / detail_content）
 

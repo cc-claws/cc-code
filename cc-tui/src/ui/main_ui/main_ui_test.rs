@@ -930,12 +930,12 @@ async fn test_background_launch_summary_renders_as_aligned_tree() {
 
     let header = rows.iter().position(|row| row.contains("background agents launched")).expect("应渲染启动摘要标题");
     assert!(
-        rows[header].starts_with("• "),
-        "标题行应自带 `• ` 项目符号，不得再被注入 `· `：{:?}",
+        rows[header].starts_with("● "),
+        "标题行应自带全局统一圆点 `● `（theme::SYMBOL_DOT_SPACED），不得再被注入 `· `：{:?}",
         rows[header]
     );
-    assert!(!rows[header].contains("· "), "不得出现 `· •` 双标记：{:?}", rows[header]);
-    // 比较显示列宽（`•` 是 3 字节 1 列，不能用字节下标）
+    assert!(!rows[header].contains("· "), "不得出现 `· ●` 双标记：{:?}", rows[header]);
+    // 比较显示列宽（`●` 是 3 字节 1 列，不能用字节下标）
     let display_col = |text: &str, byte_index: usize| {
         unicode_width::UnicodeWidthStr::width(&text[..byte_index])
     };
