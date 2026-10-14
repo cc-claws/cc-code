@@ -1,6 +1,6 @@
 # PRD: 后台多子 Agent 抽屉式管理与虚拟视口路由系统
 
-> **文档版本**：v2.4 (§4.14.5 剔除判据改为「活跃轮次尾部产地」并删除 `bg_drawer_seen`；修正 `/rewind` 归档卡片被误删的回归)  
+> **文档版本**：v2.5 (新增 §4.17 详细模式（Ctrl+O）主视口 Prompt 卡片展开，`SubagentStarted` 事件补齐 `prompt` 全文字段)  
 > **基线代码**：`origin/main` (`cc-tui`, `cc-acp`, `cc-middlewares`, `cc-agent`)；真机联调基线 `feat/subagent-drawer-routing`
 > **关联原型**：`docs/subagent-mock.html`（已通过浏览器验证并对齐真实终端截图）  
 > **关联历史**：`docs/superpowers/specs/2026-05-26-background-agent-bar-design.md`
@@ -491,6 +491,31 @@ fork **不是另一种东西**，而是「带主 Agent 上下文的子 Agent」�
 5. **其余一律共用**：子线程建档、`SubagentStarted/Stopped` 事件与 hooks、`task_preview`（§4.13 第 5 条）、max_iterations 与模型（取自 agent_def）、结果格式化、状态流转。
 6. **漂移防御**：任何子 Agent 行为改动只改 fork 或只改普通路径，视为回归。已有用例守住：fork 启动事件的 `task_preview` 来自 `description`；fork 不套 agent.md 覆写、普通子 Agent 套（`tool_test.rs`）。
 
+### 4.17 详细模式（Ctrl+O）主视口 Prompt 卡片展开
+
+用户在主 Agent 视口需要**核验「主 Agent 究竟给子 Agent 下发了什么指令」**。启动摘要默认折叠为极简树形（§2.1 第 1 条），Prompt 全文在该形态下不可见；本节定义详细模式下的展开规范。
+
+1. **数据契约：`Prompt` 全文必须随启动事件到达 TUI**。
+   * `cc-agent`：`AgentEvent::SubagentStarted` 新增 `prompt: Option<String>`（`#[serde(default)]`，兼容旧载荷）。此前只带 `task_preview`（40 字摘要），全文在事件流中被丢弃。
+   * `cc-middlewares`（`src/subagent/tool/execute_bg.rs`）：派发 `SubagentStarted` 时填 `prompt: Some(prompt.clone())`（**原始指令全文**，fork 场景也应传调用方传入的 prompt，不得传包装后的 directive）。
+   * `cc-tui`（`app/events.rs` → `app/agent.rs` → `app/agent_ops/subagent.rs`）：`AgentEvent::SubAgentStart` 同步携带 `prompt`；`BackgroundAgentSession` 新增 `prompt: String` 字段持久该会话的指令全文。ACP 生命周期路径（§5.2）从 `params["prompt"]` 读取，缺字段时为 `None`。
+2. **渲染契约：两种形态由 `detail_mode` 唯一决定，内容同源**。
+   * 摘要 VM 为 `MessageViewModel::SystemNote`，新增 `detail_content: Option<String>`：`content` 存折叠树形，`detail_content` 存详细卡片，二者同源于同一批 `subagent_sessions`（`update_subagent_launch_summary()` 单点生成）。`SystemNote` 的 `PartialEq` / `Hash` 必须包含 `detail_content`，否则 Ctrl+O 切换不触发重渲染。
+   * **普通模式**（`detail_mode = false`）：渲染 `content`，即 `• N background agents launched (↓ to manage)` + `├──`/`└──` 任务行（字形规范见 §2.1）。
+   * **详细模式**（`detail_mode = true` 且有 `detail_content`）：渲染 `detail_content`，对齐 `docs/subagent-mock.html` **方案 B**：
+     ```
+     ● Agent(<任务预览>)
+       └ Backgrounded agent
+       └ Prompt:
+           <指令全文，逐行 6 列缩进，长行按显示宽度折行>
+     ```
+     多任务之间以空行分隔。`●` 用系统统一的大实心圆点（`U+25CF`，与 `● Bash(...)` 同字形），**不得**使用小圆点 `•`（`U+2022`）——字形差异会被用户直接察觉为「圆点比别处小」。
+3. **配色**：卡片标题的 `●` 用 `SAGE`；`Agent` 用 `TEXT` + BOLD；`(任务预览)` 用 `TEXT_SOFT`；`  └ ` 层级前缀与 `Backgrounded agent` 用 `DIM` / `MUTED`；`Prompt:` 用 `SAGE` + BOLD；指令正文用 `TEXT_SOFT` 并按 6 列悬挂缩进折行。
+4. **实现陷阱**：
+   * 逐行识别必须用 `str::strip_prefix`，禁止 `&line[4..]` 这类字节下标切片——`└` 占 3 字节，`[4..]` 会 panic（`not a char boundary`）。
+   * 折叠态与详细态文本都不得被 SystemNote 通用分支注入 `· ` 前缀（§2.1）。
+5. **测试兜底**：`message_render_test.rs::test_subagent_launch_summary_detail_mode_renders_prompt_cards` 同时断言两种形态——普通模式含树形、不含 `Prompt:`；详细模式含 `Agent(...)` 卡片标题、`Backgrounded agent`、`Prompt:` 与 Prompt 正文关键词。
+
 ---
 
 ## 5. ACP 协议契约与接口定义
@@ -565,8 +590,8 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
 
 | Crate | 关键文件 | 核心改动 | 预估工时 |
 |---|---|---|---|
-| **`cc-agent`** | `src/agent/events.rs` | 1. 为 `AiReasoning` 补充 `source_agent_id: Option<String>`；<br>2. 补充 `SubagentStarted` 完整载荷（带 `task_preview`）。 | 0.5 天 |
-| **`cc-middlewares`** | `src/subagent/tool/` | 1. `build_agent.rs`：创建时注入 40 字 Prompt 前缀；<br>2. `execute_bg.rs`：增加 `timeout_secs` 超时包装；<br>3. `define.rs`：`Agent` 工具增加 `action: "cancel" \| "status"` 控制协议；<br>4. `SourceAgentIdHandler`：补齐对 `AiReasoning` 的 tag 包装。 | 1 天 |
+| **`cc-agent`** | `src/agent/events.rs` | 1. 为 `AiReasoning` 补充 `source_agent_id: Option<String>`；<br>2. 补充 `SubagentStarted` 完整载荷（带 `task_preview`、`prompt`，见 §4.17）。 | 0.5 天 |
+| **`cc-middlewares`** | `src/subagent/tool/` | 1. `build_agent.rs`：创建时注入 40 字 Prompt 前缀；<br>2. `execute_bg.rs`：增加 `timeout_secs` 超时包装 + `SubagentStarted.prompt` 透传原文（§4.17）；<br>3. `define.rs`：`Agent` 工具增加 `action: "cancel" \| "status"` 控制协议；<br>4. `SourceAgentIdHandler`：补齐对 `AiReasoning` 的 tag 包装。 | 1 天 |
 | **`cc-acp`** | `src/session/executor/` | 1. `session/update` 桥接统一透传 `_peri.sourceAgentId`；<br>2. `session/cancel` 支持按 `targetThreadId` 级联取消。 | 1 天 |
 | **`cc-tui`** | `src/app/chat_session.rs` | 重构数据模型，引入 `BackgroundAgentSession` 与 `active_viewport`。 | 1 天 |
 | **`cc-tui`** | `src/app/agent_ops/` | 1. 实现事件多路分流：带 `source_agent_id` 的事件路由到专属管线；<br>2. 严格拦截 `ToolEnd`，禁止子 Agent 工具污染主状态栏 `session_tool_stats`。 | 1.5 天 |
@@ -594,6 +619,7 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
    * token 指标：Agent 回复时为 `↓ {output}`、用户提问后翻转为 `↑ {input}`，同一行**不得**同时出现两个箭头或累计值（`test_drawer_metrics_follows_token_flow_with_single_arrow`）。
 5. **通知登记断言**：`peri/subagent_lifecycle` 必须被 `is_peri_notification()` 认作 peri 通知（§5.2.1），否则整条抽屉静默失效。
 6. **游标收敛断言**：后台 Agent 全部结束后 `ui.bg_bar_cursor` 必须为 `None`、第三行不再渲染抽屉导航提示、按键不被 `bar_focus` 吞掉。
+7. **Prompt 展开双态断言**（§4.17）：`test_subagent_launch_summary_detail_mode_renders_prompt_cards` 断言普通模式渲染极简树形且**不含** `Prompt:`，详细模式渲染 `● Agent(...)` + `Backgrounded agent` + `Prompt:` + 指令正文（含 `sleep N` 关键词），两种形态同源于同一 `SystemNote` VM。
 
 ### 7.2 终端人工验收核对单（Checklist）
 - [ ] 空输入框按 `↓` 能精准进入底栏，`>` 箭头随 `↑/↓` 移动，游标行**只有白字、没有底色**（也不得有反色观感）——有底色会误以为已经进入视口。
@@ -605,5 +631,6 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
 - [ ] 子任务视口内可完整看到其内部的 Thinking（支持 `Ctrl+O` 折叠）、Bash 倒计时和 Spinner，且状态栏第 2 行显示**该子任务专属**的工具计数（非空、非主会话数字）。
 - [ ] 在子任务视口中按 `↑` 选回 `main` 并按 `Enter`，可平滑返回主会话。
 - [ ] 启动摘要为对齐树形块：`• N background agents launched (↓ to manage)` + `  ├── 任务` / `  └── 任务`，**不得**出现 `· •` 双标记或分支错列；子 Agent 完成行同样只带一个 `•`。
+- [ ] 按 `Ctrl+O` 进入详细模式：启动摘要切换为方案 B 卡片——`● Agent(任务预览)`（**大实心圆点，与 `● Bash(...)` 同字形、同大小**）+ `  └ Backgrounded agent` + `  └ Prompt:`（绿色加粗）+ 指令全文（6 列缩进、长行折行、CJK 不断裂）；再次 `Ctrl+O` 收回极简树形，**不得**出现两种形态混排或圆点变小。
 - [ ] 子任务结束时，主会话打印 `• Agent "xxx" finished · 1m 32s`，主模型完成报告输出。
 - [ ] 终端窗口缩小时（24 行高度），抽屉为 `6` 行（5 内容行 + 1 空行）；总高 `< 18` 行退化为 `2` 行紧凑态，不发生界面崩溃或文字重叠。

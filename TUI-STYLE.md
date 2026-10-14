@@ -136,6 +136,37 @@
 - 解析工具输出 `[问: H]\n回答: V` 格式，重新格式化为 `H → V`
 - 错误态：指示器和标题使用 ERROR 色
 
+### SubAgent 启动摘要（普通 / 详细双态）
+
+源码：`cc-tui/src/app/agent_ops/subagent.rs`（生成）+ `cc-tui/src/ui/message_render.rs`（渲染）。
+同一 `SystemNote` VM 的两份文本（`content` / `detail_content`），由 `detail_mode` 单选渲染：
+
+**普通模式**：极简树形，标题 `•` 用 SAGE、任务名 `TEXT_SOFT`、分支 `├──`/`└──` 用 DIM，缩进 2 列使**字形**与标题文字同列；该形状由 `split_tree_row()` 识别，**不得**注入 `· ` 前缀。
+
+```
+• 2 background agents launched (↓ to manage)
+  ├── 广州天气查询(先休眠3分钟)
+  └── 厦门天气查询(先休眠2分钟)
+```
+
+**详细模式（`Ctrl+O`）**：每个任务一张卡片，标题 `●` 用 **SAGE + 大实心圆点 `U+25CF`**（与 `● Bash(...)` 同字形，**禁止**用小圆点 `•` `U+2022`），`Agent` 用 TEXT + BOLD、`(任务预览)` 用 TEXT_SOFT；层级前缀 `  └ ` 与 `Backgrounded agent` 用 DIM/MUTED，`Prompt:` 用 SAGE + BOLD；指令正文 6 列悬挂缩进、按显示宽度折行。卡片之间空一行。
+
+```
+● Agent(广州天气查询(先休眠3分钟))
+  └ Backgrounded agent
+  └ Prompt:
+      请先在终端执行 sleep 180 (休眠 3 分钟)。
+      随后查询广州天气并整理成中文报告。
+
+● Agent(厦门天气查询(先休眠2分钟))
+  └ Backgrounded agent
+  └ Prompt:
+      请先在终端执行 sleep 120 (休眠 2 分钟)。
+      随后查询厦门天气并整理成中文报告。
+```
+
+实现约束：逐行解析必须用 `str::strip_prefix`，禁止 `&line[4..]` 等字节下标切片（`└` 占 3 字节，会 `not a char boundary` panic）；`SystemNote` 的 `PartialEq`/`Hash` 必须包含 `detail_content`，否则切换详细模式不触发重渲染。完整契约见 `docs/prd/subagent-drawer-and-virtual-routing.md` §4.17。
+
 ## 只读工具聚合折叠
 
 read_file、search_files_rg、glob_files 等只读工具自动聚合：
