@@ -72,7 +72,6 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | `Alt+V` / `Ctrl+V` | 从剪贴板粘贴图片附件（`Alt+V` 专用于穿透 Windows Terminal 等现代终端对 `Ctrl+V` 的拦截） |
 | `Ctrl+O` | 切换详细模式（Verbose） |
 | `Ctrl+U` / `Ctrl+D` | 消息列表快速半页滚动（输入框为空时） |
-| `双击 Esc` | 打开 Rewind 会话历史回滚选择器 |
 | `Ctrl+C` | 中断执行（执行中）/ 双击退出（空闲时） |
 
 ## 常用 Slash 命令
@@ -86,6 +85,7 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | `/gc` | 手动释放内存并输出内存占用诊断信息 |
 | `/lang <lang>` | 切换系统提示与界面语言（en / zh-CN） |
 | `/recap` | 生成一句话会话回顾（目标 + 当前任务 + 下一步），别名 `/away`、`/catchup` |
+| `/rewind` | 打开会话历史回滚选择器，回退到某条历史消息，别名 `/undo` |
 | `/clear` | 清空屏幕开启新会话 |
 
 ## 为什么选 cc-code？

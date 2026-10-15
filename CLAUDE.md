@@ -149,6 +149,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 - `CommandKind`（`Immediate`/`Passthrough`/`Transform`）分类执行
 - **[TRAP]** Immediate 命令路径绕过 agent event pump，必须手动调用 `sink.push_done()`。（详见 spec/global/domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done）
 - `/clear` 保留为 UICommand（`app.new_thread()` 创建新 session），不走 ACP
+- `/rewind` 无参入口由 TUI registry 的 `rewind` 命令承接（打开回滚选择器），确认后再向 ACP 提交带 JSON 参数的 `/rewind`；ACP 侧仍负责实际截断与文件恢复。`Esc` 双击不再触发 rewind
 
 **[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵。`build_agent()` 每轮重建的大对象已通过 `AgentPool` session 级缓存复用。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
 
