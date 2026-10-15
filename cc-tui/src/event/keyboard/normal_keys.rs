@@ -185,7 +185,8 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             let text = raw_text.trim().to_string();
             if !text.is_empty() {
                 if app.session_mgr.current_mut().ui.loading {
-                    app.queue_user_message(text);
+                    // 运行中：可延后的入队，其余拒绝并保留输入（不会静默变成模型提问）
+                    app.handle_busy_input(text);
                 } else if let Some(command) = text.strip_prefix('!') {
                     let command = command.trim().to_string();
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
@@ -199,88 +200,8 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                     }
                 } else if text.starts_with('/') {
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
-                    // SAFETY: command_registry is nested inside App; dispatch needs &mut App
-                    let registry = std::mem::take(
-                        &mut app.session_mgr.current_mut().commands.command_registry,
-                    );
-                    let known = registry.dispatch(app, &text);
-                    app.session_mgr.current_mut().commands.command_registry = registry;
-                    if known {
-                        // Command matched, done
-                    } else {
-                        // Command not matched, try Skill matching
-                        let skill_name: String = text
-                            .trim_start_matches('/')
-                            .chars()
-                            .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                            .collect();
-                        if let Some(_skill) = app
-                            .session_mgr
-                            .current_mut()
-                            .commands
-                            .skills
-                            .iter()
-                            .find(|s| s.name == skill_name)
-                        {
-                            // Skill matched: submit full message to agent
-                            return Ok(Some(Action::Submit(text)));
-                        } else if app
-                            .session_mgr
-                            .current_mut()
-                            .commands
-                            .agent_commands
-                            .contains(&skill_name)
-                        {
-                            // Agent command matched (from ACP AvailableCommandsUpdate): submit to agent
-                            tracing::debug!(skill_name, "Matched agent command, submitting to ACP");
-                            return Ok(Some(Action::Submit(text)));
-                        } else {
-                            tracing::debug!(
-                                skill_name,
-                                agent_commands = ?app.session_mgr.current_mut()
-                                    .commands
-                                    .agent_commands,
-                                "Command not found in local registry, skills, or agent_commands"
-                            );
-                            // Distinguish "prefix ambiguity" from "completely unknown"
-                            let prefix = text.trim_start_matches('/').to_string();
-                            let cmd_matches = app
-                                .session_mgr
-                                .current_mut()
-                                .commands
-                                .command_registry
-                                .match_prefix(&prefix, &app.services.lc);
-                            let error_msg = if cmd_matches.len() > 1 {
-                                let names: Vec<&str> =
-                                    cmd_matches.iter().map(|(n, _)| n.as_str()).collect();
-                                app.services.lc.tr_args(
-                                    "command-ambiguous",
-                                    &[
-                                        ("command".into(), text.as_str().into()),
-                                        (
-                                            "matches".into(),
-                                            names
-                                                .iter()
-                                                .map(|n| format!("/{}", n))
-                                                .collect::<Vec<_>>()
-                                                .join(", ")
-                                                .into(),
-                                        ),
-                                    ],
-                                )
-                            } else {
-                                app.services.lc.tr_args(
-                                    "command-unknown",
-                                    &[("command".into(), text.as_str().into())],
-                                )
-                            };
-                            app.session_mgr
-                                .current_mut()
-                                .messages
-                                .view_messages
-                                .push(MessageViewModel::system(error_msg));
-                        }
-                    }
+                    // 命令判定与派发统一走 CommandSystem::resolve / App::route_slash_input
+                    app.route_slash_input(text);
                 } else {
                     app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
                     return Ok(Some(Action::Submit(text)));
@@ -1314,4 +1235,6 @@ mod tests {
             "BackgroundTasksPanel 关闭后不应保留 status bar 入口聚焦态"
         );
     }
+
+    include!("normal_keys_test.rs");
 }

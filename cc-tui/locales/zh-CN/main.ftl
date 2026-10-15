@@ -524,6 +524,8 @@ shell-notify-waiting-input = 后台 shell 等待输入
 # 命令、shell 输入与状态面板
 command-ambiguous = 命令 '{ $command }' 匹配多个: { $matches } （请输入完整命令名）
 command-unknown = 未知命令或 Skill: { $command } （输入 /help 查看可用命令）
+command-busy-rejected = Agent 运行中，无法执行 { $command }，请等待本轮结束后再试（输入已保留）
+queue-steer-command-rejected = 命令不能插入正在执行的轮次，将在本轮结束后执行；如需立即执行请等待当前轮次结束
 shell-enter-command = 请输入 shell 命令
 shell-task-running = 已有任务正在运行，暂不能启动 shell 命令
 shell-stdin-closed = shell stdin 已关闭

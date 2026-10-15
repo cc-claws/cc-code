@@ -19,6 +19,11 @@ impl Command for RecapCommand {
         vec!["away", "catchup"]
     }
 
+    /// execute 只是把 `/recap` 提交给 ACP，运行中可安全入队延后执行。
+    fn blocked_while_busy(&self) -> bool {
+        false
+    }
+
     fn execute(&self, app: &mut App, args: &str) {
         let prompt = if args.trim().is_empty() {
             "/recap".to_string()

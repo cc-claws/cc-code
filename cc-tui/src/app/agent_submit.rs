@@ -1,6 +1,92 @@
 use super::{message_pipeline::PipelineAction, *};
 
+use crate::app::command_system::InputResolution;
+
 impl App {
+    /// 空闲态派发一段以 `/` 开头的输入。
+    ///
+    /// 判定只走 [`CommandSystem::resolve`](crate::app::command_system::CommandSystem::resolve)
+    /// 一处：本地命令立即执行，ACP 命令/Skill/普通消息提交给 agent，未知命令给出提示。
+    /// 空闲 Enter 与「排队消息消费」共用本函数，保证两条路径语义一致。
+    pub(crate) fn route_slash_input(&mut self, text: String) {
+        match self.session_mgr.current().commands.resolve(&text) {
+            InputResolution::LocalCommand { .. } => {
+                // SAFETY: command_registry 嵌套在 App 内，dispatch 需要 &mut App
+                let registry =
+                    std::mem::take(&mut self.session_mgr.current_mut().commands.command_registry);
+                let known = registry.dispatch(self, &text);
+                self.session_mgr.current_mut().commands.command_registry = registry;
+                debug_assert!(known, "resolve 判为本地命令，dispatch 却不认：{text}");
+            }
+            InputResolution::AgentCommand | InputResolution::Prompt => self.submit_message(text),
+            InputResolution::Unknown { matches } => self.push_slash_error(&text, matches),
+        }
+    }
+
+    /// 运行中（`loading`）收到的用户输入：能安全延后的入队，否则拒绝并**保留输入框内容**。
+    ///
+    /// 与空闲派发共用同一份判定，区别只在于执行时机：
+    /// - 普通消息 / Skill / ACP 命令 / 声明 `blocked_while_busy = false` 的本地命令 → 入队
+    /// - 需要空闲 UI 的本地命令、`!` shell、未知命令 → 拒绝（不吞字，提示原因）
+    ///
+    /// 关键点：被拒绝的输入**不会**再进入队列被当成普通文本喂给模型。
+    pub(crate) fn handle_busy_input(&mut self, text: String) {
+        if text.starts_with('!') {
+            self.reject_busy_input(&text, None);
+            return;
+        }
+        if !text.starts_with('/') {
+            self.queue_user_message(text);
+            return;
+        }
+        let resolution = self.session_mgr.current().commands.resolve(&text);
+        if resolution.is_deferrable() {
+            self.queue_user_message(text);
+            return;
+        }
+        self.reject_busy_input(&text, Some(resolution));
+    }
+
+    /// 拒绝一次运行中的输入：只提示，不动输入框。
+    fn reject_busy_input(&mut self, text: &str, resolution: Option<InputResolution>) {
+        match resolution {
+            Some(InputResolution::Unknown { matches }) => self.push_slash_error(text, matches),
+            _ => {
+                let msg = self
+                    .services
+                    .lc
+                    .tr_args("command-busy-rejected", &[("command".into(), text.into())]);
+                self.push_system_note(msg);
+            }
+        }
+    }
+
+    /// 未知命令 / 前缀歧义的统一提示。
+    fn push_slash_error(&mut self, text: &str, matches: Vec<String>) {
+        let msg = if matches.len() > 1 {
+            self.services.lc.tr_args(
+                "command-ambiguous",
+                &[
+                    ("command".into(), text.into()),
+                    (
+                        "matches".into(),
+                        matches
+                            .iter()
+                            .map(|n| format!("/{}", n))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                            .into(),
+                    ),
+                ],
+            )
+        } else {
+            self.services
+                .lc
+                .tr_args("command-unknown", &[("command".into(), text.into())])
+        };
+        self.push_system_note(msg);
+    }
+
     pub fn submit_message(&mut self, input: String) {
         let display_input = input;
         let expanded_input = self.expand_pasted_text(&display_input);
@@ -14,15 +100,6 @@ impl App {
             || self.input_contains_pasted_text_placeholder(&display_input);
 
         if expanded_input.trim().is_empty() {
-            return;
-        }
-
-        // ── TUI 本地命令拦截：/streaming ──
-        if let Some(args) = expanded_input.strip_prefix("/streaming") {
-            self.handle_streaming_command(args.trim());
-            if had_pasted_blocks {
-                self.clear_pasted_text_blocks();
-            }
             return;
         }
 
@@ -416,7 +493,7 @@ impl App {
     }
 
     /// 处理 `/streaming` 本地命令：查看或切换流式渲染模式。
-    fn handle_streaming_command(&mut self, args: &str) {
+    pub(crate) fn handle_streaming_command(&mut self, args: &str) {
         use crate::app::message_pipeline::StreamingMode;
 
         let (mode, label) = match args {

@@ -607,16 +607,6 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // Rewind 忙碌提示
-    if let Some(until) = app.global_ui.rewind_busy_hint_until {
-        if std::time::Instant::now() < until {
-            left_spans.push(Span::styled(
-                " Agent 运行中，请等待后再撤销 ",
-                Style::default().fg(sb::WARNING),
-            ));
-        }
-    }
-
     // Cache/MEM（右侧快捷键前面）
     {
         let tracker = &app.session_mgr.current().viewport_agent().session_token_tracker;

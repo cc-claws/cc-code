@@ -19,6 +19,11 @@ impl Command for CommitCommand {
         vec!["ci"]
     }
 
+    /// execute 只是把 `/commit` 提交给 ACP，运行中可安全入队延后执行。
+    fn blocked_while_busy(&self) -> bool {
+        false
+    }
+
     fn execute(&self, app: &mut App, args: &str) {
         // /commit 是 Passthrough 命令，实际由 ACP 层的 CommitCommand 处理
         // TUI 侧只需将 "/commit" + 参数作为普通 prompt 提交

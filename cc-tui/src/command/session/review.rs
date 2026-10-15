@@ -18,6 +18,11 @@ impl Command for ReviewCommand {
         vec!["pr"]
     }
 
+    /// execute 只是把 `/review` 提交给 ACP，运行中可安全入队延后执行。
+    fn blocked_while_busy(&self) -> bool {
+        false
+    }
+
     fn execute(&self, app: &mut App, args: &str) {
         // /review 是 Passthrough 命令，实际由 ACP 层的 ReviewCommand 处理
         // TUI 侧只需将 "/review" + 参数（如 PR 编号）作为普通 prompt 提交

@@ -38,6 +38,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(session::review::ReviewCommand));
     r.register(Box::new(session::recap::RecapCommand));
     r.register(Box::new(session::rewind::RewindCommand));
+    r.register(Box::new(session::streaming::StreamingCommand));
     r.register(Box::new(core::export_cmd::ExportCommand));
     r
 }
@@ -54,6 +55,17 @@ pub trait Command: Send + Sync {
     /// 命令别名列表（不含 /），默认为空
     fn aliases(&self) -> Vec<&str> {
         vec![]
+    }
+    /// 该命令在 Agent 运行（`loading`）期间是否被阻塞。
+    ///
+    /// - 默认 `true`：命令需要 UI 处于稳定空闲态（开面板 / 弹选择器 / 改本地或全局状态 /
+    ///   退出进程 / 向时间线追加通知）。运行中输入一律拒绝并保留输入，避免被误当成普通
+    ///   消息发给模型。
+    /// - `false`：命令只是把文本转发给 ACP / agent 执行，运行中可安全入队，本轮结束后再执行。
+    ///
+    /// 新增命令时若其 `execute` 仅调用 `App::submit_message`，应显式返回 `false`。
+    fn blocked_while_busy(&self) -> bool {
+        true
     }
     /// 执行命令，args 是命令名之后的参数字符串（已 trim）
     fn execute(&self, app: &mut App, args: &str);
@@ -87,6 +99,45 @@ impl CommandRegistry {
         }
     }
 
+    /// 解析命令名并返回命中的命令（精确名 → 别名精确 → 前缀唯一），**不执行**。
+    ///
+    /// 与 [`dispatch`](Self::dispatch) 共用同一份匹配规则：判定与执行分处两处时极易漂移，
+    /// `dispatch` 已改为复用本函数。
+    pub fn find(&self, name: &str) -> Option<&dyn Command> {
+        // 1. 精确匹配
+        if let Some(cmd) = self.commands.iter().find(|c| c.name() == name) {
+            return Some(cmd.as_ref());
+        }
+        // 2. 别名精确匹配
+        if let Some(cmd) = self.commands.iter().find(|c| c.aliases().contains(&name)) {
+            return Some(cmd.as_ref());
+        }
+        // 3. 前缀唯一匹配（同时对 name 和 aliases）
+        let matches: Vec<&Box<dyn Command>> = self
+            .commands
+            .iter()
+            .filter(|c| {
+                c.name().starts_with(name) || c.aliases().iter().any(|a| a.starts_with(name))
+            })
+            .collect();
+        if matches.len() == 1 {
+            return Some(matches[0].as_ref());
+        }
+        None
+    }
+
+    /// 前缀命中的命令名列表（同时匹配 name 与 aliases），用于歧义提示。
+    /// 前缀为空时返回全部命令名。
+    pub fn prefix_names(&self, prefix: &str) -> Vec<String> {
+        self.commands
+            .iter()
+            .filter(|c| {
+                c.name().starts_with(prefix) || c.aliases().iter().any(|a| a.starts_with(prefix))
+            })
+            .map(|c| c.name().to_string())
+            .collect()
+    }
+
     /// 解析并执行命令。
     /// 输入格式："/name args..."
     /// 匹配优先级：精确匹配 > 别名精确匹配 > 前缀唯一匹配（支持 /m → /model）
@@ -100,32 +151,13 @@ impl CommandRegistry {
             None => (input.trim(), ""),
         };
 
-        // 1. 精确匹配
-        if let Some(cmd) = self.commands.iter().find(|c| c.name() == name) {
-            cmd.execute(app, args);
-            return true;
+        match self.find(name) {
+            Some(cmd) => {
+                cmd.execute(app, args);
+                true
+            }
+            None => false,
         }
-
-        // 2. 别名精确匹配
-        if let Some(cmd) = self.commands.iter().find(|c| c.aliases().contains(&name)) {
-            cmd.execute(app, args);
-            return true;
-        }
-
-        // 3. 前缀唯一匹配（同时对 name 和 aliases）
-        let matches: Vec<_> = self
-            .commands
-            .iter()
-            .filter(|c| {
-                c.name().starts_with(name) || c.aliases().iter().any(|a| a.starts_with(name))
-            })
-            .collect();
-        if matches.len() == 1 {
-            matches[0].execute(app, args);
-            return true;
-        }
-
-        false
     }
 
     /// 返回所有已注册命令的 (name, description, aliases) 列表

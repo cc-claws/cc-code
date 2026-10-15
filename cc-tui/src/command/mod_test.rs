@@ -322,3 +322,91 @@
             "rewind 应含 undo 别名"
         );
     }
+
+    // ── find：纯判定，必须与 dispatch 的匹配优先级一致 ──
+
+    #[test]
+    fn test_find_follows_dispatch_precedence() {
+        let mut r = CommandRegistry::new();
+        let (s1, _, _) = make_stub("reset");
+        let (s2, _, _) = make_stub_with_aliases("clear", vec!["reset"]);
+        let (s3, _, _) = make_stub("model");
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        r.register(Box::new(s3));
+        // 精确名优先于别名
+        assert_eq!(r.find("reset").map(|c| c.name()), Some("reset"));
+        // 别名次之
+        assert_eq!(r.find("model").map(|c| c.name()), Some("model"));
+        assert_eq!(r.find("mo").map(|c| c.name()), Some("model"));
+        assert!(r.find("nope").is_none());
+    }
+
+    #[test]
+    fn test_find_returns_none_for_ambiguous_prefix() {
+        let mut r = CommandRegistry::new();
+        let (s1, _, _) = make_stub("model");
+        let (s2, _, _) = make_stub("mock");
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        assert!(r.find("m").is_none(), "歧义前缀不应命中任何命令");
+        assert_eq!(r.prefix_names("m"), vec!["model", "mock"]);
+    }
+
+    /// 回归：判定（`find`）与执行（`dispatch`）必须对同一输入给出一致的结论。
+    #[tokio::test]
+    async fn test_find_agrees_with_dispatch() {
+        let mut r = CommandRegistry::new();
+        let (s1, called1, _) = make_stub("model");
+        let (s2, called2, _) = make_stub_with_aliases("clear", vec!["reset"]);
+        // 再放一个同前缀命令，让 "/m" 成为歧义前缀
+        let (s3, _, _) = make_stub("mock");
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        r.register(Box::new(s3));
+        let mut app = headless_app().await;
+        for (input, expected) in [
+            ("/model", true),
+            ("/reset", true),
+            ("/nope", false),
+            ("/m", false),
+        ] {
+            let name = input.trim_start_matches('/');
+            let found = r.find(name).is_some();
+            assert_eq!(found, expected, "find({name}) 判定与预期不符");
+            assert_eq!(
+                r.dispatch(&mut app, input),
+                found,
+                "dispatch({input}) 与 find 判定不一致"
+            );
+        }
+        assert!(called1.load(Ordering::Relaxed));
+        assert!(called2.load(Ordering::Relaxed));
+    }
+
+    // ── blocked_while_busy：运行中能否延后执行 ──
+
+    /// 回归：内建命令的「运行中阻塞」分类是有意为之的白名单。
+    ///
+    /// 只有 `execute` 仅做 `submit_message` 转发的命令才允许运行中入队（`false`）；
+    /// 需要 UI 稳定态的命令（开面板 / 弹选择器 / 改本地状态 / 退出 / 追加通知）必须
+    /// 阻塞，否则运行中输入会被静默当成普通消息发给模型。新增命令若漏了 override，
+    /// 本测试会失败提醒。
+    #[test]
+    fn test_builtin_commands_blocked_while_busy_classification() {
+        let r = crate::command::default_registry();
+        let lc = make_lc();
+        let mut deferrable: Vec<String> = Vec::new();
+        for (name, _, _) in r.list(&lc) {
+            let cmd = r.find(&name).expect("注册表里的命令必须能被 find 命中");
+            if !cmd.blocked_while_busy() {
+                deferrable.push(name);
+            }
+        }
+        deferrable.sort();
+        assert_eq!(
+            deferrable,
+            vec!["commit", "init", "recap", "review", "streaming"],
+            "运行中可延后执行的命令白名单发生变化，请确认新命令的 execute 是否只做 submit_message"
+        );
+    }
