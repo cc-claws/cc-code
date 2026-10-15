@@ -30,21 +30,6 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             app.session_mgr.current_mut().ui.at_mention.close();
         }
 
-        // Esc: 双击触发 rewind 选择器（仅空闲时）
-        Input { key: Key::Esc, .. } if !app.session_mgr.current().ui.loading => {
-            if let Some(since) = app.global_ui.rewind_pending_since {
-                if since.elapsed() < std::time::Duration::from_secs(2) {
-                    // 双击 ESC → 打开 rewind 选择器
-                    app.global_ui.rewind_pending_since = None;
-                    app.open_rewind_prompt();
-                } else {
-                    app.global_ui.rewind_pending_since = Some(std::time::Instant::now());
-                }
-            } else {
-                app.global_ui.rewind_pending_since = Some(std::time::Instant::now());
-            }
-        }
-
         // Ctrl+Up / Ctrl+Down：textarea 光标移动 / 命令历史（原 textarea Up/Down 功能）。
         // 纯 Up/Down 让给消息区滚动（含滚轮经 ConPTY 变成的方向键），避免与 textarea 冲突。
         Input {
@@ -448,13 +433,6 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         _ => {
             // Any other key cancels quit-pending state (Ctrl+C double-tap)
             app.global_ui.quit_pending_since = None;
-            // Note: do NOT reset rewind_pending_since here. The fallback arm
-            // captures keys like Key::Enter (with unmatched modifiers) and
-            // terminal-generated sequences (e.g. focus events, unknown keys).
-            // Resetting here would break the ESC double-tap detection because
-            // spurious key events between two ESC presses would clear the state.
-            // rewind_pending_since is naturally reset when the user types actual
-            // content (the `input if input.key != Key::Enter` arm above).
         }
     }
 

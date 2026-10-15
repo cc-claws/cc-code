@@ -58,7 +58,7 @@ cargo run -p cc-tui -- -r <session-id>
 |--------|------|
 | `Enter` | 发送消息（idle）/ 缓冲消息（loading） |
 | `Shift+Enter` / `Alt+Enter` | 插入换行 |
-| `Esc` | 取消/关闭（双击打开 Rewind 选择器） |
+| `Esc` | 取消/关闭 |
 | `Ctrl+C` | 中断 Agent（loading）/ 双击退出（idle） |
 | `Ctrl+P` / `Alt+P` | 命令面板（Provider/Model/Effort 完整配置） |
 | `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |

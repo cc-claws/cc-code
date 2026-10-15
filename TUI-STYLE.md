@@ -507,8 +507,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | 按键 | 行为 | 说明 |
 |------|------|------|
 | `Ctrl+C` | 中断 Agent（loading 时）/ 双击退出（idle 时） | 提问和审批期间中断当前轮次，保留 TUI；空闲时两次有效按键间隔为 100ms～2s |
-| `Esc` | 退出程序（idle 时） | |
-| 双击 `Esc` | 空闲时触发 rewind 回滚选择器 | |
+| `Esc` | 中断 Agent（loading 时）/ 关闭弹窗、浮层与历史浏览 | 与 `Ctrl+C` 的中断语义一致，但不会退出程序 |
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
 | `Ctrl+Enter` | 立即补充队首排队消息 | 等价点击 `[Send now]`；同时兼容 `Alt+S`；队列为空时不拦截该按键。不用 `Ctrl+S`：Windows 控制台把 Ctrl+S 当暂停键（XOFF）在宿主层截走 |
 | `Ctrl+X` | 删除队首排队消息 | 等价点击 `[×]`；同时兼容 `Alt+X`；队列为空时不拦截该按键 |
@@ -579,7 +578,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 
 ## 命令系统
 
-源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **30 个命令**。
+源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **31 个命令**。
 
 ### 命令列表
 
@@ -597,6 +596,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `/recap` | 生成 1-2 句会话回顾：高层目标 + 当前任务 → 下一步（别名 `away`、`catchup`） |
 | `/rename [name]` | 查看或修改当前会话标题 |
 | `/review` | PR 代码审查（别名 `pr`） |
+| `/rewind` | 打开对话回滚选择器，回退到某条历史消息（可选逆向恢复文件变更，别名 `undo`） |
 | `/gc` | 手动触发内存回收，显示 RSS 变化与数据结构诊断 |
 
 #### 面板 / 交互类
@@ -636,6 +636,8 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 ### ACP 层命令
 
 `/compact` 走 ACP 层而非 TUI registry。`cc-acp/src/session/command/` 注册了 7 个命令：`compact`、`clear`、`rewind`、`init`、`recap`、`commit`、`review`。其中 `/clear`、`/recap`、`/commit`、`/review`、`/init` 两侧均有，由 ACP 拦截处理。
+
+`/rewind` 两侧分工：TUI registry 的 `rewind` 只负责打开回滚选择器（无参入口），用户在面板确认后 TUI 再向 ACP 提交带 JSON 参数的 `/rewind {target_message_id, revert_files}`，由 ACP 侧执行截断 history + 逆向恢复文件。
 
 ### `/recap` 特别说明
 

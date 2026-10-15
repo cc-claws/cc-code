@@ -33,6 +33,7 @@ command-hooks-description = View Hook configuration
 command-effort-description = View or set reasoning effort (low/medium/high/xhigh/max)
 command-doctor-description = Diagnose configuration completeness
 command-rename-description = View or modify current session title
+command-rewind-description = Open the rewind picker and roll back to an earlier message (alias undo)
 command-lang-description = Switch interface language (e.g. /lang zh-CN)
 command-setup-description = Open setup wizard to configure providers
 command-init-description = Generate or optimize project CLAUDE.md knowledge base

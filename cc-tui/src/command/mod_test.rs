@@ -314,4 +314,11 @@
             recap_entry.2.iter().any(|a| a == "catchup"),
             "recap 应含 catchup 别名"
         );
+        // rewind 走 TUI registry（打开回滚选择器），不再是 ACP 独占
+        assert!(names.contains(&"rewind"), "default_registry 应包含 rewind");
+        let rewind_entry = list.iter().find(|(n, _, _)| *n == "rewind").unwrap();
+        assert!(
+            rewind_entry.2.iter().any(|a| a == "undo"),
+            "rewind 应含 undo 别名"
+        );
     }

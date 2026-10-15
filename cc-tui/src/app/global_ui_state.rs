@@ -21,8 +21,6 @@ pub struct GlobalUiState {
     pub mcp_ready_shown_until: Cell<Option<Instant>>,
     pub mcp_failed_shown: RefCell<Option<(String, Instant)>>,
     pub quit_pending_since: Option<Instant>,
-    /// 双击 ESC 检测时间戳（rewind 弹窗触发）
-    pub rewind_pending_since: Option<Instant>,
     /// 运行中按 ESC 的 rewind 提示截止时间
     pub rewind_busy_hint_until: Option<Instant>,
     pub quit_requested: bool,
@@ -49,7 +47,6 @@ impl GlobalUiState {
             mcp_ready_shown_until: Cell::new(None),
             mcp_failed_shown: RefCell::new(None),
             quit_pending_since: None,
-            rewind_pending_since: None,
             rewind_busy_hint_until: None,
             quit_requested: false,
             clipboard_lease: None,

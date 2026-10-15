@@ -32,6 +32,7 @@ command-hooks-description = 查看 Hook 配置
 command-effort-description = 查看或设置推理力度（low/medium/high/xhigh/max）
 command-doctor-description = 诊断配置完整性
 command-rename-description = 查看或修改当前会话标题
+command-rewind-description = 打开对话回滚选择器，回退到历史消息（别名 undo）
 command-lang-description = 切换界面语言（如 /lang zh-CN）
 command-setup-description = 打开配置向导，设置 Provider
 command-init-description = 生成或优化项目 CLAUDE.md 知识库
