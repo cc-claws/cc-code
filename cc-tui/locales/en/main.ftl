@@ -525,6 +525,8 @@ shell-notify-waiting-input = Background shell waiting for input
 # Commands, shell input and status panel
 command-ambiguous = Command '{ $command }' matches multiple commands: { $matches } (enter the full command name)
 command-unknown = Unknown command or Skill: { $command } (type /help to view available commands)
+command-busy-rejected = Agent is running; cannot run { $command } now. Wait for the current turn to finish (your input was kept)
+queue-steer-command-rejected = Commands cannot be inserted into a running turn; it will run after the current turn ends
 shell-enter-command = Please enter a shell command
 shell-task-running = A task is already running; cannot start a shell command yet
 shell-stdin-closed = Shell stdin is closed

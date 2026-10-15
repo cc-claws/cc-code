@@ -6,6 +6,13 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+### Fixes
+
+- **运行中敲命令不再被静默当成普通消息发给模型（#533）**：Agent 运行中按 `Enter` 时，输入在**任何命令判定之前**就进了排队队列，文本的命令身份随之丢失；出队时只有 ACP 层那 7 个命令会被重新识别，其余（`/theme`、`/model`、`/gc`、`/exit`、`/help` 等约 24 个 TUI 独有命令）连同未知命令、`!` shell 输入一起被当成普通 prompt 喂给模型——表现为 `/exit` 不退出、`/gc` 不回收内存、敲错命令反被模型一本正经地回答。现将「是命令还是消息、归谁执行」收敛到唯一判定入口 `CommandSystem::resolve`（`cc-tui/src/app/command_system.rs`），空闲派发（`App::route_slash_input`）与运行中分流（`App::handle_busy_input`）共用：普通消息 / Skill / ACP 命令 / 转发型本地命令入队延后执行，需要空闲 UI 的本地命令、`!` shell 与未知命令**拒绝并保留输入框内容**。`CommandRegistry` 拆出 `find` 供判定、`dispatch` 复用同一份匹配规则，消除判定与执行两套逻辑漂移的可能。
+- **顺带修掉三处同源问题**：① `Command::blocked_while_busy` 成为「运行中能否延后」的显式声明（默认需空闲 UI，仅 `commit`/`review`/`recap`/`init`/`streaming` 为可延后），并加白名单回归测试锁死分类；② `/history` 里逐命令自写的「运行中拒绝」自查统一上收到入口判定，命令内不再各写一套；③ `/streaming` 此前只是 `submit_message` 内部的前缀特例，因此只能靠「排队后消费」触达、空闲时键入反报「未知命令」，现提升为正式命令（`blocked_while_busy = false`），`submit_message` 特例移除。
+- **`Ctrl+Enter` 不能把命令插入正在执行的轮次**：`steer` 会把内容插入当前轮次，命令经此路径会退化成普通文本，现对命令拒绝并提示本轮结束后执行；普通消息与 Skill 仍可照常插入。
+- **移除死代码 `rewind_busy_hint_until`** 及其状态栏渲染分支：该字段自引入起从未被赋值，「运行中提示」统一由 `push_system_note`（锚点机制，可跨轮次重建存活）承载。
+
 ## v0.6.144 — 2026-10-15
 
 ### Fixes

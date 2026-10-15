@@ -1,7 +1,4 @@
-use crate::{
-    app::{App, MessageViewModel},
-    command::Command,
-};
+use crate::{app::App, command::Command};
 
 pub struct HistoryCommand;
 
@@ -19,16 +16,8 @@ impl Command for HistoryCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
-        if app.session_mgr.current_mut().ui.loading {
-            app.session_mgr
-                .current_mut()
-                .messages
-                .view_messages
-                .push(MessageViewModel::system(
-                    "Agent 运行中，无法打开历史面板".to_string(),
-                ));
-            return;
-        }
+        // 运行中不可打开面板——该判定现已统一由 `blocked_while_busy`（默认 true）
+        // 在输入入口拦截，命令内不再自查，避免逐命令各写一套。
         app.open_thread_browser();
     }
 }

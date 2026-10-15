@@ -26,7 +26,7 @@ impl App {
             &mut session.metadata.pending_attachments,
             message.attachments,
         );
-        self.submit_message(message.text);
+        self.route_slash_input(message.text);
         let session = self.session_mgr.current_mut();
         session.ui.textarea = draft;
         session.ui.pasted_text_blocks = draft_blocks;
@@ -103,8 +103,9 @@ impl App {
     }
 
     fn steer_queued_message(&mut self, id: uuid::Uuid) {
-        let session = self.session_mgr.current_mut();
-        let Some(index) = session
+        let Some(index) = self
+            .session_mgr
+            .current()
             .messages
             .pending_messages
             .iter()
@@ -112,8 +113,11 @@ impl App {
         else {
             return;
         };
-        if !session.ui.loading {
-            if session
+        let loading = self.session_mgr.current().ui.loading;
+        if !loading {
+            if self
+                .session_mgr
+                .current()
                 .messages
                 .pending_messages
                 .iter()
@@ -121,8 +125,26 @@ impl App {
             {
                 return;
             }
-            let message = session.messages.pending_messages.remove(index);
+            let message = self
+                .session_mgr
+                .current_mut()
+                .messages
+                .pending_messages
+                .remove(index);
             self.submit_queued_message(message);
+            return;
+        }
+        // 运行中：steer 是把内容**插入正在执行的轮次**，命令经此路径会被当成普通文本
+        // 喂给模型。命令只能等本轮结束后执行，不能 steer。
+        let is_command = {
+            let session = self.session_mgr.current();
+            session
+                .commands
+                .resolve(&session.messages.pending_messages[index].text)
+                .is_command()
+        };
+        if is_command {
+            self.push_system_note(self.services.lc.tr("queue-steer-command-rejected"));
             return;
         }
         let Some(client) = self.acp_client.clone() else {
@@ -134,6 +156,7 @@ impl App {
             self.push_system_note(self.services.lc.tr("queue-unavailable"));
             return;
         };
+        let session = self.session_mgr.current_mut();
         let message = &mut session.messages.pending_messages[index];
         let content = message.content();
         message.sending = true;

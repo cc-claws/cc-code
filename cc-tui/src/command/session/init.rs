@@ -17,6 +17,11 @@ impl Command for InitCommand {
         vec![]
     }
 
+    /// execute 只是把 `/init` 提交给 ACP，运行中可安全入队延后执行。
+    fn blocked_while_busy(&self) -> bool {
+        false
+    }
+
     fn execute(&self, app: &mut App, _args: &str) {
         // /init 是 Passthrough 命令，实际由 ACP 层的 InitCommand 处理
         // TUI 侧只需将 "/init" 作为普通 prompt 提交

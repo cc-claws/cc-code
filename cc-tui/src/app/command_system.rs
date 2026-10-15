@@ -4,6 +4,55 @@ use cc_middlewares::prelude::SkillMetadata;
 
 use crate::command::CommandRegistry;
 
+/// 一个不含 `/` 的命令名归属。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameKind {
+    /// 本地 TUI 命令（含别名、前缀唯一匹配）
+    Local,
+    /// Skill
+    Skill,
+    /// ACP 侧命令（来自 `AvailableCommandsUpdate`）
+    Agent,
+    /// 谁都不认
+    Unknown,
+}
+
+/// 一段用户输入的归属判定结果。
+///
+/// 判定只此一处：空闲派发、运行中入队/拒绝、排队消费、以及「立即插入当前轮次」
+/// 共用同一份规则，避免文本入队后身份丢失、出队又被重新解释成普通消息。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputResolution {
+    /// 本地 TUI 命令，需要 `&mut App` 立即执行。
+    /// `deferrable` 表示运行中可否入队延后（见 `Command::blocked_while_busy`）。
+    LocalCommand { deferrable: bool },
+    /// ACP 侧命令：可入队延后，最终由 ACP 的命令路径执行。
+    AgentCommand,
+    /// Skill 或普通消息：作为 prompt 交给 agent。
+    Prompt,
+    /// 未知命令或前缀歧义。`matches` 为前缀命中的命令名。
+    Unknown { matches: Vec<String> },
+}
+
+impl InputResolution {
+    /// 运行中能否安全入队、留到本轮结束后再执行。
+    pub fn is_deferrable(&self) -> bool {
+        match self {
+            InputResolution::LocalCommand { deferrable } => *deferrable,
+            InputResolution::AgentCommand | InputResolution::Prompt => true,
+            InputResolution::Unknown { .. } => false,
+        }
+    }
+
+    /// 是否是「命令」（而非普通消息/Skill）。命令不允许插入正在执行的轮次。
+    pub fn is_command(&self) -> bool {
+        matches!(
+            self,
+            InputResolution::LocalCommand { .. } | InputResolution::AgentCommand
+        )
+    }
+}
+
 /// 命令系统：命令注册表、帮助列表、Skills 元数据、Agent 命令集合。
 ///
 /// `agent_commands` 存储从 ACP `AvailableCommandsUpdate` 学习到的命令名集合。
@@ -47,6 +96,48 @@ impl CommandSystem {
             .into_iter()
             .filter(|n| !local_names.contains(n.as_str()) && !skill_names.contains(n.as_str()))
             .collect();
+    }
+
+    /// 判定一个命令名（不含 `/`，不含参数）的归属。
+    /// 优先级与 `CommandRegistry::dispatch` 一致：本地命令 > Skill > Agent 命令 > 未知。
+    pub fn classify_name(&self, name: &str) -> NameKind {
+        if self.command_registry.find(name).is_some() {
+            return NameKind::Local;
+        }
+        if self.skills.iter().any(|s| s.name == name) {
+            return NameKind::Skill;
+        }
+        if self.agent_commands.contains(name) {
+            return NameKind::Agent;
+        }
+        NameKind::Unknown
+    }
+
+    /// 解析一段用户输入，判定它该本地立即执行、转发给 ACP、还是拒绝。
+    ///
+    /// 不以 `/` 开头的输入一律是普通消息。参数按第一个空格切分（与 `dispatch` 一致）。
+    pub fn resolve(&self, text: &str) -> InputResolution {
+        let Some(rest) = text.strip_prefix('/') else {
+            return InputResolution::Prompt;
+        };
+        let name = match rest.split_once(' ') {
+            Some((n, _)) => n.trim(),
+            None => rest.trim(),
+        };
+        match self.classify_name(name) {
+            NameKind::Skill => InputResolution::Prompt,
+            NameKind::Agent => InputResolution::AgentCommand,
+            NameKind::Local => {
+                let deferrable = self
+                    .command_registry
+                    .find(name)
+                    .is_some_and(|cmd| !cmd.blocked_while_busy());
+                InputResolution::LocalCommand { deferrable }
+            }
+            NameKind::Unknown => InputResolution::Unknown {
+                matches: self.command_registry.prefix_names(name),
+            },
+        }
     }
 }
 
@@ -99,4 +190,6 @@ mod tests {
         assert!(cs.agent_commands.contains("compact"));
         assert!(cs.agent_commands.contains("caveman"));
     }
+
+    include!("command_system_test.rs");
 }

@@ -578,7 +578,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 
 ## 命令系统
 
-源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **31 个命令**。
+源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **32 个命令**。
 
 ### 命令列表
 
@@ -597,6 +597,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `/rename [name]` | 查看或修改当前会话标题 |
 | `/review` | PR 代码审查（别名 `pr`） |
 | `/rewind` | 打开对话回滚选择器，回退到某条历史消息（可选逆向恢复文件变更，别名 `undo`） |
+| `/streaming [mode]` | 查看或切换时间线渲染模式（`streaming` / `block` / `none`），调试用 |
 | `/gc` | 手动触发内存回收，显示 RSS 变化与数据结构诊断 |
 
 #### 面板 / 交互类
@@ -647,6 +648,25 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 ### 命令匹配
 
 匹配优先级：精确匹配(name) > 别名精确匹配 > 前缀唯一匹配（如 `/m` 匹配 `/model`）。
+
+判定入口唯一：`CommandSystem::resolve`（`cc-tui/src/app/command_system.rs`）负责判定一段输入的归属，`App::route_slash_input`（空闲派发）与 `App::handle_busy_input`（运行中入队/拒绝）共用它；`CommandRegistry::find` 供判定使用，`dispatch` 复用同一份匹配规则执行，判定与执行不会各写一套而漂移。
+
+### 运行中敲命令的语义
+
+Agent 运行中（`loading`）按 `Enter` 时，输入按归属分流，**绝不静默变成发给模型的普通消息**：
+
+| 输入 | 运行中行为 |
+|------|-----------|
+| 普通消息 / Skill | 入队，本轮结束后发送 |
+| 本地「转发型」命令（`/commit`、`/review`、`/recap`、`/init`、`/streaming`） | 入队，本轮结束后执行 |
+| ACP 侧命令（如 `/compact`） | 入队，本轮结束后由 ACP 执行 |
+| 需要空闲 UI 的本地命令（`/theme`、`/model`、`/exit`、`/rewind`、`/gc`、`/help` 等） | 拒绝，提示原因并**保留输入框内容** |
+| `!` shell 命令 | 拒绝，同上 |
+| 未知命令 / 前缀歧义 | 拒绝并提示 |
+
+命令能否延后由 `Command::blocked_while_busy` 声明（默认 `true` = 需要空闲 UI）。**新增命令时若其 `execute` 仅调用 `App::submit_message`，必须显式返回 `false`**，否则运行中会被误拒；反之把需要面板/选择器的命令标成 `false`，会导致它在运行中入队后于错误的时机弹窗。`cc-tui/src/command/mod_test.rs` 有白名单回归测试锁死这份分类。
+
+已入队的命令在消费时重新走 `route_slash_input`（即按命令派发），因此 `Ctrl+Enter`「立即插入当前轮次」对命令不适用：`steer` 会把内容插入正在执行的轮次，命令经此路径会退化成普通文本，故被拒绝并提示等本轮结束。
 
 ### Skills 浮层
 

@@ -21,8 +21,6 @@ pub struct GlobalUiState {
     pub mcp_ready_shown_until: Cell<Option<Instant>>,
     pub mcp_failed_shown: RefCell<Option<(String, Instant)>>,
     pub quit_pending_since: Option<Instant>,
-    /// 运行中按 ESC 的 rewind 提示截止时间
-    pub rewind_busy_hint_until: Option<Instant>,
     pub quit_requested: bool,
     /// Linux X11/Wayland 剪贴板所有权持有。剪贴板内容必须由写入它的进程持有，
     /// 否则 TUI 退出后内容就消失。每次复制都更新这个 lease，让最新内容存活到
@@ -47,7 +45,6 @@ impl GlobalUiState {
             mcp_ready_shown_until: Cell::new(None),
             mcp_failed_shown: RefCell::new(None),
             quit_pending_since: None,
-            rewind_busy_hint_until: None,
             quit_requested: false,
             clipboard_lease: None,
             last_terminal_title: None,

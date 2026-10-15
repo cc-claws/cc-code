@@ -151,6 +151,8 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 - `/clear` 保留为 UICommand（`app.new_thread()` 创建新 session），不走 ACP
 - `/rewind` 无参入口由 TUI registry 的 `rewind` 命令承接（打开回滚选择器），确认后再向 ACP 提交带 JSON 参数的 `/rewind`；ACP 侧仍负责实际截断与文件恢复。`Esc` 双击不再触发 rewind
 
+**[TRAP]** 用户输入的「是命令还是消息、归谁执行」只允许在 `CommandSystem::resolve` 一处判定（`cc-tui/src/app/command_system.rs`）：`CommandRegistry::find` 供判定、`dispatch` 复用同一份匹配规则执行，避免判定与执行漂移。空闲派发走 `App::route_slash_input`，运行中（`loading`）走 `App::handle_busy_input` —— **禁止在 Enter 分支里手写「是否命令」的判断**：文本一旦入队就丢失身份，出队时会被重新当成普通消息发给模型。命令能否在运行中延后由 `Command::blocked_while_busy` 声明（默认 `true` = 需要空闲 UI；仅 `execute` 只做 `submit_message` 转发的命令返回 `false`），`cc-tui/src/command/mod_test.rs` 有白名单回归测试锁死该分类。
+
 **[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵。`build_agent()` 每轮重建的大对象已通过 `AgentPool` session 级缓存复用。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
 
 **[TRAP]** TUI 层数据必须通过 ACP 协议到达 ACP 层，禁止直连。（详见 spec/global/domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history）
