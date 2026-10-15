@@ -2,12 +2,12 @@ use std::{collections::HashSet, path::Path};
 
 use crate::{app::App, command::Command};
 
-/// /agents 命令：打开 agent 选择弹窗
+/// /agent-design 命令：打开 agent 定义选择弹窗。
 pub struct AgentsCommand;
 
 impl Command for AgentsCommand {
     fn name(&self) -> &str {
-        "agents"
+        "agent-design"
     }
 
     fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
@@ -93,12 +93,7 @@ fn scan_dir_for_agents(dir: &Path, agents: &mut Vec<AgentItem>, seen: &mut HashS
 fn parse_agent_info(path: &Path, fallback_id: &str) -> (String, String) {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
-        Err(_) => {
-            return (
-                cc_middlewares::format_agent_id(fallback_id),
-                String::new(),
-            )
-        }
+        Err(_) => return (cc_middlewares::format_agent_id(fallback_id), String::new()),
     };
 
     // 尝试解析 YAML frontmatter
@@ -107,10 +102,7 @@ fn parse_agent_info(path: &Path, fallback_id: &str) -> (String, String) {
     }
 
     // 没有有效 frontmatter，返回格式化的 id 和空描述
-    (
-        cc_middlewares::format_agent_id(fallback_id),
-        String::new(),
-    )
+    (cc_middlewares::format_agent_id(fallback_id), String::new())
 }
 
 /// Agent 项

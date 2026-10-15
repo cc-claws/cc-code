@@ -1,5 +1,6 @@
 use crate::{app::App, command::Command};
 
+#[allow(dead_code)] // /tasks 入口已由命令中心替代，验收后独立 PR 清理。
 pub struct TasksCommand;
 
 impl Command for TasksCommand {

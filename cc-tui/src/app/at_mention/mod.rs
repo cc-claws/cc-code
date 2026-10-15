@@ -75,6 +75,9 @@ impl AtMentionState {
     pub fn set_cwd(&mut self, cwd: String) {
         if self.cwd != cwd {
             self.kill_thread();
+            self.close();
+            self.search_cache.clear();
+            self.last_search_query.clear();
             self.cwd = cwd;
         }
     }

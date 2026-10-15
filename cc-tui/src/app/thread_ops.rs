@@ -173,16 +173,166 @@ impl App {
         self.session_mgr.current_mut().spinner_state.reset();
     }
 
-    /// 恢复历史 thread：加载消息，关闭 browser
-    pub fn open_thread(&mut self, thread_id: ThreadId) {
-        self.clear_subagent_sessions();
+    /// 有运行任务或待处理交互时保持原会话，避免后台结果落入另一项目。
+    pub fn can_switch_thread_context(&self) -> bool {
+        let session = self.session_mgr.current();
+        !session.ui.loading
+            && session.agent.cancel_token.is_none()
+            && session.agent.interaction_prompt.is_none()
+            && session.agent.pending_hitl_items.is_none()
+            && session.agent.pending_ask_user.is_none()
+            && self.global_ui.oauth_prompt.is_none()
+            && session.pending_thread_approvals.is_empty()
+            && !session
+                .subagent_sessions
+                .values()
+                .any(|agent| agent.status.is_active())
+            && !session.shell_pool.is_running()
+            && !session.agent_shells.iter().any(|shell| !shell.ended)
+            && !self.has_running_background_shell_tasks()
+            && session.agent.pending_bg_continuation.is_none()
+            && !session.agent.agent_done_pending_bg
+            && session.messages.pending_messages.is_empty()
+    }
+
+    fn validate_thread_context_switch(&mut self, cwd: &str) -> bool {
+        if !self.can_switch_thread_context() {
+            self.push_system_note(
+                "当前会话仍有运行任务、排队消息或待处理审批，请完成后再切换。".to_string(),
+            );
+            return false;
+        }
+        if !std::path::Path::new(cwd).is_dir() {
+            self.push_system_note(format!("项目目录不可用，无法进入会话：{cwd}"));
+            return false;
+        }
+        if let Some(config) = self.services.peri_config.as_ref() {
+            if let Err(error) =
+                cc_acp::provider::store::load_for_session(std::path::Path::new(cwd), config)
+            {
+                self.push_system_note(format!("项目配置不可用，无法进入会话：{error}"));
+                return false;
+            }
+        }
+        true
+    }
+
+    /// services.cwd 仅是当前 thread 的派生值，不改变进程 current_dir。
+    fn activate_thread_context(&mut self, cwd: String) {
+        let changed = self.services.cwd != cwd;
+        self.services.cwd = cwd.clone();
+        self.session_mgr.current_mut().messages.pipeline =
+            message_pipeline::MessagePipeline::new(cwd.clone());
+        self.session_mgr
+            .current_mut()
+            .ui
+            .at_mention
+            .set_cwd(cwd.clone());
+        let plugin_skill_dirs = self
+            .services
+            .plugin_data
+            .as_ref()
+            .map(|data| data.all_skill_dirs.clone())
+            .unwrap_or_default();
+        let dirs = cc_middlewares::SkillsMiddleware::resolve_dirs_static(&cwd, &plugin_skill_dirs);
+        self.session_mgr.current_mut().commands.skills = cc_middlewares::skills::list_skills(&dirs);
+        self.session_mgr
+            .current_mut()
+            .commands
+            .agent_commands
+            .clear();
+        self.session_mgr.current_mut().ui.textarea = build_textarea(false);
+        if changed {
+            if let Some(config) = self.services.peri_config.as_ref() {
+                match cc_acp::provider::store::load_for_session(std::path::Path::new(&cwd), config)
+                {
+                    Ok(config) => {
+                        if let Some(provider) = agent::LlmProvider::from_config(&config) {
+                            self.services.provider_name = provider.display_name().to_string();
+                            self.services.model_name = provider.model_name().to_string();
+                        }
+                        self.services.peri_config = Some(config);
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, %cwd, "Failed to refresh project settings")
+                    }
+                }
+            }
+            self.services.git_branch_cache.lock().set_status(None);
+            // 换掉 channel，旧目录在途查询的结果不会覆盖新目录缓存。
+            *self.services.git_branch_poller.lock() = service_registry::GitBranchPoller::new();
+            if self.services.mcp_pool.is_some() {
+                self.spawn_mcp_init();
+            }
+            self.global_panels.close_if(PanelKind::Mcp);
+            self.session_mgr
+                .current_mut()
+                .session_panels
+                .close_if(PanelKind::Hooks);
+        }
+        if let Some(mode) = self
+            .services
+            .peri_config
+            .as_ref()
+            .and_then(|config| config.config.streaming_mode.as_deref())
+        {
+            self.session_mgr
+                .current_mut()
+                .messages
+                .pipeline
+                .init_streaming_mode_from_config(mode);
+        }
+    }
+
+    /// 恢复历史 thread：先确认元数据、目录和 ACP 加载成功，再替换 UI。
+    pub fn open_thread(&mut self, thread_id: ThreadId) -> bool {
+        if !self.can_switch_thread_context() {
+            self.push_system_note(
+                "当前会话仍有运行任务、排队消息或待处理审批，请完成后再切换。".to_string(),
+            );
+            return false;
+        }
         let store = self.services.thread_store.clone();
         let tid = thread_id.clone();
-        let base_msgs = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(store.load_context(&tid))
-                .unwrap_or_default()
+        let loaded = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(store.load_meta(&tid))
         });
+        let thread_meta = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                self.push_system_note(format!("无法加载会话：{error}"));
+                return false;
+            }
+        };
+        if !self.validate_thread_context_switch(&thread_meta.cwd) {
+            return false;
+        }
+        let base_msgs = match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(store.load_context(&tid))
+        }) {
+            Ok(messages) => messages,
+            Err(error) => {
+                self.push_system_note(format!("无法加载会话：{error}"));
+                return false;
+            }
+        };
+        if let Some(client) = self.acp_client.clone() {
+            let result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(client.load_session(
+                    &thread_id,
+                    &thread_meta.cwd,
+                    None,
+                ))
+            });
+            if let Err(error) = result {
+                self.push_system_note(format!("无法进入会话，已保留当前会话：{error}"));
+                return false;
+            }
+        }
+        self.session_mgr.current_mut().metadata.session_id =
+            uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
+        self.clear_subagent_sessions();
+        self.activate_thread_context(thread_meta.cwd.clone());
         self.session_mgr
             .current_mut()
             .messages
@@ -223,28 +373,7 @@ impl App {
             .pipeline
             .restore_completed(base_msgs.clone());
 
-        let thread_id_str = thread_id.to_string();
         self.session_mgr.current_mut().current_thread_id = Some(thread_id);
-        // 同步 ACP 服务器端 session 状态：确保 state.history 包含当前 thread 的消息，
-        // 这样 /compact 命令和后续 prompt 能正确读到完整历史
-        if let Some(ref acp_client) = self.acp_client {
-            let client = acp_client.clone();
-            let cwd = self.services.cwd.clone();
-            let model = self.services.peri_config.as_ref().map(|c| {
-                cc_acp::provider::format_model_selection_value(
-                    &c.config.active_provider_id,
-                    &c.config.active_alias,
-                )
-            });
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    match client.load_session(&thread_id_str, &cwd, model.as_deref()).await {
-                        Ok(sid) => tracing::info!(session_id = %sid, "open_thread: ACP session synced"),
-                        Err(e) => tracing::warn!(error = %e, "open_thread: ACP session sync failed (compact may not work until first prompt)"),
-                    }
-                })
-            });
-        }
         self.session_mgr
             .current_mut()
             .session_panels
@@ -260,11 +389,7 @@ impl App {
 
         self.reset_agent_session();
         // 恢复会话主题短标题 + 持久化的提示行（recap / 完成态总结），并刷新终端标题
-        let thread_meta = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(store.load_meta(&tid))
-                .ok()
-        });
+        let thread_meta = Some(thread_meta);
         // recap 行与完成态总结行是纯展示态、不进 message history，需从 meta 回填。
         // 无条件覆盖（Some/None 都写），顺带修复切换 thread 时 recap 残留串台问题。
         self.session_mgr.current_mut().latest_recap =
@@ -319,6 +444,7 @@ impl App {
             .messages
             .render_tx
             .try_send(RenderEvent::Rebuild(vms));
+        true
     }
 
     pub fn open_thread_with_feedback(&mut self, thread_id: ThreadId) {
@@ -327,6 +453,24 @@ impl App {
 
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）
     pub fn new_thread(&mut self) {
+        self.new_thread_in_cwd(self.services.cwd.clone());
+    }
+
+    /// 在选中项目打开空白 Composer；thread 在首次发送时创建。
+    pub fn new_thread_in_cwd(&mut self, cwd: String) -> bool {
+        if !self.validate_thread_context_switch(&cwd) {
+            return false;
+        }
+        if let Some(client) = self.acp_client.clone() {
+            if let Err(error) = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(client.close_current_session())
+            }) {
+                self.push_system_note(format!("无法新建会话，已保留当前会话：{error}"));
+                return false;
+            }
+        }
+        self.session_mgr.current_mut().metadata.session_id =
+            uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
         self.clear_subagent_sessions();
         // Fire SessionEnd hooks before clearing session state
         {
@@ -414,25 +558,8 @@ impl App {
         meta.title_generation_attempted = false;
         self.refresh_terminal_title();
 
-        // 通过 ACP 协议创建新 session，清空 server 端 history
-        if let Some(ref acp_client) = self.acp_client {
-            let client = acp_client.clone();
-            let cwd = self.services.cwd.clone();
-            let model = self.services.peri_config.as_ref().map(|c| {
-                cc_acp::provider::format_model_selection_value(
-                    &c.config.active_provider_id,
-                    &c.config.active_alias,
-                )
-            });
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    match client.new_session(&cwd, model.as_deref()).await {
-                        Ok(sid) => tracing::info!(session_id = %sid, "new_thread: ACP new_session succeeded"),
-                        Err(e) => tracing::warn!(error = %e, "new_thread: ACP new_session failed"),
-                    }
-                })
-            });
-        }
+        self.activate_thread_context(cwd);
+        self.refresh_terminal_title();
         // 回收释放的内存给 OS
         crate::alloc_config::alloc_collect();
 
@@ -445,6 +572,7 @@ impl App {
 
         // 归还已释放内存页给 OS
         crate::alloc_config::alloc_collect();
+        true
     }
 
     /// 打开 thread 浏览面板（通过命令触发）

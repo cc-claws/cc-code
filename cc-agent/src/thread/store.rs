@@ -29,13 +29,46 @@ pub trait ThreadStore: Send + Sync {
     /// 列举所有 thread 元数据，按 updated_at 降序（不含 hidden 的子 agent）
     async fn list_threads(&self) -> Result<Vec<ThreadMeta>>;
 
+    /// 分页列举可见线程，按 updated_at、id 降序；limit 为 0 时返回空列表。
+    async fn list_threads_paged(&self, limit: usize, offset: usize) -> Result<Vec<ThreadMeta>>;
+
+    /// 分页列举可见根线程，先排除子线程再应用 limit / offset。
+    async fn list_root_threads_paged(&self, limit: usize, offset: usize)
+        -> Result<Vec<ThreadMeta>>;
+
+    /// 轻量列举全部可见线程，用于全局计数、分组和标题过滤，不读取消息内容。
+    ///
+    /// content_size 为 0，config / cached_context 为 None；需要完整元数据时使用 load_meta。
+    async fn list_threads_metadata(&self) -> Result<Vec<ThreadMeta>>;
+
     /// 删除指定 thread（包含消息和元数据）
     async fn delete_thread(&self, id: &ThreadId) -> Result<()>;
+
+    /// 永久删除指定 thread 及全部子孙（含 hidden），一并清除消息和上下文缓存。
+    /// 默认实现保留自定义后端兼容性；支持线程树的后端应覆盖为整棵树删除。
+    async fn delete_thread_tree(&self, id: &ThreadId) -> Result<()> {
+        self.delete_thread(id).await
+    }
 
     /// 更新指定 thread 的标题
     async fn update_title(&self, id: &ThreadId, title: &str) -> Result<()> {
         let mut meta = self.load_meta(id).await?;
         meta.title = Some(title.to_string());
+        self.update_meta(id, meta).await
+    }
+
+    /// 更新会话运行配置快照；SQLite 后端使用窄更新，避免覆盖并发标题与回顾写入。
+    async fn update_runtime_snapshot(
+        &self,
+        id: &ThreadId,
+        model: Option<String>,
+        reasoning_effort: Option<String>,
+        branch: Option<String>,
+    ) -> Result<()> {
+        let mut meta = self.load_meta(id).await?;
+        meta.model = model;
+        meta.reasoning_effort = reasoning_effort;
+        meta.branch = branch;
         self.update_meta(id, meta).await
     }
 

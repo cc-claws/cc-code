@@ -1,9 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use cc_acp::provider::{
-    format_model_selection_value, PeriConfig, ProviderConfig, ProviderModels,
-};
+use cc_acp::provider::{format_model_selection_value, PeriConfig, ProviderConfig, ProviderModels};
 use cc_acp::transport::types::{AcpError, IncomingMessage, RequestId};
 use cc_agent::thread::FilesystemThreadStore;
 use cc_middlewares::hitl::shared_mode::{PermissionMode, SharedPermissionMode};
@@ -402,6 +400,117 @@ async fn test_session_load_succeeds_when_thread_exists() {
     );
 }
 
+#[tokio::test]
+async fn test_session_load_freezes_target_cwd_and_keeps_existing_frozen_prompt(
+) -> anyhow::Result<()> {
+    let (tmp, cfg) = make_minimal_cfg();
+    let project = tmp.path().join("target-project");
+    std::fs::create_dir_all(&project)?;
+    std::fs::write(
+        project.join("AGENTS.md"),
+        "Target project frozen instruction",
+    )?;
+    let cwd = project.to_string_lossy().to_string();
+    let id = cfg
+        .thread_store
+        .create_thread(cc_agent::thread::ThreadMeta::new(&cwd))
+        .await?;
+    let mut sessions = HashMap::new();
+    let params = json!({ "sessionId": id, "cwd": "/wrong-startup-project" });
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    let session = &sessions[&id];
+    assert_eq!(session.cwd, cwd, "目录必须来自线程元数据");
+    let frozen = session.frozen.as_ref().expect("恢复时必须冻结上下文");
+    assert!(
+        frozen.system_prompt.contains(&cwd),
+        "提示词必须引用目标目录"
+    );
+    assert!(frozen
+        .instructions
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Target project frozen instruction"));
+    let original = frozen.system_prompt.clone();
+    let original_instructions = frozen.instructions.clone();
+    std::fs::write(
+        project.join("AGENTS.md"),
+        "Changed instruction after session load",
+    )?;
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    let frozen = sessions[&id]
+        .frozen
+        .as_ref()
+        .expect("重复加载应保留冻结上下文");
+    assert_eq!(frozen.system_prompt, original);
+    assert_eq!(
+        frozen.instructions, original_instructions,
+        "会话内的指引快照不得改变"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_session_creation_and_config_changes_persist_runtime_snapshot() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let mut config = PeriConfig::default();
+    config.config.providers = vec![make_provider_config(
+        "snapshot-test",
+        "openai",
+        "test",
+        "initial-model",
+    )];
+    config.config.providers[0].models.haiku = "selected-model".into();
+    config.config.active_provider_id = "snapshot-test".into();
+    config.config.active_alias = "sonnet".into();
+    let provider = LlmProvider::from_config(&config).unwrap();
+    let cfg = make_server_config(config, provider, &tmp);
+    let mut sessions = HashMap::new();
+    let result = handle_request(
+        "session/new",
+        &json!({"cwd": tmp.path()}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let id = result["sessionId"].as_str().unwrap().to_string();
+    let meta = cfg.thread_store.load_meta(&id).await?;
+    assert_eq!(
+        meta.model.as_deref(),
+        Some("initial-model"),
+        "新建会话必须立即保存模型"
+    );
+    let updated_at = meta.updated_at;
+    let frozen = sessions[&id].frozen.as_ref().unwrap().system_prompt.clone();
+    handle_request("session/set_config_option", &json!({"sessionId": id, "configId": "model", "value": format_model_selection_value("snapshot-test", "haiku")}), &cfg, &mut sessions, &MockTransport).await?;
+    handle_request(
+        "session/set_config_option",
+        &json!({"sessionId": id, "configId": "thinking_effort", "value": "high"}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let meta = cfg.thread_store.load_meta(&id).await?;
+    assert_eq!(
+        meta.model.as_deref(),
+        Some("selected-model"),
+        "切换模型必须更新快照"
+    );
+    assert_eq!(
+        meta.reasoning_effort.as_deref(),
+        Some("high"),
+        "切换推理强度必须更新快照"
+    );
+    assert_eq!(meta.updated_at, updated_at, "配置快照不得伪造会话活动时间");
+    assert_eq!(
+        sessions[&id].frozen.as_ref().unwrap().system_prompt,
+        frozen,
+        "模型和推理设置不得改变系统提示词"
+    );
+    Ok(())
+}
+
 /// session/resume 传入非 UUID 应被 -32602 拒绝（resume 仍允许新建，但 ID 必须合法）
 #[tokio::test]
 async fn test_session_resume_returns_error_for_non_uuid_session_id() {
@@ -659,13 +768,26 @@ async fn test_initialize_advertises_auth_methods() {
     let mut sessions = HashMap::new();
     let transport = MockTransport;
 
-    let result = handle_request("initialize", &json!({"protocolVersion": 1}), &cfg, &mut sessions, &transport)
-        .await
-        .unwrap();
+    let result = handle_request(
+        "initialize",
+        &json!({"protocolVersion": 1}),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
 
-    let auth_methods = result.get("authMethods").expect("应有 authMethods").as_array().unwrap();
+    let auth_methods = result
+        .get("authMethods")
+        .expect("应有 authMethods")
+        .as_array()
+        .unwrap();
     assert!(!auth_methods.is_empty(), "authMethods 不应为空");
-    let ids: Vec<&str> = auth_methods.iter().filter_map(|m| m.get("id").and_then(|v| v.as_str())).collect();
+    let ids: Vec<&str> = auth_methods
+        .iter()
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
+        .collect();
     assert!(ids.contains(&"cc-code"), "应广播 cc-code 认证方法");
 }
 
@@ -678,15 +800,36 @@ async fn test_authenticate_accepts_cc_code_rejects_unknown() {
     let transport = MockTransport;
 
     // 合法
-    let ok = handle_request("authenticate", &json!({"methodId": "cc-code"}), &cfg, &mut sessions, &transport).await;
+    let ok = handle_request(
+        "authenticate",
+        &json!({"methodId": "cc-code"}),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
     assert!(ok.is_ok(), "cc-code 应认证通过");
 
     // 非法
-    let err = handle_request("authenticate", &json!({"methodId": "evil"}), &cfg, &mut sessions, &transport).await;
+    let err = handle_request(
+        "authenticate",
+        &json!({"methodId": "evil"}),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
     assert!(err.is_err(), "未知 method 应拒绝");
 
     // v2 别名
-    let v2 = handle_request("auth/login", &json!({"methodId": "cc-code"}), &cfg, &mut sessions, &transport).await;
+    let v2 = handle_request(
+        "auth/login",
+        &json!({"methodId": "cc-code"}),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
     assert!(v2.is_ok(), "v2 auth/login 应兼容");
 }
 
@@ -698,8 +841,16 @@ async fn test_logout_and_v2_alias() {
     let mut sessions = HashMap::new();
     let transport = MockTransport;
 
-    assert!(handle_request("logout", &json!({}), &cfg, &mut sessions, &transport).await.is_ok());
-    assert!(handle_request("auth/logout", &json!({}), &cfg, &mut sessions, &transport).await.is_ok());
+    assert!(
+        handle_request("logout", &json!({}), &cfg, &mut sessions, &transport)
+            .await
+            .is_ok()
+    );
+    assert!(
+        handle_request("auth/logout", &json!({}), &cfg, &mut sessions, &transport)
+            .await
+            .is_ok()
+    );
 }
 
 /// 实测 MCP-over-ACP 完整流程：connect → message → disconnect
@@ -711,17 +862,31 @@ async fn test_mcp_over_acp_full_flow() {
     let transport = MockTransport;
 
     // 先建 session
-    let new_result = handle_request("session/new", &json!({"cwd": "/tmp"}), &cfg, &mut sessions, &transport)
-        .await
-        .unwrap();
-    let session_id = new_result.get("sessionId").and_then(|v| v.as_str()).unwrap().to_string();
+    let new_result = handle_request(
+        "session/new",
+        &json!({"cwd": "/tmp"}),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+    let session_id = new_result
+        .get("sessionId")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
 
     // connect
     let conn = handle_request(
         "mcp/connect",
         &json!({"sessionId": session_id, "servers": [{"name": "test-srv", "version": "1.0"}]}),
-        &cfg, &mut sessions, &transport,
-    ).await.unwrap();
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
     let connected = conn.get("connected").unwrap().as_array().unwrap();
     assert_eq!(connected.len(), 1);
 
@@ -737,24 +902,33 @@ async fn test_mcp_over_acp_full_flow() {
     let msg_bad = handle_request(
         "mcp/message",
         &json!({"sessionId": session_id, "serverName": "nope", "message": {}}),
-        &cfg, &mut sessions, &transport,
-    ).await;
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
     assert!(msg_bad.is_err(), "未注册服务器应拒绝");
 
     // disconnect
     let disc = handle_request(
         "mcp/disconnect",
         &json!({"sessionId": session_id, "serverName": "test-srv"}),
-        &cfg, &mut sessions, &transport,
-    ).await;
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
     assert!(disc.is_ok());
 
     // 断开后 message 应拒绝
     let msg_after = handle_request(
         "mcp/message",
         &json!({"sessionId": session_id, "serverName": "test-srv", "message": {}}),
-        &cfg, &mut sessions, &transport,
-    ).await;
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await;
     assert!(msg_after.is_err(), "断开后应拒绝");
 }
 

@@ -654,3 +654,27 @@ cli-plugin-uninstalled = 已卸载：{ $id }
 at-mention-searching = 搜索中…
 at-mention-empty-directory = 当前目录无候选，请输入关键词搜索。
 at-mention-no-matches = 没有匹配的文件。
+command-agent-center-description = 打开跨项目 Agent 会话中心
+agent-center-loading = (加载中…)
+agent-center-none = （无）
+agent-center-status-note = 其它进程仅显示持久化状态
+agent-center-empty = 已加载会话中没有匹配项，可通过 Show more 加载更早的会话。
+agent-center-show-more = Show more
+agent-center-search = 搜索已加载会话的标题；/ 或 Esc 清空
+agent-center-rename = 重命名：
+agent-center-busy = Agent、Shell 或审批仍在进行，或目标项目不可用，暂不能切换或删除。
+agent-center-other-projects = 其它项目 { $count } 条 · 按 g 分组 · 计数包含全部会话
+agent-center-delete-question = 永久删除此会话及其消息？
+agent-center-delete-confirm = y 永久删除（不可恢复） · Esc 取消
+agent-center-open-failed = 无法打开会话，请检查项目目录和会话数据；Esc 返回查看详细错误。
+agent-center-help = Navigate（导航）
+    ↑/↓ 移动 · Home/End 首尾 · Enter 打开或加载更多
+    Esc 依次关闭帮助、重命名、搜索、中心
+    Tasks（会话）
+    n 在选中项目新建 · o 当前项目历史选择器
+    r 重命名 · Backspace 永久删除（二次确认）
+    View（视图）
+    Tab/Shift+Tab 过滤 · g 项目/状态/模型分组 · / 标题搜索
+    搜索与过滤作用于已加载页，计数涵盖全部项目。
+    Working/Needs you 仅反映本进程实时状态，其它进程采用持久化状态。
+    ? 或 Esc 关闭帮助

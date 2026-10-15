@@ -27,6 +27,15 @@ pub struct ThreadMeta {
     pub title: Option<String>,
     /// 创建时的工作目录
     pub cwd: String,
+    /// 会话最近使用的模型快照，旧会话可能缺失
+    #[serde(default)]
+    pub model: Option<String>,
+    /// 会话最近使用的推理强度快照
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    /// 会话所属工作目录的 Git 分支快照
+    #[serde(default)]
+    pub branch: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub message_count: usize,
@@ -77,6 +86,9 @@ impl ThreadMeta {
             id: uuid::Uuid::now_v7().to_string(),
             title: None,
             cwd: cwd.into(),
+            model: None,
+            reasoning_effort: None,
+            branch: None,
             created_at: now,
             updated_at: now,
             message_count: 0,
@@ -104,6 +116,9 @@ impl ThreadMeta {
             id: String::new(),
             title: None,
             cwd: String::new(),
+            model: None,
+            reasoning_effort: None,
+            branch: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             message_count: 0,
@@ -124,64 +139,5 @@ impl ThreadMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_thread_meta_default_values() {
-        // new() 创建的根线程应具有正确的默认值
-        let meta = ThreadMeta::new("/tmp/test");
-        assert_eq!(meta.parent_thread_id, None);
-        assert_eq!(meta.snapshot_at_message_id, None);
-        assert!(!meta.hidden);
-        assert_eq!(meta.cancel_policy, "cascade");
-        assert_eq!(meta.config, None);
-        assert_eq!(meta.cached_context, None);
-        assert_eq!(meta.agent_status, "active");
-        assert_eq!(meta.latest_recap, None);
-        assert_eq!(meta.last_task_summary, None);
-        assert!(meta.is_root());
-    }
-
-    #[test]
-    fn test_thread_meta_is_root() {
-        // parent_thread_id 为 None 时是根 agent
-        let mut meta = ThreadMeta::new("/tmp/test");
-        assert!(meta.is_root());
-
-        // 设置 parent_thread_id 后不是根 agent
-        meta.parent_thread_id = Some("parent-uuid".to_string());
-        assert!(!meta.is_root());
-    }
-
-    #[test]
-    fn test_thread_meta_deserialize_defaults() {
-        // 反序列化旧格式 JSON 时新字段应使用默认值
-        let json = r#"{"id":"test-id","title":null,"cwd":"/tmp","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","message_count":0,"content_size":0}"#;
-        let meta: ThreadMeta = serde_json::from_str(json).unwrap();
-        assert_eq!(meta.parent_thread_id, None);
-        assert_eq!(meta.snapshot_at_message_id, None);
-        assert!(!meta.hidden);
-        assert_eq!(meta.cancel_policy, "cascade");
-        assert_eq!(meta.config, None);
-        assert_eq!(meta.cached_context, None);
-        assert_eq!(meta.agent_status, "active");
-        assert_eq!(meta.latest_recap, None);
-        assert_eq!(meta.last_task_summary, None);
-    }
-
-    #[test]
-    fn test_task_summary_roundtrip() {
-        // Arrange
-        let summary = TaskSummary {
-            verb: "Cooked".to_string(),
-            elapsed_ms: 25_000,
-            done_at: Utc::now(),
-        };
-
-        // Act
-        let json = serde_json::to_string(&summary).unwrap();
-        let back: TaskSummary = serde_json::from_str(&json).unwrap();
-
-        // Assert
-        assert_eq!(back, summary);
-    }
+    include!("types_test.rs");
 }

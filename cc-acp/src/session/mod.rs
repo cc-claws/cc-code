@@ -9,14 +9,13 @@ pub mod command;
 pub mod event_sink;
 pub mod executor;
 pub mod frozen;
+pub mod project_context;
 pub mod state_builders;
 pub mod steering;
 pub mod subagent_protocol;
 
 use std::{collections::HashMap, sync::Arc};
 
-use chrono::Utc;
-use dashmap::DashMap;
 use cc_agent::{
     messages::BaseMessage,
     thread::{ThreadId, ThreadMeta, ThreadStore},
@@ -25,6 +24,8 @@ use cc_middlewares::{
     agent_define::AgentOverrides,
     prelude::{PermissionMode, SharedPermissionMode},
 };
+use chrono::Utc;
+use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 
 use crate::{

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 use tokio::{fs, io::AsyncWriteExt};
 
 use crate::{
@@ -21,12 +21,14 @@ use crate::{
 /// ```
 pub struct FilesystemThreadStore {
     base_dir: PathBuf,
+    index_write_lock: tokio::sync::Mutex<()>,
 }
 
 impl FilesystemThreadStore {
     pub fn new(base_dir: impl Into<PathBuf>) -> Self {
         Self {
             base_dir: base_dir.into(),
+            index_write_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -73,6 +75,7 @@ impl FilesystemThreadStore {
 
     /// 在 index 中更新或插入一条摘要
     async fn upsert_index(&self, meta: &ThreadMeta) -> Result<()> {
+        let _guard = self.index_write_lock.lock().await;
         let mut metas = self.read_index().await?;
         if let Some(pos) = metas.iter().position(|m| m.id == meta.id) {
             metas[pos] = meta.clone();
@@ -80,8 +83,37 @@ impl FilesystemThreadStore {
             metas.push(meta.clone());
         }
         // 按 updated_at 降序排列
-        metas.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
+        sort_thread_metadata(&mut metas);
         self.write_index(&metas).await
+    }
+
+    async fn fill_content_sizes(&self, metas: &mut [ThreadMeta]) {
+        for meta in metas {
+            meta.content_size = fs::metadata(self.messages_path(&meta.id))
+                .await
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
+        }
+    }
+
+    async fn list_page(
+        &self,
+        limit: usize,
+        offset: usize,
+        root_only: bool,
+    ) -> Result<Vec<ThreadMeta>> {
+        if limit == 0 {
+            return Ok(vec![]);
+        }
+        let mut metas = self.read_index().await?;
+        metas.retain(|meta| !meta.hidden && (!root_only || meta.is_root()));
+        sort_thread_metadata(&mut metas);
+        let mut page: Vec<_> = metas.into_iter().skip(offset).take(limit).collect();
+        for meta in &mut page {
+            meta.cached_context = None;
+        }
+        self.fill_content_sizes(&mut page).await;
+        Ok(page)
     }
 }
 
@@ -168,26 +200,89 @@ impl ThreadStore for FilesystemThreadStore {
         let mut metas = self.read_index().await?;
         // 排除 hidden 的子 agent
         metas.retain(|m| !m.hidden);
-        metas.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
+        sort_thread_metadata(&mut metas);
         // 计算 content_size（从 messages.jsonl 文件大小）
+        self.fill_content_sizes(&mut metas).await;
+        Ok(metas)
+    }
+
+    async fn list_threads_paged(&self, limit: usize, offset: usize) -> Result<Vec<ThreadMeta>> {
+        self.list_page(limit, offset, false).await
+    }
+
+    async fn list_root_threads_paged(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<ThreadMeta>> {
+        self.list_page(limit, offset, true).await
+    }
+
+    async fn list_threads_metadata(&self) -> Result<Vec<ThreadMeta>> {
+        let mut metas = self.read_index().await?;
+        metas.retain(|meta| !meta.hidden);
+        sort_thread_metadata(&mut metas);
         for meta in &mut metas {
-            let msg_path = self.messages_path(&meta.id);
-            if msg_path.exists() {
-                if let Ok(file_meta) = tokio::fs::metadata(&msg_path).await {
-                    meta.content_size = file_meta.len();
-                }
-            }
+            meta.content_size = 0;
+            meta.config = None;
+            meta.cached_context = None;
         }
         Ok(metas)
     }
 
     async fn delete_thread(&self, id: &ThreadId) -> Result<()> {
+        let _guard = self.index_write_lock.lock().await;
         let dir = self.thread_dir(id);
         if dir.exists() {
             fs::remove_dir_all(&dir).await?;
         }
         let mut metas = self.read_index().await?;
         metas.retain(|m| m.id != *id);
+        self.write_index(&metas).await
+    }
+
+    async fn delete_thread_tree(&self, id: &ThreadId) -> Result<()> {
+        let _guard = self.index_write_lock.lock().await;
+        let mut metas = self.read_index().await?;
+        let mut descendants = HashSet::from([id.clone()]);
+        let mut pending = vec![id.clone()];
+        while let Some(parent) = pending.pop() {
+            for meta in &metas {
+                if meta.parent_thread_id.as_ref() == Some(&parent)
+                    && descendants.insert(meta.id.clone())
+                {
+                    pending.push(meta.id.clone());
+                }
+            }
+        }
+        // 先核对全部目标，再开始不可恢复的删除，避免异常索引越过存储根目录。
+        let mut directories = Vec::new();
+        for descendant in &descendants {
+            let mut components = std::path::Path::new(descendant).components();
+            anyhow::ensure!(
+                matches!(components.next(), Some(std::path::Component::Normal(_)))
+                    && components.next().is_none(),
+                "Invalid thread directory: {descendant}"
+            );
+            let directory = self.thread_dir(descendant);
+            match fs::symlink_metadata(&directory).await {
+                Ok(_) => {
+                    let root = fs::canonicalize(&self.base_dir).await?;
+                    let resolved = fs::canonicalize(&directory).await?;
+                    anyhow::ensure!(
+                        resolved != root && resolved.starts_with(&root),
+                        "Thread directory is outside storage root: {descendant}"
+                    );
+                    directories.push(directory);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        for directory in directories {
+            fs::remove_dir_all(directory).await?;
+        }
+        metas.retain(|meta| !descendants.contains(&meta.id));
         self.write_index(&metas).await
     }
 
@@ -248,6 +343,15 @@ impl ThreadStore for FilesystemThreadStore {
     }
 }
 
+fn sort_thread_metadata(metas: &mut [ThreadMeta]) {
+    metas.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| right.id.cmp(&left.id))
+    });
+}
+
 /// 从消息列表中提取标题（取第一条 Human 消息的前 50 字符）
 fn extract_title(msgs: &[BaseMessage]) -> Option<String> {
     use crate::messages::{ContentBlock, MessageContent};
@@ -283,4 +387,5 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
     include!("filesystem_test.rs");
+    include!("filesystem_command_center_test.rs");
 }

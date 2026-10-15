@@ -45,3 +45,73 @@ fn test_background_results_preserve_history_marker_pairs() {
         assert_eq!(*is_error, !result.success, "保留后台任务成功或失败状态");
     }
 }
+
+#[tokio::test]
+async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> anyhow::Result<()> {
+    use cc_agent::thread::{SqliteThreadStore, ThreadMeta, ThreadStore};
+    let project = tempfile::tempdir()?;
+    let output = cc_middlewares::process::shell_command("git", &["init", "--quiet"])
+        .current_dir(project.path())
+        .output()
+        .await?;
+    assert!(
+        output.status.success(),
+        "临时 git 项目必须初始化成功: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = cc_middlewares::process::shell_command(
+        "git",
+        &["symbolic-ref", "HEAD", "refs/heads/runtime-snapshot"],
+    )
+    .current_dir(project.path())
+    .output()
+    .await?;
+    assert!(output.status.success(), "临时 git 分支必须初始化成功");
+    let store = SqliteThreadStore::new(project.path().join("runtime.db")).await?;
+    let id = store
+        .create_thread(ThreadMeta::new(project.path().to_string_lossy()))
+        .await?;
+    let provider = LlmProvider::OpenAi {
+        api_key: "test".into(),
+        base_url: "http://localhost".into(),
+        model: "test-model".into(),
+        thinking: Some(crate::provider::ThinkingConfig {
+            enabled: true,
+            budget_tokens: 1024,
+            effort: "high".into(),
+            max_tokens: 2048,
+        }),
+    };
+    persist_runtime_start(&store, &id, &provider, project.path().to_str().unwrap()).await;
+    let meta = store.load_meta(&id).await?;
+    assert_eq!(meta.agent_status, "active");
+    assert_eq!(meta.model.as_deref(), Some("test-model"));
+    assert_eq!(meta.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(meta.branch.as_deref(), Some("runtime-snapshot"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_runtime_end_persists_completion_cancellation_and_failure() -> anyhow::Result<()> {
+    use cc_agent::thread::{SqliteThreadStore, ThreadMeta, ThreadStore};
+    let directory = tempfile::tempdir()?;
+    let store = SqliteThreadStore::new(directory.path().join("runtime.db")).await?;
+    let id = store
+        .create_thread(ThreadMeta::new("/test-project"))
+        .await?;
+    for (ok, reason, expected) in [
+        (true, PromptStopReason::EndTurn, "done"),
+        (false, PromptStopReason::Cancelled, "cancelled"),
+        (true, PromptStopReason::Cancelled, "cancelled"),
+        (false, PromptStopReason::EndTurn, "error"),
+        (false, PromptStopReason::MaxTurnRequests, "error"),
+    ] {
+        persist_runtime_end(&store, &id, ok, reason).await;
+        assert_eq!(
+            store.load_meta(&id).await?.agent_status,
+            expected,
+            "每条终止路径都必须写入状态"
+        );
+    }
+    Ok(())
+}

@@ -9,7 +9,7 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 双线程渲染：独立渲染线程计算 Markdown 解析（pulldown-cmark）和行包装，UI 线程只从 `RenderCache` 读取可见行，按需重绘
 - 事件处理：crossterm 输入拦截、命令解析（`/` 前缀）、弹窗状态管理
 - 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/recap`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
-- 多会话管理：SQLite 持久化，`/history` 面板按 cwd 过滤当前工作区对话
+- 多会话管理：SQLite 持久化；`/agents` 全页跨项目中心，`/agent-design` 选择 agent 定义；`/history` 面板按 cwd 过滤当前项目，`/tasks` 入口移除
 - 弹窗系统：HITL 紧凑审批面板（工具/动作/目录同行、完整命令换行、Edit 对比；当前工具三项选择固定可见，↑↓ 选择、Tab 切换工具、Enter 确认；超高内容提示剩余行数，无内部滚动），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
 - SubAgent 展示：底栏抽屉 + 虚拟视口（子 Agent 恒后台）；抽屉行 `●/◯` 视口标记 + `>` 导航游标，Enter 下钻独立视口；旧会话已落库的 SubAgentGroup 仅作历史渲染兼容，不再产生新分组
 - Skill 全文预加载：消息含 `#skill-name` 时通过 SkillPreloadMiddleware 将 skill 全文注入 agent state
@@ -1379,5 +1379,11 @@ submit_message(text)
 启动摘要在主视口有**两态**，同源同一 `SystemNote` VM（`content` = 极简树形，`detail_content` = 详细卡片），由 `detail_mode` 单选渲染：普通模式为 `• N background agents launched` + `├──`/`└──` 任务行；按 `Ctrl+O` 进入详细模式切换为方案 B 卡片（`● Agent(任务预览)` + `└ Backgrounded agent` + `└ Prompt:` + 指令全文，6 列悬挂缩进折行）。`SubagentStarted` 事件必须携带 `prompt` 全文字段（仅 `task_preview` 摘要不足以渲染卡片）；卡片标题的 `●` 必须是系统统一的大实心圆点 `U+25CF`（与 `● Bash(...)` 同字形），`SystemNote` 的 `PartialEq`/`Hash` 必须包含 `detail_content`。详见 PRD §4.17。
 
 **取消链路（PRD §4.4 / §4.4.1 / §4.4.2）**：主 Agent 经 `Agent(action="stop", task_id=…)` 取消（`task_id` 精确匹配，拒绝模糊），与用户按键（`x` / `Ctrl+X Ctrl+K`）共用同一终态链路。渲染侧三项契约：① 停止终态独立成行（`• Agent "x" was stopped by main Agent`，用户停止为 `stopped by user`），不得混入 `finished`/`failed`；② 抽屉停止行用**红色实心 `●`**（`theme::ERROR` = `#FF6B80`）+ 红色 `stopped by …`——`drawer_line()` 新增 `force_filled` 参数在非当前视口时也渲染实心圆点（`◯` 仅用于「非当前视口的活跃行」）；③ 等待计数行 `✻ Waiting for N background agents to finish` 作为临时 `SystemNote`（`ephemeral_notes`）随活跃数刷新，**归零必须移除**（残留会让用户误以为还有任务在跑）。`BackgroundAgentSession.stopped_by_user` 记录停止发起方，供上述来源文案区分。
+
+### Agent Command Center（#542）
+
+全页视图在 main_ui 和 keyboard 入口独立截流，不扩展 PanelKind。轻量全局元数据用于计数，根会话每页 10 条，选中后 150ms 防抖读取消息；oneshot 接收器绑定页面，关闭后异步结果不进入新页面。重命名/删除固定 thread ID，避免分组或状态变化写错对象。永久删除必须明确确认。
+
+会话目录由 ThreadMeta.cwd 决定，services.cwd 是当前会话派生缓存；切换同步刷新路径渲染、@、技能、分支、hooks/MCP，严禁改进程 cwd。已存在 ACP session 的 frozen 提示词保持原样；切入另一线程创建其独立冻结上下文。运行任务、Shell、排队消息或审批时拒绝切换；返回当前会话只关闭中心。
 
 最后更新：2026-10-15

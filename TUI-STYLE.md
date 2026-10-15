@@ -336,7 +336,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 |------|------|--------|------|
 | `/login` | LoginPanel | Session | Browse=BORDER, Edit/New/Delete=动态色 |
 | `/model` | ModelPanel | Session | BORDER |
-| `/agents` | AgentPanel | Session | BORDER |
+| `/agent-design` | AgentPanel | Session | BORDER |
 | `/history` | ThreadBrowserPanel | Session | BORDER |
 | `/cron` | CronPanel | Session | BORDER |
 | `/config` | ConfigPanel | Session | Browse=BORDER, Edit=WARNING |
@@ -346,7 +346,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `/plugin` | PluginPanel | Global | BORDER |
 | `/cost` | StatusPanel (Cost tab) | Session | BORDER |
 | `/context` | StatusPanel (Context tab) | Session | BORDER |
-| `/tasks` | TasksPanel | Session | BORDER |
 
 ### 选中行样式
 
@@ -604,7 +603,8 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 
 | 命令 | 说明 |
 |------|------|
-| `/agents` | 打开 Agent 选择面板 |
+| `/agents` | 打开跨项目全页会话中心（独立于面板系统） |
+| `/agent-design` | 打开 Agent 定义选择面板 |
 | `/help` | 列出所有可用命令 |
 | `/model` | 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名 |
 | `/plugin` | 管理插件（浏览、安装、卸载） |
@@ -632,7 +632,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `/cron` | 查看和管理定时任务 |
 | `/hooks` | 查看 Hook 配置 |
 | `/loop` | 注册定时循环任务（自然语言描述，如 `/loop 每隔5分钟提醒我喝水`） |
-| `/tasks` | 查看 agent 线程和定时任务 |
 
 ### ACP 层命令
 
@@ -700,3 +699,22 @@ Auto 模式下，父 Agent 有“允许、拒绝、询问用户”三种结果�
 `u8` → 模式的映射中，**未知取值一律回退 `AutoMode`**，绝不因陈旧/异常值意外滑进 Bypass。
 
 模式切换后标签 1500ms BOLD + SLOW_BLINK 高亮。状态栏首列始终显示（两档都有标签）。
+
+## Agent Command Center
+
+`/agents` 打开独立全页视图；原 Agent 定义入口为 `/agent-design`，`/tasks` 不再注册，定时任务仍用 `/cron`。空草稿且焦点、根会话和无弹窗等门控满足时，裸 `←` 的 Press 打开中心（Repeat 不触发）；状态栏 `← N agents` 数当前项目根会话。
+
+| 键 | 行为 |
+|---|---|
+| ↑/↓、Home/End | 移动选择并保持可见 |
+| Tab / Shift+Tab | All / Needs you / Working / Ready / Inactive 过滤，零查询 |
+| g | Project → Status → Model 分组，重开重置 |
+| / | 已加载会话标题搜索，关闭清空 |
+| Enter | 打开选中会话，或 Show more 加载下一页 10 条 |
+| o | 当前项目历史选择器，与所选行无关 |
+| n | 在选中项目新建空草稿，首次发送前不落库 |
+| r | 重命名；Enter 提交，Esc 取消 |
+| Backspace / Delete | 永久删除确认；y 确认不可恢复，Esc/n 取消 |
+| ? / Esc | 开关帮助；Esc 优先关闭帮助、确认/重命名、搜索，然后返回会话 |
+
+中心只有 tab 下方一条横线；宽度至少 90 列显示详情栏，窄屏单栏。计数涵盖全部项目，搜索和过滤作用于已加载页，组头数当前可见组行数。Working/Needs you 只反映本进程；其它会话按保存状态与 24h 阈值归 Ready/Inactive。切换不打断任务：存在运行任务、Shell、排队消息或审批时保持原会话。

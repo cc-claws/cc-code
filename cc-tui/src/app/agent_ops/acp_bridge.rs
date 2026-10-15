@@ -17,9 +17,25 @@ impl App {
             | AcpNotification::Peri { session_id, .. } => Some(session_id.as_str()),
             _ => None,
         };
-        if source_session.filter(|id| !id.is_empty()).is_some_and(|id| {
-            self.session_mgr.current().current_thread_id.as_ref().is_some_and(|current| current.as_str() != id)
-        }) {
+        if source_session
+            .filter(|id| !id.is_empty())
+            .is_some_and(|id| {
+                let current = self
+                    .session_mgr
+                    .current()
+                    .current_thread_id
+                    .clone()
+                    .or_else(|| {
+                        self.acp_client
+                            .as_ref()
+                            .and_then(|client| client.session_id())
+                    });
+                current
+                    .as_ref()
+                    .is_some_and(|current| current.as_str() != id)
+                    || (current.is_none() && self.acp_client.is_some())
+            })
+        {
             return (false, false, false);
         }
         match notif {
@@ -137,7 +153,9 @@ impl App {
                     let event = super::super::AgentEvent::AiReasoning(text.to_string());
                     if let Some(id) = source_agent_id {
                         self.handle_subagent_event(&id, event)
-                    } else { self.handle_agent_event(event) }
+                    } else {
+                        self.handle_agent_event(event)
+                    }
                 } else {
                     (false, false, false)
                 }
@@ -240,8 +258,11 @@ impl App {
                     }
                 }
                 let event = super::super::AgentEvent::TodoUpdate(todos);
-                if let Some(id) = source_agent_id { self.handle_subagent_event(&id, event) }
-                else { self.handle_agent_event(event) }
+                if let Some(id) = source_agent_id {
+                    self.handle_subagent_event(&id, event)
+                } else {
+                    self.handle_agent_event(event)
+                }
             }
             "usage_update" => {
                 // 从 enriched UsageUpdate _meta 中解析完整 token 用量
@@ -280,9 +301,16 @@ impl App {
                     request_id: None,
                 };
 
-                let event = super::super::AgentEvent::TokenUsageUpdate { usage, model, stop_reason };
-                if let Some(id) = source_agent_id { self.handle_subagent_event(&id, event) }
-                else { self.handle_agent_event(event) }
+                let event = super::super::AgentEvent::TokenUsageUpdate {
+                    usage,
+                    model,
+                    stop_reason,
+                };
+                if let Some(id) = source_agent_id {
+                    self.handle_subagent_event(&id, event)
+                } else {
+                    self.handle_agent_event(event)
+                }
             }
             "session_info_update" => (false, false, false),
             "available_commands_update" => {

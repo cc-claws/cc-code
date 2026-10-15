@@ -67,10 +67,17 @@ async fn test_frozen_empty_instructions_ignore_mid_session_file_creation() {
     let cwd = directory.path().to_str().unwrap();
     let app_config = AppConfig {
         // 隔离用户全局层；新建的项目文件不在排除范围内。
-        claude_md_excludes: Some(vec![cc_agent::app_home::app_home_dir()
-            .join("AGENTS.md")
-            .display()
-            .to_string()]),
+        claude_md_excludes: Some(vec![
+            cc_agent::app_home::app_home_dir()
+                .join("AGENTS.md")
+                .display()
+                .to_string(),
+            dirs_next::home_dir()
+                .unwrap()
+                .join(".claude/CLAUDE.md")
+                .display()
+                .to_string(),
+        ]),
         ..AppConfig::default()
     };
     let data = build_frozen_session_data(cwd, app_config, &[], &[], "2026-10-09", None);

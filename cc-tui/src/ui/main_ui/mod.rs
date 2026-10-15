@@ -40,6 +40,10 @@ pub fn render(f: &mut Frame, app: &mut App) {
     }
 
     let area = f.area();
+    if app.global_ui.agent_center.is_some() {
+        crate::app::agent_center::render::render(f, app);
+        return;
+    }
     render_session_column(f, app, area);
 }
 
@@ -135,7 +139,9 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
                     height: 1,
                 };
                 f.render_widget(
-                    Paragraph::new(text).style(Style::default().fg(theme::cur().claude_blue_shimmer_for_system_spinner)),
+                    Paragraph::new(text).style(
+                        Style::default().fg(theme::cur().claude_blue_shimmer_for_system_spinner),
+                    ),
                     label_area,
                 );
             }
@@ -231,7 +237,10 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         app.session_mgr.current_mut().ui.textarea.set_block(block);
     } else if let Some(ref id) = focused_id {
         let sub = app.session_mgr.current().subagent_sessions.get(id);
-        let title = format!("[ {} ]", sub.map(|sub| sub.task_preview.as_str()).unwrap_or("agent"));
+        let title = format!(
+            "[ {} ]",
+            sub.map(|sub| sub.task_preview.as_str()).unwrap_or("agent")
+        );
         let placeholder = match sub {
             Some(sub) if sub.status.is_active() => format!("Message @{}...", sub.agent_type),
             _ => "Task ended (read-only)".into(),
@@ -246,7 +255,11 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         textarea.set_placeholder_text(placeholder);
         textarea.set_style(Style::default().fg(theme::cur().text));
     } else {
-        app.session_mgr.current_mut().ui.textarea.set_placeholder_text("");
+        app.session_mgr
+            .current_mut()
+            .ui
+            .textarea
+            .set_placeholder_text("");
         // 正常模式：恢复与 build_textarea 一致的边框样式
         let border_color = textarea_shell_border_color(shell_mode);
         let mut block = ratatui::widgets::Block::default()

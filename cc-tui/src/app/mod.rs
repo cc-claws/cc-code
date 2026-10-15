@@ -1,4 +1,5 @@
 // ── Panel Modules ────────────────────────────────────────────────────────────
+pub(crate) mod agent_center;
 pub mod agent_panel;
 pub mod command_palette_panel;
 pub mod config_panel;
@@ -85,9 +86,9 @@ pub use agent_shell_executor::{AgentShellExecutor, AgentShellRegistration, Agent
 
 // ── System Infrastructure ────────────────────────────────────────────────────
 mod chat_session;
-pub(crate) mod subagent_session;
 mod command_system;
 mod session_metadata;
+pub(crate) mod subagent_session;
 pub use chat_session::ChatSession;
 pub(crate) use chat_session::PendingBgShellNotification;
 #[cfg(test)]
@@ -138,9 +139,9 @@ pub use agent::LlmProvider;
 pub use agent_panel::AgentPanel;
 pub use hooks_panel::HooksPanel;
 pub use model_panel::ModelPanel;
-pub use theme_panel::ThemePanel;
 pub use setup_wizard::SetupWizardPanel;
 use std::sync::Arc;
+pub use theme_panel::ThemePanel;
 
 use crate::ui::render_thread::RenderEvent;
 
@@ -246,21 +247,22 @@ impl App {
         // 初始化 thread 存储（失败时 fallback 到临时目录，再失败则降级为内存模式 #318）
         let thread_store: Arc<dyn ThreadStore> = match SqliteThreadStore::default_path().await {
             Ok(store) => Arc::new(store),
-            Err(_) => match SqliteThreadStore::new(std::env::temp_dir().join("zen-threads.db")).await
-            {
-                Ok(store) => Arc::new(store),
-                Err(e) => {
-                    tracing::warn!(
-                        "SQLite 持久化不可用（{}），降级为内存模式运行，历史记录不会持久化",
-                        e
-                    );
-                    Arc::new(
-                        SqliteThreadStore::new(":memory:")
-                            .await
-                            .expect("内存 SQLite 初始化不应失败"),
-                    )
+            Err(_) => {
+                match SqliteThreadStore::new(std::env::temp_dir().join("zen-threads.db")).await {
+                    Ok(store) => Arc::new(store),
+                    Err(e) => {
+                        tracing::warn!(
+                            "SQLite 持久化不可用（{}），降级为内存模式运行，历史记录不会持久化",
+                            e
+                        );
+                        Arc::new(
+                            SqliteThreadStore::new(":memory:")
+                                .await
+                                .expect("内存 SQLite 初始化不应失败"),
+                        )
+                    }
                 }
-            },
+            }
         };
         let shell_command_store = Arc::new(
             crate::shell_history::ShellCommandStore::default_path().unwrap_or_else(|_| {
@@ -280,9 +282,7 @@ impl App {
             if let Some(global_dir) = cc_middlewares::skills::load_global_skills_dir() {
                 dirs.push(global_dir);
             }
-            if let Ok(cwd) = std::env::current_dir() {
-                dirs.push(cwd.join(".claude").join("skills"));
-            }
+            dirs.push(std::path::Path::new(&cwd).join(".claude").join("skills"));
             cc_middlewares::skills::list_skills(&dirs)
         };
 
@@ -390,9 +390,11 @@ impl App {
             if let Some(global_dir) = cc_middlewares::skills::load_global_skills_dir() {
                 dirs.push(global_dir);
             }
-            if let Ok(cwd) = std::env::current_dir() {
-                dirs.push(cwd.join(".claude").join("skills"));
-            }
+            dirs.push(
+                std::path::Path::new(&self.services.cwd)
+                    .join(".claude")
+                    .join("skills"),
+            );
             cc_middlewares::skills::list_skills(&dirs)
         };
         // 追加插件 skills（去重）
@@ -428,14 +430,6 @@ impl App {
 
     /// 后台初始化 MCP 连接池（不阻塞 UI），在 run_app 中 App::new() 之后调用
     pub fn spawn_mcp_init(&mut self) {
-        use cc_middlewares::mcp::{McpClientPool, McpInitStatus};
-
-        let pool = Arc::new(McpClientPool::new_pending());
-        self.services.mcp_pool = Some(pool.clone());
-
-        let (init_tx, init_rx) = tokio::sync::watch::channel(McpInitStatus::Pending);
-        self.services.mcp_init_rx = Some(init_rx);
-
         let cwd = self.services.cwd.clone();
         let tx = self.services.bg_event_tx.clone();
         let oauth_cb: Box<dyn Fn(cc_middlewares::mcp::OAuthFlowEvent) + Send + Sync> =
@@ -455,21 +449,9 @@ impl App {
                 }
             });
 
-        let claude_home = dirs_next::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".claude");
-
-        tokio::spawn(async move {
-            McpClientPool::run_initialize(
-                pool,
-                std::path::Path::new(&cwd),
-                &claude_home,
-                init_tx,
-                Some(oauth_cb),
-                None,
-            )
-            .await;
-        });
+        let (pool, rx) = cc_acp::session::project_context::project_mcp_pool(&cwd, Some(oauth_cb));
+        self.services.mcp_pool = Some(pool);
+        self.services.mcp_init_rx = Some(rx);
     }
 
     /// 保存配置：优先写入 override 路径（测试用），否则写入全局路径
@@ -495,9 +477,16 @@ impl App {
         if let Some(token) = &self.session_mgr.current().agent.cancel_token {
             token.cancel();
         }
-        let interaction_response = if self.session_mgr.current().approval_source_agent_id.is_none() {
+        let interaction_response = if self
+            .session_mgr
+            .current()
+            .approval_source_agent_id
+            .is_none()
+        {
             self.take_interaction_cancel_response()
-        } else { None };
+        } else {
+            None
+        };
         self.refresh_terminal_title();
 
         // Try ACP cancel first (agent runs in ACP server)
@@ -683,10 +672,7 @@ impl App {
             return None;
         }
         if turn_elapsed_ms > crate::ui::tips::CLEAR_TIP_THRESHOLD_MS {
-            return Some((
-                "Tip".to_string(),
-                self.services.lc.tr("tip-clear-override"),
-            ));
+            return Some(("Tip".to_string(), self.services.lc.tr("tip-clear-override")));
         }
         self.spinner_tip_state.current().map(|tip| {
             (
