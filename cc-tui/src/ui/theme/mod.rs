@@ -221,8 +221,6 @@ assert_eq!(p.shell_bg, rgb(36, 36, 36)); // SHELL_BG
 assert_eq!(p.shell_border, rgb(106, 106, 106)); // SHELL_BORDER
 assert_eq!(p.sub_agent_bg, rgb(30, 30, 38)); // SUB_AGENT_BG
 assert_eq!(p.model_info, rgb(160, 130, 95)); // MODEL_INFO
-assert_eq!(p.spinner_heat_lv2, rgb(235, 159, 127));
-assert_eq!(p.spinner_heat_lv3, rgb(255, 217, 102));
 assert_eq!(p.diff_added, rgb(18, 52, 26)); // widgets diff_add_bg
 assert_eq!(p.diff_removed, rgb(55, 20, 18)); // widgets diff_remove_bg
 assert_eq!(p.diff_added_word, rgb(26, 78, 36));

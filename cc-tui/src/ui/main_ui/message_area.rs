@@ -61,13 +61,6 @@ pub(crate) const STILL_THINKING_SECS: u64 = 15;
 /// `thinking more` 触发秒数：思考超过 5s 加温
 pub(crate) const THINKING_MORE_SECS: u64 = 5;
 
-/// 配色档②（亮橙）触发秒数（见 PRD §2.7）
-pub(crate) const HEAT_LV2_SECS: u64 = 5;
-/// 配色档③（浅黄）触发秒数（见 PRD §2.7）
-pub(crate) const HEAT_LV3_SECS: u64 = 15;
-/// 配色档④（终黄）触发秒数（见 PRD §2.7）
-pub(crate) const HEAT_LV4_SECS: u64 = 30;
-
 /// spinner 第三字段（状态词）文案，纯按时间流逝阶梯演变。空白表示不显示。
 ///
 /// - `thinking`：0 ~ 5s 初段思考
@@ -100,34 +93,15 @@ pub(crate) fn thinking_status_word(
     word.to_string()
 }
 
-/// 按「当前思考段耗时」返回 verb 的热度色（四档，见 PRD §2.7）。
-/// 非思考段（工具执行）由调用方沿用上一档，此函数只按传入耗时计算。
-pub(crate) fn thinking_heat_color(thinking_elapsed_ms: u64) -> ratatui::style::Color {
-    let secs = thinking_elapsed_ms / 1000;
-    if secs >= HEAT_LV4_SECS {
-        theme::cur().warning
-    } else if secs >= HEAT_LV3_SECS {
-        theme::cur().spinner_heat_lv3
-    } else if secs >= HEAT_LV2_SECS {
-        theme::cur().spinner_heat_lv2
-    } else {
-        theme::cur().claude
-    }
-}
-
-/// 状态词专用纯时间升温配色（状态词坚决不闪烁，随时间从冷灰温润升温到金黄）：
+/// 状态词配色（对齐 Claude Code 2.1.300 的 thinkingIntensity 机制，见 issue #510）：
 ///
-/// - `0.0s ~ 2.5s`：浅灰（`theme::cur().inactive` #999999，冷色起步）
-/// - `2.5s ~ 5.0s`：柔白中间色（`theme::cur().text_soft` #D0D0D0，微温看清）
-/// - `5.0s ~ 15.0s`：亮暖橙（与动词同色）
-/// - `15.0s ~ 60.0s`：浅金黄（`theme::cur().spinner_heat_lv3` #FFD966）
-/// - `> 60.0s`：深度琥珀金（RGB 255, 152, 0）
-/// - `thought for Ns`：属已完成态，始终 MUTED 浅灰
-/// - `compact`：特例整体用紫色
+/// - 状态词不闪烁；思考段超过 10s 后，按 thinkingIntensity（10s 起、再 10s 渐满）
+///   从 inactive 向 warning 平滑插值；10s 内恒为 inactive；
+/// - `thought for Ns`：已完成态，始终 inactive；
+/// - `compact`：特例整体用 thinking 紫色。
 pub(crate) fn thinking_status_style(
     status_word: &str,
     thinking_elapsed_ms: u64,
-    verb_heat: ratatui::style::Color,
     is_compact: bool,
 ) -> ratatui::style::Style {
     if is_compact {
@@ -136,18 +110,12 @@ pub(crate) fn thinking_status_style(
     if status_word.starts_with("thought for") {
         return Style::default().fg(theme::cur().inactive);
     }
-    let secs = thinking_elapsed_ms / 1000;
-    let color = if secs >= DEEP_THOUGHT_SECS {
-        theme::cur().spinner_heat_lv4 // 琥珀金（深思考热力最高档）
-    } else if secs >= STILL_THINKING_SECS {
-        theme::cur().spinner_heat_lv3 // 浅金黄
-    } else if secs >= THINKING_MORE_SECS {
-        verb_heat // 与动词同色
-    } else if thinking_elapsed_ms >= 2_500 {
-        theme::cur().text_soft // 柔白中间色 #D0D0D0
-    } else {
-        theme::cur().inactive // 浅灰初态 #999999
-    };
+    let intensity = cc_widgets::spinner::animation::thinking_intensity(thinking_elapsed_ms);
+    let color = cc_widgets::spinner::animation::blend_color(
+        theme::cur().inactive,
+        theme::cur().warning,
+        intensity,
+    );
     Style::default().fg(color)
 }
 
@@ -197,38 +165,50 @@ pub(crate) fn render_messages(
             session.viewport_spinner().thinking_elapsed_ms(),
             session.viewport_spinner().last_thought_ms(),
         );
-        // 热度色：思考中用当前段耗时；工具/回复段沿用上一段（避免颜色回跳，见 PRD §2.7）
-        let heat_ms = if session.viewport_spinner().is_thinking() {
-            session.viewport_spinner().thinking_elapsed_ms()
+        // 动词色对（对齐 CC：底色 + 流光色成对，按状态切换；见 issue #510）
+        // compact 沿用 thinking 紫作底色，流光保持默认 claude_shimmer（同 CC 的覆盖方式）
+        let (base_color, shimmer_color) = if is_compact {
+            (theme::cur().thinking, theme::cur().claude_shimmer)
         } else {
-            session.viewport_spinner().last_thought_ms()
+            (theme::cur().claude, theme::cur().claude_shimmer)
         };
-        let heat = thinking_heat_color(heat_ms);
-        let accent_color = if is_compact {
-            theme::cur().thinking
-        } else {
-            heat
-        };
-        // 状态词配色：纯时间升温（状态词绝对不闪烁）
+        // 状态词配色：thinkingIntensity 向 warning 插值（状态词不闪烁）
         let status_thinking_ms = if session.viewport_spinner().is_thinking() {
             session.viewport_spinner().thinking_elapsed_ms()
         } else {
             session.viewport_spinner().last_thought_ms()
         };
-        let status_style =
-            thinking_status_style(&status_word, status_thinking_ms, heat, is_compact);
+        let status_style = thinking_status_style(&status_word, status_thinking_ms, is_compact);
         let gray = Style::default().fg(theme::cur().inactive);
 
-        // 动词应用舒缓流光
-        let verb_spans = cc_widgets::spinner::animation::shimmer_verb_spans(
-            verb,
-            session.viewport_spinner().elapsed_ms(),
-            accent_color,
-        );
+        // 停滞转红（对齐 CC）：无新 token >10s 后流光熄火，字形与动词整体向 error 插值；
+        // 否则动词走 ±1 列流光扫过。
+        let stall = session.viewport_spinner().stalled_intensity();
+        let (frame_color, verb_spans) = if stall > 0.0 {
+            let color = cc_widgets::spinner::animation::blend_color(
+                base_color,
+                theme::cur().error,
+                stall,
+            );
+            (
+                color,
+                vec![Span::styled(verb.to_string(), Style::default().fg(color))],
+            )
+        } else {
+            (
+                base_color,
+                cc_widgets::spinner::animation::shimmer_verb_spans(
+                    verb,
+                    session.viewport_spinner().elapsed_ms(),
+                    base_color,
+                    shimmer_color,
+                ),
+            )
+        };
 
         let mut parts = vec![Span::styled(
             format!("{} ", frame),
-            Style::default().fg(accent_color),
+            Style::default().fg(frame_color),
         )];
         parts.extend(verb_spans);
         parts.push(Span::styled(format!(" ({elapsed}"), gray));

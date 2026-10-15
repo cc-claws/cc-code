@@ -308,67 +308,45 @@ fn test_thinking_status_word_time_ladder() {
 }
 
 #[test]
-fn test_thinking_heat_color_four_levels() {
-    use super::message_area::{thinking_heat_color, HEAT_LV2_SECS, HEAT_LV3_SECS, HEAT_LV4_SECS};
-    use crate::ui::theme;
-    // Default level
-    assert_eq!(thinking_heat_color(0), theme::cur().claude);
-    assert_eq!(
-        thinking_heat_color((HEAT_LV2_SECS - 1) * 1000),
-        theme::cur().claude
-    );
-    // Step-by-step heating
-    assert_eq!(
-        thinking_heat_color(HEAT_LV2_SECS * 1000),
-        theme::cur().spinner_heat_lv2
-    );
-    assert_eq!(
-        thinking_heat_color(HEAT_LV3_SECS * 1000),
-        theme::cur().spinner_heat_lv3
-    );
-    assert_eq!(thinking_heat_color(HEAT_LV4_SECS * 1000), theme::cur().warning);
-    assert_eq!(thinking_heat_color(999_000), theme::cur().warning);
-}
-
-#[test]
-fn test_thinking_status_style_pure_time_temperature() {
+fn test_thinking_status_style_cc_thinking_intensity() {
     use super::message_area::thinking_status_style;
-    use ratatui::style::Color;
-    let verb_heat = theme::cur().spinner_heat_lv2;
 
-    // 0s ~ 2.5s -> muted gray
+    // 10s 内恒为 inactive（thinkingIntensity = 0）
     assert_eq!(
-        thinking_status_style("thinking", 1_000, verb_heat, false).fg,
+        thinking_status_style("thinking", 1_000, false).fg,
         Some(theme::cur().inactive)
     );
-    // 2.5s ~ 5s -> soft white
     assert_eq!(
-        thinking_status_style("thinking", 3_500, verb_heat, false).fg,
-        Some(theme::cur().text_soft)
-    );
-    // 5s ~ 15s -> verb heat color
-    assert_eq!(
-        thinking_status_style("thinking more", 8_000, verb_heat, false).fg,
-        Some(verb_heat)
-    );
-    // 15s ~ 60s -> heat lv3 light gold
-    assert_eq!(
-        thinking_status_style("still thinking", 20_000, verb_heat, false).fg,
-        Some(theme::cur().spinner_heat_lv3)
-    );
-    // >= 60s -> deep amber gold
-    assert_eq!(
-        thinking_status_style("deep in thought", 143_000, verb_heat, false).fg,
-        Some(Color::Rgb(255, 152, 0))
-    );
-    // Completed state -> always muted gray
-    assert_eq!(
-        thinking_status_style("thought for 4s", 4_000, verb_heat, false).fg,
+        thinking_status_style("thinking more", 10_000, false).fg,
         Some(theme::cur().inactive)
     );
-    // Compact mode -> always thinking purple
+    // 15s：强度 0.5，inactive 与 warning 的中点插值
+    let mid = cc_widgets::spinner::animation::blend_color(
+        theme::cur().inactive,
+        theme::cur().warning,
+        0.5,
+    );
     assert_eq!(
-        thinking_status_style("thinking", 1_000, verb_heat, true).fg,
+        thinking_status_style("still thinking", 15_000, false).fg,
+        Some(mid)
+    );
+    // 20s 起强度满格 = warning
+    assert_eq!(
+        thinking_status_style("deep in thought", 20_000, false).fg,
+        Some(theme::cur().warning)
+    );
+    assert_eq!(
+        thinking_status_style("deep in thought", 143_000, false).fg,
+        Some(theme::cur().warning)
+    );
+    // 已完成态 -> 始终 inactive（与思考时长无关）
+    assert_eq!(
+        thinking_status_style("thought for 4s", 40_000, false).fg,
+        Some(theme::cur().inactive)
+    );
+    // Compact 模式 -> 始终 thinking 紫
+    assert_eq!(
+        thinking_status_style("thinking", 1_000, true).fg,
         Some(theme::cur().thinking)
     );
 }
