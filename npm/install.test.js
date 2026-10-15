@@ -342,5 +342,63 @@ test("cleanOldBinaries unlinks released .old files and ignores still-locked ones
   if (fs.existsSync(inactiveOld)) throw new Error("inactiveOld should be unlinked");
 });
 
+// --- linkProjectMemories ---
+const { linkProjectMemories } = require("./install");
+
+function writeMemoryDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(join(dir, "MEMORY.md"), "# Memory Index\n");
+}
+
+test("linkProjectMemories links Claude Code project memory into the cc-code side", (home) => {
+  const claudeMem = join(home, ".claude", "projects", "D--code-demo", "memory");
+  writeMemoryDir(claudeMem);
+
+  const linked = linkProjectMemories(home);
+  if (linked !== 1) throw new Error(`expected 1 link, got ${linked}`);
+
+  const ccMem = join(home, ".cc-code", "projects", "D--code-demo", "memory");
+  if (!fs.existsSync(join(ccMem, "MEMORY.md"))) throw new Error("memory not reachable via cc-code path");
+
+  // 写穿透：经 cc-code 侧写入必须落到 Claude Code 侧同一份
+  fs.writeFileSync(join(ccMem, "user_role.md"), "shared");
+  if (!fs.existsSync(join(claudeMem, "user_role.md"))) {
+    throw new Error("cc-code path is a separate physical directory, not a link");
+  }
+});
+
+test("linkProjectMemories leaves a cc-code-only project untouched", (home) => {
+  const ccMem = join(home, ".cc-code", "projects", "D--code-demo", "memory");
+  writeMemoryDir(ccMem);
+
+  const linked = linkProjectMemories(home);
+  if (linked !== 0) throw new Error(`expected 0 links, got ${linked}`);
+  if (fs.existsSync(join(home, ".claude", "projects", "D--code-demo"))) {
+    throw new Error("must not add anything under ~/.claude");
+  }
+});
+
+test("linkProjectMemories never overwrites an existing project memory dir", (home) => {
+  writeMemoryDir(join(home, ".claude", "projects", "D--code-demo", "memory"));
+  const ccMem = join(home, ".cc-code", "projects", "D--code-demo", "memory");
+  writeMemoryDir(ccMem);
+  fs.writeFileSync(join(ccMem, "own.md"), "keep me");
+
+  const linked = linkProjectMemories(home);
+  if (linked !== 0) throw new Error(`expected 0 links, got ${linked}`);
+  if (fs.readFileSync(join(ccMem, "own.md"), "utf-8") !== "keep me") {
+    throw new Error("existing cc-code memory content was touched");
+  }
+  if (fs.lstatSync(ccMem).isSymbolicLink()) throw new Error("existing dir must not be replaced by a link");
+});
+
+test("linkProjectMemories is idempotent and no-ops without project memory", (home) => {
+  if (linkProjectMemories(home) !== 0) throw new Error("expected 0 links on empty home");
+
+  writeMemoryDir(join(home, ".claude", "projects", "D--code-demo", "memory"));
+  if (linkProjectMemories(home) !== 1) throw new Error("first run should link 1");
+  if (linkProjectMemories(home) !== 0) throw new Error("second run should link nothing");
+});
+
 // 由 runTests() 顺序执行（支持 async 用例）
 runTests();

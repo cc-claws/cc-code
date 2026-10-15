@@ -236,6 +236,44 @@ function backfillModels(ccCodeSettingsPath, detected) {
   return true;
 }
 
+// 统一项目记忆目录：Claude Code 与 cc-code 各维护一份 projects/<slug>/memory，一旦两侧
+// 都落过盘，记忆就会写散（系统提示对外呈现的 ~/.cc-code 路径，与实际读写的 ~/.claude
+// 目录并不是同一份）。安装时把 Claude Code 侧已有的记忆目录在 cc-code 侧以链接接过来，
+// 使两侧读写同一份物理目录：Windows 用 junction（免管理员权限），Unix 用目录符号链接。
+// 只做 .claude -> .cc-code 单向，不往用户的 Claude Code 目录里添东西；
+// 目标已存在（用户自己的数据或已建好的链接）一律不碰，任何失败只跳过、不影响安装。
+function linkProjectMemories(home = homedir()) {
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  const from = join(home, ".claude", "projects");
+  const to = join(home, ".cc-code", "projects");
+
+  let entries;
+  try {
+    entries = readdirSync(from, { withFileTypes: true });
+  } catch {
+    return 0; // 没用过 Claude Code，没有可承接的记忆
+  }
+
+  let linked = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const source = join(from, entry.name, "memory");
+    const target = join(to, entry.name, "memory");
+    if (!existsSync(source) || existsSync(target)) continue;
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      fs.symlinkSync(source, target, linkType);
+      linked++;
+    } catch (err) {
+      console.log(`  (skipped memory link for ${entry.name}: ${err.message})`);
+    }
+  }
+  if (linked > 0) {
+    console.log(`  Linked ${linked} Claude Code project memory dir(s) into ~/.cc-code/projects/`);
+  }
+  return linked;
+}
+
 function migrateFromClaudeCode(home = homedir()) {
   const claudeSettingsPath = join(home, ".claude", "settings.json");
   const ccCodeDir = join(home, ".cc-code");
@@ -547,6 +585,9 @@ async function main() {
   // #290：密钥迁移需显式确认，不再静默复制
   const migrated = await maybeMigrateFromClaudeCode();
 
+  // 让 Claude Code 与 cc-code 共用同一份项目记忆目录（避免记忆写散到两侧）
+  linkProjectMemories();
+
   if (!migrated) {
     console.log("");
     console.log("─── Quick Start ───");
@@ -594,6 +635,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  linkProjectMemories,
   migrateFromClaudeCode,
   maybeMigrateFromClaudeCode,
   wouldCopyKeys,
