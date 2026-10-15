@@ -292,11 +292,11 @@ impl App {
                 self.update_subagent_launch_summary();
             }
             "progress" => {
-                if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
-                    if let Some(activity) = params["currentActivity"].as_str() {
-                        sub.current_activity = activity.into();
-                    }
-                }
+                // 服务端 `currentActivity` 携带的是**当前工具名**（由 cc-middlewares 的
+                // ToolStart 分支写入任务快照），而抽屉中间列的设计语义是「子 Agent 正在说什么」
+                // （见 subagent_session.rs 的 push_assistant_activity）。两者不是一回事，
+                // 这里刻意**不**接受它：否则工具名会把助手文本覆盖掉，该列在
+                // `Bash` / `Grep` 与助手文本之间来回跳（#526）。
             }
             "stopped" => {
                 self.cancel_subagent_approval(id);

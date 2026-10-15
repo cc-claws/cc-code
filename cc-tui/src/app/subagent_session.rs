@@ -14,6 +14,14 @@ pub(crate) fn format_duration(duration: Duration) -> String {
     else { format!("{seconds}s") }
 }
 
+/// 抽屉中间列（`activity_shown`）的刷新节流窗口。
+///
+/// `current_activity` 随流式助手文本高频更新，而抽屉只是屏幕底部的一行文本；以事件
+/// 到达速率重绘会让该列不停跳动。这里对「渲染用」的快照做时间节流：最多每
+/// `DRAWER_ACTIVITY_THROTTLE` 刷新一次，中间的瞬时值直接丢弃——丢的是渲染帧而不是
+/// 状态，最终值仍会同步（子 Agent 结束时立即同步，见 `sync_activity_display`）。
+const DRAWER_ACTIVITY_THROTTLE: Duration = Duration::from_millis(200);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SubagentRunStatus {
     Running,
@@ -61,6 +69,10 @@ pub(crate) struct BackgroundAgentSession {
     pub is_background: bool,
     /// 累积当前这句助手文本（抽屉「正在做什么」列的来源），ToolEnd 时复位。
     activity_buffer: String,
+    /// 抽屉中间列**实际渲染**用的活动文本：`current_activity` 经时间节流后的快照。
+    pub activity_shown: String,
+    /// 上次刷新 `activity_shown` 的时刻（节流窗口起点）。
+    activity_shown_at: Instant,
     /// 最近一次 token 流向：true = 上行（用户提问/输入），false = 下行（Agent 回复/产出）。
     /// 抽屉右侧只显示一个箭头，方向跟着它走。
     last_flow_up: bool,
@@ -107,12 +119,32 @@ impl BackgroundAgentSession {
             // 被当成前台同步子 Agent，从而触发已废弃的二次投递把子过程灌进主消息区。
             is_background: true,
             activity_buffer: String::new(),
+            activity_shown: String::new(),
+            activity_shown_at: Instant::now(),
             last_flow_up: false,
         }
     }
 
     pub(crate) fn set_language(&mut self, lang: &str) {
         self.spinner.set_language(lang);
+    }
+
+    /// 把高频变化的 `current_activity` 同步到渲染用的 `activity_shown`（时间节流）。
+    ///
+    /// 子 Agent 仍在跑时最多每 `DRAWER_ACTIVITY_THROTTLE` 刷新一次，中间的瞬时值直接
+    /// 丢弃；首次填充与已结束（不再有新值）时立即同步，前者避免刚起步就被窗口挡住，
+    /// 后者保证最后一句不被吞掉。
+    pub(crate) fn sync_activity_display(&mut self) {
+        if self.activity_shown == self.current_activity {
+            return;
+        }
+        if self.activity_shown.is_empty()
+            || !self.status.is_active()
+            || self.activity_shown_at.elapsed() >= DRAWER_ACTIVITY_THROTTLE
+        {
+            self.activity_shown.clone_from(&self.current_activity);
+            self.activity_shown_at = Instant::now();
+        }
     }
 
     pub(crate) fn elapsed(&self) -> Duration {
