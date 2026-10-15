@@ -20,6 +20,10 @@
 - **工具动作签名循环检测:** 连续 3 轮相同工具动作时注入纠正消息，打断重复循环
 - **Anthropic 适配器（自适应兼容）:** 非流式响应自适应解析反向代理返回的 OpenAI 格式（`choices` / `message` / `tool_calls`），缺 `content` 时回退解析；SSE 流式自适应解析
 - **/recap 会话回顾:** 独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history、支持 Ctrl+C 取消
+- **自动记忆系统（Auto-Memory，v0.6.139，#507）:** 模型获得跨会话持久记忆，**纯文件架构、零专有工具**——系统提示词向模型呈现项目记忆目录，模型用通用 `Write`/`Edit` 维护带四类型 YAML frontmatter 的 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行且 ≤25KB，超限安全截断并追加 warning），与既有 `~/.claude/projects/`、`~/.cc-code/projects/` 记忆资产双向兼容；`MemoryMiddleware` 在 `AgentsMdMiddleware` 之后注入**冻结的索引快照**（置于动态边界之后，保障 Prompt Cache 前缀稳定）；安全门为自动记忆路径设 carve-out 豁免，记忆路径在 TUI 中脱敏渲染
+
+- **核心工具描述对齐 Claude Code（v0.6.138）:** Bash / WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`、内容检索用 `Grep` NOT `grep`/`rg` 等），补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句；**`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更）。详见 [domains/tools.md](domains/tools.md)
+- **系统提示词静态段落对齐 Claude Code（v0.6.139，#504）:** `01_intro` 补「信息足够即行动」与 Corrections；`03_doing_tasks` 补 Scope discipline（不超范围加功能/抽象、优先编辑现有文件、不做投机抽象）；`04_actions` 补授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方需确认）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性。详见 [domains/system-prompt.md](domains/system-prompt.md)
 
 ## 中间件（cc-middlewares）
 
@@ -41,7 +45,7 @@
 - **rg CLI 双引擎文件搜索:** 优先外部 ripgrep 二进制，按 `PERI_RG_PATH` → exe 同级 `bin/rg(.exe)` → 系统 `PATH`（直接执行 `rg --version` 探测，不依赖 which/where）顺序解析，缓存到进程级 `OnceLock`；探测失败回退纯 Rust 引擎（grep + grep-regex crate，WalkParallel 多线程并行，15 秒超时）。npm install.js 自动下载 rg 预编译二进制；Grep/Glob 双引擎输出格式对齐
 - **MCP 中间件:** McpMiddleware 作为 MCP Client 连接外部服务器（stdio/HTTP），`mcp__{server}__{tool}` 动态工具注册，`mcp_read_resource` 资源读取工具，双层配置合并（全局 settings.json + 项目 .mcp.json），${VAR} 环境变量展开
 - **MCP 运行时管理:** /mcp 面板（Browse/Tools/Resources 三视图），后台连接池初始化不阻塞 TUI，重连/删除服务器
-- **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.peri/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴），回调服务器注入并严格校验 rmcp 生成的 state 参数（CSRF 纵深防御）
+- **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.cc-code/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴），回调服务器注入并严格校验 rmcp 生成的 state 参数（CSRF 纵深防御）
 - **工具名称对齐 Claude Code:** 11 个核心工具名称完全对齐（Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite），Grep 重构为结构化接口，HITL 默认审批清单同步更新
 - **RTK 代理双轨制:** 探测外部 `rtk` 二进制（where/which），对 git/cargo/npm/pnpm/npx/yarn/bun/docker/kubectl/pytest/python/php/go/dotnet/tsc/eslint/gh/find/grep/rg/ls/tree/cat/diff/curl/wget 等 23 类命令执行 `rtk rewrite` 重写以降低输出 Token；失败回退原始命令；过滤 RTK 宿主 stderr 噪音
 - **output_filter 噪音清洗:** RTK git status 噪音清洗（`clean — nothing to commit`）；移除毒性通用折叠（避免吞并代码上下文），仅对 git status 做针对性剔除
@@ -138,4 +142,4 @@
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）；Windows postinstall 将全局入口改写为直起 `bin/cc-code.exe`（去掉 node 中间层，修复 Ctrl+C 直接退出）
 
 ---
-*最后更新: 2026-10-15 — 主题系统 `/theme`（7 套调色板，6 套与 Claude Code 逐值一致）与 Spinner 流光 / tips 调度对齐 CC、状态栏配色固定不参与主题化（#509、#510、#511、#521、#523）；此前：主 Agent 可按 task_id 取消后台子 Agent（Agent action=stop，抽屉红 ● + stopped by …，等待计数行）；此前：SubAgent 启动摘要支持 `Ctrl+O` 展开 Prompt 卡片（`SubagentStarted.prompt` 全文透传、`SystemNote.detail_content` 双态同源、卡片 `●` 统一大实心圆点）；此前：v0.6.129：@ 文件候选立即弹出，默认当前目录上限 15 项/10 行，搜索防抖和缓存边界修复（#463）；此前：v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
+*最后更新: 2026-10-15 — 主题系统 `/theme`（7 套调色板，6 套与 Claude Code 逐值一致）与 Spinner 流光 / tips 调度对齐 CC、状态栏配色固定不参与主题化，并补记自动记忆系统（#507）与 rmcp 3.5（#519）；此前：主 Agent 可按 task_id 取消后台子 Agent（Agent action=stop，抽屉红 ● + stopped by …，等待计数行）；此前：SubAgent 启动摘要支持 `Ctrl+O` 展开 Prompt 卡片（`SubagentStarted.prompt` 全文透传、`SystemNote.detail_content` 双态同源、卡片 `●` 统一大实心圆点）；此前：v0.6.129：@ 文件候选立即弹出，默认当前目录上限 15 项/10 行，搜索防抖和缓存边界修复（#463）；此前：v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*

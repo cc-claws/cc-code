@@ -9,7 +9,7 @@
 - **HTTP 客户端:** reqwest 0.12（json + stream features）
 - **序列化:** serde 1.x + serde_json 1.x
 - **数据库:** sqlx 0.8（runtime-tokio + sqlite，SqlitePool 连接池，WAL 模式）
-- **MCP Client:** rmcp 1.6.0（stdio + Streamable HTTP 传输，auth feature 启用 OAuth 2.0）
+- **MCP Client:** rmcp 3.5（stdio + Streamable HTTP 传输，auth feature 启用 OAuth 2.0）
 - **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic）
 - **Agent Client Protocol:** agent-client-protocol 0.11（JSON-RPC 2.0，ACP 标准协议）
 - **配置同步:** tokio-tungstenite（WebSocket 客户端）+ aes-gcm（AES-256-GCM 加密）+ ring（PBKDF2 密钥派生）+ rmp-serde（MessagePack 序列化）

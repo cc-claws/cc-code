@@ -51,21 +51,21 @@ MCP HTTP 请求 → 401 + WWW-Authenticate
     → TUI 展示授权 URL + 打开浏览器
     → 本地回调服务器 / 手动粘贴 code
     → token_exchange() → access_token + refresh_token
-    → 持久化到 ~/.peri/oauth_tokens.json（0600）
+    → 持久化到 ~/.cc-code/oauth_tokens.json（0600）
 ```
 
 ## 技术方案总结
 
 | 维度 | 选型 |
 |------|------|
-| MCP crate | rmcp 1.6.0（本地 patch 修复 UnexpectedContentType） |
+| MCP crate | rmcp 3.5（直接引用官方 crate，无本地 patch；已适配 3.x 数据模型与接口） |
 | 传输层 | stdio（子进程）+ Streamable HTTP（远程） |
 | 连接池 | McpClientPool，惰性初始化，stdio 10s/HTTP 30s 超时 |
 | 工具命名 | `mcp__{server}__{tool}`，HITL 默认需审批 |
 | 配置合并 | 全局 settings.json + 项目 .mcp.json，同名覆盖 |
 | 环境变量 | `${VAR}` 占位符自动展开 |
 | OAuth | rmcp auth feature + AuthClient，PKCE，Token 刷新 |
-| Token 持久化 | ~/.peri/oauth_tokens.json（0600 权限） |
+| Token 持久化 | ~/.cc-code/oauth_tokens.json（0600 权限） |
 | 运行时管理 | /mcp 面板：状态查看、重连、删除、工具/资源详情 |
 | 后台初始化 | spawn_mcp_init()，不阻塞 TUI |
 
@@ -105,7 +105,7 @@ MCP HTTP 请求 → 401 + WWW-Authenticate
 - rmcp auth feature 启用，AuthClient 集成到 HTTP 传输层
 - Authorization Code + PKCE 完整 OAuth 流程
 - 401 + WWW-Authenticate 自动触发 OAuth 授权
-- Token 持久化 ~/.peri/oauth_tokens.json（0600）
+- Token 持久化 ~/.cc-code/oauth_tokens.json（0600）
 - 混合回调：本地 HTTP 回调服务器 → 回退 TUI 手动粘贴
 - OAuthFlowManager + OAuthCallbackServer + OAuthConfig
 - 已知 TODO：scope 升级处理、启动时文件权限检查

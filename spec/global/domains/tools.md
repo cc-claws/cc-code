@@ -42,6 +42,7 @@
 - `Write` 默认完整替换，append=true 追加；`Edit` 做匹配替换。提示要求先检查已有内容，不宣称工具会检查此前是否调用过 Read。
 - `Agent` 区分独立消息上下文与继承会话快照，不承诺完整实时历史或文件隔离；isolation 参数仍是保留项。
 - `Agent` 的 `action` 参数（`spawn` 默认 / `stop`）决定行为：`action=stop` 按 `task_id` 精确取消正在运行的后台子 Agent，**只接受精确 `task_id`**（不做任务名/描述模糊匹配，避免停错兄弟任务）。`prompt` **不在 schema 的 required 中**——`action=stop` 无需 prompt，硬编码必填会让模型凭空编造 prompt；必填性在 `invoke` 内按 `action` 分支校验。取消复用 `BackgroundTaskRegistry::cancel()`（触发 `CancellationToken` 让执行器正常终态收尾，不 abort）。详见 `docs/prd/subagent-drawer-and-virtual-routing.md` §4.4.1。
+- **对齐 Claude Code 官方措辞（v0.6.138）:** 参照官方工具描述，仅搬运无模板函数、不依赖我方缺失能力的静态句子——① Bash / WebFetch 改为 **NOT 反向枚举**（读→`Read` NOT `cat`/`head`/`tail`；改→`Edit` NOT `sed`/`awk`；写→`Write` NOT `echo>`/`<<EOF`；内容检索→`Grep` NOT `grep`/`rg`；文件名检索→`Glob` NOT `find`/`ls`；回复用户→直接输出文本 NOT `echo`/`printf`），WebFetch 补「仅用于远程 http(s)，无点主机名不支持」边界；② `Grep` 首行禁令「ALWAYS use Grep for content search. NEVER invoke `grep`/`rg` as a Bash command」，`Read` 补「只读文件不能列目录」，`TodoWrite` 补「同一时刻只保留一个 `in_progress`」，`AskUserQuestion` 补「仅用于答案会改变后续动作的决策」；③ **`Write` 改为 CC 的 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更，仅描述文本，无逻辑变更）
 - 工具调用必须遵守既有授权与运行时审批，Meta 包装器不授予新权限。
 
 ---
@@ -126,4 +127,4 @@
 **涉及文件:** spec/archive-issues/2026-05-25-at-mention-directory-read-semantics.md
 **CLAUDE.md 链接:** false
 
-最后更新：2026-10-08
+最后更新：2026-10-15

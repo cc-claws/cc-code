@@ -1,28 +1,29 @@
 # cc-middlewares
 
-中间件实现 crate，依赖 `cc-agent` 和 `cc-lsp`。18 个中间件按固定顺序组成链（含条件注册中间件）。
+中间件实现 crate，依赖 `cc-agent` 和 `cc-lsp`。19 个中间件按固定顺序组成链（含条件注册中间件）。
 
 ## 中间件链执行顺序
 
 ```
 1.  AgentsMdMiddleware       ← 指引文件注入（AGENTS.md/CLAUDE.md，同目录合并去重 + 跨目录拼接 + 限额）
-2.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
-3.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
-4.  SkillPreloadMiddleware   ← #skill-name 全文注入
-5.  AtMentionMiddleware      ← @path 解析，注入 Read 工具调用
-6.  FilesystemMiddleware     ← 5 个文件系统工具
-7.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
-8.  TerminalMiddleware       ← Bash
-9.  WebMiddleware            ← WebFetch/WebSearch
-10. TodoMiddleware           ← after_tool 解析 TodoWrite
-11. CronMiddleware           ← Cron 调度
-12. HookMiddleware           ← hooks 事件拦截（多组实例）
-13. HumanInTheLoopMiddleware ← before_tool 拦截
-14. SubAgentMiddleware       ← Agent 工具
-15. McpMiddleware            ← MCP 工具和资源（pool 成功时注册）
-16. ToolSearchMiddleware     ← SearchExtraTools/ExecuteExtraTool 代理
-17. LspMiddleware            ← LSP 工具 + after_tool 文件变更同步
-18. CompactMiddleware        ← before_model 钩子触发上下文压缩（条件注册）
+2.  MemoryMiddleware         ← 自动记忆入口（冻结的 MEMORY.md 索引注入）
+3.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
+4.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
+5.  SkillPreloadMiddleware   ← #skill-name 全文注入
+6.  AtMentionMiddleware      ← @path 解析，注入 Read 工具调用
+7.  FilesystemMiddleware     ← 5 个文件系统工具
+8.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
+9.  TerminalMiddleware       ← Bash
+10. WebMiddleware            ← WebFetch/WebSearch
+11. TodoMiddleware           ← after_tool 解析 TodoWrite
+12. CronMiddleware           ← Cron 调度
+13. HookMiddleware           ← hooks 事件拦截（多组实例）
+14. HumanInTheLoopMiddleware ← before_tool 拦截
+15. SubAgentMiddleware       ← Agent 工具
+16. McpMiddleware            ← MCP 工具和资源（pool 成功时注册）
+17. ToolSearchMiddleware     ← SearchExtraTools/ExecuteExtraTool 代理
+18. LspMiddleware            ← LSP 工具 + after_tool 文件变更同步
+19. CompactMiddleware        ← before_model 钩子触发上下文压缩（条件注册）
 [ReActAgent.with_system_prompt()] ← prepend
 ```
 
