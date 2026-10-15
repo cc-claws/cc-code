@@ -7,6 +7,10 @@
 
 ## 最近更新
 
+v0.6.141：**Spinner tips 调度对齐 Claude Code**——tips 改为带会话冷却的调度模型：每轮开始挑选一条并扣留、轮结束才发布（每轮最多一条），挑选取「距上次展示最久」者，历史持久化到 `~/.cc-code/spinner-tips.json`；新增 `spinner_tips_enabled` 与 `spinner_tips_override` 自定义配置。另：MCP 协议库 rmcp 升级至 3.5.1，适配 3.x 数据模型与接口。
+
+v0.6.140：**`/theme` 主题命令**——7 套可切换配色（现行配色为 `default`，其余 6 套与 Claude Code 逐值一致），选择面板实时预览、持久化恢复；同时 **Spinner 变色对齐 Claude Code**：动词改走成对流光（底色 + 流光色，±1 列窄带扫过），新增停滞超 10 秒平滑转红，删除自研的「时间热度四档」。
+
 v0.6.139：**自动记忆系统（Auto-Memory）落地**——模型可跨会话记住项目事实：纯文件架构、零专有工具，模型用 `Write`/`Edit` 直接维护 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行 / ≤25KB），与 `~/.claude/projects/`、`~/.cc-code/projects/` 既有记忆资产双向兼容；安全门为记忆路径设豁免，会话创建时冻结索引以保障 Prompt Cache 稳定。同版还有：主 Agent 可用 `Agent(action="stop", task_id=…)` 精确取消后台子 Agent（停止行区分 `by user` / `by main Agent`、等待计数行实时递减）；系统提示词静态段落对齐 CC 行为约束（Scope discipline、授权与影响判定、结果诚实性）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.138：核心工具描述对齐 Claude Code 官方措辞。① Bash/WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`；内容检索用 `Grep` NOT `grep`/`rg`；写用 `Write` NOT `echo>` 等），WebFetch 补「仅远程 http(s)，无点主机名不支持」边界；② 补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句（Grep 禁用 `grep`/`rg`、Read 不能列目录、TodoWrite 单一进行项、AskUserQuestion 决策边界）；③ **`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建。另修复 ReAct 纠正提示（连续失败/Schema 熔断/动作循环）此前以 System 消息注入、被适配器抽到请求顶层导致**模型看不见、导出也丢**，现并入所属 ToolResult 正文（#495）；`-p --output-format stream-json` 的 `tool_use` 事件补齐真实 `input` 参数（此前恒为 `null`）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

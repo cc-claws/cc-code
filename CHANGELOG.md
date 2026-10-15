@@ -6,9 +6,19 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.141 — 2026-10-15
+
 ### Features
 
 - **Spinner tips 调度对齐 Claude Code（#511）**：原 tip 是按渲染 tick 每约 3 秒无差别轮换 18 条文案，无 id、无冷却、无历史。现整体替换为 CC 的调度模型：每条 tip 有稳定 id 与会话冷却（内置 18 条沿用既有中英双语文案，冷却 10 个会话），每轮开始挑选一条并**扣留**、轮结束时才发布展示（每轮最多一条、轮内不换），挑选在冷却已满足者中取「距上次展示间隔会话数最长」者；展示历史按会话计数持久化到 `~/.cc-code/spinner-tips.json`。本轮运行超过 30 分钟时，调度的 tip 被 /clear 时间覆盖 tip 顶替（文案与 CC 一致）。新增配置 `spinner_tips_enabled`（缺省启用）与 `spinner_tips_override`（自定义条目：字符串或 `{id, text, cooldownSessions, priority}` 对象 + `tipsFile` 外部文件 + 自定义 `label` 前缀，schema 与 CC 的 spinnerTipsOverride 对齐，同 id 只保留首条）。注：cc-code 无 `/btw` 命令，CC 的 30 秒 btw 覆盖 tip 不移植。
+
+### Fixes
+
+- **MCP 协议库 rmcp 升级至 3.5.1（#519）**：适配 rmcp 3.x 的数据模型与接口变更，MCP 客户端连接、工具调用与消息处理迁移到新版 API。
+
+## v0.6.140 — 2026-10-15
+
+### Features
 
 - **Spinner 变色对齐 Claude Code（#510）**：删除自研的「时间热度四档」配色（思考越久动词越黄）——经 REA 对 Claude Code 2.1.300 二进制实证，CC 并无热度分档。动词改走 CC 的成对流光机制：底色 `claude` + 流光色 `claudeShimmer`，流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20、自左向右扫过；compact 态底色沿用 thinking 紫、流光保持默认对。新增**停滞转红**：无新 token 超过 10s 后流光熄火，动词与字形整体向 error 色平滑插值（再 10s 渐满、每 50ms 向目标靠拢 10%、新 token 到达立即清零、工具执行期间不触发）。状态词文案阶梯保留，配色改为 CC 的 thinkingIntensity（思考段超 10s 后自 inactive 向 warning 插值）。调色板同步删除 `spinner_heat_lv1..lv4` 扩展字段。
 
