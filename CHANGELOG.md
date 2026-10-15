@@ -6,6 +6,12 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.146 — 2026-10-15
+
+### Chores
+
+- **Windows CI 上 cc-tui 的 shell / 面板测试不再间歇失败（#538）**：`windows-latest` job 的 `cargo test --workspace` 长期偶发失败，而同一 commit 在 ubuntu / macos 全绿，失败形态统一是「等不到异步结果」（`Elapsed(())`、面板显示 `0 lines of 0.0 KB`）而非断言值不符。根因是这些用例用**固定绝对墙钟超时**（5s / 10s，另有一处 500ms 执行期限）等待真实子进程（`cmd` / git-bash / 嵌套 powershell）的输出或退出，libtest 默认多线程并发执行时多个用例同时抢进程与 IO，4 核 runner 上启动与调度延迟被放大到超出等待窗口；500ms 那处更是断言命令必须已打印 `started`，期限短于进程启动开销本身即不可靠。现新增 `#[cfg(test)] mod test_lock`：一把全局异步锁 `PROCESS_TEST_LOCK`（`tokio::sync::Mutex::const_new`，不引入新依赖）串行化真起进程的用例，消除「并发抢进程」这个放大器；5s / 10s 窗口统一为共享预算 `PROCESS_TEST_TIMEOUT`（30s）；`deadline_reports_timeout` 的执行期限 500ms → 3s（脚本 `sleep 3` → 15，保证超时先于命令自然结束触发），`preserves_root_exit` 的期限 1s → 1.5s、观察窗 1250ms → 1750ms。只做串行化与放宽窗口，不改变任何用例语义。**纯测试基础设施改动，无用户可见行为变化。**
+
 ## v0.6.145 — 2026-10-15
 
 ### Features
