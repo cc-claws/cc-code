@@ -218,23 +218,27 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 | 模式 | 显示格式 | 颜色 |
 |------|---------|------|
-| Loading | `✻ verb (Xm Xs · ↓ X.Xk tokens · <状态词>)` | ACCENT（compact 时 THINKING） |
+| Loading | `✻ verb (Xm Xs · ↓ X.Xk tokens · <状态词>)` | 动词走底色/流光色对（默认 `claude` + `claudeShimmer`；compact 时底色 THINKING） |
 | 完成 | `✻ Brewed for Xm Xs` | MUTED |
+
+配色机制（2026-10-15 起对齐 Claude Code 2.1.300 实证，见 issue #510；原「时间热度四档」已废弃）：
+
+- **流光**：底色 + 流光色成对，流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20、自左向右扫过（停泊区在文本外）；字形与动词同色对。
+- **停滞转红**：无新 token 超过 10s 后流光熄火，字形与动词整体向 ERROR 色平滑插值（再 10s 渐满、每 50ms 向目标靠拢 10%）；新 token 到达立即清零，工具执行期间不触发。
+- **状态词配色**：走 thinkingIntensity——思考段 10s 内恒 MUTED，超过后自 MUTED 向 WARNING 线性插值（20s 满）；`thought for Ns` 恒 MUTED；`elapsed` / `tokens` 恒 MUTED。
 
 第三字段（v0.6.82+，思考状态词，英文固定输出）：
 
 | 状态词 | 触发 | 颜色 |
 |--------|------|------|
-| `thinking` | 进入思考段 | 随热度（verb 同色） |
+| `thinking` | 进入思考段 | thinkingIntensity 插值 |
 | `thought for Ns` | 思考段结束 | 始终 MUTED |
-| `still thinking` | 同一段思考超阈（10s 可调，优先级最高） | 随热度 |
-| `thinking more` | 本轮被打断后再次思考 | 随热度 |
-
-verb 与状态词随时间四档升温（5s / 15s / 30s，仅这两者变色，`elapsed` / `tokens` / `thought for Ns` 恒 MUTED）。
+| `still thinking` | 同一段思考超阈（10s 可调，优先级最高） | thinkingIntensity 插值 |
+| `thinking more` | 本轮被打断后再次思考 | thinkingIntensity 插值 |
 
 动画帧：16 个 Unicode 符号循环（`✳✴✵✶✷✸✹✺✻✼❃❊…`），每 200ms 推进一帧。
 Verb 列表：128 个中文烹饪/动作动词随机选择。
-Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
+Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
 
 ## Todo 列表
 

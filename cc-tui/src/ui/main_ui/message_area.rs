@@ -492,14 +492,18 @@ fn viewport_clip(
             lines.push(line.clone());
             // Tip + TODO
             if app.session_mgr.current().viewport_loading() {
-                let tip = crate::ui::tips::pick_tip(
-                    app.session_mgr.current().viewport_spinner().raw_tick(),
-                    &app.services.lc,
-                );
-                lines.push(Line::from(vec![
-                    Span::styled("  ⎿  Tip: ", Style::default().fg(theme::cur().inactive)),
-                    Span::styled(tip, Style::default().fg(theme::cur().inactive)),
-                ]));
+                // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
+                // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
+                let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
+                if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("  ⎿  {label}: "),
+                            Style::default().fg(theme::cur().inactive),
+                        ),
+                        Span::styled(text, Style::default().fg(theme::cur().inactive)),
+                    ]));
+                }
                 if app.session_mgr.current().active_subagent().is_none() && !app.session_mgr.current().todo_items.is_empty() {
                     lines.push(Line::from(""));
                     let todos = &app.session_mgr.current().todo_items;
@@ -631,13 +635,15 @@ fn spinner_extra_count(app: &App) -> u16 {
     // recap 与总结行之间有一个分隔空行，故占 2 行
     let recap_extra: u16 = if has_recap { 2 } else { 0 };
     if app.session_mgr.current().viewport_loading() {
-        // 空行(1) + spinner(1) + tip(1) + trailing(1) = 4
+        // 空行(1) + spinner(1) + trailing(1) = 3，tip 行仅在有已发布 tip（或触发时间覆盖）时 +1；
         // 有 todo 时额外 + 分隔空行(1) + todo 渲染行数（最多 5 行 + 可选截断统计 1 行）
+        let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
+        let tip_lines: u16 = if app.spinner_tip_visible(turn_elapsed) { 1 } else { 0 };
         let total_todos = if app.session_mgr.current().active_subagent().is_none() { app.session_mgr.current().todo_items.len() } else { 0 };
         if total_todos > 0 {
-            5 + todo_render_line_count(total_todos)
+            4 + tip_lines + todo_render_line_count(total_todos)
         } else {
-            4
+            3 + tip_lines
         }
     } else {
         // 空行(1) + spinner(1) + [分隔空行(1) + recap(1)] + trailing(1) = 3 + recap_extra

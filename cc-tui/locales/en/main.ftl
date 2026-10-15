@@ -179,6 +179,7 @@ tip-14 = /plugin manages Claude Code plugins
 tip-15 = Add custom Skills in .claude/skills/
 tip-16 = Define SubAgents in .claude/agents/
 tip-17 = For complex tasks, have Agent plan first before executing
+tip-clear-override = Use /clear to start fresh when switching topics and free up context
 
 # ---- Setup Wizard ----
 

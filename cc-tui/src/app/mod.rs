@@ -169,6 +169,10 @@ pub struct App {
     pub focused: bool,
     /// 自动 recap 调度状态
     pub auto_recap: recap_auto::AutoRecapState,
+    /// Spinner tips 调度器（会话冷却 + 展示历史，对齐 CC 的 tips 机制）
+    pub tip_scheduler: crate::ui::tips::TipScheduler,
+    /// Spinner tips 每轮状态（挑选 → 扣留 → 轮次结束发布）
+    pub spinner_tip_state: crate::ui::tips::SpinnerTipState,
     /// ACP client — communicates with the ACP server via in-memory transport.
     /// Initialized after App construction in run_app(); None until `set_acp_client` is called.
     /// Added in Step 6-a; fully integrated in Steps 6-c..6-h.
@@ -341,6 +345,10 @@ impl App {
             panic_notify_rx: None,
         };
 
+        // tips 调度器：每次启动记为一个新会话（冷却按会话计）
+        let mut tip_scheduler = crate::ui::tips::TipScheduler::default();
+        tip_scheduler.begin_session();
+
         Self {
             session_mgr,
             services,
@@ -348,6 +356,8 @@ impl App {
             global_panels: panel_manager::PanelManager::new(),
             focused: true,
             auto_recap: recap_auto::AutoRecapState::new(true),
+            tip_scheduler,
+            spinner_tip_state: crate::ui::tips::SpinnerTipState::default(),
             acp_client: None,
             agent_shell_registrations_rx: None,
         }
@@ -612,6 +622,13 @@ impl App {
     pub fn set_loading(&mut self, loading: bool) {
         // 同步当前 session 及其所有子 Agent 的动词列表（覆盖 setup wizard 等非 /lang 路径的语言变更）
         let lang = self.services.lc.current_lang().to_string();
+        // tips 挑选只读调度器与配置，先于 session 的可变借用算好（挑选本身无副作用）
+        let picked = if loading && self.tips_enabled() {
+            let candidates = self.tip_candidates();
+            self.tip_scheduler.pick(&candidates)
+        } else {
+            None
+        };
         let s = self.active_mut();
         s.sync_language(&lang);
         s.ui.loading = loading;
@@ -628,6 +645,62 @@ impl App {
             s.agent.cancel_token = None;
             self.refresh_terminal_title();
         }
+        // tips 状态推进（s 的借用已结束）：轮开始扣留本轮挑好的 tip；轮结束发布并记录展示
+        if loading {
+            self.spinner_tip_state.on_turn_start(|| picked);
+        } else if let Some(shown_id) = self.spinner_tip_state.on_turn_end() {
+            self.tip_scheduler.record_shown(&shown_id);
+        }
+    }
+
+    /// spinner tips 是否启用（配置 `spinner_tips_enabled`，缺省启用；对齐 CC）
+    fn tips_enabled(&self) -> bool {
+        self.services
+            .peri_config
+            .as_ref()
+            .and_then(|c| c.config.spinner_tips_enabled)
+            .unwrap_or(true)
+    }
+
+    /// 本轮 tip 候选集：内置注册表（i18n 文案）+ 配置的自定义条目
+    fn tip_candidates(&self) -> Vec<crate::ui::tips::TipCandidate> {
+        let mut candidates = crate::ui::tips::builtin_candidates(&self.services.lc);
+        if let Some(overrides) = self
+            .services
+            .peri_config
+            .as_ref()
+            .and_then(|c| c.config.spinner_tips_override.as_ref())
+        {
+            candidates.extend(crate::ui::tips::override_candidates(overrides));
+        }
+        candidates
+    }
+
+    /// 当前应展示的 spinner tip（`label`, 文案）：时间覆盖 tip 优先于调度 tip（对齐 CC）。
+    /// 本轮运行超过 30 分钟 → /clear 覆盖 tip；否则为上一轮发布的那条。
+    pub fn spinner_tip_display(&self, turn_elapsed_ms: u64) -> Option<(String, String)> {
+        if !self.tips_enabled() {
+            return None;
+        }
+        if turn_elapsed_ms > crate::ui::tips::CLEAR_TIP_THRESHOLD_MS {
+            return Some((
+                "Tip".to_string(),
+                self.services.lc.tr("tip-clear-override"),
+            ));
+        }
+        self.spinner_tip_state.current().map(|tip| {
+            (
+                tip.label.clone().unwrap_or_else(|| "Tip".to_string()),
+                tip.text.clone(),
+            )
+        })
+    }
+
+    /// 本帧 spinner 区是否会渲染 tip 行（供布局高度计算，与渲染口径一致）
+    pub fn spinner_tip_visible(&self, turn_elapsed_ms: u64) -> bool {
+        self.tips_enabled()
+            && (self.spinner_tip_state.current().is_some()
+                || turn_elapsed_ms > crate::ui::tips::CLEAR_TIP_THRESHOLD_MS)
     }
 
     /// 重建输入框（pending_messages 现在由 UI 层直接渲染，不再使用 textarea title）

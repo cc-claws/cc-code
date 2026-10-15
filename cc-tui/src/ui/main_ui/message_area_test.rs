@@ -173,7 +173,23 @@ fn test_spinner_extra_count_clamps_with_many_todos() {
             active_form: None,
         });
     }
-    // 8 个 todo 时：空行(1) + spinner(1) + tip(1) + 分隔空行(1) + 5 个 todo 项 + 1 个截断行 + trailing(1) = 11 行
+    // 未发布 tip 时 tip 行不占位：空行(1) + spinner(1) + 分隔空行(1) + 5 个 todo 项 + 1 个截断行 + trailing(1) = 10 行
+    assert_eq!(
+        spinner_extra_count(&app),
+        10,
+        "无 tip 时应为 10 行（tip 行不占位）"
+    );
+    // 发布一条 tip 后：再 + tip(1) = 11 行封顶
+    app.spinner_tip_state.on_turn_start(|| {
+        Some(crate::ui::tips::TipCandidate {
+            id: "tip-0".to_string(),
+            text: "x".to_string(),
+            cooldown_sessions: 0,
+            priority: 0,
+            label: None,
+        })
+    });
+    app.spinner_tip_state.on_turn_end();
     assert_eq!(
         spinner_extra_count(&app),
         11,

@@ -178,6 +178,7 @@ tip-14 = /plugin 管理 Claude Code 插件
 tip-15 = 在 .claude/skills/ 中添加自定义 Skills
 tip-16 = 在 .claude/agents/ 中定义 SubAgent
 tip-17 = 对复杂任务让 Agent 先制定计划再执行
+tip-clear-override = 切换话题时用 /clear 重新开始，并释放上下文
 
 # ---- Setup Wizard ----
 
