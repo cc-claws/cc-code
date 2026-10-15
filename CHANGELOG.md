@@ -6,8 +6,15 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.145 — 2026-10-15
+
+### Features
+
+- **输入框内 `/command` 高亮对齐 Claude Code（#529）**：输入框由 tui-textarea 整块渲染且只设单一前景色，命令文本与正文同色，于是出现「从提示浮层补全命令后强调色丢失」的观感。现按 Claude Code `findSlashCommandPositions` 的同一规则扫描 `/command` token（`/` 前为行首或空白、其后首字符为 ASCII 字母、token 尾字符集 `[a-zA-Z0-9:-_]`），以 `custom_highlight` 上 suggestion 蓝（优先级低于光标与选区）；仅主输入框显示态生效，`!` shell 命令态跳过以免把 `/etc` 之类路径着色。规则与 CC 一致、不区分「已知命令」与路径，故行首的 `/usr/bin` 会把 `/usr` 着色。
+
 ### Fixes
 
+- **Rewind 入口改为 `/rewind` 命令，移除双击 `Esc` 触发（#531）**：Rewind（对话回滚）此前只在 Agent 空闲时靠「2 秒内双击 `Esc`」触发，而 `Esc` 的通用语义是取消/中断——中断 Agent 后下意识连按 `Esc` 就会弹出回滚选择器；反过来想主动唤起时却无命令入口，TUI 命令表里没有 `rewind`，无参 `/rewind` 会被透传给 ACP 并以空参数报错。现 TUI registry 注册 `rewind`（别名 `undo`）承接无参入口并打开回滚选择器，用户在面板确认后仍向 ACP 提交带 JSON 参数的 `/rewind` 执行截断 history + 逆向恢复文件（ACP 侧行为不变）；双击 `Esc` 分支与仅服务它的 `rewind_pending_since` 字段一并移除，`Esc` 回归取消/中断语义。顺带订正了 `TUI-STYLE.md` 中「`Esc` 退出程序」的错误描述。TUI 命令表 30 → 31 个。
 - **运行中敲命令不再被静默当成普通消息发给模型（#533）**：Agent 运行中按 `Enter` 时，输入在**任何命令判定之前**就进了排队队列，文本的命令身份随之丢失；出队时只有 ACP 层那 7 个命令会被重新识别，其余（`/theme`、`/model`、`/gc`、`/exit`、`/help` 等约 24 个 TUI 独有命令）连同未知命令、`!` shell 输入一起被当成普通 prompt 喂给模型——表现为 `/exit` 不退出、`/gc` 不回收内存、敲错命令反被模型一本正经地回答。现将「是命令还是消息、归谁执行」收敛到唯一判定入口 `CommandSystem::resolve`（`cc-tui/src/app/command_system.rs`），空闲派发（`App::route_slash_input`）与运行中分流（`App::handle_busy_input`）共用：普通消息 / Skill / ACP 命令 / 转发型本地命令入队延后执行，需要空闲 UI 的本地命令、`!` shell 与未知命令**拒绝并保留输入框内容**。`CommandRegistry` 拆出 `find` 供判定、`dispatch` 复用同一份匹配规则，消除判定与执行两套逻辑漂移的可能。
 - **顺带修掉三处同源问题**：① `Command::blocked_while_busy` 成为「运行中能否延后」的显式声明（默认需空闲 UI，仅 `commit`/`review`/`recap`/`init`/`streaming` 为可延后），并加白名单回归测试锁死分类；② `/history` 里逐命令自写的「运行中拒绝」自查统一上收到入口判定，命令内不再各写一套；③ `/streaming` 此前只是 `submit_message` 内部的前缀特例，因此只能靠「排队后消费」触达、空闲时键入反报「未知命令」，现提升为正式命令（`blocked_while_busy = false`），`submit_message` 特例移除。
 - **`Ctrl+Enter` 不能把命令插入正在执行的轮次**：`steer` 会把内容插入当前轮次，命令经此路径会退化成普通文本，现对命令拒绝并提示本轮结束后执行；普通消息与 Skill 仍可照常插入。
