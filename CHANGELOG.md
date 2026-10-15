@@ -6,6 +6,13 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.144 — 2026-10-15
+
+### Fixes
+
+- **后台子 Agent 抽屉「正在做什么」列稳定显示助手文本（#526）**：该列此前在工具名（`Bash` / `Grep`）与助手文本之间来回跳，观感上一直在闪动。根因是**两个来源在争同一个字段**：服务端把 `ToolStart` 的工具名写进任务快照的 `current_activity`，经 ACP 的 `currentActivity` 载荷下发，TUI 的 `progress` 分支又用它覆盖本地从助手文本采集的同名字段。现服务端不再写入工具名（`cc-middlewares/src/subagent/background.rs`），TUI 也不再接受该载荷（`cc-tui/src/app/agent_ops/subagent.rs`），该列只由助手文本与状态文案驱动。
+- **抽屉中间列增加 200ms 时间节流**：子 Agent 连续输出时，该列此前以事件到达速率刷新——`poll_agent` 只要有子 Agent 在跑就恒判定「需要渲染」（`has_running_subagents()`），而帧率限制只对主 Agent 的 loading 生效（非 loading 路径始终立即渲染），于是子 Agent 单独运行时反而完全没有帧率上限。现新增渲染快照 `activity_shown` 与 `sync_activity_display()`（`DRAWER_ACTIVITY_THROTTLE` = 200ms），最多每 200ms 刷新一次；**首次填充**与**子 Agent 结束**时立即同步，最后一句不会被节流窗口吞掉。节流只作用于渲染快照，`current_activity` 仍保持高频（子视口与日志可用）——**丢的是渲染帧，不是状态**。
+
 ## v0.6.143 — 2026-10-15
 
 ### Fixes
