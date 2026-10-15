@@ -25,6 +25,8 @@ impl App {
         if drawer_updated { session.ui.bg_bar_cursor = None; }
         for sub in self.session_mgr.current_mut().subagent_sessions.values_mut() {
             if sub.status.is_active() { sub.spinner.advance_tick(); }
+            // 抽屉中间列的时间节流：每帧把高频 `current_activity` 按窗口同步到渲染快照
+            sub.sync_activity_display();
         }
         let steering_updated = self.poll_steering_results();
         // Cancel 超时安全网：5 秒后仍未收到 Interrupted/Done，强制清理

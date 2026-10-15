@@ -156,3 +156,52 @@ async fn test_subagent_inherits_language_and_syncs_on_change() {
     let zh_new_sub = &app.session_mgr.current().subagent_sessions["sub-zh"];
     assert_eq!(zh_new_sub.spinner.verb_list(), cc_widgets::spinner::verb::ZH_VERBS);
 }
+
+#[tokio::test]
+async fn test_drawer_activity_is_throttled_within_window_and_synced_on_finish() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    make_started(&mut app, "one", "武汉天气");
+    let sub = app
+        .session_mgr
+        .current_mut()
+        .subagent_sessions
+        .get_mut("one")
+        .expect("子会话存在");
+
+    // 首次填充立即可见（不被节流窗口挡住）
+    sub.current_activity = "句子一".into();
+    sub.sync_activity_display();
+    assert_eq!(sub.activity_shown, "句子一");
+
+    // 节流窗口内的高频更新被丢弃——丢的是渲染帧，不是状态
+    sub.current_activity = "句子二".into();
+    sub.sync_activity_display();
+    assert_eq!(sub.activity_shown, "句子一");
+
+    // 子 Agent 结束后（不再有新值）立即同步，最后一句不被吞掉
+    sub.status = SubagentRunStatus::Completed;
+    sub.sync_activity_display();
+    assert_eq!(sub.activity_shown, "句子二");
+}
+
+#[tokio::test]
+async fn test_drawer_activity_refreshes_after_throttle_window() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    make_started(&mut app, "one", "武汉天气");
+    let sub = app
+        .session_mgr
+        .current_mut()
+        .subagent_sessions
+        .get_mut("one")
+        .expect("子会话存在");
+
+    sub.current_activity = "句子一".into();
+    sub.sync_activity_display();
+    assert_eq!(sub.activity_shown, "句子一");
+
+    // 越过节流窗口后，新值照常刷新
+    tokio::time::sleep(DRAWER_ACTIVITY_THROTTLE + std::time::Duration::from_millis(20)).await;
+    sub.current_activity = "句子二".into();
+    sub.sync_activity_display();
+    assert_eq!(sub.activity_shown, "句子二");
+}

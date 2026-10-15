@@ -194,7 +194,9 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
                 SubagentRunStatus::Failed | SubagentRunStatus::Stopped => Some(theme::cur().error),
                 _ => None,
             };
-            let preview = if sub.current_activity.is_empty() { &sub.task_preview } else { &sub.current_activity };
+            // 用节流后的快照（`activity_shown`）而非高频的 `current_activity`：
+            // 连续流式输出时该列最多每 200ms 跳一次，避免抽屉不停闪动（#526）。
+            let preview = if sub.activity_shown.is_empty() { &sub.task_preview } else { &sub.activity_shown };
             (preview.as_str(), metrics, accent)
         } else { ("", format_duration(agent.started_at.elapsed()), None) };
         let is_active = current == Some(&agent.instance_id);

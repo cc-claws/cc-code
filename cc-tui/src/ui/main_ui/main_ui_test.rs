@@ -754,15 +754,17 @@ async fn test_drawer_activity_shows_assistant_text_not_tool_call() {
 
     // 只有工具在跑：不得把工具串当正文
     app.handle_subagent_event("child-1", tool_start("sleep 90 && echo done"));
+    let _ = app.poll_agent();
     let snap = render(&mut app, &mut handle);
     assert!(
         !snap.contains("Bash(sleep 90"),
         "工具调用串不应出现在抽屉正文：\n{snap}"
     );
 
-    // 助手开口 → 显示助手文本
+    // 助手开口 → 显示助手文本（帧循环把 current_activity 同步到节流后的渲染快照）
     app.handle_subagent_event("child-1", chunk("First I will sleep 60 seconds, "));
     app.handle_subagent_event("child-1", chunk("then query Shenzhen weather."));
+    let _ = app.poll_agent();
     let snap = render(&mut app, &mut handle);
     assert!(
         snap.contains("First I will sleep 60 seconds, then query Shenzhen weather."),
@@ -781,6 +783,9 @@ async fn test_drawer_activity_shows_assistant_text_not_tool_call() {
         },
     );
     app.handle_subagent_event("child-1", chunk("Sleeping for 60 seconds"));
+    // 抽屉中间列有 200ms 时间节流：越过窗口后帧循环才会取到新句
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    let _ = app.poll_agent();
     let snap = render(&mut app, &mut handle);
     assert!(snap.contains("Sleeping for 60 seconds"), "应显示最新一句：\n{snap}");
     assert!(

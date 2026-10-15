@@ -131,9 +131,11 @@ impl BackgroundTaskRegistry {
         let mut runtimes = self.runtimes.lock();
         let Some(runtime) = runtimes.get_mut(id) else { return; };
         match event {
-            AgentEvent::ToolStart { name, .. } => {
+            AgentEvent::ToolStart { .. } => {
+                // 只计步数。**不要**把工具名写进 `current_activity`——该字段最终呈现给
+                // 用户的语义是「子 Agent 正在说什么」（由 TUI 侧从助手文本填充），
+                // 写入工具名会让抽屉列在工具名与助手文本之间来回跳（#526）。
                 runtime.snapshot.total_steps += 1;
-                runtime.snapshot.current_activity = name.clone();
             }
             AgentEvent::LlmCallEnd { model, usage, .. } => {
                 runtime.snapshot.model = Some(model.clone());
