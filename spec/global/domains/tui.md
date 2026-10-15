@@ -579,6 +579,19 @@ submit_message(text)
 
 **归档日期:** 2026-09-28
 
+### feature_20261015_F001_theme-system-and-status-bar-pinning
+
+**摘要:** 全部 UI 颜色抽成统一调色板并新增 `/theme` 命令与 7 套主题；状态栏配色固定、不参与主题化
+**关键决策:**
+
+- 全部 UI 颜色抽成统一调色板（69 个与 Claude Code 相同的语义字段 + cc-code 扩展字段），渲染层统一经 `theme::cur().<字段>` 读取，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）
+- `/theme` 提供 7 套主题：`default`（cc-code 现行配色）+ `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`，后六套名称与全部字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` 逐值一致，`palettes_parity_test.rs` 逐字段断言锁定防漂移
+- 选择面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板
+- `/theme` 面板补齐 session 面板键盘路由（`PanelKind::Theme` 加入键盘与粘贴白名单，此前 `↑`/`↓`/`Esc` 被穿透，v0.6.142）
+- **状态栏例外（v0.6.143）:** 状态栏配色是打磨定稿的固定值，不参与主题化——`ui/main_ui/status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致
+
+**参考:** 快捷键与色板详见 [TUI-STYLE.md](../../TUI-STYLE.md) 的「主题系统」「状态栏」章节
+
 ---
 
 ## Issue 经验附录
@@ -1367,4 +1380,4 @@ submit_message(text)
 
 **取消链路（PRD §4.4 / §4.4.1 / §4.4.2）**：主 Agent 经 `Agent(action="stop", task_id=…)` 取消（`task_id` 精确匹配，拒绝模糊），与用户按键（`x` / `Ctrl+X Ctrl+K`）共用同一终态链路。渲染侧三项契约：① 停止终态独立成行（`• Agent "x" was stopped by main Agent`，用户停止为 `stopped by user`），不得混入 `finished`/`failed`；② 抽屉停止行用**红色实心 `●`**（`theme::ERROR` = `#FF6B80`）+ 红色 `stopped by …`——`drawer_line()` 新增 `force_filled` 参数在非当前视口时也渲染实心圆点（`◯` 仅用于「非当前视口的活跃行」）；③ 等待计数行 `✻ Waiting for N background agents to finish` 作为临时 `SystemNote`（`ephemeral_notes`）随活跃数刷新，**归零必须移除**（残留会让用户误以为还有任务在跑）。`BackgroundAgentSession.stopped_by_user` 记录停止发起方，供上述来源文案区分。
 
-最后更新：2026-10-14
+最后更新：2026-10-15

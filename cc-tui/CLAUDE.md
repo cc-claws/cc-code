@@ -86,9 +86,9 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ### 面板系统
 
-12 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser（Session）；McpPanel、PluginPanel、CronPanel、TasksPanel、StatusPanel、MemoryPanel（Global）。
+15 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser、CommandPalettePanel、ThemePanel（Session，8 种）；McpPanel、PluginPanel、CronPanel、TasksPanel、StatusPanel、MemoryPanel、BackgroundTasksPanel（Global，7 种）。
 
-互斥组（`MutexGroup`）：Settings（Model/Login/Config）、Agent（Agent/Hooks）、Tools（MCP/Plugin/Cron/Tasks）、Info（Status/Memory）、Thread（ThreadBrowser 独占）。
+互斥组（`MutexGroup`）：Settings（Model/Login/Config/CommandPalette/Theme）、Agent（Agent/Hooks）、Tools（MCP/Plugin/Cron/Tasks/BackgroundTasks）、Info（Status/Memory）、Thread（ThreadBrowser 独占）。
 
 `PanelManager` + `PanelComponent` trait（`panel_manager.rs`/`panel_component.rs`），新增面板只需定义变体 + 实现 trait。面板内禁止渲染提示行，由 `status_bar_hints()` 统一描述。
 
@@ -100,6 +100,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 - **底行**（无活动时为第 2 行，有活动时为第 3 行）：权限模式（含 Shift+Tab 切换提示）与瞬时状态提示 → 右侧快捷键 hints 与 CPU/MEM 监控
 
 瞬时提示用 `Instant` + Duration 控制消失；颜色分级用 `theme::ERROR`/`WARNING`/`SAGE`；面板 hints 通过 `PanelComponent::status_bar_hints()` trait 注入。
+
+**[TRAP]** 状态栏配色是打磨定稿的固定值，**不参与主题化**——`ui/main_ui/status_bar.rs` 内经固定配色常量模块 `sb` 输出，渲染结果与主题系统引入之前逐字节一致。禁止把状态栏颜色改回 `theme::cur()` 调色板字段，否则观感会随 `/theme` 漂移（#523）。
 
 ### 消息区
 

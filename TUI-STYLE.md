@@ -1,7 +1,7 @@
 # TUI Style Guide
 
 > **最后更新：2026-10-15**
-> 本次更新：颜色系统主题化——新增 `/theme` 命令与 7 套主题（default 为现行配色，其余 6 套与 claude-code-best 逐值一致），全部渲染改走当前调色板。
+> 本次更新：新增 `/theme` 命令与 7 套主题（default 为现行配色，其余 6 套与 claude-code-best 逐值一致），渲染改走当前调色板；**状态栏为例外**——配色为打磨定稿的固定值，不参与主题化（#523）。
 
 ## 设计哲学
 
@@ -13,7 +13,7 @@
 
 ### 主题系统（/theme）
 
-七套主题：`default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
+七套主题：`default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。**唯一例外：状态栏**（`cc-tui/src/ui/main_ui/status_bar.rs`）——配色是打磨定稿的固定值，经模块内固定配色常量 `sb` 输出，**不随 `/theme` 切换**，渲染结果与主题系统引入之前逐字节一致（#523）。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
 
 ### 强调色
 

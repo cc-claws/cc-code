@@ -95,12 +95,15 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 **界面语言：** TUI 和 CLI 帮助支持英文与简体中文。使用 `/lang en` 或 `/lang zh-CN` 保存偏好；未保存语言时，启动检测 `LC_ALL`、`LANGUAGE`、`LC_MESSAGES` 和 `LANG`，不支持的 locale 回退英文。未发布改动见 [CHANGELOG](./CHANGELOG.md)。
 
-**子 Agent 取消（未发布）：** 用自然语言让主 Agent 停掉某个子任务即可——模型走 `Agent(action="stop", task_id="bg-…")` 按 `task_id` 精确取消（**不做模糊匹配**，避免停错描述相似的兄弟任务），停止结果回给模型含任务摘要的确认，时间线打印 `• Agent "x" was stopped by main Agent`，抽屉行转为**红色实心 `●`** + `stopped by main Agent`（用户按键停止则显示 `stopped by user`）。等待期间主视口显示 `✻ Waiting for N background agents to finish`。
+**子 Agent 取消（v0.6.139）：** 用自然语言让主 Agent 停掉某个子任务即可——模型走 `Agent(action="stop", task_id="bg-…")` 按 `task_id` 精确取消（**不做模糊匹配**，避免停错描述相似的兄弟任务），停止结果回给模型含任务摘要的确认，时间线打印 `• Agent "x" was stopped by main Agent`，抽屉行转为**红色实心 `●`** + `stopped by main Agent`（用户按键停止则显示 `stopped by user`）。等待期间主视口显示 `✻ Waiting for N background agents to finish`。
 
-**子 Agent Prompt 卡片（未发布）：** 主视口按 `Ctrl+O` 进入详细模式后，后台子任务的启动摘要由极简树形切换为经典工具卡片——`● Agent(任务预览)` + `  └ Backgrounded agent` + `  └ Prompt:` + 指令**全文**（6 列悬挂缩进折行），再次 `Ctrl+O` 收回，无需进入子视口即可核验下发给各子 Agent 的指令。未发布改动见 [CHANGELOG](./CHANGELOG.md)。
+**子 Agent Prompt 卡片（v0.6.139）：** 主视口按 `Ctrl+O` 进入详细模式后，后台子任务的启动摘要由极简树形切换为经典工具卡片——`● Agent(任务预览)` + `  └ Backgrounded agent` + `  └ Prompt:` + 指令**全文**（6 列悬挂缩进折行），再次 `Ctrl+O` 收回，无需进入子视口即可核验下发给各子 Agent 的指令。未发布改动见 [CHANGELOG](./CHANGELOG.md)。
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **状态栏配色固定，不再跟随 `/theme`** | v0.6.143 | `/theme` 上线（#509）时把状态栏写死的颜色一并扫进了调色板，导致状态栏观感随主题漂移：模型名 / cwd / git 分支由 ANSI 具名色变为固定 RGB，上下文仪表跟随 `error`/`warning`/`success`。状态栏配色是打磨定稿的固定值，现退出主题化——新增局部常量模块 `sb` 恢复 #509 之前的取值，52 处调用点改回原固定色，渲染结果与主题系统引入之前逐字节一致（#523） |
+| **主题面板键盘路由修复** | v0.6.142 | `/theme` 选择面板 scope 为 `Session`，但键盘与粘贴白名单未包含 `PanelKind::Theme`，按键被穿透到后续 Stage——`↑`/`↓` 不移动光标、`Esc` 关不掉面板。现补齐两处路由并加回归测试（#521） |
+| **Spinner tips 调度对齐 Claude Code** | v0.6.141 | tips 由按渲染 tick 每约 3 秒无差别轮换，改为 CC 的调度模型：每条 tip 有稳定 id 与会话冷却，每轮开始挑选一条并**扣留**、轮结束才发布（每轮最多一条、轮内不换），在冷却已满足者中取「距上次展示最久」者，历史持久化到 `~/.cc-code/spinner-tips.json`；新增配置 `spinner_tips_enabled` 与 `spinner_tips_override`（自定义条目 + 外部文件）。另：MCP 协议库 `rmcp` 升级至 3.5.1，客户端迁移到 3.x 数据模型与接口（#511、#519） |
 | **主题命令 `/theme`——7 套可切换配色（6 套与 Claude Code 逐值一致）** | v0.6.140 | 用 `/theme` 切换 UI 配色：现行配色保留为 `default`，另有 `dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` / `dark-ansi` 六套，名称与配色与 Claude Code 的主题定义逐值一致；选择面板光标移动实时预览，选择持久化、重启自动恢复。 |
 | **自动记忆系统（Auto-Memory）对齐 CC 规范** | v0.6.139 | 跨会话持久记忆，**纯文件架构、零专有工具**：模型用 `Write`/`Edit` 直接维护带四类型 YAML frontmatter 的 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行 / ≤25KB，超限安全截断并警告），与 `~/.claude/projects/`、`~/.cc-code/projects/` 既有记忆资产双向兼容；安全门为记忆路径设豁免，会话创建时冻结索引快照保障 Prompt Cache 前缀稳定（#507） |
 | **主 Agent 可取消后台子 Agent（`Agent(action="stop")`）** | v0.6.139 | `Agent` 工具新增 `action`（`spawn` 默认 / `stop`）与 `task_id`，按精确 `bg-<uuid>` 停止运行中的子 Agent（不做描述模糊匹配）；底层复用注册表 `cancel()` 走正常终态与清理、不 abort、不触发无意义续跑；时间线与抽屉区分 `stopped by user` / `stopped by main Agent`，并有 `✻ Waiting for N` 等待计数行实时递减 |
@@ -108,14 +111,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **后台 shell 完成通知按批次合并注入，消除多轮级联唤醒** | v0.6.137 | `Bash(run_in_background=true)` 任务完成后会强制唤醒 agent 开启新 turn；当一轮内积压多条通知时，旧逻辑在每次 `Done` 后**只从 pending 队列弹 1 条**（`pending.remove(index)`），n 条通知 → n 轮 turn 级联雪崩（每轮 `Done` 再触发下一条），现场表现为连续无意义的「收到」。现新增统一注入入口 `App::inject_bg_shell_notifications`：**空闲态**把「本批通知 + 队列中同会话待注入通知」**一次性 drain 拼接为单条**消息提交（n 条压成 1 轮 turn），**推理中**全部入队、`Done` 后一次性 drain 合并；stall 警告与 `!command` / agent shell 两条完成路径统一走该入口，删除三处重复的「首个 submit + 其余入队」分支。合并**仅在消息层拼接**（保留每条 `<background-task-completed>` XML，信息不丢失），其它会话通知仍留在队列。配套把展示解析重构为按文档顺序逐块扫描，支持合并消息含多个块（甚至完成 + 等待输入**混合类型**）不丢行、不串序。新增 6 项回归用例（#491） |
 | **子 Agent 视口补齐完成总结行** | v0.6.136 | 切入刚跑完的后台子 Agent 独立视口时，底部此前空白、缺少主视口那条 `✻ Brewed for 32s · done 16:30` 总结行。根因：`SpinnerState` 仅在「活跃态 → `Idle`」时捕获摘要耗时，而子 Agent 的完成路径（`peri/subagent_lifecycle` 的 `"stopped"` 分支与 `AgentEvent::Done` 兜底）都未调用 `set_mode(Idle)`，摘要耗时恒为 0，渲染层退化为不画任何行。现补齐结算；被停止/失败的子 Agent 则清空总结行、不显示成功文案（#485） |
 | **后台子 Agent 抽屉与独立视口（只有后台模式）** | v0.6.130 | 子 Agent 现在是**只有后台模式**，底栏抽屉是它们的唯一呈现，内部过程不再污染主对话。空输入框按 `↓` 浏览、`↑/↓` 移动游标、`Enter` 进入独立视口（独立滚动位置、输入草稿与 HUD 工具统计）、`x` 停止选中任务、`Ctrl+X Ctrl+K` 停止全部。正在阅读的子 Agent 结束时**留在屏幕上**（该行转绿显示 `✓ completed`），等你离开视口才回收会话。启动摘要渲染为对齐的 `├── / └──` 树形块，抽屉只用亮白/灰两档文字（游标行不设底色），右侧 token 指标为跟随流向的单箭头（`↓` 回复产出、`↑` 你输入）。`fork` 与普通子 Agent 合并为同一条构建路径，子任务标题优先取工具的 `description`，`run_in_background` 参数已退场（#466） |
-| **`@` 立即显示有限文件候选** | v0.6.129 | 输入 `@` 即弹面板，默认只列当前目录，目录优先，最多 15 项、10 行可见；面板按终端高度缩小。关键词搜索子目录，200ms 防抖保留最后一次输入，搜索中和空结果有提示；截断候选和进入目录时重新搜索，避免漏匹配（#463） |
-| **修复 Windows 下 cc-code 运行中 `cc-code update` 被误报为 UTF-8 错误** | v0.6.128 | Windows 下 `cc-code` 正在运行时执行 `cc-code update` 会失败并报 `stream did not contain valid UTF-8`，实为两层问题叠加：其一，`install.ps1` 用 `Copy-Item -Force` 覆盖便捷副本 `~/.cc-code/cc-code.exe`，而该 exe 正在运行时被 Windows 文件锁占用 → `IOException`，配合脚本 `$ErrorActionPreference="Stop"` 直接中止，导致 `current-version.txt` 与便捷副本都未更新；其二，该失败抛出的是中文本地化错误（GBK 字节），而 `update.rs::stream_output` 用严格 UTF-8 读取子进程输出 → 解码失败，把真实错误盖住。现 `update.rs` 改为容错解码（`String::from_utf8_lossy`）并前置强制 `[Console]::OutputEncoding=UTF8`；`install.ps1` 便捷副本更新改为锁安全——先复制，失败则把被占用的旧 exe 重命名到 `*.old.<时间戳>` 再复制（对齐 `npm/install.js` 的 `replaceBinary`），仍失败只告警不中止，保证 `current-version.txt` 正常写入（#453） |
-| **「回到最新」按钮按输入框白条居中** | v0.6.128 | 「↓ 回到最新」浮层按钮原先按「消息区宽度减去最右 1 列（滚动条预留）」居中，相对输入框上方整宽白条整体左偏约 1 列，用户反馈「看着不居中」。现改为以输入框矩形（白条整宽）为居中基准，左右留白对称（80 列下 x=28，左右各 28）；仅视觉调整，显隐、命中区与滚动状态不变（#458） |
-| **「回到最新」浮层按钮** | v0.6.127 | 消息区滚动离开底部且内容溢出时，在消息区最后一行居中显示「↓ 回到最新」浮层按钮；点击按钮或按 `End`（输入框为空）回到底部后按钮自动消失，离开底部期间有新内容（新消息或流式输出）时文案切换为「↓ 有新活动」。按钮为覆盖式浮层，复用既有 `scroll_follow` / `scrollbar_max_offset` 滚动状态，不改变消息区布局与滚动位置；面板/弹窗激活时隐藏且不拦截指针（#448） |
-| **npm 安装支持 Windows 进程运行中热替换二进制** | v0.6.124 | 在 Windows 环境下，当 `cc-code` 处于运行状态时（如在会话内自升级或开启多个终端），内核文件锁导致 npm postinstall 的 `unlinkSync` 抛出 `EBUSY`/`EPERM` 引起安装回滚。现于 `install.js` 引入 `replaceBinary` 文件锁退避机制：常规删除受阻时自动将旧文件重命名为 `cc-code.exe.old.<timestamp>` 腾出路径并热替换新版本，并在安装时顺便尝试清理历史已退出的 `.old.*` 备份文件（#430、#431） |
-| **Bash 运行状态行显示模型请求的 timeout** | v0.6.123 | Bash 运行状态行（`Running… (Xs)    (timeout Nm)`）此前显示的是 `execution_timeout`（硬执行上限，默认 10m），而非模型传入的 `timeout`（前台等待期限，默认 2m）——传 `timeout=300000`（5 分钟）仍显示 `10m`，看起来像「参数没生效」。现将 `timeout_ms` 贯通注册/槽位，视图字段 `execution_timeout_ms` 重命名为 `timeout_ms`，状态行改为取模型传入的 `timeout`（按分钟展示 `2m`/`5m`）。执行与超时语义不变（#428） |
 
-> 更早版本（v0.6.0 – v0.6.121）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.129）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
