@@ -47,7 +47,12 @@ pub struct SpinnerState {
 
 impl SpinnerState {
     pub fn new(mode: SpinnerMode) -> Self {
-        let verb_list = verb::ZH_VERBS;
+        Self::with_lang(mode, "zh")
+    }
+
+    /// 按语言代码初始化 SpinnerState（自动匹配对应语言的动词列表）
+    pub fn with_lang(mode: SpinnerMode, lang: &str) -> Self {
+        let verb_list = verb::verbs_for_lang(lang);
         Self {
             mode,
             verb: verb::pick_verb_from(None, verb_list),
@@ -64,6 +69,11 @@ impl SpinnerState {
             last_thought_ms: 0,
             thinking_round: 0,
         }
+    }
+
+    /// 设置语言并同步更新动词列表
+    pub fn set_language(&mut self, lang: &str) {
+        self.verb_list = verb::verbs_for_lang(lang);
     }
 
     pub fn set_mode(&mut self, mode: SpinnerMode) {
@@ -209,6 +219,10 @@ impl SpinnerState {
 
     pub fn verb(&self) -> &str {
         &self.verb
+    }
+
+    pub fn verb_list(&self) -> &'static [&'static str] {
+        self.verb_list
     }
 
     pub fn mode(&self) -> &SpinnerMode {
@@ -500,5 +514,16 @@ mod tests {
 
         // Assert：回到 0
         assert_eq!(state.thinking_elapsed_ms(), 0);
+    }
+
+    #[test]
+    fn test_with_lang_and_set_language() {
+        let en_state = SpinnerState::with_lang(SpinnerMode::Idle, "en");
+        let zh_state = SpinnerState::with_lang(SpinnerMode::Idle, "zh-CN");
+        assert_eq!(en_state.verb_list(), verb::EN_VERBS);
+        assert_eq!(zh_state.verb_list(), verb::ZH_VERBS);
+        let mut switch_state = en_state;
+        switch_state.set_language("zh");
+        assert_eq!(switch_state.verb_list(), verb::ZH_VERBS);
     }
 }

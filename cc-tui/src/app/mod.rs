@@ -598,11 +598,10 @@ impl App {
     }
 
     pub fn set_loading(&mut self, loading: bool) {
-        // 同步当前 session 的动词列表（覆盖 setup wizard 等非 /lang 路径的语言变更）
-        let verb_list =
-            cc_widgets::spinner::verb::verbs_for_lang(self.services.lc.current_lang());
+        // 同步当前 session 及其所有子 Agent 的动词列表（覆盖 setup wizard 等非 /lang 路径的语言变更）
+        let lang = self.services.lc.current_lang().to_string();
         let s = self.active_mut();
-        s.spinner_state.set_verb_list(verb_list);
+        s.sync_language(&lang);
         s.ui.loading = loading;
         if loading {
             s.ui.textarea = build_textarea(true);

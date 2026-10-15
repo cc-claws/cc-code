@@ -140,3 +140,19 @@ async fn test_subagent_pending_approvals_survive_parent_idle_and_queue() {
     make_key(&mut app, KeyCode::Char('n'), KeyModifiers::NONE);
     assert!(app.session_mgr.current().agent.interaction_prompt.is_none());
 }
+
+#[tokio::test]
+async fn test_subagent_inherits_language_and_syncs_on_change() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    let _ = app.services.lc.switch("en");
+    make_started(&mut app, "sub-en", "check weather");
+    let en_sub = &app.session_mgr.current().subagent_sessions["sub-en"];
+    assert_eq!(en_sub.spinner.verb_list(), cc_widgets::spinner::verb::EN_VERBS);
+    let _ = app.services.lc.switch("zh-CN");
+    app.session_mgr.current_mut().sync_language("zh-CN");
+    let zh_sub = &app.session_mgr.current().subagent_sessions["sub-en"];
+    assert_eq!(zh_sub.spinner.verb_list(), cc_widgets::spinner::verb::ZH_VERBS);
+    make_started(&mut app, "sub-zh", "检查天气");
+    let zh_new_sub = &app.session_mgr.current().subagent_sessions["sub-zh"];
+    assert_eq!(zh_new_sub.spinner.verb_list(), cc_widgets::spinner::verb::ZH_VERBS);
+}

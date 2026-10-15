@@ -67,9 +67,18 @@ pub(crate) struct BackgroundAgentSession {
 }
 
 impl BackgroundAgentSession {
-    pub(crate) fn new(id: String, agent_type: String, preview: String, cwd: String) -> Self {
+    pub(crate) fn new(
+        id: String,
+        agent_type: String,
+        preview: String,
+        cwd: String,
+        lang: &str,
+    ) -> Self {
         let started_at = Instant::now();
         let agent = AgentComm { session_start_time: Some(started_at), ..AgentComm::default() };
+        let mut spinner =
+            cc_widgets::SpinnerState::with_lang(cc_widgets::SpinnerMode::Thinking, lang);
+        spinner.pick_round_verb();
         Self {
             instance_id: id,
             agent_type,
@@ -85,7 +94,7 @@ impl BackgroundAgentSession {
             pipeline: MessagePipeline::new(cwd),
             view_messages: Vec::new(),
             agent,
-            spinner: cc_widgets::SpinnerState::new(cc_widgets::SpinnerMode::Thinking),
+            spinner,
             pending_inputs: Vec::new(),
             scroll_position: (usize::MAX, true),
             running_tool_times: HashMap::new(),
@@ -100,6 +109,10 @@ impl BackgroundAgentSession {
             activity_buffer: String::new(),
             last_flow_up: false,
         }
+    }
+
+    pub(crate) fn set_language(&mut self, lang: &str) {
+        self.spinner.set_language(lang);
     }
 
     pub(crate) fn elapsed(&self) -> Duration {
@@ -264,6 +277,26 @@ impl BackgroundAgentSession {
 }
 
 impl ChatSession {
+    /// 获取或创建子 Agent 会话，自动继承主会话的语言与动词库配置
+    pub(crate) fn get_or_create_subagent(
+        &mut self,
+        instance_id: &str,
+        agent_type: &str,
+        preview: &str,
+        cwd: &str,
+        lang: &str,
+    ) -> &mut BackgroundAgentSession {
+        self.subagent_sessions.entry(instance_id.to_string()).or_insert_with(|| {
+            BackgroundAgentSession::new(
+                instance_id.to_string(),
+                agent_type.to_string(),
+                preview.to_string(),
+                cwd.to_string(),
+                lang,
+            )
+        })
+    }
+
     pub(crate) fn active_subagent(&self) -> Option<&BackgroundAgentSession> {
         self.focused_instance_id.as_ref().and_then(|id| self.subagent_sessions.get(id))
     }

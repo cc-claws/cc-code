@@ -85,24 +85,21 @@ impl App {
         is_background: bool,
         prompt: Option<String>,
     ) -> (bool, bool, bool) {
-        if !self.session_mgr.current().subagent_sessions.contains_key(&instance_id) {
-            let mut sub = super::super::subagent_session::BackgroundAgentSession::new(
-                instance_id.clone(), agent_id.clone(), task_preview.clone(), self.services.cwd.clone(),
-            );
-            if let Some(ref p) = prompt {
+        let lang = self.services.lc.current_lang();
+        let cwd = self.services.cwd.clone();
+        let sub = self.session_mgr.current_mut().get_or_create_subagent(
+            &instance_id,
+            &agent_id,
+            &task_preview,
+            &cwd,
+            lang,
+        );
+        if let Some(ref p) = prompt {
+            if sub.prompt.is_empty() {
                 sub.prompt = p.clone();
             }
-            self.session_mgr.current_mut().subagent_sessions.insert(instance_id.clone(), sub);
-        } else if let Some(ref p) = prompt {
-            if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&instance_id) {
-                if sub.prompt.is_empty() {
-                    sub.prompt = p.clone();
-                }
-            }
         }
-        if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&instance_id) {
-            sub.is_background = is_background;
-        }
+        sub.is_background = is_background;
         if is_background && !self.session_mgr.current().background_agents.iter().any(|a| a.instance_id == instance_id) {
             use super::super::chat_session::RunningBgAgent;
             self.session_mgr
@@ -246,11 +243,10 @@ impl App {
             _ => None,
         };
         let cwd = self.services.cwd.clone();
+        let lang = self.services.lc.current_lang();
         let (focused, actions) = {
             let session = self.session_mgr.current_mut();
-            let sub = session.subagent_sessions.entry(id.to_string()).or_insert_with(|| {
-                super::super::subagent_session::BackgroundAgentSession::new(id.into(), "agent".into(), String::new(), cwd)
-            });
+            let sub = session.get_or_create_subagent(id, "agent", "", &cwd, lang);
             let is_background = sub.is_background;
             sub.handle_event(event);
             // 前台同步 SubAgent：事件同时驱动主时间线 SubAgentGroup，保持与历史渲染一致。

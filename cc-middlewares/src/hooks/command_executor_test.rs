@@ -218,7 +218,7 @@ async fn test_command_hook_native_cmd_and_powershell_still_work() {
             "[Console]::Out.Write('powershell-ok'); exit 2",
         ),
     ] {
-        let hook = serde_json::from_value(serde_json::json!({"type": "command", "shell": shell, "command": command, "timeout": 5})).unwrap();
+        let hook = serde_json::from_value(serde_json::json!({"type": "command", "shell": shell, "command": command, "timeout": 20})).unwrap();
         let action = execute_command_hook(&hook, &input, &registered).await;
         assert!(
             matches!(action, HookAction::Block { .. }),

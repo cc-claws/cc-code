@@ -105,12 +105,20 @@ impl ChatSession {
             approval_source_agent_id: None,
             main_scroll_position: (usize::MAX, true),
             main_input_draft: None,
-            spinner_state: cc_widgets::SpinnerState::new(cc_widgets::SpinnerMode::Idle),
+            spinner_state: cc_widgets::SpinnerState::with_lang(cc_widgets::SpinnerMode::Idle, lc.current_lang()),
             shell_pool: ShellCommandPool::default(),
             background_shells: Vec::new(),
             agent_shells: Vec::new(),
             pending_bg_shell_notifications: VecDeque::new(),
             latest_recap: None,
+        }
+    }
+
+    /// 统一同步主会话及其所有子 Agent 的语言与动词库配置
+    pub fn sync_language(&mut self, lang: &str) {
+        self.spinner_state.set_language(lang);
+        for sub in self.subagent_sessions.values_mut() {
+            sub.set_language(lang);
         }
     }
 }
