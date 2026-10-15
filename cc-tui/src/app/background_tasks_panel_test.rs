@@ -8,6 +8,7 @@ use crate::app::panel_component::PanelComponent;
 use crate::app::panel_manager::{PanelContext, PanelState};
 use crate::app::{App, BackgroundShell};
 use crate::shell_exec::CommandOutput;
+use crate::test_lock::PROCESS_TEST_TIMEOUT;
 use cc_agent::shell::ShellAbortHandle;
 use tui_textarea::{Input, Key};
 
@@ -198,7 +199,7 @@ async fn wait_for_detail_output(app: &mut App) {
         .get_mut::<BackgroundTasksPanel>()
         .expect("后台任务面板应位于 global scope");
     let rx = panel.output_rx.as_ref().expect("首次渲染应启动输出读取");
-    tokio::time::timeout(Duration::from_secs(5), async {
+    tokio::time::timeout(PROCESS_TEST_TIMEOUT, async {
         while rx.is_empty() {
             assert!(!rx.is_closed(), "输出通道不能在首次推送前关闭");
             tokio::time::sleep(Duration::from_millis(5)).await;
