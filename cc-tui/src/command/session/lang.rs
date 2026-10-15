@@ -50,12 +50,10 @@ impl Command for LangCommand {
                     cfg.config.language = Some(lang.to_string());
                     let _ = App::save_config(cfg, app.services.config_path_override.as_deref());
                 }
-                // 同步当前 session 的 spinner 动词列表
-                let verb_list = cc_widgets::spinner::verb::verbs_for_lang(lang);
+                // 同步当前 session 及其子 Agent 的 spinner 动词列表
                 app.session_mgr
                     .current_mut()
-                    .spinner_state
-                    .set_verb_list(verb_list);
+                    .sync_language(lang);
                 app.request_rebuild();
                 let msg = app
                     .services
