@@ -158,6 +158,11 @@ impl App {
             global_ui: super::GlobalUiState::new(),
             focused: true,
             auto_recap: super::recap_auto::AutoRecapState::new(false),
+            // 测试构造：调度器指向临时路径且不推进会话计数，避免污染真实 tip 历史
+            tip_scheduler: crate::ui::tips::TipScheduler::new(
+                std::env::temp_dir().join("spinner-tips-test.json"),
+            ),
+            spinner_tip_state: crate::ui::tips::SpinnerTipState::default(),
             acp_client: None,
             agent_shell_registrations_rx: None,
         };

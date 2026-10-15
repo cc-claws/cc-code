@@ -177,9 +177,51 @@ pub struct AppConfig {
     /// 流式渲染模式：streaming / block / none
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub streaming_mode: Option<String>,
+    /// 是否启用 spinner tips（缺省 = 启用；对齐 CC 的 spinnerTipsEnabled）
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "spinnerTipsEnabled")]
+    pub spinner_tips_enabled: Option<bool>,
+    /// 自定义 spinner tips（组织/用户下发；schema 对齐 CC 的 spinnerTipsOverride）
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "spinnerTipsOverride")]
+    pub spinner_tips_override: Option<SpinnerTipsOverride>,
     /// 保留未知字段
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// 自定义 spinner tips 配置（对齐 Claude Code 的 spinnerTipsOverride schema）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SpinnerTipsOverride {
+    /// tip 条目：字符串（纯文案）或对象（带 id / 冷却 / 优先级）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tips: Vec<SpinnerTipEntry>,
+    /// 外部 tips JSON 文件路径（内容为同构的条目数组，或含 tips 字段的对象）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tips_file: Option<String>,
+    /// 渲染前缀（替代默认的 "Tip"）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// 单条自定义 spinner tip（对齐 CC 的 org tip 条目）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SpinnerTipEntry {
+    /// 纯文案形式
+    Text(String),
+    /// 对象形式
+    Detailed {
+        /// 稳定 id（用于冷却与历史去重）
+        id: String,
+        /// tip 文案
+        text: String,
+        /// 展示后至少间隔多少个会话才可再展示（缺省 0）
+        #[serde(default)]
+        cooldown_sessions: u64,
+        /// 优先级（同「距上次展示」并列时，高者先出）
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        priority: Option<i64>,
+    },
 }
 
 impl AppConfig {
@@ -230,6 +272,12 @@ impl AppConfig {
         }
         if workspace.auto_recap.is_some() {
             self.auto_recap = workspace.auto_recap;
+        }
+        if workspace.spinner_tips_enabled.is_some() {
+            self.spinner_tips_enabled = workspace.spinner_tips_enabled;
+        }
+        if workspace.spinner_tips_override.is_some() {
+            self.spinner_tips_override = workspace.spinner_tips_override;
         }
         // diff_enabled: bool 直接覆盖（无法区分"未写 false"和"写了 false"）
         self.diff_enabled = workspace.diff_enabled;
