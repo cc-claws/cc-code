@@ -452,7 +452,7 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
 
             // ─── PanelManager paste dispatch ────────────────────────────
             {
-                // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser, CommandPalette
+                // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser, CommandPalette, Theme
                 let session_kind = app.session_mgr.current_mut().session_panels.active_kind();
                 if matches!(
                     session_kind,
@@ -463,6 +463,7 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                         | Some(PanelKind::Config)
                         | Some(PanelKind::ThreadBrowser)
                         | Some(PanelKind::CommandPalette)
+                        | Some(PanelKind::Theme)
                 ) {
                     with_session_panels!(app, |sp, ctx| sp.dispatch_paste(&text, &mut ctx));
                     return Ok(Some(Action::Redraw));

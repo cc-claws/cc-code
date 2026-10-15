@@ -31,7 +31,7 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
         return None;
     }
 
-    // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser, CommandPalette
+    // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser, CommandPalette, Theme
     let session_kind = app.session_mgr.current_mut().session_panels.active_kind();
     if matches!(
         session_kind,
@@ -42,6 +42,7 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
             | Some(PanelKind::Config)
             | Some(PanelKind::ThreadBrowser)
             | Some(PanelKind::CommandPalette)
+            | Some(PanelKind::Theme)
     ) {
         let result = with_session_panels!(app, |sp, ctx| {
             let result = sp.dispatch_key(input.clone(), &mut ctx);
@@ -148,9 +149,11 @@ fn close_top_panel(app: &mut App) -> bool {
 #[cfg(test)]
 mod tests {
     use super::handle_panels;
-    use crate::app::panel_manager::PanelKind;
+    use crate::app::panel_manager::{PanelKind, PanelState};
+    use crate::app::theme_panel::ThemePanel;
     use crate::app::App;
     use crate::event::Action;
+    use crate::ui::theme;
     use tui_textarea::{Input, Key};
 
     #[tokio::test]
@@ -261,5 +264,56 @@ mod tests {
             matches!(result, Some(Action::Redraw)),
             "面板消费的按键应返回 Redraw，不被穿透"
         );
+    }
+
+    #[tokio::test]
+    async fn test_theme_panel_consumes_arrow_and_esc_keys() {
+        // 回归：Theme 面板 scope 为 Session，键盘路由必须把它当 session 面板分发，
+        // 否则 handle_key 收不到按键（表现为 ↑↓ 不动、Esc 关不掉面板）。
+        let (mut app, _handle) = App::new_headless(80, 30).await;
+        let original = theme::current_name();
+        let mut panel = ThemePanel::new();
+        panel.cursor = 1;
+        app.session_mgr
+            .current_mut()
+            .session_panels
+            .open(PanelState::Theme(panel));
+
+        let down = Input {
+            key: Key::Down,
+            ctrl: false,
+            alt: false,
+            shift: false,
+        };
+        let result = handle_panels(&mut app, &down);
+        assert!(
+            matches!(result, Some(Action::Redraw)),
+            "方向键应被主题面板消费"
+        );
+        assert_eq!(
+            app.session_mgr
+                .current()
+                .session_panels
+                .get::<ThemePanel>()
+                .unwrap()
+                .cursor,
+            2,
+            "方向键应移动主题面板光标"
+        );
+
+        let esc = Input {
+            key: Key::Esc,
+            ctrl: false,
+            alt: false,
+            shift: false,
+        };
+        let result = handle_panels(&mut app, &esc);
+        assert!(matches!(result, Some(Action::Redraw)), "Esc 应被主题面板消费");
+        assert!(
+            !app.session_mgr.current().session_panels.is_any_open(),
+            "Esc 应关闭主题面板"
+        );
+
+        theme::set_current(original);
     }
 }
