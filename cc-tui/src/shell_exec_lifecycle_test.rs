@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_lock::{PROCESS_TEST_LOCK, PROCESS_TEST_TIMEOUT};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 struct TaskDropMarker(Arc<AtomicBool>);
@@ -42,6 +43,7 @@ async fn test_shell_io_tasks_drop_stops_pending_readers_and_stdin() {
 
 #[tokio::test]
 async fn test_streaming_deadline_preserves_root_exit_during_slow_output_drain() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     let dir = tempfile::tempdir().unwrap();
     let (child, started) = spawn_streaming_child(
         "printf stdout; printf stderr >&2; exit 7",
@@ -52,14 +54,16 @@ async fn test_streaming_deadline_preserves_root_exit_during_slow_output_drain() 
     .expect("实际启动立即退出的根进程");
     // 两条流只能先发送一条，故意让第二条在根进程退出后等待消费者。
     let (output_tx, mut output_rx) = mpsc::channel(1);
+    // 执行期限必须小于排空耗时（PIPE_DRAIN_TIMEOUT=2s）且留足子进程启动余量，
+    // 才能在慢机器上稳定验证「期限只约束根进程运行时间，不约束输出排空」。
     let mut result = tokio::spawn(run_streaming_child(
         child,
         None,
         output_tx,
-        Some(started + Duration::from_secs(1)),
+        Some(started + Duration::from_millis(1500)),
     ));
     assert!(
-        tokio::time::timeout(Duration::from_millis(1250), &mut result)
+        tokio::time::timeout(Duration::from_millis(1750), &mut result)
             .await
             .is_err(),
         "根进程按期退出后应继续排空，不能在执行期限到达时误报超时"
@@ -76,17 +80,20 @@ async fn test_streaming_deadline_preserves_root_exit_during_slow_output_drain() 
 
 #[tokio::test]
 async fn test_streaming_deadline_reports_timeout_and_closes_io() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     let dir = tempfile::tempdir().unwrap();
     let (stdin_tx, stdin_rx) = mpsc::channel(1);
+    // 执行期限要盖过慢机器上 bash 的启动开销（否则命令还没打印 started 就到期），
+    // 同时脚本 sleep 远大于期限，保证是「超时」而非「命令自然结束」触发收尾。
     let mut execution = execute_shell_command_streaming_with_timeout(
-        "printf started; sleep 3; printf leaked > leaked",
+        "printf started; sleep 15; printf leaked > leaked",
         &dir.path().to_string_lossy(),
         Some(stdin_rx),
         ShellDialect::Bash,
-        Duration::from_millis(500),
+        Duration::from_secs(3),
     )
     .expect("实际启动待超时命令");
-    let result = tokio::time::timeout(Duration::from_secs(5), &mut execution.result)
+    let result = tokio::time::timeout(PROCESS_TEST_TIMEOUT, &mut execution.result)
         .await
         .expect("执行超时和输出收尾都有界")
         .expect("超时应返回明确错误而不是取消 result channel");
@@ -136,6 +143,7 @@ fn make_descendant_scripts(dir: &std::path::Path, wait_after_spawn: bool) {
 #[cfg(windows)]
 #[tokio::test]
 async fn test_streaming_abort_cleans_cmd_and_git_bash_powershell_descendants() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     for shell in [ShellDialect::PlatformDefault, ShellDialect::Bash] {
         let dir = tempfile::tempdir().unwrap();
         make_descendant_scripts(dir.path(), true);
@@ -147,7 +155,7 @@ async fn test_streaming_abort_cleans_cmd_and_git_bash_powershell_descendants() {
             shell,
         )
         .expect("CMD/Git Bash 应启动 PowerShell");
-        let ready = tokio::time::timeout(Duration::from_secs(10), async {
+        let ready = tokio::time::timeout(PROCESS_TEST_TIMEOUT, async {
             let mut output = Vec::new();
             while let Some(chunk) = execution.output_rx.recv().await {
                 output.extend_from_slice(&chunk);
@@ -182,6 +190,7 @@ async fn test_streaming_abort_cleans_cmd_and_git_bash_powershell_descendants() {
 #[cfg(windows)]
 #[tokio::test]
 async fn test_streaming_root_exit_cleans_remaining_descendants() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     let dir = tempfile::tempdir().unwrap();
     make_descendant_scripts(dir.path(), false);
     let mut execution = execute_shell_command_streaming_with_shell(
@@ -191,7 +200,7 @@ async fn test_streaming_root_exit_cleans_remaining_descendants() {
         ShellDialect::Bash,
     )
     .expect("实际启动含子孙的命令");
-    let result = tokio::time::timeout(Duration::from_secs(10), &mut execution.result).await;
+    let result = tokio::time::timeout(PROCESS_TEST_TIMEOUT, &mut execution.result).await;
     execution.abort.abort();
     let output = result
         .expect("根进程退出后不应等待子孙睡眠")

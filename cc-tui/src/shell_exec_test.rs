@@ -1,7 +1,9 @@
 use super::*;
+use crate::test_lock::{PROCESS_TEST_LOCK, PROCESS_TEST_TIMEOUT};
 
 #[tokio::test]
 async fn test_execute_shell_command_basic() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     let output = execute_shell_command("echo hello", ".").await.unwrap();
     assert_eq!(output.stdout.trim(), "hello");
     assert_eq!(output.exit_code, 0);
@@ -9,6 +11,7 @@ async fn test_execute_shell_command_basic() {
 
 #[tokio::test]
 async fn test_execute_shell_command_error() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     let output = execute_shell_command("definitely_not_a_peri_command_000000", ".")
         .await
         .unwrap();
@@ -21,6 +24,7 @@ async fn test_execute_shell_command_error() {
 
 #[tokio::test]
 async fn test_execute_shell_command_with_stdin() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     let command = if cfg!(target_os = "windows") {
         "findstr hello"
     } else {
@@ -39,6 +43,7 @@ async fn test_execute_shell_command_with_stdin() {
 
 #[tokio::test]
 async fn test_execute_shell_command_streaming_receives_buffered_python_output_before_exit() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     if !python_available().await {
         return;
     }
@@ -52,7 +57,7 @@ async fn test_execute_shell_command_streaming_receives_buffered_python_output_be
     .unwrap();
     let command = format!("python {}", script_path.display());
     let mut execution = execute_shell_command_streaming(&command, ".", None);
-    let seen = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let seen = tokio::time::timeout(PROCESS_TEST_TIMEOUT, async {
         let mut bytes = Vec::new();
         while let Some(chunk) = execution.output_rx.recv().await {
             bytes.extend_from_slice(&chunk);
@@ -78,13 +83,14 @@ async fn test_execute_shell_command_streaming_receives_buffered_python_output_be
 #[cfg(windows)]
 #[tokio::test]
 async fn test_execute_shell_command_streaming_preserves_quoted_absolute_path() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
     // agent Bash 走 streaming executor，必须保留 Windows 命令里的内层引号。
     let cargo_toml = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let command = format!("type \"{}\"", cargo_toml.display());
     let execution = execute_shell_command_streaming(&command, ".", None);
-    let output = tokio::time::timeout(std::time::Duration::from_secs(5), execution.result)
+    let output = tokio::time::timeout(PROCESS_TEST_TIMEOUT, execution.result)
         .await
-        .expect("streaming 命令应在 5 秒内结束")
+        .expect("streaming 命令应在超时预算内结束")
         .expect("streaming result channel 不应关闭")
         .expect("带引号绝对路径命令应执行成功");
     assert_eq!(output.exit_code, 0, "命令应成功执行: {output:?}");
