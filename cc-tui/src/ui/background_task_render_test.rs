@@ -9,7 +9,7 @@ fn make_background_tool(content: &str) -> MessageViewModel {
         content: content.into(),
         is_error: false,
         collapsed: false,
-        color: theme::BASH_BORDER,
+        color: theme::cur().bash_border,
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
@@ -52,7 +52,7 @@ fn test_background_task_render_collapsed_expanded_and_detail() {
             );
             assert_eq!(
                 lines[0].spans[0].style.fg,
-                Some(theme::CYAN),
+                Some(theme::cur().cyan),
                 "不能误报命令成功或把 command 中的 exit 文本判为失败"
             );
             let MessageViewModel::ToolBlock { content, .. } = vm else {

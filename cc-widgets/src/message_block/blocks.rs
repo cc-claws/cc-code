@@ -67,7 +67,13 @@ pub fn render_block(
             let _ = width;
             // Use ToolCallWidget to render into lines
             let (indicator_ch, indicator_color) =
-                crate::tool_call::display::format_indicator(state.status.clone(), state.tick);
+                crate::tool_call::display::format_indicator(
+                state.status.clone(),
+                state.tick,
+                theme.muted(),
+                theme.success(),
+                theme.error(),
+            );
             let arrow = if state.collapsed { "▸" } else { "▾" };
             let mut header_spans: Vec<ratatui::text::Span<'_>> = vec![
                 ratatui::text::Span::styled(

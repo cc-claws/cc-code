@@ -1,3 +1,4 @@
+use crate::theme::Theme as _;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -85,7 +86,7 @@ impl<'a> CheckboxGroup<'a> {
             checked_char: '✓',
             unchecked_char: '✗',
             cursor_style: Style::default()
-                .fg(ratatui::style::Color::White)
+                .fg(crate::theme::DarkTheme.text())
                 .add_modifier(Modifier::BOLD),
             normal_style: Style::default(),
         }

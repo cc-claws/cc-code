@@ -61,8 +61,8 @@ pub fn render_at_mention_popup(
     } else {
         "@".to_string()
     };
-    let inner = BorderedPanel::new(Span::styled(title, Style::default().fg(theme::MUTED)))
-        .border_style(Style::default().fg(theme::BORDER))
+    let inner = BorderedPanel::new(Span::styled(title, Style::default().fg(theme::cur().inactive)))
+        .border_style(Style::default().fg(theme::cur().prompt_border))
         .render(f, popup_area);
 
     if total == 0 {
@@ -75,7 +75,7 @@ pub fn render_at_mention_popup(
         };
         let message = truncate_middle(&lc.tr(key), inner.width as usize);
         f.render_widget(
-            Paragraph::new(message).style(Style::default().fg(theme::MUTED)),
+            Paragraph::new(message).style(Style::default().fg(theme::cur().inactive)),
             inner,
         );
         return;
@@ -98,16 +98,16 @@ pub fn render_at_mention_popup(
             let prefix = if is_selected { "❯ " } else { "  " };
             let style = if is_selected {
                 Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(theme::cur().text)
             };
 
             Line::from(vec![
                 Span::styled(
                     format!("{}{} ", prefix, icon),
-                    Style::default().fg(theme::THINKING),
+                    Style::default().fg(theme::cur().thinking),
                 ),
                 Span::styled(display, style),
             ])

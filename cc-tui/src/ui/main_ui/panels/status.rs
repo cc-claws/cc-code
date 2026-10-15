@@ -18,10 +18,10 @@ pub(crate) fn render_status_panel(f: &mut Frame, panel: &StatusPanel, app: &mut 
     let inner = BorderedPanel::new(Span::styled(
         format!(" {} ", app.services.lc.tr("status-title")),
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
@@ -52,11 +52,11 @@ pub(crate) fn render_status_panel(f: &mut Frame, panel: &StatusPanel, app: &mut 
         let is_active = panel.tab.active() == i;
         let style = if is_active {
             Style::default()
-                .fg(theme::TEXT)
-                .bg(theme::THINKING)
+                .fg(theme::cur().text)
+                .bg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
         Span::styled(format!(" {} ", label), style)
     })
@@ -146,12 +146,12 @@ fn label_value(label: &str, value: &str) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!("  {:<16}", label),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ),
         Span::styled(
             value.to_string(),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         ),
     ])
@@ -237,7 +237,7 @@ fn build_bar_chart_lines(
 
         let mut spans: Vec<Span> = vec![Span::styled(
             format!("{:>6}┤", label),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )];
 
         for record in visible {
@@ -250,11 +250,11 @@ fn build_bar_chart_lines(
                 let cache_top = cache_read + cache_create;
 
                 let color = if row_bottom < cache_read {
-                    theme::SAGE
+                    theme::cur().success
                 } else if row_bottom < cache_top {
-                    theme::WARNING
+                    theme::cur().warning
                 } else {
-                    theme::ACCENT
+                    theme::cur().claude
                 };
                 spans.push(Span::styled("█", Style::default().fg(color)));
             }
@@ -266,10 +266,10 @@ fn build_bar_chart_lines(
     // 底部 x 轴线
     let mut axis_spans: Vec<Span> = vec![Span::styled(
         "     0┼".to_string(),
-        Style::default().fg(theme::MUTED),
+        Style::default().fg(theme::cur().inactive),
     )];
     for _ in visible {
-        axis_spans.push(Span::styled("─", Style::default().fg(theme::DIM)));
+        axis_spans.push(Span::styled("─", Style::default().fg(theme::cur().subtle)));
     }
     lines.push(Line::from(axis_spans));
 
@@ -320,7 +320,7 @@ fn build_cache_rate_lines(
 
         let mut spans: Vec<Span> = vec![Span::styled(
             format!("{:>6}┤", label),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )];
 
         for record in visible {
@@ -328,7 +328,7 @@ fn build_cache_rate_lines(
             if rate < row_bottom {
                 spans.push(Span::raw(" "));
             } else {
-                spans.push(Span::styled("█", Style::default().fg(theme::SAGE)));
+                spans.push(Span::styled("█", Style::default().fg(theme::cur().success)));
             }
         }
 
@@ -338,10 +338,10 @@ fn build_cache_rate_lines(
     // 底部 x 轴线
     let mut axis_spans: Vec<Span> = vec![Span::styled(
         format!("{:>6}%┼", y_min),
-        Style::default().fg(theme::MUTED),
+        Style::default().fg(theme::cur().inactive),
     )];
     for _ in visible {
-        axis_spans.push(Span::styled("─", Style::default().fg(theme::DIM)));
+        axis_spans.push(Span::styled("─", Style::default().fg(theme::cur().subtle)));
     }
     lines.push(Line::from(axis_spans));
 
@@ -368,7 +368,7 @@ fn build_x_axis_labels(visible_start: usize, visible_len: usize) -> Line<'static
         if req_num.is_multiple_of(label_every) || i == 0 || i == visible_len - 1 {
             spans.push(Span::styled(
                 req_num.to_string(),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ));
         } else {
             spans.push(Span::raw(" "));
@@ -398,42 +398,42 @@ fn build_context_summary(app: &App) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!("  {}: ", app.services.lc.tr("status-context")),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ),
         Span::styled(
             format_number(context_window as u64),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" | {}: ", app.services.lc.tr("status-used")),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ),
         Span::styled(
             format!("{} ({})", format_number(used), pct),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" | {}: ", app.services.lc.tr("status-messages")),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ),
         Span::styled(
             msg_count.to_string(),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" | {}: ", app.services.lc.tr("status-tools")),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ),
         Span::styled(
             tool_count.to_string(),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         ),
     ])
@@ -458,7 +458,7 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("  {}", app.services.lc.tr("status-no-requests")),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
         f.render_widget(Paragraph::new(Text::from(lines)), area);
         return;
@@ -500,19 +500,19 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
             Paragraph::new(Text::from(vec![Line::from(vec![
                 Span::styled(
                     format!("  {}", app.services.lc.tr("status-input-tokens")),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 ),
                 Span::styled(
                     format!("  █{}", app.services.lc.tr("status-cache-read")),
-                    Style::default().fg(theme::SAGE),
+                    Style::default().fg(theme::cur().success),
                 ),
                 Span::styled(
                     format!(" █{}", app.services.lc.tr("status-cache-creation")),
-                    Style::default().fg(theme::WARNING),
+                    Style::default().fg(theme::cur().warning),
                 ),
                 Span::styled(
                     format!(" █{}", app.services.lc.tr("status-uncached")),
-                    Style::default().fg(theme::ACCENT),
+                    Style::default().fg(theme::cur().claude),
                 ),
             ])])),
             Rect {
@@ -563,11 +563,11 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(Text::from(vec![Line::from(vec![
             Span::styled(
                 format!("  {}", app.services.lc.tr("status-cache-hit-rate")),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ),
             Span::styled(
                 format!("  █{}", app.services.lc.tr("status-hit")),
-                Style::default().fg(theme::SAGE),
+                Style::default().fg(theme::cur().success),
             ),
         ])])),
         Rect {

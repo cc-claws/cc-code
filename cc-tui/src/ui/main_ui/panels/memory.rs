@@ -15,10 +15,10 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -29,16 +29,16 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
 
         let style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         let exist_icon = if entry.exists {
-            ("✓", Style::default().fg(theme::SAGE))
+            ("✓", Style::default().fg(theme::cur().success))
         } else {
-            ("✗", Style::default().fg(theme::MUTED))
+            ("✗", Style::default().fg(theme::cur().inactive))
         };
 
         let path_str = entry.path.to_string_lossy();
@@ -51,18 +51,18 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
         lines.push(Line::from(vec![
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("[{}] ", exist_icon.0), exist_icon.1),
             Span::styled(format!("{:<8} ", entry.label), style),
-            Span::styled(path_display, Style::default().fg(theme::MUTED)),
+            Span::styled(path_display, Style::default().fg(theme::cur().inactive)),
         ]));
 
         // 文件不存在时显示创建提示
         if !entry.exists && is_cursor {
             lines.push(Line::from(Span::styled(
                 "    按 Enter 创建并编辑",
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
         }
     }
@@ -83,6 +83,6 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
     let mut scroll_state = ScrollState::with_offset(panel.scroll_offset());
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }

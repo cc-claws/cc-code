@@ -32,6 +32,10 @@ pub trait MarkdownTheme {
     fn list_bullet(&self) -> Color;
     /// 水平线颜色（`─`，对应原 theme::MUTED）
     fn separator(&self) -> Color;
+    /// 代码块语法高亮的 syntect 主题名（随 UI 主题明暗族切换）
+    fn syntax_theme_name(&self) -> &'static str {
+        "base16-ocean.dark"
+    }
 }
 
 /// 将 `Theme` trait 适配为 `MarkdownTheme`
@@ -73,6 +77,9 @@ impl MarkdownTheme for ThemeMarkdownAdapter<'_> {
     }
     fn separator(&self) -> Color {
         self.0.muted()
+    }
+    fn syntax_theme_name(&self) -> &'static str {
+        self.0.syntax_theme_name()
     }
 }
 
@@ -142,6 +149,24 @@ impl From<Text<'static>> for MarkdownDoc {
 ///
 /// 缓存 key = (content_hash, max_width)，全局单例共享。
 /// 命中时直接返回克隆的 Text<'static>，跳过完整解析。
+/// 主题指纹：把 markdown 可见的全部颜色 + 语法主题名哈希成一个 u64，
+/// 作为渲染缓存 key 的一部分——主题切换后指纹变化，旧配色缓存自然失效。
+fn theme_fingerprint(theme: &dyn MarkdownTheme) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    theme.heading().hash(&mut h);
+    theme.text().hash(&mut h);
+    theme.muted().hash(&mut h);
+    theme.code().hash(&mut h);
+    theme.link().hash(&mut h);
+    theme.code_prefix().hash(&mut h);
+    theme.quote_prefix().hash(&mut h);
+    theme.list_bullet().hash(&mut h);
+    theme.separator().hash(&mut h);
+    theme.syntax_theme_name().hash(&mut h);
+    h.finish()
+}
+
 pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) -> Text<'static> {
     parse_markdown_with_links(input, theme, max_width).text
 }
@@ -159,10 +184,10 @@ pub fn parse_markdown_with_links(
         };
     }
 
-    // 检查缓存
+    // 检查缓存（key 含主题指纹：切换主题后旧配色缓存自动失效）
     let width_u16 = max_width.min(u16::MAX as usize) as u16;
     let cache = MarkdownCache::global();
-    if let Some(cached) = cache.get(input, width_u16) {
+    if let Some(cached) = cache.get(input, width_u16, theme_fingerprint(theme)) {
         return cached;
     }
 
@@ -186,7 +211,7 @@ pub fn parse_markdown_with_links(
     };
 
     // 写入缓存
-    cache.put(input, width_u16, result.clone());
+    cache.put(input, width_u16, theme_fingerprint(theme), result.clone());
 
     result
 }

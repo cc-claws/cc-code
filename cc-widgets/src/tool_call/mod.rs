@@ -1,6 +1,7 @@
 pub mod collapse;
 pub mod display;
 
+use crate::theme::Theme as _;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -75,7 +76,13 @@ impl<'a> ToolCallWidget<'a> {
 impl WidgetRef for ToolCallWidget<'_> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let (indicator_ch, indicator_color) =
-            display::format_indicator(self.state.status.clone(), self.state.tick);
+            display::format_indicator(
+                self.state.status.clone(),
+                self.state.tick,
+                crate::theme::DarkTheme.muted(),
+                crate::theme::DarkTheme.success(),
+                crate::theme::DarkTheme.error(),
+            );
         let arrow = if self.state.collapsed { "▸" } else { "▾" };
 
         let mut header_spans: Vec<Span<'_>> = vec![
@@ -96,7 +103,7 @@ impl WidgetRef for ToolCallWidget<'_> {
             let summary = display::format_args_summary(&self.state.args_summary, 400);
             header_spans.push(Span::styled(
                 format!("({})", summary),
-                Style::default().fg(ratatui::style::Color::DarkGray),
+                Style::default().fg(crate::theme::DarkTheme.dim()),
             ));
         }
 
@@ -105,14 +112,14 @@ impl WidgetRef for ToolCallWidget<'_> {
         if !self.state.collapsed && !self.state.result_lines.is_empty() {
             for line in &self.state.result_lines {
                 lines.push(Line::from(vec![
-                    Span::styled("  │ ", Style::default().fg(ratatui::style::Color::DarkGray)),
+                    Span::styled("  │ ", Style::default().fg(crate::theme::DarkTheme.dim())),
                     Span::raw(line.clone()),
                 ]));
             }
             if let Some(omitted) = self.state.omitted_lines {
                 lines.push(Line::from(vec![Span::styled(
                     format!("  … ({} more lines)", omitted),
-                    Style::default().fg(ratatui::style::Color::DarkGray),
+                    Style::default().fg(crate::theme::DarkTheme.dim()),
                 )]));
             }
         }

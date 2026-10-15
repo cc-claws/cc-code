@@ -42,7 +42,7 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
         lines.push(Line::from(Span::styled(
             format!("  {}", header_text),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         )));
 
@@ -61,7 +61,7 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
             for desc_line in entry.description.lines() {
                 lines.push(Line::from(Span::styled(
                     format!("  {}", desc_line),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 )));
             }
         }
@@ -78,16 +78,16 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
         let (status_icon, status_style, status_text) = if is_uninstalling {
             (
                 "\u{26A0}",
-                Style::default().fg(theme::WARNING),
+                Style::default().fg(theme::cur().warning),
                 "Uninstalling\u{2026}",
             )
         } else if entry.enabled {
-            ("\u{2714}", Style::default().fg(theme::SAGE), "Enabled")
+            ("\u{2714}", Style::default().fg(theme::cur().success), "Enabled")
         } else {
-            ("\u{25CB}", Style::default().fg(theme::MUTED), "Disabled")
+            ("\u{25CB}", Style::default().fg(theme::cur().inactive), "Disabled")
         };
         lines.push(Line::from(vec![
-            Span::styled("  Status: ".to_string(), Style::default().fg(theme::MUTED)),
+            Span::styled("  Status: ".to_string(), Style::default().fg(theme::cur().inactive)),
             Span::styled(format!("{} {}", status_icon, status_text), status_style),
         ]));
 
@@ -101,31 +101,31 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "  Installed components:".to_string(),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
 
             if !entry.commands.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("  \u{2022} Commands: {}", entry.commands.join(", ")),
-                    Style::default().fg(theme::TEXT),
+                    Style::default().fg(theme::cur().text),
                 )));
             }
             if !entry.skills.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("  \u{2022} Skills: {}", entry.skills.join(", ")),
-                    Style::default().fg(theme::TEXT),
+                    Style::default().fg(theme::cur().text),
                 )));
             }
             if !entry.agents.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("  \u{2022} Agents: {}", entry.agents.join(", ")),
-                    Style::default().fg(theme::TEXT),
+                    Style::default().fg(theme::cur().text),
                 )));
             }
             if !entry.mcp_servers.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("  \u{2022} MCP servers: {}", entry.mcp_servers.join(", ")),
-                    Style::default().fg(theme::TEXT),
+                    Style::default().fg(theme::cur().text),
                 )));
             }
         }
@@ -140,15 +140,15 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
             let label = action.label(entry.enabled);
             let style = if is_cursor {
                 Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(theme::cur().text)
             };
             lines.push(Line::from(vec![
                 Span::styled(
                     cursor_char.to_string(),
-                    Style::default().fg(theme::THINKING),
+                    Style::default().fg(theme::cur().thinking),
                 ),
                 Span::styled(label.to_string(), style),
             ]));
@@ -160,10 +160,10 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
     let inner = BorderedPanel::new(Span::styled(
         " Plugins ",
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
@@ -176,6 +176,6 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }

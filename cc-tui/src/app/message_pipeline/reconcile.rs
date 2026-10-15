@@ -260,7 +260,7 @@ impl MessagePipeline {
                 is_error: ct.is_error,
                 collapsed: true,
                 color: if ct.is_error {
-                    theme::ERROR
+                    theme::cur().error
                 } else {
                     tool_color(&ct.name)
                 },

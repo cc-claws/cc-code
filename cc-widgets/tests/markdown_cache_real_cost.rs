@@ -136,7 +136,8 @@ fn measure_markdown_cache_full_1024_entries() {
         );
         // 渲染并放入 cache
         let text = parse_markdown(&markdown, &theme, 120);
-        cache.put(&markdown, 120, text.into());
+        // put 签名已随主题指纹缓存（#509）扩展：指纹与内存测量无关，传 0
+        cache.put(&markdown, 120, 0, text.into());
     }
 
     let after_fill = current_rss_kb();

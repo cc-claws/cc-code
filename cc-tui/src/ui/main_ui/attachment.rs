@@ -18,11 +18,11 @@ pub(crate) fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
         .title(Span::styled(
             format!(" {} ", app.services.lc.tr("attachment-title")),
             Style::default()
-                .fg(theme::ACCENT)
+                .fg(theme::cur().claude)
                 .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
+        .border_style(Style::default().fg(theme::cur().claude));
     f.render_widget(&block, area);
 
     let inner = block.inner(area);
@@ -42,10 +42,10 @@ pub(crate) fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
         .join("  ");
 
     let lines = vec![
-        Line::from(Span::styled(tags, Style::default().fg(theme::TEXT))),
+        Line::from(Span::styled(tags, Style::default().fg(theme::cur().text))),
         Line::from(Span::styled(
             app.services.lc.tr("attachment-del-hint"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )),
     ];
 

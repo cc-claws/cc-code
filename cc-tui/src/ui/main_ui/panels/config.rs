@@ -54,10 +54,10 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
@@ -70,7 +70,7 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 lines.push(Line::from(vec![Span::styled(
                     lc.tr("config-group-general"),
                     Style::default()
-                        .fg(theme::SAGE)
+                        .fg(theme::cur().success)
                         .add_modifier(Modifier::BOLD),
                 )]));
             }
@@ -81,7 +81,7 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 lines.push(Line::from(vec![Span::styled(
                     lc.tr("config-group-prompt-overrides"),
                     Style::default()
-                        .fg(theme::SAGE)
+                        .fg(theme::cur().success)
                         .add_modifier(Modifier::BOLD),
                 )]));
             }
@@ -89,10 +89,10 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 let is_active = panel.cursor == row;
                 let label_style = active_or_text(is_active);
                 let active_style = Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD);
-                let inactive_style = Style::default().fg(theme::MUTED);
-                let desc_style = Style::default().fg(theme::MUTED);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
 
                 let on_span = if panel.buf_autocompact {
                     Span::styled(format!("[{}]", lc.tr("config-value-on")), active_style)
@@ -121,10 +121,10 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 let is_active = panel.cursor == row;
                 let label_style = active_or_text(is_active);
                 let active_style = Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD);
-                let inactive_style = Style::default().fg(theme::MUTED);
-                let desc_style = Style::default().fg(theme::MUTED);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
 
                 let on_span = if panel.buf_recap {
                     Span::styled(format!("[{}]", lc.tr("config-value-on")), active_style)
@@ -153,10 +153,10 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 let is_active = panel.cursor == row;
                 let label_style = active_or_text(is_active);
                 let active_style = Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD);
-                let inactive_style = Style::default().fg(theme::MUTED);
-                let desc_style = Style::default().fg(theme::MUTED);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
 
                 let options = ["en", "zh-CN"];
                 let mut value_spans: Vec<Span> = Vec::new();
@@ -188,10 +188,10 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 let is_active = panel.cursor == row;
                 let label_style = active_or_text(is_active);
                 let active_style = Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD);
-                let inactive_style = Style::default().fg(theme::MUTED);
-                let desc_style = Style::default().fg(theme::MUTED);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
 
                 let on_span = if panel.buf_diff {
                     Span::styled(format!("[{}]", lc.tr("config-value-on")), active_style)
@@ -220,10 +220,10 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 let is_active = panel.cursor == row;
                 let label_style = active_or_text(is_active);
                 let active_style = Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD);
-                let inactive_style = Style::default().fg(theme::MUTED);
-                let desc_style = Style::default().fg(theme::MUTED);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
 
                 let vals = ["streaming", "block", "none"];
                 let mut value_spans: Vec<Span> = Vec::new();
@@ -252,10 +252,10 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 let is_active = panel.cursor == row;
                 let label_style = active_or_text(is_active);
                 let active_style = Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD);
-                let inactive_style = Style::default().fg(theme::MUTED);
-                let desc_style = Style::default().fg(theme::MUTED);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
 
                 let vals = ["low", "medium", "high"];
                 let mut value_spans: Vec<Span> = Vec::new();
@@ -298,11 +298,11 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
 
                 let label_style = active_or_text(is_active);
                 let value_style = if is_active {
-                    Style::default().fg(theme::THINKING)
+                    Style::default().fg(theme::cur().thinking)
                 } else {
-                    Style::default().fg(theme::TEXT)
+                    Style::default().fg(theme::cur().text)
                 };
-                let desc_style = Style::default().fg(theme::MUTED);
+                let desc_style = Style::default().fg(theme::cur().inactive);
 
                 let value_display = if is_active {
                     let (before, after) = crate::app::edit_display_parts(buf, cursor);
@@ -335,9 +335,9 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
 fn active_or_text(is_active: bool) -> Style {
     if is_active {
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::TEXT)
+        Style::default().fg(theme::cur().text)
     }
 }

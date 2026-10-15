@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::Paragraph,
     Frame,
@@ -26,7 +26,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let cur = &prompt.questions[prompt.active_tab];
 
     let inner = BorderedPanel::new(Span::styled("", Style::default()))
-        .border_style(Style::default().fg(theme::THINKING))
+        .border_style(Style::default().fg(theme::cur().thinking))
         .render(f, area);
 
     // ── header 行：每个问题一个 tab，已确认 ✔ 未确认 ☐ ─────────────────────
@@ -53,11 +53,11 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     tab_state.set_active(prompt.active_tab);
     let tab_bar = TabBar::new().style(TabStyle {
         active: Style::default()
-            .fg(Color::White)
-            .bg(theme::THINKING)
+            .fg(theme::cur().text)
+            .bg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
-        completed: Style::default().fg(theme::SAGE),
-        incomplete: Style::default().fg(theme::MUTED),
+        completed: Style::default().fg(theme::cur().success),
+        incomplete: Style::default().fg(theme::cur().inactive),
         separator: " ",
     });
     f.render_stateful_widget(tab_bar, header_area, &mut tab_state);
@@ -70,7 +70,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let sep = "─".repeat(inner.width as usize);
     f.render_widget(
-        Paragraph::new(Span::styled(sep, Style::default().fg(theme::MUTED))),
+        Paragraph::new(Span::styled(sep, Style::default().fg(theme::cur().inactive))),
         sep_area,
     );
 
@@ -87,7 +87,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     for l in cur.data.question.lines() {
         lines.push(Line::from(Span::styled(
             l.to_string(),
-            Style::default().fg(theme::TEXT),
+            Style::default().fg(theme::cur().text),
         )));
     }
     lines.push(Line::from(""));
@@ -104,12 +104,12 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
 
         let row_style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else if is_selected {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         if multi {
@@ -131,7 +131,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
                 let indent = if multi { "       " } else { "     " };
                 lines.push(Line::from(Span::styled(
                     format!("{}{}", indent, desc),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 )));
             }
         }
@@ -161,10 +161,10 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
         };
         let style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
         lines.push(Line::from(vec![
             Span::styled(format!("{} {}. ", cursor_mark, custom_num), style),
@@ -174,7 +174,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
 
     let mut scroll_state = ScrollState::with_offset(prompt.scroll_offset);
     let metrics = ScrollableArea::new(Text::from(lines))
-        .scrollbar_style(Style::default().fg(theme::MUTED))
+        .scrollbar_style(Style::default().fg(theme::cur().inactive))
         .render(f, content_area, &mut scroll_state);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics = metrics;
     // 存储面板区域供鼠标事件路由

@@ -1,6 +1,6 @@
 mod presets;
 
-pub use presets::DarkTheme;
+pub use presets::{CustomTheme, DarkTheme};
 
 use ratatui::style::Color;
 
@@ -83,6 +83,11 @@ pub trait Theme: Send + Sync + 'static {
     fn diff_remove_word_bg(&self) -> Color {
         Color::Rgb(78, 28, 22)
     } // DIFF_REMOVE_WORD_BG #4E1C16
+    /// 代码块语法高亮使用的 syntect 主题名（随 UI 主题明暗族切换）
+    fn syntax_theme_name(&self) -> &'static str {
+        "base16-ocean.dark"
+    }
+
     /// Diff hunk 头部颜色
     fn diff_hunk(&self) -> Color {
         Color::Rgb(87, 143, 169)

@@ -271,11 +271,11 @@
         );
 
         let header = &lines[0];
-        assert_eq!(header.spans[0].style.fg, Some(crate::ui::theme::BASH_BORDER));
-        assert_eq!(header.spans[0].style.bg, Some(crate::ui::theme::USER_BG));
+        assert_eq!(header.spans[0].style.fg, Some(crate::ui::theme::cur().bash_border));
+        assert_eq!(header.spans[0].style.bg, Some(crate::ui::theme::cur().user_message_background));
         assert_eq!(
             header.spans.last().unwrap().style.bg,
-            Some(crate::ui::theme::USER_BG)
+            Some(crate::ui::theme::cur().user_message_background)
         );
     }
 
@@ -328,7 +328,7 @@
         assert!(stderr_span_ok.is_some(), "应找到 stderr 内容");
         assert_eq!(
             stderr_span_ok.unwrap().style.fg,
-            Some(crate::ui::theme::TEXT_SOFT),
+            Some(crate::ui::theme::cur().text_soft),
             "exit 0 时输出应为 TEXT_SOFT 色（对齐工具行），非 ERROR 红色"
         );
         // exit 1 + stderr → ERROR（失败，stderr 应显示红色）
@@ -354,7 +354,7 @@
         assert!(stderr_span_err.is_some(), "应找到 stderr 内容");
         assert_eq!(
             stderr_span_err.unwrap().style.fg,
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "exit 非 0 时 stderr 应为 ERROR 红色"
         );
     }
@@ -370,7 +370,7 @@
             content: "command not found: bad_command\nexit code 127".to_string(),
             is_error: true,
             collapsed: true,
-            color: crate::ui::theme::ERROR,
+            color: crate::ui::theme::cur().error,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -406,7 +406,7 @@
             content: "ok \u{1b}[<555;106;49Mline\n\u{1b}]0;bad title\u{7}done".to_string(),
             is_error: false,
             collapsed: false,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -440,7 +440,7 @@
             content: String::new(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -497,7 +497,7 @@
             content: String::new(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -563,7 +563,7 @@
             content: String::new(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             started_at: Some(std::time::Instant::now()),
             timeout_ms: Some(560_000),
@@ -599,7 +599,7 @@
             content: String::new(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: Some(600_000),
             shell_backgrounded: true,
@@ -647,7 +647,7 @@
             content: "<background-task-started><task-id>abc-123</task-id><command>sleep 30</command><output>C:/tmp/abc-123.log</output></background-task-started>".to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: Some(600_000),
             shell_backgrounded: true,
@@ -681,7 +681,7 @@
             content: "file contents here".to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -705,7 +705,7 @@
             content: "edited file.rs".to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: Some(cc_widgets::DiffInput {
                 file_path: "file.rs".to_string(),
                 old_content: "old line".to_string(),
@@ -761,7 +761,7 @@
             content: "edited".to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: Some(cc_widgets::DiffInput {
                 file_path: "file.rs".to_string(),
                 old_content: String::new(),
@@ -818,7 +818,7 @@
             content,
             is_error: false,
             collapsed: false,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -869,7 +869,7 @@
             content,
             is_error: false,
             collapsed: false,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1072,7 +1072,7 @@
         );
         assert_eq!(
             indicator.and_then(|s| s.style.fg),
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "报错的子 Agent 分组指示器应为红色"
         );
         let title_color = lines
@@ -1080,7 +1080,7 @@
             .and_then(|l| l.spans.get(1).and_then(|s| s.style.fg));
         assert_eq!(
             title_color,
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "title should be red on error"
         );
         let text: String = lines
@@ -1250,7 +1250,7 @@
                 .to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::BASH_BORDER,
+            color: crate::ui::theme::cur().bash_border,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1263,7 +1263,7 @@
         let indicator_color = header.spans.first().and_then(|s| s.style.fg);
         assert_eq!(
             indicator_color,
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "非零 exit code 的 Bash 工具 ● 应为红色"
         );
     }
@@ -1279,7 +1279,7 @@
             content: "hello".to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::BASH_BORDER,
+            color: crate::ui::theme::cur().bash_border,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1308,7 +1308,7 @@
             content: "boom".to_string(),
             is_error: true,
             collapsed: true,
-            color: crate::ui::theme::BASH_BORDER,
+            color: crate::ui::theme::cur().bash_border,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1319,12 +1319,12 @@
         let header = &lines[0];
         assert_eq!(
             header.spans.first().and_then(|s| s.style.fg),
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "报错时 ● 应为红色（状态由指示器表达）"
         );
         assert_eq!(
             header.spans.get(2).and_then(|s| s.style.fg),
-            Some(crate::ui::theme::TEXT_SOFT),
+            Some(crate::ui::theme::cur().text_soft),
             "报错时工具名字母应保持中性灰，不得变红"
         );
     }
@@ -1341,7 +1341,7 @@
             content: "boom".to_string(),
             is_error: true,
             collapsed: true,
-            color: crate::ui::theme::TEXT,
+            color: crate::ui::theme::cur().text,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1351,12 +1351,12 @@
         let lines = render_view_model(&vm, Some(1), 80, false, 0);
         assert_eq!(
             lines[0].spans.first().and_then(|s| s.style.fg),
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "报错时 ● 应为红色"
         );
         assert_eq!(
             lines[0].spans.get(2).and_then(|s| s.style.fg),
-            Some(crate::ui::theme::TEXT_SOFT),
+            Some(crate::ui::theme::cur().text_soft),
             "非 Bash 工具报错时名字也应保持中性灰"
         );
     }
@@ -1386,15 +1386,15 @@
         let lines = render_view_model(&vm, Some(1), 80, true, 0);
         let ok_header = &lines[0];
         assert_eq!(ok_header.spans[0].content.as_ref(), "●", "成功条目应用 ●");
-        assert_eq!(ok_header.spans[0].style.fg, Some(crate::ui::theme::SAGE));
+        assert_eq!(ok_header.spans[0].style.fg, Some(crate::ui::theme::cur().success));
         assert_eq!(
             ok_header.spans[2].style.fg,
-            Some(crate::ui::theme::TEXT_SOFT),
+            Some(crate::ui::theme::cur().text_soft),
             "工具名应为中性灰"
         );
         let failed_header = lines
             .iter()
-            .find(|l| l.spans[0].style.fg == Some(crate::ui::theme::ERROR))
+            .find(|l| l.spans[0].style.fg == Some(crate::ui::theme::cur().error))
             .expect("应存在失败条目");
         assert_eq!(
             failed_header.spans[0].content.as_ref(),
@@ -1403,7 +1403,7 @@
         );
         assert_eq!(
             failed_header.spans[2].style.fg,
-            Some(crate::ui::theme::TEXT_SOFT),
+            Some(crate::ui::theme::cur().text_soft),
             "失败条目工具名也应为中性灰"
         );
     }
@@ -1421,7 +1421,7 @@
                 .to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::BASH_BORDER,
+            color: crate::ui::theme::cur().bash_border,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1432,12 +1432,12 @@
         let first_result = &lines[1];
         assert_eq!(
             first_result.spans[0].style.fg,
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "非零 exit code 的 Bash ⎿ 前缀应为红色"
         );
         assert_eq!(
             first_result.spans[1].style.fg,
-            Some(crate::ui::theme::ERROR),
+            Some(crate::ui::theme::cur().error),
             "非零 exit code 的 Bash 输出行应为红色"
         );
     }
@@ -1454,7 +1454,7 @@
             content: "hello".to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::BASH_BORDER,
+            color: crate::ui::theme::cur().bash_border,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1465,12 +1465,12 @@
         let first_result = &lines[1];
         assert_eq!(
             first_result.spans[0].style.fg,
-            Some(crate::ui::theme::DIM),
+            Some(crate::ui::theme::cur().subtle),
             "零 exit code 的 Bash ⎿ 前缀应保持 DIM"
         );
         assert_eq!(
             first_result.spans[1].style.fg,
-            Some(crate::ui::theme::TEXT_SOFT),
+            Some(crate::ui::theme::cur().text_soft),
             "零 exit code 的 Bash 输出行应保持 TEXT_SOFT"
         );
     }
@@ -1487,7 +1487,7 @@
             content: "some content with [Exit code: 1] in it".to_string(),
             is_error: false,
             collapsed: true,
-            color: crate::ui::theme::SAGE,
+            color: crate::ui::theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -1533,7 +1533,7 @@ fn test_dim_markdown_lines_no_fg_span_set_dim() {
     let result = dim_markdown_lines(input);
     assert_eq!(result.len(), 1);
     for span in &result[0].spans {
-        assert_eq!(span.style.fg, Some(theme::DIM), "无前景色的 span 应设为 theme::DIM");
+        assert_eq!(span.style.fg, Some(theme::cur().subtle), "无前景色的 span 应设为 theme::cur().subtle");
     }
 }
 
@@ -1562,7 +1562,7 @@ fn test_dim_markdown_lines_multiline_keeps_structure() {
     assert_eq!(result.len(), 3, "应保留原始行数");
     for line in &result {
         assert_eq!(line.spans.len(), 1);
-        assert_eq!(line.spans[0].style.fg, Some(theme::DIM));
+        assert_eq!(line.spans[0].style.fg, Some(theme::cur().subtle));
     }
 }
 
@@ -1576,10 +1576,10 @@ fn test_dim_markdown_lines_span() {
     let result = dim_markdown_lines(input);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].spans.len(), 3);
-    assert_eq!(result[0].spans[0].style.fg, Some(theme::DIM));
+    assert_eq!(result[0].spans[0].style.fg, Some(theme::cur().subtle));
     assert_eq!(result[0].spans[1].style.fg, Some(Color::Yellow));
     assert!(result[0].spans[1].style.add_modifier.contains(Modifier::DIM));
-    assert_eq!(result[0].spans[2].style.fg, Some(theme::DIM));
+    assert_eq!(result[0].spans[2].style.fg, Some(theme::cur().subtle));
 }
 
 #[test]
@@ -1607,7 +1607,7 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
         content: String::new(),
         is_error: false,
         collapsed: true,
-        color: crate::ui::theme::SAGE,
+        color: crate::ui::theme::cur().success,
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
@@ -1666,7 +1666,7 @@ fn test_tool_block_header_detail_mode_long_token_no_space_keeps_header() {
         content: String::new(),
         is_error: false,
         collapsed: true,
-        color: crate::ui::theme::SAGE,
+        color: crate::ui::theme::cur().success,
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
@@ -1706,7 +1706,7 @@ fn test_tool_block_header_detail_mode_wraps_full_command_aligned() {
         content: String::new(),
         is_error: false,
         collapsed: true,
-        color: crate::ui::theme::SAGE,
+        color: crate::ui::theme::cur().success,
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
@@ -1765,7 +1765,7 @@ fn test_tool_block_header_detail_mode_short_command_stays_single_line() {
         content: String::new(),
         is_error: false,
         collapsed: true,
-        color: crate::ui::theme::SAGE,
+        color: crate::ui::theme::cur().success,
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
@@ -1801,7 +1801,7 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
         content: String::new(),
         is_error: false,
         collapsed: true,
-        color: crate::ui::theme::SAGE,
+        color: crate::ui::theme::cur().success,
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
@@ -2031,11 +2031,11 @@ fn test_render_recap_line_color_hierarchy() {
 
     // Span 0: "※ "（暗色 MUTED）
     assert_eq!(line.spans[0].content, "※ ");
-    assert_eq!(line.spans[0].style.fg, Some(theme::MUTED));
+    assert_eq!(line.spans[0].style.fg, Some(theme::cur().inactive));
 
     // Span 1: "recap:"（暗色粗体 MUTED）
     assert_eq!(line.spans[1].content, "recap:");
-    assert_eq!(line.spans[1].style.fg, Some(theme::MUTED));
+    assert_eq!(line.spans[1].style.fg, Some(theme::cur().inactive));
     assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
 
     // Span 2: 空格
@@ -2043,7 +2043,7 @@ fn test_render_recap_line_color_hierarchy() {
 
     // Span 3: 正文（暗色斜体 MUTED）
     assert_eq!(line.spans[3].content, text);
-    assert_eq!(line.spans[3].style.fg, Some(theme::MUTED));
+    assert_eq!(line.spans[3].style.fg, Some(theme::cur().inactive));
     assert!(line.spans[3].style.add_modifier.contains(Modifier::ITALIC));
 
     // Span 4: i18n 后缀（暗灰弱化 DIM）
@@ -2051,7 +2051,7 @@ fn test_render_recap_line_color_hierarchy() {
         line.spans[4].content,
         format!("  {}", lc.tr("app-recap-hint"))
     );
-    assert_eq!(line.spans[4].style.fg, Some(theme::DIM));
+    assert_eq!(line.spans[4].style.fg, Some(theme::cur().subtle));
 }
 
     fn line_plain_text(line: &Line<'static>) -> String {
@@ -2071,7 +2071,7 @@ fn test_render_recap_line_color_hierarchy() {
             content: json.to_string(),
             is_error: false,
             collapsed: false,
-            color: theme::SAGE,
+            color: theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -2198,7 +2198,7 @@ fn test_render_recap_line_color_hierarchy() {
             content: long_json.into(),
             is_error: false,
             collapsed: false,
-            color: theme::SAGE,
+            color: theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,
@@ -2287,7 +2287,7 @@ fn test_render_recap_line_color_hierarchy() {
             content,
             is_error: false,
             collapsed: false,
-            color: theme::SAGE,
+            color: theme::cur().success,
             diff_input: None,
             timeout_ms: None,
             shell_backgrounded: false,

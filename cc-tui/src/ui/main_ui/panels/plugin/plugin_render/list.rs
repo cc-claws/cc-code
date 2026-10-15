@@ -33,11 +33,11 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                 let is_active = panel.view == *v;
                 let style = if is_active {
                     Style::default()
-                        .fg(theme::TEXT)
-                        .bg(theme::THINKING)
+                        .fg(theme::cur().text)
+                        .bg(theme::cur().thinking)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme::MUTED)
+                    Style::default().fg(theme::cur().inactive)
                 };
                 Span::styled(format!(" {} ", label), style)
             })
@@ -55,7 +55,7 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                 if indices.is_empty() {
                     lines.push(Line::from(Span::styled(
                         "  No plugins installed".to_string(),
-                        Style::default().fg(theme::MUTED),
+                        Style::default().fg(theme::cur().inactive),
                     )));
                 } else {
                     // 表头
@@ -63,12 +63,12 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                         Span::styled(
                             "  Plugin",
                             Style::default()
-                                .fg(theme::MUTED)
+                                .fg(theme::cur().inactive)
                                 .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             "                  Type  Scope      Status  Marketplace",
-                            Style::default().fg(theme::MUTED),
+                            Style::default().fg(theme::cur().inactive),
                         ),
                     ]));
                     lines.push(Line::from(""));
@@ -88,17 +88,17 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                             };
 
                             let (status_icon, status_style) = if entry.enabled {
-                                ("\u{2714} ", Style::default().fg(theme::SAGE))
+                                ("\u{2714} ", Style::default().fg(theme::cur().success))
                             } else {
-                                ("  ", Style::default().fg(theme::MUTED))
+                                ("  ", Style::default().fg(theme::cur().inactive))
                             };
 
                             let name_style = if is_cursor {
                                 Style::default()
-                                    .fg(theme::THINKING)
+                                    .fg(theme::cur().thinking)
                                     .add_modifier(Modifier::BOLD)
                             } else {
-                                Style::default().fg(theme::TEXT)
+                                Style::default().fg(theme::cur().text)
                             };
 
                             let scope_label = match entry.scope {
@@ -123,17 +123,17 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                             lines.push(Line::from(vec![
                                 Span::styled(
                                     cursor_char.to_string(),
-                                    Style::default().fg(theme::THINKING),
+                                    Style::default().fg(theme::cur().thinking),
                                 ),
                                 Span::styled(display_name, name_style),
                                 Span::styled(name_padding, Style::default()),
-                                Span::styled(type_label, Style::default().fg(theme::MUTED)),
+                                Span::styled(type_label, Style::default().fg(theme::cur().inactive)),
                                 Span::styled("  ", Style::default()),
-                                Span::styled(scope_label, Style::default().fg(theme::MUTED)),
+                                Span::styled(scope_label, Style::default().fg(theme::cur().inactive)),
                                 Span::styled("  ", Style::default()),
                                 Span::styled(status_icon.to_string(), status_style),
                                 Span::styled("  ", Style::default()),
-                                Span::styled(marketplace_text, Style::default().fg(theme::MUTED)),
+                                Span::styled(marketplace_text, Style::default().fg(theme::cur().inactive)),
                             ]));
                         }
                     }
@@ -147,7 +147,7 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                 if indices.is_empty() {
                     lines.push(Line::from(Span::styled(
                         "  No errors".to_string(),
-                        Style::default().fg(theme::SAGE),
+                        Style::default().fg(theme::cur().success),
                     )));
                 } else {
                     // 表头
@@ -155,12 +155,12 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                         Span::styled(
                             "  Plugin",
                             Style::default()
-                                .fg(theme::MUTED)
+                                .fg(theme::cur().inactive)
                                 .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             "                  Scope  Error",
-                            Style::default().fg(theme::MUTED),
+                            Style::default().fg(theme::cur().inactive),
                         ),
                     ]));
                     lines.push(Line::from(""));
@@ -175,10 +175,10 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
 
                             let name_style = if is_cursor {
                                 Style::default()
-                                    .fg(theme::THINKING)
+                                    .fg(theme::cur().thinking)
                                     .add_modifier(Modifier::BOLD)
                             } else {
-                                Style::default().fg(theme::TEXT)
+                                Style::default().fg(theme::cur().text)
                             };
 
                             let scope_label = match entry.scope {
@@ -192,15 +192,15 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                             lines.push(Line::from(vec![
                                 Span::styled(
                                     cursor_char.to_string(),
-                                    Style::default().fg(theme::THINKING),
+                                    Style::default().fg(theme::cur().thinking),
                                 ),
                                 Span::styled(truncate_display(&entry.name, 18), name_style),
                                 Span::styled("  ", Style::default()),
-                                Span::styled(scope_label, Style::default().fg(theme::MUTED)),
+                                Span::styled(scope_label, Style::default().fg(theme::cur().inactive)),
                                 Span::styled("  ", Style::default()),
                                 Span::styled(
                                     error_text.to_string(),
-                                    Style::default().fg(theme::ERROR),
+                                    Style::default().fg(theme::cur().error),
                                 ),
                             ]));
                         }
@@ -210,7 +210,7 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
             PluginPanelView::Discover => {
                 lines.push(Line::from(Span::styled(
                     "  Discover",
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 )));
             }
             PluginPanelView::Marketplaces => {
@@ -228,57 +228,57 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                         lines.push(Line::from(vec![
                             Span::styled(
                                 "  \u{786E}\u{8BA4}\u{8981}\u{79FB}\u{9664} marketplace ",
-                                Style::default().fg(theme::TEXT),
+                                Style::default().fg(theme::cur().text),
                             ),
                             Span::styled(
                                 mkt.name.clone(),
                                 Style::default()
-                                    .fg(theme::THINKING)
+                                    .fg(theme::cur().thinking)
                                     .add_modifier(Modifier::BOLD),
                             ),
-                            Span::styled(" ?", Style::default().fg(theme::TEXT)),
+                            Span::styled(" ?", Style::default().fg(theme::cur().text)),
                         ]));
                         lines.push(Line::from(""));
                         lines.push(Line::from(vec![
-                            Span::styled("  \u{6309}\u{4E0B} ", Style::default().fg(theme::MUTED)),
+                            Span::styled("  \u{6309}\u{4E0B} ", Style::default().fg(theme::cur().inactive)),
                             Span::styled(
                                 "Enter",
                                 Style::default()
-                                    .fg(theme::ACCENT)
+                                    .fg(theme::cur().claude)
                                     .add_modifier(Modifier::BOLD),
                             ),
                             Span::styled(
                                 " \u{786E}\u{8BA4}\u{FF0C}",
-                                Style::default().fg(theme::MUTED),
+                                Style::default().fg(theme::cur().inactive),
                             ),
                             Span::styled(
                                 "Esc",
                                 Style::default()
-                                    .fg(theme::ACCENT)
+                                    .fg(theme::cur().claude)
                                     .add_modifier(Modifier::BOLD),
                             ),
-                            Span::styled(" \u{53D6}\u{6D88}", Style::default().fg(theme::MUTED)),
+                            Span::styled(" \u{53D6}\u{6D88}", Style::default().fg(theme::cur().inactive)),
                         ]));
                     }
                 } else {
                     let is_add_cursor = panel.marketplace_list.cursor() == 0;
                     let add_style = if is_add_cursor {
                         Style::default()
-                            .fg(theme::THINKING)
+                            .fg(theme::cur().thinking)
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(theme::TEXT)
+                        Style::default().fg(theme::cur().text)
                     };
                     let add_cursor = if is_add_cursor { "\u{276F} " } else { "  " };
                     lines.push(Line::from(vec![
-                        Span::styled(add_cursor.to_string(), Style::default().fg(theme::THINKING)),
+                        Span::styled(add_cursor.to_string(), Style::default().fg(theme::cur().thinking)),
                         Span::styled("Add Marketplace", add_style),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("     ".to_string(), Style::default()),
                         Span::styled(
                             "\u{6DFB}\u{52A0}\u{65B0}\u{7684} marketplace \u{6E90}",
-                            Style::default().fg(theme::MUTED),
+                            Style::default().fg(theme::cur().inactive),
                         ),
                     ]));
                     lines.push(Line::from(""));
@@ -286,7 +286,7 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                     if panel.marketplace_entries.is_empty() {
                         lines.push(Line::from(Span::styled(
                             "  No marketplaces configured",
-                            Style::default().fg(theme::MUTED),
+                            Style::default().fg(theme::cur().inactive),
                         )));
                     } else {
                         for (i, mkt) in panel.marketplace_entries.iter().enumerate() {
@@ -296,28 +296,28 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
 
                             let name_style = if is_cursor {
                                 Style::default()
-                                    .fg(theme::THINKING)
+                                    .fg(theme::cur().thinking)
                                     .add_modifier(Modifier::BOLD)
                             } else {
-                                Style::default().fg(theme::TEXT)
+                                Style::default().fg(theme::cur().text)
                             };
 
                             let (status_text, status_style) = if is_updating {
-                                ("updating\u{2026}", Style::default().fg(theme::WARNING))
+                                ("updating\u{2026}", Style::default().fg(theme::cur().warning))
                             } else {
                                 match mkt.status {
                                     MarketplaceViewStatus::Fresh
                                     | MarketplaceViewStatus::Cached => {
-                                        ("cached", Style::default().fg(theme::SAGE))
+                                        ("cached", Style::default().fg(theme::cur().success))
                                     }
                                     MarketplaceViewStatus::Fetching => {
-                                        ("fetching\u{2026}", Style::default().fg(theme::WARNING))
+                                        ("fetching\u{2026}", Style::default().fg(theme::cur().warning))
                                     }
                                     MarketplaceViewStatus::Stale => {
-                                        ("stale", Style::default().fg(theme::WARNING))
+                                        ("stale", Style::default().fg(theme::cur().warning))
                                     }
                                     MarketplaceViewStatus::Failed => {
-                                        ("failed", Style::default().fg(theme::ERROR))
+                                        ("failed", Style::default().fg(theme::cur().error))
                                     }
                                 }
                             };
@@ -325,7 +325,7 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                             lines.push(Line::from(vec![
                                 Span::styled(
                                     cursor_char.to_string(),
-                                    Style::default().fg(theme::THINKING),
+                                    Style::default().fg(theme::cur().thinking),
                                 ),
                                 Span::styled(mkt.name.clone(), name_style),
                             ]));
@@ -334,19 +334,19 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                                 Span::styled("     ".to_string(), Style::default()),
                                 Span::styled(
                                     mkt.source_label.clone(),
-                                    Style::default().fg(theme::MUTED),
+                                    Style::default().fg(theme::cur().inactive),
                                 ),
                             ];
 
                             detail_parts.push(Span::styled(
                                 format!(" \u{00B7} {} available", mkt.plugin_count),
-                                Style::default().fg(theme::MUTED),
+                                Style::default().fg(theme::cur().inactive),
                             ));
 
                             if mkt.installed_count > 0 {
                                 detail_parts.push(Span::styled(
                                     format!(" \u{00B7} {} installed", mkt.installed_count),
-                                    Style::default().fg(theme::SAGE),
+                                    Style::default().fg(theme::cur().success),
                                 ));
                             }
 
@@ -360,14 +360,14 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                             if let Some(ref updated) = mkt.last_updated {
                                 status_parts.push(Span::styled(
                                     format!(" \u{00B7} Updated {}", updated),
-                                    Style::default().fg(theme::MUTED),
+                                    Style::default().fg(theme::cur().inactive),
                                 ));
                             }
 
                             let auto_label = if mkt.auto_update { "on" } else { "off" };
                             status_parts.push(Span::styled(
                                 format!(" \u{00B7} auto-update: {}", auto_label),
-                                Style::default().fg(theme::MUTED),
+                                Style::default().fg(theme::cur().inactive),
                             ));
 
                             lines.push(Line::from(status_parts));
@@ -384,10 +384,10 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
     let inner = BorderedPanel::new(Span::styled(
         " Plugins ",
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
@@ -407,6 +407,6 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
 
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }

@@ -11,7 +11,7 @@ fn make_app() -> App {
 
 /// 检查 span 是否有选区背景色
 fn has_selection_bg(style: Style) -> bool {
-    matches!(style.bg, Some(theme::SELECTION_BG))
+    style.bg == Some(theme::cur().selection_bg)
 }
 
 #[test]

@@ -829,7 +829,7 @@ impl MessageViewModel {
                 let args_display =
                     crate::app::tool_display::format_tool_args(&tool_name, &input, cwd);
                 let color = if *is_error {
-                    theme::ERROR
+                    theme::cur().error
                 } else {
                     tool_color(&tool_name)
                 };
@@ -1006,7 +1006,7 @@ impl MessageViewModel {
         is_error: bool,
     ) -> Self {
         let color = if is_error {
-            theme::ERROR
+            theme::cur().error
         } else {
             tool_color(&tool_name)
         };

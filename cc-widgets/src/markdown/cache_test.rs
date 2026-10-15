@@ -19,7 +19,7 @@ fn test_cache_miss_returns_none() {
     // Arrange: 空缓存
     let cache = make_cache();
     // Act: 查询不存在的 key
-    let result = cache.get("hello", 80);
+    let result = cache.get("hello", 80, 0);
     // Assert: 应返回 None
     assert!(result.is_none(), "空缓存查询应返回 None");
 }
@@ -29,9 +29,9 @@ fn test_cache_hit_after_put() {
     // Arrange: 缓存中插入一条
     let cache = make_cache();
     let doc = make_doc("rendered");
-    cache.put("hello", 80, doc.clone());
+    cache.put("hello", 80, 0, doc.clone());
     // Act: 查询相同 key
-    let result = cache.get("hello", 80);
+    let result = cache.get("hello", 80, 0);
     // Assert: 应命中并返回相同内容
     assert!(result.is_some(), "相同 key 应命中缓存");
     let got = result.unwrap();
@@ -46,9 +46,9 @@ fn test_cache_hit_after_put() {
 fn test_cache_different_width_is_miss() {
     // Arrange: 插入 width=80
     let cache = make_cache();
-    cache.put("hello", 80, make_doc("w80"));
+    cache.put("hello", 80, 0, make_doc("w80"));
     // Act: 查询 width=100
-    let result = cache.get("hello", 100);
+    let result = cache.get("hello", 100, 0);
     // Assert: 不同宽度应 miss
     assert!(result.is_none(), "不同宽度应 miss");
 }
@@ -57,9 +57,9 @@ fn test_cache_different_width_is_miss() {
 fn test_cache_different_content_is_miss() {
     // Arrange: 插入 content="hello"
     let cache = make_cache();
-    cache.put("hello", 80, make_doc("a"));
+    cache.put("hello", 80, 0, make_doc("a"));
     // Act: 查询 content="world"
-    let result = cache.get("world", 80);
+    let result = cache.get("world", 80, 0);
     // Assert: 不同内容应 miss
     assert!(result.is_none(), "不同内容应 miss");
 }
@@ -68,10 +68,10 @@ fn test_cache_different_content_is_miss() {
 fn test_cache_overwrite_on_same_key() {
     // Arrange: 同一 key 插入两次
     let cache = make_cache();
-    cache.put("hello", 80, make_doc("first"));
-    cache.put("hello", 80, make_doc("second"));
+    cache.put("hello", 80, 0, make_doc("first"));
+    cache.put("hello", 80, 0, make_doc("second"));
     // Act: 查询
-    let result = cache.get("hello", 80);
+    let result = cache.get("hello", 80, 0);
     // Assert: 应返回最新值
     let got = result.unwrap();
     let content: String = got
@@ -87,30 +87,30 @@ fn test_cache_overwrite_on_same_key() {
 fn test_cache_lru_eviction() {
     // Arrange: 容量为 2 的缓存
     let cache = MarkdownCache::new_for_test_with_capacity(2);
-    cache.put("a", 80, make_doc("A"));
-    cache.put("b", 80, make_doc("B"));
+    cache.put("a", 80, 0, make_doc("A"));
+    cache.put("b", 80, 0, make_doc("B"));
     // a 和 b 都在缓存中
-    assert!(cache.get("a", 80).is_some(), "a 应在缓存中");
-    assert!(cache.get("b", 80).is_some(), "b 应在缓存中");
+    assert!(cache.get("a", 80, 0).is_some(), "a 应在缓存中");
+    assert!(cache.get("b", 80, 0).is_some(), "b 应在缓存中");
     // Act: 插入第三条，应淘汰最久未使用的
-    cache.put("c", 80, make_doc("C"));
+    cache.put("c", 80, 0, make_doc("C"));
     // Assert: 容量仍为 2，a/b/c 中有一个被淘汰
     assert_eq!(cache.len(), 2, "容量应保持为 2");
-    assert!(cache.get("c", 80).is_some(), "最新插入的 c 应在缓存中");
+    assert!(cache.get("c", 80, 0).is_some(), "最新插入的 c 应在缓存中");
 }
 
 #[test]
 fn test_cache_clear() {
     // Arrange: 插入两条
     let cache = make_cache();
-    cache.put("hello", 80, make_doc("a"));
-    cache.put("world", 80, make_doc("b"));
+    cache.put("hello", 80, 0, make_doc("a"));
+    cache.put("world", 80, 0, make_doc("b"));
     assert_eq!(cache.len(), 2, "插入后应有 2 条");
     // Act: 清空
     cache.clear();
     // Assert: 缓存为空
     assert_eq!(cache.len(), 0, "清空后应为 0 条");
-    assert!(cache.get("hello", 80).is_none(), "清空后查询应 miss");
+    assert!(cache.get("hello", 80, 0).is_none(), "清空后查询应 miss");
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn test_cache_stats_counts_reserved_capacity_and_owned_content() {
         },
         links,
     };
-    cache.put("capacity", 80, doc);
+    cache.put("capacity", 80, 0, doc);
     let stats = cache.stats();
     assert_eq!(stats.entries, 1);
     assert_eq!(
@@ -175,11 +175,11 @@ fn test_cache_stats_counts_reserved_capacity_and_owned_content() {
 #[test]
 fn test_cache_stats_tracks_replacement_eviction_and_clear() {
     let cache = MarkdownCache::new_for_test_with_capacity(1);
-    cache.put("large", 80, MarkdownDoc::from(Text::from("x".repeat(4096))));
+    cache.put("large", 80, 0, MarkdownDoc::from(Text::from("x".repeat(4096))));
     let large = cache.stats();
-    cache.put("large", 80, make_doc("短文本"));
+    cache.put("large", 80, 0, make_doc("短文本"));
     let replaced = cache.stats();
-    cache.put("small", 80, make_doc("其他短文本"));
+    cache.put("small", 80, 0, make_doc("其他短文本"));
     let evicted = cache.stats();
     cache.clear();
     let cleared = cache.stats();
@@ -205,15 +205,15 @@ fn test_cache_stats_tracks_replacement_eviction_and_clear() {
 #[test]
 fn test_cache_stats_preserves_lru_order() {
     let cache = MarkdownCache::new_for_test_with_capacity(2);
-    cache.put("old", 80, make_doc("旧条目"));
-    cache.put("new", 80, make_doc("新条目"));
+    cache.put("old", 80, 0, make_doc("旧条目"));
+    cache.put("new", 80, 0, make_doc("新条目"));
     let stats = cache.stats();
-    cache.put("latest", 80, make_doc("最新条目"));
+    cache.put("latest", 80, 0, make_doc("最新条目"));
     assert_eq!(stats.entries, 2);
     assert!(
-        cache.get("old", 80).is_none(),
+        cache.get("old", 80, 0).is_none(),
         "统计不应延长旧条目的缓存寿命"
     );
-    assert!(cache.get("new", 80).is_some());
-    assert!(cache.get("latest", 80).is_some());
+    assert!(cache.get("new", 80, 0).is_some());
+    assert!(cache.get("latest", 80, 0).is_some());
 }

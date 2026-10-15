@@ -33,11 +33,11 @@ fn test_drawer_uses_reference_palette_not_whole_row_status_color() {
     let colors: Vec<Color> = line.spans.iter().filter_map(|span| span.style.fg).collect();
 
     assert!(
-        colors.iter().filter(|c| **c == theme::DRAWER_MUTED).count() >= 3,
+        colors.iter().filter(|c| **c == theme::cur().drawer_muted).count() >= 3,
         "未选中行的类型名/预览/指标应统一为灰 {colors:?}"
     );
     assert!(
-        !colors.contains(&theme::DRAWER_TEXT_ACTIVE),
+        !colors.contains(&theme::cur().drawer_text_active),
         "未选中行不应使用亮白 {colors:?}"
     );
     assert!(
@@ -49,12 +49,12 @@ fn test_drawer_uses_reference_palette_not_whole_row_status_color() {
 /// 示警色只落在圆点与右侧指标上，正文仍保持白灰。
 #[test]
 fn test_drawer_accent_only_tints_circle_and_metrics() {
-    let line = drawer_line(80, false, false, false, "general-purpose", "查询武汉天气", "✗ failed", Some(theme::ERROR), false);
+    let line = drawer_line(80, false, false, false, "general-purpose", "查询武汉天气", "✗ failed", Some(theme::cur().error), false);
     let colors: Vec<Color> = line.spans.iter().filter_map(|span| span.style.fg).collect();
 
-    assert!(colors.contains(&theme::ERROR), "失败行应有红色示警 {colors:?}");
+    assert!(colors.contains(&theme::cur().error), "失败行应有红色示警 {colors:?}");
     assert!(
-        colors.contains(&theme::DRAWER_MUTED),
+        colors.contains(&theme::cur().drawer_muted),
         "示警不应把正文整体染红，正文应保持灰 {colors:?}"
     );
 }
@@ -67,22 +67,22 @@ fn test_drawer_palette_is_bright_white_or_muted_only() {
     let selected = drawer_line(80, true, true, true, "general-purpose", "查询武汉天气", "32s · ↓ 49", None, false);
     let colors: Vec<Color> = selected.spans.iter().filter_map(|span| span.style.fg).collect();
     assert!(
-        colors.contains(&theme::DRAWER_TEXT_ACTIVE),
+        colors.contains(&theme::cur().drawer_text_active),
         "游标行正文应亮白 {colors:?}"
     );
     assert!(
-        !colors.contains(&Color::Cyan) && !colors.contains(&theme::DRAWER_MUTED),
+        !colors.contains(&Color::Cyan) && !colors.contains(&theme::cur().drawer_muted),
         "游标行不得混青色或灰阶 {colors:?}"
     );
 
     let plain = drawer_line(80, false, false, false, "general-purpose", "查询武汉天气", "32s · ↓ 49", None, false);
     let plain_colors: Vec<Color> = plain.spans.iter().filter_map(|span| span.style.fg).collect();
     assert!(
-        !plain_colors.contains(&theme::DRAWER_TEXT_ACTIVE) && !plain_colors.contains(&Color::Cyan),
+        !plain_colors.contains(&theme::cur().drawer_text_active) && !plain_colors.contains(&Color::Cyan),
         "非游标行只能灰，不得亮白或青色 {plain_colors:?}"
     );
     assert!(
-        plain_colors.iter().all(|color| *color == theme::DRAWER_MUTED || *color == Color::Reset),
+        plain_colors.iter().all(|color| *color == theme::cur().drawer_muted || *color == Color::Reset),
         "非游标行只允许一种灰 {plain_colors:?}"
     );
 }
@@ -107,7 +107,7 @@ fn test_drawer_cursor_row_uses_foreground_color_only() {
     assert!(
         line.spans
             .iter()
-            .any(|span| span.style.fg == Some(theme::DRAWER_TEXT_ACTIVE)),
+            .any(|span| span.style.fg == Some(theme::cur().drawer_text_active)),
         "游标行必须靠亮白前景色表达"
     );
 }
@@ -121,13 +121,13 @@ fn test_drawer_stopped_row_uses_red_filled_circle() {
     let line = drawer_line(
         80, false, false, false,
         "general-purpose", "厦门天气查询", "stopped by main Agent",
-        Some(theme::ERROR), true,
+        Some(theme::cur().error), true,
     );
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(text.contains('●'), "停止行必须是实心圆点：{text:?}");
     assert!(!text.contains('◯'), "停止行不得退回空心圆点：{text:?}");
     let colors: Vec<Color> = line.spans.iter().filter_map(|s| s.style.fg).collect();
-    assert!(colors.contains(&theme::ERROR), "停止行圆点应为 ERROR 红：{colors:?}");
+    assert!(colors.contains(&theme::cur().error), "停止行圆点应为 ERROR 红：{colors:?}");
 
     // 对照：同样 active=false 但非停止态，必须保持空心 `◯`。
     let normal = drawer_line(

@@ -23,10 +23,10 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
     let inner = BorderedPanel::new(Span::styled(
         " Select model ",
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
@@ -55,7 +55,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
     // Description
     lines.push(Line::from(Span::styled(
         "  Switch between models. Applies to this session.",
-        Style::default().fg(theme::MUTED),
+        Style::default().fg(theme::cur().inactive),
     )));
     lines.push(Line::from(""));
 
@@ -79,30 +79,30 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
 
         let label_style = if is_active {
             Style::default()
-                .fg(theme::SAGE)
+                .fg(theme::cur().success)
                 .add_modifier(Modifier::BOLD)
         } else if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD)
         };
 
-        let model_style = Style::default().fg(theme::MUTED);
+        let model_style = Style::default().fg(theme::cur().inactive);
 
         let check_style = if is_active {
-            Style::default().fg(theme::SAGE)
+            Style::default().fg(theme::cur().success)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
 
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" {} ", cursor_char),
-                Style::default().fg(theme::THINKING),
+                Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("{}. ", num), label_style),
             Span::styled(format!("{:8}", label), label_style),
@@ -117,17 +117,17 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
     {
         let is_cursor = panel.cursor() == ROW_MAX_TOKENS;
         let radio_color = if is_cursor {
-            theme::THINKING
+            theme::cur().thinking
         } else {
-            theme::ACCENT
+            theme::cur().claude
         };
         let label_style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD)
         };
         let cursor_char = if is_cursor { "\u{276f}" } else { " " };
@@ -155,17 +155,17 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
 
         let is_cursor = panel.cursor() == ROW_EFFORT;
         let radio_color = if is_cursor {
-            theme::THINKING
+            theme::cur().thinking
         } else {
-            theme::ACCENT
+            theme::cur().claude
         };
         let effort_style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD)
         };
         let cursor_char = if is_cursor { "\u{276f}" } else { " " };
@@ -187,25 +187,25 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
 
         let is_cursor = panel.cursor() == ROW_1M_CONTEXT;
         let radio_color = if is_cursor {
-            theme::THINKING
+            theme::cur().thinking
         } else {
-            theme::ACCENT
+            theme::cur().claude
         };
         let label_style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(theme::MUTED)
+                .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD)
         };
         let cursor_char = if is_cursor { "\u{276f}" } else { " " };
 
         let state_color = if panel.buf_context_1m {
-            theme::SAGE
+            theme::cur().success
         } else {
-            theme::MUTED
+            theme::cur().inactive
         };
 
         let spans = vec![

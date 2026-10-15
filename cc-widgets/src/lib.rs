@@ -27,7 +27,7 @@ pub use input_field::InputState;
 pub use scrollable::{unified_vertical_scrollbar, ScrollState, ScrollableArea, ScrollbarMetrics};
 pub use spinner::{SpinnerMode, SpinnerState, SpinnerWidget};
 pub use tab_bar::{TabBar, TabState, TabStyle};
-pub use theme::{DarkTheme, Theme};
+pub use theme::{CustomTheme, DarkTheme, Theme};
 pub use tool_call::{ToolCallState, ToolCallStatus, ToolCallWidget};
 
 #[cfg(feature = "markdown")]

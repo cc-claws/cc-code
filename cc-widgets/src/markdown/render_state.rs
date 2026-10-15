@@ -814,7 +814,11 @@ impl<'a> RenderState<'a> {
 
                     #[cfg(feature = "markdown-highlight")]
                     if let Some(highlighted) =
-                        highlight_code_block(&self.code_block_lang, &lines[..end])
+                        highlight_code_block(
+                            &self.code_block_lang,
+                            &lines[..end],
+                            self.theme.syntax_theme_name(),
+                        )
                     {
                         self.lines.extend(highlighted);
                     } else {

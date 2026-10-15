@@ -1,3 +1,4 @@
+use crate::theme::Theme as _;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -82,10 +83,10 @@ impl Default for TabStyle {
     fn default() -> Self {
         Self {
             active: Style::default()
-                .fg(ratatui::style::Color::White)
+                .fg(crate::theme::DarkTheme.text())
                 .add_modifier(Modifier::BOLD),
-            completed: Style::default().fg(ratatui::style::Color::Green),
-            incomplete: Style::default().fg(ratatui::style::Color::DarkGray),
+            completed: Style::default().fg(crate::theme::DarkTheme.success()),
+            incomplete: Style::default().fg(crate::theme::DarkTheme.dim()),
             separator: " │ ",
         }
     }

@@ -1,6 +1,6 @@
     #[test]
     fn highlight_rust_code() {
-        let result = highlight_code_block("rust", &["fn main() {}".to_string()]);
+        let result = highlight_code_block("rust", &["fn main() {}".to_string()], "base16-ocean.dark");
         assert!(result.is_some(), "rust 代码应被识别");
         let lines = result.unwrap();
         assert_eq!(lines.len(), 1);
@@ -17,13 +17,13 @@
 
     #[test]
     fn highlight_unknown_lang() {
-        let result = highlight_code_block("unknown_lang_xyz", &["hello".to_string()]);
+        let result = highlight_code_block("unknown_lang_xyz", &["hello".to_string()], "base16-ocean.dark");
         assert!(result.is_none(), "未识别语言应返回 None");
     }
 
     #[test]
     fn highlight_empty_lang() {
-        let result = highlight_code_block("", &["hello".to_string()]);
+        let result = highlight_code_block("", &["hello".to_string()], "base16-ocean.dark");
         assert!(result.is_none(), "空语言标签应返回 None");
     }
 
@@ -34,7 +34,7 @@
             "    println!(\"hello\");".to_string(),
             "}".to_string(),
         ];
-        let result = highlight_code_block("rust", &lines);
+        let result = highlight_code_block("rust", &lines, "base16-ocean.dark");
         assert!(result.is_some(), "多行 rust 代码应被识别");
         assert_eq!(result.unwrap().len(), 3, "输出行数应等于输入行数");
     }

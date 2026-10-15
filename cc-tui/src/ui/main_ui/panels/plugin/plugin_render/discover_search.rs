@@ -18,9 +18,9 @@ pub(crate) fn render_discover_search_box(f: &mut Frame, panel: &PluginPanel, are
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(if panel.discover_searching {
-            theme::ACCENT
+            theme::cur().claude
         } else {
-            theme::DIM
+            theme::cur().subtle
         }));
 
     let search_inner = search_block.inner(area);
@@ -28,19 +28,19 @@ pub(crate) fn render_discover_search_box(f: &mut Frame, panel: &PluginPanel, are
     let query_val = panel.discover_search.value();
     let content_line = if query_val.is_empty() && !panel.discover_searching {
         Line::from(vec![
-            Span::styled(" \u{2315} ", Style::default().fg(theme::MUTED)),
-            Span::styled("Search plugins\u{2026}", Style::default().fg(theme::DIM)),
+            Span::styled(" \u{2315} ", Style::default().fg(theme::cur().inactive)),
+            Span::styled("Search plugins\u{2026}", Style::default().fg(theme::cur().subtle)),
         ])
     } else {
         let mut spans = vec![
-            Span::styled(" \u{2315} ", Style::default().fg(theme::MUTED)),
+            Span::styled(" \u{2315} ", Style::default().fg(theme::cur().inactive)),
             Span::styled(
                 panel.discover_search.display_text('\u{2022}'),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ),
         ];
         if panel.discover_searching {
-            spans.push(Span::styled("\u{2588}", Style::default().fg(theme::TEXT)));
+            spans.push(Span::styled("\u{2588}", Style::default().fg(theme::cur().text)));
         }
         Line::from(spans)
     };

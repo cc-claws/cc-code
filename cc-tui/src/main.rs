@@ -1257,7 +1257,7 @@ fn apply_screen_selection_highlight(
         let col_end = if row == er { ec.min(max_col) } else { max_col };
         for col in col_start..=col_end {
             buffer[(col, row)]
-                .set_style(ratatui::style::Style::default().bg(cc_tui::ui::theme::SELECTION_BG));
+                .set_style(ratatui::style::Style::default().bg(cc_tui::ui::theme::cur().selection_bg));
         }
     }
 }

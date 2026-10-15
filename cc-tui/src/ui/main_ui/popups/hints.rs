@@ -116,7 +116,7 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     };
 
     let inner = BorderedPanel::new(Span::styled("", Style::default()))
-        .border_style(Style::default().fg(theme::BORDER))
+        .border_style(Style::default().fg(theme::cur().prompt_border))
         .render(f, hint_area);
 
     let max_name_width = visible_items
@@ -165,39 +165,39 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
         let mut spans = vec![Span::styled(
             if is_selected { "❯ /" } else { "  /" },
-            Style::default().fg(theme::THINKING),
+            Style::default().fg(theme::cur().thinking),
         )];
 
         if let Some(m) = matched {
             spans.push(Span::styled(
                 before.to_string(),
                 Style::default().fg(if is_selected {
-                    theme::THINKING
+                    theme::cur().thinking
                 } else {
-                    theme::TEXT
+                    theme::cur().text
                 }),
             ));
             spans.push(Span::styled(
                 m.to_string(),
                 Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD),
             ));
             spans.push(Span::styled(
                 after.to_string(),
                 Style::default().fg(if is_selected {
-                    theme::THINKING
+                    theme::cur().thinking
                 } else {
-                    theme::TEXT
+                    theme::cur().text
                 }),
             ));
         } else {
             spans.push(Span::styled(
                 name.to_string(),
                 Style::default().fg(if is_selected {
-                    theme::THINKING
+                    theme::cur().thinking
                 } else {
-                    theme::TEXT
+                    theme::cur().text
                 }),
             ));
         }
@@ -207,7 +207,7 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
         spans.push(Span::styled(" ".repeat(padding), Style::default()));
         spans.push(Span::styled(
             item.desc().to_string(),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         ));
 
         lines.push(Line::from(spans));

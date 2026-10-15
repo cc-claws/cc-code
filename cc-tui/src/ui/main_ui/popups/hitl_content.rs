@@ -94,7 +94,7 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
             .map(|row| {
                 Line::styled(
                     truncate_to_display_width(&row, width),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 )
             })
             .collect()
@@ -119,7 +119,7 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
         .unwrap_or_default();
     let hints = wrap_words(&lc.tr("hitl-key-hint"), width)
         .into_iter()
-        .map(|row| Line::styled(row, Style::default().fg(theme::MUTED)))
+        .map(|row| Line::styled(row, Style::default().fg(theme::cur().inactive)))
         .collect();
     Some(ApprovalContent {
         sections,
@@ -183,13 +183,13 @@ fn choice_rows(
         let style = if is_selected {
             Style::default()
                 .fg(if choice == ApprovalChoice::Reject {
-                    theme::ERROR
+                    theme::cur().error
                 } else {
-                    theme::THINKING
+                    theme::cur().thinking
                 })
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
         let label = format!("{marker}{}", labels[index]);
         let mut spans = vec![Span::styled(
@@ -202,7 +202,7 @@ fn choice_rows(
             ));
             spans.push(Span::styled(
                 descriptions[index].clone(),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ));
         }
         rows.push(Line::from(spans));
@@ -211,7 +211,7 @@ fn choice_rows(
         rows.extend(
             wrap_words(&descriptions[selected.index()], width)
                 .into_iter()
-                .map(|text| Line::styled(text, Style::default().fg(theme::MUTED))),
+                .map(|text| Line::styled(text, Style::default().fg(theme::cur().inactive))),
         );
     }
     rows
@@ -256,9 +256,9 @@ fn tool_header(
         truncate_to_display_width(&heading, width.saturating_sub(reserved)),
         Style::default()
             .fg(if active {
-                theme::THINKING
+                theme::cur().thinking
             } else {
-                theme::TEXT_SOFT
+                theme::cur().text_soft
             })
             .add_modifier(if active {
                 Modifier::BOLD
@@ -270,9 +270,9 @@ fn tool_header(
         spans.push(Span::styled(
             truncate_to_display_width(&format!("  {selection}"), width),
             Style::default().fg(match choice {
-                ApprovalChoice::Once => theme::SAGE,
-                ApprovalChoice::Session => theme::THINKING,
-                ApprovalChoice::Reject => theme::ERROR,
+                ApprovalChoice::Once => theme::cur().success,
+                ApprovalChoice::Session => theme::cur().thinking,
+                ApprovalChoice::Reject => theme::cur().error,
             }),
         ));
     }
@@ -282,14 +282,14 @@ fn tool_header(
 fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
     let Some(map) = item.input.as_object() else {
-        push_text(&mut rows, &item.input.to_string(), width, theme::TEXT_SOFT);
+        push_text(&mut rows, &item.input.to_string(), width, theme::cur().text_soft);
         return rows;
     };
     let command = (item.tool_name == "Bash")
         .then(|| map.get("command").and_then(serde_json::Value::as_str))
         .flatten();
     if let Some(command) = command {
-        push_text(&mut rows, command, width, theme::TEXT_SOFT);
+        push_text(&mut rows, command, width, theme::cur().text_soft);
     }
     let path = ["file_path", "path"].into_iter().find_map(|key| {
         map.get(key)
@@ -297,7 +297,7 @@ fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> 
             .map(|path| (key, path))
     });
     if let Some((_, path)) = path {
-        push_text(&mut rows, path, width, theme::TEXT_SOFT);
+        push_text(&mut rows, path, width, theme::cur().text_soft);
     }
     let edit = if item.tool_name == "Edit" {
         map.get("old_string")
@@ -308,7 +308,7 @@ fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> 
     };
     if active {
         if let Some((old, new)) = edit {
-            push_text(&mut rows, &lc.tr("hitl-diff-title"), width, theme::MUTED);
+            push_text(&mut rows, &lc.tr("hitl-diff-title"), width, theme::cur().inactive);
             push_diff(&mut rows, old, new, width);
         }
     }
@@ -327,11 +327,11 @@ fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> 
             &mut rows,
             &format!("{key}: {value}"),
             width,
-            theme::TEXT_SOFT,
+            theme::cur().text_soft,
         );
     }
     if rows.is_empty() {
-        push_text(&mut rows, "{}", width, theme::TEXT_SOFT);
+        push_text(&mut rows, "{}", width, theme::cur().text_soft);
     }
     rows
 }
@@ -365,16 +365,16 @@ fn push_diff(rows: &mut Vec<Line<'static>>, old: &str, new: &str, width: usize) 
         .zip(new[prefix..].iter().rev())
         .take_while(|(left, right)| left == right)
         .count();
-    let context_before = old[..prefix].iter().map(|text| ("  ", *text, theme::MUTED));
+    let context_before = old[..prefix].iter().map(|text| ("  ", *text, theme::cur().inactive));
     let removed = old[prefix..old.len() - suffix]
         .iter()
-        .map(|text| ("− ", *text, theme::ERROR));
+        .map(|text| ("− ", *text, theme::cur().error));
     let added = new[prefix..new.len() - suffix]
         .iter()
-        .map(|text| ("+ ", *text, theme::SAGE));
+        .map(|text| ("+ ", *text, theme::cur().success));
     let context_after = old[old.len() - suffix..]
         .iter()
-        .map(|text| ("  ", *text, theme::MUTED));
+        .map(|text| ("  ", *text, theme::cur().inactive));
     for (marker, text, color) in context_before
         .chain(removed)
         .chain(added)
@@ -445,6 +445,6 @@ pub(super) fn hidden_notice(app: &App, count: usize, width: usize) -> Vec<Line<'
     );
     wrap_words(&text, width)
         .into_iter()
-        .map(|text| Line::styled(text, Style::default().fg(theme::WARNING)))
+        .map(|text| Line::styled(text, Style::default().fg(theme::cur().warning)))
         .collect()
 }

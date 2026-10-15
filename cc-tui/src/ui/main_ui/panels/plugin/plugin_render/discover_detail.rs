@@ -46,7 +46,7 @@ pub(crate) fn render_discover_detail(
         lines.push(Line::from(Span::styled(
             format!("  {}", header_text),
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD),
         )));
 
@@ -59,7 +59,7 @@ pub(crate) fn render_discover_detail(
             for desc_line in plugin.description.lines() {
                 lines.push(Line::from(Span::styled(
                     format!("  {}", desc_line),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 )));
             }
         }
@@ -73,16 +73,16 @@ pub(crate) fn render_discover_detail(
         // Status
         lines.push(Line::from(""));
         let (status_icon, status_style, status_text) = if plugin.installed {
-            ("\u{2714}", Style::default().fg(theme::SAGE), "Installed")
+            ("\u{2714}", Style::default().fg(theme::cur().success), "Installed")
         } else {
             (
                 "\u{25CB}",
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
                 "Not installed",
             )
         };
         lines.push(Line::from(vec![
-            Span::styled("  Status: ".to_string(), Style::default().fg(theme::MUTED)),
+            Span::styled("  Status: ".to_string(), Style::default().fg(theme::cur().inactive)),
             Span::styled(format!("{} {}", status_icon, status_text), status_style),
         ]));
 
@@ -102,15 +102,15 @@ pub(crate) fn render_discover_detail(
             let label = action.label();
             let style = if is_cursor {
                 Style::default()
-                    .fg(theme::THINKING)
+                    .fg(theme::cur().thinking)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(theme::cur().text)
             };
             lines.push(Line::from(vec![
                 Span::styled(
                     cursor_char.to_string(),
-                    Style::default().fg(theme::THINKING),
+                    Style::default().fg(theme::cur().thinking),
                 ),
                 Span::styled(label.to_string(), style),
             ]));
@@ -122,10 +122,10 @@ pub(crate) fn render_discover_detail(
     let inner = BorderedPanel::new(Span::styled(
         " Plugins ",
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::BORDER))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
     .render(f, area);
 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
@@ -138,6 +138,6 @@ pub(crate) fn render_discover_detail(
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, inner, &mut scroll_state);
 }

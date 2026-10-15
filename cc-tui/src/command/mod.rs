@@ -16,6 +16,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(core::gc::GcCommand));
 
     r.register(Box::new(panel::model::ModelCommand));
+    r.register(Box::new(panel::theme::ThemeCommand));
     r.register(Box::new(panel::plugin::PluginCommand));
     r.register(Box::new(panel::mcp::McpCommand));
     r.register(Box::new(panel::hooks::HooksCommand));

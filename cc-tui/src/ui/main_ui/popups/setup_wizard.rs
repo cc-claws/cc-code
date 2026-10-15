@@ -38,17 +38,17 @@ fn render_step_choose(
     let inner = BorderedPanel::new(Span::styled(
         lc.tr("setup-welcome-title"),
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::ACCENT))
+    .border_style(Style::default().fg(theme::cur().claude))
     .render(f, area);
 
     let mut lines: Vec<Line> = vec![
         Line::from(""),
         Line::from(Span::styled(
             lc.tr("setup-choose-provider"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )),
         Line::from(""),
     ];
@@ -56,20 +56,20 @@ fn render_step_choose(
     for (i, src) in SetupSource::ALL.iter().enumerate() {
         let is_cursor = i == wizard.choose_cursor;
         let cursor_char = if is_cursor { "❯" } else { " " };
-        let cursor_style = Style::default().fg(theme::THINKING);
+        let cursor_style = Style::default().fg(theme::cur().thinking);
         let label_style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(theme::TEXT)
+                .fg(theme::cur().text)
                 .add_modifier(Modifier::BOLD)
         };
         let desc_style = if is_cursor {
-            Style::default().fg(theme::THINKING)
+            Style::default().fg(theme::cur().thinking)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", cursor_char), cursor_style),
@@ -99,17 +99,17 @@ fn render_step_language(
     let inner = BorderedPanel::new(Span::styled(
         lc.tr("setup-language-title"),
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::ACCENT))
+    .border_style(Style::default().fg(theme::cur().claude))
     .render(f, area);
 
     let mut lines: Vec<Line> = vec![
         Line::from(""),
         Line::from(Span::styled(
             lc.tr("setup-language-prompt"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )),
         Line::from(""),
     ];
@@ -117,13 +117,13 @@ fn render_step_language(
     for (i, (_code, name)) in LANGUAGE_OPTIONS.iter().enumerate() {
         let is_cursor = i == wizard.language_cursor;
         let cursor_char = if is_cursor { "❯" } else { " " };
-        let cursor_style = Style::default().fg(theme::THINKING);
+        let cursor_style = Style::default().fg(theme::cur().thinking);
         let name_style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", cursor_char), cursor_style),
@@ -163,10 +163,10 @@ fn render_form_browse(
     let inner = BorderedPanel::new(Span::styled(
         lc.tr("setup-configure-title"),
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::ACCENT))
+    .border_style(Style::default().fg(theme::cur().claude))
     .render(f, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -176,7 +176,7 @@ fn render_form_browse(
     if wizard.providers.is_empty() {
         lines.push(Line::from(Span::styled(
             lc.tr("setup-no-providers"),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )));
         lines.push(Line::from(""));
     }
@@ -185,18 +185,18 @@ fn render_form_browse(
         let is_cursor = idx == wizard.browse_cursor;
         let cursor = if is_cursor { "❯" } else { " " };
         let check_char = if mp.selected { "✓" } else { " " };
-        let check_color = if mp.selected { theme::SAGE } else { theme::DIM };
+        let check_color = if mp.selected { theme::cur().success } else { theme::cur().subtle };
         let name_style = if is_cursor {
             Style::default()
-                .fg(theme::THINKING)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
         let detail_style = if is_cursor {
-            Style::default().fg(theme::THINKING)
+            Style::default().fg(theme::cur().thinking)
         } else {
-            Style::default().fg(theme::MUTED)
+            Style::default().fg(theme::cur().inactive)
         };
 
         let key_summary = if mp.api_key.is_empty() {
@@ -206,7 +206,7 @@ fn render_form_browse(
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("{} ", cursor), Style::default().fg(theme::THINKING)),
+            Span::styled(format!("{} ", cursor), Style::default().fg(theme::cur().thinking)),
             Span::styled(
                 format!("[{}] ", check_char),
                 Style::default().fg(check_color),
@@ -214,7 +214,7 @@ fn render_form_browse(
             Span::styled(format!("{} ", mp.provider_type.label(lc)), name_style),
             Span::styled(
                 format!("({}) ", mp.provider_id),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ),
             Span::styled(key_summary, detail_style),
         ]));
@@ -222,9 +222,9 @@ fn render_form_browse(
         // 第二行：base_url 摘要
         if !mp.base_url.is_empty() {
             let url_style = if is_cursor {
-                Style::default().fg(theme::DIM)
+                Style::default().fg(theme::cur().subtle)
             } else {
-                Style::default().fg(theme::DIM)
+                Style::default().fg(theme::cur().subtle)
             };
             lines.push(Line::from(vec![
                 Span::styled("     ", Style::default()),
@@ -239,7 +239,7 @@ fn render_form_browse(
     if let Some(ref err) = wizard.submit_error {
         lines.push(Line::from(Span::styled(
             format!("  ⚠ {}", err),
-            Style::default().fg(theme::WARNING),
+            Style::default().fg(theme::cur().warning),
         )));
         lines.push(Line::from(""));
     }
@@ -248,14 +248,14 @@ fn render_form_browse(
     let submit_active = wizard.browse_cursor == submit_pos;
     let submit_style = if submit_active {
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::MUTED)
+        Style::default().fg(theme::cur().inactive)
     };
     let submit_cursor = if submit_active { "❯ " } else { "  " };
     lines.push(Line::from(vec![
-        Span::styled(submit_cursor, Style::default().fg(theme::THINKING)),
+        Span::styled(submit_cursor, Style::default().fg(theme::cur().thinking)),
         Span::styled(format!(" {}", lc.tr("setup-submit")), submit_style),
     ]));
 
@@ -283,17 +283,17 @@ fn render_form_edit(
             let inner = BorderedPanel::new(Span::styled(
                 lc.tr("setup-configure-title"),
                 Style::default()
-                    .fg(theme::ACCENT)
+                    .fg(theme::cur().claude)
                     .add_modifier(Modifier::BOLD),
             ))
-            .border_style(Style::default().fg(theme::ACCENT))
+            .border_style(Style::default().fg(theme::cur().claude))
             .render(f, area);
             f.render_widget(
                 Paragraph::new(Text::from(vec![
                     Line::from(""),
                     Line::from(Span::styled(
                         "Internal error: invalid provider index",
-                        Style::default().fg(theme::WARNING),
+                        Style::default().fg(theme::cur().warning),
                     )),
                 ])),
                 inner,
@@ -312,10 +312,10 @@ fn render_form_edit(
     let inner = BorderedPanel::new(Span::styled(
         header,
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::ACCENT))
+    .border_style(Style::default().fg(theme::cur().claude))
     .render(f, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -357,7 +357,7 @@ fn render_form_edit(
     // /v1 suffix hint
     lines.push(Line::from(Span::styled(
         format!("  ({})", lc.tr("setup-hint-base-url-v1")),
-        Style::default().fg(theme::DIM),
+        Style::default().fg(theme::cur().subtle),
     )));
 
     // 测试联通性按钮 + 结果
@@ -365,17 +365,17 @@ fn render_form_edit(
     let test_cursor = if test_active { "❯ " } else { "  " };
     let test_style = if test_active {
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::MUTED)
+        Style::default().fg(theme::cur().inactive)
     };
     lines.push(Line::from(vec![
-        Span::styled(test_cursor, Style::default().fg(theme::THINKING)),
+        Span::styled(test_cursor, Style::default().fg(theme::cur().thinking)),
         Span::styled(format!(" {}", lc.tr("setup-test-connectivity")), test_style),
     ]));
     if let Some((ok, ref msg)) = wizard.connectivity_result {
-        let result_color = if ok { theme::SAGE } else { theme::WARNING };
+        let result_color = if ok { theme::cur().success } else { theme::cur().warning };
         lines.push(Line::from(Span::styled(
             format!("  {}", msg),
             Style::default().fg(result_color),
@@ -400,7 +400,7 @@ fn render_form_edit(
 
     lines.push(Line::from(Span::styled(
         "  ─────────────────────────────────",
-        Style::default().fg(theme::DIM),
+        Style::default().fg(theme::cur().subtle),
     )));
 
     let alias_labels = [
@@ -428,15 +428,15 @@ fn render_form_edit(
     let confirm_active = wizard.form_focus == FormField::Confirm;
     let confirm_style = if confirm_active {
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::cur().claude)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::MUTED)
+        Style::default().fg(theme::cur().inactive)
     };
     let confirm_cursor = if confirm_active { "❯ " } else { "  " };
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled(confirm_cursor, Style::default().fg(theme::THINKING)),
+        Span::styled(confirm_cursor, Style::default().fg(theme::cur().thinking)),
         Span::styled(format!(" {}", lc.tr("setup-confirm")), confirm_style),
     ]));
 
@@ -462,19 +462,19 @@ fn render_field_line(
     let cursor = if is_active { "❯ " } else { "  " };
     let lbl = if is_active {
         Style::default()
-            .fg(theme::THINKING)
+            .fg(theme::cur().thinking)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::MUTED)
+        Style::default().fg(theme::cur().inactive)
     };
     let val = if is_active {
-        Style::default().fg(theme::THINKING)
+        Style::default().fg(theme::cur().thinking)
     } else {
-        Style::default().fg(theme::TEXT)
+        Style::default().fg(theme::cur().text)
     };
     let padded = pad_display_columns(label, label_width);
     Line::from(vec![
-        Span::styled(cursor, Style::default().fg(theme::THINKING)),
+        Span::styled(cursor, Style::default().fg(theme::cur().thinking)),
         Span::styled(padded, lbl),
         Span::styled(format!(" {}", value), val),
     ])
@@ -513,10 +513,10 @@ fn render_step_done(
     let inner = BorderedPanel::new(Span::styled(
         lc.tr("setup-complete-title"),
         Style::default()
-            .fg(theme::SAGE)
+            .fg(theme::cur().success)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::SAGE))
+    .border_style(Style::default().fg(theme::cur().success))
     .render(f, area);
 
     let mut lines = vec![Line::from("")];
@@ -524,22 +524,22 @@ fn render_step_done(
     let selected: Vec<_> = wizard.providers.iter().filter(|p| p.selected).collect();
     for mp in &selected {
         lines.push(Line::from(vec![
-            Span::styled(" ● ", Style::default().fg(theme::SAGE)),
+            Span::styled(" ● ", Style::default().fg(theme::cur().success)),
             Span::styled(
                 format!("{} ", mp.provider_type.label(lc)),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ),
             Span::styled(
                 format!("({})", mp.provider_id),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ),
         ]));
         lines.push(Line::from(vec![
             Span::styled(
                 format!("   {} ", lc.tr("setup-label-key")),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ),
-            Span::styled(mask_api_key(&mp.api_key), Style::default().fg(theme::TEXT)),
+            Span::styled(mask_api_key(&mp.api_key), Style::default().fg(theme::cur().text)),
         ]));
         let alias_labels = [
             lc.tr("setup-field-opus"),
@@ -551,9 +551,9 @@ fn render_step_done(
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("   {:>6} → ", label),
-                    Style::default().fg(theme::MUTED),
+                    Style::default().fg(theme::cur().inactive),
                 ),
-                Span::styled(&mp.aliases[i].model_id, Style::default().fg(theme::ACCENT)),
+                Span::styled(&mp.aliases[i].model_id, Style::default().fg(theme::cur().claude)),
             ]));
         }
         lines.push(Line::from(""));
@@ -562,15 +562,15 @@ fn render_step_done(
     lines.push(Line::from(vec![
         Span::styled(
             format!(" {} ", lc.tr("setup-press-enter")),
-            Style::default().fg(theme::TEXT),
+            Style::default().fg(theme::cur().text),
         ),
         Span::styled(
             "Enter",
             Style::default()
-                .fg(theme::SAGE)
+                .fg(theme::cur().success)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(lc.tr("setup-to-start"), Style::default().fg(theme::TEXT)),
+        Span::styled(lc.tr("setup-to-start"), Style::default().fg(theme::cur().text)),
     ]));
 
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -586,10 +586,10 @@ fn make_hint_line(items: Vec<(String, String)>) -> Line<'static> {
         spans.push(Span::styled(
             key,
             Style::default()
-                .fg(theme::WARNING)
+                .fg(theme::cur().warning)
                 .add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled(desc, Style::default().fg(theme::MUTED)));
+        spans.push(Span::styled(desc, Style::default().fg(theme::cur().inactive)));
     }
     Line::from(spans)
 }

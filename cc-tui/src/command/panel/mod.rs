@@ -7,6 +7,7 @@ pub mod memory;
 pub mod model;
 pub mod plugin;
 pub mod tasks;
+pub mod theme;
 
 pub use agents::{AgentItem, AgentsCommand};
 pub use cron::CronCommand;
@@ -17,3 +18,4 @@ pub use memory::MemoryCommand;
 pub use model::ModelCommand;
 pub use plugin::PluginCommand;
 pub use tasks::TasksCommand;
+pub use theme::ThemeCommand;

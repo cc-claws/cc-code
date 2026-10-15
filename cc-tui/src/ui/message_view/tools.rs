@@ -122,11 +122,11 @@ pub(crate) fn parse_subagent_tool_count(content: &str) -> usize {
 /// 按工具名分配颜色（按操作类型分色）
 pub fn tool_color(name: &str) -> Color {
     match name {
-        "Read" | "Glob" | "Grep" => theme::SAGE,
-        "Write" | "Edit" | "delete_file" | "delete_folder" | "rm" | "rm_rf" => theme::WARNING,
-        "Bash" => theme::BASH_BORDER,
-        "Agent" | "AskUserQuestion" | "TodoWrite" => theme::THINKING,
-        _ if name.contains("error") => theme::ERROR,
-        _ => theme::MUTED,
+        "Read" | "Glob" | "Grep" => theme::cur().success,
+        "Write" | "Edit" | "delete_file" | "delete_folder" | "rm" | "rm_rf" => theme::cur().warning,
+        "Bash" => theme::cur().bash_border,
+        "Agent" | "AskUserQuestion" | "TodoWrite" => theme::cur().thinking,
+        _ if name.contains("error") => theme::cur().error,
+        _ => theme::cur().inactive,
     }
 }

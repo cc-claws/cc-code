@@ -87,9 +87,9 @@ fn render_search_box(f: &mut Frame, browser: &ThreadBrowser, area: Rect) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(if browser.search_focused {
-            theme::ACCENT
+            theme::cur().claude
         } else {
-            theme::DIM
+            theme::cur().subtle
         }));
 
     let search_inner = search_block.inner(area);
@@ -97,19 +97,19 @@ fn render_search_box(f: &mut Frame, browser: &ThreadBrowser, area: Rect) {
     let query_val = browser.search_query.value();
     let content_line = if query_val.is_empty() && !browser.search_focused {
         Line::from(vec![
-            Span::styled(" ⌕ ", Style::default().fg(theme::MUTED)),
-            Span::styled("Search…", Style::default().fg(theme::DIM)),
+            Span::styled(" ⌕ ", Style::default().fg(theme::cur().inactive)),
+            Span::styled("Search…", Style::default().fg(theme::cur().subtle)),
         ])
     } else {
         let mut spans = vec![
-            Span::styled(" ⌕ ", Style::default().fg(theme::MUTED)),
+            Span::styled(" ⌕ ", Style::default().fg(theme::cur().inactive)),
             Span::styled(
                 browser.search_query.display_text('•'),
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(theme::cur().text),
             ),
         ];
         if browser.search_focused {
-            spans.push(Span::styled("█", Style::default().fg(theme::TEXT)));
+            spans.push(Span::styled("█", Style::default().fg(theme::cur().text)));
         }
         Line::from(spans)
     };
@@ -139,10 +139,10 @@ pub(crate) fn render_thread_browser(
     let inner = BorderedPanel::new(Span::styled(
         title_text,
         Style::default()
-            .fg(theme::SELECTED_FG)
+            .fg(theme::cur().selected_fg)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::MUTED))
+    .border_style(Style::default().fg(theme::cur().inactive))
     .render(f, popup_area);
 
     // ── 布局拆分：搜索框（固定） + 列表区域（可滚动） ──
@@ -172,12 +172,12 @@ pub(crate) fn render_thread_browser(
         if browser.search_query.value().is_empty() {
             lines.push(Line::from(Span::styled(
                 "  (No conversations yet)",
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
         } else {
             lines.push(Line::from(Span::styled(
                 "  (No matching conversations)",
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             )));
         }
         lines.push(Line::from(""));
@@ -194,9 +194,9 @@ pub(crate) fn render_thread_browser(
         let cursor_span = Span::styled(
             if is_cursor { "❯ " } else { "  " },
             Style::default().fg(if is_cursor {
-                theme::SELECTED_FG
+                theme::cur().selected_fg
             } else {
-                theme::MUTED
+                theme::cur().inactive
             }),
         );
 
@@ -204,21 +204,21 @@ pub(crate) fn render_thread_browser(
 
         let title_style = if is_cursor {
             Style::default()
-                .fg(theme::SELECTED_FG)
+                .fg(theme::cur().selected_fg)
                 .add_modifier(Modifier::BOLD)
         } else if is_current {
             Style::default()
-                .fg(theme::SELECTED_FG)
+                .fg(theme::cur().selected_fg)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(theme::cur().text)
         };
 
         let mut first_line_spans = vec![cursor_span];
         if is_current {
             first_line_spans.push(Span::styled(
                 current_tag.to_string(),
-                Style::default().fg(theme::SAGE),
+                Style::default().fg(theme::cur().success),
             ));
         }
         first_line_spans.push(Span::styled(label, title_style));
@@ -230,20 +230,20 @@ pub(crate) fn render_thread_browser(
 
         let mut meta_parts = vec![Span::styled(
             format!("   {}", relative_time),
-            Style::default().fg(theme::MUTED),
+            Style::default().fg(theme::cur().inactive),
         )];
 
         if let Some(branch) = &browser.branch {
             meta_parts.push(Span::styled(
                 format!(" · {}", branch),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ));
         }
 
         if !size_str.is_empty() {
             meta_parts.push(Span::styled(
                 format!(" · {}", size_str),
-                Style::default().fg(theme::MUTED),
+                Style::default().fg(theme::cur().inactive),
             ));
         }
 
@@ -304,6 +304,6 @@ pub(crate) fn render_thread_browser(
     let mut scroll_state = ScrollState::with_offset(browser.scroll_offset);
     app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
         ScrollableArea::new(Text::from(lines))
-            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .scrollbar_style(Style::default().fg(theme::cur().inactive))
             .render(f, list_area, &mut scroll_state);
 }
