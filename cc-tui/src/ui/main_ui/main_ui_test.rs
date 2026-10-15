@@ -937,3 +937,125 @@ async fn test_background_launch_summary_renders_as_aligned_tree() {
         );
     }
 }
+
+#[test]
+fn test_slash_command_spans_detects_token_at_line_start_and_after_space() {
+    assert_eq!(
+        slash_command_spans("/theme"),
+        vec![(0, 6)],
+        "行首命令应整体命中"
+    );
+    assert_eq!(
+        slash_command_spans("run /theme now"),
+        vec![(4, 10)],
+        "空白后的命令应命中，且区间以字节为单位"
+    );
+    assert_eq!(
+        slash_command_spans("/gougou-auth:v1_x"),
+        vec![(0, 17)],
+        "`-` `:` `_` 属于命令名，不得截断"
+    );
+    assert_eq!(slash_command_spans(""), Vec::<(usize, usize)>::new());
+}
+
+#[test]
+fn test_slash_command_spans_requires_letter_after_slash_and_boundary_before() {
+    assert!(
+        slash_command_spans("/2x").is_empty(),
+        "斜杠后必须是字母，`/2x` 不算命令"
+    );
+    assert!(
+        slash_command_spans("a/theme").is_empty(),
+        "斜杠前必须是行首或空白，路径中间的斜杠不算命令"
+    );
+    assert!(slash_command_spans("/").is_empty(), "只有斜杠时没有命令名");
+    // 与 CC `findSlashCommandPositions` 一致：该规则不区分「已知命令」与路径
+    assert_eq!(
+        slash_command_spans("/usr/bin"),
+        vec![(0, 4)],
+        "行首路径同样按命令着色（对齐 CC）"
+    );
+}
+
+/// 用户选择命令落到输入框后应着色（对齐 CC：输入框内 `/command` 用 suggestion 蓝）。
+#[tokio::test]
+async fn test_input_box_colors_slash_command_token() {
+    let (mut app, mut handle) = crate::app::App::new_headless(80, 24).await;
+    app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+    app.session_mgr
+        .current_mut()
+        .ui
+        .textarea
+        .insert_str("/theme now");
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+
+    let rows = handle.snapshot();
+    let row = rows
+        .iter()
+        .position(|line| line.contains("/theme now"))
+        .expect("输入框应显示 `/theme now`") as u16;
+    let buffer = handle.terminal.backend().buffer();
+    let column_of = |symbol: &str| {
+        (0..buffer.area.width)
+            .find(|x| buffer[(*x, row)].symbol() == symbol)
+            .unwrap_or_else(|| panic!("输入框行应含 {symbol:?}：{:?}", rows[row as usize]))
+    };
+
+    let slash_x = column_of("/");
+    assert_eq!(
+        buffer[(slash_x, row)].fg,
+        theme::cur().suggestion,
+        "`/theme` 应使用 suggestion 色"
+    );
+    let token_end_x = slash_x + 5;
+    assert_eq!(
+        buffer[(token_end_x, row)].symbol(),
+        "e",
+        "定位 token 最后一个字符"
+    );
+    assert_eq!(
+        buffer[(token_end_x, row)].fg,
+        theme::cur().suggestion,
+        "token 结尾字符同为 suggestion 色"
+    );
+    assert_eq!(
+        buffer[(column_of("n"), row)].fg,
+        theme::cur().text,
+        "token 之后的普通文本应保持正文色"
+    );
+}
+
+/// shell 命令态里 `/xxx` 是路径或参数，不得按命令着色。
+#[tokio::test]
+async fn test_input_box_skips_slash_coloring_in_shell_mode() {
+    let (mut app, mut handle) = crate::app::App::new_headless(80, 24).await;
+    app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+    app.session_mgr
+        .current_mut()
+        .ui
+        .textarea
+        .insert_str("!cat /etc/hosts");
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+
+    let rows = handle.snapshot();
+    let row = rows
+        .iter()
+        .position(|line| line.contains("/etc/hosts"))
+        .expect("shell 命令态应显示去掉 `!` 后的命令") as u16;
+    let buffer = handle.terminal.backend().buffer();
+    let slash_x = (0..buffer.area.width)
+        .find(|x| buffer[(*x, row)].symbol() == "/")
+        .unwrap_or_else(|| panic!("shell 命令应含 `/`：{:?}", rows[row as usize]));
+
+    assert_eq!(
+        buffer[(slash_x, row)].fg,
+        theme::cur().text,
+        "shell 命令态下的 `/etc` 应按普通文本着色"
+    );
+}

@@ -379,6 +379,10 @@ fn render_textarea(
     if shell_mode == TextareaShellMode::Command {
         hide_shell_prefix_for_display(&mut display_textarea);
     }
+    // shell 命令态下 `/xxx` 是路径或参数，不做命令着色
+    if shell_mode == TextareaShellMode::None {
+        highlight_slash_commands(&mut display_textarea);
+    }
 
     // textarea 自带块光标始终设为与文本同色（视觉不可见），由 draw_bar_cursor 画 │
     display_textarea.set_cursor_style(Style::default().fg(theme::cur().text));
@@ -498,6 +502,66 @@ fn hide_shell_prefix_for_display(textarea: &mut TextArea<'static>) {
         cursor_col
     };
     textarea.move_cursor(CursorMove::Jump(cursor_row as u16, display_col as u16));
+}
+
+/// `/command` token 的续接字符集（`/` 后首字符必须为字母，随后可含这些字符）
+fn is_slash_command_tail(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_')
+}
+
+/// 扫描一行内所有 `/command` token 的**字节**区间。
+///
+/// 规则对齐 Claude Code `findSlashCommandPositions`：`/` 前是行首或空白，`/` 后首字符为
+/// ASCII 字母（因此 `/theme`、`/gougou-auth` 命中，`/2x`、`a/theme` 不命中）。
+/// 注意该规则不区分「已知命令」与路径——行首的 `/usr/bin` 同样命中 `/usr`，与 CC 行为一致。
+fn slash_command_spans(line: &str) -> Vec<(usize, usize)> {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let mut spans = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let (byte, ch) = chars[i];
+        let at_word_start = i == 0 || chars[i - 1].1.is_whitespace();
+        if ch != '/' || !at_word_start {
+            i += 1;
+            continue;
+        }
+        if !chars
+            .get(i + 1)
+            .is_some_and(|(_, c)| c.is_ascii_alphabetic())
+        {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < chars.len() && is_slash_command_tail(chars[j].1) {
+            j += 1;
+        }
+        spans.push((byte, chars.get(j).map_or(line.len(), |(b, _)| *b)));
+        i = j;
+    }
+    spans
+}
+
+/// 将输入框内的 `/command` token 渲染为主题 `suggestion` 蓝色（对齐 Claude Code 输入框）。
+///
+/// 入参为**显示态** textarea（`!` 前缀可能已被移除），自定义高亮只作用于克隆体，
+/// 不污染真实输入状态；优先级 5 低于光标(30)/选区(10)，不会盖住它们。
+fn highlight_slash_commands(textarea: &mut TextArea<'static>) {
+    textarea.clear_custom_highlight();
+    let style = Style::default().fg(theme::cur().suggestion);
+    let ranges: Vec<((usize, usize), (usize, usize))> = textarea
+        .lines()
+        .iter()
+        .enumerate()
+        .flat_map(|(row, line)| {
+            slash_command_spans(line)
+                .into_iter()
+                .map(move |(start, end)| ((row, start), (row, end)))
+        })
+        .collect();
+    for (start, end) in ranges {
+        textarea.custom_highlight((start, end), style, 5);
+    }
 }
 
 /// 绘制"回到最新"浮层按钮：离开底部且内容溢出时，在**输入框上方白条**的横向
