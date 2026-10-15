@@ -43,6 +43,12 @@ pub struct SpinnerState {
     last_thought_ms: u64,
     /// 本回合第几段思考（从 1 开始计）。用于 `thinking more` 判定
     thinking_round: u32,
+    /// 最后一次 token 增长（或思考活动）的时刻。停滞转红的计时基准（对齐 CC 的 lastTokenTime）
+    last_token_at: Instant,
+    /// 停滞转红强度的平滑值（0..=1，每 50ms 向目标靠拢 10%，对齐 CC 的平滑规则）
+    stall_intensity: f32,
+    /// 上次推进停滞平滑的时刻
+    stall_last_smooth_at: Instant,
 }
 
 impl SpinnerState {
@@ -68,6 +74,9 @@ impl SpinnerState {
             thinking_started_at: None,
             last_thought_ms: 0,
             thinking_round: 0,
+            last_token_at: Instant::now(),
+            stall_intensity: 0.0,
+            stall_last_smooth_at: Instant::now(),
         }
     }
 
@@ -105,6 +114,9 @@ impl SpinnerState {
             self.last_summary_elapsed_ms = 0;
             self.last_summary_verb = String::new();
             self.last_summary_done_at = None;
+            self.last_token_at = Instant::now();
+            self.stall_intensity = 0.0;
+            self.stall_last_smooth_at = Instant::now();
         }
     }
 
@@ -135,6 +147,12 @@ impl SpinnerState {
     }
 
     pub fn set_token_count(&mut self, count: usize) {
+        // token 增长即「有新输出」：刷新停滞计时并清零转红强度（对齐 CC 的新 token 重置）
+        if count > self.token_count {
+            self.last_token_at = Instant::now();
+            self.stall_intensity = 0.0;
+            self.stall_last_smooth_at = Instant::now();
+        }
         self.token_count = count;
     }
 
@@ -146,6 +164,47 @@ impl SpinnerState {
         if self.raw_tick.is_multiple_of(2) {
             self.tick += 1;
         }
+        self.advance_stall();
+    }
+
+    /// 推进停滞转红的平滑强度（对齐 CC 2.1.300：每 50ms 一步、向目标靠拢 10%）。
+    /// 工具活跃执行期间持续刷新计时基准，永不进入停滞。
+    fn advance_stall(&mut self) {
+        let has_active_tools = self.mode == SpinnerMode::ToolUse;
+        if has_active_tools {
+            self.last_token_at = Instant::now();
+        }
+        let target = animation::stall_intensity_target(self.time_since_last_token_ms(), has_active_tools);
+        let now = Instant::now();
+        if target <= 0.0 && self.stall_intensity <= 0.0 {
+            self.stall_last_smooth_at = now;
+            return;
+        }
+        let dt_ms = now.duration_since(self.stall_last_smooth_at).as_millis() as u64;
+        if dt_ms >= 50 {
+            let steps = dt_ms / 50;
+            let mut cur = self.stall_intensity;
+            for _ in 0..steps {
+                let diff = target - cur;
+                if diff.abs() < 0.01 {
+                    cur = target;
+                    break;
+                }
+                cur += diff * 0.1;
+            }
+            self.stall_intensity = cur;
+            self.stall_last_smooth_at = now;
+        }
+    }
+
+    /// 距最后一次 token 活动已过去的毫秒数
+    pub fn time_since_last_token_ms(&self) -> u64 {
+        self.last_token_at.elapsed().as_millis() as u64
+    }
+
+    /// 当前停滞转红强度（0..=1，平滑后）
+    pub fn stalled_intensity(&self) -> f32 {
+        self.stall_intensity
     }
 
     pub fn elapsed_ms(&self) -> u64 {
@@ -158,6 +217,8 @@ impl SpinnerState {
     /// 避免流式 reasoning chunk 反复到达时把计时清零。
     /// 仅当从「非思考」切换到「思考」时，递增 `thinking_round`。
     pub fn begin_thinking(&mut self) {
+        // 思考事件到达本身即模型活动信号（reasoning 流不一定计入 token_count），刷新停滞计时
+        self.last_token_at = Instant::now();
         if self.thinking_started_at.is_none() {
             self.thinking_started_at = Some(Instant::now());
             self.thinking_round += 1;
@@ -281,6 +342,9 @@ impl SpinnerState {
         self.thinking_started_at = None;
         self.last_thought_ms = 0;
         self.thinking_round = 0;
+        self.last_token_at = Instant::now();
+        self.stall_intensity = 0.0;
+        self.stall_last_smooth_at = Instant::now();
     }
 }
 
@@ -290,6 +354,8 @@ pub struct SpinnerWidget<'a> {
     show_tokens: bool,
     primary_color: Color,
     secondary_color: Color,
+    shimmer_color: Color,
+    error_color: Color,
 }
 
 impl<'a> SpinnerWidget<'a> {
@@ -300,6 +366,8 @@ impl<'a> SpinnerWidget<'a> {
             show_tokens: true,
             primary_color: crate::theme::DarkTheme.accent(),
             secondary_color: crate::theme::DarkTheme.muted(),
+            shimmer_color: crate::theme::DarkTheme.loading(),
+            error_color: crate::theme::DarkTheme.error(),
         }
     }
 
@@ -319,10 +387,18 @@ impl<'a> SpinnerWidget<'a> {
         self
     }
 
+    /// 设置流光色（与主色成对，对齐 CC 的 base/shimmer 色对）。
+    pub fn shimmer_color(mut self, color: Color) -> Self {
+        self.shimmer_color = color;
+        self
+    }
+
     /// 从 `Theme` trait 派生 spinner 颜色，替代硬编码默认值。
     pub fn with_theme(mut self, theme: &dyn Theme) -> Self {
         self.primary_color = theme.accent();
         self.secondary_color = theme.muted();
+        self.shimmer_color = theme.loading();
+        self.error_color = theme.error();
         self
     }
 }
@@ -337,12 +413,23 @@ impl WidgetRef for SpinnerWidget<'_> {
 
         spans.push(Span::styled(format!("{} ", frame), orange));
 
-        let verb_spans = animation::shimmer_verb_spans(
-            self.state.verb(),
-            self.state.elapsed_ms(),
-            self.primary_color,
-        );
-        spans.extend(verb_spans);
+        // 停滞时流光熄火，整词向 error 色插值（对齐 CC 的 stalled 渲染分支）
+        let stall = self.state.stalled_intensity();
+        if stall > 0.0 {
+            let color = animation::blend_color(self.primary_color, self.error_color, stall);
+            spans.push(Span::styled(
+                self.state.verb().to_string(),
+                Style::default().fg(color),
+            ));
+        } else {
+            let verb_spans = animation::shimmer_verb_spans(
+                self.state.verb(),
+                self.state.elapsed_ms(),
+                self.primary_color,
+                self.shimmer_color,
+            );
+            spans.extend(verb_spans);
+        }
 
         let elapsed = self.state.elapsed_ms();
         let displayed_tokens = self.state.displayed_tokens();

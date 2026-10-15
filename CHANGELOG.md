@@ -8,6 +8,8 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
+- **Spinner 变色对齐 Claude Code（#510）**：删除自研的「时间热度四档」配色（思考越久动词越黄）——经 REA 对 Claude Code 2.1.300 二进制实证，CC 并无热度分档。动词改走 CC 的成对流光机制：底色 `claude` + 流光色 `claudeShimmer`，流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20、自左向右扫过；compact 态底色沿用 thinking 紫、流光保持默认对。新增**停滞转红**：无新 token 超过 10s 后流光熄火，动词与字形整体向 error 色平滑插值（再 10s 渐满、每 50ms 向目标靠拢 10%、新 token 到达立即清零、工具执行期间不触发）。状态词文案阶梯保留，配色改为 CC 的 thinkingIntensity（思考段超 10s 后自 inactive 向 warning 插值）。调色板同步删除 `spinner_heat_lv1..lv4` 扩展字段。
+
 - **`/theme` 主题命令：7 套可切换配色，6 套与 claude-code-best 逐值一致**：此前 TUI 配色是编译期常量，无法切换。现将全部 UI 颜色抽成统一调色板（69 个与 Claude Code 相同的语义字段 + cc-code 扩展字段），渲染层 900 余处引用改走当前调色板：`default` 即现行配色（升级后默认外观不变）；`dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` / `dark-ansi` 六套的名称与配色与 GitHub 仓库 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**，由一致性测试逐字段断言锁定防漂移。`/theme` 打开选择面板——光标移动实时预览、Enter 确认、Esc 还原，与 Claude Code 的 ThemePicker 行为一致；`/theme <name>` 可直接切换；选择持久化到配置 `theme` 字段，重启自动恢复。cc-widgets 的 markdown / diff 渲染同步注入当前调色板，切主题时代码块与 diff 一并变色。补漏对齐：markdown 正文此前走 widgets 的静态默认主题、代码块语法高亮固定暗色 syntect 主题、输入框边框与状态栏图标（模型名/分支/上下文用量）、工具状态圆点等处仍是写死颜色——现已全部纳入调色板（语法高亮随主题明暗族在 base16-ocean 暗/亮之间切换，markdown 渲染缓存 key 含主题指纹、切换即失效），生产代码全量审计无写死颜色残留。
 
 ## v0.6.139 — 2026-10-14

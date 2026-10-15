@@ -61,53 +61,97 @@ fn blend_rgb(c1: (u8, u8, u8), c2: (u8, u8, u8), t: f32) -> (u8, u8, u8) {
     (r, g, b)
 }
 
-/// 动词流光渲染（对齐 Codex CLI summary_shimmer 并做同色系抛光优化）
+/// 在两个颜色之间按 `t`（0..=1）插值（停滞转红 / 思考强度着色用）。
 ///
-/// - 周期 5000ms（5.0 秒低频从容），扫光持续 1600ms（1.6 秒悠长拂过）
-/// - 采用余弦衰减模型，波峰向浅暖亮色提亮 45%，绝不产生刺眼纯白反差
-/// - 非 RGB 颜色降级为静态原色
-pub fn shimmer_verb_spans(verb: &str, elapsed_ms: u64, base_color: Color) -> Vec<Span<'static>> {
-    let (r, g, b) = match base_color {
-        Color::Rgb(r, g, b) => (r, g, b),
-        _ => return vec![Span::styled(verb.to_string(), Style::default().fg(base_color))],
-    };
+/// - 两个都是 RGB 时逐通道线性插值；
+/// - 任一为命名色（ANSI 主题）时无法插值，按 CC 的降级规则 `t > 0.5` 取目标色、否则取源色。
+pub fn blend_color(from: Color, to: Color, t: f32) -> Color {
+    match (from, to) {
+        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
+            let (r, g, b) = blend_rgb((r1, g1, b1), (r2, g2, b2), t);
+            Color::Rgb(r, g, b)
+        }
+        _ => {
+            if t > 0.5 {
+                to
+            } else {
+                from
+            }
+        }
+    }
+}
 
-    let total_width = verb.width() as f64;
-    if total_width == 0.0 {
+/// 流光位置（对齐 Claude Code 2.1.300 的 glimmer 机制）：
+///
+/// - 步进 50ms，周期 = 文本宽 + 20，位置从 −10 起左→右扫过文本；
+/// - 位置在文本外（周期两端的 10 列填充区）时即「停泊」，整词底色渲染。
+pub fn glimmer_index(elapsed_ms: u64, text_width: usize) -> i64 {
+    let cycle = text_width as i64 + 20;
+    ((elapsed_ms / 50) as i64 % cycle) - 10
+}
+
+/// 动词流光渲染（对齐 Claude Code 的 GlimmerMessage / ShimmerChar）：
+///
+/// - 只有流光位置 ±1 列内的字形用 `shimmer_color`，其余用 `base_color`（硬切，不插值）；
+/// - 流光停泊（位置在文本外）时整词单段底色；
+/// - 相邻同色字形合并成一段，减少 span 数量。
+pub fn shimmer_verb_spans(
+    verb: &str,
+    elapsed_ms: u64,
+    base_color: Color,
+    shimmer_color: Color,
+) -> Vec<Span<'static>> {
+    let total_width = verb.width();
+    if total_width == 0 {
         return Vec::new();
     }
-
-    const INTERVAL_MS: f64 = 5000.0;
-    const SWEEP_DURATION_MS: f64 = 1600.0;
-    const HIGHLIGHT_COLOR: (u8, u8, u8) = (255, 225, 210);
-
-    let cycle_time = (elapsed_ms as f64) % INTERVAL_MS;
-    let is_shimmering = cycle_time < SWEEP_DURATION_MS;
-
-    if !is_shimmering {
+    let idx = glimmer_index(elapsed_ms, total_width);
+    if idx + 1 < 0 || idx > total_width as i64 {
         return vec![Span::styled(verb.to_string(), Style::default().fg(base_color))];
     }
 
-    let progress = cycle_time / SWEEP_DURATION_MS;
-    let half_width = (total_width * 0.25).max(3.5);
-    let position = progress * (total_width + 2.0 * half_width) - half_width;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut col: i64 = 0;
+    for grapheme in verb.graphemes(true) {
+        let glyph_width = grapheme.width() as i64;
+        let center = col + glyph_width / 2;
+        col += glyph_width;
+        let color = if (center - idx).abs() <= 1 {
+            shimmer_color
+        } else {
+            base_color
+        };
+        match spans.last_mut() {
+            Some(last) if last.style.fg == Some(color) => {
+                last.content.to_mut().push_str(grapheme);
+            }
+            _ => spans.push(Span::styled(grapheme.to_string(), Style::default().fg(color))),
+        }
+    }
+    spans
+}
 
-    let mut col = 0.0;
-    verb.graphemes(true)
-        .map(|grapheme| {
-            let glyph_width = grapheme.width() as f64;
-            let center = col + glyph_width / 2.0;
-            col += glyph_width;
+/// 无新 token 停滞的转红强度目标值（对齐 Claude Code 2.1.300 的停滞函数）：
+///
+/// - 无 token 超过 10s 判定停滞，强度再用 10s 线性渐满至 1；
+/// - 有工具活跃执行时永不停滞（返回 0）。
+pub fn stall_intensity_target(time_since_token_ms: u64, has_active_tools: bool) -> f32 {
+    if has_active_tools || time_since_token_ms <= 10_000 {
+        0.0
+    } else {
+        ((time_since_token_ms - 10_000) as f32 / 10_000.0).min(1.0)
+    }
+}
 
-            let dist = ((center - position).abs() / half_width).min(1.0);
-            let intensity = 0.5 * (1.0 + (std::f64::consts::PI * dist).cos());
-            let (nr, ng, nb) = blend_rgb((r, g, b), HIGHLIGHT_COLOR, (intensity * 0.45) as f32);
-            Span::styled(
-                grapheme.to_string(),
-                Style::default().fg(Color::Rgb(nr, ng, nb)),
-            )
-        })
-        .collect()
+/// 思考强度（对齐 Claude Code 2.1.300 的 thinkingIntensity）：
+///
+/// 当前思考段超过 10s 后线性爬升，再 10s 渐满至 1；驱动状态词向 warning 色插值。
+pub fn thinking_intensity(thinking_elapsed_ms: u64) -> f32 {
+    if thinking_elapsed_ms <= 10_000 {
+        0.0
+    } else {
+        ((thinking_elapsed_ms - 10_000) as f32 / 10_000.0).min(1.0)
+    }
 }
 
 #[cfg(test)]
