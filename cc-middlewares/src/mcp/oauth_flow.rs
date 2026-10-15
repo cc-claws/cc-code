@@ -9,7 +9,7 @@ use super::{
     callback_server::{CallbackError, OAuthCallbackServer},
     config::OAuthConfig,
 };
-use rmcp::transport::auth::{AuthError, OAuthState};
+use rmcp::transport::auth::{AuthError, AuthorizationRequest, OAuthState};
 
 /// OAuth 回调结果（从 TUI 传回后台 OAuth 流程）
 pub struct OAuthCallbackResult {
@@ -125,16 +125,12 @@ impl OAuthFlowManager {
         let (mut callback_server, redirect_uri) = OAuthCallbackServer::bind().await?;
 
         // 4. 启动授权（DCR + PKCE + metadata 发现）
-        let scopes: Vec<&str> = oauth_config
-            .scopes
-            .as_ref()
-            .map(|s| s.iter().map(|ss| ss.as_str()).collect())
-            .unwrap_or_default();
-
-        let client_name = Some("peri-mcp-client");
-        state
-            .start_authorization(&scopes, &redirect_uri, client_name)
-            .await?;
+        let mut req = AuthorizationRequest::new(redirect_uri)
+            .with_client_name("peri-mcp-client");
+        if let Some(ref scopes) = oauth_config.scopes {
+            req = req.with_scopes(scopes.clone());
+        }
+        state.start_authorization(req).await?;
 
         // 5. 获取授权 URL
         let authorization_url = state.get_authorization_url().await?;

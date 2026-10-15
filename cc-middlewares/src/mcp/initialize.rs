@@ -237,9 +237,14 @@ impl McpClientPool {
                     let peer = rs.peer().clone();
                     let channel_capable = peer
                         .peer_info()
-                        .and_then(|info| info.capabilities.experimental.as_ref())
-                        .and_then(|exp| exp.get("claude/channel"))
-                        .is_some();
+                        .map(|info| {
+                            info.capabilities
+                                .experimental
+                                .as_ref()
+                                .and_then(|exp| exp.get("claude/channel"))
+                                .is_some()
+                        })
+                        .unwrap_or(false);
                     let oauth_status = if used_oauth {
                         OAuthStatus::Authorized
                     } else {
@@ -513,9 +518,14 @@ impl McpClientPool {
                     let peer = rs.peer().clone();
                     let channel_capable = peer
                         .peer_info()
-                        .and_then(|info| info.capabilities.experimental.as_ref())
-                        .and_then(|exp| exp.get("claude/channel"))
-                        .is_some();
+                        .map(|info| {
+                            info.capabilities
+                                .experimental
+                                .as_ref()
+                                .and_then(|exp| exp.get("claude/channel"))
+                                .is_some()
+                        })
+                        .unwrap_or(false);
                     let oauth_status = if used_oauth {
                         OAuthStatus::Authorized
                     } else {
