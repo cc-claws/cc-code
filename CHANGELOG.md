@@ -6,6 +6,18 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.143 — 2026-10-15
+
+### Fixes
+
+- **状态栏配色固定，不再跟随 `/theme` 调色板（#523）**：`/theme` 上线（#509）时顺带做了一次「颜色统一到调色板」扫描，把状态栏原本写死的颜色改成 `theme::cur()` 调色板字段——模型名 / cwd / git 分支从 ANSI 具名色（`Cyan` / `Yellow` / `Magenta`）变成固定 RGB，`✓` 从 `Green` 变成固定 RGB，上下文仪表从 `Red` / `Yellow` / `Green` 变成 `error` / `warning` / `success` 字段，结果状态栏观感随主题漂移，且并无工单要求改它。状态栏配色是打磨定稿的固定值，现新增固定配色模块 `sb`（沿用 #509 之前 `theme.rs` 的常量口径），`status_bar.rs` 中 52 处 `theme::cur().xxx` 改回原固定色（原本 ANSI 具名色的仍用具名色、原本写死 RGB 的仍用 RGB），并移除不再引用的 `ui::theme` 导入；状态栏不参与主题化，渲染结果与 #509 之前逐字节一致。
+
+## v0.6.142 — 2026-10-15
+
+### Fixes
+
+- **主题面板补入 session 面板键盘路由（#521）**：`/theme` 打开的主题面板 scope 为 `Session`，但键盘与粘贴路由的白名单未包含 `PanelKind::Theme`，导致按键被穿透到后续 Stage 而非分发给面板——表现为 `↑`/`↓` 不移动光标、`Esc` 关不掉面板。现补齐 `panels.rs`（键盘）与 `event/mod.rs`（粘贴）两处路由，并新增 `test_theme_panel_consumes_arrow_and_esc_keys` 回归测试；主题面板恢复方向键选择与 `Esc` 关闭，其余面板路由行为不变。
+
 ## v0.6.141 — 2026-10-15
 
 ### Features
