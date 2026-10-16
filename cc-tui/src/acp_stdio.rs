@@ -55,6 +55,40 @@ struct StdioContext {
     langfuse_session: Option<Arc<cc_acp::langfuse::LangfuseSession>>,
 }
 
+fn stdio_project_config(ctx: &StdioContext, cwd: &str) -> cc_tui::config::PeriConfig {
+    let fallback = ctx.peri_config.read();
+    cc_acp::provider::store::load_for_session(std::path::Path::new(cwd), &fallback).unwrap_or_else(
+        |error| {
+            tracing::warn!(%error, %cwd, "Failed to load stdio project settings");
+            fallback.clone()
+        },
+    )
+}
+
+async fn persist_stdio_snapshot(ctx: &StdioContext, sid: &str, cwd: &str) {
+    let config = stdio_project_config(ctx, cwd);
+    let provider = cc_tui::app::agent::LlmProvider::from_config(&config)
+        .unwrap_or_else(|| ctx.provider.read().clone());
+    cc_acp::session::executor::persist_runtime_snapshot(
+        ctx.thread_store.as_ref(),
+        sid,
+        &provider,
+        cwd,
+    )
+    .await;
+}
+
+async fn persist_stdio_session_snapshot(ctx: &StdioContext, sid: &str) {
+    let cwd = ctx
+        .sessions
+        .read()
+        .get(sid)
+        .map(|session| session.cwd.clone());
+    if let Some(cwd) = cwd {
+        persist_stdio_snapshot(ctx, sid, &cwd).await;
+    }
+}
+
 fn apply_stdio_model_selection(
     ctx: &StdioContext,
     model_id: &str,
@@ -367,7 +401,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
             // #318: 双路径都失败时降级为内存模式，而非 panic
             Err(_) => {
                 match cc_tui::thread::SqliteThreadStore::new(
-                    std::env::temp_dir().join("zen-threads.db"),
+                    std::env::temp_dir().join("peri-threads").join("threads.db"),
                 )
                 .await
                 {
@@ -469,13 +503,14 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         }
                     };
                     let sid = thread_id.clone();
+                    persist_stdio_snapshot(&ctx, &sid, &cwd_str).await;
                     // ── Freeze system prompt data at session creation ──
                     let frozen_date =
                         chrono::Local::now().format("%Y-%m-%d").to_string();
 
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd_str,
-                        ctx.peri_config.read().config.clone(),
+                        stdio_project_config(&ctx, &cwd_str).config,
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -657,6 +692,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             s.agent_pool.lock().invalidate();
                         }
                     }
+                    persist_stdio_session_snapshot(&ctx, req.session_id.0.as_ref()).await;
                     let config_options = {
                         let c = ctx.peri_config.read();
                         let p = ctx.provider.read();
@@ -717,6 +753,9 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         _ => {
                             tracing::debug!(config_id = %config_id, "Unknown config option value type");
                         }
+                    }
+                    if matches!(config_id, "model" | "thinking_effort") {
+                        persist_stdio_session_snapshot(&ctx, req.session_id.0.as_ref()).await;
                     }
                     let config_options = {
                         let cfg = ctx.peri_config.read();
@@ -784,12 +823,20 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 let ctx = ctx_clone.clone();
                 async move |req: ResumeSessionRequest, responder, _cx: ConnectionTo<Client>| {
                     let sid = req.session_id.0.to_string();
-                    let cwd = req.cwd.to_string_lossy().to_string();
+                    let meta = match ctx.thread_store.load_meta(&sid).await {
+                        Ok(meta) => meta,
+                        Err(error) => {
+                            let _ = responder.respond_with_error(agent_client_protocol::Error::invalid_params()
+                                .data(format!("session not found: {sid}: {error}")));
+                            return Ok(());
+                        }
+                    };
+                    let cwd = meta.cwd;
                     // Build frozen data for session
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                         &cwd,
-                        ctx.peri_config.read().config.clone(),
+                        stdio_project_config(&ctx, &cwd).config,
                         &ctx.plugin_skill_dirs,
                         &ctx.plugin_agent_dirs,
                         &frozen_date,
@@ -834,19 +881,30 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 let ctx = ctx_clone.clone();
                 async move |req: LoadSessionRequest, responder, cx: ConnectionTo<Client>| {
                     let sid = req.session_id.0.to_string();
-                    let cwd = req.cwd.to_string_lossy().to_string();
+                    let meta = match ctx.thread_store.load_meta(&sid).await {
+                        Ok(meta) => meta,
+                        Err(error) => {
+                            let _ = responder.respond_with_error(agent_client_protocol::Error::invalid_params()
+                                .data(format!("session not found: {sid}: {error}")));
+                            return Ok(());
+                        }
+                    };
+                    let cwd = meta.cwd;
                     let cwd_for_skills = cwd.clone();
 
-                    // Build frozen data for session
-                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-                        &cwd,
-                        ctx.peri_config.read().config.clone(),
-                        &ctx.plugin_skill_dirs,
-                        &ctx.plugin_agent_dirs,
-                        &frozen_date,
-                        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
-                    );
+                    // 重复 load 沿用已冻结的数据，避免重新读取指引或重建记忆入口。
+                    let needs_frozen = ctx.sessions.read().get(&sid).is_none_or(|session| session.frozen.is_none());
+                    let frozen_data = needs_frozen.then(|| {
+                        let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                        cc_acp::session::frozen::build_frozen_session_data(
+                            &cwd,
+                            stdio_project_config(&ctx, &cwd).config,
+                            &ctx.plugin_skill_dirs,
+                            &ctx.plugin_agent_dirs,
+                            &frozen_date,
+                            cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
+                        )
+                    });
 
                     // Load history from ThreadStore via dispatch function
                     let history = dispatch::load_session_messages(
@@ -865,6 +923,9 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             if s.history.is_empty() {
                                 s.history = history;
                             }
+                            if s.frozen.is_none() {
+                                s.frozen = frozen_data;
+                            }
                         } else {
                             sessions.insert(
                                 sid.clone(),
@@ -875,7 +936,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     history,
                                     cancel_token: None,
                                     background_registry: Arc::default(),
-                                    frozen: Some(frozen_data),
+                                    frozen: frozen_data,
                                     agent_pool: Arc::default(),
                                 prompt_lock: Arc::default(),
                                 background_results: None,
@@ -973,6 +1034,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
 
                     // Insert new session
                     let new_session_id = new_thread_id.clone();
+                    persist_stdio_snapshot(&ctx, &new_session_id, &cwd_str).await;
                     // Build frozen data for forked session
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(

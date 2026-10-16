@@ -45,6 +45,16 @@ pub struct AgentPool {
     /// Each entry holds an `Arc<dyn BaseModel>` with a shared `reqwest::Client`.
     /// Avoids creating a new HTTP client per SubAgent invocation.
     pub(crate) subagent_llm_cache: HashMap<String, Arc<dyn BaseModel>>,
+    pub(crate) project_tools: Option<ProjectToolResources>,
+}
+
+/// deferred tool 索引按会话目录隔离，避免上一项目的 MCP 工具残留。
+#[derive(Clone)]
+pub(crate) struct ProjectToolResources {
+    pub cwd: String,
+    pub mcp_pool: Option<Arc<cc_middlewares::mcp::McpClientPool>>,
+    pub index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
+    pub tools: Arc<parking_lot::RwLock<HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>>>,
 }
 
 impl Default for AgentPool {
@@ -59,6 +69,7 @@ impl AgentPool {
             cached_llm: None,
             fingerprint: String::new(),
             subagent_llm_cache: HashMap::new(),
+            project_tools: None,
         }
     }
 

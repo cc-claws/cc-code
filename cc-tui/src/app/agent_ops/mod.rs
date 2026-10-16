@@ -17,20 +17,36 @@ impl App {
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         // 标准 ACP 消息同样经过此守卫；不依赖全局 depth 或最后启动的任务。
         let source = match &event {
-            AgentEvent::ToolStart { source_agent_id, .. }
-            | AgentEvent::ToolEnd { source_agent_id, .. }
-            | AgentEvent::AssistantChunk { source_agent_id, .. } => source_agent_id.clone(),
+            AgentEvent::ToolStart {
+                source_agent_id, ..
+            }
+            | AgentEvent::ToolEnd {
+                source_agent_id, ..
+            }
+            | AgentEvent::AssistantChunk {
+                source_agent_id, ..
+            } => source_agent_id.clone(),
             _ => None,
         };
         if let Some(id) = source {
             return self.handle_subagent_event(&id, event);
         }
         match event {
-            AgentEvent::SubagentEvent { source_agent_id, event } => {
-                self.handle_subagent_event(&source_agent_id, *event)
-            }
-            AgentEvent::SubagentInputResult { instance_id, input_id, error } => {
-                if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&instance_id) {
+            AgentEvent::SubagentEvent {
+                source_agent_id,
+                event,
+            } => self.handle_subagent_event(&source_agent_id, *event),
+            AgentEvent::SubagentInputResult {
+                instance_id,
+                input_id,
+                error,
+            } => {
+                if let Some(sub) = self
+                    .session_mgr
+                    .current_mut()
+                    .subagent_sessions
+                    .get_mut(&instance_id)
+                {
                     if let Some(error) = error {
                         sub.pending_inputs.retain(|(id, _)| *id != input_id);
                         sub.notices.push(format!("Message failed: {error}"));
@@ -85,7 +101,13 @@ impl App {
                 task_preview,
                 is_background,
                 prompt,
-            } => self.handle_subagent_start(agent_id, instance_id, task_preview, is_background, prompt),
+            } => self.handle_subagent_start(
+                agent_id,
+                instance_id,
+                task_preview,
+                is_background,
+                prompt,
+            ),
             AgentEvent::SubagentLifecycle {
                 agent_name: _,
                 started,
@@ -484,7 +506,10 @@ impl App {
                 title,
             } => {
                 let is_current = self.session_mgr.current().metadata.session_id == session_id;
-                let user_renamed = is_current && self.session_mgr.current().metadata.user_renamed;
+                let user_renamed = (is_current && self.session_mgr.current().metadata.user_renamed)
+                    || thread_id
+                        .as_ref()
+                        .is_some_and(|id| self.global_ui.manual_thread_titles.read().contains(id));
                 // 校验 1（防切换会话串台）：只有处于同一个 session 且未被用户手动改名才更新内存标题
                 if is_current && !user_renamed {
                     self.session_mgr.current_mut().metadata.thread_title = Some(title.clone());
@@ -501,8 +526,14 @@ impl App {
                     });
                     if let Some(tid) = target_tid {
                         let store = self.services.thread_store.clone();
+                        let manual_titles = self.global_ui.manual_thread_titles.clone();
+                        let title_write_lock = self.global_ui.thread_title_write_lock.clone();
                         tokio::spawn(async move {
-                            let _ = store.update_title(&tid, &title).await;
+                            let _guard = title_write_lock.lock().await;
+                            let user_named = manual_titles.read().contains(&tid);
+                            if !user_named {
+                                let _ = store.update_title(&tid, &title).await;
+                            }
                         });
                     }
                 }

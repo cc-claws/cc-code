@@ -965,6 +965,7 @@ async fn run_app(
         // 轮询 agent 结果
         let mut agent_updated = false;
         agent_updated |= app.poll_agent();
+        agent_updated |= app.poll_agent_center();
         agent_updated |= app.poll_at_mention();
         // 轮询后台事件（MCP OAuth 等）
         let bg_updated = app.poll_background_events();
@@ -1256,8 +1257,9 @@ fn apply_screen_selection_highlight(
         let col_start = if row == sr { sc.max(area.x) } else { area.x };
         let col_end = if row == er { ec.min(max_col) } else { max_col };
         for col in col_start..=col_end {
-            buffer[(col, row)]
-                .set_style(ratatui::style::Style::default().bg(cc_tui::ui::theme::cur().selection_bg));
+            buffer[(col, row)].set_style(
+                ratatui::style::Style::default().bg(cc_tui::ui::theme::cur().selection_bg),
+            );
         }
     }
 }

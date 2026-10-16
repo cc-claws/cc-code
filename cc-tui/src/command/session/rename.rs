@@ -46,8 +46,16 @@ impl Command for RenameCommand {
         } else {
             // 更新标题
             let store = app.services.thread_store.clone();
+            app.global_ui
+                .manual_thread_titles
+                .write()
+                .insert(thread_id.clone());
+            let title_write_lock = app.global_ui.thread_title_write_lock.clone();
             let result = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(store.update_title(&thread_id, name))
+                tokio::runtime::Handle::current().block_on(async {
+                    let _guard = title_write_lock.lock().await;
+                    store.update_title(&thread_id, name).await
+                })
             });
             match result {
                 Ok(()) => {

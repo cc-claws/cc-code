@@ -14,6 +14,15 @@ use super::{oauth_prompt::OAuthPrompt, setup_wizard::SetupWizardPanel};
 /// 与 `ServiceRegistry` 中的"服务"字段（config、MCP pool、cron 等）不同，
 /// 这里的字段纯粹是 UI 层面的临时状态（高亮计时、弹窗、鼠标探测等）。
 pub struct GlobalUiState {
+    pub(crate) agent_center: Option<super::agent_center::AgentCenter>,
+    pub(crate) agent_catalog: Vec<crate::thread::ThreadMeta>,
+    pub(crate) agent_count_checked: Option<Instant>,
+    pub(crate) agent_count_rx:
+        Option<tokio::sync::oneshot::Receiver<Result<Vec<crate::thread::ThreadMeta>, String>>>,
+    /// 标题任务跨会话异步返回；手工命名优先于本进程的自动标题。
+    pub(crate) manual_thread_titles:
+        std::sync::Arc<parking_lot::RwLock<std::collections::HashSet<String>>>,
+    pub(crate) thread_title_write_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
     pub setup_wizard: Option<SetupWizardPanel>,
     pub oauth_prompt: Option<OAuthPrompt>,
     pub mode_highlight_until: Option<Instant>,
@@ -38,6 +47,12 @@ impl Default for GlobalUiState {
 impl GlobalUiState {
     pub fn new() -> Self {
         Self {
+            agent_center: None,
+            agent_catalog: Vec::new(),
+            agent_count_checked: None,
+            agent_count_rx: None,
+            manual_thread_titles: Default::default(),
+            thread_title_write_lock: Default::default(),
             setup_wizard: None,
             oauth_prompt: None,
             mode_highlight_until: None,

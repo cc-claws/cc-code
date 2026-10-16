@@ -655,3 +655,27 @@ cli-plugin-uninstalled = Uninstalled: { $id }
 at-mention-searching = Searching…
 at-mention-empty-directory = No files here. Type to search.
 at-mention-no-matches = No matching files.
+command-agent-center-description = Open the cross-project agent command center
+agent-center-loading = (Loading…)
+agent-center-none = (none)
+agent-center-status-note = Other processes: saved status only
+agent-center-empty = No matching loaded sessions. Use Show more to load older sessions.
+agent-center-show-more = Show more
+agent-center-search = Search titles in loaded sessions; / or Esc clears
+agent-center-rename = Rename:
+agent-center-busy = Cannot switch or delete while an agent, shell or permission request is active, or the project is unavailable.
+agent-center-other-projects = Other projects: { $count } sessions · g to group · counts include all sessions
+agent-center-delete-question = Permanently delete this session and its messages?
+agent-center-delete-confirm = y Delete permanently (cannot be undone) · Esc Cancel
+agent-center-open-failed = Could not open the session. Check the project directory and session data; Esc returns to the detailed error.
+agent-center-help = Navigate
+    ↑/↓ move · Home/End first/last · Enter open / load more
+    Esc close overlay, rename, search, then center
+    Tasks
+    n new session in selected project · o current-project history
+    r rename · Backspace delete (confirmation required)
+    View
+    Tab/Shift+Tab filter · g Project/Status/Model · / title search
+    Search and filters apply to loaded pages; counts cover all projects.
+    Working/Needs you are live only in this process. Other processes use saved status.
+    ? or Esc close help

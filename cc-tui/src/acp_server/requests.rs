@@ -33,6 +33,31 @@ fn persist_config(cfg: &AcpServerConfig) {
     }
 }
 
+fn project_config(cfg: &AcpServerConfig, cwd: &str) -> cc_acp::provider::AppConfig {
+    let fallback = cfg.peri_config.read();
+    cc_acp::provider::store::load_for_session(std::path::Path::new(cwd), &fallback)
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, %cwd, "Failed to load session project settings");
+            fallback.clone()
+        })
+        .config
+}
+
+async fn persist_session_snapshot(cfg: &AcpServerConfig, session_id: &str, cwd: &str) {
+    let config = crate::config::PeriConfig {
+        config: project_config(cfg, cwd),
+        ..Default::default()
+    };
+    let provider = LlmProvider::from_config(&config).unwrap_or_else(|| cfg.provider.read().clone());
+    cc_acp::session::executor::persist_runtime_snapshot(
+        cfg.thread_store.as_ref(),
+        session_id,
+        &provider,
+        cwd,
+    )
+    .await;
+}
+
 fn apply_model_selection(cfg: &AcpServerConfig, model_id: &str) -> Option<LlmProvider> {
     let (provider_id, alias) = parse_model_selection_value(model_id);
     {
@@ -244,6 +269,7 @@ pub(crate) async fn handle_request(
                 .await
                 .map_err(|e| AcpError::new(-32603, format!("Thread creation failed: {e}")))?;
             let session_id = thread_id.clone();
+            persist_session_snapshot(cfg, &session_id, &cwd).await;
             sessions.insert(
                 session_id.clone(),
                 SessionState {
@@ -267,7 +293,7 @@ pub(crate) async fn handle_request(
 
             let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 &cwd,
-                cfg.peri_config.read().config.clone(),
+                project_config(cfg, &cwd),
                 &cfg.plugin_skill_dirs,
                 &cfg.plugin_agent_dirs,
                 &frozen_date,
@@ -314,6 +340,9 @@ pub(crate) async fn handle_request(
                 s.agent_pool.lock().invalidate();
             }
             persist_config(cfg);
+            if let Some(session) = sessions.get(session_id) {
+                persist_session_snapshot(cfg, session_id, &session.cwd).await;
+            }
             let resp = SetSessionModelResponse::new();
             send_config_option_update(transport, session_id, cfg).await;
             serde_json::to_value(resp)
@@ -378,6 +407,11 @@ pub(crate) async fn handle_request(
                     debug!(config_id = %config_id, "Unknown config option");
                 }
             }
+            if matches!(config_id, "model" | "thinking_effort") {
+                if let Some(session) = sessions.get(session_id) {
+                    persist_session_snapshot(cfg, session_id, &session.cwd).await;
+                }
+            }
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
@@ -395,7 +429,6 @@ pub(crate) async fn handle_request(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?;
             validate_session_id(req_session_id)?;
-            let cwd = params.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
             if let Some(model_val) = params
                 .get("model")
                 .and_then(|v| v.as_str())
@@ -410,9 +443,11 @@ pub(crate) async fn handle_request(
             // 所有权校验超出本次修复范围（需 DB schema 变更，见 issue #70 方案 3）。
             // 这里至少做存在性校验，避免对未知 sessionId 静默插入空 SessionState。
             let thread_id = ThreadId::from(req_session_id.to_string());
-            cfg.thread_store.load_meta(&thread_id).await.map_err(|_| {
+            let meta = cfg.thread_store.load_meta(&thread_id).await.map_err(|_| {
                 AcpError::new(-32001, format!("session not found: {req_session_id}"))
             })?;
+            // 历史线程的目录是持久化事实，调用方的启动目录不能覆盖它。
+            let cwd = meta.cwd.as_str();
 
             // Load history from ThreadStore
             let history =
@@ -444,17 +479,25 @@ pub(crate) async fn handle_request(
             }
 
             // ── Freeze session data at load time ──
-            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-                cwd,
-                cfg.peri_config.read().config.clone(),
-                &cfg.plugin_skill_dirs,
-                &cfg.plugin_agent_dirs,
-                &frozen_date,
-                cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
-            );
             if let Some(s) = sessions.get_mut(req_session_id) {
-                s.frozen = Some(frozen_data);
+                if s.cwd != cwd {
+                    return Err(AcpError::new(
+                        -32602,
+                        "loaded session cwd does not match thread cwd",
+                    ));
+                }
+                // 同一 session 的反复 load 不得改变已冻结的系统提示词。
+                if s.frozen.is_none() {
+                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    s.frozen = Some(cc_acp::session::frozen::build_frozen_session_data(
+                        cwd,
+                        project_config(cfg, cwd),
+                        &cfg.plugin_skill_dirs,
+                        &cfg.plugin_agent_dirs,
+                        &frozen_date,
+                        cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
+                    ));
+                }
             }
 
             let modes = build_mode_state(&cfg.permission_mode);
@@ -602,6 +645,7 @@ pub(crate) async fn handle_request(
                     .map_err(|e| AcpError::new(-32603, e))?;
 
             let new_session_id = new_thread_id.clone();
+            persist_session_snapshot(cfg, &new_session_id, cwd).await;
             sessions.insert(
                 new_session_id.clone(),
                 SessionState {
@@ -675,6 +719,10 @@ pub(crate) async fn handle_request(
             }
 
             persist_config(cfg);
+
+            if let Some(session) = sessions.get(session_id) {
+                persist_session_snapshot(cfg, session_id, &session.cwd).await;
+            }
 
             let config_options = {
                 let c = cfg.peri_config.read();

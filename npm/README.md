@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.147：新增跨项目 **Agent Command Center**：`/agents` 或空输入框 `←` 查看全部项目根会话，支持分组、五档状态、分页、详情、搜索、重命名与二次确认永久删除。Enter 恢复目标项目，`n` 在选中项目新建空会话；存在运行任务或审批时保持原会话。原 agent 定义入口改为 `/agent-design`，`/tasks` 入口由中心替代。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.146：修复 Windows CI 上 cc-tui 测试的间歇性失败（**内部改动，无用户可见行为变化**）——这些用例用固定墙钟超时等待真实子进程（`cmd`/git-bash/嵌套 powershell），libtest 并发时互相抢进程与 IO，在 4 核 runner 上被放大成超时；现用全局锁串行化真起进程的用例并统一放宽等待预算，不改任何用例语义（#538）。
 
 v0.6.145：三项 TUI 输入修复——① 输入框内 `/command` 用 suggestion 蓝高亮，规则对齐 Claude Code（`!` shell 态跳过，避免把 `/etc` 之类路径着色）（#529）；② Rewind 对话回滚从「双击 `Esc`」改为正式命令 `/rewind`（别名 `/undo`）——`Esc` 是取消/中断键，连按两次会误弹出回滚面板，而输入 `/rewind` 反而无效（#531）；③ Agent 运行中按 `Enter` 不再把命令静默变成模型提问——此前 `/exit` 不退出、`/gc` 不回收内存、未知命令反被模型回答。判定收敛到唯一入口 `CommandSystem::resolve`：普通消息 / Skill / ACP 命令 / 转发型命令入队等本轮结束后执行，需要空闲 UI 的命令、`!` 输入与未知命令一律拒绝并**保留输入框内容**（#533）。

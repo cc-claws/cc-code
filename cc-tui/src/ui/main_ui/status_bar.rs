@@ -124,7 +124,15 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         model_style = model_style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
     }
     spans.push(Span::styled(
-        format!("[{}]", app.session_mgr.current().active_subagent().map(|sub| sub.model.as_str()).filter(|model| !model.is_empty()).unwrap_or(&app.services.model_name)),
+        format!(
+            "[{}]",
+            app.session_mgr
+                .current()
+                .active_subagent()
+                .map(|sub| sub.model.as_str())
+                .filter(|model| !model.is_empty())
+                .unwrap_or(&app.services.model_name)
+        ),
         model_style,
     ));
 
@@ -169,14 +177,13 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     if app.session_mgr.current().active_subagent().is_none() {
-    if let Some(segment) = render_agents_segment(app) {
-        append_activity_segment(&mut left_spans, segment);
-    }
+        if let Some(segment) = render_agents_segment(app) {
+            append_activity_segment(&mut left_spans, segment);
+        }
 
-    if let Some(segment) = render_tasks_segment(app) {
-        append_activity_segment(&mut left_spans, segment);
-    }
-
+        if let Some(segment) = render_tasks_segment(app) {
+            append_activity_segment(&mut left_spans, segment);
+        }
     }
     // 第二行强制单行：超宽时按显示列宽截断并以 … 收口（禁止折行）
     let left_spans = truncate_spans_to_width(left_spans, area.width as usize);
@@ -235,7 +242,16 @@ fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
             spans.push(status_separator());
         }
         spans.push(Span::styled(
-            format!("⏱  {}", format_duration_display(app.session_mgr.current().active_subagent().map(|sub| sub.elapsed()).unwrap_or_else(|| start.elapsed()))),
+            format!(
+                "⏱  {}",
+                format_duration_display(
+                    app.session_mgr
+                        .current()
+                        .active_subagent()
+                        .map(|sub| sub.elapsed())
+                        .unwrap_or_else(|| start.elapsed())
+                )
+            ),
             dim_style(),
         ));
     }
@@ -607,9 +623,20 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // Cache/MEM（右侧快捷键前面）
+    if app.agent_center_navigation_available() {
+        left_spans.push(Span::styled(
+            format!(" · ← {} agents", app.current_project_agent_count()),
+            Style::default().fg(sb::MUTED),
+        ));
+    }
+
+    // Cache/MEM（左侧块，右侧留给快捷键）
     {
-        let tracker = &app.session_mgr.current().viewport_agent().session_token_tracker;
+        let tracker = &app
+            .session_mgr
+            .current()
+            .viewport_agent()
+            .session_token_tracker;
         let (cache_str, cache_color) = if tracker.last_usage.is_some() {
             let rate_pct = tracker.cache_hit_rate() * 100.0;
             let color = if rate_pct >= 80.0 {
@@ -647,9 +674,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 右侧：快捷键提示
-    let key_style = Style::default()
-        .fg(sb::MUTED)
-        .add_modifier(Modifier::BOLD);
+    let key_style = Style::default().fg(sb::MUTED).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(sb::MUTED);
 
     let right_spans: Vec<Span> = match &app.session_mgr.current().agent.interaction_prompt {

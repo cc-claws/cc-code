@@ -28,10 +28,38 @@ pub fn workspace_config_path() -> Option<PathBuf> {
 /// 再检测当前工作目录的 .cc-code/settings.json 是否存在，
 /// 若存在则加载并以工作区字段覆盖全局对应字段。
 pub fn load() -> Result<PeriConfig> {
+    load_for_cwd(&std::env::current_dir()?)
+}
+
+/// 按会话目录合并工作区配置，不改变进程级 current_dir。
+pub fn load_for_cwd(cwd: &Path) -> Result<PeriConfig> {
     let mut merged = load_from(&config_path())?;
-    if let Some(ws_path) = workspace_config_path() {
+    let ws_path = cwd.join(".cc-code").join("settings.json");
+    if ws_path.exists() {
         let workspace = load_from(&ws_path)?;
         merged.config.merge_overrides(workspace.config);
+    }
+    Ok(merged)
+}
+
+/// 运行中的会话沿用内存中的模型选择；跨项目的其余设置重新从全局及目标目录加载。
+pub fn load_for_session(cwd: &Path, fallback: &PeriConfig) -> Result<PeriConfig> {
+    let mut merged = load_from(&config_path())?;
+    if merged.config.providers.is_empty()
+        || !merged
+            .config
+            .providers
+            .iter()
+            .any(|provider| provider.id == fallback.config.active_provider_id)
+    {
+        merged.config.providers = fallback.config.providers.clone();
+    }
+    merged.config.active_provider_id = fallback.config.active_provider_id.clone();
+    merged.config.active_alias = fallback.config.active_alias.clone();
+    merged.config.thinking = fallback.config.thinking.clone();
+    let workspace = cwd.join(".cc-code").join("settings.json");
+    if workspace.exists() {
+        merged.config.merge_overrides(load_from(&workspace)?.config);
     }
     Ok(merged)
 }

@@ -225,15 +225,7 @@ impl AcpTuiClient {
     /// Closes the previous session (if any) to release its history, AgentPool,
     /// and FrozenSessionData from the server-side sessions HashMap.
     pub async fn new_session(&self, cwd: &str, model: Option<&str>) -> Result<String, String> {
-        // Close previous session to free server-side memory
-        let old_id = self.current_session_id.lock().unwrap().take();
-        if let Some(ref old_sid) = old_id {
-            let params = json!({ "sessionId": old_sid });
-            if let Err(e) = self.transport.send_request("session/close", params).await {
-                debug!(error = %e, "Failed to close previous session (non-fatal)");
-            }
-        }
-
+        let old_id = self.session_id();
         let params = json!({ "cwd": cwd, "model": model });
         let result = self
             .transport
@@ -248,6 +240,12 @@ impl AcpTuiClient {
             .ok_or("no session_id in response")?
             .to_string();
         *self.current_session_id.lock().unwrap() = Some(session_id.clone());
+        if let Some(old_sid) = old_id.filter(|id| id != &session_id) {
+            let _ = self
+                .transport
+                .send_request("session/close", json!({ "sessionId": old_sid }))
+                .await;
+        }
         Ok(session_id)
     }
 
@@ -261,17 +259,7 @@ impl AcpTuiClient {
         cwd: &str,
         model: Option<&str>,
     ) -> Result<String, String> {
-        // Close previous session (if different from the one being loaded)
-        let old_id = self.current_session_id.lock().unwrap().take();
-        if let Some(ref old_sid) = old_id {
-            if old_sid != session_id {
-                let params = json!({ "sessionId": old_sid });
-                if let Err(e) = self.transport.send_request("session/close", params).await {
-                    debug!(error = %e, "Failed to close previous session (non-fatal)");
-                }
-            }
-        }
-
+        let old_id = self.session_id();
         let params = json!({ "sessionId": session_id, "cwd": cwd, "model": model });
         let _ = self
             .transport
@@ -279,7 +267,25 @@ impl AcpTuiClient {
             .await
             .map_err(|e| e.to_string())?;
         *self.current_session_id.lock().unwrap() = Some(session_id.to_string());
+        if let Some(old_sid) = old_id.filter(|id| id != session_id) {
+            let _ = self
+                .transport
+                .send_request("session/close", json!({ "sessionId": old_sid }))
+                .await;
+        }
         Ok(session_id.to_string())
+    }
+
+    /// 空白草稿不创建 thread；首次发送时再由 new_session 落库。
+    pub async fn close_current_session(&self) -> Result<(), String> {
+        if let Some(session_id) = self.session_id() {
+            self.transport
+                .send_request("session/close", json!({ "sessionId": session_id }))
+                .await
+                .map_err(|error| error.to_string())?;
+            *self.current_session_id.lock().unwrap() = None;
+        }
+        Ok(())
     }
 
     /// Submit a user message to the current session.

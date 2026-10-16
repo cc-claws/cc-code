@@ -172,6 +172,66 @@ pub async fn execute_prompt(
     background_registry: Option<Arc<cc_middlewares::BackgroundTaskRegistry>>,
 ) -> PromptResult {
     let _steering_guard = steering.as_ref().map(|queue| queue.close_on_drop());
+    let peri_config = Arc::new(crate::provider::store::load_for_session(
+        std::path::Path::new(cwd), &peri_config,
+    ).unwrap_or_else(|error| {
+        tracing::warn!(%error, %cwd, "Failed to load project settings; retaining session settings");
+        peri_config.as_ref().clone()
+    }));
+    let project_provider = LlmProvider::from_config(&peri_config);
+    let provider = project_provider.as_ref().unwrap_or(provider);
+    let hook_groups = super::project_context::project_hook_groups(hook_groups, cwd);
+    // 只有启动项目能沿用调用方的池，其余项目按 cwd 共享独立池（TUI 面板亦使用它）。
+    let is_startup_project = std::env::current_dir()
+        .ok()
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .is_some_and(|startup| {
+            std::fs::canonicalize(cwd)
+                .ok()
+                .is_some_and(|target| target == startup)
+        });
+    let mcp_pool = if is_startup_project || mcp_pool.is_none() {
+        mcp_pool
+    } else {
+        Some(super::project_context::project_mcp_pool(cwd, None).0)
+    };
+    let (mcp_pool, tool_search_index, shared_tools) = {
+        let mut pool = pool.lock();
+        let resources =
+            pool.project_tools
+                .get_or_insert_with(|| super::agent_pool::ProjectToolResources {
+                    cwd: cwd.to_string(),
+                    mcp_pool: mcp_pool.clone(),
+                    index: if is_startup_project {
+                        tool_search_index
+                    } else {
+                        Arc::default()
+                    },
+                    tools: if is_startup_project {
+                        shared_tools
+                    } else {
+                        Arc::default()
+                    },
+                });
+        if resources.cwd != cwd {
+            *resources = super::agent_pool::ProjectToolResources {
+                cwd: cwd.to_string(),
+                mcp_pool,
+                index: Arc::default(),
+                tools: Arc::default(),
+            };
+        }
+        (
+            resources.mcp_pool.clone(),
+            resources.index.clone(),
+            resources.tools.clone(),
+        )
+    };
+    // 两种 transport 共用此处，根会话的运行状态不能只由 TUI 写入。
+    let runtime_thread = thread_store.as_ref().zip(thread_id.as_ref());
+    if let Some((store, id)) = runtime_thread {
+        persist_runtime_start(store.as_ref(), id, provider, cwd).await;
+    }
     // Inject synthetic AgentResult tool_use + tool_result messages when bg_results present
     let (history, mut content) = if !bg_results.is_empty() {
         inject_bg_result_messages(history, content, &bg_results)
@@ -247,6 +307,10 @@ pub async fn execute_prompt(
                     };
                     // Immediate 命令跳过 agent event pump，必须手动发送 push_done
                     // 通知 TUI agent 执行完成，否则界面永久卡在 loading 状态。
+                    if let Some((store, id)) = runtime_thread {
+                        persist_runtime_end(store.as_ref(), id, true, result.stop_reason).await;
+                        persist_runtime_snapshot(store.as_ref(), id, provider, cwd).await;
+                    }
                     event_sink.push_done(&session_id).await;
                     return PromptResult {
                         messages: result.messages,
@@ -566,8 +630,8 @@ pub async fn execute_prompt(
             compact_budget: if disable_compact { None } else { Some(budget) },
             compact_model, // already Option<Arc<dyn BaseModel>> from pool/fresh logic
             compact_event_tx: Some(event_tx.clone()),
-            thread_store,
-            parent_thread_id: thread_id,
+            thread_store: thread_store.clone(),
+            parent_thread_id: thread_id.clone(),
             register_runtime,
             deregister_runtime,
             background_registry,
@@ -676,6 +740,10 @@ pub async fn execute_prompt(
         }
     }
 
+    if let Some((store, id)) = runtime_thread {
+        persist_runtime_end(store.as_ref(), id, ok, stop_reason).await;
+        persist_runtime_snapshot(store.as_ref(), id, provider, cwd).await;
+    }
     close_channel(&event_tx);
     wait_for_pump(pump_done_rx, &session_id).await;
 
@@ -685,6 +753,75 @@ pub async fn execute_prompt(
         ok,
         stop_reason,
         recall_items,
+    }
+}
+
+async fn persist_runtime_start(
+    store: &dyn cc_agent::thread::ThreadStore,
+    id: &str,
+    provider: &LlmProvider,
+    cwd: &str,
+) {
+    let id = id.to_string();
+    if let Err(error) = store.update_thread_status(&id, "active").await {
+        tracing::warn!(thread_id = %id, %error, "Failed to persist running thread status");
+    }
+    persist_runtime_snapshot(store, &id, provider, cwd).await;
+}
+
+/// 会话创建或模型设置变化时也可更新详情快照，不改变线程运行状态。
+pub async fn persist_runtime_snapshot(
+    store: &dyn cc_agent::thread::ThreadStore,
+    id: &str,
+    provider: &LlmProvider,
+    cwd: &str,
+) {
+    let id = id.to_string();
+    let branch = cc_middlewares::process::shell_command(
+        "git",
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .current_dir(cwd)
+    .output()
+    .await
+    .ok()
+    .filter(|output| output.status.success())
+    .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    .filter(|branch| !branch.is_empty());
+    let reasoning_effort = match provider {
+        LlmProvider::OpenAi { thinking, .. } | LlmProvider::Anthropic { thinking, .. } => thinking
+            .as_ref()
+            .filter(|value| value.enabled)
+            .map(|value| value.effort.clone()),
+    };
+    if let Err(error) = store
+        .update_runtime_snapshot(
+            &id,
+            Some(provider.model_name().to_string()),
+            reasoning_effort,
+            branch,
+        )
+        .await
+    {
+        tracing::warn!(thread_id = %id, %error, "Failed to persist thread runtime snapshot");
+    }
+}
+
+async fn persist_runtime_end(
+    store: &dyn cc_agent::thread::ThreadStore,
+    id: &str,
+    ok: bool,
+    stop_reason: PromptStopReason,
+) {
+    let status = if stop_reason == PromptStopReason::Cancelled {
+        "cancelled"
+    } else if ok {
+        "done"
+    } else {
+        "error"
+    };
+    if let Err(error) = store.update_thread_status(&id.to_string(), status).await {
+        tracing::warn!(thread_id = %id, %error, "Failed to persist terminal thread status");
     }
 }
 

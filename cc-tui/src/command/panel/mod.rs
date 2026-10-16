@@ -1,3 +1,4 @@
+pub mod agent_center;
 pub mod agents;
 pub mod cron;
 pub mod hooks;

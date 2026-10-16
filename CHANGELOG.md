@@ -6,6 +6,18 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.147 — 2026-10-15
+
+### Features
+
+- **跨项目 Agent Command Center（#542）**：`/agents` 打开全页根会话中心，按 Project / Status / Model 分组，提供 All / Needs you / Working / Ready / Inactive 五档过滤、10 条真分页与 Show more、标题搜索、重命名、永久删除二次确认、150ms 防抖详情（Model / Reasoning / Project / Branch / Last message / Prompt）。空草稿且无弹窗时按 `←` 打开，状态栏提示当前项目会话数；窄屏隐藏右栏，长标题和中文路径按终端列宽截断。
+- **会话目录跟随恢复目标**：跨项目 Enter 与 `n` 使用目标会话目录，系统提示词按 ACP session 冻结，文件补全、相对路径、hooks、MCP、技能与分支缓存随目录切换；不改变进程 cwd。运行中任务、Shell、排队消息或审批未结束时拒绝切换，避免中断和结果串台；Enter 当前会话直接返回。`n` 创建空白草稿，首次发送前不落库；`o` 复用当前项目 `/history`。
+- **会话状态与快照持久化**：根会话轮次持久化 active / done / cancelled / error，新增 model / reasoning_effort / branch 独立列并幂等迁移旧库。SQLite 先分页线程再 JOIN 当页消息统计，计数索引不读取消息；文件系统后端读取轻量索引、仅统计当页文件。过滤与搜索作用于已加载页，计数覆盖全部根会话。仅本进程实时显示 Working / Needs you，其它进程按保存状态和 24 小时阈值降级；历史 done / cancelled / error 为 Inactive。
+
+### Changed
+
+- 原 agent 定义选择入口从 `/agents` 改为 **`/agent-design`**；`/tasks` 从命令注册表移除，其实现保留待独立清理 PR。`/history` 与 `--continue` 保持当前项目语义。
+
 ## v0.6.146 — 2026-10-15
 
 ### Chores

@@ -395,6 +395,29 @@ fn set_message_scroll_offset(app: &mut App, offset: usize) {
 /// Core event-handling logic (extracted from `next_event` to avoid duplicating
 /// the probe and normal paths).
 pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
+    if app.global_ui.agent_center.is_some() {
+        match &ev {
+            Event::Paste(text) => {
+                app.paste_agent_center_text(text);
+                return Ok(Some(Action::Redraw));
+            }
+            Event::Mouse(mouse) => {
+                let code = match mouse.kind {
+                    MouseEventKind::ScrollUp => Some(KeyCode::Up),
+                    MouseEventKind::ScrollDown => Some(KeyCode::Down),
+                    _ => None,
+                };
+                if let Some(code) = code {
+                    app.handle_agent_center_key(ratatui::crossterm::event::KeyEvent::new(
+                        code,
+                        KeyModifiers::NONE,
+                    ));
+                }
+                return Ok(Some(Action::Redraw));
+            }
+            _ => {}
+        }
+    }
     match ev {
         Event::FocusGained => {
             tracing::debug!("event: 收到 FocusGained");
@@ -429,7 +452,12 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
             return keyboard::handle_key_event(app, key_event);
         }
         Event::Paste(text) => {
-            if app.session_mgr.current().active_subagent().is_some_and(|sub| !sub.status.is_active()) {
+            if app
+                .session_mgr
+                .current()
+                .active_subagent()
+                .is_some_and(|sub| !sub.status.is_active())
+            {
                 return Ok(Some(Action::Redraw));
             }
             // Paste text handling
@@ -508,8 +536,10 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                     .is_some_and(|area| mouse::mouse_in_rect(&mouse, area));
             if mouse.kind == MouseEventKind::Moved {
                 let visible = ui.scrollbar_hover || ui.message_scrollbar_dragging;
-                return Ok((was_visible != visible || was_back_hover != ui.scroll_to_bottom_hover)
-                    .then_some(Action::Redraw));
+                return Ok(
+                    (was_visible != visible || was_back_hover != ui.scroll_to_bottom_hover)
+                        .then_some(Action::Redraw),
+                );
             }
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 // "回到最新" 按钮优先于消息区拖选
