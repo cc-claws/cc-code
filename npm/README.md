@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.150：① **`/history` 改为「你输入过的内容」列表**——CLI 语境里 `history` 指用户输入历史（shell 的 `history` 就是列历史命令），此前 `/history` 打开的却是历史会话列表，想查自己输入过什么只能 `Ctrl+↑/↓` 一条条回溯。新增输入历史面板：`↑`/`↓`/`j`/`k`/`PageUp`/`PageDown` 导航、`Enter` 只把选中项回填输入框（不代发）、`Esc` 关闭，数据源与 `Ctrl+↑/↓` 完全同一份（跨会话持久化）。**注意语义变更：原「历史会话浏览」迁到 `/resume`**（#566）；② **状态栏系统提示至少停留 5 秒**——Jev 语义门降级播报（429/超时触发的兜底分类器提示）此前会因紧随其后的 `ToolStart` 等事件被立刻清除，一闪而过读不到原因，现按「最短可见时长」范式垫 5 秒（#564）；③ **修复多轮对话后工具资源持续累积**——工具包装器未析构内部 `Box`、延迟工具代理与子 Agent 模型工厂反向持有注册表/会话池形成引用环，现补唯一析构并改弱引用，最后一个持有者释放后资源正常回收（#568）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.149：**会话中心详情面板重排 + 状态栏会话计数 +「内联 Diff」开关收敛**——① 状态栏 `← {n} agents` 改按会话中心 `Ready` 口径统计：只算当前目录 24h 内有更新、且未进入 Needs you / Working 的根会话，长期使用的目录不再显示累计历史数（实测 194 → 10）（#554）；② `/agents` 详情面板重排：`Model:` / `Reasoning:` 标签与值同行，`Project` / `Branch` / `Last message` / `Prompt` 标签独占一行、块间留空行，值沿用状态栏配色（模型青 / 项目黄 / 分支青），`Last message` / `Prompt` 预览改走 markdown 渲染并折行（长链接不再被 `…` 截断），高度上除 `Prompt` 预留 3 行外全部给 `Last message`，删除确认弹层底色改用 `popup_bg`（#554）；③「内联 Diff」开关（`config.diff_enabled`）不再顺带展开整页——开启后普通页面只多出 Write/Edit 的 diff，shell 输出 / 工具折叠 / 参数折行 / reasoning 一律保持原样（#558）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.148：**Bash 失败退出码置顶与正文整齐缩进**——TUI 终端层优化失败展示体验：非零退出码提升为首行置顶 `  ⎿ Error: Exit code {code}`（红色醒目展示），自动剥离末尾冗余的 `[Exit code: N]` 标记并将输出正文以 4 列悬挂缩进对齐，长输出时不再淹没退出原因；同版完成 `message_render.rs`（90KB+）目录级解耦拆分为独立的 `decorators/`（Bash / Glob / Read / AskUser）模块，并清扫全仓历史测试命名为 100% 全英文 snake_case。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
