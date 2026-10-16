@@ -5,7 +5,7 @@ pub(crate) mod panels;
 mod popups;
 mod queued_messages;
 mod status_bar;
-pub(crate) use status_bar::format_token_count;
+pub(crate) use status_bar::{format_token_count, truncate_spans_to_width};
 mod sticky_header;
 
 pub(crate) use message_area::highlight_line_spans;

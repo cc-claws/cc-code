@@ -121,12 +121,12 @@ async fn test_center_filter_tabs_update_counts() {
 #[tokio::test]
 async fn test_center_show_more_loads_next_page() {
     let (mut app, _directory) = make_app().await;
-    make_center(&mut app, 23).await;
+    make_center(&mut app, 43).await;
     assert_eq!(
         app.global_ui.agent_center.as_ref().unwrap().threads.len(),
-        10
+        20
     );
-    for _ in 0..10 {
+    for _ in 0..20 {
         press(&mut app, KeyCode::Down);
     }
     let center = app.global_ui.agent_center.as_ref().unwrap();
@@ -139,21 +139,21 @@ async fn test_center_show_more_loads_next_page() {
     wait_for_center(&mut app).await;
     assert_eq!(
         app.global_ui.agent_center.as_ref().unwrap().threads.len(),
-        20
+        40
     );
     assert_eq!(
         app.global_ui.agent_center.as_ref().unwrap().catalog.len(),
-        23
+        43
     );
 }
 
 #[tokio::test]
 async fn test_center_catalog_refresh_realigns_pages_after_external_update() {
     let (mut app, _directory) = make_app().await;
-    make_center(&mut app, 23).await;
+    make_center(&mut app, 43).await;
     let center = app.global_ui.agent_center.as_ref().unwrap();
     let selected_id = center.selected_meta(&app).unwrap().id.clone();
-    let mut promoted = center.catalog[15].clone();
+    let mut promoted = center.catalog[25].clone();
     let promoted_id = promoted.id.clone();
     promoted.updated_at = chrono::Utc::now() + chrono::Duration::hours(1);
     app.services
@@ -172,7 +172,7 @@ async fn test_center_catalog_refresh_realigns_pages_after_external_update() {
     tx.send(Ok(catalog)).unwrap();
     app.poll_agent_center();
     let center = app.global_ui.agent_center.as_ref().unwrap();
-    assert_eq!(center.offset, 10, "目录变化后仍对应完整首屏");
+    assert_eq!(center.offset, 20, "目录变化后仍对应完整首屏");
     assert_eq!(
         center.threads[0].id, promoted_id,
         "未加载会话前移后立即可见"
@@ -182,7 +182,7 @@ async fn test_center_catalog_refresh_realigns_pages_after_external_update() {
         selected_id,
         "保留选中会话"
     );
-    for expected in [20, 23] {
+    for expected in [40, 43] {
         let center = app.global_ui.agent_center.as_mut().unwrap();
         center.selected = center.threads.len();
         press(&mut app, KeyCode::Enter);
@@ -498,6 +498,144 @@ async fn test_center_long_metadata_keeps_detail_labels_visible() {
     }
 }
 
+/// 过滤器提示按 PRD 写全 `shift+tab`，不使用 `⇧` 缩写符号。
+#[tokio::test]
+async fn test_center_filter_hint_spells_out_shift_tab() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    let screen = draw(&mut app, 120, 24);
+    assert!(
+        screen.contains("tab/shift+tab filter"),
+        "过滤提示应写全 shift+tab: {screen}"
+    );
+}
+
+/// 详情面板换行位置对齐参考稿：短字段同行，长字段标签独占一行、值另起一行。
+#[tokio::test]
+async fn test_center_detail_matches_reference_line_breaks() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    {
+        let center = app.global_ui.agent_center.as_mut().unwrap();
+        center.threads[0].cwd = "/project/current".into();
+        center.threads[0].model = Some("claude-fable-5".into());
+        center.threads[0].reasoning_effort = Some("xhigh".into());
+        center.threads[0].branch = Some("main".into());
+    }
+    let screen = draw(&mut app, 120, 24);
+    // 只取右栏（`│` 之后）内容，避免左侧列表与顶部标题干扰断言。
+    let cells: Vec<String> = screen
+        .lines()
+        .map(|row| row.split('│').nth(1).unwrap_or("").trim().to_string())
+        .collect();
+    let find = |needle: &str| {
+        cells
+            .iter()
+            .position(|cell| cell == needle)
+            .unwrap_or_else(|| panic!("详情面板缺少 {needle} 行: {screen}"))
+    };
+
+    assert!(
+        find("Model: claude-fable-5") > 0,
+        "Model 标签与值同行: {screen}"
+    );
+    assert!(
+        find("Reasoning: xhigh") > 0,
+        "Reasoning 标签与值同行: {screen}"
+    );
+    assert_eq!(
+        cells[find("Project") + 1],
+        "/project/current",
+        "Project 标签独占一行、路径另起一行: {screen}"
+    );
+    assert_eq!(
+        cells[find("Branch") + 1],
+        "main",
+        "Branch 标签独占一行、分支名另起一行: {screen}"
+    );
+}
+
+/// `Last message` 预览应吃掉除 `Prompt` 预留外的全部高度，不再被固定截到 3 行。
+#[tokio::test]
+async fn test_center_detail_last_message_preview_fills_height() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    let id = app.global_ui.agent_center.as_ref().unwrap().threads[0]
+        .id
+        .clone();
+    {
+        let center = app.global_ui.agent_center.as_mut().unwrap();
+        center.detail_id = Some(id);
+        center.detail = Some(state::Detail {
+            prompt: "继续".into(),
+            last: (1..=12)
+                .map(|index| format!("row{index}end"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        });
+    }
+    let screen = draw(&mut app, 120, 40);
+    let shown = (1..=12)
+        .filter(|index| screen.contains(&format!("row{index}end")))
+        .count();
+    assert_eq!(shown, 12, "Last message 应完整展示全部 12 行: {screen}");
+}
+
+/// `Last message` 预览走 markdown 渲染，标记符不应原样出现。
+#[tokio::test]
+async fn test_center_detail_last_message_renders_markdown() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    let id = app.global_ui.agent_center.as_ref().unwrap().threads[0]
+        .id
+        .clone();
+    {
+        let center = app.global_ui.agent_center.as_mut().unwrap();
+        center.detail_id = Some(id);
+        center.detail = Some(state::Detail {
+            prompt: "继续".into(),
+            last: "**bold** 与 `code` 混排".into(),
+        });
+    }
+    let screen = draw(&mut app, 120, 40);
+    assert!(screen.contains("bold"), "正文应渲染出来: {screen}");
+    assert!(screen.contains("code"), "行内代码应渲染出来: {screen}");
+    assert!(
+        !screen.contains("**"),
+        "markdown 标记不应原样出现: {screen}"
+    );
+}
+
+/// 弹层底色必须用主题的 `popup_bg`，不能拿品牌色 `background`（暗色主题下是青绿）铺满。
+#[tokio::test]
+async fn test_center_delete_overlay_uses_popup_background() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    press(&mut app, KeyCode::Delete);
+
+    let width = 120u16;
+    let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+    terminal
+        .draw(|frame| crate::ui::main_ui::render(frame, &mut app))
+        .unwrap();
+    let backgrounds: std::collections::HashSet<_> = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.bg)
+        .collect();
+    let palette = crate::ui::theme::cur();
+    assert!(
+        backgrounds.contains(&palette.popup_bg),
+        "弹层底应使用 popup_bg，实际出现的背景色: {backgrounds:?}"
+    );
+    assert!(
+        !backgrounds.contains(&palette.background),
+        "不得把品牌色 background 当弹层底: {backgrounds:?}"
+    );
+}
+
 #[tokio::test]
 async fn test_center_delete_warning_and_help_remain_visible_for_long_title() {
     let (mut app, _directory) = make_app().await;
@@ -635,5 +773,35 @@ async fn test_center_manual_rename_wins_over_queued_automatic_title_for_other_th
             .as_deref(),
         Some("手工标题优先"),
         "切换后的历史会话也保留手工命名"
+    );
+}
+
+/// 状态栏 `← {n} agents` 的口径：当前目录 + `Ready`（24h 内有更新）的根会话。
+///
+/// 覆盖三个排除维度：其他目录、超过 24h 未更新、子 agent（非根）。
+#[tokio::test]
+async fn test_current_project_ready_count_filters_cwd_bucket_and_root() {
+    let (mut app, _directory) = make_app().await;
+    let now = chrono::Utc::now();
+
+    let mut ready = make_thread("/project/current", "当前目录活跃");
+    ready.updated_at = now - chrono::Duration::hours(1);
+
+    let mut stale = make_thread("/project/current", "当前目录陈旧");
+    stale.updated_at = now - chrono::Duration::hours(25);
+
+    let mut other_project = make_thread("/project/other", "别的目录活跃");
+    other_project.updated_at = now - chrono::Duration::hours(1);
+
+    let mut child = make_thread("/project/current", "当前目录的子 agent");
+    child.parent_thread_id = Some("parent-thread".into());
+    child.updated_at = now - chrono::Duration::hours(1);
+
+    app.global_ui.agent_catalog = vec![ready, stale, other_project, child];
+
+    assert_eq!(
+        app.current_project_ready_count(),
+        1,
+        "只应统计当前目录下 24h 内有更新的根会话"
     );
 }
