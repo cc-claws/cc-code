@@ -257,6 +257,50 @@ async fn test_status_bar_activity_shows_last_two_running_tools() {
     );
 }
 
+#[tokio::test]
+async fn test_status_bar_omits_subagent_run_label_from_activity_row() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
+    // 注入一条已完成工具统计，使状态栏展开第 2 行（工具与状态活动行）
+    app.session_mgr
+        .current_mut()
+        .agent
+        .session_tool_stats
+        .insert("Bash".to_string(), 1);
+    // 注入后台 Agent
+    app.session_mgr
+        .current_mut()
+        .background_agents
+        .push(crate::app::RunningBgAgent {
+            agent_name: "general-purpose".to_string(),
+            instance_id: "inst-1".to_string(),
+            started_at: std::time::Instant::now(),
+            total_steps: 0,
+        });
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let bg_height = super::bg_agent_bar::bg_bar_height(&app, 24) as usize;
+    let sb_height = super::status_bar::status_bar_height(&app) as usize;
+    assert_eq!(sb_height, 3, "有工具活动时状态栏应为 3 行");
+    let status_rows = &snapshot[snapshot.len() - bg_height - sb_height..snapshot.len() - bg_height];
+    // 第二行应有工具统计，但绝不应包含 🤖 或 (run)
+    assert!(
+        status_rows[1].contains("Bash")
+            && !status_rows[1].contains("🤖")
+            && !status_rows[1].contains("(run)"),
+        "第二行工具行应只展示工具统计，绝不应冗余展示已在抽屉中的子 agent 运行标签，实际:\n{}",
+        status_rows.join("\n")
+    );
+    // 第三行应包含抽屉引导胶囊
+    assert!(
+        status_rows[2].contains("1 agent") && status_rows[2].contains("↓ to view"),
+        "第三行应保留 1 agent ↓ to view 胶囊，实际:\n{}",
+        status_rows.join("\n")
+    );
+}
+
 // ── thinking 状态行：第三字段与热度色 ──────────────────────────────
 
 #[test]
@@ -268,10 +312,7 @@ fn test_thinking_status_word_time_ladder() {
     assert_eq!(thinking_status_word(false, 0, 0), "");
     assert_eq!(thinking_status_word(false, 99_000, 0), "");
     // Non-thinking phase with prior thought -> thought for Ns
-    assert_eq!(
-        thinking_status_word(false, 0, 4_200),
-        "thought for 4s"
-    );
+    assert_eq!(thinking_status_word(false, 0, 4_200), "thought for 4s");
     // < 5s -> thinking
     assert_eq!(thinking_status_word(true, 2_000, 0), "thinking");
     assert_eq!(
@@ -301,10 +342,7 @@ fn test_thinking_status_word_time_ladder() {
         thinking_status_word(true, DEEP_THOUGHT_SECS * 1000, 0),
         "deep in thought"
     );
-    assert_eq!(
-        thinking_status_word(true, 143_000, 0),
-        "deep in thought"
-    );
+    assert_eq!(thinking_status_word(true, 143_000, 0), "deep in thought");
 }
 
 #[test]
@@ -510,7 +548,10 @@ async fn test_status_bar_typography_spacing_and_alignment() {
 
     // 1) 冒号后必须有空格 —— 直接防范 PRD 点名的 `in18s` / `in:389k,out:18` 粘连
     assert!(first.contains("tok: "), "缺 `tok: ` 空格：\n{joined}");
-    assert!(first.contains("(in: "), "缺 `(in: ` 空格（即 `in18` 类粘连）：\n{joined}");
+    assert!(
+        first.contains("(in: "),
+        "缺 `(in: ` 空格（即 `in18` 类粘连）：\n{joined}"
+    );
     assert!(first.contains(", out: "), "缺 `, out: ` 空格：\n{joined}");
     assert!(
         !first.contains("(in:388") && !first.contains("in18"),
@@ -518,7 +559,10 @@ async fn test_status_bar_typography_spacing_and_alignment() {
     );
 
     // 2) 时钟 emoji 后固定 2 个半角空格
-    assert!(first.contains("\u{23f1}  "), "`\u{23f1}` 后应为 2 空格：\n{joined}");
+    assert!(
+        first.contains("\u{23f1}  "),
+        "`\u{23f1}` 后应为 2 空格：\n{joined}"
+    );
 
     // 3) 段落分隔符统一 ` | `
     assert!(first.contains(" | "), "第一行缺 ` | ` 分隔符：\n{joined}");
@@ -697,7 +741,10 @@ async fn test_drawer_metrics_follows_token_flow_with_single_arrow() {
     let joined = handle.snapshot().join("\n");
 
     // Agent 产出回复 → 只有下行箭头，取最近一次调用的 output。
-    assert!(joined.contains("↓ 259"), "Agent 回复应显示下行箭头 + output：\n{joined}");
+    assert!(
+        joined.contains("↓ 259"),
+        "Agent 回复应显示下行箭头 + output：\n{joined}"
+    );
     assert!(
         !joined.contains("↓ 32.7k") && !joined.contains("↑ "),
         "不得并列显示输入/输出，也不得用累计值冒充单向 token：\n{joined}"
@@ -711,8 +758,14 @@ async fn test_drawer_metrics_follows_token_flow_with_single_arrow() {
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
     let after_ask = handle.snapshot().join("\n");
-    assert!(after_ask.contains("↑ 32.7k"), "用户提问后应转为上行箭头 + input：\n{after_ask}");
-    assert!(!after_ask.contains("↓ 259"), "提问后不得再留在下行态：\n{after_ask}");
+    assert!(
+        after_ask.contains("↑ 32.7k"),
+        "用户提问后应转为上行箭头 + input：\n{after_ask}"
+    );
+    assert!(
+        !after_ask.contains("↓ 259"),
+        "提问后不得再留在下行态：\n{after_ask}"
+    );
 }
 
 /// 回归：抽屉中间列展示「子 Agent 在说什么」，不是工具调用串。
@@ -787,7 +840,10 @@ async fn test_drawer_activity_shows_assistant_text_not_tool_call() {
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     let _ = app.poll_agent();
     let snap = render(&mut app, &mut handle);
-    assert!(snap.contains("Sleeping for 60 seconds"), "应显示最新一句：\n{snap}");
+    assert!(
+        snap.contains("Sleeping for 60 seconds"),
+        "应显示最新一句：\n{snap}"
+    );
     assert!(
         !snap.contains("then query Shenzhen weather."),
         "旧句应被替换：\n{snap}"
@@ -812,21 +868,33 @@ async fn test_viewed_subagent_completion_keeps_viewport_until_leave() {
         "isBackground": true,
     }));
     app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
-    app.handle_subagent_event("child-1", AgentEvent::StateSnapshot(vec![
-        cc_agent::messages::BaseMessage::human("please sleep 60 seconds"),
-    ]));
+    app.handle_subagent_event(
+        "child-1",
+        AgentEvent::StateSnapshot(vec![cc_agent::messages::BaseMessage::human(
+            "please sleep 60 seconds",
+        )]),
+    );
     let notified = handle.render_notify.notified();
-    app.handle_subagent_event("child-1", AgentEvent::AssistantChunk {
-        chunk: "Sleeping 60 seconds".into(),
-        source_agent_id: None,
-    });
+    app.handle_subagent_event(
+        "child-1",
+        AgentEvent::AssistantChunk {
+            chunk: "Sleeping 60 seconds".into(),
+            source_agent_id: None,
+        },
+    );
     notified.await;
     let render = |app: &mut crate::app::App, handle: &mut crate::ui::headless::HeadlessHandle| {
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, app))
+            .unwrap();
         handle.snapshot().join("\n")
     };
     // 用只出现在消息区、不出现在抽屉预览里的用户气泡文本判定视口内容
-    assert!(render(&mut app, &mut handle).contains("please sleep 60 seconds"), "进入视口应看到子 Agent 输出");
+    assert!(
+        render(&mut app, &mut handle).contains("please sleep 60 seconds"),
+        "进入视口应看到子 Agent 输出"
+    );
 
     let notified = handle.render_notify.notified();
     app.handle_subagent_lifecycle(&serde_json::json!({
@@ -838,8 +906,14 @@ async fn test_viewed_subagent_completion_keeps_viewport_until_leave() {
     }));
     notified.await;
     let snap = render(&mut app, &mut handle);
-    assert!(snap.contains("please sleep 60 seconds"), "结束时视口内容不得消失：\n{snap}");
-    assert!(snap.contains("completed"), "仍在查看的已结束行应显示 completed：\n{snap}");
+    assert!(
+        snap.contains("please sleep 60 seconds"),
+        "结束时视口内容不得消失：\n{snap}"
+    );
+    assert!(
+        snap.contains("completed"),
+        "仍在查看的已结束行应显示 completed：\n{snap}"
+    );
     assert_eq!(
         app.session_mgr.current().focused_instance_id.as_deref(),
         Some("child-1"),
@@ -851,9 +925,18 @@ async fn test_viewed_subagent_completion_keeps_viewport_until_leave() {
     app.switch_subagent_viewport(None);
     notified.await;
     let snap = render(&mut app, &mut handle);
-    assert!(!snap.contains("please sleep 60 seconds"), "离开后应回到主会话视图：\n{snap}");
-    assert!(app.session_mgr.current().subagent_sessions.is_empty(), "离开后应回收子会话");
-    assert!(app.session_mgr.current().background_agents.is_empty(), "离开后应回收抽屉行");
+    assert!(
+        !snap.contains("please sleep 60 seconds"),
+        "离开后应回到主会话视图：\n{snap}"
+    );
+    assert!(
+        app.session_mgr.current().subagent_sessions.is_empty(),
+        "离开后应回收子会话"
+    );
+    assert!(
+        app.session_mgr.current().background_agents.is_empty(),
+        "离开后应回收抽屉行"
+    );
 }
 
 /// 回归：子 Agent 完成后，抽屉行的圆点与完成标记必须转绿。
@@ -878,18 +961,32 @@ async fn test_completed_subagent_drawer_row_turns_green() {
         "isError": false,
         "elapsedMs": 32000,
     }));
-    handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
 
     let rows = handle.snapshot();
-    let row_index = rows.iter().position(|row| row.contains("completed")).expect("抽屉应有已完成行") as u16;
+    let row_index = rows
+        .iter()
+        .position(|row| row.contains("completed"))
+        .expect("抽屉应有已完成行") as u16;
     let buffer = handle.terminal.backend().buffer();
     let cell_x = |symbol: &str| {
         (0..buffer.area.width)
             .find(|x| buffer[(*x, row_index)].symbol() == symbol)
             .unwrap_or_else(|| panic!("已完成行应含 {symbol}：{:?}", rows[row_index as usize]))
     };
-    assert_eq!(buffer[(cell_x("●"), row_index)].fg, crate::ui::theme::cur().success, "完成行圆点应转绿");
-    assert_eq!(buffer[(cell_x("✓"), row_index)].fg, crate::ui::theme::cur().success, "完成标记应转绿");
+    assert_eq!(
+        buffer[(cell_x("●"), row_index)].fg,
+        crate::ui::theme::cur().success,
+        "完成行圆点应转绿"
+    );
+    assert_eq!(
+        buffer[(cell_x("✓"), row_index)].fg,
+        crate::ui::theme::cur().success,
+        "完成标记应转绿"
+    );
 }
 
 /// 回归：后台子 Agent 启动摘要必须是**对齐的树形块**（对齐 docs/subagent-mock.html）。
@@ -899,7 +996,10 @@ async fn test_completed_subagent_drawer_row_turns_green() {
 #[tokio::test]
 async fn test_background_launch_summary_renders_as_aligned_tree() {
     let (mut app, mut handle) = crate::app::App::new_headless(100, 30).await;
-    for (id, preview) in [("c1", "review Guangzhou weather"), ("c2", "review Xiamen weather")] {
+    for (id, preview) in [
+        ("c1", "review Guangzhou weather"),
+        ("c2", "review Xiamen weather"),
+    ] {
         app.handle_subagent_lifecycle(&serde_json::json!({
             "event": "started", "instanceId": id, "agentType": "general-purpose",
             "taskPreview": preview, "isBackground": true,
@@ -908,22 +1008,32 @@ async fn test_background_launch_summary_renders_as_aligned_tree() {
     // 消息区来自渲染线程缓存：等它处理完 Rebuild 再断言
     let notified = handle.render_notify.notified();
     notified.await;
-    handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
     let rows = handle.snapshot();
 
-    let header = rows.iter().position(|row| row.contains("background agents launched")).expect("应渲染启动摘要标题");
+    let header = rows
+        .iter()
+        .position(|row| row.contains("background agents launched"))
+        .expect("应渲染启动摘要标题");
     assert!(
         rows[header].starts_with("● "),
         "标题行应自带全局统一圆点 `● `（theme::SYMBOL_DOT_SPACED），不得再被注入 `· `：{:?}",
         rows[header]
     );
-    assert!(!rows[header].contains("· "), "不得出现 `· ●` 双标记：{:?}", rows[header]);
+    assert!(
+        !rows[header].contains("· "),
+        "不得出现 `· ●` 双标记：{:?}",
+        rows[header]
+    );
     // 比较显示列宽（`●` 是 3 字节 1 列，不能用字节下标）
-    let display_col = |text: &str, byte_index: usize| {
-        unicode_width::UnicodeWidthStr::width(&text[..byte_index])
-    };
+    let display_col =
+        |text: &str, byte_index: usize| unicode_width::UnicodeWidthStr::width(&text[..byte_index]);
     let title_col = display_col(&rows[header], rows[header].find('2').expect("标题应含数量"));
-    for (offset, glyph, prefix) in [(1usize, '├', "  ├── "), (2usize, '└', "  └── ")] {
+    for (offset, glyph, prefix) in [(1usize, '├', "  ├── "), (2usize, '└', "  └── ")]
+    {
         let row = &rows[header + offset];
         assert!(!row.contains("· "), "树形行不得注入 `· ` 前缀：{row:?}");
         assert!(
