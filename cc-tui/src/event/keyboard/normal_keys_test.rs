@@ -94,6 +94,21 @@
     }
 
     #[tokio::test]
+    async fn test_unknown_command_note_renders_immediately() {
+        let (mut app, _handle) = App::new_headless(120, 30).await;
+        let before = app.session_mgr.current().messages.render_cache.read().total_lines;
+        set_input(&mut app, "/no-such-command");
+        handle_normal_keys(&mut app, make_enter()).expect("按键处理成功");
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        let after = app.session_mgr.current().messages.render_cache.read().total_lines;
+        assert!(
+            after > before,
+            "未知命令提示应立即重绘（重绘前 {before} 行，重绘后 {after} 行）"
+        );
+    }
+
+    #[tokio::test]
     async fn test_busy_shell_input_is_rejected_and_input_preserved() {
         let mut app = make_busy_app().await;
         set_input(&mut app, "!ls");
