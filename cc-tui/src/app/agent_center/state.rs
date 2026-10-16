@@ -212,21 +212,15 @@ impl AgentCenter {
         self.detail_due = Instant::now();
     }
     pub fn refresh_catalog(&mut self, catalog: Vec<ThreadMeta>) {
-        let previous_len = self.threads.len();
-        self.threads.retain_mut(|meta| {
-            if let Some(fresh) = catalog
-                .iter()
-                .find(|fresh| fresh.id == meta.id && fresh.is_root())
-            {
-                *meta = fresh.clone();
-                true
-            } else {
-                false
-            }
-        });
-        self.offset = self
-            .offset
-            .saturating_sub(previous_len - self.threads.len());
+        // offset 必须始终对应当前目录的连续根会话前缀。外部更新会改变排序，
+        // 只刷新旧 ID 会把越过分页边界的未加载会话永久跳过。
+        self.threads = catalog
+            .iter()
+            .filter(|meta| meta.is_root())
+            .take(self.offset)
+            .cloned()
+            .collect();
+        self.offset = self.threads.len();
         self.catalog = catalog;
     }
     pub fn reset_selection(&mut self) {

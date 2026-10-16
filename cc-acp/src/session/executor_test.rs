@@ -50,6 +50,7 @@ fn test_background_results_preserve_history_marker_pairs() {
 async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> anyhow::Result<()> {
     use cc_agent::thread::{SqliteThreadStore, ThreadMeta, ThreadStore};
     let project = tempfile::tempdir()?;
+    let storage = tempfile::tempdir()?;
     let output = cc_middlewares::process::shell_command("git", &["init", "--quiet"])
         .current_dir(project.path())
         .output()
@@ -67,7 +68,8 @@ async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> any
     .output()
     .await?;
     assert!(output.status.success(), "临时 git 分支必须初始化成功");
-    let store = SqliteThreadStore::new(project.path().join("runtime.db")).await?;
+    // SQLite 会收紧父目录权限；独立存储目录避免改变临时 Git 项目的 ACL。
+    let store = SqliteThreadStore::new(storage.path().join("runtime.db")).await?;
     let id = store
         .create_thread(ThreadMeta::new(project.path().to_string_lossy()))
         .await?;
@@ -87,7 +89,22 @@ async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> any
     assert_eq!(meta.agent_status, "active");
     assert_eq!(meta.model.as_deref(), Some("test-model"));
     assert_eq!(meta.reasoning_effort.as_deref(), Some("high"));
-    assert_eq!(meta.branch.as_deref(), Some("runtime-snapshot"));
+    let branch_probe = cc_middlewares::process::shell_command(
+        "git",
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .current_dir(project.path())
+    .output()
+    .await?;
+    assert_eq!(
+        meta.branch.as_deref(),
+        Some("runtime-snapshot"),
+        "分支快照必须保留；复查 status={} stdout={} stderr={} cwd={}",
+        branch_probe.status,
+        String::from_utf8_lossy(&branch_probe.stdout),
+        String::from_utf8_lossy(&branch_probe.stderr),
+        project.path().display()
+    );
     Ok(())
 }
 
