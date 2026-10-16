@@ -781,6 +781,86 @@ fn test_tool_block_detail_mode_includes_diff_lines() {
     );
 }
 
+/// 「内联 Diff」开关的语义：只决定**普通页面**是否展示 Write/Edit 的 diff；
+/// 详细模式（Ctrl+O）下恒展示，与开关无关。
+#[test]
+fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
+    use crate::app::MessageViewModel;
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Edit".to_string(),
+        tool_call_id: "tc_switch".to_string(),
+        display_name: "Edit".to_string(),
+        args_display: Some("file.rs".to_string()),
+        content: "edited file.rs".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().success,
+        diff_input: Some(cc_widgets::DiffInput {
+            file_path: "file.rs".to_string(),
+            old_content: "old line".to_string(),
+            new_content: "new line".to_string(),
+            is_new_file: false,
+            is_deleted_file: false,
+            is_binary: false,
+        }),
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
+    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, 0).0);
+    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+
+    assert!(!off.contains("new line"), "开关关闭时普通页面不显示 diff");
+    assert!(
+        on.contains("new line"),
+        "开关开启时普通页面应显示 diff: {on}"
+    );
+    assert!(on.contains("  ⎿ "), "diff 行应带缩进前缀: {on}");
+    assert!(
+        detail.contains("new line"),
+        "详细模式与开关无关，应恒显示 diff: {detail}"
+    );
+}
+
+/// 开关不得顺带打开详细模式的整页展开：开启后 Bash 输出仍按折叠档截断，
+/// 渲染结果必须与关闭时逐字一致。
+#[test]
+fn test_inline_diff_switch_does_not_expand_other_blocks() {
+    use crate::app::MessageViewModel;
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_bash".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("echo 6".to_string()),
+        content: "row1\nrow2\nrow3\nrow4\nrow5\nrow6".to_string(),
+        is_error: false,
+        collapsed: false,
+        color: crate::ui::theme::cur().success,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
+    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, 0).0);
+    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+
+    assert!(
+        off.contains("... (3 more lines) (ctrl+o to expand)"),
+        "折叠档应先给前 3 行并附展开提示: {off}"
+    );
+    assert_eq!(on, off, "开关只影响 diff，其他块的渲染必须与关闭时一致");
+    assert!(
+        detail.contains("row6"),
+        "详细模式仍应展开全部输出: {detail}"
+    );
+}
+
 #[test]
 fn test_tool_block_detail_mode_diff_respects_terminal_width() {
     // 验证 issue 2026-06-24-diff-render-width-hardcoded-80 的核心修复：

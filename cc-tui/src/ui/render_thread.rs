@@ -24,7 +24,9 @@ use super::message_render::CONTROL_B_BACKGROUND_HINT;
 use super::theme;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
-    message_render::{is_shell_running_status_line, render_view_model_with_links, shell_running_text},
+    message_render::{
+        is_shell_running_status_line, render_view_model_with_flags, shell_running_text,
+    },
     message_view::MessageViewModel,
 };
 use cc_widgets::markdown::LinkHit;
@@ -295,11 +297,10 @@ impl RenderTask {
         }
 
         // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
-        // diff_visible 控制 Write/Edit 工具的 diff 显示
-        // 两者独立，取并集：任一为 true 时展开对应内容
-        let expand_mode = detail_mode || diff_visible;
+        // diff_visible 只控制普通页面是否内联显示 Write/Edit 的 diff（详细模式下恒显示）
+        // 两者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
         let (mut lines, links) =
-            render_view_model_with_links(vm, Some(index), width, expand_mode, tick);
+            render_view_model_with_flags(vm, Some(index), width, detail_mode, diff_visible, tick);
         // 每条消息后追加空行分隔符（包括空内容消息，确保间距一致）
         lines.push(Line::from(""));
         (lines, links)
