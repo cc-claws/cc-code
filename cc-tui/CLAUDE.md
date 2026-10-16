@@ -86,9 +86,9 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ### 面板系统
 
-15 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser、CommandPalettePanel、ThemePanel（Session，8 种）；McpPanel、PluginPanel、CronPanel、TasksPanel、StatusPanel、MemoryPanel、BackgroundTasksPanel（Global，7 种）。
+14 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser、CommandPalettePanel、ThemePanel（Session，8 种）；McpPanel、PluginPanel、CronPanel、StatusPanel、MemoryPanel、BackgroundTasksPanel（Global，6 种）。
 
-互斥组（`MutexGroup`）：Settings（Model/Login/Config/CommandPalette/Theme）、Agent（Agent/Hooks）、Tools（MCP/Plugin/Cron/Tasks/BackgroundTasks）、Info（Status/Memory）、Thread（ThreadBrowser 独占）。
+互斥组（`MutexGroup`）：Settings（Model/Login/Config/CommandPalette/Theme）、Agent（Agent/Hooks）、Tools（MCP/Plugin/Cron/BackgroundTasks）、Info（Status/Memory）、Thread（ThreadBrowser 独占）。
 
 `PanelManager` + `PanelComponent` trait（`panel_manager.rs`/`panel_component.rs`），新增面板只需定义变体 + 实现 trait。面板内禁止渲染提示行，由 `status_bar_hints()` 统一描述。
 

@@ -15,7 +15,6 @@ pub mod panel_plugin;
 pub mod plugin_panel;
 pub mod setup_wizard;
 pub mod status_panel;
-pub mod tasks_panel;
 pub mod theme_panel;
 
 // Panel private modules
@@ -154,7 +153,6 @@ pub use panel_component::PanelComponent;
 pub use panel_manager::{
     EventResult, MutexGroup, PanelContext, PanelKind, PanelManager, PanelScope, PanelState,
 };
-pub use tasks_panel::TasksPanel;
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
