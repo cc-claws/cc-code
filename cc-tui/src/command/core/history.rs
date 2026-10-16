@@ -11,13 +11,9 @@ impl Command for HistoryCommand {
         _lc.tr("command-history-description")
     }
 
-    fn aliases(&self) -> Vec<&str> {
-        vec!["resume"]
-    }
-
     fn execute(&self, app: &mut App, _args: &str) {
         // 运行中不可打开面板——该判定现已统一由 `blocked_while_busy`（默认 true）
         // 在输入入口拦截，命令内不再自查，避免逐命令各写一套。
-        app.open_thread_browser();
+        app.open_input_history_panel();
     }
 }

@@ -747,7 +747,7 @@ async fn test_apply_model_selection_reverse_looks_up_specific_model_name() {
     assert_eq!(stored.config.active_alias, "sonnet");
 }
 
-/// 验证 session/load (如 /history 恢复) 即使传入具体模型全名也能正确识别，不回退到默认模型
+/// 验证 session/load (如 /resume 恢复) 即使传入具体模型全名也能正确识别，不回退到默认模型
 #[tokio::test]
 async fn test_session_load_identifies_model_correctly_when_restoring_history_session() {
     use cc_agent::thread::ThreadMeta;

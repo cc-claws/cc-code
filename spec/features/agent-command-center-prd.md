@@ -16,7 +16,7 @@
 - **状态以 Q3 与验收用例为准**：历史 `done/cancelled/error` 均为 Inactive，历史 active 在 24h 内为 Ready，超期为 Inactive；只有本进程的根任务/子任务运行与待审批/待回答可分别提升为 Working/Needs you，Needs you 优先。删除 §4.3 中历史 error 同时归两桶的歧义。
 - **门控按 peri 实际能力映射**：本地 in-memory ACP 为可用本进程；无 daemon、vim 或自定义 move_left 绑定的配置项，不引入虚构状态。要求焦点、根会话、空文本/空附件、无 setup/OAuth/交互/面板/补全/子任务控制前缀，并仅接受裸 Left Press。粘贴独立路由，不穿透页面到 composer。
 - **计数与分页**：轻量全局索引提供全部根会话计数；SQLite 在 root 筛选后每页 LIMIT 10，再对当页消息 JOIN 聚合。过滤/搜索作用于已加载页，Tab 不请求存储；Show more 始终可达。filesystem 后端必须读取 index.json，但只对页内会话统计消息文件大小。分组计数等于当前过滤后已加载的组内行数。
-- **切换不中断任务**：peri 单个根 ChatSession 不承载并行根任务；有运行 Agent/Shell、排队消息或未处理审批时拒绝跨会话切换和删除，当前行 Enter 直接返回原视口。`n` 使用选中 cwd 创建空白草稿，首次发送前不创建持久化会话行。目录缺失或 ACP load 失败保留当前上下文。`o` 复用当前项目 `/history`。
+- **切换不中断任务**：peri 单个根 ChatSession 不承载并行根任务；有运行 Agent/Shell、排队消息或未处理审批时拒绝跨会话切换和删除，当前行 Enter 直接返回原视口。`n` 使用选中 cwd 创建空白草稿，首次发送前不创建持久化会话行。目录缺失或 ACP load 失败保留当前上下文。`o` 复用当前项目 `/resume`。
 - **提示词稳定性优先**：新 ACP session 按目标 ThreadMeta.cwd 构建 frozen 数据；同一 session 再次 load 不重冻提示词。切换时使 UI 派生 cwd、路径渲染、@ 搜索、技能、分支缓存、hooks 和 MCP 与目标会话一致，不改变进程 cwd。
 - **永久删除确认**：Backspace/Delete 打开确认，`y` 明确永久删除（不可恢复），Esc/n 取消；Enter 不默认触发删除。重命名与删除固定原 thread ID，防止列表状态变化导致写错会话。
 - **快照适用范围**：具有 LLM 配置的根会话在创建、分叉、设置变化和执行时保存模型/推理快照；纯 Shell 会话、隐藏内部线程或历史记录缺少实际配置时保持空值并显示 Unknown，不推测模型。执行根会话时补齐自身 cwd 的运行快照。
@@ -29,7 +29,7 @@
 | 入口 | 现状 | 问题 |
 |---|---|---|
 | `/tasks`（`cc-tui/src/app/panel_plugin.rs:441`） | `list_threads()` 之后 `filter(cwd)`，只列当前项目 | 跨项目看不到 |
-| `/history`（`cc-tui/src/app/thread_ops.rs:459`） | 同上 | 跨项目看不到 |
+| `/resume`（`cc-tui/src/app/thread_ops.rs:459`） | 同上 | 跨项目看不到 |
 
 而底层数据**本来就是全局的**：`ThreadStore::list_threads()` 是全局查询（`cc-agent/src/thread/sqlite_store.rs:498`，`WHERE hidden = 0 ORDER BY updated_at DESC`），库落在 `~/.cc-code/threads/threads.db`（单库、带 `cwd` 列）。**过滤器是调用方自己加的。**
 
@@ -366,9 +366,9 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 |---|---|---|---|
 | D1 | `←` 的 10 条门控里，「`AppServerTarget::LocalDaemon`」在 peri 对应什么？ | peri 无 daemon 概念；`←` 目前绑 `move_left` | 把该条映射为「本进程可用」，其余 9 条照搬 |
 | D2 | `Esc` 的层级优先级（帮助 → 重命名 → 搜索 → 中心返回会话）需要一份明确顺序 | mock 里已修过一个「会话页吃掉帮助层 Esc」的 bug | 按上述顺序，帮助层**永远最先** |
-| D3 | `o` resume 与选中行**无关**（对齐 Codex），但 peri 已有 `/history`——两者关系？ | `keymap.rs:1949-1963`：`o` → `OpenResumePicker` | `o` = 开 `/history` 的同一选择器；**本页内不做「resume 选中行」** |
+| D3 | `o` resume 与选中行**无关**（对齐 Codex），但 peri 已有 `/resume`——两者关系？ | `keymap.rs:1949-1963`：`o` → `OpenResumePicker` | `o` = 开 `/resume` 的同一选择器；**本页内不做「resume 选中行」** |
 | D4 | ✅ **已定：硬删（永久删除），对齐 Codex** | 确认浮层必须明确不可恢复，且要求显式确认；软归档本期不做 | 新增 `delete_thread_tree(id)` 删除根会话与隐藏子孙及消息，保留原 `delete_thread` 的单行语义；确认浮层固定显示「不可恢复」，仅 `y` 执行 |
-| D5 | `r` 重命名写哪、是否同步 `/history`？ | `ThreadMeta.title` 可写 | 写 `title`，`/history` 自动同步（同一数据源） |
+| D5 | `r` 重命名写哪、是否同步 `/resume`？ | `ThreadMeta.title` 可写 | 写 `title`，`/resume` 自动同步（同一数据源） |
 
 **E. 性能与迁移**
 
@@ -410,11 +410,11 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 | `cc-agent/src/thread/filesystem.rs` | **P1**：同步实现新 trait 方法 | P1 |
 | 根会话状态写入点（`cc-acp/src/session/executor.rs::execute_prompt()` 首尾 **或** `cc-tui/src/app/agent_submit.rs`，实现时二选一定位） | **P1 / C3（已定修）**：轮次开始/结束写 `agent_status`（当前唯一调用点只有 `execute_bg.rs:161,179` 的子 agent） | P1 |
 | `cc-tui/src/command/panel/agents.rs:19` | **P2**：让出 `/agents`，改名 **`/agent-design`**（A3 已定） | P2 |
-| `cc-tui/src/app/thread_ops.rs:234` | **P1（方案 B，A1 已定）**：`open_thread()` 改传 `meta.cwd`；`:459`（`/history`）保持按 cwd 过滤不变 | P1 |
+| `cc-tui/src/app/thread_ops.rs:234` | **P1（方案 B，A1 已定）**：`open_thread()` 改传 `meta.cwd`；`:459`（`/resume`）保持按 cwd 过滤不变 | P1 |
 | `cc-tui/src/app/service_registry.rs:64` | **P1（方案 B，A1 已定）**：`cwd` 降级为「跟随当前会话的派生值」（见 §5.1 成本清单） | P1 |
 | 文档：`CHANGELOG.md` / `README.md` + `README_ZH.md` / `TUI-STYLE.md` / `spec/global/features.md` | 命令让渡（`/agents` → `/agent-design`）与新增 `←` 快捷键必须同步（按 CLAUDE.md 文档地图；两版 README 特性表一一对应） | P2 |
 
-**不改**：`PanelManager`（不新增 `PanelKind`，见 §4.1）。`/history`（保留单项目语义）。
+**不改**：`PanelManager`（不新增 `PanelKind`，见 §4.1）。`/resume`（保留单项目语义）。
 
 ## 8. 验收标准
 

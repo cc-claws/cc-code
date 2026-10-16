@@ -132,7 +132,7 @@ submit_message(text)
 | Setup Wizard | 三步引导（Provider → API Key → Model Alias），save_setup() 原子写回 settings.json |
 | Welcome Card | 空消息时 ASCII Art Logo + 功能亮点，窄屏降级为文字标题 |
 | Sticky Header | 最后一条 Human 消息 1-3 行截断固定在聊天区顶部 |
-| 历史过滤 | /history 面板按 cwd 过滤 ThreadMeta，标题含工作区路径 |
+| 历史过滤 | /resume 面板按 cwd 过滤 ThreadMeta，标题含工作区路径 |
 | 定时任务面板 | /loop 注册（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用） |
 | /compact 迁移 | 执行后创建新 Thread 保留旧历史，新 Thread 必须以摘要 Human(summary + continuation) 消息开头（禁止使用 System 开头避免 400 错误） |
 | AskUser 高度 | wrapped_line_count 动态换行计算，visible_height 替代硬编码滚动区域 |
@@ -389,7 +389,7 @@ submit_message(text)
 
 ### feature_20260331_F001_history-workspace-tag
 
-**摘要:** /history 面板按 cwd 过滤只显示当前工作区对话
+**摘要:** /resume 面板按 cwd 过滤只显示当前工作区对话
 **关键决策:**
 
 - open_thread_browser() 中 threads.into_iter().filter(|t| t.cwd == cwd).collect() 过滤
