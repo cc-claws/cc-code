@@ -645,6 +645,7 @@ pub(crate) async fn handle_request(
                     .map_err(|e| AcpError::new(-32603, e))?;
 
             let new_session_id = new_thread_id.clone();
+            persist_session_snapshot(cfg, &new_session_id, cwd).await;
             sessions.insert(
                 new_session_id.clone(),
                 SessionState {

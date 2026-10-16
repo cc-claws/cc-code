@@ -109,6 +109,65 @@ async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> any
 }
 
 #[tokio::test]
+async fn test_session_manager_creation_persists_selected_model_snapshot() -> anyhow::Result<()> {
+    use crate::provider::{PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig};
+    use cc_agent::thread::{FilesystemThreadStore, ThreadStore};
+    let directory = tempfile::tempdir()?;
+    let store = std::sync::Arc::new(FilesystemThreadStore::new(directory.path().join("threads")));
+    let mut config = PeriConfig::default();
+    config.config.active_provider_id = "snapshot".into();
+    config.config.active_alias = "sonnet".into();
+    config.config.providers = vec![ProviderConfig {
+        id: "snapshot".into(),
+        provider_type: "openai".into(),
+        api_key: "test".into(),
+        models: ProviderModels {
+            sonnet: "initial-model".into(),
+            haiku: "selected-model".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }];
+    let provider = LlmProvider::from_config(&config).expect("测试 provider 配置必须有效");
+    let manager = SessionManager::new(
+        store.clone(),
+        provider,
+        std::sync::Arc::new(config),
+        cc_middlewares::hitl::shared_mode::SharedPermissionMode::new(
+            cc_middlewares::hitl::shared_mode::PermissionMode::Bypass,
+        ),
+        None,
+    );
+    let cwd = directory.path().to_string_lossy();
+    let (_, initial_id) = manager.new_session(&cwd).await?;
+    assert_eq!(
+        store.load_meta(&initial_id).await?.model.as_deref(),
+        Some("initial-model")
+    );
+    let (_, selected_id) = manager
+        .new_session_with_settings(
+            &cwd,
+            "snapshot".into(),
+            "haiku".into(),
+            Some(ThinkingConfig {
+                enabled: true,
+                budget_tokens: 1024,
+                effort: "high".into(),
+                max_tokens: 2048,
+            }),
+        )
+        .await?;
+    let selected = store.load_meta(&selected_id).await?;
+    assert_eq!(
+        selected.model.as_deref(),
+        Some("selected-model"),
+        "创建时必须按指定别名解析真实模型"
+    );
+    assert_eq!(selected.reasoning_effort.as_deref(), Some("high"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_runtime_end_persists_completion_cancellation_and_failure() -> anyhow::Result<()> {
     use cc_agent::thread::{SqliteThreadStore, ThreadMeta, ThreadStore};
     let directory = tempfile::tempdir()?;

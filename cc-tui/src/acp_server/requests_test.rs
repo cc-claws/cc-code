@@ -503,6 +503,25 @@ async fn test_session_creation_and_config_changes_persist_runtime_snapshot() -> 
         "切换推理强度必须更新快照"
     );
     assert_eq!(meta.updated_at, updated_at, "配置快照不得伪造会话活动时间");
+    let fork = handle_request(
+        "session/fork",
+        &json!({"sessionId": id, "cwd": tmp.path()}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let fork_id = fork["sessionId"]
+        .as_str()
+        .expect("fork 必须返回会话 ID")
+        .to_string();
+    let fork_meta = cfg.thread_store.load_meta(&fork_id).await?;
+    assert_eq!(
+        fork_meta.model.as_deref(),
+        Some("selected-model"),
+        "fork 首次执行前也应有模型快照"
+    );
+    assert_eq!(fork_meta.reasoning_effort.as_deref(), Some("high"));
     assert_eq!(
         sessions[&id].frozen.as_ref().unwrap().system_prompt,
         frozen,

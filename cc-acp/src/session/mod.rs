@@ -107,6 +107,13 @@ impl SessionManager {
     pub async fn new_session(&self, cwd: &str) -> anyhow::Result<(String, ThreadId)> {
         let meta = ThreadMeta::new(cwd);
         let thread_id = self.inner.thread_store.create_thread(meta).await?;
+        executor::persist_runtime_snapshot(
+            self.inner.thread_store.as_ref(),
+            &thread_id,
+            &self.inner.provider,
+            cwd,
+        )
+        .await;
 
         let session_id = thread_id.clone();
 
@@ -126,6 +133,19 @@ impl SessionManager {
     ) -> anyhow::Result<(String, ThreadId)> {
         let meta = ThreadMeta::new(cwd);
         let thread_id = self.inner.thread_store.create_thread(meta).await?;
+        let mut config = self.inner.peri_config.as_ref().clone();
+        config.config.active_provider_id = provider_id.clone();
+        config.config.active_alias = model_alias.clone();
+        config.config.thinking = thinking.clone();
+        let provider =
+            LlmProvider::from_config(&config).unwrap_or_else(|| self.inner.provider.clone());
+        executor::persist_runtime_snapshot(
+            self.inner.thread_store.as_ref(),
+            &thread_id,
+            &provider,
+            cwd,
+        )
+        .await;
 
         let session_id = thread_id.clone();
 

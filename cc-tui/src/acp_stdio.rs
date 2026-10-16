@@ -1034,6 +1034,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
 
                     // Insert new session
                     let new_session_id = new_thread_id.clone();
+                    persist_stdio_snapshot(&ctx, &new_session_id, &cwd_str).await;
                     // Build frozen data for forked session
                     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
                     let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
