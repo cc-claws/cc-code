@@ -73,6 +73,17 @@ impl SqliteThreadStore {
     /// 使用指定路径打开（或创建）数据库，并初始化 Schema
     pub async fn new(db_path: impl Into<PathBuf>) -> Result<Self> {
         let db_path = db_path.into();
+        // Windows 收紧目录 DACL 时会重算已有子文件的继承权限。先保护旧库与
+        // WAL/SHM 的 DACL，避免旧版本留下的继承权限被移除后无法重新打开。
+        #[cfg(windows)]
+        for suffix in ["", "-wal", "-shm"] {
+            let mut path = db_path.as_os_str().to_os_string();
+            path.push(suffix);
+            let path = PathBuf::from(path);
+            if path.exists() {
+                restrict_to_owner(&path);
+            }
+        }
         // 确保父目录存在
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
@@ -90,12 +101,16 @@ impl SqliteThreadStore {
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(options)
-            .await?;
+            .await
+            .with_context(|| format!("Failed to open thread database: {}", db_path.display()))?;
         // connect_with 后 db 文件已创建，立即把权限收到 0o600。
         // WAL/SHM 文件由父目录 0o700 兜底保护。
         restrict_to_owner(&db_path);
         let store = Self { pool };
-        store.init_schema().await?;
+        store
+            .init_schema()
+            .await
+            .context("Failed to initialize thread database schema")?;
 
         // messages.content 含完整对话历史（含用户粘贴的 API key/令牌/源码/PII），
         // 限制为 owner-only。WAL/SHM 同步处理。
