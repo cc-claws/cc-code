@@ -33,8 +33,12 @@ fn test_background_task_render_collapsed_expanded_and_detail() {
             }
             let lines = render_view_model(&vm, None, 100, detail, 0);
             let text = rendered_text(&lines);
+            let expected = crate::i18n::global().tr_args(
+                "bg-moved-to-background",
+                &[("task".into(), "task-123".to_string().into())],
+            );
             assert!(
-                text.contains("已转入后台（任务 task-123）"),
+                text.contains(&expected),
                 "应展示后台移交结果：{text}"
             );
             assert!(
@@ -117,7 +121,7 @@ fn test_background_task_render_history_and_nested_subagent() {
     for vm in [&history, &group] {
         let text = rendered_text(&render_view_model(vm, None, 100, true, 0));
         assert!(
-            text.contains("已转入后台"),
+            text.contains("task-123"),
             "恢复/子 Agent 必须走相同投影：{text}"
         );
         assert!(
