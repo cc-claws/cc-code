@@ -187,6 +187,52 @@
         assert!(names.contains(&"ExecuteExtraTool"));
     }
 
+    #[test]
+    fn test_registry_releases_after_middleware_drop() {
+        let (index, shared) = build_test_components();
+        let registry_weak = Arc::downgrade(&shared);
+        let middleware = ToolSearchMiddleware::new(index, Arc::clone(&shared));
+        let executor: Arc<dyn BaseTool> = Arc::new(ExecuteExtraTool::new(Arc::clone(&shared)));
+        shared.write().insert(executor.name().to_string(), executor);
+        drop(shared);
+        assert!(
+            registry_weak.upgrade().is_some(),
+            "中间件存活时应持有注册表"
+        );
+        drop(middleware);
+        assert!(
+            registry_weak.upgrade().is_none(),
+            "中间件销毁后元工具不得循环持有注册表"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_execute_releases_registered_meta_tools_after_agent_drop() {
+        let (index, shared) = build_test_components();
+        let registry_weak = Arc::downgrade(&shared);
+        let index_weak = Arc::downgrade(&index);
+        let agent = cc_agent::agent::ReActAgent::new(cc_agent::llm::MockLLM::always_answer("ok"))
+            .with_shared_tools(Arc::clone(&shared))
+            .add_middleware(Box::new(ToolSearchMiddleware::new(
+                index,
+                Arc::clone(&shared),
+            )));
+        let mut state = cc_agent::agent::state::AgentState::new(".");
+        agent
+            .execute(cc_agent::agent::react::AgentInput::text("继续"), &mut state, None)
+            .await
+            .expect("通过真实执行器收集并注册元工具");
+        let executor_weak = Arc::downgrade(
+            shared.read().get("ExecuteExtraTool").expect("执行器已注册代理工具"),
+        );
+        drop(agent);
+        drop(shared);
+        assert!(registry_weak.upgrade().is_none(), "执行器销毁后应释放注册表");
+        assert!(executor_weak.upgrade().is_none(), "代理工具包装及其内部对象都应释放");
+        assert!(index_weak.upgrade().is_none(), "包装析构必须释放搜索工具内部持有的索引");
+        assert!(!state.messages().is_empty(), "状态存活不应影响工具资源释放");
+    }
+
     #[tokio::test]
     async fn test_before_agent_injects_system_prompt() {
         let (index, shared) = build_test_components();

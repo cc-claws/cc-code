@@ -10,7 +10,10 @@
 //! | `cached_llm` | `"provider:model"` fingerprint | `compact_model` + `auto_classifier_model` | Validated per-prompt via `has_valid_cache()` |
 //! | `subagent_llm_cache` | `"provider:model"` fingerprint | `Arc<dyn BaseModel>` (shared `reqwest::Client`) | Held until `invalidate()` or session close |
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
 use cc_agent::llm::BaseModel;
 
@@ -107,11 +110,16 @@ impl AgentPool {
     /// Fast path (cache hit): holds lock ~1μs to query HashMap.
     /// Slow path (cache miss): creates `reqwest::Client` outside lock (~10-100ms),
     /// then writes to cache inside lock, avoiding blocking other SubAgents' fast paths.
+    /// 工具工厂只持有弱引用，避免 pool -> tools -> factory -> pool 形成环。
+    /// 会话释放后，仍在执行的后台任务直接创建模型，不再访问会话缓存。
     pub(crate) fn get_or_create_subagent_llm(
-        pool: &Arc<parking_lot::Mutex<AgentPool>>,
+        pool: &Weak<parking_lot::Mutex<AgentPool>>,
         fingerprint: &str,
         create: impl FnOnce() -> Box<dyn BaseModel>,
     ) -> Arc<dyn BaseModel> {
+        let Some(pool) = pool.upgrade() else {
+            return Arc::from(create());
+        };
         // Fast path: query cache under lock
         {
             let guard = pool.lock();
@@ -122,11 +130,13 @@ impl AgentPool {
         // Slow path: create outside lock
         let new_model: Arc<dyn BaseModel> = Arc::from(create());
         // Write back under lock (or_insert handles concurrent insert race)
-        pool.lock()
+        let model = pool
+            .lock()
             .subagent_llm_cache
             .entry(fingerprint.to_string())
             .or_insert(new_model)
-            .clone()
+            .clone();
+        model
     }
 }
 
