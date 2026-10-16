@@ -29,6 +29,8 @@ impl App {
             sub.sync_activity_display();
         }
         let steering_updated = self.poll_steering_results();
+        // 回执晚于 Done 也要收取；已拒绝通知可随下一轮插入，不能依赖 Done 唯一出口。
+        let bg_shell_updated = self.poll_bg_shell_notifications();
         // Cancel 超时安全网：5 秒后仍未收到 Interrupted/Done，强制清理
         if let Some(cancel_at) = self.session_mgr.current_mut().agent.cancel_sent_at {
             if cancel_at.elapsed() > std::time::Duration::from_secs(5)
@@ -68,10 +70,10 @@ impl App {
             .is_some();
 
         if !has_acp {
-            return steering_updated || drawer_updated;
+            return steering_updated || drawer_updated || bg_shell_updated;
         }
 
-        let mut updated = steering_updated || drawer_updated;
+        let mut updated = steering_updated || drawer_updated || bg_shell_updated;
 
         // 节流检查（每帧开始时，确保上一批 chunk 的尾部也被显示）
         {

@@ -166,41 +166,8 @@ impl App {
             .is_empty()
         {
             self.flush_pending_messages();
-        } else {
-            // 一次性 drain 当前会话的全部待注入通知并合并为单条消息：
-            // 之前每次 Done 只取 1 条，n 条待通知会触发 n 轮 turn 级联唤醒
-            // （每轮 Done 再触发下一条）。合并后 n 条压成 1 轮，信息不丢失。
-            let owner = self
-                .session_mgr
-                .current()
-                .current_thread_id
-                .as_ref()
-                .map(ToString::to_string);
-            let mut drained: Vec<String> = Vec::new();
-            self.session_mgr
-                .current_mut()
-                .pending_bg_shell_notifications
-                .retain(|notification| {
-                    let matches_owner = notification
-                        .owner_session_id
-                        .as_deref()
-                        .is_none_or(|notification_owner| owner.as_deref() == Some(notification_owner));
-                    if matches_owner {
-                        drained.push(notification.content.clone());
-                        false
-                    } else {
-                        // 其它会话的通知留给对应会话的 Done 消费
-                        true
-                    }
-                });
-            if !drained.is_empty() {
-                tracing::info!(
-                    count = drained.len(),
-                    "Done: injecting merged pending background shell notifications"
-                );
-                self.submit_message(drained.join("\n\n"));
-            }
         }
+        self.poll_bg_shell_notifications();
         (true, false, true)
     }
 

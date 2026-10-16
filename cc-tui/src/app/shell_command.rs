@@ -274,8 +274,9 @@ impl App {
     ///
     /// - 检测 `background_shells` 中各任务的 `result_rx` 退出
     /// - 退出时更新 status/exit_code，abort watchdog，生成结构化通知
-    /// - agent idle（!loading）→ `submit_message` 直接注入；推理中（loading）→ 暂存到
-    ///   `pending_bg_shell_notifications`，Done 后由 lifecycle 消费
+    /// - agent idle（!loading）→ `submit_message` 直接注入；推理中（loading）→ 经 steering
+    ///   异步插入当前轮次（见 `bg_shell_notifications`）；被明确拒绝或轮次以中断/报错收尾时
+    ///   暂存到 `pending_bg_shell_notifications`，随用户下一次主动提交或空闲合并送出
     pub fn poll_background_shell_events(&mut self) -> bool {
         // 阶段1：检测完成，收集通知（&mut session）
         let notifications: Vec<super::PendingBgShellNotification> = {
@@ -639,74 +640,6 @@ impl App {
         // 清理已完成的 agent shell（与 background_shells 一致的容量管理）
         self.cleanup_finished_agent_shells();
         true
-    }
-
-    /// 注入后台 shell 完成通知：同一批（含队列中同会话待注入的）合并为单条消息。
-    ///
-    /// - **idle**（`!loading`）：当前会话的通知与队列中同会话的待注入通知**一次性 drain
-    ///   合并**为一条 `submit_message`，把 n 条通知压成 1 轮 turn，避免逐条级联唤醒；
-    ///   其它会话的通知留在队列，交由对应会话消费。
-    /// - **推理中**（`loading`）：全部入队，待 Done 后由 `lifecycle` 一次性 drain 合并注入。
-    ///
-    /// 合并只在消息层拼接（保留每条的 `<background-task-completed>` XML），信息不丢失。
-    pub(super) fn inject_bg_shell_notifications(
-        &mut self,
-        notifications: Vec<super::PendingBgShellNotification>,
-    ) {
-        if notifications.is_empty() {
-            return;
-        }
-        let loading = self.session_mgr.current().ui.loading;
-        let current_owner = self
-            .session_mgr
-            .current()
-            .current_thread_id
-            .as_ref()
-            .map(ToString::to_string);
-        let matches_current = |owner: Option<&str>| {
-            owner.is_none_or(|owner| current_owner.as_deref() == Some(owner))
-        };
-
-        let mut to_inject: Vec<String> = Vec::new();
-        for notification in notifications {
-            if !loading && matches_current(notification.owner_session_id.as_deref()) {
-                to_inject.push(notification.content);
-            } else {
-                self.session_mgr
-                    .current_mut()
-                    .pending_bg_shell_notifications
-                    .push_back(notification);
-            }
-        }
-
-        if to_inject.is_empty() {
-            return;
-        }
-
-        // idle：把队列中同会话的待注入通知一并 drain（它们比本批更早到达，排在前面）。
-        let drained: Vec<String> = {
-            let pending = &mut self
-                .session_mgr
-                .current_mut()
-                .pending_bg_shell_notifications;
-            let mut drained = Vec::new();
-            pending.retain(|notification| {
-                if matches_current(notification.owner_session_id.as_deref()) {
-                    drained.push(notification.content.clone());
-                    false
-                } else {
-                    true
-                }
-            });
-            drained
-        };
-        let mut merged = drained;
-        merged.extend(to_inject);
-        tracing::info!(
-            count = merged.len(),
-            "injecting merged background shell notifications"
-        );
-        self.submit_message(merged.join("\n\n"));
     }
 
     fn sync_agent_shell_runtime_states(&mut self) -> bool {

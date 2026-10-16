@@ -310,15 +310,25 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
         // 卡住检测：跟踪最近若干轮 thinking 指纹，检测循环模式
         let mut recent_fingerprints: VecDeque<String> = VecDeque::with_capacity(STUCK_WINDOW_SIZE);
+        // 最终回答边界取出的补充信息也延后到下一次 compact 之后写入。
+        // receipt 在真正写入 state 并发出快照前保持未确认，提前退出时由 Drop 拒绝。
+        let mut pending_steering = Vec::new();
 
         for step in 0..self.max_iterations {
             state.set_current_step(step);
-            if let Some(queue) = &self.steering {
-                self.consume_steering(state, queue.drain(), &mut snapshot_anchor);
-            }
 
             // 钩子: before_model — LLM 调用前（compact 检查点）
             self.chain.run_before_model(state).await?;
+
+            // compact 可能替换全部消息；在其完成后才插入，确保下一次模型调用看到原文。
+            if let Some(queue) = &self.steering {
+                pending_steering.extend(queue.drain());
+                self.consume_steering(
+                    state,
+                    std::mem::take(&mut pending_steering),
+                    &mut snapshot_anchor,
+                );
+            }
 
             // LLM 推理
             let reasoning =
@@ -371,7 +381,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     };
                     if !pending.is_empty() {
                         self::final_answer::record_answer(self, state, &reasoning);
-                        self.consume_steering(state, pending, &mut snapshot_anchor);
+                        pending_steering = pending;
                         continue;
                     }
                 }

@@ -6,6 +6,11 @@ use tokio::sync::oneshot;
 
 use crate::transport::types::AcpError;
 
+/// 仅用于 peri/session/steer：未进入运行中队列，调用方可保留并重试。
+pub const STEERING_NOT_ENQUEUED: i64 = -32001;
+/// 仅用于 peri/session/steer：已入队但退出前未写入历史，调用方可保留并重试。
+pub const STEERING_NOT_CONSUMED: i64 = -32002;
+
 pub fn enqueue(
     queue: Option<&SteeringQueue>,
     params: &Value,
@@ -21,13 +26,16 @@ pub fn enqueue(
     }
     queue
         .and_then(|queue| queue.enqueue(content))
-        .ok_or_else(|| AcpError::new(-32000, "当前执行已结束，消息仍保留在队列中"))
+        .ok_or_else(|| AcpError::new(STEERING_NOT_ENQUEUED, "当前执行已结束，消息仍保留在队列中"))
 }
 
 pub async fn confirm(receipt: Result<oneshot::Receiver<()>, AcpError>) -> Result<Value, AcpError> {
-    receipt?
-        .await
-        .map_err(|_| AcpError::new(-32000, "本轮未接收补充信息，消息仍保留在队列中"))?;
+    receipt?.await.map_err(|_| {
+        AcpError::new(
+            STEERING_NOT_CONSUMED,
+            "本轮未接收补充信息，消息仍保留在队列中",
+        )
+    })?;
     Ok(json!({ "consumed": true }))
 }
 
