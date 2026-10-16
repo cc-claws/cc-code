@@ -97,6 +97,18 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
         if let Some(ref lang) = cfg.config.language {
             let _ = ctx.services.lc.switch(lang);
         }
+        // 「内联 Diff」只写进配置到不了渲染线程（它只认 ToggleDiff 事件），
+        // 保存后必须同步当前会话的 ui 状态并补发事件，否则改完不重启不生效、
+        // 新会话里也只有 ui 字段是对的（渲染线程仍是出生时的 false）。
+        let want_diff = cfg.config.diff_enabled;
+        let session = ctx.session_mgr.current_mut();
+        if session.ui.diff_visible != want_diff {
+            session.ui.diff_visible = want_diff;
+            let _ = session
+                .messages
+                .render_tx
+                .try_send(crate::ui::render_thread::RenderEvent::ToggleDiff(want_diff));
+        }
         // #319: 保存失败时记录错误用于 UI 展示，而非静默忽略
         match App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
             Ok(()) => {

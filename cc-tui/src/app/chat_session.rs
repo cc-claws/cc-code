@@ -84,6 +84,16 @@ impl ChatSession {
         if let Some(ref mode) = streaming_mode {
             messages.pipeline.init_streaming_mode_from_config(mode);
         }
+        // 渲染线程的 diff/detail 标志出生即为 false，且 Rebuild 事件不携带标志，
+        // 配置的初始值不会自己到达渲染线程——必须在会话创建时显式同步，
+        // 否则 diff_enabled 打开了也永不生效（只有运行时的 toggle_diff /
+        // Ctrl+O 动作才会发 Toggle 事件，配置这条门一直是断的）。
+        if diff_enabled {
+            let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleDiff(true));
+        }
+        if detail_enabled {
+            let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleDetail(true));
+        }
         Self {
             ui: UiState::new(
                 super::build_textarea(false),
