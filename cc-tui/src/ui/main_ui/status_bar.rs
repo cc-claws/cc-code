@@ -293,7 +293,10 @@ fn render_recent_tool_segment(entry: &crate::app::RecentToolEntry) -> Vec<Span<'
 }
 
 /// 单行截断：按显示列宽（unicode-width）裁掉超出部分并以 `…` 收口
-fn truncate_spans_to_width(spans: Vec<Span<'static>>, max_width: usize) -> Vec<Span<'static>> {
+pub(crate) fn truncate_spans_to_width(
+    spans: Vec<Span<'static>>,
+    max_width: usize,
+) -> Vec<Span<'static>> {
     use unicode_width::UnicodeWidthChar;
 
     let total: usize = spans.iter().map(|span| span.width()).sum();
@@ -625,7 +628,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
     if app.agent_center_navigation_available() {
         left_spans.push(Span::styled(
-            format!(" · ← {} agents", app.current_project_agent_count()),
+            format!(" · ← {} agents", app.current_project_ready_count()),
             Style::default().fg(sb::MUTED),
         ));
     }

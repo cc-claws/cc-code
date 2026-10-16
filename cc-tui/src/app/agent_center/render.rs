@@ -8,6 +8,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use super::{AgentCenter, App, Bucket, CenterRow};
+use crate::ui::main_ui::truncate_spans_to_width;
 use crate::ui::{message_render::truncate_to_display_width, theme};
 
 pub(crate) fn render(frame: &mut Frame, app: &mut App) {
@@ -307,6 +308,8 @@ pub(super) fn keep_visible(scroll: &mut usize, selected_line: usize, height: usi
 }
 
 fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect) {
+    let palette = theme::cur();
+    let label_style = Style::default().fg(palette.inactive);
     let Some(meta) = center.selected_meta(app) else {
         line(frame, area, "Task details", Style::default());
         return;
@@ -324,30 +327,61 @@ fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect)
     let prompt = detail
         .map(|detail| detail.prompt.as_str())
         .unwrap_or(&loading);
-    let mut lines = vec![
-        "Task details".to_string(),
-        meta.title.clone().unwrap_or_else(|| unknown.into()),
-        format!("○ {}", app.agent_center_bucket(meta).label()),
-        String::new(),
-        format!("Model: {}", meta.model.as_deref().unwrap_or(unknown)),
-        format!(
-            "Reasoning: {}",
-            meta.reasoning_effort.as_deref().unwrap_or(unknown)
+    let width = area.width as usize;
+    let bucket = app.agent_center_bucket(meta);
+
+    // 键值行沿用状态栏配色（模型青、项目黄、git 分支 `git:(...)` 洋红/青），
+    // 标签与值同行且标签统一 muted，避免整块同色看不出字段边界。
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(Span::styled(
+            "Task details",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(truncate_spans_to_width(
+            vec![Span::styled(
+                detail_text(meta.title.clone().unwrap_or_else(|| unknown.into())),
+                Style::default().fg(palette.text),
+            )],
+            width,
+        )),
+        Line::from(Span::styled(
+            format!("○ {}", bucket.label()),
+            Style::default().fg(bucket_color(bucket)),
+        )),
+        Line::default(),
+        detail_kv_line(
+            "Model: ",
+            meta.model.as_deref().unwrap_or(unknown),
+            Style::default().fg(Color::Cyan),
+            label_style,
+            width,
         ),
-        "Project".into(),
-        meta.cwd.clone(),
-        "Branch".into(),
-        meta.branch.clone().unwrap_or_else(|| unknown.into()),
-        "Last message".into(),
+        detail_kv_line(
+            "Reasoning: ",
+            meta.reasoning_effort.as_deref().unwrap_or(unknown),
+            Style::default().fg(palette.text),
+            label_style,
+            width,
+        ),
+        detail_kv_line(
+            "Project: ",
+            &meta.cwd,
+            Style::default().fg(Color::Yellow),
+            label_style,
+            width,
+        ),
+        detail_branch_line(meta.branch.as_deref(), label_style, width),
+        Line::from(Span::styled("Last message", label_style)),
     ];
-    let preview_height = (area.height as usize).saturating_sub(13) / 2;
+    // 固定行数：以上 9 行 + `Prompt` + 状态说明 = 11 行，余下平分给两段预览。
+    let preview_height = (area.height as usize).saturating_sub(11) / 2;
     append_preview(
         &mut lines,
         if last.trim().is_empty() { &none } else { last },
-        area.width as usize,
+        width,
         preview_height.min(3),
     );
-    lines.push("Prompt".into());
+    lines.push(Line::from(Span::styled("Prompt", label_style)));
     append_preview(
         &mut lines,
         if prompt.trim().is_empty() {
@@ -355,25 +389,72 @@ fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect)
         } else {
             prompt
         },
-        area.width as usize,
+        width,
         preview_height.min(3),
     );
-    lines.push(app.services.lc.tr("agent-center-status-note"));
-    for (index, text) in lines.iter().take(area.height as usize).enumerate() {
-        let clean: String = text.chars().filter(|ch| !ch.is_control()).collect();
-        line(
-            frame,
-            Rect::new(area.x, area.y + index as u16, area.width, 1),
-            &clean,
-            Style::default(),
-        );
-    }
+    lines.push(Line::from(Span::styled(
+        app.services.lc.tr("agent-center-status-note"),
+        Style::default().fg(palette.subtle),
+    )));
+    frame.render_widget(
+        Paragraph::new(
+            lines
+                .into_iter()
+                .take(area.height as usize)
+                .collect::<Vec<_>>(),
+        ),
+        area,
+    );
 }
 
-fn append_preview(lines: &mut Vec<String>, text: &str, width: usize, max_lines: usize) {
+/// 详情面板单行文本：剥离控制字符（标题源自用户消息，含换行会破坏单行布局）。
+fn detail_text(text: impl Into<String>) -> String {
+    text.into().chars().filter(|ch| !ch.is_control()).collect()
+}
+
+/// `Label: value` 单行：标签 muted、值按定位配色，超宽按显示列宽省略。
+fn detail_kv_line(
+    label: &str,
+    value: &str,
+    value_style: Style,
+    label_style: Style,
+    width: usize,
+) -> Line<'static> {
+    Line::from(truncate_spans_to_width(
+        vec![
+            Span::styled(label.to_string(), label_style),
+            Span::styled(detail_text(value), value_style),
+        ],
+        width,
+    ))
+}
+
+/// 分支行对齐状态栏的 `git:(branch)` 形态：前缀洋红、分支名青。
+fn detail_branch_line(branch: Option<&str>, label_style: Style, width: usize) -> Line<'static> {
+    let git_style = Style::default().fg(Color::Magenta);
+    let mut spans = vec![Span::styled("Branch: ".to_string(), label_style)];
+    match branch {
+        Some(branch) => {
+            spans.push(Span::styled("git:(".to_string(), git_style));
+            spans.push(Span::styled(
+                detail_text(branch),
+                Style::default().fg(Color::Cyan),
+            ));
+            spans.push(Span::styled(")".to_string(), git_style));
+        }
+        None => spans.push(Span::styled("Unknown".to_string(), label_style)),
+    }
+    Line::from(truncate_spans_to_width(spans, width))
+}
+
+fn append_preview(lines: &mut Vec<Line<'static>>, text: &str, width: usize, max_lines: usize) {
+    let style = Style::default().fg(theme::cur().text);
     for chunk in text.lines().take(max_lines) {
         let clean: String = chunk.chars().filter(|ch| !ch.is_control()).collect();
-        lines.push(truncate_to_display_width(&clean, width));
+        lines.push(Line::from(Span::styled(
+            truncate_to_display_width(&clean, width),
+            style,
+        )));
     }
 }
 
@@ -396,9 +477,11 @@ fn overlay(frame: &mut Frame, area: Rect, text: &str, color: Color) {
         height,
     );
     frame.render_widget(Clear, rect);
+    // 底色用 `popup_bg`（弹层专用：暗色主题→黑、亮色主题→白）。
+    // 不能用 `background` —— 那是各主题的品牌色（暗色下为青绿 0,188,212），铺满整块弹层过于刺眼。
     frame.render_widget(
         Paragraph::new(text)
-            .style(Style::default().fg(color).bg(theme::cur().background))
+            .style(Style::default().fg(color).bg(theme::cur().popup_bg))
             .wrap(Wrap { trim: false }),
         rect,
     );

@@ -12,7 +12,7 @@ use tokio::sync::oneshot;
 use super::{subagent_session::SubagentRunStatus, App};
 use crate::thread::ThreadMeta;
 
-const PAGE_SIZE: usize = 10;
+const PAGE_SIZE: usize = 20;
 type StoreResult<T> = Result<T, String>;
 
 pub(crate) struct CenterPage {
@@ -262,11 +262,16 @@ impl App {
             && session.ui.bg_bar_cursor.is_none()
     }
 
-    pub(crate) fn current_project_agent_count(&self) -> usize {
+    /// 当前目录下处于 [`Bucket::Ready`] 的根会话数（与 Agent Center 的 `Ready` 过滤同口径）。
+    ///
+    /// 状态栏 `← {n} agents` 使用该值：只统计 24h 内有更新、且未进入 Needs you / Working 的会话，
+    /// 避免把当前目录累计的历史会话（可达数百条）当成「当前在用的会话」展示。
+    pub(crate) fn current_project_ready_count(&self) -> usize {
         self.global_ui
             .agent_catalog
             .iter()
             .filter(|meta| meta.is_root() && meta.cwd == self.services.cwd)
+            .filter(|meta| self.agent_center_bucket(meta) == Bucket::Ready)
             .count()
     }
 }
