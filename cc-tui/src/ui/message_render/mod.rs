@@ -4,6 +4,15 @@ use ratatui::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+pub mod decorators;
+use decorators::{
+    ask_user::parse_ask_user_qa_items,
+    bash::{parse_exit_code, transform_bash_output_lines},
+    glob::glob_summary,
+    read::{format_display_path_for_memory, read_summary},
+    ToolDisplayLine,
+};
+
 use super::{
     message_view::{
         AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
@@ -22,7 +31,11 @@ const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manag
 fn humanize_secs(secs: u64) -> String {
     if secs >= 3600 {
         let (hours, minutes) = (secs / 3600, secs % 3600 / 60);
-        if minutes == 0 { format!("{hours}h") } else { format!("{hours}h {minutes}m") }
+        if minutes == 0 {
+            format!("{hours}h")
+        } else {
+            format!("{hours}h {minutes}m")
+        }
     } else if secs >= 60 {
         let (minutes, rest) = (secs / 60, secs % 60);
         if rest == 0 {
@@ -101,32 +114,6 @@ fn header_args_width(width: usize, prefix_width: usize, detail_mode: bool) -> us
             .min(avail)
             .max(1)
     }
-}
-
-/// 从 Bash 工具输出中解析 exit code。
-///
-/// 匹配格式：`[Exit code: N]` 或 `[Command completed with exit code N]`
-/// 解析失败返回 None。
-fn parse_exit_code(content: &str) -> Option<i32> {
-    // 优先匹配非零退出码格式 "[Exit code: N]"
-    if let Some(pos) = content.rfind("[Exit code: ") {
-        let rest = &content[pos + "[Exit code: ".len()..];
-        if let Some(end) = rest.find(']') {
-            if let Ok(code) = rest[..end].trim().parse::<i32>() {
-                return Some(code);
-            }
-        }
-    }
-    // 兜底：空输出时格式为 "[Command completed with exit code N]"
-    if let Some(pos) = content.rfind("exit code ") {
-        let rest = &content[pos + "exit code ".len()..];
-        if let Some(end) = rest.find(']') {
-            if let Ok(code) = rest[..end].trim().parse::<i32>() {
-                return Some(code);
-            }
-        }
-    }
-    None
 }
 
 /// 将 markdown 渲染结果的所有 span 颜色压暗到 DIM 色板。
@@ -356,10 +343,7 @@ fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> 
 }
 
 /// 同 [`wrap_line_spans`]，但保留首段行首空白（工具头指示器场景）。
-fn wrap_line_spans_keep_first_lead(
-    line: Line<'static>,
-    max_width: usize,
-) -> Vec<Line<'static>> {
+fn wrap_line_spans_keep_first_lead(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
     wrap_line_spans_rich_keep_first_lead(line, max_width)
         .into_iter()
         .map(|seg| seg.line)
@@ -606,17 +590,6 @@ pub(crate) fn truncate_to_display_width(s: &str, max_width: usize) -> String {
     result
 }
 
-fn format_display_path_for_memory(path_str: &str) -> Option<String> {
-    let normalized = path_str.replace('\\', "/");
-    if let Some(pos) = normalized.find("/memory/") {
-        let filename = &normalized[pos + "/memory/".len()..];
-        if !filename.is_empty() {
-            return Some(format!("memory/{filename}"));
-        }
-    }
-    None
-}
-
 fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
     let sanitized_args = sanitize_display_text(args);
     let sanitized_args = if let Some(mem_path) = format_display_path_for_memory(&sanitized_args) {
@@ -632,32 +605,6 @@ fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
     } else {
         truncate_to_display_width(&sanitized_args, max_width)
     }
-}
-
-fn read_summary(content: &str, is_memory: bool) -> Option<String> {
-    if is_memory {
-        return Some("Recalled memory".to_string());
-    }
-    if content.is_empty() {
-        return None;
-    }
-    if let Some(first_line) = content.lines().next() {
-        if first_line.starts_with("Read ") && first_line.ends_with(" lines") {
-            return Some(sanitize_display_text(first_line));
-        }
-    }
-    Some(format!("Read {} lines", content.lines().count()))
-}
-
-fn glob_summary(content: &str) -> Option<String> {
-    if content.is_empty() {
-        return None;
-    }
-    let count = content
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .count();
-    Some(format!("Found {} files", count))
 }
 
 /// 批次汇总树形渲染：折叠态显示 header + 每行摘要，展开态显示各 agent 详情。
@@ -681,7 +628,10 @@ fn render_batch_summary(
         format!("{} agents finished", total)
     };
     lines.push(Line::from(vec![
-        Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(theme::cur().success)),
+        Span::styled(
+            theme::SYMBOL_DOT_SPACED,
+            Style::default().fg(theme::cur().success),
+        ),
         Span::styled(header_text, Style::default().fg(theme::cur().text)),
     ]));
 
@@ -698,9 +648,15 @@ fn render_batch_summary(
 
             let mut spans = vec![
                 Span::styled("   ", Style::default().fg(theme::cur().subtle)),
-                Span::styled(connector.to_string(), Style::default().fg(theme::cur().subtle)),
+                Span::styled(
+                    connector.to_string(),
+                    Style::default().fg(theme::cur().subtle),
+                ),
                 Span::styled(" ".to_string(), Style::default()),
-                Span::styled(agent.task_preview.clone(), Style::default().fg(theme::cur().text)),
+                Span::styled(
+                    agent.task_preview.clone(),
+                    Style::default().fg(theme::cur().text),
+                ),
             ];
 
             if agent.tool_count > 0 {
@@ -710,7 +666,10 @@ fn render_batch_summary(
                 ));
             }
 
-            spans.push(Span::styled(" · ", Style::default().fg(theme::cur().subtle)));
+            spans.push(Span::styled(
+                " · ",
+                Style::default().fg(theme::cur().subtle),
+            ));
             spans.push(Span::styled(
                 status.0.to_string(),
                 Style::default().fg(status.1),
@@ -736,9 +695,15 @@ fn render_batch_summary(
                 &mut lines,
                 Line::from(vec![
                     Span::raw("   "),
-                    Span::styled(connector.to_string(), Style::default().fg(theme::cur().subtle)),
+                    Span::styled(
+                        connector.to_string(),
+                        Style::default().fg(theme::cur().subtle),
+                    ),
                     Span::raw(" "),
-                    Span::styled(agent.task_preview.clone(), Style::default().fg(theme::cur().text)),
+                    Span::styled(
+                        agent.task_preview.clone(),
+                        Style::default().fg(theme::cur().text),
+                    ),
                 ]),
                 "",
                 "      ",
@@ -771,7 +736,11 @@ fn render_batch_summary(
 /// AskUserQuestion 专用渲染：`● User answered CC Code's questions:` + `⎿ · H → V`
 fn render_ask_user_block(content: &str, is_error: bool, width: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    let color = if is_error { theme::cur().error } else { theme::cur().success };
+    let color = if is_error {
+        theme::cur().error
+    } else {
+        theme::cur().success
+    };
     lines.push(Line::from(vec![
         Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(color)),
         Span::styled(
@@ -784,34 +753,16 @@ fn render_ask_user_block(content: &str, is_error: bool, width: usize) -> Vec<Lin
         return lines;
     }
 
-    // 解析多问题格式: [问: H]\n回答: V\n\n[问: H2]\n回答: V2
-    for block in content.split("\n\n") {
-        let mut header = String::new();
-        let mut answer = String::new();
-        for line in block.lines() {
-            if let Some(rest) = line.strip_prefix("[问: ") {
-                header = rest.trim_end_matches(']').to_string();
-            } else if let Some(a) = line.strip_prefix("回答: ") {
-                answer = a.to_string();
-            }
-        }
-        header = header.replace(['\n', '\r'], " ");
-        answer = answer.replace(['\n', '\r'], " ");
-        let text = if !header.is_empty() {
-            format!("{} → {}", header, answer)
-        } else if !answer.is_empty() {
-            answer
-        } else {
-            block.lines().collect::<Vec<_>>().join(" ")
-        };
-        if text.is_empty() {
-            continue;
-        }
+    for text in parse_ask_user_qa_items(content) {
         push_wrapped_line_keep_lead(
             &mut lines,
             Line::from(Span::styled(
                 text,
-                Style::default().fg(if is_error { theme::cur().error } else { theme::cur().inactive }),
+                Style::default().fg(if is_error {
+                    theme::cur().error
+                } else {
+                    theme::cur().inactive
+                }),
             )),
             "  ⎿ ",
             "    ",
@@ -1298,8 +1249,10 @@ pub fn render_view_model_with_links(
                                     wrap_line_spans(line, content_width).into_iter().enumerate()
                                 {
                                     let prefix = if i == 0 && j == 0 { "  ⎿ " } else { "    " };
-                                    let mut spans =
-                                        vec![Span::styled(prefix, Style::default().fg(theme::cur().subtle))];
+                                    let mut spans = vec![Span::styled(
+                                        prefix,
+                                        Style::default().fg(theme::cur().subtle),
+                                    )];
                                     spans.extend(wline.spans);
                                     lines.push(Line::from(spans));
                                 }
@@ -1382,14 +1335,13 @@ pub fn render_view_model_with_links(
             }
 
             // 复用 widget 层指示器：统一 ● 圆点 + 颜色语义化
-            let (indicator, indicator_color) =
-                cc_widgets::tool_call::display::format_indicator(
-                    status,
-                    tick,
-                    theme::cur().inactive,
-                    theme::cur().success,
-                    theme::cur().error,
-                );
+            let (indicator, indicator_color) = cc_widgets::tool_call::display::format_indicator(
+                status,
+                tick,
+                theme::cur().inactive,
+                theme::cur().success,
+                theme::cur().error,
+            );
             // 工具调用已交回，但进程结果未知；不要用成功绿色暗示命令已完成。
             let indicator_color = if background_task.is_some() {
                 theme::cur().cyan
@@ -1515,34 +1467,76 @@ pub fn render_view_model_with_links(
                         ]));
                     }
                 }
-                for (i, line) in result_lines.iter().enumerate() {
-                    if i >= max_lines {
-                        // 仅当确有剩余行时显示截断提示（避免 `... (0 more lines)`）
-                        let remaining = result_lines.len().saturating_sub(max_lines);
-                        if remaining > 0 {
-                            lines.push(Line::from(vec![
-                                Span::styled("    ", Style::default().fg(border_color)),
-                                Span::styled(
-                                    format!("... ({remaining} more lines) (ctrl+o to expand)"),
-                                    Style::default().fg(theme::cur().subtle),
-                                ),
-                            ]));
+                let mut error_header = String::new();
+                let bash_display_lines: Option<Vec<ToolDisplayLine>> = if tool_name == "Bash" {
+                    Some(transform_bash_output_lines(
+                        content,
+                        parse_exit_code(content),
+                        &mut error_header,
+                    ))
+                } else {
+                    None
+                };
+
+                if let Some(ref b_lines) = bash_display_lines {
+                    for (i, item) in b_lines.iter().enumerate() {
+                        if i >= max_lines {
+                            let remaining = b_lines.len().saturating_sub(max_lines);
+                            if remaining > 0 {
+                                lines.push(Line::from(vec![
+                                    Span::styled("    ", Style::default().fg(border_color)),
+                                    Span::styled(
+                                        format!("... ({remaining} more lines) (ctrl+o to expand)"),
+                                        Style::default().fg(theme::cur().subtle),
+                                    ),
+                                ]));
+                            }
+                            break;
                         }
-                        break;
+                        let text_color = if item.is_error_header {
+                            theme::cur().error
+                        } else {
+                            result_color
+                        };
+                        push_prefixed_text(
+                            &mut lines,
+                            item.text,
+                            item.prefix,
+                            Style::default().fg(border_color),
+                            Style::default().fg(text_color),
+                            width.saturating_sub(4).max(20),
+                        );
                     }
-                    let first_prefix = if i == 0 && tool_name != "Glob" {
-                        "  ⎿ "
-                    } else {
-                        "    "
-                    };
-                    push_prefixed_text(
-                        &mut lines,
-                        line,
-                        first_prefix,
-                        Style::default().fg(border_color),
-                        Style::default().fg(result_color),
-                        width.saturating_sub(4).max(20),
-                    );
+                } else {
+                    for (i, line) in result_lines.iter().enumerate() {
+                        if i >= max_lines {
+                            // 仅当确有剩余行时显示截断提示（避免 `... (0 more lines)`）
+                            let remaining = result_lines.len().saturating_sub(max_lines);
+                            if remaining > 0 {
+                                lines.push(Line::from(vec![
+                                    Span::styled("    ", Style::default().fg(border_color)),
+                                    Span::styled(
+                                        format!("... ({remaining} more lines) (ctrl+o to expand)"),
+                                        Style::default().fg(theme::cur().subtle),
+                                    ),
+                                ]));
+                            }
+                            break;
+                        }
+                        let first_prefix = if i == 0 && tool_name != "Glob" {
+                            "  ⎿ "
+                        } else {
+                            "    "
+                        };
+                        push_prefixed_text(
+                            &mut lines,
+                            line,
+                            first_prefix,
+                            Style::default().fg(border_color),
+                            Style::default().fg(result_color),
+                            width.saturating_sub(4).max(20),
+                        );
+                    }
                 }
             } else if *is_error && !content.is_empty() {
                 lines.extend(error_summary_lines(
@@ -1568,7 +1562,10 @@ pub fn render_view_model_with_links(
             if tool_name == "Bash" && *shell_backgrounded && started_at.is_some() {
                 lines.push(Line::from(vec![
                     Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
-                    Span::styled(BACKGROUND_RUNNING_STATUS, Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        BACKGROUND_RUNNING_STATUS,
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                 ]));
                 if let Some(timeout) = shell_timeout_text(*timeout_ms) {
                     lines.push(Line::from(vec![
@@ -1589,7 +1586,10 @@ pub fn render_view_model_with_links(
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("    ", Style::default().fg(theme::cur().subtle)),
-                    Span::styled(CONTROL_B_BACKGROUND_HINT, Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        CONTROL_B_BACKGROUND_HINT,
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                 ]));
             }
             if detail_mode {
@@ -1597,11 +1597,8 @@ pub fn render_view_model_with_links(
                     // 前缀 "  ⎿ " / "    " 占 4 列，diff 内容宽度需减去前缀
                     let diff_width = width.saturating_sub(4);
                     let widget_theme = theme::widgets_theme();
-                    let mut rendered = cc_widgets::diff::render_diff(
-                        diff_input,
-                        diff_width,
-                        &widget_theme,
-                    );
+                    let mut rendered =
+                        cc_widgets::diff::render_diff(diff_input, diff_width, &widget_theme);
                     // 去掉 diff 标题行（file_path），header 的 args_display 已经显示了文件路径
                     if !rendered.is_empty() {
                         rendered.remove(0);
@@ -1708,7 +1705,10 @@ pub fn render_view_model_with_links(
                             .fg(agent_name_color)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(format!("({})", agent_id), Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        format!("({})", agent_id),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                 ];
                 // 折叠状态显示短 hash
                 if let Some(ref hash) = bg_hash {
@@ -1758,7 +1758,10 @@ pub fn render_view_model_with_links(
                             .fg(agent_name_color)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(format!("({})", agent_id), Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        format!("({})", agent_id),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                 ];
                 // 展开状态显示短 hash
                 if let Some(ref hash) = bg_hash {
@@ -1869,7 +1872,10 @@ pub fn render_view_model_with_links(
                 } else if let Some(rest) = line.strip_prefix("  └ ") {
                     lines.push(Line::from(vec![
                         Span::styled("  └ ", Style::default().fg(theme::cur().subtle)),
-                        Span::styled(sanitize_display_text(rest), Style::default().fg(theme::cur().inactive)),
+                        Span::styled(
+                            sanitize_display_text(rest),
+                            Style::default().fg(theme::cur().inactive),
+                        ),
                     ]));
                 } else if let Some(text) = line.strip_prefix("      ") {
                     // Prompt 详细正文行（缩进 6 列）
@@ -1885,11 +1891,17 @@ pub fn render_view_model_with_links(
                         Style::default().fg(theme::cur().subtle),
                         width.saturating_sub(6).max(20),
                     );
-                } else if let Some(rest) = line.strip_prefix("● Agent(").or_else(|| line.strip_prefix("• Agent(")) {
+                } else if let Some(rest) = line
+                    .strip_prefix("● Agent(")
+                    .or_else(|| line.strip_prefix("• Agent("))
+                {
                     // 详细模式卡片标题：● Agent(任务预览)（对齐系统 Bash 工具统一 ● 圆点符号）
                     let rest_args = rest.strip_suffix(')').unwrap_or(rest);
                     lines.push(Line::from(vec![
-                        Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(theme::cur().success)),
+                        Span::styled(
+                            theme::SYMBOL_DOT_SPACED,
+                            Style::default().fg(theme::cur().success),
+                        ),
                         Span::styled(
                             "Agent",
                             Style::default()
@@ -1946,11 +1958,17 @@ pub fn render_view_model_with_links(
                         Style::default().fg(theme::cur().subtle),
                         width.saturating_sub(4).max(20),
                     );
-                } else if let Some(rest) = line.strip_prefix(theme::SYMBOL_DOT).or_else(|| line.strip_prefix('•')) {
+                } else if let Some(rest) = line
+                    .strip_prefix(theme::SYMBOL_DOT)
+                    .or_else(|| line.strip_prefix('•'))
+                {
                     // 行内已自带圆点（启动摘要标题 / 子 Agent 完成行）：直接渲染全局统一圆点 SYMBOL_DOT_SPACED，
                     // 统一对齐系统 Bash 工具的 ● 字形，杜绝一大一小。
                     let row = Line::from(vec![
-                        Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(theme::cur().success)),
+                        Span::styled(
+                            theme::SYMBOL_DOT_SPACED,
+                            Style::default().fg(theme::cur().success),
+                        ),
                         Span::styled(
                             sanitize_display_text(rest.trim_start()),
                             Style::default().fg(theme::cur().text_soft),
@@ -2017,7 +2035,11 @@ pub fn render_view_model_with_links(
             if *category == ToolCategory::AskUser {
                 // AskUserQuestion 聚合：统一标题 + 所有问答对
                 let has_error = tools.iter().any(|t| t.is_error);
-                let color = if has_error { theme::cur().error } else { theme::cur().success };
+                let color = if has_error {
+                    theme::cur().error
+                } else {
+                    theme::cur().success
+                };
                 lines.push(Line::from(vec![
                     Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(color)),
                     Span::styled(
@@ -2182,7 +2204,7 @@ pub fn render_view_model_with_links(
 }
 
 #[cfg(test)]
-#[path = "background_task_render_test.rs"]
+#[path = "../background_task_render_test.rs"]
 mod background_task_tests;
 
 #[cfg(test)]
