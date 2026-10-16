@@ -1139,3 +1139,67 @@ fn test_refresh_running_bash_multiline_header_triggers_rebuild_at_threshold() {
     );
 }
 
+
+fn write_tool_block_vm() -> MessageViewModel {
+    MessageViewModel::ToolBlock {
+        tool_name: "Write".to_string(),
+        tool_call_id: "tc_write_flags".to_string(),
+        display_name: "Write".to_string(),
+        args_display: Some("file.rs".to_string()),
+        content: "File created successfully".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().success,
+        diff_input: Some(cc_widgets::DiffInput {
+            file_path: "file.rs".to_string(),
+            old_content: String::new(),
+            new_content: "brand new line".to_string(),
+            is_new_file: true,
+            is_deleted_file: false,
+            is_binary: false,
+        }),
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    }
+}
+
+/// 配置门契约：渲染线程出生时 diff_visible=false，配置的初始值只能靠
+/// ToggleDiff 事件送达（ChatSession 创建时补发）。事件先于首个 Rebuild
+/// 到达时，后续 Rebuild 必须按开启态渲染 Write 的内联 diff。
+#[tokio::test]
+async fn test_toggle_diff_before_first_rebuild_enables_inline_diff() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    tx.send(RenderEvent::ToggleDiff(true)).await.unwrap();
+    wait_render().await;
+    tx.send(RenderEvent::Rebuild(vec![write_tool_block_vm()]))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    let texts = cache_line_texts(&cache.read());
+    assert!(
+        texts.iter().any(|l| l.contains("brand new line")),
+        "ToggleDiff 先行后 Write diff 应渲染出来: {texts:?}"
+    );
+}
+
+/// 对照组：没有 ToggleDiff 事件时（配置没送达渲染线程的状态），
+/// 同一条 Write 消息不渲染内联 diff——这正是配置门此前断掉时的表现。
+#[tokio::test]
+async fn test_no_toggle_diff_keeps_inline_diff_hidden() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    tx.send(RenderEvent::Rebuild(vec![write_tool_block_vm()]))
+        .await
+        .unwrap();
+    wait_render().await;
+
+    let texts = cache_line_texts(&cache.read());
+    assert!(
+        !texts.iter().any(|l| l.contains("brand new line")),
+        "未送达 ToggleDiff 时 Write diff 不应出现: {texts:?}"
+    );
+}

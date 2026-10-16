@@ -6,6 +6,10 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+### Fixes
+
+- **配置「内联 Diff」打开后不生效，Write/Edit 内容不显示**：`diff_enabled` 此前只写进配置文件并初始化会话的 ui 字段，但真正消费开关的渲染线程出生时 `diff_visible` 写死为 false、Rebuild 事件又不携带标志，全仓唯一会发 `ToggleDiff` 事件的只有运行时切换动作——走配置这条门（配置面板或改 settings.json，含重启）开关永远到不了渲染线程，普通页面上 Write/Edit 的 diff 从不渲染，Write 的正文内容因此完全看不见（Ctrl+O 详细模式不受影响）。现补齐两处接线：`ChatSession::new` 在会话创建时把配置的初始标志以 Toggle 事件同步给渲染线程；配置面板保存后同步当前会话的 ui 状态并补发 `ToggleDiff`，改完立即生效。渲染线程新增契约测试：Toggle 事件先于首个 Rebuild 到达时 Write diff 正常渲染、无事件时保持隐藏。
+
 ## v0.6.151 — 2026-10-16
 
 ### Features
