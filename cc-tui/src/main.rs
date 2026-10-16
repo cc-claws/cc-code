@@ -1031,6 +1031,8 @@ async fn run_app(
                 let cache_updated =
                     cache_version != app.session_mgr.current_mut().messages.last_render_version;
                 let loading = app.session_mgr.current_mut().ui.loading;
+                // 系统提示的最短可见时长到期 → 清除并触发一次重绘
+                let notice_expired = app.expire_system_notices();
                 let should_render = cache_updated
                     || agent_updated
                     || bg_updated
@@ -1040,7 +1042,8 @@ async fn run_app(
                     || panic_updated
                     || git_branch_updated
                     || loading
-                    || cursor_blinked;
+                    || cursor_blinked
+                    || notice_expired;
                 if should_render {
                     let now = Instant::now();
                     // loading 路径：限制帧率到 TARGET_FRAME_INTERVAL，降低 CPU 开销

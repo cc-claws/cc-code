@@ -278,7 +278,11 @@ impl BackgroundAgentSession {
                 });
             }
             AgentEvent::SystemNotice { level, message } => {
-                self.agent.system_notice = Some(super::agent_comm::SystemNotice { level: *level, message: message.clone() });
+                self.agent.system_notice = Some(super::agent_comm::SystemNotice::new(
+                    *level,
+                    message.clone(),
+                    std::time::Instant::now(),
+                ));
             }
             AgentEvent::LspDiagnostics { errors, warnings, files_with_errors } => {
                 self.agent.lsp_errors = *errors;
