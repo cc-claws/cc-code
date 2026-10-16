@@ -5,7 +5,7 @@
 
 ## 实现状态
 
-**P0 / P1 / P2 已实现；功能 PR #543 与 A4 独立清理工单 #547 分阶段交付，发布验证由仓库 NPM 流水线执行。** 效果图（可交互 mock）见 `.tmp/agent-command-center-interactive.html`（本地文件，未入库，42 条脱敏样例数据）。
+**P0 / P1 / P2 已实现（功能 PR #543）；A4 旧 Tasks 清理由独立 PR #548 交付（工单 #547）。验收与发布证据见关联 PR 的三平台 CI 和仓库 NPM 流水线。** 效果图（可交互 mock）见 `.tmp/agent-command-center-interactive.html`（本地文件，未入库，42 条脱敏样例数据）。
 
 - **§5.3 全部按已定决议及建议默认执行**；下列“实施修订”解决原文冲突，并作为最终验收口径。
 - 本 PRD 的技术结论分两类：**已核实**（带 `文件:行` 证据）与**待核实**（仅 UX 描述，无代码依据），后者实现时必须先核对
@@ -393,7 +393,7 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 | **P0** | 全页视图骨架（渲染早退 + 按键 stage）、去掉 cwd 过滤、按 `cwd` 分组 + 组头计数、五档过滤与计数、`↑↓` 光标（含滚入视口）、渲染层分页切片、五档状态启发式、详情栏（Project / Prompt / Last message）、`?` 浮层、`/agents` 命令入口、`/tasks` 入口屏蔽（旧代码交由独立清理阶段删除） | A4 |
 | **P1** | ①数据层：`ThreadMeta` 新增**独立列** `model` / `reasoning_effort` / `branch`（迁移 + 列常量 + `row_to_meta` + 有实际 LLM 配置的根会话创建/分叉及执行入口写入），详情栏三行接上真实数据，缺失值按实施修订显示 Unknown；②C3：根会话轮次开始/结束写 `agent_status`；③真分页 `list_threads_paged` + 子查询改 JOIN 聚合；④**方案 B 跨项目进入**：`open_thread()` 传 `meta.cwd` + `services.cwd` 降级为派生值（20 处消费点自动跟随）+ `n` 用选中行 cwd | A1、A2、C3、E1、E2、B1–B3 |
 | **P2** | `←` 全局键与 10 条门控（**入口不能晚于 P0，P0 未做则命令是唯一入口**）、原 `/agents` → **`/agent-design`** 改名、删除确认浮层 / 重命名 / 搜索的实现口径、窄屏降级 | A3、D1–D5、E3 |
-| **收尾（独立 PR，已实现）** | 已删除 `/tasks` 的旧命令、双标签面板、接线及专用文案，并随专用实现移除 `#[allow(dead_code)]`；保留 `/cron`、Todo 与后台任务面板，待统一验证与提交 | A4 |
+| **收尾（独立 PR #548）** | 已删除 `/tasks` 的旧命令、双标签面板、接线及专用文案，并随专用实现移除 `#[allow(dead_code)]`；保留 `/cron`、Todo 与后台任务面板，验证证据见 PR 记录 | A4 |
 
 ## 7. 涉及文件
 
