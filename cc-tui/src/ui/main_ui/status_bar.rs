@@ -104,7 +104,6 @@ fn has_hud_activity(app: &App) -> bool {
     !agent.running_tools.is_empty()
         || agent.has_visible_recent_tools(now)
         || !agent.session_tool_stats.is_empty()
-        || !session.background_agents.is_empty()
         || !session.todo_items.is_empty()
 }
 
@@ -177,10 +176,6 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     if app.session_mgr.current().active_subagent().is_none() {
-        if let Some(segment) = render_agents_segment(app) {
-            append_activity_segment(&mut left_spans, segment);
-        }
-
         if let Some(segment) = render_tasks_segment(app) {
             append_activity_segment(&mut left_spans, segment);
         }
@@ -357,19 +352,6 @@ fn render_completed_tool_segments(agent: &crate::app::AgentComm) -> Vec<Vec<Span
     }
 
     segments
-}
-
-fn render_agents_segment(app: &App) -> Option<Vec<Span<'static>>> {
-    let agents = &app.session_mgr.current().background_agents;
-    if agents.is_empty() {
-        return None;
-    }
-    let labels = agents
-        .iter()
-        .map(|agent| format!("{}(run)", agent.agent_name))
-        .collect::<Vec<_>>()
-        .join(" ");
-    Some(vec![Span::styled(format!("🤖 {}", labels), plain_style())])
 }
 
 fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
