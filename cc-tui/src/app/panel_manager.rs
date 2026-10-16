@@ -13,7 +13,6 @@ use super::{
     memory_panel::MemoryPanel, model_panel::ModelPanel, plugin_panel::PluginPanel,
     theme_panel::ThemePanel,
     service_registry::ServiceRegistry, session_manager::SessionManager, status_panel::StatusPanel,
-    tasks_panel::TasksPanel,
 };
 use crate::thread::ThreadBrowser;
 
@@ -59,7 +58,6 @@ pub enum PanelKind {
     Cron,
     Status,
     Memory,
-    Tasks,
     CommandPalette,
     BackgroundTasks,
     Theme,
@@ -80,7 +78,6 @@ impl PanelKind {
             PanelKind::Cron => 8,
             PanelKind::Status => 9,
             PanelKind::Memory => 10,
-            PanelKind::Tasks => 11,
             PanelKind::BackgroundTasks => 12,
             PanelKind::Theme => 13,
             PanelKind::CommandPalette => 0,
@@ -97,7 +94,6 @@ impl PanelKind {
             PanelKind::Mcp
             | PanelKind::Plugin
             | PanelKind::Cron
-            | PanelKind::Tasks
             | PanelKind::BackgroundTasks => MutexGroup::Tools,
             PanelKind::Status | PanelKind::Memory => MutexGroup::Info,
             PanelKind::ThreadBrowser => MutexGroup::Thread,
@@ -120,7 +116,6 @@ impl PanelKind {
             | PanelKind::Cron
             | PanelKind::Status
             | PanelKind::Memory
-            | PanelKind::Tasks
             | PanelKind::BackgroundTasks => PanelScope::Global,
         }
     }
@@ -158,7 +153,6 @@ pub enum PanelState {
     Cron(CronPanel),
     Status(StatusPanel),
     Memory(MemoryPanel),
-    Tasks(TasksPanel),
     CommandPalette(CommandPalettePanel),
     BackgroundTasks(BackgroundTasksPanel),
     Theme(ThemePanel),
@@ -179,7 +173,6 @@ impl PanelState {
             PanelState::Cron(_) => PanelKind::Cron,
             PanelState::Status(_) => PanelKind::Status,
             PanelState::Memory(_) => PanelKind::Memory,
-            PanelState::Tasks(_) => PanelKind::Tasks,
             PanelState::CommandPalette(_) => PanelKind::CommandPalette,
             PanelState::BackgroundTasks(_) => PanelKind::BackgroundTasks,
             PanelState::Theme(_) => PanelKind::Theme,
@@ -200,7 +193,6 @@ impl PanelState {
             PanelState::Cron(p) => p as &dyn Any,
             PanelState::Status(p) => p as &dyn Any,
             PanelState::Memory(p) => p as &dyn Any,
-            PanelState::Tasks(p) => p as &dyn Any,
             PanelState::CommandPalette(p) => p as &dyn Any,
             PanelState::BackgroundTasks(p) => p as &dyn Any,
             PanelState::Theme(p) => p as &dyn Any,
@@ -221,7 +213,6 @@ impl PanelState {
             PanelState::Cron(p) => p as &mut dyn Any,
             PanelState::Status(p) => p as &mut dyn Any,
             PanelState::Memory(p) => p as &mut dyn Any,
-            PanelState::Tasks(p) => p as &mut dyn Any,
             PanelState::CommandPalette(p) => p as &mut dyn Any,
             PanelState::BackgroundTasks(p) => p as &mut dyn Any,
             PanelState::Theme(p) => p as &mut dyn Any,
@@ -243,7 +234,6 @@ impl PanelState {
             PanelState::Cron(p) => p.render(f, app, area),
             PanelState::Status(p) => p.render(f, app, area),
             PanelState::Memory(p) => p.render(f, app, area),
-            PanelState::Tasks(p) => p.render(f, app, area),
             PanelState::CommandPalette(p) => p.render(f, app, area),
             PanelState::BackgroundTasks(p) => p.render(f, app, area),
             PanelState::Theme(p) => p.render(f, app, area),
@@ -265,7 +255,6 @@ impl PanelState {
             PanelState::Cron(p) => p.desired_height(screen_height, screen_width),
             PanelState::Status(p) => p.desired_height(screen_height, screen_width),
             PanelState::Memory(p) => p.desired_height(screen_height, screen_width),
-            PanelState::Tasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::CommandPalette(p) => p.desired_height(screen_height, screen_width),
             PanelState::BackgroundTasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::Theme(p) => p.desired_height(screen_height, screen_width),
@@ -287,7 +276,6 @@ impl PanelState {
             PanelState::Cron(p) => p.status_bar_hints(lc),
             PanelState::Status(p) => p.status_bar_hints(lc),
             PanelState::Memory(p) => p.status_bar_hints(lc),
-            PanelState::Tasks(p) => p.status_bar_hints(lc),
             PanelState::CommandPalette(p) => p.status_bar_hints(lc),
             PanelState::BackgroundTasks(p) => p.status_bar_hints(lc),
             PanelState::Theme(p) => p.status_bar_hints(lc),
@@ -419,7 +407,6 @@ impl PanelManager {
             PanelState::Mcp(p) => p.handle_key(input, ctx),
             PanelState::Cron(p) => p.handle_key(input, ctx),
             PanelState::Plugin(p) => p.handle_key(input, ctx),
-            PanelState::Tasks(p) => p.handle_key(input, ctx),
             PanelState::CommandPalette(p) => p.handle_key(input, ctx),
             PanelState::BackgroundTasks(p) => p.handle_key(input, ctx),
             PanelState::Theme(p) => p.handle_key(input, ctx),
@@ -444,7 +431,6 @@ impl PanelManager {
             PanelState::Mcp(p) => p.handle_paste(text, ctx),
             PanelState::Cron(p) => p.handle_paste(text, ctx),
             PanelState::Plugin(p) => p.handle_paste(text, ctx),
-            PanelState::Tasks(p) => p.handle_paste(text, ctx),
             PanelState::CommandPalette(p) => p.handle_paste(text, ctx),
             PanelState::BackgroundTasks(p) => p.handle_paste(text, ctx),
             PanelState::Theme(p) => p.handle_paste(text, ctx),
@@ -469,7 +455,6 @@ impl PanelManager {
             PanelState::Mcp(p) => p.handle_scroll(lines, ctx),
             PanelState::Cron(p) => p.handle_scroll(lines, ctx),
             PanelState::Plugin(p) => p.handle_scroll(lines, ctx),
-            PanelState::Tasks(p) => p.handle_scroll(lines, ctx),
             PanelState::CommandPalette(p) => p.handle_scroll(lines, ctx),
             PanelState::BackgroundTasks(p) => p.handle_scroll(lines, ctx),
             PanelState::Theme(p) => p.handle_scroll(lines, ctx),
@@ -499,7 +484,6 @@ impl PanelManager {
             PanelState::Mcp(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::Cron(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::Plugin(p) => p.handle_mouse(mouse, area, ctx),
-            PanelState::Tasks(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::CommandPalette(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::BackgroundTasks(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::Theme(p) => p.handle_mouse(mouse, area, ctx),
@@ -524,7 +508,6 @@ impl PanelManager {
             PanelState::Mcp(p) => p.status_bar_hints(lc),
             PanelState::Cron(p) => p.status_bar_hints(lc),
             PanelState::Plugin(p) => p.status_bar_hints(lc),
-            PanelState::Tasks(p) => p.status_bar_hints(lc),
             PanelState::CommandPalette(p) => p.status_bar_hints(lc),
             PanelState::BackgroundTasks(p) => p.status_bar_hints(lc),
             PanelState::Theme(p) => p.status_bar_hints(lc),
@@ -547,7 +530,6 @@ impl PanelManager {
             PanelState::Mcp(p) => p.desired_height(screen_height, screen_width),
             PanelState::Cron(p) => p.desired_height(screen_height, screen_width),
             PanelState::Plugin(p) => p.desired_height(screen_height, screen_width),
-            PanelState::Tasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::CommandPalette(p) => p.desired_height(screen_height, screen_width),
             PanelState::BackgroundTasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::Theme(p) => p.desired_height(screen_height, screen_width),
@@ -572,7 +554,6 @@ impl PanelManager {
             PanelState::Mcp(p) => p.set_scroll_offset(offset),
             PanelState::Cron(p) => p.set_scroll_offset(offset),
             PanelState::Plugin(p) => p.set_scroll_offset(offset),
-            PanelState::Tasks(p) => p.set_scroll_offset(offset),
             PanelState::CommandPalette(p) => p.set_scroll_offset(offset),
             PanelState::BackgroundTasks(p) => p.set_scroll_offset(offset),
             PanelState::Theme(p) => p.set_scroll_offset(offset),

@@ -497,7 +497,7 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                     return Ok(Some(Action::Redraw));
                 }
 
-                // Global panels: Status, Memory, Mcp, Cron, Plugin, Tasks
+                // Global panels: Status, Memory, Mcp, Cron, Plugin
                 let global_kind = app.global_panels.active_kind();
                 if matches!(
                     global_kind,
@@ -506,7 +506,6 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                         | Some(PanelKind::Mcp)
                         | Some(PanelKind::Cron)
                         | Some(PanelKind::Plugin)
-                        | Some(PanelKind::Tasks)
                 ) {
                     with_global_panels!(app, |pm, ctx| pm.dispatch_paste(&text, &mut ctx));
                     return Ok(Some(Action::Redraw));

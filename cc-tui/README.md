@@ -127,9 +127,9 @@ cargo run -p cc-tui -- -r <session-id>
 | `/mcp` | MCP 服务器管理面板 |
 | `/hooks` | Hooks 配置查看（只读） |
 | `/cron` | 定时任务管理面板 |
-| `/agents` | SubAgent 定义管理 |
+| `/agents` | 跨项目 Agent 会话中心（全页视图） |
+| `/agent-design` | SubAgent 定义管理 |
 | `/memory` | Memory 文件管理面板 |
-| `/tasks` | 后台任务面板 |
 
 ### Session 命令
 
@@ -149,7 +149,7 @@ cargo run -p cc-tui -- -r <session-id>
 
 ## 面板系统
 
-12 种面板，分 Session/Global 作用域：
+14 种面板，分 Session/Global 作用域；会话中心使用独立全页视图：
 
 ### Session 面板
 
@@ -161,6 +161,8 @@ cargo run -p cc-tui -- -r <session-id>
 | AgentPanel | Agent 列表 |
 | HooksPanel | Hooks 配置 |
 | ThreadBrowser | 会话历史 |
+| CommandPalettePanel | 命令面板 |
+| ThemePanel | 主题选择 |
 
 ### Global 面板
 
@@ -169,7 +171,7 @@ cargo run -p cc-tui -- -r <session-id>
 | McpPanel | MCP 服务器 |
 | PluginPanel | 插件管理 |
 | CronPanel | 定时任务 |
-| TasksPanel | 任务列表 |
+| BackgroundTasksPanel | 后台任务 |
 | StatusPanel | 系统状态 |
 | MemoryPanel | 记忆管理 |
 

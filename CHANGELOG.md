@@ -6,7 +6,7 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
-## v0.6.147 — 2026-10-15
+## v0.6.147 — 2026-10-16
 
 ### Features
 
@@ -14,9 +14,13 @@ Perihelion Agent 版本变更记录。
 - **会话目录跟随恢复目标**：跨项目 Enter 与 `n` 使用目标会话目录，系统提示词按 ACP session 冻结，文件补全、相对路径、hooks、MCP、技能与分支缓存随目录切换；不改变进程 cwd。运行中任务、Shell、排队消息或审批未结束时拒绝切换，避免中断和结果串台；Enter 当前会话直接返回。`n` 创建空白草稿，首次发送前不落库；`o` 复用当前项目 `/history`。
 - **会话状态与快照持久化**：根会话轮次持久化 active / done / cancelled / error，新增 model / reasoning_effort / branch 独立列并幂等迁移旧库。SQLite 先分页线程再 JOIN 当页消息统计，计数索引不读取消息；文件系统后端读取轻量索引、仅统计当页文件。过滤与搜索作用于已加载页，计数覆盖全部根会话。仅本进程实时显示 Working / Needs you，其它进程按保存状态和 24 小时阈值降级；历史 done / cancelled / error 为 Inactive。
 
+### Fixes
+
+- **会话中心并发分页**：外部更新或新增改变目录排序后，已加载列表重新对齐最新目录的连续前缀，防止旧 offset 与去重跳过未加载会话；页请求期间发生的更新也会重新对齐，保持选中会话。
+
 ### Changed
 
-- 原 agent 定义选择入口从 `/agents` 改为 **`/agent-design`**；`/tasks` 从命令注册表移除，其实现保留待独立清理 PR。`/history` 与 `--continue` 保持当前项目语义。
+- 原 agent 定义选择入口从 `/agents` 改为 **`/agent-design`**；`/tasks` 入口由会话中心替代，旧命令、双标签面板及接线已在独立清理 PR 中删除（#547），定时任务仍使用 `/cron`。`/history` 与 `--continue` 保持当前项目语义。
 
 ## v0.6.146 — 2026-10-15
 

@@ -5,14 +5,14 @@
 
 ## 实现状态
 
-**P0 / P1 / P2 已实现，正在执行集成审计与发布验证。** 效果图（可交互 mock）见 `.tmp/agent-command-center-interactive.html`（本地文件，未入库，42 条脱敏样例数据）。
+**P0 / P1 / P2 已实现；功能 PR #543 与 A4 独立清理工单 #547 分阶段交付，发布验证由仓库 NPM 流水线执行。** 效果图（可交互 mock）见 `.tmp/agent-command-center-interactive.html`（本地文件，未入库，42 条脱敏样例数据）。
 
 - **§5.3 全部按已定决议及建议默认执行**；下列“实施修订”解决原文冲突，并作为最终验收口径。
 - 本 PRD 的技术结论分两类：**已核实**（带 `文件:行` 证据）与**待核实**（仅 UX 描述，无代码依据），后者实现时必须先核对
 
 ### 实施修订（2026-10-15，Issue #542）
 
-- 本期交付全部 P0 / P1 / P2；`/tasks` 保留代码按 A4 在功能验收后独立清理 PR。
+- 本期交付全部 P0 / P1 / P2；A4 的 `/tasks` 独立清理见 #547，保留 `/cron`、Todo 与后台任务面板。
 - **状态以 Q3 与验收用例为准**：历史 `done/cancelled/error` 均为 Inactive，历史 active 在 24h 内为 Ready，超期为 Inactive；只有本进程的根任务/子任务运行与待审批/待回答可分别提升为 Working/Needs you，Needs you 优先。删除 §4.3 中历史 error 同时归两桶的歧义。
 - **门控按 peri 实际能力映射**：本地 in-memory ACP 为可用本进程；无 daemon、vim 或自定义 move_left 绑定的配置项，不引入虚构状态。要求焦点、根会话、空文本/空附件、无 setup/OAuth/交互/面板/补全/子任务控制前缀，并仅接受裸 Left Press。粘贴独立路由，不穿透页面到 composer。
 - **计数与分页**：轻量全局索引提供全部根会话计数；SQLite 在 root 筛选后每页 LIMIT 10，再对当页消息 JOIN 聚合。过滤/搜索作用于已加载页，Tab 不请求存储；Show more 始终可达。filesystem 后端必须读取 index.json，但只对页内会话统计消息文件大小。分组计数等于当前过滤后已加载的组内行数。
@@ -48,7 +48,7 @@
 2. 五档状态桶可过滤：`All / Needs you / Working / Ready / Inactive`
 3. 右侧详情栏可读：`Model / Reasoning / Project / Branch / Last message / Prompt`
 4. `Enter` 直接进入该会话（复用既有会话页与渲染管线）；**跨项目可进入** —— A1 已定采用**方案 B**（对齐 ACP 的 per-session cwd，见 §5.1）
-5. `/tasks` 的入口由本页取代（A4）：`/tasks` 命令先屏蔽，代码本 PR 内保留、验收后单独清理
+5. `/tasks` 的入口由本页取代（A4）：功能 PR 先屏蔽命令入口，旧命令、双标签面板与接线由独立清理 PR 删除
 
 **非目标（本期不做）**
 
@@ -65,7 +65,7 @@
 |---|---|
 | `/agents` | **本页占用该命令**。peri 原 `/agents`（选 agent 定义，`cc-tui/src/command/panel/agents.rs:19`）**改名为 `/agent-design`**（A3 已定，别名同为 `agent-design`） |
 | `←` | 全局快捷键，**仅在满足全部门控条件时生效**（§3.5）。P0 若未做键位，`/agents` 是唯一入口 |
-| `/tasks` | **入口屏蔽**（A4 已定）：从命令注册表移除，命令面板与补全里不再出现；代码**本 PR 内保留**（不删除），验收通过后单独提清理 PR。同时**去掉它的 cwd 过滤**不再有意义（入口都已不可见） |
+| `/tasks` | **已移除**（A4）：功能 PR 从命令注册表移除入口；独立清理阶段删除旧命令、双标签面板及接线。定时任务继续使用 `/cron` |
 
 ### 3.2 页面结构（逐字对齐 Codex 快照 `command_center__live_center_columns.snap`）
 
@@ -341,7 +341,7 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 | A1 | ✅ **已定**：采用方案 B（对齐 ACP 的 per-session cwd），排 P1 | §5.1 | — |
 | A2 | ✅ **已定**：`n` 用**选中行的 cwd**（对齐 Codex），提示行写出目标项目 | Q9 原定「当前 cwd」；Codex 用「选中行 cwd」 | — |
 | A3 | ✅ **已定**：原「选 agent 定义」改名 **`/agent-design`**，`/agents` 让给本页；CHANGELOG 标注，不保留冲突的同名 alias | §3.1 | — |
-| A4 | ✅ **已定**：`/tasks` **入口屏蔽**（从命令注册表移除），代码本 PR 内**保留**，验收通过后单独提清理 PR | `/tasks` 按 cwd 过滤、状态写死 `"done"`、详情栏恒 `(Loading messages...)` | — |
+| A4 | ✅ **已实现**：功能 PR 屏蔽 `/tasks` 入口；独立清理阶段删除旧命令、双标签面板及接线（#547） | 旧 `/tasks` 按 cwd 过滤、状态写死 `"done"`、详情栏恒 `(Loading messages...)` | — |
 
 **B. 详情栏的数据源**
 
@@ -389,10 +389,10 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 
 | 阶段 | 内容 | 前置决策 |
 |---|---|---|
-| **P0** | 全页视图骨架（渲染早退 + 按键 stage）、去掉 cwd 过滤、按 `cwd` 分组 + 组头计数、五档过滤与计数、`↑↓` 光标（含滚入视口）、渲染层分页切片、五档状态启发式、详情栏（Project / Prompt / Last message）、`?` 浮层、`/agents` 命令入口、`/tasks` 入口屏蔽（代码保留） | A4 |
+| **P0** | 全页视图骨架（渲染早退 + 按键 stage）、去掉 cwd 过滤、按 `cwd` 分组 + 组头计数、五档过滤与计数、`↑↓` 光标（含滚入视口）、渲染层分页切片、五档状态启发式、详情栏（Project / Prompt / Last message）、`?` 浮层、`/agents` 命令入口、`/tasks` 入口屏蔽（旧代码交由独立清理阶段删除） | A4 |
 | **P1** | ①数据层：`ThreadMeta` 新增**独立列** `model` / `reasoning_effort` / `branch`（迁移 + 列常量 + `row_to_meta` + 全部 `create_thread` 调用点写入），详情栏三行接上真实数据；②C3：根会话轮次开始/结束写 `agent_status`；③真分页 `list_threads_paged` + 子查询改 JOIN 聚合；④**方案 B 跨项目进入**：`open_thread()` 传 `meta.cwd` + `services.cwd` 降级为派生值（20 处消费点自动跟随）+ `n` 用选中行 cwd | A1、A2、C3、E1、E2、B1–B3 |
 | **P2** | `←` 全局键与 10 条门控（**入口不能晚于 P0，P0 未做则命令是唯一入口**）、原 `/agents` → **`/agent-design`** 改名、删除确认浮层 / 重命名 / 搜索的实现口径、窄屏降级 | A3、D1–D5、E3 |
-| **收尾（独立 PR）** | 删除 `/tasks` 的保留代码（A4 的第二半），清理 `#[allow(dead_code)]` | A4 |
+| **收尾（独立 PR，已实现）** | 已删除 `/tasks` 的旧命令、双标签面板、接线及专用文案，并随专用实现移除 `#[allow(dead_code)]`；保留 `/cron`、Todo 与后台任务面板，待统一验证与提交 | A4 |
 
 ## 7. 涉及文件
 
@@ -402,7 +402,7 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 | `cc-tui/src/ui/main_ui/mod.rs:32` | 新增全页视图早退分支 | P0 |
 | `cc-tui/src/event/keyboard.rs:96` | 新增专属 key stage（在 Stage 1 之前，命中即 return） | P0 |
 | `cc-tui/locales/{zh-CN,en}/main.ftl` | 新增文案（两份都要加，**本仓无 en/zh 一致性测试**） | P0 |
-| `cc-tui/src/app/panel_plugin.rs:404-424` + `cc-tui/src/command/panel/tasks.rs:14` | **A4（入口屏蔽）**：从命令注册表移除 `/tasks`；`open_tasks_panel()` 及其面板代码**本 PR 内保留**（不删、不重写），加 `#[allow(dead_code)]` 以免 lint 报错，验收通过后单独提清理 PR | P0 |
+| `cc-tui/src/app/panel_plugin.rs`、`app/panel_manager.rs`、原 `app/tasks_panel.rs` / `command/panel/tasks.rs` / `ui/main_ui/panels/tasks.rs` | **A4**：功能 PR 屏蔽 `/tasks` 入口；独立清理阶段删除三个专用文件、打开/加载方法、面板映射、模块导出与专用文案 | P0 / 独立清理 |
 | `cc-agent/src/thread/types.rs` | **P1**：`ThreadMeta` 加 `model` / `reasoning_effort` / `branch` 独立列 | P1 |
 | `cc-agent/src/thread/sqlite_store.rs:176+` | **P1**：`ALTER TABLE` 迁移（既有幂等模式）+ 列常量 + `row_to_meta` + `list_threads_paged` + 子查询改 JOIN 聚合 | P1 |
 | `cc-agent/src/thread/store.rs:30` | **P1**：trait 加 `list_threads_paged(limit, offset)` | P1 |
@@ -429,7 +429,7 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 10. 状态桶降级可解释：本进程以外的会话**不会**被显示成 Working/Needs you（C1），且关掉的会话不显示 Ready（C3 修好前此项必挂）
 11. 删除为**永久删除**（D4 已定）：`⌫` 必须经二次确认浮层，确认文案含「不可恢复」；确认后该行与其消息一并消失
 12. 当前会话行有可见标记（F2）；首屏只有当前项目时给出「其它项目 N 条」提示（F3）
-13. `/tasks` 已从命令面板消失（A4），`/agent-design` 可用（A3），`/agents` 打开本页
+13. `/tasks` 已从命令面板消失且旧专用实现已清理（A4），`/cron`、Todo 与后台任务面板保留；`/agent-design` 可用（A3），`/agents` 打开本页
 
 ## 9. 测试用例
 
@@ -473,7 +473,7 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 | A1 | 方案 B（对齐 ACP 的 per-session cwd），P1 落地 |
 | A2 | `n` 用选中行的 cwd（对齐 Codex） |
 | A3 | 原「选 agent 定义」改名 `/agent-design`，`/agents` 归本页 |
-| A4 | `/tasks` 入口屏蔽、代码保留，验收后单独清理 |
+| A4 | `/tasks` 入口由会话中心替代；独立清理已实现，待统一验证与提交 |
 | C3 | 本期修根会话 `agent_status` 写入 |
 | D4 | 删除为永久删除 + 二次确认（对齐 Codex） |
 
