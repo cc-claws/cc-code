@@ -118,3 +118,50 @@ fn test_app_terminal_title_animates_with_rotating_chrysanthemum() {
         "标题应包含任务名并以项目名结尾"
     );
 }
+
+/// 构造「主 agent 已收尾、后台子 agent 仍在跑」的会话状态
+fn make_app_waiting_subagents() -> App {
+    let mut app = make_app();
+    app.session_mgr.current_mut().ui.loading = false;
+    app.session_mgr.current_mut().agent.last_task_duration = Some(Duration::from_secs(5));
+    app.session_mgr
+        .current_mut()
+        .background_agents
+        .push(crate::app::RunningBgAgent {
+            agent_name: "explore".to_string(),
+            instance_id: "bg-1".to_string(),
+            started_at: std::time::Instant::now(),
+            total_steps: 0,
+        });
+    app
+}
+
+#[test]
+fn test_app_current_title_status_working_while_waiting_subagents() {
+    let app = make_app_waiting_subagents();
+    assert_eq!(
+        app.current_title_status(),
+        TerminalTitleStatusKind::Working,
+        "主 agent 已收尾但后台子 agent 仍在跑时，标题应保持工作态而不是 Done"
+    );
+}
+
+#[test]
+fn test_app_terminal_title_animates_while_waiting_subagents() {
+    let mut app = make_app_waiting_subagents();
+    app.session_mgr.current_mut().metadata.thread_title = Some("waiting".to_string());
+
+    app.refresh_terminal_title();
+    let frame1 = app.global_ui.last_terminal_title.clone().unwrap();
+
+    for _ in 0..4 {
+        app.session_mgr.current_mut().spinner_state.advance_tick();
+    }
+    app.refresh_terminal_title();
+    let frame2 = app.global_ui.last_terminal_title.clone().unwrap();
+
+    assert_ne!(
+        frame1, frame2,
+        "等后台子 agent 期间标题动画应继续旋转，不能停在静态状态"
+    );
+}

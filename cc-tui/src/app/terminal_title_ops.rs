@@ -18,9 +18,10 @@ impl App {
             return TerminalTitleStatusKind::ActionRequired;
         }
 
-        // 优先级 2：任务运行中
-        if self.session_mgr.current().ui.loading {
-            let session = self.session_mgr.current();
+        // 优先级 2：任务运行中；主 agent 已收尾但仍在等后台子 agent 时同属工作态，
+        // 否则交棒瞬间标题就落到 Done/Idle 并停住动画（issue #575）
+        let session = self.session_mgr.current();
+        if session.ui.loading {
             let is_tool = session.agent.active_tool.is_some()
                 || !session.agent.running_tools.is_empty()
                 || *session.spinner_state.mode() == cc_widgets::SpinnerMode::ToolUse;
@@ -29,19 +30,13 @@ impl App {
             } else {
                 TerminalTitleStatusKind::Thinking
             }
+        } else if session.has_running_subagents() {
+            TerminalTitleStatusKind::Working
+        } else if session.agent.last_task_duration.is_some() {
+            // 优先级 3：非运行态，已完成任务
+            TerminalTitleStatusKind::Done
         } else {
-            // 优先级 3：非运行态，检查是否为已完成任务状态
-            if self
-                .session_mgr
-                .current()
-                .agent
-                .last_task_duration
-                .is_some()
-            {
-                TerminalTitleStatusKind::Done
-            } else {
-                TerminalTitleStatusKind::Idle
-            }
+            TerminalTitleStatusKind::Idle
         }
     }
 
