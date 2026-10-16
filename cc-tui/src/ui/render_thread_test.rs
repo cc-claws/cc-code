@@ -989,7 +989,7 @@ fn detail_mode_long_cmd_running_task(
         detail_mode: true,
     };
     // 超长命令：详细模式下 header 必然折成多行（≥2 行内容）
-    let cmd = "(cd /d/code/peri/9router && grep -rn \"registry/index|import p0|p0\" \
+    let cmd = "(cd /d/code/peri/example-service && grep -rn \"registry/index|import p0|p0\" \
                from scripts/*.mjs | head; echo \"===\" ; \
                grep -rln \"Auto-generated: static imports\" --include=*. 2>/dev/null | \
                xargs -r -n1 basename 2>/dev/null | sort | uniq -c | sort -rn | head"

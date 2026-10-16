@@ -80,12 +80,12 @@ fn test_get_auto_memory_display_dir() {
     let display = get_auto_memory_display_dir(cwd);
     assert_eq!(display, "~/.cc-code/projects/D--code-peri/memory/");
     assert!(!display.contains("Users"));
-    assert!(!display.contains("adim"));
+    assert!(!display.contains("user"));
 }
 
 #[test]
 fn test_build_auto_memory_prompt_empty_index() {
-    let prompt = build_auto_memory_prompt(r"C:\Users\adim\.claude\projects\D--code-peri\memory\", None);
+    let prompt = build_auto_memory_prompt(r"C:\Users\user\.claude\projects\D--code-peri\memory\", None);
     assert!(prompt.contains("Your MEMORY.md is currently empty."));
 }
 

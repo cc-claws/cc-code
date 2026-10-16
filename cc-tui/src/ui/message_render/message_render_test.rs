@@ -249,10 +249,10 @@ fn test_shell_command_render_strips_non_sgr_terminal_sequences() {
 fn test_shell_command_render_uses_command_block_layout() {
     let mut vm = MessageViewModel::ShellCommand {
             id: "shell-block".to_string(),
-            command: "restart-9router.cmd".to_string(),
-            cwd: r"D:\code\9router".to_string(),
+            command: "restart-example-service.cmd".to_string(),
+            cwd: r"D:\code\example-service".to_string(),
             stdin: Vec::new(),
-            stdout: "[9router] Stopping old instance on 20130...\n[9router] Starting http://localhost:20130\n[9router] Startup timed out, check .9router-err.log".to_string(),
+            stdout: "[example-service] Stopping old instance on 20130...\n[example-service] Starting http://localhost:20130\n[example-service] Startup timed out, check .example-service-err.log".to_string(),
             stderr: String::new(),
             exit_code: Some(1),
             collapsed: true,
@@ -273,23 +273,26 @@ fn test_shell_command_render_uses_command_block_layout() {
         })
         .collect();
 
-    assert_eq!(rendered_lines[0].trim_end(), "! restart-9router.cmd");
+    assert_eq!(
+        rendered_lines[0].trim_end(),
+        "! restart-example-service.cmd"
+    );
     assert_eq!(
         rendered_lines[1],
-        "  ⎿ [9router] Stopping old instance on 20130..."
+        "  ⎿ [example-service] Stopping old instance on 20130..."
     );
     assert_eq!(
         rendered_lines[2],
-        "    [9router] Starting http://localhost:20130"
+        "    [example-service] Starting http://localhost:20130"
     );
     assert_eq!(
         rendered_lines[3],
-        "    [9router] Startup timed out, check .9router-err.log"
+        "    [example-service] Startup timed out, check .example-service-err.log"
     );
     assert!(
         rendered_lines
             .iter()
-            .all(|line| !line.contains("exit 1") && !line.contains("D:\\code\\9router")),
+            .all(|line| !line.contains("exit 1") && !line.contains("D:\\code\\example-service")),
         "命令块不应显示 exit code 或 cwd: {rendered_lines:?}"
     );
 
@@ -2647,7 +2650,7 @@ fn test_detail_header_prefix_stable_across_indicator_blink() {
     use crate::app::MessageViewModel;
 
     let cmd = r#"powershell -NoProfile -Command "
-Get-ChildItem 'C:\Users\adim' -Force -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+Get-ChildItem 'C:\Users\user' -Force -Directory -ErrorAction SilentlyContinue | ForEach-Object {
   $s=(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
 } | Select-Object -First 12 | Format-Table -Auto""#;
     let mut vm = MessageViewModel::tool_block(
