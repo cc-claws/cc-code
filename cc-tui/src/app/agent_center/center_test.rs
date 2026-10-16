@@ -11,7 +11,7 @@ use super::*;
 use crate::thread::SqliteThreadStore;
 
 async fn make_app() -> (App, tempfile::TempDir) {
-    let mut app = App::new().await;
+    let (mut app, _handle) = App::new_headless(120, 30).await;
     let directory = tempfile::tempdir().unwrap();
     app.services.thread_store = Arc::new(
         SqliteThreadStore::new(directory.path().join("threads.db"))
