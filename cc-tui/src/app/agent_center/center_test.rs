@@ -158,7 +158,7 @@ async fn test_center_catalog_refresh_realigns_pages_after_external_update() {
     promoted.updated_at = chrono::Utc::now() + chrono::Duration::hours(1);
     app.services
         .thread_store
-        .save_meta(&promoted)
+        .update_meta(&promoted_id, promoted)
         .await
         .unwrap();
     let catalog = app
