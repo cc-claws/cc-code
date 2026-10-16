@@ -401,7 +401,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
             // #318: 双路径都失败时降级为内存模式，而非 panic
             Err(_) => {
                 match cc_tui::thread::SqliteThreadStore::new(
-                    std::env::temp_dir().join("zen-threads.db"),
+                    std::env::temp_dir().join("peri-threads").join("threads.db"),
                 )
                 .await
                 {

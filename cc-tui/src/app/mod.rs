@@ -248,7 +248,11 @@ impl App {
         let thread_store: Arc<dyn ThreadStore> = match SqliteThreadStore::default_path().await {
             Ok(store) => Arc::new(store),
             Err(_) => {
-                match SqliteThreadStore::new(std::env::temp_dir().join("zen-threads.db")).await {
+                match SqliteThreadStore::new(
+                    std::env::temp_dir().join("peri-threads").join("threads.db"),
+                )
+                .await
+                {
                     Ok(store) => Arc::new(store),
                     Err(e) => {
                         tracing::warn!(
