@@ -19,6 +19,7 @@
 - **切换不中断任务**：peri 单个根 ChatSession 不承载并行根任务；有运行 Agent/Shell、排队消息或未处理审批时拒绝跨会话切换和删除，当前行 Enter 直接返回原视口。`n` 使用选中 cwd 创建空白草稿，首次发送前不创建持久化会话行。目录缺失或 ACP load 失败保留当前上下文。`o` 复用当前项目 `/history`。
 - **提示词稳定性优先**：新 ACP session 按目标 ThreadMeta.cwd 构建 frozen 数据；同一 session 再次 load 不重冻提示词。切换时使 UI 派生 cwd、路径渲染、@ 搜索、技能、分支缓存、hooks 和 MCP 与目标会话一致，不改变进程 cwd。
 - **永久删除确认**：Backspace/Delete 打开确认，`y` 明确永久删除（不可恢复），Esc/n 取消；Enter 不默认触发删除。重命名与删除固定原 thread ID，防止列表状态变化导致写错会话。
+- **快照适用范围**：具有 LLM 配置的根会话在创建、分叉、设置变化和执行时保存模型/推理快照；纯 Shell 会话、隐藏内部线程或历史记录缺少实际配置时保持空值并显示 Unknown，不推测模型。执行根会话时补齐自身 cwd 的运行快照。
 - `/agents` 命令名让渡后不保留指向旧定义面板的同名 alias，避免入口冲突；定义面板使用 `/agent-design`。
 
 ## 1. 背景
@@ -390,7 +391,7 @@ peri 的 `ThreadStore::list_threads()`（`cc-agent/src/thread/sqlite_store.rs:49
 | 阶段 | 内容 | 前置决策 |
 |---|---|---|
 | **P0** | 全页视图骨架（渲染早退 + 按键 stage）、去掉 cwd 过滤、按 `cwd` 分组 + 组头计数、五档过滤与计数、`↑↓` 光标（含滚入视口）、渲染层分页切片、五档状态启发式、详情栏（Project / Prompt / Last message）、`?` 浮层、`/agents` 命令入口、`/tasks` 入口屏蔽（旧代码交由独立清理阶段删除） | A4 |
-| **P1** | ①数据层：`ThreadMeta` 新增**独立列** `model` / `reasoning_effort` / `branch`（迁移 + 列常量 + `row_to_meta` + 全部 `create_thread` 调用点写入），详情栏三行接上真实数据；②C3：根会话轮次开始/结束写 `agent_status`；③真分页 `list_threads_paged` + 子查询改 JOIN 聚合；④**方案 B 跨项目进入**：`open_thread()` 传 `meta.cwd` + `services.cwd` 降级为派生值（20 处消费点自动跟随）+ `n` 用选中行 cwd | A1、A2、C3、E1、E2、B1–B3 |
+| **P1** | ①数据层：`ThreadMeta` 新增**独立列** `model` / `reasoning_effort` / `branch`（迁移 + 列常量 + `row_to_meta` + 有实际 LLM 配置的根会话创建/分叉及执行入口写入），详情栏三行接上真实数据，缺失值按实施修订显示 Unknown；②C3：根会话轮次开始/结束写 `agent_status`；③真分页 `list_threads_paged` + 子查询改 JOIN 聚合；④**方案 B 跨项目进入**：`open_thread()` 传 `meta.cwd` + `services.cwd` 降级为派生值（20 处消费点自动跟随）+ `n` 用选中行 cwd | A1、A2、C3、E1、E2、B1–B3 |
 | **P2** | `←` 全局键与 10 条门控（**入口不能晚于 P0，P0 未做则命令是唯一入口**）、原 `/agents` → **`/agent-design`** 改名、删除确认浮层 / 重命名 / 搜索的实现口径、窄屏降级 | A3、D1–D5、E3 |
 | **收尾（独立 PR，已实现）** | 已删除 `/tasks` 的旧命令、双标签面板、接线及专用文案，并随专用实现移除 `#[allow(dead_code)]`；保留 `/cron`、Todo 与后台任务面板，待统一验证与提交 | A4 |
 
