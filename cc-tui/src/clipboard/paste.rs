@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn wsl_路径转换_支持_c_盘() {
+    fn test_wsl_path_conversion_supports_c_drive() {
         assert_eq!(
             convert_windows_path_to_wsl(r"C:\Users\Alice\file.png"),
             Some(PathBuf::from("/mnt/c/Users/Alice/file.png"))
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn wsl_路径转换_小写盘符() {
+    fn test_wsl_path_conversion_lowercase_drive() {
         assert_eq!(
             convert_windows_path_to_wsl(r"d:\temp\x.png"),
             Some(PathBuf::from("/mnt/d/temp/x.png"))
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn wsl_路径转换_拒绝_unc() {
+    fn test_wsl_path_conversion_rejects_unc() {
         assert_eq!(
             convert_windows_path_to_wsl(r"\\server\share\file.png"),
             None
@@ -251,12 +251,12 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn wsl_路径转换_拒绝无盘符() {
+    fn test_wsl_path_conversion_rejects_missing_drive() {
         assert_eq!(convert_windows_path_to_wsl("/tmp/file.png"), None);
     }
 
     #[test]
-    fn encode_rgba_输出有效_png_头部() {
+    fn test_encode_rgba_outputs_valid_png_header() {
         let rgba = vec![
             255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 255,
         ];
@@ -266,13 +266,13 @@ mod tests {
     }
 
     #[test]
-    fn paste_error_显示格式() {
+    fn test_paste_error_display_format() {
         let e = PasteImageError::NoImage("empty".into());
         assert_eq!(format!("{e}"), "no image on clipboard: empty");
     }
 
     #[test]
-    fn encode_base64_返回_size_宽高() {
+    fn test_encode_base64_returns_size_and_dimensions() {
         // 1×1 PNG (smallest valid)
         let png = encode_rgba_to_png(1, 1, &[255, 0, 0, 255]).unwrap();
         let (b64, sz, w, h) = encode_base64(&png, 1, 1).unwrap();

@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn osc52编码往返一致() {
+    fn test_osc52_roundtrip_encoding_consistent() {
         let text = "# Hello\n\n```rust\nfn main() {}\n```\n";
         let sequence = osc52_sequence(text, false).expect("OSC 52 sequence");
         let encoded = sequence
@@ -437,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn osc52拒绝超限载荷() {
+    fn test_osc52_rejects_payload_exceeding_max_bytes() {
         let text = "x".repeat(OSC52_MAX_RAW_BYTES + 1);
         assert_eq!(
             osc52_sequence(&text, false),
@@ -449,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn osc52_tmux_passthrough_包裹正确() {
+    fn test_osc52_tmux_passthrough_wraps_correctly() {
         assert_eq!(
             osc52_sequence("hello", true),
             Ok("\u{1b}Ptmux;\u{1b}\u{1b}]52;c;aGVsbG8=\u{7}\u{1b}\\".to_string())
@@ -457,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn osc52写入原始序列() {
+    fn test_osc52_writes_raw_sequence() {
         let sequence = "\u{1b}]52;c;aGVsbG8=\u{7}";
         let mut output = Vec::new();
         assert_eq!(write_osc52_to_writer(&mut output, sequence), Ok(()));
@@ -465,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh下使用_osc52_且跳过_native() {
+    fn test_copy_uses_osc52_and_skips_native_under_ssh() {
         let tmux_calls = Cell::new(0_u8);
         let osc_calls = Cell::new(0_u8);
         let native_calls = Cell::new(0_u8);
@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh下_osc52_失败时跳过_native() {
+    fn test_copy_skips_native_when_osc52_fails_under_ssh() {
         let result = copy_to_clipboard_with(
             "hello",
             remote_environment(),
@@ -516,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh_内_tmux_优先_tmux_clipboard() {
+    fn test_copy_prefers_tmux_clipboard_inside_ssh_tmux() {
         let tmux_calls = Cell::new(0_u8);
         let osc_calls = Cell::new(0_u8);
         let result = copy_to_clipboard_with(
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh_内_tmux_失败时回落_osc52() {
+    fn test_copy_falls_back_to_osc52_when_tmux_fails_inside_ssh() {
         let tmux_calls = Cell::new(0_u8);
         let osc_calls = Cell::new(0_u8);
         let result = copy_to_clipboard_with(
@@ -564,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地优先_native_clipboard() {
+    fn test_copy_prefers_native_clipboard_locally() {
         let osc_calls = Cell::new(0_u8);
         let native_calls = Cell::new(0_u8);
         let wsl_calls = Cell::new(0_u8);
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地非_wsl_native_失败时回落_osc52() {
+    fn test_copy_falls_back_to_osc52_when_native_fails_locally_non_wsl() {
         let osc_calls = Cell::new(0_u8);
         let native_calls = Cell::new(0_u8);
         let result = copy_to_clipboard_with(
@@ -617,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地_tmux_native_失败时优先_tmux() {
+    fn test_copy_prefers_tmux_when_native_fails_locally_in_tmux() {
         let tmux_calls = Cell::new(0_u8);
         let osc_calls = Cell::new(0_u8);
         let result = copy_to_clipboard_with(
@@ -641,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地_wsl_native_失败时走_powershell_跳过_osc52() {
+    fn test_copy_uses_powershell_and_skips_osc52_when_native_fails_in_local_wsl() {
         let osc_calls = Cell::new(0_u8);
         let native_calls = Cell::new(0_u8);
         let wsl_calls = Cell::new(0_u8);
@@ -670,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地_wsl_native_powershell_全失败时回落_osc52() {
+    fn test_copy_falls_back_to_osc52_when_native_and_powershell_fail_in_local_wsl() {
         let osc_calls = Cell::new(0_u8);
         let result = copy_to_clipboard_with(
             "hello",
@@ -689,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地_native_osc52_全失败时返回聚合错误() {
+    fn test_copy_returns_aggregated_error_when_native_and_osc52_both_fail_locally() {
         let result = copy_to_clipboard_with(
             "hello",
             local_environment(),
@@ -709,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn tmux_转发禁用时_ready_校验失败() {
+    fn test_tmux_clipboard_ready_fails_when_forwarding_disabled() {
         let result = tmux_clipboard_copy_ready(
             || Ok("off\n".to_string()),
             || panic!("tmux info should not be queried when forwarding is disabled"),
@@ -722,7 +722,7 @@ mod tests {
     }
 
     #[test]
-    fn tmux_缺_ms_能力时_ready_校验失败() {
+    fn test_tmux_clipboard_ready_fails_when_missing_ms_capability() {
         let result = tmux_clipboard_copy_ready(
             || Ok("external\n".to_string()),
             || Ok("193: Ms: [missing]\n".to_string()),
@@ -735,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn tmux_转发已启用时_ready_校验通过() {
+    fn test_tmux_clipboard_ready_succeeds_when_forwarding_enabled() {
         let result = tmux_clipboard_copy_ready(
             || Ok("external\n".to_string()),
             || Ok("193: Ms: (string) \\033]52;%p1%s;%p2%s\\a\n".to_string()),

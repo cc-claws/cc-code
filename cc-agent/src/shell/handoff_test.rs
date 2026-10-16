@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_handoff_后台移交后不能领取取消权() {
+fn test_handoff_cannot_settle_foreground_after_backgrounded() {
     let handoff = ShellHandoff::new(true, false);
     assert!(handoff.background());
     assert!(
@@ -12,21 +12,21 @@ fn test_handoff_后台移交后不能领取取消权() {
 }
 
 #[test]
-fn test_handoff_前台已收口不能再后台化() {
+fn test_handoff_cannot_background_after_foreground_settled() {
     let handoff = ShellHandoff::new(true, false);
     assert!(handoff.settle_foreground());
     assert!(!handoff.background(), "完成或取消后不能承诺后台句柄");
 }
 
 #[test]
-fn test_handoff_无后台宿主拒绝移交() {
+fn test_handoff_rejects_when_host_unsupported() {
     let handoff = ShellHandoff::new(false, false);
     assert!(!handoff.background());
     assert!(handoff.settle_foreground());
 }
 
 #[tokio::test]
-async fn test_handoff_移交早于等待也不会丢通知() {
+async fn test_handoff_background_before_wait_resolves_immediately() {
     let handoff = ShellHandoff::new(true, false);
     assert!(handoff.background());
     tokio::time::timeout(
@@ -38,7 +38,7 @@ async fn test_handoff_移交早于等待也不会丢通知() {
 }
 
 #[test]
-fn test_handoff_并发取消与后台化只能一个成功() {
+fn test_handoff_concurrent_cancel_and_background_mutually_exclusive() {
     for _ in 0..100 {
         let handoff = std::sync::Arc::new(ShellHandoff::new(true, false));
         let other = handoff.clone();
