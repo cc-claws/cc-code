@@ -1058,9 +1058,27 @@ pub fn render_view_model(
 /// 将单个 ViewModel 渲染为 Vec<Line>，并收集超链接命中区（行号与输出 lines 对齐）
 pub fn render_view_model_with_links(
     vm: &MessageViewModel,
+    index: Option<usize>,
+    width: usize,
+    detail_mode: bool,
+    tick: u64,
+) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
+    render_view_model_with_flags(vm, index, width, detail_mode, false, tick)
+}
+
+/// 带完整渲染标志的入口。
+///
+/// 两个标志语义不同，必须分开传：
+/// - `detail_mode`（Ctrl+O 详细模式）：控制 shell 输出行数、粘贴内容、reasoning、
+///   工具折叠状态等**整页展开**行为；
+/// - `diff_visible`（配置 `diff_enabled`）：只控制**普通页面**是否内联显示 Write/Edit
+///   的 diff 块，不影响上面任何一项（详细模式下 diff 恒可见）。
+pub fn render_view_model_with_flags(
+    vm: &MessageViewModel,
     _index: Option<usize>,
     width: usize,
     detail_mode: bool,
+    diff_visible: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
     let mut link_hits: Vec<cc_widgets::markdown::LinkHit> = Vec::new();
@@ -1592,7 +1610,10 @@ pub fn render_view_model_with_links(
                     ),
                 ]));
             }
-            if detail_mode {
+            // 普通页面是否内联展示 diff 由 `diff_visible`（配置 `diff_enabled`）决定，
+            // 详细模式（Ctrl+O）下恒展示——这是该标志**唯一**的消费点，
+            // 不得把它并进 detail_mode，否则会顺带展开 shell 输出 / reasoning / 工具折叠。
+            if detail_mode || diff_visible {
                 if let Some(ref diff_input) = diff_input {
                     // 前缀 "  ⎿ " / "    " 占 4 列，diff 内容宽度需减去前缀
                     let diff_width = width.saturating_sub(4);
@@ -1799,13 +1820,15 @@ pub fn render_view_model_with_links(
                     }
                     // 外层会再补 2 列缩进，这里传入扣除 2 列后的宽度，
                     // 保证嵌套渲染的行宽（含外层缩进）不超过视口
-                    let inner_lines = render_view_model(
+                    let inner_lines = render_view_model_with_flags(
                         inner_vm,
                         None,
                         width.saturating_sub(2),
                         detail_mode,
+                        diff_visible,
                         tick,
-                    );
+                    )
+                    .0;
                     if inner_lines.is_empty() {
                         continue;
                     }
