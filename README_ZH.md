@@ -101,6 +101,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **会话中心详情面板重排 + 状态栏会话计数 +「内联 Diff」开关收敛** | v0.6.149 | ① 状态栏 `← {n} agents` 不再统计当前目录累计历史会话（长期使用的目录实测 194 条），改为与会话中心 `Ready` 过滤同口径——只算 24h 内有更新、且未进入 Needs you / Working 的根会话（实测 194 → 10）（#554）；② 会话中心详情面板重排：`Model:` / `Reasoning:` 标签与值同行，`Project` / `Branch` / `Last message` / `Prompt` 标签独占一行、块间留空行，值沿用状态栏配色（模型青 / 项目黄 / 分支青），`Last message` / `Prompt` 预览改走 markdown 渲染并按列宽折行（长链接不再被 `…` 截断），高度上除 `Prompt` 预留 3 行外全部给 `Last message`，删除确认弹层底色改用弹层专用 `popup_bg`（原先误用品牌青绿 `background`）（#554）；③「内联 Diff」开关（`config.diff_enabled`）不再等同于 `Ctrl+O` 详细模式——此前开启会连带放大 shell 输出行数、强制展开工具、取消参数折行、展开 reasoning，现普通页面只多出 Write/Edit 的 diff（#558） |
 | **message_render 修饰器拆分与 Bash 退出码置顶** | v0.6.148 | 重构 `message_render`（90KB+）为目录结构，解耦通用排版与独立工具修饰器（Bash / Glob / Read / AskUser）；Bash 失败时将退出码提升为首行置顶 `  ⎿ Error: Exit code {code}`、剔除末尾标记并将输出正文整齐对齐缩进（#551） |
 | **跨项目 Agent Command Center** | v0.6.147 | `/agents` 或空草稿 `←` 打开全页会话中心：项目/状态/模型分组、五档过滤、分页、详情、搜索、重命名和二次确认永久删除。Enter 进入目标项目，`n` 在该项目新建空会话。Agent 定义入口改为 `/agent-design`，`/tasks` 由中心替代（#542） |
 | **输入框 `/command` 高亮 + Rewind 改走 `/rewind` 命令 + 运行中命令分流** | v0.6.145 | 三项 TUI 输入与渲染修复：① 输入框内 `/command` token 改用 suggestion 蓝高亮，规则与 Claude Code `findSlashCommandPositions` 一致（`!` shell 态跳过，避免把 `/etc` 之类路径着色）（#529）；② Rewind 对话回滚从「双击 `Esc`」改为正式命令 `/rewind`（别名 `/undo`）——`Esc` 是取消/中断键，连按两次会误弹出回滚面板，而输入 `/rewind` 反而无效（#531）；③ Agent 运行中按 `Enter` 不再把命令静默变成模型提问——此前 `/exit`、`/gc`、`/theme` 与 `!` shell 输入都会被排队后当普通文本喂给模型。判定收敛到唯一入口 `CommandSystem::resolve`：普通消息 / Skill / ACP 命令 / 转发型命令入队等本轮结束后执行，需要空闲 UI 的命令、`!` 输入与未知命令一律拒绝并保留输入框内容；`Ctrl+Enter` 也不再能把命令插入正在执行的轮次（#533） |
@@ -110,7 +111,6 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Spinner tips 调度对齐 Claude Code** | v0.6.141 | tips 由按渲染 tick 每约 3 秒无差别轮换，改为 CC 的调度模型：每条 tip 有稳定 id 与会话冷却，每轮开始挑选一条并**扣留**、轮结束才发布（每轮最多一条、轮内不换），在冷却已满足者中取「距上次展示最久」者，历史持久化到 `~/.cc-code/spinner-tips.json`；新增配置 `spinner_tips_enabled` 与 `spinner_tips_override`（自定义条目 + 外部文件）。另：MCP 协议库 `rmcp` 升级至 3.5.1，客户端迁移到 3.x 数据模型与接口（#511、#519） |
 | **主题命令 `/theme`——7 套可切换配色（6 套与 Claude Code 逐值一致）** | v0.6.140 | 用 `/theme` 切换 UI 配色：现行配色保留为 `default`，另有 `dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` / `dark-ansi` 六套，名称与配色与 Claude Code 的主题定义逐值一致；选择面板光标移动实时预览，选择持久化、重启自动恢复。 |
 | **自动记忆系统（Auto-Memory）对齐 CC 规范** | v0.6.139 | 跨会话持久记忆，**纯文件架构、零专有工具**：模型用 `Write`/`Edit` 直接维护带四类型 YAML frontmatter 的 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行 / ≤25KB，超限安全截断并警告），与 `~/.claude/projects/`、`~/.cc-code/projects/` 既有记忆资产双向兼容；安全门为记忆路径设豁免，会话创建时冻结索引快照保障 Prompt Cache 前缀稳定（#507） |
-| **主 Agent 可取消后台子 Agent（`Agent(action="stop")`）** | v0.6.139 | `Agent` 工具新增 `action`（`spawn` 默认 / `stop`）与 `task_id`，按精确 `bg-<uuid>` 停止运行中的子 Agent（不做描述模糊匹配）；底层复用注册表 `cancel()` 走正常终态与清理、不 abort、不触发无意义续跑；时间线与抽屉区分 `stopped by user` / `stopped by main Agent`，并有 `✻ Waiting for N` 等待计数行实时递减 |
 > 更早版本（v0.6.0 – v0.6.138）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---

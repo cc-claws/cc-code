@@ -6,6 +6,19 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.149 — 2026-10-16
+
+### Features
+
+- **Agent Center 详情面板重排与预览 Markdown 化（#554）**：详情面板换行位置改为「短字段同行、长字段标签独占一行」——`Model:` / `Reasoning:` 标签与值同行，`Project` / `Branch` / `Last message` / `Prompt` 标签独占一行、值另起一行，块与块之间留空行分隔；标签统一 muted，值沿用状态栏配色（模型青、项目黄、分支青）。`Last message` / `Prompt` 预览改走消息区同款 markdown 渲染（`**粗体**`、行内代码、列表、链接正常呈现）并按显示列宽折行，长链接不再被 `…` 截断；高度分配改为除 `Prompt` 预留 3 行外全部给 `Last message`（原先两段对半分配且各封顶 3 行）。列表默认分页 `PAGE_SIZE` 10 → 20。
+
+### Fixes
+
+- **状态栏会话计数改 Ready 口径（#554）**：状态栏 `← {n} agents` 原先统计当前目录累计历史会话，长期使用的目录下可达数百条（实测 194 条），与用户在 `/agents` 里实际在用的会话数严重不符。改为与 Agent Center `Ready` 过滤同口径——只统计当前目录 24h 内有更新、且未进入 Needs you / Working 的根会话（实测 194 → 10）。pill 文案保持不变。
+- **「内联 Diff」开关不再顺带展开整页（#558）**：该开关按设计只决定**普通页面**是否内联显示 Write/Edit 的 diff（不喜欢看的用户可关掉，需要时按 `Ctrl+O` 去详细页面看）。此前它与 `Ctrl+O` 详细模式状态被合并成同一个渲染标志，打开后会连带放大 shell 输出行数上限、强制展开所有工具（Read 除外）、取消工具参数折行、展开 reasoning 与粘贴内容。现改为两个标志分开传递：普通页面只多出 diff 块，其余展开行为保持折叠档；详细模式语义不变。
+- **删除确认弹层底色（#554）**：原先误用 `theme::cur().background`——该字段在所有主题下都是品牌青绿色（暗色主题 `rgb(0,188,212)`、ansi 主题 `Cyan`），铺满整块弹层极为刺眼；改用弹层专用的 `popup_bg`（暗色主题黑、亮色主题白）。
+- **Agent Center 过滤器提示文案（#554）**：`tab/⇧tab filter` → `tab/shift+tab filter`，与仓库其它位置（`welcome.rs` 的 `Shift+Tab`）及该页脚的小写全写风格统一。
+
 ## v0.6.148 — 2026-10-16
 
 ### Features

@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.149：**会话中心详情面板重排 + 状态栏会话计数 +「内联 Diff」开关收敛**——① 状态栏 `← {n} agents` 改按会话中心 `Ready` 口径统计：只算当前目录 24h 内有更新、且未进入 Needs you / Working 的根会话，长期使用的目录不再显示累计历史数（实测 194 → 10）（#554）；② `/agents` 详情面板重排：`Model:` / `Reasoning:` 标签与值同行，`Project` / `Branch` / `Last message` / `Prompt` 标签独占一行、块间留空行，值沿用状态栏配色（模型青 / 项目黄 / 分支青），`Last message` / `Prompt` 预览改走 markdown 渲染并折行（长链接不再被 `…` 截断），高度上除 `Prompt` 预留 3 行外全部给 `Last message`，删除确认弹层底色改用 `popup_bg`（#554）；③「内联 Diff」开关（`config.diff_enabled`）不再顺带展开整页——开启后普通页面只多出 Write/Edit 的 diff，shell 输出 / 工具折叠 / 参数折行 / reasoning 一律保持原样（#558）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.148：**Bash 失败退出码置顶与正文整齐缩进**——TUI 终端层优化失败展示体验：非零退出码提升为首行置顶 `  ⎿ Error: Exit code {code}`（红色醒目展示），自动剥离末尾冗余的 `[Exit code: N]` 标记并将输出正文以 4 列悬挂缩进对齐，长输出时不再淹没退出原因；同版完成 `message_render.rs`（90KB+）目录级解耦拆分为独立的 `decorators/`（Bash / Glob / Read / AskUser）模块，并清扫全仓历史测试命名为 100% 全英文 snake_case。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.147：新增跨项目 **Agent Command Center**：`/agents` 或空输入框 `←` 查看全部项目根会话，支持分组、五档状态、分页、详情、搜索、重命名与二次确认永久删除。Enter 恢复目标项目，`n` 在选中项目新建空会话；存在运行任务或审批时保持原会话。原 agent 定义入口改为 `/agent-design`，`/tasks` 入口由中心替代。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
