@@ -274,8 +274,9 @@ impl App {
     ///
     /// - 检测 `background_shells` 中各任务的 `result_rx` 退出
     /// - 退出时更新 status/exit_code，abort watchdog，生成结构化通知
-    /// - agent idle（!loading）→ `submit_message` 直接注入；推理中（loading）→ 暂存到
-    ///   `pending_bg_shell_notifications`，Done 后由 lifecycle 消费
+    /// - agent idle（!loading）→ `submit_message` 直接注入；推理中（loading）→ 经 steering
+    ///   异步插入当前轮次（见 `bg_shell_notifications`）；被明确拒绝或轮次以中断/报错收尾时
+    ///   暂存到 `pending_bg_shell_notifications`，随用户下一次主动提交或空闲合并送出
     pub fn poll_background_shell_events(&mut self) -> bool {
         // 阶段1：检测完成，收集通知（&mut session）
         let notifications: Vec<super::PendingBgShellNotification> = {
