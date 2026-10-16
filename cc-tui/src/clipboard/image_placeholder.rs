@@ -122,18 +122,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 格式化_占位符() {
+    fn test_format_placeholder() {
         assert_eq!(format_placeholder(1), "[Image #1]");
         assert_eq!(format_placeholder(42), "[Image #42]");
     }
 
     #[test]
-    fn 解析_单个占位符() {
+    fn test_parse_single_placeholder_in_text() {
         assert_eq!(parse_placeholders("look at [Image #1]"), vec![1]);
     }
 
     #[test]
-    fn 解析_多个占位符_按顺序() {
+    fn test_parse_multiple_placeholders_in_order() {
         assert_eq!(
             parse_placeholders("a [Image #2] b [Image #1] c"),
             vec![2, 1]
@@ -141,63 +141,63 @@ mod tests {
     }
 
     #[test]
-    fn 解析_无占位符_返回空() {
+    fn test_parse_placeholders_returns_empty_when_none() {
         assert!(parse_placeholders("hello world").is_empty());
     }
 
     #[test]
-    fn 解析_部分残留_不匹配() {
+    fn test_parse_placeholders_ignores_partial_or_malformed() {
         assert!(parse_placeholders("half [Image broken").is_empty());
         assert!(parse_placeholders("Image #1]").is_empty());
         assert!(parse_placeholders("[Image #]").is_empty());
     }
 
     #[test]
-    fn 解析_连续占位符_无分隔() {
+    fn test_parse_placeholders_consecutive_without_separator() {
         assert_eq!(parse_placeholders("[Image #1][Image #2]"), vec![1, 2]);
     }
 
     #[test]
-    fn 解析_多字节字符_正确推进() {
+    fn test_parse_placeholders_advances_correctly_with_multibyte_chars() {
         assert_eq!(parse_placeholders("图 [Image #3] 片"), vec![3]);
     }
 
     #[test]
-    fn 过滤_按占位符顺序匹配附件() {
+    fn test_filter_by_placeholders_matches_attachments_in_order() {
         let atts = vec![10, 20, 30];
         let result = filter_by_placeholders("[Image #20] then [Image #10]", &atts, |x| *x);
         assert_eq!(result, vec![&20, &10]);
     }
 
     #[test]
-    fn 过滤_未在文本中出现_被丢弃() {
+    fn test_filter_by_placeholders_discards_unmentioned_attachments() {
         let atts = vec![10, 20, 30];
         let result = filter_by_placeholders("only [Image #10]", &atts, |x| *x);
         assert_eq!(result, vec![&10]);
     }
 
     #[test]
-    fn 过滤_无占位符_返回空() {
+    fn test_filter_by_placeholders_returns_empty_when_no_placeholders() {
         let atts = vec![10, 20];
         let result = filter_by_placeholders("no images here", &atts, |x| *x);
         assert!(result.is_empty());
     }
 
     #[test]
-    fn 过滤_占位符无对应附件_跳过() {
+    fn test_filter_by_placeholders_skips_when_attachment_missing() {
         let atts = vec![10];
         let result = filter_by_placeholders("[Image #99]", &atts, |x| *x);
         assert!(result.is_empty());
     }
 
     #[test]
-    fn parse_single_完整匹配() {
+    fn test_parse_single_placeholder_exact_match() {
         assert_eq!(parse_single_placeholder("[Image #1]"), Some((1, 10)));
         assert_eq!(parse_single_placeholder("[Image #42]"), Some((42, 11)));
     }
 
     #[test]
-    fn parse_single_部分残留_不匹配() {
+    fn test_parse_single_placeholder_rejects_partial_or_malformed() {
         assert_eq!(parse_single_placeholder("[Image"), None);
         assert_eq!(parse_single_placeholder("Image #1]"), None);
         assert_eq!(parse_single_placeholder("[Image #1"), None);

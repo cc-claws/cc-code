@@ -25,7 +25,7 @@ fn make_dir(name: &str, children: Vec<FileNode>, expanded: bool) -> FileNode {
 }
 
 #[test]
-fn render_折叠目录显示三角和斜杠() {
+fn test_render_collapsed_directory_shows_arrow_and_slash() {
     // Arrange: 单个折叠目录
     let dir = make_dir("src", vec![], false);
     let mut state = FileTreeState::new();
@@ -52,7 +52,7 @@ fn render_折叠目录显示三角和斜杠() {
 }
 
 #[test]
-fn render_展开目录显示子文件和竖线() {
+fn test_render_expanded_directory_shows_child_file_and_vertical_line() {
     // Arrange: 展开的目录含一个子文件
     let dir = make_dir("src", vec![make_file("main.rs")], true);
     let mut state = FileTreeState::new();
@@ -83,7 +83,7 @@ fn render_展开目录显示子文件和竖线() {
 }
 
 #[test]
-fn render_选中行有背景色() {
+fn test_render_selected_row_has_background_color() {
     // Arrange: cursor_style 设蓝色背景
     let dir = make_dir("src", vec![make_file("a.rs"), make_file("b.rs")], false);
     let mut state = FileTreeState::new();
@@ -110,7 +110,7 @@ fn render_选中行有背景色() {
 }
 
 #[test]
-fn render_空树不崩溃() {
+fn test_render_empty_tree_does_not_panic() {
     // Arrange: 空 FileTreeState
     let mut state = FileTreeState::new();
     let tree = FileTree::new();

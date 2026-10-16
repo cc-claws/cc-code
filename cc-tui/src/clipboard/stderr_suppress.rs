@@ -61,7 +61,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 抑制_stderr_可正常创建并销毁() {
+    fn test_suppress_stderr_creates_and_drops_without_panic() {
         let _guard = SuppressStderr::new();
         // 创建后立即销毁，验证不 panic
     }

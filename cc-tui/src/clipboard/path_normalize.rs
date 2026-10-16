@@ -214,7 +214,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn file_url_包含波浪号短路径_解析为本地路径() {
+    fn test_file_url_with_tilde_short_path_resolves_to_local_path() {
         let p = normalize_pasted_path(
             "file:///C:/Users/RUNNER~1/AppData/Local/Temp/.tmpF3Zdrv/%E6%9C%AC%E6%9C%BA%20%E5%9B%BE%E7%89%87.JPG",
         );
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     #[cfg(not(target_os = "linux"))]
-    fn windows_8_3_短文件名_包含波浪号_保留() {
+    fn test_windows_8_3_short_filename_with_tilde_retained() {
         assert_eq!(
             normalize_pasted_path(r"C:\Users\RUNNER~1\AppData\Local\Temp\foo.png"),
             Some(PathBuf::from(
@@ -236,12 +236,12 @@ mod tests {
     }
 
     #[test]
-    fn 开头为波浪号_返回_none() {
+    fn test_leading_tilde_returns_none() {
         assert_eq!(normalize_pasted_path("~/foo.png"), None);
     }
 
     #[test]
-    fn file_url_解析为本地路径() {
+    fn test_file_url_resolves_to_local_path() {
         assert_eq!(
             normalize_pasted_path("file:///tmp/example.png"),
             Some(PathBuf::from("/tmp/example.png"))
@@ -249,24 +249,24 @@ mod tests {
     }
 
     #[test]
-    fn file_url_带主机名_取_path_段() {
+    fn test_file_url_with_hostname_extracts_path_segment() {
         let p = normalize_pasted_path("file://localhost/tmp/x.png");
         assert_eq!(p, Some(PathBuf::from("/tmp/x.png")));
     }
 
     #[test]
-    fn 空字符串_返回_none() {
+    fn test_empty_string_returns_none() {
         assert_eq!(normalize_pasted_path(""), None);
         assert_eq!(normalize_pasted_path("   "), None);
     }
 
     #[test]
-    fn 多行文本_返回_none() {
+    fn test_multiline_text_returns_none() {
         assert_eq!(normalize_pasted_path("line1\nline2"), None);
     }
 
     #[test]
-    fn 带引号包裹_识别路径() {
+    fn test_quoted_path_recognized() {
         assert_eq!(
             normalize_pasted_path("\"/tmp/my file.png\""),
             Some(PathBuf::from("/tmp/my file.png"))
@@ -274,20 +274,20 @@ mod tests {
     }
 
     #[test]
-    fn unc_路径_保留() {
+    fn test_unc_path_preserved() {
         let p = normalize_pasted_path(r"\\server\share\file.jpg");
         assert!(p.is_some());
         assert_eq!(p.unwrap().to_string_lossy(), r"\\server\share\file.jpg");
     }
 
     #[test]
-    fn unc_缺少_share_返回_none() {
+    fn test_unc_missing_share_returns_none() {
         assert_eq!(normalize_pasted_path(r"\\server"), None);
     }
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn windows_drive_在_wsl_转_mnt() {
+    fn test_windows_drive_converts_to_mnt_on_wsl() {
         assert_eq!(
             normalize_pasted_path(r"C:\Temp\example.png"),
             Some(PathBuf::from("/mnt/c/Temp/example.png"))
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     #[cfg(not(target_os = "linux"))]
-    fn windows_drive_非_linux_原样保留() {
+    fn test_windows_drive_preserved_on_non_linux() {
         assert_eq!(
             normalize_pasted_path(r"C:\Temp\example.png"),
             Some(PathBuf::from(r"C:\Temp\example.png"))
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn shell_转义_反斜杠空格() {
+    fn test_shell_escaped_backslash_space() {
         assert_eq!(
             normalize_pasted_path(r"/home/user/My\ File.png"),
             Some(PathBuf::from("/home/user/My File.png"))
@@ -312,24 +312,24 @@ mod tests {
     }
 
     #[test]
-    fn shell_转义_末尾裸反斜杠_返回_none() {
+    fn test_shell_escaped_trailing_naked_backslash_returns_none() {
         assert_eq!(normalize_pasted_path(r"/tmp/foo\"), None);
     }
 
     #[test]
-    fn shell_元字符_拒绝() {
+    fn test_shell_metacharacters_rejected() {
         assert_eq!(normalize_pasted_path("/tmp/foo$bar"), None);
         assert_eq!(normalize_pasted_path("/tmp/foo;rm"), None);
         assert_eq!(normalize_pasted_path("/tmp/foo|cat"), None);
     }
 
     #[test]
-    fn 普通单词_不含路径分隔符_无扩展名_返回_none() {
+    fn test_plain_word_without_separator_or_extension_returns_none() {
         assert_eq!(normalize_pasted_path("hello"), None);
     }
 
     #[test]
-    fn 普通单词_带扩展名_识别为路径() {
+    fn test_plain_word_with_extension_recognized_as_path() {
         assert_eq!(
             normalize_pasted_path("readme.md"),
             Some(PathBuf::from("readme.md"))
@@ -337,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn 相对路径_识别() {
+    fn test_relative_path_recognized() {
         assert_eq!(
             normalize_pasted_path("./src/main.rs"),
             Some(PathBuf::from("./src/main.rs"))
@@ -345,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn 去掉引号后再识别_file_url() {
+    fn test_strip_quotes_then_recognize_file_url() {
         assert_eq!(
             normalize_pasted_path("\"file:///tmp/x.png\""),
             Some(PathBuf::from("/tmp/x.png"))
