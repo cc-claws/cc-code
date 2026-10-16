@@ -11,7 +11,7 @@ use super::*;
 use crate::thread::SqliteThreadStore;
 
 async fn make_app() -> (App, tempfile::TempDir) {
-    let mut app = App::new().await;
+    let (mut app, _handle) = App::new_headless(120, 30).await;
     let directory = tempfile::tempdir().unwrap();
     app.services.thread_store = Arc::new(
         SqliteThreadStore::new(directory.path().join("threads.db"))
@@ -145,6 +145,89 @@ async fn test_center_show_more_loads_next_page() {
         app.global_ui.agent_center.as_ref().unwrap().catalog.len(),
         23
     );
+}
+
+#[tokio::test]
+async fn test_center_catalog_refresh_realigns_pages_after_external_update() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 23).await;
+    let center = app.global_ui.agent_center.as_ref().unwrap();
+    let selected_id = center.selected_meta(&app).unwrap().id.clone();
+    let mut promoted = center.catalog[15].clone();
+    let promoted_id = promoted.id.clone();
+    promoted.updated_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    app.services
+        .thread_store
+        .update_meta(&promoted_id, promoted)
+        .await
+        .unwrap();
+    let catalog = app
+        .services
+        .thread_store
+        .list_threads_metadata()
+        .await
+        .unwrap();
+    let (tx, rx) = oneshot::channel();
+    app.global_ui.agent_count_rx = Some(rx);
+    tx.send(Ok(catalog)).unwrap();
+    app.poll_agent_center();
+    let center = app.global_ui.agent_center.as_ref().unwrap();
+    assert_eq!(center.offset, 10, "目录变化后仍对应完整首屏");
+    assert_eq!(
+        center.threads[0].id, promoted_id,
+        "未加载会话前移后立即可见"
+    );
+    assert_eq!(
+        center.selected_meta(&app).unwrap().id,
+        selected_id,
+        "保留选中会话"
+    );
+    for expected in [20, 23] {
+        let center = app.global_ui.agent_center.as_mut().unwrap();
+        center.selected = center.threads.len();
+        press(&mut app, KeyCode::Enter);
+        wait_for_center(&mut app).await;
+        let center = app.global_ui.agent_center.as_ref().unwrap();
+        assert_eq!(center.threads.len(), expected, "下一页不得因重复行跳过会话");
+        assert_eq!(center.offset, expected);
+        let expected_ids: Vec<_> = center
+            .catalog
+            .iter()
+            .take(expected)
+            .map(|meta| &meta.id)
+            .collect();
+        let actual_ids: Vec<_> = center.threads.iter().map(|meta| &meta.id).collect();
+        assert_eq!(actual_ids, expected_ids, "已加载页始终是目录连续前缀");
+    }
+}
+
+#[tokio::test]
+async fn test_center_page_result_realigns_after_concurrent_catalog_reorder() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 23).await;
+    let center = app.global_ui.agent_center.as_ref().unwrap();
+    let old_page = center.catalog[10..20].to_vec();
+    let mut catalog = center.catalog.clone();
+    let promoted = catalog.remove(22);
+    let promoted_id = promoted.id.clone();
+    catalog.insert(0, promoted);
+    let (tx, rx) = oneshot::channel();
+    app.global_ui.agent_center.as_mut().unwrap().page_rx = Some(rx);
+    tx.send(Ok(CenterPage {
+        catalog,
+        threads: old_page,
+        offset: 10,
+    }))
+    .ok();
+    app.poll_agent_center();
+    let center = app.global_ui.agent_center.as_ref().unwrap();
+    assert_eq!(center.offset, 20);
+    assert_eq!(center.threads.len(), 20);
+    assert_eq!(
+        center.threads[0].id, promoted_id,
+        "页请求进行期间前移的会话不能遗漏"
+    );
+    assert_eq!(center.threads[19].id, center.catalog[19].id);
 }
 
 #[test]

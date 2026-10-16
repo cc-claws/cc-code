@@ -50,6 +50,7 @@ fn test_background_results_preserve_history_marker_pairs() {
 async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> anyhow::Result<()> {
     use cc_agent::thread::{SqliteThreadStore, ThreadMeta, ThreadStore};
     let project = tempfile::tempdir()?;
+    let storage = tempfile::tempdir()?;
     let output = cc_middlewares::process::shell_command("git", &["init", "--quiet"])
         .current_dir(project.path())
         .output()
@@ -67,7 +68,8 @@ async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> any
     .output()
     .await?;
     assert!(output.status.success(), "临时 git 分支必须初始化成功");
-    let store = SqliteThreadStore::new(project.path().join("runtime.db")).await?;
+    // SQLite 会收紧父目录权限；独立存储目录避免改变临时 Git 项目的 ACL。
+    let store = SqliteThreadStore::new(storage.path().join("runtime.db")).await?;
     let id = store
         .create_thread(ThreadMeta::new(project.path().to_string_lossy()))
         .await?;
@@ -87,7 +89,81 @@ async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> any
     assert_eq!(meta.agent_status, "active");
     assert_eq!(meta.model.as_deref(), Some("test-model"));
     assert_eq!(meta.reasoning_effort.as_deref(), Some("high"));
-    assert_eq!(meta.branch.as_deref(), Some("runtime-snapshot"));
+    let branch_probe = cc_middlewares::process::shell_command(
+        "git",
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .current_dir(project.path())
+    .output()
+    .await?;
+    assert_eq!(
+        meta.branch.as_deref(),
+        Some("runtime-snapshot"),
+        "分支快照必须保留；复查 status={} stdout={} stderr={} cwd={}",
+        branch_probe.status,
+        String::from_utf8_lossy(&branch_probe.stdout),
+        String::from_utf8_lossy(&branch_probe.stderr),
+        project.path().display()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_session_manager_creation_persists_selected_model_snapshot() -> anyhow::Result<()> {
+    use crate::provider::{PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig};
+    use cc_agent::thread::{FilesystemThreadStore, ThreadStore};
+    let directory = tempfile::tempdir()?;
+    let store = std::sync::Arc::new(FilesystemThreadStore::new(directory.path().join("threads")));
+    let mut config = PeriConfig::default();
+    config.config.active_provider_id = "snapshot".into();
+    config.config.active_alias = "sonnet".into();
+    config.config.providers = vec![ProviderConfig {
+        id: "snapshot".into(),
+        provider_type: "openai".into(),
+        api_key: "test".into(),
+        models: ProviderModels {
+            sonnet: "initial-model".into(),
+            haiku: "selected-model".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }];
+    let provider = LlmProvider::from_config(&config).expect("测试 provider 配置必须有效");
+    let manager = SessionManager::new(
+        store.clone(),
+        provider,
+        std::sync::Arc::new(config),
+        cc_middlewares::hitl::shared_mode::SharedPermissionMode::new(
+            cc_middlewares::hitl::shared_mode::PermissionMode::Bypass,
+        ),
+        None,
+    );
+    let cwd = directory.path().to_string_lossy();
+    let (_, initial_id) = manager.new_session(&cwd).await?;
+    assert_eq!(
+        store.load_meta(&initial_id).await?.model.as_deref(),
+        Some("initial-model")
+    );
+    let (_, selected_id) = manager
+        .new_session_with_settings(
+            &cwd,
+            "snapshot".into(),
+            "haiku".into(),
+            Some(ThinkingConfig {
+                enabled: true,
+                budget_tokens: 1024,
+                effort: "high".into(),
+                max_tokens: 2048,
+            }),
+        )
+        .await?;
+    let selected = store.load_meta(&selected_id).await?;
+    assert_eq!(
+        selected.model.as_deref(),
+        Some("selected-model"),
+        "创建时必须按指定别名解析真实模型"
+    );
+    assert_eq!(selected.reasoning_effort.as_deref(), Some("high"));
     Ok(())
 }
 

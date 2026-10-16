@@ -51,7 +51,8 @@ async fn test_legacy_schema_migration_preserves_threads_and_is_idempotent() -> R
                 .filename(&db_path)
                 .create_if_missing(true),
         )
-        .await?;
+        .await
+        .context("应能创建具有继承权限的旧数据库")?;
     sqlx::query(
         "CREATE TABLE threads (
             id TEXT PRIMARY KEY, title TEXT, cwd TEXT NOT NULL,
@@ -70,7 +71,9 @@ async fn test_legacy_schema_migration_preserves_threads_and_is_idempotent() -> R
     .execute(&pool)
     .await?;
     pool.close().await;
-    let store = SqliteThreadStore::new(&db_path).await?;
+    let store = SqliteThreadStore::new(&db_path)
+        .await
+        .context("收紧权限后仍应能迁移已有数据库")?;
     store.init_schema().await?;
     let legacy = store.load_meta(&"legacy".into()).await?;
     assert_eq!(legacy.title.as_deref(), Some("旧会话"));
@@ -80,6 +83,15 @@ async fn test_legacy_schema_migration_preserves_threads_and_is_idempotent() -> R
     assert_eq!(legacy.agent_status, "active");
     assert_eq!(legacy.content_size, 0);
     assert_eq!(store.list_threads_paged(10, 0).await?.len(), 1);
+    store.pool.close().await;
+    let reopened = SqliteThreadStore::new(&db_path)
+        .await
+        .context("迁移后的数据库应能再次打开")?;
+    assert_eq!(
+        reopened.load_meta(&"legacy".into()).await?.title,
+        legacy.title,
+        "再次打开不能丢失旧会话"
+    );
     Ok(())
 }
 

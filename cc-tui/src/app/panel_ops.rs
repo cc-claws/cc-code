@@ -61,10 +61,11 @@ impl App {
         let (render_tx, render_cache, render_notify) =
             crate::ui::render_thread::spawn_render_thread(width);
 
-        // 使用唯一临时 SQLite 存储，避免测试并发时文件锁冲突
-        let db_name = format!("zen-threads-test-{}.db", uuid::Uuid::now_v7());
+        // SQLite 会收紧父目录权限，不能把数据库直接放在共享 Temp 根目录。
+        let db_dir =
+            std::env::temp_dir().join(format!("zen-threads-test-{}", uuid::Uuid::now_v7()));
         let thread_store: Arc<dyn ThreadStore> = Arc::new(
-            SqliteThreadStore::new(std::env::temp_dir().join(db_name))
+            SqliteThreadStore::new(db_dir.join("threads.db"))
                 .await
                 .expect("无法创建测试用 SQLite 数据库"),
         );
@@ -175,3 +176,7 @@ impl App {
         (app, handle)
     }
 }
+
+#[cfg(test)]
+#[path = "panel_ops_test.rs"]
+mod tests;

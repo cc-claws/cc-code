@@ -44,8 +44,8 @@ impl App {
         center.error = None;
         tokio::spawn(async move {
             let result = async {
-                let catalog = store.list_threads_metadata().await?;
                 let threads = store.list_root_threads_paged(PAGE_SIZE, offset).await?;
+                let catalog = store.list_threads_metadata().await?;
                 Ok::<_, anyhow::Error>(CenterPage {
                     catalog,
                     threads,
@@ -119,12 +119,15 @@ impl App {
         if let Some(result) = receive(&mut center.page_rx) {
             match result {
                 Ok(page) => {
+                    // 页读取与目录读取之间也可能发生并发更新；重新从目录构造
+                    // 已加载前缀，不能在去重后仍按原始页长度推进 offset。
+                    let selected_id = center.selected_meta(self).map(|meta| meta.id.clone());
+                    center.offset = page.offset + page.threads.len();
                     center.refresh_catalog(page.catalog);
                     self.global_ui.agent_catalog = center.catalog.clone();
-                    center.offset = page.offset + page.threads.len();
-                    for meta in page.threads {
-                        if !center.threads.iter().any(|old| old.id == meta.id) {
-                            center.threads.push(meta);
+                    if let Some(id) = selected_id {
+                        if let Some(index) = center.rows(self).iter().position(|row| matches!(row, CenterRow::Thread(index) if center.threads[*index].id == id)) {
+                            center.selected = index;
                         }
                     }
                     center.reset_detail();

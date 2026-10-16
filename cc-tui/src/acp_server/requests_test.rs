@@ -451,7 +451,9 @@ async fn test_session_load_freezes_target_cwd_and_keeps_existing_frozen_prompt(
 
 #[tokio::test]
 async fn test_session_creation_and_config_changes_persist_runtime_snapshot() -> anyhow::Result<()> {
+    use anyhow::Context;
     let tmp = tempfile::tempdir()?;
+    let project = tempfile::tempdir()?;
     let mut config = PeriConfig::default();
     config.config.providers = vec![make_provider_config(
         "snapshot-test",
@@ -467,14 +469,18 @@ async fn test_session_creation_and_config_changes_persist_runtime_snapshot() -> 
     let mut sessions = HashMap::new();
     let result = handle_request(
         "session/new",
-        &json!({"cwd": tmp.path()}),
+        &json!({"cwd": project.path()}),
         &cfg,
         &mut sessions,
         &MockTransport,
     )
     .await?;
     let id = result["sessionId"].as_str().unwrap().to_string();
-    let meta = cfg.thread_store.load_meta(&id).await?;
+    let meta = cfg
+        .thread_store
+        .load_meta(&id)
+        .await
+        .context("创建会话后应能读取模型快照")?;
     assert_eq!(
         meta.model.as_deref(),
         Some("initial-model"),
@@ -491,7 +497,11 @@ async fn test_session_creation_and_config_changes_persist_runtime_snapshot() -> 
         &MockTransport,
     )
     .await?;
-    let meta = cfg.thread_store.load_meta(&id).await?;
+    let meta = cfg
+        .thread_store
+        .load_meta(&id)
+        .await
+        .context("切换模型和推理强度后应能读取快照")?;
     assert_eq!(
         meta.model.as_deref(),
         Some("selected-model"),
@@ -503,6 +513,29 @@ async fn test_session_creation_and_config_changes_persist_runtime_snapshot() -> 
         "切换推理强度必须更新快照"
     );
     assert_eq!(meta.updated_at, updated_at, "配置快照不得伪造会话活动时间");
+    let fork = handle_request(
+        "session/fork",
+        &json!({"sessionId": id, "cwd": project.path()}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let fork_id = fork["sessionId"]
+        .as_str()
+        .expect("fork 必须返回会话 ID")
+        .to_string();
+    let fork_meta = cfg
+        .thread_store
+        .load_meta(&fork_id)
+        .await
+        .context("分叉会话后应能立即读取快照")?;
+    assert_eq!(
+        fork_meta.model.as_deref(),
+        Some("selected-model"),
+        "fork 首次执行前也应有模型快照"
+    );
+    assert_eq!(fork_meta.reasoning_effort.as_deref(), Some("high"));
     assert_eq!(
         sessions[&id].frozen.as_ref().unwrap().system_prompt,
         frozen,
