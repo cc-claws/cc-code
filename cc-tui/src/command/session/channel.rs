@@ -9,8 +9,8 @@ impl Command for ChannelCommand {
         "channel"
     }
 
-    fn description(&self, _lc: &LcRegistry) -> String {
-        "管理 MCP 频道连接: open <source> / close / status".to_string()
+    fn description(&self, lc: &LcRegistry) -> String {
+        lc.tr("command-channel-description")
     }
 
     fn aliases(&self) -> Vec<&str> {
@@ -40,11 +40,11 @@ impl Command for ChannelCommand {
             return;
         }
 
-        app.active_mut().messages.pending_messages.push(
-            "用法: /channel open <source> | /channel close | /channel status"
-                .to_string()
-                .into(),
-        );
+        let usage = app.services.lc.tr("channel-usage");
+        app.active_mut()
+            .messages
+            .pending_messages
+            .push(usage.into());
     }
 }
 
@@ -53,7 +53,8 @@ impl ChannelCommand {
         let channel_state = match &app.services.channel_state {
             Some(cs) => Arc::clone(cs),
             None => {
-                self.add_note(app, "Channel 系统未初始化");
+                let note = app.services.lc.tr("channel-not-initialized");
+                self.add_note(app, &note);
                 return;
             }
         };
@@ -73,10 +74,11 @@ impl ChannelCommand {
             .unwrap_or(false);
 
         if !has_capability {
-            self.add_note(
-                app,
-                &format!("服务器 {} 不支持 channel 功能或未连接", server_name),
+            let note = app.services.lc.tr_args(
+                "channel-unsupported",
+                &[("server".into(), server_name.clone().into())],
             );
+            self.add_note(app, &note);
             return;
         }
 
@@ -97,7 +99,11 @@ impl ChannelCommand {
             .messages
             .channel_notification_rx = Some(rx);
 
-        self.add_note(app, &format!("频道已开启: {}", source));
+        let note = app
+            .services
+            .lc
+            .tr_args("channel-opened", &[("source".into(), source.into())]);
+        self.add_note(app, &note);
     }
 
     fn close_all(&self, app: &mut App) {
@@ -107,14 +113,19 @@ impl ChannelCommand {
                 .current_mut()
                 .messages
                 .channel_notification_rx = None;
-            self.add_note(app, "所有频道已关闭");
+            let note = app.services.lc.tr("channel-all-closed");
+            self.add_note(app, &note);
         }
     }
 
     fn close_one(&self, app: &mut App, server_name: &str) {
         if let Some(cs) = &app.services.channel_state {
             cs.revoke(server_name);
-            self.add_note(app, &format!("频道已关闭: {}", server_name));
+            let note = app
+                .services
+                .lc
+                .tr_args("channel-closed", &[("server".into(), server_name.into())]);
+            self.add_note(app, &note);
         }
     }
 
@@ -123,16 +134,16 @@ impl ChannelCommand {
         let msg = if let Some(cs) = &channel_state {
             let authorized = cs.authorized.read();
             if authorized.is_empty() {
-                "没有开启的频道。使用 /channel open <source> 开启".to_string()
+                app.services.lc.tr("channel-none-open")
             } else {
-                let mut status = String::from("已开启的频道:\n");
+                let mut status = format!("{}\n", app.services.lc.tr("channel-open-list"));
                 for (server, source) in authorized.iter() {
                     status.push_str(&format!("  {} → {}\n", server, source));
                 }
                 status
             }
         } else {
-            "Channel 系统未初始化".to_string()
+            app.services.lc.tr("channel-not-initialized")
         };
         self.add_note(app, &msg);
     }

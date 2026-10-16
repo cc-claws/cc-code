@@ -103,7 +103,10 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
                 panel.save_error = None;
             }
             Err(e) => {
-                let msg = format!("配置保存失败: {}", e);
+                let msg = ctx.services.lc.tr_args(
+                    "config-save-failed",
+                    &[("error".into(), e.to_string().into())],
+                );
                 tracing::error!("{}", msg);
                 panel.save_error = Some(msg);
             }

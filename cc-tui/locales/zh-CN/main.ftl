@@ -6,14 +6,12 @@
 # ---- i18n 基础设施测试 key ----
 test-hello = 你好，世界！
 test-greeting = 你好，{ $name }！
-ui-empty = 无
 
 # ---- Command Descriptions ----
 
 command-help-description = 列出所有可用命令
 command-clear-description = 清空消息列表
 command-exit-description = 退出应用
-command-compact-description = 压缩对话上下文（结构化摘要 + 重新注入最近文件/Skills）
 command-model-description = 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名（opus/sonnet/haiku/fable）
 command-theme-description = 打开主题选择面板；带参数时直接切换主题（default/dark/light/light-daltonized/dark-daltonized/light-ansi/dark-ansi）
 command-login-description = 管理 Provider 配置（新建/编辑/删除）
@@ -37,6 +35,8 @@ command-lang-description = 切换界面语言（如 /lang zh-CN）
 command-setup-description = 打开配置向导，设置 Provider
 command-init-description = 生成或优化项目 CLAUDE.md 知识库
 command-agent-description = 设置 Agent 定义，切换不同的 Agent 角色
+command-export-description = 导出对话到文件或剪贴板
+command-channel-description = 管理 MCP 频道连接: open <source> / close / status
 
 # ---- Command Execution Messages ----
 
@@ -48,10 +48,8 @@ help-skills-empty = Skills: 将 .md 文件放入 .claude/skills/ 目录即可添
 help-shortcuts = 快捷键：Shift+Tab 切换权限模式 │ { $palette } 命令面板（选择模型/Provider） │ Shift+Enter 换行 │ Esc 退出 │ Ctrl+C 中断
 
 # compact command
-compact-agent-running = Agent 运行中，无法执行压缩
 
 # history command
-history-agent-running = Agent 运行中，无法打开历史面板
 
 # model command
 config-save-failed = 配置保存失败: { $error }
@@ -83,25 +81,48 @@ doctor-mcp-not-init = None  .mcp.json 存在但 MCP 未初始化
 doctor-no-alias = No Alias  未配置任何模型别名
 doctor-no-alias-no-provider = No Alias  无活跃 Provider
 doctor-no-alias-not-configured = No Alias  未配置
+doctor-ok = OK  { $detail }
+doctor-missing-path = Missing  { $path }
+doctor-mcp-ok = OK  MCP 连接池已初始化
+doctor-table-header = | 检查项 | 状态 | 详情 |
 
 # lang command
 lang-switched = 语言已切换为 { $lang }
 lang-available = 可用语言: { $langs }
 lang-unsupported = 不支持的语言: { $lang }
 
+# export command
+export-cwd-error = 无法获取当前工作目录: { $error }
+export-clipboard-error = 剪贴板错误: { $error }
+export-written = 已导出到: { $path }
+export-write-error = 写入失败: { $error }
+
+# channel command
+channel-usage = 用法: /channel open <source> | /channel close | /channel status
+channel-not-initialized = Channel 系统未初始化
+channel-unsupported = 服务器 { $server } 不支持 channel 功能或未连接
+channel-opened = 频道已开启: { $source }
+channel-closed = 频道已关闭: { $server }
+channel-all-closed = 所有频道已关闭
+channel-none-open = 没有开启的频道。使用 /channel open <source> 开启
+channel-open-list = 已开启的频道:
+
+# session switching
+thread-busy = 当前会话仍有运行任务、排队消息或待处理审批，请完成后再切换。
+thread-cwd-unavailable = 项目目录不可用，无法进入会话：{ $cwd }
+thread-config-unavailable = 项目配置不可用，无法进入会话：{ $error }
+thread-load-failed = 无法加载会话：{ $error }
+thread-enter-failed = 无法进入会话，已保留当前会话：{ $error }
+thread-new-failed = 无法新建会话，已保留当前会话：{ $error }
+
 # ---- Status Bar ----
 
-statusbar-permission-default = Default
-statusbar-permission-dont-ask = Don't Ask
-statusbar-permission-accept-edit = Accept Edit
 statusbar-permission-auto = Auto Mode
 statusbar-permission-bypass = Bypass
 statusbar-permission-cycle-hint = (Shift+Tab 切换)
 statusbar-copied = 已复制 { $count } 个字符
 scroll-back-to-bottom = ↓ 回到最新 · End
 scroll-back-to-bottom-new = ↓ 有新活动 · End
-statusbar-no-agent = 无
-statusbar-bg-indicator = [BG: { $count }]
 statusbar-retrying = 重试 { $attempt }/{ $max } ({ $delay }s): { $error }
 statusbar-notice = 系统提示：{ $message }
 statusbar-mcp-connecting =  MCP ({ $connected }/{ $total })...
@@ -111,13 +132,8 @@ statusbar-lsp-diag = 诊断: { $errors }E/{ $warnings }W
 
 # ---- Status Bar Shortcut Hints (main view) ----
 
-key-command = 命令
-key-switch-session = :切换Session
 key-close = :关闭
-key-scroll = :滚动
-key-jump = :跳转
 key-cancel = :取消
-key-newline = :换行
 key-open-browser = :打开浏览器
 key-submit = :提交
 key-switch = :切换
@@ -134,9 +150,6 @@ key-back = :返回
 key-install = :安装
 key-tab = :切换
 key-effort = :力度
-key-switch-model = :切换模型
-key-command-palette = :命令面板
-key-tab-mode = :切换模式
 key-settings = :设置
 key-nav = :导航
 key-edit = :编辑
@@ -185,7 +198,7 @@ tip-clear-override = 切换话题时用 /clear 重新开始，并释放上下文
 
 setup-welcome-title =  ── CC Code 设置 ── 欢迎
 setup-choose-provider =  选择如何配置你的 Provider：
-setup-source-custom-api = Custom API
+setup-source-custom-api = 自定义 API
 setup-source-migrate = 从 Claude Code 迁移
 setup-source-custom-desc = 手动输入 Provider 详情
 setup-source-migrate-desc = 从 ~/.claude/ 导入配置
@@ -200,14 +213,14 @@ setup-key-back = :返回
 setup-edit-title =  ── 设置 ── 编辑: { $type } ({ $id })
 setup-field-type = 类型
 setup-field-id = ID
-setup-field-base-url = 基础URL
+setup-field-base-url = Base URL
 setup-hint-base-url-v1 = OpenAI Base URL 需要 /v1 后缀
 setup-field-api-key = API密钥
 setup-field-opus = 旗舰
 setup-field-sonnet = 标准
 setup-field-haiku = 极速
 setup-field-fable = Fable
-setup-model-label = Model
+setup-model-label = 模型
 setup-label-key = 密钥：
 setup-provider-anthropic = Anthropic
 setup-provider-openai = OpenAI 兼容
@@ -223,22 +236,20 @@ setup-no-providers = 未配置任何 Provider，请选择"Custom API"或从 Clau
 
 setup-language-title = ── CC Code 设置 ── 语言
 setup-language-prompt = 选择界面语言：
-setup-language-press-enter = 按 Enter 确认
 
 # ---- Config Panel ----
 
 config-panel-title =  /config — 配置
-config-field-autocompact = Autocompact
+config-field-autocompact = 自动压缩
 config-field-compact-threshold = Compact 阈值
 config-field-language = 语言
-config-field-persona = Persona
-config-field-tone = Tone
-config-field-proactiveness = Proactiveness
+config-field-persona = 人设
+config-field-tone = 语气
+config-field-proactiveness = 主动性
 config-field-diff = 内联 Diff
 config-field-recap = 会话回顾
 config-value-on = 开
 config-value-off = 关
-config-saved = 配置已保存
 
 # Config panel groups
 config-group-general = 通用
@@ -266,10 +277,6 @@ login-no-model = （未设置）
 login-empty-hint =   （无 provider，按 Ctrl+N 新建）
 login-confirm-delete-label =  确认删除
 login-confirm-delete-question =  ？
-login-key-activate = :激活
-login-key-new = :新建
-login-key-delete = :删除
-login-key-paste = :粘贴
 login-confirm-delete = :确认删除
 
 # ---- HITL Popup ----
@@ -279,10 +286,7 @@ hitl-batch-title =  ⚠ 批量工具审批
 hitl-choice-once = [同意本次]
 hitl-choice-session = [本次会话同意]
 hitl-choice-reject = [拒绝]
-hitl-approved = [批准]
-hitl-rejected = [拒绝]
 hitl-key-hint = ↑↓ 选择 · Tab 切换工具 · Enter 确认 · Esc 全部拒绝
-hitl-summary = 已选: { $approved } 批准 / { $rejected } 拒绝
 hitl-run-command = 运行命令
 hitl-edit-file = 编辑文件
 hitl-read-file = 读取文件
@@ -323,22 +327,16 @@ app-provider-deleted = 已删除 Provider: { $name }
 app-provider-name-empty = 保存失败：Provider 名称不能为空
 app-agent-reset = Agent 已重置（未设置 agent_id）
 app-agent-switched = Agent 已切换为: { $name } ({ $id })
-app-agent-disconnected = Agent 连接异常断开，请重试发送消息
-app-compact-no-context = 无可压缩的上下文（历史消息为空）
 app-compact-started = 正在压缩上下文…
-app-compact-no-provider = 压缩失败: 未配置 LLM Provider（请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY）
-app-compact-compressing = 压缩上下文
 app-compact-done = 上下文已压缩
 app-compact-failed = 压缩失败: { $error }
 app-compact-auto-cleared = 自动清理：释放了 { $count } 个工具调用结果
-app-compact-limit-reached = 上下文压缩后仍超出限制，已停止自动继续。请使用 /compact 手动压缩或 /clear 清空历史。
 app-recap-hint = （可在 /config 中关闭会话回顾）
 app-recap-failed = 回顾生成失败: { $error }
 app-model-switched = 模型已切换为: { $alias } ({ $effort } effort)
 app-theme-set = 主题已设置为 { $name }
 app-theme-unknown = 未知主题: { $name }。可用主题: default, dark, light, light-daltonized, dark-daltonized, light-ansi, dark-ansi
 app-1m-context-enabled = 已启用 1M 上下文模式（context window: 1,000,000 tokens）
-app-prompt-cache-low = Prompt cache 命中率 { $rate }% < 80% (req: { $req })
 app-no-mcp-configured = 无 MCP 服务器配置（请在 .mcp.json 或 settings.json 中添加）
 app-no-cron-tasks = 无定时任务
 app-cron-deleted = 已删除定时任务: { $preview }
@@ -373,27 +371,12 @@ hint-login-back = :返回
 # Config panel
 hint-config-field = :字段
 hint-config-toggle = :切换
-hint-config-save = :保存并关闭
 
 # Model panel
-hint-model-navigate = :导航
-hint-model-confirm = :确认
-hint-model-effort = :Effort
-hint-model-close = :关闭
 
 # Agent panel
-hint-agent-select = :选择
-hint-agent-confirm = :确认
-hint-agent-cancel = :取消
 
 # MCP panel
-hint-mcp-navigate = :导航
-hint-mcp-detail = :详情
-hint-mcp-reconnect = :重连
-hint-mcp-delete = :删除
-hint-mcp-execute = :执行
-hint-mcp-back = :返回
-hint-mcp-close = :关闭
 
 # ---- MCP Panel Content ----
 
@@ -446,43 +429,23 @@ mcp-action-failed = [i] 操作失败: { $server }
 
 # Plugin panel
 hint-plugin-uninstall = :确认卸载
-hint-plugin-cancel = :取消
 hint-plugin-delete = :确认删除
 hint-plugin-add = :添加
 hint-plugin-exit-search = :退出搜索
-hint-plugin-tab = :Tab
-hint-plugin-install = :安装
 hint-plugin-remove = :Remove
-hint-plugin-navigate = :导航
-hint-plugin-execute = :执行
-hint-plugin-back = :返回列表
-hint-plugin-select = :选择
 hint-plugin-search = :搜索
 
 # Cron panel
 hint-cron-confirm-delete = :确认删除
-hint-cron-navigate = :导航
-hint-cron-toggle = :切换
-hint-cron-delete = :删除
-hint-cron-close = :关闭
 
 # Status panel
-hint-status-tab = :切换Tab
-hint-status-close = :关闭
 
 # History panel
 hint-history-confirm-delete = :确认删除
-hint-history-exit-search = :退出搜索
-hint-history-close = :关闭
 
 # Hooks panel
-hint-hooks-navigate = :导航
-hint-hooks-close = :关闭
 
 # Memory panel
-hint-memory-select = :选择
-hint-memory-edit = :编辑
-hint-memory-close = :关闭
 
 # ---- Plugin Panel Messages ----
 
@@ -492,17 +455,12 @@ app-plugin-add-failed = 添加失败: { $error }
 app-plugin-added = Marketplace 已添加: { $name } (正在获取内容...)
 
 # 后台 Agent 管理栏
-bg-bar-focus-hint = 按 Esc 退出聚焦
 
 # 退出提示
 app-exit-resume = 恢复会话: cc-code -r { $id }
 
 # ---- Spinner / Widget ----
 
-spinner-thinking = 思考中…
-spinner-tool-use = 执行工具…
-spinner-responding = 正在生成回复…
-spinner-thinking-header = 💭 思考 ({ $count } chars)
 
 # 执行中的消息队列
 queue-label = 排队
@@ -661,7 +619,7 @@ agent-center-loading = (加载中…)
 agent-center-none = （无）
 agent-center-status-note = 其它进程仅显示持久化状态
 agent-center-empty = 已加载会话中没有匹配项，可通过 Show more 加载更早的会话。
-agent-center-show-more = Show more
+agent-center-show-more = 显示更多
 agent-center-search = 搜索已加载会话的标题；/ 或 Esc 清空
 agent-center-rename = 重命名：
 agent-center-busy = Agent、Shell 或审批仍在进行，或目标项目不可用，暂不能切换或删除。
@@ -680,3 +638,59 @@ agent-center-help = Navigate（导航）
     搜索与过滤作用于已加载页，计数涵盖全部项目。
     Working/Needs you 仅反映本进程实时状态，其它进程采用持久化状态。
     ? 或 Esc 关闭帮助
+
+# ── i18n wiring fix: commands ──
+streaming-current = 当前渲染模式：{ $mode }（可选：streaming / block / none）
+streaming-usage = 用法：/streaming [streaming|block|none]
+streaming-switched = 渲染模式已切换为：{ $mode }
+
+# ── i18n wiring fix: panels & popups ──
+agent-panel-title = Agent 选择
+agent-panel-title-empty = Agent 选择 (无)
+agent-panel-none = ○ 无 Agent（默认）
+agent-panel-empty-hint = 在 .claude/agents/ 目录中添加 Agent 定义文件
+cron-panel-title = 定时任务
+cron-status-enabled = ✓启用
+cron-status-disabled = ✗禁用
+cron-empty = （无定时任务，使用 /loop 命令创建）
+memory-panel-title = Memory 文件
+memory-panel-create-hint = 按 Enter 创建并编辑
+key-rewind-file = :切换回退文件
+rewind-mode-messages = 1. 回到此 prompt
+rewind-mode-messages-files = 2. 回到此 prompt + 恢复文件
+rewind-mode-confirm = ⚠ 确认: 恢复文件?
+rewind-files-to-restore = 将恢复的文件:
+rewind-action-write = Write → 删除+Git restore
+rewind-action-edit = Edit → 恢复
+rewind-key-hint = Enter 确认, Esc 取消
+memory-label-project = 项目说明
+memory-label-global = 用户全局
+oauth-popup-title = OAuth 授权 — { $server }
+oauth-popup-instruction = 按 Ctrl+O 在浏览器中打开链接，完成后粘贴回调 URL：
+oauth-popup-input-prompt = 回调 URL >
+oauth-callback-parse-failed = 无法解析回调 URL: { $error }
+
+# ── i18n wiring fix: plugin / subagent / background bar ──
+plugin-parse-failed = 解析失败: { $error }
+plugin-marketplace-exists = Marketplace 已存在
+plugin-marketplace-fetched = Marketplace '{ $name }' 内容已获取
+plugin-content-fetch-failed = 获取内容失败: { $error }
+plugin-marketplace-removed = Marketplace 已移除: { $name }
+subagent-approval-pending = 审批挂起: { $tool }
+subagent-awaiting-answer = 等待用户回答
+bg-agent-approval-hint = y:同意 / n:拒绝 / Enter:查看详情
+bg-agent-question-hint = Enter:查看问题
+bg-agent-approval-request = [审批请求] 子Agent "{ $agent }": { $action } [{ $hint }]
+bg-agent-nav-hint = ↑/↓ · Enter 查看 · x 停止
+bg-agent-bar-expand = [{ $agents }] (↓ 展开管理)
+compact-context-summarized = 📋 上下文已压缩
+bg-moved-to-background = 已转入后台（任务 { $task }）
+bg-output-file = 输出文件：{ $path }
+
+# ── i18n wiring fix: misc ──
+key-any-other = 其他键
+todo-count = { $count } 项任务
+agent-center-read-ended = 会话读取任务已结束，请重新打开中心
+subagent-tool-uses = { $count } 个工具调用
+bg-drawer-hint-short = ↑/↓ 选择 · ctrl+x ctrl+k 停止全部 Agent
+bg-drawer-hint-full = Enter 查看 · x 停止 · ctrl+x ctrl+k 停止全部 Agent

@@ -17,16 +17,24 @@ impl Command for AgentCommand {
         if id.is_empty() {
             // 清除 agent_id
             app.set_agent_id(None);
-            app.session_mgr.current_mut().messages.view_messages.push(MessageViewModel::system(
-                "Agent 已重置（未设置 agent_id）".to_string(),
-            ));
+            let note = app.services.lc.tr("app-agent-reset");
+            app.session_mgr
+                .current_mut()
+                .messages
+                .view_messages
+                .push(MessageViewModel::system(note));
         } else {
             app.set_agent_id(Some(id.to_string()));
             let name = cc_middlewares::format_agent_id(id);
-            app.session_mgr.current_mut().messages.view_messages.push(MessageViewModel::system(format!(
-                "Agent 已切换为: {} ({})",
-                name, id
-            )));
+            let note = app.services.lc.tr_args(
+                "app-agent-switched",
+                &[("name".into(), name.into()), ("id".into(), id.into())],
+            );
+            app.session_mgr
+                .current_mut()
+                .messages
+                .view_messages
+                .push(MessageViewModel::system(note));
         }
     }
 }

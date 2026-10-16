@@ -42,7 +42,10 @@ impl Command for ModelCommand {
                         .current_mut()
                         .messages
                         .view_messages
-                        .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+                        .push(MessageViewModel::system(app.services.lc.tr_args(
+                            "config-save-failed",
+                            &[("error".into(), e.to_string().into())],
+                        )));
                 }
                 if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
                     app.services.provider_name = p.display_name().to_string();

@@ -12,100 +12,115 @@ impl Command for DoctorCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
-        let mut lines = vec!["Doctor 检查结果：".to_string(), "".to_string()];
+        // 借用作用域限制在本块内：之后还要可变借用 app 写入消息
+        let lines: Vec<String> = {
+            let lc = &app.services.lc;
+            let field =
+                |key: &str, value: String| lc.tr_args(key, &[("detail".into(), value.into())]);
+            let mut out = vec![lc.tr("doctor-header"), String::new()];
 
-        // 1. Settings 文件（#289：经 app_home 解析，新版 ~/.cc-code 优先）
-        let settings_path = Some(cc_agent::app_home::global_settings_path());
-        let settings_status = match &settings_path {
-            Some(p) if p.is_file() => format!("OK  {}", p.display()),
-            Some(p) => format!("Missing  {}", p.display()),
-            None => "Missing  无法获取 home 目录".to_string(),
-        };
-        lines.push("| 检查项 | 状态 | 详情 |".to_string());
-        lines.push("|--------|------|------|".to_string());
-        lines.push(format!("| Settings | {} |", settings_status));
+            // 1. Settings 文件（#289：经 app_home 解析，新版 ~/.cc-code 优先）
+            let settings_path = Some(cc_agent::app_home::global_settings_path());
+            let settings_status = match &settings_path {
+                Some(p) if p.is_file() => field("doctor-ok", p.display().to_string()),
+                Some(p) => field("doctor-missing-path", p.display().to_string()),
+                None => lc.tr("doctor-settings-missing"),
+            };
+            out.push(lc.tr("doctor-table-header"));
+            out.push("|--------|------|------|".to_string());
+            out.push(format!("| Settings | {} |", settings_status));
 
-        // 2. API Key
-        let has_anthropic = std::env::var("ANTHROPIC_API_KEY")
-            .map(|k| !k.is_empty())
-            .unwrap_or(false);
-        let has_openai = std::env::var("OPENAI_API_KEY")
-            .map(|k| !k.is_empty())
-            .unwrap_or(false);
-        let api_status = if has_anthropic || has_openai {
-            let keys: Vec<&str> = [
-                has_anthropic.then_some("ANTHROPIC_API_KEY"),
-                has_openai.then_some("OPENAI_API_KEY"),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            format!("OK  {}", keys.join(" + "))
-        } else {
-            "Missing  未设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY".to_string()
-        };
-        lines.push(format!("| API Key | {} |", api_status));
-
-        // 3. Provider 配置
-        let provider_status = match &app.services.peri_config {
-            Some(cfg) if !cfg.config.providers.is_empty() => {
-                let active = &cfg.config.active_provider_id;
-                let provider = cfg.config.providers.iter().find(|p| p.id == *active);
-                match provider {
-                    Some(p) => format!(
-                        "OK  {} ({})",
-                        p.display_name(),
-                        p.models
-                            .get_model(&cfg.config.active_alias)
-                            .unwrap_or("default")
-                    ),
-                    None => format!("No Provider  active_provider_id '{}' 未找到", active),
-                }
-            }
-            _ => "No Provider  未配置任何 Provider".to_string(),
-        };
-        lines.push(format!("| Provider | {} |", provider_status));
-
-        // 4. MCP 配置
-        let mcp_status = if app.services.mcp_pool.is_some() {
-            "OK  MCP 连接池已初始化".to_string()
-        } else {
-            let mcp_project = std::path::Path::new(&app.services.cwd).join(".mcp.json");
-            if mcp_project.is_file() {
-                "None  .mcp.json 存在但 MCP 未初始化".to_string()
+            // 2. API Key
+            let has_anthropic = std::env::var("ANTHROPIC_API_KEY")
+                .map(|k| !k.is_empty())
+                .unwrap_or(false);
+            let has_openai = std::env::var("OPENAI_API_KEY")
+                .map(|k| !k.is_empty())
+                .unwrap_or(false);
+            let api_status = if has_anthropic || has_openai {
+                let keys: Vec<&str> = [
+                    has_anthropic.then_some("ANTHROPIC_API_KEY"),
+                    has_openai.then_some("OPENAI_API_KEY"),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                field("doctor-ok", keys.join(" + "))
             } else {
-                "None  未配置 MCP 服务器".to_string()
-            }
-        };
-        lines.push(format!("| MCP | {} |", mcp_status));
+                lc.tr("doctor-no-api-key")
+            };
+            out.push(format!("| API Key | {} |", api_status));
 
-        // 5. Model Alias
-        let alias_status = match &app.services.peri_config {
-            Some(cfg) => {
-                let p = cfg
-                    .config
-                    .providers
-                    .iter()
-                    .find(|p| p.id == cfg.config.active_provider_id);
-                match p {
-                    Some(p) => {
-                        let aliases: Vec<String> = cc_acp::provider::ProviderModels::ALL_ALIASES
-                            .iter()
-                            .filter(|a| !p.models.get_model(a).unwrap_or("").is_empty())
-                            .map(|a| a.to_string())
-                            .collect();
-                        if aliases.is_empty() {
-                            "No Alias  未配置任何模型别名".to_string()
-                        } else {
-                            format!("OK  {}", aliases.join("/"))
-                        }
+            // 3. Provider 配置
+            let provider_status = match &app.services.peri_config {
+                Some(cfg) if !cfg.config.providers.is_empty() => {
+                    let active = &cfg.config.active_provider_id;
+                    let provider = cfg.config.providers.iter().find(|p| p.id == *active);
+                    match provider {
+                        Some(p) => field(
+                            "doctor-ok",
+                            format!(
+                                "{} ({})",
+                                p.display_name(),
+                                p.models
+                                    .get_model(&cfg.config.active_alias)
+                                    .unwrap_or("default")
+                            ),
+                        ),
+                        None => lc.tr_args(
+                            "doctor-provider-not-found",
+                            &[("id".into(), active.clone().into())],
+                        ),
                     }
-                    None => "No Alias  无活跃 Provider".to_string(),
                 }
-            }
-            _ => "No Alias  未配置".to_string(),
+                _ => lc.tr("doctor-no-provider"),
+            };
+            out.push(format!("| Provider | {} |", provider_status));
+
+            // 4. MCP 配置
+            let mcp_status = if app.services.mcp_pool.is_some() {
+                lc.tr("doctor-mcp-ok")
+            } else {
+                let mcp_project = std::path::Path::new(&app.services.cwd).join(".mcp.json");
+                if mcp_project.is_file() {
+                    lc.tr("doctor-mcp-not-init")
+                } else {
+                    lc.tr("doctor-no-mcp")
+                }
+            };
+            out.push(format!("| MCP | {} |", mcp_status));
+
+            // 5. Model Alias
+            let alias_status = match &app.services.peri_config {
+                Some(cfg) => {
+                    let p = cfg
+                        .config
+                        .providers
+                        .iter()
+                        .find(|p| p.id == cfg.config.active_provider_id);
+                    match p {
+                        Some(p) => {
+                            let aliases: Vec<String> =
+                                cc_acp::provider::ProviderModels::ALL_ALIASES
+                                    .iter()
+                                    .filter(|a| !p.models.get_model(a).unwrap_or("").is_empty())
+                                    .map(|a| a.to_string())
+                                    .collect();
+                            if aliases.is_empty() {
+                                lc.tr("doctor-no-alias")
+                            } else {
+                                field("doctor-ok", aliases.join("/"))
+                            }
+                        }
+                        None => lc.tr("doctor-no-alias-no-provider"),
+                    }
+                }
+                _ => lc.tr("doctor-no-alias-not-configured"),
+            };
+            out.push(format!("| Model Alias | {} |", alias_status));
+
+            out
         };
-        lines.push(format!("| Model Alias | {} |", alias_status));
 
         let vm = MessageViewModel::system(lines.join("\n"));
         app.session_mgr

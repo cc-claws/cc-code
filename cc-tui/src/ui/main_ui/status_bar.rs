@@ -79,7 +79,7 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 ///
 /// 游标停在「当前已经在查看的那一行」时，`Enter to view` 与 `x to stop` 都无意义
 /// （已经在看它了 / 只有 `x` 有意义），此时缩短为纯导航提示。
-fn drawer_hint(app: &App) -> Option<&'static str> {
+fn drawer_hint(app: &App) -> Option<String> {
     let session = app.session_mgr.current();
     if !session.drawer_nav_active() {
         return None;
@@ -90,10 +90,11 @@ fn drawer_hint(app: &App) -> Option<&'static str> {
         .checked_sub(1)
         .and_then(|index| session.background_agents.get(index))
         .map(|agent| agent.instance_id.as_str());
+    let lc = &app.services.lc;
     Some(if target_id == session.focused_instance_id.as_deref() {
-        " ↑/↓ to select · ctrl+x ctrl+k to stop all agents"
+        format!(" {}", lc.tr("bg-drawer-hint-short"))
     } else {
-        " Enter to view · x to stop · ctrl+x ctrl+k to stop all agents"
+        format!(" {}", lc.tr("bg-drawer-hint-full"))
     })
 }
 
@@ -705,8 +706,8 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 ),
                 _ => format_hints(
                     &[
-                        ("↑↓".to_string(), "移动".to_string()),
-                        ("Tab".to_string(), "切换回退文件".to_string()),
+                        ("↑↓".to_string(), lc.tr("key-move")),
+                        ("Tab".to_string(), lc.tr("key-rewind-file")),
                         ("Enter".to_string(), lc.tr("key-confirm")),
                         ("Esc".to_string(), lc.tr("key-cancel")),
                     ],
@@ -723,7 +724,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             let hints = if app.global_ui.quit_pending_since.is_some() {
                 vec![
                     ("Ctrl+C".to_string(), lc.tr("key-close")),
-                    ("其他键".to_string(), lc.tr("key-cancel")),
+                    (lc.tr("key-any-other"), lc.tr("key-cancel")),
                 ]
             } else if app.session_mgr.current().session_panels.is_any_open() {
                 app.session_mgr

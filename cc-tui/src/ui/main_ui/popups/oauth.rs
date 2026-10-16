@@ -21,7 +21,11 @@ pub(crate) fn render_oauth_popup(f: &mut Frame, app: &mut App, area: Rect) {
         vertical: 1,
     });
 
-    let title = format!(" OAuth 授权 — {} ", prompt.server_name);
+    let lc = &app.services.lc;
+    let title = format!(
+        " {} ",
+        lc.tr_args("oauth-popup-title", &[("server".into(), prompt.server_name.clone().into())])
+    );
     let title_span = Span::styled(
         title,
         ratatui::style::Style::default()
@@ -40,7 +44,7 @@ pub(crate) fn render_oauth_popup(f: &mut Frame, app: &mut App, area: Rect) {
 
     // 提示行
     lines.push(ratatui::text::Line::from(vec![Span::styled(
-        "按 Ctrl+O 在浏览器中打开链接，完成后粘贴回调 URL：",
+        lc.tr("oauth-popup-instruction"),
         ratatui::style::Style::default().fg(theme::cur().text),
     )]));
 
@@ -60,7 +64,7 @@ pub(crate) fn render_oauth_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let (before_cursor, after_cursor) = edit_display_parts(&prompt.input, prompt.cursor);
     lines.push(ratatui::text::Line::from(vec![
         Span::styled(
-            "回调 URL > ",
+            format!("{} ", lc.tr("oauth-popup-input-prompt")),
             ratatui::style::Style::default().fg(theme::cur().inactive),
         ),
         Span::raw(before_cursor),

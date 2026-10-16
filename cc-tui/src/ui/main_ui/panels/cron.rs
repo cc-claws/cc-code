@@ -14,7 +14,8 @@ use crate::{
 
 /// CronPanel 渲染
 pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App, area: Rect) {
-    let title = " 定时任务 ";
+    let lc = &app.services.lc;
+    let title = format!(" {} ", lc.tr("cron-panel-title"));
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
@@ -29,9 +30,9 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
         let is_cursor = i == panel.cursor();
         let cursor_char = if is_cursor { "❯ " } else { "  " };
         let status_icon = if task.enabled {
-            "✓启用"
+            lc.tr("cron-status-enabled")
         } else {
-            "✗禁用"
+            lc.tr("cron-status-disabled")
         };
         let next = task
             .next_fire
@@ -79,7 +80,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
     if panel.tasks().is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  （无定时任务，使用 /loop 命令创建）",
+            format!("  {}", lc.tr("cron-empty")),
             Style::default().fg(theme::cur().inactive),
         )));
     }

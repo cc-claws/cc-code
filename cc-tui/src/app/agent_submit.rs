@@ -519,10 +519,10 @@ impl App {
                     StreamingMode::Block => "Block",
                     StreamingMode::None => "None",
                 };
-                let msg = format!(
-                    "当前渲染模式：{}（可选：streaming / block / none）",
-                    mode_str
-                );
+                let msg = self
+                    .services
+                    .lc
+                    .tr_args("streaming-current", &[("mode".into(), mode_str.into())]);
                 self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
                     msg,
                 )));
@@ -532,8 +532,9 @@ impl App {
             "block" => (StreamingMode::Block, "Block"),
             "none" => (StreamingMode::None, "None"),
             _ => {
+                let usage = self.services.lc.tr("streaming-usage");
                 self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
-                    "用法：/streaming [streaming|block|none]".to_string(),
+                    usage,
                 )));
                 return;
             }
@@ -565,7 +566,10 @@ impl App {
             }
         }
 
-        let msg = format!("渲染模式已切换为：{}", label);
+        let msg = self
+            .services
+            .lc
+            .tr_args("streaming-switched", &[("mode".into(), label.into())]);
         self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(msg)));
     }
 }

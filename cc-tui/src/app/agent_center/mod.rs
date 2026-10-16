@@ -285,7 +285,7 @@ fn receive<T>(receiver: &mut Option<oneshot::Receiver<StoreResult<T>>>) -> Optio
         Err(oneshot::error::TryRecvError::Empty) => None,
         Err(oneshot::error::TryRecvError::Closed) => {
             *receiver = None;
-            Some(Err("会话读取任务已结束，请重新打开中心".to_string()))
+            Some(Err(crate::i18n::global().tr("agent-center-read-ended")))
         }
     }
 }

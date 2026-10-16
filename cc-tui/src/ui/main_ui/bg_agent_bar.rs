@@ -104,9 +104,14 @@ pub(crate) fn drawer_line(
 
 pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) {
     if area.height == 0 { return; }
+    let lc = &app.services.lc;
     let session = app.session_mgr.current();
     if let Some(sub) = session.approval_source_agent_id.as_ref().and_then(|id| session.subagent_sessions.get(id)) {
-        let hint = if matches!(session.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) { "y:同意 / n:拒绝 / Enter:查看详情" } else { "Enter:查看问题" };
+        let hint = if matches!(session.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) {
+            lc.tr("bg-agent-approval-hint")
+        } else {
+            lc.tr("bg-agent-question-hint")
+        };
         // 审批条要的是「正在申请执行什么」，用运行中工具；抽屉正文才是助手文本。
         let action = sub
             .agent
@@ -114,7 +119,14 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
             .as_ref()
             .map(|tool| format!("{}({})", tool.display, tool.args_summary))
             .unwrap_or_else(|| sub.current_activity.clone());
-        let text = format!("[审批请求] 子Agent \"{}\": {} [{hint}]", sub.task_preview, action);
+        let text = lc.tr_args(
+            "bg-agent-approval-request",
+            &[
+                ("agent".into(), sub.task_preview.clone().into()),
+                ("action".into(), action.into()),
+                ("hint".into(), hint.into()),
+            ],
+        );
         f.render_widget(Paragraph::new(fit(&text, area.width as usize)).style(Style::default().fg(theme::cur().warning)), Rect::new(area.x, area.y, area.width, 1));
         area.y = area.y.saturating_add(1);
         area.height = area.height.saturating_sub(1);
@@ -129,14 +141,22 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
         let selected = cursor.unwrap_or(0);
         let text = if let Some(agent) = selected.checked_sub(1).and_then(|index| session.background_agents.get(index)) {
             let sub = session.subagent_sessions.get(&agent.instance_id);
-            format!("[{} {}] ↑/↓ · Enter to view · x to stop", if current == Some(&agent.instance_id) { "●" } else { "◯" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
+            format!(
+                "[{} {}] {}",
+                if current == Some(&agent.instance_id) { "●" } else { "◯" },
+                sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name),
+                lc.tr("bg-agent-nav-hint")
+            )
         } else {
             let mut parts = vec![format!("{} main", if current.is_none() { "●" } else { "◯" })];
             parts.extend(session.background_agents.iter().map(|agent| {
                 let sub = session.subagent_sessions.get(&agent.instance_id);
                 format!("{} {}", if current == Some(&agent.instance_id) { "●" } else { "◯" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
             }));
-            format!("[{}] (↓ 展开管理)", parts.join(" | "))
+            lc.tr_args(
+                "bg-agent-bar-expand",
+                &[("agents".into(), parts.join(" | ").into())],
+            )
         };
         let lines = vec![
             Line::from(""),

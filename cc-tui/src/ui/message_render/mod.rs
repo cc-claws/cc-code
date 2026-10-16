@@ -661,7 +661,13 @@ fn render_batch_summary(
 
             if agent.tool_count > 0 {
                 spans.push(Span::styled(
-                    format!(" · {} tool uses", agent.tool_count),
+                    format!(
+                        " · {}",
+                        crate::i18n::global().tr_args(
+                            "subagent-tool-uses",
+                            &[("count".into(), agent.tool_count.to_string().into())],
+                        )
+                    ),
                     Style::default().fg(theme::cur().subtle),
                 ));
             }
@@ -1093,7 +1099,7 @@ pub fn render_view_model_with_flags(
             if *system_reminder {
                 // 系统提醒：渲染一行简略提示
                 let hint = Span::styled(
-                    "\u{1f4cb} 上下文已压缩",
+                    crate::i18n::global().tr("compact-context-summarized"),
                     Style::default()
                         .fg(theme::cur().subtle)
                         .add_modifier(Modifier::ITALIC),
@@ -1420,7 +1426,10 @@ pub fn render_view_model_with_flags(
                 let summary = if *shell_backgrounded {
                     BACKGROUND_RUNNING_STATUS.to_string()
                 } else {
-                    format!("已转入后台（任务 {}）", task.task_id)
+                    crate::i18n::global().tr_args(
+                        "bg-moved-to-background",
+                        &[("task".into(), task.task_id.into())],
+                    )
                 };
                 lines.push(Line::from(vec![
                     Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
@@ -1438,7 +1447,10 @@ pub fn render_view_model_with_flags(
                     }
                 }
                 if detail_mode {
-                    let output = format!("输出文件：{}", sanitize_display_text(task.output));
+                    let output = crate::i18n::global().tr_args(
+                        "bg-output-file",
+                        &[("path".into(), sanitize_display_text(task.output).into())],
+                    );
                     lines.push(Line::from(vec![
                         Span::raw("    "),
                         Span::styled(

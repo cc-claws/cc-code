@@ -17,10 +17,11 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     let agent_count = panel.agents.len();
     let popup_area = area;
 
+    let lc = &app.services.lc;
     let title = if agent_count == 0 {
-        " Agent 选择 (无) "
+        format!(" {} ", lc.tr("agent-panel-title-empty"))
     } else {
-        " Agent 选择 "
+        format!(" {} ", lc.tr("agent-panel-title"))
     };
 
     let inner = BorderedPanel::new(Span::styled(
@@ -43,7 +44,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
             Style::default().fg(theme::cur().thinking),
         ),
         Span::styled(
-            "○ 无 Agent（默认）",
+            lc.tr("agent-panel-none"),
             if is_none_selected {
                 Style::default()
                     .fg(theme::cur().success)
@@ -108,7 +109,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     if agent_count == 0 {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  在 .claude/agents/ 目录中添加 Agent 定义文件",
+            format!("  {}", lc.tr("agent-panel-empty-hint")),
             Style::default().fg(theme::cur().inactive),
         )));
     }

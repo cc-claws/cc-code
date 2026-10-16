@@ -195,7 +195,7 @@ impl AcpPermissionBroker {
                 );
                 return ApprovalDecision::Reject {
                     reason: format!(
-                        "无法向客户端请求审批（{e}），已默认拒绝；无人值守场景可用 session/set_mode 切换到 bypass"
+                        "Failed to request approval from the client ({e}); rejected by default. For unattended runs, switch to bypass via session/set_mode"
                     ),
                     source: None,
                 };
@@ -217,7 +217,7 @@ fn decision_from_outcome(
     use cc_agent::interaction::ApprovalDecision;
     match outcome {
         RequestPermissionOutcome::Cancelled => ApprovalDecision::Reject {
-            reason: "用户取消了审批".to_string(),
+            reason: "User cancelled the approval".to_string(),
             source: None,
         },
         RequestPermissionOutcome::Selected(sel) => match sel.option_id.to_string().as_str() {
@@ -227,24 +227,24 @@ fn decision_from_outcome(
             },
             AcpPermissionBroker::REJECT_ONCE | AcpPermissionBroker::REJECT_ALWAYS => {
                 ApprovalDecision::Reject {
-                    reason: "用户拒绝".to_string(),
+                    reason: "User rejected".to_string(),
                     source: None,
                 }
             }
             other => {
                 tracing::warn!(
                     option_id = %other,
-                    "session/request_permission 返回了未知选项，按拒绝处理"
+                    "session/request_permission returned an unknown option; rejecting"
                 );
                 ApprovalDecision::Reject {
-                    reason: format!("未知的审批选项：{other}，已按拒绝处理"),
+                    reason: format!("Unknown approval option: {other}; rejected by default"),
                     source: None,
                 }
             }
         },
         // `RequestPermissionOutcome` 是 `#[non_exhaustive]`：协议未来新增 outcome 时保持 fail-closed
         _ => ApprovalDecision::Reject {
-            reason: "未知的审批结果，已按拒绝处理".to_string(),
+            reason: "Unknown approval outcome; rejected by default".to_string(),
             source: None,
         },
     }

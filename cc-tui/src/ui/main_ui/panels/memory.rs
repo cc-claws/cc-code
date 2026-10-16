@@ -11,7 +11,8 @@ use ratatui::{
 };
 
 pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut App, area: Rect) {
-    let title = " Memory 文件 ";
+    let lc = &app.services.lc;
+    let title = format!(" {} ", lc.tr("memory-panel-title"));
     let inner = BorderedPanel::new(Span::styled(
         title,
         Style::default()
@@ -61,7 +62,7 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
         // 文件不存在时显示创建提示
         if !entry.exists && is_cursor {
             lines.push(Line::from(Span::styled(
-                "    按 Enter 创建并编辑",
+                format!("    {}", lc.tr("memory-panel-create-hint")),
                 Style::default().fg(theme::cur().inactive),
             )));
         }

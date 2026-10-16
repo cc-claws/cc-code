@@ -85,9 +85,17 @@ impl App {
         }
 
         if let Some(source) = &source_agent_id {
+            let tool_title = params["toolCall"]["title"]
+                .as_str()
+                .unwrap_or("tool")
+                .to_string();
+            let activity = self.services.lc.tr_args(
+                "subagent-approval-pending",
+                &[("tool".into(), tool_title.into())],
+            );
             if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(source) {
                 sub.status = super::subagent_session::SubagentRunStatus::AwaitingApproval;
-                sub.current_activity = format!("审批挂起: {}", params["toolCall"]["title"].as_str().unwrap_or("tool"));
+                sub.current_activity = activity;
             }
         }
         if self.session_mgr.current().agent.interaction_prompt.is_some() {
@@ -159,7 +167,8 @@ impl App {
 
         if let Some(sub) = source_agent_id.as_ref().and_then(|source| self.session_mgr.current_mut().subagent_sessions.get_mut(source)) {
             sub.status = super::subagent_session::SubagentRunStatus::AwaitingApproval;
-            sub.current_activity = "等待用户回答".into();
+            let activity = self.services.lc.tr("subagent-awaiting-answer");
+            sub.current_activity = activity;
         }
         if self.session_mgr.current().agent.interaction_prompt.is_some() {
             self.session_mgr.current_mut().pending_thread_approvals.push_back((id, params));

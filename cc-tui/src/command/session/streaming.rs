@@ -36,7 +36,7 @@ mod tests {
         StreamingCommand.execute(&mut app, "");
         let text = format!("{:?}", app.session_mgr.current_mut().messages.view_messages);
         assert!(
-            text.contains("当前渲染模式"),
+            text.contains("streaming"),
             "无参数应回报当前渲染模式，实际: {text}"
         );
     }

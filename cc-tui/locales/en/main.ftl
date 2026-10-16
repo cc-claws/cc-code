@@ -7,14 +7,12 @@
 # ---- i18n infrastructure test keys ----
 test-hello = Hello, World!
 test-greeting = Hello, { $name }!
-ui-empty = (none)
 
 # ---- Command Descriptions ----
 
 command-help-description = List all available commands
 command-clear-description = Clear message list
 command-exit-description = Exit the application
-command-compact-description = Compact conversation context (structured summary + re-inject recent files/Skills)
 command-model-description = Open model selection panel (Provider + Level + Thinking); with args, switch alias directly (opus/sonnet/haiku/fable)
 command-theme-description = Open theme selection panel; with args, switch theme directly (default/dark/light/light-daltonized/dark-daltonized/light-ansi/dark-ansi)
 command-login-description = Manage Provider configuration (create/edit/delete)
@@ -38,6 +36,8 @@ command-lang-description = Switch interface language (e.g. /lang zh-CN)
 command-setup-description = Open setup wizard to configure providers
 command-init-description = Generate or optimize project CLAUDE.md knowledge base
 command-agent-description = Set Agent definition, switch different Agent roles
+command-export-description = Export conversation to a file or the clipboard
+command-channel-description = Manage MCP channel connections: open <source> / close / status
 
 # ---- Command Execution Messages ----
 
@@ -49,10 +49,8 @@ help-skills-empty = Skills: place .md files in .claude/skills/ directory to add
 help-shortcuts = Shortcuts: Shift+Tab toggle permission mode | { $palette } command palette (select Model / Provider) | Shift+Enter newline | Esc quit | Ctrl+C interrupt
 
 # compact command
-compact-agent-running = Agent is running, cannot compact
 
 # history command
-history-agent-running = Agent is running, cannot open history panel
 
 # model command
 config-save-failed = Configuration save failed: { $error }
@@ -84,25 +82,48 @@ doctor-mcp-not-init = None  .mcp.json exists but MCP not initialized
 doctor-no-alias = No Alias  No model aliases configured
 doctor-no-alias-no-provider = No Alias  No active Provider
 doctor-no-alias-not-configured = No Alias  Not configured
+doctor-ok = OK  { $detail }
+doctor-missing-path = Missing  { $path }
+doctor-mcp-ok = OK  MCP pool initialized
+doctor-table-header = | Check | Status | Detail |
 
 # lang command
 lang-switched = Language switched to { $lang }
 lang-available = Available languages: { $langs }
 lang-unsupported = Unsupported language: { $lang }
 
+# export command
+export-cwd-error = Cannot get cwd: { $error }
+export-clipboard-error = Clipboard error: { $error }
+export-written = Exported to: { $path }
+export-write-error = Write error: { $error }
+
+# channel command
+channel-usage = Usage: /channel open <source> | /channel close | /channel status
+channel-not-initialized = Channel system is not initialized
+channel-unsupported = Server { $server } does not support channels or is not connected
+channel-opened = Channel opened: { $source }
+channel-closed = Channel closed: { $server }
+channel-all-closed = All channels closed
+channel-none-open = No open channels. Use /channel open <source> to open one
+channel-open-list = Open channels:
+
+# session switching
+thread-busy = This session still has running tasks, queued messages or pending approvals; finish them before switching
+thread-cwd-unavailable = Project directory unavailable, cannot enter session: { $cwd }
+thread-config-unavailable = Project config unavailable, cannot enter session: { $error }
+thread-load-failed = Failed to load session: { $error }
+thread-enter-failed = Failed to enter session, kept the current session: { $error }
+thread-new-failed = Failed to create session, kept the current session: { $error }
+
 # ---- Status Bar ----
 
-statusbar-permission-default = Default
-statusbar-permission-dont-ask = Don't Ask
-statusbar-permission-accept-edit = Accept Edit
 statusbar-permission-auto = Auto Mode
 statusbar-permission-bypass = Bypass
 statusbar-permission-cycle-hint = (Shift+Tab to cycle)
 statusbar-copied = Copied { $count } chars to clipboard
 scroll-back-to-bottom = ↓ Back to bottom · End
 scroll-back-to-bottom-new = ↓ New activity · End
-statusbar-no-agent = None
-statusbar-bg-indicator = [BG: { $count }]
 statusbar-retrying = Retry { $attempt }/{ $max } ({ $delay }s): { $error }
 statusbar-notice = Notice: { $message }
 statusbar-mcp-connecting =  MCP ({ $connected }/{ $total })...
@@ -112,13 +133,8 @@ statusbar-lsp-diag = diag: { $errors }E/{ $warnings }W
 
 # ---- Status Bar Shortcut Hints (main view) ----
 
-key-command = command
-key-switch-session = :Switch Session
 key-close = :Close
-key-scroll = :Scroll
-key-jump = :Jump
 key-cancel = :Cancel
-key-newline = :NewLine
 key-open-browser = :Open browser
 key-submit = :Submit
 key-switch = :Switch
@@ -135,9 +151,6 @@ key-back = :Back
 key-install = :Install
 key-tab = :Tab
 key-effort = :Effort
-key-switch-model = :Switch Model
-key-command-palette = :Command Palette
-key-tab-mode = :Switch Mode
 key-settings = :Settings
 key-nav = :Navigate
 key-edit = :Edit
@@ -224,7 +237,6 @@ setup-no-providers = No providers configured. Add one by selecting "Custom API" 
 
 setup-language-title = ── CC Code Setup ── Language
 setup-language-prompt = Choose your interface language:
-setup-language-press-enter = Press Enter to confirm
 
 # ---- Config Panel ----
 
@@ -239,7 +251,6 @@ config-field-diff = Inline Diff
 config-field-recap = Auto Recap
 config-value-on = ON
 config-value-off = OFF
-config-saved = Configuration saved
 
 # Config panel groups
 config-group-general = General
@@ -267,10 +278,6 @@ login-no-model = (not set)
 login-empty-hint =   (no provider, press Ctrl+N to create)
 login-confirm-delete-label =  Confirm delete
 login-confirm-delete-question =  ?
-login-key-activate = :Activate
-login-key-new = :New
-login-key-delete = :Delete
-login-key-paste = :Paste
 login-confirm-delete = :Confirm delete
 
 # ---- HITL Popup ----
@@ -280,10 +287,7 @@ hitl-batch-title =  ⚠ Batch Tool Approval
 hitl-choice-once = [Allow once]
 hitl-choice-session = [Allow for this session]
 hitl-choice-reject = [Reject]
-hitl-approved = [Approved]
-hitl-rejected = [Rejected]
 hitl-key-hint = ↑↓ choose · Tab switch tool · Enter confirm · Esc reject all
-hitl-summary = Selected: { $approved } approved / { $rejected } rejected
 hitl-run-command = Run command
 hitl-edit-file = Edit file
 hitl-read-file = Read file
@@ -324,22 +328,16 @@ app-provider-deleted = Provider deleted: { $name }
 app-provider-name-empty = Save failed: Provider name cannot be empty
 app-agent-reset = Agent reset (no agent_id set)
 app-agent-switched = Agent switched to: { $name } ({ $id })
-app-agent-disconnected = Agent connection lost, please retry sending
-app-compact-no-context = No compressible context (history is empty)
 app-compact-started = Compacting context…
-app-compact-no-provider = Compact failed: No LLM Provider configured (set ANTHROPIC_API_KEY or OPENAI_API_KEY)
-app-compact-compressing = Compressing context
 app-compact-done = Context compressed
 app-compact-failed = Compact failed: { $error }
 app-compact-auto-cleared = Auto cleanup: freed { $count } tool call results
-app-compact-limit-reached = Context still exceeds limit after compression. Use /compact to manually compress or /clear to clear history.
 app-recap-hint = (disable recaps in /config)
 app-recap-failed = Recap failed: { $error }
 app-model-switched = Model switched to: { $alias } ({ $effort } effort)
 app-theme-set = Theme set to { $name }
 app-theme-unknown = Unknown theme: { $name }. Available: default, dark, light, light-daltonized, dark-daltonized, light-ansi, dark-ansi
 app-1m-context-enabled = 1M context mode enabled (context window: 1,000,000 tokens)
-app-prompt-cache-low = Prompt cache hit rate { $rate }% < 80% (req: { $req })
 app-no-mcp-configured = No MCP servers configured (add in .mcp.json or settings.json)
 app-no-cron-tasks = No cron tasks
 app-cron-deleted = Cron task deleted: { $preview }
@@ -374,27 +372,12 @@ hint-login-back = :Back
 # Config panel
 hint-config-field = :Field
 hint-config-toggle = :Toggle
-hint-config-save = :Save & close
 
 # Model panel
-hint-model-navigate = :Navigate
-hint-model-confirm = :Confirm
-hint-model-effort = :Effort
-hint-model-close = :Close
 
 # Agent panel
-hint-agent-select = :Select
-hint-agent-confirm = :Confirm
-hint-agent-cancel = :Cancel
 
 # MCP panel
-hint-mcp-navigate = :Navigate
-hint-mcp-detail = :Detail
-hint-mcp-reconnect = :Reconnect
-hint-mcp-delete = :Delete
-hint-mcp-execute = :Execute
-hint-mcp-back = :Back
-hint-mcp-close = :Close
 
 # ---- MCP Panel Content ----
 
@@ -447,43 +430,23 @@ mcp-action-failed = [i] Action failed: { $server }
 
 # Plugin panel
 hint-plugin-uninstall = :Confirm uninstall
-hint-plugin-cancel = :Cancel
 hint-plugin-delete = :Confirm delete
 hint-plugin-add = :Add
 hint-plugin-exit-search = :Exit search
-hint-plugin-tab = :Tab
-hint-plugin-install = :Install
 hint-plugin-remove = :Remove
-hint-plugin-navigate = :Navigate
-hint-plugin-execute = :Execute
-hint-plugin-back = :Back to list
-hint-plugin-select = :Select
 hint-plugin-search = :Search
 
 # Cron panel
 hint-cron-confirm-delete = :Confirm delete
-hint-cron-navigate = :Navigate
-hint-cron-toggle = :Toggle
-hint-cron-delete = :Delete
-hint-cron-close = :Close
 
 # Status panel
-hint-status-tab = :Switch Tab
-hint-status-close = :Close
 
 # History panel
 hint-history-confirm-delete = :Confirm delete
-hint-history-exit-search = :Exit search
-hint-history-close = :Close
 
 # Hooks panel
-hint-hooks-navigate = :Navigate
-hint-hooks-close = :Close
 
 # Memory panel
-hint-memory-select = :Select
-hint-memory-edit = :Edit
-hint-memory-close = :Close
 
 # ---- Plugin Panel Messages ----
 
@@ -493,17 +456,12 @@ app-plugin-add-failed = Add failed: { $error }
 app-plugin-added = Marketplace added: { $name } (fetching content...)
 
 # Background Agent Bar
-bg-bar-focus-hint = Press Esc to exit focus
 
 # Exit prompt
 app-exit-resume = Resume session: cc-code -r { $id }
 
 # ---- Spinner / Widget ----
 
-spinner-thinking = Thinking…
-spinner-tool-use = Using tool…
-spinner-responding = Generating response…
-spinner-thinking-header = 💭 Thinking ({ $count } chars)
 
 # Messages queued during execution
 queue-label = Queued
@@ -681,3 +639,59 @@ agent-center-help = Navigate
     Search and filters apply to loaded pages; counts cover all projects.
     Working/Needs you are live only in this process. Other processes use saved status.
     ? or Esc close help
+
+# ── i18n wiring fix: commands ──
+streaming-current = Current render mode: { $mode } (options: streaming / block / none)
+streaming-usage = Usage: /streaming [streaming|block|none]
+streaming-switched = Render mode switched to: { $mode }
+
+# ── i18n wiring fix: panels & popups ──
+agent-panel-title = Agent Selection
+agent-panel-title-empty = Agent Selection (none)
+agent-panel-none = ○ No Agent (default)
+agent-panel-empty-hint = Add Agent definition files under .claude/agents/
+cron-panel-title = Scheduled Tasks
+cron-status-enabled = ✓enabled
+cron-status-disabled = ✗disabled
+cron-empty = (no scheduled tasks; create one with /loop)
+memory-panel-title = Memory files
+memory-panel-create-hint = Press Enter to create and edit
+key-rewind-file = :Switch rewind file
+rewind-mode-messages = 1. Rewind to this prompt
+rewind-mode-messages-files = 2. Rewind to this prompt + restore files
+rewind-mode-confirm = ⚠ Confirm: restore files?
+rewind-files-to-restore = Files to restore:
+rewind-action-write = Write → delete + git restore
+rewind-action-edit = Edit → restore
+rewind-key-hint = Enter confirm, Esc cancel
+memory-label-project = Project instructions
+memory-label-global = User global
+oauth-popup-title = OAuth Authorization — { $server }
+oauth-popup-instruction = Press Ctrl+O to open the link in a browser, then paste the callback URL:
+oauth-popup-input-prompt = Callback URL >
+oauth-callback-parse-failed = Cannot parse callback URL: { $error }
+
+# ── i18n wiring fix: plugin / subagent / background bar ──
+plugin-parse-failed = Parse failed: { $error }
+plugin-marketplace-exists = Marketplace already exists
+plugin-marketplace-fetched = Marketplace '{ $name }' content fetched
+plugin-content-fetch-failed = Failed to fetch content: { $error }
+plugin-marketplace-removed = Marketplace removed: { $name }
+subagent-approval-pending = Approval pending: { $tool }
+subagent-awaiting-answer = Waiting for user input
+bg-agent-approval-hint = y:approve / n:reject / Enter:details
+bg-agent-question-hint = Enter:view question
+bg-agent-approval-request = [Approval request] Subagent "{ $agent }": { $action } [{ $hint }]
+bg-agent-nav-hint = ↑/↓ · Enter to view · x to stop
+bg-agent-bar-expand = [{ $agents }] (↓ expand)
+compact-context-summarized = 📋 Context summarized
+bg-moved-to-background = Moved to background (task { $task })
+bg-output-file = Output file: { $path }
+
+# ── i18n wiring fix: misc ──
+key-any-other = Other key
+todo-count = { $count } tasks
+agent-center-read-ended = Session read task ended; reopen the center
+subagent-tool-uses = { $count } tool uses
+bg-drawer-hint-short = ↑/↓ to select · ctrl+x ctrl+k to stop all agents
+bg-drawer-hint-full = Enter to view · x to stop · ctrl+x ctrl+k to stop all agents

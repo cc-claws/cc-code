@@ -1170,7 +1170,7 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
         Input {
             key: Key::Enter, ..
         } => {
-            if prompt.submit() {
+            if prompt.submit(&app.services.lc) {
                 app.global_ui.oauth_prompt = None;
             }
         }

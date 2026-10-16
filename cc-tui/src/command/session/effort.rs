@@ -33,7 +33,10 @@ impl Command for EffortCommand {
                 });
                 if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref())
                 {
-                    let vm = MessageViewModel::system(format!("配置保存失败: {}", e));
+                    let vm = MessageViewModel::system(app.services.lc.tr_args(
+                        "config-save-failed",
+                        &[("error".into(), e.to_string().into())],
+                    ));
                     app.session_mgr
                         .current_mut()
                         .messages
@@ -41,7 +44,10 @@ impl Command for EffortCommand {
                         .push(vm);
                     return;
                 }
-                let vm = MessageViewModel::system(format!("推理力度已设为 {}", arg));
+                let vm = MessageViewModel::system(app.services.lc.tr_args(
+                    "effort-set",
+                    &[("effort".into(), arg.clone().into())],
+                ));
                 app.session_mgr
                     .current_mut()
                     .messages
@@ -65,8 +71,11 @@ impl Command for EffortCommand {
                     .map(|t| t.effort.as_str())
                     .unwrap_or("high");
                 let vm = MessageViewModel::system(format!(
-                    "当前推理力度: {}\n用法: /effort low|medium|high|xhigh|max",
-                    current
+                    "{}\n{}",
+                    app.services
+                        .lc
+                        .tr_args("effort-current", &[("effort".into(), current.into())]),
+                    app.services.lc.tr("effort-usage")
                 ));
                 app.session_mgr
                     .current_mut()
