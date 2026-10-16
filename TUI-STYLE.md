@@ -337,7 +337,8 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `/login` | LoginPanel | Session | Browse=BORDER, Edit/New/Delete=动态色 |
 | `/model` | ModelPanel | Session | BORDER |
 | `/agent-design` | AgentPanel | Session | BORDER |
-| `/history` | ThreadBrowserPanel | Session | BORDER |
+| `/history` | InputHistoryPanel | Session | BORDER |
+| `/resume` | ThreadBrowserPanel | Session | BORDER |
 | `/cron` | CronPanel | Session | BORDER |
 | `/config` | ConfigPanel | Session | Browse=BORDER, Edit=WARNING |
 | `/memory` | MemoryPanel | Session | BORDER |
@@ -591,9 +592,10 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `/cost` | 查看当前会话费用和 token 消耗 |
 | `/exit` | 退出应用（别名 `quit`） |
 | `/export` | 导出对话到文件或剪贴板（别名 `save`） |
-| `/history` | 打开历史对话浏览面板（别名 `resume`） |
+| `/history` | 查看输入历史（`Ctrl+↑/↓` 回溯的列表版，同一份数据） |
 | `/recap` | 生成 1-2 句会话回顾：高层目标 + 当前任务 → 下一步（别名 `away`、`catchup`） |
 | `/rename [name]` | 查看或修改当前会话标题 |
+| `/resume` | 打开历史对话浏览面板，选 thread 恢复 |
 | `/review` | PR 代码审查（别名 `pr`） |
 | `/rewind` | 打开对话回滚选择器，回退到某条历史消息（可选逆向恢复文件变更，别名 `undo`） |
 | `/streaming [mode]` | 查看或切换时间线渲染模式（`streaming` / `block` / `none`），调试用 |

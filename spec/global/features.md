@@ -58,9 +58,9 @@
 
 - **文件提及候选（#463）:** 单独输入 `@` 立即弹面板，默认仅枚举当前目录并限制 15 项；关键词递归模糊搜索 200ms 防抖，保留最后一次输入，截断缓存或进入新目录时重新搜索。视口最多 10 行并适配可用高度，选中项始终可见；搜索中、空目录、无匹配提供双语提示，搜索期间阻止旧候选误补全及 Enter 误提交。
 
-- **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
+- **多会话历史:** `SqliteThreadStore` 持久化会话，`/resume` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
-- **TUI 命令:** 以 `command::default_registry()` 为准，ACP 另有 7 个命令；`/agents` 打开跨项目会话中心，`/agent-design` 选择 agent 定义，`/tasks` 入口移除；`/history`(resume)、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/recap`(away/catchup)、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/exit`(quit)、`/model`、`/theme` 保持既有语义；Command trait 支持 alias 机制
+- **TUI 命令:** 以 `command::default_registry()` 为准，ACP 另有 7 个命令；`/agents` 打开跨项目会话中心，`/agent-design` 选择 agent 定义，`/tasks` 入口移除；`/history`、`/resume`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/recap`(away/catchup)、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/exit`(quit)、`/model`、`/theme` 保持既有语义；Command trait 支持 alias 机制
 - **Agent Command Center（#542）:** `/agents` 或满足门控的空草稿 `←` 打开全页根会话中心；跨 cwd、项目/状态/模型分组、五档状态过滤、10 条真分页、详情延迟读取、标题搜索、重命名及二次确认永久删除。Enter 恢复目标项目，`n` 在选中项目新建，`o` 当前项目历史；运行任务/审批未结束不切换。持久化模型/推理/分支快照与根会话终态，跨进程按保存状态降级。
 - **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
 - **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
@@ -77,7 +77,7 @@
 - **Sticky Human Message Header:** 聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动，/clear 后消失，打开历史 Thread 自动恢复
 - **配色系统（v1.1）:** 橙色仅保留最高优先级交互（命令输入框）；工具名三级分级（bash=ACCENT / 写操作=WARNING / 只读=MUTED）；配置面板边框 MUTED 降噪；HITL/AskUser 弹窗 WARNING
 - **Setup Wizard:** 首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），支持 Anthropic/OpenAI Compatible，save_setup() 原子写回 settings.json
-- **历史面板工作区过滤:** /history 面板按 cwd 过滤 ThreadMeta，只显示当前工作区的对话，标题包含工作区路径
+- **历史面板工作区过滤:** /resume 面板按 cwd 过滤 ThreadMeta，只显示当前工作区的对话，标题包含工作区路径
 - **定时任务（cron）:** /loop 注册定时任务（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用）；AI 通过 CronRegister/CronList/CronRemove 工具创建管理；内存任务表上限 20，TUI 重启后清空
 - **子 Agent 模型切换:** agent.md 的 model 字段生效，LLM Factory 签名升级为 Fn(Option<&str>)，alias 解析在 TUI 层；SkillFrontmatter 增加 model 文档字段
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短

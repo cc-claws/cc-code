@@ -111,7 +111,8 @@ cargo run -p cc-tui -- -r <session-id>
 | `/help` | 列出所有命令 |
 | `/clear` | 清空对话 |
 | `/config` | 查看/编辑运行时配置 |
-| `/history` | 历史对话浏览 |
+| `/history` | 输入历史浏览（Ctrl+↑/↓ 的列表版） |
+| `/resume` | 历史对话浏览与恢复 |
 | `/doctor` | 诊断配置完整性 |
 | `/gc` | 手动内存回收 + RSS/jemalloc 诊断 |
 | `/export` | 对话导出为 Markdown |

@@ -4,6 +4,7 @@ pub mod agent_panel;
 pub mod command_palette_panel;
 pub mod config_panel;
 pub mod hooks_panel;
+pub mod input_history_panel;
 pub mod login_panel;
 pub mod mcp_panel;
 pub mod memory_panel;

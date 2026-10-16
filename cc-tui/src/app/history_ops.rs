@@ -1,6 +1,13 @@
 use super::*;
 
 impl App {
+    /// 打开输入历史面板：数据源与 `Ctrl+↑/↓` 回溯**同一份**（含跨会话持久化）。
+    pub fn open_input_history_panel(&mut self) {
+        let entries = self.session_mgr.current().ui.input_history.clone();
+        let panel = super::input_history_panel::InputHistoryPanel::new(entries);
+        self.open_panel(super::panel_manager::PanelState::InputHistory(panel));
+    }
+
     /// 记录一条历史（提交时调用）
     pub fn push_input_history(&mut self, text: String) {
         if self.session_mgr.current_mut().ui.input_history.first() == Some(&text) {

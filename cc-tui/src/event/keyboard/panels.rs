@@ -31,7 +31,7 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
         return None;
     }
 
-    // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser, CommandPalette, Theme
+    // Session panels: Model, Agent, Hooks, Login, Config, ThreadBrowser, CommandPalette, Theme, InputHistory
     let session_kind = app.session_mgr.current_mut().session_panels.active_kind();
     if matches!(
         session_kind,
@@ -43,6 +43,7 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
             | Some(PanelKind::ThreadBrowser)
             | Some(PanelKind::CommandPalette)
             | Some(PanelKind::Theme)
+            | Some(PanelKind::InputHistory)
     ) {
         let result = with_session_panels!(app, |sp, ctx| {
             let result = sp.dispatch_key(input.clone(), &mut ctx);

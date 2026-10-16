@@ -6,6 +6,7 @@ pub mod export_cmd;
 pub mod gc;
 pub mod help;
 pub mod history;
+pub mod resume;
 
 pub use clear::ClearCommand;
 pub use config::ConfigCommand;
@@ -14,3 +15,4 @@ pub use exit::ExitCommand;
 pub use gc::GcCommand;
 pub use help::HelpCommand;
 pub use history::HistoryCommand;
+pub use resume::ResumeCommand;

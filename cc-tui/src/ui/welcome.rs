@@ -111,7 +111,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(vec![
         Span::styled(" /model", Style::default().fg(theme::cur().warning)),
         Span::styled("  ", Style::default().fg(theme::cur().inactive)),
-        Span::styled("/history", Style::default().fg(theme::cur().warning)),
+        Span::styled("/resume", Style::default().fg(theme::cur().warning)),
         Span::styled("  ", Style::default().fg(theme::cur().inactive)),
         Span::styled("/help", Style::default().fg(theme::cur().warning)),
         Span::styled("  ", Style::default().fg(theme::cur().inactive)),

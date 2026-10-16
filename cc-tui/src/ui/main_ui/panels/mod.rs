@@ -3,6 +3,7 @@ pub mod command_palette;
 pub mod config;
 pub mod cron;
 pub mod hooks;
+pub mod input_history;
 pub mod login;
 pub mod mcp;
 pub mod memory;
