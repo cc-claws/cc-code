@@ -104,3 +104,66 @@ fn test_finish_recent_tool_ignores_unknown_id() {
     comm.finish_recent_tool("not-exist", now);
     assert!(comm.recent_tools.front().unwrap().running);
 }
+
+/// 构造一条系统提示（最短可见时长自 `now` 起算）
+fn make_system_notice(now: Instant) -> SystemNotice {
+    SystemNotice::new(
+        cc_agent::agent::events::NoticeLevel::Warn,
+        "安全判定服务不可用，已降级到兜底分类器".to_string(),
+        now,
+    )
+}
+
+/// 构造一个已挂系统提示的 AgentComm（提示自 `now` 起算最短可见时长）
+fn make_comm_with_notice(now: Instant) -> AgentComm {
+    AgentComm {
+        system_notice: Some(make_system_notice(now)),
+        ..AgentComm::default()
+    }
+}
+
+#[test]
+fn test_system_notice_new_sets_visible_until_from_min_visible() {
+    let now = Instant::now();
+    let notice = make_system_notice(now);
+    assert_eq!(
+        notice.visible_until,
+        now + Duration::from_millis(SYSTEM_NOTICE_MIN_VISIBLE_MS)
+    );
+    assert!(!notice.expired(now));
+}
+
+#[test]
+fn test_system_notice_dismiss_before_min_visible_keeps_notice() {
+    let now = Instant::now();
+    let mut comm = make_comm_with_notice(now);
+    comm.dismiss_system_notice(now + Duration::from_millis(100));
+    assert!(comm.system_notice.is_some());
+    assert!(!comm.expire_system_notice(now + Duration::from_millis(100)));
+    assert!(comm.system_notice.is_some());
+}
+
+#[test]
+fn test_system_notice_dismiss_after_min_visible_clears_notice() {
+    let now = Instant::now();
+    let mut comm = make_comm_with_notice(now);
+    comm.dismiss_system_notice(now + Duration::from_millis(SYSTEM_NOTICE_MIN_VISIBLE_MS + 1));
+    assert!(comm.system_notice.is_none());
+}
+
+#[test]
+fn test_system_notice_expire_reports_change_after_min_visible() {
+    let now = Instant::now();
+    let mut comm = make_comm_with_notice(now);
+    assert!(comm.expire_system_notice(now + Duration::from_millis(SYSTEM_NOTICE_MIN_VISIBLE_MS)));
+    assert!(comm.system_notice.is_none());
+    assert!(!comm.expire_system_notice(now + Duration::from_millis(SYSTEM_NOTICE_MIN_VISIBLE_MS)));
+}
+
+#[test]
+fn test_clear_system_notice_ignores_min_visible() {
+    let now = Instant::now();
+    let mut comm = make_comm_with_notice(now);
+    comm.clear_system_notice();
+    assert!(comm.system_notice.is_none());
+}

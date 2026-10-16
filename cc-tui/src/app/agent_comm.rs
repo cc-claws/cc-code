@@ -39,6 +39,12 @@ pub struct RecentToolEntry {
 pub const RECENT_TOOLS_MAX_VISIBLE: usize = 2;
 /// 工具条目最短可见时长：快工具垫到该时长，慢工具执行结束即刻消失
 pub const TOOL_MIN_VISIBLE_MS: u64 = 300;
+/// 系统级提示最短可见时长。
+///
+/// 提示由工具调用期间的事件触发（如判定服务降级），而清除它的 `ToolStart`/`Done`
+/// 紧跟着就到——不垫这一档，用户只能在状态栏看到它闪一下，读不到降级原因，
+/// 等于没提示。
+pub const SYSTEM_NOTICE_MIN_VISIBLE_MS: u64 = 5000;
 
 /// LLM 重试状态（由 AgentEvent::LlmRetrying 更新）
 pub struct RetryStatus {
@@ -53,6 +59,27 @@ pub struct RetryStatus {
 pub struct SystemNotice {
     pub level: cc_agent::agent::events::NoticeLevel,
     pub message: String,
+    /// 最短可见截止时刻。清除请求早于它时有意保留，由事件循环到期清除。
+    pub visible_until: std::time::Instant,
+}
+
+impl SystemNotice {
+    pub fn new(
+        level: cc_agent::agent::events::NoticeLevel,
+        message: String,
+        now: std::time::Instant,
+    ) -> Self {
+        Self {
+            level,
+            message,
+            visible_until: now + std::time::Duration::from_millis(SYSTEM_NOTICE_MIN_VISIBLE_MS),
+        }
+    }
+
+    /// 是否已满最短可见时长（满则允许清除）。
+    pub fn expired(&self, now: std::time::Instant) -> bool {
+        now >= self.visible_until
+    }
 }
 
 /// 后台任务结构化结果（供 auto-continuation 注入合成 tool_use + tool_result）
@@ -87,7 +114,8 @@ pub struct AgentComm {
     pub context_window: u32,
     /// LLM 重试状态（重试中时为 Some，收到下一个正常事件时清除）
     pub retry_status: Option<RetryStatus>,
-    /// 系统级提示（收到 SystemNotice 时为 Some，任务结束时清除）
+    /// 系统级提示（收到 SystemNotice 时为 Some；至少可见 `SYSTEM_NOTICE_MIN_VISIBLE_MS`，
+    /// 之后由事件循环的到期检查清除）
     pub system_notice: Option<SystemNotice>,
     /// SubAgent 执行深度计数器（>0 表示当前在 SubAgent 内，忽略其 TokenUsageUpdate）
     pub subagent_depth: u32,
@@ -178,6 +206,33 @@ impl Default for AgentComm {
 }
 
 impl AgentComm {
+    /// 请求清除系统提示：未满最短可见时长则保留。
+    ///
+    /// 清除意图来自 `ToolStart`/`Done`/`Error` 这类"提示该收起来了"的事件，
+    /// 但它们往往紧跟着提示一起到达；真正抹掉由事件循环的到期检查完成。
+    pub fn dismiss_system_notice(&mut self, now: std::time::Instant) {
+        let _ = self.expire_system_notice(now);
+    }
+
+    /// 到期清除系统提示（事件循环每轮调用）。返回是否有变化（用于触发重绘）。
+    pub fn expire_system_notice(&mut self, now: std::time::Instant) -> bool {
+        if self
+            .system_notice
+            .as_ref()
+            .is_some_and(|notice| notice.expired(now))
+        {
+            self.system_notice = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 无条件清除系统提示（切线程/切会话用，提示不跨上下文残留）。
+    pub fn clear_system_notice(&mut self) {
+        self.system_notice = None;
+    }
+
     /// 记录一个新开始的工具调用：插到最前，超出容量丢最老
     pub fn push_recent_tool(&mut self, entry: RecentToolEntry) {
         self.recent_tools.push_front(entry);

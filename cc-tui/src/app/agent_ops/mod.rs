@@ -14,6 +14,21 @@ mod rewind;
 mod subagent;
 
 impl App {
+    /// 到期清除各 Agent 的系统提示。返回是否有变化（供事件循环决定是否重绘）。
+    ///
+    /// 提示的最短可见时长见 `agent_comm::SYSTEM_NOTICE_MIN_VISIBLE_MS`；这里是它的
+    /// 到期出口——事件循环每次空转都会走到，与 agent 是否仍在运行无关，
+    /// 因此轮次结束后提示也能按时消失而不残留。
+    pub fn expire_system_notices(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        let session = self.session_mgr.current_mut();
+        let mut changed = session.agent.expire_system_notice(now);
+        for sub in session.subagent_sessions.values_mut() {
+            changed |= sub.agent.expire_system_notice(now);
+        }
+        changed
+    }
+
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         // 标准 ACP 消息同样经过此守卫；不依赖全局 depth 或最后启动的任务。
         let source = match &event {
@@ -242,7 +257,11 @@ impl App {
                 source_agent_id,
             } => {
                 self.session_mgr.current_mut().agent.retry_status = None;
-                self.session_mgr.current_mut().agent.system_notice = None;
+                // 提示未满最短可见时长时有意保留（见 SYSTEM_NOTICE_MIN_VISIBLE_MS）
+                self.session_mgr
+                    .current_mut()
+                    .agent
+                    .dismiss_system_notice(std::time::Instant::now());
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 self.session_mgr.current_mut().agent.tool_call_count += 1;
                 // 记录当前执行中的工具
@@ -353,7 +372,11 @@ impl App {
                 source_agent_id,
             } => {
                 self.session_mgr.current_mut().agent.retry_status = None;
-                self.session_mgr.current_mut().agent.system_notice = None;
+                // 提示未满最短可见时长时有意保留（见 SYSTEM_NOTICE_MIN_VISIBLE_MS）
+                self.session_mgr
+                    .current_mut()
+                    .agent
+                    .dismiss_system_notice(std::time::Instant::now());
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 // 跨切面：spinner
                 // 跨切面：spinner —— 思考段结束（开始输出文本）
@@ -447,8 +470,9 @@ impl App {
             }
             AgentEvent::SystemNotice { level, message } => {
                 // 子 Agent 的提示不覆盖父 Agent 展示（与 LlmRetrying 同策略）
-                self.session_mgr.current_mut().agent.system_notice =
-                    Some(super::agent_comm::SystemNotice { level, message });
+                self.session_mgr.current_mut().agent.system_notice = Some(
+                    super::agent_comm::SystemNotice::new(level, message, std::time::Instant::now()),
+                );
                 (true, false, false)
             }
             AgentEvent::AiReasoning(text) => {

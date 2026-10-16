@@ -70,7 +70,11 @@ impl App {
         // 对齐 Codex 在 `turn_runtime` 中每轮结束调用 `request_status_line_branch_refresh`。
         self.invalidate_git_branch_cache();
         self.session_mgr.current_mut().agent.retry_status = None;
-        self.session_mgr.current_mut().agent.system_notice = None;
+        // 轮次结束也走"最短可见"：提示刚发出就 Done 时不该被立刻抹掉
+        self.session_mgr
+            .current_mut()
+            .agent
+            .dismiss_system_notice(std::time::Instant::now());
         // Pipeline：finalize 当前 AI 消息
         let actions = self
             .session_mgr
@@ -355,7 +359,11 @@ impl App {
             return (false, false, false);
         }
         self.session_mgr.current_mut().agent.retry_status = None;
-        self.session_mgr.current_mut().agent.system_notice = None;
+        // 报错也走"最短可见"：提示刚发出就 Error 时不该被立刻抹掉
+        self.session_mgr
+            .current_mut()
+            .agent
+            .dismiss_system_notice(std::time::Instant::now());
         // 清理 pipeline 状态（残留 SubAgent 栈等），防止下一个任务 UI 损坏
         self.session_mgr.current_mut().messages.pipeline.done();
 
