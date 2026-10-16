@@ -498,9 +498,21 @@ async fn test_center_long_metadata_keeps_detail_labels_visible() {
     }
 }
 
-/// 详情面板对齐状态栏排版：键值同行（`Label: value`），分支用 `git:(branch)` 形态。
+/// 过滤器提示按 PRD 写全 `shift+tab`，不使用 `⇧` 缩写符号。
 #[tokio::test]
-async fn test_center_detail_renders_labels_and_values_on_one_line() {
+async fn test_center_filter_hint_spells_out_shift_tab() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    let screen = draw(&mut app, 120, 24);
+    assert!(
+        screen.contains("tab/shift+tab filter"),
+        "过滤提示应写全 shift+tab: {screen}"
+    );
+}
+
+/// 详情面板换行位置对齐参考稿：短字段同行，长字段标签独占一行、值另起一行。
+#[tokio::test]
+async fn test_center_detail_matches_reference_line_breaks() {
     let (mut app, _directory) = make_app().await;
     make_center(&mut app, 1).await;
     {
@@ -511,17 +523,86 @@ async fn test_center_detail_renders_labels_and_values_on_one_line() {
         center.threads[0].branch = Some("main".into());
     }
     let screen = draw(&mut app, 120, 24);
+    // 只取右栏（`│` 之后）内容，避免左侧列表与顶部标题干扰断言。
+    let cells: Vec<String> = screen
+        .lines()
+        .map(|row| row.split('│').nth(1).unwrap_or("").trim().to_string())
+        .collect();
+    let find = |needle: &str| {
+        cells
+            .iter()
+            .position(|cell| cell == needle)
+            .unwrap_or_else(|| panic!("详情面板缺少 {needle} 行: {screen}"))
+    };
+
     assert!(
-        screen.contains("Model: claude-fable-5"),
-        "模型标签与值必须同行: {screen}"
+        find("Model: claude-fable-5") > 0,
+        "Model 标签与值同行: {screen}"
     );
     assert!(
-        screen.contains("Project: /project/current"),
-        "项目标签与值必须同行: {screen}"
+        find("Reasoning: xhigh") > 0,
+        "Reasoning 标签与值同行: {screen}"
     );
+    assert_eq!(
+        cells[find("Project") + 1],
+        "/project/current",
+        "Project 标签独占一行、路径另起一行: {screen}"
+    );
+    assert_eq!(
+        cells[find("Branch") + 1],
+        "main",
+        "Branch 标签独占一行、分支名另起一行: {screen}"
+    );
+}
+
+/// `Last message` 预览应吃掉除 `Prompt` 预留外的全部高度，不再被固定截到 3 行。
+#[tokio::test]
+async fn test_center_detail_last_message_preview_fills_height() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    let id = app.global_ui.agent_center.as_ref().unwrap().threads[0]
+        .id
+        .clone();
+    {
+        let center = app.global_ui.agent_center.as_mut().unwrap();
+        center.detail_id = Some(id);
+        center.detail = Some(state::Detail {
+            prompt: "继续".into(),
+            last: (1..=12)
+                .map(|index| format!("row{index}end"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        });
+    }
+    let screen = draw(&mut app, 120, 40);
+    let shown = (1..=12)
+        .filter(|index| screen.contains(&format!("row{index}end")))
+        .count();
+    assert_eq!(shown, 12, "Last message 应完整展示全部 12 行: {screen}");
+}
+
+/// `Last message` 预览走 markdown 渲染，标记符不应原样出现。
+#[tokio::test]
+async fn test_center_detail_last_message_renders_markdown() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    let id = app.global_ui.agent_center.as_ref().unwrap().threads[0]
+        .id
+        .clone();
+    {
+        let center = app.global_ui.agent_center.as_mut().unwrap();
+        center.detail_id = Some(id);
+        center.detail = Some(state::Detail {
+            prompt: "继续".into(),
+            last: "**bold** 与 `code` 混排".into(),
+        });
+    }
+    let screen = draw(&mut app, 120, 40);
+    assert!(screen.contains("bold"), "正文应渲染出来: {screen}");
+    assert!(screen.contains("code"), "行内代码应渲染出来: {screen}");
     assert!(
-        screen.contains("Branch: git:(main)"),
-        "分支必须沿用状态栏 git:(...) 形态: {screen}"
+        !screen.contains("**"),
+        "markdown 标记不应原样出现: {screen}"
     );
 }
 

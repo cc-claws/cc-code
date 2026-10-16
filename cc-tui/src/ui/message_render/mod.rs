@@ -335,7 +335,7 @@ fn wrap_line_spans_rich_impl(
 }
 
 /// 兼容包装：只取折行结果
-fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
+pub(crate) fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
     wrap_line_spans_rich(line, max_width)
         .into_iter()
         .map(|seg| seg.line)

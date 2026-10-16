@@ -9,7 +9,16 @@ use unicode_width::UnicodeWidthStr;
 
 use super::{AgentCenter, App, Bucket, CenterRow};
 use crate::ui::main_ui::truncate_spans_to_width;
-use crate::ui::{message_render::truncate_to_display_width, theme};
+use crate::ui::{
+    markdown::parse_markdown,
+    message_render::{truncate_to_display_width, wrap_line_spans},
+    theme,
+};
+
+/// 详情面板中不参与高度分配的固定行数（标题块 + Model/Project/Branch 块 + 标签 + 状态说明）。
+const FIXED_DETAIL_LINES: usize = 18;
+/// `Prompt` 预览最多占用的行数，其余高度全部让给 `Last message`。
+const PREVIEW_PROMPT_MAX: usize = 3;
 
 pub(crate) fn render(frame: &mut Frame, app: &mut App) {
     let Some(mut center) = app.global_ui.agent_center.take() else {
@@ -60,7 +69,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App) {
         };
         tabs.push(Span::styled(format!(" {label} {}  ", counts[index]), style));
     }
-    let hint = "tab/⇧tab filter";
+    let hint = "tab/shift+tab filter";
     let tabs_width: usize = tabs.iter().map(|span| span.content.width()).sum();
     frame.render_widget(Paragraph::new(Line::from(tabs)), parts[1]);
     if usize::from(parts[1].width) > tabs_width + hint.width() {
@@ -330,13 +339,15 @@ fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect)
     let width = area.width as usize;
     let bucket = app.agent_center_bucket(meta);
 
-    // 键值行沿用状态栏配色（模型青、项目黄、git 分支 `git:(...)` 洋红/青），
-    // 标签与值同行且标签统一 muted，避免整块同色看不出字段边界。
+    // 版式对齐详情面板参考稿：短字段（Model / Reasoning）标签与值同行；
+    // 长字段（Project / Branch / Last message / Prompt）标签独占一行、值另起一行，
+    // 块之间留一行空行分隔。配色沿用状态栏（模型青、项目黄、git 分支青）。
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled(
             "Task details",
             Style::default().add_modifier(Modifier::BOLD),
         )),
+        Line::default(),
         Line::from(truncate_spans_to_width(
             vec![Span::styled(
                 detail_text(meta.title.clone().unwrap_or_else(|| unknown.into())),
@@ -363,35 +374,39 @@ fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect)
             label_style,
             width,
         ),
-        detail_kv_line(
-            "Project: ",
-            &meta.cwd,
-            Style::default().fg(Color::Yellow),
-            label_style,
+        Line::default(),
+        Line::from(Span::styled("Project", label_style)),
+        detail_value_line(&meta.cwd, Style::default().fg(Color::Yellow), width),
+        Line::default(),
+        Line::from(Span::styled("Branch", label_style)),
+        detail_value_line(
+            meta.branch.as_deref().unwrap_or(unknown),
+            Style::default().fg(Color::Cyan),
             width,
         ),
-        detail_branch_line(meta.branch.as_deref(), label_style, width),
+        Line::default(),
         Line::from(Span::styled("Last message", label_style)),
     ];
-    // 固定行数：以上 9 行 + `Prompt` + 状态说明 = 11 行，余下平分给两段预览。
-    let preview_height = (area.height as usize).saturating_sub(11) / 2;
-    append_preview(
-        &mut lines,
-        if last.trim().is_empty() { &none } else { last },
-        width,
-        preview_height.min(3),
-    );
+    // 固定行数：以上 15 行 + `Prompt` 前的空行 + `Prompt` 标签 + 状态说明 = [`FIXED_DETAIL_LINES`] 行。
+    // 余下高度几乎全给 Last message；Prompt 只预留最多 [`PREVIEW_PROMPT_MAX`] 行，
+    // 因为它通常是「继续」这类短指令（对齐参考稿里 18 : 1 的占比）。
+    let available = (area.height as usize).saturating_sub(FIXED_DETAIL_LINES);
+    let last_text = if last.trim().is_empty() { &none } else { last };
+    let prompt_text = if prompt.trim().is_empty() {
+        &none
+    } else {
+        prompt
+    };
+    let prompt_rows = preview_lines(prompt_text, width);
+    let prompt_lines = prompt_rows
+        .len()
+        .min(PREVIEW_PROMPT_MAX)
+        .min(available.saturating_sub(1));
+    let last_lines = available.saturating_sub(prompt_lines);
+    lines.extend(preview_lines(last_text, width).into_iter().take(last_lines));
+    lines.push(Line::default());
     lines.push(Line::from(Span::styled("Prompt", label_style)));
-    append_preview(
-        &mut lines,
-        if prompt.trim().is_empty() {
-            &none
-        } else {
-            prompt
-        },
-        width,
-        preview_height.min(3),
-    );
+    lines.extend(prompt_rows.into_iter().take(prompt_lines));
     lines.push(Line::from(Span::styled(
         app.services.lc.tr("agent-center-status-note"),
         Style::default().fg(palette.subtle),
@@ -405,6 +420,17 @@ fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect)
         ),
         area,
     );
+}
+
+/// 预览正文：按消息区同款链路渲染 markdown（粗体/列表/链接/代码），
+/// 再按显示列宽折行（markdown 普通段落不预折行，需显式折行）。
+fn preview_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+    let width = width.max(1);
+    parse_markdown(text, width)
+        .lines
+        .into_iter()
+        .flat_map(|line| wrap_line_spans(line, width))
+        .collect()
 }
 
 /// 详情面板单行文本：剥离控制字符（标题源自用户消息，含换行会破坏单行布局）。
@@ -429,33 +455,12 @@ fn detail_kv_line(
     ))
 }
 
-/// 分支行对齐状态栏的 `git:(branch)` 形态：前缀洋红、分支名青。
-fn detail_branch_line(branch: Option<&str>, label_style: Style, width: usize) -> Line<'static> {
-    let git_style = Style::default().fg(Color::Magenta);
-    let mut spans = vec![Span::styled("Branch: ".to_string(), label_style)];
-    match branch {
-        Some(branch) => {
-            spans.push(Span::styled("git:(".to_string(), git_style));
-            spans.push(Span::styled(
-                detail_text(branch),
-                Style::default().fg(Color::Cyan),
-            ));
-            spans.push(Span::styled(")".to_string(), git_style));
-        }
-        None => spans.push(Span::styled("Unknown".to_string(), label_style)),
-    }
-    Line::from(truncate_spans_to_width(spans, width))
-}
-
-fn append_preview(lines: &mut Vec<Line<'static>>, text: &str, width: usize, max_lines: usize) {
-    let style = Style::default().fg(theme::cur().text);
-    for chunk in text.lines().take(max_lines) {
-        let clean: String = chunk.chars().filter(|ch| !ch.is_control()).collect();
-        lines.push(Line::from(Span::styled(
-            truncate_to_display_width(&clean, width),
-            style,
-        )));
-    }
+/// 块式字段的值行（标签已在上一行独占）：值着色后按显示列宽省略。
+fn detail_value_line(value: &str, value_style: Style, width: usize) -> Line<'static> {
+    Line::from(truncate_spans_to_width(
+        vec![Span::styled(detail_text(value), value_style)],
+        width,
+    ))
 }
 
 fn render_help(frame: &mut Frame, app: &App, area: Rect) {
