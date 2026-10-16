@@ -96,9 +96,10 @@ fn test_invalidate_clears_subagent_cache() {
 fn test_subagent_cache_miss_creates_new() {
     let pool = Arc::new(parking_lot::Mutex::new(AgentPool::new()));
     // 首次查询 → 缓存未命中 → 创建新实例
-    let model = AgentPool::get_or_create_subagent_llm(&pool, "OpenAI:gpt-4o", || {
-        Box::new(mock_base_model("gpt-4o"))
-    });
+    let model =
+        AgentPool::get_or_create_subagent_llm(&Arc::downgrade(&pool), "OpenAI:gpt-4o", || {
+            Box::new(mock_base_model("gpt-4o"))
+        });
     assert_eq!(model.model_id(), "gpt-4o");
     assert_eq!(model.provider_name(), "Mock");
 }
@@ -106,10 +107,10 @@ fn test_subagent_cache_miss_creates_new() {
 #[test]
 fn test_subagent_cache_hit_returns_same() {
     let pool = Arc::new(parking_lot::Mutex::new(AgentPool::new()));
-    let m1 = AgentPool::get_or_create_subagent_llm(&pool, "OpenAI:gpt-4o", || {
+    let m1 = AgentPool::get_or_create_subagent_llm(&Arc::downgrade(&pool), "OpenAI:gpt-4o", || {
         Box::new(mock_base_model("gpt-4o"))
     });
-    let m2 = AgentPool::get_or_create_subagent_llm(&pool, "OpenAI:gpt-4o", || {
+    let m2 = AgentPool::get_or_create_subagent_llm(&Arc::downgrade(&pool), "OpenAI:gpt-4o", || {
         Box::new(mock_base_model("gpt-4o"))
     });
     // 相同 fingerprint → 返回同一个 Arc（ptr_eq）
@@ -119,14 +120,95 @@ fn test_subagent_cache_hit_returns_same() {
 #[test]
 fn test_subagent_cache_different_fingerprint_isolation() {
     let pool = Arc::new(parking_lot::Mutex::new(AgentPool::new()));
-    let m1 = AgentPool::get_or_create_subagent_llm(&pool, "OpenAI:gpt-4o", || {
+    let m1 = AgentPool::get_or_create_subagent_llm(&Arc::downgrade(&pool), "OpenAI:gpt-4o", || {
         Box::new(mock_base_model("gpt-4o"))
     });
-    let m2 = AgentPool::get_or_create_subagent_llm(&pool, "OpenAI:gpt-4o-mini", || {
-        Box::new(mock_base_model("gpt-4o-mini"))
-    });
+    let m2 =
+        AgentPool::get_or_create_subagent_llm(&Arc::downgrade(&pool), "OpenAI:gpt-4o-mini", || {
+            Box::new(mock_base_model("gpt-4o-mini"))
+        });
     assert_ne!(m1.model_id(), m2.model_id());
     assert!(!Arc::ptr_eq(&m1, &m2));
+}
+
+#[test]
+fn test_subagent_cache_creates_model_after_pool_release() {
+    let pool = Arc::new(parking_lot::Mutex::new(AgentPool::new()));
+    let weak = Arc::downgrade(&pool);
+    drop(pool);
+    let first = AgentPool::get_or_create_subagent_llm(&weak, "OpenAI:gpt-4o", || {
+        Box::new(mock_base_model("gpt-4o"))
+    });
+    let second = AgentPool::get_or_create_subagent_llm(&weak, "OpenAI:gpt-4o", || {
+        Box::new(mock_base_model("gpt-4o"))
+    });
+    assert_eq!(first.model_id(), "gpt-4o", "会话释放后后台任务仍可构造模型");
+    assert!(!Arc::ptr_eq(&first, &second), "会话释放后不再保留模型缓存");
+    assert!(weak.upgrade().is_none(), "模型构造不能延长会话池生命周期");
+}
+
+struct MockFactoryTool {
+    factory: Arc<dyn Fn() -> Arc<dyn BaseModel> + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl cc_agent::tools::BaseTool for MockFactoryTool {
+    fn name(&self) -> &str {
+        "Agent"
+    }
+    fn description(&self) -> &str {
+        "持有模型工厂的测试工具"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object"})
+    }
+    async fn invoke(
+        &self,
+        _input: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        Ok((self.factory)().model_id().to_string())
+    }
+}
+
+#[test]
+fn test_subagent_factory_does_not_retain_pool_through_tool_registry() {
+    let pool = Arc::new(parking_lot::Mutex::new(AgentPool::new()));
+    let weak_pool = Arc::downgrade(&pool);
+    let pool_for_factory = Arc::downgrade(&pool);
+    let factory: Arc<dyn Fn() -> Arc<dyn BaseModel> + Send + Sync> = Arc::new(move || {
+        AgentPool::get_or_create_subagent_llm(&pool_for_factory, "OpenAI:gpt-4o", || {
+            Box::new(mock_base_model("gpt-4o"))
+        })
+    });
+    let tool: Arc<dyn cc_agent::tools::BaseTool> = Arc::new(MockFactoryTool {
+        factory: Arc::clone(&factory),
+    });
+    let weak_tool = Arc::downgrade(&tool);
+    let tools = Arc::new(parking_lot::RwLock::new(HashMap::from([(
+        "Agent".into(),
+        tool,
+    )])));
+    let weak_tools = Arc::downgrade(&tools);
+    pool.lock().project_tools = Some(ProjectToolResources {
+        cwd: ".".into(),
+        mcp_pool: None,
+        index: Arc::default(),
+        tools,
+    });
+    let first = factory();
+    let cached = factory();
+    assert!(Arc::ptr_eq(&first, &cached), "会话存活时必须继续复用缓存");
+    drop(pool);
+    assert!(
+        weak_pool.upgrade().is_none(),
+        "工具中的模型工厂不能反向持有会话池"
+    );
+    assert!(
+        weak_tools.upgrade().is_none(),
+        "会话释放后必须释放工具注册表"
+    );
+    assert!(weak_tool.upgrade().is_none(), "注册表释放后必须析构工具");
+    assert_eq!(factory().model_id(), "gpt-4o", "后台持有的工厂仍可创建模型");
 }
 
 // 简单的 mock BaseModel 用于测试
@@ -143,10 +225,7 @@ fn mock_base_model(name: &str) -> impl BaseModel {
 
     #[async_trait]
     impl BaseModel for MockModel {
-        async fn invoke(
-            &self,
-            _request: LlmRequest,
-        ) -> cc_agent::error::AgentResult<LlmResponse> {
+        async fn invoke(&self, _request: LlmRequest) -> cc_agent::error::AgentResult<LlmResponse> {
             Ok(LlmResponse {
                 message: BaseMessage::ai("mock response"),
                 stop_reason: StopReason::EndTurn,

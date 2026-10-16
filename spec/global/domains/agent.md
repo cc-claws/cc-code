@@ -41,6 +41,12 @@ AgentInput → add_message(Human)
   → AgentOutput
 ```
 
+### 工具资源生命周期
+
+每次 `execute()` 收集的中间件工具通过 `box_to_arc()` 共享，最后一个引用释放时必须析构内部工具及其持有的资源。`ToolWrapper` 使用 `ManuallyDrop` 时由显式 `Drop` 唯一释放内部 Box，正常结束、提前失败和取消路径都遵循相同的所有权规则。
+
+共享工具注册表拥有工具；表内的 `ExecuteExtraTool` 仅以 `Weak` 回指注册表，查找时临时升级，取得目标工具后在 `.await` 前释放注册表与锁。子 Agent 模型工厂也仅以 `Weak` 引用 `AgentPool`，避免 `pool → registry → Agent → factory → pool` 引用环。会话存活时继续复用缓存；会话释放后仍存活的后台任务直接创建模型。
+
 ### 消息持久化流程
 
 ```
@@ -843,4 +849,4 @@ launch_agent 工具调用
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一管线
 - → [code-architecture.md](./code-architecture.md) — Relay Server 移除
 
-最后更新：2026-10-14
+最后更新：2026-10-16

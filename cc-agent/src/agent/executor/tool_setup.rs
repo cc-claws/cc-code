@@ -6,9 +6,16 @@ use crate::tools::{BaseTool, ToolContent};
 ///
 /// Rust 标准库不直接支持 `Box<dyn Trait>` → `Arc<dyn Trait>` 转换。
 /// 通过一个中间 wrapper struct 持有 `ManuallyDrop<Box<dyn BaseTool>>`，
-/// 实现 `BaseTool` trait 透传所有调用，再用 `Arc::from()` 创建 trait object。
+/// 实现 `BaseTool` trait 透传所有调用，并在最后一个 Arc 释放时析构内部工具。
 pub(crate) fn box_to_arc(tool: Box<dyn BaseTool>) -> Arc<dyn BaseTool> {
     struct ToolWrapper(ManuallyDrop<Box<dyn BaseTool>>);
+
+    impl Drop for ToolWrapper {
+        fn drop(&mut self) {
+            // SAFETY: wrapper 独占内部 Box，且只有此处负责释放，不会重复析构。
+            unsafe { ManuallyDrop::drop(&mut self.0) };
+        }
+    }
 
     #[async_trait::async_trait]
     impl BaseTool for ToolWrapper {
@@ -37,3 +44,7 @@ pub(crate) fn box_to_arc(tool: Box<dyn BaseTool>) -> Arc<dyn BaseTool> {
 
     Arc::new(ToolWrapper(ManuallyDrop::new(tool)))
 }
+
+#[cfg(test)]
+#[path = "tool_setup_test.rs"]
+mod tests;

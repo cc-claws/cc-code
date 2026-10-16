@@ -321,7 +321,7 @@ pub fn build_agent(
     let provider_clone = provider_for_factory;
     let config_for_factory = peri_config.clone();
     let session_id_for_factory = session_id.clone();
-    let pool_for_subagent = Arc::clone(pool);
+    let pool_for_subagent = Arc::downgrade(pool);
     #[allow(clippy::type_complexity)]
     let llm_factory: Arc<
         dyn Fn(Option<&str>) -> Box<dyn cc_agent::agent::react::ReactLLM + Send + Sync>

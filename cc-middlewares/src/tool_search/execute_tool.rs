@@ -1,10 +1,13 @@
 //! ExecuteExtraTool 元工具 — 代理执行延迟加载的工具
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
 use async_trait::async_trait;
-use parking_lot::RwLock;
 use cc_agent::tools::BaseTool;
+use parking_lot::RwLock;
 use serde_json::{json, Value};
 
 use super::{
@@ -69,13 +72,16 @@ fn resolve_tool(
 /// LLM 通过 SearchExtraTools 发现工具后，使用此工具代理调用。
 /// 输入目标工具名称和参数，从共享工具注册表中查找并执行。
 pub struct ExecuteExtraTool {
-    /// 共享工具注册表（由 executor 在工具收集后填充）
-    shared_tools: Arc<RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
+    /// 注册表拥有工具，工具仅弱引用注册表，避免互相持有而无法释放。
+    shared_tools: Weak<RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
 }
 
 impl ExecuteExtraTool {
+    /// 调用方负责持有注册表，代理工具只保留弱引用。
     pub fn new(shared_tools: Arc<RwLock<HashMap<String, Arc<dyn BaseTool>>>>) -> Self {
-        Self { shared_tools }
+        Self {
+            shared_tools: Arc::downgrade(&shared_tools),
+        }
     }
 }
 
@@ -126,8 +132,13 @@ impl BaseTool for ExecuteExtraTool {
             ))?
             .clone();
 
+        // 只在查找目标时持有注册表与读锁；执行期间仅保留目标工具。
         let tool = {
-            let tools = self.shared_tools.read();
+            let registry = self.shared_tools.upgrade().ok_or(format!(
+                "{}: shared tool registry is no longer available",
+                EXECUTE_EXTRA_TOOL_NAME
+            ))?;
+            let tools = registry.read();
             resolve_tool(&tools, tool_name).ok_or(format!(
                 "{}: tool '{}' not found or not registered as a deferred tool",
                 EXECUTE_EXTRA_TOOL_NAME, tool_name
