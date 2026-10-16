@@ -70,6 +70,37 @@ impl App {
         self.dispatch_pending_bg_shell_notifications(true);
     }
 
+    /// 取走当前会话滞留的后台完成通知，交由用户下一次主动提交一并送出。
+    ///
+    /// 滞留来源有两类：运行中 steer 被明确拒绝（`-32001`/`-32002`）后回队，以及中断/报错收尾后
+    /// 不再自动唤醒新一轮的保留。随用户主动提交送出，既不起额外一轮 turn，也不会重复投递
+    /// ——取出即离开队列，此后不会再被 steer 或空闲合并消费。
+    pub(super) fn take_pending_bg_shell_notifications(&mut self) -> Option<String> {
+        let owner = self.bg_shell_notification_owner();
+        let mut content = Vec::new();
+        self.session_mgr
+            .current_mut()
+            .pending_bg_shell_notifications
+            .retain(|notification| {
+                if notification
+                    .owner_session_id
+                    .as_deref()
+                    .is_none_or(|id| Some(id) == owner.as_deref())
+                {
+                    content.push(notification.content.clone());
+                    false
+                } else {
+                    // 其它会话的通知留给对应会话消费
+                    true
+                }
+            });
+        if content.is_empty() {
+            None
+        } else {
+            Some(content.join("\n\n"))
+        }
+    }
+
     pub(crate) fn poll_bg_shell_notifications(&mut self) -> bool {
         let mut updated = false;
         let requests =

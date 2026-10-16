@@ -80,12 +80,14 @@ async fn wait_for_receipt(app: &mut App) {
 }
 
 async fn assert_no_request(server: &MpscServerTransport) {
-    assert!(
-        tokio::time::timeout(Duration::from_millis(30), server.recv())
-            .await
-            .is_err(),
-        "不能额外发起推理轮次或重复投递通知"
-    );
+    match tokio::time::timeout(Duration::from_millis(30), server.recv()).await {
+        // 传输已关闭（会话切换后旧 client 被 drop）时不可能再送达任何请求，与超时同义。
+        // 判据必须落在「有没有真收到消息」上，不能只看 timeout 是否 Err。
+        Ok(None) | Err(_) => {}
+        Ok(Some(message)) => {
+            panic!("不能额外发起推理轮次或重复投递通知，实际收到 {message:?}")
+        }
+    }
 }
 
 #[tokio::test]
@@ -247,6 +249,9 @@ async fn test_done_before_rejected_receipt_submits_idle_notification_once() {
 async fn test_late_rejected_receipt_keeps_original_session_owner() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     let (first_client, first_server) = make_client("owner-a").await;
+    // 保留旧 client 的传输：client 被替换后通道会关闭，`recv` 立即返回 None，
+    // 「旧会话不再收到请求」就断言不到了。留一份引用让该断言真正生效。
+    let _first_client_keepalive = first_client.clone();
     app.acp_client = Some(first_client);
     app.session_mgr.current_mut().current_thread_id = Some("owner-a".into());
     app.set_loading(true);

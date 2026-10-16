@@ -171,6 +171,16 @@ impl App {
             None
         };
 
+        // 滞留的后台完成通知随本次主动提交一并送出：不额外起一轮 turn，取出即离开队列
+        // 所以也不会重复投递。通知正文单独包一层 system-reminder，避免被当成新的用户要求。
+        // 必须在空输入早退之后取走，否则会出现「取走但没送出」的丢消息。
+        let agent_input = match self.take_pending_bg_shell_notifications() {
+            Some(notifications) => format!(
+                "{agent_input}\n\n<system-reminder>\n{notifications}\n</system-reminder>"
+            ),
+            None => agent_input,
+        };
+
         // 构建发送给 LLM 的 MessageContent（含附件图片 blocks）
         let message_content = if active_attachments.is_empty() {
             cc_agent::messages::MessageContent::text(agent_input.clone())
