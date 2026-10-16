@@ -435,7 +435,19 @@ impl AcpTuiClient {
         session_id: String,
         content: cc_agent::messages::MessageContent,
     ) -> Result<(), String> {
-        self.transport
+        self.steer_with_receipt(session_id, content)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    /// 保留结构化错误码，供后台通知区分明确拒绝与交付结果未知。
+    pub async fn steer_with_receipt(
+        &self,
+        session_id: String,
+        content: cc_agent::messages::MessageContent,
+    ) -> Result<(), AcpError> {
+        let result = self
+            .transport
             .send_request(
                 "peri/session/steer",
                 json!({
@@ -443,9 +455,15 @@ impl AcpTuiClient {
                     "message": { "content": content },
                 }),
             )
-            .await
-            .map_err(|error| error.to_string())?;
-        Ok(())
+            .await?;
+        if result.get("consumed").and_then(Value::as_bool) == Some(true) {
+            Ok(())
+        } else {
+            Err(AcpError::new(
+                -32603,
+                "missing steering consumption receipt",
+            ))
+        }
     }
 
     /// Cancel the currently running prompt.

@@ -75,6 +75,7 @@ mod recap_auto;
 mod rewind_prompt;
 pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};
 mod background_shell;
+mod bg_shell_notifications;
 pub(crate) use background_shell::{shell_notification_display_text, BackgroundShell, ShellStatus};
 mod background_tasks_panel;
 mod shell_command;

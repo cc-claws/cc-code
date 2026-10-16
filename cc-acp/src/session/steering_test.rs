@@ -57,15 +57,19 @@ async fn test_steering_closed_execution_keeps_request_rejected() {
     let params = json!({ "message": { "content": "补充" } });
     let receipt = enqueue(Some(&queue), &params);
     queue.close();
-    assert!(
-        confirm(receipt).await.is_err(),
-        "结束时尚未消费必须返回失败"
+    let error = confirm(receipt)
+        .await
+        .expect_err("结束时尚未消费必须返回失败");
+    assert_eq!(
+        error.code, STEERING_NOT_CONSUMED,
+        "已入队但未消费必须明确允许调用方保留重试"
     );
-    assert!(
-        enqueue(Some(&queue), &params).is_err(),
-        "已结束后必须拒绝入队"
-    );
-    assert!(enqueue(None, &params).is_err(), "无运行中执行必须拒绝");
+    let error = enqueue(Some(&queue), &params).expect_err("已结束后必须拒绝入队");
+    assert_eq!(error.code, STEERING_NOT_ENQUEUED);
+    let error = enqueue(None, &params).expect_err("无运行中执行必须拒绝");
+    assert_eq!(error.code, STEERING_NOT_ENQUEUED);
+    let error = confirm(Err(error)).await.expect_err("未入队错误应原样传递");
+    assert_eq!(error.code, STEERING_NOT_ENQUEUED);
 }
 
 #[test]

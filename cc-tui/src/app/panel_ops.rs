@@ -114,6 +114,7 @@ impl App {
             background_shells: Vec::new(),
             agent_shells: Vec::new(),
             pending_bg_shell_notifications: std::collections::VecDeque::new(),
+            bg_shell_steering: Default::default(),
             latest_recap: None,
         };
 

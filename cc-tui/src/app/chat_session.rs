@@ -38,10 +38,12 @@ pub struct ChatSession {
     pub todo_items: Vec<TodoItem>,
     pub background_agents: Vec<RunningBgAgent>,
     pub focused_instance_id: Option<String>,
-    pub(crate) subagent_sessions: std::collections::HashMap<String, super::subagent_session::BackgroundAgentSession>,
+    pub(crate) subagent_sessions:
+        std::collections::HashMap<String, super::subagent_session::BackgroundAgentSession>,
     pub subagent_control_prefix: Option<Instant>,
     pub subagent_interrupt_at: Option<Instant>,
-    pub pending_thread_approvals: VecDeque<(cc_acp::transport::types::RequestId, serde_json::Value)>,
+    pub pending_thread_approvals:
+        VecDeque<(cc_acp::transport::types::RequestId, serde_json::Value)>,
     pub approval_source_agent_id: Option<String>,
     pub main_scroll_position: (usize, bool),
     pub main_input_draft: Option<tui_textarea::TextArea<'static>>,
@@ -53,8 +55,9 @@ pub struct ChatSession {
     /// 与 `background_shells` 平行：本列表的命令由 `BashTool::invoke` 发起，
     /// result_rx 由 invoke 独占，UI 仅用 ExitSignal 检测退出。
     pub agent_shells: Vec<AgentShellSlot>,
-    /// agent 推理期间到达的后台 shell 完成通知，待 Done 后注入对话流
+    /// 尚未送达或属于其它会话的后台 shell 通知。
     pub pending_bg_shell_notifications: VecDeque<PendingBgShellNotification>,
+    pub(crate) bg_shell_steering: super::bg_shell_notifications::BgShellSteering,
     /// 当前最新会话回顾文本（在上一轮任务总结行下方展示，新一轮开始时清空）
     pub latest_recap: Option<String>,
 }
@@ -105,11 +108,15 @@ impl ChatSession {
             approval_source_agent_id: None,
             main_scroll_position: (usize::MAX, true),
             main_input_draft: None,
-            spinner_state: cc_widgets::SpinnerState::with_lang(cc_widgets::SpinnerMode::Idle, lc.current_lang()),
+            spinner_state: cc_widgets::SpinnerState::with_lang(
+                cc_widgets::SpinnerMode::Idle,
+                lc.current_lang(),
+            ),
             shell_pool: ShellCommandPool::default(),
             background_shells: Vec::new(),
             agent_shells: Vec::new(),
             pending_bg_shell_notifications: VecDeque::new(),
+            bg_shell_steering: Default::default(),
             latest_recap: None,
         }
     }
