@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.148：**Bash 失败退出码置顶与正文整齐缩进**——TUI 终端层优化失败展示体验：非零退出码提升为首行置顶 `  ⎿ Error: Exit code {code}`（红色醒目展示），自动剥离末尾冗余的 `[Exit code: N]` 标记并将输出正文以 4 列悬挂缩进对齐，长输出时不再淹没退出原因；同版完成 `message_render.rs`（90KB+）目录级解耦拆分为独立的 `decorators/`（Bash / Glob / Read / AskUser）模块，并清扫全仓历史测试命名为 100% 全英文 snake_case。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.147：新增跨项目 **Agent Command Center**：`/agents` 或空输入框 `←` 查看全部项目根会话，支持分组、五档状态、分页、详情、搜索、重命名与二次确认永久删除。Enter 恢复目标项目，`n` 在选中项目新建空会话；存在运行任务或审批时保持原会话。原 agent 定义入口改为 `/agent-design`，`/tasks` 入口由中心替代。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.146：修复 Windows CI 上 cc-tui 测试的间歇性失败（**内部改动，无用户可见行为变化**）——这些用例用固定墙钟超时等待真实子进程（`cmd`/git-bash/嵌套 powershell），libtest 并发时互相抢进程与 IO，在 4 核 runner 上被放大成超时；现用全局锁串行化真起进程的用例并统一放宽等待预算，不改任何用例语义（#538）。

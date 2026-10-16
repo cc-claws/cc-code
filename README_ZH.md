@@ -101,6 +101,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **message_render 修饰器拆分与 Bash 退出码置顶** | v0.6.148 | 重构 `message_render`（90KB+）为目录结构，解耦通用排版与独立工具修饰器（Bash / Glob / Read / AskUser）；Bash 失败时将退出码提升为首行置顶 `  ⎿ Error: Exit code {code}`、剔除末尾标记并将输出正文整齐对齐缩进（#551） |
 | **跨项目 Agent Command Center** | v0.6.147 | `/agents` 或空草稿 `←` 打开全页会话中心：项目/状态/模型分组、五档过滤、分页、详情、搜索、重命名和二次确认永久删除。Enter 进入目标项目，`n` 在该项目新建空会话。Agent 定义入口改为 `/agent-design`，`/tasks` 由中心替代（#542） |
 | **输入框 `/command` 高亮 + Rewind 改走 `/rewind` 命令 + 运行中命令分流** | v0.6.145 | 三项 TUI 输入与渲染修复：① 输入框内 `/command` token 改用 suggestion 蓝高亮，规则与 Claude Code `findSlashCommandPositions` 一致（`!` shell 态跳过，避免把 `/etc` 之类路径着色）（#529）；② Rewind 对话回滚从「双击 `Esc`」改为正式命令 `/rewind`（别名 `/undo`）——`Esc` 是取消/中断键，连按两次会误弹出回滚面板，而输入 `/rewind` 反而无效（#531）；③ Agent 运行中按 `Enter` 不再把命令静默变成模型提问——此前 `/exit`、`/gc`、`/theme` 与 `!` shell 输入都会被排队后当普通文本喂给模型。判定收敛到唯一入口 `CommandSystem::resolve`：普通消息 / Skill / ACP 命令 / 转发型命令入队等本轮结束后执行，需要空闲 UI 的命令、`!` 输入与未知命令一律拒绝并保留输入框内容；`Ctrl+Enter` 也不再能把命令插入正在执行的轮次（#533） |
 | **子 Agent 抽屉「正在做什么」列修正与节流** | v0.6.144 | 该列此前在工具名（`Bash`/`Grep`）与助手文本之间来回跳：服务端把工具名写进任务快照 `current_activity`，TUI 的 `progress` 分支又用它覆盖本地采集的助手文本。现服务端不再写入、TUI 也不再接受，该列只由助手文本与状态文案驱动；并新增 200ms 时间节流（渲染快照 `activity_shown`，首次填充与子 Agent 结束时立即同步）——丢的是渲染帧而非状态（#526） |
@@ -110,8 +111,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **主题命令 `/theme`——7 套可切换配色（6 套与 Claude Code 逐值一致）** | v0.6.140 | 用 `/theme` 切换 UI 配色：现行配色保留为 `default`，另有 `dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` / `dark-ansi` 六套，名称与配色与 Claude Code 的主题定义逐值一致；选择面板光标移动实时预览，选择持久化、重启自动恢复。 |
 | **自动记忆系统（Auto-Memory）对齐 CC 规范** | v0.6.139 | 跨会话持久记忆，**纯文件架构、零专有工具**：模型用 `Write`/`Edit` 直接维护带四类型 YAML frontmatter 的 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行 / ≤25KB，超限安全截断并警告），与 `~/.claude/projects/`、`~/.cc-code/projects/` 既有记忆资产双向兼容；安全门为记忆路径设豁免，会话创建时冻结索引快照保障 Prompt Cache 前缀稳定（#507） |
 | **主 Agent 可取消后台子 Agent（`Agent(action="stop")`）** | v0.6.139 | `Agent` 工具新增 `action`（`spawn` 默认 / `stop`）与 `task_id`，按精确 `bg-<uuid>` 停止运行中的子 Agent（不做描述模糊匹配）；底层复用注册表 `cancel()` 走正常终态与清理、不 abort、不触发无意义续跑；时间线与抽屉区分 `stopped by user` / `stopped by main Agent`，并有 `✻ Waiting for N` 等待计数行实时递减 |
-| **核心工具描述对齐 Claude Code 官方措辞（边界句 / NOT 反向枚举 / Write NEVER 语义）** | v0.6.138 | 参照 Claude Code 官方工具描述（Piebald-AI/claude-code-system-prompts v2.1.299），仅搬运**无模板函数、不依赖我方缺失能力**的静态句子。① **Bash / WebFetch 改为 NOT 反向枚举**：Bash 原抽象句「优先用专用工具」展开为 6 条映射（读→`Read` NOT `cat`/`head`/`tail`；改→`Edit` NOT `sed`/`awk`；写→`Write` NOT `echo>`/`<<EOF`；内容检索→`Grep` NOT `grep`/`rg`；文件名检索→`Glob` NOT `find`/`ls`；回复用户→直接输出文本 NOT `echo`/`printf`）；WebFetch 新增「仅用于远程 http(s)，读本地用 `Read`、检索本地用 `Grep`/`Glob`、跑命令用 `Bash`，无点主机名（如 localhost）不支持」边界。② **补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界**：Grep 首行禁令、Read 补「只读文件不能列目录」、TodoWrite 补「同一时刻只保留一个 `in_progress`」、AskUserQuestion 补「仅用于答案会改变后续动作的决策」。③ **`Write` 改为 CC 的 NEVER 语义**：由「任务或项目约定需要时创建文档」反转为「NEVER create documentation files (\*.md) or README files unless explicitly requested by the user」——**行为语义变更：默认不再主动创建 `.md`/README**，仅用户明确要求时创建。仅改描述文本，无代码逻辑变更 |
-> 更早版本（v0.6.0 – v0.6.137）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.138）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
