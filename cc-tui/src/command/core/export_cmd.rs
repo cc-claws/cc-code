@@ -21,8 +21,8 @@ impl Command for ExportCommand {
         "export"
     }
 
-    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
-        "Export conversation to file or clipboard".to_string()
+    fn description(&self, lc: &crate::i18n::LcRegistry) -> String {
+        lc.tr("command-export-description")
     }
 
     fn aliases(&self) -> Vec<&str> {
@@ -37,7 +37,11 @@ impl Command for ExportCommand {
         let cwd = match std::env::current_dir() {
             Ok(p) => p,
             Err(e) => {
-                push_note(app, format!("Cannot get cwd: {e}"));
+                let note = app
+                    .services
+                    .lc
+                    .tr_args("export-cwd-error", &[("error".into(), e.to_string().into())]);
+                push_note(app, note);
                 return;
             }
         };
@@ -45,16 +49,40 @@ impl Command for ExportCommand {
         if args == "--clipboard" || args == "-c" {
             let content = render_messages(messages, ExportFormat::PlainText);
             match crate::clipboard::copy::copy_to_clipboard(&content) {
-                Ok(_) => push_note(app, format!("Copied {} chars to clipboard", content.len())),
-                Err(e) => push_note(app, format!("Clipboard error: {e}")),
+                Ok(_) => {
+                    let note = app.services.lc.tr_args(
+                        "statusbar-copied",
+                        &[("count".into(), content.len().to_string().into())],
+                    );
+                    push_note(app, note);
+                }
+                Err(e) => {
+                    let note = app.services.lc.tr_args(
+                        "export-clipboard-error",
+                        &[("error".into(), e.to_string().into())],
+                    );
+                    push_note(app, note);
+                }
             }
         } else if !args.is_empty() {
             let format = infer_format_from_filename(args);
             let path = cwd.join(args);
             let content = render_messages(messages, format);
             match std::fs::write(&path, &content) {
-                Ok(_) => push_note(app, format!("Exported to: {}", path.display())),
-                Err(e) => push_note(app, format!("Write error: {e}")),
+                Ok(_) => {
+                    let note = app.services.lc.tr_args(
+                        "export-written",
+                        &[("path".into(), path.display().to_string().into())],
+                    );
+                    push_note(app, note);
+                }
+                Err(e) => {
+                    let note = app.services.lc.tr_args(
+                        "export-write-error",
+                        &[("error".into(), e.to_string().into())],
+                    );
+                    push_note(app, note);
+                }
             }
         } else {
             let format = ExportFormat::Markdown;
@@ -62,8 +90,20 @@ impl Command for ExportCommand {
             let path = cwd.join(&filename);
             let content = render_messages(messages, format);
             match std::fs::write(&path, &content) {
-                Ok(_) => push_note(app, format!("Exported to: {}", path.display())),
-                Err(e) => push_note(app, format!("Write error: {e}")),
+                Ok(_) => {
+                    let note = app.services.lc.tr_args(
+                        "export-written",
+                        &[("path".into(), path.display().to_string().into())],
+                    );
+                    push_note(app, note);
+                }
+                Err(e) => {
+                    let note = app.services.lc.tr_args(
+                        "export-write-error",
+                        &[("error".into(), e.to_string().into())],
+                    );
+                    push_note(app, note);
+                }
             }
         }
     }

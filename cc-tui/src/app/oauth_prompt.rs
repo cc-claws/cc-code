@@ -33,7 +33,7 @@ impl OAuthPrompt {
     }
 
     /// 提交用户输入的回调 URL，返回 true 表示成功发送
-    pub fn submit(&mut self) -> bool {
+    pub fn submit(&mut self, lc: &crate::i18n::LcRegistry) -> bool {
         use cc_middlewares::mcp::parse_code_from_url;
         match parse_code_from_url(&self.input) {
             Ok((code, state)) => {
@@ -43,7 +43,10 @@ impl OAuthPrompt {
                 true
             }
             Err(e) => {
-                self.error_message = Some(format!("无法解析回调 URL: {}", e));
+                self.error_message = Some(lc.tr_args(
+                    "oauth-callback-parse-failed",
+                    &[("error".into(), e.to_string().into())],
+                ));
                 false
             }
         }

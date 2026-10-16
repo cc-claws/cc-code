@@ -86,7 +86,12 @@ pub fn format_tool_args(
             .map(|s| truncate(s, 40)),
         "TodoWrite" => input["todos"]
             .as_array()
-            .map(|todos| format!("{} 项任务", todos.len())),
+            .map(|todos| {
+                crate::i18n::global().tr_args(
+                    "todo-count",
+                    &[("count".into(), todos.len().to_string().into())],
+                )
+            }),
         // 兜底：状态栏要求所有工具都有摘要，取第一个非空字符串字段
         _ => first_string_field(input).map(|s| truncate(s, 40)),
     }

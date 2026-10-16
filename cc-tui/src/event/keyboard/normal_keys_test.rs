@@ -147,7 +147,7 @@
             .remove(0);
         app.submit_queued_message(message);
         assert!(
-            notes_text(&app).contains("当前渲染模式"),
+            notes_text(&app).contains("streaming"),
             "延后的本地命令应在消费时真正执行，实际: {}",
             notes_text(&app)
         );

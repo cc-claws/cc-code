@@ -158,7 +158,8 @@ pub(crate) fn render_messages(
             cc_widgets::spinner::animation::format_elapsed(session.viewport_spinner().elapsed_ms());
         let tokens = session.viewport_spinner().displayed_tokens();
 
-        let is_compact = verb.starts_with("压缩上下文");
+        // 手动 compact 期间用紫色；不再依赖 verb 文案判断（文案随语言变化）
+        let is_compact = session.agent.compact_manual;
         // 第三字段：状态词（纯时间驱动）
         let status_word = thinking_status_word(
             session.viewport_spinner().is_thinking(),

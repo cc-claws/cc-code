@@ -411,8 +411,13 @@ impl App {
         };
 
         // 解析输入
-        let source =
-            parse_marketplace_input(input).map_err(|e| anyhow::anyhow!("解析失败: {}", e))?;
+        let source = parse_marketplace_input(input).map_err(|e| {
+            let msg = self
+                .services
+                .lc
+                .tr_args("plugin-parse-failed", &[("error".into(), e.to_string().into())]);
+            anyhow::anyhow!(msg)
+        })?;
 
         // 加载现有的 marketplaces
         let mut marketplaces = load_known_marketplaces(None).unwrap_or_default();
@@ -420,7 +425,8 @@ impl App {
         // 检查是否已存在
         for existing in &marketplaces {
             if existing.source == source {
-                anyhow::bail!("Marketplace 已存在");
+                let msg = self.services.lc.tr("plugin-marketplace-exists");
+                anyhow::bail!(msg);
             }
         }
 
@@ -441,18 +447,22 @@ impl App {
         save_known_marketplaces(&marketplaces, None)?;
 
         // 显示成功消息
-        self.session_mgr.current_mut().messages.view_messages.push(
-            crate::app::MessageViewModel::system(format!(
-                "Marketplace 已添加: {} (正在获取内容...)",
-                name
-            )),
-        );
+        let added = self
+            .services
+            .lc
+            .tr_args("app-plugin-added", &[("name".into(), name.clone().into())]);
+        self.session_mgr
+            .current_mut()
+            .messages
+            .view_messages
+            .push(crate::app::MessageViewModel::system(added));
 
         // 刷新面板以显示新添加的 marketplace
         self.open_plugin_panel();
 
         // 启动后台任务获取内容并更新 installLocation
         let name_clone = name.clone();
+        let lc = self.services.lc.clone();
         let tx = self.services.bg_event_tx.clone();
         tokio::spawn(async move {
             use cc_middlewares::plugin::marketplace::refresh_marketplace;
@@ -476,7 +486,10 @@ impl App {
                             plugin_id: name_clone.clone(),
                             action: "add".to_string(),
                             success: true,
-                            message: format!("Marketplace '{}' 内容已获取", name_clone),
+                            message: lc.tr_args(
+                                "plugin-marketplace-fetched",
+                                &[("name".into(), name_clone.clone().into())],
+                            ),
                         })
                         .await;
                 }
@@ -486,7 +499,10 @@ impl App {
                             plugin_id: name_clone.clone(),
                             action: "add".to_string(),
                             success: false,
-                            message: format!("获取内容失败: {}", e),
+                            message: lc.tr_args(
+                                "plugin-content-fetch-failed",
+                                &[("error".into(), e.to_string().into())],
+                            ),
                         })
                         .await;
                 }
@@ -545,9 +561,15 @@ impl App {
         save_known_marketplaces(&filtered, None)?;
 
         // 显示成功消息
-        self.session_mgr.current_mut().messages.view_messages.push(
-            crate::app::MessageViewModel::system(format!("Marketplace 已移除: {}", name)),
-        );
+        let removed = self
+            .services
+            .lc
+            .tr_args("plugin-marketplace-removed", &[("name".into(), name.into())]);
+        self.session_mgr
+            .current_mut()
+            .messages
+            .view_messages
+            .push(crate::app::MessageViewModel::system(removed));
 
         // 刷新面板并恢复到 Marketplaces 视图
         self.open_plugin_panel();

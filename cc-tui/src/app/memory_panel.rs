@@ -31,7 +31,7 @@ pub struct MemoryPanel {
 
 impl MemoryPanel {
     /// 根据 cwd 和 home 目录创建面板，自动检测文件是否存在
-    pub fn new(cwd: &str, home_dir: Option<PathBuf>) -> Self {
+    pub fn new(cwd: &str, home_dir: Option<PathBuf>, lc: &crate::i18n::LcRegistry) -> Self {
         let project_path = PathBuf::from(cwd).join("CLAUDE.md");
         let global_path = home_dir
             .unwrap_or_else(|| PathBuf::from("/"))
@@ -40,12 +40,12 @@ impl MemoryPanel {
 
         let entries = vec![
             MemoryEntry {
-                label: "项目说明".to_string(),
+                label: lc.tr("memory-label-project"),
                 path: project_path,
                 exists: false, // 延迟到 refresh_exists 时检查
             },
             MemoryEntry {
-                label: "用户全局".to_string(),
+                label: lc.tr("memory-label-global"),
                 path: global_path,
                 exists: false,
             },

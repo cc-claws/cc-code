@@ -1277,7 +1277,7 @@ fn test_render_system_reminder_user_bubble() {
     assert_eq!(lines.len(), 1, "系统提醒应只渲染一行");
     let text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
     assert!(
-        text.contains("上下文已压缩"),
+        text.contains(&crate::i18n::global().tr("compact-context-summarized")),
         "应显示压缩提示文字，实际: {}",
         text
     );

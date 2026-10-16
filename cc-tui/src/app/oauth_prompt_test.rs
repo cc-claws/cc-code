@@ -13,7 +13,7 @@
         let (tx, rx) = tokio::sync::oneshot::channel();
         let mut prompt = OAuthPrompt::new("srv".into(), "http://auth.example.com".into(), tx);
         prompt.input = "http://localhost:12345/callback?code=abc&state=xyz".to_string();
-        assert!(prompt.submit());
+        assert!(prompt.submit(&crate::i18n::LcRegistry::default()));
         let result = rx.blocking_recv().unwrap();
         assert_eq!(result.code, "abc");
         assert_eq!(result.state, "xyz");
@@ -24,7 +24,7 @@
         let (tx, rx) = tokio::sync::oneshot::channel();
         let mut prompt = OAuthPrompt::new("srv".into(), "http://auth.example.com".into(), tx);
         prompt.input = "http://localhost:9999/callback?code=test_code&state=test_state".to_string();
-        assert!(prompt.submit());
+        assert!(prompt.submit(&crate::i18n::LcRegistry::default()));
         let result = rx.blocking_recv().unwrap();
         assert_eq!(result.code, "test_code");
         assert_eq!(result.state, "test_state");
@@ -35,7 +35,7 @@
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let mut prompt = OAuthPrompt::new("srv".into(), "http://auth.example.com".into(), tx);
         prompt.input = "not a valid url".to_string();
-        assert!(!prompt.submit());
+        assert!(!prompt.submit(&crate::i18n::LcRegistry::default()));
         assert!(prompt.error_message.is_some());
     }
 
@@ -44,6 +44,6 @@
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let mut prompt = OAuthPrompt::new("srv".into(), "http://auth.example.com".into(), tx);
         prompt.input = String::new();
-        assert!(!prompt.submit());
+        assert!(!prompt.submit(&crate::i18n::LcRegistry::default()));
         assert!(prompt.error_message.is_some());
     }

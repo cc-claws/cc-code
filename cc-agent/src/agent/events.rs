@@ -14,17 +14,20 @@ pub struct BackgroundTaskResult {
 }
 
 impl BackgroundTaskResult {
-    /// 格式化为注入到 LLM 消息流的通知文本
+    /// 格式化为注入到 LLM 消息流的通知文本。
+    ///
+    /// 使用英文：这段文本属于 agent 内部上下文（不经过 TUI 的 i18n 层），
+    /// 英文与 UI 语言解耦，避免非英文环境泄漏中文。
     pub fn to_notification(&self) -> String {
         let short_id = &self.task_id[..8.min(self.task_id.len())];
         if self.success {
             format!(
-                "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n结果:\n{}",
+                "[Background task {} completed] Agent: {} | Tool calls: {} | Duration: {}ms\nResult:\n{}",
                 short_id, self.agent_name, self.tool_calls_count, self.duration_ms, self.output,
             )
         } else {
             format!(
-                "[后台任务 {} 执行失败] Agent: {}\n错误:\n{}",
+                "[Background task {} failed] Agent: {}\nError:\n{}",
                 short_id, self.agent_name, self.output,
             )
         }

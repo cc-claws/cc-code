@@ -197,20 +197,27 @@ impl App {
 
     fn validate_thread_context_switch(&mut self, cwd: &str) -> bool {
         if !self.can_switch_thread_context() {
-            self.push_system_note(
-                "当前会话仍有运行任务、排队消息或待处理审批，请完成后再切换。".to_string(),
-            );
+            let note = self.services.lc.tr("thread-busy");
+            self.push_system_note(note);
             return false;
         }
         if !std::path::Path::new(cwd).is_dir() {
-            self.push_system_note(format!("项目目录不可用，无法进入会话：{cwd}"));
+            let note = self
+                .services
+                .lc
+                .tr_args("thread-cwd-unavailable", &[("cwd".into(), cwd.into())]);
+            self.push_system_note(note);
             return false;
         }
         if let Some(config) = self.services.peri_config.as_ref() {
             if let Err(error) =
                 cc_acp::provider::store::load_for_session(std::path::Path::new(cwd), config)
             {
-                self.push_system_note(format!("项目配置不可用，无法进入会话：{error}"));
+                let note = self.services.lc.tr_args(
+                    "thread-config-unavailable",
+                    &[("error".into(), error.to_string().into())],
+                );
+                self.push_system_note(note);
                 return false;
             }
         }
@@ -287,9 +294,8 @@ impl App {
     /// 恢复历史 thread：先确认元数据、目录和 ACP 加载成功，再替换 UI。
     pub fn open_thread(&mut self, thread_id: ThreadId) -> bool {
         if !self.can_switch_thread_context() {
-            self.push_system_note(
-                "当前会话仍有运行任务、排队消息或待处理审批，请完成后再切换。".to_string(),
-            );
+            let note = self.services.lc.tr("thread-busy");
+            self.push_system_note(note);
             return false;
         }
         let store = self.services.thread_store.clone();
@@ -300,7 +306,11 @@ impl App {
         let thread_meta = match loaded {
             Ok(loaded) => loaded,
             Err(error) => {
-                self.push_system_note(format!("无法加载会话：{error}"));
+                let note = self.services.lc.tr_args(
+                    "thread-load-failed",
+                    &[("error".into(), error.to_string().into())],
+                );
+                self.push_system_note(note);
                 return false;
             }
         };
@@ -312,7 +322,11 @@ impl App {
         }) {
             Ok(messages) => messages,
             Err(error) => {
-                self.push_system_note(format!("无法加载会话：{error}"));
+                let note = self.services.lc.tr_args(
+                    "thread-load-failed",
+                    &[("error".into(), error.to_string().into())],
+                );
+                self.push_system_note(note);
                 return false;
             }
         };
@@ -325,7 +339,11 @@ impl App {
                 ))
             });
             if let Err(error) = result {
-                self.push_system_note(format!("无法进入会话，已保留当前会话：{error}"));
+                let note = self.services.lc.tr_args(
+                    "thread-enter-failed",
+                    &[("error".into(), error.to_string().into())],
+                );
+                self.push_system_note(note);
                 return false;
             }
         }
@@ -465,7 +483,11 @@ impl App {
             if let Err(error) = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(client.close_current_session())
             }) {
-                self.push_system_note(format!("无法新建会话，已保留当前会话：{error}"));
+                let note = self.services.lc.tr_args(
+                    "thread-new-failed",
+                    &[("error".into(), error.to_string().into())],
+                );
+                self.push_system_note(note);
                 return false;
             }
         }
