@@ -509,7 +509,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `Ctrl+C` | 中断 Agent（loading 时）/ 双击退出（idle 时） | 提问和审批期间中断当前轮次，保留 TUI；空闲时两次有效按键间隔为 100ms～2s |
 | `Esc` | 中断 Agent（loading 时）/ 关闭弹窗、浮层与历史浏览 | 与 `Ctrl+C` 的中断语义一致，但不会退出程序 |
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
-| `Ctrl+Enter` | 立即补充队首排队消息 | 等价点击 `[Send now]`；同时兼容 `Alt+S`；队列为空时不拦截该按键。不用 `Ctrl+S`：Windows 控制台把 Ctrl+S 当暂停键（XOFF）在宿主层截走 |
+| `Ctrl+Enter` | 立即补充队首排队消息 | 等价点击 `[Send now]`；同时兼容 `Alt+S`；队列为空时不拦截该按键。不用 `Ctrl+S`：Windows 控制台把 Ctrl+S 当暂停键（XOFF）在宿主层截走。**仅 Windows 能可靠区分 `Ctrl+Enter`**：macOS（Terminal.app 不支持 kitty 键盘协议/modifyOtherKeys）与 Linux（终端默认未开启）下 `Ctrl+Enter` 与 `Enter` 同字节，队列提示行改显示 `⌥S` / `Alt+S`（`ui/main_ui/queued_messages.rs` 的 `keys_tip_key`） |
 | `Ctrl+X` | 删除队首排队消息 | 等价点击 `[×]`；同时兼容 `Alt+X`；队列为空时不拦截该按键 |
 | `Alt+Enter` | 插入换行 | |
 | `Shift+Tab` | 循环切换权限模式 | Auto → Bypass → Auto（只剩两档） |

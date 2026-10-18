@@ -150,7 +150,7 @@ async fn test_queued_messages_render_keyboard_tip_on_last_visible_row() {
         .terminal
         .draw(|f| render(f, &mut app, Rect::new(0, 0, 80, 2)))
         .is_ok());
-    let tip = app.services.lc.tr("queue-keys-tip");
+    let tip = keys_tip(&app.services.lc);
     let lines = handle.snapshot();
     assert!(!lines[0].contains(&tip), "键盘提示只挂在最后一条可见消息行");
     assert!(lines[1].contains(&tip), "键盘提示应贴在队列最下一行尾部");
@@ -169,7 +169,7 @@ async fn test_queued_messages_render_omits_keyboard_tip_when_narrow() {
         .terminal
         .draw(|f| render(f, &mut app, Rect::new(2, 2, 36, 1)))
         .is_ok());
-    let tip = app.services.lc.tr("queue-keys-tip");
+    let tip = keys_tip(&app.services.lc);
     assert!(!handle.contains(&tip), "空间不足时必须整体省略键盘提示");
 }
 
@@ -200,4 +200,19 @@ async fn test_queued_messages_small_area_clamps_hit_regions() {
             }),
         "高度压缩后按钮仍不能越界"
     );
+}
+
+#[test]
+fn test_queued_messages_keys_tip_matches_platform_send_now_key() {
+    let lc = crate::i18n::LcRegistry::new(Some("en"));
+    let tip = keys_tip(&lc);
+    // Ctrl+Enter 只有 Windows 能可靠区分；macOS/Linux 回退到 Alt/Option+S。
+    if cfg!(target_os = "windows") {
+        assert!(tip.starts_with("Ctrl+Enter"), "Windows 应提示 Ctrl+Enter：{tip}");
+    } else if cfg!(target_os = "macos") {
+        assert!(tip.starts_with('⌥'), "macOS 应提示 ⌥S：{tip}");
+    } else {
+        assert!(tip.starts_with("Alt+S"), "Linux 应提示 Alt+S：{tip}");
+    }
+    assert!(tip.contains("Ctrl+X"), "删除键在所有平台都可区分，应保持 Ctrl+X：{tip}");
 }
