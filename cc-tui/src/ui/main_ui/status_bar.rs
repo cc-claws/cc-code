@@ -112,7 +112,7 @@ fn has_hud_activity(app: &App) -> bool {
 fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span> = Vec::new();
 
-    spans.push(Span::styled(" ", plain_style()));
+    spans.push(Span::styled("  ", plain_style()));
 
     // Model + context bar 是一个 segment，中间用空格，不插入 ` | `。
     let is_highlight = app
@@ -257,7 +257,7 @@ fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
 
 fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>>) {
     if spans.is_empty() {
-        spans.push(Span::styled(" ", plain_style()));
+        spans.push(Span::styled("  ", plain_style()));
     } else {
         spans.push(status_separator());
     }
@@ -407,7 +407,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         if is_highlight {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
-        left_spans.push(Span::styled(format!(" {} ", label), style));
+        left_spans.push(Span::styled(format!("  {} ", label), style));
         if !matches!(
             &app.session_mgr.current().agent.interaction_prompt,
             Some(crate::app::InteractionPrompt::Approval(_))
