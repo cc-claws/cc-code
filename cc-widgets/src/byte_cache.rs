@@ -1,9 +1,9 @@
 //! 带**字节预算**的 LRU 缓存。
 //!
-//! 背景：diff 相关缓存原本只按**条数**限流（64 条），但单条可携带接近
-//! `MAX_DIFF_SIZE_BYTES`（1 MB）的文本，导致实际上限不可控（理论 ~64 MB），
-//! 且这些常驻内存不受 `/gc` 统计。本模块在条数上限之外追加字节预算：每次写入
-//! 后按 LRU 顺序淘汰，直到总估算字节回到预算内。
+//! 背景：diff 与 markdown 缓存原本只按**条数**限流，但单条可携带数十 KB 到
+//! 接近 `MAX_DIFF_SIZE_BYTES`（1 MB）的解析产物，导致实际上限不可控，且这些
+//! 常驻内存不受 `/gc` 统计。本模块在条数上限之外追加字节预算：每次写入后按
+//! LRU 顺序淘汰，直到总估算字节回到预算内。
 //!
 //! 注意：估算是近似值（容器 capacity + 自有字符串 capacity），不含分配器元数据，
 //! 仅用于容量控制与诊断，不能等同于 RSS。
@@ -51,14 +51,47 @@ impl<K: Hash + Eq, V> ByteBudgetCache<K, V> {
     }
 
     /// 写入并维持字节预算。同 key 覆盖时先扣回旧值字节。
-    /// 单个条目若自身超过预算，会被立刻淘汰（不长期驻留超大 diff）。
+    /// 单个条目若自身超过预算，会被立刻淘汰（不长期驻留超大条目）。
     pub fn put(&mut self, key: K, value: V) {
+        // 条数上限触发的淘汰同样要扣减字节，但 `LruCache::put` 静默丢弃最旧
+        // 条目、不返回被淘汰的值，因此在插入前先自行弹出。
+        if self.lru.len() == self.lru.cap().get() && self.lru.peek(&key).is_none() {
+            if let Some((_, evicted)) = self.lru.pop_lru() {
+                self.bytes = self.bytes.saturating_sub((self.size_of)(&evicted));
+            }
+        }
         let incoming = (self.size_of)(&value);
         if let Some(old) = self.lru.put(key, value) {
             self.bytes = self.bytes.saturating_sub((self.size_of)(&old));
         }
         self.bytes = self.bytes.saturating_add(incoming);
         self.evict_to_budget();
+    }
+
+    /// 按 LRU→MRU 顺序遍历存活条目（不改变 LRU 顺序）。
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.lru.iter()
+    }
+
+    /// 清空全部条目并把字节计数归零。
+    pub fn clear(&mut self) {
+        self.lru.clear();
+        self.bytes = 0;
+    }
+
+    /// 当前条目数。
+    pub fn len(&self) -> usize {
+        self.lru.len()
+    }
+
+    /// 条数上限。
+    pub fn capacity(&self) -> usize {
+        self.lru.cap().get()
+    }
+
+    /// 字节预算。
+    pub fn budget(&self) -> usize {
+        self.budget
     }
 
     fn evict_to_budget(&mut self) {

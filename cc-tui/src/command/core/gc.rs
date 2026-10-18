@@ -156,6 +156,7 @@ impl Command for GcCommand {
                     "bytes".into(),
                     fmt_bytes(md_cache.estimated_heap_bytes).into(),
                 ),
+                ("budget".into(), fmt_bytes(md_cache.budget).into()),
             ],
         ));
         lines.push(
@@ -211,6 +212,7 @@ impl Command for GcCommand {
         tracing::info!(
             entries = md_cache.entries,
             capacity = md_cache.capacity,
+            budget = md_cache.budget,
             estimated_heap_bytes = md_cache.estimated_heap_bytes,
             largest_entry_heap_bytes = md_cache.largest_entry_heap_bytes,
             rendered_lines = md_cache.rendered_lines,

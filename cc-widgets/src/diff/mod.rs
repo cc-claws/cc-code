@@ -9,12 +9,11 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::theme::Theme;
 
-use byte_cache::ByteBudgetCache;
+use crate::byte_cache::ByteBudgetCache;
 
-mod byte_cache;
 pub mod renderer;
 
-pub use byte_cache::CacheStats;
+pub use crate::byte_cache::CacheStats;
 pub use renderer::render_cache_stats;
 
 /// diff 输入超过此大小时截断，不计算

@@ -14,6 +14,11 @@ fn make_doc(s: &'static str) -> MarkdownDoc {
     }
 }
 
+/// 辅助：构造单条自有字符串约 `bytes` 字节的解析产物
+fn make_sized_doc(bytes: usize) -> MarkdownDoc {
+    MarkdownDoc::from(Text::from("x".repeat(bytes)))
+}
+
 #[test]
 fn test_cache_miss_returns_none() {
     // Arrange: 空缓存
@@ -119,6 +124,7 @@ fn test_cache_stats_empty_cache() {
     let stats = cache.stats();
     assert_eq!(stats.entries, 0, "空缓存不应有条目");
     assert_eq!(stats.capacity, 1024, "条数上限应保持不变");
+    assert_eq!(stats.budget, 8 * 1024 * 1024, "字节预算应为 8 MB");
     assert_eq!(
         stats.estimated_heap_bytes, 0,
         "空缓存的解析产物堆估算应为零"
@@ -126,6 +132,46 @@ fn test_cache_stats_empty_cache() {
     assert_eq!(stats.largest_entry_heap_bytes, 0);
     assert_eq!(stats.rendered_lines, 0);
     assert_eq!(stats.rendered_spans, 0);
+}
+
+#[test]
+fn test_cache_byte_budget_evicts_lru_when_exceeded() {
+    // Arrange：预算 10 KB，每条约 4 KB，条数上限不构成约束
+    let cache = MarkdownCache::new_for_test_with_limits(1024, 10_000);
+    for i in 0..5 {
+        cache.put(&format!("doc-{i}"), 80, 0, make_sized_doc(4096));
+    }
+    // Act：写入后的快照
+    let stats = cache.stats();
+    // Assert：字节不超预算，最旧条目被淘汰，最新条目存活
+    assert!(
+        stats.estimated_heap_bytes <= stats.budget,
+        "超预算后字节应回落到预算内"
+    );
+    assert!(stats.entries < 5, "应有条目被字节预算淘汰");
+    assert!(stats.entries >= 1, "预算淘汰后应至少保留最新条目");
+    assert!(cache.get("doc-0", 80, 0).is_none(), "最旧条目应被淘汰");
+    assert!(cache.get("doc-4", 80, 0).is_some(), "最新条目应存活");
+}
+
+#[test]
+fn test_cache_entry_larger_than_budget_is_evicted() {
+    // Arrange：预算 100 字节，单条解析产物远超预算
+    let cache = MarkdownCache::new_for_test_with_limits(1024, 100);
+    // Act：写入超大条目
+    cache.put("huge", 80, 0, make_sized_doc(4096));
+    let stats = cache.stats();
+    // Assert：超大条目不应长期驻留
+    assert_eq!(stats.entries, 0, "超过整体预算的条目应被立刻淘汰");
+    assert_eq!(stats.estimated_heap_bytes, 0);
+    assert!(cache.get("huge", 80, 0).is_none());
+}
+
+#[test]
+fn test_cache_budget_accessor() {
+    let cache = MarkdownCache::new_for_test_with_limits(16, 1234);
+    assert_eq!(cache.budget(), 1234, "应暴露字节预算");
+    assert_eq!(cache.capacity(), 16, "应暴露条数上限");
 }
 
 #[test]
@@ -175,7 +221,12 @@ fn test_cache_stats_counts_reserved_capacity_and_owned_content() {
 #[test]
 fn test_cache_stats_tracks_replacement_eviction_and_clear() {
     let cache = MarkdownCache::new_for_test_with_capacity(1);
-    cache.put("large", 80, 0, MarkdownDoc::from(Text::from("x".repeat(4096))));
+    cache.put(
+        "large",
+        80,
+        0,
+        MarkdownDoc::from(Text::from("x".repeat(4096))),
+    );
     let large = cache.stats();
     cache.put("large", 80, 0, make_doc("短文本"));
     let replaced = cache.stats();

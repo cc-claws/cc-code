@@ -1,4 +1,5 @@
 pub mod bordered_panel;
+pub(crate) mod byte_cache;
 pub mod checkbox_group;
 pub mod diff;
 pub mod file_tree;

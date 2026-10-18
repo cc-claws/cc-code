@@ -9,9 +9,10 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use super::byte_cache::{estimate_lines_bytes, ByteBudgetCache};
-use super::{compute_diff, CacheStats, DiffInput, DiffLine, DiffWordType};
+use crate::byte_cache::{estimate_lines_bytes, ByteBudgetCache};
 use crate::theme::Theme;
+
+use super::{compute_diff, CacheStats, DiffInput, DiffLine, DiffWordType};
 
 /// 渲染缓存条数上限
 const RENDER_CACHE_CAPACITY: usize = 64;

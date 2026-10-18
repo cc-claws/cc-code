@@ -50,13 +50,18 @@ TUI tick 事件
 
 ### Markdown 缓存内存诊断
 
-`MarkdownCache::stats()` 在一次加锁中读取条数、容量、解析产物堆占用估算、
+`MarkdownCache::stats()` 在一次加锁中读取条数、容量、字节预算、解析产物堆占用估算、
 最大条目、渲染行数和 Span 数。统计只在 `/gc` 等显式诊断时执行，
-不克隆解析结果、不更新 LRU 次序，也不改变缓存策略。
+不克隆解析结果、不更新 LRU 次序。
+
+淘汰策略同时受**字节预算（8 MB）**与条数上限（1024，兜底）约束：写入后按 LRU
+顺序弹出最旧条目直到估算字节回到预算内，单条自身超预算则立刻淘汰。字节计量复用
+`cc-widgets/src/byte_cache.rs` 的 `ByteBudgetCache`（与 diff / diff 渲染缓存共用），
+`size_of` 即 `stats()` 的同一套估算。
 
 字节数按 `Text.lines`、`Line.spans`、链接数组及自有字符串的 `capacity()` 计算，
 静态借用字符串不计入；不包含 LRU 节点、哈希表及分配器开销。
-`/gc` 显示总量、平均/最大条目，并输出原始字节字段到 tracing 日志。
+`/gc` 显示总量、平均/最大条目与预算，并输出原始字节字段到 tracing 日志。
 该估算纳入已知内存合计，但不等于 RSS，也不能据此判断其余内存是否泄漏。
 
 ## Feature 附录
@@ -110,4 +115,4 @@ TUI tick 事件
 - → [tui.md](./tui.md) — TUI 集成使用 cc-widgets 组件
 - → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成
 
-最后更新：2026-10-08
+最后更新：2026-10-18

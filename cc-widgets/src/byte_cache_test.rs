@@ -81,3 +81,19 @@ fn test_entry_count_cap_still_enforced() {
     assert!(cache.get(&1).is_none());
     assert!(cache.get(&3).is_some());
 }
+
+#[test]
+fn test_entry_count_cap_eviction_subtracts_bytes() {
+    // Arrange：条数上限 2，预算足够大
+    let mut cache = make_cache(2, 1_000_000);
+
+    // Act：写入 3 条，第三条触发条数上限淘汰
+    cache.put(1, vec![0u8; 10]);
+    cache.put(2, vec![0u8; 10]);
+    cache.put(3, vec![0u8; 10]);
+    let stats = cache.stats();
+
+    // Assert：被条数上限淘汰的条目也要扣减字节，否则字节统计会持续虚高
+    assert_eq!(stats.entries, 2);
+    assert_eq!(stats.bytes, 20, "条数上限淘汰应同步扣减字节");
+}
