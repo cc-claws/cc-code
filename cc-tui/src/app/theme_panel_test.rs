@@ -27,7 +27,14 @@ async fn test_theme_panel_preview_cancel_and_confirm() {
     app.services.config_path_override = Some(tmp_cfg.clone());
 
     let mut panel = ThemePanel::new();
-    assert_eq!(panel.cursor, 0, "当前为 default，光标应落在首行");
+    let default_row = ThemeName::ALL
+        .iter()
+        .position(|t| *t == ThemeName::Default)
+        .expect("default 必在 ALL 内");
+    assert_eq!(
+        panel.cursor, default_row,
+        "当前为 default，光标应落在 default 行"
+    );
     assert_eq!(panel.selected(), ThemeName::Default);
     assert_eq!(panel.original, ThemeName::Default);
 
@@ -88,4 +95,41 @@ async fn test_theme_panel_preview_cancel_and_confirm() {
 
     let _ = std::fs::remove_file(&tmp_cfg);
     theme::set_current(ThemeName::Default);
+}
+
+/// `auto` 行必须标出当前终端解析到的具体主题，否则用户选了 auto 也无从知道实际用了哪套。
+#[tokio::test]
+async fn test_theme_panel_auto_row_shows_resolved_theme() {
+    use crate::ui::main_ui::panels::theme::render_theme_panel;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    let mut panel = ThemePanel::new();
+    panel.cursor = ThemeName::ALL
+        .iter()
+        .position(|t| *t == ThemeName::Auto)
+        .expect("auto 必在 ALL 内");
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("测试终端");
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            render_theme_panel(frame, &panel, &mut app, area);
+        })
+        .expect("主题面板应正常渲染");
+    let buffer = terminal.backend().buffer();
+    let mut rendered = String::new();
+    for row in 0..buffer.area.height {
+        for column in 0..buffer.area.width {
+            rendered.push_str(buffer[(column, row)].symbol());
+        }
+        rendered.push('\n');
+    }
+
+    let resolved = crate::terminal_theme::resolve();
+    assert!(
+        rendered.contains(&format!("follow terminal: {}", resolved.setting_value())),
+        "auto 行应标出解析结果 {}，实际渲染:\n{rendered}",
+        resolved.setting_value()
+    );
 }

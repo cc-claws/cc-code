@@ -146,8 +146,8 @@ impl PanelComponent for ThemePanel {
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
-        // 边框 2 + 描述 1 + 空行 1 + 主题 7 行 + 底部提示 1
-        12
+        // 边框 2 + 描述 1 + 空行 1 + 主题行 + 底部提示 1
+        (5 + ThemeName::ALL.len()) as u16
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {

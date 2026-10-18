@@ -8,6 +8,9 @@
 //! 渲染代码统一通过 [`cur`] 读取当前调色板字段（如 `theme::cur().inactive`），
 //! 不再引用编译期颜色常量；`/theme` 命令切换后写入进程级当前主题并持久化到
 //! 配置 `theme` 字段，启动时由 `App::new` 恢复。
+//!
+//! `auto` 是跟随终端的动态项：选中时由 [`crate::terminal_theme`] 按终端颜色能力
+//! 与背景明暗解析成上面某套具体主题。
 
 pub mod palettes;
 
@@ -23,6 +26,8 @@ use std::sync::RwLock;
 /// 一致，另加 cc-code 自有的 `default`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeName {
+/// 跟随终端：按颜色能力与背景明暗自动解析
+Auto,
 /// cc-code 现行配色
 #[default]
 Default,
@@ -35,8 +40,9 @@ DarkAnsi,
 }
 
 impl ThemeName {
-/// 选择器展示顺序：default 在首，其余按 claude-code-best ThemePicker 顺序。
-pub const ALL: [ThemeName; 7] = [
+/// 选择器展示顺序：auto 跟随终端排首，其后 default 与 claude-code-best ThemePicker 顺序。
+pub const ALL: [ThemeName; 8] = [
+ThemeName::Auto,
 ThemeName::Default,
 ThemeName::Dark,
 ThemeName::Light,
@@ -49,6 +55,7 @@ ThemeName::LightAnsi,
 /// 配置文件 / 命令参数中使用的主题名。
 pub fn setting_value(&self) -> &'static str {
 match self {
+ThemeName::Auto => "auto",
 ThemeName::Default => "default",
 ThemeName::Dark => "dark",
 ThemeName::Light => "light",
@@ -68,9 +75,10 @@ ThemeName::ALL
 }
 
 /// 选择器展示名（与 claude-code-best ThemePicker 的 label 一致，
-/// default 为 cc-code 自有项）。
+/// auto / default 为 cc-code 自有项）。
 pub fn label(&self) -> &'static str {
 match self {
+ThemeName::Auto => "Auto (follow terminal)",
 ThemeName::Default => "Default",
 ThemeName::Dark => "Dark mode",
 ThemeName::Light => "Light mode",
@@ -81,9 +89,10 @@ ThemeName::LightAnsi => "Light mode (ANSI colors only)",
 }
 }
 
-/// 该主题的完整调色板。
+/// 该主题的完整调色板。`auto` 解析为具体主题后再取。
 pub fn palette(&self) -> Palette {
 match self {
+ThemeName::Auto => crate::terminal_theme::resolve().palette(),
 ThemeName::Default => palettes::DEFAULT,
 ThemeName::Dark => palettes::DARK,
 ThemeName::Light => palettes::LIGHT,
@@ -91,6 +100,15 @@ ThemeName::LightDaltonized => palettes::LIGHT_DALTONIZED,
 ThemeName::DarkDaltonized => palettes::DARK_DALTONIZED,
 ThemeName::LightAnsi => palettes::LIGHT_ANSI,
 ThemeName::DarkAnsi => palettes::DARK_ANSI,
+}
+}
+
+/// 解析成具体主题（`auto` → 终端探测结果；其余原样返回）。
+pub fn resolve(&self) -> ThemeName {
+if matches!(self, ThemeName::Auto) {
+crate::terminal_theme::resolve()
+} else {
+*self
 }
 }
 }
@@ -139,7 +157,7 @@ pub fn widgets_theme() -> cc_widgets::CustomTheme {
         diff_remove_bg: p.diff_removed,
         diff_remove_word_bg: p.diff_removed_word,
         diff_hunk: p.diff_hunk,
-        syntax_theme_name: match current_name() {
+        syntax_theme_name: match current_name().resolve() {
             ThemeName::Light | ThemeName::LightDaltonized | ThemeName::LightAnsi => {
                 "base16-ocean.light"
             }

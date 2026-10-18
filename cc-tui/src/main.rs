@@ -588,6 +588,10 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // 初始化终端：进入 alternate screen + 启用鼠标捕获，禁用终端原生 scrollback，
         // 滚动完全由 TUI 自渲染滚动条接管（跨平台一致）。
         enable_raw_mode()?;
+        // 预探测终端背景明暗（OSC 11）。必须早于 EventReader::start()：查询回复是
+        // stdin 上的原始字节，事件读取器一旦启动就会抢先消费。`theme = "auto"`
+        // 依赖这次探测，非 auto 主题不受影响。
+        cc_tui::terminal_theme::preload();
         // 推送键盘增强标志：支持 kitty 协议的终端才能区分 `Ctrl+Enter` 与 `Enter`
         // （Terminal.app 等不支持者会忽略，行为不变）。必须与退出时的 restore 成对出现。
         cc_tui::keyboard_modes::enable_keyboard_enhancement();
