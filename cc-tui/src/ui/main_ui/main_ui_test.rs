@@ -162,7 +162,7 @@ async fn test_status_bar_tool_history_aligns_with_other_rows() {
         .collect();
     assert_eq!(
         columns,
-        vec![Some(1), Some(1), Some(1)],
+        vec![Some(2), Some(2), Some(2)],
         "状态栏三行应从同一列开始，实际状态栏:\n{}",
         status_rows.join("\n")
     );
@@ -567,13 +567,13 @@ async fn test_status_bar_typography_spacing_and_alignment() {
     // 3) 段落分隔符统一 ` | `
     assert!(first.contains(" | "), "第一行缺 ` | ` 分隔符：\n{joined}");
 
-    // 4) 每一行首列均为 1 个空格缩进（三行左边缘对齐）
+    // 4) 每一行首列均为 2 个空格缩进（三行左边缘对齐）
     for (index, row) in rows.iter().enumerate() {
         assert!(
-            row.starts_with(' ') && !row.starts_with("  "),
-            "第 {} 行首列应为 1 空格缩进，实际以 {:?} 开头：\n{joined}",
+            row.starts_with("  ") && !row.starts_with("   "),
+            "第 {} 行首列应为 2 空格缩进，实际以 {:?} 开头：\n{joined}",
             index + 1,
-            row.chars().take(3).collect::<String>()
+            row.chars().take(4).collect::<String>()
         );
     }
 }
