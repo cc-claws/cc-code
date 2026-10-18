@@ -13,7 +13,9 @@
 
 ### 主题系统（/theme）
 
-七套主题：`default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。**唯一例外：状态栏**（`cc-tui/src/ui/main_ui/status_bar.rs`）——配色是打磨定稿的固定值，经模块内固定配色常量 `sb` 输出，**不随 `/theme` 切换**，渲染结果与主题系统引入之前逐字节一致（#523）。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
+八套主题：`auto`（跟随终端，见下）+ `default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。**唯一例外：状态栏**（`cc-tui/src/ui/main_ui/status_bar.rs`）——配色是打磨定稿的固定值，经模块内固定配色常量 `sb` 输出，**不随 `/theme` 切换**，渲染结果与主题系统引入之前逐字节一致（#523）。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
+
+**`auto`（跟随终端）** 由 `cc-tui/src/terminal_theme/` 解析成上面某套具体主题，两级判定：颜色能力（`TERM_PROGRAM=Apple_Terminal` 只支持 16/256 色 → 选 `*-ansi`；其余终端按真彩色 → 选 `light`/`dark`）+ 背景明暗（启动时给终端发 OSC 11 查询问它自己的背景色，回 `rgb:RRRR/GGGG/BBBB` 后按 sRGB 亮度阈值 0.5 判；终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`、其余按深色）。**不要**从 Terminal.app 的 `Default Window Settings` profile 推断背景色——那只代表下一个新窗口用哪个 profile，单个窗口可在 `Shell > Show Inspector` 里指定（本机默认 profile 是黑底的 Pro，实际窗口却是白底的 Basic）。探测结果按进程缓存（`theme::cur()` 在渲染热路径上），OSC 11 的回复必须在 `EventReader::start()` 之前读走，因此只在持久化主题为 `auto` 时于 `enable_raw_mode()` 之后预探测一次；运行期再切到 `auto` 时来不及做终端往返，直接走平台回退。`/theme` 面板的 `auto` 行会标出当前解析到的具体主题名。
 
 ### 强调色
 
@@ -611,7 +613,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | `/model` | 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名 |
 | `/plugin` | 管理插件（浏览、安装、卸载） |
 | `/setup` | 打开配置向导，设置 Provider |
-| `/theme` | 打开主题选择面板切换配色（`default` 为现行配色，另有 `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`）；带参数时直接切换 |
+| `/theme` | 打开主题选择面板切换配色（`auto` 跟随终端，`default` 为现行配色，另有 `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`）；带参数时直接切换 |
 
 #### 配置类
 

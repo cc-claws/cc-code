@@ -585,7 +585,8 @@ submit_message(text)
 **关键决策:**
 
 - 全部 UI 颜色抽成统一调色板（69 个与 Claude Code 相同的语义字段 + cc-code 扩展字段），渲染层统一经 `theme::cur().<字段>` 读取，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）
-- `/theme` 提供 7 套主题：`default`（cc-code 现行配色）+ `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`，后六套名称与全部字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` 逐值一致，`palettes_parity_test.rs` 逐字段断言锁定防漂移
+- `/theme` 提供 8 套主题：`auto`（跟随终端）+ `default`（cc-code 现行配色）+ `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`，后六套名称与全部字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` 逐值一致，`palettes_parity_test.rs` 逐字段断言锁定防漂移
+- `auto` 由 `cc-tui/src/terminal_theme/` 解析：颜色能力（`TERM_PROGRAM=Apple_Terminal` → `*-ansi`，其余真彩色）+ 背景明暗（启动时 OSC 11 查询终端自身背景色后按亮度判定；终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`，其余按深色兜底），结果按进程缓存；不从 Terminal.app 的 `Default Window Settings` profile 推断——那只代表新建窗口的默认值，窗口可在 `Shell > Show Inspector` 单独指定（本机默认 profile 是黑底的 Pro，实际窗口是白底的 Basic）；OSC 11 的 stdin 读取必须在 `EventReader::start()` 前完成，且只在持久化主题为 `auto` 时预探测
 - 选择面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板
 - `/theme` 面板补齐 session 面板键盘路由（`PanelKind::Theme` 加入键盘与粘贴白名单，此前 `↑`/`↓`/`Esc` 被穿透，v0.6.142）
 - **状态栏例外（v0.6.143）:** 状态栏配色是打磨定稿的固定值，不参与主题化——`ui/main_ui/status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致

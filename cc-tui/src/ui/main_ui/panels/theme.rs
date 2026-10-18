@@ -57,13 +57,22 @@ pub(crate) fn render_theme_panel(f: &mut Frame, panel: &ThemePanel, app: &mut Ap
         };
 
         let p = name.palette();
+        // `auto` 行直接标出当前终端解析到的具体主题，避免"选了 auto 但不知道实际用了哪套"
+        let label = if matches!(name, ThemeName::Auto) {
+            format!(
+                "Auto (follow terminal: {})",
+                crate::terminal_theme::resolve().setting_value()
+            )
+        } else {
+            name.label().to_string()
+        };
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" {} ", cursor_char),
                 Style::default().fg(theme::cur().thinking),
             ),
             Span::styled(format!("{}. ", idx + 1), label_style),
-            Span::styled(format!("{:<38}", name.label()), label_style),
+            Span::styled(format!("{:<38}", label), label_style),
             Span::styled(format!(" {}  ", check), check_style),
             Span::styled("●".to_string(), Style::default().fg(p.claude)),
             Span::styled(" ●".to_string(), Style::default().fg(p.success)),
