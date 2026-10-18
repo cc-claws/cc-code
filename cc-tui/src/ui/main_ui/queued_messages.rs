@@ -8,12 +8,36 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     app::{App, QueuedMessageAction},
+    i18n::LcRegistry,
     ui::{message_render::truncate_to_display_width, theme},
 };
 
 pub(super) fn height(app: &App) -> u16 {
     let count = app.session_mgr.current().messages.pending_messages.len();
     count.min(3) as u16 + u16::from(count > 3)
+}
+
+/// 队列快捷键提示的文案 key，按平台挑选「立即补充」用键。
+///
+/// `Ctrl+Enter` 只有在终端能把「Ctrl+Enter」与普通 `Enter` 区分开时才可用：
+/// - Windows：crossterm 走 `ReadConsoleInput`，能直接读到 Ctrl 修饰位，`Ctrl+Enter` 可用；
+/// - macOS：Terminal.app 既不支持 kitty 键盘协议也不支持 modifyOtherKeys，
+///   按下时发的是与 `Enter` 完全相同的 `\r`，改用 `⌥S`（附带产生组合字符 `ß`，已在
+///   `event/keyboard/normal_keys.rs` 中兼容）；
+/// - Linux：常见终端默认未开启 kitty 协议，改用 `Alt+S`。
+fn keys_tip_key() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "queue-keys-tip-macos"
+    } else if cfg!(target_os = "windows") {
+        "queue-keys-tip"
+    } else {
+        "queue-keys-tip-linux"
+    }
+}
+
+/// 队列行尾的键盘提示文本（随平台变化，见 [`keys_tip_key`]）。
+pub(super) fn keys_tip(lc: &LcRegistry) -> String {
+    lc.tr(keys_tip_key())
 }
 
 pub(super) fn render(f: &mut Frame, app: &mut App, area: Rect) {
@@ -45,7 +69,7 @@ pub(super) fn render(f: &mut Frame, app: &mut App, area: Rect) {
     let active_style = Style::default().fg(theme::cur().claude).bg(theme::cur().user_message_background);
     let tip_style = Style::default().fg(theme::cur().text_soft).bg(theme::cur().user_message_background);
     // 键盘提示只挂在最后一条可见消息行上；窄屏空间不足时整条省略。
-    let tip = lc.tr("queue-keys-tip");
+    let tip = keys_tip(lc);
     let tip_width = UnicodeWidthStr::width(tip.as_str()) as u16;
     let queue_label = lc.tr("queue-label");
     for (row, message) in messages.iter().skip(offset).take(visible_count).enumerate() {
