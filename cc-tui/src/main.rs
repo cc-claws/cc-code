@@ -608,6 +608,12 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         let _ = execute!(stdout, ratatui::crossterm::style::Print("\x1b[22;0t"));
         let backend = TuiBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
+        // 仅 macOS：Terminal.app 的 alternate screen buffer 跨程序保留（上一次 TUI 崩溃/被 kill
+        // 时的最后一帧会残留），而 ratatui 首帧是 diff 模式（只写与空 buffer 不同的 cell），
+        // 残留内容会从未覆盖的 cell 透出。启动时清屏一次，同时重置内部 diff buffer。
+        // Windows（ConPTY）无此问题，不参与编译，保持原启动行为。
+        #[cfg(target_os = "macos")]
+        terminal.clear()?;
 
         // 运行应用
         let result = run_app(&mut terminal, &opts, panic_notify_rx, &mut event_reader).await;
