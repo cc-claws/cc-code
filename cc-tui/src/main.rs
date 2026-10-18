@@ -569,6 +569,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
                         _ = sigint.recv() => 130, // 128 + SIGINT(2)
                     };
                     // 进程级终端状态恢复（不依赖 Terminal 对象，哪里被打断都能执行）。
+                    cc_tui::keyboard_modes::restore_keyboard_enhancement();
                     let _ = execute!(
                         io::stdout(),
                         LeaveAlternateScreen,
@@ -587,6 +588,9 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // 初始化终端：进入 alternate screen + 启用鼠标捕获，禁用终端原生 scrollback，
         // 滚动完全由 TUI 自渲染滚动条接管（跨平台一致）。
         enable_raw_mode()?;
+        // 推送键盘增强标志：支持 kitty 协议的终端才能区分 `Ctrl+Enter` 与 `Enter`
+        // （Terminal.app 等不支持者会忽略，行为不变）。必须与退出时的 restore 成对出现。
+        cc_tui::keyboard_modes::enable_keyboard_enhancement();
         let mut event_reader = event::EventReader::start()?;
         let mut stdout = io::stdout();
         #[cfg(windows)]
@@ -636,6 +640,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         );
         // 防御性清空终端标题，确保不支持 title stack 的终端不残留 CC Code 状态
         cc_tui::terminal_title::clear_terminal_title();
+        cc_tui::keyboard_modes::restore_keyboard_enhancement();
         if let Err(e) = execute!(terminal.backend_mut(), LeaveAlternateScreen) {
             tracing::warn!(error = %e, "LeaveAlternateScreen 失败");
         }
