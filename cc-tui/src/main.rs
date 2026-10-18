@@ -591,7 +591,6 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // 推送键盘增强标志：支持 kitty 协议的终端才能区分 `Ctrl+Enter` 与 `Enter`
         // （Terminal.app 等不支持者会忽略，行为不变）。必须与退出时的 restore 成对出现。
         cc_tui::keyboard_modes::enable_keyboard_enhancement();
-        let mut event_reader = event::EventReader::start()?;
         let mut stdout = io::stdout();
         #[cfg(windows)]
         conpty::enable_vt_processing()?;
@@ -612,6 +611,9 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         let _ = execute!(stdout, ratatui::crossterm::style::Print("\x1b[22;0t"));
         let backend = TuiBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
+        // 输入线程必须晚于后端构造：非 Windows 的字宽探针要向 stdin 收 CPR 回包，
+        // 输入线程一旦先启动就会把回包读走（表现为启动时状态栏列宽未被校正）。
+        let mut event_reader = event::EventReader::start()?;
         // 仅 macOS：Terminal.app 的 alternate screen buffer 跨程序保留（上一次 TUI 崩溃/被 kill
         // 时的最后一帧会残留），而 ratatui 首帧是 diff 模式（只写与空 buffer 不同的 cell），
         // 残留内容会从未覆盖的 cell 透出。启动时清屏一次，同时重置内部 diff buffer。
