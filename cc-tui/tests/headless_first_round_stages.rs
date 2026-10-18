@@ -9,23 +9,9 @@ use cc_agent::messages::BaseMessage;
 use cc_tui::app::{events::AgentEvent, App};
 use cc_tui::ui::main_ui;
 
-#[cfg(unix)]
-fn current_rss_kb() -> usize {
-    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("VmRSS:") {
-                if let Some(num) = rest.split_whitespace().next() {
-                    if let Ok(n) = num.parse::<usize>() {
-                        return n;
-                    }
-                }
-            }
-        }
-    }
-    0
-}
+mod common;
+use common::current_rss_kb;
 
-#[cfg(unix)]
 fn print_rss_delta(label: &str, baseline: &mut usize) {
     let now = current_rss_kb();
     let delta = now.saturating_sub(*baseline);

@@ -615,6 +615,7 @@ dependencies = [
  "ratatui",
  "similar",
  "syntect",
+ "sysinfo",
  "unicode-segmentation",
  "unicode-width",
 ]

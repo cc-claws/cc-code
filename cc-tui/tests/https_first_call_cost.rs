@@ -3,20 +3,8 @@
 
 #![cfg(unix)]
 
-fn current_rss_kb() -> usize {
-    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("VmRSS:") {
-                if let Some(num) = rest.split_whitespace().next() {
-                    if let Ok(n) = num.parse::<usize>() {
-                        return n;
-                    }
-                }
-            }
-        }
-    }
-    0
-}
+mod common;
+use common::current_rss_kb;
 
 fn print_rss(label: &str, baseline: &mut usize) {
     let rss = current_rss_kb();
