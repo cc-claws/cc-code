@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.157 — 2026-10-18
+
+### Features
+
+- **`/theme` 新增 `auto`，按终端颜色能力与背景明暗自动选主题（#604）**：此前 `/theme` 只能显式选一套配色——Apple Terminal 这类只有 16/256 色的终端一旦选中 `light` / `dark`（24-bit 真彩色调色板）就会退化，而切系统深浅色或换终端跑同一份配置时还得手改 `settings.json`。现 `theme = "auto"` 由新模块 `cc-tui/src/terminal_theme/` 两级判定：① **颜色能力**——`TERM_PROGRAM=Apple_Terminal` 记为 `Ansi`，其余记为 `TrueColor`；② **背景明暗**——先发 OSC 11 查询（`\x1b]11;?\x07`），按回复的 sRGB 相对亮度判明暗（阈值 0.5，接受 8/16 bit 分量与 BEL / ST 两种终止符），终端不应答时 macOS 退回系统外观（`defaults read -g AppleInterfaceStyle`，键不存在即浅色），其余平台按深色兜底。两维组合映射到既有的 `light-ansi` / `dark-ansi` / `light` / `dark` 四套主题，`default` 与 daltonized 偏好不参与自动选择。判定结果缓存进 `OnceLock`（`theme::cur()` 在渲染热路径上，子进程探测最多发生一次）；OSC 往返在 `enable_raw_mode()` 之后、`EventReader::start()` 之前由 `terminal_theme::preload()` 完成（回复从 stdin 原始字节读入，事件读取器一旦启动就会抢先消费），且仅在持久化主题为 `auto` 时预探测，显式主题的用户不付这笔启动开销，stdin / stdout 任一侧不是 tty 时直接跳过以免吃掉管道输入。`/theme` 面板该行显示 `Auto (follow terminal: <解析结果>)`，面板高度随 `ThemeName::ALL` 伸缩。**刻意不从 Terminal.app 的 `Default Window Settings` profile 推断背景色**：那只是下一个新窗口用哪个 profile，窗口可在 `Shell > Show Inspector` 里单独指定（本机默认 profile 是黑底的 Pro，实际窗口却是白底的 Basic），据此判定必错，该链路已删除。
+
 ## v0.6.156 — 2026-10-18
 
 ### Fixes

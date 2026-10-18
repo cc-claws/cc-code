@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.157：**`/theme` 新增 `auto`，跟随终端颜色能力与背景明暗**——两级判定：① **颜色能力**（`TERM_PROGRAM=Apple_Terminal` 这类只有 16/256 色的终端 → `light-ansi` / `dark-ansi`，其余真彩色终端 → `light` / `dark`）；② **背景明暗**（OSC 11 查询按回复的 sRGB 相对亮度判定，终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`、其余平台按深色兜底）。判定结果缓存、仅在持久化主题为 `auto` 时预探测，`/theme` 面板该行显示 `Auto (follow terminal: <解析结果>)`（#604）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.156：**测试基础设施修复，无用户可见行为变更**——11 个 RSS 内存测试此前统一读 `/proc/self/status` 的 `VmRSS`，而 `/proc` 只存在于 Linux：macOS 上读取失败被吞成 0，再被饱和减法洗成「无增长」，断言恒绿（实测 macOS 上打印 `RSS = 0 KB (+0 KB)` 且 `test result: ok`，同一 pid 用 `ps -o rss=` 读到 964 KB）。现改用 `sysinfo` 的 `process.memory()` 取数、采集失败直接 panic 而不返回 0，并新增守护测试（触碰 64 MiB 后 RSS 必须涨 ≥32 MiB）防止测量通道再次退化（#589）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.155：① **状态栏按主题取色**——`/theme` 切到 Light 系列后消息区是浅底深字，状态栏仍沿用深色主题写死的白字（`Rgb(255,255,255)` / `Rgb(153,153,153)`），几乎不可读；现由 `SbColors` 按当前主题解析状态栏一帧所需的全部颜色，`default` 主题逐值保留原字面量、观感零变化，其余主题取 `/theme` palette（#597）；② **markdown 缓存补字节预算**——此前只有 1024 条的**条数**上限、没有**字节**上限，满容量常驻约 52.8 MB（且缓存键含 `max_width`，每次 resize 都会灌入一批新变体）；现加 8 MB 字节预算、条数上限降为兜底，`/gc` 一并显示预算读数（#594）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
