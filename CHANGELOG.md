@@ -4,6 +4,21 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.156 — 2026-10-18
+
+### Fixes
+
+- **11 个 RSS 内存测试在 macOS 上读数恒为 0，测试等于空转（#589）**：这批测试统一用 `std::fs::read_to_string("/proc/self/status")` 解析 `VmRSS` 取进程 RSS，而 `/proc` 只存在于 Linux——macOS 上读取失败被 `unwrap_or(0)` 吞成 0，`saturating_sub` 再把「0 减 0」洗成「无增长」，断言永远是绿的。实测 `syntect_first_load_cost` 在 macOS 上打印 `RSS = 0 KB (+0 KB)` 且 `test result: ok`，11 个测试全部空转（同一 pid 用 `ps -o rss=` 读到 964 KB，证明确有读数可用，只是取错了通道）。现新增 `cc-tui/tests/common/mod.rs` 与 `cc-widgets/tests/common/mod.rs`（内容一致），改用 `sysinfo` 的 `process.memory()` 取 RSS / 虚拟内存，口径与 `cc-tui/src/alloc_config.rs` 一致；**采集失败直接 panic、绝不返回 0**（0 会被饱和减法洗成「无增长」，等于把测量失败伪装成通过）；删除 11 个测试文件里各自复制的 `/proc` 实现（含 `jemalloc_precise_attribution.rs` 的 `current_vsize_kb()` 与 `headless_app_real_rss.rs` 手写的 `windows_sys` 版），`headless_first_round_stages.rs` 的 `print_rss_delta` 去掉 `#[cfg(unix)]`，`cc-widgets` 的 dev-dependencies 补 `sysinfo`。另新增守护测试 `rss_measurement_sanity.rs`（`cc-tui` / `cc-widgets` 各一份，单独成测试二进制避免扰动并行测试）：触碰 64 MiB 后 RSS 必须涨 ≥32 MiB，反向验证时把读数改回 `return 0` 会立即失败（`RSS 基线读数必须 > 0，实得 0 KB`），测试基础设施自身空转能被当场发现。验证：macOS 实测基线 2244 KB → 50 条 markdown 后 8412 KB（+6168 KB），与 `ps -o rss=` 同 pid 交叉校验误差 32 KB（<2%），13 个受影响测试目标与 `clippy --all-targets -D warnings` 全绿。
+
+## v0.6.155 — 2026-10-18
+
+> 本条为事后补记：0.6.155 发版时漏更新 CHANGELOG，PR #596 / #598 均在该版中。
+
+### Fixes
+
+- **状态栏按主题取色，修复 Light 主题下白字贴浅底（#597）**：`/theme` 切到 Light 系列后，消息区变成浅底深字，状态栏却仍沿用深色主题的字面量（主文字 `Rgb(255,255,255)`、次要信息 `Rgb(153,153,153)`），白字压浅底几乎不可读；同时第一行走 ANSI 名色、第三行写死 RGB，换终端配色方案时同一根状态栏会劈成两种风格。`status_bar.rs` 新增 `SbColors`，按当前主题解析一帧渲染所需的全部颜色：`default` 主题逐值保留原有字面量（ANSI 名色 + 写死 RGB，观感零变化，守住 #522 的结论）；其余 6 套主题取 `/theme` palette 的 `cyan / yellow / magenta / success / warning / error / inactive / text / selection_bg / cursor_bg`；上下文仪表原本是 ANSI `Green/Yellow/Red`，与 `SAGE` 的 `Rgb(78,186,101)` 并非同值，故单列 `context_ok / context_warn / context_high`，避免默认主题被顶替；`ansi_style` 改名 `fg_style`（取色已不限于 ANSI 名色）。
+- **markdown 缓存补字节预算，条数上限降为兜底（#594）**：`cc-widgets/src/markdown/cache.rs` 只有 `CACHE_CAPACITY = 1024` 的**条数**上限、没有**字节**上限，1024 条 × 平均 53 KB ≈ 52.8 MB 常驻（实测满容量 139258 行 / 952218 Span，最大单条 85 KB）；而 `make_key` 里含 `max_width`，每次 resize 都产生一批新宽度变体，把缓存灌满。现加 8 MB 字节预算、条数上限降为兜底，超预算按 LRU 淘汰；`diff/byte_cache.rs` 上提为 `cc-widgets/src/byte_cache.rs`，供 diff 与 markdown 共用；顺带修掉条数上限触发 `LruCache::put` 静默淘汰时不扣减字节、导致 `bytes` 单调虚高的既有缺陷（改插入前自行 `peek` + `pop_lru` 并扣减）；`/gc` 的 markdown-cache 行补字节预算读数。
+
 ## v0.6.154 — 2026-10-18
 
 ### Fixes
