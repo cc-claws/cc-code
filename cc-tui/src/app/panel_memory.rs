@@ -47,6 +47,18 @@ impl App {
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
         tracing::info!("Opening memory file with {}: {:?}", editor, entry.path);
 
+        // 请求下一帧物理清屏 + 全量重绘（#587）：离开 alternate screen 后
+        // 原屏内容已不可知（重进 alt screen 是空白屏），ratatui 的 buffer
+        // 差值绘制会只 flush 变化 cell，导致大面积空白/残影。
+        // 必须放在挂起之前：挂起步骤本身带 `?`（无 console 的 Windows
+        // 环境下 disable_raw_mode 就会失败），置位若排在它们后面，提前
+        // 返回会把它整段跳过——而挂起失败恰恰是屏幕状态最不可信的时刻。
+        // 一旦决定去编辑器，任何部分挂起/恢复失败都要靠这次重绘兜底。
+        self.session_mgr
+            .current_mut()
+            .ui
+            .request_terminal_clear_redraw();
+
         // 挂起 TUI: 关闭鼠标捕获 + 离开 alternate screen + 恢复 raw mode，
         // 让外部编辑器独占终端。
         let _input_pause = crate::event::pause_input();
@@ -89,4 +101,10 @@ impl App {
 
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    include!("panel_memory_test.rs");
 }
