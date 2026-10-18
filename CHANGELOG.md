@@ -4,11 +4,31 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased
+## v0.6.154 — 2026-10-18
 
 ### Fixes
 
-- **配置「内联 Diff」打开后不生效，Write/Edit 内容不显示**：`diff_enabled` 此前只写进配置文件并初始化会话的 ui 字段，但真正消费开关的渲染线程出生时 `diff_visible` 写死为 false、Rebuild 事件又不携带标志，全仓唯一会发 `ToggleDiff` 事件的只有运行时切换动作——走配置这条门（配置面板或改 settings.json，含重启）开关永远到不了渲染线程，普通页面上 Write/Edit 的 diff 从不渲染，Write 的正文内容因此完全看不见（Ctrl+O 详细模式不受影响）。现补齐两处接线：`ChatSession::new` 在会话创建时把配置的初始标志以 Toggle 事件同步给渲染线程；配置面板保存后同步当前会话的 ui 状态并补发 `ToggleDiff`，改完立即生效。渲染线程新增契约测试：Toggle 事件先于首个 Rebuild 到达时 Write diff 正常渲染、无事件时保持隐藏。
+- **`/gc` 的差值不再被钳成 0（#593、#595）**：`OS RSS - jemalloc resident` 与「已知估算合计 - allocated」两个差值此前用 `saturating_sub` 计算，而被减的一方并不保证更大——实测 jemalloc resident（93.6 MB）大于内核 RSS（84.9 MB）时真差是 `-8.7 MB`，却被钳成 `= 0 B`，渲染出一个算术不成立的等式；而「差值为负」与「两边完全相等」在诊断上含义相反，钳位让两者不可区分。现统一改为有符号差，负值时分别补一条提示（resident 仍计入内核已不再统计的 madvise 页，两个口径不可直接比较／估算项互相重叠且按 `capacity` 估算含冗余）。同批修正三处同源噪音：删掉与 `RSS:` 行完全重复的 `OS RSS:` 行（同一个 sysinfo `process.memory()` 读数，只是整数 MB 截断后再相减，白丢 0.8 MB）；jemalloc stats 读取失败时不再用 RSS 冒充 `allocated`（否则 `allocated-RSS` 恒为 0，把测量失败伪装成「完全一致」）；macOS 上 `stats.retained` 恒为 0（`opt.retain` 默认 false），改为输出「不适用」而不是一个永远为零的读数。
+- **`Ctrl+Enter` 在支持键盘增强协议的终端上真正生效（#592）**：`keyboard_modes.rs` 从未被 `lib.rs` 声明，`enable_keyboard_enhancement()` 全仓零调用点，应用因此从未向终端推送 kitty keyboard protocol——`Ctrl+Enter`、`Ctrl+I`、`Esc` 等组合在 iTerm2 ≥3.5 / WezTerm / Ghostty / kitty / Alacritty 上都拿不到区分信号，排队消息的「立即补充」快捷键随之失效。现接通该模块（只推送 `DISAMBIGUATE_ESCAPE_CODES`，不碰会改变按键语义的 `REPORT_EVENT_TYPES` / `REPORT_ALTERNATE_KEYS`），在 `enable_raw_mode()` 之后启用、正常退出与 SIGTERM/SIGINT 恢复路径各恢复一次；不支持的终端（如 Terminal.app）直接忽略该序列、行为与之前一致，另可用 `PERI_TUI_DISABLE_KEYBOARD_ENHANCEMENT=1` 关闭。
+- **排队提示按平台显示可用的「立即补充」键（#591）**：`Ctrl+Enter` 只有在终端能把「Ctrl+Enter」与普通 `Enter` 区分开时才可用——Windows 的 crossterm 走 `ReadConsoleInput` 能读到修饰位，而 macOS `Terminal.app` 按下时发出的就是 `\r`，Linux 常见终端默认也未开启 kitty 协议，提示行却一律写死 `Ctrl+Enter`，这些平台上用户按键毫无反应。现按 `target_os` 选择文案：Windows 仍提示 `Ctrl+Enter`，macOS 改提示 `⌥S`，Linux 改提示 `Alt+S`；删行键三平台都可区分，统一保留 `Ctrl+X`。
+- **macOS 启动时清屏一次，修复 Terminal.app 画面残留（#582）**：Terminal.app 的 alternate screen buffer 跨程序保留，上一次 TUI 崩溃/被 kill 时的最后一帧会留在屏上，而 ratatui 首帧是 diff 模式（只写与空 buffer 不同的 cell），未覆盖处就透出旧画面，表现为启动后黑条/旧画面残留。现仅在 macOS 启动时清屏一次并重置内部 diff buffer，Windows/Linux 不参与编译，启动行为保持不变。
+
+### Style
+
+- **状态栏三行行首缩进统一为 2 空格（#584）**：三行行首缩进原本各为 1 个空格，视觉上与内容贴得过紧；现统一改为 2 空格，三行左边缘对齐更清晰，测试断言同步更新。
+
+## v0.6.153 — 2026-10-16
+
+### Fixes
+
+- **TUI 用户可见文案接线到 i18n，FTL 零死 key（#578）**：i18n 框架本身完整（en/zh-CN 各 550+ key 一一对应、占位符零错配、代码引用的 key 全部有定义），但大量用户可见文案没走 `lc.tr()` 而是硬编码在 Rust 里，导致中文界面残留英文、英文界面出现中文；同时 FTL 中有 93 个 key 从未被任何代码引用。现将命令反馈（`/doctor`、`/rename`、`/effort`、`/model`、`/export`、`/channel` 等）、面板与弹层标题、状态栏、消息渲染等处的文案统一接线到 i18n（新增 70 个 key、补齐 8 处未翻译条目），删除 72 个死 key，FTL 中已不存在未被引用的 key。布局用空格（面板标题 padding、缩进）从 FTL 值移回代码，避免被 FTL 吞掉；`is_compact` 不再依赖中文动词文案，改读 `compact_manual` 显式标志。影响范围限于 TUI 文案，无行为逻辑变更。
+- **配置「内联 Diff」打开后不生效，Write/Edit 内容不显示**：`diff_enabled` 此前只写进配置文件并初始化会话的 ui 字段，但真正消费开关的渲染线程出生时 `diff_visible` 写死为 false、Rebuild 事件又不携带标志，全仓唯一会发 `ToggleDiff` 事件的只有运行时切换动作——走配置这条门（配置面板或改 settings.json，含重启）开关永远到不了渲染线程，普通页面上 Write/Edit 的 diff 从不渲染，Write 的正文内容因此完全看不见（Ctrl+O 详细模式不受影响）。现补齐两处接线：`ChatSession::new` 在会话创建时把配置的初始标志以 Toggle 事件同步给渲染线程；配置面板保存后同步当前会话的 ui 状态并补发 `ToggleDiff`，改完立即生效。渲染线程新增契约测试：Toggle 事件先于首个 Rebuild 到达时 Write diff 正常渲染、无事件时保持隐藏（#580）。
+
+## v0.6.152 — 2026-10-16
+
+### Fixes
+
+- **等待后台子 Agent 期间终端标题保持动画（#575）**：主 agent 一轮结束时 `ui.loading` 会被清掉，即使后台子 Agent 仍在跑（那种情况只设 `agent_done_pending_bg` 并保持通道存活），而 `current_title_status()` 只看 `ui.loading`，于是交棒瞬间标题就落到 `Done`（固定 ✴）或 `Idle`（无图标）、动画停住——「还在等子 Agent」与「已经结束」在标题上无法区分。现补一档：不 loading 但仍有活跃后台子 Agent 时判为 `Working`，与主视口 `✻ Waiting for N background agents to finish` 同判据（`has_running_subagents`）；`ActionRequired` 的最高优先级不变。
 
 ## v0.6.151 — 2026-10-16
 
