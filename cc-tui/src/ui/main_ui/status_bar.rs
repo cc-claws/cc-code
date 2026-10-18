@@ -7,13 +7,18 @@ use ratatui::{
 };
 
 use crate::app::{tool_display, App};
+use crate::ui::theme::{self, ThemeName};
 
-/// 状态栏固定配色——**不随 `/theme` 主题切换变化**。
+/// `default` 主题下的状态栏配色字面量。
 ///
-/// 状态栏的颜色是打磨定稿的固定值：模型名 / cwd / git 分支 / `✓` / 上下文仪表沿用
-/// ANSI 具名色（随终端调色板解析），其余沿用 #509 之前的写死 RGB。
-/// `/theme` 上线时这些点位被统一改成 `theme::cur()` 调色板字段，导致状态栏观感回退，
-/// 故在此固定回来。新增状态栏元素请复用这些常量，不要引入主题依赖。
+/// 这些值是 `default` 主题打磨定稿的观感，切到其它主题再切回来必须保持不变：
+/// 模型名 / cwd / git 分支 / `✓` / 上下文仪表沿用 ANSI 具名色（随终端调色板解析），
+/// 其余沿用 #509 之前的写死 RGB。
+///
+/// **非 `default` 主题不读这里**——它们经 [`SbColors`] 从 `/theme` 调色板取值。
+/// 状态栏若一律写死，浅色主题下会出现白字贴浅底（`LIGHT` 的 `text` 是纯黑）与
+/// 同一行内「ANSI 名色跟着终端漂、RGB 不漂」的割裂。新增状态栏元素请从
+/// [`SbColors`] 取色，不要再直接引用本模块常量。
 mod sb {
     use ratatui::style::Color;
 
@@ -31,6 +36,87 @@ mod sb {
     pub const SELECTION_BG: Color = Color::Rgb(38, 79, 120);
     /// 原 `theme::CURSOR_BG`——待办 pill 常态底色
     pub const CURSOR_BG: Color = Color::Rgb(38, 38, 38);
+}
+
+/// 一帧状态栏渲染所需的全部颜色。
+///
+/// `default` 主题取 [`sb`] 的打磨定稿字面量（逐字节保持既有观感），其余主题取
+/// `/theme` 当前调色板的对应字段，使状态栏与消息区在浅色主题下保持同一套对比度。
+#[derive(Clone, Copy)]
+struct SbColors {
+    /// 模型名 / 工具名 / git 分支名（默认主题为 ANSI Cyan）
+    cyan: Color,
+    /// cwd / 运行中工具指示（默认主题为 ANSI Yellow）
+    yellow: Color,
+    /// 完成指示 `✓`（默认主题为 ANSI Green）
+    green: Color,
+    /// git 前缀 `git:(`（默认主题为 ANSI Magenta）
+    magenta: Color,
+    /// 次要信息 / 标签 / 分隔点
+    muted: Color,
+    /// 警告态
+    warning: Color,
+    /// 错误态
+    error: Color,
+    /// 成功 / 在线态
+    success: Color,
+    /// 主文字
+    text: Color,
+    /// 上下文仪表：充足（默认主题为 ANSI Green）
+    context_ok: Color,
+    /// 上下文仪表：预警（默认主题为 ANSI Yellow）
+    context_warn: Color,
+    /// 上下文仪表：危急（默认主题为 ANSI Red）
+    context_high: Color,
+    /// 聚焦 pill 底色
+    selection_bg: Color,
+    /// pill 常态底色
+    cursor_bg: Color,
+}
+
+impl SbColors {
+    fn for_theme(name: ThemeName) -> Self {
+        if matches!(name, ThemeName::Default) {
+            return Self {
+                cyan: Color::Cyan,
+                yellow: Color::Yellow,
+                green: Color::Green,
+                magenta: Color::Magenta,
+                muted: sb::MUTED,
+                warning: sb::WARNING,
+                error: sb::ERROR,
+                success: sb::SAGE,
+                text: sb::TEXT,
+                context_ok: Color::Green,
+                context_warn: Color::Yellow,
+                context_high: Color::Red,
+                selection_bg: sb::SELECTION_BG,
+                cursor_bg: sb::CURSOR_BG,
+            };
+        }
+        let p = name.palette();
+        Self {
+            cyan: p.cyan,
+            yellow: p.yellow,
+            green: p.success,
+            magenta: p.magenta,
+            muted: p.inactive,
+            warning: p.warning,
+            error: p.error,
+            success: p.success,
+            text: p.text,
+            context_ok: p.success,
+            context_warn: p.warning,
+            context_high: p.error,
+            selection_bg: p.selection_bg,
+            cursor_bg: p.cursor_bg,
+        }
+    }
+
+    /// 当前 `/theme` 对应的配色。
+    fn current() -> Self {
+        Self::for_theme(theme::current_name())
+    }
 }
 
 const CONTEXT_WARNING_PCT: f64 = 70.0;
@@ -110,6 +196,7 @@ fn has_hud_activity(app: &App) -> bool {
 
 /// 第一行（codebuddy-hud compact）：[model] context | project git:(branch*) | stats
 fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
+    let colors = SbColors::current();
     let mut spans: Vec<Span> = Vec::new();
 
     spans.push(Span::styled("  ", plain_style()));
@@ -119,7 +206,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         .global_ui
         .model_highlight_until
         .is_some_and(|until| std::time::Instant::now() < until);
-    let mut model_style = ansi_style(Color::Cyan);
+    let mut model_style = fg_style(colors.cyan);
     if is_highlight {
         model_style = model_style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
     }
@@ -142,13 +229,13 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         let pct = tracker
             .context_usage_percent(agent.context_window)
             .unwrap_or(0.0);
-        let color = context_usage_color(pct);
+        let color = context_usage_color(pct, &colors);
         spans.push(Span::styled(" ", plain_style()));
         spans.extend(render_context_bar(pct, color));
     }
 
     spans.push(status_separator());
-    append_project_segment(&mut spans, app);
+    append_project_segment(&mut spans, app, &colors);
 
     let stats = render_stats_segments(app);
     if !stats.is_empty() {
@@ -164,15 +251,16 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
 /// 「最近工具」组由 [`crate::app::AgentComm::recent_tools`] 驱动：最新在最左、最多 2 条，
 /// 运行中显示 `◐`、结束后转 `✓` 并短暂停留（见 `TOOL_MIN_VISIBLE_MS`）。
 fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
+    let colors = SbColors::current();
     let mut left_spans: Vec<Span> = Vec::new();
 
     let agent = app.session_mgr.current().viewport_agent();
     let now = std::time::Instant::now();
     for entry in agent.visible_recent_tools(now) {
-        append_activity_segment(&mut left_spans, render_recent_tool_segment(entry));
+        append_activity_segment(&mut left_spans, render_recent_tool_segment(entry, &colors));
     }
 
-    for segment in render_completed_tool_segments(agent) {
+    for segment in render_completed_tool_segments(agent, &colors) {
         append_activity_segment(&mut left_spans, segment);
     }
 
@@ -186,21 +274,18 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     render_truncated_line(f, left_spans, Vec::new(), area);
 }
 
-fn append_project_segment(spans: &mut Vec<Span<'_>>, app: &App) {
+fn append_project_segment(spans: &mut Vec<Span<'_>>, app: &App, colors: &SbColors) {
     let cwd_short = std::path::Path::new(&app.services.cwd)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&app.services.cwd);
-    spans.push(Span::styled(
-        cwd_short.to_string(),
-        ansi_style(Color::Yellow),
-    ));
+    spans.push(Span::styled(cwd_short.to_string(), fg_style(colors.yellow)));
 
     // 分支状态只读缓存：探测由 `App::request_git_branch_refresh_if_due` 在事件循环中
     // 异步触发（子进程不占用渲染线程），故此处**无需**按 loading 区分快慢路径，
     // 也不会出现「Agent 工作期间分支名长期陈旧」（issue #277）。
     if let Some(status) = app.services.git_branch_cache.lock().get_cached() {
-        append_git_status(spans, status);
+        append_git_status(spans, status, colors);
     }
 }
 
@@ -265,16 +350,19 @@ fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>
 }
 
 /// 最近工具条目：运行中 `◐`（黄）/ 已完成停留期 `✓`（绿），颜色不跟工具身份色走
-fn render_recent_tool_segment(entry: &crate::app::RecentToolEntry) -> Vec<Span<'static>> {
+fn render_recent_tool_segment(
+    entry: &crate::app::RecentToolEntry,
+    colors: &SbColors,
+) -> Vec<Span<'static>> {
     let indicator = if entry.running {
-        Span::styled("◐", ansi_style(Color::Yellow))
+        Span::styled("◐", fg_style(colors.yellow))
     } else {
-        Span::styled("✓", ansi_style(Color::Green))
+        Span::styled("✓", fg_style(colors.green))
     };
     let mut spans = vec![
         indicator,
         Span::styled(" ", plain_style()),
-        Span::styled(entry.display.clone(), ansi_style(Color::Cyan)),
+        Span::styled(entry.display.clone(), fg_style(colors.cyan)),
     ];
     if !entry.args_summary.is_empty() {
         spans.push(Span::styled(
@@ -326,7 +414,10 @@ pub(crate) fn truncate_spans_to_width(
     out
 }
 
-fn render_completed_tool_segments(agent: &crate::app::AgentComm) -> Vec<Vec<Span<'static>>> {
+fn render_completed_tool_segments(
+    agent: &crate::app::AgentComm,
+    colors: &SbColors,
+) -> Vec<Vec<Span<'static>>> {
     if agent.session_tool_stats.is_empty() {
         return Vec::new();
     }
@@ -339,7 +430,7 @@ fn render_completed_tool_segments(agent: &crate::app::AgentComm) -> Vec<Vec<Span
     for (name, count) in entries.into_iter().take(TOOLS_MAX_VISIBLE) {
         let display = tool_display::format_tool_name(name);
         segments.push(vec![
-            Span::styled("✓", ansi_style(Color::Green)),
+            Span::styled("✓", fg_style(colors.green)),
             Span::styled(format!(" {}", display), plain_style()),
             Span::styled(format!(" ×{}", count), dim_style()),
         ]);
@@ -375,13 +466,14 @@ fn render_tasks_segment(app: &App) -> Option<Vec<Span<'static>>> {
 
 /// 第三行：权限/瞬时状态 + CPU/MEM + 快捷键提示
 fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
+    let colors = SbColors::current();
     let lc = &app.services.lc;
     if let Some(text) = drawer_hint(app) {
         // 提示行属于「辅助说明」，与消息区 `Thought for … (ctrl+o to expand)` 同色（MUTED），
         // 不用抽屉游标的青色——青色只标记键盘游标本身。
         render_truncated_line(
             f,
-            vec![Span::styled(text, Style::default().fg(sb::MUTED))],
+            vec![Span::styled(text, Style::default().fg(colors.muted))],
             Vec::new(),
             area,
         );
@@ -395,8 +487,8 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         use cc_middlewares::prelude::PermissionMode;
         let mode = app.services.permission_mode.load();
         let (i18n_key, color) = match mode {
-            PermissionMode::AutoMode => ("statusbar-permission-auto", sb::WARNING),
-            PermissionMode::Bypass => ("statusbar-permission-bypass", sb::ERROR),
+            PermissionMode::AutoMode => ("statusbar-permission-auto", colors.warning),
+            PermissionMode::Bypass => ("statusbar-permission-bypass", colors.error),
         };
         let label = lc.tr(i18n_key);
         let is_highlight = app
@@ -414,7 +506,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         ) {
             left_spans.push(Span::styled(
                 lc.tr("statusbar-permission-cycle-hint"),
-                Style::default().fg(sb::MUTED),
+                Style::default().fg(colors.muted),
             ));
         }
     }
@@ -427,7 +519,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let bg_agent_count = app.session_mgr.current().background_agents.len();
         if bg_shell_count + bg_agent_count > 0 {
             if has_content {
-                left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+                left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
             }
             let task_bar_focused =
                 app.session_mgr.current().ui.background_tasks_bar_focused && bg_shell_count > 0;
@@ -448,21 +540,21 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             }
             let pill_style = if task_bar_focused {
                 Style::default()
-                    .bg(sb::SELECTION_BG)
-                    .fg(sb::TEXT)
+                    .bg(colors.selection_bg)
+                    .fg(colors.text)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().bg(sb::CURSOR_BG).fg(sb::WARNING)
+                Style::default().bg(colors.cursor_bg).fg(colors.warning)
             };
             left_spans.push(Span::styled(format!(" {} ", parts.join(", ")), pill_style));
-            left_spans.push(Span::styled("↓ to view", Style::default().fg(sb::MUTED)));
+            left_spans.push(Span::styled("↓ to view", Style::default().fg(colors.muted)));
         }
     }
 
     // 重试状态
     if let Some(ref retry) = app.session_mgr.current().viewport_agent().retry_status {
         if has_content {
-            left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+            left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
         }
         let delay_sec = retry.delay_ms as f64 / 1000.0;
         let err_preview: String = retry.error.chars().take(60).collect();
@@ -484,19 +576,19 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                     ]
                 )
             ),
-            Style::default().fg(sb::WARNING),
+            Style::default().fg(colors.warning),
         ));
     }
 
     // 系统级提示（判定服务降级等运行态事实）
     if let Some(ref notice) = app.session_mgr.current().viewport_agent().system_notice {
         if has_content {
-            left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+            left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
         }
         let color = match notice.level {
-            cc_agent::agent::events::NoticeLevel::Info => sb::MUTED,
-            cc_agent::agent::events::NoticeLevel::Warn => sb::WARNING,
-            cc_agent::agent::events::NoticeLevel::Error => sb::ERROR,
+            cc_agent::agent::events::NoticeLevel::Info => colors.muted,
+            cc_agent::agent::events::NoticeLevel::Warn => colors.warning,
+            cc_agent::agent::events::NoticeLevel::Error => colors.error,
         };
         let msg_preview: String = notice.message.chars().take(120).collect();
         let msg_display = if notice.message.chars().count() > 120 {
@@ -526,7 +618,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         match status {
             McpInitStatus::Initializing { connected, total } => {
                 if has_content {
-                    left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+                    left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
                 }
                 left_spans.push(Span::styled(
                     lc.tr_args(
@@ -536,7 +628,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                             ("total".into(), (total as i64).into()),
                         ],
                     ),
-                    Style::default().fg(sb::MUTED),
+                    Style::default().fg(colors.muted),
                 ));
             }
             McpInitStatus::Ready { total } if total > 0 => {
@@ -548,14 +640,14 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 if let Some(until) = app.global_ui.mcp_ready_shown_until.get() {
                     if std::time::Instant::now() < until {
                         if has_content {
-                            left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+                            left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
                         }
                         left_spans.push(Span::styled(
                             lc.tr_args(
                                 "statusbar-mcp-ready",
                                 &[("total".into(), (total as i64).into())],
                             ),
-                            Style::default().fg(sb::SAGE),
+                            Style::default().fg(colors.success),
                         ));
                     }
                 }
@@ -577,11 +669,11 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 };
                 if should_show {
                     if has_content {
-                        left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+                        left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
                     }
                     left_spans.push(Span::styled(
                         lc.tr_args("statusbar-mcp-failed", &[("msg".into(), simplified.into())]),
-                        Style::default().fg(sb::ERROR),
+                        Style::default().fg(colors.error),
                     ));
                 }
             }
@@ -594,7 +686,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let agent = app.session_mgr.current().viewport_agent();
         if agent.lsp_errors > 0 || agent.lsp_warnings > 0 {
             if has_content {
-                left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+                left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
             }
             left_spans.push(Span::styled(
                 lc.tr_args(
@@ -604,7 +696,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                         ("warnings".into(), (agent.lsp_warnings as i64).into()),
                     ],
                 ),
-                Style::default().fg(sb::MUTED),
+                Style::default().fg(colors.muted),
             ));
         }
     }
@@ -612,7 +704,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     if app.agent_center_navigation_available() {
         left_spans.push(Span::styled(
             format!(" · ← {} agents", app.current_project_ready_count()),
-            Style::default().fg(sb::MUTED),
+            Style::default().fg(colors.muted),
         ));
     }
 
@@ -626,15 +718,15 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let (cache_str, cache_color) = if tracker.last_usage.is_some() {
             let rate_pct = tracker.cache_hit_rate() * 100.0;
             let color = if rate_pct >= 80.0 {
-                sb::SAGE
+                colors.success
             } else if rate_pct > 0.0 {
-                sb::WARNING
+                colors.warning
             } else {
-                sb::MUTED
+                colors.muted
             };
             (format!("Cache {:.0}%", rate_pct), color)
         } else {
-            ("Cache -".to_string(), sb::MUTED)
+            ("Cache -".to_string(), colors.muted)
         };
 
         let mut monitor = app.services.resource_monitor.lock();
@@ -643,16 +735,16 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         drop(monitor);
 
         let mem_color = if mem > 1024 {
-            sb::ERROR
+            colors.error
         } else if mem > 512 {
-            sb::WARNING
+            colors.warning
         } else {
-            sb::SAGE
+            colors.success
         };
 
         left_spans.push(Span::styled("  ", Style::default()));
         left_spans.push(Span::styled(cache_str, Style::default().fg(cache_color)));
-        left_spans.push(Span::styled(" · ", Style::default().fg(sb::MUTED)));
+        left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
         left_spans.push(Span::styled(
             format!("MEM {}MB", mem),
             Style::default().fg(mem_color),
@@ -660,8 +752,10 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 右侧：快捷键提示
-    let key_style = Style::default().fg(sb::MUTED).add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(sb::MUTED);
+    let key_style = Style::default()
+        .fg(colors.muted)
+        .add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(colors.muted);
 
     let right_spans: Vec<Span> = match &app.session_mgr.current().agent.interaction_prompt {
         Some(_) if app.global_ui.oauth_prompt.is_some() => {
@@ -761,14 +855,18 @@ fn render_context_bar(pct: f64, color: Color) -> Vec<Span<'static>> {
     let bar: String = "█".repeat(filled) + &"░".repeat(empty);
 
     vec![
-        Span::styled(bar, ansi_style(color)),
-        Span::styled(format!(" {}%", pct.round() as u64), ansi_style(color)),
+        Span::styled(bar, fg_style(color)),
+        Span::styled(format!(" {}%", pct.round() as u64), fg_style(color)),
     ]
 }
 
-fn append_git_status(spans: &mut Vec<Span<'_>>, status: &crate::app::GitBranchStatus) {
-    let prefix_style = ansi_style(Color::Magenta);
-    let branch_style = ansi_style(Color::Cyan);
+fn append_git_status(
+    spans: &mut Vec<Span<'_>>,
+    status: &crate::app::GitBranchStatus,
+    colors: &SbColors,
+) {
+    let prefix_style = fg_style(colors.magenta);
+    let branch_style = fg_style(colors.cyan);
     spans.push(Span::styled(" git:(", prefix_style));
     spans.push(Span::styled(status.branch.clone(), branch_style));
     if status.dirty {
@@ -777,13 +875,13 @@ fn append_git_status(spans: &mut Vec<Span<'_>>, status: &crate::app::GitBranchSt
     spans.push(Span::styled(")", prefix_style));
 }
 
-fn context_usage_color(pct: f64) -> Color {
+fn context_usage_color(pct: f64, colors: &SbColors) -> Color {
     if pct >= CONTEXT_CRITICAL_PCT {
-        Color::Red
+        colors.context_high
     } else if pct >= CONTEXT_WARNING_PCT {
-        Color::Yellow
+        colors.context_warn
     } else {
-        Color::Green
+        colors.context_ok
     }
 }
 
@@ -844,7 +942,7 @@ fn truncate_tool_target(target: &str, max_len: usize) -> String {
     format!(".../{}", file_name)
 }
 
-fn ansi_style(color: Color) -> Style {
+fn fg_style(color: Color) -> Style {
     plain_style().fg(color)
 }
 
@@ -931,10 +1029,79 @@ mod tests {
 
     #[test]
     fn test_context_usage_color_matches_design_thresholds() {
-        assert_eq!(context_usage_color(69.9), Color::Green);
-        assert_eq!(context_usage_color(70.0), Color::Yellow);
-        assert_eq!(context_usage_color(84.9), Color::Yellow);
-        assert_eq!(context_usage_color(85.0), Color::Red);
+        let colors = SbColors::for_theme(ThemeName::Default);
+        assert_eq!(context_usage_color(69.9, &colors), Color::Green);
+        assert_eq!(context_usage_color(70.0, &colors), Color::Yellow);
+        assert_eq!(context_usage_color(84.9, &colors), Color::Yellow);
+        assert_eq!(context_usage_color(85.0, &colors), Color::Red);
+    }
+
+    #[test]
+    fn test_context_usage_color_follows_palette_on_light_theme() {
+        let colors = SbColors::for_theme(ThemeName::Light);
+        // 浅色主题下仪表必须取调色板的深色系，否则白底绿/黄几乎不可辨
+        assert_eq!(context_usage_color(10.0, &colors), Color::Rgb(44, 122, 57));
+        assert_eq!(context_usage_color(70.0, &colors), Color::Rgb(150, 108, 30));
+        assert_eq!(context_usage_color(85.0, &colors), Color::Rgb(171, 43, 63));
+    }
+
+    #[test]
+    fn test_sb_colors_default_theme_keeps_polished_literals() {
+        let colors = SbColors::for_theme(ThemeName::Default);
+        // default 主题观感锁定：ANSI 名色 + 写死 RGB，与 #509 之前逐值一致
+        assert_eq!(colors.cyan, Color::Cyan);
+        assert_eq!(colors.yellow, Color::Yellow);
+        assert_eq!(colors.green, Color::Green);
+        assert_eq!(colors.magenta, Color::Magenta);
+        assert_eq!(colors.muted, Color::Rgb(153, 153, 153));
+        assert_eq!(colors.warning, Color::Rgb(255, 193, 7));
+        assert_eq!(colors.error, Color::Rgb(255, 107, 128));
+        assert_eq!(colors.success, Color::Rgb(78, 186, 101));
+        assert_eq!(colors.text, Color::Rgb(255, 255, 255));
+        assert_eq!(colors.context_ok, Color::Green);
+        assert_eq!(colors.context_warn, Color::Yellow);
+        assert_eq!(colors.context_high, Color::Red);
+        assert_eq!(colors.selection_bg, Color::Rgb(38, 79, 120));
+        assert_eq!(colors.cursor_bg, Color::Rgb(38, 38, 38));
+    }
+
+    #[test]
+    fn test_sb_colors_light_theme_uses_readable_palette_values() {
+        let colors = SbColors::for_theme(ThemeName::Light);
+        // 浅色主题：主文字转黑、次要信息加深，避免白字贴浅底
+        assert_eq!(colors.text, Color::Rgb(0, 0, 0));
+        assert_eq!(colors.muted, Color::Rgb(102, 102, 102));
+        assert_eq!(colors.success, Color::Rgb(44, 122, 57));
+        assert_eq!(colors.warning, Color::Rgb(150, 108, 30));
+        assert_eq!(colors.error, Color::Rgb(171, 43, 63));
+        assert_eq!(colors.cyan, Color::Rgb(0, 153, 153));
+        assert_eq!(colors.yellow, Color::Rgb(150, 108, 30));
+        assert_eq!(colors.magenta, Color::Rgb(135, 0, 255));
+        assert_eq!(colors.selection_bg, Color::Rgb(180, 213, 255));
+        assert_eq!(colors.cursor_bg, Color::Rgb(252, 252, 252));
+    }
+
+    #[test]
+    fn test_sb_colors_non_default_themes_read_palette_fields() {
+        for theme in ThemeName::ALL {
+            if matches!(theme, ThemeName::Default) {
+                continue;
+            }
+            let colors = SbColors::for_theme(theme);
+            let p = theme.palette();
+            assert_eq!(colors.muted, p.inactive, "{:?} muted", theme);
+            assert_eq!(colors.text, p.text, "{:?} text", theme);
+            assert_eq!(colors.warning, p.warning, "{:?} warning", theme);
+            assert_eq!(colors.error, p.error, "{:?} error", theme);
+            assert_eq!(colors.success, p.success, "{:?} success", theme);
+            assert_eq!(colors.cyan, p.cyan, "{:?} cyan", theme);
+            assert_eq!(colors.magenta, p.magenta, "{:?} magenta", theme);
+            assert_eq!(
+                colors.selection_bg, p.selection_bg,
+                "{:?} selection_bg",
+                theme
+            );
+        }
     }
 
     #[test]
@@ -999,8 +1166,10 @@ mod tests {
 
     #[test]
     fn test_render_recent_tool_segment_matches_codebuddy_hud() {
-        let segment =
-            render_recent_tool_segment(&make_recent_entry("Read", "src/deep/file.rs", true));
+        let segment = render_recent_tool_segment(
+            &make_recent_entry("Read", "src/deep/file.rs", true),
+            &make_default_colors(),
+        );
         assert_eq!(spans_to_plain(&segment), "◐ Read : src/deep/file.rs");
         assert_eq!(segment[0].style.fg, Some(Color::Yellow));
         assert_eq!(segment[2].style.fg, Some(Color::Cyan));
@@ -1009,22 +1178,30 @@ mod tests {
 
     #[test]
     fn test_render_recent_tool_segment_uses_completed_glyph_after_finish() {
-        let segment =
-            render_recent_tool_segment(&make_recent_entry("Read", "src/deep/file.rs", false));
+        let segment = render_recent_tool_segment(
+            &make_recent_entry("Read", "src/deep/file.rs", false),
+            &make_default_colors(),
+        );
         assert_eq!(spans_to_plain(&segment), "✓ Read : src/deep/file.rs");
         assert_eq!(segment[0].style.fg, Some(Color::Green));
     }
 
     #[test]
     fn test_render_recent_tool_segment_omits_args_when_empty() {
-        let segment = render_recent_tool_segment(&make_recent_entry("Todo", "", true));
+        let segment = render_recent_tool_segment(
+            &make_recent_entry("Todo", "", true),
+            &make_default_colors(),
+        );
         assert_eq!(spans_to_plain(&segment), "◐ Todo");
     }
 
     #[test]
     fn test_render_recent_tool_segment_colors_are_uniform_across_tools() {
-        let bash = render_recent_tool_segment(&make_recent_entry("Bash", "sleep 15", true));
-        let read = render_recent_tool_segment(&make_recent_entry("Read", "src/main.rs", true));
+        let colors = make_default_colors();
+        let bash =
+            render_recent_tool_segment(&make_recent_entry("Bash", "sleep 15", true), &colors);
+        let read =
+            render_recent_tool_segment(&make_recent_entry("Read", "src/main.rs", true), &colors);
         assert_eq!(bash[0].style.fg, read[0].style.fg);
         assert_eq!(bash[2].style.fg, read[2].style.fg);
     }
@@ -1092,10 +1269,15 @@ mod tests {
         agent.session_tool_stats.insert("Write".to_string(), 4);
         agent.session_tool_stats.insert("Grep".to_string(), 2);
 
-        let segments = render_completed_tool_segments(&agent);
+        let segments = render_completed_tool_segments(&agent, &make_default_colors());
         assert_eq!(segments.len(), 5);
         assert_eq!(spans_to_plain(&segments[0]), "✓ Read ×10");
         assert_eq!(spans_to_plain(segments.last().unwrap()), "+1 more");
+    }
+
+    /// 状态栏默认（`default` 主题）配色——多数渲染断言只关心 default 主题的既有观感
+    fn make_default_colors() -> SbColors {
+        SbColors::for_theme(ThemeName::Default)
     }
 
     fn spans_to_plain(spans: &[Span<'_>]) -> String {
