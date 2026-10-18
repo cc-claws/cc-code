@@ -15,7 +15,7 @@ const SCRIPT_URL_SH: &str =
 /// #19 fix: Expected SHA256 of the install script.
 /// UPDATE THIS when scripts/install.sh changes, or the update will be blocked.
 const SCRIPT_SHA256_SH: &str =
-    "2916bdb81b4bc6a21ff6c1e36e226f565ea4325c5539dc88c6030f96418d629a";
+    "39a5485e6a4b864512224db7c5c8e8c11865522c4e0e0538d44622b6a2119360";
 const SCRIPT_URL_PS1: &str =
     "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1";
 

@@ -4,6 +4,7 @@
 # Options:
 #   $env:CC_CODE_INSTALL_VERSION   Specific version tag (e.g. npm-v0.6.89), empty = latest
 #   $env:CC_CODE_INSTALL_DIR       Install directory (default: $env:USERPROFILE\.cc-code)
+#                                  Legacy alias: $env:CCCODE_INSTALL_DIR (kept for compatibility)
 #   $env:GITHUB_PROXY           GitHub download proxy prefix (replaces https://github.com)
 #   $env:GITHUB_TOKEN           GitHub personal access token (bypasses API rate limiting)
 #   $env:CC_CODE_NO_PATH_HINT      Set to 1 to skip PATH hint
@@ -68,6 +69,21 @@ function Invoke-GitHubApi {
     return $response
 }
 
+# --- SHA256 Verification ---
+# release 产物里带 checksums.txt（sha256sum 格式）。下载完 zip 必须校验摘要（#588）：
+# 与 npm/install.js 的 verifyChecksum 对齐——checksums.txt 下载失败、条目缺失或
+# 摘要不匹配，一律拒绝安装（fail-closed），绝不把未校验的二进制落到安装目录。
+function Get-ExpectedSha256 {
+    param([string]$ChecksumsPath, [string]$FileName)
+    foreach ($line in Get-Content -Path $ChecksumsPath) {
+        $m = [regex]::Match($line.Trim(), '^([0-9a-fA-F]{64})\s+\*?(.+)$')
+        if ($m.Success -and $m.Groups[2].Value.Trim() -eq $FileName) {
+            return $m.Groups[1].Value.ToLower()
+        }
+    }
+    return $null
+}
+
 # --- Cleanup Old Versions ---
 function Clean-OldVersions {
     param([string]$InstallDir, [string]$CurrentVersion)
@@ -114,7 +130,14 @@ function Clean-OldVersions {
 
 # --- Main ---
 function Main {
-    $InstallDir = if ($env:CCCODE_INSTALL_DIR) { $env:CCCODE_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".cc-code" }
+    # 优先文档名 CC_CODE_INSTALL_DIR；CCCODE_INSTALL_DIR 是历史拼写，保留兼容（#588）
+    $InstallDir = if ($env:CC_CODE_INSTALL_DIR) {
+        $env:CC_CODE_INSTALL_DIR
+    } elseif ($env:CCCODE_INSTALL_DIR) {
+        $env:CCCODE_INSTALL_DIR
+    } else {
+        Join-Path $env:USERPROFILE ".cc-code"
+    }
     $GitHubApi = "https://api.github.com/repos/cc-claws/cc-code"
 
     Write-Host ""
@@ -193,6 +216,45 @@ function Main {
         error "Download failed: $_"
         exit 1
     }
+
+    # Verify checksum before extracting a single byte (#588)
+    step "Verifying checksum..."
+    $ChecksumsAsset = $Release.assets | Where-Object { $_.name -eq "checksums.txt" } | Select-Object -First 1
+    if (-not $ChecksumsAsset) {
+        Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
+        error "Release $VersionTag does not publish checksums.txt."
+        Write-Host "  Refusing to install an unverified binary. Nothing was installed."
+        exit 1
+    }
+
+    $ChecksumsPath = Join-Path $VersionDir "checksums.txt"
+    try {
+        Invoke-WebRequest -Uri (Get-DownloadUrl $ChecksumsAsset.browser_download_url) -OutFile $ChecksumsPath
+    } catch {
+        Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
+        Remove-Item -Force $ChecksumsPath -ErrorAction SilentlyContinue
+        error "Failed to download checksums.txt. Refusing to install (fail-closed): $_"
+        exit 1
+    }
+
+    $ExpectedSha = Get-ExpectedSha256 -ChecksumsPath $ChecksumsPath -FileName $AssetName
+    Remove-Item -Force $ChecksumsPath -ErrorAction SilentlyContinue
+    if (-not $ExpectedSha) {
+        Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
+        error "checksums.txt has no entry for $AssetName. Refusing to install (fail-closed)."
+        exit 1
+    }
+
+    $ActualSha = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
+    if ($ActualSha -ne $ExpectedSha) {
+        Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
+        error "Checksum mismatch for $AssetName: the download may be corrupted or tampered with."
+        Write-Host "    expected: $ExpectedSha"
+        Write-Host "    actual:   $ActualSha"
+        error "Refusing to install. Nothing was installed."
+        exit 1
+    }
+    info "Checksum OK: $ActualSha"
 
     # Extract
     step "Extracting..."
