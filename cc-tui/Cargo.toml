@@ -72,7 +72,9 @@ tikv-jemallocator.workspace = true
 tikv-jemalloc-ctl.workspace = true
 tikv-jemalloc-sys.workspace = true
 
-[target.'cfg(target_os = "macos")'.dependencies]
+# Unix 终端没有字形度量 API：字宽探针靠 CPR（ESC[6n）回包测量，需要 poll(2)。
+# stderr 抑制（clipboard/stderr_suppress.rs）也用它。
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]

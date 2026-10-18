@@ -19,7 +19,8 @@ pub trait WidthProbe {
 
 /// Adapt output only: the original frame, selection and stored messages stay intact.
 pub struct WidthSafeBackend<B, P> {
-    inner: B,
+    /// 输出侧后端；`pub(super)` 便于其他探针的测试直接检查实际输出的 cell。
+    pub(super) inner: B,
     probe: P,
     symbols: HashMap<String, Option<String>>,
 }
@@ -88,7 +89,8 @@ fn spinner_fallback(symbol: &str) -> Option<&'static str> {
     }
 }
 
-fn fallback_symbol(symbol: &str, width: usize) -> String {
+/// 列宽分歧时的 1 列替代字形；`pub(super)` 供非 Windows 探针校验自己只量可降级的字形。
+pub(super) fn fallback_symbol(symbol: &str, width: usize) -> String {
     if width == 0 {
         return String::new();
     }
