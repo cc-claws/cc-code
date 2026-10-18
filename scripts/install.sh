@@ -8,6 +8,7 @@ export LC_ALL=C
 # Options:
 #   CC_CODE_INSTALL_VERSION   Specific version tag (e.g. npm-v0.6.89), empty = latest
 #   CC_CODE_INSTALL_DIR       Install directory (default: $HOME/.cc-code)
+#                             Legacy alias: CCCODE_INSTALL_DIR (kept for compatibility)
 #   GITHUB_PROXY           GitHub download proxy prefix (replaces https://github.com in download URL)
 #   GITHUB_TOKEN           GitHub personal access token (bypasses API rate limiting)
 #   CC_CODE_NO_PATH_HINT      Set to 1 to skip PATH hint
@@ -143,9 +144,43 @@ cleanup_old_versions() {
     esac
 }
 
+# --- SHA256 Verification ---
+# release 产物里带 checksums.txt（sha256sum 格式）。下载完 tarball 必须校验摘要
+# （#588）：与 npm/install.js 的 verifyChecksum 对齐——checksums.txt 下载失败、
+# 条目缺失、摘要不匹配或没有可用的 sha256 工具，一律拒绝安装（fail-closed），
+# 绝不把未校验的二进制落到安装目录。
+sha256_of_file() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "${file}" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "${file}" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "${file}" | awk '{print $NF}'
+    else
+        return 1
+    fi
+}
+
+# 从 checksums.txt 取指定文件的期望摘要，格式 "<sha256>  <filename>"。
+# 兼容 BSD shasum 的二进制模式标记（`*filename`）。
+expected_sha256() {
+    local checksums="$1"
+    local file_name="$2"
+    awk -v name="${file_name}" '
+        NF >= 2 {
+            hash = $1
+            fname = $2
+            sub(/^\*/, "", fname)
+            if (fname == name) { print tolower(hash); exit }
+        }
+    ' "${checksums}"
+}
+
 # --- Main ---
 main() {
-    INSTALL_DIR="${CCCODE_INSTALL_DIR:-${HOME}/.cc-code}"
+    # 优先文档名 CC_CODE_INSTALL_DIR；CCCODE_INSTALL_DIR 是历史拼写，保留兼容（#588）
+    INSTALL_DIR="${CC_CODE_INSTALL_DIR:-${CCCODE_INSTALL_DIR:-${HOME}/.cc-code}}"
     GITHUB_API="https://api.github.com/repos/cc-claws/cc-code"
 
     echo ""
@@ -217,6 +252,50 @@ main() {
         exit 1
     }
 
+    # --- Verify checksum before extracting a single byte (#588) ---
+    step "Verifying checksum..."
+    CHECKSUMS_URL=$(echo "${RELEASE_JSON}" | tr ',' '\n' \
+        | grep -F '"browser_download_url"' | grep -F "/checksums.txt" \
+        | head -1 | cut -d'"' -f4 || true)
+    if [[ -z "${CHECKSUMS_URL}" ]]; then
+        rm -f "${TARBALL}"
+        error "Release ${VERSION_TAG} does not publish checksums.txt."
+        error "Refusing to install an unverified binary. Nothing was installed."
+        exit 1
+    fi
+
+    CHECKSUMS_FILE="${VERSION_DIR}/checksums.txt"
+    if ! curl -fsSL "$(get_download_url "${CHECKSUMS_URL}")" -o "${CHECKSUMS_FILE}"; then
+        rm -f "${TARBALL}" "${CHECKSUMS_FILE}"
+        error "Failed to download checksums.txt. Refusing to install (fail-closed)."
+        exit 1
+    fi
+
+    EXPECTED_SHA=$(expected_sha256 "${CHECKSUMS_FILE}" "${ASSET_NAME}")
+    rm -f "${CHECKSUMS_FILE}"
+    if [[ -z "${EXPECTED_SHA}" ]]; then
+        rm -f "${TARBALL}"
+        error "checksums.txt has no entry for ${ASSET_NAME}. Refusing to install (fail-closed)."
+        exit 1
+    fi
+
+    if ! ACTUAL_SHA=$(sha256_of_file "${TARBALL}"); then
+        rm -f "${TARBALL}"
+        error "No sha256 tool found (need one of: sha256sum, shasum, openssl)."
+        error "Refusing to install an unverified binary. Nothing was installed."
+        exit 1
+    fi
+
+    if [[ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]]; then
+        rm -f "${TARBALL}"
+        error "Checksum mismatch for ${ASSET_NAME}: the download may be corrupted or tampered with."
+        echo "    expected: ${EXPECTED_SHA}"
+        echo "    actual:   ${ACTUAL_SHA}"
+        error "Refusing to install. Nothing was installed."
+        exit 1
+    fi
+    info "Checksum OK: ${ACTUAL_SHA}"
+
     # Extract tarball
     step "Extracting..."
     tar -xzf "${TARBALL}" -C "${VERSION_DIR}" || {
@@ -251,7 +330,6 @@ main() {
 
     # --- PATH Setup ---
     if [[ "${CC_CODE_NO_PATH_HINT:-}" != "1" ]]; then
-        BIN_LINK="${INSTALL_DIR}/cc-code"
         SHELL_PROFILE=""
         case "${SHELL:-}" in
             */zsh)  SHELL_PROFILE="${HOME}/.zshrc" ;;
@@ -285,10 +363,10 @@ main() {
     info "Installation complete! Version: ${VERSION_TAG}"
     echo ""
 
-    if command -v "${BIN_LINK}" &>/dev/null || [[ -x "${BIN_LINK}" ]]; then
+    if command -v "${LINK}" &>/dev/null || [[ -x "${LINK}" ]]; then
         info "Run 'cc-code' to start."
     else
-        info "Run: ${BIN_LINK}"
+        info "Run: ${LINK}"
     fi
     echo ""
 }
