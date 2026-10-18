@@ -58,6 +58,16 @@ impl App {
         )?;
         ratatui::crossterm::terminal::disable_raw_mode()?;
 
+        // 离开 alternate screen 后原屏内容已不可知（重进 alt screen 是空白屏），
+        // ratatui 的 buffer 差值绘制会只 flush 变化 cell，导致大面积空白/残影（#587）。
+        // 因此请求下一帧物理清屏 + 全量重绘。故意放在挂起之后、恢复之前：
+        // 恢复过程中的任一步失败（raw mode / alt screen / 鼠标捕获）也已置位，
+        // 不会留下"屏幕坏了但没重绘"的状态。
+        self.session_mgr
+            .current_mut()
+            .ui
+            .request_terminal_clear_redraw();
+
         // 启动编辑器
         let status = std::process::Command::new(&editor)
             .arg(&entry.path)
@@ -89,4 +99,10 @@ impl App {
 
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    include!("panel_memory_test.rs");
 }
