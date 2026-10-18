@@ -333,7 +333,17 @@ main() {
         SHELL_PROFILE=""
         case "${SHELL:-}" in
             */zsh)  SHELL_PROFILE="${HOME}/.zshrc" ;;
-            */bash) SHELL_PROFILE="${HOME}/.bashrc" ;;
+            */bash)
+                # macOS 终端默认开 login shell，只读 .bash_profile（其次
+                # .bash_login / .profile），从不读 .bashrc——写 .bashrc
+                # 装完仍 command not found（#585）。Linux 的 login shell
+                # 一般会 source .bashrc，保持原样。
+                if [[ "${PLATFORM:-}" == macos-* ]]; then
+                    SHELL_PROFILE="${HOME}/.bash_profile"
+                else
+                    SHELL_PROFILE="${HOME}/.bashrc"
+                fi
+                ;;
             */fish) SHELL_PROFILE="${HOME}/.config/fish/config.fish" ;;
         esac
 
