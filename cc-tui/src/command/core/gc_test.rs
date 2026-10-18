@@ -19,10 +19,14 @@ fn test_signed_delta_byte_direction() {
     assert_eq!(fmt_signed_delta(0, fmt_bytes), "±0 B");
 }
 
-/// 回归：OS RSS（MB 整数）走同一符号约定。
+/// 回归（#593）：差值不得用 `saturating_sub` 钳位。
+///
+/// 真实读数里 jemalloc resident（93.6 MB）可以大于内核 RSS（84.9 MB），此前
+/// 被钳成 `0 B`，渲染出 `OS RSS(84.9 MB) - jemalloc resident(93.6 MB) = 0 B`
+/// 这种算术不成立的等式；负差与「两边相等」必须可区分。
 #[test]
-fn test_signed_delta_megabyte_direction() {
-    assert_eq!(fmt_signed_delta(-1, fmt_mb_from_usize), "-1 MB");
-    assert_eq!(fmt_signed_delta(3, fmt_mb_from_usize), "+3 MB");
-    assert_eq!(fmt_signed_delta(0, fmt_mb_from_usize), "±0 MB");
+fn test_signed_gap_keeps_negative() {
+    assert_eq!(signed_gap(84_900_000, 93_600_000), -8_700_000);
+    assert_eq!(signed_gap(93_600_000, 93_600_000), 0);
+    assert_eq!(signed_gap(100, 40), 60);
 }

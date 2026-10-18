@@ -21,7 +21,6 @@ impl Command for GcCommand {
     fn execute(&self, app: &mut App, _args: &str) {
         let lc = &app.services.lc;
         let stats_before = crate::alloc_config::query_stats();
-        let os_rss_before = crate::alloc_config::os_rss_mb();
         let alloc_name = crate::alloc_config::allocator_name();
 
         // ── 诊断：各数据结构大小 ──
@@ -52,7 +51,6 @@ impl Command for GcCommand {
         crate::alloc_config::alloc_collect();
 
         let stats_after = crate::alloc_config::query_stats();
-        let os_rss_after = crate::alloc_config::os_rss_mb();
 
         // ── RSS 汇总 ──
         match (stats_before, stats_after) {
@@ -100,20 +98,9 @@ impl Command for GcCommand {
             _ => lines.push(lc.tr("cmd-gc-rss-unavailable")),
         }
 
-        if let (Some(before), Some(after)) = (os_rss_before, os_rss_after) {
-            let delta = after as isize - before as isize;
-            lines.push(lc.tr_args(
-                "cmd-gc-os-rss",
-                &[
-                    ("before".into(), fmt_mb(before).into()),
-                    ("after".into(), fmt_mb(after).into()),
-                    (
-                        "delta".into(),
-                        fmt_signed_delta(delta, fmt_mb_from_usize).into(),
-                    ),
-                ],
-            ));
-        }
+        // 说明：不再单列 `OS RSS: A → B`。它与上面的 `RSS: A → B` 是同一个读数
+        // （都来自 sysinfo `process.memory()`），只是 fmt_bytes / 整数 MB 两种格式，
+        // 且整数截断后再相减会凭空丢掉 <1 MB 的差额。
 
         // ── 数据结构诊断 ──
         lines.push(String::new());
@@ -289,10 +276,15 @@ impl Command for GcCommand {
                     "cmd-gc-mapped",
                     &[("bytes".into(), fmt_bytes(bd.mapped).into())],
                 ));
-                lines.push(lc.tr_args(
-                    "cmd-gc-retained",
-                    &[("bytes".into(), fmt_bytes(bd.retained).into())],
-                ));
+                if crate::alloc_config::retained_metric_applicable() {
+                    lines.push(lc.tr_args(
+                        "cmd-gc-retained",
+                        &[("bytes".into(), fmt_bytes(bd.retained).into())],
+                    ));
+                } else {
+                    // opt.retain=false 时该 mallctl 恒为 0，渲染成读数就是恒零噪音。
+                    lines.push(lc.tr("cmd-gc-retained-na"));
+                }
             }
             // 关键指标：碎片仅在 active 有意义时（jemalloc）成立
             let frag = bd.active.saturating_sub(bd.allocated);
@@ -314,16 +306,22 @@ impl Command for GcCommand {
             // Windows resident 本身就是全进程 RSS，不能相减推断非分配器占用。
             if !is_mimalloc {
                 if let Some(ref s) = stats_after {
-                    let os_gap = s.current_rss.saturating_sub(bd.resident);
+                    // 有符号差：resident > RSS 是**正常**的（resident 含内核 RSS 已不再
+                    // 计入的 madvise 页），此时真差是负值。此前用 `saturating_sub`
+                    // 钳到 0，渲染成 `= 0 B`，等式算术不成立且掩盖了真实差额。
+                    let os_gap = signed_gap(s.current_rss, bd.resident);
                     lines.push(lc.tr_args(
                         "cmd-gc-os-gap",
                         &[
                             ("rss".into(), fmt_bytes(s.current_rss).into()),
                             ("resident".into(), fmt_bytes(bd.resident).into()),
-                            ("gap".into(), fmt_bytes(os_gap).into()),
+                            ("gap".into(), fmt_signed_delta(os_gap, fmt_bytes).into()),
                             ("allocator".into(), alloc_name.into()),
                         ],
                     ));
+                    if os_gap < 0 {
+                        lines.push(lc.tr("cmd-gc-os-gap-inverted"));
+                    }
                 }
             }
         }
@@ -350,7 +348,10 @@ impl Command for GcCommand {
                 + render_cache_bytes
                 + diff_stats.bytes
                 + render_stats.bytes;
-            let gap = bd.allocated.saturating_sub(known_bytes);
+            // 有符号差，不用 saturating_sub：估算项之间可能重叠（同一份渲染结果既被
+            // VM 持有又被 markdown 缓存克隆），且按 capacity 估算含冗余，因此已知合计
+            // 超过 allocated 是**可能**的；钳成 0 会把「估算溢出」伪装成「完全识别」。
+            let gap = signed_gap(bd.allocated, known_bytes);
             lines.push(lc.tr_args(
                 "cmd-gc-known-estimate",
                 &[
@@ -369,9 +370,12 @@ impl Command for GcCommand {
                         "diff".into(),
                         fmt_bytes(diff_stats.bytes + render_stats.bytes).into(),
                     ),
-                    ("gap".into(), fmt_bytes(gap).into()),
+                    ("gap".into(), fmt_signed_delta(gap, fmt_bytes).into()),
                 ],
             ));
+            if gap < 0 {
+                lines.push(lc.tr("cmd-gc-known-estimate-overflow"));
+            }
             lines.push(String::new());
             lines.push(lc.tr("cmd-gc-estimate-note"));
         }
@@ -685,6 +689,15 @@ fn fmt_signed_delta(delta: isize, fmt: impl Fn(usize) -> String) -> String {
     format!("{sign}{}", fmt(delta.unsigned_abs()))
 }
 
+/// 两个读数的有符号差（`left - right`）。
+///
+/// 不用 `saturating_sub`：本文件里被减的一方并不保证更小（jemalloc resident 可以
+/// 大于内核 RSS，已知估算合计也可以大于 allocated），钳到 0 会让「差值为负」与
+/// 「两边完全相等」不可区分，而这两种情况的诊断含义相反。
+fn signed_gap(left: usize, right: usize) -> isize {
+    left as isize - right as isize
+}
+
 fn fmt_bytes(bytes: usize) -> String {
     const KB: usize = 1024;
     const MB: usize = 1024 * KB;
@@ -695,18 +708,6 @@ fn fmt_bytes(bytes: usize) -> String {
     } else {
         format!("{bytes} B")
     }
-}
-
-fn fmt_mb(mb: u64) -> String {
-    if mb >= 1024 {
-        format!("{:.1} GB", mb as f64 / 1024.0)
-    } else {
-        format!("{mb} MB")
-    }
-}
-
-fn fmt_mb_from_usize(mb: usize) -> String {
-    fmt_mb(mb as u64)
 }
 
 #[cfg(test)]
