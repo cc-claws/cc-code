@@ -89,6 +89,27 @@ fn test_breakdown_shows_fragmentation() {
     );
 }
 
+/// `retained` 指标可用性与 jemalloc `opt.retain` 一致。
+///
+/// 不可用（`opt.retain=false`，macOS 即如此）时 `stats.retained` 必须恒为 0，
+/// 因此 /gc 展示「不适用」而不是一个恒零读数。
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_retained_metric_applicability() {
+    let applicable = retained_metric_applicable();
+    let bd = query_breakdown().expect("query_breakdown 应返回数据");
+    eprintln!(
+        "opt.retain => applicable={applicable}, stats.retained={} bytes",
+        bd.retained
+    );
+    if !applicable {
+        assert_eq!(
+            bd.retained, 0,
+            "opt.retain=false 时 stats.retained 应为 0，否则读数口径有问题"
+        );
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_dump_stats() {

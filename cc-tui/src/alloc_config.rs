@@ -9,7 +9,7 @@
 //! - `query_stats()` — get allocator stats (RSS + allocator allocated)
 //! - `query_breakdown()` — allocated/active/resident/metadata/mapped/retained
 //! - `dump_stats()` — print detailed allocator stats to tracing
-//! - `os_rss_mb()` — OS-level RSS via sysinfo (MB)
+//! - `retained_metric_applicable()` — whether `retained` can be non-zero on this platform
 
 #[cfg(target_os = "windows")]
 mod windows_tuning;
@@ -123,7 +123,9 @@ pub fn query_stats() -> Option<AllocStats> {
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let proc = sys.process(pid)?;
     let current_rss = proc.memory() as usize; // sysinfo returns bytes
-    let current_allocated = tikv_jemalloc_ctl::stats::allocated::read().unwrap_or(current_rss);
+    // stats 不可读时整体 fail-closed（调用方显示「RSS 不可用」），绝不用 RSS 冒充
+    // allocated——否则 allocated-RSS 恒为 0，把「测量失败」伪装成「完全一致」。
+    let current_allocated = tikv_jemalloc_ctl::stats::allocated::read().ok()?;
     Some(AllocStats {
         current_rss,
         current_allocated,
@@ -156,15 +158,17 @@ pub fn dump_stats() {
     }
 }
 
-/// 通过 sysinfo 获取 OS 级 RSS（MB）。
-/// 公共函数，供 gc.rs 和 thread_ops.rs 复用。
+/// 当前平台的 `retained` 指标是否有意义（是否会非零）。
+///
+/// jemalloc 的 `stats.retained` 只在 `opt.retain=true` 时才可能非零，而 `opt.retain`
+/// 的编译期默认值在 darwin 上为 0（jemalloc `configure.ac` 的 `default_retain="0"`
+/// 分支不含 darwin），因此 macOS 上该指标恒为 0：直接渲染成「保留未归还 OS: 0 B」
+/// 是恒零噪音。读取失败时按 `true` 处理——宁可显示读数，也不隐藏可能有效的指标。
 #[cfg(not(target_os = "windows"))]
-pub fn os_rss_mb() -> Option<u64> {
-    use sysinfo::{ProcessesToUpdate, System};
-    let mut sys = System::new();
-    let pid = sysinfo::get_current_pid().ok()?;
-    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).map(|p| p.memory() / (1024 * 1024)) // bytes → MB
+pub fn retained_metric_applicable() -> bool {
+    // Safety: `opt.retain` 是只读 bool mallctl（jemalloc 文档标注访问权限为 `r-`），
+    // 名字以 NUL 结尾，`bool` 宽度与 jemalloc 的 bool 一致。
+    unsafe { tikv_jemalloc_ctl::raw::read::<bool>(b"opt.retain\0").unwrap_or(true) }
 }
 
 // ── Windows (mimalloc) ─────────────────────────────────────────────────────
@@ -254,11 +258,9 @@ pub fn dump_stats() {
     }
 }
 
+/// Windows 的 `retained` 是 `reserved - committed`（保留未提交），是真实读数，
+/// 不依赖 jemalloc 的 `opt.retain`，恒有意义。
 #[cfg(target_os = "windows")]
-pub fn os_rss_mb() -> Option<u64> {
-    use sysinfo::{ProcessesToUpdate, System};
-    let mut sys = System::new();
-    let pid = sysinfo::get_current_pid().ok()?;
-    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).map(|p| p.memory() / (1024 * 1024)) // bytes → MB
+pub fn retained_metric_applicable() -> bool {
+    true
 }

@@ -514,7 +514,6 @@ status-hit = 命中
 cmd-gc-desc = 手动触发内存回收并显示 RSS 变化和数据结构诊断
 cmd-gc-rss = RSS: { $before } → { $after } ({ $delta })
 cmd-gc-allocated-rss = { $allocator } allocated: { $allocated } (allocated-RSS = { $delta }；{ $hint })
-cmd-gc-os-rss = OS RSS: { $before } → { $after } ({ $delta })
 cmd-gc-origin-messages = origin_messages:  { $count } 条, ~{ $bytes }
 cmd-gc-completed-messages = pipeline.completed: { $count } 条, ~{ $bytes }
 cmd-gc-view-messages = view_messages:     { $count } 条 VM, ~{ $bytes }
@@ -535,11 +534,14 @@ cmd-gc-mapped-mimalloc = mapped:    { $bytes } (reserved 虚拟地址保留量�
 cmd-gc-retained-mimalloc = retained:  { $bytes } (reserved-committed 保留未提交量，非物理驻留量)
 cmd-gc-mapped = mapped:    { $bytes } (映射)
 cmd-gc-retained = retained:  { $bytes } (保留未归还 OS)
+cmd-gc-retained-na = retained:  不适用（当前平台未启用虚拟内存保留，该指标恒为 0）
 cmd-gc-fragmentation-mimalloc = 碎片: active-allocated={ $fragmentation } （⚠ 基于 mimalloc touched 高水位，非真实碎片，忽略）
 cmd-gc-fragmentation = 碎片: active-allocated={ $fragmentation } | resident-active={ $waste }
 cmd-gc-os-gap = OS RSS({ $rss }) - { $allocator } resident({ $resident }) = { $gap }
+cmd-gc-os-gap-inverted = { "  " }resident 大于内核 RSS：分配器仍计入内核已不再为该进程统计的页（如已 madvise 归还的页），两个读数不可直接比较，负值不代表内存占用下降
 cmd-gc-full-stats-heading = ── { $allocator } 全量统计（见日志）──
 cmd-gc-known-estimate = 已知合计估算: { $known } (消息 { $messages } + VM { $views } + Markdown 缓存 { $markdown } + 渲染缓存 { $render } + diff 缓存 { $diff }) | allocated 内未识别估算: { $gap }
+cmd-gc-known-estimate-overflow = { "  " }估算合计超过 allocated：各估算项互相重叠（同一份渲染结果可能既被 VM 持有又被 Markdown 缓存克隆），且按容器 capacity 估算含冗余，因此超出属估算口径所致，不代表 allocated 少算
 cmd-gc-allocated-rss-hint-positive = allocated 大于当时 RSS（采样时刻/记账口径差，仅供参考）
 cmd-gc-allocated-rss-hint-negative = RSS 差额可能含分配器空闲页/页舍入/原生库分配/栈/映射文件等，不能据此归因
 cmd-gc-rss-unavailable = RSS: 不可用（分配器 stats 读取失败）

@@ -515,7 +515,6 @@ status-hit = Hit
 cmd-gc-desc = Manually collect memory and display RSS changes and data structure diagnostics
 cmd-gc-rss = RSS: { $before } → { $after } ({ $delta })
 cmd-gc-allocated-rss = { $allocator } allocated: { $allocated } (allocated-RSS = { $delta }; { $hint })
-cmd-gc-os-rss = OS RSS: { $before } → { $after } ({ $delta })
 cmd-gc-origin-messages = origin_messages: { $count } messages, ~{ $bytes }
 cmd-gc-completed-messages = pipeline.completed: { $count } messages, ~{ $bytes }
 cmd-gc-view-messages = view_messages: { $count } VMs, ~{ $bytes }
@@ -536,11 +535,14 @@ cmd-gc-mapped-mimalloc = mapped: { $bytes } (reserved virtual address space, not
 cmd-gc-retained-mimalloc = retained: { $bytes } (reserved-committed: reserved but uncommitted memory, not physical resident memory)
 cmd-gc-mapped = mapped: { $bytes } (mapped memory)
 cmd-gc-retained = retained: { $bytes } (retained memory not returned to the OS)
+cmd-gc-retained-na = retained:  n/a (virtual memory retention is not enabled on this platform, so the metric is always zero)
 cmd-gc-fragmentation-mimalloc = Fragmentation: active-allocated={ $fragmentation } (⚠ based on the mimalloc touched high-water mark, not actual fragmentation; ignore)
 cmd-gc-fragmentation = Fragmentation: active-allocated={ $fragmentation } | resident-active={ $waste }
 cmd-gc-os-gap = OS RSS({ $rss }) - { $allocator } resident({ $resident }) = { $gap }
+cmd-gc-os-gap-inverted = { "  " }resident is larger than kernel RSS: the allocator still counts pages the kernel no longer reports for this process (e.g. pages already madvised away), so the two figures are not directly comparable — a negative value is not evidence that memory use dropped
 cmd-gc-full-stats-heading = ── { $allocator } full statistics (see logs) ──
 cmd-gc-known-estimate = Estimated known total: { $known } (messages { $messages } + VMs { $views } + Markdown cache { $markdown } + render cache { $render } + diff caches { $diff }) | estimated unidentified memory within allocated: { $gap }
+cmd-gc-known-estimate-overflow = { "  " }The estimate exceeds allocated: items overlap (the same rendered result can be held by a view model and cloned into the markdown cache) and are estimated from container capacity, so an excess is expected at the estimate level and does not mean allocated is under-counted
 cmd-gc-allocated-rss-hint-positive = allocated exceeds the RSS sampled at that time (sampling time/accounting differences; for reference only)
 cmd-gc-allocated-rss-hint-negative = The RSS difference may include allocator idle pages, page rounding, native library allocations, stacks, mapped files, etc.; the difference alone does not identify the cause
 cmd-gc-rss-unavailable = RSS: unavailable (failed to read allocator statistics)
