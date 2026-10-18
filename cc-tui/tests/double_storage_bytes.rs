@@ -4,6 +4,9 @@
 use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use cc_tui::command::core::gc::estimate_messages_heap;
 
+mod common;
+use common::current_rss_kb;
+
 // ── 场景 A：纯文本对话（每条 200-500 字节）──
 fn build_text_only_session(rounds: usize) -> Vec<BaseMessage> {
     let mut msgs = Vec::new();
@@ -170,28 +173,6 @@ fn verify_estimate_reflects_real_rss_growth() {
     // 防止编译器优化掉 cloned
     assert_eq!(cloned.len(), msgs.len());
     assert!(estimated_bytes > 0);
-}
-
-#[cfg(unix)]
-fn current_rss_kb() -> usize {
-    // 读取 /proc/self/status 的 VmRSS
-    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("VmRSS:") {
-                if let Some(num) = rest.split_whitespace().next() {
-                    if let Ok(n) = num.parse::<usize>() {
-                        return n;
-                    }
-                }
-            }
-        }
-    }
-    0
-}
-
-#[cfg(not(unix))]
-fn current_rss_kb() -> usize {
-    0
 }
 
 #[test]

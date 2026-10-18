@@ -9,37 +9,8 @@ use cc_agent::messages::BaseMessage;
 use cc_tui::app::{events::AgentEvent, App};
 use cc_tui::ui::main_ui;
 
-#[cfg(unix)]
-fn current_rss_kb() -> usize {
-    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("VmRSS:") {
-                if let Some(num) = rest.split_whitespace().next() {
-                    if let Ok(n) = num.parse::<usize>() {
-                        return n;
-                    }
-                }
-            }
-        }
-    }
-    0
-}
-
-#[cfg(windows)]
-fn current_rss_kb() -> usize {
-    use windows_sys::Win32::System::ProcessStatus::{
-        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
-    };
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    let mut pmc: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
-    pmc.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut pmc, pmc.cb) };
-    if ok != 0 {
-        (pmc.WorkingSetSize / 1024) as usize
-    } else {
-        0
-    }
-}
+mod common;
+use common::current_rss_kb;
 
 /// 探测默认开启：不设 `PERI_RSS_CONTENT_X` 时自动扫这些「每轮内容倍数」档，
 /// 一次跑完即可得到「内容量 → 每轮常驻增量」的曲线与线性拟合。

@@ -1,37 +1,9 @@
-//! 用 /proc/self/status + 单独 jemalloc epoch 测 syntect 精确分配字节
-//! 避开 peri alloc_config 的 sysinfo bug
+//! 用 sysinfo 的 RSS/VSZ + 单独 jemalloc epoch 测 syntect 精确分配字节
 
 #![cfg(unix)]
 
-fn current_rss_kb() -> usize {
-    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("VmRSS:") {
-                if let Some(num) = rest.split_whitespace().next() {
-                    if let Ok(n) = num.parse::<usize>() {
-                        return n;
-                    }
-                }
-            }
-        }
-    }
-    0
-}
-
-fn current_vsize_kb() -> usize {
-    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("VmSize:") {
-                if let Some(num) = rest.split_whitespace().next() {
-                    if let Ok(n) = num.parse::<usize>() {
-                        return n;
-                    }
-                }
-            }
-        }
-    }
-    0
-}
+mod common;
+use common::{current_rss_kb, current_vsize_kb};
 
 /// Advance jemalloc epoch（必需，否则 stats 不刷新）
 fn advance_epoch() {

@@ -25,3 +25,6 @@ parking_lot.workspace = true
 default = []
 markdown = ["pulldown-cmark"]
 markdown-highlight = ["markdown", "dep:syntect"]
+
+[dev-dependencies]
+sysinfo.workspace = true
