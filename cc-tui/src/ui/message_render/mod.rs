@@ -470,6 +470,34 @@ fn take_leading_blank(line: Line<'static>) -> (String, Style, Line<'static>) {
     (lead, lead_style, Line::from(rest))
 }
 
+/// 同 [`push_wrapped_line`]，但保留原行的前导空白缩进层级并返回折行集合。
+fn format_wrapped_line_keep_lead(
+    line: Line<'static>,
+    first_prefix: &str,
+    cont_prefix: &str,
+    prefix_style: Style,
+    content_width: usize,
+) -> Vec<Line<'static>> {
+    let (lead, lead_style, rest) = take_leading_blank(line);
+    let lead_width = UnicodeWidthStr::width(lead.as_str());
+    let inner = content_width.saturating_sub(lead_width).max(1);
+    let wrapped = wrap_line_spans(rest, inner);
+    let mut out = Vec::with_capacity(wrapped.len());
+    for (j, wline) in wrapped.into_iter().enumerate() {
+        let prefix = if j == 0 { first_prefix } else { cont_prefix };
+        let mut spans = Vec::with_capacity(wline.spans.len() + 2);
+        if !prefix.is_empty() {
+            spans.push(Span::styled(prefix.to_string(), prefix_style));
+        }
+        if !lead.is_empty() {
+            spans.push(Span::styled(lead.clone(), lead_style));
+        }
+        spans.extend(wline.spans);
+        out.push(Line::from(spans));
+    }
+    out
+}
+
 /// 同 [`push_wrapped_line`]，但保留原行的前导空白缩进层级。
 ///
 /// `wrap_line_spans_rich` 会 trim 每段行首空白，导致带缩进的长行（美化 JSON / YAML /
@@ -483,21 +511,13 @@ fn push_wrapped_line_keep_lead(
     prefix_style: Style,
     content_width: usize,
 ) {
-    let (lead, lead_style, rest) = take_leading_blank(line);
-    let lead_width = UnicodeWidthStr::width(lead.as_str());
-    let inner = content_width.saturating_sub(lead_width).max(1);
-    for (j, wline) in wrap_line_spans(rest, inner).into_iter().enumerate() {
-        let prefix = if j == 0 { first_prefix } else { cont_prefix };
-        let mut spans = Vec::with_capacity(wline.spans.len() + 2);
-        if !prefix.is_empty() {
-            spans.push(Span::styled(prefix.to_string(), prefix_style));
-        }
-        if !lead.is_empty() {
-            spans.push(Span::styled(lead.clone(), lead_style));
-        }
-        spans.extend(wline.spans);
-        out.push(Line::from(spans));
-    }
+    out.extend(format_wrapped_line_keep_lead(
+        line,
+        first_prefix,
+        cont_prefix,
+        prefix_style,
+        content_width,
+    ));
 }
 
 /// 便捷包装：单一样式的纯文本行（先做终端转义清理）预折行，续行固定 4 列悬挂缩进，
@@ -519,6 +539,17 @@ fn split_tree_row(line: &str) -> Option<(&str, &str, &str)> {
     Some((indent, &trimmed[..prefix_len], &trimmed[prefix_len..]))
 }
 
+fn format_prefixed_text(
+    text: &str,
+    first_prefix: &str,
+    prefix_style: Style,
+    text_style: Style,
+    content_width: usize,
+) -> Vec<Line<'static>> {
+    let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
+    format_wrapped_line_keep_lead(line, first_prefix, "    ", prefix_style, content_width)
+}
+
 fn push_prefixed_text(
     out: &mut Vec<Line<'static>>,
     text: &str,
@@ -527,8 +558,75 @@ fn push_prefixed_text(
     text_style: Style,
     content_width: usize,
 ) {
-    let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
-    push_wrapped_line_keep_lead(out, line, first_prefix, "    ", prefix_style, content_width);
+    out.extend(format_prefixed_text(
+        text,
+        first_prefix,
+        prefix_style,
+        text_style,
+        content_width,
+    ));
+}
+
+/// 按视觉行预算推入内容行，若超出预算则在最后追加展开提示行。
+///
+/// 保留前 `max_lines` 个视觉行。若发生截断：
+/// - 若有未展示的后续逻辑行，提示 `... ({remaining} more lines) (ctrl+o to expand)`；
+/// - 若所有逻辑行已进入但因单行折行超出配额被截断，提示 `... (ctrl+o to expand)`。
+fn push_visual_capped_output<T, F>(
+    out: &mut Vec<Line<'static>>,
+    items: &[T],
+    max_lines: usize,
+    border_color: Color,
+    mut format_line: F,
+) where
+    F: FnMut(&T, usize) -> Vec<Line<'static>>,
+{
+    let total = items.len();
+    let mut rendered_visual = 0;
+    for (i, item) in items.iter().enumerate() {
+        let available = max_lines.saturating_sub(rendered_visual);
+        if available == 0 {
+            let remaining_logical = total.saturating_sub(i);
+            let hint = if remaining_logical > 0 {
+                format!("... ({remaining_logical} more lines) (ctrl+o to expand)")
+            } else {
+                "... (ctrl+o to expand)".to_string()
+            };
+            out.push(Line::from(vec![
+                Span::styled("    ", Style::default().fg(border_color)),
+                Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+            ]));
+            return;
+        }
+
+        let wlines = format_line(item, i);
+        if wlines.len() <= available {
+            rendered_visual += wlines.len();
+            out.extend(wlines);
+            if rendered_visual >= max_lines && i + 1 < total {
+                let remaining_logical = total - (i + 1);
+                let hint = format!("... ({remaining_logical} more lines) (ctrl+o to expand)");
+                out.push(Line::from(vec![
+                    Span::styled("    ", Style::default().fg(border_color)),
+                    Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+                ]));
+                return;
+            }
+        } else {
+            out.extend(wlines.into_iter().take(available));
+            let remaining_logical = total.saturating_sub(i + 1);
+            let hint = if remaining_logical > 0 {
+                format!("... ({remaining_logical} more lines) (ctrl+o to expand)")
+            } else {
+                "... (ctrl+o to expand)".to_string()
+            };
+            out.push(Line::from(vec![
+                Span::styled("    ", Style::default().fg(border_color)),
+                Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+            ]));
+            return;
+        }
+    }
 }
 
 /// Generate always-visible error summary lines (up to 400 Unicode chars).
@@ -902,6 +1000,24 @@ fn ansi_spans(line: &str, default_style: Style) -> Vec<Span<'static>> {
 /// 首行用 `prefix`、续行用 4 列空格，形成悬挂缩进；不设背景色，与工具结果行
 /// （`⎿` 前缀 + DIM/ERROR 前景色）保持一致。
 /// 预折行避免 `Paragraph::wrap` 二次硬折行使长输出续行顶格。
+fn format_shell_output_lines(
+    prefix: &str,
+    text: &str,
+    default_style: Style,
+    prefix_color: Color,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let prefix_style = Style::default().fg(prefix_color);
+    let content: Vec<Span<'static>> = ansi_spans(text, default_style);
+    format_wrapped_line_keep_lead(
+        Line::from(content),
+        prefix,
+        "    ",
+        prefix_style,
+        width.saturating_sub(4).max(20),
+    )
+}
+
 fn shell_output_lines(
     out: &mut Vec<Line<'static>>,
     prefix: &'static str,
@@ -910,16 +1026,13 @@ fn shell_output_lines(
     prefix_color: Color,
     width: usize,
 ) {
-    let prefix_style = Style::default().fg(prefix_color);
-    let content: Vec<Span<'static>> = ansi_spans(text, default_style);
-    push_wrapped_line_keep_lead(
-        out,
-        Line::from(content),
+    out.extend(format_shell_output_lines(
         prefix,
-        "    ",
-        prefix_style,
-        width.saturating_sub(4).max(20),
-    );
+        text,
+        default_style,
+        prefix_color,
+        width,
+    ));
 }
 
 /// 渲染用户 `!` 本机命令的标题行。
@@ -986,36 +1099,28 @@ fn render_shell_command(
         } else {
             SHELL_OUTPUT_COLLAPSED_LINES
         };
-        for (idx, (line, is_error)) in output_lines.iter().enumerate() {
-            if idx >= max_lines {
-                // 与 Bash 工具结果行的截断提示文案保持一致。
-                let remaining = output_lines.len() - max_lines;
-                let hint = format!("... ({remaining} more lines) (ctrl+o to expand)");
-                shell_output_lines(
-                    &mut lines,
-                    "    ",
-                    &hint,
-                    Style::default().fg(theme::cur().subtle),
-                    theme::cur().subtle,
-                    width,
-                );
-                break;
-            }
-            // 与 Bash 工具结果行口径一致：成功输出用 TEXT_SOFT，非零退出码用 ERROR。
-            let default_style = if *is_error && exit_code != Some(0) {
-                Style::default().fg(theme::cur().error)
-            } else {
-                Style::default().fg(theme::cur().text_soft)
-            };
-            // 与 Bash 工具结果行口径一致：非零退出码时前缀转 ERROR 红。
-            let prefix_color = if *is_error && exit_code != Some(0) {
-                theme::cur().error
-            } else {
-                theme::cur().subtle
-            };
-            let prefix = if idx == 0 { "  ⎿ " } else { "    " };
-            shell_output_lines(&mut lines, prefix, line, default_style, prefix_color, width);
-        }
+        push_visual_capped_output(
+            &mut lines,
+            &output_lines,
+            max_lines,
+            theme::cur().subtle,
+            |(line, is_error), idx| {
+                // 与 Bash 工具结果行口径一致：成功输出用 TEXT_SOFT，非零退出码用 ERROR。
+                let default_style = if *is_error && exit_code != Some(0) {
+                    Style::default().fg(theme::cur().error)
+                } else {
+                    Style::default().fg(theme::cur().text_soft)
+                };
+                // 与 Bash 工具结果行口径一致：非零退出码时前缀转 ERROR 红。
+                let prefix_color = if *is_error && exit_code != Some(0) {
+                    theme::cur().error
+                } else {
+                    theme::cur().subtle
+                };
+                let prefix = if idx == 0 { "  ⎿ " } else { "    " };
+                format_shell_output_lines(prefix, line, default_style, prefix_color, width)
+            },
+        );
     }
 
     // 2 秒阈值提示：前台 running 超 2 秒显示已运行时间 + "(Ctrl+B to run in background)"（对齐效果图场景 1）
@@ -1508,65 +1613,49 @@ pub fn render_view_model_with_flags(
                     None
                 };
 
+                let content_width = width.saturating_sub(4).max(20);
                 if let Some(ref b_lines) = bash_display_lines {
-                    for (i, item) in b_lines.iter().enumerate() {
-                        if i >= max_lines {
-                            let remaining = b_lines.len().saturating_sub(max_lines);
-                            if remaining > 0 {
-                                lines.push(Line::from(vec![
-                                    Span::styled("    ", Style::default().fg(border_color)),
-                                    Span::styled(
-                                        format!("... ({remaining} more lines) (ctrl+o to expand)"),
-                                        Style::default().fg(theme::cur().subtle),
-                                    ),
-                                ]));
-                            }
-                            break;
-                        }
-                        let text_color = if item.is_error_header {
-                            theme::cur().error
-                        } else {
-                            result_color
-                        };
-                        push_prefixed_text(
-                            &mut lines,
-                            item.text,
-                            item.prefix,
-                            Style::default().fg(border_color),
-                            Style::default().fg(text_color),
-                            width.saturating_sub(4).max(20),
-                        );
-                    }
+                    push_visual_capped_output(
+                        &mut lines,
+                        b_lines,
+                        max_lines,
+                        border_color,
+                        |item, _i| {
+                            let text_color = if item.is_error_header {
+                                theme::cur().error
+                            } else {
+                                result_color
+                            };
+                            format_prefixed_text(
+                                item.text,
+                                item.prefix,
+                                Style::default().fg(border_color),
+                                Style::default().fg(text_color),
+                                content_width,
+                            )
+                        },
+                    );
                 } else {
-                    for (i, line) in result_lines.iter().enumerate() {
-                        if i >= max_lines {
-                            // 仅当确有剩余行时显示截断提示（避免 `... (0 more lines)`）
-                            let remaining = result_lines.len().saturating_sub(max_lines);
-                            if remaining > 0 {
-                                lines.push(Line::from(vec![
-                                    Span::styled("    ", Style::default().fg(border_color)),
-                                    Span::styled(
-                                        format!("... ({remaining} more lines) (ctrl+o to expand)"),
-                                        Style::default().fg(theme::cur().subtle),
-                                    ),
-                                ]));
-                            }
-                            break;
-                        }
-                        let first_prefix = if i == 0 && tool_name != "Glob" {
-                            "  ⎿ "
-                        } else {
-                            "    "
-                        };
-                        push_prefixed_text(
-                            &mut lines,
-                            line,
-                            first_prefix,
-                            Style::default().fg(border_color),
-                            Style::default().fg(result_color),
-                            width.saturating_sub(4).max(20),
-                        );
-                    }
+                    push_visual_capped_output(
+                        &mut lines,
+                        &result_lines,
+                        max_lines,
+                        border_color,
+                        |line, i| {
+                            let first_prefix = if i == 0 && tool_name != "Glob" {
+                                "  ⎿ "
+                            } else {
+                                "    "
+                            };
+                            format_prefixed_text(
+                                line,
+                                first_prefix,
+                                Style::default().fg(border_color),
+                                Style::default().fg(result_color),
+                                content_width,
+                            )
+                        },
+                    );
                 }
             } else if *is_error && !content.is_empty() {
                 lines.extend(error_summary_lines(
