@@ -28,7 +28,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
 
     for (i, task) in panel.tasks().iter().enumerate() {
         let is_cursor = i == panel.cursor();
-        let cursor_char = if is_cursor { "❯ " } else { "  " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR_SPACED } else { "  " };
         let status_icon = if task.enabled {
             lc.tr("cron-status-enabled")
         } else {
@@ -67,7 +67,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App,
         lines.push(Line::from(vec![
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().fg(theme::cur().thinking),
+                theme::cursor_style(),
             ),
             Span::styled(format!("[{}] ", status_icon), status_style),
             Span::styled(format!("{} ", task.expression), style),

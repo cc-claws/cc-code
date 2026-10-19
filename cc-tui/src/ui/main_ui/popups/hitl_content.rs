@@ -179,7 +179,11 @@ fn choice_rows(
     let mut rows = Vec::new();
     for (index, choice) in ApprovalChoice::ALL.into_iter().enumerate() {
         let is_selected = choice == selected;
-        let marker = if is_selected { "❯ ● " } else { "  ○ " };
+        let marker = if is_selected {
+            format!("{} ● ", theme::SYMBOL_CURSOR)
+        } else {
+            "  ○ ".to_string()
+        };
         let style = if is_selected {
             Style::default()
                 .fg(if choice == ApprovalChoice::Reject {
@@ -235,7 +239,7 @@ fn tool_header(
         _ => "hitl-call-tool",
     });
     let prefix = if choice.is_some() {
-        format!("{} {} ", if active { "❯" } else { " " }, index + 1)
+        format!("{} {} ", if active { theme::SYMBOL_CURSOR } else { " " }, index + 1)
     } else {
         String::new()
     };

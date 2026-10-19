@@ -39,7 +39,6 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
     // ── 消息列表 ──
     for (i, item) in prompt.items.iter().enumerate() {
         let is_cursor = i == prompt.cursor;
-        let cursor_indicator = if is_cursor { "❯ " } else { "  " };
 
         // 字符级安全截断
         let max_summary = max_width.saturating_sub(12);
@@ -53,17 +52,14 @@ pub(crate) fn render_rewind_popup(f: &mut Frame, app: &App, area: Rect) {
         };
         let count_label = format!("({}msg)", item.message_count_after);
 
+        let cursor_span = if is_cursor {
+            Span::styled(theme::SYMBOL_CURSOR_SPACED, theme::cursor_style())
+        } else {
+            Span::raw("  ")
+        };
+
         lines.push(Line::from(vec![
-            Span::styled(
-                cursor_indicator,
-                if is_cursor {
-                    Style::default()
-                        .fg(theme::cur().claude)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                },
-            ),
+            cursor_span,
             Span::styled(
                 summary,
                 if is_cursor {

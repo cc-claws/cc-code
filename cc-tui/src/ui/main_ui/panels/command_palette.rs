@@ -104,7 +104,7 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
                 let is_cursor = panel.cursor == row_idx;
                 let is_active = entry.provider_id == active_provider && entry.alias == active_alias;
 
-                let cursor_char = if is_cursor { "\u{276f}" } else { " " };
+                let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
                 let check = if is_active { "\u{2714}" } else { "" };
 
                 let label_style = if is_active {
@@ -209,7 +209,7 @@ fn render_effort_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mu
         let is_cursor = panel.effort_cursor == i;
         let is_active = *key == panel.current_effort;
 
-        let cursor_char = if is_cursor { "\u{276f}" } else { " " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
         let check = if is_active { "\u{2714}" } else { "" };
         let num = format!("{}.", i + 1);
 

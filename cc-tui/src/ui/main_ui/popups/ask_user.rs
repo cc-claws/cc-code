@@ -100,7 +100,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
         let is_cursor = !cur.in_custom_input && cur.option_cursor == i as isize;
         let is_selected = cur.selected.get(i).copied().unwrap_or(false);
         let num = i + 1;
-        let cursor_mark = if is_cursor { "❯" } else { " " };
+        let cursor_mark = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
 
         let row_style = if is_cursor {
             Style::default()
@@ -149,7 +149,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     {
         let custom_num = option_count + 1;
         let is_cursor = cur.in_custom_input;
-        let cursor_mark = if is_cursor { "❯" } else { " " };
+        let cursor_mark = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
         let display = if cur.custom_input.is_empty() && !is_cursor {
             app.services.lc.tr("ask-user-placeholder")
         } else if is_cursor {

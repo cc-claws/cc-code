@@ -61,7 +61,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                 let is_cursor = i == panel.cursor();
                 let is_active = p.id == active_provider_id;
                 let bullet = if is_active { "●" } else { "○" };
-                let cursor_char = if is_cursor { "❯" } else { " " };
+                let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
                 let name = p.display_name().to_string();
                 let type_tag = format!("({})", p.provider_type);
                 let row_style = if is_active {
@@ -71,7 +71,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                 } else {
                     Style::default().fg(theme::cur().text)
                 };
-                let cursor_style = Style::default().fg(theme::cur().thinking);
+                let cursor_style = theme::cursor_style();
                 lines.push(Line::from(vec![
                     Span::styled(format!("{} ", cursor_char), cursor_style),
                     Span::styled(format!("{} ", bullet), row_style),
@@ -231,7 +231,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                 let is_cursor = i == panel.cursor();
                 let is_active = p.id == active_provider_id;
                 let bullet = if is_active { "●" } else { "○" };
-                let cursor_char = if is_cursor { "❯" } else { " " };
+                let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
                 let row_style = if is_active {
                     Style::default().fg(theme::cur().success)
                 } else if is_cursor {
@@ -239,7 +239,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                 } else {
                     Style::default().fg(theme::cur().text)
                 };
-                let cursor_style = Style::default().fg(theme::cur().thinking);
+                let cursor_style = theme::cursor_style();
                 list_lines.push(Line::from(vec![
                     Span::styled(format!("{} ", cursor_char), cursor_style),
                     Span::styled(format!("{} ", bullet), row_style),

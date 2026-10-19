@@ -67,7 +67,7 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
     } else {
         for (i, entry) in panel.list.items().iter().enumerate() {
             let is_cursor = panel.cursor() == i;
-            let cursor_char = if is_cursor { "❯" } else { " " };
+            let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
 
             let name_style = if is_cursor {
                 Style::default()

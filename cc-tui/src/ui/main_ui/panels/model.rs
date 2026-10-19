@@ -75,7 +75,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
             .unwrap_or("");
 
         let check = if is_active { "\u{2714}" } else { " " };
-        let cursor_char = if is_cursor { "\u{276f}" } else { " " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
 
         let label_style = if is_active {
             Style::default()
@@ -130,7 +130,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
                 .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD)
         };
-        let cursor_char = if is_cursor { "\u{276f}" } else { " " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
 
         let spans = vec![
             Span::styled(
@@ -168,7 +168,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
                 .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD)
         };
-        let cursor_char = if is_cursor { "\u{276f}" } else { " " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
 
         let spans = vec![
             Span::styled(
@@ -200,7 +200,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &mut Ap
                 .fg(theme::cur().inactive)
                 .add_modifier(Modifier::BOLD)
         };
-        let cursor_char = if is_cursor { "\u{276f}" } else { " " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
 
         let state_color = if panel.buf_context_1m {
             theme::cur().success

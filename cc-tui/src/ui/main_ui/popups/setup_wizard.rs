@@ -55,8 +55,8 @@ fn render_step_choose(
 
     for (i, src) in SetupSource::ALL.iter().enumerate() {
         let is_cursor = i == wizard.choose_cursor;
-        let cursor_char = if is_cursor { "❯" } else { " " };
-        let cursor_style = Style::default().fg(theme::cur().thinking);
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
+        let cursor_style = theme::cursor_style();
         let label_style = if is_cursor {
             Style::default()
                 .fg(theme::cur().thinking)
@@ -116,8 +116,8 @@ fn render_step_language(
 
     for (i, (_code, name)) in LANGUAGE_OPTIONS.iter().enumerate() {
         let is_cursor = i == wizard.language_cursor;
-        let cursor_char = if is_cursor { "❯" } else { " " };
-        let cursor_style = Style::default().fg(theme::cur().thinking);
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
+        let cursor_style = theme::cursor_style();
         let name_style = if is_cursor {
             Style::default()
                 .fg(theme::cur().thinking)
@@ -183,7 +183,7 @@ fn render_form_browse(
 
     for (idx, mp) in wizard.providers.iter().enumerate() {
         let is_cursor = idx == wizard.browse_cursor;
-        let cursor = if is_cursor { "❯" } else { " " };
+        let cursor = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
         let check_char = if mp.selected { "✓" } else { " " };
         let check_color = if mp.selected { theme::cur().success } else { theme::cur().subtle };
         let name_style = if is_cursor {
@@ -253,9 +253,9 @@ fn render_form_browse(
     } else {
         Style::default().fg(theme::cur().inactive)
     };
-    let submit_cursor = if submit_active { "❯ " } else { "  " };
+    let submit_cursor = if submit_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
     lines.push(Line::from(vec![
-        Span::styled(submit_cursor, Style::default().fg(theme::cur().thinking)),
+        Span::styled(submit_cursor, theme::cursor_style()),
         Span::styled(format!(" {}", lc.tr("setup-submit")), submit_style),
     ]));
 
@@ -362,7 +362,7 @@ fn render_form_edit(
 
     // 测试联通性按钮 + 结果
     let test_active = wizard.form_focus == FormField::TestConnectivity;
-    let test_cursor = if test_active { "❯ " } else { "  " };
+    let test_cursor = if test_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
     let test_style = if test_active {
         Style::default()
             .fg(theme::cur().thinking)
@@ -371,7 +371,7 @@ fn render_form_edit(
         Style::default().fg(theme::cur().inactive)
     };
     lines.push(Line::from(vec![
-        Span::styled(test_cursor, Style::default().fg(theme::cur().thinking)),
+        Span::styled(test_cursor, theme::cursor_style()),
         Span::styled(format!(" {}", lc.tr("setup-test-connectivity")), test_style),
     ]));
     if let Some((ok, ref msg)) = wizard.connectivity_result {
@@ -433,10 +433,10 @@ fn render_form_edit(
     } else {
         Style::default().fg(theme::cur().inactive)
     };
-    let confirm_cursor = if confirm_active { "❯ " } else { "  " };
+    let confirm_cursor = if confirm_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled(confirm_cursor, Style::default().fg(theme::cur().thinking)),
+        Span::styled(confirm_cursor, theme::cursor_style()),
         Span::styled(format!(" {}", lc.tr("setup-confirm")), confirm_style),
     ]));
 
@@ -459,7 +459,7 @@ fn render_field_line(
     focus: FormField,
 ) -> Line<'static> {
     let is_active = focus == field;
-    let cursor = if is_active { "❯ " } else { "  " };
+    let cursor = if is_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
     let lbl = if is_active {
         Style::default()
             .fg(theme::cur().thinking)

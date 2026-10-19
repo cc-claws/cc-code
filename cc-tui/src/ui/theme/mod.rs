@@ -179,6 +179,22 @@ pub const SYMBOL_DOT: &str = "●";
 /// 带后置空格的统一圆点前缀（"● "），方便构建 Line/Span
 pub const SYMBOL_DOT_SPACED: &str = "● ";
 
+/// 全局统一面板/弹窗列表光标指示符（U+276F HEAVY RIGHT-POINTING ANGLE QUOTATION MARK ORNAMENT）
+///
+/// 契约（对齐 TUI-STYLE.md §353）：
+/// 所有面板、弹窗、下拉列表的选中行光标指示符统一使用本符号，
+/// 颜色统一使用 [`cursor_style`]（当前主题的 `thinking` 色）。
+/// 严禁使用其它类似箭头（如 `>` / `→` / `▶`），杜绝各处手写转义与字面量混用。
+pub const SYMBOL_CURSOR: &str = "❯";
+
+/// 带后置空格的统一光标前缀（"❯ "），方便构建 Line/Span
+pub const SYMBOL_CURSOR_SPACED: &str = "❯ ";
+
+/// 面板/弹窗选中行光标的标准样式（THINKING 强调色，无底色）
+pub fn cursor_style() -> ratatui::style::Style {
+    ratatui::style::Style::default().fg(cur().thinking)
+}
+
 #[cfg(test)]
 mod tests {
 use super::*;
@@ -243,5 +259,13 @@ assert_eq!(p.diff_added, rgb(18, 52, 26)); // widgets diff_add_bg
 assert_eq!(p.diff_removed, rgb(55, 20, 18)); // widgets diff_remove_bg
 assert_eq!(p.diff_added_word, rgb(26, 78, 36));
 assert_eq!(p.diff_removed_word, rgb(78, 28, 22));
+}
+
+#[test]
+fn test_symbol_cursor_contract() {
+    assert_eq!(SYMBOL_CURSOR, "\u{276f}");
+    assert_eq!(SYMBOL_CURSOR_SPACED, "\u{276f} ");
+    let style = cursor_style();
+    assert_eq!(style.fg, Some(cur().thinking));
 }
 }

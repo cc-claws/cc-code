@@ -95,7 +95,7 @@ pub fn render_at_mention_popup(
 
             let display = truncate_middle(&cand.display, path_max_width);
 
-            let prefix = if is_selected { "❯ " } else { "  " };
+            let prefix = if is_selected { theme::SYMBOL_CURSOR_SPACED } else { "  " };
             let style = if is_selected {
                 Style::default()
                     .fg(theme::cur().thinking)
@@ -107,7 +107,7 @@ pub fn render_at_mention_popup(
             Line::from(vec![
                 Span::styled(
                     format!("{}{} ", prefix, icon),
-                    Style::default().fg(theme::cur().thinking),
+                    theme::cursor_style(),
                 ),
                 Span::styled(display, style),
             ])
