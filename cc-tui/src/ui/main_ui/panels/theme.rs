@@ -49,7 +49,7 @@ pub(crate) fn render_theme_panel(f: &mut Frame, panel: &ThemePanel, app: &mut Ap
                 .add_modifier(Modifier::BOLD)
         };
         let check = if is_saved { "\u{2714}" } else { " " };
-        let cursor_char = if is_cursor { "\u{276f}" } else { " " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
         let check_style = if is_saved {
             Style::default().fg(theme::cur().success)
         } else {

@@ -40,8 +40,8 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     let is_none_selected = panel.selected_id.is_none();
     lines.push(Line::from(vec![
         Span::styled(
-            if is_none_cursor { "❯ " } else { "  " },
-            Style::default().fg(theme::cur().thinking),
+            if is_none_cursor { theme::SYMBOL_CURSOR_SPACED } else { "  " },
+            theme::cursor_style(),
         ),
         Span::styled(
             lc.tr("agent-panel-none"),
@@ -67,7 +67,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
         let is_selected = panel.selected_id.as_ref() == Some(&agent.id);
 
         let bullet = if is_selected { "●" } else { "○" };
-        let cursor_char = if is_cursor { "❯" } else { " " };
+        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
 
         let name_style = if is_selected {
             Style::default()

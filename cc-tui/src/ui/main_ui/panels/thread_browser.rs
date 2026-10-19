@@ -191,20 +191,17 @@ pub(crate) fn render_thread_browser(
         let label = truncate_display(title, max_title_width);
 
         // 第一行：cursor indicator + 标题
-        let cursor_span = Span::styled(
-            if is_cursor { "❯ " } else { "  " },
-            Style::default().fg(if is_cursor {
-                theme::cur().selected_fg
-            } else {
-                theme::cur().inactive
-            }),
-        );
+        let cursor_span = if is_cursor {
+            Span::styled(theme::SYMBOL_CURSOR_SPACED, theme::cursor_style())
+        } else {
+            Span::raw("  ")
+        };
 
         let current_tag = if is_current { "✓ " } else { "" };
 
         let title_style = if is_cursor {
             Style::default()
-                .fg(theme::cur().selected_fg)
+                .fg(theme::cur().thinking)
                 .add_modifier(Modifier::BOLD)
         } else if is_current {
             Style::default()

@@ -164,8 +164,12 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
         };
 
         let mut spans = vec![Span::styled(
-            if is_selected { "❯ /" } else { "  /" },
-            Style::default().fg(theme::cur().thinking),
+            if is_selected {
+                format!("{} /", theme::SYMBOL_CURSOR)
+            } else {
+                "  /".to_string()
+            },
+            theme::cursor_style(),
         )];
 
         if let Some(m) = matched {
