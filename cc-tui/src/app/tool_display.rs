@@ -32,11 +32,12 @@ pub fn format_tool_name(tool: &str) -> String {
     .to_string()
 }
 
-/// Bash 命令摘要的字符硬上限，仅作为防御极端超长命令的兜底。
+/// 工具命令/参数摘要的字符硬上限，仅作为防御极端超长输入的兜底。
 ///
-/// 不能用较小值：详细模式（Ctrl+O）下 Bash 命令需要完整折行展示，若在此处
-/// 提前硬截断，下游 `tool_args_header` 将无法还原完整命令（issue #258）。
-const BASH_COMMAND_MAX_CHARS: usize = 4000;
+/// 不能用较小值：详细模式（Ctrl+O）下参数需要完整折行展示，若在此处
+/// 提前硬截断，下游 `tool_args_header` 将无法还原完整内容（issue #258）。
+pub const TOOL_ARGS_MAX_CHARS: usize = 4000;
+pub const BASH_COMMAND_MAX_CHARS: usize = TOOL_ARGS_MAX_CHARS;
 
 /// 返回参数摘要（含路径缩短逻辑）
 pub fn format_tool_args(
@@ -74,8 +75,12 @@ pub fn format_tool_args(
         }
         "Glob" => input["pattern"].as_str().map(|p| truncate(p, 200)),
         "Grep" => input["pattern"].as_str().map(|s| truncate(s, 200)),
-        "WebSearch" => input["query"].as_str().map(|s| truncate(s, 60)),
-        "WebFetch" => input["url"].as_str().map(|s| truncate(s, 60)),
+        "WebSearch" => input["query"]
+            .as_str()
+            .map(|s| truncate(s, TOOL_ARGS_MAX_CHARS)),
+        "WebFetch" => input["url"]
+            .as_str()
+            .map(|s| truncate(s, TOOL_ARGS_MAX_CHARS)),
         "ExecuteExtraTool" => input["tool_name"].as_str().map(|s| truncate(s, 40)),
         "SearchExtraTools" => input["query"].as_str().map(|s| truncate(s, 40)),
         "LSP" => input["operation"].as_str().map(|s| truncate(s, 40)),
@@ -84,14 +89,12 @@ pub fn format_tool_args(
             .as_str()
             .or_else(|| input["prompt"].as_str())
             .map(|s| truncate(s, 40)),
-        "TodoWrite" => input["todos"]
-            .as_array()
-            .map(|todos| {
-                crate::i18n::global().tr_args(
-                    "todo-count",
-                    &[("count".into(), todos.len().to_string().into())],
-                )
-            }),
+        "TodoWrite" => input["todos"].as_array().map(|todos| {
+            crate::i18n::global().tr_args(
+                "todo-count",
+                &[("count".into(), todos.len().to_string().into())],
+            )
+        }),
         // 兜底：状态栏要求所有工具都有摘要，取第一个非空字符串字段
         _ => first_string_field(input).map(|s| truncate(s, 40)),
     }

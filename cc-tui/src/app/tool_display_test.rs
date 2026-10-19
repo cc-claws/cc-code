@@ -136,6 +136,28 @@ fn test_bash_command_under_max_chars_not_truncated() {
 }
 
 #[test]
+fn test_websearch_and_webfetch_not_truncated_at_sixty_chars() {
+    let query =
+        "what is the best way to handle visual line wrapping in rust terminal ui and ratatui";
+    assert!(query.len() > 60);
+    let input = serde_json::json!({"query": query});
+    let result = format_tool_args("WebSearch", &input, None).unwrap();
+    assert_eq!(
+        result, query,
+        "超过 60 字符的 WebSearch query 不应被过早截断"
+    );
+
+    let url = "https://example.com/very/long/url/path/with/lots/of/parameters?query=rust&framework=ratatui&mode=detail";
+    assert!(url.len() > 60);
+    let fetch_input = serde_json::json!({"url": url});
+    let fetch_result = format_tool_args("WebFetch", &fetch_input, None).unwrap();
+    assert_eq!(
+        fetch_result, url,
+        "超过 60 字符的 WebFetch url 不应被过早截断"
+    );
+}
+
+#[test]
 fn test_glob_truncates_at_200() {
     let pattern = "p".repeat(300);
     let input = serde_json::json!({"pattern": pattern, "path": "/tmp"});

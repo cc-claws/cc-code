@@ -2738,3 +2738,110 @@ fn test_subagent_launch_summary_detail_mode_renders_prompt_cards() {
         "详细模式应包含厦门 Prompt 具体正文"
     );
 }
+
+#[test]
+fn test_bash_single_long_json_line_capped_to_three_visual_lines_in_normal_mode() {
+    use crate::app::MessageViewModel;
+    // Arrange: 构造单行无换行的超长 JSON（约 1000 字符）
+    let long_json = format!(
+        "{{\"open\":false,\"cleanup\":false,\"capabilities\":[{}],\"status\":\"ok\"}}",
+        (0..20)
+            .map(|i| format!("{{\"provider_id\":\"provider_{i:02}\",\"limitations\":[\"unsupported_host_architecture\"]}}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    assert!(!long_json.contains('\n'), "输入必须是单行 JSON");
+    assert!(long_json.len() > 800, "输入长度应远超终端单行宽度");
+    let mut vm = MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("npx test-runner".to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock { content, .. } = &mut vm {
+        *content = long_json.clone();
+    }
+    // Act: 普通模式 (detail_mode = false) 渲染于 80 列宽终端
+    let normal_lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let normal_text: String = normal_lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    // Assert: 普通模式下最多只占用 1 行 header + 3 行视觉内容 + 1 行提示 = 5 行
+    assert!(
+        normal_lines.len() <= 5,
+        "普通模式下单行超长 JSON 必须受视觉行上限约束（≤5 行），实际: {} 行",
+        normal_lines.len()
+    );
+    assert!(
+        normal_text.contains("(ctrl+o to expand)"),
+        "普通模式下截断单行长 JSON 应显示展开提示: {normal_text}"
+    );
+    assert!(
+        !normal_text.contains("more lines"),
+        "单行长 JSON 无多余逻辑行，不应显示 more lines: {normal_text}"
+    );
+    // Act & Assert: 详细模式 (detail_mode = true) 完整展开
+    let detail_lines = render_view_model(&vm, Some(1), 80, true, 0);
+    let detail_text: String = detail_lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        detail_lines.len() > 10,
+        "详细模式下应完整折行展示长 JSON，行数应远超 10 行，实际: {} 行",
+        detail_lines.len()
+    );
+    assert!(
+        detail_text.contains("provider_19"),
+        "详细模式下应包含末尾的字段内容"
+    );
+    assert!(
+        !detail_text.contains("(ctrl+o to expand)"),
+        "详细模式下不应再包含展开提示"
+    );
+}
+
+#[test]
+fn test_websearch_detail_mode_wraps_full_query_without_early_truncation() {
+    use crate::app::MessageViewModel;
+    let query = "what is the best way to handle visual line wrapping in rust terminal ui and ratatui when single line json is huge UNIQUE_QUERY_END_TOKEN";
+    assert!(query.len() > 100);
+    let vm = MessageViewModel::tool_block(
+        "WebSearch".to_string(),
+        "WebSearch".to_string(),
+        Some(query.to_string()),
+        false,
+    );
+    // Act: 普通模式 (detail_mode = false) 在 80 列宽终端
+    let normal_lines = render_view_model(&vm, Some(1), 80, false, 0);
+    assert_eq!(normal_lines.len(), 1, "普通模式下 header 仅占单行");
+    let normal_text: String = normal_lines[0]
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert!(
+        normal_text.contains('…'),
+        "普通模式下超长 query 应做单行显示截断并以 … 结尾: {normal_text}"
+    );
+    assert!(
+        !normal_text.contains("UNIQUE_QUERY_END_TOKEN"),
+        "普通模式下单行截断不应看到末尾 token"
+    );
+    // Act & Assert: 详细模式 (detail_mode = true) 完整折行展示
+    let detail_lines = render_view_model(&vm, Some(1), 80, true, 0);
+    assert!(
+        detail_lines.len() >= 2,
+        "详细模式下超长 query 应自动折成多行展示，实际 {} 行",
+        detail_lines.len()
+    );
+    let detail_text: String = detail_lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        detail_text.contains("UNIQUE_QUERY_END_TOKEN"),
+        "详细模式下应完整展示末尾 token，不受 60 字符过早截断: {detail_text}"
+    );
+}
