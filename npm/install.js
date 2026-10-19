@@ -124,6 +124,47 @@ function extractZip(buffer, dest) {
   zip.extractAllTo(dest, true);
 }
 
+// 解压 ripgrep 的 tar.gz 到 dest。
+// 上游 microsoft/ripgrep-prebuilt 的资产把 rg 直接放在根目录（`rg`），
+// 不带 ripgrep-x.y.z-suffix/ 子目录；早先的实现假定存在该子目录并使用
+// --strip-components=1，导致在所有 Linux/macOS 平台上都解不出 rg，
+// 包内 bin/rg 永不落地、只能降级到系统 rg。此处先列目录判断实际布局，
+// 两种结构都兼容，且把临时文件清理放进 finally 避免失败路径泄漏。
+function extractRgTarGz(buffer, dest) {
+  const tmpFile = join(dest, "rg-download.tar.gz");
+  writeFileSync(tmpFile, buffer);
+  try {
+    let hasRootRg = false;
+    try {
+      const listing = execSync(`tar tzf "${tmpFile}"`, {
+        stdio: ["ignore", "pipe", "ignore"],
+      }).toString();
+      hasRootRg = listing
+        .split("\n")
+        .map((line) => line.trim())
+        // 兼容 "./rg" 前缀与 "rg" 两种写法
+        .some((line) => line === "rg" || line === "./rg");
+    } catch {
+      hasRootRg = false;
+    }
+
+    if (hasRootRg) {
+      execSync(`tar -xzf "${tmpFile}" -C "${dest}"`, { stdio: "ignore" });
+    } else {
+      execSync(
+        `tar -xzf "${tmpFile}" -C "${dest}" --strip-components=1 --wildcards "*/rg"`,
+        { stdio: "ignore" }
+      );
+    }
+  } finally {
+    try {
+      unlinkSync(tmpFile);
+    } catch {
+      // 临时文件清理失败不应影响安装
+    }
+  }
+}
+
 // 校验下载的二进制包（#290）：release 流程会发布 checksums.txt（sha256sum 格式），
 // 此处下载并校验；缺失或不匹配时直接失败（fail-closed），拒绝安装可疑二进制。
 async function verifyChecksum(buffer, fileName) {
@@ -408,11 +449,7 @@ async function downloadRipgrep(platform, binDir) {
 
     // 解压 rg 二进制到 binDir
     if (rgExt === "tar.gz") {
-      const tmpFile = join(binDir, "rg-download.tar.gz");
-      writeFileSync(tmpFile, rgBuffer);
-      // ripgrep tar.gz 内含目录 ripgrep-x.y.z-suffix/rg
-      execSync(`tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 --wildcards "*/rg" 2>/dev/null || tar -xzf "${tmpFile}" -C "${binDir}" --strip-components=1 "ripgrep-v${RG_VERSION}-${platform.rgSuffix}/rg"`, { stdio: "ignore" });
-      unlinkSync(tmpFile);
+      extractRgTarGz(rgBuffer, binDir);
     } else {
       const AdmZip = require("adm-zip");
       const zip = new AdmZip(rgBuffer);
@@ -642,4 +679,5 @@ module.exports = {
   verifyChecksum,
   replaceBinary,
   cleanOldBinaries,
+  extractRgTarGz,
 };

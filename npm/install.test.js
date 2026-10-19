@@ -1,8 +1,10 @@
-const { migrateFromClaudeCode } = require("./install");
+const { migrateFromClaudeCode, extractRgTarGz } = require("./install");
 
 const fs = require("fs");
 const { join } = require("path");
 const os = require("os");
+const { execSync } = require("child_process");
+const { dirname } = require("path");
 
 function makeTempDir() {
   return fs.mkdtempSync(join(os.tmpdir(), "cc-code-install-test-"));
@@ -401,4 +403,77 @@ test("linkProjectMemories is idempotent and no-ops without project memory", (hom
 });
 
 // 由 runTests() 顺序执行（支持 async 用例）
+// --- extractRgTarGz（#620）---------------------------------------------------
+// 上游 ripgrep-prebuilt 的 tar.gz 把 rg 放在根目录，旧实现用
+// --strip-components=1 导致解不出，bin/rg 永不落地。
+
+function makeTarGz(dir, entries) {
+  // entries: [{ name, content, mode }]
+  const stage = fs.mkdtempSync(join(os.tmpdir(), "cc-code-rg-stage-"));
+  for (const e of entries) {
+    const target = join(stage, e.name);
+    fs.mkdirSync(dirname(target), { recursive: true });
+    fs.writeFileSync(target, e.content);
+    if (e.mode) fs.chmodSync(target, e.mode);
+  }
+  const out = join(dir, "rg-fixture.tar.gz");
+  // 用具体条目名打包（不用 "."），避免引入额外的 "./" 层级，
+  // 与上游 ripgrep-prebuilt 资产的实际结构保持一致。
+  const names = [...new Set(entries.map((e) => e.name.split("/")[0]))].join(" ");
+  execSync(`tar -czf "${out}" -C "${stage}" ${names}`, { stdio: "ignore" });
+  const buf = fs.readFileSync(out);
+  fs.rmSync(out, { force: true });
+  fs.rmSync(stage, { recursive: true, force: true });
+  return buf;
+}
+
+test("extractRgTarGz extracts rg when it sits at archive root", (home) => {
+  const dest = join(home, "bin");
+  fs.mkdirSync(dest, { recursive: true });
+  const buf = makeTarGz(home, [{ name: "rg", content: "#!/bin/sh\necho rg\n", mode: 0o755 }]);
+  extractRgTarGz(buf, dest);
+  const rg = join(dest, "rg");
+  if (!fs.existsSync(rg)) throw new Error("rg was not extracted from root layout");
+  if (fs.readFileSync(rg, "utf-8").indexOf("echo rg") === -1) {
+    throw new Error("extracted rg content mismatch");
+  }
+});
+
+test("extractRgTarGz extracts rg when nested in a subdirectory", (home) => {
+  const dest = join(home, "bin");
+  fs.mkdirSync(dest, { recursive: true });
+  const buf = makeTarGz(home, [
+    { name: "ripgrep-x.y.z/rg", content: "#!/bin/sh\necho nested\n", mode: 0o755 },
+  ]);
+  extractRgTarGz(buf, dest);
+  const rg = join(dest, "rg");
+  if (!fs.existsSync(rg)) throw new Error("rg was not extracted from nested layout");
+  if (fs.readFileSync(rg, "utf-8").indexOf("echo nested") === -1) {
+    throw new Error("extracted rg content mismatch");
+  }
+});
+
+test("extractRgTarGz leaves no temp archive behind on failure", (home) => {
+  const dest = join(home, "bin");
+  fs.mkdirSync(dest, { recursive: true });
+  let threw = false;
+  try {
+    extractRgTarGz(Buffer.from("not a gzip"), dest);
+  } catch {
+    threw = true;
+  }
+  if (!threw) throw new Error("corrupt archive should throw");
+  const leftover = fs.readdirSync(dest).filter((f) => f.startsWith("rg-download"));
+  if (leftover.length) throw new Error(`temp file leaked: ${leftover.join(", ")}`);
+});
+
+test("extractRgTarGz leaves no temp archive behind on success", (home) => {
+  const dest = join(home, "bin");
+  fs.mkdirSync(dest, { recursive: true });
+  const buf = makeTarGz(home, [{ name: "rg", content: "#!/bin/sh\n", mode: 0o755 }]);
+  extractRgTarGz(buf, dest);
+  const leftover = fs.readdirSync(dest).filter((f) => f.startsWith("rg-download"));
+  if (leftover.length) throw new Error(`temp file leaked: ${leftover.join(", ")}`);
+});
+
 runTests();
