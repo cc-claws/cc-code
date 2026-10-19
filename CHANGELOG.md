@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.159 — 2026-10-19
+
+### Fixes
+
+- **取消 Spinner 动词的强制中文多语言分流，统一使用英文动词（#611）**：此前 Spinner 动词按界面语言强制切到机翻中文列表 `ZH_VERBS`，导致出现如“漂移中”、“光合中”、“编舞中”等生硬突兀的直译词。现将 `DEFAULT_VERBS` 与 `verbs_for_lang` 统一指向原版英文趣味动词列表 `EN_VERBS`（如 `Thinking…`、`Drifting…` 等），不再按语言分流；单测同步对齐。
+
+---
+
 ## v0.6.157 — 2026-10-18
 
 ### Features

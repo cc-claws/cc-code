@@ -127,8 +127,8 @@ pub const ZH_VERBS: &[&str] = &[
     "测试中",
 ];
 
-/// 向后兼容别名
-pub const DEFAULT_VERBS: &[&str] = ZH_VERBS;
+/// 默认动词列表（统一使用英文动词）
+pub const DEFAULT_VERBS: &[&str] = EN_VERBS;
 
 /// 英文随机动词，用于 loading spinner 显示。
 pub const EN_VERBS: &[&str] = &[
@@ -335,12 +335,10 @@ pub fn pick_summary_verb() -> String {
 }
 
 /// 根据语言标识选择动词列表。
-pub fn verbs_for_lang(lang: &str) -> &'static [&'static str] {
-    if lang.starts_with("zh") {
-        ZH_VERBS
-    } else {
-        EN_VERBS
-    }
+///
+/// Spinner 动词不按语言分流，统一使用英文趣味动词（如 `Thinking…`、`Drifting…` 等）。
+pub fn verbs_for_lang(_lang: &str) -> &'static [&'static str] {
+    EN_VERBS
 }
 
 pub fn pick_verb(active_form: Option<&str>) -> String {
@@ -400,12 +398,12 @@ mod tests {
     }
 
     #[test]
-    fn test_verbs_for_lang() {
+    fn test_verbs_for_lang_unified_english() {
+        // Spinner 动词不按语言分流，统一使用英文动词
         assert_eq!(verbs_for_lang("en"), EN_VERBS);
         assert_eq!(verbs_for_lang("en-US"), EN_VERBS);
-        assert_eq!(verbs_for_lang("zh-CN"), ZH_VERBS);
-        assert_eq!(verbs_for_lang("zh"), ZH_VERBS);
-        // 未知语言回退英文
+        assert_eq!(verbs_for_lang("zh-CN"), EN_VERBS);
+        assert_eq!(verbs_for_lang("zh"), EN_VERBS);
         assert_eq!(verbs_for_lang("fr"), EN_VERBS);
     }
 

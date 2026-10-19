@@ -151,10 +151,10 @@ async fn test_subagent_inherits_language_and_syncs_on_change() {
     let _ = app.services.lc.switch("zh-CN");
     app.session_mgr.current_mut().sync_language("zh-CN");
     let zh_sub = &app.session_mgr.current().subagent_sessions["sub-en"];
-    assert_eq!(zh_sub.spinner.verb_list(), cc_widgets::spinner::verb::ZH_VERBS);
+    assert_eq!(zh_sub.spinner.verb_list(), cc_widgets::spinner::verb::EN_VERBS);
     make_started(&mut app, "sub-zh", "检查天气");
     let zh_new_sub = &app.session_mgr.current().subagent_sessions["sub-zh"];
-    assert_eq!(zh_new_sub.spinner.verb_list(), cc_widgets::spinner::verb::ZH_VERBS);
+    assert_eq!(zh_new_sub.spinner.verb_list(), cc_widgets::spinner::verb::EN_VERBS);
 }
 
 #[tokio::test]

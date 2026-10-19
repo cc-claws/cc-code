@@ -53,7 +53,7 @@ pub struct SpinnerState {
 
 impl SpinnerState {
     pub fn new(mode: SpinnerMode) -> Self {
-        Self::with_lang(mode, "zh")
+        Self::with_lang(mode, "en")
     }
 
     /// 按语言代码初始化 SpinnerState（自动匹配对应语言的动词列表）
@@ -604,13 +604,14 @@ mod tests {
     }
 
     #[test]
-    fn test_with_lang_and_set_language() {
+    fn test_with_lang_and_set_language_unified_english() {
+        // Spinner 动词不按语言分流，统一使用英文动词
         let en_state = SpinnerState::with_lang(SpinnerMode::Idle, "en");
         let zh_state = SpinnerState::with_lang(SpinnerMode::Idle, "zh-CN");
         assert_eq!(en_state.verb_list(), verb::EN_VERBS);
-        assert_eq!(zh_state.verb_list(), verb::ZH_VERBS);
+        assert_eq!(zh_state.verb_list(), verb::EN_VERBS);
         let mut switch_state = en_state;
         switch_state.set_language("zh");
-        assert_eq!(switch_state.verb_list(), verb::ZH_VERBS);
+        assert_eq!(switch_state.verb_list(), verb::EN_VERBS);
     }
 }
