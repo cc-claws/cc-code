@@ -15,6 +15,13 @@
 
 证据来自本地锁定的 `tikv-jemalloc-sys 0.6.1`：`src/lib.rs` 的 `malloc_conf` 声明和 `jemalloc/src/jemalloc.c` 的配置读取逻辑；静态符号用法与 `tikv-jemallocator 0.6.1/tests/background_thread_enabled.rs` 一致。
 
+原始版本由包内 `.cargo_vcs_info.json` 确认为上游 commit `df5934f67d7b462b431f7fe9658952178c2bf2f4`：
+
+- [上游 API 文档](https://github.com/tikv/jemallocator/blob/df5934f67d7b462b431f7fe9658952178c2bf2f4/jemalloc-sys/src/lib.rs) 明确说明首次分配时解析配置，且 “malloc_conf may be read before main() is entered”。
+- [上游静态配置测试](https://github.com/tikv/jemallocator/blob/df5934f67d7b462b431f7fe9658952178c2bf2f4/jemallocator/tests/background_thread_enabled.rs) 使用同一导出符号并读取实际配置验证。
+
+确定程度：前缀错误和上游初始化机制已有源码证据；当前二进制在 Linux/macOS 的首次分配具体发生在哪一步尚未实测。不能把 `#[global_allocator]` 声明等同于“必然已在 main 前初始化”，也不能断言每种环境下只改变量名都无效。静态配置用于消除这一时机依赖。
+
 ## 修复记录
 
 ### 修复 1（2026-10-19）
