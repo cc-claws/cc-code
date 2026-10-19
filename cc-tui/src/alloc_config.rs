@@ -1,10 +1,10 @@
 //! Allocator tuning for high-churn workloads.
 //!
-//! - macOS/Linux：jemalloc（aggressive decay），配置 `MALLOC_CONF`
+//! - macOS/Linux：jemalloc（aggressive decay），main.rs 静态配置，`_RJEM_MALLOC_CONF` 可覆盖
 //! - Windows：mimalloc（运行时 purge 策略），jemalloc 无法在 MSVC 工具链编译
 //!
 //! Public API:
-//! - `init_alloc_conf()` — configure allocator during application startup
+//! - `init_alloc_conf()` — configure Windows allocator during application startup
 //! - `alloc_collect()` — reclaim allocator free memory (Windows: current thread heap)
 //! - `query_stats()` — get allocator stats (RSS + allocator allocated)
 //! - `query_breakdown()` — allocated/active/resident/metadata/mapped/retained
@@ -54,23 +54,10 @@ pub fn allocator_name() -> &'static str {
     }
 }
 
-/// Set allocator environment variables before initialization.
-#[cfg(not(target_os = "windows"))]
-#[allow(dead_code)]
-pub fn init_alloc_conf() {
-    if std::env::var("MALLOC_CONF").is_err() {
-        std::env::set_var(
-            "MALLOC_CONF",
-            "dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true",
-        );
-    }
-}
-
 /// 在 settings 环境变量注入后、应用工作线程创建前设置 mimalloc 运行时选项。
 ///
 /// 默认空闲页 decommit、purge 延迟 1000ms；保留用户有效选项，不依赖首次分配时机。
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
 pub fn init_alloc_conf() {
     windows_tuning::init();
 }
