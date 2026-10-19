@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.161 — 2026-10-19
+
+### Refactor
+
+- **面板/弹窗光标指示符与配色统一（#615）**：`TUI-STYLE.md:355` 早已约定「面板/弹窗选中行统一 `❯` + THINKING 色」，但代码里 16 处各自手写 `"❯"` / `"❯ "` / `"\u{276f}"` 三套字面量，配色也混用 `selected_fg` / `claude` / `thinking`，改一次光标样式只能逐文件搜索替换，且容易写成新的转义形式。现 `cc-tui/src/ui/theme/mod.rs` 提供唯一入口 `SYMBOL_CURSOR` / `SYMBOL_CURSOR_SPACED` / `cursor_style()`（THINKING 色）并附契约测试，agent、cron、hooks、login、mcp、memory、model、theme、command_palette、thread_browser 面板与 ask_user、hitl_content、hints、setup_wizard、rewind 弹窗及 at_mention 下拉全部改用该入口。真实变色仅两处：会话浏览器光标 `selected_fg` → THINKING、回滚弹窗光标 `claude` → THINKING，其余为等价替换（符号仍为 `❯`、宽度仍 2 列，布局与键位不变）。输入框提示符、UserBubble 消息前缀、sticky header 装饰前缀语义不同，刻意保留原样。
+
+---
+
 ## v0.6.160 — 2026-10-19
 
 ### Fixes
