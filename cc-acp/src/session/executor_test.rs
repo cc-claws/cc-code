@@ -46,6 +46,63 @@ fn test_background_results_preserve_history_marker_pairs() {
     }
 }
 
+fn make_bg_result(task_id: &str, success: bool) -> BackgroundTaskResult {
+    BackgroundTaskResult {
+        task_id: task_id.into(),
+        agent_name: "reviewer".into(),
+        prompt_summary: "检查后台任务".into(),
+        success,
+        output: format!("后台结果 {task_id}"),
+        tool_calls_count: 1,
+        duration_ms: 100,
+        child_thread_id: None,
+    }
+}
+
+/// 运行期已完成的任务已由 drain_notifications 以 Human 写入历史，续接不得再注入一次。
+#[test]
+fn test_inject_bg_result_skips_result_already_delivered_by_drain() {
+    let result = make_bg_result("bg-delivered-0001", true);
+    let delivered = BaseMessage::human(result.to_notification());
+    let (history, user_content) = inject_bg_result_messages(
+        vec![BaseMessage::human("已有对话"), delivered],
+        MessageContent::text("继续处理"),
+        &[result],
+    );
+    assert_eq!(history.len(), 2, "已投递的结果不得再以 tool_result 重复注入");
+    assert_eq!(history[0].content(), "已有对话");
+    assert_eq!(user_content.text_content(), "继续处理");
+}
+
+/// 同一批结果中只有未进历史的部分需要注入，工具调用与结果仍须成对。
+#[test]
+fn test_inject_bg_result_injects_only_results_missing_from_history() {
+    let delivered = make_bg_result("bg-delivered-0002", true);
+    let pending = make_bg_result("bg-pending-0002", true);
+    let pending_notification = pending.to_notification();
+    let history_in = vec![
+        BaseMessage::human("已有对话"),
+        BaseMessage::human(delivered.to_notification()),
+    ];
+    let (history, _) =
+        inject_bg_result_messages(history_in, MessageContent::text("继续处理"), &[delivered, pending]);
+    assert_eq!(history.len(), 4, "只注入未进历史的那一条结果");
+    let calls = history[2].tool_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].arguments["task_id"], "bg-pending-0002");
+    assert_eq!(history[3].content(), pending_notification);
+}
+
+/// 失败通知同样按前缀判重，避免错误输出重复注入。
+#[test]
+fn test_inject_bg_result_dedupes_failed_notification() {
+    let result = make_bg_result("bg-failed-0003", false);
+    let history_in = vec![BaseMessage::human(result.to_notification())];
+    let (history, _) =
+        inject_bg_result_messages(history_in, MessageContent::text("继续处理"), &[result]);
+    assert_eq!(history.len(), 1, "失败通知已进历史时不得重复注入");
+}
+
 #[tokio::test]
 async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> anyhow::Result<()> {
     use cc_agent::thread::{SqliteThreadStore, ThreadMeta, ThreadStore};

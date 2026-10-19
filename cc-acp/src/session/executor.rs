@@ -843,6 +843,22 @@ async fn wait_for_pump(pump_done_rx: oneshot::Receiver<()>, session_id: &str) {
     }
 }
 
+/// 判断该后台结果是否已由 executor 的 `drain_notifications` 以 Human 通知写入历史。
+///
+/// `drain_notifications` 写入的文本与 `to_notification()` 同源，前缀为
+/// `[Background task {short_id} `（completed / failed 共用）。命中即说明该结果
+/// 已在上下文里出现过，续接时不得再以合成 tool_result 重复注入。
+fn is_bg_result_delivered(
+    history: &[BaseMessage],
+    result: &cc_agent::agent::events::BackgroundTaskResult,
+) -> bool {
+    let short_id = &result.task_id[..8.min(result.task_id.len())];
+    let prefix = format!("[Background task {short_id} ");
+    history.iter().any(|message| {
+        matches!(message, BaseMessage::Human { .. }) && message.content().starts_with(&prefix)
+    })
+}
+
 /// Inject synthetic AgentResult tool_use + tool_result messages into the conversation history.
 ///
 /// When background agents complete, the TUI sends a `prompt_with_bg_results` request.
@@ -868,6 +884,15 @@ fn inject_bg_result_messages(
         Vec::new();
 
     for result in bg_results {
+        // 运行期间完成的任务已由 executor 的 drain_notifications 以 Human 写入 history，
+        // 这里再注入一遍会让同一份 output 在上下文里出现两次（#613）。
+        if is_bg_result_delivered(&history, result) {
+            tracing::debug!(
+                task_id = %result.task_id,
+                "background result already delivered by drain_notifications, skip synthetic injection"
+            );
+            continue;
+        }
         let tool_use_id = MessageId::new().as_uuid().to_string();
         tool_use_blocks.push(ContentBlock::ToolUse {
             id: tool_use_id.clone(),
@@ -877,6 +902,11 @@ fn inject_bg_result_messages(
             }),
         });
         tool_result_data.push((tool_use_id, result));
+    }
+
+    // 全部结果都已在 history 中（由 drain_notifications 注入）时，不写空的工具调用消息。
+    if tool_use_blocks.is_empty() {
+        return (history, user_content);
     }
 
     // 1. AI message with tool_use blocks

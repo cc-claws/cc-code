@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.160 — 2026-10-19
+
+### Fixes
+
+- **后台子 Agent 运行中完成时，同一份结果被重复投递给模型（#613）**：后台任务在主 Agent 本轮尚未结束时完成，完整 output 会经两条通道各进一次上下文——`drain_notifications` 以 `BaseMessage::human(result.to_notification())` 写入 history（`cc-agent/src/agent/executor/final_answer.rs`），自动续接再由 `inject_bg_result_messages` 注入合成的 `AgentResult` tool_use + tool_result（`cc-acp/src/session/executor.rs`）。两份文本同源逐字相同，模型在同一段对话里看到两遍，续接轮退化为复述上一条回答（实测会话 messages 109 → 113，续接轮回复即「已在上一条消息中完整给出」）。现 `inject_bg_result_messages` 在注入前按 `[Background task {short_id} ` 前缀（与 `to_notification()` 同源的 8 位 id，`completed` / `failed` 共用）在 history 中判重，命中即跳过该条合成注入；全部命中时不再追加空的 AI 工具调用消息。三种时序均正确：工具步骤后 drain（history 已有 → 跳过）、final answer 后 drain（history 已有 → 跳过，续接轮仍能在 history 中看到）、`Done` 之后完成（history 无 → 正常注入且仅一次）。新增 3 个单测覆盖全量跳过、部分跳过与失败通知判重。
+
+---
+
 ## v0.6.159 — 2026-10-19
 
 ### Fixes
