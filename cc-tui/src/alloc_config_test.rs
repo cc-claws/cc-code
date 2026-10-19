@@ -1,29 +1,5 @@
 use crate::alloc_config::*;
 
-/// 测试 init_alloc_conf 不覆盖已存在的 MALLOC_CONF 环境变量。
-///
-/// 仅非 Windows 生效：Windows 的 init_alloc_conf 走 mimalloc 运行时选项分支，不读
-/// MALLOC_CONF，断言在此无意义；且它会额外调用一次 init() 参与同进程内 mimalloc
-/// 全局选项的并行竞争（#545）。
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_init_alloc_conf_does_not_overwrite() {
-    let sentinel = "dirty_decay_ms:9999";
-    std::env::set_var("MALLOC_CONF", sentinel);
-
-    init_alloc_conf();
-
-    // 预设值不应被覆盖
-    assert_eq!(
-        std::env::var("MALLOC_CONF").unwrap(),
-        sentinel,
-        "不应覆盖用户设置的 MALLOC_CONF"
-    );
-
-    // Cleanup
-    std::env::remove_var("MALLOC_CONF");
-}
-
 #[test]
 fn test_alloc_collect_does_not_panic() {
     // alloc_collect 应可安全多次调用

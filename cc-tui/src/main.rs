@@ -30,6 +30,28 @@ use cc_tui::{
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+// jemalloc 可能在 main 前首次分配时读取配置，不能依赖 main 内 set_var。
+// 使用 tikv-jemalloc 的带前缀符号；进程启动前的 _RJEM_MALLOC_CONF 可逐项覆盖。
+//
+// macOS 使用 macho ABI，jemalloc 的 configure 因此不定义 JEMALLOC_BACKGROUND_THREAD，
+// 该选项会被忽略并打印
+// "<jemalloc>: option background_thread currently supports pthread only"，
+// 因此按平台裁剪默认配置。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const JEMALLOC_CONF_DEFAULT: &std::ffi::CStr =
+    c"dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true";
+
+#[cfg(target_os = "macos")]
+const JEMALLOC_CONF_DEFAULT: &std::ffi::CStr = c"dirty_decay_ms:0,muzzy_decay_ms:0";
+
+#[cfg(not(target_os = "windows"))]
+#[used]
+#[export_name = "_rjem_malloc_conf"]
+pub static JEMALLOC_CONF: Option<&'static std::ffi::c_char> = Some(unsafe {
+    // Safety: C 字符串具有静态生命周期且以 NUL 结尾；引用首字符以导出薄指针。
+    &*JEMALLOC_CONF_DEFAULT.as_ptr()
+});
+
 /// Windows 上 jemalloc 无法在 MSVC 工具链编译（autotools 需 MinGW），
 /// 改用 mimalloc（原生支持 MSVC，可 mi_collect 主动归还）。
 #[cfg(target_os = "windows")]
@@ -296,10 +318,6 @@ fn inject_settings_override(source: &str) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
-    // jemalloc 保留现有启动配置路径；Windows 使用运行时 API，在读取 settings 后应用。
-    #[cfg(not(target_os = "windows"))]
-    cc_tui::alloc_config::init_alloc_conf();
-
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();
 
@@ -1301,4 +1319,7 @@ mod cli_integration_test;
 
 #[cfg(test)]
 mod main_test;
+
+#[cfg(all(test, not(target_os = "windows")))]
+mod jemalloc_config_test;
 // test
