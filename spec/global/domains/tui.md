@@ -1393,11 +1393,11 @@ submit_message(text)
 
 **问题本质：** tikv-jemalloc 使用 `_RJEM_MALLOC_CONF`，原先在 `main()` 中设置的 `MALLOC_CONF` 不会被读取；首次分配也可能发生在 `main()` 之前，仅改环境变量名仍不能保证生效。
 
-**修复：** `cc-code` 二进制在全局分配器旁导出静态 `_rjem_malloc_conf` 薄指针，默认 `dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true`。移除非 Windows 的 `init_alloc_conf()`；Windows 的 mimalloc 运行时调优保持不变。
+**修复：** `cc-code` 二进制在全局分配器旁导出静态 `_rjem_malloc_conf` 薄指针，默认 `dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true`。macOS 因 macho ABI 不被 jemalloc 的 configure 支持后台线程（`JEMALLOC_BACKGROUND_THREAD` 未定义），默认配置裁剪为 `dirty_decay_ms:0,muzzy_decay_ms:0`，避免启动时打印 “option background_thread currently supports pthread only”。移除非 Windows 的 `init_alloc_conf()`；Windows 的 mimalloc 运行时调优保持不变。
 
 **用户覆盖：** 在启动进程之前设置 `_RJEM_MALLOC_CONF`，仅指定的项覆盖默认值。例如 `_RJEM_MALLOC_CONF='dirty_decay_ms:1000,background_thread:false' cc-code`。不再向子进程注入无前缀的 `MALLOC_CONF`；旧变量不提供兼容转发。jemalloc 启动选项不能通过启动后加载的 settings `env` 修改。
 
-**验证约束：** 回归测试位于 `cc-tui/src/jemalloc_config_test.rs`，在独立子进程中读取实际 `opt.*`、`arenas.*` 和 `background_thread`，覆盖默认、完整覆盖、部分覆盖、无前缀变量。须在 Linux/macOS 运行 `cargo test -p cc-tui --bin cc-code jemalloc_config_test`，并用 `--release` 验证 LTO/strip 后符号仍生效；Windows 测试不能替代此验证。
+**验证约束：** 回归测试位于 `cc-tui/src/jemalloc_config_test.rs`，在独立子进程中读取实际 `opt.*`、`arenas.*` 和 `background_thread`，覆盖默认、完整覆盖、部分覆盖、无前缀变量。macOS 上 `opt.background_thread` 可读但恒为默认 false，运行时开关 `background_thread` 的 ctl 返回 `ENOENT`（`have_background_thread` 为 false），该平台只断言前者、跳过后者。须在 Linux/macOS 运行 `cargo test -p cc-tui --bin cc-code jemalloc_config_test`，并用 `--release` 验证 LTO/strip 后符号仍生效；Windows 测试不能替代此验证。
 
 **边界：** 保留既定的三项调优策略，不据此声称已解决 #26 的长会话 RSS 增长。jemalloc 上游提示初始化时启用后台线程存在循环依赖风险，目标平台的启动回归必须覆盖这一点；若遇到启动挂起，可在启动前设置 `_RJEM_MALLOC_CONF=background_thread:false`。
 

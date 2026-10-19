@@ -33,8 +33,8 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 // jemalloc 可能在 main 前首次分配时读取配置，不能依赖 main 内 set_var。
 // 使用 tikv-jemalloc 的带前缀符号；进程启动前的 _RJEM_MALLOC_CONF 可逐项覆盖。
 //
-// macOS 的 jemalloc 未编译 background thread 支持（configure 只在支持的 pthread
-// 平台开启该能力），该选项会被忽略并打印
+// macOS 使用 macho ABI，jemalloc 的 configure 因此不定义 JEMALLOC_BACKGROUND_THREAD，
+// 该选项会被忽略并打印
 // "<jemalloc>: option background_thread currently supports pthread only"，
 // 因此按平台裁剪默认配置。
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]

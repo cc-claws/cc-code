@@ -34,6 +34,13 @@
 - `spec/global/domains/tui.md`：记录配置优先级、使用方法与验证边界。
 - 涉及 commit：本记录随修复分支提交；合并状态以关联 PR 为准。
 
+### 修复 2（2026-10-19，macOS CI 回归）
+
+- 触发：CI `macos-latest` 上 `jemalloc_config_test` 的 3 个用例失败，报 `opt.background_thread` 实际 false、期望 true。
+- 根因：jemalloc `configure.ac` 只在 `have_pthread && abi != macho` 时定义 `JEMALLOC_BACKGROUND_THREAD`，macOS 因而 `have_background_thread` 恒为 false。该平台上 `opt.background_thread` 键仍存在（可读、默认 false），运行时开关 `background_thread` 的 ctl 则返回 `ENOENT`。此前的修复误判为“键不可读”，只处理了读取报错，未调整父测试传入的期望值。
+- `cc-tui/src/main.rs`：macOS 默认静态配置裁剪为 `dirty_decay_ms:0,muzzy_decay_ms:0`，注释改为引用 macho ABI 条件。
+- `cc-tui/src/jemalloc_config_test.rs`：新增 `expected_config()`，macOS 上的后台线程期望值固定为 false；`opt.background_thread` 在所有平台严格断言，运行时 `background_thread` 仅在 macOS 允许 `ENOENT` 跳过，其它平台保持严格读取。
+
 ## 验证记录
 
 | 检查 | 结果 |
@@ -53,7 +60,7 @@ cargo test -p cc-tui --bin cc-code jemalloc_config_test
 cargo test --release -p cc-tui --bin cc-code jemalloc_config_test
 ```
 
-预期：4 个父测试通过，专用探针在父进程测试列表中 ignored、在子进程中实际执行；默认 decay 为 `0/0`、后台线程为 `true`，完整和部分 `_RJEM_MALLOC_CONF` 覆盖生效，无前缀变量不参与配置。release 用例同时检查 LTO/strip 后静态符号是否仍生效。
+预期：4 个父测试通过，专用探针在父进程测试列表中 ignored、在子进程中实际执行；默认 decay 为 `0/0`、后台线程在 Linux 为 `true`、在 macOS 为 `false`（该平台不编译后台线程支持），完整和部分 `_RJEM_MALLOC_CONF` 覆盖生效，无前缀变量不参与配置。release 用例同时检查 LTO/strip 后静态符号是否仍生效。
 
 ## 限制
 
