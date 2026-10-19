@@ -84,6 +84,32 @@ function Get-ExpectedSha256 {
     return $null
 }
 
+# --- 计算文件 SHA256（Get-FileHash 缺失时的回退） ---
+# 部分环境（例如 PSModulePath 混入了 PowerShell 7 的模块目录）会让 Windows PowerShell 5.1
+# 加载 Microsoft.PowerShell.Utility 失败、Get-FileHash 不可用；校验环节不应成为安装的
+# 唯一断点，此时退回系统自带的 certutil（输出同样的 SHA256 十六进制摘要）。
+function Get-Sha256Hex {
+    param([string]$Path)
+    if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+        return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+    }
+    try {
+        $lines = & certutil.exe -hashfile $Path SHA256 2>$null
+    } catch {
+        return $null
+    }
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+    foreach ($line in $lines) {
+        $trimmed = $line -replace '\s', ''
+        if ($trimmed -match '^[0-9a-fA-F]{64}$') {
+            return $trimmed.ToLower()
+        }
+    }
+    return $null
+}
+
 # --- Cleanup Old Versions ---
 function Clean-OldVersions {
     param([string]$InstallDir, [string]$CurrentVersion)
@@ -245,7 +271,7 @@ function Main {
         exit 1
     }
 
-    $ActualSha = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
+    $ActualSha = Get-Sha256Hex -Path $ZipPath
     if ($ActualSha -ne $ExpectedSha) {
         Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
         # `${AssetName}` 的花括号不可省：直接写 `$AssetName:` 会被 PowerShell 当作
