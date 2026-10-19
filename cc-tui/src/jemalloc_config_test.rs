@@ -95,8 +95,19 @@ fn test_jemalloc_startup_probe() {
         b"background_thread\0".as_slice(),
     ] {
         // Safety: 键名 NUL 结尾，启动选项与运行时开关均为 bool。
-        let actual = unsafe { tikv_jemalloc_ctl::raw::read::<bool>(name) }
-            .expect("应能读取 jemalloc 后台线程选项");
+        let actual = match unsafe { tikv_jemalloc_ctl::raw::read::<bool>(name) } {
+            Ok(value) => value,
+            // macOS 的 jemalloc 未编译 background thread 支持，ctl 不暴露该键，
+            // 配置中的 background_thread 也会被忽略，无法在此平台断言。
+            Err(err) if cfg!(target_os = "macos") => {
+                eprintln!(
+                    "跳过 {}：macOS 不支持 background_thread（{err}）",
+                    String::from_utf8_lossy(name)
+                );
+                continue;
+            }
+            Err(err) => panic!("应能读取 jemalloc 后台线程选项：{err}"),
+        };
         assert_eq!(
             actual,
             background,

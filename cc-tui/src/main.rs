@@ -32,12 +32,24 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 // jemalloc 可能在 main 前首次分配时读取配置，不能依赖 main 内 set_var。
 // 使用 tikv-jemalloc 的带前缀符号；进程启动前的 _RJEM_MALLOC_CONF 可逐项覆盖。
+//
+// macOS 的 jemalloc 未编译 background thread 支持（configure 只在支持的 pthread
+// 平台开启该能力），该选项会被忽略并打印
+// "<jemalloc>: option background_thread currently supports pthread only"，
+// 因此按平台裁剪默认配置。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const JEMALLOC_CONF_DEFAULT: &std::ffi::CStr =
+    c"dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true";
+
+#[cfg(target_os = "macos")]
+const JEMALLOC_CONF_DEFAULT: &std::ffi::CStr = c"dirty_decay_ms:0,muzzy_decay_ms:0";
+
 #[cfg(not(target_os = "windows"))]
 #[used]
 #[export_name = "_rjem_malloc_conf"]
 pub static JEMALLOC_CONF: Option<&'static std::ffi::c_char> = Some(unsafe {
     // Safety: C 字符串具有静态生命周期且以 NUL 结尾；引用首字符以导出薄指针。
-    &*c"dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true".as_ptr()
+    &*JEMALLOC_CONF_DEFAULT.as_ptr()
 });
 
 /// Windows 上 jemalloc 无法在 MSVC 工具链编译（autotools 需 MinGW），
