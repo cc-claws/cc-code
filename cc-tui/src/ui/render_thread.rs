@@ -119,6 +119,10 @@ pub enum RenderEvent {
     ToggleDetail(bool),
 }
 
+/// #626：单条消息的 wrap 分段缓存条目 =
+/// (渲染键, 段条目（局部下标）, 段视觉行数, dedup 后切片长度)。
+type WrapSegment = Option<(u64, Vec<WrappedLineInfo>, usize, usize)>;
+
 /// 渲染线程，在后台执行渲染计算
 ///
 /// 消息状态由 App 持有（view_messages），渲染线程通过 Rebuild 事件接收完整快照，
@@ -130,7 +134,7 @@ struct RenderTask {
     message_lines: Vec<Vec<Line<'static>>>,
     /// 每条消息的链接命中区（行号基于该消息 message_lines 下标）
     message_links: Vec<Vec<LinkHit>>,
-    /// 每条消息的语义 hash（用于 diff 判断）
+    /// 每条消息的渲染键（内容 hash ⊕ 敏感标志，见 render_key；用于复用判断）
     message_hashes: Vec<u64>,
     cache: Arc<RwLock<RenderCache>>,
     notify: Arc<Notify>,
@@ -138,6 +142,61 @@ struct RenderTask {
     show_tool_messages: bool,
     diff_visible: bool,
     detail_mode: bool,
+    /// #626：双变体行缓存——每条消息另一 (detail, diff) 组合下的渲染成品，
+    /// 与 message_lines/message_links 同下标；alt_keys[i] 是该成品的渲染键，
+    /// 键为 0 或成品为空表示无缓存。
+    alt_lines: Vec<Vec<Line<'static>>>,
+    alt_links: Vec<Vec<LinkHit>>,
+    alt_keys: Vec<u64>,
+    /// #626：wrap 按消息分段缓存 [detail_mode][msg_idx]，条目见 WrapSegment。
+    wrap_segs: [Vec<WrapSegment>; 2],
+}
+
+/// 该消息的渲染结果是否随 detail_mode 变化（#626）。
+/// 与 message_render 的 detail 分支一一对应：新增 detail 敏感分支时必须同步更新此处，
+/// 否则切换 detail 时该消息会被错误复用。
+fn detail_sensitive(vm: &MessageViewModel) -> bool {
+    match vm {
+        MessageViewModel::UserBubble {
+            expanded_content, ..
+        } => expanded_content.is_some(),
+        MessageViewModel::AssistantBubble { blocks, .. } => blocks
+            .iter()
+            .any(|b| matches!(b, super::message_view::ContentBlockView::Reasoning { .. })),
+        MessageViewModel::ToolBlock { .. } => true,
+        MessageViewModel::ShellCommand { .. } => true,
+        MessageViewModel::SystemNote {
+            detail_content, ..
+        } => detail_content.is_some(),
+        MessageViewModel::CacheWarning { .. } => false,
+        MessageViewModel::ToolCallGroup { .. } => true,
+        MessageViewModel::SubAgentGroup { .. } => true,
+    }
+}
+
+/// 该消息的渲染结果是否随 diff_visible 变化（#626），规则同 detail_sensitive。
+fn diff_sensitive(vm: &MessageViewModel) -> bool {
+    match vm {
+        MessageViewModel::ToolBlock { diff_input, .. } => diff_input.is_some(),
+        MessageViewModel::ToolCallGroup { .. } => true,
+        MessageViewModel::SubAgentGroup { .. } => true,
+        _ => false,
+    }
+}
+
+/// 渲染键（#626）= 内容 hash ⊕（仅当该消息对相应标志敏感时）当前 detail/diff 标志。
+/// 键相等的消息在当前标志组合下渲染结果必然与缓存一致，可直接复用或跨变体交换；
+/// 不敏感的消息切换标志时键不变，这是 Ctrl+O 反复切换不再全量重渲染的关键。
+fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
+    let mut h = DefaultHasher::new();
+    vm.content_hash().hash(&mut h);
+    if detail_sensitive(vm) {
+        detail.hash(&mut h);
+    }
+    if diff_sensitive(vm) {
+        diff.hash(&mut h);
+    }
+    h.finish()
 }
 
 impl RenderTask {
@@ -181,75 +240,6 @@ impl RenderTask {
             visual_row += visual_count;
         }
         (visual_row, wrap_map)
-    }
-
-    /// 增量构建 wrap_map：复用旧 cache 中稳定前缀的 wrap_map，
-    /// 只对 prefix_stable_len 之后的变化部分调用 build_wrap_map。
-    ///
-    /// 前提：deduped 和 offsets 必须在同一索引空间（由 rebuild() 保证）。
-    fn build_wrap_map_incremental(
-        &self,
-        deduped: &[Line<'static>],
-        offsets: &[usize],
-        prefix_stable_len: usize,
-    ) -> (usize, Vec<WrappedLineInfo>) {
-        // 快速路径：无稳定前缀 → 全量计算
-        if prefix_stable_len == 0 || offsets.is_empty() {
-            return Self::build_wrap_map(deduped, self.width);
-        }
-
-        // 稳定区在 deduped 中的行边界
-        let stable_line_end = if prefix_stable_len < offsets.len() {
-            offsets[prefix_stable_len]
-        } else {
-            deduped.len()
-        };
-
-        let old_cache = self.cache.read();
-        let can_reuse = old_cache.width == self.width
-            && !old_cache.wrap_map.is_empty()
-            && old_cache.wrap_map.len() >= stable_line_end;
-
-        if !can_reuse {
-            drop(old_cache);
-            return Self::build_wrap_map(deduped, self.width);
-        }
-
-        // 完全稳定：所有 VM 未变 → 直接复用整个 wrap_map
-        if stable_line_end == deduped.len() && old_cache.wrap_map.len() == deduped.len() {
-            let total = old_cache.total_lines;
-            let wrap = old_cache.wrap_map.clone();
-            drop(old_cache);
-            return (total, wrap);
-        }
-
-        // 部分稳定：复用前缀 wrap_map，只重算变化部分
-        let base_visual = if stable_line_end > 0 {
-            old_cache.wrap_map[stable_line_end - 1].visual_row_end
-        } else {
-            0
-        };
-
-        // 只对变化部分计算 wrap
-        let (delta_total, mut delta_wrap) =
-            Self::build_wrap_map(&deduped[stable_line_end..], self.width);
-
-        // 修正 delta_wrap 的偏移
-        for info in &mut delta_wrap {
-            info.visual_row_start += base_visual;
-            info.visual_row_end += base_visual;
-            info.line_idx += stable_line_end;
-        }
-
-        // 拼接：clone 前缀 + extend delta
-        // clone 开销：~3000 个 WrappedLineInfo ≈ 240-480KB，约 200-500μs
-        // 相比全量 build_wrap_map 的 ~2-6ms，仍节省 60-80%
-        let mut wrap_map = old_cache.wrap_map[..stable_line_end].to_vec();
-        drop(old_cache);
-
-        let total_lines = base_visual + delta_total;
-        wrap_map.append(&mut delta_wrap);
-        (total_lines, wrap_map)
     }
 
     /// 渲染单条消息为 lines（含前后空行分隔）
@@ -379,12 +369,13 @@ impl RenderTask {
         }
     }
 
-    /// 全量重建：接收完整消息列表，通过 prefix_stable_len 优化渲染
+    /// 全量重建：接收完整消息列表，按渲染键逐条复用缓存行与 wrap 分段
     ///
     /// 优化策略：
     /// 1. 计算前缀稳定长度（连续 hash 未变的消息数量）
     /// 2. 前缀消息直接复用 message_lines 缓存，跳过渲染
-    /// 3. 只从变化点开始重新渲染后续消息
+    /// 3. 逐条按渲染键复用当前变体成品、或与 alt 中另一变体成品交换，
+    ///    仅真变化的消息重渲染（重渲染的旧成品存入 alt 备切换时复用）
     /// 4. 对 hash 不同但属于 cosmetic change 的消息也复用缓存
     fn rebuild(&mut self, messages: Vec<MessageViewModel>) {
         let width = self.width as usize;
@@ -393,16 +384,14 @@ impl RenderTask {
         // 保留一份用于 Resize（Resize 时没有新的 Rebuild 事件）
         let old_messages = std::mem::replace(&mut self.last_messages, messages.clone());
 
-        // 直接读取预计算的 content_hash，无需重算
-        let new_hashes: Vec<u64> = messages.iter().map(|vm| vm.content_hash()).collect();
-
-        // 计算 prefix_stable_len：前缀中连续 hash 未变的消息数量
-        let old_len = self.message_hashes.len();
-        let prefix_stable_len = new_hashes
+        // #626：比较键 = 渲染键（内容 hash ⊕ 影响该消息渲染的 detail/diff 标志）。
+        // 不敏感的消息切换标志时键不变，可直接复用缓存行。
+        let new_keys: Vec<u64> = messages
             .iter()
-            .zip(self.message_hashes.iter())
-            .position(|(new_h, old_h)| new_h != old_h)
-            .unwrap_or_else(|| old_len.min(new_len));
+            .map(|vm| render_key(vm, self.detail_mode, self.diff_visible))
+            .collect();
+
+        let old_len = self.message_hashes.len();
 
         // 保存旧的 message_lines（用于 cosmetic change 复用）
         let mut old_message_lines = std::mem::take(&mut self.message_lines);
@@ -412,31 +401,64 @@ impl RenderTask {
         self.message_lines.resize(new_len, Vec::new());
         self.message_links.resize(new_len, Vec::new());
 
-        // 复用前缀的缓存行
-        for i in 0..prefix_stable_len {
-            if i < old_message_lines.len() {
+        self.alt_lines.resize(new_len, Vec::new());
+        self.alt_links.resize(new_len, Vec::new());
+        self.alt_keys.resize(new_len, 0);
+        // #626：逐条按键复用，不依赖前缀连续性——中段单条变化不牵连其后消息。
+        // 注意：Toggle/Resize 路径上 old_messages 已被 mem::take 取空，
+        // 涉及它的分支（cosmetic）必须先判下标在界内。
+        for (i, mut vm) in messages.into_iter().enumerate() {
+            // 渲染键未变 → 当前变体成品直接复用
+            if i < old_len
+                && i < old_message_lines.len()
+                && self.message_hashes[i] == new_keys[i]
+                && !old_message_lines[i].is_empty()
+            {
                 self.message_lines[i] = std::mem::take(&mut old_message_lines[i]);
                 self.message_links[i] = std::mem::take(&mut old_message_links[i]);
-            }
-        }
-        // 复用 prefix_stable_len 之前、未被复用的旧行（这些 hash 未变但之前渲染过）
-        // 这些已经通过上面的循环处理了
-
-        // 从 prefix_stable_len 开始渲染变化的消息
-        for (i, mut vm) in messages.into_iter().enumerate() {
-            if i < prefix_stable_len {
-                // 前缀稳定区，已复用缓存
                 continue;
             }
-            // 对 hash 不同但属于 cosmetic change 的消息复用旧缓存
+            // 另一 (detail, diff) 变体的成品还在 alt 中且键命中 → 两变体交换，零渲染
+            if self.alt_keys[i] == new_keys[i] && !self.alt_lines[i].is_empty() {
+                let cur_key = if i < old_len { self.message_hashes[i] } else { 0 };
+                let cur_lines = if i < old_message_lines.len() {
+                    std::mem::take(&mut old_message_lines[i])
+                } else {
+                    Vec::new()
+                };
+                let cur_links = if i < old_message_links.len() {
+                    std::mem::take(&mut old_message_links[i])
+                } else {
+                    Vec::new()
+                };
+                self.message_lines[i] = std::mem::take(&mut self.alt_lines[i]);
+                self.message_links[i] = std::mem::take(&mut self.alt_links[i]);
+                self.alt_lines[i] = cur_lines;
+                self.alt_links[i] = cur_links;
+                self.alt_keys[i] = cur_key;
+                continue;
+            }
+            // hash 不同但属于 cosmetic change（仅流式/运行标志变化）→ 复用旧行；
+            // alt 中的另一变体成品与新内容不再对应，一并作废
             if i < old_message_lines.len()
-                && i < old_len
+                && i < old_messages.len()
                 && !old_message_lines[i].is_empty()
                 && Self::is_cosmetic_change(&old_messages[i], &vm)
             {
                 self.message_lines[i] = std::mem::take(&mut old_message_lines[i]);
                 self.message_links[i] = std::mem::take(&mut old_message_links[i]);
+                self.alt_lines[i].clear();
+                self.alt_keys[i] = 0;
                 continue;
+            }
+            // 真重渲染：旧成品存入 alt 备另一变体复用；无旧成品时提前释放占位
+            if i < old_message_lines.len() && !old_message_lines[i].is_empty() {
+                self.alt_lines[i] = std::mem::take(&mut old_message_lines[i]);
+                self.alt_links[i] = std::mem::take(&mut old_message_links[i]);
+                self.alt_keys[i] = if i < old_len { self.message_hashes[i] } else { 0 };
+            } else if i < old_message_lines.len() {
+                old_message_lines[i].clear();
+                old_message_links[i].clear();
             }
             let (lines, links) =
                 Self::render_one(&mut vm, i + 1, width, self.diff_visible, self.detail_mode);
@@ -444,7 +466,8 @@ impl RenderTask {
             self.message_links[i] = links;
         }
 
-        self.message_hashes = new_hashes;
+        self.message_hashes = new_keys;
+
 
         // 拼接所有消息行，同时做全局 dedup（消除连续空行），
         // 并在 deduped 索引空间构建 message_offsets 与全局超链接映射。
@@ -488,8 +511,47 @@ impl RenderTask {
             global_links.retain(|hit| hit.line != dropped);
         }
 
-        let (total_lines, wrap_map) =
-            self.build_wrap_map_incremental(&deduped, &offsets, prefix_stable_len);
+        // #626：wrap 按消息分段缓存——段键 = (渲染键, dedup 后切片长度)，
+        // 命中段平移复用，未命中只算该消息的切片。切片长度必须进键：
+        // dedup 的尾空行裁剪会让尾消息切片随消息追加而伸缩。
+        let (total_lines, wrap_map) = {
+            let slot = self.detail_mode as usize;
+            if self.wrap_segs[slot].len() != new_len {
+                self.wrap_segs[slot].resize_with(new_len, || None);
+            }
+            let mut wrap_map: Vec<WrappedLineInfo> = Vec::with_capacity(deduped.len());
+            let mut visual_base = 0usize;
+            for i in 0..new_len {
+                let start = offsets[i];
+                let end = if i + 1 < new_len {
+                    offsets[i + 1]
+                } else {
+                    deduped.len()
+                };
+                let slice_len = end - start;
+                let seg_hit = matches!(
+                    &self.wrap_segs[slot][i],
+                    Some((k, _, _, l)) if *k == self.message_hashes[i] && *l == slice_len
+                );
+                let (seg_total, seg) = if seg_hit {
+                    let (_, seg, total, _) = self.wrap_segs[slot][i].as_ref().unwrap();
+                    (*total, seg.clone())
+                } else {
+                    let (t, m) = Self::build_wrap_map(&deduped[start..end], self.width);
+                    self.wrap_segs[slot][i] =
+                        Some((self.message_hashes[i], m.clone(), t, slice_len));
+                    (t, m)
+                };
+                for mut info in seg {
+                    info.line_idx += start;
+                    info.visual_row_start += visual_base;
+                    info.visual_row_end += visual_base;
+                    wrap_map.push(info);
+                }
+                visual_base += seg_total;
+            }
+            (visual_base, wrap_map)
+        };
         let mut cache = self.cache.write();
         cache.lines = deduped;
         cache.message_offsets = offsets;
@@ -560,7 +622,7 @@ impl RenderTask {
 
         // 场景 A：有 Bash 首次跨越 2 秒阈值，但缓存仍是 1 行（未渲染 hint 行）。
         // 行数变化无法增量更新，需要重建——但只失效该条消息的 hash，
-        // 保留前缀缓存（prefix_stable_len），避免清空全部 hash 导致全量重绘。
+        // 其余消息的渲染键不受影响，避免全量重绘。
         let mut needs_rebuild = false;
         for (idx, vm) in self.last_messages.iter().enumerate() {
             // 子 Agent 工具不是顶层行，不能用 lines[1] 更新；只在秒数变化时
@@ -750,6 +812,11 @@ impl RenderTask {
                 }
                 // 清空 hash 缓存，强制全量重渲染
                 self.message_hashes.clear();
+                // #626：宽度变化使双变体与 wrap 分段缓存全部失效
+                self.alt_lines.clear();
+                self.alt_links.clear();
+                self.alt_keys.clear();
+                self.wrap_segs = [Vec::new(), Vec::new()];
                 // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
                 if !self.last_messages.is_empty() {
                     let messages = std::mem::take(&mut self.last_messages);
@@ -759,6 +826,10 @@ impl RenderTask {
             RenderEvent::Clear => {
                 self.message_lines.clear();
                 self.message_lines.shrink_to_fit();
+                self.alt_lines.clear();
+                self.alt_links.clear();
+                self.alt_keys.clear();
+                self.wrap_segs = [Vec::new(), Vec::new()];
                 self.message_hashes.clear();
                 self.message_hashes.shrink_to_fit();
                 self.last_messages.clear();
@@ -781,9 +852,8 @@ impl RenderTask {
             }
             RenderEvent::ToggleDiff(show) => {
                 self.diff_visible = show;
-                // diff_visible 不影响消息的语义 hash，必须清空 hash 缓存
-                // 强制后续 Rebuild 全量重渲染
-                self.message_hashes.clear();
+                // #626：渲染键已包含 diff 标志，切换后按键复用/交换变体即可，
+                // 不再清空 message_hashes 强制全量重渲染。
                 if !self.last_messages.is_empty() {
                     let messages = std::mem::take(&mut self.last_messages);
                     self.rebuild_safe(messages);
@@ -791,9 +861,8 @@ impl RenderTask {
             }
             RenderEvent::ToggleDetail(show) => {
                 self.detail_mode = show;
-                // detail_mode 不影响消息的语义 hash，必须清空 hash 缓存
-                // 强制后续 Rebuild 全量重渲染
-                self.message_hashes.clear();
+                // #626：渲染键已包含 detail 标志，切换后按键复用/交换变体即可，
+                // 不再清空 message_hashes 强制全量重渲染。
                 if !self.last_messages.is_empty() {
                     let messages = std::mem::take(&mut self.last_messages);
                     self.rebuild_safe(messages);
@@ -878,6 +947,10 @@ pub fn spawn_render_thread(
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        alt_lines: Vec::new(),
+        alt_links: Vec::new(),
+        alt_keys: Vec::new(),
+        wrap_segs: [Vec::new(), Vec::new()],
     };
 
     tokio::spawn(task.run(rx));

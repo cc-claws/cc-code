@@ -430,7 +430,7 @@ async fn test_message_offsets_match_deduped_space() {
 
 /// 核心测试：增量 wrap_map 结果与全量计算完全一致
 #[tokio::test]
-async fn test_incremental_wrap_map_matches_full() {
+async fn test_wrap_map_matches_full() {
     let (tx, cache, _notify) = spawn_render_thread(40);
 
     // 第一次 Rebuild：3 条长消息（需要 wrap）
@@ -491,7 +491,7 @@ async fn test_incremental_wrap_map_matches_full() {
 
 /// 所有 VM 不变时 wrap_map 完全复用
 #[tokio::test]
-async fn test_incremental_wrap_map_all_stable() {
+async fn test_wrap_map_all_stable() {
     let (tx, cache, _notify) = spawn_render_thread(80);
 
     let vms = vec![
@@ -517,7 +517,7 @@ async fn test_incremental_wrap_map_all_stable() {
 
 /// 无稳定前缀时走全量路径
 #[tokio::test]
-async fn test_incremental_wrap_map_prefix_stable_len_zero() {
+async fn test_wrap_map_all_changed() {
     let (tx, cache, _notify) = spawn_render_thread(80);
 
     // 第一次 Rebuild
@@ -807,7 +807,7 @@ async fn test_toggle_detail_reconcile_path_preserves_content() {
 
 /// 新增 VM 时只重算尾部
 #[tokio::test]
-async fn test_incremental_wrap_map_add_new_vm() {
+async fn test_wrap_map_add_new_vm() {
     let (tx, cache, _notify) = spawn_render_thread(80);
 
     let vms1 = vec![MessageViewModel::user("Hello".to_string())];
@@ -856,6 +856,10 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        alt_lines: Vec::new(),
+        alt_links: Vec::new(),
+        alt_keys: Vec::new(),
+        wrap_segs: [Vec::new(), Vec::new()],
     };
 
     task.rebuild(vec![MessageViewModel::tool_block(
@@ -914,6 +918,10 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        alt_lines: Vec::new(),
+        alt_links: Vec::new(),
+        alt_keys: Vec::new(),
+        wrap_segs: [Vec::new(), Vec::new()],
     };
 
     task.rebuild(vec![MessageViewModel::tool_block(
@@ -987,6 +995,10 @@ fn detail_mode_long_cmd_running_task(
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: true,
+        alt_lines: Vec::new(),
+        alt_links: Vec::new(),
+        alt_keys: Vec::new(),
+        wrap_segs: [Vec::new(), Vec::new()],
     };
     // 超长命令：详细模式下 header 必然折成多行（≥2 行内容）
     let cmd = "(cd /d/code/peri/example-service && grep -rn \"registry/index|import p0|p0\" \
@@ -1202,4 +1214,265 @@ async fn test_no_toggle_diff_keeps_inline_diff_hidden() {
         !texts.iter().any(|l| l.contains("brand new line")),
         "未送达 ToggleDiff 时 Write diff 不应出现: {texts:?}"
     );
+}
+
+// ===== #626：执行中反复切换 detail 的一致性回归 =====
+// 场景：流式尾增长 + 工具运行中（指示器 tick 刷新）+ 子 agent 推进，
+// 其间反复 ToggleDetail。每一步都与「同状态从零渲染」逐行对照：
+// 归一化规则——数字（耗时文本）→ 'N'、运行指示点 '●'（按 tick 相位闪烁）→ ' '、
+// braille 转轮 → '#'，这些是动画相位而非内容差异。
+use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
+
+fn exec_norm_text(cache: &RenderCache) -> Vec<String> {
+    cache
+        .lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_digit() {
+                        'N'
+                    } else if c == '●' {
+                        ' '
+                    } else if ('\u{2800}'..='\u{28ff}').contains(&c) {
+                        '#'
+                    } else {
+                        c
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn exec_big_output(tag: &str, n: usize) -> String {
+    let mut s = String::new();
+    for i in 0..n {
+        s.push_str(&format!(
+            "{tag} output line {i:04}: compiling module foo::bar::baz processing item {i} done ok\n"
+        ));
+    }
+    s
+}
+
+fn exec_tool(name: &str, content: String) -> MessageViewModel {
+    let mut vm = MessageViewModel::tool_block(
+        name.to_string(),
+        name.to_string(),
+        Some("{}".to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock { content: c, .. } = &mut vm {
+        *c = content;
+    }
+    vm.recompute_hash();
+    vm
+}
+
+fn exec_running_bash() -> MessageViewModel {
+    let mut vm = MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("{\"command\":\"sleep 30\"}".to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock {
+        content,
+        started_at,
+        ..
+    } = &mut vm
+    {
+        *content = String::new();
+        *started_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(3));
+    }
+    vm.recompute_hash();
+    vm
+}
+
+fn exec_running_group(stage: usize) -> MessageViewModel {
+    let mut vm = MessageViewModel::subagent_group("explorer".to_string(), "探索代码库".to_string());
+    if let MessageViewModel::SubAgentGroup {
+        recent_messages,
+        total_steps,
+        ..
+    } = &mut vm
+    {
+        *total_steps = 3 + stage;
+        match stage {
+            0 => {
+                *recent_messages = vec![exec_running_bash()];
+            }
+            1 => {
+                *recent_messages = vec![
+                    exec_tool("Bash", exec_big_output("child-done", 12)),
+                    exec_running_bash(),
+                ];
+            }
+            _ => {
+                *recent_messages = vec![
+                    exec_tool("Bash", exec_big_output("child-done", 12)),
+                    exec_tool("Read", exec_big_output("child-read", 8)),
+                    exec_running_bash(),
+                ];
+            }
+        }
+    }
+    vm.recompute_hash();
+    vm
+}
+
+fn exec_streaming_assistant(chunk: usize) -> MessageViewModel {
+    let mut text = String::from("正在生成回复：");
+    for i in 0..=chunk {
+        text.push_str(&format!("第{}段流式内容，", i));
+    }
+    let msg = BaseMessage::ai(MessageContent::text(text));
+    MessageViewModel::from_base_message_with_cwd(&msg, &[], None)
+}
+
+fn exec_assistant_with_reasoning() -> MessageViewModel {
+    let mut r = String::new();
+    for i in 0..10 {
+        r.push_str(&format!(
+            "思考 {i}：先分析输入与约束，再比较两个候选方案的代价与风险，最后决定采用增量方式推进。\n"
+        ));
+    }
+    let blocks = vec![
+        ContentBlock::Reasoning {
+            text: r,
+            signature: None,
+            duration_ms: None,
+        },
+        ContentBlock::text("## 处理结果\n\n已完成该模块的修改，并通过验证。"),
+    ];
+    let msg = BaseMessage::ai(MessageContent::blocks(blocks));
+    MessageViewModel::from_base_message_with_cwd(&msg, &[], None)
+}
+
+fn exec_task(detail_mode: bool) -> RenderTask {
+    RenderTask {
+        last_messages: Vec::new(),
+        message_lines: Vec::new(),
+        message_links: Vec::new(),
+        message_hashes: Vec::new(),
+        cache: std::sync::Arc::new(parking_lot::RwLock::new(RenderCache::new())),
+        notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+        width: 120,
+        show_tool_messages: false,
+        diff_visible: false,
+        detail_mode,
+        alt_lines: Vec::new(),
+        alt_links: Vec::new(),
+        alt_keys: Vec::new(),
+        wrap_segs: [Vec::new(), Vec::new()],
+    }
+}
+
+/// 与同状态从零渲染逐行 + wrap 结构对照，返回差异数。
+fn exec_check_consistency(task: &RenderTask, msgs: &[MessageViewModel], step: &str) -> usize {
+    let mut truth = exec_task(task.detail_mode);
+    truth.rebuild_safe(msgs.to_vec());
+    let mut diffs = 0;
+    let got = exec_norm_text(&task.cache.read());
+    let want = exec_norm_text(&truth.cache.read());
+    assert_eq!(
+        got.len(),
+        want.len(),
+        "[{step}] 行数与从零渲染不一致 (detail={})",
+        task.detail_mode
+    );
+    for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+        if g != w {
+            if diffs < 5 {
+                eprintln!("[{step}] line {i}:\n  got : {g:?}\n  want: {w:?}");
+            }
+            diffs += 1;
+        }
+    }
+    let got_c = task.cache.read();
+    let want_c = truth.cache.read();
+    assert_eq!(
+        got_c.total_lines, want_c.total_lines,
+        "[{step}] total_lines 与从零渲染不一致"
+    );
+    assert_eq!(
+        got_c.wrap_map.len(),
+        want_c.wrap_map.len(),
+        "[{step}] wrap_map 长度与从零渲染不一致"
+    );
+    for (i, (g, w)) in got_c.wrap_map.iter().zip(want_c.wrap_map.iter()).enumerate() {
+        let gn: String = g
+            .plain_text
+            .chars()
+            .map(|c| if c.is_ascii_digit() { 'N' } else { c })
+            .collect();
+        let wn: String = w
+            .plain_text
+            .chars()
+            .map(|c| if c.is_ascii_digit() { 'N' } else { c })
+            .collect();
+        if g.visual_row_end - g.visual_row_start != w.visual_row_end - w.visual_row_start
+            || gn != wn
+        {
+            if diffs < 5 {
+                eprintln!("[{step}] wrap[{i}] 结构不一致");
+            }
+            diffs += 1;
+        }
+    }
+    diffs
+}
+
+#[test]
+fn test_toggle_detail_during_execution_matches_fresh_render() {
+    let mut msgs = vec![
+        MessageViewModel::from_base_message_with_cwd(
+            &BaseMessage::human("并行探索并跑长任务"),
+            &[],
+            None,
+        ),
+        exec_assistant_with_reasoning(),
+        exec_tool("Bash", exec_big_output("done", 30)),
+        exec_running_group(0),
+        exec_running_bash(),
+        exec_streaming_assistant(0),
+    ];
+    let mut task = exec_task(false);
+    let (_tx, mut rx) = tokio::sync::mpsc::channel::<RenderEvent>(16);
+    task.rebuild_safe(msgs.clone());
+    assert_eq!(exec_check_consistency(&task, &msgs, "initial"), 0);
+    let mut tick = 1u64;
+    for cycle in 0..6usize {
+        task.refresh_running_tool_indicators(tick);
+        tick += 1;
+        let target = !task.detail_mode;
+        task.handle_event(RenderEvent::ToggleDetail(target), &mut rx);
+        assert_eq!(
+            exec_check_consistency(&task, &msgs, "toggle"),
+            0,
+            "cycle {cycle} 切换到 detail={target} 后与从零渲染不一致"
+        );
+        task.refresh_running_tool_indicators(tick);
+        tick += 1;
+        // 执行推进：流式尾增长 + 子 agent 阶段推进
+        msgs[5] = exec_streaming_assistant(cycle + 1);
+        msgs[3] = exec_running_group((cycle + 1).min(2));
+        task.rebuild_safe(msgs.clone());
+        assert_eq!(
+            exec_check_consistency(&task, &msgs, "chunk"),
+            0,
+            "cycle {cycle} 执行推进后与从零渲染不一致"
+        );
+        task.refresh_running_tool_indicators(tick);
+        tick += 1;
+        assert_eq!(
+            exec_check_consistency(&task, &msgs, "tick"),
+            0,
+            "cycle {cycle} 指示器刷新后与从零渲染不一致"
+        );
+    }
 }
