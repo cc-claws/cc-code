@@ -248,7 +248,9 @@ function Main {
     $ActualSha = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
     if ($ActualSha -ne $ExpectedSha) {
         Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
-        error "Checksum mismatch for $AssetName: the download may be corrupted or tampered with."
+        # `${AssetName}` 的花括号不可省：直接写 `$AssetName:` 会被 PowerShell 当作
+        # 变量名加驱动器限定（解析期即报 "变量引用无效"），整个安装脚本一行都执行不了。
+        error "Checksum mismatch for ${AssetName}: the download may be corrupted or tampered with."
         Write-Host "    expected: $ExpectedSha"
         Write-Host "    actual:   $ActualSha"
         error "Refusing to install. Nothing was installed."
