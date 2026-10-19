@@ -252,13 +252,97 @@ fn wsl_clipboard_copy(_text: &str) -> Result<(), String> {
     Err("WSL clipboard fallback unavailable on this platform".to_string())
 }
 
-/// 通过 tmux load-buffer 把文本写入剪贴板，tmux 配置 set-clipboard 时会转发到外层终端。
+/// 把文本复制到系统剪贴板：优先直写 tmux client tty，
+/// 失败时回落 tmux load-buffer（依赖用户会话的 set-clipboard / Ms 配置）。
+///
+/// tmux 只在 `set-clipboard` 非 off 且终端声明了 `Ms` 能力时转发剪贴板，
+/// 3.3+ 的 `allow-passthrough` 也默认 off。这些都属于用户会话配置，不能要求
+/// 用户为 peri 单独修改，因此这里绕过 tmux 转发层，直接向 client 的 pty
+/// 写 OSC 52——它和 tmux 自己的输出走同一条通路，最终到达外层终端。
 fn tmux_clipboard_copy(text: &str) -> Result<(), String> {
+    match tmux_client_tty_copy(text) {
+        Ok(()) => return Ok(()),
+        Err(tty_err) => {
+            tracing::debug!("tmux client tty copy failed: {tty_err}; falling back to tmux buffer")
+        }
+    }
+
     tmux_clipboard_copy_ready(
         || tmux_command_output(["show-options", "-gv", "set-clipboard"]),
         || tmux_command_output(["info"]),
     )?;
 
+    tmux_load_buffer(text)
+}
+
+/// 向所有已连接的 tmux client tty 直写 OSC 52 序列。
+#[cfg(unix)]
+fn tmux_client_tty_copy(text: &str) -> Result<(), String> {
+    let sequence = osc52_sequence(text, false)?;
+    let ttys = tmux_client_ttys()?;
+    write_osc52_to_paths(&sequence, &ttys)
+}
+
+/// 非 Unix 平台没有可直接写入的 client pty，交给 tmux load-buffer 处理。
+#[cfg(not(unix))]
+fn tmux_client_tty_copy(_text: &str) -> Result<(), String> {
+    Err("tmux client tty copy is unavailable on this platform".to_string())
+}
+
+/// 读取当前连接的 tmux client tty 列表（同一 server 可能连接多个终端）。
+#[cfg(unix)]
+fn tmux_client_ttys() -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("tmux")
+        .args(["list-clients", "-F", "#{client_tty}"])
+        .output()
+        .map_err(|e| format!("failed to spawn tmux: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("tmux exited with status {}", output.status)
+        } else {
+            format!("tmux failed: {stderr}")
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let ttys: Vec<String> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("/dev/"))
+        .map(str::to_string)
+        .collect();
+    if ttys.is_empty() {
+        return Err("no tmux client attached".to_string());
+    }
+    Ok(ttys)
+}
+
+/// 依次向 pty 写入序列，任一成功即视为成功。
+#[cfg(unix)]
+fn write_osc52_to_paths(sequence: &str, paths: &[String]) -> Result<(), String> {
+    let mut written = 0_usize;
+    let mut errors = Vec::new();
+    for path in paths {
+        match std::fs::OpenOptions::new().write(true).open(path) {
+            Ok(mut file) => match write_osc52_to_writer(&mut file, sequence) {
+                Ok(()) => written += 1,
+                Err(err) => errors.push(format!("{path}: {err}")),
+            },
+            Err(err) => errors.push(format!("{path}: {err}")),
+        }
+    }
+    if written > 0 {
+        return Ok(());
+    }
+    Err(format!(
+        "failed to write tmux client tty: {}",
+        errors.join("; ")
+    ))
+}
+
+/// 通过 tmux load-buffer 把文本写入剪贴板，tmux 配置 set-clipboard 时会转发到外层终端。
+fn tmux_load_buffer(text: &str) -> Result<(), String> {
     let mut child = std::process::Command::new("tmux")
         .args(["load-buffer", "-w", "-"])
         .stdin(std::process::Stdio::piped())
@@ -742,5 +826,59 @@ mod tests {
         );
 
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_write_osc52_to_paths_writes_each_target() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let first = dir.path().join("client-1.tty");
+        let second = dir.path().join("client-2.tty");
+        std::fs::write(&first, "").expect("创建第一个目标");
+        std::fs::write(&second, "").expect("创建第二个目标");
+        let sequence = "\u{1b}]52;c;aGVsbG8=\u{7}";
+        let paths = vec![first.display().to_string(), second.display().to_string()];
+
+        let result = write_osc52_to_paths(sequence, &paths);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            std::fs::read_to_string(&first).expect("读取第一个目标"),
+            sequence
+        );
+        assert_eq!(
+            std::fs::read_to_string(&second).expect("读取第二个目标"),
+            sequence
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_write_osc52_to_paths_succeeds_when_one_target_writable() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let writable = dir.path().join("client.tty");
+        std::fs::write(&writable, "").expect("创建可写目标");
+        let paths = vec![
+            dir.path().join("missing.tty").display().to_string(),
+            writable.display().to_string(),
+        ];
+
+        let result = write_osc52_to_paths("seq", &paths);
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_write_osc52_to_paths_reports_all_failures() {
+        let missing = "/nonexistent/peri-client-a".to_string();
+
+        let result = write_osc52_to_paths("seq", std::slice::from_ref(&missing));
+
+        let Err(error) = result else {
+            panic!("全部目标不可写时应返回错误");
+        };
+        assert!(error.starts_with("failed to write tmux client tty: "));
+        assert!(error.contains(&missing));
     }
 }
