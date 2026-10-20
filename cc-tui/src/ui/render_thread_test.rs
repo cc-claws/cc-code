@@ -1369,6 +1369,7 @@ fn exec_task(detail_mode: bool) -> RenderTask {
         message_lines: Vec::new(),
         message_links: Vec::new(),
         message_hashes: Vec::new(),
+        theme_fingerprint: crate::ui::theme::fingerprint(),
         cache: std::sync::Arc::new(parking_lot::RwLock::new(RenderCache::new())),
         notify: std::sync::Arc::new(tokio::sync::Notify::new()),
         width: 120,
