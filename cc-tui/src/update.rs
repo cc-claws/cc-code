@@ -10,14 +10,22 @@ use anyhow::{Context, Result};
 use std::process::Stdio;
 use tokio::process::Command;
 
-const SCRIPT_URL_SH: &str =
-    "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.sh";
-/// #19 fix: Expected SHA256 of the install script.
-/// UPDATE THIS when scripts/install.sh changes, or the update will be blocked.
-const SCRIPT_SHA256_SH: &str =
-    "39a5485e6a4b864512224db7c5c8e8c11865522c4e0e0538d44622b6a2119360";
-const SCRIPT_URL_PS1: &str =
-    "https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1";
+/// 安装脚本的地址与校验值由 `build.rs` 注入，两者钉在**同一个提交**上。
+///
+/// 地址若取浮动的 `main`，脚本任何一次改动都会让所有已发布二进制的 update
+/// 永久失败（校验值编译期固定、地址运行期浮动）。
+const SCRIPT_URL_SH: &str = concat!(
+    "https://raw.githubusercontent.com/cc-claws/cc-code/",
+    env!("CC_INSTALL_SCRIPT_REF"),
+    "/scripts/install.sh"
+);
+/// #19 fix: Expected SHA256 of the install script（构建时该提交里的脚本原文）。
+const SCRIPT_SHA256_SH: &str = env!("CC_INSTALL_SCRIPT_SHA256");
+const SCRIPT_URL_PS1: &str = concat!(
+    "https://raw.githubusercontent.com/cc-claws/cc-code/",
+    env!("CC_INSTALL_SCRIPT_REF"),
+    "/scripts/install.ps1"
+);
 
 /// Run the update flow. Returns Ok(new_tag) on success.
 ///
