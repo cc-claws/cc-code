@@ -139,8 +139,8 @@ fn test_read_write_edit_file_path_not_truncated() {
     );
 
     let result = format_tool_args("Edit", &input, None);
-    // 无 cwd 时 fallback 取末段文件名
-    assert_eq!(result.unwrap(), "header.rs");
+    // 无 cwd 时按 CC `getDisplayPath` 保留绝对路径（旧实现退化取 basename）
+    assert_eq!(result.unwrap(), path);
 }
 
 #[test]
@@ -209,13 +209,14 @@ fn test_read_fallback_to_path_alias() {
     let result = format_tool_args("Read", &input, Some("/home/user/project/"));
     assert_eq!(result.as_deref(), Some("src/main.rs"), "应回退到 path 字段");
 
+    // 无 cwd 时 CC `getDisplayPath` 保留绝对路径，不再退化成 basename
     let input = serde_json::json!({"path": "/tmp/test.txt"});
     let result = format_tool_args("Write", &input, None);
-    assert_eq!(result.as_deref(), Some("test.txt"), "Write 也应回退到 path");
+    assert_eq!(result.as_deref(), Some("/tmp/test.txt"), "Write 也应回退到 path");
 
     let input = serde_json::json!({"path": "/tmp/edit.rs"});
     let result = format_tool_args("Edit", &input, None);
-    assert_eq!(result.as_deref(), Some("edit.rs"), "Edit 也应回退到 path");
+    assert_eq!(result.as_deref(), Some("/tmp/edit.rs"), "Edit 也应回退到 path");
 }
 
 #[test]
@@ -225,7 +226,7 @@ fn test_read_file_path_takes_priority_over_path() {
     let result = format_tool_args("Read", &input, None);
     assert_eq!(
         result.as_deref(),
-        Some("real.rs"),
+        Some("/a/real.rs"),
         "file_path 应优先于 path"
     );
 }
@@ -260,7 +261,7 @@ fn test_read_offset_limit_shows_range() {
     // offset=100, limit=50 → 显示 100-149
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 100, "limit": 50});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("main.rs:100-149"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs:100-149"));
 }
 
 #[test]
@@ -268,7 +269,7 @@ fn test_read_offset_only_shows_open_range() {
     // 只有 offset 无 limit → 显示 offset-
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 855});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("main.rs:855-"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs:855-"));
 }
 
 #[test]
@@ -276,7 +277,7 @@ fn test_read_no_offset_limit_shows_path_only() {
     // 无 offset/limit → 纯路径，不追加行号
     let input = serde_json::json!({"file_path": "/tmp/main.rs"});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("main.rs"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs"));
 }
 
 #[test]
@@ -284,7 +285,7 @@ fn test_read_offset_1_is_omitted() {
     // offset=1 等同于从头读，不显示行号
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 1, "limit": 32});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("main.rs"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs"));
 }
 
 #[test]
@@ -292,7 +293,7 @@ fn test_read_limit_only_no_offset() {
     // 只有 limit 无 offset → 不显示行号（从头读 limit 行）
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "limit": 32});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("main.rs"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs"));
 }
 
 #[test]

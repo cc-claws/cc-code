@@ -656,13 +656,16 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                 } => {
                     let marker = "+";
                     // CC 单行号：marker + ' ' + 右对齐行号 + ' '
+                    // 分层（CC color-diff）：marker 与行号用 decoration 色，
+                    // 代码正文用语法高亮/正文色，不再三处共用一个前景色。
+                    let deco = theme.diff_add_decoration();
                     let fg = theme.diff_add();
                     let bg = theme.diff_add_bg();
                     let gutter = GutterLayout::new(
                         format!("{} {:>n$} ", marker, line_num, n = n),
                         marker,
                         n,
-                        Style::default().fg(fg).bg(bg),
+                        Style::default().fg(deco).bg(bg),
                     );
                     let content_width = width.saturating_sub(gutter_width);
                     let line_text = text.trim_end_matches('\n').to_string();
@@ -717,13 +720,17 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                 } => {
                     let marker = "-";
                     // CC 单行号：marker + ' ' + 右对齐行号 + ' '
-                    let fg = theme.diff_remove();
+                    // 分层（CC color-diff `marker === '-'` 分支）：marker 与行号用
+                    // deleteDecoration 暗红，**代码正文用正文色（近白）**——之前三处
+                    // 共用 diff_remove 亮红，删除行代码整行发红，与 CC 不符。
+                    let deco = theme.diff_remove_decoration();
                     let bg = theme.diff_remove_bg();
+                    let fg = theme.text();
                     let gutter = GutterLayout::new(
                         format!("{} {:>n$} ", marker, line_num, n = n),
                         marker,
                         n,
-                        Style::default().fg(fg).bg(bg),
+                        Style::default().fg(deco).bg(bg),
                     );
                     let content_width = width.saturating_sub(gutter_width);
                     let line_text = text.trim_end_matches('\n').to_string();

@@ -79,9 +79,11 @@ pub struct CustomTheme {
     pub user_bg: Color,
     pub bash_border: Color,
     pub diff_add: Color,
+    pub diff_add_decoration: Color,
     pub diff_add_bg: Color,
     pub diff_add_word_bg: Color,
     pub diff_remove: Color,
+    pub diff_remove_decoration: Color,
     pub diff_remove_bg: Color,
     pub diff_remove_word_bg: Color,
     pub diff_hunk: Color,
@@ -136,6 +138,12 @@ impl Theme for CustomTheme {
     }
     fn diff_add(&self) -> Color {
         self.diff_add
+    }
+    fn diff_add_decoration(&self) -> Color {
+        self.diff_add_decoration
+    }
+    fn diff_remove_decoration(&self) -> Color {
+        self.diff_remove_decoration
     }
     fn diff_add_bg(&self) -> Color {
         self.diff_add_bg

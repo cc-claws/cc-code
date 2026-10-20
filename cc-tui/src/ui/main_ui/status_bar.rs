@@ -484,7 +484,9 @@ fn render_completed_tool_segments(
     let total = entries.len();
     let mut segments = Vec::new();
     for (name, count) in entries.into_iter().take(TOOLS_MAX_VISIBLE) {
-        let display = tool_display::format_tool_name(name);
+        // 统计拿不到入参，Edit 统一显示 Edit（不转 Update），见
+        // `format_tool_name_for_stats` 的说明。
+        let display = tool_display::format_tool_name_for_stats(name);
         segments.push(vec![
             Span::styled("✓", fg_style(colors.green)),
             Span::styled(format!(" {}", display), plain_style()),
@@ -1347,6 +1349,11 @@ mod tests {
         assert_eq!(segments.len(), 5);
         assert_eq!(spans_to_plain(&segments[0]), "✓ Read ×10");
         assert_eq!(spans_to_plain(segments.last().unwrap()), "+1 more");
+        assert_eq!(
+            spans_to_plain(&segments[2]),
+            "✓ Edit ×6",
+            "统计拿不到入参，Edit 不得显示为 Update（Create 会混进来）"
+        );
     }
 
     /// 状态栏默认（`default` 主题）配色——多数渲染断言只关心 default 主题的既有观感

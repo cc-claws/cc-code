@@ -110,6 +110,10 @@ pub struct Palette {
     pub chip_bg_killed: Color,
     pub diff_add_fg: Color,
     pub diff_remove_fg: Color,
+    /// 新增行 marker（`+`）与行号的前景色（CC `color-diff` 的 `addDecoration`）。
+    pub diff_add_decoration: Color,
+    /// 删除行 marker（`-`）与行号的前景色（CC `color-diff` 的 `deleteDecoration`）。
+    pub diff_remove_decoration: Color,
     pub diff_hunk: Color,
 }
 
@@ -208,6 +212,8 @@ pub const DEFAULT: Palette = Palette {
     chip_bg_killed: Color::Rgb(52, 46, 26),
     diff_add_fg: Color::Rgb(63, 185, 80),
     diff_remove_fg: Color::Rgb(248, 81, 73),
+    diff_add_decoration: Color::Rgb(80, 200, 80),
+    diff_remove_decoration: Color::Rgb(220, 90, 90),
     diff_hunk: Color::Rgb(87, 143, 169),
 };
 
@@ -304,6 +310,8 @@ pub const DARK: Palette = Palette {
     chip_bg_killed: Color::Rgb(52, 46, 26),
     diff_add_fg: Color::Rgb(56, 166, 96),
     diff_remove_fg: Color::Rgb(179, 89, 107),
+    diff_add_decoration: Color::Rgb(80, 200, 80),
+    diff_remove_decoration: Color::Rgb(220, 90, 90),
     diff_hunk: Color::Rgb(177, 185, 249),
 };
 
@@ -400,6 +408,8 @@ pub const LIGHT: Palette = Palette {
     chip_bg_killed: Color::Rgb(200, 158, 80),
     diff_add_fg: Color::Rgb(47, 157, 68),
     diff_remove_fg: Color::Rgb(209, 69, 75),
+    diff_add_decoration: Color::Rgb(36, 138, 61),
+    diff_remove_decoration: Color::Rgb(207, 34, 46),
     diff_hunk: Color::Rgb(87, 105, 247),
 };
 
@@ -496,6 +506,8 @@ pub const LIGHT_DALTONIZED: Palette = Palette {
     chip_bg_killed: Color::Rgb(255, 183, 50),
     diff_add_fg: Color::Rgb(51, 102, 204),
     diff_remove_fg: Color::Rgb(153, 51, 51),
+    diff_add_decoration: Color::Rgb(36, 87, 138),
+    diff_remove_decoration: Color::Rgb(207, 34, 46),
     diff_hunk: Color::Rgb(51, 102, 255),
 };
 
@@ -592,6 +604,8 @@ pub const DARK_DALTONIZED: Palette = Palette {
     chip_bg_killed: Color::Rgb(52, 46, 26),
     diff_add_fg: Color::Rgb(0, 119, 179),
     diff_remove_fg: Color::Rgb(179, 0, 0),
+    diff_add_decoration: Color::Rgb(81, 160, 200),
+    diff_remove_decoration: Color::Rgb(220, 90, 90),
     diff_hunk: Color::Rgb(153, 204, 255),
 };
 
@@ -688,6 +702,8 @@ pub const LIGHT_ANSI: Palette = Palette {
     chip_bg_killed: Color::DarkGray,
     diff_add_fg: Color::LightGreen,
     diff_remove_fg: Color::LightRed,
+    diff_add_decoration: Color::LightGreen,
+    diff_remove_decoration: Color::LightRed,
     diff_hunk: Color::Blue,
 };
 
@@ -784,5 +800,7 @@ pub const DARK_ANSI: Palette = Palette {
     chip_bg_killed: Color::Black,
     diff_add_fg: Color::LightGreen,
     diff_remove_fg: Color::LightRed,
+    diff_add_decoration: Color::LightGreen,
+    diff_remove_decoration: Color::LightRed,
     diff_hunk: Color::LightBlue,
 };
