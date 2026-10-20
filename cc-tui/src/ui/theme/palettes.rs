@@ -188,7 +188,9 @@ pub const DEFAULT: Palette = Palette {
     selected_fg: Color::Rgb(178, 185, 249),
     loading: Color::Rgb(147, 165, 255),
     drawer_text_active: Color::Rgb(255, 255, 255),
-    drawer_muted: Color::Rgb(100, 116, 139),
+    // 必须与 `inactive`（= 状态栏提示行的 MUTED）同值：抽屉未选中行与第三行
+    // 导航提示同屏相邻，两者色差肉眼可见（原 #64748B 偏蓝且更暗）。
+    drawer_muted: Color::Rgb(153, 153, 153),
     drawer_circle_on: Color::Rgb(241, 245, 249),
     shell_bg: Color::Rgb(36, 36, 36),
     shell_border: Color::Rgb(106, 106, 106),

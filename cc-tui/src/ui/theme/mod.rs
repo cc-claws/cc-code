@@ -241,6 +241,22 @@ set_current(ThemeName::Default);
 assert_eq!(cur(), palettes::DEFAULT);
 }
 
+/// 抽屉未选中行的正文色必须与全局 MUTED 同值。
+///
+/// 抽屉最后一行就是第三行的导航提示（`↑/↓ 选择 · x 停止`），用的是 `muted`；
+/// 两者上下相邻，一旦不等就会呈现「一行偏蓝灰、一行中性灰」的割裂感
+/// （DEFAULT 曾用原型的 `#64748B`，真机反馈与提示行不一致）。
+#[test]
+fn drawer_muted_tracks_muted_in_all_themes() {
+    for t in ThemeName::ALL {
+        let p = t.palette();
+        assert_eq!(
+            p.drawer_muted, p.inactive,
+            "{t:?} 的 drawer_muted 与 inactive(MUTED) 不一致"
+        );
+    }
+}
+
 /// default 主题保真锁定：这些值 = 主题化改造前 theme.rs 的常量原值，
 /// 任一漂移都会改变默认外观，必须变红。
 #[test]
@@ -259,7 +275,9 @@ assert_eq!(p.text_soft, rgb(208, 208, 208)); // TEXT_SOFT
 assert_eq!(p.inactive, rgb(153, 153, 153)); // MUTED
 assert_eq!(p.subtle, rgb(80, 80, 80)); // DIM
 assert_eq!(p.drawer_text_active, rgb(255, 255, 255));
-assert_eq!(p.drawer_muted, rgb(100, 116, 139));
+// 抽屉未选中行的灰必须与状态栏提示行同色（PRD §4.11.2），见
+// `drawer_muted_tracks_muted_in_all_themes`
+assert_eq!(p.drawer_muted, rgb(153, 153, 153));
 assert_eq!(p.drawer_circle_on, rgb(241, 245, 249));
 assert_eq!(p.prompt_border, rgb(80, 80, 80)); // BORDER
 assert_eq!(p.border_dim, rgb(42, 42, 48)); // BORDER_DIM

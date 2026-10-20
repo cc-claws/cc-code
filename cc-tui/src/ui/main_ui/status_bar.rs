@@ -122,8 +122,14 @@ impl SbColors {
 const CONTEXT_WARNING_PCT: f64 = 70.0;
 const CONTEXT_CRITICAL_PCT: f64 = 85.0;
 const TOOLS_MAX_VISIBLE: usize = 4;
-/// 状态栏「最近工具」args 摘要的字符数上限（首版 30，后续按用户反馈调整）
-const TOOL_TARGET_MAX_LEN: usize = 30;
+/// 状态栏「最近工具」args 摘要的字符数上限
+const TOOL_TARGET_MAX_LEN: usize = 25;
+/// 状态栏每一行的行首缩进。
+///
+/// 所有行（模型行、活动行、权限/提示行）共用这一份，段间分隔统一用
+/// [`status_separator`]。之前散落成 3 处手写 `"  "`、抽屉提示还写成 1 个空格，
+/// 导致提示行比其他行左移一列。
+const SB_INDENT: &str = "  ";
 
 pub(crate) fn status_bar_height(app: &App) -> u16 {
     if has_hud_activity(app) {
@@ -165,22 +171,35 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 ///
 /// 游标停在「当前已经在查看的那一行」时，`Enter to view` 与 `x to stop` 都无意义
 /// （已经在看它了 / 只有 `x` 有意义），此时缩短为纯导航提示。
+/// 抽屉导航提示（第三行）。
+///
+/// 只有在「已进入子 Agent（聚焦查看）」或「已把游标聚焦到抽屉」时才接管第三行，
+/// 用来替代权限模式 / Cache / MEM 等常规内容；未进入时保留 `N agent ↓ to view`
+/// 胶囊作为抽屉入口。
+///
+/// 游标停在「当前已经在查看的那一行」时缩短为纯导航提示（`Enter` / `x` 此刻无意义）。
 fn drawer_hint(app: &App) -> Option<String> {
     let session = app.session_mgr.current();
-    if !session.drawer_nav_active() {
+    if session.background_agents.is_empty() {
         return None;
     }
-    let cursor = session.ui.bg_bar_cursor?;
-    // 游标 0 = main 行（对应 focused_instance_id == None）
-    let target_id = cursor
-        .checked_sub(1)
-        .and_then(|index| session.background_agents.get(index))
-        .map(|agent| agent.instance_id.as_str());
+    let cursor = session.ui.bg_bar_cursor;
+    if cursor.is_none() && session.focused_instance_id.is_none() {
+        return None;
+    }
+    let on_focused_row = cursor.is_some_and(|cursor| {
+        // 游标 0 = main 行（对应 focused_instance_id == None）
+        let target_id = cursor
+            .checked_sub(1)
+            .and_then(|index| session.background_agents.get(index))
+            .map(|agent| agent.instance_id.as_str());
+        target_id == session.focused_instance_id.as_deref()
+    });
     let lc = &app.services.lc;
-    Some(if target_id == session.focused_instance_id.as_deref() {
-        format!(" {}", lc.tr("bg-drawer-hint-short"))
+    Some(if on_focused_row {
+        lc.tr("bg-drawer-hint-short").to_string()
     } else {
-        format!(" {}", lc.tr("bg-drawer-hint-full"))
+        lc.tr("bg-drawer-hint-full").to_string()
     })
 }
 
@@ -199,7 +218,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     let colors = SbColors::current();
     let mut spans: Vec<Span> = Vec::new();
 
-    spans.push(Span::styled("  ", plain_style()));
+    spans.push(Span::styled(SB_INDENT, plain_style()));
 
     // Model + context bar 是一个 segment，中间用空格，不插入 ` | `。
     let is_highlight = app
@@ -342,7 +361,7 @@ fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
 
 fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>>) {
     if spans.is_empty() {
-        spans.push(Span::styled("  ", plain_style()));
+        spans.push(Span::styled(SB_INDENT, plain_style()));
     } else {
         spans.push(status_separator());
     }
@@ -365,15 +384,50 @@ fn render_recent_tool_segment(
         Span::styled(entry.display.clone(), fg_style(colors.cyan)),
     ];
     if !entry.args_summary.is_empty() {
-        spans.push(Span::styled(
-            format!(
-                " : {}",
-                truncate_tool_target(&entry.args_summary, TOOL_TARGET_MAX_LEN)
-            ),
-            dim_style(),
-        ));
+        // Bash 命令压缩首个绝对路径为基名后按尾部省略；文件类工具保留 `.../name`
+        let target = if entry.display == "Bash" {
+            truncate_bash_command(&entry.args_summary, TOOL_TARGET_MAX_LEN)
+        } else {
+            truncate_tool_target(&entry.args_summary, TOOL_TARGET_MAX_LEN)
+        };
+        spans.push(Span::styled(format!(": {target}"), dim_style()));
     }
     spans
+}
+
+/// Bash 命令的目标显示：压缩命令里第一个绝对路径的目录前缀，再按宽度尾部省略。
+///
+/// 例：`cd "/d/code/peri" && cargo test -j 1 -p cc-tui` → `cd "peri" && cargo te…`
+///
+/// 与 [`truncate_tool_target`] 的区别：后者面向文件路径（保留 `.../basename`
+/// 以提示目录被省略），命令需要保留后续的管道/参数，所以只压第一条路径。
+fn truncate_bash_command(command: &str, max_len: usize) -> String {
+    let compressed = compress_first_path(&command.replace('\\', "/"));
+    if compressed.chars().count() <= max_len {
+        return compressed;
+    }
+    format!(
+        "{}...",
+        compressed
+            .chars()
+            .take(max_len.saturating_sub(3))
+            .collect::<String>()
+    )
+}
+
+/// 把命令里第一个绝对路径的目录前缀压掉：`/a/b/c` → `c`
+fn compress_first_path(command: &str) -> String {
+    let Some(slash) = command.find('/') else {
+        return command.to_string();
+    };
+    let start = command[..slash]
+        .rfind(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+        .map_or(0, |i| i + 1);
+    let end = command[slash..]
+        .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+        .map_or(command.len(), |i| slash + i);
+    let base = command[start..end].rsplit('/').next().unwrap_or("");
+    format!("{}{}{}", &command[..start], base, &command[end..])
 }
 
 /// 单行截断：按显示列宽（unicode-width）裁掉超出部分并以 `…` 收口
@@ -473,7 +527,10 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         // 不用抽屉游标的青色——青色只标记键盘游标本身。
         render_truncated_line(
             f,
-            vec![Span::styled(text, Style::default().fg(colors.muted))],
+            vec![
+                Span::styled(SB_INDENT, plain_style()),
+                Span::styled(text, Style::default().fg(colors.muted)),
+            ],
             Vec::new(),
             area,
         );
@@ -499,7 +556,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         if is_highlight {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
-        left_spans.push(Span::styled(format!("  {} ", label), style));
+        left_spans.push(Span::styled(format!("{SB_INDENT}{label} "), style));
         if !matches!(
             &app.session_mgr.current().agent.interaction_prompt,
             Some(crate::app::InteractionPrompt::Approval(_))
@@ -701,7 +758,11 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    if app.agent_center_navigation_available() {
+    // 跨会话命令中心入口：与本会话后台任务胶囊互斥，避免同一行出现两个 agent 入口
+    // （对齐 CC `BackgroundTaskStatus`：底部只反映当前会话的后台任务）
+    let has_bg_tasks = app.running_background_shell_task_count() > 0
+        || !app.session_mgr.current().background_agents.is_empty();
+    if !has_bg_tasks && app.agent_center_navigation_available() {
         left_spans.push(Span::styled(
             format!(" · ← {} agents", app.current_project_ready_count()),
             Style::default().fg(colors.muted),
@@ -1170,7 +1231,7 @@ mod tests {
             &make_recent_entry("Read", "src/deep/file.rs", true),
             &make_default_colors(),
         );
-        assert_eq!(spans_to_plain(&segment), "◐ Read : src/deep/file.rs");
+        assert_eq!(spans_to_plain(&segment), "◐ Read: src/deep/file.rs");
         assert_eq!(segment[0].style.fg, Some(Color::Yellow));
         assert_eq!(segment[2].style.fg, Some(Color::Cyan));
         assert!(segment[3].style.add_modifier.contains(Modifier::DIM));
@@ -1182,7 +1243,7 @@ mod tests {
             &make_recent_entry("Read", "src/deep/file.rs", false),
             &make_default_colors(),
         );
-        assert_eq!(spans_to_plain(&segment), "✓ Read : src/deep/file.rs");
+        assert_eq!(spans_to_plain(&segment), "✓ Read: src/deep/file.rs");
         assert_eq!(segment[0].style.fg, Some(Color::Green));
     }
 
@@ -1208,33 +1269,39 @@ mod tests {
 
     #[test]
     fn test_truncate_tool_target_uses_char_count_cap() {
+        // 26 字符的路径超过 25 上限 → 只留基名
         assert_eq!(
             truncate_tool_target("src/ui/main_ui/status_bar.rs", TOOL_TARGET_MAX_LEN),
-            "src/ui/main_ui/status_bar.rs"
+            ".../status_bar.rs"
+        );
+        // 25 字符以内原样返回
+        assert_eq!(
+            truncate_tool_target("src/ui/status_bar.rs", TOOL_TARGET_MAX_LEN),
+            "src/ui/status_bar.rs"
         );
         assert_eq!(
             truncate_tool_target("tool_dispatch_test.rs:1580-1599", TOOL_TARGET_MAX_LEN),
-            "tool_dispatch_test.rs:1580-..."
+            "tool_dispatch_test.rs:..."
         );
     }
 
     #[test]
     fn test_truncate_spans_to_width_adds_ellipsis_when_narrow() {
         let spans = vec![
-            Span::styled("◐ Bash : sleep 15", plain_style()),
+            Span::styled("◐ Bash: sleep 15", plain_style()),
             Span::styled(" | ", plain_style()),
             Span::styled("✓ Bash ×21", plain_style()),
         ];
         let plain = spans_to_plain(&truncate_spans_to_width(spans, 20));
-        assert_eq!(plain, "◐ Bash : sleep 15 |…");
+        assert_eq!(plain, "◐ Bash: sleep 15 | …");
         assert_eq!(UnicodeWidthStr::width(plain.as_str()), 20);
     }
 
     #[test]
     fn test_truncate_spans_to_width_keeps_line_when_fits() {
-        let spans = vec![Span::styled("◐ Bash : sleep 15", plain_style())];
+        let spans = vec![Span::styled("◐ Bash: sleep 15", plain_style())];
         let plain = spans_to_plain(&truncate_spans_to_width(spans, 40));
-        assert_eq!(plain, "◐ Bash : sleep 15");
+        assert_eq!(plain, "◐ Bash: sleep 15");
     }
 
     #[test]

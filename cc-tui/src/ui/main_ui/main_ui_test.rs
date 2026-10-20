@@ -230,7 +230,7 @@ async fn test_status_bar_activity_shows_last_two_running_tools() {
         status_rows.join("\n")
     );
     assert!(
-        activity.contains("◐ Bash : cargo test") && activity.contains("◐ Grep : needle"),
+        activity.contains("◐ Bash: cargo test") && activity.contains("◐ Grep: needle"),
         "activity 行应显示最后两个 running tools，实际:\n{}",
         status_rows.join("\n")
     );
@@ -251,7 +251,7 @@ async fn test_status_bar_activity_shows_last_two_running_tools() {
     let status_rows = &snapshot[snapshot.len() - 3..];
     let activity = &status_rows[1];
     assert!(
-        activity.contains("◐ Grep : needle") && activity.contains("✓ Bash ×1"),
+        activity.contains("◐ Grep: needle") && activity.contains("✓ Bash ×1"),
         "tool end 后应保留仍在 running 的工具并增加完成计数，实际:\n{}",
         status_rows.join("\n")
     );
@@ -598,6 +598,7 @@ async fn test_drawer_hint_shortens_when_cursor_on_active_row() {
         (Some(0usize), None, SHORT),
         (Some(1usize), Some("child-1"), SHORT),
         (Some(1usize), None, LONG),
+        // 未聚焦、也未进入子 Agent：保留入口胶囊，不接管第三行
         (None, None, ""),
     ] {
         {
