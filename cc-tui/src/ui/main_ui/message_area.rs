@@ -436,7 +436,7 @@ fn viewport_clip(
     spinner_line: &Option<Line<'static>>,
 ) -> ViewportClip {
     // ── 阶段 1：从 cache 提取可见行（cache guard 在 block 结束时 drop） ──
-    let (mut lines, local_offset, first_idx, total_lines) = {
+    let (mut lines, local_offset, first_idx, total_lines, vis_map) = {
         let cache = app.session_mgr.current().messages.render_cache.read();
 
         let vis_start = offset;
@@ -456,21 +456,27 @@ fn viewport_clip(
 
         let total_lines = cache.total_lines;
 
-        let (lines, local_offset, first_idx) =
+        let (lines, local_offset, first_idx, vis_map) =
             if first_visible < cache.wrap_map.len() && first_visible <= last_visible {
                 let first_visual = cache.wrap_map[first_visible].visual_row_start;
                 let local_offset = vis_start
                     .saturating_sub(first_visual)
                     .min(u16::MAX as usize) as u16;
                 let lines = cache.lines[first_visible..=last_visible].to_vec();
-                (lines, local_offset, first_visible)
+                // #629：每条收集行的全局视觉区间，供阶段 4 检测稀疏缺口
+                let vis_map: Vec<(usize, usize)> = cache.wrap_map[first_visible..=last_visible]
+                    .iter()
+                    .map(|info| (info.visual_row_start, info.visual_row_end))
+                    .collect();
+                (lines, local_offset, first_visible, vis_map)
             } else {
                 // 空内容或视口超出范围
-                (Vec::new(), 0u16, cache.lines.len())
+                (Vec::new(), 0u16, cache.lines.len(), Vec::new())
             };
 
-        (lines, local_offset, first_idx, total_lines)
+        (lines, local_offset, first_idx, total_lines, vis_map)
     }; // cache guard dropped here
+    let content_len = vis_map.len();
 
     // ── 阶段 2：Spinner 行追加（无需 cache） ──
     // spinner 行在视觉上排在 cache.total_lines 之后。
@@ -624,10 +630,51 @@ fn viewport_clip(
         }
     }
 
+    // ── 阶段 4：Virtual 稀疏发布的缺口填充 ──
+    // wrap_map 只覆盖物化段时，相邻收集行之间可能隔着未物化段的估算行，
+    // 视口顶部也可能落在未物化区。用空行把缺口补齐，几何与全量发布一致；
+    // 锚点重建落地后缺口由真实内容取代。Cache 发布恒无缺口，本阶段直通。
+    let (lines, local_offset) =
+        fill_visual_gaps(lines, content_len, &vis_map, offset, local_offset);
+
     ViewportClip {
         lines,
         local_offset,
     }
+}
+
+/// 把稀疏 wrap_map 收集到的行按全局视觉几何补齐（见 viewport_clip 阶段 4）。
+/// `content_len` 之后是 spinner/recap 追加行，不参与填充。
+fn fill_visual_gaps(
+    lines: Vec<Line<'static>>,
+    content_len: usize,
+    vis_map: &[(usize, usize)],
+    vis_start: usize,
+    local_offset: u16,
+) -> (Vec<Line<'static>>, u16) {
+    if vis_map.is_empty() || content_len == 0 {
+        return (lines, local_offset);
+    }
+    let above = vis_map[0].0.saturating_sub(vis_start);
+    let mut interior = 0usize;
+    for i in 0..content_len.saturating_sub(1) {
+        interior += vis_map[i + 1].0.saturating_sub(vis_map[i].1);
+    }
+    if above == 0 && interior == 0 {
+        return (lines, local_offset);
+    }
+    let mut out: Vec<Line<'static>> = Vec::with_capacity(lines.len() + above + interior);
+    out.extend((0..above).map(|_| Line::from("")));
+    for (i, line) in lines.into_iter().enumerate() {
+        out.push(line);
+        if i + 1 < content_len {
+            let gap = vis_map[i + 1].0.saturating_sub(vis_map[i].1);
+            out.extend((0..gap).map(|_| Line::from("")));
+        }
+    }
+    // 顶部缺口已用空行对齐，第一条内容行从视口顶开始画，局部偏移清零
+    let local_offset = if above > 0 { 0 } else { local_offset };
+    (out, local_offset)
 }
 
 /// 计算 spinner 区域的额外逻辑行数

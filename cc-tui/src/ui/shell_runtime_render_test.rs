@@ -20,6 +20,15 @@ fn make_task() -> RenderTask {
         line_epochs: Vec::new(),
         epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
+        strategy: RenderStrategy::Cache,
+        anchor_msg: usize::MAX,
+        viewport_rows: 50,
+        virt_rows: Vec::new(),
+        virt_est: Vec::new(),
+        virt_est_width: 0,
+        window: (0, 0),
+        virt_budget_rows: DEFAULT_VIRT_BUDGET_ROWS,
+        extra_materialized: std::collections::BTreeSet::new(),
     }
 }
 

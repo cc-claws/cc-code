@@ -1,3 +1,4 @@
+pub mod detail_estimate;
 #[cfg(any(test, feature = "headless"))]
 pub mod headless;
 pub mod main_ui;

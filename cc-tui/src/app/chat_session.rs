@@ -62,16 +62,28 @@ pub struct ChatSession {
     pub latest_recap: Option<String>,
 }
 
+/// 会话创建时的渲染初始化参数：配置的出生同步值。
+/// 配置的初始值不会自己到达渲染线程，必须在会话创建时显式同步
+/// （diff/detail/strategy 三者同理，见 ChatSession::new 内的注释）。
+pub struct SessionRenderInit {
+    pub detail_enabled: bool,
+    pub diff_enabled: bool,
+    pub streaming_mode: Option<String>,
+    pub render_strategy: Option<String>,
+}
+
 impl ChatSession {
     pub fn new(
         cwd: String,
         command_registry: CommandRegistry,
         skills: Vec<SkillMetadata>,
         lc: &crate::i18n::LcRegistry,
-        detail_enabled: bool,
-        diff_enabled: bool,
-        streaming_mode: Option<String>,
+        render_init: SessionRenderInit,
     ) -> Self {
+        let detail_enabled = render_init.detail_enabled;
+        let diff_enabled = render_init.diff_enabled;
+        let streaming_mode = render_init.streaming_mode;
+        let render_strategy = render_init.render_strategy;
         let (render_tx, render_cache, render_notify) =
             crate::ui::render_thread::spawn_render_thread(80);
         let commands = CommandSystem::new(command_registry, skills.clone(), lc);
@@ -91,16 +103,31 @@ impl ChatSession {
         if diff_enabled {
             let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleDiff(true));
         }
+        // #629：渲染策略与 diff/detail 同理，出生时必须显式同步渲染线程。
+        // 会话创建时历史为空，auto 估算为 0 → 只有显式 virtual 在此生效；
+        // auto 的阈值判定在 Ctrl+O 切换时按真实历史重新解析。
+        let render_virtual = crate::ui::detail_estimate::resolve_detail_virtual(
+            render_strategy.as_deref(),
+            0,
+            false,
+        );
+        if render_virtual {
+            let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::SetStrategy(
+                crate::ui::render_thread::RenderStrategy::Virtual,
+            ));
+        }
         if detail_enabled {
             let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleDetail(true));
         }
+        let mut ui_state = UiState::new(
+            super::build_textarea(false),
+            &cwd,
+            detail_enabled,
+            diff_enabled,
+        );
+        ui_state.render_virtual = render_virtual;
         Self {
-            ui: UiState::new(
-                super::build_textarea(false),
-                &cwd,
-                detail_enabled,
-                diff_enabled,
-            ),
+            ui: ui_state,
             messages,
             session_panels: super::panel_manager::PanelManager::new(),
             commands,

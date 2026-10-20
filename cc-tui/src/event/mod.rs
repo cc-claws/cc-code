@@ -390,6 +390,8 @@ fn set_message_scroll_offset(app: &mut App, offset: usize) {
     let offset = offset.clamp(min_scroll, max_scroll);
     ui.scroll_offset = offset;
     ui.scroll_follow = offset >= max_scroll;
+    // #629：滚动后同步虚拟化锚点（内部去重，非 Virtual 策略直接返回）
+    app.sync_virtual_anchor();
 }
 
 /// Core event-handling logic (extracted from `next_event` to avoid duplicating
@@ -1059,10 +1061,12 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 .messages_area
                                 .map(|a| a.width)
                                 .unwrap_or(0);
-                            let cache = app.session_mgr.current_mut().messages.render_cache.read();
-
                             // ── 检查是否为原地/同链接点击并命中 Markdown 超链接 ──
+                            // 守卫收进独立作用域：提取分支要 await 按需物化，
+                            // 读锁必须在 await 前确定性释放（clippy await_holding_lock）。
                             let clicked_url = {
+                                let cache =
+                                    app.session_mgr.current_mut().messages.render_cache.read();
                                 let hit_start = find_clicked_link(
                                     start,
                                     &cache.wrap_map,
@@ -1093,10 +1097,14 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                             };
 
                             if let Some(url) = clicked_url {
-                                drop(cache);
                                 app.session_mgr.current_mut().ui.text_selection.clear();
                                 open_browser_url(&url);
                             } else {
+                                // #629 S5：选区若覆盖未物化段，先按需物化再提取
+                                // （wrap_map 稀疏时直接提取会静默丢段）
+                                app.ensure_selection_materialized(start.0, end.0).await;
+                                let cache =
+                                    app.session_mgr.current_mut().messages.render_cache.read();
                                 let text = crate::app::text_selection::extract_selected_text(
                                     start,
                                     end,

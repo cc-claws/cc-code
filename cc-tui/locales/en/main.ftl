@@ -248,6 +248,7 @@ config-field-persona = Persona
 config-field-tone = Tone
 config-field-proactiveness = Proactiveness
 config-field-diff = Inline Diff
+config-field-render-strategy = Detail Render
 config-field-recap = Auto Recap
 config-value-on = ON
 config-value-off = OFF
@@ -265,6 +266,7 @@ config-desc-persona = Override system prompt persona (empty = default)
 config-desc-tone = Override system prompt tone (empty = default)
 config-desc-proactiveness = low / medium / high — agent initiative level
 config-desc-diff = (ON/OFF — show inline diff for Write/Edit tools)
+config-desc-render-strategy = auto / cache / virtual — Ctrl+O detail rendering: cache keeps all rendered lines; virtual materializes only the viewport window for very long histories
 config-field-streaming = Streaming Mode
 config-desc-streaming = streaming / block / none — render granularity for LLM output
 
@@ -525,6 +527,7 @@ cmd-gc-message-comparison = origin vs completed: { $overlap } ({ $origin }/{ $co
 cmd-gc-markdown-cache = markdown_cache: { $entries }/{ $capacity } entries, estimated data heap ~{ $bytes } (byte budget { $budget })
 cmd-gc-markdown-cache-details = { "  " }Average entry ~{ $average } | largest entry ~{ $largest } | { $lines } lines / { $spans } spans
 cmd-gc-render-cache = render_cache: { $lines } lines + { $wraps } wrap mappings, estimated data heap ~{ $bytes } (rendered conversation + plain-text copies of each line)
+cmd-gc-render-segments = render_segments ({ $strategy }): { $materialized } materialized ({ $mat_rows } rows), { $estimated } estimated, measured coverage { $coverage }%
 cmd-gc-diff-cache = diff_cache: { $entries }/{ $capacity } entries, ~{ $bytes } (byte budget { $budget })
 cmd-gc-diff-render-cache = diff_render_cache: { $entries }/{ $capacity } entries, ~{ $bytes } (byte budget { $budget })
 cmd-gc-allocator-heading = ── { $allocator } breakdown ──

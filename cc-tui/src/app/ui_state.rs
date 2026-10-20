@@ -98,6 +98,10 @@ pub struct UiState {
     pub diff_visible: bool,
     /// Shell 命令输出详细模式（Ctrl+O 切换）
     pub detail_mode: bool,
+    /// #629：detail 渲染是否走 Virtual 策略（由 detail_render_strategy 配置解析，S6 接通）
+    pub render_virtual: bool,
+    /// #629：最近一次发送给渲染线程的视口锚点（消息下标，视口行数），去重用
+    pub virtual_anchor_sent: Option<(usize, usize)>,
     /// 输入框中被占位符折叠展示的外部多行粘贴内容
     pub pasted_text_blocks: Vec<PastedTextBlock>,
     /// 当前 draft 内下一个粘贴占位符编号
@@ -172,6 +176,8 @@ impl UiState {
             bg_bar_area: None,
             diff_visible: diff_enabled,
             detail_mode: detail_enabled,
+            render_virtual: false,
+            virtual_anchor_sent: None,
             pasted_text_blocks: Vec::new(),
             next_pasted_text_id: 1,
             cursor_visible: true,

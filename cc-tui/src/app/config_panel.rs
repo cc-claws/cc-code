@@ -19,13 +19,14 @@ pub const ROW_THRESHOLD: usize = 2;
 pub const ROW_RECAP: usize = 3;
 pub const ROW_LANGUAGE: usize = 4;
 pub const ROW_DIFF: usize = 5;
-pub const ROW_STREAMING: usize = 6;
-pub const ROW_PROACTIVENESS: usize = 7;
-pub const ROW_SEPARATOR: usize = 8;
-pub const ROW_OVERRIDES_HEADER: usize = 9;
-pub const ROW_PERSONA: usize = 10;
-pub const ROW_TONE: usize = 11;
-pub const ROW_COUNT: usize = 12;
+pub const ROW_RENDER_STRATEGY: usize = 6;
+pub const ROW_STREAMING: usize = 7;
+pub const ROW_PROACTIVENESS: usize = 8;
+pub const ROW_SEPARATOR: usize = 9;
+pub const ROW_OVERRIDES_HEADER: usize = 10;
+pub const ROW_PERSONA: usize = 11;
+pub const ROW_TONE: usize = 12;
+pub const ROW_COUNT: usize = 13;
 
 fn next_editable_row(current: usize, reverse: bool) -> usize {
     let editable: &[usize] = &[
@@ -34,6 +35,7 @@ fn next_editable_row(current: usize, reverse: bool) -> usize {
         ROW_RECAP,
         ROW_LANGUAGE,
         ROW_DIFF,
+        ROW_RENDER_STRATEGY,
         ROW_STREAMING,
         ROW_PROACTIVENESS,
         ROW_PERSONA,
@@ -73,12 +75,14 @@ const SCREEN_LAYOUT: &[usize] = &[
     ROW_LANGUAGE,         // screen 8: desc
     ROW_DIFF,             // screen 9: value
     ROW_DIFF,             // screen 10: desc
-    ROW_STREAMING,        // screen 11: value
-    ROW_STREAMING,        // screen 12: desc
-    ROW_PROACTIVENESS,    // screen 13: value
-    ROW_PROACTIVENESS,    // screen 14: desc
-    ROW_SEPARATOR,        // screen 15
-    ROW_OVERRIDES_HEADER, // screen 16
+    ROW_RENDER_STRATEGY,  // screen 11: value
+    ROW_RENDER_STRATEGY,  // screen 12: desc
+    ROW_STREAMING,        // screen 13: value
+    ROW_STREAMING,        // screen 14: desc
+    ROW_PROACTIVENESS,    // screen 15: value
+    ROW_PROACTIVENESS,    // screen 16: desc
+    ROW_SEPARATOR,        // screen 17
+    ROW_OVERRIDES_HEADER, // screen 18
     ROW_PERSONA,          // screen 17: value
     ROW_PERSONA,          // screen 18: desc
     ROW_TONE,             // screen 19: value
@@ -108,6 +112,32 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
                 .messages
                 .render_tx
                 .try_send(crate::ui::render_thread::RenderEvent::ToggleDiff(want_diff));
+        }
+        // #629: detail 渲染策略同理——只落盘到不了渲染线程。
+        // 保存后按新配置重新解析（含 auto 的估算判定），变化时同步 ui 并补发事件。
+        {
+            let session = ctx.session_mgr.current_mut();
+            let width = session.messages.render_cache.read().width as usize;
+            let estimated = crate::ui::detail_estimate::estimate_total_detail_rows(
+                &session.messages.view_messages,
+                width,
+            );
+            let want_virtual = crate::ui::detail_estimate::resolve_detail_virtual(
+                cfg.config.detail_render_strategy.as_deref(),
+                estimated,
+                session.ui.render_virtual,
+            );
+            if session.ui.render_virtual != want_virtual {
+                session.ui.render_virtual = want_virtual;
+                session.ui.virtual_anchor_sent = None;
+                let _ = session.messages.render_tx.try_send(
+                    crate::ui::render_thread::RenderEvent::SetStrategy(if want_virtual {
+                        crate::ui::render_thread::RenderStrategy::Virtual
+                    } else {
+                        crate::ui::render_thread::RenderStrategy::Cache
+                    }),
+                );
+            }
         }
         // #319: 保存失败时记录错误用于 UI 展示，而非静默忽略
         match App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
@@ -143,7 +173,8 @@ pub struct ConfigPanel {
     pub cur_tone: usize,
     pub buf_proactiveness: String, // "low" / "medium" / "high"
     pub buf_diff: bool,
-    pub buf_streaming: String, // "streaming" / "block" / "none"
+    pub buf_render_strategy: String, // "auto" / "cache" / "virtual"
+    pub buf_streaming: String,       // "streaming" / "block" / "none"
     /// #319: 上次保存失败时的错误信息，用于 UI 展示
     pub save_error: Option<String>,
 }
@@ -178,6 +209,10 @@ impl ConfigPanel {
             cur_tone: 0,
             buf_proactiveness: proactiveness,
             buf_diff: diff_enabled,
+            buf_render_strategy: match cfg.config.detail_render_strategy.as_deref() {
+                Some(v @ ("cache" | "virtual")) => v.to_string(),
+                _ => "auto".to_string(),
+            },
             buf_streaming: cfg
                 .config
                 .streaming_mode
@@ -213,6 +248,14 @@ impl ConfigPanel {
 
     pub fn cycle_diff(&mut self) {
         self.buf_diff = !self.buf_diff;
+    }
+
+    pub fn cycle_render_strategy(&mut self) {
+        self.buf_render_strategy = match self.buf_render_strategy.as_str() {
+            "auto" => "cache".to_string(),
+            "cache" => "virtual".to_string(),
+            _ => "auto".to_string(),
+        };
     }
 
     pub fn cycle_streaming(&mut self, reverse: bool) {
@@ -360,6 +403,13 @@ impl ConfigPanel {
         // diff
         cfg.config.diff_enabled = self.buf_diff;
 
+        // detail render strategy（auto 是缺省值，落盘省略）
+        cfg.config.detail_render_strategy = if self.buf_render_strategy == "auto" {
+            None
+        } else {
+            Some(self.buf_render_strategy.clone())
+        };
+
         // streaming mode
         cfg.config.streaming_mode = if self.buf_streaming == "streaming" {
             None
@@ -466,13 +516,14 @@ impl PanelComponent for ConfigPanel {
             } => {
                 match self.cursor {
                     ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
-                    | ROW_STREAMING => {
+                    | ROW_RENDER_STRATEGY | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
                             ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_RENDER_STRATEGY => self.cycle_render_strategy(),
                             ROW_STREAMING => self.cycle_streaming(false),
                             _ => {}
                         }
@@ -489,13 +540,14 @@ impl PanelComponent for ConfigPanel {
             } => {
                 match self.cursor {
                     ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
-                    | ROW_STREAMING => {
+                    | ROW_RENDER_STRATEGY | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
                             ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(true),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_RENDER_STRATEGY => self.cycle_render_strategy(),
                             ROW_STREAMING => self.cycle_streaming(true),
                             _ => {}
                         }
@@ -514,13 +566,14 @@ impl PanelComponent for ConfigPanel {
             } => {
                 match self.cursor {
                     ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
-                    | ROW_STREAMING => {
+                    | ROW_RENDER_STRATEGY | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
                             ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_RENDER_STRATEGY => self.cycle_render_strategy(),
                             ROW_STREAMING => self.cycle_streaming(false),
                             _ => {}
                         }
@@ -569,6 +622,7 @@ impl PanelComponent for ConfigPanel {
                             | ROW_RECAP
                             | ROW_LANGUAGE
                             | ROW_DIFF
+                            | ROW_RENDER_STRATEGY
                             | ROW_STREAMING
                             | ROW_PROACTIVENESS
                             | ROW_PERSONA

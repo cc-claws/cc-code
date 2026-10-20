@@ -30,6 +30,8 @@ fn test_config_panel_cursor_navigation() {
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_DIFF);
     panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_RENDER_STRATEGY);
+    panel.cursor_down();
     assert_eq!(panel.cursor, ROW_STREAMING);
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_PROACTIVENESS);
@@ -49,6 +51,8 @@ fn test_config_panel_cursor_navigation() {
     assert_eq!(panel.cursor, ROW_PROACTIVENESS);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_STREAMING);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_RENDER_STRATEGY);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_DIFF);
     panel.cursor_up();
@@ -232,4 +236,31 @@ fn test_config_panel_apply_edit_auto_recap() {
     panel.buf_recap = false;
     panel.apply_edit(&mut cfg, &lc).unwrap();
     assert_eq!(cfg.config.auto_recap, Some(false));
+}
+
+#[test]
+fn test_config_panel_render_strategy_cycle_and_roundtrip() {
+    // 缺省 = auto；配置为 virtual 时读出 virtual
+    let panel = ConfigPanel::from_config(&PeriConfig::default());
+    assert_eq!(panel.buf_render_strategy, "auto");
+
+    let mut cfg = PeriConfig::default();
+    cfg.config.detail_render_strategy = Some("virtual".to_string());
+    let mut panel = ConfigPanel::from_config(&cfg);
+    assert_eq!(panel.buf_render_strategy, "virtual");
+
+    // 循环：virtual → auto → cache → virtual
+    panel.cycle_render_strategy();
+    assert_eq!(panel.buf_render_strategy, "auto");
+    panel.cycle_render_strategy();
+    assert_eq!(panel.buf_render_strategy, "cache");
+
+    // 写回：非 auto 落盘，auto 省略（None）
+    let lc = make_lc();
+    panel.apply_edit(&mut cfg, &lc).unwrap();
+    assert_eq!(cfg.config.detail_render_strategy.as_deref(), Some("cache"));
+    let mut panel = ConfigPanel::from_config(&cfg);
+    panel.buf_render_strategy = "auto".to_string();
+    panel.apply_edit(&mut cfg, &lc).unwrap();
+    assert_eq!(cfg.config.detail_render_strategy, None);
 }

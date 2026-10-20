@@ -12,8 +12,8 @@ use crate::{
     app::{
         config_panel::{
             ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_DIFF, ROW_GENERAL_HEADER, ROW_LANGUAGE,
-            ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_RECAP, ROW_SEPARATOR,
-            ROW_STREAMING, ROW_THRESHOLD, ROW_TONE,
+            ROW_OVERRIDES_HEADER, ROW_PERSONA, ROW_PROACTIVENESS, ROW_RECAP, ROW_RENDER_STRATEGY,
+            ROW_SEPARATOR, ROW_STREAMING, ROW_THRESHOLD, ROW_TONE,
         },
         App,
     },
@@ -28,6 +28,7 @@ fn field_label_key(row: usize) -> &'static str {
         ROW_RECAP => "config-field-recap",
         ROW_LANGUAGE => "config-field-language",
         ROW_DIFF => "config-field-diff",
+        ROW_RENDER_STRATEGY => "config-field-render-strategy",
         ROW_STREAMING => "config-field-streaming",
         ROW_PERSONA => "config-field-persona",
         ROW_TONE => "config-field-tone",
@@ -245,6 +246,38 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 lines.push(Line::from(line_spans));
                 lines.push(Line::from(Span::styled(
                     format!("      {}", lc.tr("config-desc-streaming")),
+                    desc_style,
+                )));
+            }
+            ROW_RENDER_STRATEGY => {
+                let is_active = panel.cursor == row;
+                let label_style = active_or_text(is_active);
+                let active_style = Style::default()
+                    .fg(theme::cur().thinking)
+                    .add_modifier(Modifier::BOLD);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
+
+                let vals = ["auto", "cache", "virtual"];
+                let mut value_spans: Vec<Span> = Vec::new();
+                for (i, v) in vals.iter().enumerate() {
+                    if *v == panel.buf_render_strategy.as_str() {
+                        value_spans.push(Span::styled(format!("[{}]", v), active_style));
+                    } else {
+                        value_spans.push(Span::styled(v.to_string(), inactive_style));
+                    }
+                    if i < vals.len() - 1 {
+                        value_spans.push(Span::styled("  ", Style::default()));
+                    }
+                }
+                let mut line_spans = vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                ];
+                line_spans.extend(value_spans);
+                lines.push(Line::from(line_spans));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-render-strategy")),
                     desc_style,
                 )));
             }
