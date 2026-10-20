@@ -470,6 +470,72 @@ fn take_leading_blank(line: Line<'static>) -> (String, Style, Line<'static>) {
     (lead, lead_style, Line::from(rest))
 }
 
+/// 在纯文本里识别 http(s) URL 的字节区间。
+///
+/// 与 CC `OutputLine.tsx::URL_IN_JSON`（`/https?:\/\/[^\s"'<>\\]+/g`）同一口径：
+/// 只认 `http://` / `https://` 起头，遇到空白、引号、尖括号、反斜杠即结束。
+/// 额外再切掉句末常见的 `)`/`]`/`}`/`,`/`;`/`.`/`:`，避免把中文标点旁的右括号也吞进链接
+/// （终端自身识别的链接同样不会包含它们）。
+///
+/// 不用 `regex` crate：这里只需要一条极简前缀扫描，手写一遍省一个依赖。
+fn find_url_ranges(text: &str) -> Vec<(usize, usize)> {
+    const SCHEMES: [&str; 2] = ["https://", "http://"];
+    let mut ranges = Vec::new();
+    let mut search_from = 0;
+    while let Some(found) = SCHEMES
+        .iter()
+        .filter_map(|scheme| text[search_from..].find(scheme).map(|at| (search_from + at, *scheme)))
+        .min_by_key(|(at, _)| *at)
+    {
+        let (start, scheme) = found;
+        let mut end = start + scheme.len();
+        for ch in text[end..].chars() {
+            if ch.is_whitespace() || matches!(ch, '"' | '\'' | '<' | '>' | '\\') {
+                break;
+            }
+            end += ch.len_utf8();
+        }
+        // scheme 后必须真有内容（`https://` 后面跟空白不算 URL）
+        let trimmed_end = text[start..end]
+            .trim_end_matches([')', ']', '}', ',', ';', '.', ':'])
+            .len()
+            + start;
+        if trimmed_end > start + scheme.len() {
+            ranges.push((start, trimmed_end));
+        }
+        search_from = end.max(start + scheme.len());
+    }
+    ranges
+}
+
+/// 给一行纯文本里的 URL 套上「链接色 + 下划线」。
+///
+/// 说明：这不是 OSC 8 真超链接（ratatui 的 cell 模型不支持塞转义序列，
+/// 且 `sanitize_display_text` 会剥掉 `\x1b`），只是视觉上把 URL 与正文区分开。
+/// 点击能力仍由终端自身的 URL 识别提供。
+fn style_urls(text: &str, base: Style) -> Vec<Span<'static>> {
+    let ranges = find_url_ranges(text);
+    if ranges.is_empty() {
+        return vec![Span::styled(text.to_string(), base)];
+    }
+    let link = base
+        .fg(theme::cur().ide)
+        .add_modifier(Modifier::UNDERLINED);
+    let mut spans = Vec::with_capacity(ranges.len() * 2 + 1);
+    let mut cursor = 0;
+    for (start, end) in ranges {
+        if start > cursor {
+            spans.push(Span::styled(text[cursor..start].to_string(), base));
+        }
+        spans.push(Span::styled(text[start..end].to_string(), link));
+        cursor = end;
+    }
+    if cursor < text.len() {
+        spans.push(Span::styled(text[cursor..].to_string(), base));
+    }
+    spans
+}
+
 /// 同 [`push_wrapped_line`]，但保留原行的前导空白缩进层级并返回折行集合。
 fn format_wrapped_line_keep_lead(
     line: Line<'static>,
@@ -546,7 +612,7 @@ fn format_prefixed_text(
     text_style: Style,
     content_width: usize,
 ) -> Vec<Line<'static>> {
-    let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
+    let line = Line::from(style_urls(&sanitize_display_text(text), text_style));
     format_wrapped_line_keep_lead(line, first_prefix, "    ", prefix_style, content_width)
 }
 
@@ -1034,7 +1100,12 @@ fn format_shell_output_lines(
     width: usize,
 ) -> Vec<Line<'static>> {
     let prefix_style = Style::default().fg(prefix_color);
-    let content: Vec<Span<'static>> = ansi_spans(text, default_style);
+    // 先按 ANSI 切段（保留命令自带着色），再把每段里的 URL 单独挑出来上链接色：
+    // 用户 `!gh pr checks` 这类命令的输出主要是 Git 分支、URL，链接色能明显提速扫读。
+    let content: Vec<Span<'static>> = ansi_spans(text, default_style)
+        .into_iter()
+        .flat_map(|span| style_urls(&span.content, span.style))
+        .collect();
     format_wrapped_line_keep_lead(
         Line::from(content),
         prefix,
