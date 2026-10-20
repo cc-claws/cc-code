@@ -4,6 +4,51 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.168 — 2026-10-20
+
+### Features
+
+- **Bash 输出 JSON 逐行美化（OutputLine 装饰器，对齐 CC `OutputLine`）**：新增 `cc-tui/src/ui/message_render/decorators/output_line.rs`，Bash / MCP 工具结果统一过这一层：逐行尝试 JSON 美化——单行 JSON 展开为 2 空格缩进；带精度守卫（紧凑重序列化与原文去空白后不一致即放弃美化，避免大整数被降级、`1.10` 被改写等伪造输出）；顶层非 `{` / `[` 的行走快速路径跳过解析；整段超过 10,000 字符跳过美化。折行与截断口径同步统一：按显示宽度预折行、每行 `trimEnd`、折叠态只显示前 3 行 + `… +N lines (ctrl+o to expand)`。
+
+### Fixes
+
+- **diff 删除行三档配色、工具路径按 CC 显示、状态栏 Edit 命名**：diff 删除行改为三档深浅配色区分删除强度；工具调用中的文件路径按 CC 口径显示；状态栏把 Edit 操作显示为 `Edit`，不再误写为 `Update`。
+
+---
+
+## v0.6.167 — 2026-10-20
+
+### UI
+
+- **工具结果与 `!` 命令输出中的 URL 以链接色 + 下划线呈现**：在纯文本里识别 `http://` / `https://` 起头的 URL（手写前缀扫描，不引正则；句末的 `)` / `]` / `}` 等标点自动切除），着色在 span 阶段完成，与 JSON 美化、截断共享同一份文本口径。`!` shell 命令输出先按 ANSI 切段保留命令自带着色，再逐段挑出 URL 上链接色（`cc-tui/src/ui/message_render/mod.rs` 的 `find_url_ranges` / `style_urls`）。这不是 OSC 8 真超链接（ratatui cell 模型不支持），点击仍由终端自身的 URL 识别提供。
+
+---
+
+## v0.6.166 — 2026-10-20
+
+### Performance
+
+- **Ctrl+O 反复切换不再全量重渲染（#626，PR #631）**：此前 ToggleDetail 会清空全部消息的渲染哈希并对整段历史重渲染、重折行，270 条消息的会话单次切换约 6.9 秒、10,000 条消息约 239 秒（debug 实测）。现渲染线程引入三件套：①**渲染键**——内容哈希只与真正影响该消息渲染的维度（detail / diff 标志且仅当该消息类型对该维度敏感时）合成键，未变的维度切换直接复用已渲染行；②**双变体缓存**——每条消息同时保留展开 / 折叠两份渲染结果，切换时整表交换；③**分段 wrap 缓存**——折行结果按消息分段缓存（段键含逐行 epoch，指示器秒数、spinner 动画等行内容变更会使对应段失效），流式输出时只有尾段重折。实测：270 条消息热切换约 33ms、10,000 条消息热切换 1.38 秒；执行期（流式尾巴 + 运行中工具）反复切换与从零渲染逐行一致，有专门回归测试锁定（含合并前的两处回归修复：分段越界 panic、指示器行旧 wrap 复用）。
+
+### Features
+
+- **diff 与 markdown 渲染对齐 CC（PR #638）**：diff 渲染新增逐行语法高亮（syntect；语法集换用 bat 的 two_face 集合，语言覆盖 75 → 220；新增 Monokai Extended dark / light 主题对齐 CC diff 配色），删除行配三档底色与词级高亮；markdown 块间空行改为只来自源文本（块级元素不再无条件补空行），收敛全量重建入口。配套领域文档与审计台账见 `docs/2026-10-20-diff-highlight-alignment-audit.md`。
+- **候选浮层运行中交互对齐 CC useTypeahead（Agent 运行时浮层可操作）**：此前 Agent 运行中（loading）时斜杠命令/Skills 候选浮层只渲染不响应——`↑`/`↓`/`Tab` 被 `!loading` 守卫挡掉，「看得到列表却选不动」。现对齐 CC `useTypeahead.tsx` 语义：`↑`/`↓`/`Tab` 在候选存在时即可导航（不再按 loading 分流，`Tab` 同时避免运行中落入通用分支插入字面 Tab 字符）；`Enter` 仅在用户已通过 Tab/↑/↓ 明确选中候选时执行补全（只改输入框文本不提交），未选中时保持既有语义走 `handle_busy_input` 入队；`Esc` 分层关闭——先关候选浮层（不中断 Agent，`@` 提及弹窗关闭优先级同步前移与渲染一致），再按一次才中断运行，关闭时记录 `hint_dismissed_for` 抑制位，输入文本不变不再弹、编辑后自动恢复；`↓` 优先级调整为候选浮层导航 > 后台 shell 入口聚焦 > @ 提及导航 > 滚动消息区，解决「有后台 shell + 输入 `/xxx` 时浮层选不动」。涉及 `cc-tui/src/event/keyboard/normal_keys.rs`、`cc-tui/src/app/hint_ops.rs`、`ui_state.rs`（新增 `hint_dismissed_for`）。
+- **「立即补充」（steer）遇前台命令 2 秒宽限期后自动转后台**：此前前台 Bash 命令阻塞时 steering 注入永远轮不到（只在本轮 LLM 调用前 drain）。现点「立即补充」时若恰有一条前台命令在跑，先登记 2 秒宽限期（`STEER_FOREGROUND_GRACE`，短命令如 `ls`/`git status` 自行结束即收口）；宽限期到仍在前台则自动移交后台（等价替用户按 `Ctrl+B`）并提示「前台命令已转入后台，补充信息将立即生效」（locale `queue-steer-backgrounded`）；多条前台并行不自动选择，与 `Ctrl+B` 行为一致；重复点不重置计时器。涉及 `cc-tui/src/app/shell_command.rs`、`queued_messages.rs`、`ui_state.rs`（新增 `SteerForegroundGrace`）。
+
+### UI
+
+- **状态栏权限模式标签增加 `⏵⏵` 前缀符号**：对齐 CC `PermissionMode.ts` 的 symbol 字段，`auto`/`bypass` 标签前显示 `⏵⏵`（`cc-tui/src/ui/main_ui/status_bar.rs`）。
+- **状态栏行首缩进与工具段截断收敛**，抽屉未选中行配色对齐提示行。
+
+### Fixes
+
+- **Glob 遍历禁用符号链接跟随并加安全上限（PR #636）**：文件遍历此前 `follow_links(true)`，在 `/proc`、`/sys` 等虚拟文件系统上会因符号链接指数级膨胀；现禁止跟随符号链接、跳过虚拟文件系统根目录，并加遍历条目数（500,000）与时长（10 秒）上限，超限返回已收集结果并标记截断。
+- **主题切换后全量重建并推送提示**：切换主题后消息区按新调色板全量重建（不再残留旧主题颜色），并弹出切换提示。
+- **抽屉导航不再改写输入框**：主会话抽屉导航时输入框压暗为定稿行为，子视口内例外；子 Agent 视图内忽略 BackTab 切换；**后台任务面板只列后台 shell**，不再重复展示子 Agent 与前台命令。
+
+---
+
 ## v0.6.165 — 2026-10-20
 
 ### Fixes
@@ -12,16 +57,20 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased — 2026-10-20
+## v0.6.164 — 2026-10-19
 
-### Features
+### Fixes
 
-- **候选浮层运行中交互对齐 CC useTypeahead（Agent 运行时浮层可操作）**：此前 Agent 运行中（loading）时斜杠命令/Skills 候选浮层只渲染不响应——`↑`/`↓`/`Tab` 被 `!loading` 守卫挡掉，「看得到列表却选不动」。现对齐 CC `useTypeahead.tsx` 语义：`↑`/`↓`/`Tab` 在候选存在时即可导航（不再按 loading 分流，`Tab` 同时避免运行中落入通用分支插入字面 Tab 字符）；`Enter` 仅在用户已通过 Tab/↑/↓ 明确选中候选时执行补全（只改输入框文本不提交），未选中时保持既有语义走 `handle_busy_input` 入队；`Esc` 分层关闭——先关候选浮层（不中断 Agent，`@` 提及弹窗关闭优先级同步前移与渲染一致），再按一次才中断运行，关闭时记录 `hint_dismissed_for` 抑制位，输入文本不变不再弹、编辑后自动恢复；`↓` 优先级调整为候选浮层导航 > 后台 shell 入口聚焦 > @ 提及导航 > 滚动消息区，解决「有后台 shell + 输入 `/xxx` 时浮层选不动」。涉及 `cc-tui/src/event/keyboard/normal_keys.rs`、`cc-tui/src/app/hint_ops.rs`、`ui_state.rs`（新增 `hint_dismissed_for`）。
-- **「立即补充」（steer）遇前台命令 2 秒宽限期后自动转后台**：此前前台 Bash 命令阻塞时 steering 注入永远轮不到（只在本轮 LLM 调用前 drain）。现点「立即补充」时若恰有一条前台命令在跑，先登记 2 秒宽限期（`STEER_FOREGROUND_GRACE`，短命令如 `ls`/`git status` 自行结束即收口）；宽限期到仍在前台则自动移交后台（等价替用户按 `Ctrl+B`）并提示「前台命令已转入后台，补充信息将立即生效」（locale `queue-steer-backgrounded`）；多条前台并行不自动选择，与 `Ctrl+B` 行为一致；重复点不重置计时器。涉及 `cc-tui/src/app/shell_command.rs`、`queued_messages.rs`、`ui_state.rs`（新增 `SteerForegroundGrace`）。
+- **tmux 内复制改走 OSC 52 直写 client tty（#624，PR #625）**：tmux 环境下原复制路径依赖外部剪贴板命令 / tmux 缓冲区中转，复制经常失效。现检测到 tmux 时直接向客户端 tty 写 OSC 52 转义序列，由终端模拟器本体设置系统剪贴板，绕开 tmux 的中转限制；附真实 tmux 会话的端到端传输测试锁定该路径。
 
-### UI
+---
 
-- **状态栏权限模式标签增加 `⏵⏵` 前缀符号**：对齐 CC `PermissionMode.ts` 的 symbol 字段，`auto`/`bypass` 标签前显示 `⏵⏵`（`cc-tui/src/ui/main_ui/status_bar.rs`）。
+## v0.6.163 — 2026-10-19
+
+### Fixes
+
+- **jemalloc 启动配置从未生效（#622，PR #623）**：`alloc_config.rs` 通过环境变量设置的是 `MALLOC_CONF`，但 tikv-jemalloc 根本不读这个名字——它只认 `_RJEM_MALLOC_CONF` 环境变量或静态符号 `_rjem_malloc_conf`，此前所有分配器调优（decay、后台线程等）一直在空转。现改为在二进制内导出静态 `_rjem_malloc_conf` 配置符号；发布版二进制已实测验证调优真正生效（以 `stats_print` 运行可见配置被读取）。
+- **ripgrep 包内二进制永不落地（#620，PR #621）**：安装脚本解压 ripgrep 的 tar.gz 时失败，导致发布包内的 `bin/rg` 缺失、依赖 rg 的功能不可用；现修正解压路径处理，rg 随安装正确落地。
 
 ---
 
@@ -56,6 +105,15 @@ Perihelion Agent 版本变更记录。
 ### Fixes
 
 - **取消 Spinner 动词的强制中文多语言分流，统一使用英文动词（#611）**：此前 Spinner 动词按界面语言强制切到机翻中文列表 `ZH_VERBS`，导致出现如“漂移中”、“光合中”、“编舞中”等生硬突兀的直译词。现将 `DEFAULT_VERBS` 与 `verbs_for_lang` 统一指向原版英文趣味动词列表 `EN_VERBS`（如 `Thinking…`、`Drifting…` 等），不再按语言分流；单测同步对齐。
+
+---
+
+## v0.6.158 — 2026-10-18
+
+### Fixes
+
+- **macOS bash 用户装完命令找不到（#585，PR #606）**：`scripts/install.sh` 把 PATH 一律写进 `.bashrc`，但 macOS 的登录 shell 读的是 `.bash_profile`，bash 用户安装后新开终端仍然没有 `cc-code`。现按平台与 shell 类型选择正确的 rc 文件写入。
+- **从外部编辑器返回后 TUI 残缺（#587，PR #605）**：在外部编辑器（如 `$EDITOR`）里编辑输入返回后，终端画面残缺错位；现返回时强制清屏并全量重绘一帧。
 
 ---
 
