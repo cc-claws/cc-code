@@ -213,11 +213,11 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     // 输入框样式：Bar 焦点变暗 / 聚焦只读模式 / 正常模式
     let focused_id = app.session_mgr.current_mut().focused_instance_id.clone();
 
-    // 抽屉导航态不再让输入框变暗（对齐 CC：`getBorderColor()` 只随 mode / teammate
-    // 颜色变化，footerSelection 聚焦任务列表从不改输入框）。尤其不能盖住子视口的
-    // 青色边框——PRD §4.11 明确它是「现在在子 Agent 窗口还是主窗口」的唯一标识，
-    // 按 ↓ 只是把按键交给抽屉，视口没变，方位感不能丢。
-    let bar_focused = focused_id.is_none() && {
+    // 抽屉导航态（主会话）刻意压暗输入框：**真机定稿**，用边框降级表达「按键已经
+    // 交给抽屉，此刻打字先进抽屉」。唯一的例外是子视口内——那时输入框的青色边框
+    // 是「现在在子 Agent 窗口还是主窗口」的唯一标识（PRD §4.11），按 ↓ 只是把按键
+    // 交给抽屉、视口没变，不能连方位感一起抹掉，故由 `focused_id.is_none()` 放行。
+    let input_dimmed = focused_id.is_none() && {
         let session = app.session_mgr.current();
         let task_bar_focused =
             session.ui.background_tasks_bar_focused && app.has_running_background_shell_tasks();
@@ -233,7 +233,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             .is_some();
     let shell_mode = textarea_shell_mode(app);
 
-    if bar_focused || popup_active {
+    if input_dimmed || popup_active {
         // Bar 焦点模式：输入框变暗
         let block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)

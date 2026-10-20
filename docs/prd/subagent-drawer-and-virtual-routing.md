@@ -130,7 +130,7 @@ pub struct ChatSession {
 | `bg_drawer_cursor: Option<usize>` | `ui.bg_bar_cursor: Option<usize>`（0 = main，1..=N = `background_agents[N-1]`） |
 | `tokens_used: usize` | 由 `AgentComm::session_token_tracker` 派生（`tokens_used()`），抽屉指标另走 `token_metrics()`（§4.12） |
 
-**唯一判据**：抽屉是否处于键盘导航态由 `ChatSession::drawer_nav_active()`（`ui.bg_bar_cursor.is_some() && !background_agents.is_empty()`）决定，用于 `drawer_hint()` 与 `bar_focus` 按键拦截；**不得**据此让输入框变暗（CC `PromptInput.tsx::getBorderColor()` 只随 mode / teammate 颜色变化，`footerSelection` 聚焦任务列表从不改输入框；且子视口的青色边框是视口身份标识，见 §4.11.2）。后台 Agent 全部结束后必须清空 `bg_bar_cursor`，否则第三行会卡在 `↑/↓ to select…` 且继续吞键。
+**唯一判据**：抽屉是否处于键盘导航态由 `ChatSession::drawer_nav_active()`（`ui.bg_bar_cursor.is_some() && !background_agents.is_empty()`）决定，用于 `drawer_hint()`、`bar_focus` 按键拦截与输入框压暗提示；**压暗只作用于主会话**（`focused_instance_id` 为空）：用户在真机上刻意用边框降级表达「按键已交给抽屉，此刻打字先进抽屉」，这是定稿行为，不要当成缺陷「修复」。**子视口内必须例外**——那时青色边框是「在子 Agent 窗口还是主窗口」的唯一身份标识（§4.11.2），按 `↓` 只是把按键交给抽屉、视口没变，不得连方位感一起抹掉。后台 Agent 全部结束后必须清空 `bg_bar_cursor`，否则第三行会卡在 `↑/↓ to select…` 且继续吞键。
 
 ### 3.2 虚拟视口路由机制（Virtual Viewport Routing）
 

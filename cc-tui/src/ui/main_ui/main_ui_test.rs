@@ -578,6 +578,22 @@ async fn test_status_bar_typography_spacing_and_alignment() {
     }
 }
 
+/// 输入框上边框（提示符 `❯` 所在行的上一行）全部边框单元格的前景色。
+fn textarea_border_colors(handle: &crate::ui::headless::HeadlessHandle) -> Vec<Color> {
+    let buffer = handle.terminal.backend().buffer();
+    let width = buffer.area.width as usize;
+    let rows: Vec<&[ratatui::buffer::Cell]> = buffer.content.chunks(width).collect();
+    let prompt_row = rows
+        .iter()
+        .position(|row| row.iter().any(|cell| cell.symbol() == "❯"))
+        .expect("找不到输入框提示符 ❯");
+    rows[prompt_row - 1]
+        .iter()
+        .filter(|cell| cell.symbol() == "─")
+        .map(|cell| cell.fg)
+        .collect()
+}
+
 /// 子视口内按 `↓` 进抽屉时，输入框必须保留「青色边框 + `[ 任务名 ]` + `Message @…`」
 /// 这套身份标识（PRD §4.11：它是「现在在子 Agent 窗口还是主窗口」的唯一标识）。
 ///
@@ -624,6 +640,12 @@ async fn test_subagent_input_box_keeps_identity_during_drawer_nav() {
     assert!(
         after.contains("Message @general-purpose"),
         "抽屉导航态不得抹掉定向发话占位符：\n{after}"
+    );
+    let border = textarea_border_colors(&handle);
+    assert!(!border.is_empty(), "应能在输入框上边框取到边框单元格");
+    assert!(
+        border.iter().all(|color| *color == theme::cur().background),
+        "抽屉导航态不得把子视口青色边框压成不可用灰：{border:?}"
     );
 }
 
