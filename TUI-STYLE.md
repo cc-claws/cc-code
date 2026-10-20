@@ -311,7 +311,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 
 ### 最后一行（HUD 展开时为第三行，折叠时为第二行）
 
-左→右：权限模式标签（Auto / Bypass，切换后 1500ms BOLD + SLOW_BLINK，后接 `(Shift+Tab to cycle)`）→ 后台任务 pill（`1 shell, 1 agent` + `↓ to view`）→ 重试状态 → MCP 初始化进度 → LSP 诊断计数 → `Cache 87% · MEM 74MB`；最右侧为上下文相关的快捷键提示，右对齐、超宽时截断右侧。
+左→右：权限模式标签（`⏵⏵` 前缀符号 + Auto / Bypass，切换后 1500ms BOLD + SLOW_BLINK，后接 `(Shift+Tab to cycle)`）→ 后台任务 pill（`1 shell, 1 agent` + `↓ to view`）→ 重试状态 → MCP 初始化进度 → LSP 诊断计数 → `Cache 87% · MEM 74MB`；最右侧为上下文相关的快捷键提示，右对齐、超宽时截断右侧。
 
 右侧快捷键上下文：
 
@@ -509,9 +509,9 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 | 按键 | 行为 | 说明 |
 |------|------|------|
 | `Ctrl+C` | 中断 Agent（loading 时）/ 双击退出（idle 时） | 提问和审批期间中断当前轮次，保留 TUI；空闲时两次有效按键间隔为 100ms～2s |
-| `Esc` | 中断 Agent（loading 时）/ 关闭弹窗、浮层与历史浏览 | 与 `Ctrl+C` 的中断语义一致，但不会退出程序 |
+| `Esc` | 中断 Agent（loading 时）/ 关闭弹窗、浮层与历史浏览 | 与 `Ctrl+C` 的中断语义一致，但不会退出程序；**分层关闭**：候选浮层可见时先关浮层（不中断 Agent），再按一次才中断；关闭时记录 `hint_dismissed_for`，输入文本不变不再弹出，编辑后恢复 |
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
-| `Ctrl+Enter` | 立即补充队首排队消息 | 等价点击 `[Send now]`；同时兼容 `Alt+S`；队列为空时不拦截该按键。不用 `Ctrl+S`：Windows 控制台把 Ctrl+S 当暂停键（XOFF）在宿主层截走。**仅 Windows 能可靠区分 `Ctrl+Enter`**：macOS（Terminal.app 不支持 kitty 键盘协议/modifyOtherKeys）与 Linux（终端默认未开启）下 `Ctrl+Enter` 与 `Enter` 同字节，队列提示行改显示 `⌥S` / `Alt+S`（`ui/main_ui/queued_messages.rs` 的 `keys_tip_key`） |
+| `Ctrl+Enter` | 立即补充队首排队消息 | 等价点击 `[Send now]`；同时兼容 `Alt+S`；队列为空时不拦截该按键。**前台命令宽限期**：steer 时若恰有一条前台命令在跑，先给 2 秒宽限（短命令自行结束即收口），到时仍在前台则自动移交后台（等价 `Ctrl+B`）并提示「前台命令已转入后台，补充信息将立即生效」；多条前台并行不自动选择，重复 steer 不重置计时器。不用 `Ctrl+S`：Windows 控制台把 Ctrl+S 当暂停键（XOFF）在宿主层截走。**仅 Windows 能可靠区分 `Ctrl+Enter`**：macOS（Terminal.app 不支持 kitty 键盘协议/modifyOtherKeys）与 Linux（终端默认未开启）下 `Ctrl+Enter` 与 `Enter` 同字节，队列提示行改显示 `⌥S` / `Alt+S`（`ui/main_ui/queued_messages.rs` 的 `keys_tip_key`） |
 | `Ctrl+X` | 删除队首排队消息 | 等价点击 `[×]`；同时兼容 `Alt+X`；队列为空时不拦截该按键 |
 | `Alt+Enter` | 插入换行 | |
 | `Shift+Tab` | 循环切换权限模式 | Auto → Bypass → Auto（只剩两档） |
@@ -676,6 +676,8 @@ Agent 运行中（`loading`）按 `Enter` 时，输入按归属分流，**绝不
 输入 `#` 前缀触发 Skills 浮层，`Tab` / `↑↓` 导航，`Enter` 补全为 `#skill-name`。
 输入 `/` 前缀触发命令提示浮层，`Tab` / `↑↓` 导航。
 
+**运行中（loading）交互**：候选存在时 `↑↓`/`Tab` 即可导航，不再被 `!loading` 守卫挡掉（对齐 CC `useTypeahead.tsx`）；`Enter` 仅在已选中候选时执行补全（只改输入框文本不提交），未选中则走排队语义（`handle_busy_input`）；`Esc` 先关浮层再中断（见全局快捷键 `Esc` 行）；`↓` 优先级为浮层导航 > 后台 shell 入口聚焦 > `@` 提及导航 > 滚动消息区。
+
 ### 文件提及浮层
 
 输入 `@`（行首或空白后）立即显示候选；默认仅枚举当前目录，目录优先、按名称排序，排除构建/依赖目录，最多 15 项。继续输入关键词可搜索子目录及默认列表外的文件，200ms 防抖保留最后一次查询。
@@ -692,6 +694,8 @@ Agent 运行中（`loading`）按 `Enter` 时，输入按归属分流，**绝不
 非 Auto 档要么每次弹窗、要么半自动，体验差且不智能。
 
 **循环顺序**：Auto → Bypass → Auto。
+
+状态栏标签前固定显示 `⏵⏵` 前缀符号（对齐 CC `PermissionMode.ts` 的 symbol 字段，如 `⏵⏵ auto`），符号本身不参与主题化取色。
 
 | 模式 | 标签 | 颜色 | 说明 |
 |------|------|------|------|

@@ -156,6 +156,36 @@ submit_message(text)
 
 ## Feature 附录
 
+### 20261020_hint-overlay-busy-interaction
+
+**摘要:** Agent 运行中候选浮层可导航（对齐 CC useTypeahead）：↑↓/Tab 不再被 `!loading` 守卫挡掉
+**关键决策:**
+
+- `Enter` 仅在已选中候选（`hint_cursor.is_some()`）时补全（只改 textarea 不提交），未选中保持 #533 排队语义走 `handle_busy_input`
+- `Esc` 分层关闭：先关浮层（不中断 Agent），再按才中断；`@` 提及弹窗关闭优先级前移与渲染一致
+- 关闭记录 `hint_dismissed_for`（`ui_state.rs`），输入文本不变不再弹、编辑后抑制位自动清除
+- `↓` 优先级：浮层导航 > 后台 shell 入口聚焦 > @ 提及导航 > 滚动消息区
+**涉及文件:** `cc-tui/src/event/keyboard/normal_keys.rs`、`cc-tui/src/app/hint_ops.rs`、`ui_state.rs`
+
+### 20261020_steer_foreground_grace
+
+**摘要:** 点「立即补充」时若单条前台命令在跑，2 秒宽限期后自动转后台
+**关键决策:**
+
+- 宽限期常量 `STEER_FOREGROUND_GRACE = 2s`——不可随意调短，否则误伤 1s 级短命令
+- 到时仍在前台 → 自动移交后台（等价 `Ctrl+B`）+ locale 提示 `queue-steer-backgrounded`
+- 多条前台并行不自动选择（与 Ctrl+B 一致）；重复 steer 不重置计时器
+- 每帧由 `poll_steer_foreground_grace()` 检查，集成在 `poll_agent_shells()` 主循环
+**涉及文件:** `cc-tui/src/app/shell_command.rs`、`queued_messages.rs`、`ui_state.rs`（`SteerForegroundGrace`）
+
+### 20261020_permission_mode_symbol
+
+**摘要:** 状态栏权限模式标签前固定显示 `⏵⏵` 前缀（对齐 CC PermissionMode.ts symbol 字段）
+**关键决策:**
+
+- `status_bar.rs` 新增 `PERMISSION_MODE_SYMBOL` 常量；符号对齐 CC 参考，勿改其他 Unicode 字符
+**涉及文件:** `cc-tui/src/ui/main_ui/status_bar.rs`
+
 ### 20260324_F001_tui-clipboard-image-paste
 
 **摘要:** Ctrl+V 粘贴剪贴板图片作为多模态消息发送
@@ -1401,4 +1431,4 @@ submit_message(text)
 
 **边界：** 保留既定的三项调优策略，不据此声称已解决 #26 的长会话 RSS 增长。jemalloc 上游提示初始化时启用后台线程存在循环依赖风险，目标平台的启动回归必须覆盖这一点；若遇到启动挂起，可在启动前设置 `_RJEM_MALLOC_CONF=background_thread:false`。
 
-最后更新：2026-10-19
+最后更新：2026-10-20
