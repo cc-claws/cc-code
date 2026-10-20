@@ -78,6 +78,11 @@ pub(super) fn handle_focused_only(
             app.switch_subagent_viewport(None);
             return Some(Action::Redraw);
         }
+        // 子 Agent 视图是受限上下文：Shift+Tab（权限模式循环）属于主会话操作，
+        // 在这里按下只会误切主会话权限模式，直接吞掉。
+        if matches!(key_event.code, KeyCode::BackTab) {
+            return Some(Action::Redraw);
+        }
         if key_event.code == KeyCode::Enter && !key_event.modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) {
             if active {
                 let text = app.session_mgr.current().ui.textarea.lines().join("\n");

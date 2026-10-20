@@ -83,3 +83,34 @@ async fn test_shortcuts_ctrl_t_completely_removed() {
         "Ctrl+T 不应再被 handle_shortcuts 拦截处理"
     );
 }
+
+/// 回归：进入子 Agent 视图后，Shift+Tab 不应切换主会话的权限模式
+#[tokio::test]
+async fn test_backtab_ignored_in_subagent_view() {
+    use cc_middlewares::prelude::PermissionMode;
+    let mut app = App::new().await;
+    app.services.permission_mode.store(PermissionMode::AutoMode);
+
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "sleep",
+        "isBackground": true,
+    }));
+    app.switch_subagent_viewport(Some("child-1".to_string()));
+    assert!(
+        app.session_mgr.current().active_subagent().is_some(),
+        "应已进入子 agent 视图"
+    );
+
+    let _ = crate::event::keyboard::handle_key_event(
+        &mut app,
+        make_key_event(KeyCode::BackTab, KeyModifiers::SHIFT),
+    );
+    assert_eq!(
+        app.services.permission_mode.load(),
+        PermissionMode::AutoMode,
+        "子 agent 视图下 Shift+Tab 不应切换权限模式"
+    );
+}
