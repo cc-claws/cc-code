@@ -119,9 +119,27 @@ pub enum RenderEvent {
     ToggleDetail(bool),
 }
 
-/// #626：单条消息的 wrap 分段缓存条目 =
-/// (渲染键, 段条目（局部下标）, 段视觉行数, dedup 后切片长度)。
-type WrapSegment = Option<(u64, Vec<WrappedLineInfo>, usize, usize)>;
+/// #626：单条消息的 wrap 分段缓存。
+///
+/// 命中条件必须同时满足 `key`、`epoch`、`slice_len`：
+/// - `key`：渲染键（内容 hash ⊕ 影响该消息渲染的 detail/diff 标志）；
+/// - `epoch`：该消息**行内容**的版本（见 `RenderTask::line_epochs`）。指示器动画、
+///   `Running… (Xs)` 秒数这类增量刷新只改行内容、不改渲染键，必须靠它失效；
+/// - `slice_len`：dedup 后切片长度（尾空行裁剪会让尾消息切片伸缩）。
+struct WrapSegment {
+    key: u64,
+    epoch: u64,
+    /// 段内各逻辑行的 wrap 信息（`line_idx` 为段内局部下标）
+    entries: Vec<WrappedLineInfo>,
+    /// 段视觉行数
+    total: usize,
+    slice_len: usize,
+}
+
+/// 判断一个逻辑行是否为空行（全局 dedup / 尾空行裁剪的判定口径）。
+fn is_blank_line(line: &Line<'static>) -> bool {
+    line.spans.is_empty() || (line.spans.len() == 1 && line.spans[0].content.is_empty())
+}
 
 /// 渲染线程，在后台执行渲染计算
 ///
@@ -148,8 +166,16 @@ struct RenderTask {
     alt_lines: Vec<Vec<Line<'static>>>,
     alt_links: Vec<Vec<LinkHit>>,
     alt_keys: Vec<u64>,
+    /// 与 alt_lines/alt_links 同下标的行内容版本号（交换时与 line_epochs 互换）。
+    alt_epochs: Vec<u64>,
+    /// 每条消息行内容的版本号：`message_lines[i]` 实际内容每变化一次就取一个新值。
+    /// 渲染键只反映 VM 内容，而计时秒数 / 指示器动画是渲染期才知道的信息，
+    /// 增量刷新改写行内容时靠它让对应的 wrap 分段失效。
+    line_epochs: Vec<u64>,
+    /// line_epochs 的分配器（单调递增，避免复用旧值造成假命中）。
+    epoch_seq: u64,
     /// #626：wrap 按消息分段缓存 [detail_mode][msg_idx]，条目见 WrapSegment。
-    wrap_segs: [Vec<WrapSegment>; 2],
+    wrap_segs: [Vec<Option<WrapSegment>>; 2],
 }
 
 /// 该消息的渲染结果是否随 detail_mode 变化（#626）。
@@ -165,9 +191,7 @@ fn detail_sensitive(vm: &MessageViewModel) -> bool {
             .any(|b| matches!(b, super::message_view::ContentBlockView::Reasoning { .. })),
         MessageViewModel::ToolBlock { .. } => true,
         MessageViewModel::ShellCommand { .. } => true,
-        MessageViewModel::SystemNote {
-            detail_content, ..
-        } => detail_content.is_some(),
+        MessageViewModel::SystemNote { detail_content, .. } => detail_content.is_some(),
         MessageViewModel::CacheWarning { .. } => false,
         MessageViewModel::ToolCallGroup { .. } => true,
         MessageViewModel::SubAgentGroup { .. } => true,
@@ -396,10 +420,15 @@ impl RenderTask {
         // 保存旧的 message_lines（用于 cosmetic change 复用）
         let mut old_message_lines = std::mem::take(&mut self.message_lines);
         let mut old_message_links = std::mem::take(&mut self.message_links);
+        let old_epochs = std::mem::take(&mut self.line_epochs);
+        let old_alt_epochs = std::mem::take(&mut self.alt_epochs);
+        let mut epoch_seq = self.epoch_seq;
 
         // 调整 message_lines 容量
         self.message_lines.resize(new_len, Vec::new());
         self.message_links.resize(new_len, Vec::new());
+        self.line_epochs.resize(new_len, 0);
+        self.alt_epochs.resize(new_len, 0);
 
         self.alt_lines.resize(new_len, Vec::new());
         self.alt_links.resize(new_len, Vec::new());
@@ -408,6 +437,9 @@ impl RenderTask {
         // 注意：Toggle/Resize 路径上 old_messages 已被 mem::take 取空，
         // 涉及它的分支（cosmetic）必须先判下标在界内。
         for (i, mut vm) in messages.into_iter().enumerate() {
+            // 默认继承旧版本号；交换 / 重渲染分支会在下面覆写。
+            self.line_epochs[i] = old_epochs.get(i).copied().unwrap_or(0);
+            self.alt_epochs[i] = old_alt_epochs.get(i).copied().unwrap_or(0);
             // 渲染键未变 → 当前变体成品直接复用
             if i < old_len
                 && i < old_message_lines.len()
@@ -420,7 +452,11 @@ impl RenderTask {
             }
             // 另一 (detail, diff) 变体的成品还在 alt 中且键命中 → 两变体交换，零渲染
             if self.alt_keys[i] == new_keys[i] && !self.alt_lines[i].is_empty() {
-                let cur_key = if i < old_len { self.message_hashes[i] } else { 0 };
+                let cur_key = if i < old_len {
+                    self.message_hashes[i]
+                } else {
+                    0
+                };
                 let cur_lines = if i < old_message_lines.len() {
                     std::mem::take(&mut old_message_lines[i])
                 } else {
@@ -436,6 +472,8 @@ impl RenderTask {
                 self.alt_lines[i] = cur_lines;
                 self.alt_links[i] = cur_links;
                 self.alt_keys[i] = cur_key;
+                // 版本号随成品一起交换：两个变体各自的 wrap 分段仍然有效
+                std::mem::swap(&mut self.line_epochs[i], &mut self.alt_epochs[i]);
                 continue;
             }
             // hash 不同但属于 cosmetic change（仅流式/运行标志变化）→ 复用旧行；
@@ -449,25 +487,35 @@ impl RenderTask {
                 self.message_links[i] = std::mem::take(&mut old_message_links[i]);
                 self.alt_lines[i].clear();
                 self.alt_keys[i] = 0;
+                self.alt_epochs[i] = 0;
                 continue;
             }
             // 真重渲染：旧成品存入 alt 备另一变体复用；无旧成品时提前释放占位
             if i < old_message_lines.len() && !old_message_lines[i].is_empty() {
                 self.alt_lines[i] = std::mem::take(&mut old_message_lines[i]);
                 self.alt_links[i] = std::mem::take(&mut old_message_links[i]);
-                self.alt_keys[i] = if i < old_len { self.message_hashes[i] } else { 0 };
+                self.alt_keys[i] = if i < old_len {
+                    self.message_hashes[i]
+                } else {
+                    0
+                };
+                self.alt_epochs[i] = old_epochs.get(i).copied().unwrap_or(0);
             } else if i < old_message_lines.len() {
                 old_message_lines[i].clear();
                 old_message_links[i].clear();
+                self.alt_epochs[i] = 0;
             }
             let (lines, links) =
                 Self::render_one(&mut vm, i + 1, width, self.diff_visible, self.detail_mode);
             self.message_lines[i] = lines;
             self.message_links[i] = links;
+            // 新成品 = 新版本号：旧的 wrap 分段必然失效
+            epoch_seq += 1;
+            self.line_epochs[i] = epoch_seq;
         }
 
         self.message_hashes = new_keys;
-
+        self.epoch_seq = epoch_seq;
 
         // 拼接所有消息行，同时做全局 dedup（消除连续空行），
         // 并在 deduped 索引空间构建 message_offsets 与全局超链接映射。
@@ -511,9 +559,21 @@ impl RenderTask {
             global_links.retain(|hit| hit.line != dropped);
         }
 
-        // #626：wrap 按消息分段缓存——段键 = (渲染键, dedup 后切片长度)，
+        // 尾空行裁剪会让 offsets 越过 deduped.len()（尾部消息渲染为空时，
+        // 其 offset 等于裁剪前的长度）。offsets 是消息分段与 wrap 切片的边界，
+        // 必须先夹紧到 deduped.len() 并保持单调，否则 deduped[start..end] 越界 panic
+        // （表现为重建失败、画面停留在旧状态）。
+        let mut clamped = 0usize;
+        for offset in offsets.iter_mut() {
+            clamped = (*offset).max(clamped).min(deduped.len());
+            *offset = clamped;
+        }
+
+        // #626：wrap 按消息分段缓存——段键 = (渲染键, 行版本号, dedup 后切片长度)，
         // 命中段平移复用，未命中只算该消息的切片。切片长度必须进键：
-        // dedup 的尾空行裁剪会让尾消息切片随消息追加而伸缩。
+        // dedup 的尾空行裁剪会让尾消息切片随消息追加而伸缩；
+        // 行版本号必须进键：计时秒数 / 指示器动画只改行内容、不改渲染键，
+        // 否则会继续命中旧 wrap（复制文本、视觉行数、选区映射全部过期）。
         let (total_lines, wrap_map) = {
             let slot = self.detail_mode as usize;
             if self.wrap_segs[slot].len() != new_len {
@@ -528,27 +588,34 @@ impl RenderTask {
                 } else {
                     deduped.len()
                 };
+                debug_assert!(start <= end && end <= deduped.len());
                 let slice_len = end - start;
-                let seg_hit = matches!(
-                    &self.wrap_segs[slot][i],
-                    Some((k, _, _, l)) if *k == self.message_hashes[i] && *l == slice_len
-                );
-                let (seg_total, seg) = if seg_hit {
-                    let (_, seg, total, _) = self.wrap_segs[slot][i].as_ref().unwrap();
-                    (*total, seg.clone())
+                let key = self.message_hashes[i];
+                let epoch = self.line_epochs[i];
+                let seg_hit = self.wrap_segs[slot][i]
+                    .as_ref()
+                    .is_some_and(|s| s.key == key && s.epoch == epoch && s.slice_len == slice_len);
+                let seg = if seg_hit {
+                    self.wrap_segs[slot][i].as_ref().unwrap()
                 } else {
-                    let (t, m) = Self::build_wrap_map(&deduped[start..end], self.width);
-                    self.wrap_segs[slot][i] =
-                        Some((self.message_hashes[i], m.clone(), t, slice_len));
-                    (t, m)
+                    let (total, entries) = Self::build_wrap_map(&deduped[start..end], self.width);
+                    self.wrap_segs[slot][i] = Some(WrapSegment {
+                        key,
+                        epoch,
+                        entries,
+                        total,
+                        slice_len,
+                    });
+                    self.wrap_segs[slot][i].as_ref().unwrap()
                 };
-                for mut info in seg {
+                for info in &seg.entries {
+                    let mut info = info.clone();
                     info.line_idx += start;
                     info.visual_row_start += visual_base;
                     info.visual_row_end += visual_base;
                     wrap_map.push(info);
                 }
-                visual_base += seg_total;
+                visual_base += seg.total;
             }
             (visual_base, wrap_map)
         };
@@ -703,7 +770,11 @@ impl RenderTask {
             theme::cur().error,
         );
         let mut changed = false;
-        let mut cache = self.cache.write();
+        // 单独拿出 Arc：这样 cache 守卫不借用 self，后面才能同时 &mut self 刷新
+        // wrap 分段（见 sync_wrap_after_inline_patch）。
+        let cache_arc = Arc::clone(&self.cache);
+        let mut cache = cache_arc.write();
+        let mut patched: Vec<usize> = Vec::new();
 
         for (idx, vm) in self.last_messages.iter().enumerate() {
             let MessageViewModel::ToolBlock {
@@ -744,8 +815,7 @@ impl RenderTask {
             if *tool_name == "Bash"
                 && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
             {
-                let new_running_text =
-                    shell_running_text(started_at.unwrap(), *timeout_ms);
+                let new_running_text = shell_running_text(started_at.unwrap(), *timeout_ms);
 
                 if let Some(running_line) =
                     lines.iter_mut().find(|l| is_shell_running_status_line(l))
@@ -759,21 +829,142 @@ impl RenderTask {
 
             if msg_changed {
                 changed = true;
-                // 同步更新缓存中该消息的所有行
+                // 同步更新缓存中该消息的所有行（按 dedup 规则映射，不能按下标直接平移：
+                // 与上一条消息相邻的重复空行在 cache.lines 中已被裁掉）
                 if let Some(cache_idx) = cache.message_offsets.get(idx).copied() {
-                    for (offset, line) in lines.iter().enumerate() {
-                        if let Some(cache_line) = cache.lines.get_mut(cache_idx + offset) {
+                    let mut prev_empty =
+                        cache_idx > 0 && cache.lines.get(cache_idx - 1).is_some_and(is_blank_line);
+                    let mut write = cache_idx;
+                    for line in lines.iter() {
+                        let blank = is_blank_line(line);
+                        if blank && prev_empty {
+                            continue;
+                        }
+                        prev_empty = blank;
+                        if let Some(cache_line) = cache.lines.get_mut(write) {
                             *cache_line = line.clone();
                         }
+                        write += 1;
                     }
                 }
+                patched.push(idx);
             }
+        }
+
+        // 行内容变了而渲染键没变（计时秒数 / 指示器动画）：wrap 分段必须同步重建，
+        // 否则 plain_text / char_widths / 视觉行数停留在旧内容（#631 P2）。
+        for idx in patched {
+            changed |= self.sync_wrap_after_inline_patch(&mut cache, idx);
         }
 
         if changed {
             cache.version += 1;
         }
         changed
+    }
+
+    /// 场景 B 就地改写行内容后，重建该消息的 wrap 分段并刷新 wrap_map 中的视觉行号。
+    ///
+    /// 秒数变化会改变行宽（`(9s)` → `(10s)`），进而可能改变视觉行数，因此不能只
+    /// 原地改写 `plain_text`——必须重算该段并把其后所有分段的视觉行号整体平移。
+    /// 返回该消息的 wrap 是否真的发生变化（完全未变时为 false）。
+    fn sync_wrap_after_inline_patch(&mut self, cache: &mut RenderCache, idx: usize) -> bool {
+        let Some(&start) = cache.message_offsets.get(idx) else {
+            return false;
+        };
+        // 该消息在 deduped 空间中的逻辑行数：到下一条消息 offset 为止（末条到末尾）。
+        // 就地改写不增删行，因此 offsets 与 cache.lines 仍保持一致。
+        let end = cache
+            .message_offsets
+            .get(idx + 1)
+            .copied()
+            .unwrap_or(cache.lines.len())
+            .min(cache.lines.len())
+            .max(start);
+        let slice_len = end - start;
+
+        // wrap_map 与 cache.lines 一一对应；两者不一致说明缓存已损坏，放弃刷新
+        // （留给下一次 rebuild 全量修正，不要在这里越界）。
+        let Some(old_slice) = cache.wrap_map.get(start..end) else {
+            return false;
+        };
+        let old_entries: Vec<WrappedLineInfo> = old_slice.to_vec();
+        let base_visual = old_slice
+            .first()
+            .map(|info| info.visual_row_start)
+            .unwrap_or(0);
+        let old_total = old_slice
+            .last()
+            .map(|last| last.visual_row_end.saturating_sub(base_visual))
+            .unwrap_or(0);
+
+        let (total, fresh) = Self::build_wrap_map(&cache.lines[start..end], self.width);
+        if total == old_total && Self::wrap_entries_equal(&old_entries, &fresh) {
+            return false;
+        }
+
+        // 更新该消息的 wrap 分段缓存，并换一个新版本号：
+        // 行内容已变而渲染键未变，必须靠版本号让后续 rebuild 不再命中旧段。
+        self.epoch_seq += 1;
+        let epoch = self.epoch_seq;
+        if idx < self.line_epochs.len() {
+            self.line_epochs[idx] = epoch;
+        }
+        let slot = self.detail_mode as usize;
+        if self.wrap_segs[slot].len() <= idx {
+            self.wrap_segs[slot].resize_with(idx + 1, || None);
+        }
+        self.wrap_segs[slot][idx] = Some(WrapSegment {
+            key: self.message_hashes.get(idx).copied().unwrap_or(0),
+            epoch,
+            entries: fresh.clone(),
+            total,
+            slice_len,
+        });
+
+        // 重写 cache.wrap_map 中的这一段（含绝对行号与绝对视觉行号），
+        // 再把其后所有分段的视觉行号平移 delta。
+        let patched: Vec<WrappedLineInfo> = fresh
+            .into_iter()
+            .map(|mut info| {
+                info.line_idx += start;
+                info.visual_row_start += base_visual;
+                info.visual_row_end += base_visual;
+                info
+            })
+            .collect();
+        cache.wrap_map.splice(start..end, patched);
+
+        let delta = total as isize - old_total as isize;
+        if delta != 0 {
+            for info in cache.wrap_map.iter_mut().skip(end) {
+                info.visual_row_start = info.visual_row_start.saturating_add_signed(delta);
+                info.visual_row_end = info.visual_row_end.saturating_add_signed(delta);
+            }
+            cache.total_lines = cache.total_lines.saturating_add_signed(delta);
+        }
+        true
+    }
+
+    /// 两个 wrap 分段是否等价。
+    ///
+    /// `old` 来自 cache.wrap_map（line_idx / 视觉行号为绝对坐标），`new` 来自
+    /// build_wrap_map（相对坐标），因此只比较段内相对量。
+    fn wrap_entries_equal(old: &[WrappedLineInfo], new: &[WrappedLineInfo]) -> bool {
+        if old.len() != new.len() {
+            return false;
+        }
+        let Some(new_start) = new.first().map(|info| info.visual_row_start) else {
+            return true;
+        };
+        let old_start = old.first().map(|info| info.visual_row_start).unwrap_or(0);
+        old.iter().zip(new.iter()).all(|(o, n)| {
+            o.plain_text == n.plain_text
+                && o.char_widths == n.char_widths
+                && (o.visual_row_end - o.visual_row_start)
+                    == (n.visual_row_end - n.visual_row_start)
+                && (o.visual_row_start - old_start) == (n.visual_row_start - new_start)
+        })
     }
 
     fn handle_event(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
@@ -816,6 +1007,7 @@ impl RenderTask {
                 self.alt_lines.clear();
                 self.alt_links.clear();
                 self.alt_keys.clear();
+                self.alt_epochs.clear();
                 self.wrap_segs = [Vec::new(), Vec::new()];
                 // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
                 if !self.last_messages.is_empty() {
@@ -829,6 +1021,8 @@ impl RenderTask {
                 self.alt_lines.clear();
                 self.alt_links.clear();
                 self.alt_keys.clear();
+                self.alt_epochs.clear();
+                self.line_epochs.clear();
                 self.wrap_segs = [Vec::new(), Vec::new()];
                 self.message_hashes.clear();
                 self.message_hashes.shrink_to_fit();
@@ -950,6 +1144,9 @@ pub fn spawn_render_thread(
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
         alt_keys: Vec::new(),
+        alt_epochs: Vec::new(),
+        line_epochs: Vec::new(),
+        epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
     };
 

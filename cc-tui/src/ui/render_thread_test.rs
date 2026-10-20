@@ -859,6 +859,9 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
         alt_keys: Vec::new(),
+        alt_epochs: Vec::new(),
+        line_epochs: Vec::new(),
+        epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
     };
 
@@ -921,6 +924,9 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
         alt_keys: Vec::new(),
+        alt_epochs: Vec::new(),
+        line_epochs: Vec::new(),
+        epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
     };
 
@@ -998,6 +1004,9 @@ fn detail_mode_long_cmd_running_task(
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
         alt_keys: Vec::new(),
+        alt_epochs: Vec::new(),
+        line_epochs: Vec::new(),
+        epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
     };
     // 超长命令：详细模式下 header 必然折成多行（≥2 行内容）
@@ -1129,11 +1138,7 @@ fn test_refresh_running_bash_multiline_header_triggers_rebuild_at_threshold() {
         task.message_lines[0].len()
     );
     assert!(
-        !cache
-            .read()
-            .lines
-            .iter()
-            .any(is_shell_running_status_line),
+        !cache.read().lines.iter().any(is_shell_running_status_line),
         "前置条件：阈值前不应有状态行"
     );
 
@@ -1141,16 +1146,11 @@ fn test_refresh_running_bash_multiline_header_triggers_rebuild_at_threshold() {
 
     assert!(changed, "跨阈值且缺状态行时应触发重建");
     assert!(
-        cache
-            .read()
-            .lines
-            .iter()
-            .any(is_shell_running_status_line),
+        cache.read().lines.iter().any(is_shell_running_status_line),
         "跨阈值后必须补上状态行（旧固定行数判定会漏掉）: {:?}",
         cache_line_texts(&cache.read())
     );
 }
-
 
 fn write_tool_block_vm() -> MessageViewModel {
     MessageViewModel::ToolBlock {
@@ -1223,28 +1223,35 @@ async fn test_no_toggle_diff_keeps_inline_diff_hidden() {
 // braille 转轮 → '#'，这些是动画相位而非内容差异。
 use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 
+/// 动画相位归一化：数字（计时秒数）→ 'N'、运行指示点 '●' → ' '、
+/// braille 转轮 → '#'。这些是渲染期的动画状态而非内容差异。
+fn exec_norm_char(c: char) -> char {
+    if c.is_ascii_digit() {
+        'N'
+    } else if c == '●' {
+        ' '
+    } else if ('\u{2800}'..='\u{28ff}').contains(&c) {
+        '#'
+    } else {
+        c
+    }
+}
+
+fn exec_norm_str(s: &str) -> String {
+    s.chars().map(exec_norm_char).collect()
+}
+
 fn exec_norm_text(cache: &RenderCache) -> Vec<String> {
     cache
         .lines
         .iter()
         .map(|l| {
-            l.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<String>()
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_digit() {
-                        'N'
-                    } else if c == '●' {
-                        ' '
-                    } else if ('\u{2800}'..='\u{28ff}').contains(&c) {
-                        '#'
-                    } else {
-                        c
-                    }
-                })
-                .collect()
+            exec_norm_str(
+                &l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>(),
+            )
         })
         .collect()
 }
@@ -1368,6 +1375,9 @@ fn exec_task(detail_mode: bool) -> RenderTask {
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
         alt_keys: Vec::new(),
+        alt_epochs: Vec::new(),
+        line_epochs: Vec::new(),
+        epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
     }
 }
@@ -1404,22 +1414,24 @@ fn exec_check_consistency(task: &RenderTask, msgs: &[MessageViewModel], step: &s
         want_c.wrap_map.len(),
         "[{step}] wrap_map 长度与从零渲染不一致"
     );
-    for (i, (g, w)) in got_c.wrap_map.iter().zip(want_c.wrap_map.iter()).enumerate() {
-        let gn: String = g
-            .plain_text
-            .chars()
-            .map(|c| if c.is_ascii_digit() { 'N' } else { c })
-            .collect();
-        let wn: String = w
-            .plain_text
-            .chars()
-            .map(|c| if c.is_ascii_digit() { 'N' } else { c })
-            .collect();
+    for (i, (g, w)) in got_c
+        .wrap_map
+        .iter()
+        .zip(want_c.wrap_map.iter())
+        .enumerate()
+    {
+        // 与行文本用同一套归一化：plain_text 同样携带指示点/转轮等动画相位
+        let gn = exec_norm_str(&g.plain_text);
+        let wn = exec_norm_str(&w.plain_text);
         if g.visual_row_end - g.visual_row_start != w.visual_row_end - w.visual_row_start
             || gn != wn
         {
             if diffs < 5 {
-                eprintln!("[{step}] wrap[{i}] 结构不一致");
+                eprintln!(
+                    "[{step}] wrap[{i}] 结构不一致 got_rows={} want_rows={}\n  got : {gn:?}\n  want: {wn:?}",
+                    g.visual_row_end - g.visual_row_start,
+                    w.visual_row_end - w.visual_row_start
+                );
             }
             diffs += 1;
         }
@@ -1474,5 +1486,338 @@ fn test_toggle_detail_during_execution_matches_fresh_render() {
             0,
             "cycle {cycle} 指示器刷新后与从零渲染不一致"
         );
+    }
+}
+
+// ===== #631 回归：P1 尾部隐藏工具组导致分段切片越界 =====
+
+/// 构造「普通模式下无可见输出」的只读工具组：折叠、无 standalone_action、
+/// 组内工具成功且无错误摘要——message_render 对这种组返回空内容。
+fn hidden_read_group() -> MessageViewModel {
+    use crate::ui::message_view::{ToolCategory, ToolEntry};
+    let mut vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: vec![ToolEntry {
+            tool_name: "Read".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("file.txt".to_string()),
+            content: "success".to_string(),
+            is_error: false,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: None,
+    };
+    vm.recompute_hash();
+    vm
+}
+
+#[tokio::test]
+async fn test_hidden_tail_tool_group_does_not_break_segments() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    tx.send(RenderEvent::Rebuild(vec![MessageViewModel::user(
+        "before".to_string(),
+    )]))
+    .await
+    .unwrap();
+    wait_render().await;
+    let v0 = cache.read().version;
+
+    // 尾部消息渲染为空：其 dedup offset 会落在尾空行裁剪后的长度之外
+    tx.send(RenderEvent::Rebuild(vec![
+        MessageViewModel::user("after".to_string()),
+        hidden_read_group(),
+    ]))
+    .await
+    .unwrap();
+    wait_render().await;
+
+    let version_after_rebuild = {
+        let c = cache.read();
+        assert!(
+            c.version > v0,
+            "重建必须真正发布新缓存（panic 会被 rebuild_safe 吞掉，只剩旧画面）"
+        );
+        let texts: Vec<String> = c
+            .lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect();
+        assert!(
+            texts.iter().any(|t| t.contains("after")),
+            "新内容应替换旧画面: {texts:?}"
+        );
+        assert!(
+            c.message_offsets.iter().all(|&off| off <= c.lines.len()),
+            "所有 offset 必须落在 deduped 范围内: offsets={:?} lines={}",
+            c.message_offsets,
+            c.lines.len()
+        );
+        assert_eq!(c.wrap_map.len(), c.lines.len(), "wrap_map 必须覆盖全部行");
+        c.version
+    };
+
+    // detail↔普通切换都要能发布新缓存（隐藏尾组在两种模式下切片长度不同）
+    tx.send(RenderEvent::ToggleDetail(true)).await.unwrap();
+    wait_render().await;
+    let expanded = cache.read().version;
+    assert!(expanded > version_after_rebuild, "展开应发布新缓存");
+
+    tx.send(RenderEvent::ToggleDetail(false)).await.unwrap();
+    wait_render().await;
+    let c = cache.read();
+    assert!(
+        c.version > expanded,
+        "折叠回普通模式应发布新缓存（不得沿用旧画面）"
+    );
+    assert!(
+        c.message_offsets.iter().all(|&off| off <= c.lines.len()),
+        "切回普通模式后 offset 仍需在范围内"
+    );
+}
+
+/// 连续多个隐藏 VM（含尾部）同样不能越界，且非末尾的隐藏 VM 要允许零长度段。
+#[tokio::test]
+async fn test_consecutive_hidden_tail_groups_do_not_break_segments() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    tx.send(RenderEvent::Rebuild(vec![
+        MessageViewModel::user("a".to_string()),
+        hidden_read_group(),
+        hidden_read_group(),
+    ]))
+    .await
+    .unwrap();
+    wait_render().await;
+
+    let v1 = cache.read().version;
+    tx.send(RenderEvent::Rebuild(vec![
+        MessageViewModel::user("b".to_string()),
+        hidden_read_group(),
+        hidden_read_group(),
+        hidden_read_group(),
+    ]))
+    .await
+    .unwrap();
+    wait_render().await;
+
+    let c = cache.read();
+    assert!(c.version > v1, "重建应发布新缓存");
+    assert!(
+        c.message_offsets.iter().all(|&off| off <= c.lines.len()),
+        "offset 越界: offsets={:?} lines={}",
+        c.message_offsets,
+        c.lines.len()
+    );
+    assert_eq!(c.wrap_map.len(), c.lines.len());
+    let texts: Vec<String> = c
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+    assert!(
+        texts.iter().any(|t| t.contains('b')),
+        "画面应更新: {texts:?}"
+    );
+}
+
+// ===== #631 回归：P2 计时重渲染后不得复用旧 wrap 分段 =====
+
+/// 子 Agent 内运行中 Bash 无新输出，仅计时秒数推进：
+/// 显示行、复制文本（wrap_map.plain_text）、字符宽度、视觉行数必须同步刷新。
+#[test]
+fn test_subagent_timer_refresh_updates_wrap_segment() {
+    // 19 列：`Running… (9s)` → `(10s)` 会跨过换行边界，能同时暴露
+    // plain_text 过期与视觉行数错误。
+    let width = 19u16;
+    let mut task = exec_task(false);
+    task.width = width;
+
+    let mut bash = MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("sleep 30".to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock {
+        content,
+        started_at,
+        ..
+    } = &mut bash
+    {
+        *content = String::new();
+        *started_at = Some(Instant::now() - Duration::from_millis(9_100));
+    }
+    bash.recompute_hash();
+
+    let mut group = MessageViewModel::subagent_group("child".to_string(), "task".to_string());
+    if let MessageViewModel::SubAgentGroup {
+        recent_messages,
+        collapsed,
+        ..
+    } = &mut group
+    {
+        *collapsed = false;
+        *recent_messages = vec![bash];
+    }
+    group.recompute_hash();
+
+    let msgs = vec![group];
+    task.rebuild_safe(msgs.clone());
+
+    let running_text = |task: &RenderTask| -> String {
+        let c = task.cache.read();
+        c.lines
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("Running…")))
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .expect("应存在 Running… 状态行")
+    };
+    assert!(
+        running_text(&task).contains("(9s)"),
+        "初始应为 9s: {:?}",
+        running_text(&task)
+    );
+
+    // 时间推进到 10s（不产生新消息，只靠 ticker 刷新）
+    if let MessageViewModel::SubAgentGroup {
+        recent_messages, ..
+    } = &mut task.last_messages[0]
+    {
+        if let MessageViewModel::ToolBlock { started_at, .. } = &mut recent_messages[0] {
+            *started_at = Some(Instant::now() - Duration::from_millis(10_100));
+        }
+    }
+    assert!(
+        task.refresh_running_tool_indicators(0),
+        "秒数变化应触发刷新"
+    );
+
+    let c = task.cache.read();
+    let line_text = running_text(&task);
+    assert!(
+        line_text.contains("(10s)"),
+        "显示行应更新为 10s: {line_text:?}"
+    );
+
+    // 复制文本必须与显示行一致
+    let wrap_idx = c
+        .lines
+        .iter()
+        .position(|l| l.spans.iter().any(|s| s.content.contains("Running…")))
+        .expect("应存在 Running… 状态行");
+    let plain: String = c.wrap_map[wrap_idx]
+        .plain_text
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert!(
+        plain.contains("10s"),
+        "wrap_map.plain_text 仍是旧耗时: {:?}",
+        c.wrap_map[wrap_idx].plain_text
+    );
+    assert!(
+        !plain.contains("9s"),
+        "wrap_map.plain_text 不得残留旧耗时: {:?}",
+        c.wrap_map[wrap_idx].plain_text
+    );
+
+    // 视觉行数与实际渲染一致
+    let fresh_rows = Paragraph::new(ratatui::text::Text::from(c.lines[wrap_idx].clone()))
+        .wrap(Wrap { trim: false })
+        .line_count(width);
+    assert_eq!(
+        c.wrap_map[wrap_idx].visual_row_end - c.wrap_map[wrap_idx].visual_row_start,
+        fresh_rows,
+        "视觉行数与实际渲染不一致"
+    );
+
+    // 其后分段与 total_lines 必须整体平移一致
+    let expected_total: usize = c
+        .lines
+        .iter()
+        .map(|line| {
+            Paragraph::new(ratatui::text::Text::from(line.clone()))
+                .wrap(Wrap { trim: false })
+                .line_count(width)
+        })
+        .sum();
+    assert_eq!(c.total_lines, expected_total, "total_lines 应同步平移");
+    for (i, info) in c.wrap_map.iter().enumerate() {
+        assert_eq!(info.line_idx, i, "wrap_map 下标应与 lines 对齐");
+    }
+    let mut expected_start = 0usize;
+    for info in c.wrap_map.iter() {
+        assert_eq!(info.visual_row_start, expected_start, "视觉行号应连续");
+        expected_start = info.visual_row_end;
+    }
+}
+
+/// 59s → 1m 这类文本长度**变短**的边界：视觉行数可能回退，
+/// 其后分段的视觉行号必须跟着上移。
+#[test]
+fn test_subagent_timer_refresh_handles_shrinking_elapsed_text() {
+    let width = 19u16;
+    let mut task = exec_task(false);
+    task.width = width;
+
+    let mut bash = MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("sleep 30".to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock {
+        content,
+        started_at,
+        ..
+    } = &mut bash
+    {
+        *content = String::new();
+        *started_at = Some(Instant::now() - Duration::from_millis(58_100));
+    }
+    bash.recompute_hash();
+
+    let mut group = MessageViewModel::subagent_group("child".to_string(), "task".to_string());
+    if let MessageViewModel::SubAgentGroup {
+        recent_messages,
+        collapsed,
+        ..
+    } = &mut group
+    {
+        *collapsed = false;
+        *recent_messages = vec![bash];
+    }
+    group.recompute_hash();
+
+    task.rebuild_safe(vec![group]);
+
+    if let MessageViewModel::SubAgentGroup {
+        recent_messages, ..
+    } = &mut task.last_messages[0]
+    {
+        if let MessageViewModel::ToolBlock { started_at, .. } = &mut recent_messages[0] {
+            *started_at = Some(Instant::now() - Duration::from_millis(60_100));
+        }
+    }
+    assert!(task.refresh_running_tool_indicators(0), "58s→1m 应触发刷新");
+
+    let c = task.cache.read();
+    let expected_total: usize = c
+        .lines
+        .iter()
+        .map(|line| {
+            Paragraph::new(ratatui::text::Text::from(line.clone()))
+                .wrap(Wrap { trim: false })
+                .line_count(width)
+        })
+        .sum();
+    assert_eq!(c.total_lines, expected_total, "total_lines 应回退到新值");
+    let mut expected_start = 0usize;
+    for (i, info) in c.wrap_map.iter().enumerate() {
+        assert_eq!(info.line_idx, i);
+        assert_eq!(info.visual_row_start, expected_start, "视觉行号应连续");
+        expected_start = info.visual_row_end;
     }
 }
