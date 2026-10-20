@@ -57,6 +57,59 @@ pub struct WrappedLineInfo {
     pub char_widths: Vec<u8>,
 }
 
+/// #629：一条消息在发布缓存中的段信息（段 = 一条消息的渲染单元）。
+///
+/// S1 阶段与 `lines` / `wrap_map` 并行发布，内容由 offsets + wrap_map 推导，
+/// 与全量发布恒等；后续阶段（窗口物化/淘汰）在此结构上引入 Estimated 状态。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SegmentInfo {
+    /// 消息下标（与 message_offsets 同序）
+    pub msg_idx: usize,
+    /// 该段在 cache.lines 中的起始逻辑行
+    pub line_start: usize,
+    /// 该段逻辑行数（可为 0：渲染为空的消息，如折叠的只读工具组）
+    pub line_len: usize,
+    /// 该段起始视觉行（基于 0）
+    pub visual_start: usize,
+    /// 该段视觉行数（实测，来自 wrap_map）
+    pub visual_rows: usize,
+    /// 是否已物化（S1 恒为 true；S3 起窗口外段为 false，只保留高度）
+    pub materialized: bool,
+}
+
+/// 由 offsets + wrap_map 推导段表。零长度段的 visual_start 取其插入点的
+/// 视觉行（下一条非空段的起点，或总视觉行数），保证 visual_start 单调、
+/// 各段 visual_rows 之和恒等于 total_visual（publish 与 wrap_map 恒等）。
+fn build_segments(
+    offsets: &[usize],
+    total_logical: usize,
+    wrap_map: &[WrappedLineInfo],
+    total_visual: usize,
+) -> Vec<SegmentInfo> {
+    let visual_start_of = |line_start: usize| -> usize {
+        if line_start < wrap_map.len() {
+            wrap_map[line_start].visual_row_start
+        } else {
+            total_visual
+        }
+    };
+    let mut segments = Vec::with_capacity(offsets.len());
+    for (i, &line_start) in offsets.iter().enumerate() {
+        let line_end = offsets.get(i + 1).copied().unwrap_or(total_logical);
+        let visual_start = visual_start_of(line_start);
+        let visual_end = visual_start_of(line_end);
+        segments.push(SegmentInfo {
+            msg_idx: i,
+            line_start,
+            line_len: line_end - line_start,
+            visual_start,
+            visual_rows: visual_end - visual_start,
+            materialized: true,
+        });
+    }
+    segments
+}
+
 /// 渲染缓存，由渲染线程写入、UI 线程读取
 pub struct RenderCache {
     /// 所有消息渲染后的行
@@ -74,6 +127,8 @@ pub struct RenderCache {
     pub width: u16,
     /// RebuildAll 后的滚动锚点（视觉行号），UI 线程读取后清除
     pub scroll_anchor: Option<usize>,
+    /// #629：段表（与 message_offsets 同序），由 build_segments 推导发布
+    pub segments: Vec<SegmentInfo>,
 }
 
 impl Default for RenderCache {
@@ -93,8 +148,28 @@ impl RenderCache {
             links: Vec::new(),
             width: 0,
             scroll_anchor: None,
+            segments: Vec::new(),
         }
     }
+
+    /// #629：按视觉行二分定位所属段下标。返回最后一个
+    /// `visual_start <= row` 的段（零视觉行段与后继同起点时取后继，
+    /// 即行实际归属的段）；row 超出总视觉行数时返回 None。
+    pub fn segment_for_visual_row(&self, row: usize) -> Option<usize> {
+        if self.segments.is_empty() || row >= self.total_lines {
+            return None;
+        }
+        let idx = self.segments.partition_point(|s| s.visual_start <= row);
+        idx.checked_sub(1)
+    }
+}
+
+/// #629：detail 渲染策略。Cache = #626 全量双变体（默认）；
+/// Virtual = 窗口物化 + 估算段（长历史下渲染常驻封顶）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderStrategy {
+    Cache,
+    Virtual,
 }
 
 /// 渲染线程接收的事件
@@ -117,6 +192,17 @@ pub enum RenderEvent {
     ToggleDiff(bool),
     /// 切换详细模式（shell 输出、粘贴内容、reasoning 展开/折叠）
     ToggleDetail(bool),
+    /// #629：切换渲染策略（配置接通在 S6；切换时以当前锚点重建）
+    SetStrategy(RenderStrategy),
+    /// #629：App 侧滚动锚点（消息下标 + 视口行数）。
+    /// Virtual 策略下窗口以锚点为中心展开；锚点不变且窗口已覆盖时不重建。
+    SetViewportAnchor {
+        msg_idx: usize,
+        viewport_rows: usize,
+    },
+    /// #629 S5：按需物化一段消息（复制选区覆盖未物化段时用）。
+    /// 下一次重建的窗口并入该范围（一次性，不改变锚点窗口语义）。
+    MaterializeRange { start_msg: usize, end_msg: usize },
 }
 
 /// #626：单条消息的 wrap 分段缓存。
@@ -179,7 +265,32 @@ struct RenderTask {
     epoch_seq: u64,
     /// #626：wrap 按消息分段缓存 [detail_mode][msg_idx]，条目见 WrapSegment。
     wrap_segs: [Vec<Option<WrapSegment>>; 2],
+    /// #629：当前渲染策略（默认 Cache）。
+    strategy: RenderStrategy,
+    /// #629：窗口锚点消息下标（usize::MAX = 尾部跟随，取最后一条）。
+    anchor_msg: usize,
+    /// #629：视口行数（App 经 SetViewportAnchor 告知；窗口 = 锚点 ±2 屏）。
+    viewport_rows: usize,
+    /// #629：每条消息最近一次发布的视觉行数（物化段为实测，估算段为估算值），
+    /// 与 message_lines 同下标；窗口展开与段表发布的高度来源。
+    virt_rows: Vec<usize>,
+    /// #629：估算器结果缓存（渲染键 → 估算行数），内容键不变不重算；
+    /// 宽度变化时整体作废（virt_est_width）。
+    virt_est: Vec<(u64, usize)>,
+    virt_est_width: u16,
+    /// #629：当前物化窗口 [start, end)（消息下标空间），锚点去重用。
+    window: (usize, usize),
+    /// #629：物化视觉行预算（硬顶）：窗口展开累计行数达到它即停；
+    /// 锚点消息本身恒纳入（单条超预算靠 #627 的条内上限另行收口）。
+    virt_budget_rows: usize,
+    /// #629 S5：窗口外的额外物化集（复制驱动，与锚点窗口是两个独立集合，
+    /// 不能并成区间——不相交时并区间会吞掉中间全部消息）。
+    /// 锚点窗口移动 / 策略切换 / 尺寸变化时清除，普通重建（流式）保留。
+    extra_materialized: std::collections::BTreeSet<usize>,
 }
+
+/// #629：物化视觉行默认预算。
+const DEFAULT_VIRT_BUDGET_ROWS: usize = 4_000;
 
 /// 该消息的渲染结果是否随 detail_mode 变化（#626）。
 /// 与 message_render 的 detail 分支一一对应：新增 detail 敏感分支时必须同步更新此处，
@@ -396,6 +507,72 @@ impl RenderTask {
         }
     }
 
+    /// #629：每条消息当前最佳已知视觉行数——已物化的取最近实测
+    /// （virt_rows），未物化的取估算器（按**内容** hash 缓存，宽度变化整体作废）。
+    /// 估算的是 detail 行数，与当前 detail/diff 标志无关：缓存键绝不能用
+    /// 渲染键——那会让每次开关 detail 都把全部估算作废重算。
+    /// 结果写回 virt_rows 供窗口展开与段表发布共用。
+    fn known_rows(&mut self, messages: &[MessageViewModel]) -> Vec<usize> {
+        if self.virt_est_width != self.width {
+            self.virt_est.iter_mut().for_each(|e| *e = (0, 0));
+            self.virt_est_width = self.width;
+        }
+        self.virt_rows.resize(messages.len(), 0);
+        self.virt_est.resize(messages.len(), (0, 0));
+        let width = self.width as usize;
+        let mut rows = Vec::with_capacity(messages.len());
+        for (i, vm) in messages.iter().enumerate() {
+            let materialized = self
+                .message_lines
+                .get(i)
+                .is_some_and(|lines| !lines.is_empty());
+            let content_key = vm.content_hash();
+            let row = if materialized && self.virt_rows[i] > 0 {
+                self.virt_rows[i]
+            } else if self.virt_est[i].0 == content_key && self.virt_est[i].1 > 0 {
+                self.virt_est[i].1
+            } else {
+                let est = super::detail_estimate::estimate_detail_visual_rows(vm, width);
+                self.virt_est[i] = (content_key, est);
+                est
+            };
+            self.virt_rows[i] = row;
+            rows.push(row);
+        }
+        rows
+    }
+
+    /// #629：以锚点为中心展开物化窗口：上下各约 2 屏（按已知行数累计）。
+    fn compute_window(&self, rows: &[usize]) -> (usize, usize) {
+        let len = rows.len();
+        if len == 0 {
+            return (0, 0);
+        }
+        let anchor = if self.anchor_msg == usize::MAX {
+            len - 1
+        } else {
+            self.anchor_msg.min(len - 1)
+        };
+        let margin = self.viewport_rows.saturating_mul(2).max(1);
+        let budget = self.virt_budget_rows.max(1);
+        let mut total = rows[anchor];
+        let mut start = anchor;
+        let mut acc = rows[anchor];
+        while start > 0 && acc < margin && total < budget {
+            start -= 1;
+            acc += rows[start];
+            total += rows[start];
+        }
+        let mut end = anchor + 1;
+        let mut acc = rows[anchor];
+        while end < len && acc < margin && total < budget {
+            acc += rows[end];
+            total += rows[end];
+            end += 1;
+        }
+        (start, end)
+    }
+
     /// 全量重建：接收完整消息列表，按渲染键逐条复用缓存行与 wrap 分段
     ///
     /// 优化策略：
@@ -426,6 +603,32 @@ impl RenderTask {
             self.message_hashes.clear();
         }
 
+        // #629：Virtual 策略只在 detail 模式生效（折叠态走 Cache 全量路径）。
+        // 窗口按锚点展开；窗口外消息本轮不渲染、成品释放，只保留高度。
+        let virtual_active = self.strategy == RenderStrategy::Virtual && self.detail_mode;
+        let window = if virtual_active {
+            let rows = self.known_rows(&messages);
+            self.compute_window(&rows)
+        } else {
+            (0, new_len)
+        };
+        self.window = window;
+        // S5：本轮物化掩码 = 锚点窗口 ∪ 额外物化集（复制驱动，独立集合）
+        let mat_mask: Vec<bool> = if virtual_active {
+            let mut mask = vec![false; new_len];
+            for i in window.0..window.1.min(new_len) {
+                mask[i] = true;
+            }
+            for &i in &self.extra_materialized {
+                if i < new_len {
+                    mask[i] = true;
+                }
+            }
+            mask
+        } else {
+            Vec::new()
+        };
+
         // 计算 prefix_stable_len：前缀中连续 hash 未变的消息数量
         let old_len = self.message_hashes.len();
 
@@ -452,6 +655,30 @@ impl RenderTask {
             // 默认继承旧版本号；交换 / 重渲染分支会在下面覆写。
             self.line_epochs[i] = old_epochs.get(i).copied().unwrap_or(0);
             self.alt_epochs[i] = old_alt_epochs.get(i).copied().unwrap_or(0);
+            // #629：Virtual 物化集外——释放当前成品（高度已存 virt_rows），
+            // 本轮不渲染；重新进入物化集时因成品为空必然走重渲染分支。
+            // 例外：alt 槽为空时把当前成品存入 alt（首次 detail 打开时保留
+            // 折叠变体，关回 Ctrl+O 时可零渲染交换）；alt 已占用则丢弃，
+            // 避免窗口外消息同时持有两份成品造成内存双计。
+            if virtual_active && !mat_mask[i] {
+                if i < old_message_lines.len() && !old_message_lines[i].is_empty() {
+                    if self.alt_keys[i] == 0 && self.alt_lines[i].is_empty() {
+                        self.alt_lines[i] = std::mem::take(&mut old_message_lines[i]);
+                        self.alt_links[i] = std::mem::take(&mut old_message_links[i]);
+                        self.alt_keys[i] = if i < old_len {
+                            self.message_hashes[i]
+                        } else {
+                            0
+                        };
+                        self.alt_epochs[i] = old_epochs.get(i).copied().unwrap_or(0);
+                    } else {
+                        // alt 已有另一变体：只丢当前成品，alt 保留
+                        old_message_lines[i].clear();
+                        old_message_links[i].clear();
+                    }
+                }
+                continue;
+            }
             // 渲染键未变 → 当前变体成品直接复用
             if i < old_len
                 && i < old_message_lines.len()
@@ -528,6 +755,11 @@ impl RenderTask {
 
         self.message_hashes = new_keys;
         self.epoch_seq = epoch_seq;
+
+        if virtual_active {
+            self.publish_virtual(new_len, &mat_mask);
+            return;
+        }
 
         // 拼接所有消息行，同时做全局 dedup（消除连续空行），
         // 并在 deduped 索引空间构建 message_offsets 与全局超链接映射。
@@ -631,6 +863,8 @@ impl RenderTask {
             }
             (visual_base, wrap_map)
         };
+        // #629 S1：段表与全量发布并行，由 offsets + wrap_map 推导（恒等）。
+        let segments = build_segments(&offsets, deduped.len(), &wrap_map, total_lines);
         let mut cache = self.cache.write();
         cache.lines = deduped;
         cache.message_offsets = offsets;
@@ -638,6 +872,146 @@ impl RenderTask {
         cache.wrap_map = wrap_map;
         cache.links = global_links;
         cache.width = self.width;
+        cache.segments = segments;
+        cache.version += 1;
+    }
+
+    /// #629：Virtual 策略的稀疏发布——只有窗口内消息的行进入 lines/wrap_map，
+    /// 窗口外段只在段表里保留高度（实测优先，估算兜底）。
+    /// 不变量：段表 visual_start 单调、求和 == total_lines；物化段的
+    /// line_start/line_len 与 lines 精确对应；估算段 line_start = usize::MAX。
+    fn publish_virtual(&mut self, new_len: usize, mat_mask: &[bool]) {
+        let in_window = |i: usize| mat_mask[i];
+
+        // dedup 只作用于物化消息的行（prev_empty 跨估算段延续：
+        // 与全量口径的差异至多是段边界的一个分隔空行，物化后自愈）。
+        let mut deduped: Vec<Line<'static>> = Vec::new();
+        let mut offsets: Vec<usize> = vec![usize::MAX; new_len];
+        let mut global_links: Vec<LinkHit> = Vec::new();
+        let mut prev_empty = false;
+        for (mi, lines) in self.message_lines.iter().enumerate() {
+            if !in_window(mi) {
+                continue;
+            }
+            offsets[mi] = deduped.len();
+            let mut line_map: Vec<Option<usize>> = Vec::with_capacity(lines.len());
+            for line in lines {
+                let is_empty = is_blank_line(line);
+                if is_empty && prev_empty {
+                    line_map.push(None);
+                    continue;
+                }
+                prev_empty = is_empty;
+                line_map.push(Some(deduped.len()));
+                deduped.push(line.clone());
+            }
+            if let Some(msg_links) = self.message_links.get(mi) {
+                for hit in msg_links {
+                    if let Some(Some(new_line)) = line_map.get(hit.line) {
+                        global_links.push(LinkHit {
+                            line: *new_line,
+                            ..hit.clone()
+                        });
+                    }
+                }
+            }
+        }
+        // 尾空行裁剪（与全量口径一致）：仅当最后一条消息本身被发布时才成立——
+        // 发布中途的尾空行是该段的分隔行，裁掉会让段高与全量口径差一行。
+        if new_len > 0 && mat_mask[new_len - 1] {
+            while deduped.last().is_some_and(is_blank_line) {
+                let dropped = deduped.len() - 1;
+                deduped.pop();
+                global_links.retain(|hit| hit.line != dropped);
+            }
+        }
+        // 物化段 offsets 夹紧（尾部物化消息渲染为空时其 offset 可能越过裁剪点）
+        {
+            let mut clamped = 0usize;
+            for i in 0..new_len {
+                if offsets[i] != usize::MAX {
+                    clamped = offsets[i].max(clamped).min(deduped.len());
+                    offsets[i] = clamped;
+                }
+            }
+        }
+
+        // wrap 分段（仅物化段）+ 段表组装：visual_base 按段高累计，
+        // 物化段取 wrap 实测，估算段取 virt_rows（known_rows 已备好）。
+        let slot = self.detail_mode as usize;
+        if self.wrap_segs[slot].len() != new_len {
+            self.wrap_segs[slot].resize_with(new_len, || None);
+        }
+        let mat_indices: Vec<usize> = (0..new_len).filter(|&i| in_window(i)).collect();
+        let mut wrap_map: Vec<WrappedLineInfo> = Vec::new();
+        let mut segments: Vec<SegmentInfo> = Vec::with_capacity(new_len);
+        let mut visual_base = 0usize;
+        for i in 0..new_len {
+            if !in_window(i) {
+                let rows = self.virt_rows.get(i).copied().unwrap_or(0);
+                segments.push(SegmentInfo {
+                    msg_idx: i,
+                    line_start: usize::MAX,
+                    line_len: 0,
+                    visual_start: visual_base,
+                    visual_rows: rows,
+                    materialized: false,
+                });
+                visual_base += rows;
+                continue;
+            }
+            let start = offsets[i];
+            let end = mat_indices
+                .iter()
+                .find(|&&j| j > i)
+                .map(|&j| offsets[j])
+                .unwrap_or(deduped.len())
+                .min(deduped.len());
+            let slice_len = end - start;
+            let key = self.message_hashes[i];
+            let epoch = self.line_epochs[i];
+            let seg_hit = self.wrap_segs[slot][i]
+                .as_ref()
+                .is_some_and(|s| s.key == key && s.epoch == epoch && s.slice_len == slice_len);
+            if !seg_hit {
+                let (total, entries) = Self::build_wrap_map(&deduped[start..end], self.width);
+                self.wrap_segs[slot][i] = Some(WrapSegment {
+                    key,
+                    epoch,
+                    entries,
+                    total,
+                    slice_len,
+                });
+            }
+            let seg = self.wrap_segs[slot][i].as_ref().unwrap();
+            let seg_total = seg.total;
+            for info in &seg.entries {
+                let mut info = info.clone();
+                info.line_idx += start;
+                info.visual_row_start += visual_base;
+                info.visual_row_end += visual_base;
+                wrap_map.push(info);
+            }
+            segments.push(SegmentInfo {
+                msg_idx: i,
+                line_start: start,
+                line_len: slice_len,
+                visual_start: visual_base,
+                visual_rows: seg_total,
+                materialized: true,
+            });
+            self.virt_rows[i] = seg_total;
+            visual_base += seg_total;
+        }
+
+        let mut cache = self.cache.write();
+        cache.lines = deduped;
+        cache.message_offsets = offsets;
+        cache.total_lines = visual_base;
+        cache.wrap_map = wrap_map;
+        cache.links = global_links;
+        cache.width = self.width;
+        cache.segments = segments;
         cache.version += 1;
     }
 
@@ -843,7 +1217,18 @@ impl RenderTask {
                 changed = true;
                 // 同步更新缓存中该消息的所有行（按 dedup 规则映射，不能按下标直接平移：
                 // 与上一条消息相邻的重复空行在 cache.lines 中已被裁掉）
-                if let Some(cache_idx) = cache.message_offsets.get(idx).copied() {
+                // #629：Virtual 下未物化段不在发布行内，无从 patch（滚动回窗口时重渲染自愈）
+                let seg_materialized = cache
+                    .segments
+                    .get(idx)
+                    .map(|s| s.materialized)
+                    .unwrap_or(true);
+                if let Some(cache_idx) = cache
+                    .message_offsets
+                    .get(idx)
+                    .copied()
+                    .filter(|_| seg_materialized)
+                {
                     let mut prev_empty =
                         cache_idx > 0 && cache.lines.get(cache_idx - 1).is_some_and(is_blank_line);
                     let mut write = cache_idx;
@@ -881,9 +1266,16 @@ impl RenderTask {
     /// 原地改写 `plain_text`——必须重算该段并把其后所有分段的视觉行号整体平移。
     /// 返回该消息的 wrap 是否真的发生变化（完全未变时为 false）。
     fn sync_wrap_after_inline_patch(&mut self, cache: &mut RenderCache, idx: usize) -> bool {
+        // #629：未物化段没有发布行可同步（滚动回窗口时重渲染自愈）
+        if cache.segments.get(idx).is_some_and(|s| !s.materialized) {
+            return false;
+        }
         let Some(&start) = cache.message_offsets.get(idx) else {
             return false;
         };
+        if start == usize::MAX {
+            return false;
+        }
         // 该消息在 deduped 空间中的逻辑行数：到下一条消息 offset 为止（末条到末尾）。
         // 就地改写不增删行，因此 offsets 与 cache.lines 仍保持一致。
         let end = cache
@@ -955,6 +1347,17 @@ impl RenderTask {
             }
             cache.total_lines = cache.total_lines.saturating_add_signed(delta);
         }
+        // #629：段表同步——inline patch 不增删逻辑行，只有本段视觉行数与
+        // 其后各段的 visual_start 受 delta 影响，直接手术（两模式通用；
+        // Virtual 下 offsets 含 MAX 哨兵，不能走 build_segments 全量推导）。
+        if let Some(seg) = cache.segments.get_mut(idx) {
+            seg.visual_rows = total;
+        }
+        if delta != 0 {
+            for seg in cache.segments.iter_mut().skip(idx + 1) {
+                seg.visual_start = seg.visual_start.saturating_add_signed(delta);
+            }
+        }
         true
     }
 
@@ -989,21 +1392,66 @@ impl RenderTask {
                 anchor_message_idx,
             } => {
                 self.rebuild_safe(messages);
-                // 计算锚点消息在新布局中的视觉行起始位置
-                let anchor_visual_row =
-                    if anchor_message_idx < self.cache.read().message_offsets.len() {
-                        let cache = self.cache.read();
-                        let line_idx = cache.message_offsets[anchor_message_idx];
-                        if line_idx < cache.wrap_map.len() {
-                            Some(cache.wrap_map[line_idx].visual_row_start)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
+                // 计算锚点消息在新布局中的视觉行起始位置（段表口径，
+                // Virtual 稀疏发布下 offsets/wrap_map 不再覆盖估算段）
+                let anchor_visual_row = {
+                    let cache = self.cache.read();
+                    cache
+                        .segments
+                        .get(anchor_message_idx)
+                        .map(|s| s.visual_start)
+                };
                 if let Some(row) = anchor_visual_row {
                     self.cache.write().scroll_anchor = Some(row);
+                }
+            }
+            RenderEvent::MaterializeRange { start_msg, end_msg } => {
+                if self.strategy == RenderStrategy::Virtual && !self.last_messages.is_empty() {
+                    let end = end_msg.min(self.last_messages.len().saturating_sub(1));
+                    if start_msg <= end {
+                        // 单次最多 256 条（复制选区的现实上限），超出按头部截断
+                        let end = end.min(start_msg.saturating_add(256));
+                        self.extra_materialized = (start_msg..=end).collect();
+                        let messages = std::mem::take(&mut self.last_messages);
+                        self.rebuild_safe(messages);
+                    }
+                }
+            }
+            RenderEvent::SetStrategy(strategy) => {
+                if self.strategy != strategy {
+                    self.strategy = strategy;
+                    self.window = (0, 0);
+                    self.extra_materialized.clear();
+                    if !self.last_messages.is_empty() {
+                        let messages = std::mem::take(&mut self.last_messages);
+                        self.rebuild_safe(messages);
+                    }
+                }
+            }
+            RenderEvent::SetViewportAnchor {
+                msg_idx,
+                viewport_rows,
+            } => {
+                self.anchor_msg = msg_idx;
+                if viewport_rows > 0 {
+                    self.viewport_rows = viewport_rows;
+                }
+                // 仅 Virtual + detail 时窗口有意义；候选窗口与当前一致则不重建
+                if self.strategy == RenderStrategy::Virtual
+                    && self.detail_mode
+                    && !self.last_messages.is_empty()
+                {
+                    // 先 take 再算窗口（避免为算窗口深克隆整段历史）；
+                    // 窗口不变则原样放回，变了直接用这份重建。
+                    let messages = std::mem::take(&mut self.last_messages);
+                    let rows = self.known_rows(&messages);
+                    if self.compute_window(&rows) != self.window {
+                        // 窗口移动后复制物化集失效（下标语义随窗口重排）
+                        self.extra_materialized.clear();
+                        self.rebuild_safe(messages);
+                    } else {
+                        self.last_messages = messages;
+                    }
                 }
             }
             RenderEvent::Resize(new_width) => {
@@ -1015,6 +1463,10 @@ impl RenderTask {
                 }
                 // 清空 hash 缓存，强制全量重渲染
                 self.message_hashes.clear();
+                // #629：宽度变化使估算与实测行数全部过期
+                self.virt_rows.clear();
+                self.virt_est.clear();
+                self.extra_materialized.clear();
                 // #626：宽度变化使双变体与 wrap 分段缓存全部失效
                 self.alt_lines.clear();
                 self.alt_links.clear();
@@ -1038,6 +1490,7 @@ impl RenderTask {
                 self.wrap_segs = [Vec::new(), Vec::new()];
                 self.message_hashes.clear();
                 self.message_hashes.shrink_to_fit();
+                self.extra_materialized.clear();
                 self.last_messages.clear();
                 self.last_messages.shrink_to_fit();
                 let mut cache = self.cache.write();
@@ -1047,6 +1500,7 @@ impl RenderTask {
                 cache.message_offsets.shrink_to_fit();
                 cache.total_lines = 0;
                 cache.wrap_map = Vec::new();
+                cache.segments = Vec::new();
                 cache.version += 1;
             }
             RenderEvent::ToggleToolMessages(show) => {
@@ -1057,6 +1511,7 @@ impl RenderTask {
                 // 这里只更新标志位，实际渲染由后续 Rebuild 驱动
             }
             RenderEvent::ToggleDiff(show) => {
+                self.extra_materialized.clear();
                 self.diff_visible = show;
                 // #626：渲染键已包含 diff 标志，切换后按键复用/交换变体即可，
                 // 不再清空 message_hashes 强制全量重渲染。
@@ -1066,6 +1521,7 @@ impl RenderTask {
                 }
             }
             RenderEvent::ToggleDetail(show) => {
+                self.extra_materialized.clear();
                 self.detail_mode = show;
                 // #626：渲染键已包含 detail 标志，切换后按键复用/交换变体即可，
                 // 不再清空 message_hashes 强制全量重渲染。
@@ -1161,6 +1617,15 @@ pub fn spawn_render_thread(
         line_epochs: Vec::new(),
         epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
+        strategy: RenderStrategy::Cache,
+        anchor_msg: usize::MAX,
+        viewport_rows: 50,
+        virt_rows: Vec::new(),
+        virt_est: Vec::new(),
+        virt_est_width: 0,
+        window: (0, 0),
+        virt_budget_rows: DEFAULT_VIRT_BUDGET_ROWS,
+        extra_materialized: std::collections::BTreeSet::new(),
     };
 
     tokio::spawn(task.run(rx));

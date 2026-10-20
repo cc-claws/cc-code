@@ -43,6 +43,24 @@ impl Command for GcCommand {
                 rc.wrap_map.len(),
             )
         };
+        // ── #629 段表口径：物化/估算段分布与实测覆盖率 ──
+        let segment_stats = {
+            let rc = active.messages.render_cache.read();
+            let total_rows = rc.total_lines.max(1);
+            let mat_rows: usize = rc
+                .segments
+                .iter()
+                .filter(|s| s.materialized)
+                .map(|s| s.visual_rows)
+                .sum();
+            (
+                rc.segments.iter().filter(|s| s.materialized).count(),
+                mat_rows,
+                rc.segments.iter().filter(|s| !s.materialized).count(),
+                mat_rows * 100 / total_rows,
+                rc.segments.len(),
+            )
+        };
         let diff_stats = diff_cache_stats();
         let render_stats = render_cache_stats();
 
@@ -191,6 +209,23 @@ impl Command for GcCommand {
                 ("bytes".into(), fmt_bytes(render_cache_bytes).into()),
             ],
         ));
+        if segment_stats.4 > 0 {
+            let strategy = if active.ui.render_virtual {
+                "virtual"
+            } else {
+                "cache"
+            };
+            lines.push(lc.tr_args(
+                "cmd-gc-render-segments",
+                &[
+                    ("strategy".into(), strategy.into()),
+                    ("materialized".into(), segment_stats.0.to_string().into()),
+                    ("mat_rows".into(), segment_stats.1.to_string().into()),
+                    ("estimated".into(), segment_stats.2.to_string().into()),
+                    ("coverage".into(), segment_stats.3.to_string().into()),
+                ],
+            ));
+        }
         lines.push(lc.tr_args(
             "cmd-gc-diff-cache",
             &[
@@ -503,6 +538,7 @@ fn estimate_render_cache_heap(rc: &crate::ui::render_thread::RenderCache) -> usi
         }
     }
     total += rc.message_offsets.capacity() * std::mem::size_of::<usize>();
+    total += rc.segments.capacity() * std::mem::size_of::<crate::ui::render_thread::SegmentInfo>();
     total +=
         rc.wrap_map.capacity() * std::mem::size_of::<crate::ui::render_thread::WrappedLineInfo>();
     for w in &rc.wrap_map {

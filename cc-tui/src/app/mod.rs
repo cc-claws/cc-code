@@ -304,15 +304,21 @@ impl App {
             .as_ref()
             .and_then(|c| c.config.streaming_mode.clone());
         let detail_enabled = false;
+        let render_strategy = peri_config
+            .as_ref()
+            .and_then(|c| c.config.detail_render_strategy.clone());
 
         let initial_session = ChatSession::new(
             cwd.clone(),
             command_registry,
             skills,
             &lc,
-            detail_enabled,
-            diff_enabled,
-            streaming_mode,
+            chat_session::SessionRenderInit {
+                detail_enabled,
+                diff_enabled,
+                streaming_mode,
+                render_strategy,
+            },
         );
 
         let session_mgr = SessionManager::new(initial_session);
@@ -420,14 +426,22 @@ impl App {
             .peri_config
             .as_ref()
             .and_then(|c| c.config.streaming_mode.clone());
+        let render_strategy = self
+            .services
+            .peri_config
+            .as_ref()
+            .and_then(|c| c.config.detail_render_strategy.clone());
         let session = ChatSession::new(
             self.services.cwd.clone(),
             command_registry,
             skills,
             &self.services.lc,
-            detail_mode,
-            diff_visible,
-            streaming_mode,
+            chat_session::SessionRenderInit {
+                detail_enabled: detail_mode,
+                diff_enabled: diff_visible,
+                streaming_mode,
+                render_strategy,
+            },
         );
         self.session_mgr.replace(session);
     }

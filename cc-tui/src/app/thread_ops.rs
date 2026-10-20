@@ -58,6 +58,46 @@ impl App {
         let new_visible = !self.session_mgr.current_mut().ui.detail_mode;
         self.session_mgr.current_mut().ui.detail_mode = new_visible;
 
+        // #629：每次开关 detail 都按配置重新解析渲染策略——manual 档强制；
+        // auto 按当前历史的估算总行数判定（会话内单调，跨阈值后留在 Virtual）。
+        // 顺序：SetStrategy → 锚点 → ToggleDetail（FIFO 保证渲染线程
+        // 先建窗口再切换），避免切换后首帧窗口落在错误位置。
+        let setting = self
+            .services
+            .peri_config
+            .as_ref()
+            .and_then(|c| c.config.detail_render_strategy.clone());
+        let (want_virtual, strategy_event) = {
+            let session = self.session_mgr.current();
+            let width = session.messages.render_cache.read().width as usize;
+            let estimated = crate::ui::detail_estimate::estimate_total_detail_rows(
+                &session.messages.view_messages,
+                width,
+            );
+            let want_virtual = crate::ui::detail_estimate::resolve_detail_virtual(
+                setting.as_deref(),
+                estimated,
+                session.ui.render_virtual,
+            );
+            let strategy = if want_virtual {
+                crate::ui::render_thread::RenderStrategy::Virtual
+            } else {
+                crate::ui::render_thread::RenderStrategy::Cache
+            };
+            (want_virtual, RenderEvent::SetStrategy(strategy))
+        };
+        self.session_mgr.current_mut().ui.render_virtual = want_virtual;
+        let _ = self
+            .session_mgr
+            .current()
+            .messages
+            .render_tx
+            .try_send(strategy_event);
+        if want_virtual {
+            self.session_mgr.current_mut().ui.virtual_anchor_sent = None;
+            self.sync_virtual_anchor();
+        }
+
         // ToggleDetail 会清空 hash 缓存并触发全量重渲染
         let _ = self
             .session_mgr
@@ -65,6 +105,98 @@ impl App {
             .messages
             .render_tx
             .try_send(RenderEvent::ToggleDetail(new_visible));
+    }
+
+    /// #629 S5：复制前确保选区覆盖的段已物化（Virtual + detail 时）。
+    /// 发 MaterializeRange 后有界等待发布落地（≤250ms，超时按现状提取，
+    /// 不阻塞复制）。行坐标 = 全局视觉行（与段表同口径）。
+    pub async fn ensure_selection_materialized(&mut self, start_row: usize, end_row: usize) {
+        let ui = &self.session_mgr.current().ui;
+        if !ui.render_virtual || !ui.detail_mode {
+            return;
+        }
+        let (lo, hi) = (start_row.min(end_row), start_row.max(end_row));
+        let range = {
+            let cache = self.session_mgr.current().messages.render_cache.read();
+            match (
+                cache.segment_for_visual_row(lo),
+                cache.segment_for_visual_row(hi),
+            ) {
+                (Some(s), Some(e)) => (s, e),
+                _ => return,
+            }
+        };
+        let covered = |app: &Self| {
+            let cache = app.session_mgr.current().messages.render_cache.read();
+            (range.0..=range.1).all(|i| {
+                cache
+                    .segments
+                    .get(i)
+                    .map(|s| s.materialized)
+                    .unwrap_or(true)
+            })
+        };
+        if covered(self) {
+            return;
+        }
+        let _ =
+            self.session_mgr
+                .current()
+                .messages
+                .render_tx
+                .try_send(RenderEvent::MaterializeRange {
+                    start_msg: range.0,
+                    end_msg: range.1,
+                });
+        let notify = self.session_mgr.current().messages.render_notify.clone();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(250);
+        loop {
+            if covered(self) || tokio::time::Instant::now() >= deadline {
+                return;
+            }
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
+        }
+    }
+
+    /// #629：把当前滚动锚点同步给渲染线程（Virtual + detail 时才有意义）。
+    /// 锚点 = 滚动行所在的消息；跟随尾部（scroll_offset == MAX）时发尾锚点。
+    /// 去重：锚点与视口未变、且锚点段已物化时不重复发送。
+    pub fn sync_virtual_anchor(&mut self) {
+        let ui = &self.session_mgr.current().ui;
+        if !ui.render_virtual || !ui.detail_mode {
+            return;
+        }
+        let session = self.session_mgr.current();
+        let scroll = session.ui.scroll_offset;
+        let viewport_rows = session
+            .ui
+            .messages_area
+            .map(|a| a.height as usize)
+            .unwrap_or(50)
+            .max(1);
+        let (anchor, anchor_materialized) = {
+            let cache = session.messages.render_cache.read();
+            if scroll == usize::MAX || cache.segments.is_empty() {
+                (usize::MAX, true)
+            } else {
+                match cache.segment_for_visual_row(scroll) {
+                    Some(idx) => (idx, cache.segments[idx].materialized),
+                    None => (cache.segments.len().saturating_sub(1), true),
+                }
+            }
+        };
+        let key = (anchor, viewport_rows);
+        if session.ui.virtual_anchor_sent == Some(key) && anchor_materialized {
+            return;
+        }
+        self.session_mgr.current_mut().ui.virtual_anchor_sent = Some(key);
+        let _ = self.session_mgr.current().messages.render_tx.try_send(
+            RenderEvent::SetViewportAnchor {
+                msg_idx: anchor,
+                viewport_rows,
+            },
+        );
     }
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐

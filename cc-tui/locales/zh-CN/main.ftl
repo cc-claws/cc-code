@@ -247,6 +247,7 @@ config-field-persona = 人设
 config-field-tone = 语气
 config-field-proactiveness = 主动性
 config-field-diff = 内联 Diff
+config-field-render-strategy = 详细渲染策略
 config-field-recap = 会话回顾
 config-value-on = 开
 config-value-off = 关
@@ -264,6 +265,7 @@ config-desc-persona = 覆盖系统提示词 persona（留空=默认）
 config-desc-tone = 覆盖系统提示词 tone（留空=默认）
 config-desc-proactiveness = low / medium / high — agent 主动性级别
 config-desc-diff = （开/关 — 显示 Write/Edit 工具的内联 diff）
+config-desc-render-strategy = auto / cache / virtual — Ctrl+O 详细模式渲染：cache 全量保留渲染行；virtual 只物化视口窗口，适合超长会话
 config-field-streaming = 渲染模式
 config-desc-streaming = streaming / block / none — LLM 输出渲染粒度
 
@@ -524,6 +526,7 @@ cmd-gc-message-comparison = origin vs completed: { $overlap } ({ $origin }/{ $co
 cmd-gc-markdown-cache = markdown_cache: { $entries }/{ $capacity } 条, 数据堆估算 ~{ $bytes }（字节预算 { $budget }）
 cmd-gc-markdown-cache-details = { "  " }平均条目 ~{ $average } | 最大条目 ~{ $largest } | { $lines } 行 / { $spans } Span
 cmd-gc-render-cache = render_cache: { $lines } 行 + { $wraps } wrap 映射, 数据堆估算 ~{ $bytes }（整段对话渲染结果 + 逐行纯文本副本）
+cmd-gc-render-segments = render_segments（{ $strategy }）：物化 { $materialized } 段（{ $mat_rows } 行）、估算 { $estimated } 段，实测覆盖率 { $coverage }%
 cmd-gc-diff-cache = diff_cache:  { $entries }/{ $capacity } 条, ~{ $bytes }（字节预算 { $budget }）
 cmd-gc-diff-render-cache = diff_render_cache: { $entries }/{ $capacity } 条, ~{ $bytes }（字节预算 { $budget }）
 cmd-gc-allocator-heading = ── { $allocator } 明细 ──

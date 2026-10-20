@@ -864,6 +864,15 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         line_epochs: Vec::new(),
         epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
+        strategy: RenderStrategy::Cache,
+        anchor_msg: usize::MAX,
+        viewport_rows: 50,
+        virt_rows: Vec::new(),
+        virt_est: Vec::new(),
+        virt_est_width: 0,
+        window: (0, 0),
+        virt_budget_rows: DEFAULT_VIRT_BUDGET_ROWS,
+        extra_materialized: std::collections::BTreeSet::new(),
     };
 
     task.rebuild(vec![MessageViewModel::tool_block(
@@ -930,6 +939,15 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         line_epochs: Vec::new(),
         epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
+        strategy: RenderStrategy::Cache,
+        anchor_msg: usize::MAX,
+        viewport_rows: 50,
+        virt_rows: Vec::new(),
+        virt_est: Vec::new(),
+        virt_est_width: 0,
+        window: (0, 0),
+        virt_budget_rows: DEFAULT_VIRT_BUDGET_ROWS,
+        extra_materialized: std::collections::BTreeSet::new(),
     };
 
     task.rebuild(vec![MessageViewModel::tool_block(
@@ -1011,6 +1029,15 @@ fn detail_mode_long_cmd_running_task(
         line_epochs: Vec::new(),
         epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
+        strategy: RenderStrategy::Cache,
+        anchor_msg: usize::MAX,
+        viewport_rows: 50,
+        virt_rows: Vec::new(),
+        virt_est: Vec::new(),
+        virt_est_width: 0,
+        window: (0, 0),
+        virt_budget_rows: DEFAULT_VIRT_BUDGET_ROWS,
+        extra_materialized: std::collections::BTreeSet::new(),
     };
     // 超长命令：详细模式下 header 必然折成多行（≥2 行内容）
     let cmd = "(cd /d/code/peri/example-service && grep -rn \"registry/index|import p0|p0\" \
@@ -1383,6 +1410,15 @@ fn exec_task(detail_mode: bool) -> RenderTask {
         line_epochs: Vec::new(),
         epoch_seq: 0,
         wrap_segs: [Vec::new(), Vec::new()],
+        strategy: RenderStrategy::Cache,
+        anchor_msg: usize::MAX,
+        viewport_rows: 50,
+        virt_rows: Vec::new(),
+        virt_est: Vec::new(),
+        virt_est_width: 0,
+        window: (0, 0),
+        virt_budget_rows: DEFAULT_VIRT_BUDGET_ROWS,
+        extra_materialized: std::collections::BTreeSet::new(),
     }
 }
 
@@ -1823,5 +1859,548 @@ fn test_subagent_timer_refresh_handles_shrinking_elapsed_text() {
         assert_eq!(info.line_idx, i);
         assert_eq!(info.visual_row_start, expected_start, "视觉行号应连续");
         expected_start = info.visual_row_end;
+    }
+}
+
+// ===== #629 S1：段表与全量发布等价 =====
+
+fn assert_segments_equivalent(task: &RenderTask, n_msgs: usize, step: &str) {
+    let c = task.cache.read();
+    assert_eq!(c.segments.len(), n_msgs, "[{step}] 段数应等于消息数");
+    assert_eq!(c.segments.len(), c.message_offsets.len());
+    // 逻辑行分区：各段 [line_start, +line_len) 恰好平铺 [0, lines.len())
+    let mut expect_start = 0usize;
+    for (i, s) in c.segments.iter().enumerate() {
+        assert_eq!(s.msg_idx, i);
+        assert_eq!(s.line_start, expect_start, "[{step}] 段 {i} 逻辑起点不连续");
+        assert_eq!(
+            s.line_start, c.message_offsets[i],
+            "[{step}] 段 {i} 起点应与 offsets 一致"
+        );
+        expect_start += s.line_len;
+        assert!(s.materialized, "[{step}] S1 段应恒物化");
+    }
+    assert_eq!(
+        expect_start,
+        c.lines.len(),
+        "[{step}] 段逻辑行应平铺全部 lines"
+    );
+    // 视觉行：连续、求和 == total_lines、与 wrap_map 交叉验证
+    let mut v = 0usize;
+    for s in &c.segments {
+        assert_eq!(
+            s.visual_start, v,
+            "[{step}] 段 {} 视觉起点不连续",
+            s.msg_idx
+        );
+        if s.line_len > 0 {
+            assert_eq!(
+                c.wrap_map[s.line_start].visual_row_start, s.visual_start,
+                "[{step}] 段 {} 起点应与 wrap_map 一致",
+                s.msg_idx
+            );
+            let last = s.line_start + s.line_len - 1;
+            assert_eq!(
+                c.wrap_map[last].visual_row_end - s.visual_start,
+                s.visual_rows,
+                "[{step}] 段 {} 视觉行数应与 wrap_map 一致",
+                s.msg_idx
+            );
+        }
+        v += s.visual_rows;
+    }
+    assert_eq!(v, c.total_lines, "[{step}] 段视觉行求和应等于 total_lines");
+    // 二分定位：每段首/末视觉行都应定位回本段
+    for s in &c.segments {
+        if s.visual_rows > 0 {
+            assert_eq!(
+                c.segment_for_visual_row(s.visual_start),
+                Some(s.msg_idx),
+                "[{step}] 段 {} 首行定位",
+                s.msg_idx
+            );
+            assert_eq!(
+                c.segment_for_visual_row(s.visual_start + s.visual_rows - 1),
+                Some(s.msg_idx),
+                "[{step}] 段 {} 末行定位",
+                s.msg_idx
+            );
+        }
+    }
+    assert_eq!(
+        c.segment_for_visual_row(c.total_lines),
+        None,
+        "[{step}] 越界行应无段"
+    );
+}
+
+#[test]
+fn test_segment_table_matches_full_publish() {
+    let msgs = vec![
+        MessageViewModel::user("第一条消息".to_string()),
+        exec_assistant_with_reasoning(),
+        exec_tool("Bash", exec_big_output("done", 30)),
+        hidden_read_group(),
+        exec_tool("Read", "alpha\nbeta\ngamma".to_string()),
+    ];
+    let mut task = exec_task(false);
+    let (_tx, mut rx) = tokio::sync::mpsc::channel::<RenderEvent>(16);
+    task.rebuild_safe(msgs.clone());
+    assert_segments_equivalent(&task, msgs.len(), "collapsed");
+    // 折叠态下隐藏工具组应是零长度段
+    {
+        let c = task.cache.read();
+        assert_eq!(c.segments[3].line_len, 0, "隐藏工具组应为零长度段");
+        assert_eq!(c.segments[3].visual_rows, 0);
+    }
+    task.handle_event(RenderEvent::ToggleDetail(true), &mut rx);
+    assert_segments_equivalent(&task, msgs.len(), "detail");
+    task.handle_event(RenderEvent::ToggleDetail(false), &mut rx);
+    assert_segments_equivalent(&task, msgs.len(), "collapsed-again");
+}
+
+// ===== #629 S2：detail 估算器校准（估算 vs detail 实测段高） =====
+
+fn est_fixture_write_diff() -> MessageViewModel {
+    let old: String = (0..100)
+        .map(|i| format!("    let field_{i} = compute(input, {i});"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let new: String = (0..120)
+        .map(|i| format!("    let field_{i} = compute_v2(input, options, {i});"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut vm = exec_tool("Write", "Wrote 120 lines to src/demo.rs".to_string());
+    if let MessageViewModel::ToolBlock { diff_input, .. } = &mut vm {
+        *diff_input = Some(cc_widgets::DiffInput {
+            file_path: "src/demo.rs".to_string(),
+            old_content: old,
+            new_content: new,
+            is_new_file: false,
+            is_deleted_file: false,
+            is_binary: false,
+        });
+    }
+    vm.recompute_hash();
+    vm
+}
+
+fn est_fixture_assistant_text() -> MessageViewModel {
+    let mut md = String::from("## 分析结论\n\n先说结论：瓶颈在渲染线程。依据如下：\n\n");
+    for i in 0..12 {
+        md.push_str(&format!(
+            "- 第 {i} 项证据：采样显示该路径占总耗时约 {}%，需要进一步拆分验证。\n",
+            3 + i
+        ));
+    }
+    md.push_str("\n```rust\nfn main() {\n    let x = compute();\n    println!(\"{x}\");\n}\n```\n\n后续步骤见计划。\n");
+    let msg = BaseMessage::ai(MessageContent::blocks(vec![ContentBlock::text(md)]));
+    MessageViewModel::from_base_message_with_cwd(&msg, &[], None)
+}
+
+fn est_fixture_reasoning() -> MessageViewModel {
+    let mut r = String::new();
+    for i in 0..40 {
+        r.push_str(&format!(
+            "思考 {i}：先分析输入与约束，再比较两个候选方案的代价与风险，最后决定采用增量方式推进并验证。\n"
+        ));
+    }
+    let blocks = vec![ContentBlock::Reasoning {
+        text: r,
+        signature: None,
+        duration_ms: None,
+    }];
+    let msg = BaseMessage::ai(MessageContent::blocks(blocks));
+    MessageViewModel::from_base_message_with_cwd(&msg, &[], None)
+}
+
+#[test]
+fn test_detail_estimator_calibration() {
+    use crate::ui::detail_estimate::estimate_detail_visual_rows;
+    let long_line_user = {
+        let mut s = String::from("请分析下面这段日志：\n");
+        s.push_str(&"x".repeat(300));
+        s.push_str("\n以上。");
+        MessageViewModel::user(s)
+    };
+    let bash_long_lines = exec_tool(
+        "Bash",
+        (0..50)
+            .map(|i| format!("line {i}: {}", "y".repeat(230)))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    let shell = {
+        let mut vm = MessageViewModel::ShellCommand {
+            id: "sh-1".to_string(),
+            command: "cargo test --workspace".to_string(),
+            cwd: "/repo".to_string(),
+            stdin: Vec::new(),
+            stdout: (0..80)
+                .map(|i| format!("test case {i} ... ok"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            stderr: String::new(),
+            exit_code: Some(0),
+            collapsed: false,
+            content_hash: 0,
+            started_at: None,
+            moved_to_background: false,
+        };
+        vm.recompute_hash();
+        vm
+    };
+    let cases: Vec<(&str, MessageViewModel, f64, usize)> = vec![
+        (
+            "user-short",
+            MessageViewModel::user("帮我看看这个报错".to_string()),
+            0.15,
+            3,
+        ),
+        ("user-long-line", long_line_user, 0.15, 3),
+        ("assistant-text", est_fixture_assistant_text(), 0.35, 3),
+        ("assistant-reasoning", est_fixture_reasoning(), 0.35, 3),
+        (
+            "bash-400",
+            exec_tool("Bash", exec_big_output("run", 400)),
+            0.12,
+            3,
+        ),
+        ("bash-long-lines", bash_long_lines, 0.12, 3),
+        (
+            "read-120",
+            exec_tool("Read", exec_big_output("file", 120)),
+            0.35,
+            4,
+        ),
+        ("write-diff", est_fixture_write_diff(), 0.35, 3),
+        ("shell-80", shell, 0.12, 3),
+    ];
+    let msgs: Vec<MessageViewModel> = cases.iter().map(|(_, vm, _, _)| vm.clone()).collect();
+    let mut task = exec_task(true);
+    task.rebuild_safe(msgs);
+    let c = task.cache.read();
+    let mut total_est = 0usize;
+    let mut total_truth = 0usize;
+    for (i, (name, vm, tol, abs_tol)) in cases.iter().enumerate() {
+        let est = estimate_detail_visual_rows(vm, 120);
+        let truth = c.segments[i].visual_rows;
+        total_est += est;
+        total_truth += truth;
+        let err = (est as f64 - truth as f64).abs();
+        eprintln!("est[{name}]: est={est} truth={truth} err={err:.0}");
+        assert!(
+            err <= truth as f64 * tol + *abs_tol as f64,
+            "估算器[{name}] 偏差过大：est={est} truth={truth}"
+        );
+    }
+    eprintln!("est-total: est={total_est} truth={total_truth}");
+    assert!(
+        (total_est as f64 - total_truth as f64).abs() <= total_truth as f64 * 0.03,
+        "估算总量偏差超 3%：est={total_est} truth={total_truth}"
+    );
+}
+
+// ===== #629 S3：Virtual 窗口物化 =====
+
+fn virt_fixture(n: usize) -> Vec<MessageViewModel> {
+    (0..n)
+        .map(|i| exec_tool("Bash", exec_big_output(&format!("m{i}"), 60)))
+        .collect()
+}
+
+fn cache_texts(c: &RenderCache) -> Vec<String> {
+    c.lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect()
+}
+
+#[test]
+fn test_virtual_window_materializes_only_window() {
+    let msgs = virt_fixture(30);
+    // 真值：Cache 策略全量发布
+    let mut truth = exec_task(true);
+    truth.rebuild_safe(msgs.clone());
+    let truth_c = truth.cache.read();
+    let truth_texts = cache_texts(&truth_c);
+    let truth_total = truth_c.total_lines;
+    let truth_seg_starts: Vec<(usize, usize)> = truth_c
+        .segments
+        .iter()
+        .map(|s| (s.line_start, s.line_len))
+        .collect();
+    drop(truth_c);
+
+    let mut task = exec_task(true);
+    task.strategy = RenderStrategy::Virtual;
+    task.viewport_rows = 50;
+    task.rebuild_safe(msgs.clone());
+    let c = task.cache.read();
+    assert_eq!(c.segments.len(), 30, "段表应覆盖全部消息");
+    let mat: Vec<usize> = c
+        .segments
+        .iter()
+        .filter(|s| s.materialized)
+        .map(|s| s.msg_idx)
+        .collect();
+    assert!(
+        mat.len() <= 8,
+        "窗口应只物化锚点附近少量消息，实际物化 {} 条: {mat:?}",
+        mat.len()
+    );
+    assert!(mat.contains(&29), "默认锚点在尾部，尾消息必须物化");
+    assert!(
+        c.lines.len() < truth_texts.len() / 2,
+        "发布行数应显著小于全量：{} vs {}",
+        c.lines.len(),
+        truth_texts.len()
+    );
+    // 总高与真值接近（Bash 估算近乎精确）
+    let total = c.total_lines;
+    assert!(
+        (total as f64 - truth_total as f64).abs() <= truth_total as f64 * 0.03,
+        "虚拟总高偏离过大：{total} vs {truth_total}"
+    );
+    // 物化段内容与真值逐行一致
+    let virt_texts = cache_texts(&c);
+    for &i in &mat {
+        let seg = &c.segments[i];
+        let (ts, tl) = truth_seg_starts[i];
+        assert_eq!(seg.line_len, tl, "段 {i} 行数应与全量一致");
+        for k in 0..tl {
+            assert_eq!(
+                virt_texts[seg.line_start + k],
+                truth_texts[ts + k],
+                "段 {i} 第 {k} 行与全量不一致"
+            );
+        }
+        assert_eq!(
+            seg.visual_rows,
+            truth.cache.read().segments[i].visual_rows,
+            "段 {i} 视觉行应与全量实测一致"
+        );
+    }
+    // 估算段可被二分定位
+    let est_seg = c.segments.iter().find(|s| !s.materialized).unwrap();
+    assert_eq!(
+        c.segment_for_visual_row(est_seg.visual_start),
+        Some(est_seg.msg_idx)
+    );
+}
+
+#[test]
+fn test_virtual_anchor_moves_window() {
+    let msgs = virt_fixture(30);
+    let mut task = exec_task(true);
+    task.strategy = RenderStrategy::Virtual;
+    task.viewport_rows = 50;
+    let (_tx, mut rx) = tokio::sync::mpsc::channel::<RenderEvent>(16);
+    task.rebuild_safe(msgs.clone());
+    {
+        let c = task.cache.read();
+        assert!(c.segments[29].materialized);
+        assert!(!c.segments[0].materialized);
+    }
+    task.handle_event(
+        RenderEvent::SetViewportAnchor {
+            msg_idx: 0,
+            viewport_rows: 50,
+        },
+        &mut rx,
+    );
+    {
+        let c = task.cache.read();
+        assert!(c.segments[0].materialized, "锚点移到头部后首消息应物化");
+        assert!(!c.segments[29].materialized, "尾消息应被释放回估算段");
+        assert_eq!(c.segments.len(), 30);
+    }
+    // 相同锚点重复发送不产生新发布（窗口未变不重建）
+    let v = task.cache.read().version;
+    task.handle_event(
+        RenderEvent::SetViewportAnchor {
+            msg_idx: 0,
+            viewport_rows: 50,
+        },
+        &mut rx,
+    );
+    assert_eq!(task.cache.read().version, v, "窗口未变时不应重建");
+    // 锚点回尾部 + 新消息追加：窗口跟随，新尾物化
+    let mut msgs2 = msgs.clone();
+    msgs2.push(exec_tool("Bash", exec_big_output("tail", 60)));
+    task.handle_event(
+        RenderEvent::SetViewportAnchor {
+            msg_idx: usize::MAX,
+            viewport_rows: 50,
+        },
+        &mut rx,
+    );
+    task.rebuild_safe(msgs2);
+    let c = task.cache.read();
+    assert_eq!(c.segments.len(), 31);
+    assert!(c.segments[30].materialized, "新尾消息应物化");
+}
+
+// ===== #629 S4：物化预算硬顶 + 全程滚动水位 =====
+
+#[test]
+fn test_virtual_budget_caps_materialized_rows() {
+    let msgs = virt_fixture(30);
+    let mut task = exec_task(true);
+    task.strategy = RenderStrategy::Virtual;
+    task.viewport_rows = 50;
+    task.virt_budget_rows = 300;
+    task.rebuild_safe(msgs.clone());
+    let c = task.cache.read();
+    let mat_rows: usize = c
+        .segments
+        .iter()
+        .filter(|s| s.materialized)
+        .map(|s| s.visual_rows)
+        .sum();
+    // 预算 300 + 锚点消息本身（约 62 行）是允许的超额上限
+    assert!(mat_rows <= 300 + 70, "物化行数应被预算封顶：{mat_rows}");
+    assert!(c.segments[29].materialized, "锚点（尾）必须物化");
+}
+
+#[test]
+fn test_virtual_scroll_through_keeps_window_bounded() {
+    let msgs = virt_fixture(30);
+    let mut task = exec_task(true);
+    task.strategy = RenderStrategy::Virtual;
+    task.viewport_rows = 50;
+    task.virt_budget_rows = 400;
+    let (_tx, mut rx) = tokio::sync::mpsc::channel::<RenderEvent>(16);
+    task.rebuild_safe(msgs.clone());
+    // 模拟全程滚动：锚点从尾到头逐段移动，每站窗口有界且锚点段物化、
+    // 段表总高保持稳定（物化把估算换成实测，总高只许小幅收敛）
+    let total0 = task.cache.read().total_lines;
+    for anchor in (0..30).step_by(3) {
+        task.handle_event(
+            RenderEvent::SetViewportAnchor {
+                msg_idx: anchor,
+                viewport_rows: 50,
+            },
+            &mut rx,
+        );
+        let c = task.cache.read();
+        assert!(c.segments[anchor].materialized, "锚点 {anchor} 应物化");
+        let mat_rows: usize = c
+            .segments
+            .iter()
+            .filter(|s| s.materialized)
+            .map(|s| s.visual_rows)
+            .sum();
+        assert!(
+            mat_rows <= 400 + 70,
+            "滚动到 {anchor} 时物化行数失控：{mat_rows}"
+        );
+        let drift = (c.total_lines as f64 - total0 as f64).abs();
+        assert!(
+            drift <= total0 as f64 * 0.03,
+            "滚动到 {anchor} 时总高漂移过大：{} vs {total0}",
+            c.total_lines
+        );
+    }
+}
+
+// ===== #629 S5：按需物化（复制驱动） =====
+
+#[test]
+fn test_virtual_materialize_range_for_copy() {
+    let msgs = virt_fixture(30);
+    let mut truth = exec_task(true);
+    truth.rebuild_safe(msgs.clone());
+    let truth_texts = cache_texts(&truth.cache.read());
+
+    let mut task = exec_task(true);
+    task.strategy = RenderStrategy::Virtual;
+    task.viewport_rows = 50;
+    let (_tx, mut rx) = tokio::sync::mpsc::channel::<RenderEvent>(16);
+    task.rebuild_safe(msgs.clone());
+    {
+        let c = task.cache.read();
+        assert!(!c.segments[0].materialized && !c.segments[2].materialized);
+    }
+    task.handle_event(
+        RenderEvent::MaterializeRange {
+            start_msg: 0,
+            end_msg: 2,
+        },
+        &mut rx,
+    );
+    let c = task.cache.read();
+    for i in 0..=2 {
+        assert!(c.segments[i].materialized, "段 {i} 应已被按需物化");
+        let seg = &c.segments[i];
+        for k in 0..seg.line_len {
+            // 与全量发布同一行内容（按段起点对齐：真值段起点查表）
+            let t_start = truth.cache.read().segments[i].line_start;
+            assert_eq!(
+                cache_texts(&c)[seg.line_start + k],
+                truth_texts[t_start + k],
+                "段 {i} 第 {k} 行不一致"
+            );
+        }
+    }
+    // 两个物化簇之间必须保持估算（窗口是区间、复制集是独立集合，不许并区间）
+    assert!(!c.segments[15].materialized, "中间段不应被吞入物化集");
+    let mat_count = c.segments.iter().filter(|s| s.materialized).count();
+    assert!(mat_count <= 12, "物化段数异常膨胀：{mat_count}");
+}
+
+// ===== #629 S3 验收：Virtual 策略下执行中切换与全量渲染一致（窗口内） =====
+
+#[test]
+fn test_virtual_execution_toggle_matches_fresh_render() {
+    // 小历史：窗口覆盖全部消息，Virtual 发布应与 Cache 全量逐行一致，
+    // 包括执行中（流式尾 + 运行中工具 + 指示器刷新）反复切换 detail。
+    let mut msgs = vec![
+        MessageViewModel::from_base_message_with_cwd(
+            &BaseMessage::human("并行探索并跑长任务"),
+            &[],
+            None,
+        ),
+        exec_assistant_with_reasoning(),
+        exec_tool("Bash", exec_big_output("done", 30)),
+        exec_running_group(0),
+        exec_running_bash(),
+        exec_streaming_assistant(0),
+    ];
+    let mut task = exec_task(false);
+    task.strategy = RenderStrategy::Virtual;
+    task.viewport_rows = 50;
+    let (_tx, mut rx) = tokio::sync::mpsc::channel::<RenderEvent>(16);
+    task.rebuild_safe(msgs.clone());
+    assert_eq!(exec_check_consistency(&task, &msgs, "virt-initial"), 0);
+    let mut tick = 1u64;
+    for cycle in 0..4usize {
+        task.refresh_running_tool_indicators(tick);
+        tick += 1;
+        let target = !task.detail_mode;
+        task.handle_event(RenderEvent::ToggleDetail(target), &mut rx);
+        assert_eq!(
+            exec_check_consistency(&task, &msgs, "virt-toggle"),
+            0,
+            "cycle {cycle} Virtual 切换到 detail={target} 后与从零渲染不一致"
+        );
+        // detail 态下所有段都应物化（窗口覆盖小历史）
+        if target {
+            let c = task.cache.read();
+            assert!(
+                c.segments.iter().all(|s| s.materialized),
+                "小历史 Virtual detail 态应全物化"
+            );
+        }
+        task.refresh_running_tool_indicators(tick);
+        tick += 1;
+        msgs[5] = exec_streaming_assistant(cycle + 1);
+        msgs[3] = exec_running_group((cycle + 1).min(2));
+        task.rebuild_safe(msgs.clone());
+        assert_eq!(
+            exec_check_consistency(&task, &msgs, "virt-chunk"),
+            0,
+            "cycle {cycle} Virtual 执行推进后与从零渲染不一致"
+        );
     }
 }

@@ -189,15 +189,10 @@ impl App {
                 let anchor_message_idx = {
                     let cache = self.session_mgr.current().messages.render_cache.read();
                     let scroll_row = self.session_mgr.current().ui.scroll_offset;
+                    // #629：段表定位滚动行所属消息（Virtual 稀疏发布下
+                    // offsets/wrap_map 不再覆盖估算段；Cache 下与旧口径等价）
                     let msg_idx = cache
-                        .message_offsets
-                        .iter()
-                        .enumerate()
-                        .find(|(_, &offset)| {
-                            offset < cache.wrap_map.len()
-                                && cache.wrap_map[offset].visual_row_start >= scroll_row
-                        })
-                        .map(|(idx, _)| idx)
+                        .segment_for_visual_row(scroll_row)
                         .unwrap_or(prefix_len);
                     msg_idx.min(self.session_mgr.current().messages.view_messages.len())
                 };

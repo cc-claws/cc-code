@@ -174,6 +174,9 @@ pub struct AppConfig {
     /// Write/Edit 工具结果内联 diff 默认是否可见
     #[serde(default)]
     pub diff_enabled: bool,
+    /// detail（Ctrl+O）渲染策略：auto（默认，按估算总行数选）/ cache / virtual（#629）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail_render_strategy: Option<String>,
     /// 流式渲染模式：streaming / block / none
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub streaming_mode: Option<String>,
