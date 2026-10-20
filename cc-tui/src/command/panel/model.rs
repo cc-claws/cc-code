@@ -38,14 +38,12 @@ impl Command for ModelCommand {
                 cfg.config.active_alias = alias.clone();
                 if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref())
                 {
-                    app.session_mgr
-                        .current_mut()
-                        .messages
-                        .view_messages
-                        .push(MessageViewModel::system(app.services.lc.tr_args(
+                    app.session_mgr.current_mut().messages.view_messages.push(
+                        MessageViewModel::system(app.services.lc.tr_args(
                             "config-save-failed",
                             &[("error".into(), e.to_string().into())],
-                        )));
+                        )),
+                    );
                 }
                 if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
                     app.services.provider_name = p.display_name().to_string();

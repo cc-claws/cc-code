@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use parking_lot::RwLock;
 use cc_agent::interaction::channel_types::ChannelNotification;
+use parking_lot::RwLock;
 use tokio::sync::{mpsc, Notify};
 
 use crate::ui::{

@@ -1120,11 +1120,7 @@ fn test_refresh_running_bash_multiline_header_triggers_rebuild_at_threshold() {
         task.message_lines[0].len()
     );
     assert!(
-        !cache
-            .read()
-            .lines
-            .iter()
-            .any(is_shell_running_status_line),
+        !cache.read().lines.iter().any(is_shell_running_status_line),
         "前置条件：阈值前不应有状态行"
     );
 
@@ -1132,16 +1128,11 @@ fn test_refresh_running_bash_multiline_header_triggers_rebuild_at_threshold() {
 
     assert!(changed, "跨阈值且缺状态行时应触发重建");
     assert!(
-        cache
-            .read()
-            .lines
-            .iter()
-            .any(is_shell_running_status_line),
+        cache.read().lines.iter().any(is_shell_running_status_line),
         "跨阈值后必须补上状态行（旧固定行数判定会漏掉）: {:?}",
         cache_line_texts(&cache.read())
     );
 }
-
 
 fn write_tool_block_vm() -> MessageViewModel {
     MessageViewModel::ToolBlock {

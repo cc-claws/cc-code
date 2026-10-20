@@ -85,7 +85,9 @@ pub fn truncate_entrypoint_content(raw: &str) -> EntrypointTruncation {
 }
 
 /// 读取并截断入口索引文件。若文件不存在、不可读或为空则返回 None
-pub fn read_and_truncate_entrypoint(entrypoint_path: &std::path::Path) -> Option<EntrypointTruncation> {
+pub fn read_and_truncate_entrypoint(
+    entrypoint_path: &std::path::Path,
+) -> Option<EntrypointTruncation> {
     if !entrypoint_path.exists() {
         return None;
     }

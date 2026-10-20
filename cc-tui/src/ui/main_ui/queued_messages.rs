@@ -1,9 +1,4 @@
-use ratatui::{
-    layout::Rect,
-    style::Style,
-    widgets::Paragraph,
-    Frame,
-};
+use ratatui::{layout::Rect, style::Style, widgets::Paragraph, Frame};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
@@ -65,9 +60,15 @@ pub(super) fn render(f: &mut Frame, app: &mut App, area: Rect) {
     session.ui.queued_messages_offset = offset;
     let visible_count = page_size.min(messages.len() - offset);
     let actions = &mut session.ui.queued_message_actions;
-    let pending_style = Style::default().fg(theme::cur().inactive).bg(theme::cur().user_message_background);
-    let active_style = Style::default().fg(theme::cur().claude).bg(theme::cur().user_message_background);
-    let tip_style = Style::default().fg(theme::cur().text_soft).bg(theme::cur().user_message_background);
+    let pending_style = Style::default()
+        .fg(theme::cur().inactive)
+        .bg(theme::cur().user_message_background);
+    let active_style = Style::default()
+        .fg(theme::cur().claude)
+        .bg(theme::cur().user_message_background);
+    let tip_style = Style::default()
+        .fg(theme::cur().text_soft)
+        .bg(theme::cur().user_message_background);
     // 键盘提示只挂在最后一条可见消息行上；窄屏空间不足时整条省略。
     let tip = keys_tip(lc);
     let tip_width = UnicodeWidthStr::width(tip.as_str()) as u16;

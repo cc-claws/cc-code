@@ -214,7 +214,8 @@ mod tests {
             "commit message 语言应跟随仓库惯例"
         );
         assert!(
-            content.contains("Co-Authored-By: cc-claws <91202691+cc-claws@users.noreply.github.com>"),
+            content
+                .contains("Co-Authored-By: cc-claws <91202691+cc-claws@users.noreply.github.com>"),
             "应包含固定的归属小尾巴"
         );
         assert!(!content.contains("mimo"), "不应再出现写死的模型名");

@@ -73,7 +73,11 @@ pub(crate) fn render_discover_detail(
         // Status
         lines.push(Line::from(""));
         let (status_icon, status_style, status_text) = if plugin.installed {
-            ("\u{2714}", Style::default().fg(theme::cur().success), "Installed")
+            (
+                "\u{2714}",
+                Style::default().fg(theme::cur().success),
+                "Installed",
+            )
         } else {
             (
                 "\u{25CB}",
@@ -82,7 +86,10 @@ pub(crate) fn render_discover_detail(
             )
         };
         lines.push(Line::from(vec![
-            Span::styled("  Status: ".to_string(), Style::default().fg(theme::cur().inactive)),
+            Span::styled(
+                "  Status: ".to_string(),
+                Style::default().fg(theme::cur().inactive),
+            ),
             Span::styled(format!("{} {}", status_icon, status_text), status_style),
         ]));
 

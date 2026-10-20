@@ -125,8 +125,7 @@ impl OAuthFlowManager {
         let (mut callback_server, redirect_uri) = OAuthCallbackServer::bind().await?;
 
         // 4. 启动授权（DCR + PKCE + metadata 发现）
-        let mut req = AuthorizationRequest::new(redirect_uri)
-            .with_client_name("peri-mcp-client");
+        let mut req = AuthorizationRequest::new(redirect_uri).with_client_name("peri-mcp-client");
         if let Some(ref scopes) = oauth_config.scopes {
             req = req.with_scopes(scopes.clone());
         }

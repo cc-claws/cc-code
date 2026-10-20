@@ -187,9 +187,12 @@ fn diff_result_bytes(result: &DiffResult) -> usize {
 fn diff_line_heap_bytes(line: &DiffLine) -> usize {
     match line {
         DiffLine::Context { text, .. } | DiffLine::HunkHeader { text } => text.capacity(),
-        DiffLine::Add { text, word_diff, .. } | DiffLine::Remove { text, word_diff, .. } => {
-            text.capacity() + word_diff.as_ref().map_or(0, diff_word_diff_bytes)
+        DiffLine::Add {
+            text, word_diff, ..
         }
+        | DiffLine::Remove {
+            text, word_diff, ..
+        } => text.capacity() + word_diff.as_ref().map_or(0, diff_word_diff_bytes),
     }
 }
 

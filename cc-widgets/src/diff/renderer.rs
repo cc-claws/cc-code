@@ -35,12 +35,15 @@ static RENDER_CACHE: Lazy<Mutex<ByteBudgetCache<RenderCacheKey, Vec<Line<'static
 
 /// 渲染缓存统计快照（供 `/gc` 诊断）：条数 / 容量 / 估算字节 / 预算。
 pub fn render_cache_stats() -> CacheStats {
-    RENDER_CACHE.lock().map(|c| c.stats()).unwrap_or(CacheStats {
-        entries: 0,
-        capacity: RENDER_CACHE_CAPACITY,
-        bytes: 0,
-        budget: RENDER_CACHE_BUDGET_BYTES,
-    })
+    RENDER_CACHE
+        .lock()
+        .map(|c| c.stats())
+        .unwrap_or(CacheStats {
+            entries: 0,
+            capacity: RENDER_CACHE_CAPACITY,
+            bytes: 0,
+            budget: RENDER_CACHE_BUDGET_BYTES,
+        })
 }
 
 /// 渲染缓存 key
@@ -563,7 +566,11 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
         }
         if num_removals > 0 {
             let unit = if num_removals > 1 { "lines" } else { "line" };
-            let lead = if num_additions == 0 { "Removed " } else { "removed " };
+            let lead = if num_additions == 0 {
+                "Removed "
+            } else {
+                "removed "
+            };
             parts.push(Span::styled(lead, plain));
             parts.push(Span::styled(format!("{num_removals}"), bold));
             parts.push(Span::styled(format!(" {unit}"), plain));

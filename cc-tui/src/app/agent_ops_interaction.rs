@@ -69,11 +69,20 @@ impl App {
         use agent_client_protocol::schema::RequestPermissionRequest;
         use tokio::sync::oneshot;
 
-        let source_agent_id = params.get("_peri").and_then(|meta| meta.get("sourceAgentId"))
-            .and_then(|value| value.as_str()).map(str::to_string);
+        let source_agent_id = params
+            .get("_peri")
+            .and_then(|meta| meta.get("sourceAgentId"))
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
         let stopped = if let Some(source) = &source_agent_id {
-            self.session_mgr.current().subagent_sessions.get(source).is_none_or(|sub| !sub.status.is_active())
-        } else { self.acp_interaction_is_stopped() };
+            self.session_mgr
+                .current()
+                .subagent_sessions
+                .get(source)
+                .is_none_or(|sub| !sub.status.is_active())
+        } else {
+            self.acp_interaction_is_stopped()
+        };
         if stopped {
             self.respond_to_stopped_interaction(
                 id,
@@ -93,13 +102,27 @@ impl App {
                 "subagent-approval-pending",
                 &[("tool".into(), tool_title.into())],
             );
-            if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(source) {
+            if let Some(sub) = self
+                .session_mgr
+                .current_mut()
+                .subagent_sessions
+                .get_mut(source)
+            {
                 sub.status = super::subagent_session::SubagentRunStatus::AwaitingApproval;
                 sub.current_activity = activity;
             }
         }
-        if self.session_mgr.current().agent.interaction_prompt.is_some() {
-            self.session_mgr.current_mut().pending_thread_approvals.push_back((id, params));
+        if self
+            .session_mgr
+            .current()
+            .agent
+            .interaction_prompt
+            .is_some()
+        {
+            self.session_mgr
+                .current_mut()
+                .pending_thread_approvals
+                .push_back((id, params));
             return (true, false, false);
         }
 
@@ -152,11 +175,20 @@ impl App {
         use cc_middlewares::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
         use tokio::sync::oneshot;
 
-        let source_agent_id = params.get("_peri").and_then(|meta| meta.get("sourceAgentId"))
-            .and_then(|value| value.as_str()).map(str::to_string);
+        let source_agent_id = params
+            .get("_peri")
+            .and_then(|meta| meta.get("sourceAgentId"))
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
         let stopped = if let Some(source) = &source_agent_id {
-            self.session_mgr.current().subagent_sessions.get(source).is_none_or(|sub| !sub.status.is_active())
-        } else { self.acp_interaction_is_stopped() };
+            self.session_mgr
+                .current()
+                .subagent_sessions
+                .get(source)
+                .is_none_or(|sub| !sub.status.is_active())
+        } else {
+            self.acp_interaction_is_stopped()
+        };
         if stopped {
             self.respond_to_stopped_interaction(
                 id,
@@ -165,13 +197,27 @@ impl App {
             return (false, false, false);
         }
 
-        if let Some(sub) = source_agent_id.as_ref().and_then(|source| self.session_mgr.current_mut().subagent_sessions.get_mut(source)) {
+        if let Some(sub) = source_agent_id.as_ref().and_then(|source| {
+            self.session_mgr
+                .current_mut()
+                .subagent_sessions
+                .get_mut(source)
+        }) {
             sub.status = super::subagent_session::SubagentRunStatus::AwaitingApproval;
             let activity = self.services.lc.tr("subagent-awaiting-answer");
             sub.current_activity = activity;
         }
-        if self.session_mgr.current().agent.interaction_prompt.is_some() {
-            self.session_mgr.current_mut().pending_thread_approvals.push_back((id, params));
+        if self
+            .session_mgr
+            .current()
+            .agent
+            .interaction_prompt
+            .is_some()
+        {
+            self.session_mgr
+                .current_mut()
+                .pending_thread_approvals
+                .push_back((id, params));
             return (true, false, false);
         }
 

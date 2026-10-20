@@ -46,14 +46,7 @@ pub fn localized_command(mut command: Command, lc: &LcRegistry) -> Command {
             });
         }
     }
-    for name in [
-        "acp",
-        "update",
-        "plugin",
-        "list",
-        "install",
-        "uninstall",
-    ] {
+    for name in ["acp", "update", "plugin", "list", "install", "uninstall"] {
         if command.get_subcommands().any(|sub| sub.get_name() == name) {
             command = command.mut_subcommand(name, |sub| localized_command(sub, lc));
         }

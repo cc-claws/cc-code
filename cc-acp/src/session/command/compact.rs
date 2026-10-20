@@ -5,14 +5,11 @@
 
 use std::sync::Arc;
 
-use cc_agent::{
-    agent::{
-        compact::{
-            build_compacted_messages, extract_file_info, extract_skill_names, full_compact,
-            re_inject,
-        },
-        events::AgentEvent as ExecutorEvent,
+use cc_agent::agent::{
+    compact::{
+        build_compacted_messages, extract_file_info, extract_skill_names, full_compact, re_inject,
     },
+    events::AgentEvent as ExecutorEvent,
 };
 use tracing::{info, warn};
 

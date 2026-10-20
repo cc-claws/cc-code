@@ -107,7 +107,10 @@ pub fn shimmer_verb_spans(
     }
     let idx = glimmer_index(elapsed_ms, total_width);
     if idx + 1 < 0 || idx > total_width as i64 {
-        return vec![Span::styled(verb.to_string(), Style::default().fg(base_color))];
+        return vec![Span::styled(
+            verb.to_string(),
+            Style::default().fg(base_color),
+        )];
     }
 
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -125,7 +128,10 @@ pub fn shimmer_verb_spans(
             Some(last) if last.style.fg == Some(color) => {
                 last.content.to_mut().push_str(grapheme);
             }
-            _ => spans.push(Span::styled(grapheme.to_string(), Style::default().fg(color))),
+            _ => spans.push(Span::styled(
+                grapheme.to_string(),
+                Style::default().fg(color),
+            )),
         }
     }
     spans

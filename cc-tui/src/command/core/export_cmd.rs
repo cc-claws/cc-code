@@ -37,10 +37,10 @@ impl Command for ExportCommand {
         let cwd = match std::env::current_dir() {
             Ok(p) => p,
             Err(e) => {
-                let note = app
-                    .services
-                    .lc
-                    .tr_args("export-cwd-error", &[("error".into(), e.to_string().into())]);
+                let note = app.services.lc.tr_args(
+                    "export-cwd-error",
+                    &[("error".into(), e.to_string().into())],
+                );
                 push_note(app, note);
                 return;
             }

@@ -27,16 +27,13 @@ pub(super) fn init() {
         &["MIMALLOC_SHOW_ERRORS"],
         0,
     );
-    set_option(
-        libmimalloc_sys::mi_option_verbose,
-        &["MIMALLOC_VERBOSE"],
-        0,
-    );
+    set_option(libmimalloc_sys::mi_option_verbose, &["MIMALLOC_VERBOSE"], 0);
 
     // 双重保险：若未显式启用 show_errors/verbose，注册空回调拦截所有潜在向 stderr 打印的旁路调用
     let show_errors =
         unsafe { libmimalloc_sys::mi_option_get(libmimalloc_sys::mi_option_show_errors) } != 0;
-    let verbose = unsafe { libmimalloc_sys::mi_option_get(libmimalloc_sys::mi_option_verbose) } != 0;
+    let verbose =
+        unsafe { libmimalloc_sys::mi_option_get(libmimalloc_sys::mi_option_verbose) } != 0;
     if !show_errors && !verbose {
         unsafe {
             libmimalloc_sys::mi_register_output(Some(noop_output_callback), std::ptr::null_mut());
@@ -114,4 +111,3 @@ pub fn collect_on_thread_park() {
 #[cfg(test)]
 #[path = "windows_tuning_test.rs"]
 mod tests;
-

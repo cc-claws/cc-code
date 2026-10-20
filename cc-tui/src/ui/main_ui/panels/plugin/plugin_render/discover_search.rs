@@ -29,7 +29,10 @@ pub(crate) fn render_discover_search_box(f: &mut Frame, panel: &PluginPanel, are
     let content_line = if query_val.is_empty() && !panel.discover_searching {
         Line::from(vec![
             Span::styled(" \u{2315} ", Style::default().fg(theme::cur().inactive)),
-            Span::styled("Search plugins\u{2026}", Style::default().fg(theme::cur().subtle)),
+            Span::styled(
+                "Search plugins\u{2026}",
+                Style::default().fg(theme::cur().subtle),
+            ),
         ])
     } else {
         let mut spans = vec![
@@ -40,7 +43,10 @@ pub(crate) fn render_discover_search_box(f: &mut Frame, panel: &PluginPanel, are
             ),
         ];
         if panel.discover_searching {
-            spans.push(Span::styled("\u{2588}", Style::default().fg(theme::cur().text)));
+            spans.push(Span::styled(
+                "\u{2588}",
+                Style::default().fg(theme::cur().text),
+            ));
         }
         Line::from(spans)
     };

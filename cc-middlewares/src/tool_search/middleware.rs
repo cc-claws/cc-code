@@ -3,11 +3,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use parking_lot::RwLock;
 use cc_agent::{
     agent::state::State, error::AgentResult, messages::BaseMessage,
     middleware::r#trait::Middleware, tools::BaseTool,
 };
+use parking_lot::RwLock;
 
 use super::{
     execute_tool::ExecuteExtraTool, search_tool::SearchExtraTools, tool_index::ToolSearchIndex,

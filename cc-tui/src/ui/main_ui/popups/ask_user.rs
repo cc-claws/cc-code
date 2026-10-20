@@ -70,7 +70,10 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let sep = "─".repeat(inner.width as usize);
     f.render_widget(
-        Paragraph::new(Span::styled(sep, Style::default().fg(theme::cur().inactive))),
+        Paragraph::new(Span::styled(
+            sep,
+            Style::default().fg(theme::cur().inactive),
+        )),
         sep_area,
     );
 

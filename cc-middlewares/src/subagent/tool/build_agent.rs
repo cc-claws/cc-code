@@ -6,7 +6,8 @@ use cc_agent::{
 };
 
 use crate::{
-    claude_agent_parser::{ClaudeAgent, ToolsValue}, subagent::SubAgentMiddlewareConfig,
+    claude_agent_parser::{ClaudeAgent, ToolsValue},
+    subagent::SubAgentMiddlewareConfig,
 };
 
 use super::build_subagent_middlewares;
@@ -111,11 +112,22 @@ impl super::SubAgentTool {
                 if options.fork {
                     SubAgentMiddlewareConfig::for_fork(cwd)
                 } else {
-                    SubAgentMiddlewareConfig::for_agent_def(agent_def.frontmatter.skills.clone(), cwd)
+                    SubAgentMiddlewareConfig::for_agent_def(
+                        agent_def.frontmatter.skills.clone(),
+                        cwd,
+                    )
                 }
                 .with_inherited_instructions(self.inherited_instructions.clone()),
-                if options.fork { &ToolsValue::Empty } else { &agent_def.frontmatter.tools },
-                if options.fork { &ToolsValue::Empty } else { &agent_def.frontmatter.disallowed_tools },
+                if options.fork {
+                    &ToolsValue::Empty
+                } else {
+                    &agent_def.frontmatter.tools
+                },
+                if options.fork {
+                    &ToolsValue::Empty
+                } else {
+                    &agent_def.frontmatter.disallowed_tools
+                },
             ),
         ) {
             agent_builder = agent_builder.add_middleware(mw);

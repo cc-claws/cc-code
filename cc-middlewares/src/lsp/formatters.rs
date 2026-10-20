@@ -1,5 +1,5 @@
-use lsp_types::{Location, LocationLink, SymbolKind};
 use cc_lsp::protocol::lsp_types;
+use lsp_types::{Location, LocationLink, SymbolKind};
 
 /// 将 LSP Location 转为 `path:line:col` 格式（1-based）
 fn format_location(loc: &Location) -> String {

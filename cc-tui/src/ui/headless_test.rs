@@ -1978,8 +1978,8 @@ async fn test_model_panel_space_selects_model() {
 #[tokio::test]
 async fn test_cron_panel_delete_confirmation() {
     use crate::app::CronPanel;
-    use chrono::Utc;
     use cc_middlewares::cron::CronTask;
+    use chrono::Utc;
 
     let (mut app, _handle) = App::new_headless(120, 30).await;
 
@@ -2040,8 +2040,8 @@ async fn test_cron_panel_delete_confirmation() {
 #[tokio::test]
 async fn test_cron_panel_confirm_delete_renders() {
     use crate::app::CronPanel;
-    use chrono::Utc;
     use cc_middlewares::cron::CronTask;
+    use chrono::Utc;
 
     let (mut app, mut handle) = App::new_headless(120, 30).await;
     let task = CronTask {
@@ -2589,7 +2589,6 @@ fn bg_diag_count_subagent_groups(app: &App) -> usize {
         .count()
 }
 
-
 /// 后台 SubAgent 生命周期：SubAgentStart 进入抽屉会话，BackgroundTaskCompleted 完成清理。
 ///
 /// 新抽屉式架构下，后台 Agent 不再在主时间线创建 SubAgentGroup（由底栏抽屉承载），
@@ -2609,7 +2608,10 @@ async fn test_background_subagent_lifecycle_and_cleanup() {
     app.process_pending_events();
 
     assert!(
-        app.session_mgr.current().subagent_sessions.contains_key("test-inst"),
+        app.session_mgr
+            .current()
+            .subagent_sessions
+            .contains_key("test-inst"),
         "后台 SubAgentStart 应创建抽屉会话"
     );
     assert_eq!(
@@ -2637,11 +2639,15 @@ async fn test_background_subagent_lifecycle_and_cleanup() {
     // 抽屉行被摘掉后，该子会话再无入口（Enter 只能从抽屉行进入）→ 必须同帧回收，
     // 否则 subagent_sessions 会留下永久不可达的条目（无界增长）。
     assert!(
-        !app.session_mgr.current().subagent_sessions.contains_key("test-inst"),
+        !app.session_mgr
+            .current()
+            .subagent_sessions
+            .contains_key("test-inst"),
         "非聚焦完成后应回收不可达的子会话，避免无界增长"
     );
     assert_eq!(
-        app.session_mgr.current().ui.bg_bar_cursor, None,
+        app.session_mgr.current().ui.bg_bar_cursor,
+        None,
         "抽屉空后不得残留导航游标"
     );
 }
@@ -2738,8 +2744,14 @@ async fn test_bg_group_absent_from_live_rebuild_tail_when_pool_drained() {
     use crate::app::message_pipeline::PipelineAction;
 
     let (mut app, _handle) = App::new_headless(120, 30).await;
-    app.session_mgr.current_mut().messages.pipeline.begin_round();
-    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user("go".into())));
+    app.session_mgr
+        .current_mut()
+        .messages
+        .pipeline
+        .begin_round();
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::user(
+        "go".into(),
+    )));
     app.session_mgr.current_mut().messages.round_start_vm_idx =
         app.session_mgr.current_mut().messages.view_messages.len();
 
@@ -2755,7 +2767,11 @@ async fn test_bg_group_absent_from_live_rebuild_tail_when_pool_drained() {
 
     // 本轮快照把该 Agent 调用写进 completed
     let msgs = bg_agent_messages();
-    app.session_mgr.current_mut().messages.pipeline.set_completed(msgs);
+    app.session_mgr
+        .current_mut()
+        .messages
+        .pipeline
+        .set_completed(msgs);
 
     // 完成 → 抽屉行 + 子会话同帧回收，运行池归空
     app.push_agent_event(AgentEvent::BackgroundTaskCompleted {
@@ -2790,7 +2806,11 @@ async fn test_bg_group_absent_from_live_rebuild_tail_when_pool_drained() {
 async fn test_rewind_keeps_archived_bg_cards() {
     let (mut app, _handle) = App::new_headless(120, 30).await;
     app.session_mgr.current_mut().messages.view_messages.clear();
-    app.session_mgr.current_mut().messages.ephemeral_notes.clear();
+    app.session_mgr
+        .current_mut()
+        .messages
+        .ephemeral_notes
+        .clear();
 
     app.handle_rewind_completed("rewind to here".into(), bg_agent_messages());
 
@@ -2830,8 +2850,7 @@ async fn test_bg_completion_reclaims_session_whose_row_was_already_dropped() {
     app.process_pending_events();
 
     assert!(
-        !app
-            .session_mgr
+        !app.session_mgr
             .current()
             .subagent_sessions
             .contains_key("inst-orphan"),
@@ -3341,7 +3360,10 @@ async fn test_background_agents_lifecycle() {
         "离开视口后抽屉行应被回收"
     );
     assert!(
-        !app.session_mgr.current().subagent_sessions.contains_key("inst-002"),
+        !app.session_mgr
+            .current()
+            .subagent_sessions
+            .contains_key("inst-002"),
         "离开视口后会话句柄应被回收"
     );
     assert_eq!(

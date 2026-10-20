@@ -46,8 +46,7 @@ pub(crate) mod test_lock {
     use std::time::Duration;
 
     /// process-heavy 用例串行锁。
-    pub(crate) static PROCESS_TEST_LOCK: tokio::sync::Mutex<()> =
-        tokio::sync::Mutex::const_new(());
+    pub(crate) static PROCESS_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     /// process-heavy 用例的等待预算：CI windows runner 在并发下，子进程启动与
     /// 输出到达可能比本机慢一个数量级，原先 5s/10s 的窗口不足以覆盖最坏情况。

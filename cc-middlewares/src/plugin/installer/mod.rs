@@ -191,7 +191,9 @@ pub(crate) fn update_enabled_plugins(
         );
         value = serde_json::Value::Object(serde_json::Map::new());
     }
-    let obj = value.as_object_mut().expect("value is object after #317 guard");
+    let obj = value
+        .as_object_mut()
+        .expect("value is object after #317 guard");
     let enabled = obj
         .entry("enabledPlugins")
         .or_insert(serde_json::Value::Object(serde_json::Map::new()));
@@ -290,8 +292,8 @@ pub(crate) fn sanitize_plugin_id(plugin_id: &str) -> String {
 /// 空 marketplace（update 时无 @ 后缀）join 后是 no-op，同样放行。
 pub(crate) fn validate_path_segment(value: &str) -> Result<(), InstallerError> {
     let mut comps = std::path::Path::new(value).components();
-    let single_normal = matches!(comps.next(), Some(std::path::Component::Normal(_)))
-        && comps.next().is_none();
+    let single_normal =
+        matches!(comps.next(), Some(std::path::Component::Normal(_))) && comps.next().is_none();
     if value.contains(['/', '\\']) || !(value.is_empty() || single_normal) {
         return Err(InstallerError::InvalidId(value.to_string()));
     }

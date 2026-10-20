@@ -92,8 +92,18 @@ impl App {
     /// ACP sends one `RequestPermission` per approval item sequentially,
     /// so there's exactly one pending request id and one decision.
     fn send_acp_hitl_response(&mut self, choices: &[ApprovalChoice]) {
-        if let Some(id) = self.session_mgr.current_mut().approval_source_agent_id.take() {
-            if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&id) {
+        if let Some(id) = self
+            .session_mgr
+            .current_mut()
+            .approval_source_agent_id
+            .take()
+        {
+            if let Some(sub) = self
+                .session_mgr
+                .current_mut()
+                .subagent_sessions
+                .get_mut(&id)
+            {
                 if sub.status == super::subagent_session::SubagentRunStatus::AwaitingApproval {
                     sub.status = super::subagent_session::SubagentRunStatus::Running;
                     sub.current_activity.clear();

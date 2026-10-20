@@ -198,7 +198,10 @@ fn test_all_features_enabled_includes_all() {
     assert!(result.contains("Scheduled Tasks"), "应包含 Cron 段落");
     assert!(result.contains("# Skills"), "应包含 Skills 段落标题");
     assert!(result.contains("Channel Messages"), "应包含 Channel 段落");
-    assert!(result.contains("# auto memory"), "应包含 # auto memory 记忆段落");
+    assert!(
+        result.contains("# auto memory"),
+        "应包含 # auto memory 记忆段落"
+    );
 }
 
 #[test]

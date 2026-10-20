@@ -185,7 +185,11 @@ fn render_form_browse(
         let is_cursor = idx == wizard.browse_cursor;
         let cursor = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
         let check_char = if mp.selected { "✓" } else { " " };
-        let check_color = if mp.selected { theme::cur().success } else { theme::cur().subtle };
+        let check_color = if mp.selected {
+            theme::cur().success
+        } else {
+            theme::cur().subtle
+        };
         let name_style = if is_cursor {
             Style::default()
                 .fg(theme::cur().thinking)
@@ -206,7 +210,10 @@ fn render_form_browse(
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("{} ", cursor), Style::default().fg(theme::cur().thinking)),
+            Span::styled(
+                format!("{} ", cursor),
+                Style::default().fg(theme::cur().thinking),
+            ),
             Span::styled(
                 format!("[{}] ", check_char),
                 Style::default().fg(check_color),
@@ -253,7 +260,11 @@ fn render_form_browse(
     } else {
         Style::default().fg(theme::cur().inactive)
     };
-    let submit_cursor = if submit_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+    let submit_cursor = if submit_active {
+        theme::SYMBOL_CURSOR_SPACED
+    } else {
+        "  "
+    };
     lines.push(Line::from(vec![
         Span::styled(submit_cursor, theme::cursor_style()),
         Span::styled(format!(" {}", lc.tr("setup-submit")), submit_style),
@@ -362,7 +373,11 @@ fn render_form_edit(
 
     // 测试联通性按钮 + 结果
     let test_active = wizard.form_focus == FormField::TestConnectivity;
-    let test_cursor = if test_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+    let test_cursor = if test_active {
+        theme::SYMBOL_CURSOR_SPACED
+    } else {
+        "  "
+    };
     let test_style = if test_active {
         Style::default()
             .fg(theme::cur().thinking)
@@ -375,7 +390,11 @@ fn render_form_edit(
         Span::styled(format!(" {}", lc.tr("setup-test-connectivity")), test_style),
     ]));
     if let Some((ok, ref msg)) = wizard.connectivity_result {
-        let result_color = if ok { theme::cur().success } else { theme::cur().warning };
+        let result_color = if ok {
+            theme::cur().success
+        } else {
+            theme::cur().warning
+        };
         lines.push(Line::from(Span::styled(
             format!("  {}", msg),
             Style::default().fg(result_color),
@@ -433,7 +452,11 @@ fn render_form_edit(
     } else {
         Style::default().fg(theme::cur().inactive)
     };
-    let confirm_cursor = if confirm_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+    let confirm_cursor = if confirm_active {
+        theme::SYMBOL_CURSOR_SPACED
+    } else {
+        "  "
+    };
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled(confirm_cursor, theme::cursor_style()),
@@ -459,7 +482,11 @@ fn render_field_line(
     focus: FormField,
 ) -> Line<'static> {
     let is_active = focus == field;
-    let cursor = if is_active { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+    let cursor = if is_active {
+        theme::SYMBOL_CURSOR_SPACED
+    } else {
+        "  "
+    };
     let lbl = if is_active {
         Style::default()
             .fg(theme::cur().thinking)
@@ -539,7 +566,10 @@ fn render_step_done(
                 format!("   {} ", lc.tr("setup-label-key")),
                 Style::default().fg(theme::cur().inactive),
             ),
-            Span::styled(mask_api_key(&mp.api_key), Style::default().fg(theme::cur().text)),
+            Span::styled(
+                mask_api_key(&mp.api_key),
+                Style::default().fg(theme::cur().text),
+            ),
         ]));
         let alias_labels = [
             lc.tr("setup-field-opus"),
@@ -553,7 +583,10 @@ fn render_step_done(
                     format!("   {:>6} → ", label),
                     Style::default().fg(theme::cur().inactive),
                 ),
-                Span::styled(&mp.aliases[i].model_id, Style::default().fg(theme::cur().claude)),
+                Span::styled(
+                    &mp.aliases[i].model_id,
+                    Style::default().fg(theme::cur().claude),
+                ),
             ]));
         }
         lines.push(Line::from(""));
@@ -570,7 +603,10 @@ fn render_step_done(
                 .fg(theme::cur().success)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(lc.tr("setup-to-start"), Style::default().fg(theme::cur().text)),
+        Span::styled(
+            lc.tr("setup-to-start"),
+            Style::default().fg(theme::cur().text),
+        ),
     ]));
 
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -589,7 +625,10 @@ fn make_hint_line(items: Vec<(String, String)>) -> Line<'static> {
                 .fg(theme::cur().warning)
                 .add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled(desc, Style::default().fg(theme::cur().inactive)));
+        spans.push(Span::styled(
+            desc,
+            Style::default().fg(theme::cur().inactive),
+        ));
     }
     Line::from(spans)
 }

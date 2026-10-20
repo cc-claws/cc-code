@@ -63,17 +63,28 @@ fn test_nested_usage_keeps_innermost_source_and_cache_statistics() {
         event: Box::new(AgentEvent::SubagentEvent {
             source_agent_id: "nested-child".into(),
             event: Box::new(AgentEvent::LlmCallEnd {
-                step: 1, model: "child-model".into(), output: "done".into(), stop_reason: None,
+                step: 1,
+                model: "child-model".into(),
+                output: "done".into(),
+                stop_reason: None,
                 usage: Some(cc_agent::llm::types::TokenUsage {
-                    input_tokens: 40, output_tokens: 9, cache_creation_input_tokens: None,
-                    cache_read_input_tokens: Some(20), request_id: None,
+                    input_tokens: 40,
+                    output_tokens: 9,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: Some(20),
+                    request_id: None,
                 }),
             }),
         }),
     };
     let mapped = map_event(&event, 100_000);
     assert_eq!(mapped[0].source_agent_id.as_deref(), Some("nested-child"));
-    let payload = session_update_payload("root", &mapped[0].updates[0], mapped[0].source_agent_id.as_deref()).expect("用量应可序列化");
+    let payload = session_update_payload(
+        "root",
+        &mapped[0].updates[0],
+        mapped[0].source_agent_id.as_deref(),
+    )
+    .expect("用量应可序列化");
     assert_eq!(payload["update"]["_meta"]["inputTokens"], 40);
     assert_eq!(payload["update"]["_meta"]["cacheReadTokens"], 20);
 }

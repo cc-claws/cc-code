@@ -1,7 +1,7 @@
 use std::{any::Any, sync::Arc, time::Duration};
 
-use parking_lot::Mutex;
 use cc_middlewares::cron::{CronScheduler, CronTask, CronTrigger};
+use parking_lot::Mutex;
 use ratatui::{
     crossterm::event::{MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,

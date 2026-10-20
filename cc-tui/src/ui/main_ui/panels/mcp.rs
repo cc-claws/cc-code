@@ -143,7 +143,11 @@ fn render_server_group(
     for (i, server) in servers.iter().enumerate() {
         let flat_idx = *start_offset + i;
         let is_cursor = flat_idx == global_cursor;
-        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+        let cursor_char = if is_cursor {
+            theme::SYMBOL_CURSOR_SPACED
+        } else {
+            "  "
+        };
 
         let (icon, icon_style, status_text) = match (&server.status, &server.oauth_status) {
             (ClientStatus::Connected, _) => (
@@ -187,10 +191,7 @@ fn render_server_group(
         };
 
         lines.push(Line::from(vec![
-            Span::styled(
-                cursor_char.to_string(),
-                theme::cursor_style(),
-            ),
+            Span::styled(cursor_char.to_string(), theme::cursor_style()),
             Span::styled(server.name.clone(), name_style),
             Span::styled(" · ", Style::default().fg(theme::cur().inactive)),
             Span::styled(icon.to_string(), icon_style),
@@ -245,7 +246,9 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
         let (status_icon, status_style) = match (&info.status, &info.oauth_status) {
             (ClientStatus::Connected, _) => ("✔", Style::default().fg(theme::cur().success)),
             (ClientStatus::Disabled, _) => ("⊘", Style::default().fg(theme::cur().inactive)),
-            (_, OAuthStatus::NeedsAuthorization) => ("△", Style::default().fg(theme::cur().warning)),
+            (_, OAuthStatus::NeedsAuthorization) => {
+                ("△", Style::default().fg(theme::cur().warning))
+            }
             (ClientStatus::Failed(_), _) => ("✗", Style::default().fg(theme::cur().error)),
             (ClientStatus::Uninitialized, _) => ("◯", Style::default().fg(theme::cur().inactive)),
             _ => ("◯", Style::default().fg(theme::cur().inactive)),
@@ -371,7 +374,11 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
     // Action 菜单
     for (i, action) in actions.iter().enumerate() {
         let is_cursor = i == cursor;
-        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+        let cursor_char = if is_cursor {
+            theme::SYMBOL_CURSOR_SPACED
+        } else {
+            "  "
+        };
         let num = i + 1;
         let label = match action {
             DetailAction::ViewTools => {
@@ -395,10 +402,7 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
             Style::default().fg(theme::cur().text)
         };
         lines.push(Line::from(vec![
-            Span::styled(
-                cursor_char.to_string(),
-                theme::cursor_style(),
-            ),
+            Span::styled(cursor_char.to_string(), theme::cursor_style()),
             Span::styled(format!("{}. {}", num, label), style),
         ]));
     }

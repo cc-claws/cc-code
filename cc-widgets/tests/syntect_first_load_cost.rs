@@ -94,7 +94,8 @@ fn measure_full_highlight_first_call_cost() {
     ];
 
     // 第一次调用（会触发懒加载）
-    let result = cc_widgets::markdown::highlight::highlight_code_block("rust", &code, "base16-ocean.dark");
+    let result =
+        cc_widgets::markdown::highlight::highlight_code_block("rust", &code, "base16-ocean.dark");
     let after_first = current_rss_kb();
     let delta_first = after_first.saturating_sub(baseline);
     println!("\n第一次 highlight_code_block(\"rust\", 10 行):");
@@ -110,7 +111,8 @@ fn measure_full_highlight_first_call_cost() {
     );
 
     // 第二次调用（懒加载已完成，应该几乎零成本）
-    let result2 = cc_widgets::markdown::highlight::highlight_code_block("rust", &code, "base16-ocean.dark");
+    let result2 =
+        cc_widgets::markdown::highlight::highlight_code_block("rust", &code, "base16-ocean.dark");
     let after_second = current_rss_kb();
     let delta_second = after_second.saturating_sub(after_first);
     println!("\n第二次 highlight_code_block(\"rust\", 10 行):");
@@ -127,7 +129,11 @@ fn measure_full_highlight_first_call_cost() {
 
     // 调用其他语言
     let python_code = vec!["def hello():\n    print('hi')".to_string()];
-    let _ = cc_widgets::markdown::highlight::highlight_code_block("python", &python_code, "base16-ocean.dark");
+    let _ = cc_widgets::markdown::highlight::highlight_code_block(
+        "python",
+        &python_code,
+        "base16-ocean.dark",
+    );
     let after_python = current_rss_kb();
     let delta_python = after_python.saturating_sub(after_second);
     println!("\n调用 python（应零成本，因 SyntaxSet 已加载）:");

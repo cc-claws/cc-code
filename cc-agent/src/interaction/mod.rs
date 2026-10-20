@@ -98,7 +98,11 @@ pub trait UserInteractionBroker: Send + Sync {
     async fn request(&self, ctx: InteractionContext) -> InteractionResponse;
 
     /// 保留子线程来源，宿主通过来源展示全局审批并准确路由。
-    async fn request_from(&self, _source_agent_id: Option<&str>, ctx: InteractionContext) -> InteractionResponse {
+    async fn request_from(
+        &self,
+        _source_agent_id: Option<&str>,
+        ctx: InteractionContext,
+    ) -> InteractionResponse {
         self.request(ctx).await
     }
 }

@@ -28,10 +28,7 @@ const MIN_ROWS: usize = 3;
 
 impl InputHistoryPanel {
     pub fn new(entries: Vec<String>) -> Self {
-        Self {
-            entries,
-            cursor: 0,
-        }
+        Self { entries, cursor: 0 }
     }
 
     pub fn total(&self) -> usize {
@@ -60,11 +57,19 @@ impl PanelComponent for InputHistoryPanel {
         use tui_textarea::Key;
         match input {
             Input { key: Key::Esc, .. } => EventResult::ClosePanel,
-            Input { key: Key::Up, .. } | Input { key: Key::Char('k'), .. } => {
+            Input { key: Key::Up, .. }
+            | Input {
+                key: Key::Char('k'),
+                ..
+            } => {
                 self.move_cursor(-1);
                 EventResult::Consumed
             }
-            Input { key: Key::Down, .. } | Input { key: Key::Char('j'), .. } => {
+            Input { key: Key::Down, .. }
+            | Input {
+                key: Key::Char('j'),
+                ..
+            } => {
                 self.move_cursor(1);
                 EventResult::Consumed
             }
@@ -75,8 +80,7 @@ impl PanelComponent for InputHistoryPanel {
                 EventResult::Consumed
             }
             Input {
-                key: Key::PageDown,
-                ..
+                key: Key::PageDown, ..
             } => {
                 self.move_cursor(PAGE_STEP);
                 EventResult::Consumed
@@ -96,7 +100,8 @@ impl PanelComponent for InputHistoryPanel {
 
     fn desired_height(&self, screen_height: u16, _screen_width: u16) -> u16 {
         let rows = self.total().clamp(MIN_ROWS, MAX_ROWS) as u16;
-        rows.min(screen_height.saturating_sub(4)).max(MIN_ROWS as u16)
+        rows.min(screen_height.saturating_sub(4))
+            .max(MIN_ROWS as u16)
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {

@@ -69,7 +69,11 @@ fn test_inject_bg_result_skips_result_already_delivered_by_drain() {
         MessageContent::text("继续处理"),
         &[result],
     );
-    assert_eq!(history.len(), 2, "已投递的结果不得再以 tool_result 重复注入");
+    assert_eq!(
+        history.len(),
+        2,
+        "已投递的结果不得再以 tool_result 重复注入"
+    );
     assert_eq!(history[0].content(), "已有对话");
     assert_eq!(user_content.text_content(), "继续处理");
 }
@@ -84,8 +88,11 @@ fn test_inject_bg_result_injects_only_results_missing_from_history() {
         BaseMessage::human("已有对话"),
         BaseMessage::human(delivered.to_notification()),
     ];
-    let (history, _) =
-        inject_bg_result_messages(history_in, MessageContent::text("继续处理"), &[delivered, pending]);
+    let (history, _) = inject_bg_result_messages(
+        history_in,
+        MessageContent::text("继续处理"),
+        &[delivered, pending],
+    );
     assert_eq!(history.len(), 4, "只注入未进历史的那一条结果");
     let calls = history[2].tool_calls();
     assert_eq!(calls.len(), 1);

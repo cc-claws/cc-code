@@ -110,8 +110,8 @@ pub fn query_stats() -> Option<AllocStats> {
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let proc = sys.process(pid)?;
     let current_rss = proc.memory() as usize; // sysinfo returns bytes
-    // stats 不可读时整体 fail-closed（调用方显示「RSS 不可用」），绝不用 RSS 冒充
-    // allocated——否则 allocated-RSS 恒为 0，把「测量失败」伪装成「完全一致」。
+                                              // stats 不可读时整体 fail-closed（调用方显示「RSS 不可用」），绝不用 RSS 冒充
+                                              // allocated——否则 allocated-RSS 恒为 0，把「测量失败」伪装成「完全一致」。
     let current_allocated = tikv_jemalloc_ctl::stats::allocated::read().ok()?;
     Some(AllocStats {
         current_rss,

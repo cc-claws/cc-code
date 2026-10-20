@@ -18,9 +18,7 @@ pub(crate) fn apply_theme_impl(
     crate::ui::theme::set_current(name);
 
     let save_result = {
-        let cfg = services
-            .peri_config
-            .get_or_insert_with(PeriConfig::default);
+        let cfg = services.peri_config.get_or_insert_with(PeriConfig::default);
         cfg.config.theme = Some(name.setting_value().to_string());
         App::save_config(cfg, services.config_path_override.as_deref())
     };

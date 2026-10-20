@@ -75,8 +75,16 @@ pub fn get_auto_memory_dir(cwd: &str) -> PathBuf {
     let sanitized = sanitize_project_path(&canonical_root.to_string_lossy());
 
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let cc_code_project_mem = home.join(".cc-code").join("projects").join(&sanitized).join("memory");
-    let legacy_claude_project_mem = home.join(".claude").join("projects").join(&sanitized).join("memory");
+    let cc_code_project_mem = home
+        .join(".cc-code")
+        .join("projects")
+        .join(&sanitized)
+        .join("memory");
+    let legacy_claude_project_mem = home
+        .join(".claude")
+        .join("projects")
+        .join(&sanitized)
+        .join("memory");
 
     if legacy_claude_project_mem.exists() && !cc_code_project_mem.exists() {
         legacy_claude_project_mem
@@ -125,8 +133,13 @@ pub fn is_auto_mem_path(candidate: &Path, cwd: &str) -> bool {
     }
 
     let cand_str = candidate.to_string_lossy();
-    let cand_norm = if let Some(rest) = cand_str.strip_prefix("~/").or_else(|| cand_str.strip_prefix("~\\")) {
-        dirs_next::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| candidate.to_path_buf())
+    let cand_norm = if let Some(rest) = cand_str
+        .strip_prefix("~/")
+        .or_else(|| cand_str.strip_prefix("~\\"))
+    {
+        dirs_next::home_dir()
+            .map(|h| h.join(rest))
+            .unwrap_or_else(|| candidate.to_path_buf())
     } else {
         candidate.to_path_buf()
     };
@@ -136,7 +149,8 @@ pub fn is_auto_mem_path(candidate: &Path, cwd: &str) -> bool {
     }
 
     // Canonicalize 匹配（若在磁盘已存在，解析符号链接）
-    if let (Ok(cand_canon), Ok(mem_dir_canon)) = (cand_norm.canonicalize(), mem_dir.canonicalize()) {
+    if let (Ok(cand_canon), Ok(mem_dir_canon)) = (cand_norm.canonicalize(), mem_dir.canonicalize())
+    {
         if cand_canon.starts_with(&mem_dir_canon) {
             return true;
         }

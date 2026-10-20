@@ -208,11 +208,17 @@ fn test_queued_messages_keys_tip_matches_platform_send_now_key() {
     let tip = keys_tip(&lc);
     // Ctrl+Enter 只有 Windows 能可靠区分；macOS/Linux 回退到 Alt/Option+S。
     if cfg!(target_os = "windows") {
-        assert!(tip.starts_with("Ctrl+Enter"), "Windows 应提示 Ctrl+Enter：{tip}");
+        assert!(
+            tip.starts_with("Ctrl+Enter"),
+            "Windows 应提示 Ctrl+Enter：{tip}"
+        );
     } else if cfg!(target_os = "macos") {
         assert!(tip.starts_with('⌥'), "macOS 应提示 ⌥S：{tip}");
     } else {
         assert!(tip.starts_with("Alt+S"), "Linux 应提示 Alt+S：{tip}");
     }
-    assert!(tip.contains("Ctrl+X"), "删除键在所有平台都可区分，应保持 Ctrl+X：{tip}");
+    assert!(
+        tip.contains("Ctrl+X"),
+        "删除键在所有平台都可区分，应保持 Ctrl+X：{tip}"
+    );
 }

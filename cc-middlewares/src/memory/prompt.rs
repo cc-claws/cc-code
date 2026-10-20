@@ -19,7 +19,8 @@ pub fn build_auto_memory_prompt(memory_dir: &str, entrypoint_content: Option<&st
         _ => "\n\nYour MEMORY.md is currently empty. When you save new memories, they will appear here.".to_string(),
     };
 
-    format!(r#"# auto memory
+    format!(
+        r#"# auto memory
 
 You have a persistent, file-based memory system at `{dir}`. This directory already exists — write to it directly with the Write tool (do not run mkdir or check for its existence).
 
@@ -149,5 +150,8 @@ A memory that summarizes repo state (activity logs, architecture snapshots) is f
 ## Memory and other forms of persistence
 Memory is one of several persistence mechanisms available to you as you assist the user in a given conversation. The distinction is often that memory can be recalled in future conversations and should not be used for persisting information that is only useful within the scope of the current conversation.
 - When to use or update a plan instead of memory: If you are about to start a non-trivial implementation task and would like to reach alignment with the user on your approach you should use a Plan rather than saving this information to memory. Similarly, if you already have a plan within the conversation and you have changed your approach persist that change by updating the plan rather than saving a memory.
-- When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory. Tasks are great for persisting information about the work that needs to be done in the current conversation, but memory should be reserved for information that will be useful in future conversations.{index}"#, dir = formatted_dir, index = index_section)
+- When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory. Tasks are great for persisting information about the work that needs to be done in the current conversation, but memory should be reserved for information that will be useful in future conversations.{index}"#,
+        dir = formatted_dir,
+        index = index_section
+    )
 }

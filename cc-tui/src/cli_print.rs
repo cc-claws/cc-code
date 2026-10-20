@@ -247,9 +247,7 @@ impl cc_agent::interaction::UserInteractionBroker for PrintBroker {
                 cc_agent::interaction::InteractionResponse::Decisions(
                     items
                         .into_iter()
-                        .map(|_| cc_agent::interaction::ApprovalDecision::Approve {
-                            source: None,
-                        })
+                        .map(|_| cc_agent::interaction::ApprovalDecision::Approve { source: None })
                         .collect(),
                 )
             }
@@ -321,7 +319,10 @@ impl PrintCollector {
                     .unwrap(),
                 ),
                 E::ToolStart {
-                    tool_call_id, name, input, ..
+                    tool_call_id,
+                    name,
+                    input,
+                    ..
                 } => Some(
                     serde_json::to_string(&serde_json::json!({
                         "type": "tool_use",

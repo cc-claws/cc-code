@@ -693,8 +693,7 @@ impl RenderTask {
             if *tool_name == "Bash"
                 && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
             {
-                let new_running_text =
-                    shell_running_text(started_at.unwrap(), *timeout_ms);
+                let new_running_text = shell_running_text(started_at.unwrap(), *timeout_ms);
 
                 if let Some(running_line) =
                     lines.iter_mut().find(|l| is_shell_running_status_line(l))

@@ -28,13 +28,7 @@ impl MessagePipeline {
         started_at: Instant,
         timeout_ms: u64,
     ) {
-        self.sync_shell_runtime(
-            source_agent_id,
-            tool_call_id,
-            started_at,
-            timeout_ms,
-            false,
-        );
+        self.sync_shell_runtime(source_agent_id, tool_call_id, started_at, timeout_ms, false);
     }
 
     /// 从仍存活的任务槽恢复 UI 元数据；线程切换会清空 pipeline，但任务所有权不变。

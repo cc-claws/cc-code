@@ -160,7 +160,8 @@ impl JevRuleLoader {
                         s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
                     }
                     "project" => {
-                        let p = if !cwd.join("CLAUDE.md").exists() && cwd.join("AGENTS.md").exists() {
+                        let p = if !cwd.join("CLAUDE.md").exists() && cwd.join("AGENTS.md").exists()
+                        {
                             cwd.join("AGENTS.md")
                         } else {
                             cwd.join("CLAUDE.md")

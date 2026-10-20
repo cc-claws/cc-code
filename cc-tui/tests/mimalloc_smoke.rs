@@ -26,7 +26,7 @@ fn touch_batch() -> Vec<Vec<u8>> {
     let mut keep = Vec::new();
     for i in 0..16u8 {
         let mut v = vec![0u8; 1 << 20]; // 每块 1 MiB
-        // 逐页写入，强制提交物理页
+                                        // 逐页写入，强制提交物理页
         for b in v.iter_mut().step_by(4096) {
             *b = i.wrapping_add(1);
         }

@@ -1,7 +1,4 @@
-use super::{
-    message_pipeline::PipelineAction,
-    *,
-};
+use super::{message_pipeline::PipelineAction, *};
 use crate::ui::render_thread::RenderEvent;
 
 impl App {

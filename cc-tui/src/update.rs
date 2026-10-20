@@ -60,7 +60,10 @@ async fn run_update_unix() -> Result<String> {
     let hash = {
         use ring::digest;
         let d = digest::digest(&digest::SHA256, &content);
-        d.as_ref().iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        d.as_ref()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
     };
     if hash != SCRIPT_SHA256_SH {
         let _ = std::fs::remove_file(&tmp);

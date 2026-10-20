@@ -352,8 +352,12 @@ async fn test_background_tasks_panel_excludes_foreground_shell() {
     let (mut app, mut handle) = App::new_headless(120, 30).await;
     {
         let session = app.session_mgr.current_mut();
-        session.agent_shells.push(make_agent_shell("fg-task", "sleep 590; echo done", false));
-        session.agent_shells.push(make_agent_shell("bg-task", "cargo build", true));
+        session
+            .agent_shells
+            .push(make_agent_shell("fg-task", "sleep 590; echo done", false));
+        session
+            .agent_shells
+            .push(make_agent_shell("bg-task", "cargo build", true));
     }
     app.open_background_tasks_panel();
     handle
@@ -365,8 +369,14 @@ async fn test_background_tasks_panel_excludes_foreground_shell() {
         !snap.contains("sleep 590"),
         "前台运行的 shell 不得出现在后台任务面板：\n{snap}"
     );
-    assert!(snap.contains("SHELLS (1)"), "只应统计已后台化的那条：\n{snap}");
-    assert!(snap.contains("cargo build"), "已后台化的 shell 应显示：\n{snap}");
+    assert!(
+        snap.contains("SHELLS (1)"),
+        "只应统计已后台化的那条：\n{snap}"
+    );
+    assert!(
+        snap.contains("cargo build"),
+        "已后台化的 shell 应显示：\n{snap}"
+    );
 }
 
 /// helper：构造 agent shell 槽位（`backgrounded=false` 即前台运行中）。

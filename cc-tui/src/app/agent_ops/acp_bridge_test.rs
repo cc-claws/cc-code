@@ -91,41 +91,66 @@ async fn test_subagent_viewport_tool_stats_isolation() {
 
     // 主 Agent 自己的一次工具调用
     app.push_agent_event(AgentEvent::ToolStart {
-        tool_call_id: "m1".into(), name: "Grep".into(), display: "Grep".into(),
-        args: "x".into(), input: serde_json::json!({}), source_agent_id: None,
+        tool_call_id: "m1".into(),
+        name: "Grep".into(),
+        display: "Grep".into(),
+        args: "x".into(),
+        input: serde_json::json!({}),
+        source_agent_id: None,
     });
     app.push_agent_event(AgentEvent::ToolEnd {
-        tool_call_id: "m1".into(), name: "Grep".into(), output: "ok".into(),
-        is_error: false, source_agent_id: None,
+        tool_call_id: "m1".into(),
+        name: "Grep".into(),
+        output: "ok".into(),
+        is_error: false,
+        source_agent_id: None,
     });
 
     // 子 Agent 自己的工具调用
     for i in 0..3 {
         app.push_agent_event(AgentEvent::ToolStart {
-            tool_call_id: format!("c{i}"), name: "Read".into(), display: "Read".into(),
-            args: "y".into(), input: serde_json::json!({}), source_agent_id: Some("child-1".into()),
+            tool_call_id: format!("c{i}"),
+            name: "Read".into(),
+            display: "Read".into(),
+            args: "y".into(),
+            input: serde_json::json!({}),
+            source_agent_id: Some("child-1".into()),
         });
         app.push_agent_event(AgentEvent::ToolEnd {
-            tool_call_id: format!("c{i}"), name: "Read".into(), output: "ok".into(),
-            is_error: false, source_agent_id: Some("child-1".into()),
+            tool_call_id: format!("c{i}"),
+            name: "Read".into(),
+            output: "ok".into(),
+            is_error: false,
+            source_agent_id: Some("child-1".into()),
         });
     }
     app.process_pending_events();
 
     let session = app.session_mgr.current();
     eprintln!("[diag] main stats = {:?}", session.agent.session_tool_stats);
-    eprintln!("[diag] sub  stats = {:?}", session.subagent_sessions.get("child-1").map(|s| &s.agent.session_tool_stats));
+    eprintln!(
+        "[diag] sub  stats = {:?}",
+        session
+            .subagent_sessions
+            .get("child-1")
+            .map(|s| &s.agent.session_tool_stats)
+    );
 
     assert_eq!(
-        session.agent.session_tool_stats.get("Grep"), Some(&1),
+        session.agent.session_tool_stats.get("Grep"),
+        Some(&1),
         "主视图应只统计主 Agent 自己的工具"
     );
     assert_eq!(
-        session.agent.session_tool_stats.get("Read"), None,
+        session.agent.session_tool_stats.get("Read"),
+        None,
         "子 Agent 的工具不得污染主视图统计"
     );
     assert_eq!(
-        session.subagent_sessions.get("child-1").and_then(|s| s.agent.session_tool_stats.get("Read")),
+        session
+            .subagent_sessions
+            .get("child-1")
+            .and_then(|s| s.agent.session_tool_stats.get("Read")),
         Some(&3),
         "子 Agent 视口应统计自己的工具"
     );
@@ -150,30 +175,47 @@ async fn test_subagent_viewport_status_bar_shows_own_stats() {
     // 主 Agent 跑很多 Grep
     for i in 0..5 {
         app.push_agent_event(AgentEvent::ToolStart {
-            tool_call_id: format!("m{i}"), name: "Grep".into(), display: "Grep".into(),
-            args: "x".into(), input: serde_json::json!({}), source_agent_id: None,
+            tool_call_id: format!("m{i}"),
+            name: "Grep".into(),
+            display: "Grep".into(),
+            args: "x".into(),
+            input: serde_json::json!({}),
+            source_agent_id: None,
         });
         app.push_agent_event(AgentEvent::ToolEnd {
-            tool_call_id: format!("m{i}"), name: "Grep".into(), output: "ok".into(),
-            is_error: false, source_agent_id: None,
+            tool_call_id: format!("m{i}"),
+            name: "Grep".into(),
+            output: "ok".into(),
+            is_error: false,
+            source_agent_id: None,
         });
     }
     // 子 Agent 跑 2 次 Read
     for i in 0..2 {
         app.push_agent_event(AgentEvent::ToolStart {
-            tool_call_id: format!("c{i}"), name: "Read".into(), display: "Read".into(),
-            args: "y".into(), input: serde_json::json!({}), source_agent_id: Some("child-1".into()),
+            tool_call_id: format!("c{i}"),
+            name: "Read".into(),
+            display: "Read".into(),
+            args: "y".into(),
+            input: serde_json::json!({}),
+            source_agent_id: Some("child-1".into()),
         });
         app.push_agent_event(AgentEvent::ToolEnd {
-            tool_call_id: format!("c{i}"), name: "Read".into(), output: "ok".into(),
-            is_error: false, source_agent_id: Some("child-1".into()),
+            tool_call_id: format!("c{i}"),
+            name: "Read".into(),
+            output: "ok".into(),
+            is_error: false,
+            source_agent_id: Some("child-1".into()),
         });
     }
     app.process_pending_events();
 
     app.switch_subagent_viewport(Some("child-1".into()));
     app.flush_rebuild();
-    handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
     let snap = handle.snapshot().join("\n");
     eprintln!("[diag] sub viewport snapshot:\n{snap}");
 
@@ -228,10 +270,19 @@ async fn test_session_update_with_peri_source_routes_to_subagent() {
     }
 
     let session = app.session_mgr.current();
-    eprintln!("[diag] main={:?} sub={:?}", session.agent.session_tool_stats,
-        session.subagent_sessions.get("child-1").map(|s| &s.agent.session_tool_stats));
+    eprintln!(
+        "[diag] main={:?} sub={:?}",
+        session.agent.session_tool_stats,
+        session
+            .subagent_sessions
+            .get("child-1")
+            .map(|s| &s.agent.session_tool_stats)
+    );
     assert_eq!(
-        session.subagent_sessions.get("child-1").and_then(|s| s.agent.session_tool_stats.get("Read")),
+        session
+            .subagent_sessions
+            .get("child-1")
+            .and_then(|s| s.agent.session_tool_stats.get("Read")),
         Some(&2),
         "带 _peri.sourceAgentId 的工具必须计入子会话"
     );
@@ -274,7 +325,10 @@ async fn test_subagent_viewport_shows_running_tool() {
 
     app.switch_subagent_viewport(Some("child-1".into()));
     app.flush_rebuild();
-    handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
     let snap = handle.snapshot().join("\n");
     eprintln!("[diag] running-tool snapshot:\n{snap}");
 
@@ -283,7 +337,11 @@ async fn test_subagent_viewport_shows_running_tool() {
         "子 Agent 视口应显示其正在运行的工具，实际:\n{snap}"
     );
     assert_eq!(
-        app.session_mgr.current().viewport_agent().running_tools.len(),
+        app.session_mgr
+            .current()
+            .viewport_agent()
+            .running_tools
+            .len(),
         1,
         "子会话必须登记 running_tools"
     );
@@ -335,7 +393,10 @@ async fn test_subagent_viewport_shows_completion_summary_after_stop() {
 
     app.switch_subagent_viewport(Some("child-1".into()));
     app.flush_rebuild();
-    handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
     let snap = handle.snapshot().join("\n");
     eprintln!("[diag] completion summary snapshot:\n{snap}");
 

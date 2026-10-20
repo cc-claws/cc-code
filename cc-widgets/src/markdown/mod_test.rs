@@ -999,20 +999,32 @@ fn test_markdown_structure_matches_cc() {
             "文字\n\n- 项一\n- 项二\n\n文字2\n",
             vec!["文字", "", "• 项一", "• 项二", "", "文字2"],
         ),
-        ("ol_start3", "3. 第三\n4. 第四\n", vec!["3. 第三", "4. 第四"]),
+        (
+            "ol_start3",
+            "3. 第三\n4. 第四\n",
+            vec!["3. 第三", "4. 第四"],
+        ),
         (
             "nested_2",
             "- 外层一\n  - 内层一\n  - 内层二\n- 外层二\n",
             vec!["• 外层一", "  • 内层一", "  • 内层二", "• 外层二"],
         ),
         ("loose_list", "- 项一\n\n- 项二\n", vec!["• 项一", "• 项二"]),
-        ("fence_lang", "```rust\nfn main() {}\n```\n", vec!["fn main() {}"]),
+        (
+            "fence_lang",
+            "```rust\nfn main() {}\n```\n",
+            vec!["fn main() {}"],
+        ),
         (
             "fence_multi",
             "```js\nlet a = 1\nlet b = 2\n```\n",
             vec!["let a = 1", "let b = 2"],
         ),
-        ("fence_after_para", "文字\n```js\nx\n```\n", vec!["文字", "x"]),
+        (
+            "fence_after_para",
+            "文字\n```js\nx\n```\n",
+            vec!["文字", "x"],
+        ),
         (
             "fence_blank_around",
             "文字\n\n```js\nx\n```\n\n文字2\n",
@@ -1082,7 +1094,14 @@ fn test_table_spacing_matches_cc() {
     assert_eq!(
         lines,
         vec![
-            "文字", "", "┌───┬───┐", "│ a │ b │", "├───┼───┤", "│ 1 │ 2 │", "└───┴───┘", "",
+            "文字",
+            "",
+            "┌───┬───┐",
+            "│ a │ b │",
+            "├───┼───┤",
+            "│ 1 │ 2 │",
+            "└───┴───┘",
+            "",
             "文字2",
         ],
         "实际: {lines:?}"
@@ -1092,7 +1111,10 @@ fn test_table_spacing_matches_cc() {
 /// 图片：peri 显示 alt（CC 显示 URL），但行结构一致
 #[test]
 fn test_image_spacing_matches_cc() {
-    assert_eq!(render_md_lines("![图](https://example.com/a.png)\n"), vec!["图"]);
+    assert_eq!(
+        render_md_lines("![图](https://example.com/a.png)\n"),
+        vec!["图"]
+    );
 }
 
 /// 水平线：peri 用长横线（CC 用 `---`），但空行结构与 CC 一致——
@@ -1112,4 +1134,3 @@ fn test_hr_spacing_matches_cc() {
     assert!(lines[0].starts_with('─'));
     assert_eq!(lines[1], "文字");
 }
-

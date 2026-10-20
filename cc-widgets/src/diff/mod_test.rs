@@ -131,8 +131,24 @@ fn test_fill_word_diffs_pairs_min_of_remove_and_add_count() {
         .collect();
     assert_eq!(removes.len(), 3, "应有 3 个删除行");
     assert_eq!(adds.len(), 1, "应有 1 个新增行");
-    let remove_has_wd = |l: &DiffLine| matches!(l, DiffLine::Remove { word_diff: Some(_), .. });
-    let add_has_wd = |l: &DiffLine| matches!(l, DiffLine::Add { word_diff: Some(_), .. });
+    let remove_has_wd = |l: &DiffLine| {
+        matches!(
+            l,
+            DiffLine::Remove {
+                word_diff: Some(_),
+                ..
+            }
+        )
+    };
+    let add_has_wd = |l: &DiffLine| {
+        matches!(
+            l,
+            DiffLine::Add {
+                word_diff: Some(_),
+                ..
+            }
+        )
+    };
     assert!(
         remove_has_wd(removes[0]),
         "首对（alpha one / alpha uno）应配上词级 diff"

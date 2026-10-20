@@ -57,13 +57,7 @@ async fn test_manual_compact_started_sets_compact_manual_true() {
 async fn test_manual_compact_completed_resets_loading_false() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     app.handle_compact_started(true);
-    app.handle_compact_completed(
-        "summary".to_string(),
-        vec![],
-        vec![],
-        0,
-        vec![],
-    );
+    app.handle_compact_completed("summary".to_string(), vec![], vec![], 0, vec![]);
     assert!(
         !app.session_mgr.current().ui.loading,
         "手动 compact 完成后必须结束 loading 态"

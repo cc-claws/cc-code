@@ -851,13 +851,11 @@ impl<'a> RenderState<'a> {
                 } else if end > 1 {
                     // 多行代码块：前后空行同样取决于源文本，不在此处强行补
                     #[cfg(feature = "markdown-highlight")]
-                    if let Some(highlighted) =
-                        highlight_code_block(
-                            &self.code_block_lang,
-                            &lines[..end],
-                            self.theme.syntax_theme_name(),
-                        )
-                    {
+                    if let Some(highlighted) = highlight_code_block(
+                        &self.code_block_lang,
+                        &lines[..end],
+                        self.theme.syntax_theme_name(),
+                    ) {
                         self.lines.extend(highlighted);
                     } else {
                         // syntect 未识别语言，回退到统一颜色

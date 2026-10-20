@@ -140,7 +140,15 @@ impl MessagePipeline {
         // 会话状态代理：最后一个后台任务完成并回收后池子归空，代理立刻失效，
         // 冻结的 `◐ Agent(...)` 卡片就会漏回主消息区（底栏抽屉同时是空的）。
         // 判据就该是本函数产出的「活跃轮次尾部」本身。
-        tail_vms.retain(|vm| !matches!(vm, MessageViewModel::SubAgentGroup { is_background: true, .. }));
+        tail_vms.retain(|vm| {
+            !matches!(
+                vm,
+                MessageViewModel::SubAgentGroup {
+                    is_background: true,
+                    ..
+                }
+            )
+        });
         PipelineAction::RebuildAll {
             prefix_len,
             tail_vms,

@@ -5,13 +5,19 @@ use std::time::{Duration, Instant};
 
 use cc_agent::messages::BaseMessage;
 
-use super::{message_pipeline::MessagePipeline, AgentComm, AgentEvent, ChatSession, MessageViewModel};
+use super::{
+    message_pipeline::MessagePipeline, AgentComm, AgentEvent, ChatSession, MessageViewModel,
+};
 
 pub(crate) fn format_duration(duration: Duration) -> String {
     let seconds = duration.as_secs();
-    if seconds >= 3600 { format!("{}h {}m", seconds / 3600, seconds % 3600 / 60) }
-    else if seconds >= 60 { format!("{}m {}s", seconds / 60, seconds % 60) }
-    else { format!("{seconds}s") }
+    if seconds >= 3600 {
+        format!("{}h {}m", seconds / 3600, seconds % 3600 / 60)
+    } else if seconds >= 60 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 /// 抽屉中间列（`activity_shown`）的刷新节流窗口。
@@ -87,7 +93,10 @@ impl BackgroundAgentSession {
         lang: &str,
     ) -> Self {
         let started_at = Instant::now();
-        let agent = AgentComm { session_start_time: Some(started_at), ..AgentComm::default() };
+        let agent = AgentComm {
+            session_start_time: Some(started_at),
+            ..AgentComm::default()
+        };
         let mut spinner =
             cc_widgets::SpinnerState::with_lang(cc_widgets::SpinnerMode::Thinking, lang);
         spinner.pick_round_verb();
@@ -175,19 +184,29 @@ impl BackgroundAgentSession {
     pub(crate) fn rebuild(&mut self) {
         self.view_messages = self.pipeline.build_tail_vms();
         for vm in &mut self.view_messages {
-            if let MessageViewModel::ToolBlock { tool_call_id, started_at, timeout_ms, .. } = vm {
+            if let MessageViewModel::ToolBlock {
+                tool_call_id,
+                started_at,
+                timeout_ms,
+                ..
+            } = vm
+            {
                 if let Some(start) = self.running_tool_times.get(tool_call_id) {
                     *started_at = Some(*start);
-                    *timeout_ms = self.timeout_secs.map(|seconds| seconds.saturating_mul(1000));
+                    *timeout_ms = self
+                        .timeout_secs
+                        .map(|seconds| seconds.saturating_mul(1000));
                     vm.recompute_hash();
                 }
             }
         }
         // 投递确认前的用户消息也可见；快照回流时移除，避免重复气泡。
         for (_, text) in &self.pending_inputs {
-            self.view_messages.push(MessageViewModel::user(text.clone()));
+            self.view_messages
+                .push(MessageViewModel::user(text.clone()));
         }
-        self.view_messages.extend(self.notices.iter().cloned().map(MessageViewModel::system));
+        self.view_messages
+            .extend(self.notices.iter().cloned().map(MessageViewModel::system));
     }
 
     /// 用最新一句助手文本更新抽屉「正在做什么」列。
@@ -211,8 +230,18 @@ impl BackgroundAgentSession {
     pub(crate) fn handle_event(&mut self, event: AgentEvent) {
         let now = Instant::now();
         match &event {
-            AgentEvent::ToolStart { tool_call_id, name, display, args, .. } => {
-                if self.running_tool_times.insert(tool_call_id.clone(), now).is_none() {
+            AgentEvent::ToolStart {
+                tool_call_id,
+                name,
+                display,
+                args,
+                ..
+            } => {
+                if self
+                    .running_tool_times
+                    .insert(tool_call_id.clone(), now)
+                    .is_none()
+                {
                     self.agent.tool_call_count += 1;
                 }
                 // 中间列展示「子 Agent 在说什么」，不写工具串（工具细节用户 Enter 进来看）。
@@ -231,20 +260,28 @@ impl BackgroundAgentSession {
                 };
                 self.agent.running_tools.push(active.clone());
                 self.agent.active_tool = Some(active);
-                self.agent.push_recent_tool(super::agent_comm::RecentToolEntry {
-                    tool_call_id: tool_call_id.clone(),
-                    display: display.clone(),
-                    args_summary,
-                    running: true,
-                    started_at: now,
-                    visible_until: None,
-                });
+                self.agent
+                    .push_recent_tool(super::agent_comm::RecentToolEntry {
+                        tool_call_id: tool_call_id.clone(),
+                        display: display.clone(),
+                        args_summary,
+                        running: true,
+                        started_at: now,
+                        visible_until: None,
+                    });
                 self.spinner.end_thinking();
-                self.spinner.set_mode_keep_verb(cc_widgets::SpinnerMode::ToolUse);
+                self.spinner
+                    .set_mode_keep_verb(cc_widgets::SpinnerMode::ToolUse);
             }
-            AgentEvent::ToolEnd { tool_call_id, name, .. } => {
+            AgentEvent::ToolEnd {
+                tool_call_id, name, ..
+            } => {
                 if self.running_tool_times.remove(tool_call_id).is_some() {
-                    *self.agent.session_tool_stats.entry(name.clone()).or_insert(0) += 1;
+                    *self
+                        .agent
+                        .session_tool_stats
+                        .entry(name.clone())
+                        .or_insert(0) += 1;
                 }
                 self.agent
                     .running_tools
@@ -256,25 +293,37 @@ impl BackgroundAgentSession {
             }
             AgentEvent::AiReasoning(_) => {
                 self.spinner.begin_thinking();
-                self.spinner.set_mode_keep_verb(cc_widgets::SpinnerMode::Thinking);
+                self.spinner
+                    .set_mode_keep_verb(cc_widgets::SpinnerMode::Thinking);
             }
             AgentEvent::AssistantChunk { chunk, .. } => {
                 self.spinner.end_thinking();
-                self.spinner.set_mode_keep_verb(cc_widgets::SpinnerMode::Responding);
+                self.spinner
+                    .set_mode_keep_verb(cc_widgets::SpinnerMode::Responding);
                 self.last_flow_up = false;
                 self.push_assistant_activity(chunk);
             }
             AgentEvent::TokenUsageUpdate { usage, model, .. } => {
                 self.agent.session_token_tracker.accumulate(usage);
                 self.spinner.set_token_count(self.tokens_used() as usize);
-                if !model.is_empty() { self.model.clone_from(model); }
+                if !model.is_empty() {
+                    self.model.clone_from(model);
+                }
             }
             AgentEvent::ContextWarning { total_tokens, .. } => {
                 self.agent.context_window = (*total_tokens).min(u32::MAX as u64) as u32;
             }
-            AgentEvent::LlmRetrying { attempt, max_attempts, delay_ms, error } => {
+            AgentEvent::LlmRetrying {
+                attempt,
+                max_attempts,
+                delay_ms,
+                error,
+            } => {
                 self.agent.retry_status = Some(super::agent_comm::RetryStatus {
-                    attempt: *attempt, max_attempts: *max_attempts, delay_ms: *delay_ms, error: error.clone(),
+                    attempt: *attempt,
+                    max_attempts: *max_attempts,
+                    delay_ms: *delay_ms,
+                    error: error.clone(),
                 });
             }
             AgentEvent::SystemNotice { level, message } => {
@@ -284,7 +333,11 @@ impl BackgroundAgentSession {
                     std::time::Instant::now(),
                 ));
             }
-            AgentEvent::LspDiagnostics { errors, warnings, files_with_errors } => {
+            AgentEvent::LspDiagnostics {
+                errors,
+                warnings,
+                files_with_errors,
+            } => {
                 self.agent.lsp_errors = *errors;
                 self.agent.lsp_warnings = *warnings;
                 self.agent.lsp_files_with_errors = *files_with_errors;
@@ -293,7 +346,11 @@ impl BackgroundAgentSession {
                 for message in messages {
                     if let BaseMessage::Human { .. } = message {
                         let text = message.content();
-                        if let Some(index) = self.pending_inputs.iter().position(|(_, input)| input == &text) {
+                        if let Some(index) = self
+                            .pending_inputs
+                            .iter()
+                            .position(|(_, input)| input == &text)
+                        {
                             self.pending_inputs.remove(index);
                         }
                     }
@@ -322,40 +379,54 @@ impl ChatSession {
         cwd: &str,
         lang: &str,
     ) -> &mut BackgroundAgentSession {
-        self.subagent_sessions.entry(instance_id.to_string()).or_insert_with(|| {
-            BackgroundAgentSession::new(
-                instance_id.to_string(),
-                agent_type.to_string(),
-                preview.to_string(),
-                cwd.to_string(),
-                lang,
-            )
-        })
+        self.subagent_sessions
+            .entry(instance_id.to_string())
+            .or_insert_with(|| {
+                BackgroundAgentSession::new(
+                    instance_id.to_string(),
+                    agent_type.to_string(),
+                    preview.to_string(),
+                    cwd.to_string(),
+                    lang,
+                )
+            })
     }
 
     pub(crate) fn active_subagent(&self) -> Option<&BackgroundAgentSession> {
-        self.focused_instance_id.as_ref().and_then(|id| self.subagent_sessions.get(id))
+        self.focused_instance_id
+            .as_ref()
+            .and_then(|id| self.subagent_sessions.get(id))
     }
 
     pub(crate) fn current_view_messages(&self) -> &[MessageViewModel] {
-        self.active_subagent().map(|sub| sub.view_messages.as_slice()).unwrap_or(&self.messages.view_messages)
+        self.active_subagent()
+            .map(|sub| sub.view_messages.as_slice())
+            .unwrap_or(&self.messages.view_messages)
     }
 
     pub(crate) fn viewport_agent(&self) -> &AgentComm {
-        self.active_subagent().map(|sub| &sub.agent).unwrap_or(&self.agent)
+        self.active_subagent()
+            .map(|sub| &sub.agent)
+            .unwrap_or(&self.agent)
     }
 
     pub(crate) fn viewport_spinner(&self) -> &cc_widgets::SpinnerState {
-        self.active_subagent().map(|sub| &sub.spinner).unwrap_or(&self.spinner_state)
+        self.active_subagent()
+            .map(|sub| &sub.spinner)
+            .unwrap_or(&self.spinner_state)
     }
 
     pub(crate) fn viewport_loading(&self) -> bool {
-        self.active_subagent().map(|sub| sub.status.is_active()).unwrap_or(self.ui.loading)
+        self.active_subagent()
+            .map(|sub| sub.status.is_active())
+            .unwrap_or(self.ui.loading)
     }
 
     pub(crate) fn has_running_subagents(&self) -> bool {
         self.background_agents.iter().any(|agent| {
-            self.subagent_sessions.get(&agent.instance_id).is_none_or(|sub| sub.status.is_active())
+            self.subagent_sessions
+                .get(&agent.instance_id)
+                .is_none_or(|sub| sub.status.is_active())
         })
     }
 
@@ -387,16 +458,34 @@ impl super::App {
         let session = self.session_mgr.current_mut();
         let position = (session.ui.scroll_offset, session.ui.scroll_follow);
         let draft = std::mem::replace(&mut session.ui.textarea, super::build_textarea(false));
-        if let Some(sub) = session.focused_instance_id.as_ref().and_then(|id| session.subagent_sessions.get_mut(id)) {
+        if let Some(sub) = session
+            .focused_instance_id
+            .as_ref()
+            .and_then(|id| session.subagent_sessions.get_mut(id))
+        {
             sub.scroll_position = position;
             sub.input_draft = Some(draft);
-        } else { session.main_scroll_position = position; session.main_input_draft = Some(draft); }
+        } else {
+            session.main_scroll_position = position;
+            session.main_input_draft = Some(draft);
+        }
         session.focused_instance_id = id.filter(|id| session.subagent_sessions.contains_key(id));
-        let draft = if let Some(sub) = session.focused_instance_id.as_ref().and_then(|id| session.subagent_sessions.get_mut(id)) {
+        let draft = if let Some(sub) = session
+            .focused_instance_id
+            .as_ref()
+            .and_then(|id| session.subagent_sessions.get_mut(id))
+        {
             sub.input_draft.take()
-        } else { session.main_input_draft.take() };
-        if let Some(draft) = draft { session.ui.textarea = draft; }
-        let (offset, follow) = session.active_subagent().map(|sub| sub.scroll_position).unwrap_or(session.main_scroll_position);
+        } else {
+            session.main_input_draft.take()
+        };
+        if let Some(draft) = draft {
+            session.ui.textarea = draft;
+        }
+        let (offset, follow) = session
+            .active_subagent()
+            .map(|sub| sub.scroll_position)
+            .unwrap_or(session.main_scroll_position);
         session.ui.scroll_offset = offset;
         session.ui.scroll_follow = follow;
         session.ui.text_selection.clear();
@@ -417,22 +506,37 @@ impl super::App {
     /// （后台任务在主时间线只留启动摘要与完成行），提前回收等于静默丢弃输出。
     fn reclaim_finished_subagent(&mut self, id: &str) {
         let session = self.session_mgr.current_mut();
-        if !session.subagent_sessions.get(id).is_some_and(|sub| !sub.status.is_active()) { return; }
+        if !session
+            .subagent_sessions
+            .get(id)
+            .is_some_and(|sub| !sub.status.is_active())
+        {
+            return;
+        }
         session.subagent_sessions.remove(id);
-        session.background_agents.retain(|agent| agent.instance_id != id);
-        if session.background_agents.is_empty() { session.ui.bg_bar_cursor = None; }
+        session
+            .background_agents
+            .retain(|agent| agent.instance_id != id);
+        if session.background_agents.is_empty() {
+            session.ui.bg_bar_cursor = None;
+        }
     }
 
     pub(crate) fn cancel_subagent(&mut self, id: &str) {
         if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
-            if !sub.status.is_active() { return; }
+            if !sub.status.is_active() {
+                return;
+            }
             sub.current_activity = "Stopping…".into();
             // 本函数只由用户按键（x / Ctrl+X Ctrl+K）调用；主 Agent 经
             // `Agent(action="stop")` 停止时不经此处，故据此区分来源文案（PRD §4.4.1）。
             sub.stopped_by_user = true;
         }
         self.cancel_subagent_approval(id);
-        if let (Some(client), Some(session_id)) = (self.acp_client.clone(), self.session_mgr.current().current_thread_id.clone()) {
+        if let (Some(client), Some(session_id)) = (
+            self.acp_client.clone(),
+            self.session_mgr.current().current_thread_id.clone(),
+        ) {
             let target = id.to_string();
             tokio::spawn(async move {
                 if let Err(error) = client.cancel_subagent(&session_id, &target).await {
@@ -442,30 +546,61 @@ impl super::App {
         }
         // 本地 shell host 的句柄按来源精确中断，保证子进程及时退出。
         for shell in &self.session_mgr.current().agent_shells {
-            if shell.source_agent_id.as_deref() == Some(id) { shell.kill.abort(); }
+            if shell.source_agent_id.as_deref() == Some(id) {
+                shell.kill.abort();
+            }
         }
     }
 
     pub(crate) fn cancel_subagent_approval(&mut self, id: &str) {
-        if self.session_mgr.current().approval_source_agent_id.as_deref() == Some(id) {
+        if self
+            .session_mgr
+            .current()
+            .approval_source_agent_id
+            .as_deref()
+            == Some(id)
+        {
             let response = self.take_interaction_cancel_response();
             self.session_mgr.current_mut().approval_source_agent_id = None;
-            if let (Some(client), Some((request_id, response))) = (self.acp_client.clone(), response) {
-                tokio::spawn(async move { let _ = client.send_response(request_id, Ok(response)).await; });
+            if let (Some(client), Some((request_id, response))) =
+                (self.acp_client.clone(), response)
+            {
+                tokio::spawn(async move {
+                    let _ = client.send_response(request_id, Ok(response)).await;
+                });
             }
         }
     }
 
     pub(crate) fn cancel_all_subagents(&mut self) {
-        let ids: Vec<_> = self.session_mgr.current().subagent_sessions.values()
-            .filter(|sub| sub.status.is_active()).map(|sub| sub.instance_id.clone()).collect();
-        for id in ids { self.cancel_subagent(&id); }
+        let ids: Vec<_> = self
+            .session_mgr
+            .current()
+            .subagent_sessions
+            .values()
+            .filter(|sub| sub.status.is_active())
+            .map(|sub| sub.instance_id.clone())
+            .collect();
+        for id in ids {
+            self.cancel_subagent(&id);
+        }
     }
 
     pub(crate) fn send_subagent_input(&mut self, text: String) {
-        let Some(id) = self.session_mgr.current().focused_instance_id.clone() else { return; };
-        let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(&id) else { return; };
-        if !sub.status.is_active() || text.trim().is_empty() { return; }
+        let Some(id) = self.session_mgr.current().focused_instance_id.clone() else {
+            return;
+        };
+        let Some(sub) = self
+            .session_mgr
+            .current_mut()
+            .subagent_sessions
+            .get_mut(&id)
+        else {
+            return;
+        };
+        if !sub.status.is_active() || text.trim().is_empty() {
+            return;
+        }
         let input_id = uuid::Uuid::new_v4();
         sub.pending_inputs.push((input_id, text.clone()));
         // 用户提问 → 箭头转上行，直到该子 Agent 再次产出回复。
@@ -478,11 +613,15 @@ impl super::App {
         let session_id = self.session_mgr.current().current_thread_id.clone();
         tokio::spawn(async move {
             let result = match (client, session_id) {
-                (Some(client), Some(session_id)) => client.send_subagent_message(&session_id, &id, &text).await,
+                (Some(client), Some(session_id)) => {
+                    client.send_subagent_message(&session_id, &id, &text).await
+                }
                 _ => Err("ACP session unavailable".into()),
             };
             let _ = event_tx.send(AgentEvent::SubagentInputResult {
-                instance_id: id, input_id, error: result.err(),
+                instance_id: id,
+                input_id,
+                error: result.err(),
             });
         });
     }

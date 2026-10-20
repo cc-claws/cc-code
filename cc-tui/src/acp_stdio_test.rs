@@ -184,10 +184,7 @@ fn test_permission_title_bash_shows_command() {
 #[test]
 fn test_permission_title_edit_shows_file_path() {
     let input = serde_json::json!({"file_path": "/proj/src/main.rs"});
-    assert_eq!(
-        permission_title("Edit", &input),
-        "Edit: /proj/src/main.rs"
-    );
+    assert_eq!(permission_title("Edit", &input), "Edit: /proj/src/main.rs");
 }
 
 #[test]
@@ -258,7 +255,10 @@ fn test_decision_from_outcome_cancelled_and_unknown_reject() {
     // 未知选项 id：fail-closed
     match decision_from_outcome(&selected_outcome("maybe-later")) {
         cc_agent::interaction::ApprovalDecision::Reject { reason, .. } => {
-            assert!(reason.contains("maybe-later"), "拒绝原因应带上未知选项：{reason}");
+            assert!(
+                reason.contains("maybe-later"),
+                "拒绝原因应带上未知选项：{reason}"
+            );
         }
         other => panic!("未知选项应拒绝，实际 {other:?}"),
     }

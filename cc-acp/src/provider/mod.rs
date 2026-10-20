@@ -6,8 +6,8 @@
 pub mod config;
 pub mod store;
 
-pub use config::{AppConfig, PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig};
 use cc_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
+pub use config::{AppConfig, PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig};
 pub use store::{config_path, load, load_from, save, save_to, workspace_config_path};
 
 const MODEL_SELECTION_SEPARATOR: &str = "::";

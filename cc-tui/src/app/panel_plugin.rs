@@ -412,10 +412,10 @@ impl App {
 
         // 解析输入
         let source = parse_marketplace_input(input).map_err(|e| {
-            let msg = self
-                .services
-                .lc
-                .tr_args("plugin-parse-failed", &[("error".into(), e.to_string().into())]);
+            let msg = self.services.lc.tr_args(
+                "plugin-parse-failed",
+                &[("error".into(), e.to_string().into())],
+            );
             anyhow::anyhow!(msg)
         })?;
 
@@ -475,10 +475,8 @@ impl App {
                         if let Some(entry) = mkt_places.iter_mut().find(|km| km.source == source) {
                             entry.install_location = install_location;
                             entry.last_updated = chrono::Utc::now().to_rfc3339();
-                            let _ = cc_middlewares::plugin::save_known_marketplaces(
-                                &mkt_places,
-                                None,
-                            );
+                            let _ =
+                                cc_middlewares::plugin::save_known_marketplaces(&mkt_places, None);
                         }
                     }
                     let _ = tx
@@ -561,10 +559,10 @@ impl App {
         save_known_marketplaces(&filtered, None)?;
 
         // 显示成功消息
-        let removed = self
-            .services
-            .lc
-            .tr_args("plugin-marketplace-removed", &[("name".into(), name.into())]);
+        let removed = self.services.lc.tr_args(
+            "plugin-marketplace-removed",
+            &[("name".into(), name.into())],
+        );
         self.session_mgr
             .current_mut()
             .messages

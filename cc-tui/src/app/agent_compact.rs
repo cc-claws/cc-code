@@ -137,4 +137,3 @@ impl App {
 #[cfg(test)]
 #[path = "agent_compact_test.rs"]
 mod tests;
-

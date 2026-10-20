@@ -1,8 +1,17 @@
 //! 底栏抽屉：导航游标与当前视口解耦，按显示列宽对齐。
-use ratatui::{layout::Rect, style::{Color, Modifier, Style}, text::{Line, Span}, widgets::Paragraph, Frame};
-use unicode_width::UnicodeWidthStr;
-use crate::app::{App, subagent_session::{format_duration, SubagentRunStatus}};
+use crate::app::{
+    subagent_session::{format_duration, SubagentRunStatus},
+    App,
+};
 use crate::ui::theme;
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
+    Frame,
+};
+use unicode_width::UnicodeWidthStr;
 
 pub(crate) fn bg_bar_height(app: &App, terminal_height: u16) -> u16 {
     let count = app.session_mgr.current().background_agents.len();
@@ -74,7 +83,10 @@ pub(crate) fn drawer_line(
     // 正文只有两档：游标所在行亮白、其余统一灰。不要在抽屉里堆中间色（
     // 不同灰阶叠在一起会看起来「花」，参考实现整块只有 muted + bright）。
     let (cursor_color, body_color) = if bright {
-        (theme::cur().drawer_text_active, theme::cur().drawer_text_active)
+        (
+            theme::cur().drawer_text_active,
+            theme::cur().drawer_text_active,
+        )
     } else {
         (theme::cur().drawer_muted, theme::cur().drawer_muted)
     };
@@ -83,7 +95,11 @@ pub(crate) fn drawer_line(
         Span::styled(circle_text, st(circle_color)),
         Span::styled(
             fit(agent_type, type_width),
-            if bright { st(body_color).add_modifier(Modifier::BOLD) } else { st(body_color) },
+            if bright {
+                st(body_color).add_modifier(Modifier::BOLD)
+            } else {
+                st(body_color)
+            },
         ),
         Span::styled(fit(preview, preview_width), st(body_color)),
     ];
@@ -103,11 +119,20 @@ pub(crate) fn drawer_line(
 }
 
 pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) {
-    if area.height == 0 { return; }
+    if area.height == 0 {
+        return;
+    }
     let lc = &app.services.lc;
     let session = app.session_mgr.current();
-    if let Some(sub) = session.approval_source_agent_id.as_ref().and_then(|id| session.subagent_sessions.get(id)) {
-        let hint = if matches!(session.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) {
+    if let Some(sub) = session
+        .approval_source_agent_id
+        .as_ref()
+        .and_then(|id| session.subagent_sessions.get(id))
+    {
+        let hint = if matches!(
+            session.agent.interaction_prompt,
+            Some(crate::app::InteractionPrompt::Approval(_))
+        ) {
             lc.tr("bg-agent-approval-hint")
         } else {
             lc.tr("bg-agent-question-hint")
@@ -127,10 +152,16 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
                 ("hint".into(), hint.into()),
             ],
         );
-        f.render_widget(Paragraph::new(fit(&text, area.width as usize)).style(Style::default().fg(theme::cur().warning)), Rect::new(area.x, area.y, area.width, 1));
+        f.render_widget(
+            Paragraph::new(fit(&text, area.width as usize))
+                .style(Style::default().fg(theme::cur().warning)),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
         area.y = area.y.saturating_add(1);
         area.height = area.height.saturating_sub(1);
-        if area.height == 0 { return; }
+        if area.height == 0 {
+            return;
+        }
     }
     let cursor = session.ui.bg_bar_cursor;
     let current = session.focused_instance_id.as_deref();
@@ -139,19 +170,39 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
     let content_height = area.height.saturating_sub(1) as usize;
     if content_height == 1 {
         let selected = cursor.unwrap_or(0);
-        let text = if let Some(agent) = selected.checked_sub(1).and_then(|index| session.background_agents.get(index)) {
+        let text = if let Some(agent) = selected
+            .checked_sub(1)
+            .and_then(|index| session.background_agents.get(index))
+        {
             let sub = session.subagent_sessions.get(&agent.instance_id);
             format!(
                 "[{} {}] {}",
-                if current == Some(&agent.instance_id) { "●" } else { "◯" },
-                sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name),
+                if current == Some(&agent.instance_id) {
+                    "●"
+                } else {
+                    "◯"
+                },
+                sub.map(|sub| sub.task_preview.as_str())
+                    .unwrap_or(&agent.agent_name),
                 lc.tr("bg-agent-nav-hint")
             )
         } else {
-            let mut parts = vec![format!("{} main", if current.is_none() { "●" } else { "◯" })];
+            let mut parts = vec![format!(
+                "{} main",
+                if current.is_none() { "●" } else { "◯" }
+            )];
             parts.extend(session.background_agents.iter().map(|agent| {
                 let sub = session.subagent_sessions.get(&agent.instance_id);
-                format!("{} {}", if current == Some(&agent.instance_id) { "●" } else { "◯" }, sub.map(|sub| sub.task_preview.as_str()).unwrap_or(&agent.agent_name))
+                format!(
+                    "{} {}",
+                    if current == Some(&agent.instance_id) {
+                        "●"
+                    } else {
+                        "◯"
+                    },
+                    sub.map(|sub| sub.task_preview.as_str())
+                        .unwrap_or(&agent.agent_name)
+                )
             }));
             lc.tr_args(
                 "bg-agent-bar-expand",
@@ -160,7 +211,10 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
         };
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled(fit(&text, width), Style::default().fg(theme::cur().drawer_text_active))),
+            Line::from(Span::styled(
+                fit(&text, width),
+                Style::default().fg(theme::cur().drawer_text_active),
+            )),
         ];
         f.render_widget(Paragraph::new(lines), area);
         return;
@@ -180,14 +234,26 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
             cursor == Some(0),
             current.is_none(),
             bright_for(0, current.is_none()),
-            "main", "", "", None,
+            "main",
+            "",
+            "",
+            None,
             false,
         ),
     ];
     let overflow = session.background_agents.len() + 1 > content_height;
     let capacity = content_height.saturating_sub(1 + usize::from(overflow));
-    let start = cursor.unwrap_or(0).saturating_sub(capacity).min(session.background_agents.len().saturating_sub(capacity));
-    for (index, agent) in session.background_agents.iter().enumerate().skip(start).take(capacity) {
+    let start = cursor
+        .unwrap_or(0)
+        .saturating_sub(capacity)
+        .min(session.background_agents.len().saturating_sub(capacity));
+    for (index, agent) in session
+        .background_agents
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(capacity)
+    {
         let sub = session.subagent_sessions.get(&agent.instance_id);
         let (preview, metrics, accent) = if let Some(sub) = sub {
             let metrics = match sub.status {
@@ -195,10 +261,21 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
                 // 停止：`stopped by user|main Agent` 区分发起方（PRD §4.4.1），
                 // 与完成/失败/超时三种终态各自的文案并列，用户一眼看出是谁停的。
                 SubagentRunStatus::Stopped => {
-                    let by = if sub.stopped_by_user { "user" } else { "main Agent" };
+                    let by = if sub.stopped_by_user {
+                        "user"
+                    } else {
+                        "main Agent"
+                    };
                     format!("stopped by {by}")
                 }
-                SubagentRunStatus::Failed if sub.final_result.as_deref().is_some_and(|result| result.contains("timed out")) => "✗ timeout".into(),
+                SubagentRunStatus::Failed
+                    if sub
+                        .final_result
+                        .as_deref()
+                        .is_some_and(|result| result.contains("timed out")) =>
+                {
+                    "✗ timeout".into()
+                }
                 SubagentRunStatus::Failed => "✗ failed".into(),
                 // 单个箭头 + 最近一次用量：`↓` = Agent 回复产出，`↑` = 用户提问输入。
                 _ => match sub.token_metrics() {
@@ -216,21 +293,35 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, mut area: Rect) 
             };
             // 用节流后的快照（`activity_shown`）而非高频的 `current_activity`：
             // 连续流式输出时该列最多每 200ms 跳一次，避免抽屉不停闪动（#526）。
-            let preview = if sub.activity_shown.is_empty() { &sub.task_preview } else { &sub.activity_shown };
+            let preview = if sub.activity_shown.is_empty() {
+                &sub.task_preview
+            } else {
+                &sub.activity_shown
+            };
             (preview.as_str(), metrics, accent)
-        } else { ("", format_duration(agent.started_at.elapsed()), None) };
+        } else {
+            ("", format_duration(agent.started_at.elapsed()), None)
+        };
         let is_active = current == Some(&agent.instance_id);
         lines.push(drawer_line(
             width,
             cursor == Some(index + 1),
             is_active,
             bright_for(index + 1, is_active),
-            &agent.agent_name, preview, &metrics, accent,
+            &agent.agent_name,
+            preview,
+            &metrics,
+            accent,
             // 停止态强制实心 ●，配合 accent=ERROR 呈现红 ●（PRD §4.4）。
             sub.is_some_and(|sub| sub.status == SubagentRunStatus::Stopped),
         ));
     }
-    if overflow { lines.push(Line::from(format!("  …+{} more", session.background_agents.len().saturating_sub(capacity)))); }
+    if overflow {
+        lines.push(Line::from(format!(
+            "  …+{} more",
+            session.background_agents.len().saturating_sub(capacity)
+        )));
+    }
     f.render_widget(Paragraph::new(lines), area);
 }
 

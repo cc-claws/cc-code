@@ -16,13 +16,13 @@ const MONOKAI_EXTENDED_LIGHT: &str = include_str!("themes/monokai-extended-light
 /// 加载 syntect 默认主题集 + 内嵌的 Monokai Extended 主题 + CC 用于 light/ansi 的主题
 fn load_theme_set() -> ThemeSet {
     let mut set = ThemeSet::load_defaults();
-    let dark = syntect::highlighting::ThemeSet::load_from_reader(
-        &mut std::io::Cursor::new(MONOKAI_EXTENDED_DARK.as_bytes()),
-    )
+    let dark = syntect::highlighting::ThemeSet::load_from_reader(&mut std::io::Cursor::new(
+        MONOKAI_EXTENDED_DARK.as_bytes(),
+    ))
     .ok();
-    let light = syntect::highlighting::ThemeSet::load_from_reader(
-        &mut std::io::Cursor::new(MONOKAI_EXTENDED_LIGHT.as_bytes()),
-    )
+    let light = syntect::highlighting::ThemeSet::load_from_reader(&mut std::io::Cursor::new(
+        MONOKAI_EXTENDED_LIGHT.as_bytes(),
+    ))
     .ok();
     if let Some(theme) = dark {
         set.themes.insert("Monokai Extended".to_string(), theme);

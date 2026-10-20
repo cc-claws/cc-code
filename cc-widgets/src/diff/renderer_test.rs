@@ -28,7 +28,12 @@ fn test_render_diff_hunk_header_is_cyan() {
     // 对齐 CC：不渲染 @@ hunk header，改为摘要行 "Added N line, removed M line"
     let all: String = lines
         .iter()
-        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
@@ -60,7 +65,11 @@ fn test_render_diff_hunk_header_is_cyan() {
             .style
             .add_modifier
             .contains(ratatui::style::Modifier::BOLD);
-        assert_eq!(is_bold, is_number, "仅数字应加粗，实际 span: {:?}", span.content);
+        assert_eq!(
+            is_bold, is_number,
+            "仅数字应加粗，实际 span: {:?}",
+            span.content
+        );
     }
 }
 
@@ -80,10 +89,7 @@ fn test_render_diff_add_line_is_green() {
     let add_color = theme.diff_add();
     let add_bg = theme.diff_add_bg();
     let has_green = add_line.spans.iter().any(|s| s.style.fg == Some(add_color));
-    let has_green_bg = add_line
-        .spans
-        .iter()
-        .any(|s| s.style.bg == Some(add_bg));
+    let has_green_bg = add_line.spans.iter().any(|s| s.style.bg == Some(add_bg));
     assert!(
         has_green || has_green_bg,
         "新增行应有 diff_add 前景或绿底背景"
@@ -315,10 +321,14 @@ fn test_render_diff_add_line_has_syntax_color() {
         .iter()
         .find(|l| joined_text(l).contains("fn main"))
         .expect("应找到含 fn main 的行");
-    let has_cyan = add_line.spans.iter().any(|s| {
-        s.style.fg == Some(ratatui::style::Color::Rgb(102, 217, 239))
-    });
-    assert!(has_cyan, "Add 行 fn token 应为青色 #66D9EF（Monokai storage 色）");
+    let has_cyan = add_line
+        .spans
+        .iter()
+        .any(|s| s.style.fg == Some(ratatui::style::Color::Rgb(102, 217, 239)));
+    assert!(
+        has_cyan,
+        "Add 行 fn token 应为青色 #66D9EF（Monokai storage 色）"
+    );
     // 绿色行背景必须保留（语法色不能打断整行底色）
     let green_bg = crate::theme::Theme::diff_add_bg(&MonokaiTestTheme);
     let has_green_bg = add_line.spans.iter().any(|s| s.style.bg == Some(green_bg));
@@ -408,10 +418,7 @@ fn test_render_diff_remove_line_has_no_syntax_color() {
         .iter()
         .filter(|s| s.content.contains("old_func") || s.content.contains("fn"))
         .collect();
-    assert!(
-        !content_spans.is_empty(),
-        "应存在含代码内容的内容 span"
-    );
+    assert!(!content_spans.is_empty(), "应存在含代码内容的内容 span");
     for s in &content_spans {
         assert_eq!(
             s.style.fg,
@@ -518,9 +525,7 @@ fn test_render_new_file_code_has_no_diff_background() {
 /// 超过 max_lines 时应截断并提示剩余行数
 #[test]
 fn test_render_new_file_code_truncates_with_hint() {
-    let content: String = (1..=15)
-        .map(|i| format!("line {i}\n"))
-        .collect();
+    let content: String = (1..=15).map(|i| format!("line {i}\n")).collect();
     let lines = crate::diff::render_new_file_code("main.rs", &content, 80, &DarkTheme, 10);
     assert_eq!(lines.len(), 11, "10 行内容 + 1 行提示");
     let last = joined_text(&lines[10]);
@@ -533,13 +538,13 @@ fn test_render_new_file_code_truncates_with_hint() {
 /// 全量模式（usize::MAX）不截断
 #[test]
 fn test_render_new_file_code_full_mode_no_truncation() {
-    let content: String = (1..=15)
-        .map(|i| format!("line {i}\n"))
-        .collect();
+    let content: String = (1..=15).map(|i| format!("line {i}\n")).collect();
     let lines = crate::diff::render_new_file_code("main.rs", &content, 80, &DarkTheme, usize::MAX);
     assert_eq!(lines.len(), 15, "全量模式应渲染全部 15 行");
     assert!(
-        !lines.iter().any(|l| joined_text(l).contains("ctrl+o to expand")),
+        !lines
+            .iter()
+            .any(|l| joined_text(l).contains("ctrl+o to expand")),
         "全量模式不应出现截断提示"
     );
 }
@@ -549,8 +554,7 @@ fn test_render_new_file_code_full_mode_no_truncation() {
 #[test]
 fn test_render_new_file_code_applies_syntax_highlight() {
     let theme = MonokaiTestTheme;
-    let lines =
-        crate::diff::render_new_file_code("main.rs", "fn main() {}\n", 80, &theme, 10);
+    let lines = crate::diff::render_new_file_code("main.rs", "fn main() {}\n", 80, &theme, 10);
     let fn_span = lines[0]
         .spans
         .iter()
@@ -577,9 +581,10 @@ fn test_render_cache_key_includes_language() {
         is_binary: false,
     };
     let has_rust_cyan = |lines: &[Line]| {
-        lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-            s.style.fg == Some(ratatui::style::Color::Rgb(102, 217, 239))
-        })
+        lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg == Some(ratatui::style::Color::Rgb(102, 217, 239)))
     };
     let rust_lines = crate::diff::render_diff(&make("sample.rs"), 80, &MonokaiTestTheme);
     assert!(has_rust_cyan(&rust_lines), "rs 文件应有 Rust 语法色");
@@ -621,10 +626,7 @@ fn test_detect_language_by_filename() {
 #[cfg(feature = "markdown-highlight")]
 #[test]
 fn test_detect_language_by_extension() {
-    assert_eq!(
-        detect_language("src/main.rs", None),
-        Some("rs".to_string())
-    );
+    assert_eq!(detect_language("src/main.rs", None), Some("rs".to_string()));
     assert_eq!(detect_language("a.md", None), Some("md".to_string()));
     assert_eq!(detect_language("a.yml", None), Some("yml".to_string()));
     // .h 归为 C，避免 syntect 命中 Objective-C

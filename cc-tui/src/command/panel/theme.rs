@@ -1,8 +1,4 @@
-use crate::{
-    app::App,
-    command::Command,
-    ui::theme::ThemeName,
-};
+use crate::{app::App, command::Command, ui::theme::ThemeName};
 
 pub struct ThemeCommand;
 
@@ -22,10 +18,10 @@ impl Command for ThemeCommand {
         } else if let Some(name) = ThemeName::from_setting(arg) {
             app.apply_theme(name);
         } else {
-            let note = app.services.lc.tr_args(
-                "app-theme-unknown",
-                &[("name".into(), arg.into())],
-            );
+            let note = app
+                .services
+                .lc
+                .tr_args("app-theme-unknown", &[("name".into(), arg.into())]);
             app.session_mgr
                 .current_mut()
                 .messages

@@ -11,8 +11,8 @@ use crate::{
         types::{InstalledPlugins, McpServerEntry, PluginCommandEntry, PluginManifest},
     },
 };
-use gray_matter::{engine::YAML, Matter};
 use cc_lsp::config::{LspConfigSource, LspServerConfig};
+use gray_matter::{engine::YAML, Matter};
 use serde::Deserialize;
 use std::{
     collections::HashMap,

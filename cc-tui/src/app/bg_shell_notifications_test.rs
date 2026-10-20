@@ -28,7 +28,10 @@ fn make_submission_ready(app: &mut App) {
     }];
     app.services.peri_config = Some(config);
     // ACP 请求由内存服务端接管；禁用首次标题生成，防止另起真实模型请求。
-    app.session_mgr.current_mut().metadata.title_generation_attempted = true;
+    app.session_mgr
+        .current_mut()
+        .metadata
+        .title_generation_attempted = true;
 }
 
 fn make_notification(owner: Option<&str>, task_id: &str) -> PendingBgShellNotification {
@@ -361,12 +364,24 @@ async fn test_rejected_notification_before_interruption_and_error_is_not_automat
         app.acp_client = Some(client);
         app.session_mgr.current_mut().current_thread_id = Some("owner-a".into());
         app.set_loading(true);
-        app.inject_bg_shell_notifications(vec![make_notification(Some("owner-a"), "early-rejected-task")]);
+        app.inject_bg_shell_notifications(vec![make_notification(
+            Some("owner-a"),
+            "early-rejected-task",
+        )]);
         let (id, method, _) = receive_request(&server).await;
         assert_eq!(method, "peri/session/steer");
-        assert!(server.send_response(id, Err(AcpError::new(STEERING_NOT_CONSUMED, "本轮未消费"))).await.is_ok());
+        assert!(server
+            .send_response(id, Err(AcpError::new(STEERING_NOT_CONSUMED, "本轮未消费")))
+            .await
+            .is_ok());
         wait_for_receipt(&mut app).await;
-        assert_eq!(app.session_mgr.current().pending_bg_shell_notifications.len(), 1);
+        assert_eq!(
+            app.session_mgr
+                .current()
+                .pending_bg_shell_notifications
+                .len(),
+            1
+        );
         if interrupted {
             app.handle_agent_event(crate::app::AgentEvent::Interrupted);
         } else {
@@ -377,7 +392,10 @@ async fn test_rejected_notification_before_interruption_and_error_is_not_automat
             tokio::task::yield_now().await;
             app.poll_bg_shell_notifications();
         }
-        assert!(!app.session_mgr.current().ui.loading, "先回队的通知也不能在异常 Done 后恢复执行");
+        assert!(
+            !app.session_mgr.current().ui.loading,
+            "先回队的通知也不能在异常 Done 后恢复执行"
+        );
         let pending = &app.session_mgr.current().pending_bg_shell_notifications;
         assert_eq!(pending.len(), 1, "异常收尾不能丢弃已经回队的通知");
         assert!(pending[0].content.contains("early-rejected-task"));
@@ -403,19 +421,42 @@ async fn test_next_user_submission_includes_notification_retained_after_interrup
             app.handle_agent_event(crate::app::AgentEvent::Error("测试失败".into()));
         }
         app.handle_agent_event(crate::app::AgentEvent::Done);
-        assert!(server.send_response(id, Err(AcpError::new(STEERING_NOT_CONSUMED, "结束前未消费"))).await.is_ok());
+        assert!(server
+            .send_response(
+                id,
+                Err(AcpError::new(STEERING_NOT_CONSUMED, "结束前未消费"))
+            )
+            .await
+            .is_ok());
         wait_for_receipt(&mut app).await;
         assert!(!app.session_mgr.current().ui.loading);
-        assert_eq!(app.session_mgr.current().pending_bg_shell_notifications.len(), 1);
+        assert_eq!(
+            app.session_mgr
+                .current()
+                .pending_bg_shell_notifications
+                .len(),
+            1
+        );
         assert_no_request(&server).await;
         app.submit_message("继续用户原来的任务".into());
         let (prompt_id, method, params) = receive_request(&server).await;
         assert_eq!(method, "session/prompt", "恢复通知应随下一条主动消息发送");
         assert_eq!(params["sessionId"], "owner-a");
         let content = params["message"]["content"].to_string();
-        assert!(content.contains("继续用户原来的任务"), "不能丢失用户主动提交的文本");
-        assert_eq!(content.matches("<task-id>resume-task</task-id>").count(), 1, "通知应恰好一次包含在同一个 prompt 中");
-        assert!(app.session_mgr.current().pending_bg_shell_notifications.is_empty());
+        assert!(
+            content.contains("继续用户原来的任务"),
+            "不能丢失用户主动提交的文本"
+        );
+        assert_eq!(
+            content.matches("<task-id>resume-task</task-id>").count(),
+            1,
+            "通知应恰好一次包含在同一个 prompt 中"
+        );
+        assert!(app
+            .session_mgr
+            .current()
+            .pending_bg_shell_notifications
+            .is_empty());
         assert!(server.send_response(prompt_id, Ok(json!({}))).await.is_ok());
         for _ in 0..8 {
             tokio::task::yield_now().await;
@@ -436,7 +477,13 @@ async fn test_queued_user_message_includes_pending_notification_without_extra_tu
     app.inject_bg_shell_notifications(vec![make_notification(Some("owner-a"), "queued-task")]);
     let (id, method, _) = receive_request(&server).await;
     assert_eq!(method, "peri/session/steer");
-    assert!(server.send_response(id, Err(AcpError::new(STEERING_NOT_ENQUEUED, "当前队列已关闭"))).await.is_ok());
+    assert!(server
+        .send_response(
+            id,
+            Err(AcpError::new(STEERING_NOT_ENQUEUED, "当前队列已关闭"))
+        )
+        .await
+        .is_ok());
     wait_for_receipt(&mut app).await;
     app.queue_user_message("用户排队的下一项任务".into());
     app.handle_agent_event(crate::app::AgentEvent::Done);
@@ -444,9 +491,22 @@ async fn test_queued_user_message_includes_pending_notification_without_extra_tu
     assert_eq!(method, "session/prompt", "优先发送用户排队消息");
     let content = params["message"]["content"].to_string();
     assert!(content.contains("用户排队的下一项任务"));
-    assert_eq!(content.matches("<task-id>queued-task</task-id>").count(), 1, "用户排队优先时后台通知仍应随该轮送达");
-    assert!(app.session_mgr.current().messages.pending_messages.is_empty());
-    assert!(app.session_mgr.current().pending_bg_shell_notifications.is_empty());
+    assert_eq!(
+        content.matches("<task-id>queued-task</task-id>").count(),
+        1,
+        "用户排队优先时后台通知仍应随该轮送达"
+    );
+    assert!(app
+        .session_mgr
+        .current()
+        .messages
+        .pending_messages
+        .is_empty());
+    assert!(app
+        .session_mgr
+        .current()
+        .pending_bg_shell_notifications
+        .is_empty());
     assert!(server.send_response(prompt_id, Ok(json!({}))).await.is_ok());
     for _ in 0..8 {
         tokio::task::yield_now().await;

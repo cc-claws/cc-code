@@ -1682,8 +1682,7 @@ pub fn render_view_model_with_flags(
                             // 对齐 CC：Write create 的结果行为 "Wrote N lines to <path>"，
                             // 数字与路径加粗（FileWriteTool/UI.tsx:58-61）
                             if tool_name == "Write" {
-                                if let Some(styled) =
-                                    format_write_summary_line(line, result_color)
+                                if let Some(styled) = format_write_summary_line(line, result_color)
                                 {
                                     return format_wrapped_line_keep_lead(
                                         styled,

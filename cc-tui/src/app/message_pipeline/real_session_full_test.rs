@@ -76,9 +76,7 @@ fn test_real_session_multi_round_thinking_merged() {
                     content
                         .content_blocks()
                         .iter()
-                        .filter(|b| {
-                            matches!(b, cc_agent::messages::ContentBlock::Reasoning { .. })
-                        })
+                        .filter(|b| matches!(b, cc_agent::messages::ContentBlock::Reasoning { .. }))
                         .count(),
                 )
             } else {

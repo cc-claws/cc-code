@@ -179,7 +179,11 @@ pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) 
 ///
 /// 不用两块 range 的间隙判断：pulldown-cmark 的块 range 会吞掉块尾的部分
 /// 换行（`## T\n\n正文` 的间隙只有 1 个换行），不可靠。
-fn has_blank_line_between(prev_top_start: Option<usize>, current_start: usize, input: &str) -> bool {
+fn has_blank_line_between(
+    prev_top_start: Option<usize>,
+    current_start: usize,
+    input: &str,
+) -> bool {
     let Some(prev) = prev_top_start else {
         return false;
     };

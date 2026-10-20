@@ -23,7 +23,10 @@ pub fn resolve_path(cwd: &str, file_path: &str) -> PathBuf {
     // 自动安全展开波浪号家目录（~ 或 ~/ 或 ~\）
     let expanded = if file_path == "~" {
         dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."))
-    } else if let Some(rest) = file_path.strip_prefix("~/").or_else(|| file_path.strip_prefix("~\\")) {
+    } else if let Some(rest) = file_path
+        .strip_prefix("~/")
+        .or_else(|| file_path.strip_prefix("~\\"))
+    {
         dirs_next::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(rest)

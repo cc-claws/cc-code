@@ -42,9 +42,8 @@ fn restrict_to_owner_windows(path: &Path) -> io::Result<()> {
         GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT,
     };
     use windows_sys::Win32::Security::{
-        AddAccessAllowedAce, InitializeAcl, ACL, ACCESS_ALLOWED_ACE, ACL_REVISION,
-        DACL_SECURITY_INFORMATION, GetLengthSid, OWNER_SECURITY_INFORMATION,
-        PROTECTED_DACL_SECURITY_INFORMATION,
+        AddAccessAllowedAce, GetLengthSid, InitializeAcl, ACCESS_ALLOWED_ACE, ACL, ACL_REVISION,
+        DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
     };
 
     let path_w: Vec<u16> = path

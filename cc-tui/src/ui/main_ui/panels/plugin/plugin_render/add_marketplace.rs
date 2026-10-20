@@ -65,7 +65,10 @@ pub(crate) fn render_add_marketplace(
             lines.push(Line::from(vec![
                 Span::styled("   \u{00B7} ", Style::default().fg(theme::cur().inactive)),
                 Span::styled(*example, Style::default().fg(theme::cur().inactive)),
-                Span::styled(format!(" ({})", desc), Style::default().fg(theme::cur().inactive)),
+                Span::styled(
+                    format!(" ({})", desc),
+                    Style::default().fg(theme::cur().inactive),
+                ),
             ]));
         }
     }

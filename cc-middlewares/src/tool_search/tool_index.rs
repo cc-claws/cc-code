@@ -2,8 +2,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use parking_lot::RwLock;
 use cc_agent::tools::BaseTool;
+use parking_lot::RwLock;
 
 use super::keyword_search;
 

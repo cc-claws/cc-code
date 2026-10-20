@@ -742,9 +742,13 @@ impl MessageViewModel {
                         .filter(|name| !name.is_empty());
                     let is_fork_call = explicit_type == Some("fork")
                         || input.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let agent_id = explicit_type
-                        .map(str::to_string)
-                        .unwrap_or_else(|| if is_fork_call { "fork".into() } else { "unknown".into() });
+                    let agent_id = explicit_type.map(str::to_string).unwrap_or_else(|| {
+                        if is_fork_call {
+                            "fork".into()
+                        } else {
+                            "unknown".into()
+                        }
+                    });
                     let task_preview = input["prompt"]
                         .as_str()
                         .unwrap_or("")
@@ -779,10 +783,8 @@ impl MessageViewModel {
                 }
                 // 使用统一格式化函数生成 display_name 和 args_display
                 // cwd 参数确保流式和恢复路径产生一致的路径显示
-                let display_name = crate::app::tool_display::format_tool_name_with_input(
-                    &tool_name,
-                    Some(&input),
-                );
+                let display_name =
+                    crate::app::tool_display::format_tool_name_with_input(&tool_name, Some(&input));
                 let args_display =
                     crate::app::tool_display::format_tool_args(&tool_name, &input, cwd);
                 let color = if *is_error {

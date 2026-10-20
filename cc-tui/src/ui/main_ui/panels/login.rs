@@ -95,28 +95,40 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
                             .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.opus), Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        fmt_model(&m.opus),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                     Span::styled(
                         "  Sonnet ",
                         Style::default()
                             .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.sonnet), Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        fmt_model(&m.sonnet),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                     Span::styled(
                         "  Haiku ",
                         Style::default()
                             .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.haiku), Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        fmt_model(&m.haiku),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                     Span::styled(
                         "  Fable ",
                         Style::default()
                             .fg(theme::cur().inactive)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(fmt_model(&m.fable), Style::default().fg(theme::cur().inactive)),
+                    Span::styled(
+                        fmt_model(&m.fable),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                 ]));
             }
             if panel.providers.is_empty() {

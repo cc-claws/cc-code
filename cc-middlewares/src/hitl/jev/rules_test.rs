@@ -404,7 +404,13 @@ async fn test_timeout_does_not_trigger_halving_recursion() {
 async fn test_malformed_response_still_halves_recursively() {
     // 反向保证：**解析失败**（非超时）仍应保留对半递归的能力——
     // 这是为"思考吃光输出预算"设计的，不能因为删超时递归而一起删掉。
-    let long = format!("{}-{}\n\n{}-{}", "丙".repeat(600), uuid::Uuid::new_v4(), "丁".repeat(600), uuid::Uuid::new_v4());
+    let long = format!(
+        "{}-{}\n\n{}-{}",
+        "丙".repeat(600),
+        uuid::Uuid::new_v4(),
+        "丁".repeat(600),
+        uuid::Uuid::new_v4()
+    );
     let model = MockRulesModel::new("不是 JSON");
     let _ = extract_rules_chunked(&model, &long, 2000, 4, Duration::from_secs(5)).await;
     assert!(

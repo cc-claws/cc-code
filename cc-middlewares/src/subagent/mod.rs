@@ -5,7 +5,9 @@ mod fork;
 mod skill_preload;
 mod tool;
 pub use agent_result::AgentResultTool;
-pub use background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskSnapshot, BackgroundTaskStatus};
+pub use background::{
+    BackgroundTask, BackgroundTaskRegistry, BackgroundTaskSnapshot, BackgroundTaskStatus,
+};
 pub use built_in_agents::{get_built_in_agent, list_built_in_agents, BuiltInAgent};
 pub use skill_preload::SkillPreloadMiddleware;
 pub use tool::SubAgentTool;

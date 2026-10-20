@@ -152,7 +152,8 @@ pub(crate) fn render_messages(
     // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
     let spinner_line: Option<Line<'static>> = if app.session_mgr.current().viewport_loading() {
         let session = app.session_mgr.current();
-        let frame = cc_widgets::spinner::animation::tick_to_frame(session.viewport_spinner().tick());
+        let frame =
+            cc_widgets::spinner::animation::tick_to_frame(session.viewport_spinner().tick());
         let verb = session.viewport_spinner().verb();
         let elapsed =
             cc_widgets::spinner::animation::format_elapsed(session.viewport_spinner().elapsed_ms());
@@ -186,11 +187,8 @@ pub(crate) fn render_messages(
         // 否则动词走 ±1 列流光扫过。
         let stall = session.viewport_spinner().stalled_intensity();
         let (frame_color, verb_spans) = if stall > 0.0 {
-            let color = cc_widgets::spinner::animation::blend_color(
-                base_color,
-                theme::cur().error,
-                stall,
-            );
+            let color =
+                cc_widgets::spinner::animation::blend_color(base_color, theme::cur().error, stall);
             (
                 color,
                 vec![Span::styled(verb.to_string(), Style::default().fg(color))],
@@ -505,7 +503,9 @@ fn viewport_clip(
                         Span::styled(text, Style::default().fg(theme::cur().inactive)),
                     ]));
                 }
-                if app.session_mgr.current().active_subagent().is_none() && !app.session_mgr.current().todo_items.is_empty() {
+                if app.session_mgr.current().active_subagent().is_none()
+                    && !app.session_mgr.current().todo_items.is_empty()
+                {
                     lines.push(Line::from(""));
                     let todos = &app.session_mgr.current().todo_items;
                     let visible_count = todos.len().min(MAX_VISIBLE_TODOS);
@@ -639,8 +639,16 @@ fn spinner_extra_count(app: &App) -> u16 {
         // 空行(1) + spinner(1) + trailing(1) = 3，tip 行仅在有已发布 tip（或触发时间覆盖）时 +1；
         // 有 todo 时额外 + 分隔空行(1) + todo 渲染行数（最多 5 行 + 可选截断统计 1 行）
         let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
-        let tip_lines: u16 = if app.spinner_tip_visible(turn_elapsed) { 1 } else { 0 };
-        let total_todos = if app.session_mgr.current().active_subagent().is_none() { app.session_mgr.current().todo_items.len() } else { 0 };
+        let tip_lines: u16 = if app.spinner_tip_visible(turn_elapsed) {
+            1
+        } else {
+            0
+        };
+        let total_todos = if app.session_mgr.current().active_subagent().is_none() {
+            app.session_mgr.current().todo_items.len()
+        } else {
+            0
+        };
         if total_todos > 0 {
             4 + tip_lines + todo_render_line_count(total_todos)
         } else {

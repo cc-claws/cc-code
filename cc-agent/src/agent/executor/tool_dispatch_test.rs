@@ -969,10 +969,8 @@ async fn test_consecutive_action_injects_correction() {
             _tools: &[&dyn BaseTool],
             _streaming: Option<crate::llm::types::StreamingContext>,
         ) -> AgentResult<Reasoning> {
-            let has_loop_warning = messages_contains_hint(
-                messages,
-                "3 consecutive times with identical parameters",
-            );
+            let has_loop_warning =
+                messages_contains_hint(messages, "3 consecutive times with identical parameters");
             if has_loop_warning {
                 return Ok(Reasoning::with_answer(
                     "done",
@@ -1462,8 +1460,7 @@ async fn test_schema_failure_circuit_breaker_injects_warning() {
         "Agent 应在熔断提示后正常完成，实际: {:?}",
         result
     );
-    let has_circuit_breaker =
-        state_contains_hint(&state, "SCHEMA VALIDATION CIRCUIT BREAKER");
+    let has_circuit_breaker = state_contains_hint(&state, "SCHEMA VALIDATION CIRCUIT BREAKER");
     assert!(has_circuit_breaker, "应注入 Schema 校验熔断提示消息");
 }
 
@@ -2053,11 +2050,8 @@ async fn test_circuit_breaker_hint_survives_system_filter() {
         .expect("应正常完成");
 
     // 模拟 StateSnapshot / /export 的过滤口径：丢弃所有 system 消息
-    let non_system: Vec<&BaseMessage> = state
-        .messages()
-        .iter()
-        .filter(|m| !m.is_system())
-        .collect();
+    let non_system: Vec<&BaseMessage> =
+        state.messages().iter().filter(|m| !m.is_system()).collect();
     let survived = non_system.iter().any(|m| {
         m.message_content()
             .text_content()

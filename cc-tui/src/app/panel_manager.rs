@@ -89,14 +89,15 @@ impl PanelKind {
     /// 互斥组
     pub fn mutex_group(&self) -> MutexGroup {
         match self {
-            PanelKind::Model | PanelKind::Login | PanelKind::Config | PanelKind::CommandPalette | PanelKind::Theme => {
-                MutexGroup::Settings
-            }
+            PanelKind::Model
+            | PanelKind::Login
+            | PanelKind::Config
+            | PanelKind::CommandPalette
+            | PanelKind::Theme => MutexGroup::Settings,
             PanelKind::Agent | PanelKind::Hooks => MutexGroup::Agent,
-            PanelKind::Mcp
-            | PanelKind::Plugin
-            | PanelKind::Cron
-            | PanelKind::BackgroundTasks => MutexGroup::Tools,
+            PanelKind::Mcp | PanelKind::Plugin | PanelKind::Cron | PanelKind::BackgroundTasks => {
+                MutexGroup::Tools
+            }
             PanelKind::Status | PanelKind::Memory => MutexGroup::Info,
             PanelKind::ThreadBrowser | PanelKind::InputHistory => MutexGroup::Thread,
         }

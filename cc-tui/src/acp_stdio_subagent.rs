@@ -35,8 +35,15 @@ fn completion_sender(
                 let Some(session) = sessions.get(&sid) else {
                     break;
                 };
-                results.retain(|result| !session.background_registry.status(&result.task_id)
-                    .is_ok_and(|snapshot| snapshot.status == cc_middlewares::subagent::BackgroundTaskStatus::Stopped));
+                results.retain(|result| {
+                    !session
+                        .background_registry
+                        .status(&result.task_id)
+                        .is_ok_and(|snapshot| {
+                            snapshot.status
+                                == cc_middlewares::subagent::BackgroundTaskStatus::Stopped
+                        })
+                });
             }
             if results.is_empty() {
                 continue;

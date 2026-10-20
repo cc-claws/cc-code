@@ -288,7 +288,9 @@ fn task_items(session: &super::ChatSession) -> Vec<String> {
             session
                 .agent_shells
                 .iter()
-                .filter(|slot| slot.is_backgrounded() || (show_foreground && slot.is_foreground_running()))
+                .filter(|slot| {
+                    slot.is_backgrounded() || (show_foreground && slot.is_foreground_running())
+                })
                 .map(|slot| slot.task_id.clone()),
         )
         .collect()
@@ -596,7 +598,10 @@ fn render_detail(
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme::cur().prompt_border))
-        .title(Span::styled("Output", Style::default().fg(theme::cur().inactive)));
+        .title(Span::styled(
+            "Output",
+            Style::default().fg(theme::cur().inactive),
+        ));
     let output_inner = output_block.inner(chunks[1]);
     f.render_widget(output_block, chunks[1]);
 
@@ -626,9 +631,15 @@ fn render_detail(
 /// badge 样式：fg + 半透明背景色块（近似效果图 rgba 0.15，用深色 Rgb 近似）。
 fn status_badge_style(status: ShellStatus) -> Style {
     match status {
-        ShellStatus::Running => Style::default().fg(theme::cur().cyan).bg(theme::cur().chip_bg_running),
-        ShellStatus::Completed => Style::default().fg(theme::cur().success).bg(theme::cur().chip_bg_completed),
-        ShellStatus::Failed => Style::default().fg(theme::cur().error).bg(theme::cur().chip_bg_failed),
+        ShellStatus::Running => Style::default()
+            .fg(theme::cur().cyan)
+            .bg(theme::cur().chip_bg_running),
+        ShellStatus::Completed => Style::default()
+            .fg(theme::cur().success)
+            .bg(theme::cur().chip_bg_completed),
+        ShellStatus::Failed => Style::default()
+            .fg(theme::cur().error)
+            .bg(theme::cur().chip_bg_failed),
         ShellStatus::Killed => Style::default()
             .fg(theme::cur().warning)
             .bg(theme::cur().chip_bg_killed),

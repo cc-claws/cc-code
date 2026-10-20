@@ -580,9 +580,21 @@ fn test_system_reminder_content_hash_different() {
 #[test]
 fn test_agent_group_label_reflects_real_mode() {
     let cases = [
-        (json!({"prompt": "查需求"}), "unknown", "漏参 → 不得冒充 fork"),
-        (json!({"prompt": "查需求", "fork": true}), "fork", "fork: true 才是 fork"),
-        (json!({"prompt": "查需求", "subagent_type": "fork"}), "fork", "subagent_type=fork 等价"),
+        (
+            json!({"prompt": "查需求"}),
+            "unknown",
+            "漏参 → 不得冒充 fork",
+        ),
+        (
+            json!({"prompt": "查需求", "fork": true}),
+            "fork",
+            "fork: true 才是 fork",
+        ),
+        (
+            json!({"prompt": "查需求", "subagent_type": "fork"}),
+            "fork",
+            "subagent_type=fork 等价",
+        ),
         (
             json!({"prompt": "查需求", "subagent_type": "general-purpose"}),
             "general-purpose",
@@ -597,7 +609,9 @@ fn test_agent_group_label_reflects_real_mode() {
             &prev,
         );
         match vm {
-            MessageViewModel::SubAgentGroup { agent_id, is_error, .. } => {
+            MessageViewModel::SubAgentGroup {
+                agent_id, is_error, ..
+            } => {
                 assert_eq!(agent_id, expected, "{message}");
                 assert!(is_error, "工具报错时分组必须标记为失败");
             }
