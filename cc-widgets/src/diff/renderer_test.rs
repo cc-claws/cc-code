@@ -96,8 +96,15 @@ fn test_render_diff_add_line_is_green() {
     );
 }
 
+/// 删除行三档配色对齐 CC `color-diff`（`packages/color-diff-napi/src/index.ts`）：
+///
+/// - `marker === '-'` 的代码正文走 `defaultStyle(theme)` → `theme.foreground`（正文色）；
+/// - marker `-` 与行号走 `deleteDecoration`（暗红）；
+/// - 整行底色走 `deleteLine`（深红）。
+///
+/// 旧实现三处共用 `diff_remove` 亮红，删除行代码整行发红，与 CC 的「白字压深红底」不符。
 #[test]
-fn test_render_diff_remove_line_is_red() {
+fn test_render_diff_remove_line_splits_decoration_and_body_color() {
     let input = make_basic_input();
     let theme = DarkTheme;
     let lines = render_diff_impl(&input, 80, &theme);
@@ -108,12 +115,36 @@ fn test_render_diff_remove_line_is_red() {
     });
     assert!(remove_line.is_some(), "应有包含 old 内容的行");
     let remove_line = remove_line.unwrap();
-    let remove_color = theme.diff_remove();
-    let has_red = remove_line
+
+    let body = remove_line
         .spans
         .iter()
-        .any(|s| s.style.fg == Some(remove_color));
-    assert!(has_red, "删除行应有 diff_remove 颜色");
+        .find(|s| s.content.contains("println!(\"old\")"))
+        .expect("应有正文 span");
+    assert_eq!(
+        body.style.fg,
+        Some(theme.text()),
+        "删除行代码正文应使用正文色（CC defaultStyle/foreground）"
+    );
+    assert_eq!(
+        body.style.bg,
+        Some(theme.diff_remove_bg()),
+        "删除行正文应压在 deleteLine 深红底上"
+    );
+
+    let gutter = &remove_line.spans[0];
+    assert_eq!(
+        gutter.style.fg,
+        Some(theme.diff_remove_decoration()),
+        "marker 与行号应用 deleteDecoration 暗红，不能与正文同色"
+    );
+    assert!(
+        remove_line
+            .spans
+            .iter()
+            .all(|s| s.style.fg != Some(theme.diff_remove())),
+        "删除行不应再出现旧口径的 diff_remove 亮红"
+    );
 }
 
 #[test]
@@ -130,14 +161,21 @@ fn test_render_new_file_all_green() {
     let lines = render_diff_impl(&input, 80, &theme);
     // 应有标题行 + hunk header + 至少 3 条内容行
     assert!(lines.len() >= 2, "新文件应有标题 + 内容行");
-    let add_color = theme.diff_add();
+    // 对齐 CC color-diff：`+` 行的 marker 与行号用 addDecoration，
+    // 代码正文走语法高亮（无语法时回退 diff_add）。两类行都要数到。
+    let deco = theme.diff_add_decoration();
+    let add_fg = theme.diff_add();
     let green_lines: Vec<_> = lines
         .iter()
-        .filter(|l| l.spans.iter().any(|s| s.style.fg == Some(add_color)))
+        .filter(|l| {
+            l.spans
+                .iter()
+                .any(|s| s.style.fg == Some(deco) || s.style.fg == Some(add_fg))
+        })
         .collect();
     assert!(
         green_lines.len() >= 2,
-        "新文件应有多行绿色内容，实际有 {} 行",
+        "新文件应有多行带新增色的内容（marker/行号或正文），实际有 {} 行",
         green_lines.len()
     );
 }
@@ -411,8 +449,9 @@ fn test_render_diff_remove_line_has_no_syntax_color() {
         .iter()
         .find(|l| joined_text(l).contains("fn old_func"))
         .expect("应找到含 fn old_func 的行");
-    // Remove 行所有内容 span 的前景色都应是 diff_remove（无语法色混入）
-    let remove_fg = crate::theme::Theme::diff_remove(&MonokaiTestTheme);
+    // 对齐 CC color-diff `marker === '-'` 分支：删除行**不做语法高亮**，
+    // 正文统一用正文色（`theme.text()`），因此不会混入 Monokai 的语法色。
+    let body_fg = crate::theme::Theme::text(&MonokaiTestTheme);
     let content_spans: Vec<_> = remove_line
         .spans
         .iter()
@@ -422,8 +461,8 @@ fn test_render_diff_remove_line_has_no_syntax_color() {
     for s in &content_spans {
         assert_eq!(
             s.style.fg,
-            Some(remove_fg),
-            "Remove 行内容不应带语法色，保持统一 diff_remove 前景"
+            Some(body_fg),
+            "Remove 行内容不应带语法色，应为正文色"
         );
     }
 }

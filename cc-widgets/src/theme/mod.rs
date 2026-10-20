@@ -71,6 +71,17 @@ pub trait Theme: Send + Sync + 'static {
     fn diff_add_word_bg(&self) -> Color {
         Color::Rgb(26, 78, 36)
     } // DIFF_ADD_WORD_BG #1A4E24
+    /// Diff 新增行 marker（`+`）与行号的前景色。
+    ///
+    /// 对齐 CC `color-diff` 的 `addDecoration`：marker 与行号比正文更深一档，
+    /// 让「标记」与「代码」在视觉上分层。默认值取 CC 深色主题的 `#50C850`。
+    fn diff_add_decoration(&self) -> Color {
+        Color::Rgb(80, 200, 80)
+    }
+    /// Diff 删除行 marker（`-`）与行号的前景色（CC `deleteDecoration`，`#DC5A5A`）。
+    fn diff_remove_decoration(&self) -> Color {
+        Color::Rgb(220, 90, 90)
+    }
     /// Diff 删除行前景色
     fn diff_remove(&self) -> Color {
         Color::Rgb(248, 81, 73)

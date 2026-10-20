@@ -228,9 +228,7 @@ impl BaseTool for GlobFilesTool {
 
         let result = tokio::time::timeout(
             Duration::from_secs(GLOB_TIMEOUT_SECS),
-            tokio::task::spawn_blocking(move || {
-                collect_files(&search_root_owned, &pattern_owned)
-            }),
+            tokio::task::spawn_blocking(move || collect_files(&search_root_owned, &pattern_owned)),
         )
         .await;
 

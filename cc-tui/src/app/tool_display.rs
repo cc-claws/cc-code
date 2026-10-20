@@ -2,20 +2,50 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// 将绝对路径剥离 cwd 前缀，返回相对路径；失败则取末段文件名
+/// 工具参数里的路径 → 展示用路径，逐条对齐 CC `utils/file.ts::getDisplayPath`：
+///
+/// 1. 在 cwd 内 → **相对路径**（`cc-tui/src/ui/render_thread.rs`）；
+/// 2. 在 home 内 → **`~/...`** 记法；
+/// 3. 其余 → **绝对路径原样**。
+///
+/// 旧实现的 fallback 是「只取末段文件名」，于是 cwd 外的文件（以及未传 cwd 的
+/// 情况）一律退化成 `render_thread.rs`，用户看不出它到底在哪、也无法与其他
+/// 同名文件区分。CC 从不丢掉目录信息。
 fn strip_cwd(path: &str, cwd: Option<&str>) -> String {
+    // Windows 路径统一用 `/` 参与展示与匹配（CC 在 Windows 上同样输出相对路径）
+    let normalized = path.replace('\\', "/");
+    let path = normalized.as_str();
+
     if let Some(cwd) = cwd {
+        let cwd = cwd.replace('\\', "/");
         let base = if cwd.ends_with('/') {
-            cwd.to_string()
+            cwd
         } else {
-            format!("{}/", cwd)
+            format!("{cwd}/")
         };
-        if let Some(rel) = path.strip_prefix(&base) {
+        if let Some(rel) = path.strip_prefix(base.as_str()) {
             return sanitize_display_text(rel);
         }
     }
-    // fallback：取最后一段文件名
-    sanitize_display_text(path.rsplit('/').next().unwrap_or(path))
+
+    // home 目录 → `~/...`
+    if let Some(home) = home_dir_string() {
+        let base = if home.ends_with('/') {
+            home
+        } else {
+            format!("{home}/")
+        };
+        if let Some(rel) = path.strip_prefix(base.as_str()) {
+            return sanitize_display_text(&format!("~/{rel}"));
+        }
+    }
+
+    sanitize_display_text(path)
+}
+
+/// 当前用户 home 目录的展示形式（已归一化为 `/` 分隔）；取不到时返回 None。
+fn home_dir_string() -> Option<String> {
+    dirs_next::home_dir().map(|home| home.to_string_lossy().replace('\\', "/"))
 }
 
 /// 返回简短 display name，控制在 3-6 字符以保持 UI 对齐
@@ -37,6 +67,20 @@ pub fn format_tool_name(tool: &str) -> String {
         other => return to_pascal(&sanitize_display_text(other)),
     }
     .to_string()
+}
+
+/// 会话工具统计（状态栏 `✓ Name ×N`）专用的显示名。
+///
+/// 与 [`format_tool_name`] 的唯一差别：`Edit` 统一显示为 **`Edit`**，不转成
+/// `Update`。统计的 key 只有工具名、拿不到入参，无法像 CC `userFacingName(input)`
+/// 那样区分 `Create`（`old_string == ""`）与 `Update`；若仍显示 `Update`，用户
+/// 会把 `Create` 的次数也算进 `Update`（真机疑问：「这个地方哪有 Update」）。
+/// 消息区的工具头仍按入参显示 `Create` / `Update`，不受影响。
+pub fn format_tool_name_for_stats(tool: &str) -> String {
+    if tool == "Edit" {
+        return "Edit".to_string();
+    }
+    format_tool_name(tool)
 }
 
 /// 带工具入参的 display name，对齐 CC 的 `userFacingName(input)`。

@@ -478,13 +478,17 @@ fn take_leading_blank(line: Line<'static>) -> (String, Style, Line<'static>) {
 /// （终端自身识别的链接同样不会包含它们）。
 ///
 /// 不用 `regex` crate：这里只需要一条极简前缀扫描，手写一遍省一个依赖。
-fn find_url_ranges(text: &str) -> Vec<(usize, usize)> {
+pub(crate) fn find_url_ranges(text: &str) -> Vec<(usize, usize)> {
     const SCHEMES: [&str; 2] = ["https://", "http://"];
     let mut ranges = Vec::new();
     let mut search_from = 0;
     while let Some(found) = SCHEMES
         .iter()
-        .filter_map(|scheme| text[search_from..].find(scheme).map(|at| (search_from + at, *scheme)))
+        .filter_map(|scheme| {
+            text[search_from..]
+                .find(scheme)
+                .map(|at| (search_from + at, *scheme))
+        })
         .min_by_key(|(at, _)| *at)
     {
         let (start, scheme) = found;
@@ -518,9 +522,7 @@ fn style_urls(text: &str, base: Style) -> Vec<Span<'static>> {
     if ranges.is_empty() {
         return vec![Span::styled(text.to_string(), base)];
     }
-    let link = base
-        .fg(theme::cur().ide)
-        .add_modifier(Modifier::UNDERLINED);
+    let link = base.fg(theme::cur().ide).add_modifier(Modifier::UNDERLINED);
     let mut spans = Vec::with_capacity(ranges.len() * 2 + 1);
     let mut cursor = 0;
     for (start, end) in ranges {
@@ -1730,7 +1732,7 @@ pub fn render_view_model_with_flags(
                                 result_color
                             };
                             format_prefixed_text(
-                                item.text,
+                                item.text.as_ref(),
                                 item.prefix,
                                 Style::default().fg(border_color),
                                 Style::default().fg(text_color),
