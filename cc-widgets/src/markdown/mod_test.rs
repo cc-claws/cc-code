@@ -21,8 +21,8 @@ fn parse_empty_input() {
 #[test]
 fn parse_heading() {
     let text = parse_markdown("# Hello", &default_theme(), 80);
-    // 标题前后各有一个空行，所以 Hello 在 index 1
-    let line = &text.lines[1];
+    // 对齐 CC：标题前不额外留空行（消息开头直接是标题），标题后留 1 空行
+    let line = &text.lines[0];
     let heading_found = line.spans.iter().any(|s| s.content.contains("Hello"));
     assert!(heading_found, "Expected 'Hello' in heading output");
     let has_bold = line
@@ -860,4 +860,277 @@ fn test_horizontal_rule_fills_available_width() {
             text.width()
         );
     }
+}
+
+/// 对齐 CC：每个列表项独占一行，嵌套项不得与外层文字挤在同一行
+#[test]
+fn test_nested_list_items_are_on_separate_lines() {
+    let text = parse_markdown(
+        "- 外层一\n  - 内层一\n  - 内层二\n- 外层二\n",
+        &default_theme(),
+        80,
+    );
+    let lines: Vec<String> = text
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+    assert_eq!(
+        lines,
+        vec!["• 外层一", "  • 内层一", "  • 内层二", "• 外层二"],
+        "嵌套列表每项应独占一行，实际: {lines:?}"
+    );
+}
+
+/// 对齐 CC：消息以标题开头时不留前置空行
+#[test]
+fn test_heading_at_start_has_no_leading_blank_line() {
+    let text = parse_markdown("## 标题\n\n正文\n", &default_theme(), 80);
+    let lines: Vec<String> = text
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+    assert_eq!(lines, vec!["标题", "", "正文"], "实际: {lines:?}");
+}
+
+/// 对齐 CC：块间空行只来自源文本，多个空行压成 1 个
+#[test]
+fn test_block_spacing_follows_source_blank_lines() {
+    let text = parse_markdown(
+        "## 标题\n\n第一段文字。\n\n- 项一\n- 项二\n\n```rust\nfn main() {}\n```\n\n结尾段。\n",
+        &default_theme(),
+        80,
+    );
+    let lines: Vec<String> = text
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+    assert_eq!(
+        lines,
+        vec![
+            "标题",
+            "",
+            "第一段文字。",
+            "",
+            "• 项一",
+            "• 项二",
+            "",
+            "fn main() {}",
+            "",
+            "结尾段。"
+        ],
+        "块间空行应与 CC 一致，实际: {lines:?}"
+    );
+}
+
+/// 对齐 CC：源文本块间没有空行时不留空行
+#[test]
+fn test_no_blank_line_between_blocks_without_source_blank() {
+    let list = parse_markdown("文字\n- 项一\n- 项二\n", &default_theme(), 80);
+    let lines: Vec<String> = list
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+    assert_eq!(lines, vec!["文字", "• 项一", "• 项二"], "实际: {lines:?}");
+
+    let code = parse_markdown("文字\n```js\nx\n```\n", &default_theme(), 80);
+    let lines: Vec<String> = code
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+    assert_eq!(lines, vec!["文字", "x"], "实际: {lines:?}");
+}
+
+/// 对齐 CC：loose list 的项间空行不渲染（源空行属于 list token 内部）
+#[test]
+fn test_loose_list_has_no_blank_line_between_items() {
+    let text = parse_markdown("- 项一\n\n- 项二\n", &default_theme(), 80);
+    let lines: Vec<String> = text
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+    assert_eq!(lines, vec!["• 项一", "• 项二"], "实际: {lines:?}");
+}
+
+/// 渲染为纯文本行（用于与 CC 的行结构对拍）
+fn render_md_lines(src: &str) -> Vec<String> {
+    let text = parse_markdown(src, &default_theme(), 80);
+    text.lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect()
+}
+
+/// 与 CC（marked@17 + `formatToken`）逐语法对拍：块间空行只来自源文本。
+///
+/// 已知的**有意差异**（不在本测试断言范围内，改符号会影响全局观感）：
+/// - 列表/引用前缀：peri 用 `• ` / `▍ `，CC 用 `- ` / `│ `
+/// - 表格：peri 用 box drawing，CC 用 `| a | b |`
+/// - 图片：peri 显示 alt，CC 显示 URL
+/// - 三级嵌套列表缩进：CC 逐层累加到 6 空格，peri 每层固定 2 空格
+/// - CC 自身缺陷：`loose list` 丢 bullet、删除线内容被吞，peri 保留正确行为
+#[test]
+fn test_markdown_structure_matches_cc() {
+    let cases: Vec<(&str, &str, Vec<&str>)> = vec![
+        ("h1", "# 一级标题\n正文\n", vec!["一级标题", "", "正文"]),
+        (
+            "h2_h3",
+            "## 二级\n\n### 三级\n\n正文\n",
+            vec!["二级", "", "三级", "", "正文"],
+        ),
+        (
+            "multi_para",
+            "第一段。\n\n第二段。\n\n第三段。\n",
+            vec!["第一段。", "", "第二段。", "", "第三段。"],
+        ),
+        ("ul_tight", "- 项一\n- 项二\n", vec!["• 项一", "• 项二"]),
+        (
+            "ul_after_para",
+            "文字\n- 项一\n- 项二\n",
+            vec!["文字", "• 项一", "• 项二"],
+        ),
+        (
+            "ul_with_blank_around",
+            "文字\n\n- 项一\n- 项二\n\n文字2\n",
+            vec!["文字", "", "• 项一", "• 项二", "", "文字2"],
+        ),
+        (
+            "ol_start3",
+            "3. 第三\n4. 第四\n",
+            vec!["3. 第三", "4. 第四"],
+        ),
+        (
+            "nested_2",
+            "- 外层一\n  - 内层一\n  - 内层二\n- 外层二\n",
+            vec!["• 外层一", "  • 内层一", "  • 内层二", "• 外层二"],
+        ),
+        ("loose_list", "- 项一\n\n- 项二\n", vec!["• 项一", "• 项二"]),
+        (
+            "fence_lang",
+            "```rust\nfn main() {}\n```\n",
+            vec!["fn main() {}"],
+        ),
+        (
+            "fence_multi",
+            "```js\nlet a = 1\nlet b = 2\n```\n",
+            vec!["let a = 1", "let b = 2"],
+        ),
+        (
+            "fence_after_para",
+            "文字\n```js\nx\n```\n",
+            vec!["文字", "x"],
+        ),
+        (
+            "fence_blank_around",
+            "文字\n\n```js\nx\n```\n\n文字2\n",
+            vec!["文字", "", "x", "", "文字2"],
+        ),
+        (
+            "inline_styles",
+            "这里有 `code`、**粗体**、*斜体*、~~删除线~~。\n",
+            vec!["这里有 code、粗体、斜体、删除线。"],
+        ),
+        (
+            "link_inline",
+            "看 [文档](https://example.com) 了解。\n",
+            vec!["看 文档 了解。"],
+        ),
+        (
+            "autolink",
+            "访问 <https://example.com> 即可。\n",
+            vec!["访问 https://example.com 即可。"],
+        ),
+        (
+            "blockquote",
+            "> 引用一行\n> 引用二行\n",
+            vec!["▍ 引用一行", "▍ 引用二行"],
+        ),
+        (
+            "blockquote_multi_para",
+            "> 第一段\n>\n> 第二段\n",
+            vec!["▍ 第一段", "", "▍ 第二段"],
+        ),
+        (
+            "blockquote_with_list",
+            "> - 项一\n> - 项二\n",
+            vec!["▍ • 项一", "▍ • 项二"],
+        ),
+        ("hardbreak", "第一行  \n第二行\n", vec!["第一行", "第二行"]),
+        ("soft_lines", "第一行\n第二行\n", vec!["第一行", "第二行"]),
+        (
+            "bq_soft",
+            "> 第一行\n> 第二行\n",
+            vec!["▍ 第一行", "▍ 第二行"],
+        ),
+        (
+            "mixed",
+            "## 步骤\n\n1. 第一步\n2. 第二步\n\n```bash\nnpm i\n```\n\n完成。\n",
+            vec![
+                "步骤",
+                "",
+                "1. 第一步",
+                "2. 第二步",
+                "",
+                "npm i",
+                "",
+                "完成。",
+            ],
+        ),
+    ];
+    for (name, src, expected) in cases {
+        assert_eq!(render_md_lines(src), expected, "case: {name}");
+    }
+}
+
+/// 表格：peri 用 box drawing（CC 用 `| a | b |`），但前后空行结构必须一致
+#[test]
+fn test_table_spacing_matches_cc() {
+    let lines = render_md_lines("文字\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n文字2\n");
+    assert_eq!(
+        lines,
+        vec![
+            "文字",
+            "",
+            "┌───┬───┐",
+            "│ a │ b │",
+            "├───┼───┤",
+            "│ 1 │ 2 │",
+            "└───┴───┘",
+            "",
+            "文字2",
+        ],
+        "实际: {lines:?}"
+    );
+}
+
+/// 图片：peri 显示 alt（CC 显示 URL），但行结构一致
+#[test]
+fn test_image_spacing_matches_cc() {
+    assert_eq!(
+        render_md_lines("![图](https://example.com/a.png)\n"),
+        vec!["图"]
+    );
+}
+
+/// 水平线：peri 用长横线（CC 用 `---`），但空行结构与 CC 一致——
+/// hr 前按源文本留空行，hr 后不留空行（CC 的 hr tokenizer 吞掉后续换行）
+#[test]
+fn test_hr_spacing_matches_cc() {
+    let lines = render_md_lines("文字\n\n---\n\n文字2\n");
+    assert_eq!(lines.len(), 4, "实际: {lines:?}");
+    assert_eq!(lines[0], "文字");
+    assert_eq!(lines[1], "");
+    assert!(lines[2].starts_with('─'), "水平线应为横线，实际: {lines:?}");
+    assert_eq!(lines[3], "文字2", "hr 之后不应留空行");
+
+    // 文档以 hr 开头：无前置空行；hr 紧接文字：无后置空行
+    let lines = render_md_lines("---\n文字\n");
+    assert_eq!(lines.len(), 2, "实际: {lines:?}");
+    assert!(lines[0].starts_with('─'));
+    assert_eq!(lines[1], "文字");
 }

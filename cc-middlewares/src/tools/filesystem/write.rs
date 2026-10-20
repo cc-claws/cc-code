@@ -94,11 +94,7 @@ impl BaseTool for WriteFileTool {
                     .map(|s| s.lines().count())
                     .unwrap_or(line_count);
 
-                let rel = resolved
-                    .strip_prefix(&self.cwd)
-                    .unwrap_or(&resolved)
-                    .display()
-                    .to_string();
+                let rel = super::display_rel_path(&self.cwd, &resolved);
                 let lines_label = if line_count == 1 { "line" } else { "lines" };
                 Ok::<String, Box<dyn std::error::Error + Send + Sync>>(format!(
                     "Appended {} {} to {} (file total: {} lines)",
@@ -114,11 +110,7 @@ impl BaseTool for WriteFileTool {
                 }
                 match std::fs::rename(&tmp_path, &resolved) {
                     Ok(_) => {
-                        let rel = resolved
-                            .strip_prefix(&self.cwd)
-                            .unwrap_or(&resolved)
-                            .display()
-                            .to_string();
+                        let rel = super::display_rel_path(&self.cwd, &resolved);
                         let lines_label = if line_count == 1 { "line" } else { "lines" };
                         Ok(format!("Wrote {} {} {}", line_count, lines_label, rel))
                     }

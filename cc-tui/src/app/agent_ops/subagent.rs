@@ -100,7 +100,14 @@ impl App {
             }
         }
         sub.is_background = is_background;
-        if is_background && !self.session_mgr.current().background_agents.iter().any(|a| a.instance_id == instance_id) {
+        if is_background
+            && !self
+                .session_mgr
+                .current()
+                .background_agents
+                .iter()
+                .any(|a| a.instance_id == instance_id)
+        {
             use super::super::chat_session::RunningBgAgent;
             self.session_mgr
                 .current_mut()
@@ -136,16 +143,28 @@ impl App {
 
     fn update_subagent_launch_summary(&mut self) {
         let session = self.session_mgr.current_mut();
-        let agents: Vec<_> = session.background_agents.iter().filter_map(|agent| {
-            session.subagent_sessions.get(&agent.instance_id)
-        }).collect();
-        if agents.is_empty() { return; }
+        let agents: Vec<_> = session
+            .background_agents
+            .iter()
+            .filter_map(|agent| session.subagent_sessions.get(&agent.instance_id))
+            .collect();
+        if agents.is_empty() {
+            return;
+        }
 
         // 1. 普通模式：极简树形摘要
-        let mut content = format!("{} {} background agents launched (↓ to manage)", crate::ui::theme::SYMBOL_DOT, agents.len());
+        let mut content = format!(
+            "{} {} background agents launched (↓ to manage)",
+            crate::ui::theme::SYMBOL_DOT,
+            agents.len()
+        );
         for (index, agent) in agents.iter().enumerate() {
             // 树形行：缩进 2 列 → `├` 与标题文字同列；渲染层识别该形状后不再注入 `· ` 前缀。
-            let branch = if index + 1 == agents.len() { "└──" } else { "├──" };
+            let branch = if index + 1 == agents.len() {
+                "└──"
+            } else {
+                "├──"
+            };
             content.push_str(&format!("\n  {branch} {}", agent.task_preview));
         }
 
@@ -176,7 +195,9 @@ impl App {
         session.messages.view_messages.retain(|vm| {
             !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
         });
-        session.messages.push_system_note_with_detail(content, detail_content);
+        session
+            .messages
+            .push_system_note_with_detail(content, detail_content);
     }
 
     /// 刷新主视口的等待态计数行 `✻ Waiting for N background agents to finish`（PRD §4.4.2）。
@@ -211,34 +232,68 @@ impl App {
         ));
     }
 
-    pub(crate) fn handle_subagent_event(&mut self, id: &str, mut event: AgentEvent) -> (bool, bool, bool) {
-        if let AgentEvent::SubagentEvent { source_agent_id, event } = event {
+    pub(crate) fn handle_subagent_event(
+        &mut self,
+        id: &str,
+        mut event: AgentEvent,
+    ) -> (bool, bool, bool) {
+        if let AgentEvent::SubagentEvent {
+            source_agent_id,
+            event,
+        } = event
+        {
             return self.handle_subagent_event(&source_agent_id, *event);
         }
         // 到达子管线后去掉路由信封；它就是该管线的本地主线程。
         match &mut event {
-            AgentEvent::ToolStart { source_agent_id, .. }
-            | AgentEvent::ToolEnd { source_agent_id, .. }
-            | AgentEvent::AssistantChunk { source_agent_id, .. } => *source_agent_id = None,
+            AgentEvent::ToolStart {
+                source_agent_id, ..
+            }
+            | AgentEvent::ToolEnd {
+                source_agent_id, ..
+            }
+            | AgentEvent::AssistantChunk {
+                source_agent_id, ..
+            } => *source_agent_id = None,
             _ => {}
         }
         // 前台同步 SubAgent 的事件需同时驱动主时间线 SubAgentGroup；在清空路由信封前
         // 先克隆一份（仅这三类事件需要，避免为整个 AgentEvent 实现 Clone）。
         let pipeline_clone = match &event {
-            AgentEvent::ToolStart { tool_call_id, name, display, args, input, source_agent_id } => {
-                Some(AgentEvent::ToolStart {
-                    tool_call_id: tool_call_id.clone(), name: name.clone(), display: display.clone(),
-                    args: args.clone(), input: input.clone(), source_agent_id: source_agent_id.clone(),
-                })
-            }
-            AgentEvent::ToolEnd { tool_call_id, name, output, is_error, source_agent_id } => {
-                Some(AgentEvent::ToolEnd {
-                    tool_call_id: tool_call_id.clone(), name: name.clone(), output: output.clone(),
-                    is_error: *is_error, source_agent_id: source_agent_id.clone(),
-                })
-            }
-            AgentEvent::AssistantChunk { chunk, source_agent_id } => Some(AgentEvent::AssistantChunk {
-                chunk: chunk.clone(), source_agent_id: source_agent_id.clone(),
+            AgentEvent::ToolStart {
+                tool_call_id,
+                name,
+                display,
+                args,
+                input,
+                source_agent_id,
+            } => Some(AgentEvent::ToolStart {
+                tool_call_id: tool_call_id.clone(),
+                name: name.clone(),
+                display: display.clone(),
+                args: args.clone(),
+                input: input.clone(),
+                source_agent_id: source_agent_id.clone(),
+            }),
+            AgentEvent::ToolEnd {
+                tool_call_id,
+                name,
+                output,
+                is_error,
+                source_agent_id,
+            } => Some(AgentEvent::ToolEnd {
+                tool_call_id: tool_call_id.clone(),
+                name: name.clone(),
+                output: output.clone(),
+                is_error: *is_error,
+                source_agent_id: source_agent_id.clone(),
+            }),
+            AgentEvent::AssistantChunk {
+                chunk,
+                source_agent_id,
+            } => Some(AgentEvent::AssistantChunk {
+                chunk: chunk.clone(),
+                source_agent_id: source_agent_id.clone(),
             }),
             _ => None,
         };
@@ -269,14 +324,20 @@ impl App {
         (true, false, false)
     }
 
-    pub(crate) fn handle_subagent_lifecycle(&mut self, params: &serde_json::Value) -> (bool, bool, bool) {
+    pub(crate) fn handle_subagent_lifecycle(
+        &mut self,
+        params: &serde_json::Value,
+    ) -> (bool, bool, bool) {
         use super::super::subagent_session::SubagentRunStatus;
         let id = params["instanceId"].as_str().unwrap_or("");
-        if id.is_empty() { return (false, false, false); }
+        if id.is_empty() {
+            return (false, false, false);
+        }
         match params["event"].as_str().unwrap_or("") {
             "started" => {
                 self.handle_subagent_start(
-                    params["agentType"].as_str().unwrap_or("agent").into(), id.into(),
+                    params["agentType"].as_str().unwrap_or("agent").into(),
+                    id.into(),
                     params["taskPreview"].as_str().unwrap_or("").into(),
                     // 默认 `true`：本分支已无前台同步模式，缺字段的载荷（旧服务端 /
                     // 非 ACP 客户端）若被当成前台，会重新打开「子过程二次投递进主消息区」。
@@ -303,10 +364,21 @@ impl App {
                 let result = params["result"].as_str().unwrap_or("").to_string();
                 let is_error = params["isError"].as_bool().unwrap_or(false);
                 if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
-                    sub.elapsed = Some(std::time::Duration::from_millis(params["elapsedMs"].as_u64().unwrap_or(sub.started_at.elapsed().as_millis() as u64)));
-                    sub.status = if params["status"].as_str() == Some("stopped") || sub.status == SubagentRunStatus::Stopped || result.to_lowercase().contains("cancelled") {
+                    sub.elapsed = Some(std::time::Duration::from_millis(
+                        params["elapsedMs"]
+                            .as_u64()
+                            .unwrap_or(sub.started_at.elapsed().as_millis() as u64),
+                    ));
+                    sub.status = if params["status"].as_str() == Some("stopped")
+                        || sub.status == SubagentRunStatus::Stopped
+                        || result.to_lowercase().contains("cancelled")
+                    {
                         SubagentRunStatus::Stopped
-                    } else if is_error { SubagentRunStatus::Failed } else { SubagentRunStatus::Completed };
+                    } else if is_error {
+                        SubagentRunStatus::Failed
+                    } else {
+                        SubagentRunStatus::Completed
+                    };
                     sub.final_result = Some(result.clone());
                     sub.ended_at.get_or_insert_with(std::time::Instant::now);
                     sub.current_activity.clear();
@@ -319,7 +391,10 @@ impl App {
                     sub.spinner.set_mode(cc_widgets::SpinnerMode::Idle);
                     // 停止/失败属异常结束：清空总结行，避免显示成功文案（与主会话
                     // lifecycle 的 `clear_summary` 对齐）。
-                    if matches!(sub.status, SubagentRunStatus::Stopped | SubagentRunStatus::Failed) {
+                    if matches!(
+                        sub.status,
+                        SubagentRunStatus::Stopped | SubagentRunStatus::Failed
+                    ) {
                         sub.spinner.clear_summary();
                     }
                     sub.pipeline.handle_event(AgentEvent::Done);

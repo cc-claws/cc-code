@@ -239,7 +239,8 @@ pub fn build_system_prompt(
         let mem_dir = cc_middlewares::memory::get_auto_memory_dir(cwd);
         let _ = cc_middlewares::memory::ensure_memory_dir_exists(&mem_dir);
         let entrypoint_path = cc_middlewares::memory::get_auto_memory_entrypoint(cwd);
-        let entrypoint_trunc = cc_middlewares::memory::read_and_truncate_entrypoint(&entrypoint_path);
+        let entrypoint_trunc =
+            cc_middlewares::memory::read_and_truncate_entrypoint(&entrypoint_path);
         let display_dir = cc_middlewares::memory::get_auto_memory_display_dir(cwd);
         let mem_prompt = cc_middlewares::memory::build_auto_memory_prompt(
             &display_dir,

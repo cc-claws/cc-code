@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cc_agent::{
-    agent::{
-        events::AgentEventHandler,
-        react::ReactLLM,
-        AgentCancellationToken,
-    },
+    agent::{events::AgentEventHandler, react::ReactLLM, AgentCancellationToken},
     messages::BaseMessage,
     thread::ThreadStore,
     tools::BaseTool,
@@ -376,15 +372,17 @@ impl BaseTool for SubAgentTool {
         input: serde_json::Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // action 缺省为 spawn：兼容既有调用方与历史会话，不依赖模型显式传参。
-        let action = input.get("action").and_then(|v| v.as_str()).unwrap_or("spawn");
+        let action = input
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("spawn");
         if action == "stop" {
             return self.invoke_stop(&input).await;
         }
         if action != "spawn" {
-            return Err(format!(
-                "Error: unknown action `{action}` (expected `spawn` or `stop`)"
-            )
-            .into());
+            return Err(
+                format!("Error: unknown action `{action}` (expected `spawn` or `stop`)").into(),
+            );
         }
         // spawn 路径必须带 prompt；此处校验而非依赖 schema 的 required，
         // 因为 required 会同时作用于 action=stop（见 parameters 注释）。
@@ -414,7 +412,14 @@ impl BaseTool for SubAgentTool {
             || subagent_type.as_deref() == Some("fork");
         let timeout_secs = input.get("timeout_secs").and_then(|v| v.as_u64());
 
-        self.invoke_background(prompt, subagent_type, cwd, is_fork, timeout_secs, description)
-            .await
+        self.invoke_background(
+            prompt,
+            subagent_type,
+            cwd,
+            is_fork,
+            timeout_secs,
+            description,
+        )
+        .await
     }
 }

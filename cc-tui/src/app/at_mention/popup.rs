@@ -61,9 +61,12 @@ pub fn render_at_mention_popup(
     } else {
         "@".to_string()
     };
-    let inner = BorderedPanel::new(Span::styled(title, Style::default().fg(theme::cur().inactive)))
-        .border_style(Style::default().fg(theme::cur().prompt_border))
-        .render(f, popup_area);
+    let inner = BorderedPanel::new(Span::styled(
+        title,
+        Style::default().fg(theme::cur().inactive),
+    ))
+    .border_style(Style::default().fg(theme::cur().prompt_border))
+    .render(f, popup_area);
 
     if total == 0 {
         let key = if state.searching {
@@ -95,7 +98,11 @@ pub fn render_at_mention_popup(
 
             let display = truncate_middle(&cand.display, path_max_width);
 
-            let prefix = if is_selected { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+            let prefix = if is_selected {
+                theme::SYMBOL_CURSOR_SPACED
+            } else {
+                "  "
+            };
             let style = if is_selected {
                 Style::default()
                     .fg(theme::cur().thinking)
@@ -105,10 +112,7 @@ pub fn render_at_mention_popup(
             };
 
             Line::from(vec![
-                Span::styled(
-                    format!("{}{} ", prefix, icon),
-                    theme::cursor_style(),
-                ),
+                Span::styled(format!("{}{} ", prefix, icon), theme::cursor_style()),
                 Span::styled(display, style),
             ])
         })

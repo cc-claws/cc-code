@@ -10,9 +10,13 @@ use super::AcpTuiClient;
 #[test]
 fn test_peri_notification_routing_for_subagent_lifecycle() {
     // 服务端实际发送的方法名必须被识别
-    assert!(AcpTuiClient::is_peri_notification("peri/subagent_lifecycle"));
+    assert!(AcpTuiClient::is_peri_notification(
+        "peri/subagent_lifecycle"
+    ));
     // 历史前缀形式保持兼容
-    assert!(AcpTuiClient::is_peri_notification("notifications/peri/anything"));
+    assert!(AcpTuiClient::is_peri_notification(
+        "notifications/peri/anything"
+    ));
     // 有专用通道的两个方法不走此分支
     assert!(!AcpTuiClient::is_peri_notification("peri/agent_event"));
     assert!(!AcpTuiClient::is_peri_notification("peri/agent_event_done"));

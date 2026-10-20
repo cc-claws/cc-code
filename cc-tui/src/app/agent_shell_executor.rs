@@ -1,7 +1,7 @@
 //! Agent shell 执行器：cc-tui 的 [`ShellExecutor`] 实现。
 //!
 //! 把 agent 的 Bash 工具命令接入流式执行 + 磁盘输出，使其可被 Ctrl+B 后台化。
-//! 设计对齐 Claude Code（参见 docs/ctrl-b-background-shell.html）：
+//! 设计对齐 CC（参见 docs/ctrl-b-background-shell.html）：
 //! - 命令始终经 shell 执行，stdout/stderr 写入磁盘（`DiskOutput`）
 //! - `BashTool::invoke` 前台等待结果；后台移交后返回同一任务句柄，进程继续运行
 //! - UI 主循环通过 [`AgentShellRegistration`] channel 接收注册事件，把命令登记到

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
-use langfuse_client::{GenerationBody, IngestionEvent, ObservationBody, ObservationType, SpanBody};
 use cc_agent::{llm::types::TokenUsage, messages::BaseMessage, tools::ToolDefinition};
+use langfuse_client::{GenerationBody, IngestionEvent, ObservationBody, ObservationType, SpanBody};
 
 use super::session::LangfuseSession;
 

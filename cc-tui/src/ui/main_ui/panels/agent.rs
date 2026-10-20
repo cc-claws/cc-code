@@ -40,7 +40,11 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     let is_none_selected = panel.selected_id.is_none();
     lines.push(Line::from(vec![
         Span::styled(
-            if is_none_cursor { theme::SYMBOL_CURSOR_SPACED } else { "  " },
+            if is_none_cursor {
+                theme::SYMBOL_CURSOR_SPACED
+            } else {
+                "  "
+            },
             theme::cursor_style(),
         ),
         Span::styled(

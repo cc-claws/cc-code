@@ -188,7 +188,7 @@ tip-10 = /clear 清空当前对话
 tip-11 = /model 切换 LLM 模型
 tip-12 = /resume 浏览历史对话记录
 tip-13 = /loop 创建定时循环任务
-tip-14 = /plugin 管理 Claude Code 插件
+tip-14 = /plugin 管理 CC 插件
 tip-15 = 在 .claude/skills/ 中添加自定义 Skills
 tip-16 = 在 .claude/agents/ 中定义 SubAgent
 tip-17 = 对复杂任务让 Agent 先制定计划再执行
@@ -199,7 +199,7 @@ tip-clear-override = 切换话题时用 /clear 重新开始，并释放上下文
 setup-welcome-title =  ── CC Code 设置 ── 欢迎
 setup-choose-provider =  选择如何配置你的 Provider：
 setup-source-custom-api = 自定义 API
-setup-source-migrate = 从 Claude Code 迁移
+setup-source-migrate = 从 .claude 配置迁移
 setup-source-custom-desc = 手动输入 Provider 详情
 setup-source-migrate-desc = 从 ~/.claude/ 导入配置
 setup-key-confirm = :确认
@@ -232,7 +232,7 @@ setup-complete-title =  ── 设置完成 ✓
 setup-press-enter = 按
 setup-to-start = 开始使用
 setup-no-key = (无密钥)
-setup-no-providers = 未配置任何 Provider，请选择"Custom API"或从 Claude Code 导入。
+setup-no-providers = 未配置任何 Provider，请选择"Custom API"或从 .claude 导入。
 
 setup-language-title = ── CC Code 设置 ── 语言
 setup-language-prompt = 选择界面语言：
@@ -472,6 +472,7 @@ queue-sending = 插入中…
 queue-attachments = { $count } 张图片
 queue-unavailable = 当前执行暂不支持补充，消息仍保留在队列中。
 queue-steer-failed = 本轮未接收补充信息，消息已保留，将按队列顺序发送。
+queue-steer-backgrounded = 前台命令已转入后台，补充信息将立即生效
 
 # ---- 后台 shell 通知（展示文本） ----
 shell-notify-failed = 后台 shell 失败

@@ -17,7 +17,7 @@
 //!
 //! # oneshot 单消费者矛盾的解法
 //!
-//! Claude Code 的 `shellCommand.result` 是 Promise（多消费者），`call` 和
+//! CC 的 `shellCommand.result` 是 Promise（多消费者），`call` 和
 //! `backgroundTask` 各自 `.then` 都能拿结果。peri 用 `tokio::oneshot`（单消费者）。
 //! 解法：**invoke 独占 [`AgentShellHandle::result_rx`] 拿完整 stdout**；
 //! 退出检测另起一个轻量信号 [`ExitSignal`] 给 UI poll；手动/自动后台化与取消

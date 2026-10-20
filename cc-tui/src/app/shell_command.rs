@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
-use chrono::Utc;
 use cc_agent::shell::ShellAbortHandle;
+use chrono::Utc;
 use tokio::sync::{mpsc, oneshot};
 
 use super::*;
@@ -74,6 +74,12 @@ impl ShellCommandPool {
         self.foreground.runtime.is_running()
     }
 }
+
+/// 点「立即补充」后给前台命令的宽限期。
+///
+/// 短命令（`ls`、`git status` 这类 1s 级）会在这段时间内自己结束，本轮随即收口，
+/// 不需要把它扔到后台；超过这个窗口还在跑才视为「卡住了本轮」，移交后台。
+const STEER_FOREGROUND_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// UI 与面板共用同一个后台化入口，操作单个任务且只在成功后启动 watchdog。
 pub(crate) fn background_agent_slot(
@@ -522,6 +528,85 @@ impl App {
         self.render_rebuild();
     }
 
+    /// 「立即补充」时登记宽限期：先给前台命令一次自行结束的机会。
+    ///
+    /// steering 只在每轮 LLM 调用前 drain，前台工具不返回这一轮就永远轮不到它。
+    /// 但直接扔后台会误伤 1s 级短命令——它马上自己结束，本轮立刻就收口了。因此
+    /// 这里只登记，真正移交由 [`Self::poll_steer_foreground_grace`] 在
+    /// [`STEER_FOREGROUND_GRACE`] 之后判断。
+    ///
+    /// **多条前台并行时不自动选择**（Ctrl+B 也要求用户自己挑一条），保持原样。
+    pub(crate) fn arm_steer_foreground_grace(&mut self) {
+        let foreground: Vec<usize> = self
+            .session_mgr
+            .current()
+            .agent_shells
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.is_foreground_running() && !slot.exit_signal.is_exited())
+            .map(|(index, _)| index)
+            .collect();
+        let [index] = foreground.as_slice() else {
+            return;
+        };
+        let task_id = self.session_mgr.current().agent_shells[*index]
+            .task_id
+            .clone();
+        let ui = &mut self.session_mgr.current_mut().ui;
+        // 重复点「立即补充」不重置计时：既已等过这段时间，就该按原定时刻收口。
+        if ui
+            .steer_foreground_grace
+            .as_ref()
+            .is_some_and(|grace| grace.task_id == task_id)
+        {
+            return;
+        }
+        ui.steer_foreground_grace = Some(super::SteerForegroundGrace {
+            task_id,
+            started_at: std::time::Instant::now(),
+        });
+    }
+
+    /// 每帧检查宽限期：到点仍在前台跑就移交后台（等价替用户按 Ctrl+B）。
+    ///
+    /// 命令在宽限期内自行结束 → 撤销登记，什么都不做。返回是否有状态变化。
+    pub(crate) fn poll_steer_foreground_grace(&mut self) -> bool {
+        let Some(grace) = self.session_mgr.current().ui.steer_foreground_grace.clone() else {
+            return false;
+        };
+        let still_foreground = self.session_mgr.current().agent_shells.iter().any(|slot| {
+            slot.task_id == grace.task_id
+                && slot.is_foreground_running()
+                && !slot.exit_signal.is_exited()
+        });
+        if !still_foreground {
+            // 短命令自己跑完了：本轮已经收口，不需要动它。
+            self.session_mgr.current_mut().ui.steer_foreground_grace = None;
+            return false;
+        }
+        if grace.started_at.elapsed() < STEER_FOREGROUND_GRACE {
+            return false;
+        }
+        self.session_mgr.current_mut().ui.steer_foreground_grace = None;
+        let backgrounded = {
+            let Some(slot) = self
+                .session_mgr
+                .current_mut()
+                .agent_shells
+                .iter_mut()
+                .find(|slot| slot.task_id == grace.task_id)
+            else {
+                return false;
+            };
+            background_agent_slot(slot, self.services.bg_event_tx.clone())
+        };
+        if backgrounded {
+            self.sync_agent_shell_runtime_states();
+            self.push_system_note(self.services.lc.tr("queue-steer-backgrounded"));
+        }
+        backgrounded
+    }
+
     /// 单个前台任务直接后台化；多个任务先打开选择面板，禁止批量后台化。
     ///
     /// 与 [`Self::background_foreground`]（!command 路径）协同：Ctrl+B 时先尝试
@@ -575,6 +660,8 @@ impl App {
     /// 由主循环每帧调用（与 [`Self::poll_background_shell_events`] 平行）。
     /// 返回是否有任何状态变化（用于触发重绘）。
     pub fn poll_agent_shells(&mut self) -> bool {
+        // 「立即补充」的宽限期到点检查（长时间前台命令 → 移交后台）
+        let grace_changed = self.poll_steer_foreground_grace();
         // 阶段1：收集完成通知（&mut session）
         let (mut changed, notifications): (bool, Vec<super::PendingBgShellNotification>) = {
             let bg_event_tx = self.services.bg_event_tx.clone();
@@ -625,6 +712,7 @@ impl App {
             (changed, notifs)
         };
 
+        changed |= grace_changed;
         changed |= self.sync_agent_shell_runtime_states();
 
         if notifications.is_empty() {
@@ -696,21 +784,37 @@ impl App {
                     if let Some(sub) = session.subagent_sessions.get_mut(&id) {
                         // 子视口显示调用方指定的任务预算；未设置不伪造默认上限。
                         let timeout = sub.timeout_secs.unwrap_or(0).saturating_mul(1000);
-                        let updated = sub.pipeline.sync_shell_runtime(None, &tool_call_id, started_at, timeout, backgrounded);
+                        let updated = sub.pipeline.sync_shell_runtime(
+                            None,
+                            &tool_call_id,
+                            started_at,
+                            timeout,
+                            backgrounded,
+                        );
                         if updated {
                             if sub.running_tool_times.contains_key(&tool_call_id) {
-                                sub.running_tool_times.insert(tool_call_id.clone(), started_at);
+                                sub.running_tool_times
+                                    .insert(tool_call_id.clone(), started_at);
                             }
                             sub.rebuild();
                         }
                         changed |= updated;
                     }
                 } else {
-                    changed |= session.messages.pipeline.sync_shell_runtime(None, &tool_call_id, started_at, timeout_ms, backgrounded);
+                    changed |= session.messages.pipeline.sync_shell_runtime(
+                        None,
+                        &tool_call_id,
+                        started_at,
+                        timeout_ms,
+                        backgrounded,
+                    );
                 }
             }
             if changed {
-                session.messages.pipeline.apply_shell_runtime(&mut session.messages.view_messages);
+                session
+                    .messages
+                    .pipeline
+                    .apply_shell_runtime(&mut session.messages.view_messages);
             }
             changed
         };
@@ -1162,9 +1266,7 @@ fn shell_context_messages(record: &ShellCommandRecord) -> Vec<BaseMessage> {
             &cc_middlewares::tools::output_persist::truncate_shell_output(&stdout_body)
         ),
         super::background_shell::xml_escape(
-            &cc_middlewares::tools::output_persist::truncate_shell_output(&redact(
-                &record.stderr
-            ))
+            &cc_middlewares::tools::output_persist::truncate_shell_output(&redact(&record.stderr))
         ),
     ));
 

@@ -230,7 +230,7 @@ async fn test_status_bar_activity_shows_last_two_running_tools() {
         status_rows.join("\n")
     );
     assert!(
-        activity.contains("◐ Bash : cargo test") && activity.contains("◐ Grep : needle"),
+        activity.contains("◐ Bash: cargo test") && activity.contains("◐ Grep: needle"),
         "activity 行应显示最后两个 running tools，实际:\n{}",
         status_rows.join("\n")
     );
@@ -251,7 +251,7 @@ async fn test_status_bar_activity_shows_last_two_running_tools() {
     let status_rows = &snapshot[snapshot.len() - 3..];
     let activity = &status_rows[1];
     assert!(
-        activity.contains("◐ Grep : needle") && activity.contains("✓ Bash ×1"),
+        activity.contains("◐ Grep: needle") && activity.contains("✓ Bash ×1"),
         "tool end 后应保留仍在 running 的工具并增加完成计数，实际:\n{}",
         status_rows.join("\n")
     );
@@ -578,6 +578,80 @@ async fn test_status_bar_typography_spacing_and_alignment() {
     }
 }
 
+/// 输入框上边框（提示符 `❯` 所在行的上一行）全部边框单元格的前景色。
+fn textarea_border_colors(handle: &crate::ui::headless::HeadlessHandle) -> Vec<Color> {
+    let buffer = handle.terminal.backend().buffer();
+    let width = buffer.area.width as usize;
+    let rows: Vec<&[ratatui::buffer::Cell]> = buffer.content.chunks(width).collect();
+    let prompt_row = rows
+        .iter()
+        .position(|row| row.iter().any(|cell| cell.symbol() == "❯"))
+        .expect("找不到输入框提示符 ❯");
+    rows[prompt_row - 1]
+        .iter()
+        .filter(|cell| cell.symbol() == "─")
+        .map(|cell| cell.fg)
+        .collect()
+}
+
+/// 子视口内按 `↓` 进抽屉时，输入框必须保留「青色边框 + `[ 任务名 ]` + `Message @…`」
+/// 这套身份标识（PRD §4.11：它是「现在在子 Agent 窗口还是主窗口」的唯一标识）。
+///
+/// 症状：按 `↓` 只是把按键交给抽屉、视口没变，输入框却掉成灰框、标签与占位符消失，
+/// 用户以为被踢回了主会话。
+#[tokio::test]
+async fn test_subagent_input_box_keeps_identity_during_drawer_nav() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "check weather",
+        "isBackground": true,
+    }));
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+
+    let render = |app: &mut crate::app::App, handle: &mut crate::ui::headless::HeadlessHandle| {
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, app))
+            .unwrap();
+        handle.snapshot().join("\n")
+    };
+
+    let before = render(&mut app, &mut handle);
+    assert!(
+        before.contains("[ check weather ]"),
+        "子视口应显示任务标签：\n{before}"
+    );
+    assert!(
+        before.contains("Message @general-purpose"),
+        "子视口应显示定向发话占位符：\n{before}"
+    );
+
+    app.session_mgr.current_mut().ui.bg_bar_cursor = Some(1);
+    let after = render(&mut app, &mut handle);
+    assert_eq!(
+        app.session_mgr.current().focused_instance_id.as_deref(),
+        Some("child-1"),
+        "进入抽屉不得切换视口"
+    );
+    assert!(
+        after.contains("[ check weather ]"),
+        "抽屉导航态不得抹掉子视口任务标签：\n{after}"
+    );
+    assert!(
+        after.contains("Message @general-purpose"),
+        "抽屉导航态不得抹掉定向发话占位符：\n{after}"
+    );
+    let border = textarea_border_colors(&handle);
+    assert!(!border.is_empty(), "应能在输入框上边框取到边框单元格");
+    assert!(
+        border.iter().all(|color| *color == theme::cur().background),
+        "抽屉导航态不得把子视口青色边框压成不可用灰：{border:?}"
+    );
+}
+
 /// 抽屉提示行随游标位置切换：游标停在「正在查看的那一行」时 `Enter to view`/`x to stop`
 /// 无意义，应缩短为 `↑/↓ to select`（对齐参考实现）。
 #[tokio::test]
@@ -598,6 +672,7 @@ async fn test_drawer_hint_shortens_when_cursor_on_active_row() {
         (Some(0usize), None, SHORT),
         (Some(1usize), Some("child-1"), SHORT),
         (Some(1usize), None, LONG),
+        // 未聚焦、也未进入子 Agent：保留入口胶囊，不接管第三行
         (None, None, ""),
     ] {
         {
@@ -1168,4 +1243,28 @@ async fn test_input_box_skips_slash_coloring_in_shell_mode() {
         theme::cur().text,
         "shell 命令态下的 `/etc` 应按普通文本着色"
     );
+}
+
+/// 权限模式 pill 必须带 CC 的 `⏵⏵` 符号（`PermissionMode.ts` 里 auto 与
+/// bypassPermissions 两档的 `symbol`），只有文字会让人以为是普通标签。
+#[tokio::test]
+async fn test_status_bar_permission_pill_has_bypass_symbol() {
+    use cc_middlewares::prelude::PermissionMode;
+
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    for (mode, label) in [
+        (PermissionMode::AutoMode, "Auto Mode"),
+        (PermissionMode::Bypass, "Bypass"),
+    ] {
+        app.services.permission_mode.store(mode);
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot().join("\n");
+        assert!(
+            snap.contains(&format!("\u{23f5}\u{23f5} {label}")),
+            "{label} 档位应带 ⏵⏵ 符号：\n{snap}"
+        );
+    }
 }

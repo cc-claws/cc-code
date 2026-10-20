@@ -75,14 +75,13 @@ impl<'a> ToolCallWidget<'a> {
 
 impl WidgetRef for ToolCallWidget<'_> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        let (indicator_ch, indicator_color) =
-            display::format_indicator(
-                self.state.status.clone(),
-                self.state.tick,
-                crate::theme::DarkTheme.muted(),
-                crate::theme::DarkTheme.success(),
-                crate::theme::DarkTheme.error(),
-            );
+        let (indicator_ch, indicator_color) = display::format_indicator(
+            self.state.status.clone(),
+            self.state.tick,
+            crate::theme::DarkTheme.muted(),
+            crate::theme::DarkTheme.success(),
+            crate::theme::DarkTheme.error(),
+        );
         let arrow = if self.state.collapsed { "▸" } else { "▾" };
 
         let mut header_spans: Vec<Span<'_>> = vec![

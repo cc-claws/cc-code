@@ -1,6 +1,6 @@
 //! `/recap` 命令 — 生成当前会话的一句话回顾。
 //!
-//! 参考 Claude Code 的 away-summary 实现（`claude-code-best/claude-code`
+//! 参考 CC 的 away-summary 实现（`claude-code-best/claude-code`
 //! `src/commands/recap/`），别名 `/away`、`/catchup`。
 //!
 //! 与 CCB 的差异：

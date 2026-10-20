@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::oneshot;
 
-use super::{task_items, BackgroundTaskItem, BackgroundTaskView, BackgroundTasksPanel};
+use super::{task_items, BackgroundTaskView, BackgroundTasksPanel};
+use crate::app::agent_shell_executor::{AgentShellRegistration, AgentShellSlot};
 use crate::app::panel_component::PanelComponent;
 use crate::app::panel_manager::{PanelContext, PanelState};
 use crate::app::{App, BackgroundShell};
@@ -12,8 +13,8 @@ use crate::test_lock::PROCESS_TEST_TIMEOUT;
 use cc_agent::shell::ShellAbortHandle;
 use tui_textarea::{Input, Key};
 
-fn make_shell_item(id: &str) -> BackgroundTaskItem {
-    BackgroundTaskItem::Shell(id.to_string())
+fn make_shell_item(id: &str) -> String {
+    id.to_string()
 }
 
 fn make_panel_input(key: Key, ctrl: bool) -> Input {
@@ -143,29 +144,6 @@ async fn test_background_tasks_missing_target_does_not_apply_actions_to_replacem
             "重绘前后都不能停止其他任务"
         );
     }
-}
-
-#[tokio::test]
-async fn test_background_tasks_agent_selection_cannot_operate_on_same_named_shell() {
-    let (mut app, _handle) = App::new_headless(80, 30).await;
-    inject_bg_shell(&mut app, "shared-id", PathBuf::from("unused.output"));
-    let mut panel = BackgroundTasksPanel::new();
-    panel.refresh_items(vec![
-        make_shell_item("shared-id"),
-        BackgroundTaskItem::Agent("shared-id".to_string()),
-    ]);
-    panel.move_selection(true);
-    let mut ctx = PanelContext {
-        services: &mut app.services,
-        session_mgr: &mut app.session_mgr,
-        acp_client: None,
-    };
-    panel.handle_key(make_panel_input(Key::Char('x'), false), &mut ctx);
-    assert_eq!(
-        ctx.session_mgr.current().background_shells[0].status,
-        crate::app::ShellStatus::Running,
-        "Agent 行不允许命中同名 shell"
-    );
 }
 
 /// helper：构造后台 shell 并注入 app
@@ -333,4 +311,90 @@ async fn test_detail_output_shows_zero_lines_for_empty_output() {
         "空输出应显示 0 行，实际:\n{}",
         snap
     );
+}
+
+/// 子 Agent 不进「后台任务」面板：它们已经由底栏抽屉逐行展示，再来一份只是
+/// 重复入口、还会让人分不清哪份是权威。
+#[tokio::test]
+async fn test_background_tasks_panel_omits_local_agents_section() {
+    let (mut app, mut handle) = App::new_headless(120, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "01a15876-ad99-7bf0-a09c-1d0a2ccde4a0",
+        "agentType": "general-purpose",
+        "taskPreview": "check weather",
+        "isBackground": true,
+    }));
+    app.open_background_tasks_panel();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snap = handle.snapshot().join("\n");
+    assert!(
+        !snap.contains("LOCAL AGENTS"),
+        "面板不得再列 Local agents 分组：\n{snap}"
+    );
+    // 抽屉行是 `◯ general-purpose   任务`，面板行曾是 `general-purpose "<id>"`
+    assert!(
+        !snap.contains("\"01a15876-ad99-7bf0-a09c-1d0a2ccde4a0\""),
+        "面板不得再列子 Agent 行：\n{snap}"
+    );
+}
+
+/// 回归：仍在**前台**运行的 shell 不得出现在「后台任务」面板里。
+///
+/// 症状：面板 SHELLS 分组下多出一条 `[前台] sleep 590; ...`，用户在抽屉里
+/// 已经看到它在主时间线即时输出，再在「后台任务」里看到一次只会以为还有第二条
+/// 任务在跑。
+#[tokio::test]
+async fn test_background_tasks_panel_excludes_foreground_shell() {
+    let (mut app, mut handle) = App::new_headless(120, 30).await;
+    {
+        let session = app.session_mgr.current_mut();
+        session
+            .agent_shells
+            .push(make_agent_shell("fg-task", "sleep 590; echo done", false));
+        session
+            .agent_shells
+            .push(make_agent_shell("bg-task", "cargo build", true));
+    }
+    app.open_background_tasks_panel();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snap = handle.snapshot().join("\n");
+    assert!(
+        !snap.contains("sleep 590"),
+        "前台运行的 shell 不得出现在后台任务面板：\n{snap}"
+    );
+    assert!(
+        snap.contains("SHELLS (1)"),
+        "只应统计已后台化的那条：\n{snap}"
+    );
+    assert!(
+        snap.contains("cargo build"),
+        "已后台化的 shell 应显示：\n{snap}"
+    );
+}
+
+/// helper：构造 agent shell 槽位（`backgrounded=false` 即前台运行中）。
+fn make_agent_shell(task_id: &str, command: &str, backgrounded: bool) -> AgentShellSlot {
+    AgentShellSlot::from_registration(AgentShellRegistration {
+        task_id: task_id.to_string(),
+        owner_session_id: None,
+        tool_call_id: None,
+        source_agent_id: None,
+        execution_timeout_ms: 600_000,
+        timeout_ms: 120_000,
+        command: command.to_string(),
+        cwd: ".".to_string(),
+        output_path: PathBuf::from("unused.output"),
+        exit_signal: std::sync::Arc::new(cc_agent::shell::ExitSignal::new()),
+        handoff: std::sync::Arc::new(cc_agent::shell::ShellHandoff::new(true, backgrounded)),
+        kill: ShellAbortHandle::noop(),
+        started_instant: Instant::now(),
+        direct_background: backgrounded,
+    })
 }

@@ -66,7 +66,7 @@ fn parse_permission_rule(rule: &str) -> Option<(String, String)> {
 /// 基于 tool_input 内容做字符串包含匹配
 ///
 /// 将 tool_input 序列化为 JSON 字符串，检查 rule 是否为子串。
-/// 与 Claude Code 行为一致：简单字符串包含匹配。
+/// 与 CC 行为一致：简单字符串包含匹配。
 fn match_tool_rule(_tool_name: &str, tool_input: &serde_json::Value, rule: &str) -> bool {
     let input_str = serde_json::to_string(tool_input).unwrap_or_default();
     input_str.contains(rule)

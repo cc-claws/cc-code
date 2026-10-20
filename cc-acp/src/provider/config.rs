@@ -178,17 +178,25 @@ pub struct AppConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub streaming_mode: Option<String>,
     /// 是否启用 spinner tips（缺省 = 启用；对齐 CC 的 spinnerTipsEnabled）
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "spinnerTipsEnabled")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "spinnerTipsEnabled"
+    )]
     pub spinner_tips_enabled: Option<bool>,
     /// 自定义 spinner tips（组织/用户下发；schema 对齐 CC 的 spinnerTipsOverride）
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "spinnerTipsOverride")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "spinnerTipsOverride"
+    )]
     pub spinner_tips_override: Option<SpinnerTipsOverride>,
     /// 保留未知字段
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
-/// 自定义 spinner tips 配置（对齐 Claude Code 的 spinnerTipsOverride schema）。
+/// 自定义 spinner tips 配置（对齐 CC 的 spinnerTipsOverride schema）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SpinnerTipsOverride {

@@ -404,7 +404,7 @@ fn test_update_enabled_plugins_object_format() {
     let dir = tempdir().unwrap();
     let claude_dir = dir.path();
     let settings_path = claude_dir.join("settings.json");
-    // 写入对象格式的现有文件（Claude Code 格式）
+    // 写入对象格式的现有文件（CC 格式）
     std::fs::write(
         &settings_path,
         r#"{"enabledPlugins":{"plugin-a":true,"plugin-b":true}}"#,

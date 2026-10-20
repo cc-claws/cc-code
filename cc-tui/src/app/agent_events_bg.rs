@@ -74,7 +74,9 @@ impl App {
         } = result;
         if let Some(id) = child_thread_id.as_deref() {
             if let Some(sub) = self.session_mgr.current_mut().subagent_sessions.get_mut(id) {
-                if sub.completion_received { return (false, false, false); }
+                if sub.completion_received {
+                    return (false, false, false);
+                }
                 sub.completion_received = true;
             }
             self.handle_subagent_lifecycle(&serde_json::json!({
@@ -143,8 +145,16 @@ impl App {
             // 否则夹到新的末行，避免出现「越界游标 → 没有任何亮白行、Enter/x 落到别的行」。
             if let Some(cursor) = self.session_mgr.current().ui.bg_bar_cursor {
                 let len = self.session_mgr.current().background_agents.len();
-                let adjusted = if removed.is_some_and(|pos| cursor > pos + 1) { cursor - 1 } else { cursor };
-                self.session_mgr.current_mut().ui.bg_bar_cursor = if len == 0 { None } else { Some(adjusted.min(len)) };
+                let adjusted = if removed.is_some_and(|pos| cursor > pos + 1) {
+                    cursor - 1
+                } else {
+                    cursor
+                };
+                self.session_mgr.current_mut().ui.bg_bar_cursor = if len == 0 {
+                    None
+                } else {
+                    Some(adjusted.min(len))
+                };
             }
 
             // 行已被摘掉的子会话再也没有入口（Enter 只能从抽屉行进入）→ 同帧回收，
@@ -203,17 +213,28 @@ impl App {
         // 停止与「完成/失败」是不同语义，必须独立成行：用户要能区分「它自己跑完了」
         // 「它出错了」「它被停了」三种终态（PRD §4.4.1）。停止行还区分发起方。
         let notification = if finished_stopped {
-            let by = if stopped_by_user { "user" } else { "main Agent" };
-            format!("{} Agent \"{title}\" was stopped by {by}", crate::ui::theme::SYMBOL_DOT)
+            let by = if stopped_by_user {
+                "user"
+            } else {
+                "main Agent"
+            };
+            format!(
+                "{} Agent \"{title}\" was stopped by {by}",
+                crate::ui::theme::SYMBOL_DOT
+            )
         } else {
             let status = if success { "finished" } else { "failed" };
             format!(
                 "{} Agent \"{title}\" {status} · {}",
                 crate::ui::theme::SYMBOL_DOT,
-                super::subagent_session::format_duration(std::time::Duration::from_millis(duration_ms))
+                super::subagent_session::format_duration(std::time::Duration::from_millis(
+                    duration_ms
+                ))
             )
         };
-        self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(notification)));
+        self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
+            notification,
+        )));
         // 停止任务不得触发新的模型轮次，否则全停快捷键会再次唤醒主任务。
         if finished_stopped {
             if !self.session_mgr.current().has_running_subagents() {

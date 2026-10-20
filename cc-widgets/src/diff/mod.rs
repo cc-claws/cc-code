@@ -15,6 +15,7 @@ pub mod renderer;
 
 pub use crate::byte_cache::CacheStats;
 pub use renderer::render_cache_stats;
+pub use renderer::render_new_file_code;
 
 /// diff 输入超过此大小时截断，不计算
 const MAX_DIFF_SIZE_BYTES: usize = 1_000_000; // 1 MB
@@ -186,9 +187,12 @@ fn diff_result_bytes(result: &DiffResult) -> usize {
 fn diff_line_heap_bytes(line: &DiffLine) -> usize {
     match line {
         DiffLine::Context { text, .. } | DiffLine::HunkHeader { text } => text.capacity(),
-        DiffLine::Add { text, word_diff, .. } | DiffLine::Remove { text, word_diff, .. } => {
-            text.capacity() + word_diff.as_ref().map_or(0, diff_word_diff_bytes)
+        DiffLine::Add {
+            text, word_diff, ..
         }
+        | DiffLine::Remove {
+            text, word_diff, ..
+        } => text.capacity() + word_diff.as_ref().map_or(0, diff_word_diff_bytes),
     }
 }
 
@@ -206,6 +210,26 @@ pub fn diff_cache_stats() -> CacheStats {
         bytes: 0,
         budget: DIFF_CACHE_BUDGET_BYTES,
     })
+}
+
+/// 行首 tab → 2 空格（对齐 CC `convertLeadingTabsToSpaces`，`utils/file.ts:137-142`）。
+///
+/// CC 在构造 diff 输入前统一转换（`utils/diff.ts:140,150,153`），代码预览
+/// （`HighlightedCode/Fallback.tsx:40`）同样处理。只处理**行首** tab：行内 tab
+/// 两侧都保留原样，交给终端展开。
+pub(crate) fn convert_leading_tabs_to_spaces(content: &str) -> std::borrow::Cow<'_, str> {
+    if !content.contains('\t') {
+        return std::borrow::Cow::Borrowed(content);
+    }
+    let mut out = String::with_capacity(content.len());
+    for segment in content.split_inclusive('\n') {
+        let tabs = segment.len() - segment.trim_start_matches('\t').len();
+        for _ in 0..tabs {
+            out.push_str("  ");
+        }
+        out.push_str(&segment[tabs..]);
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 /// 实际计算逻辑（无缓存）
@@ -231,7 +255,10 @@ fn compute_diff_uncached(input: &DiffInput) -> DiffResult {
         };
     }
 
-    let text_diff = TextDiff::from_lines(&input.old_content, &input.new_content);
+    // 对齐 CC：diff 输入前行首 tab 统一转 2 空格
+    let old_content = convert_leading_tabs_to_spaces(&input.old_content);
+    let new_content = convert_leading_tabs_to_spaces(&input.new_content);
+    let text_diff = TextDiff::from_lines(&old_content, &new_content);
     let mut hunks = Vec::new();
 
     for hunk in text_diff.unified_diff().iter_hunks() {
@@ -307,30 +334,37 @@ fn compute_diff_uncached(input: &DiffInput) -> DiffResult {
 }
 
 /// 为连续的 Remove+Add 行对填充 word diff
+///
+/// 对齐 CC `findAdjacentPairs`（`color-diff-napi/src/index.ts:601-627`）：
+/// 相邻的 `-` 块与 `+` 块按 `min(delCount, addCount)` 逐对配对——Add 少于
+/// Remove 时前 n 对仍有词级高亮，而不是整块放弃。
 fn fill_word_diffs(lines: &mut [DiffLine]) {
     // 收集需要做 word diff 的 (remove_idx, add_idx) 对
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     let mut i = 0;
     while i < lines.len() {
         if matches!(lines[i], DiffLine::Remove { .. }) {
-            let remove_idx = i;
-            let mut j = i + 1;
+            let remove_start = i;
+            let mut j = i;
             // 收集连续的 Remove 行
             while j < lines.len() && matches!(lines[j], DiffLine::Remove { .. }) {
                 j += 1;
             }
-            // 检查后面是否有等量的 Add 行
-            let remove_count = j - remove_idx;
-            if j + remove_count <= lines.len() {
-                let all_add =
-                    (j..j + remove_count).all(|k| matches!(lines[k], DiffLine::Add { .. }));
-                if all_add {
-                    for k in 0..remove_count {
-                        pairs.push((remove_idx + k, j + k));
-                    }
-                }
+            let mut k = j;
+            // 收集紧随其后的连续 Add 行
+            while k < lines.len() && matches!(lines[k], DiffLine::Add { .. }) {
+                k += 1;
             }
-            i = j;
+            let remove_count = j - remove_start;
+            let add_count = k - j;
+            if remove_count > 0 && add_count > 0 {
+                for n in 0..remove_count.min(add_count) {
+                    pairs.push((remove_start + n, j + n));
+                }
+                i = k;
+            } else {
+                i = j;
+            }
         } else {
             i += 1;
         }

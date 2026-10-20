@@ -38,7 +38,7 @@ pub struct HookMiddleware {
     /// SessionStart hook 的触发与场景。None 表示不触发；Some(source) 表示触发并
     /// 携带 matcher：startup（新会话首次 prompt）/ resume（恢复历史会话）/
     /// clear（/clear 后首次 prompt）/ compact（compact 后）。
-    /// 对齐 Claude Code SessionStart 的 4 种 matcher。
+    /// 对齐 CC SessionStart 的 4 种 matcher。
     session_start_source: Option<String>,
     /// 判断工具是否需要用户审批。用于 PermissionRequest hook 门控。
     /// 默认使用 [`crate::hitl::default_requires_approval`]，
@@ -111,7 +111,7 @@ impl HookMiddleware {
 
     /// 判断当前权限模式下，给定工具是否会触发权限对话框。
     ///
-    /// 对齐 Claude Code：PermissionRequest 仅在权限对话框即将展示时触发。
+    /// 对齐 CC：PermissionRequest 仅在权限对话框即将展示时触发。
     fn needs_permission_dialog(&self, tool_name: &str) -> bool {
         let _ = tool_name;
         match self.permission_mode.load() {
@@ -318,7 +318,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
             .unwrap_or_default();
 
         // SessionStart: 触发条件由 session_start_source 决定，source 同时作为
-        // Claude Code matcher 字段（startup/resume/clear/compact）传给 hook。
+        // CC matcher 字段（startup/resume/clear/compact）传给 hook。
         if let Some(source) = self.session_start_source.as_ref() {
             let input = HookInput::session_start(
                 &self.session_id,
@@ -443,7 +443,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
 
         // PermissionRequest 门控：仅对敏感工具 + 权限对话框即将展示时触发。
         //
-        // Claude Code 行为：PermissionRequest 仅在权限对话框即将展示给用户时触发。
+        // CC 行为：PermissionRequest 仅在权限对话框即将展示给用户时触发。
         // Bypass（全放行）与 Auto 的自动放行路径都不展示对话框，因此不触发。
         //
         // 使用 hitl::default_requires_approval 判断工具是否需要审批（Bash/Write/Edit/Agent/
@@ -560,7 +560,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
 
         let stop_action = self.fire_event(HookEvent::Stop, &input, None, None).await;
 
-        // Stop hook Block/PreventContinuation 语义：Claude Code 规范中，Stop hook
+        // Stop hook Block/PreventContinuation 语义：CC 规范中，Stop hook
         // 返回 block 时 agent 不应停止而应继续工作。这里捕获 action 并把 reason
         // 附加到 AgentOutput.stop_reason，调用方（ACP server / TUI）可识别并自动
         // 重提一轮 prompt。当前实现是"信号透传 + 日志"，更深层的 auto-continue
@@ -598,7 +598,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
         _state: &mut S,
         error: &cc_agent::error::AgentError,
     ) -> AgentResult<()> {
-        // 按 Claude Code 规范，StopFailure 仅在 API/LLM 错误导致轮次结束时触发。
+        // 按 CC 规范，StopFailure 仅在 API/LLM 错误导致轮次结束时触发。
         // 其他错误类型（用户中断、最大迭代次数、工具拒绝等）不触发 StopFailure。
         //
         // 触发 StopFailure 的变体：
@@ -693,7 +693,7 @@ pub async fn fire_standalone_lifecycle_hooks(
             prompt: None,
             // SessionEnd 的 reason：clear（/clear 新建 thread）、prompt_input_exit（TUI 退出）、
             // resume（恢复其他会话导致当前会话结束）、other（/quit 等）。
-            // 调用方按场景传值，对齐 Claude Code SessionEnd reason 字段。
+            // 调用方按场景传值，对齐 CC SessionEnd reason 字段。
             source: source.map(|s| s.to_string()),
             model: Some(current_model.to_string()),
             subagent_name: None,

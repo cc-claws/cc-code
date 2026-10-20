@@ -20,10 +20,8 @@ async fn test_theme_panel_preview_cancel_and_confirm() {
     let (mut app, _handle) = App::new_headless(80, 30).await;
     app.services.peri_config = Some(PeriConfig::default());
     // 配置保存重定向到临时文件，避免污染真实 ~/.cc-code/settings.json
-    let tmp_cfg = std::env::temp_dir().join(format!(
-        "cc-theme-panel-test-{}.json",
-        std::process::id()
-    ));
+    let tmp_cfg =
+        std::env::temp_dir().join(format!("cc-theme-panel-test-{}.json", std::process::id()));
     app.services.config_path_override = Some(tmp_cfg.clone());
 
     let mut panel = ThemePanel::new();
@@ -59,7 +57,11 @@ async fn test_theme_panel_preview_cancel_and_confirm() {
         // Esc → 恢复原主题并关闭
         let r = panel.handle_key(key(Key::Esc), &mut ctx);
         assert_eq!(r, EventResult::ClosePanel);
-        assert_eq!(theme::current_name(), ThemeName::Default, "Esc 应恢复原主题");
+        assert_eq!(
+            theme::current_name(),
+            ThemeName::Default,
+            "Esc 应恢复原主题"
+        );
     }
 
     // 重新打开，选到 dark 后 Enter 确认

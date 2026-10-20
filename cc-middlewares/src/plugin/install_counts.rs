@@ -6,18 +6,18 @@ const INSTALL_COUNTS_URL: &str = "https://raw.githubusercontent.com/anthropics/c
 const CACHE_FILE: &str = "install-counts-cache.json";
 const CACHE_TTL_SECS: i64 = 24 * 3600;
 
-/// Claude Code 写入的缓存条目格式
+/// CC 写入的缓存条目格式
 #[derive(Debug, serde::Deserialize)]
 struct CachedInstallEntry {
     plugin: String,
     unique_installs: u64,
 }
 
-/// Claude Code 缓存文件格式（兼容）
+/// CC 缓存文件格式（兼容）
 #[derive(Debug, serde::Deserialize)]
 #[serde(untagged)]
 enum CacheFormat {
-    /// Claude Code 格式：{version, fetchedAt, counts: [{plugin, unique_installs}]}
+    /// CC 格式：{version, fetchedAt, counts: [{plugin, unique_installs}]}
     ClaudeCode {
         #[allow(dead_code)]
         version: Option<u64>,
@@ -31,7 +31,7 @@ fn cache_path() -> PathBuf {
     plugins_dir().join(CACHE_FILE)
 }
 
-/// 从磁盘加载缓存的安装量数据（兼容 Claude Code 缓存格式）。
+/// 从磁盘加载缓存的安装量数据（兼容 CC 缓存格式）。
 /// 缓存过期时仍返回旧数据作为降级。文件不存在或无法解析时返回 None。
 pub fn load_install_counts() -> Option<HashMap<String, u64>> {
     let path = cache_path();
@@ -80,7 +80,7 @@ fn extract_fetched_at(json: &str) -> Option<DateTime<FixedOffset>> {
 }
 
 /// 从远程 URL 异步获取安装量数据并更新缓存。
-/// 远程返回 Claude Code 格式：{version, fetchedAt, counts: [{plugin, unique_installs}]}。
+/// 远程返回 CC 格式：{version, fetchedAt, counts: [{plugin, unique_installs}]}。
 pub async fn fetch_install_counts() -> Option<HashMap<String, u64>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -92,7 +92,7 @@ pub async fn fetch_install_counts() -> Option<HashMap<String, u64>> {
         return None;
     }
 
-    // 远程返回的是完整 Claude Code 格式，直接写入缓存
+    // 远程返回的是完整 CC 格式，直接写入缓存
     let body = resp.text().await.ok()?;
 
     // 解析提取 counts

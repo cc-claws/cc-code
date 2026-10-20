@@ -84,18 +84,16 @@ const ASSISTANT_TEXTS: &[&str] = &[
 ];
 
 /// 生成一条逼真的消息（轮询：user → assistant+tool_call → tool_result → assistant）
-fn mock_message(
-    seq: usize,
-    file_contents: &[String],
-    image_data: &str,
-) -> BaseMessage {
+fn mock_message(seq: usize, file_contents: &[String], image_data: &str) -> BaseMessage {
     match seq % 4 {
         0 => {
             // User：真实风格 prompt
             let prompt = USER_PROMPTS[seq % USER_PROMPTS.len()];
             BaseMessage::Human {
                 id: MessageId::new(),
-                content: MessageContent::text(format!("{prompt}\n\n补充说明：这是第 {seq} 轮对话。")),
+                content: MessageContent::text(format!(
+                    "{prompt}\n\n补充说明：这是第 {seq} 轮对话。"
+                )),
             }
         }
         1 => {
@@ -117,7 +115,9 @@ fn mock_message(
             // 每 20 条混入一张图片（多模态）
             let blocks = if seq.is_multiple_of(20) {
                 vec![
-                    ContentBlock::Text { text: content[..content.len().min(2000)].into() },
+                    ContentBlock::Text {
+                        text: content[..content.len().min(2000)].into(),
+                    },
                     ContentBlock::Image {
                         source: ImageSource::Base64 {
                             media_type: "image/png".to_string(),
@@ -126,7 +126,9 @@ fn mock_message(
                     },
                 ]
             } else {
-                vec![ContentBlock::Text { text: content.as_str().into() }]
+                vec![ContentBlock::Text {
+                    text: content.as_str().into(),
+                }]
             };
             BaseMessage::Tool {
                 id: MessageId::new(),
@@ -156,7 +158,10 @@ fn capacity_500mb_how_many_messages() {
     let file_contents = load_real_file_contents();
     let avg_file_kb: usize =
         file_contents.iter().map(|s| s.len()).sum::<usize>() / file_contents.len() / 1024;
-    println!("mock 文件平均大小: {avg_file_kb}KB, 采样 {n} 个", n = file_contents.len());
+    println!(
+        "mock 文件平均大小: {avg_file_kb}KB, 采样 {n} 个",
+        n = file_contents.len()
+    );
 
     // 200KB base64 图片（模拟截图）
     let image_data = "B".repeat(200 * 1024);
@@ -196,16 +201,18 @@ fn capacity_500mb_how_many_messages() {
     println!("  平均每条: {}KB", avg_bytes / 1024);
     println!("  构成: user prompt / assistant+tool_call / tool(真实文件~19KB) / assistant 文本，20:1 混入 200KB 图片");
     println!("───────────────────────────────────────");
-    println!("注：生产环境受 MAX_MESSAGES={} 硬上限约束，", cc_agent::agent::state::MAX_MESSAGES);
-    println!("    按此消息分布约占用 {}MB 即触发上限", 
-        cc_agent::agent::state::MAX_MESSAGES * avg_bytes / 1024 / 1024);
+    println!(
+        "注：生产环境受 MAX_MESSAGES={} 硬上限约束，",
+        cc_agent::agent::state::MAX_MESSAGES
+    );
+    println!(
+        "    按此消息分布约占用 {}MB 即触发上限",
+        cc_agent::agent::state::MAX_MESSAGES * avg_bytes / 1024 / 1024
+    );
     println!("═══════════════════════════════════════");
 
     // 容量断言：500MB 至少应支持 20000 条真实消息
-    assert!(
-        count >= 20000,
-        "容量不足：500MB 仅支持 {count} 条消息"
-    );
+    assert!(count >= 20000, "容量不足：500MB 仅支持 {count} 条消息");
 
     drop(state);
 }

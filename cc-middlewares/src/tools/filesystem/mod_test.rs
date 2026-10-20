@@ -43,3 +43,27 @@
         let result = resolve_path("/tmp", "~/test_memory.txt");
         assert!(result.starts_with(&home) || result.to_string_lossy().contains(&home.to_string_lossy().to_string()));
     }
+
+    #[test]
+    fn test_display_rel_path_strips_verbatim_prefix() {
+        // 仅 Windows 有 verbatim 前缀（\\?\），路径组件随平台构造，避免写死盘符路径
+        let cwd = std::env::temp_dir();
+        let base = cwd.join("relp_prefix_test");
+        let p = if cfg!(windows) {
+            std::path::PathBuf::from(format!(r"\\?\{}", base.join("a.rs").display()))
+        } else {
+            base.join("a.rs")
+        };
+        let rel = display_rel_path(&base.to_string_lossy(), &p);
+        assert_eq!(rel, "a.rs", "应剥离 verbatim 前缀并转为相对路径");
+    }
+
+    #[test]
+    fn test_display_rel_path_without_verbatim_prefix() {
+        // 用临时目录构造平台自适应的绝对路径
+        let cwd = std::env::temp_dir();
+        let base = cwd.join("relp_plain_test");
+        let p = base.join("a.rs");
+        let rel = display_rel_path(&base.to_string_lossy(), &p);
+        assert_eq!(rel, "a.rs", "普通绝对路径应转为相对路径");
+    }

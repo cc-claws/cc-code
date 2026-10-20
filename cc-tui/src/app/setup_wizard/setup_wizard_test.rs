@@ -73,7 +73,7 @@ fn test_migrate_from_claude_code_no_file() {
 
 #[test]
 fn test_migrate_syncs_all_fields() {
-    // 构造一个临时 settings.json 模拟 Claude Code 配置
+    // 构造一个临时 settings.json 模拟 CC 配置
     let temp_dir = std::env::temp_dir().join(format!("zen-migrate-test-{}", uuid::Uuid::now_v7()));
     let claude_dir = temp_dir.join(".claude");
     std::fs::create_dir_all(&claude_dir).unwrap();

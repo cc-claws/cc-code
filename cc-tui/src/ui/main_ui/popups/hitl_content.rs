@@ -239,7 +239,11 @@ fn tool_header(
         _ => "hitl-call-tool",
     });
     let prefix = if choice.is_some() {
-        format!("{} {} ", if active { theme::SYMBOL_CURSOR } else { " " }, index + 1)
+        format!(
+            "{} {} ",
+            if active { theme::SYMBOL_CURSOR } else { " " },
+            index + 1
+        )
     } else {
         String::new()
     };
@@ -286,7 +290,12 @@ fn tool_header(
 fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
     let Some(map) = item.input.as_object() else {
-        push_text(&mut rows, &item.input.to_string(), width, theme::cur().text_soft);
+        push_text(
+            &mut rows,
+            &item.input.to_string(),
+            width,
+            theme::cur().text_soft,
+        );
         return rows;
     };
     let command = (item.tool_name == "Bash")
@@ -312,7 +321,12 @@ fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> 
     };
     if active {
         if let Some((old, new)) = edit {
-            push_text(&mut rows, &lc.tr("hitl-diff-title"), width, theme::cur().inactive);
+            push_text(
+                &mut rows,
+                &lc.tr("hitl-diff-title"),
+                width,
+                theme::cur().inactive,
+            );
             push_diff(&mut rows, old, new, width);
         }
     }
@@ -369,7 +383,9 @@ fn push_diff(rows: &mut Vec<Line<'static>>, old: &str, new: &str, width: usize) 
         .zip(new[prefix..].iter().rev())
         .take_while(|(left, right)| left == right)
         .count();
-    let context_before = old[..prefix].iter().map(|text| ("  ", *text, theme::cur().inactive));
+    let context_before = old[..prefix]
+        .iter()
+        .map(|text| ("  ", *text, theme::cur().inactive));
     let removed = old[prefix..old.len() - suffix]
         .iter()
         .map(|text| ("− ", *text, theme::cur().error));

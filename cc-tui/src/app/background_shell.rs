@@ -201,10 +201,7 @@ pub fn spawn_stall_watchdog(
                     // PermissionDenied 等瞬时错误（Defender 文件锁）无限重试，
                     // 避免因过早退出导致测试收不到通知（tx 被 drop → rx.recv() 返回 None）。
                     if e.kind() == std::io::ErrorKind::NotFound {
-                        tracing::warn!(
-                            task_id,
-                            "stall watchdog: output 文件不存在，退出监控"
-                        );
+                        tracing::warn!(task_id, "stall watchdog: output 文件不存在，退出监控");
                         break;
                     }
                     // 瞬时错误（Windows 文件锁）backoff，避免忙循环
@@ -231,14 +228,12 @@ pub fn spawn_stall_watchdog(
                 Ok(b) => b,
                 Err(e) => {
                     // anyhow 链中找 io::Error::NotFound
-                    let is_not_found = e
-                        .chain()
-                        .any(|c| c.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound));
+                    let is_not_found = e.chain().any(|c| {
+                        c.downcast_ref::<std::io::Error>()
+                            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+                    });
                     if is_not_found {
-                        tracing::warn!(
-                            task_id,
-                            "stall watchdog: output 文件不存在，退出监控"
-                        );
+                        tracing::warn!(task_id, "stall watchdog: output 文件不存在，退出监控");
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -365,10 +360,7 @@ pub fn shell_notification_display_text_with(
 /// 在 `cursor` 中定位最早出现的通知块，返回 `(tag, body_start, body_end)`。
 ///
 /// `body_start`/`body_end` 为开标签之后、闭标签之前的正文区间（相对 `cursor`）。
-fn next_notification_block<'a>(
-    cursor: &str,
-    tags: &[&'a str],
-) -> Option<(&'a str, usize, usize)> {
+fn next_notification_block<'a>(cursor: &str, tags: &[&'a str]) -> Option<(&'a str, usize, usize)> {
     tags.iter()
         .filter_map(|tag| {
             let open = format!("<{tag}>");

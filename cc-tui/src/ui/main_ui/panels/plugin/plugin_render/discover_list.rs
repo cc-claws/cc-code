@@ -170,7 +170,10 @@ pub(crate) fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut
                     Style::default().fg(theme::cur().warning),
                 ));
             } else if plugin.installed {
-                right_parts.push(Span::styled(" \u{2714}", Style::default().fg(theme::cur().success)));
+                right_parts.push(Span::styled(
+                    " \u{2714}",
+                    Style::default().fg(theme::cur().success),
+                ));
             }
 
             if !right_parts.is_empty() {

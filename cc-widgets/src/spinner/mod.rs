@@ -174,7 +174,8 @@ impl SpinnerState {
         if has_active_tools {
             self.last_token_at = Instant::now();
         }
-        let target = animation::stall_intensity_target(self.time_since_last_token_ms(), has_active_tools);
+        let target =
+            animation::stall_intensity_target(self.time_since_last_token_ms(), has_active_tools);
         let now = Instant::now();
         if target <= 0.0 && self.stall_intensity <= 0.0 {
             self.stall_last_smooth_at = now;

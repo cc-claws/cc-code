@@ -3,8 +3,8 @@
 //! Converts internal agent state into ACP protocol types
 //! (modes, models, config options) for `session/new` and `session/set_*` responses.
 
-use parking_lot::RwLock;
 use cc_middlewares::prelude::{PermissionMode, SharedPermissionMode};
+use parking_lot::RwLock;
 
 use crate::provider::{
     format_model_selection_value, LlmProvider, PeriConfig, ProviderConfig, ProviderModels,

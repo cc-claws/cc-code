@@ -812,8 +812,11 @@ pub fn protected_path_reason(path: &Path, extra: &[String]) -> Option<String> {
     }
 
     // 豁免自动记忆目录（对齐 CC write carve-out），允许模型自主读写 memory/ 及 MEMORY.md
-    let is_auto_mem = (lowered.contains("/.claude/projects/") || lowered.contains("/.cc-code/projects/"))
-        && (lowered.contains("/memory/") || lowered.ends_with("/memory") || lowered.ends_with("/memory.md"));
+    let is_auto_mem = (lowered.contains("/.claude/projects/")
+        || lowered.contains("/.cc-code/projects/"))
+        && (lowered.contains("/memory/")
+            || lowered.ends_with("/memory")
+            || lowered.ends_with("/memory.md"));
 
     if !is_auto_mem {
         if let Some(seg) = segments.iter().find(|s| PROTECTED_DIR_SEGMENTS.contains(s)) {

@@ -46,34 +46,11 @@ impl ThemePanel {
     }
 
     /// 将选中主题写入 config 并保存，推送系统提示（Enter 确认路径）。
+    ///
+    /// 与 `/theme <name>` 命令共用 [`super::panel_theme::apply_theme_impl`]：
+    /// 该函数负责持久化、提示、全量重建 ViewModel 与触发重绘。
     fn apply_and_close(panel: &ThemePanel, ctx: &mut PanelContext<'_>) {
-        let name = panel.selected();
-        theme::set_current(name);
-
-        let mut save_err: Option<String> = None;
-        if let Some(cfg) = ctx.services.peri_config.as_mut() {
-            cfg.config.theme = Some(name.setting_value().to_string());
-            if let Err(e) = App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
-                save_err = Some(e.to_string());
-            }
-        }
-
-        ctx.session_mgr
-            .current_mut()
-            .messages
-            .push_system_note(ctx.services.lc.tr_args(
-                "app-theme-set",
-                &[("name".into(), name.setting_value().into())],
-            ));
-        if let Some(e) = save_err {
-            ctx.session_mgr
-                .current_mut()
-                .messages
-                .push_system_note(ctx.services.lc.tr_args(
-                    "app-config-save-failed",
-                    &[("error".into(), e.into())],
-                ));
-        }
+        super::panel_theme::apply_theme_impl(ctx.services, ctx.session_mgr, panel.selected());
     }
 }
 

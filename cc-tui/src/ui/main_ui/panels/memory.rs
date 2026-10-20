@@ -26,7 +26,11 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
 
     for (i, entry) in panel.entries.iter().enumerate() {
         let is_cursor = i == panel.cursor();
-        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR_SPACED } else { "  " };
+        let cursor_char = if is_cursor {
+            theme::SYMBOL_CURSOR_SPACED
+        } else {
+            "  "
+        };
 
         let style = if is_cursor {
             Style::default()
@@ -50,10 +54,7 @@ pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut 
         };
 
         lines.push(Line::from(vec![
-            Span::styled(
-                cursor_char.to_string(),
-                theme::cursor_style(),
-            ),
+            Span::styled(cursor_char.to_string(), theme::cursor_style()),
             Span::styled(format!("[{}] ", exist_icon.0), exist_icon.1),
             Span::styled(format!("{:<8} ", entry.label), style),
             Span::styled(path_display, Style::default().fg(theme::cur().inactive)),

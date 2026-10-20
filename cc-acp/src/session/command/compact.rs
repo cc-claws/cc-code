@@ -5,14 +5,11 @@
 
 use std::sync::Arc;
 
-use cc_agent::{
-    agent::{
-        compact::{
-            build_compacted_messages, extract_file_info, extract_skill_names, full_compact,
-            re_inject,
-        },
-        events::AgentEvent as ExecutorEvent,
+use cc_agent::agent::{
+    compact::{
+        build_compacted_messages, extract_file_info, extract_skill_names, full_compact, re_inject,
     },
+    events::AgentEvent as ExecutorEvent,
 };
 use tracing::{info, warn};
 
@@ -168,7 +165,7 @@ impl AgentCommand for CompactCommand {
         let files = extract_file_info(&re_inject_result.messages);
         let skills = extract_skill_names(&re_inject_result.messages);
 
-        // 摘要作为 Human 消息（与 auto-compact 路径和 Claude Code 实现对齐）。
+        // 摘要作为 Human 消息（与 auto-compact 路径和 CC 实现对齐）。
         // `<system-reminder>` 包裹由 build_compacted_messages 统一提供，TUI 依赖该
         // 标签把摘要折叠成一行提示；与自动 compact 路径共用同一实现，避免格式漂移。
         let new_messages =

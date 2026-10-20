@@ -37,10 +37,7 @@ fn test_background_task_render_collapsed_expanded_and_detail() {
                 "bg-moved-to-background",
                 &[("task".into(), "task-123".to_string().into())],
             );
-            assert!(
-                text.contains(&expected),
-                "应展示后台移交结果：{text}"
-            );
+            assert!(text.contains(&expected), "应展示后台移交结果：{text}");
             assert!(
                 !text.contains("<background-task-started>"),
                 "不能泄露内部协议：{text}"
@@ -100,8 +97,7 @@ fn test_background_task_render_does_not_hide_normal_or_malformed_output() {
 
 #[test]
 fn test_background_task_render_history_and_nested_subagent() {
-    let message =
-        cc_agent::messages::BaseMessage::tool_result("tc-background", BACKGROUND_RESULT);
+    let message = cc_agent::messages::BaseMessage::tool_result("tc-background", BACKGROUND_RESULT);
     let calls = vec![(
         "tc-background".to_string(),
         "Bash".to_string(),

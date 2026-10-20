@@ -1,6 +1,6 @@
 //! `/recap` 命令 — 生成当前会话的一句话回顾。
 //!
-//! 移植自 Claude Code 的 away-summary 实现（参考 `claude-code-best/claude-code`
+//! 移植自 CC 的 away-summary 实现（参考 `claude-code-best/claude-code`
 //! 的 `src/commands/recap/generateRecap.ts`），核心语义对齐：
 //! - 单轮 fork，禁用工具调用
 //! - 输出单行单句，中文 ≤60 字 / 英文 <40 词，无 markdown，语言跟随用户要求或会话

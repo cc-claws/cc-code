@@ -108,7 +108,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
 
     message_area::render_messages(f, app, chunks[0], chunks[1]);
 
-    // 复制成功浮动提示：消息区右下角，紧贴输入框上方（对齐 Claude Code）
+    // 复制成功浮动提示：消息区右下角，紧贴输入框上方（对齐 CC）
     if let Some(until) = app.session_mgr.current().ui.copy_message_until {
         if std::time::Instant::now() < until {
             let lc = &app.services.lc;
@@ -211,13 +211,18 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     queued_messages::render(f, app, chunks[4]);
 
     // 输入框样式：Bar 焦点变暗 / 聚焦只读模式 / 正常模式
-    let bar_focused = {
+    let focused_id = app.session_mgr.current_mut().focused_instance_id.clone();
+
+    // 抽屉导航态（主会话）刻意压暗输入框：**真机定稿**，用边框降级表达「按键已经
+    // 交给抽屉，此刻打字先进抽屉」。唯一的例外是子视口内——那时输入框的青色边框
+    // 是「现在在子 Agent 窗口还是主窗口」的唯一标识（PRD §4.11），按 ↓ 只是把按键
+    // 交给抽屉、视口没变，不能连方位感一起抹掉，故由 `focused_id.is_none()` 放行。
+    let input_dimmed = focused_id.is_none() && {
         let session = app.session_mgr.current();
         let task_bar_focused =
             session.ui.background_tasks_bar_focused && app.has_running_background_shell_tasks();
         session.drawer_nav_active() || task_bar_focused
     };
-    let focused_id = app.session_mgr.current_mut().focused_instance_id.clone();
 
     let popup_active = app.global_ui.oauth_prompt.is_some()
         || app
@@ -228,7 +233,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             .is_some();
     let shell_mode = textarea_shell_mode(app);
 
-    if bar_focused || popup_active {
+    if input_dimmed || popup_active {
         // Bar 焦点模式：输入框变暗
         let block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
@@ -524,7 +529,7 @@ fn is_slash_command_tail(c: char) -> bool {
 
 /// 扫描一行内所有 `/command` token 的**字节**区间。
 ///
-/// 规则对齐 Claude Code `findSlashCommandPositions`：`/` 前是行首或空白，`/` 后首字符为
+/// 规则对齐 CC `findSlashCommandPositions`：`/` 前是行首或空白，`/` 后首字符为
 /// ASCII 字母（因此 `/theme`、`/gougou-auth` 命中，`/2x`、`a/theme` 不命中）。
 /// 注意该规则不区分「已知命令」与路径——行首的 `/usr/bin` 同样命中 `/usr`，与 CC 行为一致。
 fn slash_command_spans(line: &str) -> Vec<(usize, usize)> {
@@ -555,7 +560,7 @@ fn slash_command_spans(line: &str) -> Vec<(usize, usize)> {
     spans
 }
 
-/// 将输入框内的 `/command` token 渲染为主题 `suggestion` 蓝色（对齐 Claude Code 输入框）。
+/// 将输入框内的 `/command` token 渲染为主题 `suggestion` 蓝色（对齐 CC 输入框）。
 ///
 /// 入参为**显示态** textarea（`!` 前缀可能已被移除），自定义高亮只作用于克隆体，
 /// 不污染真实输入状态；优先级 5 低于光标(30)/选区(10)，不会盖住它们。

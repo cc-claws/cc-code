@@ -221,7 +221,7 @@ impl BaseTool for BashTool {
         let run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
         let user_command = command.to_string();
-        // 轨一：尝试使用 RTK 重写命令（对齐 Claude Code / Codex 代理模式）
+        // 轨一：尝试使用 RTK 重写命令（对齐 CC / Codex 代理模式）
         let (command, is_rtk_rewritten) =
             if let Some(rewritten) = crate::process::rtk_rewrite_command(command).await {
                 (rewritten, true)

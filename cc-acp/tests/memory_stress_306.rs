@@ -13,12 +13,12 @@
 //! 精确测量上述两步新增的常驻内存，确认是否为 ~2x 载荷。
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
-use langfuse_client::{BackpressurePolicy, Batcher, BatcherConfig, LangfuseClient};
 use cc_acp::langfuse::{LangfuseSession, LangfuseTracer};
 use cc_agent::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, MessageId};
+use langfuse_client::{BackpressurePolicy, Batcher, BatcherConfig, LangfuseClient};
 
 // ─── 计数分配器 ────────────────────────────────────────────────────────────
 

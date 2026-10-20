@@ -1,7 +1,4 @@
-use super::{
-    message_pipeline::PipelineAction,
-    *,
-};
+use super::{message_pipeline::PipelineAction, *};
 use crate::ui::render_thread::RenderEvent;
 
 impl App {
@@ -61,6 +58,31 @@ impl App {
             .pipeline
             .build_rebuild_all(prefix_len);
         self.apply_pipeline_action(action);
+    }
+
+    /// 用规范消息列表**全量**重建视图模型并安装（主题切换 / compact / rewind 共用）。
+    ///
+    /// 与 [`request_rebuild`](Self::request_rebuild) 的区别：后者只重建
+    /// `round_start_vm_idx` 之后的 tail，历史 VM 直接复用；这里连历史一起重建，
+    /// 因此 markdown 的 `rendered` 快照会按当前主题/宽度重新生成。
+    ///
+    /// `extra` 用于在末尾追加一条临时 VM（如 rewind 提示）。
+    pub(crate) fn rebuild_vms_from_all(
+        &mut self,
+        messages: &[cc_agent::messages::BaseMessage],
+        extra: Option<MessageViewModel>,
+    ) {
+        let cwd = self.services.cwd.clone();
+        let mut view_msgs =
+            message_pipeline::MessagePipeline::messages_to_view_models(messages, &cwd);
+        if let Some(vm) = extra {
+            view_msgs.push(vm);
+        }
+        self.session_mgr.current_mut().messages.round_start_vm_idx = 0;
+        self.apply_pipeline_action(PipelineAction::RebuildAll {
+            prefix_len: 0,
+            tail_vms: view_msgs,
+        });
     }
 
     /// 添加系统通知并记录锚点位置，随后请求一次重建使通知立即可见。

@@ -1,10 +1,18 @@
-use cc_agent::agent::{events::AgentEvent, steering::SteeringQueue, AgentCancellationToken, BackgroundTaskResult};
+use cc_agent::agent::{
+    events::AgentEvent, steering::SteeringQueue, AgentCancellationToken, BackgroundTaskResult,
+};
 use std::collections::HashMap;
 use tracing::warn;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum BackgroundTaskStatus { Running, AwaitingApproval, Completed, Stopped, Failed }
+pub enum BackgroundTaskStatus {
+    Running,
+    AwaitingApproval,
+    Completed,
+    Stopped,
+    Failed,
+}
 
 pub struct BackgroundTask {
     pub id: String,
@@ -67,28 +75,47 @@ impl BackgroundTaskRegistry {
         }
     }
 
-    pub fn set_notification_sender(&self, sender: tokio::sync::mpsc::UnboundedSender<BackgroundTaskResult>) {
+    pub fn set_notification_sender(
+        &self,
+        sender: tokio::sync::mpsc::UnboundedSender<BackgroundTaskResult>,
+    ) {
         *self.notification_tx.lock() = sender;
     }
 
-    pub fn active_count(&self) -> usize { self.tasks.lock().len() }
+    pub fn active_count(&self) -> usize {
+        self.tasks.lock().len()
+    }
 
     pub fn register(&self, task: BackgroundTask) -> Result<(), String> {
         let mut tasks = self.tasks.lock();
         if tasks.len() >= self.max_concurrent {
             // 调用方以启动闸门保证未注册任务尚未执行任何操作。
             task.abort_handle.abort();
-            return Err(format!("Maximum {} concurrent background tasks reached", self.max_concurrent));
+            return Err(format!(
+                "Maximum {} concurrent background tasks reached",
+                self.max_concurrent
+            ));
         }
         tasks.insert(task.id.clone(), task);
         Ok(())
     }
 
-    pub(crate) fn attach_runtime(&self, snapshot: BackgroundTaskSnapshot, cancel: AgentCancellationToken, mailbox: SteeringQueue) {
+    pub(crate) fn attach_runtime(
+        &self,
+        snapshot: BackgroundTaskSnapshot,
+        cancel: AgentCancellationToken,
+        mailbox: SteeringQueue,
+    ) {
         let mut runtimes = self.runtimes.lock();
-        runtimes.insert(snapshot.task_id.clone(), BackgroundRuntime {
-            snapshot, cancel, mailbox, started_at: std::time::Instant::now(),
-        });
+        runtimes.insert(
+            snapshot.task_id.clone(),
+            BackgroundRuntime {
+                snapshot,
+                cancel,
+                mailbox,
+                started_at: std::time::Instant::now(),
+            },
+        );
         Self::prune_terminal_runtimes(&mut runtimes, TERMINAL_RUNTIME_KEEP);
     }
 
@@ -99,7 +126,10 @@ impl BackgroundTaskRegistry {
     /// 活跃任务（Running/AwaitingApproval）永不淘汰，保证在途完成通知仍能落到 runtime 上。
     fn prune_terminal_runtimes(runtimes: &mut HashMap<String, BackgroundRuntime>, keep: usize) {
         let is_terminal = |r: &BackgroundRuntime| {
-            !matches!(r.snapshot.status, BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval)
+            !matches!(
+                r.snapshot.status,
+                BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval
+            )
         };
         let terminal_count = runtimes.values().filter(|r| is_terminal(r)).count();
         if terminal_count <= keep {
@@ -118,10 +148,15 @@ impl BackgroundTaskRegistry {
 
     pub fn status(&self, id: &str) -> Result<BackgroundTaskSnapshot, String> {
         let runtimes = self.runtimes.lock();
-        let runtime = runtimes.values().find(|r| r.snapshot.task_id == id || r.snapshot.instance_id == id)
+        let runtime = runtimes
+            .values()
+            .find(|r| r.snapshot.task_id == id || r.snapshot.instance_id == id)
             .ok_or_else(|| format!("Task {id} not found"))?;
         let mut snapshot = runtime.snapshot.clone();
-        if matches!(snapshot.status, BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval) {
+        if matches!(
+            snapshot.status,
+            BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval
+        ) {
             snapshot.elapsed_ms = runtime.started_at.elapsed().as_millis() as u64;
         }
         Ok(snapshot)
@@ -129,7 +164,9 @@ impl BackgroundTaskRegistry {
 
     pub(crate) fn record_event(&self, id: &str, event: &AgentEvent) {
         let mut runtimes = self.runtimes.lock();
-        let Some(runtime) = runtimes.get_mut(id) else { return; };
+        let Some(runtime) = runtimes.get_mut(id) else {
+            return;
+        };
         match event {
             AgentEvent::ToolStart { .. } => {
                 // 只计步数。**不要**把工具名写进 `current_activity`——该字段最终呈现给
@@ -140,7 +177,8 @@ impl BackgroundTaskRegistry {
             AgentEvent::LlmCallEnd { model, usage, .. } => {
                 runtime.snapshot.model = Some(model.clone());
                 if let Some(usage) = usage {
-                    runtime.snapshot.tokens_used += u64::from(usage.input_tokens) + u64::from(usage.output_tokens);
+                    runtime.snapshot.tokens_used +=
+                        u64::from(usage.input_tokens) + u64::from(usage.output_tokens);
                 }
             }
             _ => {}
@@ -149,28 +187,46 @@ impl BackgroundTaskRegistry {
 
     pub fn complete(&self, task_id: &str, result: BackgroundTaskResult) {
         if let Some(runtime) = self.runtimes.lock().get_mut(task_id) {
-            runtime.snapshot.status = if runtime.cancel.is_cancelled() && !result.output.contains("timed out") {
-                BackgroundTaskStatus::Stopped
-            } else if result.success { BackgroundTaskStatus::Completed } else { BackgroundTaskStatus::Failed };
+            runtime.snapshot.status =
+                if runtime.cancel.is_cancelled() && !result.output.contains("timed out") {
+                    BackgroundTaskStatus::Stopped
+                } else if result.success {
+                    BackgroundTaskStatus::Completed
+                } else {
+                    BackgroundTaskStatus::Failed
+                };
             runtime.snapshot.elapsed_ms = result.duration_ms;
             runtime.snapshot.result = Some(result.output.clone());
             runtime.mailbox.close();
         }
         self.tasks.lock().remove(task_id);
         if self.notification_tx.lock().send(result).is_err() {
-            warn!(task_id, "background task complete: notification channel closed");
+            warn!(
+                task_id,
+                "background task complete: notification channel closed"
+            );
         }
     }
 
     pub fn list_tasks(&self) -> Vec<(String, BackgroundTaskStatus, String)> {
-        self.tasks.lock().values().map(|t| (t.id.clone(), t.status.clone(), t.prompt_summary.clone())).collect()
+        self.tasks
+            .lock()
+            .values()
+            .map(|t| (t.id.clone(), t.status.clone(), t.prompt_summary.clone()))
+            .collect()
     }
 
     pub fn cancel(&self, id: &str) -> Result<(), String> {
         {
             let runtimes = self.runtimes.lock();
-            if let Some(runtime) = runtimes.values().find(|r| r.snapshot.task_id == id || r.snapshot.instance_id == id) {
-                if !matches!(runtime.snapshot.status, BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval) {
+            if let Some(runtime) = runtimes
+                .values()
+                .find(|r| r.snapshot.task_id == id || r.snapshot.instance_id == id)
+            {
+                if !matches!(
+                    runtime.snapshot.status,
+                    BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval
+                ) {
                     return Err(format!("Task {id} ended (read-only)"));
                 }
                 // 不 abort 任务：让执行器取消 future 并正常发出终态、完成持久化和清理。
@@ -181,28 +237,49 @@ impl BackgroundTaskRegistry {
         if let Some(task) = self.tasks.lock().remove(id) {
             task.abort_handle.abort();
             Ok(())
-        } else { Err(format!("Task {id} not found")) }
+        } else {
+            Err(format!("Task {id} not found"))
+        }
     }
 
     pub fn cancel_all(&self) {
-        for runtime in self.runtimes.lock().values() { runtime.cancel.cancel(); }
+        for runtime in self.runtimes.lock().values() {
+            runtime.cancel.cancel();
+        }
     }
 
     /// 入队立即返回；执行器在工具结束后的安全边界接收，不打断正在运行的工具。
     pub fn send_message(&self, id: &str, text: &str) -> Result<(), String> {
-        if text.trim().is_empty() { return Err("Message must not be empty".into()); }
+        if text.trim().is_empty() {
+            return Err("Message must not be empty".into());
+        }
         let runtimes = self.runtimes.lock();
-        let runtime = runtimes.values().find(|r| r.snapshot.task_id == id || r.snapshot.instance_id == id)
+        let runtime = runtimes
+            .values()
+            .find(|r| r.snapshot.task_id == id || r.snapshot.instance_id == id)
             .ok_or_else(|| format!("Task {id} not found"))?;
-        if runtime.cancel.is_cancelled() || !matches!(runtime.snapshot.status, BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval) {
+        if runtime.cancel.is_cancelled()
+            || !matches!(
+                runtime.snapshot.status,
+                BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval
+            )
+        {
             return Err(format!("Task {id} ended (read-only)"));
         }
-        runtime.mailbox.enqueue(cc_agent::messages::MessageContent::text(text))
-            .map(|_| ()).ok_or_else(|| format!("Task {id} ended (read-only)"))
+        runtime
+            .mailbox
+            .enqueue(cc_agent::messages::MessageContent::text(text))
+            .map(|_| ())
+            .ok_or_else(|| format!("Task {id} ended (read-only)"))
     }
 
     pub fn cleanup_completed(&self) {
-        self.runtimes.lock().retain(|_, r| matches!(r.snapshot.status, BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval));
+        self.runtimes.lock().retain(|_, r| {
+            matches!(
+                r.snapshot.status,
+                BackgroundTaskStatus::Running | BackgroundTaskStatus::AwaitingApproval
+            )
+        });
     }
 }
 

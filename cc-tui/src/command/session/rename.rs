@@ -36,10 +36,11 @@ impl Command for RenameCommand {
                     .and_then(|m| m.title)
             })
             .unwrap_or_else(|| app.services.lc.tr("rename-untitled"));
-            let vm = MessageViewModel::system(app.services.lc.tr_args(
-                "rename-current-title",
-                &[("title".into(), title.into())],
-            ));
+            let vm = MessageViewModel::system(
+                app.services
+                    .lc
+                    .tr_args("rename-current-title", &[("title".into(), title.into())]),
+            );
             app.session_mgr
                 .current_mut()
                 .messages
@@ -67,10 +68,11 @@ impl Command for RenameCommand {
                     meta.user_renamed = true;
                     meta.title_generation_attempted = true;
                     app.refresh_terminal_title();
-                    let vm = MessageViewModel::system(app.services.lc.tr_args(
-                        "rename-updated",
-                        &[("name".into(), name.into())],
-                    ));
+                    let vm = MessageViewModel::system(
+                        app.services
+                            .lc
+                            .tr_args("rename-updated", &[("name".into(), name.into())]),
+                    );
                     app.session_mgr
                         .current_mut()
                         .messages
@@ -78,10 +80,11 @@ impl Command for RenameCommand {
                         .push(vm);
                 }
                 Err(e) => {
-                    let vm = MessageViewModel::system(app.services.lc.tr_args(
-                        "rename-failed",
-                        &[("error".into(), e.to_string().into())],
-                    ));
+                    let vm = MessageViewModel::system(
+                        app.services
+                            .lc
+                            .tr_args("rename-failed", &[("error".into(), e.to_string().into())]),
+                    );
                     app.session_mgr
                         .current_mut()
                         .messages

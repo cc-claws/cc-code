@@ -24,7 +24,10 @@ pub(crate) fn render_oauth_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let lc = &app.services.lc;
     let title = format!(
         " {} ",
-        lc.tr_args("oauth-popup-title", &[("server".into(), prompt.server_name.clone().into())])
+        lc.tr_args(
+            "oauth-popup-title",
+            &[("server".into(), prompt.server_name.clone().into())]
+        )
     );
     let title_span = Span::styled(
         title,

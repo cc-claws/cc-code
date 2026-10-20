@@ -275,7 +275,8 @@ fn test_md_heading() {
     let theme = DefaultMarkdownTheme;
 
     let text = parse_markdown_default("# Hello World");
-    let heading_line = &text.lines[1];
+    // 对齐 CC：标题前不留前置空行
+    let heading_line = &text.lines[0];
     let all_content: String = heading_line
         .spans
         .iter()
@@ -298,7 +299,8 @@ fn test_md_heading_h2() {
     let theme = DefaultMarkdownTheme;
 
     let text = parse_markdown_default("## Section Title");
-    let heading_line = &text.lines[1];
+    // 对齐 CC：标题前不留前置空行
+    let heading_line = &text.lines[0];
     let has_heading_color = heading_line
         .spans
         .iter()

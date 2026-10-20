@@ -44,10 +44,11 @@ impl Command for EffortCommand {
                         .push(vm);
                     return;
                 }
-                let vm = MessageViewModel::system(app.services.lc.tr_args(
-                    "effort-set",
-                    &[("effort".into(), arg.clone().into())],
-                ));
+                let vm = MessageViewModel::system(
+                    app.services
+                        .lc
+                        .tr_args("effort-set", &[("effort".into(), arg.clone().into())]),
+                );
                 app.session_mgr
                     .current_mut()
                     .messages

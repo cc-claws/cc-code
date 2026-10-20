@@ -118,7 +118,7 @@ pub struct PluginOption {
     pub default: Option<serde_json::Value>,
 }
 
-/// 兼容 Claude Code 的插件清单
+/// 兼容 CC 的插件清单
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginManifest {
     #[serde(default)]
@@ -220,7 +220,7 @@ pub struct InstalledPlugins {
     pub plugins: Vec<InstalledPlugin>,
 }
 
-/// Claude Code 的 installed_plugins.json 中每个版本记录的格式
+/// CC 的 installed_plugins.json 中每个版本记录的格式
 #[derive(Debug, Clone, Deserialize)]
 struct ClaudeCodeVersionRecord {
     #[serde(default)]
@@ -232,8 +232,8 @@ struct ClaudeCodeVersionRecord {
     project_path: Option<String>,
 }
 
-/// 兼容 Claude Code 两种 installed_plugins 格式：
-/// - Claude Code 对象格式: `{"plugin-id@marketplace": [{version record}]}`
+/// 兼容 CC 两种 installed_plugins 格式：
+/// - CC 对象格式: `{"plugin-id@marketplace": [{version record}]}`
 /// - 内部数组格式: `[InstalledPlugin, ...]`
 fn deserialize_installed_plugins<'de, D>(deserializer: D) -> Result<Vec<InstalledPlugin>, D::Error>
 where
@@ -295,7 +295,7 @@ impl Default for InstalledPlugins {
 
 /// 已注册的 marketplace 配置条目
 ///
-/// 与 Claude Code 的 KnownMarketplaceSchema 兼容：
+/// 与 CC 的 KnownMarketplaceSchema 兼容：
 /// - source: required - marketplace 来源
 /// - installLocation: required - 本地缓存路径
 /// - lastUpdated: required - ISO 8601 时间戳

@@ -298,7 +298,7 @@ fn test_plugin_manifest_serialization_roundtrip() {
 
 #[test]
 fn test_plugin_manifest_commands_string_array() {
-    // Claude Code 支持 "commands": ["path/to/commands/"] 这种字符串目录路径格式
+    // CC 支持 "commands": ["path/to/commands/"] 这种字符串目录路径格式
     let json = r#"{"name":"ecc","version":"1.0.0","commands":["./commands/", {"path": "./extra/my-cmd.md", "name": "my-cmd"}]}"#;
     let manifest: PluginManifest = serde_json::from_str(json).unwrap();
     let cmds = manifest.commands.unwrap();

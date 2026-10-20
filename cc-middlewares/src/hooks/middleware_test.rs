@@ -499,7 +499,7 @@ async fn test_async_permission_request_hook_actually_fires() {
     let _ = std::fs::remove_file(marker_path);
 }
 
-/// Bypass 模式下 PermissionRequest 不应触发（对齐 Claude Code 行为）
+/// Bypass 模式下 PermissionRequest 不应触发（对齐 CC 行为）
 #[cfg(unix)]
 #[tokio::test]
 async fn test_permission_request_skipped_in_bypass_mode() {
@@ -613,7 +613,7 @@ async fn test_async_hook_receives_correct_event_name() {
 }
 
 /// Verify PermissionRequest does NOT fire in Bypass (YOLO) mode,
-/// aligned with Claude Code behavior.
+/// aligned with CC behavior.
 #[cfg(unix)]
 #[tokio::test]
 async fn test_permission_request_does_not_fire_in_yolo_mode() {
@@ -685,7 +685,7 @@ async fn test_permission_request_skipped_for_non_sensitive_tools() {
 
 // === on_error StopFailure 触发范围测试（issue #5）===
 //
-// 按 Claude Code 规范，StopFailure 仅在 API/LLM 错误时触发。
+// 按 CC 规范，StopFailure 仅在 API/LLM 错误时触发。
 // 用户中断、最大迭代次数、工具拒绝等不应触发 StopFailure。
 
 #[cfg(unix)]

@@ -126,10 +126,8 @@ impl PluginPanel {
                         if let Some(entry) = mkt_places.iter_mut().find(|km| km.source == source) {
                             entry.install_location = install_location;
                             entry.last_updated = chrono::Utc::now().to_rfc3339();
-                            let _ = cc_middlewares::plugin::save_known_marketplaces(
-                                &mkt_places,
-                                None,
-                            );
+                            let _ =
+                                cc_middlewares::plugin::save_known_marketplaces(&mkt_places, None);
                         }
                     }
                     let _ = tx

@@ -156,6 +156,10 @@ impl App {
             self.push_system_note(self.services.lc.tr("queue-unavailable"));
             return;
         };
+        // 前台命令正卡着本轮时 steering 轮不到（它只在下一轮 LLM 调用前 drain）。
+        // 先登记宽限期，让 1s 级短命令自己跑完；超过 2s 还在跑才移交后台
+        // （由 `poll_steer_foreground_grace` 执行，等价替用户按 Ctrl+B）。
+        self.arm_steer_foreground_grace();
         let session = self.session_mgr.current_mut();
         let message = &mut session.messages.pending_messages[index];
         let content = message.content();

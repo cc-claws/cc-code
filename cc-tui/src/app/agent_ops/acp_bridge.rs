@@ -176,7 +176,8 @@ impl App {
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
 
-                let display = super::super::tool_display::format_tool_name(&name);
+                let display =
+                    super::super::tool_display::format_tool_name_with_input(&name, Some(&input));
                 let args = super::super::tool_display::format_tool_args(
                     &name,
                     &input,

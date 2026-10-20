@@ -207,11 +207,7 @@ impl BaseTool for EditFileTool {
         let old_lines = old_string.lines().count();
         let new_lines = new_string.lines().count();
         let line_diff = new_lines as i64 - old_lines as i64;
-        let rel = resolved
-            .strip_prefix(&self.cwd)
-            .unwrap_or(&resolved)
-            .display()
-            .to_string();
+        let rel = super::display_rel_path(&self.cwd, &resolved);
 
         // 构建行数变化描述
         let diff_desc = match line_diff.cmp(&0) {

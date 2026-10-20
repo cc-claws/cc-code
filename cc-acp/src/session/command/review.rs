@@ -42,7 +42,7 @@ impl AgentCommand for ReviewCommand {
     }
 }
 
-/// Review prompt — 与 Claude Code TS 版 `LOCAL_REVIEW_PROMPT` 对齐。
+/// Review prompt — 与 CC TS 版 `LOCAL_REVIEW_PROMPT` 对齐。
 /// agent 通过 Bash 工具调用 `gh` CLI 完成 PR 审查。
 static REVIEW_PROMPT: &str = r#"Conduct a read-only code review of the requested pull request.
 

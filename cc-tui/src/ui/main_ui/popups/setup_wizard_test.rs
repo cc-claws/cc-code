@@ -23,7 +23,7 @@
         wizard.step = SetupStep::Choose;
         let (_, handle) = render_headless(wizard).await;
         assert!(handle.contains("Custom API"));
-        assert!(handle.contains("Claude Code"));
+        assert!(handle.contains(".claude"));
     }
 
     #[tokio::test]

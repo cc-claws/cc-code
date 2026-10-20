@@ -145,7 +145,7 @@ impl MessagePipeline {
         input: &serde_json::Value,
         started_at: Option<std::time::Instant>,
     ) -> MessageViewModel {
-        let display_name = tool_display::format_tool_name(name);
+        let display_name = tool_display::format_tool_name_with_input(name, Some(input));
         let args_display = tool_display::format_tool_args(name, input, Some(&self.cwd));
         let mut vm = MessageViewModel::ToolBlock {
             tool_name: name.to_string(),

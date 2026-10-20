@@ -114,8 +114,7 @@ impl LspTool {
                 let state = s.state();
                 if matches!(
                     state,
-                    cc_lsp::client::ServerState::Error(_)
-                        | cc_lsp::client::ServerState::Stopped
+                    cc_lsp::client::ServerState::Error(_) | cc_lsp::client::ServerState::Stopped
                 ) {
                     // 服务器崩溃或停止，尝试重启
                     tracing::warn!(

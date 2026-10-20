@@ -36,6 +36,7 @@
 - [上下文压缩](../spec/global/domains/compact.md) — 压缩机制
 - [工具](../spec/global/domains/tools.md) — 工具系统
 - [TUI Widgets](../spec/global/domains/tui-widgets.md) — Widget 组件
+- [代码高亮](../spec/global/domains/code-highlight.md) — syntect 集成、语言识别规则与语法集缺口
 
 ### 产品需求文档 (PRD)
 
@@ -59,6 +60,12 @@
 - 架构评审
 - 重构指南
 - 实现计划
+
+- [diff 渲染对齐 CC 改造审计（2026-10-20）](2026-10-20-diff-highlight-alignment-audit.md) — 未提交改动的问题清单、证据位置与验证边界
+
+## 实用手册
+
+- [PDF / 图片表格提取实战手册](2026-10-19-pdf-table-extraction-playbook.md) — 扫描件/合同表格转 Excel 的完整流程、OCR 能力边界与踩坑清单
 
 ## 版本记录
 

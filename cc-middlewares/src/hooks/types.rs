@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 /// 生命周期事件
 ///
-/// 对齐 Claude Code hooks.json 中的 key 名（PascalCase）。
+/// 对齐 CC hooks.json 中的 key 名（PascalCase）。
 /// `Unknown` 变体用于兼容 settings.local.json 中尚未实现的事件。
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum HookEvent {
@@ -77,7 +77,7 @@ impl<'de> Deserialize<'de> for HookEvent {
     }
 }
 
-/// 4 种 hook 执行类型，对齐 Claude Code schemas/hooks.ts
+/// 4 种 hook 执行类型，对齐 CC schemas/hooks.ts
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum HookType {
@@ -157,7 +157,7 @@ pub enum HookType {
 
 /// Hook 执行输入——通过 stdin JSON 传递给 command hook，或作为 HTTP body
 ///
-/// 对齐 Claude Code coreSchemas.ts:
+/// 对齐 CC coreSchemas.ts:
 /// - BaseHookInputSchema: session_id, transcript_path, cwd, permission_mode, agent_id, agent_type
 /// - 每个事件通过 hook_event_name 判别字段区分
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,9 +217,9 @@ pub struct HookInput {
     pub message_count: Option<usize>,
 }
 
-/// Hook 执行结果——对齐 Claude Code src/types/hooks.ts syncHookResponseSchema
+/// Hook 执行结果——对齐 CC src/types/hooks.ts syncHookResponseSchema
 ///
-/// Claude Code 的 hook 输出是扁平 JSON（非 enum），包含多个可选字段。
+/// CC 的 hook 输出是扁平 JSON（非 enum），包含多个可选字段。
 /// Peri 解析为结构体后转换为内部 Action 枚举。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncHookResponse {
@@ -254,7 +254,7 @@ pub enum HookDecision {
     Block,
 }
 
-/// 事件特定的 hook 输出——对齐 Claude Code hookSpecificOutput discriminated union
+/// 事件特定的 hook 输出——对齐 CC hookSpecificOutput discriminated union
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "hookEventName")]
 pub enum HookSpecificOutput {
@@ -326,7 +326,7 @@ pub enum HookAction {
 
 /// hooks.json 中单个 hook 规则组
 ///
-/// 对齐 Claude Code hooks schema：
+/// 对齐 CC hooks schema：
 /// - matcher: 粗粒度匹配器（工具名/正则），在进程启动前过滤
 /// - hooks: 该规则组下的所有 hook 定义
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -4,7 +4,7 @@ mod render_state;
 #[cfg(feature = "markdown-highlight")]
 pub mod highlight;
 
-use pulldown_cmark::{Options, Parser};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::{style::Color, text::Text};
 
 use cache::MarkdownCache;
@@ -171,6 +171,71 @@ pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) 
     parse_markdown_with_links(input, theme, max_width).text
 }
 
+/// 判断两个块之间在源文本里是否有空行。
+///
+/// 从上一个块的起点扫到当前块起点，跳过当前块的起始行前缀后，从尾部向前看：
+/// 遇到空行即有，遇到非空行即无。跳过 `>`（引用块前缀）与空白，因此
+/// `> 第一段\n>\n> 第二段` 会被正确识别为有空行。
+///
+/// 不用两块 range 的间隙判断：pulldown-cmark 的块 range 会吞掉块尾的部分
+/// 换行（`## T\n\n正文` 的间隙只有 1 个换行），不可靠。
+fn has_blank_line_between(
+    prev_top_start: Option<usize>,
+    current_start: usize,
+    input: &str,
+) -> bool {
+    let Some(prev) = prev_top_start else {
+        return false;
+    };
+    if current_start <= prev || current_start > input.len() {
+        return false;
+    }
+    let mut lines = input[prev..current_start].rsplit('\n');
+    // 第一项是当前块的起始行前缀（或行终止符后的空串），不属于块间间隔
+    lines.next();
+    match lines.next() {
+        Some(line) => line.trim().trim_start_matches('>').trim().is_empty(),
+        None => false,
+    }
+}
+
+/// 块间空行判定状态机。
+///
+/// 每个块级事件到来时调用 [`take`](Self::take)（水平线用 [`take_rule`](Self::take_rule)），
+/// 返回「该块前是否要留空行」。规则集中在这里，新增块类型只需在解析循环里
+/// 调一次，不必再复制 `last_start` / `last_was_rule` 的状态维护。
+struct BlockGap {
+    /// 上一个块的起始字节偏移
+    last_start: Option<usize>,
+    /// 上一个块是否为水平线：CC 的 hr tokenizer 吞掉后续换行，hr 之后恒无空行
+    last_was_rule: bool,
+}
+
+impl BlockGap {
+    fn new() -> Self {
+        Self {
+            last_start: None,
+            last_was_rule: false,
+        }
+    }
+
+    /// 记录一个普通块的起点，返回它与上一块之间是否有源文本空行
+    fn take(&mut self, start: usize, input: &str) -> bool {
+        let blank = !self.last_was_rule && has_blank_line_between(self.last_start, start, input);
+        self.last_start = Some(start);
+        self.last_was_rule = false;
+        blank
+    }
+
+    /// 记录一个水平线块。hr 前按源文本留空，且不抑制自身前置判定
+    fn take_rule(&mut self, start: usize, input: &str) -> bool {
+        let blank = has_blank_line_between(self.last_start, start, input);
+        self.last_start = Some(start);
+        self.last_was_rule = true;
+        blank
+    }
+}
+
 /// 解析 markdown 文本，同时保留超链接命中区（供点击打开浏览器）
 pub fn parse_markdown_with_links(
     input: &str,
@@ -193,9 +258,38 @@ pub fn parse_markdown_with_links(
 
     // 缓存未命中，执行完整解析
     let options = Options::all() - Options::ENABLE_SMART_PUNCTUATION;
-    let parser = Parser::new_ext(input, options);
+    let parser = Parser::new_ext(input, options).into_offset_iter();
     let mut state = RenderState::new(theme).with_max_width(max_width);
-    for event in parser {
+    // 列表嵌套深度：列表项内部的块不参与「块间空行」判定（对齐 CC 的 loose list）
+    let mut list_depth = 0usize;
+    let mut gap = BlockGap::new();
+    for (event, range) in parser {
+        match &event {
+            Event::Rule => {
+                state.set_pending_blank(gap.take_rule(range.start, input));
+            }
+            Event::Start(Tag::List(_)) => {
+                if list_depth == 0 {
+                    state.set_pending_blank(gap.take(range.start, input));
+                }
+                list_depth += 1;
+            }
+            Event::End(TagEnd::List(_)) => {
+                list_depth = list_depth.saturating_sub(1);
+            }
+            Event::Start(Tag::BlockQuote(_)) => {
+                state.set_pending_blank(gap.take(range.start, input));
+            }
+            Event::Start(Tag::Paragraph)
+            | Event::Start(Tag::Heading { .. })
+            | Event::Start(Tag::CodeBlock(_))
+            | Event::Start(Tag::Table(_))
+                if list_depth == 0 =>
+            {
+                state.set_pending_blank(gap.take(range.start, input));
+            }
+            _ => {}
+        }
         state.handle_event(event);
     }
     if !state.current_spans.is_empty() {

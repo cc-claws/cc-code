@@ -66,8 +66,7 @@ pub fn render_block(
         BlockRenderStrategy::ToolCall(state) => {
             let _ = width;
             // Use ToolCallWidget to render into lines
-            let (indicator_ch, indicator_color) =
-                crate::tool_call::display::format_indicator(
+            let (indicator_ch, indicator_color) = crate::tool_call::display::format_indicator(
                 state.status.clone(),
                 state.tick,
                 theme.muted(),

@@ -12,8 +12,8 @@ pub use entrypoint::{
 pub use middleware::MemoryMiddleware;
 pub use paths::{
     ensure_memory_dir_exists, find_canonical_project_root, get_auto_memory_dir,
-    get_auto_memory_display_dir, get_auto_memory_display_entrypoint,
-    get_auto_memory_entrypoint, is_auto_mem_path, sanitize_project_path,
+    get_auto_memory_display_dir, get_auto_memory_display_entrypoint, get_auto_memory_entrypoint,
+    is_auto_mem_path, sanitize_project_path,
 };
 pub use prompt::build_auto_memory_prompt;
 

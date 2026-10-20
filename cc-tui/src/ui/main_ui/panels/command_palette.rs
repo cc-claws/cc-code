@@ -64,7 +64,10 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
     // ── 顶部提示行 ──
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::cur().inactive)),
+            Span::styled(
+                " \u{2191}\u{2193} Move",
+                Style::default().fg(theme::cur().inactive),
+            ),
             Span::styled(
                 "  Enter/\u{2192} Effort",
                 Style::default().fg(theme::cur().thinking),
@@ -132,7 +135,10 @@ fn render_model_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mut
                     ),
                     Span::styled(format!("{:<8}", entry.alias.to_uppercase()), label_style),
                     Span::styled(format!(" {} ", check), check_style),
-                    Span::styled(entry.model_name.clone(), Style::default().fg(theme::cur().subtle)),
+                    Span::styled(
+                        entry.model_name.clone(),
+                        Style::default().fg(theme::cur().subtle),
+                    ),
                 ]));
             }
         }
@@ -186,10 +192,19 @@ fn render_effort_phase(f: &mut Frame, panel: &mut CommandPalettePanel, _app: &mu
     // ── 顶部提示行 ──
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" \u{2191}\u{2193} Move", Style::default().fg(theme::cur().inactive)),
+            Span::styled(
+                " \u{2191}\u{2193} Move",
+                Style::default().fg(theme::cur().inactive),
+            ),
             Span::styled("  1-5 Quick", Style::default().fg(theme::cur().thinking)),
-            Span::styled("  Enter Confirm", Style::default().fg(theme::cur().inactive)),
-            Span::styled("  Esc/\u{2190} Back", Style::default().fg(theme::cur().inactive)),
+            Span::styled(
+                "  Enter Confirm",
+                Style::default().fg(theme::cur().inactive),
+            ),
+            Span::styled(
+                "  Esc/\u{2190} Back",
+                Style::default().fg(theme::cur().inactive),
+            ),
         ])),
         chunks[0],
     );

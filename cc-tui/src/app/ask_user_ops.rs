@@ -140,13 +140,24 @@ impl App {
                     .map(|(header, answer)| format!("[{}] {}", header, answer))
                     .collect();
                 let vm = MessageViewModel::user(answer_lines.join("\n"));
-                let source = self.session_mgr.current_mut().approval_source_agent_id.take();
-                if let Some(sub) = source.as_ref().and_then(|id| self.session_mgr.current_mut().subagent_sessions.get_mut(id)) {
+                let source = self
+                    .session_mgr
+                    .current_mut()
+                    .approval_source_agent_id
+                    .take();
+                if let Some(sub) = source
+                    .as_ref()
+                    .and_then(|id| self.session_mgr.current_mut().subagent_sessions.get_mut(id))
+                {
                     sub.status = super::subagent_session::SubagentRunStatus::Running;
                     sub.current_activity.clear();
                     sub.view_messages.push(vm);
                 } else {
-                    self.session_mgr.current_mut().messages.view_messages.push(vm);
+                    self.session_mgr
+                        .current_mut()
+                        .messages
+                        .view_messages
+                        .push(vm);
                 }
                 self.render_rebuild();
 

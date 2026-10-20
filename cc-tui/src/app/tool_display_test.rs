@@ -2,13 +2,45 @@
 fn test_format_tool_name_new_names() {
     assert_eq!(format_tool_name("Read"), "Read");
     assert_eq!(format_tool_name("Write"), "Write");
-    assert_eq!(format_tool_name("Edit"), "Edit");
+    assert_eq!(format_tool_name("Edit"), "Update");
     assert_eq!(format_tool_name("Glob"), "Glob");
     assert_eq!(format_tool_name("Grep"), "Grep");
     assert_eq!(format_tool_name("Bash"), "Bash");
     assert_eq!(format_tool_name("TodoWrite"), "Todo");
     assert_eq!(format_tool_name("AskUserQuestion"), "Ask");
     assert_eq!(format_tool_name("Agent"), "Agent");
+}
+
+#[test]
+fn test_format_tool_name_with_input_edit_variants() {
+    // CC: old_string 非空 → Update
+    let edit_input = serde_json::json!({
+        "file_path": "src/main.rs",
+        "old_string": "old",
+        "new_string": "new"
+    });
+    assert_eq!(
+        format_tool_name_with_input("Edit", Some(&edit_input)),
+        "Update"
+    );
+    // CC: old_string 为空字符串 → Create（等价新建文件）
+    let create_input = serde_json::json!({
+        "file_path": "src/main.rs",
+        "old_string": "",
+        "new_string": "content"
+    });
+    assert_eq!(
+        format_tool_name_with_input("Edit", Some(&create_input)),
+        "Create"
+    );
+    // CC: 无 input → Update
+    assert_eq!(format_tool_name_with_input("Edit", None), "Update");
+    // 其他工具不受影响
+    let write_input = serde_json::json!({"file_path": "a.txt", "content": "x"});
+    assert_eq!(
+        format_tool_name_with_input("Write", Some(&write_input)),
+        "Write"
+    );
 }
 
 #[test]
@@ -268,4 +300,218 @@ fn test_read_offset_limit_with_cwd() {
     let input = serde_json::json!({"file_path": "/home/user/project/src/main.rs", "offset": 10, "limit": 20});
     let result = format_tool_args("Read", &input, Some("/home/user/project/"));
     assert_eq!(result.as_deref(), Some("src/main.rs:10-29"));
+}
+
+#[test]
+fn test_build_diff_input_edit_uses_full_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.rs");
+    let before = "line1\nline2\nline3\nline4\nold line\nline6\nline7\nline8\nline9\nline10\n";
+    let after = before.replace("old line", "new line");
+    std::fs::write(&path, &after).unwrap();
+
+    let input = serde_json::json!({
+        "file_path": path.to_string_lossy(),
+        "old_string": "old line",
+        "new_string": "new line"
+    });
+    let di = build_diff_input("Edit", &input, None, None).expect("应构造 DiffInput");
+    assert!(!di.is_new_file, "Edit 应标记为更新");
+    assert!(
+        di.old_content.contains("old line") && di.old_content.contains("line1"),
+        "old_content 应为编辑前全文，实际: {}",
+        di.old_content
+    );
+    assert!(
+        di.new_content.contains("new line") && di.new_content.contains("line10"),
+        "new_content 应为编辑后全文，实际: {}",
+        di.new_content
+    );
+    assert_eq!(
+        di.old_content.lines().count(),
+        10,
+        "旧全文应包含全部 10 行（含上下文）"
+    );
+}
+
+#[test]
+fn test_build_diff_input_edit_falls_back_when_file_missing() {
+    let input = serde_json::json!({
+        "file_path": "no_such_dir/no_such_file.rs",
+        "old_string": "old line",
+        "new_string": "new line"
+    });
+    let di = build_diff_input("Edit", &input, None, None).expect("应回退片段 diff");
+    assert_eq!(di.old_content, "old line", "文件不可读时应回退片段 diff");
+    assert_eq!(di.new_content, "new line");
+}
+
+#[test]
+fn test_build_diff_input_edit_falls_back_when_new_string_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.rs");
+    std::fs::write(&path, "totally different content\n").unwrap();
+
+    let input = serde_json::json!({
+        "file_path": path.to_string_lossy(),
+        "old_string": "old line",
+        "new_string": "new line"
+    });
+    let di = build_diff_input("Edit", &input, None, None).expect("应回退片段 diff");
+    assert_eq!(
+        di.old_content, "old line",
+        "磁盘内容不含 new_string 时应回退片段 diff"
+    );
+}
+
+/// 端到端：点击编辑的 diff 渲染应带上下文行与真实行号（对齐 CC structuredPatch 展示）
+#[test]
+fn test_edit_diff_render_shows_context_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.rs");
+    let before = concat!(
+        "fn main() {\n",
+        "    let a = 1;\n",
+        "    let b = 2;\n",
+        "    let c = 3;\n",
+        "    let d = 4;\n",
+        "    let target = 5;\n",
+        "    let e = 6;\n",
+        "    let f = 7;\n",
+        "    let g = 8;\n",
+        "}\n",
+    );
+    let after = before.replace("let target = 5;", "let target = 50;");
+    std::fs::write(&path, &after).unwrap();
+
+    let input = serde_json::json!({
+        "file_path": path.to_string_lossy(),
+        "old_string": "    let target = 5;",
+        "new_string": "    let target = 50;"
+    });
+    let di = build_diff_input("Edit", &input, None, None).expect("应构造全文 DiffInput");
+    let lines = cc_widgets::diff::render_diff(&di, 80, &cc_widgets::DarkTheme);
+    let text: String = lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    println!("\n===== 渲染结果 =====\n{text}\n====================");
+
+    assert!(
+        text.contains("let b = 2;") && text.contains("let f = 7;"),
+        "应包含改动行前后各 3 行上下文（第 3-9 行）:\n{text}"
+    );
+    assert!(
+        text.contains("let target = 50;") && text.contains("let target = 5;"),
+        "应包含改动前后内容:\n{text}"
+    );
+    assert!(
+        text.contains(" 6 "),
+        "行号应为真实文件行号（第 6 行）:\n{text}"
+    );
+    assert!(
+        text.contains("Added 1 line, removed 1 line"),
+        "应含摘要行:\n{text}"
+    );
+}
+
+/// P1-1 回归：replace_all 无法从编辑后内容区分"原有的 new_string"与"本次生成的"，
+/// 反推可能得到错误的旧全文，必须回退片段 diff。
+#[test]
+fn test_build_diff_input_replace_all_ambiguous_uses_snippet() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.txt");
+    // 编辑前 `bar foo`，编辑后 `bar bar`（replace_all: foo → bar）
+    std::fs::write(&path, "bar bar\n").unwrap();
+    let input = serde_json::json!({
+        "file_path": path.to_string_lossy(),
+        "old_string": "foo",
+        "new_string": "bar",
+        "replace_all": true
+    });
+    let di = build_diff_input("Edit", &input, None, None).expect("应构造 DiffInput");
+    assert_eq!(
+        di.old_content, "foo",
+        "replace_all 反推存在歧义时应回退片段 diff，实际 old_content: {:?}",
+        di.old_content
+    );
+}
+
+/// Write 覆盖已有文件：用 ToolStart 抓取的旧内容做真 diff（对齐 CC FileWriteTool）
+#[test]
+fn test_build_diff_input_write_existing_file_uses_old_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.txt");
+    std::fs::write(&path, "line1\nline2\n").unwrap();
+    let cwd = dir.path().to_str().unwrap();
+    let input = serde_json::json!({
+        "file_path": "a.txt",
+        "content": "line1\nline2 changed\n"
+    });
+    cache_write_old_content("tc-write-update", "Write", &input, Some(cwd));
+    let di =
+        build_diff_input("Write", &input, Some(cwd), Some("tc-write-update")).expect("应构造 DiffInput");
+    assert!(!di.is_new_file, "覆盖已有文件应按 update 渲染");
+    assert_eq!(di.old_content, "line1\nline2\n");
+    assert_eq!(di.new_content, "line1\nline2 changed\n");
+}
+
+/// Write 目标不存在：仍按 create 全绿视图渲染
+#[test]
+fn test_build_diff_input_write_new_file_stays_create() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().to_str().unwrap();
+    let input = serde_json::json!({"file_path": "new.txt", "content": "hello\n"});
+    cache_write_old_content("tc-write-create", "Write", &input, Some(cwd));
+    let di =
+        build_diff_input("Write", &input, Some(cwd), Some("tc-write-create")).expect("应构造 DiffInput");
+    assert!(di.is_new_file, "文件原本不存在应按 create 渲染");
+    assert!(di.old_content.is_empty());
+}
+
+/// 无 ToolStart 记录（历史回放）：回退 create 视图，不误判为 update
+#[test]
+fn test_build_diff_input_write_without_cache_falls_back_to_create() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+    let cwd = dir.path().to_str().unwrap();
+    let input = serde_json::json!({"file_path": "a.txt", "content": "new\n"});
+    let di = build_diff_input("Write", &input, Some(cwd), Some("tc-write-miss"))
+        .expect("应构造 DiffInput");
+    assert!(di.is_new_file, "缓存未命中时应回退 create 视图");
+}
+
+/// 写入内容与旧内容一致：不产生空 diff，保留工具结果行
+#[test]
+fn test_build_diff_input_write_identical_content_returns_none() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "same\n").unwrap();
+    let cwd = dir.path().to_str().unwrap();
+    let input = serde_json::json!({"file_path": "a.txt", "content": "same\n"});
+    cache_write_old_content("tc-write-same", "Write", &input, Some(cwd));
+    assert!(
+        build_diff_input("Write", &input, Some(cwd), Some("tc-write-same")).is_none(),
+        "内容未变化时不应渲染空 diff"
+    );
+}
+
+/// append 写：旧内容 + 追加内容组成真 diff
+#[test]
+fn test_build_diff_input_write_append_uses_concatenated_content() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "a\n").unwrap();
+    let cwd = dir.path().to_str().unwrap();
+    let input = serde_json::json!({"file_path": "a.txt", "content": "b\n", "append": true});
+    cache_write_old_content("tc-write-append", "Write", &input, Some(cwd));
+    let di = build_diff_input("Write", &input, Some(cwd), Some("tc-write-append"))
+        .expect("应构造 DiffInput");
+    assert!(!di.is_new_file);
+    assert_eq!(di.old_content, "a\n");
+    assert_eq!(di.new_content, "a\nb\n");
 }

@@ -109,7 +109,10 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
                             Style::default().fg(theme::cur().claude),
                         ),
                         Span::styled(summary, Style::default().fg(theme::cur().text)),
-                        Span::styled(once_marker.to_string(), Style::default().fg(theme::cur().warning)),
+                        Span::styled(
+                            once_marker.to_string(),
+                            Style::default().fg(theme::cur().warning),
+                        ),
                     ]));
 
                     // matcher 行

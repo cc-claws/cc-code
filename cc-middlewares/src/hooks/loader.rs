@@ -130,13 +130,17 @@ pub fn is_project_trusted(cwd: &str) -> bool {
         Err(_) => return false,
     };
     // Canonicalize for comparison (resolve symlinks, normalize)
-    let cwd_canon = Path::new(cwd).canonicalize().unwrap_or_else(|_| Path::new(cwd).to_path_buf());
+    let cwd_canon = Path::new(cwd)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(cwd).to_path_buf());
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let trusted = Path::new(line).canonicalize().unwrap_or_else(|_| Path::new(line).to_path_buf());
+        let trusted = Path::new(line)
+            .canonicalize()
+            .unwrap_or_else(|_| Path::new(line).to_path_buf());
         if cwd_canon == trusted || cwd_canon.starts_with(&trusted) {
             return true;
         }
@@ -146,9 +150,8 @@ pub fn is_project_trusted(cwd: &str) -> bool {
 
 /// Add a project directory to the trusted list (#18).
 pub fn trust_project(cwd: &str) -> std::io::Result<()> {
-    let home = std::env::var("HOME").map_err(|_| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set")
-    })?;
+    let home = std::env::var("HOME")
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set"))?;
     let cc_dir = Path::new(&home).join(".cc-code");
     std::fs::create_dir_all(&cc_dir)?;
     let trust_file = cc_dir.join("trusted_projects");

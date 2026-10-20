@@ -1,8 +1,15 @@
 //! 后台任务面板（Phase 3）：List/Detail 双视图，显示 Ctrl+B 后台化的 shell 任务。
 //!
 //! 对齐效果图场景 3（列表）/ 场景 4（详情）。
-//! 分组：Shells（background_shells）+ Local agents（background_agents），
-//! 其余分组（Remote agents / Monitors / Workflows / Dreams）预留。
+//! 只列 Shells 分组（`background_shells` + 已后台化的 `agent_shells`），其余分组
+//! （Local agents / Remote agents / Monitors / Workflows / Dreams）不在此展示。
+//!
+//! **`background_agents`（子 Agent）不进本面板**：它们已经由底栏抽屉
+//! （`bg_agent_bar`）逐行展示，再来一份只是重复入口、还会让人分不清哪份是权威。
+//!
+//! **前台运行的 agent shell 默认也不进**：它本身就在主时间线实时输出，再列一遍会
+//! 让人以为还有第二条任务在跑。唯一例外见 [`list_foreground_shells`]（多条前台命令
+//! 同时跑时充当 `Ctrl+B` 的候选列表）。
 
 use std::any::Any;
 use std::time::{Duration, Instant};
@@ -29,9 +36,10 @@ const OUTPUT_REFRESH_INTERVAL: Duration = Duration::from_millis(1000);
 /// 后台任务面板：List/Detail 双视图。
 pub struct BackgroundTasksPanel {
     pub view: BackgroundTaskView,
-    selected_item: Option<BackgroundTaskItem>,
+    /// 选中的任务稳定 ID（`background_shells[].id` / `agent_shells[].task_id`）。
+    selected_item: Option<String>,
     /// 最近显示的任务顺序仅用于导航；执行操作始终按稳定 ID 查找。
-    visible_items: Vec<BackgroundTaskItem>,
+    visible_items: Vec<String>,
     /// Detail 视图 output 缓存（避免每帧读磁盘）
     pub output_cache: String,
     pub output_cache_id: Option<String>,
@@ -40,12 +48,6 @@ pub struct BackgroundTasksPanel {
     pub output_rx: Option<mpsc::Receiver<String>>,
     /// 后台 read_tail task handle（切换 task / 关闭时 abort）
     pub output_task: Option<tokio::task::JoinHandle<()>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum BackgroundTaskItem {
-    Shell(String),
-    Agent(String),
 }
 
 /// 面板视图状态
@@ -72,10 +74,10 @@ impl BackgroundTasksPanel {
     }
 
     pub fn select_shell(&mut self, task_id: String) {
-        self.selected_item = Some(BackgroundTaskItem::Shell(task_id));
+        self.selected_item = Some(task_id);
     }
 
-    fn refresh_items(&mut self, items: Vec<BackgroundTaskItem>) {
+    fn refresh_items(&mut self, items: Vec<String>) {
         // 仅首次选择默认项。选中目标消失后保持原 ID，禁止悄悄改选相邻任务。
         if self.selected_item.is_none() {
             self.selected_item = items.first().cloned();
@@ -106,9 +108,7 @@ impl BackgroundTasksPanel {
     fn current_item_id(&self, ctx: &PanelContext<'_>) -> Option<String> {
         match &self.view {
             BackgroundTaskView::List => {
-                let BackgroundTaskItem::Shell(id) = self.selected_item.as_ref()? else {
-                    return None;
-                };
+                let id = self.selected_item.as_ref()?;
                 let session = ctx.session_mgr.current();
                 let exists = session.background_shells.iter().any(|bg| bg.id == *id)
                     || session.agent_shells.iter().any(|slot| {
@@ -278,40 +278,48 @@ struct ShellRow {
     elapsed: Duration,
 }
 
-/// 渲染用的 agent 行数据。
-struct AgentRow {
-    label: String,
-    elapsed: Duration,
-}
-
-fn task_items(session: &super::ChatSession) -> Vec<BackgroundTaskItem> {
+fn task_items(session: &super::ChatSession) -> Vec<String> {
+    let show_foreground = list_foreground_shells(session);
     session
         .background_shells
         .iter()
-        .map(|shell| BackgroundTaskItem::Shell(shell.id.clone()))
+        .map(|shell| shell.id.clone())
         .chain(
             session
                 .agent_shells
                 .iter()
-                .filter(|slot| slot.is_backgrounded() || slot.is_foreground_running())
-                .map(|slot| BackgroundTaskItem::Shell(slot.task_id.clone())),
-        )
-        .chain(
-            session
-                .background_agents
-                .iter()
-                .map(|agent| BackgroundTaskItem::Agent(agent.instance_id.clone())),
+                .filter(|slot| {
+                    slot.is_backgrounded() || (show_foreground && slot.is_foreground_running())
+                })
+                .map(|slot| slot.task_id.clone()),
         )
         .collect()
+}
+
+/// 前台运行中的 agent shell 是否要进面板。
+///
+/// 面板的定位是「后台任务」：只有一条前台命令在跑时，它本身就在主时间线里实时
+/// 输出，再列一遍只会让人以为还有第二条任务在跑（真机反馈「用户迷糊了」）。
+/// 但**多条**前台命令同时跑时，`Ctrl+B` 需要让用户挑一个转后台
+/// （`App::background_agent_foreground`），候选只可能来自面板，因此 ≥2 条时才列，
+/// 并带 `[前台]` 标签与真正的后台任务区分。
+fn list_foreground_shells(session: &super::ChatSession) -> bool {
+    session
+        .agent_shells
+        .iter()
+        .filter(|slot| slot.is_foreground_running())
+        .count()
+        >= 2
 }
 
 fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super::App, area: Rect) {
     let lc = &app.services.lc;
     // 一次性收集数据，释放 app 借用
-    let (shells, agents): (Vec<ShellRow>, Vec<AgentRow>) = {
+    let shells: Vec<ShellRow> = {
         let session = app.session_mgr.current();
         panel.refresh_items(task_items(session));
-        let shells = session
+        let show_foreground = list_foreground_shells(session);
+        session
             .background_shells
             .iter()
             .map(|b| ShellRow {
@@ -323,7 +331,9 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                 session
                     .agent_shells
                     .iter()
-                    .filter(|slot| slot.is_backgrounded() || slot.is_foreground_running())
+                    .filter(|slot| {
+                        slot.is_backgrounded() || (show_foreground && slot.is_foreground_running())
+                    })
                     .map(|slot| ShellRow {
                         command: if slot.is_foreground_running() {
                             lc.tr_args(
@@ -337,16 +347,7 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
                         elapsed: slot.elapsed(),
                     }),
             )
-            .collect();
-        let agents = session
-            .background_agents
-            .iter()
-            .map(|a| AgentRow {
-                label: format!("{} \"{}\"", a.agent_name, a.instance_id),
-                elapsed: a.started_at.elapsed(),
-            })
-            .collect();
-        (shells, agents)
+            .collect()
     };
 
     let selected_index = panel.selected_index();
@@ -368,9 +369,6 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
     if completed_shell > 0 {
         summary_parts.push(format!("{} completed shell", completed_shell));
     }
-    if !agents.is_empty() {
-        summary_parts.push(format!("{} running agent", agents.len()));
-    }
     let summary = if summary_parts.is_empty() {
         "no background tasks".to_string()
     } else {
@@ -382,53 +380,27 @@ fn render_list(f: &mut Frame, panel: &mut BackgroundTasksPanel, app: &mut super:
     )));
     lines.push(Line::from(""));
 
-    if shells.is_empty() && agents.is_empty() {
+    if shells.is_empty() {
         lines.push(Line::from(Span::styled(
             lc.tr("app-bg-empty"),
             Style::default().fg(theme::cur().inactive),
         )));
     } else {
-        // Shells 分组
-        if !shells.is_empty() {
-            lines.push(Line::from(Span::styled(
-                format!("SHELLS ({})", shells.len()),
-                Style::default()
-                    .fg(theme::cur().inactive)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            for (i, row) in shells.iter().enumerate() {
-                lines.push(render_task_row(
-                    i,
-                    selected_index,
-                    row.command.clone(),
-                    row.status,
-                    row.elapsed,
-                    area.width as usize,
-                ));
-            }
-            if !agents.is_empty() {
-                lines.push(Line::from(""));
-            }
-        }
-        // Local agents 分组（background_agents，对齐效果图场景 3 "Local agents"）
-        if !agents.is_empty() {
-            lines.push(Line::from(Span::styled(
-                format!("LOCAL AGENTS ({})", agents.len()),
-                Style::default()
-                    .fg(theme::cur().inactive)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            for (i, row) in agents.iter().enumerate() {
-                // agent 选中索引延续 shells 编号
-                lines.push(render_task_row(
-                    shells.len() + i,
-                    selected_index,
-                    row.label.clone(),
-                    ShellStatus::Running,
-                    row.elapsed,
-                    area.width as usize,
-                ));
-            }
+        lines.push(Line::from(Span::styled(
+            format!("SHELLS ({})", shells.len()),
+            Style::default()
+                .fg(theme::cur().inactive)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for (i, row) in shells.iter().enumerate() {
+            lines.push(render_task_row(
+                i,
+                selected_index,
+                row.command.clone(),
+                row.status,
+                row.elapsed,
+                area.width as usize,
+            ));
         }
     }
 
@@ -626,7 +598,10 @@ fn render_detail(
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme::cur().prompt_border))
-        .title(Span::styled("Output", Style::default().fg(theme::cur().inactive)));
+        .title(Span::styled(
+            "Output",
+            Style::default().fg(theme::cur().inactive),
+        ));
     let output_inner = output_block.inner(chunks[1]);
     f.render_widget(output_block, chunks[1]);
 
@@ -656,9 +631,15 @@ fn render_detail(
 /// badge 样式：fg + 半透明背景色块（近似效果图 rgba 0.15，用深色 Rgb 近似）。
 fn status_badge_style(status: ShellStatus) -> Style {
     match status {
-        ShellStatus::Running => Style::default().fg(theme::cur().cyan).bg(theme::cur().chip_bg_running),
-        ShellStatus::Completed => Style::default().fg(theme::cur().success).bg(theme::cur().chip_bg_completed),
-        ShellStatus::Failed => Style::default().fg(theme::cur().error).bg(theme::cur().chip_bg_failed),
+        ShellStatus::Running => Style::default()
+            .fg(theme::cur().cyan)
+            .bg(theme::cur().chip_bg_running),
+        ShellStatus::Completed => Style::default()
+            .fg(theme::cur().success)
+            .bg(theme::cur().chip_bg_completed),
+        ShellStatus::Failed => Style::default()
+            .fg(theme::cur().error)
+            .bg(theme::cur().chip_bg_failed),
         ShellStatus::Killed => Style::default()
             .fg(theme::cur().warning)
             .bg(theme::cur().chip_bg_killed),

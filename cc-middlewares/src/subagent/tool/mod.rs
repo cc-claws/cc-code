@@ -123,7 +123,8 @@ pub(crate) fn subagent_task_preview(description: Option<&str>, prompt: &str) -> 
 
 /// 整行只有一个 `【…】` / `[…]` 包裹的短语 → 是指令，不是任务描述。
 fn is_instruction_only(line: &str) -> bool {
-    (line.starts_with('【') && line.ends_with('】')) || (line.starts_with('[') && line.ends_with(']'))
+    (line.starts_with('【') && line.ends_with('】'))
+        || (line.starts_with('[') && line.ends_with(']'))
 }
 
 mod build_agent;
@@ -137,7 +138,10 @@ mod tests;
 
 /// None/0 永不自动超时；取消时 drop 执行 future，ManagedChild 负责跨平台杀整棵进程树。
 async fn execute_with_timeout(
-    agent: &cc_agent::agent::ReActAgent<Box<dyn cc_agent::agent::react::ReactLLM + Send + Sync>, AgentState>,
+    agent: &cc_agent::agent::ReActAgent<
+        Box<dyn cc_agent::agent::react::ReactLLM + Send + Sync>,
+        AgentState,
+    >,
     input: cc_agent::agent::react::AgentInput,
     state: &mut AgentState,
     cancel: cc_agent::agent::AgentCancellationToken,

@@ -35,7 +35,7 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
         AvailableCommand::new("resume", "View and resume previous conversations"),
         AvailableCommand::new("doctor", "Diagnose configuration and connection issues"),
         AvailableCommand::new("mcp", "Manage MCP (Model Context Protocol) servers"),
-        AvailableCommand::new("hooks", "Manage Claude Code hooks"),
+        AvailableCommand::new("hooks", "Manage CC hooks"),
         AvailableCommand::new("plugin", "Manage installed plugins"),
         AvailableCommand::new("cron", "Manage scheduled/cron tasks"),
         AvailableCommand::new("agents", "Manage sub-agent definitions"),

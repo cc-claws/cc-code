@@ -160,6 +160,9 @@ struct RenderTask {
     show_tool_messages: bool,
     diff_visible: bool,
     detail_mode: bool,
+    /// 上次渲染时的主题指纹。主题切换后 markdown 的 `rendered` 快照与内容 hash
+    /// 都不变，必须靠它强制放弃缓存行复用。
+    theme_fingerprint: u64,
     /// #626：双变体行缓存——每条消息另一 (detail, diff) 组合下的渲染成品，
     /// 与 message_lines/message_links 同下标；alt_keys[i] 是该成品的渲染键，
     /// 键为 0 或成品为空表示无缓存。
@@ -415,6 +418,15 @@ impl RenderTask {
             .map(|vm| render_key(vm, self.detail_mode, self.diff_visible))
             .collect();
 
+        // 主题切换：markdown 的 `rendered` 快照与内容 hash 都不变，但颜色已过期。
+        // 丢弃 hash 缓存（prefix_stable_len 归零）强制整屏重渲染。
+        let theme_fp = crate::ui::theme::fingerprint();
+        if theme_fp != self.theme_fingerprint {
+            self.theme_fingerprint = theme_fp;
+            self.message_hashes.clear();
+        }
+
+        // 计算 prefix_stable_len：前缀中连续 hash 未变的消息数量
         let old_len = self.message_hashes.len();
 
         // 保存旧的 message_lines（用于 cosmetic change 复用）
@@ -1141,6 +1153,7 @@ pub fn spawn_render_thread(
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
         alt_keys: Vec::new(),

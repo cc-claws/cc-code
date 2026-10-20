@@ -23,7 +23,11 @@ impl UserInteractionBroker for MultiplexBroker {
         self.request_from(None, ctx).await
     }
 
-    async fn request_from(&self, source_agent_id: Option<&str>, ctx: InteractionContext) -> InteractionResponse {
+    async fn request_from(
+        &self,
+        source_agent_id: Option<&str>,
+        ctx: InteractionContext,
+    ) -> InteractionResponse {
         if self.brokers.is_empty() {
             return InteractionResponse::Decisions(vec![]);
         }

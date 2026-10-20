@@ -58,6 +58,7 @@
 2. **抽屉导航态（Drawer Nav）**：
    * 在空输入框按 **`↓`**，焦点下移进入抽屉，游标所在行**只通过前景色**变亮白（游标 `> ` + 整行文字白），**不设任何底色**（真机定稿，见 §4.11）。
    * **当前查看的视口**保留实心圆点 `●`，**当前选中的行**带有 `> ` 游标。两者解耦。
+   * **打字即交还输入框**（对齐 CC `PromptInput.tsx` 的 type-to-exit footer）：导航键（`↑`/`↓`/`Enter`/`Esc`）与抽屉自己的 `x`（停止该 Agent）留在抽屉，其余可打印字符先退出抽屉再把字符写进输入框——否则用户按 `↓` 看一眼后想说话时字符会被静默吞掉，只能再按一次 `Enter`。
    * 快捷键提示行随游标位置切换文案（`drawer_hint()`，唯一判据是「游标所指行是否就是当前查看的视口」）：
      * 游标停在**当前查看的那一行**：`↑/↓ to select · ctrl+x ctrl+k to stop all agents`（此时 `Enter`/`x` 无意义，不提示）；
      * 游标移到**其他行**：`Enter to view · x to stop · ctrl+x ctrl+k to stop all agents`。
@@ -129,7 +130,7 @@ pub struct ChatSession {
 | `bg_drawer_cursor: Option<usize>` | `ui.bg_bar_cursor: Option<usize>`（0 = main，1..=N = `background_agents[N-1]`） |
 | `tokens_used: usize` | 由 `AgentComm::session_token_tracker` 派生（`tokens_used()`），抽屉指标另走 `token_metrics()`（§4.12） |
 
-**唯一判据**：抽屉是否处于键盘导航态由 `ChatSession::drawer_nav_active()`（`ui.bg_bar_cursor.is_some() && !background_agents.is_empty()`）决定，用于 `drawer_hint()`、输入框变暗与 `bar_focus` 按键拦截；后台 Agent 全部结束后必须清空 `bg_bar_cursor`，否则第三行会卡在 `↑/↓ to select…` 且继续吞键。
+**唯一判据**：抽屉是否处于键盘导航态由 `ChatSession::drawer_nav_active()`（`ui.bg_bar_cursor.is_some() && !background_agents.is_empty()`）决定，用于 `drawer_hint()`、`bar_focus` 按键拦截与输入框压暗提示；**压暗只作用于主会话**（`focused_instance_id` 为空）：用户在真机上刻意用边框降级表达「按键已交给抽屉，此刻打字先进抽屉」，这是定稿行为，不要当成缺陷「修复」。**子视口内必须例外**——那时青色边框是「在子 Agent 窗口还是主窗口」的唯一身份标识（§4.11.2），按 `↓` 只是把按键交给抽屉、视口没变，不得连方位感一起抹掉。后台 Agent 全部结束后必须清空 `bg_bar_cursor`，否则第三行会卡在 `↑/↓ to select…` 且继续吞键。
 
 ### 3.2 虚拟视口路由机制（Virtual Viewport Routing）
 
@@ -430,7 +431,7 @@ impl App {
    * 极矮终端折叠态沿用同一套字形。
 2. **配色（每行按 `bright` 分档，只有键盘游标所在行亮白，其余统一灰）**：
    * 游标 `> ` 与游标行正文（类型名 / 预览 / 右侧指标）：纯白 `#FFFFFF`（`DRAWER_TEXT_ACTIVE`，类型名加粗）；
-   * 其余行的类型名 / 预览 / 指标 / 空心圆点：统一灰 `#64748B`（`DRAWER_MUTED`）；
+   * 其余行的类型名 / 预览 / 指标 / 空心圆点：统一灰 `#999999`（`DRAWER_MUTED`，**必须等于 `theme::MUTED`**：抽屉末行紧邻第三行导航提示，两行灰色不等会呈现「一行偏蓝灰、一行中性灰」的割裂感，真机已否决原型里的 `#64748B`）；
    * 实心圆点 `●`（当前视口）：近白 `#F1F5F9`（`DRAWER_CIRCLE_ON`）；
    * **禁止任何行底色**：游标行只靠亮白前景色 + 加粗表达，`DRAWER_SELECTED_BG` 已删除——真机反馈「↑/↓ 选中有背景色会让人以为已经进这个视口了」（`Enter` 才是进入）；同样**禁止 `Modifier::REVERSED`** 反色；
    * **禁用青色、禁用中间灰阶堆叠**：原型 `docs/subagent-mock.html` 里的 `#38BDF8` 青色游标在真机上被否决，`DRAWER_CURSOR` / `DRAWER_TEXT` / `DRAWER_PREVIEW` 三个常量已删除（真机反馈："不要出现青色，只有 MUTED 和亮白，你搞那么多颜色干嘛"）。此条**覆盖原型**；
@@ -660,7 +661,7 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
 - [ ] 抽屉只有**亮白**与**灰**两档：不出现青色游标，也没有多种灰阶堆叠；第三行提示与消息区 `Thought for … (ctrl+o to expand)` 同色（MUTED）。
 - [ ] 抽屉右侧**只有一个箭头**：子 Agent 产出回复时 `↓ {n}`，向它提问后翻为 `↑ {n}`；无用量数据时只显示耗时。
 - [ ] 抽屉中间列显示子 Agent 的**助手文本**（不是 `Bash(...)` 工具串），工具细节进视口看。
-- [ ] 按 `Enter` 切换进入子任务视口，输入框上边框变亮青色且右侧出现任务标签。
+- [ ] 按 `Enter` 切换进入子任务视口，输入框上边框变亮青色且右侧出现任务标签；此后在子视口内按 `↓` 进抽屉，青色边框 / 任务标签 / `Message @…` 占位符**都不得消失**（视口没变），且直接敲字就能退回输入框，无需再按 `Enter`。
 - [ ] **视口内遇到子 Agent 结束**：画面内容不消失（行内转绿显示 `✓ completed`），继续读没问题；按 `Esc` 返回主会话时该行才收起、会话回收。
 - [ ] 子任务视口内可完整看到其内部的 Thinking（支持 `Ctrl+O` 折叠）、Bash 倒计时和 Spinner，且状态栏第 2 行显示**该子任务专属**的工具计数（非空、非主会话数字）。
 - [ ] 在子任务视口中按 `↑` 选回 `main` 并按 `Enter`，可平滑返回主会话。

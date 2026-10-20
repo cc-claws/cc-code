@@ -214,10 +214,7 @@ mod tests {
             matches!(result, Some(Action::Redraw)),
             "关面板应消费按键并返回 Redraw，不穿透"
         );
-        assert!(
-            !app.global_panels.is_any_open(),
-            "Global 面板应已关闭"
-        );
+        assert!(!app.global_panels.is_any_open(), "Global 面板应已关闭");
     }
 
     #[tokio::test]
@@ -308,7 +305,10 @@ mod tests {
             shift: false,
         };
         let result = handle_panels(&mut app, &esc);
-        assert!(matches!(result, Some(Action::Redraw)), "Esc 应被主题面板消费");
+        assert!(
+            matches!(result, Some(Action::Redraw)),
+            "Esc 应被主题面板消费"
+        );
         assert!(
             !app.session_mgr.current().session_panels.is_any_open(),
             "Esc 应关闭主题面板"

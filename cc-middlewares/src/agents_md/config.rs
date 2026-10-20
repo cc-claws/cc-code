@@ -111,8 +111,8 @@ impl AgentsMdConfig {
 /// 默认用户全局指引文件候选列表（有序尝试，取首个存在的非空文件）：
 /// 1. `{APP_HOME}/AGENTS.md`（`~/.cc-code/AGENTS.md`）
 /// 2. `{APP_HOME}/CLAUDE.md`（`~/.cc-code/CLAUDE.md`）
-/// 3. `~/.claude/CLAUDE.md`（Claude Code 历史/通用全局配置）
-/// 4. `~/.claude/AGENTS.md`（Claude Code 兼容配置）
+/// 3. `~/.claude/CLAUDE.md`（CC 历史/通用全局配置）
+/// 4. `~/.claude/AGENTS.md`（CC 兼容配置）
 pub fn default_user_global_candidates() -> Vec<PathBuf> {
     user_global_candidates_in(
         &cc_agent::app_home::app_home_dir(),

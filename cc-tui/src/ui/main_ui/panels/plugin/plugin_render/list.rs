@@ -127,13 +127,22 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                                 ),
                                 Span::styled(display_name, name_style),
                                 Span::styled(name_padding, Style::default()),
-                                Span::styled(type_label, Style::default().fg(theme::cur().inactive)),
+                                Span::styled(
+                                    type_label,
+                                    Style::default().fg(theme::cur().inactive),
+                                ),
                                 Span::styled("  ", Style::default()),
-                                Span::styled(scope_label, Style::default().fg(theme::cur().inactive)),
+                                Span::styled(
+                                    scope_label,
+                                    Style::default().fg(theme::cur().inactive),
+                                ),
                                 Span::styled("  ", Style::default()),
                                 Span::styled(status_icon.to_string(), status_style),
                                 Span::styled("  ", Style::default()),
-                                Span::styled(marketplace_text, Style::default().fg(theme::cur().inactive)),
+                                Span::styled(
+                                    marketplace_text,
+                                    Style::default().fg(theme::cur().inactive),
+                                ),
                             ]));
                         }
                     }
@@ -196,7 +205,10 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                                 ),
                                 Span::styled(truncate_display(&entry.name, 18), name_style),
                                 Span::styled("  ", Style::default()),
-                                Span::styled(scope_label, Style::default().fg(theme::cur().inactive)),
+                                Span::styled(
+                                    scope_label,
+                                    Style::default().fg(theme::cur().inactive),
+                                ),
                                 Span::styled("  ", Style::default()),
                                 Span::styled(
                                     error_text.to_string(),
@@ -240,7 +252,10 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                         ]));
                         lines.push(Line::from(""));
                         lines.push(Line::from(vec![
-                            Span::styled("  \u{6309}\u{4E0B} ", Style::default().fg(theme::cur().inactive)),
+                            Span::styled(
+                                "  \u{6309}\u{4E0B} ",
+                                Style::default().fg(theme::cur().inactive),
+                            ),
                             Span::styled(
                                 "Enter",
                                 Style::default()
@@ -257,7 +272,10 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                                     .fg(theme::cur().claude)
                                     .add_modifier(Modifier::BOLD),
                             ),
-                            Span::styled(" \u{53D6}\u{6D88}", Style::default().fg(theme::cur().inactive)),
+                            Span::styled(
+                                " \u{53D6}\u{6D88}",
+                                Style::default().fg(theme::cur().inactive),
+                            ),
                         ]));
                     }
                 } else {
@@ -271,7 +289,10 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                     };
                     let add_cursor = if is_add_cursor { "\u{276F} " } else { "  " };
                     lines.push(Line::from(vec![
-                        Span::styled(add_cursor.to_string(), Style::default().fg(theme::cur().thinking)),
+                        Span::styled(
+                            add_cursor.to_string(),
+                            Style::default().fg(theme::cur().thinking),
+                        ),
                         Span::styled("Add Marketplace", add_style),
                     ]));
                     lines.push(Line::from(vec![
@@ -303,16 +324,20 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
                             };
 
                             let (status_text, status_style) = if is_updating {
-                                ("updating\u{2026}", Style::default().fg(theme::cur().warning))
+                                (
+                                    "updating\u{2026}",
+                                    Style::default().fg(theme::cur().warning),
+                                )
                             } else {
                                 match mkt.status {
                                     MarketplaceViewStatus::Fresh
                                     | MarketplaceViewStatus::Cached => {
                                         ("cached", Style::default().fg(theme::cur().success))
                                     }
-                                    MarketplaceViewStatus::Fetching => {
-                                        ("fetching\u{2026}", Style::default().fg(theme::cur().warning))
-                                    }
+                                    MarketplaceViewStatus::Fetching => (
+                                        "fetching\u{2026}",
+                                        Style::default().fg(theme::cur().warning),
+                                    ),
                                     MarketplaceViewStatus::Stale => {
                                         ("stale", Style::default().fg(theme::cur().warning))
                                     }

@@ -20,14 +20,36 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
+        // Esc: 关闭 @ 提及弹窗（优先于候选浮层，与渲染优先级一致）
+        Input { key: Key::Esc, .. } if app.session_mgr.current_mut().ui.at_mention.active => {
+            app.session_mgr.current_mut().ui.at_mention.close();
+        }
+
+        // ESC: 先关候选浮层，再中断 agent 运行。
+        //
+        // 对齐 CC `useTypeahead.tsx` 的 `useRegisterOverlay('autocomplete', ...)`：
+        // 浮层存在时 ESC 属于浮层（只关浮层），不该连带中断正在跑的轮次。
+        // peri 没有 overlay 注册机制，用「记下当前输入 → 文本不变就不再弹」表达同一优先级，
+        // 输入文本本身保留（CC 的 `handleAutocompleteDismiss` 同样不动 input）。
+        // 关掉之后再按一次 Esc 才走下面的中断分支。
+        Input { key: Key::Esc, .. } if app.hint_candidates_count() > 0 => {
+            let current = app
+                .session_mgr
+                .current()
+                .ui
+                .textarea
+                .lines()
+                .first()
+                .cloned()
+                .unwrap_or_default();
+            let ui = &mut app.session_mgr.current_mut().ui;
+            ui.hint_cursor = None;
+            ui.hint_dismissed_for = Some(current);
+        }
+
         // ESC: 中断 agent 运行（与 Ctrl+C 行为一致）
         Input { key: Key::Esc, .. } if app.session_mgr.current_mut().ui.loading => {
             app.interrupt();
-        }
-
-        // Esc: 关闭 @ 提及弹窗
-        Input { key: Key::Esc, .. } if app.session_mgr.current_mut().ui.at_mention.active => {
-            app.session_mgr.current_mut().ui.at_mention.close();
         }
 
         // Ctrl+Up / Ctrl+Down：textarea 光标移动 / 命令历史（原 textarea Up/Down 功能）。
@@ -50,9 +72,13 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
             }
         }
 
-        // Down：有运行中的后台 shell 时聚焦 status bar 入口，否则 @ 提及导航 > hint 导航 > 滚动消息区
+        // Down：候选浮层导航 > 后台 shell 入口聚焦 > @ 提及导航 > 滚动消息区
+        //
+        // 浮层优先于后台任务入口：候选一旦显示，↑/↓ 就该选候选（对齐 CC
+        // `disableCursorMovementForUpDownKeys: suggestions.length > 0`）。
+        // 否则「有后台 shell 在跑 + 输入框是 /xxx」时 ↓ 会跳去状态栏，浮层选不动。
         Input { key: Key::Down, .. } => {
-            if app.has_running_background_shell_tasks() {
+            if app.hint_candidates_count() == 0 && app.has_running_background_shell_tasks() {
                 app.session_mgr
                     .current_mut()
                     .ui
@@ -124,11 +150,15 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         }
 
         // Tab: @ 提及补全 > hint overlay candidate navigation and completion
+        //
+        // 不按 loading 分流：浮层只要显示出来就必须可操作（对齐 CC `useTypeahead.tsx`
+        // 的 `isAutocompleteActive`——候选存在即接管 Tab/↑↓/Enter）。
+        // 这条同时兜住「运行中 Tab 落进通用输入分支插入字面 Tab 字符」。
         Input {
             key: Key::Tab,
             shift: false,
             ..
-        } if !app.session_mgr.current_mut().ui.loading => handle_tab(app),
+        } => handle_tab(app),
 
         // @ 搜索尚未完成时不提交输入；有候选时补全选中路径。
         Input {
@@ -148,9 +178,17 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         }
 
         // Enter with hints available: confirm selection (defaults to first if none selected)
+        //
+        // 运行中只有「用户已经明确选中过」才接管补全（按过 Tab/↑/↓，`hint_cursor`
+        // 为 Some）。没选中时保持 #533 的既有语义：Enter 直接走 `handle_busy_input`
+        // ——可延后者入队、需空闲者拒绝并保留输入。
+        // 补全只改 textarea 文本、不提交，用户再按一次 Enter 才走那条路径。
         Input {
             key: Key::Enter, ..
-        } if !app.session_mgr.current_mut().ui.loading && app.hint_candidates_count() > 0 => {
+        } if app.hint_candidates_count() > 0
+            && (!app.session_mgr.current_mut().ui.loading
+                || app.session_mgr.current_mut().ui.hint_cursor.is_some()) =>
+        {
             if app.session_mgr.current_mut().ui.hint_cursor.is_none() {
                 app.session_mgr.current_mut().ui.hint_cursor = Some(0);
             }
@@ -344,9 +382,12 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
                 app.session_mgr.current_mut().ui.textarea.input(input);
             }
             app.session_mgr.current_mut().ui.reset_cursor_blink();
-            // When input changes: reset cursor (don't pre-select; wait for user to press Tab/Up/Down)
+            // 文本变了就重新开始：撤销「Esc 关掉浮层」的抑制位，并清掉旧选中项
+            // （不预选，等用户自己按 Tab/↑/↓）。这一条不按 loading 分流——运行中
+            // 浮层同样可交互，旧游标若留着会指向已经变短的新候选列表。
+            app.session_mgr.current_mut().ui.hint_cursor = None;
+            app.session_mgr.current_mut().ui.hint_dismissed_for = None;
             if !app.session_mgr.current_mut().ui.loading {
-                app.session_mgr.current_mut().ui.hint_cursor = None;
                 update_at_mention_detection(app);
             }
         }
@@ -390,6 +431,10 @@ pub(super) fn handle_ctrl_c(app: &mut App) -> Option<Action> {
 }
 
 /// 纯 Up：@ 提及导航 > hint 导航 > 滚动消息区（textarea 光标/历史已移至 Ctrl+Up）。
+///
+/// 浮层导航不按 `loading` 分流：候选一旦显示，↑/↓ 就必须能选（对齐 CC
+/// `PromptInput.tsx` 的 `disableCursorMovementForUpDownKeys: suggestions.length > 0`）。
+/// 否则运行中 ↑/↓ 会去滚消息区，而浮层看起来能选却选不动。
 fn handle_up(app: &mut App) -> Option<Action> {
     let hint_count = app.hint_candidates_count();
     if app.session_mgr.current_mut().ui.at_mention.active
@@ -397,7 +442,7 @@ fn handle_up(app: &mut App) -> Option<Action> {
     {
         app.session_mgr.current_mut().ui.at_mention.move_up();
         None
-    } else if hint_count > 0 && !app.session_mgr.current_mut().ui.loading {
+    } else if hint_count > 0 {
         let cur = app.session_mgr.current_mut().ui.hint_cursor.unwrap_or(0);
         app.session_mgr.current_mut().ui.hint_cursor = if cur == 0 {
             Some(hint_count - 1)
@@ -427,6 +472,8 @@ fn handle_ctrl_up(app: &mut App) {
 }
 
 /// 纯 Down：@ 提及导航 > hint 导航 > 滚动消息区（textarea 光标/历史已移至 Ctrl+Down）。
+///
+/// 同 [`handle_up`]：浮层导航不按 `loading` 分流。
 fn handle_down(app: &mut App) -> Option<Action> {
     let hint_count = app.hint_candidates_count();
     if app.session_mgr.current_mut().ui.at_mention.active
@@ -434,7 +481,7 @@ fn handle_down(app: &mut App) -> Option<Action> {
     {
         app.session_mgr.current_mut().ui.at_mention.move_down();
         None
-    } else if hint_count > 0 && !app.session_mgr.current_mut().ui.loading {
+    } else if hint_count > 0 {
         let cur = app
             .session_mgr
             .current_mut()

@@ -1,6 +1,6 @@
-//! Claude Code Agent 文件解析器
+//! CC Agent 文件解析器
 //!
-//! 解析 Claude Code 格式的 agent 定义文件（Markdown with YAML frontmatter）
+//! 解析 CC 格式的 agent 定义文件（Markdown with YAML frontmatter）
 //!
 //! 文件格式示例：
 //! ```markdown
@@ -16,7 +16,7 @@
 
 use serde::Deserialize;
 
-/// Claude Code Agent YAML frontmatter 定义
+/// CC Agent YAML frontmatter 定义
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeAgentFrontmatter {
@@ -123,7 +123,7 @@ impl ClaudeAgent {
     }
 }
 
-/// Claude Code Agent 定义
+/// CC Agent 定义
 #[derive(Debug, Clone)]
 pub struct ClaudeAgent {
     /// Frontmatter 配置
@@ -148,7 +148,7 @@ pub fn format_agent_id(id: &str) -> String {
         .join(" ")
 }
 
-/// 解析 Claude Code agent 文件内容
+/// 解析 CC agent 文件内容
 ///
 /// 返回 frontmatter 和 markdown 正文
 pub fn parse_agent_file(content: &str) -> Option<ClaudeAgent> {

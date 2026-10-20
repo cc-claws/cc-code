@@ -32,6 +32,10 @@ impl App {
         if !first_line.starts_with('/') {
             return vec![];
         }
+        // Esc 已经关掉这条输入的浮层：文本没变就不再弹（对齐 CC `dismissedForInputRef`）。
+        if self.session_mgr.current().ui.hint_dismissed_for.as_deref() == Some(first_line) {
+            return vec![];
+        }
         let prefix = first_line.trim_start_matches('/');
         let cmd_candidates: Vec<_> = self
             .session_mgr

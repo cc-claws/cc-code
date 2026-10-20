@@ -828,6 +828,94 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
     );
 }
 
+/// 对齐 CC FileEditToolUpdatedMessage：Edit 更新渲染 diff 时，
+/// 工具结果文本（"Replaced text ..."）不再单独成行，由 "Added/removed" 摘要替代。
+#[test]
+fn test_edit_diff_replaces_tool_result_line() {
+    use crate::app::MessageViewModel;
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Edit".to_string(),
+        tool_call_id: "tc_replace_line".to_string(),
+        display_name: "Update".to_string(),
+        args_display: Some("file.rs".to_string()),
+        content: "Replaced text (same line count) to file.rs".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().success,
+        diff_input: Some(cc_widgets::DiffInput {
+            file_path: "file.rs".to_string(),
+            old_content: "old line".to_string(),
+            new_content: "new line".to_string(),
+            is_new_file: false,
+            is_deleted_file: false,
+            is_binary: false,
+        }),
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    assert!(
+        !detail.contains("Replaced text"),
+        "diff 渲染时不应再显示工具结果文本行: {detail}"
+    );
+    assert!(
+        detail.contains("Added 1 line") && detail.contains("removed 1 line"),
+        "应显示 diff 摘要行: {detail}"
+    );
+
+    // diff 未渲染（普通模式 + 开关关闭）时，工具结果文本仍作为唯一信息保留
+    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
+    assert!(
+        off.contains("Replaced text"),
+        "diff 未渲染时应保留工具结果文本: {off}"
+    );
+}
+
+/// Write 新建文件（create）保留工具结果行 "Wrote N lines ..."（对齐 CC create 分支）
+#[test]
+fn test_write_create_keeps_tool_result_line() {
+    use crate::app::MessageViewModel;
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Write".to_string(),
+        tool_call_id: "tc_write_create".to_string(),
+        display_name: "Write".to_string(),
+        args_display: Some("file.rs".to_string()),
+        content: "Wrote 2 lines file.rs".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().success,
+        diff_input: Some(cc_widgets::DiffInput {
+            file_path: "file.rs".to_string(),
+            old_content: String::new(),
+            new_content: "line1\nline2\n".to_string(),
+            is_new_file: true,
+            is_deleted_file: false,
+            is_binary: false,
+        }),
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    assert!(
+        detail.contains("Wrote 2 lines"),
+        "新建文件应保留 Wrote N lines 结果行: {detail}"
+    );
+    assert!(
+        detail.contains("line1") && detail.contains("line2"),
+        "新建文件应显示代码预览: {detail}"
+    );
+    assert!(
+        !detail.contains("Added 2 lines"),
+        "新建文件不应出现 diff 摘要行: {detail}"
+    );
+}
+
 /// 开关不得顺带打开详细模式的整页展开：开启后 Bash 输出仍按折叠档截断，
 /// 渲染结果必须与关闭时逐字一致。
 #[test]
@@ -2844,4 +2932,53 @@ fn test_websearch_detail_mode_wraps_full_query_without_early_truncation() {
         detail_text.contains("UNIQUE_QUERY_END_TOKEN"),
         "详细模式下应完整展示末尾 token，不受 60 字符过早截断: {detail_text}"
     );
+}
+
+/// 对齐 CC：Write 的结果行重绘为 "Wrote <bold>N</bold> lines to <bold>path</bold>"
+#[test]
+fn test_format_write_summary_line_bolds_count_and_path() {
+    let line = format_write_summary_line("Wrote 3 lines src/a.rs", theme::cur().text_soft)
+        .expect("应识别 Write 结果行");
+    assert_eq!(line.spans.len(), 4);
+    assert_eq!(line.spans[0].content.as_ref(), "Wrote ");
+    assert_eq!(line.spans[1].content.as_ref(), "3");
+    assert!(
+        line.spans[1]
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::BOLD),
+        "行数应加粗"
+    );
+    assert_eq!(line.spans[2].content.as_ref(), " lines to ");
+    assert_eq!(line.spans[3].content.as_ref(), "src/a.rs");
+    assert!(
+        line.spans[3]
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::BOLD),
+        "路径应加粗"
+    );
+}
+
+#[test]
+fn test_format_write_summary_line_singular_unit() {
+    let line = format_write_summary_line("Wrote 1 line a.rs", theme::cur().text_soft)
+        .expect("应识别单数文案");
+    assert_eq!(line.spans[2].content.as_ref(), " line to ");
+}
+
+#[test]
+fn test_format_write_summary_line_rejects_other_output() {
+    for text in [
+        "Appended 3 lines to a.rs (file total: 5 lines)",
+        "Wrote x lines a.rs",
+        "Wrote 3 bytes a.rs",
+        "Wrote 3 lines",
+        "Error writing file",
+    ] {
+        assert!(
+            format_write_summary_line(text, theme::cur().text_soft).is_none(),
+            "不应重绘非 Write 结果文案: {text}"
+        );
+    }
 }

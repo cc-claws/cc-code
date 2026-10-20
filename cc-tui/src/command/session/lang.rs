@@ -51,9 +51,7 @@ impl Command for LangCommand {
                     let _ = App::save_config(cfg, app.services.config_path_override.as_deref());
                 }
                 // 同步当前 session 及其子 Agent 的 spinner 动词列表
-                app.session_mgr
-                    .current_mut()
-                    .sync_language(lang);
+                app.session_mgr.current_mut().sync_language(lang);
                 app.request_rebuild();
                 let msg = app
                     .services

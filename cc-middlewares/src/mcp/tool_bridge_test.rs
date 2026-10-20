@@ -101,10 +101,7 @@ fn test_format_content_text_only() {
 
 #[test]
 fn test_format_content_mixed() {
-    let contents = vec![
-        ContentBlock::text("line1"),
-        ContentBlock::text("line2"),
-    ];
+    let contents = vec![ContentBlock::text("line1"), ContentBlock::text("line2")];
     assert_eq!(format_contents(&contents), "line1\nline2");
 }
 

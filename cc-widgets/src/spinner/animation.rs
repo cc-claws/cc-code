@@ -81,7 +81,7 @@ pub fn blend_color(from: Color, to: Color, t: f32) -> Color {
     }
 }
 
-/// 流光位置（对齐 Claude Code 2.1.300 的 glimmer 机制）：
+/// 流光位置（对齐 CC 2.1.300 的 glimmer 机制）：
 ///
 /// - 步进 50ms，周期 = 文本宽 + 20，位置从 −10 起左→右扫过文本；
 /// - 位置在文本外（周期两端的 10 列填充区）时即「停泊」，整词底色渲染。
@@ -90,7 +90,7 @@ pub fn glimmer_index(elapsed_ms: u64, text_width: usize) -> i64 {
     ((elapsed_ms / 50) as i64 % cycle) - 10
 }
 
-/// 动词流光渲染（对齐 Claude Code 的 GlimmerMessage / ShimmerChar）：
+/// 动词流光渲染（对齐 CC 的 GlimmerMessage / ShimmerChar）：
 ///
 /// - 只有流光位置 ±1 列内的字形用 `shimmer_color`，其余用 `base_color`（硬切，不插值）；
 /// - 流光停泊（位置在文本外）时整词单段底色；
@@ -107,7 +107,10 @@ pub fn shimmer_verb_spans(
     }
     let idx = glimmer_index(elapsed_ms, total_width);
     if idx + 1 < 0 || idx > total_width as i64 {
-        return vec![Span::styled(verb.to_string(), Style::default().fg(base_color))];
+        return vec![Span::styled(
+            verb.to_string(),
+            Style::default().fg(base_color),
+        )];
     }
 
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -125,13 +128,16 @@ pub fn shimmer_verb_spans(
             Some(last) if last.style.fg == Some(color) => {
                 last.content.to_mut().push_str(grapheme);
             }
-            _ => spans.push(Span::styled(grapheme.to_string(), Style::default().fg(color))),
+            _ => spans.push(Span::styled(
+                grapheme.to_string(),
+                Style::default().fg(color),
+            )),
         }
     }
     spans
 }
 
-/// 无新 token 停滞的转红强度目标值（对齐 Claude Code 2.1.300 的停滞函数）：
+/// 无新 token 停滞的转红强度目标值（对齐 CC 2.1.300 的停滞函数）：
 ///
 /// - 无 token 超过 10s 判定停滞，强度再用 10s 线性渐满至 1；
 /// - 有工具活跃执行时永不停滞（返回 0）。
@@ -143,7 +149,7 @@ pub fn stall_intensity_target(time_since_token_ms: u64, has_active_tools: bool) 
     }
 }
 
-/// 思考强度（对齐 Claude Code 2.1.300 的 thinkingIntensity）：
+/// 思考强度（对齐 CC 2.1.300 的 thinkingIntensity）：
 ///
 /// 当前思考段超过 10s 后线性爬升，再 10s 渐满至 1；驱动状态词向 warning 色插值。
 pub fn thinking_intensity(thinking_elapsed_ms: u64) -> f32 {

@@ -6,11 +6,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use cc_agent::{
     llm::{types::LlmRequest, BaseModel},
     messages::BaseMessage,
 };
+use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 
 /// 分类结果枚举

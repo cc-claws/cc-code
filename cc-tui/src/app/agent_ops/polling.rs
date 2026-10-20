@@ -5,10 +5,24 @@ use crate::app::App;
 
 impl App {
     pub fn poll_agent(&mut self) -> bool {
-        if self.session_mgr.current().agent.interaction_prompt.is_none() {
-            if let Some((id, params)) = self.session_mgr.current_mut().pending_thread_approvals.pop_front() {
-                if params.get("toolCall").is_some() { self.handle_acp_request_permission(id, params); }
-                else { self.handle_acp_elicitation(id, params); }
+        if self
+            .session_mgr
+            .current()
+            .agent
+            .interaction_prompt
+            .is_none()
+        {
+            if let Some((id, params)) = self
+                .session_mgr
+                .current_mut()
+                .pending_thread_approvals
+                .pop_front()
+            {
+                if params.get("toolCall").is_some() {
+                    self.handle_acp_request_permission(id, params);
+                } else {
+                    self.handle_acp_elicitation(id, params);
+                }
             }
         }
         // 停止任务保留短暂反馈；正在查看的归档视口可继续阅读，离开后再收起。
@@ -16,15 +30,27 @@ impl App {
         let previous_count = session.background_agents.len();
         session.background_agents.retain(|agent| {
             session.focused_instance_id.as_deref() == Some(&agent.instance_id)
-                || session.subagent_sessions.get(&agent.instance_id).is_none_or(|sub| {
-                    sub.status != super::super::subagent_session::SubagentRunStatus::Stopped
-                        || sub.ended_at.is_none_or(|time| time.elapsed().as_secs() < 3)
-                })
+                || session
+                    .subagent_sessions
+                    .get(&agent.instance_id)
+                    .is_none_or(|sub| {
+                        sub.status != super::super::subagent_session::SubagentRunStatus::Stopped
+                            || sub.ended_at.is_none_or(|time| time.elapsed().as_secs() < 3)
+                    })
         });
         let drawer_updated = previous_count != session.background_agents.len();
-        if drawer_updated { session.ui.bg_bar_cursor = None; }
-        for sub in self.session_mgr.current_mut().subagent_sessions.values_mut() {
-            if sub.status.is_active() { sub.spinner.advance_tick(); }
+        if drawer_updated {
+            session.ui.bg_bar_cursor = None;
+        }
+        for sub in self
+            .session_mgr
+            .current_mut()
+            .subagent_sessions
+            .values_mut()
+        {
+            if sub.status.is_active() {
+                sub.spinner.advance_tick();
+            }
             // 抽屉中间列的时间节流：每帧把高频 `current_activity` 按窗口同步到渲染快照
             sub.sync_activity_display();
         }

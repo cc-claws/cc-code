@@ -82,12 +82,23 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
                 "Uninstalling\u{2026}",
             )
         } else if entry.enabled {
-            ("\u{2714}", Style::default().fg(theme::cur().success), "Enabled")
+            (
+                "\u{2714}",
+                Style::default().fg(theme::cur().success),
+                "Enabled",
+            )
         } else {
-            ("\u{25CB}", Style::default().fg(theme::cur().inactive), "Disabled")
+            (
+                "\u{25CB}",
+                Style::default().fg(theme::cur().inactive),
+                "Disabled",
+            )
         };
         lines.push(Line::from(vec![
-            Span::styled("  Status: ".to_string(), Style::default().fg(theme::cur().inactive)),
+            Span::styled(
+                "  Status: ".to_string(),
+                Style::default().fg(theme::cur().inactive),
+            ),
             Span::styled(format!("{} {}", status_icon, status_text), status_style),
         ]));
 
