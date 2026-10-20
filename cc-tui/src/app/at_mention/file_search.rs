@@ -56,7 +56,7 @@ pub fn search_files(cwd: &str, query: &str) -> Vec<FileCandidate> {
     };
 
     let walker = WalkDir::new(base)
-        .follow_links(true)
+        .follow_links(false) // 禁止跟随符号链接，防止 /proc、/sys 等虚拟文件系统引发指数级膨胀
         .into_iter()
         .filter_entry(|e| {
             if e.file_type().is_dir() {
