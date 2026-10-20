@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.165 — 2026-10-20
+
+### Fixes
+
+- **`cc-code update` 恒定报安装脚本 SHA256 mismatch，升级通道被永久堵死（#632）**：update 流程从浮动的 `main` 分支下载 `scripts/install.sh`，但期望的 SHA256 是编译期硬编码常量（`cc-tui/src/update.rs`）。`scripts/install.sh` 在 `main` 上任何一次改动都会让所有已发布版本的校验失败，且提示文案误报为「脚本可能被篡改」。现令下载地址与校验值同源：`cc-tui/build.rs` 从 HEAD 提交的 blob 原文计算 SHA256（避开 CRLF checkout 差异），并把同一 commit sha 注入为 `CC_INSTALL_SCRIPT_REF`，`update.rs` 据此拼出 `raw.githubusercontent.com/cc-claws/cc-code/<commit>/scripts/install.sh`，`install.ps1` 同步钉到同一 commit。已发布版本各自拉取自己构建时那个提交的脚本副本，脚本后续演进不再影响升级通道；`UPDATE THIS when scripts/install.sh changes` 的人工约束随之移除。无 git 环境（源码包）回退到 `main` 并输出构建警告。注意：本次修复之前发布的旧版本内置旧哈希，需手动执行一次安装脚本才能升到本版本。
+
+---
+
 ## v0.6.162 — 2026-10-19
 
 ### Fixes
