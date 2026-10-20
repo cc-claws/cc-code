@@ -58,6 +58,48 @@ async fn test_subagent_interleaved_reasoning_tools_and_tokens_are_isolated() {
     assert_eq!(two.running_tool_times.len(), 1, "相同工具 ID 不能更新另一任务");
 }
 
+/// 抽屉导航态打字必须交还输入框（对齐 CC `PromptInput.tsx` 的 type-to-exit footer）。
+///
+/// 症状：在子视口内按 `↓` 进抽屉后想直接说话，字符被静默吞掉，只能再按一次
+/// `Enter` 落回输入框。这里锁定：可打印字符退出抽屉并写进输入框，而 `x` 仍留在
+/// 抽屉里执行「停止该 Agent」。
+#[tokio::test]
+async fn test_drawer_typing_hands_focus_back_to_input() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    make_started(&mut app, "one", "武汉天气");
+    make_key(&mut app, KeyCode::Down, KeyModifiers::NONE);
+    make_key(&mut app, KeyCode::Down, KeyModifiers::NONE);
+    make_key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(app.session_mgr.current().focused_instance_id.as_deref(), Some("one"));
+    make_key(&mut app, KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(
+        app.session_mgr.current().ui.bg_bar_cursor,
+        Some(1),
+        "子视口内按 ↓ 应进入抽屉且不切换视口"
+    );
+
+    make_key(&mut app, KeyCode::Char('h'), KeyModifiers::NONE);
+    assert_eq!(app.session_mgr.current().ui.bg_bar_cursor, None, "打字应退出抽屉");
+    assert_eq!(
+        app.session_mgr.current().focused_instance_id.as_deref(),
+        Some("one"),
+        "退出抽屉不得切换视口"
+    );
+    assert_eq!(app.session_mgr.current().ui.textarea.lines()[0], "h", "字符应落进输入框");
+
+    // `x` 是抽屉自己的「停止该 Agent」，不得退化成输入
+    app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+    make_key(&mut app, KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(app.session_mgr.current().ui.bg_bar_cursor, Some(1));
+    make_key(&mut app, KeyCode::Char('x'), KeyModifiers::NONE);
+    assert_eq!(app.session_mgr.current().ui.bg_bar_cursor, Some(1), "'x' 不得退出抽屉");
+    assert!(app.session_mgr.current().ui.textarea.lines()[0].is_empty());
+    assert!(
+        app.session_mgr.current().subagent_sessions["one"].stopped_by_user,
+        "'x' 应停止游标所在的子 Agent"
+    );
+}
+
 #[tokio::test]
 async fn test_subagent_viewport_keyboard_cursor_and_read_only_completion() {
     let (mut app, mut handle) = App::new_headless(120, 30).await;

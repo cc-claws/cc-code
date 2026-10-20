@@ -578,6 +578,55 @@ async fn test_status_bar_typography_spacing_and_alignment() {
     }
 }
 
+/// 子视口内按 `↓` 进抽屉时，输入框必须保留「青色边框 + `[ 任务名 ]` + `Message @…`」
+/// 这套身份标识（PRD §4.11：它是「现在在子 Agent 窗口还是主窗口」的唯一标识）。
+///
+/// 症状：按 `↓` 只是把按键交给抽屉、视口没变，输入框却掉成灰框、标签与占位符消失，
+/// 用户以为被踢回了主会话。
+#[tokio::test]
+async fn test_subagent_input_box_keeps_identity_during_drawer_nav() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 30).await;
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started",
+        "instanceId": "child-1",
+        "agentType": "general-purpose",
+        "taskPreview": "check weather",
+        "isBackground": true,
+    }));
+    app.session_mgr.current_mut().focused_instance_id = Some("child-1".into());
+
+    let render = |app: &mut crate::app::App, handle: &mut crate::ui::headless::HeadlessHandle| {
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, app))
+            .unwrap();
+        handle.snapshot().join("\n")
+    };
+
+    let before = render(&mut app, &mut handle);
+    assert!(before.contains("[ check weather ]"), "子视口应显示任务标签：\n{before}");
+    assert!(
+        before.contains("Message @general-purpose"),
+        "子视口应显示定向发话占位符：\n{before}"
+    );
+
+    app.session_mgr.current_mut().ui.bg_bar_cursor = Some(1);
+    let after = render(&mut app, &mut handle);
+    assert_eq!(
+        app.session_mgr.current().focused_instance_id.as_deref(),
+        Some("child-1"),
+        "进入抽屉不得切换视口"
+    );
+    assert!(
+        after.contains("[ check weather ]"),
+        "抽屉导航态不得抹掉子视口任务标签：\n{after}"
+    );
+    assert!(
+        after.contains("Message @general-purpose"),
+        "抽屉导航态不得抹掉定向发话占位符：\n{after}"
+    );
+}
+
 /// 抽屉提示行随游标位置切换：游标停在「正在查看的那一行」时 `Enter to view`/`x to stop`
 /// 无意义，应缩短为 `↑/↓ to select`（对齐参考实现）。
 #[tokio::test]

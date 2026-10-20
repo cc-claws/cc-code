@@ -1,4 +1,4 @@
-use ratatui::crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::app::App;
 
@@ -34,9 +34,23 @@ pub(super) fn handle_bar_focus(
             app.session_mgr.current_mut().ui.bg_bar_cursor = None;
             return None;
         }
+        if drawer_type_to_exit(key_event) {
+            app.session_mgr.current_mut().ui.bg_bar_cursor = None;
+            return None;
+        }
         return Some(handle_bar_key_event(app, *key_event));
     }
     None
+}
+
+/// 抽屉导航态「打字即交还输入框」（对齐 CC `PromptInput.tsx` 的 type-to-exit footer）。
+///
+/// 导航键（`↑`/`↓`/`Enter`/`Esc`）与抽屉自己的 `x`（停止该 Agent）留在抽屉；
+/// 其余可打印字符先把焦点交还输入框，再走正常输入路径。没有这一条，用户按
+/// `↓` 看一眼后想直接说话时字符会被静默吞掉，只能再按 `Enter` 落回输入框。
+fn drawer_type_to_exit(key_event: &KeyEvent) -> bool {
+    matches!(key_event.code, KeyCode::Char(c) if !c.is_control() && c != 'x')
+        && !key_event.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
 }
 
 fn handle_background_tasks_bar_key_event(
