@@ -11,7 +11,7 @@ pub enum LspConfigSource {
     Plugin { plugin_name: String },
 }
 
-/// 单个 LSP 服务器配置（兼容 Claude Code settings.json 的 lspServers 格式）
+/// 单个 LSP 服务器配置（兼容 CC settings.json 的 lspServers 格式）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LspServerConfig {
     /// 服务器显示名称

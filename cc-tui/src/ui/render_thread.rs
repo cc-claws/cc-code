@@ -138,6 +138,9 @@ struct RenderTask {
     show_tool_messages: bool,
     diff_visible: bool,
     detail_mode: bool,
+    /// 上次渲染时的主题指纹。主题切换后 markdown 的 `rendered` 快照与内容 hash
+    /// 都不变，必须靠它强制放弃缓存行复用。
+    theme_fingerprint: u64,
 }
 
 impl RenderTask {
@@ -395,6 +398,14 @@ impl RenderTask {
 
         // 直接读取预计算的 content_hash，无需重算
         let new_hashes: Vec<u64> = messages.iter().map(|vm| vm.content_hash()).collect();
+
+        // 主题切换：markdown 的 `rendered` 快照与内容 hash 都不变，但颜色已过期。
+        // 丢弃 hash 缓存（prefix_stable_len 归零）强制整屏重渲染。
+        let theme_fp = crate::ui::theme::fingerprint();
+        if theme_fp != self.theme_fingerprint {
+            self.theme_fingerprint = theme_fp;
+            self.message_hashes.clear();
+        }
 
         // 计算 prefix_stable_len：前缀中连续 hash 未变的消息数量
         let old_len = self.message_hashes.len();
@@ -878,6 +889,7 @@ pub fn spawn_render_thread(
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        theme_fingerprint: crate::ui::theme::fingerprint(),
     };
 
     tokio::spawn(task.run(rx));

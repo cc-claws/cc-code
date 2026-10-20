@@ -125,6 +125,17 @@ pub fn set_current(name: ThemeName) {
 *CURRENT.write().unwrap_or_else(|p| p.into_inner()) = name;
 }
 
+/// 主题指纹：当前解析后主题名的哈希。
+///
+/// markdown 正文的 `rendered` 是构建 ViewModel 时的快照，渲染线程又按内容 hash
+/// 复用缓存行——主题切换后两者都不会自动失效，必须靠指纹显式判断。
+pub fn fingerprint() -> u64 {
+use std::hash::{Hash, Hasher};
+let mut h = std::collections::hash_map::DefaultHasher::new();
+current_name().resolve().setting_value().hash(&mut h);
+h.finish()
+}
+
 /// 当前主题的调色板。渲染热路径：Palette 为 Copy，读锁开销可忽略。
 pub fn cur() -> Palette {
 current_name().palette()
@@ -157,12 +168,20 @@ pub fn widgets_theme() -> cc_widgets::CustomTheme {
         diff_remove_bg: p.diff_removed,
         diff_remove_word_bg: p.diff_removed_word,
         diff_hunk: p.diff_hunk,
-        syntax_theme_name: match current_name().resolve() {
-            ThemeName::Light | ThemeName::LightDaltonized | ThemeName::LightAnsi => {
-                "base16-ocean.light"
-            }
-            _ => "base16-ocean.dark",
-        },
+        syntax_theme_name: syntax_theme_for(current_name().resolve()),
+    }
+}
+
+/// 语法高亮主题名，对齐 CC `defaultSyntaxThemeName`
+/// （`color-diff-napi/src/index.ts:183-187`）：名称含 ansi → `ansi`；
+/// 含 dark → `Monokai Extended`；其余（light 系列）→ `GitHub`。
+///
+/// peri 的 `Default` 是深色配色（`text` 为白色），按 dark 处理。
+fn syntax_theme_for(name: ThemeName) -> &'static str {
+    match name {
+        ThemeName::LightAnsi | ThemeName::DarkAnsi => "ansi",
+        ThemeName::Light | ThemeName::LightDaltonized => "GitHub",
+        _ => "Monokai Extended",
     }
 }
 
@@ -255,10 +274,10 @@ assert_eq!(p.shell_bg, rgb(36, 36, 36)); // SHELL_BG
 assert_eq!(p.shell_border, rgb(106, 106, 106)); // SHELL_BORDER
 assert_eq!(p.sub_agent_bg, rgb(30, 30, 38)); // SUB_AGENT_BG
 assert_eq!(p.model_info, rgb(160, 130, 95)); // MODEL_INFO
-assert_eq!(p.diff_added, rgb(18, 52, 26)); // widgets diff_add_bg
-assert_eq!(p.diff_removed, rgb(55, 20, 18)); // widgets diff_remove_bg
-assert_eq!(p.diff_added_word, rgb(26, 78, 36));
-assert_eq!(p.diff_removed_word, rgb(78, 28, 22));
+assert_eq!(p.diff_added, rgb(2, 40, 0)); // CC color-diff addLine
+assert_eq!(p.diff_removed, rgb(61, 1, 0)); // CC color-diff deleteLine
+assert_eq!(p.diff_added_word, rgb(4, 71, 0)); // CC color-diff addWord
+assert_eq!(p.diff_removed_word, rgb(92, 2, 0)); // CC color-diff deleteWord
 }
 
 #[test]
@@ -267,5 +286,21 @@ fn test_symbol_cursor_contract() {
     assert_eq!(SYMBOL_CURSOR_SPACED, "\u{276f} ");
     let style = cursor_style();
     assert_eq!(style.fg, Some(cur().thinking));
+}
+
+/// 对齐 CC `defaultSyntaxThemeName`：ansi 系列 → ansi，light 系列 → GitHub，其余 → Monokai Extended
+#[test]
+fn test_syntax_theme_for_matches_cc_default_syntax_theme_name() {
+    assert_eq!(syntax_theme_for(ThemeName::LightAnsi), "ansi");
+    assert_eq!(syntax_theme_for(ThemeName::DarkAnsi), "ansi");
+    assert_eq!(syntax_theme_for(ThemeName::Light), "GitHub");
+    assert_eq!(syntax_theme_for(ThemeName::LightDaltonized), "GitHub");
+    assert_eq!(syntax_theme_for(ThemeName::Dark), "Monokai Extended");
+    assert_eq!(
+        syntax_theme_for(ThemeName::DarkDaltonized),
+        "Monokai Extended"
+    );
+    // Default 为深色配色（text 白色），与 CC 的 dark 一致
+    assert_eq!(syntax_theme_for(ThemeName::Default), "Monokai Extended");
 }
 }

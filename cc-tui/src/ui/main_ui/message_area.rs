@@ -93,7 +93,7 @@ pub(crate) fn thinking_status_word(
     word.to_string()
 }
 
-/// 状态词配色（对齐 Claude Code 2.1.300 的 thinkingIntensity 机制，见 issue #510）：
+/// 状态词配色（对齐 CC 2.1.300 的 thinkingIntensity 机制，见 issue #510）：
 ///
 /// - 状态词不闪烁；思考段超过 10s 后，按 thinkingIntensity（10s 起、再 10s 渐满）
 ///   从 inactive 向 warning 平滑插值；10s 内恒为 inactive；
@@ -148,7 +148,7 @@ pub(crate) fn render_messages(
     let inner = messages_area;
     let visible_height = inner.height;
 
-    // 计算 loading spinner 行（Claude Code 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
+    // 计算 loading spinner 行（CC 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
     // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
     let spinner_line: Option<Line<'static>> = if app.session_mgr.current().viewport_loading() {
         let session = app.session_mgr.current();

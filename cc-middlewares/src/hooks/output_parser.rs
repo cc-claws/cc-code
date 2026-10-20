@@ -2,7 +2,7 @@ use crate::hooks::types::{HookAction, HookDecision, HookSpecificOutput, SyncHook
 
 /// 解析 command hook stdout 输出
 ///
-/// 对齐 Claude Code parseHookOutput + processHookJSONOutput:
+/// 对齐 CC parseHookOutput + processHookJSONOutput:
 /// - 不以 `{` 开头 → 纯文本输出，视为 Allow
 /// - 以 `{` 开头 → 尝试解析为 SyncHookResponse JSON
 pub fn parse_command_hook_output(stdout: &str) -> HookAction {
@@ -26,7 +26,7 @@ pub fn parse_command_hook_output(stdout: &str) -> HookAction {
 
 /// 解析 HTTP hook 响应
 ///
-/// 对齐 Claude Code parseHttpHookOutput：
+/// 对齐 CC parseHttpHookOutput：
 /// - 空 body → 视为 {}（有效 JSON）
 /// - 不以 `{` 开头 → 非法（HTTP hook 必须返回 JSON）
 pub fn parse_http_hook_response(body: &str) -> HookAction {

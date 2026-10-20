@@ -518,7 +518,7 @@ impl App {
                         "",
                         &provider_name,
                         None,
-                        // /clear 新建 thread：对齐 Claude Code SessionEnd reason="clear"
+                        // /clear 新建 thread：对齐 CC SessionEnd reason="clear"
                         Some("clear"),
                     )
                     .await;

@@ -1,4 +1,4 @@
-use super::*;
+use super::{message_pipeline::PipelineAction, *};
 
 impl App {
     /// 打开 /theme 面板
@@ -47,6 +47,31 @@ impl App {
                 .current_mut()
                 .messages
                 .push_system_note(note);
+        }
+
+        // markdown 正文的 `rendered` 是构建 ViewModel 时的快照，主题切换后必须全量
+        // 重建才会换成新配色（CC 那边由 React 依赖 theme 自动重渲染）。
+        // 流式进行中不重建，避免打断当前轮次——那部分内容每帧都会重渲染。
+        let streaming = {
+            let p = &self.session_mgr.current().messages.pipeline;
+            p.has_streaming_content() || p.has_pending_tool_calls()
+        };
+        if !streaming {
+            let messages = self
+                .session_mgr
+                .current()
+                .messages
+                .pipeline
+                .completed_messages()
+                .to_vec();
+            let cwd = self.services.cwd.clone();
+            let view_msgs =
+                super::message_pipeline::MessagePipeline::messages_to_view_models(&messages, &cwd);
+            self.session_mgr.current_mut().messages.round_start_vm_idx = 0;
+            self.apply_pipeline_action(PipelineAction::RebuildAll {
+                prefix_len: 0,
+                tail_vms: view_msgs,
+            });
         }
     }
 }

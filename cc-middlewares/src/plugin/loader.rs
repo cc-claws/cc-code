@@ -258,7 +258,7 @@ fn process_command_file(
 /// Extract skill directories from plugin manifest.
 ///
 /// Manifest `skills` entries are treated as paths relative to the plugin root
-/// (matching Claude Code convention: `skills: ["./skills/"]` or `skills: ["skills/tdd"]`).
+/// (matching CC convention: `skills: ["./skills/"]` or `skills: ["skills/tdd"]`).
 /// If an entry points to a directory containing `SKILL.md`, it is used directly.
 /// Otherwise the entry is treated as a container directory and scanned for
 /// subdirectories that contain `SKILL.md`.
@@ -311,7 +311,7 @@ pub(crate) fn extract_skills_paths(manifest: &PluginManifest, base_dir: &Path) -
 ///
 /// When the manifest declares `agents`, uses those paths directly.
 /// Falls back to scanning default directories (`agents/` and `.agents/`)
-/// when no agents are declared — matching Claude Code's behavior where
+/// when no agents are declared — matching CC's behavior where
 /// agents placed in these directories are auto-discovered.
 pub(crate) fn extract_agents_paths(manifest: &PluginManifest, base_dir: &Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
@@ -538,7 +538,7 @@ pub fn merge_plugin_mcp_servers(plugins: &[LoadedPlugin]) -> HashMap<String, Mcp
     let mut result = HashMap::new();
     for plugin in plugins {
         for (name, config) in &plugin.mcp_servers {
-            // 与 Claude Code 一致：使用 plugin:{插件名}:{服务器名} 前缀
+            // 与 CC 一致：使用 plugin:{插件名}:{服务器名} 前缀
             let namespaced = format!("plugin:{}:{}", plugin.name, name);
             result.insert(namespaced, config.clone());
         }

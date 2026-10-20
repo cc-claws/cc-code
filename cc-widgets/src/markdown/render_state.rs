@@ -476,6 +476,9 @@ pub(super) struct RenderState<'a> {
     line_link_ranges: Vec<(usize, usize, String)>,
     /// 全部链接命中区（输出）
     pub links: Vec<LinkHit>,
+    /// 下一个顶层块前是否有源文本空行（由解析器按字节偏移判定后写入）。
+    /// 对齐 CC：块间空行只来自源文本，块级元素自身不再无条件补空行。
+    pending_blank_before_block: bool,
 }
 
 /// 打开中的超链接（可能跨越 SoftBreak/flush_line）
@@ -521,12 +524,30 @@ impl<'a> RenderState<'a> {
             open_link: None,
             line_link_ranges: Vec::new(),
             links: Vec::new(),
+            pending_blank_before_block: false,
         }
     }
 
     pub fn with_max_width(mut self, width: usize) -> Self {
         self.max_width = width;
         self
+    }
+
+    /// 标记「下一个顶层块前有源文本空行」（由 `parse_markdown_with_links` 按偏移判定）
+    pub fn set_pending_blank(&mut self, blank: bool) {
+        self.pending_blank_before_block = blank;
+    }
+
+    /// 块开始时消费空行标记；列表项/表格内的块不消费。
+    ///
+    /// 引用块内的块**消费**——CC 在 `> 第一段\n>\n> 第二段` 里会输出一个无 `│`
+    /// 前缀的空行。列表项内的空行不渲染（对齐 CC 的 `loose list`）。
+    fn take_pending_blank_at_top_level(&mut self) -> bool {
+        if self.list_stack.is_empty() && self.table.is_none() {
+            std::mem::take(&mut self.pending_blank_before_block)
+        } else {
+            false
+        }
     }
 
     pub fn flush_line(&mut self) {
@@ -760,9 +781,15 @@ impl<'a> RenderState<'a> {
                     _ => self.theme.muted(),
                 };
                 self.inline_style = Style::default().fg(color).add_modifier(Modifier::BOLD);
-                // 标题前添加空行分隔（去重）
-                self.flush_line();
-                self.ensure_blank_line();
+                // 标题前添加空行分隔（去重）。行首不能因空 spans 调 flush_line——
+                // 它在 spans 为空时会无条件插入一个空行，导致消息开头多一行留白
+                if !self.current_spans.is_empty() {
+                    self.flush_line();
+                }
+                // 对齐 CC：标题前是否留空行取决于源文本（CC 的 space token）
+                if self.take_pending_blank_at_top_level() {
+                    self.ensure_blank_line();
+                }
             }
             Event::End(TagEnd::Heading(_)) => {
                 self.inline_style = Style::default();
@@ -772,10 +799,15 @@ impl<'a> RenderState<'a> {
             }
 
             // ── 段落 ─────────────────────────────────────────────────────────
-            Event::Start(Tag::Paragraph) => {}
+            Event::Start(Tag::Paragraph) => {
+                // 段落前空行只来自源文本
+                if self.take_pending_blank_at_top_level() {
+                    self.ensure_blank_line();
+                }
+            }
             Event::End(TagEnd::Paragraph) => {
+                // 对齐 CC：段落本身只结束当前行，块间空行由下一个块按源文本补
                 self.flush_line();
-                self.ensure_blank_line();
             }
 
             // ── 代码块 ────────────────────────────────────────────────────────
@@ -783,6 +815,10 @@ impl<'a> RenderState<'a> {
                 // 先清理前一段落可能残留的 spans，避免首行粘黏
                 if !self.current_spans.is_empty() {
                     self.flush_line();
+                }
+                // 代码块前的空行只来自源文本
+                if self.take_pending_blank_at_top_level() {
+                    self.ensure_blank_line();
                 }
                 self.in_code_block = true;
                 self.code_block_lang = match kind {
@@ -809,9 +845,7 @@ impl<'a> RenderState<'a> {
                     ));
                     self.flush_line();
                 } else if end > 1 {
-                    // 多行代码块：前后各加一个空行（去重）
-                    self.ensure_blank_line();
-
+                    // 多行代码块：前后空行同样取决于源文本，不在此处强行补
                     #[cfg(feature = "markdown-highlight")]
                     if let Some(highlighted) =
                         highlight_code_block(
@@ -840,8 +874,6 @@ impl<'a> RenderState<'a> {
                         ));
                         self.flush_line();
                     }
-
-                    self.ensure_blank_line();
                 }
             }
 
@@ -851,20 +883,23 @@ impl<'a> RenderState<'a> {
                     Some(n) => ListType::Ordered(n),
                     None => ListType::Unordered,
                 };
+                // 顶层列表前的空行只来自源文本（必须在 push 之前判断顶层）
+                let blank_before = self.take_pending_blank_at_top_level();
                 self.list_stack.push(ListState { list_type });
-                // 列表整体前加空行（去重，仅最外层列表加）
-                if self.list_stack.len() == 1 {
+                if self.list_stack.len() == 1 && blank_before {
                     self.ensure_blank_line();
                 }
             }
             Event::End(TagEnd::List(_)) => {
                 self.list_stack.pop();
-                // 列表整体后加空行（去重，仅最外层列表加）
-                if self.list_stack.is_empty() {
-                    self.ensure_blank_line();
-                }
+                // 对齐 CC：列表后不补空行，由下一个块的源文本判断
             }
             Event::Start(Tag::Item) => {
+                // 嵌套列表：外层项的内容尚未换行时先结束该行，
+                // 否则内层 bullet 会与外层文字挤在同一行（CC 的每项以 EOL 结尾，不会挤行）
+                if !self.current_spans.is_empty() {
+                    self.flush_line();
+                }
                 let depth = self.list_stack.len().saturating_sub(1);
                 let indent = "  ".repeat(depth);
                 let bullet = if let Some(state) = self.list_stack.last_mut() {
@@ -895,23 +930,24 @@ impl<'a> RenderState<'a> {
 
             // ── 引用块 ────────────────────────────────────────────────────────
             Event::Start(Tag::BlockQuote(_)) => {
+                // 顶层引用块前的空行只来自源文本（须在 quote_depth 自增前判断）
+                let blank_before = self.take_pending_blank_at_top_level();
                 self.quote_depth += 1;
-                // 引用块前加空行（去重，仅最外层加）
-                if self.quote_depth == 1 {
+                if self.quote_depth == 1 && blank_before {
                     self.ensure_blank_line();
                 }
             }
             Event::End(TagEnd::BlockQuote(_)) if self.quote_depth > 0 => {
                 self.quote_depth -= 1;
-                // 引用块后加空行（去重，仅最外层加）
-                if self.quote_depth == 0 {
-                    self.ensure_blank_line();
-                }
+                // 对齐 CC：引用块后不补空行，由下一个块的源文本判断
             }
 
             // ── 水平线 ────────────────────────────────────────────────────────
             Event::Rule => {
-                self.ensure_blank_line();
+                // hr 前的空行来自源文本（CC 的 space token）
+                if self.take_pending_blank_at_top_level() {
+                    self.ensure_blank_line();
+                }
                 // 水平线按可用宽度铺满（此前硬编码 60：宽终端下只占一半、窄终端下溢出被裁）。
                 let width = if self.max_width > 0 {
                     self.max_width
@@ -924,7 +960,7 @@ impl<'a> RenderState<'a> {
                     Style::default().fg(self.theme.separator()),
                 ));
                 self.flush_line();
-                self.ensure_blank_line();
+                // 对齐 CC：hr 的 tokenizer 会吞掉后续换行，hr 之后不留空行
             }
 
             // ── 文本（含代码块内容） ───────────────────────────────────────────
@@ -1002,6 +1038,10 @@ impl<'a> RenderState<'a> {
 
             // ── 表格 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Table(alignments)) => {
+                // 表格前的空行只来自源文本（table 尚未建立，可判断顶层）
+                if self.take_pending_blank_at_top_level() {
+                    self.ensure_blank_line();
+                }
                 self.table = Some(TableBuilder::new(alignments));
             }
             Event::End(TagEnd::Table) => {
@@ -1039,7 +1079,11 @@ impl<'a> RenderState<'a> {
 
             // ── 换行 ─────────────────────────────────────────────────────────
             Event::SoftBreak => {
-                self.push_span(" ".to_string(), Style::default());
+                // 对齐 CC：软换行保留为换行（CC 的 text token 含 `\n`，formatToken
+                // 原样输出）。合并成空格会让多行段落塌成一行。
+                if !self.current_spans.is_empty() {
+                    self.flush_line();
+                }
             }
             Event::HardBreak => {
                 self.flush_line();

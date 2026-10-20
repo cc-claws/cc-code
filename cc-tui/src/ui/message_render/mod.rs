@@ -550,6 +550,32 @@ fn format_prefixed_text(
     format_wrapped_line_keep_lead(line, first_prefix, "    ", prefix_style, content_width)
 }
 
+/// 把 Write 的 `Wrote N lines <path>` 结果行重绘为 CC 的样式
+/// `Wrote <bold>N</bold> lines to <bold>path</bold>`（`FileWriteTool/UI.tsx:58-61`）。
+///
+/// 只处理精确匹配的单行文本；其它输出（如 append 的 `Appended ...`）返回 None，
+/// 由调用方回退为普通纯文本渲染。
+fn format_write_summary_line(
+    text: &str,
+    text_color: ratatui::style::Color,
+) -> Option<Line<'static>> {
+    let rest = text.strip_prefix("Wrote ")?;
+    let (count, rest) = rest.split_once(' ')?;
+    count.parse::<usize>().ok()?;
+    let (unit, path) = rest.split_once(' ')?;
+    if (unit != "line" && unit != "lines") || path.is_empty() {
+        return None;
+    }
+    let base = Style::default().fg(text_color);
+    let bold = base.add_modifier(ratatui::style::Modifier::BOLD);
+    Some(Line::from(vec![
+        Span::styled("Wrote ", base),
+        Span::styled(count.to_string(), bold),
+        Span::styled(format!(" {unit} to "), base),
+        Span::styled(path.to_string(), bold),
+    ]))
+}
+
 fn push_prefixed_text(
     out: &mut Vec<Line<'static>>,
     text: &str,
@@ -1037,7 +1063,7 @@ fn shell_output_lines(
 
 /// 渲染用户 `!` 本机命令的标题行。
 ///
-/// 标题行使用整行背景和粉色 `!` 标记，保持与 Claude Code 的本地命令块一致。
+/// 标题行使用整行背景和粉色 `!` 标记，保持与 CC 的本地命令块一致。
 fn shell_command_header(command: &str, width: usize) -> Line<'static> {
     let command =
         truncate_to_display_width(&sanitize_display_text(command), width.saturating_sub(2));
@@ -1573,7 +1599,13 @@ pub fn render_view_model_with_flags(
             } else {
                 content.split('\n').collect()
             };
-            if !state.collapsed && !result_lines.is_empty() {
+            // 对齐 CC FileEditToolUpdatedMessage：Edit/Write 更新类 diff 渲染时，
+            // 工具结果文本（"Replaced text ..." / "Wrote N lines ..."）不再单独成行，
+            // 由 diff 摘要行（Added N lines, removed M lines）替代。
+            // 新建文件（Write create）仍保留工具结果行，对齐 CC 的 "Wrote N lines to <path>"。
+            let diff_will_render = (detail_mode || diff_visible)
+                && diff_input.as_ref().is_some_and(|d| !d.is_new_file);
+            if !state.collapsed && !result_lines.is_empty() && !diff_will_render {
                 // 口径统一：使用 state.is_error（含 Bash 非零 exit code 的 bash_failed），
                 // 与 header 指示器/状态保持一致；仅用 *is_error 会让失败 Bash 的输出行仍为灰白。
                 let result_color = if state.is_error {
@@ -1647,6 +1679,21 @@ pub fn render_view_model_with_flags(
                             } else {
                                 "    "
                             };
+                            // 对齐 CC：Write create 的结果行为 "Wrote N lines to <path>"，
+                            // 数字与路径加粗（FileWriteTool/UI.tsx:58-61）
+                            if tool_name == "Write" {
+                                if let Some(styled) =
+                                    format_write_summary_line(line, result_color)
+                                {
+                                    return format_wrapped_line_keep_lead(
+                                        styled,
+                                        first_prefix,
+                                        "    ",
+                                        Style::default().fg(border_color),
+                                        content_width,
+                                    );
+                                }
+                            }
                             format_prefixed_text(
                                 line,
                                 first_prefix,
@@ -1719,27 +1766,40 @@ pub fn render_view_model_with_flags(
                     // 前缀 "  ⎿ " / "    " 占 4 列，diff 内容宽度需减去前缀
                     let diff_width = width.saturating_sub(4);
                     let widget_theme = theme::widgets_theme();
-                    let mut rendered =
-                        cc_widgets::diff::render_diff(diff_input, diff_width, &widget_theme);
-                    // 去掉 diff 标题行（file_path），header 的 args_display 已经显示了文件路径
-                    if !rendered.is_empty() {
-                        rendered.remove(0);
-                    }
-                    for (i, line) in rendered.iter().enumerate() {
-                        let mut prefixed = line.clone();
-                        let prefix = if i == 0 { "  ⎿ " } else { "    " };
-                        prefixed.spans.insert(
-                            0,
-                            Span::styled(
-                                prefix,
-                                Style::default().fg(if *is_error {
-                                    theme::cur().error
-                                } else {
-                                    theme::cur().subtle
-                                }),
-                            ),
+                    let prefix_style = Style::default().fg(if *is_error {
+                        theme::cur().error
+                    } else {
+                        theme::cur().subtle
+                    });
+                    if diff_input.is_new_file {
+                        // 对齐 CC FileWriteTool 的 create 分支：不渲染 diff，
+                        // 显示无底色的语法高亮代码；非详细模式截断前 10 行。
+                        let max_code_lines = if detail_mode { usize::MAX } else { 10 };
+                        let rendered = cc_widgets::diff::render_new_file_code(
+                            &diff_input.file_path,
+                            &diff_input.new_content,
+                            diff_width,
+                            &widget_theme,
+                            max_code_lines,
                         );
-                        lines.push(prefixed);
+                        for line in rendered {
+                            let mut prefixed = line;
+                            prefixed.spans.insert(0, Span::styled("    ", prefix_style));
+                            lines.push(prefixed);
+                        }
+                    } else {
+                        let mut rendered =
+                            cc_widgets::diff::render_diff(diff_input, diff_width, &widget_theme);
+                        // 去掉 diff 标题行（file_path），header 的 args_display 已经显示了文件路径
+                        if !rendered.is_empty() {
+                            rendered.remove(0);
+                        }
+                        for (i, line) in rendered.iter().enumerate() {
+                            let mut prefixed = line.clone();
+                            let prefix = if i == 0 { "  ⎿ " } else { "    " };
+                            prefixed.spans.insert(0, Span::styled(prefix, prefix_style));
+                            lines.push(prefixed);
+                        }
                     }
                 }
             }

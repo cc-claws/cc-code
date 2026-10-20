@@ -257,7 +257,7 @@ pub const EN_VERBS: &[&str] = &[
     "Testing",
 ];
 
-/// 英文完成态过去式动词，用于 loading 结束后的总结行（对齐 Claude Code）。
+/// 英文完成态过去式动词，用于 loading 结束后的总结行（对齐 CC）。
 pub const EN_SUMMARY_VERBS: &[&str] = &[
     "Cogitated",
     "Brewed",

@@ -43,3 +43,17 @@
         let result = resolve_path("/tmp", "~/test_memory.txt");
         assert!(result.starts_with(&home) || result.to_string_lossy().contains(&home.to_string_lossy().to_string()));
     }
+
+    #[test]
+    fn test_display_rel_path_strips_verbatim_prefix() {
+        let p = std::path::Path::new(r"\\?\D:\code\peri\src\main.rs");
+        let rel = display_rel_path(r"D:\code\peri", p);
+        assert_eq!(rel, r"src\main.rs", "应剥离 verbatim 前缀并转为相对路径");
+    }
+
+    #[test]
+    fn test_display_rel_path_without_verbatim_prefix() {
+        let p = std::path::Path::new(r"D:\code\peri\src\main.rs");
+        let rel = display_rel_path(r"D:\code\peri", p);
+        assert_eq!(rel, r"src\main.rs", "普通绝对路径应转为相对路径");
+    }

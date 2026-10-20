@@ -16,7 +16,7 @@ use grep::{
 };
 use ignore::WalkBuilder;
 
-/// Grep tool - 与 Claude Code Grep 工具对齐
+/// Grep tool - 与 CC Grep 工具对齐
 pub struct GrepTool {
     pub cwd: String,
 }
@@ -38,7 +38,7 @@ Usage:
 - Use the schema's case, word, multiline, inversion, and depth options as needed. Escape regex metacharacters unless using fixed_strings.
 - Searches time out after 15 seconds. Prefer a specific path and pattern, then broaden if the evidence requires it."#;
 
-/// Default 模式下超过此字节长度的行不输出（对齐 Claude Code `--max-columns 500`）
+/// Default 模式下超过此字节长度的行不输出（对齐 CC `--max-columns 500`）
 const GREP_MAX_COLUMNS: usize = 500;
 
 use crate::tools::output_persist::persist_truncated_output;

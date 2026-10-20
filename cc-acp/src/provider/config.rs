@@ -188,7 +188,7 @@ pub struct AppConfig {
     pub extra: Map<String, Value>,
 }
 
-/// 自定义 spinner tips 配置（对齐 Claude Code 的 spinnerTipsOverride schema）。
+/// 自定义 spinner tips 配置（对齐 CC 的 spinnerTipsOverride schema）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SpinnerTipsOverride {

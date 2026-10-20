@@ -856,6 +856,7 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        theme_fingerprint: crate::ui::theme::fingerprint(),
     };
 
     task.rebuild(vec![MessageViewModel::tool_block(
@@ -914,6 +915,7 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        theme_fingerprint: crate::ui::theme::fingerprint(),
     };
 
     task.rebuild(vec![MessageViewModel::tool_block(
@@ -987,6 +989,7 @@ fn detail_mode_long_cmd_running_task(
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: true,
+        theme_fingerprint: crate::ui::theme::fingerprint(),
     };
     // 超长命令：详细模式下 header 必然折成多行（≥2 行内容）
     let cmd = "(cd /d/code/peri/example-service && grep -rn \"registry/index|import p0|p0\" \

@@ -49,6 +49,26 @@ pub fn resolve_path(cwd: &str, file_path: &str) -> PathBuf {
     raw
 }
 
+/// 生成用于 UI 显示的路径：剥离 Windows `canonicalize` 产生的 `\\?\` verbatim 前缀，
+/// 再尽量转为相对 cwd 的路径（对齐 CC 的相对路径展示）。
+pub fn display_rel_path(cwd: &str, path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    let clean: String = if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        raw.to_string()
+    };
+    let cwd_clean = cwd.strip_prefix(r"\\?\").unwrap_or(cwd);
+    let clean_path = Path::new(&clean);
+    clean_path
+        .strip_prefix(cwd_clean)
+        .unwrap_or(clean_path)
+        .display()
+        .to_string()
+}
+
 /// 将输入字符串解析为 JSON Value，失败时原样返回为字符串
 pub async fn parse_json_input(input: &str) -> serde_json::Value {
     serde_json::from_str(input).unwrap_or(serde_json::Value::String(input.to_string()))

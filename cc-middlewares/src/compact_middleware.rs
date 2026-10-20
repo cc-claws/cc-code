@@ -228,7 +228,7 @@ impl CompactMiddleware {
         let files = extract_file_info(&re_inject_result.messages);
         let skills = extract_skill_names(&re_inject_result.messages);
 
-        // 摘要作为 Human 消息（与 Claude Code 实现对齐）。
+        // 摘要作为 Human 消息（与 CC 实现对齐）。
         // 原因：LLM 适配器将 System 消息提取到 system 字段，不进入 messages 数组。
         // 若摘要为 System 类型，compact 后 messages 数组可能只有 system 角色消息，
         // DeepSeek/OpenAI 兼容 API 要求至少一条 user/assistant 消息，否则返回 400。

@@ -24,7 +24,7 @@ impl AgentOverrides {
     }
 }
 
-/// AgentDefineMiddleware - 根据 agent_id 注入 Claude Code Agent 定义文件
+/// AgentDefineMiddleware - 根据 agent_id 注入 CC Agent 定义文件
 ///
 /// Agent 定义文件搜索路径（按优先级）：
 /// 1. `{cwd}/.claude/agents/{agent_id}/agent.md`
@@ -32,7 +32,7 @@ impl AgentOverrides {
 /// 3. `{cwd}/agents/{agent_id}/agent.md`
 /// 4. `{cwd}/agents/{agent_id}.md`
 ///
-/// Agent 定义文件格式（Claude Code YAML frontmatter）：
+/// Agent 定义文件格式（CC YAML frontmatter）：
 /// ```markdown
 /// ---
 /// name: code-reviewer

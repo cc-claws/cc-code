@@ -1,5 +1,6 @@
 use std::hash::{Hash, Hasher};
 
+use crate::app::tool_display::build_diff_input;
 use crate::ui::theme;
 use cc_agent::messages::{BaseMessage, ContentBlock};
 use ratatui::{style::Color, text::Text};
@@ -16,56 +17,9 @@ pub(crate) use tools::{parse_subagent_tool_count, BackgroundTaskStarted};
 pub use tools::{tool_color, AgentSummary, ToolCategory, ToolEntry};
 pub(crate) use utils::{instance_hash, parse_bg_hash};
 
-/// 从工具名和入参构造 DiffInput（仅 Write/Edit 工具）。
-/// 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。
-fn build_diff_input(name: &str, input: &serde_json::Value) -> Option<cc_widgets::DiffInput> {
-    match name {
-        "Edit" => {
-            let old_string = input
-                .get("old_string")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let new_string = input
-                .get("new_string")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let file_path = input
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if old_string.is_empty() || file_path.is_empty() {
-                return None;
-            }
-            Some(cc_widgets::DiffInput {
-                file_path: file_path.to_string(),
-                old_content: old_string.to_string(),
-                new_content: new_string.to_string(),
-                is_new_file: false,
-                is_deleted_file: false,
-                is_binary: false,
-            })
-        }
-        "Write" => {
-            let content = input.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            let file_path = input
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if content.is_empty() || file_path.is_empty() {
-                return None;
-            }
-            Some(cc_widgets::DiffInput {
-                file_path: file_path.to_string(),
-                old_content: String::new(),
-                new_content: content.to_string(),
-                is_new_file: true,
-                is_deleted_file: false,
-                is_binary: false,
-            })
-        }
-        _ => None,
-    }
-}
+// 从工具名和入参构造 DiffInput（仅 Write/Edit 工具），实现见
+// [`crate::app::tool_display::build_diff_input`]（Edit 基于完整文件重建全文 diff）。
+// 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。
 
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来
 #[derive(Debug, Clone)]
@@ -825,7 +779,10 @@ impl MessageViewModel {
                 }
                 // 使用统一格式化函数生成 display_name 和 args_display
                 // cwd 参数确保流式和恢复路径产生一致的路径显示
-                let display_name = crate::app::tool_display::format_tool_name(&tool_name);
+                let display_name = crate::app::tool_display::format_tool_name_with_input(
+                    &tool_name,
+                    Some(&input),
+                );
                 let args_display =
                     crate::app::tool_display::format_tool_args(&tool_name, &input, cwd);
                 let color = if *is_error {
@@ -837,7 +794,7 @@ impl MessageViewModel {
                 let diff_input = if *is_error {
                     None
                 } else {
-                    build_diff_input(&tool_name, &input)
+                    build_diff_input(&tool_name, &input, cwd, Some(tool_call_id.as_str()))
                 };
                 let mut vm = MessageViewModel::ToolBlock {
                     tool_name,

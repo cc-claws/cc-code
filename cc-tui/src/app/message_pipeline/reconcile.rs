@@ -11,57 +11,6 @@ pub use crate::ui::message_view::aggregate_batch_groups;
 use super::transform::merge_consecutive_thinking;
 use super::MessagePipeline;
 
-/// 从工具名和入参构造 DiffInput（仅 Write/Edit 工具）。
-/// 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。
-fn try_build_diff_input(name: &str, input: &serde_json::Value) -> Option<cc_widgets::DiffInput> {
-    match name {
-        "Edit" => {
-            let old_string = input
-                .get("old_string")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let new_string = input
-                .get("new_string")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let file_path = input
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if old_string.is_empty() || file_path.is_empty() {
-                return None;
-            }
-            Some(cc_widgets::DiffInput {
-                file_path: file_path.to_string(),
-                old_content: old_string.to_string(),
-                new_content: new_string.to_string(),
-                is_new_file: false,
-                is_deleted_file: false,
-                is_binary: false,
-            })
-        }
-        "Write" => {
-            let content = input.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            let file_path = input
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if content.is_empty() || file_path.is_empty() {
-                return None;
-            }
-            Some(cc_widgets::DiffInput {
-                file_path: file_path.to_string(),
-                old_content: String::new(),
-                new_content: content.to_string(),
-                is_new_file: true,
-                is_deleted_file: false,
-                is_binary: false,
-            })
-        }
-        _ => None,
-    }
-}
-
 // ─── 管线事件 ────────────────────────────────────────────────────────────────
 
 /// 管线处理事件后的输出动作
@@ -244,10 +193,15 @@ impl MessagePipeline {
 
         // 追加已完成但尚未进入 completed 的工具结果
         for ct in &self.completed_tools {
-            let display = tool_display::format_tool_name(&ct.name);
+            let display = tool_display::format_tool_name_with_input(&ct.name, Some(&ct.input));
             let args = tool_display::format_tool_args(&ct.name, &ct.input, Some(&self.cwd));
             let diff_input = if !ct.is_error {
-                try_build_diff_input(&ct.name, &ct.input)
+                tool_display::build_diff_input(
+                    &ct.name,
+                    &ct.input,
+                    Some(&self.cwd),
+                    Some(&ct.tool_call_id),
+                )
             } else {
                 None
             };

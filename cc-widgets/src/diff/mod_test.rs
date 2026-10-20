@@ -108,6 +108,75 @@ fn test_word_diff_basic() {
     assert!(has_added, "应有 Added 段");
 }
 
+/// 对齐 CC `findAdjacentPairs`：3 删 1 增时，第 1 对仍应配上词级 diff
+#[test]
+fn test_fill_word_diffs_pairs_min_of_remove_and_add_count() {
+    let input = DiffInput {
+        file_path: "test.txt".to_string(),
+        old_content: "alpha one\nbravo two\ncharlie three\n".to_string(),
+        new_content: "alpha uno\n".to_string(),
+        is_new_file: false,
+        is_deleted_file: false,
+        is_binary: false,
+    };
+    let result = compute_diff(&input);
+    let lines: Vec<&DiffLine> = result.hunks.iter().flat_map(|h| &h.lines).collect();
+    let removes: Vec<&&DiffLine> = lines
+        .iter()
+        .filter(|l| matches!(l, DiffLine::Remove { .. }))
+        .collect();
+    let adds: Vec<&&DiffLine> = lines
+        .iter()
+        .filter(|l| matches!(l, DiffLine::Add { .. }))
+        .collect();
+    assert_eq!(removes.len(), 3, "应有 3 个删除行");
+    assert_eq!(adds.len(), 1, "应有 1 个新增行");
+    let remove_has_wd = |l: &DiffLine| matches!(l, DiffLine::Remove { word_diff: Some(_), .. });
+    let add_has_wd = |l: &DiffLine| matches!(l, DiffLine::Add { word_diff: Some(_), .. });
+    assert!(
+        remove_has_wd(removes[0]),
+        "首对（alpha one / alpha uno）应配上词级 diff"
+    );
+    assert!(add_has_wd(adds[0]), "新增行应带上词级 diff");
+    assert!(
+        !remove_has_wd(removes[1]) && !remove_has_wd(removes[2]),
+        "超出 min(del, add) 的删除行不应配词级 diff"
+    );
+}
+
+/// 对齐 CC `convertLeadingTabsToSpaces`：diff 输入前行首 tab 转 2 空格
+#[test]
+fn test_compute_diff_converts_leading_tabs_to_two_spaces() {
+    let input = DiffInput {
+        file_path: "make.txt".to_string(),
+        old_content: "all:\n\techo old\n".to_string(),
+        new_content: "all:\n\techo new\n".to_string(),
+        is_new_file: false,
+        is_deleted_file: false,
+        is_binary: false,
+    };
+    let result = compute_diff(&input);
+    let texts: Vec<&str> = result
+        .hunks
+        .iter()
+        .flat_map(|h| &h.lines)
+        .filter_map(|l| match l {
+            DiffLine::Context { text, .. }
+            | DiffLine::Add { text, .. }
+            | DiffLine::Remove { text, .. } => Some(text.as_str()),
+            DiffLine::HunkHeader { .. } => None,
+        })
+        .collect();
+    assert!(
+        texts.iter().any(|t| t.starts_with("  echo")),
+        "行首 tab 应转为 2 空格，实际: {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t.starts_with('\t')),
+        "不应保留行首 tab，实际: {texts:?}"
+    );
+}
+
 #[test]
 fn test_diff_input_equality() {
     // clone 后 assert_eq

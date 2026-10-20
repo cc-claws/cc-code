@@ -12,7 +12,7 @@ use crate::{app::App, ui::theme};
 
 /// AskUser 批量弹窗（底部展开区）：header tab 行 + 编号选项列表
 ///
-/// 风格对齐 Claude Code 原生 AskUser UI：
+/// 风格对齐 CC 原生 AskUser UI：
 /// - Tab 栏带 ☐/✔ 状态标记
 /// - 选项编号格式（单选: `❯ 1. label`，多选: `❯ ● 1. label`）
 /// - 自定义输入合并为最后一个编号选项

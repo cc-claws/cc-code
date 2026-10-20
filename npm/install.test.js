@@ -362,7 +362,7 @@ test("linkProjectMemories links Claude Code project memory into the cc-code side
   const ccMem = join(home, ".cc-code", "projects", "D--code-demo", "memory");
   if (!fs.existsSync(join(ccMem, "MEMORY.md"))) throw new Error("memory not reachable via cc-code path");
 
-  // 写穿透：经 cc-code 侧写入必须落到 Claude Code 侧同一份
+  // 写穿透：经 cc-code 侧写入必须落到 CC 侧同一份
   fs.writeFileSync(join(ccMem, "user_role.md"), "shared");
   if (!fs.existsSync(join(claudeMem, "user_role.md"))) {
     throw new Error("cc-code path is a separate physical directory, not a link");

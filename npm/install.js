@@ -193,7 +193,7 @@ async function verifyChecksum(buffer, fileName) {
   console.log("  Checksum OK.");
 }
 
-// 从 Claude Code env 推导应迁移的 provider 列表（含各档模型别名）
+// 从 CC env 推导应迁移的 provider 列表（含各档模型别名）
 function detectProvidersFromEnv(env) {
   const providers = [];
 
@@ -277,11 +277,11 @@ function backfillModels(ccCodeSettingsPath, detected) {
   return true;
 }
 
-// 统一项目记忆目录：Claude Code 与 cc-code 各维护一份 projects/<slug>/memory，一旦两侧
+// 统一项目记忆目录：CC 与 cc-code 各维护一份 projects/<slug>/memory，一旦两侧
 // 都落过盘，记忆就会写散（系统提示对外呈现的 ~/.cc-code 路径，与实际读写的 ~/.claude
-// 目录并不是同一份）。安装时把 Claude Code 侧已有的记忆目录在 cc-code 侧以链接接过来，
+// 目录并不是同一份）。安装时把 CC 侧已有的记忆目录在 cc-code 侧以链接接过来，
 // 使两侧读写同一份物理目录：Windows 用 junction（免管理员权限），Unix 用目录符号链接。
-// 只做 .claude -> .cc-code 单向，不往用户的 Claude Code 目录里添东西；
+// 只做 .claude -> .cc-code 单向，不往用户的 CC 目录里添东西；
 // 目标已存在（用户自己的数据或已建好的链接）一律不碰，任何失败只跳过、不影响安装。
 function linkProjectMemories(home = homedir()) {
   const linkType = process.platform === "win32" ? "junction" : "dir";
@@ -292,7 +292,7 @@ function linkProjectMemories(home = homedir()) {
   try {
     entries = readdirSync(from, { withFileTypes: true });
   } catch {
-    return 0; // 没用过 Claude Code，没有可承接的记忆
+    return 0; // 没用过 CC，没有可承接的记忆
   }
 
   let linked = 0;
@@ -310,7 +310,7 @@ function linkProjectMemories(home = homedir()) {
     }
   }
   if (linked > 0) {
-    console.log(`  Linked ${linked} Claude Code project memory dir(s) into ~/.cc-code/projects/`);
+    console.log(`  Linked ${linked} .claude project memory dir(s) into ~/.cc-code/projects/`);
   }
   return linked;
 }
@@ -322,7 +322,7 @@ function migrateFromClaudeCode(home = homedir()) {
 
   const hasCcCode = existsSync(ccCodeSettingsPath);
 
-  // 无 Claude Code 配置：已有 cc-code 视为成功（无需 Quick Start），否则失败
+  // 无 CC 配置：已有 cc-code 视为成功（无需 Quick Start），否则失败
   if (!existsSync(claudeSettingsPath)) {
     return hasCcCode;
   }
@@ -368,7 +368,7 @@ function migrateFromClaudeCode(home = homedir()) {
   };
   writeFileSync(ccCodeSettingsPath, JSON.stringify(ccCodeSettings, null, 2) + "\n");
   console.log("");
-  console.log("  Detected Claude Code configuration (compatible with cc-code).");
+  console.log("  Detected .claude configuration (compatible with cc-code).");
   console.log("  Migrated ~/.claude/settings.json -> ~/.cc-code/settings.json");
   console.log(`  Found ${providers.length} provider(s): ${providers.map(p => p.type).join(", ")}`);
   console.log("  NOTE: API keys were copied into ~/.cc-code/settings.json (plain text).");
@@ -411,7 +411,7 @@ async function maybeMigrateFromClaudeCode(home = homedir()) {
     return migrateFromClaudeCode(home);
   }
   if (process.env.CC_CODE_NO_MIGRATE === "1" || process.argv.includes("--no-migrate")) {
-    console.log("  已跳过 Claude Code 密钥迁移 (CC_CODE_NO_MIGRATE=1 / --no-migrate)。");
+    console.log("  已跳过 .claude 密钥迁移 (CC_CODE_NO_MIGRATE=1 / --no-migrate)。");
     return false;
   }
   if (!process.stdin.isTTY) {
@@ -421,7 +421,7 @@ async function maybeMigrateFromClaudeCode(home = homedir()) {
     return false;
   }
   console.log("");
-  const ok = await promptYesNo("  检测到 Claude Code 配置，是否将 API 密钥迁移到 ~/.cc-code/settings.json？[y/N] ");
+  const ok = await promptYesNo("  检测到 .claude 配置，是否将 API 密钥迁移到 ~/.cc-code/settings.json？[y/N] ");
   if (!ok) {
     console.log("  已跳过密钥迁移。");
     return false;
@@ -622,7 +622,7 @@ async function main() {
   // #290：密钥迁移需显式确认，不再静默复制
   const migrated = await maybeMigrateFromClaudeCode();
 
-  // 让 Claude Code 与 cc-code 共用同一份项目记忆目录（避免记忆写散到两侧）
+  // 让 CC 与 cc-code 共用同一份项目记忆目录（避免记忆写散到两侧）
   linkProjectMemories();
 
   if (!migrated) {

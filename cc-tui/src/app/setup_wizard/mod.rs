@@ -16,7 +16,7 @@ pub enum SetupStep {
 pub enum SetupSource {
     /// 手动输入 Custom API
     CustomApi,
-    /// 从 Claude Code 迁移
+    /// 从 CC 迁移
     MigrateClaudeCode,
 }
 
@@ -327,7 +327,7 @@ impl SetupWizardPanel {
         }
     }
 
-    /// 从 Claude Code 配置迁移，生成多 provider 列表
+    /// 从 CC 配置迁移，生成多 provider 列表
     ///
     /// 读取 `~/.claude/settings.json` 的 `env` 字段，按前缀检测凭据：
     /// - `ANTHROPIC_` → Anthropic provider

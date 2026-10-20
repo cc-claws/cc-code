@@ -15,7 +15,7 @@ pub struct ClaudeSettings {
     pub extra_known_marketplaces: Vec<DeclaredMarketplace>,
 }
 
-/// 兼容 Claude Code 两种 enabledPlugins 格式：
+/// 兼容 CC 两种 enabledPlugins 格式：
 /// - 数组: `["plugin-a", "plugin-b"]`
 /// - 对象: `{"plugin-a": true, "plugin-b": true}`
 fn deserialize_enabled_plugins<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
@@ -48,7 +48,7 @@ where
     }
 }
 
-/// 兼容 Claude Code 两种 extraKnownMarketplaces 格式：
+/// 兼容 CC 两种 extraKnownMarketplaces 格式：
 /// - 数组: `[{source, installLocation, ...}]`
 /// - 对象: `{"marketplace-name": {source, installLocation, ...}}`
 fn deserialize_known_marketplaces<'de, D>(
@@ -192,7 +192,7 @@ pub fn load_installed_plugins(
     };
 
     // 迁移：从 settings.json 的 enabledPlugins 回填未记录的插件
-    // （用于兼容 Claude Code CLI 安装的插件）。
+    // （用于兼容 CC CLI 安装的插件）。
     // 注意：仅在非测试环境（override_path 为 None）时执行迁移，避免测试读取用户真实配置。
     if override_path.is_none() {
         // settings.json 在 claude_home 目录，不是 plugins 目录
@@ -345,7 +345,7 @@ pub fn load_known_marketplaces(
         source: e,
     })?;
 
-    // 兼容 Claude Code CLI 的对象格式：{"marketplace-name": {...}}
+    // 兼容 CC CLI 的对象格式：{"marketplace-name": {...}}
     // 以及内部数组格式：[{...}]
     let value = serde_json::from_str::<serde_json::Value>(&content).map_err(|e| {
         PluginConfigError::ParseError {
@@ -361,7 +361,7 @@ pub fn load_known_marketplaces(
                 source: e,
             }),
         serde_json::Value::Object(obj) => {
-            // Claude Code CLI 格式：对象键为 marketplace 名称
+            // CC CLI 格式：对象键为 marketplace 名称
             let mut result = Vec::new();
             for (_name, entry) in obj {
                 if let Ok(mkt) = serde_json::from_value::<KnownMarketplace>(entry) {
@@ -382,7 +382,7 @@ pub fn save_known_marketplaces(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(known_marketplaces_path);
 
-    // 保存为 Claude Code CLI 对象格式：{"marketplace-name": {...}}
+    // 保存为 CC CLI 对象格式：{"marketplace-name": {...}}
     use crate::plugin::MarketplaceManager;
     let mut obj = serde_json::Map::new();
     for mkt in marketplaces {
@@ -442,7 +442,7 @@ pub fn save_claude_settings_enabled_plugins(
         serde_json::Value::Object(serde_json::Map::new())
     };
 
-    // 更新 enabledPlugins 字段（Claude Code 要求对象格式: {"plugin-id": true/false, ...}）
+    // 更新 enabledPlugins 字段（CC 要求对象格式: {"plugin-id": true/false, ...}）
     let mut enabled_obj = serde_json::Map::new();
     for (id, enabled) in plugin_states {
         enabled_obj.insert(id.clone(), serde_json::Value::Bool(*enabled));
@@ -488,7 +488,7 @@ pub fn load_plugin_manifest(plugin_dir: &Path) -> Result<PluginManifest, PluginC
             path: manifest_path.display().to_string(),
             source: e,
         })?;
-    // name 和 version 允许为空——Claude Code 的某些插件清单不包含这些字段，
+    // name 和 version 允许为空——CC 的某些插件清单不包含这些字段，
     // 调用方应使用 installed_plugins.json 中的 name/version 作为 fallback。
     Ok(manifest)
 }

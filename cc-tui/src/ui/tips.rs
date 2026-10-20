@@ -1,4 +1,4 @@
-//! Spinner tips 调度（对齐 Claude Code 2.1.300 的 tips 机制，见 issue #511）。
+//! Spinner tips 调度（对齐 CC 2.1.300 的 tips 机制，见 issue #511）。
 //!
 //! 模型：
 //! - 每条 tip 有稳定 id、文案、会话冷却（`cooldown_sessions`）与优先级；
