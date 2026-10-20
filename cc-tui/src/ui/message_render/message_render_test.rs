@@ -2982,3 +2982,151 @@ fn test_format_write_summary_line_rejects_other_output() {
         );
     }
 }
+
+/// URL 识别口径：与 CC `OutputLine.tsx::URL_IN_JSON` 一致，且不吃句末右括号。
+#[test]
+fn test_find_url_ranges_matches_cc_pattern() {
+    assert_eq!(
+        find_url_ranges("see https://a.example/x done"),
+        vec![(4, 23)],
+        "空白分隔后的 URL 起点与终点"
+    );
+    assert_eq!(
+        find_url_ranges("(http://a.example/y)"),
+        vec![(1, 19)],
+        "句末右括号不计入链接"
+    );
+    assert_eq!(
+        find_url_ranges("\"https://a.example/z\", next"),
+        vec![(1, 20)],
+        "引号与逗号都不计入链接"
+    );
+    assert!(find_url_ranges("https:// and http:// trailing").is_empty(), "空 URL 不算");
+    assert!(find_url_ranges("ftp://a.example/ 与 example.com").is_empty(), "只认 http(s)");
+    // 区间按**字节**计：CJK 分隔符占 3 字节，第二个 URL 从 24 起
+    assert_eq!(
+        find_url_ranges("https://a.example/1 和 https://b.example/2"),
+        vec![(0, 19), (24, 43)],
+        "同行多个 URL 全部识别"
+    );
+}
+
+/// 工具结果行里的 URL 必须是「链接色 + 下划线」，其余文字保持原色。
+#[test]
+fn test_tool_result_urls_use_link_color_and_underline() {
+    use crate::app::MessageViewModel;
+    let url = "https://github.com/cc-claws/cc-code/actions/runs/39409693912";
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_bash_url".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("gh pr checks 638".to_string()),
+        content: format!("Build (ubuntu-latest) fail 2m30s {url}"),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().bash_border,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+    let lines = render_view_model(&vm, Some(1), 120, false, 0);
+    let spans = &lines[1].spans;
+    let url_span = spans
+        .iter()
+        .find(|span| span.content.as_ref() == url)
+        .unwrap_or_else(|| panic!("应切出独立 URL span: {:?}", rendered_span_dump(&lines[1])));
+    assert_eq!(
+        url_span.style.fg,
+        Some(crate::ui::theme::cur().ide),
+        "URL 应使用链接色（IDE 蓝）"
+    );
+    assert!(
+        url_span
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::UNDERLINED),
+        "URL 应加下划线"
+    );
+    let plain = spans
+        .iter()
+        .find(|span| span.content.starts_with("Build (ubuntu-latest)"))
+        .expect("正文 span 应保留");
+    assert_eq!(
+        plain.style.fg,
+        Some(crate::ui::theme::cur().text_soft),
+        "URL 之外的正文仍是 TEXT_SOFT"
+    );
+}
+
+/// 错误输出的 URL 仍要能看出是链接，但正文保持红色（链接色覆盖前景、下划线叠加）。
+#[test]
+fn test_error_output_url_still_underlined() {
+    use crate::app::MessageViewModel;
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_bash_url_err".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("curl https://a.example".to_string()),
+        content: "[stderr]\nfailed to fetch https://a.example/api\n[Exit code: 1]".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().bash_border,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+    let lines = render_view_model(&vm, Some(1), 120, false, 0);
+    let url_span = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .find(|span| span.content.as_ref() == "https://a.example/api")
+        .unwrap_or_else(|| panic!("错误输出里的 URL 也应切出独立 span"));
+    assert_eq!(url_span.style.fg, Some(crate::ui::theme::cur().ide));
+    assert!(url_span
+        .style
+        .add_modifier
+        .contains(ratatui::style::Modifier::UNDERLINED));
+}
+
+/// `!` 本机命令输出同样识别 URL（用户 `!gh pr checks` 的主要场景）。
+#[test]
+fn test_shell_command_output_urls_are_styled() {
+    use crate::app::MessageViewModel;
+    let mut vm = MessageViewModel::ShellCommand {
+        id: "shell-url".to_string(),
+        command: "gh pr checks 638".to_string(),
+        cwd: ".".to_string(),
+        stdin: Vec::new(),
+        stdout: "Build (macos-latest)\tfail\t3m2s\thttps://github.com/cc-claws/cc-code/actions/runs/1"
+            .to_string(),
+        stderr: String::new(),
+        exit_code: Some(0),
+        collapsed: true,
+        content_hash: 0,
+        started_at: None,
+        moved_to_background: false,
+    };
+    vm.recompute_hash();
+    let lines = render_view_model(&vm, None, 120, false, 0);
+    let url_span = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .find(|span| span.content.as_ref() == "https://github.com/cc-claws/cc-code/actions/runs/1")
+        .unwrap_or_else(|| panic!("`!` 命令输出里的 URL 也应切出独立 span"));
+    assert_eq!(url_span.style.fg, Some(crate::ui::theme::cur().ide));
+    assert!(url_span
+        .style
+        .add_modifier
+        .contains(ratatui::style::Modifier::UNDERLINED));
+}
+
+fn rendered_span_dump(line: &Line<'static>) -> Vec<(String, Option<ratatui::style::Color>)> {
+    line.spans
+        .iter()
+        .map(|span| (span.content.to_string(), span.style.fg))
+        .collect()
+}
