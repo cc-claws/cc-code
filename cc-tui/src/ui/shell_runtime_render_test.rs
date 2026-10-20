@@ -12,6 +12,13 @@ fn make_task() -> RenderTask {
         show_tool_messages: false,
         diff_visible: false,
         detail_mode: false,
+        alt_lines: Vec::new(),
+        alt_links: Vec::new(),
+        alt_keys: Vec::new(),
+        alt_epochs: Vec::new(),
+        line_epochs: Vec::new(),
+        epoch_seq: 0,
+        wrap_segs: [Vec::new(), Vec::new()],
     }
 }
 
