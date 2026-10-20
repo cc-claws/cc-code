@@ -127,16 +127,8 @@ impl App {
             .clear();
 
         // 将保留的消息渲染为 VMs，追加 rewind 通知
-        let cwd = self.services.cwd.clone();
-        let mut view_msgs =
-            super::message_pipeline::MessagePipeline::messages_to_view_models(&messages, &cwd);
         let label = format!("↩ {summary}");
-        view_msgs.push(MessageViewModel::system(label));
-        self.session_mgr.current_mut().messages.round_start_vm_idx = 0;
-        self.apply_pipeline_action(PipelineAction::RebuildAll {
-            prefix_len: 0,
-            tail_vms: view_msgs,
-        });
+        self.rebuild_vms_from_all(&messages, Some(MessageViewModel::system(label)));
 
         (true, false, false)
     }

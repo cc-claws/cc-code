@@ -1,4 +1,4 @@
-use super::{message_pipeline::PipelineAction, *};
+use super::*;
 
 impl App {
     /// 打开 /theme 面板
@@ -64,14 +64,7 @@ impl App {
                 .pipeline
                 .completed_messages()
                 .to_vec();
-            let cwd = self.services.cwd.clone();
-            let view_msgs =
-                super::message_pipeline::MessagePipeline::messages_to_view_models(&messages, &cwd);
-            self.session_mgr.current_mut().messages.round_start_vm_idx = 0;
-            self.apply_pipeline_action(PipelineAction::RebuildAll {
-                prefix_len: 0,
-                tail_vms: view_msgs,
-            });
+            self.rebuild_vms_from_all(&messages, None);
         }
     }
 }

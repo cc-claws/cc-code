@@ -195,6 +195,43 @@ fn has_blank_line_between(prev_top_start: Option<usize>, current_start: usize, i
     }
 }
 
+/// 块间空行判定状态机。
+///
+/// 每个块级事件到来时调用 [`take`](Self::take)（水平线用 [`take_rule`](Self::take_rule)），
+/// 返回「该块前是否要留空行」。规则集中在这里，新增块类型只需在解析循环里
+/// 调一次，不必再复制 `last_start` / `last_was_rule` 的状态维护。
+struct BlockGap {
+    /// 上一个块的起始字节偏移
+    last_start: Option<usize>,
+    /// 上一个块是否为水平线：CC 的 hr tokenizer 吞掉后续换行，hr 之后恒无空行
+    last_was_rule: bool,
+}
+
+impl BlockGap {
+    fn new() -> Self {
+        Self {
+            last_start: None,
+            last_was_rule: false,
+        }
+    }
+
+    /// 记录一个普通块的起点，返回它与上一块之间是否有源文本空行
+    fn take(&mut self, start: usize, input: &str) -> bool {
+        let blank = !self.last_was_rule && has_blank_line_between(self.last_start, start, input);
+        self.last_start = Some(start);
+        self.last_was_rule = false;
+        blank
+    }
+
+    /// 记录一个水平线块。hr 前按源文本留空，且不抑制自身前置判定
+    fn take_rule(&mut self, start: usize, input: &str) -> bool {
+        let blank = has_blank_line_between(self.last_start, start, input);
+        self.last_start = Some(start);
+        self.last_was_rule = true;
+        blank
+    }
+}
+
 /// 解析 markdown 文本，同时保留超链接命中区（供点击打开浏览器）
 pub fn parse_markdown_with_links(
     input: &str,
@@ -221,24 +258,15 @@ pub fn parse_markdown_with_links(
     let mut state = RenderState::new(theme).with_max_width(max_width);
     // 列表嵌套深度：列表项内部的块不参与「块间空行」判定（对齐 CC 的 loose list）
     let mut list_depth = 0usize;
-    // 上一个块的起始字节偏移（引用块内部的块同样参与判定）
-    let mut last_top_start: Option<usize> = None;
-    // 上一个块是否为水平线：CC 的 hr tokenizer 吞掉后续换行，hr 之后恒无空行
-    let mut last_was_rule = false;
+    let mut gap = BlockGap::new();
     for (event, range) in parser {
         match &event {
             Event::Rule => {
-                state.set_pending_blank(has_blank_line_between(last_top_start, range.start, input));
-                last_top_start = Some(range.start);
-                last_was_rule = true;
+                state.set_pending_blank(gap.take_rule(range.start, input));
             }
             Event::Start(Tag::List(_)) => {
                 if list_depth == 0 {
-                    state.set_pending_blank(
-                        !last_was_rule && has_blank_line_between(last_top_start, range.start, input),
-                    );
-                    last_top_start = Some(range.start);
-                    last_was_rule = false;
+                    state.set_pending_blank(gap.take(range.start, input));
                 }
                 list_depth += 1;
             }
@@ -246,11 +274,7 @@ pub fn parse_markdown_with_links(
                 list_depth = list_depth.saturating_sub(1);
             }
             Event::Start(Tag::BlockQuote(_)) => {
-                state.set_pending_blank(
-                    !last_was_rule && has_blank_line_between(last_top_start, range.start, input),
-                );
-                last_top_start = Some(range.start);
-                last_was_rule = false;
+                state.set_pending_blank(gap.take(range.start, input));
             }
             Event::Start(Tag::Paragraph)
             | Event::Start(Tag::Heading { .. })
@@ -258,11 +282,7 @@ pub fn parse_markdown_with_links(
             | Event::Start(Tag::Table(_))
                 if list_depth == 0 =>
             {
-                state.set_pending_blank(
-                    !last_was_rule && has_blank_line_between(last_top_start, range.start, input),
-                );
-                last_top_start = Some(range.start);
-                last_was_rule = false;
+                state.set_pending_blank(gap.take(range.start, input));
             }
             _ => {}
         }

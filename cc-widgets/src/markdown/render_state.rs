@@ -550,6 +550,16 @@ impl<'a> RenderState<'a> {
         }
     }
 
+    /// 块级元素开始：消费源文本空行标记并按需插入空行。
+    ///
+    /// 调用点必须是「列表/表格之外」的块起点；列表、引用块、表格在自增
+    /// 自身状态**之前**调用同名判定（见 [`take_pending_blank_at_top_level`]）。
+    fn begin_block(&mut self) {
+        if self.take_pending_blank_at_top_level() {
+            self.ensure_blank_line();
+        }
+    }
+
     pub fn flush_line(&mut self) {
         let mut spans = std::mem::take(&mut self.current_spans);
 
@@ -787,9 +797,7 @@ impl<'a> RenderState<'a> {
                     self.flush_line();
                 }
                 // 对齐 CC：标题前是否留空行取决于源文本（CC 的 space token）
-                if self.take_pending_blank_at_top_level() {
-                    self.ensure_blank_line();
-                }
+                self.begin_block();
             }
             Event::End(TagEnd::Heading(_)) => {
                 self.inline_style = Style::default();
@@ -801,9 +809,7 @@ impl<'a> RenderState<'a> {
             // ── 段落 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Paragraph) => {
                 // 段落前空行只来自源文本
-                if self.take_pending_blank_at_top_level() {
-                    self.ensure_blank_line();
-                }
+                self.begin_block();
             }
             Event::End(TagEnd::Paragraph) => {
                 // 对齐 CC：段落本身只结束当前行，块间空行由下一个块按源文本补
@@ -817,9 +823,7 @@ impl<'a> RenderState<'a> {
                     self.flush_line();
                 }
                 // 代码块前的空行只来自源文本
-                if self.take_pending_blank_at_top_level() {
-                    self.ensure_blank_line();
-                }
+                self.begin_block();
                 self.in_code_block = true;
                 self.code_block_lang = match kind {
                     CodeBlockKind::Fenced(lang) => lang.into_string(),
@@ -945,9 +949,7 @@ impl<'a> RenderState<'a> {
             // ── 水平线 ────────────────────────────────────────────────────────
             Event::Rule => {
                 // hr 前的空行来自源文本（CC 的 space token）
-                if self.take_pending_blank_at_top_level() {
-                    self.ensure_blank_line();
-                }
+                self.begin_block();
                 // 水平线按可用宽度铺满（此前硬编码 60：宽终端下只占一半、窄终端下溢出被裁）。
                 let width = if self.max_width > 0 {
                     self.max_width
@@ -1039,9 +1041,7 @@ impl<'a> RenderState<'a> {
             // ── 表格 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Table(alignments)) => {
                 // 表格前的空行只来自源文本（table 尚未建立，可判断顶层）
-                if self.take_pending_blank_at_top_level() {
-                    self.ensure_blank_line();
-                }
+                self.begin_block();
                 self.table = Some(TableBuilder::new(alignments));
             }
             Event::End(TagEnd::Table) => {

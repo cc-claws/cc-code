@@ -58,11 +58,45 @@ pub fn format_tool_name_with_input(tool: &str, input: Option<&serde_json::Value>
 
 // ── DiffInput 构造 ──────────────────────────────────────────────────────────
 
+/// 按条目数淘汰的进程内缓存：满了整体清空。
+///
+/// 服务于「流式渲染每帧重建 VM」这类高频短暂缓存——命中率不是关键，
+/// 避免无上限增长才是。两个使用方（Edit 全文 diff、Write 旧内容）共用同一套淘汰策略。
+struct CapacityCache<K, V> {
+    inner: Mutex<HashMap<K, V>>,
+    capacity: usize,
+}
+
+impl<K: std::hash::Hash + Eq, V: Clone> CapacityCache<K, V> {
+    fn new(capacity: usize) -> Self {
+        Self {
+            inner: Mutex::new(HashMap::new()),
+            capacity,
+        }
+    }
+
+    fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: std::hash::Hash + Eq + ?Sized,
+    {
+        self.inner.lock().ok()?.get(key).cloned()
+    }
+
+    fn insert(&self, key: K, value: V) {
+        if let Ok(mut map) = self.inner.lock() {
+            if map.len() >= self.capacity {
+                map.clear();
+            }
+            map.insert(key, value);
+        }
+    }
+}
+
 /// Edit diff 缓存：key 含文件 mtime + 长度，磁盘内容再变化时自动失效。
 /// 流式渲染每 16ms 重建一次 VM，避免重复读盘 + 重建全文。
-static EDIT_DIFF_CACHE: std::sync::LazyLock<Mutex<HashMap<String, cc_widgets::DiffInput>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-const EDIT_DIFF_CACHE_CAPACITY: usize = 128;
+static EDIT_DIFF_CACHE: std::sync::LazyLock<CapacityCache<String, cc_widgets::DiffInput>> =
+    std::sync::LazyLock::new(|| CapacityCache::new(128));
 
 /// 单个文件超过此大小不做全文 diff：cc-widgets 以 `old.len() + new.len()` 对比
 /// `MAX_DIFF_SIZE_BYTES`（1 MB），全文 diff 会同时携带新旧两份内容，故取一半。
@@ -74,9 +108,8 @@ const FULL_FILE_DIFF_MAX_BYTES: u64 = 500_000;
 /// Write 是整文件覆盖，执行后磁盘上只剩新内容，无法像 Edit 那样反推，
 /// 因此必须在 ToolStart（执行前）抓取。值 `None` 表示文件不存在 / 不可读 /
 /// 超过 [`FULL_FILE_DIFF_MAX_BYTES`]，此时按 create 视图渲染。
-static WRITE_OLD_CONTENT: std::sync::LazyLock<Mutex<HashMap<String, Option<String>>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-const WRITE_OLD_CONTENT_CAPACITY: usize = 128;
+static WRITE_OLD_CONTENT: std::sync::LazyLock<CapacityCache<String, Option<String>>> =
+    std::sync::LazyLock::new(|| CapacityCache::new(128));
 
 /// ToolStart 时调用：记录 Write 目标文件在执行前的旧内容。
 ///
@@ -106,20 +139,12 @@ pub fn cache_write_old_content(
         Ok(meta) if meta.len() <= FULL_FILE_DIFF_MAX_BYTES => std::fs::read_to_string(&path).ok(),
         _ => None,
     };
-    if let Ok(mut cache) = WRITE_OLD_CONTENT.lock() {
-        if cache.len() >= WRITE_OLD_CONTENT_CAPACITY {
-            cache.clear();
-        }
-        cache.insert(tool_call_id.to_string(), old);
-    }
+    WRITE_OLD_CONTENT.insert(tool_call_id.to_string(), old);
 }
 
 /// 取出 Write 执行前的旧内容。外层 `None` = 未记录过（历史回放等），按 create 视图处理。
 fn write_old_content(tool_call_id: &str) -> Option<Option<String>> {
-    WRITE_OLD_CONTENT
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(tool_call_id).cloned())
+    WRITE_OLD_CONTENT.get(tool_call_id)
 }
 
 /// 从工具名与入参构造 DiffInput（仅成功的 Write/Edit）。
@@ -260,10 +285,8 @@ fn edit_full_file_diff(
         meta.len(),
         stamp
     );
-    if let Ok(cache) = EDIT_DIFF_CACHE.lock() {
-        if let Some(hit) = cache.get(&key) {
-            return Some(hit.clone());
-        }
+    if let Some(hit) = EDIT_DIFF_CACHE.get(&key) {
+        return Some(hit);
     }
 
     let new_full = std::fs::read_to_string(&path).ok()?;
@@ -283,12 +306,7 @@ fn edit_full_file_diff(
         is_deleted_file: false,
         is_binary: false,
     };
-    if let Ok(mut cache) = EDIT_DIFF_CACHE.lock() {
-        if cache.len() >= EDIT_DIFF_CACHE_CAPACITY {
-            cache.clear();
-        }
-        cache.insert(key, di.clone());
-    }
+    EDIT_DIFF_CACHE.insert(key, di.clone());
     Some(di)
 }
 
