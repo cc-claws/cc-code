@@ -45,7 +45,7 @@ TUI tick 事件
 | API 风格 | ratatui StatefulWidget trait 原生风格 |
 | 泛型设计 | ListState<T> 不要求 T: Clone；FormState<F> 泛型管理字段导航 |
 | 主题抽象 | Theme trait 查询颜色，组件不硬编码 |
-| 代码高亮 | syntect default-fancy，feature-gated |
+| 代码高亮 | syntect default-onig，feature-gated |
 | diff 着色 | highlight_diff_line 实现添加/删除/hunk 行颜色区分 |
 
 ### Markdown 缓存内存诊断
@@ -63,6 +63,25 @@ TUI tick 事件
 静态借用字符串不计入；不包含 LRU 节点、哈希表及分配器开销。
 `/gc` 显示总量、平均/最大条目与预算，并输出原始字节字段到 tracing 日志。
 该估算纳入已知内存合计，但不等于 RSS，也不能据此判断其余内存是否泄漏。
+
+### Markdown 块级渲染规则（对齐 CC，2026-10-20）
+
+`cc-widgets/src/markdown/` 以 CC `src/utils/markdown.ts` 的 `formatToken` 为基准：
+
+- **块间空行只来自源文本**：解析侧 `BlockGap` 用 `into_offset_iter()` 的字节偏移判断相邻块之间是否有空行（扫描时跳过 `>` 引用前缀），渲染侧 `RenderState::begin_block()` 据此插空行。块级元素不再无条件补空行。
+- **软换行保留换行**：`SoftBreak` 触发 `flush_line()`——CC 的 text token 含 `\n` 且原样输出，合并成空格会让多行段落塌成一行。
+- **引用块内段落**：`> 第一段\n>\n> 第二段` 会渲染出一个无 `▍` 前缀的空行。
+- **水平线**：hr 前按源文本留空，hr 后不留空行（CC 的 hr tokenizer 吞掉后续换行；`BlockGap` 用 `last_was_rule` 抑制下一块的判定）。
+- **loose list 项间不插空行**：列表项/表格内部的块不消费空行标记。
+- 已知有意差异：列表符号 `•` vs CC `-`、引用前缀 `▍` vs `│`、表格 box drawing vs `| a | b |`、图片显示 alt vs URL、三级嵌套缩进每层固定 2 空格 vs CC 累加。
+
+回归测试：`mod_test.rs` 的 `test_markdown_structure_matches_cc`（23 个语法样本逐行对拍 CC）及
+`test_table_spacing_matches_cc` / `test_hr_spacing_matches_cc` / `test_nested_list_items_are_on_separate_lines`
+/ `test_loose_list_has_no_blank_line_between_items`。
+
+diff 视图侧（`cc-widgets/src/diff/renderer.rs`）同口径对齐：超宽行按显示宽度折行
+（`wrap_spans` + `GutterLayout`，线性复杂度）、新建文件预览带行号 gutter、Word diff 按
+`min(delCount, addCount)` 配对。
 
 ## Feature 附录
 
@@ -115,4 +134,4 @@ TUI tick 事件
 - → [tui.md](./tui.md) — TUI 集成使用 cc-widgets 组件
 - → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成
 
-最后更新：2026-10-18
+最后更新：2026-10-20
