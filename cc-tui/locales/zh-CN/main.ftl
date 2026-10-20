@@ -472,6 +472,7 @@ queue-sending = 插入中…
 queue-attachments = { $count } 张图片
 queue-unavailable = 当前执行暂不支持补充，消息仍保留在队列中。
 queue-steer-failed = 本轮未接收补充信息，消息已保留，将按队列顺序发送。
+queue-steer-backgrounded = 前台命令已转入后台，补充信息将立即生效
 
 # ---- 后台 shell 通知（展示文本） ----
 shell-notify-failed = 后台 shell 失败

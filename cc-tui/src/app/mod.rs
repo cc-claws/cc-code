@@ -40,7 +40,7 @@ mod session_manager;
 pub use session_manager::SessionManager;
 
 mod ui_state;
-pub use ui_state::{MessageScrollbarMetrics, PastedTextBlock, UiState};
+pub use ui_state::{MessageScrollbarMetrics, PastedTextBlock, SteerForegroundGrace, UiState};
 
 pub(crate) mod at_mention;
 pub use at_mention::AtMentionState;

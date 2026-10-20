@@ -620,7 +620,10 @@ async fn test_subagent_input_box_keeps_identity_during_drawer_nav() {
     };
 
     let before = render(&mut app, &mut handle);
-    assert!(before.contains("[ check weather ]"), "子视口应显示任务标签：\n{before}");
+    assert!(
+        before.contains("[ check weather ]"),
+        "子视口应显示任务标签：\n{before}"
+    );
     assert!(
         before.contains("Message @general-purpose"),
         "子视口应显示定向发话占位符：\n{before}"
@@ -1240,4 +1243,28 @@ async fn test_input_box_skips_slash_coloring_in_shell_mode() {
         theme::cur().text,
         "shell 命令态下的 `/etc` 应按普通文本着色"
     );
+}
+
+/// 权限模式 pill 必须带 CC 的 `⏵⏵` 符号（`PermissionMode.ts` 里 auto 与
+/// bypassPermissions 两档的 `symbol`），只有文字会让人以为是普通标签。
+#[tokio::test]
+async fn test_status_bar_permission_pill_has_bypass_symbol() {
+    use cc_middlewares::prelude::PermissionMode;
+
+    let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
+    for (mode, label) in [
+        (PermissionMode::AutoMode, "Auto Mode"),
+        (PermissionMode::Bypass, "Bypass"),
+    ] {
+        app.services.permission_mode.store(mode);
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot().join("\n");
+        assert!(
+            snap.contains(&format!("\u{23f5}\u{23f5} {label}")),
+            "{label} 档位应带 ⏵⏵ 符号：\n{snap}"
+        );
+    }
 }

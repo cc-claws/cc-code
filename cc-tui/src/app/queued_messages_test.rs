@@ -380,3 +380,107 @@ async fn test_queued_message_busy_paste_key_is_not_inserted_as_literal() {
     );
     assert!(app.session_mgr.current().ui.loading);
 }
+
+/// 前台命令卡住本轮时点「立即补充」：先登记 2s 宽限期，不立刻甩后台。
+///
+/// 短命令（1s 级）会自己跑完、本轮随即收口，白扔后台只会让输出莫名其妙挪走；
+/// 只有超过宽限期还在跑才移交后台（等价替用户按 Ctrl+B）。
+#[tokio::test]
+async fn test_steer_arms_grace_then_backgrounds_stuck_shell() {
+    use crate::app::{AgentShellRegistration, AgentShellSlot};
+    use cc_acp::transport::{mpsc::mpsc_transport_pair, types::IncomingMessage, AcpTransport};
+    use cc_agent::shell::{ExitSignal, ShellAbortHandle, ShellHandoff};
+    use serde_json::json;
+    use std::sync::Arc;
+
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let (transport, server) = mpsc_transport_pair();
+    let (client, _notifications) = crate::acp_client::AcpTuiClient::new(transport);
+    let server_handshake = async {
+        let Some(IncomingMessage::Request { id, .. }) = server.recv().await else {
+            panic!("应收到创建会话请求");
+        };
+        assert!(server
+            .send_response(id, Ok(json!({ "sessionId": "steer-grace-test" })))
+            .await
+            .is_ok());
+    };
+    let (session, ()) = tokio::join!(client.new_session(".", None), server_handshake);
+    assert!(session.is_ok());
+    app.acp_client = Some(client);
+    app.session_mgr.current_mut().ui.loading = true;
+
+    // 一条正在前台阻塞的 agent shell（模拟 `sleep 590`）
+    let slot = AgentShellSlot::from_registration(AgentShellRegistration {
+        task_id: "fg-sleep".to_string(),
+        owner_session_id: None,
+        tool_call_id: Some("call-1".into()),
+        source_agent_id: None,
+        execution_timeout_ms: 600_000,
+        timeout_ms: 300_000,
+        command: "sleep 590".to_string(),
+        cwd: ".".to_string(),
+        output_path: std::path::PathBuf::from("unused.output"),
+        exit_signal: Arc::new(ExitSignal::new()),
+        handoff: Arc::new(ShellHandoff::new(true, false)),
+        kill: ShellAbortHandle::noop(),
+        started_instant: std::time::Instant::now(),
+        direct_background: false,
+    });
+    assert!(slot.is_foreground_running(), "用例前提：命令在前台运行中");
+    app.session_mgr.current_mut().agent_shells.push(slot);
+    app.session_mgr
+        .current_mut()
+        .messages
+        .pending_messages
+        .push(QueuedMessage::new("补充：改查随州".into(), Vec::new()));
+
+    app.steer_first_queued_message();
+
+    assert!(
+        app.session_mgr.current().agent_shells[0].is_foreground_running(),
+        "刚点「立即补充」不得立刻把命令甩到后台，先给短命令自行结束的机会"
+    );
+    assert!(
+        app.session_mgr
+            .current()
+            .ui
+            .steer_foreground_grace
+            .is_some(),
+        "应登记宽限期"
+    );
+
+    // steering 请求照常发出，不被宽限期影响
+    let Some(IncomingMessage::Request { id, method, .. }) = server.recv().await else {
+        panic!("应收到补充请求");
+    };
+    assert_eq!(method, "peri/session/steer");
+    assert!(server
+        .send_response(id, Ok(json!({ "consumed": true })))
+        .await
+        .is_ok());
+
+    // 宽限期内（刚登记）不该动手
+    assert!(!app.poll_steer_foreground_grace(), "宽限期内不得移交后台");
+
+    // 模拟 3 秒后命令仍在跑 → 移交后台，进程不中断
+    app.session_mgr
+        .current_mut()
+        .ui
+        .steer_foreground_grace
+        .as_mut()
+        .expect("宽限期仍在")
+        .started_at = std::time::Instant::now() - std::time::Duration::from_secs(3);
+    assert!(app.poll_steer_foreground_grace());
+    let slot = &app.session_mgr.current().agent_shells[0];
+    assert!(slot.is_backgrounded(), "超时仍在前台应移交后台");
+    assert!(!slot.ended, "移交后台不中断进程");
+    assert!(
+        app.session_mgr
+            .current()
+            .ui
+            .steer_foreground_grace
+            .is_none(),
+        "移交后应撤销登记，避免重复处理"
+    );
+}

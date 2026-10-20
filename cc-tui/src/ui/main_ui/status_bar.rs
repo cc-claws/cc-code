@@ -119,6 +119,8 @@ impl SbColors {
     }
 }
 
+/// 跳过/自动放行档的权限模式符号（对齐 CC `PermissionMode.ts` 的 `symbol`）。
+const PERMISSION_MODE_SYMBOL: &str = "\u{23f5}\u{23f5}";
 const CONTEXT_WARNING_PCT: f64 = 70.0;
 const CONTEXT_CRITICAL_PCT: f64 = 85.0;
 const TOOLS_MAX_VISIBLE: usize = 4;
@@ -548,6 +550,8 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             PermissionMode::Bypass => ("statusbar-permission-bypass", colors.error),
         };
         let label = lc.tr(i18n_key);
+        // 符号对齐 CC `PermissionMode.ts`：`auto` 与 `bypassPermissions` 两档都带
+        // `⏵⏵` 前缀（CC 文案是 `⏵⏵ bypass on`），这里保留 peri 既有的英文档名。
         let is_highlight = app
             .global_ui
             .mode_highlight_until
@@ -556,7 +560,10 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         if is_highlight {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
-        left_spans.push(Span::styled(format!("{SB_INDENT}{label} "), style));
+        left_spans.push(Span::styled(
+            format!("{SB_INDENT}{PERMISSION_MODE_SYMBOL} {label} "),
+            style,
+        ));
         if !matches!(
             &app.session_mgr.current().agent.interaction_prompt,
             Some(crate::app::InteractionPrompt::Approval(_))

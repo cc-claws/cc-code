@@ -490,7 +490,10 @@ async fn test_poll_agent_shells_injects_notification_only_after_backgrounded_she
     );
 }
 
-fn make_pending_notif(owner: Option<&str>, content: &str) -> crate::app::PendingBgShellNotification {
+fn make_pending_notif(
+    owner: Option<&str>,
+    content: &str,
+) -> crate::app::PendingBgShellNotification {
     crate::app::PendingBgShellNotification {
         owner_session_id: owner.map(ToString::to_string),
         content: content.to_string(),
@@ -525,7 +528,11 @@ async fn test_inject_bg_shell_notifications_merges_batch_when_idle() {
     ]);
 
     let bubbles = injected_bubble_texts(&app);
-    assert_eq!(bubbles.len(), before + 1, "多条通知应合并为 1 条消息（1 轮 turn）");
+    assert_eq!(
+        bubbles.len(),
+        before + 1,
+        "多条通知应合并为 1 条消息（1 轮 turn）"
+    );
     let merged = bubbles.last().expect("应注入合并消息");
     assert!(
         merged.contains("[notif-t1]") && merged.contains("[notif-t2]"),
@@ -558,9 +565,7 @@ async fn test_inject_bg_shell_notifications_drains_queued_same_owner_when_idle()
     // 空闲态注入新通知：应把队列里排队的两条一并 drain 合并
     app.inject_bg_shell_notifications(vec![make_pending_notif(None, "[new]")]);
 
-    let merged = injected_bubble_texts(&app)
-        .pop()
-        .expect("应注入合并消息");
+    let merged = injected_bubble_texts(&app).pop().expect("应注入合并消息");
     for token in ["[queued-1]", "[queued-2]", "[new]"] {
         assert!(merged.contains(token), "合并消息应包含 {token}: {merged}");
     }
@@ -603,7 +608,10 @@ async fn test_handle_done_drains_all_pending_bg_notifications_into_one_turn() {
         app.session_mgr
             .current_mut()
             .pending_bg_shell_notifications
-            .push_back(make_pending_notif(Some("owner-a"), &format!("[notif-{id}]")));
+            .push_back(make_pending_notif(
+                Some("owner-a"),
+                &format!("[notif-{id}]"),
+            ));
     }
 
     app.handle_agent_event(crate::app::AgentEvent::Done);
@@ -870,4 +878,67 @@ fn test_shell_context_messages_redacts_secrets() {
         "stderr 中的 password 应脱敏: {out}"
     );
     assert!(out.contains("正常输出"), "非敏感内容应保留: {out}");
+}
+
+/// 短命令在宽限期内自己跑完：撤销登记，什么都不做（不后台化）。
+#[tokio::test]
+async fn test_steer_grace_cancelled_when_shell_finishes_in_time() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    let (slot, _) = make_agent_shell_slot(false, "git status");
+    app.session_mgr.current_mut().agent_shells.push(slot);
+    app.arm_steer_foreground_grace();
+    assert!(
+        app.session_mgr
+            .current()
+            .ui
+            .steer_foreground_grace
+            .is_some(),
+        "有前台命令时应登记宽限期"
+    );
+    // 命令在宽限期内结束（1s 级短命令的典型结局）
+    app.session_mgr.current_mut().agent_shells[0]
+        .handoff
+        .settle_foreground();
+    assert!(
+        !app.poll_steer_foreground_grace(),
+        "命令已结束，不得移交后台"
+    );
+    assert!(
+        app.session_mgr
+            .current()
+            .ui
+            .steer_foreground_grace
+            .is_none(),
+        "命令结束后应撤销登记"
+    );
+    assert!(
+        !app.session_mgr.current().agent_shells[0].is_backgrounded(),
+        "短命令不应被丢进后台"
+    );
+}
+
+/// 多条前台命令并行：不自动挑一条（Ctrl+B 也要求用户自己选）。
+#[tokio::test]
+async fn test_steer_grace_ignores_multiple_foreground_shells() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    for command in ["sleep 590", "cargo build"] {
+        let (slot, _) = make_agent_shell_slot(false, command);
+        app.session_mgr.current_mut().agent_shells.push(slot);
+    }
+    app.arm_steer_foreground_grace();
+    assert!(
+        app.session_mgr
+            .current()
+            .ui
+            .steer_foreground_grace
+            .is_none(),
+        "多条前台并行时不登记宽限期"
+    );
+    assert!(!app.poll_steer_foreground_grace());
+    assert!(app
+        .session_mgr
+        .current()
+        .agent_shells
+        .iter()
+        .all(|slot| !slot.is_backgrounded()));
 }
