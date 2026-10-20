@@ -33,6 +33,10 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     if !first_line.starts_with('/') {
         return;
     }
+    // 与 `App::build_hint_items` 同一口径：Esc 关掉后文本不变就不再弹。
+    if app.session_mgr.current().ui.hint_dismissed_for.as_deref() == Some(first_line) {
+        return;
+    }
 
     let prefix = first_line.trim_start_matches('/');
     let cmd_candidates: Vec<(String, String)> = app

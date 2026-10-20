@@ -15,6 +15,18 @@ pub struct MessageScrollbarMetrics {
     pub down_btn_area: Option<ratatui::layout::Rect>,
 }
 
+/// 「立即补充」后给前台命令的宽限期登记。
+///
+/// 点「立即补充」时若有一条 Bash 正在前台跑，不立刻把它扔后台：1s 级短命令会自己
+/// 结束、本轮马上收口，白扔后台只会让输出莫名其妙挪走。宽限期内仍在前台跑才移交。
+#[derive(Clone, Debug)]
+pub struct SteerForegroundGrace {
+    /// 前台 agent shell 的稳定 `task_id`。
+    pub task_id: String,
+    /// 登记时刻。
+    pub started_at: std::time::Instant,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PastedTextBlock {
     pub placeholder: String,
@@ -29,6 +41,9 @@ pub struct UiState {
     pub scroll_follow: bool,
     pub show_tool_messages: bool,
     pub hint_cursor: Option<usize>,
+    /// Esc 关掉候选浮层时记下当时的输入文本，文本不变就不再弹（对齐 CC
+    /// `useTypeahead.tsx` 的 `dismissedForInputRef`）。清空或继续编辑即恢复。
+    pub hint_dismissed_for: Option<String>,
     pub input_history: Vec<String>,
     pub history_index: Option<usize>,
     pub draft_input: Option<String>,
@@ -75,6 +90,8 @@ pub struct UiState {
     pub bg_bar_cursor: Option<usize>,
     /// 后台任务 status bar 入口是否聚焦（Down 进入，Enter 打开面板）
     pub background_tasks_bar_focused: bool,
+    /// 「立即补充」等待前台命令自行结束的宽限期（见 [`SteerForegroundGrace`]）
+    pub steer_foreground_grace: Option<SteerForegroundGrace>,
     /// 后台 Agent Bar 渲染区域（用于鼠标点击检测）
     pub bg_bar_area: Option<ratatui::layout::Rect>,
     /// Write/Edit 工具结果内联 diff 是否可见
@@ -119,6 +136,7 @@ impl UiState {
             scroll_follow: true,
             show_tool_messages: false,
             hint_cursor: None,
+            hint_dismissed_for: None,
             input_history,
             history_index: None,
             draft_input: None,
@@ -150,6 +168,7 @@ impl UiState {
             at_mention: AtMentionState::new(),
             bg_bar_cursor: None,
             background_tasks_bar_focused: false,
+            steer_foreground_grace: None,
             bg_bar_area: None,
             diff_visible: diff_enabled,
             detail_mode: detail_enabled,
