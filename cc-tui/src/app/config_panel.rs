@@ -19,13 +19,14 @@ pub const ROW_THRESHOLD: usize = 2;
 pub const ROW_RECAP: usize = 3;
 pub const ROW_LANGUAGE: usize = 4;
 pub const ROW_DIFF: usize = 5;
-pub const ROW_STREAMING: usize = 6;
-pub const ROW_PROACTIVENESS: usize = 7;
-pub const ROW_SEPARATOR: usize = 8;
-pub const ROW_OVERRIDES_HEADER: usize = 9;
-pub const ROW_PERSONA: usize = 10;
-pub const ROW_TONE: usize = 11;
-pub const ROW_COUNT: usize = 12;
+pub const ROW_DETAIL_RENDER_STRATEGY: usize = 6;
+pub const ROW_STREAMING: usize = 7;
+pub const ROW_PROACTIVENESS: usize = 8;
+pub const ROW_SEPARATOR: usize = 9;
+pub const ROW_OVERRIDES_HEADER: usize = 10;
+pub const ROW_PERSONA: usize = 11;
+pub const ROW_TONE: usize = 12;
+pub const ROW_COUNT: usize = 13;
 
 fn next_editable_row(current: usize, reverse: bool) -> usize {
     let editable: &[usize] = &[
@@ -34,6 +35,7 @@ fn next_editable_row(current: usize, reverse: bool) -> usize {
         ROW_RECAP,
         ROW_LANGUAGE,
         ROW_DIFF,
+        ROW_DETAIL_RENDER_STRATEGY,
         ROW_STREAMING,
         ROW_PROACTIVENESS,
         ROW_PERSONA,
@@ -62,27 +64,29 @@ fn is_text_row(row: usize) -> bool {
 /// 屏幕行号 → 逻辑行号。
 /// 渲染时每个可编辑字段占 2 行（值行 + 描述行），非编辑行占 1 行。
 const SCREEN_LAYOUT: &[usize] = &[
-    ROW_GENERAL_HEADER,   // screen 0
-    ROW_AUTOCOMPACT,      // screen 1: value
-    ROW_AUTOCOMPACT,      // screen 2: desc
-    ROW_THRESHOLD,        // screen 3: value
-    ROW_THRESHOLD,        // screen 4: desc
-    ROW_RECAP,            // screen 5: value
-    ROW_RECAP,            // screen 6: desc
-    ROW_LANGUAGE,         // screen 7: value
-    ROW_LANGUAGE,         // screen 8: desc
-    ROW_DIFF,             // screen 9: value
-    ROW_DIFF,             // screen 10: desc
-    ROW_STREAMING,        // screen 11: value
-    ROW_STREAMING,        // screen 12: desc
-    ROW_PROACTIVENESS,    // screen 13: value
-    ROW_PROACTIVENESS,    // screen 14: desc
-    ROW_SEPARATOR,        // screen 15
-    ROW_OVERRIDES_HEADER, // screen 16
-    ROW_PERSONA,          // screen 17: value
-    ROW_PERSONA,          // screen 18: desc
-    ROW_TONE,             // screen 19: value
-    ROW_TONE,             // screen 20: desc
+    ROW_GENERAL_HEADER,         // screen 0
+    ROW_AUTOCOMPACT,            // screen 1: value
+    ROW_AUTOCOMPACT,            // screen 2: desc
+    ROW_THRESHOLD,              // screen 3: value
+    ROW_THRESHOLD,              // screen 4: desc
+    ROW_RECAP,                  // screen 5: value
+    ROW_RECAP,                  // screen 6: desc
+    ROW_LANGUAGE,               // screen 7: value
+    ROW_LANGUAGE,               // screen 8: desc
+    ROW_DIFF,                   // screen 9: value
+    ROW_DIFF,                   // screen 10: desc
+    ROW_DETAIL_RENDER_STRATEGY, // screen 11: value
+    ROW_DETAIL_RENDER_STRATEGY, // screen 12: desc
+    ROW_STREAMING,              // screen 13: value
+    ROW_STREAMING,              // screen 14: desc
+    ROW_PROACTIVENESS,          // screen 15: value
+    ROW_PROACTIVENESS,          // screen 16: desc
+    ROW_SEPARATOR,              // screen 17
+    ROW_OVERRIDES_HEADER,       // screen 18
+    ROW_PERSONA,                // screen 19: value
+    ROW_PERSONA,                // screen 20: desc
+    ROW_TONE,                   // screen 21: value
+    ROW_TONE,                   // screen 22: desc
 ];
 
 fn screen_to_logical_row(screen_line: usize) -> Option<usize> {
@@ -93,6 +97,7 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
     let Some(cfg) = ctx.services.peri_config.as_mut() else {
         return;
     };
+    let previous_strategy = cfg.config.detail_render_strategy.clone();
     if panel.apply_edit(cfg, &ctx.services.lc).is_ok() {
         if let Some(ref lang) = cfg.config.language {
             let _ = ctx.services.lc.switch(lang);
@@ -102,6 +107,16 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
         // 新会话里也只有 ui 字段是对的（渲染线程仍是出生时的 false）。
         let want_diff = cfg.config.diff_enabled;
         let session = ctx.session_mgr.current_mut();
+        if previous_strategy != cfg.config.detail_render_strategy {
+            let strategy = cfg
+                .config
+                .detail_render_strategy
+                .clone()
+                .unwrap_or_else(|| "auto".to_owned());
+            let _ = session.messages.render_tx.try_send(
+                crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
+            );
+        }
         if session.ui.diff_visible != want_diff {
             session.ui.diff_visible = want_diff;
             let _ = session
@@ -143,7 +158,8 @@ pub struct ConfigPanel {
     pub cur_tone: usize,
     pub buf_proactiveness: String, // "low" / "medium" / "high"
     pub buf_diff: bool,
-    pub buf_streaming: String, // "streaming" / "block" / "none"
+    pub buf_detail_render_strategy: String, // "auto" / "cache" / "virtual"
+    pub buf_streaming: String,              // "streaming" / "block" / "none"
     /// #319: 上次保存失败时的错误信息，用于 UI 展示
     pub save_error: Option<String>,
 }
@@ -178,6 +194,12 @@ impl ConfigPanel {
             cur_tone: 0,
             buf_proactiveness: proactiveness,
             buf_diff: diff_enabled,
+            buf_detail_render_strategy: match cfg.config.detail_render_strategy.as_deref() {
+                Some("cache") => "cache",
+                Some("virtual") => "virtual",
+                _ => "auto",
+            }
+            .to_owned(),
             buf_streaming: cfg
                 .config
                 .streaming_mode
@@ -189,6 +211,16 @@ impl ConfigPanel {
 
     pub fn cursor_down(&mut self) {
         self.cursor = next_editable_row(self.cursor, false);
+    }
+
+    pub fn cycle_detail_render_strategy(&mut self, reverse: bool) {
+        self.buf_detail_render_strategy = match (self.buf_detail_render_strategy.as_str(), reverse)
+        {
+            ("auto", false) | ("virtual", true) => "cache",
+            ("cache", false) | ("auto", true) => "virtual",
+            _ => "auto",
+        }
+        .to_owned();
     }
 
     pub fn cursor_up(&mut self) {
@@ -359,6 +391,10 @@ impl ConfigPanel {
 
         // diff
         cfg.config.diff_enabled = self.buf_diff;
+        cfg.config.detail_render_strategy = match self.buf_detail_render_strategy.as_str() {
+            "cache" | "virtual" => Some(self.buf_detail_render_strategy.clone()),
+            _ => None,
+        };
 
         // streaming mode
         cfg.config.streaming_mode = if self.buf_streaming == "streaming" {
@@ -465,7 +501,12 @@ impl PanelComponent for ConfigPanel {
                 ..
             } => {
                 match self.cursor {
-                    ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
+                    ROW_AUTOCOMPACT
+                    | ROW_RECAP
+                    | ROW_LANGUAGE
+                    | ROW_PROACTIVENESS
+                    | ROW_DIFF
+                    | ROW_DETAIL_RENDER_STRATEGY
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
@@ -473,6 +514,7 @@ impl PanelComponent for ConfigPanel {
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_DETAIL_RENDER_STRATEGY => self.cycle_detail_render_strategy(false),
                             ROW_STREAMING => self.cycle_streaming(false),
                             _ => {}
                         }
@@ -488,7 +530,12 @@ impl PanelComponent for ConfigPanel {
                 ..
             } => {
                 match self.cursor {
-                    ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
+                    ROW_AUTOCOMPACT
+                    | ROW_RECAP
+                    | ROW_LANGUAGE
+                    | ROW_PROACTIVENESS
+                    | ROW_DIFF
+                    | ROW_DETAIL_RENDER_STRATEGY
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
@@ -496,6 +543,7 @@ impl PanelComponent for ConfigPanel {
                             ROW_LANGUAGE => self.cycle_language(true),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_DETAIL_RENDER_STRATEGY => self.cycle_detail_render_strategy(true),
                             ROW_STREAMING => self.cycle_streaming(true),
                             _ => {}
                         }
@@ -513,7 +561,12 @@ impl PanelComponent for ConfigPanel {
                 ..
             } => {
                 match self.cursor {
-                    ROW_AUTOCOMPACT | ROW_RECAP | ROW_LANGUAGE | ROW_PROACTIVENESS | ROW_DIFF
+                    ROW_AUTOCOMPACT
+                    | ROW_RECAP
+                    | ROW_LANGUAGE
+                    | ROW_PROACTIVENESS
+                    | ROW_DIFF
+                    | ROW_DETAIL_RENDER_STRATEGY
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
@@ -521,6 +574,7 @@ impl PanelComponent for ConfigPanel {
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_DETAIL_RENDER_STRATEGY => self.cycle_detail_render_strategy(false),
                             ROW_STREAMING => self.cycle_streaming(false),
                             _ => {}
                         }
@@ -569,6 +623,7 @@ impl PanelComponent for ConfigPanel {
                             | ROW_RECAP
                             | ROW_LANGUAGE
                             | ROW_DIFF
+                            | ROW_DETAIL_RENDER_STRATEGY
                             | ROW_STREAMING
                             | ROW_PROACTIVENESS
                             | ROW_PERSONA

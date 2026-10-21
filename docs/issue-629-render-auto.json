@@ -1,0 +1,170 @@
+{
+  "baseline_commit": "60e3f795dbb8072677915bda5d96c2c9c0d54fee",
+  "build": "debug; Windows; single-thread probe runtime",
+  "implementation": "working-tree #629",
+  "release_tag": "npm-v0.6.168",
+  "resize_control_sequence": {
+    "after_queued_version": 3,
+    "before_version": 1,
+    "explicit_detail_visual_rows": 1722,
+    "queued_resize_then_detail_visual_rows": 1722,
+    "queued_toggle_lost": false
+  },
+  "results": [
+    {
+      "app_snapshot_clone_ms": 5.570399999999999,
+      "append_publish_ms": 3.1982,
+      "appended_visual_rows": 171398,
+      "cold_detail_publish_ms": 42.6363,
+      "contracts": "folded==off; cold==hot, including text/style/wrap; fingerprint is diagnostic, not per-line diff",
+      "detail": {
+        "fingerprint": 3349097338985854470,
+        "logical_lines": 420,
+        "message_offsets": 0,
+        "shared_cache_estimated_bytes": 216033,
+        "virtual": {
+          "budget_bytes": 16777216,
+          "estimated_segments": 996,
+          "evictions": 0,
+          "metadata_bytes": 28864,
+          "resident_bytes": 265798,
+          "resident_segments": 12
+        },
+        "visual_rows": 171396,
+        "wrap_entries": 420
+      },
+      "fixture_prepare_ms": 830.7147,
+      "folded": {
+        "fingerprint": 5589658546172363504,
+        "logical_lines": 47,
+        "message_offsets": 0,
+        "shared_cache_estimated_bytes": 18132,
+        "virtual": {
+          "budget_bytes": 16777216,
+          "estimated_segments": 992,
+          "evictions": 0,
+          "metadata_bytes": 17024,
+          "resident_bytes": 20931,
+          "resident_segments": 8
+        },
+        "visual_rows": 5504,
+        "wrap_entries": 47
+      },
+      "folded_publish_ms": 94.3074,
+      "hot_detail_publish_ms": 0.6816,
+      "messages": 1000,
+      "off_publish_ms": 0.8614,
+      "scroll": {
+        "final_cache": {
+          "fingerprint": 6833939090220116774,
+          "logical_lines": 402,
+          "message_offsets": 0,
+          "shared_cache_estimated_bytes": 164539,
+          "virtual": {
+            "budget_bytes": 16777216,
+            "estimated_segments": 896,
+            "evictions": 42,
+            "metadata_bytes": 22448,
+            "resident_bytes": 16658670,
+            "resident_segments": 70
+          },
+          "visual_rows": 171298,
+          "wrap_entries": 402
+        },
+        "max_resident_bytes": 16658670,
+        "new_window": {
+          "max_ms": 51.714000000000006,
+          "p50_ms": 41.310399999999994,
+          "p95_ms": 42.175999999999995,
+          "samples": 100
+        },
+        "resident_window": {
+          "max_ms": 0.6832,
+          "p50_ms": 0.4331,
+          "p95_ms": 0.481,
+          "samples": 100
+        }
+      },
+      "strategy": "auto",
+      "width": 120
+    },
+    {
+      "app_snapshot_clone_ms": 11.5375,
+      "append_publish_ms": 5.0884,
+      "appended_visual_rows": 342798,
+      "cold_detail_publish_ms": 43.4458,
+      "contracts": "folded==off; cold==hot, including text/style/wrap; fingerprint is diagnostic, not per-line diff",
+      "detail": {
+        "fingerprint": 16062424287060001138,
+        "logical_lines": 420,
+        "message_offsets": 0,
+        "shared_cache_estimated_bytes": 217242,
+        "virtual": {
+          "budget_bytes": 16777216,
+          "estimated_segments": 1996,
+          "evictions": 0,
+          "metadata_bytes": 44864,
+          "resident_bytes": 266248,
+          "resident_segments": 12
+        },
+        "visual_rows": 342796,
+        "wrap_entries": 420
+      },
+      "fixture_prepare_ms": 1613.6135,
+      "folded": {
+        "fingerprint": 4819027437438995782,
+        "logical_lines": 47,
+        "message_offsets": 0,
+        "shared_cache_estimated_bytes": 18192,
+        "virtual": {
+          "budget_bytes": 16777216,
+          "estimated_segments": 1992,
+          "evictions": 0,
+          "metadata_bytes": 33024,
+          "resident_bytes": 20978,
+          "resident_segments": 8
+        },
+        "visual_rows": 11004,
+        "wrap_entries": 47
+      },
+      "folded_publish_ms": 183.144,
+      "hot_detail_publish_ms": 0.8103,
+      "messages": 2000,
+      "off_publish_ms": 0.9628,
+      "scroll": {
+        "final_cache": {
+          "fingerprint": 776123083762046126,
+          "logical_lines": 402,
+          "message_offsets": 0,
+          "shared_cache_estimated_bytes": 165742,
+          "virtual": {
+            "budget_bytes": 16777216,
+            "estimated_segments": 1796,
+            "evictions": 142,
+            "metadata_bytes": 38448,
+            "resident_bytes": 16686740,
+            "resident_segments": 70
+          },
+          "visual_rows": 342598,
+          "wrap_entries": 402
+        },
+        "max_resident_bytes": 16686740,
+        "new_window": {
+          "max_ms": 48.3826,
+          "p50_ms": 41.7627,
+          "p95_ms": 42.6798,
+          "samples": 200
+        },
+        "resident_window": {
+          "max_ms": 0.7686000000000001,
+          "p50_ms": 0.4716,
+          "p95_ms": 0.5471,
+          "samples": 200
+        }
+      },
+      "strategy": "auto",
+      "width": 120
+    }
+  ],
+  "scope": "real rendering worker; synthetic fixture; one timing sample per toggle, scroll distributions per case. Virtual global rows include offscreen estimates; visible windows use exact rendering. Bytes estimate shared window and resident segments separately, excluding source VM, allocator and RSS."
+}

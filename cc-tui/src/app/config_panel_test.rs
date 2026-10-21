@@ -14,6 +14,7 @@ fn test_config_panel_from_config_defaults() {
     assert!(panel.buf_recap);
     assert!(panel.buf_language.is_empty());
     assert_eq!(panel.buf_proactiveness, "medium");
+    assert_eq!(panel.buf_detail_render_strategy, "auto");
 }
 
 #[test]
@@ -29,6 +30,8 @@ fn test_config_panel_cursor_navigation() {
     assert_eq!(panel.cursor, ROW_LANGUAGE);
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_DIFF);
+    panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_DETAIL_RENDER_STRATEGY);
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_STREAMING);
     panel.cursor_down();
@@ -49,6 +52,8 @@ fn test_config_panel_cursor_navigation() {
     assert_eq!(panel.cursor, ROW_PROACTIVENESS);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_STREAMING);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_DETAIL_RENDER_STRATEGY);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_DIFF);
     panel.cursor_up();
@@ -232,4 +237,94 @@ fn test_config_panel_apply_edit_auto_recap() {
     panel.buf_recap = false;
     panel.apply_edit(&mut cfg, &lc).unwrap();
     assert_eq!(cfg.config.auto_recap, Some(false));
+}
+
+#[test]
+fn test_config_panel_cycle_detail_render_strategy() {
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    for expected in ["cache", "virtual", "auto"] {
+        panel.cycle_detail_render_strategy(false);
+        assert_eq!(panel.buf_detail_render_strategy, expected);
+    }
+    for expected in ["virtual", "cache", "auto"] {
+        panel.cycle_detail_render_strategy(true);
+        assert_eq!(panel.buf_detail_render_strategy, expected);
+    }
+}
+
+#[test]
+fn test_config_panel_detail_render_strategy_screen_rows() {
+    assert_eq!(screen_to_logical_row(11), Some(ROW_DETAIL_RENDER_STRATEGY));
+    assert_eq!(screen_to_logical_row(12), Some(ROW_DETAIL_RENDER_STRATEGY));
+    assert_eq!(screen_to_logical_row(13), Some(ROW_STREAMING));
+    assert_eq!(screen_to_logical_row(22), Some(ROW_TONE));
+    assert_eq!(screen_to_logical_row(23), None);
+}
+
+#[test]
+fn test_config_panel_detail_render_strategy_unknown_defaults_to_auto() {
+    let mut cfg = PeriConfig::default();
+    cfg.config.detail_render_strategy = Some("unknown".to_owned());
+    let mut panel = ConfigPanel::from_config(&cfg);
+    assert_eq!(panel.buf_detail_render_strategy, "auto");
+    panel.apply_edit(&mut cfg, &make_lc()).unwrap();
+    assert_eq!(cfg.config.detail_render_strategy, None);
+}
+
+#[tokio::test]
+async fn test_config_panel_detail_render_strategy_updates_runtime_and_saved_config() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    app.services.config_path_override = Some(path.clone());
+    app.services.peri_config = Some(PeriConfig::default());
+    let (render_tx, mut render_rx) = tokio::sync::mpsc::channel(16);
+    app.session_mgr.current_mut().messages.render_tx = render_tx;
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.cursor = ROW_DETAIL_RENDER_STRATEGY;
+    for expected in [Some("cache"), Some("virtual"), None] {
+        let mut ctx = PanelContext {
+            services: &mut app.services,
+            session_mgr: &mut app.session_mgr,
+            acp_client: None,
+        };
+        panel.handle_key(
+            Input {
+                key: tui_textarea::Key::Right,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            },
+            &mut ctx,
+        );
+        let event = render_rx.try_recv().expect("策略变更必须即时通知渲染线程");
+        assert!(matches!(
+            event,
+            crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy)
+                if strategy == expected.unwrap_or("auto")
+        ));
+        let loaded = crate::config::load_from(&path).unwrap();
+        assert_eq!(loaded.config.detail_render_strategy.as_deref(), expected);
+    }
+}
+
+#[tokio::test]
+async fn test_config_panel_apply_detail_render_strategy_updates_runtime() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    let dir = tempfile::tempdir().unwrap();
+    app.services.config_path_override = Some(dir.path().join("settings.json"));
+    let (render_tx, mut render_rx) = tokio::sync::mpsc::channel(16);
+    app.session_mgr.current_mut().messages.render_tx = render_tx;
+    app.open_config_panel();
+    app.session_mgr
+        .current_mut()
+        .session_panels
+        .get_mut::<ConfigPanel>()
+        .unwrap()
+        .buf_detail_render_strategy = "virtual".to_owned();
+    app.config_panel_apply();
+    assert!(matches!(
+        render_rx.try_recv().unwrap(),
+        crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy) if strategy == "virtual"
+    ));
 }

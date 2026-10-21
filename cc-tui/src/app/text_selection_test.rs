@@ -1,5 +1,74 @@
 use super::*;
 
+fn make_selection_anchor(
+    message: usize,
+    line: usize,
+    grapheme: usize,
+) -> crate::ui::render_thread::SelectionAnchor {
+    crate::ui::render_thread::SelectionAnchor {
+        history_epoch: 7,
+        message_index: message,
+        message_version: 100,
+        logical_line: line,
+        grapheme_offset: grapheme,
+    }
+}
+
+#[test]
+fn test_anchored_selection_preserves_range_across_evicted_messages() {
+    let start = make_selection_anchor(10, 4, 3);
+    let end = make_selection_anchor(30, 2, 7);
+    assert_eq!(
+        anchored_selection_columns(start, end, 10, 4),
+        Some((3, usize::MAX))
+    );
+    assert_eq!(
+        anchored_selection_columns(start, end, 20, 1),
+        Some((0, usize::MAX))
+    );
+    assert_eq!(
+        anchored_selection_columns(end, start, 30, 2),
+        Some((0, 7)),
+        "反向拖选应等价"
+    );
+    assert_eq!(anchored_selection_columns(start, end, 9, 4), None);
+}
+
+#[test]
+fn test_anchored_selection_rejects_different_history_epochs() {
+    let start = make_selection_anchor(1, 0, 0);
+    let mut end = make_selection_anchor(2, 0, 3);
+    end.history_epoch = 8;
+    assert_eq!(
+        anchored_selection_columns(start, end, 1, 0),
+        None,
+        "不可把旧选区套到新历史"
+    );
+}
+
+#[test]
+fn test_clear_invalidates_pending_selection_generation() {
+    let mut selection = TextSelection::new();
+    selection.start_drag(10, 0);
+    selection.anchor_start = Some(make_selection_anchor(1, 0, 0));
+    selection.anchor_end = Some(make_selection_anchor(1, 0, 4));
+    let generation = selection.generation;
+    selection.clear();
+    assert_ne!(
+        selection.generation, generation,
+        "异步复制完成后必须能识别旧选区"
+    );
+    assert!(selection.anchor_start.is_none());
+    assert!(selection.anchor_end.is_none());
+}
+
+#[test]
+fn test_visual_to_logical_supports_window_with_global_visual_rows() {
+    let map = vec![make_wrap_map_entry(0, 100_000, 100_001, "Hello")];
+    assert_eq!(visual_to_logical(100_000, 2, &map, 80), Some((0, 2)));
+    assert_eq!(visual_to_logical(99_999, 2, &map, 80), None);
+}
+
 #[test]
 fn test_start_drag_sets_coords() {
     let mut ts = TextSelection::new();

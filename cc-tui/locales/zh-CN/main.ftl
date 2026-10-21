@@ -265,6 +265,8 @@ config-desc-tone = 覆盖系统提示词 tone（留空=默认）
 config-desc-proactiveness = low / medium / high — agent 主动性级别
 config-desc-diff = （开/关 — 显示 Write/Edit 工具的内联 diff）
 config-field-streaming = 渲染模式
+config-field-detail-render-strategy = 详情渲染
+config-desc-detail-render-strategy = auto 自动适配长会话；cache 全量缓存；virtual 按视口渲染。即时生效。
 config-desc-streaming = streaming / block / none — LLM 输出渲染粒度
 
 # ---- Login Panel ----
@@ -523,7 +525,8 @@ cmd-gc-view-messages = view_messages:     { $count } 条 VM, ~{ $bytes }
 cmd-gc-message-comparison = origin vs completed: { $overlap } ({ $origin }/{ $completed } 条)
 cmd-gc-markdown-cache = markdown_cache: { $entries }/{ $capacity } 条, 数据堆估算 ~{ $bytes }（字节预算 { $budget }）
 cmd-gc-markdown-cache-details = { "  " }平均条目 ~{ $average } | 最大条目 ~{ $largest } | { $lines } 行 / { $spans } Span
-cmd-gc-render-cache = render_cache: { $lines } 行 + { $wraps } wrap 映射, 数据堆估算 ~{ $bytes }（整段对话渲染结果 + 逐行纯文本副本）
+cmd-gc-render-cache = render_cache: { $lines } 行 + { $wraps } wrap 映射, 数据堆估算 ~{ $bytes }（已发布渲染成品 + 逐行纯文本副本）
+cmd-gc-virtual-render = 虚拟渲染: { $segments } 个驻留分段, { $bytes } / { $budget }, { $estimated } 个估算段, { $evictions } 次淘汰, 最大分段估算 { $largest }
 cmd-gc-diff-cache = diff_cache:  { $entries }/{ $capacity } 条, ~{ $bytes }（字节预算 { $budget }）
 cmd-gc-diff-render-cache = diff_render_cache: { $entries }/{ $capacity } 条, ~{ $bytes }（字节预算 { $budget }）
 cmd-gc-allocator-heading = ── { $allocator } 明细 ──

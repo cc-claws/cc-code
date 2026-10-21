@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, Notify};
 
 use crate::ui::{
     message_view::MessageViewModel,
-    render_thread::{RenderCache, RenderEvent},
+    render_thread::{RenderCache, RenderEvent, ViewportAnchor},
 };
 
 use super::message_pipeline::MessagePipeline;
@@ -80,6 +80,8 @@ pub struct MessageState {
     pub ephemeral_notes: Vec<(usize, MessageViewModel)>,
     /// 最近一次发送给渲染线程的 resize 宽度（用于去抖，避免每帧重复发送）
     pub last_resize_width: Option<u16>,
+    /// 已成功投递的视口，通道满时保留旧值以便下一帧重试。
+    pub last_viewport: Option<(usize, usize, bool, u16, Option<ViewportAnchor>)>,
     /// Channel 消息通知接收端
     pub channel_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ChannelNotification>>,
 }
@@ -106,6 +108,7 @@ impl MessageState {
             last_submitted_text: None,
             ephemeral_notes: Vec::new(),
             last_resize_width: None,
+            last_viewport: None,
             channel_notification_rx: None,
         }
     }

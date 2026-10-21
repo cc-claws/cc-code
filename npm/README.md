@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.169：**长会话详情按视口渲染**——`/config` →「详情渲染」可选 `auto`（默认）/ `cache` / `virtual`，即时生效；虚拟路径按需物化窗口，离屏成品按共享 16 MiB 预算淘汰，逻辑锚点支持滚动与跨淘汰复制。预算不等于进程 RSS 上限，原始历史和可见巨型消息仍占内存；可随时切回 `cache`（#629，PR #648）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.157：**`/theme` 新增 `auto`，跟随终端颜色能力与背景明暗**——两级判定：① **颜色能力**（`TERM_PROGRAM=Apple_Terminal` 这类只有 16/256 色的终端 → `light-ansi` / `dark-ansi`，其余真彩色终端 → `light` / `dark`）；② **背景明暗**（OSC 11 查询按回复的 sRGB 相对亮度判定，终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`、其余平台按深色兜底）。判定结果缓存、仅在持久化主题为 `auto` 时预探测，`/theme` 面板该行显示 `Auto (follow terminal: <解析结果>)`（#604）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.156：**测试基础设施修复，无用户可见行为变更**——11 个 RSS 内存测试此前统一读 `/proc/self/status` 的 `VmRSS`，而 `/proc` 只存在于 Linux：macOS 上读取失败被吞成 0，再被饱和减法洗成「无增长」，断言恒绿（实测 macOS 上打印 `RSS = 0 KB (+0 KB)` 且 `test result: ok`，同一 pid 用 `ps -o rss=` 读到 964 KB）。现改用 `sysinfo` 的 `process.memory()` 取数、采集失败直接 panic 而不返回 0，并新增守护测试（触碰 64 MiB 后 RSS 必须涨 ≥32 MiB）防止测量通道再次退化（#589）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
