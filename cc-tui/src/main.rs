@@ -8,7 +8,7 @@ use ratatui::{
             EnableFocusChange, EnableMouseCapture,
         },
         execute,
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        terminal::{disable_raw_mode, enable_raw_mode},
     },
     prelude::*,
 };
@@ -22,7 +22,7 @@ use cc_tui::{
     acp_server::{run_acp_server, AcpServerConfig},
     app::{AgentShellExecutor, AgentShellRegistration, App},
     conpty, event,
-    terminal_backend::TuiBackend,
+    terminal_backend::{viewport, TuiBackend},
     ui,
 };
 
@@ -587,15 +587,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
                         _ = sigint.recv() => 130, // 128 + SIGINT(2)
                     };
                     // 进程级终端状态恢复（不依赖 Terminal 对象，哪里被打断都能执行）。
-                    cc_tui::keyboard_modes::restore_keyboard_enhancement();
-                    let _ = execute!(
-                        io::stdout(),
-                        LeaveAlternateScreen,
-                        DisableMouseCapture,
-                        DisableBracketedPaste,
-                        DisableFocusChange
-                    );
-                    let _ = disable_raw_mode();
+                    viewport::restore_process_terminal();
                     std::process::exit(exit_code);
                 });
             } else {
@@ -603,8 +595,8 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
             }
         }
 
-        // 初始化终端：进入 alternate screen + 启用鼠标捕获，禁用终端原生 scrollback，
-        // 滚动完全由 TUI 自渲染滚动条接管（跨平台一致）。
+        // 正常屏紧凑启动；触底之后才进入 alternate screen。
+        let _terminal_restore = viewport::TerminalRestoreGuard;
         enable_raw_mode()?;
         // 预探测终端背景明暗（OSC 11）。必须早于 EventReader::start()：查询回复是
         // stdin 上的原始字节，事件读取器一旦启动就会抢先消费。`theme = "auto"`
@@ -618,7 +610,6 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         conpty::enable_vt_processing()?;
         execute!(
             stdout,
-            EnterAlternateScreen,
             EnableMouseCapture,
             EnableBracketedPaste,
             EnableFocusChange
@@ -630,21 +621,33 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // notify, with ANSI + ?1007h as defense-in-depth.
         conpty::enable_mouse_tracking()?;
         // 保存宿主终端原有标题到栈中（XTerm Title Stack: \x1b[22;0t）
-        let _ = execute!(stdout, ratatui::crossterm::style::Print("\x1b[22;0t"));
-        let backend = TuiBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
+        let _ = viewport::save_title(&mut stdout);
+        // 字宽探针会擦除当前行；先移到应用自己的新行，保护启动命令与 shell 输出。
+        execute!(stdout, ratatui::crossterm::style::Print("\r\n"))?;
+        let mut backend = TuiBackend::new(stdout);
+        backend.clear_owned_lines_only();
+        // 必须在输入线程启动前查询光标，避免 CPR 回复被事件读取器消费。
+        let position = backend.get_cursor_position()?;
+        let size = backend.size()?;
+        let origin_row = position.y.min(size.height.saturating_sub(1));
+        let mut terminal = Terminal::with_options(
+            backend,
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(Rect::new(0, origin_row, size.width, 1)),
+            },
+        )?;
         // 输入线程必须晚于后端构造：非 Windows 的字宽探针要向 stdin 收 CPR 回包，
         // 输入线程一旦先启动就会把回包读走（表现为启动时状态栏列宽未被校正）。
         let mut event_reader = event::EventReader::start()?;
-        // 仅 macOS：Terminal.app 的 alternate screen buffer 跨程序保留（上一次 TUI 崩溃/被 kill
-        // 时的最后一帧会残留），而 ratatui 首帧是 diff 模式（只写与空 buffer 不同的 cell），
-        // 残留内容会从未覆盖的 cell 透出。启动时清屏一次，同时重置内部 diff buffer。
-        // Windows（ConPTY）无此问题，不参与编译，保持原启动行为。
-        #[cfg(target_os = "macos")]
-        terminal.clear()?;
-
         // 运行应用
-        let result = run_app(&mut terminal, &opts, panic_notify_rx, &mut event_reader).await;
+        let result = run_app(
+            &mut terminal,
+            &opts,
+            panic_notify_rx,
+            &mut event_reader,
+            origin_row,
+        )
+        .await;
         event_reader.stop();
 
         // 恢复终端（不用 ? —— 恢复失败不应阻止 session ID 打印）
@@ -658,15 +661,10 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
             tracing::warn!(error = %e, "Disable 鼠标/粘贴/焦点 失败");
         }
         // 恢复宿主终端原有的窗口标题（XTerm Title Stack: \x1b[23;0t）
-        let _ = execute!(
-            terminal.backend_mut(),
-            ratatui::crossterm::style::Print("\x1b[23;0t")
-        );
-        // 防御性清空终端标题，确保不支持 title stack 的终端不残留 CC Code 状态
-        cc_tui::terminal_title::clear_terminal_title();
+        let _ = viewport::restore_title(terminal.backend_mut());
         cc_tui::keyboard_modes::restore_keyboard_enhancement();
-        if let Err(e) = execute!(terminal.backend_mut(), LeaveAlternateScreen) {
-            tracing::warn!(error = %e, "LeaveAlternateScreen 失败");
+        if let Err(e) = viewport::finish_screen(terminal.backend_mut()) {
+            tracing::warn!(error = %e, "恢复终端屏幕失败");
         }
         if let Err(e) = disable_raw_mode() {
             tracing::warn!(error = %e, "disable_raw_mode 失败");
@@ -712,8 +710,10 @@ async fn run_app(
     tui_opts: &TuiOptions,
     panic_notify_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
     event_reader: &mut event::EventReader,
+    origin_row: u16,
 ) -> Result<Option<String>> {
     let mut app = App::new().await;
+    app.global_ui.viewport = viewport::ViewportState::growing(origin_row);
 
     // 接入 panic hook 通知通道
     app.services.panic_notify_rx = Some(panic_notify_rx);
@@ -966,7 +966,7 @@ async fn run_app(
     app.session_mgr.current_mut().spinner_state.advance_tick();
 
     // 初始全量绘制一次
-    if let Err(e) = draw_app(terminal, &mut app) {
+    if let Err(e) = draw_app(terminal, &mut app).await {
         tracing::error!(error = %e, "初始绘制失败");
     }
     // 初始写出一次终端标题（Idle / Ready 状态）
@@ -1033,21 +1033,21 @@ async fn run_app(
                 event::Action::Quit => break 'event_loop,
                 event::Action::Submit(input) => {
                     app.submit_message(input);
-                    if let Err(e) = draw_app(terminal, &mut app) {
+                    if let Err(e) = draw_app(terminal, &mut app).await {
                         tracing::error!(error = %e, "event loop: draw_app 错误");
                     }
                     last_render = Instant::now();
                 }
                 event::Action::RunShellCommand(command) => {
                     app.run_shell_command(command);
-                    if let Err(e) = draw_app(terminal, &mut app) {
+                    if let Err(e) = draw_app(terminal, &mut app).await {
                         tracing::error!(error = %e, "event loop: draw_app 错误");
                     }
                     last_render = Instant::now();
                 }
                 event::Action::Redraw => {
                     // 有用户交互（键盘/鼠标/resize）→ 始终重绘
-                    if let Err(e) = draw_app(terminal, &mut app) {
+                    if let Err(e) = draw_app(terminal, &mut app).await {
                         tracing::error!(error = %e, "event loop: draw_app 错误");
                     }
                     last_render = Instant::now();
@@ -1084,7 +1084,7 @@ async fn run_app(
                     // loading 路径：限制帧率到 TARGET_FRAME_INTERVAL，降低 CPU 开销
                     // 非 loading 路径（cache_updated/agent_updated/bg_updated）始终立即渲染
                     if !loading || now.duration_since(last_render) >= TARGET_FRAME_INTERVAL {
-                        if let Err(e) = draw_app(terminal, &mut app) {
+                        if let Err(e) = draw_app(terminal, &mut app).await {
                             tracing::error!(error = %e, "event loop: draw_app 错误");
                         }
                         last_render = now;
@@ -1223,7 +1223,7 @@ async fn run_app(
     Ok(exit_msg)
 }
 
-fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     #[cfg(windows)]
     {
         // crossterm 缓存 ANSI 能力，不能感知外部进程关闭 VT；清屏/绘制前恢复。
@@ -1237,12 +1237,68 @@ fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> R
                 .request_terminal_clear_redraw();
         }
     }
-    if app
+    let size = terminal.size()?;
+    app.global_ui.viewport.terminal_size = size;
+    ui::main_ui::prepare_width(app, size.width).await;
+    app.global_ui.viewport.sync_welcome(
+        app.session_mgr.current().metadata.session_id,
+        !app.session_mgr.current().messages.view_messages.is_empty(),
+    );
+    let required_rows = ui::main_ui::required_rows(app, Rect::new(0, 0, size.width, size.height));
+    let plan = app.global_ui.viewport.prepare(required_rows, size);
+    if plan.enter_fullscreen {
+        // 滚动条会改变正文宽度；等待重排期间继续保留旧屏，首帧就绪后再切屏。
+        ui::main_ui::prepare_width(app, size.width).await;
+    }
+    execute!(
+        terminal.backend_mut(),
+        ratatui::crossterm::terminal::BeginSynchronizedUpdate
+    )?;
+    let draw_result = draw_prepared_app(terminal, app, size, plan);
+    // 绘制失败也必须结束同步输出，避免终端停留在等待提交的状态。
+    let end_result = execute!(
+        terminal.backend_mut(),
+        ratatui::crossterm::terminal::EndSynchronizedUpdate
+    );
+    draw_result?;
+    end_result?;
+    Ok(())
+}
+
+/// 此段不允许异步等待：滚屏/切屏、差分缓存重置与首帧输出必须连续完成。
+fn draw_prepared_app(
+    terminal: &mut Terminal<TuiBackend<io::Stdout>>,
+    app: &mut App,
+    size: ratatui::layout::Size,
+    plan: viewport::ViewportPlan,
+) -> Result<()> {
+    if plan.scroll_rows > 0 {
+        execute!(
+            terminal.backend_mut(),
+            ratatui::crossterm::cursor::MoveTo(0, size.height.saturating_sub(1))
+        )?;
+        for _ in 0..plan.scroll_rows {
+            execute!(
+                terminal.backend_mut(),
+                ratatui::crossterm::style::Print("\r\n")
+            )?;
+        }
+    }
+    if plan.enter_fullscreen {
+        viewport::enter_alternate_screen(terminal.backend_mut())?;
+    }
+    let resized = terminal.get_frame().area() != plan.area || plan.enter_fullscreen;
+    if resized {
+        // Fixed resize 已负责清理目标区域并重置差分缓存，只执行一次物理清理。
+        terminal.resize(plan.area)?;
+    }
+    viewport::record_owned_area(plan.area);
+    let clear_requested = app
         .session_mgr
         .current_mut()
         .ui
-        .take_terminal_clear_redraw()
-    {
+        .take_terminal_clear_redraw();
+    if clear_requested && !resized {
         terminal.clear()?;
     }
     // Frame buffer 仅在 draw closure 内可访问，因此 snapshot 在 closure 内克隆、结束后写回 app。
@@ -1275,8 +1331,7 @@ fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> R
 
 /// 在 ratatui Frame buffer 上叠加 ScreenSelection 高亮（SELECTION_BG）。
 /// 遍历归一化选区范围的每个 cell 覆盖背景色。由 draw_app 在 render 之后于 draw closure 内调用，
-/// Terminal::draw 结束时自动 diff+flush。全屏 alternate screen 下 buffer area 从 (0,0) 起，
-/// 与 mouse 绝对屏幕坐标一致。
+/// Terminal::draw 结束时自动 diff+flush；增长视口与全屏都采用绝对屏幕坐标。
 fn apply_screen_selection_highlight(
     buffer: &mut ratatui::buffer::Buffer,
     selection: &cc_tui::app::text_selection::ScreenSelection,
@@ -1285,13 +1340,12 @@ fn apply_screen_selection_highlight(
         return;
     };
     let area = buffer.area;
+    if area.is_empty() {
+        return;
+    }
     let max_col = area.x.saturating_add(area.width).saturating_sub(1);
     let max_row = area.y.saturating_add(area.height).saturating_sub(1);
-    let er = er.min(max_row);
-    for row in sr..=er {
-        if row < area.y {
-            continue;
-        }
+    for row in sr.max(area.y)..=er.min(max_row) {
         let col_start = if row == sr { sc.max(area.x) } else { area.x };
         let col_end = if row == er { ec.min(max_col) } else { max_col };
         for col in col_start..=col_end {

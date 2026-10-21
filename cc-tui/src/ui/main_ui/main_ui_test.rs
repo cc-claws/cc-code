@@ -394,10 +394,17 @@ use ratatui::text::Line;
 
 /// 直接构造可滚动渲染缓存，绕开真实消息管线。
 ///
-/// `scrollbar_max_offset` 在真实路径由 `message_area::render_messages` 依据内容行数与
-/// 可见高度算出；而 `view_messages` 为空时该函数会提前返回（渲染 Welcome 页），
-/// 不会写入该字段。这里手动补齐"内容溢出可滚动"这一前置信号，作为按钮显示的基线。
+/// 同时提供消息存在信号，让实际渲染路径按缓存内容计算滚动范围。
 fn seed_scrollable_cache(app: &mut App, total_lines: usize) {
+    if app.session_mgr.current().messages.view_messages.is_empty() {
+        app.session_mgr
+            .current_mut()
+            .messages
+            .view_messages
+            .push(crate::app::MessageViewModel::user("history".into()));
+    }
+    app.session_mgr.current_mut().ui.scroll_baseline_len =
+        app.session_mgr.current().messages.view_messages.len();
     {
         let mut cache = app.session_mgr.current().messages.render_cache.write();
         cache.width = 79;

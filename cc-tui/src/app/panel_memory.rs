@@ -63,31 +63,61 @@ impl App {
         // 让外部编辑器独占终端。
         let _input_pause = crate::event::pause_input();
         let _ = crate::conpty::disable_mouse_tracking();
-        ratatui::crossterm::execute!(
-            std::io::stdout(),
-            ratatui::crossterm::event::DisableMouseCapture,
-            ratatui::crossterm::terminal::LeaveAlternateScreen
-        )?;
-        ratatui::crossterm::terminal::disable_raw_mode()?;
+        let fullscreen = self.global_ui.viewport.fullscreen_latched;
+        let status = (|| -> anyhow::Result<std::io::Result<std::process::ExitStatus>> {
+            ratatui::crossterm::execute!(
+                std::io::stdout(),
+                ratatui::crossterm::event::DisableMouseCapture
+            )?;
+            if fullscreen {
+                crate::terminal_backend::viewport::leave_alternate_screen(&mut std::io::stdout())?;
+            } else {
+                // 正常屏内容在编辑器期间保存在宿主缓冲区，临时 alt 不锁定应用视口。
+                crate::terminal_backend::viewport::enter_alternate_screen(&mut std::io::stdout())?;
+            }
+            ratatui::crossterm::terminal::disable_raw_mode()?;
 
-        // 启动编辑器
-        let status = std::process::Command::new(&editor)
-            .arg(&entry.path)
-            .status();
+            // 启动编辑器
+            // 文件路径经环境变量传递并在 shell 内引用，空格、&、$ 等不会变成命令。
+            #[cfg(windows)]
+            let editor_command = format!("{editor} \"%PERI_MEMORY_EDITOR_FILE%\"");
+            #[cfg(not(windows))]
+            let editor_command = format!("{editor} \"$PERI_MEMORY_EDITOR_FILE\"");
+            let mut command = cc_middlewares::process::shell_command(&editor_command, &[]);
+            command.env("PERI_MEMORY_EDITOR_FILE", &entry.path);
+            // 编辑器共享当前交互控制台，不能继承后台 shell 的 CREATE_NO_WINDOW。
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.as_std_mut().creation_flags(0);
+            }
+            Ok(command.as_std_mut().status())
+        })();
 
-        // 恢复 TUI: 重新进入 alternate screen + raw mode + 鼠标捕获
-        ratatui::crossterm::terminal::enable_raw_mode()?;
+        // 即使挂起或 raw mode 恢复失败，也先尽力恢复屏幕与鼠标。
+        let screen_result = if fullscreen {
+            crate::terminal_backend::viewport::enter_alternate_screen(&mut std::io::stdout())
+        } else {
+            crate::terminal_backend::viewport::leave_alternate_screen(&mut std::io::stdout())
+        };
+        let raw_result = ratatui::crossterm::terminal::enable_raw_mode();
         #[cfg(windows)]
-        crate::conpty::enable_vt_processing()?;
-        ratatui::crossterm::execute!(
+        let vt_result = crate::conpty::enable_vt_processing();
+        let mouse_result = ratatui::crossterm::execute!(
             std::io::stdout(),
-            ratatui::crossterm::terminal::EnterAlternateScreen,
             ratatui::crossterm::event::EnableMouseCapture
-        )?;
+        );
         // ConPTY fix: force mouse-tracking notify (same workaround as main.rs).
-        let _ = crate::conpty::enable_mouse_tracking();
+        if raw_result.is_ok() && mouse_result.is_ok() {
+            let _ = crate::conpty::enable_mouse_tracking();
+        }
+        screen_result?;
+        raw_result?;
+        #[cfg(windows)]
+        vt_result?;
+        mouse_result?;
 
-        match status {
+        match status? {
             Ok(s) if s.success() => {
                 tracing::info!("Editor exited successfully");
             }

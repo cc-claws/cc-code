@@ -15,12 +15,16 @@ use crate::{
 };
 use cc_middlewares::prelude::{TodoItem, TodoStatus};
 
-use super::sticky_header;
+use super::{
+    sticky_header,
+    viewport_layout::{content_rows, welcome_rows},
+};
 
 /// 消息区底部 spinner 关联 todo 列表最多展示的条目数
 pub(crate) const MAX_VISIBLE_TODOS: usize = 5;
 
 /// 计算给定数量 todo items 在 TUI 消息区底部渲染的逻辑行数（含截断行）
+#[cfg(test)]
 pub(crate) fn todo_render_line_count(total_todos: usize) -> u16 {
     if total_todos == 0 {
         0
@@ -133,21 +137,330 @@ pub(crate) fn render_messages(
     header_area: Rect,
     messages_area: Rect,
 ) {
-    if app.session_mgr.current().current_view_messages().is_empty() {
-        let ui = &mut app.session_mgr.current_mut().ui;
-        ui.messages_area = None;
-        ui.message_scrollbar_metrics = None;
-        ui.message_scrollbar_area = None;
-        ui.scrollbar_hover = false;
-        ui.message_scrollbar_dragging = false;
-        ui.message_scrollbar_drag_origin = None;
-        welcome::render_welcome(f, app, messages_area);
-        return;
-    }
-
+    let empty_messages = app.session_mgr.current().current_view_messages().is_empty();
+    let tail = visible_tail(app);
     let inner = messages_area;
     let visible_height = inner.height;
 
+    let visual_total = content_rows(app, inner.width);
+    let needs_scrollbar = visual_total > visible_height as usize && inner.width > 1;
+    let text_area = if needs_scrollbar {
+        Rect {
+            width: inner.width.saturating_sub(1),
+            ..inner
+        }
+    } else {
+        inner
+    };
+    app.session_mgr.current_mut().ui.messages_area = Some(text_area);
+    let prefix_rows = welcome_rows(app, text_area.width);
+    app.session_mgr.current_mut().ui.message_prefix_rows = prefix_rows;
+
+    // 渲染驱动宽度同步：用 last_resize_width 去抖——宽度未变时跳过重复发送，
+    // 避免每秒 N 次 resize 事件导致渲染线程队列积压和 CPU 暴涨
+    // （参见 spec/issues/2026-05-14-streaming-resize-cpu-spike）。
+    {
+        let text_area_width = text_area.width;
+        let cache_width = app.session_mgr.current().messages.render_cache.read().width;
+        let last_resize = app.session_mgr.current().messages.last_resize_width;
+        if last_resize != Some(text_area_width)
+            && cache_width != text_area_width
+            && text_area_width > 0
+        {
+            app.session_mgr.current_mut().messages.last_resize_width = Some(text_area_width);
+            let _ = app
+                .session_mgr
+                .current_mut()
+                .messages
+                .render_tx
+                .try_send(RenderEvent::Resize(text_area_width));
+        }
+    }
+
+    // ── 从 RenderCache 读取并计算滚动参数 ──────────────────────────────────
+    let (min_scroll, max_scroll, offset) = {
+        let mut cache = app.session_mgr.current().messages.render_cache.write();
+
+        // 全屏 alternate screen 模式：无原生 scrollback，所有内容都在 TUI 视口内，
+        // base_visual 恒为 0。
+        let message_height = if empty_messages { 0 } else { cache.total_lines };
+        let visual_total = prefix_rows
+            .saturating_add(message_height)
+            .saturating_add(visual_line_count(&tail, text_area.width));
+        let min_scroll = 0;
+        let max_scroll = visual_total
+            .saturating_sub(visible_height as usize)
+            .max(min_scroll);
+        let scroll_follow = app.session_mgr.current().ui.scroll_follow;
+        let scroll_offset = app.session_mgr.current().ui.scroll_offset;
+        let scroll_anchor = cache.scroll_anchor.take();
+        let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
+        let (new_follow, off) = if dragging {
+            // dragging 期间跳过 follow/anchor 优先级，强制使用用户拖拽的 offset
+            let off = scroll_offset.clamp(min_scroll, max_scroll);
+            (off >= max_scroll, off)
+        } else if scroll_follow {
+            (true, max_scroll)
+        } else if scroll_offset < prefix_rows {
+            // 消息锚点不包含欢迎卡；浏览前缀时重建不能把用户推到消息起点。
+            let off = scroll_offset.min(max_scroll);
+            (off >= max_scroll, off)
+        } else if let Some(anchor) = scroll_anchor {
+            let off = anchor
+                .saturating_add(prefix_rows)
+                .clamp(min_scroll, max_scroll);
+            let new_follow = off >= max_scroll;
+            (new_follow, off)
+        } else {
+            let off = scroll_offset.clamp(min_scroll, max_scroll);
+            let new_follow = off >= max_scroll;
+            (new_follow, off)
+        };
+
+        let version = cache.version;
+        drop(cache);
+
+        app.session_mgr.current_mut().messages.last_render_version = version;
+        app.session_mgr.current_mut().ui.scroll_follow = new_follow;
+        app.session_mgr.current_mut().ui.scroll_offset = off;
+        app.session_mgr.current_mut().ui.scrollbar_min_offset = min_scroll;
+        app.session_mgr.current_mut().ui.scrollbar_max_offset = max_scroll;
+
+        (min_scroll, max_scroll, off)
+    };
+
+    // 仅在当前 TUI 尾部仍可滚动时显示 sticky header
+    if max_scroll > min_scroll {
+        sticky_header::render_sticky_header(f, app, header_area);
+    }
+
+    // ── 视口裁剪 ──────────────────────────────────────────────────────────
+    // 利用 wrap_map 定位可见的逻辑行范围，只传递视口内的行给 Paragraph，
+    // 避免 ratatui Paragraph::render 内部 O(offset) 的 WordWrapper 遍历导致 CPU 暴涨。
+    // （ratatui 即使设了 scroll(offset)，仍会对 offset 之前的所有行做 grapheme 分割 + wrap 计算）
+    // 先用 Clear 清空整个 messages_area：Paragraph 不填满 area 时未覆盖 cell 会保留旧值，
+    // 最终经 diff 输出到终端造成渲染残留。清空后 Paragraph 只渲染有效行、剩余为空格，
+    // 确保每帧 viewport 区域 buffer 正确。
+    f.render_widget(Clear, inner);
+    // 欢迎卡是纯 UI 前缀，与消息一起滚动；切全屏时不会消失，也不进入会话历史。
+    let prefix_height = prefix_rows
+        .saturating_sub(offset)
+        .min(text_area.height as usize) as u16;
+    if prefix_height > 0 {
+        welcome::render_welcome_slice(f, app, text_area, offset);
+    }
+    let body_area = Rect {
+        y: text_area.y.saturating_add(prefix_height),
+        height: text_area.height.saturating_sub(prefix_height),
+        ..text_area
+    };
+    let clip = viewport_clip(
+        app,
+        offset.saturating_sub(prefix_rows),
+        body_area.height,
+        &tail,
+        text_area.width,
+    );
+    let paragraph = Paragraph::new(Text::from(clip.lines))
+        .scroll((clip.local_offset, 0))
+        .wrap(Wrap { trim: false });
+    f.render_widget(paragraph, body_area);
+
+    // 只在最右侧热区或拖拽中显示；显隐不改变正文宽度。
+    let popup_active = app.is_interaction_popup_active();
+    let ui = &mut app.session_mgr.current_mut().ui;
+    ui.message_scrollbar_area = needs_scrollbar
+        .then(|| Rect::new(inner.right().saturating_sub(1), inner.y, 1, inner.height));
+    let scrollbar_active = !popup_active
+        && (ui.scrollbar_hover
+            || ui.message_scrollbar_dragging
+            || !crate::conpty::hover_available());
+    let metrics = render_message_scrollbar(f, inner, max_scroll, offset, scrollbar_active);
+    let ui = &mut app.session_mgr.current_mut().ui;
+    ui.message_scrollbar_metrics = metrics;
+    if metrics.is_none() {
+        ui.message_scrollbar_dragging = false;
+        ui.message_scrollbar_drag_origin = None;
+    }
+}
+
+fn render_message_scrollbar(
+    f: &mut Frame,
+    area: Rect,
+    max_scroll: usize,
+    offset: usize,
+    active: bool,
+) -> Option<MessageScrollbarMetrics> {
+    if max_scroll == 0 || area.width == 0 || area.height == 0 || !active {
+        return None;
+    }
+
+    let bar_area = Rect {
+        x: area.right().saturating_sub(1),
+        y: area.y,
+        width: 1,
+        height: area.height,
+    };
+    let offset = offset.min(max_scroll);
+    let style = Style::default().fg(theme::cur().subtle);
+    let mut scrollbar_state = ScrollbarState::new(max_scroll.saturating_add(1)).position(offset);
+    f.render_stateful_widget(
+        unified_vertical_scrollbar().style(style),
+        area,
+        &mut scrollbar_state,
+    );
+
+    // 从本帧真实绘制的滑块获取命中区，避免复制 ratatui 的私有舍入公式。
+    let mut thumb_area = Rect::new(bar_area.x, bar_area.y, 1, 0);
+    for row in bar_area.y..bar_area.bottom() {
+        if f.buffer_mut()[(bar_area.x, row)].symbol() == "█" {
+            if thumb_area.height == 0 {
+                thumb_area.y = row;
+            }
+            thumb_area.height += 1;
+        }
+    }
+    Some(MessageScrollbarMetrics {
+        bar_area,
+        thumb_area,
+        max_offset: max_scroll,
+        up_btn_area: None,
+        down_btn_area: None,
+    })
+}
+
+/// 基于视口裁剪提取可见行。
+///
+/// 策略：
+/// 1. 从 RenderCache 的 wrap_map 用二分查找定位 [vis_start, vis_end) 视觉行范围
+///    对应的逻辑行 [first_visible, last_visible]
+/// 2. 只克隆这些逻辑行（O(visible) 而非 O(total)）
+/// 3. 计算局部滚动偏移（local_offset = vis_start - first_visible.visual_row_start）
+/// 4. 检查 spinner 行是否在视口范围内（spinner 在底部，visual 行号 > cache.total_lines）
+/// 5. 如果有文本选区，在裁剪后的行上做高亮
+fn viewport_clip(
+    app: &App,
+    offset: usize,
+    visible_height: u16,
+    tail: &[Line<'static>],
+    width: u16,
+) -> ViewportClip {
+    // ── 阶段 1：从 cache 提取可见行（cache guard 在 block 结束时 drop） ──
+    let (mut lines, mut local_offset, first_idx, total_lines) = {
+        let cache = app.session_mgr.current().messages.render_cache.read();
+
+        let vis_start = offset;
+        // +1 给 wrap 行留余量
+        let vis_end = (offset + visible_height as usize + 1).min(cache.total_lines);
+
+        // wrap_map 按 visual_row_start 升序排列
+        // 二分找第一个 visual_row_end > vis_start 的行（即首个与视口相交的行）
+        let first_visible = cache
+            .wrap_map
+            .partition_point(|info| info.visual_row_end <= vis_start);
+        // 二分找最后一个 visual_row_start < vis_end 的行
+        let last_visible = cache
+            .wrap_map
+            .partition_point(|info| info.visual_row_start < vis_end)
+            .saturating_sub(1);
+
+        let total_lines = if app.session_mgr.current().current_view_messages().is_empty() {
+            0
+        } else {
+            cache.total_lines
+        };
+
+        let (lines, local_offset, first_idx) = if total_lines > 0
+            && first_visible < cache.wrap_map.len()
+            && first_visible <= last_visible
+        {
+            let first_visual = cache.wrap_map[first_visible].visual_row_start;
+            let local_offset = vis_start
+                .saturating_sub(first_visual)
+                .min(u16::MAX as usize) as u16;
+            let lines = cache.lines[first_visible..=last_visible].to_vec();
+            (lines, local_offset, first_visible)
+        } else {
+            // 空内容或视口超出范围
+            (Vec::new(), 0u16, cache.lines.len())
+        };
+
+        (lines, local_offset, first_idx, total_lines)
+    }; // cache guard dropped here
+
+    // 附属区域也按实际换行裁剪；单独浏览尾部时不从第一行重复渲染。
+    let tail_offset = offset.saturating_sub(total_lines);
+    let mut tail_row = 0;
+    for line in tail {
+        let height = visual_line_count(std::slice::from_ref(line), width);
+        if tail_row + height > tail_offset {
+            if lines.is_empty() {
+                local_offset = tail_offset.saturating_sub(tail_row).min(u16::MAX as usize) as u16;
+            }
+            lines.push(line.clone());
+        }
+        tail_row += height;
+    }
+
+    // ── 阶段 3：字符级选区高亮（需要再次读 cache 获取 wrap_map） ──
+    // 只在裁剪后的可见行上做高亮（减少工作量）
+    if app.session_mgr.current().ui.text_selection.is_active() {
+        let ts = &app.session_mgr.current().ui.text_selection;
+        if let (Some(start), Some(end)) = (ts.start, ts.end) {
+            let cache = app.session_mgr.current().messages.render_cache.read();
+            let wrap_map = &cache.wrap_map;
+            let usable_width = app
+                .session_mgr
+                .current()
+                .ui
+                .messages_area
+                .map(|a| a.width)
+                .unwrap_or(0);
+
+            let ((sr, sc), (er, ec)) = if start <= end {
+                (start, end)
+            } else {
+                (end, start)
+            };
+            let logical_start =
+                crate::app::text_selection::visual_to_logical(sr, sc, wrap_map, usable_width);
+            let logical_end =
+                crate::app::text_selection::visual_to_logical(er, ec, wrap_map, usable_width);
+
+            if let (Some((start_line, start_char)), Some((end_line, end_char))) =
+                (logical_start, logical_end)
+            {
+                // lines 中的第 i 行对应 cache.lines 中的 first_idx + i
+                // 只处理 [start_line, end_line] ∩ [first_idx, first_idx + lines.len()) 的行
+                let clip_start = start_line.max(first_idx);
+                let clip_end = end_line.min(first_idx + lines.len().saturating_sub(1));
+
+                for line_idx in clip_start..=clip_end {
+                    let local_idx = line_idx - first_idx;
+                    let (cs, ce) = if line_idx == start_line && line_idx == end_line {
+                        (start_char, end_char)
+                    } else if line_idx == start_line {
+                        (start_char, usize::MAX)
+                    } else if line_idx == end_line {
+                        (0, end_char)
+                    } else {
+                        (0, usize::MAX)
+                    };
+                    let spans = std::mem::take(&mut lines[local_idx].spans);
+                    lines[local_idx] = Line::from(highlight_line_spans(spans, cs, ce));
+                }
+            }
+        }
+    }
+
+    ViewportClip {
+        lines,
+        local_offset,
+    }
+}
+
+/// 测量与绘制共用同一组可见附属行，隐藏推理和折叠正文不占高度。
+pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
     // 计算 loading spinner 行（CC 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
     // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
     let spinner_line: Option<Line<'static>> = if app.session_mgr.current().viewport_loading() {
@@ -252,320 +565,91 @@ pub(crate) fn render_messages(
         None
     };
 
-    let spinner_extra: u16 =
-        if spinner_line.is_some() || app.session_mgr.current().latest_recap.is_some() {
-            spinner_extra_count(app)
-        } else {
-            0
-        };
-    let visual_total = {
-        let cache = app.session_mgr.current().messages.render_cache.read();
-        cache.total_lines.saturating_add(spinner_extra as usize)
-    };
-    let needs_scrollbar = visual_total > visible_height as usize && inner.width > 1;
-    let text_area = if needs_scrollbar {
-        Rect {
-            width: inner.width.saturating_sub(1),
-            ..inner
-        }
-    } else {
-        inner
-    };
-    app.session_mgr.current_mut().ui.messages_area = Some(text_area);
-
-    // 渲染驱动宽度同步：用 last_resize_width 去抖——宽度未变时跳过重复发送，
-    // 避免每秒 N 次 resize 事件导致渲染线程队列积压和 CPU 暴涨
-    // （参见 spec/issues/2026-05-14-streaming-resize-cpu-spike）。
-    {
-        let text_area_width = text_area.width;
-        let cache_width = app.session_mgr.current().messages.render_cache.read().width;
-        let last_resize = app.session_mgr.current().messages.last_resize_width;
-        if last_resize != Some(text_area_width)
-            && cache_width != text_area_width
-            && text_area_width > 0
-        {
-            app.session_mgr.current_mut().messages.last_resize_width = Some(text_area_width);
-            let _ = app
-                .session_mgr
-                .current_mut()
-                .messages
-                .render_tx
-                .try_send(RenderEvent::Resize(text_area_width));
-        }
-    }
-
-    // ── 从 RenderCache 读取并计算滚动参数 ──────────────────────────────────
-    let (min_scroll, max_scroll, offset) = {
-        let mut cache = app.session_mgr.current().messages.render_cache.write();
-
-        // 全屏 alternate screen 模式：无原生 scrollback，所有内容都在 TUI 视口内，
-        // base_visual 恒为 0。
-        let visual_total = cache.total_lines.saturating_add(spinner_extra as usize);
-        let min_scroll = 0;
-        let max_scroll = visual_total
-            .saturating_sub(visible_height as usize)
-            .max(min_scroll);
-        let scroll_follow = app.session_mgr.current().ui.scroll_follow;
-        let scroll_offset = app.session_mgr.current().ui.scroll_offset;
-        let scroll_anchor = cache.scroll_anchor.take();
-        let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
-        let (new_follow, off) = if dragging {
-            // dragging 期间跳过 follow/anchor 优先级，强制使用用户拖拽的 offset
-            let off = scroll_offset.clamp(min_scroll, max_scroll);
-            (off >= max_scroll, off)
-        } else if scroll_follow {
-            (true, max_scroll)
-        } else if let Some(anchor) = scroll_anchor {
-            let off = anchor.clamp(min_scroll, max_scroll);
-            let new_follow = off >= max_scroll;
-            (new_follow, off)
-        } else {
-            let off = scroll_offset.clamp(min_scroll, max_scroll);
-            let new_follow = off >= max_scroll;
-            (new_follow, off)
-        };
-
-        let version = cache.version;
-        drop(cache);
-
-        app.session_mgr.current_mut().messages.last_render_version = version;
-        app.session_mgr.current_mut().ui.scroll_follow = new_follow;
-        app.session_mgr.current_mut().ui.scroll_offset = off;
-        app.session_mgr.current_mut().ui.scrollbar_min_offset = min_scroll;
-        app.session_mgr.current_mut().ui.scrollbar_max_offset = max_scroll;
-
-        (min_scroll, max_scroll, off)
-    };
-
-    // 仅在当前 TUI 尾部仍可滚动时显示 sticky header
-    if max_scroll > min_scroll {
-        sticky_header::render_sticky_header(f, app, header_area);
-    }
-
-    // ── 视口裁剪 ──────────────────────────────────────────────────────────
-    // 利用 wrap_map 定位可见的逻辑行范围，只传递视口内的行给 Paragraph，
-    // 避免 ratatui Paragraph::render 内部 O(offset) 的 WordWrapper 遍历导致 CPU 暴涨。
-    // （ratatui 即使设了 scroll(offset)，仍会对 offset 之前的所有行做 grapheme 分割 + wrap 计算）
-    let clip = viewport_clip(app, offset, visible_height, &spinner_line);
-
-    // 先用 Clear 清空整个 messages_area：Paragraph 不填满 area 时未覆盖 cell 会保留旧值，
-    // 最终经 diff 输出到终端造成渲染残留。清空后 Paragraph 只渲染有效行、剩余为空格，
-    // 确保每帧 viewport 区域 buffer 正确。
-    f.render_widget(Clear, inner);
-    let paragraph = Paragraph::new(Text::from(clip.lines))
-        .scroll((clip.local_offset, 0))
-        .wrap(Wrap { trim: false });
-    f.render_widget(paragraph, text_area);
-
-    // 只在最右侧热区或拖拽中显示；显隐不改变正文宽度。
-    let popup_active = app.is_interaction_popup_active();
-    let ui = &mut app.session_mgr.current_mut().ui;
-    ui.message_scrollbar_area = needs_scrollbar
-        .then(|| Rect::new(inner.right().saturating_sub(1), inner.y, 1, inner.height));
-    let scrollbar_active = !popup_active
-        && (ui.scrollbar_hover
-            || ui.message_scrollbar_dragging
-            || !crate::conpty::hover_available());
-    let metrics = render_message_scrollbar(f, inner, max_scroll, offset, scrollbar_active);
-    let ui = &mut app.session_mgr.current_mut().ui;
-    ui.message_scrollbar_metrics = metrics;
-    if metrics.is_none() {
-        ui.message_scrollbar_dragging = false;
-        ui.message_scrollbar_drag_origin = None;
-    }
+    supplementary_lines(app, &spinner_line)
 }
 
-fn render_message_scrollbar(
-    f: &mut Frame,
-    area: Rect,
-    max_scroll: usize,
-    offset: usize,
-    active: bool,
-) -> Option<MessageScrollbarMetrics> {
-    if max_scroll == 0 || area.width == 0 || area.height == 0 || !active {
-        return None;
-    }
-
-    let bar_area = Rect {
-        x: area.right().saturating_sub(1),
-        y: area.y,
-        width: 1,
-        height: area.height,
-    };
-    let offset = offset.min(max_scroll);
-    let style = Style::default().fg(theme::cur().subtle);
-    let mut scrollbar_state = ScrollbarState::new(max_scroll.saturating_add(1)).position(offset);
-    f.render_stateful_widget(
-        unified_vertical_scrollbar().style(style),
-        area,
-        &mut scrollbar_state,
-    );
-
-    // 从本帧真实绘制的滑块获取命中区，避免复制 ratatui 的私有舍入公式。
-    let mut thumb_area = Rect::new(bar_area.x, bar_area.y, 1, 0);
-    for row in bar_area.y..bar_area.bottom() {
-        if f.buffer_mut()[(bar_area.x, row)].symbol() == "█" {
-            if thumb_area.height == 0 {
-                thumb_area.y = row;
-            }
-            thumb_area.height += 1;
-        }
-    }
-    Some(MessageScrollbarMetrics {
-        bar_area,
-        thumb_area,
-        max_offset: max_scroll,
-        up_btn_area: None,
-        down_btn_area: None,
-    })
-}
-
-/// 基于视口裁剪提取可见行。
-///
-/// 策略：
-/// 1. 从 RenderCache 的 wrap_map 用二分查找定位 [vis_start, vis_end) 视觉行范围
-///    对应的逻辑行 [first_visible, last_visible]
-/// 2. 只克隆这些逻辑行（O(visible) 而非 O(total)）
-/// 3. 计算局部滚动偏移（local_offset = vis_start - first_visible.visual_row_start）
-/// 4. 检查 spinner 行是否在视口范围内（spinner 在底部，visual 行号 > cache.total_lines）
-/// 5. 如果有文本选区，在裁剪后的行上做高亮
-fn viewport_clip(
-    app: &App,
-    offset: usize,
-    visible_height: u16,
-    spinner_line: &Option<Line<'static>>,
-) -> ViewportClip {
-    // ── 阶段 1：从 cache 提取可见行（cache guard 在 block 结束时 drop） ──
-    let (mut lines, local_offset, first_idx, total_lines) = {
-        let cache = app.session_mgr.current().messages.render_cache.read();
-
-        let vis_start = offset;
-        // +1 给 wrap 行留余量
-        let vis_end = (offset + visible_height as usize + 1).min(cache.total_lines);
-
-        // wrap_map 按 visual_row_start 升序排列
-        // 二分找第一个 visual_row_end > vis_start 的行（即首个与视口相交的行）
-        let first_visible = cache
-            .wrap_map
-            .partition_point(|info| info.visual_row_end <= vis_start);
-        // 二分找最后一个 visual_row_start < vis_end 的行
-        let last_visible = cache
-            .wrap_map
-            .partition_point(|info| info.visual_row_start < vis_end)
-            .saturating_sub(1);
-
-        let total_lines = cache.total_lines;
-
-        let (lines, local_offset, first_idx) =
-            if first_visible < cache.wrap_map.len() && first_visible <= last_visible {
-                let first_visual = cache.wrap_map[first_visible].visual_row_start;
-                let local_offset = vis_start
-                    .saturating_sub(first_visual)
-                    .min(u16::MAX as usize) as u16;
-                let lines = cache.lines[first_visible..=last_visible].to_vec();
-                (lines, local_offset, first_visible)
-            } else {
-                // 空内容或视口超出范围
-                (Vec::new(), 0u16, cache.lines.len())
-            };
-
-        (lines, local_offset, first_idx, total_lines)
-    }; // cache guard dropped here
-
-    // ── 阶段 2：Spinner 行追加（无需 cache） ──
-    // spinner 行在视觉上排在 cache.total_lines 之后。
-    // 检查视口是否覆盖到 spinner 区域
+fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
     if let Some(line) = spinner_line {
-        let spinner_visual_start = total_lines;
-        let spinner_extra = spinner_extra_count(app);
-        let spinner_visual_end = spinner_visual_start + spinner_extra as usize;
-        let vis_start = offset;
-        // 视口底边不截断到 total_lines——spinner 在 total_lines 之外，
-        // 必须用完整的视口范围才能正确检测交集
-        let viewport_bottom = offset + visible_height as usize;
-
-        // 视口与 spinner 区域有交集
-        if vis_start < spinner_visual_end && viewport_bottom > spinner_visual_start {
-            // 追加 spinner 分隔空行 + spinner line
-            lines.push(Line::from(""));
-            lines.push(line.clone());
-            // Tip + TODO
-            if app.session_mgr.current().viewport_loading() {
-                // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
-                // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
-                let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
-                if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("  ⎿  {label}: "),
+        // 追加 spinner 分隔空行 + spinner line
+        lines.push(Line::from(""));
+        lines.push(line.clone());
+        // Tip + TODO
+        if app.session_mgr.current().viewport_loading() {
+            // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
+            // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
+            let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
+            if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  ⎿  {label}: "),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
+                    Span::styled(text, Style::default().fg(theme::cur().inactive)),
+                ]));
+            }
+            if app.session_mgr.current().active_subagent().is_none()
+                && !app.session_mgr.current().todo_items.is_empty()
+            {
+                lines.push(Line::from(""));
+                let todos = &app.session_mgr.current().todo_items;
+                let visible_count = todos.len().min(MAX_VISIBLE_TODOS);
+                for item in &todos[..visible_count] {
+                    let (icon, icon_style, text_style) = match item.status {
+                        TodoStatus::InProgress => (
+                            "  ◼  ",
+                            Style::default()
+                                .fg(theme::cur().claude)
+                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(theme::cur().text),
+                        ),
+                        TodoStatus::Completed => (
+                            "  ✔  ",
+                            Style::default().fg(theme::cur().success),
+                            Style::default()
+                                .fg(theme::cur().inactive)
+                                .add_modifier(Modifier::CROSSED_OUT),
+                        ),
+                        TodoStatus::Pending => (
+                            "  ◻  ",
+                            Style::default().fg(theme::cur().inactive),
                             Style::default().fg(theme::cur().inactive),
                         ),
-                        Span::styled(text, Style::default().fg(theme::cur().inactive)),
-                    ]));
-                }
-                if app.session_mgr.current().active_subagent().is_none()
-                    && !app.session_mgr.current().todo_items.is_empty()
-                {
-                    lines.push(Line::from(""));
-                    let todos = &app.session_mgr.current().todo_items;
-                    let visible_count = todos.len().min(MAX_VISIBLE_TODOS);
-                    for item in &todos[..visible_count] {
-                        let (icon, icon_style, text_style) = match item.status {
-                            TodoStatus::InProgress => (
-                                "  ◼  ",
-                                Style::default()
-                                    .fg(theme::cur().claude)
-                                    .add_modifier(Modifier::BOLD),
-                                Style::default().fg(theme::cur().text),
-                            ),
-                            TodoStatus::Completed => (
-                                "  ✔  ",
-                                Style::default().fg(theme::cur().success),
-                                Style::default()
-                                    .fg(theme::cur().inactive)
-                                    .add_modifier(Modifier::CROSSED_OUT),
-                            ),
-                            TodoStatus::Pending => (
-                                "  ◻  ",
-                                Style::default().fg(theme::cur().inactive),
-                                Style::default().fg(theme::cur().inactive),
-                            ),
-                        };
-                        let hint = match item.status {
-                            TodoStatus::Pending => Some("可开始"),
-                            _ => None,
-                        };
-                        let mut spans = vec![
-                            Span::styled(icon, icon_style),
-                            Span::styled(item.content.clone(), text_style),
-                        ];
-                        if let Some(hint) = hint {
-                            spans.push(Span::styled(
-                                format!(" ({hint})"),
-                                Style::default().fg(theme::cur().inactive),
-                            ));
-                        }
-                        lines.push(Line::from(spans));
-                    }
-                    if todos.len() > MAX_VISIBLE_TODOS {
-                        let summary = format_hidden_todos_summary(&todos[MAX_VISIBLE_TODOS..]);
-                        lines.push(Line::from(Span::styled(
-                            summary,
+                    };
+                    let hint = match item.status {
+                        TodoStatus::Pending => Some("可开始"),
+                        _ => None,
+                    };
+                    let mut spans = vec![
+                        Span::styled(icon, icon_style),
+                        Span::styled(item.content.clone(), text_style),
+                    ];
+                    if let Some(hint) = hint {
+                        spans.push(Span::styled(
+                            format!(" ({hint})"),
                             Style::default().fg(theme::cur().inactive),
-                        )));
+                        ));
                     }
+                    lines.push(Line::from(spans));
                 }
-                lines.push(Line::from(""));
-            } else {
-                // 非 loading（Brewed/Cogitated 总结行）：
-                // 空行分隔后展示 recap 行，避免与总结行贴死
-                if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
-                    lines.push(Line::from(""));
-                    lines.push(render_recap_line(recap_text, &app.services.lc));
+                if todos.len() > MAX_VISIBLE_TODOS {
+                    let summary = format_hidden_todos_summary(&todos[MAX_VISIBLE_TODOS..]);
+                    lines.push(Line::from(Span::styled(
+                        summary,
+                        Style::default().fg(theme::cur().inactive),
+                    )));
                 }
-                // 1 个 trailing 空行作为呼吸空间
-                lines.push(Line::from(""));
             }
+            lines.push(Line::from(""));
+        } else {
+            // 非 loading（Brewed/Cogitated 总结行）：
+            // 空行分隔后展示 recap 行，避免与总结行贴死
+            if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
+                lines.push(Line::from(""));
+                lines.push(render_recap_line(recap_text, &app.services.lc));
+            }
+            // 1 个 trailing 空行作为呼吸空间
+            lines.push(Line::from(""));
         }
     } else if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
         lines.push(Line::from(""));
@@ -573,64 +657,20 @@ fn viewport_clip(
         lines.push(Line::from(""));
     }
 
-    // ── 阶段 3：字符级选区高亮（需要再次读 cache 获取 wrap_map） ──
-    // 只在裁剪后的可见行上做高亮（减少工作量）
-    if app.session_mgr.current().ui.text_selection.is_active() {
-        let ts = &app.session_mgr.current().ui.text_selection;
-        if let (Some(start), Some(end)) = (ts.start, ts.end) {
-            let cache = app.session_mgr.current().messages.render_cache.read();
-            let wrap_map = &cache.wrap_map;
-            let usable_width = app
-                .session_mgr
-                .current()
-                .ui
-                .messages_area
-                .map(|a| a.width)
-                .unwrap_or(0);
+    lines
+}
 
-            let ((sr, sc), (er, ec)) = if start <= end {
-                (start, end)
-            } else {
-                (end, start)
-            };
-            let logical_start =
-                crate::app::text_selection::visual_to_logical(sr, sc, wrap_map, usable_width);
-            let logical_end =
-                crate::app::text_selection::visual_to_logical(er, ec, wrap_map, usable_width);
-
-            if let (Some((start_line, start_char)), Some((end_line, end_char))) =
-                (logical_start, logical_end)
-            {
-                // lines 中的第 i 行对应 cache.lines 中的 first_idx + i
-                // 只处理 [start_line, end_line] ∩ [first_idx, first_idx + lines.len()) 的行
-                let clip_start = start_line.max(first_idx);
-                let clip_end = end_line.min(first_idx + lines.len().saturating_sub(1));
-
-                for line_idx in clip_start..=clip_end {
-                    let local_idx = line_idx - first_idx;
-                    let (cs, ce) = if line_idx == start_line && line_idx == end_line {
-                        (start_char, end_char)
-                    } else if line_idx == start_line {
-                        (start_char, usize::MAX)
-                    } else if line_idx == end_line {
-                        (0, end_char)
-                    } else {
-                        (0, usize::MAX)
-                    };
-                    let spans = std::mem::take(&mut lines[local_idx].spans);
-                    lines[local_idx] = Line::from(highlight_line_spans(spans, cs, ce));
-                }
-            }
-        }
+pub(super) fn visual_line_count(lines: &[Line<'static>], width: u16) -> usize {
+    if lines.is_empty() || width == 0 {
+        return 0;
     }
-
-    ViewportClip {
-        lines,
-        local_offset,
-    }
+    Paragraph::new(Text::from(lines.to_vec()))
+        .wrap(Wrap { trim: false })
+        .line_count(width)
 }
 
 /// 计算 spinner 区域的额外逻辑行数
+#[cfg(test)]
 fn spinner_extra_count(app: &App) -> u16 {
     let has_recap = app.session_mgr.current().latest_recap.is_some();
     // recap 与总结行之间有一个分隔空行，故占 2 行

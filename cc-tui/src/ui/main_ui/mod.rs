@@ -7,6 +7,8 @@ mod queued_messages;
 mod status_bar;
 pub(crate) use status_bar::{format_token_count, truncate_spans_to_width};
 mod sticky_header;
+mod viewport_layout;
+pub use viewport_layout::{prepare_width, required_rows};
 
 pub(crate) use message_area::highlight_line_spans;
 
@@ -51,27 +53,22 @@ pub fn render(f: &mut Frame, app: &mut App) {
 fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(Clear, area);
 
-    // 动态输入框高度
-    let line_count = app.session_mgr.current_mut().ui.textarea.lines().len() as u16;
-    let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
-
-    let queued_height = queued_messages::height(app);
-
-    // 附件栏高度
-    let attachment_height: u16 = if app
-        .session_mgr
-        .current_mut()
-        .metadata
-        .pending_attachments
-        .is_empty()
-    {
-        0
-    } else {
-        3
-    };
-
-    // 底部展开区高度
-    let panel_height = active_panel_height(app, area.height, area.width);
+    let terminal_height = app.global_ui.viewport.terminal_size.height;
+    let terminal_area = Rect::new(
+        0,
+        0,
+        area.width,
+        if terminal_height == 0 {
+            area.height
+        } else {
+            terminal_height
+        },
+    );
+    let heights = viewport_layout::BottomHeights::measure(app, terminal_area);
+    let input_height = heights.input;
+    let queued_height = heights.queued;
+    let attachment_height = heights.attachment;
+    let panel_height = heights.panel;
 
     // Sticky header 高度（已注释禁用：鸡肋功能，高度固定为 0 不渲染）
     let sticky_header_height: u16 = 0;
@@ -88,9 +85,9 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     //     })
     //     .unwrap_or(0);
 
-    let status_bar_height = status_bar::status_bar_height(app);
+    let status_bar_height = heights.status;
 
-    let bg_bar_height_val = bg_agent_bar::bg_bar_height(app, area.height);
+    let bg_bar_height_val = heights.background;
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -124,10 +121,12 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             let msg_area = chunks[1];
             if msg_area.height > 0 && text_width > 0 {
                 // scrollbar 占据最右 1 列，toast 需左移避让
-                let has_scrollbar = {
-                    let cache = app.session_mgr.current().messages.render_cache.read();
-                    cache.total_lines > msg_area.height as usize && msg_area.width > 1
-                };
+                let has_scrollbar = app
+                    .session_mgr
+                    .current()
+                    .ui
+                    .message_scrollbar_area
+                    .is_some();
                 let scrollbar_col: u16 = if has_scrollbar { 1 } else { 0 };
                 let y = msg_area.y + msg_area.height - 1;
                 let avail_width = msg_area.width.saturating_sub(scrollbar_col);
@@ -309,7 +308,9 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let loading = app.session_mgr.current_mut().ui.loading;
     let (prompt, prompt_style) = textarea_prompt(shell_mode, loading);
-    f.render_widget(Paragraph::new(prompt).style(prompt_style), prompt_area);
+    if chunks[5].height >= 2 {
+        f.render_widget(Paragraph::new(prompt).style(prompt_style), prompt_area);
+    }
 
     // 统一命令/Skills 提示条 或 @ 提及弹窗（互斥）
     if app.session_mgr.current_mut().ui.at_mention.active {

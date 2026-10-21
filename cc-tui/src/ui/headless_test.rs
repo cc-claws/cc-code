@@ -587,7 +587,7 @@ async fn test_welcome_card_renders_when_empty() {
 }
 
 #[tokio::test]
-async fn test_welcome_card_hidden_after_message() {
+async fn test_welcome_message_renders_without_legacy_features() {
     use cc_agent::messages::BaseMessage;
 
     let (mut app, mut handle) = App::new_headless(120, 30).await;
@@ -613,7 +613,7 @@ async fn test_welcome_card_hidden_after_message() {
     let snap_text = snap.join("\n");
     assert!(
         !snap_text.contains("What can I do?"),
-        "有消息后 Welcome Card 应消失，但仍有 welcome 内容，实际:\n{}",
+        "消息区域不应再展示旧功能列表，实际:\n{}",
         snap_text
     );
     assert!(
@@ -642,6 +642,47 @@ async fn test_welcome_card_narrow_screen() {
     assert!(
         snap_text.contains("CC Code"),
         "窄屏应显示文字版标题 'CC Code'，实际:\n{}",
+        snap_text
+    );
+}
+
+/// 宽屏欢迎卡保留小型吉祥物。
+#[tokio::test]
+async fn test_welcome_mascot_renders_when_wide_enough() {
+    let (mut app, mut handle) = App::new_headless(120, 40).await;
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
+    let snap = handle.snapshot();
+    let snap_text = snap.join("\n");
+    // 吉祥物用半块字符绘制，正文里只有它会出现连续的 ▀
+    assert!(
+        snap_text.contains("▀▀▀▀"),
+        "高终端下 Welcome Card 应显示吉祥物，实际:\n{}",
+        snap_text
+    );
+}
+
+/// 窄屏省略吉祥物，给主要内容保留宽度。
+#[tokio::test]
+async fn test_welcome_mascot_skipped_when_narrow() {
+    let (mut app, mut handle) = App::new_headless(40, 22).await;
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
+    let snap = handle.snapshot();
+    let snap_text = snap.join("\n");
+    assert!(
+        !snap_text.contains("▀▀▀▀"),
+        "窄终端下不应显示吉祥物，实际:\n{}",
+        snap_text
+    );
+    // 关键信息不能因为吉祥物而丢失
+    assert!(
+        snap_text.contains("/help"),
+        "窄终端下命令提示必须保留，实际:\n{}",
         snap_text
     );
 }
@@ -1880,7 +1921,7 @@ async fn test_enter_known_command_no_skill_fallback() {
 // ── Input Placeholder Hint ──────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_textarea_shows_placeholder_hint() {
+async fn test_empty_textarea_keeps_start_hint_in_welcome() {
     let (mut app, mut handle) = App::new_headless(120, 30).await;
     handle
         .terminal
@@ -1889,16 +1930,21 @@ async fn test_textarea_shows_placeholder_hint() {
     let snap = handle.snapshot();
     let snap_text = snap.join("\n");
     assert!(
-        snap_text.contains("Shift+Enter") || snap_text.contains("输入消息"),
-        "输入框应显示占位提示（含 Shift+Enter 换行），实际:\n{}",
+        snap_text.contains("/help"),
+        "紧凑欢迎卡应提供开始使用提示，实际:\n{}",
         snap_text
+    );
+    assert_eq!(
+        app.session_mgr.current().ui.textarea.lines(),
+        [""],
+        "使用提示不能写入草稿"
     );
 }
 
-// ── Welcome Card Alt+Enter Hint ─────────────────────────────────────────
+// ── Welcome Card 使用提示 ───────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_welcome_card_shows_alt_enter_hint() {
+async fn test_welcome_card_shows_start_hint() {
     let (mut app, mut handle) = App::new_headless(120, 30).await;
     handle
         .terminal
@@ -1907,8 +1953,8 @@ async fn test_welcome_card_shows_alt_enter_hint() {
     let snap = handle.snapshot();
     let snap_text = snap.join("\n");
     assert!(
-        snap_text.contains("Shift+Enter"),
-        "Welcome Card 应显示 Shift+Enter 快捷键提示，实际:\n{}",
+        snap_text.contains("/help"),
+        "Welcome Card 应显示 /help 使用提示，实际:\n{}",
         snap_text
     );
 }
@@ -2209,20 +2255,20 @@ async fn test_login_select_provider_shows_feedback() {
 
 // ─── Design Review 第24轮：Welcome Card 模型信息 + Thread Browser 消息数 ────
 
-/// Welcome Card 应显示当前 Provider/Model 信息
+/// 欢迎卡使用实际包版本，模型信息继续由状态栏负责。
 #[tokio::test]
-async fn test_welcome_shows_model_info() {
+async fn test_welcome_shows_actual_version() {
     let (mut app, mut handle) = App::new_headless(120, 30).await;
-    // App 默认有 provider_name="test" 和 model_name="test-model"
+    // 版本号应来自当前构建包。
     handle
         .terminal
         .draw(|f| main_ui::render(f, &mut app))
         .unwrap();
     let snap = handle.snapshot().join("\n");
-    // 验证 Welcome Card 包含 provider/model 信息
+    // 验证紧凑标题显示真实版本。
     assert!(
-        snap.contains("test / test-model"),
-        "Welcome Card 应显示 Provider/Model 信息，实际:\n{}",
+        snap.contains(&format!("CC Code  v{}", env!("CARGO_PKG_VERSION"))),
+        "Welcome Card 应显示真实版本，实际:\n{}",
         snap
     );
 }

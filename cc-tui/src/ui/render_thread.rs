@@ -109,6 +109,8 @@ pub enum RenderEvent {
     },
     /// 终端宽度变化，渲染线程自动用 last_messages 重建
     Resize(u16),
+    /// 重排完成后通知 UI；增长视口必须先取得新宽度的实际行数才能判断触底。
+    ResizeAndWait(u16, tokio::sync::oneshot::Sender<()>),
     /// 清空所有消息
     Clear,
     /// 切换工具调用消息的显示状态
@@ -979,6 +981,29 @@ impl RenderTask {
         })
     }
 
+    fn resize(&mut self, new_width: u16) {
+        if self.width == new_width && self.cache.read().width == new_width {
+            return;
+        }
+        self.width = new_width;
+        // 清空 hash 缓存，强制全量重渲染
+        self.message_hashes.clear();
+        // #626：宽度变化使双变体与 wrap 分段缓存全部失效
+        self.alt_lines.clear();
+        self.alt_links.clear();
+        self.alt_keys.clear();
+        self.alt_epochs.clear();
+        self.wrap_segs = [Vec::new(), Vec::new()];
+        // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
+        if !self.last_messages.is_empty() {
+            let messages = std::mem::take(&mut self.last_messages);
+            self.rebuild_safe(messages);
+        }
+        if self.last_messages.is_empty() {
+            self.cache.write().width = new_width;
+        }
+    }
+
     fn handle_event(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
         match event {
             RenderEvent::Rebuild(messages) => {
@@ -1007,25 +1032,25 @@ impl RenderTask {
                 }
             }
             RenderEvent::Resize(new_width) => {
-                self.width = new_width;
-                // Drain coalesce：拖动 resize 时可能积压多个 Resize 事件，
-                // 合并为一个最终宽度，避免连续多次全量重建导致 CPU 暴涨
-                while let Ok(RenderEvent::Resize(w)) = rx.try_recv() {
-                    self.width = w;
+                let mut width = new_width;
+                let mut pending = None;
+                while let Ok(next) = rx.try_recv() {
+                    if let RenderEvent::Resize(next_width) = next {
+                        width = next_width;
+                    } else {
+                        pending = Some(next);
+                        break;
+                    }
                 }
-                // 清空 hash 缓存，强制全量重渲染
-                self.message_hashes.clear();
-                // #626：宽度变化使双变体与 wrap 分段缓存全部失效
-                self.alt_lines.clear();
-                self.alt_links.clear();
-                self.alt_keys.clear();
-                self.alt_epochs.clear();
-                self.wrap_segs = [Vec::new(), Vec::new()];
-                // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
-                if !self.last_messages.is_empty() {
-                    let messages = std::mem::take(&mut self.last_messages);
-                    self.rebuild_safe(messages);
+                self.resize(width);
+                // 合并 resize 不能吞掉紧邻的 Rebuild、Clear 或等待完成的屏障。
+                if let Some(next) = pending {
+                    self.handle_event(next, rx);
                 }
+            }
+            RenderEvent::ResizeAndWait(new_width, done) => {
+                self.resize(new_width);
+                let _ = done.send(());
             }
             RenderEvent::Clear => {
                 self.message_lines.clear();
@@ -1086,8 +1111,11 @@ impl RenderTask {
                         let Some(event) = event else {
                             break;
                         };
+                        let width_barrier = matches!(event, RenderEvent::ResizeAndWait(..));
                         self.handle_event(event, &mut rx);
-                        self.notify.notify_one();
+                        if !width_barrier {
+                            self.notify.notify_one();
+                        }
                     }
                     _ = tokio::time::sleep(TOOL_INDICATOR_TICK_INTERVAL) => {
                         if self.refresh_running_tool_indicators(current_tool_indicator_tick()) {
@@ -1099,8 +1127,11 @@ impl RenderTask {
                 let Some(event) = rx.recv().await else {
                     break;
                 };
+                let width_barrier = matches!(event, RenderEvent::ResizeAndWait(..));
                 self.handle_event(event, &mut rx);
-                self.notify.notify_one();
+                if !width_barrier {
+                    self.notify.notify_one();
+                }
             }
         }
     }

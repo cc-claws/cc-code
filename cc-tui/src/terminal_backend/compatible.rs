@@ -23,6 +23,7 @@ pub struct WidthSafeBackend<B, P> {
     pub(super) inner: B,
     probe: P,
     symbols: HashMap<String, Option<String>>,
+    clear_owned_lines_only: bool,
 }
 
 impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
@@ -31,7 +32,14 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
             inner,
             probe,
             symbols: HashMap::new(),
+            clear_owned_lines_only: false,
         }
+    }
+
+    /// Fixed 视口的 ratatui clear 会按行发送 AfterCursor；限制为当前行，
+    /// 避免清除增长视口下方不属于应用的正常屏区域。
+    pub fn clear_owned_lines_only(&mut self) {
+        self.clear_owned_lines_only = true;
     }
 
     /// The caller must clear/redraw the terminal if previously drawn glyphs changed width.
@@ -170,6 +178,11 @@ impl<B: Backend, P: WidthProbe> Backend for WidthSafeBackend<B, P> {
     }
 
     fn clear_region(&mut self, clear_type: ClearType) -> Result<(), Self::Error> {
+        let clear_type = if self.clear_owned_lines_only && clear_type == ClearType::AfterCursor {
+            ClearType::UntilNewLine
+        } else {
+            clear_type
+        };
         self.inner.clear_region(clear_type)
     }
 

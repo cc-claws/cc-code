@@ -28,6 +28,10 @@ mod paste_boundary_test;
 #[path = "hover_test.rs"]
 mod hover_test;
 
+#[cfg(test)]
+#[path = "welcome_prefix_test.rs"]
+mod welcome_prefix_test;
+
 #[cfg(all(test, windows))]
 #[path = "hover_console_test.rs"]
 mod hover_console_test;
@@ -698,6 +702,8 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 let scroll_offset = app.session_mgr.current().ui.scroll_offset;
                                 let visual_row =
                                     usize::from(mouse.row - area.y).saturating_add(scroll_offset);
+                                let message_row = visual_row
+                                    .checked_sub(app.session_mgr.current().ui.message_prefix_rows);
                                 let cache_total = app
                                     .session_mgr
                                     .current()
@@ -706,10 +712,12 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     .read()
                                     .total_lines;
                                 let ui = &mut app.session_mgr.current_mut().ui;
-                                if visual_row < cache_total {
+                                if let Some(message_row) =
+                                    message_row.filter(|row| *row < cache_total)
+                                {
                                     // 消息行：TextSelection 整行（内容锚定纯文本）
-                                    ui.text_selection.start_drag(visual_row, 0);
-                                    ui.text_selection.update_drag(visual_row, area.width);
+                                    ui.text_selection.start_drag(message_row, 0);
+                                    ui.text_selection.update_drag(message_row, area.width);
                                     ui.screen_selection.clear();
                                 } else {
                                     // spinner/总结行：ScreenSelection 整行（buffer）
@@ -868,6 +876,8 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 let scroll_offset = app.session_mgr.current().ui.scroll_offset;
                                 let visual_row =
                                     usize::from(mouse.row - area.y).saturating_add(scroll_offset);
+                                let message_row = visual_row
+                                    .checked_sub(app.session_mgr.current().ui.message_prefix_rows);
                                 let visual_col = mouse.column - area.x;
                                 let cache_total = app
                                     .session_mgr
@@ -876,10 +886,11 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     .render_cache
                                     .read()
                                     .total_lines;
-                                let use_text_selection = visual_row < cache_total;
                                 let ui = &mut app.session_mgr.current_mut().ui;
-                                if use_text_selection {
-                                    ui.text_selection.start_drag(visual_row, visual_col);
+                                if let Some(message_row) =
+                                    message_row.filter(|row| *row < cache_total)
+                                {
+                                    ui.text_selection.start_drag(message_row, visual_col);
                                     ui.screen_selection.clear();
                                 } else {
                                     ui.screen_selection.start_drag(mouse.row, mouse.column);
@@ -985,9 +996,16 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 ui.scroll_follow = false;
                             }
                             let scroll_offset = ui.scroll_offset;
-                            let visual_row = usize::from(mouse.row.saturating_sub(area.y))
+                            let global_row = usize::from(mouse.row.saturating_sub(area.y))
                                 .saturating_add(scroll_offset);
-                            let visual_col = mouse.column.saturating_sub(area.x);
+                            let (visual_row, visual_col) = if global_row < ui.message_prefix_rows {
+                                (0, 0)
+                            } else {
+                                (
+                                    global_row - ui.message_prefix_rows,
+                                    mouse.column.saturating_sub(area.x),
+                                )
+                            };
                             ui.text_selection.update_drag(visual_row, visual_col);
                         }
                     }

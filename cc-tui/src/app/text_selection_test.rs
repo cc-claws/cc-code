@@ -241,7 +241,47 @@ fn make_screen_snapshot(lines: &[&str]) -> ScreenSnapshot {
         symbols,
         width,
         height,
+        origin_row: 0,
+        origin_col: 0,
     }
+}
+
+#[test]
+fn test_screen_snapshot_extracts_absolute_coordinates_from_offset_viewport() {
+    let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(3, 7, 12, 2));
+    buffer.set_string(3, 7, "中文 hello", ratatui::style::Style::default());
+    buffer.set_string(3, 8, "second", ratatui::style::Style::default());
+    let snapshot = ScreenSnapshot::from_buffer(&buffer);
+    assert_eq!(snapshot.cell_symbol(6, 3), "", "视口上方没有应用内容");
+    assert_eq!(snapshot.cell_symbol(7, 3), "中");
+    assert_eq!(
+        extract_snapshot_text(&snapshot, (8, 3), (8, 8)),
+        Some("second".into())
+    );
+    assert_eq!(extract_snapshot_text(&snapshot, (0, 0), (6, 11)), None);
+}
+
+#[test]
+fn test_screen_snapshot_selection_crosses_viewport_edges() {
+    let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(3, 7, 6, 2));
+    buffer.set_string(3, 7, "first!", ratatui::style::Style::default());
+    buffer.set_string(3, 8, "second", ratatui::style::Style::default());
+    let snapshot = ScreenSnapshot::from_buffer(&buffer);
+    assert_eq!(
+        extract_snapshot_text(&snapshot, (7, 5), (10, 0)),
+        Some("rst!\nsecond".into()),
+        "终点在视口下方时，最后一行应整行复制"
+    );
+    assert_eq!(
+        extract_snapshot_text(&snapshot, (4, 8), (8, 5)),
+        Some("first!\nsec".into()),
+        "起点在视口上方时，第一行应整行复制"
+    );
+    assert_eq!(
+        extract_snapshot_text(&snapshot, (10, 0), (4, 8)),
+        Some("first!\nsecond".into()),
+        "反向拖选跨越上下边界时也应完整复制"
+    );
 }
 
 #[test]

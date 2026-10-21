@@ -60,11 +60,12 @@ fn tracking_sequence() -> &'static str {
 pub fn enable_mouse_tracking() -> Result<()> {
     #[cfg(windows)]
     {
+        // 输出重定向时不能修改进程级能力状态，先确认目标确实支持控制台 VT。
+        enable_vt_processing()?;
         HOVER_AVAILABLE.store(host::supports_hover(), Ordering::Relaxed);
         // 主修复：toggle MOUSE bit，强制 ConPTY 经 WriteSGR1006 通知前端。
         force_conpty_mouse_notify();
         // ANSI mouse tracking 序列（?1000/?1002/?1003/?1006）：开启点击/拖拽/悬停报告。
-        enable_vt_processing()?;
         write_console_sequence(tracking_sequence())?;
         // 启用 alternate scroll (?1007h)：实测 ConPTY 下它让滚轮作为
         // Mouse(ScrollUp/ScrollDown) 事件报告（而非被吞），滚轮经 mouse arm 正常

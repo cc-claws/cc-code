@@ -1,5 +1,31 @@
 use super::*;
 
+#[test]
+fn test_screen_selection_highlight_crosses_viewport_edges() {
+    use cc_tui::app::text_selection::ScreenSelection;
+    use ratatui::{buffer::Buffer, layout::Rect};
+    let area = Rect::new(3, 7, 6, 2);
+    for (start, end, first_column, last_column) in [((7, 5), (10, 0), 5, 8), ((4, 8), (8, 5), 3, 5)]
+    {
+        let mut buffer = Buffer::empty(area);
+        let selection = ScreenSelection {
+            start: Some(start),
+            end: Some(end),
+            ..Default::default()
+        };
+        apply_screen_selection_highlight(&mut buffer, &selection);
+        let selected = cc_tui::ui::theme::cur().selection_bg;
+        assert_eq!(buffer[(first_column, 7)].bg, selected);
+        assert_eq!(buffer[(last_column, 8)].bg, selected);
+        if first_column > area.x {
+            assert_ne!(buffer[(first_column - 1, 7)].bg, selected);
+        }
+        if last_column + 1 < area.right() {
+            assert_ne!(buffer[(last_column + 1, 8)].bg, selected);
+        }
+    }
+}
+
 // ── 安全加固：默认权限模式为 Auto（fail-closed） ──
 
 #[test]

@@ -18,9 +18,19 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - App 结构体拆分：App 三字段（ServiceRegistry/SessionManager/PanelManager），ChatSession 六子模块（ui/messages/session_panels/agent/commands/metadata）
 - 面板组件化：PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，新增面板只需实现 trait
 - 配置系统补全：CLAUDE.local.md 支持、`@import` 文件引用（默认限项目根内）、claudeMdExcludes glob 过滤、`$schema` passthrough
-- Welcome Card：空消息时显示品牌 ASCII Art Logo + 功能亮点 + 命令提示，发送消息后自动消失
+- Welcome Card：左上紧凑卡，实际版本、cwd、使用提示与可选小型吉祥物；启动卡作为纯 UI 前缀跨全屏保留并随消息滚动
 - Sticky Human Message Header：聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动
 - i18n（Fluent）：`LcRegistry` 按 key 取文案（`/lang` 切 en / zh-CN）；静态构造路径（无 App 上下文，如后台 shell 通知 → `MessageViewModel`）通过**进程级注册表** `i18n::init_global`/`global` 读当前语言，启动与 `/lang` 切换时同步；`FluentBundle` 用 concurrent 变体以满足 `Sync`
+
+### 紧凑启动与增长视口（未发布，#650）
+
+`terminal_backend/viewport.rs::ViewportState` 是终端运行级 UI 状态，保存 `origin_row`、`available_rows`、`allocated_rows` 与 `fullscreen_latched`；不持久化、不进入 ACP 消息或 frozen system prompt。正常屏使用真实坐标的固定区域，从 shell 输出下方开始；每次增长时原生滚动所缺行数并上移起点，只有所需内容或已占用高度达到整个宿主高度才一次性进入 alternate screen，不能按 `available_rows` 提前切换而产生大块留白。全屏后恢复现有底部固定输入及消息内部滚动。
+
+`ui/main_ui/viewport_layout.rs` 将消息缓存行数、UI 欢迎前缀、实际可见尾部以及底部区域统一计入所需高度；宽度变化及切全屏前先等待渲染线程完成目标宽度重排，再同步输出切屏、resize 与首帧，合并重复清屏，避免空屏等待。面板、输入上限和后台栏以宿主终端尺寸计算，不能按当前紧凑区域递归缩小。分配高度只增不减，缩短草稿、折叠或结束输出、新建及切换会话都不会撤销全屏锁定。底部启动及后续增长都只滚动必要行数，极小终端直接全屏。
+
+`welcome.rs` 共用文本生成和高度测量：左上卡片只显示真实版本、cwd、开始对话或 `/help`，无 Provider 时补简短 `/login`；宽度至少 56 列且内高足够时显示原有 12×5 半块吉祥物，宽度上限 64 列，文本先清洗再按显示列宽省略。启动卡作为纯 UI 前缀，首条消息及全屏切换后仍保留并随消息滚动，不写入消息历史、系统提示词或消息渲染缓存；其高度单独参与滚动与裁剪。恢复历史不补插，空会话继续显示紧凑卡。
+
+首次配置向导、Agent Center 使用全屏；普通面板计入实际高度。非零起点的渲染、鼠标与选区共用真实坐标。外部编辑器记录并恢复进入前的模式，临时全屏不改变应用锁定状态；退出先恢复正常屏，再逐行清除应用拥有的正常屏区域，光标回到应用起点，仅留下 Session ID、Resume 和 shell 提示符，不擦除其上方历史。生命周期和界面规则见 [TUI-STYLE](../../../TUI-STYLE.md#终端视口未发布650)，验收场景见 [PRD](../../../docs/prd/growing-terminal-viewport.md)。自动化与 Windows 人工验证已通过，macOS/Linux 待兼容性检查；headless 帧不能替代真实 Windows Terminal / PowerShell 与 Unix/macOS 终端验收。
 
 ### 文件提及候选
 
@@ -130,7 +140,7 @@ submit_message(text)
 | TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查、`/recap` 会话回顾（recap_auto.rs 支持终端失焦自动触发） |
 | 配色方案 | v1.1 降噪：橙色仅用于输入框，工具名 bash=ACCENT/写操作=WARNING/只读=MUTED，面板边框 MUTED |
 | Setup Wizard | 三步引导（Provider → API Key → Model Alias），save_setup() 原子写回 settings.json |
-| Welcome Card | 空消息时 ASCII Art Logo + 功能亮点，窄屏降级为文字标题 |
+| Welcome Card | 左上紧凑卡，宽度上限 64 列、高 5～7 行；窄屏省略吉祥物，目录按显示列宽省略 |
 | Sticky Header | 最后一条 Human 消息 1-3 行截断固定在聊天区顶部 |
 | 历史过滤 | /resume 面板按 cwd 过滤 ThreadMeta，标题含工作区路径 |
 | 定时任务面板 | /loop 注册（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用） |
@@ -1431,4 +1441,4 @@ submit_message(text)
 
 **边界：** 保留既定的三项调优策略，不据此声称已解决 #26 的长会话 RSS 增长。jemalloc 上游提示初始化时启用后台线程存在循环依赖风险，目标平台的启动回归必须覆盖这一点；若遇到启动挂起，可在启动前设置 `_RJEM_MALLOC_CONF=background_thread:false`。
 
-最后更新：2026-10-20
+最后更新：2026-10-21

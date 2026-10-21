@@ -59,6 +59,10 @@ pub struct UiState {
     /// textarea MouseDown 暂存的屏幕坐标：判断"textarea 内拖选 vs 拖出切换 screen 选区"
     pub pending_screen_start: Option<(u16, u16)>,
     pub messages_area: Option<ratatui::layout::Rect>,
+    /// 欢迎卡的完整视觉行数；鼠标命中缓存消息时从统一滚动坐标扣除。
+    pub message_prefix_rows: usize,
+    /// 全宽正文测量（列宽、最终缓存版本、视觉行数），避免空闲帧反复宽窄重排。
+    pub full_width_message_rows: Option<(u16, u64, usize)>,
     pub message_scrollbar_metrics: Option<MessageScrollbarMetrics>,
     /// 隐藏时仍保留最右侧轨道的位置，用于悬停唤出。
     pub message_scrollbar_area: Option<ratatui::layout::Rect>,
@@ -147,6 +151,8 @@ impl UiState {
             force_terminal_clear_redraw: false,
             pending_screen_start: None,
             messages_area: None,
+            message_prefix_rows: 0,
+            full_width_message_rows: None,
             message_scrollbar_metrics: None,
             message_scrollbar_area: None,
             message_scrollbar_dragging: false,
