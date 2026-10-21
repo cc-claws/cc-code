@@ -200,6 +200,62 @@ async fn test_status_bar_first_row_uses_codebuddy_compact_shape() {
 }
 
 #[tokio::test]
+async fn test_status_bar_hides_cache_and_mem_before_conversation_starts() {
+    // 空会话首屏：Cache 恒为 `Cache -`、MEM 只是空转基线，二者都不该出现在状态栏。
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
+    assert!(
+        app.session_mgr.current().current_view_messages().is_empty(),
+        "前提：new_headless 应为未开始对话的空会话"
+    );
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let height = super::status_bar::status_bar_height(&app) as usize;
+    let rows: Vec<String> = snapshot[snapshot.len() - height..].to_vec();
+    let joined = rows.join("\n");
+    assert!(
+        !joined.contains("Cache"),
+        "对话未开始时不应显示 Cache 指标，实际状态栏:\n{joined}"
+    );
+    assert!(
+        !joined.contains("MEM "),
+        "对话未开始时不应显示 MEM 指标，实际状态栏:\n{joined}"
+    );
+    assert!(
+        joined.contains("\u{23f5}\u{23f5}"),
+        "隐藏 Cache/MEM 不应带走同一行的权限模式，实际状态栏:\n{joined}"
+    );
+}
+
+#[tokio::test]
+async fn test_status_bar_shows_cache_and_mem_after_conversation_starts() {
+    let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
+    app.session_mgr
+        .current_mut()
+        .messages
+        .view_messages
+        .push(crate::app::MessageViewModel::user("hello".into()));
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let height = super::status_bar::status_bar_height(&app) as usize;
+    let rows: Vec<String> = snapshot[snapshot.len() - height..].to_vec();
+    let joined = rows.join("\n");
+    assert!(
+        joined.contains("Cache"),
+        "对话开始后应恢复 Cache 指标，实际状态栏:\n{joined}"
+    );
+    assert!(
+        joined.contains("MEM "),
+        "对话开始后应恢复 MEM 指标，实际状态栏:\n{joined}"
+    );
+}
+
+#[tokio::test]
 async fn test_status_bar_activity_shows_last_two_running_tools() {
     let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
     for (id, name, args) in [
