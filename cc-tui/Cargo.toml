@@ -67,6 +67,8 @@ futures-util = "0.3"
 walkdir = "2.5"
 fuzzy-matcher = "0.3"
 url = { workspace = true }
+# 版本更新检查（app/update_check.rs）：只做一次 GET，需要 json + rustls
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 mimalloc.workspace = true

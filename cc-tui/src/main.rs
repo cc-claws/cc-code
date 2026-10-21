@@ -1019,6 +1019,9 @@ async fn run_app(
         // 并收取上一次探测的结果
         app.request_git_branch_refresh_if_due();
         let git_branch_updated = app.poll_git_branch_refresh();
+        // 版本更新检查：同样「后台查、事件循环收」，每进程只查一次
+        app.request_update_check_if_due();
+        let update_check_updated = app.poll_update_check();
 
         // NOTE: 不对 next_event/draw_app 使用 ?，避免 terminal 错误导致跳过 session ID 打印
         let next = match event::next_event(&mut app, event_reader).await {
@@ -1076,6 +1079,7 @@ async fn run_app(
                     || agent_shell_updated
                     || panic_updated
                     || git_branch_updated
+                    || update_check_updated
                     || loading
                     || cursor_blinked
                     || notice_expired;

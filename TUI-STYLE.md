@@ -220,12 +220,18 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 |------|------|
 | 边框 | DIM 圆角，左右各留 1 列内边距 |
 | 标题与版本 | ACCENT + BOLD `CC Code  v<实际包版本>` |
+| 模型与档位 | MUTED `model · (effort)`，无模型名或未配 effort 时整行省略 |
 | 当前目录 | MUTED，超宽按显示列宽以 `…` 收口 |
 | 使用提示 | TEXT，中英文提示开始对话或 `/help` 查看命令 |
+| 更新提示（有新版本时） | 两行**替换**使用提示：WARNING `Update available! <当前> → <最新>` + MUTED `To update, run: cc-code update` |
 | 首次引导（无 Provider 时） | WARNING，简短 `/login` 配置提示 |
 | 吉祥物（宽度与高度足够时） | 12 列 × 5 行半块像素，位于文字左侧；左半 CYAN / 右半 ACCENT |
 
 帮助内容统一从 `/help` 获取；欢迎卡仅保留上述信息，与首条用户消息间隔一行。`welcome_height()` 与渲染共用文本生成逻辑，中文与 emoji 均按显示列宽省略，目录中的换行及控制字符先清洗为单行内容。
+
+更新提示是**替换**而非追加：卡片内高由吉祥物的 5 行决定，开始提示占 1 行、更新提示占 2 行，有更新时正好补满剩余空位，因此有吉祥物时卡片高度恒为 7 行，不受是否提示更新影响。
+
+更新检查（`cc-tui/src/app/update_check.rs`）在启动后异步查一次 GitHub release（只认 `npm-v*` tag，跳过 prerelease），整个请求压在 3s 超时内；失败时保持正常的欢迎页，不显示任何更新提示。每个进程只查一次，`CC_CODE_DISABLE_UPDATE_CHECK=1` 可关闭。
 
 ### 吉祥物
 

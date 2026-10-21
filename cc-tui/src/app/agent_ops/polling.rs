@@ -284,6 +284,27 @@ impl App {
         });
     }
 
+    /// 按需发起一次版本更新检查（每个进程只发一次，见 [`UpdateChecker`]）。
+    ///
+    /// 与 git 分支探测同为「后台查、事件循环收」：请求在 `tokio::spawn` 的任务里
+    /// 跑（自带 3s 超时），渲染路径永远读缓存，不会有任何网络等待。
+    pub fn request_update_check_if_due(&mut self) {
+        // 测试（`cargo test`）不该触网：既慢又会因无网产生抖动。
+        // 同时尊重 `CC_CODE_DISABLE_UPDATE_CHECK`，给离线用户一个开关。
+        let enabled = !cfg!(test)
+            && std::env::var_os("CC_CODE_DISABLE_UPDATE_CHECK").is_none()
+            && std::env::var_os("CCCODE_DISABLE_UPDATE_CHECK").is_none();
+        self.services
+            .update_checker
+            .get_mut()
+            .request_if_due(enabled);
+    }
+
+    /// 收取更新检查结果；返回 true 表示状态有变化（需要重绘）。
+    pub fn poll_update_check(&mut self) -> bool {
+        self.services.update_checker.get_mut().poll()
+    }
+
     /// 收取 git 分支异步探测结果；返回 true 表示缓存有变化（需要重绘）。
     pub fn poll_git_branch_refresh(&mut self) -> bool {
         let Some(result) = self.services.git_branch_poller.get_mut().drain() else {

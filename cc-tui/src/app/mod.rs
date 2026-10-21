@@ -102,6 +102,8 @@ mod oauth_prompt;
 pub use oauth_prompt::OAuthPrompt;
 mod terminal_title_ops;
 mod thread_ops;
+mod update_check;
+pub use update_check::{UpdateChecker, UpdateStatus};
 
 // ── Other Modules ─────────────────────────────────────────────────────────────
 pub mod agent;
@@ -343,6 +345,7 @@ impl App {
             channel_state: Some(channel_state.clone()),
             git_branch_cache: parking_lot::Mutex::new(service_registry::GitBranchCache::new()),
             git_branch_poller: parking_lot::Mutex::new(service_registry::GitBranchPoller::new()),
+            update_checker: parking_lot::Mutex::new(UpdateChecker::new()),
             panic_notify_rx: None,
         };
 

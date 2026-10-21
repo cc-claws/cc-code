@@ -160,6 +160,8 @@ key-bg-command = :选中命令转后台
 
 welcome-start-hint = 开始对话，或 /help 查看命令
 welcome-login-hint = 使用 /login 配置模型服务
+welcome-update-available = 有新版本 { $latest }（当前 { $current }）
+welcome-update-command = 运行 cc-code update 升级
 
 welcome-title = CC Code Agent Framework
 welcome-divider = ────── 我能做什么？ ──────

@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{tool_display::sanitize_display_text, App},
+    app::{tool_display::sanitize_display_text, App, UpdateStatus},
     ui::{message_render::truncate_to_display_width, theme},
 };
 
@@ -74,30 +74,103 @@ fn mascot_lines() -> Vec<Line<'static>> {
     lines
 }
 
+/// 欢迎卡副标题里的模型与推理档位。
+///
+/// 只取当前实际生效的两个值：模型名来自 `services.model_name`（`/model` 切换后
+/// 会同步更新），effort 取自配置的 `thinking.effort`。任一项缺失都返回 `None`，
+/// 由调用方整行省略——不编造默认档位。
+fn model_effort_label(app: &App) -> Option<String> {
+    let model = app.services.model_name.trim();
+    if model.is_empty() {
+        return None;
+    }
+    let effort = app
+        .services
+        .peri_config
+        .as_ref()
+        .and_then(|config| config.config.thinking.as_ref())
+        .map(|thinking| thinking.effort.trim())
+        .filter(|effort| !effort.is_empty())?;
+    Some(format!("{model} · ({effort} effort)"))
+}
+
 fn welcome_lines(app: &App, width: u16) -> Vec<Line<'static>> {
     let lc = &app.services.lc;
     let fit = |text: &str| truncate_to_display_width(&sanitize_display_text(text), width as usize);
-    let mut lines = vec![
-        Line::from(Span::styled(
-            fit(&format!("CC Code  v{}", env!("CARGO_PKG_VERSION"))),
-            Style::default()
-                .fg(theme::cur().claude)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            fit(&app.services.cwd),
-            Style::default().fg(theme::cur().inactive),
-        )),
-        Line::from(Span::styled(
-            fit(&lc.tr("welcome-start-hint")),
-            Style::default().fg(theme::cur().text),
-        )),
-    ];
+    // Provider 的有无决定两处内容：副标题是否显示、是否追加 `/login` 引导。
+    // 未配置 Provider 时模型名与 effort 都还没有实际意义，整行省略。
     let has_provider = app
         .services
         .peri_config
         .as_ref()
         .is_some_and(|config| !config.config.providers.is_empty());
+    // 标题行拆两段：品牌名用 ACCENT 强调，版本号降级为 MUTED 次要信息。
+    // 品牌名恒定不截断（窄卡片下优先保住它），只有版本号按剩余宽度收口。
+    const BRAND: &str = "CC Code  ";
+    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let version_width = (width as usize).saturating_sub(BRAND.len());
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            BRAND,
+            Style::default()
+                .fg(theme::cur().claude)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            truncate_to_display_width(&version, version_width),
+            Style::default().fg(theme::cur().inactive),
+        ),
+    ])];
+
+    // 副标题：模型 + 推理档位，缺失或未配置 Provider 时整行省略。
+    if has_provider {
+        if let Some(label) = model_effort_label(app).filter(|label| !label.is_empty()) {
+            let fitted = fit(&label);
+            if !fitted.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    fitted,
+                    Style::default().fg(theme::cur().inactive),
+                )));
+            }
+        }
+    }
+
+    lines.push(Line::from(Span::styled(
+        fit(&app.services.cwd),
+        Style::default().fg(theme::cur().inactive),
+    )));
+
+    // 最后一行：有更新时用「更新提示 + 升级命令」两行**替换**掉开始提示。
+    //
+    // 这是刻意替换而非追加——卡片内高由吉祥物的 5 行决定，开始提示占 1 行、
+    // 更新提示占 2 行，正好补满那 1 行空位，卡片高度始终不变（内高 5 / 外框 7）。
+    // 追加的话会把卡片撑高一行，空会话与有更新时的启动占用就不一致了。
+    match app.services.update_checker.lock().status() {
+        UpdateStatus::Available { latest } => {
+            let current = env!("CARGO_PKG_VERSION");
+            lines.push(Line::from(Span::styled(
+                fit(&lc.tr_args(
+                    "welcome-update-available",
+                    &[
+                        ("current".into(), current.into()),
+                        ("latest".into(), latest.clone().into()),
+                    ],
+                )),
+                Style::default().fg(theme::cur().warning),
+            )));
+            lines.push(Line::from(Span::styled(
+                fit(&lc.tr("welcome-update-command")),
+                Style::default().fg(theme::cur().inactive),
+            )));
+        }
+        UpdateStatus::Unknown | UpdateStatus::UpToDate => {
+            lines.push(Line::from(Span::styled(
+                fit(&lc.tr("welcome-start-hint")),
+                Style::default().fg(theme::cur().text),
+            )));
+        }
+    }
+
     if !has_provider {
         lines.push(Line::from(Span::styled(
             fit(&lc.tr("welcome-login-hint")),
