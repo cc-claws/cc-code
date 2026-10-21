@@ -3039,8 +3039,8 @@ fn test_tool_result_urls_use_link_color_and_underline() {
         .unwrap_or_else(|| panic!("应切出独立 URL span: {:?}", rendered_span_dump(&lines[1])));
     assert_eq!(
         url_span.style.fg,
-        Some(crate::ui::theme::cur().ide),
-        "URL 应使用链接色（IDE 蓝）"
+        Some(ratatui::style::Color::Cyan),
+        "URL 应使用定稿的 ANSI Cyan 链接色"
     );
     assert!(
         url_span
@@ -3085,7 +3085,7 @@ fn test_error_output_url_still_underlined() {
         .flat_map(|line| line.spans.iter())
         .find(|span| span.content.as_ref() == "https://a.example/api")
         .unwrap_or_else(|| panic!("错误输出里的 URL 也应切出独立 span"));
-    assert_eq!(url_span.style.fg, Some(crate::ui::theme::cur().ide));
+    assert_eq!(url_span.style.fg, Some(ratatui::style::Color::Cyan));
     assert!(url_span
         .style
         .add_modifier
@@ -3117,7 +3117,7 @@ fn test_shell_command_output_urls_are_styled() {
         .flat_map(|line| line.spans.iter())
         .find(|span| span.content.as_ref() == "https://github.com/cc-claws/cc-code/actions/runs/1")
         .unwrap_or_else(|| panic!("`!` 命令输出里的 URL 也应切出独立 span"));
-    assert_eq!(url_span.style.fg, Some(crate::ui::theme::cur().ide));
+    assert_eq!(url_span.style.fg, Some(ratatui::style::Color::Cyan));
     assert!(url_span
         .style
         .add_modifier

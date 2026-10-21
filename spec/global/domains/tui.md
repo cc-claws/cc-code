@@ -630,6 +630,7 @@ submit_message(text)
 - 选择面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板
 - `/theme` 面板补齐 session 面板键盘路由（`PanelKind::Theme` 加入键盘与粘贴白名单，此前 `↑`/`↓`/`Esc` 被穿透，v0.6.142）
 - **状态栏例外（v0.6.143）:** 状态栏配色是打磨定稿的固定值，不参与主题化——`ui/main_ui/status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致
+- **URL 链接色例外（未发布）:** 工具结果行与 `!` 命令输出里的裸 URL 也固定 ANSI Cyan，不随 `/theme` 切换——`message_render/mod.rs::style_urls()` 用 `Color::Cyan` + 下划线（此前是 `theme::cur().ide`，随主题漂移且与正文明度接近），覆盖 `format_prefixed_text()` 与 `format_shell_output_lines()` 两个调用点；Markdown 链接（`theme.link()` = SAGE）是另一条路径，不受影响
 
 **参考:** 快捷键与色板详见 [TUI-STYLE.md](../../TUI-STYLE.md) 的「主题系统」「状态栏」章节
 
@@ -1440,5 +1441,13 @@ submit_message(text)
 **验证约束：** 回归测试位于 `cc-tui/src/jemalloc_config_test.rs`，在独立子进程中读取实际 `opt.*`、`arenas.*` 和 `background_thread`，覆盖默认、完整覆盖、部分覆盖、无前缀变量。macOS 上 `opt.background_thread` 可读但恒为默认 false，运行时开关 `background_thread` 的 ctl 返回 `ENOENT`（`have_background_thread` 为 false），该平台只断言前者、跳过后者。须在 Linux/macOS 运行 `cargo test -p cc-tui --bin cc-code jemalloc_config_test`，并用 `--release` 验证 LTO/strip 后符号仍生效；Windows 测试不能替代此验证。
 
 **边界：** 保留既定的三项调优策略，不据此声称已解决 #26 的长会话 RSS 增长。jemalloc 上游提示初始化时启用后台线程存在循环依赖风险，目标平台的启动回归必须覆盖这一点；若遇到启动挂起，可在启动前设置 `_RJEM_MALLOC_CONF=background_thread:false`。
+
+### 详情渲染策略（#629，v0.6.169）
+
+`AppConfig.detail_render_strategy: Option<String>` 支持 `auto`（缺省）、`cache`、`virtual`；未知值按 auto 处理。项目 settings 仅在显式写入该字段时覆盖全局值，显式 `auto` 可覆盖全局 cache/virtual。`/config` 的「详情渲染」沿用左右键/Space 轮换样式，变更发送 `SetDetailStrategy`，不要求重启；创建主渲染任务和切换会话目录后同样同步有效配置。子 Agent 聚焦复用当前会话的渲染线程。
+
+cache 保留兼容的全量渲染路径；virtual 按视口生成分段共享成品，并对离屏成品设置字节预算；auto 在同一历史代际内只向虚拟路径升档，历史替换后重新判断，避免滚动时来回抖动。该策略不改变 Ctrl+O 的详情语义、原始历史、系统提示词或 ACP 协议。
+
+空间契约须分别统计历史/高度等 O(N) 元数据、离屏成品预算和可见内容；16 MiB 只约束离屏成品，不包含视口内超大消息、VM 预解析缓存、剪贴板或仍被旧快照引用的对象，不能据此声称会话 RSS 已封顶。虚拟路径未测量区间的高度为估算，进入视口后使用实际高度修正；滚动与选择保持逻辑行坐标，不能把局部窗口行号当成全局行号。
 
 最后更新：2026-10-21

@@ -128,3 +128,54 @@ fn test_merge_json_workspace_overrides_single_field() {
     assert_eq!(global.providers.len(), 1);
     assert!(global.thinking.is_some());
 }
+
+#[test]
+fn test_detail_render_strategy_defaults_and_serialization() {
+    let cfg: PeriConfig = serde_json::from_str(r#"{"config":{}}"#).unwrap();
+    assert_eq!(
+        cfg.config.detail_render_strategy, None,
+        "旧配置默认使用 auto"
+    );
+    let serialized = serde_json::to_value(&cfg).unwrap();
+    assert!(serialized["config"].get("detail_render_strategy").is_none());
+    for strategy in ["auto", "cache", "virtual", "future-strategy"] {
+        let mut cfg = PeriConfig::default();
+        cfg.config.detail_render_strategy = Some(strategy.to_owned());
+        let decoded: PeriConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            decoded.config.detail_render_strategy.as_deref(),
+            Some(strategy)
+        );
+    }
+}
+
+#[test]
+fn test_detail_render_strategy_workspace_merge() {
+    let mut global = AppConfig {
+        detail_render_strategy: Some("cache".to_owned()),
+        ..Default::default()
+    };
+    global.merge_overrides(AppConfig::default());
+    assert_eq!(global.detail_render_strategy.as_deref(), Some("cache"));
+    for strategy in ["virtual", "auto"] {
+        global.merge_overrides(AppConfig {
+            detail_render_strategy: Some(strategy.to_owned()),
+            ..Default::default()
+        });
+        assert_eq!(global.detail_render_strategy.as_deref(), Some(strategy));
+    }
+}
+
+#[test]
+fn test_detail_render_strategy_save_and_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    for strategy in [None, Some("auto"), Some("cache"), Some("virtual")] {
+        let mut cfg = PeriConfig::default();
+        cfg.config.detail_render_strategy = strategy.map(str::to_owned);
+        crate::provider::store::save_to(&cfg, &path).unwrap();
+        let loaded = crate::provider::store::load_from(&path).unwrap();
+        assert_eq!(loaded.config.detail_render_strategy.as_deref(), strategy);
+    }
+}

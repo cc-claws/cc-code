@@ -21,6 +21,9 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 
 #[cfg(test)]
 use super::message_render::CONTROL_B_BACKGROUND_HINT;
+pub use super::render_layout::{
+    SelectionAnchor, ViewportAnchor, VirtualLayoutSnapshot, VirtualRenderStats,
+};
 use super::theme;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
@@ -30,6 +33,8 @@ use super::{
     message_view::MessageViewModel,
 };
 use cc_widgets::markdown::LinkHit;
+mod worker;
+use worker::RenderWorker;
 
 const TOOL_INDICATOR_TICK_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -59,6 +64,8 @@ pub struct WrappedLineInfo {
 
 /// 渲染缓存，由渲染线程写入、UI 线程读取
 pub struct RenderCache {
+    /// 虚拟布局的全局元数据；lines/wrap_map/links 只持有当前物化窗口。
+    pub virtual_layout: Option<Arc<VirtualLayoutSnapshot>>,
     /// 所有消息渲染后的行
     pub lines: Vec<Line<'static>>,
     /// 每条消息在 lines 中的起始行索引（用于定位）
@@ -85,6 +92,7 @@ impl Default for RenderCache {
 impl RenderCache {
     pub fn new() -> Self {
         Self {
+            virtual_layout: None,
             lines: Vec::new(),
             message_offsets: Vec::new(),
             total_lines: 0,
@@ -99,6 +107,19 @@ impl RenderCache {
 
 /// 渲染线程接收的事件
 pub enum RenderEvent {
+    /// 仅影响本地渲染，不改变 Agent 或系统提示词。
+    SetDetailStrategy(String),
+    Viewport {
+        top: usize,
+        height: usize,
+        follow_tail: bool,
+        anchor: Option<ViewportAnchor>,
+    },
+    CopySelection {
+        start: SelectionAnchor,
+        end: SelectionAnchor,
+        reply: tokio::sync::oneshot::Sender<Option<String>>,
+    },
     /// 全量重建消息列表（通过 hash diff 优化渲染）
     Rebuild(Vec<MessageViewModel>),
     /// 全量重建并设置滚动锚点（RebuildAll 后保持滚动位置）
@@ -139,7 +160,7 @@ struct WrapSegment {
 }
 
 /// 判断一个逻辑行是否为空行（全局 dedup / 尾空行裁剪的判定口径）。
-fn is_blank_line(line: &Line<'static>) -> bool {
+pub(super) fn is_blank_line(line: &Line<'static>) -> bool {
     line.spans.is_empty() || (line.spans.len() == 1 && line.spans[0].content.is_empty())
 }
 
@@ -147,7 +168,7 @@ fn is_blank_line(line: &Line<'static>) -> bool {
 ///
 /// 消息状态由 App 持有（view_messages），渲染线程通过 Rebuild 事件接收完整快照，
 /// 通过 hash diff 只重新渲染发生变化的消息，避免不必要的 markdown 解析。
-struct RenderTask {
+pub(super) struct RenderTask {
     /// 上一次 Rebuild 收到的消息（Resize 时用于全量重建）
     last_messages: Vec<MessageViewModel>,
     /// 每条消息的渲染行缓存
@@ -233,7 +254,10 @@ impl RenderTask {
     /// 对每个逻辑行使用 ratatui 的 Paragraph::line_count 精确计算视觉行数，
     /// 与实际渲染的 WordWrapper 算法完全一致。
     /// char_widths 使用 grapheme 级别（与 ratatui 一致）。
-    fn build_wrap_map(lines: &[Line<'static>], width: u16) -> (usize, Vec<WrappedLineInfo>) {
+    pub(super) fn build_wrap_map(
+        lines: &[Line<'static>],
+        width: u16,
+    ) -> (usize, Vec<WrappedLineInfo>) {
         if width == 0 || lines.is_empty() {
             return (0, Vec::new());
         }
@@ -275,7 +299,7 @@ impl RenderTask {
     ///
     /// 注意：此函数修改的 rendered/dirty/rendered_prefix_len 等字段不参与 Hash 计算，
     /// 因此不会使 content_hash 失效。
-    fn render_one(
+    pub(super) fn render_one(
         vm: &mut MessageViewModel,
         index: usize,
         width: usize,
@@ -634,6 +658,7 @@ impl RenderTask {
             (visual_base, wrap_map)
         };
         let mut cache = self.cache.write();
+        cache.virtual_layout = None;
         cache.lines = deduped;
         cache.message_offsets = offsets;
         cache.total_lines = total_lines;
@@ -1005,7 +1030,12 @@ impl RenderTask {
     }
 
     fn handle_event(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
+        let _ = rx;
         match event {
+            RenderEvent::SetDetailStrategy(_) | RenderEvent::Viewport { .. } => {}
+            RenderEvent::CopySelection { reply, .. } => {
+                let _ = reply.send(None);
+            }
             RenderEvent::Rebuild(messages) => {
                 self.rebuild_safe(messages);
             }
@@ -1032,21 +1062,9 @@ impl RenderTask {
                 }
             }
             RenderEvent::Resize(new_width) => {
-                let mut width = new_width;
-                let mut pending = None;
-                while let Ok(next) = rx.try_recv() {
-                    if let RenderEvent::Resize(next_width) = next {
-                        width = next_width;
-                    } else {
-                        pending = Some(next);
-                        break;
-                    }
-                }
-                self.resize(width);
-                // 合并 resize 不能吞掉紧邻的 Rebuild、Clear 或等待完成的屏障。
-                if let Some(next) = pending {
-                    self.handle_event(next, rx);
-                }
+                // 合并连续 Resize 由 RenderWorker 层统一处理（保序且不吞控制
+                // 事件）；这里只做宽度失效 + 全量重渲染（#650 抽出的 resize()）。
+                self.resize(new_width);
             }
             RenderEvent::ResizeAndWait(new_width, done) => {
                 self.resize(new_width);
@@ -1055,6 +1073,7 @@ impl RenderTask {
             RenderEvent::Clear => {
                 self.message_lines.clear();
                 self.message_lines.shrink_to_fit();
+                self.message_links = Vec::new();
                 self.alt_lines.clear();
                 self.alt_links.clear();
                 self.alt_keys.clear();
@@ -1066,12 +1085,15 @@ impl RenderTask {
                 self.last_messages.clear();
                 self.last_messages.shrink_to_fit();
                 let mut cache = self.cache.write();
+                cache.virtual_layout = None;
                 cache.lines.clear();
                 cache.lines.shrink_to_fit();
                 cache.message_offsets.clear();
                 cache.message_offsets.shrink_to_fit();
                 cache.total_lines = 0;
                 cache.wrap_map = Vec::new();
+                cache.links = Vec::new();
+                cache.scroll_anchor = None;
                 cache.version += 1;
             }
             RenderEvent::ToggleToolMessages(show) => {
@@ -1097,40 +1119,6 @@ impl RenderTask {
                 if !self.last_messages.is_empty() {
                     let messages = std::mem::take(&mut self.last_messages);
                     self.rebuild_safe(messages);
-                }
-            }
-        }
-    }
-
-    /// 主事件循环
-    async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
-        loop {
-            if self.has_running_tool_blocks() {
-                tokio::select! {
-                    event = rx.recv() => {
-                        let Some(event) = event else {
-                            break;
-                        };
-                        let width_barrier = matches!(event, RenderEvent::ResizeAndWait(..));
-                        self.handle_event(event, &mut rx);
-                        if !width_barrier {
-                            self.notify.notify_one();
-                        }
-                    }
-                    _ = tokio::time::sleep(TOOL_INDICATOR_TICK_INTERVAL) => {
-                        if self.refresh_running_tool_indicators(current_tool_indicator_tick()) {
-                            self.notify.notify_one();
-                        }
-                    }
-                }
-            } else {
-                let Some(event) = rx.recv().await else {
-                    break;
-                };
-                let width_barrier = matches!(event, RenderEvent::ResizeAndWait(..));
-                self.handle_event(event, &mut rx);
-                if !width_barrier {
-                    self.notify.notify_one();
                 }
             }
         }
@@ -1194,7 +1182,7 @@ pub fn spawn_render_thread(
         wrap_segs: [Vec::new(), Vec::new()],
     };
 
-    tokio::spawn(task.run(rx));
+    tokio::spawn(RenderWorker::new(task).run(rx));
 
     (tx, cache, notify)
 }

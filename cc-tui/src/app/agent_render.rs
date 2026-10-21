@@ -72,6 +72,11 @@ impl App {
         messages: &[cc_agent::messages::BaseMessage],
         extra: Option<MessageViewModel>,
     ) {
+        // 历史/主题替换立即作废待复制快照，不能等异步渲染发布后才推进代际。
+        let ui = &mut self.session_mgr.current_mut().ui;
+        ui.text_selection.clear();
+        ui.pending_text_copy = None;
+        ui.presented_selection_snapshot = None;
         let cwd = self.services.cwd.clone();
         let mut view_msgs =
             message_pipeline::MessagePipeline::messages_to_view_models(messages, &cwd);
@@ -189,17 +194,31 @@ impl App {
                 let anchor_message_idx = {
                     let cache = self.session_mgr.current().messages.render_cache.read();
                     let ui = &self.session_mgr.current().ui;
+                    // #650：scroll_offset 含欢迎前缀行，先换算回消息空间；
+                    // #629：虚拟布局下按其视觉偏移查锚点。
                     let scroll_row = ui.scroll_offset.saturating_sub(ui.message_prefix_rows);
-                    let msg_idx = cache
-                        .message_offsets
-                        .iter()
-                        .enumerate()
-                        .find(|(_, &offset)| {
-                            offset < cache.wrap_map.len()
-                                && cache.wrap_map[offset].visual_row_start >= scroll_row
-                        })
-                        .map(|(idx, _)| idx)
-                        .unwrap_or(prefix_len);
+                    let msg_idx = if let Some(layout) = &cache.virtual_layout {
+                        cache
+                            .viewport_anchor_at(scroll_row)
+                            .map(|anchor| anchor.message_index)
+                            .unwrap_or_else(|| {
+                                layout
+                                    .message_visual_offsets
+                                    .partition_point(|&row| row <= scroll_row)
+                                    .saturating_sub(1)
+                            })
+                    } else {
+                        cache
+                            .message_offsets
+                            .iter()
+                            .enumerate()
+                            .find(|(_, &offset)| {
+                                offset < cache.wrap_map.len()
+                                    && cache.wrap_map[offset].visual_row_start >= scroll_row
+                            })
+                            .map(|(idx, _)| idx)
+                            .unwrap_or(prefix_len)
+                    };
                     msg_idx.min(self.session_mgr.current().messages.view_messages.len())
                 };
                 self.render_rebuild_with_anchor(anchor_message_idx);

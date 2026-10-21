@@ -32,6 +32,7 @@ impl App {
         let Some(cfg) = self.services.peri_config.as_mut() else {
             return;
         };
+        let previous_strategy = cfg.config.detail_render_strategy.clone();
         if let Err(err_msg) = panel.apply_edit(cfg, &self.services.lc) {
             self.session_mgr
                 .current_mut()
@@ -42,6 +43,16 @@ impl App {
         }
         if let Some(ref lang) = cfg.config.language {
             let _ = self.services.lc.switch(lang);
+        }
+        if previous_strategy != cfg.config.detail_render_strategy {
+            let strategy = cfg
+                .config
+                .detail_render_strategy
+                .clone()
+                .unwrap_or_else(|| "auto".to_owned());
+            let _ = self.session_mgr.current_mut().messages.render_tx.try_send(
+                crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
+            );
         }
         if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {
             self.session_mgr

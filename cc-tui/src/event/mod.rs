@@ -21,6 +21,10 @@ mod scrollbar_test;
 mod scrollbar_audit_test;
 
 #[cfg(test)]
+#[path = "viewport_interaction_test.rs"]
+mod viewport_interaction_test;
+
+#[cfg(test)]
 #[path = "paste_boundary_test.rs"]
 mod paste_boundary_test;
 
@@ -103,6 +107,9 @@ impl EventReader {
 }
 
 pub async fn next_event(app: &mut App, reader: &mut EventReader) -> Result<Option<Action>> {
+    if poll_message_selection_copy(app) {
+        return Ok(Some(Action::Redraw));
+    }
     // Quit-pending state auto-expires after 2s; trigger redraw so the shortcut bar
     // returns to normal.  Must match the window used by handle_ctrl_c().
     if let Some(since) = app.global_ui.quit_pending_since {
@@ -324,6 +331,14 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
             let new_offset = message_scrollbar_offset_for_row(metrics, row);
             set_message_scroll_offset(app, new_offset);
         }
+        let virtual_layout = app
+            .session_mgr
+            .current()
+            .messages
+            .render_cache
+            .read()
+            .virtual_layout
+            .is_some();
         let ui = &mut app.session_mgr.current_mut().ui;
         ui.message_scrollbar_dragging = true;
         let travel = metrics
@@ -332,6 +347,7 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
             .saturating_sub(metrics.thumb_area.height)
             .max(1);
         ui.message_scrollbar_drag_origin = Some((row, ui.scroll_offset, travel));
+        ui.message_scrollbar_drag_max_offset = virtual_layout.then_some(metrics.max_offset);
         return true;
     }
 
@@ -358,9 +374,14 @@ fn handle_message_scrollbar_drag(app: &mut App, row: u16) -> bool {
     else {
         return true;
     };
-    let distance = (u128::from(row.abs_diff(start_row)) * metrics.max_offset as u128
-        / u128::from(travel))
-    .min(usize::MAX as u128) as usize;
+    let drag_max = app
+        .session_mgr
+        .current()
+        .ui
+        .message_scrollbar_drag_max_offset
+        .unwrap_or(metrics.max_offset);
+    let distance = (u128::from(row.abs_diff(start_row)) * drag_max as u128 / u128::from(travel))
+        .min(usize::MAX as u128) as usize;
     let new_offset = if row == start_row {
         start_offset
     } else if row <= metrics.bar_area.y {
@@ -394,6 +415,100 @@ fn set_message_scroll_offset(app: &mut App, offset: usize) {
     let offset = offset.clamp(min_scroll, max_scroll);
     ui.scroll_offset = offset;
     ui.scroll_follow = offset >= max_scroll;
+}
+
+fn message_selection_offset(app: &App) -> usize {
+    let session = app.session_mgr.current();
+    if session
+        .messages
+        .render_cache
+        .read()
+        .virtual_layout
+        .is_some()
+    {
+        session.ui.presented_scroll_offset
+    } else {
+        session.ui.scroll_offset
+    }
+}
+
+fn message_row_has_text(app: &App, row: usize) -> bool {
+    let session = app.session_mgr.current();
+    if let Some(snapshot) = &session.ui.presented_selection_snapshot {
+        return snapshot.selection_anchor_at(row, 0).is_some();
+    }
+    let cache = session.messages.render_cache.read();
+    cache.virtual_layout.is_none() && row < cache.total_lines
+}
+
+/// 虚拟布局只固定已命中的端点，跨窗口拖拽时起点不会跟随估算行号漂移。
+fn capture_message_selection_anchors(app: &mut App) {
+    let session = app.session_mgr.current_mut();
+    let Some(snapshot) = &session.ui.presented_selection_snapshot else {
+        return;
+    };
+    let selection = &mut session.ui.text_selection;
+    if selection.anchor_start.is_none() {
+        selection.anchor_start = selection
+            .start
+            .and_then(|(row, column)| snapshot.selection_anchor_at(row, column));
+    }
+    if let Some(anchor) = selection
+        .end
+        .and_then(|(row, column)| snapshot.selection_anchor_at(row, column))
+    {
+        selection.anchor_end = Some(anchor);
+    }
+}
+
+fn poll_message_selection_copy(app: &mut App) -> bool {
+    let completion = {
+        let ui = &mut app.session_mgr.current_mut().ui;
+        let Some((generation, receiver)) = ui.pending_text_copy.as_mut() else {
+            return false;
+        };
+        match receiver.try_recv() {
+            Ok(text) => Some((*generation, text)),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => None,
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Some((*generation, None)),
+        }
+    };
+    let Some((generation, text)) = completion else {
+        return false;
+    };
+    let session = app.session_mgr.current_mut();
+    session.ui.pending_text_copy = None;
+    if session.ui.text_selection.generation != generation {
+        return false;
+    }
+    let valid = {
+        let cache = session.messages.render_cache.read();
+        cache.virtual_layout.as_ref().is_some_and(|layout| {
+            [
+                session.ui.text_selection.anchor_start,
+                session.ui.text_selection.anchor_end,
+            ]
+            .into_iter()
+            .all(|anchor| {
+                anchor.is_some_and(|anchor| {
+                    layout.history_epoch == anchor.history_epoch
+                        && layout.message_versions.get(anchor.message_index)
+                            == Some(&anchor.message_version)
+                })
+            })
+        })
+    };
+    if !valid {
+        session.ui.text_selection.clear();
+        return true;
+    }
+    if text.is_some() {
+        session.ui.text_selection.set_selected_text(text);
+        mouse::copy_selection_to_clipboard(app);
+    } else {
+        session.ui.text_selection.clear();
+    }
+    true
 }
 
 /// Core event-handling logic (extracted from `next_event` to avoid duplicating
@@ -699,21 +814,33 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 .unwrap_or(false);
                             if in_messages {
                                 let area = app.session_mgr.current().ui.messages_area.unwrap();
-                                let scroll_offset = app.session_mgr.current().ui.scroll_offset;
+                                let scroll_offset = message_selection_offset(app);
                                 let visual_row =
                                     usize::from(mouse.row - area.y).saturating_add(scroll_offset);
-                                let message_row = visual_row
-                                    .checked_sub(app.session_mgr.current().ui.message_prefix_rows);
-                                let cache_total = app
+                                // 坐标统一（#650/#629）：virtual 时 visual_row 已是
+                                // 消息空间（presented 偏移）；非 virtual 时含欢迎
+                                // 前缀行，扣掉前缀才是消息行。是否有文本统一走
+                                // message_row_has_text（虚拟快照/总行数口径）。
+                                let in_virtual = app
                                     .session_mgr
                                     .current()
                                     .messages
                                     .render_cache
                                     .read()
-                                    .total_lines;
+                                    .virtual_layout
+                                    .is_some();
+                                let message_row = if in_virtual {
+                                    Some(visual_row)
+                                } else {
+                                    visual_row.checked_sub(
+                                        app.session_mgr.current().ui.message_prefix_rows,
+                                    )
+                                };
+                                let use_text_selection =
+                                    message_row.is_some_and(|row| message_row_has_text(app, row));
                                 let ui = &mut app.session_mgr.current_mut().ui;
                                 if let Some(message_row) =
-                                    message_row.filter(|row| *row < cache_total)
+                                    message_row.filter(|_| use_text_selection)
                                 {
                                     // 消息行：TextSelection 整行（内容锚定纯文本）
                                     ui.text_selection.start_drag(message_row, 0);
@@ -726,6 +853,7 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     ui.text_selection.clear();
                                 }
                                 ui.pending_screen_start = None;
+                                capture_message_selection_anchors(app);
                                 return Ok(Some(Action::Redraw));
                             } else if !in_textarea {
                                 let ss = &mut app.session_mgr.current_mut().ui.screen_selection;
@@ -873,22 +1001,31 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 && mouse.column >= area.x
                                 && mouse.column < area.x + area.width
                             {
-                                let scroll_offset = app.session_mgr.current().ui.scroll_offset;
+                                let scroll_offset = message_selection_offset(app);
                                 let visual_row =
                                     usize::from(mouse.row - area.y).saturating_add(scroll_offset);
-                                let message_row = visual_row
-                                    .checked_sub(app.session_mgr.current().ui.message_prefix_rows);
                                 let visual_col = mouse.column - area.x;
-                                let cache_total = app
+                                // 坐标统一（#650/#629）：同上方整行选区入口。
+                                let in_virtual = app
                                     .session_mgr
                                     .current()
                                     .messages
                                     .render_cache
                                     .read()
-                                    .total_lines;
+                                    .virtual_layout
+                                    .is_some();
+                                let message_row = if in_virtual {
+                                    Some(visual_row)
+                                } else {
+                                    visual_row.checked_sub(
+                                        app.session_mgr.current().ui.message_prefix_rows,
+                                    )
+                                };
+                                let use_text_selection =
+                                    message_row.is_some_and(|row| message_row_has_text(app, row));
                                 let ui = &mut app.session_mgr.current_mut().ui;
                                 if let Some(message_row) =
-                                    message_row.filter(|row| *row < cache_total)
+                                    message_row.filter(|_| use_text_selection)
                                 {
                                     ui.text_selection.start_drag(message_row, visual_col);
                                     ui.screen_selection.clear();
@@ -897,6 +1034,7 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     ui.text_selection.clear();
                                 }
                                 ui.pending_screen_start = None;
+                                capture_message_selection_anchors(app);
                                 return Ok(Some(Action::Redraw));
                             }
                         }
@@ -973,6 +1111,14 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                     // 时滚动消息区，速度随距边缘距离 1-5 行/事件（d51cb7e7 已验证算法）。
                     if app.session_mgr.current_mut().ui.text_selection.dragging {
                         if let Some(area) = app.session_mgr.current_mut().ui.messages_area {
+                            let virtual_layout = app
+                                .session_mgr
+                                .current()
+                                .messages
+                                .render_cache
+                                .read()
+                                .virtual_layout
+                                .is_some();
                             let ui = &mut app.session_mgr.current_mut().ui;
                             let area_bottom = area.y + area.height;
                             if mouse.row >= area_bottom {
@@ -995,19 +1141,31 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     ui.scroll_offset.saturating_sub(step).max(min_scroll);
                                 ui.scroll_follow = false;
                             }
-                            let scroll_offset = ui.scroll_offset;
-                            let global_row = usize::from(mouse.row.saturating_sub(area.y))
-                                .saturating_add(scroll_offset);
-                            let (visual_row, visual_col) = if global_row < ui.message_prefix_rows {
-                                (0, 0)
+                            // 坐标统一（#650/#629）：virtual 用 presented 偏移且把
+                            // 鼠标行钳在消息区内（消息空间，不再扣前缀）；非 virtual
+                            // 沿用全局行（含前缀）再换算消息行。
+                            let (visual_row, visual_col) = if virtual_layout {
+                                let selection_row = mouse
+                                    .row
+                                    .clamp(area.y, area_bottom.saturating_sub(1).max(area.y));
+                                let row = usize::from(selection_row.saturating_sub(area.y))
+                                    .saturating_add(ui.presented_scroll_offset);
+                                (row, mouse.column.saturating_sub(area.x))
                             } else {
-                                (
-                                    global_row - ui.message_prefix_rows,
-                                    mouse.column.saturating_sub(area.x),
-                                )
+                                let global_row = usize::from(mouse.row.saturating_sub(area.y))
+                                    .saturating_add(ui.scroll_offset);
+                                if global_row < ui.message_prefix_rows {
+                                    (0, 0)
+                                } else {
+                                    (
+                                        global_row - ui.message_prefix_rows,
+                                        mouse.column.saturating_sub(area.x),
+                                    )
+                                }
                             };
                             ui.text_selection.update_drag(visual_row, visual_col);
                         }
+                        capture_message_selection_anchors(app);
                     }
                     // ScreenSelection 拖拽：始终用绝对屏幕坐标更新（覆盖所有区域）
                     if app.session_mgr.current_mut().ui.screen_selection.dragging {
@@ -1077,10 +1235,41 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 .messages_area
                                 .map(|a| a.width)
                                 .unwrap_or(0);
-                            let cache = app.session_mgr.current_mut().messages.render_cache.read();
+                            let anchored_endpoints = {
+                                let selection = &app.session_mgr.current().ui.text_selection;
+                                selection.anchor_start.zip(selection.anchor_end)
+                            };
+                            let cache = app.session_mgr.current().messages.render_cache.read();
 
                             // ── 检查是否为原地/同链接点击并命中 Markdown 超链接 ──
-                            let clicked_url = {
+                            let clicked_url = if let Some((anchor_start, anchor_end)) =
+                                anchored_endpoints
+                            {
+                                let snapshot =
+                                    &app.session_mgr.current().ui.presented_selection_snapshot;
+                                let hit = |anchor: crate::ui::render_thread::SelectionAnchor| {
+                                    let layout = cache.virtual_layout.as_ref()?;
+                                    if layout.history_epoch != anchor.history_epoch
+                                        || layout.message_versions.get(anchor.message_index)
+                                            != Some(&anchor.message_version)
+                                    {
+                                        return None;
+                                    }
+                                    snapshot.as_ref()?.link_at_selection_anchor(anchor)
+                                };
+                                let hit_start = hit(anchor_start);
+                                if anchor_start == anchor_end {
+                                    hit_start
+                                } else {
+                                    let hit_end = hit(anchor_end);
+                                    match (hit_start, hit_end) {
+                                        (Some(start), Some(end)) if start == end => Some(start),
+                                        _ => None,
+                                    }
+                                }
+                            } else if cache.virtual_layout.is_some() {
+                                None
+                            } else {
                                 let hit_start = find_clicked_link(
                                     start,
                                     &cache.wrap_map,
@@ -1115,6 +1304,53 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 app.session_mgr.current_mut().ui.text_selection.clear();
                                 open_browser_url(&url);
                             } else {
+                                if cache.virtual_layout.is_some() {
+                                    drop(cache);
+                                    if let Some((start, end)) = anchored_endpoints {
+                                        if start == end {
+                                            app.session_mgr.current_mut().ui.text_selection.clear();
+                                            return Ok(Some(Action::Redraw));
+                                        }
+                                        let (reply, receiver) = tokio::sync::oneshot::channel();
+                                        let session = app.session_mgr.current_mut();
+                                        let event =
+                                            crate::ui::render_thread::RenderEvent::CopySelection {
+                                                start,
+                                                end,
+                                                reply,
+                                            };
+                                        let enqueued = match session
+                                            .messages
+                                            .render_tx
+                                            .try_send(event)
+                                        {
+                                            Ok(()) => true,
+                                            Err(tokio::sync::mpsc::error::TrySendError::Full(
+                                                event,
+                                            )) => {
+                                                let sender = session.messages.render_tx.clone();
+                                                tokio::spawn(async move {
+                                                    let _ = sender.send(event).await;
+                                                });
+                                                true
+                                            }
+                                            Err(
+                                                tokio::sync::mpsc::error::TrySendError::Closed(_),
+                                            ) => false,
+                                        };
+                                        if enqueued {
+                                            session.ui.pending_text_copy = Some((
+                                                session.ui.text_selection.generation,
+                                                receiver,
+                                            ));
+                                        } else {
+                                            session.ui.text_selection.clear();
+                                        }
+                                    } else {
+                                        app.session_mgr.current_mut().ui.text_selection.clear();
+                                    }
+                                    return Ok(Some(Action::Redraw));
+                                }
                                 let text = crate::app::text_selection::extract_selected_text(
                                     start,
                                     end,

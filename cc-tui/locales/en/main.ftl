@@ -269,6 +269,8 @@ config-desc-tone = Override system prompt tone (empty = default)
 config-desc-proactiveness = low / medium / high — agent initiative level
 config-desc-diff = (ON/OFF — show inline diff for Write/Edit tools)
 config-field-streaming = Streaming Mode
+config-field-detail-render-strategy = Detail Render
+config-desc-detail-render-strategy = auto adapts to long histories; cache keeps full rendering; virtual renders near the viewport. Applies immediately.
 config-desc-streaming = streaming / block / none — render granularity for LLM output
 
 # ---- Login Panel ----
@@ -527,7 +529,8 @@ cmd-gc-view-messages = view_messages: { $count } VMs, ~{ $bytes }
 cmd-gc-message-comparison = origin vs completed: { $overlap } ({ $origin }/{ $completed } messages)
 cmd-gc-markdown-cache = markdown_cache: { $entries }/{ $capacity } entries, estimated data heap ~{ $bytes } (byte budget { $budget })
 cmd-gc-markdown-cache-details = { "  " }Average entry ~{ $average } | largest entry ~{ $largest } | { $lines } lines / { $spans } spans
-cmd-gc-render-cache = render_cache: { $lines } lines + { $wraps } wrap mappings, estimated data heap ~{ $bytes } (rendered conversation + plain-text copies of each line)
+cmd-gc-render-cache = render_cache: { $lines } lines + { $wraps } wrap mappings, estimated data heap ~{ $bytes } (published rendering + plain-text copies of each line)
+cmd-gc-virtual-render = Virtual render: { $segments } resident segments, { $bytes } / { $budget }, { $estimated } estimated, { $evictions } evictions, largest segment estimate { $largest }
 cmd-gc-diff-cache = diff_cache: { $entries }/{ $capacity } entries, ~{ $bytes } (byte budget { $budget })
 cmd-gc-diff-render-cache = diff_render_cache: { $entries }/{ $capacity } entries, ~{ $bytes } (byte budget { $budget })
 cmd-gc-allocator-heading = ── { $allocator } breakdown ──

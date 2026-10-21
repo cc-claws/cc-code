@@ -70,10 +70,15 @@ impl ChatSession {
         lc: &crate::i18n::LcRegistry,
         detail_enabled: bool,
         diff_enabled: bool,
-        streaming_mode: Option<String>,
+        render_config: Option<&crate::config::AppConfig>,
     ) -> Self {
         let (render_tx, render_cache, render_notify) =
             crate::ui::render_thread::spawn_render_thread(80);
+        let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::SetDetailStrategy(
+            render_config
+                .and_then(|config| config.detail_render_strategy.clone())
+                .unwrap_or_else(|| "auto".to_owned()),
+        ));
         let commands = CommandSystem::new(command_registry, skills.clone(), lc);
         let mut messages = MessageState::new(
             cwd.clone(),
@@ -81,7 +86,7 @@ impl ChatSession {
             std::sync::Arc::clone(&render_cache),
             std::sync::Arc::clone(&render_notify),
         );
-        if let Some(ref mode) = streaming_mode {
+        if let Some(mode) = render_config.and_then(|config| config.streaming_mode.as_deref()) {
             messages.pipeline.init_streaming_mode_from_config(mode);
         }
         // 渲染线程的 diff/detail 标志出生即为 false，且 Rebuild 事件不携带标志，

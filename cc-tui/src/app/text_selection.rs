@@ -1,5 +1,113 @@
 use unicode_segmentation::UnicodeSegmentation;
 
+/// 仅保留本帧可见行的命中数据，不保留渲染成品；后台发布新窗口不能改变已显示内容的坐标。
+pub struct PresentedSelectionSnapshot {
+    pub layout: std::sync::Arc<crate::ui::render_thread::VirtualLayoutSnapshot>,
+    pub wrap_map: Vec<crate::ui::render_thread::WrappedLineInfo>,
+    pub links: Vec<cc_widgets::markdown::LinkHit>,
+    pub width: u16,
+}
+
+impl PresentedSelectionSnapshot {
+    pub fn selection_anchor_at(
+        &self,
+        row: usize,
+        column: u16,
+    ) -> Option<crate::ui::render_thread::SelectionAnchor> {
+        selection_anchor_from_parts(&self.layout, &self.wrap_map, row, column, self.width)
+    }
+
+    pub fn link_at_selection_anchor(
+        &self,
+        anchor: crate::ui::render_thread::SelectionAnchor,
+    ) -> Option<String> {
+        link_from_parts(&self.layout, &self.links, anchor)
+    }
+}
+
+pub(crate) fn selection_anchor_from_parts(
+    layout: &crate::ui::render_thread::VirtualLayoutSnapshot,
+    wrap_map: &[crate::ui::render_thread::WrappedLineInfo],
+    row: usize,
+    column: u16,
+    width: u16,
+) -> Option<crate::ui::render_thread::SelectionAnchor> {
+    let (line_index, grapheme_offset) = visual_to_logical(row, column, wrap_map, width)?;
+    let &(message_index, logical_line) = layout.line_origins.get(line_index)?;
+    Some(crate::ui::render_thread::SelectionAnchor {
+        history_epoch: layout.history_epoch,
+        message_index,
+        message_version: *layout.message_versions.get(message_index)?,
+        logical_line,
+        grapheme_offset,
+    })
+}
+
+pub(crate) fn link_from_parts(
+    layout: &crate::ui::render_thread::VirtualLayoutSnapshot,
+    links: &[cc_widgets::markdown::LinkHit],
+    anchor: crate::ui::render_thread::SelectionAnchor,
+) -> Option<String> {
+    if layout.history_epoch != anchor.history_epoch
+        || layout.message_versions.get(anchor.message_index) != Some(&anchor.message_version)
+    {
+        return None;
+    }
+    let line = layout
+        .line_origins
+        .iter()
+        .position(|&origin| origin == (anchor.message_index, anchor.logical_line))?;
+    links
+        .iter()
+        .find(|hit| {
+            hit.line == line
+                && anchor.grapheme_offset >= hit.g_start
+                && anchor.grapheme_offset < hit.g_end
+        })
+        .map(|hit| hit.url.clone())
+}
+
+/// 返回指定原始消息行中被选中的字素范围。
+pub fn anchored_selection_columns(
+    start: crate::ui::render_thread::SelectionAnchor,
+    end: crate::ui::render_thread::SelectionAnchor,
+    message_index: usize,
+    logical_line: usize,
+) -> Option<(usize, usize)> {
+    if start.history_epoch != end.history_epoch {
+        return None;
+    }
+    let key = |anchor: crate::ui::render_thread::SelectionAnchor| {
+        (
+            anchor.message_index,
+            anchor.logical_line,
+            anchor.grapheme_offset,
+        )
+    };
+    let (start, end) = if key(start) <= key(end) {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    let line = (message_index, logical_line);
+    if line < (start.message_index, start.logical_line)
+        || line > (end.message_index, end.logical_line)
+    {
+        return None;
+    }
+    let from = if line == (start.message_index, start.logical_line) {
+        start.grapheme_offset
+    } else {
+        0
+    };
+    let to = if line == (end.message_index, end.logical_line) {
+        end.grapheme_offset
+    } else {
+        usize::MAX
+    };
+    (from < to).then_some((from, to))
+}
+
 /// 文本选区状态
 #[derive(Debug, Clone)]
 pub struct TextSelection {
@@ -11,6 +119,11 @@ pub struct TextSelection {
     pub dragging: bool,
     /// 选区对应的纯文本内容（松开鼠标后计算）
     pub selected_text: Option<String>,
+    /// 虚拟布局中的内容坐标，不受前方估算高度校正影响。
+    pub anchor_start: Option<crate::ui::render_thread::SelectionAnchor>,
+    pub anchor_end: Option<crate::ui::render_thread::SelectionAnchor>,
+    /// 点击新位置或清空时递增，避免异步复制覆盖后来的选区。
+    pub generation: u64,
 }
 
 impl Default for TextSelection {
@@ -26,11 +139,17 @@ impl TextSelection {
             end: None,
             dragging: false,
             selected_text: None,
+            anchor_start: None,
+            anchor_end: None,
+            generation: 0,
         }
     }
 
     /// 开始拖拽：记录起始坐标，清除旧选区
     pub fn start_drag(&mut self, row: usize, col: u16) {
+        self.generation = self.generation.wrapping_add(1);
+        self.anchor_start = None;
+        self.anchor_end = None;
         self.start = Some((row, col));
         self.end = Some((row, col));
         self.dragging = true;
@@ -56,6 +175,9 @@ impl TextSelection {
 
     /// 清除选区（鼠标点击非拖拽、复制后、resize 后调用）
     pub fn clear(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.anchor_start = None;
+        self.anchor_end = None;
         self.start = None;
         self.end = None;
         self.dragging = false;
@@ -64,7 +186,12 @@ impl TextSelection {
 
     /// 是否有活跃的选区（正在拖拽或已选中文字）
     pub fn is_active(&self) -> bool {
-        self.dragging || self.selected_text.is_some()
+        self.dragging
+            || self.selected_text.is_some()
+            || self
+                .anchor_start
+                .zip(self.anchor_end)
+                .is_some_and(|(a, b)| a != b)
     }
 }
 

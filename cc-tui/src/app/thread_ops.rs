@@ -55,6 +55,8 @@ impl App {
     }
 
     pub fn toggle_detail_mode(&mut self) {
+        self.session_mgr.current_mut().ui.text_selection.clear();
+        self.session_mgr.current_mut().ui.screen_selection.clear();
         let new_visible = !self.session_mgr.current_mut().ui.detail_mode;
         self.session_mgr.current_mut().ui.detail_mode = new_visible;
 
@@ -69,6 +71,8 @@ impl App {
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐
     pub fn toggle_diff(&mut self) {
+        self.session_mgr.current_mut().ui.text_selection.clear();
+        self.session_mgr.current_mut().ui.screen_selection.clear();
         let new_visible = !self.session_mgr.current_mut().ui.diff_visible;
         self.session_mgr.current_mut().ui.diff_visible = new_visible;
 
@@ -289,6 +293,15 @@ impl App {
                 .pipeline
                 .init_streaming_mode_from_config(mode);
         }
+        let strategy = self
+            .services
+            .peri_config
+            .as_ref()
+            .and_then(|config| config.config.detail_render_strategy.clone())
+            .unwrap_or_else(|| "auto".to_owned());
+        let _ = self.session_mgr.current_mut().messages.render_tx.try_send(
+            crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
+        );
     }
 
     /// 恢复历史 thread：先确认元数据、目录和 ACP 加载成功，再替换 UI。
@@ -349,6 +362,13 @@ impl App {
         }
         self.session_mgr.current_mut().metadata.session_id =
             uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
+        self.session_mgr.current_mut().ui.text_selection.clear();
+        self.session_mgr.current_mut().ui.pending_text_copy = None;
+        self.session_mgr
+            .current_mut()
+            .ui
+            .presented_selection_snapshot = None;
+        self.session_mgr.current_mut().messages.last_viewport = None;
         self.clear_subagent_sessions();
         self.activate_thread_context(thread_meta.cwd.clone());
         self.session_mgr
@@ -493,6 +513,13 @@ impl App {
         }
         self.session_mgr.current_mut().metadata.session_id =
             uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
+        self.session_mgr.current_mut().ui.text_selection.clear();
+        self.session_mgr.current_mut().ui.pending_text_copy = None;
+        self.session_mgr
+            .current_mut()
+            .ui
+            .presented_selection_snapshot = None;
+        self.session_mgr.current_mut().messages.last_viewport = None;
         self.clear_subagent_sessions();
         // Fire SessionEnd hooks before clearing session state
         {

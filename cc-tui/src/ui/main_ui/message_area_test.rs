@@ -91,6 +91,59 @@ fn test_highlight_line_spans_outside() {
 }
 
 #[test]
+fn test_highlight_line_spans_preserves_grapheme_across_style_spans() {
+    let spans = vec![Span::from("Ae"), Span::from("\u{301}👩‍💻Z")];
+    let highlighted = highlight_line_spans(spans, 1, 3);
+    let selected: String = highlighted
+        .iter()
+        .filter(|span| has_selection_bg(span.style))
+        .map(|span| span.content.as_ref())
+        .collect();
+    assert_eq!(selected, "e\u{301}👩‍💻", "选区必须与复制使用同一字素边界");
+}
+
+#[test]
+fn test_presented_viewport_waits_for_complete_window_without_changing_target() {
+    use crate::ui::render_thread::{VirtualLayoutSnapshot, WrappedLineInfo};
+    let mut cache = RenderCache::new();
+    cache.total_lines = 1_000;
+    cache.virtual_layout = Some(std::sync::Arc::new(VirtualLayoutSnapshot::default()));
+    cache.wrap_map = vec![WrappedLineInfo {
+        line_idx: 0,
+        visual_row_start: 100,
+        visual_row_end: 140,
+        plain_text: String::new(),
+        char_widths: Vec::new(),
+    }];
+    assert_eq!(
+        presented_viewport_offset(&cache, 800, 110, 10),
+        110,
+        "未物化目标继续画旧窗口"
+    );
+    assert_eq!(
+        presented_viewport_offset(&cache, 135, 110, 10),
+        110,
+        "仅覆盖半个视口也不能切过去"
+    );
+    assert_eq!(
+        presented_viewport_offset(&cache, 120, 110, 10),
+        120,
+        "覆盖完整视口即可切换"
+    );
+    assert_eq!(
+        presented_viewport_offset(&cache, 800, 0, 10),
+        100,
+        "旧位置已淘汰时限制到当前窗口"
+    );
+    cache.virtual_layout = None;
+    assert_eq!(
+        presented_viewport_offset(&cache, 800, 110, 10),
+        800,
+        "全量模式沿用原行为"
+    );
+}
+
+#[test]
 fn test_todo_render_line_count_boundaries() {
     assert_eq!(todo_render_line_count(0), 0, "空任务列表行数为0");
     assert_eq!(todo_render_line_count(1), 1, "单个任务占1行");
