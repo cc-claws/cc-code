@@ -4,6 +4,30 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.172 — 2026-10-21
+
+### Features
+
+- **欢迎卡显示模型档位与版本更新提示（#653）**：空会话首屏此前只有「CC Code  v<版本>」一行标题、当前目录一行和开始提示，用户看不出当前跑的是哪个模型、哪一档推理强度，也不知道手上这份二进制是不是最新。现补齐两处：① 标题拆成品牌名 ACCENT + BOLD、版本号 MUTED 两段，版本号按剩余宽度收口而品牌名永不截断；② 新增 `model · (effort effort)` 副标题，模型名取 `services.model_name`（`/model` 切换后同步更新）、档位取配置 `thinking.effort`，任一项缺失或未配 Provider 时整行省略——不编造默认档位。③ 探测到新版本时，用 WARNING `Update available! <当前> → <最新>` + MUTED `To update, run: cc-code update` 两行**替换**原来的开始提示。新增 `cc-tui/src/app/update_check.rs`：启动后在后台查一次 GitHub release 列表（只认 `npm-v*` tag，跳过 prerelease，按语义版本取最大值而非取列表第一条），整个请求压在 3s 超时内，结果经 oneshot 回传、事件循环 `poll_update_check()` 收取，渲染路径只读缓存、永不等待网络；任何失败（无网、限流、JSON 变体）都只记 `debug` 日志并保持正常欢迎页。每个进程只查一次，`CC_CODE_DISABLE_UPDATE_CHECK=1`（或 `CCCODE_DISABLE_UPDATE_CHECK`）可关闭；`cargo test` 下自动禁用，不产生真实请求。
+
+### Fixes
+
+- **空会话首屏不再显示无意义的 Cache/MEM 指标（#653）**：状态栏第三行在还没有任何 LLM 响应时一直挂着 `Cache - · MEM 19MB`——此时 Cache 必然是命中不了的占位符，MEM 也只是空转进程的基线值，两个数字既不提供信息，又把权限模式与快捷键提示挤到一边。现给这块内容加上「已有消息」判定：复用消息区欢迎卡的既有口径（`current_view_messages()` 为空即视为未开始），而不用 `session_start_time`——后者只在首条消息发出时置位，会把恢复历史会话和聚焦子 Agent 视口误判成「未开始」。隐藏仅限这两项，同一行的权限模式、后台任务、重试、MCP、LSP 与快捷键提示不受影响。
+
+### UI
+
+- **欢迎卡边框在中英文下严格闭合，高度恒为 7 行**：更新提示是**替换**而非追加开始提示——卡片内高由吉祥物的 5 行决定，开始提示占 1 行、更新提示占 2 行，正好补满那 1 行空位，因此启动占用不随「是否有更新」变化；无 Provider 时省略副标题、同时补上 `/login` 引导，两项抵消。同步更新 `TUI-STYLE.md` 的欢迎卡规格（新增「模型与档位」「更新提示」两行说明与高度不变量）。
+
+---
+
+## v0.6.171 — 2026-10-21
+
+### Features
+
+- **紧凑启动与随内容增长的终端视口（#652）**：终端此前一启动就占满整屏，空会话下方大片留白。现改为从 shell 输出下方紧凑启动，随输入、回复与面板按实际视觉行数增长，长满宿主高度后才锁定全屏：新增 `terminal_backend/viewport.rs` 与 `main.rs` 的增长起点、必要滚屏、单向全屏锁定与退出区域清理（同步输出切屏与首帧，避免切屏闪烁与退出残留）；`ui/main_ui/viewport_layout.rs` 统一内容与底部高度测量，`ui/render_thread.rs` 增加宽度重排完成通知；`ui/welcome.rs` 与 `message_area.rs` 渲染紧凑吉祥物欢迎卡作为纯 UI 前缀参与滚动，并在首条用户消息前保留一行空白；`app/text_selection.rs`、`event/mod.rs`、`main.rs` 修正非零视口起点及欢迎前缀下的复制、链接与高亮坐标；`app/panel_memory.rs` 恢复外部编辑器挂起前的终端模式，`terminal_backend/compatible.rs` 把清理范围限制为应用自己拥有的行。视口阶段只属于本次终端运行——折叠、新建会话和放大窗口都保留已占用高度与全屏锁定。
+
+---
+
 ## v0.6.170 — 2026-10-21
 
 ### Fixes
