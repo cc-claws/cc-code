@@ -1431,7 +1431,7 @@ submit_message(text)
 
 **边界：** 保留既定的三项调优策略，不据此声称已解决 #26 的长会话 RSS 增长。jemalloc 上游提示初始化时启用后台线程存在循环依赖风险，目标平台的启动回归必须覆盖这一点；若遇到启动挂起，可在启动前设置 `_RJEM_MALLOC_CONF=background_thread:false`。
 
-### 详情渲染策略（#629，未发布）
+### 详情渲染策略（#629，v0.6.169）
 
 `AppConfig.detail_render_strategy: Option<String>` 支持 `auto`（缺省）、`cache`、`virtual`；未知值按 auto 处理。项目 settings 仅在显式写入该字段时覆盖全局值，显式 `auto` 可覆盖全局 cache/virtual。`/config` 的「详情渲染」沿用左右键/Space 轮换样式，变更发送 `SetDetailStrategy`，不要求重启；创建主渲染任务和切换会话目录后同样同步有效配置。子 Agent 聚焦复用当前会话的渲染线程。
 

@@ -4,7 +4,7 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased — 2026-10-21
+## v0.6.169 — 2026-10-21
 
 ### Features
 
