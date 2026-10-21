@@ -60,6 +60,9 @@ impl App {
         // 启动渲染线程
         let (render_tx, render_cache, render_notify) =
             crate::ui::render_thread::spawn_render_thread(width);
+        let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::SetDetailStrategy(
+            "auto".to_owned(),
+        ));
 
         // SQLite 会收紧父目录权限，不能把数据库直接放在共享 Temp 根目录。
         let db_dir =

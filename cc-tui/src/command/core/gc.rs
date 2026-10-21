@@ -35,12 +35,15 @@ impl Command for GcCommand {
         let md_cache = cc_widgets::markdown::cache::MarkdownCache::global().stats();
 
         // ── 渲染线程缓存 / diff 缓存（此前未纳入统计，是「未识别」的主要盲区）──
-        let (render_cache_bytes, render_lines, wrap_entries) = {
+        let (render_cache_bytes, render_lines, wrap_entries, virtual_stats) = {
             let rc = active.messages.render_cache.read();
             (
                 estimate_render_cache_heap(&rc),
                 rc.lines.len(),
                 rc.wrap_map.len(),
+                rc.virtual_layout
+                    .as_ref()
+                    .map(|layout| layout.diagnostics.clone()),
             )
         };
         let diff_stats = diff_cache_stats();
@@ -191,6 +194,28 @@ impl Command for GcCommand {
                 ("bytes".into(), fmt_bytes(render_cache_bytes).into()),
             ],
         ));
+        if let Some(stats) = virtual_stats {
+            lines.push(lc.tr_args(
+                "cmd-gc-virtual-render",
+                &[
+                    (
+                        "segments".into(),
+                        stats.resident_segments.to_string().into(),
+                    ),
+                    ("bytes".into(), fmt_bytes(stats.resident_bytes).into()),
+                    ("budget".into(), fmt_bytes(stats.budget_bytes).into()),
+                    (
+                        "estimated".into(),
+                        stats.estimated_segments.to_string().into(),
+                    ),
+                    ("evictions".into(), stats.evictions.to_string().into()),
+                    (
+                        "largest".into(),
+                        fmt_bytes(stats.largest_segment_bytes).into(),
+                    ),
+                ],
+            ));
+        }
         lines.push(lc.tr_args(
             "cmd-gc-diff-cache",
             &[
@@ -509,6 +534,17 @@ fn estimate_render_cache_heap(rc: &crate::ui::render_thread::RenderCache) -> usi
         total += w.plain_text.capacity() + w.char_widths.capacity();
     }
     total += rc.links.capacity() * std::mem::size_of::<cc_widgets::markdown::LinkHit>();
+    for link in &rc.links {
+        total += link.url.capacity();
+    }
+    if let Some(layout) = &rc.virtual_layout {
+        total += std::mem::size_of_val(layout.as_ref());
+        total += layout.message_visual_offsets.capacity() * std::mem::size_of::<usize>();
+        total += std::mem::size_of::<Vec<usize>>();
+        total += layout.line_origins.capacity() * std::mem::size_of::<(usize, usize)>();
+        total += layout.message_versions.capacity() * std::mem::size_of::<u64>();
+        total += std::mem::size_of::<Vec<u64>>();
+    }
     total
 }
 
