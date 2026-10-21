@@ -161,6 +161,8 @@ key-bg-command = :Background command
 
 welcome-start-hint = Start chatting, or /help for commands
 welcome-login-hint = Use /login to configure a provider
+welcome-update-available = Update available! { $current } → { $latest }
+welcome-update-command = To update, run: cc-code update
 
 welcome-title = CC Code Agent Framework
 welcome-divider = ────── What can I do? ──────

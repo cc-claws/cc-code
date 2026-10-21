@@ -779,7 +779,12 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // Cache/MEM（左侧块，右侧留给快捷键）
-    {
+    //
+    // 对话尚未开始时这两个指标没有可解释的含义：Cache 一定是 `Cache -`（还没有
+    // 任何 LLM 响应可供命中），MEM 只是空转进程的基线值，二者只会给启动首屏添噪。
+    // 判定沿用消息区欢迎卡的口径（`current_view_messages()` 为空即视为未开始），
+    // 因此恢复历史会话/聚焦子 Agent 视口时只要已有消息就照常显示。
+    if !app.session_mgr.current().current_view_messages().is_empty() {
         let tracker = &app
             .session_mgr
             .current()

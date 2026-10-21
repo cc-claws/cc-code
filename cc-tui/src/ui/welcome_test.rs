@@ -175,9 +175,106 @@ async fn test_welcome_short_region_skips_mascot_and_keeps_text() {
     assert!(snapshot.contains("/help"), "使用提示优先保留");
 }
 
+/// 边框必须逐行闭合，中文与英文、各种内容组合下都不能被文字挤开。
+///
+/// 断言「每一行最后一个非空格子」正好落在右边框列——宽字符（中文）会占两格，
+/// 若按字符数而非显示列宽排版，右边框就会被推到更右边而破框。
 #[tokio::test]
-async fn test_welcome_tiny_regions_do_not_overflow() {
-    let (app, mut handle) = App::new_headless(16, 12).await;
+async fn test_welcome_border_closes_on_every_row_in_both_languages() {
+    use crate::config::{AppConfig, PeriConfig, ThinkingConfig};
+
+    for lang in ["en", "zh-CN"] {
+        for (has_update, has_provider) in [(false, true), (true, true), (false, false)] {
+            let (mut app, mut handle) = App::new_headless(66, 12).await;
+            app.services.model_name = "claude-fable-5".to_string();
+            app.services.cwd = r"D:\code\peri".to_string();
+            app.services.lc.switch(lang).expect("测试语言可用");
+            app.services.peri_config = has_provider.then(|| PeriConfig {
+                schema: None,
+                config: AppConfig {
+                    providers: vec![crate::config::ProviderConfig {
+                        id: "t".into(),
+                        name: Some("T".into()),
+                        ..Default::default()
+                    }],
+                    thinking: Some(ThinkingConfig {
+                        enabled: false,
+                        budget_tokens: 8000,
+                        effort: "max".to_string(),
+                        max_tokens: 32000,
+                    }),
+                    ..Default::default()
+                },
+            });
+            if has_update {
+                app.services
+                    .update_checker
+                    .lock()
+                    .set_status_for_test(UpdateStatus::Available {
+                        latest: "0.6.999".to_string(),
+                    });
+            }
+            handle
+                .terminal
+                .draw(|f| render_welcome(f, &app, f.area()))
+                .expect("欢迎卡应能绘制");
+
+            let buffer = handle.terminal.backend().buffer().clone();
+            let height = welcome_height(&app, 66);
+            let width = 66u16.min(CARD_MAX_WIDTH);
+            let case = format!("lang={lang} update={has_update} provider={has_provider}");
+
+            // 四角
+            assert_eq!(buffer[(0, 0)].symbol(), "╭", "{case} 左上角");
+            assert_eq!(buffer[(width - 1, 0)].symbol(), "╮", "{case} 右上角");
+            assert_eq!(buffer[(0, height - 1)].symbol(), "╰", "{case} 左下角");
+            assert_eq!(
+                buffer[(width - 1, height - 1)].symbol(),
+                "╯",
+                "{case} 右下角"
+            );
+
+            for y in 0..height {
+                // 左右边框：首末行是圆角，中间行是竖线
+                let (left, right) = if y == 0 {
+                    ("╭", "╮")
+                } else if y == height - 1 {
+                    ("╰", "╯")
+                } else {
+                    ("│", "│")
+                };
+                assert_eq!(buffer[(0, y)].symbol(), left, "{case} row {y} 左边界");
+                // 每行最后一个非空格必须正好是右边界列——宽字符排错时会右移
+                let last_nonblank = (0..width).rev().find(|&x| buffer[(x, y)].symbol() != " ");
+                assert_eq!(
+                    last_nonblank,
+                    Some(width - 1),
+                    "{case} row {y} 最后一个非空格应落在右边界列 {}",
+                    width - 1
+                );
+                assert_eq!(
+                    buffer[(width - 1, y)].symbol(),
+                    right,
+                    "{case} row {y} 右边界"
+                );
+            }
+
+            // 卡片右侧（终端比卡片宽时）不能有溢出内容
+            for x in width..66u16 {
+                for y in 0..height {
+                    assert_eq!(
+                        buffer[(x, y)].symbol(),
+                        " ",
+                        "{case} 卡片外 x={x} y={y} 不应有内容"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_welcome_tiny_regions_do_not_overflow() {    let (app, mut handle) = App::new_headless(16, 12).await;
     for (width, height) in [(0, 0), (1, 1), (2, 2), (3, 4), (4, 3), (10, 3)] {
         handle
             .terminal
@@ -262,4 +359,289 @@ async fn test_welcome_slice_tiny_and_outside_regions_do_not_overflow() {
             .expect("极小或越出帧边界的裁切不能崩溃");
         assert_eq!(copied_rows, expected_rows, "只应复制目标帧内存在的行");
     }
+}
+
+// ── 副标题：model · (effort) ─────────────────────────────────────────────────
+
+/// 构造一份带 thinking 配置的 app，用于副标题与更新提示的断言。
+fn app_with_thinking(model: &str, effort: &str) -> impl std::future::Future<Output = App> {
+    use crate::config::{AppConfig, PeriConfig, ThinkingConfig};
+    let model = model.to_string();
+    let effort = effort.to_string();
+    async move {
+        let (mut app, _handle) = App::new_headless(80, 12).await;
+        app.services.model_name = model;
+        app.services.peri_config = Some(PeriConfig {
+            schema: None,
+            config: AppConfig {
+                providers: vec![crate::config::ProviderConfig {
+                    id: "test".into(),
+                    name: Some("Test".into()),
+                    ..Default::default()
+                }],
+                thinking: Some(ThinkingConfig {
+                    enabled: false,
+                    budget_tokens: 8000,
+                    effort,
+                    max_tokens: 32000,
+                }),
+                ..Default::default()
+            },
+        });
+        app
+    }
+}
+
+/// 标题行：品牌名 ACCENT+BOLD，版本号降级 MUTED（同一行两个 Span）。
+#[tokio::test]
+async fn test_welcome_title_splits_brand_accent_and_version_muted() {
+    let (app, _handle) = App::new_headless(80, 12).await;
+    let lines = welcome_lines(&app, 60);
+    let title = &lines[0];
+    assert_eq!(title.spans.len(), 2, "标题应拆成品牌名与版本号两段");
+
+    assert_eq!(title.spans[0].content.as_ref(), "CC Code  ");
+    assert_eq!(
+        title.spans[0].style.fg,
+        Some(theme::cur().claude),
+        "品牌名应为 ACCENT"
+    );
+    assert!(
+        title.spans[0].style.add_modifier.contains(Modifier::BOLD),
+        "品牌名应保持 BOLD"
+    );
+
+    assert_eq!(
+        title.spans[1].content.as_ref(),
+        format!("v{}", env!("CARGO_PKG_VERSION")),
+        "第二段只应包含版本号"
+    );
+    assert_eq!(
+        title.spans[1].style.fg,
+        Some(theme::cur().inactive),
+        "版本号应为 MUTED"
+    );
+    assert!(
+        !title.spans[1].style.add_modifier.contains(Modifier::BOLD),
+        "版本号不应继承 BOLD"
+    );
+}
+
+#[tokio::test]
+async fn test_welcome_subtitle_shows_model_and_effort() {
+    let app = app_with_thinking("claude-fable-5", "max").await;
+    let lines = welcome_lines(&app, 60);
+    let subtitle = lines[1].to_string();
+    assert_eq!(
+        subtitle, "claude-fable-5 · (max effort)",
+        "第二行应为 `model · (effort effort)`，实际: {subtitle:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_welcome_subtitle_omitted_without_model_name() {
+    let app = app_with_thinking("", "max").await;
+    let lines = welcome_lines(&app, 60);
+    assert!(
+        !lines.iter().any(|line| line.to_string().contains("· (")),
+        "没有模型名时不应渲染半截副标题: {:?}",
+        lines.iter().map(|l| l.to_string()).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn test_welcome_subtitle_omitted_when_thinking_disabled() {
+    let app = app_with_thinking("claude-fable-5", "").await;
+    let lines = welcome_lines(&app, 60);
+    assert!(
+        !lines.iter().any(|line| line.to_string().contains("· (")),
+        "未配置 effort 时不应编造档位: {:?}",
+        lines.iter().map(|l| l.to_string()).collect::<Vec<_>>()
+    );
+}
+
+/// 无 Provider 时副标题整行省略，改用一行 `/login` 引导——两者抵消，行数不变。
+#[tokio::test]
+async fn test_welcome_omits_subtitle_and_shows_login_hint_without_provider() {
+    let (mut app, _handle) = App::new_headless(80, 12).await;
+    app.services.model_name = "claude-fable-5".to_string();
+    app.services.peri_config = None;
+
+    let lines = welcome_lines(&app, 60);
+    let joined = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !joined.contains("effort"),
+        "未配置 Provider 时不应显示模型/档位副标题:\n{joined}"
+    );
+    assert!(
+        joined.contains("/login"),
+        "未配置 Provider 时应保留登录引导:\n{joined}"
+    );
+    assert_eq!(
+        lines.len(),
+        4,
+        "标题 + 目录 + 开始提示 + 登录引导，共 4 行:\n{joined}"
+    );
+}
+
+/// 卡片高度不变量：有吉祥物时恒为 7 行（内高 5 + 上下边框），
+/// 与「是否有更新」「是否配置 Provider」都无关。
+#[tokio::test]
+async fn test_welcome_card_height_is_always_seven_rows_with_mascot() {
+    const WIDE: u16 = 80;
+    for has_provider in [false, true] {
+        for has_update in [false, true] {
+            let (mut app, _handle) = App::new_headless(WIDE, 12).await;
+            app.services.model_name = "claude-fable-5".to_string();
+            if has_provider {
+                use crate::config::{AppConfig, PeriConfig, ThinkingConfig};
+                app.services.peri_config = Some(PeriConfig {
+                    schema: None,
+                    config: AppConfig {
+                        providers: vec![crate::config::ProviderConfig {
+                            id: "test".into(),
+                            name: Some("Test".into()),
+                            ..Default::default()
+                        }],
+                        thinking: Some(ThinkingConfig {
+                            enabled: false,
+                            budget_tokens: 8000,
+                            effort: "max".to_string(),
+                            max_tokens: 32000,
+                        }),
+                        ..Default::default()
+                    },
+                });
+            } else {
+                app.services.peri_config = None;
+            }
+            if has_update {
+                app.services
+                    .update_checker
+                    .lock()
+                    .set_status_for_test(UpdateStatus::Available {
+                        latest: "0.6.999".to_string(),
+                    });
+            }
+            assert_eq!(
+                welcome_height(&app, WIDE),
+                7,
+                "provider={has_provider} update={has_update} 时卡片应恒为 7 行"
+            );
+        }
+    }
+}
+
+// ── 更新提示 ─────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_welcome_hides_update_hint_when_unknown_or_up_to_date() {
+    for status in [UpdateStatus::Unknown, UpdateStatus::UpToDate] {
+        let (app, mut handle) = App::new_headless(80, 12).await;
+        app.services
+            .update_checker
+            .lock()
+            .set_status_for_test(status);
+        handle
+            .terminal
+            .draw(|f| render_welcome(f, &app, f.area()))
+            .expect("欢迎卡应能绘制");
+        let snapshot = handle.snapshot().join("\n");
+        assert!(
+            !snapshot.contains("cc-code update"),
+            "无更新或状态未知时不应显示升级命令:\n{snapshot}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_welcome_shows_update_hint_with_versions_when_available() {
+    let (app, mut handle) = App::new_headless(80, 12).await;
+    app.services
+        .update_checker
+        .lock()
+        .set_status_for_test(UpdateStatus::Available {
+            latest: "0.6.999".to_string(),
+        });
+    handle
+        .terminal
+        .draw(|f| render_welcome(f, &app, f.area()))
+        .expect("欢迎卡应能绘制");
+    let snapshot = handle.snapshot().join("\n");
+    assert!(
+        snapshot.contains("0.6.999"),
+        "应展示线上最新版本号:\n{snapshot}"
+    );
+    assert!(
+        snapshot.contains("cc-code update"),
+        "应给出升级命令:\n{snapshot}"
+    );
+}
+
+/// 有吉祥物时，更新提示**替换**开始提示，卡片高度必须不变。
+///
+/// 内高由吉祥物的 5 行撑住：无更新时文本 4 行（标题/模型/目录/开始提示），
+/// 有更新时文本 5 行（标题/模型/目录/更新提示/升级命令）。两者都在 5 行以内，
+/// 因此外框高度恒定。窄卡片没有吉祥物撑高，文本多一行自然高一行——不算缺陷。
+#[tokio::test]
+async fn test_welcome_update_hint_replaces_start_hint_without_growing_card() {
+    const WIDE: u16 = 80;
+    let (mut app, _handle) = App::new_headless(WIDE, 12).await;
+    app.services.peri_config = None;
+    let base = welcome_height(&app, WIDE);
+
+    app.services
+        .update_checker
+        .lock()
+        .set_status_for_test(UpdateStatus::Available {
+            latest: "0.6.999".to_string(),
+        });
+    assert_eq!(
+        welcome_height(&app, WIDE),
+        base,
+        "有吉祥物时更新提示替换开始提示，卡片高度不应变化"
+    );
+
+    // 替换语义：更新提示出现时，「开始对话」提示必须同时消失。
+    let lines = welcome_lines(&app, 60);
+    let joined = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !joined.contains("开始对话") && !joined.contains("Start chatting"),
+        "有更新时不应再显示开始提示:\n{joined}"
+    );
+}
+
+/// 更新提示沿用主题调色板：警告色 + 次要色，不写死 RGB。
+#[tokio::test]
+async fn test_welcome_update_hint_uses_theme_palette() {
+    let (app, _handle) = App::new_headless(80, 12).await;
+    app.services
+        .update_checker
+        .lock()
+        .set_status_for_test(UpdateStatus::Available {
+            latest: "0.6.999".to_string(),
+        });
+    let lines = welcome_lines(&app, 60);
+    let index = lines
+        .iter()
+        .position(|line| line.to_string().contains("0.6.999"))
+        .expect("应存在更新提示行");
+    assert_eq!(
+        lines[index].spans[0].style.fg,
+        Some(theme::cur().warning),
+        "更新提示行应使用主题 WARNING 色"
+    );
+    assert_eq!(
+        lines[index + 1].spans[0].style.fg,
+        Some(theme::cur().inactive),
+        "升级命令行应使用主题 MUTED 色"
+    );
 }

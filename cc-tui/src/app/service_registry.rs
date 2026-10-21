@@ -7,7 +7,7 @@ use cc_middlewares::{
     prelude::SharedPermissionMode,
 };
 
-use super::{cron_state::CronState, events::AgentEvent};
+use super::{cron_state::CronState, events::AgentEvent, update_check::UpdateChecker};
 use crate::{config::PeriConfig, shell_history::ShellCommandStore, thread::ThreadStore};
 
 /// 进程资源采样器：每 2 秒采样一次当前进程的 CPU 和内存
@@ -85,6 +85,8 @@ pub struct ServiceRegistry {
     pub git_branch_cache: parking_lot::Mutex<GitBranchCache>,
     /// Git 分支异步刷新器（子进程不占用渲染线程，issue #277）
     pub git_branch_poller: parking_lot::Mutex<GitBranchPoller>,
+    /// 启动后的版本更新检查（后台查一次，结果供欢迎卡展示）
+    pub update_checker: parking_lot::Mutex<UpdateChecker>,
     /// panic hook 通知 receiver（TUI 模式专用，由 main.rs init_panic_notify 初始化）
     pub panic_notify_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
 }
