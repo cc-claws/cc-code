@@ -526,7 +526,18 @@ fn style_urls(text: &str, base: Style) -> Vec<Span<'static>> {
     if ranges.is_empty() {
         return vec![Span::styled(text.to_string(), base)];
     }
-    let link = base.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
+    // 链接 span 的背景与状态栏模型名对齐为 `bg(Reset)`。
+    //
+    // 状态栏用 `plain_style()`（`fg(Reset).bg(Reset)`）绘制模型名，而工具输出正文的
+    // base 是 `Style::default().fg(text_soft)`（`bg = None`）。`bg = None` 时 ratatui
+    // 不下发背景指令，cell 沿用 buffer 里已有的背景；`Reset` 则显式发 `ESC[49m`
+    // 让终端恢复自己的默认背景。两者落到不同的背景解析路径上，同一个
+    // `Color::Cyan` 便呈现可见色差。固定为 `Reset` 与状态栏走同一条背景路径，
+    // 前景色观感才真正一致。
+    let link = base
+        .fg(Color::Cyan)
+        .bg(Color::Reset)
+        .add_modifier(Modifier::UNDERLINED);
     let mut spans = Vec::with_capacity(ranges.len() * 2 + 1);
     let mut cursor = 0;
     for (start, end) in ranges {
