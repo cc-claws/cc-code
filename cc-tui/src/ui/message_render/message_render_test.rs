@@ -3042,6 +3042,16 @@ fn test_tool_result_urls_use_link_color_and_underline() {
         Some(ratatui::style::Color::Cyan),
         "URL 应使用定稿的 ANSI Cyan 链接色"
     );
+    // URL 的链接色必须与状态栏模型名「同一套前景 + 背景」，否则同一个
+    // `Color::Cyan` 会因背景解析路径不同而呈现可见色差。
+    //
+    // 状态栏 `plain_style()` 是 `fg(Reset).bg(Reset)`；URL 若只设 fg、bg 留空，
+    // ratatui 就不下发背景指令，cell 沿用 buffer 里的旧背景，两块区域观感不一致。
+    assert_eq!(
+        url_span.style.bg,
+        Some(ratatui::style::Color::Reset),
+        "URL 的背景必须与状态栏模型名的 bg(Reset) 对齐"
+    );
     assert!(
         url_span
             .style
