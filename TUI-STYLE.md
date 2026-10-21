@@ -1,7 +1,8 @@
 # TUI Style Guide
 
 > **最后更新：2026-10-21**
-> 本次更新：新增 `/theme` 命令与 7 套主题（default 为现行配色，其余 6 套与 claude-code-best 逐值一致），渲染改走当前调色板；**状态栏为例外**——配色为打磨定稿的固定值，不参与主题化（#523）。
+> 本次更新：工具结果行 / `!` 命令输出里的裸 URL 链接色定稿 ANSI Cyan + 下划线，不随 `/theme` 漂移（见「消息流 › URL 链接着色」）。
+> 此前更新：新增 `/theme` 命令与 7 套主题（default 为现行配色，其余 6 套与 claude-code-best 逐值一致），渲染改走当前调色板；**状态栏为例外**——配色为打磨定稿的固定值，不参与主题化（#523）；「详情渲染」新增 `auto` / `cache` / `virtual` 三态切换（见「/config 面板」）。
 
 ## 设计哲学
 
@@ -13,7 +14,7 @@
 
 ### 主题系统（/theme）
 
-八套主题：`auto`（跟随终端，见下）+ `default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。**唯一例外：状态栏**（`cc-tui/src/ui/main_ui/status_bar.rs`）——配色是打磨定稿的固定值，经模块内固定配色常量 `sb` 输出，**不随 `/theme` 切换**，渲染结果与主题系统引入之前逐字节一致（#523）。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
+八套主题：`auto`（跟随终端，见下）+ `default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。**固定配色例外（不随 `/theme` 切换）有两处**：一是状态栏（`cc-tui/src/ui/main_ui/status_bar.rs`）——配色是打磨定稿的固定值，经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致（#523）；二是工具结果行 / `!` 命令输出里的 URL 链接色，定稿 `Color::Cyan`（ANSI Cyan）+ 下划线，见「消息流 › URL 链接着色」。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
 
 **`auto`（跟随终端）** 由 `cc-tui/src/terminal_theme/` 解析成上面某套具体主题，两级判定：颜色能力（`TERM_PROGRAM=Apple_Terminal` 只支持 16/256 色 → 选 `*-ansi`；其余终端按真彩色 → 选 `light`/`dark`）+ 背景明暗（启动时给终端发 OSC 11 查询问它自己的背景色，回 `rgb:RRRR/GGGG/BBBB` 后按 sRGB 亮度阈值 0.5 判；终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`、其余按深色）。**不要**从 Terminal.app 的 `Default Window Settings` profile 推断背景色——那只代表下一个新窗口用哪个 profile，单个窗口可在 `Shell > Show Inspector` 里指定（本机默认 profile 是黑底的 Pro，实际窗口却是白底的 Basic）。探测结果按进程缓存（`theme::cur()` 在渲染热路径上），OSC 11 的回复必须在 `EventReader::start()` 之前读走，因此只在持久化主题为 `auto` 时于 `enable_raw_mode()` 之后预探测一次；运行期再切到 `auto` 时来不及做终端往返，直接走平台回退。`/theme` 面板的 `auto` 行会标出当前解析到的具体主题名。
 
@@ -126,6 +127,20 @@
 | Failed | `✗` | ERROR | TEXT + BOLD |
 
 工具结果行格式：` ⎿ ` 前缀（DIM 色）+ 内容（MUTED 色或 ERROR 色）。错误折叠时显示 error_summary（最多 400 Unicode 字符，DIM `⎿` 前缀）。
+
+### URL 链接着色（工具结果 / `!` 命令输出）
+
+纯文本里裸写的 `http://` / `https://` 由 `cc-tui/src/ui/message_render/mod.rs` 的 `style_urls()` 单独上色：
+
+| 项 | 规则 |
+|----|------|
+| 链接色 | `Color::Cyan`（ANSI Cyan），**定稿不随 `/theme` 切换**（与状态栏模型名 / 分支名同一口径，深浅主题下都由终端调色板保证可读） |
+| 修饰 | `Modifier::UNDERLINED` 下划线 |
+| 识别范围 | 只认 `http://` / `https://`，口径对齐 CC `OutputLine.tsx::URL_IN_JSON`（`/https?:\/\/[^\s"'<>\\]+/g`），并额外切掉句末 `)` `]` `}` `,` `;` `.` `:` |
+| 覆盖范围 | 所有走 `⎿` 前缀的工具结果行（Bash / Read / Grep / Glob 等，经 `format_prefixed_text()`）+ 用户 `!命令` 输出（经 `format_shell_output_lines()`） |
+| 不是真超链接 | 非 OSC 8：ratatui 的 cell 模型塞不了转义序列，`sanitize_display_text()` 会剥掉 `\x1b`；点击仍由终端自身的 URL 识别提供 |
+
+> 注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `cc-widgets/src/markdown/render_state.rs` 的 `theme.link()`（= SAGE `#4EBA65`，见「Markdown 渲染」），**不受本规则影响**。本条只作用于「裸 URL 文本」。
 
 ### AskUserQuestion 渲染
 

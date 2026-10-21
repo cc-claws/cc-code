@@ -514,6 +514,10 @@ pub(crate) fn find_url_ranges(text: &str) -> Vec<(usize, usize)> {
 
 /// 给一行纯文本里的 URL 套上「链接色 + 下划线」。
 ///
+/// 链接色定稿为 **ANSI Cyan**（`Color::Cyan`，不随 `/theme` 漂移）：
+/// 与状态栏的模型名 / 分支名同一口径，深色与浅色主题下都由终端调色板保证可读，
+/// 且与正文的 `text_soft` / `error` 在明度上拉开，一眼可辨。
+///
 /// 说明：这不是 OSC 8 真超链接（ratatui 的 cell 模型不支持塞转义序列，
 /// 且 `sanitize_display_text` 会剥掉 `\x1b`），只是视觉上把 URL 与正文区分开。
 /// 点击能力仍由终端自身的 URL 识别提供。
@@ -522,7 +526,7 @@ fn style_urls(text: &str, base: Style) -> Vec<Span<'static>> {
     if ranges.is_empty() {
         return vec![Span::styled(text.to_string(), base)];
     }
-    let link = base.fg(theme::cur().ide).add_modifier(Modifier::UNDERLINED);
+    let link = base.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
     let mut spans = Vec::with_capacity(ranges.len() * 2 + 1);
     let mut cursor = 0;
     for (start, end) in ranges {

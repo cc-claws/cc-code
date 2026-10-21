@@ -620,6 +620,7 @@ submit_message(text)
 - 选择面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板
 - `/theme` 面板补齐 session 面板键盘路由（`PanelKind::Theme` 加入键盘与粘贴白名单，此前 `↑`/`↓`/`Esc` 被穿透，v0.6.142）
 - **状态栏例外（v0.6.143）:** 状态栏配色是打磨定稿的固定值，不参与主题化——`ui/main_ui/status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致
+- **URL 链接色例外（未发布）:** 工具结果行与 `!` 命令输出里的裸 URL 也固定 ANSI Cyan，不随 `/theme` 切换——`message_render/mod.rs::style_urls()` 用 `Color::Cyan` + 下划线（此前是 `theme::cur().ide`，随主题漂移且与正文明度接近），覆盖 `format_prefixed_text()` 与 `format_shell_output_lines()` 两个调用点；Markdown 链接（`theme.link()` = SAGE）是另一条路径，不受影响
 
 **参考:** 快捷键与色板详见 [TUI-STYLE.md](../../TUI-STYLE.md) 的「主题系统」「状态栏」章节
 
