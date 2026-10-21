@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.170：**工具结果与 `!` 命令输出里的 URL 链接色定稿 ANSI Cyan**——此前裸 URL 用 `theme::cur().ide`（深色 `#4782C8`），链接色随 `/theme` 漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位；现 `style_urls()` 固定 `Color::Cyan` + 下划线，不随主题切换，与状态栏模型名 / 分支名同一口径。覆盖所有走 `⎿` 前缀的工具结果行与 `!command` 输出；仍非 OSC 8 真超链接，点击由终端自身 URL 识别提供。Markdown 链接（`[text](url)` → SAGE）是另一条路径，不受影响（#649）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.169：**长会话详情按视口渲染**——`/config` →「详情渲染」可选 `auto`（默认）/ `cache` / `virtual`，即时生效；虚拟路径按需物化窗口，离屏成品按共享 16 MiB 预算淘汰，逻辑锚点支持滚动与跨淘汰复制。预算不等于进程 RSS 上限，原始历史和可见巨型消息仍占内存；可随时切回 `cache`（#629，PR #648）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.157：**`/theme` 新增 `auto`，跟随终端颜色能力与背景明暗**——两级判定：① **颜色能力**（`TERM_PROGRAM=Apple_Terminal` 这类只有 16/256 色的终端 → `light-ansi` / `dark-ansi`，其余真彩色终端 → `light` / `dark`）；② **背景明暗**（OSC 11 查询按回复的 sRGB 相对亮度判定，终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`、其余平台按深色兜底）。判定结果缓存、仅在持久化主题为 `auto` 时预探测，`/theme` 面板该行显示 `Auto (follow terminal: <解析结果>)`（#604）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.170 — 2026-10-21
+
+### Fixes
+
+- **工具结果与 `!` 命令输出里的 URL 链接色定稿为 ANSI Cyan（#649）**：此前裸 URL 用 `theme::cur().ide`（深色 `#4782C8`），随 `/theme` 切换漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `message_render/mod.rs::style_urls()` 固定用 `Color::Cyan` + 下划线，不随主题切换，与状态栏模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（用户 `!命令` 输出）。识别口径对齐 CC `OutputLine.tsx::URL_IN_JSON`，额外切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍非 OSC 8 真超链接（ratatui cell 模型塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `theme.link()` = SAGE `#4EBA65`，不受本改动影响。
+
+---
+
 ## v0.6.169 — 2026-10-21
 
 ### Features
