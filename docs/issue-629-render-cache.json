@@ -1,0 +1,115 @@
+{
+  "baseline_commit": "60e3f795dbb8072677915bda5d96c2c9c0d54fee",
+  "build": "debug; Windows; single-thread probe runtime",
+  "implementation": "working-tree #629",
+  "release_tag": "npm-v0.6.168",
+  "resize_control_sequence": {
+    "after_queued_version": 3,
+    "before_version": 1,
+    "explicit_detail_visual_rows": 1722,
+    "queued_resize_then_detail_visual_rows": 1722,
+    "queued_toggle_lost": false
+  },
+  "results": [
+    {
+      "app_snapshot_clone_ms": 0.5950000000000001,
+      "append_publish_ms": 18.9264,
+      "appended_visual_rows": 17211,
+      "cold_detail_publish_ms": 1674.1404,
+      "contracts": "folded==off; cold==hot, including text/style/wrap; fingerprint is diagnostic, not per-line diff",
+      "detail": {
+        "fingerprint": 7088088240657320395,
+        "logical_lines": 17209,
+        "message_offsets": 100,
+        "shared_cache_estimated_bytes": 7663379,
+        "virtual": null,
+        "visual_rows": 17209,
+        "wrap_entries": 17209
+      },
+      "fixture_prepare_ms": 90.9952,
+      "folded": {
+        "fingerprint": 15846272572109677951,
+        "logical_lines": 659,
+        "message_offsets": 100,
+        "shared_cache_estimated_bytes": 248598,
+        "virtual": null,
+        "visual_rows": 659,
+        "wrap_entries": 659
+      },
+      "folded_publish_ms": 56.1503,
+      "hot_detail_publish_ms": 13.138399999999999,
+      "messages": 100,
+      "off_publish_ms": 6.5518,
+      "scroll": null,
+      "strategy": "cache",
+      "width": 120
+    },
+    {
+      "app_snapshot_clone_ms": 2.7253999999999996,
+      "append_publish_ms": 96.5488,
+      "appended_visual_rows": 86051,
+      "cold_detail_publish_ms": 8457.659599999999,
+      "contracts": "folded==off; cold==hot, including text/style/wrap; fingerprint is diagnostic, not per-line diff",
+      "detail": {
+        "fingerprint": 7668655363363199313,
+        "logical_lines": 86049,
+        "message_offsets": 500,
+        "shared_cache_estimated_bytes": 36955683,
+        "virtual": null,
+        "visual_rows": 86049,
+        "wrap_entries": 86049
+      },
+      "fixture_prepare_ms": 414.4246,
+      "folded": {
+        "fingerprint": 10887540988147096364,
+        "logical_lines": 3299,
+        "message_offsets": 500,
+        "shared_cache_estimated_bytes": 1196006,
+        "virtual": null,
+        "visual_rows": 3299,
+        "wrap_entries": 3299
+      },
+      "folded_publish_ms": 280.2324,
+      "hot_detail_publish_ms": 65.97540000000001,
+      "messages": 500,
+      "off_publish_ms": 32.758700000000005,
+      "scroll": null,
+      "strategy": "cache",
+      "width": 120
+    },
+    {
+      "app_snapshot_clone_ms": 5.7902,
+      "append_publish_ms": 192.7905,
+      "appended_visual_rows": 172101,
+      "cold_detail_publish_ms": 16898.1479,
+      "contracts": "folded==off; cold==hot, including text/style/wrap; fingerprint is diagnostic, not per-line diff",
+      "detail": {
+        "fingerprint": 16715140955516494806,
+        "logical_lines": 172099,
+        "message_offsets": 1000,
+        "shared_cache_estimated_bytes": 73964535,
+        "virtual": null,
+        "visual_rows": 172099,
+        "wrap_entries": 172099
+      },
+      "fixture_prepare_ms": 810.764,
+      "folded": {
+        "fingerprint": 151820297925251566,
+        "logical_lines": 6599,
+        "message_offsets": 1000,
+        "shared_cache_estimated_bytes": 2392810,
+        "virtual": null,
+        "visual_rows": 6599,
+        "wrap_entries": 6599
+      },
+      "folded_publish_ms": 566.5839000000001,
+      "hot_detail_publish_ms": 138.4288,
+      "messages": 1000,
+      "off_publish_ms": 65.68889999999999,
+      "scroll": null,
+      "strategy": "cache",
+      "width": 120
+    }
+  ],
+  "scope": "real rendering worker; synthetic fixture; one timing sample per toggle, scroll distributions per case. Virtual global rows include offscreen estimates; visible windows use exact rendering. Bytes estimate shared window and resident segments separately, excluding source VM, allocator and RSS."
+}

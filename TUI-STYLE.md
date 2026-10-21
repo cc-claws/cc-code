@@ -1,6 +1,6 @@
 # TUI Style Guide
 
-> **最后更新：2026-10-15**
+> **最后更新：2026-10-21**
 > 本次更新：新增 `/theme` 命令与 7 套主题（default 为现行配色，其余 6 套与 claude-code-best 逐值一致），渲染改走当前调色板；**状态栏为例外**——配色为打磨定稿的固定值，不参与主题化（#523）。
 
 ## 设计哲学
@@ -428,6 +428,7 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC�
 
 - Browse：字段列表，光标行 THINKING + BOLD，值 TEXT
 - Edit：编辑字段高亮，开/关用 THINKING / MUTED 对比
+- 「详情渲染」使用左右键或 Space 在 `auto` / `cache` / `virtual` 间切换，即时生效并持久化；`auto` 自动适配长会话，`cache` 保留全量渲染，`virtual` 只保留视口附近成品与有预算的离屏缓存。此选项独立于 `Ctrl+O` 详情开关与「内联 Diff」。
 
 ### /plugin 面板
 

@@ -489,6 +489,8 @@ impl super::App {
         session.ui.scroll_offset = offset;
         session.ui.scroll_follow = follow;
         session.ui.text_selection.clear();
+        session.ui.pending_text_copy = None;
+        session.ui.presented_selection_snapshot = None;
         session.ui.bg_bar_cursor = None;
         self.render_rebuild();
         // 真正离开了一个已结束的子视口 → 此刻才回收它的会话与抽屉行。

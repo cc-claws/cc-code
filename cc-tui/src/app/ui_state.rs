@@ -3,7 +3,7 @@ use tui_textarea::TextArea;
 
 use super::at_mention::AtMentionState;
 use crate::app::text_selection::{
-    PanelTextSelection, ScreenSelection, ScreenSnapshot, TextSelection,
+    PanelTextSelection, PresentedSelectionSnapshot, ScreenSelection, ScreenSnapshot, TextSelection,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +38,8 @@ pub struct UiState {
     pub textarea: TextArea<'static>,
     pub loading: bool,
     pub scroll_offset: usize,
+    /// 虚拟窗口尚未就绪时保留实际显示位置，不能拿请求位置解释鼠标选区。
+    pub presented_scroll_offset: usize,
     pub scroll_follow: bool,
     pub show_tool_messages: bool,
     pub hint_cursor: Option<usize>,
@@ -48,6 +50,9 @@ pub struct UiState {
     pub history_index: Option<usize>,
     pub draft_input: Option<String>,
     pub text_selection: TextSelection,
+    /// 跨淘汰消息复制由渲染任务分段处理，主循环只轮询结果。
+    pub pending_text_copy: Option<(u64, tokio::sync::oneshot::Receiver<Option<String>>)>,
+    pub presented_selection_snapshot: Option<PresentedSelectionSnapshot>,
     /// 最近一次鼠标左键单击的 (时间, 行, 列)，用于双击选行检测
     pub last_left_click: Option<(std::time::Instant, u16, u16)>,
     /// 全局屏幕选区（面板/状态栏/sticky header/bg agent bar/空白区域，绝对屏幕坐标）
@@ -65,6 +70,8 @@ pub struct UiState {
     pub message_scrollbar_dragging: bool,
     /// 按下时的鼠标行、内容偏移和滑块可移动行数，避免量化误差累积。
     pub message_scrollbar_drag_origin: Option<(u16, usize, u16)>,
+    /// 虚拟布局实测高度可能变化；一次拖拽内固定按下时的滚动比例。
+    pub message_scrollbar_drag_max_offset: Option<usize>,
     pub textarea_area: Option<ratatui::layout::Rect>,
     /// 输入框上方待发消息的分页起点和鼠标命中区域。
     pub queued_messages_offset: usize,
@@ -133,6 +140,7 @@ impl UiState {
             textarea,
             loading: false,
             scroll_offset: usize::MAX,
+            presented_scroll_offset: 0,
             scroll_follow: true,
             show_tool_messages: false,
             hint_cursor: None,
@@ -141,6 +149,8 @@ impl UiState {
             history_index: None,
             draft_input: None,
             text_selection: TextSelection::new(),
+            pending_text_copy: None,
+            presented_selection_snapshot: None,
             last_left_click: None,
             screen_selection: ScreenSelection::default(),
             screen_snapshot: None,
@@ -151,6 +161,7 @@ impl UiState {
             message_scrollbar_area: None,
             message_scrollbar_dragging: false,
             message_scrollbar_drag_origin: None,
+            message_scrollbar_drag_max_offset: None,
             textarea_area: None,
             queued_messages_offset: 0,
             queued_messages_area: None,

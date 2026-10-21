@@ -12,10 +12,11 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased — 2026-10-20
+## Unreleased — 2026-10-21
 
 ### Features
 
+- **长会话详情按视口渲染（#629）**：新增 `config.detail_render_strategy` 与 `/config`「详情渲染」选项，支持 auto/cache/virtual，保留 cache 兼容路径。auto 在估算详情达到 30 万行或成品达到 64 MiB 时升档；virtual 使用全局高度索引和逻辑内容锚点，只发布当前消息窗口，并将两种模式的离屏成品共用 16 MiB LRU 预算。跨窗口选区按源消息/行/字素导出，复制不阻塞输入；宽度、主题、历史切换立即使旧选区失效。修复 Resize 合并误吞后继控制事件及旧窗口回写滚动位置的竞态。该预算不覆盖源 VM、单条可见巨型消息、剪贴板或进程 RSS；单条消息内切片仍属 #627 边界。
 - **候选浮层运行中交互对齐 CC useTypeahead（Agent 运行时浮层可操作）**：此前 Agent 运行中（loading）时斜杠命令/Skills 候选浮层只渲染不响应——`↑`/`↓`/`Tab` 被 `!loading` 守卫挡掉，「看得到列表却选不动」。现对齐 CC `useTypeahead.tsx` 语义：`↑`/`↓`/`Tab` 在候选存在时即可导航（不再按 loading 分流，`Tab` 同时避免运行中落入通用分支插入字面 Tab 字符）；`Enter` 仅在用户已通过 Tab/↑/↓ 明确选中候选时执行补全（只改输入框文本不提交），未选中时保持既有语义走 `handle_busy_input` 入队；`Esc` 分层关闭——先关候选浮层（不中断 Agent，`@` 提及弹窗关闭优先级同步前移与渲染一致），再按一次才中断运行，关闭时记录 `hint_dismissed_for` 抑制位，输入文本不变不再弹、编辑后自动恢复；`↓` 优先级调整为候选浮层导航 > 后台 shell 入口聚焦 > @ 提及导航 > 滚动消息区，解决「有后台 shell + 输入 `/xxx` 时浮层选不动」。涉及 `cc-tui/src/event/keyboard/normal_keys.rs`、`cc-tui/src/app/hint_ops.rs`、`ui_state.rs`（新增 `hint_dismissed_for`）。
 - **「立即补充」（steer）遇前台命令 2 秒宽限期后自动转后台**：此前前台 Bash 命令阻塞时 steering 注入永远轮不到（只在本轮 LLM 调用前 drain）。现点「立即补充」时若恰有一条前台命令在跑，先登记 2 秒宽限期（`STEER_FOREGROUND_GRACE`，短命令如 `ls`/`git status` 自行结束即收口）；宽限期到仍在前台则自动移交后台（等价替用户按 `Ctrl+B`）并提示「前台命令已转入后台，补充信息将立即生效」（locale `queue-steer-backgrounded`）；多条前台并行不自动选择，与 `Ctrl+B` 行为一致；重复点不重置计时器。涉及 `cc-tui/src/app/shell_command.rs`、`queued_messages.rs`、`ui_state.rs`（新增 `SteerForegroundGrace`）。
 

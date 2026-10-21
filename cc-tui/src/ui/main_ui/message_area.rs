@@ -8,10 +8,14 @@ use ratatui::{
 };
 
 use cc_widgets::unified_vertical_scrollbar;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    app::{App, MessageScrollbarMetrics},
-    ui::{render_thread::RenderEvent, theme, welcome},
+    app::{text_selection::PresentedSelectionSnapshot, App, MessageScrollbarMetrics},
+    ui::{
+        render_thread::{RenderCache, RenderEvent},
+        theme, welcome,
+    },
 };
 use cc_middlewares::prelude::{TodoItem, TodoStatus};
 
@@ -125,6 +129,8 @@ struct ViewportClip {
     lines: Vec<Line<'static>>,
     /// 裁剪后的局部滚动偏移（相对于 lines[0] 的视觉行偏移）
     local_offset: u16,
+    selection_snapshot: Option<PresentedSelectionSnapshot>,
+    presented_offset: usize,
 }
 
 pub(crate) fn render_messages(
@@ -133,6 +139,28 @@ pub(crate) fn render_messages(
     header_area: Rect,
     messages_area: Rect,
 ) {
+    let invalid_selection = {
+        let session = app.session_mgr.current();
+        let cache = session.messages.render_cache.read();
+        [
+            session.ui.text_selection.anchor_start,
+            session.ui.text_selection.anchor_end,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|anchor| {
+            cache.virtual_layout.as_ref().is_none_or(|layout| {
+                layout.history_epoch != anchor.history_epoch
+                    || layout.message_versions.get(anchor.message_index)
+                        != Some(&anchor.message_version)
+            })
+        })
+    };
+    if invalid_selection {
+        let ui = &mut app.session_mgr.current_mut().ui;
+        ui.text_selection.clear();
+        ui.pending_text_copy = None;
+    }
     if app.session_mgr.current().current_view_messages().is_empty() {
         let ui = &mut app.session_mgr.current_mut().ui;
         ui.messages_area = None;
@@ -141,6 +169,8 @@ pub(crate) fn render_messages(
         ui.scrollbar_hover = false;
         ui.message_scrollbar_dragging = false;
         ui.message_scrollbar_drag_origin = None;
+        ui.presented_selection_snapshot = None;
+        app.session_mgr.current_mut().messages.last_viewport = None;
         welcome::render_welcome(f, app, messages_area);
         return;
     }
@@ -307,7 +337,13 @@ pub(crate) fn render_messages(
             .max(min_scroll);
         let scroll_follow = app.session_mgr.current().ui.scroll_follow;
         let scroll_offset = app.session_mgr.current().ui.scroll_offset;
-        let scroll_anchor = cache.scroll_anchor.take();
+        let scroll_anchor = cache.scroll_anchor.take().filter(|_| {
+            cache.virtual_layout.as_ref().is_none_or(|layout| {
+                layout.requested_top == scroll_offset
+                    && layout.requested_height == visible_height as usize
+                    && cache.width == text_area.width
+            })
+        });
         let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
         let (new_follow, off) = if dragging {
             // dragging 期间跳过 follow/anchor 优先级，强制使用用户拖拽的 offset
@@ -337,6 +373,37 @@ pub(crate) fn render_messages(
         (min_scroll, max_scroll, off)
     };
 
+    // 视口变化单独报告，滚动不再需要附带完整历史 VM。
+    {
+        let session = app.session_mgr.current_mut();
+        let anchor = session
+            .messages
+            .render_cache
+            .read()
+            .viewport_anchor_at(offset);
+        let request = (
+            offset,
+            visible_height as usize,
+            session.ui.scroll_follow,
+            text_area.width,
+            anchor,
+        );
+        if session.messages.last_viewport != Some(request)
+            && session
+                .messages
+                .render_tx
+                .try_send(RenderEvent::Viewport {
+                    top: offset,
+                    height: visible_height as usize,
+                    follow_tail: session.ui.scroll_follow,
+                    anchor,
+                })
+                .is_ok()
+        {
+            session.messages.last_viewport = Some(request);
+        }
+    }
+
     // 仅在当前 TUI 尾部仍可滚动时显示 sticky header
     if max_scroll > min_scroll {
         sticky_header::render_sticky_header(f, app, header_area);
@@ -347,6 +414,11 @@ pub(crate) fn render_messages(
     // 避免 ratatui Paragraph::render 内部 O(offset) 的 WordWrapper 遍历导致 CPU 暴涨。
     // （ratatui 即使设了 scroll(offset)，仍会对 offset 之前的所有行做 grapheme 分割 + wrap 计算）
     let clip = viewport_clip(app, offset, visible_height, &spinner_line);
+    app.session_mgr.current_mut().ui.presented_scroll_offset = clip.presented_offset;
+    app.session_mgr
+        .current_mut()
+        .ui
+        .presented_selection_snapshot = clip.selection_snapshot;
 
     // 先用 Clear 清空整个 messages_area：Paragraph 不填满 area 时未覆盖 cell 会保留旧值，
     // 最终经 diff 输出到终端造成渲染残留。清空后 Paragraph 只渲染有效行、剩余为空格，
@@ -373,6 +445,33 @@ pub(crate) fn render_messages(
         ui.message_scrollbar_dragging = false;
         ui.message_scrollbar_drag_origin = None;
     }
+}
+
+/// 新窗口未发布时继续显示旧窗口，滚动请求仍保留原目标，避免空白帧或取消待处理跳转。
+fn presented_viewport_offset(
+    cache: &RenderCache,
+    requested: usize,
+    previous: usize,
+    visible_height: u16,
+) -> usize {
+    if cache.virtual_layout.is_none() || visible_height == 0 {
+        return requested;
+    }
+    let (Some(first), Some(last)) = (cache.wrap_map.first(), cache.wrap_map.last()) else {
+        return requested;
+    };
+    let content_start = requested.min(cache.total_lines);
+    let content_end = requested
+        .saturating_add(visible_height as usize)
+        .min(cache.total_lines);
+    if first.visual_row_start <= content_start && last.visual_row_end >= content_end {
+        return requested;
+    }
+    let max_presented = last
+        .visual_row_end
+        .saturating_sub(visible_height as usize)
+        .max(first.visual_row_start);
+    previous.clamp(first.visual_row_start, max_presented)
 }
 
 fn render_message_scrollbar(
@@ -436,8 +535,14 @@ fn viewport_clip(
     spinner_line: &Option<Line<'static>>,
 ) -> ViewportClip {
     // ── 阶段 1：从 cache 提取可见行（cache guard 在 block 结束时 drop） ──
-    let (mut lines, local_offset, first_idx, total_lines) = {
+    let (mut lines, local_offset, first_idx, total_lines, selection_snapshot, offset) = {
         let cache = app.session_mgr.current().messages.render_cache.read();
+        let offset = presented_viewport_offset(
+            &cache,
+            offset,
+            app.session_mgr.current().ui.presented_scroll_offset,
+            visible_height,
+        );
 
         let vis_start = offset;
         // +1 给 wrap 行留余量
@@ -469,7 +574,42 @@ fn viewport_clip(
                 (Vec::new(), 0u16, cache.lines.len())
             };
 
-        (lines, local_offset, first_idx, total_lines)
+        let actual_width = app
+            .session_mgr
+            .current()
+            .ui
+            .messages_area
+            .map_or(0, |area| area.width);
+        let selection_snapshot = cache
+            .virtual_layout
+            .as_ref()
+            .filter(|_| cache.width == actual_width)
+            .map(|layout| {
+                let end_idx = first_idx + lines.len();
+                PresentedSelectionSnapshot {
+                    layout: layout.clone(),
+                    wrap_map: cache
+                        .wrap_map
+                        .get(first_idx..end_idx)
+                        .unwrap_or_default()
+                        .to_vec(),
+                    links: cache
+                        .links
+                        .iter()
+                        .filter(|link| link.line >= first_idx && link.line < end_idx)
+                        .cloned()
+                        .collect(),
+                    width: cache.width,
+                }
+            });
+        (
+            lines,
+            local_offset,
+            first_idx,
+            total_lines,
+            selection_snapshot,
+            offset,
+        )
     }; // cache guard dropped here
 
     // ── 阶段 2：Spinner 行追加（无需 cache） ──
@@ -577,8 +717,38 @@ fn viewport_clip(
     // 只在裁剪后的可见行上做高亮（减少工作量）
     if app.session_mgr.current().ui.text_selection.is_active() {
         let ts = &app.session_mgr.current().ui.text_selection;
-        if let (Some(start), Some(end)) = (ts.start, ts.end) {
-            let cache = app.session_mgr.current().messages.render_cache.read();
+        let cache = app.session_mgr.current().messages.render_cache.read();
+        if let Some(snapshot) = &selection_snapshot {
+            let layout = &snapshot.layout;
+            if let Some((start, end)) = ts.anchor_start.zip(ts.anchor_end) {
+                if start.history_epoch == layout.history_epoch
+                    && end.history_epoch == layout.history_epoch
+                {
+                    for (local_index, line) in lines.iter_mut().enumerate() {
+                        let Some(&(message_index, logical_line)) =
+                            layout.line_origins.get(first_idx + local_index)
+                        else {
+                            continue;
+                        };
+                        if let Some((from, to)) =
+                            crate::app::text_selection::anchored_selection_columns(
+                                start,
+                                end,
+                                message_index,
+                                logical_line,
+                            )
+                        {
+                            let spans = std::mem::take(&mut line.spans);
+                            *line = Line::from(highlight_line_spans(spans, from, to));
+                        }
+                    }
+                }
+            }
+        } else if let Some((start, end)) = ts
+            .start
+            .zip(ts.end)
+            .filter(|_| cache.virtual_layout.is_none())
+        {
             let wrap_map = &cache.wrap_map;
             let usable_width = app
                 .session_mgr
@@ -627,6 +797,8 @@ fn viewport_clip(
     ViewportClip {
         lines,
         local_offset,
+        selection_snapshot,
+        presented_offset: offset,
     }
 }
 
@@ -690,7 +862,7 @@ pub(crate) fn render_recap_line(text: &str, lc: &crate::i18n::LcRegistry) -> Lin
 }
 
 /// 对一行的 spans 做字符级选区高亮。
-/// `char_start` / `char_end` 是该行 plain_text 的字符偏移（非 byte 索引）。
+/// `char_start` / `char_end` 是该行 plain_text 的字素偏移（非 byte 索引）。
 /// 将 spans 中对应范围的字符的 style 追加淡蓝色背景（深色主题选区色），范围外的 span 保持原样。
 /// 使用 char_indices() 保证 unicode 安全切割。
 pub(crate) fn highlight_line_spans<'a>(
@@ -698,6 +870,22 @@ pub(crate) fn highlight_line_spans<'a>(
     char_start: usize,
     char_end: usize,
 ) -> Vec<Span<'a>> {
+    // wrap 和复制均按字素定位，先统一转换为下面拆 span 使用的 Unicode 字符下标。
+    // 在整行上转换，兼容组合字素恰好跨样式 span 的情况。
+    let plain_text: String = spans.iter().map(|span| span.content.as_ref()).collect();
+    let character_offset = |grapheme_offset: usize| {
+        if grapheme_offset == usize::MAX {
+            return usize::MAX;
+        }
+        let byte = plain_text
+            .grapheme_indices(true)
+            .nth(grapheme_offset)
+            .map(|(byte, _)| byte)
+            .unwrap_or(plain_text.len());
+        plain_text[..byte].chars().count()
+    };
+    let char_start = character_offset(char_start);
+    let char_end = character_offset(char_end);
     let mut result = Vec::new();
     let mut cursor: usize = 0; // 当前在 plain_text 中的字符位置
     for span in spans {
