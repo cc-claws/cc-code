@@ -208,8 +208,13 @@ impl RenderWorker {
                 self.publish_virtual().await;
             }
             event => {
+                // #650 宽度重排屏障：ResizeAndWait 的等待方靠 done 通道同步，
+                // 这一帧不额外 notify，避免切换中途多画一帧未就绪的宽度。
+                let width_barrier = matches!(event, RenderEvent::ResizeAndWait(..));
                 self.task.handle_event(event, rx);
-                self.task.notify.notify_one();
+                if !width_barrier {
+                    self.task.notify.notify_one();
+                }
             }
         }
     }

@@ -508,6 +508,8 @@ pub struct ScreenSnapshot {
     symbols: Vec<String>, // row-major：symbols[row * width + col]
     width: usize,
     height: usize,
+    origin_row: usize,
+    origin_col: usize,
 }
 
 impl ScreenSnapshot {
@@ -525,11 +527,19 @@ impl ScreenSnapshot {
             symbols,
             width,
             height,
+            origin_row: area.y as usize,
+            origin_col: area.x as usize,
         }
     }
 
     /// 取 (row, col) 处 cell 的 symbol；越界返回空串。
     pub fn cell_symbol(&self, row: usize, col: usize) -> &str {
+        let Some(row) = row.checked_sub(self.origin_row) else {
+            return "";
+        };
+        let Some(col) = col.checked_sub(self.origin_col) else {
+            return "";
+        };
         if row < self.height && col < self.width {
             self.symbols[row * self.width + col].as_str()
         } else {
@@ -621,19 +631,20 @@ pub fn extract_snapshot_text(
     };
     let sr = sr as usize;
     let er = er as usize;
-    let sc = sc as usize;
+    let sc = (sc as usize).max(snapshot.origin_col);
     let ec = ec as usize;
     if sr > er || snapshot.height == 0 || snapshot.width == 0 {
         return None;
     }
-    let er = er.min(snapshot.height.saturating_sub(1));
     let mut lines: Vec<String> = Vec::new();
-    for row in sr..=er {
-        let col_start = if row == sr { sc } else { 0 };
+    for row in sr.max(snapshot.origin_row)
+        ..=er.min(snapshot.origin_row + snapshot.height.saturating_sub(1))
+    {
+        let col_start = if row == sr { sc } else { snapshot.origin_col };
         let col_end = if row == er {
-            (ec + 1).min(snapshot.width)
+            (ec + 1).min(snapshot.origin_col + snapshot.width)
         } else {
-            snapshot.width
+            snapshot.origin_col + snapshot.width
         };
         let line: String = (col_start..col_end)
             .map(|col| snapshot.cell_symbol(row, col).to_string())

@@ -38,11 +38,15 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ## 终端模式
 
-全屏 alternate screen + `EnableMouseCapture`（`main.rs` 终端初始化）。滚动完全由 TUI 自渲染滚动条接管，不依赖终端原生 scrollback——历史不再经 `terminal.insert_before` 推入 scrollback，所有内容都在 TUI 视口内（`base_visual` 恒为 0）。
+交互模式先在正常屏中使用固定区域视口，从 shell 当前输出下方显示紧凑欢迎卡；`terminal_backend/viewport.rs` 的 `ViewportState` 记录真实起点、已占用行数与全屏锁定状态。首帧靠近底部时仅滚动必要行数；正常屏只绘制和清理应用拥有的区域，不能逐帧全屏 Clear。
 
-**[TRAP]** 外部编辑器挂起（`panel_memory.rs`）必须配套 `DisableMouseCapture` + `LeaveAlternateScreen`，恢复时 `EnterAlternateScreen` + `EnableMouseCapture`，否则编辑器期间鼠标事件仍被 peri 接管。
+内容超过既有占用高度时向下扩展；每次下方空间不足都原生滚动必要行数并上移 `origin_row`，只有 `max(required_rows, allocated_rows)` 达到整个宿主高度才锁定全屏，不能按起点以下的 `available_rows` 提前切换。全屏锁定是本次终端运行级状态，不写会话，不因折叠、`/clear`、恢复历史或切换子视口解除。全屏消息滚动由 TUI 自渲染滚动条接管，`base_visual` 恒为 0。切换前先等待目标宽度重排，再同步输出切屏、resize 与首帧，并合并重复清屏。
 
-退出时不保留对话（alternate screen 特性），靠 session 持久化 + `-c/-r` 恢复。
+**[TRAP]** 外部编辑器挂起（`panel_memory.rs`）需要关闭鼠标捕获、记录当前终端模式；返回后恢复原模式与应用区域。正常屏编辑时不能无条件 `EnterAlternateScreen`，编辑器临时全屏也不能锁定应用全屏。
+
+退出时逐行清除应用拥有的正常屏区域，光标回到该区域起点，仅输出 Session ID、Resume 和 shell 提示符，保留其上方 shell 历史。全屏绘制不覆盖正常屏区域记录；退出先恢复正常屏，再清除进入全屏前的应用区域。成功清理后消费记录，显式恢复与 Drop 重复调用不会擦掉退出提示。异常恢复同样通过统一终端恢复路径清理 raw mode、鼠标和光标。
+
+此改动未发布；自动化与 Windows 人工验证已通过，macOS/Linux 待兼容性检查，状态与 headless 测试不代表真实终端验收通过，验收范围见 [PRD](../docs/prd/growing-terminal-viewport.md)。
 
 ## 消息渲染
 
@@ -62,13 +66,13 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ## 主布局
 
-单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。高度优先级：Status Bar 动态 2~3 行（有活动时 3 行，空闲时折叠为 2 行）→ Input 动态（3~40% 屏幕）→ 面板（60-75% 屏幕）→ 其余分配给消息区。
+单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。`ui/main_ui/viewport_layout.rs` 共用底部高度测量与内容所需行数：Status Bar 空闲 2 行、有活动 3 行；Input 最少 3 行、上限为宿主终端高度的 40%；面板按宿主尺寸计算。增长阶段底部区域紧随内容，全屏阶段固定到底部。宽度变化先等待 RenderCache 重排再判断全屏，不能把上一帧剩余留白计入新增内容。
 
 ### 界面组件
 
 | 组件 | 文件 | 说明 |
 |------|------|------|
-| Welcome Card | `ui/welcome.rs` | 空消息时替代显示，ASCII Art + 功能要点 + 命令提示 |
+| Welcome Card | `ui/welcome.rs` | 左上角紧凑卡，实际版本、cwd、/help 与无 Provider 时 /login；宽度足够时保留小型吉祥物 |
 | Sticky Header | `ui/main_ui/sticky_header.rs` | 滚动时顶部固定显示最后 Human 消息摘要 |
 | Attachment Bar | `ui/main_ui/attachment.rs` | 图片附件标签列表，Input 正上方 |
 | Input Area | `edit_utils.rs` | `tui_textarea::TextArea` 封装，高度动态 |
@@ -105,7 +109,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ### 消息区
 
-Welcome Card 或消息列表 + 滚动条 + spinner。视口裁剪渲染（`viewport_clip`）。`MessageViewModel` 8 种变体：`UserBubble` / `AssistantBubble`（含 Text/Reasoning/ToolUse） / `ToolBlock` / `ShellCommand`（TUI 本地执行与后台化） / `SystemNote` / `CacheWarning` / `ToolCallGroup` / `SubAgentGroup`。
+空会话显示紧凑 Welcome Card；启动卡作为纯 UI 前缀跨首条消息与全屏切换保留，并随消息滚动。恢复已有历史不补插启动卡。卡片不写入消息历史、系统提示词或消息渲染缓存，其视觉高度单独参与测量、裁剪与滚动范围计算。消息列表 + 滚动条 + spinner 仍按视口裁剪渲染（`viewport_clip`）；非零起点保持真实坐标供鼠标、复制和链接命中。`MessageViewModel` 8 种变体：`UserBubble` / `AssistantBubble`（含 Text/Reasoning/ToolUse） / `ToolBlock` / `ShellCommand`（TUI 本地执行与后台化） / `SystemNote` / `CacheWarning` / `ToolCallGroup` / `SubAgentGroup`。
 
 ## i18n
 

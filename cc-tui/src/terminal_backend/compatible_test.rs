@@ -11,6 +11,39 @@ use unicode_width::UnicodeWidthStr;
 
 use super::{WidthProbe, WidthSafeBackend};
 
+#[test]
+fn test_fixed_viewport_clear_preserves_rows_outside_owned_area() {
+    use ratatui::{layout::Rect, TerminalOptions, Viewport};
+    let (probe, _) = make_probe(&[]);
+    let mut inner = TestBackend::new(20, 12);
+    let cells: Vec<_> = (0..12).map(|row| (0, row, Cell::new("X"))).collect();
+    inner
+        .draw(cells.iter().map(|(x, y, cell)| (*x, *y, cell)))
+        .expect("写入宿主屏幕");
+    let mut backend = WidthSafeBackend::with_probe(inner, probe);
+    backend.clear_owned_lines_only();
+    let mut terminal = Terminal::with_options(
+        backend,
+        TerminalOptions {
+            viewport: Viewport::Fixed(Rect::new(0, 3, 20, 2)),
+        },
+    )
+    .expect("创建固定视口");
+    terminal
+        .resize(Rect::new(0, 3, 20, 4))
+        .expect("扩大应用区域");
+    for row in [0, 1, 2, 7, 8, 9, 10, 11] {
+        assert_eq!(
+            terminal.backend().inner.buffer()[(0, row)].symbol(),
+            "X",
+            "清理固定视口不能覆盖应用外的宿主内容"
+        );
+    }
+    for row in 3..7 {
+        assert_eq!(terminal.backend().inner.buffer()[(0, row)].symbol(), " ");
+    }
+}
+
 #[derive(Default)]
 struct MockProbeState {
     widths: HashMap<String, usize>,

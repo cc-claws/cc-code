@@ -159,6 +159,9 @@ key-bg-command = :Background command
 
 # ---- Welcome Page ----
 
+welcome-start-hint = Start chatting, or /help for commands
+welcome-login-hint = Use /login to configure a provider
+
 welcome-title = CC Code Agent Framework
 welcome-divider = ────── What can I do? ──────
 welcome-feature-code = Ask me to code, debug, or refactor

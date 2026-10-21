@@ -14,6 +14,7 @@ use super::{oauth_prompt::OAuthPrompt, setup_wizard::SetupWizardPanel};
 /// 与 `ServiceRegistry` 中的"服务"字段（config、MCP pool、cron 等）不同，
 /// 这里的字段纯粹是 UI 层面的临时状态（高亮计时、弹窗、鼠标探测等）。
 pub struct GlobalUiState {
+    pub viewport: crate::terminal_backend::viewport::ViewportState,
     pub(crate) agent_center: Option<super::agent_center::AgentCenter>,
     pub(crate) agent_catalog: Vec<crate::thread::ThreadMeta>,
     pub(crate) agent_count_checked: Option<Instant>,
@@ -47,6 +48,7 @@ impl Default for GlobalUiState {
 impl GlobalUiState {
     pub fn new() -> Self {
         Self {
+            viewport: Default::default(),
             agent_center: None,
             agent_catalog: Vec::new(),
             agent_count_checked: None,

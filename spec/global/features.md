@@ -54,6 +54,7 @@
 
 ## TUI 界面（cc-tui）
 
+- **紧凑启动与增长视口（未发布，#650）：** 从 shell 输出下方启动，每次增长仅原生滚动必要行数并上移起点，内容或已占用高度长满整个宿主才锁定全屏；折叠、新建会话及放大终端均不缩回。欢迎卡作为纯 UI 前缀跨全屏保留并随消息滚动，不写入消息历史、系统提示词或消息缓存；包含真实版本、cwd、/help 与简短 /login，窄屏省略吉祥物。切屏前完成重排，切屏、resize 与首帧同步输出。详细交互见 [TUI-STYLE](../../TUI-STYLE.md#终端视口未发布650)；自动化与 Windows 人工验证已通过，macOS/Linux 待兼容性检查。
 - **详情渲染策略（#629，v0.6.169）：** `/config` 提供 `auto`（默认）/ `cache` / `virtual`，通过 `config.detail_render_strategy` 保存并即时通知渲染线程；项目配置可覆盖全局配置，缺省或未知值回退 auto。虚拟路径按视口渲染并限制离屏成品缓存，不承诺整个会话固定内存。
 
 - **后台子任务抽屉（未发布）：** 独立视口与指标、导航游标和当前任务分离、定向补充消息、全局审批、单任务/全部停止、五行与极矮终端布局；详细交互见 [TUI-STYLE](../../TUI-STYLE.md)。
@@ -78,7 +79,7 @@
 - **Bracketed Paste Mode:** `Ctrl+V` 粘贴多行文本，保留换行不触发 Enter 提交
 - **Loading 输入缓冲:** Agent 运行中可继续输入，消息自动缓存，完成后合并发送
 - **TODO 状态面板:** 输入框上方固定面板，颜色分类（InProgress 黄/Completed 暗灰/Pending 白）
-- **Welcome Card:** 空消息时显示品牌 ASCII Art Logo + 功能亮点 + 命令提示，发送消息后自动消失，窄屏降级为文字标题
+- **Welcome Card:** 左上角紧凑欢迎卡，宽度上限 64 列、高度 5～7 行；显示实际版本、cwd、/help，无 Provider 时引导 /login，宽度与高度足够时显示原有半块吉祥物；长目录按显示列宽省略
 - **Sticky Human Message Header:** 聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动，/clear 后消失，打开历史 Thread 自动恢复
 - **配色系统（v1.1）:** 橙色仅保留最高优先级交互（命令输入框）；工具名三级分级（bash=ACCENT / 写操作=WARNING / 只读=MUTED）；配置面板边框 MUTED 降噪；HITL/AskUser 弹窗 WARNING
 - **Setup Wizard:** 首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），支持 Anthropic/OpenAI Compatible，save_setup() 原子写回 settings.json
@@ -149,4 +150,4 @@
 - **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）；Windows postinstall 将全局入口改写为直起 `bin/cc-code.exe`（去掉 node 中间层，修复 Ctrl+C 直接退出）
 
 ---
-*最后更新: 2026-10-21 — 详情渲染策略 auto/cache/virtual（#629，v0.6.169）；此前：2026-10-20 — 候选浮层运行中交互对齐 CC（loading 时 ↑↓/Tab 可导航、Enter 已选中才补全、Esc 分层关闭 + hint_dismissed_for 抑制位）；Steer 前台命令 2 秒宽限期后自动转后台；状态栏权限模式标签加 ⏵⏵ 前缀；此前：2026-10-18 — Markdown 缓存字节预算（#594）：8 MB 预算按 LRU 淘汰、`/gc` 显示预算，并修复 `ByteBudgetCache` 条数上限淘汰不扣减字节导致的统计虚高；此前：2026-10-15 — Agent Command Center（#542）：跨项目全页视图、会话 cwd 切换与状态/快照持久化；此前：主题系统 `/theme`（7 套调色板，6 套与 Claude Code 逐值一致）与 Spinner 流光 / tips 调度对齐 CC、状态栏配色固定不参与主题化，并补记自动记忆系统（#507）与 rmcp 3.5（#519）；此前：主 Agent 可按 task_id 取消后台子 Agent（Agent action=stop，抽屉红 ● + stopped by …，等待计数行）；此前：SubAgent 启动摘要支持 `Ctrl+O` 展开 Prompt 卡片（`SubagentStarted.prompt` 全文透传、`SystemNote.detail_content` 双态同源、卡片 `●` 统一大实心圆点）；此前：v0.6.129：@ 文件候选立即弹出，默认当前目录上限 15 项/10 行，搜索防抖和缓存边界修复（#463）；此前：v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
+*最后更新: 2026-10-21 — 紧凑欢迎卡与按内容增长的终端视口（#650，未发布；详情渲染策略 auto/cache/virtual（#629，v0.6.169）；自动化与 Windows 人工验证通过，macOS/Linux 待兼容性检查）；此前：2026-10-20 — 候选浮层运行中交互对齐 CC（loading 时 ↑↓/Tab 可导航、Enter 已选中才补全、Esc 分层关闭 + hint_dismissed_for 抑制位）；Steer 前台命令 2 秒宽限期后自动转后台；状态栏权限模式标签加 ⏵⏵ 前缀；此前：2026-10-18 — Markdown 缓存字节预算（#594）：8 MB 预算按 LRU 淘汰、`/gc` 显示预算，并修复 `ByteBudgetCache` 条数上限淘汰不扣减字节导致的统计虚高；此前：2026-10-15 — Agent Command Center（#542）：跨项目全页视图、会话 cwd 切换与状态/快照持久化；此前：主题系统 `/theme`（7 套调色板，6 套与 Claude Code 逐值一致）与 Spinner 流光 / tips 调度对齐 CC、状态栏配色固定不参与主题化，并补记自动记忆系统（#507）与 rmcp 3.5（#519）；此前：主 Agent 可按 task_id 取消后台子 Agent（Agent action=stop，抽屉红 ● + stopped by …，等待计数行）；此前：SubAgent 启动摘要支持 `Ctrl+O` 展开 Prompt 卡片（`SubagentStarted.prompt` 全文透传、`SystemNote.detail_content` 双态同源、卡片 `●` 统一大实心圆点）；此前：v0.6.129：@ 文件候选立即弹出，默认当前目录上限 15 项/10 行，搜索防抖和缓存边界修复（#463）；此前：v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*

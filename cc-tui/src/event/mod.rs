@@ -32,6 +32,10 @@ mod paste_boundary_test;
 #[path = "hover_test.rs"]
 mod hover_test;
 
+#[cfg(test)]
+#[path = "welcome_prefix_test.rs"]
+mod welcome_prefix_test;
+
 #[cfg(all(test, windows))]
 #[path = "hover_console_test.rs"]
 mod hover_console_test;
@@ -813,12 +817,34 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 let scroll_offset = message_selection_offset(app);
                                 let visual_row =
                                     usize::from(mouse.row - area.y).saturating_add(scroll_offset);
-                                let use_text_selection = message_row_has_text(app, visual_row);
+                                // 坐标统一（#650/#629）：virtual 时 visual_row 已是
+                                // 消息空间（presented 偏移）；非 virtual 时含欢迎
+                                // 前缀行，扣掉前缀才是消息行。是否有文本统一走
+                                // message_row_has_text（虚拟快照/总行数口径）。
+                                let in_virtual = app
+                                    .session_mgr
+                                    .current()
+                                    .messages
+                                    .render_cache
+                                    .read()
+                                    .virtual_layout
+                                    .is_some();
+                                let message_row = if in_virtual {
+                                    Some(visual_row)
+                                } else {
+                                    visual_row.checked_sub(
+                                        app.session_mgr.current().ui.message_prefix_rows,
+                                    )
+                                };
+                                let use_text_selection =
+                                    message_row.is_some_and(|row| message_row_has_text(app, row));
                                 let ui = &mut app.session_mgr.current_mut().ui;
-                                if use_text_selection {
+                                if let Some(message_row) =
+                                    message_row.filter(|_| use_text_selection)
+                                {
                                     // 消息行：TextSelection 整行（内容锚定纯文本）
-                                    ui.text_selection.start_drag(visual_row, 0);
-                                    ui.text_selection.update_drag(visual_row, area.width);
+                                    ui.text_selection.start_drag(message_row, 0);
+                                    ui.text_selection.update_drag(message_row, area.width);
                                     ui.screen_selection.clear();
                                 } else {
                                     // spinner/总结行：ScreenSelection 整行（buffer）
@@ -979,10 +1005,29 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 let visual_row =
                                     usize::from(mouse.row - area.y).saturating_add(scroll_offset);
                                 let visual_col = mouse.column - area.x;
-                                let use_text_selection = message_row_has_text(app, visual_row);
+                                // 坐标统一（#650/#629）：同上方整行选区入口。
+                                let in_virtual = app
+                                    .session_mgr
+                                    .current()
+                                    .messages
+                                    .render_cache
+                                    .read()
+                                    .virtual_layout
+                                    .is_some();
+                                let message_row = if in_virtual {
+                                    Some(visual_row)
+                                } else {
+                                    visual_row.checked_sub(
+                                        app.session_mgr.current().ui.message_prefix_rows,
+                                    )
+                                };
+                                let use_text_selection =
+                                    message_row.is_some_and(|row| message_row_has_text(app, row));
                                 let ui = &mut app.session_mgr.current_mut().ui;
-                                if use_text_selection {
-                                    ui.text_selection.start_drag(visual_row, visual_col);
+                                if let Some(message_row) =
+                                    message_row.filter(|_| use_text_selection)
+                                {
+                                    ui.text_selection.start_drag(message_row, visual_col);
                                     ui.screen_selection.clear();
                                 } else {
                                     ui.screen_selection.start_drag(mouse.row, mouse.column);
@@ -1096,21 +1141,28 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     ui.scroll_offset.saturating_sub(step).max(min_scroll);
                                 ui.scroll_follow = false;
                             }
-                            let scroll_offset = if virtual_layout {
-                                ui.presented_scroll_offset
-                            } else {
-                                ui.scroll_offset
-                            };
-                            let selection_row = if virtual_layout {
-                                mouse
+                            // 坐标统一（#650/#629）：virtual 用 presented 偏移且把
+                            // 鼠标行钳在消息区内（消息空间，不再扣前缀）；非 virtual
+                            // 沿用全局行（含前缀）再换算消息行。
+                            let (visual_row, visual_col) = if virtual_layout {
+                                let selection_row = mouse
                                     .row
-                                    .clamp(area.y, area_bottom.saturating_sub(1).max(area.y))
+                                    .clamp(area.y, area_bottom.saturating_sub(1).max(area.y));
+                                let row = usize::from(selection_row.saturating_sub(area.y))
+                                    .saturating_add(ui.presented_scroll_offset);
+                                (row, mouse.column.saturating_sub(area.x))
                             } else {
-                                mouse.row
+                                let global_row = usize::from(mouse.row.saturating_sub(area.y))
+                                    .saturating_add(ui.scroll_offset);
+                                if global_row < ui.message_prefix_rows {
+                                    (0, 0)
+                                } else {
+                                    (
+                                        global_row - ui.message_prefix_rows,
+                                        mouse.column.saturating_sub(area.x),
+                                    )
+                                }
                             };
-                            let visual_row = usize::from(selection_row.saturating_sub(area.y))
-                                .saturating_add(scroll_offset);
-                            let visual_col = mouse.column.saturating_sub(area.x);
                             ui.text_selection.update_drag(visual_row, visual_col);
                         }
                         capture_message_selection_anchors(app);

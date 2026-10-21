@@ -103,6 +103,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **紧凑启动与增长视口** | 未发布 | 从 shell 输出下方启动，增长时仅原生滚动必要行数，已占用内容长满宿主高度才锁定全屏；欢迎卡作为 UI 前缀随消息滚动，折叠不缩回。自动化与 Windows 人工验证通过，macOS/Linux 待兼容性检查（#650）。 |
 | **工具结果中的 URL 链接色定稿 ANSI Cyan** | v0.6.170 | 工具结果与 `!` shell 命令输出里的 URL 此前用 `theme::cur().ide`（深色 `#4782C8`），链接色随 `/theme` 漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `style_urls()` 固定 `Color::Cyan` + 下划线，不再跟随主题，与状态栏的模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（`!命令` 输出）。识别口径沿用 CC `OutputLine.tsx::URL_IN_JSON` 并切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍为视觉区分（非 OSC 8——ratatui cell 塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。Markdown 链接（`[text](url)` → `theme.link()` = SAGE `#4EBA65`）是另一条路径，不受影响（#649）。 |
 | **长会话详情按视口渲染** | v0.6.169 | `/config` →「详情渲染」可选 `auto`（默认）、`cache`、`virtual`，即时生效并保存为 `config.detail_render_strategy`。虚拟路径仅物化当前窗口，不同变体共用 16 MiB 成品预算；原始历史、元数据和视口内巨型消息仍有独立内存开销。完整行为及边界见 [CHANGELOG](./CHANGELOG.md)（#629，PR #648）。 |
 | **Bash 输出 JSON 逐行美化（OutputLine 装饰器）** | v0.6.168 | Bash / MCP 工具结果统一经过对齐 CC 的 `OutputLine` 装饰器：单行 JSON 展开为 2 空格缩进的美化输出，并带精度守卫（紧凑重序列化与原文不一致即保留原文，大整数、`1.10` 这类字面量永不被改写），非 JSON 行走快速路径，整段超过 10,000 字符跳过美化；折行与截断共用同一把尺——按显示宽度预折行、折叠态只显示 3 个视觉行 + `… +N lines (ctrl+o to expand)` 提示。同批：diff 删除行改三档底色、工具路径按 CC 口径显示、状态栏 Edit 命名修正（#642）。 |

@@ -40,6 +40,7 @@
 
 ### 产品需求文档 (PRD)
 
+- [紧凑启动与随内容增长的终端视口](prd/growing-terminal-viewport.md) — 实现、自动化与 Windows 人工验证通过；macOS/Linux 待兼容性检查
 - [Shell 状态指示器](../spec/prd-shell-status-indicator.md)
 - [Shell 命令 PRD](../spec/features/shell-command-prd.md)
 - [屏幕选区](../spec/features/screen-selection-prd.md)

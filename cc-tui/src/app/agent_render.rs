@@ -193,7 +193,10 @@ impl App {
 
                 let anchor_message_idx = {
                     let cache = self.session_mgr.current().messages.render_cache.read();
-                    let scroll_row = self.session_mgr.current().ui.scroll_offset;
+                    let ui = &self.session_mgr.current().ui;
+                    // #650：scroll_offset 含欢迎前缀行，先换算回消息空间；
+                    // #629：虚拟布局下按其视觉偏移查锚点。
+                    let scroll_row = ui.scroll_offset.saturating_sub(ui.message_prefix_rows);
                     let msg_idx = if let Some(layout) = &cache.virtual_layout {
                         cache
                             .viewport_anchor_at(scroll_row)

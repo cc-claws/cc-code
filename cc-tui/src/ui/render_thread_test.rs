@@ -6,6 +6,43 @@ async fn wait_render() {
     tokio::task::yield_now().await;
 }
 
+#[tokio::test]
+async fn test_resize_preserves_following_rebuild_and_width_barrier() {
+    let (sender, cache, _) = spawn_render_thread(80);
+    sender
+        .send(RenderEvent::Resize(60))
+        .await
+        .expect("发送 resize");
+    sender
+        .send(RenderEvent::Resize(40))
+        .await
+        .expect("发送合并 resize");
+    sender
+        .send(RenderEvent::Rebuild(vec![MessageViewModel::user(
+            "rebuild after resize".into(),
+        )]))
+        .await
+        .expect("发送内容");
+    let (done, ready) = tokio::sync::oneshot::channel();
+    sender
+        .send(RenderEvent::ResizeAndWait(20, done))
+        .await
+        .expect("发送宽度屏障");
+    tokio::time::timeout(Duration::from_secs(2), ready)
+        .await
+        .expect("屏障不能被合并过程吞掉")
+        .expect("后台渲染完成");
+    let cache = cache.read();
+    assert_eq!(cache.width, 20, "返回前必须完成目标宽度排版");
+    assert!(
+        cache.lines.iter().any(|line| line
+            .spans
+            .iter()
+            .any(|span| span.content.contains("rebuild after resize"))),
+        "紧邻 resize 的消息不能丢失"
+    );
+}
+
 #[test]
 fn test_wrapped_line_info_supports_more_than_u16_rows() {
     let info = WrappedLineInfo {

@@ -19,12 +19,16 @@ use crate::{
 };
 use cc_middlewares::prelude::{TodoItem, TodoStatus};
 
-use super::sticky_header;
+use super::{
+    sticky_header,
+    viewport_layout::{content_rows, welcome_rows},
+};
 
 /// 消息区底部 spinner 关联 todo 列表最多展示的条目数
 pub(crate) const MAX_VISIBLE_TODOS: usize = 5;
 
 /// 计算给定数量 todo items 在 TUI 消息区底部渲染的逻辑行数（含截断行）
+#[cfg(test)]
 pub(crate) fn todo_render_line_count(total_todos: usize) -> u16 {
     if total_todos == 0 {
         0
@@ -139,6 +143,7 @@ pub(crate) fn render_messages(
     header_area: Rect,
     messages_area: Rect,
 ) {
+    // #629：虚拟布局代际/版本变化后，旧锚点选区失效，先清掉再绘制。
     let invalid_selection = {
         let session = app.session_mgr.current();
         let cache = session.messages.render_cache.read();
@@ -161,137 +166,13 @@ pub(crate) fn render_messages(
         ui.text_selection.clear();
         ui.pending_text_copy = None;
     }
-    if app.session_mgr.current().current_view_messages().is_empty() {
-        let ui = &mut app.session_mgr.current_mut().ui;
-        ui.messages_area = None;
-        ui.message_scrollbar_metrics = None;
-        ui.message_scrollbar_area = None;
-        ui.scrollbar_hover = false;
-        ui.message_scrollbar_dragging = false;
-        ui.message_scrollbar_drag_origin = None;
-        ui.presented_selection_snapshot = None;
-        app.session_mgr.current_mut().messages.last_viewport = None;
-        welcome::render_welcome(f, app, messages_area);
-        return;
-    }
 
+    let empty_messages = app.session_mgr.current().current_view_messages().is_empty();
+    let tail = visible_tail(app);
     let inner = messages_area;
     let visible_height = inner.height;
 
-    // 计算 loading spinner 行（CC 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
-    // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
-    let spinner_line: Option<Line<'static>> = if app.session_mgr.current().viewport_loading() {
-        let session = app.session_mgr.current();
-        let frame =
-            cc_widgets::spinner::animation::tick_to_frame(session.viewport_spinner().tick());
-        let verb = session.viewport_spinner().verb();
-        let elapsed =
-            cc_widgets::spinner::animation::format_elapsed(session.viewport_spinner().elapsed_ms());
-        let tokens = session.viewport_spinner().displayed_tokens();
-
-        // 手动 compact 期间用紫色；不再依赖 verb 文案判断（文案随语言变化）
-        let is_compact = session.agent.compact_manual;
-        // 第三字段：状态词（纯时间驱动）
-        let status_word = thinking_status_word(
-            session.viewport_spinner().is_thinking(),
-            session.viewport_spinner().thinking_elapsed_ms(),
-            session.viewport_spinner().last_thought_ms(),
-        );
-        // 动词色对（对齐 CC：底色 + 流光色成对，按状态切换；见 issue #510）
-        // compact 沿用 thinking 紫作底色，流光保持默认 claude_shimmer（同 CC 的覆盖方式）
-        let (base_color, shimmer_color) = if is_compact {
-            (theme::cur().thinking, theme::cur().claude_shimmer)
-        } else {
-            (theme::cur().claude, theme::cur().claude_shimmer)
-        };
-        // 状态词配色：thinkingIntensity 向 warning 插值（状态词不闪烁）
-        let status_thinking_ms = if session.viewport_spinner().is_thinking() {
-            session.viewport_spinner().thinking_elapsed_ms()
-        } else {
-            session.viewport_spinner().last_thought_ms()
-        };
-        let status_style = thinking_status_style(&status_word, status_thinking_ms, is_compact);
-        let gray = Style::default().fg(theme::cur().inactive);
-
-        // 停滞转红（对齐 CC）：无新 token >10s 后流光熄火，字形与动词整体向 error 插值；
-        // 否则动词走 ±1 列流光扫过。
-        let stall = session.viewport_spinner().stalled_intensity();
-        let (frame_color, verb_spans) = if stall > 0.0 {
-            let color =
-                cc_widgets::spinner::animation::blend_color(base_color, theme::cur().error, stall);
-            (
-                color,
-                vec![Span::styled(verb.to_string(), Style::default().fg(color))],
-            )
-        } else {
-            (
-                base_color,
-                cc_widgets::spinner::animation::shimmer_verb_spans(
-                    verb,
-                    session.viewport_spinner().elapsed_ms(),
-                    base_color,
-                    shimmer_color,
-                ),
-            )
-        };
-
-        let mut parts = vec![Span::styled(
-            format!("{} ", frame),
-            Style::default().fg(frame_color),
-        )];
-        parts.extend(verb_spans);
-        parts.push(Span::styled(format!(" ({elapsed}"), gray));
-        if tokens > 0 {
-            let tokens_fmt = cc_widgets::spinner::animation::format_tokens(tokens);
-            parts.push(Span::styled(format!(" · ↓ {tokens_fmt} tokens"), gray));
-        }
-        // 第三字段（状态词）紧随 tokens 之后
-        if !status_word.is_empty() {
-            parts.push(Span::styled(format!(" · {status_word}"), status_style));
-        }
-        parts.push(Span::styled(")", gray));
-        Some(Line::from(parts))
-    } else if app
-        .session_mgr
-        .current()
-        .viewport_spinner()
-        .last_summary_elapsed_ms()
-        > 0
-    {
-        let session = app.session_mgr.current();
-        let elapsed = cc_widgets::spinner::animation::format_elapsed(
-            session.viewport_spinner().last_summary_elapsed_ms(),
-        );
-        let verb = {
-            let v = session.viewport_spinner().last_summary_verb();
-            if v.is_empty() { "Brewed" } else { v }.to_string()
-        };
-        let done_str = session
-            .viewport_spinner()
-            .last_summary_done_at()
-            .map(|t| {
-                let dt: DateTime<Local> = t.into();
-                format!(" · done {}", dt.format("%H:%M"))
-            })
-            .unwrap_or_default();
-        Some(Line::from(Span::styled(
-            format!("✻ {verb} for {elapsed}{done_str}"),
-            Style::default().fg(theme::cur().inactive),
-        )))
-    } else {
-        None
-    };
-
-    let spinner_extra: u16 =
-        if spinner_line.is_some() || app.session_mgr.current().latest_recap.is_some() {
-            spinner_extra_count(app)
-        } else {
-            0
-        };
-    let visual_total = {
-        let cache = app.session_mgr.current().messages.render_cache.read();
-        cache.total_lines.saturating_add(spinner_extra as usize)
-    };
+    let visual_total = content_rows(app, inner.width);
     let needs_scrollbar = visual_total > visible_height as usize && inner.width > 1;
     let text_area = if needs_scrollbar {
         Rect {
@@ -302,6 +183,8 @@ pub(crate) fn render_messages(
         inner
     };
     app.session_mgr.current_mut().ui.messages_area = Some(text_area);
+    let prefix_rows = welcome_rows(app, text_area.width);
+    app.session_mgr.current_mut().ui.message_prefix_rows = prefix_rows;
 
     // 渲染驱动宽度同步：用 last_resize_width 去抖——宽度未变时跳过重复发送，
     // 避免每秒 N 次 resize 事件导致渲染线程队列积压和 CPU 暴涨
@@ -330,7 +213,10 @@ pub(crate) fn render_messages(
 
         // 全屏 alternate screen 模式：无原生 scrollback，所有内容都在 TUI 视口内，
         // base_visual 恒为 0。
-        let visual_total = cache.total_lines.saturating_add(spinner_extra as usize);
+        let message_height = if empty_messages { 0 } else { cache.total_lines };
+        let visual_total = prefix_rows
+            .saturating_add(message_height)
+            .saturating_add(visual_line_count(&tail, text_area.width));
         let min_scroll = 0;
         let max_scroll = visual_total
             .saturating_sub(visible_height as usize)
@@ -351,8 +237,14 @@ pub(crate) fn render_messages(
             (off >= max_scroll, off)
         } else if scroll_follow {
             (true, max_scroll)
+        } else if scroll_offset < prefix_rows {
+            // 消息锚点不包含欢迎卡；浏览前缀时重建不能把用户推到消息起点。
+            let off = scroll_offset.min(max_scroll);
+            (off >= max_scroll, off)
         } else if let Some(anchor) = scroll_anchor {
-            let off = anchor.clamp(min_scroll, max_scroll);
+            let off = anchor
+                .saturating_add(prefix_rows)
+                .clamp(min_scroll, max_scroll);
             let new_follow = off >= max_scroll;
             (new_follow, off)
         } else {
@@ -373,17 +265,25 @@ pub(crate) fn render_messages(
         (min_scroll, max_scroll, off)
     };
 
-    // 视口变化单独报告，滚动不再需要附带完整历史 VM。
+    // 欢迎前缀在本帧实际占用的高度（消息绘制与视口上报共用同一口径）
+    let prefix_height = prefix_rows
+        .saturating_sub(offset)
+        .min(text_area.height as usize) as u16;
+
+    // #629：视口变化单独上报渲染线程（滚动不再附带完整历史 VM）；
+    // 坐标换算回消息空间——top 扣前缀、height 取消息正文区高度。
     {
+        let top_msg = offset.saturating_sub(prefix_rows);
+        let body_height = text_area.height.saturating_sub(prefix_height) as usize;
         let session = app.session_mgr.current_mut();
         let anchor = session
             .messages
             .render_cache
             .read()
-            .viewport_anchor_at(offset);
+            .viewport_anchor_at(top_msg);
         let request = (
-            offset,
-            visible_height as usize,
+            top_msg,
+            body_height,
             session.ui.scroll_follow,
             text_area.width,
             anchor,
@@ -393,14 +293,17 @@ pub(crate) fn render_messages(
                 .messages
                 .render_tx
                 .try_send(RenderEvent::Viewport {
-                    top: offset,
-                    height: visible_height as usize,
+                    top: top_msg,
+                    height: body_height,
                     follow_tail: session.ui.scroll_follow,
                     anchor,
                 })
                 .is_ok()
         {
             session.messages.last_viewport = Some(request);
+        }
+        if empty_messages {
+            session.messages.last_viewport = None;
         }
     }
 
@@ -413,21 +316,39 @@ pub(crate) fn render_messages(
     // 利用 wrap_map 定位可见的逻辑行范围，只传递视口内的行给 Paragraph，
     // 避免 ratatui Paragraph::render 内部 O(offset) 的 WordWrapper 遍历导致 CPU 暴涨。
     // （ratatui 即使设了 scroll(offset)，仍会对 offset 之前的所有行做 grapheme 分割 + wrap 计算）
-    let clip = viewport_clip(app, offset, visible_height, &spinner_line);
-    app.session_mgr.current_mut().ui.presented_scroll_offset = clip.presented_offset;
-    app.session_mgr
-        .current_mut()
-        .ui
-        .presented_selection_snapshot = clip.selection_snapshot;
-
     // 先用 Clear 清空整个 messages_area：Paragraph 不填满 area 时未覆盖 cell 会保留旧值，
     // 最终经 diff 输出到终端造成渲染残留。清空后 Paragraph 只渲染有效行、剩余为空格，
     // 确保每帧 viewport 区域 buffer 正确。
     f.render_widget(Clear, inner);
+    // 欢迎卡是纯 UI 前缀，与消息一起滚动；切全屏时不会消失，也不进入会话历史。
+    if prefix_height > 0 {
+        welcome::render_welcome_slice(f, app, text_area, offset);
+    }
+    let body_area = Rect {
+        y: text_area.y.saturating_add(prefix_height),
+        height: text_area.height.saturating_sub(prefix_height),
+        ..text_area
+    };
+    let clip = viewport_clip(
+        app,
+        offset.saturating_sub(prefix_rows),
+        body_area.height,
+        &tail,
+        text_area.width,
+    );
+    app.session_mgr.current_mut().ui.presented_scroll_offset = clip.presented_offset;
+    app.session_mgr
+        .current_mut()
+        .ui
+        .presented_selection_snapshot = if empty_messages {
+        None
+    } else {
+        clip.selection_snapshot
+    };
     let paragraph = Paragraph::new(Text::from(clip.lines))
         .scroll((clip.local_offset, 0))
         .wrap(Wrap { trim: false });
-    f.render_widget(paragraph, text_area);
+    f.render_widget(paragraph, body_area);
 
     // 只在最右侧热区或拖拽中显示；显隐不改变正文宽度。
     let popup_active = app.is_interaction_popup_active();
@@ -532,11 +453,13 @@ fn viewport_clip(
     app: &App,
     offset: usize,
     visible_height: u16,
-    spinner_line: &Option<Line<'static>>,
+    tail: &[Line<'static>],
+    width: u16,
 ) -> ViewportClip {
     // ── 阶段 1：从 cache 提取可见行（cache guard 在 block 结束时 drop） ──
-    let (mut lines, local_offset, first_idx, total_lines, selection_snapshot, offset) = {
+    let (mut lines, mut local_offset, first_idx, total_lines, selection_snapshot, offset) = {
         let cache = app.session_mgr.current().messages.render_cache.read();
+        // #629：虚拟窗口未发布到请求位置时，先按上帧已呈现偏移绘制，避免空白帧。
         let offset = presented_viewport_offset(
             &cache,
             offset,
@@ -559,20 +482,26 @@ fn viewport_clip(
             .partition_point(|info| info.visual_row_start < vis_end)
             .saturating_sub(1);
 
-        let total_lines = cache.total_lines;
+        let total_lines = if app.session_mgr.current().current_view_messages().is_empty() {
+            0
+        } else {
+            cache.total_lines
+        };
 
-        let (lines, local_offset, first_idx) =
-            if first_visible < cache.wrap_map.len() && first_visible <= last_visible {
-                let first_visual = cache.wrap_map[first_visible].visual_row_start;
-                let local_offset = vis_start
-                    .saturating_sub(first_visual)
-                    .min(u16::MAX as usize) as u16;
-                let lines = cache.lines[first_visible..=last_visible].to_vec();
-                (lines, local_offset, first_visible)
-            } else {
-                // 空内容或视口超出范围
-                (Vec::new(), 0u16, cache.lines.len())
-            };
+        let (lines, local_offset, first_idx) = if total_lines > 0
+            && first_visible < cache.wrap_map.len()
+            && first_visible <= last_visible
+        {
+            let first_visual = cache.wrap_map[first_visible].visual_row_start;
+            let local_offset = vis_start
+                .saturating_sub(first_visual)
+                .min(u16::MAX as usize) as u16;
+            let lines = cache.lines[first_visible..=last_visible].to_vec();
+            (lines, local_offset, first_visible)
+        } else {
+            // 空内容或视口超出范围
+            (Vec::new(), 0u16, cache.lines.len())
+        };
 
         let actual_width = app
             .session_mgr
@@ -612,105 +541,18 @@ fn viewport_clip(
         )
     }; // cache guard dropped here
 
-    // ── 阶段 2：Spinner 行追加（无需 cache） ──
-    // spinner 行在视觉上排在 cache.total_lines 之后。
-    // 检查视口是否覆盖到 spinner 区域
-    if let Some(line) = spinner_line {
-        let spinner_visual_start = total_lines;
-        let spinner_extra = spinner_extra_count(app);
-        let spinner_visual_end = spinner_visual_start + spinner_extra as usize;
-        let vis_start = offset;
-        // 视口底边不截断到 total_lines——spinner 在 total_lines 之外，
-        // 必须用完整的视口范围才能正确检测交集
-        let viewport_bottom = offset + visible_height as usize;
-
-        // 视口与 spinner 区域有交集
-        if vis_start < spinner_visual_end && viewport_bottom > spinner_visual_start {
-            // 追加 spinner 分隔空行 + spinner line
-            lines.push(Line::from(""));
-            lines.push(line.clone());
-            // Tip + TODO
-            if app.session_mgr.current().viewport_loading() {
-                // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
-                // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
-                let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
-                if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("  ⎿  {label}: "),
-                            Style::default().fg(theme::cur().inactive),
-                        ),
-                        Span::styled(text, Style::default().fg(theme::cur().inactive)),
-                    ]));
-                }
-                if app.session_mgr.current().active_subagent().is_none()
-                    && !app.session_mgr.current().todo_items.is_empty()
-                {
-                    lines.push(Line::from(""));
-                    let todos = &app.session_mgr.current().todo_items;
-                    let visible_count = todos.len().min(MAX_VISIBLE_TODOS);
-                    for item in &todos[..visible_count] {
-                        let (icon, icon_style, text_style) = match item.status {
-                            TodoStatus::InProgress => (
-                                "  ◼  ",
-                                Style::default()
-                                    .fg(theme::cur().claude)
-                                    .add_modifier(Modifier::BOLD),
-                                Style::default().fg(theme::cur().text),
-                            ),
-                            TodoStatus::Completed => (
-                                "  ✔  ",
-                                Style::default().fg(theme::cur().success),
-                                Style::default()
-                                    .fg(theme::cur().inactive)
-                                    .add_modifier(Modifier::CROSSED_OUT),
-                            ),
-                            TodoStatus::Pending => (
-                                "  ◻  ",
-                                Style::default().fg(theme::cur().inactive),
-                                Style::default().fg(theme::cur().inactive),
-                            ),
-                        };
-                        let hint = match item.status {
-                            TodoStatus::Pending => Some("可开始"),
-                            _ => None,
-                        };
-                        let mut spans = vec![
-                            Span::styled(icon, icon_style),
-                            Span::styled(item.content.clone(), text_style),
-                        ];
-                        if let Some(hint) = hint {
-                            spans.push(Span::styled(
-                                format!(" ({hint})"),
-                                Style::default().fg(theme::cur().inactive),
-                            ));
-                        }
-                        lines.push(Line::from(spans));
-                    }
-                    if todos.len() > MAX_VISIBLE_TODOS {
-                        let summary = format_hidden_todos_summary(&todos[MAX_VISIBLE_TODOS..]);
-                        lines.push(Line::from(Span::styled(
-                            summary,
-                            Style::default().fg(theme::cur().inactive),
-                        )));
-                    }
-                }
-                lines.push(Line::from(""));
-            } else {
-                // 非 loading（Brewed/Cogitated 总结行）：
-                // 空行分隔后展示 recap 行，避免与总结行贴死
-                if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
-                    lines.push(Line::from(""));
-                    lines.push(render_recap_line(recap_text, &app.services.lc));
-                }
-                // 1 个 trailing 空行作为呼吸空间
-                lines.push(Line::from(""));
+    // 附属区域也按实际换行裁剪；单独浏览尾部时不从第一行重复渲染。
+    let tail_offset = offset.saturating_sub(total_lines);
+    let mut tail_row = 0;
+    for line in tail {
+        let height = visual_line_count(std::slice::from_ref(line), width);
+        if tail_row + height > tail_offset {
+            if lines.is_empty() {
+                local_offset = tail_offset.saturating_sub(tail_row).min(u16::MAX as usize) as u16;
             }
+            lines.push(line.clone());
         }
-    } else if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
-        lines.push(Line::from(""));
-        lines.push(render_recap_line(recap_text, &app.services.lc));
-        lines.push(Line::from(""));
+        tail_row += height;
     }
 
     // ── 阶段 3：字符级选区高亮（需要再次读 cache 获取 wrap_map） ──
@@ -802,7 +644,218 @@ fn viewport_clip(
     }
 }
 
+/// 测量与绘制共用同一组可见附属行，隐藏推理和折叠正文不占高度。
+pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
+    // 计算 loading spinner 行（CC 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
+    // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
+    let spinner_line: Option<Line<'static>> = if app.session_mgr.current().viewport_loading() {
+        let session = app.session_mgr.current();
+        let frame =
+            cc_widgets::spinner::animation::tick_to_frame(session.viewport_spinner().tick());
+        let verb = session.viewport_spinner().verb();
+        let elapsed =
+            cc_widgets::spinner::animation::format_elapsed(session.viewport_spinner().elapsed_ms());
+        let tokens = session.viewport_spinner().displayed_tokens();
+
+        // 手动 compact 期间用紫色；不再依赖 verb 文案判断（文案随语言变化）
+        let is_compact = session.agent.compact_manual;
+        // 第三字段：状态词（纯时间驱动）
+        let status_word = thinking_status_word(
+            session.viewport_spinner().is_thinking(),
+            session.viewport_spinner().thinking_elapsed_ms(),
+            session.viewport_spinner().last_thought_ms(),
+        );
+        // 动词色对（对齐 CC：底色 + 流光色成对，按状态切换；见 issue #510）
+        // compact 沿用 thinking 紫作底色，流光保持默认 claude_shimmer（同 CC 的覆盖方式）
+        let (base_color, shimmer_color) = if is_compact {
+            (theme::cur().thinking, theme::cur().claude_shimmer)
+        } else {
+            (theme::cur().claude, theme::cur().claude_shimmer)
+        };
+        // 状态词配色：thinkingIntensity 向 warning 插值（状态词不闪烁）
+        let status_thinking_ms = if session.viewport_spinner().is_thinking() {
+            session.viewport_spinner().thinking_elapsed_ms()
+        } else {
+            session.viewport_spinner().last_thought_ms()
+        };
+        let status_style = thinking_status_style(&status_word, status_thinking_ms, is_compact);
+        let gray = Style::default().fg(theme::cur().inactive);
+
+        // 停滞转红（对齐 CC）：无新 token >10s 后流光熄火，字形与动词整体向 error 插值；
+        // 否则动词走 ±1 列流光扫过。
+        let stall = session.viewport_spinner().stalled_intensity();
+        let (frame_color, verb_spans) = if stall > 0.0 {
+            let color =
+                cc_widgets::spinner::animation::blend_color(base_color, theme::cur().error, stall);
+            (
+                color,
+                vec![Span::styled(verb.to_string(), Style::default().fg(color))],
+            )
+        } else {
+            (
+                base_color,
+                cc_widgets::spinner::animation::shimmer_verb_spans(
+                    verb,
+                    session.viewport_spinner().elapsed_ms(),
+                    base_color,
+                    shimmer_color,
+                ),
+            )
+        };
+
+        let mut parts = vec![Span::styled(
+            format!("{} ", frame),
+            Style::default().fg(frame_color),
+        )];
+        parts.extend(verb_spans);
+        parts.push(Span::styled(format!(" ({elapsed}"), gray));
+        if tokens > 0 {
+            let tokens_fmt = cc_widgets::spinner::animation::format_tokens(tokens);
+            parts.push(Span::styled(format!(" · ↓ {tokens_fmt} tokens"), gray));
+        }
+        // 第三字段（状态词）紧随 tokens 之后
+        if !status_word.is_empty() {
+            parts.push(Span::styled(format!(" · {status_word}"), status_style));
+        }
+        parts.push(Span::styled(")", gray));
+        Some(Line::from(parts))
+    } else if app
+        .session_mgr
+        .current()
+        .viewport_spinner()
+        .last_summary_elapsed_ms()
+        > 0
+    {
+        let session = app.session_mgr.current();
+        let elapsed = cc_widgets::spinner::animation::format_elapsed(
+            session.viewport_spinner().last_summary_elapsed_ms(),
+        );
+        let verb = {
+            let v = session.viewport_spinner().last_summary_verb();
+            if v.is_empty() { "Brewed" } else { v }.to_string()
+        };
+        let done_str = session
+            .viewport_spinner()
+            .last_summary_done_at()
+            .map(|t| {
+                let dt: DateTime<Local> = t.into();
+                format!(" · done {}", dt.format("%H:%M"))
+            })
+            .unwrap_or_default();
+        Some(Line::from(Span::styled(
+            format!("✻ {verb} for {elapsed}{done_str}"),
+            Style::default().fg(theme::cur().inactive),
+        )))
+    } else {
+        None
+    };
+
+    supplementary_lines(app, &spinner_line)
+}
+
+fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    if let Some(line) = spinner_line {
+        // 追加 spinner 分隔空行 + spinner line
+        lines.push(Line::from(""));
+        lines.push(line.clone());
+        // Tip + TODO
+        if app.session_mgr.current().viewport_loading() {
+            // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
+            // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
+            let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
+            if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  ⎿  {label}: "),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
+                    Span::styled(text, Style::default().fg(theme::cur().inactive)),
+                ]));
+            }
+            if app.session_mgr.current().active_subagent().is_none()
+                && !app.session_mgr.current().todo_items.is_empty()
+            {
+                lines.push(Line::from(""));
+                let todos = &app.session_mgr.current().todo_items;
+                let visible_count = todos.len().min(MAX_VISIBLE_TODOS);
+                for item in &todos[..visible_count] {
+                    let (icon, icon_style, text_style) = match item.status {
+                        TodoStatus::InProgress => (
+                            "  ◼  ",
+                            Style::default()
+                                .fg(theme::cur().claude)
+                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(theme::cur().text),
+                        ),
+                        TodoStatus::Completed => (
+                            "  ✔  ",
+                            Style::default().fg(theme::cur().success),
+                            Style::default()
+                                .fg(theme::cur().inactive)
+                                .add_modifier(Modifier::CROSSED_OUT),
+                        ),
+                        TodoStatus::Pending => (
+                            "  ◻  ",
+                            Style::default().fg(theme::cur().inactive),
+                            Style::default().fg(theme::cur().inactive),
+                        ),
+                    };
+                    let hint = match item.status {
+                        TodoStatus::Pending => Some("可开始"),
+                        _ => None,
+                    };
+                    let mut spans = vec![
+                        Span::styled(icon, icon_style),
+                        Span::styled(item.content.clone(), text_style),
+                    ];
+                    if let Some(hint) = hint {
+                        spans.push(Span::styled(
+                            format!(" ({hint})"),
+                            Style::default().fg(theme::cur().inactive),
+                        ));
+                    }
+                    lines.push(Line::from(spans));
+                }
+                if todos.len() > MAX_VISIBLE_TODOS {
+                    let summary = format_hidden_todos_summary(&todos[MAX_VISIBLE_TODOS..]);
+                    lines.push(Line::from(Span::styled(
+                        summary,
+                        Style::default().fg(theme::cur().inactive),
+                    )));
+                }
+            }
+            lines.push(Line::from(""));
+        } else {
+            // 非 loading（Brewed/Cogitated 总结行）：
+            // 空行分隔后展示 recap 行，避免与总结行贴死
+            if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
+                lines.push(Line::from(""));
+                lines.push(render_recap_line(recap_text, &app.services.lc));
+            }
+            // 1 个 trailing 空行作为呼吸空间
+            lines.push(Line::from(""));
+        }
+    } else if let Some(ref recap_text) = app.session_mgr.current().latest_recap {
+        lines.push(Line::from(""));
+        lines.push(render_recap_line(recap_text, &app.services.lc));
+        lines.push(Line::from(""));
+    }
+
+    lines
+}
+
+pub(super) fn visual_line_count(lines: &[Line<'static>], width: u16) -> usize {
+    if lines.is_empty() || width == 0 {
+        return 0;
+    }
+    Paragraph::new(Text::from(lines.to_vec()))
+        .wrap(Wrap { trim: false })
+        .line_count(width)
+}
+
 /// 计算 spinner 区域的额外逻辑行数
+#[cfg(test)]
 fn spinner_extra_count(app: &App) -> u16 {
     let has_recap = app.session_mgr.current().latest_recap.is_some();
     // recap 与总结行之间有一个分隔空行，故占 2 行
@@ -862,7 +915,7 @@ pub(crate) fn render_recap_line(text: &str, lc: &crate::i18n::LcRegistry) -> Lin
 }
 
 /// 对一行的 spans 做字符级选区高亮。
-/// `char_start` / `char_end` 是该行 plain_text 的字素偏移（非 byte 索引）。
+/// `char_start` / `char_end` 是该行 plain_text 的字符偏移（非 byte 索引）。
 /// 将 spans 中对应范围的字符的 style 追加淡蓝色背景（深色主题选区色），范围外的 span 保持原样。
 /// 使用 char_indices() 保证 unicode 安全切割。
 pub(crate) fn highlight_line_spans<'a>(

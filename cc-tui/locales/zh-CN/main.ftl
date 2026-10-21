@@ -158,6 +158,9 @@ key-bg-command = :选中命令转后台
 
 # ---- Welcome Page ----
 
+welcome-start-hint = 开始对话，或 /help 查看命令
+welcome-login-hint = 使用 /login 配置模型服务
+
 welcome-title = CC Code Agent Framework
 welcome-divider = ────── 我能做什么？ ──────
 welcome-feature-code = 让我帮你编写、调试或重构代码
