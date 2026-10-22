@@ -1,14 +1,13 @@
 {
     "name": "@cc-claw/code",
     "version": "0.6.183",
-    "description": "cc-code — Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible",
+    "description": "cc-code — Terminal coding agent powered by open-source models — Rust-built, `.claude/` ecosystem compatible",
     "keywords": [
         "agent",
         "coding",
         "terminal",
         "rust",
-        "llm",
-        "claude-code"
+        "llm"
     ],
     "repository": {
         "type": "git",

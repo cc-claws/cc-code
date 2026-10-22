@@ -1202,10 +1202,10 @@
 - [ToolEnd 事件经 ACP bridge 后工具名丢失，显示为空字符串](domains/agent.md#issue_2026-05-29-tool-end-name-lost-in-acp-bridge) — agent
 
 ### 插件依赖 CC
-- [Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用](domains/plugin.md#issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail) — plugin
+- [Peri 插件系统依赖参考实现目录结构，未安装时安装/卸载不可用](domains/plugin.md#issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail) — plugin
 
 ### marketplace git clone
-- [Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用](domains/plugin.md#issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail) — plugin
+- [Peri 插件系统依赖参考实现目录结构，未安装时安装/卸载不可用](domains/plugin.md#issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail) — plugin
 
 ### 有界通道
 - [RenderThread 事件通道使用 UnboundedChannel，极端情况下可能内存膨胀](domains/tui.md#issue_2026-05-30-render-event-unbounded-channel) — tui

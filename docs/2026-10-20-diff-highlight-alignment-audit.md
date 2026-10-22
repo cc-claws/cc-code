@@ -18,7 +18,7 @@
 | `cc-tui/src/app/tool_display.rs` | `build_diff_input` 集中化；Edit 改为按磁盘全文反推编辑前内容（含 mtime 缓存 + 正向校验）；`format_tool_name_with_input`：Edit → `Update`，`old_string` 为空 → `Create` |
 | `cc-tui/src/ui/message_render/mod.rs` | Edit/Write 更新类 diff 出现时隐藏工具结果文本行；新建文件走 `render_new_file_code` |
 | `cc-middlewares/src/tools/filesystem/mod.rs` | 新增 `display_rel_path`：剥离 `\\?\` verbatim 前缀并转相对 cwd |
-| 20+ 文件各 1–2 行 | 注释/文案中 `Claude Code` → `CC` 的统一措辞（无行为变化） |
+| 20+ 文件各 1–2 行 | 注释/文案中参考实现全称 → 缩写的统一措辞（无行为变化） |
 
 ## 问题清单
 
@@ -163,7 +163,7 @@ peri 侧对齐（2026-10-22）：从 `EXTENSION_LANGS` 移除 `md` / `markdown` 
 - `format_tool_name_with_input`（`tool_display.rs:46`）的 `Edit → Update` / 空 `old_string → Create` 与参考实现 `userFacingName(input)` 语义一致，`reconcile.rs` / `transform.rs` / `acp_bridge.rs` 三处调用点全部改成带 input 版本，无遗漏旧调用。
 - `render_new_file_code`（`renderer.rs:546`）的空内容、行数截断、显示宽度截断（按 span 累加 `unicode-width`）处理正确，未使用 `&s[..n]` 这类 CJK 不安全切片。
 - `message_render/mod.rs:1580` 的 `diff_will_render` 判定用 `!d.is_new_file`，保留新建文件的 `Wrote N lines` 结果行，与参考实现行为一致，无重复信息。
-- 20+ 文件的 `Claude Code` → `CC` 措辞改动均为注释/文案，无逻辑变化。
+- 20+ 文件的参考实现全称 → 缩写措辞改动均为注释/文案，无逻辑变化。
 
 ## 验证记录
 
