@@ -143,11 +143,17 @@ jobs:
       - name: Create tag (manual trigger)
         if: github.event_name == 'workflow_dispatch'
         run: |
-          if git rev-parse "npm-v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "Tag npm-v${{ steps.version.outputs.version }} already exists, skipping creation"
+          set -euo pipefail
+          TAG="npm-v${{ steps.version.outputs.version }}"
+          # Ask the remote, not the local checkout: a re-run checks out the tip
+          # of main, which does not contain a tag that was created on an earlier
+          # commit. `git rev-parse` would then report "missing" and the push
+          # would be rejected with "tag already exists".
+          if git ls-remote --tags --exit-code origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on the remote, skipping creation"
           else
-            git tag "npm-v${{ steps.version.outputs.version }}"
-            git push origin "npm-v${{ steps.version.outputs.version }}"
+            git tag "${TAG}"
+            git push origin "${TAG}"
           fi
 
       - name: Download all artifacts
