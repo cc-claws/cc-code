@@ -40,7 +40,7 @@
 | 耗时 | 即时 | 取决于 LLM 响应 |
 
 > **2026-09-30 修订**：原表述为「记录在聊天流，**不进入** Agent history」。
-> 经产品决策调整 —— `!` 命令结果需让模型在后续轮次可见（对齐 Codex CLI 与 claude-code-best 行为），
+> 经产品决策调整 —— `!` 命令结果需让模型在后续轮次可见（对齐 Codex CLI 与 参考源码 行为），
 > 故新增「上下文回流」机制，详见 §3.1.1。安全前提：回流内容**必须先经脱敏**（§4.3）。
 
 ## 3. 技术方案
@@ -78,7 +78,7 @@
 | 要点 | 说明 |
 |------|------|
 | 不触发推理轮次 | 仅写 history，由**下一次** `session/prompt` 携带给模型；不产生额外 Agent 回复 |
-| role = user | 与 Codex / claude-code-best 一致，模型归因为「用户执行」而非「自己执行」 |
+| role = user | 与 Codex / 参考源码 一致，模型归因为「用户执行」而非「自己执行」 |
 | caveat 前置 | 阻止模型把命令回放误当需要响应的用户请求 |
 | 不重复展示 | 片段在展示层跳过（`message_pipeline::transform`）；UI 展示仍由 `ShellCommand` VM 负责 |
 | 输出格式 | 复用 agent 自身执行 Bash 的 `format_command_output`，保持模型侧表示一致 |
@@ -258,7 +258,7 @@ pub struct ShellCommandRecord {
 **要求**：
 
 - 所有回流字段（命令文本、stdout、stderr）在**入库与入 history 之前**经
-  `peri_middlewares::hitl::jev::redact::redact_secrets` 处理
+  `cc_middlewares::hitl::jev::redact::redact_secrets` 处理
 - 脱敏须**先于**截断，避免凭据被截断规则切成半截而漏过模式匹配
 - 与审批弹窗（HITL）保持同一安全口径 —— 该函数的设计目标即「在状态离开本机之前替换明显凭据」
 

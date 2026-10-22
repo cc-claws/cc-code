@@ -40,15 +40,15 @@ pub fn check_throttle(&mut self, prefix_len: usize) -> Option<PipelineAction> {
 
 | 文件 | 操作 | 职责变更 |
 |------|------|----------|
-| `peri-tui/src/app/message_pipeline/mod.rs` | 修改 | 引入 `AdaptiveChunkingPolicy`，替换 `throttle_armed`/`throttle_last_fire`，重写 `check_throttle()` |
-| `peri-tui/src/app/message_pipeline/message_pipeline_test.rs` | 修改 | 新增自适应策略单元测试 |
+| `cc-tui/src/app/message_pipeline/mod.rs` | 修改 | 引入 `AdaptiveChunkingPolicy`，替换 `throttle_armed`/`throttle_last_fire`，重写 `check_throttle()` |
+| `cc-tui/src/app/message_pipeline/message_pipeline_test.rs` | 修改 | 新增自适应策略单元测试 |
 
 ---
 
 ## Task 1: 定义 AdaptiveChunkingPolicy 和 DrainPlan 类型
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 - [ ] **Step 1: 在 `mod.rs` 顶部（`use` 块后、`PendingTool` 定义前）添加新类型**
 
@@ -209,13 +209,13 @@ impl AdaptiveChunkingPolicy {
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 无错误（新类型尚未使用，不应产生编译错误）
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat(tui): add AdaptiveChunkingPolicy and DrainPlan types for streaming throttle"
 ```
 
@@ -224,7 +224,7 @@ git commit -m "feat(tui): add AdaptiveChunkingPolicy and DrainPlan types for str
 ## Task 2: 编写 AdaptiveChunkingPolicy 单元测试（TDD）
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/message_pipeline_test.rs`
+- Modify: `cc-tui/src/app/message_pipeline/message_pipeline_test.rs`
 
 - [ ] **Step 1: 在测试文件末尾添加 AdaptiveChunkingPolicy 测试**
 
@@ -484,13 +484,13 @@ pub(crate) struct AdaptiveChunkingPolicy {
 
 - [ ] **Step 3: 运行测试**
 
-Run: `cargo test -p peri-tui -- adaptive_chunking 2>&1 | tail -30`
+Run: `cargo test -p cc-tui -- adaptive_chunking 2>&1 | tail -30`
 Expected: 所有新增测试通过
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs peri-tui/src/app/message_pipeline/message_pipeline_test.rs
+git add cc-tui/src/app/message_pipeline/mod.rs cc-tui/src/app/message_pipeline/message_pipeline_test.rs
 git commit -m "test(tui): add AdaptiveChunkingPolicy unit tests (TDD)"
 ```
 
@@ -499,7 +499,7 @@ git commit -m "test(tui): add AdaptiveChunkingPolicy unit tests (TDD)"
 ## Task 3: 替换 MessagePipeline 中的固定节流逻辑
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 - [ ] **Step 1: 在 `MessagePipeline` 结构体中替换节流字段**
 
@@ -736,13 +736,13 @@ self.adaptive_policy.drain();  // 替换 self.throttle_armed = false;
 
 - [ ] **Step 10: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -40`
+Run: `cargo build -p cc-tui 2>&1 | head -40`
 Expected: 无错误
 
 - [ ] **Step 11: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat(tui): replace fixed 100ms throttle with AdaptiveChunkingPolicy"
 ```
 
@@ -751,7 +751,7 @@ git commit -m "feat(tui): replace fixed 100ms throttle with AdaptiveChunkingPoli
 ## Task 4: 更新现有节流相关测试
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/message_pipeline_test.rs`
+- Modify: `cc-tui/src/app/message_pipeline/message_pipeline_test.rs`
 
 - [ ] **Step 1: 更新 `test_handle_event_assistant_chunk` 测试**
 
@@ -778,19 +778,19 @@ fn test_handle_event_assistant_chunk() {
 
 - [ ] **Step 2: 检查其他引用 `throttle_armed` 的测试**
 
-Run: `grep -n "throttle_armed" /Users/konghayao/code/ai/perihelion/peri-tui/src/app/message_pipeline/message_pipeline_test.rs`
+Run: `grep -n "throttle_armed" /Users/konghayao/code/ai/perihelion/cc-tui/src/app/message_pipeline/message_pipeline_test.rs`
 
 如果有其他引用，全部替换为对应的 `adaptive_policy` 检查。
 
 - [ ] **Step 3: 运行全量测试**
 
-Run: `cargo test -p peri-tui 2>&1 | tail -30`
+Run: `cargo test -p cc-tui 2>&1 | tail -30`
 Expected: 所有测试通过
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/message_pipeline_test.rs
+git add cc-tui/src/app/message_pipeline/message_pipeline_test.rs
 git commit -m "test(tui): update throttle tests for AdaptiveChunkingPolicy"
 ```
 
@@ -799,7 +799,7 @@ git commit -m "test(tui): update throttle tests for AdaptiveChunkingPolicy"
 ## Task 5: 集成测试和边界场景验证
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/message_pipeline_test.rs`
+- Modify: `cc-tui/src/app/message_pipeline/message_pipeline_test.rs`
 
 - [ ] **Step 1: 添加集成级 check_throttle 测试**
 
@@ -906,13 +906,13 @@ fn test_begin_round_resets_policy() {
 
 - [ ] **Step 2: 运行全量测试**
 
-Run: `cargo test -p peri-tui 2>&1 | tail -30`
+Run: `cargo test -p cc-tui 2>&1 | tail -30`
 Expected: 所有测试通过
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/message_pipeline_test.rs
+git add cc-tui/src/app/message_pipeline/message_pipeline_test.rs
 git commit -m "test(tui): add integration tests for adaptive check_throttle"
 ```
 
@@ -929,10 +929,10 @@ Expected: 成功
 
 - [ ] **Step 2: 运行全部相关 crate 测试**
 
-Run: `cargo test -p peri-tui 2>&1 | tail -30`
+Run: `cargo test -p cc-tui 2>&1 | tail -30`
 Expected: 所有测试通过
 
-Run: `cargo test -p peri-acp 2>&1 | tail -20`
+Run: `cargo test -p cc-acp 2>&1 | tail -20`
 Expected: 所有测试通过
 
 - [ ] **Step 3: 运行 pre-commit hooks**
@@ -942,7 +942,7 @@ Expected: 全部通过（fmt、check、clippy）
 
 - [ ] **Step 4: Clippy 检查（额外确认）**
 
-Run: `cargo clippy -p peri-tui 2>&1 | tail -20`
+Run: `cargo clippy -p cc-tui 2>&1 | tail -20`
 Expected: 无新 warning（`dead_code` 对 `is_catch_up()` 可忽略，已标注 `#[allow(dead_code)]`）
 
 - [ ] **Step 5: 手动集成测试**

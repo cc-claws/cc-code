@@ -15,16 +15,16 @@
 | 文件 | 职责 | 改动类型 |
 |------|------|----------|
 | `Cargo.toml` (workspace root) | serde 依赖配置 | 修改（加 `rc` feature） |
-| `peri-agent/src/agent/events.rs` | AgentEvent 枚举定义 | 修改（字段类型） |
-| `peri-agent/src/agent/executor/llm_step.rs` | LlmCallStart emit 侧 | 修改 |
-| `peri-acp/src/event/mapper_test.rs` | mapper 测试 | 修改 |
-| `peri-agent/src/agent/events_test.rs` | events 测试 | 无需改动（无 LlmCallStart 测试） |
+| `cc-agent/src/agent/events.rs` | AgentEvent 枚举定义 | 修改（字段类型） |
+| `cc-agent/src/agent/executor/llm_step.rs` | LlmCallStart emit 侧 | 修改 |
+| `cc-acp/src/event/mapper_test.rs` | mapper 测试 | 修改 |
+| `cc-agent/src/agent/events_test.rs` | events 测试 | 无需改动（无 LlmCallStart 测试） |
 
 **不需要改动的消费侧文件**（`Arc<Vec<T>>` 自动 deref 为 `&[T]`）：
-- `peri-acp/src/session/executor.rs:271-277` — `tracer.lock().on_llm_start(*step, messages, tools)` 签名 `&[BaseMessage]`，自动兼容
-- `peri-acp/src/langfuse/tracer.rs:339-354` — `on_llm_start(&mut self, step, messages: &[BaseMessage], ...)` 自动兼容
-- `peri-tui/src/app/agent.rs:110` — `ExecutorEvent::LlmCallStart { .. } => return None` 用 `{ .. }` 忽略字段
-- `peri-acp/src/event/mapper.rs:223` — `ExecutorEvent::LlmCallStart { .. }` 用 `{ .. }` 忽略字段
+- `cc-acp/src/session/executor.rs:271-277` — `tracer.lock().on_llm_start(*step, messages, tools)` 签名 `&[BaseMessage]`，自动兼容
+- `cc-acp/src/langfuse/tracer.rs:339-354` — `on_llm_start(&mut self, step, messages: &[BaseMessage], ...)` 自动兼容
+- `cc-tui/src/app/agent.rs:110` — `ExecutorEvent::LlmCallStart { .. } => return None` 用 `{ .. }` 忽略字段
+- `cc-acp/src/event/mapper.rs:223` — `ExecutorEvent::LlmCallStart { .. }` 用 `{ .. }` 忽略字段
 
 ---
 
@@ -65,8 +65,8 @@ The rc feature is backward-compatible and transparent to existing types."
 ### Task 2: 修改 LlmCallStart 字段类型和 emit 侧
 
 **Files:**
-- Modify: `peri-agent/src/agent/events.rs:96-100`
-- Modify: `peri-agent/src/agent/executor/llm_step.rs:27-31`
+- Modify: `cc-agent/src/agent/events.rs:96-100`
+- Modify: `cc-agent/src/agent/executor/llm_step.rs:27-31`
 
 - [ ] **Step 4: 修改 AgentEvent::LlmCallStart 的 messages 字段类型**
 
@@ -119,7 +119,7 @@ Expected: 编译成功。消费侧 `&[BaseMessage]` 签名通过 `Deref` 自动�
 ### Task 3: 更新 mapper 测试
 
 **Files:**
-- Modify: `peri-acp/src/event/mapper_test.rs:510-512`
+- Modify: `cc-acp/src/event/mapper_test.rs:510-512`
 
 - [ ] **Step 7: 修改 test_llm_call_start_produces_no_output 中的 LlmCallStart 构造**
 
@@ -137,7 +137,7 @@ Expected: 编译成功。消费侧 `&[BaseMessage]` 签名通过 `Deref` 自动�
     tools: vec![ToolDefinition {
 ```
 
-检查 mapper_test.rs 文件顶部是否已有 `use std::sync::Arc`。如果没有，需要添加 import 或使用完整路径。如果该文件的 imports 使用了 peri_agent 的 re-export，可用 `peri_agent::AgentEvent` 对应的类型。
+检查 mapper_test.rs 文件顶部是否已有 `use std::sync::Arc`。如果没有，需要添加 import 或使用完整路径。如果该文件的 imports 使用了 cc_agent 的 re-export，可用 `cc_agent::AgentEvent` 对应的类型。
 
 - [ ] **Step 8: 搜索其他测试中是否有 LlmCallStart 构造**
 
@@ -148,10 +148,10 @@ Expected: 仅 `mapper_test.rs:510` 一处需要修改。events_test.rs 中无 Ll
 
 - [ ] **Step 9: 运行测试验证**
 
-Run: `cargo test -p peri-acp --lib -- llm_call_start 2>&1`
+Run: `cargo test -p cc-acp --lib -- llm_call_start 2>&1`
 Expected: PASS
 
-Run: `cargo test -p peri-agent --lib -- events 2>&1`
+Run: `cargo test -p cc-agent --lib -- events 2>&1`
 Expected: 所有 events 测试 PASS（serde roundtrip 测试中不涉及 LlmCallStart）
 
 ---
@@ -166,7 +166,7 @@ Expected: BUILD SUCCEEDED + 所有测试通过
 - [ ] **Step 11: Commit**
 
 ```bash
-git add peri-agent/src/agent/events.rs peri-agent/src/agent/executor/llm_step.rs peri-acp/src/event/mapper_test.rs
+git add cc-agent/src/agent/events.rs cc-agent/src/agent/executor/llm_step.rs cc-acp/src/event/mapper_test.rs
 git commit -m "perf: change LlmCallStart.messages to Arc<Vec<BaseMessage>>
 
 Replace per-step full history clone with Arc shared reference. For

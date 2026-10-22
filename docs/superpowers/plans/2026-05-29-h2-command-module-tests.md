@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 `peri-acp/src/session/command/` 模块添加完整的单元测试覆盖，包括 CommandRegistry 查找逻辑、ClearCommand、CompactCommand 和辅助函数。
+**Goal:** 为 `cc-acp/src/session/command/` 模块添加完整的单元测试覆盖，包括 CommandRegistry 查找逻辑、ClearCommand、CompactCommand 和辅助函数。
 
 **Architecture:** 新建 `command/mod_test.rs` 和 `command/compact_test.rs` 测试文件。使用 MockEventSink 验证事件推送，直接构造 CommandContext 测试 execute 路径。
 
@@ -14,23 +14,23 @@
 
 | 操作 | 文件路径 | 职责 |
 |------|----------|------|
-| 创建 | `peri-acp/src/session/command/mod_test.rs` | CommandRegistry + ClearCommand 测试 |
-| 创建 | `peri-acp/src/session/command/compact_test.rs` | CompactCommand + 辅助函数测试 |
-| 参考 | `peri-acp/src/session/command/mod.rs` | CommandRegistry, CommandKind, AgentCommand trait |
-| 参考 | `peri-acp/src/session/command/clear.rs` | ClearCommand |
-| 参考 | `peri-acp/src/session/command/compact.rs` | CompactCommand, extract_file_info, extract_skill_names |
-| 参考 | `peri-acp/src/session/event_sink.rs` | EventSink trait 定义 |
+| 创建 | `cc-acp/src/session/command/mod_test.rs` | CommandRegistry + ClearCommand 测试 |
+| 创建 | `cc-acp/src/session/command/compact_test.rs` | CompactCommand + 辅助函数测试 |
+| 参考 | `cc-acp/src/session/command/mod.rs` | CommandRegistry, CommandKind, AgentCommand trait |
+| 参考 | `cc-acp/src/session/command/clear.rs` | ClearCommand |
+| 参考 | `cc-acp/src/session/command/compact.rs` | CompactCommand, extract_file_info, extract_skill_names |
+| 参考 | `cc-acp/src/session/event_sink.rs` | EventSink trait 定义 |
 
 ---
 
 ### Task 1: 创建 MockEventSink 和 CommandRegistry 测试
 
 **Files:**
-- Create: `peri-acp/src/session/command/mod_test.rs`
+- Create: `cc-acp/src/session/command/mod_test.rs`
 
 - [ ] **Step 1: 读取 mod.rs 了解 CommandRegistry 和 AgentCommand trait 的完整定义**
 
-Read `peri-acp/src/session/command/mod.rs` 确认 `find()` 的参数解析逻辑（`/` 前缀处理、别名匹配、参数分离）。
+Read `cc-acp/src/session/command/mod.rs` 确认 `find()` 的参数解析逻辑（`/` 前缀处理、别名匹配、参数分离）。
 
 - [ ] **Step 2: 创建 mod_test.rs 文件，包含 MockCommand 和基础 CommandRegistry 测试**
 
@@ -185,17 +185,17 @@ fn test_registry_find_strips_slash_prefix() {
 
 - [ ] **Step 3: 确保 mod.rs 中声明了 mod_test.rs 模块**
 
-检查 `peri-acp/src/session/command/mod.rs` 中是否已有 `#[cfg(test)] mod mod_test;`。如果没有，需要添加。
+检查 `cc-acp/src/session/command/mod.rs` 中是否已有 `#[cfg(test)] mod mod_test;`。如果没有，需要添加。
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- session::command::mod_test`
+Run: `cargo test -p cc-acp --lib -- session::command::mod_test`
 Expected: ALL PASS
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add peri-acp/src/session/command/mod_test.rs peri-acp/src/session/command/mod.rs
+git add cc-acp/src/session/command/mod_test.rs cc-acp/src/session/command/mod.rs
 git commit -m "test: add CommandRegistry unit tests (find/list/alias/edge cases)"
 ```
 
@@ -204,11 +204,11 @@ git commit -m "test: add CommandRegistry unit tests (find/list/alias/edge cases)
 ### Task 2: 添加 ClearCommand 测试
 
 **Files:**
-- Modify: `peri-acp/src/session/command/mod_test.rs`
+- Modify: `cc-acp/src/session/command/mod_test.rs`
 
 - [ ] **Step 1: 读取 clear.rs 确认 execute 行为**
 
-Read `peri-acp/src/session/command/clear.rs` 确认 `execute()` 发送的具体事件字段。
+Read `cc-acp/src/session/command/clear.rs` 确认 `execute()` 发送的具体事件字段。
 
 - [ ] **Step 2: 添加 ClearCommand 测试**
 
@@ -275,13 +275,13 @@ async fn test_clear_command_name_and_aliases() {
 
 - [ ] **Step 3: 运行测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- session::command::mod_test::test_clear`
+Run: `cargo test -p cc-acp --lib -- session::command::mod_test::test_clear`
 Expected: ALL PASS
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add peri-acp/src/session/command/mod_test.rs
+git add cc-acp/src/session/command/mod_test.rs
 git commit -m "test: add ClearCommand unit tests (execute/name/aliases)"
 ```
 
@@ -290,11 +290,11 @@ git commit -m "test: add ClearCommand unit tests (execute/name/aliases)"
 ### Task 3: 创建 CompactCommand 测试
 
 **Files:**
-- Create: `peri-acp/src/session/command/compact_test.rs`
+- Create: `cc-acp/src/session/command/compact_test.rs`
 
 - [ ] **Step 1: 读取 compact.rs 确认所有路径和辅助函数**
 
-Read `peri-acp/src/session/command/compact.rs` 确认：
+Read `cc-acp/src/session/command/compact.rs` 确认：
 - `extract_file_info()` 的输入消息格式和输出
 - `extract_skill_names()` 的输入消息格式和输出
 - `execute()` 的 4 个代码路径
@@ -304,7 +304,7 @@ Read `peri-acp/src/session/command/compact.rs` 确认：
 ```rust
 use super::*;
 use crate::session::command::mod_test::MockEventSink;
-use peri_agent::message::BaseMessage;
+use cc_agent::message::BaseMessage;
 use std::sync::Arc;
 
 // === extract_file_info 测试 ===
@@ -373,17 +373,17 @@ fn test_extract_skill_names_非技能消息跳过() {
 
 - [ ] **Step 3: 确保 compact.rs 中声明了 compact_test.rs 模块**
 
-检查 `peri-acp/src/session/command/compact.rs` 中是否已有 `#[cfg(test)] mod compact_test;`。如果没有，需要添加。
+检查 `cc-acp/src/session/command/compact.rs` 中是否已有 `#[cfg(test)] mod compact_test;`。如果没有，需要添加。
 
 - [ ] **Step 4: 运行辅助函数测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- session::command::compact_test`
+Run: `cargo test -p cc-acp --lib -- session::command::compact_test`
 Expected: ALL PASS
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add peri-acp/src/session/command/compact_test.rs peri-acp/src/session/command/compact.rs
+git add cc-acp/src/session/command/compact_test.rs cc-acp/src/session/command/compact.rs
 git commit -m "test: add extract_file_info and extract_skill_names unit tests"
 ```
 
@@ -392,7 +392,7 @@ git commit -m "test: add extract_file_info and extract_skill_names unit tests"
 ### Task 4: 添加 CompactCommand execute 路径测试
 
 **Files:**
-- Modify: `peri-acp/src/session/command/compact_test.rs`
+- Modify: `cc-acp/src/session/command/compact_test.rs`
 
 - [ ] **Step 1: 添加空历史路径测试**
 
@@ -443,13 +443,13 @@ fn test_compact_command_name_and_aliases() {
 
 - [ ] **Step 4: 运行所有 compact 测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- session::command::compact_test`
+Run: `cargo test -p cc-acp --lib -- session::command::compact_test`
 Expected: ALL PASS
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add peri-acp/src/session/command/compact_test.rs
+git add cc-acp/src/session/command/compact_test.rs
 git commit -m "test: add CompactCommand execute path tests (empty history, no model)"
 ```
 
@@ -457,12 +457,12 @@ git commit -m "test: add CompactCommand execute path tests (empty history, no mo
 
 ### Task 5: 运行全量测试确认无回归
 
-- [ ] **Step 1: 运行 peri-acp 全量测试**
+- [ ] **Step 1: 运行 cc-acp 全量测试**
 
-Run: `cargo test -p peri-acp --lib`
+Run: `cargo test -p cc-acp --lib`
 Expected: ALL PASS
 
-- [ ] **Step 2: 运行 peri-agent 全量测试**
+- [ ] **Step 2: 运行 cc-agent 全量测试**
 
-Run: `cargo test -p peri-agent --lib`
+Run: `cargo test -p cc-agent --lib`
 Expected: ALL PASS

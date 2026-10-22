@@ -42,7 +42,7 @@ System 字段被序列化为单个 `TextBlockParam`，所有内容（静态段�
 
 ## 修复方案
 
-采用**边界标记（Boundary Marker）**方案，仿照 Claude Code 的 `splitSysPromptPrefix()` 模式。
+采用**边界标记（Boundary Marker）**方案，仿照 参考实现 的 `splitSysPromptPrefix()` 模式。
 
 ### 实现变更（2 个文件）
 

@@ -170,7 +170,7 @@
     }
     ```
 
-  - 原因: `/reset` 和 `/new` 是 Claude Code 中 clear 的常见别名
+  - 原因: `/reset` 和 `/new` 是 参考实现 中 clear 的常见别名
 
 - [x] 为 Command trait 别名匹配逻辑编写单元测试
   - 测试文件: `peri-tui/src/command/mod.rs`（现有 `#[cfg(test)] mod tests` 块末尾，~L276 之前）

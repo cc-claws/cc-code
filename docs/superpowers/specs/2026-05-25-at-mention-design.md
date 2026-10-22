@@ -2,7 +2,7 @@
 
 ## 概述
 
-在 TUI 输入框中实现 `@` 触发的文件搜索与引用功能，对齐 Claude Code 的 @ mention 交互模式。分阶段交付：阶段一文件引用，后续迭代 MCP 资源和 Agent 引用。
+在 TUI 输入框中实现 `@` 触发的文件搜索与引用功能，对齐参考实现的 @ mention 交互模式。分阶段交付：阶段一文件引用，后续迭代 MCP 资源和 Agent 引用。
 
 ## 架构决策
 
@@ -28,7 +28,7 @@ TUI 输入框: "请看 @src/main.rs 和 @lib/utils.rs#L10-20"
 
 ### 核心状态（`AtMentionState`）
 
-新增文件：`peri-tui/src/app/at_mention/mod.rs`
+新增文件：`cc-tui/src/app/at_mention/mod.rs`
 
 ```rust
 pub struct AtMentionState {
@@ -69,7 +69,7 @@ pub struct AtCandidate {
 
 ## Part 2：文件搜索与模糊匹配
 
-新增文件：`peri-tui/src/app/at_mention/file_search.rs`
+新增文件：`cc-tui/src/app/at_mention/file_search.rs`
 
 ### 搜索流程
 
@@ -157,9 +157,9 @@ After:  "请 @src/main.rs |"
 
 | 文件 | 职责 |
 |------|------|
-| `peri-middlewares/src/at_mention/mod.rs` | `AtMentionMiddleware` |
-| `peri-middlewares/src/at_mention/parser.rs` | 正则提取 @path + 行范围 |
-| `peri-middlewares/src/at_mention/file_reader.rs` | 文件读取 + 截断 |
+| `cc-middlewares/src/at_mention/mod.rs` | `AtMentionMiddleware` |
+| `cc-middlewares/src/at_mention/parser.rs` | 正则提取 @path + 行范围 |
+| `cc-middlewares/src/at_mention/file_reader.rs` | 文件读取 + 截断 |
 
 ### 解析正则
 
@@ -184,11 +184,11 @@ After:  "请 @src/main.rs |"
 ### 新增文件
 
 ```
-peri-tui/src/app/at_mention/
+cc-tui/src/app/at_mention/
 ├── mod.rs              # AtMentionState + 交互逻辑
 └── file_search.rs      # glob 搜索 + fuzzy 评分（异步）
 
-peri-middlewares/src/at_mention/
+cc-middlewares/src/at_mention/
 ├── mod.rs              # AtMentionMiddleware
 ├── parser.rs           # 正则提取 @path + 行范围
 └── file_reader.rs      # 文件读取 + 截断
@@ -198,16 +198,16 @@ peri-middlewares/src/at_mention/
 
 | 文件 | 改动 |
 |------|------|
-| `peri-tui/src/app/ui_state.rs` | 新增 `at_mention: AtMentionState` |
-| `peri-tui/src/event/keyboard.rs` | `@` 触发检测 + 导航键拦截 |
-| `peri-tui/src/ui/main_ui/mod.rs` | 弹窗渲染（与 hints 互斥） |
-| `peri-acp/src/agent/builder.rs` | 加 `AtMentionMiddleware`（在 SkillPreload 之后） |
-| `peri-middlewares/src/lib.rs` | 导出 `at_mention` |
-| `peri-tui/src/app/mod.rs` | 导出 `at_mention` |
+| `cc-tui/src/app/ui_state.rs` | 新增 `at_mention: AtMentionState` |
+| `cc-tui/src/event/keyboard.rs` | `@` 触发检测 + 导航键拦截 |
+| `cc-tui/src/ui/main_ui/mod.rs` | 弹窗渲染（与 hints 互斥） |
+| `cc-acp/src/agent/builder.rs` | 加 `AtMentionMiddleware`（在 SkillPreload 之后） |
+| `cc-middlewares/src/lib.rs` | 导出 `at_mention` |
+| `cc-tui/src/app/mod.rs` | 导出 `at_mention` |
 
 ### 依赖新增
 
-- `peri-tui/Cargo.toml`：加 `glob` + `fuzzy-matcher`
+- `cc-tui/Cargo.toml`：加 `glob` + `fuzzy-matcher`
 
 ### 测试策略
 

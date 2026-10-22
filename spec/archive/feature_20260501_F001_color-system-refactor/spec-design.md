@@ -2,13 +2,13 @@
 
 ## 需求背景
 
-peri TUI 当前颜色系统（`theme.rs`）采用暖棕色调（ACCENT #FF6B2B、TEXT #DACED0 冷白、BORDER #302620 暖棕），与 Claude Code CLI 的视觉风格差异明显。Claude Code 使用中性暖橙 #D77757 为品牌色、纯白文字、中性灰层级，整体观感更现代、对比度更高。
+peri TUI 当前颜色系统（`theme.rs`）采用暖棕色调（ACCENT #FF6B2B、TEXT #DACED0 冷白、BORDER #302620 暖棕），与 参考实现 CLI 的视觉风格差异明显。参考实现 使用中性暖橙 #D77757 为品牌色、纯白文字、中性灰层级，整体观感更现代、对比度更高。
 
 此外，当前约有 28 处硬编码颜色（`Color::White` 18 处、`Color::DarkGray` 3 处等）散落在 17 个文件中，未通过主题常量统一管理。
 
 ## 目标
 
-- 将 peri TUI 配色方案对齐到 Claude Code Dark 主题，提升视觉一致性和品牌辨识度
+- 将 peri TUI 配色方案对齐到 参考实现 Dark 主题，提升视觉一致性和品牌辨识度
 - 清理全部硬编码颜色，统一通过 `theme::*` 常量引用
 - 保持现有命名体系和代码结构不变，仅替换 RGB 值和新增必要常量
 
@@ -16,7 +16,7 @@ peri TUI 当前颜色系统（`theme.rs`）采用暖棕色调（ACCENT #FF6B2B�
 
 ### 1. 现有常量 RGB 值更新
 
-`peri-tui/src/ui/theme.rs` 中 12 个常量的 RGB 值从 Claude Code Dark 主题语义映射：
+`peri-tui/src/ui/theme.rs` 中 12 个常量的 RGB 值从 参考实现 Dark 主题语义映射：
 
 | 常量名 | 旧 RGB | 新 RGB | Claude 来源 |
 |--------|--------|--------|------------|

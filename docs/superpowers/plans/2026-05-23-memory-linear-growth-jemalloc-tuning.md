@@ -20,24 +20,24 @@
 
 | File | Action | Responsibility |
 |------|--------|---------------|
-| `peri-tui/src/main.rs` | Modify | Add `configure_jemalloc()` call before runtime creation |
-| `peri-tui/src/jemalloc_config.rs` | Create | jemalloc MALLCTL configuration (dirty_decay_ms, background_thread, lg_tcache_max) + test |
-| `peri-tui/src/app/thread_ops.rs` | Modify | Update `jemalloc_decay()` to also call `arena.<i>.decay` for faster purge after `/clear` |
-| `peri-tui/src/acp_client/client.rs` | Modify | Replace `event_value.clone()` + `from_value` with `serde_json::from_str` on pre-serialized string |
-| `peri-acp/src/session/event_sink.rs` | Modify | Replace `to_value` + `json!({...event_value})` with direct `to_string` + string interpolation to avoid double-serialize |
-| `peri-tui/src/command/core/heapdump.rs` | Modify | Add jemalloc config section (dirty_decay_ms, background_thread, tcache stats) |
+| `cc-tui/src/main.rs` | Modify | Add `configure_jemalloc()` call before runtime creation |
+| `cc-tui/src/jemalloc_config.rs` | Create | jemalloc MALLCTL configuration (dirty_decay_ms, background_thread, lg_tcache_max) + test |
+| `cc-tui/src/app/thread_ops.rs` | Modify | Update `jemalloc_decay()` to also call `arena.<i>.decay` for faster purge after `/clear` |
+| `cc-tui/src/acp_client/client.rs` | Modify | Replace `event_value.clone()` + `from_value` with `serde_json::from_str` on pre-serialized string |
+| `cc-acp/src/session/event_sink.rs` | Modify | Replace `to_value` + `json!({...event_value})` with direct `to_string` + string interpolation to avoid double-serialize |
+| `cc-tui/src/command/core/heapdump.rs` | Modify | Add jemalloc config section (dirty_decay_ms, background_thread, tcache stats) |
 
 ---
 
 ### Task 1: Create `jemalloc_config.rs` — Allocator Tuning Module
 
 **Files:**
-- Create: `peri-tui/src/jemalloc_config.rs`
-- Modify: `peri-tui/src/lib.rs` (add `mod jemalloc_config;`)
+- Create: `cc-tui/src/jemalloc_config.rs`
+- Modify: `cc-tui/src/lib.rs` (add `mod jemalloc_config;`)
 
 - [ ] **Step 1: Create the module file with `configure_jemalloc()`**
 
-Create `peri-tui/src/jemalloc_config.rs`:
+Create `cc-tui/src/jemalloc_config.rs`:
 
 ```rust
 //! jemalloc allocator tuning for high-churn workloads.
@@ -108,9 +108,9 @@ pub fn configure_jemalloc() {
 }
 ```
 
-- [ ] **Step 2: Add module declaration to `peri-tui/src/lib.rs`**
+- [ ] **Step 2: Add module declaration to `cc-tui/src/lib.rs`**
 
-Find the module declarations in `peri-tui/src/lib.rs` and add `jemalloc_config` alongside the other modules. It should be at the top level (not inside any `mod` block):
+Find the module declarations in `cc-tui/src/lib.rs` and add `jemalloc_config` alongside the other modules. It should be at the top level (not inside any `mod` block):
 
 ```rust
 pub mod jemalloc_config;
@@ -118,7 +118,7 @@ pub mod jemalloc_config;
 
 - [ ] **Step 3: Write unit test for `configure_jemalloc`**
 
-Add at the bottom of `peri-tui/src/jemalloc_config.rs`:
+Add at the bottom of `cc-tui/src/jemalloc_config.rs`:
 
 ```rust
 #[cfg(test)]
@@ -146,13 +146,13 @@ mod tests {
 
 - [ ] **Step 4: Run tests to verify**
 
-Run: `cargo test -p peri-tui --lib -- jemalloc_config`
+Run: `cargo test -p cc-tui --lib -- jemalloc_config`
 Expected: PASS (2 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/jemalloc_config.rs peri-tui/src/lib.rs
+git add cc-tui/src/jemalloc_config.rs cc-tui/src/lib.rs
 git commit -m "feat(tui): add jemalloc allocator tuning module for high-churn workloads
 
 Configure dirty_decay_ms=200, background_thread=true, lg_tcache_max=16
@@ -164,11 +164,11 @@ to prevent arena fragmentation under 680k transient allocs/turn."
 ### Task 2: Call `configure_jemalloc()` at Startup
 
 **Files:**
-- Modify: `peri-tui/src/main.rs:252-254`
+- Modify: `cc-tui/src/main.rs:252-254`
 
 - [ ] **Step 1: Add `configure_jemalloc()` call in `main()`**
 
-In `peri-tui/src/main.rs`, modify the `main()` function to call `configure_jemalloc()` **before** `inject_env_from_settings()`. The jemalloc config must be applied before any significant allocation (especially before tokio runtime creation).
+In `cc-tui/src/main.rs`, modify the `main()` function to call `configure_jemalloc()` **before** `inject_env_from_settings()`. The jemalloc config must be applied before any significant allocation (especially before tokio runtime creation).
 
 Find in `main.rs` (~line 252):
 
@@ -184,7 +184,7 @@ Replace with:
 fn main() -> Result<()> {
     // Configure jemalloc before any significant allocation.
     // Must precede tokio runtime creation and the first LLM call.
-    peri_tui::jemalloc_config::configure_jemalloc();
+    cc_tui::jemalloc_config::configure_jemalloc();
 
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();
@@ -192,13 +192,13 @@ fn main() -> Result<()> {
 
 - [ ] **Step 2: Build to verify**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/main.rs
+git add cc-tui/src/main.rs
 git commit -m "feat(tui): call configure_jemalloc() at startup before runtime creation"
 ```
 
@@ -207,13 +207,13 @@ git commit -m "feat(tui): call configure_jemalloc() at startup before runtime cr
 ### Task 3: Enhance `jemalloc_decay()` with Explicit Arena Decay
 
 **Files:**
-- Modify: `peri-tui/src/app/thread_ops.rs:7-29`
+- Modify: `cc-tui/src/app/thread_ops.rs:7-29`
 
 The current `jemalloc_decay()` calls `arena.{i}.purge` which immediately purges all dirty pages. However, in high-churn scenarios, some pages are still "aging" in the decay timeline and won't be purged. Adding explicit `arena.{i}.decay` calls forces jemalloc to process the decay timeline immediately.
 
 - [ ] **Step 1: Update `jemalloc_decay()` function**
 
-In `peri-tui/src/app/thread_ops.rs`, replace the existing `jemalloc_decay()` function:
+In `cc-tui/src/app/thread_ops.rs`, replace the existing `jemalloc_decay()` function:
 
 ```rust
 /// 通知 jemalloc 将空闲内存页归还给 OS。
@@ -258,13 +258,13 @@ pub(crate) fn jemalloc_decay() {
 
 - [ ] **Step 2: Build to verify**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/thread_ops.rs
+git add cc-tui/src/app/thread_ops.rs
 git commit -m "fix(tui): add arena decay before purge in jemalloc_decay()
 
 Trigger decay timeline processing before immediate purge, ensuring
@@ -276,8 +276,8 @@ in-progress aging dirty pages are also reclaimed after /clear."
 ### Task 4: Eliminate `event_value.clone()` Double Deserialization in ACP Client Pump
 
 **Files:**
-- Modify: `peri-acp/src/session/event_sink.rs:50-66`
-- Modify: `peri-tui/src/acp_client/client.rs:95-113`
+- Modify: `cc-acp/src/session/event_sink.rs:50-66`
+- Modify: `cc-tui/src/acp_client/client.rs:95-113`
 
 This is the largest single source of redundant allocation churn. The current flow:
 
@@ -294,7 +294,7 @@ The fix: serialize once to `String`, send the string through the channel, deseri
 
 - [ ] **Step 1: Modify `TransportEventSink::push_event` to serialize once to String**
 
-In `peri-acp/src/session/event_sink.rs`, replace the `push_event` method in `impl EventSink for TransportEventSink`:
+In `cc-acp/src/session/event_sink.rs`, replace the `push_event` method in `impl EventSink for TransportEventSink`:
 
 ```rust
     async fn push_event(&self, session_id: &str, event: &ExecutorEvent, context_window: u32) {
@@ -351,7 +351,7 @@ In `peri-acp/src/session/event_sink.rs`, replace the `push_event` method in `imp
 
 - [ ] **Step 2: Modify `AcpTuiClient::run_pump` to deserialize from string**
 
-In `peri-tui/src/acp_client/client.rs`, replace the `peri/agent_event` branch in `run_pump`:
+In `cc-tui/src/acp_client/client.rs`, replace the `peri/agent_event` branch in `run_pump`:
 
 Find (~line 95-131):
 ```rust
@@ -363,7 +363,7 @@ Find (~line 95-131):
                             .unwrap_or("")
                             .to_string();
                         if let Some(event_value) = params.get("event") {
-                            match serde_json::from_value::<peri_agent::agent::events::AgentEvent>(
+                            match serde_json::from_value::<cc_agent::agent::events::AgentEvent>(
                                 event_value.clone(),
                             ) {
 ```
@@ -382,9 +382,9 @@ Replace with:
                         let event_result = if let Some(event_str) =
                             params.get("event_json").and_then(|v| v.as_str())
                         {
-                            serde_json::from_str::<peri_agent::agent::events::AgentEvent>(event_str)
+                            serde_json::from_str::<cc_agent::agent::events::AgentEvent>(event_str)
                         } else if let Some(event_value) = params.get("event") {
-                            serde_json::from_value::<peri_agent::agent::events::AgentEvent>(
+                            serde_json::from_value::<cc_agent::agent::events::AgentEvent>(
                                 event_value.clone(),
                             )
                         } else {
@@ -417,13 +417,13 @@ Replace with:
 
 - [ ] **Step 3: Build to verify**
 
-Run: `cargo build -p peri-acp -p peri-tui`
+Run: `cargo build -p cc-acp -p cc-tui`
 Expected: Build succeeds
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/event_sink.rs peri-tui/src/acp_client/client.rs
+git add cc-acp/src/session/event_sink.rs cc-tui/src/acp_client/client.rs
 git commit -m "perf(acp): eliminate event_value.clone() double-deserialization
 
 Serialize ExecutorEvent to JSON string once, deserialize once from &str.
@@ -436,11 +436,11 @@ events/turn, this reduces allocation churn by ~2M fewer allocations."
 ### Task 5: Add Jemalloc Config Section to `/heapdump`
 
 **Files:**
-- Modify: `peri-tui/src/command/core/heapdump.rs`
+- Modify: `cc-tui/src/command/core/heapdump.rs`
 
 - [ ] **Step 1: Add config diagnostics after jemalloc summary section**
 
-In `peri-tui/src/command/core/heapdump.rs`, after the `RSS-overhead` line (~line 57) and before the `=== JEMALLOC ARENAS ===` section, add a new config section:
+In `cc-tui/src/command/core/heapdump.rs`, after the `RSS-overhead` line (~line 57) and before the `=== JEMALLOC ARENAS ===` section, add a new config section:
 
 Find:
 ```rust
@@ -485,13 +485,13 @@ Replace with:
 
 - [ ] **Step 2: Build to verify**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/command/core/heapdump.rs
+git add cc-tui/src/command/core/heapdump.rs
 git commit -m "feat(heapdump): add jemalloc config section (dirty_decay_ms, background_thread, tcache)"
 ```
 
@@ -503,22 +503,22 @@ git commit -m "feat(heapdump): add jemalloc config section (dirty_decay_ms, back
 
 - [ ] **Step 1: Build release mode**
 
-Run: `cargo build -p peri-tui --release`
+Run: `cargo build -p cc-tui --release`
 Expected: Build succeeds
 
 - [ ] **Step 2: Run all tests**
 
-Run: `cargo test -p peri-tui --lib`
+Run: `cargo test -p cc-tui --lib`
 Expected: All tests pass
 
-- [ ] **Step 3: Run peri-acp tests**
+- [ ] **Step 3: Run cc-acp tests**
 
-Run: `cargo test -p peri-acp --lib`
+Run: `cargo test -p cc-acp --lib`
 Expected: All tests pass
 
 - [ ] **Step 4: Manual smoke test — verify jemalloc config applied**
 
-1. Start TUI in release mode: `cargo run -p peri-tui --release`
+1. Start TUI in release mode: `cargo run -p cc-tui --release`
 2. Run `/heapdump` command
 3. Check `.tmp/heapdump-*.txt` — verify:
    - `dirty_decay_ms: 200` (not 10000)
@@ -567,7 +567,7 @@ No TBD/TODO/fill-in-later patterns found. All code blocks contain complete imple
 
 ### 3. Type Consistency
 
-- `configure_jemalloc()` called as `peri_tui::jemalloc_config::configure_jemalloc()` — matches module path
+- `configure_jemalloc()` called as `cc_tui::jemalloc_config::configure_jemalloc()` — matches module path
 - `tikv_jemalloc_ctl::raw::write` uses `b"key\0"` byte strings — correct for MALLCTL
 - `serde_json::from_str` returns `Result<T, Error>` — matches existing `from_value` error handling pattern
 - `event_json` field name consistent between writer (event_sink.rs) and reader (client.rs)

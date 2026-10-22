@@ -95,10 +95,10 @@ pub async fn close_session(&self, session_id: &str) -> anyhow::Result<()> {
 
 | 文件 | 变更 |
 |------|------|
-| `peri-middlewares/src/subagent/mod.rs` | 新增 register/deregister callback 字段 |
-| `peri-middlewares/src/subagent/tool/define.rs` | 子 agent 创建后注册，完成后注销 |
-| `peri-acp/src/session/executor.rs` | cancel 时调用 cancel_cascade_children |
-| `peri-acp/src/session/mod.rs` | close_session 调用 cancel_all_agents + 清理 |
+| `cc-middlewares/src/subagent/mod.rs` | 新增 register/deregister callback 字段 |
+| `cc-middlewares/src/subagent/tool/define.rs` | 子 agent 创建后注册，完成后注销 |
+| `cc-acp/src/session/executor.rs` | cancel 时调用 cancel_cascade_children |
+| `cc-acp/src/session/mod.rs` | close_session 调用 cancel_all_agents + 清理 |
 
 ### 1.4 测试
 
@@ -194,9 +194,9 @@ Micro-compact 同理：只清除 `messages[ancestor_len..]` 中 ≥5 步前的 t
 
 | 文件 | 变更 |
 |------|------|
-| `peri-agent/src/agent/state.rs` | 新增 `ancestor_len` 字段 + `with_ancestor_len()` + `ancestor_len()` |
-| `peri-agent/src/agent/compact/` | `do_full_compact` / `do_micro_compact` 区分 ancestor_len |
-| `peri-acp/src/session/compact_runner.rs`（如存在） | 确认 compact 后调用 invalidate_context_cache |
+| `cc-agent/src/agent/state.rs` | 新增 `ancestor_len` 字段 + `with_ancestor_len()` + `ancestor_len()` |
+| `cc-agent/src/agent/compact/` | `do_full_compact` / `do_micro_compact` 区分 ancestor_len |
+| `cc-acp/src/session/compact_runner.rs`（如存在） | 确认 compact 后调用 invalidate_context_cache |
 
 ### 2.4 测试
 
@@ -303,10 +303,10 @@ impl PanelComponent for TasksPanel {
 
 | 文件 | 变更 |
 |------|------|
-| `peri-tui/src/app/panels/tasks/` | 新增目录，面板实现 |
-| `peri-tui/src/app/panels/mod.rs` | 注册 TasksPanel |
-| `peri-tui/src/app/commands/` | 新增 `/tasks` 命令 |
-| `peri-tui/src/app/panels/cron.rs` | 渲染逻辑迁移到 tasks/cron_list.rs |
+| `cc-tui/src/app/panels/tasks/` | 新增目录，面板实现 |
+| `cc-tui/src/app/panels/mod.rs` | 注册 TasksPanel |
+| `cc-tui/src/app/commands/` | 新增 `/tasks` 命令 |
+| `cc-tui/src/app/panels/cron.rs` | 渲染逻辑迁移到 tasks/cron_list.rs |
 
 ### 3.5 测试
 

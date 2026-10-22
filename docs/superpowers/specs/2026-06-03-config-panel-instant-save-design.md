@@ -69,5 +69,5 @@ In `handle_mouse`, when clicking a different row while currently on a text row, 
 
 | File | Change |
 |------|--------|
-| `peri-tui/src/app/config_panel.rs` | Extract `save_config_now()`, add `is_text_row()`, rewrite `handle_key` branches |
-| `peri-tui/src/app/config_panel_test.rs` | Update existing Enter-save tests to blur-save tests |
+| `cc-tui/src/app/config_panel.rs` | Extract `save_config_now()`, add `is_text_row()`, rewrite `handle_key` branches |
+| `cc-tui/src/app/config_panel_test.rs` | Update existing Enter-save tests to blur-save tests |

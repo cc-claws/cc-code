@@ -30,7 +30,7 @@ TUI 使用 `Viewport::Inline(terminal_rows - 1)` 固定高度内联视口。消�
 
 ### 缺陷点：`flush_scrollback_history` 在 loading 期间完全跳过
 
-`peri-tui/src/main.rs:918-920`：
+`cc-tui/src/main.rs:918-920`：
 
 ```rust
 fn flush_scrollback_history(terminal, app) -> Result<()> {
@@ -102,10 +102,10 @@ streaming 结束后 `flush_scrollback_history` 首次执行：
 
 | 文件 | 行号 | 问题 |
 |------|------|------|
-| `peri-tui/src/main.rs` | 918-920 | `flush_scrollback_history` 在 `loading=true` 时完全跳过 |
-| `peri-tui/src/main.rs` | 907-911 | `draw_app` 每帧调用但 scrollback flush 依赖 loading 状态 |
-| `peri-tui/src/ui/main_ui/message_area.rs` | 208-383 | `viewport_clip` 逻辑正确，但依赖底层渲染无损 |
-| `peri-tui/src/ui/render_thread.rs` | 360-447 | `rebuild` 正确更新 cache，但 cache 更新不等于屏幕更新 |
+| `cc-tui/src/main.rs` | 918-920 | `flush_scrollback_history` 在 `loading=true` 时完全跳过 |
+| `cc-tui/src/main.rs` | 907-911 | `draw_app` 每帧调用但 scrollback flush 依赖 loading 状态 |
+| `cc-tui/src/ui/main_ui/message_area.rs` | 208-383 | `viewport_clip` 逻辑正确，但依赖底层渲染无损 |
+| `cc-tui/src/ui/render_thread.rs` | 360-447 | `rebuild` 正确更新 cache，但 cache 更新不等于屏幕更新 |
 
 ## 修复方向
 

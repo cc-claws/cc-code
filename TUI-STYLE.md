@@ -1,8 +1,8 @@
 # TUI Style Guide
 
 > **最后更新：2026-10-21**
-> 本次更新：工具结果行 / `!` 命令输出里的裸 URL 链接色定稿 ANSI Cyan + 下划线，不随 `/theme` 漂移（见「消息流 › URL 链接着色」）。
-> 此前更新：新增 `/theme` 命令与 7 套主题（default 为现行配色，其余 6 套与 claude-code-best 逐值一致），渲染改走当前调色板；**状态栏为例外**——配色为打磨定稿的固定值，不参与主题化（#523）；「详情渲染」新增 `auto` / `cache` / `virtual` 三态切换（见「/config 面板」）。
+> 本次更新：工具结果行 / `!` 命令输出里的裸 URL 改为真 OSC 8 超链接——输出层注入、亮蓝 `38;5;12`、无人工下划线（见「消息流 › URL 超链接」）；原 ANSI Cyan + 下划线定稿与 `style_urls()` 已废止。
+> 此前更新：新增 `/theme` 命令与 7 套主题（default 为现行配色，其余 6 套与参考源码逐值一致），渲染改走当前调色板；**状态栏为例外**——配色为打磨定稿的固定值，不参与主题化（#523）；「详情渲染」新增 `auto` / `cache` / `virtual` 三态切换（见「/config 面板」）。
 
 ## 设计哲学
 
@@ -14,7 +14,7 @@
 
 ### 主题系统（/theme）
 
-八套主题：`auto`（跟随终端，见下）+ `default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。**固定配色例外（不随 `/theme` 切换）有两处**：一是状态栏（`cc-tui/src/ui/main_ui/status_bar.rs`）——配色是打磨定稿的固定值，经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致（#523）；二是工具结果行 / `!` 命令输出里的 URL 链接色，定稿 `Color::Cyan`（ANSI Cyan）+ 下划线，见「消息流 › URL 链接着色」。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
+八套主题：`auto`（跟随终端，见下）+ `default`（cc-code 现行配色，即下表色板）、`dark`、`light`、`light-daltonized`、`dark-daltonized`、`light-ansi`、`dark-ansi`。后六套的名称与全部 69 个语义色字段与参考源码的 `src/utils/theme.ts` **逐值一致**（`rgb()` 原样映射、`ansi:*` 映射 ratatui 标准 16 色），由 `palettes_parity_test.rs` 逐字段断言锁定，禁止手改漂移；cc-code 独有元素（抽屉、思考热力、状态徽章、diff 前景等）为调色板尾部的扩展字段，default 取现行值，其余主题从该主题自身字段派生、不引入新色值。渲染代码统一经 `theme::cur().<字段>` 读取当前调色板，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）。**固定配色例外（不随 `/theme` 切换）只有状态栏一处**：`cc-tui/src/ui/main_ui/status_bar.rs` 的配色是打磨定稿的固定值，经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致（#523）。工具结果行 / `!` 命令输出里的 URL 曾是第二处例外（ANSI Cyan + 下划线），自 v0.6.182 起改为真 OSC 8 超链接（亮蓝 `38;5;12`、无人工下划线），见「消息流 › URL 超链接」。`/theme` 打开选择面板（光标移动实时预览、Enter 确认、Esc 还原），`/theme <name>` 直接切换；选择持久化到配置 `theme` 字段，启动时恢复。下表为 default 主题色板。
 
 **`auto`（跟随终端）** 由 `cc-tui/src/terminal_theme/` 解析成上面某套具体主题，两级判定：颜色能力（`TERM_PROGRAM=Apple_Terminal` 只支持 16/256 色 → 选 `*-ansi`；其余终端按真彩色 → 选 `light`/`dark`）+ 背景明暗（启动时给终端发 OSC 11 查询问它自己的背景色，回 `rgb:RRRR/GGGG/BBBB` 后按 sRGB 亮度阈值 0.5 判；终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`、其余按深色）。**不要**从 Terminal.app 的 `Default Window Settings` profile 推断背景色——那只代表下一个新窗口用哪个 profile，单个窗口可在 `Shell > Show Inspector` 里指定（本机默认 profile 是黑底的 Pro，实际窗口却是白底的 Basic）。探测结果按进程缓存（`theme::cur()` 在渲染热路径上），OSC 11 的回复必须在 `EventReader::start()` 之前读走，因此只在持久化主题为 `auto` 时于 `enable_raw_mode()` 之后预探测一次；运行期再切到 `auto` 时来不及做终端往返，直接走平台回退。`/theme` 面板的 `auto` 行会标出当前解析到的具体主题名。
 
@@ -78,15 +78,15 @@
 
 | 元素 | 颜色 | 说明 |
 |------|------|------|
-| 标题 (H1-H3) | WARNING + BOLD | `#FFC107` |
+| 标题 (H1-H6) | 无前景色 | H1 为 BOLD+ITALIC+UNDERLINED，H2 及以下仅 BOLD（#666 对齐参考实现） |
 | 正文 | TEXT | `#FFFFFF` |
-| 行内代码 | ACCENT | `#D77757` |
+| 行内代码 | 主题 `permission()` 色 | dark 下 `#B1B9F9`，对齐参考实现 `formatToken` 的 codespan 分支 |
 | 代码块 | TEXT 前景色 + SAGE `│` 前缀 | 多行代码块有行前缀，单行代码块无前缀 |
 | 链接 | SAGE | `#4EBA65` |
-| 引用块 | MUTED `▍` 前缀 | `#999999` |
-| 列表符号 | TEXT `•` | `#FFFFFF` |
-| 水平线 | MUTED `─` | `#999999` |
-| 表格 | BOX 绘制边框 (┌├└─│) | CJK 字符自动对齐 |
+| 引用块 | `▎` 条 DIM + 正文 ITALIC | 行首空格不带样式 |
+| 列表符号 | 无序 `- `；有序按嵌套深度在数字 / 字母 / 罗马数字间切换 | |
+| 水平线 | 渲染为 `---`，无颜色 | 删除线渲染关闭 |
+| 表格 | 参考实现 `MarkdownTable` 框线（表头居中、每行间补 `├─┼─┤` 分隔） | 列宽受 `MIN_COLUMN_WIDTH=3`、`MAX_ROW_LINES=4` 约束，超限回退纵向键值渲染 |
 | 加粗 | BOLD 修饰 | |
 | 斜体 | ITALIC 修饰 | |
 
@@ -134,12 +134,12 @@
 
 | 项 | 规则 |
 |----|------|
-| 前景色 | `Color::LightBlue`（crossterm `Blue` → `38;5;12`，亮蓝）；实测该终端下 `34`/`38;5;4` 比 CC 的链接更深，12 号槽才视觉一致。`!` 输出里的非 URL 段仍沿用命令自带 ANSI 着色 |
+| 前景色 | `Color::LightBlue`（crossterm `Blue` → `38;5;12`，亮蓝）；实测该终端下 `34`/`38;5;4` 比参考实现的链接更深，12 号槽才视觉一致。`!` 输出里的非 URL 段仍沿用命令自带 ANSI 着色 |
 | 修饰 | 无人工下划线；下划线 / 手型光标由终端在悬停时给出 |
-| 可点击 | 悬停提示、Ctrl/Cmd+点击、右键「打开链接」由终端提供；peri 自己的单击命中区也登记了同一批 URL（`link_from_parts`） |
-| 识别范围 | 只认 `http://` / `https://`，口径对齐 CC `OutputLine.tsx::URL_IN_JSON`（`/https?:\/\/[^\s"'<>\\]+/g`），并额外切掉句末 `)` `]` `}` `,` `;` `.` `:` |
+| 可点击 | 悬停提示、Ctrl/Cmd+点击、右键「打开链接」由终端提供；cc-code 自己的单击命中区也登记了同一批 URL（`link_from_parts`） |
+| 识别范围 | 只认 `http://` / `https://`，口径对齐参考实现 `OutputLine.tsx::URL_IN_JSON`（`/https?:\/\/[^\s"'<>\\]+/g`），并额外切掉句末 `)` `]` `}` `,` `;` `.` `:` |
 | 覆盖范围 | 所有走 `⎿` 前缀的工具结果行（Bash / Read / Grep / Glob 等）+ 用户 `!命令` 输出 + 退化成纯 URL 的 Markdown 链接；**用户自己输入的气泡不参与** |
-| 序列格式 | `ESC]8;;URL BEL` … `ESC]8;;BEL`，与 CC 的 `OSC8_END`（BEL）一致 |
+| 序列格式 | `ESC]8;;URL BEL` … `ESC]8;;BEL`，与参考实现的 `OSC8_END`（BEL）一致 |
 | 关闭开关 | `DISABLE_HYPERLINKS=1` 时不注入序列（只影响 OSC 8，不影响点击命中区） |
 
 > 注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `cc-widgets/src/markdown/render_state.rs` 的 `theme.link()`（= SAGE `#4EBA65` + 下划线，见「Markdown 渲染」），**不受本规则影响**。本条只作用于「裸 URL 文本」。
@@ -249,7 +249,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 - **纯装饰，可省略**：卡片宽度至少 56 列，且内部高度至少 5 行时显示。
   窄屏或矮区域整块跳过，优先保留标题、目录和使用提示。
 
-## 终端视口（未发布，#650）
+## 终端视口（v0.6.171，#650）
 
 交互模式从当前 shell 输出下方启动，先在正常屏中绘制紧凑欢迎卡、输入框及状态栏。输入、消息、工具结果与面板增加时，输入区随内容向下移动；下方空间不足时原生滚动必要行数并上移视口起点，内容或已占用高度达到整个宿主高度才切换一次 alternate screen，随后输入区固定在底部，消息区沿用原有内部滚动。
 
@@ -260,7 +260,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 - 首次配置向导和 Agent Center 等全页界面锁定全屏；普通面板按实际所需高度扩展。外部编辑器返回后恢复挂起前的模式。
 - 增长阶段只清理应用拥有的区域，鼠标、选区与链接沿用真实终端坐标；退出时逐行清除欢迎、消息、输入和状态栏，光标回到正常屏应用起点，仅留下 Session ID、Resume 和 shell 提示符。全屏退出先恢复正常屏，再清除进入全屏前的应用区域，不擦除其上方 shell 历史。
 
-需求与验收场景见 [PRD](docs/prd/growing-terminal-viewport.md)。自动化与 Windows 人工验证已通过，macOS/Linux 待兼容性检查；内存帧与状态测试不能替代 Windows Terminal / PowerShell 及 Unix/macOS 的真实终端验收。
+需求与验收场景见 [PRD](docs/prd/growing-terminal-viewport.md)。已随 v0.6.171 发布（PR #652），三平台 CI 全绿；内存帧与状态测试不能替代 Windows Terminal / PowerShell 及 Unix/macOS 的真实终端验收。
 
 ## Spinner
 
@@ -271,7 +271,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | Loading | `✻ verb (Xm Xs · ↓ X.Xk tokens · <状态词>)` | 动词走底色/流光色对（默认 `claude` + `claudeShimmer`；compact 时底色 THINKING） |
 | 完成 | `✻ Brewed for Xm Xs` | MUTED |
 
-配色机制（2026-10-15 起对齐 Claude Code 2.1.300 实证，见 issue #510；原「时间热度四档」已废弃）：
+配色机制（2026-10-15 起对齐参考实现 2.1.300 实证，见 issue #510；原「时间热度四档」已废弃）：
 
 - **流光**：底色 + 流光色成对，流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20、自左向右扫过（停泊区在文本外）；字形与动词同色对。
 - **停滞转红**：无新 token 超过 10s 后流光熄火，字形与动词整体向 ERROR 色平滑插值（再 10s 渐满、每 50ms 向目标靠拢 10%）；新 token 到达立即清零，工具执行期间不触发。
@@ -288,7 +288,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 动画帧：16 个 Unicode 符号循环（`✳✴✵✶✷✸✹✺✻✼❃❊…`），每 200ms 推进一帧。
 Verb 列表：128 个中文烹饪/动作动词随机选择。
-Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果行共享 `BranchPrefix` 规范；INACTIVE 色）。调度对齐 CC（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
+Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果行共享 `BranchPrefix` 规范；INACTIVE 色）。调度对齐参考实现（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
 
 ## Todo 列表
 
@@ -575,7 +575,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `Del` | 删除最后一个待发送附件 | |
 | `MouseScrollUp/Down` | 消息区滚动 | |
 
-### 后台子任务抽屉（未发布）
+### 后台子任务抽屉
 
 空输入框按 `↓` 进入抽屉，`↑/↓` 移动游标 `>`，`Enter` 切换视口 `•`。`Esc` 先离开抽屉；在子视口中再次按 `Esc` 返回主视口。主视口只显示分发摘要与完成通知，各子任务的思考、工具、Token、Spinner 和滚动位置分别保存。
 
@@ -725,7 +725,7 @@ Agent 运行中（`loading`）按 `Enter` 时，输入按归属分流，**绝不
 输入 `#` 前缀触发 Skills 浮层，`Tab` / `↑↓` 导航，`Enter` 补全为 `#skill-name`。
 输入 `/` 前缀触发命令提示浮层，`Tab` / `↑↓` 导航。
 
-**运行中（loading）交互**：候选存在时 `↑↓`/`Tab` 即可导航，不再被 `!loading` 守卫挡掉（对齐 CC `useTypeahead.tsx`）；`Enter` 仅在已选中候选时执行补全（只改输入框文本不提交），未选中则走排队语义（`handle_busy_input`）；`Esc` 先关浮层再中断（见全局快捷键 `Esc` 行）；`↓` 优先级为浮层导航 > 后台 shell 入口聚焦 > `@` 提及导航 > 滚动消息区。
+**运行中（loading）交互**：候选存在时 `↑↓`/`Tab` 即可导航，不再被 `!loading` 守卫挡掉（对齐参考实现 `useTypeahead.tsx`）；`Enter` 仅在已选中候选时执行补全（只改输入框文本不提交），未选中则走排队语义（`handle_busy_input`）；`Esc` 先关浮层再中断（见全局快捷键 `Esc` 行）；`↓` 优先级为浮层导航 > 后台 shell 入口聚焦 > `@` 提及导航 > 滚动消息区。
 
 ### 文件提及浮层
 
@@ -744,7 +744,7 @@ Agent 运行中（`loading`）按 `Enter` 时，输入按归属分流，**绝不
 
 **循环顺序**：Auto → Bypass → Auto。
 
-状态栏标签前固定显示 `⏵⏵` 前缀符号（对齐 CC `PermissionMode.ts` 的 symbol 字段，如 `⏵⏵ auto`），符号本身不参与主题化取色。
+状态栏标签前固定显示 `⏵⏵` 前缀符号（对齐参考实现 `PermissionMode.ts` 的 symbol 字段，如 `⏵⏵ auto`），符号本身不参与主题化取色。
 
 | 模式 | 标签 | 颜色 | 说明 |
 |------|------|------|------|

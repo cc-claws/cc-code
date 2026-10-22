@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Split `peri-middlewares/src/tools/filesystem/grep.rs` (677 lines) into 3 files: `grep.rs` (tool definition + core search), `grep_args.rs` (parameter parsing), `grep_format.rs` (SearchSink formatting).
+**Goal:** Split `cc-middlewares/src/tools/filesystem/grep.rs` (677 lines) into 3 files: `grep.rs` (tool definition + core search), `grep_args.rs` (parameter parsing), `grep_format.rs` (SearchSink formatting).
 
 **Architecture:** Pure mechanical extraction. `grep_args.rs` extracts `ParsedArgs`, `OutputMode`, `GrepInput`, `to_parsed_args()`, and `type_to_glob()`. `grep_format.rs` extracts `SearchSink` and its `Sink` impl. `grep.rs` retains `GrepTool` + `BaseTool` impl + `execute_search()` + tests. All items are `pub(crate)` within the `filesystem` module.
 
@@ -39,12 +39,12 @@ tools/filesystem/
 ### Task 1: Create `grep_args.rs` — extract parameter parsing types
 
 **Files:**
-- Create: `peri-middlewares/src/tools/filesystem/grep_args.rs`
-- Modify: `peri-middlewares/src/tools/filesystem/grep.rs` (remove lines 58–191)
+- Create: `cc-middlewares/src/tools/filesystem/grep_args.rs`
+- Modify: `cc-middlewares/src/tools/filesystem/grep.rs` (remove lines 58–191)
 
 - [ ] **Step 1: Create `grep_args.rs`**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/tools/filesystem/grep_args.rs` with these items, copied verbatim from `grep.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/tools/filesystem/grep_args.rs` with these items, copied verbatim from `grep.rs`:
 
 ```
 Lines to copy from grep.rs:
@@ -80,14 +80,14 @@ use super::grep_args::{GrepInput, OutputMode, ParsedArgs, type_to_glob};
 - [ ] **Step 4: Build to verify**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
 Expected: Success. If "unresolved import" errors appear, verify `pub(crate)` on all items in `grep_args.rs`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-middlewares/src/tools/filesystem/grep_args.rs peri-middlewares/src/tools/filesystem/grep.rs
+git add cc-middlewares/src/tools/filesystem/grep_args.rs cc-middlewares/src/tools/filesystem/grep.rs
 git commit -m "refactor(filesystem): extract grep_args module from grep.rs
 
 Move ParsedArgs, OutputMode, GrepInput, type_to_glob(), and
@@ -101,12 +101,12 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code.win>"
 ### Task 2: Create `grep_format.rs` — extract SearchSink formatting
 
 **Files:**
-- Create: `peri-middlewares/src/tools/filesystem/grep_format.rs`
-- Modify: `peri-middlewares/src/tools/filesystem/grep.rs` (remove lines 194–296)
+- Create: `cc-middlewares/src/tools/filesystem/grep_format.rs`
+- Modify: `cc-middlewares/src/tools/filesystem/grep.rs` (remove lines 194–296)
 
 - [ ] **Step 1: Create `grep_format.rs`**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/tools/filesystem/grep_format.rs` with these items, copied verbatim from `grep.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/tools/filesystem/grep_format.rs` with these items, copied verbatim from `grep.rs`:
 
 ```
 Lines to copy from grep.rs:
@@ -155,7 +155,7 @@ Remove: `use std::cell::Cell;`, `Sink`, `SinkContext`, `SinkContextKind`, `SinkM
 - [ ] **Step 5: Build to verify**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
 Expected: Success. If compilation fails, check:
 - Unused import warnings → remove the unused imports
@@ -164,7 +164,7 @@ Expected: Success. If compilation fails, check:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-middlewares/src/tools/filesystem/grep_format.rs peri-middlewares/src/tools/filesystem/grep.rs
+git add cc-middlewares/src/tools/filesystem/grep_format.rs cc-middlewares/src/tools/filesystem/grep.rs
 git commit -m "refactor(filesystem): extract grep_format module from grep.rs
 
 Move SearchSink and its Sink impl to grep_format.rs.
@@ -187,7 +187,7 @@ Expected: All crates compile.
 - [ ] **Step 2: Run grep tests**
 
 ```bash
-cargo test -p peri-middlewares grep 2>&1
+cargo test -p cc-middlewares grep 2>&1
 ```
 Expected: All 24 grep tests pass. No regressions.
 
@@ -201,7 +201,7 @@ Expected: All tests pass.
 - [ ] **Step 4: Verify file sizes**
 
 ```bash
-wc -l peri-middlewares/src/tools/filesystem/grep.rs peri-middlewares/src/tools/filesystem/grep_args.rs peri-middlewares/src/tools/filesystem/grep_format.rs
+wc -l cc-middlewares/src/tools/filesystem/grep.rs cc-middlewares/src/tools/filesystem/grep_args.rs cc-middlewares/src/tools/filesystem/grep_format.rs
 ```
 Expected approximate: `grep.rs` ~340 lines, `grep_args.rs` ~140 lines, `grep_format.rs` ~110 lines.
 

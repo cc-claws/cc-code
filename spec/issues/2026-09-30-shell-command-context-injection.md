@@ -3,7 +3,7 @@
 **状态**：Draft（待确认后开工）
 **优先级**：中
 **创建日期**：2026-09-30
-**方案代号**：C（静默注入，对齐 Codex CLI / claude-code-best）
+**方案代号**：C（静默注入，对齐 Codex CLI / 参考源码）
 
 ---
 
@@ -15,16 +15,16 @@
 - Agent 想确认结果只能自己猜测或另起命令去查（例如 `git ls-remote`）
 - 实际后果：本次会话中用户 `!git push` 后，Agent 误判为「推送未成功」，需用户再口头告知
 
-这与主流实现（Codex CLI、claude-code-best）的默认行为不一致 —— 它们都会把 `!` 命令及其输出作为**上下文的一部分**保留，使模型在后续轮次自然可见。
+这与主流实现（Codex CLI、参考源码）的默认行为不一致 —— 它们都会把 `!` 命令及其输出作为**上下文的一部分**保留，使模型在后续轮次自然可见。
 
 ### 现状证据
 
 | 环节 | 位置 | 行为 |
 |------|------|------|
-| 完成处理 | `peri-tui/src/app/shell_command.rs:925` `handle_shell_command_completed()` | 仅 `persist_shell_record()` + 渲染 `ShellCommand` VM，无 `submit_message` / `push_recall` / ACP 调用 |
-| 事件定义 | `peri-tui/src/app/events.rs:7` | 注释明示：`/// TUI 本地 shell 命令执行完成（不进入 Agent history）` |
-| 数据边界 | `peri-tui/src/shell_history.rs:16-18` | `ShellCommandRecord` 注释：`intentionally separate from BaseMessage so shell output is restored in the UI without entering Agent history` |
-| 注入通道 | `peri-tui/src/app/shell_command.rs:335`、`:663` | 仅**后台**命令走 `submit_message()` 注入（`<background-task-completed>`） |
+| 完成处理 | `cc-tui/src/app/shell_command.rs:925` `handle_shell_command_completed()` | 仅 `persist_shell_record()` + 渲染 `ShellCommand` VM，无 `submit_message` / `push_recall` / ACP 调用 |
+| 事件定义 | `cc-tui/src/app/events.rs:7` | 注释明示：`/// TUI 本地 shell 命令执行完成（不进入 Agent history）` |
+| 数据边界 | `cc-tui/src/shell_history.rs:16-18` | `ShellCommandRecord` 注释：`intentionally separate from BaseMessage so shell output is restored in the UI without entering Agent history` |
+| 注入通道 | `cc-tui/src/app/shell_command.rs:335`、`:663` | 仅**后台**命令走 `submit_message()` 注入（`<background-task-completed>`） |
 
 > **历史澄清**：该行为自 `812bbf1b`（2026-06-03，`!` 前缀功能首版）即为设计选择，**非缺陷回归**。2026-06-28 的 `71685599`/`df6c56ff`（Ctrl+B 后台 shell）才引入注入，且只服务后台路径；`CHANGELOG v0.6.32 (#100)` 明确记载「前台小命令快速结束不再打断对话流，仅后台化（Ctrl+B）命令注入通知」。
 
@@ -70,7 +70,7 @@ Output:
 
 - 输出经 `format_exec_output_str(truncation_policy)` **按模型截断策略裁剪**后才入库
 
-### 4.2 claude-code-best（本机 `/d/code/cc-best-src`）
+### 4.2 参考源码（本机 `/d/code/cc-best-src`）
 
 `!cmd` → `processBashCommand()`（`src/utils/processUserInput/processBashCommand.tsx`）：
 
@@ -96,14 +96,14 @@ return {
 
 要点：
 
-| 要点 | claude-code-best 做法 |
+| 要点 | 参考源码 做法 |
 |------|----------------------|
 | 命令与结果 | **两条独立 user 消息**：`<bash-input>` + `<bash-stdout>/<bash-stderr>` |
 | 执行引擎 | **复用 BashTool**，连同大输出落盘（`<persisted-output>`）一起复用 |
 | 是否起轮次 | `shouldQuery: false` —— 不发起推理 |
 | 历史可见性 | 消息已进 `messages`，模型下一轮可见 |
 
-**结论**：两者都是「写入上下文 + 不打断」，即本方案。标签风格沿用 claude-code-best（`bash-*`），因其为本项目的对齐目标。
+**结论**：两者都是「写入上下文 + 不打断」，即本方案。标签风格沿用 参考源码（`bash-*`），因其为本项目的对齐目标。
 
 ---
 
@@ -115,14 +115,14 @@ peri 已有「会话级通知缓冲 → 包成 `<system-reminder>` 追加到下�
 
 | 环节 | 位置 |
 |------|------|
-| 缓冲区 | `peri-agent/src/agent/state.rs:73-76`（`recall_buffer`，`push_recall` / `drain_recall`） |
-| 注入 | `peri-acp/src/session/executor.rs:257-269`（包 `<system-reminder>` 追加到本次用户消息 content blocks） |
-| 回传 | `peri-acp/src/session/executor.rs:59` → `peri-tui/src/acp_server/prompt.rs:94`、`:221` |
-| 现有调用点 | `peri-middlewares/src/tool_search/middleware.rs:73`（延迟工具数量变更，唯一使用者） |
+| 缓冲区 | `cc-agent/src/agent/state.rs:73-76`（`recall_buffer`，`push_recall` / `drain_recall`） |
+| 注入 | `cc-acp/src/session/executor.rs:257-269`（包 `<system-reminder>` 追加到本次用户消息 content blocks） |
+| 回传 | `cc-acp/src/session/executor.rs:59` → `cc-tui/src/acp_server/prompt.rs:94`、`:221` |
+| 现有调用点 | `cc-middlewares/src/tool_search/middleware.rs:73`（延迟工具数量变更，唯一使用者） |
 
 #### ⚠️ 关键约束（已核实，决定实现方式）
 
-1. **`AgentState` 每轮重建**：`peri-acp/src/session/executor.rs:610` `AgentState::with_messages(...)` 在每次 `execute_prompt` 内新建；`drain_recall()` 在同函数 `:652` 调用。
+1. **`AgentState` 每轮重建**：`cc-acp/src/session/executor.rs:610` `AgentState::with_messages(...)` 在每次 `execute_prompt` 内新建；`drain_recall()` 在同函数 `:652` 调用。
    → **实例本身不跨轮存活**，`recall` 的跨轮传递靠**值搬运**：`recall_items = agent_state.drain_recall()`（`:652`）→ `PromptResult.recall_items`（`:59`）→ `prompt.rs:221` `state.recall_items = result.recall_items` → 下一轮 `prompt.rs:94` `std::mem::take(&mut state.recall_items)` 作为 `incoming_recalls` 传入。
 
 2. **当前唯一的写入方在 agent 执行内部**：`tool_search/middleware.rs:73` 持有 `&mut State`（即当轮的 `agent_state`）；外部（TUI / 服务器）**没有写入点** —— `requests.rs` 的 `SessionState` 构造处只写 `recall_items: Vec::new()`，无追加 API。
@@ -146,11 +146,11 @@ peri 已有「会话级通知缓冲 → 包成 `<system-reminder>` 追加到下�
 
 ### 5.2 新增 TUI → 服务端通道
 
-**已核实：ACP server 与 TUI 同进程**（`peri-tui/src/main.rs:863` `run_acp_server(...)` 由 `main.rs:862` 的 `tokio::spawn` 启动，经 `mpsc_transport_pair()` 与 `AcpTuiClient` 相连），因此新增方法只需扩展现有 JSON-RPC 方法表，无跨进程成本。
+**已核实：ACP server 与 TUI 同进程**（`cc-tui/src/main.rs:863` `run_acp_server(...)` 由 `main.rs:862` 的 `tokio::spawn` 启动，经 `mpsc_transport_pair()` 与 `AcpTuiClient` 相连），因此新增方法只需扩展现有 JSON-RPC 方法表，无跨进程成本。
 
 `sessions`（`SharedSessions`）在服务器主循环 `run_acp_server` 中可用，但请求处理器 `handle_request` 当前**不含 sessions 访问**。二选一：
 
-- **方案 a（推荐）**：在 `run_acp_server` 主循环内**内联拦截** `session/append_context`（与现有 `session/prompt` 拦截同层，`peri-tui/src/acp_server/mod.rs:100`），直接操作 `sessions`
+- **方案 a（推荐）**：在 `run_acp_server` 主循环内**内联拦截** `session/append_context`（与现有 `session/prompt` 拦截同层，`cc-tui/src/acp_server/mod.rs:100`），直接操作 `sessions`
 - **方案 b**：给 `handle_request` 传 `&SharedSessions`，新增分支（改动面更大，需同步调整既有 req_id 处理）
 
 ### 5.3 服务端处理
@@ -163,7 +163,7 @@ peri 已有「会话级通知缓冲 → 包成 `<system-reminder>` 追加到下�
 > 若改用「直接 `push_recall` 到常驻 State」的写法，**必须**先解决 §5.1 的窗口问题，当前不推荐。
 
 
-### 5.4 载荷格式（claude-code-best 风格）
+### 5.4 载荷格式（参考源码 风格）
 
 ```xml
 <bash-input>git push -u origin fix/x</bash-input>
@@ -174,14 +174,14 @@ peri 已有「会话级通知缓冲 → 包成 `<system-reminder>` 追加到下�
 ```
 
 - 命令与结果**分两条 recall 条目**（对齐参考实现的「两条消息」语义）
-- 退出码：claude-code-best 未显式携带（依赖 stdout 内容）；**本方案建议补 `<bash-exit-code>N</bash-exit-code>`**，因为 `!` 失败时 stdout 常为空，仅靠 stderr 无法判断成败
-- 内容需 XML 转义（参考 `peri-middlewares` 既有 `xml_escape`）
+- 退出码：参考源码 未显式携带（依赖 stdout 内容）；**本方案建议补 `<bash-exit-code>N</bash-exit-code>`**，因为 `!` 失败时 stdout 常为空，仅靠 stderr 无法判断成败
+- 内容需 XML 转义（参考 `cc-middlewares` 既有 `xml_escape`）
 
 ### 5.5 大输出处理
 
 **直接复用现成能力**，不新增阈值：
 
-`peri-middlewares/src/tools/output_persist.rs`
+`cc-middlewares/src/tools/output_persist.rs`
 
 | 函数 | 用途 |
 |------|------|
@@ -208,12 +208,12 @@ peri 已有「会话级通知缓冲 → 包成 `<system-reminder>` 追加到下�
 
 | 文件 | 改动 |
 |------|------|
-| `peri-tui/src/app/shell_command.rs` | `handle_shell_command_completed()` 末尾构造片段并发送；新增片段构造函数 |
-| `peri-tui/src/acp_client/client.rs` | 新增 `append_context()`（发 `session/append_context`） |
-| `peri-tui/src/acp_server/mod.rs` | 主循环内联拦截 `session/append_context` → 写 `SessionState.pending_context`；`SessionState` 新增字段 |
-| `peri-tui/src/acp_server/prompt.rs` | 读取 `pending_context` 并与 `incoming_recalls` 合并；修正 `:221` 覆盖语义 |
-| `peri-tui/src/app/shell_command_test.rs` | 单测：片段格式、转义、退出码、截断 |
-| `peri-middlewares/src/tools/output_persist.rs` | （复用，无改动）`truncate_shell_output()` 供片段构造调用 |
+| `cc-tui/src/app/shell_command.rs` | `handle_shell_command_completed()` 末尾构造片段并发送；新增片段构造函数 |
+| `cc-tui/src/acp_client/client.rs` | 新增 `append_context()`（发 `session/append_context`） |
+| `cc-tui/src/acp_server/mod.rs` | 主循环内联拦截 `session/append_context` → 写 `SessionState.pending_context`；`SessionState` 新增字段 |
+| `cc-tui/src/acp_server/prompt.rs` | 读取 `pending_context` 并与 `incoming_recalls` 合并；修正 `:221` 覆盖语义 |
+| `cc-tui/src/app/shell_command_test.rs` | 单测：片段格式、转义、退出码、截断 |
+| `cc-middlewares/src/tools/output_persist.rs` | （复用，无改动）`truncate_shell_output()` 供片段构造调用 |
 | `TUI-STYLE.md` / `CHANGELOG.md` | 行为变更记录（发版时） |
 
 ---
@@ -223,9 +223,9 @@ peri 已有「会话级通知缓冲 → 包成 `<system-reminder>` 追加到下�
 1. **时序语义**：`recall` 是「随下一条用户消息送达」，而 Codex 是「立即入 history」。
    - 选项 ①：接受差异（实现最简，复用现有通路）
    - 选项 ②：`!` 完成后主动触发一次「空轮次」提交，使 recall 立即被消费，但**仍不产生 Agent 回复**（需确认是否可行 —— recall 在 `execute_prompt` 内被 drain，若无 prompt 调用则不会消费）
-   - 选项 ③：改走 `history` 注入（类似 `inject_bg_result_messages`，`peri-acp/src/session/executor.rs:693`），由 TUI 发 `bgResults` 同款结构化载荷 —— 更接近 Codex 语义，但需扩展现有 `prompt_with_bg_results` 契约
+   - 选项 ③：改走 `history` 注入（类似 `inject_bg_result_messages`，`cc-acp/src/session/executor.rs:693`），由 TUI 发 `bgResults` 同款结构化载荷 —— 更接近 Codex 语义，但需扩展现有 `prompt_with_bg_results` 契约
 
-2. **是否携带退出码**：建议携带（见 §5.4），需确认不违背「对齐 claude-code-best」的约束
+2. **是否携带退出码**：建议携带（见 §5.4），需确认不违背「对齐 参考源码」的约束
 
 3. **`pending_context` 与 compact 的交互**：注入内容会占用上下文预算，需明确是否纳入 token 告警/compact 触发阈值（见 §5.3）
 
@@ -249,5 +249,5 @@ peri 已有「会话级通知缓冲 → 包成 `<system-reminder>` 追加到下�
 
 - `spec/issues/2026-06-05-shell-output-truncation-inconsistency.md` —— 输出截断口径
 - `spec/archive-issues/2026-06-27-ctrl-b-background-shell.md` —— 后台通知链路设计（本方案不改动）
-- claude-code-best：`src/utils/processUserInput/processBashCommand.tsx`（本机 `/d/code/cc-best-src`）
+- 参考源码：`src/utils/processUserInput/processBashCommand.tsx`（本机 `/d/code/cc-best-src`）
 - Codex CLI：`codex-rs/core/src/tasks/user_shell.rs`、`codex-rs/core/src/context/user_shell_command.rs`

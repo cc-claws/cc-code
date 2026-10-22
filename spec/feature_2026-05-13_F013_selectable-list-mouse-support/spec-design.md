@@ -24,12 +24,12 @@
 两层统一，职责分离：
 
 ```
-peri-widgets（Widget 层）
+cc-widgets（Widget 层）
 ├── ListState<T>          ← 增强：mouse_pos, on_select
 ├── SelectableList        ← 增强：hover_style, 三态渲染
 └── ListOverlay           ← 新增：浮动容器
 
-peri-tui（TUI 层）
+cc-tui（TUI 层）
 ├── PanelList<T>          ← 新增：统一列表状态管理器
 │   ├── cursor / scroll_offset / items
 │   ├── move_cursor() / handle_scroll() / handle_mouse_click()
@@ -40,7 +40,7 @@ peri-tui（TUI 层）
 
 ### Widget 层：ListState 增强
 
-`peri-widgets/src/list.rs` 中 `ListState<T>` 新增字段和方法：
+`cc-widgets/src/list.rs` 中 `ListState<T>` 新增字段和方法：
 
 ```rust
 pub struct ListState<T> {
@@ -67,7 +67,7 @@ pub struct ListState<T> {
 
 ### TUI 层：PanelList<T> 统一状态管理器
 
-新增 `peri-tui/src/app/panel_list.rs`：
+新增 `cc-tui/src/app/panel_list.rs`：
 
 ```rust
 /// 统一面板列表状态管理器
@@ -153,7 +153,7 @@ impl<T> PanelList<T> {
 
 ### PanelComponent trait 增强
 
-`peri-tui/src/app/panel_component.rs`：
+`cc-tui/src/app/panel_component.rs`：
 
 ```rust
 /// 处理鼠标事件（点击、悬停移动等）
@@ -301,7 +301,7 @@ impl PanelComponent for McpPanel {
 
 ### ListOverlay 浮动容器（Widget 层新增）
 
-新增 `peri-widgets/src/list_overlay.rs`，提供浮动列表渲染能力：
+新增 `cc-widgets/src/list_overlay.rs`，提供浮动列表渲染能力：
 
 - `ListOverlay`：Clear 背景 + 边框 + SelectableList
 - `ListOverlayState`：追踪最后渲染区域，供 TUI 层 hit test
@@ -324,7 +324,7 @@ impl PanelComponent for McpPanel {
 
 ### 依赖关系
 
-- Phase 1（Widget 层）：Task 1-6，`peri-widgets` 内完成
+- Phase 1（Widget 层）：Task 1-6，`cc-widgets` 内完成
 - Phase 2（TUI 基础设施）：Task 7-9，`PanelList<T>` + trait 增强 + event.rs 重构
 - Phase 3（面板迁移）：Task 10-17，所有面板一次性迁移到 `PanelList<T>`
 
@@ -332,23 +332,23 @@ impl PanelComponent for McpPanel {
 
 | 文件 | 变更 |
 |------|------|
-| `peri-widgets/src/list.rs` | `ListState` 增加鼠标字段/方法；`SelectableList` hover_style + 三态渲染 |
-| `peri-widgets/src/list_overlay.rs` | **新增**：浮动容器 |
-| `peri-widgets/src/lib.rs` | 导出 list_overlay 模块 |
-| `peri-tui/src/app/panel_list.rs` | **新增**：`PanelList<T>` 统一状态管理器 |
-| `peri-tui/src/app/panel_component.rs` | trait 新增 `handle_mouse` 默认方法 |
-| `peri-tui/src/app/panel_manager.rs` | 新增 `dispatch_mouse` |
-| `peri-tui/src/event.rs` | 鼠标事件统一路由 |
-| `peri-tui/src/app/agent_panel.rs` | 迁移到 `PanelList<T>` |
-| `peri-tui/src/app/hooks_panel.rs` | 迁移到 `PanelList<T>` |
-| `peri-tui/src/app/cron_state.rs` | 迁移到 `PanelList<T>` |
-| `peri-tui/src/app/memory_panel.rs` | 迁移到 `PanelList<T>` |
-| `peri-tui/src/app/model_panel.rs` | 迁移到 `PanelList<T>` |
-| `peri-tui/src/app/config_panel.rs` | 列表部分迁移到 `PanelList<T>` |
-| `peri-tui/src/app/mcp_panel.rs` | 多视图各自迁移到 `PanelList<T>` |
-| `peri-tui/src/app/plugin_panel.rs` | 多视图各自迁移到 `PanelList<T>` |
-| `peri-tui/src/app/login_panel.rs` | 列表部分迁移到 `PanelList<T>` |
-| `peri-tui/src/app/panel_ops.rs` | 移除 `ensure_cursor_visible` 及相关辅助函数 |
+| `cc-widgets/src/list.rs` | `ListState` 增加鼠标字段/方法；`SelectableList` hover_style + 三态渲染 |
+| `cc-widgets/src/list_overlay.rs` | **新增**：浮动容器 |
+| `cc-widgets/src/lib.rs` | 导出 list_overlay 模块 |
+| `cc-tui/src/app/panel_list.rs` | **新增**：`PanelList<T>` 统一状态管理器 |
+| `cc-tui/src/app/panel_component.rs` | trait 新增 `handle_mouse` 默认方法 |
+| `cc-tui/src/app/panel_manager.rs` | 新增 `dispatch_mouse` |
+| `cc-tui/src/event.rs` | 鼠标事件统一路由 |
+| `cc-tui/src/app/agent_panel.rs` | 迁移到 `PanelList<T>` |
+| `cc-tui/src/app/hooks_panel.rs` | 迁移到 `PanelList<T>` |
+| `cc-tui/src/app/cron_state.rs` | 迁移到 `PanelList<T>` |
+| `cc-tui/src/app/memory_panel.rs` | 迁移到 `PanelList<T>` |
+| `cc-tui/src/app/model_panel.rs` | 迁移到 `PanelList<T>` |
+| `cc-tui/src/app/config_panel.rs` | 列表部分迁移到 `PanelList<T>` |
+| `cc-tui/src/app/mcp_panel.rs` | 多视图各自迁移到 `PanelList<T>` |
+| `cc-tui/src/app/plugin_panel.rs` | 多视图各自迁移到 `PanelList<T>` |
+| `cc-tui/src/app/login_panel.rs` | 列表部分迁移到 `PanelList<T>` |
+| `cc-tui/src/app/panel_ops.rs` | 移除 `ensure_cursor_visible` 及相关辅助函数 |
 
 ### 无新 crate 依赖
 
@@ -358,8 +358,8 @@ impl PanelComponent for McpPanel {
 
 本方案符合 `spec/global/constraints.md` 和 `spec/global/architecture.md` 中的约束：
 
-- **Widget 独立 crate**：`ListState` 增强和 `ListOverlay` 在 `peri-widgets` 中，零内部依赖，仅依赖 ratatui
-- **Workspace 依赖方向**：`PanelList<T>` 在 `peri-tui` 中，不违反分层约束
+- **Widget 独立 crate**：`ListState` 增强和 `ListOverlay` 在 `cc-widgets` 中，零内部依赖，仅依赖 ratatui
+- **Workspace 依赖方向**：`PanelList<T>` 在 `cc-tui` 中，不违反分层约束
 - **事件驱动 TUI**：鼠标事件通过 `dispatch_mouse` → `handle_mouse` 路由，符合现有事件分发模式
 - **编码规范**：`PanelList<T>` 使用 `usize`/`u16` 类型，字符串截断用字符级操作
 
@@ -373,6 +373,6 @@ impl PanelComponent for McpPanel {
 - [ ] 鼠标滚轮滚动：面板区域内滚轮滚动列表，不穿透到消息区
 - [ ] `event.rs` 中 McpPanel/PluginPanel 的 ad-hoc 滚轮代码被移除，统一走 `dispatch_scroll`
 - [ ] `panel_ops.rs` 中的 `ensure_cursor_visible` 及相关辅助函数被移除
-- [ ] `cargo test -p peri-widgets` 全量通过
-- [ ] `cargo build -p peri-tui` 编译通过
+- [ ] `cargo test -p cc-widgets` 全量通过
+- [ ] `cargo build -p cc-tui` 编译通过
 - [ ] 手动测试所有面板的键盘导航、鼠标点击、滚轮滚动行为正确

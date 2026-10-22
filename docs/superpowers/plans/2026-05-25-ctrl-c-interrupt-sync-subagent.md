@@ -8,14 +8,14 @@
 
 **Tech Stack:** Rust, tokio, tokio_util::sync::CancellationToken
 
-**Root Cause:** `peri-middlewares/src/subagent/tool/define.rs:1157-1159` does a bare `agent_builder.execute(...).await` — there is no `tokio::select!` wrapping it. The parent's `tool_dispatch.rs:234` select! wraps the Agent tool invocation, and the child's internal `call_llm`/`dispatch_tools` have cancel checkpoints, but if the child agent is between checkpoints (e.g., in `after_model` or `before_model` middleware hooks, or the cancel wakeup is missed), the cancellation signal is not acted upon until the child naturally completes. Adding a direct `select!` at the `define.rs` level ensures immediate future drop on cancel.
+**Root Cause:** `cc-middlewares/src/subagent/tool/define.rs:1157-1159` does a bare `agent_builder.execute(...).await` — there is no `tokio::select!` wrapping it. The parent's `tool_dispatch.rs:234` select! wraps the Agent tool invocation, and the child's internal `call_llm`/`dispatch_tools` have cancel checkpoints, but if the child agent is between checkpoints (e.g., in `after_model` or `before_model` middleware hooks, or the cancel wakeup is missed), the cancellation signal is not acted upon until the child naturally completes. Adding a direct `select!` at the `define.rs` level ensures immediate future drop on cancel.
 
 ---
 
 ### Task 1: Add `tokio::select!` wrapper in `SubAgentTool::invoke()` sync path
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:1157-1165`
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:1157-1165`
 
 - [ ] **Step 1: Wrap the child's `execute()` call with `tokio::select!`**
 
@@ -59,7 +59,7 @@ Replace the bare `.await` at lines 1157-1165:
                     exec_start.elapsed(),
                     agent_id
                 );
-                Err(peri_agent::error::AgentError::Interrupted)
+                Err(cc_agent::error::AgentError::Interrupted)
             }
             result = exec_fut => result,
         };
@@ -75,15 +75,15 @@ Replace the bare `.await` at lines 1157-1165:
 
 - [ ] **Step 2: Build and check for compilation errors**
 
-Run: `cargo build -p peri-middlewares 2>&1`
-Expected: Compilation succeeds without errors. The `peri_agent::error::AgentError::Interrupted` is already in scope via imports at the top of `define.rs`.
+Run: `cargo build -p cc-middlewares 2>&1`
+Expected: Compilation succeeds without errors. The `cc_agent::error::AgentError::Interrupted` is already in scope via imports at the top of `define.rs`.
 
 ---
 
 ### Task 2: Add `tokio::select!` wrapper in `executor::execute_prompt()` as defense-in-depth
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs:468-473`
+- Modify: `cc-acp/src/session/executor.rs:468-473`
 
 - [ ] **Step 1: Wrap the agent's `execute()` with `tokio::select!`**
 
@@ -121,8 +121,8 @@ Replace the bare `.await` at lines 468-473:
 
 - [ ] **Step 2: Build and check for compilation errors**
 
-Run: `cargo build -p peri-acp 2>&1`
-Expected: Compilation succeeds. `AgentError` is imported at `executor.rs:17` via `use peri_agent::error::AgentError;`.
+Run: `cargo build -p cc-acp 2>&1`
+Expected: Compilation succeeds. `AgentError` is imported at `executor.rs:17` via `use cc_agent::error::AgentError;`.
 
 ---
 
@@ -138,10 +138,10 @@ Expected: All crates compile without errors.
 
 - [ ] **Step 2: Run existing tests**
 
-Run: `cargo test -p peri-middlewares --lib 2>&1`
+Run: `cargo test -p cc-middlewares --lib 2>&1`
 Expected: All existing tests pass.
 
-Run: `cargo test -p peri-acp --lib 2>&1`
+Run: `cargo test -p cc-acp --lib 2>&1`
 Expected: All existing tests pass.
 
 ---
@@ -151,7 +151,7 @@ Expected: All existing tests pass.
 - [ ] **Verify Ctrl+C interrupts sync SubAgent**
 
 Manual test steps:
-1. Start TUI: `cargo run -p peri-tui`
+1. Start TUI: `cargo run -p cc-tui`
 2. Submit a prompt that triggers a sync SubAgent (e.g., "use the code-reviewer agent to review src/main.rs")
 3. While the SubAgent is running (visible in UI), press Ctrl+C
 4. Expected: UI immediately returns to idle state, last user message is undone, SubAgent execution stops

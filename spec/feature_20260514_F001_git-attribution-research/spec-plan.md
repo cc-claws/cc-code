@@ -8,11 +8,11 @@
 
 | # | Task | 文件 | 类型 |
 |---|------|------|------|
-| 1 | Git 安全提示词扩展 | `peri-tui/prompts/sections/04_actions.md` | 修改 |
-| 2 | 模型邮箱映射表 | `peri-middlewares/src/attribution/model_email.rs` | 新增 |
-| 3 | 追踪状态与字符贡献 | `peri-middlewares/src/attribution/state.rs` | 新增 |
-| 4 | Middleware 实现 + mod.rs | `peri-middlewares/src/attribution/mod.rs` | 新增 |
-| 5 | 中间件链注册 | `peri-tui/src/app/agent.rs`, `src/acp/agent_assembler.rs` | 修改 |
+| 1 | Git 安全提示词扩展 | `cc-tui/prompts/sections/04_actions.md` | 修改 |
+| 2 | 模型邮箱映射表 | `cc-middlewares/src/attribution/model_email.rs` | 新增 |
+| 3 | 追踪状态与字符贡献 | `cc-middlewares/src/attribution/state.rs` | 新增 |
+| 4 | Middleware 实现 + mod.rs | `cc-middlewares/src/attribution/mod.rs` | 新增 |
+| 5 | 中间件链注册 | `cc-tui/src/app/agent.rs`, `src/acp/agent_assembler.rs` | 修改 |
 
 Task 1 与 Task 2-5 可并行。Task 2→3→4 有顺序依赖。
 
@@ -20,7 +20,7 @@ Task 1 与 Task 2-5 可并行。Task 2→3→4 有顺序依赖。
 
 ## Task 1: Git 安全提示词扩展
 
-**涉及文件:** `peri-tui/prompts/sections/04_actions.md`
+**涉及文件:** `cc-tui/prompts/sections/04_actions.md`
 
 ### 步骤
 
@@ -43,19 +43,19 @@ Task 1 与 Task 2-5 可并行。Task 2→3→4 有顺序依赖。
 ### 验证
 
 ```bash
-grep "Git Safety Protocol" peri-tui/prompts/sections/04_actions.md
-cargo build -p peri-tui 2>&1 | tail -3
+grep "Git Safety Protocol" cc-tui/prompts/sections/04_actions.md
+cargo build -p cc-tui 2>&1 | tail -3
 ```
 
 ---
 
 ## Task 2: 模型邮箱映射表
 
-**涉及文件:** `peri-middlewares/src/attribution/model_email.rs`（新建）
+**涉及文件:** `cc-middlewares/src/attribution/model_email.rs`（新建）
 
 ### 步骤
 
-1. 创建 `peri-middlewares/src/attribution/model_email.rs`
+1. 创建 `cc-middlewares/src/attribution/model_email.rs`
 2. 实现 `MODEL_EMAIL_MAP` 常量（10 个模型族）
 3. 实现 `get_attribution_email(model_name: &str) -> &str` 函数
 4. 编写单元测试
@@ -90,7 +90,7 @@ pub fn get_attribution_email(model_name: &str) -> &str {
 ### 验证
 
 ```bash
-cargo test -p peri-middlewares --lib model_email
+cargo test -p cc-middlewares --lib model_email
 ```
 
 **测试覆盖：** 14 个场景（每个模型族 1 个 + 大小写不敏感 + 未匹配回退 + O-series 推理模型）
@@ -101,7 +101,7 @@ cargo test -p peri-middlewares --lib model_email
 
 **依赖:** Task 2
 
-**涉及文件:** `peri-middlewares/src/attribution/state.rs`（新建）
+**涉及文件:** `cc-middlewares/src/attribution/state.rs`（新建）
 
 ### 步骤
 
@@ -113,7 +113,7 @@ cargo test -p peri-middlewares --lib model_email
 ### 验证
 
 ```bash
-cargo test -p peri-middlewares --lib state
+cargo test -p cc-middlewares --lib state
 ```
 
 **测试覆盖：** 全新增、全删除、末尾追加、中间修改、等长替换、累积贡献、CJK 字符
@@ -124,7 +124,7 @@ cargo test -p peri-middlewares --lib state
 
 **依赖:** Task 3
 
-**涉及文件:** `peri-middlewares/src/attribution/mod.rs`（新建）、`peri-middlewares/src/lib.rs`（修改）
+**涉及文件:** `cc-middlewares/src/attribution/mod.rs`（新建）、`cc-middlewares/src/lib.rs`（修改）
 
 ### 步骤
 
@@ -147,8 +147,8 @@ pub struct GitAttributionMiddleware {
 ### 验证
 
 ```bash
-cargo build -p peri-middlewares 2>&1 | tail -5
-cargo test -p peri-middlewares --lib attribution 2>&1 | tail -5
+cargo build -p cc-middlewares 2>&1 | tail -5
+cargo test -p cc-middlewares --lib attribution 2>&1 | tail -5
 ```
 
 ---
@@ -157,7 +157,7 @@ cargo test -p peri-middlewares --lib attribution 2>&1 | tail -5
 
 **依赖:** Task 4
 
-**涉及文件:** `peri-tui/src/app/agent.rs`、`peri-tui/src/acp/agent_assembler.rs`
+**涉及文件:** `cc-tui/src/app/agent.rs`、`cc-tui/src/acp/agent_assembler.rs`
 
 ### 步骤
 
@@ -167,8 +167,8 @@ cargo test -p peri-middlewares --lib attribution 2>&1 | tail -5
 ### 验证
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -3
-cargo test -p peri-tui 2>&1 | tail -5
+cargo build -p cc-tui 2>&1 | tail -3
+cargo test -p cc-tui 2>&1 | tail -5
 ```
 
 ---

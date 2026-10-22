@@ -6,7 +6,7 @@
 
 **Architecture:** 核心修复在中间件层（`define.rs`）：将后台路径的 `SubagentStarted.instance_id` 改为使用 `child_thread_id` 而非 `task_id`，使 TUI 层的 `RunningBgAgent.instance_id` 与 SQLite thread ID 对齐。同时扩展 `BackgroundTaskResult` 携带 `child_thread_id`，让 TUI 完成事件能正确匹配��消费侧（`agent_render.rs`）已实现 `load_messages()` 调用，ID 修复后即可工作。
 
-**Tech Stack:** Rust, tokio async, SQLite (sqlx), peri-agent thread store trait
+**Tech Stack:** Rust, tokio async, SQLite (sqlx), cc-agent thread store trait
 
 ---
 
@@ -33,15 +33,15 @@
 ### Task 1: 扩展 BackgroundTaskResult 携带 child_thread_id
 
 **Files:**
-- Modify: `peri-agent/src/agent/events.rs:1-29`
-- Modify: `peri-middlewares/src/subagent/tool/define.rs` (background 路径 + fork 路径)
+- Modify: `cc-agent/src/agent/events.rs:1-29`
+- Modify: `cc-middlewares/src/subagent/tool/define.rs` (background 路径 + fork 路径)
 
 **问题：** `BackgroundTaskResult` 只有 `task_id`（`bg-{uuid4}`），没有 `child_thread_id`（SQLite thread ID）。TUI 完成事件处理需要 `child_thread_id` 来匹配 `RunningBgAgent`。
 
 - [ ] **Step 1: 在 BackgroundTaskResult 中添加 child_thread_id 字段**
 
 ```rust
-// peri-agent/src/agent/events.rs
+// cc-agent/src/agent/events.rs
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BackgroundTaskResult {
     pub task_id: String,
@@ -62,7 +62,7 @@ pub struct BackgroundTaskResult {
 
 - [ ] **Step 3: 运行 cargo check 验证编译错误（预期：所有构造 BackgroundTaskResult 的地方缺少 child_thread_id 字段）**
 
-Run: `cargo check -p peri-agent -p peri-middlewares 2>&1 | head -40`
+Run: `cargo check -p cc-agent -p cc-middlewares 2>&1 | head -40`
 
 - [ ] **Step 4: 修改 background 路径的 BackgroundTaskResult 构造（define.rs ~610-634）**
 
@@ -108,13 +108,13 @@ child_thread_id: Some(spawn_child_thread_id.clone()),
 
 - [ ] **Step 6: 运行 cargo check 验证编译通过**
 
-Run: `cargo check -p peri-agent -p peri-middlewares 2>&1 | tail -5`
+Run: `cargo check -p cc-agent -p cc-middlewares 2>&1 | tail -5`
 Expected: 无错误
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-agent/src/agent/events.rs peri-middlewares/src/subagent/tool/define.rs
+git add cc-agent/src/agent/events.rs cc-middlewares/src/subagent/tool/define.rs
 git commit -m "feat(bg-agent): add child_thread_id to BackgroundTaskResult"
 ```
 
@@ -123,7 +123,7 @@ git commit -m "feat(bg-agent): add child_thread_id to BackgroundTaskResult"
 ### Task 2: 修复 SubagentStarted 的 instance_id 使用 child_thread_id
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/define.rs` (line 695 + line 909)
+- Modify: `cc-middlewares/src/subagent/tool/define.rs` (line 695 + line 909)
 
 **问题：** 后台路径的 `SubagentStarted` 使用 `task_id`（`bg-{uuid4}`）作为 `instance_id`，但 SQLite thread 使用 `bg_child_thread_id`（uuid7）。TUI 的 `RunningBgAgent.instance_id` 记录的是 `SubagentStarted.instance_id`，导致 `load_messages(instance_id)` 找不到 SQLite thread。
 
@@ -179,12 +179,12 @@ handler.on_event(AgentEvent::SubagentStarted {
 
 - [ ] **Step 4: 运行 cargo check**
 
-Run: `cargo check -p peri-middlewares 2>&1 | tail -5`
+Run: `cargo check -p cc-middlewares 2>&1 | tail -5`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/tool/define.rs
+git add cc-middlewares/src/subagent/tool/define.rs
 git commit -m "fix(bg-agent): use child_thread_id as SubagentStarted instance_id
 
 Background agents now emit child_thread_id (uuid7) instead of task_id
@@ -198,8 +198,8 @@ load_messages() to find the correct thread when focusing a background agent."
 ### Task 3: 更新 TUI BackgroundTaskCompleted 处理使用 child_thread_id 匹配
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_events_bg.rs:52-314`
-- Modify: `peri-tui/src/app/events.rs` (AgentEvent::BackgroundTaskCompleted 变体)
+- Modify: `cc-tui/src/app/agent_events_bg.rs:52-314`
+- Modify: `cc-tui/src/app/events.rs` (AgentEvent::BackgroundTaskCompleted 变体)
 
 **问题：** `handle_background_task_completed` 当前使用 `agent_name` 匹配 SubAgentGroup，无法区分同名并发 agent。修复后 `BackgroundTaskCompleted` 事件携带 `child_thread_id`，可用于精确匹配 `instance_id`。
 
@@ -380,14 +380,14 @@ let was_focused = child_thread_id.as_deref()
         .as_deref();
 ```
 
-- [ ] **Step 7: 运行 cargo check -p peri-tui**
+- [ ] **Step 7: 运行 cargo check -p cc-tui**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -10`
+Run: `cargo check -p cc-tui 2>&1 | tail -10`
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_events_bg.rs peri-tui/src/app/events.rs peri-tui/src/app/agent.rs
+git add cc-tui/src/app/agent_events_bg.rs cc-tui/src/app/events.rs cc-tui/src/app/agent.rs
 git commit -m "fix(bg-agent): use child_thread_id for precise matching in BackgroundTaskCompleted
 
 SubAgentGroup and background_agents now matched by instance_id (uuid7)
@@ -399,7 +399,7 @@ instead of agent_name, fixing concurrent same-type background agent matching."
 ### Task 4: 验证 agent_render.rs SQLite 加载路径
 
 **Files:**
-- Review: `peri-tui/src/app/agent_render.rs:41-62`
+- Review: `cc-tui/src/app/agent_render.rs:41-62`
 
 **目的：** Task 2 修复后，`focused_instance_id` 将持有 `child_thread_id`（uuid7），`resolve_render_vms()` 的 `load_messages(&tid)` 将正确找到 SQLite thread。此 Task 验证现有代码无需修改。
 
@@ -426,7 +426,7 @@ instead of agent_name, fixing concurrent same-type background agent matching."
 ### Task 5: 更新 SubAgentGroup instance_id 在 pipeline 中的传递链路
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs` (SubAgentStart 事件处理)
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs` (SubAgentStart 事件处理)
 
 **问题：** `SubAgentGroup.instance_id` 需要从 `SubAgentStart.instance_id` 正确传递。Task 2 修改了 `SubagentStarted` 的 `instance_id` 值（从 `task_id` 到 `child_thread_id`），需要确认 pipeline 的 `handle_event` 正确传递这个值。
 
@@ -454,15 +454,15 @@ AgentEvent::SubAgentStart { instance_id, .. }
 ### Task 6: 集成测试验证
 
 **Files:**
-- Modify: `peri-tui/src/cli_integration_test.rs` 或新建测试文件
+- Modify: `cc-tui/src/cli_integration_test.rs` 或新建测试文件
 
 **目的：** 验证 ID 链路修复后，聚焦后台 agent 时 `load_messages` 能正确加载消息。
 
 - [ ] **Step 1: 运行现有测试**
 
-Run: `cargo test -p peri-middlewares --lib -- subagent 2>&1 | tail -20`
-Run: `cargo test -p peri-tui --lib -- background 2>&1 | tail -20`
-Run: `cargo test -p peri-agent --lib -- thread 2>&1 | tail -20`
+Run: `cargo test -p cc-middlewares --lib -- subagent 2>&1 | tail -20`
+Run: `cargo test -p cc-tui --lib -- background 2>&1 | tail -20`
+Run: `cargo test -p cc-agent --lib -- thread 2>&1 | tail -20`
 
 确保无回归。
 
@@ -470,7 +470,7 @@ Run: `cargo test -p peri-agent --lib -- thread 2>&1 | tail -20`
 
 `BackgroundTaskResult` 新增了 `child_thread_id: Option<String>` 字段。由于是 `Option` 类型，旧的序列化数据（不含此字段）反序列化时会得到 `None`，向后兼容。
 
-验证：在 `peri-agent` 中搜索 `BackgroundTaskResult` 的 `serde::Deserialize` 用法，确认 `Option` 字段的默认行为。
+验证：在 `cc-agent` 中搜索 `BackgroundTaskResult` 的 `serde::Deserialize` 用法，确认 `Option` 字段的默认行为。
 
 - [ ] **Step 3: 手动端到端验证（如果可以启动 TUI）**
 
@@ -487,8 +487,8 @@ Run: `cargo test -p peri-agent --lib -- thread 2>&1 | tail -20`
 ### Task 7: 清理和诊断日志更新
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_events_bg.rs` (diagnostic logs)
-- Modify: `peri-middlewares/src/subagent/tool/define.rs` (diagnostic logs)
+- Modify: `cc-tui/src/app/agent_events_bg.rs` (diagnostic logs)
+- Modify: `cc-middlewares/src/subagent/tool/define.rs` (diagnostic logs)
 
 **目的：** 更新 `[bg-diag]` 日志以包含 `child_thread_id` 信息，方便后续排查。
 
@@ -524,12 +524,12 @@ tracing::info!(
 
 - [ ] **Step 3: 运行 cargo check 确认编译**
 
-Run: `cargo check -p peri-middlewares -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-middlewares -p cc-tui 2>&1 | tail -5`
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/tool/define.rs peri-tui/src/app/agent_events_bg.rs
+git add cc-middlewares/src/subagent/tool/define.rs cc-tui/src/app/agent_events_bg.rs
 git commit -m "chore(bg-agent): add child_thread_id to diagnostic logs"
 ```
 

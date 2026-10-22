@@ -24,7 +24,7 @@ Task 1 是基础。Task 2 和 Task 5 可以并行开发，但都依赖 Task 1。
 
 ## Task 1: SubAgentGroup 新增 batch_agents 字段与 AgentSummary 结构体
 
-**文件**: `peri-tui/src/ui/message_view.rs`
+**文件**: `cc-tui/src/ui/message_view.rs`
 
 **改动:**
 
@@ -57,13 +57,13 @@ pub struct AgentSummary {
      - `build_tail_vms` 中从 `subagent_stack` 构建的路径
      - `drain_subagent_stack` 中异常残留路径
 
-**验证**: `cargo build -p peri-tui` 编译通过
+**验证**: `cargo build -p cc-tui` 编译通过
 
 ---
 
 ## Task 2: Pipeline 批次检测状态
 
-**文件**: `peri-tui/src/app/message_pipeline.rs`
+**文件**: `cc-tui/src/app/message_pipeline.rs`
 
 **改动:**
 
@@ -94,13 +94,13 @@ struct BatchInfo {
 
 6. `clear()` 方法追加 `self.active_batch = None;`
 
-**验证**: `cargo build -p peri-tui` 编译通过
+**验证**: `cargo build -p cc-tui` 编译通过
 
 ---
 
 ## Task 3: aggregate_batch_groups() 聚合函数
 
-**文件**: `peri-tui/src/ui/message_view.rs`（放在 `aggregate_tool_groups` 附近）
+**文件**: `cc-tui/src/ui/message_view.rs`（放在 `aggregate_tool_groups` 附近）
 
 **改动:**
 
@@ -119,13 +119,13 @@ struct BatchInfo {
 
 **流式期间**：`is_running: true` 的 VM 不参与聚合，保持独立显示。全部完成后 reconcile 触发，已完成的连续 SubAgentGroup 被合并为树形视图。
 
-**验证**: `cargo build -p peri-tui` 编译通过
+**验证**: `cargo build -p cc-tui` 编译通过
 
 ---
 
 ## Task 4: 树形渲染实现
 
-**文件**: `peri-tui/src/ui/message_render.rs`
+**文件**: `cc-tui/src/ui/message_render.rs`
 
 **改动:**
 
@@ -159,7 +159,7 @@ struct BatchInfo {
 
 ## Task 5: 历史恢复路径批次聚合
 
-**文件**: `peri-tui/src/app/message_pipeline.rs`
+**文件**: `cc-tui/src/app/message_pipeline.rs`
 
 **改动:**
 
@@ -229,8 +229,8 @@ struct BatchInfo {
 
 ### 关键实施文件
 
-- `peri-tui/src/ui/message_view.rs` — SubAgentGroup 数据模型、AgentSummary、aggregate_batch_groups()、PartialEq/Hash
-- `peri-tui/src/app/message_pipeline.rs` — BatchInfo、批次检测、build_tail_vms 聚合、messages_to_view_models 历史恢复
-- `peri-tui/src/ui/message_render.rs` — render_batch_summary() 树形渲染、SubAgentGroup batch_agents 分支
-- `peri-tui/src/ui/theme.rs` — 颜色常量参考
-- `peri-tui/src/app/events.rs` — AgentEvent 定义确认
+- `cc-tui/src/ui/message_view.rs` — SubAgentGroup 数据模型、AgentSummary、aggregate_batch_groups()、PartialEq/Hash
+- `cc-tui/src/app/message_pipeline.rs` — BatchInfo、批次检测、build_tail_vms 聚合、messages_to_view_models 历史恢复
+- `cc-tui/src/ui/message_render.rs` — render_batch_summary() 树形渲染、SubAgentGroup batch_agents 分支
+- `cc-tui/src/ui/theme.rs` — 颜色常量参考
+- `cc-tui/src/app/events.rs` — AgentEvent 定义确认

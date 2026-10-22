@@ -1,8 +1,8 @@
 # App God Object 分析与分层方案
 
-> **状态**: 调研完成，待实施
+> **状态**: 已实施并归档（feature_20260508_F002_app-layer-refactor）。落地形态与本文方案有分歧：App 现为单结构体 10 字段，状态按 ChatSession / ServiceRegistry / UiState / PanelManager 分工承载，未采用本文的 AppCore/AgentComm 拆分。本文以下为实施前分析与方案记录
 > **关联设计**: [组件化面板架构](./component-architecture-design.md)
-> **日期**: 2025-05-08
+> **日期**: 2026-05-08
 
 ## 1. 问题描述
 

@@ -9,7 +9,7 @@
 
 | Crate | README | CLAUDE.md | 说明 |
 |-------|--------|-----------|------|
-| cc-agent | [README](../cc-agent/README.md) | [CLAUDE.md](../CLAUDE.md) | 核心 Agent 框架 |
+| cc-agent | [README](../cc-agent/README.md) | - | 核心 Agent 框架 |
 | cc-middlewares | [README](../cc-middlewares/README.md) | [CLAUDE.md](../cc-middlewares/CLAUDE.md) | 中间件实现 |
 | cc-tui | [README](../cc-tui/README.md) | [CLAUDE.md](../cc-tui/CLAUDE.md) | TUI 应用 |
 | cc-acp | [README](../cc-acp/README.md) | - | ACP 服务层 |
@@ -40,7 +40,7 @@
 
 ### 产品需求文档 (PRD)
 
-- [紧凑启动与随内容增长的终端视口](prd/growing-terminal-viewport.md) — 实现、自动化与 Windows 人工验证通过；macOS/Linux 待兼容性检查
+- [紧凑启动与随内容增长的终端视口](prd/growing-terminal-viewport.md) — 已随 PR #652 合并并随 v0.6.171 发布，三平台 CI 全绿；Windows 人工验证通过，macOS/Linux 真机人工验收待补
 - [Shell 状态指示器](../spec/prd-shell-status-indicator.md)
 - [Shell 命令 PRD](../spec/features/shell-command-prd.md)
 - [屏幕选区](../spec/features/screen-selection-prd.md)
@@ -62,11 +62,7 @@
 - 重构指南
 - 实现计划
 
-- [diff 渲染对齐 CC 改造审计（2026-10-20）](2026-10-20-diff-highlight-alignment-audit.md) — 未提交改动的问题清单、证据位置与验证边界
-
-## 实用手册
-
-- [PDF / 图片表格提取实战手册](2026-10-19-pdf-table-extraction-playbook.md) — 扫描件/合同表格转 Excel 的完整流程、OCR 能力边界与踩坑清单
+- [diff 渲染对齐改造审计（2026-10-20）](2026-10-20-diff-highlight-alignment-audit.md) — 未提交改动的问题清单、证据位置与验证边界
 
 ## 版本记录
 

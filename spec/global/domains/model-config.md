@@ -18,7 +18,7 @@
 ```
 /login 面板（Browse 模式）
   → 列出所有 Provider
-  → Enter 进入编辑 / Space 激活
+  → Enter 激活 / Tab 进入编辑
   → 编辑模式: 8 个字段（Name/Type/BaseUrl/ApiKey/OpusModel/SonnetModel/HaikuModel/FableModel）
   → Type 切换 → 自动填充默认模型名
   → Enter 保存 → settings.json 原子写回
@@ -27,21 +27,21 @@
 ### 模型选择流程
 
 ```
-/model 面板
-  → 选择 Provider → 选择 Alias（opus/sonnet/haiku/fable）
+/model 面板（不选 Provider）
+  → 选择 Alias（opus/sonnet/haiku/fable）标签页
+  → 可调: alias / effort / max_tokens / 1M 上下文开关
   → 解析: active_provider_id + active_alias → ProviderConfig.models.{alias}
-  → Thinking 配置（budget_tokens）
 ```
 
 ## 技术方案总结
 
 | 维度 | 选型 |
 |------|------|
-| 配置存储 | ~/.peri/settings.json，AppConfig 统一读写 |
+| 配置存储 | ~/.cc-code/settings.json，AppConfig 统一读写 |
 | Provider 数据结构 | ProviderConfig { id, type, baseUrl, apiKey, models: ProviderModels } |
 | 别名解析 | active_provider_id + active_alias 直接定位，无间接映射 |
 | 别名档位 | 四档 opus/sonnet/haiku/fable，`ProviderModels::ALL_ALIASES: [&str; 4]` |
-| 默认模型名 | DEFAULT_MODELS 常量表（anthropic → claude-sonnet-4-6, openai → gpt-4o） |
+| 默认模型名 | DEFAULT_MODELS 常量表（每个 type 一组四档元组 (opus, sonnet, haiku, fable)，Type 切换时自动填充） |
 | 面板设计 | LoginPanel（Browse/Edit/New/ConfirmDelete）与 ModelPanel 互斥 |
 | 向后兼容 | model_aliases 被 serde 安全忽略 |
 

@@ -1,7 +1,7 @@
 # 组件化架构重构：面板系统
 
-> **文档状态**: 设计稿
-> **目标范围**: `cc-tui/src/event.rs`、`panel_ops.rs`、`app/mod.rs`、`app/core.rs`、`ui/main_ui.rs`、`ui/main_ui/status_bar.rs`
+> **文档状态**: 已实施并归档（feature_20260508_F001_panel-component-architecture）。落地与方案有分歧：render 签名采用备选 B、PanelContext 现为 3 字段、panel_ops.rs 未删除而是收敛为测试辅助（188 行）。本文以下为设计记录
+> **目标范围**: `cc-tui/src/event/`、`cc-tui/src/app/panel_ops.rs`、`cc-tui/src/app/mod.rs`、`cc-tui/src/ui/main_ui/`（设计时的 `event.rs`、`app/core.rs`、`ui/main_ui.rs` 均已改为目录模块）
 > **策略**: Approach C — 组件化架构，彻底解决根本问题
 
 ---

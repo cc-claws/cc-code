@@ -34,10 +34,10 @@
 
 ## 涉及文件
 
-- `peri-tui/src/event/mod.rs` —— 鼠标事件接收与处理入口（原记录指向 `coalesce_drag_events`，该函数已随事件管线重构移除；当前对应实现为 `event/mouse_batch.rs` 的 `collect_mouse_batch` 与 `EventReader`，见「2026-09-23 复核」）
-- `peri-tui/src/ui/main_ui/message_area.rs` —— 消息区域渲染与视口裁剪（每帧重绘独占抢占 `render_cache.write()` 锁，且通过 Paragraph 二次 wrap）
-- `peri-tui/src/app/thread_ops.rs` —— 滚动步长控制（`scroll_up` / `scroll_down` 步长固定为 3 行，缺乏动态加速度）
-- `peri-tui/src/main.rs` —— 主事件循环（`event::Action::Redraw` 缺乏帧率上限与垂直同步限制）
+- `cc-tui/src/event/mod.rs` —— 鼠标事件接收与处理入口（原记录指向 `coalesce_drag_events`，该函数已随事件管线重构移除；当前对应实现为 `event/mouse_batch.rs` 的 `collect_mouse_batch` 与 `EventReader`，见「2026-09-23 复核」）
+- `cc-tui/src/ui/main_ui/message_area.rs` —— 消息区域渲染与视口裁剪（每帧重绘独占抢占 `render_cache.write()` 锁，且通过 Paragraph 二次 wrap）
+- `cc-tui/src/app/thread_ops.rs` —— 滚动步长控制（`scroll_up` / `scroll_down` 步长固定为 3 行，缺乏动态加速度）
+- `cc-tui/src/main.rs` —— 主事件循环（`event::Action::Redraw` 缺乏帧率上限与垂直同步限制）
 
 ## 2026-09-23 复核
 

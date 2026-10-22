@@ -182,11 +182,11 @@ fn is_cosmetic_change(old: &MessageViewModel, new: &MessageViewModel) -> bool;
 
 | 文件 | 改动内容 |
 |------|----------|
-| `peri-tui/src/ui/render_thread.rs` | `rebuild()` 增加 `prefix_stable_len` 逻辑 + `is_cosmetic_change()` 判定 |
-| `peri-tui/src/ui/message_view.rs` | `ContentBlockView::Text` 新增 `rendered_prefix_len` 字段 |
-| `peri-tui/src/ui/markdown.rs` | `ensure_rendered()` 改为增量解析，新增 `find_last_block_boundary()` |
-| `peri-tui/src/ui/markdown_test.rs` | 增量解析单元测试 |
-| `peri-tui/src/ui/render_thread.rs`（测试部分） | 前缀保留和视觉对齐单元测试 |
+| `cc-tui/src/ui/render_thread.rs` | `rebuild()` 增加 `prefix_stable_len` 逻辑 + `is_cosmetic_change()` 判定 |
+| `cc-tui/src/ui/message_view.rs` | `ContentBlockView::Text` 新增 `rendered_prefix_len` 字段 |
+| `cc-tui/src/ui/markdown.rs` | `ensure_rendered()` 改为增量解析，新增 `find_last_block_boundary()` |
+| `cc-tui/src/ui/markdown_test.rs` | 增量解析单元测试 |
+| `cc-tui/src/ui/render_thread.rs`（测试部分） | 前缀保留和视觉对齐单元测试 |
 
 ## 实现要点
 
@@ -227,7 +227,7 @@ fn is_cosmetic_change(old: &MessageViewModel, new: &MessageViewModel) -> bool;
 - **双线程渲染架构**：保持不变。`RenderTask` 仍在独立线程运行，UI 线程只读 `RenderCache`。
 - **事件驱动 TUI 通信**：保持不变。渲染事件仍通过 `mpsc::UnboundedSender<RenderEvent>` 发送。
 - **消息管线统一**：保持不变。`MessagePipeline` 仍为消息状态管理唯一入口。
-- **Widget 独立 crate**：无影响。`peri-widgets` 不涉及此次改动。
+- **Widget 独立 crate**：无影响。`cc-widgets` 不涉及此次改动。
 - **编码规范**：遵循 Rust 2021 edition，`parking_lot::RwLock`，`tracing` 日志，测试分离为 `_test.rs` 文件。
 
 无架构偏离，无新增约束。

@@ -24,9 +24,9 @@ Feature — 核心代码审查能力
 
 peri 缺少 `/diff` 命令。用户无法在 TUI 中查看当前工作区的未提交变更，也无法回顾 agent 每轮对话修改了哪些文件。需要退出 TUI 切到终端执行 `git diff`，或依赖 agent 主动展示——两种方式都不高效。
 
-Claude Code（TS 版）已实现 `/diff` 命令（`C:\Work\open-cladue\src\commands\diff\`，~700 行组件）。核心设计：**local-jsx 类型，渲染一个双源 diff 面板——"Current"（实时 `git diff HEAD`）和"Turn N"（从对话历史中提取 Edit/Write 工具的 structuredPatch）**。用户通过 `←/→` 切换数据源，`↑/↓` 选择文件，`Enter` 查看 word-level diff 详情。
+参考实现（TS 版）已实现 `/diff` 命令（`C:\Work\open-cladue\src\commands\diff\`，~700 行组件）。核心设计：**local-jsx 类型，渲染一个双源 diff 面板——"Current"（实时 `git diff HEAD`）和"Turn N"（从对话历史中提取 Edit/Write 工具的 structuredPatch）**。用户通过 `←/→` 切换数据源，`↑/↓` 选择文件，`Enter` 查看 word-level diff 详情。
 
-## 参考实现 — Claude Code `/diff`
+## 参考实现：`/diff`
 
 **源码目录**：`C:\Work\open-cladue\src\commands\diff\` + `src\components\diff\`
 
@@ -78,7 +78,7 @@ Claude Code（TS 版）已实现 `/diff` 命令（`C:\Work\open-cladue\src\comma
 
 ## 现有基础设施（可直接复用）
 
-### `peri-widgets::diff` — 生产级 Diff 渲染库
+### `cc-widgets::diff` — 生产级 Diff 渲染库
 
 | 组件 | 说明 |
 |------|------|
@@ -89,23 +89,23 @@ Claude Code（TS 版）已实现 `/diff` 命令（`C:\Work\open-cladue\src\comma
 
 ### TUI 内联 Diff（已集成）
 
-`peri-tui/src/ui/message_view/mod.rs:24` 的 `build_diff_input()` 已能从 Edit/Write 工具的 `ToolStart` 事件中提取 `old_string`/`new_string`/`content` 构造 `DiffInput`。可直接复用此模式提取 TurnDiff。
+`cc-tui/src/ui/message_view/mod.rs:24` 的 `build_diff_input()` 已能从 Edit/Write 工具的 `ToolStart` 事件中提取 `old_string`/`new_string`/`content` 构造 `DiffInput`。可直接复用此模式提取 TurnDiff。
 
 ### 文本 Diff 高亮（备选）
 
-`peri-widgets/src/message_block/highlight.rs` — 对纯文本 unified diff 做轻量着色（`+`/`-`/`@@` 前缀行）。
+`cc-widgets/src/message_block/highlight.rs` — 对纯文本 unified diff 做轻量着色（`+`/`-`/`@@` 前缀行）。
 
 ## Fix Proposal
 
 ### 映射到 peri 架构
 
-Claude Code 的 `type: 'local-jsx'` = peri 的 **TUI Command**（`Command` trait，同步执行在 App 上，打开面板）。
+参考实现 的 `type: 'local-jsx'` = peri 的 **TUI Command**（`Command` trait，同步执行在 App 上，打开面板）。
 
 参考 `/model`、`/history` 等面板命令的模式：command 的 `execute()` 调用 `app.open_panel(PanelKind::Diff)`。
 
 ### Phase 1: DiffCommand（TUI Command）
 
-**新建** `peri-tui/src/command/panel/diff.rs`：
+**新建** `cc-tui/src/command/panel/diff.rs`：
 
 ```rust
 //! `/diff` 命令 — 打开 Diff 面板查看未提交变更和每轮 diff。
@@ -127,11 +127,11 @@ impl Command for DiffCommand {
 }
 ```
 
-注册到 TUI `default_registry()`（`peri-tui/src/command/mod.rs`）。
+注册到 TUI `default_registry()`（`cc-tui/src/command/mod.rs`）。
 
 ### Phase 2: GitWorkingTreeDiff 数据源
 
-**新建** `peri-tui/src/diff/git_diff_source.rs`：
+**新建** `cc-tui/src/diff/git_diff_source.rs`：
 
 执行 `git diff HEAD` + `git diff --cached` + `git ls-files --others --exclude-standard` 获取完整工作区变更。
 
@@ -184,11 +184,11 @@ impl GitDiffSource {
 - 路径用 `/` 分隔（git 输出统一用 `/`）
 - 二进制文件检测：`git diff --numstat` 中 `- -` 表示二进制
 
-**复用点**：`run_git()` 函数与 `/commit` 命令共用，可提取到 `peri-acp` 或 `peri-agent` 的公共模块。
+**复用点**：`run_git()` 函数与 `/commit` 命令共用，可提取到 `cc-acp` 或 `cc-agent` 的公共模块。
 
 ### Phase 3: DiffPanel UI
 
-**新建** `peri-tui/src/ui/panels/diff_panel.rs`：
+**新建** `cc-tui/src/ui/panels/diff_panel.rs`：
 
 ```rust
 pub struct DiffPanel {
@@ -235,7 +235,7 @@ N files changed +X -Y
 - 特殊状态标签：`(binary)`、`(truncated)`、`(new)`、`(deleted)`
 
 **Detail 视图**：
-- 直接调用 `peri_widgets::diff::render_diff()` 渲染 word-level diff
+- 直接调用 `cc_widgets::diff::render_diff()` 渲染 word-level diff
 - 标题行显示文件路径 + 状态
 - 滚动支持 `Ctrl+U`/`Ctrl+D`
 
@@ -251,7 +251,7 @@ N files changed +X -Y
 
 ### Phase 4: TurnDiff 数据源
 
-**新建** `peri-tui/src/diff/turn_diff_source.rs`：
+**新建** `cc-tui/src/diff/turn_diff_source.rs`：
 
 从 agent 事件流中提取每轮 diff。复用 `build_diff_input()`（`message_view/mod.rs:24`）的解析模式。
 
@@ -286,7 +286,7 @@ impl TurnDiffSource {
 }
 ```
 
-**注意**：TurnDiff 仅包含 agent 通过 Edit/Write 工具修改的文件，不包含 agent 通过 Bash 工具执行的 `rm`、`mv` 等操作。这是 Claude Code 的行为一致——`useTurnDiffs` 也只解析 `FileEditTool`/`FileWriteTool` 的 `structuredPatch`。
+**注意**：TurnDiff 仅包含 agent 通过 Edit/Write 工具修改的文件，不包含 agent 通过 Bash 工具执行的 `rm`、`mv` 等操作。这是 参考实现 的行为一致——`useTurnDiffs` 也只解析 `FileEditTool`/`FileWriteTool` 的 `structuredPatch`。
 
 ### Phase 5: 双源切换
 
@@ -312,8 +312,8 @@ fn build_tabs(&self) -> Vec<TabInfo> {
 
 ### Phase 6: 注册 + 快捷键
 
-1. **TUI Command 注册**：`peri-tui/src/command/mod.rs` 的 `default_registry()` 中添加 `DiffCommand`
-2. **PanelKind 注册**：`peri-tui/src/app/panel_manager.rs` 的 `PanelKind` enum 添加 `Diff`
+1. **TUI Command 注册**：`cc-tui/src/command/mod.rs` 的 `default_registry()` 中添加 `DiffCommand`
+2. **PanelKind 注册**：`cc-tui/src/app/panel_manager.rs` 的 `PanelKind` enum 添加 `Diff`
 3. **PanelState 注册**：`PanelState` enum 添加 `Diff(DiffPanel)`
 4. **dispatch 路由**：`dispatch_key/paste/scroll/mouse()` 新增 match arm
 
@@ -373,7 +373,7 @@ peri 已有两套 diff 渲染路径：
 
 | 路径 | 用途 | 复用 |
 |------|------|------|
-| `peri_widgets::diff` | Agent 工具调用的 inline diff（Edit/Write） | **直接复用**：`/diff` Detail 视图调用 `render_diff()` |
+| `cc_widgets::diff` | Agent 工具调用的 inline diff（Edit/Write） | **直接复用**：`/diff` Detail 视图调用 `render_diff()` |
 | `highlight_diff_line()` | LLM 输出中的纯文本 diff 着色 | 不需要：`/diff` 用结构化 diff |
 
 ## 与 `/commit` 的关系
@@ -387,18 +387,18 @@ peri 已有两套 diff 渲染路径：
 ### 新建
 | 文件 | 职责 |
 |------|------|
-| `peri-tui/src/command/panel/diff.rs` | `DiffCommand` TUI 命令 |
-| `peri-tui/src/diff/git_diff_source.rs` | `GitDiffSource` — 执行 git diff 获取工作区变更 |
-| `peri-tui/src/diff/turn_diff_source.rs` | `TurnDiffSource` — 从 AgentEvent 提取每轮 diff |
-| `peri-tui/src/diff/mod.rs` | diff 模块入口 |
-| `peri-tui/src/ui/panels/diff_panel.rs` | `DiffPanel` — 文件列表 + 详情双视图，`PanelComponent` 实现 |
+| `cc-tui/src/command/panel/diff.rs` | `DiffCommand` TUI 命令 |
+| `cc-tui/src/diff/git_diff_source.rs` | `GitDiffSource` — 执行 git diff 获取工作区变更 |
+| `cc-tui/src/diff/turn_diff_source.rs` | `TurnDiffSource` — 从 AgentEvent 提取每轮 diff |
+| `cc-tui/src/diff/mod.rs` | diff 模块入口 |
+| `cc-tui/src/ui/panels/diff_panel.rs` | `DiffPanel` — 文件列表 + 详情双视图，`PanelComponent` 实现 |
 
 ### 改造
 | 文件 | 行号 | 改动 |
 |------|------|------|
-| `peri-tui/src/command/mod.rs` | `default_registry()` | 注册 `DiffCommand` |
-| `peri-tui/src/app/panel_manager.rs` | L47-62, L139-153, L381-475 | 新增 `PanelKind::Diff` + `PanelState::Diff(DiffPanel)` + dispatch |
-| `peri-tui/src/ui/message_view/mod.rs` | L24 | 提取 `build_diff_input()` 为公共函数供 `turn_diff_source` 复用 |
+| `cc-tui/src/command/mod.rs` | `default_registry()` | 注册 `DiffCommand` |
+| `cc-tui/src/app/panel_manager.rs` | L47-62, L139-153, L381-475 | 新增 `PanelKind::Diff` + `PanelState::Diff(DiffPanel)` + dispatch |
+| `cc-tui/src/ui/message_view/mod.rs` | L24 | 提取 `build_diff_input()` 为公共函数供 `turn_diff_source` 复用 |
 
 ## 风险点
 
@@ -407,5 +407,5 @@ peri 已有两套 diff 渲染路径：
 | 大仓库 `git diff HEAD` 输出巨大 | 内存占用 + 渲染卡顿 | `MAX_DIFF_BYTES = 100KB` 截断；`MAX_FILE_BYTES = 1MB` 标记 truncated |
 | 二进制文件（图片、lockfile） | `git diff` 输出乱码 | `--numstat` 检测 `- -` 标记二进制；Detail 视图显示 "(binary file)" |
 | Windows 下 git 输出 GBK 编码 | 中文文件名乱码 | `String::from_utf8_lossy()` + 后续可加 `--encoding=utf-8` |
-| TurnDiff 与实际文件不一致 | agent 通过 Bash 修改文件但 Edit/Write 未记录 | TurnDiff 只展示 Edit/Write 工具修改的文件，与 Claude Code 行为一致，文档说明即可 |
-| `build_diff_input()` 耦合在 `message_view` 中 | 复用时循环依赖 | 提取到独立函数或 `peri-tui/src/diff/utils.rs` |
+| TurnDiff 与实际文件不一致 | agent 通过 Bash 修改文件但 Edit/Write 未记录 | TurnDiff 只展示 Edit/Write 工具修改的文件，与 参考实现 行为一致，文档说明即可 |
+| `build_diff_input()` 耦合在 `message_view` 中 | 复用时循环依赖 | 提取到独立函数或 `cc-tui/src/diff/utils.rs` |

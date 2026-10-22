@@ -19,20 +19,17 @@ AgentEvent → MessagePipeline.handle_event()
   → 转换为 Vec<PipelineAction>
   → apply_pipeline_action():
       AddMessage → 追加 view_model
-      AppendChunk → 增量更新最后一条 assistant
       RebuildAll{prefix_len, tail_vms} → 替换尾部
-      RemoveLast / RemoveLastN → 删除最近消息
-      StreamingDone → 最终一致性重建
-  → Done/Interrupted → reconcile_tail() 尾部重建
+      None → 无操作
+  → Done/Interrupted → build_tail_vms() 尾部重建
 ```
 
 ### 尾部重建流程
 
 ```
-reconcile_tail(round_start_vm_idx)
-  → 找到最后一条 Human 消息
-  → 从该位置开始重建 view_models
-  → 返回 (prefix_len, tail_vms)
+build_tail_vms()
+  → 按 completed_len_at_round_start 切出本轮尾部消息
+  → 批量构建 tail_vms
   → RebuildAll 只替换尾部，保留前缀
 ```
 
@@ -46,11 +43,11 @@ Write 的旧内容由工具在审批通过后、发出 `ToolStart` 前同步采�
 
 | 维度 | 选型 |
 |------|------|
-| 核心组件 | MessagePipeline 结构体，持有 view_messages 和 render_tx |
-| 操作枚举 | PipelineAction: None/AddMessage/AppendChunk/UpdateLast/RemoveLast/RemoveLastN/RebuildAll |
+| 核心组件 | MessagePipeline 结构体，持有 completed / current_ai_text / pending_tools / subagent_stack 等状态 |
+| 操作枚举 | PipelineAction 仅 3 个变体：None / AddMessage / RebuildAll{prefix_len, tail_vms} |
 | 事件拆分 | ToolCall 拆分为 ToolStart + ToolEnd 两个独立事件 |
-| 流式优化 | AppendChunk 直接操作渲染层，finalize 边界 reconcile |
-| 尾部重建 | reconcile_tail() + round_start_vm_idx 记录轮次起始位置 |
+| 流式优化 | 流式文本经内部状态累积，finalize 边界统一构建尾部 VM |
+| 尾部重建 | build_tail_vms() 按 completed_len_at_round_start 切片构建 |
 | SubAgent 路由 | 从 agent_ops 迁入 Pipeline，移除 subagent_group_idx |
 | SystemNote 双态 | 新增 `detail_content: Option<String>`（参与 PartialEq/Hash）承载详细模式文本，与 `content` 由 `detail_mode` 单选渲染；子 Agent 启动摘要的极简树形与 Prompt 卡片同源此 VM |
 

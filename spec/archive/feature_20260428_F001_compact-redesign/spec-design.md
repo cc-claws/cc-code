@@ -11,12 +11,12 @@
 5. **缺乏容错** — 没有处理"压缩请求本身超出上下文窗口"的 PTL（Prompt Too Long）降级场景
 6. **配置不灵活** — 阈值硬编码在代码中，无法根据模型/场景调整
 
-本设计参照 Claude Code 项目的 compact 实现，全面对齐其核心能力（不含 Session Memory 层），采用分层渐进式重构策略。
+本设计参照 参考实现 项目的 compact 实现，全面对齐其核心能力（不含 Session Memory 层），采用分层渐进式重构策略。
 
 ## 目标
 
 - Micro-compact 引入可压缩工具白名单 + 时间衰减清除策略 + 图片清除 + 工具对完整性保护
-- Full Compact 采用 9 段结构化摘要模板，对齐 Claude Code 的摘要质量
+- Full Compact 采用 9 段结构化摘要模板，对齐 参考实现 的摘要质量
 - 实现压缩后重新注入（最近文件 + 激活 Skills），保证 agent 压缩后能无缝继续工作
 - 实现 PTL 降级重试，处理压缩请求本身超长的情况
 - 配置可调（`settings.json` + 环境变量），支持按模型/场景灵活调整
@@ -121,7 +121,7 @@ const DEFAULT_COMPACTABLE_TOOLS: &[&str] = &[
 
 #### 2. 结构化摘要 Prompt
 
-对齐 Claude Code 的摘要模板，分为 Analysis 和 Summary 两个块：
+对齐 参考实现 的摘要模板，分为 Analysis 和 Summary 两个块：
 
 ```
 <analysis>

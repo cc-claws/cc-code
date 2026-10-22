@@ -30,9 +30,9 @@ Steps 3 和 4 依赖 Step 2，可并行开发。Step 5 依赖 Step 1 后可开�
 
 **文件:**
 
-- `peri-agent/src/llm/types.rs` -- 新增 `StreamingContext`
-- `peri-agent/src/llm/mod.rs` -- `BaseModel` trait 新增 `invoke_streaming()` 默认方法
-- `peri-agent/src/agent/react.rs` -- `Reasoning` 新增 `streamed` 字段 + `ReactLLM` trait 签名变更 + blanket impl 变更
+- `cc-agent/src/llm/types.rs` -- 新增 `StreamingContext`
+- `cc-agent/src/llm/mod.rs` -- `BaseModel` trait 新增 `invoke_streaming()` 默认方法
+- `cc-agent/src/agent/react.rs` -- `Reasoning` 新增 `streamed` 字段 + `ReactLLM` trait 签名变更 + blanket impl 变更
 
 ### 1.1 新增 `StreamingContext`（`llm/types.rs`）
 
@@ -126,7 +126,7 @@ pub trait BaseModel: Send + Sync {
 ### 验证
 
 ```bash
-cargo build -p peri-agent 2>&1 | head -50
+cargo build -p cc-agent 2>&1 | head -50
 ```
 
 预期：编译错误（trait impl 不匹配），确认所有需要更新的 impl 点。
@@ -135,7 +135,7 @@ cargo build -p peri-agent 2>&1 | head -50
 
 ## Step 2: SSE 解析基础设施 -- `llm/sse.rs`
 
-**文件:** `peri-agent/src/llm/sse.rs`（新增）
+**文件:** `cc-agent/src/llm/sse.rs`（新增）
 **依赖:** 在 `llm/mod.rs` 中添加 `pub mod sse;`
 
 ### 设计
@@ -194,14 +194,14 @@ impl SseParser {
 ### 验证
 
 ```bash
-cargo test -p peri-agent --lib -- sse
+cargo test -p cc-agent --lib -- sse
 ```
 
 ---
 
 ## Step 3: ChatOpenAI::invoke_streaming 实现
 
-**文件:** `peri-agent/src/llm/openai.rs`
+**文件:** `cc-agent/src/llm/openai.rs`
 
 ### 背景
 
@@ -333,14 +333,14 @@ struct ToolCallAccumulator {
 ### 验证
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 ---
 
 ## Step 4: ChatAnthropic::invoke_streaming 实现
 
-**文件:** `peri-agent/src/llm/anthropic.rs`
+**文件:** `cc-agent/src/llm/anthropic.rs`
 
 ### 4.1 新增 `BaseModel::invoke_streaming()` 实现
 
@@ -405,7 +405,7 @@ if event_type == "content_block_start" {
 ### 验证
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 ---
@@ -490,7 +490,7 @@ async fn generate_reasoning(&self, messages, tools, streaming: Option<StreamingC
 }
 ```
 
-### 5.5 SubAgent 路径守卫（`peri-middlewares/` 不调用处）
+### 5.5 SubAgent 路径守卫（`cc-middlewares/` 不调用处）
 
 SubAgent（Fork/Normal）共享父 Agent 的 `event_handler`（`subagent/tool.rs:345-346`），若传入 `StreamingContext` 会导致流式事件泄露。
 
@@ -517,8 +517,8 @@ let streaming = None::<StreamingContext>;
 ### 验证
 
 ```bash
-cargo build -p peri-agent
-cargo build -p peri-middlewares
+cargo build -p cc-agent
+cargo build -p cc-middlewares
 ```
 预期：所有 mock 和适配器编译通过。
 
@@ -526,7 +526,7 @@ cargo build -p peri-middlewares
 
 ## Step 6: OpenAI 流式测试
 
-**文件:** `peri-agent/src/llm/openai_test.rs`（新增）
+**文件:** `cc-agent/src/llm/openai_test.rs`（新增）
 
 | 测试名 | 场景 |
 |--------|------|
@@ -539,14 +539,14 @@ cargo build -p peri-middlewares
 ### 验证
 
 ```bash
-cargo test -p peri-agent --lib -- openai_test
+cargo test -p cc-agent --lib -- openai_test
 ```
 
 ---
 
 ## Step 7: Anthropic 流式测试
 
-**文件:** `peri-agent/src/llm/anthropic.rs` tests 模块（新增）
+**文件:** `cc-agent/src/llm/anthropic.rs` tests 模块（新增）
 
 | 测试名 | 场景 |
 |--------|------|
@@ -558,7 +558,7 @@ cargo test -p peri-agent --lib -- openai_test
 ### 验证
 
 ```bash
-cargo test -p peri-agent --lib -- anthropic
+cargo test -p cc-agent --lib -- anthropic
 ```
 
 ---
@@ -616,8 +616,8 @@ if !reasoning.streamed && !reasoning.thought.trim().is_empty() {
 ### 验证
 
 ```bash
-cargo build -p peri-tui
-cargo test -p peri-agent --lib -- executor
+cargo build -p cc-tui
+cargo test -p cc-agent --lib -- executor
 ```
 
 ---
@@ -628,14 +628,14 @@ cargo test -p peri-agent --lib -- executor
 
 ```bash
 # 全量测试
-cargo test -p peri-agent
+cargo test -p cc-agent
 
 # Clippy
-cargo clippy -p peri-agent
+cargo clippy -p cc-agent
 
 # 上层 crate 编译
-cargo build -p peri-middlewares
-cargo build -p peri-tui
+cargo build -p cc-middlewares
+cargo build -p cc-tui
 ```
 
 ### 集成测试（`agent/executor/mod_test.rs` 新增）
@@ -660,7 +660,7 @@ cargo build -p peri-tui
 | SubAgent 流式事件泄露到父 TUI | SubAgent 路径传 `streaming: None`（Fork/Normal 不启用流式），Background Agent 本就隔离 |
 | 流式错误后幽灵消息残留 | TUI Error 路径调用 `pipeline.interrupt()` 清理缓冲区，或保留+附加错误标记 |
 | TUI 架构路径错位 | 流式入口在 `BaseModelReactLLM.generate_reasoning()` → `BaseModel::invoke_streaming()`，不做无效实现 |
-| `peri-agent` 中 reqwest 已有 `stream` feature | `Cargo.toml` 已声明，无需新增依赖 |
+| `cc-agent` 中 reqwest 已有 `stream` feature | `Cargo.toml` 已声明，无需新增依赖 |
 
 ## 无新 crate 依赖
 

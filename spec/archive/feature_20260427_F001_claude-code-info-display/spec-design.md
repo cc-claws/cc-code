@@ -2,10 +2,10 @@
 
 ## 需求背景
 
-调研了 Claude Code（TypeScript/React + ink CLI）的信息显示实现，发现多个值得借鉴的 UI 模式：
+调研了 参考实现（TypeScript/React + ink CLI）的信息显示实现，发现多个值得借鉴的 UI 模式：
 
-1. **Spinner 动词体系**：Claude Code 的 Spinner 不仅显示旋转动画，还显示当前动作的动词（如 "Reading… / Writing… / Searching…"），动词自动从 TODO 任务的 `activeForm` 取得，无任务时从随机动词池选取。配合 Token 计数平滑动画和已用时间显示。
-2. **工具调用显示**：每个工具调用有独立的状态指示器（闪烁黑圆点 = 进行中，静态 = 完成/失败），参数一行摘要，结果可折叠/展开。Claude Code 使用 `ToolUseLoader` 组件实现闪烁效果。
+1. **Spinner 动词体系**：参考实现 的 Spinner 不仅显示旋转动画，还显示当前动作的动词（如 "Reading… / Writing… / Searching…"），动词自动从 TODO 任务的 `activeForm` 取得，无任务时从随机动词池选取。配合 Token 计数平滑动画和已用时间显示。
+2. **工具调用显示**：每个工具调用有独立的状态指示器（闪烁黑圆点 = 进行中，静态 = 完成/失败），参数一行摘要，结果可折叠/展开。参考实现 使用 `ToolUseLoader` 组件实现闪烁效果。
 3. **对话信息流**：Markdown 渲染增强（代码块语法高亮、diff 着色）、SubAgent 调用折叠展示、思考内容可折叠。
 
 当前 peri 的 `status_bar.rs` 只显示 `⠿ 运行中`，没有动词提示；`message_render.rs` 的工具调用显示已有基础折叠但缺乏状态指示器；Markdown 渲染无代码高亮和 diff 着色。
@@ -13,7 +13,7 @@
 ## 目标
 
 - 在 `peri-widgets` crate 中新增 **SpinnerWidget**、**ToolCallWidget**、**MessageBlockWidget** 三个核心 widget
-- 对标 Claude Code 的 Spinner 动词体系，提供动态动作提示 + Token 计数 + 已用时间
+- 对标 参考实现 的 Spinner 动词体系，提供动态动作提示 + Token 计数 + 已用时间
 - 增强工具调用显示：状态指示器 + 智能折叠策略（只读默认折叠、写操作默认展开）
 - 优化对话信息流：Markdown 代码高亮 + diff 着色 + 思考内容折叠 + SubAgent 显示优化
 
@@ -94,7 +94,7 @@ impl SpinnerState {
 
 #### 渲染效果
 
-- **字符帧**：`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` Braille 动画（与 Claude Code 类似）
+- **字符帧**：`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` Braille 动画（与 参考实现 类似）
 - **Shimmer**：Thinking 模式下文字颜色脉冲渐变（灰色 → 浅灰 → 灰色）
 - **Token 计数**：平滑递增动画（每次 tick 向目标值靠近 3~50 字符，取决于差距）
 - **已用时间**：`1:23` 格式，30秒后自动显示
@@ -199,7 +199,7 @@ pub struct MessageBlockWidget<'a> {
 
 #### SubAgent 显示优化
 
-参考 Claude Code 的 `GroupedToolUseContent`（同批次工具调用折叠）：
+参考 参考实现 的 `GroupedToolUseContent`（同批次工具调用折叠）：
 
 - SubAgent 内部工具调用只在展开时显示摘要（工具名列表）
 - 完成后显示结果前 100 字符预览
@@ -216,7 +216,7 @@ pub struct MessageBlockWidget<'a> {
 ### 关键技术决策
 
 1. **动画帧驱动**：ratatui 本身不支持 `requestAnimationFrame`，需要通过 `crossterm::Event::Tick` 或定时器事件驱动帧更新。每帧调用 `SpinnerState::tick()` 递增帧计数器，`render()` 时根据帧计算当前动画状态。
-2. **平滑 Token 计数**：参考 Claude Code 的实现，维护 `displayed_tokens` 和实际 `token_count` 两个值，每帧向目标值靠近（差值小时步进 3，差值大时步进 50），实现数字平滑递增效果。
+2. **平滑 Token 计数**：参考 参考实现 的实现，维护 `displayed_tokens` 和实际 `token_count` 两个值，每帧向目标值靠近（差值小时步进 3，差值大时步进 50），实现数字平滑递增效果。
 3. **代码高亮策略**：不引入 `tree-sitter` 等重量级 parser，采用简单正则匹配关键字/字符串/注释，够用即可。后续如有需要可以升级。
 4. **折叠状态持久化**：`ToolCallState` 和 `MessageBlockState` 的折叠状态需要在 re-render 间保持一致，通过 `collapsed`/`collapsed_set` 字段管理。
 

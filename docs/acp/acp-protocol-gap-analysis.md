@@ -1,5 +1,7 @@
 # ACP 协议对接缺口全景报告
 
+> **状态注记（2026-10-22）**：本文为 2026-05-16 的审查记录，正文结论已被后续实现推翻，不再代表现状：`authenticate` / `auth/login`、`logout`、`mcp/connect|message|disconnect` 均已实现（`cc-tui/src/acp_server/requests.rs`），`session/fork` 已在能力声明中声明（`cc-acp/src/dispatch/init.rs`），可用命令由 `cc-acp/src/dispatch/commands.rs` 构建；服务端已重构为 `cc-tui/src/acp_server/` + `cc-acp/src/dispatch/`，原文的 `cc-tui/src/acp/` 目录已不存在。专有扩展 `session/append_history`、`session/update_config`、`session/set_model` 为有意设计，非缺口。
+
 > perihelion `cc-tui/src/acp/` vs. `agent-client-protocol-schema` v0.13.0
 > 审查日期：2026-05-16
 

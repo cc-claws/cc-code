@@ -20,7 +20,7 @@
 
 ### 典型复现场景：发送首条消息前切换模型（100% 复现）
 
-1. 启动 TUI（`cargo run -p peri-tui` 或直接启动 `peri`），此时默认加载配置中的激活模型（如 `haiku` 别名对应 `mimo-x-pro-preview`）。
+1. 启动 TUI（`cargo run -p cc-tui` 或直接启动 `peri`），此时默认加载配置中的激活模型（如 `haiku` 别名对应 `mimo-x-pro-preview`）。
 2. 在尚未输入任何消息之前，按下 `Ctrl+T`、使用 `Ctrl+P` 或打开 `/model` 面板，选择另一个模型别名（如 `sonnet` 对应 `gemini-3.8-flash-high`）。
 3. 观察 TUI 界面：左下角状态栏正常刷新为 `[gemini-3.8-flash-high]`。
 4. 在输入框输入任意测试问题并按回车发送。
@@ -32,14 +32,14 @@
 
 | 文件路径 | 关键函数/位置 | 涉及逻辑 |
 |---------|-------------|---------|
-| `peri-tui/src/acp_client/client.rs` | `set_config_option` (L362), `update_config` (L379) | 客户端同步配置到 ACP Server 的入口 |
-| `peri-tui/src/acp_client/client.rs` | `new_session` (L231), `load_session` (L250) | 客户端向 ACP Server 申请创建/恢复 Session |
-| `peri-tui/src/acp_server/requests.rs` | `session/new` (L86), `session/load` (L242) | ACP Server 接收 Session 创建/加载请求 |
-| `peri-tui/src/acp_server/requests.rs` | `session/set_config_option` (L188), `apply_model_selection` (L35) | ACP Server 处理配置变更 |
-| `peri-tui/src/app/agent_submit.rs` | `submit_message` (L212-L246) | 发送消息时按需创建 Session 并提交 prompt |
-| `peri-tui/src/event/keyboard/shortcuts.rs` | `handle_shortcuts` - `Ctrl+T` (L75) | 快捷键切换 model alias 并异步通知 |
-| `peri-tui/src/app/panel_model.rs` | `model_panel_confirm` (L80) | `/model` 面板确认并异步通知 |
-| `peri-tui/src/app/command_palette_panel.rs` | `apply_selection` (L384) | `Ctrl+P` 命令面板确认并同步通知 |
+| `cc-tui/src/acp_client/client.rs` | `set_config_option` (L362), `update_config` (L379) | 客户端同步配置到 ACP Server 的入口 |
+| `cc-tui/src/acp_client/client.rs` | `new_session` (L231), `load_session` (L250) | 客户端向 ACP Server 申请创建/恢复 Session |
+| `cc-tui/src/acp_server/requests.rs` | `session/new` (L86), `session/load` (L242) | ACP Server 接收 Session 创建/加载请求 |
+| `cc-tui/src/acp_server/requests.rs` | `session/set_config_option` (L188), `apply_model_selection` (L35) | ACP Server 处理配置变更 |
+| `cc-tui/src/app/agent_submit.rs` | `submit_message` (L212-L246) | 发送消息时按需创建 Session 并提交 prompt |
+| `cc-tui/src/event/keyboard/shortcuts.rs` | `handle_shortcuts` - `Ctrl+T` (L75) | 快捷键切换 model alias 并异步通知 |
+| `cc-tui/src/app/panel_model.rs` | `model_panel_confirm` (L80) | `/model` 面板确认并异步通知 |
+| `cc-tui/src/app/command_palette_panel.rs` | `apply_selection` (L384) | `Ctrl+P` 命令面板确认并同步通知 |
 
 ---
 
@@ -49,7 +49,7 @@
 
 - **现象原理**：
   TUI 启动时并没有立即向 ACP Server 预先申请创建 Session，只有当用户第一次在输入框按回车提交 prompt 时（`agent_submit.rs:214`），才会触发 `client.new_session()`。因此在用户发送第一条消息之前，`acp_client.current_session_id` 恒为 `None`。
-- **代码缺陷点**（`peri-tui/src/acp_client/client.rs` 第 362-366 行 & 第 379-383 行）：
+- **代码缺陷点**（`cc-tui/src/acp_client/client.rs` 第 362-366 行 & 第 379-383 行）：
   ```rust
   pub async fn set_config_option(&self, config_id: &str, value: &str) -> Result<(), String> {
       let session_id = match self.current_session_id.lock().unwrap().clone() {
@@ -75,7 +75,7 @@
   client.new_session(&cwd_clone, Some(&model_clone)).await;
   ```
   客户端传了 `model: "gemini-3.8-flash-high"` 参数给 ACP Server。
-- **代码缺陷点**（`peri-tui/src/acp_server/requests.rs` 第 86 行 `"session/new"` 分支）：
+- **代码缺陷点**（`cc-tui/src/acp_server/requests.rs` 第 86 行 `"session/new"` 分支）：
   ```rust
   "session/new" => {
       let cwd = params.get("cwd")...;
@@ -122,10 +122,10 @@
 
 这是解决该问题最自然、最彻底的方案。在 TUI 启动完成且尚未进入事件循环前，由客户端主动向 ACP Server 申请创建初始 Session：
 
-- **实现位置**：`peri-tui/src/main.rs` 中初始化 `AcpTuiClient` 之后（若非 `-c` / `-r` 恢复历史会话）。
+- **实现位置**：`cc-tui/src/main.rs` 中初始化 `AcpTuiClient` 之后（若非 `-c` / `-r` 恢复历史会话）。
 - **代码参考**（复用已有的 `new_thread` 通信逻辑）：
   ```rust
-  // peri-tui/src/main.rs
+  // cc-tui/src/main.rs
   // 在初始化 acp_client 之后：
   if tui_opts.resume_session.is_none() && !tui_opts.continue_session {
       let client = acp_client.clone();
@@ -151,10 +151,10 @@
 
 ### 修复步骤 2：解除 ACP Client 对必须存在 `current_session_id` 的拦截（防御性兜底）
 
-即便启动时已创建 session，客户端接口也应具备高容错性。在 `peri-tui/src/acp_client/client.rs` 中：
+即便启动时已创建 session，客户端接口也应具备高容错性。在 `cc-tui/src/acp_client/client.rs` 中：
 `set_config_option` 和 `update_config` 修改为**允许在无 Session 时向 Server 发送配置变更**（将 `session_id` 降级为空字符串或缺省）：
 ```rust
-// peri-tui/src/acp_client/client.rs
+// cc-tui/src/acp_client/client.rs
 
 pub async fn set_config_option(&self, config_id: &str, value: &str) -> Result<(), String> {
     let session_id = self.current_session_id.lock().unwrap().clone().unwrap_or_default();
@@ -187,9 +187,9 @@ pub async fn update_config(&self, config: &crate::config::PeriConfig) -> Result<
 
 ### 修复步骤 3：在 ACP Server `session/new` 和 `session/load` 中消费 `model` 参数
 
-在 `peri-tui/src/acp_server/requests.rs` 的 `"session/new"` 和 `"session/load"` 分支中，提取并应用客户端传入的 `model` 参数：
+在 `cc-tui/src/acp_server/requests.rs` 的 `"session/new"` 和 `"session/load"` 分支中，提取并应用客户端传入的 `model` 参数：
 ```rust
-// peri-tui/src/acp_server/requests.rs
+// cc-tui/src/acp_server/requests.rs
 
 "session/new" => {
     // 1. 如果客户端请求中带有 model 参数，优先对齐服务端 provider

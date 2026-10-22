@@ -26,11 +26,11 @@ peri 缺少 `/export` 命令。用户无法将当前对话导出为文件或复�
 - 将对话内容粘贴到 Issue/PR 描述中
 - 归档重要对话（比 session 文件更易读）
 
-Claude Code（TS 版）已实现 `/export` 命令（`C:\Work\open-cladue\src\commands\export\`），但**该实现未完成**——依赖文件缺失（`ExportDialog`、`exportRenderer`、`slowOperations`），命令未注册到 `COMMANDS()` 数组。属于废弃的 scaffold 代码。
+参考实现（TS 版）已实现 `/export` 命令（`C:\Work\open-cladue\src\commands\export\`），但**该实现未完成**——依赖文件缺失（`ExportDialog`、`exportRenderer`、`slowOperations`），命令未注册到 `COMMANDS()` 数组。属于废弃的 scaffold 代码。
 
 然而概念设计是完整的：**local-jsx 类型，渲染对话为纯文本，支持导出到文件（自动生成文件名）或通过 UI 确认文件名**。
 
-## 参考实现 — Claude Code `/export`
+## 参考实现：`/export`
 
 **源码**：`C:\Work\open-cladue\src\commands\export/export.tsx`（~100 行，依赖缺失）
 
@@ -484,7 +484,7 @@ fn test_infer_format_from_filename() {
 |------|------|
 | **历史会话导出** | `/export <thread-id>` 从 ThreadBrowser 触发，导出非当前会话 |
 | **HTML 导出** | 渲染为带 CSS 样式的 HTML，适合浏览器查看 |
-| **Gist 上传** | Claude Code 的 `/share` 命令，上传到 GitHub Gist |
+| **Gist 上传** | 参考实现 的 `/share` 命令，上传到 GitHub Gist |
 | **选择性导出** | 只导出某几轮对话（通过 Turn 选择器） |
 
 ## Affected Files

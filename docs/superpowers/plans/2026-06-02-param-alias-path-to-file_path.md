@@ -8,14 +8,14 @@
 
 **Tech Stack:** Rust 2021, serde_json::Value, tracing
 
-**影响范围:** `peri-agent/src/agent/executor/tool_dispatch.rs`（单文件修改，~30 行新增）
+**影响范围:** `cc-agent/src/agent/executor/tool_dispatch.rs`（单文件修改，~30 行新增）
 
 ---
 
 ### Task 1: 添加 PARAM_ALIASES 常量表和归一化函数
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/tool_dispatch.rs:19` 附近
+- Modify: `cc-agent/src/agent/executor/tool_dispatch.rs:19` 附近
 
 - [ ] **Step 1: 在 TOOL_ALIASES 下方添加 PARAM_ALIASES 常量和 normalize_params 函数**
 
@@ -77,25 +77,25 @@ let tool = resolve_tool(&call.name, all_tools);
 - [ ] **Step 3: 编译验证**
 
 ```bash
-cargo build -p peri-agent 2>&1
+cargo build -p cc-agent 2>&1
 ```
 Expected: 编译通过，无 warning（`tracing::warn!` 无未使用变量问题）
 
 - [ ] **Step 4: 运行现有测试**
 
 ```bash
-cargo test -p peri-agent --lib -- tool_dispatch 2>&1
+cargo test -p cc-agent --lib -- tool_dispatch 2>&1
 ```
 Expected: 全部 PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/tool_dispatch.rs
+git add cc-agent/src/agent/executor/tool_dispatch.rs
 git commit -m "feat(tool_dispatch): add param alias normalization (path -> file_path)
 
 LLM sometimes confuses Glob/Grep's 'path' with Read/Write/Edit's 'file_path'
-due to Claude Code's split naming convention. Add PARAM_ALIASES table
+due to the reference implementation's split naming convention. Add PARAM_ALIASES table
 to normalize 'path' -> 'file_path' at the execution layer without changing
 the tool schema, mirroring the existing TOOL_ALIASES pattern.
 "
@@ -106,12 +106,12 @@ the tool schema, mirroring the existing TOOL_ALIASES pattern.
 ### Task 2: 添加单元测试
 
 **Files:**
-- Read and modify: `peri-agent/src/agent/executor/tool_dispatch_test.rs`
+- Read and modify: `cc-agent/src/agent/executor/tool_dispatch_test.rs`
 
 - [ ] **Step 1: 先读现有测试文件了解风格**
 
 ```bash
-grep -n "fn test_\|#\[test\]" peri-agent/src/agent/executor/tool_dispatch_test.rs | head -10
+grep -n "fn test_\|#\[test\]" cc-agent/src/agent/executor/tool_dispatch_test.rs | head -10
 ```
 
 - [ ] **Step 2: 在测试文件末尾添加 normalize_params 测试**
@@ -173,14 +173,14 @@ fn test_normalize_params_non_object_input() {
 - [ ] **Step 3: 运行新测试验证通过**
 
 ```bash
-cargo test -p peri-agent --lib -- test_normalize_params 2>&1
+cargo test -p cc-agent --lib -- test_normalize_params 2>&1
 ```
 Expected: 4 tests PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/tool_dispatch_test.rs
+git add cc-agent/src/agent/executor/tool_dispatch_test.rs
 git commit -m "test(tool_dispatch): add normalize_params unit tests
 
 Covers: path->file_path, file_path already exists, no alias, non-object input."
@@ -197,14 +197,14 @@ Covers: path->file_path, file_path already exists, no alias, non-object input."
 - [ ] **Step 2: 运行 clippy**
 
 ```bash
-cargo clippy -p peri-agent -- -D warnings 2>&1
+cargo clippy -p cc-agent -- -D warnings 2>&1
 ```
 Expected: 无新 warning
 
 - [ ] **Step 3: 全量测试**
 
 ```bash
-cargo test -p peri-agent 2>&1
+cargo test -p cc-agent 2>&1
 ```
 Expected: 全部 PASS
 

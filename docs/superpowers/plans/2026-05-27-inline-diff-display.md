@@ -4,7 +4,7 @@
 
 **Goal:** Add inline unified diff view to Write/Edit tool results in the TUI message stream, with word-level highlighting.
 
-**Architecture:** TUI pairs `ToolStart`/`ToolEnd` events (already carrying tool input JSON with file_path/old_string/new_string) to construct `DiffInput`, then passes it to a new `peri-widgets::diff` module for computation and rendering. Zero changes to peri-agent, peri-middlewares, or event types.
+**Architecture:** TUI pairs `ToolStart`/`ToolEnd` events (already carrying tool input JSON with file_path/old_string/new_string) to construct `DiffInput`, then passes it to a new `cc-widgets::diff` module for computation and rendering. Zero changes to cc-agent, cc-middlewares, or event types.
 
 **Tech Stack:** `similar` crate (already in Cargo.lock), `ratatui` spans/styles, existing `Theme::diff_*` colors.
 
@@ -14,28 +14,28 @@
 
 | File | Responsibility |
 |------|---------------|
-| `peri-widgets/Cargo.toml` | Add `similar` dependency |
-| `peri-widgets/src/diff/mod.rs` | **New**: `DiffInput`, `DiffHunk`, `DiffLine`, `WordDiff` types + `compute_diff()` entry point |
-| `peri-widgets/src/diff/mod_test.rs` | **New**: unit tests for diff computation |
-| `peri-widgets/src/diff/renderer.rs` | **New**: `render_diff()` → `Vec<Line>` |
-| `peri-widgets/src/diff/renderer_test.rs` | **New**: unit tests for rendering |
-| `peri-widgets/src/lib.rs` | Export `diff` module |
-| `peri-tui/src/ui/message_view/mod.rs` | Add `diff_view: Option<DiffInput>` to `ToolBlock` variant |
-| `peri-tui/src/app/message_pipeline/reconcile.rs` | Construct `DiffInput` from `CompletedTool` when building `ToolBlock` |
-| `peri-tui/src/app/message_pipeline/transform.rs` | `build_tool_start_vm()`: no diff_view yet (ToolStart has no result) |
-| `peri-tui/src/ui/message_render.rs` | Render diff_view after result_lines in `ToolBlock` branch |
-| `peri-tui/src/ui/message_view/mod.rs` | Update `PartialEq`/`Hash` for new `diff_view` field + `from_base_message_with_cwd` |
+| `cc-widgets/Cargo.toml` | Add `similar` dependency |
+| `cc-widgets/src/diff/mod.rs` | **New**: `DiffInput`, `DiffHunk`, `DiffLine`, `WordDiff` types + `compute_diff()` entry point |
+| `cc-widgets/src/diff/mod_test.rs` | **New**: unit tests for diff computation |
+| `cc-widgets/src/diff/renderer.rs` | **New**: `render_diff()` → `Vec<Line>` |
+| `cc-widgets/src/diff/renderer_test.rs` | **New**: unit tests for rendering |
+| `cc-widgets/src/lib.rs` | Export `diff` module |
+| `cc-tui/src/ui/message_view/mod.rs` | Add `diff_view: Option<DiffInput>` to `ToolBlock` variant |
+| `cc-tui/src/app/message_pipeline/reconcile.rs` | Construct `DiffInput` from `CompletedTool` when building `ToolBlock` |
+| `cc-tui/src/app/message_pipeline/transform.rs` | `build_tool_start_vm()`: no diff_view yet (ToolStart has no result) |
+| `cc-tui/src/ui/message_render.rs` | Render diff_view after result_lines in `ToolBlock` branch |
+| `cc-tui/src/ui/message_view/mod.rs` | Update `PartialEq`/`Hash` for new `diff_view` field + `from_base_message_with_cwd` |
 
 ---
 
-### Task 1: Add `similar` dependency to peri-widgets
+### Task 1: Add `similar` dependency to cc-widgets
 
 **Files:**
-- Modify: `peri-widgets/Cargo.toml`
+- Modify: `cc-widgets/Cargo.toml`
 
 - [ ] **Step 1: Add dependency**
 
-In `peri-widgets/Cargo.toml`, add `similar` to `[dependencies]`:
+In `cc-widgets/Cargo.toml`, add `similar` to `[dependencies]`:
 
 ```toml
 similar = "2"
@@ -45,28 +45,28 @@ After the `rand = "0.10"` line.
 
 - [ ] **Step 2: Verify build**
 
-Run: `cargo build -p peri-widgets`
+Run: `cargo build -p cc-widgets`
 Expected: Build succeeds (similar is already in Cargo.lock from transitive deps)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-widgets/Cargo.toml
+git add cc-widgets/Cargo.toml
 git commit -m "chore(widgets): add similar dependency for diff computation"
 ```
 
 ---
 
-### Task 2: Diff types and computation (`peri-widgets/src/diff/mod.rs`)
+### Task 2: Diff types and computation (`cc-widgets/src/diff/mod.rs`)
 
 **Files:**
-- Create: `peri-widgets/src/diff/mod.rs`
-- Create: `peri-widgets/src/diff/mod_test.rs`
-- Modify: `peri-widgets/src/lib.rs`
+- Create: `cc-widgets/src/diff/mod.rs`
+- Create: `cc-widgets/src/diff/mod_test.rs`
+- Modify: `cc-widgets/src/lib.rs`
 
 - [ ] **Step 1: Write failing tests**
 
-Create `peri-widgets/src/diff/mod_test.rs`:
+Create `cc-widgets/src/diff/mod_test.rs`:
 
 ```rust
 use super::*;
@@ -173,12 +173,12 @@ fn test_diff_input_equality() {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p peri-widgets --lib -- diff::mod_test 2>&1 | head -20`
+Run: `cargo test -p cc-widgets --lib -- diff::mod_test 2>&1 | head -20`
 Expected: Compilation error — `compute_diff`, `DiffInput`, etc. not defined.
 
 - [ ] **Step 3: Implement diff types and computation**
 
-Create `peri-widgets/src/diff/mod.rs`:
+Create `cc-widgets/src/diff/mod.rs`:
 
 ```rust
 use ratatui::text::Line;
@@ -449,7 +449,7 @@ mod tests {
 }
 ```
 
-Update `peri-widgets/src/lib.rs` — add after `pub mod tool_call;`:
+Update `cc-widgets/src/lib.rs` — add after `pub mod tool_call;`:
 
 ```rust
 pub mod diff;
@@ -463,28 +463,28 @@ pub use diff::{DiffInput, DiffHunk, DiffLine, DiffResult, DiffWordType, WordDiff
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test -p peri-widgets --lib -- diff::mod_test`
+Run: `cargo test -p cc-widgets --lib -- diff::mod_test`
 Expected: All 6 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/diff/ peri-widgets/src/lib.rs
+git add cc-widgets/src/diff/ cc-widgets/src/lib.rs
 git commit -m "feat(widgets): add diff computation module with types, compute_diff, and word-level diff"
 ```
 
 ---
 
-### Task 3: Diff rendering (`peri-widgets/src/diff/renderer.rs`)
+### Task 3: Diff rendering (`cc-widgets/src/diff/renderer.rs`)
 
 **Files:**
-- Create: `peri-widgets/src/diff/renderer.rs`
-- Create: `peri-widgets/src/diff/renderer_test.rs`
-- Modify: `peri-widgets/src/diff/mod.rs` (implement `render_diff` body, add `pub mod renderer`)
+- Create: `cc-widgets/src/diff/renderer.rs`
+- Create: `cc-widgets/src/diff/renderer_test.rs`
+- Modify: `cc-widgets/src/diff/mod.rs` (implement `render_diff` body, add `pub mod renderer`)
 
 - [ ] **Step 1: Write failing renderer tests**
 
-Create `peri-widgets/src/diff/renderer_test.rs`:
+Create `cc-widgets/src/diff/renderer_test.rs`:
 
 ```rust
 use ratatui::style::Color;
@@ -611,12 +611,12 @@ fn test_render_binary_file() {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p peri-widgets --lib -- diff::renderer_test 2>&1 | head -20`
+Run: `cargo test -p cc-widgets --lib -- diff::renderer_test 2>&1 | head -20`
 Expected: Compilation error — `render_diff_impl` not defined.
 
 - [ ] **Step 3: Implement renderer**
 
-Create `peri-widgets/src/diff/renderer.rs`:
+Create `cc-widgets/src/diff/renderer.rs`:
 
 ```rust
 use ratatui::{
@@ -810,7 +810,7 @@ mod tests {
 }
 ```
 
-Update `peri-widgets/src/diff/mod.rs` — add `pub mod renderer;` after the imports, and replace the `render_diff` stub:
+Update `cc-widgets/src/diff/mod.rs` — add `pub mod renderer;` after the imports, and replace the `render_diff` stub:
 
 ```rust
 pub mod renderer;
@@ -826,13 +826,13 @@ pub fn render_diff(input: &DiffInput, width: usize, theme: &dyn Theme) -> Vec<Li
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test -p peri-widgets --lib -- diff`
+Run: `cargo test -p cc-widgets --lib -- diff`
 Expected: All tests PASS (6 mod_test + 7 renderer_test = 13 total)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/diff/
+git add cc-widgets/src/diff/
 git commit -m "feat(widgets): add diff renderer with gutter, hunk headers, word-level highlighting"
 ```
 
@@ -841,11 +841,11 @@ git commit -m "feat(widgets): add diff renderer with gutter, hunk headers, word-
 ### Task 4: Add `diff_view` field to `MessageViewModel::ToolBlock`
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_view/mod.rs`
+- Modify: `cc-tui/src/ui/message_view/mod.rs`
 
 - [ ] **Step 1: Add field to ToolBlock variant**
 
-In `peri-tui/src/ui/message_view/mod.rs`, find the `ToolBlock` variant of `MessageViewModel` enum (around line 36-46) and add the `diff_view` field:
+In `cc-tui/src/ui/message_view/mod.rs`, find the `ToolBlock` variant of `MessageViewModel` enum (around line 36-46) and add the `diff_view` field:
 
 ```rust
     ToolBlock {
@@ -859,7 +859,7 @@ In `peri-tui/src/ui/message_view/mod.rs`, find the `ToolBlock` variant of `Messa
         collapsed: bool,
         color: Color,
         /// 内嵌 diff 视图（Write/Edit 工具执行成功后填充）
-        diff_view: Option<peri_widgets::DiffInput>,
+        diff_view: Option<cc_widgets::DiffInput>,
     },
 ```
 
@@ -931,22 +931,22 @@ Every place that constructs `MessageViewModel::ToolBlock { ... }` must now inclu
 
 Search for all `MessageViewModel::ToolBlock {` in the codebase and add `diff_view: None,` to each. Key locations:
 
-1. `peri-tui/src/ui/message_view/mod.rs` — `from_base_message_with_cwd()` (around line 544)
-2. `peri-tui/src/ui/message_view/mod.rs` — `tool_block_with_id()` (around line 662)
-3. `peri-tui/src/app/message_pipeline/transform.rs` — `build_tool_start_vm()` (around line 124)
-4. `peri-tui/src/app/message_pipeline/reconcile.rs` — completed tools loop (around line 179)
+1. `cc-tui/src/ui/message_view/mod.rs` — `from_base_message_with_cwd()` (around line 544)
+2. `cc-tui/src/ui/message_view/mod.rs` — `tool_block_with_id()` (around line 662)
+3. `cc-tui/src/app/message_pipeline/transform.rs` — `build_tool_start_vm()` (around line 124)
+4. `cc-tui/src/app/message_pipeline/reconcile.rs` — completed tools loop (around line 179)
 
 Each gets `diff_view: None,` added as the last field.
 
 - [ ] **Step 5: Verify build**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds (all ToolBlock construction sites updated)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/ui/message_view/mod.rs peri-tui/src/app/message_pipeline/
+git add cc-tui/src/ui/message_view/mod.rs cc-tui/src/app/message_pipeline/
 git commit -m "feat(tui): add diff_view field to ToolBlock MessageViewModel"
 ```
 
@@ -955,16 +955,16 @@ git commit -m "feat(tui): add diff_view field to ToolBlock MessageViewModel"
 ### Task 5: Construct `DiffInput` from tool input in pipeline
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/reconcile.rs`
-- Modify: `peri-tui/src/app/message_pipeline/transform.rs`
+- Modify: `cc-tui/src/app/message_pipeline/reconcile.rs`
+- Modify: `cc-tui/src/app/message_pipeline/transform.rs`
 
 - [ ] **Step 1: Add helper function to construct DiffInput**
 
-In `peri-tui/src/app/message_pipeline/reconcile.rs`, add a helper function at the top of the file (after imports):
+In `cc-tui/src/app/message_pipeline/reconcile.rs`, add a helper function at the top of the file (after imports):
 
 ```rust
 /// 从工具名和入参构造 DiffInput（仅 Write/Edit 工具）
-fn try_build_diff_input(name: &str, input: &serde_json::Value) -> Option<peri_widgets::DiffInput> {
+fn try_build_diff_input(name: &str, input: &serde_json::Value) -> Option<cc_widgets::DiffInput> {
     match name {
         "Edit" => {
             let old_string = input.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
@@ -973,7 +973,7 @@ fn try_build_diff_input(name: &str, input: &serde_json::Value) -> Option<peri_wi
             if old_string.is_empty() || file_path.is_empty() {
                 return None;
             }
-            Some(peri_widgets::DiffInput {
+            Some(cc_widgets::DiffInput {
                 file_path: file_path.to_string(),
                 old_content: old_string.to_string(),
                 new_content: new_string.to_string(),
@@ -990,7 +990,7 @@ fn try_build_diff_input(name: &str, input: &serde_json::Value) -> Option<peri_wi
             }
             // Write 工具无法获取旧内容，标记为 is_new_file
             // 如果文件已存在，TUI 不碰文件系统，降级为纯文本
-            Some(peri_widgets::DiffInput {
+            Some(cc_widgets::DiffInput {
                 file_path: file_path.to_string(),
                 old_content: String::new(),
                 new_content: content.to_string(),
@@ -1038,13 +1038,13 @@ In the same file, find the completed tools loop that builds `MessageViewModel::T
 
 - [ ] **Step 3: Verify build**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/reconcile.rs
+git add cc-tui/src/app/message_pipeline/reconcile.rs
 git commit -m "feat(tui): construct DiffInput from Write/Edit tool input in pipeline reconcile"
 ```
 
@@ -1053,11 +1053,11 @@ git commit -m "feat(tui): construct DiffInput from Write/Edit tool input in pipe
 ### Task 6: Render diff_view in ToolBlock display
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_render.rs`
+- Modify: `cc-tui/src/ui/message_render.rs`
 
 - [ ] **Step 1: Add diff rendering to ToolBlock branch**
 
-In `peri-tui/src/ui/message_render.rs`, find the `MessageViewModel::ToolBlock { ... }` match arm (around line 245). After the destructured fields, add `diff_view` to the pattern:
+In `cc-tui/src/ui/message_render.rs`, find the `MessageViewModel::ToolBlock { ... }` match arm (around line 245). After the destructured fields, add `diff_view` to the pattern:
 
 ```rust
         MessageViewModel::ToolBlock {
@@ -1078,7 +1078,7 @@ Then, at the end of this match arm, just before the closing `lines` return — a
 ```rust
             // 内嵌 diff 视图
             if let Some(ref diff_input) = diff_view {
-                let diff_lines = peri_widgets::diff::render_diff(
+                let diff_lines = cc_widgets::diff::render_diff(
                     diff_input,
                     80, // 使用默认宽度，实际渲染会由 ratatui 处理
                     &crate::ui::theme::DarkTheme,
@@ -1090,17 +1090,17 @@ Then, at the end of this match arm, just before the closing `lines` return — a
         }
 ```
 
-Note: `message_render.rs` uses `crate::ui::theme` module (not `peri_widgets::Theme`), which provides color constants. For `render_diff` we need a `Theme` implementor — `DarkTheme` from `peri_widgets` is the concrete type. If the TUI's theme system is different, adjust to use a theme instance that's accessible.
+Note: `message_render.rs` uses `crate::ui::theme` module (not `cc_widgets::Theme`), which provides color constants. For `render_diff` we need a `Theme` implementor — `DarkTheme` from `cc_widgets` is the concrete type. If the TUI's theme system is different, adjust to use a theme instance that's accessible.
 
 - [ ] **Step 2: Verify build and run**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/ui/message_render.rs
+git add cc-tui/src/ui/message_render.rs
 git commit -m "feat(tui): render inline diff view in ToolBlock for Write/Edit results"
 ```
 
@@ -1109,11 +1109,11 @@ git commit -m "feat(tui): render inline diff view in ToolBlock for Write/Edit re
 ### Task 7: Integration test — ToolStart/ToolEnd → diff display
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/message_pipeline_test.rs`
+- Modify: `cc-tui/src/app/message_pipeline/message_pipeline_test.rs`
 
 - [ ] **Step 1: Write integration test**
 
-Add a new test to `peri-tui/src/app/message_pipeline/message_pipeline_test.rs`:
+Add a new test to `cc-tui/src/app/message_pipeline/message_pipeline_test.rs`:
 
 ```rust
 #[test]
@@ -1247,13 +1247,13 @@ Note: These tests may require adapting to the actual API of `handle_state_snapsh
 
 - [ ] **Step 2: Run tests**
 
-Run: `cargo test -p peri-tui --lib -- message_pipeline::message_pipeline_test`
+Run: `cargo test -p cc-tui --lib -- message_pipeline::message_pipeline_test`
 Expected: All existing + 3 new tests PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/message_pipeline_test.rs
+git add cc-tui/src/app/message_pipeline/message_pipeline_test.rs
 git commit -m "test(tui): add integration tests for diff_view in Edit/Write ToolBlock"
 ```
 
@@ -1270,17 +1270,17 @@ Expected: All crates build successfully
 
 - [ ] **Step 2: Full test suite**
 
-Run: `cargo test -p peri-widgets -p peri-tui`
+Run: `cargo test -p cc-widgets -p cc-tui`
 Expected: All tests pass
 
 - [ ] **Step 3: Clippy check**
 
-Run: `cargo clippy -p peri-widgets -p peri-tui -- -D warnings 2>&1 | head -30`
+Run: `cargo clippy -p cc-widgets -p cc-tui -- -D warnings 2>&1 | head -30`
 Expected: No warnings (or only pre-existing ones)
 
 - [ ] **Step 4: Manual TUI test**
 
-Run: `cargo run -p peri-tui` then ask the agent to edit a file. Verify:
+Run: `cargo run -p cc-tui` then ask the agent to edit a file. Verify:
 - Edit tool result shows inline diff with green/red highlighting
 - Write tool result shows all-green "new file" diff
 - Other tools (Bash, Read) show no diff

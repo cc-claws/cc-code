@@ -6,7 +6,7 @@
 
 ## 问题描述
 
-Claude Code 中 Stop 钩子的 block 动作有特殊语义：将 reason 反馈给 Claude 让它继续工作（最多连续 8 次 block）。Peri 当前 Stop 钩子的 block 动作只是拒绝 agent 输出，不会让 agent 继续工作。
+参考实现 中 Stop 钩子的 block 动作有特殊语义：将 reason 反馈给模型让它继续工作（最多连续 8 次 block）。Peri 当前 Stop 钩子的 block 动作只是拒绝 agent 输出，不会让 agent 继续工作。
 
 ## 当前行为
 
@@ -20,10 +20,10 @@ Stop 钩子的返回值被丢弃，无论 hook 返回 Allow/Block/PreventContinu
 
 ## 预期行为
 
-| Hook 返回 | Claude Code 行为 | Peri 当前行为 |
+| Hook 返回 | 参考实现 行为 | Peri 当前行为 |
 |----------|-----------------|-------------|
 | Allow | 正常结束 | 正常结束 ✓ |
-| Block + reason | 将 reason 作为反馈注入，Claude 继续工作（最多连续 8 次） | 无效，正常结束 ✗ |
+| Block + reason | 将 reason 作为反馈注入，模型继续工作（最多连续 8 次） | 无效，正常结束 ✗ |
 | PreventContinuation | 停止 | 无效，正常结束 ✗ |
 
 ## 修复方向

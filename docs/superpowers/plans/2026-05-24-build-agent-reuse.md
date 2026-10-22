@@ -4,7 +4,7 @@
 
 **Goal:** 减少 `build_agent()` 每轮 ~68 万次瞬态 malloc/free，通过 session 级缓存复用 LLM 实例、工具集和无状态 Middleware，降低 arena 碎片化。
 
-**Architecture:** 在 `peri-acp/src/session/` 新增 `AgentPool` 结构体，持有 session 级可复用对象（LLM 实例、工具集、Middleware 链）。`execute_prompt()` 首次调用时填充池，后续调用从池中获取并更新 per-turn 字段（event_handler、cancel、compact_event_tx）。`ReActAgent::execute(&self, ...)` 已设计为 `&self`，无需重建 agent 即可跨 turn 复用。
+**Architecture:** 在 `cc-acp/src/session/` 新增 `AgentPool` 结构体，持有 session 级可复用对象（LLM 实例、工具集、Middleware 链）。`execute_prompt()` 首次调用时填充池，后续调用从池中获取并更新 per-turn 字段（event_handler、cancel、compact_event_tx）。`ReActAgent::execute(&self, ...)` 已设计为 `&self`，无需重建 agent 即可跨 turn 复用。
 
 **Tech Stack:** Rust, Arc 共享引用, parking_lot::RwLock, tokio mpsc channel
 
@@ -14,26 +14,26 @@
 
 | 文件 | 职责 | 变更类型 |
 |------|------|---------|
-| `peri-acp/src/session/agent_pool.rs` | **新建**：session 级可复用对象池 | Create |
-| `peri-acp/src/session/mod.rs` | 注册 agent_pool 模块 | Modify |
-| `peri-acp/src/session/executor.rs` | 从 pool 获取/更新 agent 替代每轮 build_agent | Modify |
-| `peri-acp/src/agent/builder.rs` | 拆分为 pool 初始化 + per-turn 更新两个阶段 | Modify |
-| `peri-agent/src/agent/executor/mod.rs` | 添加 `update_per_turn` 方法 | Modify |
-| `peri-middlewares/src/hitl/mod.rs` | `LlmAutoClassifier` 提取为独立可复用单元 | Modify |
-| `peri-middlewares/src/git_attribution.rs` | 添加 `reset()` 清理 `pending_old_content` | Modify |
-| `peri-middlewares/src/compact_middleware.rs` | 添加 `reset()` 清理 `micro_compact_done` 标志 | Modify |
-| `peri-tui/src/acp_server/prompt.rs` | 传递 `AgentPool` 到 executor | Modify |
-| `peri-tui/src/acp_server/mod.rs` | `SessionState` 持有 `AgentPool` | Modify |
+| `cc-acp/src/session/agent_pool.rs` | **新建**：session 级可复用对象池 | Create |
+| `cc-acp/src/session/mod.rs` | 注册 agent_pool 模块 | Modify |
+| `cc-acp/src/session/executor.rs` | 从 pool 获取/更新 agent 替代每轮 build_agent | Modify |
+| `cc-acp/src/agent/builder.rs` | 拆分为 pool 初始化 + per-turn 更新两个阶段 | Modify |
+| `cc-agent/src/agent/executor/mod.rs` | 添加 `update_per_turn` 方法 | Modify |
+| `cc-middlewares/src/hitl/mod.rs` | `LlmAutoClassifier` 提取为独立可复用单元 | Modify |
+| `cc-middlewares/src/git_attribution.rs` | 添加 `reset()` 清理 `pending_old_content` | Modify |
+| `cc-middlewares/src/compact_middleware.rs` | 添加 `reset()` 清理 `micro_compact_done` 标志 | Modify |
+| `cc-tui/src/acp_server/prompt.rs` | 传递 `AgentPool` 到 executor | Modify |
+| `cc-tui/src/acp_server/mod.rs` | `SessionState` 持有 `AgentPool` | Modify |
 
 ---
 
 ## Task 1: LLM 实例跨 Prompt 复用（最大收益）
 
 **Files:**
-- Create: `peri-acp/src/session/agent_pool.rs`
-- Modify: `peri-acp/src/session/mod.rs`
-- Modify: `peri-acp/src/session/executor.rs`
-- Test: `peri-acp/src/session/agent_pool_test.rs`
+- Create: `cc-acp/src/session/agent_pool.rs`
+- Modify: `cc-acp/src/session/mod.rs`
+- Modify: `cc-acp/src/session/executor.rs`
+- Test: `cc-acp/src/session/agent_pool_test.rs`
 
 ### 背景分析
 
@@ -47,7 +47,7 @@
 - [ ] **Step 1: 创建 agent_pool.rs 结构体**
 
 ```rust
-// peri-acp/src/session/agent_pool.rs
+// cc-acp/src/session/agent_pool.rs
 //! Session-scoped agent pool for reusing heavy objects across prompts.
 //!
 //! Reduces transient allocations from ~680k mallocs/turn to near-zero
@@ -55,13 +55,13 @@
 
 use std::sync::Arc;
 
-use peri_agent::agent::events::AgentEventHandler;
-use peri_agent::agent::token::ContextBudget;
-use peri_agent::agent::{AgentCancellationToken, ReActAgent, State};
-use peri_agent::agent::compact::CompactConfig;
-use peri_agent::llm::BaseModel;
-use peri_agent::messages::BaseMessage;
-use peri_middlewares::prelude::*;
+use cc_agent::agent::events::AgentEventHandler;
+use cc_agent::agent::token::ContextBudget;
+use cc_agent::agent::{AgentCancellationToken, ReActAgent, State};
+use cc_agent::agent::compact::CompactConfig;
+use cc_agent::llm::BaseModel;
+use cc_agent::messages::BaseMessage;
+use cc_middlewares::prelude::*;
 
 /// Session-scoped reusable agent components.
 ///
@@ -114,7 +114,7 @@ impl AgentPool {
 
 - [ ] **Step 2: 在 session/mod.rs 中注册模块**
 
-在 `peri-acp/src/session/mod.rs` 的模块声明中添加：
+在 `cc-acp/src/session/mod.rs` 的模块声明中添加：
 
 ```rust
 pub mod agent_pool;
@@ -122,20 +122,20 @@ pub mod agent_pool;
 
 - [ ] **Step 3: 将 AgentPool 注入 SessionState**
 
-修改 `peri-tui/src/acp_server/mod.rs` 中 `SessionState` 添加：
+修改 `cc-tui/src/acp_server/mod.rs` 中 `SessionState` 添加：
 
 ```rust
 pub struct SessionState {
     // ... existing fields ...
     /// Session-scoped agent pool for reusing heavy objects.
-    pub agent_pool: peri_acp::session::agent_pool::AgentPool,
+    pub agent_pool: cc_acp::session::agent_pool::AgentPool,
 }
 ```
 
 在 `SessionState::new()` 中初始化：
 
 ```rust
-agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
+agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
 ```
 
 - [ ] **Step 4: 修改 executor.rs 签名，接受 pool 参数**
@@ -215,7 +215,7 @@ pub fn build_agent(cfg: AcpAgentConfig, cached_llm: Option<&CachedLlmInstances>)
 - [ ] **Step 6: 编写测试**
 
 ```rust
-// peri-acp/src/session/agent_pool_test.rs
+// cc-acp/src/session/agent_pool_test.rs
 use super::agent_pool::AgentPool;
 
 #[test]
@@ -250,14 +250,14 @@ fn test_pool_reset() {
 
 - [ ] **Step 7: 运行测试确认通过**
 
-Run: `cargo test -p peri-acp --lib -- agent_pool`
+Run: `cargo test -p cc-acp --lib -- agent_pool`
 Expected: 4 tests PASS
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-acp/src/session/agent_pool.rs peri-acp/src/session/agent_pool_test.rs peri-acp/src/session/mod.rs
-git commit -m "feat(peri-acp): add AgentPool for session-scoped LLM instance reuse"
+git add cc-acp/src/session/agent_pool.rs cc-acp/src/session/agent_pool_test.rs cc-acp/src/session/mod.rs
+git commit -m "feat(cc-acp): add AgentPool for session-scoped LLM instance reuse"
 ```
 
 ---
@@ -265,8 +265,8 @@ git commit -m "feat(peri-acp): add AgentPool for session-scoped LLM instance reu
 ## Task 2: ReActAgent per-turn 更新方法
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/mod.rs`
-- Test: `peri-agent/src/agent/executor/mod_test.rs`
+- Modify: `cc-agent/src/agent/executor/mod.rs`
+- Test: `cc-agent/src/agent/executor/mod_test.rs`
 
 ### 背景分析
 
@@ -279,7 +279,7 @@ git commit -m "feat(peri-acp): add AgentPool for session-scoped LLM instance reu
 
 - [ ] **Step 1: 添加 update 方法到 ReActAgent**
 
-在 `peri-agent/src/agent/executor/mod.rs` 的 `impl<L: ReactLLM, S: State> ReActAgent<L, S>` 中添加：
+在 `cc-agent/src/agent/executor/mod.rs` 的 `impl<L: ReactLLM, S: State> ReActAgent<L, S>` 中添加：
 
 ```rust
 /// Update event handler for a new turn.
@@ -341,14 +341,14 @@ async fn test_react_agent_update_system_prompt() {
 
 - [ ] **Step 3: 运行测试**
 
-Run: `cargo test -p peri-agent --lib -- agent::executor::tests::test_react_agent_update`
+Run: `cargo test -p cc-agent --lib -- agent::executor::tests::test_react_agent_update`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/mod.rs peri-agent/src/agent/executor/mod_test.rs
-git commit -m "feat(peri-agent): add per-turn update methods to ReActAgent"
+git add cc-agent/src/agent/executor/mod.rs cc-agent/src/agent/executor/mod_test.rs
+git commit -m "feat(cc-agent): add per-turn update methods to ReActAgent"
 ```
 
 ---
@@ -356,8 +356,8 @@ git commit -m "feat(peri-agent): add per-turn update methods to ReActAgent"
 ## Task 3: Middleware reset 方法（有状态 Middleware）
 
 **Files:**
-- Modify: `peri-middlewares/src/git_attribution.rs`
-- Modify: `peri-middlewares/src/compact_middleware.rs`
+- Modify: `cc-middlewares/src/git_attribution.rs`
+- Modify: `cc-middlewares/src/compact_middleware.rs`
 - Test: 对应 test 文件
 
 ### 背景分析
@@ -370,7 +370,7 @@ git commit -m "feat(peri-agent): add per-turn update methods to ReActAgent"
 - [ ] **Step 1: 为 GitAttributionMiddleware 添加 reset()**
 
 ```rust
-// peri-middlewares/src/git_attribution.rs
+// cc-middlewares/src/git_attribution.rs
 impl GitAttributionMiddleware {
     /// Clear per-turn state for reuse across prompts.
     pub fn reset(&mut self) {
@@ -396,7 +396,7 @@ fn test_git_attribution_reset_clears_pending() {
 - [ ] **Step 2: 为 CompactMiddleware 添加 reset()**
 
 ```rust
-// peri-middlewares/src/compact_middleware.rs
+// cc-middlewares/src/compact_middleware.rs
 impl CompactMiddleware {
     /// Reset per-turn state for reuse across prompts.
     pub fn reset(&mut self) {
@@ -422,14 +422,14 @@ fn test_compact_middleware_resets_micro_compact_flag() {
 
 - [ ] **Step 3: 运行测试**
 
-Run: `cargo test -p peri-middlewares --lib -- git_attribution compact_middleware`
+Run: `cargo test -p cc-middlewares --lib -- git_attribution compact_middleware`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/git_attribution.rs peri-middlewares/src/compact_middleware.rs
-git commit -m "feat(peri-middlewares): add reset() to stateful middleware for cross-turn reuse"
+git add cc-middlewares/src/git_attribution.rs cc-middlewares/src/compact_middleware.rs
+git commit -m "feat(cc-middlewares): add reset() to stateful middleware for cross-turn reuse"
 ```
 
 ---
@@ -437,11 +437,11 @@ git commit -m "feat(peri-middlewares): add reset() to stateful middleware for cr
 ## Task 4: AgentPool 完整实现 — 缓存 ReActAgent
 
 **Files:**
-- Modify: `peri-acp/src/session/agent_pool.rs`
-- Modify: `peri-acp/src/session/executor.rs`
-- Modify: `peri-acp/src/agent/builder.rs`
-- Modify: `peri-tui/src/acp_server/prompt.rs`
-- Test: `peri-acp/src/session/agent_pool_test.rs`
+- Modify: `cc-acp/src/session/agent_pool.rs`
+- Modify: `cc-acp/src/session/executor.rs`
+- Modify: `cc-acp/src/agent/builder.rs`
+- Modify: `cc-tui/src/acp_server/prompt.rs`
+- Test: `cc-acp/src/session/agent_pool_test.rs`
 
 ### 背景分析
 
@@ -458,9 +458,9 @@ AgentPool 将持有：
 - [ ] **Step 1: 完善 AgentPool 结构**
 
 ```rust
-// peri-acp/src/session/agent_pool.rs
+// cc-acp/src/session/agent_pool.rs
 use std::sync::Arc;
-use peri_agent::llm::BaseModel;
+use cc_agent::llm::BaseModel;
 
 /// Session-scoped cached LLM instances.
 pub struct CachedLlmInstances {
@@ -601,7 +601,7 @@ pub async fn execute_prompt(
 
 - [ ] **Step 4: 修改 prompt.rs 传递 pool**
 
-在 `peri-tui/src/acp_server/prompt.rs` 的 `execute_prompt()` 中：
+在 `cc-tui/src/acp_server/prompt.rs` 的 `execute_prompt()` 中：
 
 ```rust
     // 从 SessionState 获取 AgentPool
@@ -631,7 +631,7 @@ pub async fn execute_prompt(
 
 - [ ] **Step 5: 处理 model change 的 cache invalidation**
 
-在 `session/set_model` handler 中（`peri-tui/src/acp_server/requests.rs`）：
+在 `session/set_model` handler 中（`cc-tui/src/acp_server/requests.rs`）：
 
 ```rust
 // 在处理 session/set_model 时
@@ -691,14 +691,14 @@ async fn test_agent_pool_invalidates_on_model_change() {
 
 - [ ] **Step 7: 运行全量测试**
 
-Run: `cargo test -p peri-acp --lib`
+Run: `cargo test -p cc-acp --lib`
 Expected: All tests PASS
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-acp/src/session/agent_pool.rs peri-acp/src/session/executor.rs peri-acp/src/agent/builder.rs peri-tui/src/acp_server/prompt.rs peri-tui/src/acp_server/mod.rs
-git commit -m "feat(peri-acp): integrate AgentPool for cross-prompt LLM instance reuse
+git add cc-acp/src/session/agent_pool.rs cc-acp/src/session/executor.rs cc-acp/src/agent/builder.rs cc-tui/src/acp_server/prompt.rs cc-tui/src/acp_server/mod.rs
+git commit -m "feat(cc-acp): integrate AgentPool for cross-prompt LLM instance reuse
 
 Reduces ~680k transient mallocs/turn by caching LLM instances
 (reqwest Client + TLS session) across prompts within a session.
@@ -710,9 +710,9 @@ Invalidated on model change via session/set_model."
 ## Task 5: 工具集跨 Prompt 缓存
 
 **Files:**
-- Modify: `peri-acp/src/session/agent_pool.rs`
-- Modify: `peri-acp/src/agent/builder.rs`
-- Test: `peri-acp/src/session/agent_pool_test.rs`
+- Modify: `cc-acp/src/session/agent_pool.rs`
+- Modify: `cc-acp/src/agent/builder.rs`
+- Test: `cc-acp/src/session/agent_pool_test.rs`
 
 ### 背景分析
 
@@ -734,17 +734,17 @@ pub struct AgentPool {
 }
 
 pub struct CachedTools {
-    pub parent_tools: Vec<Box<dyn peri_agent::tools::BaseTool>>,
+    pub parent_tools: Vec<Box<dyn cc_agent::tools::BaseTool>>,
     pub mcp_pool_fingerprint: Option<String>,  // None = no MCP
 }
 
 impl AgentPool {
-    pub fn has_valid_tools(&self, cwd: &str, mcp_pool: Option<&Arc<peri_middlewares::mcp::McpClientPool>>) -> bool {
+    pub fn has_valid_tools(&self, cwd: &str, mcp_pool: Option<&Arc<cc_middlewares::mcp::McpClientPool>>) -> bool {
         let cwd_fp = cwd.to_string();
         self.cached_tools.is_some() && self.cwd_fingerprint == cwd_fp
     }
 
-    pub fn store_tools(&mut self, cwd: &str, tools: Vec<Box<dyn peri_agent::tools::BaseTool>>) {
+    pub fn store_tools(&mut self, cwd: &str, tools: Vec<Box<dyn cc_agent::tools::BaseTool>>) {
         self.cwd_fingerprint = cwd.to_string();
         self.cached_tools = Some(CachedTools {
             parent_tools: tools,
@@ -766,16 +766,16 @@ let parent_tools = if let Some(cached) = cached_tools {
     // 复用缓存的工具集（cwd 不变时）
     cached.parent_tools.iter().map(|t| t.box_clone()).collect()
 } else {
-    let mut tools: Vec<Box<dyn peri_agent::tools::BaseTool>> =
+    let mut tools: Vec<Box<dyn cc_agent::tools::BaseTool>> =
         FilesystemMiddleware::build_tools(&cwd);
     tools.extend(TerminalMiddleware::build_tools(&cwd));
     if let Some(ref pool) = mcp_pool {
-        let mcp_tools = peri_middlewares::mcp::build_tool_bridges(pool);
+        let mcp_tools = cc_middlewares::mcp::build_tool_bridges(pool);
         for tool in mcp_tools {
             tools.push(tool);
         }
         if pool.has_resources() {
-            tools.push(Box::new(peri_middlewares::mcp::McpResourceTool::new(
+            tools.push(Box::new(cc_middlewares::mcp::McpResourceTool::new(
                 Arc::clone(pool),
             )));
         }
@@ -793,14 +793,14 @@ let parent_tools = if let Some(cached) = cached_tools {
 
 - [ ] **Step 3: 运行测试**
 
-Run: `cargo test -p peri-acp --lib -- agent_pool`
+Run: `cargo test -p cc-acp --lib -- agent_pool`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/agent_pool.rs peri-acp/src/agent/builder.rs
-git commit -m "feat(peri-acp): cache tool set in AgentPool for cwd-stable sessions"
+git add cc-acp/src/session/agent_pool.rs cc-acp/src/agent/builder.rs
+git commit -m "feat(cc-acp): cache tool set in AgentPool for cwd-stable sessions"
 ```
 
 ---
@@ -808,7 +808,7 @@ git commit -m "feat(peri-acp): cache tool set in AgentPool for cwd-stable sessio
 ## Task 6: 模型切换时 pool invalidation 联动
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/requests.rs`
+- Modify: `cc-tui/src/acp_server/requests.rs`
 
 ### 背景分析
 
@@ -817,7 +817,7 @@ git commit -m "feat(peri-acp): cache tool set in AgentPool for cwd-stable sessio
 
 - [ ] **Step 1: 在 set_model handler 中添加 invalidation**
 
-在 `peri-tui/src/acp_server/requests.rs` 中处理 `session/set_model` 和 `session/set_config_option` 的分支中：
+在 `cc-tui/src/acp_server/requests.rs` 中处理 `session/set_model` 和 `session/set_config_option` 的分支中：
 
 ```rust
 // 在更新 provider 后
@@ -831,14 +831,14 @@ git commit -m "feat(peri-acp): cache tool set in AgentPool for cwd-stable sessio
 
 - [ ] **Step 2: 运行全量测试**
 
-Run: `cargo test -p peri-tui --lib`
+Run: `cargo test -p cc-tui --lib`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/requests.rs
-git commit -m "feat(peri-tui): invalidate AgentPool on model change"
+git add cc-tui/src/acp_server/requests.rs
+git commit -m "feat(cc-tui): invalidate AgentPool on model change"
 ```
 
 ---
@@ -867,7 +867,7 @@ Expected: 无新 warning
 
 - [ ] **Step 4: 手动验证 — 启动 TUI 执行多轮对话**
 
-Run: `cargo run -p peri-tui`
+Run: `cargo run -p cc-tui`
 验证：
 1. 第一轮正常执行
 2. 第二轮执行（应复用 cached LLM）

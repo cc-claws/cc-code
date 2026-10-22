@@ -7,9 +7,9 @@
 
 ## 问题描述
 
-当主 agent 并行 dispatching 或顺序调用多个 SubAgent 时，每个 SubAgent 都渲染为独立的 `SubAgentGroup` 块（展开显示内部工具调用和消息），占满大量屏幕空间。用户期望类似 Claude Code 的紧凑树形汇总视图——多个 agent 合并为一个可折叠的树，默认折叠，每个 agent 只占一行摘要。
+当主 agent 并行 dispatching 或顺序调用多个 SubAgent 时，每个 SubAgent 都渲染为独立的 `SubAgentGroup` 块（展开显示内部工具调用和消息），占满大量屏幕空间。用户期望类似 参考实现 的紧凑树形汇总视图——多个 agent 合并为一个可折叠的树，默认折叠，每个 agent 只占一行摘要。
 
-### 期望效果（参照 Claude Code）
+### 期望效果（参照 参考实现）
 
 ```
 ⏺ 9 agents finished (ctrl+o to expand)

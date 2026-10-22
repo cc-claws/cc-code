@@ -6,7 +6,7 @@
 
 **Architecture:** Build the system prompt once at `session/new`, store frozen values in `SessionState`, and pass them through the existing executor/builder pipeline. Middlewares (`AgentsMdMiddleware`, `SkillsMiddleware`) get frozen content via constructor — no new lifecycle hooks needed.
 
-**Tech Stack:** Rust, tokio async, existing peri-agent/peri-acp/peri-middlewares crates.
+**Tech Stack:** Rust, tokio async, existing cc-agent/cc-acp/cc-middlewares crates.
 
 ---
 
@@ -14,14 +14,14 @@
 
 | File | Change | Responsibility |
 |------|--------|---------------|
-| `peri-acp/src/session/executor.rs` | Modify | Add `FrozenSessionData` struct; accept it in `execute_prompt`; skip prompt rebuild |
-| `peri-acp/src/agent/builder.rs` | Modify | `AcpAgentConfig` gets frozen fields; pass to middlewares and `system_builder` |
-| `peri-tui/src/acp_server/mod.rs` | Modify | `SessionState` gets frozen fields |
-| `peri-tui/src/acp_server/requests.rs` | Modify | `session/new` handler freezes values |
-| `peri-tui/src/acp_server/prompt.rs` | Modify | Extract frozen values from sessions, pass to executor |
-| `peri-middlewares/src/agents_md/mod.rs` | Modify | Accept frozen content via `with_frozen_content()`; skip disk read when frozen |
-| `peri-middlewares/src/skills/mod.rs` | Modify | Accept frozen summary via `with_frozen_summary()`; skip scan when frozen |
-| `peri-acp/src/prompt/mod.rs` | Modify | `build_system_prompt` accepts optional frozen date override |
+| `cc-acp/src/session/executor.rs` | Modify | Add `FrozenSessionData` struct; accept it in `execute_prompt`; skip prompt rebuild |
+| `cc-acp/src/agent/builder.rs` | Modify | `AcpAgentConfig` gets frozen fields; pass to middlewares and `system_builder` |
+| `cc-tui/src/acp_server/mod.rs` | Modify | `SessionState` gets frozen fields |
+| `cc-tui/src/acp_server/requests.rs` | Modify | `session/new` handler freezes values |
+| `cc-tui/src/acp_server/prompt.rs` | Modify | Extract frozen values from sessions, pass to executor |
+| `cc-middlewares/src/agents_md/mod.rs` | Modify | Accept frozen content via `with_frozen_content()`; skip disk read when frozen |
+| `cc-middlewares/src/skills/mod.rs` | Modify | Accept frozen summary via `with_frozen_summary()`; skip scan when frozen |
+| `cc-acp/src/prompt/mod.rs` | Modify | `build_system_prompt` accepts optional frozen date override |
 | `CLAUDE.md` | Modify | Update system prompt stability docs and data flow |
 
 ---
@@ -29,7 +29,7 @@
 ### Task 1: Add `FrozenSessionData` struct to executor
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs:1-26` (add struct after imports)
+- Modify: `cc-acp/src/session/executor.rs:1-26` (add struct after imports)
 
 - [ ] **Step 1: Add `FrozenSessionData` struct**
 
@@ -121,7 +121,7 @@ Add the new fields to the `AcpAgentConfig` construction at line 143-177:
 - [ ] **Step 5: Build and verify**
 
 ```bash
-cargo build -p peri-acp 2>&1 | head -30
+cargo build -p cc-acp 2>&1 | head -30
 ```
 
 Expected: COMPILE ERRORS (unknown fields in AcpAgentConfig — will fix in Task 2)
@@ -131,12 +131,12 @@ Expected: COMPILE ERRORS (unknown fields in AcpAgentConfig — will fix in Task 
 ### Task 2: Add frozen fields to `AcpAgentConfig` and wire into middlewares
 
 **Files:**
-- Modify: `peri-acp/src/agent/builder.rs:36-69` (AcpAgentConfig struct)
-- Modify: `peri-acp/src/agent/builder.rs:82-118` (build_agent destructuring)
-- Modify: `peri-acp/src/agent/builder.rs:254-259` (Git Attribution)
-- Modify: `peri-acp/src/agent/builder.rs:270-278` (AgentsMdMiddleware construction)
-- Modify: `peri-acp/src/agent/builder.rs:274-276` (SkillsMiddleware construction)
-- Modify: `peri-acp/src/agent/builder.rs:200-209` (system_builder closure)
+- Modify: `cc-acp/src/agent/builder.rs:36-69` (AcpAgentConfig struct)
+- Modify: `cc-acp/src/agent/builder.rs:82-118` (build_agent destructuring)
+- Modify: `cc-acp/src/agent/builder.rs:254-259` (Git Attribution)
+- Modify: `cc-acp/src/agent/builder.rs:270-278` (AgentsMdMiddleware construction)
+- Modify: `cc-acp/src/agent/builder.rs:274-276` (SkillsMiddleware construction)
+- Modify: `cc-acp/src/agent/builder.rs:200-209` (system_builder closure)
 
 - [ ] **Step 1: Add frozen fields to `AcpAgentConfig` struct**
 
@@ -240,7 +240,7 @@ With:
 - [ ] **Step 6: Build and verify**
 
 ```bash
-cargo build -p peri-acp 2>&1 | head -40
+cargo build -p cc-acp 2>&1 | head -40
 ```
 
 Expected: COMPILE ERRORS (AgentsMdMiddleware/SkillsMiddleware missing `with_frozen_*` methods, `build_system_prompt` missing `frozen_date` param — will fix in Tasks 3/4/5)
@@ -250,7 +250,7 @@ Expected: COMPILE ERRORS (AgentsMdMiddleware/SkillsMiddleware missing `with_froz
 ### Task 3: Add `frozen_date` parameter to `build_system_prompt`
 
 **Files:**
-- Modify: `peri-acp/src/prompt/mod.rs:90-197`
+- Modify: `cc-acp/src/prompt/mod.rs:90-197`
 
 - [ ] **Step 1: Add `frozen_date` parameter to function signature**
 
@@ -317,7 +317,7 @@ After `PromptEnv::detect` (line 50-63), add:
 
 - [ ] **Step 4: Update test calls to `build_system_prompt`**
 
-In `peri-acp/src/prompt/prompt_test.rs`, update all calls to add `None` as the last argument. Find-replace pattern:
+In `cc-acp/src/prompt/prompt_test.rs`, update all calls to add `None` as the last argument. Find-replace pattern:
 
 Old: `build_system_prompt(overrides, cwd, features, &[])`  
 New: `build_system_prompt(overrides, cwd, features, &[], None)`
@@ -327,7 +327,7 @@ Also update `build_system_prompt(None, "/tmp", PromptFeatures::none(), &[])` →
 - [ ] **Step 5: Verify tests pass**
 
 ```bash
-cargo test -p peri-acp --lib -- prompt_test 2>&1 | tail -20
+cargo test -p cc-acp --lib -- prompt_test 2>&1 | tail -20
 ```
 
 Expected: All prompt tests PASS.
@@ -337,7 +337,7 @@ Expected: All prompt tests PASS.
 ### Task 4: Add `with_frozen_content` to `AgentsMdMiddleware`
 
 **Files:**
-- Modify: `peri-middlewares/src/agents_md/mod.rs:24-79`
+- Modify: `cc-middlewares/src/agents_md/mod.rs:24-79`
 
 - [ ] **Step 1: Add frozen content fields to struct**
 
@@ -406,7 +406,7 @@ At the start of `before_agent` body (line 144), before any disk I/O, add:
 - [ ] **Step 5: Verify tests pass**
 
 ```bash
-cargo test -p peri-middlewares --lib -- agents_md 2>&1 | tail -20
+cargo test -p cc-middlewares --lib -- agents_md 2>&1 | tail -20
 ```
 
 Expected: All agents_md tests PASS.
@@ -416,14 +416,14 @@ Expected: All agents_md tests PASS.
 ### Task 5: Add `with_frozen_summary` to `SkillsMiddleware`
 
 **Files:**
-- Modify: `peri-middlewares/src/skills/mod.rs:135-192`
+- Modify: `cc-middlewares/src/skills/mod.rs:135-192`
 
 - [ ] **Step 1: Read the SkillsMiddleware struct**
 
 Read the current struct definition:
 
 ```bash
-grep -n 'pub struct SkillsMiddleware' peri-middlewares/src/skills/mod.rs
+grep -n 'pub struct SkillsMiddleware' cc-middlewares/src/skills/mod.rs
 ```
 
 - [ ] **Step 2: Add frozen summary field to struct**
@@ -469,7 +469,7 @@ At the start of `before_agent`, before the `resolve_dirs` + `list_skills` call:
 - [ ] **Step 6: Verify tests pass**
 
 ```bash
-cargo test -p peri-middlewares --lib -- skills 2>&1 | tail -20
+cargo test -p cc-middlewares --lib -- skills 2>&1 | tail -20
 ```
 
 Expected: All skills tests PASS.
@@ -479,8 +479,8 @@ Expected: All skills tests PASS.
 ### Task 6: Add frozen fields to `SessionState` and freeze at `session/new`
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/mod.rs:39-46` (SessionState struct)
-- Modify: `peri-tui/src/acp_server/requests.rs:60-102` (session/new handler)
+- Modify: `cc-tui/src/acp_server/mod.rs:39-46` (SessionState struct)
+- Modify: `cc-tui/src/acp_server/requests.rs:60-102` (session/new handler)
 
 - [ ] **Step 1: Add frozen fields to `SessionState`**
 
@@ -513,7 +513,7 @@ After line 82 (the `sessions.insert(...)`) and before line 83 (`info!(...)`):
             
             // Read CLAUDE.md content (resolve @import)
             let (frozen_claude_md, frozen_claude_local_md) = {
-                let agents_md = peri_middlewares::AgentsMdMiddleware::new();
+                let agents_md = cc_middlewares::AgentsMdMiddleware::new();
                 // We only need the file content, not the middleware instance.
                 // Reuse AgentsMdMiddleware's file-finding logic:
                 let cwd_str = cwd.clone();
@@ -533,7 +533,7 @@ After line 82 (the `sessions.insert(...)`) and before line 83 (`info!(...)`):
                         {
                             let dir = path.parent().unwrap_or(std::path::Path::new("."));
                             let mut visited = std::collections::HashSet::new();
-                            peri_middlewares::agents_md::resolve_imports(
+                            cc_middlewares::agents_md::resolve_imports(
                                 &content, dir, 3, &mut visited,
                             )
                         } else {
@@ -556,7 +556,7 @@ After line 82 (the `sessions.insert(...)`) and before line 83 (`info!(...)`):
             // Scan skills
             let frozen_skill_summary = {
                 let skill_dirs = SkillsMiddleware::resolve_dirs_static(&cwd, &cfg.plugin_skill_dirs);
-                let skills = peri_middlewares::skills::list_skills(&skill_dirs);
+                let skills = cc_middlewares::skills::list_skills(&skill_dirs);
                 if skills.is_empty() {
                     None
                 } else {
@@ -565,8 +565,8 @@ After line 82 (the `sessions.insert(...)`) and before line 83 (`info!(...)`):
             };
             
             // Build system prompt once
-            let features = peri_acp::prompt::PromptFeatures::detect();
-            let system_prompt = peri_acp::prompt::build_system_prompt(
+            let features = cc_acp::prompt::PromptFeatures::detect();
+            let system_prompt = cc_acp::prompt::build_system_prompt(
                 None, &cwd, features, &cfg.plugin_agent_dirs, Some(&frozen_date),
             );
             
@@ -594,7 +594,7 @@ Let me revise the plan accordingly.
 
 - [ ] **Step 2 (revised): Add public `read_frozen_content` to `AgentsMdMiddleware`**
 
-In Task 4's file (`peri-middlewares/src/agents_md/mod.rs`), add:
+In Task 4's file (`cc-middlewares/src/agents_md/mod.rs`), add:
 
 ```rust
     /// 一次性读取并冻结 CLAUDE.md 内容（解析 @import）。
@@ -644,7 +644,7 @@ And make `resolve_imports` `pub(crate)` (currently `fn resolve_imports` → `pub
 
 - [ ] **Step 2b (revised): Add public `build_frozen_summary` to `SkillsMiddleware`**
 
-In Task 5's file (`peri-middlewares/src/skills/mod.rs`), add:
+In Task 5's file (`cc-middlewares/src/skills/mod.rs`), add:
 
 ```rust
     /// 一次性扫描并构建冻结的 skills 摘要。
@@ -690,15 +690,15 @@ Now the session/new handler simply calls:
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
             
             let (frozen_claude_md, frozen_claude_local_md) =
-                peri_middlewares::AgentsMdMiddleware::read_frozen_content(&cwd);
+                cc_middlewares::AgentsMdMiddleware::read_frozen_content(&cwd);
             
             let frozen_skill_summary =
-                peri_middlewares::SkillsMiddleware::build_frozen_summary(
+                cc_middlewares::SkillsMiddleware::build_frozen_summary(
                     &cwd, &cfg.plugin_skill_dirs,
                 );
             
-            let features = peri_acp::prompt::PromptFeatures::detect();
-            let system_prompt = peri_acp::prompt::build_system_prompt(
+            let features = cc_acp::prompt::PromptFeatures::detect();
+            let system_prompt = cc_acp::prompt::build_system_prompt(
                 None, &cwd, features, &cfg.plugin_agent_dirs, Some(&frozen_date),
             );
 ```
@@ -708,7 +708,7 @@ And then assign to session state.
 - [ ] **Step 3: Verify compilation**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -20
+cargo build -p cc-tui 2>&1 | tail -20
 ```
 
 Expected: COMPILE ERRORS (prompt.rs `execute_prompt` call missing `frozen` param — will fix in Task 7)
@@ -718,7 +718,7 @@ Expected: COMPILE ERRORS (prompt.rs `execute_prompt` call missing `frozen` param
 ### Task 7: Wire frozen data through TUI prompt handler
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/prompt.rs:28-142`
+- Modify: `cc-tui/src/acp_server/prompt.rs:28-142`
 
 - [ ] **Step 1: Extract frozen fields from session**
 
@@ -780,7 +780,7 @@ In the `executor::execute_prompt` call (line 93-113), add `frozen` after `conten
 - [ ] **Step 4: Verify compilation**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -20
+cargo build -p cc-tui 2>&1 | tail -20
 ```
 
 Expected: SUCCESS or minor warnings only.
@@ -790,7 +790,7 @@ Expected: SUCCESS or minor warnings only.
 ### Task 8: Update `SessionState` initialization for frozen default
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/requests.rs:73-82` (session state creation)
+- Modify: `cc-tui/src/acp_server/requests.rs:73-82` (session state creation)
 
 - [ ] **Step 1: Initialize frozen fields as `None` in session creation**
 
@@ -817,7 +817,7 @@ Update the `SessionState` construction in `session/new` handler (line 73-82):
 - [ ] **Step 2: Build and verify**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -10
+cargo build -p cc-tui 2>&1 | tail -10
 ```
 
 Expected: SUCCESS.
@@ -840,8 +840,8 @@ Expected: All existing tests PASS.
 - [ ] **Step 2: Run specific affected crate tests**
 
 ```bash
-cargo test -p peri-acp --lib 2>&1 | tail -15
-cargo test -p peri-middlewares --lib 2>&1 | tail -15
+cargo test -p cc-acp --lib 2>&1 | tail -15
+cargo test -p cc-middlewares --lib 2>&1 | tail -15
 ```
 
 Expected: All PASS.
@@ -868,7 +868,7 @@ Replace lines 65 (the system prompt description paragraph) with frozen-aware doc
 ```markdown
 **系统提示词稳定性（第一优先级）**：会话开始后，系统提示词必须完全稳定、不可变更。`session/new` 时一次性构建完整 system prompt 字符串、冻结日期、读取 CLAUDE.md 内容并解析 `@import`、扫描 skills 摘要，存入 `SessionState` 作为 frozen data。后续所有 `session/prompt` 轮次直接使用 frozen 值，不再重建。唯一例外是 SubAgent 通过 `system_builder` 闭包调用 `build_system_prompt` 时传入 frozen_date 确保日期稳定。
 
-**系统提示词**：`build_system_prompt(overrides, cwd, features, extra_agent_dirs, frozen_date)` 合成。`session/new` 时调用一次，传入 `Some(frozen_date)` 冻结日期和 `is_git_repo`。后续轮次不使用此函数重建，直接使用 `SessionState.frozen_system_prompt`。段落文件位于 `peri-tui/prompts/sections/`（共 11 个：01-07 + 10-13），`peri-acp` 通过 `concat!(env!("CARGO_MANIFEST_DIR"), "/../peri-tui/prompts/sections/")` 交叉引用。`PromptFeatures` 控制条件段落注入。静态段落（01-06）与动态段落（07_env + feature-gated 10-13）通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔。
+**系统提示词**：`build_system_prompt(overrides, cwd, features, extra_agent_dirs, frozen_date)` 合成。`session/new` 时调用一次，传入 `Some(frozen_date)` 冻结日期和 `is_git_repo`。后续轮次不使用此函数重建，直接使用 `SessionState.frozen_system_prompt`。段落文件位于 `cc-tui/prompts/sections/`（共 11 个：01-07 + 10-13），`cc-acp` 通过 `concat!(env!("CARGO_MANIFEST_DIR"), "/../cc-tui/prompts/sections/")` 交叉引用。`PromptFeatures` 控制条件段落注入。静态段落（01-06）与动态段落（07_env + feature-gated 10-13）通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔。
 ```
 
 - [ ] **Step 2: Update data flow section**

@@ -13,27 +13,27 @@
 ### Task 1: 创建子文件并重新导出
 
 **Files:**
-- Create: `peri-tui/src/app/panel_plugin.rs`
-- Create: `peri-tui/src/app/panel_login.rs`
-- Create: `peri-tui/src/app/panel_model.rs`
-- Create: `peri-tui/src/app/panel_config.rs`
-- Create: `peri-tui/src/app/panel_agent.rs`
-- Create: `peri-tui/src/app/panel_memory.rs`
-- Create: `peri-tui/src/app/panel_status.rs`
-- Create: `peri-tui/src/app/panel_hooks.rs`
-- Modify: `peri-tui/src/app/panel_ops.rs` (reduce to re-exports)
+- Create: `cc-tui/src/app/panel_plugin.rs`
+- Create: `cc-tui/src/app/panel_login.rs`
+- Create: `cc-tui/src/app/panel_model.rs`
+- Create: `cc-tui/src/app/panel_config.rs`
+- Create: `cc-tui/src/app/panel_agent.rs`
+- Create: `cc-tui/src/app/panel_memory.rs`
+- Create: `cc-tui/src/app/panel_status.rs`
+- Create: `cc-tui/src/app/panel_hooks.rs`
+- Modify: `cc-tui/src/app/panel_ops.rs` (reduce to re-exports)
 
 - [ ] **Step 1: Create all empty files**
 
 ```bash
-touch peri-tui/src/app/panel_plugin.rs
-touch peri-tui/src/app/panel_login.rs
-touch peri-tui/src/app/panel_model.rs
-touch peri-tui/src/app/panel_config.rs
-touch peri-tui/src/app/panel_agent.rs
-touch peri-tui/src/app/panel_memory.rs
-touch peri-tui/src/app/panel_status.rs
-touch peri-tui/src/app/panel_hooks.rs
+touch cc-tui/src/app/panel_plugin.rs
+touch cc-tui/src/app/panel_login.rs
+touch cc-tui/src/app/panel_model.rs
+touch cc-tui/src/app/panel_config.rs
+touch cc-tui/src/app/panel_agent.rs
+touch cc-tui/src/app/panel_memory.rs
+touch cc-tui/src/app/panel_status.rs
+touch cc-tui/src/app/panel_hooks.rs
 ```
 
 ---
@@ -41,8 +41,8 @@ touch peri-tui/src/app/panel_hooks.rs
 ### Task 2: 移动 Plugin + Marketplace 操作到 `panel_plugin.rs`
 
 **Files:**
-- Create: `peri-tui/src/app/panel_plugin.rs`
-- Copy from: `peri-tui/src/app/panel_ops.rs:320-890`
+- Create: `cc-tui/src/app/panel_plugin.rs`
+- Copy from: `cc-tui/src/app/panel_ops.rs:320-890`
 
 - [ ] **Step 1: Write `panel_plugin.rs`**
 
@@ -97,8 +97,8 @@ Remove lines 320-890 from `panel_ops.rs`.
 ### Task 3: 移动 Login 面板操作到 `panel_login.rs`
 
 **Files:**
-- Create: `peri-tui/src/app/panel_login.rs`
-- Copy from: `peri-tui/src/app/panel_ops.rs:88-244`
+- Create: `cc-tui/src/app/panel_login.rs`
+- Copy from: `cc-tui/src/app/panel_ops.rs:88-244`
 
 ```rust
 use super::*;
@@ -178,7 +178,7 @@ impl App {
 ### Task 5: 将 `panel_ops.rs` 降为 re-export 入口 + 测试辅助
 
 **Files:**
-- Modify: `peri-tui/src/app/panel_ops.rs`
+- Modify: `cc-tui/src/app/panel_ops.rs`
 
 - [ ] **Step 1: Rewrite `panel_ops.rs` as a thin re-export hub**
 
@@ -230,7 +230,7 @@ pub async fn new_headless(
 - [ ] **Step 2: Build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 Expected: compilation succeeds. External callers (command/panel/*.rs) access functions through `panel_ops` re-exports unchanged.
@@ -242,14 +242,14 @@ Expected: compilation succeeds. External callers (command/panel/*.rs) access fun
 - [ ] **Step 1: Run all tests**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
-cargo fmt -p peri-tui
-git add peri-tui/src/app/panel_*.rs peri-tui/src/app/panel_ops.rs
+cargo fmt -p cc-tui
+git add cc-tui/src/app/panel_*.rs cc-tui/src/app/panel_ops.rs
 git commit -m "refactor: split panel_ops.rs into per-panel submodules
 
 - panel_plugin.rs: 6 functions (MCP, Cron, Plugin, Marketplace)

@@ -6,7 +6,7 @@
 
 **Architecture:** 当前 `dispatch_tools` 在第 37 行立即将 AI 消息写入 state，tool_result 在阶段三才写入。重构后改为：先执行所有 before_tool + 工具调用 + 收集结果，最后一步才将 AI 消息 + 所有 tool_result 按序写入 state。这意味着即使中间任何步骤出错，state 中也永远不会出现"有 tool_use 无 tool_result"的不一致状态。错误路径不再需要 flush 函数。
 
-**Tech Stack:** Rust, tokio async, `peri-agent` crate
+**Tech Stack:** Rust, tokio async, `cc-agent` crate
 
 ---
 
@@ -14,8 +14,8 @@
 
 | 文件 | 操作 | 职责 |
 |------|------|------|
-| `peri-agent/src/agent/executor/tool_dispatch.rs` | 修改（主要） | 重构核心：延迟写入 + 简化错误路径 |
-| `peri-agent/src/agent/executor/tool_dispatch_test.rs` | 修改 | 更新现有测试 + 新增测试覆盖 |
+| `cc-agent/src/agent/executor/tool_dispatch.rs` | 修改（主要） | 重构核心：延迟写入 + 简化错误路径 |
+| `cc-agent/src/agent/executor/tool_dispatch_test.rs` | 修改 | 更新现有测试 + 新增测试覆盖 |
 
 ## 设计要点
 
@@ -68,7 +68,7 @@
 ### Task 1: 添加「延迟写入模式」的验证性测试
 
 **Files:**
-- Test: `peri-agent/src/agent/executor/tool_dispatch_test.rs`
+- Test: `cc-agent/src/agent/executor/tool_dispatch_test.rs`
 
 这一步先写一个**期望行为**的测试，验证延迟写入的最终不变量：无论 dispatch_tools 返回 Ok 还是 Err，state 中的 tool_use 数量始终等于 tool_result 数量。
 
@@ -206,18 +206,18 @@ async fn test_concurrent_partial_failure_all_results_written() {
 
 - [ ] **Step 4: 运行测试，确认基线**
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests::test_concurrent_partial_failure_all_results_written --nocapture`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests::test_concurrent_partial_failure_all_results_written --nocapture`
 
 Expected: 如果当前代码正确则 PASS，如果不正确则 FAIL（这将成为重构的驱动力）。同时确认已有测试 `test_p3_error_flushes_modified_calls_no_orphaned_tool_use` 和 `test_mixed_ok_rejected_error_all_tool_results_written` 仍然通过。
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests --nocapture`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests --nocapture`
 
 Expected: 所有测试通过。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/tool_dispatch_test.rs
+git add cc-agent/src/agent/executor/tool_dispatch_test.rs
 git commit -m "test: 添加并发工具执行部分失败的不变量测试（延迟写入重构前置）"
 ```
 
@@ -226,7 +226,7 @@ git commit -m "test: 添加并发工具执行部分失败的不变量测试（�
 ### Task 2: 重构 `dispatch_tools` —— 提取结果收集阶段
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/tool_dispatch.rs`
+- Modify: `cc-agent/src/agent/executor/tool_dispatch.rs`
 
 这是核心重构。将 `dispatch_tools` 拆分为两个清晰的阶段：
 
@@ -525,18 +525,18 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
 
 - [ ] **Step 8: 运行所有测试验证**
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests --nocapture`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests --nocapture`
 
 Expected: 所有测试通过（包括 Task 1 新增的 `test_concurrent_partial_failure_all_results_written`）。
 
-Run: `cargo test -p peri-agent --lib --nocapture`
+Run: `cargo test -p cc-agent --lib --nocapture`
 
 Expected: 全部 agent 测试通过。
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/tool_dispatch.rs
+git add cc-agent/src/agent/executor/tool_dispatch.rs
 git commit -m "refactor: 延迟写入重构——消除 tool_dispatch 两阶段写入导致的孤儿 tool_use"
 ```
 
@@ -545,7 +545,7 @@ git commit -m "refactor: 延迟写入重构——消除 tool_dispatch 两阶段�
 ### Task 3: 更新现有测试适配新架构
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/tool_dispatch_test.rs`
+- Modify: `cc-agent/src/agent/executor/tool_dispatch_test.rs`
 
 现有测试依赖旧的执行路径和错误返回值，需要适配。
 
@@ -692,18 +692,18 @@ async fn test_cancel_during_execution_all_results_written() {
 
 - [ ] **Step 5: 运行所有测试**
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests --nocapture`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests --nocapture`
 
 Expected: 全部通过。
 
-Run: `cargo test -p peri-agent --lib --nocapture`
+Run: `cargo test -p cc-agent --lib --nocapture`
 
 Expected: 全部通过。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/tool_dispatch_test.rs
+git add cc-agent/src/agent/executor/tool_dispatch_test.rs
 git commit -m "test: 更新 tool_dispatch 测试适配延迟写入架构"
 ```
 

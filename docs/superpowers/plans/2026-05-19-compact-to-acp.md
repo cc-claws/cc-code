@@ -2,35 +2,35 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将上下文压缩的触发判断和执行从 peri-tui 下沉到 peri-acp 的 execute_prompt，使 TUI 和 stdio/IDE 路径共享 compact 能力。
+**Goal:** 将上下文压缩的触发判断和执行从 cc-tui 下沉到 cc-acp 的 execute_prompt，使 TUI 和 stdio/IDE 路径共享 compact 能力。
 
-**Architecture:** 在 `peri-acp/src/session/` 新增 `compact_runner.rs` 模块封装 compact 执行逻辑（full_compact + re_inject + hooks + 事件发送）。修改 `executor.rs` 在 agent 执行结束后检查 token 阈值，需要时调用 compact_runner 并内部 resubmit（最多 3 次）。TUI 侧删除 ~400 行旧 compact 代码，新增 ~50 行纯 UI 处理。手动 `/compact` 通过新增 ACP `session/compact` 请求实现。
+**Architecture:** 在 `cc-acp/src/session/` 新增 `compact_runner.rs` 模块封装 compact 执行逻辑（full_compact + re_inject + hooks + 事件发送）。修改 `executor.rs` 在 agent 执行结束后检查 token 阈值，需要时调用 compact_runner 并内部 resubmit（最多 3 次）。TUI 侧删除 ~400 行旧 compact 代码，新增 ~50 行纯 UI 处理。手动 `/compact` 通过新增 ACP `session/compact` 请求实现。
 
-**Tech Stack:** Rust, tokio async, peri-agent compact/re_inject, peri-acp EventSink
+**Tech Stack:** Rust, tokio async, cc-agent compact/re_inject, cc-acp EventSink
 
 ---
 
 ## File Structure
 
 ### 新建文件
-- `peri-acp/src/session/compact_runner.rs` — compact 公共执行函数（run_full_compact + run_micro_compact）
+- `cc-acp/src/session/compact_runner.rs` — compact 公共执行函数（run_full_compact + run_micro_compact）
 
 ### 修改文件
-- `peri-agent/src/agent/events.rs` — CompactCompleted 增加数据字段，新增 CompactFileInfo、CompactError
-- `peri-acp/src/session/mod.rs` — 注册 compact_runner 模块
-- `peri-acp/src/session/executor.rs` — execute_prompt 内部 compact 循环
-- `peri-tui/src/app/events.rs` — 替换旧 CompactDone/CompactError 为新变体
-- `peri-tui/src/app/agent.rs` — 删除 compact_task，修改 map_executor_event
-- `peri-tui/src/app/agent_comm.rs` — 删除 8 个 compact 相关字段
-- `peri-tui/src/app/agent_ops.rs` — 删除 compact 触发逻辑，新增 handle_compact_* UI 处理
-- `peri-tui/src/app/agent_events_bg.rs` — 删除 deferred compact
-- `peri-tui/src/app/agent_submit.rs` — 删除 compact 相关字段赋值
-- `peri-tui/src/app/thread_ops.rs` — 删除 start_compact、start_micro_compact
-- `peri-tui/src/command/session/compact.rs` — 改用 ACP 请求
-- `peri-tui/src/acp_server.rs` — 新增 session/compact 请求处理
+- `cc-agent/src/agent/events.rs` — CompactCompleted 增加数据字段，新增 CompactFileInfo、CompactError
+- `cc-acp/src/session/mod.rs` — 注册 compact_runner 模块
+- `cc-acp/src/session/executor.rs` — execute_prompt 内部 compact 循环
+- `cc-tui/src/app/events.rs` — 替换旧 CompactDone/CompactError 为新变体
+- `cc-tui/src/app/agent.rs` — 删除 compact_task，修改 map_executor_event
+- `cc-tui/src/app/agent_comm.rs` — 删除 8 个 compact 相关字段
+- `cc-tui/src/app/agent_ops.rs` — 删除 compact 触发逻辑，新增 handle_compact_* UI 处理
+- `cc-tui/src/app/agent_events_bg.rs` — 删除 deferred compact
+- `cc-tui/src/app/agent_submit.rs` — 删除 compact 相关字段赋值
+- `cc-tui/src/app/thread_ops.rs` — 删除 start_compact、start_micro_compact
+- `cc-tui/src/command/session/compact.rs` — 改用 ACP 请求
+- `cc-tui/src/acp_server.rs` — 新增 session/compact 请求处理
 
 ### 删除文件
-- `peri-tui/src/app/agent_compact.rs` — 整个文件
+- `cc-tui/src/app/agent_compact.rs` — 整个文件
 
 ---
 
@@ -46,15 +46,15 @@ Expected: 编译通过。
 
 ---
 
-### Task 1: ExecutorEvent compact 变体改造 (peri-agent)
+### Task 1: ExecutorEvent compact 变体改造 (cc-agent)
 
 **Files:**
-- Modify: `peri-agent/src/agent/events.rs`
-- Modify: `peri-agent/src/agent/events_test.rs`
+- Modify: `cc-agent/src/agent/events.rs`
+- Modify: `cc-agent/src/agent/events_test.rs`
 
 给 `CompactCompleted` 增加数据载荷，新增 `CompactError` 变体和 `CompactFileInfo` 结构体。
 
-- [ ] **Step 1: 修改 `peri-agent/src/agent/events.rs`**
+- [ ] **Step 1: 修改 `cc-agent/src/agent/events.rs`**
 
 在 `BackgroundTaskResult` 结构体之前，添加 `CompactFileInfo`：
 
@@ -92,17 +92,17 @@ pub struct CompactFileInfo {
 - [ ] **Step 2: 编译验证**
 
 ```bash
-cargo build -p peri-agent 2>&1
+cargo build -p cc-agent 2>&1
 ```
 
 Expected: 编译通过（`CompactStarted` / `CompactCompleted` 只在本 crate 内使用，字段变更不影响外部，因为外部目前都是 match discard）。
 
 - [ ] **Step 3: 更新测试**
 
-在 `peri-agent/src/agent/events_test.rs` 中，找到 `test_context_warning_serde_roundtrip` 测试函数。检查是否有 `CompactCompleted` 的 serde 测试。如果有，更新其构造以匹配新字段。如果没有，不需要改动。
+在 `cc-agent/src/agent/events_test.rs` 中，找到 `test_context_warning_serde_roundtrip` 测试函数。检查是否有 `CompactCompleted` 的 serde 测试。如果有，更新其构造以匹配新字段。如果没有，不需要改动。
 
 ```bash
-cargo test -p peri-agent --lib -- events 2>&1
+cargo test -p cc-agent --lib -- events 2>&1
 ```
 
 Expected: 所有 events 测试通过。
@@ -110,7 +110,7 @@ Expected: 所有 events 测试通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/agent/events.rs peri-agent/src/agent/events_test.rs
+git add cc-agent/src/agent/events.rs cc-agent/src/agent/events_test.rs
 git commit -m "feat(agent): add data fields to CompactCompleted/CompactError ExecutorEvent variants
 
 CompactCompleted now carries summary, files, skills, micro_cleared.
@@ -121,30 +121,30 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 
 ---
 
-### Task 2: compact_runner 公共模块 (peri-acp)
+### Task 2: compact_runner 公共模块 (cc-acp)
 
 **Files:**
-- Create: `peri-acp/src/session/compact_runner.rs`
-- Modify: `peri-acp/src/session/mod.rs`
+- Create: `cc-acp/src/session/compact_runner.rs`
+- Modify: `cc-acp/src/session/mod.rs`
 
 提取 compact 执行逻辑为独立模块，供 executor auto-compact 和手动 `session/compact` 共用。
 
-- [ ] **Step 1: 创建 `peri-acp/src/session/compact_runner.rs`**
+- [ ] **Step 1: 创建 `cc-acp/src/session/compact_runner.rs`**
 
 ```rust
 //! Compact execution logic shared by auto-compact and manual session/compact.
 //!
-//! Wraps `peri_agent::agent::compact::{full_compact, micro_compact_enhanced, re_inject}`
+//! Wraps `cc_agent::agent::compact::{full_compact, micro_compact_enhanced, re_inject}`
 //! with hook firing, event sending, and cancellation support.
 
 use std::sync::Arc;
 
-use peri_agent::agent::compact::config::CompactConfig;
-use peri_agent::agent::compact::{full_compact, micro_compact_enhanced, re_inject};
-use peri_agent::agent::events::{AgentEvent as ExecutorEvent, CompactFileInfo};
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::llm::BaseModel;
-use peri_agent::messages::BaseMessage;
+use cc_agent::agent::compact::config::CompactConfig;
+use cc_agent::agent::compact::{full_compact, micro_compact_enhanced, re_inject};
+use cc_agent::agent::events::{AgentEvent as ExecutorEvent, CompactFileInfo};
+use cc_agent::agent::AgentCancellationToken;
+use cc_agent::llm::BaseModel;
+use cc_agent::messages::BaseMessage;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -189,16 +189,16 @@ pub async fn run_full_compact(
     cwd: &str,
     event_tx: &Arc<std::sync::Mutex<Option<mpsc::UnboundedSender<ExecutorEvent>>>>,
     cancel: &AgentCancellationToken,
-    hooks: &[peri_middlewares::hooks::types::RegisteredHook],
+    hooks: &[cc_middlewares::hooks::types::RegisteredHook],
     hook_ctx: &HookContext,
 ) -> Result<CompactOutput, String> {
     let msg_count = messages.len();
     info!(msg_count, "compact_runner: starting full compact");
 
     // Fire PreCompact hooks
-    peri_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
+    cc_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
         hooks,
-        peri_middlewares::hooks::types::HookEvent::PreCompact,
+        cc_middlewares::hooks::types::HookEvent::PreCompact,
         &hook_ctx.cwd,
         &hook_ctx.session_id,
         &hook_ctx.transcript_path,
@@ -313,13 +313,13 @@ pub fn run_micro_compact(
 }
 
 async fn fire_post_compact_hooks(
-    hooks: &[peri_middlewares::hooks::types::RegisteredHook],
+    hooks: &[cc_middlewares::hooks::types::RegisteredHook],
     ctx: &HookContext,
     msg_count: usize,
 ) {
-    peri_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
+    cc_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
         hooks,
-        peri_middlewares::hooks::types::HookEvent::PostCompact,
+        cc_middlewares::hooks::types::HookEvent::PostCompact,
         &ctx.cwd,
         &ctx.session_id,
         &ctx.transcript_path,
@@ -332,7 +332,7 @@ async fn fire_post_compact_hooks(
 /// 从原始消息中提取 re_inject 涉及的文件路径和行数
 fn extract_file_info(
     original_messages: &[BaseMessage],
-    re_inject_result: &peri_agent::agent::compact::ReInjectResult,
+    re_inject_result: &cc_agent::agent::compact::ReInjectResult,
 ) -> Vec<CompactFileInfo> {
     // re_inject 消息格式: "[最近读取的文件: path]\n{content}"
     let mut files = Vec::new();
@@ -354,7 +354,7 @@ fn extract_file_info(
 
 /// 从 re_inject 结果中提取 skill 名称
 fn extract_skill_names(
-    re_inject_result: &peri_agent::agent::compact::ReInjectResult,
+    re_inject_result: &cc_agent::agent::compact::ReInjectResult,
 ) -> Vec<String> {
     let mut skills = Vec::new();
     for msg in &re_inject_result.messages {
@@ -370,7 +370,7 @@ fn extract_skill_names(
 }
 ```
 
-- [ ] **Step 2: 注册模块 `peri-acp/src/session/mod.rs`**
+- [ ] **Step 2: 注册模块 `cc-acp/src/session/mod.rs`**
 
 在现有 `pub mod` 行之后添加：
 
@@ -381,7 +381,7 @@ pub mod compact_runner;
 - [ ] **Step 3: 编译验证**
 
 ```bash
-cargo build -p peri-acp 2>&1
+cargo build -p cc-acp 2>&1
 ```
 
 Expected: 编译通过。
@@ -389,7 +389,7 @@ Expected: 编译通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/compact_runner.rs peri-acp/src/session/mod.rs
+git add cc-acp/src/session/compact_runner.rs cc-acp/src/session/mod.rs
 git commit -m "feat(acp): add compact_runner module for shared compact execution
 
 Extracts full_compact + re_inject + hooks + event sending into
@@ -401,21 +401,21 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 
 ---
 
-### Task 3: executor.rs compact 循环 (peri-acp)
+### Task 3: executor.rs compact 循环 (cc-acp)
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs`
+- Modify: `cc-acp/src/session/executor.rs`
 
 在 `execute_prompt` 中增加 compact 循环：agent 执行结束后检查 token 阈值，需要时调用 compact_runner 并内部 resubmit。
 
-- [ ] **Step 1: 修改 `peri-acp/src/session/executor.rs`**
+- [ ] **Step 1: 修改 `cc-acp/src/session/executor.rs`**
 
 在文件顶部添加 imports：
 
 ```rust
 use crate::session::compact_runner::{self, HookContext};
-use peri_agent::agent::compact::config::CompactConfig;
-use peri_agent::agent::token::ContextBudget;
+use cc_agent::agent::compact::config::CompactConfig;
+use cc_agent::agent::token::ContextBudget;
 ```
 
 将 `execute_prompt` 函数体替换为以下结构。关键变化：
@@ -449,25 +449,25 @@ pub async fn execute_prompt(
     content: String,
     history: Vec<BaseMessage>,
     is_empty_history: bool,
-    permission_mode: Arc<peri_middlewares::prelude::SharedPermissionMode>,
+    permission_mode: Arc<cc_middlewares::prelude::SharedPermissionMode>,
     event_sink: Arc<dyn EventSink>,
     cancel: AgentCancellationToken,
     broker: Arc<dyn UserInteractionBroker>,
     plugin_skill_dirs: Vec<std::path::PathBuf>,
     plugin_agent_dirs: Vec<std::path::PathBuf>,
-    hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>>,
-    cron_scheduler: Option<Arc<parking_lot::Mutex<peri_middlewares::cron::CronScheduler>>>,
+    hook_groups: Vec<Vec<cc_middlewares::hooks::RegisteredHook>>,
+    cron_scheduler: Option<Arc<parking_lot::Mutex<cc_middlewares::cron::CronScheduler>>>,
     session_id: String,
-    mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
-    tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
+    mcp_pool: Option<Arc<cc_middlewares::mcp::McpClientPool>>,
+    tool_search_index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
     shared_tools: Arc<
         parking_lot::RwLock<
-            std::collections::HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>,
+            std::collections::HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>,
         >,
     >,
-    lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
+    lsp_servers: Vec<cc_lsp::config::LspServerConfig>,
 ) -> PromptResult {
-    let agent_input = peri_agent::agent::react::AgentInput::text(content);
+    let agent_input = cc_agent::agent::react::AgentInput::text(content);
 
     // Compact config and context budget (computed once)
     let mut compact_config = peri_config.config.compact.clone().unwrap_or_default();
@@ -507,7 +507,7 @@ pub async fn execute_prompt(
     loop {
         // Create event handler for this round
         let event_handler: Arc<dyn AgentEventHandler> =
-            Arc::new(peri_agent::agent::events::FnEventHandler({
+            Arc::new(cc_agent::agent::events::FnEventHandler({
                 let tx = event_tx.clone();
                 move |event: ExecutorEvent| {
                     if let Some(tx) = tx.lock().unwrap().as_ref() {
@@ -648,7 +648,7 @@ async fn wait_for_pump(
 - [ ] **Step 2: 编译验证**
 
 ```bash
-cargo build -p peri-acp 2>&1
+cargo build -p cc-acp 2>&1
 ```
 
 Expected: 编译通过。注意 `PromptResult` 增加了 `compacted: bool` 字段，下游使用处需要更新。
@@ -657,10 +657,10 @@ Expected: 编译通过。注意 `PromptResult` 增加了 `compacted: bool` 字�
 
 搜索所有使用 `PromptResult` 的地方，确保初始化时包含 `compacted: false`（或在 `acp_server.rs` 中使用 `..Default` 如果实现了 Default）。
 
-在 `peri-tui/src/acp_server.rs` 的 `execute_prompt` 函数中，`result.messages` 和 `result.ok` 的使用不需要改动，`compacted` 字段暂时忽略。
+在 `cc-tui/src/acp_server.rs` 的 `execute_prompt` 函数中，`result.messages` 和 `result.ok` 的使用不需要改动，`compacted` 字段暂时忽略。
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 Expected: 编译通过。
@@ -668,7 +668,7 @@ Expected: 编译通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/executor.rs peri-tui/src/acp_server.rs
+git add cc-acp/src/session/executor.rs cc-tui/src/acp_server.rs
 git commit -m "feat(acp): add compact loop to execute_prompt
 
 After agent execution, checks token thresholds and auto-triggers
@@ -681,15 +681,15 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 
 ---
 
-### Task 4: TUI 事件类型更新 (peri-tui)
+### Task 4: TUI 事件类型更新 (cc-tui)
 
 **Files:**
-- Modify: `peri-tui/src/app/events.rs`
-- Modify: `peri-tui/src/app/agent.rs`
+- Modify: `cc-tui/src/app/events.rs`
+- Modify: `cc-tui/src/app/agent.rs`
 
 更新 TUI AgentEvent 枚举和 map_executor_event 映射。
 
-- [ ] **Step 1: 修改 `peri-tui/src/app/events.rs`**
+- [ ] **Step 1: 修改 `cc-tui/src/app/events.rs`**
 
 删除旧的 `CompactDone` 和 `CompactError` 变体：
 
@@ -712,7 +712,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
     /// 上下文压缩完成
     CompactCompleted {
         summary: String,
-        files: Vec<peri_agent::agent::events::CompactFileInfo>,
+        files: Vec<cc_agent::agent::events::CompactFileInfo>,
         skills: Vec<String>,
         micro_cleared: usize,
     },
@@ -722,7 +722,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
     },
 ```
 
-- [ ] **Step 2: 修改 `peri-tui/src/app/agent.rs` map_executor_event**
+- [ ] **Step 2: 修改 `cc-tui/src/app/agent.rs` map_executor_event**
 
 将现在的 discard 行：
 
@@ -756,7 +756,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 此时期望编译失败，因为 `agent_compact.rs` 等旧代码引用了 `CompactDone` 和旧的 `CompactError(String)` 变体。这是预期的——将在 Task 5 中修复。
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -30
+cargo build -p cc-tui 2>&1 | head -30
 ```
 
 Expected: 编译错误指向 `agent_compact.rs`、`agent_ops.rs` 中对旧变体的引用。记录错误位置，下一步修复。
@@ -767,39 +767,39 @@ Expected: 编译错误指向 `agent_compact.rs`、`agent_ops.rs` 中对旧变体
 
 ---
 
-### Task 5: TUI compact 清理 — 删除旧代码 + 新增 UI 处理 (peri-tui)
+### Task 5: TUI compact 清理 — 删除旧代码 + 新增 UI 处理 (cc-tui)
 
 **Files:**
-- Delete: `peri-tui/src/app/agent_compact.rs`
-- Modify: `peri-tui/src/app/agent_comm.rs`
-- Modify: `peri-tui/src/app/agent_ops.rs`
-- Modify: `peri-tui/src/app/agent_events_bg.rs`
-- Modify: `peri-tui/src/app/agent_submit.rs`
-- Modify: `peri-tui/src/app/thread_ops.rs`
-- Modify: `peri-tui/src/app/agent.rs`（删除 compact_task）
-- Modify: `peri-tui/src/app/mod.rs`（移除 agent_compact 模块引用）
+- Delete: `cc-tui/src/app/agent_compact.rs`
+- Modify: `cc-tui/src/app/agent_comm.rs`
+- Modify: `cc-tui/src/app/agent_ops.rs`
+- Modify: `cc-tui/src/app/agent_events_bg.rs`
+- Modify: `cc-tui/src/app/agent_submit.rs`
+- Modify: `cc-tui/src/app/thread_ops.rs`
+- Modify: `cc-tui/src/app/agent.rs`（删除 compact_task）
+- Modify: `cc-tui/src/app/mod.rs`（移除 agent_compact 模块引用）
 
 这是最大的任务。按顺序执行确保中间步骤可编译。
 
-- [ ] **Step 1: 删除 `peri-tui/src/app/agent_compact.rs`**
+- [ ] **Step 1: 删除 `cc-tui/src/app/agent_compact.rs`**
 
 ```bash
-rm peri-tui/src/app/agent_compact.rs
+rm cc-tui/src/app/agent_compact.rs
 ```
 
-在 `peri-tui/src/app/mod.rs` 中删除对应的 `mod agent_compact;` 行（如果存在的话；可能通过 `mod.rs` 的 glob 引用）。搜索：
+在 `cc-tui/src/app/mod.rs` 中删除对应的 `mod agent_compact;` 行（如果存在的话；可能通过 `mod.rs` 的 glob 引用）。搜索：
 
 ```bash
-grep -n "agent_compact" peri-tui/src/app/mod.rs
+grep -n "agent_compact" cc-tui/src/app/mod.rs
 ```
 
 如果找到，删除该行。
 
-- [ ] **Step 2: 删除 `peri-tui/src/app/agent.rs` 中的 `compact_task` 函数**
+- [ ] **Step 2: 删除 `cc-tui/src/app/agent.rs` 中的 `compact_task` 函数**
 
 在 `agent.rs` 中，删除整个 `compact_task` 函数（约 line 182-359，从 `pub async fn compact_task(` 到其结尾的 `}`）。同时删除文件顶部不再需要的 imports（`AgentCancellationToken` 如果仅被 `compact_task` 使用——检查 `map_executor_event` 是否也用，如果是则保留）。
 
-- [ ] **Step 3: 删除 `peri-tui/src/app/thread_ops.rs` 中的 `start_compact` 和 `start_micro_compact`**
+- [ ] **Step 3: 删除 `cc-tui/src/app/thread_ops.rs` 中的 `start_compact` 和 `start_micro_compact`**
 
 删除 `start_compact` 方法（约 line 335-451）和 `start_micro_compact` 方法（在 `agent_compact.rs` 中已被删除，但 `start_micro_compact` 可能在 `thread_ops.rs` 中也有引用——检查）。
 
@@ -807,7 +807,7 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
 
 `start_compact` 定义在 `thread_ops.rs` line 335-451，删除它。
 
-- [ ] **Step 4: 修改 `peri-tui/src/app/agent_comm.rs`**
+- [ ] **Step 4: 修改 `cc-tui/src/app/agent_comm.rs`**
 
 从 `AgentComm` 结构体中删除以下字段：
 
@@ -817,7 +817,7 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
     /// 连续 auto-compact 失败次数（circuit breaker，达到 3 次后停止自动触发）
     pub auto_compact_failures: u32,
     /// compact 前的 token tracker 快照（compact 失败时恢复，防止 tracker 失去对上下文大小的感知）
-    pub pre_compact_token_snapshot: Option<peri_agent::agent::token::TokenTracker>,
+    pub pre_compact_token_snapshot: Option<cc_agent::agent::token::TokenTracker>,
     /// 本轮用户原始输入（compact 后自动 re-submit 用）
     pub last_user_input: Option<String>,
     /// compact 启动时保存的用户输入副本（防止 compact 过程中 last_user_input 被覆盖）
@@ -831,7 +831,7 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
 
 同时在 `Default` impl 中删除对应初始化。
 
-- [ ] **Step 5: 修改 `peri-tui/src/app/agent_ops.rs`**
+- [ ] **Step 5: 修改 `cc-tui/src/app/agent_ops.rs`**
 
 这是最复杂的修改。需要：
 
@@ -894,13 +894,13 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
             AgentEvent::CompactError { message } => self.handle_compact_error(message),
 ```
 
-在 `impl App` 中（可以用一个新文件 `peri-tui/src/app/agent_compact_ui.rs` 或直接在 `agent_ops.rs` 末尾）添加处理方法：
+在 `impl App` 中（可以用一个新文件 `cc-tui/src/app/agent_compact_ui.rs` 或直接在 `agent_ops.rs` 末尾）添加处理方法：
 
 ```rust
     fn handle_compact_completed(
         &mut self,
         summary: String,
-        files: Vec<peri_agent::agent::events::CompactFileInfo>,
+        files: Vec<cc_agent::agent::events::CompactFileInfo>,
         skills: Vec<String>,
         micro_cleared: usize,
     ) -> (bool, bool, bool) {
@@ -956,7 +956,7 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
 
 在 `Done` match arm 中（约 line 738-746），删除 `auto_compact_failures /= 2` 的逻辑。
 
-- [ ] **Step 6: 修改 `peri-tui/src/app/agent_events_bg.rs`**
+- [ ] **Step 6: 修改 `cc-tui/src/app/agent_events_bg.rs`**
 
 在 `handle_background_task_completed` 中（约 line 216-234），删除 deferred compact 触发逻辑：
 
@@ -978,7 +978,7 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
                 }
 ```
 
-- [ ] **Step 7: 修改 `peri-tui/src/app/agent_submit.rs`**
+- [ ] **Step 7: 修改 `cc-tui/src/app/agent_submit.rs`**
 
 删除以下字段的赋值（在 `submit_message` 中）：
 
@@ -992,7 +992,7 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
             .auto_compact_resubmit_count = 0;
 ```
 
-- [ ] **Step 8: 修改 `peri-tui/src/app/thread_ops.rs`**
+- [ ] **Step 8: 修改 `cc-tui/src/app/thread_ops.rs`**
 
 删除 `reset_agent_session` 中的 compact 相关重置：
 
@@ -1015,7 +1015,7 @@ grep -n "agent_compact" peri-tui/src/app/mod.rs
 - [ ] **Step 9: 编译验证**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 Expected: 编译通过。如果有残留引用旧字段的编译错误，逐个修复。
@@ -1023,7 +1023,7 @@ Expected: 编译通过。如果有残留引用旧字段的编译错误，逐个�
 - [ ] **Step 10: 运行测试**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -20
+cargo test -p cc-tui --lib 2>&1 | tail -20
 ```
 
 Expected: 所有测试通过。部分测试可能引用了旧的 compact 字段（如 `headless_test.rs` 中的 `needs_auto_compact`），需要更新这些测试以删除对已删字段的断言。
@@ -1048,14 +1048,14 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 
 ---
 
-### Task 6: 手动 /compact 命令 — ACP session/compact (peri-tui + peri-acp)
+### Task 6: 手动 /compact 命令 — ACP session/compact (cc-tui + cc-acp)
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs`
-- Modify: `peri-tui/src/command/session/compact.rs`
-- Modify: `peri-tui/src/acp_client/client.rs`（如果需要新增 send_compact 方法）
+- Modify: `cc-tui/src/acp_server.rs`
+- Modify: `cc-tui/src/command/session/compact.rs`
+- Modify: `cc-tui/src/acp_client/client.rs`（如果需要新增 send_compact 方法）
 
-- [ ] **Step 1: 在 `peri-tui/src/acp_server.rs` 添加 `session/compact` 处理**
+- [ ] **Step 1: 在 `cc-tui/src/acp_server.rs` 添加 `session/compact` 处理**
 
 在 `run_acp_server` 的 main loop 中，在 `session/prompt` 分支之后添加 `session/compact` 分支：
 
@@ -1091,9 +1091,9 @@ async fn execute_compact(
     sessions: &SharedSessions,
     provider: &Arc<RwLock<LlmProvider>>,
     peri_config: &Arc<RwLock<PeriConfig>>,
-    hook_groups: &[Vec<peri_middlewares::hooks::RegisteredHook>],
-    transport: &Arc<dyn peri_acp::transport::AcpTransport>,
-    thread_store: &Arc<dyn peri_agent::thread::ThreadStore>,
+    hook_groups: &[Vec<cc_middlewares::hooks::RegisteredHook>],
+    transport: &Arc<dyn cc_acp::transport::AcpTransport>,
+    thread_store: &Arc<dyn cc_agent::thread::ThreadStore>,
 ) -> Result<Value, AcpError> {
     let session_id = params
         .get("sessionId")
@@ -1198,7 +1198,7 @@ async fn execute_compact(
 
 - [ ] **Step 2: 在 `AcpTuiClient` 添加 `compact` 方法**
 
-在 `peri-tui/src/acp_client/client.rs` 中添加：
+在 `cc-tui/src/acp_client/client.rs` 中添加：
 
 ```rust
     /// Send a session/compact request to the ACP server.
@@ -1225,7 +1225,7 @@ async fn execute_compact(
 
 - [ ] **Step 3: 修改 `/compact` 命令**
 
-修改 `peri-tui/src/command/session/compact.rs`：
+修改 `cc-tui/src/command/session/compact.rs`：
 
 ```rust
 use crate::app::App;
@@ -1270,7 +1270,7 @@ impl Command for CompactCommand {
 - [ ] **Step 4: 编译验证**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 Expected: 编译通过。

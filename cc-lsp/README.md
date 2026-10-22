@@ -29,11 +29,12 @@ LSP (Language Server Protocol) 客户端库，为 Agent 提供代码智能能力
 ### 基础用法
 
 ```rust
-use peri_lsp::{LspClient, DiagnosticsRegistry};
+use cc_lsp::{LspClient, DiagnosticsRegistry};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // 创建 LSP 客户端
-let diagnostics = DiagnosticsRegistry::new();
+let diagnostics = Arc::new(DiagnosticsRegistry::new());
 let client = LspClient::new(
     "rust-analyzer".to_string(),
     "rust-analyzer".to_string(),
@@ -80,12 +81,12 @@ client.did_save(uri).await?;
 ### 诊断信息
 
 ```rust
-use peri_lsp::{DiagnosticsRegistry, DiagnosticSeverity};
+use cc_lsp::{DiagnosticsRegistry, DiagnosticSeverity};
 
 let diagnostics = DiagnosticsRegistry::new();
 
 // 获取文件诊断
-let entries = diagnostics.get_file_diagnostics("file:///src/main.rs");
+let entries = diagnostics.get_for_file("file:///src/main.rs");
 
 for entry in entries {
     match entry.severity {
@@ -99,10 +100,11 @@ for entry in entries {
 ### 配置管理
 
 ```rust
-use peri_lsp::{LspConfigFile, LspServerConfig, load_global_lsp_config};
+use cc_lsp::{LspConfigFile, LspServerConfig, load_global_lsp_config};
+use std::path::Path;
 
-// 全局配置
-let global_config = load_global_lsp_config()?;
+// 全局配置（从 settings.json 读取 lspServers 字段，返回 LspConfigFile 而非 Result）
+let global_config = load_global_lsp_config(Path::new("~/.cc-code/settings.json"));
 
 // 从配置创建服务器
 let config = LspConfigFile {
@@ -113,11 +115,11 @@ let config = LspConfigFile {
 ## 错误处理
 
 ```rust
-use peri_lsp::LspError;
+use cc_lsp::LspError;
 
 match client.request("textDocument/hover", params, 5000).await {
     Ok(result) => { /* 处理结果 */ }
-    Err(LspError::Timeout) => {
+    Err(LspError::RequestTimeout { .. }) => {
         eprintln!("LSP 请求超时");
     }
     Err(e) => {

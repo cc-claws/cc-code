@@ -13,12 +13,12 @@
 ### Task 1: BackgroundTaskRegistry — complete() 内清理已完成任务
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/background.rs:62-76`
-- Modify: `peri-middlewares/src/subagent/background_test.rs:59-71`
+- Modify: `cc-middlewares/src/subagent/background.rs:62-76`
+- Modify: `cc-middlewares/src/subagent/background_test.rs:59-71`
 
 - [ ] **Step 1: 修改 `complete()` 方法，持锁期间调用 `retain()` 清理**
 
-在 `peri-middlewares/src/subagent/background.rs:62-76`，将当前实现：
+在 `cc-middlewares/src/subagent/background.rs:62-76`，将当前实现：
 
 ```rust
     pub fn complete(&self, task_id: &str, result: BackgroundTaskResult) {
@@ -65,7 +65,7 @@
 
 - [ ] **Step 2: 更新现有测试 `test_complete_sends_notification`**
 
-在 `peri-middlewares/src/subagent/background_test.rs:43-71`，将：
+在 `cc-middlewares/src/subagent/background_test.rs:43-71`，将：
 
 ```rust
         registry.complete("bg-1", result);
@@ -101,21 +101,21 @@
 - [ ] **Step 3: 运行 background_test 确认通过**
 
 ```bash
-cargo test -p peri-middlewares --lib background_test -- --nocapture
+cargo test -p cc-middlewares --lib background_test -- --nocapture
 ```
 Expected: 所有 test 通过。
 
-- [ ] **Step 4: 运行完整 peri-middlewares 测试**
+- [ ] **Step 4: 运行完整 cc-middlewares 测试**
 
 ```bash
-cargo test -p peri-middlewares --lib
+cargo test -p cc-middlewares --lib
 ```
 Expected: PASS（所有中间件测试通过）。
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add peri-middlewares/src/subagent/background.rs peri-middlewares/src/subagent/background_test.rs
+git add cc-middlewares/src/subagent/background.rs cc-middlewares/src/subagent/background_test.rs
 git commit -m "fix(background): cleanup completed tasks in complete() to prevent memory leak
 
 complete() now calls retain() to remove all non-Running entries from the
@@ -132,12 +132,12 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 2: TokenTracker.request_history 上限裁剪
 
 **Files:**
-- Modify: `peri-agent/src/agent/token.rs:27`
-- Modify: `peri-agent/src/agent/token_test.rs`（新增测试）
+- Modify: `cc-agent/src/agent/token.rs:27`
+- Modify: `cc-agent/src/agent/token_test.rs`（新增测试）
 
 - [ ] **Step 1: 在 `accumulate()` 中添加上限裁剪逻辑**
 
-在 `peri-agent/src/agent/token.rs:27`，在 `self.request_history.push(...)` 之后立即添加裁剪：
+在 `cc-agent/src/agent/token.rs:27`，在 `self.request_history.push(...)` 之后立即添加裁剪：
 
 ```rust
     pub fn accumulate(&mut self, usage: &TokenUsage) {
@@ -167,7 +167,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 
 - [ ] **Step 2: 新增测试 `test_request_history_capped_at_1000`**
 
-在 `peri-agent/src/agent/token_test.rs:449`（文件末尾，`test_reset_clears_history` 之后）追加：
+在 `cc-agent/src/agent/token_test.rs:449`（文件末尾，`test_reset_clears_history` 之后）追加：
 
 ```rust
 #[test]
@@ -195,21 +195,21 @@ fn test_request_history_capped_at_1000() {
 - [ ] **Step 3: 运行 token_test 确认通过**
 
 ```bash
-cargo test -p peri-agent --lib token_test::test_request_history_capped_at_1000 -- --nocapture
+cargo test -p cc-agent --lib token_test::test_request_history_capped_at_1000 -- --nocapture
 ```
 Expected: PASS。
 
 - [ ] **Step 4: 运行完整 token 测试套件**
 
 ```bash
-cargo test -p peri-agent --lib token_test -- --nocapture
+cargo test -p cc-agent --lib token_test -- --nocapture
 ```
 Expected: 所有已有测试 + 新测试全部通过。
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add peri-agent/src/agent/token.rs peri-agent/src/agent/token_test.rs
+git add cc-agent/src/agent/token.rs cc-agent/src/agent/token_test.rs
 git commit -m "fix(token): cap TokenTracker.request_history at 1000 entries
 
 Prevents unbounded memory growth of request_history Vec during long

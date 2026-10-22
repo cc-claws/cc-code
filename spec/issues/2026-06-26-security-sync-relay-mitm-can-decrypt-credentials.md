@@ -54,11 +54,11 @@ pub fn derive_key(pair_code: &str) -> [u8; AES_KEY_LEN] {
 
 ## 涉及文件
 
-- `peri-tui/src/sync/crypto.rs:24-34` — `derive_key` 实现（KDF password=salt=pair_code）
-- `peri-tui/src/sync/sender.rs:23-46` — pair_code 来源（relay 下发）
-- `peri-tui/src/sync/receiver.rs:29` — pair_code 通过 URL 回传 relay
-- `peri-tui/src/sync/scanner.rs:47-64` — 明文扫描范围（含 `ProviderConfig.api_key`）
-- `peri-tui/src/sync/packer.rs:32-43` — 打包含密钥的 settings.json
+- `cc-tui/src/sync/crypto.rs:24-34` — `derive_key` 实现（KDF password=salt=pair_code）
+- `cc-tui/src/sync/sender.rs:23-46` — pair_code 来源（relay 下发）
+- `cc-tui/src/sync/receiver.rs:29` — pair_code 通过 URL 回传 relay
+- `cc-tui/src/sync/scanner.rs:47-64` — 明文扫描范围（含 `ProviderConfig.api_key`）
+- `cc-tui/src/sync/packer.rs:32-43` — 打包含密钥的 settings.json
 
 ## 关联
 

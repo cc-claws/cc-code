@@ -19,9 +19,9 @@ Feature — 高频开发工具
 
 peri 缺少 `/commit` 命令。用户需要手动 `git add` + `git commit`，或在对话中描述"帮我提交"让 agent 自由发挥，缺乏标准化的 commit 流程。
 
-Claude Code（TS 版）已实现 `/commit` 命令（`C:\Work\open-cladue\src\commands\commit.ts`，93 行）。核心设计：**prompt 类型命令，在 prompt 注入前先执行 4 条 git 命令收集上下文（status/diff/branch/log），将结果嵌入 prompt，再由 LLM 分析变更并生成 commit message + 执行 git commit**。
+参考实现（TS 版）已实现 `/commit` 命令（`C:\Work\open-cladue\src\commands\commit.ts`，93 行）。核心设计：**prompt 类型命令，在 prompt 注入前先执行 4 条 git 命令收集上下文（status/diff/branch/log），将结果嵌入 prompt，再由 LLM 分析变更并生成 commit message + 执行 git commit**。
 
-## 参考实现 — Claude Code `/commit`
+## 参考实现：`/commit`
 
 **源码**：`C:\Work\open-cladue\src\commands\commit.ts`（93 行）
 
@@ -97,9 +97,9 @@ getPromptForCommand()
 
 ### 映射到 peri 架构
 
-Claude Code 的 `type: 'prompt'` + `executeShellCommandsInPrompt()` = peri 的 `CommandKind::Passthrough` + **execute 前 shell 预执行**。
+参考实现 的 `type: 'prompt'` + `executeShellCommandsInPrompt()` = peri 的 `CommandKind::Passthrough` + **execute 前 shell 预执行**。
 
-关键差异：Claude Code 用 `executeShellCommandsInPrompt()` 在 prompt 文本中内联执行 shell 命令。peri 的 Passthrough 模式中，`execute()` 方法可以在返回 `CommandResult` 前自行执行 shell 命令并拼接 prompt。
+关键差异：参考实现 用 `executeShellCommandsInPrompt()` 在 prompt 文本中内联执行 shell 命令。peri 的 Passthrough 模式中，`execute()` 方法可以在返回 `CommandResult` 前自行执行 shell 命令并拼接 prompt。
 
 ### Phase 1: 实现 CommitCommand
 
@@ -232,7 +232,7 @@ You have the capability to call multiple tools in a single response. Stage and c
 
 **关键设计决策**：
 
-1. **预执行 shell 命令**：与 Claude Code 的 `executeShellCommandsInPrompt()` 对等，但实现更简单——直接在 `build_commit_prompt()` 中用 `std::process::Command` 运行 git，无需解析 prompt 中的 `` !`...` `` 语法。这是 Rust 的自然做法。
+1. **预执行 shell 命令**：与 参考实现 的 `executeShellCommandsInPrompt()` 对等，但实现更简单——直接在 `build_commit_prompt()` 中用 `std::process::Command` 运行 git，无需解析 prompt 中的 `` !`...` `` 语法。这是 Rust 的自然做法。
 
 2. **diff 截断**：`git diff HEAD` 可能输出巨大（如 lockfile 变更）。需限制最大长度：
 
@@ -257,7 +257,7 @@ const MAX_DIFF_BYTES: usize = 100_000;  // ~100KB
 
 4. **Windows 兼容**：`StdCommand::new("git")` 在 Windows 上需要确保 git 在 PATH 中。`shell_command()` wrapper 用于 shell 命令，但 git 可直接调用（不需要 shell 展开）。
 
-5. **工具限制（Future）**：Claude Code 用 `allowedTools` 限制 agent 只能执行 `git add/status/commit`。peri 当前 `Passthrough` 模式不支持工具限制，agent 可使用所有工具。**MVP 阶段可接受**，agent 收到明确的 prompt 指令后通常不会偏离。后续可在 `CommandResult` 中增加 `allowed_tools` 字段。
+5. **工具限制（Future）**：参考实现 用 `allowedTools` 限制 agent 只能执行 `git add/status/commit`。peri 当前 `Passthrough` 模式不支持工具限制，agent 可使用所有工具。**MVP 阶段可接受**，agent 收到明确的 prompt 指令后通常不会偏离。后续可在 `CommandResult` 中增加 `allowed_tools` 字段。
 
 ### Phase 3: 注册
 

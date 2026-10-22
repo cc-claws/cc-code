@@ -44,8 +44,8 @@ ACP (Agent Client Protocol) 服务层，桥接 TUI/IDE 前端与 Agent 执行引
 
 | 模块 | 职责 |
 |------|------|
-| `session/` | 会话生命周期管理、executor 构建 |
-| `agent/` | Agent 配置、AgentPool 缓存 |
+| `session/` | 会话生命周期管理、executor 执行管线、AgentPool 缓存 |
+| `agent/` | Agent 构建（`build_agent` 组装中间件链） |
 | `transport/` | MpscTransport / StdioTransport 实现 |
 | `broker/` | HITL 审批、AskUser 问答、Multiplex 路由 |
 | `event/` | 事件映射和分发 |
@@ -85,16 +85,19 @@ SDK (JSON-RPC)
 
 ### Frozen Data Flow
 
-会话内不可变数据在 `session/new` 时一次性捕获：
+会话内不可变数据在 `session/new` 时一次性捕获，收敛在单个结构体 `FrozenSessionData`（`session/executor.rs`）中：
 
-- `frozen_system_prompt`：系统提示词
-- `frozen_date`：会话创建日期
-- `frozen_instructions`：指引文件整段（合并 + 去重 + provenance + 限额；见 spec/global/domains/agent-instructions.md）
-- `frozen_skill_summary`：Skills 摘要
+- `system_prompt`：系统提示词
+- `date`：会话创建日期
+- `instructions`：指引文件整段（合并 + 去重 + provenance + 限额；见 spec/global/domains/agent-instructions.md）
+- `skill_summary`：Skills 摘要
+- `is_git_repo`：创建时 cwd 是否为 git 仓库
+- `language`：会话语言偏好
+- `jev_rule_loader`：Jev 规则惰性加载器
+- `memory_entrypoint` / `memory_dir`：自动记忆入口索引与存储目录
 
 每轮重新计算的数据：
 
-- `is_git_repo`：实时检查
 - 中间件链、AgentState：全新构造
 - Provider Snapshot：从 `Arc<RwLock<>>` 克隆
 
@@ -110,6 +113,7 @@ SDK (JSON-RPC)
 | `/commit` | Passthrough | Git 提交 |
 | `/review` | Passthrough | PR 代码审查 |
 | `/init` | Passthrough | 初始化项目配置 |
+| `/recap` | Immediate | 生成当前会话的一句话回顾 |
 
 ### AgentPool
 
@@ -130,12 +134,11 @@ if pool.lock().has_valid_cache(&provider) {
     pool.lock().store_llm(instances);
 }
 
-// SubAgent LLM 缓存（双检锁优化）
-let llm = AgentPool::get_or_create_subagent_llm(
-    &pool,
-    &fingerprint,
-    || create_new_model(),
-);
+// 缓存内容：compact_model 与 auto_classifier_model 两个 LLM 实例
+// 及构建时的 provider 指纹（CachedLlmInstances.fingerprint）
+
+// Provider 变化（如 session/set_model 切换模型）后失效缓存
+pool.lock().invalidate();
 ```
 
 ## 使用示例
@@ -170,13 +173,16 @@ use cc_acp::session::executor::{execute_prompt, FrozenSessionData};
 let frozen = FrozenSessionData {
     system_prompt: "...".to_string(),
     instructions: Some("...".to_string()),   // 合并去重后的指引整段
+    jev_rule_loader: None,
     skill_summary: None,
     date: "2026-07-01".to_string(),
     is_git_repo: true,
     language: Some("zh-CN".to_string()),
+    memory_entrypoint: None,
+    memory_dir: None,
 };
 
-// 执行 prompt（完整参数见 executor.rs）
+// 执行 prompt（完整参数见 session/executor.rs 的 execute_prompt 签名）
 let result = execute_prompt(
     &provider,
     peri_config,
@@ -184,30 +190,32 @@ let result = execute_prompt(
     content,
     Some(frozen),
     history,
-    vec![],
-    false,
+    vec![],              // incoming_recalls
+    false,               // is_empty_history
     permission_mode,
+    approval_memory,
     event_sink,
     cancel_token,
     broker,
-    None, // shell_executor
-    vec![],
-    vec![],
-    vec![],
-    None,
+    None,                // shell_executor
+    vec![],              // plugin_skill_dirs
+    vec![],              // plugin_agent_dirs
+    vec![],              // hook_groups
+    None,                // cron_scheduler
     session_id,
-    None,
-    None,
-    vec![],
+    None,                // mcp_pool
+    None,                // channel_state
     tool_search_index,
     shared_tools,
-    vec![],
-    None,
+    vec![],              // lsp_servers
+    None,                // langfuse_session
     pool,
-    None,
-    None,
-    None,
-    vec![],
+    None,                // thread_store
+    None,                // thread_id
+    None,                // session_manager
+    vec![],              // bg_results
+    None,                // steering
+    None,                // background_registry
 ).await;
 ```
 

@@ -125,7 +125,7 @@
 - **目的:** 确认引用方式正确
 - [A] `grep -A1 'fn description' peri-middlewares/src/tools/filesystem/read.rs` → 期望包含: `READ_FILE_DESCRIPTION`
 
-#### - [x] 4.3 无 claude-code PascalCase 工具名残留
+#### - [x] 4.3 无 参考实现 PascalCase 工具名残留
 - **来源:** spec-plan.md Task 3 检查步骤
 - **目的:** 确认工具名已替换为 snake_case
 - [A] `grep -rn 'use the Read tool\|use the Write tool\|use the Edit tool\|use the Glob tool\|use the Grep tool\|use the Bash tool' peri-middlewares/src/ || echo "clean"` → 期望精确: `clean`

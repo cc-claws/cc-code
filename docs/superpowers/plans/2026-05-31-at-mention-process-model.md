@@ -6,7 +6,7 @@
 
 **Architecture:** 用 `walkdir` + `should_skip_dir`（与 GlobFilesTool 对齐）替代裸 `glob::glob()`，一次性构建全量文件索引，在索引上做 fuzzy 匹配。搜索在专用 `std::thread` 中执行，通过 `std::sync::mpsc` 接收 query、通过 `tokio::sync::mpsc` 回传结果，线程用 `recv_timeout(1s)` 实现 idle 自动退出。`AtMentionState` 持有 `SearchThread` 管理线程生命周期。
 
-**Tech Stack:** `walkdir`（已有于 peri-middlewares，新增于 peri-tui）、`std::thread` + `std::sync::mpsc`（线程通信）、`fuzzy-matcher`（已有）。无需新 crate、无子命令、无 IPC 协议。
+**Tech Stack:** `walkdir`（已有于 cc-middlewares，新增于 cc-tui）、`std::thread` + `std::sync::mpsc`（线程通信）、`fuzzy-matcher`（已有）。无需新 crate、无子命令、无 IPC 协议。
 
 ---
 
@@ -14,34 +14,34 @@
 
 | 操作 | 路径 | 职责 |
 |------|------|------|
-| Modify | `peri-tui/src/app/at_mention/file_search.rs` | 替换 `glob::glob()` 为 `walkdir` + `should_skip_dir`，一次性建索引 + fuzzy |
-| Modify | `peri-tui/src/app/at_mention/mod.rs` | 替换 `spawn_blocking` 为 `SearchThread`（专用线程 + idle timeout） |
-| Modify | `peri-tui/Cargo.toml` | 添加 `walkdir` 依赖，移除 `glob` 依赖 |
-| No change | `peri-tui/src/app/at_mention/popup.rs` | 渲染层不变 |
-| No change | `peri-tui/src/event/keyboard.rs` | `update_at_mention_detection` 接口不变 |
-| No change | `peri-tui/src/app/agent_ops/polling.rs` | `poll_at_mention` 接口不变 |
-| No change | `peri-tui/src/main.rs` | 无新子命令 |
-| No change | `peri-tui/src/app/ui_state.rs` | `AtMentionState::new()` 不变 |
+| Modify | `cc-tui/src/app/at_mention/file_search.rs` | 替换 `glob::glob()` 为 `walkdir` + `should_skip_dir`，一次性建索引 + fuzzy |
+| Modify | `cc-tui/src/app/at_mention/mod.rs` | 替换 `spawn_blocking` 为 `SearchThread`（专用线程 + idle timeout） |
+| Modify | `cc-tui/Cargo.toml` | 添加 `walkdir` 依赖，移除 `glob` 依赖 |
+| No change | `cc-tui/src/app/at_mention/popup.rs` | 渲染层不变 |
+| No change | `cc-tui/src/event/keyboard.rs` | `update_at_mention_detection` 接口不变 |
+| No change | `cc-tui/src/app/agent_ops/polling.rs` | `poll_at_mention` 接口不变 |
+| No change | `cc-tui/src/main.rs` | 无新子命令 |
+| No change | `cc-tui/src/app/ui_state.rs` | `AtMentionState::new()` 不变 |
 
 ---
 
 ### Task 1: 用 walkdir 重写 file_search.rs
 
 **Files:**
-- Modify: `peri-tui/src/app/at_mention/file_search.rs`
-- Modify: `peri-tui/Cargo.toml`
+- Modify: `cc-tui/src/app/at_mention/file_search.rs`
+- Modify: `cc-tui/Cargo.toml`
 
 核心变更：用 `walkdir::WalkDir` + `should_skip_dir`（对齐 GlobFilesTool）替代裸 `glob::glob()`。`search_files` 改为先构建全量文件列表，再 fuzzy 匹配——不会被深度优先遍历截断，彻底解决 `side-projects` / `spec/issues` 搜不到的问题。
 
 - [ ] **Step 1: 添加 `walkdir` 依赖，移除 `glob`**
 
-在 `peri-tui/Cargo.toml` 中：
+在 `cc-tui/Cargo.toml` 中：
 - 添加 `walkdir = "2.5"`
 - 移除 `glob = "0.3"`
 
 - [ ] **Step 2: 重写 file_search.rs**
 
-完整替换 `peri-tui/src/app/at_mention/file_search.rs`：
+完整替换 `cc-tui/src/app/at_mention/file_search.rs`：
 
 ```rust
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
@@ -60,7 +60,7 @@ pub struct FileCandidate {
 
 const MAX_CANDIDATES: usize = 15;
 
-/// 目录过滤列表——与 GlobFilesTool (peri-middlewares/src/tools/filesystem/glob.rs) 对齐
+/// 目录过滤列表——与 GlobFilesTool (cc-middlewares/src/tools/filesystem/glob.rs) 对齐
 const SKIP_DIRS: &[&str] = &[
     "node_modules",
     ".git",
@@ -274,13 +274,13 @@ mod tests {
 
 - [ ] **Step 3: 运行测试**
 
-Run: `cargo test -p peri-tui --lib -- at_mention::file_search 2>&1`
+Run: `cargo test -p cc-tui --lib -- at_mention::file_search 2>&1`
 Expected: 4 个测试全部通过
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/at_mention/file_search.rs peri-tui/Cargo.toml
+git add cc-tui/src/app/at_mention/file_search.rs cc-tui/Cargo.toml
 git commit -m "refactor(at-mention): replace glob with walkdir, align with GlobFilesTool skip dirs"
 ```
 
@@ -289,13 +289,13 @@ git commit -m "refactor(at-mention): replace glob with walkdir, align with GlobF
 ### Task 2: 实现 SearchThread（专用线程 + idle timeout）
 
 **Files:**
-- Modify: `peri-tui/src/app/at_mention/mod.rs`
+- Modify: `cc-tui/src/app/at_mention/mod.rs`
 
 核心变更：将 `tokio::spawn` + `spawn_blocking` + `CancellationToken` 替换为 `std::thread::spawn` + `std::sync::mpsc` + `recv_timeout(1s)`。线程持有文件索引（惰性构建，首次 query 时构建），idle 1s 后自动 return 退出。
 
 - [ ] **Step 1: 重写 AtMentionState**
 
-完整替换 `peri-tui/src/app/at_mention/mod.rs`：
+完整替换 `cc-tui/src/app/at_mention/mod.rs`：
 
 ```rust
 pub mod file_search;
@@ -734,7 +734,7 @@ mod tests {
 
 - [ ] **Step 2: 适配 keyboard.rs**
 
-`peri-tui/src/event/keyboard.rs` 的 `update_at_mention_detection` 只需将 `at.start_async_search(cwd, query)` 替换为 `at.start_search(query)`：
+`cc-tui/src/event/keyboard.rs` 的 `update_at_mention_detection` 只需将 `at.start_async_search(cwd, query)` 替换为 `at.start_search(query)`：
 
 ```rust
 // 原代码（第 200-202 行）：
@@ -775,22 +775,22 @@ mod tests {
 
 - [ ] **Step 3: 移除 polling.rs 中的旧 poll 逻辑**
 
-`peri-tui/src/app/agent_ops/polling.rs` 的 `poll_at_mention` 保持接口不变（`&mut self -> bool`），内部从 `at.poll_search_result()` 自动使用新实现，无需修改。
+`cc-tui/src/app/agent_ops/polling.rs` 的 `poll_at_mention` 保持接口不变（`&mut self -> bool`），内部从 `at.poll_search_result()` 自动使用新实现，无需修改。
 
 - [ ] **Step 4: 验证编译**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 编译通过
 
 - [ ] **Step 5: 运行测试**
 
-Run: `cargo test -p peri-tui --lib -- at_mention 2>&1`
+Run: `cargo test -p cc-tui --lib -- at_mention 2>&1`
 Expected: 所有测试通过
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/at_mention/mod.rs peri-tui/src/event/keyboard.rs
+git add cc-tui/src/app/at_mention/mod.rs cc-tui/src/event/keyboard.rs
 git commit -m "refactor(at-mention): replace spawn_blocking with dedicated thread + idle timeout"
 ```
 
@@ -800,12 +800,12 @@ git commit -m "refactor(at-mention): replace spawn_blocking with dedicated threa
 
 - [ ] **Step 1: 运行全量 at_mention 测试**
 
-Run: `cargo test -p peri-tui --lib -- at_mention 2>&1`
+Run: `cargo test -p cc-tui --lib -- at_mention 2>&1`
 Expected: 所有测试通过（包括新增的 idle timeout 测试）
 
 - [ ] **Step 2: 手动验证**
 
-1. `cargo run -p peri-tui` 启动 TUI
+1. `cargo run -p cc-tui` 启动 TUI
 2. 输入 `@main` → 候选列表应出现 `main.rs` 等
 3. 输入 `@issue` → 应搜到 `spec/issues/` 下的文件
 4. 输入 `@side` → 应搜到 `side-projects/` 目录

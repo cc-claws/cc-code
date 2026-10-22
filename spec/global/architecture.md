@@ -4,11 +4,11 @@
 
 | 组件 | 类型 | 职责 |
 |------|------|------|
-| `cc-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
+| `cc-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem） |
 | `cc-middlewares` | 中间件库 | 文件系统、终端（RTK 输出压缩代理）、HITL（含 SharedPermissionMode/Auto 分类器）、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、CronMiddleware、MCP（Client 连接池、OAuth 2.0、工具桥接）、rg 双引擎文件搜索 等具体实现 |
 | `cc-acp` | ACP 服务层 | Agent Client Protocol 实现：Session 管理、Agent 构建（Middleware Chain 组装）、事件映射（ExecutorEvent→SessionNotification）、HITL/AskUser 桥接（AcpTransportBroker）、Langfuse 追踪、Hooks、LSP、系统提示词、Provider/Model 解析、上下文压缩执行 |
 | `cc-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，通过 ACP 协议与 Agent 通信（AcpTuiClient），MessagePipeline 消费 SessionNotification，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板 |
-| `cc-widgets` | Widget 库 | 独立 UI 组件库，仅依赖 ratatui + pulldown-cmark |
+| `cc-widgets` | Widget 库 | 独立 UI 组件库，无 workspace 内部依赖（外部依赖 ratatui、pulldown-cmark、syntect 等） |
 
 ## Workspace 依赖关系
 
@@ -19,7 +19,7 @@ cc-middlewares      ← 依赖 cc-agent
     ↑
 cc-acp              ← 依赖 cc-agent + cc-middlewares + cc-lsp + langfuse-client
     ↑
-cc-widgets          ← 零内部依赖，仅依赖 ratatui + pulldown-cmark
+cc-widgets          ← 零内部依赖（外部依赖 ratatui、pulldown-cmark、syntect 等）
     ↑
 cc-tui              ← 依赖 cc-widgets + cc-acp
 ```
@@ -31,26 +31,26 @@ cc-tui              ← 依赖 cc-widgets + cc-acp
 ```
 src/
 ├── agent/
-│   ├── react.rs          — ReAct 循环主体：max_iterations(50)、工具并发分发、事件发射
-│   ├── executor.rs       — ReActAgent：组装 middleware chain + LLM + 取消令牌
+│   ├── react.rs          — ReactLLM trait 与推理步抽象（循环主体在 executor/）
+│   ├── executor/         — ReActAgent 执行器：ReAct 循环（默认 max_iterations=10，cc-acp 构建时设 500）+ middleware chain + 取消令牌
 │   ├── state.rs          — AgentState：消息历史（只追加）、cwd、工具注册表
 │   ├── token.rs          — TokenTracker / ContextBudget（Token 累积追踪与上下文窗口预算）
 │   ├── compact/          — Micro/Full Compact 实现
 │   │   ├── config.rs     — CompactConfig（阈值、策略配置）
 │   │   ├── micro.rs      — Micro-compact：清除可压缩工具结果/图片/文档
-│   │   ├── full.rs       — Full Compact：LLM 生成 9 段摘要替换历史
+│   │   ├── full.rs       — Full Compact：LLM 生成自由 Markdown 摘要替换历史
 │   │   ├── re_inject.rs  — 重新注入最近文件 + Skills
 │   │   └── invariant.rs  — Compact 不变量校验
-│   └── events.rs         — AgentEvent 枚举（11 种变体，见下方事件系统）
+│   └── events.rs         — AgentEvent 枚举（25 种变体，见下方事件系统）
 ├── llm/
 │   ├── adapter.rs        — BaseModel trait 定义（invoke → LlmResponse）
-│   ├── anthropic.rs      — ChatAnthropic：Prompt Cache + Extended Thinking + system blocks
-│   ├── openai.rs         — ChatOpenAI：SSE streaming + reasoning_content（DeepSeek-R1/o系列）
+│   ├── anthropic/        — ChatAnthropic：Prompt Cache + Extended Thinking + system blocks
+│   ├── openai/           — ChatOpenAI：SSE streaming + reasoning_content（DeepSeek-R1/o系列）
 │   ├── react_adapter.rs  — BaseModelReactLLM：BaseModel → ReactLLM trait 适配
 │   ├── retry.rs          — RetryableLLM<L> 装饰器（指数退避+随机抖动）
 │   └── types.rs          — TokenUsage、LlmRequest/LlmResponse 类型定义
 ├── middleware/
-│   ├── trait.rs          — Middleware<S> trait（5 个钩子：before/after_agent、before/after_tool、collect_tools）
+│   ├── trait.rs          — Middleware<S> trait（7 个生命周期钩子 + collect_tools）
 │   ├── chain.rs          — MiddlewareChain：按注册顺序执行所有中间件
 │   └── base.rs           — LoggingMiddleware / MetricsMiddleware / NoopMiddleware
 ├── messages/
@@ -58,8 +58,7 @@ src/
 │   ├── content.rs        — ContentBlock 7 种变体（Text/Image/Document/ToolUse/ToolResult/Reasoning/Unknown）
 │   └── adapters/         — MessageAdapter trait：OpenAiAdapter / AnthropicAdapter 双向转换
 ├── tools/
-│   ├── mod.rs            — BaseTool trait + ToolDefinition（JSON Schema）
-│   └── provider.rs       — ToolProvider trait（批量动态提供工具）
+│   └── mod.rs            — BaseTool trait + ToolDefinition（JSON Schema），工具经 middleware collect_tools 汇总
 ├── thread/
 │   ├── store.rs          — ThreadStore trait（异步，list/get/create/append/delete）
 │   ├── sqlite_store.rs   — SqliteThreadStore：sqlx SqlitePool 连接池，WAL 模式，原生 async
@@ -69,8 +68,7 @@ src/
 ├── ask_user/             — AskUserInvoker trait、AskUserBatchRequest、AskUserQuestionData、AskUserOption
 ├── error.rs              — AgentError / AgentResult 统一错误类型、LlmHttpError（携带 HTTP status code）
 └── telemetry/
-    ├── subscriber.rs     — tracing-subscriber 初始化（env-filter + fmt + json）
-    └── otel.rs           — OpenTelemetry OTLP HTTP 导出，tracing-opentelemetry 桥接
+    └── subscriber.rs     — tracing-subscriber 初始化（env-filter + fmt + json）
 ```
 
 ### cc-middlewares 内部模块
@@ -78,12 +76,11 @@ src/
 ```
 src/
 ├── middleware/
-│   ├── filesystem.rs     — FilesystemMiddleware（提供 6 个工具，见工具清单）
+│   ├── filesystem.rs     — FilesystemMiddleware（提供 5 个工具，见工具清单）
 │   ├── terminal.rs       — TerminalMiddleware（bash 工具，120s 超时，跨平台）
-│   ├── prepend_system.rs — PrependSystemMiddleware（before_agent 注入 system prompt）
 │   └── todo.rs           — TodoMiddleware（after_tool 解析 TodoWrite，推送 channel）
 ├── mcp/                   — McpMiddleware（config/transport/client/tool_bridge/resource_tool/middleware）
-│   ├── config.rs         — 双层配置加载合并（全局 settings.json + 项目 .mcp.json），${VAR} 展开
+│   ├── config.rs         — 三层配置加载合并（全局 < 插件 < 项目），${VAR} 展开
 │   ├── transport.rs      — stdio（子进程）/ StreamableHTTP（远程）传输工厂
 │   ├── client.rs         — McpClientPool 连接池管理
 │   ├── tool_bridge.rs    — MCP 工具 → BaseTool 桥接
@@ -95,14 +92,14 @@ src/
 │   └── auto_classifier.rs — LlmAutoClassifier (Auto 模式分类器)
 ├── subagent/
 │   ├── mod.rs            — SubAgentMiddleware（挂载 Agent 工具 + LLM 工厂 + system builder）
-│   ├── tool.rs           — SubAgentTool（读 agent 定义、创建子 Agent、工具过滤/防递归）
+│   ├── tool/             — SubAgentTool（读 agent 定义、创建子 Agent、工具过滤/防递归）
 │   └── skill_preload.rs  — SkillPreloadMiddleware（before_agent 注入 skill 全文为 fake tool 调用序列）
 ├── skills/
 │   ├── loader.rs         — 多路径扫描（~/.claude/skills/ → skillsDir → ./.claude/skills/），同名先到先得
 │   └── mod.rs            — SkillsMiddleware（before_agent prepend 摘要到 system prompt）
 ├── agents_md/            — AgentsMdMiddleware（指引文件加载：同目录合并去重 + 跨目录 root→cwd 拼接 + 限额，见 spec/global/domains/agent-instructions.md）
-├── agent_define.rs       — AgentDefineMiddleware + AgentOverrides（覆盖 model/tone/maxTurns 等）
-├── claude_agent_parser.rs — .claude/agents/*.md 文件解析器（YAML frontmatter 提取）
+├── agent_define/         — AgentDefineMiddleware + AgentOverrides（覆盖 model/tone/maxTurns 等）
+├── claude_agent_parser/  — .claude/agents/*.md 文件解析器（YAML frontmatter 提取）
 ├── ask_user/             — parse_ask_user() 工具输出解析
 └── tools/
     ├── filesystem/       — 5 个文件系统工具各自独立文件
@@ -122,18 +119,17 @@ src/
 src/
 ├── lib.rs                — 模块入口
 ├── transport/
-│   ├── mod.rs            — AcpTransport trait（MpscTransport/StdioTransport）
-│   └── event_sink.rs     — EventSink trait + TransportEventSink/StdioEventSink
+│   └── mod.rs            — AcpTransport trait（MpscTransport/StdioTransport）
 ├── session/
 │   ├── mod.rs            — Session 管理（SessionManager + SessionState）
+│   ├── event_sink.rs     — EventSink trait + TransportEventSink/StdioEventSink
 │   ├── executor.rs       — execute_prompt() 共享 Agent 执行管线
-│   ├── compact_runner.rs — run_full_compact()/run_micro_compact()
 │   └── state_builders.rs — ACP 协议状态构建器（modes/models/configOptions）
 ├── agent/
 │   └── builder.rs        — build_agent()：组装 Middleware Chain + LLM + 工具
-├── broker.rs             — AcpTransportBroker（实现 UserInteractionBroker，HITL/AskUser 桥接）
-├── dispatch.rs           — ACP 请求分发（session/new/prompt/set_model/set_mode 等）
-├── event.rs              — ExecutorEvent → SessionNotification 事件映射
+├── broker/               — AcpTransportBroker（实现 UserInteractionBroker，HITL/AskUser 桥接）
+├── dispatch/             — ACP 请求分发（session/new/prompt/set_model/set_mode 等）
+├── event/                — ExecutorEvent → SessionNotification 事件映射
 ├── langfuse/
 │   └── mod.rs            — Langfuse 追踪（Session/Tracer）
 ├── hooks/
@@ -141,10 +137,9 @@ src/
 ├── lsp/
 │   └── mod.rs            — LSP 中间件集成
 ├── prompt/
-│   └── mod.rs            — 系统提示词构建
-├── provider/
-│   └── mod.rs            — Provider/Model 解析
-└── features.rs           — PromptFeatures + GitAttribution
+│   └── mod.rs            — 系统提示词构建（PromptFeatures 定义于此）
+└── provider/
+    └── mod.rs            — Provider/Model 解析
 ```
 
 ### cc-tui 内部模块（更新后）
@@ -175,23 +170,21 @@ src/
 │   ├── thread_ops.rs     — 线程操作
 │   └── ...
 ├── ui/
-│   ├── main_ui.rs        — 主渲染入口
-│   ├── message_render.rs — 消息行渲染
-│   ├── message_view.rs   — MessageViewModel
+│   ├── main_ui/          — 主渲染入口
+│   ├── message_render/   — 消息行渲染
+│   ├── message_view/     — MessageViewModel
 │   └── render_thread.rs  — 独立渲染线程
 ├── config/
-│   ├── store.rs          — PeriConfig
-│   └── types.rs          — 配置类型
+│   └── mod.rs            — re-export cc-acp 的 PeriConfig（定义在 cc-acp/src/provider/config.rs）+ TUI 本地配置类型
 ├── command/
 │   ├── mod.rs            — CommandRegistry
 │   └── ...
-├── event.rs              — crossterm 事件适配
-└── prompt.rs             — 系统提示词构建（已废弃，迁移到 cc-acp）
+└── event/                — crossterm 事件适配（系统提示词构建已迁至 cc-acp，本地 prompt.rs 已删除）
 ```
 
 ## 事件系统
 
-### AgentEvent（核心层，11 种变体）
+### AgentEvent（核心层，25 种变体，下表为主要变体）
 
 | 事件 | 说明 | 携带信息 |
 |------|------|----------|
@@ -199,17 +192,20 @@ src/
 | `TextChunk` | LLM 最终文字输出 | message_id + chunk |
 | `ToolStart` | 工具调用开始 | message_id + tool_call_id + name + input |
 | `ToolEnd` | 工具调用结束 | message_id + tool_call_id + name + output + is_error |
-| `StepDone` | 一轮 ReAct 完成 | step 序号 |
 | `StateSnapshot` | 完整消息快照 | Vec\<BaseMessage\>（用于持久化） |
 | `MessageAdded` | 增量消息 | 单条 BaseMessage（用于持久化和遥测） |
 | `LlmCallStart` | LLM 调用开始 | step + messages 快照 + tools 定义（Langfuse） |
 | `LlmCallEnd` | LLM 调用结束 | step + model + output + TokenUsage（Langfuse） |
 | `LlmRetrying` | LLM 重试中 | attempt, max_attempts, delay_ms, error |
 | `BackgroundTaskCompleted` | 后台 agent 任务完成 | task_id, agent_name, success, output, tool_calls_count, duration_ms |
+| `AiMessageSnapshot` | 流式 AI 消息快照 | 完整 Ai 消息（流式路径专用） |
+| `SubagentEvent` | 子 Agent 事件信封 | 以实例 ID 包装的完整子事件 |
+| `CompactionStarted` / `CompactionCompleted` | 压缩开始/完成 | 策略、触发原因 / 保留与丢弃条数 |
+| `AgentCancelled` | Agent 被取消 | — |
 
 ### TUI AgentEvent（应用层，扩展变体）
 
-在核心事件基础上增加：`Done` / `Error` / `ApprovalNeeded` / `AskUserBatch` — 用于驱动 TUI 状态机。
+TUI 层另有独立的 AgentEvent 枚举（与核心层同名但不同类型），含 `Done` / `Error` 等变体驱动 TUI 状态机；审批不走事件变体（无 ApprovalNeeded/AskUserBatch）。
 
 ## 数据流
 
@@ -220,11 +216,11 @@ AgentInput（用户消息）
   ↓
 state.add_message(Human)
   ↓
-chain.collect_tools(cwd)        ← 所有 ToolProvider 合并工具集，手动注册优先
+chain.collect_tools(cwd)        ← 各中间件 collect_tools 汇总工具集，手动注册优先
   ↓
-chain.before_agent(state)       ← AgentDefine → AgentsMd → Skills → SkillPreload → PrependSystem
+chain.before_agent(state)       ← AgentsMd → Memory → AgentDefine → Skills → SkillPreload → AtMention → …
   ↓
-┌─── ReAct 循环（max 50 次）──────────────────────────────────┐
+┌─── ReAct 循环（max 500 次，cc-acp 构建时设定；executor 默认 10）──────────────────────────────────┐
 │  emit(LlmCallStart{step, messages, tools})                   │
 │  llm.generate_reasoning(messages, tools)                     │
 │  emit(LlmCallEnd{step, model, output, usage})                │
@@ -275,10 +271,10 @@ Stdio 路径:
 LangfuseSession（Thread 级别，跨多轮复用）
   └─ LangfuseTracer（Turn 级别，每次 submit_message 创建）
        └─ Trace（trace_id = turn UUID）
-            └─ Span: "agent"（agent_span_id）
+            └─ Observation: "agent-run"（type=Agent，根节点）
                  ├─ Generation: "llm-step-{n}"（LlmCallStart → LlmCallEnd）
                  │    └─ input: messages 快照, output: LLM 回复, usage: token 统计
-                 ├─ Span: "tools-batch-{n}"（工具批次）
+                 ├─ Span: "Tools"（工具批次）
                  │    ├─ Span: "tool:{name}"（ToolStart → ToolEnd）
                  │    ├─ Span: "tool:{name}"
                  │    └─ ...
@@ -293,7 +289,7 @@ LlmCallEnd 携带 usage
   → TokenTracker.accumulate()
   → context_usage_percent() > threshold
   → Micro-compact: 清除可压缩工具结果/图片/文档
-  → Full Compact: LLM 生成 9 段摘要替换历史
+  → Full Compact: LLM 生成自由 Markdown 摘要替换历史
   → re_inject: 重新注入最近文件 + Skills
 ```
 
@@ -302,25 +298,26 @@ LlmCallEnd 携带 usage
 中间件按注册顺序执行，典型组装顺序：
 
 ```
-主 Agent（cc-acp 的 build_agent 组装；完整 17 + 1 个中间件见 cc-middlewares/CLAUDE.md）：
+主 Agent（cc-acp 的 build_agent 组装；完整清单以 builder.rs 为准）：
 1. AgentsMdMiddleware         ← 注入指引整段（AGENTS.md/CLAUDE.md 及变体，单条 System 消息）
-2. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
-3. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
-4. SkillPreloadMiddleware     ← 消息含 #skill-name 时注入 skill 全文（fake tool 序列）
-5. AtMentionMiddleware        ← @path 解析，注入 Read 工具调用
-6. FilesystemMiddleware       ← 提供文件系统工具
-7. GitAttributionMiddleware   ← 追踪 Write/Edit 贡献字符数
-8. TerminalMiddleware         ← 提供 bash 工具
-9. WebMiddleware              ← WebFetch/WebSearch
-10. TodoMiddleware            ← after_tool 解析 TodoWrite 结果
-11. CronMiddleware            ← CronRegister/CronList/CronRemove
-12. HookMiddleware            ← hooks 事件拦截（多组实例）
-13. HumanInTheLoopMiddleware  ← before_tool 拦截敏感工具
-14. SubAgentMiddleware        ← 提供 Agent 工具（支持 fork/normal/background 三路径）
-15. McpMiddleware             ← MCP 工具和资源注入（仅 pool 初始化成功时注册）
-16. ToolSearchMiddleware      ← SearchExtraTools/ExecuteExtraTool 代理
-17. LspMiddleware             ← LSP 工具 + after_tool 文件变更同步
-18. CompactMiddleware         ← before_model 钩子触发上下文压缩（条件注册）
+2. MemoryMiddleware            ← Auto-Memory 索引快照注入（冻结快照，置于动态边界后）
+3. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
+4. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
+5. SkillPreloadMiddleware     ← 消息含 /skill-name 时注入 skill 全文（fake tool 序列）
+6. AtMentionMiddleware        ← @path 解析，注入 Read 工具调用
+7. FilesystemMiddleware       ← 提供文件系统工具
+8. GitAttributionMiddleware   ← 追踪 Write/Edit 贡献字符数
+9. TerminalMiddleware         ← 提供 bash 工具
+10. WebMiddleware              ← WebFetch/WebSearch
+11. TodoMiddleware            ← after_tool 解析 TodoWrite 结果
+12. CronMiddleware            ← CronRegister/CronList/CronRemove
+13. HookMiddleware            ← hooks 事件拦截（多组实例）
+14. HumanInTheLoopMiddleware  ← before_tool 拦截敏感工具
+15. SubAgentMiddleware        ← 提供 Agent 工具（支持 fork/normal/background 三路径）
+16. McpMiddleware             ← MCP 工具和资源注入（仅 pool 初始化成功时注册）
+17. ToolSearchMiddleware      ← SearchExtraTools/ExecuteExtraTool 代理
+18. LspMiddleware             ← LSP 工具 + after_tool 文件变更同步
+19. CompactMiddleware         ← before_model 钩子触发上下文压缩（条件注册）
 [ReActAgent.with_system_prompt()] ← system prompt 固定在 run_before_agent 之后 prepend，不依赖中间件顺序
 
 子 Agent（SubAgentTool 内部组装）：
@@ -328,7 +325,7 @@ LlmCallEnd 携带 usage
 2. SkillsMiddleware
 3. SkillPreloadMiddleware     ← 读取 agent 定义 frontmatter.skills 列表
 4. TodoMiddleware
-5. PrependSystemMiddleware    ← 子 agent 仍使用中间件方式（动态 system builder）
+5. AgentSystemBuilder         ← 子 agent 的 system prompt 由 builder 动态构建（非中间件）
 ```
 
 手动注册工具（`register_tool`）优先级最高，覆盖同名中间件工具。
@@ -339,9 +336,8 @@ LlmCallEnd 携带 usage
 |---------|------|------|------|
 | Anthropic API | HTTPS REST + SSE | `ANTHROPIC_API_KEY` header | `https://api.anthropic.com/v1/messages` |
 | OpenAI 兼容 | HTTPS REST + SSE | `OPENAI_API_KEY` bearer | `OPENAI_BASE_URL` 环境变量 |
-| SQLite | 本地文件 | — | `~/.peri/threads/threads.db` |
-| OpenTelemetry Collector | HTTP OTLP Proto | — | `OTEL_EXPORTER_OTLP_ENDPOINT` |
-| Langfuse | HTTPS REST | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | `LANGFUSE_HOST`（默认 cloud） |
+| SQLite | 本地文件 | — | `~/.cc-code/threads/threads.db` |
+| Langfuse | HTTPS REST | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | `LANGFUSE_BASE_URL`（默认 cloud） |
 
 ## 部署拓扑
 
@@ -353,18 +349,17 @@ LlmCallEnd 携带 usage
        ├─ 直接调用 Anthropic/OpenAI API（reqwest HTTP）
        ├─ 读写本地文件系统（FilesystemMiddleware）
        ├─ 执行 bash 命令（TerminalMiddleware）
-       ├─ 写入 ~/.peri/threads/threads.db（SQLite WAL）
+       ├─ 写入 ~/.cc-code/threads/threads.db（SQLite WAL）
        └─ 上报 Langfuse（可选，环境变量控制）
 ```
 
 **可观测性（可选）：**
 
 ```
-cc-agent（tracing spans）
-  ├─ opentelemetry-otlp HTTP → Jaeger / OTLP Collector
-  └─ Langfuse（TUI 层 LangfuseTracer → Langfuse API）
+cc-acp / cc-tui（tracing spans）
+  └─ Langfuse（LangfuseTracer → Langfuse API）
        └─ Trace > Span > Generation 三级层次
 ```
 
 ---
-*最后更新: 2026-05-20 — 由 feature_2026-05-18_F001_acp-tui-separation 和 feature_2026-05-17_F001_config-sync 归档时更新*
+*最后更新: 2026-10-22 — 对照 v0.6.182 代码维护：修正模块路径与事件变体数、删除 OpenTelemetry 描述、补入 MemoryMiddleware、修正数据路径*

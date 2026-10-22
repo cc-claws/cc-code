@@ -66,26 +66,26 @@ Peri 是一个 Rust Agent 框架，7 个 Workspace Crate + side-projects，总�
 
 | # | 文件 | 行数 | 函数数 | 根因 | 膨胀趋势 |
 |---|------|------|--------|------|---------|
-| 1 | `peri-tui/src/ui/message_render.rs` | 1253 | 15 | 工具渲染+ANSI 渲染+通用渲染混合 | +641（严重恶化） |
-| 2 | `peri-tui/src/main.rs` | 1138 | 15 | CLI+TUI 启动+信号处理混合 | +355（恶化） |
-| 3 | `peri-tui/src/app/message_pipeline/mod.rs` | 1070 | 47 | 流式管线+节流+子代理混合 | +291（恶化） |
-| 4 | `peri-tui/src/ui/message_view/mod.rs` | 1033 | 24 | ViewModel 定义+工厂方法+Hash/PartialEq | +319（恶化） |
-| 5 | `peri-tui/src/event/mod.rs` | 1003 | 20 | 事件路由巨型 match（468 行） | +95（持续恶化） |
-| 6 | `peri-tui/src/acp_stdio.rs` | 988 | 3 | `run_acp_stdio` 单函数 902 行 | +90（恶化） |
-| 7 | `peri-tui/src/event/keyboard/normal_keys.rs` | 808 | 16 | keyboard.rs 拆分产物仍偏大 | 新增 |
-| 8 | `peri-middlewares/src/hooks/middleware.rs` | 783 | 15 | matcher+executor+loader 混合 | +98（恶化） |
+| 1 | `cc-tui/src/ui/message_render.rs` | 1253 | 15 | 工具渲染+ANSI 渲染+通用渲染混合 | +641（严重恶化） |
+| 2 | `cc-tui/src/main.rs` | 1138 | 15 | CLI+TUI 启动+信号处理混合 | +355（恶化） |
+| 3 | `cc-tui/src/app/message_pipeline/mod.rs` | 1070 | 47 | 流式管线+节流+子代理混合 | +291（恶化） |
+| 4 | `cc-tui/src/ui/message_view/mod.rs` | 1033 | 24 | ViewModel 定义+工厂方法+Hash/PartialEq | +319（恶化） |
+| 5 | `cc-tui/src/event/mod.rs` | 1003 | 20 | 事件路由巨型 match（468 行） | +95（持续恶化） |
+| 6 | `cc-tui/src/acp_stdio.rs` | 988 | 3 | `run_acp_stdio` 单函数 902 行 | +90（恶化） |
+| 7 | `cc-tui/src/event/keyboard/normal_keys.rs` | 808 | 16 | keyboard.rs 拆分产物仍偏大 | 新增 |
+| 8 | `cc-middlewares/src/hooks/middleware.rs` | 783 | 15 | matcher+executor+loader 混合 | +98（恶化） |
 
 ### 3.2 次要大文件（400-800 行）
 
 | 文件 | 行数 | 状态 |
 |------|------|------|
-| `peri-acp/src/langfuse/tracer.rs` | 761 | 已记录 |
-| `peri-widgets/src/markdown/render_state.rs` | 748 | 已记录 |
-| `peri-tui/src/clipboard/copy.rs` | 746 | 新增 |
-| `peri-tui/src/ui/main_ui/status_bar.rs` | 680 | 新增 |
-| `peri-middlewares/src/plugin/loader.rs` | 669 | 已记录 |
-| `peri-tui/src/app/mod.rs` | 668 | 恶化 |
-| `peri-middlewares/src/mcp/config.rs` | 654 | 已记录 |
+| `cc-acp/src/langfuse/tracer.rs` | 761 | 已记录 |
+| `cc-widgets/src/markdown/render_state.rs` | 748 | 已记录 |
+| `cc-tui/src/clipboard/copy.rs` | 746 | 新增 |
+| `cc-tui/src/ui/main_ui/status_bar.rs` | 680 | 新增 |
+| `cc-middlewares/src/plugin/loader.rs` | 669 | 已记录 |
+| `cc-tui/src/app/mod.rs` | 668 | 恶化 |
+| `cc-middlewares/src/mcp/config.rs` | 654 | 已记录 |
 
 ### 3.3 健康维度（无问题）
 
@@ -141,7 +141,7 @@ event/mod.rs (1003 行)
 | `event/mouse.rs` | `record_mouse_event` + `last_mouse_event_ms` + `coalesce_drag_events` + `point_in_*` + `handle_message_scrollbar_*` + `Event::Mouse` 分支 | ~400 | `&mut App` |
 | `event/mod.rs` | `next_event` + `handle_event` 路由骨架（Focus/Resize/Key → delegate, Paste → paste::, Mouse → mouse::） | ~150 | — |
 
-**验证**：`cargo build -p peri-tui && cargo test -p peri-tui`
+**验证**：`cargo build -p cc-tui && cargo test -p cc-tui`
 
 #### 4.2.2 `message_render.rs` → `render_{tool,shell}.rs`
 
@@ -175,7 +175,7 @@ message_render.rs (1253 行)
 | `ui/render_shell.rs` | ANSI/Shell 渲染全部（L345-570） | ~225 | 纯函数，零状态 |
 | `ui/message_render.rs` | `dim_markdown_lines` + `wrap_line_spans` + `render_view_model` | ~500 | 保留主入口 |
 
-**验证**：`cargo build -p peri-tui && cargo test -p peri-tui`
+**验证**：`cargo build -p cc-tui && cargo test -p cc-tui`
 
 #### 4.2.3 `message_view/factory.rs` 提取
 
@@ -198,7 +198,7 @@ message_view/mod.rs (1033 行)
 | `message_view/factory.rs` | `user()`/`user_with_expanded()`/`assistant()`/`tool_block()`/`tool_block_with_id()`/`shell_command_pending()`/`shell_command_completed()`/`system()`/`cache_warning()`/`subagent_group()` | ~160 |
 | `message_view/view_model.rs` | struct 定义 + `from_base_message` + `append_chunk` + 查询方法 + Hash/PartialEq | ~850 |
 
-**验证**：`cargo build -p peri-tui && cargo test -p peri-tui`
+**验证**：`cargo build -p cc-tui && cargo test -p cc-tui`
 
 ---
 

@@ -13,7 +13,7 @@ Agent 领域是整个框架的核心，负责 ReAct 推理循环的执行、消�
 - 线程持久化：SQLite WAL 模式，sqlx SqlitePool 连接池（max=5）原生 async，`StateSnapshot` 事件驱动增量写入，message_id 为主键
 - 声明式子 Agent：`.claude/agents/*.md` 定义 Explorer/WebResearcher 等专用 Agent，frontmatter 声明工具白名单、skills 预加载和独立模型；Fork 路径（fork: true）继承父 agent 完整上下文
 - System Prompt：ReActAgent.with_system_prompt() 固定在 run_before_agent 后 prepend，消除 PrependSystemMiddleware 顺序约束
-- 工具接口：ask_user_question（对齐 Claude AskUserQuestion 规范），questions 数组 + header + options.description
+- 工具接口：ask_user_question（对齐参考实现的 AskUserQuestion 规范），questions 数组 + header + options.description
 - 定时任务：CronMiddleware 提供 CronRegister/CronList/CronRemove 工具，croner 2 解析 cron 表达式
 - 后台执行：Agent 工具恒后台执行（`run_in_background` 参数已退场，前台同步路径已删除），BackgroundTaskRegistry 最多 3 并发，完成经生命周期通知回流、Done 后自动 continuation；`timeout_secs` 显式超时预算（省略/0 无限制）；`SubagentStarted` 载荷携带 `task_preview`（摘要）与 `prompt`（指令**全文**，供 TUI 详细模式展开 Prompt 卡片，见 [PRD §4.17](../../../docs/prd/subagent-drawer-and-virtual-routing.md)）；`Agent` 工具经 `action="stop"` + `task_id` 支持主 Agent 主动取消（复用 `BackgroundTaskRegistry::cancel()`，See [PRD §4.4.1](../../../docs/prd/subagent-drawer-and-virtual-routing.md)）
 
@@ -23,9 +23,9 @@ Agent 领域是整个框架的核心，负责 ReAct 推理循环的执行、消�
 
 ```
 AgentInput → add_message(Human)
-  → chain.collect_tools(cwd)     ← ToolProvider 合并，手动注册优先级最高
+  → chain.collect_tools(cwd)     ← collect_tools 汇总，手动注册优先级最高
   → chain.before_agent(state)    ← AgentsMd → Skills（prepend System）
-  → loop(max_iterations=50):
+  → loop(max_iterations=500，主 Agent 构建时设定；executor 默认 10):
       llm.generate_reasoning(messages, tools)
         stop_reason==ToolUse  → 工具调用分支
         stop_reason==EndTurn  → 最终回答
@@ -87,22 +87,22 @@ launch_agent 工具调用
 | 消息 ID | UUID v7（时间有序，`uuid = "1"` features: v7 + serde），MessageId 封装，构造器自动填充 |
 | LLM 适配 | OpenAI（streaming SSE）+ Anthropic（Prompt Cache / Extended Thinking）；序列化时跳过 message id 字段 |
 | 消息格式 | `BaseMessage` ↔ `MessageAdapter` trait，`OpenAiAdapter` / `AnthropicAdapter` |
-| Middleware | `Middleware<S>` trait（5 个钩子），`MiddlewareChain` 顺序执行 |
-| 工具系统 | `BaseTool` trait，`ToolProvider` trait 动态提供，`register_tool` 优先级最高 |
+| Middleware | `Middleware<S>` trait（7 个生命周期钩子 + collect_tools），`MiddlewareChain` 顺序执行 |
+| 工具系统 | `BaseTool` trait，工具经中间件 collect_tools 汇总，`register_tool` 优先级最高 |
 | 错误处理 | LLM 层 `anyhow::Result`，工具层结构化错误信息（`is_error: true`） |
 | 测试 | `MockLLM::tool_then_answer()` 脚本回放，无需真实 API |
-| 子 Agent 中间件 | AgentsMdMiddleware → SkillsMiddleware → SkillPreloadMiddleware → TodoMiddleware → PrependSystemMiddleware |
+| 子 Agent 中间件 | AgentsMdMiddleware → SkillsMiddleware → SkillPreloadMiddleware → TodoMiddleware；system prompt 由 AgentSystemBuilder 动态构建 |
 | skill 预加载 | SkillPreloadMiddleware：fake read_file 工具调用+ToolResult 消息对注入，frontmatter.skills 声明 |
-| System Prompt | ReActAgent.with_system_prompt()：内置字段，execute() 在 run_before_agent 之后固定 prepend；PrependSystemMiddleware 保留用于子 agent 动态 system builder |
-| ask_user_question | 工具名对齐 Claude；questions 数组（1-4 个）；header 短标签；options.description；始终允许自定义输入 |
+| System Prompt | ReActAgent.with_system_prompt()：内置字段，execute() 在 run_before_agent 之后固定 prepend；子 agent 的 system prompt 由 AgentSystemBuilder 动态构建（无 PrependSystemMiddleware） |
+| ask_user_question | 工具名对齐参考实现；questions 数组（1-4 个）；header 短标签；options.description；始终允许自定义输入 |
 | 事件携带 message_id | TextChunk/ToolStart/ToolEnd 均携带 message_id，Web 前端可 update-in-place |
 | LLM Factory | `Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM>>`，支持 Option<&str> 参数传递子 Agent 独立模型标识 |
 | 子 Agent 模型 | agent.md frontmatter model 字段（sonnet/opus/haiku/inherit），alias 解析在 TUI 层完成 |
-| 定时任务 | CronMiddleware 提供 CronRegister/CronList/CronRemove 三个工具；croner 2 解析表达式；内存任务表上限 20 |
+| 定时任务 | CronMiddleware 提供 CronRegister/CronList/CronRemove 三个工具；croner 3 解析表达式；内存任务表上限 20 |
 | 后台执行 | BackgroundTaskRegistry(max=3) + mpsc unbounded 通道；invoke_background() 不 await；结果注入为 Human 消息；Done 后保持通道存活 + 自动 continuation |
-| 工具延迟加载 | 核心工具（12 个）直接加载，非核心工具通过 SearchExtraTools 按需发现、ExecuteExtraTool 代理执行；Prompt 缓存会话级 |
+| 工具延迟加载 | 核心工具（11 个）直接加载，非核心工具通过 SearchExtraTools 按需发现、ExecuteExtraTool 代理执行；Prompt 缓存会话级 |
 | Web 工具 | WebMiddleware 注入 WebFetch（HTML→Markdown）和 WebSearch（Tavily API），支持域名过滤和实时抓取 |
-| trait 清理 | ReactLLM trait 移除废弃方法（generate_reasoning），统一为 generate()；废弃 trait 标记 #[deprecated] |
+| trait 清理 | ReactLLM 的推理方法仍为 generate_reasoning（执行器经 llm_step 调用，无 generate() 统一）；废弃 trait 标记 #[deprecated] |
 | 会话回顾 /recap | `cc-agent/src/agent/recap/mod.rs`：独立 `aux_model`（与 compact_model 解耦，不受 compact 开关影响），单轮生成、禁用工具、不写 history；input token 远小于完整 history |
 | 动作签名循环检测 | `ActionLoopDetector`（`tool_dispatch.rs`）：按步骤动作签名去重，连续 3 轮（CONSECUTIVE_ACTION_THRESHOLD）相同工具动作注入纠正消息 |
 | ThreadMeta 恢复字段 | `latest_recap`（Option<String>）与 `last_task_summary`（Option<TaskSummary>）落库；`TaskSummary { verb, elapsed_ms, done_at }`，使 `-c`/`-r` 恢复会话时 recap 与任务完成总结行不丢失 |
@@ -182,7 +182,7 @@ launch_agent 工具调用
 
 ### feature_20260328_F001_ask-user-question-align
 
-**摘要:** ask_user 工具全面对齐 Claude AskUserQuestion 接口规范
+**摘要:** ask_user 工具全面对齐参考实现的 AskUserQuestion 接口规范
 **关键决策:**
 
 - 工具名: ask_user → ask_user_question
@@ -245,8 +245,7 @@ launch_agent 工具调用
 **摘要:** Agent trait 层级清理与废弃 API 移除
 **关键决策:**
 
-- ReactLLM trait 移除废弃方法（generate_reasoning），统一为 generate() 接口
-- 废弃 trait 和方法标记 #[deprecated]，保留编译兼容
+- 废弃 trait 和方法标记 #[deprecated]，保留编译兼容（注：generate_reasoning 至今仍是 ReactLLM 的唯一推理方法，统一为 generate() 的设想未生效）
 - 清理未使用的泛型参数和冗余类型别名
 - 同步更新所有 impl 块和测试代码
 **归档:** [链接](../../archive/feature_20260329_F005_legacy-cleanup/)
@@ -295,7 +294,7 @@ launch_agent 工具调用
 
 ### feature_20260430_F001_align-claude-code-tools
 
-**摘要:** 10 个工具名称和参数结构完全对齐 Claude Code
+**摘要:** 10 个工具名称和参数结构完全对齐参考实现
 **关键决策:**
 
 - 工具名完全对齐：read_file→Read、write_file→Write、edit_file→Edit、glob_files→Glob、search_files_rg→Grep、launch_agent→Agent
@@ -311,9 +310,9 @@ launch_agent 工具调用
 **摘要:** 工具延迟加载机制，核心工具直接加载，非核心工具按需发现和代理执行
 **关键决策:**
 
-- 核心工具（12 个）始终加载：Read/Write/Edit/Glob/Grep/folder_operations/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite
+- 核心工具（11 个）始终加载：Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite
 - 非核心工具通过 SearchExtraTools 按需发现，ExecuteExtraTool 代理执行
-- ToolProvider trait 动态提供工具集合，支持运行时扩展
+- 工具集合经 collect_tools 汇总，支持运行时扩展
 - Prompt 缓存优化：deferred tools 提示词会话级缓存，保证 Anthropic cache 前缀稳定
 **归档:** [链接](../../archive/feature_20260509_F001_tool-search/)
 **归档日期:** 2026-05-13

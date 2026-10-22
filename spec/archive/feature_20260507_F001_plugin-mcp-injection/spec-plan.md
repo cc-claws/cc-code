@@ -10,7 +10,7 @@
 
 - 涉及 3 个文件：`mcp/config.rs`（load_merged_config 内部重排 + plugin_sources 收集）、`mcp/client.rs`（McpClientPool 新增 plugin_sources 旁路表）、`plugin/config.rs`（ClaudeSettings extraKnownMarketplaces 支持对象格式反序列化）
 - Task 1（config.rs 重排）是 Task 2（client.rs 旁路表）的前置依赖
-- [TRAP] 预存 Bug 发现：`ClaudeSettings` 的 `extraKnownMarketplaces` 字段原有反序列化器只支持数组格式，但 Claude Code 的 `settings.json` 使用对象格式，导致整个 `ClaudeSettings` 解析失败、`load_enabled_plugins` 静默失败、插件 MCP 服务器全部丢失。已在 Task 1 中追加修复：新增 `deserialize_known_marketplaces` 自定义反序列化器同时支持对象和数组两种格式。
+- [TRAP] 预存 Bug 发现：`ClaudeSettings` 的 `extraKnownMarketplaces` 字段原有反序列化器只支持数组格式，但 参考实现 的 `settings.json` 使用对象格式，导致整个 `ClaudeSettings` 解析失败、`load_enabled_plugins` 静默失败、插件 MCP 服务器全部丢失。已在 Task 1 中追加修复：新增 `deserialize_known_marketplaces` 自定义反序列化器同时支持对象和数组两种格式。
 
 ---
 

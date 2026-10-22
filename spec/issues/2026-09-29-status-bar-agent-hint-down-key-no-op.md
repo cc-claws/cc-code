@@ -41,8 +41,8 @@ general-purpose    0calls 8m54s
 
 ## 涉及文件
 
-- `peri-tui/src/ui/main_ui/status_bar.rs` —— `↓ to view` 提示渲染处（计数含 agent）
-- `peri-tui/src/event/keyboard/normal_keys.rs` —— `↓` 按键处理处（判定条件疑似只认后台 shell）
+- `cc-tui/src/ui/main_ui/status_bar.rs` —— `↓ to view` 提示渲染处（计数含 agent）
+- `cc-tui/src/event/keyboard/normal_keys.rs` —— `↓` 按键处理处（判定条件疑似只认后台 shell）
 
 ## 期望行为
 

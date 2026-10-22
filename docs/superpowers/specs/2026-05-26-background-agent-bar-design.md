@@ -167,15 +167,15 @@ BackgroundTaskCompleted { task_id, agent_name, success, ... }
 
 | 文件 | 改动类型 |
 |------|----------|
-| `peri-tui/src/app/chat_session.rs` | 数据模型：替换 counter → Vec + focused 字段 |
-| `peri-tui/src/app/agent_ops/subagent.rs` | handle_subagent_start 改为 push RunningBgAgent |
-| `peri-tui/src/app/agent_events_bg.rs` | handle_background_task_completed 改为移除 + 聚焦检查 |
-| `peri-tui/src/app/agent_ops/lifecycle.rs` | background_task_count → background_agents.len() |
-| `peri-tui/src/app/agent_ops/polling.rs` | 同上 |
-| `peri-tui/src/ui/main_ui/mod.rs` | 布局约束新增 bg_agent_bar |
-| `peri-tui/src/ui/main_ui/status_bar.rs` | 状态栏计数 → 移除或简化（bar 已展示详情） |
-| `peri-tui/src/ui/main_ui/` 新增 `bg_agent_bar.rs` | Bar 渲染组件 |
-| `peri-tui/src/event/keyboard.rs` | Ctrl+B 快捷键注册 + BgBar 键盘处理 |
-| `peri-tui/src/app/message_pipeline.rs` | should_show_vm 过滤器 + focused_instance_id 集成 |
-| `peri-tui/src/app/panel_ops.rs` | session 拆分时 background_agents 初始化 |
-| `peri-tui/src/ui/headless_test.rs` | 现有 background_task_count 测试更新 |
+| `cc-tui/src/app/chat_session.rs` | 数据模型：替换 counter → Vec + focused 字段 |
+| `cc-tui/src/app/agent_ops/subagent.rs` | handle_subagent_start 改为 push RunningBgAgent |
+| `cc-tui/src/app/agent_events_bg.rs` | handle_background_task_completed 改为移除 + 聚焦检查 |
+| `cc-tui/src/app/agent_ops/lifecycle.rs` | background_task_count → background_agents.len() |
+| `cc-tui/src/app/agent_ops/polling.rs` | 同上 |
+| `cc-tui/src/ui/main_ui/mod.rs` | 布局约束新增 bg_agent_bar |
+| `cc-tui/src/ui/main_ui/status_bar.rs` | 状态栏计数 → 移除或简化（bar 已展示详情） |
+| `cc-tui/src/ui/main_ui/` 新增 `bg_agent_bar.rs` | Bar 渲染组件 |
+| `cc-tui/src/event/keyboard.rs` | Ctrl+B 快捷键注册 + BgBar 键盘处理 |
+| `cc-tui/src/app/message_pipeline.rs` | should_show_vm 过滤器 + focused_instance_id 集成 |
+| `cc-tui/src/app/panel_ops.rs` | session 拆分时 background_agents 初始化 |
+| `cc-tui/src/ui/headless_test.rs` | 现有 background_task_count 测试更新 |

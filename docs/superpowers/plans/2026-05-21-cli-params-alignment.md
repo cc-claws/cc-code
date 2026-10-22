@@ -1,12 +1,12 @@
-# CLI 参数对齐 Claude Code 实施计划
+# CLI 参数对齐参考实现实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 对齐 perihelion CLI 参数与 Claude Code 核心参数体系，覆盖权限控制、模型选择、会话恢复、非交互模式、工具过滤、插件管理等关键能力。
+**Goal:** 对齐 perihelion CLI 参数与参考实现的核心参数体系，覆盖权限控制、模型选择、会话恢复、非交互模式、工具过滤、插件管理等关键能力。
 
-**Architecture:** 在现有 clap `Parser`/`Subcommand` 定义上扩展，新增参数通过 clap derive 宏声明。`-p/--print` 模式复用 acp 的 JSON-RPC 基础设施但简化生命周期（单轮执行后退出）。`plugin` 子命令复用 `peri-middlewares` 中已有的 `install_plugin`/`uninstall_plugin` 函数。所有新参数均支持 camelCase + kebab-case 双别名（通过 `#[arg(long = "xxx", visible_alias = ["xxx-xxx"])]`）。
+**Architecture:** 在现有 clap `Parser`/`Subcommand` 定义上扩展，新增参数通过 clap derive 宏声明。`-p/--print` 模式复用 acp 的 JSON-RPC 基础设施但简化生命周期（单轮执行后退出）。`plugin` 子命令复用 `cc-middlewares` 中已有的 `install_plugin`/`uninstall_plugin` 函数。所有新参数均支持 camelCase + kebab-case 双别名（通过 `#[arg(long = "xxx", visible_alias = ["xxx-xxx"])]`）。
 
-**Tech Stack:** Rust 2021, clap 4 (derive), tokio, peri-agent, peri-middlewares, peri-acp
+**Tech Stack:** Rust 2021, clap 4 (derive), tokio, cc-agent, cc-middlewares, cc-acp
 
 ---
 
@@ -14,23 +14,23 @@
 
 | 文件 | 职责 | 状态 |
 |------|------|------|
-| `peri-tui/src/main.rs` | CLI 定义（Cli struct + Commands enum）+ 入口分发 | **修改** |
-| `peri-tui/src/cli_print.rs` | `-p/--print` 非交互模式实现 | **新建** |
-| `peri-tui/src/cli_plugin.rs` | `plugin` 子命令实现（list/install/uninstall） | **新建** |
-| `peri-tui/src/cli_args.rs` | CLI 参数类型定义和验证逻辑 | **新建** |
-| `peri-tui/src/acp_stdio.rs` | ACP stdio 模式（已存在，`-p` 复用其基础设施） | **修改**（提取共享逻辑） |
-| `peri-tui/src/app/service_registry.rs` | ServiceRegistry（cwd 字段供 CLI 使用） | **只读参考** |
-| `peri-tui/src/config/store.rs` | PeriConfig 加载（`load_from` / `save_to`） | **只读参考** |
-| `peri-middlewares/src/hitl/shared_mode.rs` | PermissionMode 枚举 + SharedPermissionMode | **只读参考** |
-| `peri-middlewares/src/plugin/installer/install.rs` | install_plugin 函数 | **只读参考** |
-| `peri-middlewares/src/plugin/installer/uninstall.rs` | uninstall_plugin 函数 | **只读参考** |
+| `cc-tui/src/main.rs` | CLI 定义（Cli struct + Commands enum）+ 入口分发 | **修改** |
+| `cc-tui/src/cli_print.rs` | `-p/--print` 非交互模式实现 | **新建** |
+| `cc-tui/src/cli_plugin.rs` | `plugin` 子命令实现（list/install/uninstall） | **新建** |
+| `cc-tui/src/cli_args.rs` | CLI 参数类型定义和验证逻辑 | **新建** |
+| `cc-tui/src/acp_stdio.rs` | ACP stdio 模式（已存在，`-p` 复用其基础设施） | **修改**（提取共享逻辑） |
+| `cc-tui/src/app/service_registry.rs` | ServiceRegistry（cwd 字段供 CLI 使用） | **只读参考** |
+| `cc-tui/src/config/store.rs` | PeriConfig 加载（`load_from` / `save_to`） | **只读参考** |
+| `cc-middlewares/src/hitl/shared_mode.rs` | PermissionMode 枚举 + SharedPermissionMode | **只读参考** |
+| `cc-middlewares/src/plugin/installer/install.rs` | install_plugin 函数 | **只读参考** |
+| `cc-middlewares/src/plugin/installer/uninstall.rs` | uninstall_plugin 函数 | **只读参考** |
 
 ---
 
 ## Task 1: CLI 参数类型定义
 
 **Files:**
-- Create: `peri-tui/src/cli_args.rs`
+- Create: `cc-tui/src/cli_args.rs`
 
 这个任务定义所有新增 CLI 参数的结构体和验证逻辑，为后续任务提供类型基础。
 
@@ -115,7 +115,7 @@ impl std::str::FromStr for PluginScope {
     }
 }
 
-impl From<PluginScope> for peri_middlewares::plugin::InstallScope {
+impl From<PluginScope> for cc_middlewares::plugin::InstallScope {
     fn from(scope: PluginScope) -> Self {
         match scope {
             PluginScope::User => Self::User,
@@ -293,12 +293,12 @@ mod tests {
 
 - [ ] **Step 2: 运行测试验证类型定义和验证逻辑**
 
-Run: `cargo test -p peri-tui --lib -- cli_args`
+Run: `cargo test -p cc-tui --lib -- cli_args`
 Expected: 5 个测试全部 PASS
 
 - [ ] **Step 3: 在 `main.rs` 中声明 `cli_args` 模块**
 
-在 `peri-tui/src/main.rs` 顶部添加：
+在 `cc-tui/src/main.rs` 顶部添加：
 
 ```rust
 mod cli_args;
@@ -307,7 +307,7 @@ mod cli_args;
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/cli_args.rs peri-tui/src/main.rs
+git add cc-tui/src/cli_args.rs cc-tui/src/main.rs
 git commit -m "feat(cli): add CLI argument types and validation logic"
 ```
 
@@ -316,13 +316,13 @@ git commit -m "feat(cli): add CLI argument types and validation logic"
 ## Task 2: 扩展 CLI 定义
 
 **Files:**
-- Modify: `peri-tui/src/main.rs:28-73`
+- Modify: `cc-tui/src/main.rs:28-73`
 
 在现有 `Cli` struct 和 `Commands` enum 上添加所有新参数定义。
 
 - [ ] **Step 1: 重写 `Cli` struct 和 `Commands` enum**
 
-将 `peri-tui/src/main.rs` 中的 `Cli` struct 替换为：
+将 `cc-tui/src/main.rs` 中的 `Cli` struct 替换为：
 
 ```rust
 #[derive(Parser)]
@@ -464,18 +464,18 @@ enum PluginAction {
 
 - [ ] **Step 2: 编译验证 CLI 定义**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 编译通过（可能有 unused warning，无 error）
 
 - [ ] **Step 3: 验证 --help 输出**
 
-Run: `cargo run -p peri-tui -- --help 2>&1 | head -50`
+Run: `cargo run -p cc-tui -- --help 2>&1 | head -50`
 Expected: 显示所有新参数的帮助文本
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/main.rs
+git add cc-tui/src/main.rs
 git commit -m "feat(cli): extend CLI definition with all new parameters"
 ```
 
@@ -484,9 +484,9 @@ git commit -m "feat(cli): extend CLI definition with all new parameters"
 ## Task 3: plugin 子命令实现
 
 **Files:**
-- Create: `peri-tui/src/cli_plugin.rs`
+- Create: `cc-tui/src/cli_plugin.rs`
 
-实现 `plugin list/install/uninstall` 子命令，复用 `peri-middlewares::plugin` 模块已有的函数。
+实现 `plugin list/install/uninstall` 子命令，复用 `cc-middlewares::plugin` 模块已有的函数。
 
 - [ ] **Step 1: 创建 `cli_plugin.rs`**
 
@@ -511,7 +511,7 @@ fn load_plugins() -> Vec<PluginListEntry> {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".claude");
     let plugins_path = claude_dir.join("plugins").join("installed_plugins.json");
-    let installed = peri_middlewares::plugin::config::load_installed_plugins(Some(&plugins_path))
+    let installed = cc_middlewares::plugin::config::load_installed_plugins(Some(&plugins_path))
         .unwrap_or_default();
 
     installed
@@ -524,9 +524,9 @@ fn load_plugins() -> Vec<PluginListEntry> {
             marketplace: p.marketplace,
             enabled: true, // TODO: check settings.json enabledPlugins
             scope: match p.scope {
-                peri_middlewares::plugin::InstallScope::User => "user",
-                peri_middlewares::plugin::InstallScope::Project => "project",
-                peri_middlewares::plugin::InstallScope::Local => "local",
+                cc_middlewares::plugin::InstallScope::User => "user",
+                cc_middlewares::plugin::InstallScope::Project => "project",
+                cc_middlewares::plugin::InstallScope::Local => "local",
             }
             .to_string(),
         })
@@ -570,14 +570,14 @@ pub async fn run_plugin_install(plugin_name: &str, scope_str: &str) -> Result<()
     let claude_dir = dirs_next::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".claude");
-    let cache_dir = peri_middlewares::plugin::marketplaces_cache_dir();
+    let cache_dir = cc_middlewares::plugin::marketplaces_cache_dir();
 
     // 解析 name@marketplace 格式
     let (name, marketplace) = plugin_name
         .split_once('@')
         .unwrap_or((plugin_name, "claude-plugins-official"));
 
-    let result = peri_middlewares::plugin::install_plugin(
+    let result = cc_middlewares::plugin::install_plugin(
         name,
         marketplace,
         scope.into(),
@@ -597,7 +597,7 @@ pub async fn run_plugin_uninstall(plugin_id: &str, scope_str: Option<&str>) -> R
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".claude");
 
-    peri_middlewares::plugin::uninstall_plugin(plugin_id, &claude_dir, None)
+    cc_middlewares::plugin::uninstall_plugin(plugin_id, &claude_dir, None)
         .await
         .map_err(|e| anyhow::anyhow!("卸载失败: {e}"))?;
 
@@ -608,7 +608,7 @@ pub async fn run_plugin_uninstall(plugin_id: &str, scope_str: Option<&str>) -> R
 
 - [ ] **Step 2: 在 `main.rs` 中声明模块并连接子命令分发**
 
-在 `peri-tui/src/main.rs` 顶部添加：
+在 `cc-tui/src/main.rs` 顶部添加：
 
 ```rust
 mod cli_plugin;
@@ -637,21 +637,21 @@ Some(Commands::Plugin { action }) => {
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过
 
 - [ ] **Step 4: 测试 plugin list（无插件时的输出）**
 
-Run: `cargo run -p peri-tui -- plugin list`
+Run: `cargo run -p cc-tui -- plugin list`
 Expected: 输出 "未安装任何插件。" 或已安装插件列表
 
-Run: `cargo run -p peri-tui -- plugin list --json`
+Run: `cargo run -p cc-tui -- plugin list --json`
 Expected: 输出 JSON 数组
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/cli_plugin.rs peri-tui/src/main.rs
+git add cc-tui/src/cli_plugin.rs cc-tui/src/main.rs
 git commit -m "feat(cli): implement plugin list/install/uninstall subcommand"
 ```
 
@@ -660,8 +660,8 @@ git commit -m "feat(cli): implement plugin list/install/uninstall subcommand"
 ## Task 4: -p/--print 非交互模式实现
 
 **Files:**
-- Create: `peri-tui/src/cli_print.rs`
-- Modify: `peri-tui/src/main.rs`（连接分发）
+- Create: `cc-tui/src/cli_print.rs`
+- Modify: `cc-tui/src/main.rs`（连接分发）
 
 实现 `-p` 模式：复用 acp 基础设施，执行单轮问答后输出结果并退出。
 
@@ -728,7 +728,7 @@ pub async fn run_print(
         anyhow::bail!("无输入 prompt。用法: peri -p \"你的问题\" 或 echo \"问题\" | peri -p");
     }
 
-    let _telemetry = peri_agent::telemetry::init_tracing("peri-print");
+    let _telemetry = cc_agent::telemetry::init_tracing("peri-print");
 
     // 加载配置（支持 --settings 覆盖）
     let peri_config = match &settings_path {
@@ -775,17 +775,17 @@ pub async fn run_print(
 
     // 权限模式
     let permission_mode = if skip_permissions {
-        peri_middlewares::prelude::PermissionMode::Bypass
+        cc_middlewares::prelude::PermissionMode::Bypass
     } else if let Some(ref mode_str) = permission_mode_str {
         parse_permission_mode_str(mode_str)
     } else {
-        peri_middlewares::prelude::PermissionMode::Bypass // -p 默认 bypass
+        cc_middlewares::prelude::PermissionMode::Bypass // -p 默认 bypass
     };
-    let shared_permission = peri_middlewares::prelude::SharedPermissionMode::new(permission_mode);
+    let shared_permission = cc_middlewares::prelude::SharedPermissionMode::new(permission_mode);
 
     // 初始化基础组件
     let cron_scheduler = {
-        let scheduler = peri_middlewares::cron::CronScheduler::new(
+        let scheduler = cc_middlewares::cron::CronScheduler::new(
             tokio::sync::mpsc::unbounded_channel().0,
         );
         Arc::new(parking_lot::Mutex::new(scheduler))
@@ -797,12 +797,12 @@ pub async fn run_print(
         let claude_home = dirs_next::home_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(".claude");
-        let pool = Arc::new(peri_middlewares::mcp::McpClientPool::new_pending());
+        let pool = Arc::new(cc_middlewares::mcp::McpClientPool::new_pending());
         let pool_clone = pool.clone();
         let cwd_clone = cwd.clone();
-        let (init_tx, _init_rx) = tokio::sync::watch::channel(peri_middlewares::mcp::McpInitStatus::Pending);
+        let (init_tx, _init_rx) = tokio::sync::watch::channel(cc_middlewares::mcp::McpInitStatus::Pending);
         tokio::spawn(async move {
-            peri_middlewares::mcp::McpClientPool::run_initialize(
+            cc_middlewares::mcp::McpClientPool::run_initialize(
                 pool_clone,
                 std::path::Path::new(&cwd_clone),
                 &claude_home,
@@ -821,12 +821,12 @@ pub async fn run_print(
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(".claude");
         let plugin_data =
-            peri_middlewares::plugin::load_enabled_plugins_aggregated(&claude_dir);
-        let mut hg: Vec<Vec<peri_middlewares::hooks::RegisteredHook>> = Vec::new();
+            cc_middlewares::plugin::load_enabled_plugins_aggregated(&claude_dir);
+        let mut hg: Vec<Vec<cc_middlewares::hooks::RegisteredHook>> = Vec::new();
         if !plugin_data.all_hooks.is_empty() {
             hg.push(plugin_data.all_hooks.clone());
         }
-        let local_hooks = peri_middlewares::hooks::loader::load_settings_local_hooks(&cwd);
+        let local_hooks = cc_middlewares::hooks::loader::load_settings_local_hooks(&cwd);
         if !local_hooks.is_empty() {
             hg.push(local_hooks);
         }
@@ -838,10 +838,10 @@ pub async fn run_print(
         )
     };
 
-    let tool_search_index = Arc::new(peri_middlewares::tool_search::ToolSearchIndex::new());
+    let tool_search_index = Arc::new(cc_middlewares::tool_search::ToolSearchIndex::new());
     let shared_tools = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
 
-    let thread_store: Arc<dyn peri_agent::thread::ThreadStore> =
+    let thread_store: Arc<dyn cc_agent::thread::ThreadStore> =
         match crate::thread::SqliteThreadStore::default_path().await {
             Ok(store) => Arc::new(store),
             Err(_) => Arc::new(
@@ -852,20 +852,20 @@ pub async fn run_print(
         };
 
     // 构建 broker（-p 模式自动批准所有）
-    let broker: Arc<dyn peri_agent::interaction::UserInteractionBroker> = Arc::new(PrintBroker);
+    let broker: Arc<dyn cc_agent::interaction::UserInteractionBroker> = Arc::new(PrintBroker);
 
     // 事件收集器
     let collector = Arc::new(std::sync::Mutex::new(PrintEventCollector::new(output_format)));
 
-    let event_handler: Arc<dyn peri_agent::agent::AgentEventHandler> = {
+    let event_handler: Arc<dyn cc_agent::agent::AgentEventHandler> = {
         let collector = collector.clone();
         Arc::new(PrintEventHandler { collector })
     };
 
-    let cancel = peri_agent::agent::AgentCancellationToken::new();
+    let cancel = cc_agent::agent::AgentCancellationToken::new();
     let peri_config_arc = Arc::new(peri_config.clone());
 
-    let result = peri_acp::session::executor::execute_prompt(
+    let result = cc_acp::session::executor::execute_prompt(
         &provider,
         peri_config_arc,
         &cwd,
@@ -900,25 +900,25 @@ pub async fn run_print(
 struct PrintBroker;
 
 #[async_trait::async_trait]
-impl peri_agent::interaction::UserInteractionBroker for PrintBroker {
+impl cc_agent::interaction::UserInteractionBroker for PrintBroker {
     async fn request(
         &self,
-        context: peri_agent::interaction::InteractionContext,
-    ) -> peri_agent::interaction::InteractionResponse {
+        context: cc_agent::interaction::InteractionContext,
+    ) -> cc_agent::interaction::InteractionResponse {
         match context {
-            peri_agent::interaction::InteractionContext::Approval { items } => {
-                peri_agent::interaction::InteractionResponse::Decisions(
+            cc_agent::interaction::InteractionContext::Approval { items } => {
+                cc_agent::interaction::InteractionResponse::Decisions(
                     items
                         .into_iter()
-                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve)
+                        .map(|_| cc_agent::interaction::ApprovalDecision::Approve)
                         .collect(),
                 )
             }
-            peri_agent::interaction::InteractionContext::Questions { requests } => {
-                peri_agent::interaction::InteractionResponse::Answers(
+            cc_agent::interaction::InteractionContext::Questions { requests } => {
+                cc_agent::interaction::InteractionResponse::Answers(
                     requests
                         .into_iter()
-                        .map(|q| peri_agent::interaction::QuestionAnswer {
+                        .map(|q| cc_agent::interaction::QuestionAnswer {
                             id: q.id,
                             selected: vec![],
                             text: Some(String::new()),
@@ -931,16 +931,16 @@ impl peri_agent::interaction::UserInteractionBroker for PrintBroker {
 }
 
 /// 从字符串解析权限模式
-fn parse_permission_mode_str(s: &str) -> peri_middlewares::prelude::PermissionMode {
+fn parse_permission_mode_str(s: &str) -> cc_middlewares::prelude::PermissionMode {
     match s {
-        "bypass" => peri_middlewares::prelude::PermissionMode::Bypass,
-        "default" => peri_middlewares::prelude::PermissionMode::Default,
-        "dont-ask" => peri_middlewares::prelude::PermissionMode::DontAsk,
-        "accept-edit" => peri_middlewares::prelude::PermissionMode::AcceptEdit,
-        "auto-mode" => peri_middlewares::prelude::PermissionMode::AutoMode,
+        "bypass" => cc_middlewares::prelude::PermissionMode::Bypass,
+        "default" => cc_middlewares::prelude::PermissionMode::Default,
+        "dont-ask" => cc_middlewares::prelude::PermissionMode::DontAsk,
+        "accept-edit" => cc_middlewares::prelude::PermissionMode::AcceptEdit,
+        "auto-mode" => cc_middlewares::prelude::PermissionMode::AutoMode,
         _ => {
             tracing::warn!(mode = %s, "未知权限模式，使用 bypass");
-            peri_middlewares::prelude::PermissionMode::Bypass
+            cc_middlewares::prelude::PermissionMode::Bypass
         }
     }
 }
@@ -950,8 +950,8 @@ struct PrintEventHandler {
     collector: Arc<std::sync::Mutex<PrintEventCollector>>,
 }
 
-impl peri_agent::agent::AgentEventHandler for PrintEventHandler {
-    fn handle_event(&self, event: peri_agent::agent::events::AgentEvent) {
+impl cc_agent::agent::AgentEventHandler for PrintEventHandler {
+    fn handle_event(&self, event: cc_agent::agent::events::AgentEvent) {
         let mut collector = self.collector.lock().unwrap();
         let output = collector.handle_event(event);
         if let Some(line) = output {
@@ -979,9 +979,9 @@ impl PrintEventCollector {
     /// 处理事件，返回需要立即打印的行（stream-json 模式用）
     fn handle_event(
         &mut self,
-        event: peri_agent::agent::events::AgentEvent,
+        event: cc_agent::agent::events::AgentEvent,
     ) -> Option<String> {
-        use peri_agent::agent::events::AgentEvent as E;
+        use cc_agent::agent::events::AgentEvent as E;
 
         match self.output_format {
             OutputFormat::StreamJson => match event {
@@ -1040,7 +1040,7 @@ impl PrintEventCollector {
 
 - [ ] **Step 2: 在 `main.rs` 中声明模块并连接 -p 分发**
 
-在 `peri-tui/src/main.rs` 顶部添加：
+在 `cc-tui/src/main.rs` 顶部添加：
 
 ```rust
 mod cli_print;
@@ -1111,18 +1111,18 @@ fn main() -> Result<()> {
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过（可能有 unused warning）
 
 - [ ] **Step 4: 手动测试 -p 基本功能**
 
-Run: `echo "说一个字" | cargo run -p peri-tui -- -p`
+Run: `echo "说一个字" | cargo run -p cc-tui -- -p`
 Expected: 输出模型响应文本后退出
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/cli_print.rs peri-tui/src/main.rs
+git add cc-tui/src/cli_print.rs cc-tui/src/main.rs
 git commit -m "feat(cli): implement -p/--print non-interactive mode"
 ```
 
@@ -1131,7 +1131,7 @@ git commit -m "feat(cli): implement -p/--print non-interactive mode"
 ## Task 5: 权限参数接入 TUI 模式
 
 **Files:**
-- Modify: `peri-tui/src/main.rs:173-243`（`run_tui` 函数）
+- Modify: `cc-tui/src/main.rs:173-243`（`run_tui` 函数）
 
 将 `--permission-mode`、`--dangerously-skip-permissions`、`--model`、`--effort`、`--settings` 参数接入 TUI 模式的初始化逻辑。
 
@@ -1207,7 +1207,7 @@ async fn run_app(
     let mut app = App::new().await;
 
     {
-        use peri_middlewares::prelude::PermissionMode;
+        use cc_middlewares::prelude::PermissionMode;
         let initial_mode = if tui_opts.skip_permissions {
             PermissionMode::Bypass
         } else if let Some(ref mode_str) = tui_opts.permission_mode {
@@ -1244,7 +1244,7 @@ async fn run_app(
     // --model 覆盖
     if let Some(ref model_str) = tui_opts.model {
         if let Some(ref config) = app.services.peri_config {
-            if let Some(new_provider) = peri_tui::app::agent::LlmProvider::from_config_for_alias(&config, model_str) {
+            if let Some(new_provider) = cc_tui::app::agent::LlmProvider::from_config_for_alias(&config, model_str) {
                 tracing::info!(model = %new_provider.model_name(), "CLI --model 覆盖生效");
             }
         }
@@ -1293,21 +1293,21 @@ fn inject_settings_override(source: &str) {
 
 - [ ] **Step 4: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过
 
 - [ ] **Step 5: 手动测试权限参数**
 
-Run: `cargo run -p peri-tui -- --permission-mode bypass` (启动后 Ctrl+C 退出)
+Run: `cargo run -p cc-tui -- --permission-mode bypass` (启动后 Ctrl+C 退出)
 Expected: 启动正常，状态栏显示 "Bypass"
 
-Run: `cargo run -p peri-tui -- -a` (启动后 Ctrl+C 退出)
+Run: `cargo run -p cc-tui -- -a` (启动后 Ctrl+C 退出)
 Expected: 启动正常，状态栏不显示额外模式（Default 模式）
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/main.rs
+git add cc-tui/src/main.rs
 git commit -m "feat(cli): wire permission/model/effort/settings into TUI mode"
 ```
 
@@ -1316,7 +1316,7 @@ git commit -m "feat(cli): wire permission/model/effort/settings into TUI mode"
 ## Task 6: 会话恢复参数骨架
 
 **Files:**
-- Modify: `peri-tui/src/main.rs`
+- Modify: `cc-tui/src/main.rs`
 
 `-c/--continue` 和 `-r/--resume` 参数的骨架实现。由于会话持久化机制需要 `ThreadStore` 支持，本任务先定义接口和 CLI 分发逻辑，实际恢复逻辑在会话持久化完善后补充。
 
@@ -1354,7 +1354,7 @@ git commit -m "feat(cli): wire permission/model/effort/settings into TUI mode"
 
 - [ ] **Step 2: 检查并补充 `ThreadBrowser` 查询方法**
 
-检查 `peri-tui/src/thread/browser.rs` 中是否有 `find_by_id` 和 `find_latest` 方法。如果没有，添加骨架方法：
+检查 `cc-tui/src/thread/browser.rs` 中是否有 `find_by_id` 和 `find_latest` 方法。如果没有，添加骨架方法：
 
 ```rust
     /// 按 thread ID 查找
@@ -1374,21 +1374,21 @@ git commit -m "feat(cli): wire permission/model/effort/settings into TUI mode"
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过
 
 - [ ] **Step 4: 测试 -c/-r 参数不导致崩溃**
 
-Run: `cargo run -p peri-tui -- -c` (启动后 Ctrl+C 退出)
+Run: `cargo run -p cc-tui -- -c` (启动后 Ctrl+C 退出)
 Expected: 启动正常，stderr 输出 "警告: 未找到可恢复的会话" 或正常恢复
 
-Run: `cargo run -p peri-tui -- -r some-id` (启动后 Ctrl+C 退出)
+Run: `cargo run -p cc-tui -- -r some-id` (启动后 Ctrl+C 退出)
 Expected: 启动正常
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/main.rs peri-tui/src/thread/browser.rs
+git add cc-tui/src/main.rs cc-tui/src/thread/browser.rs
 git commit -m "feat(cli): add -c/--continue and -r/--resume session restore skeleton"
 ```
 
@@ -1397,13 +1397,13 @@ git commit -m "feat(cli): add -c/--continue and -r/--resume session restore skel
 ## Task 7: 工具过滤参数接入
 
 **Files:**
-- Modify: `peri-tui/src/main.rs`（传递 allowed/disallowed 到 ACP server config）
-- Modify: `peri-tui/src/acp_server/mod.rs`（`AcpServerConfig` 增加 tools 过滤字段）
-- Modify: `peri-acp/src/agent/builder.rs`（`AcpAgentConfig` 增加过滤字段 + `build_agent` 应用过滤）
+- Modify: `cc-tui/src/main.rs`（传递 allowed/disallowed 到 ACP server config）
+- Modify: `cc-tui/src/acp_server/mod.rs`（`AcpServerConfig` 增加 tools 过滤字段）
+- Modify: `cc-acp/src/agent/builder.rs`（`AcpAgentConfig` 增加过滤字段 + `build_agent` 应用过滤）
 
 - [ ] **Step 1: 在 `AcpAgentConfig` 中增加工具过滤字段**
 
-在 `peri-acp/src/agent/builder.rs` 的 `AcpAgentConfig` struct 中添加：
+在 `cc-acp/src/agent/builder.rs` 的 `AcpAgentConfig` struct 中添加：
 
 ```rust
     pub allowed_tools: Vec<String>,
@@ -1412,7 +1412,7 @@ git commit -m "feat(cli): add -c/--continue and -r/--resume session restore skel
 
 - [ ] **Step 2: 在 `build_agent` 中应用工具过滤**
 
-在 `peri-acp/src/agent/builder.rs` 的 `build_agent` 函数中，工具注册完成后、构建 agent 之前，添加过滤逻辑：
+在 `cc-acp/src/agent/builder.rs` 的 `build_agent` 函数中，工具注册完成后、构建 agent 之前，添加过滤逻辑：
 
 ```rust
     // 应用工具过滤
@@ -1434,7 +1434,7 @@ git commit -m "feat(cli): add -c/--continue and -r/--resume session restore skel
 
 - [ ] **Step 3: 在 `AcpServerConfig` 中增加过滤字段**
 
-在 `peri-tui/src/acp_server/mod.rs` 的 `AcpServerConfig` struct 中添加：
+在 `cc-tui/src/acp_server/mod.rs` 的 `AcpServerConfig` struct 中添加：
 
 ```rust
     pub allowed_tools: Vec<String>,
@@ -1454,18 +1454,18 @@ git commit -m "feat(cli): add -c/--continue and -r/--resume session restore skel
 
 - [ ] **Step 5: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过
 
 - [ ] **Step 6: 测试工具过滤**
 
-Run: `cargo run -p peri-tui -- --allowedTools "Bash" "Read"` (启动后 Ctrl+C 退出)
+Run: `cargo run -p cc-tui -- --allowedTools "Bash" "Read"` (启动后 Ctrl+C 退出)
 Expected: 启动正常
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/main.rs peri-tui/src/acp_server/mod.rs peri-tui/src/acp_server/prompt.rs peri-acp/src/agent/builder.rs
+git add cc-tui/src/main.rs cc-tui/src/acp_server/mod.rs cc-tui/src/acp_server/prompt.rs cc-acp/src/agent/builder.rs
 git commit -m "feat(cli): implement --allowedTools/--disallowedTools tool filtering"
 ```
 
@@ -1474,8 +1474,8 @@ git commit -m "feat(cli): implement --allowedTools/--disallowedTools tool filter
 ## Task 8: 集成测试和 Help 文档完善
 
 **Files:**
-- Modify: `peri-tui/src/main.rs`（tests 模块）
-- Create: `peri-tui/src/cli_integration_test.rs`（集成测试）
+- Modify: `cc-tui/src/main.rs`（tests 模块）
+- Create: `cc-tui/src/cli_integration_test.rs`（集成测试）
 
 - [ ] **Step 1: 编写 CLI 参数解析集成测试**
 
@@ -1581,21 +1581,21 @@ fn test_combined_model_effort() {
 
 - [ ] **Step 2: 运行所有测试**
 
-Run: `cargo test -p peri-tui --lib -- cli_integration_test`
+Run: `cargo test -p cc-tui --lib -- cli_integration_test`
 Expected: 9 个测试全部 PASS
 
 - [ ] **Step 3: 检查最终 --help 输出完整性**
 
-Run: `cargo run -p peri-tui -- --help`
+Run: `cargo run -p cc-tui -- --help`
 Expected: 所有新参数显示在帮助文本中
 
-Run: `cargo run -p peri-tui -- plugin --help`
+Run: `cargo run -p cc-tui -- plugin --help`
 Expected: 显示 plugin 子命令帮助
 
 - [ ] **Step 4: 最终 Commit**
 
 ```bash
-git add peri-tui/src/cli_integration_test.rs
+git add cc-tui/src/cli_integration_test.rs
 git commit -m "test(cli): add CLI parameter parsing integration tests"
 ```
 
@@ -1630,4 +1630,4 @@ git commit -m "test(cli): add CLI parameter parsing integration tests"
 
 **2. Placeholder scan:** 无 TBD/TODO 除 Task 6 会话恢复的 `// TODO` 注释（标注为"需会话持久化模块支持"，是预期行为）。
 
-**3. Type consistency:** `PluginScope` 在 `cli_args.rs` 定义，在 `cli_plugin.rs` 中通过 `.into()` 转换为 `peri_middlewares::plugin::InstallScope`。`OutputFormat`/`EffortLevel` 在 `cli_args.rs` 定义，在 `cli_print.rs` 和 `main.rs` 中使用。`TuiOptions` 在 `main.rs` 定义并传递给 `run_tui`/`run_app`。所有类型定义一致。
+**3. Type consistency:** `PluginScope` 在 `cli_args.rs` 定义，在 `cli_plugin.rs` 中通过 `.into()` 转换为 `cc_middlewares::plugin::InstallScope`。`OutputFormat`/`EffortLevel` 在 `cli_args.rs` 定义，在 `cli_print.rs` 和 `main.rs` 中使用。`TuiOptions` 在 `main.rs` 定义并传递给 `run_tui`/`run_app`。所有类型定义一致。
