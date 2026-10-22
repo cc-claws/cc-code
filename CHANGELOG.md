@@ -6,7 +6,13 @@ Perihelion Agent 版本变更记录。
 
 ## v0.6.177 — 2026-10-22
 
+### Features
+
+- **消息区 Markdown 链接输出 OSC 8 终端超链接（#671）**：此前消息里的链接只能看到纯文本 URL（或带下划线的链接文字），在支持 OSC 8 的终端（Windows Terminal、iTerm2、WezTerm、kitty 等）里**点不动**——悬停无链接提示、Ctrl/Cmd+点击 无反应、右键菜单没有「打开链接」，只能手工复制 URL。根因是终端本身不知道哪段文字是链接：缺少 OSC 8 转义序列（Markdown 层早已产出 `LinkHit` 命中区，鼠标点击本就能打开，但终端侧无从得知）。现按 Codex CLI 的 `terminal_hyperlinks` 思路落地：转义序列**只注入 `Cell` symbol**，不参与任何布局或折行计算，注入点在 `Paragraph` 渲染进 Frame buffer 之后。新增 `cc-tui/src/ui/osc8.rs` 负责 grapheme 命中区→显示列换算（全角字符占两列）、逐 cell 包裹，以及 URL 控制字符剥离（否则含 `\x07` 的 URL 能提前终止序列并注入任意终端指令）；`message_area` 的 `ViewportClip` 增加 `link_rows`，在 cache 读锁内一次算好视口内的「行偏移 + 列区间」，输出层只做坐标平移。仅在终端能吃 VT 序列时启用，否则保留纯文本 URL，不把裸转义序列画到屏幕上。
+
 ### Fixes
+
+- **宽度适配后端不再把终端转义序列当作字形测量（#671）**：本项目输出层的 `WidthSafeBackend` 会把非 ASCII 字形拿去探针**实测列宽**并在不符时降级替换——这是 Codex CLI 没有的环节。OSC 8 序列若流到这里会被当成宽字符测量，导致链接失效且整行错位。此前只靠各探针自觉（Windows 探针见控制字符返回 `None`），而探针替身与未来新增的探针并不保证如此，实测确实会去测量。现改为**适配器层强制守卫**：含控制字符的 symbol 一律原样输出，不再依赖下游探针。附带回归测试 `test_width_safe_backend_passes_osc8_symbols_untouched`，同时断言转义序列不会进入列宽探测。
 
 - **`.md` 文件在 Write/Edit 预览中不再染色（#669）**：此前 `.md` 内容会按 Markdown 语法着色，标题与粗体出现明显颜色；而 Claude Code 对同类文件没有任何可见着色——它虽然把 `md` 识别为 markdown，但 highlight.js 对 Markdown 只产出 `section` / `strong` scope，CC 的三套主题 scope 表均未映射这两个键，颜色回退到默认前景色，`.md` 与 `.txt` 的输出逐字节相同。现从 `EXTENSION_LANGS` 移除 `md` / `markdown` / `mdown` / `mkdn`，`.md` 按未识别语言回退纯文本，同时作用于 Write 新建预览与 Edit diff。新增回归测试 `test_render_new_file_code_md_falls_back_to_plain_text`，并把 `test_detect_language_by_extension` 的 `.md` 断言改为 `None`；同步更正 `code-highlight.md` 的语言识别规则与 2026-10-20 审计报告中的旧结论。
 
