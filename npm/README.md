@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.175：① **统一 Bash 及工具输出截断提示风格**——将所有工具输出（Bash 工具、用户 `!` 本机命令、错误摘要行等）的折叠提示统一为 `… +N lines (ctrl+o to expand)`（单数：`… +1 line`，单行折行超额：`… (ctrl+o to expand)`），与 diff / 新建文件代码预览风格完全一致（#661）；② **彻底移除浮层对视口高度的干扰**——临时浮层（命令候选与 @ 文件提及）属于 Overlay，本身已具备 `available` 可用高度边界保护，彻底不计入视口 `required_rows`，消除 24 行终端下误触发 `fullscreen_latched` 锁死全屏及留白问题（#659）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.174：**Write 文件内容预览恢复**——修复新建、覆盖成功后不显示内容，以及追加预览重复内容的问题。主、子 Agent 的旧内容在写入前采集，界面通知晚到也能展示正确预览；同内容写入仍不展示空 diff（#654）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.173：**URL 背景与状态栏对齐**——工具结果与 `!` 输出的 URL 使用终端默认背景，避免同为 ANSI Cyan 却与状态栏模型名出现色差（PR #656）。

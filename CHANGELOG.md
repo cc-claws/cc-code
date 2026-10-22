@@ -4,6 +4,18 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.175 — 2026-10-22
+
+### UI / Style
+
+- **统一 Bash 及工具输出折叠截断提示为 `… +N lines (ctrl+o to expand)`（#661）**：此前 TUI 中工具结果截断存在两套不一致风格——diff 与新建文件预览使用 `… +N lines (ctrl+o to expand)`，而 Bash 工具结果、用户 `!` 本机命令输出以及错误摘要行显示为 `... (N more lines) (ctrl+o to expand)`。现抽象统一的 `format_expand_hint` 辅助函数，将所有截断提示统一为 `… +N lines (ctrl+o to expand)` 风格，包含单复数行支持（单数 `… +1 line`）与单行折行超额截断格式（`… (ctrl+o to expand)`）。
+
+### Fixes
+
+- **彻底移除浮层对视口高度的干扰，消除留白与全屏误切（#659）**：PR #658 试图通过 `total`/`persistent` 拆分缓解输入 `/` 后删除导致的视口留白，但 `frame_rows`（含浮层）仍会击穿终端高度（`frame_rows >= size.height`），在标准 24 行终端下将视口永久锁死全屏并造成大面积空白；且终端原生滚屏不可逆，视口收缩后屏底留白。现彻底重构：临时浮层（命令提示与 @ 文件提及）天然属于覆盖在输入框上方已有空间之上的 Overlay，且内部具备 `available` 空间自适应逻辑，不计入持久视口 `required_rows`，恢复单调递增视口判定，杜绝了抖动、留白和意外全屏锁死。
+
+---
+
 ## v0.6.174 — 2026-10-22
 
 ### Fixes
