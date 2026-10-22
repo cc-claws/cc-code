@@ -153,7 +153,17 @@ impl<B: Backend, P: WidthProbe> Backend for WidthSafeBackend<B, P> {
         I: Iterator<Item = (u16, u16, &'a Cell)>,
     {
         let adapted: Vec<_> = content
-            .map(|(x, y, cell)| (x, y, self.output_cell(cell)))
+            .map(|(x, y, cell)| {
+                let adapted = self.output_cell(cell);
+                // OSC 8 只能在这里包裹：`Buffer::diff` 会用 `symbol.width()` 决定
+                // 跳过后续多少 cell，把转义序列（其载荷是可见字符）写进 buffer
+                // 会让链接后面的整段文字不落笔（见 `hyperlink` 模块文档）。
+                let adapted = match super::hyperlink::decorate(x, y, adapted.as_ref()) {
+                    Some(decorated) => Cow::Owned(decorated),
+                    None => adapted,
+                };
+                (x, y, adapted)
+            })
             .collect();
         self.inner
             .draw(adapted.iter().map(|(x, y, cell)| (*x, *y, cell.as_ref())))

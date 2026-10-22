@@ -2,30 +2,76 @@
 //!
 //! 设计要点：
 //!
-//! 1. **布局零影响**：OSC 8 序列只注入 `Cell` 的 symbol 文本，不改
-//!    `symbol.width()` 之外的任何度量。注入发生在宽度适配后端（`WidthSafeBackend`）
-//!    之后，避免转义序列污染字形列宽探测。
+//! 1. **不改 buffer**：只把「某屏幕坐标是链接」登记进
+//!    [`crate::terminal_backend::hyperlink`]，真正包裹转义序列发生在后端输出层。
+//!    绝不能把序列塞进 `Cell` symbol——`ratatui` 的 `Buffer::diff` 按
+//!    `symbol.width()` 跳过后续 cell，序列载荷是可见字符，会让链接后面的文字
+//!    整段不落笔。
 //! 2. **命中区坐标**：`LinkHit` 的 `line` 是输出 `Text.lines` 行下标，已在上游
 //!    `render_thread` 中做过全局 dedup 行映射；`g_start`/`g_end` 是该行
 //!    `plain_text` 的 grapheme 下标（不含 end）。本模块只负责把 grapheme 下标
 //!    换算到**显示列**。
-//! 3. **可测试**：装饰逻辑与终端无关，纯函数，可在 `TestBackend` 上断言。
+//! 3. **可测试**：坐标换算与 URL 识别都是纯函数。
 
 use std::collections::HashMap;
 
 use cc_widgets::markdown::LinkHit;
 
-/// OSC 8 开序列前缀：`ESC ] 8 ; params ; URI ST`。
+/// 是否输出 OSC 8 超链接。
 ///
-/// 安全：URI 中任何控制字符（含 `ESC`、`BEL`、换行）都会被剥离。否则一个
-/// 含 `\x07` 或 `\x1b\\` 的 URL 能提前终止 OSC 8 序列并注入任意终端指令。
-fn osc8_open(url: &str) -> String {
-    let safe: String = url.chars().filter(|ch| !ch.is_control()).collect();
-    format!("\x1b]8;;{safe}\x1b\\")
+/// 只保留 `DISABLE_HYPERLINKS` 作为逃生口，默认开启：原先用
+/// `conpty::hover_available()` 当开关，但它衡量的是「宿主是否上报 ConPTY 鼠标悬停」，
+/// 与「终端是否支持 OSC 8」并不等价——Windows Terminal 之外的常见宿主
+/// （VS Code 集成终端、tmux、SSH 到远端）会被判 false，链接便既不可点、
+/// 也没有终端侧的悬停提示。不认 OSC 8 的终端会直接丢弃该序列，不会显示乱码。
+pub fn enabled() -> bool {
+    enabled_from(std::env::var("DISABLE_HYPERLINKS").ok().as_deref())
 }
 
-/// OSC 8 关序列。
-const OSC8_CLOSE: &str = "\x1b]8;;\x1b\\";
+/// [`enabled`] 的纯函数形式：便于断言各种取值而不污染进程级环境变量。
+fn enabled_from(disable: Option<&str>) -> bool {
+    match disable {
+        Some(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            !matches!(value.as_str(), "1" | "true" | "yes" | "on")
+        }
+        None => true,
+    }
+}
+
+/// 从一行纯文本里找出裸 URL 的命中区（grapheme 下标）。
+///
+/// Markdown 层只为 `[文字](url)` 产出 [`LinkHit`]；工具结果、`!` 命令输出，
+/// 以及「没有显示文字」而退化成纯 URL 的链接都只有文本，终端无从得知它是链接。
+/// 这里按 [`crate::ui::message_render::find_url_ranges`] 的口径（与 CC
+/// `OutputLine.tsx::URL_IN_JSON` 同源）逐行补齐命中区。
+///
+/// `line` 是调用方行空间（消息区即 `RenderCache` 的全局逻辑行号）里的下标，
+/// 原样写回 `LinkHit.line`。
+pub fn bare_url_hits(plain_text: &str, line: usize) -> Vec<LinkHit> {
+    if !plain_text.contains("://") {
+        return Vec::new();
+    }
+    crate::ui::message_render::find_url_ranges(plain_text)
+        .into_iter()
+        .filter_map(|(byte_start, byte_end)| {
+            let g_start = grapheme_index(plain_text, byte_start)?;
+            let g_end = grapheme_index(plain_text, byte_end)?;
+            (g_end > g_start).then(|| LinkHit {
+                line,
+                g_start,
+                g_end,
+                url: plain_text[byte_start..byte_end].to_string(),
+            })
+        })
+        .collect()
+}
+
+/// 字节偏移 → grapheme 下标（`LinkHit` 与 `char_widths` 都按 grapheme 计）。
+fn grapheme_index(text: &str, byte: usize) -> Option<usize> {
+    let prefix = text.get(..byte)?;
+    Some(unicode_segmentation::UnicodeSegmentation::graphemes(prefix, true).count())
+}
 
 /// 单个链接在一行内的**显示列**区间（不含 end）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,38 +156,33 @@ pub fn group_by_line(
     out
 }
 
-/// 给一行内指定列区间的 cell 包裹 OSC 8 序列。
+/// 把一行内指定列区间的 cell 换算成超链接屏幕坐标。
 ///
-/// `cells` 产出 `(行内列号, 屏幕坐标)`，`buffer` 为目标帧缓冲。只装饰
-/// **非空且非降级跳过**的 cell。同一链接的连续 cell 各自独立包裹，因为
-/// ratatui 会按 cell 独立 diff 与输出，跨 cell 的连续序列无法保证。
-pub fn decorate_cells(
+/// `cells` 产出 `(行内列号, 屏幕坐标)`；返回 `(屏幕坐标, URL)`，由调用方登记到
+/// [`crate::terminal_backend::hyperlink`]。**不修改 buffer**：转义序列在输出层包裹
+/// （原因见模块文档）。纯函数，便于断言列换算。
+pub fn link_cells(
     cells: impl Iterator<Item = (u16, (u16, u16))>,
     links: &[LinkColumns],
-    buffer: &mut ratatui::buffer::Buffer,
-) {
-    if links.is_empty() {
-        return;
-    }
+    area: ratatui::layout::Rect,
+) -> Vec<((u16, u16), String)> {
+    let mut out = Vec::new();
     for (column, (x, y)) in cells {
-        if !buffer.area.contains(ratatui::layout::Position::new(x, y)) {
+        if !area.contains(ratatui::layout::Position::new(x, y)) {
             continue;
         }
         let Some(link) = links.iter().find(|link| link.columns.contains(&column)) else {
             continue;
         };
-        let cell = &mut buffer[(x, y)];
-        if cell.skip || cell.symbol().trim().is_empty() {
-            continue;
-        }
-        let decorated = format!("{}{}{}", osc8_open(&link.url), cell.symbol(), OSC8_CLOSE);
-        cell.set_symbol(&decorated);
+        out.push(((x, y), link.url.clone()));
     }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_segmentation::UnicodeSegmentation;
 
     fn hit(line: usize, g_start: usize, g_end: usize, url: &str) -> LinkHit {
         LinkHit {
@@ -196,106 +237,92 @@ mod tests {
     }
 
     #[test]
-    fn control_characters_are_stripped_from_url() {
-        // 防注入：URL 中的控制字符必须被移除，避免提前终止 OSC8 序列。
-        let decorated = format!(
-            "{}{}{}",
-            osc8_open("https://a.b/\u{7}evil"),
-            "x",
-            OSC8_CLOSE
-        );
-        assert!(
-            !decorated.contains('\u{7}'),
-            "控制字符必须被剥离，否则可注入任意终端序列"
-        );
-    }
-
-    #[test]
-    fn decorate_cells_wraps_only_cells_inside_link_columns() {
-        use ratatui::{buffer::Buffer, layout::Rect};
-
-        // 一行 10 列："See https…" 的链接位于列 4..8
-        let area = Rect::new(0, 0, 10, 1);
-        let mut buffer = Buffer::empty(area);
-        for x in 0..10u16 {
-            buffer[(x, 0)].set_symbol("x");
-        }
+    fn link_cells_maps_columns_to_screen_coordinates() {
+        use ratatui::layout::Rect;
+        // 屏幕区域 x=5..15、y=3：链接位于行内列 4..8
+        let area = Rect::new(5, 3, 10, 1);
         let links = vec![LinkColumns {
             columns: 4..8,
             url: "https://example.com".to_string(),
         }];
-        decorate_cells((0..10u16).map(|x| (x, (x, 0))), &links, &mut buffer);
-
-        for x in 0..10u16 {
-            let symbol = buffer[(x, 0)].symbol().to_string();
-            let linked = symbol.starts_with("\x1b]8;;https://example.com\x1b\\");
-            assert_eq!(
-                linked,
-                (4..8).contains(&x),
-                "只有命中区内的 cell 才应被包裹，列 {x} 实际为 {symbol:?}"
-            );
-            if linked {
-                assert!(symbol.ends_with(OSC8_CLOSE), "包裹必须成对闭合");
-            }
-        }
-    }
-
-    #[test]
-    fn decorate_cells_skips_blank_cells() {
-        use ratatui::{buffer::Buffer, layout::Rect};
-
-        let area = Rect::new(0, 0, 4, 1);
-        let mut buffer = Buffer::empty(area); // 默认全为空格
-        let links = vec![LinkColumns {
-            columns: 0..4,
-            url: "https://example.com".to_string(),
-        }];
-        decorate_cells((0..4u16).map(|x| (x, (x, 0))), &links, &mut buffer);
-        for x in 0..4u16 {
-            assert_eq!(
-                buffer[(x, 0)].symbol(),
-                " ",
-                "空白 cell 不应被包裹，否则会把无内容的空格变成热点"
-            );
-        }
-    }
-
-    #[test]
-    fn decorated_symbol_never_reaches_width_probe() {
-        // 不变式：注入 OSC8 后，宽度适配后端（WidthSafeBackend::output_cell）
-        // 要么因 `symbol.is_ascii()` 直接返回，要么因含控制字符而让探针返回
-        // None（见 windows.rs 的 `symbol.chars().any(char::is_control)` 守卫）。
-        // 若这条不成立，转义序列会被当成字形去量列宽，导致整行错位。
-        let decorated = format!("{}中{}\x1b]8;;\x1b\\", osc8_open("https://a.b"), "");
-        // 1) 含控制字符 → 探针必然放弃测量
-        assert!(
-            decorated.chars().any(char::is_control),
-            "注入后必须含控制字符，探针才能安全放弃"
+        let cells = link_cells(
+            (0..10u16).map(|column| (column, (5 + column, 3))),
+            &links,
+            area,
         );
-        // 2) 纯 ASCII 装饰（如链接文字是英文）时 is_ascii 为真，同样跳过探测
-        let ascii_only = format!("{}x{}", osc8_open("https://a.b"), OSC8_CLOSE);
-        assert!(
-            ascii_only.is_ascii(),
-            "OSC8 转义序列本身是 ASCII，含它时 is_ascii() 必须为真以跳过探测"
+        assert_eq!(
+            cells,
+            (4..8u16)
+                .map(|column| ((5 + column, 3), "https://example.com".to_string()))
+                .collect::<Vec<_>>(),
+            "只有命中区内的列才应登记，坐标按屏幕位置平移"
         );
     }
-    #[test]
-    fn decorate_cells_ignores_out_of_area_positions() {
-        use ratatui::{buffer::Buffer, layout::Rect};
 
+    #[test]
+    fn link_cells_ignores_cells_outside_area() {
+        use ratatui::layout::Rect;
         let area = Rect::new(0, 0, 2, 1);
-        let mut buffer = Buffer::empty(area);
-        buffer[(0, 0)].set_symbol("a");
         let links = vec![LinkColumns {
             columns: 0..2,
             url: "https://example.com".to_string(),
         }];
-        // 故意给一个越界坐标，不得 panic。
-        decorate_cells(
-            [(0u16, (0u16, 0u16)), (1u16, (1u16, 0u16)), (2, (9, 9))].into_iter(),
+        let cells = link_cells(
+            [(0u16, (0u16, 0u16)), (1, (1, 0)), (2, (9, 9))].into_iter(),
             &links,
-            &mut buffer,
+            area,
         );
-        assert!(buffer[(0, 0)].symbol().starts_with('\x1b'));
+        assert_eq!(cells.len(), 2, "越界坐标不得登记，且不得 panic");
+    }
+
+    #[test]
+    fn hyperlinks_default_on_and_only_explicit_disable_turns_off() {
+        assert!(enabled_from(None), "默认必须开启，否则常见宿主点不动链接");
+        for off in ["1", "true", "TRUE", "yes", " on "] {
+            assert!(!enabled_from(Some(off)), "{off:?} 应视为关闭");
+        }
+        for keep in ["0", "false", ""] {
+            assert!(enabled_from(Some(keep)), "{keep:?} 不应关闭超链接");
+        }
+    }
+
+    #[test]
+    fn bare_url_hits_finds_tool_output_url_with_ascii_prefix() {
+        // Bash 工具结果行：`⎿ Build fail 2m30s <url>`
+        let text = "⎿ Build (ubuntu-latest) fail 2m30s https://a.example/runs/1";
+        let hits = bare_url_hits(text, 7);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, 7, "行号原样写回");
+        assert_eq!(hits[0].url, "https://a.example/runs/1");
+        let start = text.graphemes(true).take(hits[0].g_start).count();
+        assert_eq!(
+            text.graphemes(true).nth(start).unwrap(),
+            "h",
+            "g_start 必须落在 URL 首字符"
+        );
+    }
+
+    #[test]
+    fn bare_url_hits_uses_grapheme_offsets_across_cjk() {
+        // 全角字符在 grapheme 下标里各占 1，在显示列上各占 2。
+        let text = "构建失败 https://a.example/x";
+        let hits = bare_url_hits(text, 0);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].g_start, 5,
+            "「构建失败」4 字 + 空格 = 5 个 grapheme"
+        );
+        let widths: Vec<u8> = text
+            .graphemes(true)
+            .map(|g| unicode_width::UnicodeWidthStr::width(g) as u8)
+            .collect();
+        let columns = graphemes_to_columns(text, &widths, &hits[0]).unwrap();
+        assert_eq!(columns.columns.start, 9, "全角 4 字占 8 列 + 空格 1 列");
+    }
+
+    #[test]
+    fn bare_url_hits_ignores_text_without_scheme() {
+        assert!(bare_url_hits("Build fail 2m30s, see example.com", 0).is_empty());
+        assert!(bare_url_hits("https:// trailing", 0).is_empty());
     }
 }

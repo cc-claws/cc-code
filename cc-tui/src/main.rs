@@ -22,7 +22,7 @@ use cc_tui::{
     acp_server::{run_acp_server, AcpServerConfig},
     app::{AgentShellExecutor, AgentShellRegistration, App},
     conpty, event,
-    terminal_backend::{viewport, TuiBackend},
+    terminal_backend::{hyperlink, viewport, TuiBackend},
     ui,
 };
 
@@ -1308,6 +1308,8 @@ fn draw_prepared_app(
     // Frame buffer 仅在 draw closure 内可访问，因此 snapshot 在 closure 内克隆、结束后写回 app。
     let mut snapshot_opt: Option<cc_tui::app::text_selection::ScreenSnapshot> = None;
     terminal.draw(|f| {
+        // 每帧重置 OSC 8 登记表，并按终端能力锁定本帧是否注入。
+        hyperlink::begin_frame(ui::osc8::enabled());
         // render 内部完成消息区域 TextSelection 的 Span 高亮（现有逻辑不变）
         ui::main_ui::render(f, app);
         // ScreenSelection 高亮：在 Frame buffer 上叠加 SELECTION_BG。

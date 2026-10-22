@@ -128,19 +128,21 @@
 
 工具结果行格式：`  ⎿  ` 前缀（5 列：前 2 空格 + `⎿` + 后 2 空格；INACTIVE 色，失败时 ERROR 色）+ 内容（TEXT_SOFT 色，失败时 ERROR 色）。多行输出的续行使用 5 空格悬挂缩进（`BranchPrefix::HANG`），正文严格左对齐。错误折叠时显示 error_summary（最多 400 Unicode 字符，ERROR 色 `⎿` 前缀）。
 
-### URL 链接着色（工具结果 / `!` 命令输出）
+### URL 超链接（工具结果 / `!` 命令输出）
 
-纯文本里裸写的 `http://` / `https://` 由 `cc-tui/src/ui/message_render/mod.rs` 的 `style_urls()` 单独上色：
+纯文本里裸写的 `http://` / `https://` 不做任何着色，而是变成**真超链接**：消息区按可见行扫描出 URL 命中区并登记屏幕坐标，`WidthSafeBackend` 真正写字节时按坐标包上 OSC 8 转义序列（`cc-tui/src/ui/osc8.rs` + `cc-tui/src/terminal_backend/hyperlink.rs`）。**转义序列绝不写进 frame buffer**——`ratatui` 的 `Buffer::diff` 用 `symbol.width()` 决定跳过后续多少个 cell，序列载荷是可见字符，一旦进 buffer，链接后面的整段文字会被跳过不画。
 
 | 项 | 规则 |
 |----|------|
-| 链接色 | `Color::Cyan`（ANSI Cyan），**定稿不随 `/theme` 切换**（与状态栏模型名 / 分支名同一口径，深浅主题下都由终端调色板保证可读） |
-| 修饰 | `Modifier::UNDERLINED` 下划线 |
+| 前景色 | `Color::LightBlue`（crossterm `Blue` → `38;5;12`，亮蓝）；实测该终端下 `34`/`38;5;4` 比 CC 的链接更深，12 号槽才视觉一致。`!` 输出里的非 URL 段仍沿用命令自带 ANSI 着色 |
+| 修饰 | 无人工下划线；下划线 / 手型光标由终端在悬停时给出 |
+| 可点击 | 悬停提示、Ctrl/Cmd+点击、右键「打开链接」由终端提供；peri 自己的单击命中区也登记了同一批 URL（`link_from_parts`） |
 | 识别范围 | 只认 `http://` / `https://`，口径对齐 CC `OutputLine.tsx::URL_IN_JSON`（`/https?:\/\/[^\s"'<>\\]+/g`），并额外切掉句末 `)` `]` `}` `,` `;` `.` `:` |
-| 覆盖范围 | 所有走 `⎿` 前缀的工具结果行（Bash / Read / Grep / Glob 等，经 `format_prefixed_text()`）+ 用户 `!命令` 输出（经 `format_shell_output_lines()`） |
-| 不是真超链接 | 非 OSC 8：ratatui 的 cell 模型塞不了转义序列，`sanitize_display_text()` 会剥掉 `\x1b`；点击仍由终端自身的 URL 识别提供 |
+| 覆盖范围 | 所有走 `⎿` 前缀的工具结果行（Bash / Read / Grep / Glob 等）+ 用户 `!命令` 输出 + 退化成纯 URL 的 Markdown 链接；**用户自己输入的气泡不参与** |
+| 序列格式 | `ESC]8;;URL BEL` … `ESC]8;;BEL`，与 CC 的 `OSC8_END`（BEL）一致 |
+| 关闭开关 | `DISABLE_HYPERLINKS=1` 时不注入序列（只影响 OSC 8，不影响点击命中区） |
 
-> 注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `cc-widgets/src/markdown/render_state.rs` 的 `theme.link()`（= SAGE `#4EBA65`，见「Markdown 渲染」），**不受本规则影响**。本条只作用于「裸 URL 文本」。
+> 注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `cc-widgets/src/markdown/render_state.rs` 的 `theme.link()`（= SAGE `#4EBA65` + 下划线，见「Markdown 渲染」），**不受本规则影响**。本条只作用于「裸 URL 文本」。
 
 ### AskUserQuestion 渲染
 

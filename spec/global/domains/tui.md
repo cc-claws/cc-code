@@ -651,7 +651,7 @@ submit_message(text)
 - 选择面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板
 - `/theme` 面板补齐 session 面板键盘路由（`PanelKind::Theme` 加入键盘与粘贴白名单，此前 `↑`/`↓`/`Esc` 被穿透，v0.6.142）
 - **状态栏例外（v0.6.143）:** 状态栏配色是打磨定稿的固定值，不参与主题化——`ui/main_ui/status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致
-- **URL 链接色例外（未发布）:** 工具结果行与 `!` 命令输出里的裸 URL 也固定 ANSI Cyan，不随 `/theme` 切换——`message_render/mod.rs::style_urls()` 用 `Color::Cyan` + 下划线（此前是 `theme::cur().ide`，随主题漂移且与正文明度接近），覆盖 `format_prefixed_text()` 与 `format_shell_output_lines()` 两个调用点；Markdown 链接（`theme.link()` = SAGE）是另一条路径，不受影响
+- **URL 超链接（v0.6.179 起）:** 工具结果行与 `!` 命令输出里的裸 URL 不再人工上色，改为注入 OSC 8 真超链接（`ui/osc8.rs` 算坐标登记，`terminal_backend/hyperlink.rs` 在输出层包裹；**序列绝不进 frame buffer**——`Buffer::diff` 按 `symbol.width()` 跳过后续 cell，序列载荷是可见字符，进 buffer 会让链接后面的文字整段不落笔）。前景色为亮蓝 `38;5;12`（实测与 CC 观感一致；CC 源码 `chalk.blue`=SGR 34 在本机偏深）、悬停样式由终端给出；消息区按可见行扫描 `http(s)://` 生成命中区（用户输入气泡除外），OSC 8 与 `link_from_parts` 单击共用同一份数据。启用默认开启、`DISABLE_HYPERLINKS` 显式关闭（旧的 `conpty::hover_available()` 门控衡量的是 ConPTY 鼠标悬停能力，会把 VS Code / tmux / SSH 误判为不支持）。Markdown 链接（`theme.link()` = SAGE）仍走原有着色路径，不受影响
 
 **参考:** 快捷键与色板详见 [TUI-STYLE.md](../../TUI-STYLE.md) 的「主题系统」「状态栏」章节
 

@@ -969,7 +969,7 @@ fn show_running_line(vm: &ToolBlock) -> bool {
 L3 的 `tail` 必须经过与完成态相同的 `OutputLine` 装饰器：
 
 - ANSI 颜色保留；
-- URL 着色与完成态一致（`style_urls`）；
+- URL 呈现与完成态一致（同一批 OSC 8 链接命中区，见 `ui/osc8.rs`）；
 - 单行 JSON 美化与完成态一致；
 - 截断、折行口径一致，避免「运行中一种样子、完成后另一种样子」。
 
