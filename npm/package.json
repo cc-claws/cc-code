@@ -22,9 +22,10 @@
     "bin": {
         "cc-code": "bin/cc-code"
     },
-    "scripts": {
-        "postinstall": "node install.js"
-    },
+    "files": [
+        "bin/cc-code",
+        "README.md"
+    ],
     "os": [
         "linux",
         "darwin",
@@ -37,7 +38,11 @@
     "engines": {
         "node": ">=16"
     },
-    "dependencies": {
-        "adm-zip": "^0.5.16"
+    "optionalDependencies": {
+        "@cc-claw/code-win32-x64": "0.6.178",
+        "@cc-claw/code-darwin-x64": "0.6.178",
+        "@cc-claw/code-darwin-arm64": "0.6.178",
+        "@cc-claw/code-linux-x64": "0.6.178",
+        "@cc-claw/code-linux-arm64": "0.6.178"
     }
 }

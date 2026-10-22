@@ -71,24 +71,18 @@ v0.6.129：输入 `@` 即显示文件候选。默认仅列当前目录，最多 
 npm install -g @cc-claw/code
 ```
 
-> [!WARNING]
-> **npm 12+（2026 年 7 月发布）默认阻止依赖包的 `postinstall` 脚本，而本包的平台二进制正是在该脚本里下载的。** 安装会显示成功，但运行 `cc-code` 时报 `spawnSync ...cc-code.exe ENOENT`（bin 里只有 node 脚本、没有 exe）。请显式放行：
+> [!NOTE]
+> **本包不执行任何安装脚本。** 二进制位于平台专属的可选依赖包（`@cc-claw/code-<平台>-<架构>`）中，npm 会按操作系统与架构自动只装匹配的那一个 —— 因此 `--ignore-scripts`、pnpm、bun 以及禁止 build script 的 npm 版本都能正常安装，安装期也不会访问 GitHub。
 >
-> ```bash
-> npm install -g --allow-scripts=@cc-claw/code @cc-claw/code
-> ```
+> 用 `--omit=optional` / `--no-optional` 安装会拿不到二进制，此时 `cc-code` 会打印补救说明而不是 `ENOENT`。
 >
-> 对所有全局安装长期放行：`npm config set allow-scripts=@cc-claw/code --location=user`
->
-> 用 **pnpm / bun**？它们同样阻止 build script —— 先 `pnpm approve-builds`，否则装不到二进制。
+> Windows on ARM 暂无原生构建，可显式安装 x64 版本：`npm install -g --arch=x64 @cc-claw/code`。
 
 ## 升级
 
 ```bash
 npm update -g @cc-claw/code
 ```
-
-npm 12+ 需带同样的参数：`npm update -g --allow-scripts=@cc-claw/code @cc-claw/code`。
 
 ## 快速开始
 

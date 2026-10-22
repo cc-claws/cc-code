@@ -127,24 +127,23 @@ Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64),
 npm install -g @cc-claw/code
 ```
 
-> [!WARNING]
-> **On npm 12+ (released July 2026), this command alone is not enough.** npm now blocks dependency `postinstall` scripts by default — and that script is what downloads the platform binary. The install reports success, but running `cc-code` then fails with `spawnSync ...cc-code.exe ENOENT`. Allow the script explicitly:
->
-> ```bash
-> npm install -g --allow-scripts=@cc-claw/code @cc-claw/code
-> ```
->
-> To allow it for all global installs instead: `npm config set allow-scripts=@cc-claw/code --location=user`
->
-> Using **pnpm or bun**? They block build scripts too — run `pnpm approve-builds` (or allowlist the package), otherwise `cc-code` ships without its binary.
+No install script runs: the binary ships as a platform-specific optional
+dependency (`@cc-claw/code-<platform>-<arch>`), and npm picks the one that
+matches your OS and architecture. That means plain installs, `--ignore-scripts`,
+pnpm and bun all work, and nothing is fetched from GitHub at install time.
+
+> [!NOTE]
+> Installing with `--omit=optional` / `--no-optional` leaves the package without
+> its binary; `cc-code` then exits with a message explaining how to reinstall.
+
+Windows on ARM has no native build yet — install the x64 build explicitly with
+`npm install -g --arch=x64 @cc-claw/code`.
 
 ### Upgrade
 
 ```bash
 npm update -g @cc-claw/code
 ```
-
-On npm 12+, pass the same flag: `npm update -g --allow-scripts=@cc-claw/code @cc-claw/code`.
 
 ### macOS / Linux (Script)
 
