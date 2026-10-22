@@ -205,6 +205,39 @@ fn test_width_safe_backend_narrow_console_keeps_symbols() {
     }
 }
 
+/// OSC 8 注入的 symbol 必须原样穿过宽度适配器：
+/// 探针不得尝试测量它（含控制字符时返回 None 或走 is_ascii 快路径）。
+#[test]
+fn test_width_safe_backend_passes_osc8_symbols_untouched() {
+    let (probe, calls) = make_probe(&[]);
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(20, 1), probe);
+    // 英文链接文字：装饰后仍是纯 ASCII，走 `is_ascii()` 快路径。
+    let ascii_link = "\x1b]8;;https://example.com\x1b\\visit\x1b]8;;\x1b\\";
+    // 中文链接文字：含控制字符，探针必须放弃测量而非按字形列宽换掉。
+    let cjk_link = "\x1b]8;;https://example.com\x1b\\查看\x1b]8;;\x1b\\";
+    let symbols = [ascii_link, cjk_link];
+
+    for (x, symbol) in symbols.iter().enumerate() {
+        let mut cell = Cell::default();
+        cell.set_symbol(symbol);
+        assert!(backend.draw(std::iter::once((x as u16, 0, &cell))).is_ok());
+    }
+
+    for (x, symbol) in symbols.iter().enumerate() {
+        assert_eq!(
+            backend.inner.buffer()[(x as u16, 0)].symbol(),
+            *symbol,
+            "OSC8 序列不得被宽度适配改写，否则链接失效或整行错位"
+        );
+    }
+    let calls = calls.borrow();
+    let probed: Vec<&String> = calls.calls.iter().filter(|c| c.contains('\x1b')).collect();
+    assert!(
+        probed.is_empty(),
+        "转义序列不得进入字形列宽探测，实际探测到：{probed:?}"
+    );
+}
+
 #[test]
 fn test_width_safe_backend_wide_symbols_preserve_source_and_style() {
     // 兼容替换仅发生在输出副本，正文原文与 RGB、修饰符保持不变。

@@ -136,6 +136,12 @@ struct ViewportClip {
     local_offset: u16,
     selection_snapshot: Option<PresentedSelectionSnapshot>,
     presented_offset: usize,
+    /// 本帧可见行的超链接命中区，已换算为「视口内行偏移 → 该行列区间」。
+    ///
+    /// 行偏移相对 `body_area.y`（即视口首行），列区间相对 `body_area.x`。
+    /// 换算需要 `cache.wrap_map` 与 `presented_offset`，这两者在 `viewport_clip`
+    /// 内才同时可用，故在此处一并算好，输出层只做纯坐标平移与注入。
+    link_rows: Vec<(u16, Vec<crate::ui::osc8::LinkColumns>)>,
 }
 
 pub(crate) fn render_messages(
@@ -346,10 +352,30 @@ pub(crate) fn render_messages(
     } else {
         clip.selection_snapshot
     };
+    // 先取出链接行，clip.lines 随后会被 move 进 Paragraph。
+    let link_rows = clip.link_rows;
     let paragraph = Paragraph::new(Text::from(clip.lines))
         .scroll((clip.local_offset, 0))
         .wrap(Wrap { trim: false });
     f.render_widget(paragraph, body_area);
+
+    // ── OSC 8 超链接注入 ─────────────────────────────────────────────────
+    // 在 Paragraph 落到 Frame buffer **之后**注入：转义序列只进 Cell symbol，
+    // 不参与任何布局或折行计算（与 codex 的 terminal_hyperlinks 同策略）。
+    // 只在终端确实能吃 VT 序列时开启；否则留着纯文本 URL，避免把裸转义
+    // 序列画到屏幕上。
+    if crate::conpty::hover_available() && !link_rows.is_empty() {
+        let buffer = f.buffer_mut();
+        for (row_in_view, row_links) in link_rows {
+            let y = body_area.y.saturating_add(row_in_view);
+            if y >= body_area.bottom() {
+                continue;
+            }
+            let x0 = body_area.x;
+            let x1 = body_area.right();
+            crate::ui::osc8::decorate_cells((x0..x1).map(|x| (x - x0, (x, y))), &row_links, buffer);
+        }
+    }
 
     // 只在最右侧热区或拖拽中显示；显隐不改变正文宽度。
     let popup_active = app.is_interaction_popup_active();
@@ -458,7 +484,15 @@ fn viewport_clip(
     width: u16,
 ) -> ViewportClip {
     // ── 阶段 1：从 cache 提取可见行（cache guard 在 block 结束时 drop） ──
-    let (mut lines, mut local_offset, first_idx, total_lines, selection_snapshot, offset) = {
+    let (
+        mut lines,
+        mut local_offset,
+        first_idx,
+        total_lines,
+        selection_snapshot,
+        offset,
+        link_rows,
+    ) = {
         let cache = app.session_mgr.current().messages.render_cache.read();
         // #629：虚拟窗口未发布到请求位置时，先按上帧已呈现偏移绘制，避免空白帧。
         let offset = presented_viewport_offset(
@@ -532,6 +566,41 @@ fn viewport_clip(
                     width: cache.width,
                 }
             });
+        // 本帧可见的超链接命中区：把「全局行 + grapheme 区间」换算成
+        // 「视口内行偏移 + 显示列区间」。wrap_map/presented offset 只在这里
+        // 同时可用，故一并算好；plain_text/char_widths 同属该 wrap_map 条目。
+        let mut link_rows: Vec<(u16, Vec<crate::ui::osc8::LinkColumns>)> = Vec::new();
+        for link in cache
+            .links
+            .iter()
+            .filter(|link| link.line >= first_idx && link.line < first_idx + lines.len())
+        {
+            let Some(info) = cache.wrap_map.get(link.line) else {
+                continue;
+            };
+            // 视觉行号相对整个视口起点；超出本帧可见范围则丢弃。
+            let Some(row_in_view) = info.visual_row_start.checked_sub(offset) else {
+                continue;
+            };
+            if row_in_view >= visible_height as usize {
+                continue;
+            }
+            let Some(columns) =
+                crate::ui::osc8::graphemes_to_columns(&info.plain_text, &info.char_widths, link)
+            else {
+                continue;
+            };
+            match link_rows
+                .iter_mut()
+                .find(|(row, _)| *row as usize == row_in_view)
+            {
+                Some((_, links)) => links.push(columns),
+                None => link_rows.push((row_in_view as u16, vec![columns])),
+            }
+        }
+        for (_, links) in link_rows.iter_mut() {
+            links.sort_by_key(|link| link.columns.start);
+        }
         (
             lines,
             local_offset,
@@ -539,6 +608,7 @@ fn viewport_clip(
             total_lines,
             selection_snapshot,
             offset,
+            link_rows,
         )
     }; // cache guard dropped here
 
@@ -642,6 +712,7 @@ fn viewport_clip(
         local_offset,
         selection_snapshot,
         presented_offset: offset,
+        link_rows,
     }
 }
 

@@ -6,6 +6,7 @@ pub mod main_ui;
 pub mod markdown;
 pub mod message_render;
 pub mod message_view;
+pub mod osc8;
 mod render_layout;
 pub mod render_thread;
 pub mod theme;
