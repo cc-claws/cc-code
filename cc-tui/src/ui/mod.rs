@@ -1,3 +1,5 @@
+pub mod branch_prefix;
+pub use branch_prefix::BranchPrefix;
 #[cfg(any(test, feature = "headless"))]
 pub mod headless;
 pub mod main_ui;

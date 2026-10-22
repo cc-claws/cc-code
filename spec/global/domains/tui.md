@@ -283,6 +283,27 @@ submit_message(text)
 **归档:** [链接](../../archive/feature_20260323_F001_model-alias-provider-mapping/)
 **归档日期:** 2026-03-24
 
+### 分支折角前缀统一契约（BranchPrefix，SSOT）
+
+**【核心设计契约】**：
+全系统所有 `⎿`（U+23BF）分支折角前缀的字符几何、悬挂缩进与配色，统一由 `cc-tui/src/ui/branch_prefix.rs` 的 `BranchPrefix` 组件供给，禁止任何调用点手写字面量：
+
+| 形态 | 常量 | 字符串 | 显示宽度 |
+|---|---|---|---|
+| 一级分支折角 | `BranchPrefix::PREFIX` | `"  ⎿  "` | 5 列 |
+| 一级悬挂缩进 | `BranchPrefix::HANG` | `"     "` | 5 列 |
+| 二级嵌套折角 | `BranchPrefix::NESTED_PREFIX` | `"     ⎿  "` | 8 列 |
+| 二级嵌套悬挂缩进 | `BranchPrefix::NESTED_HANG` | `"        "` | 8 列 |
+
+**配色规则**：默认正常态符号为 `theme::cur().inactive`（MUTED `#999999`），失败/错误态为 `theme::cur().error`；正文默认 `text_soft`，Tip/摘要附属信息保持 `inactive`。历史 `theme::cur().subtle`（DIM `#505050`）硬编码已全部下线。
+
+**硬性红线**：
+1. 宽度计算统一走 `BranchPrefix::content_width(width)` / `nested_content_width(width)`，禁止再写 `saturating_sub(4)` / `saturating_sub(7)` 魔数；
+2. 行判定统一走 `BranchPrefix::is_branch_line()` / `strip_prefix()`，禁止逐字符写死比较；
+3. 多行输出的第 2 行起必须使用对应层级的 `HANG` / `NESTED_HANG`，保证正文左对齐，严禁续行顶格。
+
+**Bug 修复记录**：`SystemNote` 曾用 `line.starts_with('⎿')` 只匹配第 0 列，导致 `agent_compact` 产出的 `"  ⎿  Read …"`（前导 2 空格）落入兜底分支被追加 `· `，渲染成畸形的 `·   ⎿  Read …`。现已统一用 `BranchPrefix::strip_prefix()` 识别并规范重建前缀。
+
 ### 20260323_F005_tui-bug-fixes
 
 **摘要:** 修复弹窗滚动/粘贴换行/loading 输入锁死三个 TUI bug
