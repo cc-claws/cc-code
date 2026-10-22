@@ -20,7 +20,7 @@ fn rendered_text(lines: &[Line<'static>]) -> String {
         .join("")
 }
 
-fn make_tool_header_lines(lines: &[Line<'static>]) -> &[Line<'static>] {
+fn make_tool_header_lines<'a>(lines: &'a [Line<'static>]) -> &'a [Line<'static>] {
     let header_end = lines
         .iter()
         .position(BranchPrefix::is_branch_line)
