@@ -20,6 +20,14 @@ fn rendered_text(lines: &[Line<'static>]) -> String {
         .join("")
 }
 
+fn make_tool_header_lines(lines: &[Line<'static>]) -> &[Line<'static>] {
+    let header_end = lines
+        .iter()
+        .position(BranchPrefix::is_branch_line)
+        .unwrap_or(lines.len());
+    &lines[..header_end]
+}
+
 #[test]
 fn test_render_batch_summary_collapsed() {
     let agents = vec![
@@ -1960,7 +1968,8 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
     };
 
     let width = 80;
-    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    let rendered = render_view_model(&vm, Some(1), width, false, 0);
+    let lines = make_tool_header_lines(&rendered);
 
     assert_eq!(
         lines.len(),
@@ -2077,7 +2086,8 @@ fn test_tool_block_header_detail_mode_wraps_full_command_aligned() {
     };
 
     let width = 60;
-    let lines = render_view_model(&vm, Some(1), width, true, 0);
+    let rendered_lines = render_view_model(&vm, Some(1), width, true, 0);
+    let lines = make_tool_header_lines(&rendered_lines);
     let rendered: Vec<String> = lines
         .iter()
         .map(|l| {
@@ -2143,7 +2153,8 @@ fn test_tool_block_header_detail_mode_short_command_stays_single_line() {
         source_agent_id: None,
     };
 
-    let lines = render_view_model(&vm, Some(1), 80, true, 0);
+    let rendered = render_view_model(&vm, Some(1), 80, true, 0);
+    let lines = make_tool_header_lines(&rendered);
     assert_eq!(
         lines.len(),
         1,
@@ -2187,7 +2198,8 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
     };
 
     let width = 50;
-    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    let rendered = render_view_model(&vm, Some(1), width, false, 0);
+    let lines = make_tool_header_lines(&rendered);
     assert_eq!(lines.len(), 1, "中文超长参数同样应该只有单行 Header");
 
     let header_line = &lines[0];
@@ -2997,7 +3009,8 @@ fn test_websearch_detail_mode_wraps_full_query_without_early_truncation() {
         false,
     );
     // Act: 普通模式 (detail_mode = false) 在 80 列宽终端
-    let normal_lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let normal_rendered = render_view_model(&vm, Some(1), 80, false, 0);
+    let normal_lines = make_tool_header_lines(&normal_rendered);
     assert_eq!(normal_lines.len(), 1, "普通模式下 header 仅占单行");
     let normal_text: String = normal_lines[0]
         .spans
@@ -3013,7 +3026,8 @@ fn test_websearch_detail_mode_wraps_full_query_without_early_truncation() {
         "普通模式下单行截断不应看到末尾 token"
     );
     // Act & Assert: 详细模式 (detail_mode = true) 完整折行展示
-    let detail_lines = render_view_model(&vm, Some(1), 80, true, 0);
+    let detail_rendered = render_view_model(&vm, Some(1), 80, true, 0);
+    let detail_lines = make_tool_header_lines(&detail_rendered);
     assert!(
         detail_lines.len() >= 2,
         "详细模式下超长 query 应自动折成多行展示，实际 {} 行",
