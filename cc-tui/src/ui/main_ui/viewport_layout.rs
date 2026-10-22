@@ -71,9 +71,20 @@ pub(super) fn welcome_rows(app: &App, width: u16) -> usize {
     }
 }
 
-pub fn required_rows(app: &mut App, terminal: Rect) -> u16 {
+/// `required_rows` 的拆分结果：`total` 参与当帧视口分配，`persistent` 不含
+/// 临时浮层贡献，用于 `allocated_rows` 的单调递增记忆——避免 `/` 命令提示
+/// 或 `@` 候选弹窗消失后视口底部残留空白（见 spec/issues/2026-10-21）。
+pub struct RequiredRows {
+    pub total: u16,
+    pub persistent: u16,
+}
+
+pub fn required_rows(app: &mut App, terminal: Rect) -> RequiredRows {
     if app.global_ui.setup_wizard.is_some() || app.global_ui.agent_center.is_some() {
-        return terminal.height;
+        return RequiredRows {
+            total: terminal.height,
+            persistent: terminal.height,
+        };
     }
     let bottom = BottomHeights::measure(app, terminal);
     let content = content_rows(app, terminal.width);
@@ -94,12 +105,17 @@ pub fn required_rows(app: &mut App, terminal: Rect) -> u16 {
         .attachment
         .saturating_add(bottom.panel)
         .saturating_add(bottom.queued);
-    let content = content
-        .max(popup.saturating_sub(above_input) as usize)
-        .max(1);
-    bottom
-        .total()
-        .saturating_add(content.min(u16::MAX as usize) as u16)
+    let popup_extra = popup.saturating_sub(above_input) as usize;
+    let total_content = content.max(popup_extra).max(1);
+    let persistent_content = content.max(1);
+    RequiredRows {
+        total: bottom
+            .total()
+            .saturating_add(total_content.min(u16::MAX as usize) as u16),
+        persistent: bottom
+            .total()
+            .saturating_add(persistent_content.min(u16::MAX as usize) as u16),
+    }
 }
 
 #[cfg(test)]
