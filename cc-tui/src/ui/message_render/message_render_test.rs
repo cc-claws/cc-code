@@ -772,6 +772,8 @@ fn test_tool_block_detail_mode_includes_diff_lines() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let normal_text = render_view_model(&vm, Some(1), 80, false, 0)
@@ -827,6 +829,8 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
@@ -874,6 +878,8 @@ fn test_edit_diff_replaces_tool_result_line() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
@@ -919,6 +925,8 @@ fn test_write_create_keeps_tool_result_line() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
@@ -1002,6 +1010,8 @@ fn test_tool_block_detail_mode_diff_respects_terminal_width() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let wide_lines = render_view_model(&vm, Some(1), 200, true, 0);

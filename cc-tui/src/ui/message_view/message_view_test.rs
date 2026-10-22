@@ -5,16 +5,15 @@ use serde_json::json;
 
 #[test]
 fn test_history_rebuild_sets_finished_phase() {
-    let ai = BaseMessage::ai_with_tool_calls(
-        MessageContent::text(""),
-        vec![ToolCallRequest::new(
-            "bash",
-            "Bash",
+    let result = BaseMessage::tool_result("bash", "");
+    let vm = MessageViewModel::from_base_message(
+        &result,
+        &[(
+            "bash".to_string(),
+            "Bash".to_string(),
             json!({"command":"true", "timeout":300_000}),
         )],
     );
-    let result = BaseMessage::tool_result("bash", "");
-    let vm = MessageViewModel::from_base_message(&result, &[ai]);
     assert!(
         matches!(
             vm,

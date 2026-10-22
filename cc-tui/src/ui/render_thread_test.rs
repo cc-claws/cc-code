@@ -1214,6 +1214,8 @@ fn write_tool_block_vm() -> MessageViewModel {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     }
 }
 
