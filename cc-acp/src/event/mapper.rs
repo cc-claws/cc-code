@@ -119,16 +119,22 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
             tool_call_id,
             name,
             input,
+            file_snapshot,
             source_agent_id,
             ..
         } => {
+            let mut tool_call = ToolCall::new(tool_call_id.clone(), name.clone())
+                .kind(infer_tool_kind(name))
+                .status(ToolCallStatus::InProgress)
+                .raw_input(Some(input.clone()));
+            if let Some(snapshot) = file_snapshot {
+                tool_call = tool_call.meta(serde_json::Map::from_iter([(
+                    "peri".into(),
+                    serde_json::json!({"fileSnapshot": snapshot}),
+                )]));
+            }
             vec![MappedEvent::standard_with_src(
-                vec![SessionUpdate::ToolCall(
-                    ToolCall::new(tool_call_id.clone(), name.clone())
-                        .kind(infer_tool_kind(name))
-                        .status(ToolCallStatus::InProgress)
-                        .raw_input(Some(input.clone())),
-                )],
+                vec![SessionUpdate::ToolCall(tool_call)],
                 source_agent_id.clone(),
             )]
         }

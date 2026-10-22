@@ -176,6 +176,19 @@ impl App {
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
 
+                if name == "Write" {
+                    if let Some(snapshot) = update.pointer("/_meta/peri/fileSnapshot") {
+                        if let Ok(snapshot) = serde_json::from_value::<cc_agent::tools::FileSnapshot>(
+                            snapshot.clone(),
+                        ) {
+                            super::super::tool_display::cache_write_old_content(
+                                &tool_call_id,
+                                snapshot.old_content,
+                            );
+                        }
+                    }
+                }
+
                 let display =
                     super::super::tool_display::format_tool_name_with_input(&name, Some(&input));
                 let args = super::super::tool_display::format_tool_args(

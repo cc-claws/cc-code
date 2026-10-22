@@ -1,4 +1,4 @@
-use cc_agent::tools::BaseTool;
+use cc_agent::tools::{BaseTool, FileSnapshot};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -32,6 +32,28 @@ impl BaseTool for WriteFileTool {
 
     fn description(&self) -> &str {
         WRITE_FILE_DESCRIPTION
+    }
+
+    fn file_snapshot(&self, input: &Value) -> Option<FileSnapshot> {
+        use std::io::Read;
+        const MAX_SNAPSHOT_BYTES: u64 = 500_000;
+        let file_path = input
+            .get("file_path")?
+            .as_str()
+            .filter(|path| !path.is_empty())?;
+        let path = resolve_path(&self.cwd, file_path);
+        let old_content = std::fs::metadata(&path)
+            .ok()
+            .filter(|meta| meta.is_file() && meta.len() <= MAX_SNAPSHOT_BYTES)
+            .and_then(|_| std::fs::File::open(path).ok())
+            .and_then(|file| {
+                let mut content = String::new();
+                file.take(MAX_SNAPSHOT_BYTES + 1)
+                    .read_to_string(&mut content)
+                    .ok()?;
+                (content.len() as u64 <= MAX_SNAPSHOT_BYTES).then_some(content)
+            });
+        Some(FileSnapshot { old_content })
     }
 
     fn parameters(&self) -> Value {

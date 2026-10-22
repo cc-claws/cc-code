@@ -94,6 +94,9 @@ pub enum AgentEvent {
         tool_call_id: String,
         name: String,
         input: serde_json::Value,
+        /// 执行侧采集的写入前快照；旧事件没有此字段。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_snapshot: Option<crate::tools::FileSnapshot>,
         source_agent_id: Option<String>,
     },
     /// 工具调用结束（结果或错误），携带所属 AI 消息的 message_id

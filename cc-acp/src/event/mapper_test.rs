@@ -8,6 +8,36 @@ use cc_agent::tools::ToolDefinition;
 use super::*;
 
 #[test]
+fn test_tool_start_preserves_file_snapshot_in_metadata() {
+    for old_content in [None, Some("旧内容\n\"quoted\"\n".to_string())] {
+        let input = serde_json::json!({"file_path": "a.txt", "content": "新内容\n"});
+        let event = ExecutorEvent::ToolStart {
+            message_id: MessageId::new(),
+            tool_call_id: "write-snapshot".into(),
+            name: "Write".into(),
+            input: input.clone(),
+            file_snapshot: Some(cc_agent::tools::FileSnapshot {
+                old_content: old_content.clone(),
+            }),
+            source_agent_id: Some("child-1".into()),
+        };
+        let mapped = map_event(&event, 200_000);
+        let update = serde_json::to_value(&mapped[0].updates[0]).expect("ACP 通知应可序列化");
+        assert_eq!(update["rawInput"], input, "快照不能混入工具入参");
+        assert_eq!(
+            update["_meta"]["peri"]["fileSnapshot"]["oldContent"],
+            serde_json::json!(old_content),
+            "快照应通过元数据完整传递，包括不存在文件的 null 标记"
+        );
+        assert_eq!(
+            mapped[0].source_agent_id.as_deref(),
+            Some("child-1"),
+            "子 Agent 来源不能丢失"
+        );
+    }
+}
+
+#[test]
 fn test_llm_call_end_maps_to_enriched_usage_update() {
     let event = ExecutorEvent::LlmCallEnd {
         step: 1,
@@ -252,6 +282,7 @@ fn test_tool_start_maps_to_session_update_with_tool_info() {
         tool_call_id: "tc-456".to_string(),
         name: "Bash".to_string(),
         input: serde_json::json!({"command": "ls -la"}),
+        file_snapshot: None,
         source_agent_id: Some("sub-agent-2".to_string()),
     };
     let mapped = map_event(&event, 200_000);
@@ -295,6 +326,7 @@ fn test_tool_start_infer_tool_kind_variants() {
             tool_call_id: "tc-x".to_string(),
             name: name.to_string(),
             input: serde_json::Value::Null,
+            file_snapshot: None,
             source_agent_id: None,
         };
         let mapped = map_event(&event, 200_000);

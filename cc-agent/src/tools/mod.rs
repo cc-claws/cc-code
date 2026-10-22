@@ -5,6 +5,14 @@ use crate::messages::{ContentBlock, MessageContent};
 mod invocation;
 pub use invocation::ToolInvocationContext;
 
+/// 工具执行前的文件快照，仅供展示，不写入工具参数或模型历史。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSnapshot {
+    /// 文件不存在、不可读或超过预览大小限制时为 None。
+    pub old_content: Option<String>,
+}
+
 /// 工具定义（JSON Schema 格式参数描述）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -59,6 +67,11 @@ pub trait BaseTool: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn parameters(&self) -> serde_json::Value;
+
+    /// 审批通过后、发出 ToolStart 前同步采集，避免前端迟到读盘产生竞态。
+    fn file_snapshot(&self, _input: &serde_json::Value) -> Option<FileSnapshot> {
+        None
+    }
 
     /// 返回完整工具定义（默认实现，组合 name/description/parameters）
     fn definition(&self) -> ToolDefinition {

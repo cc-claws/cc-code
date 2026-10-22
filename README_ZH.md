@@ -103,6 +103,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **Write 文件内容预览恢复** | v0.6.174 | 修复界面通知晚于写盘时新建、覆盖预览消失，以及追加预览重复内容的问题。主、子 Agent 共用执行前快照，预览不再依赖界面读盘时序（#654）。 |
+| **URL 背景与状态栏对齐** | v0.6.173 | 工具结果与 `!` 输出的 URL 显式使用终端默认背景，使 ANSI Cyan 的观感与状态栏模型名一致（PR #656）。 |
 | **欢迎卡显示模型档位与版本更新提示** | v0.6.172 | 空会话首屏此前只有版本号、当前目录和开始提示，看不出当前跑的是哪个模型、哪一档推理强度。现补齐三处：① 标题拆成品牌名 ACCENT + BOLD、版本号 MUTED 两段，版本号按剩余宽度收口而品牌名永不截断；② 新增 `model · (effort effort)` 副标题，模型名取 `services.model_name`（`/model` 切换后同步更新）、档位取配置 `thinking.effort`，任一项缺失或未配 Provider 时整行省略——不编造默认档位；③ 探测到新版本时用 WARNING `Update available! <当前> → <最新>` + MUTED `To update, run: cc-code update` 两行**替换**原来的开始提示。新增 `cc-tui/src/app/update_check.rs`：启动后在后台查一次 GitHub release 列表（只认 `npm-v*` tag、跳过 prerelease、按语义版本取最大值而非取列表第一条），整个请求压在 3s 超时内，结果经 oneshot 回传、事件循环 `poll_update_check()` 收取，渲染路径只读缓存、永不等待网络；任何失败（无网、限流、JSON 异常）都只记 `debug` 日志并保持正常欢迎页。`CC_CODE_DISABLE_UPDATE_CHECK=1` 可关闭，`cargo test` 下自动禁用。同版：空会话的状态栏不再显示毫无意义的 `Cache - · MEM 19MB`，欢迎卡边框在中英文下严格闭合且高度恒为 7 行（#653）。 |
 | **紧凑启动与随内容增长的终端视口** | v0.6.171 | 终端从 shell 输出下方紧凑启动，随输入、回复与面板按实际视觉行数增长，长满宿主高度后才锁定全屏。欢迎卡作为纯 UI 前缀参与滚动，自然滚出后不会把布局缩回去。复制、链接与高亮坐标跟随非零视口起点，退出时只清理应用自己拥有的行（#652）。 |
 | **工具结果中的 URL 链接色定稿 ANSI Cyan** | v0.6.170 | 工具结果与 `!` shell 命令输出里的 URL 此前用 `theme::cur().ide`（深色 `#4782C8`），链接色随 `/theme` 漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `style_urls()` 固定 `Color::Cyan` + 下划线，不再跟随主题，与状态栏的模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（`!命令` 输出）。识别口径沿用 CC `OutputLine.tsx::URL_IN_JSON` 并切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍为视觉区分（非 OSC 8——ratatui cell 塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。Markdown 链接（`[text](url)` → `theme.link()` = SAGE `#4EBA65`）是另一条路径，不受影响（#649）。 |
@@ -111,9 +113,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **工具结果与 `!` 输出的 URL 链接色** | v0.6.167 | 工具结果与 `!` shell 命令输出中的 URL 由手写前缀扫描识别（不引正则依赖，句末 `)` / `]` / `}` 等标点自动切除），以主题链接色 + 下划线呈现；`!` 输出先按既有 ANSI 着色切段再逐段着色，命令自带颜色不丢。此为视觉区分（非 OSC 8），点击仍由终端自身的 URL 识别提供（#640）。 |
 | **Ctrl+O 切换瞬时完成（渲染键缓存）** | v0.6.166 | 此前切换详细模式会清空全部消息的渲染哈希、对整段历史重渲染 + 重折行——270 条消息约 6.9 秒、10,000 条消息约 239 秒（debug 实测）。现渲染线程按「内容哈希 ⊕ 该消息类型真正敏感的 detail/diff 维度」生成渲染键，每条消息同时保留展开 / 折叠双变体，折行结果按消息分段缓存（段键带逐行 epoch，`Running… (Xs)` 这类指示器文本变化只失效自己那一段）：热切换分别降到约 33ms 与 1.38 秒，并有回归测试锁定执行期（流式尾巴 + 运行中工具）反复切换与从零渲染逐行一致（#626，PR #631）。同批：diff 与 markdown 渲染对齐 CC（逐行 syntect 高亮 + Monokai Extended 主题、markdown 块间空行只来自源文本）、Glob 遍历禁用符号链接跟随并加条目/时长上限（#636）、候选浮层在 Agent 运行中可完整导航、steer 遇前台命令有 2 秒宽限期后自动转后台（#638）。 |
 | **jemalloc 调优真正生效** | v0.6.163 | 分配器配置此前以 `MALLOC_CONF` 环境变量导出，而 tikv-jemalloc 根本不读这个名字（只认 `_RJEM_MALLOC_CONF` 或静态符号 `_rjem_malloc_conf`），所有调优参数一直在空转；现改为导出静态配置符号，并已在发布版二进制上实测验证生效（#622）。同批修复安装脚本解压内置 ripgrep tar.gz 失败、导致 `bin/rg` 永久缺失的问题（#620）。 |
-| **单行长 JSON 视觉行截断 + WebSearch 详细模式展开** | v0.6.162 | 修复普通模式下单行巨型 JSON 因换行逻辑行仅有 1 行而绕过 3 行折叠上限、折行刷爆终端的缺陷，改由 `push_visual_capped_output` 按实际折行视觉行严格限制显示行数（≤3 行）；同时解除 WebSearch/WebFetch 参数在入队时的 60 字符硬截断，详细模式（Ctrl+O）下超长搜索词与 URL 现可完整折行展开（#618） |
-| **后台结果只注入一次** | v0.6.160 | 后台子 Agent 在主 Agent 本轮仍在运行时完成，完整 output 会经两条通道各进一次上下文：`drain_notifications` 写入的 `Human` 通知，以及自动续接轮合成注入的 `AgentResult` `tool_result`。两份文本同源，续接轮因此复述刚给出的结论（实测 messages 109 → 113，回复「已在上一条消息中完整给出」）。`inject_bg_result_messages` 现按 `[Background task {short_id} ` 前缀（与通知同源的 8 位 id，`completed` / `failed` 共用）在 history 中判重，命中即跳过合成注入；全部命中时不再追加空的工具调用消息。`Done` 之后完成的任务不受影响，仍恰好注入一次（#613） |
-> 更早版本（v0.6.0 – v0.6.159）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.162）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

@@ -417,15 +417,6 @@ impl MessagePipeline {
                 self.adaptive_policy.drain();
                 self.force_flush_block();
 
-                // Write 是整文件覆盖，执行后旧内容不可恢复：在 ToolStart（执行前）
-                // 抓取旧内容，供 ToolEnd 后的真 diff 渲染（对齐 CC FileWriteTool）。
-                tool_display::cache_write_old_content(
-                    &tool_call_id,
-                    &name,
-                    &input,
-                    Some(&self.cwd),
-                );
-
                 if let Some(ref aid) = source_agent_id {
                     let cwd = self.cwd.clone();
                     if let Some(sub) = self.find_running_subagent_mut(aid) {

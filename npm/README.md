@@ -7,6 +7,10 @@
 
 ## 最近更新
 
+v0.6.174：**Write 文件内容预览恢复**——修复新建、覆盖成功后不显示内容，以及追加预览重复内容的问题。主、子 Agent 的旧内容在写入前采集，界面通知晚到也能展示正确预览；同内容写入仍不展示空 diff（#654）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.173：**URL 背景与状态栏对齐**——工具结果与 `!` 输出的 URL 使用终端默认背景，避免同为 ANSI Cyan 却与状态栏模型名出现色差（PR #656）。
+
 v0.6.172：**欢迎卡显示模型档位与版本更新提示**——空会话首屏补齐两处信息：标题拆成品牌名（ACCENT）+ 版本号（MUTED），并新增 `model · (effort effort)` 副标题（模型或档位缺失时整行省略）；有新版本时用“Update available! <当前> → <最新>”+ “To update, run: cc-code update”两行**替换**原开始提示，卡片高度恒为 7 行。检查在启动后后台跑一次（只认 `npm-v*` tag、跳过 prerelease、超时 3s、失败静默），渲染不等网络；`CC_CODE_DISABLE_UPDATE_CHECK=1` 可关闭。同版空会话不再显示`Cache - · MEM 19MB`（#653）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.170：**工具结果与 `!` 命令输出里的 URL 链接色定稿 ANSI Cyan**——此前裸 URL 用 `theme::cur().ide`（深色 `#4782C8`），链接色随 `/theme` 漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位；现 `style_urls()` 固定 `Color::Cyan` + 下划线，不随主题切换，与状态栏模型名 / 分支名同一口径。覆盖所有走 `⎿` 前缀的工具结果行与 `!command` 输出；仍非 OSC 8 真超链接，点击由终端自身 URL 识别提供。Markdown 链接（`[text](url)` → SAGE）是另一条路径，不受影响（#649）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

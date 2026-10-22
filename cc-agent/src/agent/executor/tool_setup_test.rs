@@ -36,6 +36,11 @@ impl BaseTool for MockOwnedTool {
     fn parameters(&self) -> Value {
         json!({"type": "object", "properties": {"value": {"type": "string"}}})
     }
+    fn file_snapshot(&self, input: &Value) -> Option<crate::tools::FileSnapshot> {
+        Some(crate::tools::FileSnapshot {
+            old_content: input["value"].as_str().map(str::to_string),
+        })
+    }
     async fn invoke(
         &self,
         input: Value,
@@ -85,6 +90,12 @@ async fn test_box_to_arc_preserves_tool_invocation(
     assert_eq!(tool.name(), "OwnedTool", "必须保留工具名称");
     assert_eq!(tool.description(), "持有资源的测试工具", "必须保留工具描述");
     assert_eq!(tool.parameters()["properties"]["value"]["type"], "string");
+    assert_eq!(
+        tool.file_snapshot(&json!({"value": "before"}))
+            .and_then(|snapshot| snapshot.old_content),
+        Some("before".into()),
+        "包装器必须透传执行前快照"
+    );
     let output = tool.invoke(json!({"value": "ok"})).await?;
     assert_eq!(output, "1:\"ok\"", "必须透传普通工具调用");
     let content = tool.invoke_content(json!({})).await?;

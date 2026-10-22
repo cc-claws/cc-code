@@ -18,6 +18,7 @@ fn test_stream_json_tool_start_forwards_input() {
         tool_call_id: "call_00_abc".to_string(),
         name: "Bash".to_string(),
         input: serde_json::json!({"command": "pwd && ls -la", "description": "show dir"}),
+        file_snapshot: None,
         source_agent_id: None,
     };
     let line = c.handle_event(ev).expect("ToolStart 应产生输出行");
@@ -39,11 +40,37 @@ fn test_stream_json_tool_start_empty_input_stays_object() {
         tool_call_id: "tc1".to_string(),
         name: "Read".to_string(),
         input: serde_json::json!({}),
+        file_snapshot: None,
         source_agent_id: None,
     };
     let line = c.handle_event(ev).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["input"], serde_json::json!({}));
+}
+
+#[test]
+fn test_stream_json_tool_start_omits_file_snapshot() {
+    let mut collector = make_collector();
+    let input = serde_json::json!({"file_path": "a.txt", "content": "新内容\n"});
+    let event = AgentEvent::ToolStart {
+        message_id: MessageId::new(),
+        tool_call_id: "write-preview".into(),
+        name: "Write".into(),
+        input: input.clone(),
+        file_snapshot: Some(cc_agent::tools::FileSnapshot {
+            old_content: Some("旧内容仅用于界面预览\n".into()),
+        }),
+        source_agent_id: None,
+    };
+    let line = collector
+        .handle_event(event)
+        .expect("Write 开始应产生输出行");
+    let output: serde_json::Value = serde_json::from_str(&line).expect("输出应为有效 JSON");
+    assert_eq!(
+        output,
+        serde_json::json!({"type": "tool_use", "id": "write-preview", "name": "Write", "input": input}),
+        "文件快照不能混入 print 的工具入参或输出结构"
+    );
 }
 
 /// ToolEnd 事件仍输出 tool_result 结构

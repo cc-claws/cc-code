@@ -1,5 +1,6 @@
-//! 回归：`peri/subagent_lifecycle` 通知必须真正驱动底栏抽屉。
+//! 回归：ACP Write 快照与 `peri/subagent_lifecycle` 通知必须真正驱动界面。
 //!
+//! Write 测试在实际写盘完成后才消费开始事件，验证预览不依赖界面读盘时序。
 //! 真机症状：状态栏没有 `↓ to view`、底栏无抽屉、消息区无 `(↓ to manage)` 摘要。
 //! 根因在 ACP 客户端漏认方法名（已修），此用例守住「通知 → background_agents」
 //! 这一段：只要 `AcpNotification::Peri { method: "peri/subagent_lifecycle" }` 到达，
@@ -7,6 +8,138 @@
 
 use crate::acp_client::AcpNotification;
 use crate::app::App;
+
+async fn make_delayed_write_preview(
+    old_content: Option<&str>,
+    content: &str,
+    append: bool,
+) -> Option<cc_widgets::DiffInput> {
+    use crate::app::message_pipeline::MessagePipeline;
+    use crate::ui::message_view::MessageViewModel;
+    use cc_agent::agent::{
+        events::FnEventHandler,
+        react::{AgentInput, Reasoning, ToolCall},
+        state::{AgentState, State},
+        ReActAgent,
+    };
+    use cc_agent::llm::MockLLM;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("preview.txt");
+    if let Some(old) = old_content {
+        std::fs::write(&path, old).unwrap();
+    }
+    let call_id = uuid::Uuid::now_v7().to_string();
+    let input = serde_json::json!({"file_path": path, "content": content, "append": append});
+    let events = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let agent = ReActAgent::new(MockLLM::new(vec![
+        Reasoning::with_tools(
+            "write",
+            vec![ToolCall::new(&call_id, "Write", input.clone())],
+        ),
+        Reasoning::with_answer("done", "done"),
+    ]))
+    .add_middleware(Box::new(
+        cc_middlewares::middleware::filesystem::FilesystemMiddleware::new(),
+    ))
+    .with_event_handler(std::sync::Arc::new(FnEventHandler(move |event| {
+        captured.lock().push(event)
+    })));
+    let mut state = AgentState::new(dir.path().to_string_lossy());
+    agent
+        .execute(AgentInput::text("write"), &mut state, None)
+        .await
+        .expect("真实 Write 应执行成功");
+    let expected = if append {
+        format!("{}{content}", old_content.unwrap_or(""))
+    } else {
+        content.to_string()
+    };
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("应已完成实际写盘"),
+        expected
+    );
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    // 故意等写盘完成后才消费开始事件，确定性复现实际队列时序。
+    for event in events.lock().iter() {
+        for mapped in cc_acp::event::map_event(event, 200_000) {
+            for update in mapped.updates {
+                let notification = serde_json::json!({"update": update});
+                if notification["update"]["sessionUpdate"] == "tool_call" {
+                    assert_eq!(
+                        notification["update"]["rawInput"], input,
+                        "快照不能混入工具入参"
+                    );
+                }
+                app.handle_session_update_peri(&notification);
+            }
+        }
+    }
+    let find_preview = |vms: Vec<MessageViewModel>| {
+        vms.into_iter()
+            .find_map(|vm| match vm {
+                MessageViewModel::ToolBlock {
+                    tool_call_id,
+                    diff_input,
+                    ..
+                } if tool_call_id == call_id => Some(diff_input),
+                _ => None,
+            })
+            .expect("应保留 Write 结果块")
+    };
+    let live = find_preview(app.session_mgr.current().messages.pipeline.build_tail_vms());
+    let saved_call = state
+        .messages()
+        .iter()
+        .flat_map(|message| message.tool_calls())
+        .find(|call| call.id == call_id)
+        .expect("历史应保留工具调用");
+    assert_eq!(saved_call.arguments, input, "快照不能混入模型历史");
+    let restored = find_preview(MessagePipeline::messages_to_view_models(
+        state.messages(),
+        dir.path().to_str().unwrap(),
+    ));
+    assert_eq!(live, restored, "StateSnapshot 重建必须保留相同预览");
+    live
+}
+
+#[tokio::test]
+async fn test_write_preview_delayed_start_preserves_created_content() {
+    let preview = make_delayed_write_preview(None, "你好\nworld\n", false)
+        .await
+        .expect("新建文件应展示内容，即使开始事件消费晚于写盘");
+    assert!(preview.is_new_file, "文件原本不存在，应显示新建预览");
+    assert_eq!(preview.new_content, "你好\nworld\n");
+}
+
+#[tokio::test]
+async fn test_write_preview_delayed_start_preserves_overwritten_content() {
+    let preview = make_delayed_write_preview(Some("old\n"), "new\n", false)
+        .await
+        .expect("覆盖文件应保留真实 diff");
+    assert!(!preview.is_new_file, "覆盖文件不能误判为新建");
+    assert_eq!(preview.old_content, "old\n");
+    assert_eq!(preview.new_content, "new\n");
+}
+
+#[tokio::test]
+async fn test_write_preview_delayed_start_does_not_duplicate_appended_content() {
+    let preview = make_delayed_write_preview(Some("a\n"), "b\n", true)
+        .await
+        .expect("追加文件应保留真实 diff");
+    assert_eq!(preview.old_content, "a\n");
+    assert_eq!(preview.new_content, "a\nb\n", "追加内容只能出现一次");
+}
+
+#[tokio::test]
+async fn test_write_preview_delayed_start_hides_unchanged_content() {
+    assert!(
+        make_delayed_write_preview(Some("same\n"), "same\n", false)
+            .await
+            .is_none(),
+        "未改变的文件仍只展示结果行"
+    );
+}
 
 #[tokio::test]
 async fn test_subagent_lifecycle_started_populates_drawer() {

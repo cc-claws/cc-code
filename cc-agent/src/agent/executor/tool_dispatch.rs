@@ -978,11 +978,18 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
         }
         match before_result {
             Ok(modified_call) => {
+                let file_snapshot = resolve_tool(&modified_call.name, all_tools).and_then(|tool| {
+                    tool.file_snapshot(&normalize_params(
+                        &modified_call.name,
+                        modified_call.input.clone(),
+                    ))
+                });
                 agent.emit(AgentEvent::ToolStart {
                     message_id: ai_msg_id,
                     tool_call_id: modified_call.id.clone(),
                     name: modified_call.name.clone(),
                     input: modified_call.input.clone(),
+                    file_snapshot,
                     source_agent_id: None,
                 });
                 ready_calls.push(modified_call);
@@ -995,6 +1002,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                     tool_call_id: tool_call.id.clone(),
                     name: tool_call.name.clone(),
                     input: tool_call.input.clone(),
+                    file_snapshot: None,
                     source_agent_id: None,
                 });
                 agent.emit(AgentEvent::ToolEnd {
