@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.177 — 2026-10-22
+
+### Fixes
+
+- **`.md` 文件在 Write/Edit 预览中不再染色（#669）**：此前 `.md` 内容会按 Markdown 语法着色，标题与粗体出现明显颜色；而 Claude Code 对同类文件没有任何可见着色——它虽然把 `md` 识别为 markdown，但 highlight.js 对 Markdown 只产出 `section` / `strong` scope，CC 的三套主题 scope 表均未映射这两个键，颜色回退到默认前景色，`.md` 与 `.txt` 的输出逐字节相同。现从 `EXTENSION_LANGS` 移除 `md` / `markdown` / `mdown` / `mkdn`，`.md` 按未识别语言回退纯文本，同时作用于 Write 新建预览与 Edit diff。新增回归测试 `test_render_new_file_code_md_falls_back_to_plain_text`，并把 `test_detect_language_by_extension` 的 `.md` 断言改为 `None`；同步更正 `code-highlight.md` 的语言识别规则与 2026-10-20 审计报告中的旧结论。
+
+---
+
 ## v0.6.176 — 2026-10-22
 
 ### UI / Style

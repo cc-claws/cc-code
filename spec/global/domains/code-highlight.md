@@ -45,7 +45,7 @@ Markdown 解析遇到代码块（```lang）
 `packages/color-diff-napi/src/index.ts:423` 的三段式判定，diff 渲染与新建文件预览共用：
 
 1. **文件名表**：`Dockerfile` / `Makefile` / `Rakefile` / `Gemfile` / `CMakeLists`；按文件名与「首个点号前的 stem」匹配（`Makefile.bak`、`CMakeLists.txt` 均可命中）。
-2. **扩展名白名单**：CC 注册的 26 种语言的扩展名别名。白名单外的扩展名一律回退纯文本（例：`.txt`、`.xyz`、`.toml`）。
+2. **扩展名白名单**：CC 注册的 26 种语言的扩展名别名。白名单外的扩展名一律回退纯文本（例：`.txt`、`.xyz`、`.toml`）。**markdown 例外**：`.md` / `.markdown` / `.mdown` / `.mkdn` 不启用高亮——CC 的 hljs markdown 只产出 `section` / `strong` scope，其主题 scope 表没有对应颜色，渲染结果与纯文本完全一致，因此 peri 直接把 markdown 从 `EXTENSION_LANGS` 移除，保持观感对齐。
 3. **首行检测**：剥 UTF-8 BOM 后，按 `#!/bin/bash`（含 `/sh`）、`python`、`node`、`ruby`、`perl`、`<?php`、`<?xml` 识别。
 
 映射到 syntect token 时修正歧义项：`.h` → `c`（直接用 `h` 会命中 Objective-C）。
@@ -71,9 +71,9 @@ for tok in ["ts","tsx","kt","kts","graphql","gql","dockerfile","Dockerfile","cma
 - 依赖：`two-face = { version = "0.5", default-features = false, features = ["syntect-onig"] }`，regex 引擎必须与 syntect 一致（onig）。
 - 语法资产比 syntect 默认集大约多 0.6 MiB，会进入最终二进制；首次编译时间相应增加。
 - 内存影响需按 `issue_2026-10-10_php-highlight-memory` 的方法回归（`/gc` 统计、全进程 WorkingSet 采样）。
-- `detect_language` 的白名单仍按 CC 的 26 种语言生效：two-face 多出来的语法（TOML、Swift、Dart 等）不会被自动启用，扩展名仍需显式加入 `EXTENSION_LANGS`。
+- `detect_language` 的白名单仍按 CC 的 26 种语言生效（markdown 例外，见「语言识别规则」）：two-face 多出来的语法（TOML、Swift、Dart 等）不会被自动启用，扩展名仍需显式加入 `EXTENSION_LANGS`。
 
-回归测试：`cc-widgets/src/diff/renderer_test.rs` 的 `test_render_diff_typescript_has_syntax_color`、`test_render_diff_dockerfile_has_syntax_color`。
+回归测试：`cc-widgets/src/diff/renderer_test.rs` 的 `test_render_diff_typescript_has_syntax_color`、`test_render_diff_dockerfile_has_syntax_color`、`test_detect_language_by_extension`（`.md` 断言为 `None`）、`test_render_new_file_code_md_falls_back_to_plain_text`。
 
 ## 语法主题选择（对齐 CC defaultSyntaxThemeName）
 
@@ -135,4 +135,4 @@ for tok in ["ts","tsx","kt","kts","graphql","gql","dockerfile","Dockerfile","cma
 - → [tui.md](./tui.md) — Markdown 渲染集成点
 - → [tui-widgets.md](./tui-widgets.md) — cc-widgets MarkdownRenderer 组件
 
-最后更新：2026-10-20
+最后更新：2026-10-22

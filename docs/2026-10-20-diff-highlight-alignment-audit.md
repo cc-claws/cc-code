@@ -117,7 +117,7 @@ peri 侧的修复：
 
 ## 语言选择对齐 CC（2026-10-20 追加）
 
-**触发**：发现 `docs/*.md` 这类文档在 Write/Edit 预览里被按代码着色。核查 CC 源码后确认 CC **同样**会对 md 上色（`language-registration.test.ts` 的 26 种语言白名单含 `markdown`，`detectLanguage` 把 `md` 映射为 markdown），真正的差异在**语言选择逻辑**：CC 是「文件名表 + 扩展名白名单 + shebang 检测」，peri 原先只取扩展名并交给 syntect 的全量语法集。
+**触发**：发现 `docs/*.md` 这类文档在 Write/Edit 预览里被按代码着色。核查 CC 源码后确认 CC **同样**会对 md 上色（`language-registration.test.ts` 的 26 种语言白名单含 `markdown`，`detectLanguage` 把 `md` 映射为 markdown）（**2026-10-22 更正**：该判断不成立，CC 实际无可见着色，见下节），真正的差异在**语言选择逻辑**：CC 是「文件名表 + 扩展名白名单 + shebang 检测」，peri 原先只取扩展名并交给 syntect 的全量语法集。
 
 CC 侧依据：
 
@@ -138,6 +138,19 @@ peri 侧改动（`cc-widgets/src/diff/renderer.rs`）：
 > 完整记录（探测方法、代价约束、内存回归要求）见 [code-highlight.md](../spec/global/domains/code-highlight.md#扩展语法集two-face)。
 
 验证：`cargo test -p cc-widgets --lib --features markdown-highlight -- diff::` 31 passed；`cargo test -p cc-tui --lib -- message_render tool_display` 132 passed；`cargo clippy -p cc-widgets --all-targets --features markdown-highlight -- -D warnings` 通过。
+
+### 2026-10-22 更正：CC 的 md 实际无可见着色
+
+上节「CC 同样会对 md 上色」的判断不成立。用隔离目录复制 `packages/color-diff-napi/src/index.ts`、安装 `highlight.js` + `diff` 后实测：
+
+- `detectLanguage('notes.md', null)` → `'md'`，语言识别确实命中；
+- `hljs.highlight('# 标题\n\n普通段落文字\n\n**粗体**', { language: 'md' })` → `<span class="hljs-section">` / `<span class="hljs-strong">`；
+- `MONOKAI_SCOPES` / `GITHUB_SCOPES` / `ANSI_SCOPES` 三张表均无 `section`、`strong` 键，`scopeColor` 回退 `theme.foreground`；
+- `new ColorFile(content, 'notes.md').render(...)` 与 `new ColorFile(content, 'notes.txt').render(...)` 输出**逐字节相同**。
+
+结论：CC 只做了「语言识别 + 调用 highlight.js」，主题里没有任何 Markdown scope 映射，所以 `.md` 与纯文本观感一致。
+
+peri 侧对齐（2026-10-22）：从 `EXTENSION_LANGS` 移除 `md` / `markdown` / `mdown` / `mkdn`，`.md` 按未识别语言回退纯文本，同时作用于 Write 新建预览与 Edit diff。回归测试：`test_detect_language_by_extension`（`.md` → `None`）、`test_render_new_file_code_md_falls_back_to_plain_text`。
 
 ## 待确认（非缺陷）
 
