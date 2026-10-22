@@ -306,6 +306,15 @@ gh issue close <N> --repo cc-claws/cc-code --reason completed \
 
 创建 PR 时若确实无需工单（纯文档/配置小改动），正文显式写 `No-Issue: <原因>`，把「漏写」与「本就无需」区分开。
 
+### 纯文档 PR 直接合并，不等 CI（强制）
+
+**[强制] 纯文档 / 纯配置类 PR 不看 CI 结果，创建后立即 `gh pr merge <N> --merge`。** 不要 `gh pr checks` 轮询、不要等 3 个平台的 Build 跑完——文档改动不会让代码构建失败，等待纯属浪费。
+
+- **适用范围**：只改 `CHANGELOG.md` / `README*` / `TUI-STYLE.md` / `docs/**` / `spec/**` / `CLAUDE.md` 等文档或配置，无 `.rs` / `Cargo.*` / `npm/**` 等代码改动。
+- **判定标准**：`git diff --name-only origin/main...HEAD` 全部落在上述文档/配置路径内。
+- **代码 PR 不适用**：仍须等 CI 全绿再合并（失败就是真问题）。
+- 与「单纯文档变更不触发发版」原则配套：文档 PR 快进快出，发版由代码 PR 驱动。
+
 ### Issue 必须在 GitHub 且遵循约定 skill 规范（强制）
 
 **[强制]** PR 流程的 Issue **必须在 GitHub 创建**（工单号唯一来源、PR 用 `Fixes #N` 关联），且其**内容遵循 `issue-create` skill 的规范结构**——禁止随手写一段话当 Issue：
