@@ -8,6 +8,8 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
+- **输入 `/` 触发命令提示后删除，视口底部留白（#658）**：紧凑启动（growing）模式下，输入 `/` 会把命令候选浮层高度并入 `required_rows`，`ViewportState::prepare()` 的 `allocated_rows` 单调递增记住了这个高度；删除 `/` 后浮层消失、内容高度回落，但 `allocated_rows` 不收缩，多出的行全部分给消息区，底部成片空白。现把 `required_rows()` 拆成 `total`（含浮层，决定当帧视口面积）与 `persistent`（不含浮层，决定 `allocated_rows` 的持久记忆），新增 `ViewportState::prepare_persistent()`——浮层贡献只影响当帧 `area`，不再被持久记忆，浮层消失后视口高度正确回落。`prepare()` 保留原签名并委托给新方法，既有调用方与测试不变。附带回归测试 `test_hint_popup_expand_then_dismiss_leaves_no_blank_gap`。
+
 - **Write 文件内容预览恢复（#654）**：修复文件新建、覆盖成功后只有结果行而无内容预览，以及追加预览重复内容的问题。旧内容改为在执行侧审批通过后、发出 `ToolStart` 前采集，经 ACP 元数据传给 TUI，主、子 Agent 与 StateSnapshot 重建共同使用，避免异步队列导致界面读到写入后的文件。工具入参、模型历史和真实写入行为保持原样，同内容仍不展示空 diff；不超过 500,000 字节的普通 UTF-8 旧文件参与真实 diff，其余沿用内容预览回退。快照仍是进程内有界缓存，不跨进程持久化。
 
 ---
