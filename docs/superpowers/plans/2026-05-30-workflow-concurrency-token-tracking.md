@@ -10,7 +10,7 @@
 
 **V2 备注项（不实现，仅记录）：**
 - `{{#if}}` / `{{#each}}` 条件模板 → 需迁移到 handlebars crate
-- CLI `-- workflow` 集成 → 需要 peri-acp / peri-tui 集成
+- CLI `-- workflow` 集成 → 需要 cc-acp / cc-tui 集成
 - ACP `/workflow` slash command → 需要 ACP 层集成
 
 ---
@@ -61,7 +61,7 @@ impl From<serde_json::Value> for AgentOutput {
 
 /// Agent 构建和执行能力 trait
 ///
-/// 由集成层（peri-acp 或测试 mock）实现，
+/// 由集成层（cc-acp 或测试 mock）实现，
 /// peri-workflow 不直接依赖具体 Agent 构建。
 #[async_trait]
 pub trait AgentRunner: Send + Sync {

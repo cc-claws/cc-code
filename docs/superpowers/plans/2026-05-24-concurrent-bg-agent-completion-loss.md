@@ -8,7 +8,7 @@
 
 **Critical diagnostic clue:** Bug only manifests with concurrency ≥ 2. Single bg agent always works correctly. This narrows root cause to something that breaks in the concurrent path: either a race in the shared `SubAgentTool::invoke_background` via `&self` concurrent access, the bg event pump handling of near-simultaneous events, or the TUI processing of multiple `BackgroundTaskCompleted` events from the same `agent_name`.
 
-**Tech Stack:** Rust, tokio unbounded channels, serde_json, peri-acp transport layer (MpscTransport), peri-tui event handling
+**Tech Stack:** Rust, tokio unbounded channels, serde_json, cc-acp transport layer (MpscTransport), cc-tui event handling
 
 ---
 
@@ -77,15 +77,15 @@ The `invoke_background` also has a separate `active_count()` check at define.rs:
 ### Task 1: Add diagnostic tracing across the entire bg event pipeline
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:485-488` (sender side)
-- Modify: `peri-acp/src/session/executor.rs:350-354` (bg pump side)
-- Modify: `peri-acp/src/session/event_sink.rs:50-58` (push_event serialization)
-- Modify: `peri-tui/src/acp_client/client.rs:116-125` (client pump deserialization)
-- Modify: `peri-tui/src/app/agent_events_bg.rs:52-62` (TUI handler entry)
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:485-488` (sender side)
+- Modify: `cc-acp/src/session/executor.rs:350-354` (bg pump side)
+- Modify: `cc-acp/src/session/event_sink.rs:50-58` (push_event serialization)
+- Modify: `cc-tui/src/acp_client/client.rs:116-125` (client pump deserialization)
+- Modify: `cc-tui/src/app/agent_events_bg.rs:52-62` (TUI handler entry)
 
 - [ ] **Step 1: Add tracing at sender side** — log when bg task sends completion event
 
-In `peri-middlewares/src/subagent/tool/define.rs`, lines 485-488, add a `tracing::info!` before the send:
+In `cc-middlewares/src/subagent/tool/define.rs`, lines 485-488, add a `tracing::info!` before the send:
 
 ```rust
 // 通过独立通道发送完成事件（不依赖 event_tx，不受 close_channel 影响）
@@ -108,7 +108,7 @@ if let Some(ref sender) = spawn_bg_sender {
 
 - [ ] **Step 2: Add tracing at bg pump side** — log each event received and pushed
 
-In `peri-acp/src/session/executor.rs`, lines 346-355, modify the bg event pump:
+In `cc-acp/src/session/executor.rs`, lines 346-355, modify the bg event pump:
 
 ```rust
 {
@@ -145,7 +145,7 @@ In `peri-acp/src/session/executor.rs`, lines 346-355, modify the bg event pump:
 
 - [ ] **Step 3: Add tracing at push_event** — log serialization result and transport sending
 
-In `peri-acp/src/session/event_sink.rs`, modify `TransportEventSink::push_event` to add logging after serialization:
+In `cc-acp/src/session/event_sink.rs`, modify `TransportEventSink::push_event` to add logging after serialization:
 
 ```rust
 let event_json = match serde_json::to_string(event) {
@@ -168,12 +168,12 @@ if matches!(event, ExecutorEvent::BackgroundTaskCompleted(r) if r.success) {
 
 - [ ] **Step 4: Add tracing at client pump** — log deserialization of BackgroundTaskCompleted
 
-In `peri-tui/src/acp_client/client.rs`, after the successful deserialization match at line 117-124, add:
+In `cc-tui/src/acp_client/client.rs`, after the successful deserialization match at line 117-124, add:
 
 ```rust
 match event_result {
     Ok(event) => {
-        if matches!(&event, peri_agent::agent::events::AgentEvent::BackgroundTaskCompleted(r) if r.success) {
+        if matches!(&event, cc_agent::agent::events::AgentEvent::BackgroundTaskCompleted(r) if r.success) {
             tracing::info!(
                 task_id = %r.task_id,
                 agent_name = %r.agent_name,
@@ -189,7 +189,7 @@ match event_result {
 
 - [ ] **Step 5: Add tracing at TUI handler entry** — log receipt of BackgroundTaskCompleted
 
-In `peri-tui/src/app/agent_events_bg.rs`, at the start of `handle_background_task_completed` (line 52), add:
+In `cc-tui/src/app/agent_events_bg.rs`, at the start of `handle_background_task_completed` (line 52), add:
 
 ```rust
 tracing::info!(
@@ -205,7 +205,7 @@ tracing::info!(
 - [ ] **Step 6: Verify diagnostic logging compiles and runs**
 
 ```bash
-cargo build -p peri-middlewares -p peri-acp -p peri-tui 2>&1 | tail -5
+cargo build -p cc-middlewares -p cc-acp -p cc-tui 2>&1 | tail -5
 ```
 
 Expected: clean build with no errors. Then manually test by launching TUI and triggering 2+ concurrent bg agents.
@@ -215,11 +215,11 @@ Expected: clean build with no errors. Then manually test by launching TUI and tr
 ### Task 2: Write integration test reproducing concurrent bg agent completion loss
 
 **Files:**
-- Create: `peri-acp/tests/concurrent_bg_agent_test.rs`
+- Create: `cc-acp/tests/concurrent_bg_agent_test.rs`
 
 - [ ] **Step 1: Create test file with scaffolding**
 
-Create `peri-acp/tests/concurrent_bg_agent_test.rs`:
+Create `cc-acp/tests/concurrent_bg_agent_test.rs`:
 
 ```rust
 //! Integration test: verify that N concurrent background agents all produce
@@ -235,7 +235,7 @@ use tokio::sync::mpsc;
 /// by simulating N background tasks all sending completion events concurrently.
 #[tokio::test]
 async fn test_concurrent_bg_tasks_all_emit_completion() {
-    use peri_agent::agent::events::{AgentEvent, BackgroundTaskResult};
+    use cc_agent::agent::events::{AgentEvent, BackgroundTaskResult};
 
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel::<AgentEvent>();
     let task_count = 2usize;
@@ -305,7 +305,7 @@ async fn test_concurrent_bg_tasks_all_emit_completion() {
 - [ ] **Step 2: Run test to verify it passes (baseline)**
 
 ```bash
-cargo test -p peri-acp --test concurrent_bg_agent_test -- --nocapture
+cargo test -p cc-acp --test concurrent_bg_agent_test -- --nocapture
 ```
 
 Expected: PASS — this verifies the unbounded channel itself works correctly for N concurrent senders.
@@ -315,21 +315,21 @@ Expected: PASS — this verifies the unbounded channel itself works correctly fo
 ### Task 3: Add concurrency stress test for the actual SubAgentTool::invoke_background path
 
 **Files:**
-- Modify: `peri-acp/tests/concurrent_bg_agent_test.rs` (append)
+- Modify: `cc-acp/tests/concurrent_bg_agent_test.rs` (append)
 
 - [ ] **Step 1: Add test that exercises the full bg event path with a mock transport**
 
-Append to `peri-acp/tests/concurrent_bg_agent_test.rs`:
+Append to `cc-acp/tests/concurrent_bg_agent_test.rs`:
 
 ```rust
 /// Tests the full ACP bg event flow: SubAgentTool → bg_event_tx → bg pump → EventSink → transport.
-/// Uses peri-acp's own mpsc transport pair and TransportEventSink.
+/// Uses cc-acp's own mpsc transport pair and TransportEventSink.
 #[tokio::test]
 async fn test_bg_event_pump_receives_all_completions() {
-    use peri_acp::session::event_sink::TransportEventSink;
-    use peri_acp::transport::mpsc::mpsc_transport_pair;
-    use peri_acp::transport::AcpTransport;
-    use peri_agent::agent::events::{AgentEvent, BackgroundTaskResult};
+    use cc_acp::session::event_sink::TransportEventSink;
+    use cc_acp::transport::mpsc::mpsc_transport_pair;
+    use cc_acp::transport::AcpTransport;
+    use cc_agent::agent::events::{AgentEvent, BackgroundTaskResult};
 
     let (client_transport, server_transport) = mpsc_transport_pair();
     let sink = Arc::new(TransportEventSink::new(Arc::new(server_transport)));
@@ -418,7 +418,7 @@ async fn test_bg_event_pump_receives_all_completions() {
 - [ ] **Step 2: Run the integration test**
 
 ```bash
-cargo test -p peri-acp --test concurrent_bg_agent_test -- --nocapture
+cargo test -p cc-acp --test concurrent_bg_agent_test -- --nocapture
 ```
 
 Expected: PASS. If it FAILS, the bg event pump is dropping events.
@@ -426,7 +426,7 @@ Expected: PASS. If it FAILS, the bg event pump is dropping events.
 - [ ] **Step 3: Commit diagnostic tracing and tests**
 
 ```bash
-git add peri-middlewares/src/subagent/tool/define.rs peri-acp/src/session/executor.rs peri-acp/src/session/event_sink.rs peri-tui/src/acp_client/client.rs peri-tui/src/app/agent_events_bg.rs peri-acp/tests/concurrent_bg_agent_test.rs
+git add cc-middlewares/src/subagent/tool/define.rs cc-acp/src/session/executor.rs cc-acp/src/session/event_sink.rs cc-tui/src/acp_client/client.rs cc-tui/src/app/agent_events_bg.rs cc-acp/tests/concurrent_bg_agent_test.rs
 git commit -m "feat: add diagnostic tracing for bg agent completion event pipeline
 
 Add tracing at sender, bg-pump, push_event, client-pump, and TUI handler
@@ -447,14 +447,14 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 Based on diagnostic output quality, apply all three concurrent-specific fixes. These are independent and can be applied together.
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/background.rs:50-58` (TOCTOU fix in register)
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:330-337, 486-488` (early error safeguard + ensure spawn_bg_sender is always sent)
-- Modify: `peri-tui/src/app/agent_events_bg.rs:112-131` (same-name SubAgentGroup matching)
-- Modify: `peri-acp/src/session/executor.rs:346-355` (ensure bg pump is awaited if needed)
+- Modify: `cc-middlewares/src/subagent/background.rs:50-58` (TOCTOU fix in register)
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:330-337, 486-488` (early error safeguard + ensure spawn_bg_sender is always sent)
+- Modify: `cc-tui/src/app/agent_events_bg.rs:112-131` (same-name SubAgentGroup matching)
+- Modify: `cc-acp/src/session/executor.rs:346-355` (ensure bg pump is awaited if needed)
 
 - [ ] **Step 1: Fix BackgroundTaskRegistry TOCTOU in register()**
 
-In `peri-middlewares/src/subagent/background.rs`, the `register()` method has a TOCTOU gap between `active_count()` check and `insert`. Replace with a single-lock approach:
+In `cc-middlewares/src/subagent/background.rs`, the `register()` method has a TOCTOU gap between `active_count()` check and `insert`. Replace with a single-lock approach:
 
 ```rust
 /// 注册新任务，超出上限返回 Err
@@ -478,7 +478,7 @@ This eliminates the window where two concurrent `invoke_background` calls could 
 
 - [ ] **Step 2: Fail-fast: send BackgroundTaskCompleted on invoke_background error before SubagentStarted**
 
-In `peri-middlewares/src/subagent/tool/define.rs`, `invoke_background` currently sends `SubagentStarted` (line 431-437) AND registers the task (line 491). If registration fails AFTER `SubagentStarted` was already sent, the count is stuck. Fix: check registration success FIRST, and if it fails, do NOT send `SubagentStarted`. Instead, immediately send a `BackgroundTaskCompleted` with failure status.
+In `cc-middlewares/src/subagent/tool/define.rs`, `invoke_background` currently sends `SubagentStarted` (line 431-437) AND registers the task (line 491). If registration fails AFTER `SubagentStarted` was already sent, the count is stuck. Fix: check registration success FIRST, and if it fails, do NOT send `SubagentStarted`. Instead, immediately send a `BackgroundTaskCompleted` with failure status.
 
 The key change: move the `SubagentStarted` event emission to AFTER successful registration, and add error handling that sends a completion on failure:
 
@@ -588,7 +588,7 @@ Apply the fix described in **Task 5** below (prefer groups with `final_result.is
 - [ ] **Step 4: Build and verify**
 
 ```bash
-cargo build -p peri-middlewares -p peri-acp -p peri-tui 2>&1 | tail -5
+cargo build -p cc-middlewares -p cc-acp -p cc-tui 2>&1 | tail -5
 ```
 
 ---
@@ -598,7 +598,7 @@ cargo build -p peri-middlewares -p peri-acp -p peri-tui 2>&1 | tail -5
 This is a preemptive fix regardless of diagnostic findings. When two bg agents share the same `agent_name`, the second `BackgroundTaskCompleted` event won't find its matching SubAgentGroup (already marked `is_running=false`).
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_events_bg.rs:112-131` (SubAgentGroup matching loop)
+- Modify: `cc-tui/src/app/agent_events_bg.rs:112-131` (SubAgentGroup matching loop)
 
 - [ ] **Step 1: Change SubAgentGroup matching to prefer the first still-running match**
 
@@ -654,13 +654,13 @@ if let Some(idx) = best_idx {
 - [ ] **Step 2: Verify the fix compiles**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -5
+cargo build -p cc-tui 2>&1 | tail -5
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_events_bg.rs
+git add cc-tui/src/app/agent_events_bg.rs
 git commit -m "fix: handle concurrent same-name bg agents in SubAgentGroup matching
 
 Change the SubAgentGroup matching loop to prefer groups that haven't been
@@ -682,16 +682,16 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 1: Build release binary**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -3
+cargo build -p cc-tui 2>&1 | tail -3
 ```
 
 - [ ] **Step 2: Launch TUI and trigger concurrent bg agents**
 
 ```
-cargo run -p peri-tui
+cargo run -p cc-tui
 ```
 
-Send prompt: "Launch two background code-reviewer agents: one to review peri-acp/src/agent/builder.rs and another to review peri-acp/src/session/executor.rs."
+Send prompt: "Launch two background code-reviewer agents: one to review cc-acp/src/agent/builder.rs and another to review cc-acp/src/session/executor.rs."
 
 - [ ] **Step 3: Verify behavior**
 
@@ -704,7 +704,7 @@ Expected:
 
 - [ ] **Step 4: Verify with different agent types**
 
-Send prompt: "Launch a background code-reviewer to check peri-acp/src/agent/builder.rs and a background explorer to look for large files in peri-tui/src/"
+Send prompt: "Launch a background code-reviewer to check cc-acp/src/agent/builder.rs and a background explorer to look for large files in cc-tui/src/"
 
 Expected: same correct behavior with different `agent_name` values.
 

@@ -79,7 +79,7 @@ TUI 侧仅凭事件**无法区分**两者。
 **原始正确实现（`725195c7`，2026-05-26）**：标志由 **TUI 侧命令处理器**设置，天然只覆盖手动路径：
 
 ```rust
-// peri-tui/src/command/session/compact.rs（当时）
+// cc-tui/src/command/session/compact.rs（当时）
 // 标记为手动 compact，handle_compact_completed 据此调用 set_loading(false)
 app.session_mgr.sessions[app.session_mgr.active].agent.compact_manual = true;
 ```

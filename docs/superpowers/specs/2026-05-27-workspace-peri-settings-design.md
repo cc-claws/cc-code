@@ -30,7 +30,7 @@
 
 ## 代码改动
 
-### `peri-acp/src/provider/config.rs` — `AppConfig::merge_overrides()`
+### `cc-acp/src/provider/config.rs` — `AppConfig::merge_overrides()`
 
 新增方法，按字段覆盖：
 
@@ -62,7 +62,7 @@ impl AppConfig {
 }
 ```
 
-### `peri-tui/src/config/store.rs` — 加载逻辑
+### `cc-tui/src/config/store.rs` — 加载逻辑
 
 新增 `workspace_config_path()`，修改 `load()`：
 

@@ -1,13 +1,23 @@
 # cc-code
 
-**用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
+**用开源模型跑 Agent Loop — Rust 写的终端编程助手，与参考实现生态兼容**
 
 [![npm](https://img.shields.io/npm/v/@cc-claw/code)](https://www.npmjs.com/package/@cc-claw/code)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## 最近更新
 
-v0.6.177：**`.md` 预览不再着色，对齐 Claude Code**——Write 与 Edit 预览不再给 `.md` 内容上色。Claude Code 虽把 `md` 识别为 markdown，但其主题 scope 表没有 `section` / `strong` 的映射（highlight.js 对 Markdown 只产出这两个 scope），实际输出与纯文本逐字节相同；cc-code 此前用 syntect 语法把标题与粗体染色。现移除 markdown 扩展名映射，回退纯文本（#669）。
+v0.6.182：**终端超链接修复与补全**——OSC 8 转义序列改到输出层注入，修复链接后面整行文字不显示/错位的问题；工具结果与 `!` 命令输出里的裸 URL 也成为可点击的真超链接（亮蓝、无人工下划线）。OSC 8 改为默认开启，仅 `DISABLE_HYPERLINKS` 显式关闭（#671）。
+
+v0.6.181：**运行中 Bash 的计时不再卡住**——长时间运行且无输出的命令，`Running… (Xs)` 秒数与块首动画此前会被事件流饿死冻结，现改为跨事件单调推进的 tick，持续刷新（#683）。
+
+v0.6.180：**Bash 执行状态显示优化**——工具块使用显式执行阶段，空输出完成显示 `Done`（详细模式为 `(No output)`）；显式 timeout 以 `Running… (Ns · timeout Nm)` 展示（#675）。
+
+v0.6.179：**npm 改为平台可选依赖分发**——主包不再在安装期执行脚本下载二进制；二进制拆为五个平台包，经 `optionalDependencies` 按宿主平台自动安装，安装过程除 npm registry 外不访问网络（#678）。
+
+v0.6.178：**消息区 Markdown 链接成为真超链接**——`[文字](url)` 输出 OSC 8 转义序列，在 Windows Terminal、iTerm2、WezTerm、kitty 等终端里可悬停提示、Ctrl/Cmd+点击打开（#671）。
+
+v0.6.177：**`.md` 预览不再着色，对齐参考实现**——Write 与 Edit 预览不再给 `.md` 内容上色。参考实现虽把 `md` 识别为 markdown，但其主题 scope 表没有 `section` / `strong` 的映射（highlight.js 对 Markdown 只产出这两个 scope），实际输出与纯文本逐字节相同；cc-code 此前用 syntect 语法把标题与粗体染色。现移除 markdown 扩展名映射，回退纯文本（#669）。
 
 v0.6.175：① **统一 Bash 及工具输出截断提示风格**——将所有工具输出（Bash 工具、用户 `!` 本机命令、错误摘要行等）的折叠提示统一为 `… +N lines (ctrl+o to expand)`（单数：`… +1 line`，单行折行超额：`… (ctrl+o to expand)`），与 diff / 新建文件代码预览风格完全一致（#661）；② **彻底移除浮层对视口高度的干扰**——临时浮层（命令候选与 @ 文件提及）属于 Overlay，本身已具备 `available` 可用高度边界保护，彻底不计入视口 `required_rows`，消除 24 行终端下误触发 `fullscreen_latched` 锁死全屏及留白问题（#659）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
@@ -41,19 +51,19 @@ v0.6.147：新增跨项目 **Agent Command Center**：`/agents` 或空输入框 
 
 v0.6.146：修复 Windows CI 上 cc-tui 测试的间歇性失败（**内部改动，无用户可见行为变化**）——这些用例用固定墙钟超时等待真实子进程（`cmd`/git-bash/嵌套 powershell），libtest 并发时互相抢进程与 IO，在 4 核 runner 上被放大成超时；现用全局锁串行化真起进程的用例并统一放宽等待预算，不改任何用例语义（#538）。
 
-v0.6.145：三项 TUI 输入修复——① 输入框内 `/command` 用 suggestion 蓝高亮，规则对齐 Claude Code（`!` shell 态跳过，避免把 `/etc` 之类路径着色）（#529）；② Rewind 对话回滚从「双击 `Esc`」改为正式命令 `/rewind`（别名 `/undo`）——`Esc` 是取消/中断键，连按两次会误弹出回滚面板，而输入 `/rewind` 反而无效（#531）；③ Agent 运行中按 `Enter` 不再把命令静默变成模型提问——此前 `/exit` 不退出、`/gc` 不回收内存、未知命令反被模型回答。判定收敛到唯一入口 `CommandSystem::resolve`：普通消息 / Skill / ACP 命令 / 转发型命令入队等本轮结束后执行，需要空闲 UI 的命令、`!` 输入与未知命令一律拒绝并**保留输入框内容**（#533）。
+v0.6.145：三项 TUI 输入修复——① 输入框内 `/command` 用 suggestion 蓝高亮，规则对齐参考实现（`!` shell 态跳过，避免把 `/etc` 之类路径着色）（#529）；② Rewind 对话回滚从「双击 `Esc`」改为正式命令 `/rewind`（别名 `/undo`）——`Esc` 是取消/中断键，连按两次会误弹出回滚面板，而输入 `/rewind` 反而无效（#531）；③ Agent 运行中按 `Enter` 不再把命令静默变成模型提问——此前 `/exit` 不退出、`/gc` 不回收内存、未知命令反被模型回答。判定收敛到唯一入口 `CommandSystem::resolve`：普通消息 / Skill / ACP 命令 / 转发型命令入队等本轮结束后执行，需要空闲 UI 的命令、`!` 输入与未知命令一律拒绝并**保留输入框内容**（#533）。
 
 v0.6.144：修复后台子 Agent 抽屉「正在做什么」列的闪动——该列不再被工具名（`Bash`/`Grep`）覆盖，只显示子 Agent 最近一句助手文本；并新增 200ms 刷新节流（渲染快照，丢渲染帧不丢状态，结束时立即同步）。
 
 v0.6.143：修复两个 `/theme` 相关问题——① 主题面板补齐键盘路由，此前 `↑`/`↓` 不移动光标、`Esc` 关不掉面板（#521）；② 状态栏配色固定、不再随主题切换，恢复打磨定稿的固定观感（#523）。
 
-v0.6.141：**Spinner tips 调度对齐 Claude Code**——tips 改为带会话冷却的调度模型：每轮开始挑选一条并扣留、轮结束才发布（每轮最多一条），挑选取「距上次展示最久」者，历史持久化到 `~/.cc-code/spinner-tips.json`；新增 `spinner_tips_enabled` 与 `spinner_tips_override` 自定义配置。另：MCP 协议库 rmcp 升级至 3.5.1，适配 3.x 数据模型与接口。
+v0.6.141：**Spinner tips 调度对齐参考实现**——tips 改为带会话冷却的调度模型：每轮开始挑选一条并扣留、轮结束才发布（每轮最多一条），挑选取「距上次展示最久」者，历史持久化到 `~/.cc-code/spinner-tips.json`；新增 `spinner_tips_enabled` 与 `spinner_tips_override` 自定义配置。另：MCP 协议库 rmcp 升级至 3.5.1，适配 3.x 数据模型与接口。
 
-v0.6.140：**`/theme` 主题命令**——7 套可切换配色（现行配色为 `default`，其余 6 套与 Claude Code 逐值一致），选择面板实时预览、持久化恢复；同时 **Spinner 变色对齐 Claude Code**：动词改走成对流光（底色 + 流光色，±1 列窄带扫过），新增停滞超 10 秒平滑转红，删除自研的「时间热度四档」。
+v0.6.140：**`/theme` 主题命令**——7 套可切换配色（现行配色为 `default`，其余 6 套与参考实现逐值一致），选择面板实时预览、持久化恢复；同时 **Spinner 变色对齐参考实现**：动词改走成对流光（底色 + 流光色，±1 列窄带扫过），新增停滞超 10 秒平滑转红，删除自研的「时间热度四档」。
 
-v0.6.139：**自动记忆系统（Auto-Memory）落地**——模型可跨会话记住项目事实：纯文件架构、零专有工具，模型用 `Write`/`Edit` 直接维护 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行 / ≤25KB），与 `~/.claude/projects/`、`~/.cc-code/projects/` 既有记忆资产双向兼容；安全门为记忆路径设豁免，会话创建时冻结索引以保障 Prompt Cache 稳定。同版还有：主 Agent 可用 `Agent(action="stop", task_id=…)` 精确取消后台子 Agent（停止行区分 `by user` / `by main Agent`、等待计数行实时递减）；系统提示词静态段落对齐 CC 行为约束（Scope discipline、授权与影响判定、结果诚实性）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+v0.6.139：**自动记忆系统（Auto-Memory）落地**——模型可跨会话记住项目事实：纯文件架构、零专有工具，模型用 `Write`/`Edit` 直接维护 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行 / ≤25KB），与 `~/.claude/projects/`、`~/.cc-code/projects/` 既有记忆资产双向兼容；安全门为记忆路径设豁免，会话创建时冻结索引以保障 Prompt Cache 稳定。同版还有：主 Agent 可用 `Agent(action="stop", task_id=…)` 精确取消后台子 Agent（停止行区分 `by user` / `by main Agent`、等待计数行实时递减）；系统提示词静态段落对齐参考实现的行为约束（Scope discipline、授权与影响判定、结果诚实性）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
-v0.6.138：核心工具描述对齐 Claude Code 官方措辞。① Bash/WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`；内容检索用 `Grep` NOT `grep`/`rg`；写用 `Write` NOT `echo>` 等），WebFetch 补「仅远程 http(s)，无点主机名不支持」边界；② 补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句（Grep 禁用 `grep`/`rg`、Read 不能列目录、TodoWrite 单一进行项、AskUserQuestion 决策边界）；③ **`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建。另修复 ReAct 纠正提示（连续失败/Schema 熔断/动作循环）此前以 System 消息注入、被适配器抽到请求顶层导致**模型看不见、导出也丢**，现并入所属 ToolResult 正文（#495）；`-p --output-format stream-json` 的 `tool_use` 事件补齐真实 `input` 参数（此前恒为 `null`）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+v0.6.138：核心工具描述对齐参考实现措辞。① Bash/WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`；内容检索用 `Grep` NOT `grep`/`rg`；写用 `Write` NOT `echo>` 等），WebFetch 补「仅远程 http(s)，无点主机名不支持」边界；② 补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句（Grep 禁用 `grep`/`rg`、Read 不能列目录、TodoWrite 单一进行项、AskUserQuestion 决策边界）；③ **`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建。另修复 ReAct 纠正提示（连续失败/Schema 熔断/动作循环）此前以 System 消息注入、被适配器抽到请求顶层导致**模型看不见、导出也丢**，现并入所属 ToolResult 正文（#495）；`-p --output-format stream-json` 的 `tool_use` 事件补齐真实 `input` 参数（此前恒为 `null`）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.137：修复后台 shell 完成通知的**多轮级联唤醒**。通过 `Bash(run_in_background=true)` 启动的任务完成后会唤醒 agent，但旧逻辑在一轮内积压多条通知时每次 `Done` 只消费 1 条，导致 n 条通知触发 n 轮 turn（每轮再触发下一条），表现为连续无意义的「收到」。现按批次**合并注入**：空闲态把本批 + 队列中同会话待注入通知一次性 drain 拼接为**单条消息**（n 条压成 1 轮 turn），推理中统一入队、`Done` 后合并；合并仅在消息层拼接、保留每条通知 XML，信息不丢失（#491）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
@@ -114,7 +124,7 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |
 | `Alt+V` / `Ctrl+V` | 从剪贴板粘贴图片附件（`Alt+V` 专用于穿透 Windows Terminal 等现代终端对 `Ctrl+V` 的拦截） |
 | `Ctrl+O` | 切换详细模式（Verbose） |
-| `Ctrl+U` / `Ctrl+D` | 消息列表快速半页滚动（输入框为空时） |
+| `PageUp` / `PageDown` | 消息列表半页滚动（输入框为空时） |
 | `Ctrl+C` | 中断执行（执行中）/ 双击退出（空闲时） |
 
 ## 常用 Slash 命令
@@ -138,7 +148,7 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | 运行时 | Node.js / Bun，动辄吃 1GB 内存 | Rust 原生，启动快，~50MB 内存 |
 | 模型绑定 | 锁死一家 LLM | 随便换：Anthropic、OpenAI 兼容、DeepSeek、GLM |
 | Prompt 缓存 | 每轮重算，token 白烧 | 冻结 system prompt，95-99% 缓存命中率 |
-| Claude Code 生态 | 不兼容 | 直接用 `.claude/` 配置、agents、skills、hooks、MCP |
+| 参考实现生态 | 不兼容 | 直接用 `.claude/` 配置、agents、skills、hooks、MCP |
 
 ## 链接
 

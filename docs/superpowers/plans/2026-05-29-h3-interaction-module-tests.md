@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 `peri-agent/src/interaction/` 模块添加完整的单元测试覆盖，包括 ChannelBroker、MultiplexBroker 和 ChannelState。
+**Goal:** 为 `cc-agent/src/interaction/` 模块添加完整的单元测试覆盖，包括 ChannelBroker、MultiplexBroker 和 ChannelState。
 
 **Architecture:** 新建 `interaction/channel_broker_test.rs` 和 `interaction/multiplex_test.rs` 测试文件。使用 MockBroker 和 MockNotificationSender 验证权限审批流程、超时、竞速等行为。
 
@@ -14,23 +14,23 @@
 
 | 操作 | 文件路径 | 职责 |
 |------|----------|------|
-| 创建 | `peri-agent/src/interaction/channel_broker_test.rs` | ChannelBroker + ChannelState 测试 |
-| 创建 | `peri-agent/src/interaction/multiplex_test.rs` | MultiplexBroker 测试 |
-| 参考 | `peri-agent/src/interaction/mod.rs` | trait 定义、InteractionContext |
-| 参考 | `peri-agent/src/interaction/channel_broker.rs` | ChannelBroker 实现 |
-| 参考 | `peri-agent/src/interaction/multiplex.rs` | MultiplexBroker 实现 |
-| 参考 | `peri-agent/src/interaction/channel_state.rs` | ChannelState 实现 |
+| 创建 | `cc-agent/src/interaction/channel_broker_test.rs` | ChannelBroker + ChannelState 测试 |
+| 创建 | `cc-agent/src/interaction/multiplex_test.rs` | MultiplexBroker 测试 |
+| 参考 | `cc-agent/src/interaction/mod.rs` | trait 定义、InteractionContext |
+| 参考 | `cc-agent/src/interaction/channel_broker.rs` | ChannelBroker 实现 |
+| 参考 | `cc-agent/src/interaction/multiplex.rs` | MultiplexBroker 实现 |
+| 参考 | `cc-agent/src/interaction/channel_state.rs` | ChannelState 实现 |
 
 ---
 
 ### Task 1: 添加 ChannelState 单元测试
 
 **Files:**
-- Create: `peri-agent/src/interaction/channel_broker_test.rs`
+- Create: `cc-agent/src/interaction/channel_broker_test.rs`
 
 - [ ] **Step 1: 读取 channel_state.rs 确认所有公开方法签名**
 
-Read `peri-agent/src/interaction/channel_state.rs` 确认 `authorize`、`revoke`、`close_all`、`register_session`、`unregister_session` 的精确签名。
+Read `cc-agent/src/interaction/channel_state.rs` 确认 `authorize`、`revoke`、`close_all`、`register_session`、`unregister_session` 的精确签名。
 
 - [ ] **Step 2: 创建 channel_broker_test.rs，包含 ChannelState 测试**
 
@@ -110,17 +110,17 @@ fn test_channel_state_unregister_不存在的session无异常() {
 
 - [ ] **Step 3: 确保 mod.rs 中声明了测试模块**
 
-检查 `peri-agent/src/interaction/mod.rs` 中是否已有 `#[cfg(test)] mod channel_broker_test;`。如果没有，需要添加。
+检查 `cc-agent/src/interaction/mod.rs` 中是否已有 `#[cfg(test)] mod channel_broker_test;`。如果没有，需要添加。
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cargo test -p peri-agent --lib -- interaction::channel_broker_test`
+Run: `cargo test -p cc-agent --lib -- interaction::channel_broker_test`
 Expected: ALL PASS
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add peri-agent/src/interaction/channel_broker_test.rs peri-agent/src/interaction/mod.rs
+git add cc-agent/src/interaction/channel_broker_test.rs cc-agent/src/interaction/mod.rs
 git commit -m "test: add ChannelState unit tests (authorize/revoke/close_all/session)"
 ```
 
@@ -129,11 +129,11 @@ git commit -m "test: add ChannelState unit tests (authorize/revoke/close_all/ses
 ### Task 2: 添加 ChannelBroker 单元测试
 
 **Files:**
-- Modify: `peri-agent/src/interaction/channel_broker_test.rs`
+- Modify: `cc-agent/src/interaction/channel_broker_test.rs`
 
 - [ ] **Step 1: 读取 channel_broker.rs 确认 request() 行为**
 
-Read `peri-agent/src/interaction/channel_broker.rs` 确认：
+Read `cc-agent/src/interaction/channel_broker.rs` 确认：
 - 无授权 server 时的返回值
 - 超时逻辑
 - 通知发送流程
@@ -238,13 +238,13 @@ async fn test_channel_broker_有授权server发送通知() {
 
 - [ ] **Step 3: 运行测试验证通过**
 
-Run: `cargo test -p peri-agent --lib -- interaction::channel_broker_test::test_channel_broker`
+Run: `cargo test -p cc-agent --lib -- interaction::channel_broker_test::test_channel_broker`
 Expected: ALL PASS（超时测试可能需要调整）
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add peri-agent/src/interaction/channel_broker_test.rs
+git add cc-agent/src/interaction/channel_broker_test.rs
 git commit -m "test: add ChannelBroker unit tests (no auth server, notification sending)"
 ```
 
@@ -253,11 +253,11 @@ git commit -m "test: add ChannelBroker unit tests (no auth server, notification 
 ### Task 3: 添加 MultiplexBroker 单元测试
 
 **Files:**
-- Create: `peri-agent/src/interaction/multiplex_test.rs`
+- Create: `cc-agent/src/interaction/multiplex_test.rs`
 
 - [ ] **Step 1: 读取 multiplex.rs 确认竞速逻辑**
 
-Read `peri-agent/src/interaction/multiplex.rs` 确认：
+Read `cc-agent/src/interaction/multiplex.rs` 确认：
 - 空 broker 列表的返回值
 - 单 broker 的快速路径
 - 多 broker 竞速的首响应胜出逻辑
@@ -340,17 +340,17 @@ async fn test_multiplex_空broker列表返回空decisions() {
 
 - [ ] **Step 3: 确保 mod.rs 中声明了 multiplex_test 模块**
 
-检查 `peri-agent/src/interaction/mod.rs` 中是否已有 `#[cfg(test)] mod multiplex_test;`。如果没有，需要添加。
+检查 `cc-agent/src/interaction/mod.rs` 中是否已有 `#[cfg(test)] mod multiplex_test;`。如果没有，需要添加。
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cargo test -p peri-agent --lib -- interaction::multiplex_test`
+Run: `cargo test -p cc-agent --lib -- interaction::multiplex_test`
 Expected: ALL PASS
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add peri-agent/src/interaction/multiplex_test.rs peri-agent/src/interaction/mod.rs
+git add cc-agent/src/interaction/multiplex_test.rs cc-agent/src/interaction/mod.rs
 git commit -m "test: add MultiplexBroker unit tests (empty brokers)"
 ```
 
@@ -358,12 +358,12 @@ git commit -m "test: add MultiplexBroker unit tests (empty brokers)"
 
 ### Task 4: 运行全量测试确认无回归
 
-- [ ] **Step 1: 运行 peri-agent 全量测试**
+- [ ] **Step 1: 运行 cc-agent 全量测试**
 
-Run: `cargo test -p peri-agent --lib`
+Run: `cargo test -p cc-agent --lib`
 Expected: ALL PASS
 
-- [ ] **Step 2: 运行 peri-acp 全量测试**
+- [ ] **Step 2: 运行 cc-acp 全量测试**
 
-Run: `cargo test -p peri-acp --lib`
+Run: `cargo test -p cc-acp --lib`
 Expected: ALL PASS

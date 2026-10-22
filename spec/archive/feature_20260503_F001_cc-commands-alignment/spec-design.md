@@ -2,7 +2,7 @@
 
 ## 需求背景
 
-Peri TUI 当前有 10 个内置命令（`/help`、`/model`、`/login`、`/clear`、`/compact`、`/history`、`/agents`、`/loop`、`/cron`、`/mcp`），而 Claude Code 有 70+ 命令。用户期望对齐 Claude Code 的核心高频命令集，优先覆盖配置/设置类和会话/状态查询类。
+Peri TUI 当前有 10 个内置命令（`/help`、`/model`、`/login`、`/clear`、`/compact`、`/history`、`/agents`、`/loop`、`/cron`、`/mcp`），而 参考实现 有 70+ 命令。用户期望对齐 参考实现 的核心高频命令集，优先覆盖配置/设置类和会话/状态查询类。
 
 ## 目标
 

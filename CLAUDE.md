@@ -16,7 +16,7 @@ Rust Agent 框架，7 个 Workspace Crate。
 
 `rmcp` crate（v3.5）直接引用，不再需要本地 patch。
 
-**其他目录**：`scripts/`（启动脚本）、`side-projects/`（实验性项目）。
+**其他目录**：`scripts/`（启动与安装脚本）。
 
 ## 依赖关系
 
@@ -117,7 +117,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 - TUI 路径：TUI 输入 → AcpTuiClient → MpscTransport → ACP Server → executor → ExecutorEvent → TransportEventSink → TUI UI 更新
 - Stdio 路径：SDK → executor + StdioEventSink → stdout JSON-RPC
 
-Stdio 和 TUI 路径共享 `executor::execute_prompt()`。Stdio 当前支持：`session/new`、`session/prompt`、`session/cancel`、`session/set_config_option`。新增 ACP 方法时必须检查两条路径是否都需要实现。
+Stdio 和 TUI 路径共享 `executor::execute_prompt()`。Stdio 当前支持：`initialize`、`session/new`、`session/list`、`session/prompt`、`session/set_mode`、`session/set_model`、`session/set_config_option`、`session/cancel`、`session/close`、`session/resume`、`session/load`、`session/fork`，以及自定义扩展 `session/update_config`（`cc-tui/src/acp_stdio.rs`）。新增 ACP 方法时必须检查两条路径是否都需要实现。
 
 **[TRAP]** Stdio `initialize` 响应必须声明 session capabilities（与 TUI 路径的 `AcpServerConfig` 对齐）。
 
@@ -153,7 +153,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 
 **[TRAP]** 用户输入的「是命令还是消息、归谁执行」只允许在 `CommandSystem::resolve` 一处判定（`cc-tui/src/app/command_system.rs`）：`CommandRegistry::find` 供判定、`dispatch` 复用同一份匹配规则执行，避免判定与执行漂移。空闲派发走 `App::route_slash_input`，运行中（`loading`）走 `App::handle_busy_input` —— **禁止在 Enter 分支里手写「是否命令」的判断**：文本一旦入队就丢失身份，出队时会被重新当成普通消息发给模型。命令能否在运行中延后由 `Command::blocked_while_busy` 声明（默认 `true` = 需要空闲 UI；仅 `execute` 只做 `submit_message` 转发的命令返回 `false`），`cc-tui/src/command/mod_test.rs` 有白名单回归测试锁死该分类。
 
-**[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵。`build_agent()` 每轮重建的大对象已通过 `AgentPool` session 级缓存复用。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
+**[TRAP]** Agent 构建和执行统一通过 `cc_acp::session::executor::execute_prompt()`。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵。`build_agent()` 每轮重建的大对象已通过 `AgentPool` session 级缓存复用。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
 
 **[TRAP]** TUI 层数据必须通过 ACP 协议到达 ACP 层，禁止直连。（详见 spec/global/domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history）
 
@@ -207,7 +207,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 
 ## CLI 参数
 
-对齐 Claude Code 核心参数体系。所有 camelCase 参数同时支持 kebab-case 别名。clap 4 derive 解析。
+对齐参考实现的核心参数体系。所有 camelCase 参数同时支持 kebab-case 别名。clap 4 derive 解析。
 
 **参数列表**：
 
@@ -232,7 +232,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 | `-a/--approve` | 启用语义门审批（等同 `--permission-mode auto`） | TUI |
 | `-y/--yolo` | 免审批模式（YOLO）。**默认不开** —— 不传此参且未设 `YOLO_MODE` 时走 Auto（语义门/审批） | TUI |
 
-**子命令**：`plugin list [--json]` / `plugin install <name@marketplace> [--scope user/project/local]` / `plugin uninstall <id>`。`acp`/`update`/`sync` 子命令保持不变。
+**子命令**：`plugin list [--json]` / `plugin install <name@marketplace> [--scope user/project/local]` / `plugin uninstall <id>`；另有 `acp`、`update` 子命令（`cc-tui/src/main.rs` 的 `Commands` 枚举）。
 
 **`-p` 模式架构**：复用 ACP executor，通过 `PrintEventSink` 收集事件并输出。不启动 TUI、不维持 session。`PrintBroker` 自动批准所有交互。
 

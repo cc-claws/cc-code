@@ -1,6 +1,6 @@
-# 插件系统兼容 Claude Code Marketplace 执行计划（一）
+# 插件系统兼容 参考实现 Marketplace 执行计划（一）
 
-**目标:** 在 peri-middlewares/src/plugin/ 下实现兼容 Claude Code 的插件核心基础设施——类型定义、配置读写、marketplace 发现与缓存、插件安装管理、插件加载器与中间件。
+**目标:** 在 peri-middlewares/src/plugin/ 下实现兼容 参考实现 的插件核心基础设施——类型定义、配置读写、marketplace 发现与缓存、插件安装管理、插件加载器与中间件。
 
 **技术栈:** Rust, serde/serde_json, tokio (async), reqwest (HTTP), git CLI, tracing
 
@@ -47,7 +47,7 @@
 ### Task 1: 插件核心类型与模块引导
 
 **背景:**
-[业务语境] 本 Task 建立插件系统的数据模型层——定义兼容 Claude Code `plugin.json` 的清单类型、marketplace 类型、安装追踪类型，以及 `~/.claude/` 目录下的配置读写函数。这是整个插件链路（发现→安装→加载→集成）的数据基础。
+[业务语境] 本 Task 建立插件系统的数据模型层——定义兼容 参考实现 `plugin.json` 的清单类型、marketplace 类型、安装追踪类型，以及 `~/.claude/` 目录下的配置读写函数。这是整个插件链路（发现→安装→加载→集成）的数据基础。
 [修改原因] 当前代码中不存在任何插件相关类型和模块，需要从零创建。现有 `mcp/` 模块（`src/mcp/config.rs`）已提供可复用的 `McpServerConfig` 类型，插件清单的 `mcpServers` 字段直接引用它。
 [上下游影响] 本 Task 的输出（`types.rs` 中的所有类型、`config.rs` 中的路径函数）被 Task 2（marketplace 发现）、Task 3（安装管理）、Task 4（加载器与中间件）全部依赖。本 Task 无前置依赖。
 
@@ -126,9 +126,9 @@
         pub default: Option<serde_json::Value>,
     }
     ```
-  - 定义 `PluginManifest` 结构体——核心清单类型，所有字段除 `name`/`version` 外均 Option，兼容 Claude Code `plugin.json` 格式：
+  - 定义 `PluginManifest` 结构体——核心清单类型，所有字段除 `name`/`version` 外均 Option，兼容 参考实现 `plugin.json` 格式：
     ```rust
-    /// 兼容 Claude Code 的插件清单
+    /// 兼容 参考实现 的插件清单
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct PluginManifest {
         pub name: String,
@@ -248,7 +248,7 @@
         pub last_updated: Option<String>,
     }
     ```
-  - 原因: 所有后续 Task 的数据模型均来自此文件，必须与 Claude Code 的 `schemas.ts` 类型定义保持字段级兼容
+  - 原因: 所有后续 Task 的数据模型均来自此文件，必须与 参考实现 的 `schemas.ts` 类型定义保持字段级兼容
 
 - [x] 编写配置读写模块 `config.rs`
   - 位置: `peri-middlewares/src/plugin/config.rs`（新建文件）
@@ -463,7 +463,7 @@
 
 **背景:**
 [业务语境] — 实现从多种来源（GitHub/URL/本地/NPM）拉取 marketplace.json 并缓存到 `~/.claude/plugins/marketplaces/`，支持后台异步刷新，为 TUI 面板和插件安装器提供可用插件列表。
-[修改原因] — 当前系统无 marketplace 发现能力，用户无法浏览和安装 Claude Code 生态的插件。Task 1 已定义了 `MarketplaceSource`、`MarketplaceManifest`、`KnownMarketplace` 等类型和 `marketplaces_cache_dir()` 路径函数，但缺少实际的拉取、解析和缓存逻辑。
+[修改原因] — 当前系统无 marketplace 发现能力，用户无法浏览和安装 参考实现 生态的插件。Task 1 已定义了 `MarketplaceSource`、`MarketplaceManifest`、`KnownMarketplace` 等类型和 `marketplaces_cache_dir()` 路径函数，但缺少实际的拉取、解析和缓存逻辑。
 [上下游影响] — 本 Task 输出的 `marketplace.rs` 被 Task 3（installer.rs，安装时从 marketplace manifest 查找插件 source 路径）和 Task 6（TUI PluginPanel，展示可用插件列表）依赖。本 Task 依赖 Task 1 的 `types.rs`（MarketplaceSource、MarketplaceManifest、KnownMarketplace）和 `config.rs`（路径函数、ClaudeSettings）。
 
 **涉及文件:**
@@ -907,7 +907,7 @@
     - 如果 `enabledPlugins` 字段不存在则初始化为空数组 `serde_json::Value::Array(vec![])`
     - 使用 `atomic_write_json` 模式写入: 先写 `{path}.tmp.{uuid}` 临时文件，再 `std::fs::rename` 替换原文件
     - 写入前确保父目录存在: `std::fs::create_dir_all(path.parent().unwrap())`
-  - 原因: settings.json 是 Claude Code 的配置入口，enabledPlugins 字段控制哪些插件被启用，必须原子写入避免损坏
+  - 原因: settings.json 是 参考实现 的配置入口，enabledPlugins 字段控制哪些插件被启用，必须原子写入避免损坏
 
 - [x] 实现 `copy_dir_recursive` 目录递归复制辅助函数
   - 位置: `peri-middlewares/src/plugin/installer.rs`，在辅助函数区域
@@ -1378,7 +1378,7 @@
 2. 验证 plugin.json 清单解析兼容性
    - `cargo test -p peri-middlewares --lib -- plugin::types::tests 2>&1 | tail -15`
    - 预期: 9 个序列化/反序列化测试全部通过
-   - 失败排查: 检查 Task 1 types.rs 的 serde 属性是否与 Claude Code schemas.ts 字段名一致
+   - 失败排查: 检查 Task 1 types.rs 的 serde 属性是否与 参考实现 schemas.ts 字段名一致
 
 3. 验证 marketplace 拉取和缓存
    - `cargo test -p peri-middlewares --lib -- plugin::marketplace 2>&1 | tail -15`

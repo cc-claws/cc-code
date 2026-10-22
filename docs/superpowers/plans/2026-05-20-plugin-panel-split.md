@@ -14,7 +14,7 @@
 
 **Create:**
 ```
-peri-tui/src/ui/main_ui/panels/plugin_render/
+cc-tui/src/ui/main_ui/panels/plugin_render/
 ├── mod.rs          (~60 lines:  re-exports + detail_kv_line + truncate_display)
 ├── list.rs         (~420 lines: render_list)
 ├── detail.rs       (~170 lines: render_detail)
@@ -23,7 +23,7 @@ peri-tui/src/ui/main_ui/panels/plugin_render/
 ├── discover_list.rs  (~235 lines: render_discover_list)
 └── add_marketplace.rs (~110 lines: render_add_marketplace)
 
-peri-tui/src/app/plugin_panel/plugin_handlers/
+cc-tui/src/app/plugin_panel/plugin_handlers/
 ├── mod.rs           (~20 lines: re-exports)
 ├── delete.rs        (~130 lines: handle_confirm_delete + handle_marketplace_confirm_delete)
 ├── discover_search.rs (~95 lines: handle_discover_searching)
@@ -37,24 +37,24 @@ peri-tui/src/app/plugin_panel/plugin_handlers/
 ```
 
 **Modify:**
-- `peri-tui/src/ui/main_ui/panels/plugin.rs` → 缩减为仅 re-export（~15 lines）
-- `peri-tui/src/app/plugin_panel/handlers.rs` → 缩减为仅 re-export（~17 lines）
-- `peri-tui/src/app/plugin_panel/mod.rs` → 移出 handlers 中的 helper 方法，更新 imports（-400 lines → ~410 lines）
+- `cc-tui/src/ui/main_ui/panels/plugin.rs` → 缩减为仅 re-export（~15 lines）
+- `cc-tui/src/app/plugin_panel/handlers.rs` → 缩减为仅 re-export（~17 lines）
+- `cc-tui/src/app/plugin_panel/mod.rs` → 移出 handlers 中的 helper 方法，更新 imports（-400 lines → ~410 lines）
 
 ---
 
 ### Task 1: 拆分 panels/plugin.rs — list.rs + detail.rs
 
 **Files:**
-- Create: `peri-tui/src/ui/main_ui/panels/plugin_render/mod.rs`
-- Create: `peri-tui/src/ui/main_ui/panels/plugin_render/list.rs`
-- Create: `peri-tui/src/ui/main_ui/panels/plugin_render/detail.rs`
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin.rs`
+- Create: `cc-tui/src/ui/main_ui/panels/plugin_render/mod.rs`
+- Create: `cc-tui/src/ui/main_ui/panels/plugin_render/list.rs`
+- Create: `cc-tui/src/ui/main_ui/panels/plugin_render/detail.rs`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin.rs`
 
 - [ ] **Step 1: 创建 plugin_render/mod.rs — 占位 re-export**
 
 ```rust
-// peri-tui/src/ui/main_ui/panels/plugin_render/mod.rs
+// cc-tui/src/ui/main_ui/panels/plugin_render/mod.rs
 pub mod list;
 pub mod detail;
 
@@ -83,10 +83,10 @@ pub(crate) fn truncate_display(s: &str, max_width: usize) -> String {
 
 - [ ] **Step 2: 创建 plugin_render/list.rs — 复制 render_list (lines 48-463)**
 
-Read `peri-tui/src/ui/main_ui/panels/plugin.rs` lines 48-463, extract `fn render_list` and its complete body. This function handles Installed/Enabled/Disabled list views. Write it to `plugin_render/list.rs` with proper imports:
+Read `cc-tui/src/ui/main_ui/panels/plugin.rs` lines 48-463, extract `fn render_list` and its complete body. This function handles Installed/Enabled/Disabled list views. Write it to `plugin_render/list.rs` with proper imports:
 
 ```rust
-// peri-tui/src/ui/main_ui/panels/plugin_render/list.rs
+// cc-tui/src/ui/main_ui/panels/plugin_render/list.rs
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -94,7 +94,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use peri_widgets::{BorderedPanel, ScrollState, ScrollableArea};
+use cc_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 use crate::app::plugin_panel::{PluginPanel, PluginPanelView};
 use crate::app::App;
 use crate::ui::theme;
@@ -109,7 +109,7 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
 - [ ] **Step 3: 创建 plugin_render/detail.rs — 复制 render_detail (lines 464-636)**
 
 ```rust
-// peri-tui/src/ui/main_ui/panels/plugin_render/detail.rs
+// cc-tui/src/ui/main_ui/panels/plugin_render/detail.rs
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -117,7 +117,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use peri_widgets::{BorderedPanel, ScrollableArea};
+use cc_widgets::{BorderedPanel, ScrollableArea};
 use crate::app::plugin_panel::PluginPanel;
 use crate::app::App;
 use crate::ui::theme;
@@ -134,7 +134,7 @@ pub(crate) fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, a
 将 `plugin.rs` 中的 `render_list` 和 `render_detail` 函数体替换为对 `plugin_render` 的转发：
 
 ```rust
-// peri-tui/src/ui/main_ui/panels/plugin.rs
+// cc-tui/src/ui/main_ui/panels/plugin.rs
 // (保留顶部 import，删除 render_list 和 render_detail 函数)
 
 mod plugin_render;
@@ -152,14 +152,14 @@ use plugin_render::{list, detail};
 - [ ] **Step 5: Build and verify**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 Expected: Build succeeds, zero errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/panels/plugin_render/ peri-tui/src/ui/main_ui/panels/plugin.rs
+git add cc-tui/src/ui/main_ui/panels/plugin_render/ cc-tui/src/ui/main_ui/panels/plugin.rs
 git commit -m "refactor(plugin): extract render_list + render_detail to plugin_render/
 
 Split panels/plugin.rs — moves list and detail render functions to
@@ -171,17 +171,17 @@ plugin_render/{list, detail}.rs. panel/plugin.rs reduced from ~1167 to ~750 line
 ### Task 2: 拆分 panels/plugin.rs — discover 子页面 + add_marketplace
 
 **Files:**
-- Create: `peri-tui/src/ui/main_ui/panels/plugin_render/discover_detail.rs`
-- Create: `peri-tui/src/ui/main_ui/panels/plugin_render/discover_search.rs`
-- Create: `peri-tui/src/ui/main_ui/panels/plugin_render/discover_list.rs`
-- Create: `peri-tui/src/ui/main_ui/panels/plugin_render/add_marketplace.rs`
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin_render/mod.rs`
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin.rs`
+- Create: `cc-tui/src/ui/main_ui/panels/plugin_render/discover_detail.rs`
+- Create: `cc-tui/src/ui/main_ui/panels/plugin_render/discover_search.rs`
+- Create: `cc-tui/src/ui/main_ui/panels/plugin_render/discover_list.rs`
+- Create: `cc-tui/src/ui/main_ui/panels/plugin_render/add_marketplace.rs`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin_render/mod.rs`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin.rs`
 
 - [ ] **Step 1: 创建 discover_detail.rs — 复制 render_discover_detail (lines 637-770)**
 
 ```rust
-// peri-tui/src/ui/main_ui/panels/plugin_render/discover_detail.rs
+// cc-tui/src/ui/main_ui/panels/plugin_render/discover_detail.rs
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -189,7 +189,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use peri_widgets::{BorderedPanel, ScrollableArea};
+use cc_widgets::{BorderedPanel, ScrollableArea};
 use crate::app::plugin_panel::{DiscoverDetailAction, PluginPanel};
 use crate::app::App;
 use crate::ui::theme;
@@ -250,14 +250,14 @@ pub fn render_plugin_panel(f: &mut Frame, panel: &PluginPanel, app: &mut App, ar
 - [ ] **Step 7: Build and verify**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 Expected: Build succeeds.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/panels/plugin_render/ peri-tui/src/ui/main_ui/panels/plugin.rs
+git add cc-tui/src/ui/main_ui/panels/plugin_render/ cc-tui/src/ui/main_ui/panels/plugin.rs
 git commit -m "refactor(plugin): extract remaining render functions to plugin_render/
 
 Finalizes panels/plugin.rs split — discover/search/marketplace render
@@ -270,18 +270,18 @@ panels/plugin.rs: 1167 → ~15 lines."
 ### Task 3: 拆分 plugin_panel/handlers.rs — delete + discover
 
 **Files:**
-- Create: `peri-tui/src/app/plugin_panel/plugin_handlers/mod.rs`
-- Create: `peri-tui/src/app/plugin_panel/plugin_handlers/delete.rs`
-- Create: `peri-tui/src/app/plugin_panel/plugin_handlers/discover_search.rs`
-- Create: `peri-tui/src/app/plugin_panel/plugin_handlers/discover_detail.rs`
-- Create: `peri-tui/src/app/plugin_panel/plugin_handlers/discover_list.rs`
-- Modify: `peri-tui/src/app/plugin_panel/handlers.rs`
-- Modify: `peri-tui/src/app/plugin_panel/mod.rs`
+- Create: `cc-tui/src/app/plugin_panel/plugin_handlers/mod.rs`
+- Create: `cc-tui/src/app/plugin_panel/plugin_handlers/delete.rs`
+- Create: `cc-tui/src/app/plugin_panel/plugin_handlers/discover_search.rs`
+- Create: `cc-tui/src/app/plugin_panel/plugin_handlers/discover_detail.rs`
+- Create: `cc-tui/src/app/plugin_panel/plugin_handlers/discover_list.rs`
+- Modify: `cc-tui/src/app/plugin_panel/handlers.rs`
+- Modify: `cc-tui/src/app/plugin_panel/mod.rs`
 
 - [ ] **Step 1: 创建 plugin_handlers/mod.rs**
 
 ```rust
-// peri-tui/src/app/plugin_panel/plugin_handlers/mod.rs
+// cc-tui/src/app/plugin_panel/plugin_handlers/mod.rs
 pub mod delete;
 pub mod discover_search;
 pub mod discover_detail;
@@ -291,9 +291,9 @@ pub mod discover_list;
 - [ ] **Step 2: 创建 delete.rs — 复制 handle_confirm_delete (lines 12-67) + handle_marketplace_confirm_delete (lines 539-575)**
 
 ```rust
-// peri-tui/src/app/plugin_panel/plugin_handlers/delete.rs
+// cc-tui/src/app/plugin_panel/plugin_handlers/delete.rs
 use tui_textarea::{Input, Key};
-use peri_middlewares::plugin::InstallScope;
+use cc_middlewares::plugin::InstallScope;
 use super::super::super::panel_manager::{EventResult, PanelContext};
 use super::super::types::*;
 use super::super::PluginPanel;
@@ -326,7 +326,7 @@ impl PluginPanel {
 - [ ] **Step 6: 更新 handlers.rs — 替换为 re-export，删除 relocated impl blocks**
 
 ```rust
-// peri-tui/src/app/plugin_panel/handlers.rs
+// cc-tui/src/app/plugin_panel/handlers.rs
 // — after handlers became a directory, this becomes the mod.rs entry
 // Replace all content with:
 pub mod plugin_handlers;
@@ -372,21 +372,21 @@ Let me restructure the plan. We should do directory conversion first.
 - [ ] **Step 1a: Convert handlers.rs to handlers/ directory**
 
 ```bash
-mkdir peri-tui/src/app/plugin_panel/handlers
-mv peri-tui/src/app/plugin_panel/handlers.rs peri-tui/src/app/plugin_panel/handlers/mod.rs
+mkdir cc-tui/src/app/plugin_panel/handlers
+mv cc-tui/src/app/plugin_panel/handlers.rs cc-tui/src/app/plugin_panel/handlers/mod.rs
 ```
 
 - [ ] **Step 1b: Verify build**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 Rust module system auto-discovers `handlers/mod.rs` when `mod handlers;` is declared. Build should succeed with zero changes.
 
 - [ ] **Step 2: Create plugin_handlers/ sub-directory with first batch**
 
 ```bash
-mkdir peri-tui/src/app/plugin_panel/handlers/plugin_handlers
+mkdir cc-tui/src/app/plugin_panel/handlers/plugin_handlers
 ```
 
 Create `handlers/plugin_handlers/mod.rs`:
@@ -404,14 +404,14 @@ Create each sub-file, extract the corresponding methods from `handlers/mod.rs`, 
 - [ ] **Step 3: Build and verify after each file creation**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/plugin_panel/handlers/
-git rm peri-tui/src/app/plugin_panel/handlers.rs
+git add cc-tui/src/app/plugin_panel/handlers/
+git rm cc-tui/src/app/plugin_panel/handlers.rs
 git commit -m "refactor(plugin): extract delete+discover handlers to plugin_handlers/
 
 Convert handlers.rs → handlers/ directory with plugin_handlers/ sub-directory.
@@ -424,13 +424,13 @@ discover search/detail/list handlers."
 ### Task 4: 拆分 handlers/plugin_handlers — installed + marketplace + persistence
 
 **Files:**
-- Create: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/installed_detail.rs`
-- Create: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/installed_list.rs`
-- Create: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs`
-- Create: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/install.rs`
-- Create: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/persistence.rs`
-- Modify: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/mod.rs`
-- Modify: `peri-tui/src/app/plugin_panel/handlers/mod.rs`
+- Create: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/installed_detail.rs`
+- Create: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/installed_list.rs`
+- Create: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs`
+- Create: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/install.rs`
+- Create: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/persistence.rs`
+- Modify: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/mod.rs`
+- Modify: `cc-tui/src/app/plugin_panel/handlers/mod.rs`
 
 - [ ] **Step 1: Create remaining handler files**
 
@@ -463,13 +463,13 @@ pub mod persistence;
 - [ ] **Step 3: Build and verify**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 - [ ] **Step 4: Final check — handlers/mod.rs line count**
 
 ```bash
-wc -l peri-tui/src/app/plugin_panel/handlers/mod.rs
+wc -l cc-tui/src/app/plugin_panel/handlers/mod.rs
 ```
 Expected: < 30 lines (just `pub mod plugin_handlers;` + declaration).
 
@@ -480,7 +480,7 @@ Check if `plugin_panel/mod.rs` has helper methods that belong in handler files. 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/plugin_panel/handlers/
+git add cc-tui/src/app/plugin_panel/handlers/
 git commit -m "refactor(plugin): extract installed/marketplace/install/persistence handlers
 
 Extract remaining handler methods from handlers/mod.rs to plugin_handlers/:
@@ -504,14 +504,14 @@ Expected: All crates compile clean.
 - [ ] **Step 2: Run tests**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -20
+cargo test -p cc-tui --lib 2>&1 | tail -20
 ```
 Expected: All tests pass (especially `plugin_panel_test`).
 
 - [ ] **Step 3: Run clippy**
 
 ```bash
-cargo clippy -p peri-tui -- -D warnings 2>&1
+cargo clippy -p cc-tui -- -D warnings 2>&1
 ```
 Expected: No new warnings.
 
@@ -525,13 +525,13 @@ cargo fmt --all
 
 ```bash
 echo "=== Plugin Panel final sizes ==="
-wc -l peri-tui/src/ui/main_ui/panels/plugin.rs
-wc -l peri-tui/src/app/plugin_panel/handlers/mod.rs
-wc -l peri-tui/src/app/plugin_panel/mod.rs
+wc -l cc-tui/src/ui/main_ui/panels/plugin.rs
+wc -l cc-tui/src/app/plugin_panel/handlers/mod.rs
+wc -l cc-tui/src/app/plugin_panel/mod.rs
 echo "--- plugin_render/ ---"
-wc -l peri-tui/src/ui/main_ui/panels/plugin_render/*.rs
+wc -l cc-tui/src/ui/main_ui/panels/plugin_render/*.rs
 echo "--- plugin_handlers/ ---"
-wc -l peri-tui/src/app/plugin_panel/handlers/plugin_handlers/*.rs
+wc -l cc-tui/src/app/plugin_panel/handlers/plugin_handlers/*.rs
 ```
 
 Expected: All files ≤ 500 lines, mod.rs files ≤ 500 lines.

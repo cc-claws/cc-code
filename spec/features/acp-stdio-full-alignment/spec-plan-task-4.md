@@ -22,7 +22,7 @@ pub use session_load::load_session_messages;
 
 - [ ] **Step 4.2**: 修改 `cc-tui/src/acp_server/requests.rs`
 
-**4.2a** — 在文件顶部 import 区域添加 `dispatch::load_session_messages` 和 `dispatch::fork_session` 的引用（注意该文件已有 `use peri_acp::dispatch;`，直接使用 `dispatch::` 前缀即可）：
+**4.2a** — 在文件顶部 import 区域添加 `dispatch::load_session_messages` 和 `dispatch::fork_session` 的引用（注意该文件已有 `use cc_acp::dispatch;`，直接使用 `dispatch::` 前缀即可）：
 
 ```
 // 无需新增 use 语句，dispatch:: 前缀已可用
@@ -127,7 +127,7 @@ let commands = build_available_commands(skills);
 ```
 替换为：
 ```rust
-let commands = peri_acp::dispatch::build_available_commands(skills);
+let commands = cc_acp::dispatch::build_available_commands(skills);
 ```
 
 **4.3b** — 删除 `build_available_commands()` 函数定义。移除不再需要的 import：`use agent_client_protocol::schema::AvailableCommand;`（确认该类型是否在其他地方使用后决定是否删除）。

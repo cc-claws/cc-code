@@ -2,7 +2,7 @@
 
 ## 需求背景
 
-当前框架的 `ask_user` 工具与 Claude Code 内置的 `AskUserQuestion` 工具在工具名称、入参结构和展示方式上存在较大差异，导致使用者在两个系统之间切换时体验割裂，也不利于 LLM 准确理解和使用该工具。本 feature 旨在将 `ask_user` 全面对齐 Claude 的 `AskUserQuestion`，实现工具名称、入参、数据结构、TUI/前端展示的一致性。
+当前框架的 `ask_user` 工具与 参考实现 内置的 `AskUserQuestion` 工具在工具名称、入参结构和展示方式上存在较大差异，导致使用者在两个系统之间切换时体验割裂，也不利于 LLM 准确理解和使用该工具。本 feature 旨在将 `ask_user` 全面对齐参考实现的 `AskUserQuestion`，实现工具名称、入参、数据结构、TUI/前端展示的一致性。
 
 ## 目标
 

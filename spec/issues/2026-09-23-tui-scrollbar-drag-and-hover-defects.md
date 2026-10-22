@@ -16,7 +16,7 @@
 **A. 代码事实（可独立验证，建议作为修复依据）**
 
 1. 点击轨道跳转与拖拽使用两套不同的换算分母（`bar_area.height - 1` vs `bar_area.height - thumb_area.height`）
-2. 消息区滚动条未设置 `viewport_content_length`（面板路径 `peri-widgets/src/scrollable.rs` 设置了）
+2. 消息区滚动条未设置 `viewport_content_length`（面板路径 `cc-widgets/src/scrollable.rs` 设置了）
 3. 渲染流程中存在 `if metrics.is_none() { dragging = false }`，即渲染函数修改事件状态
 
 **B. 影响推断（未在真实环境验证）**
@@ -59,12 +59,12 @@
 
 ## 涉及文件
 
-- `peri-tui/src/event/mod.rs` —— 滚动条命中判定、按下、拖拽的换算逻辑（`point_in_hit_bar` / `handle_message_scrollbar_down` / `handle_message_scrollbar_drag` / `message_scrollbar_offset_for_row`）
-- `peri-tui/src/ui/main_ui/message_area.rs` —— 消息区滚动条的渲染、`thumb_area` 反推、`dragging` 状态清理（`render_message_scrollbar` / `render_messages`）
-- `peri-tui/src/app/ui_state.rs` —— `MessageScrollbarMetrics` 与滚动条相关 UI 状态
-- `peri-tui/src/event/input_pump.rs` —— 输入泵的事件合并策略（只合并 `Moved`，不合并 `Drag`）
-- `peri-tui/src/event/mouse_batch.rs` —— 鼠标事件批处理（`MAX_MOUSE_BATCH`、连续 Drag 合并）
-- `peri-widgets/src/scrollable.rs` —— 统一的滚动条构造器与面板滚动条的对照组实现
+- `cc-tui/src/event/mod.rs` —— 滚动条命中判定、按下、拖拽的换算逻辑（`point_in_hit_bar` / `handle_message_scrollbar_down` / `handle_message_scrollbar_drag` / `message_scrollbar_offset_for_row`）
+- `cc-tui/src/ui/main_ui/message_area.rs` —— 消息区滚动条的渲染、`thumb_area` 反推、`dragging` 状态清理（`render_message_scrollbar` / `render_messages`）
+- `cc-tui/src/app/ui_state.rs` —— `MessageScrollbarMetrics` 与滚动条相关 UI 状态
+- `cc-tui/src/event/input_pump.rs` —— 输入泵的事件合并策略（只合并 `Moved`，不合并 `Drag`）
+- `cc-tui/src/event/mouse_batch.rs` —— 鼠标事件批处理（`MAX_MOUSE_BATCH`、连续 Drag 合并）
+- `cc-widgets/src/scrollable.rs` —— 统一的滚动条构造器与面板滚动条的对照组实现
 - 第三方：`ratatui-widgets-0.3.0/src/scrollbar.rs`（`part_lengths` / `viewport_length` 决定滑块几何）
 
 ## 代码定位与证据
@@ -73,8 +73,8 @@
 
 **E1. 两套换算分母不一致**
 
-- 点击轨道：`peri-tui/src/event/mod.rs:350-360`，分母 `bar_area.height - 1`
-- 拖拽：`peri-tui/src/event/mod.rs:332-345`，分母 `travel = bar_area.height - thumb_area.height`（`event/mod.rs:300-305` 捕获）
+- 点击轨道：`cc-tui/src/event/mod.rs:350-360`，分母 `bar_area.height - 1`
+- 拖拽：`cc-tui/src/event/mod.rs:332-345`，分母 `travel = bar_area.height - thumb_area.height`（`event/mod.rs:300-305` 捕获）
 - 两者仅在 `thumb_area.height == 1` 时相等。
 
 **E2. ratatui 滑块长度公式**
@@ -84,9 +84,9 @@
 
 **E3. 消息区路径未设置 `viewport_content_length`**
 
-- `peri-tui/src/ui/main_ui/message_area.rs:245`：`ScrollbarState::new(max_scroll + 1).position(offset)`，无 `.viewport_content_length(...)`
-- 对照组 `peri-widgets/src/scrollable.rs:162-168`（面板路径）：显式调用 `.viewport_content_length(viewport)`
-- 全仓库 `viewport_content_length` 仅出现在 `peri-widgets/src/scrollable.rs:167`
+- `cc-tui/src/ui/main_ui/message_area.rs:245`：`ScrollbarState::new(max_scroll + 1).position(offset)`，无 `.viewport_content_length(...)`
+- 对照组 `cc-widgets/src/scrollable.rs:162-168`（面板路径）：显式调用 `.viewport_content_length(viewport)`
+- 全仓库 `viewport_content_length` 仅出现在 `cc-widgets/src/scrollable.rs:167`
 
 **E4. 轨道高 30 时的实际数值**（按 E2 公式复算）
 
@@ -98,41 +98,41 @@
 
 **E5. 拖拽为「相对按下瞬间的增量」，无绝对对齐校正**
 
-- `peri-tui/src/event/mod.rs:300-305`：`drag_origin = Some((row, ui.scroll_offset, travel))`
-- `peri-tui/src/event/mod.rs:332-345`：`new_offset = start_offset ± distance`，`distance = |row - start_row| * max_offset / travel`
+- `cc-tui/src/event/mod.rs:300-305`：`drag_origin = Some((row, ui.scroll_offset, travel))`
+- `cc-tui/src/event/mod.rs:332-345`：`new_offset = start_offset ± distance`，`distance = |row - start_row| * max_offset / travel`
 
 **E6. `max_offset` 含 spinner 行，逐帧可变；但拖拽换算的分子在按下时冻结**
 
-- `peri-tui/src/ui/main_ui/message_area.rs:154-158`：`visual_total = cache.total_lines + spinner_extra`，`max_scroll = visual_total - visible_height`
-- `peri-tui/src/ui/main_ui/message_area.rs:186`：`scrollbar_max_offset` 仅渲染时写入
+- `cc-tui/src/ui/main_ui/message_area.rs:154-158`：`visual_total = cache.total_lines + spinner_extra`，`max_scroll = visual_total - visible_height`
+- `cc-tui/src/ui/main_ui/message_area.rs:186`：`scrollbar_max_offset` 仅渲染时写入
 
 **E7. 渲染阶段存在「metrics 为 None 即清空 dragging」的副作用**
 
-- `peri-tui/src/ui/main_ui/message_area.rs:219-223`
+- `cc-tui/src/ui/main_ui/message_area.rs:219-223`
 - `metrics` 为 None 的条件含 `max_scroll == 0` 与 `!active`（`message_area.rs:234`）
 
 **E8. 命中容差与 hover 区域**
 
-- `peri-tui/src/event/mod.rs:263`：`MESSAGE_SCROLLBAR_HIT_PAD = 2`
-- `peri-tui/src/ui/main_ui/message_area.rs:214`：hover 区为 `inner.right()-1`、宽 1 列
+- `cc-tui/src/event/mod.rs:263`：`MESSAGE_SCROLLBAR_HIT_PAD = 2`
+- `cc-tui/src/ui/main_ui/message_area.rs:214`：hover 区为 `inner.right()-1`、宽 1 列
 
 **E9. 非 hover 状态完全不渲染滚动条（含轨道）**
 
-- `peri-tui/src/ui/main_ui/message_area.rs:234`：`!active` 时 `return None`，不调用 `render_stateful_widget`
-- `peri-widgets/src/scrollable.rs:14-18`：`track_symbol(None)`、`begin_symbol(None)`、`end_symbol(None)`
+- `cc-tui/src/ui/main_ui/message_area.rs:234`：`!active` 时 `return None`，不调用 `render_stateful_widget`
+- `cc-widgets/src/scrollable.rs:14-18`：`track_symbol(None)`、`begin_symbol(None)`、`end_symbol(None)`
 
 **E10. Drag 事件不参与 hover 合并**
 
-- `peri-tui/src/event/input_pump.rs:31-40`：`coalesce_hover` 仅在事件为 `MouseEventKind::Moved` 且队尾同为 `Moved` 时替换
-- `peri-tui/src/event/mouse_batch.rs:5,34-41`：`MAX_MOUSE_BATCH = 128`，连续 Drag 仅保留最后坐标
+- `cc-tui/src/event/input_pump.rs:31-40`：`coalesce_hover` 仅在事件为 `MouseEventKind::Moved` 且队尾同为 `Moved` 时替换
+- `cc-tui/src/event/mouse_batch.rs:5,34-41`：`MAX_MOUSE_BATCH = 128`，连续 Drag 仅保留最后坐标
 
 **E11. `thumb_area` 由扫描帧缓冲中的 `█` 反推**
 
-- `peri-tui/src/ui/main_ui/message_area.rs:252-260`
+- `cc-tui/src/ui/main_ui/message_area.rs:252-260`
 
 ## 测试覆盖缺口
 
-`peri-tui/src/event/scrollbar_test.rs` 仅覆盖「点住真实滑块 → 拖动 → 回锚点 → 拖到顶/底」路径（断言"点击滑块不跳转"）。以下两条未覆盖：
+`cc-tui/src/event/scrollbar_test.rs` 仅覆盖「点住真实滑块 → 拖动 → 回锚点 → 拖到顶/底」路径（断言"点击滑块不跳转"）。以下两条未覆盖：
 
 1. 点击轨道空白跳转 → 继续拖动（对应 E1 + E5）
 2. 拖动过程中 `max_scroll` / `needs_scrollbar` / `popup_active` 发生变化（对应 E6 + E7）
@@ -147,7 +147,7 @@
 |------|----------|
 | E1 两处分母不一致 | 读代码，`bar_area.height - 1` 与 `bar_area.height - thumb_area.height` 为不同表达式；仅在 `thumb_area.height == 1` 时相等 |
 | E2 ratatui 滑块公式 | 读 `ratatui-widgets-0.3.0/src/scrollbar.rs` 源码 |
-| E3 消息区未设 `viewport_content_length` | 全仓库 grep 该符号，仅 `peri-widgets/src/scrollable.rs:167`（面板路径）出现 |
+| E3 消息区未设 `viewport_content_length` | 全仓库 grep 该符号，仅 `cc-widgets/src/scrollable.rs:167`（面板路径）出现 |
 | E4 数值表 | 按 E2 公式独立复算（H=30），三行数值与本文档一致 |
 | E5 拖拽为相对增量、无绝对对齐校正 | 读代码，`new_offset = start_offset ± distance` |
 | E6 `spinner_extra` 参与 `max_scroll`；`scrollbar_max_offset` 仅渲染时写入 | 读代码 |

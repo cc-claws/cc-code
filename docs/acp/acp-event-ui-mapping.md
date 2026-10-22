@@ -5,12 +5,12 @@
 | 方向 | ACP 方法/通知 | 数据载体 | TUI 显示 |
 |------|-------------|---------|---------|
 | TUI→ACP | `session/prompt` (req) | `{message: {content: "..."}}` | 用户输入提交 |
-| ACP→TUI | `notifications/session_update` | `SessionUpdate::AgentMessageChunk` | 流式文本渲染 |
-| ACP→TUI | `notifications/session_update` | `SessionUpdate::AgentThoughtChunk` | 推理/思考折叠显示 |
-| ACP→TUI | `notifications/session_update` | `SessionUpdate::ToolCall(InProgress)` | 工具调用开始提示 |
-| ACP→TUI | `notifications/session_update` | `SessionUpdate::ToolCallUpdate(Completed/Failed)` | 工具结果/错误显示 |
-| ACP→TUI | `notifications/session_update` | `SessionUpdate::UsageUpdate` | Token 消耗统计 |
-| ACP→TUI | `notifications/session_update` | `SessionUpdate::SessionInfoUpdate` | 重试状态提示 |
+| ACP→TUI | `session/update` | `SessionUpdate::AgentMessageChunk` | 流式文本渲染 |
+| ACP→TUI | `session/update` | `SessionUpdate::AgentThoughtChunk` | 推理/思考折叠显示 |
+| ACP→TUI | `session/update` | `SessionUpdate::ToolCall(InProgress)` | 工具调用开始提示 |
+| ACP→TUI | `session/update` | `SessionUpdate::ToolCallUpdate(Completed/Failed)` | 工具结果/错误显示 |
+| ACP→TUI | `session/update` | `SessionUpdate::UsageUpdate` | Token 消耗统计 |
+| ACP→TUI | `session/update` | `SessionUpdate::SessionInfoUpdate` | 重试状态提示 |
 | ACP→TUI | `session/prompt` (resp) | `{stop_reason: ...}` | Agent 完成/取消 |
 
 ## 二、交互中断（HITL / AskUser）
@@ -29,20 +29,29 @@
 | TUI→ACP | `session/new` (req) | `{cwd, model}` | 新会话创建 |
 | TUI→ACP | `session/set_model` (req) | `{model: "sonnet"}` | 模型切换 |
 | TUI→ACP | `session/set_mode` (req) | `{mode: "auto"/"acceptEdits"}` | 权限模式切换 |
-| TUI→ACP | `$/cancel_request` (notif) | `{session_id}` | 用户 Ctrl+C 取消 |
+| TUI→ACP | `session/cancel` (notif) | `{sessionId}` | 用户 Ctrl+C 取消 |
 
 ## 四、自定义通知（TUI 专用，非标准 ACP）
 
 | 方向 | 自定义方法 | 数据 | TUI 显示 |
 |------|----------|------|---------|
-| ACP→TUI | `notifications/agent_event` | `{session_id, event: ExecutorEvent}` | TUI 完整事件处理（含 StateSnapshot、SubAgent、Compact 等内部事件） |
+| ACP→TUI | `peri/agent_event` | `{sessionId, event_json}` | TUI 完整事件处理（含 StateSnapshot、SubAgent、Compact 等内部事件） |
+| ACP→TUI | `peri/agent_event_done` | `{sessionId}` | 一轮事件推送结束标记 |
+| ACP→TUI | `peri/subagent_lifecycle` | `{event: started/stopped, instanceId, agentType, taskPreview, ...}` | 子 Agent 抽屉生命周期（开始/结束） |
 
 ---
 
 # 五、Peri 自定义事件命名空间设计
 
+> **状态注记（2026-10-22 核对）**：本节的 `notifications/peri/<category>/<event>` 分层命名空间**未按此设计落地**。
+> 实际实现是服务端在 `cc-acp/src/session/event_sink.rs` 发送三个通知：`peri/agent_event`（完整事件 JSON）、
+> `peri/agent_event_done`、`peri/subagent_lifecycle`（子 Agent 生命周期）；现行事件映射函数为
+> `cc-acp/src/event/mapper.rs` 的 `map_event`，下文 §5.3 中的 `map_executor_to_peri_notifications` /
+> `map_executor_to_updates` 函数与 `cc-tui/src/acp_server.rs` 发送循环均不存在（服务端现为
+> `cc-tui/src/acp_server/` 目录模块，发送逻辑在 cc-acp 的 event_sink）。本节保留为设计记录。
+
 > **背景**：ACP 标准协议不包含 SubAgent、Compact、LSP、后台任务等概念。
-> 当前这些事件通过 `notifications/agent_event` 携带完整的 `ExecutorEvent` JSON 传输，
+> 当前这些事件通过 `peri/agent_event` 携带完整的 `ExecutorEvent` JSON 传输，
 > 但外部 ACP 客户端（IDE 插件等）无法消费这种私有格式。
 > 以下方案定义 `peri/*` 命名空间的结构化通知，作为公开接口。
 
@@ -275,16 +284,16 @@ pub fn map_executor_to_peri_notifications(
 在现有事件泵中，`map_executor_to_updates` 之后追加 `map_executor_to_peri_notifications` 调用：
 
 ```rust
-// 现有：发送 notifications/agent_event (TUI 向后兼容)
+// 现有：发送 peri/agent_event (TUI 向后兼容)
 let event_value = serde_json::to_value(&exec_event).unwrap_or_default();
 let _ = transport_clone
-    .send_notification("notifications/agent_event", json!({
+    .send_notification("peri/agent_event", json!({
         "session_id": sid,
         "event": event_value,
     }))
     .await;
 
-// 现有：发送 notifications/session_update (标准 ACP)
+// 现有：发送 session/update (标准 ACP)
 let updates = map_executor_to_updates(&exec_event, context_window_u32);
 for update in updates { ... }
 
@@ -363,7 +372,7 @@ AcpNotification::Peri { method, params, .. } => {
 }
 ```
 
-> **说明**：TUI 当前通过 `notifications/agent_event` 路径已能消费 SubAgent/Compact 事件，
+> **说明**：TUI 当前通过 `peri/agent_event` 路径已能消费 SubAgent/Compact 事件，
 > 因此 `Peri` 变体的路由是**可选的增强项**——它让 TUI 将来可以逐步迁移到结构化通知，
 > 也为外部客户端提供解析参考。
 
@@ -377,19 +386,19 @@ AcpNotification::Peri { method, params, .. } => {
 │   │                                                             │
 │   ├── ExecutorEvent::TextChunk ──→ map_executor_to_updates      │
 │   │     └── SessionUpdate::AgentMessageChunk                    │
-│   │         └── notifications/session_update  ──→ ACP Client    │
+│   │         └── session/update  ──→ ACP Client    │
 │   │                                                             │
 │   ├── ExecutorEvent::SubagentStarted ──→ map_executor_to_peri   │
 │   │     └── ("notifications/peri/subagent/start", {...})        │
 │   │         └── send_notification  ──→ ACP Client               │
 │   │                                                             │
-│   └── (所有事件) ──→ notifications/agent_event                  │
+│   └── (所有事件) ──→ peri/agent_event                  │
 │         └── {event: <完整 ExecutorEvent JSON>}  ──→ TUI (向后兼容)│
 └─────────────────────────────────────────────────────────────────┘
 
 ACP Client (TUI):
-  notifications/agent_event     ──→ AcpNotification::AgentEvent
-  notifications/session_update ──→ AcpNotification::SessionUpdate
+  peri/agent_event     ──→ AcpNotification::AgentEvent
+  session/update ──→ AcpNotification::SessionUpdate
   notifications/peri/*          ──→ AcpNotification::Peri  (新增)
 ```
 
@@ -412,5 +421,5 @@ ACP Client (TUI):
 
 1. **不入侵标准 ACP 类型**：`peri/*` 通知是独立于 `SessionUpdate` 的 JSON-RPC notification，不修改任何 `agent_client_protocol` crate 的类型定义
 2. **payload 自包含**：每个通知的 JSON 对象包含该事件的所有展示所需字段，客户端无需查找关联事件
-3. **`notifications/agent_event` 保持不变**：TUI 向后兼容路径不被破坏，新旧路径并行运行
+3. **`peri/agent_event` 保持不变**：TUI 向后兼容路径不被破坏，新旧路径并行运行
 4. **命名空间可扩展**：新增事件类型只需在 `map_executor_to_peri_notifications` 中添加 match 分支和命名

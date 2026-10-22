@@ -56,7 +56,7 @@ Step 21  移除 App 上的 mcp_panel_scroll_up/down、agent_panel_move_up/down�
 
 ## Step 1: ListState 增加鼠标字段和方法
 
-**文件**: `peri-widgets/src/list.rs`
+**文件**: `cc-widgets/src/list.rs`
 
 **改动:**
 
@@ -112,13 +112,13 @@ pub fn on_select(mut self, f: impl Fn(usize) + 'static) -> Self {
 }
 ```
 
-**验证**: `cargo build -p peri-widgets` 编译通过
+**验证**: `cargo build -p cc-widgets` 编译通过
 
 ---
 
 ## Step 2: SelectableList 增加 hover_style 和三态渲染
 
-**文件**: `peri-widgets/src/list.rs`
+**文件**: `cc-widgets/src/list.rs`
 
 **改动:**
 
@@ -207,13 +207,13 @@ fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
 - 当前 TUI 层无 `SelectableList` 调用方（grep 确认），仅在测试中使用
 - Step 3 中同步更新所有测试闭包签名
 
-**验证**: `cargo build -p peri-widgets` 编译通过
+**验证**: `cargo build -p cc-widgets` 编译通过
 
 ---
 
 ## Step 3: list.rs 鼠标测试用例
 
-**文件**: `peri-widgets/src/list.rs`（内联 `#[cfg(test)] mod tests`）
+**文件**: `cc-widgets/src/list.rs`（内联 `#[cfg(test)] mod tests`）
 
 **改动**: 在现有 `mod tests` 块中追加以下测试：
 
@@ -230,13 +230,13 @@ fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
 
 **注意**: 更新现有测试 `selectable_list_renders_cursor_marker` 和 `selectable_list_custom_render_item` 中的闭包签名，从 `|item: &&str, _is_cursor: bool|` 改为 `|item: &&str, _is_cursor: bool, _is_hovered: bool|`。
 
-**验证**: `cargo test -p peri-widgets --lib -- list`
+**验证**: `cargo test -p cc-widgets --lib -- list`
 
 ---
 
 ## Step 4: ListOverlay 浮动容器
 
-**文件**: `peri-widgets/src/list_overlay.rs`（**新增**）
+**文件**: `cc-widgets/src/list_overlay.rs`（**新增**）
 
 **改动**: 按照设计文档实现 `ListOverlay` 组件：
 
@@ -255,13 +255,13 @@ fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
 - 面板高度 = `content_height + 2`（上下边框各 1 行）
 - x 坐标钳位到 `viewport.width.saturating_sub(self.width)`
 
-**验证**: `cargo build -p peri-widgets` 编译通过
+**验证**: `cargo build -p cc-widgets` 编译通过
 
 ---
 
 ## Step 5: list_overlay.rs 测试
 
-**文件**: `peri-widgets/src/list_overlay.rs`（内联 `#[cfg(test)] mod tests`）
+**文件**: `cc-widgets/src/list_overlay.rs`（内联 `#[cfg(test)] mod tests`）
 
 | 测试名 | 场景 |
 |--------|------|
@@ -273,13 +273,13 @@ fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
 | `test_overlay_max_height_clamped` | items > max_height 时面板高度 = max_height + 2 |
 | `test_overlay_clears_background` | 渲染前在 area 写入内容，渲染后确认被 Clear 覆盖 |
 
-**验证**: `cargo test -p peri-widgets --lib -- list_overlay`
+**验证**: `cargo test -p cc-widgets --lib -- list_overlay`
 
 ---
 
 ## Step 6: lib.rs 导出
 
-**文件**: `peri-widgets/src/lib.rs`
+**文件**: `cc-widgets/src/lib.rs`
 
 **改动:**
 
@@ -290,13 +290,13 @@ fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
 pub use list_overlay::{Anchor, ListOverlay, ListOverlayState, OverlayPosition};
 ```
 
-**验证**: `cargo build -p peri-widgets` 编译通过；`cargo test -p peri-widgets` 全量通过
+**验证**: `cargo build -p cc-widgets` 编译通过；`cargo test -p cc-widgets` 全量通过
 
 ---
 
 ## Step 7: PanelList<T> 统一状态管理器
 
-**文件**: `peri-tui/src/app/panel_list.rs`（**新增**）
+**文件**: `cc-tui/src/app/panel_list.rs`（**新增**）
 
 **改动**: 按照设计文档实现 `PanelList<T>`：
 
@@ -356,13 +356,13 @@ pub struct PanelList<T> {
 | `test_panel_list_handle_mouse_click_below_items` | 点击超出列表项范围返回 false |
 | `test_panel_list_visible_range` | 验证可视范围计算正确 |
 
-**验证**: `cargo build -p peri-tui` 编译通过；`cargo test -p peri-tui --lib -- panel_list`
+**验证**: `cargo build -p cc-tui` 编译通过；`cargo test -p cc-tui --lib -- panel_list`
 
 ---
 
 ## Step 8: PanelComponent trait 增加 handle_mouse
 
-**文件**: `peri-tui/src/app/panel_component.rs`
+**文件**: `cc-tui/src/app/panel_component.rs`
 
 **改动:**
 
@@ -389,13 +389,13 @@ fn handle_mouse(
 }
 ```
 
-**验证**: `cargo build -p peri-tui` 编译通过（所有面板通过默认实现兼容）
+**验证**: `cargo build -p cc-tui` 编译通过（所有面板通过默认实现兼容）
 
 ---
 
 ## Step 9: PanelManager 增加 dispatch_mouse + dispatch_scroll 统一
 
-**文件**: `peri-tui/src/app/panel_manager.rs`
+**文件**: `cc-tui/src/app/panel_manager.rs`
 
 **改动:**
 
@@ -431,13 +431,13 @@ pub fn dispatch_mouse(
 
 **注意**：需新增 `MouseEvent` import。
 
-**验证**: `cargo build -p peri-tui` 编译通过
+**验证**: `cargo build -p cc-tui` 编译通过
 
 ---
 
 ## Step 10: event.rs 鼠标事件统一路由
 
-**文件**: `peri-tui/src/event.rs`
+**文件**: `cc-tui/src/event.rs`
 
 **现状问题**：
 
@@ -508,13 +508,13 @@ MouseEventKind::Down(MouseButton::Left) => {
 
 **注意**：dispatch_mouse 和 dispatch_scroll 需要使用 `std::mem::take` 模式处理借用冲突（与现有的 dispatch_key 模式一致）。
 
-**验证**: `cargo build -p peri-tui`；手动测试 McpPanel/PluginPanel 滚轮行为不变
+**验证**: `cargo build -p cc-tui`；手动测试 McpPanel/PluginPanel 滚轮行为不变
 
 ---
 
 ## Step 11: AgentPanel 迁移到 PanelList\<AgentItem\>
 
-**文件**: `peri-tui/src/app/agent_panel.rs`
+**文件**: `cc-tui/src/app/agent_panel.rs`
 
 **当前状态**:
 
@@ -594,7 +594,7 @@ fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect, ctx: &mut PanelContext
 
 ## Step 12: ModelPanel 迁移到 PanelList
 
-**文件**: `peri-tui/src/app/model_panel.rs`
+**文件**: `cc-tui/src/app/model_panel.rs`
 
 **当前状态**: 固定 4 项列表（Opus/Sonnet/Haiku/Effort），`cursor: usize`，循环导航。
 
@@ -641,7 +641,7 @@ fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect, ctx: &mut PanelContext
 
 ## Step 13: MemoryPanel 迁移到 PanelList\<MemoryEntry\>
 
-**文件**: `peri-tui/src/app/memory_panel.rs`
+**文件**: `cc-tui/src/app/memory_panel.rs`
 
 **当前状态**: 2 个固定条目，`cursor: usize`，手动 `move_cursor_up/down`。
 
@@ -689,7 +689,7 @@ fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect, ctx: &mut PanelContext
 
 ## Step 14: HooksPanel 迁移到 PanelList\<HookEventEntry\>
 
-**文件**: `peri-tui/src/app/hooks_panel.rs`
+**文件**: `cc-tui/src/app/hooks_panel.rs`
 
 **当前状态**: `entries: Vec<HookEventEntry>`，`cursor: usize`，`scroll_offset: u16`，`move_cursor()` 使用 `rem_euclid`（循环）。
 
@@ -753,7 +753,7 @@ fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect, _ctx: &mut PanelContex
 
 ## Step 15: CronPanel 迁移到 PanelList\<CronTask\>
 
-**文件**: `peri-tui/src/app/cron_state.rs`
+**文件**: `cc-tui/src/app/cron_state.rs`
 
 **当前状态**: `tasks: Vec<CronTask>`，`cursor: usize`，`scroll_offset: u16`，`move_cursor()` 使用 clamp。
 
@@ -810,7 +810,7 @@ fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect, _ctx: &mut PanelContex
 
 ## Step 16: McpPanel 迁移到 PanelList\<ServerInfo\>
 
-**文件**: `peri-tui/src/app/mcp_panel.rs`
+**文件**: `cc-tui/src/app/mcp_panel.rs`
 
 **当前状态**: `servers: Vec<ServerInfo>`，`cursor: usize`，`scroll_offset: u16`，双视图（ServerList / ServerDetail），已有 `handle_scroll`。
 
@@ -881,7 +881,7 @@ fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect, ctx: &mut PanelContext
 
 ## Step 17: PluginPanel 迁移到 PanelList
 
-**文件**: `peri-tui/src/app/plugin_panel.rs`
+**文件**: `cc-tui/src/app/plugin_panel.rs`
 
 **当前状态**: 4 个视图（Installed/Discover/Marketplaces/Errors），每个视图有独立的 cursor 和 scroll_offset。已有 `handle_scroll`。
 
@@ -921,7 +921,7 @@ pub struct PluginPanel {
 
 ## Step 18: ConfigPanel 迁移到 PanelList
 
-**文件**: `peri-tui/src/app/config_panel.rs`
+**文件**: `cc-tui/src/app/config_panel.rs`
 
 **当前状态**: 6 个配置字段，Browse/Edit 双模式，`cursor: usize`，`scroll_offset: u16`。Browse 模式循环导航。
 
@@ -968,7 +968,7 @@ ConfigPanelMode::Browse => match input {
 
 ## Step 19: LoginPanel 迁移到 PanelList
 
-**文件**: `peri-tui/src/app/login_panel.rs`
+**文件**: `cc-tui/src/app/login_panel.rs`
 
 **当前状态**: Browse/Edit/New 三模式，`cursor: usize`，`scroll_offset: u16`，Browse 模式循环导航。
 
@@ -1002,7 +1002,7 @@ pub struct LoginPanel {
 
 ## Step 20: 移除 panel_ops.rs 中的遗留辅助函数
 
-**文件**: `peri-tui/src/app/panel_ops.rs`
+**文件**: `cc-tui/src/app/panel_ops.rs`
 
 **改动**:
 
@@ -1011,24 +1011,24 @@ pub struct LoginPanel {
 3. 移除 `hooks_panel_move_up()` 方法——已由 HooksPanel 的 `handle_key(Up)` 覆盖
 4. 移除 `hooks_panel_move_down()` 方法——同上
 
-**文件**: `peri-tui/src/app/mod.rs`
+**文件**: `cc-tui/src/app/mod.rs`
 
 1. 移除 `ensure_cursor_visible()` 函数——已由 `PanelList::ensure_visible` 覆盖
 
-**验证**: `cargo build -p peri-tui` 编译通过；确认无其他调用方
+**验证**: `cargo build -p cc-tui` 编译通过；确认无其他调用方
 
 ---
 
 ## Step 21: 移除 App 上的 ad-hoc 面板滚动方法
 
-**文件**: `peri-tui/src/app/mod.rs`（或对应 impl App 块）
+**文件**: `cc-tui/src/app/mod.rs`（或对应 impl App 块）
 
 **改动**:
 
 1. 移除 `mcp_panel_scroll_up()` 方法——Step 10 中已不再被 `event.rs` 调用
 2. 移除 `mcp_panel_scroll_down()` 方法——同上
 
-**验证**: `cargo build -p peri-tui` 编译通过；`cargo test -p peri-tui` 全量通过
+**验证**: `cargo build -p cc-tui` 编译通过；`cargo test -p cc-tui` 全量通过
 
 ---
 
@@ -1052,13 +1052,13 @@ pub struct LoginPanel {
 
 ### 关键实施文件
 
-- `peri-widgets/src/list.rs` — ListState 鼠标字段/方法、SelectableList 三态渲染、hover_style
-- `peri-widgets/src/list_overlay.rs` — **新增**: ListOverlay/ListOverlayState/Anchor/OverlayPosition
-- `peri-widgets/src/lib.rs` — 模块导出
-- `peri-tui/src/app/panel_list.rs` — **新增**: PanelList<T> 统一状态管理器
-- `peri-tui/src/app/panel_component.rs` — trait 新增 handle_mouse 默认方法
-- `peri-tui/src/app/panel_manager.rs` — 新增 dispatch_mouse
-- `peri-tui/src/event.rs` — 鼠标事件统一路由、提取 mouse_in_rect、消除 ad-hoc 滚轮代码
-- `peri-tui/src/app/agent_panel.rs` — 标准面板迁移的参考实现
-- `peri-tui/src/app/panel_ops.rs` — 移除遗留辅助函数
-- `peri-tui/src/app/mod.rs` — 移除 ensure_cursor_visible
+- `cc-widgets/src/list.rs` — ListState 鼠标字段/方法、SelectableList 三态渲染、hover_style
+- `cc-widgets/src/list_overlay.rs` — **新增**: ListOverlay/ListOverlayState/Anchor/OverlayPosition
+- `cc-widgets/src/lib.rs` — 模块导出
+- `cc-tui/src/app/panel_list.rs` — **新增**: PanelList<T> 统一状态管理器
+- `cc-tui/src/app/panel_component.rs` — trait 新增 handle_mouse 默认方法
+- `cc-tui/src/app/panel_manager.rs` — 新增 dispatch_mouse
+- `cc-tui/src/event.rs` — 鼠标事件统一路由、提取 mouse_in_rect、消除 ad-hoc 滚轮代码
+- `cc-tui/src/app/agent_panel.rs` — 标准面板迁移的参考实现
+- `cc-tui/src/app/panel_ops.rs` — 移除遗留辅助函数
+- `cc-tui/src/app/mod.rs` — 移除 ensure_cursor_visible

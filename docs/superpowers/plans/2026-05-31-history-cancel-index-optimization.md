@@ -14,25 +14,25 @@
 
 | 文件 | 职责 | 改动类型 |
 |------|------|----------|
-| `peri-tui/src/acp_server/prompt.rs` | history_for_cancel 产生 + strip_leaked_prepends 定义 + 消费 | 修改 |
-| `peri-tui/src/acp_server/prompt_test.rs` | strip_leaked_prepends 单元测试 | 修改 |
+| `cc-tui/src/acp_server/prompt.rs` | history_for_cancel 产生 + strip_leaked_prepends 定义 + 消费 | 修改 |
+| `cc-tui/src/acp_server/prompt_test.rs` | strip_leaked_prepends 单元测试 | 修改 |
 
 ---
 
 ### Task 1: 修改 strip_leaked_prepends 签名和实现
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/prompt.rs:231-255`
+- Modify: `cc-tui/src/acp_server/prompt.rs:231-255`
 
 - [ ] **Step 1: 修改 strip_leaked_prepends 函数签名和实现**
 
-将 `original_history: &[BaseMessage]` 参数替换为 `first_history_id: Option<peri_agent::messages::MessageId>`。函数逻辑保持语义等价：
+将 `original_history: &[BaseMessage]` 参数替换为 `first_history_id: Option<cc_agent::messages::MessageId>`。函数逻辑保持语义等价：
 
 ```rust
 fn strip_leaked_prepends(
-    result_messages: &[peri_agent::messages::BaseMessage],
-    first_history_id: Option<peri_agent::messages::MessageId>,
-) -> Vec<peri_agent::messages::BaseMessage> {
+    result_messages: &[cc_agent::messages::BaseMessage],
+    first_history_id: Option<cc_agent::messages::MessageId>,
+) -> Vec<cc_agent::messages::BaseMessage> {
     match first_history_id {
         Some(first_id) => {
             // Find where original history starts in result (skip leaked prepends)
@@ -81,7 +81,7 @@ let cleaned = strip_leaked_prepends(&result.messages, first_history_id);
 
 - [ ] **Step 3: 验证编译通过**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: 编译成功，无错误
 
 ---
@@ -89,7 +89,7 @@ Expected: 编译成功，无错误
 ### Task 2: 更新单元测试
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/prompt_test.rs:1-80`
+- Modify: `cc-tui/src/acp_server/prompt_test.rs:1-80`
 
 - [ ] **Step 4: 更新 4 个测试用例的调用签名**
 
@@ -112,7 +112,7 @@ let cleaned = strip_leaked_prepends(&result_messages, history.first().map(|m| m.
 
 - [ ] **Step 5: 运行测试验证通过**
 
-Run: `cargo test -p peri-tui --lib -- strip_leaked_prepends 2>&1`
+Run: `cargo test -p cc-tui --lib -- strip_leaked_prepends 2>&1`
 Expected: 4 个测试全部 PASS
 
 ---
@@ -120,7 +120,7 @@ Expected: 4 个测试全部 PASS
 ### Task 3: 检查 executor.rs 中的 history.clone() 是否可优化
 
 **Files:**
-- Read: `peri-acp/src/session/executor.rs:179-181`
+- Read: `cc-acp/src/session/executor.rs:179-181`
 
 - [ ] **Step 6: 确认 executor.rs:181 的 history.clone() 用途**
 
@@ -130,13 +130,13 @@ executor.rs:181 的 `history: history.clone()` 用于 `CommandContext`，Immedia
 
 - [ ] **Step 7: 全量编译 + 测试**
 
-Run: `cargo build && cargo test -p peri-tui 2>&1 | tail -5`
+Run: `cargo build && cargo test -p cc-tui 2>&1 | tail -5`
 Expected: BUILD SUCCEEDED + 所有测试通过
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/prompt.rs peri-tui/src/acp_server/prompt_test.rs
+git add cc-tui/src/acp_server/prompt.rs cc-tui/src/acp_server/prompt_test.rs
 git commit -m "perf: replace history_for_cancel full clone with Option<MessageId>
 
 Replace history.clone() (full Vec<BaseMessage> copy, potentially MBs)

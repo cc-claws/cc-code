@@ -16,8 +16,8 @@
 
 | 文件 | 操作 | 职责 |
 |------|------|------|
-| `peri-acp/src/langfuse/tracer.rs` | Modify | 在 `on_tool_start`/`on_tool_end` 中增加 Agent 工具检测 + SubAgent observation 创建/完成逻辑；移除死代码 `on_subagent_start`/`on_subagent_end`，替换为私有 helper |
-| `peri-acp/src/langfuse/tracer_test.rs` | Create | Tracer 单元测试：验证 subagent_stack 状态转换及层级路由 |
+| `cc-acp/src/langfuse/tracer.rs` | Modify | 在 `on_tool_start`/`on_tool_end` 中增加 Agent 工具检测 + SubAgent observation 创建/完成逻辑；移除死代码 `on_subagent_start`/`on_subagent_end`，替换为私有 helper |
+| `cc-acp/src/langfuse/tracer_test.rs` | Create | Tracer 单元测试：验证 subagent_stack 状态转换及层级路由 |
 
 **不修改的文件**：`executor.rs`（事件泵）、`events.rs`（AgentEvent）、`define.rs`（SubAgentTool）——当前事件流已经携带足够信息。
 
@@ -26,7 +26,7 @@
 ### Task 1: 修改 `on_tool_start` —— Agent 工具调用时创建 SubAgent observation
 
 **Files:**
-- Modify: `peri-acp/src/langfuse/tracer.rs:303-326`
+- Modify: `cc-acp/src/langfuse/tracer.rs:303-326`
 
 - [ ] **Step 1: 添加 `begin_subagent` 私有 helper 方法**
 
@@ -149,7 +149,7 @@ pub fn on_tool_start(&mut self, tool_call_id: &str, name: &str, input: &serde_js
 - [ ] **Step 3: 编译检查**
 
 ```bash
-cargo build -p peri-acp 2>&1 | head -20
+cargo build -p cc-acp 2>&1 | head -20
 ```
 
 Expected: 编译成功，无 borrow checker 错误。
@@ -159,7 +159,7 @@ Expected: 编译成功，无 borrow checker 错误。
 ### Task 2: 修改 `on_tool_end` —— Agent 工具结束时完成 SubAgent observation
 
 **Files:**
-- Modify: `peri-acp/src/langfuse/tracer.rs:328-387`
+- Modify: `cc-acp/src/langfuse/tracer.rs:328-387`
 
 - [ ] **Step 1: 添加 `end_subagent` 私有 helper 方法**
 
@@ -303,7 +303,7 @@ pub fn on_tool_end(&mut self, tool_call_id: &str, output: &str, is_error: bool) 
 - [ ] **Step 3: 编译检查**
 
 ```bash
-cargo build -p peri-acp 2>&1 | head -20
+cargo build -p cc-acp 2>&1 | head -20
 ```
 
 Expected: 编译成功。
@@ -313,7 +313,7 @@ Expected: 编译成功。
 ### Task 3: 移除死代码（`on_subagent_start` / `on_subagent_end`）
 
 **Files:**
-- Modify: `peri-acp/src/langfuse/tracer.rs:431-519`
+- Modify: `cc-acp/src/langfuse/tracer.rs:431-519`
 
 - [ ] **Step 1: 删除两个 dead public 方法**
 
@@ -322,7 +322,7 @@ Expected: 编译成功。
 - [ ] **Step 2: 编译检查**
 
 ```bash
-cargo build -p peri-acp 2>&1 | head -20
+cargo build -p cc-acp 2>&1 | head -20
 ```
 
 Expected: 编译成功，无 "method not found" 错误（证明这两个方法确实无外部调用者）。
@@ -332,7 +332,7 @@ Expected: 编译成功，无 "method not found" 错误（证明这两个方法�
 ### Task 4: 添加单元测试
 
 **Files:**
-- Create: `peri-acp/src/langfuse/tracer_test.rs`
+- Create: `cc-acp/src/langfuse/tracer_test.rs`
 
 - [ ] **Step 1: 创建 test helper —— 构造测试用 Tracer**
 
@@ -543,7 +543,7 @@ mod tests {
 - [ ] **Step 9: 运行测试**
 
 ```bash
-cargo test -p peri-acp --lib -- tracer_test
+cargo test -p cc-acp --lib -- tracer_test
 ```
 
 Expected: 8/8 tests pass.
@@ -552,10 +552,10 @@ Expected: 8/8 tests pass.
 
 ### Task 5: 集成验证
 
-- [ ] **Step 1: 运行 peri-acp 全量测试**
+- [ ] **Step 1: 运行 cc-acp 全量测试**
 
 ```bash
-cargo test -p peri-acp
+cargo test -p cc-acp
 ```
 
 Expected: 无 regression。
@@ -563,8 +563,8 @@ Expected: 无 regression。
 - [ ] **Step 2: 代码格式与 lint**
 
 ```bash
-cargo fmt --check -p peri-acp
-cargo clippy -p peri-acp -- -D warnings
+cargo fmt --check -p cc-acp
+cargo clippy -p cc-acp -- -D warnings
 ```
 
 Expected: 通过。

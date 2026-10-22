@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现一个基于 YAML + Markdown + JSON 声明的原生 Rust Workflow 执行器，支持 7 种步骤类型（phase/agent/parallel/pipeline/run/loop/log）和条件执行（when），用于替代 Claude Code 的 JavaScript Workflow 脚本。
+**Goal:** 实现一个基于 YAML + Markdown + JSON 声明的原生 Rust Workflow 执行器，支持 7 种步骤类型（phase/agent/parallel/pipeline/run/loop/log）和条件执行（when），用于替代参考实现的 JavaScript Workflow 脚本。
 
-**Architecture:** 新增独立 crate `peri-workflow`，仅依赖 `peri-agent`（核心 Agent 类型和 ReAct 循环）。通过 `AgentRunner` trait 抽象 Agent 构建能力，具体实现由集成层（`peri-acp`）提供。JS 数据变换（`run`/`when`）通过外部 Node/Bun 子进程执行，零嵌入体积。事件通过 `tokio::sync::mpsc` 通道推送。
+**Architecture:** 新增独立 crate `peri-workflow`，仅依赖 `cc-agent`（核心 Agent 类型和 ReAct 循环）。通过 `AgentRunner` trait 抽象 Agent 构建能力，具体实现由集成层（`cc-acp`）提供。JS 数据变换（`run`/`when`）通过外部 Node/Bun 子进程执行，零嵌入体积。事件通过 `tokio::sync::mpsc` 通道推送。
 
 **Tech Stack:** Rust 2021, tokio async, serde_yaml, serde_json, handlebars（模板引擎）, tokio::process（子进程）, tempfile
 
@@ -50,7 +50,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-peri-agent = { path = "../peri-agent" }
+cc-agent = { path = "../cc-agent" }
 anyhow.workspace = true
 async-trait.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -1079,7 +1079,7 @@ use std::sync::Arc;
 
 /// Agent 构建和执行能力 trait
 ///
-/// 由集成层（peri-acp 或测试 mock）实现，
+/// 由集成层（cc-acp 或测试 mock）实现，
 /// peri-workflow 不直接依赖具体 Agent 构建。
 #[async_trait]
 pub trait AgentRunner: Send + Sync {
@@ -2450,7 +2450,7 @@ git commit -m "test(workflow): 添加执行器集成测试"
 //! Perihelion Workflow 编排系统
 //!
 //! 基于 YAML + Markdown + JSON 声明的原生 Rust 执行器，
-//! 用于替代 Claude Code 的 JavaScript Workflow 脚本。
+//! 用于替代参考实现的 JavaScript Workflow 脚本。
 
 pub mod agent_runner;
 pub mod error;
@@ -2544,7 +2544,7 @@ git commit -m "chore(workflow): 全 workspace 构建验证和 clippy 修复"
 
 **未覆盖（V2 范围）**：
 - §7.3 条件内容 `{{#if}}` / `{{#each}}` — 需要迁移到 handlebars
-- §10 CLI 命令 `peri-tui -- workflow` 集成 — 需要 peri-acp 集成
+- §10 CLI 命令 `cc-tui -- workflow` 集成 — 需要 cc-acp 集成
 - §10.2 ACP Slash Command `/workflow` — 需要 ACP 层集成
 - `until_budget` 循环终止条件 — 需要 token tracking
 - parallel 真正的并发执行（V1 顺序 fallback）

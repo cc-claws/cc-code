@@ -12,14 +12,14 @@
 ## 当前行为
 
 ```rust
-// peri-tui/src/update.rs:34-47
+// cc-tui/src/update.rs:34-47
 pub fn run_update_unix() -> Result<(), UpdateError> {
     let script_url = SCRIPT_URL_SH; // 硬编码 raw.githubusercontent.com HTTPS
     let cmd = format!("curl -fsSL {} | bash", script_url);
     // spawn bash -c $cmd
 }
 
-// peri-tui/src/update.rs:49-69
+// cc-tui/src/update.rs:49-69
 // run_update_windows 类似，使用 PowerShell iex
 ```
 
@@ -70,8 +70,8 @@ pub fn run_update_unix() -> Result<(), UpdateError> {
 
 ## 涉及文件
 
-- `peri-tui/src/update.rs:34-47` — `run_update_unix`
-- `peri-tui/src/update.rs:49-69` — `run_update_windows`
+- `cc-tui/src/update.rs:34-47` — `run_update_unix`
+- `cc-tui/src/update.rs:49-69` — `run_update_windows`
 - `docs/superpowers/plans/2026-05-16-self-update-simplify-to-curl-pipe-bash.md` — 当前设计的原始决策文档
 
 ## 状态变更记录

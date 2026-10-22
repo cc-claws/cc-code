@@ -6,11 +6,11 @@
 
 ## 问题描述
 
-SessionStart 钩子仅在 session 首次 prompt 时触发（`is_session_start == true`），但 Claude Code 官方行为中 SessionStart 支持 4 种 matcher：`startup`、`resume`、`clear`、`compact`。
+SessionStart 钩子仅在 session 首次 prompt 时触发（`is_session_start == true`），但 参考实现 官方行为中 SessionStart 支持 4 种 matcher：`startup`、`resume`、`clear`、`compact`。
 
 ## 当前行为 vs 预期行为
 
-| 场景 | Claude Code | Peri | 差异 |
+| 场景 | 参考实现 | Peri | 差异 |
 |------|------------|------|------|
 | 新会话首次 prompt | 触发（matcher=`startup`） | 触发 | ✓ 一致 |
 | 恢复历史会话（`-c`/`-r`） | 触发（matcher=`resume`） | 不触发 | ✗ 缺失 |

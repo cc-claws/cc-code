@@ -1,16 +1,14 @@
 # 项目概述
 
-![项目全景](./images/02-project-overview.png)
-
 ## 项目目标
 
-Peri 是一个用 Rust 构建的高性能 AI Agent 框架，目标是让开发者能够将 AI 编程助手的完整工作流（ReAct 推理、工具调用、HITL 审批、子 Agent 委派）嵌入自己的应用中，开箱即用、性能可靠。
+CC Code 是一个用 Rust 构建的终端 AI 编程 Agent，提供 AI 编程助手的完整工作流（ReAct 推理、工具调用、HITL 审批、子 Agent 委派），开箱即用、性能可靠。
 
 核心价值：
 
 - **高兼容**：完全复用已有的 `.claude/agents/`、`.claude/skills/`、`CLAUDE.md` / `AGENTS.md` 配置，零迁移成本
 - **可插拔**：中间件模式，按需组合文件系统、终端、HITL、子 Agent 等能力
-- **生产可用**：异步运行时、线程持久化、OpenTelemetry 追踪，面向实际部署
+- **生产可用**：异步运行时、线程持久化，面向实际部署
 
 ## 核心用户
 
@@ -24,8 +22,7 @@ Peri 是一个用 Rust 构建的高性能 AI Agent 框架，目标是让开发�
 
 - **Anthropic API**：Claude 系列模型，支持扩展思考（Extended Thinking）和 Prompt Cache
 - **OpenAI 兼容接口**：任意支持 `/chat/completions` 接口的服务（OpenAI、DeepSeek、本地模型等）
-- **Relay Server（Sync）**：WebSocket 中继服务，支持跨设备配置同步（E2E 加密密文透传）
-- **SQLite（本地）**：会话线程持久化，路径 `~/.peri/threads/threads.db`
+- **SQLite（本地）**：会话线程持久化，路径 `~/.cc-code/threads/threads.db`
 - **文件系统（本地）**：Agent 工具对本地文件的读写操作
 - **Shell / 终端**：`bash` 工具执行系统命令
 
@@ -41,19 +38,15 @@ Peri 是一个用 Rust 构建的高性能 AI Agent 框架，目标是让开发�
 
 ### 3. SubAgent 委派
 
-父 Agent 调用 `Agent` 工具 → 读取 `.claude/agents/{agent_id}.md` 定义 → 创建子 Agent 实例（独立 LLM、继承或过滤工具集）→ 执行子任务 → 以字符串形式返回执行结果给父 Agent。
+父 Agent 调用 `Agent` 工具 → 读取 `.claude/agents/{agent_id}.md` 定义 → 创建子 Agent 实例（独立 LLM、继承或过滤工具集）→ 子 Agent 恒后台执行子任务 → 结果经完成通知回流父 Agent 并自动续接。
 
 ### 4. 上下文压缩
 
-Agent 运行中 Token 累积达到阈值（默认 85%）时触发自动压缩：先执行 Micro-compact（零 API 调用，清除可压缩工具结果和图片/文档），如仍超限则执行 Full Compact（调用 LLM 生成 9 段结构化摘要替换历史）。压缩后重新注入最近读取文件和激活 Skills。
+Agent 运行中 Token 累积达到各自阈值时触发自动压缩：Micro-compact 在 70% 触发（零 API 调用，清除可压缩工具结果和图片/文档），Full Compact 在 85% 触发（调用 LLM 生成自由 Markdown 摘要并在原会话内替换历史）。压缩后重新注入最近读取文件和激活 Skills。
 
 ### 5. 权限模式
 
 2 档权限模式控制工具调用审批策略：**Auto**（默认；先跑零成本的确定性层——硬黑名单/人写规则/只读白名单，再走 Jev 语义门，只有判不准时才弹一次窗）与 **Bypass**（全部放行）。Shift+Tab 在两者间循环，状态栏实时显示当前模式；未显式开启免审批时一律为 Auto（fail-closed）。
 
-### 6. 配置同步（Cross-device Sync）
-
-Sender 端申请配对码 → Relay Server 生成 6 位数字（5 分钟有效）→ Receiver 端输入配对码建立 WebSocket 连接 → Receiver 选择同步项（settings/skills/mcp/plugins）→ Sender 打包 MessagePack 序列化数据 → PBKDF2 派生 AES-256-GCM 密钥 → 加密分片 → Relay 密文透传 → Receiver 解密校验 → 写入本地文件。
-
 ---
-*最后更新: 2026-05-20 — 由 feature_2026-05-18_F001_acp-tui-separation 和 feature_2026-05-17_F001_config-sync 归档时更新*
+*最后更新: 2026-10-22 — 对照 v0.6.182 代码维护：删除已移除的 Relay 配置同步与 OpenTelemetry 描述，修正产品定位、数据路径与压缩阈值口径*

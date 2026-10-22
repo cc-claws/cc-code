@@ -6,7 +6,7 @@
 
 `cc-widgets` 提供 cc-code TUI 界面所需的所有基础组件，特点：
 
-- **零业务依赖**：仅依赖 ratatui + pulldown-cmark
+- **零业务依赖**：仅依赖 ratatui 及少量通用库（unicode-width、similar、lru 等）；pulldown-cmark / syntect 为可选依赖（feature 控制）
 - **主题系统**：统一的 DarkTheme 配色方案
 - **可测试**：每个组件配套 `_test.rs` 文件
 - **Feature 控制**：Markdown 渲染通过 feature 按需启用
@@ -36,7 +36,7 @@
 ### Diff 渲染
 
 ```rust
-use peri_widgets::diff::{DiffInput, compute_diff};
+use cc_widgets::diff::{DiffInput, compute_diff};
 
 let input = DiffInput {
     file_path: "src/main.rs".to_string(),
@@ -54,7 +54,7 @@ let result = compute_diff(&input);
 ### 文件树
 
 ```rust
-use peri_widgets::file_tree::{FileTreeState, FileNode};
+use cc_widgets::file_tree::{FileTreeState, FileNode};
 
 let mut state = FileTreeState::new();
 state.set_root(vec![
@@ -81,20 +81,20 @@ state.set_root(vec![
 ### Spinner 动画
 
 ```rust
-use peri_widgets::spinner::{SpinnerState, SpinnerMode, SpinnerWidget};
+use cc_widgets::spinner::{SpinnerState, SpinnerMode, SpinnerWidget};
 
-let mut spinner = SpinnerState::new();
-spinner.set_mode(SpinnerMode::Thinking);
+let mut spinner = SpinnerState::new(SpinnerMode::Thinking);
+spinner.set_mode(SpinnerMode::ToolUse); // 运行时可切换模式
 
 // 在渲染循环中
-spinner.tick(); // 更新动画帧
+spinner.advance_tick(); // 推进动画帧
 frame.render_widget(SpinnerWidget::new(&spinner), area);
 ```
 
 ### 主题系统
 
 ```rust
-use peri_widgets::theme::{Theme, DarkTheme};
+use cc_widgets::theme::{Theme, DarkTheme};
 
 let theme = DarkTheme;
 // 使用 theme 获取颜色配置
@@ -103,14 +103,15 @@ let theme = DarkTheme;
 ## 主题系统
 
 ```rust
-use peri_widgets::theme::{Theme, DarkTheme};
+use cc_widgets::theme::{Theme, DarkTheme};
 
 let theme = DarkTheme;
 
-// 使用主题颜色
+// 使用主题颜色（Theme trait 按语义提供颜色方法）
 let style = Style::default()
-    .fg(theme.text_color())
-    .bg(theme.background_color());
+    .fg(theme.text())
+    .bg(theme.popup_bg());
+let accent = theme.accent();
 ```
 
 ## Feature Flags

@@ -68,20 +68,20 @@ Response:
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `peri-middlewares/src/middleware/web_search.rs` | **Rewrite** | WebSearchTool：调用 Tavily /search，解析 JSON 响应，格式化输出 |
-| `peri-middlewares/src/middleware/web_fetch.rs` | **Rewrite** | WebFetchTool：调用 Tavily /extract，解析 JSON 响应，格式化输出 |
-| `peri-middlewares/src/middleware/web_common.rs` | **Simplify** | 只保留 `WEB_CREDIBILITY_WARNING` 常量 |
-| `peri-middlewares/src/middleware/web_test.rs` | **Rewrite** | 更新测试：移除 Bing/HTML 相关测试，新增 Tavily 响应解析测试 |
-| `peri-middlewares/Cargo.toml` | **Modify** | 移除 `base64`、`urlencoding` 依赖（确认仅 web 模块使用） |
-| `peri-middlewares/src/middleware/mod.rs` | **No change** | 模块声明不变 |
-| `peri-middlewares/src/middleware/web.rs` | **No change** | WebMiddleware 注册不变 |
+| `cc-middlewares/src/middleware/web_search.rs` | **Rewrite** | WebSearchTool：调用 Tavily /search，解析 JSON 响应，格式化输出 |
+| `cc-middlewares/src/middleware/web_fetch.rs` | **Rewrite** | WebFetchTool：调用 Tavily /extract，解析 JSON 响应，格式化输出 |
+| `cc-middlewares/src/middleware/web_common.rs` | **Simplify** | 只保留 `WEB_CREDIBILITY_WARNING` 常量 |
+| `cc-middlewares/src/middleware/web_test.rs` | **Rewrite** | 更新测试：移除 Bing/HTML 相关测试，新增 Tavily 响应解析测试 |
+| `cc-middlewares/Cargo.toml` | **Modify** | 移除 `base64`、`urlencoding` 依赖（确认仅 web 模块使用） |
+| `cc-middlewares/src/middleware/mod.rs` | **No change** | 模块声明不变 |
+| `cc-middlewares/src/middleware/web.rs` | **No change** | WebMiddleware 注册不变 |
 
 ---
 
 ### Task 1: Rewrite `web_search.rs` — WebSearchTool 改用 Tavily /search
 
 **Files:**
-- Rewrite: `peri-middlewares/src/middleware/web_search.rs`
+- Rewrite: `cc-middlewares/src/middleware/web_search.rs`
 
 - [ ] **Step 1: Replace entire `web_search.rs` with Tavily implementation**
 
@@ -89,7 +89,7 @@ New file content:
 
 ```rust
 use async_trait::async_trait;
-use peri_agent::tools::BaseTool;
+use cc_agent::tools::BaseTool;
 use serde_json::Value;
 
 use super::web_common::WEB_CREDIBILITY_WARNING;
@@ -244,7 +244,7 @@ impl BaseTool for WebSearchTool {
 ### Task 2: Rewrite `web_fetch.rs` — WebFetchTool 改用 Tavily /extract
 
 **Files:**
-- Rewrite: `peri-middlewares/src/middleware/web_fetch.rs`
+- Rewrite: `cc-middlewares/src/middleware/web_fetch.rs`
 
 - [ ] **Step 1: Replace entire `web_fetch.rs` with Tavily implementation**
 
@@ -252,7 +252,7 @@ New file content:
 
 ```rust
 use async_trait::async_trait;
-use peri_agent::tools::BaseTool;
+use cc_agent::tools::BaseTool;
 use serde_json::Value;
 
 use super::web_common::WEB_CREDIBILITY_WARNING;
@@ -403,7 +403,7 @@ impl BaseTool for WebFetchTool {
 ### Task 3: Simplify `web_common.rs`
 
 **Files:**
-- Modify: `peri-middlewares/src/middleware/web_common.rs`
+- Modify: `cc-middlewares/src/middleware/web_common.rs`
 
 - [ ] **Step 1: Remove all functions, keep only `WEB_CREDIBILITY_WARNING`**
 
@@ -422,7 +422,7 @@ pub(crate) const WEB_CREDIBILITY_WARNING: &str =
 ### Task 4: Rewrite `web_test.rs`
 
 **Files:**
-- Rewrite: `peri-middlewares/src/middleware/web_test.rs`
+- Rewrite: `cc-middlewares/src/middleware/web_test.rs`
 
 - [ ] **Step 1: Replace test file**
 
@@ -555,7 +555,7 @@ async fn test_webfetch_missing_url() {
 ### Task 5: Clean up Cargo.toml dependencies
 
 **Files:**
-- Modify: `peri-middlewares/Cargo.toml`
+- Modify: `cc-middlewares/Cargo.toml`
 
 - [ ] **Step 1: Remove unused dependencies**
 
@@ -576,17 +576,17 @@ async fn test_webfetch_missing_url() {
 
 - [ ] **Step 1: Run cargo build**
 
-Run: `cargo build -p peri-middlewares`
+Run: `cargo build -p cc-middlewares`
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 2: Run tests**
 
-Run: `cargo test -p peri-middlewares --lib -- web`
+Run: `cargo test -p cc-middlewares --lib -- web`
 Expected: ALL TESTS PASS
 
 - [ ] **Step 3: Run clippy**
 
-Run: `cargo clippy -p peri-middlewares`
+Run: `cargo clippy -p cc-middlewares`
 Expected: NO WARNINGS
 
 - [ ] **Step 4: Commit**

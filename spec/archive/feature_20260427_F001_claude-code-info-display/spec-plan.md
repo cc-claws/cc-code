@@ -1,6 +1,6 @@
 # 信息显示 Widget 化升级 执行计划
 
-**目标:** 在 peri-widgets 中新增 SpinnerWidget、ToolCallWidget、MessageBlockWidget 三个核心 widget，对标 Claude Code 的信息显示体验
+**目标:** 在 peri-widgets 中新增 SpinnerWidget、ToolCallWidget、MessageBlockWidget 三个核心 widget，对标 参考实现 的信息显示体验
 
 **技术栈:** Rust 2021 + ratatui ≥0.30 + pulldown-cmark 0.12 + rand 0.8（新增）
 

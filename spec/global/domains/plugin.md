@@ -2,14 +2,14 @@
 
 ## 领域综述
 
-Plugin 领域负责 Claude Code 插件生态的兼容实现，包括插件发现、安装、加载、hooks 执行、MCP 服务器注入等能力。
+Plugin 领域负责插件生态的兼容实现，包括插件发现、安装、加载、hooks 执行、MCP 服务器注入等能力。
 
 核心职责：
 
-- 插件清单解析：兼容 Claude Code 的 `plugin.json` 格式，定义 commands/agents/skills/mcp_servers/hooks/channels 等资产类型
+- 插件清单解析：兼容参考实现的 `plugin.json` 格式，定义 commands/agents/skills/mcp_servers/hooks/channels 等资产类型
 - Marketplace 发现：支持 GitHub 仓库、URL、本地路径、NPM 等 marketplace 来源，后台拉取并缓存插件列表
 - 插件安装管理：安装/卸载/版本管理，支持 user/project/local 三种安装范围，配置合并（全局+项目）
-- Hooks 系统：4 种执行类型（Command/Prompt/Http/Agent），13 个生命周期事件，exit code 控制流程（0=Allow,1=Warn,2=Block）
+- Hooks 系统：4 种执行类型（Command/Prompt/Http/Agent），14 个生命周期事件，exit code 控制流程（0=Allow,1=Warn,2=Block）
 - MCP 环境变量展开：per-plugin 独立展开 `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_DATA}` / `${user_config.KEY}`，支持对象和数组格式
 - 资产集成：插件 commands 注入到命令系统，skills 追加到搜索路径，MCP servers 合并到连接池，agents 追加到搜索路径
 
@@ -19,7 +19,7 @@ Plugin 领域负责 Claude Code 插件生态的兼容实现，包括插件发现
 
 ```
 应用启动
-  → PluginManager::init()
+  → MarketplaceManager::init()
   → 加载 known_marketplaces.json
   → 合并 settings.json 中的 extraKnownMarketplaces
   → 对每个 marketplace 源:
@@ -41,7 +41,7 @@ Plugin 领域负责 Claude Code 插件生态的兼容实现，包括插件发现
 ### 插件加载与集成流程
 
 ```
-PluginManager::load_plugins()
+load_plugins()（自由函数）
   → 遍历 installed_plugins.json 中已启用插件
   → 对每个插件:
       读取 .claude-plugin/plugin.json
@@ -56,7 +56,7 @@ PluginManager::load_plugins()
 ### Hooks 执行流程
 
 ```
-HookMiddleware 拦截（位置 10：HITL 之后、SubAgent 之前）
+HookMiddleware 拦截（HITL 之前、SubAgent 之前，多组实例）
   → fire_event(HookEvent, HookInput)
   → 遍历已注册 hooks:
       once 检查 → 已执行则跳过
@@ -95,11 +95,11 @@ load_merged_config()
 
 | 维度 | 选型 |
 |------|------|
-| 插件清单 | Claude Code `plugin.json` 兼容格式（commands/agents/skills/mcp_servers/hooks/channels） |
-| Marketplace 来源 | GitHub/URL/File/Directory/NPM 四种类型 |
-| 配置合并 | 全局 `~/.peri/settings.json` + 项目 `{cwd}/.mcp.json`（同名覆盖） |
+| 插件清单 | 参考实现 `plugin.json` 兼容格式（commands/agents/skills/mcp_servers/hooks/channels） |
+| Marketplace 来源 | GitHub/Git{url}/URL/File/Directory/NPM 六种类型 |
+| 配置合并 | 插件配置读写 `~/.claude/settings.json`（enabledPlugins 等） |
 | 插件路径 | `~/.claude/plugins/`（缓存）、`~/.claude/settings.json`（enabledPlugins） |
-| Hooks 执行 | 4 种类型（Command/Prompt/Http/Agent），13 个 Phase 1 事件 |
+| Hooks 执行 | 4 种类型（Command/Prompt/Http/Agent），14 个事件 |
 | Exit code 语义 | 0=Allow+JSON解析, 1=Warn, 2=Block |
 | 环境变量 | `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_DATA}` / `${user_config.KEY}` / `${VAR}` |
 | SSRF 防护 | IPv4/IPv6 私有地址阻止，loopback 允许 |
@@ -115,12 +115,12 @@ load_merged_config()
 
 ### feature_20260507_F002_plugin-hook-support
 
-**摘要:** 插件 Hooks 系统：4 种执行类型（command/prompt/http/agent）+ 13 个生命周期事件
+**摘要:** 插件 Hooks 系统：4 种执行类型（command/prompt/http/agent）+ 14 个生命周期事件
 **关键决策:**
 
-- HookMiddleware 拦截模式，插入中间件链位置 10（HITL 之后、SubAgent 之前）
+- HookMiddleware 拦截模式，位于中间件链 HITL 之前、SubAgent 之前（多组实例）
 - 4 种执行类型：Command（shell）、Prompt（LLM）、Http（HTTP POST）、Agent（完整 agent 循环）
-- 13 个 Phase 1 事件：PreToolUse/PostToolUse/PostToolUseFailure/PermissionRequest/UserPromptSubmit/SessionStart/SessionEnd/Stop/StopFailure/SubagentStart/SubagentStop/PreCompact/PostCompact
+- 14 个事件：PreToolUse/PostToolUse/PostToolUseFailure/PermissionRequest/UserPromptSubmit/SessionStart/SessionEnd/Stop/StopFailure/SubagentStart/SubagentStop/PreCompact/PostCompact/Notification
 - Exit code 语义：0=Allow+JSON解析, 1=Warn, 2=Block
 - 双层匹配机制：matcher（粗粒度字符串/正则）+ if（细粒度 permission rule 语法）
 - SSRF 防护：IPv4/IPv6 私有地址阻止，loopback 允许
@@ -146,12 +146,12 @@ load_merged_config()
 
 ### feature_20260506_F001_plugin-marketplace-compat
 
-**摘要:** Claude Code 插件生态兼容：发现/安装/加载 commands/skills/MCP/agents
+**摘要:** 插件生态兼容：发现/安装/加载 commands/skills/MCP/agents
 **关键决策:**
 
 - Plugin 模块嵌入 cc-middlewares（仿 MCP 中间件组织方式）
-- 兼容 Claude Code `plugin.json` 清单格式（commands/agents/skills/mcp_servers/hooks/lsp_servers/channels/options/settings）
-- Marketplace 来源：GitHub/URL/File/Directory/NPM 四种类型
+- 兼容参考实现 `plugin.json` 清单格式（commands/agents/skills/mcp_servers/hooks/lsp_servers/channels/options/settings）
+- Marketplace 来源：GitHub/Git{url}/URL/File/Directory/NPM 六种类型
 - 配置读取优先级：项目级 `.claude/settings.json` > 用户级 `~/.claude/settings.json` > managed-settings.json
 - 文件布局：复用 `~/.claude/` 路径结构（plugins/cache/marketplaces/）
 - 各系统集成：commands→PluginCommandProvider、skills→SkillsMiddleware、mcp_servers→McpMiddleware、agents→SubAgentMiddleware
@@ -178,11 +178,11 @@ load_merged_config()
 
 ### issue_2026-05-29-wsl-plugin-install-marketplace-uninstall-fail
 
-**摘要:** Peri 插件系统依赖 Claude Code 目录结构，未安装 CC 时安装/卸载不可用
+**摘要:** 插件系统依赖参考实现的目录结构，未安装参考实现时安装/卸载不可用
 **状态:** Fixed
 **归档日期:** 2026-05-29
 **关键词:** 插件依赖 CC, marketplace git clone, ~/.claude 目录
-**问题本质:** 插件系统隐式依赖 Claude Code 的目录结构（~/.claude/plugins/marketplaces/），marketplace refresh 的 git clone 在无缓存目录时失败，导致后续安装/卸载连锁失败
+**问题本质:** 插件系统隐式依赖参考实现的目录结构（~/.claude/plugins/marketplaces/），marketplace refresh 的 git clone 在无缓存目录时失败，导致后续安装/卸载连锁失败
 **通用模式:** 外部服务依赖必须显式检测并提供回退方案，不能假设上游目录结构已存在
 **架构影响:** 插件系统应能在独立环境中运行，启动时需自动补建最小目录结构
 **涉及文件:** cc-middlewares/src/plugin/config.rs, cc-middlewares/src/plugin/installer/install.rs, cc-tui/src/app/plugin_panel/handlers/plugin_handlers/persistence.rs

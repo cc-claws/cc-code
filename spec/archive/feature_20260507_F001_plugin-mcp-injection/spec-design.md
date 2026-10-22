@@ -7,9 +7,9 @@
 1. 两插件 A 和 B 都引用 `${user_config.API_KEY}`（各自不同的 key），合并后只有一个值胜出
 2. 插件 server 配置在整个合并池中二次展开，丢失 per-plugin 上下文
 
-Claude Code 的做法是**先展开后合并**——每个插件的 MCP server 在加入全局配置池之前，由插件专属的 `resolvePluginMcpEnvironment()` 独立处理。Peri 缺少这个 per-plugin 展开时机。
+参考实现 的做法是**先展开后合并**——每个插件的 MCP server 在加入全局配置池之前，由插件专属的 `resolvePluginMcpEnvironment()` 独立处理。Peri 缺少这个 per-plugin 展开时机。
 
-同时，Peri 缺少 `pluginSource`（`plugin@marketplace` 标识）。在 Claude Code 中，`ScopedMcpServerConfig.pluginSource` 驱动 channel 白名单 gating。Peri 当前的 `ConfigSource::Plugin` 仅是一个无数据的枚举标签，无法区分具体插件来源。
+同时，Peri 缺少 `pluginSource`（`plugin@marketplace` 标识）。在 参考实现 中，`ScopedMcpServerConfig.pluginSource` 驱动 channel 白名单 gating。Peri 当前的 `ConfigSource::Plugin` 仅是一个无数据的枚举标签，无法区分具体插件来源。
 
 ## 目标
 

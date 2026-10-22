@@ -1,7 +1,5 @@
 # 项目全局 Spec 索引
 
-![全局领域拓扑](./images/01-domain-topology.png)
-
 ## 项目概况
 → [overview.md](./overview.md) — 项目概述
 → [architecture.md](./architecture.md) — 架构全景
@@ -19,15 +17,15 @@
 | [feature_20260508_F001_panel-component-architecture](../archive/feature_20260508_F001_panel-component-architecture/) | 面板组件化：PanelManager/PanelComponent trait 统一面板生命周期 | tui | 2026-05-13 |
 | [feature_20260507_F002_plugin-hook-support](../archive/feature_20260507_F002_plugin-hook-support/) | 插件 Hooks 系统：4 种执行类型（command/prompt/http/agent）+ 13 个事件 | plugin | 2026-05-13 |
 | [feature_20260507_F001_plugin-mcp-injection](../archive/feature_20260507_F001_plugin-mcp-injection/) | 插件 MCP 环境变量 per-plugin 展开，pluginSource 旁路表 | mcp | 2026-05-13 |
-| [feature_20260506_F001_plugin-marketplace-compat](../archive/feature_20260506_F001_plugin-marketplace-compat/) | Claude Code 插件生态兼容：发现/安装/加载 commands/skills/MCP | plugin | 2026-05-13 |
+| [feature_20260506_F001_plugin-marketplace-compat](../archive/feature_20260506_F001_plugin-marketplace-compat/) | 插件生态兼容：发现/安装/加载 commands/skills/MCP | plugin | 2026-05-13 |
 | [feature_20260505_F001_web-tools](../archive/feature_20260505_F001_web-tools/) | Web 工具中间件：WebFetch（HTML→Markdown）+ WebSearch（Exa API） | agent | 2026-05-13 |
 | [feature_20260503_F002_multi-agent-design](../archive/feature_20260503_F002_multi-agent-design/) | Fork 路径继承父 agent 上下文 + Agent prompt 指导扩写 | agent | 2026-05-04 |
 | [feature_20260503_F001_mcp-oauth-auth](../archive/feature_20260503_F001_mcp-oauth-auth/) | MCP HTTP 传输层集成 OAuth 2.0（PKCE + Token 持久化 + 混合回调） | mcp | 2026-05-04 |
 | [feature_20260503_F001_cc-commands-alignment](../archive/feature_20260503_F001_cc-commands-alignment/) | 新增 /config /cost /context /memory 四个命令 + Command alias 机制 | tui | 2026-05-04 |
 | [feature_20260502_F002_mcp-management](../archive/feature_20260502_F002_mcp-management/) | MCP 连接池后台初始化 + /mcp 运行时管理面板 | mcp | 2026-05-04 |
 | [feature_20260502_F001_mcp-middleware](../archive/feature_20260502_F001_mcp-middleware/) | MCP Client 中间件（stdio/HTTP 传输、工具桥接、双层配置） | mcp | 2026-05-04 |
-| [feature_20260501_F001_color-system-refactor](../archive/feature_20260501_F001_color-system-refactor/) | TUI 配色对齐 Claude Code Dark 主题 + 清理 28 处硬编码颜色 | tui | 2026-05-04 |
-| [feature_20260430_F001_align-claude-code-tools](../archive/feature_20260430_F001_align-claude-code-tools/) | 10 个工具名称和参数结构完全对齐 Claude Code | agent | 2026-05-04 |
+| [feature_20260501_F001_color-system-refactor](../archive/feature_20260501_F001_color-system-refactor/) | TUI 配色对齐参考实现 Dark 主题 + 清理 28 处硬编码颜色 | tui | 2026-05-04 |
+| [feature_20260430_F001_align-claude-code-tools](../archive/feature_20260430_F001_align-claude-code-tools/) | 10 个工具名称和参数结构完全对齐参考实现 | agent | 2026-05-04 |
 | [feature_20260503_F003_background-agent](../archive/feature_20260503_F003_background-agent/) | Agent 工具支持后台执行，主 agent 不阻塞，完成后通知注入 | agent | 2026-05-04 |
 | [feature_20260504_F001_sqlx-migration](../archive/feature_20260504_F001_sqlx-migration/) | 线程持久化层从 rusqlite 同步迁移到 sqlx 原生异步 | storage | 2026-05-04 |
 | [feature_20260430_F003_replace-grep-with-ripgrep](../archive/feature_20260430_F003_replace-grep-with-ripgrep/) | 用 grep+grep-regex crate 替换外部 rg 进程调用 | file-search | 2026-04-30 |
@@ -44,7 +42,7 @@
 | [feature_20260427_F002_permission-mode](../archive/feature_20260427_F002_permission-mode/) | 支持 5 级权限模式，Shift+Tab 循环切换 | hitl-permissions | 2026-04-30 |
 | [feature_20260427_F001_relay-removal](../archive/feature_20260427_F001_relay-removal/) | 完整删除废弃的 Relay Server 远程控制功能 | code-architecture | 2026-04-30 |
 | [feature_20260427_F001_ratatui-widget-lib](../archive/feature_20260427_F001_ratatui-widget-lib/) | 抽取 TUI 重复 UI 代码为独立可复用 ratatui widget crate | tui-widgets | 2026-04-30 |
-| [feature_20260427_F001_claude-code-info-display](../archive/feature_20260427_F001_claude-code-info-display/) | 对标 Claude Code 新增 Spinner、工具调用、消息块三个 widget | tui-widgets | 2026-04-30 |
+| [feature_20260427_F001_claude-code-info-display](../archive/feature_20260427_F001_claude-code-info-display/) | 对标参考实现新增 Spinner、工具调用、消息块三个 widget | tui-widgets | 2026-04-30 |
 | [20260408_F001_askuser-dialog-height](../archive/feature_20260408_F001_askuser-dialog-height/) | AskUser 弹窗高度计算修复，滚动可见高度动态化 | tui | 2026-04-27 |
 | [20260331_F001_history-workspace-tag](../archive/feature_20260331_F001_history-workspace-tag/) | /history 面板按 cwd 过滤只显示当前工作区对话 | tui | 2026-04-27 |
 | [20260330_F005_tui-setup-wizard](../archive/feature_20260330_F005_tui-setup-wizard/) | 首次启动三步引导（Provider → API Key → Model Alias） | tui | 2026-04-27 |
@@ -63,7 +61,7 @@
 | [20260328_F002_relay-multi-user-isolation](../archive/feature_20260328_F002_relay-multi-user-isolation/) | UserNamespace 分层实现多用户完全隔离 | relay-server | 2026-03-29 |
 | [20260328_H2_thread-store](../archive/feature_20260328_H2_thread-store/) | （无设计文档）| — | 2026-03-28 |
 | [20260328_F001_skill-preload-on-send](../archive/feature_20260328_F001_skill-preload-on-send/) | TUI 发送含 #skill-name 消息时自动全文预加载对应 skill | tui | 2026-03-28 |
-| [20260328_F001_ask-user-question-align](../archive/feature_20260328_F001_ask-user-question-align/) | ask_user 工具全面对齐 Claude AskUserQuestion 接口规范 | agent | 2026-03-28 |
+| [20260328_F001_ask-user-question-align](../archive/feature_20260328_F001_ask-user-question-align/) | ask_user 工具全面对齐参考实现的 AskUserQuestion 接口规范 | agent | 2026-03-28 |
 | [20260327_M3_system-prompt](../archive/feature_20260327_M3_system-prompt/) | with_system_prompt() 消除 PrependSystemMiddleware 注册顺序约束 | agent | 2026-03-28 |
 | [20260327_H3_interaction-unify](../archive/feature_20260327_H3_interaction-unify/) | 提取 UserInteractionBroker trait 统一 HITL 和 AskUser 交互机制 | agent | 2026-03-28 |
 | [20260327_H1_relay-decouple](../archive/feature_20260327_H1_relay-decouple/) | （无设计文档）| relay-server | 2026-03-28 |
@@ -90,7 +88,7 @@
 | [20260325_F001_subagent-middleware-injection](../archive/feature_20260325_F001_subagent-middleware-injection/) | 子 Agent 补全三个缺失中间件使上下文一致 | agent | 2026-03-27 |
 | [20260325_F001_langfuse-subagent-nesting](../archive/feature_20260325_F001_langfuse-subagent-nesting/) | Langfuse 子 Agent 嵌套追踪迭代探索（无设计文档） | langfuse | 2026-03-27 |
 | [20260325_F001_langfuse-nested-subagent-trace](../archive/feature_20260325_F001_langfuse-nested-subagent-trace/) | Langfuse 嵌套子 Agent 追踪迭代探索（无设计文档） | langfuse | 2026-03-27 |
-| [20260324_F002_relay-server-ui-redesign](../archive/feature_20260324_F002_relay-server-ui-redesign/) | Relay Web 前端重设计为 Claude 风格多分屏界面 | relay-server | 2026-03-27 |
+| [20260324_F002_relay-server-ui-redesign](../archive/feature_20260324_F002_relay-server-ui-redesign/) | Relay Web 前端重设计（多分屏界面） | relay-server | 2026-03-27 |
 | [20260324_F001_ratatui-markdown-renderer](../archive/feature_20260324_F001_ratatui-markdown-renderer/) | pulldown-cmark 替代 tui-markdown，自制 ratatui 渲染器 | tui | 2026-03-27 |
 | [20260324_F001_rust-langfuse-client](../archive/feature_20260324_F001_rust-langfuse-client/) | Langfuse 客户端早期探索（无设计文档） | langfuse | 2026-03-27 |
 | [20260324_F001_langfuse-tui-monitoring](../archive/feature_20260324_F001_langfuse-tui-monitoring/) | TUI 层接入 Langfuse 全链路追踪 | langfuse | 2026-03-27 |
@@ -114,8 +112,7 @@
 - [agent](./domains/agent.md) — Agent 核心（ReAct 执行器、消息系统、工具抽象、持久化）— 18 features
 - [tui](./domains/tui.md) — TUI 界面（渲染、交互、命令、面板）— 33 features
 - [mcp](./domains/mcp.md) — MCP 集成（Client 中间件、连接池、OAuth 2.0、运行时管理）— 4 features
-- [plugin](./domains/plugin.md) — 插件系统（Claude Code 插件生态兼容、Hooks 系统、MCP env 展开）— 3 features
-- [relay-server](./domains/relay-server.md) — Relay Server（WebSocket 中继、远程控制）— 12 features
+- [plugin](./domains/plugin.md) — 插件系统（插件生态兼容、Hooks 系统、MCP env 展开）— 3 features
 - [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）— 8 features
 - [model-config](./domains/model-config.md) — 模型配置（Provider 自包含四档模型名 opus/sonnet/haiku/fable、/login 与 /model 分离）— 1 feature
 - [token-tracking](./domains/token-tracking.md) — Token 追踪与压缩（累积追踪、上下文窗口感知、自动压缩）— 1 feature

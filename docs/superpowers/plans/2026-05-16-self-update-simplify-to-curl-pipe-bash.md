@@ -13,10 +13,10 @@
 ### Task 1: 重写 `self_update.rs` 为 `update.rs`
 
 **Files:**
-- Create: `peri-tui/src/update.rs`（替代 `self_update.rs`）
-- Delete: `peri-tui/src/self_update.rs`
+- Create: `cc-tui/src/update.rs`（替代 `self_update.rs`）
+- Delete: `cc-tui/src/self_update.rs`
 
-- [ ] **Step 1: 创建 `peri-tui/src/update.rs`**
+- [ ] **Step 1: 创建 `cc-tui/src/update.rs`**
 
 ```rust
 //! Update mechanism: curl remote install.sh | bash.
@@ -87,30 +87,30 @@ pub async fn run_update() -> Result<String> {
 - [ ] **Step 2: 删除旧文件**
 
 ```bash
-rm peri-tui/src/self_update.rs
+rm cc-tui/src/self_update.rs
 ```
 
-- [ ] **Step 3: 更新 `peri-tui/src/lib.rs` 模块声明**
+- [ ] **Step 3: 更新 `cc-tui/src/lib.rs` 模块声明**
 
 将 `pub mod self_update;` 改为 `pub mod update;`：
 
 ```rust
-// peri-tui/src/lib.rs 第 22 行
+// cc-tui/src/lib.rs 第 22 行
 pub mod update;
 ```
 
 ### Task 2: 更新 `main.rs` 中的 CLI 和调用点
 
 **Files:**
-- Modify: `peri-tui/src/main.rs:36-51`（CLI 枚举）
-- Modify: `peri-tui/src/main.rs:111-126`（调用点）
+- Modify: `cc-tui/src/main.rs:36-51`（CLI 枚举）
+- Modify: `cc-tui/src/main.rs:111-126`（调用点）
 
 - [ ] **Step 1: 修改 CLI 枚举变体名**
 
 将 `SelfUpdate` 改为 `Update`，更新 about 描述：
 
 ```rust
-// peri-tui/src/main.rs 第 36-51 行
+// cc-tui/src/main.rs 第 36-51 行
 #[derive(Subcommand)]
 enum Commands {
     /// 以 ACP Agent 模式运行（stdin/stdout JSON-RPC）
@@ -133,13 +133,13 @@ enum Commands {
 - [ ] **Step 2: 修改调用点**
 
 ```rust
-// peri-tui/src/main.rs 第 111-126 行
+// cc-tui/src/main.rs 第 111-126 行
 Some(Commands::Update) => {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     rt.block_on(async {
-        match peri_tui::update::run_update().await {
+        match cc_tui::update::run_update().await {
             Ok(tag) => println!("Updated to {tag}"),
             Err(e) => {
                 eprintln!("Update failed: {e:#}");
@@ -153,10 +153,10 @@ Some(Commands::Update) => {
 
 ### Task 3: 编译验证
 
-- [ ] **Step 1: 编译 peri-tui**
+- [ ] **Step 1: 编译 cc-tui**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 Expected: 编译成功，无 warning。
@@ -164,7 +164,7 @@ Expected: 编译成功，无 warning。
 - [ ] **Step 2: 运行 clippy**
 
 ```bash
-cargo clippy -p peri-tui -- -D warnings
+cargo clippy -p cc-tui -- -D warnings
 ```
 
 Expected: 无 warning。
@@ -172,7 +172,7 @@ Expected: 无 warning。
 - [ ] **Step 3: 运行测试**
 
 ```bash
-cargo test -p peri-tui
+cargo test -p cc-tui
 ```
 
 Expected: 全部通过。
@@ -180,7 +180,7 @@ Expected: 全部通过。
 - [ ] **Step 4: 验证 CLI help 输出**
 
 ```bash
-cargo run -p peri-tui -- --help
+cargo run -p cc-tui -- --help
 ```
 
 Expected: 子命令显示 `update` 而非 `self-update`。
@@ -190,7 +190,7 @@ Expected: 子命令显示 `update` 而非 `self-update`。
 - [ ] **Step 1: 提交更改**
 
 ```bash
-git add peri-tui/src/update.rs peri-tui/src/lib.rs peri-tui/src/main.rs
-git rm peri-tui/src/self_update.rs
+git add cc-tui/src/update.rs cc-tui/src/lib.rs cc-tui/src/main.rs
+git rm cc-tui/src/self_update.rs
 git commit -m "refactor: simplify self-update to curl | bash via update.rs"
 ```

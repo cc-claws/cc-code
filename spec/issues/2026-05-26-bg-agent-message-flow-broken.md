@@ -107,14 +107,14 @@
 
 | 文件 | 角色 |
 |------|------|
-| `peri-tui/src/app/message_pipeline/mod.rs` | SubAgentState 管理、drain_subagent_stack、build_tail_vms |
-| `peri-tui/src/app/message_pipeline/reconcile.rs` | merge_frozen_subagents、build_rebuild_all |
-| `peri-tui/src/app/agent_events_bg.rs` | handle_background_task_completed |
-| `peri-tui/src/app/agent_ops/subagent.rs` | SubAgent 事件路由、subagent_stack 管理 |
-| `peri-tui/src/app/agent_ops/lifecycle.rs` | handle_done、agent 生命周期 |
-| `peri-tui/src/ui/main_ui/bg_agent_bar.rs` | 后台 agent 管理栏 UI |
-| `peri-middlewares/src/subagent/tool/define.rs` | invoke_background、SubagentStarted/BackgroundTaskCompleted 发送 |
-| `peri-middlewares/src/subagent/background.rs` | BackgroundTaskRegistry、register() TOCTOU |
+| `cc-tui/src/app/message_pipeline/mod.rs` | SubAgentState 管理、drain_subagent_stack、build_tail_vms |
+| `cc-tui/src/app/message_pipeline/reconcile.rs` | merge_frozen_subagents、build_rebuild_all |
+| `cc-tui/src/app/agent_events_bg.rs` | handle_background_task_completed |
+| `cc-tui/src/app/agent_ops/subagent.rs` | SubAgent 事件路由、subagent_stack 管理 |
+| `cc-tui/src/app/agent_ops/lifecycle.rs` | handle_done、agent 生命周期 |
+| `cc-tui/src/ui/main_ui/bg_agent_bar.rs` | 后台 agent 管理栏 UI |
+| `cc-middlewares/src/subagent/tool/define.rs` | invoke_background、SubagentStarted/BackgroundTaskCompleted 发送 |
+| `cc-middlewares/src/subagent/background.rs` | BackgroundTaskRegistry、register() TOCTOU |
 | `docs/superpowers/plans/2026-05-24-concurrent-bg-agent-completion-loss.md` | 并发完成通知丢失的完整修复计划 |
 
 ---
@@ -395,7 +395,7 @@ fn find_running_subagent_mut(&mut self, instance_id: &str) -> Option<&mut SubAge
 ## 架构审查报告
 
 **审查日期**：2026-05-26
-**审查范围**：peri-tui 多智能体消息追踪与生命周期管理
+**审查范围**：cc-tui 多智能体消息追踪与生命周期管理
 **审查结论**：当前设计在同步 SubAgent 场景下可工作，但存在根本性的设计缺陷，导致后台 Agent 无法被正确追踪。架构需要结构性改进，而非补丁式修复。
 
 ### 一、总体判断
@@ -583,14 +583,14 @@ BackgroundTaskCompleted ──> bg_agents.remove()  view_messages
 
 ### 四、与成熟系统的对比
 
-#### Claude Code CLI
+#### 参考实现 CLI
 
-Claude Code 的 SubAgent 模型更简单：
+参考实现 的 SubAgent 模型更简单：
 - **没有独立的 UI 消息追踪层**：子 agent 的输出直接作为工具结果返回，不实时显示内部步骤
 - **后台任务使用独立通知机制**：完成后注入一条 Human 消息到对话历史
 - **没有 `subagent_stack` 概念**：子 agent 是原子操作（从 TUI 角度看），只有"进行中"和"已完成"两个状态
 
-对比启示：peri-tui 的 `SubAgentState` 带有 `recent_messages` 滑动窗口，提供了更丰富的实时 UI 反馈，但代价是复杂度显著增加。这个设计决策本身不是错误的，但需要匹配的状态管理架构。
+对比启示：cc-tui 的 `SubAgentState` 带有 `recent_messages` 滑动窗口，提供了更丰富的实时 UI 反馈，但代价是复杂度显著增加。这个设计决策本身不是错误的，但需要匹配的状态管理架构。
 
 #### Cursor/Continue
 
@@ -599,7 +599,7 @@ Cursor 的后台任务设计：
 - **独立状态管理**：每个后台任务有自己的状态机（idle/running/completed/failed），不依赖父 agent 的状态
 - **事件通道隔离**：后台任务的事件走独立通道，不与主 agent 事件混合
 
-对比启示：peri-tui 的 `RunningBgAgent`（在 `ChatSession` 中）+ `bg_agent_bar` UI 已经具备了独立面板的基础，但状态追踪仍依赖 `MessagePipeline` 的 `subagent_stack`。状态管理与 UI 显示脱节——UI 有独立面板，状态没有独立管理。
+对比启示：cc-tui 的 `RunningBgAgent`（在 `ChatSession` 中）+ `bg_agent_bar` UI 已经具备了独立面板的基础，但状态追踪仍依赖 `MessagePipeline` 的 `subagent_stack`。状态管理与 UI 显示脱节——UI 有独立面板，状态没有独立管理。
 
 ### 五、推荐架构改进方向
 
@@ -702,7 +702,7 @@ struct BgAgentTracker {
 4. **消费路径**：浏览子 agent 历史时用 `load_messages(child_thread_id)` 加载其自身消息
 5. **source_agent_id 即 thread_id**：事件中的 `source_agent_id` 就是持久化的 thread_id
 
-存储层 API（`peri-agent/src/thread/sqlite_store.rs`）已实现：
+存储层 API（`cc-agent/src/thread/sqlite_store.rs`）已实现：
 
 | API | 功能 | 状态 |
 |-----|------|------|

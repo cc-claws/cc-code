@@ -13,7 +13,7 @@
 ### Task 1: CompactMiddleware — wrap summary text
 
 **Files:**
-- Modify: `peri-middlewares/src/compact_middleware.rs:227-231`
+- Modify: `cc-middlewares/src/compact_middleware.rs:227-231`
 
 - [ ] **Step 1: Wrap summary text in `<system-reminder>` tags**
 
@@ -40,7 +40,7 @@ let summary_content = format!(
 - [ ] **Step 2: Build and verify compilation**
 
 ```bash
-cargo build -p peri-middlewares
+cargo build -p cc-middlewares
 ```
 
 Expected: PASS
@@ -48,7 +48,7 @@ Expected: PASS
 - [ ] **Step 3: Run existing compact middleware tests**
 
 ```bash
-cargo test -p peri-middlewares --lib -- compact_middleware
+cargo test -p cc-middlewares --lib -- compact_middleware
 ```
 
 Expected: all existing tests PASS (model is None in all tests, so full_compact never executes)
@@ -56,7 +56,7 @@ Expected: all existing tests PASS (model is None in all tests, so full_compact n
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/compact_middleware.rs
+git add cc-middlewares/src/compact_middleware.rs
 git commit -m "feat: wrap compact summary in <system-reminder> tags"
 ```
 
@@ -65,8 +65,8 @@ git commit -m "feat: wrap compact summary in <system-reminder> tags"
 ### Task 2: MessageViewModel — detect `<system-reminder>` and set flag
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_view/mod.rs`
-- Modify: `peri-tui/src/ui/message_view/message_view_test.rs`
+- Modify: `cc-tui/src/ui/message_view/mod.rs`
+- Modify: `cc-tui/src/ui/message_view/message_view_test.rs`
 
 - [ ] **Step 1: Add `system_reminder` field to `UserBubble` variant**
 
@@ -191,7 +191,7 @@ fn test_human_message_without_system_reminder() {
 - [ ] **Step 7: Run tests**
 
 ```bash
-cargo test -p peri-tui --lib -- message_view
+cargo test -p cc-tui --lib -- message_view
 ```
 
 Expected: 2 new tests + all existing tests PASS
@@ -199,7 +199,7 @@ Expected: 2 new tests + all existing tests PASS
 - [ ] **Step 8: Verify full build compiles**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 Expected: PASS (all pattern matches with `..` still compile)
@@ -207,7 +207,7 @@ Expected: PASS (all pattern matches with `..` still compile)
 - [ ] **Step 9: Commit**
 
 ```bash
-git add peri-tui/src/ui/message_view/mod.rs peri-tui/src/ui/message_view/message_view_test.rs
+git add cc-tui/src/ui/message_view/mod.rs cc-tui/src/ui/message_view/message_view_test.rs
 git commit -m "feat: detect <system-reminder> in Human messages, set system_reminder flag"
 ```
 
@@ -216,8 +216,8 @@ git commit -m "feat: detect <system-reminder> in Human messages, set system_remi
 ### Task 3: message_render — render hint line for system reminders
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_render.rs`
-- Modify: `peri-tui/src/ui/message_render_test.rs`
+- Modify: `cc-tui/src/ui/message_render.rs`
+- Modify: `cc-tui/src/ui/message_render_test.rs`
 
 - [ ] **Step 1: Add system_reminder rendering branch**
 
@@ -294,7 +294,7 @@ fn test_render_normal_user_bubble_unchanged() {
 - [ ] **Step 3: Run tests**
 
 ```bash
-cargo test -p peri-tui --lib -- message_render
+cargo test -p cc-tui --lib -- message_render
 ```
 
 Expected: 2 new tests + all existing tests PASS
@@ -302,7 +302,7 @@ Expected: 2 new tests + all existing tests PASS
 - [ ] **Step 4: Verify full build**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 Expected: PASS
@@ -310,7 +310,7 @@ Expected: PASS
 - [ ] **Step 5: Run full test suite**
 
 ```bash
-cargo test -p peri-tui -p peri-middlewares --lib
+cargo test -p cc-tui -p cc-middlewares --lib
 ```
 
 Expected: all tests PASS
@@ -318,7 +318,7 @@ Expected: all tests PASS
 - [ ] **Step 6: Check Clippy**
 
 ```bash
-cargo clippy -p peri-tui -p peri-middlewares
+cargo clippy -p cc-tui -p cc-middlewares
 ```
 
 Expected: no new warnings
@@ -326,7 +326,7 @@ Expected: no new warnings
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/ui/message_render.rs peri-tui/src/ui/message_render_test.rs
+git add cc-tui/src/ui/message_render.rs cc-tui/src/ui/message_render_test.rs
 git commit -m "feat: render system-reminder UserBubble as single-line hint"
 ```
 

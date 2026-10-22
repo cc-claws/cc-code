@@ -8,7 +8,7 @@
 
 ## 问题描述
 
-用户使用中文与 AI 对话时，多轮对话后 AI 会中途切换为英文回复。系统提示词中没有任何语言指示段落，LLM 无法获知用户期望的响应语言。与 Claude Code 对比发现，Claude Code 在系统提示词中动态注入 `# Language` 段落来锁定响应语言。
+用户使用中文与 AI 对话时，多轮对话后 AI 会中途切换为英文回复。系统提示词中没有任何语言指示段落，LLM 无法获知用户期望的响应语言。与 参考实现 对比发现，参考实现 在系统提示词中动态注入 `# Language` 段落来锁定响应语言。
 
 ## 症状详情
 
@@ -30,7 +30,7 @@
 - **系统提示词**：`build_system_prompt()` 的 11 个段落（01-07 + 10-13）中**无任何语言指示**
 - **语言偏好未传递给 LLM**：`language` 字段仅用于 UI 渲染，从未传入系统��示词
 
-### Claude Code 实现
+### 参考实现 实现
 
 ```typescript
 // src/constants/prompts.ts
@@ -51,7 +51,7 @@ return [
 
 ### 关键差异
 
-| 维度 | Perihelion | Claude Code |
+| 维度 | Perihelion | 参考实现 |
 |------|-----------|-------------|
 | 界面语言切换 | `/lang` 命令 | `/lang` 命令 |
 | 语言配置持久化 | `AppConfig.language` | `preferredLanguage` |
@@ -81,4 +81,4 @@ return [
 2. 从 `AppConfig.language` 读取语言偏好，传入 `build_system_prompt()`
 3. 语言偏好应在 `session/new` 时冻结到 `FrozenSessionData`（与 cwd/date 同策略）
 4. 支持 `auto` 模式：无显式配置时从系统 locale 推断
-5. 语言段落模板参考 Claude Code："Always respond in {language}. Technical terms and code identifiers should remain in their original form."
+5. 语言段落模板参考 参考实现："Always respond in {language}. Technical terms and code identifiers should remain in their original form."

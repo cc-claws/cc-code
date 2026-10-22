@@ -8,7 +8,7 @@
 - Task 1-6 (Candidate A)：新增 `DirectEventSink` → 让 `ExecutorEvent` 不经 JSON 序列化直达 TUI pump，消除 `peri/agent_event` 的 serde 往返。同时保留 `TransportEventSink` 的 `session/update` 和 `peri/*` 通知路径（ACP 合规所需）。
 - Task 7 (Candidate C1)：移除 TUI `AgentEvent::InteractionRequest` 变体及全部处理代码——该变体无任何生产代码发送，全部 HITL/AskUser 已走 ACP RPC 路径。
 
-**Tech Stack:** Rust, tokio mpsc channels, peri-acp EventSink trait
+**Tech Stack:** Rust, tokio mpsc channels, cc-acp EventSink trait
 
 ---
 
@@ -22,25 +22,25 @@ cd /Users/konghayao/code/ai/perihelion
 rg "InteractionRequest\s*\{" --glob '*.rs' -l | grep -v spec/ | grep -v _test
 ```
 
-Expected: 仅 `peri-tui/src/app/events.rs`（定义）和 `peri-tui/src/app/agent_ops.rs`（匹配）。无生产代码构造该值并发送。
+Expected: 仅 `cc-tui/src/app/events.rs`（定义）和 `cc-tui/src/app/agent_ops.rs`（匹配）。无生产代码构造该值并发送。
 
 ---
 
 ### Task 1: 新增 DirectEventSink
 
 **Files:**
-- Create: `peri-acp/src/session/event_sink_direct.rs`
-- Modify: `peri-acp/src/session/mod.rs`
+- Create: `cc-acp/src/session/event_sink_direct.rs`
+- Modify: `cc-acp/src/session/mod.rs`
 
 直接实现 `EventSink` trait：将 `ExecutorEvent` 直接发送到 `mpsc::UnboundedSender<ExecutorEvent>`，不经过 JSON。
 
 - [ ] **Step 1: 创建 `event_sink_direct.rs`**
 
 ```rust
-// peri-acp/src/session/event_sink_direct.rs
+// cc-acp/src/session/event_sink_direct.rs
 
 use async_trait::async_trait;
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
+use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 use tokio::sync::mpsc;
 
 use super::event_sink::EventSink;
@@ -72,7 +72,7 @@ impl EventSink for DirectEventSink {
 
 - [ ] **Step 2: 注册模块**
 
-在 `peri-acp/src/session/mod.rs` 添加：
+在 `cc-acp/src/session/mod.rs` 添加：
 
 ```rust
 pub mod event_sink_direct;
@@ -81,7 +81,7 @@ pub mod event_sink_direct;
 - [ ] **Step 3: 构建验证**
 
 ```bash
-cargo build -p peri-acp 2>&1
+cargo build -p cc-acp 2>&1
 ```
 
 Expected: 编译通过。
@@ -89,7 +89,7 @@ Expected: 编译通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/event_sink_direct.rs peri-acp/src/session/mod.rs
+git add cc-acp/src/session/event_sink_direct.rs cc-acp/src/session/mod.rs
 git commit -m "feat(acp): add DirectEventSink for same-process ExecutorEvent delivery
 
 Eliminates JSON serialization round-trip when TUI and ACP server
@@ -104,7 +104,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 2: TransportEventSink 支持可选 DirectTx
 
 **Files:**
-- Modify: `peri-acp/src/session/event_sink.rs`
+- Modify: `cc-acp/src/session/event_sink.rs`
 
 让 `TransportEventSink` 保留 `session/update` 和 `peri/*` 通知，但当 `direct_tx` 为 `Some` 时，`peri/agent_event` 改为走直连通道。
 
@@ -141,7 +141,7 @@ impl TransportEventSink {
 }
 ```
 
-需要在上方添加 `use tokio::sync::mpsc;` 和 `use peri_agent::agent::events::AgentEvent as ExecutorEvent;`（后者已在第 8 行）。
+需要在上方添加 `use tokio::sync::mpsc;` 和 `use cc_agent::agent::events::AgentEvent as ExecutorEvent;`（后者已在第 8 行）。
 
 - [ ] **Step 2: 修改 `push_event` 方法的 `peri/agent_event` 部分**
 
@@ -198,7 +198,7 @@ impl EventSink for TransportEventSink {
 - [ ] **Step 3: 构建验证**
 
 ```bash
-cargo build -p peri-acp 2>&1
+cargo build -p cc-acp 2>&1
 ```
 
 Expected: 编译通过。
@@ -206,7 +206,7 @@ Expected: 编译通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/event_sink.rs
+git add cc-acp/src/session/event_sink.rs
 git commit -m "feat(acp): TransportEventSink supports optional DirectEventSink bypass
 
 When direct_tx is Some, peri/agent_event bypasses JSON serialization.
@@ -221,7 +221,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 3: AcpTuiClient 新增直接事件接收通道
 
 **Files:**
-- Modify: `peri-tui/src/acp_client/client.rs`
+- Modify: `cc-tui/src/acp_client/client.rs`
 
 让 `AcpTuiClient` 持有 `direct_event_rx: Option<mpsc::UnboundedReceiver<ExecutorEvent>>`，在 pump 中与 transport 并行轮询。
 
@@ -240,7 +240,7 @@ pub struct AcpTuiClient {
 }
 ```
 
-通过 `use peri_agent::agent::events::AgentEvent as ExecutorEvent;` 引入。
+通过 `use cc_agent::agent::events::AgentEvent as ExecutorEvent;` 引入。
 
 修改 `new()` 函数：
 
@@ -381,7 +381,7 @@ fn dispatch_transport_msg(msg: IncomingMessage, event_count: &mut u64) -> Option
 - [ ] **Step 5: 构建验证**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 需确保 `ExecutorEvent` 在 `client.rs` 的作用域内可用（添加 `use`）。
@@ -389,7 +389,7 @@ cargo build -p peri-tui 2>&1
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/acp_client/client.rs
+git add cc-tui/src/acp_client/client.rs
 git commit -m "feat(tui): AcpTuiClient supports direct ExecutorEvent channel
 
 Added direct_event_rx to bypass JSON deserialization when DirectEventSink
@@ -404,8 +404,8 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 4: acp_server 和 main.rs 布线 DirectEventSink
 
 **Files:**
-- Modify: `peri-tui/src/main.rs`
-- Modify: `peri-tui/src/acp_server.rs` (调整注释，无需代码变更——布线在 main.rs)
+- Modify: `cc-tui/src/main.rs`
+- Modify: `cc-tui/src/acp_server.rs` (调整注释，无需代码变更——布线在 main.rs)
 
 在 `main.rs` 中创建 `DirectEventSink` 的 channel pair，将 rx 端传给 `AcpTuiClient`，tx 端传给 `TransportEventSink::with_direct()`。
 
@@ -430,7 +430,7 @@ app.acp_client = Some(acp_client);
 修改为：
 
 ```rust
-use peri_acp::session::event_sink_direct::DirectEventSink;
+use cc_acp::session::event_sink_direct::DirectEventSink;
 
 let (client_transport, server_transport) = mpsc_transport_pair();
 
@@ -457,18 +457,18 @@ app.session_mgr.sessions[app.session_mgr.active]
 app.acp_client = Some(acp_client);
 ```
 
-需要导入 `use peri_agent::agent::events::AgentEvent as ExecutorEvent;`。
+需要导入 `use cc_agent::agent::events::AgentEvent as ExecutorEvent;`。
 
 - [ ] **Step 2: 修改 `run_acp_server` 签名**
 
-在 `peri-tui/src/acp_server.rs` 中，修改 `run_acp_server` 接受 `direct_tx`：
+在 `cc-tui/src/acp_server.rs` 中，修改 `run_acp_server` 接受 `direct_tx`：
 
 ```rust
 pub async fn run_acp_server(
-    transport: Arc<dyn peri_acp::transport::AcpTransport>,
+    transport: Arc<dyn cc_acp::transport::AcpTransport>,
     cfg: AcpServerConfig,
     direct_tx: Option<tokio::sync::mpsc::UnboundedSender<
-        peri_agent::agent::events::AgentEvent,
+        cc_agent::agent::events::AgentEvent,
     >>,
 ) {
 ```
@@ -476,7 +476,7 @@ pub async fn run_acp_server(
 在 `execute_prompt` 内部函数中，修改 `event_sink` 的创建（约 line 389）：
 
 ```rust
-let event_sink: Arc<dyn peri_acp::session::event_sink::EventSink> = 
+let event_sink: Arc<dyn cc_acp::session::event_sink::EventSink> = 
     if let Some(dt) = direct_tx {
         Arc::new(TransportEventSink::with_direct(Arc::clone(transport), dt))
     } else {
@@ -487,7 +487,7 @@ let event_sink: Arc<dyn peri_acp::session::event_sink::EventSink> =
 - [ ] **Step 3: 构建验证**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 检查是否有未使用的 import 或编译错误。
@@ -495,7 +495,7 @@ cargo build -p peri-tui 2>&1
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/main.rs peri-tui/src/acp_server.rs
+git add cc-tui/src/main.rs cc-tui/src/acp_server.rs
 git commit -m "feat(tui): wire DirectEventSink into ACP server→TUI pump pipeline
 
 ExecutorEvent now bypasses JSON serialization for same-process TUI path.
@@ -510,7 +510,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 5: 清理 client.rs 中已无用的 peri/agent_event JSON 反序列化
 
 **Files:**
-- Modify: `peri-tui/src/acp_client/client.rs`
+- Modify: `cc-tui/src/acp_client/client.rs`
 
 由于 `TransportEventSink.with_direct()` 不再发送 `peri/agent_event` 通知，`dispatch_transport_msg` 中的 `peri/agent_event` 反序列化分支成为死代码。保留以防回退，但在 direct 模式下不应触发。
 
@@ -530,13 +530,13 @@ if method == "peri/agent_event" {
 - [ ] **Step 2: 构建验证**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_client/client.rs
+git add cc-tui/src/acp_client/client.rs
 git commit -m "chore(tui): add warn log for legacy peri/agent_event transport path
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -552,7 +552,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 1: 全量测试**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1
+cargo test -p cc-tui --lib 2>&1
 ```
 
 Expected: 所有现有测试通过。
@@ -587,15 +587,15 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 7: 移除死代码 InteractionRequest
 
 **Files:**
-- Modify: `peri-tui/src/app/events.rs`
-- Modify: `peri-tui/src/app/agent_ops.rs`
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/events.rs`
+- Modify: `cc-tui/src/app/agent_ops.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 `AgentEvent::InteractionRequest` 无任何生产代码发送——所有 HITL/AskUser 已通过 ACP RPC 路径（`AcpTransportBroker` → `session/request_permission` / `elicitation/create` → `AcpNotification::RequestPermission` / `Elicitation` → `handle_acp_request_permission` / `handle_acp_elicitation`）。
 
 - [ ] **Step 1: 从 AgentEvent 枚举删除 InteractionRequest 变体**
 
-修改 `peri-tui/src/app/events.rs`（约 line 37-40）：
+修改 `cc-tui/src/app/events.rs`（约 line 37-40）：
 
 删除：
 ```rust
@@ -608,7 +608,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 
 同时删除文件顶部的两个 `use`：
 ```rust
-use peri_agent::interaction::{InteractionContext, InteractionResponse};
+use cc_agent::interaction::{InteractionContext, InteractionResponse};
 use tokio::sync::oneshot;
 ```
 
@@ -616,15 +616,15 @@ use tokio::sync::oneshot;
 
 - [ ] **Step 2: 从 handle_agent_event 删除匹配分支**
 
-修改 `peri-tui/src/app/agent_ops.rs`，删除约 line 978-1076 的整个 `AgentEvent::InteractionRequest { ctx, response_tx } => { ... }` 匹配分支。
+修改 `cc-tui/src/app/agent_ops.rs`，删除约 line 978-1076 的整个 `AgentEvent::InteractionRequest { ctx, response_tx } => { ... }` 匹配分支。
 
-确认：该分支内部的 `use` 语句 (`use peri_agent::interaction::{...}`) 在删除后可能影响外侧作用域——检查文件顶部是否已有相同 import。当前 `agent_ops.rs:1-5` 已有 `use peri_middlewares::hitl::BatchItem;`，`use tokio::sync::oneshot;` 出现在 `handle_acp_request_permission`（line 62）中，不受影响。
+确认：该分支内部的 `use` 语句 (`use cc_agent::interaction::{...}`) 在删除后可能影响外侧作用域——检查文件顶部是否已有相同 import。当前 `agent_ops.rs:1-5` 已有 `use cc_middlewares::hitl::BatchItem;`，`use tokio::sync::oneshot;` 出现在 `handle_acp_request_permission`（line 62）中，不受影响。
 
 删除后确保 `match event { ... }` 块完整闭合。
 
 - [ ] **Step 3: 从 message_pipeline 删除匹配**
 
-修改 `peri-tui/src/app/message_pipeline/mod.rs`（约 line 360）：
+修改 `cc-tui/src/app/message_pipeline/mod.rs`（约 line 360）：
 
 将：
 ```rust
@@ -642,7 +642,7 @@ use tokio::sync::oneshot;
 - [ ] **Step 4: 构建验证**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 Expected: 编译通过，无 unused import 警告。
@@ -650,13 +650,13 @@ Expected: 编译通过，无 unused import 警告。
 - [ ] **Step 5: 全量测试**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1
+cargo test -p cc-tui --lib 2>&1
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/events.rs peri-tui/src/app/agent_ops.rs peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/events.rs cc-tui/src/app/agent_ops.rs cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "refactor(tui): remove dead InteractionRequest event variant
 
 All HITL/AskUser interactions now go through ACP RPC path

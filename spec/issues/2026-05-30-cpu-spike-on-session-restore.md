@@ -32,12 +32,12 @@
 
 ## 涉及文件
 
-- `peri-agent/src/thread/sqlite_store.rs` —— `load_context()`：SQLite 读取 + 逐条 JSON 反序列化
-- `peri-tui/src/ui/message_view/mod.rs` —— `from_base_message_with_cwd()`：首次 Markdown 解析（宽度80）
-- `peri-tui/src/ui/render_thread.rs` —— `render_one()` + `build_wrap_map()`：二次 Markdown 解析 + wrap 计算
-- `peri-tui/src/app/message_pipeline/transform.rs` —— `messages_to_view_models()`：消息到 VM 的全量转换
-- `peri-tui/src/app/thread_ops.rs` —— `open_thread()`：恢复会话的主流程（TUI + ACP 双重加载）
-- `peri-acp/src/dispatch/session_load.rs` —— `load_session_messages()`：ACP 侧加载
+- `cc-agent/src/thread/sqlite_store.rs` —— `load_context()`：SQLite 读取 + 逐条 JSON 反序列化
+- `cc-tui/src/ui/message_view/mod.rs` —— `from_base_message_with_cwd()`：首次 Markdown 解析（宽度80）
+- `cc-tui/src/ui/render_thread.rs` —— `render_one()` + `build_wrap_map()`：二次 Markdown 解析 + wrap 计算
+- `cc-tui/src/app/message_pipeline/transform.rs` —— `messages_to_view_models()`：消息到 VM 的全量转换
+- `cc-tui/src/app/thread_ops.rs` —— `open_thread()`：恢复会话的主流程（TUI + ACP 双重加载）
+- `cc-acp/src/dispatch/session_load.rs` —— `load_session_messages()`：ACP 侧加载
 
 ## 根因分析（2026-05-30 系统性调试）
 
@@ -93,7 +93,7 @@
 
 #### P0-1：消除 wrap 重复计算
 
-**文件**：`peri-tui/src/ui/render_thread.rs`
+**文件**：`cc-tui/src/ui/render_thread.rs`
 
 **改动**：
 - 删除 `compute_wrapped_height()` 函数（第 73-81 行）
@@ -104,7 +104,7 @@
 
 #### P0-2：Markdown 延迟解析
 
-**文件**：`peri-tui/src/ui/message_view/mod.rs`、`peri-tui/src/ui/render_thread.rs`
+**文件**：`cc-tui/src/ui/message_view/mod.rs`、`cc-tui/src/ui/render_thread.rs`
 
 **改动**：
 - `from_base_message_with_cwd()` 中 `UserBubble` 不调用 `parse_markdown_default()`，`rendered` 字段存空 `Text`
@@ -116,7 +116,7 @@
 
 #### P1：TUI 侧改用 `load_context()`
 
-**文件**：`peri-tui/src/app/thread_ops.rs`
+**文件**：`cc-tui/src/app/thread_ops.rs`
 
 **改动**：
 - `open_thread()` 第 155-159 行：`store.load_messages(&tid)` 改为 `store.load_context(&tid)`
@@ -126,7 +126,7 @@
 
 #### P2：手动 wrap 算法
 
-**文件**：新增 `peri-tui/src/ui/render_thread/wrap.rs`
+**文件**：新增 `cc-tui/src/ui/render_thread/wrap.rs`
 
 **改动**：
 - 实现轻量级 `fast_wrap_line(text, char_widths, width) -> u16`，直接用已有的 `char_widths` 累加计算
@@ -137,7 +137,7 @@
 
 #### P3：wrap 结果缓存
 
-**文件**：`peri-tui/src/ui/render_thread.rs`
+**文件**：`cc-tui/src/ui/render_thread.rs`
 
 **改动**：
 - `RenderCache` 增加 `wrap_width: u16` 字段
@@ -149,7 +149,7 @@
 
 #### P4：可见区域优先渲染
 
-**文件**：`peri-tui/src/ui/render_thread.rs`、`peri-tui/src/app/message_pipeline/`
+**文件**：`cc-tui/src/ui/render_thread.rs`、`cc-tui/src/app/message_pipeline/`
 
 **改动**：
 - 新增 `RenderEvent::RebuildVisible { all_messages, visible_range }`

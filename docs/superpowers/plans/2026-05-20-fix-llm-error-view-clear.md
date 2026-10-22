@@ -6,7 +6,7 @@
 
 **Architecture:** 两层修复。**核心修复（Task 1-3）**：executor 在 agent 失败后通过 event channel 发送 `AgentExecutionFailed` 事件，TUI 收到后调用 `handle_error()` 显示错误 ToolBlock 并设置 `reconcile_already_done=true`，阻止后续 Done 事件触发空 RebuildAll。**防御修复（Task 4）**：在 `handle_done()` 中，当 `prefix_len == 0` 且 pipeline 无新 StateSnapshot 时，跳过 `request_rebuild()` 避免灾难性 drain。
 
-**Tech Stack:** Rust 2021, tokio, peri-agent + peri-acp + peri-tui
+**Tech Stack:** Rust 2021, tokio, cc-agent + cc-acp + cc-tui
 
 ---
 
@@ -14,24 +14,24 @@
 
 | Crate | 改动 | 风险 |
 |-------|------|------|
-| `peri-agent` | `AgentEvent` 新增 `AgentExecutionFailed { message: String }` 变体 | **低** — 纯新增变体，mapper.rs 有通配符兜底 |
-| `peri-acp` | `executor.rs` 在 agent 失败后通过 `event_tx` 发送 `AgentExecutionFailed` | **低** — 在 `close_channel` 前发送 |
-| `peri-tui` | `map_executor_event` 映射 `AgentExecutionFailed` → `AgentEvent::Error` | **低** — 一行映射 |
-| `peri-tui` | `MessagePipeline` 添加 `has_snapshot_this_round()` getter | **低** — 纯新增 pub 方法 |
-| `peri-tui` | `handle_done()` 中 `prefix_len==0` 且无 snapshot 时跳过 rebuild | **低** — 纯防御逻辑 |
+| `cc-agent` | `AgentEvent` 新增 `AgentExecutionFailed { message: String }` 变体 | **低** — 纯新增变体，mapper.rs 有通配符兜底 |
+| `cc-acp` | `executor.rs` 在 agent 失败后通过 `event_tx` 发送 `AgentExecutionFailed` | **低** — 在 `close_channel` 前发送 |
+| `cc-tui` | `map_executor_event` 映射 `AgentExecutionFailed` → `AgentEvent::Error` | **低** — 一行映射 |
+| `cc-tui` | `MessagePipeline` 添加 `has_snapshot_this_round()` getter | **低** — 纯新增 pub 方法 |
+| `cc-tui` | `handle_done()` 中 `prefix_len==0` 且无 snapshot 时跳过 rebuild | **低** — 纯防御逻辑 |
 
-**不涉及：** `CompactMiddleware`、`builder.rs`、`peri-middlewares`、`message_state.rs`。
+**不涉及：** `CompactMiddleware`、`builder.rs`、`cc-middlewares`、`message_state.rs`。
 
 ---
 
-### Task 1: peri-agent 新增 `AgentExecutionFailed` 事件变体
+### Task 1: cc-agent 新增 `AgentExecutionFailed` 事件变体
 
 **Files:**
-- Modify: `peri-agent/src/agent/events.rs:140-145`（`LspDiagnostics` 之后）
+- Modify: `cc-agent/src/agent/events.rs:140-145`（`LspDiagnostics` 之后）
 
 - [ ] **Step 1: 在 `AgentEvent` 枚举中新增变体**
 
-在 `peri-agent/src/agent/events.rs` 的 `AgentEvent` 枚举中，在 `LspDiagnostics` 变体之后追加。使用结构体变体与 `CompactError { message: String }` 风格一致：
+在 `cc-agent/src/agent/events.rs` 的 `AgentEvent` 枚举中，在 `LspDiagnostics` 变体之后追加。使用结构体变体与 `CompactError { message: String }` 风格一致：
 
 ```rust
     /// LSP 诊断更新
@@ -46,14 +46,14 @@
 
 - [ ] **Step 2: 编译确认**
 
-Run: `cargo build -p peri-agent`
+Run: `cargo build -p cc-agent`
 Expected: 编译通过（新变体无人 match，仅产生 unused 警告）。
 
-`peri-acp/src/event/mapper.rs` 中 `map_executor_to_updates()` 和 `map_executor_to_peri_notifications()` 均有 `_ => vec![]` 通配符兜底，不会因穷尽性检查报错。
+`cc-acp/src/event/mapper.rs` 中 `map_executor_to_updates()` 和 `map_executor_to_peri_notifications()` 均有 `_ => vec![]` 通配符兜底，不会因穷尽性检查报错。
 
 - [ ] **Step 3: 新增 serde roundtrip 测试**
 
-在 `peri-agent/src/agent/events_test.rs` 中追加：
+在 `cc-agent/src/agent/events_test.rs` 中追加：
 
 ```rust
 #[test]
@@ -70,13 +70,13 @@ fn test_agent_execution_failed_serde_roundtrip() {
 }
 ```
 
-Run: `cargo test -p peri-agent --lib -- test_agent_execution_failed_serde_roundtrip`
+Run: `cargo test -p cc-agent --lib -- test_agent_execution_failed_serde_roundtrip`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/agent/events.rs peri-agent/src/agent/events_test.rs
+git add cc-agent/src/agent/events.rs cc-agent/src/agent/events_test.rs
 git commit -m "feat(agent): 新增 AgentExecutionFailed 事件变体
 
 用于 executor 在 agent 执行失败时通知前端（如 LLM 400 错误）。
@@ -88,11 +88,11 @@ git commit -m "feat(agent): 新增 AgentExecutionFailed 事件变体
 ### Task 2: executor 在 agent 失败后发送 `AgentExecutionFailed` 事件
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs:216-231`
+- Modify: `cc-acp/src/session/executor.rs:216-231`
 
 - [ ] **Step 1: 在 executor.rs 中，agent 执行失败后发送事件**
 
-修改 `peri-acp/src/session/executor.rs` 的 `execute_prompt` 函数。将 agent 执行结果处理部分从：
+修改 `cc-acp/src/session/executor.rs` 的 `execute_prompt` 函数。将 agent 执行结果处理部分从：
 
 ```rust
     let ok = result.is_ok();
@@ -126,13 +126,13 @@ git commit -m "feat(agent): 新增 AgentExecutionFailed 事件变体
 
 - [ ] **Step 2: 编译确认**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: 编译通过。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/session/executor.rs
+git add cc-acp/src/session/executor.rs
 git commit -m "fix(acp): agent 执行失败时发送 AgentExecutionFailed 事件
 
 之前 executor 只 log 错误不通知前端，导致 TUI 在 LLM 400 错误时
@@ -144,11 +144,11 @@ git commit -m "fix(acp): agent 执行失败时发送 AgentExecutionFailed 事件
 ### Task 3: TUI 映射 `AgentExecutionFailed` → `AgentEvent::Error`
 
 **Files:**
-- Modify: `peri-tui/src/app/agent.rs:168-169`（`SessionEnded` 和 `TodoUpdate` 之间）
+- Modify: `cc-tui/src/app/agent.rs:168-169`（`SessionEnded` 和 `TodoUpdate` 之间）
 
 - [ ] **Step 1: 在 `map_executor_event` 中添加映射**
 
-在 `peri-tui/src/app/agent.rs` 的 `map_executor_event` 函数中，在 `SessionEnded` 之后、`TodoUpdate` 之前追加：
+在 `cc-tui/src/app/agent.rs` 的 `map_executor_event` 函数中，在 `SessionEnded` 之后、`TodoUpdate` 之前追加：
 
 ```rust
         ExecutorEvent::SessionEnded => return None,
@@ -158,7 +158,7 @@ git commit -m "fix(acp): agent 执行失败时发送 AgentExecutionFailed 事件
 
 - [ ] **Step 2: 新增映射测试**
 
-在 `peri-tui/src/app/agent_test.rs` 中追加：
+在 `cc-tui/src/app/agent_test.rs` 中追加：
 
 ```rust
 #[test]
@@ -179,7 +179,7 @@ fn test_map_executor_event_execution_failed() {
 }
 ```
 
-Run: `cargo test -p peri-tui --lib -- test_map_executor_event_execution_failed`
+Run: `cargo test -p cc-tui --lib -- test_map_executor_event_execution_failed`
 Expected: PASS
 
 - [ ] **Step 3: 验证 `handle_error` 能正确处理（无需代码修改）**
@@ -195,7 +195,7 @@ Expected: PASS
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/agent.rs peri-tui/src/app/agent_test.rs
+git add cc-tui/src/app/agent.rs cc-tui/src/app/agent_test.rs
 git commit -m "fix(tui): 映射 AgentExecutionFailed 到 AgentEvent::Error
 
 LLM 返回 400 等错误时，TUI 现在能收到 Error 事件并显示错误信息，
@@ -207,14 +207,14 @@ LLM 返回 400 等错误时，TUI 现在能收到 Error 事件并显示错误信
 ### Task 4: 防御 compact 后 round_start_vm_idx=0 导致视图清空
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs:153-172`（添加 getter）
-- Modify: `peri-tui/src/app/agent_ops/lifecycle.rs:63-68`（handle_done 防御逻辑）
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs:153-172`（添加 getter）
+- Modify: `cc-tui/src/app/agent_ops/lifecycle.rs:63-68`（handle_done 防御逻辑）
 
 这个 Task 是防御性措施：即使 Task 1-3 的 Error 事件修复了"看不到错误"的问题，仍需确保 compact 后 Done 的 RebuildAll 不会因 `prefix_len=0` + 空 tail 而清空视图。采用简化方案——在 `handle_done()` 中检测异常状态直接跳过 rebuild。
 
 - [ ] **Step 1: 添加 `has_snapshot_this_round()` getter**
 
-在 `peri-tui/src/app/message_pipeline/mod.rs` 的 `impl MessagePipeline` 块中（在 `in_subagent()` 方法之后），添加：
+在 `cc-tui/src/app/message_pipeline/mod.rs` 的 `impl MessagePipeline` 块中（在 `in_subagent()` 方法之后），添加：
 
 ```rust
     /// 本轮是否已收到过 StateSnapshot
@@ -225,7 +225,7 @@ LLM 返回 400 等错误时，TUI 现在能收到 Error 事件并显示错误信
 
 - [ ] **Step 2: 在 `handle_done` 中添加防御逻辑**
 
-修改 `peri-tui/src/app/agent_ops/lifecycle.rs` 的 `handle_done` 函数。将：
+修改 `cc-tui/src/app/agent_ops/lifecycle.rs` 的 `handle_done` 函数。将：
 
 ```rust
         // 跳过已由 Interrupted/Error 处理器完成的 reconcile
@@ -269,7 +269,7 @@ LLM 返回 400 等错误时，TUI 现在能收到 Error 事件并显示错误信
 
 - [ ] **Step 3: 编译确认**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过。
 
 - [ ] **Step 4: 全量测试**
@@ -280,7 +280,7 @@ Expected: 所有测试通过。
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs peri-tui/src/app/agent_ops/lifecycle.rs
+git add cc-tui/src/app/message_pipeline/mod.rs cc-tui/src/app/agent_ops/lifecycle.rs
 git commit -m "fix(tui): 防御 compact 后 LLM 失败导致视图完全清空
 
 compact 后 round_start_vm_idx 被重置为 0，如果 agent 在 compact 后

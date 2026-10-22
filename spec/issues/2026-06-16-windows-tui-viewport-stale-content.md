@@ -101,9 +101,9 @@ draw_app (main.rs:907):
 
 ## 涉及文件
 
-- `peri-tui/src/main.rs` —— `draw_app`、`flush_scrollback_history`
-- `peri-tui/src/ui/main_ui/message_area.rs` —— `render_messages`、`viewport_clip`
-- `peri-tui/src/ui/render_thread.rs` —— `RenderCache`
+- `cc-tui/src/main.rs` —— `draw_app`、`flush_scrollback_history`
+- `cc-tui/src/ui/main_ui/message_area.rs` —— `render_messages`、`viewport_clip`
+- `cc-tui/src/ui/render_thread.rs` —— `RenderCache`
 - ratatui-widgets `paragraph.rs:449` —— `render_lines` 不填充剩余行
 - ratatui-core `terminal.rs:557` —— `clear()` 只重置 back buffer
 

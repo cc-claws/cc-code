@@ -14,29 +14,29 @@
 
 | Action | Path | Responsibility |
 |--------|------|----------------|
-| Create | `peri-tui/src/app/at_mention/mod.rs` | `AtMentionState` 状态 + 触发检测 + 路径注入逻辑 |
-| Create | `peri-tui/src/app/at_mention/file_search.rs` | glob 搜索 + fuzzy 评分 |
-| Create | `peri-tui/src/app/at_mention/popup.rs` | 弹窗渲染函数 |
-| Create | `peri-middlewares/src/at_mention/mod.rs` | `AtMentionMiddleware` |
-| Create | `peri-middlewares/src/at_mention/parser.rs` | 正则提取 @path + 行范围 |
-| Create | `peri-middlewares/src/at_mention/file_reader.rs` | 文件读取 + 截断 |
-| Modify | `peri-tui/src/app/ui_state.rs` | 新增 `at_mention: AtMentionState` |
-| Modify | `peri-tui/src/app/modules_state.inc` | 添加 `mod at_mention` |
-| Modify | `peri-tui/src/event/keyboard.rs` | @ 触发检测 + 导航键拦截 |
-| Modify | `peri-tui/src/ui/main_ui/mod.rs` | 弹窗渲染调用 |
-| Modify | `peri-tui/src/ui/main_ui/popups/mod.rs` | 导出 at_mention popup |
-| Modify | `peri-tui/Cargo.toml` | 添加 `glob` + `fuzzy-matcher` |
-| Modify | `peri-acp/src/agent/builder.rs` | 添加 `AtMentionMiddleware` |
-| Modify | `peri-middlewares/src/lib.rs` | 导出 `at_mention` 模块 |
+| Create | `cc-tui/src/app/at_mention/mod.rs` | `AtMentionState` 状态 + 触发检测 + 路径注入逻辑 |
+| Create | `cc-tui/src/app/at_mention/file_search.rs` | glob 搜索 + fuzzy 评分 |
+| Create | `cc-tui/src/app/at_mention/popup.rs` | 弹窗渲染函数 |
+| Create | `cc-middlewares/src/at_mention/mod.rs` | `AtMentionMiddleware` |
+| Create | `cc-middlewares/src/at_mention/parser.rs` | 正则提取 @path + 行范围 |
+| Create | `cc-middlewares/src/at_mention/file_reader.rs` | 文件读取 + 截断 |
+| Modify | `cc-tui/src/app/ui_state.rs` | 新增 `at_mention: AtMentionState` |
+| Modify | `cc-tui/src/app/modules_state.inc` | 添加 `mod at_mention` |
+| Modify | `cc-tui/src/event/keyboard.rs` | @ 触发检测 + 导航键拦截 |
+| Modify | `cc-tui/src/ui/main_ui/mod.rs` | 弹窗渲染调用 |
+| Modify | `cc-tui/src/ui/main_ui/popups/mod.rs` | 导出 at_mention popup |
+| Modify | `cc-tui/Cargo.toml` | 添加 `glob` + `fuzzy-matcher` |
+| Modify | `cc-acp/src/agent/builder.rs` | 添加 `AtMentionMiddleware` |
+| Modify | `cc-middlewares/src/lib.rs` | 导出 `at_mention` 模块 |
 
 ---
 
 ### Task 1: 添加 Cargo 依赖
 
 **Files:**
-- Modify: `peri-tui/Cargo.toml`
+- Modify: `cc-tui/Cargo.toml`
 
-- [ ] **Step 1: 添加 glob 和 fuzzy-matcher 依赖到 peri-tui/Cargo.toml**
+- [ ] **Step 1: 添加 glob 和 fuzzy-matcher 依赖到 cc-tui/Cargo.toml**
 
 在 `[dependencies]` 部分末尾（`futures-util = "0.3"` 之后）添加：
 
@@ -47,13 +47,13 @@ fuzzy-matcher = "0.3"
 
 - [ ] **Step 2: 验证编译**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功（无新 warning）
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/Cargo.toml
+git add cc-tui/Cargo.toml
 git commit -m "chore: add glob + fuzzy-matcher deps for @ mention"
 ```
 
@@ -62,14 +62,14 @@ git commit -m "chore: add glob + fuzzy-matcher deps for @ mention"
 ### Task 2: 实现 @ mention parser（middleware 层）
 
 **Files:**
-- Create: `peri-middlewares/src/at_mention/mod.rs`
-- Create: `peri-middlewares/src/at_mention/parser.rs`
-- Create: `peri-middlewares/src/at_mention/file_reader.rs`
-- Modify: `peri-middlewares/src/lib.rs`
+- Create: `cc-middlewares/src/at_mention/mod.rs`
+- Create: `cc-middlewares/src/at_mention/parser.rs`
+- Create: `cc-middlewares/src/at_mention/file_reader.rs`
+- Modify: `cc-middlewares/src/lib.rs`
 
 - [ ] **Step 1: 创建 parser.rs — @path 正则提取**
 
-创建 `peri-middlewares/src/at_mention/parser.rs`：
+创建 `cc-middlewares/src/at_mention/parser.rs`：
 
 ```rust
 use std::path::PathBuf;
@@ -198,12 +198,12 @@ mod tests {
 
 - [ ] **Step 2: 运行 parser 测试验证失败**
 
-Run: `cargo test -p peri-middlewares --lib at_mention::parser 2>&1 | tail -20`
+Run: `cargo test -p cc-middlewares --lib at_mention::parser 2>&1 | tail -20`
 Expected: 编译失败（模块不存在）
 
 - [ ] **Step 3: 创建 file_reader.rs**
 
-创建 `peri-middlewares/src/at_mention/file_reader.rs`：
+创建 `cc-middlewares/src/at_mention/file_reader.rs`：
 
 ```rust
 use std::path::{Path, PathBuf};
@@ -379,17 +379,17 @@ mod tests {
 
 - [ ] **Step 4: 创建 at_mention/mod.rs — AtMentionMiddleware**
 
-创建 `peri-middlewares/src/at_mention/mod.rs`：
+创建 `cc-middlewares/src/at_mention/mod.rs`：
 
 ```rust
 pub mod file_reader;
 pub mod parser;
 
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::error::AgentResult;
-use peri_agent::messages::{BaseMessage, ContentBlock};
-use peri_agent::middleware::r#trait::Middleware;
+use cc_agent::agent::state::State;
+use cc_agent::error::AgentResult;
+use cc_agent::messages::{BaseMessage, ContentBlock};
+use cc_agent::middleware::r#trait::Middleware;
 use std::path::PathBuf;
 
 /// AtMentionMiddleware — 在 before_agent 阶段解析用户消息中的 @mention，
@@ -450,7 +450,7 @@ impl<S: State> Middleware<S> for AtMentionMiddleware {
                     .collect()
             })
             .await
-            .map_err(|e| peri_agent::error::AgentError::MiddlewareError {
+            .map_err(|e| cc_agent::error::AgentError::MiddlewareError {
                 middleware: "AtMentionMiddleware".to_string(),
                 reason: format!("spawn_blocking 失败: {e}"),
             })?;
@@ -503,7 +503,7 @@ impl<S: State> Middleware<S> for AtMentionMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use peri_agent::agent::state::AgentState;
+    use cc_agent::agent::state::AgentState;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -533,7 +533,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 5: 在 peri-middlewares/src/lib.rs 中导出 at_mention**
+- [ ] **Step 5: 在 cc-middlewares/src/lib.rs 中导出 at_mention**
 
 在 `pub mod tool_search;` 行之后添加：
 
@@ -553,13 +553,13 @@ pub use at_middleware::AtMentionMiddleware;
 
 - [ ] **Step 6: 运行测试验证**
 
-Run: `cargo test -p peri-middlewares --lib at_mention 2>&1 | tail -30`
+Run: `cargo test -p cc-middlewares --lib at_mention 2>&1 | tail -30`
 Expected: 所有测试通过
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-middlewares/src/at_mention/ peri-middlewares/src/lib.rs
+git add cc-middlewares/src/at_mention/ cc-middlewares/src/lib.rs
 git commit -m "feat: add AtMentionMiddleware — @path parser, file reader, Read tool injection"
 ```
 
@@ -568,31 +568,31 @@ git commit -m "feat: add AtMentionMiddleware — @path parser, file reader, Read
 ### Task 3: 在 ACP builder 中注册 AtMentionMiddleware
 
 **Files:**
-- Modify: `peri-acp/src/agent/builder.rs`
+- Modify: `cc-acp/src/agent/builder.rs`
 
 - [ ] **Step 1: 添加 middleware 到 builder**
 
-在 `peri-acp/src/agent/builder.rs` 中，找到：
+在 `cc-acp/src/agent/builder.rs` 中，找到：
 ```rust
 .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd)))
 ```
 
 在其后添加：
 ```rust
-.add_middleware(Box::new(peri_middlewares::AtMentionMiddleware::new(&cwd)))
+.add_middleware(Box::new(cc_middlewares::AtMentionMiddleware::new(&cwd)))
 ```
 
-同时在文件顶部的 use 块中确认 `peri_middlewares` 已导入（它应该已经存在）。
+同时在文件顶部的 use 块中确认 `cc_middlewares` 已导入（它应该已经存在）。
 
 - [ ] **Step 2: 验证编译**
 
-Run: `cargo check -p peri-acp 2>&1 | tail -5`
+Run: `cargo check -p cc-acp 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/agent/builder.rs
+git add cc-acp/src/agent/builder.rs
 git commit -m "feat: register AtMentionMiddleware in ACP agent builder"
 ```
 
@@ -601,14 +601,14 @@ git commit -m "feat: register AtMentionMiddleware in ACP agent builder"
 ### Task 4: 实现 TUI 层 AtMentionState 和触发检测
 
 **Files:**
-- Create: `peri-tui/src/app/at_mention/mod.rs`
-- Create: `peri-tui/src/app/at_mention/file_search.rs`
-- Modify: `peri-tui/src/app/ui_state.rs`
-- Modify: `peri-tui/src/app/modules_state.inc`
+- Create: `cc-tui/src/app/at_mention/mod.rs`
+- Create: `cc-tui/src/app/at_mention/file_search.rs`
+- Modify: `cc-tui/src/app/ui_state.rs`
+- Modify: `cc-tui/src/app/modules_state.inc`
 
 - [ ] **Step 1: 创建 file_search.rs**
 
-创建 `peri-tui/src/app/at_mention/file_search.rs`：
+创建 `cc-tui/src/app/at_mention/file_search.rs`：
 
 ```rust
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -794,7 +794,7 @@ mod tests {
 
 - [ ] **Step 2: 创建 at_mention/mod.rs — 状态 + 触发检测 + 路径注入**
 
-创建 `peri-tui/src/app/at_mention/mod.rs`：
+创建 `cc-tui/src/app/at_mention/mod.rs`：
 
 ```rust
 pub mod file_search;
@@ -1008,7 +1008,7 @@ mod tests {
 
 - [ ] **Step 3: 创建 popup.rs — 弹窗渲染占位**
 
-创建 `peri-tui/src/app/at_mention/popup.rs`：
+创建 `cc-tui/src/app/at_mention/popup.rs`：
 
 ```rust
 use ratatui::{
@@ -1018,7 +1018,7 @@ use ratatui::{
     widgets::Paragraph,
     Frame,
 };
-use peri_widgets::BorderedPanel;
+use cc_widgets::BorderedPanel;
 
 use super::AtMentionState;
 use crate::ui::theme;
@@ -1136,7 +1136,7 @@ mod tests {
 
 - [ ] **Step 4: 在 UiState 中添加 AtMentionState**
 
-在 `peri-tui/src/app/ui_state.rs` 中：
+在 `cc-tui/src/app/ui_state.rs` 中：
 
 在文件顶部添加：
 ```rust
@@ -1155,7 +1155,7 @@ at_mention: AtMentionState::new(),
 
 - [ ] **Step 5: 在 modules_state.inc 中添加模块声明**
 
-在 `peri-tui/src/app/modules_state.inc` 中的 `mod ui_state;` 之后添加：
+在 `cc-tui/src/app/modules_state.inc` 中的 `mod ui_state;` 之后添加：
 ```rust
 mod at_mention;
 ```
@@ -1167,13 +1167,13 @@ pub use at_mention::AtMentionState;
 
 - [ ] **Step 6: 验证编译**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -10`
+Run: `cargo check -p cc-tui 2>&1 | tail -10`
 Expected: 编译成功
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/app/at_mention/ peri-tui/src/app/ui_state.rs peri-tui/src/app/modules_state.inc
+git add cc-tui/src/app/at_mention/ cc-tui/src/app/ui_state.rs cc-tui/src/app/modules_state.inc
 git commit -m "feat: add AtMentionState, file search, and popup rendering"
 ```
 
@@ -1182,7 +1182,7 @@ git commit -m "feat: add AtMentionState, file search, and popup rendering"
 ### Task 5: 集成触发检测和键盘交互到 keyboard.rs
 
 **Files:**
-- Modify: `peri-tui/src/event/keyboard.rs`
+- Modify: `cc-tui/src/event/keyboard.rs`
 
 - [ ] **Step 1: 添加 @ mention 触发检测辅助函数**
 
@@ -1462,13 +1462,13 @@ _ => {
 
 - [ ] **Step 6: 验证编译**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -10`
+Run: `cargo check -p cc-tui 2>&1 | tail -10`
 Expected: 编译成功
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/event/keyboard.rs
+git add cc-tui/src/event/keyboard.rs
 git commit -m "feat: integrate @ mention trigger detection and keyboard navigation"
 ```
 
@@ -1477,24 +1477,24 @@ git commit -m "feat: integrate @ mention trigger detection and keyboard navigati
 ### Task 6: 集成弹窗渲染到 TUI 布局
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/mod.rs`
-- Modify: `peri-tui/src/ui/main_ui/popups/mod.rs`
+- Modify: `cc-tui/src/ui/main_ui/mod.rs`
+- Modify: `cc-tui/src/ui/main_ui/popups/mod.rs`
 
 - [ ] **Step 1: 在 popups/mod.rs 中添加 at_mention popup 导出**
 
-找到 `peri-tui/src/ui/main_ui/popups/mod.rs` 中的模块声明，添加：
+找到 `cc-tui/src/ui/main_ui/popups/mod.rs` 中的模块声明，添加：
 
 ```rust
 pub(crate) mod at_mention;
 ```
 
-注意：由于 popup.rs 位于 `peri-tui/src/app/at_mention/popup.rs`，而渲染入口在 `peri-tui/src/ui/main_ui/mod.rs`，我们需要在 `render_session_column` 中直接调用 `crate::app::at_mention::popup::render_at_mention_popup`。
+注意：由于 popup.rs 位于 `cc-tui/src/app/at_mention/popup.rs`，而渲染入口在 `cc-tui/src/ui/main_ui/mod.rs`，我们需要在 `render_session_column` 中直接调用 `crate::app::at_mention::popup::render_at_mention_popup`。
 
 所以此步骤实际不需要修改 popups/mod.rs。跳过。
 
 - [ ] **Step 2: 在 render_session_column 中渲染 @ mention 弹窗**
 
-在 `peri-tui/src/ui/main_ui/mod.rs` 中，找到（约 298 行）：
+在 `cc-tui/src/ui/main_ui/mod.rs` 中，找到（约 298 行）：
 
 ```rust
 // 统一命令/Skills 提示条（每个 session 列各自渲染）
@@ -1521,13 +1521,13 @@ if app.session_mgr.sessions[session_idx].ui.at_mention.active {
 
 - [ ] **Step 3: 验证编译**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -10`
+Run: `cargo check -p cc-tui 2>&1 | tail -10`
 Expected: 编译成功
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/mod.rs
+git add cc-tui/src/ui/main_ui/mod.rs
 git commit -m "feat: render @ mention popup in TUI layout (mutually exclusive with hints)"
 ```
 
@@ -1549,12 +1549,12 @@ Expected: 所有测试通过
 
 - [ ] **Step 3: 运行 @ mention 相关测试**
 
-Run: `cargo test -p peri-middlewares --lib at_mention && cargo test -p peri-tui --lib at_mention 2>&1 | tail -30`
+Run: `cargo test -p cc-middlewares --lib at_mention && cargo test -p cc-tui --lib at_mention 2>&1 | tail -30`
 Expected: 所有 at_mention 测试通过
 
 - [ ] **Step 4: 手动冒烟测试**
 
-启动 TUI（`cargo run -p peri-tui`），在输入框中：
+启动 TUI（`cargo run -p cc-tui`），在输入框中：
 1. 输入 `@main` → 应在输入框上方显示文件候选弹窗
 2. 使用 `↑/↓` 导航 → 选中项高亮切换
 3. 按 `Enter` → 路径注入到输入框，弹窗关闭
@@ -1591,7 +1591,7 @@ Expected: 所有 at_mention 测试通过
 
 ### Type Consistency
 
-- `AtMentionState` 定义在 `peri-tui/src/app/at_mention/mod.rs`，在 `ui_state.rs` 中作为字段使用
+- `AtMentionState` 定义在 `cc-tui/src/app/at_mention/mod.rs`，在 `ui_state.rs` 中作为字段使用
 - `FileCandidate` 定义在 `file_search.rs`，在 `mod.rs` 和 `popup.rs` 中使用
-- `AtMentionMiddleware` 定义在 `peri-middlewares/src/at_mention/mod.rs`，在 `builder.rs` 中注册
+- `AtMentionMiddleware` 定义在 `cc-middlewares/src/at_mention/mod.rs`，在 `builder.rs` 中注册
 - parser 返回 `AtMention`，middleware 使用它构造 file_reader 调用

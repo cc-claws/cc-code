@@ -6,7 +6,7 @@
 
 **Architecture:** 核心思路：利用每个子 Agent 的 `Agent` ToolStart 事件的 `tool_call_id` 作为"父级调用 ID"，在 TUI 事件映射层（`map_executor_event`）注入 `agent_id` 到所有后续子 Agent 事件中。Pipeline 侧通过 `agent_id` 直接匹配 `subagent_stack` 中的条目，而非 `last_mut()`。分两层修改：事件映射层添加 `source_agent_id` 字段，Pipeline 路由层改用精确查找。
 
-**Tech Stack:** Rust, tokio async, peri-agent events, TUI message pipeline
+**Tech Stack:** Rust, tokio async, cc-agent events, TUI message pipeline
 
 ---
 
@@ -14,9 +14,9 @@
 
 | 文件 | 职责 |
 |------|------|
-| `peri-tui/src/app/events.rs` | TUI `AgentEvent` 枚举定义，添加可选 `source_agent_id` 字段 |
-| `peri-tui/src/app/agent.rs` | `map_executor_event` 事件映射，注入 `source_agent_id` |
-| `peri-tui/src/app/message_pipeline.rs` | Pipeline 路由逻辑，`last_mut()` → `find_by_agent_id` |
+| `cc-tui/src/app/events.rs` | TUI `AgentEvent` 枚举定义，添加可选 `source_agent_id` 字段 |
+| `cc-tui/src/app/agent.rs` | `map_executor_event` 事件映射，注入 `source_agent_id` |
+| `cc-tui/src/app/message_pipeline.rs` | Pipeline 路由逻辑，`last_mut()` → `find_by_agent_id` |
 
 ---
 
@@ -31,28 +31,28 @@
 
 在 TUI 的 `AgentEvent` 中为子 Agent 产生的事件（`ToolStart`/`ToolEnd`/`AssistantChunk`/`AiReasoning`/`Done`/`Interrupted`/`StateSnapshot`）添加可选字段 `source_agent_id: Option<String>`。当 TUI 事件映射层检测到子 Agent 正在运行时，通过一个栈变量 `active_agent_id` 将当前活跃的 `agent_id` 附加到事件上。
 
-**关键洞察：** 子 Agent 是**顺序**被 `tool_dispatch` 并发调用的，但每个子 Agent 内部的事件是交错到达的。然而 `peri-agent` 的 `ExecutorEvent` 本身不区分来源——所有子 Agent 共享父 Agent 的 `event_handler`。因此需要在 TUI 映射层通过"当前活跃 tool_call_id → agent_id"的映射来确定事件归属。
+**关键洞察：** 子 Agent 是**顺序**被 `tool_dispatch` 并发调用的，但每个子 Agent 内部的事件是交错到达的。然而 `cc-agent` 的 `ExecutorEvent` 本身不区分来源——所有子 Agent 共享父 Agent 的 `event_handler`。因此需要在 TUI 映射层通过"当前活跃 tool_call_id → agent_id"的映射来确定事件归属。
 
 **更精确的方案：** 使用 `tool_call_id` 前缀匹配。当 `Agent` 工具的 `ToolStart` 到达时，记录 `tool_call_id → agent_id` 映射；子 Agent 产生的 `ToolStart`/`ToolEnd` 的 `tool_call_id` 虽然不同，但我们可以通过"栈顶活跃 SubAgent 的 tool_call_id"来追踪。
 
 **最终方案：** 在 `map_executor_event` 中维护一个 `active_subagent_tool_call_ids: HashMap<String, String>`（`tool_call_id → agent_id`）。当 `Agent` ToolStart 到达时插入映射；当子 Agent 的 ToolStart/ToolEnd/TextChunk 到达时，检查其 `message_id`（子 Agent 事件携带的 `message_id` 与父 Agent 的 `tool_call_id` 无关，**无法直接关联**）。
 
-**最终最终方案（可行）：** 放弃从事件内容推导归属。改为在 `peri-agent` 层面的 `AgentEvent` 中添加 `source_agent_id` 字段。子 Agent 构建时注入唯一的 `agent_id`，通过 `FnEventHandler` 闭包捕获并在每个事件中附加。这是最干净的方案。
+**最终最终方案（可行）：** 放弃从事件内容推导归属。改为在 `cc-agent` 层面的 `AgentEvent` 中添加 `source_agent_id` 字段。子 Agent 构建时注入唯一的 `agent_id`，通过 `FnEventHandler` 闭包捕获并在每个事件中附加。这是最干净的方案。
 
 ---
 
-### Task 1: 在 peri-agent 的 AgentEvent 中添加 source_agent_id
+### Task 1: 在 cc-agent 的 AgentEvent 中添加 source_agent_id
 
 **Files:**
-- Modify: `peri-agent/src/agent/events.rs:16-89`
+- Modify: `cc-agent/src/agent/events.rs:16-89`
 
-**背景：** `peri-agent` 的 `AgentEvent` 是核心事件类型，被 `AgentEventHandler::on_event` 消费。子 Agent 通过 `with_event_handler(Arc::clone(handler))` 透明转发事件。目前无法区分事件来自哪个子 Agent。
+**背景：** `cc-agent` 的 `AgentEvent` 是核心事件类型，被 `AgentEventHandler::on_event` 消费。子 Agent 通过 `with_event_handler(Arc::clone(handler))` 透明转发事件。目前无法区分事件来自哪个子 Agent。
 
 **方案：** 给需要区分的事件变体添加 `source_agent_id: Option<String>` 字段。默认为 `None`（父 Agent 事件），子 Agent 通过包装 handler 注入。
 
 - [ ] **Step 1: 修改 AgentEvent 枚举，为关键事件变体添加 source_agent_id**
 
-在 `peri-agent/src/agent/events.rs` 中，为以下变体添加 `source_agent_id: Option<String>` 字段：
+在 `cc-agent/src/agent/events.rs` 中，为以下变体添加 `source_agent_id: Option<String>` 字段：
 
 ```rust
 /// 工具调用开始
@@ -89,7 +89,7 @@ StateSnapshot(Vec<crate::messages::BaseMessage>),  // 保持不变
 
 - [ ] **Step 2: 更新所有 emit! 调用点，添加 source_agent_id: None**
 
-搜索 `peri-agent/src/` 中所有 `AgentEvent::ToolStart {`、`AgentEvent::ToolEnd {`、`AgentEvent::TextChunk {` 的构造处，添加 `source_agent_id: None`。
+搜索 `cc-agent/src/` 中所有 `AgentEvent::ToolStart {`、`AgentEvent::ToolEnd {`、`AgentEvent::TextChunk {` 的构造处，添加 `source_agent_id: None`。
 
 主要位置：
 - `tool_dispatch.rs` 中的 `dispatch_tools` 和 `collect_tool_results`
@@ -97,15 +97,15 @@ StateSnapshot(Vec<crate::messages::BaseMessage>),  // 保持不变
 - 其他可能 emit 这些事件的中间件
 
 ```bash
-grep -rn "AgentEvent::ToolStart {" peri-agent/src/
-grep -rn "AgentEvent::ToolEnd {" peri-agent/src/
-grep -rn "AgentEvent::TextChunk {" peri-agent/src/
+grep -rn "AgentEvent::ToolStart {" cc-agent/src/
+grep -rn "AgentEvent::ToolEnd {" cc-agent/src/
+grep -rn "AgentEvent::TextChunk {" cc-agent/src/
 ```
 
 - [ ] **Step 3: 运行 cargo build 确认编译通过**
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 Expected: 编译成功
@@ -113,8 +113,8 @@ Expected: 编译成功
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/agent/events.rs peri-agent/src/agent/executor/
-git commit -m "feat(peri-agent): add source_agent_id field to ToolStart/ToolEnd/TextChunk events"
+git add cc-agent/src/agent/events.rs cc-agent/src/agent/executor/
+git commit -m "feat(cc-agent): add source_agent_id field to ToolStart/ToolEnd/TextChunk events"
 ```
 
 ---
@@ -122,13 +122,13 @@ git commit -m "feat(peri-agent): add source_agent_id field to ToolStart/ToolEnd/
 ### Task 2: 创建子 Agent 事件包装器
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool.rs:144-172`
+- Modify: `cc-middlewares/src/subagent/tool.rs:144-172`
 
 **背景：** `SubAgentTool` 的 `event_handler` 字段是 `Option<Arc<dyn AgentEventHandler>>`，直接 clone 给子 Agent 使用。需要包装这个 handler，在转发时注入 `source_agent_id`。
 
 - [ ] **Step 1: 创建 SourceAgentIdHandler 包装器**
 
-在 `peri-middlewares/src/subagent/tool.rs` 文件顶部（imports 后）添加：
+在 `cc-middlewares/src/subagent/tool.rs` 文件顶部（imports 后）添加：
 
 ```rust
 /// 事件处理器包装器：为子 Agent 事件注入 source_agent_id
@@ -236,14 +236,14 @@ if let Some(handler) = &self.event_handler {
 
 - [ ] **Step 3: 同时修改 SubagentStarted/SubagentStopped 事件的 emit**
 
-在 `invoke` Normal 路径中（约 line 892-916），`SubagentStarted` 和 `SubagentStopped` 是 `peri-agent` 层的事件，直接 emit 到 handler。这些事件目前不携带 `source_agent_id`（它们是生命周期事件，不需要路由到特定 SubAgent）。保持不变。
+在 `invoke` Normal 路径中（约 line 892-916），`SubagentStarted` 和 `SubagentStopped` 是 `cc-agent` 层的事件，直接 emit 到 handler。这些事件目前不携带 `source_agent_id`（它们是生命周期事件，不需要路由到特定 SubAgent）。保持不变。
 
-但需要确认 TUI 侧 `map_executor_event` 正确处理这些事件。查看 TUI events.rs 的 `SubagentLifecycle` 事件，它是独立的 TUI 事件，不经过 peri-agent 层。没有冲突。
+但需要确认 TUI 侧 `map_executor_event` 正确处理这些事件。查看 TUI events.rs 的 `SubagentLifecycle` 事件，它是独立的 TUI 事件，不经过 cc-agent 层。没有冲突。
 
 - [ ] **Step 4: 运行 cargo build 确认编译通过**
 
 ```bash
-cargo build -p peri-middlewares
+cargo build -p cc-middlewares
 ```
 
 Expected: 编译成功
@@ -251,7 +251,7 @@ Expected: 编译成功
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/tool.rs
+git add cc-middlewares/src/subagent/tool.rs
 git commit -m "feat(subagent): wrap event_handler to inject source_agent_id for child agents"
 ```
 
@@ -260,12 +260,12 @@ git commit -m "feat(subagent): wrap event_handler to inject source_agent_id for 
 ### Task 3: 更新 TUI AgentEvent 添加 source_agent_id
 
 **Files:**
-- Modify: `peri-tui/src/app/events.rs:8-129`
-- Modify: `peri-tui/src/app/agent.rs:567-650`
+- Modify: `cc-tui/src/app/events.rs:8-129`
+- Modify: `cc-tui/src/app/agent.rs:567-650`
 
 - [ ] **Step 1: 更新 TUI AgentEvent 枚举**
 
-在 `peri-tui/src/app/events.rs` 中，为 `ToolStart`、`ToolEnd` 添加 `source_agent_id: Option<String>` 字段：
+在 `cc-tui/src/app/events.rs` 中，为 `ToolStart`、`ToolEnd` 添加 `source_agent_id: Option<String>` 字段：
 
 ```rust
 /// 工具调用开始（参数已就绪）
@@ -297,11 +297,11 @@ AssistantChunk {
 },
 ```
 
-注意：TUI `AgentEvent` 和 `peri-agent` `AgentEvent` 是**不同的类型**。TUI 的 `AgentEvent` 在 `events.rs` 中定义，由 `map_executor_event` 从 `peri-agent` 的 `ExecutorEvent` 映射而来。
+注意：TUI `AgentEvent` 和 `cc-agent` `AgentEvent` 是**不同的类型**。TUI 的 `AgentEvent` 在 `events.rs` 中定义，由 `map_executor_event` 从 `cc-agent` 的 `ExecutorEvent` 映射而来。
 
 - [ ] **Step 2: 更新 map_executor_event 映射函数**
 
-在 `peri-tui/src/app/agent.rs` 的 `map_executor_event` 中，更新映射以传递 `source_agent_id`：
+在 `cc-tui/src/app/agent.rs` 的 `map_executor_event` 中，更新映射以传递 `source_agent_id`：
 
 ```rust
 // Agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
@@ -372,9 +372,9 @@ ExecutorEvent::TextChunk { chunk: text, source_agent_id, .. } => AgentEvent::Ass
 搜索 TUI 代码中所有构造这些变体的位置：
 
 ```bash
-grep -rn "AgentEvent::ToolStart {" peri-tui/src/
-grep -rn "AgentEvent::ToolEnd {" peri-tui/src/
-grep -rn "AgentEvent::AssistantChunk" peri-tui/src/
+grep -rn "AgentEvent::ToolStart {" cc-tui/src/
+grep -rn "AgentEvent::ToolEnd {" cc-tui/src/
+grep -rn "AgentEvent::AssistantChunk" cc-tui/src/
 ```
 
 所有构造处添加 `source_agent_id: None`。
@@ -382,7 +382,7 @@ grep -rn "AgentEvent::AssistantChunk" peri-tui/src/
 - [ ] **Step 4: 运行 cargo build 确认编译通过**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 Expected: 编译成功
@@ -390,7 +390,7 @@ Expected: 编译成功
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/app/events.rs peri-tui/src/app/agent.rs
+git add cc-tui/src/app/events.rs cc-tui/src/app/agent.rs
 git commit -m "feat(tui): add source_agent_id to TUI AgentEvent for subagent routing"
 ```
 
@@ -399,7 +399,7 @@ git commit -m "feat(tui): add source_agent_id to TUI AgentEvent for subagent rou
 ### Task 4: 修改 Pipeline 路由逻辑
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline.rs:195-270`, `:475-515`, `:594-600`
+- Modify: `cc-tui/src/app/message_pipeline.rs:195-270`, `:475-515`, `:594-600`
 
 **背景：** 这是核心修复。将所有 `subagent_stack.last_mut()` 替换为按 `source_agent_id` 查找的方法。
 
@@ -684,7 +684,7 @@ AgentEvent::SubAgentStart {
 **确认：** `tool_start_internal` 中调用 `self.subagent_push_pending_to_stack` 将 pending SubAgent push 到 stack。需要检查这个方法是否也使用 `last_mut()`：
 
 ```bash
-grep -n "subagent_push_pending_to_stack" peri-tui/src/app/message_pipeline.rs
+grep -n "subagent_push_pending_to_stack" cc-tui/src/app/message_pipeline.rs
 ```
 
 如果没有这个方法名，搜索 push 到 `subagent_stack` 的位置。
@@ -696,7 +696,7 @@ grep -n "subagent_push_pending_to_stack" peri-tui/src/app/message_pipeline.rs
 - [ ] **Step 7: 运行 cargo build 确认编译通过**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 Expected: 编译成功
@@ -704,7 +704,7 @@ Expected: 编译成功
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-tui/src/app/message_pipeline.rs peri-tui/src/app/events.rs peri-tui/src/app/agent.rs
+git add cc-tui/src/app/message_pipeline.rs cc-tui/src/app/events.rs cc-tui/src/app/agent.rs
 git commit -m "fix(tui): route concurrent subagent events by source_agent_id instead of last_mut()"
 ```
 
@@ -713,12 +713,12 @@ git commit -m "fix(tui): route concurrent subagent events by source_agent_id ins
 ### Task 5: 处理 ACP 模式的事件映射
 
 **Files:**
-- Modify: `peri-tui/src/acp/event_mapper.rs`（如果存在）
+- Modify: `cc-tui/src/acp/event_mapper.rs`（如果存在）
 
 - [ ] **Step 1: 搜索 ACP 事件映射代码**
 
 ```bash
-find peri-tui/src/acp -name "*.rs" | head -20
+find cc-tui/src/acp -name "*.rs" | head -20
 ```
 
 检查 ACP 模式是否也有类似的事件映射需要更新。如果 ACP 使用相同的 `AgentEvent` 类型，那么 `event_mapper.rs` 中的映射函数也需要传递 `source_agent_id`。
@@ -730,7 +730,7 @@ find peri-tui/src/acp -name "*.rs" | head -20
 - [ ] **Step 3: 运行 cargo build 确认**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 ---
@@ -750,16 +750,16 @@ Expected: 所有 crate 编译成功
 - [ ] **Step 2: 运行现有测试**
 
 ```bash
-cargo test -p peri-agent
-cargo test -p peri-middlewares
-cargo test -p peri-tui --lib
+cargo test -p cc-agent
+cargo test -p cc-middlewares
+cargo test -p cc-tui --lib
 ```
 
 Expected: 所有测试通过
 
 - [ ] **Step 3: 手动测试——并发 SubAgent 工具调用路由**
 
-1. 启动 TUI：`cargo run -p peri-tui`
+1. 启动 TUI：`cargo run -p cc-tui`
 2. 让父 Agent 在同一轮中并发调用 2 个不同类型的 Agent 工具
 3. SubAgent 全部完成后，展开各 SubAgentGroup
 4. **验证：** 每个 SubAgentGroup 内部都有完整的工具调用记录
@@ -786,7 +786,7 @@ git commit -m "fix: address test failures from subagent routing changes"
 - [ ] **Step 1: 运行 clippy**
 
 ```bash
-cargo clippy -p peri-agent -p peri-middlewares -p peri-tui -- -D warnings
+cargo clippy -p cc-agent -p cc-middlewares -p cc-tui -- -D warnings
 ```
 
 Expected: 无 warning
@@ -823,6 +823,6 @@ Expected: 所有测试通过
 - 所有命令包含预期输出
 
 **3. 类型一致性：**
-- `source_agent_id: Option<String>` 在 peri-agent `AgentEvent`、TUI `AgentEvent`、`SubAgentEnd` 三处类型一致
+- `source_agent_id: Option<String>` 在 cc-agent `AgentEvent`、TUI `AgentEvent`、`SubAgentEnd` 三处类型一致
 - `SourceAgentIdHandler` 使用 `Arc<dyn AgentEventHandler>` 与现有接口匹配
 - `find_subagent_by_id_mut` 返回 `Option<&mut SubAgentState>` 与旧 `last_mut()` 返回类型匹配

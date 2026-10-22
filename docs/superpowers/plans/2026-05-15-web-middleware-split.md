@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Split `peri-middlewares/src/middleware/web.rs` (559 lines) into 4 files: `web.rs` (WebMiddleware glue), `web_common.rs` (SSRF guard + shared utils), `web_fetch.rs` (WebFetchTool), `web_search.rs` (WebSearchTool + Bing parsing).
+**Goal:** Split `cc-middlewares/src/middleware/web.rs` (559 lines) into 4 files: `web.rs` (WebMiddleware glue), `web_common.rs` (SSRF guard + shared utils), `web_fetch.rs` (WebFetchTool), `web_search.rs` (WebSearchTool + Bing parsing).
 
 **Architecture:** Pure mechanical extraction. `web_common.rs` holds SSRF validation and content processing utilities used by both tools. `web_fetch.rs` and `web_search.rs` each contain one tool's struct + `BaseTool` impl + description constant. `web.rs` retains only `WebMiddleware` + `Middleware` impl + tests. External callers use `WebMiddleware` — zero API breakage.
 
@@ -26,13 +26,13 @@ middleware/
 ### Task 1: Create `web_common.rs` — extract shared utilities
 
 **Files:**
-- Create: `peri-middlewares/src/middleware/web_common.rs`
-- Modify: `peri-middlewares/src/middleware/web.rs` (remove lines 1–79, 99–100)
+- Create: `cc-middlewares/src/middleware/web_common.rs`
+- Modify: `cc-middlewares/src/middleware/web.rs` (remove lines 1–79, 99–100)
 - **⚠ Do NOT remove `use` statements needed by remaining code in `web.rs`**
 
 - [ ] **Step 1: Create `web_common.rs`**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/middleware/web_common.rs` with these items, copied verbatim from `web.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/middleware/web_common.rs` with these items, copied verbatim from `web.rs`:
 
 ```
 Lines to copy from web.rs:
@@ -79,7 +79,7 @@ Also clean up now-unused imports in `web.rs`:
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
 Expected: Success. If compilation errors:
 - Check that `web_common.rs` imports `std::net::IpAddr` and `url::Url`
@@ -89,7 +89,7 @@ Expected: Success. If compilation errors:
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/middleware/web_common.rs peri-middlewares/src/middleware/web.rs
+git add cc-middlewares/src/middleware/web_common.rs cc-middlewares/src/middleware/web.rs
 git commit -m "refactor(web): extract web_common module from web.rs
 
 Move validate_url, html_to_text, truncate_content, and shared
@@ -103,12 +103,12 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code.win>"
 ### Task 2: Create `web_fetch.rs` — extract WebFetchTool
 
 **Files:**
-- Create: `peri-middlewares/src/middleware/web_fetch.rs`
-- Modify: `peri-middlewares/src/middleware/web.rs` (remove lines 82–213)
+- Create: `cc-middlewares/src/middleware/web_fetch.rs`
+- Modify: `cc-middlewares/src/middleware/web.rs` (remove lines 82–213)
 
 - [ ] **Step 1: Create `web_fetch.rs`**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/middleware/web_fetch.rs` with these items, copied verbatim from `web.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/middleware/web_fetch.rs` with these items, copied verbatim from `web.rs`:
 
 ```
 Lines to copy from web.rs:
@@ -121,7 +121,7 @@ Lines to copy from web.rs:
 Add imports at top:
 ```rust
 use async_trait::async_trait;
-use peri_agent::tools::BaseTool;
+use cc_agent::tools::BaseTool;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 
@@ -144,7 +144,7 @@ use super::web_fetch::WebFetchTool;
 ```
 
 Also clean up now-unused imports in `web.rs`:
-- `use peri_agent::tools::BaseTool;` — `WebMiddleware` doesn't use it directly, but `WebSearchTool` still does → **KEEP** (for now, until Task 3)
+- `use cc_agent::tools::BaseTool;` — `WebMiddleware` doesn't use it directly, but `WebSearchTool` still does → **KEEP** (for now, until Task 3)
 - `use serde_json::Value;` — same reasoning → **KEEP**
 - `use async_trait::async_trait;` — same → **KEEP**
 - `use tokio::time::{timeout, Duration};` — only used by `WebFetchTool` and `WebSearchTool` → **KEEP** (still needed by WebSearchTool)
@@ -153,14 +153,14 @@ Also clean up now-unused imports in `web.rs`:
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
 Expected: Success.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/middleware/web_fetch.rs peri-middlewares/src/middleware/web.rs
+git add cc-middlewares/src/middleware/web_fetch.rs cc-middlewares/src/middleware/web.rs
 git commit -m "refactor(web): extract web_fetch module from web.rs
 
 Move WebFetchTool and its BaseTool impl to web_fetch.rs.
@@ -173,12 +173,12 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code.win>"
 ### Task 3: Create `web_search.rs` — extract WebSearchTool + Bing helpers
 
 **Files:**
-- Create: `peri-middlewares/src/middleware/web_search.rs`
-- Modify: `peri-middlewares/src/middleware/web.rs` (remove lines 215–525)
+- Create: `cc-middlewares/src/middleware/web_search.rs`
+- Modify: `cc-middlewares/src/middleware/web.rs` (remove lines 215–525)
 
 - [ ] **Step 1: Create `web_search.rs`**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/middleware/web_search.rs` with these items, copied verbatim from `web.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/middleware/web_search.rs` with these items, copied verbatim from `web.rs`:
 
 ```
 Lines to copy from web.rs:
@@ -200,7 +200,7 @@ Lines to copy from web.rs:
 Add imports at top:
 ```rust
 use async_trait::async_trait;
-use peri_agent::tools::BaseTool;
+use cc_agent::tools::BaseTool;
 use serde_json::Value;
 
 use super::web_common::{WEB_CREDIBILITY_WARNING, MAX_RESULT_TEXT_CHARS};
@@ -228,13 +228,13 @@ Now clean up unused imports from `web.rs`. After removing both `WebFetchTool` an
 ```rust
 // REMOVE these (only used by the tool impls):
 use async_trait::async_trait;
-use peri_agent::tools::BaseTool;
+use cc_agent::tools::BaseTool;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 
 // KEEP these:
-use peri_agent::agent::state::State;
-use peri_agent::middleware::r#trait::Middleware;
+use cc_agent::agent::state::State;
+use cc_agent::middleware::r#trait::Middleware;
 
 // ADD import for tools:
 use super::web_fetch::WebFetchTool;
@@ -244,9 +244,9 @@ use super::web_search::WebSearchTool;
 Final `web.rs` imports should be:
 ```rust
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::middleware::r#trait::Middleware;
-use peri_agent::tools::BaseTool;
+use cc_agent::agent::state::State;
+use cc_agent::middleware::r#trait::Middleware;
+use cc_agent::tools::BaseTool;
 
 use super::web_fetch::WebFetchTool;
 use super::web_search::WebSearchTool;
@@ -257,9 +257,9 @@ Wait — `async_trait` is needed for `#[async_trait]` on `impl Middleware`. `Bas
 Final `web.rs` code (after all removals):
 ```rust
 use async_trait::async_trait;
-use peri_agent::agent::state::State;
-use peri_agent::middleware::r#trait::Middleware;
-use peri_agent::tools::BaseTool;
+use cc_agent::agent::state::State;
+use cc_agent::middleware::r#trait::Middleware;
+use cc_agent::tools::BaseTool;
 
 use super::web_fetch::WebFetchTool;
 use super::web_search::WebSearchTool;
@@ -301,14 +301,14 @@ mod tests;
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
 Expected: Success. Check for unused import warnings — they indicate something was missed.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/middleware/web_search.rs peri-middlewares/src/middleware/web.rs
+git add cc-middlewares/src/middleware/web_search.rs cc-middlewares/src/middleware/web.rs
 git commit -m "refactor(web): extract web_search module from web.rs
 
 Move WebSearchTool, Bing parsing helpers, and related constants
@@ -331,14 +331,14 @@ Expected: All crates compile. No warnings (except pre-existing).
 - [ ] **Step 2: Run web-related tests**
 
 ```bash
-cargo test -p peri-middlewares web 2>&1
+cargo test -p cc-middlewares web 2>&1
 ```
 Expected: All tests in `web_test.rs` pass. No regressions.
 
 - [ ] **Step 3: Verify `WebMiddleware::collect_tools()` returns both tools correctly**
 
 ```bash
-cargo test -p peri-middlewares middleware 2>&1
+cargo test -p cc-middlewares middleware 2>&1
 ```
 Expected: All middleware tests pass.
 
@@ -352,7 +352,7 @@ Expected: All tests pass.
 - [ ] **Step 5: Verify file sizes**
 
 ```bash
-wc -l peri-middlewares/src/middleware/web.rs peri-middlewares/src/middleware/web_common.rs peri-middlewares/src/middleware/web_fetch.rs peri-middlewares/src/middleware/web_search.rs
+wc -l cc-middlewares/src/middleware/web.rs cc-middlewares/src/middleware/web_common.rs cc-middlewares/src/middleware/web_fetch.rs cc-middlewares/src/middleware/web_search.rs
 ```
 Expected approximate: `web.rs` ~30 lines, `web_common.rs` ~80 lines, `web_fetch.rs` ~140 lines, `web_search.rs` ~350 lines.
 

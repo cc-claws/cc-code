@@ -2,7 +2,7 @@
 
 ## 需求背景
 
-当主 agent 并行 dispatching 多个 SubAgent 时（如 `dispatching-parallel-agents` skill 触发），每个 SubAgent 渲染为独立的 `SubAgentGroup` 块，展开显示内部工具调用和消息，占满大量屏幕空间。用户期望类似 Claude Code 的紧凑树形汇总视图——多个 agent 合并为一个可折叠的树，默认折叠，每个 agent 只占一行摘要。
+当主 agent 并行 dispatching 多个 SubAgent 时（如 `dispatching-parallel-agents` skill 触发），每个 SubAgent 渲染为独立的 `SubAgentGroup` 块，展开显示内部工具调用和消息，占满大量屏幕空间。用户期望类似 参考实现 的紧凑树形汇总视图——多个 agent 合并为一个可折叠的树，默认折叠，每个 agent 只占一行摘要。
 
 当前问题：
 
@@ -131,10 +131,10 @@ active_batch: Option<BatchInfo>,
 
 | 文件 | 改动 |
 |------|------|
-| `peri-tui/src/ui/message_view.rs` | SubAgentGroup 新增 `batch_agents` 字段 + `AgentSummary` 结构体 |
-| `peri-tui/src/ui/message_render.rs` | SubAgentGroup 树形渲染分支 |
-| `peri-tui/src/app/message_pipeline.rs` | BatchInfo 状态、批次检测、`aggregate_batch_groups()` 聚合 |
-| `peri-tui/src/ui/message_view.rs`（`aggregate_tool_groups` 附近） | 新增 `aggregate_batch_groups()` 函数 |
+| `cc-tui/src/ui/message_view.rs` | SubAgentGroup 新增 `batch_agents` 字段 + `AgentSummary` 结构体 |
+| `cc-tui/src/ui/message_render.rs` | SubAgentGroup 树形渲染分支 |
+| `cc-tui/src/app/message_pipeline.rs` | BatchInfo 状态、批次检测、`aggregate_batch_groups()` 聚合 |
+| `cc-tui/src/ui/message_view.rs`（`aggregate_tool_groups` 附近） | 新增 `aggregate_batch_groups()` 函数 |
 
 ## 实现要点
 
@@ -147,7 +147,7 @@ active_batch: Option<BatchInfo>,
 ## 约束一致性
 
 - **消息管线统一**：聚合逻辑在 Pipeline 的 reconcile 阶段执行，符合 MessagePipeline 作为唯一入口的架构约束
-- **Widget 独立 crate**：渲染逻辑在 `message_render.rs`（TUI 层），不涉及 peri-widgets
+- **Widget 独立 crate**：渲染逻辑在 `message_render.rs`（TUI 层），不涉及 cc-widgets
 - **事件驱动 TUI**：无新增事件类型，复用现有 SubAgentStart/SubAgentEnd/RebuildAll
 - **RebuildAll 尾部替换**：聚合通过 RebuildAll 触发，只替换尾部，保留前缀
 - 无架构偏离，无新增约束

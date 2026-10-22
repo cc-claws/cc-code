@@ -16,13 +16,13 @@
 
 | File | Action | Responsibility |
 |------|--------|---------------|
-| `peri-tui/src/main.rs` | Modify | Move jemalloc config to `MALLOC_CONF` env var before any allocation |
-| `peri-tui/src/jemalloc_config.rs` | Modify | Replace `raw::write` with `MALLOC_CONF` env var + keep `raw::write` as fallback |
-| `peri-tui/src/jemalloc_config_test.rs` | Modify | Update tests for new approach |
-| `peri-agent/src/llm/openai/mod.rs` | Modify | Accept external `reqwest::Client` + pool-limited builder |
-| `peri-agent/src/llm/anthropic/mod.rs` | Modify | Accept external `reqwest::Client` + pool-limited builder |
-| `peri-acp/src/provider/mod.rs` | Modify | Create shared pool-limited `reqwest::Client`, pass to LLM constructors |
-| `peri-tui/src/main.rs` (tokio runtime) | Modify | Add `thread_stack_size(4 << 20)` to all runtime builders |
+| `cc-tui/src/main.rs` | Modify | Move jemalloc config to `MALLOC_CONF` env var before any allocation |
+| `cc-tui/src/jemalloc_config.rs` | Modify | Replace `raw::write` with `MALLOC_CONF` env var + keep `raw::write` as fallback |
+| `cc-tui/src/jemalloc_config_test.rs` | Modify | Update tests for new approach |
+| `cc-agent/src/llm/openai/mod.rs` | Modify | Accept external `reqwest::Client` + pool-limited builder |
+| `cc-agent/src/llm/anthropic/mod.rs` | Modify | Accept external `reqwest::Client` + pool-limited builder |
+| `cc-acp/src/provider/mod.rs` | Modify | Create shared pool-limited `reqwest::Client`, pass to LLM constructors |
+| `cc-tui/src/main.rs` (tokio runtime) | Modify | Add `thread_stack_size(4 << 20)` to all runtime builders |
 
 ---
 
@@ -31,9 +31,9 @@
 **Why:** Heapdump confirms `background_thread: false` despite `raw::write` call. The `raw::write("background_thread", true)` fails silently when arenas already exist (after tokio runtime spawns threads). The `MALLOC_CONF` env var is read by jemalloc during init, before any arena allocation — this is the only reliable way to enable `background_thread`.
 
 **Files:**
-- Modify: `peri-tui/src/main.rs:1-10`
-- Modify: `peri-tui/src/jemalloc_config.rs`
-- Test: `peri-tui/src/jemalloc_config_test.rs`
+- Modify: `cc-tui/src/main.rs:1-10`
+- Modify: `cc-tui/src/jemalloc_config.rs`
+- Test: `cc-tui/src/jemalloc_config_test.rs`
 
 - [ ] **Step 1: Update `jemalloc_config.rs` — add `init_malloc_conf()` function**
 
@@ -79,7 +79,7 @@ pub fn init_malloc_conf() {
 /// This is a best-effort fallback that applies settings at runtime.
 /// `background_thread` may not take effect if arenas already exist;
 /// use `init_malloc_conf()` for reliable configuration.
-// Called from main.rs (bin target) via peri_tui::jemalloc_config::configure_jemalloc().
+// Called from main.rs (bin target) via cc_tui::jemalloc_config::configure_jemalloc().
 // Clippy's dead_code lint fires on lib targets even when used by the bin target.
 #[allow(dead_code)]
 #[cfg(not(target_os = "windows"))]
@@ -124,7 +124,7 @@ pub fn init_malloc_conf() {
 
 The `init_malloc_conf()` must run before the `#[global_allocator]` triggers jemalloc init (which happens on the first allocation). Move it to line 1 of `main()`.
 
-In `peri-tui/src/main.rs`, add the call before `configure_jemalloc()`:
+In `cc-tui/src/main.rs`, add the call before `configure_jemalloc()`:
 
 ```rust
 fn main() -> Result<()> {
@@ -132,18 +132,18 @@ fn main() -> Result<()> {
     // This is the first thing we do — before any allocation, tracing, or parsing.
     // jemalloc reads this env var during its one-time init (triggered by the
     // first allocation through the #[global_allocator]).
-    peri_tui::jemalloc_config::init_malloc_conf();
+    cc_tui::jemalloc_config::init_malloc_conf();
 
     // Runtime mallctl writes as fallback/diagnostics (may not fully take effect
     // if arenas already exist, but harmless to call).
-    peri_tui::jemalloc_config::configure_jemalloc();
+    cc_tui::jemalloc_config::configure_jemalloc();
 
     // ... rest of main unchanged ...
 ```
 
 - [ ] **Step 3: Update tests**
 
-In the test file `peri-tui/src/jemalloc_config_test.rs` (or inline `#[cfg(test)]` module), add a test for `init_malloc_conf`:
+In the test file `cc-tui/src/jemalloc_config_test.rs` (or inline `#[cfg(test)]` module), add a test for `init_malloc_conf`:
 
 ```rust
 #[test]
@@ -181,18 +181,18 @@ fn test_init_malloc_conf_respects_existing() {
 
 - [ ] **Step 4: Build and test**
 
-Run: `cargo build -p peri-tui && cargo test -p peri-tui --lib -- jemalloc_config`
+Run: `cargo build -p cc-tui && cargo test -p cc-tui --lib -- jemalloc_config`
 Expected: All tests pass, no warnings.
 
 - [ ] **Step 5: Manual verification — start TUI, run `/heapdump`, confirm `background_thread: true`**
 
-Run: `cargo run -p peri-tui`, then type `/heapdump` and check the output file in `.tmp/`.
+Run: `cargo run -p cc-tui`, then type `/heapdump` and check the output file in `.tmp/`.
 Expected: `background_thread: true` in the dump.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/jemalloc_config.rs peri-tui/src/main.rs
+git add cc-tui/src/jemalloc_config.rs cc-tui/src/main.rs
 git commit -m "fix(tui): set MALLOC_CONF env var before jemalloc init to enable background_thread
 
 background_thread: true was not taking effect via runtime mallctl write
@@ -209,12 +209,12 @@ Refs: spec/issues/2026-05-22-memory-linear-growth-no-compact.md (现象 6)"
 **Why:** `reqwest::Client::new()` creates a connection pool with default `pool_max_idle_per_host: usize::MAX` and no idle timeout. Each LLM HTTP connection holds a TLS session (~50-100 KB). After N turns with streaming responses, the pool accumulates connections whose TLS buffers are never released. Setting `pool_max_idle_per_host(1)` + `pool_idle_timeout(30s)` limits retention to 1 connection per host with 30s idle eviction.
 
 **Files:**
-- Modify: `peri-agent/src/llm/openai/mod.rs`
-- Modify: `peri-agent/src/llm/anthropic/mod.rs`
+- Modify: `cc-agent/src/llm/openai/mod.rs`
+- Modify: `cc-agent/src/llm/anthropic/mod.rs`
 
 - [ ] **Step 1: Create a shared pool-limited `reqwest::Client` builder helper**
 
-In `peri-agent/src/llm/openai/mod.rs`, update `ChatOpenAI::new()` to use a pool-limited client:
+In `cc-agent/src/llm/openai/mod.rs`, update `ChatOpenAI::new()` to use a pool-limited client:
 
 ```rust
 /// Build a reqwest client with connection pool limits to prevent TLS session
@@ -246,7 +246,7 @@ impl ChatOpenAI {
 
 - [ ] **Step 2: Apply same change to `ChatAnthropic`**
 
-In `peri-agent/src/llm/anthropic/mod.rs`:
+In `cc-agent/src/llm/anthropic/mod.rs`:
 
 ```rust
 fn build_reqwest_client() -> reqwest::Client {
@@ -275,13 +275,13 @@ impl ChatAnthropic {
 
 - [ ] **Step 3: Build and test**
 
-Run: `cargo build -p peri-agent && cargo test -p peri-agent`
+Run: `cargo build -p cc-agent && cargo test -p cc-agent`
 Expected: Build succeeds, all existing tests pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/openai/mod.rs peri-agent/src/llm/anthropic/mod.rs
+git add cc-agent/src/llm/openai/mod.rs cc-agent/src/llm/anthropic/mod.rs
 git commit -m "perf(agent): limit reqwest connection pool to prevent TLS session accumulation
 
 Default reqwest pool_max_idle_per_host is usize::MAX with no idle timeout.
@@ -298,11 +298,11 @@ Refs: spec/issues/2026-05-22-memory-linear-growth-no-compact.md (现象 6)"
 **Why:** Tokio's default worker thread stack size is 8 MB. With `num_cpus` workers (e.g., 8 on a MacBook Pro), that's 64 MB of pure stack allocation that RSS counts but never uses (our async tasks don't need deep recursion). Reducing to 4 MB per thread is safe for all our async workloads and saves ~32 MB on an 8-core machine.
 
 **Files:**
-- Modify: `peri-tui/src/main.rs` (all 6 runtime builder sites)
+- Modify: `cc-tui/src/main.rs` (all 6 runtime builder sites)
 
 - [ ] **Step 1: Add `thread_stack_size` to all tokio runtime builders**
 
-In `peri-tui/src/main.rs`, update all `tokio::runtime::Builder::new_multi_thread()` calls. There are 6 sites (lines ~265, ~304, ~306, ~310, ~325, ~341, ~396).
+In `cc-tui/src/main.rs`, update all `tokio::runtime::Builder::new_multi_thread()` calls. There are 6 sites (lines ~265, ~304, ~306, ~310, ~325, ~341, ~396).
 
 For each site, change:
 ```rust
@@ -320,13 +320,13 @@ let rt = tokio::runtime::Builder::new_multi_thread()
 
 - [ ] **Step 2: Build and run**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/main.rs
+git add cc-tui/src/main.rs
 git commit -m "perf(tui): reduce tokio worker thread stack from 8MB to 4MB
 
 Default 8MB × num_cpus threads = 64MB on 8-core. Our async workloads
@@ -343,11 +343,11 @@ Refs: spec/issues/2026-05-22-memory-linear-growth-no-compact.md (现象 6)"
 
 - [ ] **Step 1: Build release binary**
 
-Run: `cargo build -p peri-tui --release`
+Run: `cargo build -p cc-tui --release`
 
 - [ ] **Step 2: Baseline measurement**
 
-1. Start TUI: `./target/release/peri-tui`
+1. Start TUI: `./target/release/cc-tui`
 2. Immediately run `/heapdump` → save as baseline
 3. Run 5 turns of conversation
 4. Run `/heapdump` → save as "after 5 turns"

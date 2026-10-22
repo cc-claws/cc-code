@@ -29,7 +29,7 @@
 
 ## 一、问题现象
 
-用户在 Windows 传统命令提示符（CMD / `conhost.exe`，代码页 CP936，新宋体）下运行 CC Code (`peri-tui`)。
+用户在 Windows 传统命令提示符（CMD / `conhost.exe`，代码页 CP936，新宋体）下运行 CC Code (`cc-tui`)。
 
 当 Agent 执行耗时前台命令（如 `powershell -NoProfile -Command "Start-Sleep -Seconds 15" && npm view @cc-claw/code dist-tags --json`，运行约 14 秒）时，界面出现严重错位与转义序列泄露：
 
@@ -47,7 +47,7 @@
 ## 二、底层根因分析
 
 ### 1. 子进程共享宿主控制台句柄（未设置 `CREATE_NO_WINDOW`）
-- 在 `peri-tui/src/shell_exec.rs` 的 `spawn_streaming_child` 以及 `peri-middlewares/src/process/mod.rs` 中，使用 `tokio::process::Command` 启动子进程时，仅将 `stdout` 与 `stderr` 重定向为 `Stdio::piped()`，`stdin` 重定向为 `Stdio::null()`。
+- 在 `cc-tui/src/shell_exec.rs` 的 `spawn_streaming_child` 以及 `cc-middlewares/src/process/mod.rs` 中，使用 `tokio::process::Command` 启动子进程时，仅将 `stdout` 与 `stderr` 重定向为 `Stdio::piped()`，`stdin` 重定向为 `Stdio::null()`。
 - 在 Windows 操作系统中，若未显式指定进程创建标志（Creation Flags，如 `CREATE_NO_WINDOW` = `0x08000000` 或 `DETACHED_PROCESS` = `0x00000008`），子进程（`cmd.exe` / `powershell.exe`）默认**继承并附加在与父进程完全相同的控制台会话（Console Session / conhost）中**。
 
 ### 2. PowerShell / CMD 启动与运行时重置 ConsoleMode
@@ -55,7 +55,7 @@
 - PowerShell 5.1 是为传统控制台设计的，其默认输出模式通常仅开启 `ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT`，**不会开启（甚至会主动覆盖关闭）`ENABLE_VIRTUAL_TERMINAL_PROCESSING` (0x0004)**。
 
 ### 3. 父进程 TUI 高频重绘引发“ANSI 泄洪”
-- 在子进程（如 `Start-Sleep -Seconds 15`）运行的 15 秒内，`peri-tui` 主事件循环（`main.rs`）仍在以 30 FPS / 200ms 的频率调用 `draw_app` 和 `SetTitle`，以驱动 Spinner 动画、秒数计时以及状态栏更新。
+- 在子进程（如 `Start-Sleep -Seconds 15`）运行的 15 秒内，`cc-tui` 主事件循环（`main.rs`）仍在以 30 FPS / 200ms 的频率调用 `draw_app` 和 `SetTitle`，以驱动 Spinner 动画、秒数计时以及状态栏更新。
 - 此时宿主控制台的 VT 模式已经被子进程篡改关闭，Ratatui 和 crossterm 发射的所有控制序列（光标移动、RGB 调色、标题修改、隐藏光标）无法再被 conhost 解析：
   - `0x1B` 无法被识别为转义引导字符，被字体渲染为未知字形方块 `□`；
   - 光标定位指令未被执行，光标停留在原处并随着字符输出一直向右推进，最终导致所有 ANSI 字符以明文形式倾泻在屏幕右半部分。
@@ -64,17 +64,17 @@
 
 ## 三、涉及文件
 
-- `peri-tui/src/shell_exec.rs`（`spawn_streaming_child`：流式子进程 spawn 配置）
-- `peri-middlewares/src/process/mod.rs`（`shell_command_with_shell` / `shell_command_cmd`：跨平台子进程构建）
-- `peri-tui/src/main.rs`（`draw_app`：TUI 帧绘制与终端模式防御）
-- `peri-tui/src/conpty.rs`（`enable_vt_processing`：Windows 控制台 VT 模式切换）
+- `cc-tui/src/shell_exec.rs`（`spawn_streaming_child`：流式子进程 spawn 配置）
+- `cc-middlewares/src/process/mod.rs`（`shell_command_with_shell` / `shell_command_cmd`：跨平台子进程构建）
+- `cc-tui/src/main.rs`（`draw_app`：TUI 帧绘制与终端模式防御）
+- `cc-tui/src/conpty.rs`（`enable_vt_processing`：Windows 控制台 VT 模式切换）
 
 ---
 
 ## 四、建议修复方案（待后续实现）
 
 ### 方案 1：子进程彻底脱离控制台（核心根治）
-在 `peri-tui/src/shell_exec.rs` 及 `peri-middlewares/src/process/mod.rs` 中为 Windows 平台追加 `CREATE_NO_WINDOW` 标志：
+在 `cc-tui/src/shell_exec.rs` 及 `cc-middlewares/src/process/mod.rs` 中为 Windows 平台追加 `CREATE_NO_WINDOW` 标志：
 
 ```rust
 #[cfg(windows)]
@@ -86,7 +86,7 @@
 ```
 
 ### 方案 2：TUI 绘制帧增加 VT 模式防掉线守护（纵深防御）
-在 `peri-tui/src/main.rs` 的 `draw_app` 每次重绘前，确保检查并重置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`：
+在 `cc-tui/src/main.rs` 的 `draw_app` 每次重绘前，确保检查并重置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`：
 
 ```rust
 #[cfg(windows)]

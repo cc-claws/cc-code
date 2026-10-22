@@ -6,7 +6,7 @@
 
 **Architecture:** 左右分栏布局——左侧 graph 面板（虚拟滚动），右侧 commit 详情面板。数据层用 git2 一次性构建拓扑骨架，按需加载 commit 详情。graph 渲染用自建 lane-based 拓扑引擎（参考 keifu），box-drawing 字符画连线。主线程同步事件循环 + tokio 后台线程处理 remote 操作。
 
-**Tech Stack:** Rust 2021, ratatui + crossterm, git2 (libgit2), tokio, clap, peri-widgets (path dependency), anyhow, tracing
+**Tech Stack:** Rust 2021, ratatui + crossterm, git2 (libgit2), tokio, clap, cc-widgets (path dependency), anyhow, tracing
 
 ---
 
@@ -43,7 +43,7 @@ side-projects/git-graph/
 │   │   ├── confirm.rs           # 危险操作确认弹窗
 │   │   ├── filter_bar.rs        # 过滤输入栏
 │   │   └── search_bar.rs        # 搜索输入栏
-│   └── theme.rs                 # GigTheme（扩展 peri-widgets Theme）
+│   └── theme.rs                 # GigTheme（扩展 cc-widgets Theme）
 ```
 
 ---
@@ -76,7 +76,7 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 unicode-width = "0.2"
-peri-widgets = { path = "../../peri-widgets" }
+cc-widgets = { path = "../../cc-widgets" }
 ```
 
 - [ ] **Step 2: 创建 main.rs 骨架**
@@ -1256,10 +1256,10 @@ git commit -m "feat(gig): add graph renderer (CellType → ratatui Spans)"
 - [ ] **Step 1: 创建 theme.rs**
 
 ```rust
-use peri_widgets::theme::{DarkTheme, Theme};
+use cc_widgets::theme::{DarkTheme, Theme};
 use ratatui::style::Color;
 
-/// gig 主题：复用 peri-widgets DarkTheme，扩展 graph 专用颜色
+/// gig 主题：复用 cc-widgets DarkTheme，扩展 graph 专用颜色
 pub struct GigTheme {
     base: DarkTheme,
 }
@@ -1326,7 +1326,7 @@ impl Theme for GigTheme {
 
 ```bash
 git add side-projects/git-graph/
-git commit -m "feat(gig): add GigTheme extending peri-widgets DarkTheme"
+git commit -m "feat(gig): add GigTheme extending cc-widgets DarkTheme"
 ```
 
 ---

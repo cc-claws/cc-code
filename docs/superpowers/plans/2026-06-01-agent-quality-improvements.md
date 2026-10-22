@@ -4,7 +4,7 @@
 
 **Goal:** Fix 5 systemic Agent defects discovered by historical data analysis, improving tool call reliability and error recovery.
 
-**Architecture:** All changes are in the tool dispatch layer (`peri-agent`) and filesystem tools (`peri-middlewares`). No new crates or dependencies. Changes are independent and can be implemented in any order.
+**Architecture:** All changes are in the tool dispatch layer (`cc-agent`) and filesystem tools (`cc-middlewares`). No new crates or dependencies. Changes are independent and can be implemented in any order.
 
 **Tech Stack:** Rust, tokio, async-trait
 
@@ -16,22 +16,22 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `peri-agent/src/agent/executor/tool_dispatch.rs` | Modify | Task 1 (normalization) + Task 5 (failure detection) |
-| `peri-agent/src/agent/executor/tool_dispatch_test.rs` | Modify | Tests for Tasks 1 & 5 |
-| `peri-middlewares/src/tools/filesystem/read.rs` | Modify | Task 2 (error message) |
-| `peri-middlewares/src/tools/filesystem/write.rs` | Modify | Task 2 |
-| `peri-middlewares/src/tools/filesystem/edit.rs` | Modify | Task 2 |
-| `peri-middlewares/src/tools/filesystem/glob.rs` | Modify | Task 2 |
-| `peri-agent/src/messages/adapters/openai.rs` | Modify | Task 3 ([ERROR] prefix) |
-| `peri-middlewares/src/subagent/agent_result.rs` | Modify | Task 4 (polling guidance) |
+| `cc-agent/src/agent/executor/tool_dispatch.rs` | Modify | Task 1 (normalization) + Task 5 (failure detection) |
+| `cc-agent/src/agent/executor/tool_dispatch_test.rs` | Modify | Tests for Tasks 1 & 5 |
+| `cc-middlewares/src/tools/filesystem/read.rs` | Modify | Task 2 (error message) |
+| `cc-middlewares/src/tools/filesystem/write.rs` | Modify | Task 2 |
+| `cc-middlewares/src/tools/filesystem/edit.rs` | Modify | Task 2 |
+| `cc-middlewares/src/tools/filesystem/glob.rs` | Modify | Task 2 |
+| `cc-agent/src/messages/adapters/openai.rs` | Modify | Task 3 ([ERROR] prefix) |
+| `cc-middlewares/src/subagent/agent_result.rs` | Modify | Task 4 (polling guidance) |
 
 ---
 
 ### Task 1: Tool Name Normalization (Lookup Fallback)
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/tool_dispatch.rs:210-236`
-- Test: `peri-agent/src/agent/executor/tool_dispatch_test.rs`
+- Modify: `cc-agent/src/agent/executor/tool_dispatch.rs:210-236`
+- Test: `cc-agent/src/agent/executor/tool_dispatch_test.rs`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -152,15 +152,15 @@ async fn test_tool_name_alias_fallback() {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests::test_tool_name_case_insensitive_fallback`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests::test_tool_name_case_insensitive_fallback`
 Expected: FAIL — `bash` not found in HashMap (only `Bash` registered)
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests::test_tool_name_alias_fallback`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests::test_tool_name_alias_fallback`
 Expected: FAIL — `Task` not found in HashMap (only `Agent` registered)
 
 - [ ] **Step 3: Add alias table and fallback lookup**
 
-At the top of `peri-agent/src/agent/executor/tool_dispatch.rs` (after imports, before `dispatch_tools`):
+At the top of `cc-agent/src/agent/executor/tool_dispatch.rs` (after imports, before `dispatch_tools`):
 
 ```rust
 /// 工具名语义别名表（小写 key → 注册名 value）。
@@ -219,13 +219,13 @@ to:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests`
 Expected: ALL PASS (including new tests + existing tests)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/tool_dispatch.rs peri-agent/src/agent/executor/tool_dispatch_test.rs
+git add cc-agent/src/agent/executor/tool_dispatch.rs cc-agent/src/agent/executor/tool_dispatch_test.rs
 git commit -m "fix: add tool name normalization with case-insensitive and alias fallback
 
 Resolves tool-not-found errors when LLM outputs non-standard tool names
@@ -240,10 +240,10 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 2: Error Message Improvements
 
 **Files:**
-- Modify: `peri-middlewares/src/tools/filesystem/read.rs:122`
-- Modify: `peri-middlewares/src/tools/filesystem/write.rs:64,67`
-- Modify: `peri-middlewares/src/tools/filesystem/edit.rs:75,78,81`
-- Modify: `peri-middlewares/src/tools/filesystem/glob.rs:131`
+- Modify: `cc-middlewares/src/tools/filesystem/read.rs:122`
+- Modify: `cc-middlewares/src/tools/filesystem/write.rs:64,67`
+- Modify: `cc-middlewares/src/tools/filesystem/edit.rs:75,78,81`
+- Modify: `cc-middlewares/src/tools/filesystem/glob.rs:131`
 
 - [ ] **Step 1: Update Read error message**
 
@@ -337,13 +337,13 @@ let pattern = input["pattern"]
 
 - [ ] **Step 5: Run tests to verify no regressions**
 
-Run: `cargo test -p peri-middlewares --lib`
+Run: `cargo test -p cc-middlewares --lib`
 Expected: ALL PASS — existing tests should not depend on exact error message text
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-middlewares/src/tools/filesystem/read.rs peri-middlewares/src/tools/filesystem/write.rs peri-middlewares/src/tools/filesystem/edit.rs peri-middlewares/src/tools/filesystem/glob.rs
+git add cc-middlewares/src/tools/filesystem/read.rs cc-middlewares/src/tools/filesystem/write.rs cc-middlewares/src/tools/filesystem/edit.rs cc-middlewares/src/tools/filesystem/glob.rs
 git commit -m "fix: improve tool error messages for better LLM error recovery
 
 Replaces vague 'Missing X parameter' messages with explicit English
@@ -357,12 +357,12 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 3: OpenAI [ERROR] Prefix
 
 **Files:**
-- Modify: `peri-agent/src/messages/adapters/openai.rs:141-150` (serialization)
-- Modify: `peri-agent/src/messages/adapters/openai.rs:223-228` (parsing)
+- Modify: `cc-agent/src/messages/adapters/openai.rs:141-150` (serialization)
+- Modify: `cc-agent/src/messages/adapters/openai.rs:223-228` (parsing)
 
 - [ ] **Step 1: Write the failing test**
 
-Add a test in `peri-agent/src/messages/adapters/` test file (or create one if needed). Check if there's an existing test file first with `Glob("**/messages/adapters/*test*")`. If not, add inline test at the bottom of `openai.rs`:
+Add a test in `cc-agent/src/messages/adapters/` test file (or create one if needed). Check if there's an existing test file first with `Glob("**/messages/adapters/*test*")`. If not, add inline test at the bottom of `openai.rs`:
 
 ```rust
 #[cfg(test)]
@@ -410,7 +410,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p peri-agent --lib -- openai::tests`
+Run: `cargo test -p cc-agent --lib -- openai::tests`
 Expected: FAIL — current code has no `[ERROR]` prefix
 
 - [ ] **Step 3: Update serialization — add [ERROR] prefix**
@@ -487,16 +487,16 @@ to:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test -p peri-agent --lib -- openai::tests`
+Run: `cargo test -p cc-agent --lib -- openai::tests`
 Expected: ALL PASS
 
-Run: `cargo test -p peri-agent --lib`
+Run: `cargo test -p cc-agent --lib`
 Expected: ALL PASS — existing tests should not break
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-agent/src/messages/adapters/openai.rs
+git add cc-agent/src/messages/adapters/openai.rs
 git commit -m "fix: add [ERROR] prefix to OpenAI tool error results
 
 OpenAI Chat Completions API has no is_error field. Error tool results
@@ -512,7 +512,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 4: AgentResult Polling Guidance
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/agent_result.rs:52`
+- Modify: `cc-middlewares/src/subagent/agent_result.rs:52`
 
 - [ ] **Step 1: Update the return message**
 
@@ -545,13 +545,13 @@ to:
 
 - [ ] **Step 2: Run tests to verify no regressions**
 
-Run: `cargo test -p peri-middlewares --lib`
+Run: `cargo test -p cc-middlewares --lib`
 Expected: ALL PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/agent_result.rs
+git add cc-middlewares/src/subagent/agent_result.rs
 git commit -m "fix: improve AgentResult response to prevent polling loops
 
 The previous message did not instruct the LLM to stop retrying. The new
@@ -566,9 +566,9 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 5: Consecutive Failure Detection
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/tool_dispatch.rs:72-85` (dispatch_tools, state-write phase)
-- Modify: `peri-agent/src/agent/executor/tool_dispatch.rs:19-24` (dispatch_tools signature)
-- Test: `peri-agent/src/agent/executor/tool_dispatch_test.rs`
+- Modify: `cc-agent/src/agent/executor/tool_dispatch.rs:72-85` (dispatch_tools, state-write phase)
+- Modify: `cc-agent/src/agent/executor/tool_dispatch.rs:19-24` (dispatch_tools signature)
+- Test: `cc-agent/src/agent/executor/tool_dispatch_test.rs`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -636,7 +636,7 @@ async fn test_consecutive_failure_injects_correction() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests::test_consecutive_failure_injects_correction`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests::test_consecutive_failure_injects_correction`
 Expected: FAIL — no correction message is injected
 
 - [ ] **Step 3: Add consecutive failure tracking in dispatch_tools**
@@ -687,7 +687,7 @@ In `dispatch_tools`, after the state-write loop (after line 85), add:
 
 - [ ] **Step 4: Add consecutive failure tracking to AgentState**
 
-In `peri-agent/src/agent/state.rs`, add a field to track consecutive failures:
+In `cc-agent/src/agent/state.rs`, add a field to track consecutive failures:
 
 ```rust
 // In AgentState struct, add:
@@ -741,13 +741,13 @@ Update `dispatch_tools` to call these methods in the state-write loop. Modify li
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test -p peri-agent --lib -- tool_dispatch::tests`
+Run: `cargo test -p cc-agent --lib -- tool_dispatch::tests`
 Expected: ALL PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/tool_dispatch.rs peri-agent/src/agent/executor/tool_dispatch_test.rs peri-agent/src/agent/state.rs
+git add cc-agent/src/agent/executor/tool_dispatch.rs cc-agent/src/agent/executor/tool_dispatch_test.rs cc-agent/src/agent/state.rs
 git commit -m "feat: add consecutive failure detection with correction messages
 
 Tracks consecutive tool failures (same tool + same error). After 5

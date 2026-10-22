@@ -92,7 +92,7 @@ Setup 初始化向导设计完成。历史对话筛选功能上线。Langfuse �
 
 **休息了近一个月后重新开工**。
 
-`peri-widgets` 组件库诞生——独立 TUI 组件只依赖 ratatui + pulldown-cmark。Token 计数和自动压缩功能就位。权限控制模式开发完成——Bypass/Default/AcceptEdit/DontAsk/AutoMode 五种模式。模型选择面板重构。Relay Server 代码移除以简化架构。
+`cc-widgets` 组件库诞生——独立 TUI 组件只依赖 ratatui + pulldown-cmark。Token 计数和自动压缩功能就位。权限控制模式开发完成——Bypass/Default/AcceptEdit/DontAsk/AutoMode 五种模式。模型选择面板重构。Relay Server 代码移除以简化架构。
 
 ---
 
@@ -116,7 +116,7 @@ Auto-classifier 的 ALLOW/DENY 否定词误判修复尤其关键——一个 bug
 
 系统提示词大重构——从单块文本拆成 11 个段落文件，引入 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔缓存/非缓存段。Anthropic Prompt Cache 的 `cache_control` 位置修复。ContextBudget 连接到 executor 上下文监控。
 
-批量 `before_tool` 处理优化让 HITL 可以一次审批多个工具。工具名与 Claude Code 原生界面彻底对齐。
+批量 `before_tool` 处理优化让 HITL 可以一次审批多个工具。工具名与参考实现原生界面彻底对齐。
 
 ---
 
@@ -160,7 +160,7 @@ acpx-g 的设计评审从 Round 2 一路杀到 Round 22——事件委托、内�
 
 ## May 6 · 插件商店开张
 
-插件系统正式兼容 Claude Code Marketplace。MCP 中间件的四阶段流水线重构完成。Marketplace 面板有了安装量排序、自动刷新、状态持久化。
+插件系统正式兼容参考实现的 Marketplace。MCP 中间件的四阶段流水线重构完成。Marketplace 面板有了安装量排序、自动刷新、状态持久化。
 
 **Perihelion 从此有了自己的"应用商店"。这一天像一个里程碑——生态的种子播下了。**
 
@@ -168,7 +168,7 @@ acpx-g 的设计评审从 Round 2 一路杀到 Round 22——事件委托、内�
 
 ## May 7 · Hook 全家桶与零警示
 
-Claude Code hooks 系统完整实现——4 种执行类型、14 种事件、SSRF 防护。全项目 clippy 警告清零。ContentBlock 测试补全，MCP 工具名 sanitize 到 API 规范。
+Hooks 系统完整实现（对齐参考实现）——4 种执行类型、14 种事件、SSRF 防护。全项目 clippy 警告清零。ContentBlock 测试补全，MCP 工具名 sanitize 到 API 规范。
 
 **如果 May 6 是"开门"，May 7 就是"铺路"——hooks 让插件有了和宿主对话的完整语言。**
 
@@ -288,9 +288,9 @@ HITL 审批和 AskUser 问答通过 ACP transport 走通了双向通道——Esc
 
 ## May 19 · ACP 全栈贯通
 
-ACP session 生命周期全链路打通：initialize 声明能力 → session/new 创建 → prompt 执行 → list/close/resume/fork/load 完整覆盖。compact_runner 模块从 TUI 抽到 peri-acp，auto-compact 循环内置于 executor——从触发到执行到 resubmit 全部共享。
+ACP session 生命周期全链路打通：initialize 声明能力 → session/new 创建 → prompt 执行 → list/close/resume/fork/load 完整覆盖。compact_runner 模块从 TUI 抽到 cc-acp，auto-compact 循环内置于 executor——从触发到执行到 resubmit 全部共享。
 
-StdioEventSink 上线——IDE 路径通过 stdout JSON-RPC 消费 ExecutorEvent。Config 类型和 LlmProvider 在 peri-tui 和 peri-acp 之间统一，消除类型重复。SubAgent 有了唯一的 instance_id——同名 agent 并发时事件路由不再混乱。
+StdioEventSink 上线——IDE 路径通过 stdout JSON-RPC 消费 ExecutorEvent。Config 类型和 LlmProvider 在 cc-tui 和 cc-acp 之间统一，消除类型重复。SubAgent 有了唯一的 instance_id——同名 agent 并发时事件路由不再混乱。
 
 Session 持久化到 ThreadStore、todo 事件通过 executor pipeline 推送、background 任务完成后的内存泄漏修复。文件拆分继续：event.rs 拆成 event/ 目录、panel_ops 拆成 per-panel 子模块、agent_ops 拆成 handler 模块。
 
@@ -357,7 +357,7 @@ Compact 从 agent 内嵌逻辑迁移到 CompactMiddleware（before_model hook）
 
 **总计：730 个 commit，60 天，9 周。**
 
-从 ReAct 循环的第一行代码到 Anthropic 缓存 98.5%，从 Relay Server 的远程控制到插件商店的开张，从 peri-widgets 组件库的诞生到 acpx-g 的 22+ 轮设计评审，从 ACP 协议骨架到 TUI/IDE 平权的完整服务层，从硬编码主题到可插拔的 ThemeMarkdownAdapter，从粗糙的 Setup 向导到带语言选择和真实连接验证的 onboard 流程。**这不是一个 sprint——这是一段旅程。Perihelion 从 0 到 1，再到 1.0。**
+从 ReAct 循环的第一行代码到 Anthropic 缓存 98.5%，从 Relay Server 的远程控制到插件商店的开张，从 cc-widgets 组件库的诞生到 acpx-g 的 22+ 轮设计评审，从 ACP 协议骨架到 TUI/IDE 平权的完整服务层，从硬编码主题到可插拔的 ThemeMarkdownAdapter，从粗糙的 Setup 向导到带语言选择和真实连接验证的 onboard 流程。**这不是一个 sprint——这是一段旅程。Perihelion 从 0 到 1，再到 1.0。**
 
 ---
 
@@ -391,7 +391,7 @@ Compact 从 agent 内嵌逻辑迁移到 CompactMiddleware（before_model hook）
 - **TUI 输入与渲染打磨**：引入**独立输入泵 InputPump** 隔离 Windows 控制台重入风险，安全启用鼠标悬停；有界事件批处理合并高频滚轮；滚动条滑块相对拖拽；悬挂缩进（列表/引用块/长气泡续行）；Markdown 超链接点击唤起浏览器；动态终端标题 Status Surface；状态栏 CPU 指标换成 **Prompt Cache 命中率**。
 - **执行中消息队列**：Agent 跑着时的输入不再打断或丢失，而是按轮次以增量 StateSnapshot steering 注入。
 - **/recap 会话回顾**：一句话「目标 + 任务 → 下一步」，独立 `aux_model` 与 compact 解耦；终端失焦 + 足够轮次 + 静默后**自动回顾**；`-c`/`-r` 恢复会话时 recap 与任务完成总结行也一并持久化。
-- **工具调用可靠性**：参数 Schema 预校验（对齐 Claude Code `formatZodValidationError`）+ 工具错选启发式诊断 + 连续失败熔断；动作签名循环检测，连续 3 轮相同动作即注入纠正。
+- **工具调用可靠性**：参数 Schema 预校验（对齐参考实现 `formatZodValidationError`）+ 工具错选启发式诊断 + 连续失败熔断；动作签名循环检测，连续 3 轮相同动作即注入纠正。
 - **模型四档**：`fable` 作为第四档别名加入（opus / sonnet / haiku / fable），配置迁移自动回填。
 
 **三个月，约 260 个 commit，从 `v0.6.13` 到 `v0.6.80`。** 如果说前九周是把 Perihelion 从 0 造到 1，那 cc-code 时代就是把它从「作者的玩具」变成「别人能装、能用、能在 Windows 上不闪屏地跑一整天」的工具。名字变了，内核还是那个 ReAct 循环——只是现在它装进了 npm，说起了两种语言，认得出 ripgrep，也学会了在跑长任务时顺手做一次 recap。
@@ -423,7 +423,7 @@ Compact 从 agent 内嵌逻辑迁移到 CompactMiddleware（before_model hook）
 
 ### 界面与交互的持续打磨
 
-- **Thinking 状态行 + 工具动作汇总（#249）**：非详细模式对齐 Claude Code，运行中 spinner 行加入 `· thinking / · thought for Ns / · still thinking` 四态；只读工具折叠为计数文案。
+- **Thinking 状态行 + 工具动作汇总（#249）**：非详细模式对齐参考实现，运行中 spinner 行加入 `· thinking / · thought for Ns / · still thinking` 四态；只读工具折叠为计数文案。
 - **前台 `!` 命令结果回流上下文（#270）**：`!` 跑的命令结果能被 Agent 读到，不再是一次性输出。
 - **排队消息键盘操作（#282, #335, #336）**：`Ctrl+S` 立即发送 / `Ctrl+X` 删除；10 月又把快捷键从 `Ctrl+S/Ctrl+X` **迁移为 `Alt+S/Alt+X`**——因为 Windows conhost 会把 `Ctrl+S` 当成终端流控键截走，按键根本到不了应用。
 - 零碎修复一箩筐：`Ctrl+C` 面板优先（#330）、git 分支探测异步化（#278）、markdown 水平线按宽度渲染（#273）、Bash 非零退出颜色口径统一（#251）、Thought 归并吸收前置只读计数（#280）。
@@ -505,7 +505,7 @@ Prompt 能看了，还剩一个更根本的缺口：**用户说「取消厦门�
 
 ## 十月下半场 · 记忆、主题与命令中心（v0.6.134 → v0.6.152）
 
-上一段的收尾其实已经涵盖了 v0.6.132 / v0.6.133（Prompt 卡片与主 Agent 取消）。从 v0.6.134 接起，10 月 14 日到 16 日三天又走了 **19 个版本**。三条主线同时收口：**模型第一次有了跨会话的长期记忆、外观与动画成建制地对齐 Claude Code、散落各处的命令与通知收敛到唯一的语义判定入口。**
+上一段的收尾其实已经涵盖了 v0.6.132 / v0.6.133（Prompt 卡片与主 Agent 取消）。从 v0.6.134 接起，10 月 14 日到 16 日三天又走了 **19 个版本**。三条主线同时收口：**模型第一次有了跨会话的长期记忆、外观与动画成建制地对齐参考实现、散落各处的命令与通知收敛到唯一的语义判定入口。**
 
 ### 先做减法：一个「紧急」缺陷的终点是下线
 
@@ -515,22 +515,22 @@ Prompt 能看了，还剩一个更根本的缺口：**用户说「取消厦门�
 
 ### 模型终于有了长期记忆（#507）
 
-自动记忆（Auto-Memory）按 CC 规范完整落地，架构选择很克制：**纯文件、零专有工具**。
+自动记忆（Auto-Memory）按参考实现规范完整落地，架构选择很克制：**纯文件、零专有工具**。
 
 - 记忆目录对模型呈现为 `~/.cc-code/projects/<sanitized>/memory/`，模型用现成的 `Write`/`Edit` 维护带四类型 frontmatter（user / feedback / project / reference）的 Markdown 文件，并在 `MEMORY.md` 登记单行指针；会话启动时索引有界载入（≤200 行且 ≤25KB，超限安全截断并附 warning）。
 - 路径全面脱敏：`D:\code\peri` 清洗成 `D--code-peri`，系统提示词里不再出现盘符与本地用户名；`~` 自动展开，去掉了「必须写绝对路径」的隐性约束。
-- **双向兼容**：优先复用 `~/.claude/projects/` 已有的记忆资产，缺目录时才落 `~/.cc-code/projects/`——与 Claude Code 的目录布局互通，不制造两套记忆。
+- **双向兼容**：优先复用 `~/.claude/projects/` 已有的记忆资产，缺目录时才落 `~/.cc-code/projects/`——与参考实现的目录布局互通，不制造两套记忆。
 - 安全门为记忆目录开了 carve-out（模型可自主读写，不被受保护目录规则拦截）；索引快照在会话创建时冻结、置于动态边界之后，Cache 前缀不受影响。TUI 侧把记忆读写从只读统计里剥出来，单独呈现 `recalled N memories` / `updated N memories`，折叠态 Read 显示 `Recalled memory`，长路径精简为 `memory/<文件名>`。
 
 **记忆不是一件新工具，而是一份约定加一个目录。** 让模型用已有的手（Write/Edit）去写，比给它另造一件武器更可能被真正用起来。
 
-### 提示词与工具边界：对齐 CC 的三次搬运（#504）
+### 提示词与工具边界：对齐参考实现的三次搬运（#504）
 
-静态段落与工具描述都参考 CC 官方文案做了一轮对齐，原则是**只搬不需要我方缺失能力的静态句子**：
+静态段落与工具描述都按参考实现官方文案做了一轮对齐，原则是**只搬不需要我方缺失能力的静态句子**：
 
 - `01_intro` 补「信息足够即行动」与 Corrections（只在会改变用户决策时纠正）；`03_doing_tasks` 补 **Scope discipline**（不超范围加功能与抽象、优先编辑现有文件、删除无用代码而非留兼容垫片）；`04_actions` 补授权与影响判定框架；`06_tone_style` 明确「用户只看文本输出」与结果诚实性。
 - Bash / WebFetch 改成 **NOT 反向枚举**（读→`Read` NOT `cat`/`head`/`tail`，改→`Edit` NOT `sed`/`awk`，内容检索→`Grep` NOT `grep`/`rg`……），Grep 首行同步禁用 `grep`/`rg`，两处形成双向引导。
-- **`Write` 改为 CC 的 NEVER 语义**：默认不再主动创建 `.md`/README。这是一条**行为变更**——agent 不再自作主张落库文档，历史上那种「顺手写 spec」的习惯被规范掉了。
+- **`Write` 改为参考实现的 NEVER 语义**：默认不再主动创建 `.md`/README。这是一条**行为变更**——agent 不再自作主张落库文档，历史上那种「顺手写 spec」的习惯被规范掉了。
 
 ### 本轮最值钱的洞察：纠正提示为什么没被模型看见（#495）
 
@@ -543,8 +543,8 @@ Prompt 能看了，还剩一个更根本的缺口：**用户说「取消厦门�
 
 ### 外观与动画：成建制对齐，以及一次越界的回滚
 
-- **`/theme` 主题系统（#509）**：把 UI 颜色从编译期常量抽成统一调色板（69 个与 CC 相同的语义字段 + cc-code 扩展字段），渲染层 900 余处引用改走当前调色板；7 套配色里 6 套与 claude-code-best 的 `theme.ts` **逐值一致**，由一致性测试逐字段锁定防漂移；光标移动实时预览、Enter 确认、Esc 还原，选择持久化。
-- **Spinner 两连（#510、#511）**：删除自研的「思考越久越黄」时间热度四档——对 Claude Code 2.1.300 二进制实证下来，CC 并无热度分档；改为成对流光（±1 列窄带、50ms 步进、周期随文本宽度）+ 停滞转红（无新 token 超 10s 向 error 色插值）。tips 调度换成「每条 tip 有 id 与会话冷却、每轮挑选并扣留、轮末才发布」，展示历史持久化到 `~/.cc-code/spinner-tips.json`，并支持自定义条目。本轮还明确标注了一条**不做**的事：cc-code 无 `/btw`，CC 那条 30 秒覆盖 tip 不移植。
+- **`/theme` 主题系统（#509）**：把 UI 颜色从编译期常量抽成统一调色板（69 个与参考实现相同的语义字段 + cc-code 扩展字段），渲染层 900 余处引用改走当前调色板；7 套配色里 6 套与参考源码的 `theme.ts` **逐值一致**，由一致性测试逐字段锁定防漂移；光标移动实时预览、Enter 确认、Esc 还原，选择持久化。
+- **Spinner 两连（#510、#511）**：删除自研的「思考越久越黄」时间热度四档——对参考实现 2.1.300 二进制实证下来，其并无热度分档；改为成对流光（±1 列窄带、50ms 步进、周期随文本宽度）+ 停滞转红（无新 token 超 10s 向 error 色插值）。tips 调度换成「每条 tip 有 id 与会话冷却、每轮挑选并扣留、轮末才发布」，展示历史持久化到 `~/.cc-code/spinner-tips.json`，并支持自定义条目。本轮还明确标注了一条**不做**的事：cc-code 无 `/btw`，参考实现那条 30 秒覆盖 tip 不移植。
 - **状态栏配色回滚（#523）**：`/theme` 上线时顺带做了一次「颜色统一到调色板」的扫描，把状态栏原本写死的颜色也改成了调色板字段——模型名 / 分支 / 上下文仪表于是随主题漂移，而**并没有任何工单要求改它**。状态栏配色是打磨定稿的固定值，现抽出固定配色模块 `sb`、52 处引用改回原色，渲染结果与 #509 之前逐字节一致。**能统一的底色，和不该被统一的定稿，是两件事**：一次改造天然带着自己的边界。
 - 小修两处：主题面板补上键盘与粘贴路由（#521，此前 `↑↓` 与 `Esc` 被穿透）；抽屉中间列只由助手文本驱动并加 200ms 节流（#526，服务端与 TUI 争写同一字段，导致该列在工具名与助手文本之间来回闪动）。
 
@@ -554,7 +554,7 @@ Prompt 能看了，还剩一个更根本的缺口：**用户说「取消厦门�
 
 - **运行中敲命令不再被静默当成消息（#533）**：`Enter` 在**任何命令判定之前**就把输入塞进队列，文本的命令身份随之丢失，出队时只有 ACP 那 7 个命令会被重新识别，`/theme`、`/model`、`/gc`、`/exit` 等约 24 个 TUI 独有命令连同未知命令、`!` shell 一起被喂给模型——表现是 `/exit` 不退出、敲错命令反被模型一本正经地回答。现收敛到唯一判定入口 `CommandSystem::resolve`（空闲与运行中走同一条分流规则，`find` 与 `dispatch` 共用匹配逻辑），能否在运行中延后由 `blocked_while_busy` 显式声明，并用白名单回归测试锁死分类；顺带修掉 `steer`（`Ctrl+Enter`）把命令插入在飞轮次后退化成普通文本。
 - **Rewind 改走 `/rewind` 命令，双击 `Esc` 触发移除（#531）**：`Esc` 的通用语义是取消/中断——中断 Agent 后下意识连按两下就弹出回滚选择器；反过来想主动唤起时又无命令入口。现 TUI 注册 `rewind`（别名 `undo`）承接入口，`Esc` 回归取消语义。
-- **输入框 `/command` 高亮（#529）**：按 CC 的 `findSlashCommandPositions` 同一规则着色，`!` shell 命令态跳过，避免把 `/etc` 之类路径染蓝。
+- **输入框 `/command` 高亮（#529）**：按参考实现的 `findSlashCommandPositions` 同一规则着色，`!` shell 命令态跳过，避免把 `/etc` 之类路径染蓝。
 - **`/history` 改名归位**：CLI 语境里 `history` 指「你输入过的内容」，而 peri 的 `/history` 打开的是历史会话列表，想看输入历史只能 `Ctrl+↑/↓` 一条条回溯。新增输入历史面板（数据源与 `Ctrl+↑/↓` 是同一份，Enter 只回填不代发），会话浏览整体迁到 `/resume`——它本来就是 `/history` 的别名。
 - **未知命令提示立即出现（#572）**：提示其实已经写进 `view_messages`，但消息区渲染是事件驱动的，`push_system_note` 只写状态不发事件，于是要用户再敲一次键才看得见。重绘内置于 `push_system_note`，一次性覆盖运行中被拒命令、`/rewind` 无历史等同类路径。
 - **安全判定降级提示至少停留 5 秒**：Jev 语义门不可用而降级到兜底分类器时，这条提示的清除时机比显示时机还积极——`ToolStart`/`AssistantChunk`/`Done`/`Error` 四条路径都会把它清掉，用户只看见闪一下，事后只剩日志。按仓库既有的「最短可见时长」范式垫一档：安全能力降级是用户**应当知情**的事实。

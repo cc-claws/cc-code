@@ -16,31 +16,31 @@
 
 | 操作 | 文件 | 职责 |
 |------|------|------|
-| Modify | `peri-tui/src/app/chat_session.rs` | `RunningBgAgent` struct + `ChatSession` 字段变更 |
-| Modify | `peri-tui/src/app/agent_ops/subagent.rs` | `handle_subagent_start` → push `RunningBgAgent` |
-| Modify | `peri-tui/src/app/agent_events_bg.rs` | `handle_background_task_completed` → 移除 + 聚焦检查 |
-| Modify | `peri-tui/src/app/agent_ops/lifecycle.rs` | `background_task_count` → `background_agents.len()` (2 处) |
-| Modify | `peri-tui/src/app/agent_ops/polling.rs` | 同上 (3 处) |
-| Modify | `peri-tui/src/app/panel_ops.rs` | session 拆分初始化 |
-| Create | `peri-tui/src/ui/main_ui/bg_agent_bar.rs` | Bar 渲染 + 调色板 |
-| Modify | `peri-tui/src/ui/main_ui/mod.rs` | 布局约束 + bar 渲染调用 |
-| Modify | `peri-tui/src/ui/main_ui/status_bar.rs` | 后台计数指示器 → 改用 `background_agents.len()` |
-| Modify | `peri-tui/src/event/keyboard.rs` | Ctrl+B 快捷键 + bar 键盘处理 + 只读模式 |
-| Modify | `peri-tui/src/app/ui_state.rs` | `bg_bar_cursor` + `bg_bar_focused` 字段 |
-| Modify | `peri-tui/src/app/message_pipeline/mod.rs` | `should_show_vm` 过滤器 |
-| Modify | `peri-tui/src/app/message_pipeline/transform.rs` | `messages_to_view_models` 调用过滤器 |
-| Modify | `peri-tui/src/app/agent_compact.rs` | compact 前退出聚焦 |
-| Modify | `peri-tui/locales/zh-CN/main.ftl` | 新增 bar 相关 i18n 字符串 |
-| Modify | `peri-tui/locales/en/main.ftl` | 同上 |
-| Modify | `peri-tui/src/ui/headless_test.rs` | 更新现有 `background_task_count` 测试 |
+| Modify | `cc-tui/src/app/chat_session.rs` | `RunningBgAgent` struct + `ChatSession` 字段变更 |
+| Modify | `cc-tui/src/app/agent_ops/subagent.rs` | `handle_subagent_start` → push `RunningBgAgent` |
+| Modify | `cc-tui/src/app/agent_events_bg.rs` | `handle_background_task_completed` → 移除 + 聚焦检查 |
+| Modify | `cc-tui/src/app/agent_ops/lifecycle.rs` | `background_task_count` → `background_agents.len()` (2 处) |
+| Modify | `cc-tui/src/app/agent_ops/polling.rs` | 同上 (3 处) |
+| Modify | `cc-tui/src/app/panel_ops.rs` | session 拆分初始化 |
+| Create | `cc-tui/src/ui/main_ui/bg_agent_bar.rs` | Bar 渲染 + 调色板 |
+| Modify | `cc-tui/src/ui/main_ui/mod.rs` | 布局约束 + bar 渲染调用 |
+| Modify | `cc-tui/src/ui/main_ui/status_bar.rs` | 后台计数指示器 → 改用 `background_agents.len()` |
+| Modify | `cc-tui/src/event/keyboard.rs` | Ctrl+B 快捷键 + bar 键盘处理 + 只读模式 |
+| Modify | `cc-tui/src/app/ui_state.rs` | `bg_bar_cursor` + `bg_bar_focused` 字段 |
+| Modify | `cc-tui/src/app/message_pipeline/mod.rs` | `should_show_vm` 过滤器 |
+| Modify | `cc-tui/src/app/message_pipeline/transform.rs` | `messages_to_view_models` 调用过滤器 |
+| Modify | `cc-tui/src/app/agent_compact.rs` | compact 前退出聚焦 |
+| Modify | `cc-tui/locales/zh-CN/main.ftl` | 新增 bar 相关 i18n 字符串 |
+| Modify | `cc-tui/locales/en/main.ftl` | 同上 |
+| Modify | `cc-tui/src/ui/headless_test.rs` | 更新现有 `background_task_count` 测试 |
 
 ---
 
 ### Task 1: 数据模型 — RunningBgAgent + ChatSession 字段
 
 **Files:**
-- Modify: `peri-tui/src/app/chat_session.rs`
-- Modify: `peri-tui/src/app/ui_state.rs`
+- Modify: `cc-tui/src/app/chat_session.rs`
+- Modify: `cc-tui/src/app/ui_state.rs`
 
 - [ ] **Step 1: 添加 RunningBgAgent 结构体和 ChatSession 字段**
 
@@ -97,7 +97,7 @@ bg_bar_cursor: None,
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -50`
+Run: `cargo build -p cc-tui 2>&1 | head -50`
 
 预期：多处编译错误——所有引用 `background_task_count` 的地方会报错。这是预期的，Task 2 会修复。
 
@@ -106,10 +106,10 @@ Run: `cargo build -p peri-tui 2>&1 | head -50`
 ### Task 2: 全局迁移 — background_task_count → background_agents.len()
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/lifecycle.rs` (2 处)
-- Modify: `peri-tui/src/app/agent_ops/polling.rs` (3 处)
-- Modify: `peri-tui/src/app/panel_ops.rs` (1 处)
-- Modify: `peri-tui/src/ui/main_ui/status_bar.rs` (1 处)
+- Modify: `cc-tui/src/app/agent_ops/lifecycle.rs` (2 处)
+- Modify: `cc-tui/src/app/agent_ops/polling.rs` (3 处)
+- Modify: `cc-tui/src/app/panel_ops.rs` (1 处)
+- Modify: `cc-tui/src/ui/main_ui/status_bar.rs` (1 处)
 
 - [ ] **Step 1: 替换 lifecycle.rs 中的引用**
 
@@ -187,7 +187,7 @@ if !app.session_mgr.sessions[app.session_mgr.active].background_agents.is_empty(
 
 - [ ] **Step 4: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -50`
+Run: `cargo build -p cc-tui 2>&1 | head -50`
 
 预期：剩余编译错误在 `agent_events_bg.rs` 和 `subagent.rs`（这两个文件在 Task 3 修复）。
 
@@ -196,8 +196,8 @@ Run: `cargo build -p peri-tui 2>&1 | head -50`
 ### Task 3: 事件处理器 — subagent_start / background_task_completed
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/subagent.rs`
-- Modify: `peri-tui/src/app/agent_events_bg.rs`
+- Modify: `cc-tui/src/app/agent_ops/subagent.rs`
+- Modify: `cc-tui/src/app/agent_events_bg.rs`
 
 - [ ] **Step 1: 更新 handle_subagent_start**
 
@@ -304,7 +304,7 @@ background_task_count = self.session_mgr.sessions[self.session_mgr.active].backg
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 
 预期：编译通过（或仅剩 headless_test.rs 中的测试引用需要更新）。
 
@@ -338,18 +338,18 @@ Run: `cargo build -p peri-tui 2>&1 | head -30`
 
 - [ ] **Step 5: 编译 + 测试验证**
 
-Run: `cargo build -p peri-tui && cargo test -p peri-tui --lib 2>&1 | tail -30`
+Run: `cargo build -p cc-tui && cargo test -p cc-tui --lib 2>&1 | tail -30`
 
 预期：编译通过，所有现有测试通过。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/chat_session.rs peri-tui/src/app/ui_state.rs \
-        peri-tui/src/app/agent_ops/subagent.rs peri-tui/src/app/agent_events_bg.rs \
-        peri-tui/src/app/agent_ops/lifecycle.rs peri-tui/src/app/agent_ops/polling.rs \
-        peri-tui/src/app/panel_ops.rs peri-tui/src/ui/main_ui/status_bar.rs \
-        peri-tui/src/ui/headless_test.rs
+git add cc-tui/src/app/chat_session.rs cc-tui/src/app/ui_state.rs \
+        cc-tui/src/app/agent_ops/subagent.rs cc-tui/src/app/agent_events_bg.rs \
+        cc-tui/src/app/agent_ops/lifecycle.rs cc-tui/src/app/agent_ops/polling.rs \
+        cc-tui/src/app/panel_ops.rs cc-tui/src/ui/main_ui/status_bar.rs \
+        cc-tui/src/ui/headless_test.rs
 git commit -m "feat: replace background_task_count with Vec<RunningBgAgent> for agent tracking
 
 - Add RunningBgAgent struct (agent_name, instance_id, started_at)
@@ -366,13 +366,13 @@ git commit -m "feat: replace background_task_count with Vec<RunningBgAgent> for 
 ### Task 4: Bar 渲染模块
 
 **Files:**
-- Create: `peri-tui/src/ui/main_ui/bg_agent_bar.rs`
-- Modify: `peri-tui/src/ui/main_ui/mod.rs` (添加 `mod bg_agent_bar;`)
+- Create: `cc-tui/src/ui/main_ui/bg_agent_bar.rs`
+- Modify: `cc-tui/src/ui/main_ui/mod.rs` (添加 `mod bg_agent_bar;`)
 
 - [ ] **Step 1: 创建 bg_agent_bar.rs**
 
 ```rust
-// peri-tui/src/ui/main_ui/bg_agent_bar.rs
+// cc-tui/src/ui/main_ui/bg_agent_bar.rs
 //! 后台 Agent 管理栏——显示运行中的后台 SubAgent 列表
 
 use ratatui::layout::Rect;
@@ -496,7 +496,7 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, area: Rect) {
 
 - [ ] **Step 2: 注册模块**
 
-在 `peri-tui/src/ui/main_ui/mod.rs` 顶部模块声明中添加：
+在 `cc-tui/src/ui/main_ui/mod.rs` 顶部模块声明中添加：
 
 ```rust
 // mod.rs — 添加模块声明
@@ -505,7 +505,7 @@ pub(crate) mod bg_agent_bar;
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 
 预期：编译通过（bar 模块暂未被调用，仅模块注册）。
 
@@ -514,7 +514,7 @@ Run: `cargo build -p peri-tui 2>&1 | head -20`
 ### Task 5: 布局集成
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/mod.rs`
+- Modify: `cc-tui/src/ui/main_ui/mod.rs`
 
 - [ ] **Step 1: 修改 render_session_column 布局约束**
 
@@ -585,14 +585,14 @@ if bg_bar_height > 0 {
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 
 预期：编译通过。手动运行 TUI 验证无布局异常。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/bg_agent_bar.rs peri-tui/src/ui/main_ui/mod.rs
+git add cc-tui/src/ui/main_ui/bg_agent_bar.rs cc-tui/src/ui/main_ui/mod.rs
 git commit -m "feat: add bg_agent_bar rendering module and layout integration
 
 - New bg_agent_bar.rs with color palette, agent list rendering
@@ -605,7 +605,7 @@ git commit -m "feat: add bg_agent_bar rendering module and layout integration
 ### Task 6: 键盘处理 — Ctrl+B + Bar 焦点 + 只读模式
 
 **Files:**
-- Modify: `peri-tui/src/event/keyboard.rs`
+- Modify: `cc-tui/src/event/keyboard.rs`
 
 - [ ] **Step 1: 添加 Ctrl+B 快捷键注册**
 
@@ -726,14 +726,14 @@ fn handle_bar_key_event(app: &mut App, key_event: ratatui::crossterm::event::Key
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 
 预期：编译通过。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/event/keyboard.rs
+git add cc-tui/src/event/keyboard.rs
 git commit -m "feat: add Ctrl+B shortcut and bar/focus keyboard handling
 
 - Ctrl+B opens bg agent bar (silent when no agents)
@@ -747,8 +747,8 @@ git commit -m "feat: add Ctrl+B shortcut and bar/focus keyboard handling
 ### Task 7: 消息过滤 — Pipeline focused_instance_id
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
-- Modify: `peri-tui/src/app/message_pipeline/transform.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/transform.rs`
 
 - [ ] **Step 1: 在 pipeline 中添加过滤方法**
 
@@ -801,14 +801,14 @@ pub fn filter_for_focus(
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 
 预期：编译通过。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat: add filter_for_focus placeholder in message pipeline
 
 First iteration: focus mode affects input box styling only.
@@ -820,7 +820,7 @@ Message filtering requires SubAgentGroup.instance_id field (deferred)."
 ### Task 8: 聚焦模式 — 输入框边框颜色 + 标签
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/mod.rs` (输入框渲染区域)
+- Modify: `cc-tui/src/ui/main_ui/mod.rs` (输入框渲染区域)
 
 - [ ] **Step 1: 修改输入框渲染逻辑**
 
@@ -864,14 +864,14 @@ if let Some(ref id) = focused_id {
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 
 预期：编译通过。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/mod.rs
+git add cc-tui/src/ui/main_ui/mod.rs
 git commit -m "feat: input box border color and agent name label in focus mode
 
 - Focused mode: border color from agent palette, [agent_name] title
@@ -883,8 +883,8 @@ git commit -m "feat: input box border color and agent name label in focus mode
 ### Task 9: Compact 聚焦退出 + 状态栏提示更新
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_compact.rs`
-- Modify: `peri-tui/src/ui/main_ui/status_bar.rs`
+- Modify: `cc-tui/src/app/agent_compact.rs`
+- Modify: `cc-tui/src/ui/main_ui/status_bar.rs`
 
 - [ ] **Step 1: compact 前退出聚焦**
 
@@ -899,14 +899,14 @@ self.session_mgr.sessions[self.session_mgr.active].ui.bg_bar_cursor = None;
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 
 预期：编译通过。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_compact.rs
+git add cc-tui/src/app/agent_compact.rs
 git commit -m "feat: exit focus mode before compact operation"
 ```
 
@@ -915,8 +915,8 @@ git commit -m "feat: exit focus mode before compact operation"
 ### Task 10: i18n 字符串
 
 **Files:**
-- Modify: `peri-tui/locales/zh-CN/main.ftl`
-- Modify: `peri-tui/locales/en/main.ftl`
+- Modify: `cc-tui/locales/zh-CN/main.ftl`
+- Modify: `cc-tui/locales/en/main.ftl`
 
 - [ ] **Step 1: 添加 bar 相关 i18n 字符串**
 
@@ -937,7 +937,7 @@ bg-bar-focus-hint = Press Esc to exit focus
 - [ ] **Step 2: Commit**
 
 ```bash
-git add peri-tui/locales/zh-CN/main.ftl peri-tui/locales/en/main.ftl
+git add cc-tui/locales/zh-CN/main.ftl cc-tui/locales/en/main.ftl
 git commit -m "feat: add i18n strings for bg agent bar focus hint"
 ```
 
@@ -946,11 +946,11 @@ git commit -m "feat: add i18n strings for bg agent bar focus hint"
 ### Task 11: 集成测试 — 手动验证 + 现有测试回归
 
 **Files:**
-- Modify: `peri-tui/src/ui/headless_test.rs` (如需补充)
+- Modify: `cc-tui/src/ui/headless_test.rs` (如需补充)
 
 - [ ] **Step 1: 运行全量测试**
 
-Run: `cargo test -p peri-tui --lib 2>&1 | tail -30`
+Run: `cargo test -p cc-tui --lib 2>&1 | tail -30`
 
 预期：所有现有测试通过。
 
@@ -1023,14 +1023,14 @@ async fn test_background_agents_lifecycle() {
 
 - [ ] **Step 3: 运行新增测试**
 
-Run: `cargo test -p peri-tui --lib -- test_background_agents_lifecycle 2>&1 | tail -10`
+Run: `cargo test -p cc-tui --lib -- test_background_agents_lifecycle 2>&1 | tail -10`
 
 预期：测试通过。
 
 - [ ] **Step 4: 最终 Commit**
 
 ```bash
-git add peri-tui/src/ui/headless_test.rs
+git add cc-tui/src/ui/headless_test.rs
 git commit -m "test: add background agent lifecycle test (add, complete, focus auto-exit)"
 ```
 

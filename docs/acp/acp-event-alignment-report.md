@@ -1,5 +1,7 @@
 # ACP 事件对齐审查报告
 
+> **状态注记（2026-10-22）**：本文为 2026-05-16 的审查记录，审查对象 `cc-tui/src/acp/` 已不存在；文中「未映射/缺失」的结论多已被后续实现解决。现行事件映射在 `cc-acp/src/event/mapper.rs`（主函数 `map_event`，含 UsageUpdate 等标准更新；ContextWarning、LlmRetrying、Compact 等归 TUI 专用通道 `peri/agent_event`，由 `cc-acp/src/session/event_sink.rs` 发送）。正文保留为历史记录。
+
 > 审查对象：`cc-tui/src/acp/` (perihelion ACP Agent)
 > 审查依据：`agent-client-protocol-schema` v0.13.0 (Zed)
 > 审查日期：2026-05-16

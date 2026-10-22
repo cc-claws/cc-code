@@ -4,9 +4,9 @@
 
 **Goal:** 删除已无调用方的 `compact_runner` 死代码，清理 `CompactMiddleware` 中因历史遗留而存在的冗余代码，并移除 `PromptResult.compacted` 废弃字段。
 
-**Architecture:** `CompactMiddleware`（`peri-middlewares`）是 compact 唯一的执行入口，通过 `before_model` 钩子在 ReAct 循环内原地压缩上下文。旧的 `compact_runner`（`peri-acp`）是为手动 `/compact` + auto-compact 双路径设计的，现在手动路径已移除（`/compact` 命令直接走 prompt 路径），auto-compact 已完全由 `CompactMiddleware` 接管，`compact_runner` 成为无调用方的死代码。
+**Architecture:** `CompactMiddleware`（`cc-middlewares`）是 compact 唯一的执行入口，通过 `before_model` 钩子在 ReAct 循环内原地压缩上下文。旧的 `compact_runner`（`cc-acp`）是为手动 `/compact` + auto-compact 双路径设计的，现在手动路径已移除（`/compact` 命令直接走 prompt 路径），auto-compact 已完全由 `CompactMiddleware` 接管，`compact_runner` 成为无调用方的死代码。
 
-**Tech Stack:** Rust 2021, tokio, async-trait, peri-agent + peri-middlewares + peri-acp
+**Tech Stack:** Rust 2021, tokio, async-trait, cc-agent + cc-middlewares + cc-acp
 
 ---
 
@@ -14,8 +14,8 @@
 
 | Crate | 改动 | 风险 |
 |-------|------|------|
-| `peri-acp` | 删除 `compact_runner.rs`，移除模块声明，删除 `PromptResult.compacted` | **低** — 纯删除死代码 |
-| `peri-acp` | 清理 `executor.rs` 中过时的 compact 注释和 `compacted` 字段 | **低** |
+| `cc-acp` | 删除 `compact_runner.rs`，移除模块声明，删除 `PromptResult.compacted` | **低** — 纯删除死代码 |
+| `cc-acp` | 清理 `executor.rs` 中过时的 compact 注释和 `compacted` 字段 | **低** |
 
 **不涉及：** `CompactMiddleware`（已验证功能正确）、`builder.rs`（已正确注入 CompactMiddleware）、TUI 层。
 
@@ -24,23 +24,23 @@
 ### Task 1: 删除 `compact_runner.rs` 文件
 
 **Files:**
-- Delete: `peri-acp/src/session/compact_runner.rs`
+- Delete: `cc-acp/src/session/compact_runner.rs`
 
 - [ ] **Step 1: 确认文件无外部引用**
 
-Run: `grep -rn "compact_runner" --include="*.rs" peri-acp/ peri-tui/ peri-middlewares/ peri-agent/`
-Expected: 仅出现 `peri-acp/src/session/mod.rs:6:pub mod compact_runner;`（模块声明）和 `compact_runner.rs` 内部引用。无外部调用方。
+Run: `grep -rn "compact_runner" --include="*.rs" cc-acp/ cc-tui/ cc-middlewares/ cc-agent/`
+Expected: 仅出现 `cc-acp/src/session/mod.rs:6:pub mod compact_runner;`（模块声明）和 `compact_runner.rs` 内部引用。无外部调用方。
 
 - [ ] **Step 2: 删除 `compact_runner.rs`**
 
 ```bash
-rm peri-acp/src/session/compact_runner.rs
+rm cc-acp/src/session/compact_runner.rs
 ```
 
 - [ ] **Step 3: 编译确认——预期失败**
 
-Run: `cargo build -p peri-acp 2>&1 | head -20`
-Expected: 编译错误 `could not find module compact_runner`，指向 `peri-acp/src/session/mod.rs:6`。
+Run: `cargo build -p cc-acp 2>&1 | head -20`
+Expected: 编译错误 `could not find module compact_runner`，指向 `cc-acp/src/session/mod.rs:6`。
 
 - [ ] **Step 4: Commit（中间状态，不编译通过——稍后修复）**
 
@@ -51,11 +51,11 @@ Expected: 编译错误 `could not find module compact_runner`，指向 `peri-acp
 ### Task 2: 移除 `compact_runner` 模块声明
 
 **Files:**
-- Modify: `peri-acp/src/session/mod.rs:6`
+- Modify: `cc-acp/src/session/mod.rs:6`
 
 - [ ] **Step 1: 删除模块声明**
 
-打开 `peri-acp/src/session/mod.rs`，删除第 6 行：
+打开 `cc-acp/src/session/mod.rs`，删除第 6 行：
 
 ```rust
 // 删除此行:
@@ -77,18 +77,18 @@ pub mod state_builders;
 
 - [ ] **Step 2: 编译确认**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: 编译通过（`compact_runner` 无外部调用方，删除不影响其他代码）。
 
 - [ ] **Step 3: 全量测试**
 
-Run: `cargo test -p peri-acp --lib`
+Run: `cargo test -p cc-acp --lib`
 Expected: 所有测试通过。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/compact_runner.rs peri-acp/src/session/mod.rs
+git add cc-acp/src/session/compact_runner.rs cc-acp/src/session/mod.rs
 git commit -m "refactor(acp): 删除无调用方的 compact_runner 死代码
 
 compact_runner 原为手动 /compact + auto-compact 双路径设计。
@@ -101,17 +101,17 @@ compact_runner 原为手动 /compact + auto-compact 双路径设计。
 ### Task 3: 清理 `PromptResult.compacted` 废弃字段
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs:44-45`
-- Modify: `peri-acp/src/session/executor.rs:239`
+- Modify: `cc-acp/src/session/executor.rs:44-45`
+- Modify: `cc-acp/src/session/executor.rs:239`
 
 - [ ] **Step 1: 确认 `compacted` 字段无读取方**
 
 Run: `grep -rn '\.compacted' --include="*.rs" .`
-Expected: 仅出现 `peri-acp/src/session/executor.rs` 中的定义和赋值，无外部读取。
+Expected: 仅出现 `cc-acp/src/session/executor.rs` 中的定义和赋值，无外部读取。
 
 - [ ] **Step 2: 从 `PromptResult` 结构体删除 `compacted` 字段**
 
-在 `peri-acp/src/session/executor.rs` 中，修改 `PromptResult` 结构体（约第 38-48 行）：
+在 `cc-acp/src/session/executor.rs` 中，修改 `PromptResult` 结构体（约第 38-48 行）：
 
 ```rust
 /// Result of prompt execution.
@@ -163,7 +163,7 @@ PromptResult {
 
 - [ ] **Step 5: 编译确认**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: 编译通过。
 
 - [ ] **Step 6: 全量测试**
@@ -174,7 +174,7 @@ Expected: 所有测试通过。
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-acp/src/session/executor.rs
+git add cc-acp/src/session/executor.rs
 git commit -m "refactor(acp): 移除 PromptResult.compacted 废弃字段
 
 compacted 字段始终为 false，无任何读取方。compact 状态完全由

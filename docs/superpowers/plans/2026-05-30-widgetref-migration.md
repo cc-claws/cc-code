@@ -1,10 +1,10 @@
-# peri-widgets WidgetRef 迁移 — 实施计划
+# cc-widgets WidgetRef 迁移 — 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 `peri-widgets` 中的 Widget 组件从 `Widget` trait（消费所有权）迁移到 `WidgetRef` trait（引用渲染），减少流式输出场景下的不必要克隆开销。
+**Goal:** 将 `cc-widgets` 中的 Widget 组件从 `Widget` trait（消费所有权）迁移到 `WidgetRef` trait（引用渲染），减少流式输出场景下的不必要克隆开销。
 
-**Architecture:** 在 `peri-widgets` 和 `peri-tui` 的 `Cargo.toml` 中启用 `unstable-widget-ref` feature；为每个自定义 Widget 同时实现 `WidgetRef` 和原有 `Widget`（`Widget` 委托给 `WidgetRef`）；为 `StatefulWidget` 实现 `StatefulWidgetRef`；渲染调用处从 `render_widget()` 迁移到 `render_widget_ref()`（需 `use ratatui::widgets::FrameExt`）。
+**Architecture:** 在 `cc-widgets` 和 `cc-tui` 的 `Cargo.toml` 中启用 `unstable-widget-ref` feature；为每个自定义 Widget 同时实现 `WidgetRef` 和原有 `Widget`（`Widget` 委托给 `WidgetRef`）；为 `StatefulWidget` 实现 `StatefulWidgetRef`；渲染调用处从 `render_widget()` 迁移到 `render_widget_ref()`（需 `use ratatui::widgets::FrameExt`）。
 
 **Tech Stack:** Rust, ratatui 0.30+ `unstable-widget-ref` feature, `WidgetRef`/`StatefulWidgetRef` trait, `FrameExt` trait
 
@@ -13,7 +13,7 @@
 1. **渐进式迁移**：不需要一次性改完所有组件。优先迁移高频渲染的热路径组件，低频组件保持原状。
 2. **双向兼容**：保留原有 `Widget` impl（委托给 `WidgetRef::render_ref`），确保未迁移的调用处不会 break。
 3. **`Widget` for `&T` blanket impl**：ratatui 0.30 已为 `&W where W: WidgetRef` 提供 blanket `Widget` impl，因此在 `WidgetRef` impl 中直接用 `&self` 调内部方法即可。
-4. **Feature gate 统一**：`peri-widgets` 和 `peri-tui` 都需要启用 `unstable-widget-ref`，确保 trait 可见。
+4. **Feature gate 统一**：`cc-widgets` 和 `cc-tui` 都需要启用 `unstable-widget-ref`，确保 trait 可见。
 5. **不迁移 `ScrollableArea`/`BorderedPanel`/`ListOverlay`**：这些 widget 内部直接调用 `f.render_widget()`（Frame 级别），需要 `FrameExt` 的 `render_widget_ref()` 方法，迁移收益不高且改动分散，留作后续。
 
 **Widget 分类与优先级：**
@@ -41,60 +41,60 @@
 
 ## Phase 1: 启用 Feature Flag + 基础设施
 
-### Task 1: 在 `peri-widgets/Cargo.toml` 中启用 `unstable-widget-ref`
+### Task 1: 在 `cc-widgets/Cargo.toml` 中启用 `unstable-widget-ref`
 
 **Files:**
-- Modify: `peri-widgets/Cargo.toml`
+- Modify: `cc-widgets/Cargo.toml`
 
 - [ ] **Step 1: 添加 `unstable-widget-ref` feature**
 
 ```toml
-# peri-widgets/Cargo.toml
+# cc-widgets/Cargo.toml
 ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
 ```
 
 - [ ] **Step 2: 验证编译通过**
 
 ```bash
-cargo build -p peri-widgets
+cargo build -p cc-widgets
 ```
 
 - [ ] **Step 3: 运行现有测试**
 
 ```bash
-cargo test -p peri-widgets
+cargo test -p cc-widgets
 ```
 
 预期：全部 PASS（仅添加 feature flag，不改代码）
 
 ---
 
-### Task 2: 在 `peri-tui/Cargo.toml` 中启用 `unstable-widget-ref`
+### Task 2: 在 `cc-tui/Cargo.toml` 中启用 `unstable-widget-ref`
 
 **Files:**
-- Modify: `peri-tui/Cargo.toml`
+- Modify: `cc-tui/Cargo.toml`
 
 - [ ] **Step 1: 添加 `unstable-widget-ref` feature**
 
 ```toml
-# peri-tui/Cargo.toml
+# cc-tui/Cargo.toml
 ratatatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
 ```
 
 - [ ] **Step 2: 验证全量编译**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 - [ ] **Step 3: Commit feature flags**
 
 ```bash
-git add peri-widgets/Cargo.toml peri-tui/Cargo.toml
+git add cc-widgets/Cargo.toml cc-tui/Cargo.toml
 git commit -m "chore: enable unstable-widget-ref feature for ratatui
 
-Enable the WidgetRef/StatefulWidgetRef traits in both peri-widgets
-and peri-tui to prepare for incremental WidgetRef migration.
+Enable the WidgetRef/StatefulWidgetRef traits in both cc-widgets
+and cc-tui to prepare for incremental WidgetRef migration.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -106,8 +106,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 3: 为 `ToolCallWidget` 实现 `WidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/tool_call/mod.rs`
-- Modify: `peri-widgets/src/tool_call/mod_test.rs`
+- Modify: `cc-widgets/src/tool_call/mod.rs`
+- Modify: `cc-widgets/src/tool_call/mod_test.rs`
 
 **背景：** `ToolCallWidget<'a>` 当前实现 `Widget`（`fn render(self, ...)`），每次渲染消费所有权。流式场景下每条消息的 ToolCallWidget 独立构建，内部有 `format_args_summary` 和 `String::clone()` 调用。迁移后通过引用渲染，避免所有权转移。
 
@@ -188,7 +188,7 @@ impl Widget for ToolCallWidget<'_> {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- tool_call
+cargo test -p cc-widgets -- tool_call
 ```
 
 预期：所有现有测试 PASS。
@@ -218,7 +218,7 @@ fn test_tool_call_widget_ref_render() {
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-widgets/src/tool_call/
+git add cc-widgets/src/tool_call/
 git commit -m "refactor(widgets): implement WidgetRef for ToolCallWidget
 
 Render by reference instead of consuming ownership. The existing
@@ -232,7 +232,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 4: 为 `SpinnerWidget` 实现 `WidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/spinner/mod.rs`
+- Modify: `cc-widgets/src/spinner/mod.rs`
 
 **背景：** `SpinnerWidget` 每 100ms tick 重建一次，是最高频渲染的组件。迁移后避免每 tick 消费所有权。
 
@@ -298,13 +298,13 @@ impl Widget for SpinnerWidget<'_> {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- spinner
+cargo test -p cc-widgets -- spinner
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/spinner/
+git add cc-widgets/src/spinner/
 git commit -m "refactor(widgets): implement WidgetRef for SpinnerWidget
 
 Spinner is rendered every 100ms tick during active agent sessions.
@@ -318,7 +318,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 5: 为 `MessageBlockWidget` 实现 `WidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/message_block/mod.rs`
+- Modify: `cc-widgets/src/message_block/mod.rs`
 
 **背景：** `MessageBlockWidget` 渲染代码块和消息块，内部收集 `Vec<Line>`。在流式输出中频繁调用。
 
@@ -357,13 +357,13 @@ impl Widget for MessageBlockWidget<'_> {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- message_block
+cargo test -p cc-widgets -- message_block
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/message_block/
+git add cc-widgets/src/message_block/
 git commit -m "refactor(widgets): implement WidgetRef for MessageBlockWidget
 
 Code blocks and message blocks are rendered frequently during
@@ -379,7 +379,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 6: 为 `FileTree` 实现 `StatefulWidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/file_tree/render.rs`
+- Modify: `cc-widgets/src/file_tree/render.rs`
 
 **背景：** `FileTree` 是 `StatefulWidget`，需要同时实现 `StatefulWidgetRef`。ratatui 0.30 已提供 `&W where W: StatefulWidget` 的 blanket `StatefulWidgetRef` impl，但显式实现可以控制渲染逻辑并确保引用语义。
 
@@ -437,13 +437,13 @@ impl StatefulWidget for FileTree {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- file_tree
+cargo test -p cc-widgets -- file_tree
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/file_tree/
+git add cc-widgets/src/file_tree/
 git commit -m "refactor(widgets): implement StatefulWidgetRef for FileTree
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -454,7 +454,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 7: 为 `SelectableList` 实现 `StatefulWidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/list.rs`
+- Modify: `cc-widgets/src/list.rs`
 
 **背景：** `SelectableList<'a, T>` 是泛型 `StatefulWidget`，需要泛型 `StatefulWidgetRef` impl。
 
@@ -525,13 +525,13 @@ impl<T> StatefulWidget for SelectableList<'_, T> {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- list
+cargo test -p cc-widgets -- list
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/list.rs peri-widgets/src/list_test.rs
+git add cc-widgets/src/list.rs cc-widgets/src/list_test.rs
 git commit -m "refactor(widgets): implement StatefulWidgetRef for SelectableList
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -542,7 +542,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 8: 为 `TabBar` 实现 `StatefulWidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/tab_bar.rs`
+- Modify: `cc-widgets/src/tab_bar.rs`
 
 - [ ] **Step 1: 添加 `StatefulWidgetRef` import**
 
@@ -605,13 +605,13 @@ impl StatefulWidget for TabBar {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- tab_bar
+cargo test -p cc-widgets -- tab_bar
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/tab_bar.rs
+git add cc-widgets/src/tab_bar.rs
 git commit -m "refactor(widgets): implement StatefulWidgetRef for TabBar
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -624,7 +624,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 9: 为 `CheckboxGroup` 实现 `StatefulWidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/checkbox_group.rs`
+- Modify: `cc-widgets/src/checkbox_group.rs`
 
 - [ ] **Step 1: 添加 `StatefulWidgetRef` import**
 
@@ -686,13 +686,13 @@ impl StatefulWidget for CheckboxGroup<'_> {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- checkbox_group
+cargo test -p cc-widgets -- checkbox_group
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/checkbox_group.rs
+git add cc-widgets/src/checkbox_group.rs
 git commit -m "refactor(widgets): implement StatefulWidgetRef for CheckboxGroup
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -703,7 +703,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 10: 为 `RadioGroup` 实现 `StatefulWidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/radio_group.rs`
+- Modify: `cc-widgets/src/radio_group.rs`
 
 - [ ] **Step 1: 添加 `StatefulWidgetRef` import**
 
@@ -769,13 +769,13 @@ impl StatefulWidget for RadioGroup<'_> {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- radio_group
+cargo test -p cc-widgets -- radio_group
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/radio_group.rs
+git add cc-widgets/src/radio_group.rs
 git commit -m "refactor(widgets): implement StatefulWidgetRef for RadioGroup
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -786,7 +786,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 11: 为 `InputField` 实现 `StatefulWidgetRef`
 
 **Files:**
-- Modify: `peri-widgets/src/input_field.rs`
+- Modify: `cc-widgets/src/input_field.rs`
 
 - [ ] **Step 1: 添加 `StatefulWidgetRef` import**
 
@@ -822,13 +822,13 @@ impl StatefulWidget for InputField<'_> {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-widgets -- input_field
+cargo test -p cc-widgets -- input_field
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/input_field.rs
+git add cc-widgets/src/input_field.rs
 git commit -m "refactor(widgets): implement StatefulWidgetRef for InputField
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -841,7 +841,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 12: TUI 侧 `render_widget` → `render_widget_ref` 迁移示例
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/message_area.rs`（示例迁移点）
+- Modify: `cc-tui/src/ui/main_ui/message_area.rs`（示例迁移点）
 
 **注意：** 这一阶段是可选的。由于 ratatui 0.30 提供了 `&W where W: WidgetRef` 的 blanket `Widget` impl，现有 `f.render_widget(widget, area)` 调用在很多场景下已经可以隐式享受 `WidgetRef` 的好处（编译器会自动选择正确的 impl）。只有在以下场景需要显式迁移：
 
@@ -849,7 +849,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 2. 同一 widget 实例需要多次渲染的场景
 3. 想要显式标注引用语义的场景
 
-对于 `peri-tui` 中直接构造 `Paragraph`/`Text` 等 ratatui 内置 widget 的场景（如 `message_area.rs`、`status_bar.rs`），这些 widget 已由 ratatui 自身实现了 `WidgetRef`，无需手动实现。只需在调用处使用 `render_widget_ref()` 即可。
+对于 `cc-tui` 中直接构造 `Paragraph`/`Text` 等 ratatui 内置 widget 的场景（如 `message_area.rs`、`status_bar.rs`），这些 widget 已由 ratatui 自身实现了 `WidgetRef`，无需手动实现。只需在调用处使用 `render_widget_ref()` 即可。
 
 - [ ] **Step 1: 在需要迁移的文件中添加 import**
 
@@ -874,8 +874,8 @@ f.render_widget_ref(&paragraph, text_area);
 - [ ] **Step 3: 验证全量编译 + 测试**
 
 ```bash
-cargo build -p peri-tui
-cargo test -p peri-tui
+cargo build -p cc-tui
+cargo test -p cc-tui
 ```
 
 - [ ] **Step 4: Commit（仅在实际迁移了调用处时）**
@@ -934,7 +934,7 @@ cargo fmt --check
 | 风险 | 等级 | 缓解措施 |
 |------|------|---------|
 | `unstable-widget-ref` API 在未来 ratatui 版本中变更 | 低 | Widget impl 委托给 WidgetRef，API 变更时只需修改委托层 |
-| 迁移引入渲染 bug（像素级差异） | 低 | 每个组件迁移后运行现有测试；视觉验证通过 `cargo run -p peri-tui` |
+| 迁移引入渲染 bug（像素级差异） | 低 | 每个组件迁移后运行现有测试；视觉验证通过 `cargo run -p cc-tui` |
 | `Box<dyn Fn>` 闭包在 `&self` 上下文中可用性 | 无 | 已验证：`Fn` trait 不消费 self，`&self` 可正常调用 |
 | 泛型组件 `SelectableList<T>` 的 WidgetRef impl 复杂性 | 低 | `StatefulWidgetRef` 是泛型 impl，与 `StatefulWidget` 对称 |
 

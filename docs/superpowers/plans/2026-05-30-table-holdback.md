@@ -4,7 +4,7 @@
 
 **Goal:** 在流式 Markdown 渲染中添加表格 holdback 机制，检测以 `|` 开头的行，在表格行不完整时保持 holdback 不提交渲染，直到行完整或流结束后批量提交。消除流式过程中表格列错位和列宽闪烁。
 
-**Architecture:** 新建 `TableHoldbackScanner` 结构体，位于 `peri-tui/src/ui/markdown/table_holdback.rs`。集成点在 `ensure_rendered_incremental` 内——在增量解析前用 scanner 判断哪些尾部文本需要 holdback。`HoldbackDecision` 枚举控制提交/保留/flush 语义。不修改 `peri-widgets` 的表格渲染逻辑。
+**Architecture:** 新建 `TableHoldbackScanner` 结构体，位于 `cc-tui/src/ui/markdown/table_holdback.rs`。集成点在 `ensure_rendered_incremental` 内——在增量解析前用 scanner 判断哪些尾部文本需要 holdback。`HoldbackDecision` 枚举控制提交/保留/flush 语义。不修改 `cc-widgets` 的表格渲染逻辑。
 
 **Tech Stack:** Rust, pulldown-cmark (markdown 解析), ratatui (Text/Line 渲染)
 
@@ -17,8 +17,8 @@
 纯数据结构定义，无外部依赖。
 
 **Files:**
-- Create: `peri-tui/src/ui/markdown/table_holdback.rs`
-- Test: `peri-tui/src/ui/markdown/table_holdback_test.rs`
+- Create: `cc-tui/src/ui/markdown/table_holdback.rs`
+- Test: `cc-tui/src/ui/markdown/table_holdback_test.rs`
 
 - [ ] **Step 1: 创建 `table_holdback.rs` 文件，定义核心类型**
 
@@ -408,7 +408,7 @@ fn test_reset_clears_state() {
 
 - [ ] **Step 3: 在 `mod.rs` 中注册模块**
 
-在 `peri-tui/src/ui/markdown/mod.rs` 添加模块声明：
+在 `cc-tui/src/ui/markdown/mod.rs` 添加模块声明：
 
 ```rust
 mod table_holdback;
@@ -417,7 +417,7 @@ mod table_holdback;
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-tui --lib -- table_holdback
+cargo test -p cc-tui --lib -- table_holdback
 ```
 
 预期：全部 PASS
@@ -425,7 +425,7 @@ cargo test -p peri-tui --lib -- table_holdback
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/ui/markdown/table_holdback.rs peri-tui/src/ui/markdown/table_holdback_test.rs peri-tui/src/ui/markdown/mod.rs
+git add cc-tui/src/ui/markdown/table_holdback.rs cc-tui/src/ui/markdown/table_holdback_test.rs cc-tui/src/ui/markdown/mod.rs
 git commit -m "feat(markdown): add TableHoldbackScanner for streaming table detection
 
 Introduces HoldbackDecision enum and TableHoldbackScanner struct that
@@ -443,13 +443,13 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 在增量渲染路径中集成 holdback 逻辑。核心思路：在 `ensure_rendered_incremental` 中，对 `ContentBlockView::Text` 的 raw 文本执行 holdback 扫描，如果需要 holdback 则只渲染 holdback_offset 之前的部分。
 
 **Files:**
-- Modify: `peri-tui/src/ui/markdown/mod.rs`（集成 holdback 逻辑）
-- Modify: `peri-tui/src/ui/message_view/mod.rs`（在 `ContentBlockView::Text` 中添加 scanner 字段）
-- Test: `peri-tui/src/ui/markdown/mod_test.rs`（新增表格流式渲染测试）
+- Modify: `cc-tui/src/ui/markdown/mod.rs`（集成 holdback 逻辑）
+- Modify: `cc-tui/src/ui/message_view/mod.rs`（在 `ContentBlockView::Text` 中添加 scanner 字段）
+- Test: `cc-tui/src/ui/markdown/mod_test.rs`（新增表格流式渲染测试）
 
 - [ ] **Step 1: 在 `ContentBlockView::Text` 中添加 `holdback_scanner` 字段**
 
-修改 `peri-tui/src/ui/message_view/mod.rs` 第 339-349 行：
+修改 `cc-tui/src/ui/message_view/mod.rs` 第 339-349 行：
 
 ```rust
 pub enum ContentBlockView {
@@ -474,7 +474,7 @@ pub enum ContentBlockView {
 
 需要搜索所有 `ContentBlockView::Text { ... }` 构造点并添加 `holdback_scanner` 字段。使用 `Default::default()` 初始化。
 
-位置列表（`peri-tui/src/ui/message_view/mod.rs`）：
+位置列表（`cc-tui/src/ui/message_view/mod.rs`）：
 
 1. **第 457 行** `from_base_message_with_cwd` 中 `ContentBlock::Text` → 添加 `holdback_scanner: Default::default()`
 2. **第 470 行** `ContentBlock::Image` 回退 → 添加 `holdback_scanner: Default::default()`
@@ -482,11 +482,11 @@ pub enum ContentBlockView {
 4. **第 494 行** `ContentBlock::ToolResult` error → 添加 `holdback_scanner: Default::default()`
 5. **第 503 行** `_` 回退 → 添加 `holdback_scanner: Default::default()`
 
-位置列表（`peri-tui/src/ui/message_view/mod.rs` 的 `append_chunk`）：
+位置列表（`cc-tui/src/ui/message_view/mod.rs` 的 `append_chunk`）：
 
 6. **第 642 行** `append_chunk` 中创建新 Text block → 添加 `holdback_scanner: Default::default()`
 
-位置列表（`peri-tui/src/app/message_pipeline/transform.rs`）：
+位置列表（`cc-tui/src/app/message_pipeline/transform.rs`）：
 
 7. **第 30 行** `build_streaming_bubble` 中创建 Text block → 此处需要设置 `streaming: true`：
 
@@ -503,13 +503,13 @@ blocks.push(ContentBlockView::Text {
 });
 ```
 
-位置列表（`peri-tui/src/ui/markdown/mod_test.rs`）：
+位置列表（`cc-tui/src/ui/markdown/mod_test.rs`）：
 
 8-13. 所有测试中的 `ContentBlockView::Text { ... }` 构造点都需要添加 `holdback_scanner: Default::default()`。
 
 - [ ] **Step 3: 实现 holdback 感知的 `ensure_rendered_incremental`**
 
-修改 `peri-tui/src/ui/markdown/mod.rs` 中的 `ensure_rendered_incremental` 函数。核心变更：在增量解析前，使用 scanner 决定 holdback 范围，只渲染到 holdback 截止点。
+修改 `cc-tui/src/ui/markdown/mod.rs` 中的 `ensure_rendered_incremental` 函数。核心变更：在增量解析前，使用 scanner 决定 holdback 范围，只渲染到 holdback 截止点。
 
 ```rust
 pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usize) {
@@ -739,9 +739,9 @@ fn test_ensure_rendered_incremental_table_flush_on_non_streaming() {
 - [ ] **Step 5: 运行全部相关测试**
 
 ```bash
-cargo test -p peri-tui --lib -- table_holdback
-cargo test -p peri-tui --lib -- test_ensure_rendered_incremental
-cargo test -p peri-tui --lib -- test_md_table
+cargo test -p cc-tui --lib -- table_holdback
+cargo test -p cc-tui --lib -- test_ensure_rendered_incremental
+cargo test -p cc-tui --lib -- test_md_table
 ```
 
 预期：全部 PASS
@@ -749,7 +749,7 @@ cargo test -p peri-tui --lib -- test_md_table
 - [ ] **Step 6: 构建验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 预期：编译通过，无 warning。如果有 `#[allow(dead_code)]` 需要清理。
@@ -757,7 +757,7 @@ cargo build -p peri-tui
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/ui/markdown/mod.rs peri-tui/src/ui/markdown/table_holdback.rs peri-tui/src/ui/markdown/table_holdback_test.rs peri-tui/src/ui/markdown/mod_test.rs peri-tui/src/ui/message_view/mod.rs
+git add cc-tui/src/ui/markdown/mod.rs cc-tui/src/ui/markdown/table_holdback.rs cc-tui/src/ui/markdown/table_holdback_test.rs cc-tui/src/ui/markdown/mod_test.rs cc-tui/src/ui/message_view/mod.rs
 git commit -m "feat(markdown): integrate TableHoldbackScanner into incremental rendering
 
 ensure_rendered_incremental now consults the holdback scanner before
@@ -775,13 +775,13 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 确保流结束时（`is_streaming` 变为 false，或 `done()`/`finalize` 路径），所有 holdback 内容被提交渲染。
 
 **Files:**
-- Modify: `peri-tui/src/ui/render_thread.rs`（在 `render_one` 中处理 streaming → finalized 的过渡）
-- Modify: `peri-tui/src/ui/markdown/mod.rs`（添加 `ensure_rendered_flush` 函数）
-- Test: `peri-tui/src/ui/markdown/mod_test.rs`
+- Modify: `cc-tui/src/ui/render_thread.rs`（在 `render_one` 中处理 streaming → finalized 的过渡）
+- Modify: `cc-tui/src/ui/markdown/mod.rs`（添加 `ensure_rendered_flush` 函数）
+- Test: `cc-tui/src/ui/markdown/mod_test.rs`
 
 - [ ] **Step 1: 添加 `ensure_rendered_flush` 函数**
 
-在 `peri-tui/src/ui/markdown/mod.rs` 中添加：
+在 `cc-tui/src/ui/markdown/mod.rs` 中添加：
 
 ```rust
 /// 强制提交所有 holdback 内容（流结束时调用）
@@ -865,7 +865,7 @@ fn test_ensure_rendered_flush_releases_holdback() {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cargo test -p peri-tui --lib -- test_ensure_rendered
+cargo test -p cc-tui --lib -- test_ensure_rendered
 ```
 
 预期：全部 PASS
@@ -873,13 +873,13 @@ cargo test -p peri-tui --lib -- test_ensure_rendered
 - [ ] **Step 5: 构建验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/ui/markdown/mod.rs peri-tui/src/ui/render_thread.rs peri-tui/src/ui/markdown/mod_test.rs
+git add cc-tui/src/ui/markdown/mod.rs cc-tui/src/ui/render_thread.rs cc-tui/src/ui/markdown/mod_test.rs
 git commit -m "feat(markdown): add flush semantics for table holdback on stream end
 
 ensure_rendered_flush forces all held-back content to render when
@@ -908,7 +908,7 @@ cargo build
 - [ ] **Step 2: 运行 TUI 相关测试**
 
 ```bash
-cargo test -p peri-tui --lib
+cargo test -p cc-tui --lib
 ```
 
 预期：全部 PASS
@@ -916,9 +916,9 @@ cargo test -p peri-tui --lib
 - [ ] **Step 3: 运行 Markdown 和表格相关测试**
 
 ```bash
-cargo test -p peri-tui --lib -- markdown
-cargo test -p peri-tui --lib -- table
-cargo test -p peri-widgets --lib
+cargo test -p cc-tui --lib -- markdown
+cargo test -p cc-tui --lib -- table
+cargo test -p cc-widgets --lib
 ```
 
 预期：全部 PASS
@@ -926,7 +926,7 @@ cargo test -p peri-widgets --lib
 - [ ] **Step 4: Lint 检查**
 
 ```bash
-cargo clippy -p peri-tui --lib -- -D warnings
+cargo clippy -p cc-tui --lib -- -D warnings
 ```
 
 预期：无 warning
@@ -934,7 +934,7 @@ cargo clippy -p peri-tui --lib -- -D warnings
 - [ ] **Step 5: 手动验证**
 
 ```bash
-cargo run -p peri-tui
+cargo run -p cc-tui
 ```
 
 手动验证：

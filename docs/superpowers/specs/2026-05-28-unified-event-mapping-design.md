@@ -5,10 +5,10 @@
 
 ## 背景与动机
 
-当前 `peri-acp` 存在两套独立的事件映射逻辑：
+当前 `cc-acp` 存在两套独立的事件映射逻辑：
 
-1. **`map_executor_to_updates()`**（`peri-acp/src/event/mapper.rs`）— ExecutorEvent → `Vec<SessionUpdate>`，供 Stdio/IDE 客户端消费
-2. **`map_executor_event()`**（`peri-tui/src/app/agent.rs`）— ExecutorEvent → `Option<AgentEvent>`，供 TUI 消费
+1. **`map_executor_to_updates()`**（`cc-acp/src/event/mapper.rs`）— ExecutorEvent → `Vec<SessionUpdate>`，供 Stdio/IDE 客户端消费
+2. **`map_executor_event()`**（`cc-tui/src/app/agent.rs`）— ExecutorEvent → `Option<AgentEvent>`，供 TUI 消费
 3. **`map_executor_to_peri_notifications()`**（同 mapper.rs）— ExecutorEvent → `peri/*` 自定义通知，TUI 当前忽略
 
 三套映射逻辑维护成本高、容易不一致。目标：合并为单一 `map_event()` 函数，消除重复。
@@ -37,7 +37,7 @@
 ## 统一映射输出
 
 ```rust
-// peri-acp/src/event/mapper.rs
+// cc-acp/src/event/mapper.rs
 
 /// 统一映射结果
 pub struct MappedEvent {
@@ -261,9 +261,9 @@ fn handle_acp_notification(notif: AcpNotification, app: &mut App) {
 
 | 文件 | 删除内容 |
 |---|---|
-| `peri-acp/src/event/mapper.rs` | `map_executor_to_updates()`、`map_executor_to_peri_notifications()` → 替换为 `map_event()` |
-| `peri-tui/src/app/agent.rs` | `map_executor_event()` 中类别①②映射 → 简化为仅类别③ |
-| `peri-acp/src/session/event_sink.rs` | TransportEventSink/StdioEventSink 重构为使用 `map_event()` |
+| `cc-acp/src/event/mapper.rs` | `map_executor_to_updates()`、`map_executor_to_peri_notifications()` → 替换为 `map_event()` |
+| `cc-tui/src/app/agent.rs` | `map_executor_event()` 中类别①②映射 → 简化为仅类别③ |
+| `cc-acp/src/session/event_sink.rs` | TransportEventSink/StdioEventSink 重构为使用 `map_event()` |
 
 ## AcpNotification 变体影响
 
@@ -286,5 +286,5 @@ fn handle_acp_notification(notif: AcpNotification, app: &mut App) {
 |---|---|
 | TUI bridge 双路径处理增加复杂度 | 两个 handler 职责清晰：session/update 处理标准事件，peri/agent_event 处理扩展事件 |
 | 类别②事件 TUI 通过 peri/agent_event 拿完整数据，同时 TransportEventSink 也发 session/update | TUI bridge 中 session/update handler 对 UsageUpdate/SessionInfoUpdate 跳过处理（因为完整数据已通过 peri/agent_event 的类别② AgentEvent 获取） |
-| `format_tool_name`/`format_tool_args` 从 map_executor_event 移到 TUI handler | 这些函数已在 `peri-tui/src/app/tool_display.rs`，移入 handler 是自然归位 |
+| `format_tool_name`/`format_tool_args` 从 map_executor_event 移到 TUI handler | 这些函数已在 `cc-tui/src/app/tool_display.rs`，移入 handler 是自然归位 |
 | `source_agent_id` 通过 `_peri` 传递，非标准 | `_peri` 是可选字段，标准客户端忽略；未来若 ACP 规范增加类似字段可平滑迁移 |

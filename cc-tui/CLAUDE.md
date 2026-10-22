@@ -17,7 +17,7 @@ TUI 应用，纯 ACP client 前端。运行时仅通过 `cc-acp` 的 `MpscTransp
 | `src/app/agent_ops/lifecycle.rs` | Agent 生命周期处理 |
 | `src/app/agent_submit.rs` | 用户输入提交入口 |
 | `src/app/agent_compact.rs` | Compact 事件处理：pipeline 清理 + UI 通知 |
-| `src/app/message_pipeline.rs` | `MessagePipeline`：规范状态维护 + `messages_to_view_models()` |
+| `src/app/message_pipeline/mod.rs` | `MessagePipeline`：规范状态维护 + `messages_to_view_models()` |
 | `src/ui/main_ui/mod.rs` | 主布局 |
 | `src/i18n/` | 国际化模块（`LcRegistry` + Fluent） |
 
@@ -46,7 +46,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 退出时逐行清除应用拥有的正常屏区域，光标回到该区域起点，仅输出 Session ID、Resume 和 shell 提示符，保留其上方 shell 历史。全屏绘制不覆盖正常屏区域记录；退出先恢复正常屏，再清除进入全屏前的应用区域。成功清理后消费记录，显式恢复与 Drop 重复调用不会擦掉退出提示。异常恢复同样通过统一终端恢复路径清理 raw mode、鼠标和光标。
 
-此改动未发布；自动化与 Windows 人工验证已通过，macOS/Linux 待兼容性检查，状态与 headless 测试不代表真实终端验收通过，验收范围见 [PRD](../docs/prd/growing-terminal-viewport.md)。
+此改动已随 v0.6.171 发布（PR #652，issue #650）；验收范围见 [PRD](../docs/prd/growing-terminal-viewport.md)。
 
 ## 消息渲染
 
@@ -90,7 +90,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ### 面板系统
 
-14 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser、CommandPalettePanel、ThemePanel（Session，8 种）；McpPanel、PluginPanel、CronPanel、StatusPanel、MemoryPanel、BackgroundTasksPanel（Global，6 种）。
+15 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser、CommandPalettePanel、ThemePanel、InputHistoryPanel（Session，9 种）；McpPanel、PluginPanel、CronPanel、StatusPanel、MemoryPanel、BackgroundTasksPanel（Global，6 种）。
 
 互斥组（`MutexGroup`）：Settings（Model/Login/Config/CommandPalette/Theme）、Agent（Agent/Hooks）、Tools（MCP/Plugin/Cron/BackgroundTasks）、Info（Status/Memory）、Thread（ThreadBrowser 独占）。
 

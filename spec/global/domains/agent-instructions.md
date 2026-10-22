@@ -165,6 +165,8 @@ pub struct AgentsMdConfig {
     pub import_scope: ImportScope,
     /// 用户全局文件（默认 {APP_HOME}/AGENTS.md）
     pub user_global_file: PathBuf,
+    /// 用户全局候选列表（设置后优先于 user_global_file 单文件）
+    pub user_global_candidates: Option<Vec<PathBuf>>,
 }
 ```
 
@@ -274,7 +276,7 @@ render_instruction_set(files, cfg):
 
 ## 五、测试计划
 
-单测（`cc-middlewares/src/agents_md/agents_md_test.rs`，`tempfile` 建临时目录树；**均已实现**，当前 48 启用 + 1 `#[ignore]`（数量随迭代变化，以 `cargo test` 实跑为准））：
+单测（`cc-middlewares/src/agents_md/agents_md_test.rs`，`tempfile` 建临时目录树；**均已实现**，当前 3 个测试文件合计 74 个测试、其中 1 个 `#[ignore]`（数量随迭代变化，以 `cargo test` 实跑为准））：
 
 1. `test_same_dir_agents_and_claude_both_loaded` —— 同目录两文件内容不同 → **都出现**；
 2. `test_same_dir_identical_content_deduped` —— 两文件 trim 后相同 → **只出现一次**；

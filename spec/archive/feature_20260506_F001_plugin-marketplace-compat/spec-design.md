@@ -2,13 +2,13 @@
 
 ## 需求背景
 
-Claude Code 已经建立了完整的插件生态——通过 `.claude-plugin/plugin.json` 清单格式描述插件能力（命令、技能、Agent、MCP 服务器等），通过 marketplace（GitHub 仓库或 URL）分发和发现插件。Peri 作为兼容 Claude Code 配置的 Rust Agent 框架，需要能直接读取 `~/.claude/` 下的插件配置和缓存，安装和运行 Claude Code 生态的插件。
+参考实现 已经建立了完整的插件生态——通过 `.claude-plugin/plugin.json` 清单格式描述插件能力（命令、技能、Agent、MCP 服务器等），通过 marketplace（GitHub 仓库或 URL）分发和发现插件。Peri 作为兼容 参考实现 配置的 Rust Agent 框架，需要能直接读取 `~/.claude/` 下的插件配置和缓存，安装和运行 参考实现 生态的插件。
 
 当前差距：Peri 已有 Skills、MCP、SubAgent、TUI 命令等能力，但缺少统一的插件发现、安装和加载机制。插件系统将这些能力串联起来，形成"从 marketplace 发现 → 安装到本地 → 加载到 agent"的完整链路。
 
 ## 目标
 
-- 解析并兼容 Claude Code 的 `plugin.json` 清单格式
+- 解析并兼容 参考实现 的 `plugin.json` 清单格式
 - 从 marketplace（GitHub 仓库/URL/本地路径/NPM）发现和拉取插件列表
 - 加载插件的 commands（斜杠命令）和 skills 到现有命令/技能系统
 - 加载插件的 MCP 服务器配置到现有 MCP 中间件
@@ -28,7 +28,7 @@ Claude Code 已经建立了完整的插件生态——通过 `.claude-plugin/plu
 ```
 peri-middlewares/src/plugin/
 ├── mod.rs              # 模块入口，导出公共 API
-├── types.rs            # Claude Code plugin.json 兼容类型
+├── types.rs            # 参考实现 plugin.json 兼容类型
 ├── marketplace.rs      # Marketplace 拉取、缓存、更新
 ├── installer.rs        # 插件安装/卸载/版本管理
 ├── loader.rs           # 已安装插件加载（解析清单、提取资源）
@@ -38,12 +38,12 @@ peri-middlewares/src/plugin/
 
 ### 数据模型
 
-基于 Claude Code `schemas.ts` 类型定义，设计 Rust 兼容类型。
+基于 参考实现 `schemas.ts` 类型定义，设计 Rust 兼容类型。
 
 **plugin.json 清单类型**（`types.rs`）：
 
 ```rust
-/// 兼容 Claude Code 的插件清单
+/// 兼容 参考实现 的插件清单
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginManifest {
     pub name: String,
@@ -192,7 +192,7 @@ pub struct KnownMarketplace {
 
 ### 文件布局
 
-复用 `~/.claude/` 路径结构，与 Claude Code 零冲突：
+复用 `~/.claude/` 路径结构，与 参考实现 零冲突：
 
 ```
 ~/.claude/
@@ -283,7 +283,7 @@ uninstall_plugin(id)
 
 **版本管理**：
 
-- 同一插件只保留一个版本（与 Claude Code 行为一致）
+- 同一插件只保留一个版本（与 参考实现 行为一致）
 - 安装新版本时先卸载旧版本再安装新版本
 - marketplace 刷新后检测版本更新，TUI 显示可更新标记
 
@@ -417,7 +417,7 @@ pub struct CommandEntry {
 
 ## 验收标准
 
-- [ ] 能解析 Claude Code 格式的 `plugin.json` 清单文件
+- [ ] 能解析 参考实现 格式的 `plugin.json` 清单文件
 - [ ] 能从 GitHub 仓库 marketplace 拉取插件列表
 - [ ] 能从 URL marketplace 拉取插件列表
 - [ ] 能从本地路径读取 marketplace

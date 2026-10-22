@@ -40,10 +40,10 @@
 
 ## 涉及文件
 
-- `peri-middlewares/src/middleware/terminal.rs` —— `format_background_task_started()` 生成 `<background-task-started>` 标记并写入 Bash 工具结果（LLM 契约侧，不改）
-- `peri-tui/src/ui/message_render.rs` —— 工具结果展示层（`ToolBlock` 渲染路径），当前对内容仅做控制字符清洗/截断，未识别该标记
-- `peri-tui/src/app/tool_display.rs` —— `sanitize_display_text()` 仅剥离 ANSI/控制字符，不含标记剥离
-- 参考先例：`peri-tui/src/app/background_shell.rs` 渲染后台任务通知时会剥离 `<system-reminder>` 包裹，可作为「机器标记 ≠ 展示文本」的处理模式参考
+- `cc-middlewares/src/middleware/terminal.rs` —— `format_background_task_started()` 生成 `<background-task-started>` 标记并写入 Bash 工具结果（LLM 契约侧，不改）
+- `cc-tui/src/ui/message_render.rs` —— 工具结果展示层（`ToolBlock` 渲染路径），当前对内容仅做控制字符清洗/截断，未识别该标记
+- `cc-tui/src/app/tool_display.rs` —— `sanitize_display_text()` 仅剥离 ANSI/控制字符，不含标记剥离
+- 参考先例：`cc-tui/src/app/background_shell.rs` 渲染后台任务通知时会剥离 `<system-reminder>` 包裹，可作为「机器标记 ≠ 展示文本」的处理模式参考
 
 ## 关联
 

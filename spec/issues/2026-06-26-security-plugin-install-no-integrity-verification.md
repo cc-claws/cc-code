@@ -12,14 +12,14 @@
 ## 当前行为
 
 ```rust
-// peri-middlewares/src/plugin/installer/install.rs:42-67
+// cc-middlewares/src/plugin/installer/install.rs:42-67
 // source: "url" → git clone --depth 1 <url>，无 commit pin / hash / signature
 // source: "npm" → fetch_npm → npm pack → tar::Archive::unpack
 // 全程无 sha256 / signature 校验
 ```
 
 ```rust
-// peri-middlewares/src/plugin/marketplace/fetch.rs:139-201 (fetch_npm)
+// cc-middlewares/src/plugin/marketplace/fetch.rs:139-201 (fetch_npm)
 // tar::Archive::unpack(&cache_dir) 直接解包到 cache 目录
 // tar crate 0.4+ 默认有 zip-slip 防护但未在单测中验证当前 lockfile 版本
 ```
@@ -60,11 +60,11 @@
 
 ## 涉及文件
 
-- `peri-middlewares/src/plugin/installer/install.rs:42-67` — `install_plugin` 入口
-- `peri-middlewares/src/plugin/installer/install.rs:79-81` — source 路径用 `Component::Normal` 过滤（已有路径穿越防护）
-- `peri-middlewares/src/plugin/marketplace/fetch.rs:139-201` — `fetch_npm` 实现
-- `peri-middlewares/src/plugin/marketplace/fetch.rs:18-70` — `fetch_git` 实现
-- `peri-middlewares/src/hooks/loader.rs` — hooks 自动加载入口
+- `cc-middlewares/src/plugin/installer/install.rs:42-67` — `install_plugin` 入口
+- `cc-middlewares/src/plugin/installer/install.rs:79-81` — source 路径用 `Component::Normal` 过滤（已有路径穿越防护）
+- `cc-middlewares/src/plugin/marketplace/fetch.rs:139-201` — `fetch_npm` 实现
+- `cc-middlewares/src/plugin/marketplace/fetch.rs:18-70` — `fetch_git` 实现
+- `cc-middlewares/src/hooks/loader.rs` — hooks 自动加载入口
 
 ## 关联
 

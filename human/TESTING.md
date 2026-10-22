@@ -1,16 +1,16 @@
 # 测试充分度分析
 
-> 基于代码库实际测试代码分析（2026-03-27）
+> 基于代码库实际测试代码分析（2026-03-27；测试数与缺口现状于 2026-10-22 按当前代码复核）
 
 ---
 
 ## 测试数量概览
 
-| Crate | 估计测试数 | 主要覆盖 |
+| Crate | 测试数（src 内 `#[test]`/`#[tokio::test]` 计数，2026-10-22） | 主要覆盖 |
 |-------|-----------|---------|
-| `cc-agent` | ~52 | 消息系统、ReAct 执行器、集成测试 |
-| `cc-middlewares` | ~65 | HITL、SubAgent、Skill 加载 |
-| `cc-tui` | ~80 | Headless UI 渲染 |
+| `cc-agent` | ~580 | 消息系统、ReAct 执行器、集成测试 |
+| `cc-middlewares` | ~1260 | HITL、SubAgent、Skill 加载、文件系统工具 |
+| `cc-tui` | ~1620 | Headless UI 渲染、命令系统、渲染管线 |
 
 ---
 
@@ -25,29 +25,29 @@
 
 ## 关键缺口（高风险）
 
-### 1. 中间件链执行逻辑
+### 1. 中间件链执行逻辑（已补齐）
 
-`cc-agent/middleware/chain.rs`、`base.rs`、`trait.rs` — 核心机制无直接单元测试，仅靠集成测试间接验证。
+`cc-agent/src/middleware/chain.rs`、`base.rs`、`trait.rs` — 已有 `chain_test.rs` 等直接单元测试（2026-03 时无）。
 
-### 2. 文件系统工具（逐个工具）
+### 2. 文件系统工具（逐个工具）（已补齐）
 
-`Read`、`Write`、`Edit`、`Glob`、`Grep` — 工具实现本身无单元测试，只有中间件注册的集成测试。
+`Read`、`Write`、`Edit`、`Glob`、`Grep` — 已有逐工具单元测试（`cc-middlewares/src/tools/filesystem/` 下 `read_test.rs`、`edit_test.rs`、`glob_test.rs`、`grep_test.rs` 等）。
 
 ### 3. `ask_user` 工具
 
 跨 `cc-agent` 和 `cc-middlewares` 两个 crate，完全无测试。
 
-### 4. Relay Server 核心
+### 4. Relay Server 核心（已失效）
 
-`auth.rs`、`relay.rs`、`client/` — WebSocket 中继、认证逻辑、连接管理均无测试，只有协议序列化有覆盖。
+Relay Server 子系统已下线，`auth.rs`、`relay.rs` 等文件不再存在，本节作废。
 
-### 5. TUI 命令系统
+### 5. TUI 命令系统（部分补齐）
 
-`/model`、`/relay`、`/history`、`/agents` 等命令处理逻辑无测试。
+`/model`、`/history`、`/agents` 等命令处理逻辑已有部分测试（`cc-tui/src/command/` 下 `mod_test.rs`、`gc_test.rs`、`loop_cmd_test.rs`、`rewind_test.rs` 等），覆盖仍不完整。
 
 ### 6. LLM 适配器
 
-`llm/openai.rs`、`llm/anthropic.rs` 的真实 API 调用路径无测试（只有 MockLLM 间接验证框架）。
+`llm/openai/`、`llm/anthropic/` 的真实 API 调用路径无测试（只有 MockLLM 间接验证框架；格式转换有 `openai_test.rs`/`anthropic_test.rs`）。
 
 ---
 
@@ -55,18 +55,17 @@
 
 ```
 消息/协议层  ████████░░  ~80%  ✅
-ReAct 执行器 ██████░░░░  ~60%  ⚠️  中间件链缺单元测试
-工具实现层   ████░░░░░░  ~40%  ❌  逐工具测试稀少
-Relay Server ██░░░░░░░░  ~20%  ❌  仅协议层
-TUI 渲染     █████░░░░░  ~50%  ⚠️  命令系统缺失
+ReAct 执行器 ████████░░  ~75%  ⚠️  （中间件链单元测试已补齐）
+工具实现层   ██████░░░░  ~65%  ⚠️  （逐工具测试已补齐，边界条件仍可加强）
+Relay Server —             子系统已下线，不再评估
+TUI 渲染     ███████░░░░  ~70%  ⚠️  命令系统部分覆盖
 ```
 
 ## 优先级补充方向
 
-1. 各文件系统工具的单元测试（边界条件、错误处理）
-2. `relay.rs` + `auth.rs` 的集成/单元测试
-3. `ask_user` 工具的 oneshot channel 流程测试
-4. TUI `/model`、`/history` 等命令的状态机测试
+1. `ask_user` 工具的 oneshot channel 流程测试
+2. TUI `/model`、`/history` 等命令的状态机测试补齐
+3. LLM 适配器真实 API 调用路径的契约测试
 
 ---
 

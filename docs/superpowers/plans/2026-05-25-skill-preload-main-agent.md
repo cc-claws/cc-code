@@ -6,7 +6,7 @@
 
 **Architecture:** 采用 Strategy B（中间件自检测）——不修改 ACP 协议或 `execute_prompt` 签名。在 `SkillPreloadMiddleware.before_agent` 中，当 `skill_names` 为空时，从 state 的最后一条 Human 消息中提取 `/xxx` token，与可用 skill 列表匹配后注入。SubAgent 路径不受影响（仍使用显式 `skill_names`）。
 
-**Tech Stack:** Rust, `peri-middlewares` crate, 现有 `list_skills` + `parse_skill_names_from_input` 逻辑。
+**Tech Stack:** Rust, `cc-middlewares` crate, 现有 `list_skills` + `parse_skill_names_from_input` 逻辑。
 
 ---
 
@@ -14,19 +14,19 @@
 
 | 文件 | 职责 | 操作 |
 |------|------|------|
-| `peri-middlewares/src/subagent/skill_preload.rs` | 核心中间件，新增自检测逻辑 | 修改 |
-| `peri-middlewares/src/subagent/skill_preload_test.rs` | 测试 | 修改 |
-| `peri-tui/src/app/agent_submit.rs` | 移除死代码 `parse_skill_names_from_input` | 修改 |
-| `peri-tui/src/app/agent_submit_test.rs` | 移除对应测试 | 修改 |
+| `cc-middlewares/src/subagent/skill_preload.rs` | 核心中间件，新增自检测逻辑 | 修改 |
+| `cc-middlewares/src/subagent/skill_preload_test.rs` | 测试 | 修改 |
+| `cc-tui/src/app/agent_submit.rs` | 移除死代码 `parse_skill_names_from_input` | 修改 |
+| `cc-tui/src/app/agent_submit_test.rs` | 移除对应测试 | 修改 |
 
 ---
 
 ### Task 1: 提取 skill 名称解析为公共函数
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/skill_preload.rs`
+- Modify: `cc-middlewares/src/subagent/skill_preload.rs`
 
-**背景：** `peri-tui/src/app/agent_submit.rs` 中有 `parse_skill_names_from_input` 函数（当前是死代码）。我们需要把这个逻辑移到 `skill_preload.rs` 中作为公共函数，供中间件内部使用。同时保留 TUI 侧的死代码移除到 Task 3。
+**背景：** `cc-tui/src/app/agent_submit.rs` 中有 `parse_skill_names_from_input` 函数（当前是死代码）。我们需要把这个逻辑移到 `skill_preload.rs` 中作为公共函数，供中间件内部使用。同时保留 TUI 侧的死代码移除到 Task 3。
 
 - [ ] **Step 1: 在 `skill_preload.rs` 中添加 `extract_skill_names_from_text` 函数**
 
@@ -57,7 +57,7 @@ pub fn extract_skill_names_from_text(text: &str) -> Vec<String> {
 
 - [ ] **Step 2: 运行现有测试确保无回归**
 
-Run: `cargo test -p peri-middlewares --lib -- skill_preload`
+Run: `cargo test -p cc-middlewares --lib -- skill_preload`
 Expected: 所有现有测试 PASS（6 个）
 
 ---
@@ -65,7 +65,7 @@ Expected: 所有现有测试 PASS（6 个）
 ### Task 2: 修改 `before_agent` 实现自检测
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/skill_preload.rs`
+- Modify: `cc-middlewares/src/subagent/skill_preload.rs`
 
 **核心逻辑：** 当 `self.skill_names` 为空时，从 state 的最后一条 Human 消息中提取 skill 名称；非空时保持原有行为（SubAgent 路径）。
 
@@ -112,7 +112,7 @@ async fn test_auto_detect_skill_from_human_message() {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-middlewares --lib -- test_auto_detect_skill_from_human_message`
+Run: `cargo test -p cc-middlewares --lib -- test_auto_detect_skill_from_human_message`
 Expected: FAIL（当前 `skill_names` 为空直接 early return）
 
 - [ ] **Step 3: 实现 `before_agent` 自检测逻辑**
@@ -158,7 +158,7 @@ async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
             .collect::<Vec<_>>()
     })
     .await
-    .map_err(|e| peri_agent::error::AgentError::MiddlewareError {
+    .map_err(|e| cc_agent::error::AgentError::MiddlewareError {
         middleware: "SkillPreloadMiddleware".to_string(),
         reason: format!("spawn_blocking 失败: {e}"),
     })?;
@@ -195,7 +195,7 @@ async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
 
 - [ ] **Step 4: 运行所有 skill_preload 测试确认通过**
 
-Run: `cargo test -p peri-middlewares --lib -- skill_preload`
+Run: `cargo test -p cc-middlewares --lib -- skill_preload`
 Expected: 所有测试 PASS（7 个，含新增 1 个）
 
 ---
@@ -203,7 +203,7 @@ Expected: 所有测试 PASS（7 个，含新增 1 个）
 ### Task 3: 补充边界测试
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/skill_preload_test.rs`
+- Modify: `cc-middlewares/src/subagent/skill_preload_test.rs`
 
 - [ ] **Step 1: 添加多个 skill 自动检测测试**
 
@@ -315,7 +315,7 @@ fn test_extract_skill_names_command_not_matched() {
 
 - [ ] **Step 5: 运行全部测试**
 
-Run: `cargo test -p peri-middlewares --lib -- skill_preload`
+Run: `cargo test -p cc-middlewares --lib -- skill_preload`
 Expected: 所有测试 PASS
 
 ---
@@ -323,14 +323,14 @@ Expected: 所有测试 PASS
 ### Task 4: 清理 TUI 侧死代码
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_submit.rs`
-- Modify: `peri-tui/src/app/agent_submit_test.rs`
+- Modify: `cc-tui/src/app/agent_submit.rs`
+- Modify: `cc-tui/src/app/agent_submit_test.rs`
 
 `parse_skill_names_from_input` 函数和对应测试现在不再需要——逻辑已移入 `SkillPreloadMiddleware` 内部。
 
 - [ ] **Step 1: 移除 `parse_skill_names_from_input` 函数及其 `#[allow(dead_code)]`**
 
-从 `peri-tui/src/app/agent_submit.rs` 删除以下代码（行 1-21）：
+从 `cc-tui/src/app/agent_submit.rs` 删除以下代码（行 1-21）：
 
 ```rust
 // 删除整个函数：
@@ -359,19 +359,19 @@ fn parse_skill_names_from_input(input: &str) -> Vec<String> {
 由于整个文件都是被删函数的测试，清空为空模块占位：
 
 ```rust
-// parse_skill_names_from_input 的测试已移至 peri-middlewares skill_preload_test.rs
+// parse_skill_names_from_input 的测试已移至 cc-middlewares skill_preload_test.rs
 // （逻辑现在由 SkillPreloadMiddleware 内部的 extract_skill_names_from_text 实现）
 ```
 
 - [ ] **Step 3: 运行 TUI 编译和测试**
 
-Run: `cargo build -p peri-tui && cargo test -p peri-tui --lib -- agent_submit`
+Run: `cargo build -p cc-tui && cargo test -p cc-tui --lib -- agent_submit`
 Expected: 编译通过，测试通过（0 个测试——文件已清空）
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/skill_preload.rs peri-middlewares/src/subagent/skill_preload_test.rs peri-tui/src/app/agent_submit.rs peri-tui/src/app/agent_submit_test.rs
+git add cc-middlewares/src/subagent/skill_preload.rs cc-middlewares/src/subagent/skill_preload_test.rs cc-tui/src/app/agent_submit.rs cc-tui/src/app/agent_submit_test.rs
 git commit -m "fix: SkillPreloadMiddleware 自动检测用户消息中的 /skill-name 并注入全文
 
 主 Agent 路径的 SkillPreloadMiddleware 之前 skill_names 始终为空（硬编码 Vec::new()），

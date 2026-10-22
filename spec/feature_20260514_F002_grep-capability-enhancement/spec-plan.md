@@ -20,7 +20,7 @@ Task 1 (P0: 修复声明不实现参数)
 
 ## Task 1: P0 — 修复声明但不实现的参数
 
-**文件**: `peri-middlewares/src/tools/filesystem/grep.rs`
+**文件**: `cc-middlewares/src/tools/filesystem/grep.rs`
 
 ### 1a. 实现 `multiline`
 
@@ -105,13 +105,13 @@ Task 1 (P0: 修复声明不实现参数)
 
 `-n` 和 `multiline` 在 `parameters()` 中的声明保持不变（字段名不含 `_` 前缀），只是内部实现从"忽略"变为"生效"。
 
-**验证**: `cargo build -p peri-middlewares` 编译通过。
+**验证**: `cargo build -p cc-middlewares` 编译通过。
 
 ---
 
 ## Task 2: P1 — 新增高频参数 + output_mode 默认值
 
-**文件**: `peri-middlewares/src/tools/filesystem/grep.rs`
+**文件**: `cc-middlewares/src/tools/filesystem/grep.rs`
 
 ### 2a. 添加 `-v` / `invert_match`
 
@@ -189,13 +189,13 @@ Task 1 (P0: 修复声明不实现参数)
 4. `parameters()` 中 `required` 数组改为 `["pattern"]`
 5. `GREP_DESCRIPTION` 中 "Always provide pattern and output_mode parameters" → "Always provide pattern parameter"
 
-**验证**: `cargo build -p peri-middlewares` 编译通过。
+**验证**: `cargo build -p cc-middlewares` 编译通过。
 
 ---
 
 ## Task 3: P2 — files_without_matches + max_depth
 
-**文件**: `peri-middlewares/src/tools/filesystem/grep.rs`
+**文件**: `cc-middlewares/src/tools/filesystem/grep.rs`
 
 ### 3a. 添加 `files_without_matches` 输出模式（`-L`）
 
@@ -229,13 +229,13 @@ Task 1 (P0: 修复声明不实现参数)
    > `max_depth` 需要加到 `ParsedArgs` 或直接从 `GrepInput` 传入 `execute_search`。
 3. `parameters()` 新增 JSON schema 属性
 
-**验证**: `cargo build -p peri-middlewares` 编译通过。
+**验证**: `cargo build -p cc-middlewares` 编译通过。
 
 ---
 
 ## Task 4: 测试 + description 更新
 
-**文件**: `peri-middlewares/src/tools/filesystem/grep.rs`
+**文件**: `cc-middlewares/src/tools/filesystem/grep.rs`
 
 ### 4a. 新增单元测试
 
@@ -258,7 +258,7 @@ Task 1 (P0: 修复声明不实现参数)
 - 添加 `multiline` 说明
 - 添加 `max_depth` 说明
 
-**验证**: `cargo test -p peri-middlewares --lib -- grep` 全部通过。
+**验证**: `cargo test -p cc-middlewares --lib -- grep` 全部通过。
 
 ---
 
@@ -293,4 +293,4 @@ Task 1 (P0: 修复声明不实现参数)
 
 | 文件 | 变更类型 |
 |------|----------|
-| `peri-middlewares/src/tools/filesystem/grep.rs` | 修改 GrepInput/ParsedArgs/SearchSink/execute_search/parameters/description；新增测试 |
+| `cc-middlewares/src/tools/filesystem/grep.rs` | 修改 GrepInput/ParsedArgs/SearchSink/execute_search/parameters/description；新增测试 |

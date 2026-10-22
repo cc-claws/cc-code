@@ -8,7 +8,7 @@
 - TextSelection 模块管理拖拽状态和选区坐标
 - WrappedLineInfo 换行映射将屏幕坐标映射到逻辑字符位置
 - unicode-width 正确处理 CJK 宽字符选区计算
-- Ctrl+C 优先级链：选区复制 > 中断 > 退出
+- Ctrl+C 优先级链：面板打开先关面板 > Loading 中断 > 空闲时 2 秒内双击才退出（链中无选区复制步骤）
 
 ## 核心流程
 
@@ -20,32 +20,31 @@
   → 鼠标拖动
   → TextSelection.update_drag(row, col)
   → 鼠标释放
-  → extract_selected_text(wrap_map, selection)
-  → arboard::Clipboard 写入系统剪贴板
-  → TextSelection.clear()
+  → extract_selected_text(wrap_map, selection)（virtual 渲染走 RenderEvent::CopySelection 内容锚定导出）
+  → 分层写入剪贴板（OSC 52 / arboard / WSL 回落）
+  → 复制后不清除选区
 ```
 
 ### Ctrl+C 优先级链
 
 ```
 Ctrl+C 按下
-  → 消息区有选区？→ 复制到剪贴板 → clear()
-  → 面板有选区？→ 复制到剪贴板 → clear()
-  → textarea 有选区？→ textarea.copy()
-  → 无选区 → Loading? 中断 : 退出
+  → 面板打开？→ 先关闭面板
+  → Loading? → 中断当前执行
+  → 空闲 → 2 秒内第二次按下才退出（选区复制不经 Ctrl+C）
 ```
 
 ## 技术方案总结
 
 | 维度 | 选型 |
 |------|------|
-| 选区数据结构 | `TextSelection { start: Option<(usize, u16)>, end: Option<(usize, u16)>, dragging, selected_text }`（visual_row 用 usize 避免长对话饱和，visual_col 保留 u16 屏幕宽度有限） |
+| 选区数据结构 | `TextSelection { start, end, anchor_start, anchor_end, dragging, generation, selected_text }`（起止端点另存锚定快照 anchor_*，generation 防陈旧选区误用；visual_row 用 usize 避免长对话饱和，visual_col 保留 u16 屏幕宽度有限） |
 | 面板选区 | PanelTextSelection，Vec<String> 纯文本行直接索引 |
 | 换行映射 | `WrappedLineInfo { line_idx, visual_row_start/end: usize, plain_text, char_widths }`（行号 usize，详见 issue_2026-06-14-tui-scroll-overflow-u16-saturation） |
 | 坐标映射 | `visual_to_logical(visual_row: usize, visual_col: u16, ...)`：视觉坐标 → 逻辑行+字符偏移 |
 | 宽字符 | unicode-width crate，char_widths 累积宽度定位字符 |
 | 高亮渲染 | highlight_line_spans()：Span 在字符边界拆分 + Modifier::REVERSED |
-| 剪贴板 | arboard::Clipboard 跨平台写入 |
+| 剪贴板 | 分层策略：SSH/tmux 走 OSC 52、本地 arboard、WSL 回落 powershell.exe，ClipboardLease 托管写入 |
 
 ## Feature 附录
 

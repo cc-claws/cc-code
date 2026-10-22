@@ -39,7 +39,7 @@
 
 ## 插件系统
 
-兼容 Claude Code 插件生态。配置：`~/.cc-code/settings.json`（全局）+ `~/.claude/plugins/cache/`（插件 manifest）。
+兼容参考实现的插件生态。配置：`~/.cc-code/settings.json`（全局）+ `~/.claude/plugins/cache/`（插件 manifest）。
 
 **Hooks**（`src/hooks/`）：4 种执行类型（Command/Prompt/Http/Agent），14 种事件。exit code 控制流程：0=Allow，1=Warn，2=Block。SSRF 防护阻止内网地址（`ssrf_guard.rs`），回环地址允许。
 
@@ -51,9 +51,9 @@
 
 **[TRAP]** Manifest `skills` 字段语义：`skills` 数组条目是相对于插件根目录的路径（如 `"./skills/"`、`"skills/tdd"`），不是 skill 名称。`extract_skills_paths` 用 `base_dir.join(entry)` 解析路径。如果路径本身含 `SKILL.md` 则直接作为 skill 目录；否则视为容器目录，扫描其子目录找含 `SKILL.md` 的。绝不能把条目当名称拼接到 `base_dir/skills/` 下——会生成 `base_dir/skills/./skills/` 这样的无效路径。
 
-**[TRAP]** Manifest `commands` 字段类型：Claude Code 插件 manifest 的 `commands` 支持混合数组（字符串路径 + 对象），如 `["./commands/", {"path":"x.md","name":"x"}]`。`PluginManifest.commands` 类型是 `Option<Vec<PluginCommandEntry>>`（`PluginCommandEntry` 枚举：`Path(String)` | `Full(PluginCommand)`）。`extract_commands` 必须用 match 分支处理两种变体。禁止假设所有条目都是 `PluginCommand` 对象——字符串路径是 Claude Code 插件的常见格式（如 ECC 的 `"commands": ["./commands/"]`）。
+**[TRAP]** Manifest `commands` 字段类型：参考实现插件 manifest 的 `commands` 支持混合数组（字符串路径 + 对象），如 `["./commands/", {"path":"x.md","name":"x"}]`。`PluginManifest.commands` 类型是 `Option<Vec<PluginCommandEntry>>`（`PluginCommandEntry` 枚举：`Path(String)` | `Full(PluginCommand)`）。`extract_commands` 必须用 match 分支处理两种变体。禁止假设所有条目都是 `PluginCommand` 对象——字符串路径是参考实现插件的常见格式（如 ECC 的 `"commands": ["./commands/"]`）。
 
-**[TRAP]** Agent 目录回退扫描：`extract_agents_paths` 在 manifest 无 `agents` 字段时必须回退扫描插件根目录下的 `agents/` 和 `.agents/` 子目录。Claude Code 插件常把 agent 定义放在 `.agents/` 目录但不在 manifest 中声明。新增 agent 目录约定时必须同步更新回退扫描的目录列表。
+**[TRAP]** Agent 目录回退扫描：`extract_agents_paths` 在 manifest 无 `agents` 字段时必须回退扫描插件根目录下的 `agents/` 和 `.agents/` 子目录。参考实现插件常把 agent 定义放在 `.agents/` 目录但不在 manifest 中声明。新增 agent 目录约定时必须同步更新回退扫描的目录列表。
 
 **[TRAP]** 插件 MCP `.mcp.json` 回退：`extract_mcp_servers` 有两层加载逻辑——先处理 manifest `mcpServers` 字段，结果为空时回退加载 `install_path/.mcp.json`。MCP pool 初始化通过 `load_merged_config_full` 独立调用 `load_enabled_plugins_aggregated`，不依赖 TUI 层传递插件 MCP 数据。
 

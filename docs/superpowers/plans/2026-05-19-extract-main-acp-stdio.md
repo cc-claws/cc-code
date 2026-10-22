@@ -13,12 +13,12 @@
 ### Task 1: 读取 `run_acp_stdio` 函数边界
 
 **Files:**
-- Read: `peri-tui/src/main.rs:169-600`
+- Read: `cc-tui/src/main.rs:169-600`
 
 - [ ] **Step 1: 读取完整函数体**
 
 ```bash
-sed -n '169,600p' peri-tui/src/main.rs | wc -l
+sed -n '169,600p' cc-tui/src/main.rs | wc -l
 ```
 
 Expected: ~430 lines.
@@ -28,9 +28,9 @@ Expected: ~430 lines.
 ### Task 2: 创建 `acp_stdio.rs` 并移动 `run_acp_stdio`
 
 **Files:**
-- Create: `peri-tui/src/acp_stdio.rs`
-- Modify: `peri-tui/src/main.rs:169-600` (delete run_acp_stdio)
-- Modify: `peri-tui/src/main.rs:` (add `mod acp_stdio;`)
+- Create: `cc-tui/src/acp_stdio.rs`
+- Modify: `cc-tui/src/main.rs:169-600` (delete run_acp_stdio)
+- Modify: `cc-tui/src/main.rs:` (add `mod acp_stdio;`)
 
 - [ ] **Step 1: Create `acp_stdio.rs` with `run_acp_stdio` and `StdioContext`**
 
@@ -39,12 +39,12 @@ Expected: ~430 lines.
 
 use std::sync::Arc;
 
-use peri_acp::transport::stdio::stdio_transport_pair;
-use peri_acp::transport::types::AcpNotification;
-use peri_acp::session::executor;
-use peri_acp::session::event_sink::StdioEventSink;
-use peri_agent::messages::BaseMessage;
-use peri_agent::agent::AgentCancellationToken;
+use cc_acp::transport::stdio::stdio_transport_pair;
+use cc_acp::transport::types::AcpNotification;
+use cc_acp::session::executor;
+use cc_acp::session::event_sink::StdioEventSink;
+use cc_agent::messages::BaseMessage;
+use cc_agent::agent::AgentCancellationToken;
 
 use crate::app::agent::LlmProvider;
 use crate::config::PeriConfig;
@@ -63,15 +63,15 @@ struct SessionInfo {
 struct StdioContext {
     provider: parking_lot::RwLock<LlmProvider>,
     peri_config: parking_lot::RwLock<PeriConfig>,
-    permission_mode: Arc<peri_middlewares::prelude::SharedPermissionMode>,
-    cron_scheduler: Arc<parking_lot::Mutex<peri_middlewares::cron::CronScheduler>>,
-    mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    permission_mode: Arc<cc_middlewares::prelude::SharedPermissionMode>,
+    cron_scheduler: Arc<parking_lot::Mutex<cc_middlewares::cron::CronScheduler>>,
+    mcp_pool: Option<Arc<cc_middlewares::mcp::McpClientPool>>,
     plugin_skill_dirs: Vec<std::path::PathBuf>,
     plugin_agent_dirs: Vec<std::path::PathBuf>,
-    hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>>,
-    plugin_lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
-    tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
-    thread_store: peri_agent::thread::ThreadStore,
+    hook_groups: Vec<Vec<cc_middlewares::hooks::RegisteredHook>>,
+    plugin_lsp_servers: Vec<cc_lsp::config::LspServerConfig>,
+    tool_search_index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
+    thread_store: cc_agent::thread::ThreadStore,
 }
 
 pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
@@ -101,7 +101,7 @@ Some(Commands::Acp { cwd, .. }) => {
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 ---
@@ -109,8 +109,8 @@ cargo build -p peri-tui 2>&1 | head -10
 ### Task 3: 提取 `inject_env_from_settings` 到 `env_setup.rs`
 
 **Files:**
-- Create: `peri-tui/src/env_setup.rs`
-- Modify: `peri-tui/src/main.rs:75-113`
+- Create: `cc-tui/src/env_setup.rs`
+- Modify: `cc-tui/src/main.rs:75-113`
 
 - [ ] **Step 1: Create `env_setup.rs`**
 
@@ -158,7 +158,7 @@ pub fn inject_env_from_settings() {
 Delete lines 75-113 from `main.rs`. Add import:
 
 ```rust
-use peri_tui::env_setup::inject_env_from_settings;
+use cc_tui::env_setup::inject_env_from_settings;
 ```
 
 Actually, `inject_env_from_settings` can stay as a `pub(crate) fn` in `main.rs` since it's only used there. Skip this extraction if the function is < 40 lines.
@@ -170,7 +170,7 @@ Actually, `inject_env_from_settings` can stay as a `pub(crate) fn` in `main.rs` 
 - [ ] **Step 1: Count lines**
 
 ```bash
-wc -l peri-tui/src/main.rs
+wc -l cc-tui/src/main.rs
 ```
 
 Expected: ~470 lines (down from 952). Remaining: CLI structs (48 lines), `main()` dispatch (51 lines), `run_tui()` (228 lines), tests (24 lines), other functions.
@@ -182,14 +182,14 @@ Expected: ~470 lines (down from 952). Remaining: CLI structs (48 lines), `main()
 - [ ] **Step 1: Run all tests**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
-cargo fmt -p peri-tui
-git add peri-tui/src/acp_stdio.rs peri-tui/src/main.rs
+cargo fmt -p cc-tui
+git add cc-tui/src/acp_stdio.rs cc-tui/src/main.rs
 git commit -m "refactor: extract run_acp_stdio to acp_stdio.rs
 
 - Move 430-line ACP stdio function + StdioContext + SessionInfo to acp_stdio.rs

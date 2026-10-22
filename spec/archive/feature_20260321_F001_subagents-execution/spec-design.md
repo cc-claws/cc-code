@@ -2,12 +2,12 @@
 
 ## 需求背景
 
-当前 Rust Agent 框架支持通过工具调用执行文件操作、终端命令等原子操作，但缺乏将复杂子任务委派给专门 AI 子代理的能力。参考 Claude Code 的 Subagents 机制（见 `SUBAGENT.md`），我们需要在框架中实现类似功能：LLM 可通过调用 `launch_agent` 工具，将特定子任务委派给一个按配置文件定义的专门子 agent 执行，子 agent 独立完成任务后将结果返回给父 agent。
+当前 Rust Agent 框架支持通过工具调用执行文件操作、终端命令等原子操作，但缺乏将复杂子任务委派给专门 AI 子代理的能力。参考 参考实现 的 Subagents 机制（见 `SUBAGENT.md`），我们需要在框架中实现类似功能：LLM 可通过调用 `launch_agent` 工具，将特定子任务委派给一个按配置文件定义的专门子 agent 执行，子 agent 独立完成任务后将结果返回给父 agent。
 
 ## 目标
 
 - 新增 `launch_agent` 工具，允许 LLM 通过工具调用启动子 agent
-- 子 agent 从 `.claude/agents/` 目录读取配置文件（Claude Code 兼容格式）
+- 子 agent 从 `.claude/agents/` 目录读取配置文件（参考实现 兼容格式）
 - 子 agent 继承父 agent 的工具集（支持 tools/disallowedTools 过滤）
 - 子 agent 事件（工具调用、输出）嵌套透传到父 agent 的事件流，TUI 无需修改
 - 子 agent 不包含 HITL 中间件，轻量执行

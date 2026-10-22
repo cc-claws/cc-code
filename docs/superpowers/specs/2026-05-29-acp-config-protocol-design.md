@@ -16,7 +16,7 @@
 - thought_effort 和 context_1m 持久化到磁盘，model 仅内存
 - TUI 侧乐观更新 + `tokio::spawn` fire-and-forget ACP 请求
 - ACP Server 自己 `store::load()` 初始化，不依赖 TUI 传入
-- `store.rs` 从 `peri-tui` 迁移到 `peri-acp`
+- `store.rs` 从 `cc-tui` 迁移到 `cc-acp`
 - configId 统一为 `thought_effort`（废弃 `thought_level`）
 - context_1m 注册为自定义 configOption（category `_context`）
 
@@ -50,14 +50,14 @@ TUI 快捷键/面板 → 乐观更新本地 PeriConfig（立即刷新 UI）
 
 ## Section 1：store.rs 迁移
 
-将 `peri-tui/src/config/store.rs` 移到 `peri-acp/src/provider/store.rs`。
+将 `cc-tui/src/config/store.rs` 移到 `cc-acp/src/provider/store.rs`。
 
 **改动**：
-1. `peri-acp/src/provider/store.rs`：从 `peri-tui` 搬入 `load`/`save`/`save_to`/`config_path`/`workspace_config_path`/`load_from`
-2. `peri-acp/src/provider/mod.rs`：新增 `pub mod store;`
-3. `peri-acp/Cargo.toml`：新增 `dirs-next` 依赖
-4. `peri-tui/src/config/mod.rs`：改为 re-export `peri_acp::provider::store::{load, save, save_to}`
-5. `peri-tui/src/config/store.rs`：删除
+1. `cc-acp/src/provider/store.rs`：从 `cc-tui` 搬入 `load`/`save`/`save_to`/`config_path`/`workspace_config_path`/`load_from`
+2. `cc-acp/src/provider/mod.rs`：新增 `pub mod store;`
+3. `cc-acp/Cargo.toml`：新增 `dirs-next` 依赖
+4. `cc-tui/src/config/mod.rs`：改为 re-export `cc_acp::provider::store::{load, save, save_to}`
+5. `cc-tui/src/config/store.rs`：删除
 6. 测试文件 `store_test.rs` 随 store.rs 迁移
 
 ## Section 2：ACP Server 侧改动
@@ -184,8 +184,8 @@ ACP Server 串行处理请求，后到的覆盖先到的，与当前行为一致
 
 | 测试 | 位置 | 验证 |
 |------|------|------|
-| store.rs 迁移后 load/save | `peri-acp/src/provider/store_test.rs` | 迁移不破坏读写 |
-| set_config_option context_1m | `peri-tui/src/acp_server/requests_test.rs` | 内存值正确 + 磁盘文件更新 |
+| store.rs 迁移后 load/save | `cc-acp/src/provider/store_test.rs` | 迁移不破坏读写 |
+| set_config_option context_1m | `cc-tui/src/acp_server/requests_test.rs` | 内存值正确 + 磁盘文件更新 |
 | set_config_option thought_effort | 同上 | 内存值正确 + 磁盘文件更新 |
 | session/update_config | 同上 | 完整 PeriConfig 应用 + 持久化 + provider 重算 |
 

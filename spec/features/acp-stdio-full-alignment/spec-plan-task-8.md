@@ -2,7 +2,7 @@
 
 **背景：** TUI 路径在 `compact.rs` 实现 `session/compact`——读取 history，调用 `full_compact()` + `re_inject()`，通过 `EventSink` 推送 `CompactStarted`/`CompactCompleted` 事件，最后更新 session history。
 
-stdio 路径已有 `full_compact()` 和 `re_inject()` 的依赖（`peri_agent::agent::compact`），且 prompt path 已使用 `StdioEventSink`。可直接复用。
+stdio 路径已有 `full_compact()` 和 `re_inject()` 的依赖（`cc_agent::agent::compact`），且 prompt path 已使用 `StdioEventSink`。可直接复用。
 
 **⚠️ Compact 强依赖 provider + config + event_sink，不提取到 dispatch 层。**
 
@@ -13,11 +13,11 @@ stdio 路径已有 `full_compact()` 和 `re_inject()` 的依赖（`peri_agent::a
 在 `acp_stdio.rs` 顶部添加 compact 相关的 import：
 
 ```rust
-use peri_agent::agent::compact::{full_compact, re_inject};
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
+use cc_agent::agent::compact::{full_compact, re_inject};
+use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 ```
 
-确认 `StdioEventSink` 已 import（行 251 已有 `use peri_acp::session::event_sink::StdioEventSink;`）。
+确认 `StdioEventSink` 已 import（行 251 已有 `use cc_acp::session::event_sink::StdioEventSink;`）。
 
 确认 `CompactRequest` / `CompactResponse` 类型存在于 `agent_client_protocol_schema`。如果不存在，使用 `session/compact` 作为 raw method（参考 TUI 路径的匹配方式），返回值使用 `serde_json::json!({ "success": true })`。
 
@@ -65,7 +65,7 @@ use peri_agent::agent::events::AgentEvent as ExecutorEvent;
             effective_config.apply_env_overrides();
 
             // Get compact model
-            let compact_model: std::sync::Arc<dyn peri_agent::llm::BaseModel> =
+            let compact_model: std::sync::Arc<dyn cc_agent::llm::BaseModel> =
                 provider_clone.into_model().into();
 
             let event_sink = std::sync::Arc::new(StdioEventSink::new(cx.clone(), SessionId::new(&*sid)));
@@ -101,12 +101,12 @@ use peri_agent::agent::events::AgentEvent as ExecutorEvent;
             // Execute re_inject
             let re_inject_result = re_inject(&history, &effective_config, &cwd).await;
 
-            // Build new messages (Claude Code alignment)
+            // Build new messages (reference implementation alignment)
             let summary_content = format!(
                 "{}\n\n[上下文已压缩，请根据摘要继续工作]",
                 compact_result.summary
             );
-            let mut new_messages = vec![peri_agent::messages::BaseMessage::human(summary_content)];
+            let mut new_messages = vec![cc_agent::messages::BaseMessage::human(summary_content)];
             new_messages.extend(re_inject_result.messages.clone());
 
             // Extract file/skill info (use same helper functions as TUI compact.rs)
@@ -149,7 +149,7 @@ use peri_agent::agent::events::AgentEvent as ExecutorEvent;
 在 `run_acp_stdio` 函数之前添加两个 helper 函数：
 
 ```rust
-fn extract_compact_file_info(messages: &[peri_agent::messages::BaseMessage]) -> Vec<peri_agent::agent::events::CompactFileInfo> {
+fn extract_compact_file_info(messages: &[cc_agent::messages::BaseMessage]) -> Vec<cc_agent::agent::events::CompactFileInfo> {
     let mut files = Vec::new();
     for msg in messages {
         let content = msg.content();
@@ -157,7 +157,7 @@ fn extract_compact_file_info(messages: &[peri_agent::messages::BaseMessage]) -> 
             let path = rest.lines().next().unwrap_or("");
             let line_count = rest.lines().count().saturating_sub(1);
             if !path.is_empty() {
-                files.push(peri_agent::agent::events::CompactFileInfo {
+                files.push(cc_agent::agent::events::CompactFileInfo {
                     path: path.to_string(),
                     lines: line_count,
                 });
@@ -167,7 +167,7 @@ fn extract_compact_file_info(messages: &[peri_agent::messages::BaseMessage]) -> 
     files
 }
 
-fn extract_compact_skill_names(messages: &[peri_agent::messages::BaseMessage]) -> Vec<String> {
+fn extract_compact_skill_names(messages: &[cc_agent::messages::BaseMessage]) -> Vec<String> {
     let mut skills = Vec::new();
     for msg in messages {
         let content = msg.content();
@@ -186,7 +186,7 @@ fn extract_compact_skill_names(messages: &[peri_agent::messages::BaseMessage]) -
 
 - [ ] `cargo build -p cc-tui` 编译通过
 - [ ] `cargo clippy -p cc-tui` 通过
-- [ ] 确认 compact helper 函数的 import 路径正确（`CompactFileInfo` 来自 `peri_agent::agent::events`）
+- [ ] 确认 compact helper 函数的 import 路径正确（`CompactFileInfo` 来自 `cc_agent::agent::events`）
 
 #### 风险
 

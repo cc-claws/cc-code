@@ -13,7 +13,7 @@
 ### Task 1: 重写 handle_ctrl_c 为优先级链
 
 **Files:**
-- Modify: `peri-tui/src/event/keyboard/normal_keys.rs:366-384`
+- Modify: `cc-tui/src/event/keyboard/normal_keys.rs:366-384`
 
 - [ ] **Step 1: 重写 handle_ctrl_c 函数**
 
@@ -65,13 +65,13 @@ fn handle_ctrl_c(app: &mut App) -> Option<Action> {
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 编译通过，无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/event/keyboard/normal_keys.rs
+git add cc-tui/src/event/keyboard/normal_keys.rs
 git commit -m "feat(tui): Ctrl+C priority chain - clear input first, then interrupt, then quit"
 ```
 
@@ -80,7 +80,7 @@ git commit -m "feat(tui): Ctrl+C priority chain - clear input first, then interr
 ### Task 2: 编写单元测试
 
 **Files:**
-- Modify: `peri-tui/src/event/keyboard/normal_keys.rs`（末尾添加 `#[cfg(test)]` 模块）
+- Modify: `cc-tui/src/event/keyboard/normal_keys.rs`（末尾添加 `#[cfg(test)]` 模块）
 
 - [ ] **Step 1: 在 normal_keys.rs 末尾添加测试模块**
 
@@ -190,13 +190,13 @@ mod tests {
 
 - [ ] **Step 2: 运行测试验证**
 
-Run: `cargo test -p peri-tui --lib -- tests:: 2>&1 | tail -20`
+Run: `cargo test -p cc-tui --lib -- tests:: 2>&1 | tail -20`
 Expected: 4 个新测试全部 PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/event/keyboard/normal_keys.rs
+git add cc-tui/src/event/keyboard/normal_keys.rs
 git commit -m "test(tui): add unit tests for Ctrl+C priority chain behavior"
 ```
 
@@ -205,21 +205,21 @@ git commit -m "test(tui): add unit tests for Ctrl+C priority chain behavior"
 ### Task 3: 更新 i18n 状态栏提示
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/status_bar.rs`
+- Modify: `cc-tui/src/ui/main_ui/status_bar.rs`
 
 - [ ] **Step 1: 检查状态栏 Ctrl+C 提示文案**
 
 当前状态栏在空闲时显示 `Ctrl+C` → "关闭"（来自 `status_bar.rs:427`）。由于行为已变更（空闲时第一次 Ctrl+C 不再是"关闭"，而是"进入 quit-pending"），需要确认是否需要更新提示文案。
 
-Run: `grep -n "key-close\|Ctrl.*C" peri-tui/src/ui/main_ui/status_bar.rs`
+Run: `grep -n "key-close\|Ctrl.*C" cc-tui/src/ui/main_ui/status_bar.rs`
 
-如果提示文案使用了 i18n key `key-close`，检查 `peri-tui/src/i18n/locales/` 中的翻译是否仍然准确。如果文案暗示"单次 Ctrl+C 关闭"，需要改为更准确的描述（如"按两次退出"或保持不变，因为 quit-pending 模式下已有倒计时提示）。
+如果提示文案使用了 i18n key `key-close`，检查 `cc-tui/src/i18n/locales/` 中的翻译是否仍然准确。如果文案暗示"单次 Ctrl+C 关闭"，需要改为更准确的描述（如"按两次退出"或保持不变，因为 quit-pending 模式下已有倒计时提示）。
 
 **注意**：这只是文案审查，可能不需要修改。
 
 - [ ] **Step 2: Commit（如有修改）**
 
 ```bash
-git add peri-tui/src/ui/main_ui/status_bar.rs
+git add cc-tui/src/ui/main_ui/status_bar.rs
 git commit -m "docs(tui): update Ctrl+C hint in status bar"
 ```

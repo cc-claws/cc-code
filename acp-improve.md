@@ -9,10 +9,10 @@
 | `execute_prompt()` | `cc-acp/src/session/executor.rs` | 纯函数，两条路径都调用 |
 | `build_agent()` | `cc-acp/src/agent/builder.rs` | 同上 |
 | `build_system_prompt()` | `cc-acp/src/prompt/mod.rs` | 同上 |
-| `dispatch::*` 四个纯函数 | `cc-acp/src/dispatch/` | init / list / load / fork |
+| `dispatch::*` 纯函数 | `cc-acp/src/dispatch/` | init / list / load / fork / config_update |
 | `build_config_options()` / `build_mode_state()` / `build_model_state()` | `cc-acp/src/session/state_builders.rs` | 同上 |
 | `event::mapper::map_event()` | `cc-acp/src/event/mapper.rs` | ExecutorEvent→SessionUpdate |
-| Command 系统 | `cc-acp/src/session/command/` | compact/clear |
+| Command 系统 | `cc-acp/src/session/command/` | compact/clear/rewind/init/recap/commit/review 共 7 个 |
 
 ---
 
@@ -20,40 +20,37 @@
 
 ### 1. Session 状态结构体 —— 两份几乎一致的 struct
 
-| 字段 | `acp_stdio.rs:7-28` SessionInfo | `acp_server/mod.rs:38-57` SessionState |
+| 字段 | `acp_stdio.rs:21` SessionInfo | `acp_server/mod.rs:57` SessionState |
 |------|:---:|:---:|
 | session_id | ✓ | ✓ |
 | thread_id | ✓ | ✓ |
 | cwd | ✓ | ✓ |
 | history | ✓ | ✓ |
 | cancel_token | ✓ | ✓ |
-| frozen_system_prompt | ✓ | ✓ |
-| frozen_instructions | ✓ | ✓ |
-| frozen_jev_rule_loader | ✓ | ✓ |
-| frozen_skill_summary | ✓ | ✓ |
-| frozen_date | ✓ | ✓ |
-| frozen_language | ✓ | ✓ |
+| background_registry | ✓ | ✓ |
+| frozen（`Option<FrozenSessionData>`，冻结字段已收敛为单个结构体） | ✓ | ✓ |
 | agent_pool | ✓ | ✓ |
+| prompt_lock | ✓ | ✗ |
+| background_results | ✓ | ✗ |
+| steering | ✗ | ✓ (TUI 专属) |
 | recall_items | ✗ | ✓ (TUI 专属) |
+| approval_memory | ✗ | ✓ (TUI 专属) |
+| mcp_over_acp_servers | ✗ | ✓ (TUI 专属) |
 
-**差异只有 `recall_items`**。应提取到 `cc-acp` 作为共享结构体。
+**共同字段仍占多数，但差异已不止 `recall_items`**。应提取到 `cc-acp` 作为共享结构体。
 
 ### 2. `session/new` —— 冻结数据创建逻辑完全重复
 
-位置：`acp_stdio.rs:255-351` vs `acp_server/requests.rs:56-142`（约 80 行）
+位置：`acp_stdio.rs:485-573` vs `acp_server/requests.rs:249-329`（约 80 行）
 
 重复的步骤：
 
 1. `ThreadMeta::new` → `thread_store.create_thread` → thread_id
-2. `chrono::Local::now()` → frozen_date
-3. `peri_config.read().config.language` → frozen_language
-4. `agents_md::load_instructions` → frozen_instructions（`read_frozen_content` 的产出另喂 Jev 规则提炼）
-5. `SkillsMiddleware::build_frozen_summary` → frozen_skill_summary
-6. `build_system_prompt` → frozen_system_prompt
-7. Insert session into map
-8. `build_mode_state` / `build_model_state` / `build_config_options`
-9. `resolve_dirs_static` + `list_skills` → `build_available_commands` → send notification
-10. Respond `NewSessionResponse`
+2. `cc_acp::session::frozen::build_frozen_session_data()` 一次性构建全部冻结数据（日期、语言、指引、skill 摘要、system prompt 等，收敛在 `FrozenSessionData`）
+3. Insert session into map
+4. `build_mode_state` / `build_model_state` / `build_config_options`
+5. `resolve_dirs_static` + `list_skills` → `build_available_commands` → send notification
+6. Respond `NewSessionResponse`
 
 最大差异：TUI 用 `AcpTransport` trait，stdio 用 SDK `ConnectionTo<Client>`。
 
@@ -61,9 +58,9 @@
 
 | 方法 | stdio 位置 | TUI 位置 | TUI 独有差异 |
 |------|------------|----------|------|
-| `session/set_model` | `acp_stdio.rs:586-614` | `requests.rs:144-163` | `persist_config()` + 更新 `active_alias` |
-| `session/set_mode` | `acp_stdio.rs:562-584` | `requests.rs:166-179` | — |
-| `session/set_config_option` | `acp_stdio.rs:615-670` | `requests.rs:181-236` | `context_1m` 处理 + `persist_config()` |
+| `session/set_model` | `acp_stdio.rs:676-709` | `requests.rs:330-351` | `persist_config()` + 更新 `active_alias` |
+| `session/set_mode` | `acp_stdio.rs:652-674` | `requests.rs:352-366` | — |
+| `session/set_config_option` | `acp_stdio.rs:711-773` | `requests.rs:367-425` | `context_1m` 处理 + `persist_config()` |
 
 核心差异：
 
@@ -74,9 +71,9 @@
 
 ### 4. `session/load` —— 逻辑完全一致
 
-`acp_stdio.rs:744-820`（76 行） vs `requests.rs:238-292`（54 行）。
+`acp_stdio.rs:878-980` vs `requests.rs:426-526`。
 
-**差异**：TUI `session/load` **缺少 AvailableCommands 推送**（疑似遗漏 bug），其余完全一致。
+**差异**：早期 TUI `session/load` 曾缺少 AvailableCommands 推送（见第六节），现已补齐，其余完全一致。
 
 ### 5. `session/resume` / `session/fork` / `session/close`
 
@@ -84,11 +81,11 @@
 
 ### 6. `session/list`
 
-stdio 用 `dispatch::list_sessions_as_info()`，TUI 把相同逻辑 inline 了（`requests.rs:294-325`）。应统一使用 dispatch 函数。
+stdio 用 `dispatch::list_sessions_as_info()`，TUI 把相同逻辑 inline 了（`requests.rs:527-559`）。应统一使用 dispatch 函数。
 
 ### 7. Context 初始化
 
-`acp_stdio.rs:96-219`（约 120 行）和 TUI 路径（分散在 `main.rs` + `acp_server/mod.rs`）都做了几乎一样的初始化：
+`acp_stdio.rs:308` 起的 `run_acp_stdio`（约 120 行）和 TUI 路径（分散在 `main.rs` + `acp_server/mod.rs`）都做了几乎一样的初始化：
 
 | 初始化项 | stdio | TUI |
 |----------|-------|-----|
@@ -109,7 +106,7 @@ stdio 用 `dispatch::list_sessions_as_info()`，TUI 把相同逻辑 inline 了�
 
 - **`send_config_option_update`**：TUI 有 helper 函数，stdio 每次手写 5 行
 - **`send_available_commands_update`**：同上
-- **`push_done` 后的 `SessionInfoUpdate`**：`acp_stdio.rs:549-552` 手动做，TUI 在 `send_session_info_update`
+- **`push_done` 后的 `SessionInfoUpdate`**：stdio 在 prompt handler 内手动做，TUI 在 `send_session_info_update`
 - **`extract_session_id`**：TUI 有 helper，stdio 直接用 `.0.to_string()`
 
 ---
@@ -118,17 +115,17 @@ stdio 用 `dispatch::list_sessions_as_info()`，TUI 把相同逻辑 inline 了�
 
 | 指标 | 数值 |
 |------|------|
-| 涉及文件 | `acp_stdio.rs`（913 行） + `acp_server/requests.rs`（464 行） |
-| 方法级重复 | 9 个 ACP 方法中有 8 个高度重复（`update_config` 仅 TUI 有） |
+| 涉及文件 | `acp_stdio.rs`（1335 行） + `acp_server/requests.rs`（743 行） |
+| 方法级重复 | 两条路径合计涉及 13 个 ACP 方法（含 `session/update_config`），其中多数在两边高度重复 |
 | 估算重复代码行数 | **约 400-500 行**（占两条路径总体的 30-40%） |
-| 结构体重复 | `SessionInfo` ↔ `SessionState`（14/15 字段相同） |
+| 结构体重复 | `SessionInfo` ↔ `SessionState`（共同字段占多数，冻结字段已收敛为 `FrozenSessionData`） |
 | 初始化重复 | stdio 约 120 行 ↔ TUI 约 100 行 |
 
 ---
 
 ## 四、根本原因
 
-两条路径的 ACP handler 都在手写裸 handler（TUI 用 raw JSON params match，stdio 用 SDK 闭包），缺乏一个共享的请求处理层。当前 `dispatch/` 模块只抽了四个纯函数（init/list/load/fork），但不包含：
+两条路径的 ACP handler 都在手写裸 handler（TUI 用 raw JSON params match，stdio 用 SDK 闭包），缺乏一个共享的请求处理层。当前 `dispatch/` 模块抽了 init/list/load/fork 四个纯函数加 config_update，但不包含：
 
 - session 创建时的冻结逻辑
 - config 更新逻辑
@@ -152,6 +149,7 @@ dispatch/
 ├── list_sessions.rs     # list_sessions_as_info (已有)
 ├── session_load.rs      # load_session_messages (已有)
 ├── session_fork.rs      # fork_session (已有)
+├── config_update.rs     # make_config_options (已有，服务于 session/update_config)
 ├── session_new.rs       # [新增] create_frozen_session(cwd, ...) → FrozenSessionState
 ├── session_close.rs     # [新增] close_session(sessions, session_id)
 ├── session_resume.rs    # [新增] resume_session(sessions, session_id, cwd)
@@ -187,20 +185,22 @@ trait SessionHandler {
 ### 建议顺序
 
 1. **第一步**（低风险）：实施方案 A，补齐 dispatch 函数
-2. **第二步**（bugfix）：修复 TUI `session/load` 缺少 AvailableCommands 推送
+2. **第二步**（bugfix）：修复 TUI `session/load` 缺少 AvailableCommands 推送 —— 已修复（见第六节）
 3. **第三步**（可选，后续迭代）：实施方案 B 统一 transport 抽象
 
 ---
 
-## 六、Bug 发现：TUI `session/load` 缺少 AvailableCommands 推送
+## 六、Bug 发现：TUI `session/load` 缺少 AvailableCommands 推送（已修复）
+
+> 现状：TUI `session/load`（`acp_server/requests.rs:426` 起）已补齐与 session/new 相同的 AvailableCommands 推送，本节保留为历史记录。
 
 ```rust
-// acp_stdio.rs:805-815 — stdio session/load 有
-let skill_dirs = peri_middlewares::SkillsMiddleware::resolve_dirs_static(
+// acp_stdio.rs session/load — stdio 有
+let skill_dirs = cc_middlewares::SkillsMiddleware::resolve_dirs_static(
     &cwd_for_skills,
     &ctx.plugin_skill_dirs,
 );
-let skills = peri_middlewares::skills::list_skills(&skill_dirs);
+let skills = cc_middlewares::skills::list_skills(&skill_dirs);
 let cmds = dispatch::build_available_commands(&skills);
 let ac_notif = SessionNotification::new(
     SessionId::new(&*sid),
@@ -208,7 +208,7 @@ let ac_notif = SessionNotification::new(
 );
 let _ = cx.send_notification(ac_notif);
 
-// requests.rs:238-292 — TUI session/load 没有！只做了 respond(LoadSessionResponse)
+// requests.rs 旧版 session/load 没有（只做了 respond(LoadSessionResponse)），现已补齐
 ```
 
-影响：IDE client 通过 stdio load session 后会收到命令列表更新，但 TUI internal client load session 后不会。建议在方案 A 中一并修复。
+影响（旧版）：IDE client 通过 stdio load session 后会收到命令列表更新，但 TUI internal client load session 后不会。现已修复。

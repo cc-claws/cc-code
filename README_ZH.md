@@ -4,7 +4,7 @@
 
 # cc-code
 
-**用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 Claude Code 全家桶**
+**用开源模型跑 Agent Loop — Rust 写的终端编程助手，兼容 `.claude/` 生态全家桶**
 
 DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移。
 
@@ -60,7 +60,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | Prompt 缓存 | 每轮重算，token 白烧 | 冻结 system prompt，95-99% 缓存命中率 |
 | 工具加载 | 全量塞进每轮请求 | 核心工具常驻，其余 Tool Search 按需懒加载 |
 | IDE 集成 | 只有终端 | ACP 协议，Zed 等 IDE 直连 |
-| Claude Code 生态 | 不兼容 | 直接用 `.claude/` 配置、agents、skills、hooks、MCP |
+| `.claude/` 生态 | 不兼容 | 直接用 `.claude/` 配置、agents、skills、hooks、MCP |
 | 安全判定 | 每条危险命令都要你确认 | JEV 语义门 —— 独立 LLM 判定，只在判不准时才弹窗 |
 
 ---
@@ -83,7 +83,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Rust 原生** | 快启动、低内存、零运行时开销 |
 | **Context 优化** | system prompt 冻结 + 动态内容隔离，token 不浪费 |
 | **多 LLM 支持** | Anthropic / OpenAI 兼容 API，DeepSeek、GLM 随便切 |
-| **Claude Code 兼容** | `.claude/` 配置、agents、skills、hooks、MCP、子 agent 直接复用 |
+| **`.claude/` 生态兼容** | `.claude/` 配置、agents、skills、hooks、MCP、子 agent 直接复用 |
 | **流式 Markdown** | 代码块、表格、diff 实时渲染 |
 | **ACP 协议** | 接入 Zed 等 IDE，也支持自建 "Cloud Code" 平台 |
 | **Auto Compact** | 长会话自动压缩，保持响应快且省 token |
@@ -95,7 +95,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 **界面语言：** TUI 和 CLI 帮助支持英文与简体中文。使用 `/lang en` 或 `/lang zh-CN` 保存偏好；未保存语言时，启动检测 `LC_ALL`、`LANGUAGE`、`LC_MESSAGES` 和 `LANG`，不支持的 locale 回退英文。未发布改动见 [CHANGELOG](./CHANGELOG.md)。
 
-**输入交互对齐 Claude Code（v0.6.166）：** Agent 运行中斜杠命令 / Skills / @ 文件候选浮层可交互——方向键/Tab 导航，Enter 仅补全已选中候选，Esc 先关浮层、再按才中断 Agent；「立即补充」遇前台命令时给 2 秒宽限期，超时自动转后台；状态栏权限模式标签新增 `⏵⏵` 前缀。详见 [CHANGELOG](./CHANGELOG.md)。
+**输入交互对齐参考实现（v0.6.166）：** Agent 运行中斜杠命令 / Skills / @ 文件候选浮层可交互——方向键/Tab 导航，Enter 仅补全已选中候选，Esc 先关浮层、再按才中断 Agent；「立即补充」遇前台命令时给 2 秒宽限期，超时自动转后台；状态栏权限模式标签新增 `⏵⏵` 前缀。详见 [CHANGELOG](./CHANGELOG.md)。
 
 **子 Agent 取消（v0.6.139）：** 用自然语言让主 Agent 停掉某个子任务即可——模型走 `Agent(action="stop", task_id="bg-…")` 按 `task_id` 精确取消（**不做模糊匹配**，避免停错描述相似的兄弟任务），停止结果回给模型含任务摘要的确认，时间线打印 `• Agent "x" was stopped by main Agent`，抽屉行转为**红色实心 `●`** + `stopped by main Agent`（用户按键停止则显示 `stopped by user`）。等待期间主视口显示 `✻ Waiting for N background agents to finish`。
 
@@ -103,16 +103,21 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **工具输出 URL 成为真超链接** | v0.6.182 | 工具结果与 `!` 命令输出里的 URL 现在是真终端超链接：OSC 8 序列改到输出层注入（`terminal_backend/hyperlink.rs`），写字节时按坐标查表包裹，不再塞进 ratatui 单元格——序列载荷是可见字符，进 buffer 会让 `Buffer::diff` 把链接后面的整段文字跳过不画。URL 用亮蓝（`38;5;12`）、不加人工下划线，悬停与点击由终端提供；默认开启，`DISABLE_HYPERLINKS=1` 可关闭；原 ANSI Cyan + 下划线着色与 `style_urls()` 一并删除（#671）。 |
 | **事件洪泛下计时不再冻结** | v0.6.181 | 长时间运行且期间无输出的命令，`Running… (Xs)` 秒数与块首 `●` 动画不再冻结。渲染线程此前每轮循环都重新创建 200ms 的 `sleep`，任何快于 5 Hz 的事件（流式输出、每帧视口上报）都会在它到期前取消，tick 一次都执行不到；`rebuild` 也补不上——渲染键（`content_hash ⊕ detail/diff 标志`）不含流逝时间，内容不变时直接复用旧行。现改为跨事件单调推进的 `tick_deadline` + `biased` 的 `sleep_until`，事件再密也能按时触发；没有运行中的工具时重置 deadline（#683）。 |
-| **`.md` 预览不再着色** | v0.6.177 | Write 与 Edit 预览不再给 `.md` 内容上色。Claude Code 虽把 `md` 识别为 markdown，但其主题 scope 表没有 highlight.js 产出的 `section` / `strong` 映射，实际渲染输出与纯文本逐字节相同；cc-code 此前用 syntect 的 Markdown 语法，标题与粗体会明显染色。现从高亮白名单移除 markdown 扩展名，回退纯文本，与 CC 观感一致。 |
+| **Bash 执行状态对齐** | v0.6.180 | 工具块改用显式执行阶段：空输出完成显示 `Done`（详细模式为 `(No output)`），不再残留运行指示；显式 timeout 显示为 `Running… (Ns · timeout Nm)` 并在完成结果底部保留尾注；后台化提示改悬挂缩进，子 Agent 不显示该快捷键；历史恢复一律为完成态（#675）。 |
+| **npm 二进制改由平台可选依赖分发** | v0.6.179 | `@cc-claw/code` 主包不再用安装脚本下载二进制：二进制拆成五个平台包（`@cc-claw/code-win32-x64`、`-darwin-x64`、`-darwin-arm64`、`-linux-x64`、`-linux-arm64`），经 `optionalDependencies` 按宿主 `os`/`cpu` 只装对应一个，安装期不再执行 postinstall 脚本；`bin/cc-code` 启动器从平台包内定位并拉起二进制（#678）。 |
+| **消息区 Markdown 链接输出 OSC 8 超链接** | v0.6.178 | 消息区 Markdown 链接现输出 OSC 8 转义序列，支持的终端（Windows Terminal、iTerm2、WezTerm、kitty 等）可悬停提示、Ctrl/Cmd+点击打开，不再是点不动的纯文本 URL。序列不参与布局与折行计算，URL 内的控制字符会被剥离，避免恶意链接提前终止序列（#671）。 |
+| **`.md` 预览不再着色** | v0.6.177 | Write 与 Edit 预览不再给 `.md` 内容上色。参考实现虽把 `md` 识别为 markdown，但其主题 scope 表没有 highlight.js 产出的 `section` / `strong` 映射，实际渲染输出与纯文本逐字节相同；cc-code 此前用 syntect 的 Markdown 语法，标题与粗体会明显染色。现从高亮白名单移除 markdown 扩展名，回退纯文本，与参考实现观感一致。 |
+| **Markdown 渲染全面对齐参考实现** | v0.6.176 | 标题、列表、引用、分隔线、行内代码与表格逐项对齐参考实现：H1 为加粗+斜体+下划线，H2 及以下仅加粗，且标题不带前景色；无序列表统一 `- `，有序列表按嵌套深度在数字/字母/罗马数字间切换；引用条 DIM、正文斜体；行内代码改用主题 `permission` 色。表格改为 参考实现的框线布局（每行之间补分隔线、表头居中），过宽时回退纵向键值渲染；一致性由 126 例金标准对拍基线锁定（#666）。 |
 | **统一 Bash 及工具截断提示风格** | v0.6.175 | 统一 Bash、用户 `!` 本机命令与错误摘要行的折叠提示为 `… +N lines (ctrl+o to expand)`（单数：`… +1 line`，单行超额：`… (ctrl+o to expand)`），与 diff / 新建文件代码预览风格完全对齐（#661）。同版彻底将命令/文件候选浮层从视口高度中移除，消除 24 行终端下误切全屏与留白（#659）。 |
 | **Write 文件内容预览恢复** | v0.6.174 | 修复界面通知晚于写盘时新建、覆盖预览消失，以及追加预览重复内容的问题。主、子 Agent 共用执行前快照，预览不再依赖界面读盘时序（#654）。 |
 | **URL 背景与状态栏对齐** | v0.6.173 | 工具结果与 `!` 输出的 URL 显式使用终端默认背景，使 ANSI Cyan 的观感与状态栏模型名一致（PR #656）。 |
 | **欢迎卡显示模型档位与版本更新提示** | v0.6.172 | 空会话首屏此前只有版本号、当前目录和开始提示，看不出当前跑的是哪个模型、哪一档推理强度。现补齐三处：① 标题拆成品牌名 ACCENT + BOLD、版本号 MUTED 两段，版本号按剩余宽度收口而品牌名永不截断；② 新增 `model · (effort effort)` 副标题，模型名取 `services.model_name`（`/model` 切换后同步更新）、档位取配置 `thinking.effort`，任一项缺失或未配 Provider 时整行省略——不编造默认档位；③ 探测到新版本时用 WARNING `Update available! <当前> → <最新>` + MUTED `To update, run: cc-code update` 两行**替换**原来的开始提示。新增 `cc-tui/src/app/update_check.rs`：启动后在后台查一次 GitHub release 列表（只认 `npm-v*` tag、跳过 prerelease、按语义版本取最大值而非取列表第一条），整个请求压在 3s 超时内，结果经 oneshot 回传、事件循环 `poll_update_check()` 收取，渲染路径只读缓存、永不等待网络；任何失败（无网、限流、JSON 异常）都只记 `debug` 日志并保持正常欢迎页。`CC_CODE_DISABLE_UPDATE_CHECK=1` 可关闭，`cargo test` 下自动禁用。同版：空会话的状态栏不再显示毫无意义的 `Cache - · MEM 19MB`，欢迎卡边框在中英文下严格闭合且高度恒为 7 行（#653）。 |
 | **紧凑启动与随内容增长的终端视口** | v0.6.171 | 终端从 shell 输出下方紧凑启动，随输入、回复与面板按实际视觉行数增长，长满宿主高度后才锁定全屏。欢迎卡作为纯 UI 前缀参与滚动，自然滚出后不会把布局缩回去。复制、链接与高亮坐标跟随非零视口起点，退出时只清理应用自己拥有的行（#652）。 |
-| **工具结果中的 URL 链接色定稿 ANSI Cyan** | v0.6.170 | 工具结果与 `!` shell 命令输出里的 URL 此前用 `theme::cur().ide`（深色 `#4782C8`），链接色随 `/theme` 漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `style_urls()` 固定 `Color::Cyan` + 下划线，不再跟随主题，与状态栏的模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（`!命令` 输出）。识别口径沿用 CC `OutputLine.tsx::URL_IN_JSON` 并切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍为视觉区分（非 OSC 8——ratatui cell 塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。Markdown 链接（`[text](url)` → `theme.link()` = SAGE `#4EBA65`）是另一条路径，不受影响（#649）。 |
+| **工具结果中的 URL 链接色定稿 ANSI Cyan** | v0.6.170 | 工具结果与 `!` shell 命令输出里的 URL 此前用 `theme::cur().ide`（深色 `#4782C8`），链接色随 `/theme` 漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `style_urls()` 固定 `Color::Cyan` + 下划线，不再跟随主题，与状态栏的模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（`!命令` 输出）。识别口径沿用参考实现 `OutputLine.tsx::URL_IN_JSON` 并切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍为视觉区分（非 OSC 8——ratatui cell 塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。Markdown 链接（`[text](url)` → `theme.link()` = SAGE `#4EBA65`）是另一条路径，不受影响（#649）。 |
 | **长会话详情按视口渲染** | v0.6.169 | `/config` →「详情渲染」可选 `auto`（默认）、`cache`、`virtual`，即时生效并保存为 `config.detail_render_strategy`。虚拟路径仅物化当前窗口，不同变体共用 16 MiB 成品预算；原始历史、元数据和视口内巨型消息仍有独立内存开销。完整行为及边界见 [CHANGELOG](./CHANGELOG.md)（#629，PR #648）。 |
-| **Bash 输出 JSON 逐行美化（OutputLine 装饰器）** | v0.6.168 | Bash / MCP 工具结果统一经过对齐 CC 的 `OutputLine` 装饰器：单行 JSON 展开为 2 空格缩进的美化输出，并带精度守卫（紧凑重序列化与原文不一致即保留原文，大整数、`1.10` 这类字面量永不被改写），非 JSON 行走快速路径，整段超过 10,000 字符跳过美化；折行与截断共用同一把尺——按显示宽度预折行、折叠态只显示 3 个视觉行 + `… +N lines (ctrl+o to expand)` 提示。同批：diff 删除行改三档底色、工具路径按 CC 口径显示、状态栏 Edit 命名修正（#642）。 |
+| **Bash 输出 JSON 逐行美化（OutputLine 装饰器）** | v0.6.168 | Bash / MCP 工具结果统一经过对齐参考实现的 `OutputLine` 装饰器：单行 JSON 展开为 2 空格缩进的美化输出，并带精度守卫（紧凑重序列化与原文不一致即保留原文，大整数、`1.10` 这类字面量永不被改写），非 JSON 行走快速路径，整段超过 10,000 字符跳过美化；折行与截断共用同一把尺——按显示宽度预折行、折叠态只显示 3 个视觉行 + `… +N lines (ctrl+o to expand)` 提示。同批：diff 删除行改三档底色、工具路径按参考实现口径显示、状态栏 Edit 命名修正（#642）。 |
 > 更早版本（v0.6.0 – v0.6.167）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
@@ -191,7 +196,7 @@ cc-code/
 │   └── README.md              # LSP 操作和配置
 ├── langfuse-client/           # Langfuse 遥测客户端
 │   └── README.md              # 遥测配置和使用
-├── npm/                       # npm 包：postinstall 脚本 + shell wrapper
+├── npm/                       # npm 包：平台可选依赖 + bin 启动器
 │   └── README.md              # npm 包说明
 ├── scripts/
 │   ├── install.sh             # macOS / Linux 安装器

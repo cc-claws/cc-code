@@ -34,7 +34,7 @@
 ### Task 1: 重构 `interrupt()` — ACP 路径提前返回
 
 **Files:**
-- Modify: `peri-tui/src/app/mod.rs:346-473`
+- Modify: `cc-tui/src/app/mod.rs:346-473`
 
 **当前代码结构（伪代码）：**
 ```rust
@@ -83,7 +83,7 @@ pub fn interrupt(&mut self) {
 
 - [ ] **Step 1: 修改 `interrupt()` 方法**
 
-在 `peri-tui/src/app/mod.rs` 的 `interrupt()` 方法中，在 ACP cancel spawn 后添加 `return;`。
+在 `cc-tui/src/app/mod.rs` 的 `interrupt()` 方法中，在 ACP cancel spawn 后添加 `return;`。
 
 将现有的 ACP cancel block 从：
 ```rust
@@ -115,12 +115,12 @@ if let Some(ref acp_client) = self.acp_client {
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译成功，无错误
 
 - [ ] **Step 3: 运行现有测试**
 
-Run: `cargo test -p peri-tui --lib`
+Run: `cargo test -p cc-tui --lib`
 Expected: 所有测试通过（无 regression）
 
 ---
@@ -128,8 +128,8 @@ Expected: 所有测试通过（无 regression）
 ### Task 2: 验证 handle_interrupted 在 ACP 路径下的正确性
 
 **Files:**
-- Read-only: `peri-tui/src/app/agent_ops/lifecycle.rs:142-229`
-- Read-only: `peri-tui/src/app/agent_ops/acp_bridge.rs`
+- Read-only: `cc-tui/src/app/agent_ops/lifecycle.rs:142-229`
+- Read-only: `cc-tui/src/app/agent_ops/acp_bridge.rs`
 
 **验证内容**：确认 ACP server 端收到 cancel 后发出的 `Interrupted` 事件，通过 `acp_bridge.rs` → `handle_agent_event(Interrupted)` → `handle_interrupted()` 能正确完成 UI 清理。
 
@@ -170,7 +170,7 @@ Expected: 所有测试通过（无 regression）
 ### Task 3: 处理 cancel 通知失败的安全网
 
 **Files:**
-- Modify: `peri-tui/src/app/mod.rs`
+- Modify: `cc-tui/src/app/mod.rs`
 
 **场景**：如果 ACP cancel 通知失败（session 已结束、transport 已关闭），TUI 会永远停在 loading=true 状态。
 
@@ -232,12 +232,12 @@ self.session_mgr.sessions[self.session_mgr.active]
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译成功
 
 - [ ] **Step 3: 运行测试**
 
-Run: `cargo test -p peri-tui --lib`
+Run: `cargo test -p cc-tui --lib`
 Expected: 所有测试通过
 
 ---

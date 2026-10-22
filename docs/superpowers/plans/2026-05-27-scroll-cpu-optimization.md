@@ -9,8 +9,8 @@
 **Tech Stack:** Rust, crossterm event polling, ratatui
 
 **Files:**
-- `peri-tui/src/event/mod.rs` — coalesce_mouse_events 重写
-- `peri-tui/src/ui/main_ui/message_area.rs` — 可见区域切片渲染
+- `cc-tui/src/event/mod.rs` — coalesce_mouse_events 重写
+- `cc-tui/src/ui/main_ui/message_area.rs` — 可见区域切片渲染
 
 ---
 
@@ -39,7 +39,7 @@ if scroll_delta != 0 {
 **注意**：drag 事件仍然只保留最后位置（不累积），非 scroll/drag 事件终止 drain。
 
 - [ ] **Step 1: 重写 `coalesce_mouse_events` 函数**
-  - 文件: `peri-tui/src/event/mod.rs:95-143`
+  - 文件: `cc-tui/src/event/mod.rs:95-143`
   - 添加 `scroll_delta: i32` 累积变量
   - ScrollUp → `scroll_delta -= 3`，ScrollDown → `scroll_delta += 3`
   - Drag → `scroll_delta = 0`，保留最新位置
@@ -47,18 +47,18 @@ if scroll_delta != 0 {
   - 保持非 scroll/drag 事件终止 drain 的逻辑不变
 
 - [ ] **Step 2: 构建验证**
-  - Run: `cargo build -p peri-tui`
+  - Run: `cargo build -p cc-tui`
   - Expected: Clean build
 
 - [ ] **Step 3: 手动验证**
-  - Run: `cargo run -p peri-tui`
+  - Run: `cargo run -p cc-tui`
   - 打开长对话，快速滚轮：滚轮多圈应有更大的滚动距离（而非每圈只 3 行）
   - 拖拽滚动条功能正常
   - 滚动方向正确
 
 - [ ] **Step 4: 提交**
   ```bash
-  git add peri-tui/src/event/mod.rs
+  git add cc-tui/src/event/mod.rs
   git commit -m "perf(tui): accumulate scroll deltas in coalesce_mouse_events"
   ```
 
@@ -98,7 +98,7 @@ scrollbar 仍使用 `total_lines` 计算位置不受影响。
 **spinner/loading 行**：spinner_line、tip、todo 等动态行在 clone 的切片后追加，不受影响。
 
 - [ ] **Step 1: 修改 `render_messages` 可见区域逻辑**
-  - 文件: `peri-tui/src/ui/main_ui/message_area.rs:117-180`
+  - 文件: `cc-tui/src/ui/main_ui/message_area.rs:117-180`
   - 将 `let (mut all_lines, ...)` 变为分开获取 stats 和 lines
   - Stats（total_lines, max_scroll, offset 等）仍在 RwLock read guard 内计算
   - `all_lines` 只在可视范围 `cache.lines[visible_start..visible_end]` 上进行 `.to_vec()`
@@ -106,11 +106,11 @@ scrollbar 仍使用 `total_lines` 计算位置不受影响。
   - 验证 spinner 和 todo 行在渲染逻辑末尾追加时位置正确
 
 - [ ] **Step 2: 构建验证**
-  - Run: `cargo build -p peri-tui`
+  - Run: `cargo build -p cc-tui`
   - Expected: Clean build
 
 - [ ] **Step 3: 运行测试**
-  - Run: `cargo test -p peri-tui`
+  - Run: `cargo test -p cc-tui`
   - Expected: 全部通过
 
 - [ ] **Step 4: 手动验证**
@@ -121,7 +121,7 @@ scrollbar 仍使用 `total_lines` 计算位置不受影响。
 
 - [ ] **Step 5: 提交**
   ```bash
-  git add peri-tui/src/ui/main_ui/message_area.rs
+  git add cc-tui/src/ui/main_ui/message_area.rs
   git commit -m "perf(tui): clone only visible lines during scroll, remove Paragraph::scroll()"
   ```
 

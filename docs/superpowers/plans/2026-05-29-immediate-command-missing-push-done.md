@@ -13,7 +13,7 @@
 ### Task 1: 修复 executor Immediate 命令路径缺失 push_done
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs:161-183`
+- Modify: `cc-acp/src/session/executor.rs:161-183`
 
 **问题：** Immediate 命令（`/compact`、`/clear`）在 `executor.rs:176` 处直接 `return PromptResult`，跳过了 agent event pump（236-341 行），因此 `sink.push_done(&sid)`（333 行）永远不会被调用。TUI 永远收不到 `AgentDone` 事件，界面卡在 loading。
 
@@ -90,13 +90,13 @@
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: 编译成功，无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/session/executor.rs
+git add cc-acp/src/session/executor.rs
 git commit -m "fix(acp): send push_done after Immediate commands to prevent TUI freeze
 
 Immediate commands (/compact, /clear) bypass the agent event pump,
@@ -111,7 +111,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 2: 修复 /clear 命令缺失 StateSnapshot 事件
 
 **Files:**
-- Modify: `peri-acp/src/session/command/clear.rs:31-36`
+- Modify: `cc-acp/src/session/command/clear.rs:31-36`
 
 **问题：** `/clear` 命令只返回空的 `messages: Vec::new()`，不发送 `StateSnapshot` 事件。即使 `push_done` 修复后 TUI 的 `handle_done` 能触发，pipeline 的 reconcile 使用旧的 `origin_messages`，`view_messages` 不会被清空——旧消息残留。
 
@@ -123,7 +123,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 
 关键在于 TUI 侧 `handle_done` 会调用 `pipeline.handle_event(Done)` + `request_rebuild()`，而 `prompt.rs` 在 `push_done` 之后更新了 `state.history = result.messages`（空）。但 `handle_done` 的 reconcile 依赖 `origin_messages`（TUI 本地），不是 ACP server 端的 `state.history`。
 
-最可靠的方案是让 `/clear` 发送一个专门的 `ClearCompleted` ExecutorEvent，TUI 收到后主动清空本地状态。但新增事件变体需要改动 `peri-agent`，范围较大。
+最可靠的方案是让 `/clear` 发送一个专门的 `ClearCompleted` ExecutorEvent，TUI 收到后主动清空本地状态。但新增事件变体需要改动 `cc-agent`，范围较大。
 
 **更简洁的方案：** 让 `ClearCommand` 在 execute 中通过 event_sink 发送一个 `CompactCompleted { messages: vec![], summary: "对话已清空", ... }` 事件。TUI 已有 `handle_compact_completed` 处理器，会正确执行 pipeline 三步清理（clear → restore_completed(空) → RebuildAll { prefix_len: 0 }）。
 
@@ -178,7 +178,7 @@ impl AgentCommand for ClearCommand {
 ```rust
 //! `/clear` 命令 — 清空对话历史。
 
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
+use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 
 use super::{AgentCommand, CommandContext, CommandKind, CommandResult};
 use crate::session::executor::PromptStopReason;
@@ -236,13 +236,13 @@ impl AgentCommand for ClearCommand {
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: 编译成功，无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/session/command/clear.rs
+git add cc-acp/src/session/command/clear.rs
 git commit -m "fix(acp): /clear sends CompactCompleted event to flush TUI view state
 
 /clear was returning empty messages but not notifying TUI to clear
@@ -265,19 +265,19 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 Run: `cargo build`
 Expected: 编译成功
 
-- [ ] **Step 2: 运行 peri-acp 测试**
+- [ ] **Step 2: 运行 cc-acp 测试**
 
-Run: `cargo test -p peri-acp`
+Run: `cargo test -p cc-acp`
 Expected: 所有测试通过
 
-- [ ] **Step 3: 运行 peri-tui 测试**
+- [ ] **Step 3: 运行 cc-tui 测试**
 
-Run: `cargo test -p peri-tui`
+Run: `cargo test -p cc-tui`
 Expected: 所有测试通过
 
 - [ ] **Step 4: Clippy 检查**
 
-Run: `cargo clippy -p peri-acp -p peri-tui -- -D warnings`
+Run: `cargo clippy -p cc-acp -p cc-tui -- -D warnings`
 Expected: 无新的 warning
 
 ## Self-Review

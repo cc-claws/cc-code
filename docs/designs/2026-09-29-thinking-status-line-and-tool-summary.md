@@ -1,6 +1,6 @@
-# 设计：Thinking 状态行 + 工具动作汇总（对齐 Claude Code 非详细模式）
+# 设计：Thinking 状态行 + 工具动作汇总（对齐参考实现非详细模式）
 
-> 状态：**编码完成（四轮审计通过，待提 PR）**；其中 **§2.7 的配色规则已于 2026-10-15 被取代**（REA 实证 Claude Code 2.1.300 后对齐，见 issue #510 / #511 与 §2.7 下的修订注），其余章节仍有效
+> 状态：**编码完成（四轮审计通过，待提 PR）**；其中 **§2.7 的配色规则已于 2026-10-15 被取代**（REA 实证参考实现 2.1.300 后对齐，见 issue #510 / #511 与 §2.7 下的修订注），其余章节仍有效
 > 日期：2026-09-29
 > 分支：`feat/thinking-status-line`
 > 决策来源：AskUserQuestion（2026-09-29）
@@ -10,11 +10,11 @@
 
 ## 1. 背景与诉求
 
-在非详细模式（默认，未按 `Ctrl+O`）下，peri 与 Claude Code 的输出观感差异明显：
+在非详细模式（默认，未按 `Ctrl+O`）下，peri 与参考实现的输出观感差异明显：
 
-1. **工具逐行刷屏**：一个排查任务会连续调用几十个 `Bash` / `Read`，peri 每条占一行；Claude Code 把它们折叠成一句计数。
-2. **缺「思考状态」表达**：Claude Code 运行中的 spinner 行有第三字段（`· thinking` / `· thought for 10s` / `· still thinking` / `· thinking more`），peri 没有。
-3. **消息区思考行用字符数**：peri 是 `∴ Thought for 3629 chars`，Claude Code 是 `Thought for 16s, searched for 1 pattern`（秒 + 动作计数）。
+1. **工具逐行刷屏**：一个排查任务会连续调用几十个 `Bash` / `Read`，peri 每条占一行；参考实现把它们折叠成一句计数。
+2. **缺「思考状态」表达**：参考实现运行中的 spinner 行有第三字段（`· thinking` / `· thought for 10s` / `· still thinking` / `· thinking more`），peri 没有。
+3. **消息区思考行用字符数**：peri 是 `∴ Thought for 3629 chars`，参考实现是 `Thought for 16s, searched for 1 pattern`（秒 + 动作计数）。
 
 ---
 
@@ -24,14 +24,14 @@
 
 | 编号 | 位置 | 内容 | 代码锚点 |
 |------|------|------|----------|
-| **改动 A** | 运行中 spinner 行 | 追加第三字段，随思考状态动态切换 | `peri-tui/src/ui/main_ui/message_area.rs:51-75` |
-| **改动 B** | 消息区思考行 | `∴ Thought for N chars` → `Thought for Ns, <动作计数>` | `peri-tui/src/ui/message_render.rs:1015-1066` |
+| **改动 A** | 运行中 spinner 行 | 追加第三字段，随思考状态动态切换 | `cc-tui/src/ui/main_ui/message_area.rs:51-75` |
+| **改动 B** | 消息区思考行 | `∴ Thought for N chars` → `Thought for Ns, <动作计数>` | `cc-tui/src/ui/message_render.rs:1015-1066` |
 
 两处**互相独立**，可分别验证、分别回滚。
 
 ### 2.2 改动 A 的规格：第三字段是「四态状态机」
 
-不是固定文案，是随阶段切换的状态。用户提供的 Claude Code 截图呈现了 4 种形态：
+不是固定文案，是随阶段切换的状态。用户提供的参考实现截图呈现了 4 种形态：
 
 | # | 状态 | 触发条件 | 尾字段 | 样例 |
 |---|------|----------|--------|------|
@@ -58,7 +58,7 @@
 | **状态词切换** | `still thinking` 何时取代 `thinking` | 10s（默认，未证实） | 本节 |
 | **verb/状态词配色** | 颜色何时升温 | 5s / 15s / 30s | §2.7 |
 
-两者**当前设为独立**：颜色档位只影响**颜色**，不改变状态词；状态词只影响**文案**，不改变颜色。二者恰好都在 5~10s 附近起步，但**是两条独立规则**。（若后续实测发现 Claude 二者联动，再合并——见 §6 开放问题。）
+两者**当前设为独立**：颜色档位只影响**颜色**，不改变状态词；状态词只影响**文案**，不改变颜色。二者恰好都在 5~10s 附近起步，但**是两条独立规则**。（若后续实测发现参考实现二者联动，再合并——见 §6 开放问题。）
 
 **⚠️ 关于阈值的矛盾证据（如实记录）**：spinner 显示的是**整轮总耗时**，而 `still thinking` 可能看**当前这一段思考**的时长——两者不是一回事，故下方样本不能直接互证：
 
@@ -72,7 +72,7 @@
 
 ### 2.3 改动 B 的规格
 
-Claude Code 真实样本（来自用户提供的运行日志与执行截图）：
+参考实现真实样本（来自用户提供的运行日志与执行截图）：
 
 ```text
 Thought for 16s, searched for 1 pattern (ctrl+o to expand)
@@ -93,11 +93,11 @@ Reading 1 file… (ctrl+o to expand)         ← 进行中（现在分词 + …�
 - 无工具时只保留 `Thought for {N}s`；
 - **动作行可无思考前缀**：纯工具调用（无 reasoning）时直接输出 `{actions}`；
 - **进行时/完成时两态**：进行中 `Reading 1 file…`，完成 `Read 1 file`；
-- **失败必显**：只读工具折叠为计数后**不显示内容**；但 `is_error=true` 时**必须显示错误行**（对齐 Claude `⎿ Error: ...`）。判定依据是 `is_error` 标记，**不是**内容字符串是否以 `Error:` 开头——真实数据中存在 `is_error=false` 但内容为 `Error: File not found` 的行（框架未标错），此类仍折叠。
+- **失败必显**：只读工具折叠为计数后**不显示内容**；但 `is_error=true` 时**必须显示错误行**（对齐参考实现 `⎿ Error: ...`）。判定依据是 `is_error` 标记，**不是**内容字符串是否以 `Error:` 开头——真实数据中存在 `is_error=false` 但内容为 `Error: File not found` 的行（框架未标错），此类仍折叠。
 
 ### 2.4 工具展示分层（重要——修正早期推断）
 
-Claude Code 的**工具明细展示分三层**，并非全部折叠成计数：
+参考实现的**工具明细展示分三层**，并非全部折叠成计数：
 
 | 工具类别 | 展示形式 | 样例 |
 |----------|----------|------|
@@ -108,9 +108,9 @@ Claude Code 的**工具明细展示分三层**，并非全部折叠成计数：
 > ⚠️ **修正 1**：早期推断曾认为 Bash 折叠成 `ran N shell commands` —— **错误**。Bash 展示实际命令。
 > ⚠️ **修正 2（本轮新增）**：早期版本还写过「Bash 展示与 peri **已对齐**」——**同样错误**。经用户确认 + 代码核对：
 > - **peri 非详细模式不展示 Bash 结果**（工具完成后 `collapsed=true`，`message_render.rs:1165` 的 `if !state.collapsed` 直接跳过输出；且折叠摘要仅 `Read` 有，`:1211`）。
-> - Claude Code **展示**输出摘要 + 截断提示 `... +N lines (ctrl+o to expand)`。
+> - 参考实现 **展示**输出摘要 + 截断提示 `... +N lines (ctrl+o to expand)`。
 > - 因此 **Bash 输出展示是新的 gap**，而非已对齐项。
-> ⚠️ **修正 3**：peri 的截断措辞是 `... (N more lines)`（`message_render.rs:1187`），Claude Code 是 `... +N lines (ctrl+o to expand)`，**措辞不一致**。→ **已裁决（2026-09-29）**：保留 peri 措辞，追加 `(ctrl+o to expand)` 引导语。
+> ⚠️ **修正 3**：peri 的截断措辞是 `... (N more lines)`（`message_render.rs:1187`），参考实现是 `... +N lines (ctrl+o to expand)`，**措辞不一致**。→ **已裁决（2026-09-29）**：保留 peri 措辞，追加 `(ctrl+o to expand)` 引导语。
 
 ### 2.5 第四态 `thinking more` 的实锤与重新解释
 
@@ -134,16 +134,16 @@ Claude Code 的**工具明细展示分三层**，并非全部折叠成计数：
 | 实现范围 | **完整四态**（不做削减版） |
 | 改动 B（消息区汇总） | **一起做** |
 | `still thinking` 阈值 | **默认 10s，做成可调常量**（用户实测观察约 10s 出现；证据不足未定死，见 §2.2 证据表） |
-| 模式适用范围 | **两模式共用**——不改 `detail_mode` 分支。spinner 第三字段与消息区计数行在详细/非详细模式下**均生效**（对齐 Claude Code：其 spinner 亦不分模式） |
+| 模式适用范围 | **两模式共用**——不改 `detail_mode` 分支。spinner 第三字段与消息区计数行在详细/非详细模式下**均生效**（对齐参考实现：其 spinner 亦不分模式） |
 | Bash 输出摘要 | **纳入本次实现**（用户确认）。非详细模式展示输出**前 3 行**；截断提示**保留 peri 现有措辞** `... (N more lines)`，**其后追加** `(ctrl+o to expand)` 引导语（最终：`... (N more lines) (ctrl+o to expand)`，2026-09-29 用户二次裁决） |
 | spinner verb 行为 | **方案 A：整轮固定一个动词**（用户选定，理由：符合人类视觉习惯）。agent 开始回复时选定一个动词（如 `Thinking`），思考/工具/输出全程不变；工具信息只在消息区展示。原 peri 行为（每步切 verb 为工具名）**改为固定**。 |
 | spinner 配色 | 见 §2.7（颜色随时间四档变化；仅 verb + 状态词变色，其余 MUTED 灰） |
 
 ### 2.7 spinner 配色规则（时间驱动）
 
-> **【2026-10-15 修订：本节已被取代】** 本节的「时间热度四档」源于对 Claude Code 的外观观察；2026-10-15 用 REA 对真实 Claude Code **2.1.300** 二进制（含其内嵌明文源码）实证后确认：CC 并无热度分档，其机制为——① 动词底色/流光色**成对**（默认 `claude` + `claudeShimmer`，按状态以 override 对切换），流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20；② 唯一的时间驱动变色是**停滞转红**：无新 token >10s 后整体向 error 色插值（再 10s 渐满、每 50ms 平滑靠拢 10%、新 token 清零、工具执行期间不触发）；③ 状态词配色走 thinkingIntensity（思考段 >10s 后自 inactive 向 warning 插值）。cc-code 已按此对齐（issue #510），`thinking_heat_color` 与调色板 `spinner_heat_lv1..lv4` 已删除。本节以下内容保留为历史设计记录，不再代表实现。
+> **【2026-10-15 修订：本节已被取代】** 本节的「时间热度四档」源于对参考实现的外观观察；2026-10-15 用 REA 对真实参考实现 **2.1.300** 二进制（含其内嵌明文源码）实证后确认：参考实现并无热度分档，其机制为——① 动词底色/流光色**成对**（默认 `claude` + `claudeShimmer`，按状态以 override 对切换），流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20；② 唯一的时间驱动变色是**停滞转红**：无新 token >10s 后整体向 error 色插值（再 10s 渐满、每 50ms 平滑靠拢 10%、新 token 清零、工具执行期间不触发）；③ 状态词配色走 thinkingIntensity（思考段 >10s 后自 inactive 向 warning 插值）。cc-code 已按此对齐（issue #510），`thinking_heat_color` 与调色板 `spinner_heat_lv1..lv4` 已删除。本节以下内容保留为历史设计记录，不再代表实现。
 
-**观察来源**：用户对比 Claude Code 得出——颜色**由时间驱动**（非状态字眼），且**只有两个元素变色**。
+**观察来源**：用户对比参考实现得出——颜色**由时间驱动**（非状态字眼），且**只有两个元素变色**。
 
 #### 变色范围（严格限定）
 
@@ -168,7 +168,7 @@ Claude Code 的**工具明细展示分三层**，并非全部折叠成计数：
 
 **阈值设计依据**（产品视角论证）：
 
-1. **5s** —— 用户对 Claude 的**实测观察锚点**，非凭空设定，保留。
+1. **5s** —— 用户对参考实现的**实测观察锚点**，非凭空设定，保留。
 2. **15s** —— Nielsen「10s 注意力边界」之后：用户开始明显感知等待、可能分心，但仍在容忍范围。
 3. **30s** —— 「无反馈即怀疑卡死」的经典心理阈值（超过 30s 无进度信号，用户倾向认为进程挂起）。
 4. **间隔递增（+10、+15）** —— 人对时长的感知遵循 **Weber-Fechner 对数律**：等 5s 后再等 10s、再 15s，**主观"每档等待感"才大致相等**。若用等距（如 5/10/15），后段会显得变色过频、干扰阅读。
@@ -196,7 +196,7 @@ Claude Code 的**工具明细展示分三层**，并非全部折叠成计数：
 ...（共 9 条）
 ```
 
-**期望**（对齐 Claude Code）——**合并为一行**：
+**期望**（对齐参考实现）——**合并为一行**：
 
 ```text
 Thought for 32s, searched for 1 pattern, read 4 files (ctrl+o to expand)
@@ -262,7 +262,7 @@ Thought for 32s, searched for 1 pattern, read 4 files (ctrl+o to expand)
    ✢ Thinking… (3m 30s · ↓ 14.7k tokens · thinking more)
 ```
 
-**Claude Code 参照**（用户日志原样）：
+**参考实现样本**（用户日志原样）：
 
 ```text
 ✻ Polishing… (46s · ↓ 6.8k tokens · thought for 18s)
@@ -314,7 +314,7 @@ Read 1 file, listed 1 directory (ctrl+o to expand)
 Reading 1 file… (ctrl+o to expand)
 ```
 
-**Claude Code 参照**（用户日志原样）：
+**参考实现样本**（用户日志原样）：
 
 ```text
 ● 图里这行 ✻ Polishing… (46s · ↓ 6.8k tokens · thought for 18s) 我不能再凭猜断言…
@@ -322,13 +322,13 @@ Reading 1 file… (ctrl+o to expand)
   Thought for 16s, searched for 1 pattern (ctrl+o to expand)
 ```
 
-**差异**：peri 用 `chars` + `∴` 前缀 + 无动作计数；Claude Code 用秒 + 动作计数、无前缀符号。
+**差异**：peri 用 `chars` + `∴` 前缀 + 无动作计数；参考实现用秒 + 动作计数、无前缀符号。
 
 ---
 
 ### 3.3 端到端整轮对比（示意）
 
-**peri 现状**——**用户提供的真实 peri 日志**（非合成）。判定依据：`∴ Thought for N chars`（`chars` + `∴` 前缀）是 peri 独有格式，Claude Code 用秒 + 动作计数，两者不会混淆。
+**peri 现状**——**用户提供的真实 peri 日志**（非合成）。判定依据：`∴ Thought for N chars`（`chars` + `∴` 前缀）是 peri 独有格式，参考实现用秒 + 动作计数，两者不会混淆。
 
 ```text
 ❯ SF20260000000001 排查一下这个 repo 里请求重试逻辑写在哪
@@ -383,7 +383,7 @@ Reading 1 file… (ctrl+o to expand)
 2. **`● Bash(...)`**：每条命令一行（真实日志中占绝大多数）；
 3. **`● Write(...)`**：每次写探针脚本一行。
 
-**peri 改后**——思考与只读工具各自收成一行，Bash 仍显示命令（对齐 Claude Code）：
+**peri 改后**——思考与只读工具各自收成一行，Bash 仍显示命令（对齐参考实现）：
 
 ```text
 ❯ SF20260000000001 排查一下这个 repo 里请求重试逻辑写在哪
@@ -407,13 +407,13 @@ Reading 1 file… (ctrl+o to expand)
 
 > 关键变化：**`∴ Thought for N chars` → `Thought for Ns[, 动作计数]`**（去 `∴` 前缀、chars 改秒、连续思考合并计数）；**多轮极短 Thought（78/82 chars 那种）合并为一行**，不再是每轮占一行。
 
-> 注：改后只读工具（Read/Glob/Grep）折叠为计数（`read 1 file, listed 1 directory`）；**Bash 保持显示实际命令**，与 Claude Code 一致（见 §2.4）。具体词表见 §5。
+> 注：改后只读工具（Read/Glob/Grep）折叠为计数（`read 1 file, listed 1 directory`）；**Bash 保持显示实际命令**，与参考实现一致（见 §2.4）。具体词表见 §5。
 
 ---
 
-### 3.4 最新 Claude Code 执行截图原始素材（用户提供，**目标规格**）
+### 3.4 最新参考实现执行截图原始素材（用户提供，**目标规格**）
 
-以下为 **Claude Code 最新版**（非 peri）的实际渲染，是本设计的**对齐目标**：
+以下为 **参考实现最新版**（非 peri）的实际渲染，是本设计的**对齐目标**：
 
 ```text
 Thought for 6s (ctrl+o to expand)
@@ -439,7 +439,7 @@ Reading 1 file… (ctrl+o to expand)             ← 进行时态
 
 **与 peri 现实输出的对照**（peri 现状来自本会话真实记录）：
 
-| 形态 | Claude Code（目标） | peri 现状（真实记录） |
+| 形态 | 参考实现（目标） | peri 现状（真实记录） |
 |------|---------------------|------------------------|
 | 思考行 | `Thought for 6s (ctrl+o to expand)` | `∴ Thought for 341 chars (ctrl+o to expand)` |
 | 纯动作行 | `Listed 1 directory (ctrl+o to expand)` | 无（折叠态仅出错才显示） |
@@ -448,13 +448,13 @@ Reading 1 file… (ctrl+o to expand)             ← 进行时态
 | Bash | `● Bash(...)` + `⎿ 输出前几行` + `... +N lines` | `● Bash(...)` 仅命令，**无输出摘要** |
 | 运行中 spinner | `✳ {verb}… (40s · ↓ 1.5k tokens · thinking more)` | `✢ {verb}… (33s · ↓ 2.6k tokens)`（无第三字段） |
 
-> ⚠️ **本版更正**：上一稿曾把上述 `Listed 1 directory` / `Reading 1 file…` **误认作 peri 已实现**。实际这些是 **Claude Code** 的输出，peri **尚未实现**。
+> ⚠️ **本版更正**：上一稿曾把上述 `Listed 1 directory` / `Reading 1 file…` **误认作 peri 已实现**。实际这些是 **参考实现** 的输出，peri **尚未实现**。
 
 ---
 
 ## 4. 差异总表
 
-| # | 维度 | Claude Code | peri 现状 | 归属改动 |
+| # | 维度 | 参考实现 | peri 现状 | 归属改动 |
 |---|------|-------------|-----------|----------|
 | 1 | spinner 第三字段 | 有（四态） | 无 | A |
 | 2 | spinner verb 语义 | 按阶段（Thinking/Searching…） | 「正在生成回复…」写死，思考期不切 | A |
@@ -483,7 +483,7 @@ Reading 1 file… (ctrl+o to expand)             ← 进行时态
 
 1. **建立 thinking 态**：在 `agent_ops/mod.rs` 的 `AiReasoning` 分支（`:388`，**当前只喂 pipeline、完全不碰 spinner**）新增 spinner 切换 —— 收到首条 `AiReasoning` 时进入 thinking；收到 `AssistantChunk`（`:286`）或 `ToolStart`（`:172`）时切出 thinking。
    > 📌 **前提事实**：`SpinnerMode::Thinking` **已定义但全仓库无任何一处 `set`**（已 grep 验证）。实现本改动的实际含义 = **首次把该模式接入**。
-2. **新增计时点**（`peri-widgets/src/spinner/mod.rs`）：
+2. **新增计时点**（`cc-widgets/src/spinner/mod.rs`）：
    - `thinking_started_at: Instant`（当前思考段起点）
    - `last_thought_ms: u64`（上一段思考耗时）
    - `thinking_round: u32`（本轮第几次思考）
@@ -506,14 +506,14 @@ Reading 1 file… (ctrl+o to expand)             ← 进行时态
 
 ### 「工具刷屏」的连带修复
 
-**重新定性**（依据执行截图 + 用户确认）：Claude Code 里 **Bash 并不折叠**，它逐条显示实际命令。所以「几十条 Bash 刷屏」在 Claude Code 里**同样存在**——这不是 peri 的缺陷，而是设计如此（Bash 命令本身是有效信息）。
+**重新定性**（依据执行截图 + 用户确认）：参考实现里 **Bash 并不折叠**，它逐条显示实际命令。所以「几十条 Bash 刷屏」在参考实现里**同样存在**——这不是 peri 的缺陷，而是设计如此（Bash 命令本身是有效信息）。
 
-peri 与 Claude Code 在 Bash 上的差异（**修正后**）：
-1. **输出展示**：Claude Code 显示输出前几行 + `... +N lines`；**peri 非详细模式不显示 Bash 输出**（用户确认）；
-2. **折叠文案**：peri 的只读工具聚合后无计数文案（`ToolCallGroup` 折叠态仅出错时显示），Claude Code 有 `read 1 file, listed 1 directory`；
-3. **进行时态**：Claude Code 有 `Reading 1 file…` 进行中形态，peri 无。
+peri 与参考实现在 Bash 上的差异（**修正后**）：
+1. **输出展示**：参考实现显示输出前几行 + `... +N lines`；**peri 非详细模式不显示 Bash 输出**（用户确认）；
+2. **折叠文案**：peri 的只读工具聚合后无计数文案（`ToolCallGroup` 折叠态仅出错时显示），参考实现有 `read 1 file, listed 1 directory`；
+3. **进行时态**：参考实现有 `Reading 1 file…` 进行中形态，peri 无。
 
-因此**不需要**把 Bash 纳入聚合去「消除刷屏」——方向与 Claude Code 相反。真正要做的是改动 B 的**计数文案 + 进行时态 + Bash 输出摘要**。
+因此**不需要**把 Bash 纳入聚合去「消除刷屏」——方向与参考实现相反。真正要做的是改动 B 的**计数文案 + 进行时态 + Bash 输出摘要**。
 
 ---
 
@@ -523,13 +523,13 @@ peri 与 Claude Code 在 Bash 上的差异（**修正后**）：
 2. **`thinking more` 判定**：假设为「本轮思考**被打断过**后的第 2+ 段」，**未证实**，需实测确认。
 3. ~~**两态优先级**~~ —— **已定：`still thinking` 优先**（一段思考既被打断过又超阈时，显示 `still thinking`）。
 4. **动作词表确切措辞**：`Read 1 file, listed 1 directory` / `searched for 1 pattern` 已实锤；**单复数边界**（0/1/N）待更多实例确认。
-5. **restore 后的秒数**：历史恢复时无 thinking 计时数据，`Thought for Ns` 退化为 `chars` 还是隐藏？（Claude 行为未知。）
+5. **restore 后的秒数**：历史恢复时无 thinking 计时数据，`Thought for Ns` 退化为 `chars` 还是隐藏？（参考实现行为未知。）
 6. **verb 是否语义化**：是否把 `Glob/Grep/Read/Bash` 映射到 `Searching…/Reading…` 等语义 verb？（本次决策未覆盖。）
 7. **进行时态范围**：`Reading 1 file…` 这类进行中形态，是否所有只读工具都要？（本次暂不纳入，待定。）
 8. ~~**Bash 输出摘要策略**~~ —— **已定**：显示前 3 行，保留 peri 措辞 `... (N more lines)` 并追加 `(ctrl+o to expand)` 引导语（2026-09-29 二次裁决）。
 9. **配色阈值校准**：5s 有实测依据，15s / 30s 为产品推导；实现为可调常量，实测后校准。
-10. **两套时间阈值是否应联动**：状态词切换（10s）与配色（5/15/30s）当前独立。若实测发现 Claude 二者联动，需合并（见 §2.2 末）。
-11. **浅黄色值**：`#FFD966` 为暂定，未对照 Claude 实测。
+10. **两套时间阈值是否应联动**：状态词切换（10s）与配色（5/15/30s）当前独立。若实测发现参考实现二者联动，需合并（见 §2.2 末）。
+11. **浅黄色值**：`#FFD966` 为暂定，未对照参考实现实测。
 
 ---
 
@@ -539,22 +539,22 @@ peri 与 Claude Code 在 Bash 上的差异（**修正后**）：
 
 | 文件 | 行 | 用途 | 核验 |
 |------|----|------|------|
-| `peri-tui/src/ui/main_ui/message_area.rs` | 51-75 | 运行中 spinner 行拼接（`loading` 分支） | ✅ |
-| `peri-tui/src/ui/main_ui/message_area.rs` | 99-102 | 回合结束总结行（已对齐，勿改） | ✅ |
-| `peri-widgets/src/spinner/mod.rs` | 60-90 | `set_mode_with_label` 状态切换 | ✅ |
-| `peri-widgets/src/spinner/mod.rs` | 115-117 | `elapsed_ms()` 回合计时 | ✅ |
-| `peri-widgets/src/spinner/verb.rs` | 332-335 | `pick_summary_verb()` 随机完成动词 | ✅ |
-| `peri-tui/src/app/agent_ops/mod.rs` | 388-399 | `AiReasoning` 处理（**确认：完全不碰 spinner**） | ✅ |
-| `peri-tui/src/app/agent_ops/mod.rs` | 203-216 | `ToolStart` 处 `set_mode(ToolUse)` + `set_verb(工具名)`（**方案 A 要移除**） | ✅ |
-| `peri-tui/src/app/agent_ops/mod.rs` | 286-300 | `AssistantChunk` 处 `set_mode_with_label(Responding)`（**方案 A 要移除**） | ✅ |
-| `peri-tui/src/app/agent_ops/acp_bridge.rs` | 115-126 | `agent_thought_chunk` → `AiReasoning` | ✅ |
-| `peri-tui/src/ui/message_render.rs` | 1015-1066 | `ContentBlockView::Reasoning` 渲染（`Thought for N chars`） | ✅ |
-| `peri-tui/src/ui/message_render.rs` | 1165 | `if !state.collapsed`（Bash 输出被跳过处） | ✅ |
-| `peri-tui/src/ui/message_render.rs` | 1211 | Read 折叠摘要（仅 Read，Bash 无） | ✅ |
-| `peri-tui/src/ui/message_render.rs` | 1187 | 截断措辞 `... (N more lines)` | ✅ |
-| `peri-tui/src/ui/message_view/tools.rs` | 22-31 | `ToolCategory::from_tool_name`（仅 Glob/Grep/Read/AskUser） | ✅ |
-| `peri-tui/src/app/message_pipeline/transform.rs` | 63-99 | `messages_to_view_models`（改动 B 后处理挂点） | ✅ |
-| `peri-tui/src/app/mod.rs` | 559-578 | `set_loading` 加载态切换 | ✅ |
+| `cc-tui/src/ui/main_ui/message_area.rs` | 51-75 | 运行中 spinner 行拼接（`loading` 分支） | ✅ |
+| `cc-tui/src/ui/main_ui/message_area.rs` | 99-102 | 回合结束总结行（已对齐，勿改） | ✅ |
+| `cc-widgets/src/spinner/mod.rs` | 60-90 | `set_mode_with_label` 状态切换 | ✅ |
+| `cc-widgets/src/spinner/mod.rs` | 115-117 | `elapsed_ms()` 回合计时 | ✅ |
+| `cc-widgets/src/spinner/verb.rs` | 332-335 | `pick_summary_verb()` 随机完成动词 | ✅ |
+| `cc-tui/src/app/agent_ops/mod.rs` | 388-399 | `AiReasoning` 处理（**确认：完全不碰 spinner**） | ✅ |
+| `cc-tui/src/app/agent_ops/mod.rs` | 203-216 | `ToolStart` 处 `set_mode(ToolUse)` + `set_verb(工具名)`（**方案 A 要移除**） | ✅ |
+| `cc-tui/src/app/agent_ops/mod.rs` | 286-300 | `AssistantChunk` 处 `set_mode_with_label(Responding)`（**方案 A 要移除**） | ✅ |
+| `cc-tui/src/app/agent_ops/acp_bridge.rs` | 115-126 | `agent_thought_chunk` → `AiReasoning` | ✅ |
+| `cc-tui/src/ui/message_render.rs` | 1015-1066 | `ContentBlockView::Reasoning` 渲染（`Thought for N chars`） | ✅ |
+| `cc-tui/src/ui/message_render.rs` | 1165 | `if !state.collapsed`（Bash 输出被跳过处） | ✅ |
+| `cc-tui/src/ui/message_render.rs` | 1211 | Read 折叠摘要（仅 Read，Bash 无） | ✅ |
+| `cc-tui/src/ui/message_render.rs` | 1187 | 截断措辞 `... (N more lines)` | ✅ |
+| `cc-tui/src/ui/message_view/tools.rs` | 22-31 | `ToolCategory::from_tool_name`（仅 Glob/Grep/Read/AskUser） | ✅ |
+| `cc-tui/src/app/message_pipeline/transform.rs` | 63-99 | `messages_to_view_models`（改动 B 后处理挂点） | ✅ |
+| `cc-tui/src/app/mod.rs` | 559-578 | `set_loading` 加载态切换 | ✅ |
 
 **核验发现的 PRD↔代码 不一致（已修正）**：
 

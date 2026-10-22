@@ -39,9 +39,9 @@ headless_test.rs 顶部的辅助函数也需要拆分：
 ## Task 1: 迁移 Markdown 测试到 ui/markdown_test.rs
 
 **Files:**
-- Modify: `peri-tui/src/ui/headless_test.rs`（删除 15 个 test_md_* 测试 + parse_markdown_default）
-- Modify: `peri-tui/src/ui/markdown.rs`（添加 `#[cfg(test)] mod tests` 引用）
-- Create: `peri-tui/src/ui/markdown_test.rs`
+- Modify: `cc-tui/src/ui/headless_test.rs`（删除 15 个 test_md_* 测试 + parse_markdown_default）
+- Modify: `cc-tui/src/ui/markdown.rs`（添加 `#[cfg(test)] mod tests` 引用）
+- Create: `cc-tui/src/ui/markdown_test.rs`
 
 这 15 个测试全部是纯函数测试，调用 `parse_markdown_default()` 解析 markdown 文本后断言输出行内容，完全不依赖 App 或渲染。
 
@@ -71,8 +71,8 @@ mod tests;
 - [ ] **Step 4: 验证编译和测试通过**
 
 ```bash
-cargo test -p peri-tui --lib -- ui::markdown::tests
-cargo test -p peri-tui --lib -- ui::headless::tests
+cargo test -p cc-tui --lib -- ui::markdown::tests
+cargo test -p cc-tui --lib -- ui::headless::tests
 ```
 
 - [ ] **Step 5: Commit**
@@ -86,8 +86,8 @@ git add -A && git commit -m "refactor: move markdown tests from headless to ui/m
 ## Task 2: 迁移纯组件逻辑测试（render_view_model 类）
 
 **Files:**
-- Modify: `peri-tui/src/ui/headless_test.rs`（删除 5 个测试）
-- Modify: `peri-tui/src/ui/message_render.rs`（添加 test module 引用，如尚未有）
+- Modify: `cc-tui/src/ui/headless_test.rs`（删除 5 个测试）
+- Modify: `cc-tui/src/ui/message_render.rs`（添加 test module 引用，如尚未有）
 
 这 5 个测试构造 `MessageViewModel` 变体，调用 `render_view_model()` 断言渲染输出，完全不依赖 App。
 
@@ -115,8 +115,8 @@ mod tests;
 - [ ] **Step 4: 验证**
 
 ```bash
-cargo test -p peri-tui --lib -- ui::message_render::tests
-cargo test -p peri-tui --lib -- ui::headless::tests
+cargo test -p cc-tui --lib -- ui::message_render::tests
+cargo test -p cc-tui --lib -- ui::headless::tests
 ```
 
 - [ ] **Step 5: Commit**
@@ -130,8 +130,8 @@ git add -A && git commit -m "refactor: move render_view_model tests from headles
 ## Task 3: 迁移 SetupWizard 纯组件测试
 
 **Files:**
-- Modify: `peri-tui/src/ui/headless_test.rs`（删除 5 个测试 + advance_to_form 辅助）
-- Modify: `peri-tui/src/ui/main_ui/popups/setup_wizard.rs` 或其 test 文件
+- Modify: `cc-tui/src/ui/headless_test.rs`（删除 5 个测试 + advance_to_form 辅助）
+- Modify: `cc-tui/src/ui/main_ui/popups/setup_wizard.rs` 或其 test 文件
 
 这 5 个测试直接构造 `SetupWizardPanel` 操作状态，不依赖 App 渲染：
 
@@ -154,7 +154,7 @@ git add -A && git commit -m "refactor: move render_view_model tests from headles
 - [ ] **Step 3: 验证**
 
 ```bash
-cargo test -p peri-tui --lib -- ui::main_ui::popups::setup_wizard
+cargo test -p cc-tui --lib -- ui::main_ui::popups::setup_wizard
 ```
 
 - [ ] **Step 4: Commit**
@@ -168,7 +168,7 @@ git add -A && git commit -m "refactor: move SetupWizard unit tests from headless
 ## Task 4: 迁移纯配置/逻辑测试
 
 **Files:**
-- Modify: `peri-tui/src/ui/headless_test.rs`（删除 14 个测试）
+- Modify: `cc-tui/src/ui/headless_test.rs`（删除 14 个测试）
 - 多个目标 `_test.rs` 文件
 
 这 14 个测试用了 `new_headless()` 但只访问 `app.services.*` 字段或简单状态操作。改写为不需要 App 的纯单元测试。
@@ -218,7 +218,7 @@ git add -A && git commit -m "refactor: move SetupWizard unit tests from headless
 - [ ] **Step 5: 验证全部通过**
 
 ```bash
-cargo test -p peri-tui --lib
+cargo test -p cc-tui --lib
 ```
 
 - [ ] **Step 6: Commit**
@@ -232,13 +232,13 @@ git add -A && git commit -m "refactor: downgrade config/logic tests from headles
 ## Task 5: 最终清理 + 验证
 
 **Files:**
-- Modify: `peri-tui/src/ui/headless_test.rs`
+- Modify: `cc-tui/src/ui/headless_test.rs`
 
 - [ ] **Step 1: 检查 headless_test.rs 中是否还有不需要 headless 的残留测试**
 
 ```bash
 # 确认 headless_test.rs 中所有测试都用到 new_headless 或渲染管线
-grep -n "fn test_" peri-tui/src/ui/headless_test.rs
+grep -n "fn test_" cc-tui/src/ui/headless_test.rs
 ```
 
 - [ ] **Step 2: 删除 headless_test.rs 中不再使用的辅助函数和 import**
@@ -252,7 +252,7 @@ cargo test --workspace
 - [ ] **Step 4: 统计耗时对比**
 
 ```bash
-time cargo test -p peri-tui --lib
+time cargo test -p cc-tui --lib
 ```
 
 预期：headless 测试从 105 个降到 ~63 个，减少 ~40% 的重量级 App 初始化。
@@ -272,4 +272,4 @@ git add -A && git commit -m "refactor: clean up headless_test.rs after test migr
 | headless_test.rs 行数 | 4356 | ~3000 |
 | headless 测试数量 | 105 | ~63 |
 | 纯单元测试数量 | ~440 | ~482 |
-| `cargo test` 耗时（peri-tui） | ~5s | 预期 ~3.5s（减少 ~40 个 App 初始化） |
+| `cargo test` 耗时（cc-tui） | ~5s | 预期 ~3.5s（减少 ~40 个 App 初始化） |

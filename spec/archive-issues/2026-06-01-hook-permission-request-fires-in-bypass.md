@@ -7,7 +7,7 @@
 
 ## 问题描述
 
-PermissionRequest 钩子在 YOLO/bypass 权限模式下仍然触发，但 Claude Code 官方行为是仅在权限对话框即将展示给用户时才触发。bypass 模式下不会展示权限对话框，因此不应触发。
+PermissionRequest 钩子在 YOLO/bypass 权限模式下仍然触发，但 参考实现 官方行为是仅在权限对话框即将展示给用户时才触发。bypass 模式下不会展示权限对话框，因此不应触发。
 
 ## 当前行为
 

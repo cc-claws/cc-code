@@ -4,7 +4,7 @@
 
 **Goal:** 为 `mapper.rs` 中未覆盖的 14 个 ExecutorEvent 变体添加单元测试，覆盖率从 33% 提升到 100%。
 
-**Architecture:** 在 `peri-acp/src/event/mapper_test.rs` 中追加测试函数，遵循现有测试的 `make_agent_event()` helper 模式。按 Category 分组测试：Category ① (SessionUpdate)、Category ③ (TUI-only)、Filtered (无输出)。
+**Architecture:** 在 `cc-acp/src/event/mapper_test.rs` 中追加测试函数，遵循现有测试的 `make_agent_event()` helper 模式。按 Category 分组测试：Category ① (SessionUpdate)、Category ③ (TUI-only)、Filtered (无输出)。
 
 **Tech Stack:** Rust, tokio async test, serde_json
 
@@ -14,16 +14,16 @@
 
 | 操作 | 文件路径 | 职责 |
 |------|----------|------|
-| 修改 | `peri-acp/src/event/mapper_test.rs` | 添加 14 个新测试函数 |
-| 参考 | `peri-acp/src/event/mapper.rs` | 了解 map_event 逻辑 |
-| 参考 | `peri-agent/src/agent/events.rs` | ExecutorEvent 定义 |
+| 修改 | `cc-acp/src/event/mapper_test.rs` | 添加 14 个新测试函数 |
+| 参考 | `cc-acp/src/event/mapper.rs` | 了解 map_event 逻辑 |
+| 参考 | `cc-agent/src/agent/events.rs` | ExecutorEvent 定义 |
 
 ---
 
 ### Task 1: 为 Category ① SessionUpdate 变体添加测试（AiReasoning, TextChunk, ToolStart, TodoUpdate）
 
 **Files:**
-- Modify: `peri-acp/src/event/mapper_test.rs`
+- Modify: `cc-acp/src/event/mapper_test.rs`
 
 - [ ] **Step 1: 添加 AiReasoning 测试**
 
@@ -44,7 +44,7 @@ fn test_ai_reasoning_maps_to_session_update() {
 
 - [ ] **Step 2: 运行测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- event::mapper_test::test_ai_reasoning_maps_to_session_update`
+Run: `cargo test -p cc-acp --lib -- event::mapper_test::test_ai_reasoning_maps_to_session_update`
 Expected: PASS
 
 - [ ] **Step 3: 添加 TextChunk 测试**
@@ -69,7 +69,7 @@ fn test_text_chunk_maps_to_session_update_with_source() {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- event::mapper_test::test_text_chunk_maps_to_session_update_with_source`
+Run: `cargo test -p cc-acp --lib -- event::mapper_test::test_text_chunk_maps_to_session_update_with_source`
 Expected: PASS
 
 - [ ] **Step 5: 添加 ToolStart 测试**
@@ -96,7 +96,7 @@ fn test_tool_start_maps_to_session_update_with_tool_info() {
 
 - [ ] **Step 6: 运行测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- event::mapper_test::test_tool_start_maps_to_session_update_with_tool_info`
+Run: `cargo test -p cc-acp --lib -- event::mapper_test::test_tool_start_maps_to_session_update_with_tool_info`
 Expected: PASS
 
 - [ ] **Step 7: 添加 TodoUpdate 测试**
@@ -115,13 +115,13 @@ fn test_todo_update_maps_to_session_update() {
 
 - [ ] **Step 8: 运行测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- event::mapper_test::test_todo_update_maps_to_session_update`
+Run: `cargo test -p cc-acp --lib -- event::mapper_test::test_todo_update_maps_to_session_update`
 Expected: PASS
 
 - [ ] **Step 9: 提交**
 
 ```bash
-git add peri-acp/src/event/mapper_test.rs
+git add cc-acp/src/event/mapper_test.rs
 git commit -m "test: add Category 1 SessionUpdate mapper tests (AiReasoning/TextChunk/ToolStart/TodoUpdate)"
 ```
 
@@ -130,7 +130,7 @@ git commit -m "test: add Category 1 SessionUpdate mapper tests (AiReasoning/Text
 ### Task 2: 为 Category ③ TUI-only 变体添加测试（StateSnapshot, SubagentStarted, SubagentStopped, CompactStarted, CompactCompleted, CompactError, BackgroundTaskCompleted, LspDiagnostics, AgentExecutionFailed）
 
 **Files:**
-- Modify: `peri-acp/src/event/mapper_test.rs`
+- Modify: `cc-acp/src/event/mapper_test.rs`
 
 - [ ] **Step 1: 添加 StateSnapshot 测试**
 
@@ -270,13 +270,13 @@ fn test_agent_execution_failed_is_tui_only() {
 
 - [ ] **Step 10: 运行所有 Category ③ 测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- event::mapper_test`
+Run: `cargo test -p cc-acp --lib -- event::mapper_test`
 Expected: ALL PASS
 
 - [ ] **Step 11: 提交**
 
 ```bash
-git add peri-acp/src/event/mapper_test.rs
+git add cc-acp/src/event/mapper_test.rs
 git commit -m "test: add Category 3 TUI-only mapper tests (9 variants)"
 ```
 
@@ -285,7 +285,7 @@ git commit -m "test: add Category 3 TUI-only mapper tests (9 variants)"
 ### Task 3: 为 Filtered 变体添加空输出断言测试（StepDone, MessageAdded, LlmCallStart, SessionEnded）
 
 **Files:**
-- Modify: `peri-acp/src/event/mapper_test.rs`
+- Modify: `cc-acp/src/event/mapper_test.rs`
 
 - [ ] **Step 1: 添加 StepDone 测试**
 
@@ -341,13 +341,13 @@ fn test_session_ended_produces_no_output() {
 
 - [ ] **Step 5: 运行所有 Filtered 测试验证通过**
 
-Run: `cargo test -p peri-acp --lib -- event::mapper_test`
+Run: `cargo test -p cc-acp --lib -- event::mapper_test`
 Expected: ALL PASS
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add peri-acp/src/event/mapper_test.rs
+git add cc-acp/src/event/mapper_test.rs
 git commit -m "test: add Filtered variant mapper tests (StepDone/MessageAdded/LlmCallStart/SessionEnded)"
 ```
 
@@ -355,12 +355,12 @@ git commit -m "test: add Filtered variant mapper tests (StepDone/MessageAdded/Ll
 
 ### Task 4: 运行全量测试确认无回归
 
-- [ ] **Step 1: 运行 peri-acp 全量测试**
+- [ ] **Step 1: 运行 cc-acp 全量测试**
 
-Run: `cargo test -p peri-acp --lib`
+Run: `cargo test -p cc-acp --lib`
 Expected: ALL PASS
 
-- [ ] **Step 2: 运行 peri-agent 全量测试**
+- [ ] **Step 2: 运行 cc-agent 全量测试**
 
-Run: `cargo test -p peri-agent --lib`
+Run: `cargo test -p cc-agent --lib`
 Expected: ALL PASS

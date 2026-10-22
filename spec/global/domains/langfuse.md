@@ -1,16 +1,14 @@
 # Langfuse 领域
 
-![Langfuse 领域概览](./images/langfuse-overview.png)
-
 ## 领域综述
 
-Langfuse 领域负责 Agent 执行的全链路可观测性，将每次 LLM 调用、工具调用、对话 Session 结构化上报到 Langfuse 监控平台。所有 Langfuse 依赖和上报逻辑封装在 `cc-tui` 层，不侵入 `cc-agent` 核心框架。
+Langfuse 领域负责 Agent 执行的全链路可观测性，将每次 LLM 调用、工具调用、对话 Session 结构化上报到 Langfuse 监控平台。Langfuse 上报逻辑现位于 `cc-acp`（`cc-acp/src/langfuse/`，依赖在 cc-acp 的 Cargo.toml），cc-tui 仅在启动时构造 LangfuseConfig 并传入；不侵入 `cc-agent` 核心框架。
 
 核心职责：
 - Trace 管理：每次用户发送消息对应一个 Trace，多轮消息共享同一 Session
 - Generation 追踪：LLM 调用记录（名称、模型、input/output、token 用量）
-- Tool 观测：工具调用记录（ObservationType::Tool，嵌套在 Agent Observation 下）
-- Agent Observation：每次 Agent 执行在 Trace 下创建一个 Agent 类型 Observation 包裹整个循环
+- Tool 观测：工具调用记录（ObservationType::Tool，嵌套在 "Tools" 批次 Span 下）
+- Agent Observation：每次 Agent 执行创建一个 type=Agent、name="agent-run" 的根 Observation 包裹整个循环
 - Session 生命周期：LangfuseSession 与 SQLite Thread 一一对应，切换/新建 Thread 时重置
 
 ## 核心流程
@@ -19,27 +17,25 @@ Langfuse 领域负责 Agent 执行的全链路可观测性，将每次 LLM 调�
 
 ```
 Langfuse Session (session_id = thread_id)
-  └── Trace (trace_id, name="agent-run")
-        └── Observation(type=Agent, name="Agent")
-              ├── Observation(type=Generation, name="ChatAnthropic"/"ChatOpenAI")
-              ├── Observation(type=Tool, name=tool_name)
-              ├── Observation(type=Generation, ...)
-              └── Observation(type=Tool, ...)
+  └── Trace (trace_id)
+        └── Observation(type=Agent, name="agent-run")   ← 根 Observation 本身即 agent-run
+              ├── Observation(type=Generation, name="llm-step-{n}")
+              ├── Span(name="Tools"，工具批次)
+              │     ├── Observation(type=Tool, name=tool_name)
+              │     └── Observation(type=Tool, ...)
+              └── Observation(type=Generation, name="llm-step-{n+1}")
 ```
 
 ### Session 生命周期管理
 
 ```
-App 启动: langfuse_session = None（懒加载）
+App 启动: 创建进程级共享 LangfuseSession（LangfuseSession::new(config)，无 session_id 参数）
 
 submit_message():
-  1. ensure_thread_id() → thread_id = UUID
-  2. if langfuse_session.is_none():
-       LangfuseSession::new(config, session_id=thread_id)  ← 首轮创建
-  3. LangfuseTracer::new(session.clone())  ← 每轮新 trace_id，共享 session
+  LangfuseTracer::new(session.clone(), thread_id)  ← 每轮新 trace_id，session_id 由 Tracer 逐轮传入
 
 new_thread() / open_thread():
-  langfuse_session = None  ← 下次发消息时按新/历史 thread_id 重建
+  session 不重建，仅下一轮 Tracer 携带新的 thread_id
 ```
 
 ### 事件→观测映射
@@ -58,13 +54,13 @@ new_thread() / open_thread():
 | 维度 | 选型 |
 |------|------|
 | 客户端库 | langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic） |
-| Batcher | 自定义 Batcher 实现，异步批量上报，BackpressurePolicy::Drop 避免 OOM |
+| Batcher | 自定义 Batcher 实现，异步批量上报，BackpressurePolicy::DropNew 避免 OOM |
 | 重试机制 | 指数退避重试，最大 3 次，网络错误自动恢复 |
 | 线程安全 | `Arc<parking_lot::Mutex<LangfuseTracer>>`，FnEventHandler 闭包与主线程共享 |
 | Session 级别 | LangfuseSession 持有 Arc<LangfuseClient> + Arc<Batcher>，跨多轮复用 |
-| Observation 类型 | Agent/Tool/Generation via IngestionEventOneOf8（observation-create API） |
+| Observation 类型 | Agent/Tool/Generation via IngestionEvent 枚举，经 OTLP 端点 `/api/public/otel/v1/traces` 上报 |
 | 命名约定 | Generation 名称：ChatOpenAI / ChatAnthropic（与 LangChain 约定一致） |
-| 配置方式 | 环境变量 LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST，未配置时静默跳过 |
+| 配置方式 | 环境变量 LANGFUSE_PUBLIC_KEY/SECRET_KEY/BASE_URL，未配置时静默跳过 |
 | Hook 扩展 | AgentEvent 新增 LlmCallStart/LlmCallEnd 两个变体（向后兼容，调用方加 `_ => {}` 即可）|
 
 ## Feature 附录
@@ -79,9 +75,9 @@ new_thread() / open_thread():
 **摘要:** TUI 层接入 Langfuse 全链路追踪
 **关键决策:**
 - 侵入最小化：cc-agent 仅新增 LlmCallStart/LlmCallEnd 两个 AgentEvent 变体
-- Batcher 生命周期：每次 submit_message 创建新 Batcher（Done 后 Drop 触发 flush）
-- 工具调用 pending_span FIFO 匹配（工具串行执行，按顺序关联 ToolStart/End）
-- 依赖隔离：langfuse-ergonomic 只在 cc-tui 的 Cargo.toml 引入
+- Batcher 生命周期：进程级共享（随 LangfuseSession 创建，非每轮新建）
+- 工具调用按 tool_call_id 以 HashMap 关联 ToolStart/End（非 FIFO）
+- 依赖隔离：langfuse 相关依赖在 cc-acp（上报逻辑已迁至 cc-acp/src/langfuse/）
 **归档:** [链接](../../archive/feature_20260324_F001_langfuse-tui-monitoring/)
 **归档日期:** 2026-03-27
 

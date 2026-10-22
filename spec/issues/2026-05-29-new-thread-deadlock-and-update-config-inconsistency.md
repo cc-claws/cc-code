@@ -43,5 +43,5 @@
 
 ## 涉及文件
 
-- `peri-tui/src/app/thread_ops.rs:374-381` — `block_in_place + block_on` 同步等待
-- `peri-tui/src/acp_server/requests.rs:444-448` — 先写 config 后验证 provider
+- `cc-tui/src/app/thread_ops.rs:374-381` — `block_in_place + block_on` 同步等待
+- `cc-tui/src/acp_server/requests.rs:444-448` — 先写 config 后验证 provider

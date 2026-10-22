@@ -1,4 +1,4 @@
-# 插件系统兼容 Claude Code Marketplace 执行计划（二）
+# 插件系统兼容 参考实现 Marketplace 执行计划（二）
 
 **目标:** 将插件系统与 Peri 现有的 Skills/MCP/SubAgent 中间件集成，并实现 TUI 插件管理面板。
 
@@ -734,8 +734,8 @@
 
 2. 验证 plugin.json 清单解析（兼容性核心）
    - `cargo test -p peri-middlewares --lib -- plugin::types::tests 2>&1 | tail -15`
-   - 预期: roundtrip 测试通过，Claude Code 格式的 plugin.json 可正确反序列化
-   - 失败排查: 检查 Task 1 types.rs 的 `#[serde(rename = "...")]` 属性与 Claude Code schemas.ts 是否一致
+   - 预期: roundtrip 测试通过，参考实现 格式的 plugin.json 可正确反序列化
+   - 失败排查: 检查 Task 1 types.rs 的 `#[serde(rename = "...")]` 属性与 参考实现 schemas.ts 是否一致
 
 3. 验证 marketplace 发现链路
    - `cargo test -p peri-middlewares --lib -- plugin::marketplace 2>&1 | tail -10`

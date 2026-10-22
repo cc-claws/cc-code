@@ -372,7 +372,7 @@ Phase 0 详见 §6.5。
 
 ```rust
 use std::sync::Arc;
-use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent};
+use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 
 #[test]
 fn content_block_text_arc_shares_memory_on_clone() {
@@ -449,9 +449,9 @@ cargo run -p cc-tui -- -p "读取 src/main.rs 全文并总结" --dangerously-ski
 //! - 25% 含小工具结果（125 轮，1-30KB）
 //! - 5% 含大工具结果（25 轮，500KB-3MB）
 
-use peri_agent::messages::{BaseMessage, ContentBlock, MessageContent};
-use peri_tui::app::events::AgentEvent;
-use peri_tui::app::message_pipeline::{MessagePipeline, PipelineAction};
+use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
+use cc_tui::app::events::AgentEvent;
+use cc_tui::app::message_pipeline::{MessagePipeline, PipelineAction};
 
 #[cfg(unix)]
 fn current_rss_kb() -> usize { /* 读取 /proc/self/status VmRSS */ }

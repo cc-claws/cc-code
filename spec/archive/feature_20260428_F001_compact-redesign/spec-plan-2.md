@@ -544,7 +544,7 @@ Full Compact 将整个对话历史压缩为一条摘要 System 消息，agent �
 ### Task 6: compact_task() 统一入口重写 + TUI 集成
 
 **背景:**
-Full Compact 的核心流程（结构化摘要 + PTL 降级 + 重新注入）已在前序 Task 中实现，但 TUI 层仍使用旧的 `compact_task()` 函数（自由格式摘要、无重新注入、无 PTL 降级）。本 Task 将 `compact_task()` 完全重写为调用核心层 `full_compact()` + `re_inject()` 的三阶段流程，并将 TUI 层的自动触发机制改为 CompactConfig 驱动。这是整个 Compact 系统重设计的最后一个功能 Task，完成后 Agent 在上下文压力下自动触发压缩，压缩质量对齐 Claude Code 水平，压缩后 Agent 可无缝继续工作。
+Full Compact 的核心流程（结构化摘要 + PTL 降级 + 重新注入）已在前序 Task 中实现，但 TUI 层仍使用旧的 `compact_task()` 函数（自由格式摘要、无重新注入、无 PTL 降级）。本 Task 将 `compact_task()` 完全重写为调用核心层 `full_compact()` + `re_inject()` 的三阶段流程，并将 TUI 层的自动触发机制改为 CompactConfig 驱动。这是整个 Compact 系统重设计的最后一个功能 Task，完成后 Agent 在上下文压力下自动触发压缩，压缩质量对齐 参考实现 水平，压缩后 Agent 可无缝继续工作。
 
 **上下游影响:**
 

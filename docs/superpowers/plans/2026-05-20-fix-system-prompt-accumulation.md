@@ -4,9 +4,9 @@
 
 **Goal:** 修复 system prompt 每轮被重复注入导致上下文膨胀的 bug——`execute()` 中 `before_agent` middleware 和 `with_system_prompt()` prepend 的 system 消息未被清理，随 `agent_state.into_messages()` 写入 history，逐轮累积。
 
-**Architecture:** 在 `execute()` 的 ReAct 循环结束后，通过记录 prepend 消息的 ID 集合，用 `retain` 移除这些临时 system 消息。如果 compact 发生过（替换了全部消息），这些 ID 不存在于新消息中，不会误删 compact summary。修复点在 `peri-agent/src/agent/executor/mod.rs`，不涉及 TUI 或 ACP 层。
+**Architecture:** 在 `execute()` 的 ReAct 循环结束后，通过记录 prepend 消息的 ID 集合，用 `retain` 移除这些临时 system 消息。如果 compact 发生过（替换了全部消息），这些 ID 不存在于新消息中，不会误删 compact summary。修复点在 `cc-agent/src/agent/executor/mod.rs`，不涉及 TUI 或 ACP 层。
 
-**Tech Stack:** Rust, peri-agent crate
+**Tech Stack:** Rust, cc-agent crate
 
 ---
 
@@ -14,22 +14,22 @@
 
 | 操作 | 文件 | 职责 |
 |------|------|------|
-| Modify | `peri-agent/src/agent/executor/mod.rs:234-240` | 在 `execute()` 中记录 prepend 消息 ID 并在循环后清理 |
-| Modify | `peri-agent/src/agent/executor/mod_test.rs` | 添加回归测试 |
+| Modify | `cc-agent/src/agent/executor/mod.rs:234-240` | 在 `execute()` 中记录 prepend 消息 ID 并在循环后清理 |
+| Modify | `cc-agent/src/agent/executor/mod_test.rs` | 添加回归测试 |
 
 ---
 
 ### Task 1: 修复 `execute()` 中 prepend system 消息的累积
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/mod.rs:234-240`
+- Modify: `cc-agent/src/agent/executor/mod.rs:234-240`
 
 - [ ] **Step 1: 在 `execute()` 中记录 prepend 前的消息数量**
 
-在 `peri-agent/src/agent/executor/mod.rs` 中，找到 `run_before_agent` 调用之前，添加消息数量记录：
+在 `cc-agent/src/agent/executor/mod.rs` 中，找到 `run_before_agent` 调用之前，添加消息数量记录：
 
 ```rust
-// 文件: peri-agent/src/agent/executor/mod.rs
+// 文件: cc-agent/src/agent/executor/mod.rs
 // 位置: line 234 之前 (self.chain.run_before_agent(state).await?; 之前)
 
 // 记录 prepend 前的消息数量，用于追踪临时 system 消息
@@ -69,13 +69,13 @@ if !prepended_ids.is_empty() {
 
 - [ ] **Step 3: 验证编译通过**
 
-Run: `cargo build -p peri-agent 2>&1 | tail -20`
+Run: `cargo build -p cc-agent 2>&1 | tail -20`
 Expected: 编译成功，无 error
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/mod.rs
+git add cc-agent/src/agent/executor/mod.rs
 git commit -m "fix(agent): 清理 execute() 中 prepend 的临时 system 消息，防止跨轮次累积"
 ```
 
@@ -84,11 +84,11 @@ git commit -m "fix(agent): 清理 execute() 中 prepend 的临时 system 消息�
 ### Task 2: 添加回归测试——system 消息不累积
 
 **Files:**
-- Modify: `peri-agent/src/agent/executor/mod_test.rs`
+- Modify: `cc-agent/src/agent/executor/mod_test.rs`
 
 - [ ] **Step 1: 编写测试验证 prepend system 消息在 execute() 结束后被清理**
 
-在 `peri-agent/src/agent/executor/mod_test.rs` 末尾添加测试：
+在 `cc-agent/src/agent/executor/mod_test.rs` 末尾添加测试：
 
 ```rust
 /// 回归测试：execute() 中 prepend 的 system 消息（middleware 注入 + with_system_prompt）
@@ -104,7 +104,7 @@ async fn test_execute_prepended_system_messages_are_cleaned_up() {
 
     let _ = executor
         .execute(
-            peri_agent::agent::react::AgentInput::text("test"),
+            cc_agent::agent::react::AgentInput::text("test"),
             &mut state,
             None,
         )
@@ -124,7 +124,7 @@ async fn test_execute_prepended_system_messages_are_cleaned_up() {
 
 - [ ] **Step 2: 运行测试验证通过**
 
-Run: `cargo test -p peri-agent --lib -- test_execute_prepended_system_messages_are_cleaned_up 2>&1 | tail -20`
+Run: `cargo test -p cc-agent --lib -- test_execute_prepended_system_messages_are_cleaned_up 2>&1 | tail -20`
 Expected: 测试通过
 
 - [ ] **Step 3: 编写测试验证多次 execute() 调用 system 消息不累积**
@@ -142,7 +142,7 @@ async fn test_execute_no_system_message_accumulation_across_calls() {
     // 第一次 execute
     let _ = executor
         .execute(
-            peri_agent::agent::react::AgentInput::text("first"),
+            cc_agent::agent::react::AgentInput::text("first"),
             &mut state,
             None,
         )
@@ -152,7 +152,7 @@ async fn test_execute_no_system_message_accumulation_across_calls() {
     // 第二次 execute
     let _ = executor
         .execute(
-            peri_agent::agent::react::AgentInput::text("second"),
+            cc_agent::agent::react::AgentInput::text("second"),
             &mut state,
             None,
         )
@@ -172,13 +172,13 @@ async fn test_execute_no_system_message_accumulation_across_calls() {
 
 - [ ] **Step 4: 运行所有 executor 测试验证无回归**
 
-Run: `cargo test -p peri-agent --lib -- executor 2>&1 | tail -30`
+Run: `cargo test -p cc-agent --lib -- executor 2>&1 | tail -30`
 Expected: 所有测试通过
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-agent/src/agent/executor/mod_test.rs
+git add cc-agent/src/agent/executor/mod_test.rs
 git commit -m "test(agent): 添加 system 消息累积回归测试"
 ```
 
@@ -188,14 +188,14 @@ git commit -m "test(agent): 添加 system 消息累积回归测试"
 
 **Files:** 无代码修改
 
-- [ ] **Step 1: 运行 peri-acp 单元测试**
+- [ ] **Step 1: 运行 cc-acp 单元测试**
 
-Run: `cargo test -p peri-acp 2>&1 | tail -20`
+Run: `cargo test -p cc-acp 2>&1 | tail -20`
 Expected: 所有测试通过
 
-- [ ] **Step 2: 运行 peri-middlewares 单元测试（ToolSearchMiddleware 相关）**
+- [ ] **Step 2: 运行 cc-middlewares 单元测试（ToolSearchMiddleware 相关）**
 
-Run: `cargo test -p peri-middlewares --lib -- tool_search 2>&1 | tail -20`
+Run: `cargo test -p cc-middlewares --lib -- tool_search 2>&1 | tail -20`
 Expected: 所有测试通过
 
 - [ ] **Step 3: 运行全量测试**
@@ -205,7 +205,7 @@ Expected: 所有测试通过
 
 - [ ] **Step 4: 手动 smoke test——启动 TUI 进行一轮对话**
 
-Run: `cargo run -p peri-tui`
+Run: `cargo run -p cc-tui`
 
 操作步骤：
 1. 输入一条消息让 agent 执行几轮工具调用

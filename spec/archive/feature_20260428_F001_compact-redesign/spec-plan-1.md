@@ -1,6 +1,6 @@
 # Compact 系统重设计 执行计划（一）
 
-**目标:** 全面增强 compact 系统，对齐 Claude Code 的 Micro-compact + Full Compact 两层压缩策略
+**目标:** 全面增强 compact 系统，对齐 参考实现 的 Micro-compact + Full Compact 两层压缩策略
 
 **技术栈:** Rust 2021, tokio async, serde, thiserror, tracing
 
@@ -1271,7 +1271,7 @@ Compact 系统当前缺少统一的配置结构——阈值（如 auto_compact_t
     - PTL 降级每次删除 1 个 round（而非按 token 估算精确删除），实现简单且可靠
     - 使用 `anyhow::Error::context()` 添加 PTL 降级上下文信息，便于排查
     - `for attempt in 0..=max_retries` 循环包含初始尝试 + max_retries 次重试
-  - 原因: 替换 `compact_task()` 中的简单三段式摘要，引入结构化 9 段模板对齐 Claude Code 的摘要质量，PTL 降级确保超长对话也能成功压缩
+  - 原因: 替换 `compact_task()` 中的简单三段式摘要，引入结构化 9 段模板对齐 参考实现 的摘要质量，PTL 降级确保超长对话也能成功压缩
 
 - [x] 修改 `compact/mod.rs`，注册 `full` 子模块并导出公共 API
   - 位置: `peri-agent/src/agent/compact/mod.rs`（Task 1 创建）

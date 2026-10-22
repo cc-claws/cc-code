@@ -14,30 +14,30 @@
 
 | 文件 | 职责 |
 |------|------|
-| `peri-agent/src/agent/events.rs` | `LlmCallEnd` 新增 `stop_reason` 字段 |
-| `peri-agent/src/llm/types.rs` | `StopReason` 枚举定义（已存在） |
-| `peri-agent/src/agent/react.rs` | `Reasoning` 新增 `stop_reason` 字段，从 `LlmResponse` 传播 |
-| `peri-agent/src/llm/react_adapter.rs` | `BaseModelReactLLM::generate_reasoning` 传播 `stop_reason` |
-| `peri-agent/src/agent/executor/llm_step.rs` | `call_llm` 传递 `stop_reason` 到 `LlmCallEnd` |
-| `peri-acp/src/event/mapper.rs` | 核心映射改造：Category ② → 单路径 + `_meta` 扩展 |
-| `peri-acp/src/session/event_sink.rs` | EventSink 不变（已正确路由 `MappedEvent`） |
-| `peri-tui/src/app/agent.rs` | `map_executor_event` 移除 `LlmCallEnd` Category ② 分支 |
-| `peri-tui/src/app/agent_ops/acp_bridge.rs` | `handle_session_update_peri` 处理 enriched `usage_update` |
-| `peri-tui/src/app/agent_ops/subagent.rs` | `handle_token_usage_update` 不变（接收类型不变） |
-| `peri-tui/src/app/events.rs` | `AgentEvent::TokenUsageUpdate` 新增 `stop_reason` 字段 |
+| `cc-agent/src/agent/events.rs` | `LlmCallEnd` 新增 `stop_reason` 字段 |
+| `cc-agent/src/llm/types.rs` | `StopReason` 枚举定义（已存在） |
+| `cc-agent/src/agent/react.rs` | `Reasoning` 新增 `stop_reason` 字段，从 `LlmResponse` 传播 |
+| `cc-agent/src/llm/react_adapter.rs` | `BaseModelReactLLM::generate_reasoning` 传播 `stop_reason` |
+| `cc-agent/src/agent/executor/llm_step.rs` | `call_llm` 传递 `stop_reason` 到 `LlmCallEnd` |
+| `cc-acp/src/event/mapper.rs` | 核心映射改造：Category ② → 单路径 + `_meta` 扩展 |
+| `cc-acp/src/session/event_sink.rs` | EventSink 不变（已正确路由 `MappedEvent`） |
+| `cc-tui/src/app/agent.rs` | `map_executor_event` 移除 `LlmCallEnd` Category ② 分支 |
+| `cc-tui/src/app/agent_ops/acp_bridge.rs` | `handle_session_update_peri` 处理 enriched `usage_update` |
+| `cc-tui/src/app/agent_ops/subagent.rs` | `handle_token_usage_update` 不变（接收类型不变） |
+| `cc-tui/src/app/events.rs` | `AgentEvent::TokenUsageUpdate` 新增 `stop_reason` 字段 |
 
 ---
 
 ### Task 1: 传播 stop_reason — Reasoning 结构体
 
 **Files:**
-- Modify: `peri-agent/src/agent/react.rs:126-138`
-- Modify: `peri-agent/src/llm/react_adapter.rs:85-195`
-- Modify: `peri-agent/src/agent/executor/llm_step.rs:69-80`
+- Modify: `cc-agent/src/agent/react.rs:126-138`
+- Modify: `cc-agent/src/llm/react_adapter.rs:85-195`
+- Modify: `cc-agent/src/agent/executor/llm_step.rs:69-80`
 
 - [ ] **Step 1: 给 Reasoning 添加 stop_reason 字段**
 
-在 `peri-agent/src/agent/react.rs` 的 `Reasoning` 结构体中添加 `stop_reason` 字段：
+在 `cc-agent/src/agent/react.rs` 的 `Reasoning` 结构体中添加 `stop_reason` 字段：
 
 ```rust
 // react.rs:126
@@ -89,7 +89,7 @@ impl Reasoning {
 
 - [ ] **Step 2: 在 react_adapter 中传播 stop_reason**
 
-在 `peri-agent/src/llm/react_adapter.rs` 的 `generate_reasoning` 方法中，将 `response.stop_reason` 传播到 `Reasoning`：
+在 `cc-agent/src/llm/react_adapter.rs` 的 `generate_reasoning` 方法中，将 `response.stop_reason` 传播到 `Reasoning`：
 
 在 `Reasoning::with_tools` 和 `Reasoning::with_answer` 的所有构造点，改为传入 `response.stop_reason.clone()`。具体位置：
 
@@ -124,7 +124,7 @@ let mut r = Reasoning {
 
 - [ ] **Step 3: 在 llm_step 中传递 stop_reason 到 LlmCallEnd**
 
-在 `peri-agent/src/agent/executor/llm_step.rs`，修改 `LlmCallEnd` 发射点：
+在 `cc-agent/src/agent/executor/llm_step.rs`，修改 `LlmCallEnd` 发射点：
 
 ```rust
 // llm_step.rs:75
@@ -141,7 +141,7 @@ agent.emit(AgentEvent::LlmCallEnd {
 
 - [ ] **Step 4: 更新 LlmCallEnd 变体定义**
 
-在 `peri-agent/src/agent/events.rs` 中给 `LlmCallEnd` 添加 `stop_reason` 字段：
+在 `cc-agent/src/agent/events.rs` 中给 `LlmCallEnd` 添加 `stop_reason` 字段：
 
 ```rust
 /// LLM 调用结束（携带模型名、输出文本、token 使用量、停止原因）
@@ -157,7 +157,7 @@ LlmCallEnd {
 
 - [ ] **Step 5: 编译验证**
 
-Run: `cargo build -p peri-agent`
+Run: `cargo build -p cc-agent`
 Expected: 编译通过（可能需要修复测试中 `LlmCallEnd` 的构造点——搜索所有 `AgentEvent::LlmCallEnd` 调用处，添加 `stop_reason` 字段）
 
 - [ ] **Step 6: Commit**
@@ -173,16 +173,16 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 2: Mapper 改造 — enriched UsageUpdate via _meta
 
 **Files:**
-- Modify: `peri-acp/src/event/mapper.rs`
-- Create: `peri-acp/src/event/mapper_test.rs`
+- Modify: `cc-acp/src/event/mapper.rs`
+- Create: `cc-acp/src/event/mapper_test.rs`
 
 - [ ] **Step 1: 编写 mapper 测试 — enriched usage_update**
 
-创建 `peri-acp/src/event/mapper_test.rs`：
+创建 `cc-acp/src/event/mapper_test.rs`：
 
 ```rust
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
-use peri_agent::llm::types::{TokenUsage, StopReason};
+use cc_agent::agent::events::AgentEvent as ExecutorEvent;
+use cc_agent::llm::types::{TokenUsage, StopReason};
 
 use super::*;
 
@@ -269,7 +269,7 @@ fn test_llm_retrying_is_tui_only() {
 }
 ```
 
-在 `peri-acp/src/event/mapper.rs` 底部添加测试模块声明：
+在 `cc-acp/src/event/mapper.rs` 底部添加测试模块声明：
 
 ```rust
 #[cfg(test)]
@@ -279,12 +279,12 @@ mod tests;
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-acp -- event::mapper::tests`
+Run: `cargo test -p cc-acp -- event::mapper::tests`
 Expected: FAIL — `LlmCallEnd` 映射逻辑尚未更新
 
 - [ ] **Step 3: 改造 mapper 核心逻辑**
 
-在 `peri-acp/src/event/mapper.rs` 中修改三处映射：
+在 `cc-acp/src/event/mapper.rs` 中修改三处映射：
 
 **3a. `LlmCallEnd` — 从 Category ② 改为 Category ①（enriched UsageUpdate）**
 
@@ -353,7 +353,7 @@ ExecutorEvent::LlmCallEnd { usage: None, .. } => {
 
 - [ ] **Step 4: 给 StopReason 添加 Display impl**
 
-`peri-agent/src/llm/types.rs` 的 `StopReason` 需要实现 `ToString` 或 `Display` 以便在 `_meta` 中序列化：
+`cc-agent/src/llm/types.rs` 的 `StopReason` 需要实现 `ToString` 或 `Display` 以便在 `_meta` 中序列化：
 
 ```rust
 impl std::fmt::Display for StopReason {
@@ -372,7 +372,7 @@ impl std::fmt::Display for StopReason {
 
 - [ ] **Step 5: 运行测试确认通过**
 
-Run: `cargo test -p peri-acp -- event::mapper::tests`
+Run: `cargo test -p cc-acp -- event::mapper::tests`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -392,28 +392,28 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 3: TUI 消费路径改造
 
 **Files:**
-- Modify: `peri-tui/src/app/events.rs`
-- Modify: `peri-tui/src/app/agent.rs`
-- Modify: `peri-tui/src/app/agent_ops/acp_bridge.rs`
-- Modify: `peri-tui/src/app/agent_ops/subagent.rs`
+- Modify: `cc-tui/src/app/events.rs`
+- Modify: `cc-tui/src/app/agent.rs`
+- Modify: `cc-tui/src/app/agent_ops/acp_bridge.rs`
+- Modify: `cc-tui/src/app/agent_ops/subagent.rs`
 
 - [ ] **Step 1: 更新 AgentEvent::TokenUsageUpdate 添加 stop_reason**
 
-在 `peri-tui/src/app/events.rs` 中：
+在 `cc-tui/src/app/events.rs` 中：
 
 ```rust
 /// Token 使用量更新（从 session/update enriched UsageUpdate 解析而来）
 TokenUsageUpdate {
-    usage: peri_agent::llm::types::TokenUsage,
+    usage: cc_agent::llm::types::TokenUsage,
     model: String,
     /// LLM 响应停止原因
-    stop_reason: Option<peri_agent::llm::types::StopReason>,
+    stop_reason: Option<cc_agent::llm::types::StopReason>,
 },
 ```
 
 - [ ] **Step 2: 移除 map_executor_event 中 LlmCallEnd 的 Category ② 分支**
 
-在 `peri-tui/src/app/agent.rs` 中，将 `LlmCallEnd` 从 Category ② 分支移到过滤分支：
+在 `cc-tui/src/app/agent.rs` 中，将 `LlmCallEnd` 从 Category ② 分支移到过滤分支：
 
 ```rust
 // agent.rs — 移除 LlmCallEnd 的 Category ② 映射（~line 90-94）
@@ -434,7 +434,7 @@ ExecutorEvent::TextChunk { .. }
 
 - [ ] **Step 3: 在 acp_bridge.rs 中处理 enriched usage_update**
 
-在 `peri-tui/src/app/agent_ops/acp_bridge.rs` 的 `handle_session_update_peri` 中，替换 `"usage_update"` 分支：
+在 `cc-tui/src/app/agent_ops/acp_bridge.rs` 的 `handle_session_update_peri` 中，替换 `"usage_update"` 分支：
 
 ```rust
 // 替换 acp_bridge.rs:204-207
@@ -466,9 +466,9 @@ ExecutorEvent::TextChunk { .. }
         .and_then(|m| m.get("stopReason"))
         .and_then(|v| v.as_str())
         .unwrap_or("end_turn");
-    let stop_reason = Some(peri_agent::llm::types::StopReason::from_display(stop_reason_str));
+    let stop_reason = Some(cc_agent::llm::types::StopReason::from_display(stop_reason_str));
 
-    let usage = peri_agent::llm::types::TokenUsage {
+    let usage = cc_agent::llm::types::TokenUsage {
         input_tokens,
         output_tokens,
         cache_creation_input_tokens,
@@ -486,7 +486,7 @@ ExecutorEvent::TextChunk { .. }
 
 - [ ] **Step 4: 给 StopReason 添加 from_display 方法**
 
-在 `peri-agent/src/llm/types.rs` 中添加反向解析方法：
+在 `cc-agent/src/llm/types.rs` 中添加反向解析方法：
 
 ```rust
 impl StopReason {
@@ -506,9 +506,9 @@ impl StopReason {
 
 - [ ] **Step 5: 更新 handle_token_usage_update 接收端**
 
-检查 `peri-tui/src/app/agent_ops/subagent.rs` 的 `handle_token_usage_update` —— 函数签名不变（只接收 `usage: TokenUsage`），无需修改。
+检查 `cc-tui/src/app/agent_ops/subagent.rs` 的 `handle_token_usage_update` —— 函数签名不变（只接收 `usage: TokenUsage`），无需修改。
 
-检查 `peri-tui/src/app/agent_ops/mod.rs` 中 `TokenUsageUpdate` 的 match 分支，更新解构以匹配新字段：
+检查 `cc-tui/src/app/agent_ops/mod.rs` 中 `TokenUsageUpdate` 的 match 分支，更新解构以匹配新字段：
 
 ```rust
 // mod.rs:147-150
@@ -521,7 +521,7 @@ AgentEvent::TokenUsageUpdate {
 
 - [ ] **Step 6: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过
 
 - [ ] **Step 7: Commit**
@@ -541,7 +541,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 4: Stdio 路径适配
 
 **Files:**
-- Modify: `peri-acp/src/session/event_sink.rs`
+- Modify: `cc-acp/src/session/event_sink.rs`
 
 - [ ] **Step 1: 验证 StdioEventSink 行为**
 
@@ -570,8 +570,8 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 5: 更新现有测试
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_test.rs`
-- Modify: `peri-agent/src/agent/executor/mod_test.rs`
+- Modify: `cc-tui/src/app/agent_test.rs`
+- Modify: `cc-agent/src/agent/executor/mod_test.rs`
 - Modify: 其他引用 `LlmCallEnd` / `Reasoning` 的测试文件
 
 - [ ] **Step 1: 修复 agent_test.rs**
@@ -579,8 +579,8 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 搜索所有测试中构造 `ExecutorEvent::LlmCallEnd` 或 `Reasoning` 的地方，添加 `stop_reason` 字段：
 
 ```bash
-grep -rn "LlmCallEnd" --include="*_test.rs" peri-agent/ peri-acp/ peri-tui/
-grep -rn "Reasoning::" --include="*_test.rs" peri-agent/ peri-acp/ peri-tui/
+grep -rn "LlmCallEnd" --include="*_test.rs" cc-agent/ cc-acp/ cc-tui/
+grep -rn "Reasoning::" --include="*_test.rs" cc-agent/ cc-acp/ cc-tui/
 ```
 
 对每个匹配点：

@@ -14,17 +14,17 @@
 
 | 文件 | 操作 | 职责变更 |
 |------|------|----------|
-| `peri-tui/src/app/message_pipeline/mod.rs` | 修改 | 新增 `StreamingMode` 枚举 + `MessagePipeline` 字段 + `check_throttle()` 分支 + Block 边界检测 + `set_streaming_mode()` |
-| `peri-tui/src/app/message_pipeline/message_pipeline_test.rs` | 修改 | 新增 StreamingMode 相关单元测试 |
-| `peri-tui/src/app/agent_submit.rs` | 修改 | 入口拦截 `/streaming` 命令 |
-| `peri-tui/src/ui/main_ui/status_bar.rs` | 修改 | 第一行显示当前模式标签 |
+| `cc-tui/src/app/message_pipeline/mod.rs` | 修改 | 新增 `StreamingMode` 枚举 + `MessagePipeline` 字段 + `check_throttle()` 分支 + Block 边界检测 + `set_streaming_mode()` |
+| `cc-tui/src/app/message_pipeline/message_pipeline_test.rs` | 修改 | 新增 StreamingMode 相关单元测试 |
+| `cc-tui/src/app/agent_submit.rs` | 修改 | 入口拦截 `/streaming` 命令 |
+| `cc-tui/src/ui/main_ui/status_bar.rs` | 修改 | 第一行显示当前模式标签 |
 
 ---
 
 ## Task 1: 新增 `StreamingMode` 枚举和 Pipeline 字段
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 - [ ] **Step 1: 在 `AdaptiveChunkingPolicy` 定义之前（约第 40 行 `// ─── 自适应分块策略` 注释处）添加 `StreamingMode` 枚举**
 
@@ -98,13 +98,13 @@ pub(crate) enum StreamingMode {
 
 - [ ] **Step 5: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 成功（新字段有默认值，不影响现有逻辑）
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat(tui): add StreamingMode enum and pipeline fields"
 ```
 
@@ -113,7 +113,7 @@ git commit -m "feat(tui): add StreamingMode enum and pipeline fields"
 ## Task 2: Block 模式边界检测和 flush 逻辑
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 - [ ] **Step 1: 在 `MessagePipeline` impl 中（`push_reasoning()` 方法之后）添加 Block 缓冲区方法**
 
@@ -217,13 +217,13 @@ git commit -m "feat(tui): add StreamingMode enum and pipeline fields"
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 成功
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat(tui): implement Block mode boundary detection and flush logic"
 ```
 
@@ -232,7 +232,7 @@ git commit -m "feat(tui): implement Block mode boundary detection and flush logi
 ## Task 3: 修改 `check_throttle()` 支持三模式分支
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 - [ ] **Step 1: 修改 `check_throttle()` 方法，根据模式分支**
 
@@ -318,13 +318,13 @@ git commit -m "feat(tui): implement Block mode boundary detection and flush logi
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 成功
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat(tui): check_throttle three-mode branching (Streaming/Block/None)"
 ```
 
@@ -333,7 +333,7 @@ git commit -m "feat(tui): check_throttle three-mode branching (Streaming/Block/N
 ## Task 4: 在 `handle_event()` 关键事件中强制 flush Block 缓冲区
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 - [ ] **Step 1: 在 `handle_event` 的 `ToolStart` 分支中，`self.adaptive_policy.drain();` 之后添加 Block flush**
 
@@ -377,13 +377,13 @@ git commit -m "feat(tui): check_throttle three-mode branching (Streaming/Block/N
 
 - [ ] **Step 6: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 成功
 
 - [ ] **Step 7: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat(tui): force flush block buffer on ToolStart/ToolEnd/Done/Interrupt/StateSnapshot"
 ```
 
@@ -392,7 +392,7 @@ git commit -m "feat(tui): force flush block buffer on ToolStart/ToolEnd/Done/Int
 ## Task 5: 单元测试——StreamingMode 核心逻辑
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/message_pipeline_test.rs`
+- Modify: `cc-tui/src/app/message_pipeline/message_pipeline_test.rs`
 
 - [ ] **Step 1: 在测试文件末尾添加 StreamingMode 测试**
 
@@ -568,13 +568,13 @@ fn test_done_flushes_block_buffer() {
 
 - [ ] **Step 2: 运行测试**
 
-Run: `cargo test -p peri-tui -- streaming_mode 2>&1 | tail -20`
+Run: `cargo test -p cc-tui -- streaming_mode 2>&1 | tail -20`
 Expected: 所有新增测试通过
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add peri-tui/src/app/message_pipeline/message_pipeline_test.rs
+git add cc-tui/src/app/message_pipeline/message_pipeline_test.rs
 git commit -m "test(tui): add StreamingMode unit tests (TDD)"
 ```
 
@@ -583,7 +583,7 @@ git commit -m "test(tui): add StreamingMode unit tests (TDD)"
 ## Task 6: `/streaming` TUI 本地命令拦截
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_submit.rs`
+- Modify: `cc-tui/src/app/agent_submit.rs`
 
 - [ ] **Step 1: 在 `submit_message()` 方法入口处（空输入检查之后）添加 `/streaming` 拦截**
 
@@ -683,9 +683,9 @@ git commit -m "test(tui): add StreamingMode unit tests (TDD)"
 
 - [ ] **Step 4: 添加 i18n 键值**
 
-在 i18n 资源文件中添加以下键值（需要找到对应的语言文件，通常在 `peri-tui/src/i18n/` 或 `peri-tui/locales/` 中）。先搜索现有的 i18n 文件位置：
+在 i18n 资源文件中添加以下键值（需要找到对应的语言文件，通常在 `cc-tui/src/i18n/` 或 `cc-tui/locales/` 中）。先搜索现有的 i18n 文件位置：
 
-Run: `find peri-tui -name "*.json" -path "*/i18n/*" -o -name "*.json" -path "*/locale*" 2>/dev/null | head -5`
+Run: `find cc-tui -name "*.json" -path "*/i18n/*" -o -name "*.json" -path "*/locale*" 2>/dev/null | head -5`
 
 根据找到的文件，添加以下键（中文）：
 ```json
@@ -703,13 +703,13 @@ Run: `find peri-tui -name "*.json" -path "*/i18n/*" -o -name "*.json" -path "*/l
 
 - [ ] **Step 5: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -20`
+Run: `cargo build -p cc-tui 2>&1 | tail -20`
 Expected: 成功（可能需要根据 i18n 系统的实际 API 调整 `tr_args` 参数格式）
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add peri-tui/src/app/agent_submit.rs peri-tui/src/app/message_pipeline/mod.rs
+git add cc-tui/src/app/agent_submit.rs cc-tui/src/app/message_pipeline/mod.rs
 git commit -m "feat(tui): add /streaming local command for render mode switching"
 ```
 
@@ -718,7 +718,7 @@ git commit -m "feat(tui): add /streaming local command for render mode switching
 ## Task 7: Status Bar 显示当前模式
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/status_bar.rs`
+- Modify: `cc-tui/src/ui/main_ui/status_bar.rs`
 
 - [ ] **Step 1: 在 `render_first_row` 函数中，模型名之后（进程资源监控之前）添加渲染模式标签**
 
@@ -746,13 +746,13 @@ git commit -m "feat(tui): add /streaming local command for render mode switching
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 成功
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add peri-tui/src/ui/main_ui/status_bar.rs
+git add cc-tui/src/ui/main_ui/status_bar.rs
 git commit -m "feat(tui): show streaming mode label in status bar"
 ```
 
@@ -767,14 +767,14 @@ git commit -m "feat(tui): show streaming mode label in status bar"
 Run: `cargo build 2>&1 | tail -10`
 Expected: 成功
 
-- [ ] **Step 2: 运行 peri-tui 全量测试**
+- [ ] **Step 2: 运行 cc-tui 全量测试**
 
-Run: `cargo test -p peri-tui 2>&1 | tail -30`
+Run: `cargo test -p cc-tui 2>&1 | tail -30`
 Expected: 所有测试通过
 
 - [ ] **Step 3: Clippy 检查**
 
-Run: `cargo clippy -p peri-tui 2>&1 | tail -20`
+Run: `cargo clippy -p cc-tui 2>&1 | tail -20`
 Expected: 无新 warning
 
 - [ ] **Step 4: 运行 pre-commit hooks**
