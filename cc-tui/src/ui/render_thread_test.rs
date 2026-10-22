@@ -1010,13 +1010,13 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line.contains("⎿ Running…")),
+            .any(|line| line.contains("⎿  Running…")),
         "超过 2 秒后缓存中应出现 Running 状态行: {rendered_lines:?}"
     );
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line == "    (ctrl+b to run in background)"),
+            .any(|line| line == "     (ctrl+b to run in background)"),
         "Ctrl+B 提示应作为缩进行缓存: {rendered_lines:?}"
     );
 }
@@ -1111,7 +1111,7 @@ fn test_refresh_running_bash_multiline_header_keeps_command_and_status() {
         "状态刷新不得覆盖 header 命令续行: {after:?}"
     );
     // 2) 状态行应恰好出现一次
-    let running_count = after.iter().filter(|l| l.contains("⎿ Running…")).count();
+    let running_count = after.iter().filter(|l| l.contains("⎿  Running…")).count();
     assert_eq!(
         running_count, 1,
         "状态行应恰好出现一次（多行 header 下不应重复/丢失）: {after:?}"

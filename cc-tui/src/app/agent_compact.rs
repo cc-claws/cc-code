@@ -1,4 +1,5 @@
 use super::{message_pipeline::PipelineAction, *};
+use crate::ui::branch_prefix::BranchPrefix;
 use cc_agent::{agent::events::CompactFileInfo, messages::BaseMessage};
 
 impl App {
@@ -47,10 +48,19 @@ impl App {
         }
         let mut label_lines = vec![format!("✻ {}", self.services.lc.tr("app-compact-done"))];
         for f in &files {
-            label_lines.push(format!("  ⎿  Read {} ({} lines)", f.path, f.lines));
+            label_lines.push(format!(
+                "{}Read {} ({} lines)",
+                BranchPrefix::PREFIX,
+                f.path,
+                f.lines
+            ));
         }
         if !skills.is_empty() {
-            label_lines.push(format!("  ⎿  Skill: {}", skills.join(", ")));
+            label_lines.push(format!(
+                "{}Skill: {}",
+                BranchPrefix::PREFIX,
+                skills.join(", ")
+            ));
         }
         let compact_label = label_lines.join("\n");
 

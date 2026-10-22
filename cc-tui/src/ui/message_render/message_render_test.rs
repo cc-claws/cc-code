@@ -279,15 +279,15 @@ fn test_shell_command_render_uses_command_block_layout() {
     );
     assert_eq!(
         rendered_lines[1],
-        "  ⎿ [example-service] Stopping old instance on 20130..."
+        "  ⎿  [example-service] Stopping old instance on 20130..."
     );
     assert_eq!(
         rendered_lines[2],
-        "    [example-service] Starting http://localhost:20130"
+        "     [example-service] Starting http://localhost:20130"
     );
     assert_eq!(
         rendered_lines[3],
-        "    [example-service] Startup timed out, check .example-service-err.log"
+        "     [example-service] Startup timed out, check .example-service-err.log"
     );
     assert!(
         rendered_lines
@@ -331,7 +331,7 @@ fn test_shell_command_render_no_output_uses_command_block_placeholder() {
     let lines = render_view_model(&vm, None, 80, false, 0);
     let text = rendered_text(&lines);
     assert!(text.contains("! sleep 30 && gh pr checks 18"));
-    assert!(text.contains("  ⎿ (No output)"));
+    assert!(text.contains("  ⎿  (No output)"));
     assert!(!text.contains("(no output)"));
 }
 
@@ -501,14 +501,14 @@ fn test_running_bash_toolblock_after_threshold_shows_control_b_hint() {
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line.contains("⎿ Running… (39s)")),
+            .any(|line| line.contains("⎿  Running… (39s)")),
         "Bash 运行状态应显示 Running… 和已运行时间: {rendered_lines:?}"
     );
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line == "    (ctrl+b to run in background)"),
-        "Ctrl+B 提示应作为缩进行显示，不应重复 ⎿: {rendered_lines:?}"
+            .any(|line| line == "     (ctrl+b to run in background)"),
+        "Ctrl+B 提示应作为悬挂缩进行显示，不应重复 ⎿: {rendered_lines:?}"
     );
     assert!(
         !rendered_lines
@@ -615,7 +615,7 @@ fn test_backgrounded_bash_renders_timeout_with_minute_and_second() {
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line == "    (timeout 9m 20s)"),
+            .any(|line| line == "     (timeout 9m 20s)"),
         "后台化 Bash 的期限行应为「分 + 秒」写法: {rendered_lines:?}"
     );
 }
@@ -651,13 +651,13 @@ fn test_backgrounded_bash_shows_manage_status_and_timeout_not_ctrl_b_hint() {
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line == "  ⎿ Running in the background (↓ to manage)"),
+            .any(|line| line == "  ⎿  Running in the background (↓ to manage)"),
         "后台化后应显示可管理状态: {rendered_lines:?}"
     );
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line == "    (timeout 10m)"),
+            .any(|line| line == "     (timeout 10m)"),
         "应保留真实执行期限: {rendered_lines:?}"
     );
     assert!(
@@ -778,8 +778,9 @@ fn test_tool_block_detail_mode_includes_diff_lines() {
         "详细模式应按当前 width 渲染 diff_input"
     );
     assert!(
-        detail_text.contains("  ⎿ "),
-        "diff 行应带缩进前缀 `  ⎿ `，实际: {}",
+        detail_text.contains(BranchPrefix::PREFIX),
+        "diff 行应带分支前缀 `{}`，实际: {}",
+        BranchPrefix::PREFIX,
         detail_text
     );
 }
@@ -821,7 +822,10 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
         on.contains("new line"),
         "开关开启时普通页面应显示 diff: {on}"
     );
-    assert!(on.contains("  ⎿ "), "diff 行应带缩进前缀: {on}");
+    assert!(
+        on.contains(BranchPrefix::PREFIX),
+        "diff 行应带分支前缀: {on}"
+    );
     assert!(
         detail.contains("new line"),
         "详细模式与开关无关，应恒显示 diff: {detail}"
@@ -1138,16 +1142,16 @@ fn test_bash_tool_block_promotes_exit_code_and_indents_body() {
 
     // 第 0 行是 Header：● Bash(gh pr checks 550)
     assert!(lines[0].contains("Bash(gh pr checks 550)"));
-    // 第 1 行是提升的错误行：  ⎿ Error: Exit code 8
+    // 第 1 行是提升的错误行：  ⎿  Error: Exit code 8
     assert!(
-        lines[1].starts_with("  ⎿ ") && lines[1].contains("Error: Exit code 8"),
+        lines[1].starts_with(BranchPrefix::PREFIX) && lines[1].contains("Error: Exit code 8"),
         "第 1 行应为提升后的错误头: {:?}",
         lines[1]
     );
-    // 第 2 行开始为正文缩进：    CI Checks Summary:
+    // 第 2 行开始为正文悬挂缩进：     CI Checks Summary:
     assert!(
-        lines[2].starts_with("    ") && lines[2].contains("CI Checks Summary:"),
-        "正文首行应 4 格缩进: {:?}",
+        lines[2].starts_with(BranchPrefix::HANG) && lines[2].contains("CI Checks Summary:"),
+        "正文首行应悬挂缩进: {:?}",
         lines[2]
     );
     // 末尾不应残留 [Exit code: 8]
@@ -1736,8 +1740,8 @@ fn test_bash_zero_exit_result_lines_use_soft_color() {
     let first_result = &lines[1];
     assert_eq!(
         first_result.spans[0].style.fg,
-        Some(crate::ui::theme::cur().subtle),
-        "零 exit code 的 Bash ⎿ 前缀应保持 DIM"
+        Some(crate::ui::theme::cur().inactive),
+        "零 exit code 的 Bash ⎿ 前缀应为 INACTIVE 亮灰"
     );
     assert_eq!(
         first_result.spans[1].style.fg,
@@ -2419,21 +2423,22 @@ fn test_tool_block_long_json_wraps_with_hanging_indent() {
     }
     // 首行前缀应与内容同行，不被超长无空格内容挤成独立空行
     assert!(
-        text_lines[1].starts_with("  ⎿ ") && text_lines[1].len() > "  ⎿ ".len(),
+        text_lines[1].starts_with(BranchPrefix::PREFIX)
+            && text_lines[1].len() > BranchPrefix::PREFIX.len(),
         "首行前缀应与内容同行: {:?}",
         text_lines[1]
     );
-    // 续行必须保留 4 列悬挂缩进，不能顶格
+    // 续行必须保留悬挂缩进，不能顶格
     assert!(
         text_lines
             .iter()
             .skip(2)
-            .any(|l| l.starts_with("    ") && !l.trim().is_empty()),
-        "长 JSON 续行应保留 4 列悬挂缩进: {text_lines:?}"
+            .any(|l| l.starts_with(BranchPrefix::HANG) && !l.trim().is_empty()),
+        "长 JSON 续行应保留悬挂缩进: {text_lines:?}"
     );
 }
 
-/// 错误摘要长行同样必须预折行，续行保持 4 列悬挂缩进（图1 场景）。
+/// 错误摘要长行同样必须预折行，续行保持悬挂缩进（图1 场景）。
 #[test]
 fn test_error_summary_long_line_wraps_with_hanging_indent() {
     let content = "Tool execution failed: Grep - Invalid arguments for tool Grep:\nUnexpected parameter 'command' was provided (allowed parameters: [\"-A\", \"-B\", \"-C\", \"-i\", \"-n\", \"fixed_strings\", \"glob\", \"output_mode\", \"path\", \"pattern\", \"type\", \"whole_word\"])";
@@ -2447,18 +2452,42 @@ fn test_error_summary_long_line_wraps_with_hanging_indent() {
         assert!(w <= width, "错误摘要行宽应 ≤ {width}，实际 {w}: {l:?}");
     }
     assert!(
-        text_lines[0].starts_with("  ⎿ "),
+        text_lines[0].starts_with(BranchPrefix::PREFIX),
         "错误摘要首行应带 ⎿ 前缀: {:?}",
         text_lines[0]
     );
-    // 超长 allowed parameters 行折行后的续行应保留 4 列缩进
+    // 超长 allowed parameters 行折行后的续行应保留悬挂缩进
     assert!(
         text_lines
             .iter()
             .skip(2)
-            .any(|l| l.starts_with("    ") && !l.trim().is_empty()),
-        "错误摘要续行应保留 4 列悬挂缩进: {text_lines:?}"
+            .any(|l| l.starts_with(BranchPrefix::HANG) && !l.trim().is_empty()),
+        "错误摘要续行应保留悬挂缩进: {text_lines:?}"
     );
+}
+
+/// Compact 完成通知中的 `⎿` 行不得被 SystemNote 兜底分支追加 `· ` 圆点。
+#[test]
+fn test_compact_done_rendering_no_bullet_prefix() {
+    let content = "✻ Context compacted\n  ⎿  Read src/main.rs (120 lines)\n  ⎿  Skill: rust";
+    let vm = MessageViewModel::SystemNote {
+        content: content.to_string(),
+        content_hash: 0,
+        detail_content: None,
+    };
+    let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
+        .iter()
+        .map(line_plain_text)
+        .collect();
+    assert_eq!(text_lines[0], "✻ Context compacted");
+    assert_eq!(text_lines[1], "  ⎿  Read src/main.rs (120 lines)");
+    assert_eq!(text_lines[2], "  ⎿  Skill: rust");
+    for line in &text_lines {
+        assert!(
+            !line.contains("· "),
+            "compact 结果行不应出现兜底圆点: {line:?}"
+        );
+    }
 }
 
 /// 返回 lines 中最长一行的显示宽度

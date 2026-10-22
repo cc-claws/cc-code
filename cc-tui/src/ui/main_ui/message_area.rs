@@ -13,6 +13,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::{
     app::{text_selection::PresentedSelectionSnapshot, App, MessageScrollbarMetrics},
     ui::{
+        branch_prefix::BranchPrefix,
         render_thread::{RenderCache, RenderEvent},
         theme, welcome,
     },
@@ -767,7 +768,7 @@ fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<L
             if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("  ⎿  {label}: "),
+                        format!("{}{label}: ", BranchPrefix::PREFIX),
                         Style::default().fg(theme::cur().inactive),
                     ),
                     Span::styled(text, Style::default().fg(theme::cur().inactive)),
