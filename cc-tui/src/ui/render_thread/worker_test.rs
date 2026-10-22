@@ -430,3 +430,75 @@ async fn test_worker_resize_preserves_following_strategy_and_detail_events() {
         .iter()
         .any(|line| line.to_string().contains("last detail line")));
 }
+
+/// 事件间隔短于 tick 间隔时，`Running… (Xs)` 秒数仍必须持续推进。
+///
+/// 旧实现每轮循环重建 `sleep(200ms)`，50ms 一次的视口上报会永远抢先于 sleep，
+/// 让 tick 一次都跑不到（真机症状：秒数冻结、指示器不动，按 Ctrl+O 才跳一次）。
+#[tokio::test]
+async fn test_worker_tick_not_starved_by_viewport_flood() {
+    use crate::ui::message_view::ToolPhase;
+
+    fn running_text(cache: &Arc<RwLock<RenderCache>>) -> String {
+        cache
+            .read()
+            .lines
+            .iter()
+            .map(|line| line.to_string())
+            .find(|text| text.contains("Running…"))
+            .unwrap_or_else(|| "<no running line>".to_owned())
+    }
+
+    let (tx, cache, notify) = spawn_render_thread(80);
+    let mut vm = MessageViewModel::tool_block(
+        "Bash".to_owned(),
+        "Bash".to_owned(),
+        Some("sleep 60".to_owned()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock {
+        phase, started_at, ..
+    } = &mut vm
+    {
+        *phase = ToolPhase::Running;
+        *started_at = Some(std::time::Instant::now() - Duration::from_secs(3));
+    }
+    vm.recompute_hash();
+    tx.send(RenderEvent::Rebuild(vec![vm.clone()]))
+        .await
+        .unwrap();
+    make_wait_for_version(&cache, &notify, 1).await;
+
+    let flood_tx = tx.clone();
+    let flood = tokio::spawn(async move {
+        loop {
+            if flood_tx
+                .send(RenderEvent::Viewport {
+                    top: 0,
+                    height: 8,
+                    follow_tail: true,
+                    anchor: None,
+                })
+                .await
+                .is_err()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+    tokio::time::sleep(Duration::from_millis(2600)).await;
+    let first = running_text(&cache);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let second = running_text(&cache);
+    flood.abort();
+    assert!(
+        first.contains("Running…"),
+        "超过 2 秒应出现运行状态行；first={first:?}"
+    );
+    assert_ne!(
+        first, second,
+        "tick 不应被事件洪泛饿死；first={first:?} second={second:?}"
+    );
+}
