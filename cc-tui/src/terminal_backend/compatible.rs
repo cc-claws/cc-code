@@ -57,6 +57,12 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
         if symbol.is_ascii() {
             return Cow::Borrowed(cell);
         }
+        // 含控制字符的 symbol 一定是终端转义序列（如 OSC 8 超链接的
+        // `ESC ]8;;…`），不是可测量的字形。直接原样输出，否则会被当作
+        // 宽字符去量列宽并替换成降级字形，链接失效且整行错位。
+        if symbol.chars().any(char::is_control) {
+            return Cow::Borrowed(cell);
+        }
         if !self.symbols.contains_key(symbol) {
             // Bound memory for long sessions containing many different graphemes.
             if self.symbols.len() >= 4096 {
