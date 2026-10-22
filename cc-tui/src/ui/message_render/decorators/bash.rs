@@ -1,8 +1,9 @@
 use super::output_line::try_json_format_content;
 use super::ToolDisplayLine;
+use crate::ui::branch_prefix::BranchPrefix;
 
-pub const BRANCH_PREFIX: &str = "  ⎿ ";
-pub const INDENT_PREFIX: &str = "    ";
+pub const BRANCH_PREFIX: &str = BranchPrefix::PREFIX;
+pub const INDENT_PREFIX: &str = BranchPrefix::HANG;
 
 /// 从 Bash 工具输出中解析 exit code。
 ///
@@ -47,11 +48,11 @@ pub fn strip_exit_code_suffix(content: &str) -> &str {
 /// 将 Bash 命令输出转换为结构化渲染行。
 ///
 /// 1. 失败时（非零退出码）：
-///    - 首行提升为 `Error: Exit code {code}` 并挂在树形折角 `  └ `
+///    - 首行提升为 `Error: Exit code {code}` 并挂在树形折角 [`BranchPrefix::PREFIX`]
 ///    - 剥离末尾冗余的 `[Exit code: {code}]` 标记
-///    - 正文（stdout/stderr）作为子内容统一以 `    ` 缩进
+///    - 正文（stdout/stderr）作为子内容统一以 [`BranchPrefix::HANG`] 缩进
 /// 2. 成功时（0 或无退出码）：
-///    - 首行挂 `  └ `，后续行 `    ` 缩进
+///    - 首行挂 [`BranchPrefix::PREFIX`]，后续行 [`BranchPrefix::HANG`] 缩进
 ///
 /// 正文先经 [`try_json_format_content`] 尝试 JSON 美化（对齐 CC
 /// `OutputLine` → `tryJsonFormatContent`）：单行 JSON 会展开成 2 空格缩进的多行。
@@ -110,7 +111,7 @@ fn push_body_lines<'a>(lines: &mut Vec<ToolDisplayLine<'a>>, body: &'a str, rese
     }
 }
 
-/// 正文行的树形前缀：只有「整段结果的第一行」用分支折角 `  ⎿ `，
+/// 正文行的树形前缀：只有「整段结果的第一行」用分支折角 [`BranchPrefix::PREFIX`]，
 /// 其余一律缩进。`reserve_first` 为真表示首行已被错误头占用，正文全用缩进。
 fn body_prefix(index: usize, reserve_first: bool) -> &'static str {
     if index == 0 && !reserve_first {

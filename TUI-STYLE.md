@@ -126,7 +126,7 @@
 | Completed | `⏺` | SAGE | TEXT + BOLD |
 | Failed | `✗` | ERROR | TEXT + BOLD |
 
-工具结果行格式：` ⎿ ` 前缀（DIM 色）+ 内容（MUTED 色或 ERROR 色）。错误折叠时显示 error_summary（最多 400 Unicode 字符，DIM `⎿` 前缀）。
+工具结果行格式：`  ⎿  ` 前缀（5 列：前 2 空格 + `⎿` + 后 2 空格；INACTIVE 色，失败时 ERROR 色）+ 内容（TEXT_SOFT 色，失败时 ERROR 色）。多行输出的续行使用 5 空格悬挂缩进（`BranchPrefix::HANG`），正文严格左对齐。错误折叠时显示 error_summary（最多 400 Unicode 字符，ERROR 色 `⎿` 前缀）。
 
 ### URL 链接着色（工具结果 / `!` 命令输出）
 
@@ -148,14 +148,14 @@
 
 ```
 ⏺ User answered CC Code's questions:
-  ⎿ · header → answer
-  ⎿ · header2 → answer2
+  ⎿  · header → answer
+  ⎿  · header2 → answer2
 ```
 
 - 标题行：`⏺` (SAGE) + 标题文字 (TEXT)
-- 结果行：`⎿` (DIM) + `·` (DIM) + `header → answer` (MUTED)
+- 结果行：`  ⎿  ` (INACTIVE) + `· ` (INACTIVE) + `header → answer` (MUTED)
 - 解析工具输出 `[问: H]\n回答: V` 格式，重新格式化为 `H → V`
-- 错误态：指示器和标题使用 ERROR 色
+- 错误态：指示器、标题与前缀均使用 ERROR 色
 
 ### SubAgent 启动摘要（普通 / 详细双态）
 
@@ -286,7 +286,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 动画帧：16 个 Unicode 符号循环（`✳✴✵✶✷✸✹✺✻✼❃❊…`），每 200ms 推进一帧。
 Verb 列表：128 个中文烹饪/动作动词随机选择。
-Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。调度对齐 CC（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
+Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果行共享 `BranchPrefix` 规范；INACTIVE 色）。调度对齐 CC（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
 
 ## Todo 列表
 

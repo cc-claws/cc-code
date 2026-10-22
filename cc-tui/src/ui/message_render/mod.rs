@@ -14,6 +14,7 @@ use decorators::{
 };
 
 use super::{
+    branch_prefix::BranchPrefix,
     message_view::{
         AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
     },
@@ -75,7 +76,7 @@ pub(crate) fn shell_running_text(
     format!("Running… ({elapsed}){timeout}")
 }
 
-/// Bash 运行状态行（`"  ⎿ Running… (Xs)"`）中状态文本的固定前缀。
+/// Bash 运行状态行（`"  ⎿  Running… (Xs)"`）中状态文本的固定前缀。
 pub(crate) const SHELL_RUNNING_TEXT_PREFIX: &str = "Running…";
 
 /// 判断某渲染行是否为 Bash "⎿ Running…" 运行状态行。
@@ -84,7 +85,7 @@ pub(crate) const SHELL_RUNNING_TEXT_PREFIX: &str = "Running…";
 /// 折成多行，状态行下标不再固定为 1（issue：固定写下标 1 会覆盖命令续行）。
 pub(crate) fn is_shell_running_status_line(line: &Line<'static>) -> bool {
     line.spans.len() >= 2
-        && line.spans[0].content == "  ⎿ "
+        && BranchPrefix::is_branch_line(line)
         && line.spans[1].content.starts_with(SHELL_RUNNING_TEXT_PREFIX)
 }
 
@@ -630,7 +631,9 @@ fn format_prefixed_text(
     content_width: usize,
 ) -> Vec<Line<'static>> {
     let line = Line::from(style_urls(&sanitize_display_text(text), text_style));
-    format_wrapped_line_keep_lead(line, first_prefix, "    ", prefix_style, content_width)
+    // 续行悬挂缩进与首行前缀等宽，保证正文左对齐且总宽不溢出。
+    let hang = " ".repeat(UnicodeWidthStr::width(first_prefix));
+    format_wrapped_line_keep_lead(line, first_prefix, &hang, prefix_style, content_width)
 }
 
 /// 把 Write 的 `Wrote N lines <path>` 结果行重绘为 CC 的样式
@@ -713,7 +716,7 @@ fn push_visual_capped_output<T, F>(
             let remaining_logical = total.saturating_sub(i);
             let hint = format_expand_hint(remaining_logical);
             out.push(Line::from(vec![
-                Span::styled("    ", Style::default().fg(border_color)),
+                Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
                 Span::styled(hint, Style::default().fg(theme::cur().subtle)),
             ]));
             return;
@@ -727,7 +730,7 @@ fn push_visual_capped_output<T, F>(
                 let remaining_logical = total - (i + 1);
                 let hint = format_expand_hint(remaining_logical);
                 out.push(Line::from(vec![
-                    Span::styled("    ", Style::default().fg(border_color)),
+                    Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
                     Span::styled(hint, Style::default().fg(theme::cur().subtle)),
                 ]));
                 return;
@@ -737,7 +740,7 @@ fn push_visual_capped_output<T, F>(
             let remaining_logical = total.saturating_sub(i + 1);
             let hint = format_expand_hint(remaining_logical);
             out.push(Line::from(vec![
-                Span::styled("    ", Style::default().fg(border_color)),
+                Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
                 Span::styled(hint, Style::default().fg(theme::cur().subtle)),
             ]));
             return;
@@ -753,7 +756,7 @@ fn push_visual_capped_output<T, F>(
 /// 超出时追加 `… +N lines (ctrl+o to expand)` 提示。字符级截断兜底防止超长单行。
 fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Line<'static>> {
     let truncated: String = content.chars().take(400).collect();
-    let content_width = width.saturating_sub(4).max(20);
+    let content_width = BranchPrefix::content_width(width);
     let all: Vec<&str> = truncated.lines().collect();
     let mut out = Vec::new();
     for (i, line) in all.iter().enumerate() {
@@ -761,17 +764,21 @@ fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Lin
             let hidden = all.len() - max_lines;
             let hint = format_expand_hint(hidden);
             out.push(Line::from(Span::styled(
-                format!("    {hint}"),
+                format!("{}{hint}", BranchPrefix::HANG),
                 Style::default().fg(theme::cur().subtle),
             )));
             break;
         }
-        let first_prefix = if i == 0 { "  ⎿ " } else { "    " };
+        let first_prefix = if i == 0 {
+            BranchPrefix::PREFIX
+        } else {
+            BranchPrefix::HANG
+        };
         push_prefixed_text(
             &mut out,
             line,
             first_prefix,
-            Style::default().fg(theme::cur().subtle),
+            Style::default().fg(theme::cur().error),
             Style::default().fg(theme::cur().error),
             content_width,
         );
@@ -932,7 +939,7 @@ fn render_batch_summary(
                 width.saturating_sub(6).max(20),
             );
 
-            // final_result 行（首行前缀 "     ⎿ " = 7 列，续行对齐 7 列）
+            // final_result 行（嵌套折角 = NESTED_WIDTH 列，续行对齐同宽）
             if let Some(ref result) = agent.final_result {
                 if !result.is_empty() {
                     push_wrapped_line_keep_lead(
@@ -941,10 +948,10 @@ fn render_batch_summary(
                             sanitize_display_text(result),
                             Style::default().fg(theme::cur().inactive),
                         )),
-                        "     ⎿ ",
-                        "       ",
-                        Style::default().fg(theme::cur().subtle),
-                        width.saturating_sub(7).max(20),
+                        BranchPrefix::NESTED_PREFIX,
+                        BranchPrefix::NESTED_HANG,
+                        Style::default().fg(theme::cur().inactive),
+                        BranchPrefix::nested_content_width(width),
                     );
                 }
             }
@@ -985,10 +992,14 @@ fn render_ask_user_block(content: &str, is_error: bool, width: usize) -> Vec<Lin
                     theme::cur().inactive
                 }),
             )),
-            "  ⎿ ",
-            "    ",
-            Style::default().fg(theme::cur().subtle),
-            width.saturating_sub(4).max(20),
+            BranchPrefix::PREFIX,
+            BranchPrefix::HANG,
+            Style::default().fg(if is_error {
+                theme::cur().error
+            } else {
+                theme::cur().inactive
+            }),
+            BranchPrefix::content_width(width),
         );
     }
 
@@ -1114,8 +1125,8 @@ fn ansi_spans(line: &str, default_style: Style) -> Vec<Span<'static>> {
 
 /// 渲染一行 `!` 命令输出（保留 ANSI 着色）并按视口宽度预折行。
 ///
-/// 首行用 `prefix`、续行用 4 列空格，形成悬挂缩进；不设背景色，与工具结果行
-/// （`⎿` 前缀 + DIM/ERROR 前景色）保持一致。
+/// 首行用 `prefix`、续行用 [`BranchPrefix::HANG`]，形成悬挂缩进；不设背景色，与工具结果行
+/// （`⎿` 前缀 + INACTIVE/ERROR 前景色）保持一致。
 /// 预折行避免 `Paragraph::wrap` 二次硬折行使长输出续行顶格。
 fn format_shell_output_lines(
     prefix: &str,
@@ -1134,9 +1145,9 @@ fn format_shell_output_lines(
     format_wrapped_line_keep_lead(
         Line::from(content),
         prefix,
-        "    ",
+        BranchPrefix::HANG,
         prefix_style,
-        width.saturating_sub(4).max(20),
+        BranchPrefix::content_width(width),
     )
 }
 
@@ -1209,10 +1220,10 @@ fn render_shell_command(
         };
         shell_output_lines(
             &mut lines,
-            "  ⎿ ",
+            BranchPrefix::PREFIX,
             text,
-            Style::default().fg(theme::cur().subtle),
-            theme::cur().subtle,
+            Style::default().fg(theme::cur().text_soft),
+            theme::cur().inactive,
             width,
         );
     } else {
@@ -1237,9 +1248,13 @@ fn render_shell_command(
                 let prefix_color = if *is_error && exit_code != Some(0) {
                     theme::cur().error
                 } else {
-                    theme::cur().subtle
+                    theme::cur().inactive
                 };
-                let prefix = if idx == 0 { "  ⎿ " } else { "    " };
+                let prefix = if idx == 0 {
+                    BranchPrefix::PREFIX
+                } else {
+                    BranchPrefix::HANG
+                };
                 format_shell_output_lines(prefix, line, default_style, prefix_color, width)
             },
         );
@@ -1259,7 +1274,7 @@ fn render_shell_command(
         };
         shell_output_lines(
             &mut lines,
-            "    ",
+            BranchPrefix::HANG,
             &elapsed_str,
             Style::default().fg(theme::cur().inactive),
             theme::cur().subtle,
@@ -1267,7 +1282,7 @@ fn render_shell_command(
         );
         shell_output_lines(
             &mut lines,
-            "    ",
+            BranchPrefix::HANG,
             CONTROL_B_BACKGROUND_HINT,
             Style::default().fg(theme::cur().inactive),
             theme::cur().subtle,
@@ -1487,22 +1502,25 @@ pub fn render_view_model_with_flags(
                             None
                         };
                         if let Some(content_text) = content {
-                            // 减去前缀宽度（"  ⎿ " 或 "    " = 4 字符）
-                            let content_width = width.saturating_sub(4).max(20);
+                            let content_width = BranchPrefix::content_width(width);
                             let parsed =
                                 super::markdown::parse_markdown(content_text, content_width);
                             let dimmed = dim_markdown_lines(parsed);
                             for (i, line) in dimmed.into_iter().enumerate() {
-                                // 折行：长段落按 content_width 切成多行，每行加 4 列前缀
+                                // 折行：长段落按 content_width 切成多行，每行加分支前缀
                                 // 后不会超过 width，避免 Paragraph::wrap 二次折行使续行
                                 // 缺少缩进
                                 for (j, wline) in
                                     wrap_line_spans(line, content_width).into_iter().enumerate()
                                 {
-                                    let prefix = if i == 0 && j == 0 { "  ⎿ " } else { "    " };
+                                    let prefix = if i == 0 && j == 0 {
+                                        BranchPrefix::PREFIX
+                                    } else {
+                                        BranchPrefix::HANG
+                                    };
                                     let mut spans = vec![Span::styled(
                                         prefix,
-                                        Style::default().fg(theme::cur().subtle),
+                                        Style::default().fg(theme::cur().inactive),
                                     )];
                                     spans.extend(wline.spans);
                                     lines.push(Line::from(spans));
@@ -1659,16 +1677,19 @@ pub fn render_view_model_with_flags(
                     )
                 };
                 lines.push(Line::from(vec![
-                    Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
+                    BranchPrefix::span(false),
                     Span::styled(
-                        truncate_to_display_width(&summary, width.saturating_sub(4)),
+                        truncate_to_display_width(
+                            &summary,
+                            width.saturating_sub(BranchPrefix::WIDTH),
+                        ),
                         Style::default().fg(theme::cur().inactive),
                     ),
                 ]));
                 if *shell_backgrounded {
                     if let Some(timeout) = shell_timeout_text(*timeout_ms) {
                         lines.push(Line::from(vec![
-                            Span::raw("    "),
+                            Span::raw(BranchPrefix::HANG),
                             Span::styled(timeout, Style::default().fg(theme::cur().inactive)),
                         ]));
                     }
@@ -1679,9 +1700,12 @@ pub fn render_view_model_with_flags(
                         &[("path".into(), sanitize_display_text(task.output).into())],
                     );
                     lines.push(Line::from(vec![
-                        Span::raw("    "),
+                        Span::raw(BranchPrefix::HANG),
                         Span::styled(
-                            truncate_to_display_width(&output, width.saturating_sub(4)),
+                            truncate_to_display_width(
+                                &output,
+                                width.saturating_sub(BranchPrefix::WIDTH),
+                            ),
                             Style::default().fg(theme::cur().subtle),
                         ),
                     ]));
@@ -1712,7 +1736,7 @@ pub fn render_view_model_with_flags(
                 let border_color = if state.is_error {
                     theme::cur().error
                 } else {
-                    theme::cur().subtle
+                    theme::cur().inactive
                 };
                 // 详细模式显示完整内容；非详细模式：Bash 只显示前 3 行摘要（PRD §2.4），其余工具 20 行
                 let max_lines = if detail_mode {
@@ -1725,7 +1749,7 @@ pub fn render_view_model_with_flags(
                 if tool_name == "Glob" && !*is_error {
                     if let Some(summary) = glob_summary(content) {
                         lines.push(Line::from(vec![
-                            Span::styled("  ⎿ ", Style::default().fg(border_color)),
+                            BranchPrefix::span(false),
                             Span::styled(summary, Style::default().fg(result_color)),
                         ]));
                     }
@@ -1741,7 +1765,7 @@ pub fn render_view_model_with_flags(
                     None
                 };
 
-                let content_width = width.saturating_sub(4).max(20);
+                let content_width = BranchPrefix::content_width(width);
                 if let Some(ref b_lines) = bash_display_lines {
                     push_visual_capped_output(
                         &mut lines,
@@ -1771,9 +1795,9 @@ pub fn render_view_model_with_flags(
                         border_color,
                         |line, i| {
                             let first_prefix = if i == 0 && tool_name != "Glob" {
-                                "  ⎿ "
+                                BranchPrefix::PREFIX
                             } else {
-                                "    "
+                                BranchPrefix::HANG
                             };
                             // 对齐 CC：Write create 的结果行为 "Wrote N lines to <path>"，
                             // 数字与路径加粗（FileWriteTool/UI.tsx:58-61）
@@ -1783,7 +1807,7 @@ pub fn render_view_model_with_flags(
                                     return format_wrapped_line_keep_lead(
                                         styled,
                                         first_prefix,
-                                        "    ",
+                                        BranchPrefix::HANG,
                                         Style::default().fg(border_color),
                                         content_width,
                                     );
@@ -1815,14 +1839,14 @@ pub fn render_view_model_with_flags(
                 let is_mem = format_display_path_for_memory(&state.args_summary).is_some();
                 if let Some(summary) = read_summary(content, is_mem) {
                     lines.push(Line::from(vec![
-                        Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
+                        BranchPrefix::span(false),
                         Span::styled(summary, Style::default().fg(theme::cur().inactive)),
                     ]));
                 }
             }
             if tool_name == "Bash" && *shell_backgrounded && started_at.is_some() {
                 lines.push(Line::from(vec![
-                    Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
+                    BranchPrefix::span(false),
                     Span::styled(
                         BACKGROUND_RUNNING_STATUS,
                         Style::default().fg(theme::cur().inactive),
@@ -1830,7 +1854,7 @@ pub fn render_view_model_with_flags(
                 ]));
                 if let Some(timeout) = shell_timeout_text(*timeout_ms) {
                     lines.push(Line::from(vec![
-                        Span::raw("    "),
+                        Span::raw(BranchPrefix::HANG),
                         Span::styled(timeout, Style::default().fg(theme::cur().inactive)),
                     ]));
                 }
@@ -1839,14 +1863,17 @@ pub fn render_view_model_with_flags(
                 && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
             {
                 lines.push(Line::from(vec![
-                    Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
+                    BranchPrefix::span(false),
                     Span::styled(
                         shell_running_text(started_at.unwrap(), *timeout_ms),
                         Style::default().fg(theme::cur().inactive),
                     ),
                 ]));
                 lines.push(Line::from(vec![
-                    Span::styled("    ", Style::default().fg(theme::cur().subtle)),
+                    Span::styled(
+                        BranchPrefix::HANG,
+                        Style::default().fg(theme::cur().inactive),
+                    ),
                     Span::styled(
                         CONTROL_B_BACKGROUND_HINT,
                         Style::default().fg(theme::cur().inactive),
@@ -1858,13 +1885,13 @@ pub fn render_view_model_with_flags(
             // 不得把它并进 detail_mode，否则会顺带展开 shell 输出 / reasoning / 工具折叠。
             if detail_mode || diff_visible {
                 if let Some(ref diff_input) = diff_input {
-                    // 前缀 "  ⎿ " / "    " 占 4 列，diff 内容宽度需减去前缀
-                    let diff_width = width.saturating_sub(4);
+                    // diff 内容宽度需扣除一级分支前缀宽度
+                    let diff_width = width.saturating_sub(BranchPrefix::WIDTH);
                     let widget_theme = theme::widgets_theme();
                     let prefix_style = Style::default().fg(if *is_error {
                         theme::cur().error
                     } else {
-                        theme::cur().subtle
+                        theme::cur().inactive
                     });
                     if diff_input.is_new_file {
                         // 对齐 CC FileWriteTool 的 create 分支：不渲染 diff，
@@ -1879,7 +1906,9 @@ pub fn render_view_model_with_flags(
                         );
                         for line in rendered {
                             let mut prefixed = line;
-                            prefixed.spans.insert(0, Span::styled("    ", prefix_style));
+                            prefixed
+                                .spans
+                                .insert(0, Span::styled(BranchPrefix::HANG, prefix_style));
                             lines.push(prefixed);
                         }
                     } else {
@@ -1891,7 +1920,11 @@ pub fn render_view_model_with_flags(
                         }
                         for (i, line) in rendered.iter().enumerate() {
                             let mut prefixed = line.clone();
-                            let prefix = if i == 0 { "  ⎿ " } else { "    " };
+                            let prefix = if i == 0 {
+                                BranchPrefix::PREFIX
+                            } else {
+                                BranchPrefix::HANG
+                            };
                             prefixed.spans.insert(0, Span::styled(prefix, prefix_style));
                             lines.push(prefixed);
                         }
@@ -2108,10 +2141,10 @@ pub fn render_view_model_with_flags(
                                 push_prefixed_text(
                                     &mut lines,
                                     first_line,
-                                    "  ⎿ ",
-                                    Style::default().fg(theme::cur().subtle),
+                                    BranchPrefix::PREFIX,
                                     Style::default().fg(theme::cur().inactive),
-                                    width.saturating_sub(4).max(20),
+                                    Style::default().fg(theme::cur().inactive),
+                                    BranchPrefix::content_width(width),
                                 );
                             }
                         }
@@ -2205,18 +2238,18 @@ pub fn render_view_model_with_flags(
                         Style::default().fg(theme::cur().subtle),
                         width.saturating_sub(2).max(20),
                     );
-                } else if line.starts_with('⎿') {
+                } else if let Some(rest) = BranchPrefix::strip_prefix(line) {
                     let l = Line::from(Span::styled(
-                        sanitize_display_text(line),
+                        sanitize_display_text(rest),
                         Style::default().fg(theme::cur().inactive),
                     ));
                     push_wrapped_line_keep_lead(
                         &mut lines,
                         l,
-                        "",
-                        "  ",
+                        BranchPrefix::PREFIX,
+                        BranchPrefix::HANG,
                         Style::default().fg(theme::cur().inactive),
-                        width.saturating_sub(2).max(20),
+                        BranchPrefix::content_width(width),
                     );
                 } else if let Some((indent, branch, text)) = split_tree_row(line) {
                     // 后台子 Agent 启动摘要的树形行：保留自身缩进与 `├──` 分支、**不再注入
@@ -2362,10 +2395,14 @@ pub fn render_view_model_with_flags(
                         push_wrapped_line_keep_lead(
                             &mut lines,
                             Line::from(Span::styled(text, Style::default().fg(entry_color))),
-                            "  ⎿ ",
-                            "    ",
-                            Style::default().fg(theme::cur().subtle),
-                            width.saturating_sub(4).max(20),
+                            BranchPrefix::PREFIX,
+                            BranchPrefix::HANG,
+                            Style::default().fg(if entry.is_error {
+                                theme::cur().error
+                            } else {
+                                theme::cur().inactive
+                            }),
+                            BranchPrefix::content_width(width),
                         );
                     }
                 }
@@ -2415,7 +2452,7 @@ pub fn render_view_model_with_flags(
                             .is_some();
                         if let Some(summary) = read_summary(&entry.content, is_mem) {
                             lines.push(Line::from(vec![
-                                Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
+                                BranchPrefix::span(entry.is_error),
                                 Span::styled(summary, Style::default().fg(theme::cur().inactive)),
                             ]));
                         }
@@ -2425,7 +2462,7 @@ pub fn render_view_model_with_flags(
                     {
                         if let Some(summary) = glob_summary(&entry.content) {
                             lines.push(Line::from(vec![
-                                Span::styled("  ⎿ ", Style::default().fg(theme::cur().subtle)),
+                                BranchPrefix::span(false),
                                 Span::styled(summary, Style::default().fg(theme::cur().inactive)),
                             ]));
                         }
@@ -2433,22 +2470,30 @@ pub fn render_view_model_with_flags(
                             push_prefixed_text(
                                 &mut lines,
                                 line,
-                                "    ",
-                                Style::default().fg(theme::cur().subtle),
+                                BranchPrefix::HANG,
                                 Style::default().fg(theme::cur().inactive),
-                                width.saturating_sub(4).max(20),
+                                Style::default().fg(theme::cur().inactive),
+                                BranchPrefix::content_width(width),
                             );
                         }
                     } else if !entry.content.is_empty() {
                         for (i, line) in entry.content.lines().enumerate() {
-                            let first_prefix = if i == 0 { "  ⎿ " } else { "    " };
+                            let first_prefix = if i == 0 {
+                                BranchPrefix::PREFIX
+                            } else {
+                                BranchPrefix::HANG
+                            };
                             push_prefixed_text(
                                 &mut lines,
                                 line,
                                 first_prefix,
-                                Style::default().fg(theme::cur().subtle),
+                                Style::default().fg(if entry.is_error {
+                                    theme::cur().error
+                                } else {
+                                    theme::cur().inactive
+                                }),
                                 Style::default().fg(theme::cur().inactive),
-                                width.saturating_sub(4).max(20),
+                                BranchPrefix::content_width(width),
                             );
                         }
                     }

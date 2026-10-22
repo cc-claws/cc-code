@@ -16,7 +16,7 @@ use super::super::find_url_ranges;
 
 /// CC `terminal.ts::MAX_LINES_TO_SHOW`：折叠态只显示 3 行。
 pub const MAX_LINES_TO_SHOW: usize = 3;
-/// CC `terminal.ts::PADDING_TO_PREVENT_OVERFLOW`：给 `  ⎿ ` 前缀与父级缩进留的余量。
+/// CC `terminal.ts::PADDING_TO_PREVENT_OVERFLOW`：给 `BranchPrefix::PREFIX` 前缀与父级缩进留的余量。
 pub const PADDING_TO_PREVENT_OVERFLOW: usize = 10;
 /// CC `OutputLine.tsx::MAX_JSON_FORMAT_LENGTH`：超长内容整体跳过 JSON 美化。
 const MAX_JSON_FORMAT_LENGTH: usize = 10_000;
