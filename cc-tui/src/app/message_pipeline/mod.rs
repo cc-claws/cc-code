@@ -206,7 +206,7 @@ pub(crate) struct PendingTool {
     tool_call_id: String,
     name: String,
     input: serde_json::Value,
-    /// Bash 子进程真实启动时刻；ToolStart 早于 spawn 时保持 None。
+    /// ToolStart 的单调时钟起点，审批等待不计入执行耗时。
     started_at: Option<Instant>,
 }
 
@@ -444,7 +444,7 @@ impl MessagePipeline {
                             tool_call_id: tool_call_id.to_string(),
                             name: name.to_string(),
                             input,
-                            started_at: None,
+                            started_at: Some(Instant::now()),
                         },
                     );
                 } else {
@@ -718,7 +718,7 @@ impl MessagePipeline {
                 tool_call_id: tool_call_id.to_string(),
                 name: name.to_string(),
                 input,
-                started_at: None,
+                started_at: Some(Instant::now()),
             },
         );
     }
@@ -794,13 +794,27 @@ impl MessagePipeline {
     ) {
         let display = tool_display::format_tool_name(name);
         let args = tool_display::format_tool_args(name, input, Some(cwd));
-        let vm = MessageViewModel::tool_block_with_id(
+        let mut vm = MessageViewModel::tool_block_with_id(
             tool_call_id.to_string(),
             name.to_string(),
             display,
             args,
             false,
         );
+        if let MessageViewModel::ToolBlock {
+            phase,
+            source_agent_id,
+            started_at,
+            timeout_ms,
+            ..
+        } = &mut vm
+        {
+            *phase = crate::ui::message_view::ToolPhase::Running;
+            *source_agent_id = Some(sub.instance_id.clone());
+            *started_at = Some(Instant::now());
+            *timeout_ms = input.get("timeout").and_then(serde_json::Value::as_u64);
+        }
+        vm.recompute_hash();
         sub.total_steps += 1;
         if sub.recent_messages.len() >= 4 {
             sub.recent_messages.remove(0);
@@ -836,12 +850,14 @@ impl MessagePipeline {
                 tool_call_id: tc_id,
                 content,
                 is_error: err,
+                phase,
                 ..
             } = vm
             {
                 if tc_id == tool_call_id {
                     *content = output.to_string();
                     *err = is_error;
+                    *phase = crate::ui::message_view::ToolPhase::Finished;
                     vm.recompute_hash();
                     break;
                 }

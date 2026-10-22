@@ -253,7 +253,7 @@ fn test_handle_event_tool_lifecycle() {
 }
 
 #[test]
-fn test_bash_tool_start_uses_spawn_started_at() {
+fn test_bash_tool_start_keeps_event_started_at() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
     let _ = pipeline.handle_event(AgentEvent::ToolStart {
         tool_call_id: "bash1".into(),
@@ -267,10 +267,8 @@ fn test_bash_tool_start_uses_spawn_started_at() {
     let Some(MessageViewModel::ToolBlock { started_at, .. }) = tail_vms.last() else {
         panic!("Bash ToolStart 应生成 pending ToolBlock");
     };
-    assert!(
-        started_at.is_none(),
-        "收到 shell 注册前不应开始 Ctrl+B 计时"
-    );
+    let event_started_at = *started_at;
+    assert!(event_started_at.is_some(), "ToolStart 应立即开始执行计时");
 
     let spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(3);
     pipeline.register_shell_runtime(None, "bash1", spawned_at, 600_000);
@@ -278,11 +276,47 @@ fn test_bash_tool_start_uses_spawn_started_at() {
     let Some(MessageViewModel::ToolBlock { started_at, .. }) = tail_vms.last() else {
         panic!("Bash ToolStart 应仍生成 pending ToolBlock");
     };
+    assert_eq!(
+        *started_at, event_started_at,
+        "spawn 注册不能重置 ToolStart 的计时起点"
+    );
+}
+
+#[test]
+fn test_build_tool_start_vm_reads_timeout_from_input() {
+    let pipeline = MessagePipeline::new(".".into());
+    let vm = pipeline.build_tool_start_vm(
+        "bash",
+        "Bash",
+        &json!({"command":"true", "timeout":300_000}),
+        Some(std::time::Instant::now()),
+    );
     assert!(
-        started_at
-            .as_ref()
-            .is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)),
-        "Ctrl+B 提示计时应基于真实 spawn 时间"
+        matches!(
+            vm,
+            MessageViewModel::ToolBlock {
+                phase: crate::ui::message_view::ToolPhase::Running,
+                timeout_ms: Some(300_000),
+                ..
+            }
+        ),
+        "运行态必须保留模型显式的 timeout"
+    );
+    let vm = pipeline.build_tool_start_vm(
+        "bash",
+        "Bash",
+        &json!({"command":"true"}),
+        Some(std::time::Instant::now()),
+    );
+    assert!(
+        matches!(
+            vm,
+            MessageViewModel::ToolBlock {
+                timeout_ms: None,
+                ..
+            }
+        ),
+        "缺省 timeout 不能显示执行器默认值"
     );
 }
 

@@ -176,7 +176,7 @@ fn make_auto_background_agent_shell_slot(command: &str) -> AgentShellSlot {
 #[test]
 fn test_set_pending_bash_tool_started_at_in_view() {
     let command = "echo hello";
-    let mut view_messages = vec![MessageViewModel::tool_block_with_id(
+    let mut view_messages = vec![make_pending_tool_with_id(
         "test-call".into(),
         "Bash".to_string(),
         "Bash".to_string(),
@@ -206,14 +206,13 @@ fn test_set_pending_bash_tool_started_at_in_view() {
 #[tokio::test]
 async fn test_ctrl_b_background_state_reaches_pending_bash_view_immediately() {
     let (mut app, _handle) = App::new_headless(100, 30).await;
-    app.session_mgr.current_mut().messages.view_messages =
-        vec![MessageViewModel::tool_block_with_id(
-            "test-call".into(),
-            "Bash".to_string(),
-            "Bash".to_string(),
-            Some("sleep 30".to_string()),
-            false,
-        )];
+    app.session_mgr.current_mut().messages.view_messages = vec![make_pending_tool_with_id(
+        "test-call".into(),
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("sleep 30".to_string()),
+        false,
+    )];
     let (registration, _) = make_agent_shell_registration(false, "sleep 30");
     app.register_agent_shell(registration);
     assert!(
@@ -234,7 +233,7 @@ async fn test_ctrl_b_background_state_reaches_pending_bash_view_immediately() {
             app.session_mgr.current().messages.view_messages.first(),
             Some(MessageViewModel::ToolBlock {
                 shell_backgrounded: true,
-                timeout_ms: Some(300_000),
+                timeout_ms: None,
                 ..
             })
         ),
@@ -251,14 +250,13 @@ async fn test_ctrl_b_background_state_reaches_pending_bash_view_immediately() {
 #[tokio::test]
 async fn test_poll_agent_shells_syncs_panel_handoff_into_bash_view() {
     let (mut app, _handle) = App::new_headless(100, 30).await;
-    app.session_mgr.current_mut().messages.view_messages =
-        vec![MessageViewModel::tool_block_with_id(
-            "test-call".into(),
-            "Bash".to_string(),
-            "Bash".to_string(),
-            Some("sleep 30".to_string()),
-            false,
-        )];
+    app.session_mgr.current_mut().messages.view_messages = vec![make_pending_tool_with_id(
+        "test-call".into(),
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("sleep 30".to_string()),
+        false,
+    )];
     let (registration, _) = make_agent_shell_registration(false, "sleep 30");
     app.register_agent_shell(registration);
     let transitioned = {
@@ -272,7 +270,7 @@ async fn test_poll_agent_shells_syncs_panel_handoff_into_bash_view() {
             app.session_mgr.current().messages.view_messages.first(),
             Some(MessageViewModel::ToolBlock {
                 shell_backgrounded: true,
-                timeout_ms: Some(300_000),
+                timeout_ms: None,
                 ..
             })
         ),
@@ -941,4 +939,19 @@ async fn test_steer_grace_ignores_multiple_foreground_shells() {
         .agent_shells
         .iter()
         .all(|slot| !slot.is_backgrounded()));
+}
+
+fn make_pending_tool_with_id(
+    id: String,
+    name: String,
+    display: String,
+    args: Option<String>,
+    is_error: bool,
+) -> MessageViewModel {
+    let mut vm = MessageViewModel::tool_block_with_id(id, name, display, args, is_error);
+    if let MessageViewModel::ToolBlock { phase, .. } = &mut vm {
+        *phase = crate::ui::message_view::ToolPhase::Running;
+    }
+    vm.recompute_hash();
+    vm
 }

@@ -903,7 +903,7 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         wrap_segs: [Vec::new(), Vec::new()],
     };
 
-    task.rebuild(vec![MessageViewModel::tool_block(
+    task.rebuild(vec![make_running_tool_block(
         "Bash".to_string(),
         "Bash".to_string(),
         Some("sleep 30".to_string()),
@@ -969,7 +969,7 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         wrap_segs: [Vec::new(), Vec::new()],
     };
 
-    task.rebuild(vec![MessageViewModel::tool_block(
+    task.rebuild(vec![make_running_tool_block(
         "Bash".to_string(),
         "Bash".to_string(),
         Some("python wuhan_weather.py".to_string()),
@@ -1055,7 +1055,7 @@ fn detail_mode_long_cmd_running_task(
                grep -rln \"Auto-generated: static imports\" --include=*. 2>/dev/null | \
                xargs -r -n1 basename 2>/dev/null | sort | uniq -c | sort -rn | head"
         .to_string();
-    task.rebuild(vec![MessageViewModel::tool_block(
+    task.rebuild(vec![make_running_tool_block(
         "Bash".to_string(),
         "Bash".to_string(),
         Some(cmd),
@@ -1321,7 +1321,7 @@ fn exec_tool(name: &str, content: String) -> MessageViewModel {
 }
 
 fn exec_running_bash() -> MessageViewModel {
-    let mut vm = MessageViewModel::tool_block(
+    let mut vm = make_running_tool_block(
         "Bash".to_string(),
         "Bash".to_string(),
         Some("{\"command\":\"sleep 30\"}".to_string()),
@@ -1675,7 +1675,7 @@ fn test_subagent_timer_refresh_updates_wrap_segment() {
     let mut task = exec_task(false);
     task.width = width;
 
-    let mut bash = MessageViewModel::tool_block(
+    let mut bash = make_running_tool_block(
         "Bash".to_string(),
         "Bash".to_string(),
         Some("sleep 30".to_string()),
@@ -1803,7 +1803,7 @@ fn test_subagent_timer_refresh_handles_shrinking_elapsed_text() {
     let mut task = exec_task(false);
     task.width = width;
 
-    let mut bash = MessageViewModel::tool_block(
+    let mut bash = make_running_tool_block(
         "Bash".to_string(),
         "Bash".to_string(),
         Some("sleep 30".to_string()),
@@ -1861,4 +1861,18 @@ fn test_subagent_timer_refresh_handles_shrinking_elapsed_text() {
         assert_eq!(info.visual_row_start, expected_start, "视觉行号应连续");
         expected_start = info.visual_row_end;
     }
+}
+
+fn make_running_tool_block(
+    name: String,
+    display: String,
+    args: Option<String>,
+    is_error: bool,
+) -> MessageViewModel {
+    let mut vm = MessageViewModel::tool_block(name, display, args, is_error);
+    if let MessageViewModel::ToolBlock { phase, .. } = &mut vm {
+        *phase = ToolPhase::Running;
+    }
+    vm.recompute_hash();
+    vm
 }

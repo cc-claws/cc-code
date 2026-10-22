@@ -1227,6 +1227,8 @@ async fn test_tool_call_widget_renders_completed() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let lines = crate::ui::message_render::render_view_model(&vm, Some(1), 80, false, 0); // Render into a visible area for verification

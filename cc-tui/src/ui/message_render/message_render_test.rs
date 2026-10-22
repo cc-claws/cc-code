@@ -408,6 +408,8 @@ fn test_tool_block_error_visible_when_collapsed() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     assert!(
@@ -444,6 +446,8 @@ fn test_tool_block_header_and_output_strip_terminal_control_sequences() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let text = rendered_text(&lines);
@@ -478,6 +482,8 @@ fn test_running_bash_toolblock_after_threshold_shows_control_b_hint() {
         shell_backgrounded: false,
         started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(39)),
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Running,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let rendered_lines: Vec<String> = lines
@@ -535,6 +541,8 @@ fn test_running_bash_toolblock_before_threshold_hides_control_b_hint() {
         shell_backgrounded: false,
         started_at: Some(std::time::Instant::now()),
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Running,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let text = rendered_text(&lines);
@@ -601,6 +609,8 @@ fn test_backgrounded_bash_renders_timeout_with_minute_and_second() {
         timeout_ms: Some(560_000),
         shell_backgrounded: true,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Running,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 100, false, 0);
     let rendered_lines: Vec<String> = lines
@@ -637,6 +647,8 @@ fn test_backgrounded_bash_shows_manage_status_and_timeout_not_ctrl_b_hint() {
         shell_backgrounded: true,
         started_at: Some(std::time::Instant::now()),
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Running,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 100, false, 0);
     let rendered_lines: Vec<String> = lines
@@ -685,6 +697,8 @@ fn test_backgrounded_bash_result_marker_keeps_running_status_until_exit() {
             shell_backgrounded: true,
             started_at: Some(std::time::Instant::now()),
             content_hash: 0,
+            phase: crate::ui::message_view::ToolPhase::Running,
+            source_agent_id: None,
         };
     let lines = render_view_model(&vm, Some(1), 100, false, 0);
     let text = rendered_text(&lines);
@@ -719,6 +733,8 @@ fn test_tool_block_read_collapsed_shows_summary() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let text = rendered_text(&lines);
@@ -939,6 +955,8 @@ fn test_inline_diff_switch_does_not_expand_other_blocks() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
@@ -1034,6 +1052,8 @@ fn test_tool_block_detail_mode_shows_full_long_output() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let normal_text = render_view_model(&vm, Some(1), 80, false, 0)
@@ -1088,6 +1108,8 @@ fn test_bash_non_detail_mode_shows_first_three_lines() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     // Act
@@ -1133,6 +1155,8 @@ fn test_bash_tool_block_promotes_exit_code_and_indents_body() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let lines: Vec<String> = render_view_model(&vm, Some(1), 80, true, 0)
@@ -1527,6 +1551,8 @@ fn test_bash_toolblock_nonzero_exit_shows_failed() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let header = &lines[0];
@@ -1556,6 +1582,8 @@ fn test_bash_toolblock_zero_exit_stays_green() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let header = &lines[0];
@@ -1585,6 +1613,8 @@ fn test_bash_toolblock_error_keeps_name_neutral_color() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let header = &lines[0];
@@ -1618,6 +1648,8 @@ fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     assert_eq!(
@@ -1702,6 +1734,8 @@ fn test_bash_nonzero_exit_result_lines_use_error_color() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let first_result = &lines[1];
@@ -1735,6 +1769,8 @@ fn test_bash_zero_exit_result_lines_use_soft_color() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let first_result = &lines[1];
@@ -1768,6 +1804,8 @@ fn test_non_bash_tool_exit_code() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 80, false, 0);
     let header = &lines[0];
@@ -1907,6 +1945,8 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let width = 80;
@@ -1980,6 +2020,8 @@ fn test_tool_block_header_detail_mode_long_token_no_space_keeps_header() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     for width in [40usize, 60, 80, 100] {
@@ -2020,6 +2062,8 @@ fn test_tool_block_header_detail_mode_wraps_full_command_aligned() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let width = 60;
@@ -2085,6 +2129,8 @@ fn test_tool_block_header_detail_mode_short_command_stays_single_line() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let lines = render_view_model(&vm, Some(1), 80, true, 0);
@@ -2126,6 +2172,8 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let width = 50;
@@ -2411,6 +2459,8 @@ fn test_tool_block_long_json_wraps_with_hanging_indent() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let width = 80usize;
     let text_lines: Vec<String> = render_view_model(&vm, Some(1), width, false, 0)
@@ -2563,6 +2613,8 @@ fn test_all_paths_preserve_width_no_overflow() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let vm = MessageViewModel::SubAgentGroup {
         agent_id: "a".into(),
@@ -2652,6 +2704,8 @@ fn test_wrapped_indented_line_keeps_leading_indent() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let text_lines: Vec<String> = render_view_model(&vm, Some(1), width, false, 0)
         .iter()
@@ -3067,6 +3121,8 @@ fn test_tool_result_urls_use_link_color_and_underline() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 120, false, 0);
     let spans = &lines[1].spans;
@@ -3125,6 +3181,8 @@ fn test_error_output_url_still_underlined() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 120, false, 0);
     let url_span = lines
@@ -3211,6 +3269,8 @@ fn test_bash_output_collapse_hint_matches_unified_style() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let text = render_view_model(&vm, Some(1), 80, false, 0)
@@ -3247,6 +3307,8 @@ fn test_bash_output_collapse_hint_matches_unified_style_single_line() {
         shell_backgrounded: false,
         started_at: None,
         content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        source_agent_id: None,
     };
 
     let text = render_view_model(&vm, Some(1), 80, false, 0)

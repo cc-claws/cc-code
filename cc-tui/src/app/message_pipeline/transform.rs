@@ -157,8 +157,10 @@ impl MessagePipeline {
             collapsed: true,
             color: tool_color(name),
             diff_input: None,
+            phase: crate::ui::message_view::ToolPhase::Running,
+            source_agent_id: None,
             started_at,
-            timeout_ms: None,
+            timeout_ms: input.get("timeout").and_then(serde_json::Value::as_u64),
             shell_backgrounded: false,
             content_hash: 0,
         };

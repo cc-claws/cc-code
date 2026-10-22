@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bash 执行状态渲染 · TUI 效果稿</title>
+<style>
+  :root {
+    --page: #0d0d0d;
+    --card: #151515;
+    --term: #101010;
+    --border: #262626;
+    --text: #d4d4d4;
+    --soft: #c8c8c8;
+    --dim: #7a7a7a;
+    --green: #4eba65;
+    --red: #e06c75;
+    --cyan: #56b6c2;
+    --yellow: #e5c07b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 24px 80px;
+    background: var(--page);
+    color: var(--text);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.6;
+  }
+  header { max-width: 1100px; margin: 0 auto 32px; }
+  h1 { font-size: 26px; margin: 0 0 8px; font-weight: 600; }
+  h2 { font-size: 16px; margin: 0 0 12px; color: #e0e0e0; font-weight: 600; }
+  h3 { font-size: 14px; margin: 0 0 8px; color: var(--dim); font-weight: 500; }
+  .sub { color: var(--dim); font-size: 13px; margin: 0; }
+  .sub code { color: #9cdcfe; }
+  main { max-width: 1100px; margin: 0 auto; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding: 14px 18px;
+    margin-bottom: 28px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--dim);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .scene {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .scene-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  .tag {
+    font-size: 11px;
+    color: var(--dim);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 9px;
+    white-space: nowrap;
+  }
+  .term {
+    background: var(--term);
+    border: 1px solid #1f1f1f;
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-family: "Cascadia Code", Consolas, Menlo, "DejaVu Sans Mono", monospace;
+    font-size: 13.5px;
+    line-height: 1.75;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--soft);
+  }
+  .note { margin-top: 10px; font-size: 12.5px; color: var(--dim); }
+  .note b { color: #b8b8b8; font-weight: 500; }
+  .dim { color: var(--dim); }
+  .ok { color: var(--green); }
+  .err { color: var(--red); }
+  .cy { color: var(--cyan); }
+  .warn { color: var(--yellow); }
+  .dot { display: inline-block; width: 1ch; }
+  .blink { animation: blink 1.1s ease-in-out infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .frames { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .frame { min-width: 0; }
+  .frame .term { min-height: 108px; }
+  .stamp { font-size: 12px; color: var(--dim); margin-bottom: 6px; font-family: monospace; }
+  .compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .compare h3 { margin-top: 0; }
+  .bug { color: var(--red); }
+  @media (max-width: 760px) {
+    .frames, .compare { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bash 执行状态渲染 · TUI 效果稿</h1>
+  <p class="sub">
+    对应 <code>docs/prd/bash-execution-status-alignment.md</code> 的 5.5 展示规格。
+    本页是设计稿，不是真实 TUI 截图；颜色按暗色主题近似取值。
+  </p>
+</header>
+
+<main>
+  <div class="legend">
+    <span><b class="dim">●</b> 运行 / 排队 / 审批（闪烁）</span>
+    <span><b class="ok">●</b> 成功</span>
+    <span><b class="err">●</b> 失败</span>
+    <span><b class="cy">●</b> 后台运行</span>
+    <span><span class="dim">⎿</span> 结果区前缀（宽 5 列，续行 5 空格悬挂）</span>
+  </div>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 A · 多工具逐个审批</h2><span class="tag">Queued + AwaitingApproval</span></div>
+    <div class="term"><span class="dot dim">●</span> Bash(cmd A)
+  ⎿  <span class="dim">Waiting for permission…</span>
+<span class="dot dim">●</span> Bash(cmd B)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span>
+<span class="dot dim">●</span> Bash(cmd C)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+    <div class="note">正在审批的工具显示 <b>Waiting for permission…</b>，尚未轮到的显示 <b>Waiting…</b>；两者都不带计时。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 A2 · jev 自动判定（单工具）</h2><span class="tag">Queued · auto gate</span></div>
+    <div class="term"><span class="dot dim">●</span> Bash(git status)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+    <div class="note">语义门在后台调用 LLM judge，<b>不弹窗、不需要用户操作</b>，所以显示 <b>Waiting…</b>；判定 Allow 后直接转 Running…，只有 Ask 才弹人工审批。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 A3 · Bypass（直接放行）</h2><span class="tag">no gate</span></div>
+    <div class="term"><span class="dot dim blink">●</span> Bash(git status)   <span class="dim">← 同批完成 Pending→Start，不显示 Waiting…</span></div>
+    <div class="note">Bypass 与 Auto 共用同一套状态机；<b>不人为延时、不强制插帧</b>。跨批次时自然闪一帧 Waiting…，同批次直接进入 Running。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 B · 单工具审批（HITL）</h2><span class="tag">AwaitingApproval</span></div>
+    <div class="term"><span class="dot dim">●</span> Bash(npm run build)
+  ⎿  <span class="dim">Waiting for permission…</span></div>
+    <div class="note">人工审批弹窗打开时显示；批准后转 <b>Running…</b>，拒绝则直接进入失败态，不回退到排队。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 C · 已开始执行，未满 2 秒</h2><span class="tag">Running &lt; 2s</span></div>
+    <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)</div>
+    <div class="note">只有工具头与闪烁指示器；<b>2 秒内完成则永远不会出现 Running…</b>。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 D · 满 2 秒且无输出</h2><span class="tag">Running ≥ 2s</span></div>
+    <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Running… (2s)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+    <div class="note">Ctrl+B 提示在 <b>Running… 之后</b>，用 5 空格悬挂缩进；未传 <b>timeout</b> 时不显示 timeout 段。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 E · 运行中已有输出（L3）</h2><span class="tag">Running + tail</span></div>
+    <div class="term"><span class="dot dim blink">●</span> Bash(npm run build)
+  ⎿  vite v5.0.0 building for production…
+     transform 1203 modules…
+     rendering chunks…
+       dist/index.js   120.31 kB
+       dist/index.css    8.42 kB
+     <span class="dim">… +12 lines</span>
+     <span class="dim">(22s · timeout 5m)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+    <div class="note">只显示最后 5 个视觉行；状态行只剩 <b>(22s · timeout 5m)</b>，<b>不再带 Running… 前缀</b>；timeout 仅模型显式传参时出现。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 F · 完成且有输出</h2><span class="tag">Finished</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">未传 timeout</div>
+        <div class="term"><span class="dot ok">●</span> Bash(npm run build)
+  ⎿  vite v5.0.0 building for production…
+     transform 1203 modules…
+     rendering chunks…
+     <span class="dim">… +45 lines (ctrl+o to expand)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">显式传了 timeout（90s）</div>
+        <div class="term"><span class="dot ok">●</span> Bash(cd "D:/code/nt_order" &amp;&amp; php storage/probes/probe_t57489_prodlog.php 2&gt;&amp;1 | head -25)
+  ⎿  order_status_history_000 总行数: 3323926
+     order_status_history_000 今日行数: 4015
+     <span class="dim">… +11 lines (ctrl+o to expand)</span>
+  ⎿  <span class="dim">(timeout 1m 30s)</span></div>
+      </div>
+    </div>
+    <div class="note">非详细模式显示前 3 行并追加展开提示；详细模式（Ctrl+O）全量显示。传了 timeout 时底部追加<b>独立一行</b> <b>⎿  (timeout 1m 30s)</b>，不是悬挂缩进。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 G · 完成且无输出</h2><span class="tag">Finished · empty</span></div>
+    <div class="term"><span class="dot ok">●</span> Bash(true)
+  ⎿  <span class="dim">Done</span></div>
+    <div class="note">不再转圈。详细模式显示 <b>(No output)</b>。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 H · 失败</h2><span class="tag">Failed</span></div>
+    <div class="term"><span class="dot err">●</span> Bash(npm run build)
+  ⎿  <span class="err">error TS2304: Cannot find name 'foo'.</span>
+     <span class="dim">… +2 lines (ctrl+o to expand)</span></div>
+    <div class="note">指示器与输出均为 error 色；退出码非零且无 stderr 时沿用现有错误摘要行。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 I · 已后台化</h2><span class="tag">Backgrounded</span></div>
+    <div class="term"><span class="dot cy">●</span> Bash(long-task)
+  ⎿  <span class="dim">Running in the background (↓ to manage)</span>
+  ⎿  <span class="dim">(timeout 5m)</span></div>
+    <div class="note">后台化后不再显示 Running… 与计时；timeout 行仅在显式传参时出现。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 K · 窄终端折行</h2><span class="tag">wrap</span></div>
+    <div class="term"><span class="dot dim blink">●</span> Bash(npm run build -- --mode production
+       --out-dir dist --sourcemap)
+  ⎿  <span class="dim">Running… (22s · timeout 5m)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+    <div class="note">命令摘要折行时续行缩进到命令起始列（7 列）；结果区内容折行使用 5 空格悬挂缩进，CJK 按 2 列计算。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 L · 详细模式（Ctrl+O）</h2><span class="tag">detail mode</span></div>
+    <div class="term"><span class="dot dim blink">●</span> Bash(npm run build -- --mode production --out-dir dist)
+  ⎿  <span class="dim">(ctrl+b to run in background)</span>
+  ⎿  vite v5.0.0 building for production…
+     transform 1203 modules…
+     rendering chunks…
+       dist/index.js   120.31 kB
+       dist/index.css    8.42 kB
+       dist/vendor.js  512.00 kB
+     built in 21.4s
+     <span class="dim">(22s · timeout 5m)</span></div>
+    <div class="note">命令完整折行、输出全量显示（不截断 5 行）；完成后同样显示全量输出。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 M · 执行中断</h2><span class="tag">interrupted</span></div>
+    <div class="term"><span class="dot err">●</span> Bash(long-task)
+  ⎿  <span class="err">interrupted by user</span></div>
+    <div class="note">Esc / Ctrl+C 后进入 Finished(Failed)，运行行、计时与 Ctrl+B 提示全部消失；同批其他已完成工具保留原结果。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>场景 N · 并发多工具</h2><span class="tag">join_all</span></div>
+    <div class="term"><span class="dot dim blink">●</span> Bash(cmd A)
+  ⎿  <span class="dim">Running… (2s)</span>
+     <span class="dim">(ctrl+b to run in background)</span>
+<span class="dot dim blink">●</span> Bash(cmd B)
+  ⎿  <span class="dim">Running… (1s)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+    <div class="note">每个工具独立计时、独立提示；渲染顺序按 tool_use 原始顺序，不随完成先后重排。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>扩展用例 · 审批边界</h2><span class="tag">reject / cancel</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">O · 审批拒绝</div>
+        <div class="term"><span class="dot err">●</span> Bash(rm -rf build)
+  ⎿  <span class="err">User rejected</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">P · 审批取消（Esc）</div>
+        <div class="term"><span class="dot err">●</span> Bash(npm run build)
+  ⎿  <span class="err">Cancelled</span></div>
+      </div>
+    </div>
+    <div class="note">拒绝与取消都直接进入 Finished(Failed)，不回退到 Waiting，也不继续执行。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>扩展用例 · 计时边界</h2><span class="tag">duration format</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">Q · 跨分钟</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(npm run build)
+  ⎿  <span class="dim">Running… (1m 5s · timeout 5m)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">R · 跨小时（未传 timeout）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(npm test)
+  ⎿  <span class="dim">Running… (1h 2m)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+    </div>
+    <div class="note">秒数 &lt; 60 显示 <b>Ns</b>；≥ 60 显示 <b>Nm Ns</b>；≥ 1 小时显示 <b>Nh Nm</b>。timeout 仍只在显式传参时出现。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>扩展用例 · 运行中输出形态</h2><span class="tag">ANSI / JSON</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">S · ANSI 颜色保留</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(npm test)
+  ⎿  <span class="ok">✓</span> auth.spec.ts (2.1s)
+     <span class="err">✗</span> cart.spec.ts (0.8s)
+     <span class="dim">… +18 lines</span>
+     <span class="dim">(12s · timeout 5m)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">T · JSON 美化</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(curl -s localhost:8080/status)
+  ⎿  {
+       "status": "ok",
+       "uptime": 3600
+     }
+     <span class="dim">(3s)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+    </div>
+    <div class="note">运行中 tail 与完成态共用同一套 OutputLine 装饰器：ANSI 保留、JSON 美化、URL 着色、折行口径一致。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>扩展用例 · 混合状态</h2><span class="tag">mixed phases</span></div>
+    <div class="term"><span class="dot ok">●</span> Bash(cmd A)
+  ⎿  done output
+<span class="dot dim blink">●</span> Bash(cmd B)
+  ⎿  <span class="dim">Running… (2s)</span>
+     <span class="dim">(ctrl+b to run in background)</span>
+<span class="dot dim">●</span> Bash(cmd C)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+    <div class="note">同一条回复里可以同时出现已完成、运行中、排队三种工具块；每个工具独立维护 phase 与计时。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>扩展用例 · 子 Agent 抽屉</h2><span class="tag">subagent</span></div>
+    <div class="term"><span class="dim">└─</span> Agent(扫描日志)
+  <span class="dot dim blink">●</span> Bash(grep -r ERROR logs/)
+    ⎿  <span class="dim">Running… (3s)</span></div>
+    <div class="note">抽屉内同样按 phase 渲染，但子 Agent 没有后台化入口，<b>不显示 Ctrl+B 提示</b>。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>扩展用例 · 历史恢复与非 Bash</h2><span class="tag">restored / non-bash</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">W · 历史恢复</div>
+        <div class="term"><span class="dot ok">●</span> Bash(npm run build)
+  ⎿  built in 2.1s</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">X · 非 Bash 工具</div>
+        <div class="term"><span class="dot ok">●</span> Read(src/main.rs)
+  ⎿  Read 120 lines</div>
+      </div>
+    </div>
+    <div class="note">历史恢复一律 Finished，无运行行/计时/提示；非 Bash 工具只受益于 Finished 语义（空输出显示 Done），不新增运行态行。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>扩展用例 · 大输出与极窄终端</h2><span class="tag">scale / narrow</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">Y · 十万行输出（运行中估算）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(seq 1 100000)
+  ⎿  99996
+     99997
+     99998
+     99999
+     100000
+     <span class="dim">~100000 lines</span>
+     <span class="dim">(2s)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">Z · 40 列窄终端</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(npm run build --prod)
+  ⎿  <span class="dim">Running… (2s)</span>
+     <span class="dim">(ctrl+b to run in</span>
+     <span class="dim">background)</span></div>
+      </div>
+    </div>
+    <div class="note">大输出只保留尾部 5 行并显示 <b>~N lines</b> 估算；窄终端下状态行与提示按显示宽度折行，续行保持悬挂缩进。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>时间线 · 一条执行 3 秒的 Bash（无审批、无输出）</h2><span class="tag">sleep 3</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">t = -50ms（ToolPending + ToolStart 同批到达）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 0s（ToolStart）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 1s</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 2s（命中 2 秒阈值）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Running… (2s)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 3s（ToolEnd）</div>
+        <div class="term"><span class="dot ok">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Done</span></div>
+      </div>
+    </div>
+    <div class="note">Running… 只出现约 1 秒（2s–3s）；2 秒内完成则一次都不出现。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>时间线 · 有审批（jev / HITL）</h2><span class="tag">sleep 3 · approval</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">t = 0ms（ToolPending）</div>
+        <div class="term"><span class="dot dim">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 80ms（审批弹窗打开）</div>
+        <div class="term"><span class="dot dim">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Waiting for permission…</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 1.2s（批准 → ToolStart）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 3.2s（ToolStart + 2s）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Running… (2s)</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 4.2s（ToolEnd）</div>
+        <div class="term"><span class="dot ok">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Done</span></div>
+      </div>
+    </div>
+    <div class="note">计时从 <b>ToolStart（1.2s）</b> 起算，不是从 ToolPending 起算。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>时间线 · jev 自动判定（git status）</h2><span class="tag">auto gate</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">t = 0ms（ToolPending）</div>
+        <div class="term"><span class="dot dim">●</span> Bash(git status)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 120ms（judge 调用中，无弹窗）</div>
+        <div class="term"><span class="dot dim">●</span> Bash(git status)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 900ms（Allow → ToolStart）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(git status)</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 1s（命令完成）</div>
+        <div class="term"><span class="dot ok">●</span> Bash(git status)
+  ⎿  <span class="dim">On branch main</span>
+     <span class="dim">nothing to commit, working tree clean</span></div>
+      </div>
+    </div>
+    <div class="note">判定耗时等于一次 LLM judge 往返；<b>Allow 不弹窗</b>，只有 Ask 才进入人工审批并显示 <b>Waiting for permission…</b>。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>时间线 · 有持续输出（L3）</h2><span class="tag">for i in 1 2 3</span></div>
+    <div class="frames">
+      <div class="frame">
+        <div class="stamp">t = 0s（已有 line 1，但 &lt; 2s）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(for i in 1 2 3; …)</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 1s（已有 line 2，仍 &lt; 2s）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(for i in 1 2 3; …)</div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 2s（命中阈值，显示尾部）</div>
+        <div class="term"><span class="dot dim blink">●</span> Bash(for i in 1 2 3; …)
+  ⎿  <span class="dim">(ctrl+b to run in background)</span>
+  ⎿  line 1
+     line 2
+     <span class="dim">(2s)</span></div>
+      </div>
+      <div class="frame">
+        <div class="stamp">t = 3s（ToolEnd）</div>
+        <div class="term"><span class="dot ok">●</span> Bash(for i in 1 2 3; …)
+  ⎿  line 1
+     line 2
+     line 3</div>
+      </div>
+    </div>
+    <div class="note">2 秒阈值对输出尾部同样生效：<b>2 秒内即使已有输出也只显示 header</b>，避免短命令刷屏。</div>
+  </section>
+
+  <section class="scene">
+    <div class="scene-head"><h2>对照 · 现状 vs 目标</h2><span class="tag">Before / After</span></div>
+    <div class="compare">
+      <div>
+        <h3>现状（peri 当前）</h3>
+        <div class="term"><span class="dot dim blink">●</span> Bash(sleep 3)
+  ⎿  <span class="dim">Running… (2s)</span>
+
+<span class="dot dim blink">●</span> Bash(true)   <span class="bug">← 已完成但仍在转圈</span></div>
+        <div class="note">无排队/审批行、无运行中输出、timeout 永不显示、空输出完成后仍转圈。</div>
+      </div>
+      <div>
+        <h3>目标（本 PRD）</h3>
+        <div class="term"><span class="dot dim">●</span> Bash(cmd B)
+  ⎿  <span class="dim">Waiting…</span>
+     <span class="dim">(ctrl+b to run in background)</span>
+<span class="dot dim blink">●</span> Bash(npm run build)   <span class="dim">← 显式传了 timeout=300000</span>
+  ⎿  <span class="dim">Running… (2s · timeout 5m)</span>
+     <span class="dim">(ctrl+b to run in background)</span>
+<span class="dot ok">●</span> Bash(true)
+  ⎿  <span class="dim">Done</span></div>
+        <div class="note">排队态、审批态、运行中输出尾部、timeout（仅显式传参）、空输出完成态全部补齐。</div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
