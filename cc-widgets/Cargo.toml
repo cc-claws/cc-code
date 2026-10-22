@@ -33,3 +33,5 @@ markdown-highlight = ["markdown", "dep:syntect", "dep:two-face"]
 
 [dev-dependencies]
 sysinfo.workspace = true
+serde.workspace = true
+serde_json.workspace = true

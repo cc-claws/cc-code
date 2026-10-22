@@ -3,7 +3,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use super::{LinkHit, MarkdownTheme};
 use unicode_segmentation::UnicodeSegmentation;
@@ -57,7 +57,11 @@ impl TableBuilder {
         }
     }
 
-    /// 包装单元格文本以适应最大宽度，返回 (各列分配宽度, 包装后数据行)
+    /// 计算列宽并折行，返回 (各列分配宽度, 折行后的数据行)
+    ///
+    /// 列宽分配完全对齐 CC `MarkdownTable.tsx`：最小宽 = 该列所有单元格中最长
+    /// **单词**的宽度（下限 3），理想宽 = 整格内容宽。空间不足时先按
+    /// `ideal - min` 比例分配剩余空间，仍不够则按 `min` 等比压缩并允许硬断词。
     #[allow(clippy::type_complexity)]
     fn wrap_cells(
         &self,
@@ -69,366 +73,567 @@ impl TableBuilder {
             return (vec![], vec![]);
         }
 
-        // 计算可用宽度（减去边框和间距）
-        // 每行: │<space>内容<space>│<space>内容<space>│  → 1 + 3*num_cols 非内容字符
-        let border_width = 1 + 3 * num_cols;
-        let available_width = max_width.saturating_sub(border_width);
+        // Step 1: 每列的最小（最长单词）与理想（整格）宽度
+        let min_widths: Vec<usize> = (0..num_cols)
+            .map(|c| {
+                self.rows
+                    .iter()
+                    .filter_map(|row| row.get(c))
+                    .map(|cell| cell_min_width(cell))
+                    .max()
+                    .unwrap_or(MIN_COLUMN_WIDTH)
+            })
+            .collect();
+        let ideal_widths: Vec<usize> = (0..num_cols)
+            .map(|c| {
+                self.rows
+                    .iter()
+                    .filter_map(|row| row.get(c))
+                    .map(|cell| cell_width(cell).max(MIN_COLUMN_WIDTH))
+                    .max()
+                    .unwrap_or(MIN_COLUMN_WIDTH)
+                    .max(MIN_COLUMN_WIDTH)
+            })
+            .collect();
 
-        // 计算每列的最小和理想宽度
-        let min_col_widths = self.calculate_min_col_widths(num_cols);
-        let ideal_col_widths = self.calculate_ideal_col_widths(num_cols);
+        // Step 2: 可用空间。边框开销 = 1 + 3*num_cols；
+        // SAFETY_MARGIN 预留父级缩进与终端 resize 竞争的空间。
+        let border_overhead = 1 + num_cols * 3;
+        let available_width = max_width
+            .saturating_sub(border_overhead)
+            .saturating_sub(SAFETY_MARGIN)
+            .max(num_cols * MIN_COLUMN_WIDTH);
 
-        // 如果总宽度超过可用宽度，按比例缩小
-        let total_ideal: usize = ideal_col_widths.iter().sum();
-        let col_widths = if total_ideal > available_width {
-            self.distribute_col_widths(&min_col_widths, &ideal_col_widths, available_width)
+        // Step 3: 分配列宽
+        let total_min: usize = min_widths.iter().sum();
+        let total_ideal: usize = ideal_widths.iter().sum();
+        let mut needs_hard_wrap = false;
+        let col_widths: Vec<usize> = if total_ideal <= available_width {
+            ideal_widths.clone()
+        } else if total_min <= available_width {
+            let extra_space = available_width - total_min;
+            let overflows: Vec<usize> = ideal_widths
+                .iter()
+                .zip(min_widths.iter())
+                .map(|(&ideal, &min)| ideal.saturating_sub(min))
+                .collect();
+            let total_overflow: usize = overflows.iter().sum();
+            min_widths
+                .iter()
+                .enumerate()
+                .map(|(i, &min)| {
+                    if total_overflow == 0 {
+                        return min;
+                    }
+                    min + overflows[i] * extra_space / total_overflow
+                })
+                .collect()
         } else {
-            ideal_col_widths
+            // 最小宽都放不下：等比压缩，允许硬断词
+            needs_hard_wrap = true;
+            let scale = available_width as f64 / total_min as f64;
+            min_widths
+                .iter()
+                .map(|&w| ((w as f64 * scale) as usize).max(MIN_COLUMN_WIDTH))
+                .collect()
         };
 
-        // 包装每个单元格的文本
-        let mut wrapped_rows = Vec::new();
-        for row in &self.rows {
-            let mut wrapped_row = Vec::new();
-            for (col_idx, cell) in row.iter().enumerate() {
-                let col_width = col_widths.get(col_idx).copied().unwrap_or(0);
-                let wrapped = self.wrap_cell_text(cell, col_width);
-                wrapped_row.push(wrapped);
-            }
-            wrapped_rows.push(wrapped_row);
-        }
+        // Step 4: 折行每个单元格
+        let wrapped_rows = self
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .enumerate()
+                    .map(|(col, cell)| {
+                        let width = col_widths.get(col).copied().unwrap_or(0);
+                        wrap_cell_spans(cell, width, needs_hard_wrap)
+                    })
+                    .collect()
+            })
+            .collect();
 
         (col_widths, wrapped_rows)
     }
 
-    /// 计算每列的最小宽度（基于最宽内容，上限 10 显示列）
-    fn calculate_min_col_widths(&self, num_cols: usize) -> Vec<usize> {
-        let mut min_widths = vec![0usize; num_cols];
-        for row in &self.rows {
-            for (i, cell) in row.iter().enumerate() {
-                if i < num_cols {
-                    let w: usize = cell.iter().map(|s| s.content.width()).sum();
-                    min_widths[i] = min_widths[i].max(w.min(10)); // 每列最小宽度上限 10
-                }
-            }
-        }
-        min_widths
-    }
-
-    /// 计算每列的理想宽度（基于内容长度）
-    fn calculate_ideal_col_widths(&self, num_cols: usize) -> Vec<usize> {
-        let mut ideal_widths = vec![0usize; num_cols];
-        for row in &self.rows {
-            for (i, cell) in row.iter().enumerate() {
-                if i < num_cols {
-                    let w: usize = cell.iter().map(|s| s.content.width()).sum();
-                    ideal_widths[i] = ideal_widths[i].max(w);
-                }
-            }
-        }
-        ideal_widths
-    }
-
-    /// 保证最小宽度后按比例分配剩余空间
+    /// 渲染表格，支持自动换行。
     ///
-    /// 每列先拿到最小宽度（`calculate_min_col_widths` 的值，上限 10），
-    /// 剩余空间按 `ideal - min` 的比例分配。这保证 CJK 列至少
-    /// 有 ~4-10 显示列宽，不会出现每行仅 1-2 个中文字的情况。
-    ///
-    /// 空列（ideal=0）不参与剩余空间分配，防止尾部空列吞掉全部余量
-    /// 导致内容列被挤压。
-    fn distribute_col_widths(
-        &self,
-        min_widths: &[usize],
-        ideal_widths: &[usize],
-        available_width: usize,
-    ) -> Vec<usize> {
-        let n = ideal_widths.len();
-        let min_sum: usize = min_widths.iter().sum();
-
-        // 如果最小宽度之和已超可用宽度，按比例从最小值压缩
-        if min_sum >= available_width {
-            let mut widths: Vec<usize> = min_widths
-                .iter()
-                .map(|&m| {
-                    if m == 0 {
-                        // 空列保持 0 宽，不挤占其他列
-                        0
-                    } else {
-                        let scaled = (m as f64 * available_width as f64 / min_sum as f64) as usize;
-                        scaled.max(1)
-                    }
-                })
-                .collect();
-            // 防御：若 max(1) 累计超过 available_width，从最宽列逐一剔除，确保绝对不超视口
-            let mut sum: usize = widths.iter().sum();
-            while sum > available_width && sum > 0 {
-                if let Some(w) = widths.iter_mut().filter(|w| **w > 1).max() {
-                    *w -= 1;
-                    sum -= 1;
-                } else {
-                    break;
-                }
-            }
-            return widths;
-        }
-
-        let remaining = available_width - min_sum;
-
-        // 计算各列需要的额外宽度：ideal - min（理想超过最小的部分）
-        let extras: Vec<usize> = ideal_widths
-            .iter()
-            .zip(min_widths.iter())
-            .map(|(&ideal, &min)| ideal.saturating_sub(min))
-            .collect();
-        let total_extra: usize = extras.iter().sum();
-
-        let mut widths = min_widths.to_vec();
-
-        // 防御：extras 全 0 时理论上不可达（此时 min_sum == total_ideal，
-        // 要么走压缩路径要么直接用 ideal 宽度），直接返回 min 宽度。
-        if total_extra == 0 {
-            return widths;
-        }
-
-        // 累积比例分配：按 extras 累计值切分 remaining，保证精确分完且
-        // 整数除法不丢余数；extra=0（含空列）分不到剩余空间。
-        // 旧算法「最后一列取剩余」会让尾部空列吞掉全部整数截断余数，
-        // 挤压真正有内容的列。
-        let mut cum = 0usize;
-        let mut cum_extra = 0usize;
-        for i in 0..n {
-            cum_extra += extras[i];
-            let target = remaining * cum_extra / total_extra;
-            widths[i] += target - cum;
-            cum = target;
-        }
-
-        widths
-    }
-
-    /// 渲染表格，支持自动换行
+    /// 整体对齐 CC `MarkdownTable.tsx`：表头强制居中、每行之间补分隔线、
+    /// 折行过多或越界时退回纵向 key-value 格式。
     fn render_with_wrap(self, max_width: usize, theme: &dyn MarkdownTheme) -> Vec<Line<'static>> {
         let (allocated_widths, wrapped_rows) = self.wrap_cells(max_width, theme);
         if wrapped_rows.is_empty() {
-            return vec![];
+            return Vec::new();
         }
 
-        // 计算每列的最大宽度（考虑换行后的每行，且不得超出分配预算）
-        let num_cols = wrapped_rows[0].len();
-        let mut col_widths = vec![0usize; num_cols];
-
-        for row in &wrapped_rows {
-            for (col_idx, cell_lines) in row.iter().enumerate() {
-                if col_idx < num_cols {
-                    for line in cell_lines {
-                        let line_width: usize = line.iter().map(|s| s.content.width()).sum();
-                        col_widths[col_idx] = col_widths[col_idx].max(line_width);
-                    }
-                }
-            }
-        }
-        // 严格受限于分配列宽，保证总宽度 <= max_width
-        for (i, w) in col_widths.iter_mut().enumerate() {
-            if let Some(&alloc_w) = allocated_widths.get(i) {
-                *w = (*w).min(alloc_w);
-            }
+        // 任一单元格行数超过阈值 → 纵向 key-value 格式（对齐 CC `MAX_ROW_LINES`）
+        let max_row_lines = wrapped_rows
+            .iter()
+            .map(|row| row.iter().map(|c| c.len()).max().unwrap_or(1))
+            .max()
+            .unwrap_or(1);
+        if max_row_lines > MAX_ROW_LINES {
+            return self.render_vertical(max_width);
         }
 
-        let mut lines = Vec::new();
+        // 列宽直接采用分配结果（对齐 CC：用 `columnWidths` 画边框与对齐，
+        // 不再按折行后的内容宽度回缩，否则短内容会让列比分配宽度更窄）。
+        let col_widths: Vec<usize> = allocated_widths;
 
-        // 顶部边框
-        lines.push(Line::from(make_border(
-            &col_widths,
-            '┌',
-            '┬',
-            '┐',
-            '─',
-            theme,
-        )));
+        // 越界兜底：整表超出终端安全边距时退回纵向格式（对齐 CC 的二次校验）
+        let total_width = 1 + col_widths.iter().map(|w| w + 3).sum::<usize>();
+        if total_width > max_width.saturating_sub(SAFETY_MARGIN) {
+            return self.render_vertical(max_width);
+        }
 
-        // 渲染每一行
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        lines.push(Line::from(make_border(&col_widths, '┌', '┬', '┐', '─')));
+
         for (row_idx, row) in wrapped_rows.iter().enumerate() {
-            // 计算这一行需要的行数（基于最高的单元格）
-            let max_lines = row
+            let max_lines = row.iter().map(|c| c.len()).max().unwrap_or(1);
+            // 单元格垂直居中（对齐 CC 的 verticalOffsets）
+            let vertical_offsets: Vec<usize> = row
                 .iter()
-                .map(|cell_lines| cell_lines.len())
-                .max()
-                .unwrap_or(1);
+                .map(|cell_lines| (max_lines.saturating_sub(cell_lines.len())) / 2)
+                .collect();
 
             for line_idx in 0..max_lines {
-                let mut spans = Vec::new();
-                spans.push(Span::styled(
-                    "│".to_string(),
-                    Style::default().fg(theme.muted()),
-                ));
+                // 边框不带颜色：CC 的表格框线是纯文本，走终端默认色
+                let mut spans = vec![Span::raw("│".to_string())];
 
                 for (col_idx, cell_lines) in row.iter().enumerate() {
                     let col_w = col_widths.get(col_idx).copied().unwrap_or(0);
                     spans.push(Span::raw(" "));
 
-                    if line_idx < cell_lines.len() {
-                        // 获取这一行的内容
-                        let line_spans = &cell_lines[line_idx];
+                    let offset = vertical_offsets[col_idx];
+                    let content_idx = line_idx as isize - offset as isize;
+                    if content_idx >= 0 && (content_idx as usize) < cell_lines.len() {
+                        let line_spans = &cell_lines[content_idx as usize];
                         let content_width: usize =
                             line_spans.iter().map(|s| s.content.width()).sum();
                         let padding = col_w.saturating_sub(content_width);
 
-                        let align = self
-                            .alignments
-                            .get(col_idx)
-                            .copied()
-                            .unwrap_or(Alignment::None);
-                        match align {
-                            Alignment::Center => {
-                                let left_pad = padding / 2;
-                                let right_pad = padding - left_pad;
-                                if left_pad > 0 {
-                                    spans.push(Span::raw(" ".repeat(left_pad)));
-                                }
-                                spans.extend(line_spans.iter().cloned());
-                                if right_pad > 0 {
-                                    spans.push(Span::raw(" ".repeat(right_pad)));
-                                }
-                            }
-                            Alignment::Right => {
-                                if padding > 0 {
-                                    spans.push(Span::raw(" ".repeat(padding)));
-                                }
-                                spans.extend(line_spans.iter().cloned());
-                            }
-                            Alignment::None | Alignment::Left => {
-                                spans.extend(line_spans.iter().cloned());
-                                if padding > 0 {
-                                    spans.push(Span::raw(" ".repeat(padding)));
-                                }
-                            }
-                        }
+                        // 表头强制居中；数据行用 markdown 声明的对齐方式
+                        let align = if row_idx == 0 {
+                            Alignment::Center
+                        } else {
+                            self.alignments
+                                .get(col_idx)
+                                .copied()
+                                .unwrap_or(Alignment::None)
+                        };
+                        push_aligned(&mut spans, line_spans, padding, align);
                     } else {
-                        // 这一行的这个单元格没有内容，填充空格
                         spans.push(Span::raw(" ".repeat(col_w)));
                     }
 
                     spans.push(Span::raw(" "));
-                    spans.push(Span::styled(
-                        "│".to_string(),
-                        Style::default().fg(theme.muted()),
-                    ));
+                    spans.push(Span::raw("│".to_string()));
                 }
 
                 lines.push(Line::from(spans));
             }
 
-            // 在第一行后添加分隔线
-            if row_idx == 0 {
-                lines.push(Line::from(make_border(
-                    &col_widths,
-                    '├',
-                    '┼',
-                    '┤',
-                    '─',
-                    theme,
-                )));
+            // 表头后与每个数据行之间都补分隔线（CC 逐行加 ├─┼─┤）
+            if row_idx + 1 < wrapped_rows.len() {
+                lines.push(Line::from(make_border(&col_widths, '├', '┼', '┤', '─')));
             }
         }
 
-        // 底部边框
-        lines.push(Line::from(make_border(
-            &col_widths,
-            '└',
-            '┴',
-            '┘',
-            '─',
-            theme,
-        )));
-
+        lines.push(Line::from(make_border(&col_widths, '└', '┴', '┘', '─')));
         lines
     }
 
-    /// 包装单个单元格的文本，按视觉宽度折行（正确支持 CJK 双宽字符）
-    fn wrap_cell_text(&self, cell: &[Span], max_width: usize) -> Vec<Vec<Span<'static>>> {
-        if max_width == 0 || cell.is_empty() {
-            return vec![vec![]];
+    /// 纵向 key-value 格式（对齐 CC `renderVerticalFormat`）。
+    ///
+    /// 列太窄导致折行过多时横向表格已不可读；改为每行 `表头: 值`，
+    /// 数据行之间用横线分隔。值压成单行，不再折行。
+    fn render_vertical(&self, max_width: usize) -> Vec<Line<'static>> {
+        if self.rows.len() < 2 {
+            return Vec::new();
         }
+        let headers: Vec<String> = self.rows[0]
+            .iter()
+            .map(|cell| cell.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect();
 
-        // 合并单元格中的所有文本
-        let full_text: String = cell.iter().map(|s| s.content.as_ref()).collect();
-        let base_style = cell.first().map(|s| s.style).unwrap_or_default();
+        let separator: String = "─".repeat(max_width.saturating_sub(1).min(40));
+        let mut lines: Vec<Line<'static>> = Vec::new();
 
-        if full_text.width() <= max_width {
-            // 不需要换行，将所有 Span 转换为 'static
-            let static_spans: Vec<Span<'static>> = cell
-                .iter()
-                .map(|s| Span::styled(s.content.as_ref().to_string(), s.style))
-                .collect();
-            return vec![static_spans];
-        }
-
-        // 需要换行 — 用视觉宽度逐字符推进
-        let mut lines = Vec::new();
-        let text = full_text.as_str();
-        let mut byte_pos = 0;
-
-        while byte_pos < text.len() {
-            // 从 byte_pos 开始，累积视觉宽度直到超过 max_width
-            let mut cur_width = 0usize;
-            let mut content_end = byte_pos; // 按宽度截断的字节位置
-
-            for (i, c) in text[byte_pos..].char_indices() {
-                let cw = c.width().unwrap_or(0);
-                // 至少推进一个字符，防止单字符超宽死循环
-                if content_end > byte_pos && cur_width + cw > max_width {
-                    break;
-                }
-                // 字符本身超宽（如 CJK 在很窄的列里），强制放入
-                cur_width += cw;
-                content_end = byte_pos + i + c.len_utf8();
+        for (row_idx, row) in self.rows.iter().enumerate().skip(1) {
+            if row_idx > 1 {
+                // 分隔线同样不带样式（CC 用纯 `─` 重复）
+                lines.push(Line::from(Span::raw(separator.clone())));
             }
+            for (col_idx, cell) in row.iter().enumerate() {
+                let label = headers
+                    .get(col_idx)
+                    .filter(|h| !h.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| format!("Column {}", col_idx + 1));
+                let value = cell
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
 
-            // 从 content_end 往回找最后一个空格，优先在单词边界断行
-            let mut break_at = content_end;
-            let mut found_space = false;
-            for (i, c) in text[byte_pos..content_end].char_indices().rev() {
-                if c.is_whitespace() {
-                    break_at = byte_pos + i;
-                    found_space = true;
-                    break;
-                }
-            }
-            // 若无空格且未到末尾，优先在路径/文件名分隔符 ('/', '\\', '-', '_') 处断行
-            if !found_space && content_end < text.len() {
-                for (i, c) in text[byte_pos..content_end].char_indices().rev() {
-                    if (c == '/' || c == '\\' || c == '-' || c == '_') && i > 0 {
-                        break_at = byte_pos + i + c.len_utf8();
-                        break;
-                    }
-                }
-            }
-
-            let line = &text[byte_pos..break_at];
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                lines.push(vec![Span::styled(trimmed.to_string(), base_style)]);
-            }
-
-            byte_pos = break_at;
-            // 跳过后续空白
-            while byte_pos < text.len() {
-                let c = text[byte_pos..].chars().next().unwrap();
-                if c.is_whitespace() {
-                    byte_pos += c.len_utf8();
+                // 对齐 CC：首行可用宽度要扣掉标签占位，续行用更宽的宽度再包一次，
+                // 续行前缀固定 2 空格。标签本身加粗，值用正文色。
+                let first_line_width = max_width.saturating_sub(label.width() + 3).max(10);
+                // 续行有 2 列缩进前缀（"  "），可用宽度须扣掉 2 列
+                let subsequent_width = max_width.saturating_sub(2).max(10);
+                let first_pass = wrap_plain(&value, first_line_width);
+                let first_line = first_pass.first().cloned().unwrap_or_default();
+                let rest = if first_pass.is_empty() {
+                    &first_pass[..]
                 } else {
-                    break;
+                    &first_pass[1..]
+                };
+                let rest_text = rest.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
+
+                let mut spans = vec![
+                    Span::styled(
+                        format!("{label}:"),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" "),
+                ];
+                if !first_line.is_empty() {
+                    // 值不带样式：CC 的纵向格式只加粗标签，值走终端默认色
+                    spans.push(Span::raw(first_line.clone()));
+                }
+                lines.push(Line::from(spans));
+
+                if rest_text.is_empty() {
+                    continue;
+                }
+                let wrapped = if subsequent_width > first_line_width {
+                    wrap_plain(&rest_text, subsequent_width)
+                } else {
+                    rest.to_vec()
+                };
+                for line in wrapped {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    lines.push(Line::from(vec![
+                        Span::raw("  ".to_string()),
+                        Span::raw(line),
+                    ]));
                 }
             }
         }
-
-        if lines.is_empty() {
-            lines.push(vec![]);
-        }
-
         lines
     }
+}
+
+/// 纯文本折行：按空格切词，超长单词（无空格长路径）按宽度硬断。
+///
+/// 保证纵向表格与长行绝对不溢出终端可视宽度（消除 Windows CMD 物理撕裂）。
+fn wrap_plain(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut rows: Vec<String> = vec![String::new()];
+    let mut row_width = 0usize;
+    let mut first = true;
+    for word in text.split(' ') {
+        let w = word.width();
+        if !first && row_width > 0 {
+            rows.last_mut().unwrap().push(' ');
+            row_width += 1;
+        }
+        first = false;
+
+        // 超长单词（如没有空格的长路径）超出总可用宽度：硬断开
+        if w > width {
+            for g in word.graphemes(true) {
+                let gw = g.width();
+                if row_width > 0 && row_width + gw > width {
+                    rows.push(String::new());
+                    row_width = 0;
+                }
+                rows.last_mut().unwrap().push_str(g);
+                row_width += gw;
+            }
+            continue;
+        }
+
+        if row_width + w > width && row_width > 0 {
+            rows.push(String::new());
+            row_width = 0;
+        }
+        rows.last_mut().unwrap().push_str(word);
+        row_width += w;
+    }
+    rows.into_iter().filter(|r| !r.is_empty()).collect()
+}
+
+/// 计算一行的断点（返回该行结束的 grapheme 下标，不含）。
+///
+/// 严格对齐 `wrap-ansi`（`hard:true, wordWrap:true, trim:false`）的贪心词装箱：
+/// - 以 ASCII 空格切词，空格属于「前一个词的尾部」
+/// - 当前行放不下该词且行内已有内容 → 换行（词整体翻到下一行）
+/// - 词自身宽度就超过列宽 → 在列宽处硬切（CJK / 长 URL 走这条）
+fn find_break(g: &[(&str, Style)], start: usize, end: usize, columns: usize) -> usize {
+    if start >= end {
+        return end;
+    }
+    let mut row_width = 0usize;
+    let mut idx = start;
+
+    while idx < end {
+        // 取一个词（含其后紧跟的空格）
+        let word_start = idx;
+        while idx < end && g[idx].0 != " " && g[idx].0 != "\u{3000}" {
+            idx += 1;
+        }
+        while idx < end && (g[idx].0 == " " || g[idx].0 == "\u{3000}") {
+            idx += 1;
+        }
+        let word_end = idx;
+        let word_width: usize = g[word_start..word_end].iter().map(|(t, _)| t.width()).sum();
+
+        // 词比整行还宽：对齐 `wrap-ansi` 的 hard 分支——直接在本行
+        // 剩余空间里按列宽硬切，不把词整体推到下一行。
+        //
+        // 实测（wrap-ansi 10.x）：`- 这是一段很长…` 在 columns=30 时首行
+        // 是 `- 这是一段很长很长的列表项内容`，即 bullet 与长词同行。
+        // 若在这里先换行，会产出只有 `- ` 的幽灵行。
+        if word_width > columns {
+            let mut acc = row_width;
+            let mut cut = word_start;
+            while cut < word_end {
+                let w = g[cut].0.width();
+                if acc + w > columns && cut > word_start {
+                    break;
+                }
+                acc += w;
+                cut += 1;
+            }
+            return cut.max(word_start + 1);
+        }
+
+        if row_width + word_width > columns && row_width > 0 {
+            // 放不下：本行到上一个词结束为止
+            return word_start;
+        }
+        row_width += word_width;
+    }
+    end
+}
+
+/// 把已折行的一行单元格内容按对齐方式写入 spans。
+fn push_aligned(
+    spans: &mut Vec<Span<'static>>,
+    content: &[Span<'static>],
+    padding: usize,
+    align: Alignment,
+) {
+    match align {
+        Alignment::Center => {
+            let left = padding / 2;
+            let right = padding - left;
+            if left > 0 {
+                spans.push(Span::raw(" ".repeat(left)));
+            }
+            spans.extend(content.iter().cloned());
+            if right > 0 {
+                spans.push(Span::raw(" ".repeat(right)));
+            }
+        }
+        Alignment::Right => {
+            if padding > 0 {
+                spans.push(Span::raw(" ".repeat(padding)));
+            }
+            spans.extend(content.iter().cloned());
+        }
+        Alignment::None | Alignment::Left => {
+            spans.extend(content.iter().cloned());
+            if padding > 0 {
+                spans.push(Span::raw(" ".repeat(padding)));
+            }
+        }
+    }
+}
+
+/// 最小列宽（对齐 CC `MIN_COLUMN_WIDTH`）
+const MIN_COLUMN_WIDTH: usize = 3;
+/// 终端宽度安全边距（对齐 CC `SAFETY_MARGIN`）：预留父级缩进与 resize 竞争
+const SAFETY_MARGIN: usize = 4;
+/// 超过该行数时切换为纵向 key-value 格式（对齐 CC `MAX_ROW_LINES`）
+const MAX_ROW_LINES: usize = 4;
+
+/// 单元格内容显示宽度（不含换行）
+fn cell_width(cell: &[Span]) -> usize {
+    cell.iter().map(|s| s.content.width()).sum()
+}
+
+/// 单元格的最小宽度 = 最长“单词”的显示宽度（下限 `MIN_COLUMN_WIDTH`）。
+///
+/// 对齐 CC `getMinWidth`：以 ASCII 空格切词后取最宽者，保证折行时不会
+/// 把普通单词从中间劈开。
+fn cell_min_width(cell: &[Span]) -> usize {
+    let text: String = cell.iter().map(|s| s.content.as_ref()).collect();
+    text.split(' ')
+        .filter(|w| !w.is_empty())
+        .map(UnicodeWidthStr::width)
+        .max()
+        .unwrap_or(MIN_COLUMN_WIDTH)
+        .max(MIN_COLUMN_WIDTH)
+}
+
+/// 把单元格按 `max_width` 折成多行，逐 grapheme 保留原样式。
+///
+/// `hard=true` 时超长单词按 grapheme 硬断（对应 `wrap-ansi` 的 hard 模式）；
+/// 否则当单词放不下时整体换行，形成单行超宽（由调用方裁剪）。
+fn wrap_cell_spans(cell: &[Span], max_width: usize, hard: bool) -> Vec<Vec<Span<'static>>> {
+    if cell.is_empty() {
+        return vec![Vec::new()];
+    }
+    // 先按词切分，保留每个 grapheme 的样式
+    let mut words: Vec<Vec<(String, Style)>> = vec![Vec::new()];
+    for span in cell {
+        let style = span.style;
+        // 按 ASCII 空格切词（与 wrap-ansi 的 splitWords 一致）
+        for (i, part) in span.content.split(' ').enumerate() {
+            if i > 0 {
+                words.push(Vec::new());
+            }
+            let mut graphemes = part.graphemes(true).peekable();
+            if graphemes.peek().is_some() {
+                words
+                    .last_mut()
+                    .unwrap()
+                    .extend(graphemes.map(|g| (g.to_string(), style)));
+            }
+        }
+    }
+
+    fn word_width(w: &[(String, Style)]) -> usize {
+        w.iter().map(|(g, _)| g.width()).sum()
+    }
+
+    let mut rows: Vec<Vec<(String, Style)>> = vec![Vec::new()];
+    let mut row_width = 0usize;
+    let mut is_first = true;
+
+    for word in words {
+        let w_width = word_width(&word);
+        if !is_first {
+            // wrap-ansi：词间补一个空格（trim:false 时行首也补）
+            if row_width > 0 {
+                rows.last_mut()
+                    .unwrap()
+                    .push((" ".to_string(), Style::default()));
+                row_width += 1;
+            }
+        }
+        is_first = false;
+
+        // hard 模式下超长单词逐 grapheme 断行
+        if hard && w_width > max_width {
+            for (g, style) in word {
+                let gw = g.width();
+                if row_width > 0 && row_width + gw > max_width {
+                    rows.push(Vec::new());
+                    row_width = 0;
+                }
+                rows.last_mut().unwrap().push((g, style));
+                row_width += gw;
+            }
+            continue;
+        }
+
+        if row_width + w_width > max_width && row_width > 0 {
+            rows.push(Vec::new());
+            row_width = 0;
+        }
+        for (g, style) in word {
+            rows.last_mut().unwrap().push((g, style));
+        }
+        row_width += w_width;
+    }
+
+    // 右侧去尾空格（对齐 wrap-ansi trim !== false 的可见空白裁剪），
+    // 再合并相邻同 style 的 grapheme 减少 span 数量。
+    let mut out = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        while matches!(row.last(), Some((g, _)) if g == " ") {
+            row.pop();
+        }
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut buf = String::new();
+        let mut buf_style: Option<Style> = None;
+        for (g, style) in row {
+            if buf_style.is_some() && buf_style != Some(style) {
+                spans.push(Span::styled(std::mem::take(&mut buf), buf_style.unwrap()));
+                buf_style = Some(style);
+            } else if buf_style.is_none() {
+                buf_style = Some(style);
+            }
+            buf.push_str(&g);
+        }
+        if !buf.is_empty() {
+            spans.push(Span::styled(buf, buf_style.unwrap_or_default()));
+        }
+        out.push(spans);
+    }
+    if out.is_empty() {
+        out.push(Vec::new());
+    }
+    out
+}
+
+/// 有序列表序号：深度 0/1 用阿拉伯数字，2 用字母，3 用罗马数字。
+///
+/// 对齐 CC `getListNumber`，让深层嵌套的序号风格一致。
+fn format_ordered(n: u64, depth: usize) -> String {
+    match depth {
+        2 => number_to_letter(n),
+        3 => number_to_roman(n),
+        _ => n.to_string(),
+    }
+}
+
+/// 1 → a，26 → z，27 → aa（对齐 CC `numberToLetter`）
+fn number_to_letter(mut n: u64) -> String {
+    let mut out = String::new();
+    while n > 0 {
+        n -= 1;
+        out.insert(0, (b'a' + (n % 26) as u8) as char);
+        n /= 26;
+    }
+    out
+}
+
+/// 罗马数字（小写，对齐 CC `numberToRoman`）
+fn number_to_roman(mut n: u64) -> String {
+    const VALUES: [(u64, &str); 13] = [
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    ];
+    let mut out = String::new();
+    for (value, numeral) in VALUES {
+        while n >= value {
+            out.push_str(numeral);
+            n -= value;
+        }
+    }
+    out
 }
 
 fn make_border(
@@ -437,7 +642,6 @@ fn make_border(
     mid: char,
     right: char,
     fill: char,
-    theme: &dyn MarkdownTheme,
 ) -> Span<'static> {
     let mut s = String::new();
     s.push(left);
@@ -450,7 +654,8 @@ fn make_border(
         }
     }
     s.push(right);
-    Span::styled(s, Style::default().fg(theme.muted()))
+    // 边框不带样式：对齐 CC MarkdownTable（纯文本框线，无 SGR）
+    Span::raw(s)
 }
 
 // ── 渲染状态机 ────────────────────────────────────────────────────────────────
@@ -470,10 +675,24 @@ pub(super) struct RenderState<'a> {
     max_width: usize,
     /// 当前列表项/引用块的悬挂缩进列数（续行前缀的显示宽度）
     hanging_indent: usize,
-    /// 当前打开的链接（Start 已见、End 未见），可跨 flush_line
-    open_link: Option<OpenLink>,
+    /// 行内样式栈：进入 Strong/Emphasis 时压入外层样式，结束时恢复。
+    ///
+    /// 必须用「保存/恢复」而非「加/减修饰符」：CC 的样式是嵌套作用域，
+    /// 例如标题(BOLD) 里再出现 `**粗**`，退出内层后标题的 BOLD 仍应保留。
+    inline_style_stack: Vec<Style>,
+    /// 打开中的链接栈（`Start` 已见、`End` 未见）；链接可嵌套（图片包在链接里）
+    link_stack: Vec<LinkFrame>,
+    /// 是否启用 OSC 8 超链接。关闭时对齐 CC：链接统一退化为纯 URL。
+    hyperlinks: bool,
     /// 当前逻辑行（current_spans grapheme 空间）内已闭合的链接段 (g_start, g_end, url)
     line_link_ranges: Vec<(usize, usize, String)>,
+    /// 正在跳过图片 alt 文本（图片只输出 URL）
+    skip_image_alt: bool,
+    /// 是否启用代码块语法高亮（对齐 CC `syntaxHighlightingDisabled` 的反向开关）。
+    ///
+    /// 关闭时多行代码块不调 syntect、也不套任何前景色，与 CC 的
+    /// `highlight === null` 分支一致。
+    syntax_highlighting: bool,
     /// 全部链接命中区（输出）
     pub links: Vec<LinkHit>,
     /// 下一个顶层块前是否有源文本空行（由解析器按字节偏移判定后写入）。
@@ -481,11 +700,13 @@ pub(super) struct RenderState<'a> {
     pending_blank_before_block: bool,
 }
 
-/// 打开中的超链接（可能跨越 SoftBreak/flush_line）
-struct OpenLink {
+/// 打开中的超链接：记录 URL、起始 grapheme 位置与被覆盖的样式。
+struct LinkFrame {
     url: String,
-    /// 在 current_spans grapheme 空间中的起点；None = 从本行行首延续
-    g_start: Option<usize>,
+    /// 在 current_spans grapheme 空间中的起点
+    start: usize,
+    /// 链接开始前的行内样式，End 时恢复
+    saved_style: Style,
 }
 
 /// 统计 spans 的 grapheme 总数
@@ -494,6 +715,41 @@ fn spans_g_len(spans: &[Span<'static>]) -> usize {
         .iter()
         .map(|s| s.content.as_ref().graphemes(true).count())
         .sum()
+}
+
+/// 取 spans 中第 `start` 个 grapheme 起的全部文本。
+fn collect_graphemes_from(spans: &[Span<'static>], start: usize) -> String {
+    spans
+        .iter()
+        .flat_map(|s| s.content.as_ref().graphemes(true))
+        .skip(start)
+        .collect()
+}
+
+/// 把 spans 截断到前 `keep` 个 grapheme（按 grapheme 而非 span 边界）。
+fn truncate_graphemes(spans: &mut Vec<Span<'static>>, keep: usize) {
+    let mut remaining = keep;
+    let mut out: Vec<Span<'static>> = Vec::with_capacity(spans.len());
+    for span in spans.drain(..) {
+        let count = span.content.as_ref().graphemes(true).count();
+        if remaining == 0 {
+            break;
+        }
+        if count <= remaining {
+            remaining -= count;
+            out.push(span);
+        } else {
+            let text: String = span
+                .content
+                .as_ref()
+                .graphemes(true)
+                .take(remaining)
+                .collect();
+            out.push(Span::styled(text, span.style));
+            break;
+        }
+    }
+    *spans = out;
 }
 
 /// 预折行输出段：line 为渲染行，其余字段用于链接命中区映射
@@ -521,8 +777,12 @@ impl<'a> RenderState<'a> {
             theme,
             max_width: 80, // 默认宽度
             hanging_indent: 0,
-            open_link: None,
+            link_stack: Vec::new(),
+            inline_style_stack: Vec::new(),
+            hyperlinks: false,
             line_link_ranges: Vec::new(),
+            skip_image_alt: false,
+            syntax_highlighting: true,
             links: Vec::new(),
             pending_blank_before_block: false,
         }
@@ -530,6 +790,21 @@ impl<'a> RenderState<'a> {
 
     pub fn with_max_width(mut self, width: usize) -> Self {
         self.max_width = width;
+        self
+    }
+
+    /// 关闭代码块语法高亮，对齐 CC 的 `syntaxHighlightingDisabled`。
+    pub fn with_syntax_highlighting(mut self, enabled: bool) -> Self {
+        self.syntax_highlighting = enabled;
+        self
+    }
+
+    /// 启用 OSC 8 超链接模式。
+    ///
+    /// 关闭（默认）时对齐 CC：链接显示为纯 URL。开启时保留链接文字并上色，
+    /// 由渲染后端在终端输出层补 OSC 8 序列。
+    pub fn with_hyperlinks(mut self, enabled: bool) -> Self {
+        self.hyperlinks = enabled;
         self
     }
 
@@ -563,30 +838,48 @@ impl<'a> RenderState<'a> {
     pub fn flush_line(&mut self) {
         let mut spans = std::mem::take(&mut self.current_spans);
 
-        // 跨行未闭合的链接：本行先收一段，下一行从行首续
-        if let Some(link) = &mut self.open_link {
+        // 未闭合的链接（跨 SoftBreak）：把本行已产出的部分先登记为一段，
+        // 下一行的起点归零，等 End(Link) 时再补齐后续行。
+        if !self.link_stack.is_empty() {
             let g_end = spans_g_len(&spans);
-            let g_start = link.g_start.unwrap_or(0);
-            if g_end > g_start {
-                self.line_link_ranges
-                    .push((g_start, g_end, link.url.clone()));
+            for frame in self.link_stack.iter_mut() {
+                if g_end > frame.start {
+                    self.line_link_ranges
+                        .push((frame.start, g_end, frame.url.clone()));
+                }
+                // 后续行从行首起算
+                frame.start = 0;
             }
-            link.g_start = None;
         }
         let mut link_ranges = std::mem::take(&mut self.line_link_ranges);
 
-        // quote 前缀插入后整体 g 坐标右移
+        // quote 前缀插入后整体 g 坐标右移。
+        // 注意：必须先判断内容是否为空，否则空行也会被加上 `▎ ` 前缀，
+        // 产生只含竖条的幽灵行。
         if self.quote_depth > 0 && !spans.is_empty() {
-            let prefix = "▍ ".repeat(self.quote_depth as usize);
+            let prefix = "▎ ".repeat(self.quote_depth as usize);
             let prefix_g = prefix.graphemes(true).count();
             for r in &mut link_ranges {
                 r.0 += prefix_g;
                 r.1 += prefix_g;
             }
-            spans.insert(
-                0,
-                Span::styled(prefix, Style::default().fg(self.theme.quote_prefix())),
-            );
+            // 对齐 CC `formatToken` 的 blockquote 分支：竖条 `▎` 只加 DIM
+            // （chalk.dim 只影响字形、不改前景色），正文整体 ITALIC。
+            // 分隔的空格保持无样式。
+            for span in spans.iter_mut() {
+                span.style = span.style.add_modifier(Modifier::ITALIC);
+            }
+            let mut bar_spans: Vec<Span<'static>> = Vec::new();
+            for _ in 0..self.quote_depth as usize {
+                bar_spans.push(Span::styled(
+                    "▎".to_string(),
+                    Style::default().add_modifier(Modifier::DIM),
+                ));
+                bar_spans.push(Span::raw(" "));
+            }
+            let mut all = bar_spans;
+            all.extend(spans);
+            spans = all;
         }
 
         if spans.is_empty() {
@@ -599,47 +892,41 @@ impl<'a> RenderState<'a> {
             self.hanging_indent
         } else if self.quote_depth > 0 {
             // 引用块：缩进 = 引用前缀的显示宽度
-            "▍ ".repeat(self.quote_depth as usize).width()
+            "▎ ".repeat(self.quote_depth as usize).width()
         } else {
             0
         };
 
         let base_line = self.lines.len();
-        if indent > 0 && self.max_width > indent {
-            let wrapped = self.wrap_spans_with_hanging_indent(&spans, indent);
-            for (i, seg) in wrapped.into_iter().enumerate() {
-                for (gs, ge, url) in &link_ranges {
-                    let is = (*gs).max(seg.in_g_start);
-                    let ie = (*ge).min(seg.in_g_end);
-                    if is < ie {
-                        self.links.push(LinkHit {
-                            line: base_line + i,
-                            g_start: seg.out_g_offset + (is - seg.in_g_start),
-                            g_end: seg.out_g_offset + (ie - seg.in_g_start),
-                            url: url.clone(),
-                        });
-                    }
-                }
-                self.lines.push(seg.line);
-            }
-        } else {
+        // 对齐 CC：<Ansi> 文本节点走 Ink 的 textWrap='wrap'
+        // （wrapAnsi with hard:true），即无论有无缩进都要按 max_width 折行。
+        // 缩进 > 0 时续行补悬挂缩进；缩进 == 0 时续行顶格（与 CC 一致）。
+        // 首行已含前缀（bullet / 引用条），其宽度从首行可用宽度中扣除。
+        // 前缀宽度就是 `indent`：引用场景下它等于 "▎ " * depth 的宽度，
+        // 列表场景下等于 bullet 的宽度，两者都在 flush_line 里算好了。
+        let wrapped = self.wrap_spans_with_hanging_indent(&spans, indent);
+        for (i, seg) in wrapped.into_iter().enumerate() {
             for (gs, ge, url) in &link_ranges {
-                self.links.push(LinkHit {
-                    line: base_line,
-                    g_start: *gs,
-                    g_end: *ge,
-                    url: url.clone(),
-                });
+                let is = (*gs).max(seg.in_g_start);
+                let ie = (*ge).min(seg.in_g_end);
+                if is < ie {
+                    self.links.push(LinkHit {
+                        line: base_line + i,
+                        g_start: seg.out_g_offset + (is - seg.in_g_start),
+                        g_end: seg.out_g_offset + (ie - seg.in_g_start),
+                        url: url.clone(),
+                    });
+                }
             }
-            self.lines.push(Line::from(spans));
+            self.lines.push(seg.line);
         }
     }
 
     /// 将 spans 按 max_width 预折行，续行加悬挂缩进
     ///
-    /// 首行直接使用原始 spans（bullet/引用前缀已在其中），
-    /// 续行前面插入与首行文字起始位置等宽的空格。
-    /// 以 grapheme 为切分单位，返回段级 g 映射用于链接命中区。
+    /// 首行直接使用原始 spans（bullet/引用前缀已在其中，且**计入可用宽度**，
+    /// 因为 CC 的折行发生在整段 chunk 上）。续行前面插入与首行文字起始位置
+    /// 等宽的空格。以 grapheme 为切分单位，返回段级 g 映射用于链接命中区。
     fn wrap_spans_with_hanging_indent(
         &self,
         spans: &[Span<'static>],
@@ -675,42 +962,24 @@ impl<'a> RenderState<'a> {
 
         while idx < total_gs {
             let line_start = idx;
-            let line_prefix_w = if is_first_line { 0 } else { indent };
-            let content_max = max_w.saturating_sub(line_prefix_w);
-
-            // 累加 grapheme 宽度，找到折行点
-            let mut width_acc: usize = 0;
-            let mut break_idx = idx; // 在这个索引处断行
-            let mut last_space_idx: Option<usize> = None;
-
-            while break_idx < total_gs {
-                let (g, _) = g_with_style[break_idx];
-                let g_w = g.width();
-
-                if width_acc + g_w > content_max && break_idx > line_start {
-                    // 超出宽度，需要断行
-                    // 优先在最近的空格后断行，但确保断行后行内至少有 1/3 宽度的内容
-                    if let Some(space_idx) = last_space_idx {
-                        let width_before: usize = g_with_style[line_start..space_idx]
-                            .iter()
-                            .map(|(g, _)| g.width())
-                            .sum();
-                        if space_idx > line_start && width_before >= content_max / 3 {
-                            break_idx = space_idx + 1;
-                            break;
-                        }
-                    }
-                    // 没有合适的空格断行点，在当前位置强制断行（CJK 可以任意断行）
-                    break;
-                }
-
-                if g == " " || g == "\u{3000}" {
-                    last_space_idx = Some(break_idx);
-                }
-
-                width_acc += g_w;
-                break_idx += 1;
+            // 首行已含前缀（bullet/竖条）且前缀算在可用宽度里——
+            // CC 的折行发生在整段 chunk 上，前缀同样占列宽。
+            // 只有续行才需要为悬挂缩进预留空间。
+            let content_max = if is_first_line {
+                max_w
+            } else {
+                max_w.saturating_sub(indent)
             }
+            .max(1);
+
+            // 累加 grapheme 宽度，找到折行点。
+            //
+            // 语义严格对齐 `wrap-ansi`（CC 的折行实现，hard:true, wordWrap:true）：
+            // - 以「词」（空格分隔）为单位贪心装箱
+            // - 词本身宽度超过列宽时**在列宽处硬切**，不回头找空格
+            //   （这是 CJK/长 URL 场景的关键：否则前缀空格会让首行只剩前缀）
+            // - 空格留在行尾（trim:false）
+            let mut break_idx = find_break(&g_with_style, line_start, total_gs, content_max);
 
             // 确保至少消费一个 grapheme（防止死循环）
             if break_idx == line_start && break_idx < total_gs {
@@ -724,13 +993,16 @@ impl<'a> RenderState<'a> {
             let mut out_g_offset = 0usize;
             if !is_first_line {
                 if self.quote_depth > 0 && self.hanging_indent == 0 {
-                    // 引用块续行：重新添加引用前缀
-                    let prefix = "\u{258D} ".repeat(self.quote_depth as usize);
+                    // 引用块续行：重新添加竖条前缀（只 DIM，不带前景色）
+                    let prefix = "▎ ".repeat(self.quote_depth as usize);
                     out_g_offset = prefix.graphemes(true).count();
-                    line_spans.push(Span::styled(
-                        prefix,
-                        Style::default().fg(self.theme.quote_prefix()),
-                    ));
+                    for _ in 0..self.quote_depth {
+                        line_spans.push(Span::styled(
+                            "▎".to_string(),
+                            Style::default().add_modifier(Modifier::DIM),
+                        ));
+                        line_spans.push(Span::raw(" "));
+                    }
                 } else {
                     let padding = " ".repeat(indent);
                     out_g_offset = indent;
@@ -777,20 +1049,83 @@ impl<'a> RenderState<'a> {
         }
     }
 
-    pub fn push_span(&mut self, text: String, extra: Style) {
-        let style = self.inline_style.patch(extra);
-        self.current_spans.push(Span::styled(text, style));
+    /// 把 span 写到当前上下文：表格内写进当前单元格，否则写进当前行。
+    ///
+    /// 行内元素（链接、图片、行内代码）都必须走这里，否则表格内的内联内容
+    /// 会被吐到表格外面，破坏表格结构。
+    fn push_inline(&mut self, span: Span<'static>) {
+        match self.table.as_mut() {
+            Some(table) => table.current_cell.push(span),
+            None => self.current_spans.push(span),
+        }
+    }
+
+    /// 当前内联上下文的 grapheme 长度（表格内用单元格，否则用 current_spans）。
+    fn inline_g_len(&self) -> usize {
+        match self.table.as_ref() {
+            Some(table) => spans_g_len(&table.current_cell),
+            None => spans_g_len(&self.current_spans),
+        }
+    }
+
+    /// 截断当前内联上下文到前 `keep` 个 grapheme。
+    fn truncate_inline(&mut self, keep: usize) {
+        match self.table.as_mut() {
+            Some(table) => truncate_graphemes(&mut table.current_cell, keep),
+            None => truncate_graphemes(&mut self.current_spans, keep),
+        }
+    }
+
+    /// 取当前内联上下文从第 `start` 个 grapheme 起的文本。
+    fn inline_text_from(&self, start: usize) -> String {
+        match self.table.as_ref() {
+            Some(table) => collect_graphemes_from(&table.current_cell, start),
+            None => collect_graphemes_from(&self.current_spans, start),
+        }
+    }
+
+    /// 处理事件，并携带该事件在源文本中的原始片段。
+    ///
+    /// 用于还原 pulldown 会改写的文本：HTML entity（`&amp;` → `&`）。
+    /// CC（marked）不做 entity 解码，输出的是字面量，因此这里优先用源片段。
+    pub fn handle_event_with_source(&mut self, event: Event<'_>, source: Option<&str>) {
+        // 仅对 Text 事件做 entity 还原；其它事件直接委派
+        if let Event::Text(ref text) = event {
+            if let Some(raw) = source {
+                // 只有当源片段含有 `&`（可能是 entity）且与解码结果不同时才替换
+                if raw.contains('&') && raw != text.as_ref() && !self.in_code_block {
+                    let raw = raw.to_string();
+                    if self.skip_image_alt {
+                        return;
+                    }
+                    let style = self.inline_style;
+                    self.push_inline(Span::styled(raw, style));
+                    return;
+                }
+            }
+            // 表格内的纯文本同样要带 inline_style
+            if self.table.is_some() && !self.in_code_block && !self.skip_image_alt {
+                let style = self.inline_style;
+                let s = text.to_string();
+                self.push_inline(Span::styled(s, style));
+                return;
+            }
+        }
+        self.handle_event(event);
     }
 
     pub fn handle_event(&mut self, event: Event<'_>) {
         match event {
             // ── 标题 ─────────────────────────────────────────────────────────
+            // 对齐 CC `formatToken` 的 `heading` 分支：标题只靠字形属性区分层级，
+            // 不带主题色。H1 = bold+italic+underline，H2+ = bold（CC 里 h2 与 h3+
+            // 是同一档，不按深度分色）。
             Event::Start(Tag::Heading { level, .. }) => {
-                let color = match level {
-                    HeadingLevel::H1 | HeadingLevel::H2 | HeadingLevel::H3 => self.theme.heading(),
-                    _ => self.theme.muted(),
-                };
-                self.inline_style = Style::default().fg(color).add_modifier(Modifier::BOLD);
+                let mut style = Style::default().add_modifier(Modifier::BOLD);
+                if level == HeadingLevel::H1 {
+                    style = style.add_modifier(Modifier::ITALIC | Modifier::UNDERLINED);
+                }
+                self.inline_style = style;
                 // 标题前添加空行分隔（去重）。行首不能因空 spans 调 flush_line——
                 // 它在 spans 为空时会无条件插入一个空行，导致消息开头多一行留白
                 if !self.current_spans.is_empty() {
@@ -840,16 +1175,28 @@ impl<'a> RenderState<'a> {
                 while end > 0 && lines[end - 1].is_empty() {
                     end -= 1;
                 }
+                if end == 0 {
+                    return;
+                }
+
+                // 语法高亮关闭时（`syntax_highlighting_disabled`）对齐 CC 的
+                // `highlight === null` 分支：代码块原样输出、完全不带样式。
+                if !self.syntax_highlighting {
+                    for line_text in &lines[..end] {
+                        self.current_spans.push(Span::raw(line_text.clone()));
+                        self.flush_line();
+                    }
+                    return;
+                }
 
                 if end == 1 {
-                    // 单行代码块：只改颜色，不要 [lang] 和 │ 前缀，简洁
+                    // 单行代码块：只上色，不要语言标签与 │ 前缀
                     self.current_spans.push(Span::styled(
                         lines[0].clone(),
                         Style::default().fg(self.theme.code()),
                     ));
                     self.flush_line();
-                } else if end > 1 {
-                    // 多行代码块：前后空行同样取决于源文本，不在此处强行补
+                } else {
                     #[cfg(feature = "markdown-highlight")]
                     if let Some(highlighted) = highlight_code_block(
                         &self.code_block_lang,
@@ -858,7 +1205,7 @@ impl<'a> RenderState<'a> {
                     ) {
                         self.lines.extend(highlighted);
                     } else {
-                        // syntect 未识别语言，回退到统一颜色
+                        // 语言未识别，回退到统一正文色
                         for line_text in &lines[..end] {
                             self.current_spans.push(Span::styled(
                                 line_text.clone(),
@@ -904,24 +1251,25 @@ impl<'a> RenderState<'a> {
                 }
                 let depth = self.list_stack.len().saturating_sub(1);
                 let indent = "  ".repeat(depth);
+                // 有序列表序号随深度换制：0/1 → 数字，2 → 字母，3 → 罗马（对齐 CC
+                // `getListNumber`）。无序列表用 `- `（CC `formatToken` 的 text 分支）。
                 let bullet = if let Some(state) = self.list_stack.last_mut() {
                     match &mut state.list_type {
-                        ListType::Unordered => format!("{}• ", indent),
+                        ListType::Unordered => format!("{indent}- "),
                         ListType::Ordered(n) => {
-                            let s = format!("{}{}. ", indent, n);
+                            let s = format!("{}{}. ", indent, format_ordered(*n, depth));
                             *n += 1;
                             s
                         }
                     }
                 } else {
-                    format!("{}• ", indent)
+                    format!("{indent}- ")
                 };
-                // 计算悬挂缩进宽度 = bullet 前缀的显示宽度
+                // 计算悬挂缩进宽度 = bullet 前缀的显示宽度。
+                // 符号本身不带色：对齐 CC `formatToken`，bullet 与 `- `/`n. `
+                // 都拼在纯文本里，没有任何 SGR 包裹。
                 self.hanging_indent = bullet.width();
-                self.current_spans.push(Span::styled(
-                    bullet,
-                    Style::default().fg(self.theme.list_bullet()),
-                ));
+                self.current_spans.push(Span::raw(bullet));
             }
             Event::End(TagEnd::Item) => {
                 if !self.current_spans.is_empty() {
@@ -932,6 +1280,11 @@ impl<'a> RenderState<'a> {
 
             // ── 引用块 ────────────────────────────────────────────────────────
             Event::Start(Tag::BlockQuote(_)) => {
+                // 列表项内嵌引用块：bullet 已写入 current_spans 但尚未换行，
+                // 必须先结束该行，否则会出现 `▎ - itemquote` 这种粘连。
+                if !self.current_spans.is_empty() {
+                    self.flush_line();
+                }
                 // 顶层引用块前的空行只来自源文本（须在 quote_depth 自增前判断）
                 let blank_before = self.take_pending_blank_at_top_level();
                 self.quote_depth += 1;
@@ -948,91 +1301,155 @@ impl<'a> RenderState<'a> {
             Event::Rule => {
                 // hr 前的空行来自源文本（CC 的 space token）
                 self.begin_block();
-                // 水平线按可用宽度铺满（此前硬编码 60：宽终端下只占一半、窄终端下溢出被裁）。
-                let width = if self.max_width > 0 {
-                    self.max_width
-                } else {
-                    60
-                };
-                let rule = "─".repeat(width);
-                self.current_spans.push(Span::styled(
-                    rule,
-                    Style::default().fg(self.theme.separator()),
-                ));
+                // 对齐 CC `formatToken` 的 `hr` 分支：固定输出 `---`，不带样式。
+                self.current_spans.push(Span::raw("---"));
                 self.flush_line();
-                // 对齐 CC：hr 的 tokenizer 会吞掉后续换行，hr 之后不留空行
+                // CC 的 hr token 不带 EOL、下个块也不补空行，会把后文粘成
+                // `---文字`。这是 CC 的缺陷（已在对拍测试中登记为偏离），
+                // 这里保留 peri 的块分隔行为。
             }
 
             // ── 文本（含代码块内容） ───────────────────────────────────────────
             Event::Text(text) => {
+                if self.skip_image_alt {
+                    return;
+                }
                 let text_str = text.into_string();
                 if self.in_code_block {
                     // 缓冲所有行，等 TagEnd::CodeBlock 时统一输出
                     for line in text_str.split('\n') {
                         self.code_lines.push(line.to_string());
                     }
-                } else if self.table.is_some() {
-                    let style = self.inline_style;
-                    self.table
-                        .as_mut()
-                        .unwrap()
-                        .current_cell
-                        .push(Span::styled(text_str, style));
                 } else {
-                    self.push_span(text_str, Style::default());
+                    // 表格内走 push_inline，否则写 current_spans
+                    let style = self.inline_style;
+                    self.push_inline(Span::styled(text_str, style));
+                }
+            }
+
+            // ── 内联 HTML ────────────────────────────────────────────────────
+            // 对齐 CC：`formatToken` 的 `html` 分支返回 ''，标签整体丢弃，
+            // 只保留标签之间的文字（`a <b>x</b> c` → `a x c`）。
+            Event::InlineHtml(_) => {}
+
+            // ── 块级 HTML ────────────────────────────────────────────────────
+            // 对齐 CC：块级 HTML 同样整段丢弃。CC 对纯 HTML 文档仍输出
+            // 一个空行（chunk trim 后 join 的结果），这里保持一致。
+            Event::Html(_) => {
+                if self.current_spans.is_empty() && self.lines.is_empty() {
+                    self.lines.push(Line::default());
                 }
             }
 
             // ── 行内代码 ──────────────────────────────────────────────────────
+            // 对齐 CC：`codespan` 只覆盖前景色，外层字形（标题 BOLD、
+            // 斜体 ITALIC 等）继续生效 —— CC 的 `color('permission')(text)`
+            // 是嵌套在 `chalk.bold(...)` 内部输出的，属性会叠加。
             Event::Code(text) => {
-                let style = Style::default().fg(self.theme.code());
-                let span = Span::styled(text.into_string(), style);
-                if let Some(table) = &mut self.table {
-                    table.current_cell.push(span);
-                } else {
-                    self.current_spans.push(span);
-                }
+                let style = self.inline_style.fg(self.theme.code());
+                self.push_inline(Span::styled(text.into_string(), style));
             }
 
-            // ── Strong / Emphasis / Strikethrough ────────────────────────────
+            // ── Strong / Emphasis ────────────────────────────────────────────
+            // 注意：删除线不在这里渲染。CC 通过禁用 marked 的 `del` tokenizer
+            // 主动关掉删除线（模型常把 `~100` 当“约等于”用），peri 侧在
+            // `parse_markdown_with_links` 关闭 ENABLE_STRIKETHROUGH 达到同样效果，
+            // 因此不会收到 Strikethrough 事件。
             Event::Start(Tag::Strong) => {
+                // 压栈保存外层样式：标题是 BOLD，内层再套 BOLD 时，
+                // End 只应撤掉内层这一层，不能把标题的 BOLD 一起删掉。
+                self.inline_style_stack.push(self.inline_style);
                 self.inline_style = self.inline_style.add_modifier(Modifier::BOLD);
             }
             Event::End(TagEnd::Strong) => {
-                self.inline_style = self.inline_style.remove_modifier(Modifier::BOLD);
+                if let Some(prev) = self.inline_style_stack.pop() {
+                    self.inline_style = prev;
+                } else {
+                    self.inline_style = self.inline_style.remove_modifier(Modifier::BOLD);
+                }
             }
             Event::Start(Tag::Emphasis) => {
+                self.inline_style_stack.push(self.inline_style);
                 self.inline_style = self.inline_style.add_modifier(Modifier::ITALIC);
             }
             Event::End(TagEnd::Emphasis) => {
-                self.inline_style = self.inline_style.remove_modifier(Modifier::ITALIC);
+                if let Some(prev) = self.inline_style_stack.pop() {
+                    self.inline_style = prev;
+                } else {
+                    self.inline_style = self.inline_style.remove_modifier(Modifier::ITALIC);
+                }
             }
-            Event::Start(Tag::Strikethrough) => {
-                self.inline_style = self.inline_style.add_modifier(Modifier::CROSSED_OUT);
+
+            // ── 图片 ─────────────────────────────────────────────────────────
+            // 对齐 CC `formatToken` 的 `image` 分支：输出 URL 而不是 alt 文本
+            // （终端无法显示图片，URL 至少可复制/可点）。
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                let url = dest_url.into_string();
+                let style = self.inline_style;
+                self.push_inline(Span::styled(url, style));
+                // alt 文本只是占位，跳过其内容
+                self.skip_image_alt = true;
             }
-            Event::End(TagEnd::Strikethrough) => {
-                self.inline_style = self.inline_style.remove_modifier(Modifier::CROSSED_OUT);
+            Event::End(TagEnd::Image) => {
+                self.skip_image_alt = false;
             }
 
             // ── 链接 ─────────────────────────────────────────────────────────
+            // 对齐 CC `formatToken` 的 `link` 分支：
+            // - `mailto:` 只显示邮箱地址
+            // - 有独立显示文本且不等于 URL → 显示文本（支持 OSC8 时）
+            // - 否则显示 URL
+            // CC 在不支持 OSC8 时统一退化为**纯 URL**（无颜色、无下划线），
+            // 因此这里只在 `hyperlinks` 打开时才给链接文字上色。
             Event::Start(Tag::Link { dest_url, .. }) => {
-                self.inline_style = self
-                    .inline_style
-                    .fg(self.theme.link())
-                    .add_modifier(Modifier::UNDERLINED);
-                self.open_link = Some(OpenLink {
+                self.link_stack.push(LinkFrame {
                     url: dest_url.into_string(),
-                    g_start: Some(spans_g_len(&self.current_spans)),
+                    start: self.inline_g_len(),
+                    saved_style: self.inline_style,
                 });
+                if self.hyperlinks {
+                    self.inline_style = self
+                        .inline_style
+                        .fg(self.theme.link())
+                        .add_modifier(Modifier::UNDERLINED);
+                }
             }
             Event::End(TagEnd::Link) => {
-                self.inline_style = Style::default();
-                if let Some(link) = self.open_link.take() {
-                    let g_end = spans_g_len(&self.current_spans);
-                    let g_start = link.g_start.unwrap_or(0);
-                    if g_end > g_start {
-                        self.line_link_ranges.push((g_start, g_end, link.url));
+                let Some(frame) = self.link_stack.pop() else {
+                    return;
+                };
+                self.inline_style = frame.saved_style;
+                let url = frame.url;
+                let g_end = self.inline_g_len();
+                let has_text = g_end > frame.start;
+                let in_table = self.table.is_some();
+
+                // 取链接文字：frame.start 是当前内联上下文的 grapheme 偏移
+                let link_text = self.inline_text_from(frame.start);
+
+                // mailto: 直接显示邮箱，不加链接
+                if let Some(email) = url.strip_prefix("mailto:") {
+                    self.truncate_inline(frame.start);
+                    self.push_inline(Span::raw(email.to_string()));
+                    return;
+                }
+
+                // 表格内不登记链接命中区（表格行是独立渲染的，命中区映射不适用）
+                if link_text == url || !self.hyperlinks || !has_text {
+                    // 退化为纯 URL：截断已有链接文字，写入 URL 本身
+                    self.truncate_inline(frame.start);
+                    let start_g = frame.start;
+                    let end_g = start_g + url.graphemes(true).count();
+                    self.push_inline(Span::raw(url.clone()));
+                    if has_text && !in_table {
+                        self.line_link_ranges.push((start_g, end_g, url));
                     }
+                    return;
+                }
+                // 有 OSC8：保留链接文字样式，并记录点击命中区。
+                // 跨行时 flush_line 已按行登记过前几段，这里只补最后一段。
+                if !in_table && g_end > frame.start {
+                    self.line_link_ranges.push((frame.start, g_end, url));
                 }
             }
 

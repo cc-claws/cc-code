@@ -1,0 +1,3306 @@
+[
+  {
+    "name": "h1",
+    "src": "# H1\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "H1",
+        "spans": [
+          [
+            "H1",
+            "biu"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "h2",
+    "src": "## H2\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "H2",
+        "spans": [
+          [
+            "H2",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "h3",
+    "src": "### H3\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "H3",
+        "spans": [
+          [
+            "H3",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "h4",
+    "src": "#### H4\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "H4",
+        "spans": [
+          [
+            "H4",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "h5",
+    "src": "##### H5\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "H5",
+        "spans": [
+          [
+            "H5",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "h6",
+    "src": "###### H6\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "H6",
+        "spans": [
+          [
+            "H6",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading_inline",
+    "src": "## 带 **粗** 和 `code` 的标题\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "带 粗 和 code 的标题",
+        "spans": [
+          [
+            "带 ",
+            "b"
+          ],
+          [
+            "粗",
+            "b"
+          ],
+          [
+            " 和 ",
+            "b"
+          ],
+          [
+            "code",
+            "b#b1b9f9"
+          ],
+          [
+            " 的标题",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading_trailing_hash",
+    "src": "## Title ##\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "Title",
+        "spans": [
+          [
+            "Title",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "setext_h1",
+    "src": "Setext H1\n===\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "Setext H1",
+        "spans": [
+          [
+            "Setext H1",
+            "biu"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "setext_h2",
+    "src": "Setext H2\n---\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "Setext H2",
+        "spans": [
+          [
+            "Setext H2",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "para_multi",
+    "src": "a\n\nb\n\nc\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a",
+        "spans": [
+          [
+            "a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "b",
+        "spans": [
+          [
+            "b",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "c",
+        "spans": [
+          [
+            "c",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "para_softbreak",
+    "src": "line1\nline2\nline3\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "line1",
+        "spans": [
+          [
+            "line1",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "line2",
+        "spans": [
+          [
+            "line2",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "line3",
+        "spans": [
+          [
+            "line3",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "para_hardbreak_spaces",
+    "src": "line1  \nline2\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "line1",
+        "spans": [
+          [
+            "line1",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "line2",
+        "spans": [
+          [
+            "line2",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "para_hardbreak_backslash",
+    "src": "line1\\\nline2\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "line1",
+        "spans": [
+          [
+            "line1",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "line2",
+        "spans": [
+          [
+            "line2",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em_star",
+    "src": "*em*\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "em",
+        "spans": [
+          [
+            "em",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em_underscore",
+    "src": "_em_\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "em",
+        "spans": [
+          [
+            "em",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "strong_star",
+    "src": "**strong**\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "strong",
+        "spans": [
+          [
+            "strong",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "strong_underscore",
+    "src": "__strong__\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "strong",
+        "spans": [
+          [
+            "strong",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em_strong_nested",
+    "src": "***both***\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "both",
+        "spans": [
+          [
+            "both",
+            "bi"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em_strong_mixed",
+    "src": "**a *b* c**\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a b c",
+        "spans": [
+          [
+            "a ",
+            "b"
+          ],
+          [
+            "b",
+            "bi"
+          ],
+          [
+            " c",
+            "b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "snake_case_intraword",
+    "src": "use snake_case_name here\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "use snake_case_name here",
+        "spans": [
+          [
+            "use snake_case_name here",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code_span",
+    "src": "`code`\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "code",
+        "spans": [
+          [
+            "code",
+            ".#b1b9f9"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code_span_double_backtick",
+    "src": "``a`b``\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a`b",
+        "spans": [
+          [
+            "a`b",
+            ".#b1b9f9"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code_span_spaces",
+    "src": "` a `\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a",
+        "spans": [
+          [
+            "a",
+            ".#b1b9f9"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code_span_in_em",
+    "src": "*`code`*\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "code",
+        "spans": [
+          [
+            "code",
+            "i#b1b9f9"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence_no_lang",
+    "src": "```\nplain\n```\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "plain",
+        "spans": [
+          [
+            "plain",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence_tilde",
+    "src": "~~~js\nx=1\n~~~\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "x=1",
+        "spans": [
+          [
+            "x=1",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence_indented",
+    "src": "    indented code\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "indented code",
+        "spans": [
+          [
+            "indented code",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence_unclosed",
+    "src": "```js\nlet a = 1\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "let a = 1",
+        "spans": [
+          [
+            "let a = 1",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence_with_backticks",
+    "src": "````\n```\ninner\n```\n````\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "```",
+        "spans": [
+          [
+            "```",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "inner",
+        "spans": [
+          [
+            "inner",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "```",
+        "spans": [
+          [
+            "```",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence_blank_lines",
+    "src": "```\na\n\nb\n```\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a",
+        "spans": [
+          [
+            "a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "b",
+        "spans": [
+          [
+            "b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence_cjk",
+    "src": "```\n中文代码\n```\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "中文代码",
+        "spans": [
+          [
+            "中文代码",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_tight",
+    "src": "- a\n- b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- a",
+        "spans": [
+          [
+            "- a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "- b",
+        "spans": [
+          [
+            "- b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_star",
+    "src": "* a\n* b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- a",
+        "spans": [
+          [
+            "- a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "- b",
+        "spans": [
+          [
+            "- b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_plus",
+    "src": "+ a\n+ b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- a",
+        "spans": [
+          [
+            "- a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "- b",
+        "spans": [
+          [
+            "- b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ol_start1",
+    "src": "1. a\n2. b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "1. a",
+        "spans": [
+          [
+            "1. a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "2. b",
+        "spans": [
+          [
+            "2. b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ol_start7",
+    "src": "7. a\n8. b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "7. a",
+        "spans": [
+          [
+            "7. a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "8. b",
+        "spans": [
+          [
+            "8. b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ol_paren",
+    "src": "1) a\n2) b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "1. a",
+        "spans": [
+          [
+            "1. a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "2. b",
+        "spans": [
+          [
+            "2. b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_loose",
+    "src": "- a\n\n- b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a",
+        "spans": [
+          [
+            "a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "b",
+        "spans": [
+          [
+            "b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_multi_para_item",
+    "src": "- first\n\n  second\n- b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "first",
+        "spans": [
+          [
+            "first",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "second",
+        "spans": [
+          [
+            "second",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "b",
+        "spans": [
+          [
+            "b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_nested2",
+    "src": "- a\n  - b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- a",
+        "spans": [
+          [
+            "- a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "  - b",
+        "spans": [
+          [
+            "  - b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_nested3",
+    "src": "- a\n  - b\n    - c\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- a",
+        "spans": [
+          [
+            "- a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "  - b",
+        "spans": [
+          [
+            "  - b",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "      - c",
+        "spans": [
+          [
+            "      - c",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_nested4",
+    "src": "- a\n  - b\n    - c\n      - d\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- a",
+        "spans": [
+          [
+            "- a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "  - b",
+        "spans": [
+          [
+            "  - b",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "      - c",
+        "spans": [
+          [
+            "      - c",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "          - d",
+        "spans": [
+          [
+            "          - d",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_with_code",
+    "src": "- item\n\n  ```js\n  x\n  ```\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "item",
+        "spans": [
+          [
+            "item",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "x",
+        "spans": [
+          [
+            "x",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_with_quote",
+    "src": "- item\n  > quote\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- item",
+        "spans": [
+          [
+            "- item",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "▎ quote",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "quote",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_task_unchecked",
+    "src": "- [ ] todo\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- todo",
+        "spans": [
+          [
+            "- todo",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_task_checked",
+    "src": "- [x] done\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- done",
+        "spans": [
+          [
+            "- done",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_inline_bold",
+    "src": "- **bold** item\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "- bold item",
+        "spans": [
+          [
+            "- ",
+            "."
+          ],
+          [
+            "bold",
+            "b"
+          ],
+          [
+            " item",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ul_long_wrap",
+    "src": "- 这是一段很长很长的列表项内容用于验证折行与悬挂缩进是否对齐 CC 的行为\n",
+    "width": 30,
+    "lines": [
+      {
+        "plain": "- 这是一段很长很长的列表项内容",
+        "spans": [
+          [
+            "- 这是一段很长很长的列表项内容",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "用于验证折行与悬挂缩进是否对齐",
+        "spans": [
+          [
+            "用于验证折行与悬挂缩进是否对齐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": " CC 的行为",
+        "spans": [
+          [
+            " CC 的行为",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_basic",
+    "src": "> q\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ q",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "q",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_multi_line",
+    "src": "> a\n> b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ a",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "a",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "▎ b",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "b",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_two_para",
+    "src": "> a\n>\n> b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ a",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "a",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "▎ b",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "b",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_nested",
+    "src": "> > deep\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ ▎ deep",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "▎",
+            "id"
+          ],
+          [
+            " ",
+            "i"
+          ],
+          [
+            "deep",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_with_list",
+    "src": "> - a\n> - b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ - a",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "- a",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "▎ - b",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "- b",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_with_heading",
+    "src": "> ## h\n> text\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ h",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "h",
+            "bi"
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "▎ text",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "text",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_with_code",
+    "src": "> ```\n> x\n> ```\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ x",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "x",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_with_bold",
+    "src": "> **b** and *i*\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ b and i",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "b",
+            "bi"
+          ],
+          [
+            " and ",
+            "i"
+          ],
+          [
+            "i",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote_long_wrap",
+    "src": "> 引用内容很长需要折行验证续行前缀是否与 CC 一致的行为表现\n",
+    "width": 30,
+    "lines": [
+      {
+        "plain": "▎ 引用内容很长需要折行验证续行",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "引用内容很长需要折行验证续行",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "前缀是否与 CC 一致的行为表现",
+        "spans": [
+          [
+            "前缀是否与 CC 一致的行为表现",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr_dash3",
+    "src": "---\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "---",
+        "spans": [
+          [
+            "---",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr_star3",
+    "src": "***\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "---",
+        "spans": [
+          [
+            "---",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr_underscore3",
+    "src": "___\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "---",
+        "spans": [
+          [
+            "---",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr_long",
+    "src": "----------\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "---",
+        "spans": [
+          [
+            "---",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_inline",
+    "src": "[text](https://e.com)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_same_text",
+    "src": "[https://e.com](https://e.com)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_title",
+    "src": "[text](https://e.com \"t\")\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_ref",
+    "src": "[text][ref]\n\n[ref]: https://e.com\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_ref_collapsed",
+    "src": "[ref][]\n\n[ref]: https://e.com\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_autolink",
+    "src": "<https://e.com>\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_mailto",
+    "src": "[m](mailto:a@b.com)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a@b.com",
+        "spans": [
+          [
+            "a@b.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_bare_url_text",
+    "src": "see https://e.com here\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "see https://e.com here",
+        "spans": [
+          [
+            "see https://e.com here",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_bold_text",
+    "src": "[**b**](https://e.com)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_paren_url",
+    "src": "[t](https://e.com/a(b)c)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com/a(b)c",
+        "spans": [
+          [
+            "https://e.com/a(b)c",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_empty_text",
+    "src": "[](https://e.com)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link_nested_brackets",
+    "src": "[a [b] c](https://e.com)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com",
+        "spans": [
+          [
+            "https://e.com",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "image",
+    "src": "![alt](https://e.com/a.png)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com/a.png",
+        "spans": [
+          [
+            "https://e.com/a.png",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "image_title",
+    "src": "![alt](https://e.com/a.png \"t\")\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com/a.png",
+        "spans": [
+          [
+            "https://e.com/a.png",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "image_ref",
+    "src": "![alt][ref]\n\n[ref]: https://e.com/a.png\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com/a.png",
+        "spans": [
+          [
+            "https://e.com/a.png",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "image_empty_alt",
+    "src": "![](https://e.com/a.png)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "https://e.com/a.png",
+        "spans": [
+          [
+            "https://e.com/a.png",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "escape_all",
+    "src": "\\* \\_ \\` \\[ \\] \\# \\\\ \\< \\>\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "* _ ` [ ] # \\ < >",
+        "spans": [
+          [
+            "* _ ` [ ] # \\ < >",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "escape_paren",
+    "src": "a\\)b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a)b",
+        "spans": [
+          [
+            "a)b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "html_inline_b",
+    "src": "a <b>bold</b> c\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a bold c",
+        "spans": [
+          [
+            "a bold c",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "html_inline_br",
+    "src": "a<br/>b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "ab",
+        "spans": [
+          [
+            "ab",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "html_block_div",
+    "src": "<div>\nx\n</div>\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "",
+        "spans": []
+      }
+    ]
+  },
+  {
+    "name": "html_comment",
+    "src": "<!-- c -->\ntext\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "text",
+        "spans": [
+          [
+            "text",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "entity_amp",
+    "src": "a &amp; b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a &amp; b",
+        "spans": [
+          [
+            "a &amp; b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "entity_lt_gt",
+    "src": "a &lt;b&gt; c\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a &lt;b&gt; c",
+        "spans": [
+          [
+            "a &lt;b&gt; c",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "entity_nbsp",
+    "src": "a&nbsp;b\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a&nbsp;b",
+        "spans": [
+          [
+            "a&nbsp;b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "entity_numeric",
+    "src": "&#65;&#x42;\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "&#65;&#x42;",
+        "spans": [
+          [
+            "&#65;&#x42;",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "strike",
+    "src": "~~x~~\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "~~x~~",
+        "spans": [
+          [
+            "~~x~~",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "tilde_approx",
+    "src": "约 ~100 个\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "约 ~100 个",
+        "spans": [
+          [
+            "约 ~100 个",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "math_inline",
+    "src": "$x^2$\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "$x^2$",
+        "spans": [
+          [
+            "$x^2$",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "math_block",
+    "src": "$$\nx\n$$\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "$$",
+        "spans": [
+          [
+            "$$",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "x",
+        "spans": [
+          [
+            "x",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "$$",
+        "spans": [
+          [
+            "$$",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "footnote",
+    "src": "a[^1]\n\n[^1]: note\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "anote",
+        "spans": [
+          [
+            "anote",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "wikilink",
+    "src": "[[page]]\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "[[page]]",
+        "spans": [
+          [
+            "[[page]]",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "deflist",
+    "src": "term\n: def\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "term",
+        "spans": [
+          [
+            "term",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": ": def",
+        "spans": [
+          [
+            ": def",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "gfm_alert",
+    "src": "> [!NOTE]\n> body\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ [!NOTE]",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "[!NOTE]",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "▎ body",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "body",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_basic",
+    "src": "| a | b |\n| - | - |\n| 1 | 2 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │  b  │",
+        "spans": [
+          [
+            "│  a  │  b  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │ 2   │",
+        "spans": [
+          [
+            "│ 1   │ 2   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_no_outer_pipes",
+    "src": "a | b\n--- | ---\n1 | 2\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │  b  │",
+        "spans": [
+          [
+            "│  a  │  b  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │ 2   │",
+        "spans": [
+          [
+            "│ 1   │ 2   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_align",
+    "src": "| l | c | r |\n| :- | :-: | -: |\n| 1 | 2 | 3 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  l  │  c  │  r  │",
+        "spans": [
+          [
+            "│  l  │  c  │  r  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │  2  │   3 │",
+        "spans": [
+          [
+            "│ 1   │  2  │   3 │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_escaped_pipe",
+    "src": "| a | b |\n| - | - |\n| x\\|y | 2 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │  b  │",
+        "spans": [
+          [
+            "│  a  │  b  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ x|y │ 2   │",
+        "spans": [
+          [
+            "│ x|y │ 2   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_inline_code",
+    "src": "| a | b |\n| - | - |\n| `x` | **y** |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │  b  │",
+        "spans": [
+          [
+            "│  a  │  b  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ x   │ y   │",
+        "spans": [
+          [
+            "│ ",
+            "."
+          ],
+          [
+            "x",
+            ".#b1b9f9"
+          ],
+          [
+            "   │ ",
+            "."
+          ],
+          [
+            "y",
+            "b"
+          ],
+          [
+            "   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_empty_cells",
+    "src": "| a | b |\n| - | - |\n|  |  |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │  b  │",
+        "spans": [
+          [
+            "│  a  │  b  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│     │     │",
+        "spans": [
+          [
+            "│     │     │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_missing_cell",
+    "src": "| a | b | c |\n| - | - | - |\n| 1 | 2 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │  b  │  c  │",
+        "spans": [
+          [
+            "│  a  │  b  │  c  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │ 2   │     │",
+        "spans": [
+          [
+            "│ 1   │ 2   │     │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_extra_cell",
+    "src": "| a | b |\n| - | - |\n| 1 | 2 | 3 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │  b  │",
+        "spans": [
+          [
+            "│  a  │  b  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │ 2   │",
+        "spans": [
+          [
+            "│ 1   │ 2   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_single_col",
+    "src": "| a |\n| - |\n| 1 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┐",
+        "spans": [
+          [
+            "┌─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │",
+        "spans": [
+          [
+            "│  a  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┤",
+        "spans": [
+          [
+            "├─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │",
+        "spans": [
+          [
+            "│ 1   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┘",
+        "spans": [
+          [
+            "└─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_empty_header",
+    "src": "|  |  |\n| - | - |\n| 1 | 2 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│     │     │",
+        "spans": [
+          [
+            "│     │     │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │ 2   │",
+        "spans": [
+          [
+            "│ 1   │ 2   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_link",
+    "src": "| a |\n| - |\n| [t](https://e.com) |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "┌───────────────┐",
+        "spans": [
+          [
+            "┌───────────────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│       a       │",
+        "spans": [
+          [
+            "│       a       │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├───────────────┤",
+        "spans": [
+          [
+            "├───────────────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ https://e.com │",
+        "spans": [
+          [
+            "│ https://e.com │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└───────────────┘",
+        "spans": [
+          [
+            "└───────────────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_cjk_wrap",
+    "src": "| 名称 | 说明 |\n| - | - |\n| 甲 | 很长的中文内容需要折行验证宽度分配是否与 CC 一致 |\n",
+    "width": 40,
+    "lines": [
+      {
+        "plain": "┌─────┬────────────────────────────┐",
+        "spans": [
+          [
+            "┌─────┬────────────────────────────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 名  │            说明            │",
+        "spans": [
+          [
+            "│ 名  │            说明            │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 称  │                            │",
+        "spans": [
+          [
+            "│ 称  │                            │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼────────────────────────────┤",
+        "spans": [
+          [
+            "├─────┼────────────────────────────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 甲  │ 很长的中文内容需要折行验证 │",
+        "spans": [
+          [
+            "│ 甲  │ 很长的中文内容需要折行验证 │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│     │ 宽度分配是否与 CC 一致     │",
+        "spans": [
+          [
+            "│     │ 宽度分配是否与 CC 一致     │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴────────────────────────────┘",
+        "spans": [
+          [
+            "└─────┴────────────────────────────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_narrow",
+    "src": "| aaa | bbb |\n| - | - |\n| 111 | 222 |\n",
+    "width": 20,
+    "lines": [
+      {
+        "plain": "┌─────┬─────┐",
+        "spans": [
+          [
+            "┌─────┬─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ aaa │ bbb │",
+        "spans": [
+          [
+            "│ aaa │ bbb │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┼─────┤",
+        "spans": [
+          [
+            "├─────┼─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 111 │ 222 │",
+        "spans": [
+          [
+            "│ 111 │ 222 │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┴─────┘",
+        "spans": [
+          [
+            "└─────┴─────┘",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_in_quote",
+    "src": "> | a | b |\n> | - | - |\n> | 1 | 2 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "▎ | a   | b   |",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "| a   | b   |",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "▎ |-----|-----|",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "|-----|-----|",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "▎ | 1   | 2   |",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "| 1   | 2   |",
+            "i"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "table_in_list",
+    "src": "- item\n\n  | a | b |\n  | - | - |\n  | 1 | 2 |\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "item",
+        "spans": [
+          [
+            "item",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "| a   | b   |",
+        "spans": [
+          [
+            "| a   | b   |",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "|-----|-----|",
+        "spans": [
+          [
+            "|-----|-----|",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "| 1   | 2   |",
+        "spans": [
+          [
+            "| 1   | 2   |",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "crlf",
+    "src": "# h\r\n\r\ntext\r\n- a\r\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "h",
+        "spans": [
+          [
+            "h",
+            "biu"
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "text",
+        "spans": [
+          [
+            "text",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "- a",
+        "spans": [
+          [
+            "- a",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "leading_spaces_para",
+    "src": "   indented text\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "indented text",
+        "spans": [
+          [
+            "indented text",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "trailing_spaces",
+    "src": "text   \n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "text",
+        "spans": [
+          [
+            "text",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "many_blank_lines",
+    "src": "a\n\n\n\n\nb\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a",
+        "spans": [
+          [
+            "a",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "b",
+        "spans": [
+          [
+            "b",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "tabs",
+    "src": "a\tb\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "a\tb",
+        "spans": [
+          [
+            "a\tb",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "cjk_mixed",
+    "src": "中文中文 abc 中文\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "中文中文 abc 中文",
+        "spans": [
+          [
+            "中文中文 abc 中文",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "emoji",
+    "src": "😀 😀😀 ok\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "😀 😀😀 ok",
+        "spans": [
+          [
+            "😀 😀😀 ok",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "long_para_wrap",
+    "src": "这是一段很长的正文内容，需要在窄终端下折行，验证折行结果与 CC 完全一致的行为表现是否正确。\n",
+    "width": 30,
+    "lines": [
+      {
+        "plain": "这是一段很长的正文内容，需要在",
+        "spans": [
+          [
+            "这是一段很长的正文内容，需要在",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "窄终端下折行，验证折行结果与 ",
+        "spans": [
+          [
+            "窄终端下折行，验证折行结果与 ",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "CC ",
+        "spans": [
+          [
+            "CC ",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "完全一致的行为表现是否正确。",
+        "spans": [
+          [
+            "完全一致的行为表现是否正确。",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "nested_mixed",
+    "src": "## H\n\n> quote\n>\n> - a\n>   - b\n\n```js\nx\n```\n\n| a |\n| - |\n| 1 |\n\nlast\n",
+    "width": 60,
+    "lines": [
+      {
+        "plain": "H",
+        "spans": [
+          [
+            "H",
+            "b"
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "▎ quote",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "quote",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "▎ - a",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "- a",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "▎   - b",
+        "spans": [
+          [
+            "▎",
+            "d"
+          ],
+          [
+            " ",
+            "."
+          ],
+          [
+            "  - b",
+            "i"
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "x",
+        "spans": [
+          [
+            "x",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "┌─────┐",
+        "spans": [
+          [
+            "┌─────┐",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│  a  │",
+        "spans": [
+          [
+            "│  a  │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "├─────┤",
+        "spans": [
+          [
+            "├─────┤",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "│ 1   │",
+        "spans": [
+          [
+            "│ 1   │",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "└─────┘",
+        "spans": [
+          [
+            "└─────┘",
+            "."
+          ]
+        ]
+      },
+      {
+        "plain": "",
+        "spans": []
+      },
+      {
+        "plain": "last",
+        "spans": [
+          [
+            "last",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "empty",
+    "src": "",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "",
+        "spans": []
+      }
+    ]
+  },
+  {
+    "name": "only_spaces",
+    "src": "   \n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "",
+        "spans": []
+      }
+    ]
+  },
+  {
+    "name": "only_newlines",
+    "src": "\n\n\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "",
+        "spans": []
+      }
+    ]
+  },
+  {
+    "name": "smart_quotes",
+    "src": "\"quote\" 'apos' -- ... (c)\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "\"quote\" 'apos' -- ... (c)",
+        "spans": [
+          [
+            "\"quote\" 'apos' -- ... (c)",
+            "."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare_hash",
+    "src": "# not heading\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "not heading",
+        "spans": [
+          [
+            "not heading",
+            "biu"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "list_item_no_space",
+    "src": "-a\n",
+    "width": 80,
+    "lines": [
+      {
+        "plain": "-a",
+        "spans": [
+          [
+            "-a",
+            "."
+          ]
+        ]
+      }
+    ]
+  }
+]

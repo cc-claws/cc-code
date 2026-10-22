@@ -25,6 +25,9 @@ impl Theme for DarkTheme {
     fn thinking(&self) -> Color {
         Color::Rgb(162, 169, 228)
     } // THINKING #A2A9E4（与 TUI theme::THINKING 一致）
+    fn permission(&self) -> Color {
+        Color::Rgb(177, 185, 249)
+    } // PERMISSION #B1B9F9（对齐 CC dark `permission`）
     fn text(&self) -> Color {
         Color::Rgb(255, 255, 255)
     } // TEXT #FFFFFF
@@ -68,6 +71,8 @@ pub struct CustomTheme {
     pub warning: Color,
     pub error: Color,
     pub thinking: Color,
+    /// CC 主题的 `permission` 色（Markdown 行内代码用）
+    pub permission: Color,
     pub text: Color,
     pub muted: Color,
     pub dim: Color,
@@ -105,6 +110,9 @@ impl Theme for CustomTheme {
     }
     fn thinking(&self) -> Color {
         self.thinking
+    }
+    fn permission(&self) -> Color {
+        self.permission
     }
     fn text(&self) -> Color {
         self.text
