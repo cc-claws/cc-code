@@ -28,7 +28,7 @@ async fn test_compact_idle_height_is_stable_and_input_follows_card() {
         app.global_ui.viewport.terminal_size = Size::new(width, height);
         app.global_ui.viewport.startup_welcome = true;
         let area = Rect::new(0, 0, width, height);
-        let required = required_rows(&mut app, area).total;
+        let required = required_rows(&mut app, area);
         assert!(
             (10..=12).contains(&required),
             "常规首帧只占必要行数，实际 {required}"
@@ -49,7 +49,7 @@ async fn test_compact_idle_height_is_stable_and_input_follows_card() {
                 .draw(|frame| main_ui::render(frame, &mut app))
                 .expect("绘制紧凑布局");
             assert_eq!(
-                required_rows(&mut app, area).total,
+                required_rows(&mut app, area),
                 required,
                 "已分配空白不能反向计入内容"
             );
@@ -71,19 +71,19 @@ async fn test_draft_grows_without_shrinking_and_preserves_cursor() {
     let (mut app, _) = App::new_headless(80, 40).await;
     app.global_ui.viewport = ViewportState::growing(2);
     let terminal = Rect::new(0, 0, 80, 40);
-    let first = required_rows(&mut app, terminal).total;
+    let first = required_rows(&mut app, terminal);
     app.global_ui.viewport.prepare(first, Size::new(80, 40));
     app.session_mgr
         .current_mut()
         .ui
         .textarea
         .insert_str("第一行\n第二行\nthird");
-    let grown = required_rows(&mut app, terminal).total;
+    let grown = required_rows(&mut app, terminal);
     assert_eq!(grown, first + 2);
     app.global_ui.viewport.prepare(grown, Size::new(80, 40));
     let cursor = app.session_mgr.current().ui.textarea.cursor();
     app.session_mgr.current_mut().ui.textarea.delete_char();
-    let shorter = required_rows(&mut app, terminal).total;
+    let shorter = required_rows(&mut app, terminal);
     let plan = app.global_ui.viewport.prepare(shorter, Size::new(80, 40));
     assert_eq!(plan.area.height, grown, "删除输入不能缩回已占用行数");
     assert_eq!(
@@ -98,7 +98,7 @@ async fn test_first_message_keeps_welcome_and_real_message_coordinates() {
     app.global_ui.viewport = ViewportState::growing(4);
     app.global_ui.viewport.startup_welcome = true;
     make_messages(&mut app, "first message").await;
-    let required = required_rows(&mut app, Rect::new(0, 0, 80, 40)).total;
+    let required = required_rows(&mut app, Rect::new(0, 0, 80, 40));
     let plan = app.global_ui.viewport.prepare(required, Size::new(80, 40));
     let mut terminal = Terminal::with_options(
         TestBackend::new(80, 40),
@@ -154,13 +154,13 @@ async fn test_width_reflow_precedes_height_decision_and_fullscreen_keeps_welcome
     app.global_ui.viewport = ViewportState::growing(0);
     app.global_ui.viewport.startup_welcome = true;
     make_messages(&mut app, &"中文界面长内容 mixed words ".repeat(12)).await;
-    let wide = required_rows(&mut app, Rect::new(0, 0, 80, 40)).total;
+    let wide = required_rows(&mut app, Rect::new(0, 0, 80, 40));
     prepare_width(&mut app, 40).await;
     assert_eq!(
         app.session_mgr.current().messages.render_cache.read().width,
         40
     );
-    let narrow = required_rows(&mut app, Rect::new(0, 0, 40, 40)).total;
+    let narrow = required_rows(&mut app, Rect::new(0, 0, 40, 40));
     assert!(narrow > wide, "中文换行后的视觉行数应参与高度判定");
     app.global_ui
         .viewport
@@ -180,7 +180,7 @@ async fn test_hint_popup_stays_inside_nonzero_viewport() {
     let (mut app, _) = App::new_headless(80, 40).await;
     app.global_ui.viewport = ViewportState::growing(6);
     app.session_mgr.current_mut().ui.textarea.insert_str("/");
-    let required = required_rows(&mut app, Rect::new(0, 0, 80, 40)).total;
+    let required = required_rows(&mut app, Rect::new(0, 0, 80, 40));
     let plan = app.global_ui.viewport.prepare(required, Size::new(80, 40));
     let mut terminal = Terminal::with_options(
         TestBackend::new(80, 40),
@@ -192,7 +192,6 @@ async fn test_hint_popup_stays_inside_nonzero_viewport() {
     terminal
         .draw(|frame| main_ui::render(frame, &mut app))
         .expect("非零起点的候选浮层不越界");
-    assert!(plan.area.height >= 17, "命令候选按实际高度预留空间");
     for row in 0..plan.area.y {
         assert!(
             (0..80).all(|col| terminal.backend().buffer()[(col, row)].symbol() == " "),
@@ -203,58 +202,85 @@ async fn test_hint_popup_stays_inside_nonzero_viewport() {
 
 #[tokio::test]
 async fn test_hint_popup_expand_then_dismiss_leaves_no_blank_gap() {
-    // spec/issues/2026-10-21：输入 `/` 触发命令提示浮层后删除，视口不能残留空白。
-    let (mut app, _) = App::new_headless(80, 40).await;
-    app.global_ui.viewport = ViewportState::growing(6);
-    let terminal = Rect::new(0, 0, 80, 40);
+    // 覆盖不同终端高度，尤其测试高度 <= 27 的标准终端（如 24 行），确保不被假性全屏击穿
+    for height in [24, 40] {
+        let (mut app, _) = App::new_headless(80, height).await;
+        app.global_ui.viewport = ViewportState::growing(0);
+        let terminal_rect = Rect::new(0, 0, 80, height);
 
-    // 基线：无 `/` 时的 required_rows
-    let baseline = required_rows(&mut app, terminal).total;
-    let baseline_persistent = required_rows(&mut app, terminal).persistent;
-    assert_eq!(
-        baseline, baseline_persistent,
-        "无浮层时 total 与 persistent 一致"
-    );
+        // 1. 基线：无 `/` 时的 required_rows
+        let baseline = required_rows(&mut app, terminal_rect);
+        let plan_base = app
+            .global_ui
+            .viewport
+            .prepare(baseline, Size::new(80, height));
+        let mut term = Terminal::with_options(
+            TestBackend::new(80, height),
+            TerminalOptions {
+                viewport: Viewport::Fixed(plan_base.area),
+            },
+        )
+        .expect("固定视口");
+        term.draw(|frame| main_ui::render(frame, &mut app))
+            .expect("基线绘制");
+        let initial_input_area = app
+            .session_mgr
+            .current()
+            .ui
+            .textarea_area
+            .expect("输入框已分配");
+        assert!(!app.global_ui.viewport.fullscreen_latched);
 
-    // 输入 `/` → 命令提示浮层撑大 required_rows
-    app.session_mgr.current_mut().ui.textarea.insert_str("/");
-    let with_hint = required_rows(&mut app, terminal);
-    assert!(
-        with_hint.total > baseline,
-        "命令提示浮层应撑大当帧高度"
-    );
-    assert_eq!(
-        with_hint.persistent, baseline,
-        "浮层高度不影响持久高度"
-    );
-    let plan = app
-        .global_ui
-        .viewport
-        .prepare_persistent(with_hint.total, with_hint.persistent, Size::new(80, 40));
-    let expanded_height = plan.area.height;
-    assert!(
-        expanded_height >= with_hint.total,
-        "当帧视口足够容纳浮层"
-    );
+        // 2. 输入 `/` → 浮层出现：required_rows 不膨胀，不锁死全屏
+        app.session_mgr.current_mut().ui.textarea.insert_str("/");
+        let with_hint = required_rows(&mut app, terminal_rect);
+        assert_eq!(
+            with_hint, baseline,
+            "命令提示浮层作为 Overlay 不撑大持久视口行数"
+        );
+        let plan_hint = app
+            .global_ui
+            .viewport
+            .prepare(with_hint, Size::new(80, height));
+        assert_eq!(plan_hint.area.height, baseline, "视口高度保持基线高度不变");
+        assert!(
+            !app.global_ui.viewport.fullscreen_latched,
+            "输入 / 绝不触发全屏锁死"
+        );
+        term.resize(plan_hint.area).expect("调整视口");
+        term.draw(|frame| main_ui::render(frame, &mut app))
+            .expect("浮层绘制");
 
-    // 删除 `/` → 浮层消失，persistent 回到基线
-    app.session_mgr.current_mut().ui.textarea.delete_char();
-    let dismissed = required_rows(&mut app, terminal);
-    assert_eq!(dismissed.total, baseline, "删除后回到基线高度");
-    assert_eq!(dismissed.persistent, baseline);
-    let plan = app
-        .global_ui
-        .viewport
-        .prepare_persistent(dismissed.total, dismissed.persistent, Size::new(80, 40));
-    assert_eq!(
-        plan.area.height, baseline,
-        "浮层消失后当帧视口回到持久高度，不残留浮层贡献的空白"
-    );
-    // 关键断言：allocated_rows 应只记 persistent 高度，不含浮层贡献
-    assert_eq!(
-        app.global_ui.viewport.allocated_rows, baseline,
-        "浮层消失后 allocated_rows 不应残留浮层高度"
-    );
+        // 3. 删除 `/` → 浮层消失：高度依然与基线严格一致，输入框位置完全不移动
+        app.session_mgr.current_mut().ui.textarea.delete_char();
+        let dismissed = required_rows(&mut app, terminal_rect);
+        assert_eq!(dismissed, baseline, "删除后保持基线高度");
+        let plan_dismiss = app
+            .global_ui
+            .viewport
+            .prepare(dismissed, Size::new(80, height));
+        assert_eq!(
+            plan_dismiss.area.height, baseline,
+            "视口高度完全不变，绝对不产生任何空白"
+        );
+        assert_eq!(
+            app.global_ui.viewport.allocated_rows, baseline,
+            "allocated_rows 不膨胀"
+        );
+        term.resize(plan_dismiss.area).expect("调整视口");
+        term.draw(|frame| main_ui::render(frame, &mut app))
+            .expect("恢复绘制");
+        let final_input_area = app
+            .session_mgr
+            .current()
+            .ui
+            .textarea_area
+            .expect("输入框已分配");
+        assert_eq!(
+            final_input_area.y, initial_input_area.y,
+            "输入框 Y 坐标完全不移动，欢迎卡与输入框之间绝无空白行"
+        );
+    }
 }
 
 #[tokio::test]
@@ -288,7 +314,7 @@ async fn test_empty_viewport_measures_and_renders_activity() {
     for subagent in [false, true] {
         let (mut app, _) = App::new_headless(80, 40).await;
         app.global_ui.viewport = ViewportState::growing(3);
-        let idle = required_rows(&mut app, Rect::new(0, 0, 80, 40)).total;
+        let idle = required_rows(&mut app, Rect::new(0, 0, 80, 40));
         if subagent {
             app.handle_subagent_lifecycle(&serde_json::json!({
                 "event": "started", "instanceId": "child", "agentType": "general-purpose",
@@ -298,7 +324,7 @@ async fn test_empty_viewport_measures_and_renders_activity() {
         } else {
             app.session_mgr.current_mut().latest_recap = Some("empty activity recap".into());
         }
-        let required = required_rows(&mut app, Rect::new(0, 0, 80, 40)).total;
+        let required = required_rows(&mut app, Rect::new(0, 0, 80, 40));
         assert!(required > idle, "无正文时仍需为活动附属内容预留行数");
         let tail = message_area::visible_tail(&app);
         let marker = if subagent {
@@ -344,7 +370,7 @@ async fn test_tiny_terminal_renders_without_coordinates_outside_frame() {
         let (mut app, _) = App::new_headless(width, height).await;
         app.global_ui.viewport = ViewportState::growing(0);
         app.global_ui.viewport.terminal_size = Size::new(width, height);
-        let required = required_rows(&mut app, Rect::new(0, 0, width, height)).total;
+        let required = required_rows(&mut app, Rect::new(0, 0, width, height));
         let plan = app
             .global_ui
             .viewport
@@ -378,7 +404,7 @@ async fn test_panel_uses_host_height_and_closing_keeps_allocated_rows() {
     let (mut app, _) = App::new_headless(80, 40).await;
     app.global_ui.viewport = ViewportState::growing(2);
     let host = Rect::new(0, 0, 80, 40);
-    let initial = required_rows(&mut app, host).total;
+    let initial = required_rows(&mut app, host);
     app.global_ui.viewport.prepare(initial, Size::new(80, 40));
     app.open_memory_panel();
     let panel_rows = BottomHeights::measure(&app, host).panel;
@@ -386,14 +412,14 @@ async fn test_panel_uses_host_height_and_closing_keeps_allocated_rows() {
         panel_rows > initial * 3 / 5,
         "面板不能被当前紧凑区域递归压缩"
     );
-    let required = required_rows(&mut app, host).total;
+    let required = required_rows(&mut app, host);
     let expanded = app
         .global_ui
         .viewport
         .prepare(required, Size::new(80, 40))
         .area;
     app.close_memory_panel();
-    let required = required_rows(&mut app, host).total;
+    let required = required_rows(&mut app, host);
     let closed = app
         .global_ui
         .viewport
@@ -408,7 +434,7 @@ async fn test_fullscreen_transition_preserves_welcome_and_message_history() {
     app.global_ui.viewport = ViewportState::growing(38);
     app.global_ui.viewport.startup_welcome = true;
     make_messages(&mut app, "first message\nsecond message").await;
-    let required = required_rows(&mut app, Rect::new(0, 0, 80, 40)).total;
+    let required = required_rows(&mut app, Rect::new(0, 0, 80, 40));
     let initial = app.global_ui.viewport.prepare(required, Size::new(80, 40));
     assert!(!initial.enter_fullscreen, "靠近屏底不能提前切全屏");
     let plan = app

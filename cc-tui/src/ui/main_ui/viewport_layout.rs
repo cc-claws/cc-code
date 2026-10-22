@@ -1,6 +1,6 @@
 //! 增长与全屏布局共用的内容测量，所有高度上限以宿主终端为准。
 
-use super::{active_panel_height, bg_agent_bar, message_area, popups, queued_messages, status_bar};
+use super::{active_panel_height, bg_agent_bar, message_area, queued_messages, status_bar};
 use crate::{app::App, ui::welcome};
 use ratatui::layout::Rect;
 
@@ -71,51 +71,18 @@ pub(super) fn welcome_rows(app: &App, width: u16) -> usize {
     }
 }
 
-/// `required_rows` 的拆分结果：`total` 参与当帧视口分配，`persistent` 不含
-/// 临时浮层贡献，用于 `allocated_rows` 的单调递增记忆——避免 `/` 命令提示
-/// 或 `@` 候选弹窗消失后视口底部残留空白（见 spec/issues/2026-10-21）。
-pub struct RequiredRows {
-    pub total: u16,
-    pub persistent: u16,
-}
-
-pub fn required_rows(app: &mut App, terminal: Rect) -> RequiredRows {
+/// 下一帧所有可见持久区域实际需要的总行数。
+/// 临时浮层（`/` 命令提示、`@` 候选等）作为 Overlay 在输入框上方已有可用空间内自适应渲染，
+/// 不计入 `required_rows`，避免浮层出现和消失导致视口抖动、留白或意外触发全屏。
+pub fn required_rows(app: &mut App, terminal: Rect) -> u16 {
     if app.global_ui.setup_wizard.is_some() || app.global_ui.agent_center.is_some() {
-        return RequiredRows {
-            total: terminal.height,
-            persistent: terminal.height,
-        };
+        return terminal.height;
     }
     let bottom = BottomHeights::measure(app, terminal);
-    let content = content_rows(app, terminal.width);
-    // 候选浮层只能覆盖应用区域，不能借用起点上方的 shell 历史。
-    let popup = if app.session_mgr.current().ui.at_mention.active {
-        (app.session_mgr
-            .current()
-            .ui
-            .at_mention
-            .candidates
-            .len()
-            .clamp(1, 10)
-            + 2) as u16
-    } else {
-        popups::hints::desired_height(app)
-    };
-    let above_input = bottom
-        .attachment
-        .saturating_add(bottom.panel)
-        .saturating_add(bottom.queued);
-    let popup_extra = popup.saturating_sub(above_input) as usize;
-    let total_content = content.max(popup_extra).max(1);
-    let persistent_content = content.max(1);
-    RequiredRows {
-        total: bottom
-            .total()
-            .saturating_add(total_content.min(u16::MAX as usize) as u16),
-        persistent: bottom
-            .total()
-            .saturating_add(persistent_content.min(u16::MAX as usize) as u16),
-    }
+    let content = content_rows(app, terminal.width).max(1);
+    bottom
+        .total()
+        .saturating_add(content.min(u16::MAX as usize) as u16)
 }
 
 #[cfg(test)]
