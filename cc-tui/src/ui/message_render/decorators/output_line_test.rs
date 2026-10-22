@@ -197,10 +197,3 @@ fn test_decorate_passes_through_plain_text() {
     assert_eq!(out.above_the_fold, "hello\nworld");
     assert_eq!(out.remaining_lines, 0);
 }
-
-/// 无 URL 时不值得走着色路径。
-#[test]
-fn test_contains_url() {
-    assert!(contains_url("see https://example.com/x for details"));
-    assert!(!contains_url("no links here, see example.com"));
-}

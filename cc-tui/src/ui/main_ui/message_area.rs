@@ -359,13 +359,12 @@ pub(crate) fn render_messages(
         .wrap(Wrap { trim: false });
     f.render_widget(paragraph, body_area);
 
-    // ── OSC 8 超链接注入 ─────────────────────────────────────────────────
-    // 在 Paragraph 落到 Frame buffer **之后**注入：转义序列只进 Cell symbol，
-    // 不参与任何布局或折行计算（与 codex 的 terminal_hyperlinks 同策略）。
-    // 只在终端确实能吃 VT 序列时开启；否则留着纯文本 URL，避免把裸转义
-    // 序列画到屏幕上。
-    if crate::conpty::hover_available() && !link_rows.is_empty() {
-        let buffer = f.buffer_mut();
+    // ── OSC 8 超链接登记 ─────────────────────────────────────────────────
+    // 这里只登记「哪个屏幕坐标是链接」，转义序列由输出层
+    // （`terminal_backend::hyperlink`）在写字节时包裹。**绝不能改 buffer**：
+    // ratatui 的 `Buffer::diff` 按 `symbol.width()` 决定跳过后续多少个 cell，
+    // 序列载荷（URL）是可见字符，塞进 symbol 会让链接后面的整段文字不落笔。
+    if !link_rows.is_empty() {
         for (row_in_view, row_links) in link_rows {
             let y = body_area.y.saturating_add(row_in_view);
             if y >= body_area.bottom() {
@@ -373,7 +372,10 @@ pub(crate) fn render_messages(
             }
             let x0 = body_area.x;
             let x1 = body_area.right();
-            crate::ui::osc8::decorate_cells((x0..x1).map(|x| (x - x0, (x, y))), &row_links, buffer);
+            let cells = (x0..x1).map(|x| (x - x0, (x, y)));
+            for ((x, y), url) in crate::ui::osc8::link_cells(cells, &row_links, body_area) {
+                crate::terminal_backend::hyperlink::register(x, y, &url);
+            }
         }
     }
 

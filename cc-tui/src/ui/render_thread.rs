@@ -342,11 +342,37 @@ impl RenderTask {
         // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
         // diff_visible 只控制普通页面是否内联显示 Write/Edit 的 diff（详细模式下恒显示）
         // 两者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
-        let (mut lines, links) =
+        let (mut lines, mut links) =
             render_view_model_with_flags(vm, Some(index), width, detail_mode, diff_visible, tick);
+        // 裸 URL 只对工具结果与 `!` 命令输出登记命中区：Markdown 正文/代码块里的
+        // `http(s)://` 一律不扫描（与 CC 的 `OutputLine` 口径一致），用户输入更不参与。
+        if matches!(
+            vm,
+            MessageViewModel::ToolBlock { .. } | MessageViewModel::ShellCommand { .. }
+        ) {
+            links.extend(Self::bare_url_links(&lines));
+        }
         // 每条消息后追加空行分隔符（包括空内容消息，确保间距一致）
         lines.push(Line::from(""));
         (lines, links)
+    }
+
+    /// 从已渲染行里补出裸 URL 命中区（`line` 是 `lines` 内下标）。
+    ///
+    /// 工具结果与 `!` 输出没有 Markdown 层，终端与鼠标点击都无从得知哪段是链接，
+    /// 只能按行扫描补上。扫描发生在消息渲染期（结果随 `message_links` 缓存），
+    /// 不在每帧的视口裁剪里重复做。
+    fn bare_url_links(lines: &[Line<'static>]) -> Vec<LinkHit> {
+        let mut links = Vec::new();
+        for (idx, line) in lines.iter().enumerate() {
+            let plain: String = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect();
+            links.extend(super::osc8::bare_url_hits(&plain, idx));
+        }
+        links
     }
 
     /// 计算单个 MessageViewModel 的语义 hash（legacy，应使用 vm.content_hash()）

@@ -8,6 +8,7 @@
 mod compatible;
 #[cfg(not(windows))]
 mod cursor_probe;
+pub mod hyperlink;
 pub mod viewport;
 #[cfg(windows)]
 mod windows;
