@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::ui::message_view::MessageViewModel;
+use crate::ui::message_view::{MessageViewModel, ToolPhase};
 
 use super::MessagePipeline;
 
@@ -100,13 +100,13 @@ impl MessagePipeline {
                     tool_call_id,
                     content,
                     is_error,
+                    phase,
                     started_at,
-                    timeout_ms,
                     shell_backgrounded,
                     ..
                 } if tool_name == "Bash"
                     && !*is_error
-                    && (content.is_empty()
+                    && (*phase != ToolPhase::Finished
                         || crate::ui::message_view::BackgroundTaskStarted::parse(content)
                             .is_some()) =>
                 {
@@ -114,11 +114,13 @@ impl MessagePipeline {
                         .shell_runtimes
                         .get(&(source_agent_id.map(str::to_owned), tool_call_id.clone()))
                     {
-                        let changed = *started_at != Some(runtime.started_at)
-                            || *timeout_ms != Some(runtime.timeout_ms)
-                            || *shell_backgrounded != runtime.backgrounded;
-                        *started_at = Some(runtime.started_at);
-                        *timeout_ms = Some(runtime.timeout_ms);
+                        // ToolStart 已有起点；spawn 注册仅给旧路径和后台恢复补元数据。
+                        let changed =
+                            started_at.is_none() || *shell_backgrounded != runtime.backgrounded;
+                        if started_at.is_none() {
+                            *started_at = Some(runtime.started_at);
+                        }
+                        // timeout 只来自模型显式入参，不能把执行器默认期限显示出来。
                         *shell_backgrounded = runtime.backgrounded;
                         changed
                     } else {

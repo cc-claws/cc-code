@@ -187,17 +187,18 @@ impl BackgroundAgentSession {
             if let MessageViewModel::ToolBlock {
                 tool_call_id,
                 started_at,
-                timeout_ms,
+                source_agent_id,
+                phase,
                 ..
             } = vm
             {
-                if let Some(start) = self.running_tool_times.get(tool_call_id) {
-                    *started_at = Some(*start);
-                    *timeout_ms = self
-                        .timeout_secs
-                        .map(|seconds| seconds.saturating_mul(1000));
-                    vm.recompute_hash();
+                *source_agent_id = Some(self.instance_id.clone());
+                if *phase != crate::ui::message_view::ToolPhase::Finished {
+                    if let Some(start) = self.running_tool_times.get(tool_call_id) {
+                        *started_at = Some(*start);
+                    }
                 }
+                vm.recompute_hash();
             }
         }
         // 投递确认前的用户消息也可见；快照回流时移除，避免重复气泡。

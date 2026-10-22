@@ -1,5 +1,5 @@
 //! 高度只用于滚动定位；可见区域始终由真实 renderer 计算。
-use super::super::message_view::{ContentBlockView, MessageViewModel};
+use super::super::message_view::{ContentBlockView, MessageViewModel, ToolPhase};
 
 #[derive(Clone)]
 pub(super) struct LayoutSummary {
@@ -71,6 +71,11 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
             content,
             args_display,
             is_error,
+            phase,
+            source_agent_id,
+            started_at,
+            timeout_ms,
+            shell_backgrounded,
             ..
         } => {
             let args = args_display.as_deref().unwrap_or("");
@@ -80,9 +85,24 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
             } else {
                 rows(content)
             };
+            let status_rows = if tool_name == "Bash" {
+                if *shell_backgrounded {
+                    1 + usize::from(timeout_ms.is_some())
+                } else if *phase == ToolPhase::Running
+                    && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
+                {
+                    1 + usize::from(source_agent_id.is_none())
+                } else if *phase == ToolPhase::Finished {
+                    usize::from(content.is_empty()) + usize::from(timeout_ms.is_some())
+                } else {
+                    0
+                }
+            } else {
+                usize::from(*phase == ToolPhase::Finished && content.is_empty())
+            };
             (
-                header + output,
-                header.min(3) + output.min(3),
+                header + output + status_rows,
+                header.min(3) + output.min(3) + status_rows,
                 content.len() + args.len(),
                 true,
             )
@@ -165,11 +185,11 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
 pub(in crate::ui) fn is_live(vm: &MessageViewModel) -> bool {
     match vm {
         MessageViewModel::ToolBlock {
-            content,
+            phase,
             is_error,
             tool_name,
             ..
-        } => content.is_empty() && !*is_error && tool_name != "AskUserQuestion",
+        } => *phase != ToolPhase::Finished && !*is_error && tool_name != "AskUserQuestion",
         MessageViewModel::ShellCommand { exit_code, .. } => exit_code.is_none(),
         MessageViewModel::SubAgentGroup { is_running, .. } => *is_running,
         _ => false,

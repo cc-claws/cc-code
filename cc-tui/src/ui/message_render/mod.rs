@@ -7,7 +7,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub mod decorators;
 use decorators::{
     ask_user::parse_ask_user_qa_items,
-    bash::{parse_exit_code, transform_bash_output_lines},
+    bash::{parse_exit_code, strip_exit_code_suffix, transform_bash_output_lines},
     glob::glob_summary,
     read::{format_display_path_for_memory, read_summary},
     ToolDisplayLine,
@@ -71,9 +71,9 @@ pub(crate) fn shell_running_text(
 ) -> String {
     let elapsed = humanize_secs(started_at.elapsed().as_secs());
     let timeout = shell_timeout_text(timeout_ms)
-        .map(|text| format!("    {text}"))
+        .map(|text| format!(" · {}", text.trim_start_matches('(').trim_end_matches(')')))
         .unwrap_or_default();
-    format!("Running… ({elapsed}){timeout}")
+    format!("Running… ({elapsed}{timeout})")
 }
 
 /// Bash 运行状态行（`"  ⎿  Running… (Xs)"`）中状态文本的固定前缀。
@@ -1552,6 +1552,8 @@ pub fn render_view_model_with_flags(
             started_at,
             timeout_ms,
             shell_backgrounded,
+            phase,
+            source_agent_id,
             ..
         } => {
             // AskUserQuestion 专用渲染路径
@@ -1559,7 +1561,7 @@ pub fn render_view_model_with_flags(
                 return (render_ask_user_block(content, *is_error, width), link_hits);
             }
 
-            let is_running = content.is_empty() && !*is_error;
+            let is_running = *phase != crate::ui::message_view::ToolPhase::Finished && !*is_error;
             let background_task = if tool_name == "Bash" && !*is_error {
                 BackgroundTaskStarted::parse(content)
             } else {
@@ -1714,7 +1716,12 @@ pub fn render_view_model_with_flags(
                 // 不改 content，因此模型仍能使用完整的任务 ID 和输出路径。
                 return (lines, link_hits);
             }
-            let result_lines: Vec<&str> = if content.is_empty() {
+            let empty_output = content.trim().is_empty()
+                || (tool_name == "Bash"
+                    && !*is_error
+                    && !bash_failed
+                    && strip_exit_code_suffix(content).is_empty());
+            let result_lines: Vec<&str> = if empty_output {
                 Vec::new()
             } else {
                 content.split('\n').collect()
@@ -1859,7 +1866,7 @@ pub fn render_view_model_with_flags(
                     ]));
                 }
             } else if tool_name == "Bash"
-                && is_running
+                && *phase == crate::ui::message_view::ToolPhase::Running
                 && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
             {
                 lines.push(Line::from(vec![
@@ -1869,16 +1876,32 @@ pub fn render_view_model_with_flags(
                         Style::default().fg(theme::cur().inactive),
                     ),
                 ]));
+                if source_agent_id.is_none() {
+                    lines.push(Line::from(vec![
+                        Span::raw(BranchPrefix::HANG),
+                        Span::styled(
+                            CONTROL_B_BACKGROUND_HINT,
+                            Style::default().fg(theme::cur().inactive),
+                        ),
+                    ]));
+                }
+            }
+            if !is_running && empty_output && !*is_error {
                 lines.push(Line::from(vec![
+                    BranchPrefix::span(false),
                     Span::styled(
-                        BranchPrefix::HANG,
-                        Style::default().fg(theme::cur().inactive),
-                    ),
-                    Span::styled(
-                        CONTROL_B_BACKGROUND_HINT,
+                        if detail_mode { "(No output)" } else { "Done" },
                         Style::default().fg(theme::cur().inactive),
                     ),
                 ]));
+            }
+            if tool_name == "Bash" && !is_running && !*shell_backgrounded {
+                if let Some(timeout) = shell_timeout_text(*timeout_ms) {
+                    lines.push(Line::from(vec![
+                        BranchPrefix::span(false),
+                        Span::styled(timeout, Style::default().fg(theme::cur().inactive)),
+                    ]));
+                }
             }
             // 普通页面是否内联展示 diff 由 `diff_visible`（配置 `diff_enabled`）决定，
             // 详细模式（Ctrl+O）下恒展示——这是该标志**唯一**的消费点，
@@ -2530,6 +2553,10 @@ pub fn render_view_model_with_flags(
 #[cfg(test)]
 #[path = "../background_task_render_test.rs"]
 mod background_task_tests;
+
+#[cfg(test)]
+#[path = "bash_status_test.rs"]
+mod bash_status_tests;
 
 #[cfg(test)]
 mod tests {

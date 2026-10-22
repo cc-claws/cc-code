@@ -227,8 +227,10 @@ impl MessagePipeline {
                     tool_color(&ct.name)
                 },
                 diff_input,
+                phase: crate::ui::message_view::ToolPhase::Finished,
+                source_agent_id: None,
                 started_at: None,
-                timeout_ms: None,
+                timeout_ms: ct.input.get("timeout").and_then(serde_json::Value::as_u64),
                 shell_backgrounded: false,
                 content_hash: 0,
             };

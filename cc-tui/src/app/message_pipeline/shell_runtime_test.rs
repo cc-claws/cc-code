@@ -1,13 +1,18 @@
 use super::*;
 
 fn make_bash(id: &str) -> MessageViewModel {
-    MessageViewModel::tool_block_with_id(
+    let mut vm = MessageViewModel::tool_block_with_id(
         id.into(),
         "Bash".into(),
         "Bash".into(),
         Some("same command".into()),
         false,
-    )
+    );
+    if let MessageViewModel::ToolBlock { phase, .. } = &mut vm {
+        *phase = ToolPhase::Running;
+    }
+    vm.recompute_hash();
+    vm
 }
 
 #[test]
@@ -31,7 +36,7 @@ fn test_shell_runtime_routes_same_call_id_by_agent_not_command() {
     let mut messages = vec![make_bash("same-id"), make_bash("different-id"), child];
     assert!(pipeline.apply_shell_runtime(&mut messages));
     assert!(
-        matches!(&messages[0], MessageViewModel::ToolBlock { started_at: Some(t), timeout_ms: Some(300_000), shell_backgrounded: false, .. } if *t == parent_start)
+        matches!(&messages[0], MessageViewModel::ToolBlock { started_at: Some(t), timeout_ms: None, shell_backgrounded: false, .. } if *t == parent_start)
     );
     assert!(
         matches!(
@@ -50,7 +55,7 @@ fn test_shell_runtime_routes_same_call_id_by_agent_not_command() {
         panic!("应为子 Agent")
     };
     assert!(
-        matches!(&recent_messages[0], MessageViewModel::ToolBlock { started_at: Some(t), timeout_ms: Some(600_000), shell_backgrounded: false, .. } if *t == child_start)
+        matches!(&recent_messages[0], MessageViewModel::ToolBlock { started_at: Some(t), timeout_ms: None, shell_backgrounded: false, .. } if *t == child_start)
     );
     assert!(
         !pipeline.apply_shell_runtime(&mut messages),
@@ -71,7 +76,7 @@ fn test_shell_runtime_background_handoff_reaches_exact_tool_call() {
         &messages[0],
         MessageViewModel::ToolBlock {
             shell_backgrounded: true,
-            timeout_ms: Some(600_000),
+            timeout_ms: None,
             ..
         }
     ));
@@ -121,8 +126,9 @@ fn test_shell_runtime_does_not_change_finished_tool() {
     let mut pipeline = MessagePipeline::new(".".into());
     pipeline.register_shell_runtime(None, "done", Instant::now(), 5000);
     let mut vm = make_bash("done");
-    if let MessageViewModel::ToolBlock { content, .. } = &mut vm {
+    if let MessageViewModel::ToolBlock { content, phase, .. } = &mut vm {
         *content = "done".into();
+        *phase = ToolPhase::Finished;
     }
     assert!(!pipeline.apply_shell_runtime(&mut [vm]));
 }
@@ -141,7 +147,7 @@ fn test_shell_runtime_restores_live_direct_background_after_thread_reopen() {
         &vm,
         MessageViewModel::ToolBlock {
             started_at: Some(actual_started),
-            timeout_ms: Some(600_000),
+            timeout_ms: None,
             shell_backgrounded: true,
             ..
         } if *actual_started == started_at
@@ -159,7 +165,7 @@ fn test_shell_runtime_restores_live_direct_background_after_thread_reopen() {
         restored,
         MessageViewModel::ToolBlock {
             started_at: Some(actual_started),
-            timeout_ms: Some(600_000),
+            timeout_ms: None,
             shell_backgrounded: true,
             ..
         } if actual_started == started_at

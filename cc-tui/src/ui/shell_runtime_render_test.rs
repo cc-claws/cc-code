@@ -32,11 +32,13 @@ fn make_bash() -> MessageViewModel {
         false,
     );
     if let MessageViewModel::ToolBlock {
+        phase,
         started_at,
         timeout_ms,
         ..
     } = &mut vm
     {
+        *phase = ToolPhase::Running;
         *started_at = Some(Instant::now());
         *timeout_ms = Some(300_000);
     }
@@ -94,7 +96,7 @@ fn test_shell_runtime_ticker_refreshes_nested_and_main_bash_with_deadline() {
             assert!(
                 cache.lines.iter().any(|l| l
                     .to_string()
-                    .contains(&format!("Running… ({seconds}s)    (timeout 5m)"))),
+                    .contains(&format!("Running… ({seconds}s · timeout 5m)"))),
                 "累计耗时和硬期限必须同时保留: {:?}",
                 cache.lines
             );

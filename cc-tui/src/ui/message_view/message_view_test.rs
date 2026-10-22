@@ -3,6 +3,31 @@ use crate::ui::message_view::ContentBlockView;
 use cc_agent::messages::{MessageContent, ToolCallRequest};
 use serde_json::json;
 
+#[test]
+fn test_history_rebuild_sets_finished_phase() {
+    let result = BaseMessage::tool_result("bash", "");
+    let vm = MessageViewModel::from_base_message(
+        &result,
+        &[(
+            "bash".to_string(),
+            "Bash".to_string(),
+            json!({"command":"true", "timeout":300_000}),
+        )],
+    );
+    assert!(
+        matches!(
+            vm,
+            MessageViewModel::ToolBlock {
+                phase: ToolPhase::Finished,
+                timeout_ms: Some(300_000),
+                started_at: None,
+                ..
+            }
+        ),
+        "历史工具应已结束并保留显式 timeout"
+    );
+}
+
 /// 测试：AI 消息只有 tool_calls（无 content）时，应正确渲染工具调用
 #[test]
 fn test_ai_message_with_only_tool_calls_renders_tool_use() {

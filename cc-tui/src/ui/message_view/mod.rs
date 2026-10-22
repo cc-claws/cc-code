@@ -21,7 +21,16 @@ pub(crate) use utils::{instance_hash, parse_bg_hash};
 // [`crate::app::tool_display::build_diff_input`]（Edit 基于完整文件重建全文 diff）。
 // 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。
 
-/// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来
+/// 工具从排队到完成的显式阶段，与输出是否为空相互独立。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolPhase {
+    Queued,
+    AwaitingApproval,
+    Running,
+    Finished,
+}
+
+/// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来。
 #[derive(Debug, Clone)]
 pub enum MessageViewModel {
     /// 用户输入
@@ -61,10 +70,12 @@ pub enum MessageViewModel {
         color: Color,
         /// 内嵌 diff 视图输入（Write/Edit 工具执行成功后填充，由 render_thread 按当前 width 渲染）
         diff_input: Option<cc_widgets::DiffInput>,
-        /// pending Bash 子进程真实启动时间；None 表示尚未收到 shell 注册。
+        phase: ToolPhase,
+        /// 子 Agent 工具没有前台后台化快捷键。
+        source_agent_id: Option<String>,
+        /// ToolStart 的单调时钟起点；排队、审批和历史恢复不计时。
         started_at: Option<std::time::Instant>,
-        /// 模型请求的超时期限（`timeout` 参数，毫秒）；TUI 到期移交后台、inline 宿主到期取消。
-        /// 仅用于运行状态行展示「多久后会移交后台」，不是硬执行上限。
+        /// 仅保留模型显式请求的超时期限（`timeout` 参数，毫秒）。
         timeout_ms: Option<u64>,
         /// Shell 已从前台移交到后台，结果 marker 到达后仍保留运行状态提示。
         shell_backgrounded: bool,
@@ -177,6 +188,8 @@ impl PartialEq for MessageViewModel {
                     started_at: a_started,
                     timeout_ms: a_timeout,
                     shell_backgrounded: a_backgrounded,
+                    phase: a_phase,
+                    source_agent_id: a_source,
                     ..
                 },
                 MessageViewModel::ToolBlock {
@@ -189,6 +202,8 @@ impl PartialEq for MessageViewModel {
                     started_at: b_started,
                     timeout_ms: b_timeout,
                     shell_backgrounded: b_backgrounded,
+                    phase: b_phase,
+                    source_agent_id: b_source,
                     ..
                 },
             ) => {
@@ -201,6 +216,8 @@ impl PartialEq for MessageViewModel {
                     && a_started.is_some() == b_started.is_some()
                     && a_timeout == b_timeout
                     && a_backgrounded == b_backgrounded
+                    && a_phase == b_phase
+                    && a_source == b_source
             }
             (
                 MessageViewModel::ShellCommand {
@@ -346,6 +363,8 @@ impl Hash for MessageViewModel {
                 started_at,
                 timeout_ms,
                 shell_backgrounded,
+                phase,
+                source_agent_id,
                 ..
             } => {
                 2u8.hash(state);
@@ -360,6 +379,8 @@ impl Hash for MessageViewModel {
                 started_at.is_some().hash(state);
                 timeout_ms.hash(state);
                 shell_backgrounded.hash(state);
+                phase.hash(state);
+                source_agent_id.hash(state);
             }
             MessageViewModel::ShellCommand {
                 id,
@@ -808,8 +829,10 @@ impl MessageViewModel {
                     collapsed: true,
                     color,
                     diff_input,
+                    phase: ToolPhase::Finished,
+                    source_agent_id: None,
                     started_at: None,
-                    timeout_ms: None,
+                    timeout_ms: input.get("timeout").and_then(serde_json::Value::as_u64),
                     shell_backgrounded: false,
                     content_hash: 0,
                 };
@@ -979,6 +1002,8 @@ impl MessageViewModel {
             collapsed: true,
             color,
             diff_input: None,
+            phase: ToolPhase::Finished,
+            source_agent_id: None,
             started_at: None,
             timeout_ms: None,
             shell_backgrounded: false,

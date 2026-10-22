@@ -30,7 +30,7 @@ use super::{
     message_render::{
         is_shell_running_status_line, render_view_model_with_flags, shell_running_text,
     },
-    message_view::MessageViewModel,
+    message_view::{MessageViewModel, ToolPhase},
 };
 use cc_widgets::markdown::LinkHit;
 mod worker;
@@ -691,10 +691,10 @@ impl RenderTask {
             match vm {
                 MessageViewModel::ToolBlock {
                     tool_name,
-                    content,
+                    phase,
                     is_error,
                     ..
-                } => tool_name != "AskUserQuestion" && content.is_empty() && !*is_error,
+                } => tool_name != "AskUserQuestion" && *phase != ToolPhase::Finished && !*is_error,
                 _ => RenderTask::visible_subagent_messages(vm)
                     .iter()
                     .any(running),
@@ -707,16 +707,18 @@ impl RenderTask {
     fn is_running_bash_past_threshold(vm: &MessageViewModel) -> bool {
         let MessageViewModel::ToolBlock {
             tool_name,
-            content,
+            phase,
             is_error,
             started_at,
+            shell_backgrounded,
             ..
         } = vm
         else {
             return false;
         };
         tool_name == "Bash"
-            && content.is_empty()
+            && *phase == ToolPhase::Running
+            && !shell_backgrounded
             && !*is_error
             && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
     }
@@ -739,13 +741,15 @@ impl RenderTask {
                     match vm {
                         MessageViewModel::ToolBlock {
                             tool_name,
-                            content,
+                            phase,
                             is_error,
                             started_at: Some(start),
                             timeout_ms,
+                            shell_backgrounded,
                             ..
                         } if tool_name == "Bash"
-                            && content.is_empty()
+                            && *phase == ToolPhase::Running
+                            && !shell_backgrounded
                             && !is_error
                             && start.elapsed() >= Duration::from_secs(2) =>
                         {
@@ -818,7 +822,7 @@ impl RenderTask {
         for (idx, vm) in self.last_messages.iter().enumerate() {
             let MessageViewModel::ToolBlock {
                 tool_name,
-                content,
+                phase,
                 is_error,
                 started_at,
                 timeout_ms,
@@ -827,7 +831,7 @@ impl RenderTask {
             else {
                 continue;
             };
-            if *tool_name == "AskUserQuestion" || !content.is_empty() || *is_error {
+            if *tool_name == "AskUserQuestion" || *phase == ToolPhase::Finished || *is_error {
                 continue;
             }
 
