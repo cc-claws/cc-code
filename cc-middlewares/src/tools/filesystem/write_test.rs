@@ -1,3 +1,38 @@
+    #[test]
+    fn test_write_file_snapshot_preserves_relative_file_content() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        std::fs::write(dir.path().join("before.txt"), "写入前\n").unwrap();
+        let tool = WriteFileTool::new(dir.path().to_string_lossy());
+        let snapshot = tool.file_snapshot(&serde_json::json!({"file_path": "nested/../before.txt"}))
+            .expect("有效路径应提供快照");
+        assert_eq!(snapshot.old_content.as_deref(), Some("写入前\n"), "路径解析后应读取真实旧内容");
+    }
+
+    #[test]
+    fn test_write_file_snapshot_unavailable_content_falls_back() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("large.txt"), vec![b'x'; 500_001]).unwrap();
+        std::fs::write(dir.path().join("binary.txt"), [0xff]).unwrap();
+        let tool = WriteFileTool::new(dir.path().to_string_lossy());
+        for path in ["missing.txt", "large.txt", "binary.txt", "."] {
+            let snapshot = tool.file_snapshot(&serde_json::json!({"file_path": path}))
+                .expect("无法读取旧内容时仍应提供回退标志");
+            assert!(snapshot.old_content.is_none(), "{path} 不应产生无效旧内容");
+        }
+    }
+
+    #[test]
+    fn test_write_file_snapshot_preserves_content_at_size_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = "x".repeat(500_000);
+        std::fs::write(dir.path().join("limit.txt"), &content).unwrap();
+        let tool = WriteFileTool::new(dir.path().to_string_lossy());
+        let snapshot = tool.file_snapshot(&serde_json::json!({"file_path": "limit.txt"}))
+            .expect("大小上限内应提供快照");
+        assert_eq!(snapshot.old_content, Some(content), "不能截断上限内的旧内容");
+    }
+
     #[tokio::test]
     async fn test_write_file_creates_new() {
         let dir = tempfile::tempdir().unwrap();

@@ -93,6 +93,7 @@ fn test_map_executor_event_tool_start_returns_none() {
         tool_call_id: "tc_1".to_string(),
         name: "Bash".to_string(),
         input: serde_json::json!({"command": "ls"}),
+        file_snapshot: None,
         source_agent_id: None,
     };
     let result = map_executor_event(event, "/tmp");

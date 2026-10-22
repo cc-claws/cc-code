@@ -38,6 +38,12 @@ reconcile_tail(round_start_vm_idx)
 
 ## 技术方案总结
 
+### Write 文件预览的执行前快照
+
+Write 的旧内容由工具在审批通过后、发出 `ToolStart` 前同步采集，通过事件的可选 `file_snapshot` 字段传给 ACP，再放入 `tool_call._meta.peri.fileSnapshot`。TUI 按工具调用 ID 缓存该快照，供 live 和 StateSnapshot 重建共同使用；不能在界面消费开始事件时读盘，因为写入可能已经完成。
+
+快照仅用于展示，不进入 `rawInput`、工具 schema 或模型历史。仅为不超过 500,000 字节的普通 UTF-8 文件生成旧内容快照；文件不存在、不可读、超限或旧客户端没有快照时，回退为入参内容预览。覆盖与追加写使用真实旧内容，内容未变化时仍只显示结果行。快照沿用有界进程内缓存，不在历史消息中持久化。
+
 | 维度 | 选型 |
 |------|------|
 | 核心组件 | MessagePipeline 结构体，持有 view_messages 和 render_tx |
@@ -225,4 +231,4 @@ reconcile_tail(round_start_vm_idx)
 - → [tui.md](./tui.md) — TUI 渲染依赖 MessagePipeline 输出的 view_models
 - → [agent.md](./agent.md) — AgentEvent 事件定义在核心层
 
-最后更新：2026-10-14
+最后更新：2026-10-21

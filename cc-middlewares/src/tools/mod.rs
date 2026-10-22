@@ -9,8 +9,12 @@ pub use filesystem::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteF
 pub use output_filter::{filter_command_output, filter_git_status, strip_ansi};
 pub use todo::{TodoItem, TodoStatus, TodoWriteTool};
 
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod tests;
+
 use async_trait::async_trait;
-use cc_agent::tools::{BaseTool, ToolContent};
+use cc_agent::tools::{BaseTool, FileSnapshot, ToolContent};
 use std::sync::Arc;
 
 /// ArcToolWrapper - 将 Arc<dyn BaseTool> 包装为 Box<dyn BaseTool> 可用的形式
@@ -37,6 +41,10 @@ impl BaseTool for BoxToolWrapper {
 
     fn parameters(&self) -> serde_json::Value {
         self.0.parameters()
+    }
+
+    fn file_snapshot(&self, input: &serde_json::Value) -> Option<FileSnapshot> {
+        self.0.file_snapshot(input)
     }
 
     async fn invoke(
@@ -66,6 +74,10 @@ impl BaseTool for ArcToolWrapper {
 
     fn parameters(&self) -> serde_json::Value {
         self.0.parameters()
+    }
+
+    fn file_snapshot(&self, input: &serde_json::Value) -> Option<FileSnapshot> {
+        self.0.file_snapshot(input)
     }
 
     async fn invoke(

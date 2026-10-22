@@ -150,40 +150,17 @@ const FULL_FILE_DIFF_MAX_BYTES: u64 = 500_000;
 /// Write 工具写入前的文件旧内容（按 `tool_call_id` 记录）。
 ///
 /// Write 是整文件覆盖，执行后磁盘上只剩新内容，无法像 Edit 那样反推，
-/// 因此必须在 ToolStart（执行前）抓取。值 `None` 表示文件不存在 / 不可读 /
+/// 因此必须由执行侧在发出 ToolStart 前抓取，经 ACP 元数据传入。值 `None` 表示文件不存在 / 不可读 /
 /// 超过 [`FULL_FILE_DIFF_MAX_BYTES`]，此时按 create 视图渲染。
 static WRITE_OLD_CONTENT: std::sync::LazyLock<CapacityCache<String, Option<String>>> =
     std::sync::LazyLock::new(|| CapacityCache::new(128));
 
-/// ToolStart 时调用：记录 Write 目标文件在执行前的旧内容。
-///
-/// 仅对覆盖写（`append != true`）有意义——追加写的内容来自磁盘，旧内容同样
-/// 可用于构造真 diff，故一并记录。
-pub fn cache_write_old_content(
-    tool_call_id: &str,
-    name: &str,
-    input: &serde_json::Value,
-    cwd: Option<&str>,
-) {
-    if name != "Write" || tool_call_id.is_empty() {
+/// 缓存 ACP 传来的写入前快照。此处不能读盘：消费 ToolStart 时写入可能已完成。
+pub fn cache_write_old_content(tool_call_id: &str, old_content: Option<String>) {
+    if tool_call_id.is_empty() {
         return;
     }
-    let Some(file_path) = input.get("file_path").and_then(|v| v.as_str()) else {
-        return;
-    };
-    if file_path.is_empty() {
-        return;
-    }
-    let path: PathBuf = match cwd {
-        Some(cwd) => Path::new(cwd).join(file_path),
-        None => PathBuf::from(file_path),
-    };
-    // 文件不存在 / 不可读（含非 UTF-8 / 超大）→ None，按 create 视图渲染
-    let old = match std::fs::metadata(&path) {
-        Ok(meta) if meta.len() <= FULL_FILE_DIFF_MAX_BYTES => std::fs::read_to_string(&path).ok(),
-        _ => None,
-    };
-    WRITE_OLD_CONTENT.insert(tool_call_id.to_string(), old);
+    WRITE_OLD_CONTENT.insert(tool_call_id.to_string(), old_content);
 }
 
 /// 取出 Write 执行前的旧内容。外层 `None` = 未记录过（历史回放等），按 create 视图处理。
@@ -197,7 +174,7 @@ fn write_old_content(tool_call_id: &str) -> Option<Option<String>> {
 /// 让 diff 显示真实行号与前后各 3 行上下文（对齐 CC 基于 `structuredPatch` 的展示）。
 /// 文件不可读 / 编辑内容已被后续修改 / 文件过大时回退为 `old_string` vs `new_string` 片段 diff。
 ///
-/// Write：用 [`cache_write_old_content`] 在 ToolStart 抓取的旧内容做真 diff；
+/// Write：用 [`cache_write_old_content`] 保存的执行侧旧内容做真 diff；
 /// 文件原本不存在（或缓存未命中）时按 create 的全绿视图渲染。
 pub fn build_diff_input(
     name: &str,

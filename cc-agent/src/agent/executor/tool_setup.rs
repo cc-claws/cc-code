@@ -28,6 +28,9 @@ pub(crate) fn box_to_arc(tool: Box<dyn BaseTool>) -> Arc<dyn BaseTool> {
         fn parameters(&self) -> serde_json::Value {
             self.0.parameters()
         }
+        fn file_snapshot(&self, input: &serde_json::Value) -> Option<crate::tools::FileSnapshot> {
+            self.0.file_snapshot(input)
+        }
         async fn invoke(
             &self,
             input: serde_json::Value,

@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn test_tool_start_deserializes_legacy_event_without_file_snapshot() {
+    let value = serde_json::json!({"type": "tool_start", "value": {
+        "message_id": crate::messages::MessageId::new(),
+        "tool_call_id": "legacy-write", "name": "Write", "input": {}, "source_agent_id": null
+    }});
+    let event: AgentEvent = serde_json::from_value(value).expect("旧事件应保持兼容");
+    assert!(
+        matches!(
+            &event,
+            AgentEvent::ToolStart {
+                file_snapshot: None,
+                ..
+            }
+        ),
+        "旧事件不应伪造文件快照"
+    );
+    let serialized = serde_json::to_value(event).expect("旧事件应可重新序列化");
+    assert!(
+        serialized["value"].get("file_snapshot").is_none(),
+        "没有快照时不应新增字段"
+    );
+}
+
+#[test]
 fn test_context_warning_serde_roundtrip() {
     let ev = AgentEvent::ContextWarning {
         used_tokens: 150000,

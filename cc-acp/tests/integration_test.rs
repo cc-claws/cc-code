@@ -79,6 +79,7 @@ async fn test_event_mapper_tool_start() {
         tool_call_id: "tc_test".into(),
         name: "Read".into(),
         input: json!({"path": "/tmp/test.txt"}),
+        file_snapshot: None,
         source_agent_id: None,
     };
 

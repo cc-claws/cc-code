@@ -455,7 +455,7 @@ fn test_build_diff_input_write_existing_file_uses_old_content() {
         "file_path": "a.txt",
         "content": "line1\nline2 changed\n"
     });
-    cache_write_old_content("tc-write-update", "Write", &input, Some(cwd));
+    cache_write_old_content("tc-write-update", Some("line1\nline2\n".into()));
     let di =
         build_diff_input("Write", &input, Some(cwd), Some("tc-write-update")).expect("应构造 DiffInput");
     assert!(!di.is_new_file, "覆盖已有文件应按 update 渲染");
@@ -469,7 +469,7 @@ fn test_build_diff_input_write_new_file_stays_create() {
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().to_str().unwrap();
     let input = serde_json::json!({"file_path": "new.txt", "content": "hello\n"});
-    cache_write_old_content("tc-write-create", "Write", &input, Some(cwd));
+    cache_write_old_content("tc-write-create", None);
     let di =
         build_diff_input("Write", &input, Some(cwd), Some("tc-write-create")).expect("应构造 DiffInput");
     assert!(di.is_new_file, "文件原本不存在应按 create 渲染");
@@ -495,7 +495,7 @@ fn test_build_diff_input_write_identical_content_returns_none() {
     std::fs::write(dir.path().join("a.txt"), "same\n").unwrap();
     let cwd = dir.path().to_str().unwrap();
     let input = serde_json::json!({"file_path": "a.txt", "content": "same\n"});
-    cache_write_old_content("tc-write-same", "Write", &input, Some(cwd));
+    cache_write_old_content("tc-write-same", Some("same\n".into()));
     assert!(
         build_diff_input("Write", &input, Some(cwd), Some("tc-write-same")).is_none(),
         "内容未变化时不应渲染空 diff"
@@ -509,7 +509,7 @@ fn test_build_diff_input_write_append_uses_concatenated_content() {
     std::fs::write(dir.path().join("a.txt"), "a\n").unwrap();
     let cwd = dir.path().to_str().unwrap();
     let input = serde_json::json!({"file_path": "a.txt", "content": "b\n", "append": true});
-    cache_write_old_content("tc-write-append", "Write", &input, Some(cwd));
+    cache_write_old_content("tc-write-append", Some("a\n".into()));
     let di = build_diff_input("Write", &input, Some(cwd), Some("tc-write-append"))
         .expect("应构造 DiffInput");
     assert!(!di.is_new_file);

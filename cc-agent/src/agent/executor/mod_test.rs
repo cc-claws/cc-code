@@ -594,6 +594,7 @@ fn test_agent_event_message_id_serialization() {
         tool_call_id: "tc1".to_string(),
         name: "Bash".to_string(),
         input: serde_json::json!({}),
+        file_snapshot: None,
         source_agent_id: None,
     };
     let json = serde_json::to_value(&ev).unwrap();
