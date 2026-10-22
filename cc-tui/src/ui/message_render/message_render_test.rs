@@ -159,7 +159,7 @@ fn test_shell_command_render_header_and_truncation() {
         "命令块标题不应显示 exit code"
     );
     assert!(
-        full_text.contains("(57 more lines) (ctrl+o to expand)"),
+        full_text.contains("… +57 lines (ctrl+o to expand)"),
         "超长输出应显示与工具行一致的折叠提示: {full_text}"
     );
     assert!(full_text.contains("line 02"), "普通模式应展示前 3 行");
@@ -179,7 +179,7 @@ fn test_shell_command_render_header_and_truncation() {
         "详细模式不截断，应显示最后一行"
     );
     assert!(
-        !detail_text.contains("more lines"),
+        !detail_text.contains("(ctrl+o to expand)"),
         "详细模式不截断，不应出现折叠提示: {detail_text}"
     );
 }
@@ -942,7 +942,7 @@ fn test_inline_diff_switch_does_not_expand_other_blocks() {
     let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
 
     assert!(
-        off.contains("... (3 more lines) (ctrl+o to expand)"),
+        off.contains("… +3 lines (ctrl+o to expand)"),
         "折叠档应先给前 3 行并附展开提示: {off}"
     );
     assert_eq!(on, off, "开关只影响 diff，其他块的渲染必须与关闭时一致");
@@ -1049,7 +1049,7 @@ fn test_tool_block_detail_mode_shows_full_long_output() {
         "普通模式应截断第 21 行后的输出"
     );
     assert!(
-        normal_text.contains("... (10 more lines)"),
+        normal_text.contains("… +10 lines (ctrl+o to expand)"),
         "普通模式应显示隐藏行数提示"
     );
     assert!(
@@ -1057,7 +1057,7 @@ fn test_tool_block_detail_mode_shows_full_long_output() {
         "详细模式应显示完整工具输出"
     );
     assert!(
-        !detail_text.contains("more lines"),
+        !detail_text.contains("(ctrl+o to expand)"),
         "详细模式不应显示截断提示"
     );
 }
@@ -1105,7 +1105,7 @@ fn test_bash_non_detail_mode_shows_first_three_lines() {
         "非详细模式应截断第 4 行起，实际: {normal_text}"
     );
     assert!(
-        normal_text.contains("... (7 more lines)"),
+        normal_text.contains("… +7 lines (ctrl+o to expand)"),
         "应显示剩余行数提示，实际: {normal_text}"
     );
     assert!(detail_text.contains("line 09"), "详细模式应显示完整输出");
@@ -2687,8 +2687,10 @@ fn test_error_summary_limited_in_normal_mode() {
         normal.len()
     );
     assert!(
-        normal.iter().any(|l| l.contains("more lines")),
-        "应显示剩余行提示，实际: {normal:?}"
+        normal
+            .iter()
+            .any(|l| l.contains("… +7 lines (ctrl+o to expand)")),
+        "应显示统一的剩余行提示，实际: {normal:?}"
     );
     assert!(
         !normal.iter().any(|l| l.contains("error line 09")),
@@ -2862,12 +2864,12 @@ fn test_bash_single_long_json_line_capped_to_three_visual_lines_in_normal_mode()
         normal_lines.len()
     );
     assert!(
-        normal_text.contains("(ctrl+o to expand)"),
+        normal_text.contains("… (ctrl+o to expand)"),
         "普通模式下截断单行长 JSON 应显示展开提示: {normal_text}"
     );
     assert!(
-        !normal_text.contains("more lines"),
-        "单行长 JSON 无多余逻辑行，不应显示 more lines: {normal_text}"
+        !normal_text.contains("line"),
+        "单行长 JSON 无多余逻辑行，不应显示 line 计数: {normal_text}"
     );
     // Act & Assert: 详细模式 (detail_mode = true) 完整展开
     let detail_lines = render_view_model(&vm, Some(1), 80, true, 0);
@@ -3001,8 +3003,14 @@ fn test_find_url_ranges_matches_cc_pattern() {
         vec![(1, 20)],
         "引号与逗号都不计入链接"
     );
-    assert!(find_url_ranges("https:// and http:// trailing").is_empty(), "空 URL 不算");
-    assert!(find_url_ranges("ftp://a.example/ 与 example.com").is_empty(), "只认 http(s)");
+    assert!(
+        find_url_ranges("https:// and http:// trailing").is_empty(),
+        "空 URL 不算"
+    );
+    assert!(
+        find_url_ranges("ftp://a.example/ 与 example.com").is_empty(),
+        "只认 http(s)"
+    );
     // 区间按**字节**计：CJK 分隔符占 3 字节，第二个 URL 从 24 起
     assert_eq!(
         find_url_ranges("https://a.example/1 和 https://b.example/2"),
@@ -3111,8 +3119,9 @@ fn test_shell_command_output_urls_are_styled() {
         command: "gh pr checks 638".to_string(),
         cwd: ".".to_string(),
         stdin: Vec::new(),
-        stdout: "Build (macos-latest)\tfail\t3m2s\thttps://github.com/cc-claws/cc-code/actions/runs/1"
-            .to_string(),
+        stdout:
+            "Build (macos-latest)\tfail\t3m2s\thttps://github.com/cc-claws/cc-code/actions/runs/1"
+                .to_string(),
         stderr: String::new(),
         exit_code: Some(0),
         collapsed: true,
@@ -3139,4 +3148,86 @@ fn rendered_span_dump(line: &Line<'static>) -> Vec<(String, Option<ratatui::styl
         .iter()
         .map(|span| (span.content.to_string(), span.style.fg))
         .collect()
+}
+
+#[test]
+fn test_expand_hint_formatting_singular_and_plural() {
+    assert_eq!(super::format_expand_hint(0), "… (ctrl+o to expand)");
+    assert_eq!(super::format_expand_hint(1), "… +1 line (ctrl+o to expand)");
+    assert_eq!(
+        super::format_expand_hint(23),
+        "… +23 lines (ctrl+o to expand)"
+    );
+}
+
+#[test]
+fn test_bash_output_collapse_hint_matches_unified_style() {
+    use crate::app::MessageViewModel;
+    // Arrange: Bash 输出 26 行，折叠模式下显示前 3 行，剩余 23 行
+    let content = (0..26)
+        .map(|idx| format!("output row {idx:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "bash_23".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("run_command".to_string()),
+        content,
+        is_error: false,
+        collapsed: false,
+        color: crate::ui::theme::cur().success,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let text = render_view_model(&vm, Some(1), 80, false, 0)
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect::<Vec<_>>()
+        .join("");
+
+    assert!(
+        text.contains("… +23 lines (ctrl+o to expand)"),
+        "Bash 输出截断应统一为 '… +23 lines (ctrl+o to expand)'，实际: {text}"
+    );
+}
+
+#[test]
+fn test_bash_output_collapse_hint_matches_unified_style_single_line() {
+    use crate::app::MessageViewModel;
+    // Arrange: Bash 输出 4 行，折叠模式下显示前 3 行，剩余 1 行
+    let content = (0..4)
+        .map(|idx| format!("output row {idx:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "bash_1".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("run_command".to_string()),
+        content,
+        is_error: false,
+        collapsed: false,
+        color: crate::ui::theme::cur().success,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        started_at: None,
+        content_hash: 0,
+    };
+
+    let text = render_view_model(&vm, Some(1), 80, false, 0)
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect::<Vec<_>>()
+        .join("");
+
+    assert!(
+        text.contains("… +1 line (ctrl+o to expand)"),
+        "Bash 输出截断 1 行应使用单数 '… +1 line (ctrl+o to expand)'，实际: {text}"
+    );
 }

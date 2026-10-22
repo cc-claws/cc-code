@@ -676,11 +676,26 @@ fn push_prefixed_text(
     ));
 }
 
+/// 格式化折叠截断提示语：统一对齐为 `… +N lines (ctrl+o to expand)`。
+///
+/// - `remaining == 0`（仅因单行折行超配额）：`… (ctrl+o to expand)`
+/// - `remaining == 1`：`… +1 line (ctrl+o to expand)`
+/// - `remaining > 1`：`… +N lines (ctrl+o to expand)`
+fn format_expand_hint(remaining: usize) -> String {
+    if remaining == 0 {
+        "… (ctrl+o to expand)".to_string()
+    } else if remaining == 1 {
+        "… +1 line (ctrl+o to expand)".to_string()
+    } else {
+        format!("… +{remaining} lines (ctrl+o to expand)")
+    }
+}
+
 /// 按视觉行预算推入内容行，若超出预算则在最后追加展开提示行。
 ///
 /// 保留前 `max_lines` 个视觉行。若发生截断：
-/// - 若有未展示的后续逻辑行，提示 `... ({remaining} more lines) (ctrl+o to expand)`；
-/// - 若所有逻辑行已进入但因单行折行超出配额被截断，提示 `... (ctrl+o to expand)`。
+/// - 若有未展示的后续逻辑行，提示 `… +{remaining} lines (ctrl+o to expand)`；
+/// - 若所有逻辑行已进入但因单行折行超出配额被截断，提示 `… (ctrl+o to expand)`。
 fn push_visual_capped_output<T, F>(
     out: &mut Vec<Line<'static>>,
     items: &[T],
@@ -696,11 +711,7 @@ fn push_visual_capped_output<T, F>(
         let available = max_lines.saturating_sub(rendered_visual);
         if available == 0 {
             let remaining_logical = total.saturating_sub(i);
-            let hint = if remaining_logical > 0 {
-                format!("... ({remaining_logical} more lines) (ctrl+o to expand)")
-            } else {
-                "... (ctrl+o to expand)".to_string()
-            };
+            let hint = format_expand_hint(remaining_logical);
             out.push(Line::from(vec![
                 Span::styled("    ", Style::default().fg(border_color)),
                 Span::styled(hint, Style::default().fg(theme::cur().subtle)),
@@ -714,7 +725,7 @@ fn push_visual_capped_output<T, F>(
             out.extend(wlines);
             if rendered_visual >= max_lines && i + 1 < total {
                 let remaining_logical = total - (i + 1);
-                let hint = format!("... ({remaining_logical} more lines) (ctrl+o to expand)");
+                let hint = format_expand_hint(remaining_logical);
                 out.push(Line::from(vec![
                     Span::styled("    ", Style::default().fg(border_color)),
                     Span::styled(hint, Style::default().fg(theme::cur().subtle)),
@@ -724,11 +735,7 @@ fn push_visual_capped_output<T, F>(
         } else {
             out.extend(wlines.into_iter().take(available));
             let remaining_logical = total.saturating_sub(i + 1);
-            let hint = if remaining_logical > 0 {
-                format!("... ({remaining_logical} more lines) (ctrl+o to expand)")
-            } else {
-                "... (ctrl+o to expand)".to_string()
-            };
+            let hint = format_expand_hint(remaining_logical);
             out.push(Line::from(vec![
                 Span::styled("    ", Style::default().fg(border_color)),
                 Span::styled(hint, Style::default().fg(theme::cur().subtle)),
@@ -743,7 +750,7 @@ fn push_visual_capped_output<T, F>(
 /// 错误摘要渲染。
 ///
 /// `max_lines` 控制**显示行数上限**（非详细模式传小值避免污染页面；传入 `usize::MAX` 显示完整）。
-/// 超出时追加 `... (N more lines) (ctrl+o to expand)` 提示。字符级截断兜底防止超长单行。
+/// 超出时追加 `… +N lines (ctrl+o to expand)` 提示。字符级截断兜底防止超长单行。
 fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Line<'static>> {
     let truncated: String = content.chars().take(400).collect();
     let content_width = width.saturating_sub(4).max(20);
@@ -752,8 +759,9 @@ fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Lin
     for (i, line) in all.iter().enumerate() {
         if i >= max_lines {
             let hidden = all.len() - max_lines;
+            let hint = format_expand_hint(hidden);
             out.push(Line::from(Span::styled(
-                format!("    ... ({hidden} more lines) (ctrl+o to expand)"),
+                format!("    {hint}"),
                 Style::default().fg(theme::cur().subtle),
             )));
             break;
